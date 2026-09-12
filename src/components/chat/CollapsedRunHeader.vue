@@ -82,7 +82,8 @@ function startPush(from: LiveSnap, to: LiveSnap | null) {
 watch(
   () => [props.liveKey, props.liveLine, props.liveToolName, props.expanded, props.forceLiveSlot] as const,
   () => {
-    if (props.expanded) return
+    // Expanded usually clears the live slot; forceLiveSlot keeps thinking after ask_user.
+    if (props.expanded && props.forceLiveSlot !== true) return
     const key = props.liveKey ?? null
     const next = snapFromProps()
     const force = props.forceLiveSlot === true
@@ -120,7 +121,9 @@ onUnmounted(() => {
 })
 
 const showLiveSlot = computed(() => {
-  if (props.expanded) return false
+  // Expanded process lists already show tool rows; still allow an explicit
+  // live slot (thinking gap after ask_user) when forceLiveSlot is set.
+  if (props.expanded && props.forceLiveSlot !== true) return false
   return pushing.value || !!resting.value.text
 })
 

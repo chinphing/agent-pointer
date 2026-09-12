@@ -858,18 +858,24 @@ export function partitionCollapsedToolCalls(
 /**
  * Same as `partitionCollapsedToolCalls`, plus an empty live group so
  * first-round「思考中」occupies the collapsed-run header before any tool exists.
+ *
+ * Also appends a trailing empty group when the list ends on an ungroupable
+ * single (e.g. completed `ask_user`): otherwise the LLM pause after clarify
+ * has nowhere to attach「思考中」.
  */
 export function collapsedToolListItems(
   tools: ToolCall[],
   opts?: { holdLiveSlot?: boolean; thinkingLine?: string | null }
 ): ToolCallListItem[] {
   const items = partitionCollapsedToolCalls(tools, { holdLiveSlot: opts?.holdLiveSlot })
-  if (
-    items.length === 0
-    && opts?.holdLiveSlot === true
-    && (opts.thinkingLine ?? '').trim()
-  ) {
+  const thinking = (opts?.thinkingLine ?? '').trim()
+  if (!opts?.holdLiveSlot || !thinking) return items
+  if (items.length === 0) {
     return [{ kind: 'group', tools: [] }]
+  }
+  const last = items[items.length - 1]
+  if (last?.kind === 'single') {
+    return [...items, { kind: 'group', tools: [] }]
   }
   return items
 }

@@ -307,11 +307,20 @@ const collapsedView = computed(() => {
 const summaryLine = computed(
   () => collapsedView.value.summaryLine.trim() || SUB_AGENT_PROCESS_PLACEHOLDER
 )
-const liveLine = computed(() => (collapsed.value ? collapsedView.value.liveLine : null))
+/** Expanded lists already paint in-flight tools; keep only the thinking gap. */
+const liveLine = computed(() => {
+  const line = collapsedView.value.liveLine
+  if (!line?.trim()) return null
+  if (!collapsed.value && liveInnerTool.value) return null
+  return line
+})
 const liveToolName = computed(() => {
   if (!collapsed.value) return null
   return liveInnerTool.value?.name ?? null
 })
+const keepThinkingLiveWhenExpanded = computed(
+  () => !collapsed.value && isRunning.value && !!liveLine.value?.trim() && !liveInnerTool.value
+)
 const liveAriaLabel = computed(() => {
   const summary = summaryLine.value.trim()
   if (summary) return summary
@@ -323,8 +332,8 @@ const liveAriaLabel = computed(() => {
   return liveLine.value || '子任务过程'
 })
 const liveKey = computed(() => {
-  if (!collapsed.value || !isRunning.value) return null
-  if (liveInnerTool.value?.id) return liveInnerTool.value.id
+  if (!isRunning.value) return null
+  if (collapsed.value && liveInnerTool.value?.id) return liveInnerTool.value.id
   if (liveLine.value?.trim()) return 'thinking'
   return null
 })
@@ -434,7 +443,7 @@ watch(
         :live-key="liveKey"
         :expanded="!collapsed"
         :failed="trace.status === 'failed'"
-        :force-live-slot="collapsed && isRunning"
+        :force-live-slot="(collapsed && isRunning) || keepThinkingLiveWhenExpanded"
         :show-chevron="true"
         :live-busy="collapsed && !!liveInnerTool"
         :aria-label="liveAriaLabel"

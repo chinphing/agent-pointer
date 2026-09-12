@@ -963,6 +963,26 @@ html.light .token-keyword {
   background: hsl(var(--fence-bg) / 0.92);
   color: hsl(var(--muted));
   box-shadow: 0 0 0 1px hsl(var(--border));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.md-body .md-svg:hover .md-svg-toolbar,
+.md-body .md-mermaid:hover .md-mermaid-toolbar,
+.md-body .md-svg:focus-within .md-svg-toolbar,
+.md-body .md-mermaid:focus-within .md-mermaid-toolbar,
+.md-body .md-svg-toolbar:has(.md-svg-btn-active),
+.md-body .md-mermaid-toolbar:has(.md-mermaid-btn-active) {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* Touch / coarse pointers: no reliable hover — keep actions visible. */
+@media (hover: none), (pointer: coarse) {
+  .md-body .md-svg-toolbar,
+  .md-body .md-mermaid-toolbar {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 .md-body .md-svg-toolbar[hidden],
 .md-body .md-mermaid-toolbar[hidden] {

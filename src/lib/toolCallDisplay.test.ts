@@ -735,6 +735,20 @@ describe('collapsedToolListItems', () => {
     expect(collapsedToolListItems([], { thinkingLine: '思考中.' })).toEqual([])
   })
 
+  it('keeps a trailing thinking group after completed ask_user', () => {
+    const items = collapsedToolListItems(
+      [
+        tc({ id: '1', name: 'file_read', status: 'success' }),
+        tc({ id: '2', name: 'file_read', status: 'success' }),
+        tc({ id: '3', name: 'ask_user', status: 'success' })
+      ],
+      { holdLiveSlot: true, thinkingLine: '思考中.' }
+    )
+    expect(items.map(i => i.kind)).toEqual(['group', 'single', 'group'])
+    expect(items[1]?.kind === 'single' && items[1].tool.name).toBe('ask_user')
+    expect(items[2]).toEqual({ kind: 'group', tools: [] })
+  })
+
   it('switches from the thinking header to a single-tool row key', () => {
     const thinking = collapsedToolListItems([], {
       holdLiveSlot: true,

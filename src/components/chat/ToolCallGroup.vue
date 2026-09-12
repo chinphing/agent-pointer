@@ -34,6 +34,9 @@ watch(
 const summaryLine = computed(() => {
   const groupLine = formatCollapsedToolGroupLine(props.tools, chat.current?.workspaceRoot)
   if (groupLine) return groupLine
+  // Empty live group (first-round / post-ask_user gap): keep summary blank and
+  // put「思考中」on the live slot so it matches mid-run tool gaps.
+  if (props.tools.length === 0) return ''
   if (!props.liveTool && props.thinkingLine?.trim()) return props.thinkingLine.trim()
   return ''
 })
@@ -42,7 +45,6 @@ const liveLine = computed(() => {
   if (props.liveTool) {
     return compactToolCallLiveText(props.liveTool, chat.current?.workspaceRoot)
   }
-  if (props.tools.length === 0) return null
   return props.thinkingLine?.trim() || null
 })
 

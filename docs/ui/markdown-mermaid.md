@@ -40,7 +40,7 @@ flowchart TD
   leave a blank band at the top. A second crop runs on the next animation frame
   after fonts / `foreignObject` labels settle. The diagram stays horizontally
   centered (`margin: 0 auto`).
-- Toolbar: zoom, copy source, export SVG, toggle source. Export uses the themed SVG currently on screen. Zoom overlay clones the SVG outside `.md-body`; host paint rules also target `.diagram-zoom-overlay` so fills match the inline diagram.
+- Toolbar: zoom, copy source, export SVG, toggle source. Default **hidden**; show on diagram hover / focus-within (same idea as code-block copy). Stay visible while source view is active. Touch / coarse pointers keep the toolbar always visible. Export uses the themed SVG currently on screen. Zoom overlay clones the SVG outside `.md-body`; host paint rules also target `.diagram-zoom-overlay` so fills match the inline diagram.
 - **Streaming:** do not layout Mermaid until the fence (and usually the turn) is complete; show “图示生成中…”.
 - **Switch / scroll:** same in-view gate as Chart.js / SVG. Hidden workspace tabs wait until shown.
 

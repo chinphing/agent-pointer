@@ -7,6 +7,7 @@ use uuid::Uuid;
 use crate::models::MediaAttachment;
 
 use super::access::{is_user_filesystem_path, strip_file_uri};
+use super::media_marker::{resolve_media_marker_path, split_attachment_id_query};
 use super::path_hint::MEDIA_URI_SCHEME;
 use super::resolve::resolve_local_media_path;
 use super::store::{
@@ -26,7 +27,8 @@ fn attachment_from_media_ref(raw: &str) -> Option<MediaAttachment> {
         return None;
     }
 
-    let normalized = strip_file_uri(trimmed).unwrap_or_else(|| trimmed.to_string());
+    let (path_only, marker_id) = split_attachment_id_query(trimmed);
+    let normalized = strip_file_uri(&path_only).unwrap_or_else(|| path_only.clone());
     let rel = normalized
         .strip_prefix(MEDIA_URI_SCHEME)
         .map(str::trim)
@@ -34,21 +36,30 @@ fn attachment_from_media_ref(raw: &str) -> Option<MediaAttachment> {
 
     let (mut storage_rel_path, local_abs_path) = classify_media_ref(rel);
 
-    // Verify the referenced file actually exists on disk before creating attachment.
-    let check_path = local_abs_path.as_deref().or(storage_rel_path.as_deref())?;
-    let mut resolved = match resolve_local_media_path(check_path) {
-        Ok(p) if p.is_file() => p,
-        Ok(p) => {
-            log::warn!(
-                "attachment_from_media_ref: not a file, skipping {} ({})",
-                check_path,
-                p.display()
-            );
-            return None;
-        }
-        Err(e) => {
-            log::warn!("attachment_from_media_ref: file not found, skipping {check_path}: {e:#}");
-            return None;
+    // Prefer WORKING_DIR-aware resolve (absolute / pointer-media / relative).
+    let mut resolved = match resolve_media_marker_path(trimmed)
+        .or_else(|| resolve_media_marker_path(&path_only))
+    {
+        Some(p) if p.is_file() => p,
+        _ => {
+            let check_path = local_abs_path.as_deref().or(storage_rel_path.as_deref())?;
+            match resolve_local_media_path(check_path) {
+                Ok(p) if p.is_file() => p,
+                Ok(p) => {
+                    log::warn!(
+                        "attachment_from_media_ref: not a file, skipping {} ({})",
+                        check_path,
+                        p.display()
+                    );
+                    return None;
+                }
+                Err(e) => {
+                    log::warn!(
+                        "attachment_from_media_ref: file not found, skipping {check_path}: {e:#}"
+                    );
+                    return None;
+                }
+            }
         }
     };
 
@@ -88,9 +99,13 @@ fn attachment_from_media_ref(raw: &str) -> Option<MediaAttachment> {
             }
         }
     }
-    let id = storage_rel_path
-        .as_deref()
-        .and_then(short_attachment_id_from_sandbox_rel)
+    let id = marker_id
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            storage_rel_path
+                .as_deref()
+                .and_then(short_attachment_id_from_sandbox_rel)
+        })
         .unwrap_or_else(|| format!("reply-media-{}", Uuid::new_v4()));
     let local_abs_path = Some(resolved.display().to_string());
 

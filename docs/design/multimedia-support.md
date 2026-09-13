@@ -8,8 +8,8 @@
 
 - Composer 支持图片、文档、音频、视频附件（**视频** OSS 上限 **5 GB**；**>500 MB** 需用户确认后压缩；IM 入站视频同策略但 **>500 MB 自动压缩**；非视频 IM 媒体 **30 MB**）
 - 主模型保持用户所选 agent 模型不变
-- **上传不自动理解**：`apply_media_to_history` 仅落盘 + 写 `attachments`
-- **模型上下文**：`make_openai_messages` 追加 Markdown 清单（`fileName` + `ref` + `localPath`）；用户附件用 `<!-- pointer-user-attachments -->`，助手 `MEDIA:` 交付附件用 `<!-- pointer-delivered-attachments -->`（均为 API-only，不写回 `content`）
+- **上传不自动理解**：`apply_media_to_history` 仅落盘 + 写 `attachments`，并在 user `content` 写入 `MEDIA:<path>?attachmentId=<id>`（相对 WORKING_DIR 或绝对路径）
+- **模型上下文**：`make_openai_messages` **原样**使用消息 `content`（含 `MEDIA:` 行）；**不再**追加 `<!-- pointer-user-attachments -->` / `<!-- pointer-delivered-attachments -->` 清单。展示层剥离 `MEDIA:`，芯片用 `attachments`。
 - **按需理解**：`media_understand`（image/video/audio/pdf 扫描件回退）。
   何时调用 / 用户指定其他读取方式：以工具提示词 **When to call** 为准（此处不重复）。
   **`mode` 可选**（按后缀推断；视频转写显式 `audio`）。
@@ -24,20 +24,13 @@
 flowchart TD
     Composer[Composer] --> PayloadStore[attachmentPayloadStore]
     PayloadStore --> Send[sendChat messages + attachments]
-    Send --> Apply[apply_media_to_history 仅落盘]
+    Send --> Apply[apply_media_to_history 落盘 + MEDIA lines]
     Apply --> Attachments[attachments 元数据]
-    Attachments --> UI[UserMessageBubble 预览]
-    Attachments --> MakeOpenAI[make_openai_messages]
-    MakeOpenAI --> Manifest[API Markdown 清单]
-    Manifest --> Agent[主 Agent]
-    Agent -->|意图不明| Clarify[追问]
-    Agent -->|明确| MediaUnderstand[media_understand]
-    Agent -->|Office| OfficeSkill[docx/xlsx/pptx Skill]
-
-    subgraph display [Display]
-        Persisted[Persisted attachments] --> Normalizer[messageNormalizer]
-        Normalizer --> Bubble[UserMessageBubble]
-    end
+    Apply --> Content[user content 含 MEDIA]
+    Attachments --> UI[UserMessageBubble 芯片]
+    Content --> MakeOpenAI[make_openai_messages 原样 content]
+    MakeOpenAI --> Agent[主 Agent]
+    Agent -->|MEDIA 交付| Host[宿主注册附件并回写 attachmentId]
 ```
 
 ---

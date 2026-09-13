@@ -321,10 +321,8 @@ pub fn make_openai_messages_with_inject(
                     "role": "system", "content": m.content
                 })),
                 Role::User => {
-                    let api_content = crate::media::append_user_attachments_api_context(
-                        &m.content,
-                        m.attachments.as_deref().unwrap_or(&[]),
-                    );
+                    // `content` already carries `MEDIA:…?attachmentId=` from apply_media.
+                    let api_content = m.content.clone();
                     if let Some(ref imgs) = m.images_base64 {
                         if !imgs.is_empty() && !inline_vision {
                             log::warn!(
@@ -385,12 +383,8 @@ pub fn make_openai_messages_with_inject(
                     }));
                 }
                 Role::Assistant => {
-                    let api_content = crate::media::append_delivered_attachments_api_context(
-                        &m.content,
-                        m.attachments.as_deref().unwrap_or(&[]),
-                    );
-                    // Host palette / custom colors actually used when rendering charts (API-only).
-                    let api_content = crate::media::append_chart_render_api_context(&api_content);
+                    // Keep wire `content` (including MEDIA lines) identical for model I/O.
+                    let api_content = crate::media::append_chart_render_api_context(&m.content);
                     let mut obj = serde_json::Map::new();
                     obj.insert("role".into(), "assistant".into());
                     obj.insert("content".into(), serde_json::Value::String(api_content));
@@ -698,14 +692,15 @@ mod make_openai_messages_tests {
     }
 
     #[test]
-    fn assistant_attachments_inject_delivered_manifest_on_wire() {
+    fn assistant_attachments_stay_on_wire_content_without_inventory_append() {
         use crate::media::{
             ATTACHMENT_NEEDS_INTENT_MARKER, DELIVERED_ATTACHMENTS_MARKER, USER_ATTACHMENTS_MARKER,
         };
         use crate::models::MediaAttachment;
 
         let mut a = msg(Role::Assistant);
-        a.content = "here is the file".into();
+        a.content =
+            "here is the file\n\nMEDIA:out.png?attachmentId=att1".into();
         a.attachments = Some(vec![MediaAttachment {
             id: "att1".into(),
             kind: "image".into(),
@@ -728,10 +723,11 @@ mod make_openai_messages_tests {
             LEAD,
         );
         let content = out[0]["content"].as_str().expect("text content");
-        assert!(content.starts_with("here is the file"));
-        assert!(content.contains(DELIVERED_ATTACHMENTS_MARKER));
-        assert!(content.contains("**out.png**"));
-        assert!(content.contains("pointer-media://conv/out.png"));
+        assert_eq!(
+            content,
+            "here is the file\n\nMEDIA:out.png?attachmentId=att1"
+        );
+        assert!(!content.contains(DELIVERED_ATTACHMENTS_MARKER));
         assert!(!content.contains(USER_ATTACHMENTS_MARKER));
         assert!(!content.contains(ATTACHMENT_NEEDS_INTENT_MARKER));
     }

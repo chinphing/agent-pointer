@@ -35,7 +35,7 @@ Example:
   PNG export composites the chart onto the chat canvas so it matches the on-screen look (raw canvas is transparent).
 - Theme: axis/legend colors follow CSS variables (`--foreground`, `--muted`, `--border`).
 - Series colors: by default the host applies a soft coordinated palette of 8 hues (blue → peach → teal → sand → sage → slate → mauve → olive; cycles if more series), overriding model neon colors. With root `"pointerPalette": false`, model series colors are kept (user-requested).
-- **LLM context (API-only):** when building the next model request, assistant messages that contain chart fences get an appended `<!-- pointer-chart-render -->` block listing the host-applied (or custom) series colors. This is not stored in `msg.content` and is not shown in the UI — same pattern as delivered-attachment manifests.
+- **LLM context (API-only):** when building the next model request, assistant messages that contain chart fences get an appended `<!-- pointer-chart-render -->` block listing the host-applied (or custom) series colors. This is not stored in `msg.content` and is not shown in the UI. File delivery uses in-content `MEDIA:…?attachmentId=` (not a separate delivered-attachment inventory).
 - Hover tooltips are enabled (`interaction.mode: index`). Do **not** force CSS width/height on the `<canvas>` — that breaks hit-testing.
 - Plot area height is fixed (`360px` inner box); `maintainAspectRatio` is forced off so model `aspectRatio` cannot flatten the chart.
 - **Long category labels:** vertical `bar` charts with long Chinese labels are auto-flipped to `indexAxis: "y"` (horizontal) so the plot is not crushed empty; `beginAtZero` on `y` is moved to `x`.

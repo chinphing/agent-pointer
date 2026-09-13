@@ -1,6 +1,5 @@
 //! Parse outbound media markers from agent replies (OpenClaw `MEDIA:` convention).
 
-use super::media_ref::resolve_media_ref;
 use super::path_hint::MEDIA_URI_SCHEME;
 use crate::text_util::{slice_bytes, split_at_byte};
 use regex::Regex;
@@ -66,6 +65,7 @@ fn parse_media_path_after_marker(after_marker: &str) -> Option<ParsedMediaPath<'
         if let Some(end) = rest[1..].find(q) {
             let inner = rest[1..1 + end].trim();
             if !inner.is_empty() {
+                // Quoted path may still carry `?attachmentId=` inside quotes.
                 return Some(ParsedMediaPath {
                     path: inner,
                     consumed: trim_leading + 1 + end + 1,
@@ -138,14 +138,10 @@ fn remainder_looks_like_path_continuation(body: &str, token_raw: &str) -> bool {
 
 /// True when a reply media path / URI resolves to an existing file on disk.
 ///
-/// Accepts absolute paths, `file://`, and `pointer-media://` (scheme stripped like
-/// [`resolve_media_ref`]).
+/// Accepts absolute paths, `file://`, `pointer-media://`, WORKING_DIR-relative
+/// paths, and optional `?attachmentId=` suffix (ignored for resolve).
 pub fn reply_media_path_resolves(path: &str) -> bool {
-    let trimmed = path.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-    resolve_media_ref(trimmed).ok().is_some_and(|p| p.is_file())
+    crate::media::media_marker::resolve_media_marker_path(path).is_some()
 }
 
 fn strip_resolved_inline_media(line: &str, media_paths: &mut Vec<String>) -> String {

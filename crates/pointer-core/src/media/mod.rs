@@ -14,6 +14,7 @@ pub mod image_dir;
 pub mod jpeg_vision;
 pub mod layout;
 pub mod manifest;
+pub mod media_marker;
 pub mod media_ref;
 pub mod office;
 pub mod oss;
@@ -59,6 +60,10 @@ pub use manifest::{
     attachment_summaries_json, attachment_summary_json, format_delivered_attachments_api_manifest,
     format_user_attachments_api_manifest, ATTACHMENT_NEEDS_INTENT_MARKER,
     DELIVERED_ATTACHMENTS_MARKER, USER_ATTACHMENTS_MARKER,
+};
+pub use media_marker::{
+    ensure_user_content_media_markers, format_media_marker, format_media_markers_for_attachments,
+    rewrite_media_markers_with_attachment_ids, split_attachment_id_query, ATTACHMENT_ID_QUERY_KEY,
 };
 pub use media_ref::{read_media_ref_bytes, resolve_media_ref};
 pub use oss::{

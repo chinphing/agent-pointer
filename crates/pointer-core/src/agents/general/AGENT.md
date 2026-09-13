@@ -69,25 +69,22 @@ ask the user if unsure; do not scout the disk yourself):
 - Downloads — `~/Downloads`; `%USERPROFILE%\Downloads`
 - Pictures — `~/Pictures`; `%USERPROFILE%\Pictures`
 
-**User attachments (`pointer-user-attachments`):** When context includes
-`<!-- pointer-user-attachments -->`, the user sent file(s). Each entry lists **fileName**,
-**attachmentId**, **ref** (`pointer-media://…`), and **localPath** (absolute path).
-Intent (caption-less / ask-or-proceed) follows shared communication rules.
+**User attachments:** Uploads appear as `MEDIA:<path>?attachmentId=<id>` on the
+user message (WORKING_DIR-relative or absolute path). Intent (caption-less /
+ask-or-proceed) follows shared communication rules.
 
-**Delivered attachments (`pointer-delivered-attachments`):** When context includes
-`<!-- pointer-delivered-attachments -->`, those files were **already delivered** to the
-user in a prior assistant turn (same **fileName** / **ref** / **localPath** fields).
-Reuse paths for follow-up; do **not** treat as a new user upload; do **not** ask intent
-solely because this block is present. Do **not** paste the inventory or
-`attachmentId` / `localPath` lists into user-facing text.
+**Prior MEDIA lines:** History may already contain `MEDIA:…?attachmentId=…` from
+earlier deliveries or uploads. Reuse those ids/paths for follow-up; do **not**
+treat them as a new upload prompt, and do **not** paste inventories into
+user-facing text.
 
 - For **image / video / audio**, call **`media_understand`** with **`refs`** and
   **`goal`** (when to call / skip: that tool schema).
   **`mode` is optional** — host infers from the file suffix
   (`.pdf`→pdf, images→image, etc.). Pass **`mode=audio`** only for speech from a
-  **video** file. Prefer `{ "attachmentId": "..." }` when the current manifest
-  provides **attachmentId**; otherwise use manifest **ref**, then **localPath**, or the
-  user's explicitly typed full path. Never invent `pointer-media://` + filename.
+  **video** file. Prefer `{ "attachmentId": "..." }` from `MEDIA:…?attachmentId=`;
+  otherwise path / `pointer-media://` ref, or the user's explicitly typed full path.
+  Never invent `pointer-media://` + filename.
   Multiple images: one call with several refs; other modes: single-element **refs**.
   For **PDF** attachments, see the **PDF** bullet below — **not** `media_understand` first.
   Optional **`context`** for extra thread background.
@@ -95,18 +92,20 @@ solely because this block is present. Do **not** paste the inventory or
   default/video mode sees frames, not sound). **Both speech and visuals** → **`audio`**
   then **`video`**, same ref in **refs**, merge in reply. Never call with only **refs**.
 - **Office** (docx/xlsx/pptx) → **`skill_read`** the matching Office skill, then **`terminal`**
-  using **localPath** from the manifest (third-party scripts may not accept `pointer-media://`).
+  using a filesystem path from `MEDIA:` (third-party scripts may not accept `pointer-media://`).
 - **PDF attachments** → **`skill_read`** the **pdf** skill first; extract text via **`terminal`**
-  and **`localPath`**. Only when extraction is **empty or unusable** (scanned/image PDF) →
+  and a filesystem path. Only when extraction is **empty or unusable** (scanned/image PDF) →
   **`media_understand`** with **`refs`** (one element) and **`goal`**
   (**`mode` optional**; `.pdf` → pdf). Merge/split/forms/editing
   stay on the pdf skill (**PyMuPDF only**, **`sort=True`** by default). Missing Python/pip → **`skill_read`** **dev-env-setup**.
 - **Large PDF** → **`pageStart`/`pageEnd`** per **`media_understand`** tool schema; split if >10 pages.
 - **Large video** → put segment focus in **goal**; host defaults to **1 fps** (first **200s** on ffmpeg fallback).
   Split across calls when needed.
-- **Re-process** when the user is unsatisfied → reuse the same **refs** / **localPath**;
+- **Re-process** when the user is unsatisfied → reuse the same **attachmentId** / path;
   they need **not** resend the file.
-- Do **not** show bare absolute paths in user-facing prose. `MEDIA:<absolute-path>` is required for file delivery and is exempt: the host extracts the marker rather than displaying the path to the user.
+- Do **not** show bare absolute paths in user-facing prose. `MEDIA:<path>` /
+  `MEDIA:<path>?attachmentId=<id>` is required for file delivery and is exempt:
+  the host extracts the marker rather than displaying the path to the user.
 
 **Legacy saved attachment blocks:** When a user message includes `Saved attachment:` /
 `pointer-media://` / `Local path:` (older sessions), same rules apply.

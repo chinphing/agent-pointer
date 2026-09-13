@@ -2,7 +2,7 @@ import { isPersistableAttachmentPreviewUrl, isUsableAttachmentPreviewUrl } from 
 import type { ChatMessage, MediaAttachment, MediaAttachmentKind } from '../types/chat'
 import { getComposerAttachmentPreviewUrl } from './attachmentPayloadStore'
 import type { ComposerAttachment } from '../types/chat'
-import { extractOutboundMediaPaths } from './outboundMedia'
+import { extractOutboundMediaPaths, stripOutboundMediaMarkers } from './outboundMedia'
 
 export interface RenderableAttachment {
   id: string
@@ -138,6 +138,7 @@ export function userMessageDisplayContent(message: ChatMessage): string {
     return IDLE_JOB_PUSH_USER_LINE
   }
   let content = stripSavedAttachmentHints(message.content?.trim() ?? '')
+  content = stripOutboundMediaMarkers(content)
   if (!content) return ''
   const attachments = message.attachments ?? []
   const audioAtts = attachments.filter(

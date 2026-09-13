@@ -9,7 +9,7 @@ use crate::tools::ToolRegistry;
 use anyhow::{anyhow, Result};
 
 use super::app_state::AppState;
-use super::content_extract::{extract_user_visible_content, reply_attachments_from_assistant_raw};
+use super::content_extract::persist_assistant_content_and_attachments;
 use super::context::PostAssistantContext;
 use super::emit::emit;
 use super::sub_message::SubMessageLinkage;
@@ -118,8 +118,7 @@ pub(super) fn build_final_reply_delivery_message(
     agent_instance_id: Option<String>,
     _state: &AppState,
 ) -> ChatMessage {
-    let content = crate::media::strip_outbound_media_markers(tool_output);
-    let attachments = reply_attachments_from_assistant_raw(tool_output);
+    let (content, attachments) = persist_assistant_content_and_attachments(tool_output);
     ChatMessage {
         id: assistant_id.to_string(),
         role: Role::Assistant,
@@ -164,10 +163,11 @@ pub(super) fn build_lead_assistant_message_after_stream(
     agent_trace: &[AgentTrace],
     state: &AppState,
 ) -> ChatMessage {
+    let (content, attachments) = persist_assistant_content_and_attachments(raw_content_buf);
     ChatMessage {
         id: assistant_id.to_string(),
         role: Role::Assistant,
-        content: extract_user_visible_content(raw_content_buf),
+        content,
         status: if final_tool_calls.is_empty() {
             "completed".into()
         } else {
@@ -204,7 +204,7 @@ pub(super) fn build_lead_assistant_message_after_stream(
         computer_round_screen_rel_path: None,
         ui_bindings: None,
         context_state: None,
-        attachments: reply_attachments_from_assistant_raw(raw_content_buf),
+        attachments,
         anchor_message_id: None,
         trace_id: None,
         task_id: None,

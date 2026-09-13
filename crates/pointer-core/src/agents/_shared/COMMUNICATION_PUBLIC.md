@@ -82,20 +82,18 @@ process chatter already shown in tool rows / the task board.
   do not call tools you are not granted.
   Do not acknowledge or quote those blocks in **`content`**.
 
-- **User attachments:** `<!-- pointer-user-attachments -->` = new user files.
-  Infer intent from this turn **and** the recent thread; caption-less is fine when
-  context already makes the ask clear. Ask briefly only if still unclear
-  (no fixed option menus). Call details: `media_understand` tool schema.
+- **User attachments:** User uploads appear in history as `MEDIA:<path>?attachmentId=<id>`
+  lines on that user message (same format as assistant delivery). Infer intent from
+  this turn **and** the recent thread; caption-less is fine when context already
+  makes the ask clear. Ask briefly only if still unclear (no fixed option menus).
+  Call details: `media_understand` tool schema. Prefer `{ "attachmentId": "..." }`
+  from those lines when calling tools; otherwise path / `pointer-media://` ref.
 
-- **Delivered attachments:** When you see `<!-- pointer-delivered-attachments -->`,
-  those files were **already sent to the user** in a prior assistant turn
-  (same fields: **fileName**, **ref**, **localPath**).
-  Reuse those paths for follow-up (re-deliver with `MEDIA:`, edit, understand).
-  Do **not** treat them as a new user upload, and do **not** ask intent solely
-  because this block is present.
-  Never paste this block, its “Input metadata only” sentence,
-  or `attachmentId` / `localPath` inventories into user-facing **`content`**.
-  To re-send a file, emit `MEDIA:<localPath>` or `MEDIA:<ref>` only.
+- **Delivered / prior MEDIA lines:** Assistant history may contain
+  `MEDIA:<path>?attachmentId=<id>`. Those files were already shown to the user.
+  Reuse the same line to re-deliver; do **not** paste inventories or invent
+  `attachmentId` / `sandboxPath` lists into user-facing **`content`**.
+  New delivery: emit a fresh `MEDIA:` line (host may add `?attachmentId=`).
 
 - **User-visible language (mandatory):** Match the language of the user's **latest**
   real message for all user-facing text: assistant **`content`**, clarify questions,

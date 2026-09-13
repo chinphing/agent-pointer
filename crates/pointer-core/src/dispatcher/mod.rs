@@ -537,7 +537,29 @@ impl RunDispatcher {
                 log::error!(
                     "dispatch: run panicked run_id={run_id} conversation_id={conversation_id}: {detail}"
                 );
-                Err(anyhow::anyhow!("运行异常中断：{detail}"))
+                let msg = format!("运行异常中断：{detail}");
+                // run_chat never reached its Error/Done emit; UI `generating` would stick
+                // forever without a broadcast terminal pair.
+                let background_running = self
+                    .inner
+                    .state
+                    .jobs
+                    .running_count_for_conversation(&conversation_id);
+                crate::stream_broadcast::publish_global_stream(crate::models::StreamEvent::Error {
+                    conversation_id: conversation_id.clone(),
+                    message_id: None,
+                    message: msg.clone(),
+                });
+                crate::stream_broadcast::publish_global_stream(crate::models::StreamEvent::Done {
+                    conversation_id: conversation_id.clone(),
+                    tool_rounds_used_total: None,
+                    tool_rounds_used_supervisor_total: None,
+                    max_tool_rounds: None,
+                    started_at_ms: None,
+                    finished_at_ms: None,
+                    background_running_count: Some(background_running as u32),
+                });
+                Err(anyhow::anyhow!(msg))
             }
         };
 

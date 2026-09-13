@@ -11,6 +11,7 @@ import {
 } from '../../../../lib/messageTooling'
 import { useAgentsCatalog, uiForMessageAgent } from '../../../../composables/useAgentUi'
 import { isMessageStreaming } from '../../../../lib/assistantMessageKind'
+import { stripOutboundMediaMarkers } from '../../../../lib/outboundMedia'
 import {
   orphanSubTraces,
   subTracesForMessage,
@@ -128,7 +129,7 @@ const leadBody = computed((): AgentMessageBodyModel => ({
   toolNamePreview: props.message.toolNamePreview,
   responseTextDraft: props.message.responseTextDraft,
   reasoning: props.message.reasoning,
-  content: props.message.content,
+  content: stripOutboundMediaMarkers(props.message.content ?? ''),
   rawContent: props.message.rawContent,
   contentStreaming: props.message.contentStreaming,
   toolCalls: props.message.toolCalls,

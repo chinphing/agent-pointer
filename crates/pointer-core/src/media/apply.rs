@@ -167,7 +167,8 @@ async fn try_upload_inbound_video_to_oss(
     }
 }
 
-/// Persist wire attachments only; model context comes from API manifest in `make_openai_messages`.
+/// Persist wire attachments and write `MEDIA:…?attachmentId=` into user `content`
+/// so model I/O matches persisted text (no separate API attachment manifest).
 pub async fn apply_media_to_history(
     history: &mut [ChatMessage],
     settings: &ModelSettings,
@@ -203,7 +204,9 @@ pub async fn apply_media_to_history(
                     .filter(|s| !s.is_empty())
                 {
                     match crate::media::store::media_abs_path(rel) {
-                        Ok(path) if path.is_file() => {}
+                        Ok(path) if path.is_file() => {
+                            att.local_abs_path = Some(path.display().to_string());
+                        }
                         Ok(path) => {
                             log::warn!(
                                 "media: OSS video {} local backup missing at {} ({})",
@@ -231,9 +234,22 @@ pub async fn apply_media_to_history(
                     att.file_name,
                     e
                 );
+            } else if let Some(rel) = att
+                .storage_rel_path
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                if let Ok(path) = crate::media::store::media_abs_path(rel) {
+                    if path.is_file() {
+                        att.local_abs_path = Some(path.display().to_string());
+                    }
+                }
             }
         }
 
+        msg.content =
+            crate::media::ensure_user_content_media_markers(&msg.content, &attachments);
         msg.attachments = Some(attachments);
     }
     Ok(())

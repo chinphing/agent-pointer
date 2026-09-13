@@ -856,12 +856,28 @@ export function partitionCollapsedToolCalls(
 }
 
 /**
+ * Parent「思考中」must not stack beside an in-flight `run_subagent` /
+ * background host — SubAgentFrame (or the host row) already owns the live surface.
+ */
+export function parentThinkingSuppressedByHost(tools: ToolCall[]): boolean {
+  return tools.some(tc => {
+    if (isLiveBackgroundHostTool(tc)) return true
+    return (
+      toolCallBaseName(tc.name) === 'run_subagent'
+      && isToolCallInProgress(tc.status)
+    )
+  })
+}
+
+/**
  * Same as `partitionCollapsedToolCalls`, plus an empty live group so
  * first-round「思考中」occupies the collapsed-run header before any tool exists.
  *
- * Also appends a trailing empty group when the list ends on an ungroupable
- * single (e.g. completed `ask_user`): otherwise the LLM pause after clarify
- * has nowhere to attach「思考中」.
+ * Also appends a trailing empty group when the list ends on a **finished**
+ * ungroupable single (e.g. completed `ask_user`): otherwise the LLM pause after
+ * clarify has nowhere to attach「思考中」. Do **not** append after an in-flight
+ * `run_subagent` / background host — SubAgentFrame already owns the live /
+ * thinking surface; a sibling「思考中」duplicates under the current tool line.
  */
 export function collapsedToolListItems(
   tools: ToolCall[],
@@ -870,11 +886,13 @@ export function collapsedToolListItems(
   const items = partitionCollapsedToolCalls(tools, { holdLiveSlot: opts?.holdLiveSlot })
   const thinking = (opts?.thinkingLine ?? '').trim()
   if (!opts?.holdLiveSlot || !thinking) return items
+  if (parentThinkingSuppressedByHost(tools)) return items
   if (items.length === 0) {
     return [{ kind: 'group', tools: [] }]
   }
   const last = items[items.length - 1]
   if (last?.kind === 'single') {
+    if (isToolCallInProgress(last.tool.status)) return items
     return [...items, { kind: 'group', tools: [] }]
   }
   return items

@@ -195,6 +195,22 @@ function formatStatsForAgent(agentId: string, stats: SubAgentToolStats): string 
 /** Collapsed process row when scoped stats are not hydrated yet. */
 export const SUB_AGENT_PROCESS_PLACEHOLDER = '过程'
 
+/**
+ * Stats line under the host row. While the spawn is running and a live /
+ * thinking line already fills the current-task slot, keep the summary blank
+ * (parent first-round parity) instead of a barren「过程」placeholder.
+ */
+export function resolveSubAgentSummaryDisplay(input: {
+  statsSummary: string
+  running: boolean
+  liveLine?: string | null
+}): string {
+  const stats = input.statsSummary.trim()
+  if (stats) return stats
+  if (input.running && (input.liveLine ?? '').trim()) return ''
+  return SUB_AGENT_PROCESS_PLACEHOLDER
+}
+
 /** Counts only — host「委派子任务」row already shows the goal. */
 export function formatSubAgentStatsLine(
   status: string,

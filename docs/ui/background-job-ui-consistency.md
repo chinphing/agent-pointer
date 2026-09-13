@@ -82,14 +82,14 @@ job 终态（任意：正常结束 / 失败 / 取消）
 4. 用户真点 **停止**（取消全部后台）：才批量显示「已取消」。
 5. 行上「结束任务」只取消这一条；「结束等待」/ 立即发送只停同步，其它后台仍「后台执行中」。
 6. **结束等待**后：主助手行不得显示「已停止生成」；`job.await` 显示「已结束等待」；后台宿主行仍显示「后台执行中」（子帧收缩摘要只写工具次数，不重复「后台执行中」）。
-7. 主线程空闲且仍有后台占用时，Composer 上方显示「N 个后台任务执行中」；侧栏会话仍转圈（`isConversationBusy`）。
+7. 会话有后台占用时，Composer 上方**始终**显示后台任务条（父回合仍在 generating / `job.await` 时也显示）；侧栏会话仍转圈（`isConversationBusy`）。停止按钮仍可「停 lead + 全部后台」；条上可展开并单独结束某一条。
 
 ## 与 Cursor / Codex 的对照
 
 | 产品 | 做法 | Pointer 对应 |
 |------|------|--------------|
 | **Cursor** | 侧栏 Agents 列表 + 状态色点（运行/等待/完成）；当前会话 busy 时侧栏转圈；云 Agent 完成推送通知 | 侧栏 `Loader2`（generating 或 backgroundJobs）；离开会话完成时 solid dot |
-| **Codex** | Composer 上方状态条；子 Agent 面板展示活动 | Composer 后台占用条（generating 结束后）；`SubAgentFrame` 收缩行 + 宿主「后台执行中」 |
+| **Codex** | Composer 上方状态条；子 Agent 面板展示活动 | Composer 上方后台占用条（**有占用即显示**，含父回合仍在 generating / `job.await` 时）；`SubAgentFrame` 收缩行 + 宿主「后台执行中」 |
 | **共性** | 占用态与主线程生成态分离展示，避免「看起来已经停了」 | 结束等待 = soft cancel，不占「已停止生成」；后台行置顶 + Composer 条 |
 
 ## 相关实现

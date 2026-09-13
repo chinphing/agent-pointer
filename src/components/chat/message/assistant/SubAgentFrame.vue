@@ -7,8 +7,8 @@ import { buildCompressionProgressLabel } from '../../../../lib/compressionMessag
 import {
   emptySubAgentToolStats,
   resolveCollapsedSubAgentView,
-  resolveTraceAgentId,
-  SUB_AGENT_PROCESS_PLACEHOLDER
+  resolveSubAgentSummaryDisplay,
+  resolveTraceAgentId
 } from '../../../../lib/subAgentStats'
 import { useConversationScopedStore } from '../../../../lib/conversationScoped'
 import {
@@ -240,19 +240,13 @@ const showThinkingInSummary = computed(() => {
   void chatStore.getSubAgentLiveSignal(
     props.trace.agentInstanceId?.trim() || props.trace.id
   )
-  // Guard 1: conversation no longer generating — run ended or was cancelled.
-  const convId = chatStore.currentId
-  if (convId && !chatStore.isConversationGenerating(convId)) return false
-  // Guard 2: newer messages exist after this frame's anchor — thinking is stale.
-  const anchorIdx = props.messages.findIndex(m => m.id === props.anchorMessageId)
-  if (anchorIdx >= 0 && props.messages.length > anchorIdx + 1) {
-    const hasNewerUserMessage = props.messages.slice(anchorIdx + 1).some(
-      m => m.role === 'user' && !m.anchorMessageId
-    )
-    if (hasNewerUserMessage) return false
-  }
+  // Trace status is the source of truth — do **not** gate on lead
+  // `generating`. Background `run_subagent` keeps `trace.status=running`
+  // after the parent turn returns a job handle; requiring generating left
+  // only the「过程」placeholder with no「思考中」/ live tool gap.
+  if (!isRunning.value) return false
   return subAgentThinkingActive({
-    running: isRunning.value,
+    running: true,
     hasInProgressTool:
       !!liveInnerTool.value || scopedHasInProgressTools(scopedTraceMessages.value)
   })
@@ -304,8 +298,12 @@ const collapsedView = computed(() => {
   return view
 })
 
-const summaryLine = computed(
-  () => collapsedView.value.summaryLine.trim() || SUB_AGENT_PROCESS_PLACEHOLDER
+const summaryLine = computed(() =>
+  resolveSubAgentSummaryDisplay({
+    statsSummary: collapsedView.value.summaryLine,
+    running: isRunning.value,
+    liveLine: collapsedView.value.liveLine
+  })
 )
 /** Expanded lists already paint in-flight tools; keep only the thinking gap. */
 const liveLine = computed(() => {

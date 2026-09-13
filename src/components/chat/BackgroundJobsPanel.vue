@@ -21,12 +21,18 @@ const conv = computed(
     ?? chat.conversations.find(c => c.id === props.conversationId)
 )
 
-/** 生成回复时主界面已有停止按钮与过程展示，面板让位，避免两套操作打架。 */
-const generating = computed(() => chat.isConversationGenerating(props.conversationId))
+/** 有占用就显示：父回合仍在生成（含 `job.await`）时也要看得见，
+ *  否则用户会以为后台任务只在空闲时才存在。主界面停止按钮仍负责
+ *  「停 lead + 全部后台」；本面板可单独结束某一条。 */
 const count = computed(() => chat.backgroundJobCount(props.conversationId))
-const visible = computed(() => count.value > 0 && !generating.value)
+const visible = computed(() => count.value > 0)
 
 const rows = computed(() => collectLiveBackgroundJobs(conv.value?.messages))
+
+const generating = computed(() => chat.isConversationGenerating(props.conversationId))
+const companionHint = computed(() =>
+  generating.value ? '后台仍在执行' : '执行中，不影响继续对话'
+)
 
 /** 可一键取消的 host 行（拿到了 jobId）。 */
 const cancelableHosts = computed(
@@ -89,7 +95,7 @@ onBeforeUnmount(disarmCancel)
         <span class="text-[10px] px-1.5 py-0.5 rounded bg-hover text-muted shrink-0 tabular-nums">
           {{ count }}
         </span>
-        <span class="hidden sm:inline text-[10px] text-muted/80 shrink-0">执行中，不影响继续对话</span>
+        <span class="hidden sm:inline text-[10px] text-muted/80 shrink-0">{{ companionHint }}</span>
         <ChevronDown
           class="h-3.5 w-3.5 text-muted shrink-0 transition-transform duration-200"
           :class="expanded ? 'rotate-180' : ''"

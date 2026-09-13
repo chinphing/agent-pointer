@@ -749,6 +749,40 @@ describe('collapsedToolListItems', () => {
     expect(items[2]).toEqual({ kind: 'group', tools: [] })
   })
 
+  it('does not invent a trailing thinking group for a lone in-flight run_subagent', () => {
+    const items = collapsedToolListItems(
+      [
+        tc({
+          id: '1',
+          name: 'run_subagent',
+          status: 'running',
+          arguments: JSON.stringify({ background: true, agentId: 'explore' })
+        })
+      ],
+      { holdLiveSlot: true, thinkingLine: '思考中.........' }
+    )
+    expect(items.map(i => i.kind)).toEqual(['single'])
+    expect(items[0]?.kind === 'single' && items[0].tool.name).toBe('run_subagent')
+  })
+
+  it('does not invent trailing thinking when a prior group is pinned behind a live host', () => {
+    const items = collapsedToolListItems(
+      [
+        tc({ id: '1', name: 'file_grep', status: 'success' }),
+        tc({
+          id: '2',
+          name: 'run_subagent',
+          status: 'running',
+          arguments: JSON.stringify({ background: true, agentId: 'explore' })
+        })
+      ],
+      { holdLiveSlot: true, thinkingLine: '思考中.........' }
+    )
+    // In-progress background hosts are pinned first; last item is the finished group.
+    expect(items.map(i => i.kind)).toEqual(['single', 'group'])
+    expect(items.some(i => i.kind === 'group' && i.tools.length === 0)).toBe(false)
+  })
+
   it('switches from the thinking header to a single-tool row key', () => {
     const thinking = collapsedToolListItems([], {
       holdLiveSlot: true,

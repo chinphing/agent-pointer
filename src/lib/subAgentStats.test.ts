@@ -6,6 +6,8 @@ import {
   formatSubAgentSummaryLine,
   incrementSubAgentToolStats,
   resolveCollapsedSubAgentView,
+  resolveSubAgentSummaryDisplay,
+  SUB_AGENT_PROCESS_PLACEHOLDER,
   subAgentIdFromTraceId,
   subTaskIdFromTraceId
 } from './subAgentStats'
@@ -177,5 +179,37 @@ describe('resolveCollapsedSubAgentView', () => {
       agentId: 'explore'
     })
     expect(withStats.summaryLine).toBe('终端 1 次')
+  })
+})
+
+describe('resolveSubAgentSummaryDisplay', () => {
+  it('keeps real stats', () => {
+    expect(
+      resolveSubAgentSummaryDisplay({
+        statsSummary: '搜索 1 次 · 终端 16 次',
+        running: true,
+        liveLine: '思考中..'
+      })
+    ).toBe('搜索 1 次 · 终端 16 次')
+  })
+
+  it('avoids「过程」when a running spawn already has a live line', () => {
+    expect(
+      resolveSubAgentSummaryDisplay({
+        statsSummary: '',
+        running: true,
+        liveLine: '思考中.........'
+      })
+    ).toBe('')
+  })
+
+  it('uses「过程」when idle / not yet hydrated and there is no live line', () => {
+    expect(
+      resolveSubAgentSummaryDisplay({
+        statsSummary: '',
+        running: false,
+        liveLine: null
+      })
+    ).toBe(SUB_AGENT_PROCESS_PLACEHOLDER)
   })
 })

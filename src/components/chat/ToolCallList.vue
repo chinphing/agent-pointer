@@ -4,6 +4,7 @@ import type { ToolCall } from '../../types/chat'
 import {
   collapsedLiveRunItemKey,
   collapsedToolListItems,
+  parentThinkingSuppressedByHost,
   shouldPinSubAgentHostRow,
   type ToolCallListItem
 } from '../../lib/toolCallDisplay'
@@ -26,10 +27,17 @@ const activeSearchToolCallId = inject<Ref<string | null>>(
   ref<string | null>(null)
 )
 
+/** Drop parent thinking while a nested sub-agent / background host is live. */
+const effectiveThinkingLine = computed(() => {
+  if (!props.runActive) return null
+  if (parentThinkingSuppressedByHost(props.toolCalls)) return null
+  return props.thinkingLine ?? null
+})
+
 const items = computed(() =>
   collapsedToolListItems(props.toolCalls, {
     holdLiveSlot: props.runActive,
-    thinkingLine: props.thinkingLine
+    thinkingLine: effectiveThinkingLine.value
   })
 )
 
@@ -69,7 +77,7 @@ function itemKey(item: ToolCallListItem, index: number): string {
         :tools="item.tools"
         :live-tool="item.live"
         :force-live-slot="runActive && index === items.length - 1"
-        :thinking-line="runActive && index === items.length - 1 ? thinkingLine : null"
+        :thinking-line="runActive && index === items.length - 1 ? effectiveThinkingLine : null"
         :show-tool-call-results="showToolCallResults"
         :is-search-match="groupIsSearchMatch(item)"
         :is-active-search-match="groupIsActiveSearchMatch(item)"

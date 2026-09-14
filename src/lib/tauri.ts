@@ -676,6 +676,8 @@ export interface PlatformSessionView {
   logged_in: boolean
   expires_at?: number | null
   user_nickname?: string | null
+  /** Stable platform / local / SSO user id for per-user client prefs. */
+  userId?: string | null
   isPlatformAdmin?: boolean
   includedTokens?: number
   consumedTokens?: number

@@ -77,4 +77,8 @@ Memory files live only under `memories/{session_user_id}/` (or `_anonymous/`). T
 
 `save_conversation_meta` binds `session_user_id` when the platform session is logged in and the row is still empty (covers new sessions before the first message). `save_chat_attachment` requires login and binds before writing files, so attachments are not stored under `_anonymous/` after login.
 
+## Client UI prefs
+
+`PlatformSessionView.userId` exposes the same stable id to the web/desktop UI. Turn expand/collapse overrides (`src/lib/turnExpandState.ts`) key `localStorage` as `pointer.chat.turn-expand.v1::{userId}` so accounts on one browser do not share collapse state. Logout clears in-memory overrides only; each user's bucket remains for the next login.
+
 During agent runs, new-layout media paths are checked against the active `SESSION_USER_ID` when loading files. Legacy `{conversation_id}/…` and `_anonymous/…` paths remain readable.

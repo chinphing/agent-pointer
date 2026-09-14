@@ -6,7 +6,6 @@ use pointer_core::{
         create_local_auth_manager, empty_local_credentials, verify_local_password,
         warn_if_deprecated_admin_token_configured,
     },
-    platform_auth::PlatformSessionView,
     web_request_auth::WebSessionAuthKind,
 };
 use rand::Rng;
@@ -218,16 +217,7 @@ pub async fn local_login(
         .insert(auth.clone(), creds, WebSessionAuthKind::Local);
     crate::sync_automation_web_session(&state);
     log::info!("local_auth: admin login ok web_session={session_id}");
-    let mut resp = Json(PlatformSessionView {
-        logged_in: true,
-        expires_at: auth.session_view().expires_at,
-        user_nickname: auth.session_view().user_nickname,
-        is_platform_admin: true,
-        included_tokens: 0,
-        consumed_tokens: 0,
-        token_quota_exhausted: false,
-    })
-    .into_response();
+    let mut resp = Json(auth.session_view()).into_response();
     web_session::set_session_cookie(resp.headers_mut(), &session_id, crate::cookie_secure());
     Ok(resp)
 }

@@ -30,10 +30,20 @@ vi.mock('../../lib/api', async importOriginal => {
 
 import { useChatStore } from '../chat'
 import { emptyTaskBoardEntry } from './taskBoard'
+import {
+  clearAllTurnExpandUiState,
+  emptyTurnExpandUiState,
+  loadTurnExpandUiState,
+  resetTurnExpandUiStateForTests,
+  saveTurnExpandUiState,
+  setTurnExpandStorageScope
+} from '../../lib/turnExpandState'
 
 describe('chat deleteConversation cleanup', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    resetTurnExpandUiStateForTests()
+    setTurnExpandStorageScope('test-user')
     vi.clearAllMocks()
     loadProject.mockResolvedValue(null)
     deleteProject.mockResolvedValue(undefined)
@@ -68,5 +78,21 @@ describe('chat deleteConversation cleanup', () => {
     expect(store.taskBoards[doomed.id]).toBeUndefined()
     expect(deleteConversationApi).toHaveBeenCalledWith(doomed.id)
     expect(store.conversations.some(c => c.id === doomed.id)).toBe(false)
+  })
+
+  it('drops cached turn expand UI when a conversation is deleted', async () => {
+    const store = useChatStore()
+    const keep = store.newConversation()
+    const doomed = store.newConversation()
+    store.currentId = keep.id
+
+    const expand = emptyTurnExpandUiState()
+    expand.manuallyCollapsedTurnIds.add('turn-x')
+    saveTurnExpandUiState(doomed.id, expand)
+    expect(loadTurnExpandUiState(doomed.id).manuallyCollapsedTurnIds.has('turn-x')).toBe(true)
+
+    await store.deleteConversation(doomed.id)
+
+    expect(loadTurnExpandUiState(doomed.id).manuallyCollapsedTurnIds.size).toBe(0)
   })
 })

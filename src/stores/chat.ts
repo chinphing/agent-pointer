@@ -58,6 +58,10 @@ import {
 } from '../lib/chatDispatchHistory'
 import { hasActiveTurn, peekActiveTurn, recordTurnDone, recordTurnStart } from '../lib/turnElapsed'
 import {
+  clearAllTurnExpandUiState,
+  clearTurnExpandUiState
+} from '../lib/turnExpandState'
+import {
   clearStreamDeltaBuffers,
   flushStreamDeltaBuffers,
   setAssistantJsonPartialApplyHandler,
@@ -2835,6 +2839,8 @@ export const useChatStore = defineStore('chat', () => {
     } else {
       clearComposerDraft(id)
     }
+    // After currentId watch may have re-saved expand UI for this id — drop it.
+    clearTurnExpandUiState(id)
     // The deleted row is removed via deleteConversationApi above; remaining
     // conversations are unchanged. Only flush any other pending dirty metas.
     void flushPersistMeta()
@@ -3745,6 +3751,7 @@ export const useChatStore = defineStore('chat', () => {
     outboundQueues.value = {}
     taskBoards.value = {}
     scopedStore.clearAll()
+    clearAllTurnExpandUiState()
     newConversation()
   }
 

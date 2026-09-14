@@ -40,6 +40,11 @@ import {
 } from '../../lib/messageListLayout'
 import { shouldAutoExpandTurn, turnContains } from '../../lib/conversationTurns'
 import {
+  loadTurnExpandUiState,
+  saveTurnExpandUiState,
+  type TurnExpandUiState
+} from '../../lib/turnExpandState'
+import {
   activeTurnStartedAt,
   formatTurnElapsed,
   resolveTurnElapsedMs,
@@ -537,6 +542,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  const id = chat.currentId?.trim()
+  if (id) saveTurnExpandUiState(id, snapshotTurnExpandUiState())
   stopElapsedTicker()
   releaseNoOlderPull()
   document.removeEventListener('keydown', onNewConversationConfirmationKeydown)
@@ -1297,6 +1304,29 @@ const expandedTurnIds = ref<Set<string>>(new Set())
 const manuallyCollapsedTurnIds = ref<Set<string>>(new Set())
 const expandedChangeTurnIds = ref<Set<string>>(new Set())
 const collapsedChangeTurnIds = ref<Set<string>>(new Set())
+
+function snapshotTurnExpandUiState(): TurnExpandUiState {
+  return {
+    expandedTurnIds: expandedTurnIds.value,
+    manuallyCollapsedTurnIds: manuallyCollapsedTurnIds.value,
+    expandedChangeTurnIds: expandedChangeTurnIds.value,
+    collapsedChangeTurnIds: collapsedChangeTurnIds.value
+  }
+}
+
+function applyTurnExpandUiState(state: TurnExpandUiState): void {
+  expandedTurnIds.value = new Set(state.expandedTurnIds)
+  manuallyCollapsedTurnIds.value = new Set(state.manuallyCollapsedTurnIds)
+  expandedChangeTurnIds.value = new Set(state.expandedChangeTurnIds)
+  collapsedChangeTurnIds.value = new Set(state.collapsedChangeTurnIds)
+}
+
+/** Write-through so refresh keeps overrides without needing a conversation switch. */
+function persistTurnExpandUiState(): void {
+  const id = chat.currentId?.trim()
+  if (!id) return
+  saveTurnExpandUiState(id, snapshotTurnExpandUiState())
+}
 const leadTurnStarts = computed(() => {
   const list = pageWindowMessages.value
   if (!list.length) return []
@@ -1609,6 +1639,7 @@ function toggleChangeSummary(turnId: string) {
   }
   expandedChangeTurnIds.value = expanded
   collapsedChangeTurnIds.value = collapsed
+  persistTurnExpandUiState()
   void nextTick(() => resizeTurnRow(turnId))
 }
 
@@ -1624,6 +1655,7 @@ function toggleTurn(turnId: string) {
   }
   expandedTurnIds.value = expanded
   manuallyCollapsedTurnIds.value = collapsed
+  persistTurnExpandUiState()
   void nextTick(() => resizeTurnRow(turnId))
 }
 
@@ -1690,23 +1722,27 @@ function expandTurnContainingMessage(messageId: string): number {
       [...manuallyCollapsedTurnIds.value].filter(id => id !== turn.id)
     )
     expandedTurnIds.value = new Set(expandedTurnIds.value).add(turn.id)
+    persistTurnExpandUiState()
   }
   return idx
 }
 
-watch(() => chat.currentId, () => {
-  layoutCacheHold = null
-  expandedTurnIds.value = new Set()
-  manuallyCollapsedTurnIds.value = new Set()
-  expandedChangeTurnIds.value = new Set()
-  collapsedChangeTurnIds.value = new Set()
-  frozenFileChangesCache = null
-  activeFileChangesCache = { turnId: '', settleKey: '', files: [], mergedToolIds: new Set() }
-  mergedTurnFileChangesCache = null
-  clearTurnFileHydrateState()
-  activeBoardInlineScrollTop.value = null
-  activeBoardIsSticky.value = false
-})
+watch(
+  () => chat.currentId,
+  (id, prev) => {
+    layoutCacheHold = null
+    // Preserve expand / collapse across conversation switches (session memory).
+    if (prev?.trim()) saveTurnExpandUiState(prev, snapshotTurnExpandUiState())
+    applyTurnExpandUiState(loadTurnExpandUiState(id))
+    frozenFileChangesCache = null
+    activeFileChangesCache = { turnId: '', settleKey: '', files: [], mergedToolIds: new Set() }
+    mergedTurnFileChangesCache = null
+    clearTurnFileHydrateState()
+    activeBoardInlineScrollTop.value = null
+    activeBoardIsSticky.value = false
+  },
+  { immediate: true }
+)
 
 watch(
   () => activeBoard.value?.storeKey ?? null,

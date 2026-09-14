@@ -228,6 +228,10 @@ pub struct PlatformSessionView {
     pub logged_in: bool,
     pub expires_at: Option<i64>,
     pub user_nickname: Option<String>,
+    /// Stable platform / local / SSO user id (`session_user_id` source).
+    /// Used by the client for per-user UI prefs (e.g. turn expand localStorage).
+    #[serde(default, rename = "userId", alias = "user_id")]
+    pub user_id: Option<String>,
     #[serde(default, rename = "isPlatformAdmin")]
     pub is_platform_admin: bool,
     #[serde(default, rename = "includedTokens")]
@@ -291,15 +295,24 @@ impl PlatformAuthManager {
     pub fn session_view(&self) -> PlatformSessionView {
         let g = self.inner.read();
         match g.as_ref() {
-            Some(s) => PlatformSessionView {
-                logged_in: !s.access_token.is_empty() && !Self::is_expired(s.expires_at),
-                expires_at: Some(s.expires_at),
-                user_nickname: s.user.nickname.clone(),
-                is_platform_admin: s.user.is_platform_admin,
-                included_tokens: s.user.included_tokens,
-                consumed_tokens: s.user.consumed_tokens,
-                token_quota_exhausted: s.user.token_quota_exhausted,
-            },
+            Some(s) => {
+                let logged_in = !s.access_token.is_empty() && !Self::is_expired(s.expires_at);
+                let user_id = s.user.id.trim();
+                PlatformSessionView {
+                    logged_in,
+                    expires_at: Some(s.expires_at),
+                    user_nickname: s.user.nickname.clone(),
+                    user_id: if logged_in && !user_id.is_empty() {
+                        Some(user_id.to_string())
+                    } else {
+                        None
+                    },
+                    is_platform_admin: s.user.is_platform_admin,
+                    included_tokens: s.user.included_tokens,
+                    consumed_tokens: s.user.consumed_tokens,
+                    token_quota_exhausted: s.user.token_quota_exhausted,
+                }
+            }
             None => PlatformSessionView::default(),
         }
     }

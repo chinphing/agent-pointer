@@ -30,6 +30,23 @@
 
 切回仍在生成的会话时：先 `reconcileRunStateForConversation`（从 in-flight 工具 / streaming 行恢复 `generating`），再决定是否 `normalizeInterrupted`。顺序反了会把进行中工具打成终态，首屏出现「工作」耗时条且缺少当前工具行，直到下一次 tool_call 才刷新。
 
+## 展开 / 收起状态（跨会话切换与刷新）
+
+`MessageList` 只持久化**用户显式覆盖**：`expandedTurnIds` / `manuallyCollapsedTurnIds`（以及变更摘要的展开/收起覆盖）。隐式行为（`shouldAutoExpandTurn`、变更摘要条数启发式）不入库，刷新后按规则重算。
+
+| 场景 | 行为 |
+|------|------|
+| 切会话再切回 | 恢复该会话的覆盖态 |
+| 刷新 / 重开应用 | 同左（`localStorage` 按登录用户分桶） |
+| 切换账号 | 内存清空；各账号磁盘桶互不共享；再登录恢复自己的桶 |
+| 登出 | 仅清内存并回到 `anon` 桶，**不**删各账号已存偏好 |
+| 删除会话 | 清当前用户桶内该会话条目 |
+| 「默认收缩执行过程」开关 | 不改覆盖集；只改变 `turnIsExpanded` 是否叠加自动展开 |
+
+实现：`src/lib/turnExpandState.ts`（`pointer.chat.turn-expand.v1::{userId}`；session 的 `userId` 来自 `PlatformSessionView`）。旧无用户 key 会一次性迁入当前用户桶。`MessageList` 在 toggle / 定位展开 / 切 `currentId` / unmount 时写入。
+
+注意：硬杀进程且从未触发写入时仍可能丢最后一次点击；正常点击已即时落盘。
+
 ## 计时口径
 
 | 来源 | 含义 |
@@ -64,6 +81,7 @@
 ## 实现位置
 
 - `src/lib/turnElapsed.ts`
+- `src/lib/turnExpandState.ts`（按会话缓存展开 / 收起，localStorage）
 - `src/lib/conversationTurns.ts`（`collapseActiveTurns`）
 - `src/lib/messageListLayout.ts`
 - `src/stores/chat.ts`（`dispatchChatTurn` / `drainOutboundQueue` / `interruptActiveTurn`）

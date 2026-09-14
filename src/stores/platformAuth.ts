@@ -7,6 +7,7 @@ import {
   mapLoginGateError,
   type LoginRequiredPurpose
 } from '../lib/platformAuthMessages'
+import { setTurnExpandStorageScope } from '../lib/turnExpandState'
 import { isTauriRuntime } from '../lib/runtime'
 import { useSettingsStore } from './settings'
 
@@ -17,6 +18,8 @@ export interface PlatformSessionView {
   logged_in: boolean
   expires_at?: number | null
   user_nickname?: string | null
+  /** Stable platform / local / SSO user id for per-user client prefs. */
+  userId?: string | null
   isPlatformAdmin?: boolean
   includedTokens?: number
   consumedTokens?: number
@@ -199,6 +202,15 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     loggedIn => {
       if (loggedIn) error.value = null
     }
+  )
+
+  // Isolate turn expand/collapse prefs per platform user (localStorage buckets).
+  watch(
+    () => (session.value.logged_in ? session.value.userId?.trim() || null : null),
+    userId => {
+      setTurnExpandStorageScope(userId)
+    },
+    { immediate: true }
   )
 
   async function loadAuthMode() {

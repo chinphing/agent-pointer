@@ -5,7 +5,8 @@ import { useChatStore } from '../../stores/chat'
 import {
   compactToolCallLiveText,
   compactToolCallStatusLine,
-  formatCollapsedToolGroupLine
+  formatCollapsedToolGroupLine,
+  resolveCollapsedGroupLiveTool
 } from '../../lib/toolCallDisplay'
 import CollapsedRunHeader from './CollapsedRunHeader.vue'
 import ToolCallRow from './ToolCallRow.vue'
@@ -31,29 +32,44 @@ watch(
   { immediate: true }
 )
 
+/** Done tools + partitioned live (or mid-group in-progress for parallel runs). */
+const effectiveLiveTool = computed(() =>
+  resolveCollapsedGroupLiveTool(props.tools, props.liveTool)
+)
+
+const summaryTools = computed(() => {
+  const live = effectiveLiveTool.value
+  if (!live) return props.tools
+  if (props.tools.some(tc => tc.id === live.id)) return props.tools
+  return [...props.tools, live]
+})
+
 const summaryLine = computed(() => {
-  const groupLine = formatCollapsedToolGroupLine(props.tools, chat.current?.workspaceRoot)
+  const groupLine = formatCollapsedToolGroupLine(
+    summaryTools.value,
+    chat.current?.workspaceRoot
+  )
   if (groupLine) return groupLine
   // Empty live group (first-round / post-ask_user gap): keep summary blank and
   // put「思考中」on the live slot so it matches mid-run tool gaps.
   if (props.tools.length === 0) return ''
-  if (!props.liveTool && props.thinkingLine?.trim()) return props.thinkingLine.trim()
+  if (!effectiveLiveTool.value && props.thinkingLine?.trim()) return props.thinkingLine.trim()
   return ''
 })
 
 const liveLine = computed(() => {
-  if (props.liveTool) {
-    return compactToolCallLiveText(props.liveTool, chat.current?.workspaceRoot)
+  if (effectiveLiveTool.value) {
+    return compactToolCallLiveText(effectiveLiveTool.value, chat.current?.workspaceRoot)
   }
   return props.thinkingLine?.trim() || null
 })
 
-const liveToolName = computed(() => props.liveTool?.name ?? null)
+const liveToolName = computed(() => effectiveLiveTool.value?.name ?? null)
 
 const headerAriaLabel = computed(() => {
   if (summaryLine.value.trim()) return summaryLine.value
-  if (props.liveTool) {
-    return compactToolCallStatusLine(props.liveTool, chat.current?.workspaceRoot, {
+  if (effectiveLiveTool.value) {
+    return compactToolCallStatusLine(effectiveLiveTool.value, chat.current?.workspaceRoot, {
       includeStatus: false
     })
   }
@@ -61,15 +77,15 @@ const headerAriaLabel = computed(() => {
 })
 
 const liveKey = computed(() => {
-  if (props.liveTool) return props.liveTool.id
+  if (effectiveLiveTool.value) return effectiveLiveTool.value.id
   if (props.thinkingLine?.trim()) return 'thinking'
   return null
 })
 
 const expandedTools = computed(() => {
-  if (!props.liveTool) return props.tools
-  if (props.tools.some(tc => tc.id === props.liveTool?.id)) return props.tools
-  return [...props.tools, props.liveTool]
+  if (!effectiveLiveTool.value) return props.tools
+  if (props.tools.some(tc => tc.id === effectiveLiveTool.value?.id)) return props.tools
+  return [...props.tools, effectiveLiveTool.value]
 })
 
 function toggleExpanded() {
@@ -95,7 +111,7 @@ function toggleExpanded() {
       :expanded="expanded"
       :force-live-slot="!expanded && forceLiveSlot"
       :show-chevron="expandedTools.length > 0"
-      :live-busy="liveTool?.status === 'running'"
+      :live-busy="effectiveLiveTool?.status === 'running'"
       :aria-label="headerAriaLabel"
       @toggle="toggleExpanded"
     />

@@ -912,18 +912,27 @@ export function collapsedLiveRunItemKey(
   return item.tool.id
 }
 
-/** Collapsed group line: live tool one-liner, else Cursor-style counts. */
+/** Collapsed group line: Cursor-style activity counts (never a single live tool title). */
 export function formatCollapsedToolGroupLine(
   tools: ToolCall[],
-  workspaceRoot?: string
+  _workspaceRoot?: string
 ): string {
   if (tools.length === 0) return ''
-  const latest = latestToolCallForCompactStatus(tools)
-  if (latest && isInProgress(latest.status)) {
-    return compactToolCallStatusLine(latest, workspaceRoot)
-  }
   const summary = formatToolGroupSummary(buildToolGroupStats(tools))
   return summary || `工具 ${tools.length} 次`
+}
+
+/** Prefer the partitioned live tool; else any in-progress tool (parallel finish order). */
+export function resolveCollapsedGroupLiveTool(
+  tools: ToolCall[],
+  liveTool?: ToolCall | null
+): ToolCall | null {
+  if (liveTool) return liveTool
+  for (let i = tools.length - 1; i >= 0; i -= 1) {
+    const tc = tools[i]!
+    if (isInProgress(resolveBackgroundHostDisplayStatus(tc))) return tc
+  }
+  return null
 }
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCall } from '../types/chat'
-import { buildFileChangeSummaries, backgroundJobIdFromToolCall, collapsedLiveRunItemKey, collapsedToolListItems, compactToolCallLiveText, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, formatCollapsedToolGroupLine, formatToolDurationLabel, isBackgroundJobHandleResult, isBackgroundSubagentCall, isJobAwaitCall, latestToolCallForCompactStatus, partitionCollapsedToolCalls, resolveBackgroundHostDisplayStatus, resolveToolDisplayForCall, shouldPinSubAgentHostRow, truncatePathKeepEnd, workspaceRelativeDisplayPath, workspaceRelativeDisplayPathWithFallbacks } from './toolCallDisplay'
+import { buildFileChangeSummaries, backgroundJobIdFromToolCall, collapsedLiveRunItemKey, collapsedToolListItems, compactToolCallLiveText, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, formatCollapsedToolGroupLine, formatToolDurationLabel, isBackgroundJobHandleResult, isBackgroundSubagentCall, isJobAwaitCall, latestToolCallForCompactStatus, partitionCollapsedToolCalls, resolveBackgroundHostDisplayStatus, resolveCollapsedGroupLiveTool, resolveToolDisplayForCall, shouldPinSubAgentHostRow, truncatePathKeepEnd, workspaceRelativeDisplayPath, workspaceRelativeDisplayPathWithFallbacks } from './toolCallDisplay'
 
 function tc(partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name' | 'status'>): ToolCall {
   return {
@@ -825,5 +825,40 @@ describe('formatCollapsedToolGroupLine', () => {
       tc({ id: '2', name: 'media_understand', status: 'success' })
     ])
     expect(line).toBe('理解 2 次')
+  })
+
+  it('keeps activity counts while a tool is still running', () => {
+    const line = formatCollapsedToolGroupLine([
+      tc({ id: '1', name: 'web_search', status: 'failed', displaySummary: '旧查询' }),
+      tc({ id: '2', name: 'web_search', status: 'success', displaySummary: '已完成' }),
+      tc({
+        id: '3',
+        name: 'web_search',
+        status: 'running',
+        displayLabel: '联网搜索',
+        displaySummary: '招标投标法实施条例 最新修订'
+      }),
+      tc({ id: '4', name: 'web_search', status: 'success', displaySummary: '另一次' })
+    ])
+    expect(line).toBe('探索 4 次搜索')
+    expect(line).not.toContain('招标投标法')
+    expect(line).not.toContain('执行中')
+  })
+})
+
+describe('resolveCollapsedGroupLiveTool', () => {
+  it('prefers the partitioned live tool', () => {
+    const live = tc({ id: 'live', name: 'web_search', status: 'running' })
+    const done = tc({ id: 'done', name: 'web_search', status: 'success' })
+    expect(resolveCollapsedGroupLiveTool([done], live)?.id).toBe('live')
+  })
+
+  it('finds mid-group in-progress when parallel tools finish out of order', () => {
+    const tools = [
+      tc({ id: '1', name: 'web_search', status: 'failed' }),
+      tc({ id: '2', name: 'web_search', status: 'running', displaySummary: '进行中查询' }),
+      tc({ id: '3', name: 'web_search', status: 'success' })
+    ]
+    expect(resolveCollapsedGroupLiveTool(tools, null)?.id).toBe('2')
   })
 })

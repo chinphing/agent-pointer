@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { FileText, Image as ImageIcon, Mic, Video, X } from 'lucide-vue-next'
+import { Image as ImageIcon, Mic, Video, X } from 'lucide-vue-next'
 import type { ComposerAttachment } from '../../types/chat'
 import { getComposerAttachmentPreviewUrl } from '../../lib/attachmentPayloadStore'
 import { videoPreviewUrlFromLocalPath, resolveVideoPreviewUrl } from '../../lib/chatMediaPreview'
+import AttachmentFileIcon from './AttachmentFileIcon.vue'
 
 const props = defineProps<{
   attachment: ComposerAttachment
@@ -124,7 +125,11 @@ const canRetryUpload = computed(() => props.attachment.uploadState === 'error')
         />
       </div>
       <Video v-else-if="attachment.kind === 'video'" class="h-4 w-4 shrink-0 text-muted" />
-      <FileText v-else class="h-4 w-4 shrink-0 text-muted" />
+      <AttachmentFileIcon
+        v-else
+        :file-name="attachment.fileName"
+        :mime-type="attachment.mimeType"
+      />
       <span
         v-if="attachment.kind !== 'audio'"
         class="min-w-0 truncate"

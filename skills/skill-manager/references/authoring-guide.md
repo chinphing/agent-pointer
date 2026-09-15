@@ -159,7 +159,7 @@ report-pack/
 
 | Goal | Location | How |
 |------|----------|-----|
-| User / agent-created Skill | `~/.pointer/skills/{name}/` | Install: `skill_import` (general). **Create/update: coder only** — non-coder must `run_subagent(coder)` |
+| User / agent-created Skill | `~/.pointer/skills/{name}/` | Create/update: coder. Enable: general `skill_import` |
 | Codex-compatible Skill | `~/.agents/skills/{name}/` | Read-only load; `skill_import` to copy into the user library |
 
 Do not put Pointer runtime Skills under workspace `skills/`.
@@ -199,3 +199,4 @@ Before finalizing:
 - [ ] Script invocations use `{baseDir}/scripts/...`
 - [ ] No `README.md` inside the Skill directory
 - [ ] No secrets, credentials, private data, or unsafe instructions
+- [ ] New skills: lead `skill_import` succeeded (`imported`) or Settings enable

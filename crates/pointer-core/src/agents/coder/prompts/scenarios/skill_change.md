@@ -33,3 +33,4 @@ Script invocations in prompts use `{baseDir}/scripts/...`.
 **Deliver:** list prompt paths changed, script paths changed, and any
 N/A side with reason. Do not claim "skill updated" after editing only one
 surface unless the other was explicitly N/A.
+New skill: hand the directory path back to the lead for **`skill_import`**.

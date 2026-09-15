@@ -189,6 +189,8 @@ Unverified assumptions (optional).
   Do **not** start a repo-wide scout on the lead thread.
 - Loading / installing skills is **not** a coder task —
   use **`skill_read`** / **`skill_import`** when those tools are granted.
+  After coder **creates** a user skill, the lead still **`skill_import`s**
+  it (`auto_enable` true).
 - When delegating: next tool must be **`run_subagent`** — no repo scout via
   **`terminal`** (`cat` / `grep` / `find`).
 - User questions and facts → **`context`**; worker maps (**`explore`**), edits, tests.

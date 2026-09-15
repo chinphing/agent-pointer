@@ -143,7 +143,7 @@ Details: `references/authoring-guide.md`.
 
 | Goal | Location | How |
 |------|----------|-----|
-| User / agent-authored Skill | `~/.pointer/skills/{name}/` | **Create/update: coder only** (`file_*`). Non-coder → `run_subagent(coder)`. Install zip/dir: `skill_import` (general) |
+| User / agent-authored Skill | `~/.pointer/skills/{name}/` | **Create/update: coder only** (`file_*`). Non-coder → `run_subagent(coder)`. **Enable: general `skill_import`** |
 | Codex-compatible (read-only load) | `~/.agents/skills/{name}/` | Auto-loaded; copy with `skill_import` if an editable user copy is needed |
 
 Do not place Pointer runtime Skills under workspace `skills/`
@@ -227,12 +227,18 @@ Skip this step unless you are the coder agent.
 - After frontmatter `description` changes, note that catalog refresh
   may be needed for the updated summary to appear in the index
 
-### 5. Install / package
+### 5. Install / package / enable
 
-- Install from zip or directory: general lead uses `skill_import`
-  (install only — not a substitute for coder create/update)
-- Coder does not use `skill_import`
-- Export / zip packaging file work: coder (or non-coder → `run_subagent(coder)`)
+Installed = the id is in the lead enable list (`<available_skills>`).
+`skill_read` working only means files exist.
+
+- **Coder** writes files. Do not use `skill_import`.
+- **General lead** calls `skill_import` (`auto_enable` true) on the
+  skill directory or a zip of it, then confirms `imported` lists the skill.
+  Skip / empty `imported` is not done — re-import or enable in Settings.
+
+Zip/dir from outside the library: same `skill_import` path (not a
+substitute for coder edits). Export/zip packaging: coder.
 
 ### 6. Review
 

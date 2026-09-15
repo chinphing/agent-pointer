@@ -365,7 +365,10 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
         return Err(anyhow!("zip 中未找到 SKILL.md 或 skill.md"));
     }
 
-    let mut loaded = loaded_skill_ids();
+    // Re-import replaces the user-library copy (same as directory import).
+    // Skipping "already loaded" ids used to swallow auto_enable: the tool
+    // returned skipped-only, dispatch never wrote agentSkillOverrides.
+    let mut seen_in_zip = HashSet::new();
     let mut imported = Vec::new();
     let mut skipped = Vec::new();
 
@@ -380,13 +383,17 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
             continue;
         }
 
-        if loaded.contains(&manifest.name) {
-            skipped.push(format!("{}: 已存在", manifest.name));
+        if !seen_in_zip.insert(manifest.name.clone()) {
+            skipped.push(format!("{}: zip 中重复", manifest.name));
             continue;
         }
 
         let target = root.join(manifest.name.trim());
         if target.exists() {
+            log::info!(
+                "skill_import: replacing existing user-library skill {}",
+                target.display()
+            );
             fs::remove_dir_all(&target)?;
         }
         fs::create_dir_all(&target)?;
@@ -395,7 +402,6 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
         match manifest_to_skill(manifest, &target) {
             Ok(skill) => {
                 super::provenance::mark_agent_created(&skill.id, Some("zip"));
-                loaded.insert(skill.id.clone());
                 imported.push(skill);
             }
             Err(err) => {
@@ -406,14 +412,6 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
     }
 
     Ok(SkillImportResult { imported, skipped })
-}
-
-fn loaded_skill_ids() -> HashSet<String> {
-    load_external_skills()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|s| s.id)
-        .collect()
 }
 
 fn import_skill_zip_file(path: &Path) -> Result<SkillImportResult> {
@@ -819,6 +817,8 @@ fn safe_join(root: &Path, rel: &Path) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::Path;
 
     fn parse(raw: &str) -> SkillManifest {
         parse_skill_md(raw).unwrap()
@@ -1042,52 +1042,116 @@ mod tests {
         assert!(dst.join("SKILL.md").is_file());
     }
 
-    #[test]
-    fn import_skill_zip_extracts_whole_skill_directory() {
-        use std::fs;
-        use std::io::Write;
+    fn with_temp_home<T>(f: impl FnOnce(&Path) -> T) -> T {
         use std::sync::{Mutex, OnceLock};
-        use zip::write::{SimpleFileOptions, ZipWriter};
-        use zip::CompressionMethod;
 
         static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         let _guard = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
-
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path();
-        let manifest = "---\nname: zip-pack\ndescription: Zip import demo.\n---\nBody\n";
-        let mut zip_bytes = Vec::new();
-        {
-            let mut zip = ZipWriter::new(Cursor::new(&mut zip_bytes));
-            let options =
-                SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
-            for (name, content) in [
-                ("./zip-pack/SKILL.md", manifest.as_bytes()),
-                ("zip-pack/scripts/helper.py", b"print('hi')\n"),
-                ("zip-pack/assets/icon.svg", b"<svg/>"),
-            ] {
-                zip.start_file(name, options).unwrap();
-                zip.write_all(content).unwrap();
-            }
-            zip.finish().unwrap();
-        }
-
         let prev_home = std::env::var("HOME").ok();
+        let prev_profile = std::env::var("USERPROFILE").ok();
         std::env::set_var("HOME", home);
-        let result = import_skill_zip(&zip_bytes).expect("import zip");
-        let target = home.join(".pointer/skills/zip-pack");
+        std::env::set_var("USERPROFILE", home);
+        let out = f(home);
         if let Some(h) = prev_home {
             std::env::set_var("HOME", h);
         } else {
             std::env::remove_var("HOME");
         }
+        if let Some(p) = prev_profile {
+            std::env::set_var("USERPROFILE", p);
+        } else {
+            std::env::remove_var("USERPROFILE");
+        }
+        out
+    }
 
-        assert_eq!(result.imported.len(), 1);
-        assert_eq!(result.imported[0].id, "zip-pack");
-        assert!(target.join("scripts/helper.py").is_file());
-        assert!(target.join("assets/icon.svg").is_file());
-        let script = fs::read_to_string(target.join("scripts/helper.py")).unwrap();
-        assert!(script.contains("print('hi')"));
+    fn zip_skill_bytes(name: &str, body: &str, extra: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::Write;
+        use zip::write::{SimpleFileOptions, ZipWriter};
+        use zip::CompressionMethod;
+
+        let manifest = format!("---\nname: {name}\ndescription: Zip import demo.\n---\n{body}\n");
+        let mut zip_bytes = Vec::new();
+        {
+            let mut zip = ZipWriter::new(Cursor::new(&mut zip_bytes));
+            let options =
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+            zip.start_file(format!("{name}/SKILL.md"), options).unwrap();
+            zip.write_all(manifest.as_bytes()).unwrap();
+            for (rel, content) in extra {
+                zip.start_file(format!("{name}/{rel}"), options).unwrap();
+                zip.write_all(content).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        zip_bytes
+    }
+
+    #[test]
+    fn import_skill_zip_extracts_whole_skill_directory() {
+        let zip_bytes = zip_skill_bytes(
+            "zip-pack",
+            "Body",
+            &[
+                ("scripts/helper.py", b"print('hi')\n"),
+                ("assets/icon.svg", b"<svg/>"),
+            ],
+        );
+        with_temp_home(|home| {
+            let result = import_skill_zip(&zip_bytes).expect("import zip");
+            let target = home.join(".pointer/skills/zip-pack");
+            assert_eq!(result.imported.len(), 1);
+            assert_eq!(result.imported[0].id, "zip-pack");
+            assert!(target.join("scripts/helper.py").is_file());
+            assert!(target.join("assets/icon.svg").is_file());
+            let script = fs::read_to_string(target.join("scripts/helper.py")).unwrap();
+            assert!(script.contains("print('hi')"));
+        });
+    }
+
+    #[test]
+    fn import_skill_zip_reimport_replaces_and_counts_as_imported() {
+        let first = zip_skill_bytes("zip-pack", "v1", &[("note.txt", b"old")]);
+        let second = zip_skill_bytes("zip-pack", "v2", &[("note.txt", b"new")]);
+        with_temp_home(|home| {
+            let first_result = import_skill_zip(&first).expect("first import");
+            let second_result = import_skill_zip(&second).expect("re-import");
+            let note = fs::read_to_string(home.join(".pointer/skills/zip-pack/note.txt"))
+                .expect("replaced file");
+            assert_eq!(first_result.imported.len(), 1);
+            assert!(first_result.skipped.is_empty());
+            assert_eq!(second_result.imported.len(), 1);
+            assert_eq!(second_result.imported[0].id, "zip-pack");
+            assert!(
+                second_result.skipped.is_empty(),
+                "re-import must not skip already-on-disk ids (auto_enable reads imported): {:?}",
+                second_result.skipped
+            );
+            assert_eq!(note, "new");
+        });
+    }
+
+    #[test]
+    fn import_skill_dir_already_in_user_library_counts_as_imported() {
+        with_temp_home(|home| {
+            let dir = home.join(".pointer/skills/direct-pack");
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(
+                dir.join("SKILL.md"),
+                "---\nname: direct-pack\ndescription: Already on disk.\n---\nBody\n",
+            )
+            .unwrap();
+            let result = import_skill_path(&dir).expect("import existing library dir");
+            assert_eq!(result.imported.len(), 1);
+            assert_eq!(result.imported[0].id, "direct-pack");
+            assert!(
+                result.skipped.is_empty(),
+                "same-path library dir must count as imported so auto_enable can run: {:?}",
+                result.skipped
+            );
+        });
     }
 
     #[test]

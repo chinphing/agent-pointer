@@ -48,6 +48,15 @@
 
 `Conversation.skillIds` 为历史字段，**不再**作为启用状态来源。
 
+## 磁盘有 ≠ 已启用
+
+| 层 | 位置 | 作用 | 谁写入 |
+|----|------|------|--------|
+| 文件 | `~/.pointer/skills/{name}/` | `skill_read` 按磁盘解析（不看启用清单） | coder `file_*`，或 `skill_import` |
+| 启用清单 | `agentSkillOverrides[leadId]` | 进入 `<available_skills>`、自动匹配 | `skill_import(auto_enable)` 或设置页勾选 |
+
+两层都要有才会被自动匹配。zip 重导入会覆盖用户库副本并计入 `imported`。override 不做存在性校验，未安装的 id 在索引里标「未安装」。
+
 ## 运行时解析（唯一链路）
 
 ```

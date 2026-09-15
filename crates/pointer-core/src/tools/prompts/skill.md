@@ -51,7 +51,8 @@ Delegate with **`run_subagent(agentId="coder")`** — when-to / **`workspaceRoot
 Skill root is typically `~/.pointer/skills/{skill-name}/` (or `~/.pointer/skills/`
 when creating). The **coder** worker applies edits (prefer small patches;
 avoid whole-file overwrites of **`SKILL.md`**) and may use **`skill-manager`**.
-**Install only:** user-supplied zip or directory → **`skill_import`** (general lead).
+**Install only:** user-supplied zip or directory, or a skill coder just wrote
+under the user library → **`skill_import`** (general lead).
 
 #### Tools
 
@@ -66,9 +67,11 @@ avoid whole-file overwrites of **`SKILL.md`**) and may use **`skill-manager`**.
 - Use after downloading or cloning a Skill package to disk.
 - `path` may be a `.zip` file, a single Skill directory (contains `SKILL.md`), or a parent directory of multiple Skill folders.
 - Paths may be absolute or relative to the workspace root.
-- Set `auto_enable` to `true` (default) so imported skills are available immediately.
+- Set `auto_enable` to `true` (default) so imported skills join the lead
+  enable list and **`<available_skills>`**.
 - May require user approval.
-- Re-importing an existing skill id replaces the whole skill directory.
+- Re-import **replaces** the user-library copy and still auto-enables.
+  Empty `imported` / skip is not done.
 
 Example:
 

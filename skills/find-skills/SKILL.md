@@ -119,6 +119,7 @@ npx skills add <owner/repo@skill> -g -y
 ```
 
 The `-g` flag installs globally (user-level) and `-y` skips confirmation prompts.
+Then **`skill_import`** (`auto_enable` true), or the user enables it in Settings.
 
 ## GitHub Download Fallback (Mainland China)
 
@@ -180,9 +181,7 @@ git config --global --unset url.https://ghproxy.net/https://github.com/.insteadO
 3. If one mirror fails, try the next row in the table before giving up.
 4. Download and extract the skill folder (or the subdirectory named in
    `owner/repo@skill`).
-5. Install with **`skill_import`** (zip or local directory) into the app
-   skills library, or copy into a discovered skills path such as
-   `~/.agents/skills/<skill-name>/` with a valid `SKILL.md`.
+5. Install with **`skill_import`** (zip or local directory, `auto_enable` true).
 
 ### Step 3: Tell the user what changed
 

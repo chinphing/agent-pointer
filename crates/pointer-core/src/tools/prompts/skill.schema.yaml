@@ -22,6 +22,6 @@ skill_import:
       description: Path to a .zip file or skill directory (absolute or workspace-relative).
     auto_enable:
       type: boolean
-      description: Enable imported skills for the current conversation. Defaults to true.
+      description: Enable imported skills on the current lead. Defaults to true.
   required: [path]
   additionalProperties: false

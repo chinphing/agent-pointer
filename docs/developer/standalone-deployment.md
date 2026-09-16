@@ -336,6 +336,9 @@ skills_dir = "skills"
 # SSE 首帧 padding 注释帧（穿透缓冲型防火墙；默认关闭）
 # sse_padding_enabled = false   # env POINTER_SERVER_SSE_PADDING_ENABLED
 # sse_padding_bytes = 10240    # env POINTER_SERVER_SSE_PADDING_BYTES
+
+# Browser CORS（默认关闭，仅同源）。桌面客户端走 IPC，不受影响。
+# cors_origins = ["http://localhost:1420"]   # env POINTER_SERVER_CORS_ORIGINS
 ```
 
 ### `[server]` Web 品牌 / 文案参数
@@ -351,8 +354,22 @@ skills_dir = "skills"
 | `app_data_dir` | `POINTER_APP_DATA_DIR` | 运行时数据根目录 | OS 默认（与桌面 `PointerApp` 同源规则） |
 | `sse_padding_enabled` | `POINTER_SERVER_SSE_PADDING_ENABLED` | SSE 首帧 padding | `false` |
 | `sse_padding_bytes` | `POINTER_SERVER_SSE_PADDING_BYTES` | padding 字节数 | `10240` |
+| `cors_origins` | `POINTER_SERVER_CORS_ORIGINS` | 浏览器 CORS 允许的 Origin | 关闭（仅同源） |
 
 行为与前端约定见 [`../ui/web-branding-welcome-elapsed.md`](../ui/web-branding-welcome-elapsed.md)。本地 Vite 联调可用同名 `VITE_*` 覆盖 meta（空 `VITE_WEB_API_BASE` 走 `/api` 同源代理，避免跨站丢 cookie）。
+
+### CORS
+
+默认**关闭**：不挂 CORS 层，只服务同源浏览器请求。桌面客户端走 Tauri IPC，不受影响；pointer-server 同时托管静态 UI 时也是同源，无需开启。
+
+| 配置 | 行为 |
+|------|------|
+| 省略 / 空 | 关闭 CORS |
+| `cors_origins = ["*"]` 或 `POINTER_SERVER_CORS_ORIGINS=*` | 镜像任意 `Origin`，并允许带 cookie |
+| `cors_origins = ["http://localhost:1420"]` | 精确白名单（`localhost` 与 `127.0.0.1` 不是同一个 Origin） |
+| `"*"` 与具体 Origin 混写 | 启动失败 |
+
+本地 `web:dev` 默认同源（Vite 把 `/api` 代理到 8787）。若前端仍直连 `http://127.0.0.1:8787`，需要打开 CORS。前后端分离部署（静态页与 API 不同源）同样需要配置允许的 Origin。
 
 ---
 

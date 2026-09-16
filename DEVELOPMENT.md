@@ -124,28 +124,13 @@ npm run server:dev
 npm run web:dev
 ```
 
-默认 Web API 地址：
+默认同源：`WEB_API_BASE` 为空，Vite 把 `/api` 代理到 `127.0.0.1:8787`（需先起 `server:dev`）。pointer-server CORS 默认关闭；`tauri:dev` 不启该代理（桌面走 IPC）。
 
-```text
-http://127.0.0.1:8787
-```
-
-如需修改前端访问地址，可设置：
+若前端直连 API（跨源），需同时打开 CORS：
 
 ```bash
+POINTER_SERVER_CORS_ORIGINS=* npm run server:dev
 VITE_WEB_API_BASE=http://127.0.0.1:8787 npm run web:dev
-```
-
-同域 Cookie（`localhost:1420` 登录不丢 session）时用空 base，Vite 才会把 `/api` 代理到 8787（需先起 `server:dev`）；`tauri:dev` 默认不开该代理：
-
-```bash
-VITE_WEB_API_BASE= npm run web:dev
-```
-
-Windows PowerShell：
-
-```powershell
-$env:VITE_WEB_API_BASE="http://127.0.0.1:8787"; npm run web:dev
 ```
 
 ## 单独调试前端

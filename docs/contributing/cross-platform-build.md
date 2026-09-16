@@ -122,9 +122,11 @@ npm run tauri:dev
 
 打开 DevTools：`Ctrl + Shift + I`
 
-设置 Web 前端 API 地址（PowerShell）：
+Web 前端默认同源（Vite `/api` 代理到 8787）。跨源时再设 API 地址并打开 CORS（PowerShell）：
 
 ```powershell
+$env:POINTER_SERVER_CORS_ORIGINS="*"; npm run server:dev
+# 另开终端：
 $env:VITE_WEB_API_BASE="http://127.0.0.1:8787"; npm run web:dev
 ```
 
@@ -414,11 +416,13 @@ npm run web:dev
 # 默认 http://0.0.0.0:1420
 ```
 
-可选环境变量：
+`web:dev` 默认同源（Vite `/api` → `127.0.0.1:8787`）；pointer-server CORS 默认关闭。可选：
 
 ```bash
-VITE_WEB_API_BASE=http://127.0.0.1:8787 npm run web:dev
 POINTER_SERVER_ADDR=0.0.0.0:8787 npm run server:dev
+# 跨源时再开：
+# POINTER_SERVER_CORS_ORIGINS=* npm run server:dev
+# VITE_WEB_API_BASE=http://127.0.0.1:8787 npm run web:dev
 ```
 
 ### 生产构建（示意）
@@ -429,6 +433,7 @@ POINTER_SERVER_ADDR=0.0.0.0:8787 npm run server:dev
 npm run build                              # Vue → dist/
 cargo build -p pointer-server --release    # target/release/pointer-server
 # 静态页由 Nginx 等托管；构建时可设 VITE_WEB_API_BASE=https://api.example.com
+# 并在 pointer-server 配置 cors_origins（默认关闭 CORS）
 ```
 
 **前后端一体化**（推荐：单进程同时提供 API + Web UI）：

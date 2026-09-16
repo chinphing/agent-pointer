@@ -4,10 +4,22 @@ import path from 'node:path'
 
 const host = process.env.TAURI_DEV_HOST
 
-/** Same-origin `/api` → pointer-server (web:dev with empty VITE_WEB_API_BASE). */
+/** `tauri dev` sets these when it launches Vite via beforeDevCommand. */
+const isTauriCli =
+  process.env.TAURI_ENV_PLATFORM != null || process.env.TAURI_PLATFORM != null
+
+/**
+ * Same-origin `/api` → pointer-server.
+ * Default on for web:dev (CORS is off by default on pointer-server).
+ * Off during tauri:dev — desktop uses IPC; a leftover browser tab hitting
+ * /api would otherwise spam ECONNREFUSED when pointer-server is down.
+ */
+const webApiBaseEnv = process.env.VITE_WEB_API_BASE
 const webApiProxyTarget =
   process.env.VITE_DEV_API_PROXY ||
-  (process.env.VITE_WEB_API_BASE === '' ? 'http://127.0.0.1:8787' : undefined)
+  (webApiBaseEnv === '' || (webApiBaseEnv === undefined && !isTauriCli)
+    ? 'http://127.0.0.1:8787'
+    : undefined)
 
 export default defineConfig({
   plugins: [vue()],
@@ -59,9 +71,7 @@ export default defineConfig({
       ? { protocol: 'ws', host, port: 1421 }
       : undefined,
     watch: { ignored: ['**/src-tauri/**', '**/target/**'] },
-    // Opt-in only: empty VITE_WEB_API_BASE (same-origin cookies) or VITE_DEV_API_PROXY.
-    // Do not enable during tauri:dev — desktop uses IPC; a leftover browser tab
-    // hitting /api would otherwise spam ECONNREFUSED when pointer-server is down.
+    // Same-origin /api proxy for web:dev; skipped under tauri CLI (see above).
     ...(webApiProxyTarget
       ? {
           proxy: {

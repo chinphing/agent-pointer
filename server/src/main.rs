@@ -18,20 +18,20 @@ use pointer_core::{
     agents::computer::capture_debug,
     agents::AgentDef,
     chat_service::AppState,
+    chat_service::GlobalMcpView,
     dispatcher::{
         DeliverTarget, RunDispatcher, RunHandle, RunOutcome, TriggerMeta, TriggerRequest,
         TriggerSource,
     },
     models::{
         ChatMediaPreview, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
-        DebugSessionSettings, PlatformSettings, SendChatPayload, SkillDef,
-        SkillImportResult, StreamEvent, ToolDef, UserSettings, WebEffectiveSettingsView,
+        DebugSessionSettings, PlatformSettings, SendChatPayload, SkillDef, SkillImportResult,
+        StreamEvent, ToolDef, UserSettings, WebEffectiveSettingsView,
     },
     platform_auth::{PlatformAuthManager, PlatformSessionView},
     platform_config::apply_login_media_oss,
-    plugins::registry::PluginView,
-    chat_service::GlobalMcpView,
     plugins::manifest::McpServerDecl,
+    plugins::registry::PluginView,
     provider::OpenAIProvider,
     storage,
 };
@@ -218,10 +218,9 @@ async fn list_turn_file_changes(
         .filter(|id| !id.is_empty())
         .map(str::to_string)
         .collect();
-    Ok(Json(pointer_core::turn_file_baseline::list_turn_file_changes(
-        &q.conversation_id,
-        &turn_ids,
-    )?))
+    Ok(Json(
+        pointer_core::turn_file_baseline::list_turn_file_changes(&q.conversation_id, &turn_ids)?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -543,7 +542,8 @@ async fn main() -> anyhow::Result<()> {
     }
     // Larger buffer: weak clients / high-frequency tool output lag the SSE
     // consumer; when the ring overflows we emit `resync` (see chat_stream).
-    let (events, _) = broadcast::channel::<pointer_core::stream_broadcast::StreamBroadcastItem>(4096);
+    let (events, _) =
+        broadcast::channel::<pointer_core::stream_broadcast::StreamBroadcastItem>(4096);
     // Bridge global stream_broadcast -> server events so the SSE endpoint
     // (`GET /api/chat/:id/stream`) keeps working regardless of who calls
     // `run_chat`. The dispatcher calls `run_chat`, which emits via
@@ -621,7 +621,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/workspace/directory", get(list_workspace_directory))
         .route("/api/workspace/search", get(search_workspace_entries))
         .route("/api/workspace/file", get(read_workspace_file))
-        .route("/api/workspace/file-media", get(stream_workspace_file_media))
+        .route(
+            "/api/workspace/file-media",
+            get(stream_workspace_file_media),
+        )
         .route("/api/workspace/path", delete(delete_workspace_path))
         .route("/api/workspace/git/status", get(get_workspace_git_status))
         .route("/api/workspace/git/diff", get(get_workspace_git_diff))
@@ -667,10 +670,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/plugins/:plugin_id/disable", post(disable_plugin))
         .route("/api/plugins/:plugin_id/uninstall", post(uninstall_plugin))
         .route("/api/plugins/external-probe", get(probe_external_plugins))
-        .route(
-            "/api/plugins/import-external",
-            post(import_external_plugin),
-        )
+        .route("/api/plugins/import-external", post(import_external_plugin))
         .route("/api/mcp", get(list_global_mcp).put(save_global_mcp))
         .route("/api/mcp/reload", post(reload_global_mcp))
         .route("/api/mcp/restart", post(restart_global_mcp))
@@ -702,10 +702,7 @@ async fn main() -> anyhow::Result<()> {
             "/api/computer/monitor-pick/:conversation_id/cancel",
             post(cancel_computer_monitor_pick),
         )
-        .route(
-            "/api/conversations",
-            get(load_conversations),
-        )
+        .route("/api/conversations", get(load_conversations))
         .route(
             "/api/conversations/:conversation_id",
             delete(delete_conversation_handler),
@@ -905,21 +902,15 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let static_dir = resolve_static_dir();
-    let app = maybe_with_static_files(app, static_dir.clone())
+    let mut app = maybe_with_static_files(app, static_dir.clone())
         // `CompressionLayer` honors `Accept-Encoding`; event streams and already
         // compressed media are explicitly excluded above.
         .layer(compression)
-        .layer(DefaultBodyLimit::max(20 * 1024 * 1024))
-        // `permissive()` uses `Access-Control-Allow-Origin: *`, which browsers reject when
-        // the SPA calls with `credentials: 'include'` (cookie session). Mirror the request
-        // Origin so local `web:dev` (localhost:1420 → :8787) can load auth mode / login.
-        .layer(
-            CorsLayer::new()
-                .allow_origin(AllowOrigin::mirror_request())
-                .allow_methods(AllowMethods::mirror_request())
-                .allow_headers(AllowHeaders::mirror_request())
-                .allow_credentials(true),
-        )
+        .layer(DefaultBodyLimit::max(20 * 1024 * 1024));
+    if let Some(cors) = build_cors_layer()? {
+        app = app.layer(cors);
+    }
+    let app = app
         .layer(middleware::from_fn_with_state(
             web_sessions.clone(),
             web_session::web_session_middleware,
@@ -1454,8 +1445,7 @@ fn attachment_content_disposition(file_name: &str, inline: bool) -> HeaderValue 
     // RFC 5987 so browsers keep original UTF-8 names (e.g. Chinese filenames).
     let encoded = urlencoding::encode(file_name);
     let value = format!("{kind}; filename=\"{fallback}\"; filename*=UTF-8''{encoded}");
-    HeaderValue::from_str(&value)
-        .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
+    HeaderValue::from_str(&value).unwrap_or_else(|_| HeaderValue::from_static("attachment"))
 }
 
 /// Stream a file body so large downloads start before the whole file is in RAM.
@@ -2102,8 +2092,7 @@ async fn list_conversation_search_matches_handler(
 ) -> Result<Json<Vec<pointer_core::models::ConversationSearchMatch>>, ApiError> {
     require_platform_access(&state)?;
     let scope = platform_list_scope(&state);
-    let matches =
-        storage::list_conversation_search_matches(&scope, &conversation_id, &q.q)?;
+    let matches = storage::list_conversation_search_matches(&scope, &conversation_id, &q.q)?;
     Ok(Json(matches))
 }
 
@@ -3407,9 +3396,7 @@ async fn cancel_chat(
         Ok(Json(p)) => p.cancel_background_jobs,
         Err(err) => {
             // Empty / missing body → hard stop (legacy clients).
-            log::info!(
-                "cancel_chat: body parse fallback conversation_id={conversation_id}: {err}"
-            );
+            log::info!("cancel_chat: body parse fallback conversation_id={conversation_id}: {err}");
             true
         }
     };
@@ -3664,11 +3651,13 @@ async fn chat_stream(
             }
         }
     };
-    Ok(sse_with_proxy_hints(Sse::new(stream).keep_alive(
-        KeepAlive::new()
-            .interval(Duration::from_secs(15))
-            .text("keep-alive"),
-    )))
+    Ok(sse_with_proxy_hints(
+        Sse::new(stream).keep_alive(
+            KeepAlive::new()
+                .interval(Duration::from_secs(15))
+                .text("keep-alive"),
+        ),
+    ))
 }
 
 /// Attach reverse-proxy hints that nginx/OpenResty honor for long-lived SSE.
@@ -3770,6 +3759,55 @@ fn resolve_static_dir() -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Browser CORS layer. Off by default (same-origin). `POINTER_SERVER_CORS_ORIGINS=* `
+/// mirrors any Origin; a comma-separated list is an exact allowlist.
+/// `permissive()` / `*` cannot be used with `credentials: 'include'`.
+fn build_cors_layer() -> anyhow::Result<Option<CorsLayer>> {
+    cors_layer_from_mode(&pointer_core::server_config::cors_mode()?)
+}
+
+fn cors_layer_from_mode(
+    mode: &pointer_core::server_config::CorsMode,
+) -> anyhow::Result<Option<CorsLayer>> {
+    use pointer_core::server_config::CorsMode;
+    match mode {
+        CorsMode::Disabled => {
+            log::info!("pointer-server: CORS disabled (set POINTER_SERVER_CORS_ORIGINS to enable)");
+            Ok(None)
+        }
+        CorsMode::MirrorAny => {
+            log::info!("pointer-server: CORS enabled (mirror any Origin, credentials)");
+            Ok(Some(
+                CorsLayer::new()
+                    .allow_origin(AllowOrigin::mirror_request())
+                    .allow_methods(AllowMethods::mirror_request())
+                    .allow_headers(AllowHeaders::mirror_request())
+                    .allow_credentials(true),
+            ))
+        }
+        CorsMode::Allowlist(origins) => {
+            let values = origins
+                .iter()
+                .map(|origin| {
+                    HeaderValue::from_str(origin).map_err(|e| {
+                        anyhow::anyhow!(
+                            "POINTER_SERVER_CORS_ORIGINS: invalid origin {origin:?}: {e}"
+                        )
+                    })
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            log::info!("pointer-server: CORS allowlist {}", origins.join(","));
+            Ok(Some(
+                CorsLayer::new()
+                    .allow_origin(AllowOrigin::list(values))
+                    .allow_methods(AllowMethods::mirror_request())
+                    .allow_headers(AllowHeaders::mirror_request())
+                    .allow_credentials(true),
+            ))
+        }
+    }
 }
 
 /// When `dist/` exists, serve the Vue SPA from the same process (API routes take precedence).
@@ -4328,14 +4366,26 @@ fn apply_web_branding(html_bytes: &[u8]) -> String {
         COMPOSER_PLACEHOLDER_META,
         &html_escape_text(&resolve_composer_placeholder()),
     );
-    out = maybe_inject_optional_meta(&out, "POINTER_SERVER_WELCOME_TIP_TITLE", WELCOME_TIP_TITLE_META);
-    out = maybe_inject_optional_meta(&out, "POINTER_SERVER_WELCOME_TIP_BODY", WELCOME_TIP_BODY_META);
+    out = maybe_inject_optional_meta(
+        &out,
+        "POINTER_SERVER_WELCOME_TIP_TITLE",
+        WELCOME_TIP_TITLE_META,
+    );
+    out = maybe_inject_optional_meta(
+        &out,
+        "POINTER_SERVER_WELCOME_TIP_BODY",
+        WELCOME_TIP_BODY_META,
+    );
     out = maybe_inject_optional_meta(
         &out,
         "POINTER_SERVER_TURN_ELAPSED_ACTIVE",
         TURN_ELAPSED_ACTIVE_META,
     );
-    out = maybe_inject_optional_meta(&out, "POINTER_SERVER_TURN_ELAPSED_DONE", TURN_ELAPSED_DONE_META);
+    out = maybe_inject_optional_meta(
+        &out,
+        "POINTER_SERVER_TURN_ELAPSED_DONE",
+        TURN_ELAPSED_DONE_META,
+    );
     out
 }
 
@@ -4501,6 +4551,40 @@ mod page_title_tests {
 
     #[test]
     fn escapes_html_in_title() {
-        assert_eq!(html_escape_text("A <B> & \"C\""), "A &lt;B&gt; &amp; &quot;C&quot;");
+        assert_eq!(
+            html_escape_text("A <B> & \"C\""),
+            "A &lt;B&gt; &amp; &quot;C&quot;"
+        );
+    }
+}
+
+#[cfg(test)]
+mod cors_layer_tests {
+    use super::cors_layer_from_mode;
+    use pointer_core::server_config::CorsMode;
+
+    #[test]
+    fn disabled_builds_no_layer() {
+        assert!(cors_layer_from_mode(&CorsMode::Disabled).unwrap().is_none());
+    }
+
+    #[test]
+    fn mirror_and_allowlist_build_layers() {
+        assert!(cors_layer_from_mode(&CorsMode::MirrorAny)
+            .unwrap()
+            .is_some());
+        assert!(
+            cors_layer_from_mode(&CorsMode::Allowlist(vec!["http://localhost:1420".into()]))
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn reject_origin_with_control_chars() {
+        let err =
+            cors_layer_from_mode(&CorsMode::Allowlist(vec!["http://localhost:1420\n".into()]))
+                .unwrap_err();
+        assert!(err.to_string().contains("invalid origin"), "{err}");
     }
 }

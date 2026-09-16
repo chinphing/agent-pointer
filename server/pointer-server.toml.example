@@ -93,6 +93,16 @@ skills_dir = "skills"
 # forbid_session_user_id_in_terminal = true
 # Env override: POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL
 #
+# Browser CORS (default off: same-origin only). Desktop Tauri IPC is unaffected.
+# Production UI served from this process is same-origin and does not need CORS.
+# Enable only when a browser page on another origin calls this API
+# (for example Vite `web:dev` with VITE_WEB_API_BASE=http://127.0.0.1:8787).
+# Prefer empty / unset VITE_WEB_API_BASE so Vite proxies /api (same-origin cookies).
+# ["*"] mirrors any Origin and allows credentials; a list is an exact match
+# (`http://localhost:1420` is not the same origin as `http://127.0.0.1:1420`).
+# cors_origins = ["http://localhost:1420"]
+# Env override: POINTER_SERVER_CORS_ORIGINS=*  or comma-separated origins
+#
 # Auth: pointer-server does NOT write auth.dat. Each browser gets its own
 # in-memory OAuth session via the HttpOnly cookie `pointer_web_session`.
 # Visitors without that cookie see logged-out state. After upgrading, delete

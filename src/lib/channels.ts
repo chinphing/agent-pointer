@@ -35,7 +35,7 @@ async function webRequest<T>(path: string, init?: RequestInit): Promise<T> {
     }
     if (e instanceof TypeError) {
       throw new Error(
-        `无法连接 pointer-server（${WEB_API_BASE}）。请先运行 npm run server:dev，或使用 Tauri 桌面端本地保存配置。`
+        `无法连接 pointer-server（${WEB_API_BASE || '同源 /api'}）。请先运行 npm run server:dev，或使用 Tauri 桌面端本地保存配置。`
       )
     }
     throw e

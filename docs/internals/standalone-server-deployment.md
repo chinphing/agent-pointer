@@ -401,6 +401,7 @@ Standalone server 支持 Webhook 与 WSS 长连接。扫码注册流程：
 | `POINTER_SERVER_SSE_PADDING_BYTES` | padding 字节数 | `10240` |
 | `POINTER_USAGE_REPORT_ENABLED` | 用量上报 | `false` |
 | `POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL` | Agent `terminal` 禁止 command/stdin 含 `SESSION_USER_ID`（TOML `[server].forbid_session_user_id_in_terminal`） | 默认关闭；需要时 `true` |
+| `POINTER_SERVER_CORS_ORIGINS` | 浏览器 CORS Origin 列表（TOML `[server].cors_origins`；`*` 镜像任意来源） | 默认关闭（仅同源）；前后端分离或 `web:dev` 直连 API 时再开 |
 
 TOML `[env]` 段可批量注入上述变量（见 `server/pointer-server.toml.example`）。
 

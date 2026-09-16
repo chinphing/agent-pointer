@@ -21,11 +21,12 @@ export function isTauriRuntime(): boolean {
 
 function resolveWebApiBase(): string {
   const env = import.meta.env.VITE_WEB_API_BASE
-  // Explicit empty string = same-origin (pointer-server integrated bundle).
+  // Explicit empty / unset = same-origin (integrated server UI, or Vite /api proxy).
+  // Cross-origin needs VITE_WEB_API_BASE=http://… and POINTER_SERVER_CORS_ORIGINS.
   if (env !== undefined) {
     return String(env)
   }
-  return 'http://127.0.0.1:8787'
+  return ''
 }
 
 export const WEB_API_BASE = resolveWebApiBase()

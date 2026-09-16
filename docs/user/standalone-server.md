@@ -263,6 +263,7 @@ curl -X POST http://localhost:8787/api/auth/local/login \
 | `POINTER_SERVER_STATIC_DIR` | Web UI `dist/` 目录 | 自动探测（含 deb 的 `/usr/share/pointer-server/dist`） |
 | `POINTER_SERVER_SKILLS_DIR` | 内置 Skills 源目录 | 自动探测（含 deb 的 `/usr/share/pointer-server/skills`） |
 | `POINTER_SERVER_ALLOWED_USER_IDS` | 平台用户白名单 | 空 |
+| `POINTER_SERVER_CORS_ORIGINS` | 浏览器 CORS 允许的 Origin（逗号分隔；`*` 镜像任意来源） | 关闭（仅同源） |
 
 ---
 

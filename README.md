@@ -38,6 +38,7 @@ npm run server:dev
 npm run web:dev
 ```
 
+`web:dev` 默认同源（Vite 将 `/api` 代理到 `127.0.0.1:8787`）。pointer-server CORS 默认关闭。
 首次启动后，在「设置」中填入 DashScope API Key（在阿里云百炼控制台获取），即可对话。
 
 官网登录（Release 安装包）已内置 `pointer.readflowai.com` / `pointer-api.readflowai.com` / `pointer-som.readflowai.com`，无需配置环境变量；本地开发（`tauri dev`）默认连本机 3000/8001/8000，仍可用 `POINTER_*` 覆盖。

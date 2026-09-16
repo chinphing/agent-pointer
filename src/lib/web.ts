@@ -53,7 +53,7 @@ type WebRequestInit = RequestInit & {
 }
 
 function defaultTimeoutMessage(timeoutMs: number): string {
-  return `请求超时（>${timeoutMs / 1000}s）：${WEB_API_BASE} 无响应。请确认已启动 pointer-server（默认 127.0.0.1:8787）或设置 VITE_WEB_API_BASE。`
+  return `请求超时（>${timeoutMs / 1000}s）：${WEB_API_BASE || '同源 /api'} 无响应。请确认已启动 pointer-server（默认 127.0.0.1:8787）；跨源时需设置 VITE_WEB_API_BASE 与 POINTER_SERVER_CORS_ORIGINS。`
 }
 
 export interface SendChatPayload {

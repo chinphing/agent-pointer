@@ -135,6 +135,12 @@ struct ServerSection {
     /// `POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL`. Default false.
     #[serde(default)]
     forbid_session_user_id_in_terminal: Option<bool>,
+    /// Browser CORS origins. Empty (default) disables the CORS layer
+    /// (same-origin only). `["*"]` mirrors any request Origin and allows
+    /// credentials. Other values are an exact-match allowlist.
+    /// Maps to `POINTER_SERVER_CORS_ORIGINS` (comma-separated).
+    #[serde(default)]
+    cors_origins: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -517,6 +523,19 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
             if enabled { "true" } else { "false" }.to_string(),
         ));
     }
+    if !parsed.server.cors_origins.is_empty() {
+        let joined = parsed
+            .server
+            .cors_origins
+            .iter()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(",");
+        if !joined.is_empty() {
+            pairs.push(("POINTER_SERVER_CORS_ORIGINS".to_string(), joined));
+        }
+    }
     push_mapped(
         &mut pairs,
         "POINTER_API_BASE",
@@ -644,6 +663,53 @@ pub fn forbid_session_user_id_in_terminal() -> bool {
     std::env::var("POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL")
         .map(|v| v != "0" && v.to_ascii_lowercase() != "false")
         .unwrap_or(false)
+}
+
+const ENV_CORS_ORIGINS: &str = "POINTER_SERVER_CORS_ORIGINS";
+
+/// Browser CORS policy derived from `POINTER_SERVER_CORS_ORIGINS`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CorsMode {
+    /// No CORS layer (same-origin only). Default.
+    Disabled,
+    /// Mirror any request `Origin` and allow credentials (`*`).
+    MirrorAny,
+    /// Exact-match allowlist (credentials allowed).
+    Allowlist(Vec<String>),
+}
+
+/// Split `POINTER_SERVER_CORS_ORIGINS` (comma-separated). Empty tokens dropped.
+pub fn parse_cors_origins(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Origins listed in `POINTER_SERVER_CORS_ORIGINS`. Empty when unset.
+pub fn cors_origins() -> Vec<String> {
+    parse_cors_origins(&std::env::var(ENV_CORS_ORIGINS).unwrap_or_default())
+}
+
+/// Validate origin list. `*` cannot be mixed with specific origins.
+pub fn cors_mode_from_origins(origins: &[String]) -> Result<CorsMode> {
+    if origins.is_empty() {
+        return Ok(CorsMode::Disabled);
+    }
+    let star_count = origins.iter().filter(|origin| *origin == "*").count();
+    if star_count > 0 {
+        if origins.len() != 1 {
+            anyhow::bail!("POINTER_SERVER_CORS_ORIGINS: '*' cannot be combined with other origins");
+        }
+        return Ok(CorsMode::MirrorAny);
+    }
+    Ok(CorsMode::Allowlist(origins.to_vec()))
+}
+
+/// Current CORS mode from env (after `load_server_config`). Defaults to disabled.
+pub fn cors_mode() -> Result<CorsMode> {
+    cors_mode_from_origins(&cors_origins())
 }
 
 fn push_mapped(
@@ -848,11 +914,13 @@ turn_elapsed_done = "报销单已填写"
             Some("有什么可以帮你？")
         );
         assert_eq!(
-            map.get("POINTER_SERVER_WELCOME_TIP_TITLE").map(String::as_str),
+            map.get("POINTER_SERVER_WELCOME_TIP_TITLE")
+                .map(String::as_str),
             Some("我是财务报销助手")
         );
         assert_eq!(
-            map.get("POINTER_SERVER_WELCOME_TIP_BODY").map(String::as_str),
+            map.get("POINTER_SERVER_WELCOME_TIP_BODY")
+                .map(String::as_str),
             Some("提交附件后自动填单")
         );
         assert_eq!(
@@ -861,7 +929,8 @@ turn_elapsed_done = "报销单已填写"
             Some("报销单填写中")
         );
         assert_eq!(
-            map.get("POINTER_SERVER_TURN_ELAPSED_DONE").map(String::as_str),
+            map.get("POINTER_SERVER_TURN_ELAPSED_DONE")
+                .map(String::as_str),
             Some("报销单已填写")
         );
     }
@@ -897,6 +966,59 @@ forbid_session_user_id_in_terminal = true
         std::env::set_var("POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL", "false");
         assert!(!forbid_session_user_id_in_terminal());
         std::env::remove_var("POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL");
+    }
+
+    #[test]
+    fn toml_maps_cors_origins_to_env() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("pointer-server.toml");
+        std::fs::write(
+            &cfg,
+            r#"
+[server]
+cors_origins = ["http://localhost:1420", "http://127.0.0.1:1420"]
+"#,
+        )
+        .unwrap();
+        let pairs = parse_toml_file(&cfg, dir.path()).unwrap();
+        let map: HashMap<_, _> = pairs.into_iter().collect();
+        assert_eq!(
+            map.get("POINTER_SERVER_CORS_ORIGINS").map(String::as_str),
+            Some("http://localhost:1420,http://127.0.0.1:1420")
+        );
+    }
+
+    #[test]
+    fn toml_omits_cors_origins_when_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("pointer-server.toml");
+        std::fs::write(&cfg, "[server]\naddr = \"127.0.0.1:8787\"\n").unwrap();
+        let pairs = parse_toml_file(&cfg, dir.path()).unwrap();
+        let map: HashMap<_, _> = pairs.into_iter().collect();
+        assert!(!map.contains_key("POINTER_SERVER_CORS_ORIGINS"));
+    }
+
+    #[test]
+    fn cors_mode_defaults_disabled() {
+        let _guard = env_guard();
+        std::env::remove_var("POINTER_SERVER_CORS_ORIGINS");
+        assert_eq!(cors_mode().unwrap(), CorsMode::Disabled);
+        std::env::set_var("POINTER_SERVER_CORS_ORIGINS", "*");
+        assert_eq!(cors_mode().unwrap(), CorsMode::MirrorAny);
+        std::env::set_var(
+            "POINTER_SERVER_CORS_ORIGINS",
+            "http://localhost:1420, http://127.0.0.1:1420",
+        );
+        assert_eq!(
+            cors_mode().unwrap(),
+            CorsMode::Allowlist(vec![
+                "http://localhost:1420".into(),
+                "http://127.0.0.1:1420".into(),
+            ])
+        );
+        std::env::set_var("POINTER_SERVER_CORS_ORIGINS", "*,http://localhost:1420");
+        assert!(cors_mode().is_err());
+        std::env::remove_var("POINTER_SERVER_CORS_ORIGINS");
     }
 
     #[test]

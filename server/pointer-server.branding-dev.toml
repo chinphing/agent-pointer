@@ -22,7 +22,8 @@
 #   VITE_TURN_ELAPSED_DONE="报销单已填写" \
 #   npm run web:dev
 # Open http://localhost:1420 — do not mix localhost page with
-# VITE_WEB_API_BASE=http://127.0.0.1:8787 (cross-site; session cookie dropped).
+# VITE_WEB_API_BASE=http://127.0.0.1:8787 (CORS is off by default;
+# that pair is also cross-site so the session cookie is dropped).
 
 [deployment]
 mode = "standalone"

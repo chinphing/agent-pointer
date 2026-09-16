@@ -248,8 +248,7 @@ pub async fn apply_media_to_history(
             }
         }
 
-        msg.content =
-            crate::media::ensure_user_content_media_markers(&msg.content, &attachments);
+        msg.content = crate::media::ensure_user_content_media_markers(&msg.content, &attachments);
         msg.attachments = Some(attachments);
     }
     Ok(())

@@ -133,9 +133,8 @@ pub fn sync_anchor_agent_trace_index(
 
 const ANCHOR_TRACE_PERSIST_COALESCE_MS: u64 = 400;
 
-fn pending_anchor_traces() -> &'static std::sync::Mutex<
-    std::collections::HashMap<String, (String, String, String)>,
-> {
+fn pending_anchor_traces(
+) -> &'static std::sync::Mutex<std::collections::HashMap<String, (String, String, String)>> {
     static MAP: std::sync::OnceLock<
         std::sync::Mutex<std::collections::HashMap<String, (String, String, String)>>,
     > = std::sync::OnceLock::new();

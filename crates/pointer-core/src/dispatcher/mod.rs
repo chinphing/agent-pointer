@@ -197,10 +197,12 @@ impl RunDispatcher {
             .jobs
             .occupancy_by_conversation()
             .into_iter()
-            .map(|(conversation_id, running_count)| BackgroundJobOccupancyView {
-                conversation_id,
-                running_count,
-            })
+            .map(
+                |(conversation_id, running_count)| BackgroundJobOccupancyView {
+                    conversation_id,
+                    running_count,
+                },
+            )
             .collect();
         RunQueueSnapshot {
             max_concurrent_main: lanes.max_concurrent_main,

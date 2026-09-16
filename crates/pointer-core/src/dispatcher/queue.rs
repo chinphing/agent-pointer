@@ -280,9 +280,9 @@ impl RunQueue {
     pub fn session_has_activity(&self, conversation_id: &str) -> bool {
         let lane = resolve_session_lane(conversation_id);
         let lanes = self.inner.lanes.lock();
-        lanes.get(&lane).is_some_and(|s| {
-            s.active > 0 || s.queue.iter().any(|e| !e.cancel.is_cancelled())
-        })
+        lanes
+            .get(&lane)
+            .is_some_and(|s| s.active > 0 || s.queue.iter().any(|e| !e.cancel.is_cancelled()))
     }
 
     /// Active runs in `global:cron`.

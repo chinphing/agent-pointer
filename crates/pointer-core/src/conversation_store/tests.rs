@@ -726,12 +726,7 @@ mod tests {
         let mut conv = sample_conv("c_win", "Mixed", "placeholder");
         let mut lead_before = msg("m_lead_before", Role::User, "lead_noise_aaa", 1);
         lead_before.agent_instance_id = Some(lead.into());
-        let mut child_hit = msg(
-            "m_child_hit",
-            Role::Assistant,
-            "child_hit_unique_bbb",
-            2,
-        );
+        let mut child_hit = msg("m_child_hit", Role::Assistant, "child_hit_unique_bbb", 2);
         child_hit.agent_instance_id = Some(child.into());
         let mut lead_after = msg("m_lead_after", Role::User, "lead_noise_ccc", 3);
         lead_after.agent_instance_id = Some(lead.into());
@@ -762,20 +757,10 @@ mod tests {
         let lead = "lead-cccccccc-cccc-cccc-cccc-cccccccccccc";
         let child = "child-dddddddd-dddd-dddd-dddd-dddddddddddd";
         let mut conv = sample_conv("c_prom", "Promote", "placeholder");
-        let mut tool_hit = msg(
-            "m_tool",
-            Role::Tool,
-            "shared_promote_zzz child tool",
-            1,
-        );
+        let mut tool_hit = msg("m_tool", Role::Tool, "shared_promote_zzz child tool", 1);
         tool_hit.agent_instance_id = Some(child.into());
         tool_hit.tool_name = Some("terminal".into());
-        let mut assistant_hit = msg(
-            "m_asst",
-            Role::Assistant,
-            "shared_promote_zzz assistant",
-            2,
-        );
+        let mut assistant_hit = msg("m_asst", Role::Assistant, "shared_promote_zzz assistant", 2);
         assistant_hit.agent_instance_id = Some(lead.into());
         conv.messages = vec![tool_hit, assistant_hit];
         store.sync_conversations(&[conv]).unwrap();
@@ -1837,7 +1822,11 @@ mod tests {
             "tail window omits scoped rows unless include_scoped_sub_messages"
         );
         assert_eq!(page.oldest_position, Some(3), "oldest = u2 position");
-        assert_eq!(page.newest_position, Some(4), "newest = last lead row position");
+        assert_eq!(
+            page.newest_position,
+            Some(4),
+            "newest = last lead row position"
+        );
         assert!(page.has_more_older);
         assert!(!page.has_more_newer);
         // message_count counts ALL rows (frontend hydration uses it), not just anchors.
@@ -1896,10 +1885,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();
         let mut conv = sample_conv("page-excluded", "Excluded", "before compression");
-        mark_excluded(
-            &mut conv.messages[0],
-            ExcludedReason::ContextCompression,
-        );
+        mark_excluded(&mut conv.messages[0], ExcludedReason::ContextCompression);
         let u2 = msg("u2", Role::User, "after summary", 3);
         let a2 = msg("a2", Role::Assistant, "ok", 4);
         let mut scoped = msg("u-scoped", Role::User, "sub", 5);
@@ -1980,7 +1966,10 @@ mod tests {
             .load_scoped_sub_messages_for_trace("scoped-inst", "", "", Some("inst-b"))
             .unwrap();
         assert_eq!(
-            by_instance.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            by_instance
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
             vec!["sc-b"]
         );
 
@@ -2327,9 +2316,13 @@ mod tests {
             .load_subsequent_lead_turn_ids("sub-lead", "msg_u1")
             .unwrap();
         assert_eq!(after_u1, vec!["u2".to_string(), "u3".to_string()]);
-        let after_u2 = store.load_subsequent_lead_turn_ids("sub-lead", "u2").unwrap();
+        let after_u2 = store
+            .load_subsequent_lead_turn_ids("sub-lead", "u2")
+            .unwrap();
         assert_eq!(after_u2, vec!["u3".to_string()]);
-        let after_u3 = store.load_subsequent_lead_turn_ids("sub-lead", "u3").unwrap();
+        let after_u3 = store
+            .load_subsequent_lead_turn_ids("sub-lead", "u3")
+            .unwrap();
         assert!(after_u3.is_empty());
         let missing = store
             .load_subsequent_lead_turn_ids("sub-lead", "missing")

@@ -95,9 +95,7 @@ pub fn parse_block_until_ms(args: &serde_json::Value) -> Result<Option<u64>, Str
             });
             match n {
                 Some(ms) => Ok(Some(ms)),
-                None => Err(
-                    "blockUntilMs must be a non-negative integer (milliseconds)".into(),
-                ),
+                None => Err("blockUntilMs must be a non-negative integer (milliseconds)".into()),
             }
         }
     }

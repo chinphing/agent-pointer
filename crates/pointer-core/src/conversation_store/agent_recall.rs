@@ -517,9 +517,7 @@ fn resolve_read_conversation(
         .collect::<rusqlite::Result<Vec<_>>>()?;
     match ids.as_slice() {
         [one] => Ok(Ok(one.clone())),
-        [] => Ok(Err(format!(
-            "agentInstanceId not found: {instance_id}"
-        ))),
+        [] => Ok(Err(format!("agentInstanceId not found: {instance_id}"))),
         _ => Ok(Err(format!(
             "agentInstanceId is ambiguous across conversations: {instance_id}"
         ))),

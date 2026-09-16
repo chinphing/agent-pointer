@@ -192,9 +192,7 @@ pub fn save_turn_file_changes(
     }
     let normalized = normalize_entries(files);
     if normalized.is_empty() {
-        info!(
-            "turn_file_baseline: skip empty summary conversation_id={conv} turn_id={turn}"
-        );
+        info!("turn_file_baseline: skip empty summary conversation_id={conv} turn_id={turn}");
         return Ok(());
     }
     let root = baseline_root(conv, turn)?;
@@ -215,7 +213,10 @@ pub fn save_turn_file_changes(
     Ok(())
 }
 
-fn list_one_turn_file_changes(conversation_id: &str, turn_id: &str) -> Result<Vec<TurnFileChangeEntry>> {
+fn list_one_turn_file_changes(
+    conversation_id: &str,
+    turn_id: &str,
+) -> Result<Vec<TurnFileChangeEntry>> {
     let root = baseline_root(conversation_id, turn_id)?;
     if !root.exists() {
         return Ok(Vec::new());

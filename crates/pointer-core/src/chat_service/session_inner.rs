@@ -443,9 +443,11 @@ pub(super) async fn run_chat_inner(
             uuid::Uuid::new_v4().to_string()
         }
     };
-    agent_plan.system_prompts.push(
-        crate::agent_instance_scope::agent_instance_id_system_line(&lead_instance_id),
-    );
+    agent_plan
+        .system_prompts
+        .push(crate::agent_instance_scope::agent_instance_id_system_line(
+            &lead_instance_id,
+        ));
     let mut llm_token_session = ChatLlmTokenSession::new(
         run_id.to_string(),
         conversation_id.to_string(),

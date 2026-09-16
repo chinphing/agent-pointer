@@ -2,10 +2,10 @@
 
 use std::time::Instant;
 
-use anyhow::Result;
-use rusqlite::{params, Connection, OptionalExtension};
 use crate::models::{ConversationSearchHit, ConversationSearchMatch};
 use crate::text_util::{match_centered_snippet, text_contains_query};
+use anyhow::Result;
+use rusqlite::{params, Connection, OptionalExtension};
 
 use super::db::DbHandle;
 use super::ListScope;
@@ -552,4 +552,3 @@ fn load_message_body_prefix(
     .optional()
     .map_err(Into::into)
 }
-

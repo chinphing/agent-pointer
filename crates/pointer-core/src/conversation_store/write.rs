@@ -164,8 +164,7 @@ pub fn patch_session_agent_in_conn(
     agent_mode: &str,
 ) -> Result<()> {
     ensure_conversation_row(conn, conversation_id)?;
-    let old_lead = super::persist::stored_lead_agent_id(conn, conversation_id)?
-        .unwrap_or_default();
+    let old_lead = super::persist::stored_lead_agent_id(conn, conversation_id)?.unwrap_or_default();
     conn.execute(
         "UPDATE conversations SET lead_agent_id = ?2, agent_mode = ?3, updated_at_ms = ?4 WHERE id = ?1",
         params![conversation_id, lead_agent_id, agent_mode, now_ms()],
@@ -1024,12 +1023,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();
         let mut conv = sample_conv("c1", "T", "hello");
-        let mut host = super::super::persist::msg(
-            "msg_host",
-            Role::Assistant,
-            "spawn",
-            1_700_000_002_000,
-        );
+        let mut host =
+            super::super::persist::msg("msg_host", Role::Assistant, "spawn", 1_700_000_002_000);
         host.status = "done".into();
         host.tool_calls = Some(vec![ToolCall {
             id: "call_bg".into(),
@@ -1059,10 +1054,7 @@ mod tests {
         let loaded = store.load_messages("c1").unwrap();
         let got = loaded.iter().find(|m| m.id == "msg_host").unwrap();
         assert_eq!(got.tool_calls.as_ref().unwrap()[0].status, "success");
-        assert!(got
-            .tool_calls
-            .as_ref()
-            .unwrap()[0]
+        assert!(got.tool_calls.as_ref().unwrap()[0]
             .result
             .as_deref()
             .unwrap()

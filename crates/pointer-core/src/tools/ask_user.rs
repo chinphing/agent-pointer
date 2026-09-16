@@ -46,9 +46,8 @@ fn coerce_options_field(mut value: Value) -> Result<Value> {
     let parsed = if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
         v
     } else if let Some(slice) = extract_balanced_json_array(trimmed) {
-        serde_json::from_str::<Value>(slice).map_err(|e| {
-            anyhow!("ask_user.options 字符串无法解析为 JSON 数组: {e}")
-        })?
+        serde_json::from_str::<Value>(slice)
+            .map_err(|e| anyhow!("ask_user.options 字符串无法解析为 JSON 数组: {e}"))?
     } else {
         return Err(anyhow!(
             "ask_user.options 必须是对象数组；收到的是无法解析的字符串"

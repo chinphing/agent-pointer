@@ -699,8 +699,7 @@ mod make_openai_messages_tests {
         use crate::models::MediaAttachment;
 
         let mut a = msg(Role::Assistant);
-        a.content =
-            "here is the file\n\nMEDIA:out.png?attachmentId=att1".into();
+        a.content = "here is the file\n\nMEDIA:out.png?attachmentId=att1".into();
         a.attachments = Some(vec![MediaAttachment {
             id: "att1".into(),
             kind: "image".into(),

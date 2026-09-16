@@ -179,18 +179,10 @@ pub struct AgentTrace {
     )]
     pub summary_line: Option<String>,
     /// Logical task id (explicit; do not parse from `id`).
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "taskId"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "taskId")]
     pub task_id: Option<String>,
     /// Worker agent id (explore / coder / self / …).
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        rename = "agentId"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "agentId")]
     pub agent_id: Option<String>,
     /// Tool-call ids in this spawn (stub search pin after scoped rows are evicted).
     #[serde(

@@ -456,12 +456,7 @@ impl JobSupervisor {
             .filter_map(|(cid, ids)| {
                 let n = ids
                     .iter()
-                    .filter(|id| {
-                        inner
-                            .jobs
-                            .get(*id)
-                            .is_some_and(|j| !j.status.is_terminal())
-                    })
+                    .filter(|id| inner.jobs.get(*id).is_some_and(|j| !j.status.is_terminal()))
                     .count();
                 if n == 0 {
                     None
@@ -613,11 +608,7 @@ impl JobSupervisor {
     }
 
     pub fn cancel_token(&self, job_id: &str) -> Option<CancellationToken> {
-        self.inner
-            .lock()
-            .jobs
-            .get(job_id)
-            .map(|j| j.cancel.clone())
+        self.inner.lock().jobs.get(job_id).map(|j| j.cancel.clone())
     }
 
     pub fn mark_running(&self, job_id: &str) {
@@ -725,7 +716,10 @@ impl JobSupervisor {
             return None;
         };
         if job.status.is_terminal() {
-            log::info!("job_supervisor: finish idempotent job_id={job_id} status={:?}", job.status);
+            log::info!(
+                "job_supervisor: finish idempotent job_id={job_id} status={:?}",
+                job.status
+            );
             return None;
         }
         job.status = status;
@@ -799,7 +793,12 @@ impl JobSupervisor {
             return Vec::new();
         };
         ids.iter()
-            .filter_map(|id| inner.jobs.get(id).map(|j| job_list_item(j, include_content)))
+            .filter_map(|id| {
+                inner
+                    .jobs
+                    .get(id)
+                    .map(|j| job_list_item(j, include_content))
+            })
             .collect()
     }
 
@@ -840,9 +839,7 @@ impl JobSupervisor {
         };
         let cancelled: Vec<String> = tokens.iter().map(|(id, _)| id.clone()).collect();
         for (id, token) in &tokens {
-            log::info!(
-                "job_supervisor: cancelling job_id={id} conversation_id={conversation_id}"
-            );
+            log::info!("job_supervisor: cancelling job_id={id} conversation_id={conversation_id}");
             token.cancel();
         }
         self.notify();
@@ -880,7 +877,13 @@ impl JobSupervisor {
                     "job_supervisor: await cancelled conversation_id={conversation_id} mode={:?}",
                     mode
                 );
-                return self.snapshot_await(conversation_id, job_ids.as_deref(), mode, false, slot_cap);
+                return self.snapshot_await(
+                    conversation_id,
+                    job_ids.as_deref(),
+                    mode,
+                    false,
+                    slot_cap,
+                );
             }
             if let Some(ready) =
                 self.try_claim_await(conversation_id, job_ids.as_deref(), mode, slot_cap)
@@ -893,7 +896,13 @@ impl JobSupervisor {
                     "job_supervisor: await timed out conversation_id={conversation_id} mode={:?} (jobs keep running)",
                     mode
                 );
-                return self.snapshot_await(conversation_id, job_ids.as_deref(), mode, true, slot_cap);
+                return self.snapshot_await(
+                    conversation_id,
+                    job_ids.as_deref(),
+                    mode,
+                    true,
+                    slot_cap,
+                );
             }
             tokio::select! {
                 biased;
@@ -1099,12 +1108,7 @@ fn running_count_in(inner: &Inner, conversation_id: &str) -> usize {
         .get(conversation_id)
         .map(|ids| {
             ids.iter()
-                .filter(|id| {
-                    inner
-                        .jobs
-                        .get(*id)
-                        .is_some_and(|j| !j.status.is_terminal())
-                })
+                .filter(|id| inner.jobs.get(*id).is_some_and(|j| !j.status.is_terminal()))
                 .count()
         })
         .unwrap_or(0)
@@ -1197,7 +1201,11 @@ fn drain_mail_for_ids(
     updates
 }
 
-fn resolve_job_ids(inner: &Inner, conversation_id: &str, job_ids: Option<&[String]>) -> Vec<String> {
+fn resolve_job_ids(
+    inner: &Inner,
+    conversation_id: &str,
+    job_ids: Option<&[String]>,
+) -> Vec<String> {
     match job_ids {
         Some(ids) if !ids.is_empty() => ids.to_vec(),
         _ => inner
@@ -1366,7 +1374,12 @@ mod tests {
         let b = sup.register(conv, kind(), CancellationToken::new(), "test-run");
         sup.mark_running(&a);
         sup.mark_running(&b);
-        sup.finish(&a, JobStatus::Completed, Some("{\"content\":\"one\"}".into()), None);
+        sup.finish(
+            &a,
+            JobStatus::Completed,
+            Some("{\"content\":\"one\"}".into()),
+            None,
+        );
 
         let parent = CancellationToken::new();
         let result = sup
@@ -1419,10 +1432,19 @@ mod tests {
                 4,
             )
             .await;
-        assert!(timed.timed_out, "inner-tool progress must not complete await");
+        assert!(
+            timed.timed_out,
+            "inner-tool progress must not complete await"
+        );
         assert!(timed.jobs.is_empty());
         assert_eq!(timed.running, vec![a.clone(), b.clone()]);
-        assert!(!sup.list(conv, false).iter().find(|j| j.job_id == a).unwrap().claimed);
+        assert!(
+            !sup.list(conv, false)
+                .iter()
+                .find(|j| j.job_id == a)
+                .unwrap()
+                .claimed
+        );
 
         sup.finish(&a, JobStatus::Completed, Some("handoff".into()), None);
         let done = Arc::clone(&sup)
@@ -1658,7 +1680,12 @@ mod tests {
         let running = sup.register(conv, kind(), CancellationToken::new(), "test-run");
         sup.mark_running(&done);
         sup.mark_running(&running);
-        sup.finish(&done, JobStatus::Completed, Some("secret body".into()), None);
+        sup.finish(
+            &done,
+            JobStatus::Completed,
+            Some("secret body".into()),
+            None,
+        );
         let parent = CancellationToken::new();
         let result = sup
             .await_jobs(
@@ -1745,9 +1772,7 @@ mod tests {
             .unwrap();
         let wait = {
             let sup = Arc::clone(&sup);
-            tokio::spawn(async move {
-                sup.acquire_root(conv, 1, &CancellationToken::new()).await
-            })
+            tokio::spawn(async move { sup.acquire_root(conv, 1, &CancellationToken::new()).await })
         };
         tokio::time::sleep(Duration::from_millis(20)).await;
         assert_eq!(sup.pool_waiter_len(conv), 1);
@@ -1888,7 +1913,12 @@ mod tests {
         let awaited = sup.register("c1", kind(), CancellationToken::new(), "test-run");
         sup.finish(&done, JobStatus::Completed, Some("ok".into()), None);
         sup.finish(&failed, JobStatus::Failed, None, Some("boom".into()));
-        sup.finish(&cancelled, JobStatus::Cancelled, None, Some("cancelled".into()));
+        sup.finish(
+            &cancelled,
+            JobStatus::Cancelled,
+            None,
+            Some("cancelled".into()),
+        );
         sup.finish(&awaited, JobStatus::Completed, Some("secret".into()), None);
         assert!(sup.claim_if_unclaimed(&awaited).is_some());
 

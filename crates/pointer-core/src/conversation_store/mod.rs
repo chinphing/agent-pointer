@@ -1,5 +1,6 @@
 //! Canonical SQLite conversation store (Hermes-style) with embedded FTS search.
 
+mod agent_recall;
 pub mod app_secrets;
 mod background_host_merge;
 mod cjk_fts;
@@ -11,7 +12,6 @@ mod migrate;
 mod persist;
 pub mod runs;
 mod search;
-mod agent_recall;
 mod session_user;
 #[cfg(test)]
 mod tests;
@@ -871,9 +871,8 @@ impl ConversationStore {
     }
 
     pub fn ensure_lead_agent_instance(&self, conversation_id: &str) -> Result<String> {
-        self.db.execute_write(|conn| {
-            write::ensure_lead_agent_instance_in_conn(conn, conversation_id)
-        })
+        self.db
+            .execute_write(|conn| write::ensure_lead_agent_instance_in_conn(conn, conversation_id))
     }
 
     /// Sidebar search: FTS over full message bodies (+ title/preview supplement).
@@ -1711,12 +1710,7 @@ fn ensure_messages_agent_instance_id(conn: &Connection) -> Result<()> {
 }
 
 fn ensure_messages_is_scoped(conn: &Connection) -> Result<()> {
-    add_column_if_missing(
-        conn,
-        "messages",
-        "is_scoped",
-        "INTEGER NOT NULL DEFAULT 0",
-    )?;
+    add_column_if_missing(conn, "messages", "is_scoped", "INTEGER NOT NULL DEFAULT 0")?;
     crate::conversation_store::persist::backfill_is_scoped(conn)?;
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_messages_conv_lead_pos

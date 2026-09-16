@@ -94,8 +94,10 @@ pub fn parse_job_args(args: &Value) -> Result<JobToolArgs, String> {
         .filter(|s| !s.is_empty())
         .map(str::to_string);
     let timeout_ms = args.get("timeoutMs").and_then(|v| {
-        v.as_u64()
-            .or_else(|| v.as_f64().and_then(|n| if n >= 0.0 { Some(n as u64) } else { None }))
+        v.as_u64().or_else(|| {
+            v.as_f64()
+                .and_then(|n| if n >= 0.0 { Some(n as u64) } else { None })
+        })
     });
     if action == JobAction::Status && job_id.is_none() {
         return Err("status requires jobId".into());

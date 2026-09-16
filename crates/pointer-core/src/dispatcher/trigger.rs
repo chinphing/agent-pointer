@@ -36,10 +36,7 @@ impl TriggerSource {
     /// Runs that execute without an interactive browser request
     /// (webhook, cron, IM, internal idle push / dispatch_internal).
     pub fn is_headless_automation(self) -> bool {
-        matches!(
-            self,
-            Self::Webhook | Self::Cron | Self::Im | Self::Internal
-        )
+        matches!(self, Self::Webhook | Self::Cron | Self::Im | Self::Internal)
     }
 
     pub fn as_str(&self) -> &'static str {

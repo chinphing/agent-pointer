@@ -182,10 +182,8 @@ mod tests {
     #[test]
     fn recover_nested_absolute_from_sandbox_join() {
         use std::fs;
-        let real = std::env::temp_dir().join(format!(
-            "pointer-nested-abs-{}.json",
-            uuid::Uuid::new_v4()
-        ));
+        let real =
+            std::env::temp_dir().join(format!("pointer-nested-abs-{}.json", uuid::Uuid::new_v4()));
         fs::write(&real, b"{}").unwrap();
         let real_unix = real.to_string_lossy().replace('\\', "/");
         let suffix = real_unix.trim_start_matches('/');

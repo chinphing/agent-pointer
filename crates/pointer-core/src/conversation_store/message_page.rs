@@ -91,13 +91,20 @@ fn scoped_page_bucket_key(msg: &ChatMessage) -> String {
 fn split_page_scoped(
     messages: Vec<ChatMessage>,
     positions: Vec<i64>,
-) -> (Vec<ChatMessage>, Vec<i64>, HashMap<String, Vec<ChatMessage>>) {
+) -> (
+    Vec<ChatMessage>,
+    Vec<i64>,
+    HashMap<String, Vec<ChatMessage>>,
+) {
     let mut lead = Vec::new();
     let mut lead_pos = Vec::new();
     let mut scoped: HashMap<String, Vec<ChatMessage>> = HashMap::new();
     for (msg, pos) in messages.into_iter().zip(positions) {
         if is_scoped_sub_message(&msg) {
-            scoped.entry(scoped_page_bucket_key(&msg)).or_default().push(msg);
+            scoped
+                .entry(scoped_page_bucket_key(&msg))
+                .or_default()
+                .push(msg);
         } else {
             lead.push(msg);
             lead_pos.push(pos);

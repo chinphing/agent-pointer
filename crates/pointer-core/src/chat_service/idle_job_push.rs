@@ -15,9 +15,7 @@ use crate::dispatcher::hooks::{
     HookIdentity, OnRunCancelledHook, OnRunFailedHook, OnRunFinishedHook, RunCancelledContext,
     RunFailedContext, RunFinishedContext,
 };
-use crate::dispatcher::{
-    DeliverTarget, RunDispatcher, TriggerMeta, TriggerRequest, TriggerSource,
-};
+use crate::dispatcher::{DeliverTarget, RunDispatcher, TriggerMeta, TriggerRequest, TriggerSource};
 use crate::models::{ChatMessage, StreamEvent};
 use crate::stream_broadcast;
 
@@ -71,7 +69,11 @@ impl IdleJobPush {
         if state.cancels.lock().contains_key(conversation_id) {
             return true;
         }
-        if self.dispatcher.queue().session_has_activity(conversation_id) {
+        if self
+            .dispatcher
+            .queue()
+            .session_has_activity(conversation_id)
+        {
             return true;
         }
         match state
@@ -90,9 +92,7 @@ impl IdleJobPush {
 
     async fn try_flush(&self, conversation_id: &str) {
         if self.lead_busy(conversation_id) {
-            log::info!(
-                "idle_job_push: defer; lead busy conversation_id={conversation_id}"
-            );
+            log::info!("idle_job_push: defer; lead busy conversation_id={conversation_id}");
             // Job finish may race lead teardown. Reschedule so a deferred claim
             // still flushes once the lead is idle (do not rely only on the next
             // job finish or on_run_finished).
@@ -110,9 +110,9 @@ impl IdleJobPush {
             items.len()
         );
         let mut user_msg = ChatMessage::user_text(build_idle_push_user_text(&items));
-        user_msg.ui_bindings = Some(
-            crate::models::MessageUiBindings::idle_job_push_bubble("后台任务已完成。"),
-        );
+        user_msg.ui_bindings = Some(crate::models::MessageUiBindings::idle_job_push_bubble(
+            "后台任务已完成。",
+        ));
         let user_msg_id = user_msg.id.clone();
         let user_msg_content = user_msg.content.clone();
         let user_msg_ui = user_msg.ui_bindings.clone();

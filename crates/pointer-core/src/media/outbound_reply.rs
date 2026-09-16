@@ -334,10 +334,8 @@ mod tests {
 
     #[test]
     fn spaced_application_support_path_attaches_csv_not_prefix_file() {
-        let root = std::env::temp_dir().join(format!(
-            "pointer-app-support-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("pointer-app-support-{}", uuid::Uuid::new_v4()));
         let library = root.join("Library");
         let prefix_file = library.join("Application");
         let csv = library
@@ -352,9 +350,7 @@ mod tests {
         assert!(prefix_file.is_file());
 
         let path = csv.display().to_string();
-        let (text, media) = split_reply_media(&format!(
-            "CSV 全量明细：\nMEDIA:{path}"
-        ));
+        let (text, media) = split_reply_media(&format!("CSV 全量明细：\nMEDIA:{path}"));
         assert_eq!(media, vec![path.clone()], "text was:\n{text}");
         assert!(!text.contains("MEDIA:"));
         assert!(!media.iter().any(|p| p.ends_with("/Application")));

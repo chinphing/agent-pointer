@@ -120,10 +120,7 @@ fn attachment_abs_path(att: &MediaAttachment) -> Option<PathBuf> {
 pub fn media_marker_path_for_attachment(att: &MediaAttachment) -> Option<String> {
     let abs = attachment_abs_path(att)?;
     let root = workspace_root_for_media();
-    Some(media_marker_path_for_file(
-        &abs,
-        root.as_deref(),
-    ))
+    Some(media_marker_path_for_file(&abs, root.as_deref()))
 }
 
 /// Build `MEDIA:…?attachmentId=` lines for user-upload attachments.
@@ -185,8 +182,10 @@ pub fn rewrite_media_markers_with_attachment_ids(
         return content.to_string();
     }
     let root = workspace_root_for_media();
-    let mut by_id: std::collections::HashMap<&str, &MediaAttachment> = std::collections::HashMap::new();
-    let mut by_abs: std::collections::HashMap<String, &MediaAttachment> = std::collections::HashMap::new();
+    let mut by_id: std::collections::HashMap<&str, &MediaAttachment> =
+        std::collections::HashMap::new();
+    let mut by_abs: std::collections::HashMap<String, &MediaAttachment> =
+        std::collections::HashMap::new();
     for att in attachments {
         let id = att.id.trim();
         if !id.is_empty() {
@@ -225,12 +224,8 @@ pub fn rewrite_media_markers_with_attachment_ids(
             out_lines.push(line.to_string());
             continue;
         };
-        let path = media_marker_path_for_attachment(att).unwrap_or_else(|| {
-            media_marker_path_for_file(
-                Path::new(&path_part),
-                root.as_deref(),
-            )
-        });
+        let path = media_marker_path_for_attachment(att)
+            .unwrap_or_else(|| media_marker_path_for_file(Path::new(&path_part), root.as_deref()));
         out_lines.push(format_media_marker(&path, att.id.trim()));
     }
     out_lines.join("\n")
@@ -242,9 +237,7 @@ mod tests {
 
     #[test]
     fn split_query_roundtrip() {
-        let (p, id) = split_attachment_id_query(
-            "/tmp/a.xlsx?attachmentId=9f2f0b9a8b7c",
-        );
+        let (p, id) = split_attachment_id_query("/tmp/a.xlsx?attachmentId=9f2f0b9a8b7c");
         assert_eq!(p, "/tmp/a.xlsx");
         assert_eq!(id.as_deref(), Some("9f2f0b9a8b7c"));
         assert_eq!(
@@ -277,10 +270,8 @@ mod tests {
     #[test]
     fn rewrite_chinese_table_lines_does_not_panic() {
         use std::io::Write;
-        let dir = std::env::temp_dir().join(format!(
-            "pointer-media-marker-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("pointer-media-marker-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("out.xlsx");
         {
@@ -291,8 +282,7 @@ mod tests {
         let att = MediaAttachment {
             id: "9f2f0b9a8b7c".into(),
             kind: "document".into(),
-            mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                .into(),
+            mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".into(),
             file_name: "out.xlsx".into(),
             size_bytes: 1,
             storage_rel_path: None,

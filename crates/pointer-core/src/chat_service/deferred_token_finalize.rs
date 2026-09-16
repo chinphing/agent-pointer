@@ -95,9 +95,7 @@ pub async fn on_parent_run_finished(
     }
 
     // Park first so a racing last-job finish cannot miss the parent-done signal.
-    state
-        .deferred_token_finalize
-        .park(run_id, conversation_id);
+    state.deferred_token_finalize.park(run_id, conversation_id);
 
     let running = state.jobs.running_count_for_run(run_id);
     if running > 0 {
@@ -118,16 +116,8 @@ pub async fn on_parent_run_finished(
         return;
     };
 
-    log::info!(
-        "token_usage_store: finalize_run immediate run_id={run_id} conversation_id={cid}"
-    );
-    finalize_and_flush(
-        run_id,
-        &cid,
-        history,
-        state.active_platform_auth().as_ref(),
-    )
-    .await;
+    log::info!("token_usage_store: finalize_run immediate run_id={run_id} conversation_id={cid}");
+    finalize_and_flush(run_id, &cid, history, state.active_platform_auth().as_ref()).await;
 }
 
 /// After a background job reaches a terminal status, finalize if parent already ended
@@ -198,12 +188,9 @@ mod tests {
         let state = AppState::new();
         let run_id = "run-defer-1";
         let conv = "conv-defer-1";
-        let job_id = state.jobs.register(
-            conv,
-            subagent_kind(),
-            CancellationToken::new(),
-            run_id,
-        );
+        let job_id = state
+            .jobs
+            .register(conv, subagent_kind(), CancellationToken::new(), run_id);
         state.jobs.mark_running(&job_id);
 
         on_parent_run_finished(&state, run_id, conv, &[]).await;
@@ -236,18 +223,12 @@ mod tests {
         let state = AppState::new();
         let run_id = "run-partial-cancel";
         let conv = "conv-partial-cancel";
-        let a = state.jobs.register(
-            conv,
-            subagent_kind(),
-            CancellationToken::new(),
-            run_id,
-        );
-        let b = state.jobs.register(
-            conv,
-            subagent_kind(),
-            CancellationToken::new(),
-            run_id,
-        );
+        let a = state
+            .jobs
+            .register(conv, subagent_kind(), CancellationToken::new(), run_id);
+        let b = state
+            .jobs
+            .register(conv, subagent_kind(), CancellationToken::new(), run_id);
         state.jobs.mark_running(&a);
         state.jobs.mark_running(&b);
 
@@ -264,32 +245,20 @@ mod tests {
         .await;
         assert!(state.deferred_token_finalize.is_parked(run_id));
 
-        finish_job_and_maybe_finalize(
-            &state,
-            &b,
-            JobStatus::Completed,
-            Some("ok".into()),
-            None,
-        )
-        .await;
+        finish_job_and_maybe_finalize(&state, &b, JobStatus::Completed, Some("ok".into()), None)
+            .await;
         assert!(!state.deferred_token_finalize.is_parked(run_id));
     }
 
     #[test]
     fn running_count_for_run_ignores_other_runs() {
         let state = AppState::new();
-        let a = state.jobs.register(
-            "c1",
-            subagent_kind(),
-            CancellationToken::new(),
-            "run-a",
-        );
-        let _b = state.jobs.register(
-            "c1",
-            subagent_kind(),
-            CancellationToken::new(),
-            "run-b",
-        );
+        let a = state
+            .jobs
+            .register("c1", subagent_kind(), CancellationToken::new(), "run-a");
+        let _b = state
+            .jobs
+            .register("c1", subagent_kind(), CancellationToken::new(), "run-b");
         state.jobs.mark_running(&a);
         assert_eq!(state.jobs.running_count_for_run("run-a"), 1);
         assert_eq!(state.jobs.running_count_for_run("run-b"), 1);

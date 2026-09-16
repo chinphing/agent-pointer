@@ -15,7 +15,8 @@ pub(super) async fn dispatch_job(
     cancel: &CancellationToken,
 ) -> ToolExecResult {
     let parsed = parse_job_args(&args_value).map_err(|e| anyhow::anyhow!(e))?;
-    let slot_cap = ParallelLimits::from_settings(&state.effective_settings()).max_parallel_sub_agents;
+    let slot_cap =
+        ParallelLimits::from_settings(&state.effective_settings()).max_parallel_sub_agents;
     let slot_cap = crate::chat_service::job_supervisor::JobSupervisor::slot_cap_from(slot_cap);
     let running_count = state.jobs.running_count_for_conversation(conversation_id);
     let idle_slots = state.jobs.idle_slots(conversation_id, slot_cap);
@@ -61,7 +62,8 @@ pub(super) async fn dispatch_job(
             }
         }
         JobAction::Await => {
-            let mode = crate::chat_service::job_supervisor::AwaitMode::parse(parsed.mode.as_deref());
+            let mode =
+                crate::chat_service::job_supervisor::AwaitMode::parse(parsed.mode.as_deref());
             let ids = if parsed.job_ids.is_empty() {
                 None
             } else {

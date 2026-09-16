@@ -3,7 +3,10 @@
 
 use crate::models::{ChatMessage, Role, ToolCall};
 
-pub(crate) fn merge_incoming_over_stored(incoming: &ChatMessage, stored: &ChatMessage) -> ChatMessage {
+pub(crate) fn merge_incoming_over_stored(
+    incoming: &ChatMessage,
+    stored: &ChatMessage,
+) -> ChatMessage {
     let mut out = incoming.clone();
     match incoming.role {
         Role::Assistant => {
@@ -141,10 +144,7 @@ fn is_terminal_status(status: &str) -> bool {
 }
 
 fn is_terminal_job_handle(status: &str) -> bool {
-    matches!(
-        status,
-        "completed" | "failed" | "cancelled" | "canceled"
-    )
+    matches!(status, "completed" | "failed" | "cancelled" | "canceled")
 }
 
 fn is_open_message_status(status: &str) -> bool {

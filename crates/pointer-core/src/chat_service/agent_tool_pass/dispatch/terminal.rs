@@ -163,7 +163,10 @@ fn cancelled_terminal_json() -> String {
     })
 }
 
-fn job_status_from_terminal(r: &TerminalStreamingResult, job_cancel: &CancellationToken) -> JobStatus {
+fn job_status_from_terminal(
+    r: &TerminalStreamingResult,
+    job_cancel: &CancellationToken,
+) -> JobStatus {
     let (ok, _) = terminal_stream_tool_status(r);
     if r.cancelled || job_cancel.is_cancelled() {
         JobStatus::Cancelled
@@ -450,7 +453,12 @@ async fn run_terminal_background(
         if item.status != "queued" && item.status != "running" {
             let _ = state.jobs.claim_if_unclaimed(&job_id);
             let body = item.content.unwrap_or_else(|| {
-                background_job_handle_json(&job_id, status_from_wire(&item.status), "terminal", None)
+                background_job_handle_json(
+                    &job_id,
+                    status_from_wire(&item.status),
+                    "terminal",
+                    None,
+                )
             });
             let ok = item.status == "completed";
             log::info!(
@@ -608,13 +616,7 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
                 "terminal background command failed job_id={job_id} conversation_id={}: {err:#}",
                 spawn.conversation_id
             );
-            (
-                status,
-                format!("ERROR: {note}"),
-                Some(note),
-                None,
-                "failed",
-            )
+            (status, format!("ERROR: {note}"), Some(note), None, "failed")
         }
         Err(err) => {
             let cancelled = spawn.cancel.is_cancelled();
@@ -628,13 +630,7 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
                 "terminal background join failed job_id={job_id} conversation_id={}: {err}",
                 spawn.conversation_id
             );
-            (
-                status,
-                format!("ERROR: {note}"),
-                Some(note),
-                None,
-                "failed",
-            )
+            (status, format!("ERROR: {note}"), Some(note), None, "failed")
         }
     };
 

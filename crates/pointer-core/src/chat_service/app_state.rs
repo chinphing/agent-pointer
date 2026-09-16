@@ -723,7 +723,8 @@ impl AppState {
             mcp_sessions,
             global_mcp,
             jobs: super::job_supervisor::JobSupervisor::new(),
-            deferred_token_finalize: super::deferred_token_finalize::DeferredTokenFinalizeStore::new(),
+            deferred_token_finalize:
+                super::deferred_token_finalize::DeferredTokenFinalizeStore::new(),
         };
         state.spawn_mcp_watchdog();
         state
@@ -1511,10 +1512,12 @@ impl AppState {
                 "app_state: cancel_background_jobs conversation_id={conversation_id} count={} ids={cancelled:?}",
                 cancelled.len()
             );
-            crate::stream_broadcast::publish_global_stream(crate::models::StreamEvent::BackgroundJobs {
-                conversation_id: conversation_id.to_string(),
-                running_count: self.jobs.running_count_for_conversation(conversation_id) as u32,
-            });
+            crate::stream_broadcast::publish_global_stream(
+                crate::models::StreamEvent::BackgroundJobs {
+                    conversation_id: conversation_id.to_string(),
+                    running_count: self.jobs.running_count_for_conversation(conversation_id) as u32,
+                },
+            );
         }
         cancelled
     }

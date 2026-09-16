@@ -1706,9 +1706,7 @@ pub fn effective_web_search_model(settings: &ModelSettings, _agent_id: Option<&s
 }
 
 /// Tier map entry for `web_search` (same shape as general/coder `agentModeLlm`).
-fn resolve_web_search_mode_llm_config(
-    settings: &ModelSettings,
-) -> Option<&ComputerTierLlmConfig> {
+fn resolve_web_search_mode_llm_config(settings: &ModelSettings) -> Option<&ComputerTierLlmConfig> {
     let mode = crate::mode_llm::agent_performance_mode(settings, WEB_SEARCH_SCENE_ID);
     let inner = settings.agent_mode_llm.get(WEB_SEARCH_SCENE_ID)?;
     let cfg = inner.get(mode)?;

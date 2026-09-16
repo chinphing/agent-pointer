@@ -1718,7 +1718,12 @@ mod builtin_agent_tests {
                 "general allowTools should include {tool}"
             );
         }
-        for tool in ["skill_read", "skill_import", "session_search", "session_read"] {
+        for tool in [
+            "skill_read",
+            "skill_import",
+            "session_search",
+            "session_read",
+        ] {
             assert!(
                 agent
                     .def

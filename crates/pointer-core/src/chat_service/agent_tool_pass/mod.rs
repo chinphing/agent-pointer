@@ -37,10 +37,9 @@ use super::util::{
 };
 
 use super::run_subagent_delegation::{
-    commit_subagent_outcome, execute_owned_subagent, failed_owned_subagent_outcome,
-    cancelled_owned_subagent_outcome,
-    finalize_subagent_outcome, OwnedSubagentExecutionInput, OwnedSubagentSource,
-    PreparedSubagentOutcome, SubagentCommitContext,
+    cancelled_owned_subagent_outcome, commit_subagent_outcome, execute_owned_subagent,
+    failed_owned_subagent_outcome, finalize_subagent_outcome, OwnedSubagentExecutionInput,
+    OwnedSubagentSource, PreparedSubagentOutcome, SubagentCommitContext,
 };
 use approval::run_approval_gate;
 use dispatch::{execute_tool_invocation, invoke_prepared_parallel};
@@ -657,10 +656,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                         &prep.args_value,
                         sub_trace_id.as_deref(),
                         sub_scoped_id.as_deref(),
-                        pass.ctx
-                            .sub
-                            .as_ref()
-                            .and_then(|s| s.background_job_id),
+                        pass.ctx.sub.as_ref().and_then(|s| s.background_job_id),
                     );
                     pass.ctx.stats.record_tool_invocation();
 
@@ -1098,7 +1094,8 @@ async fn run_self_fork_wave(
                         .as_ref()
                         .and_then(|s| s.background_job_id.map(str::to_string)),
                 };
-                let parsed_bg = crate::tools::run_subagent::parse_run_subagent_args(&prep.args_value);
+                let parsed_bg =
+                    crate::tools::run_subagent::parse_run_subagent_args(&prep.args_value);
                 let background = parsed_bg.as_ref().is_ok_and(|a| a.background);
                 if background {
                     if let Ok(parsed) = parsed_bg.as_ref() {
@@ -1329,7 +1326,12 @@ fn record_background_spawn_result(
         &body,
         &persist,
     );
-    let display = pass.ctx.session.state.tools.format_display(&prep.tc.name, &prep.args_value);
+    let display = pass
+        .ctx
+        .session
+        .state
+        .tools
+        .format_display(&prep.tc.name, &prep.args_value);
     patch_assistant_tool_call_display(
         pass.ctx.transcript.history,
         &pass.ctx.message_id,
@@ -2125,7 +2127,11 @@ mod self_fork_wave_tests {
     async fn nested_wave_does_not_take_extra_root_slots() {
         let jobs = JobSupervisor::new();
         let _ancestor = jobs
-            .acquire_root("conv-nested", 1, &tokio_util::sync::CancellationToken::new())
+            .acquire_root(
+                "conv-nested",
+                1,
+                &tokio_util::sync::CancellationToken::new(),
+            )
             .await
             .unwrap();
         let active = Arc::new(AtomicUsize::new(0));

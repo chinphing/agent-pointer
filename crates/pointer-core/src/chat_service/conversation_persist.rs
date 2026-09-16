@@ -26,11 +26,7 @@ pub fn upsert_message(conversation_id: &str, msg: &ChatMessage) {
 }
 
 /// Patch only `payload.agentTrace` on the lead row (no full ChatMessage clone).
-pub fn patch_anchor_agent_trace(
-    conversation_id: &str,
-    message_id: &str,
-    agent_trace_json: &str,
-) {
+pub fn patch_anchor_agent_trace(conversation_id: &str, message_id: &str, agent_trace_json: &str) {
     let Some(store) = store() else {
         return;
     };

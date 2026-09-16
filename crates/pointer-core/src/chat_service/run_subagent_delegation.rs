@@ -141,9 +141,8 @@ pub(super) fn failed_owned_subagent_outcome(
         OwnedSubagentSource::SelfFork(snapshot) => &snapshot.def,
         OwnedSubagentSource::Registered(def) => def,
     };
-    let instance_scope = preset_instance.unwrap_or_else(|| {
-        AgentInstanceScope::new(run_id, conversation_id, def.id.as_str())
-    });
+    let instance_scope = preset_instance
+        .unwrap_or_else(|| AgentInstanceScope::new(run_id, conversation_id, def.id.as_str()));
     log::warn!(
         "run_subagent owned-wave preparation failed conversation_id={} task_id={} tool_call_id={} agent_id={}: {}",
         conversation_id,
@@ -184,9 +183,8 @@ pub(super) fn cancelled_owned_subagent_outcome(
         OwnedSubagentSource::SelfFork(snapshot) => &snapshot.def,
         OwnedSubagentSource::Registered(def) => def,
     };
-    let instance_scope = preset_instance.unwrap_or_else(|| {
-        AgentInstanceScope::new(run_id, conversation_id, def.id.as_str())
-    });
+    let instance_scope = preset_instance
+        .unwrap_or_else(|| AgentInstanceScope::new(run_id, conversation_id, def.id.as_str()));
     log::info!(
         "run_subagent owned-wave skipped conversation_id={} task_id={} tool_call_id={} agent_id={} (cancelled)",
         conversation_id,
@@ -423,9 +421,8 @@ pub(super) async fn execute_owned_subagent(
             def,
         ),
     };
-    let instance_scope = preset_instance.unwrap_or_else(|| {
-        definition_source.new_instance_scope(&run_id, conversation_id)
-    });
+    let instance_scope = preset_instance
+        .unwrap_or_else(|| definition_source.new_instance_scope(&run_id, conversation_id));
     log::info!(
         "run_subagent owned-wave start conversation_id={} task_id={} tool_call_id={} agent_id={} agent_instance_id={}",
         conversation_id,
@@ -621,7 +618,11 @@ pub(crate) struct BackgroundOwnedSpawn {
     pub instance_scope: AgentInstanceScope,
 }
 
-pub(crate) fn emit_background_jobs(stream: &super::StreamTx, conversation_id: &str, running_count: usize) {
+pub(crate) fn emit_background_jobs(
+    stream: &super::StreamTx,
+    conversation_id: &str,
+    running_count: usize,
+) {
     emit(
         stream,
         StreamEvent::BackgroundJobs {
@@ -682,8 +683,9 @@ pub(crate) fn spawn_background_owned_subagent(spawn: BackgroundOwnedSpawn) -> St
 
 async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpawn) {
     let started = Instant::now();
-    let cap = crate::tools::parallel::ParallelLimits::from_settings(&spawn.state.effective_settings())
-        .max_parallel_sub_agents;
+    let cap =
+        crate::tools::parallel::ParallelLimits::from_settings(&spawn.state.effective_settings())
+            .max_parallel_sub_agents;
     let cap = super::job_supervisor::JobSupervisor::slot_cap_from(cap);
     let _lease = if super::job_supervisor::worker_needs_root_slot(spawn.child_spawn_depth) {
         match spawn
@@ -1054,17 +1056,14 @@ fn persist_background_host_tool_finish(
     if let Some(duration_ms) = duration_ms {
         tc.duration_ms = Some(duration_ms);
     }
-    let host_still_open = msg
-        .tool_calls
-        .as_ref()
-        .is_some_and(|calls| {
-            calls.iter().any(|c| {
-                matches!(
-                    c.status.as_str(),
-                    "running" | "pending" | "pending_approval"
-                )
-            })
-        });
+    let host_still_open = msg.tool_calls.as_ref().is_some_and(|calls| {
+        calls.iter().any(|c| {
+            matches!(
+                c.status.as_str(),
+                "running" | "pending" | "pending_approval"
+            )
+        })
+    });
     if !host_still_open && matches!(msg.status.as_str(), "streaming" | "pending") {
         msg.status = "done".into();
     }
@@ -1519,12 +1518,11 @@ pub(super) async fn run_subagent_delegation(
 #[cfg(test)]
 mod trace_tests {
     use super::{
-        build_subagent_trace, commit_subagent_outcome, execute_owned_subagent,
-        failed_owned_subagent_outcome, finalize_subagent_outcome,
-        publish_owned_subagent_ui_finished, serialize_subagent_result_without_task_id,
-        background_job_handle_json, complete_background_host_tool,
-        OwnedSubagentExecutionInput, OwnedSubagentSource, PreparedSubagentOutcome,
-        SubagentCommitContext,
+        background_job_handle_json, build_subagent_trace, commit_subagent_outcome,
+        complete_background_host_tool, execute_owned_subagent, failed_owned_subagent_outcome,
+        finalize_subagent_outcome, publish_owned_subagent_ui_finished,
+        serialize_subagent_result_without_task_id, OwnedSubagentExecutionInput,
+        OwnedSubagentSource, PreparedSubagentOutcome, SubagentCommitContext,
     };
     use crate::agent_instance_scope::AgentInstanceScope;
     use crate::agents::{
@@ -1746,7 +1744,11 @@ mod trace_tests {
     #[test]
     fn background_host_finish_keeps_handle_on_host_row() {
         let (stream, mut events) = crate::models::ChatStreamSender::pair("conversation", "user");
-        let exec = Ok((r#"{"content":"worker handoff markdown"}"#.into(), true, None));
+        let exec = Ok((
+            r#"{"content":"worker handoff markdown"}"#.into(),
+            true,
+            None,
+        ));
         publish_owned_subagent_ui_finished(
             &stream,
             "anchor",

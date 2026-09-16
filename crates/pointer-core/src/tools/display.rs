@@ -433,7 +433,8 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                     args.get("offset").and_then(|v| {
                         if let Some(n) = v.as_i64() {
                             Some(format!("第 {n} 条"))
-                        } else if let Some(s) = v.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+                        } else if let Some(s) = v.as_str().map(str::trim).filter(|s| !s.is_empty())
+                        {
                             Some(format!("第 {s} 条"))
                         } else {
                             None

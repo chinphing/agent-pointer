@@ -15,6 +15,9 @@
   **`mode` 可选**（按后缀推断；视频转写显式 `audio`）。
 - Office / PDF：**docx** / **xlsx** / **pptx** / **pdf** Skill + terminal（`localPath`）；PDF 阅读优先 skill，扫描件才 `media_understand`
 - App（Tauri）与 Web 端行为一致
+- **出站 `MEDIA:`：** 宿主只把助手正文里的 `MEDIA:` 行注册为附件。
+  `file_write` / `file_edit` 已有轮次修改摘要，默认不再附件交付；
+  用户明确要求附件时除外。见 [`../ui/turn-change-summary.md`](../ui/turn-change-summary.md)。
 
 ---
 

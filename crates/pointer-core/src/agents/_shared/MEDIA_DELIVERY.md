@@ -2,7 +2,13 @@
 
 Write the **final** reply in **assistant message content** — there is no separate delivery tool.
 
-The `MEDIA:` marker works for **any local file** (images, video, audio, HTML, PDF, archives, source code, etc.) — not only media.
+The `MEDIA:` marker works for **any local file**
+(images, video, audio, HTML, PDF, archives, etc.) — not only media.
+
+Do **not** emit `MEDIA:` for paths you wrote with
+`file_write` / `file_edit`.
+The host already tracks those writes for the user.
+Attach them only if the user explicitly asks for attachment delivery.
 
 ### File delivery intent (mandatory)
 

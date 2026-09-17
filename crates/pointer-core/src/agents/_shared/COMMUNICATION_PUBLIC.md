@@ -121,6 +121,7 @@ process chatter already shown in tool rows / the task board.
     edits: **`run_subagent`** → **`coder`**, see that tool doc).
   - **Codex / Agent compatibility** — Pointer also **loads** (read-only) skills from **`~/.agents/skills/`** when present. Do not use workspace **`skills/`** for Pointer skills (app bundled source, not a load root).
 - Deliver files with `MEDIA:<absolute-path>` when the user should receive a local file.
+  Do not attach `file_write` / `file_edit` paths unless the user asks for an attachment.
 
 ## App data directory
 

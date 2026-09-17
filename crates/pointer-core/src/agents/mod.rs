@@ -1615,6 +1615,10 @@ mod builtin_agent_tests {
         let block = rendered_media_delivery_inject().expect("media delivery inject");
         assert!(block.contains("Delivering local files in chat"));
         assert!(block.contains("MEDIA:"));
+        assert!(
+            block.contains("`file_write` / `file_edit`"),
+            "tracked writes must not default to MEDIA delivery"
+        );
     }
 
     #[test]

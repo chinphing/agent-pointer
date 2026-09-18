@@ -180,6 +180,24 @@ describe('compactToolCallStatusLine', () => {
     expect(isBackgroundJobHandleResult('{"content":"worker markdown"}')).toBe(false)
   })
 
+  it('does not treat job.status snapshots as spawn handles', () => {
+    expect(
+      isBackgroundJobHandleResult(
+        '{"jobId":"job_1","status":"running","kind":"subagent","claimed":false,"title":"coder"}'
+      )
+    ).toBe(false)
+    const statusCall = tc({
+      id: 'job-status',
+      name: 'job',
+      status: 'success',
+      displayLabel: '后台任务状态',
+      arguments: JSON.stringify({ action: 'status', jobId: 'job_1' }),
+      result: '{"jobId":"job_1","status":"running","kind":"subagent","claimed":false}'
+    })
+    expect(resolveBackgroundHostDisplayStatus(statusCall)).toBe('success')
+    expect(compactToolCallStatusLine(statusCall)).toBe('后台任务状态')
+  })
+
   it('parses background job id and job.await', () => {
     expect(
       backgroundJobIdFromToolCall(

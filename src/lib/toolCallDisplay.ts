@@ -311,7 +311,9 @@ export function isBackgroundJobHost(tc: ToolCall): boolean {
   return isBackgroundSubagentCall(tc) || isBackgroundTerminalCall(tc)
 }
 
-/** Job handle JSON — not worker Markdown and not terminal stdout. */
+/** Job handle JSON — not worker Markdown, terminal stdout, or `job.status` snapshots.
+ *  List/status items always include `claimed`; spawn receipts do not.
+ */
 export function isBackgroundJobHandleResult(result?: string | null): boolean {
   if (!result?.trim()) return false
   try {
@@ -321,6 +323,7 @@ export function isBackgroundJobHandleResult(result?: string | null): boolean {
     return (
       jobId.length > 0
       && (kind === 'subagent' || kind === 'terminal')
+      && v.claimed === undefined
       && v.stdout === undefined
       && v.exitCode === undefined
       && v.content === undefined

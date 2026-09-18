@@ -111,8 +111,12 @@ pub fn parse_job_args(args: &Value) -> Result<JobToolArgs, String> {
     })
 }
 
-/// True when a tool result is a still-running job handle (`kind` + `jobId`).
+/// True when a tool result is a still-running **spawn handle** (`kind` + `jobId`).
 /// Terminal stdout JSON and subagent worker bodies must not match.
+///
+/// `job.status` / `job.list` snapshots also have `jobId` + `kind` + `status`,
+/// but they always include `claimed`. Those are finished queries, not host
+/// receipts — do not keep the `job` tool row running.
 pub fn is_running_job_handle(result: &str) -> bool {
     let Ok(v) = serde_json::from_str::<Value>(result) else {
         return false;
@@ -123,9 +127,16 @@ pub fn is_running_job_handle(result: &str) -> bool {
     !job_id.is_empty()
         && status == "running"
         && (kind == "subagent" || kind == "terminal")
+        && v.get("claimed").is_none()
         && v.get("stdout").is_none()
         && v.get("exitCode").is_none()
         && v.get("content").is_none()
+}
+
+/// Only `run_subagent` / `terminal` host rows stay `running` on a spawn handle.
+/// `job` list/status/await/cancel always settle (success or failed).
+pub fn host_tool_stays_running(tool_id: &str, result: &str) -> bool {
+    matches!(tool_id, "run_subagent" | "terminal") && is_running_job_handle(result)
 }
 
 #[cfg(test)]
@@ -163,5 +174,24 @@ mod tests {
             r#"{"exitCode":0,"success":true,"stdout":"hi"}"#
         ));
         assert!(!is_running_job_handle(r#"{"content":"worker markdown"}"#));
+    }
+
+    #[test]
+    fn status_snapshot_with_claimed_is_not_a_spawn_handle() {
+        let snapshot = r#"{"jobId":"job_1","status":"running","kind":"subagent","claimed":false,"title":"coder"}"#;
+        assert!(!is_running_job_handle(snapshot));
+        assert!(!host_tool_stays_running("job", snapshot));
+        assert!(!host_tool_stays_running(
+            "job",
+            r#"{"jobId":"job_1","status":"running","kind":"subagent"}"#
+        ));
+        assert!(host_tool_stays_running(
+            "run_subagent",
+            r#"{"jobId":"job_1","status":"running","kind":"subagent"}"#
+        ));
+        assert!(host_tool_stays_running(
+            "terminal",
+            r#"{"jobId":"job_1","status":"running","kind":"terminal"}"#
+        ));
     }
 }

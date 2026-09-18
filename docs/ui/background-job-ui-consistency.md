@@ -7,6 +7,7 @@
 | 现象 | 常见触发 |
 |------|----------|
 | 宿主行一直「后台执行中」，正文已写「全部完成」 | `ToolCallStatus(success)` 未落到内存 UI（流丢失 / 父轮已 Done），宿主仍 `running` |
+| `job.status` 行一直「执行中」，后面工具已在跑 | 查询回包与 spawn 句柄同形（`jobId`+`kind`+`status=running`）。**只有** `run_subagent` / `terminal` 宿主行可因句柄保持 `running`；`job` 查询带 `claimed`，必须立刻 `success`/`failed` |
 | 过一会变成「已取消」 | 占用快照 `backgroundJobs=0` → `finalizeOrphanBackgroundHosts` 把仍 `running` 的宿主标成 `failed` + `error=interrupted`；`ToolCallRow` 把 interrupted 显示成「已取消」 |
 | 标题（C1…）与「代码探索 · 搜索 N 次」拆开 | `SubAgentFrame` 未挂在宿主 `after-tool`（`tool_run` 路径未接线，或 `parentToolCallId` 对不上 → orphan 堆在底部） |
 
@@ -15,7 +16,7 @@
 对**每一条**后台宿主工具行（`run_subagent` + `background`，或 `terminal` + `blockUntilMs`），UI 状态只认下面优先级：
 
 1. **宿主 `ToolCall.status` + `result` 句柄**（权威，须与 JobSupervisor / 落盘一致）
-2. 句柄 JSON：`{ jobId, status, kind }` 中的 `status`（`running` / `completed` / `failed` / `cancelled`）
+2. 句柄 JSON：`{ jobId, status, kind }` 中的 `status`（`running` / `completed` / `failed` / `cancelled`）。**不含 `claimed`**。`job.status` / `job.list` 条目带 `claimed`，不是宿主句柄，不要用来维持工具行 `running`。
 3. **禁止**用「占用计数 = 0」单独推断「用户取消」；占用为 0 只表示 JobSupervisor 里没有 running，**不能**默认写成 interrupted
 
 前端识别 `run_subagent` 后台宿主时须与后端一致：`self` / `explore` / `coder` **省略** `background` 也视为后台；句柄 JSON（`kind=subagent`）亦视为后台。回合 `Done` 后 `finalizeStuckToolCalls` **不得**因句柄 JSON 已写入而把仍 `running` 的宿主标成 `success`。

@@ -60,7 +60,12 @@ pub(super) async fn record_tool_exec_outcome(
             let display = state.tools.format_display(&tc.name, args_for_desktop_log);
             let (display_label, display_summary) =
                 super::super::util::tool_display_stream_fields(&display);
-            let status = if ok && crate::tools::job::is_running_job_handle(&out) {
+            let stay_running = ok && crate::tools::job::host_tool_stays_running(tool_id, &out);
+            let status = if stay_running {
+                log::info!(
+                    "tool outcome: host handle still running tool={tool_id} conversation_id={conversation_id} tool_call_id={}",
+                    tc.id
+                );
                 "running"
             } else if ok {
                 "success"

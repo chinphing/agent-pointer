@@ -120,6 +120,7 @@ mediaModelOverrides: {
 | 单图硬上限 | 6 MB |
 | 文档文本提取上限 | 256 KiB |
 | PDF 页图理解（扫描回退） | 10 页 / call；单页 JPEG ≤ **6 MB**（Pdfium 渲染 + `media_understand`） |
+| 视觉理解 `max_tokens` | **思考预算 + 8192**（下限 8192）。思考 tokens 计入 `max_tokens` 的模型（如 DeepSeek）若两者同为 4096，多图 OCR 会截断成空 `content`。 |
 | 单视频 Composer 上限 | **100 MB** |
 | Composer video | 允许（需本机 ffmpeg 方可理解） |
 

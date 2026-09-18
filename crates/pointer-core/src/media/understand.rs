@@ -2,10 +2,46 @@ use crate::media::token::{record_media_understand_usage, MediaTokenContext, Medi
 use crate::models::{
     provider_uses_dashscope_compatible_api, AgentModelRef, ChatMessage, ModelSettings, Role,
 };
-use crate::provider::OpenAIProvider;
+use crate::provider::{ChatOnceOutput, OpenAIProvider};
 use anyhow::{Context, Result};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
+
+/// Visible-answer budget reserved after thinking tokens.
+///
+/// DeepSeek-style APIs count `reasoning_content` toward `max_tokens`. If this
+/// equals the thinking budget, long OCR / multi-image calls finish with empty
+/// `content` and the tool reports a blank failure.
+const MEDIA_ANSWER_MAX_TOKENS: u32 = 8192;
+
+fn media_understand_max_tokens(settings: &ModelSettings) -> u32 {
+    let thinking = settings.round_thinking_budget.unwrap_or(0);
+    let wanted = thinking
+        .saturating_add(MEDIA_ANSWER_MAX_TOKENS)
+        .max(MEDIA_ANSWER_MAX_TOKENS);
+    wanted.min(crate::models::effective_max_tokens(settings))
+}
+
+fn require_understand_text(kind: &str, out: &ChatOnceOutput, max_tokens: u32) -> Result<String> {
+    let text = out.text.trim().to_string();
+    if !text.is_empty() {
+        return Ok(text);
+    }
+    let finish = out.finish_reason.as_deref().unwrap_or("unknown");
+    let completion = out.usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0);
+    let reasoning_tokens = out.usage.as_ref().map(|u| u.reasoning_tokens).unwrap_or(0);
+    log::warn!(
+        "{kind} empty content model={} finish_reason={finish} completion_tokens={completion} reasoning_tokens={reasoning_tokens} max_tokens={max_tokens}",
+        out.model
+    );
+    let hit_token_cap = max_tokens > 0 && completion >= max_tokens;
+    if finish == "length" || hit_token_cap {
+        anyhow::bail!(
+            "{kind} output truncated at max_tokens ({completion}/{max_tokens}); retry with fewer images or a shorter analysis goal"
+        );
+    }
+    anyhow::bail!("{kind} returned empty content (finish_reason={finish})")
+}
 
 const DESCRIBE_PROMPT: &str = "Describe this image for an assistant that cannot see it. \
 Focus on visible text, objects, layout, and details relevant to the user's stated goal.";
@@ -63,6 +99,12 @@ pub async fn describe_image_with_model(
     if api_key.is_empty() {
         anyhow::bail!("no API key for image understanding model");
     }
+    let max_tokens = media_understand_max_tokens(&image_settings);
+    log::info!(
+        "media understand image model={} max_tokens={max_tokens} thinking_budget={:?}",
+        image_settings.model,
+        image_settings.round_thinking_budget
+    );
     let provider = OpenAIProvider::new(image_settings, api_key);
     let user = ChatMessage {
         id: "media-describe".into(),
@@ -102,23 +144,14 @@ pub async fn describe_image_with_model(
             &system,
             vec![],
             cancel.clone(),
-            Some(4096),
+            Some(max_tokens),
             Some("media_image_understand"),
         )
         .await
         .context("image understanding chat_once")?;
     record_media_understand_usage(token_ctx, MediaUnderstandKind::Image, &out);
-    let text = out.text.trim().to_string();
-    if text.is_empty() {
-        if out.finish_reason.as_deref() == Some("length") {
-            anyhow::bail!(
-                "image understanding output truncated at max_tokens; retry with a shorter analysis goal"
-            );
-        }
-        anyhow::bail!("image understanding returned empty content");
-    }
     let _ = mime_type;
-    Ok(text)
+    require_understand_text("image understanding", &out, max_tokens)
 }
 
 pub async fn describe_images_with_model(
@@ -140,6 +173,13 @@ pub async fn describe_images_with_model(
     if api_key.is_empty() {
         anyhow::bail!("no API key for image understanding model");
     }
+    let max_tokens = media_understand_max_tokens(&image_settings);
+    log::info!(
+        "media understand image_dir count={} model={} max_tokens={max_tokens} thinking_budget={:?}",
+        images_base64.len(),
+        image_settings.model,
+        image_settings.round_thinking_budget
+    );
     let provider = OpenAIProvider::new(image_settings, api_key);
     let slot_labels = if labels.len() == images_base64.len() {
         Some(labels.to_vec())
@@ -197,17 +237,13 @@ pub async fn describe_images_with_model(
             &system,
             vec![],
             cancel.clone(),
-            Some(4096),
+            Some(max_tokens),
             Some("media_image_dir_understand"),
         )
         .await
         .context("image directory understanding chat_once")?;
     record_media_understand_usage(token_ctx, MediaUnderstandKind::Image, &out);
-    let text = out.text.trim().to_string();
-    if text.is_empty() {
-        anyhow::bail!("image directory understanding returned empty content");
-    }
-    Ok(text)
+    require_understand_text("image directory understanding", &out, max_tokens)
 }
 
 const TRANSCRIBE_PROMPT: &str = "Transcribe the attached audio to plain text. \
@@ -332,6 +368,13 @@ pub async fn describe_pdf_pages_with_model(
     if api_key.is_empty() {
         anyhow::bail!("no API key for pdf image understanding model");
     }
+    let max_tokens = media_understand_max_tokens(&image_settings);
+    log::info!(
+        "media understand pdf pages={} model={} max_tokens={max_tokens} thinking_budget={:?}",
+        page_base64s.len(),
+        image_settings.model,
+        image_settings.round_thinking_budget
+    );
     let provider = OpenAIProvider::new(image_settings, api_key);
     let user = ChatMessage {
         id: "media-pdf-describe".into(),
@@ -378,17 +421,13 @@ pub async fn describe_pdf_pages_with_model(
             &system,
             vec![],
             cancel.clone(),
-            Some(4096),
+            Some(max_tokens),
             Some("media_pdf_understand"),
         )
         .await
         .context("pdf image understanding chat_once")?;
     record_media_understand_usage(token_ctx, MediaUnderstandKind::Pdf, &out);
-    let text = out.text.trim().to_string();
-    if text.is_empty() {
-        anyhow::bail!("pdf image understanding returned empty content");
-    }
-    Ok(text)
+    require_understand_text("pdf image understanding", &out, max_tokens)
 }
 
 pub async fn describe_video_with_model(
@@ -409,6 +448,13 @@ pub async fn describe_video_with_model(
     if api_key.is_empty() {
         anyhow::bail!("no API key for video understanding model");
     }
+    let max_tokens = media_understand_max_tokens(&video_settings);
+    log::info!(
+        "media understand video frames={} model={} max_tokens={max_tokens} thinking_budget={:?}",
+        frame_base64s.len(),
+        video_settings.model,
+        video_settings.round_thinking_budget
+    );
     let provider = OpenAIProvider::new(video_settings, api_key);
     let user = ChatMessage {
         id: "media-video-describe".into(),
@@ -455,15 +501,88 @@ pub async fn describe_video_with_model(
             &system,
             vec![],
             cancel.clone(),
-            Some(2048),
+            Some(max_tokens),
             Some("media_video_understand"),
         )
         .await
         .context("video understanding chat_once")?;
     record_media_understand_usage(token_ctx, MediaUnderstandKind::Video, &out);
-    let text = out.text.trim().to_string();
-    if text.is_empty() {
-        anyhow::bail!("video understanding returned empty content");
+    require_understand_text("video understanding", &out, max_tokens)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm_token_stats::LlmUsageSnapshot;
+    use crate::provider::ChatOnceOutput;
+
+    fn empty_out(finish: Option<&str>, completion: u32) -> ChatOnceOutput {
+        ChatOnceOutput {
+            text: String::new(),
+            usage: Some(LlmUsageSnapshot {
+                prompt_tokens: 1800,
+                completion_tokens: completion,
+                total_tokens: 1800 + completion,
+                reasoning_tokens: 0,
+                cached_tokens: 0,
+            }),
+            model: "deepseek-flash".into(),
+            tool_calls: vec![],
+            reasoning_content: None,
+            finish_reason: finish.map(|s| s.to_string()),
+        }
     }
-    Ok(text)
+
+    #[test]
+    fn max_tokens_covers_thinking_budget() {
+        let mut s = ModelSettings::default();
+        s.round_thinking_budget = Some(4096);
+        assert_eq!(
+            media_understand_max_tokens(&s),
+            4096 + MEDIA_ANSWER_MAX_TOKENS
+        );
+    }
+
+    #[test]
+    fn max_tokens_without_thinking_uses_answer_budget() {
+        let s = ModelSettings::default();
+        assert_eq!(media_understand_max_tokens(&s), MEDIA_ANSWER_MAX_TOKENS);
+    }
+
+    #[test]
+    fn empty_content_at_cap_is_truncation() {
+        let err = require_understand_text(
+            "image directory understanding",
+            &empty_out(Some("length"), 4096),
+            4096,
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("truncated"), "{msg}");
+        assert!(msg.contains("fewer images"), "{msg}");
+    }
+
+    #[test]
+    fn empty_content_hitting_max_tokens_without_length_reason_is_truncation() {
+        let err = require_understand_text(
+            "image directory understanding",
+            &empty_out(Some("stop"), 4096),
+            4096,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("truncated"));
+    }
+
+    #[test]
+    fn empty_content_below_cap_keeps_empty_error() {
+        let err = require_understand_text(
+            "image directory understanding",
+            &empty_out(Some("stop"), 12),
+            12288,
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("empty content"), "{msg}");
+        assert!(!msg.contains("truncated"), "{msg}");
+    }
 }

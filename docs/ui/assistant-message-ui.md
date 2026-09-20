@@ -20,8 +20,8 @@
 
 流式尚未露出可见正文/工具时，标题为「思考中」加逐段增加的 `.`。
 
-- 字符数取 `content` / `rawContent` / `thoughts` / `reasoning` 等长度的 **最大值**。
-- 子 Agent 收缩「思考中」只数**当前这一轮** streaming 行上的 `thoughts` / `reasoning`（以及仍在 streaming 的 session）。不要用 `latestStreamBody`：它会把上一轮正文拷进 `content`，点数会被旧回复锁死。
+- 点数只跟 **当前这一轮**。`contentStreaming === true` 的行才计数；`message_end` 后仍 `status: streaming` 的旧行不算。尚无本轮流出时固定 1 个点，不要用上一轮 `thoughts` 起跳。
+- 本轮字符取 `rawContent` / `thoughts` / `reasoning` 等长度的 **最大值**，**不要数 `content`**：展示合并会把上一轮正文拷进去，点数会被旧回复锁死。子 Agent 不要用 `latestStreamBody`；只数当前 `contentStreaming` 行（以及仍在 streaming 的 session）。
 - **阶梯**：前 10 个点每个 **100** 字符；之后每满 10 个点，单点覆盖字符数 **×2**（200 / 400 / 800 / 1600）。
 - 最多 **48** 个点，合计约 **27800** 字符后不再增加。尚无流出时也显示 1 个点。
 - 工具槽第二行用 `thinkingLabel` 静态点数（与工具间隙相同）。不要再画一块独立的「思考中」行。

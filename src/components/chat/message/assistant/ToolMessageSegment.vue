@@ -8,7 +8,7 @@ import ToolCallList from '../../ToolCallList.vue'
 import {
   collapsedProcessRunActive,
   thinkingLabel,
-  streamedCharCountFromMessage
+  thinkingCharCountForCurrentRound
 } from '../../../../lib/thinkingIndicator'
 
 const props = defineProps<{
@@ -34,7 +34,7 @@ const isRunInProgress = computed(() =>
   })
 )
 
-const streamedCharCount = computed(() => streamedCharCountFromMessage(props.message))
+const streamedCharCount = computed(() => thinkingCharCountForCurrentRound(props.message))
 
 const thinkingLine = computed(() => {
   if (!isRunInProgress.value) return null

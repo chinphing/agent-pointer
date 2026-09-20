@@ -90,24 +90,40 @@ export function thinkingLabel(streamedCharCount: number): string {
   return `思考中${'.'.repeat(thinkingDotCount(streamedCharCount))}`
 }
 
-function isStreamingAssistant(msg: ChatMessage): boolean {
-  return msg.status === 'streaming' || msg.contentStreaming === true
+/**
+ * Dots for the current LLM round only.
+ * `contentStreaming` is the round gate — leftover `status: streaming` after
+ * `message_end` must not keep the previous thoughts. Skip `content`: display
+ * merge copies the last reply there and would freeze the count.
+ */
+export function thinkingCharCountForCurrentRound(
+  body: ThinkingStreamBody & { contentStreaming?: boolean }
+): number {
+  if (body.contentStreaming !== true) return 0
+  return streamedCharCountFromBody({
+    rawContent: body.rawContent,
+    thoughts: body.thoughts,
+    toolNamePreview: body.toolNamePreview,
+    responseTextDraft: body.responseTextDraft,
+    reasoning: body.reasoning
+  })
 }
 
 /**
  * Collapsed sub-agent「思考中」count.
  * Do not use `latestStreamBody`: that merge copies the previous reply into
  * `content`, so max() freezes the dots until thoughts exceed the old reply.
- * Only this streaming row (and the live session if writes landed there).
+ * Only this round's `contentStreaming` row (and the live session if it is
+ * still streaming). Do not fall back to the previous assistant.
  */
 export function thinkingCharCountForCollapsedSubAgent(
   spawnRows: readonly ChatMessage[],
   liveSession?: { thoughts?: string; reasoning?: string; contentStreaming?: boolean } | null
 ): number {
-  const assistants = spawnRows.filter(m => m.role === 'assistant')
-  const streaming = [...assistants].reverse().find(isStreamingAssistant)
-  const row = streaming ?? assistants[assistants.length - 1]
-  let n = row ? streamedCharCountFromMessage(row) : 0
+  const live = [...spawnRows]
+    .filter(m => m.role === 'assistant' && m.contentStreaming === true)
+    .pop()
+  let n = live ? thinkingCharCountForCurrentRound(live) : 0
   if (liveSession?.contentStreaming === true) {
     n = Math.max(
       n,

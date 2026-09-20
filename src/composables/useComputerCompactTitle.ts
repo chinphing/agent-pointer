@@ -11,7 +11,7 @@ import {
   compactToolCallStatusLine,
   latestToolCallForCompactStatus
 } from '../lib/toolCallDisplay'
-import { thinkingLabel, streamedCharCountFromBody } from '../lib/thinkingIndicator'
+import { thinkingLabel, thinkingCharCountForCurrentRound } from '../lib/thinkingIndicator'
 import { isPlannerPhaseThoughts, PLANNER_PHASE_THOUGHTS } from '../lib/plannerPhase'
 import type { ChatMessage, ToolCall } from '../types/chat'
 
@@ -91,7 +91,8 @@ function streamBodyFromMessage(
         toolNamePreview: scoped.toolNamePreview,
         responseTextDraft: scoped.responseTextDraft,
         reasoning: scoped.reasoning,
-        toolCalls: scoped.toolCalls
+        toolCalls: scoped.toolCalls,
+        contentStreaming: scoped.contentStreaming === true
       }
     }
   }
@@ -103,7 +104,8 @@ function streamBodyFromMessage(
       toolNamePreview: trace.session.toolNamePreview,
       responseTextDraft: trace.session.responseTextDraft,
       reasoning: trace.session.reasoning,
-      toolCalls: trace.session.toolCalls
+      toolCalls: trace.session.toolCalls,
+      contentStreaming: trace.session.contentStreaming === true
     }
   }
   return {
@@ -113,7 +115,8 @@ function streamBodyFromMessage(
     toolNamePreview: message.toolNamePreview,
     responseTextDraft: message.responseTextDraft,
     reasoning: message.reasoning,
-    toolCalls: message.toolCalls
+    toolCalls: message.toolCalls,
+    contentStreaming: message.contentStreaming === true
   }
 }
 
@@ -173,7 +176,7 @@ export function useComputerCompactTitle(stoppedHint: Ref<boolean>) {
     const preview = body.toolNamePreview?.trim()
     if (preview && isComputerToolName(preview)) return '执行中…'
 
-    const chars = streamedCharCountFromBody(body)
+    const chars = thinkingCharCountForCurrentRound(body)
     return thinkingLabel(chars)
   })
 

@@ -12,6 +12,7 @@ import {
   thinkingDotsAtCap,
   thinkingLabel,
   thinkingCharCountForCollapsedSubAgent,
+  thinkingCharCountForCurrentRound,
   thinkingSteadyDotCount,
   collapsedProcessRunActive,
   subAgentThinkingActive
@@ -85,6 +86,27 @@ describe('thinking dots (tiered)', () => {
         thoughts: 'z'.repeat(80)
       })
     ).toBe(0)
+  })
+
+  it('does not reuse previous-round thoughts after message_end', () => {
+    const prev = {
+      id: 'a1',
+      role: 'assistant' as const,
+      content: '',
+      thoughts: 'x'.repeat(5000),
+      status: 'streaming' as const,
+      contentStreaming: false,
+      createdAt: 1
+    }
+    expect(thinkingCharCountForCurrentRound(prev)).toBe(0)
+    expect(thinkingCharCountForCollapsedSubAgent([prev])).toBe(0)
+    expect(
+      thinkingCharCountForCurrentRound({
+        contentStreaming: true,
+        content: '上一轮回复'.repeat(20),
+        thoughts: 'now'
+      })
+    ).toBe(3)
   })
 
   it('keeps 45 steady dots at the cap so 3 can stay live', () => {

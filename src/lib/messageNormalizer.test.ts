@@ -78,6 +78,53 @@ describe('userMessageDisplayContent', () => {
     ).toBe('后台任务已完成。')
   })
 
+  it('prefers a specific idle-push bubbleText over headings in content', () => {
+    expect(
+      userMessageDisplayContent({
+        id: 'p0b',
+        role: 'user',
+        content: '后台任务已完成。\n\n### 搜索登录\nkind: subagent\nstatus: completed\njobId: job_a\n',
+        status: 'done',
+        createdAt: 0,
+        uiBindings: {
+          hostKind: 'idle_job_push',
+          bubbleText: '后台任务已完成：铺线 1',
+        },
+      })
+    ).toBe('后台任务已完成：铺线 1')
+  })
+
+  it('enriches a generic idle-push bubble from job headings in content', () => {
+    expect(
+      userMessageDisplayContent({
+        id: 'p0c',
+        role: 'user',
+        content:
+          '后台任务已完成。\n\n### 线 1（约堡都会区）\nkind: subagent\nstatus: completed\njobId: job_a\n\n### 线 2\nkind: subagent\nstatus: failed\njobId: job_b\n',
+        status: 'done',
+        createdAt: 0,
+        uiBindings: {
+          hostKind: 'idle_job_push',
+          bubbleText: '后台任务已完成。',
+        },
+      })
+    ).toBe('后台任务已完成：线 1（约堡都会区）、线 2')
+  })
+
+  it('summarizes more than two idle-push headings and uses failure prefix', () => {
+    expect(
+      userMessageDisplayContent({
+        id: 'p0d',
+        role: 'user',
+        content:
+          '后台任务已完成。\n\n### 线 1\nkind: subagent\nstatus: failed\njobId: a\n\n### 线 2\nkind: subagent\nstatus: failed\njobId: b\n\n### 线 3\nkind: subagent\nstatus: failed\njobId: c\n',
+        status: 'done',
+        createdAt: 0,
+        uiBindings: { hostKind: 'idle_job_push' },
+      })
+    ).toBe('后台任务失败：线 1、线 2 等 3 个')
+  })
+
   it('falls back to short line when only hostKind is set', () => {
     expect(
       userMessageDisplayContent({

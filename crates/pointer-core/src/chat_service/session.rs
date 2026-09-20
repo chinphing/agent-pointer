@@ -411,7 +411,7 @@ pub async fn run_chat(
     super::run_subagent_delegation::emit_background_jobs(
         &stream,
         &conversation_id,
-        background_running,
+        &state.jobs,
     );
     emit(
         &stream,

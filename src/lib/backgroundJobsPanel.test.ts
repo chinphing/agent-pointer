@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage, ToolCall } from '../types/chat'
-import { collectLiveBackgroundJobs } from './backgroundJobsPanel'
+import { collectBackgroundJobsPanelItems } from './backgroundJobsPanel'
 
 function tc(
   partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name' | 'status'>
@@ -19,45 +19,58 @@ function assistantMessage(toolCalls: ToolCall[]): ChatMessage {
   } as ChatMessage
 }
 
-describe('collectLiveBackgroundJobs', () => {
-  it('collects a running background sub-agent host once across messages', () => {
+describe('collectBackgroundJobsPanelItems', () => {
+  it('lists occupancy jobs including nested background terminals', () => {
+    const items = collectBackgroundJobsPanelItems(
+      [
+        {
+          jobId: 'job_sub',
+          status: 'running',
+          kind: 'subagent',
+          title: '铺线 1',
+          agentId: 'self'
+        },
+        {
+          jobId: 'job_term',
+          status: 'running',
+          kind: 'terminal',
+          title: 'python scrape.py'
+        }
+      ],
+      undefined
+    )
+    expect(items).toHaveLength(2)
+    expect(items[0]).toMatchObject({ kind: 'host', jobId: 'job_sub', title: '铺线 1' })
+    expect(items[1]).toMatchObject({
+      kind: 'host',
+      jobId: 'job_term',
+      title: 'python scrape.py',
+      jobKind: 'terminal'
+    })
+  })
+
+  it('does not invent host rows from parent messages', () => {
     const host = tc({
       id: 'host-1',
       name: 'run_subagent',
       status: 'running',
       arguments: JSON.stringify({ agentId: 'explore', goal: 'map', background: true })
     })
-    const items = collectLiveBackgroundJobs([assistantMessage([host]), assistantMessage([host])])
-    expect(items).toHaveLength(1)
-    expect(items[0]?.kind).toBe('host')
-    expect(items[0]?.toolCall.id).toBe('host-1')
+    expect(collectBackgroundJobsPanelItems(undefined, [assistantMessage([host])])).toEqual([])
+    expect(collectBackgroundJobsPanelItems([], [assistantMessage([host])])).toEqual([])
   })
 
-  it('ignores finished hosts and non-background tools', () => {
-    const done = tc({
-      id: 'done-1',
-      name: 'run_subagent',
-      status: 'success',
-      arguments: JSON.stringify({ agentId: 'explore', goal: 'map', background: true })
-    })
-    const plain = tc({ id: 'plain-1', name: 'file_read', status: 'running' })
-    const items = collectLiveBackgroundJobs([assistantMessage([done, plain])])
-    expect(items).toEqual([])
-  })
-
-  it('collects a running job.await tool as await kind', () => {
+  it('keeps await rows when occupancy already lists hosts', () => {
     const awaitCall = tc({
       id: 'await-1',
       name: 'job',
       status: 'running',
       arguments: JSON.stringify({ action: 'await', jobId: 'job_abc' })
     })
-    const items = collectLiveBackgroundJobs([assistantMessage([awaitCall])])
-    expect(items).toHaveLength(1)
-    expect(items[0]?.kind).toBe('await')
-  })
-
-  it('returns empty for undefined messages', () => {
-    expect(collectLiveBackgroundJobs(undefined)).toEqual([])
+    const items = collectBackgroundJobsPanelItems(
+      [{ jobId: 'job_term', status: 'running', kind: 'terminal', title: 'sleep 9' }],
+      [assistantMessage([awaitCall])]
+    )
+    expect(items.map(i => i.kind)).toEqual(['host', 'await'])
   })
 })

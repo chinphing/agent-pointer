@@ -20,6 +20,7 @@ import {
 } from '../lib/api'
 import type {
   AgentMode,
+  BackgroundJobView,
   ChatMessage,
   ComputerMonitorPickRequest,
   Conversation,
@@ -241,7 +242,7 @@ export const useChatStore = defineStore('chat', () => {
   const projectLoads = new Map<string, Promise<Project | null>>()
   const currentId = ref<string | null>(null)
   const runByConversation = ref<Record<string, ConversationRunState>>({})
-  const backgroundRunningByConv = ref<Record<string, number>>({})
+  const backgroundJobItemsByConv = ref<Record<string, BackgroundJobView[]>>({})
   /** Occupancy received from the host (`background_jobs` / Done / queue snapshot). */
   const occupancyAuthoritative = new Set<string>()
   /** Full `backgroundJobs` snapshot applied; missing ids are 0. Do not seed from rows. */
@@ -850,44 +851,39 @@ export const useChatStore = defineStore('chat', () => {
     return runStateFor(id).generating
   }
 
-  function setBackgroundJobCount(id: string, count: number) {
+  function applyBackgroundOccupancy(id: string, jobs: BackgroundJobView[]) {
     const key = id.trim()
     if (!key) return
     occupancyAuthoritative.add(key)
-    const next = Math.max(0, Math.floor(count))
-    if (next <= 0) {
-      if (!(key in backgroundRunningByConv.value)) return
-      const { [key]: _, ...rest } = backgroundRunningByConv.value
-      backgroundRunningByConv.value = rest
+    if (jobs.length === 0) {
+      if (!(key in backgroundJobItemsByConv.value)) return
+      const { [key]: _, ...rest } = backgroundJobItemsByConv.value
+      backgroundJobItemsByConv.value = rest
       return
     }
-    backgroundRunningByConv.value = { ...backgroundRunningByConv.value, [key]: next }
+    backgroundJobItemsByConv.value = { ...backgroundJobItemsByConv.value, [key]: jobs }
+  }
+
+  /** Occupancy writes JobSupervisor `jobs[]` only. Count is `jobs.length`.
+   *  Count-only updates with `runningCount > 0` must not invent rows. */
+  function setBackgroundJobCount(id: string, count: number, jobs?: BackgroundJobView[]) {
+    if (jobs) {
+      applyBackgroundOccupancy(id, jobs)
+      return
+    }
+    if (count <= 0) applyBackgroundOccupancy(id, [])
   }
 
   function hasBackgroundJobs(id: string): boolean {
-    return (backgroundRunningByConv.value[id.trim()] ?? 0) > 0
+    return backgroundJobCount(id) > 0
   }
 
   function backgroundJobCount(id: string): number {
-    return backgroundRunningByConv.value[id.trim()] ?? 0
+    return backgroundJobItems(id).length
   }
 
-  function clearBackgroundJobsIfNoneLive(id: string) {
-    const key = id.trim()
-    if (!key) return
-    const conv = conversations.value.find(c => c.id === key)
-    if (!conv) return
-    if (countRunningBackgroundSubagents(conv) === 0) {
-      setBackgroundJobCount(key, 0)
-    }
-  }
-
-  function seedBackgroundJobCountFromMessages(conv: Conversation) {
-    if (occupancySnapshotApplied) return
-    if (occupancyAuthoritative.has(conv.id)) return
-    if (hasBackgroundJobs(conv.id)) return
-    const n = countRunningBackgroundSubagents(conv)
-    if (n > 0) setBackgroundJobCount(conv.id, n)
+  function backgroundJobItems(id: string): BackgroundJobView[] {
+    return backgroundJobItemsByConv.value[id.trim()] ?? []
   }
 
   function finalizeOrphansIfOccupancyEmpty(conv: Conversation) {
@@ -975,11 +971,11 @@ export const useChatStore = defineStore('chat', () => {
     const occupancy = backgroundJobOccupancyFromQueueSnapshot(snapshot)
     if (!occupancy) return
     occupancySnapshotApplied = true
-    for (const [id, count] of occupancy) {
-      setBackgroundJobCount(id, count)
+    for (const [id, row] of occupancy) {
+      applyBackgroundOccupancy(id, row.jobs)
     }
     const known = new Set<string>()
-    for (const id of Object.keys(backgroundRunningByConv.value)) known.add(id)
+    for (const id of Object.keys(backgroundJobItemsByConv.value)) known.add(id)
     for (const conv of conversations.value) {
       const id = conv.id.trim()
       if (id) known.add(id)
@@ -1020,9 +1016,7 @@ export const useChatStore = defineStore('chat', () => {
         const conv = conversations.value.find(c => c.id === convId)
         if (conv) {
           normalizeInterruptedAssistantStatuses([conv])
-          clearBackgroundJobsIfNoneLive(convId)
           finalizeOrphansIfOccupancyEmpty(conv)
-          seedBackgroundJobCountFromMessages(conv)
         }
         clearedStaleIds.push(convId)
         console.info('[chat] syncRunStateFromDispatcherQueue: clear stale', convId)
@@ -1688,7 +1682,6 @@ export const useChatStore = defineStore('chat', () => {
           applyPersistedBackgroundHostOutcomes(conv, stripped)
         }
         finalizeOrphansIfOccupancyEmpty(conv)
-        seedBackgroundJobCountFromMessages(conv)
         // Load-time stamp so trim does not treat missing viewedAt as forever-keep.
         stampLoadedUserMessages(convId, next, { onlyMissing: true })
         hydratedIds.value.add(convId)
@@ -2177,7 +2170,6 @@ export const useChatStore = defineStore('chat', () => {
           applyPersistedBackgroundHostOutcomes(conv, stripped)
         }
         finalizeOrphansIfOccupancyEmpty(conv)
-        seedBackgroundJobCountFromMessages(conv)
         stampLoadedUserMessages(convId, next, { onlyMissing: true })
         hydratedIds.value.add(convId)
         console.info(
@@ -3391,7 +3383,6 @@ export const useChatStore = defineStore('chat', () => {
       isConversationGenerating,
       setBackgroundJobCount,
       hasBackgroundJobs,
-      clearBackgroundJobsIfNoneLive,
       reconcileBackgroundHostsWhenOccupancyEmpty,
       hasInFlightToolCalls,
       applyTaskBoardDocument,
@@ -3749,6 +3740,7 @@ export const useChatStore = defineStore('chat', () => {
     clearAllRunStates()
     awaitingViewIds.value = new Set()
     outboundQueues.value = {}
+    backgroundJobItemsByConv.value = {}
     taskBoards.value = {}
     scopedStore.clearAll()
     clearAllTurnExpandUiState()
@@ -3756,7 +3748,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   return {
-    conversations, projects, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, contextCompressing, isConversationGenerating, isConversationBusy, hasBackgroundJobs, backgroundJobCount, isConversationAwaitingView, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
+    conversations, projects, currentId, current, currentOutboundQueue, isCurrentConversationHydrating, generating, activeGeneratingMessageId, contextCompressing, isConversationGenerating, isConversationBusy, hasBackgroundJobs, backgroundJobCount, backgroundJobItems, isConversationAwaitingView, outboundQueueItems, outboundQueueCount, removeOutboundQueueItem, forceSendOutbound, uiToast, taskBoards,
     init, refreshProjects, loadMoreProjects, loadingMoreProjects, hasMoreProjects, projectById, ensureProjectLoaded, deleteProject, resetForPlatformLogout, newConversation, switchProject, openConversation, openCronConversation, openWebhookConversation, selectConversation, renameConversation, toggleConversationPin, deleteConversation,
     loadMoreConversations, loadProjectConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,

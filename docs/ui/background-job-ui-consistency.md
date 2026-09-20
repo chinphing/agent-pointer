@@ -43,7 +43,7 @@ spawn background
 job 终态（任意：正常结束 / 失败 / 取消）
   → ToolCallStatus(success|failed) + handle{终态}      // 宿主文案
   → agent_step(completed|failed|cancelled)             // 过程帧终态
-  → background_jobs(runningCount)                      // 占用 / 侧栏转圈
+  → background_jobs(runningCount + jobs[])             // 占用 / 侧栏转圈 / Composer 列表（含嵌套终端）
   → 落盘同一 message 的 toolCalls[i]
 ```
 
@@ -51,7 +51,7 @@ job 终态（任意：正常结束 / 失败 / 取消）
 
 父轮 `Done` 之后后台仍可跑完：`StreamTx` / 落盘仍须送达；前端不得在 Done 后忽略该会话的 `ToolCallStatus`。
 
-空闲 push 会在同一会话插入一条用户消息并再开一轮 lead。消息带 **`uiBindings.hostKind=idle_job_push`** + **`bubbleText`**：「后台任务已完成。」；完整终稿在 `content` 里进 lead 上下文。UI 按 `bubbleText` 画气泡。`InjectedUserMessage` 须进当前会话列表（与 cron 注入相同）。宿主行终态仍由上面的 job 终态路径写入，不要等 push 才改「后台执行中」。
+空闲 push 会在同一会话插入一条用户消息并再开一轮 lead。消息带 **`uiBindings.hostKind=idle_job_push`** + **`bubbleText`**：带任务名，如「后台任务已完成：搜索登录」；多条只列前两个再写「等 N 个」；全部失败用「后台任务失败：…」。完整终稿在 `content` 里进 lead 上下文。UI 按 `bubbleText` 画气泡；旧消息若仍是「后台任务已完成。」可从 `content` 里的 `###` 标题补任务名。`InjectedUserMessage` 须进当前会话列表（与 cron 注入相同）。宿主行终态仍由上面的 job 终态路径写入，不要等 push 才改「后台执行中」。
 
 ## 占用对账（重启 / 弱网）
 
@@ -83,7 +83,7 @@ job 终态（任意：正常结束 / 失败 / 取消）
 4. 用户真点 **停止**（取消全部后台）：才批量显示「已取消」。
 5. 行上「结束任务」只取消这一条；「结束等待」/ 立即发送只停同步，其它后台仍「后台执行中」。
 6. **结束等待**后：主助手行不得显示「已停止生成」；`job.await` 显示「已结束等待」；后台宿主行仍显示「后台执行中」（子帧收缩摘要只写工具次数，不重复「后台执行中」）。
-7. 会话有后台占用时，Composer 上方**始终**显示后台任务条（父回合仍在 generating / `job.await` 时也显示）；侧栏会话仍转圈（`isConversationBusy`）。停止按钮仍可「停 lead + 全部后台」；条上可展开并单独结束某一条。
+7. 会话有后台占用时，Composer 上方**始终**显示后台任务条（父回合仍在 generating / `job.await` 时也显示）；侧栏会话仍转圈（`isConversationBusy`）。停止按钮仍可「停 lead + 全部后台」；条上可展开并单独结束某一条。**角标数字与展开列表同一来源**：JobSupervisor 占用名单 `jobs[]`（`runningCount === jobs.length`，含子 Agent 内后台终端）。不要用父消息宿主行回填占用，也不要用宿主终态去清占用。
 
 ## 与 Cursor / Codex 的对照
 
@@ -95,6 +95,6 @@ job 终态（任意：正常结束 / 失败 / 取消）
 
 ## 相关实现
 
-- 后端：`run_subagent_delegation.rs`（`complete_background_host_tool` / `emit_background_jobs`）、`conversation_store/background_host_merge.rs`、`AppState::cancel_with_options` / `cancel_background_jobs`
-- 前端：`toolHandlers.ts`、`helpers.ts`（`applyPersistedBackgroundHostOutcomes` / `repairBackgroundHostsFromChildOutcomes` / `finalizeOrphanBackgroundHosts`）、`subAgentMessages.ts`（rehydrate 绑定 `parentToolCallId`）、`chat.ts`（`interruptActiveTurn` / `endWaitKeepBackground` / `cancelBackgroundJob`）、`ToolCallRow.vue`、`AssistantModelMessage.vue`、`MessageList.vue`、`messageListLayout.ts`
+- 后端：`idle_job_push.rs`（气泡带任务名）、`job_supervisor.rs`（占用名单含嵌套后台终端）、`run_subagent_delegation.rs`（`complete_background_host_tool` / `emit_background_jobs`）、`conversation_store/background_host_merge.rs`、`AppState::cancel_with_options` / `cancel_background_jobs`
+- 前端：`BackgroundJobsPanel.vue`、`backgroundJobsPanel.ts`（占用名单 = 角标 = 列表）、`messageNormalizer.ts`（空闲 push 气泡带任务名）、`toolHandlers.ts`、`helpers.ts`（`applyPersistedBackgroundHostOutcomes` / `repairBackgroundHostsFromChildOutcomes` / `finalizeOrphanBackgroundHosts`）、`subAgentMessages.ts`（rehydrate 绑定 `parentToolCallId`）、`chat.ts`（`interruptActiveTurn` / `endWaitKeepBackground` / `cancelBackgroundJob`）、`ToolCallRow.vue`、`AssistantModelMessage.vue`、`MessageList.vue`、`messageListLayout.ts`
 - 设计背景：`docs/design/async-subagent-and-terminal.md`、`docs/developer/chat-stream-resync.md`

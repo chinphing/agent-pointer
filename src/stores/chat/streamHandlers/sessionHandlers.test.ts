@@ -449,7 +449,7 @@ describe('sessionHandlers', () => {
       conversationId: 'conv1',
       runningCount: 2
     })
-    expect(setBackgroundJobCount).toHaveBeenCalledWith('conv1', 2)
+    expect(setBackgroundJobCount).toHaveBeenCalledWith('conv1', 2, undefined)
     expect(reconcileBackgroundHostsWhenOccupancyEmpty).not.toHaveBeenCalled()
   })
 
@@ -466,7 +466,28 @@ describe('sessionHandlers', () => {
       conversationId: 'conv1',
       runningCount: 0
     })
-    expect(setBackgroundJobCount).toHaveBeenCalledWith('conv1', 0)
+    expect(setBackgroundJobCount).toHaveBeenCalledWith('conv1', 0, [])
     expect(reconcileBackgroundHostsWhenOccupancyEmpty).toHaveBeenCalledWith('conv1')
+  })
+
+  it('handleBackgroundJobs forwards nested terminal occupancy jobs', () => {
+    const conv = sampleConversation()
+    const setBackgroundJobCount = vi.fn()
+    const ctx = createMockStreamHandlerContext([conv], { setBackgroundJobCount })
+    const jobs = [
+      {
+        jobId: 'job_term',
+        status: 'running',
+        kind: 'terminal',
+        title: 'python scrape.py'
+      }
+    ]
+    handleBackgroundJobs(ctx, {
+      kind: 'background_jobs',
+      conversationId: 'conv1',
+      runningCount: 1,
+      jobs
+    })
+    expect(setBackgroundJobCount).toHaveBeenCalledWith('conv1', 1, jobs)
   })
 })

@@ -266,7 +266,7 @@ WorkerLease Drop → running_roots -1，叫醒队头
 
 仅当：job 为 **Completed / Failed** **且** 该会话没有进行中的 lead 轮 **且** 这条完成尚未被 `await` 认领。
 
-实现：`idle_job_push` 挂在 JobSupervisor 终态回调 + lead `on_run_finished/failed/cancelled`。约 **500ms** debounce 后认领本会话全部未认领终稿，`TriggerSource::Internal`（`internal_label=idle_job_push`）在**同一 `conversation_id`** 再开一轮。注入用户消息：`content` = 完整终稿（进模型）；`uiBindings.bubbleText` =「后台任务已完成。」（仅气泡）；`hostKind=idle_job_push`。与 `await` 互斥 `claimed`。dispatch 时 `web_session_auth` 与 cron 相同，取 `automation_execution_auth()`（standalone 本地会话可无平台 LLM 凭证）；`Internal` 计入 headless automation，无会话时仍可用设置里的本地 API Key。dispatch 失败会 `unclaim` 以便重试。
+实现：`idle_job_push` 挂在 JobSupervisor 终态回调 + lead `on_run_finished/failed/cancelled`。约 **500ms** debounce 后认领本会话全部未认领终稿，`TriggerSource::Internal`（`internal_label=idle_job_push`）在**同一 `conversation_id`** 再开一轮。注入用户消息：`content` = 完整终稿（进模型）；`uiBindings.bubbleText` = 带任务名的短句（「后台任务已完成：搜索登录」；多条「等 N 个」；全部失败用「失败」）（仅气泡）；`hostKind=idle_job_push`。与 `await` 互斥 `claimed`。dispatch 时 `web_session_auth` 与 cron 相同，取 `automation_execution_auth()`（standalone 本地会话可无平台 LLM 凭证）；`Internal` 计入 headless automation，无会话时仍可用设置里的本地 API Key。dispatch 失败会 `unclaim` 以便重试。
 
 **并发后台时的部分完成**：不必等全部 job 结束才 push。lead 发出 `Done` 后，`run_runner` 须立刻 `finalize_terminal`（释放 `runs`/`cancels`/session lane），**不要**先 `await` 仍被后台 `StreamTx` clone 占用的 forwarder——否则 `lead_busy` 会一直 defer，直到最后一个 job 结束才合并 flush。若 flush 时 lead 仍 busy，会再 debounce 重试。
 
@@ -291,7 +291,7 @@ WorkerLease Drop → running_roots -1，叫醒队头
 - 侧栏会话在有后台 job 时保持转圈，直到该会话 **没有** running job（用户应能边聊边看）。
 - 停止按钮 = 本会话 `generating` **或** 后台占用 > 0。不是只靠 `Done`。
   - `generating`：发出本轮时点亮，`Done` / 停止 / 报错 / 队列对账清掉。
-  - 占用：`background_jobs` 事件、`job` 工具后、`Done.backgroundRunningCount`、启动/切前台时的队列快照 `backgroundJobs`。
+  - 占用：只认 JobSupervisor 的 `jobs[]`（`background_jobs` 事件 / 队列快照 `backgroundJobs`；`runningCount` 必须等于 `jobs.length`）。含子 Agent 内后台终端。Composer 角标与列表都是这份名单。`Done.backgroundRunningCount` 仅在 **0** 时清空占用；正数不得单独改角标。不要用父消息宿主行回填或根据宿主终态清占用。
   - 不要用落盘里仍 `running` 的宿主行点亮按钮。JobSupervisor 不落盘，进程一关 job 就没了；快照里没有的会话占用必须是 0，宿主行收成中断。
 
 ## 提示词（落地时）

@@ -96,7 +96,7 @@ describe('toolHandlers', () => {
     expect(handleTerminalToolCallStatus).toHaveBeenCalledWith('a1', 'tc1', 'success', undefined, undefined)
   })
 
-  it('clears background occupancy when the last background host finishes', () => {
+  it('does not infer occupancy from a finished background host row', () => {
     const conv = sampleConversation()
     const msg = sampleAssistantMessage('a1')
     msg.toolCalls = [
@@ -109,8 +109,7 @@ describe('toolHandlers', () => {
       }
     ]
     conv.messages.push(msg)
-    const clearBackgroundJobsIfNoneLive = vi.fn()
-    const ctx = createMockStreamHandlerContext([conv], { clearBackgroundJobsIfNoneLive })
+    const ctx = createMockStreamHandlerContext([conv])
     handleToolCallStatus(ctx, {
       kind: 'tool_call_status',
       messageId: 'a1',
@@ -118,6 +117,6 @@ describe('toolHandlers', () => {
       status: 'success',
       result: '{"jobId":"job_1","status":"completed","kind":"subagent"}'
     })
-    expect(clearBackgroundJobsIfNoneLive).toHaveBeenCalledWith('conv1')
+    expect(conv.messages[0].toolCalls?.[0].status).toBe('success')
   })
 })

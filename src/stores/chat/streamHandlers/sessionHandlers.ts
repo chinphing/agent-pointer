@@ -382,7 +382,7 @@ export function handleDone(ctx: StreamHandlerContext, e: Done) {
 export function handleBackgroundJobs(ctx: StreamHandlerContext, e: BackgroundJobs) {
   const convId = e.conversationId?.trim()
   if (!convId) return
-  ctx.setBackgroundJobCount(convId, e.runningCount)
+  ctx.setBackgroundJobCount(convId, e.runningCount, e.jobs ?? (e.runningCount <= 0 ? [] : undefined))
   if (e.runningCount <= 0) {
     ctx.reconcileBackgroundHostsWhenOccupancyEmpty(convId)
   }

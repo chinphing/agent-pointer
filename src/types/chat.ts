@@ -1151,7 +1151,22 @@ export type StreamEvent =
   | { kind: 'workspace_updated'; conversationId: string; workspaceRoot: string; isEphemeralSandbox: boolean }
   | { kind: 'computer_monitor_pick_required'; conversationId: string; messageId: string; toolCallId: string; monitors: ComputerMonitor[] }
   | { kind: 'computer_monitor_updated'; conversationId: string; monitorId?: string | null }
-  | { kind: 'background_jobs'; conversationId: string; runningCount: number }
+  | {
+      kind: 'background_jobs'
+      conversationId: string
+      runningCount: number
+      /** Running/queued jobs from JobSupervisor (includes nested background terminals). */
+      jobs?: BackgroundJobView[]
+    }
+
+/** One non-terminal background job (sub-agent or detached terminal). */
+export interface BackgroundJobView {
+  jobId: string
+  status: string
+  kind: string
+  title?: string
+  agentId?: string
+}
 
 export type TaskBoardItemStatus =
   | 'pending'

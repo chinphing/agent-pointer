@@ -1,4 +1,5 @@
 import type { RunQueueSnapshot } from '../../types/automation'
+import type { BackgroundJobView } from '../../types/chat'
 
 /** Conversation ids with an active or queued dispatcher run (server truth). */
 export function activeConversationIdsFromQueueSnapshot(
@@ -22,15 +23,23 @@ export function activeConversationIdsFromQueueSnapshot(
 }
 
 /** Server job occupancy. Missing `backgroundJobs` means an older snapshot — skip. */
+export type BackgroundJobOccupancyRow = {
+  count: number
+  jobs: BackgroundJobView[]
+}
+
 export function backgroundJobOccupancyFromQueueSnapshot(
   snapshot: RunQueueSnapshot
-): Map<string, number> | null {
+): Map<string, BackgroundJobOccupancyRow> | null {
   if (!snapshot.backgroundJobs) return null
-  const map = new Map<string, number>()
+  const map = new Map<string, BackgroundJobOccupancyRow>()
   for (const row of snapshot.backgroundJobs) {
     const id = row.conversationId?.trim()
     if (!id) continue
-    map.set(id, Math.max(0, Math.floor(Number(row.runningCount) || 0)))
+    map.set(id, {
+      count: Array.isArray(row.jobs) ? row.jobs.length : Math.max(0, Math.floor(Number(row.runningCount) || 0)),
+      jobs: Array.isArray(row.jobs) ? row.jobs : []
+    })
   }
   return map
 }

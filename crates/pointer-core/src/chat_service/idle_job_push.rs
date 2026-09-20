@@ -105,13 +105,14 @@ impl IdleJobPush {
             return;
         }
         let job_ids: Vec<String> = items.iter().map(|i| i.job_id.clone()).collect();
+        let bubble = build_idle_push_bubble_text(&items);
         log::info!(
-            "idle_job_push: flushing conversation_id={conversation_id} count={}",
+            "idle_job_push: flushing conversation_id={conversation_id} count={} bubble={bubble}",
             items.len()
         );
         let mut user_msg = ChatMessage::user_text(build_idle_push_user_text(&items));
         user_msg.ui_bindings = Some(crate::models::MessageUiBindings::idle_job_push_bubble(
-            "后台任务已完成。",
+            bubble,
         ));
         let user_msg_id = user_msg.id.clone();
         let user_msg_content = user_msg.content.clone();
@@ -173,6 +174,53 @@ impl IdleJobPush {
             state.jobs.unclaim(&job_ids);
         }
     }
+}
+
+const BUBBLE_TITLE_CHARS: usize = 20;
+const BUBBLE_TITLE_MAX: usize = 2;
+
+fn idle_push_item_title(item: &IdlePushItem) -> String {
+    let raw = item
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let text = match raw {
+        Some(s) => s,
+        None => match item.kind {
+            "terminal" => "终端",
+            _ => "子任务",
+        },
+    };
+    crate::text_util::truncate_chars_fit(text, BUBBLE_TITLE_CHARS)
+}
+
+fn join_idle_push_titles(titles: &[String]) -> String {
+    match titles.len() {
+        0 => String::new(),
+        1 => titles[0].clone(),
+        n if n <= BUBBLE_TITLE_MAX => titles.join("、"),
+        n => format!("{}、{} 等 {n} 个", titles[0], titles[1]),
+    }
+}
+
+/// Short user-facing bubble. Full bodies stay in `content` for the lead.
+pub(crate) fn build_idle_push_bubble_text(items: &[IdlePushItem]) -> String {
+    if items.is_empty() {
+        return "后台任务已完成。".into();
+    }
+    let all_failed = items.iter().all(|item| item.status == "failed");
+    let prefix = if all_failed {
+        "后台任务失败"
+    } else {
+        "后台任务已完成"
+    };
+    let titles: Vec<String> = items.iter().map(idle_push_item_title).collect();
+    let shown = join_idle_push_titles(&titles);
+    if shown.is_empty() {
+        return format!("{prefix}。");
+    }
+    format!("{prefix}：{shown}")
 }
 
 pub(crate) fn build_idle_push_user_text(items: &[IdlePushItem]) -> String {
@@ -288,6 +336,18 @@ mod tests {
         assert!(text.contains("already claimed"));
         assert!(text.contains("may still be running"));
         assert!(!text.to_lowercase().contains("thoughts:"));
+        assert_eq!(
+            build_idle_push_bubble_text(&[IdlePushItem {
+                job_id: "job_a".into(),
+                status: "completed",
+                kind: "subagent",
+                title: Some("搜索登录".into()),
+                agent_id: Some("explore".into()),
+                content: Some("found login.rs".into()),
+                error: None,
+            }]),
+            "后台任务已完成：搜索登录"
+        );
     }
 
     #[test]
@@ -315,5 +375,66 @@ mod tests {
         assert!(text.contains("2 jobs:"));
         assert!(text.contains("### A"));
         assert!(text.contains("exit 1"));
+        assert_eq!(
+            build_idle_push_bubble_text(&[
+                IdlePushItem {
+                    job_id: "j1".into(),
+                    status: "completed",
+                    kind: "subagent",
+                    title: Some("A".into()),
+                    agent_id: None,
+                    content: Some("one".into()),
+                    error: None,
+                },
+                IdlePushItem {
+                    job_id: "j2".into(),
+                    status: "failed",
+                    kind: "terminal",
+                    title: Some("测测试".into()),
+                    agent_id: None,
+                    content: None,
+                    error: Some("exit 1".into()),
+                },
+            ]),
+            "后台任务已完成：A、测测试"
+        );
+    }
+
+    fn push_item(status: &'static str, kind: &'static str, title: Option<&str>) -> IdlePushItem {
+        IdlePushItem {
+            job_id: "j".into(),
+            status,
+            kind,
+            title: title.map(str::to_string),
+            agent_id: None,
+            content: None,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn bubble_text_uses_title_and_failure_prefix() {
+        assert_eq!(
+            build_idle_push_bubble_text(&[push_item("failed", "subagent", Some("跑测试"))]),
+            "后台任务失败：跑测试"
+        );
+        assert_eq!(
+            build_idle_push_bubble_text(&[push_item("completed", "terminal", None)]),
+            "后台任务已完成：终端"
+        );
+        let many = vec![
+            push_item("completed", "subagent", Some("线 1")),
+            push_item("completed", "subagent", Some("线 2 首都圈")),
+            push_item("completed", "subagent", Some("线 3")),
+        ];
+        assert_eq!(
+            build_idle_push_bubble_text(&many),
+            "后台任务已完成：线 1、线 2 首都圈 等 3 个"
+        );
+        let long = "abcdefghijklmnopqrstuvwxyz";
+        let bubble = build_idle_push_bubble_text(&[push_item("completed", "subagent", Some(long))]);
+        assert!(bubble.starts_with("后台任务已完成："));
+        assert!(bubble.contains('…'));
+        assert!(bubble.chars().count() < 20 + "后台任务已完成：".chars().count() + 2);
     }
 }

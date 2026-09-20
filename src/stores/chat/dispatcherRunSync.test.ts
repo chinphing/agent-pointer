@@ -67,4 +67,39 @@ describe('activeConversationIdsFromQueueSnapshot', () => {
     expect(occupancy).not.toBeNull()
     expect(occupancy?.size).toBe(0)
   })
+
+  it('backgroundJobOccupancyFromQueueSnapshot keeps nested job titles', () => {
+    const snapshot: RunQueueSnapshot = {
+      maxConcurrentMain: 4,
+      maxConcurrentCron: 4,
+      lanes: [],
+      pendingRuns: [],
+      backgroundJobs: [
+        {
+          conversationId: 'conv-a',
+          runningCount: 1,
+          jobs: [
+            {
+              jobId: 'job_term',
+              status: 'running',
+              kind: 'terminal',
+              title: 'python scrape.py'
+            }
+          ]
+        }
+      ]
+    }
+    const occupancy = backgroundJobOccupancyFromQueueSnapshot(snapshot)
+    expect(occupancy?.get('conv-a')).toEqual({
+      count: 1,
+      jobs: [
+        {
+          jobId: 'job_term',
+          status: 'running',
+          kind: 'terminal',
+          title: 'python scrape.py'
+        }
+      ]
+    })
+  })
 })

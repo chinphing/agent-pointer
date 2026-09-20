@@ -1,23 +1,21 @@
-import type { ChatMessage, ToolCall } from '../types/chat'
-import {
-  backgroundJobIdFromToolCall,
-  isBackgroundJobHost,
-  isJobAwaitCall
-} from './toolCallDisplay'
+import type { BackgroundJobView, ChatMessage, ToolCall } from '../types/chat'
+import { isJobAwaitCall } from './toolCallDisplay'
 
 export type BackgroundJobsPanelItem =
   | {
       kind: 'host'
       key: string
-      toolCall: ToolCall
-      /** 可取消的后台任务 id；host 尚未拿到 jobId 时为 null。 */
-      jobId: string | null
+      title: string
+      jobKind: string
+      /** JobSupervisor job id. */
+      jobId: string
     }
   | {
       kind: 'await'
       key: string
       toolCall: ToolCall
-      /** await 工具自身没有独立 jobId。 */
+      title?: undefined
+      jobKind?: undefined
       jobId: null
     }
 
@@ -26,28 +24,43 @@ const RUNNING_STATUSES: ReadonlySet<ToolCall['status']> = new Set([
   'pending'
 ])
 
+export function occupancyJobTitle(job: BackgroundJobView): string {
+  const title = job.title?.trim()
+  if (title) return title
+  if (job.kind === 'terminal') return '终端'
+  return '子任务'
+}
+
 /**
- * 扫描当前会话消息里仍在运行的后台任务宿主（terminal / run_subagent 等
- * background 工具）与「等待后台任务」的 await 工具，去重后供
- * BackgroundJobsPanel 逐条展示。数量上限仍以 chat.backgroundJobCount 为准。
+ * Composer 后台条：占用名单只认 JobSupervisor（含嵌套后台终端）。
+ * `job.await` 不是 job，从当前消息补一行。
  */
-export function collectLiveBackgroundJobs(
+export function collectBackgroundJobsPanelItems(
+  occupancy: readonly BackgroundJobView[] | undefined,
   messages: readonly ChatMessage[] | undefined
 ): BackgroundJobsPanelItem[] {
+  const hosts = (occupancy ?? []).map(job => ({
+    kind: 'host' as const,
+    key: job.jobId,
+    title: occupancyJobTitle(job),
+    jobKind: job.kind,
+    jobId: job.jobId
+  }))
+  return [...hosts, ...collectLiveAwaitJobs(messages)]
+}
+
+function collectLiveAwaitJobs(
+  messages: readonly ChatMessage[] | undefined
+): Extract<BackgroundJobsPanelItem, { kind: 'await' }>[] {
   const seen = new Set<string>()
-  const out: BackgroundJobsPanelItem[] = []
+  const out: Extract<BackgroundJobsPanelItem, { kind: 'await' }>[] = []
   for (const message of messages ?? []) {
     for (const tc of message.toolCalls ?? []) {
       if (!RUNNING_STATUSES.has(tc.status)) continue
       if (seen.has(tc.id)) continue
-      const jobId = backgroundJobIdFromToolCall(tc)
-      if (isBackgroundJobHost(tc)) {
-        seen.add(tc.id)
-        out.push({ kind: 'host', key: tc.id, toolCall: tc, jobId })
-      } else if (isJobAwaitCall(tc)) {
-        seen.add(tc.id)
-        out.push({ kind: 'await', key: tc.id, toolCall: tc, jobId: null })
-      }
+      if (!isJobAwaitCall(tc)) continue
+      seen.add(tc.id)
+      out.push({ kind: 'await', key: tc.id, toolCall: tc, jobId: null })
     }
   }
   return out

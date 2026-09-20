@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 use serde::{Deserialize, Serialize};
 
 use super::trigger::{TriggerRequest, TriggerSource};
+use crate::models::BackgroundJobView;
 
 /// A run waiting in a lane FIFO queue (observability / settings UI).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +64,8 @@ pub struct PendingRunView {
 pub struct BackgroundJobOccupancyView {
     pub conversation_id: String,
     pub running_count: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub jobs: Vec<BackgroundJobView>,
 }
 
 /// Combined dispatcher queue view for settings / ops UI.

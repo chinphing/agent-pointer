@@ -621,14 +621,34 @@ pub(crate) struct BackgroundOwnedSpawn {
 pub(crate) fn emit_background_jobs(
     stream: &super::StreamTx,
     conversation_id: &str,
-    running_count: usize,
+    jobs: &super::job_supervisor::JobSupervisor,
 ) {
-    emit(
-        stream,
-        StreamEvent::BackgroundJobs {
-            conversation_id: conversation_id.to_string(),
-            running_count: running_count as u32,
-        },
+    let event = jobs.background_jobs_event(conversation_id);
+    log_background_jobs_occupancy(&event);
+    emit(stream, event);
+}
+
+pub(crate) fn publish_background_jobs(
+    conversation_id: &str,
+    jobs: &super::job_supervisor::JobSupervisor,
+) {
+    let event = jobs.background_jobs_event(conversation_id);
+    log_background_jobs_occupancy(&event);
+    crate::stream_broadcast::publish_global_stream(event);
+}
+
+fn log_background_jobs_occupancy(event: &StreamEvent) {
+    let StreamEvent::BackgroundJobs {
+        conversation_id,
+        running_count,
+        jobs,
+    } = event
+    else {
+        return;
+    };
+    let terminals = jobs.iter().filter(|job| job.kind == "terminal").count();
+    log::info!(
+        "background_jobs occupancy conversation_id={conversation_id} running_count={running_count} terminals={terminals}"
     );
 }
 
@@ -666,10 +686,7 @@ pub(crate) fn spawn_background_owned_subagent(spawn: BackgroundOwnedSpawn) -> St
     emit_background_jobs(
         &spawn.stream,
         &spawn.conversation_id,
-        spawn
-            .state
-            .jobs
-            .running_count_for_conversation(&spawn.conversation_id),
+        &spawn.state.jobs,
     );
     log::info!(
         "run_subagent background spawn job_id={job_id} conversation_id={} tool_call_id={} task_id={}",
@@ -745,10 +762,7 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
                 emit_background_jobs(
                     &spawn.stream,
                     &spawn.conversation_id,
-                    spawn
-                        .state
-                        .jobs
-                        .running_count_for_conversation(&spawn.conversation_id),
+                    &spawn.state.jobs,
                 );
                 return;
             }
@@ -805,10 +819,7 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
             emit_background_jobs(
                 &spawn.stream,
                 &spawn.conversation_id,
-                spawn
-                    .state
-                    .jobs
-                    .running_count_for_conversation(&spawn.conversation_id),
+                &spawn.state.jobs,
             );
             return;
         }
@@ -903,10 +914,7 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
     emit_background_jobs(
         &spawn.stream,
         &spawn.conversation_id,
-        spawn
-            .state
-            .jobs
-            .running_count_for_conversation(&spawn.conversation_id),
+        &spawn.state.jobs,
     );
 }
 

@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { ChevronDown } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
-import { collectLiveBackgroundJobs, type BackgroundJobsPanelItem } from '../../lib/backgroundJobsPanel'
+import { collectBackgroundJobsPanelItems, type BackgroundJobsPanelItem } from '../../lib/backgroundJobsPanel'
 import { compactToolCallStatusLine } from '../../lib/toolCallDisplay'
 
 const props = defineProps<{
@@ -27,7 +27,12 @@ const conv = computed(
 const count = computed(() => chat.backgroundJobCount(props.conversationId))
 const visible = computed(() => count.value > 0)
 
-const rows = computed(() => collectLiveBackgroundJobs(conv.value?.messages))
+const rows = computed(() =>
+  collectBackgroundJobsPanelItems(
+    chat.backgroundJobItems(props.conversationId),
+    conv.value?.messages
+  )
+)
 
 const generating = computed(() => chat.isConversationGenerating(props.conversationId))
 const companionHint = computed(() =>
@@ -36,11 +41,14 @@ const companionHint = computed(() =>
 
 /** 可一键取消的 host 行（拿到了 jobId）。 */
 const cancelableHosts = computed(
-  () => rows.value.filter(r => r.kind === 'host' && !!r.jobId) as Extract<BackgroundJobsPanelItem, { kind: 'host' }>[]
+  () => rows.value.filter(r => r.kind === 'host' && !!r.jobId)
 )
 
 function rowLabel(item: BackgroundJobsPanelItem): string {
-  return compactToolCallStatusLine(item.toolCall, chat.current?.workspaceRoot) || '后台任务'
+  if (item.kind === 'host') return item.title || '后台任务'
+  return compactToolCallStatusLine(item.toolCall, chat.current?.workspaceRoot, {
+    includeStatus: false
+  }) || '等待后台任务'
 }
 
 function cancelJob(item: Extract<BackgroundJobsPanelItem, { kind: 'host' }>) {

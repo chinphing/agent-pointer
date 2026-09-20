@@ -22,7 +22,7 @@
 2. UI 一直停在「执行中」（`generating` 未清，或工具 / agentTrace 仍 `running`）
 3. 弱网丢 `done` 后当前会话仍显示执行中
 4. **新会话首条**：`onStream` 未等 SSE 挂上就 `POST /api/chat`，广播零订阅丢帧，刷新后才看到回复
-5. **后台 job 占用**：停止按钮 / 侧栏转圈跟占用计数，不跟运行队列。触发源：`background_jobs` 流事件、`Done.backgroundRunningCount`、队列快照 `backgroundJobs`。**不是**只靠 `Done`。进程重启后 JobSupervisor 为空，落盘宿主行仍可能是 `running`——对账快照是全量（未列出 = 0），禁止再用宿主行把占用灌回去。
+5. **后台 job 占用**：停止按钮 / 侧栏转圈 / Composer 条都认 JobSupervisor `jobs[]`（`background_jobs` 与队列快照；角标 = `jobs.length`）。`Done.backgroundRunningCount` 只在 0 时清空。**不是**只靠 `Done`，也**不是**父消息宿主行。进程重启后 JobSupervisor 为空，落盘宿主行仍可能是 `running`——对账快照是全量（未列出 = 0），禁止再用宿主行把占用灌回去。
 
 桌面端走 Tauri 事件通道，无此 SSE 环；本对账逻辑对桌面无害（`onGap` 为空操作，`waitForChatStreamReady` 立即返回）。
 

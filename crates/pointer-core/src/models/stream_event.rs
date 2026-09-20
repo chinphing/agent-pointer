@@ -37,6 +37,18 @@ pub struct WebSearchSourceEntry {
     pub site_name: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundJobView {
+    pub job_id: String,
+    pub status: String,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+}
+
 /// Frontend stream event payload (mirrors src/types/chat.ts StreamEvent)
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -547,11 +559,14 @@ pub enum StreamEvent {
         monitor_id: Option<String>,
     },
     /// Background job occupancy for this conversation (sidebar spinner; not the lead turn).
+    /// `jobs` includes nested background terminals spawned inside a sub-agent.
     BackgroundJobs {
         #[serde(rename = "conversationId")]
         conversation_id: String,
         #[serde(rename = "runningCount")]
         running_count: u32,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        jobs: Vec<BackgroundJobView>,
     },
 }
 
@@ -744,11 +759,20 @@ mod tests {
         let ev = StreamEvent::BackgroundJobs {
             conversation_id: "conv-a".into(),
             running_count: 3,
+            jobs: vec![BackgroundJobView {
+                job_id: "job_1".into(),
+                status: "running".into(),
+                kind: "terminal".into(),
+                title: Some("python scrape.py".into()),
+                agent_id: None,
+            }],
         };
         let v = serde_json::to_value(&ev).expect("serialize");
         assert_eq!(v["kind"], "background_jobs");
         assert_eq!(v["conversationId"], "conv-a");
         assert_eq!(v["runningCount"], 3);
+        assert_eq!(v["jobs"][0]["title"], "python scrape.py");
+        assert_eq!(v["jobs"][0]["kind"], "terminal");
     }
 
     #[test]

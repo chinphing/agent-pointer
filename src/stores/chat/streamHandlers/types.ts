@@ -1,6 +1,7 @@
 import type { Ref } from 'vue'
 import type {
   AgentMode,
+  BackgroundJobView,
   ChatMessage,
   ComputerMonitorPickRequest,
   Conversation,
@@ -47,10 +48,8 @@ export interface StreamHandlerContext {
   clearRunState(id: string): void
   clearAllRunStates(): void
   isConversationGenerating(id: string): boolean
-  setBackgroundJobCount(id: string, count: number): void
+  setBackgroundJobCount(id: string, count: number, jobs?: BackgroundJobView[]): void
   hasBackgroundJobs(id: string): boolean
-  /** Clear occupancy when no in-memory background host row is still running. */
-  clearBackgroundJobsIfNoneLive(id: string): void
   /**
    * Occupancy is 0: pull persisted host rows if memory still shows「后台执行中」,
    * then only mark true zombies interrupted.

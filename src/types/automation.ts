@@ -153,10 +153,13 @@ export interface PendingRunView {
   createdAtMs: number
 }
 
+import type { BackgroundJobView } from './chat'
+
 /** Combined dispatcher queue snapshot for settings / observability. */
 export interface BackgroundJobOccupancyView {
   conversationId: string
   runningCount: number
+  jobs?: BackgroundJobView[]
 }
 
 export interface RunQueueSnapshot {

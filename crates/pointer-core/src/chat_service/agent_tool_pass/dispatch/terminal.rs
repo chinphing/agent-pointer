@@ -390,14 +390,11 @@ async fn run_terminal_background(
     let job_id = state
         .jobs
         .register(conversation_id, kind, job_cancel.clone(), run_id);
-    emit_background_jobs(
-        stream,
-        conversation_id,
-        state.jobs.running_count_for_conversation(conversation_id),
-    );
+    emit_background_jobs(stream, conversation_id, &state.jobs);
     log::info!(
-        "terminal background spawn job_id={job_id} conversation_id={conversation_id} tool_call_id={} block_until_ms={block_until_ms}",
-        tc.id
+        "terminal background spawn job_id={job_id} conversation_id={conversation_id} tool_call_id={} block_until_ms={block_until_ms} nested={}",
+        tc.id,
+        trace_id.as_deref().filter(|s| !s.is_empty()).is_some()
     );
 
     let abort_flag = Arc::new(AtomicBool::new(false));
@@ -535,14 +532,7 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
             spawn.host_trace_id.as_deref(),
             spawn.host_scoped_message_id.as_deref(),
         );
-        emit_background_jobs(
-            &spawn.stream,
-            &spawn.conversation_id,
-            spawn
-                .state
-                .jobs
-                .running_count_for_conversation(&spawn.conversation_id),
-        );
+        emit_background_jobs(&spawn.stream, &spawn.conversation_id, &spawn.state.jobs);
         return;
     };
     spawn.state.jobs.mark_running(&job_id);
@@ -654,14 +644,7 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
         spawn.host_trace_id.as_deref(),
         spawn.host_scoped_message_id.as_deref(),
     );
-    emit_background_jobs(
-        &spawn.stream,
-        &spawn.conversation_id,
-        spawn
-            .state
-            .jobs
-            .running_count_for_conversation(&spawn.conversation_id),
-    );
+    emit_background_jobs(&spawn.stream, &spawn.conversation_id, &spawn.state.jobs);
     log::info!(
         "terminal background finished job_id={job_id} conversation_id={} status={}",
         spawn.conversation_id,

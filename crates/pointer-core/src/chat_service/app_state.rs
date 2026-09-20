@@ -1512,11 +1512,9 @@ impl AppState {
                 "app_state: cancel_background_jobs conversation_id={conversation_id} count={} ids={cancelled:?}",
                 cancelled.len()
             );
-            crate::stream_broadcast::publish_global_stream(
-                crate::models::StreamEvent::BackgroundJobs {
-                    conversation_id: conversation_id.to_string(),
-                    running_count: self.jobs.running_count_for_conversation(conversation_id) as u32,
-                },
+            crate::chat_service::run_subagent_delegation::publish_background_jobs(
+                conversation_id,
+                &self.jobs,
             );
         }
         cancelled

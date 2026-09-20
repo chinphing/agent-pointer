@@ -125,19 +125,17 @@ pub(super) async fn dispatch_job(
             ))
         }
     };
-    publish_job_occupancy(
-        conversation_id,
-        state.jobs.running_count_for_conversation(conversation_id),
-    );
+    publish_job_occupancy(conversation_id, &state.jobs);
     exec
 }
 
-fn publish_job_occupancy(conversation_id: &str, running_count: usize) {
+fn publish_job_occupancy(
+    conversation_id: &str,
+    jobs: &crate::chat_service::job_supervisor::JobSupervisor,
+) {
+    let running_count = jobs.running_count_for_conversation(conversation_id);
     log::info!(
         "job tool: occupancy conversation_id={conversation_id} running_count={running_count}"
     );
-    crate::stream_broadcast::publish_global_stream(crate::models::StreamEvent::BackgroundJobs {
-        conversation_id: conversation_id.to_string(),
-        running_count: running_count as u32,
-    });
+    crate::chat_service::run_subagent_delegation::publish_background_jobs(conversation_id, jobs);
 }

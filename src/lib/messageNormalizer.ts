@@ -129,14 +129,57 @@ export function stripSavedAttachmentHints(content: string): string {
 
 const IDLE_JOB_PUSH_USER_LINE = '后台任务已完成。'
 const IDLE_JOB_PUSH_HOST_KIND = 'idle_job_push'
+const IDLE_JOB_PUSH_BUBBLE_TITLE_CHARS = 20
+const IDLE_JOB_PUSH_BUBBLE_TITLE_MAX = 2
+const IDLE_JOB_PUSH_JOB_HEADING_RE =
+  /^###[ \t]+(.+)\nkind:[ \t]+\S+\nstatus:[ \t]+(\S+)\njobId:/gm
+
+type IdleJobPushHeading = { title: string; failed: boolean }
+
+function truncateIdleJobPushTitle(text: string): string {
+  const chars = Array.from(text.trim())
+  if (chars.length <= IDLE_JOB_PUSH_BUBBLE_TITLE_CHARS) return chars.join('')
+  return `${chars.slice(0, IDLE_JOB_PUSH_BUBBLE_TITLE_CHARS - 1).join('')}…`
+}
+
+function parseIdleJobPushHeadings(content: string): IdleJobPushHeading[] {
+  const out: IdleJobPushHeading[] = []
+  const re = new RegExp(IDLE_JOB_PUSH_JOB_HEADING_RE.source, 'gm')
+  let match: RegExpExecArray | null
+  while ((match = re.exec(content)) !== null) {
+    const title = match[1]?.trim() ?? ''
+    if (!title) continue
+    out.push({ title, failed: match[2] === 'failed' })
+  }
+  return out
+}
+
+function formatIdleJobPushBubble(jobs: IdleJobPushHeading[]): string {
+  if (!jobs.length) return IDLE_JOB_PUSH_USER_LINE
+  const allFailed = jobs.every(job => job.failed)
+  const prefix = allFailed ? '后台任务失败' : '后台任务已完成'
+  const titles = jobs.map(job => truncateIdleJobPushTitle(job.title))
+  if (titles.length <= IDLE_JOB_PUSH_BUBBLE_TITLE_MAX) {
+    return `${prefix}：${titles.join('、')}`
+  }
+  return `${prefix}：${titles[0]}、${titles[1]} 等 ${titles.length} 个`
+}
+
+function idleJobPushDisplayLine(message: ChatMessage): string {
+  const bubble = message.uiBindings?.bubbleText?.trim() ?? ''
+  if (bubble && bubble !== IDLE_JOB_PUSH_USER_LINE) return bubble
+  const jobs = parseIdleJobPushHeadings(message.content ?? '')
+  if (jobs.length) return formatIdleJobPushBubble(jobs)
+  return bubble || IDLE_JOB_PUSH_USER_LINE
+}
 
 /** Hide model injection blocks from the user bubble (ASR under player, path hints, etc.). */
 export function userMessageDisplayContent(message: ChatMessage): string {
+  if (message.uiBindings?.hostKind === IDLE_JOB_PUSH_HOST_KIND) {
+    return idleJobPushDisplayLine(message)
+  }
   const bubble = message.uiBindings?.bubbleText?.trim()
   if (bubble) return bubble
-  if (message.uiBindings?.hostKind === IDLE_JOB_PUSH_HOST_KIND) {
-    return IDLE_JOB_PUSH_USER_LINE
-  }
   let content = stripSavedAttachmentHints(message.content?.trim() ?? '')
   content = stripOutboundMediaMarkers(content)
   if (!content) return ''

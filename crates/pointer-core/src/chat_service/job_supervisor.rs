@@ -14,6 +14,8 @@ use serde::Serialize;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
+use crate::models::BackgroundJobView;
+
 const DEFAULT_AWAIT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const CONTENT_PREVIEW_CHARS: usize = 800;
 const MAX_MAILBOX: usize = 48;
@@ -436,6 +438,21 @@ impl JobSupervisor {
     pub fn running_count_for_conversation(&self, conversation_id: &str) -> usize {
         let inner = self.inner.lock();
         running_count_in(&inner, conversation_id)
+    }
+
+    /// Non-terminal jobs for the composer list (includes nested background terminals).
+    pub fn occupancy_items_for_conversation(&self, conversation_id: &str) -> Vec<BackgroundJobView> {
+        let inner = self.inner.lock();
+        occupancy_items_in(&inner, conversation_id)
+    }
+
+    pub fn background_jobs_event(&self, conversation_id: &str) -> crate::models::StreamEvent {
+        let jobs = self.occupancy_items_for_conversation(conversation_id);
+        crate::models::StreamEvent::BackgroundJobs {
+            conversation_id: conversation_id.to_string(),
+            running_count: jobs.len() as u32,
+            jobs,
+        }
     }
 
     /// Non-terminal background jobs that share this parent `run_id` (token finalize gate).
@@ -1112,6 +1129,40 @@ fn running_count_in(inner: &Inner, conversation_id: &str) -> usize {
                 .count()
         })
         .unwrap_or(0)
+}
+
+fn occupancy_items_in(inner: &Inner, conversation_id: &str) -> Vec<BackgroundJobView> {
+    let Some(ids) = inner.by_conversation.get(conversation_id) else {
+        return Vec::new();
+    };
+    ids.iter()
+        .filter_map(|id| inner.jobs.get(id))
+        .filter(|job| !job.status.is_terminal())
+        .map(occupancy_item)
+        .collect()
+}
+
+fn occupancy_item(job: &JobRecord) -> BackgroundJobView {
+    let (kind, agent_id, title) = match &job.kind {
+        JobKind::Subagent(k) => ("subagent", Some(k.agent_id.clone()), Some(k.title.clone())),
+        JobKind::Terminal(k) => (
+            "terminal",
+            None,
+            Some(
+                k.label
+                    .clone()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| crate::text_util::truncate_chars(&k.command, 80)),
+            ),
+        ),
+    };
+    BackgroundJobView {
+        job_id: job.id.clone(),
+        status: job.status.as_str().to_string(),
+        kind: kind.to_string(),
+        title,
+        agent_id,
+    }
 }
 
 fn running_count_for_run_in(inner: &Inner, run_id: &str) -> usize {
@@ -1872,6 +1923,42 @@ mod tests {
         assert_eq!(rows, vec![("c1".into(), 1), ("c2".into(), 1)]);
         assert_eq!(sup.running_count_for_conversation("c1"), 1);
         let _ = (live, other);
+    }
+
+    #[test]
+    fn occupancy_items_include_background_terminals() {
+        let sup = JobSupervisor::new();
+        let sub = sup.register("c1", kind(), CancellationToken::new(), "test-run");
+        let term = sup.register(
+            "c1",
+            JobKind::Terminal(JobKindTerminal {
+                tool_call_id: "tc-nested".into(),
+                message_id: "scoped-m".into(),
+                command: "python scrape.py --city jhb".into(),
+                label: Some("线 1 约堡".into()),
+            }),
+            CancellationToken::new(),
+            "test-run",
+        );
+        sup.mark_running(&sub);
+        sup.mark_running(&term);
+        let items = sup.occupancy_items_for_conversation("c1");
+        assert_eq!(items.len(), 2);
+        let term_row = items.iter().find(|j| j.kind == "terminal").expect("terminal");
+        assert_eq!(term_row.title.as_deref(), Some("线 1 约堡"));
+        assert_eq!(term_row.job_id, term);
+        let ev = sup.background_jobs_event("c1");
+        match ev {
+            crate::models::StreamEvent::BackgroundJobs {
+                running_count,
+                jobs,
+                ..
+            } => {
+                assert_eq!(running_count, 2);
+                assert_eq!(jobs.len(), 2);
+            }
+            other => panic!("unexpected {other:?}"),
+        }
     }
 
     #[test]

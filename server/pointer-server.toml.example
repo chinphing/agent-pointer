@@ -71,8 +71,24 @@ skills_dir = "skills"
 #
 # Turn elapsed chip prefixes (optional). Default both: 工作 →「工作 N m SS s」
 # turn_elapsed_active = "报销单填写中"
+# Turn elapsed chip prefixes (optional). Default both: 工作 →「工作 N m SS s」
+# turn_elapsed_active = "报销单填写中"
 # turn_elapsed_done = "报销单已填写"
 # Env: POINTER_SERVER_TURN_ELAPSED_ACTIVE / POINTER_SERVER_TURN_ELAPSED_DONE
+#
+# Brand name shown in sidebar / top bar (like page_title). Default: Pointer
+# brand_name = "财务助手"
+# Env: POINTER_SERVER_BRAND_NAME
+#
+# Brand icon for top-left and bottom-left (same logo; URL or static path under dist).
+# Default: /app-icon.png
+# brand_icon = "/branding/logo.png"
+# Env: POINTER_SERVER_BRAND_ICON
+#
+# Desktop snapshot button (left sidebar). Unset = auto-detect displays
+# (hidden on headless / non-UI hosts). Set explicitly to force:
+# desktop_snapshot_enabled = false
+# Env: POINTER_SERVER_DESKTOP_SNAPSHOT_ENABLED
 #
 # Restrict platform OAuth to specific user ids (platform account id).
 # Leave empty to allow any platform user (development / trusted intranet only).

@@ -5,6 +5,8 @@ import type { FileChangeSummary } from '../../lib/toolCallDisplay'
 import { workspaceRelativeDisplayPathWithFallbacks } from '../../lib/toolCallDisplay'
 import { useChatStore } from '../../stores/chat'
 import { useWorkspacePanelStore } from '../../stores/workspacePanel'
+import { usePlatformAuthStore } from '../../stores/platformAuth'
+import { useSettingsStore } from '../../stores/settings'
 
 const props = defineProps<{
   turnId: string
@@ -18,6 +20,10 @@ const emit = defineEmits<{
 
 const chat = useChatStore()
 const workspacePanel = useWorkspacePanelStore()
+const platformAuth = usePlatformAuthStore()
+const settingsStore = useSettingsStore()
+const canOpenWorkspace = () =>
+  platformAuth.isPlatformAdmin || settingsStore.isPlatformAdmin
 
 const displayRoots = computed(() => {
   const conv = chat.current
@@ -60,6 +66,7 @@ function openFile(path: string): void {
     })
     return
   }
+  if (!canOpenWorkspace()) return
   workspacePanel.openTurnDiff({
     conversationId,
     turnId: props.turnId,

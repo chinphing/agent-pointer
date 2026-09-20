@@ -72,6 +72,11 @@ public_url = "https://pointer.example.com"
 # Turn elapsed chip prefixes (optional; default 工作 →「工作 N m SS s」)
 # turn_elapsed_active = "报销单填写中"
 # turn_elapsed_done = "报销单已填写"
+# Brand name / logo (optional; top-left & bottom-left share brand_icon)
+# brand_name = "财务助手"
+# brand_icon = "/branding/logo.png"
+# Desktop snapshot button (optional; unset = auto-detect display)
+# desktop_snapshot_enabled = false
 # SSE 首帧 padding 注释帧（穿透缓冲型防火墙/反向代理；默认关闭，需要时显式开启 sse_padding_enabled = true）
 # sse_padding_enabled = false
 # sse_padding_bytes = 10240
@@ -100,7 +105,7 @@ sudo systemctl status pointer-server
 
 ### Web 品牌文案（可选）
 
-在 `[server]` 中可覆盖标签页标题、输入框占位、全新空会话欢迎 tip、回合耗时前缀（`page_title` / `composer_placeholder` / `welcome_tip_*` / `turn_elapsed_*`）。对应环境变量见下方「环境变量」表。行为说明见开发者文档旁的 [`../ui/web-branding-welcome-elapsed.md`](../ui/web-branding-welcome-elapsed.md)。
+在 `[server]` 中可覆盖标签页标题、输入框占位、全新空会话欢迎 tip、回合耗时前缀、品牌名/图标与桌面截图开关（`page_title` / `composer_placeholder` / `welcome_tip_*` / `turn_elapsed_*` / `brand_name` / `brand_icon` / `desktop_snapshot_enabled`）。对应环境变量见下方「环境变量」表。行为说明见开发者文档旁的 [`../ui/web-branding-welcome-elapsed.md`](../ui/web-branding-welcome-elapsed.md)。
 
 ---
 
@@ -257,6 +262,9 @@ curl -X POST http://localhost:8787/api/auth/local/login \
 | `POINTER_SERVER_WELCOME_TIP_BODY` | 全新空会话欢迎 tip 正文（可选） | （不展示 tip） |
 | `POINTER_SERVER_TURN_ELAPSED_ACTIVE` | 进行中回合耗时前缀（可选） | `工作` |
 | `POINTER_SERVER_TURN_ELAPSED_DONE` | 已结束回合耗时前缀（可选） | `工作` |
+| `POINTER_SERVER_BRAND_NAME` | 侧栏/顶栏产品名（可选） | `Pointer` |
+| `POINTER_SERVER_BRAND_ICON` | 左上角与左下角共用 logo（可选） | `/app-icon.png` |
+| `POINTER_SERVER_DESKTOP_SNAPSHOT_ENABLED` | 桌面截图按钮（可选；未设则自动探测显示器） | 自动 |
 | `POINTER_SERVER_SSE_PADDING_ENABLED` | SSE 首帧 padding（穿透缓冲型反代） | `false` |
 | `POINTER_SERVER_SSE_PADDING_BYTES` | padding 字节数 | `10240` |
 | `POINTER_APP_DATA_DIR` | 数据目录 | OS 默认 |

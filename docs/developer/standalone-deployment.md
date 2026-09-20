@@ -331,6 +331,9 @@ skills_dir = "skills"
 # welcome_tip_body = "您提交附件后我会自动帮你填报销单…"  # env POINTER_SERVER_WELCOME_TIP_BODY
 # turn_elapsed_active = "报销单填写中"           # env POINTER_SERVER_TURN_ELAPSED_ACTIVE
 # turn_elapsed_done = "报销单已填写"             # env POINTER_SERVER_TURN_ELAPSED_DONE
+# brand_name = "财务助手"                       # env POINTER_SERVER_BRAND_NAME
+# brand_icon = "/branding/logo.png"            # env POINTER_SERVER_BRAND_ICON（左上/左下共用）
+# desktop_snapshot_enabled = false             # env POINTER_SERVER_DESKTOP_SNAPSHOT_ENABLED
 # （进行中收起条需在助手设置打开「默认收缩执行过程」，server 不强制）
 
 # SSE 首帧 padding 注释帧（穿透缓冲型防火墙；默认关闭）
@@ -351,6 +354,9 @@ skills_dir = "skills"
 | `welcome_tip_body` | `POINTER_SERVER_WELCOME_TIP_BODY` | 全新空会话欢迎 tip 正文 | 不展示 tip |
 | `turn_elapsed_active` | `POINTER_SERVER_TURN_ELAPSED_ACTIVE` | 进行中回合耗时前缀 | `工作` |
 | `turn_elapsed_done` | `POINTER_SERVER_TURN_ELAPSED_DONE` | 已结束回合耗时前缀 | `工作` |
+| `brand_name` | `POINTER_SERVER_BRAND_NAME` | 侧栏/顶栏产品名 | `Pointer` |
+| `brand_icon` | `POINTER_SERVER_BRAND_ICON` | 左上角与左下角共用 logo | `/app-icon.png` |
+| `desktop_snapshot_enabled` | `POINTER_SERVER_DESKTOP_SNAPSHOT_ENABLED` | 桌面截图按钮 | 自动探测显示器 |
 | `app_data_dir` | `POINTER_APP_DATA_DIR` | 运行时数据根目录 | OS 默认（与桌面 `PointerApp` 同源规则） |
 | `sse_padding_enabled` | `POINTER_SERVER_SSE_PADDING_ENABLED` | SSE 首帧 padding | `false` |
 | `sse_padding_bytes` | `POINTER_SERVER_SSE_PADDING_BYTES` | padding 字节数 | `10240` |

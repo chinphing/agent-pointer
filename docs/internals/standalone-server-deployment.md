@@ -286,6 +286,9 @@ app_data_dir = "/var/lib/pointer-server"
 # welcome_tip_body = "您提交附件后我会自动帮你填报销单，预计 10–30 分钟，期间您可以离开，完成任务后您回来确认信息即可。"
 # turn_elapsed_active = "报销单填写中"
 # turn_elapsed_done = "报销单已填写"
+# brand_name = "财务助手"
+# brand_icon = "/branding/logo.png"   # 左上角与左下角共用
+# desktop_snapshot_enabled = false    # 未设则自动探测显示器
 # SSE 首帧 padding（穿透缓冲型反代时按需开启）
 # sse_padding_enabled = false
 # sse_padding_bytes = 10240
@@ -397,6 +400,9 @@ Standalone server 支持 Webhook 与 WSS 长连接。扫码注册流程：
 | `POINTER_SERVER_WELCOME_TIP_BODY` | 全新空会话欢迎 tip 正文（可选） | （不展示 tip） |
 | `POINTER_SERVER_TURN_ELAPSED_ACTIVE` | 进行中回合耗时前缀（可选） | `工作` |
 | `POINTER_SERVER_TURN_ELAPSED_DONE` | 已结束回合耗时前缀（可选） | `工作` |
+| `POINTER_SERVER_BRAND_NAME` | 侧栏/顶栏产品名（可选） | `Pointer` |
+| `POINTER_SERVER_BRAND_ICON` | 左上角与左下角共用 logo（可选） | `/app-icon.png` |
+| `POINTER_SERVER_DESKTOP_SNAPSHOT_ENABLED` | 桌面截图按钮（可选；未设则自动探测显示器） | 自动 |
 | `POINTER_SERVER_SSE_PADDING_ENABLED` | SSE 首帧 padding | `false` |
 | `POINTER_SERVER_SSE_PADDING_BYTES` | padding 字节数 | `10240` |
 | `POINTER_USAGE_REPORT_ENABLED` | 用量上报 | `false` |

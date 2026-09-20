@@ -43,6 +43,13 @@ import DesktopSnapshotButton from './DesktopSnapshotButton.vue'
 import AccountMenu from './AccountMenu.vue'
 import ChatTopBar from '../chat/ChatTopBar.vue'
 import { isTauriRuntime } from '../../lib/runtime'
+import {
+  resolveBrandIcon,
+  resolveBrandName,
+  resolveDesktopSnapshotEnabled
+} from '../../lib/webBranding'
+import { usePlatformAuthStore } from '../../stores/platformAuth'
+import { useSettingsStore } from '../../stores/settings'
 import { OpenSettingsKey } from '../../lib/settingsDialogKey'
 import type { Project } from '../../types/chat'
 
@@ -71,10 +78,24 @@ const emit = defineEmits<{
 }>()
 
 // Chat UI (ChatTopBar / Composer) opens the settings dialog through this.
-provide(OpenSettingsKey, (section?: string) => emit('open-settings', section))
-
 const chat = useChatStore()
 const workspacePanel = useWorkspacePanelStore()
+const platformAuth = usePlatformAuthStore()
+const settingsStore = useSettingsStore()
+
+const brandName = resolveBrandName()
+const brandIcon = resolveBrandIcon()
+const desktopSnapshotEnabled = resolveDesktopSnapshotEnabled()
+/** Platform / standalone admin — gates settings entry and workspace panel. */
+const isAppAdmin = computed(
+  () => platformAuth.isPlatformAdmin || settingsStore.isPlatformAdmin
+)
+
+provide(OpenSettingsKey, (section?: string) => {
+  if (!isAppAdmin.value) return
+  emit('open-settings', section)
+})
+
 const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarCollapse()
 const {
   isExpanded: isProjectExpanded,
@@ -96,8 +117,16 @@ const conversationsSectionCollapsed = computed(() => sectionCollapse.value.conve
 const workspacePanelOpen = computed(() => workspacePanel.open)
 
 function setWorkspacePanelOpen(open: boolean) {
+  if (!isAppAdmin.value) {
+    workspacePanel.setOpen(false)
+    return
+  }
   workspacePanel.setOpen(open)
 }
+
+watch(isAppAdmin, admin => {
+  if (!admin) workspacePanel.setOpen(false)
+})
 
 /**
  * Two-step inline delete confirmation. The first click on the trash icon
@@ -876,12 +905,12 @@ watch(searchQuery, q => {
           >
             <div class="inline-flex h-3.5 min-w-0 items-center gap-2">
               <img
-                src="/app-icon.png"
-                alt="Pointer"
+                :src="brandIcon"
+                :alt="brandName"
                 draggable="false"
                 class="block h-3.5 w-3.5 shrink-0 select-none rounded-[3px] object-cover grayscale"
               />
-              <span class="brand-text flex h-3.5 min-w-0 items-center truncate text-[13px] font-semibold leading-none tracking-wide">Pointer</span>
+              <span class="brand-text flex h-3.5 min-w-0 items-center truncate text-[13px] font-semibold leading-none tracking-wide">{{ brandName }}</span>
             </div>
           </div>
           <!-- macOS: spacer to push the collapse button right -->
@@ -912,6 +941,7 @@ watch(searchQuery, q => {
               新建任务
             </button>
             <button
+              v-if="isAppAdmin"
               type="button"
               class="sidebar-workbench-link"
               @click="openAutomation"
@@ -920,6 +950,7 @@ watch(searchQuery, q => {
               定时任务
             </button>
             <button
+              v-if="isAppAdmin"
               type="button"
               class="sidebar-workbench-link"
               @click="emit('open-settings', 'skills')"
@@ -928,6 +959,7 @@ watch(searchQuery, q => {
               技能
             </button>
             <button
+              v-if="isAppAdmin"
               type="button"
               class="sidebar-workbench-link"
               @click="emit('open-settings', 'channels')"
@@ -1517,7 +1549,7 @@ watch(searchQuery, q => {
 
           <!-- F: 侧栏底栏 -->
           <div class="p-2 border-t border-border flex shrink-0 items-center gap-1">
-            <DesktopSnapshotButton v-if="!isTauriRuntime()" />
+            <DesktopSnapshotButton v-if="desktopSnapshotEnabled" />
             <AccountMenu @open-settings="section => $emit('open-settings', section)" />
           </div>
         </div>
@@ -1535,7 +1567,7 @@ watch(searchQuery, q => {
         >
           <template #actions>
             <button
-              v-if="!workspacePanelOpen"
+              v-if="isAppAdmin && !workspacePanelOpen"
               type="button"
               class="chrome-icon-btn"
               title="打开工作区"
@@ -1562,7 +1594,7 @@ watch(searchQuery, q => {
       </div>
 
       <WorkspacePanel
-        v-if="workspacePanelOpen"
+        v-if="isAppAdmin && workspacePanelOpen"
         :workspace-root="chat.current?.workspaceRoot ?? ''"
         :conversation-id="chat.current?.id ?? ''"
         @initialize-git="chat.sendUserMessage(GIT_INITIALIZATION_TASK)"

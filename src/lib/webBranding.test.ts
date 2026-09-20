@@ -1,7 +1,12 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  DEFAULT_BRAND_ICON,
+  DEFAULT_BRAND_NAME,
   DEFAULT_TURN_ELAPSED_PREFIX,
+  resolveBrandIcon,
+  resolveBrandName,
+  resolveDesktopSnapshotEnabled,
   resolveTurnElapsedPrefix,
   resolveWelcomeTip
 } from './webBranding'
@@ -26,6 +31,9 @@ afterEach(() => {
   clearMeta('pointer-welcome-tip-body')
   clearMeta('pointer-turn-elapsed-active')
   clearMeta('pointer-turn-elapsed-done')
+  clearMeta('pointer-brand-name')
+  clearMeta('pointer-brand-icon')
+  clearMeta('pointer-desktop-snapshot')
   vi.unstubAllEnvs()
 })
 
@@ -68,5 +76,25 @@ describe('formatTurnElapsed branding', () => {
     setMeta('pointer-turn-elapsed-done', '报销单已填写')
     expect(formatTurnElapsed(125_999, 'active')).toBe('报销单填写中 2 m 05 s')
     expect(formatTurnElapsed(null, 'done')).toBe('报销单已填写耗时未知')
+  })
+})
+
+describe('web branding name / icons / snapshot', () => {
+  it('defaults brand name and icon', () => {
+    expect(resolveBrandName()).toBe(DEFAULT_BRAND_NAME)
+    expect(resolveBrandIcon()).toBe(DEFAULT_BRAND_ICON)
+    expect(resolveDesktopSnapshotEnabled()).toBe(true)
+  })
+
+  it('reads brand name and icon from meta', () => {
+    setMeta('pointer-brand-name', '财务助手')
+    setMeta('pointer-brand-icon', '/branding/logo.png')
+    expect(resolveBrandName()).toBe('财务助手')
+    expect(resolveBrandIcon()).toBe('/branding/logo.png')
+  })
+
+  it('hides desktop snapshot when meta is 0', () => {
+    setMeta('pointer-desktop-snapshot', '0')
+    expect(resolveDesktopSnapshotEnabled()).toBe(false)
   })
 })

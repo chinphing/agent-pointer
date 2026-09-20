@@ -4252,6 +4252,11 @@ const WELCOME_TIP_TITLE_META: &str = "pointer-welcome-tip-title";
 const WELCOME_TIP_BODY_META: &str = "pointer-welcome-tip-body";
 const TURN_ELAPSED_ACTIVE_META: &str = "pointer-turn-elapsed-active";
 const TURN_ELAPSED_DONE_META: &str = "pointer-turn-elapsed-done";
+const BRAND_NAME_META: &str = "pointer-brand-name";
+const BRAND_ICON_META: &str = "pointer-brand-icon";
+const DESKTOP_SNAPSHOT_META: &str = "pointer-desktop-snapshot";
+const DEFAULT_BRAND_NAME: &str = "Pointer";
+const DEFAULT_BRAND_ICON: &str = "/app-icon.png";
 
 /// Browser tab title from `POINTER_SERVER_PAGE_TITLE` / `[server].page_title`.
 fn resolve_web_page_title() -> String {
@@ -4356,6 +4361,57 @@ fn maybe_inject_optional_meta(html: &str, env_key: &str, meta_name: &str) -> Str
     }
 }
 
+
+fn resolve_brand_name() -> String {
+    resolve_optional_branding_env("POINTER_SERVER_BRAND_NAME")
+        .unwrap_or_else(|| DEFAULT_BRAND_NAME.to_string())
+}
+
+fn resolve_brand_icon() -> String {
+    resolve_optional_branding_env("POINTER_SERVER_BRAND_ICON")
+        .unwrap_or_else(|| DEFAULT_BRAND_ICON.to_string())
+}
+
+
+/// `true` / `1` / `yes` / `on` → show; `false` / `0` / `no` / `off` → hide.
+/// When unset, auto-detect host displays (hide on headless / non-UI hosts).
+fn resolve_desktop_snapshot_enabled() -> bool {
+    match std::env::var("POINTER_SERVER_DESKTOP_SNAPSHOT_ENABLED") {
+        Ok(raw) => {
+            let v = raw.trim().to_ascii_lowercase();
+            if v.is_empty() {
+                return host_has_desktop_display();
+            }
+            matches!(v.as_str(), "1" | "true" | "yes" | "on")
+        }
+        Err(_) => host_has_desktop_display(),
+    }
+}
+
+fn host_has_desktop_display() -> bool {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<bool> = OnceLock::new();
+    *CACHED.get_or_init(|| {
+        match pointer_core::agents::computer::screen::list_monitors() {
+            Ok(monitors) => {
+                let ok = !monitors.is_empty();
+                if !ok {
+                    log::info!(
+                        "pointer-server: no displays found; desktop snapshot button hidden (set POINTER_SERVER_DESKTOP_SNAPSHOT_ENABLED=true to force)"
+                    );
+                }
+                ok
+            }
+            Err(err) => {
+                log::info!(
+                    "pointer-server: display probe failed ({err:#}); desktop snapshot button hidden (set POINTER_SERVER_DESKTOP_SNAPSHOT_ENABLED=true to force)"
+                );
+                false
+            }
+        }
+    })
+}
+
 /// Rewrite SPA shell branding: tab `<title>`, composer placeholder, and optional
 /// welcome tip / turn-elapsed label overrides.
 fn apply_web_branding(html_bytes: &[u8]) -> String {
@@ -4385,6 +4441,21 @@ fn apply_web_branding(html_bytes: &[u8]) -> String {
         &out,
         "POINTER_SERVER_TURN_ELAPSED_DONE",
         TURN_ELAPSED_DONE_META,
+    );
+    out = replace_or_inject_meta(
+        &out,
+        BRAND_NAME_META,
+        &html_escape_text(&resolve_brand_name()),
+    );
+    out = replace_or_inject_meta(
+        &out,
+        BRAND_ICON_META,
+        &html_escape_text(&resolve_brand_icon()),
+    );
+    out = replace_or_inject_meta(
+        &out,
+        DESKTOP_SNAPSHOT_META,
+        if resolve_desktop_snapshot_enabled() { "1" } else { "0" },
     );
     out
 }
@@ -4467,6 +4538,9 @@ mod page_title_tests {
         std::env::remove_var("POINTER_SERVER_WELCOME_TIP_BODY");
         std::env::remove_var("POINTER_SERVER_TURN_ELAPSED_ACTIVE");
         std::env::remove_var("POINTER_SERVER_TURN_ELAPSED_DONE");
+        std::env::remove_var("POINTER_SERVER_BRAND_NAME");
+        std::env::remove_var("POINTER_SERVER_BRAND_ICON");
+        std::env::remove_var("POINTER_SERVER_DESKTOP_SNAPSHOT_ENABLED");
     }
 
     #[test]
@@ -4556,6 +4630,30 @@ mod page_title_tests {
             "A &lt;B&gt; &amp; &quot;C&quot;"
         );
     }
+    #[test]
+    fn injects_brand_name_icon_and_snapshot_meta() {
+        let _guard = env_guard();
+        clear_branding_env();
+        std::env::set_var("POINTER_SERVER_BRAND_NAME", "财务助手");
+        std::env::set_var("POINTER_SERVER_BRAND_ICON", "/branding/logo.png");
+        std::env::set_var("POINTER_SERVER_DESKTOP_SNAPSHOT_ENABLED", "false");
+        let html = "<head><title>old</title></head>";
+        let out = apply_web_branding(html.as_bytes());
+        assert!(
+            out.contains(r#"name="pointer-brand-name" content="财务助手""#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"name="pointer-brand-icon" content="/branding/logo.png""#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"name="pointer-desktop-snapshot" content="0""#),
+            "{out}"
+        );
+        clear_branding_env();
+    }
+
 }
 
 #[cfg(test)]

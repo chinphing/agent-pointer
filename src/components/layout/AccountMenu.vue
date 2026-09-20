@@ -19,6 +19,7 @@ import { applyTheme } from '../../lib/theme'
 import type { ThemePreference } from '../../types/chat'
 import { useSettingsStore } from '../../stores/settings'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
+import { resolveBrandIcon } from '../../lib/webBranding'
 import { usePlatformBalance } from '../../composables/usePlatformBalance'
 import { useAppUpdater } from '../../composables/useAppUpdater'
 import { openPlatformBillingPage } from '../../lib/platformUrls'
@@ -30,6 +31,11 @@ const emit = defineEmits<{
 
 const s = useSettingsStore()
 const platformAuth = usePlatformAuthStore()
+const brandIcon = resolveBrandIcon()
+const isAppAdmin = computed(
+  () => platformAuth.isPlatformAdmin || s.isPlatformAdmin
+)
+
 const updater = useAppUpdater()
 const {
   balance,
@@ -180,7 +186,7 @@ onBeforeUnmount(() => {
       @click="toggleMenu"
     >
       <img
-        src="/app-icon.png"
+        :src="brandIcon"
         alt=""
         class="h-5 w-5 shrink-0 rounded-full object-cover"
         draggable="false"
@@ -257,8 +263,9 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <!-- 设置 -->
+        <!-- 设置（仅管理员） -->
         <button
+          v-if="isAppAdmin"
           type="button"
           role="menuitem"
           class="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] text-foreground hover:bg-hover transition-colors cursor-pointer"

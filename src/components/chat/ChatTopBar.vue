@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { resolveBrandName } from '../../lib/webBranding'
+
+const brandName = resolveBrandName()
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Check, FolderOpen, FolderPlus, PanelLeftOpen, Plus } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
@@ -232,7 +235,7 @@ onUnmounted(() => {
       <span
         v-if="showBrand"
         class="brand-text text-[13px] leading-none whitespace-nowrap shrink-0"
-      >Pointer</span>
+      >{{ brandName }}</span>
       <span
         v-if="showBrand"
         class="text-[11px] leading-none text-muted shrink-0"

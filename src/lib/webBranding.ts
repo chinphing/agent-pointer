@@ -4,11 +4,20 @@ export const DEFAULT_COMPOSER_PLACEHOLDER = '告诉我你想做什么'
 /** Default turn-elapsed chip prefix (`工作 N m SS s` / `工作耗时未知`). */
 export const DEFAULT_TURN_ELAPSED_PREFIX = '工作'
 
+/** Default sidebar / top-bar product name. */
+export const DEFAULT_BRAND_NAME = 'Pointer'
+
+/** Default brand icon for top-left and bottom-left (served from `public/`). */
+export const DEFAULT_BRAND_ICON = '/app-icon.png'
+
 const COMPOSER_PLACEHOLDER_META = 'pointer-composer-placeholder'
 const WELCOME_TIP_TITLE_META = 'pointer-welcome-tip-title'
 const WELCOME_TIP_BODY_META = 'pointer-welcome-tip-body'
 const TURN_ELAPSED_ACTIVE_META = 'pointer-turn-elapsed-active'
 const TURN_ELAPSED_DONE_META = 'pointer-turn-elapsed-done'
+const BRAND_NAME_META = 'pointer-brand-name'
+const BRAND_ICON_META = 'pointer-brand-icon'
+const DESKTOP_SNAPSHOT_META = 'pointer-desktop-snapshot'
 
 function readMeta(name: string): string | null {
   if (typeof document === 'undefined') return null
@@ -22,6 +31,15 @@ function readMeta(name: string): string | null {
 function readViteString(key: string): string | null {
   const value = (import.meta.env as Record<string, unknown>)[key]
   if (typeof value === 'string' && value.trim()) return value.trim()
+  return null
+}
+
+function parseBoolFlag(raw: string | null): boolean | null {
+  if (raw == null) return null
+  const v = raw.trim().toLowerCase()
+  if (!v) return null
+  if (v === '1' || v === 'true' || v === 'yes' || v === 'on') return true
+  if (v === '0' || v === 'false' || v === 'no' || v === 'off') return false
   return null
 }
 
@@ -77,4 +95,42 @@ export function resolveTurnElapsedPrefix(phase: TurnElapsedPhase): string {
     ?? readMeta(TURN_ELAPSED_DONE_META)
     ?? DEFAULT_TURN_ELAPSED_PREFIX
   )
+}
+
+/**
+ * Sidebar / top-bar product name (`Pointer`).
+ * Priority: Vite → server meta → default.
+ */
+export function resolveBrandName(): string {
+  return (
+    readViteString('VITE_BRAND_NAME')
+    ?? readMeta(BRAND_NAME_META)
+    ?? DEFAULT_BRAND_NAME
+  )
+}
+
+/**
+ * Brand icon for top-left and bottom-left (same logo).
+ * Priority: Vite → server meta → `/app-icon.png`.
+ */
+export function resolveBrandIcon(): string {
+  return (
+    readViteString('VITE_BRAND_ICON')
+    ?? readMeta(BRAND_ICON_META)
+    ?? DEFAULT_BRAND_ICON
+  )
+}
+
+
+/**
+ * Whether the desktop snapshot button should show.
+ * Server injects `pointer-desktop-snapshot` (`1`/`0`); headless hosts get `0`
+ * via auto-detect. Unset (Vite / Tauri without meta) → show.
+ */
+export function resolveDesktopSnapshotEnabled(): boolean {
+  const fromVite = parseBoolFlag(readViteString('VITE_DESKTOP_SNAPSHOT_ENABLED'))
+  if (fromVite != null) return fromVite
+  const fromMeta = parseBoolFlag(readMeta(DESKTOP_SNAPSHOT_META))
+  if (fromMeta != null) return fromMeta
+  return true
 }

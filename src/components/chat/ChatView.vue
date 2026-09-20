@@ -14,7 +14,9 @@ import {
   MOBILE_VIEWPORT_MEDIA_QUERY,
   shouldShowFooterComposer
 } from '../../lib/mobileChat'
-import { resolveWelcomeTip } from '../../lib/webBranding'
+import { resolveBrandName, resolveWelcomeTip } from '../../lib/webBranding'
+
+const brandName = resolveBrandName()
 import WelcomeTipBanner from './WelcomeTipBanner.vue'
 
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-vue-next'
@@ -339,7 +341,7 @@ const toastClass = computed(() => {
                 v-else
                 class="mb-[30px] max-w-[22rem] text-center text-[1.375rem] font-semibold leading-snug tracking-tight text-foreground sm:max-w-none sm:text-[1.625rem] md:text-[1.75rem]"
               >
-                <span class="brand-text">Pointer</span>：你说，我做，就这么简单！
+                <span class="brand-text">{{ brandName }}</span>：你说，我做，就这么简单！
               </h1>
             </div>
 

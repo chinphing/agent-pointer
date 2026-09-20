@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineAsyncComponent, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import AppShell from './components/layout/AppShell.vue'
 import ChatView from './components/chat/ChatView.vue'
@@ -38,6 +38,9 @@ const settings = useSettingsStore()
 const skills = useSkillsStore()
 
 const showSettings = ref(false)
+const isAppAdmin = computed(
+  () => platformAuth.isPlatformAdmin || settings.isPlatformAdmin
+)
 const settingsInitialSection = ref('assistant')
 const {
   open: pairingModalOpen,
@@ -102,6 +105,7 @@ onMounted(() => {
 })
 
 function openSettings(section = 'assistant') {
+  if (!isAppAdmin.value) return
   settingsInitialSection.value = section
   showSettings.value = true
 }

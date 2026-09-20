@@ -114,6 +114,19 @@ struct ServerSection {
     /// Maps to `POINTER_SERVER_TURN_ELAPSED_DONE`. Empty → product default `工作`.
     #[serde(default)]
     turn_elapsed_done: String,
+    /// Sidebar / top-bar product name (Web UI). Maps to `POINTER_SERVER_BRAND_NAME`.
+    /// Empty → `Pointer`.
+    #[serde(default)]
+    brand_name: String,
+    /// Brand icon for top-left and bottom-left (same logo). Maps to
+    /// `POINTER_SERVER_BRAND_ICON`. Empty → `/app-icon.png`.
+    #[serde(default)]
+    brand_icon: String,
+    /// Show the desktop snapshot button. Maps to
+    /// `POINTER_SERVER_DESKTOP_SNAPSHOT_ENABLED`. When unset, auto-detects
+    /// whether the host has a display (hide on headless / non-UI hosts).
+    #[serde(default)]
+    desktop_snapshot_enabled: Option<bool>,
     /// Platform user ids allowed to log in (maps to `POINTER_SERVER_ALLOWED_USER_IDS`).
     #[serde(default)]
     allowed_user_ids: Vec<String>,
@@ -486,6 +499,26 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
         base_dir,
         false,
     );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_BRAND_NAME",
+        &parsed.server.brand_name,
+        base_dir,
+        false,
+    );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_BRAND_ICON",
+        &parsed.server.brand_icon,
+        base_dir,
+        false,
+    );
+    if let Some(enabled) = parsed.server.desktop_snapshot_enabled {
+        pairs.push((
+            "POINTER_SERVER_DESKTOP_SNAPSHOT_ENABLED".to_string(),
+            if enabled { "true" } else { "false" }.to_string(),
+        ));
+    }
     if !parsed.server.allowed_user_ids.is_empty() {
         let joined = parsed
             .server
@@ -899,6 +932,9 @@ welcome_tip_title = "我是财务报销助手"
 welcome_tip_body = "提交附件后自动填单"
 turn_elapsed_active = "报销单填写中"
 turn_elapsed_done = "报销单已填写"
+brand_name = "财务助手"
+brand_icon = "/branding/logo.png"
+desktop_snapshot_enabled = false
 "#,
         )
         .unwrap();
@@ -932,6 +968,19 @@ turn_elapsed_done = "报销单已填写"
             map.get("POINTER_SERVER_TURN_ELAPSED_DONE")
                 .map(String::as_str),
             Some("报销单已填写")
+        );
+        assert_eq!(
+            map.get("POINTER_SERVER_BRAND_NAME").map(String::as_str),
+            Some("财务助手")
+        );
+        assert_eq!(
+            map.get("POINTER_SERVER_BRAND_ICON").map(String::as_str),
+            Some("/branding/logo.png")
+        );
+        assert_eq!(
+            map.get("POINTER_SERVER_DESKTOP_SNAPSHOT_ENABLED")
+                .map(String::as_str),
+            Some("false")
         );
     }
 

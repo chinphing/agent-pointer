@@ -155,6 +155,7 @@ fn last_meaningful_line(text: &str) -> String {
 }
 
 /// `Username:` / `Enter path:` — not section banners like `=== 启动 attachments:`.
+/// Also not hostname / file prefixes (`cipz.pfms:`) from `printf "host: "; curl`.
 fn looks_like_colon_prompt(last_line: &str) -> bool {
     let t = last_line.trim();
     if !t.ends_with(':') {
@@ -173,6 +174,10 @@ fn looks_like_colon_prompt(last_line: &str) -> bool {
     }
     // Echoed labels and JSON keys are longer than a real stdin prompt.
     if t.len() > 48 {
+        return false;
+    }
+    // Dotted tokens are hosts or filenames, not `Username:` / `Enter path:`.
+    if body.contains('.') && !body.contains(char::is_whitespace) {
         return false;
     }
     true
@@ -330,6 +335,14 @@ mod tests {
         let state = detect_prompt_state("Username: ", 800);
         assert!(state.needs_input_likely);
         assert_eq!(state.input_class, InputClass::Normal);
+    }
+
+    #[test]
+    fn ignores_hostname_colon_prefix_while_curl_hangs() {
+        let state = detect_prompt_state("cipz.pfms: ", 800);
+        assert!(!state.needs_input_likely);
+        let state = detect_prompt_state("cipz.pfms: 302 0\n", 800);
+        assert!(!state.needs_input_likely);
     }
 
     #[test]

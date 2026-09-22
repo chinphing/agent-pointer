@@ -1058,8 +1058,8 @@ async fn run_self_fork_wave(
         );
         let (task_id, work) = match invocation {
             Ok(invocation) => {
-                let task_id = invocation.task.id.clone();
-                let input = OwnedSubagentExecutionInput {
+                let mut task_id = invocation.task.id.clone();
+                let mut input = OwnedSubagentExecutionInput {
                     stream: pass.ctx.session.stream,
                     state: pass.ctx.session.state,
                     conversation_id: pass.ctx.session.conversation_id,
@@ -1093,7 +1093,54 @@ async fn run_self_fork_wave(
                         .sub
                         .as_ref()
                         .and_then(|s| s.background_job_id.map(str::to_string)),
+                    resume_history: None,
+                    followup_reserve: None,
                 };
+                if let Ok(parsed) =
+                    crate::tools::run_subagent::parse_run_subagent_args(&prep.args_value)
+                {
+                    if let Some(instance_id) = parsed.followup_instance_id.as_deref() {
+                        match super::worker_followup::prepare_worker_followup(
+                            pass.ctx.session.state,
+                            pass.ctx.session.conversation_id,
+                            &run_id,
+                            instance_id,
+                            &parsed.agent_id,
+                            active.def.id.as_str(),
+                            &parsed.goal,
+                            &parsed.context,
+                        ) {
+                            Ok(prepared) => {
+                                task_id = prepared.task_id.clone();
+                                input.task.id = prepared.task_id;
+                                input.child_spawn_depth = prepared.spawn_depth;
+                                input.instance_scope = Some(prepared.instance_scope);
+                                input.followup_reserve = prepared.reserve;
+                                input.resume_history = Some(prepared.history);
+                            }
+                            Err(msg) => {
+                                let outcome = failed_owned_subagent_outcome(
+                                    &run_id,
+                                    pass.ctx.session.conversation_id,
+                                    &prep.tc.id,
+                                    input.task.clone(),
+                                    &input.source,
+                                    input.child_spawn_depth,
+                                    None,
+                                    msg,
+                                );
+                                items.push(SelfForkWaveItem {
+                                    index: idx,
+                                    task_id: input.task.id.clone(),
+                                    tool_call_id: prep.tc.id.clone(),
+                                    input: SelfForkWaveWork::Prepared(outcome),
+                                    running_event,
+                                });
+                                continue;
+                            }
+                        }
+                    }
+                }
                 let parsed_bg =
                     crate::tools::run_subagent::parse_run_subagent_args(&prep.args_value);
                 let background = parsed_bg.as_ref().is_ok_and(|a| a.background);
@@ -1125,12 +1172,15 @@ async fn run_self_fork_wave(
                     if let Some((stream, event)) = running_event.take() {
                         emit(&stream, event);
                     }
-                    let child_scope =
+                    let child_scope = if let Some(scope) = input.instance_scope.clone() {
+                        scope
+                    } else {
                         super::run_subagent_delegation::mint_owned_child_instance_scope(
                             &input.source,
                             &input.run_id,
                             pass.ctx.session.conversation_id,
-                        );
+                        )
+                    };
                     let job_id = super::run_subagent_delegation::spawn_background_owned_subagent(
                         super::run_subagent_delegation::BackgroundOwnedSpawn {
                             stream: pass.ctx.session.stream.clone(),
@@ -1152,6 +1202,8 @@ async fn run_self_fork_wave(
                             host_trace_id: input.host_trace_id.clone(),
                             host_scoped_message_id: input.host_scoped_message_id.clone(),
                             instance_scope: child_scope.clone(),
+                            resume_history: input.resume_history.clone(),
+                            followup_reserve: input.followup_reserve.take(),
                         },
                     );
                     record_background_spawn_result(

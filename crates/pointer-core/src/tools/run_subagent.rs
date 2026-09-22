@@ -40,6 +40,8 @@ pub struct RunSubagentArgs {
     /// When true, return `jobId` immediately and run in JobSupervisor.
     /// Omit defaults to true for `self` / `explore` / `coder`; `computer` stays false.
     pub background: bool,
+    /// Continue this finished worker thread (`agentInstanceId`), keeping its transcript.
+    pub followup_instance_id: Option<String>,
 }
 
 impl RunSubagentArgs {
@@ -204,6 +206,12 @@ pub fn parse_run_subagent_args(args: &Value) -> Result<RunSubagentArgs, String> 
         .get("background")
         .and_then(|v| v.as_bool())
         .unwrap_or_else(|| agent_id_allows_background(&agent_id));
+    let followup_instance_id = args
+        .get("followupInstanceId")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
     Ok(RunSubagentArgs {
         agent_id,
         goal: goal.to_string(),
@@ -213,6 +221,7 @@ pub fn parse_run_subagent_args(args: &Value) -> Result<RunSubagentArgs, String> 
         workspace_root,
         computer_target,
         background,
+        followup_instance_id,
     })
 }
 

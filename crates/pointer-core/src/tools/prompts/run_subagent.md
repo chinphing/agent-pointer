@@ -12,6 +12,8 @@ schema:
       type: string
     taskId:
       type: string
+    followupInstanceId:
+      type: string
     workspaceRoot:
       type: string
     computerTarget:
@@ -67,6 +69,9 @@ Await only when the user's question cannot be answered without the result.
 - Self leaf forks remain allowed at that depth.
 - Workers finish with **Markdown** in final assistant **`content`** (no tools on that turn).
 - Optional **`taskId`** is for **explicitly continuing the same logical task**: reuse it only when a later handoff genuinely continues the same task (e.g. retry or follow-up on the same goal). For a **new** logical task, omit `taskId` so the host assigns a fresh id — do **not** copy a `taskId` seen in a previous completed result.
+- To correct or extend a **finished** worker, pass **`followupInstanceId`**
+  (its `agentInstanceId`). That keeps the worker transcript.
+  Do not spawn a fresh worker when you still need that transcript.
 
 **One spawn vs split**
 
@@ -286,6 +291,11 @@ User required a specific path — put it in **`context`**, not **`goal`**:
 - **`context`** (optional) — One string; Markdown **`##` blocks** (not JSON). See template above.
 - **`title`** (optional) — Short label for traces.
 - **`taskId`** (optional) — Reuse only when explicitly continuing the **same logical task**; for new tasks omit it (host assigns a fresh id). Completed results do **not** echo `taskId` back.
+- **`followupInstanceId`** (optional) — `agentInstanceId` of a **finished**
+  worker. Same thread continues with its transcript.
+  `goal` is the new instruction. A new `jobId` is returned.
+  Do not use this while that worker is still running.
+  Do not use it for a shell job (no `agentInstanceId`).
 - **`workspaceRoot`** (**required** when **`agentId`** is **`coder`**) —
   Absolute directory for the coder worker.
   Optional for a self fork; when present, it overrides the current workspace.

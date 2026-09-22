@@ -105,6 +105,7 @@ pub(crate) async fn run_sub_agent(
         ctx.agent_skill_overrides,
         ctx.spawn_depth,
         ctx.max_spawn_depth,
+        ctx.resume_history.take(),
     )?;
     let def = session.def;
     let system_prompt = session.system_prompt;

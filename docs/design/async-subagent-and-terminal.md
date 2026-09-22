@@ -34,7 +34,7 @@
 | 父如何拿结果 | 完成后 **notify** 父（后台）；或 Foreground 内联返回 | 显式 `wait_agent`（邮箱有更新才醒）；`list_agents` 拉树 | 只能等 join |
 | 空闲时子任务结束 | 父保持可交互，稍后通知 | 默认 `trigger_turn=false`：**不自动续轮**（#15723） | 不适用（父一直占着 lane） |
 | 并行 | 同一条 assistant 消息里多个 `Task` | 多个 `spawn_agent` + 可选 wait | owned-wave：`self`/`explore` 并发，但仍 join |
-| 续跑 | `resume` + agent id，上下文保留 | `followup_task` / `send_message` | 仅 `taskId` 续同一逻辑任务（仍阻塞） |
+| 续跑 | `resume` + agent id，上下文保留 | `followup_task` / `send_message` | 已完成工人：`run_subagent.followupInstanceId` 接回同一 `agentInstanceId` 的 transcript，新 `jobId` |
 | 停一条 | `interrupt`（对正在跑的 async） | `interrupt_agent`（不停掉上下文） | `job.cancel` / 行上「结束任务」按 id；Composer 停止 = 全取消；立即发送 /「结束等待」= 软取消 |
 | 槽位 | 内部并发上限 | `max_concurrent_subagents`；CLI 还有 `close_agent` 才让出槽 | `maxParallelSubAgents` 只限 wave |
 | 隔离 | 默认同 checkout；可 worktree / `/in-cloud` VM | 同工具、同模型；树路径 `/root/...` | 同工作区；scoped 消息隔离上下文 |
@@ -272,6 +272,10 @@ WorkerLease Drop → running_roots -1，叫醒队头
 
 取消、停会话（job → Cancelled）、进程退出：**不** push。终端默认仍是前台；只有显式 `blockUntilMs` 的终端 job 才会进这张表。
 
+### 已完成工人的 follow-up
+
+空闲 push / `job.await` 把终稿交给父模型之后，父模型若发现结果不够，用 **`run_subagent.followupInstanceId`**（值为该工人的 `agentInstanceId`）再开一条后台 job。宿主先占住该 instance，再加载 scoped 对话，补上未返回的工具结果，并带上原来的 Assigned task。新指令在工人真正启动时写入，挂在这一轮宿主消息上。旧宿主行保持「已完成 / 失败」。`self` 只能续自己 fork 出去的那条（存下来的角色等于当前父角色）。仍在跑或已被占位的工人拒绝 follow-up。终端 job 没有 `agentInstanceId`，不能这样续。进程重启后只要对话还在，follow-up 仍可从落盘恢复。
+
 ## 分期
 
 | 阶段 | 内容 |
@@ -279,7 +283,7 @@ WorkerLease Drop → running_roots -1，叫醒队头
 | **P0** | JobSupervisor；`terminal.blockUntilMs`；`job` list/status/await/cancel；Unix `killpg` / Windows `taskkill /T` |
 | **P1** | `run_subagent.background` 仅 `self`/`explore`；`job.await` 支持 `any`/`all`；终态立刻放槽；UI 沿用 `SubAgentFrame` |
 | **P1.5** | **一张工人队列**（已落地）：删 `subagent_sem` + 全局 `running_slots`；按会话 FIFO；前台借槽不登记；嵌套不计新槽；串行 coder/computer 也借 1 格 |
-| **P2** | **空闲合并 push（已落地）**；`resume` / `taskId` 续跑；自定义 agent `is_background` |
+| **P2** | **空闲合并 push（已落地）**；**已完成工人 follow-up（已落地）**：`followupInstanceId` 恢复 scoped transcript；自定义 agent `is_background` |
 | **P3** | 重叠写入的 worktree 隔离；`coder` 后台（须隔离）；不做云 VM |
 
 **初版已落地**：JobSupervisor、`run_subagent.background`（self/explore）、`terminal.blockUntilMs`、`job` 工具、侧栏转圈 / 「后台执行中」、同一会话空闲合并 push。

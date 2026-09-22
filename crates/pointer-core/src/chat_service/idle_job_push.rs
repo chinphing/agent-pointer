@@ -249,6 +249,17 @@ pub(crate) fn build_idle_push_user_text(items: &[IdlePushItem]) -> String {
         if let Some(agent_id) = item.agent_id.as_deref().filter(|s| !s.is_empty()) {
             out.push_str(&format!("agentId: {agent_id}\n"));
         }
+        if let Some(instance_id) = item
+            .agent_instance_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            out.push_str(&format!("agentInstanceId: {instance_id}\n"));
+            out.push_str(
+                "To continue this same worker, call run_subagent with followupInstanceId set to that agentInstanceId.\n",
+            );
+        }
         if let Some(err) = item.error.as_deref().filter(|s| !s.is_empty()) {
             out.push_str(&format!("error: {err}\n"));
         }
@@ -329,11 +340,14 @@ mod tests {
             agent_id: Some("explore".into()),
             content: Some("found login.rs".into()),
             error: None,
+            agent_instance_id: Some("inst-1".into()),
         }]);
         assert!(text.starts_with("后台任务已完成。"));
         assert!(text.contains("搜索登录"));
         assert!(text.contains("found login.rs"));
         assert!(text.contains("already claimed"));
+        assert!(text.contains("agentInstanceId: inst-1"));
+        assert!(text.contains("followupInstanceId"));
         assert!(text.contains("may still be running"));
         assert!(!text.to_lowercase().contains("thoughts:"));
         assert_eq!(
@@ -345,6 +359,7 @@ mod tests {
                 agent_id: Some("explore".into()),
                 content: Some("found login.rs".into()),
                 error: None,
+                agent_instance_id: None,
             }]),
             "后台任务已完成：搜索登录"
         );
@@ -361,6 +376,7 @@ mod tests {
                 agent_id: None,
                 content: Some("one".into()),
                 error: None,
+                agent_instance_id: None,
             },
             IdlePushItem {
                 job_id: "j2".into(),
@@ -370,6 +386,7 @@ mod tests {
                 agent_id: None,
                 content: None,
                 error: Some("exit 1".into()),
+                agent_instance_id: None,
             },
         ]);
         assert!(text.contains("2 jobs:"));
@@ -385,6 +402,7 @@ mod tests {
                     agent_id: None,
                     content: Some("one".into()),
                     error: None,
+                    agent_instance_id: None,
                 },
                 IdlePushItem {
                     job_id: "j2".into(),
@@ -394,6 +412,7 @@ mod tests {
                     agent_id: None,
                     content: None,
                     error: Some("exit 1".into()),
+                    agent_instance_id: None,
                 },
             ]),
             "后台任务已完成：A、测测试"
@@ -409,6 +428,7 @@ mod tests {
             agent_id: None,
             content: None,
             error: None,
+            agent_instance_id: None,
         }
     }
 

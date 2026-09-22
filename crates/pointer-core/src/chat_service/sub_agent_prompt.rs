@@ -182,6 +182,7 @@ pub(super) fn init_sub_agent_session(
     agent_skill_overrides: &std::collections::HashMap<String, Vec<String>>,
     spawn_depth: u32,
     max_spawn_depth: u32,
+    resume_history: Option<super::worker_followup::ResumedWorkerHistory>,
 ) -> Result<SubAgentSession> {
     let (def, system_prompt, skill_ids, skill_prompts, allowed_tools, allow_agents, workspace_root) =
         match definition_source {
@@ -305,15 +306,37 @@ pub(super) fn init_sub_agent_session(
     let tool_approval_mode = state.effective_settings().tool_approval_mode;
     let linkage =
         build_sub_agent_linkage(anchor_message_id, task, &def, &instance_scope, spawn_depth);
-    let local_history = fresh_sub_agent_local_history();
-    let stub = &local_history[0];
-    persist_sub_message(conversation_id, &linkage, stub);
-    log::info!(
-        "sub_agent: initialized fresh local history conversation_id={} trace_id={} message_id={}",
-        conversation_id,
-        linkage.trace_id,
-        stub.id
-    );
+    let local_history = if let Some(resumed) = resume_history {
+        let fresh: std::collections::HashSet<&str> = resumed
+            .fresh_message_ids
+            .iter()
+            .map(String::as_str)
+            .collect();
+        for msg in &resumed.messages {
+            if fresh.contains(msg.id.as_str()) {
+                persist_sub_message(conversation_id, &linkage, msg);
+            }
+        }
+        log::info!(
+            "sub_agent: resumed local history conversation_id={} trace_id={} messages={} fresh={}",
+            conversation_id,
+            linkage.trace_id,
+            resumed.messages.len(),
+            fresh.len()
+        );
+        resumed.messages
+    } else {
+        let local_history = fresh_sub_agent_local_history();
+        let stub = &local_history[0];
+        persist_sub_message(conversation_id, &linkage, stub);
+        log::info!(
+            "sub_agent: initialized fresh local history conversation_id={} trace_id={} message_id={}",
+            conversation_id,
+            linkage.trace_id,
+            stub.id
+        );
+        local_history
+    };
 
     Ok(SubAgentSession {
         def,

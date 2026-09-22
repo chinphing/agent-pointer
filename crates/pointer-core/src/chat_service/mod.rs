@@ -42,6 +42,7 @@ mod sub_agent_task_prompt;
 pub(crate) mod sub_message;
 pub use crate::task_board::sub_agent_task_board_store_key;
 mod util;
+mod worker_followup;
 
 pub type StreamTx = crate::models::ChatStreamSender;
 

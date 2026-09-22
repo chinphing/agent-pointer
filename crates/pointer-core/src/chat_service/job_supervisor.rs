@@ -5,7 +5,7 @@
 //! background handles (`job.list` / `await`). Does not hold
 //! `session:{conversation}`. Parent `done` does not cancel jobs.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -213,6 +213,7 @@ pub struct IdlePushItem {
     pub agent_id: Option<String>,
     pub content: Option<String>,
     pub error: Option<String>,
+    pub agent_instance_id: Option<String>,
 }
 
 #[derive(Default)]
@@ -382,6 +383,28 @@ pub struct JobSupervisor {
     pool: Arc<WorkerPoolState>,
     /// Same-conversation idle push: conversation id after Completed/Failed.
     on_pushable: Mutex<Option<Arc<dyn Fn(String) + Send + Sync>>>,
+    /// Instance ids claimed by a follow-up that has not registered its job yet.
+    followup_reserves: Arc<Mutex<HashSet<(String, String)>>>,
+}
+
+/// Holds one sub-agent instance until the follow-up job is registered or the run ends.
+/// Drop releases the claim.
+pub struct FollowupReserve {
+    key: (String, String),
+    slots: Arc<Mutex<HashSet<(String, String)>>>,
+}
+
+impl Drop for FollowupReserve {
+    fn drop(&mut self) {
+        let removed = self.slots.lock().remove(&self.key);
+        if removed {
+            log::info!(
+                "job_supervisor: released followup reserve conversation_id={} agent_instance_id={}",
+                self.key.0,
+                self.key.1
+            );
+        }
+    }
 }
 
 impl Default for JobSupervisor {
@@ -400,6 +423,7 @@ impl JobSupervisor {
                 by_conv: Mutex::new(HashMap::new()),
             }),
             on_pushable: Mutex::new(None),
+            followup_reserves: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -441,7 +465,10 @@ impl JobSupervisor {
     }
 
     /// Non-terminal jobs for the composer list (includes nested background terminals).
-    pub fn occupancy_items_for_conversation(&self, conversation_id: &str) -> Vec<BackgroundJobView> {
+    pub fn occupancy_items_for_conversation(
+        &self,
+        conversation_id: &str,
+    ) -> Vec<BackgroundJobView> {
         let inner = self.inner.lock();
         occupancy_items_in(&inner, conversation_id)
     }
@@ -622,6 +649,53 @@ impl JobSupervisor {
         );
         self.notify();
         id
+    }
+
+    /// True when this sub-agent thread has a queued/running job or a follow-up claim.
+    pub fn subagent_instance_busy(&self, conversation_id: &str, instance_id: &str) -> bool {
+        let instance_id = instance_id.trim();
+        if instance_id.is_empty() {
+            return false;
+        }
+        if instance_has_live_job(&self.inner.lock(), conversation_id, instance_id) {
+            return true;
+        }
+        self.followup_reserves
+            .lock()
+            .contains(&(conversation_id.to_string(), instance_id.to_string()))
+    }
+
+    /// Claim this instance before loading its transcript. The second caller gets `None`.
+    pub fn try_reserve_followup(
+        &self,
+        conversation_id: &str,
+        instance_id: &str,
+    ) -> Option<FollowupReserve> {
+        let instance_id = instance_id.trim();
+        if instance_id.is_empty() {
+            return None;
+        }
+        if instance_has_live_job(&self.inner.lock(), conversation_id, instance_id) {
+            log::info!(
+                "job_supervisor: followup reserve refused; job live conversation_id={conversation_id} agent_instance_id={instance_id}"
+            );
+            return None;
+        }
+        let key = (conversation_id.to_string(), instance_id.to_string());
+        let mut slots = self.followup_reserves.lock();
+        if !slots.insert(key.clone()) {
+            log::info!(
+                "job_supervisor: followup reserve refused; already claimed conversation_id={conversation_id} agent_instance_id={instance_id}"
+            );
+            return None;
+        }
+        log::info!(
+            "job_supervisor: reserved followup conversation_id={conversation_id} agent_instance_id={instance_id}"
+        );
+        Some(FollowupReserve {
+            key,
+            slots: Arc::clone(&self.followup_reserves),
+        })
     }
 
     pub fn cancel_token(&self, job_id: &str) -> Option<CancellationToken> {
@@ -1317,6 +1391,24 @@ fn empty_await(
     )
 }
 
+fn instance_has_live_job(inner: &Inner, conversation_id: &str, instance_id: &str) -> bool {
+    let Some(ids) = inner.by_conversation.get(conversation_id) else {
+        return false;
+    };
+    ids.iter().any(|id| {
+        let Some(job) = inner.jobs.get(id) else {
+            return false;
+        };
+        if job.status.is_terminal() {
+            return false;
+        }
+        match &job.kind {
+            JobKind::Subagent(kind) => kind.agent_instance_id == instance_id,
+            JobKind::Terminal(_) => false,
+        }
+    })
+}
+
 fn job_list_item(job: &JobRecord, include_content: bool) -> JobListItem {
     let (kind, agent_id, title) = match &job.kind {
         JobKind::Subagent(k) => ("subagent", Some(k.agent_id.clone()), Some(k.title.clone())),
@@ -1380,6 +1472,10 @@ fn idle_push_item(job: &JobRecord) -> IdlePushItem {
         agent_id,
         content: job.content.clone(),
         error: job.error.clone(),
+        agent_instance_id: match &job.kind {
+            JobKind::Subagent(k) => Some(k.agent_instance_id.clone()).filter(|s| !s.is_empty()),
+            JobKind::Terminal(_) => None,
+        },
     }
 }
 
@@ -1926,6 +2022,26 @@ mod tests {
     }
 
     #[test]
+    fn followup_reserve_rejects_a_second_claim_until_drop() {
+        let sup = JobSupervisor::new();
+        let first = sup
+            .try_reserve_followup("c1", "inst-job")
+            .expect("first claim");
+        assert!(sup.subagent_instance_busy("c1", "inst-job"));
+        assert!(sup.try_reserve_followup("c1", "inst-job").is_none());
+        drop(first);
+        assert!(!sup.subagent_instance_busy("c1", "inst-job"));
+        assert!(sup.try_reserve_followup("c1", "inst-job").is_some());
+    }
+
+    #[test]
+    fn followup_reserve_rejects_a_live_job() {
+        let sup = JobSupervisor::new();
+        let _job = sup.register("c1", kind(), CancellationToken::new(), "test-run");
+        assert!(sup.try_reserve_followup("c1", "inst-job").is_none());
+    }
+
+    #[test]
     fn occupancy_items_include_background_terminals() {
         let sup = JobSupervisor::new();
         let sub = sup.register("c1", kind(), CancellationToken::new(), "test-run");
@@ -1944,7 +2060,10 @@ mod tests {
         sup.mark_running(&term);
         let items = sup.occupancy_items_for_conversation("c1");
         assert_eq!(items.len(), 2);
-        let term_row = items.iter().find(|j| j.kind == "terminal").expect("terminal");
+        let term_row = items
+            .iter()
+            .find(|j| j.kind == "terminal")
+            .expect("terminal");
         assert_eq!(term_row.title.as_deref(), Some("线 1 约堡"));
         assert_eq!(term_row.job_id, term);
         let ev = sup.background_jobs_event("c1");

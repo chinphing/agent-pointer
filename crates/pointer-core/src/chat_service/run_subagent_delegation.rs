@@ -103,6 +103,10 @@ pub(crate) struct OwnedSubagentExecutionInput<'a> {
     pub instance_scope: Option<AgentInstanceScope>,
     /// When set, this nested loop is a background worker job.
     pub background_job_id: Option<String>,
+    /// Restored worker transcript for `followupInstanceId`. `None` starts fresh.
+    pub resume_history: Option<super::worker_followup::ResumedWorkerHistory>,
+    /// Keeps this instance claimed until the foreground run returns.
+    pub followup_reserve: Option<super::job_supervisor::FollowupReserve>,
 }
 
 pub(super) struct SubagentCommitContext<'a> {
@@ -405,7 +409,10 @@ pub(super) async fn execute_owned_subagent(
         emit_host_tool_status,
         instance_scope: preset_instance,
         background_job_id,
+        resume_history,
+        followup_reserve,
     } = input;
+    let _followup_reserve = followup_reserve;
     let empty_overrides = std::collections::HashMap::new();
     let (definition_source, skill_ids, overrides, def_for_trace) = match &source {
         OwnedSubagentSource::SelfFork(snapshot) => (
@@ -478,6 +485,7 @@ pub(super) async fn execute_owned_subagent(
         max_spawn_depth,
         state_arc,
         background_job_id,
+        resume_history,
     };
     let run_result = Box::pin(super::sub_agent::run_sub_agent(&mut sub_ctx)).await;
     let (trace, exec) = match run_result {
@@ -616,6 +624,8 @@ pub(crate) struct BackgroundOwnedSpawn {
     pub host_trace_id: Option<String>,
     pub host_scoped_message_id: Option<String>,
     pub instance_scope: AgentInstanceScope,
+    pub resume_history: Option<super::worker_followup::ResumedWorkerHistory>,
+    pub followup_reserve: Option<super::job_supervisor::FollowupReserve>,
 }
 
 pub(crate) fn emit_background_jobs(
@@ -683,11 +693,7 @@ pub(crate) fn spawn_background_owned_subagent(spawn: BackgroundOwnedSpawn) -> St
         spawn.cancel.clone(),
         &spawn.run_id,
     );
-    emit_background_jobs(
-        &spawn.stream,
-        &spawn.conversation_id,
-        &spawn.state.jobs,
-    );
+    emit_background_jobs(&spawn.stream, &spawn.conversation_id, &spawn.state.jobs);
     log::info!(
         "run_subagent background spawn job_id={job_id} conversation_id={} tool_call_id={} task_id={}",
         spawn.conversation_id,
@@ -698,7 +704,9 @@ pub(crate) fn spawn_background_owned_subagent(spawn: BackgroundOwnedSpawn) -> St
     job_id
 }
 
-async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpawn) {
+async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwnedSpawn) {
+    // Held until this task returns so a second follow-up cannot start on the same instance.
+    let _followup_reserve = spawn.followup_reserve.take();
     let started = Instant::now();
     let cap =
         crate::tools::parallel::ParallelLimits::from_settings(&spawn.state.effective_settings())
@@ -759,11 +767,7 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
                     spawn.host_scoped_message_id.as_deref(),
                     Some(spawn.instance_scope.agent_instance_id.as_str()),
                 );
-                emit_background_jobs(
-                    &spawn.stream,
-                    &spawn.conversation_id,
-                    &spawn.state.jobs,
-                );
+                emit_background_jobs(&spawn.stream, &spawn.conversation_id, &spawn.state.jobs);
                 return;
             }
         }
@@ -816,11 +820,7 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
                 spawn.host_scoped_message_id.as_deref(),
                 Some(spawn.instance_scope.agent_instance_id.as_str()),
             );
-            emit_background_jobs(
-                &spawn.stream,
-                &spawn.conversation_id,
-                &spawn.state.jobs,
-            );
+            emit_background_jobs(&spawn.stream, &spawn.conversation_id, &spawn.state.jobs);
             return;
         }
         None
@@ -849,6 +849,8 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
         emit_host_tool_status: false,
         instance_scope: Some(spawn.instance_scope.clone()),
         background_job_id: Some(job_id.clone()),
+        resume_history: spawn.resume_history.clone(),
+        followup_reserve: None,
     };
     let outcome = execute_owned_subagent(input).await;
     drop(_lease);
@@ -911,11 +913,7 @@ async fn run_background_owned_subagent(job_id: String, spawn: BackgroundOwnedSpa
         spawn.host_scoped_message_id.as_deref(),
         Some(spawn.instance_scope.agent_instance_id.as_str()),
     );
-    emit_background_jobs(
-        &spawn.stream,
-        &spawn.conversation_id,
-        &spawn.state.jobs,
-    );
+    emit_background_jobs(&spawn.stream, &spawn.conversation_id, &spawn.state.jobs);
 }
 
 /// Host `run_subagent` result for a background spawn: a handle, never the worker body.
@@ -1232,11 +1230,38 @@ pub(super) async fn run_subagent_delegation(
                             return Ok((format!("ERROR: {msg}"), false, Some(msg)));
                         }
                     };
-                    let tid = if parsed.task_id.trim().is_empty() {
+                    let mut follow = if let Some(id) = parsed.followup_instance_id.as_deref() {
+                        match super::worker_followup::prepare_worker_followup(
+                            state,
+                            conversation_id,
+                            run_id,
+                            id,
+                            &agent_id,
+                            ctx.current_agent_id,
+                            &parsed.goal,
+                            &parsed.context,
+                        ) {
+                            Ok(prepared) => Some(prepared),
+                            Err(msg) => {
+                                return Ok((format!("ERROR: {msg}"), false, Some(msg)));
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    let child_spawn_depth = follow
+                        .as_ref()
+                        .map(|item| item.spawn_depth)
+                        .unwrap_or(child_spawn_depth);
+                    let tid = if let Some(item) = follow.as_ref() {
+                        item.task_id.clone()
+                    } else if parsed.task_id.trim().is_empty() {
                         new_id("sub_task")
                     } else {
                         parsed.task_id.trim().to_string()
                     };
+                    let resume_history = follow.as_ref().map(|item| item.history.clone());
+                    let mut follow_reserve = None;
                     if parsed.background {
                         let task = AgentTask {
                             id: tid,
@@ -1250,11 +1275,18 @@ pub(super) async fn run_subagent_delegation(
                             context: parsed.context.trim().to_string(),
                             depends_on: vec![],
                         };
-                        let child_scope = mint_owned_child_instance_scope(
-                            &OwnedSubagentSource::Registered(def.clone()),
-                            run_id,
-                            conversation_id,
-                        );
+                        if let Some(item) = follow.as_mut() {
+                            follow_reserve = item.reserve.take();
+                        }
+                        let child_scope = if let Some(item) = follow.as_ref() {
+                            item.instance_scope.clone()
+                        } else {
+                            mint_owned_child_instance_scope(
+                                &OwnedSubagentSource::Registered(def.clone()),
+                                run_id,
+                                conversation_id,
+                            )
+                        };
                         let job_id = spawn_background_owned_subagent(BackgroundOwnedSpawn {
                             stream: stream.clone(),
                             state: ctx.state_arc.clone(),
@@ -1275,6 +1307,8 @@ pub(super) async fn run_subagent_delegation(
                             host_trace_id: None,
                             host_scoped_message_id: None,
                             instance_scope: child_scope.clone(),
+                            resume_history: resume_history.clone(),
+                            followup_reserve: follow_reserve,
                         });
                         let body = background_job_handle_json(
                             &job_id,
@@ -1423,8 +1457,11 @@ pub(super) async fn run_subagent_delegation(
                     }
                     let definition_source =
                         super::sub_agent_prompt::SubAgentDefinitionSource::Registered(&task);
-                    let instance_scope =
-                        definition_source.new_instance_scope(run_id, conversation_id);
+                    let instance_scope = if let Some(item) = follow.as_ref() {
+                        item.instance_scope.clone()
+                    } else {
+                        definition_source.new_instance_scope(run_id, conversation_id)
+                    };
                     let make_trace = |status: &str, detail: Option<String>| {
                         build_subagent_trace(
                             &task,
@@ -1465,6 +1502,7 @@ pub(super) async fn run_subagent_delegation(
                         max_spawn_depth,
                         state_arc: ctx.state_arc.clone(),
                         background_job_id: None,
+                        resume_history: resume_history.clone(),
                     };
                     match Box::pin(super::sub_agent::run_sub_agent(&mut sub_ctx)).await {
                         Ok(result) => {
@@ -2071,6 +2109,8 @@ mod trace_tests {
             emit_host_tool_status: true,
             instance_scope: None,
             background_job_id: None,
+            resume_history: None,
+            followup_reserve: None,
         })
         .await;
 
@@ -2160,6 +2200,8 @@ mod trace_tests {
                 emit_host_tool_status: true,
                 instance_scope: None,
                 background_job_id: None,
+                resume_history: None,
+                followup_reserve: None,
             })
         };
 

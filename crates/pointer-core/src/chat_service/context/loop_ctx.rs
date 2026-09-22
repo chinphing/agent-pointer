@@ -51,6 +51,8 @@ pub struct SubAgentLoopContext<'a> {
     pub state_arc: std::sync::Arc<crate::chat_service::app_state::AppState>,
     /// Background worker job id for this nested loop.
     pub background_job_id: Option<String>,
+    /// Restored transcript when continuing a finished worker (`followupInstanceId`).
+    pub resume_history: Option<super::super::worker_followup::ResumedWorkerHistory>,
 }
 
 /// Nested `run_subagent` delegation from a tool pass.

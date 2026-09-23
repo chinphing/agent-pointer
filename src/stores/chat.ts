@@ -48,7 +48,9 @@ import { useConversationScopedStore } from '../lib/conversationScoped'
 import { stripWireAttachmentFields } from '../lib/messageNormalizer'
 import {
   capTerminalOutput,
+  restoreFinishedAside,
   restoreToolCallBody,
+  slimFinishedAside,
   slimMessageForMemory,
   slimMessagesForMemory,
   slimToolCallBody,
@@ -633,6 +635,76 @@ export const useChatStore = defineStore('chat', () => {
       }
     }
     return null
+  }
+
+  function locateMessage(messageId: string): { conv: Conversation; msg: ChatMessage } | null {
+    const id = messageId.trim()
+    if (!id) return null
+    const ordered: Conversation[] = []
+    if (current.value) ordered.push(current.value)
+    for (const conv of conversations.value) {
+      if (!ordered.some(item => item.id === conv.id)) ordered.push(conv)
+    }
+    for (const conv of ordered) {
+      const lead = conv.messages.find(m => m.id === id)
+      if (lead) return { conv, msg: lead }
+      const scoped = scopedStore.listRows(conv.id).find(m => m.id === id)
+      if (scoped) return { conv, msg: scoped }
+    }
+    return null
+  }
+
+  function slimFinishedTraceSession(convId: string, messageId: string, traceId: string) {
+    const r = findMessage(messageId, convId)
+    if (!r) {
+      console.warn('[chat] slimFinishedTraceSession: message missing', convId, messageId, traceId)
+      return
+    }
+    const id = traceId.trim()
+    const trace = r.msg.agentTrace?.find(t => t.id === id || t.agentInstanceId === id)
+    const session = trace?.session
+    if (!session) return
+    session.contentStreaming = false
+    const cleared = slimFinishedAside(session)
+    if (cleared > 0) {
+      console.info('[chat] evicted message aside', convId, r.msg.id, id, 'chars', cleared)
+    }
+  }
+
+  async function ensureMessageAside(messageId: string): Promise<void> {
+    const id = messageId.trim()
+    if (!id) {
+      console.warn('[chat] ensureMessageAside: empty messageId')
+      return
+    }
+    const found = locateMessage(id)
+    if (!found) {
+      console.warn('[chat] ensureMessageAside: message not in memory', id)
+      return
+    }
+    const sessionNeeds = found.msg.agentTrace?.some(t => t.session?.asideEvicted) === true
+    if (!found.msg.asideEvicted && !sessionNeeds) return
+    try {
+      const loaded = await loadConversationMessage(found.conv.id, found.msg.id)
+      if (!loaded) {
+        console.warn('[chat] ensureMessageAside: message not on disk yet', found.conv.id, found.msg.id)
+        return
+      }
+      if (found.msg.asideEvicted) restoreFinishedAside(found.msg, loaded)
+      for (const trace of found.msg.agentTrace ?? []) {
+        const session = trace.session
+        if (!session?.asideEvicted) continue
+        const source = loaded.agentTrace?.find(t => t.id === trace.id)?.session
+        if (!source) {
+          console.warn('[chat] ensureMessageAside: session aside missing on disk', found.msg.id, trace.id)
+          continue
+        }
+        restoreFinishedAside(session, source)
+      }
+      console.info('[chat] restored message aside', found.conv.id, found.msg.id)
+    } catch (err) {
+      console.error('[chat] ensureMessageAside failed', found.conv.id, found.msg.id, err)
+    }
   }
 
   function retainDurableMessage(convId: string, msg: ChatMessage) {
@@ -3541,7 +3613,8 @@ export const useChatStore = defineStore('chat', () => {
       notifyScopedStreamWrite,
       rebuildScopedTraceCache,
       retainDurableMessage,
-      slimDurableToolCall
+      slimDurableToolCall,
+      slimFinishedTraceSession
     }
   }
 
@@ -3919,6 +3992,7 @@ export const useChatStore = defineStore('chat', () => {
     getScopedMembershipSignal: scopedStore.getMembershipSignal,
     ensureScopedMessagesForTrace, evictScopedInstance: scopedStore.evictInstance,
     ensureToolCallBody, releaseToolCallBody: releasePinnedToolBody,
+    ensureMessageAside,
     scopedRowsForAnchors: scopedStore.collectRowsForAnchors,
     scopedSpawnIdsForAnchors: scopedStore.listSpawnIdsForAnchors
   }

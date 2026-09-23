@@ -136,6 +136,11 @@ export interface SubAgentSessionUi {
   summaryLine?: string
   collapsed: boolean
   userExpanded: boolean
+  /**
+   * Memory-only. `reasoning` and `thoughts` were cleared together.
+   * Not written to the database.
+   */
+  asideEvicted?: boolean
 }
 
 /** Delegated computer task: automate Pointer UI vs external desktop apps. */
@@ -323,6 +328,11 @@ export interface ChatMessage {
   reasoning?: string
   /** JSON `thoughts` from the model response object (last turn). */
   thoughts?: string
+  /**
+   * Memory-only. `reasoning` and `thoughts` were cleared together.
+   * Not written to the database. `content` is never part of this.
+   */
+  asideEvicted?: boolean
   /** JSON `headline` from the model response object. */
   headline?: string
   /** Streaming preview of `tool_name` before the JSON object is complete. */

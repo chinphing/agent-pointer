@@ -110,6 +110,12 @@ export function useAssistantMessageDebug(
     if (!on) showRawWire.value = false
   })
 
+  watch(showRawWire, open => {
+    const id = message.value?.id
+    if (!open || !id || !message.value?.asideEvicted) return
+    void chatStore.ensureMessageAside(id)
+  })
+
   async function openScreenPreview() {
     screenLoading.value = true
     screenError.value = null

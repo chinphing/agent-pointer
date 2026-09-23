@@ -67,6 +67,37 @@ export function slimToolCallBody(tc: ToolCall): number {
   return cleared
 }
 
+type AsideTarget = {
+  reasoning?: string
+  thoughts?: string
+  contentStreaming?: boolean
+  asideEvicted?: boolean
+}
+
+/**
+ * Drop `reasoning` and `thoughts` once the round is no longer streaming.
+ * `content` stays. Already-empty targets are left unchanged.
+ * Returns characters cleared. Text that arrives after a previous eviction is cleared again.
+ */
+export function slimFinishedAside(target: AsideTarget): number {
+  if (target.contentStreaming === true) return 0
+  const cleared = (target.reasoning?.length ?? 0) + (target.thoughts?.length ?? 0)
+  if (cleared === 0) return 0
+  delete target.reasoning
+  delete target.thoughts
+  target.asideEvicted = true
+  return cleared
+}
+
+/** Copy reasoning and thoughts from a disk row. Does not touch `content`. */
+export function restoreFinishedAside(target: AsideTarget, source: AsideTarget): void {
+  if (source.reasoning !== undefined) target.reasoning = source.reasoning
+  else delete target.reasoning
+  if (source.thoughts !== undefined) target.thoughts = source.thoughts
+  else delete target.thoughts
+  target.asideEvicted = false
+}
+
 /** Copy the body group from a disk row onto the in-memory tool call. */
 export function restoreToolCallBody(target: ToolCall, source: ToolCall): void {
   target.arguments = source.arguments ?? ''
@@ -104,6 +135,7 @@ export function slimMessageForMemory(msg: ChatMessage, skipToolCallId?: string):
     cleared += msg.content.length
     msg.content = ''
   }
+  if (msg.role === 'assistant') cleared += slimFinishedAside(msg)
   const skip = skipToolCallId?.trim() ?? ''
   const visit = (tc: ToolCall) => {
     if (skip && tc.id === skip) return
@@ -111,7 +143,9 @@ export function slimMessageForMemory(msg: ChatMessage, skipToolCallId?: string):
   }
   for (const tc of msg.toolCalls ?? []) visit(tc)
   for (const trace of msg.agentTrace ?? []) {
-    for (const tc of trace.session?.toolCalls ?? []) visit(tc)
+    const session = trace.session
+    if (session && session.contentStreaming !== true) cleared += slimFinishedAside(session)
+    for (const tc of session?.toolCalls ?? []) visit(tc)
   }
   return cleared
 }

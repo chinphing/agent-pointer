@@ -132,4 +132,6 @@ export interface StreamHandlerContext {
     traceId?: string,
     scopedMessageId?: string
   ): void
+  /** Drop reasoning and thoughts on a legacy trace session after its round ends. */
+  slimFinishedTraceSession(convId: string, messageId: string, traceId: string): void
 }

@@ -4,7 +4,9 @@ import {
   TOOL_BODY_CHAR_LIMIT,
   TERMINAL_OUTPUT_TRUNCATED_PREFIX,
   capTerminalOutput,
+  restoreFinishedAside,
   restoreToolCallBody,
+  slimFinishedAside,
   slimMessageForMemory,
   slimToolCallBody
 } from './toolCallBody'
@@ -127,6 +129,75 @@ describe('slimMessageForMemory', () => {
     expect(slimMessageForMemory(toolRow)).toBe('duplicate result'.length)
     expect(toolRow.content).toBe('')
     expect(toolRow.toolCallId).toBe('drop')
+  })
+})
+
+describe('slimFinishedAside', () => {
+  it('clears reasoning and thoughts after the round and leaves content', () => {
+    const msg: ChatMessage = {
+      id: 'a1',
+      role: 'assistant',
+      content: 'visible reply',
+      reasoning: 'think',
+      thoughts: 'plan',
+      status: 'done',
+      createdAt: 1,
+      contentStreaming: false
+    }
+    expect(slimFinishedAside(msg)).toBe('think'.length + 'plan'.length)
+    expect(msg.reasoning).toBeUndefined()
+    expect(msg.thoughts).toBeUndefined()
+    expect(msg.content).toBe('visible reply')
+    expect(msg.asideEvicted).toBe(true)
+  })
+
+  it('keeps the text while that round is still streaming', () => {
+    const msg: ChatMessage = {
+      id: 'a1',
+      role: 'assistant',
+      content: '',
+      reasoning: 'think',
+      thoughts: 'plan',
+      status: 'streaming',
+      createdAt: 1,
+      contentStreaming: true
+    }
+    expect(slimFinishedAside(msg)).toBe(0)
+    expect(msg.reasoning).toBe('think')
+    expect(msg.thoughts).toBe('plan')
+    expect(msg.asideEvicted).toBeUndefined()
+  })
+
+  it('clears text that arrives after an earlier eviction', () => {
+    const msg: ChatMessage = {
+      id: 'a1',
+      role: 'assistant',
+      content: 'reply',
+      reasoning: 'again',
+      status: 'done',
+      createdAt: 1,
+      asideEvicted: true
+    }
+    expect(slimFinishedAside(msg)).toBe('again'.length)
+    expect(msg.reasoning).toBeUndefined()
+    expect(msg.content).toBe('reply')
+    expect(msg.asideEvicted).toBe(true)
+  })
+
+  it('copies the two fields back without touching content', () => {
+    const msg: ChatMessage = {
+      id: 'a1',
+      role: 'assistant',
+      content: 'visible',
+      status: 'done',
+      createdAt: 1,
+      asideEvicted: true
+    }
+    restoreFinishedAside(msg, { reasoning: 'think', thoughts: 'plan' })
+    expect(msg.reasoning).toBe('think')
+    expect(msg.thoughts).toBe('plan')
+    expect(msg.content).toBe('visible')
+    expect(msg.asideEvicted).toBe(false)
   })
 })
 

@@ -367,6 +367,16 @@ const rawWireContent = computed(() =>
 
 const showRawWire = ref(false)
 
+watch(showRawWire, open => {
+  if (!open) return
+  for (const msg of scopedMessages.value) {
+    if (msg.asideEvicted) void chatStore.ensureMessageAside(msg.id)
+  }
+  if (legacySession.value?.asideEvicted && props.anchorMessageId) {
+    void chatStore.ensureMessageAside(props.anchorMessageId)
+  }
+})
+
 watch(rawContentViewEnabled, on => {
   if (!on) showRawWire.value = false
 })

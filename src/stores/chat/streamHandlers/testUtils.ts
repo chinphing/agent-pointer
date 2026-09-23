@@ -89,6 +89,7 @@ export function createMockStreamHandlerContext(
     rebuildScopedTraceCache: noop,
     retainDurableMessage: noop,
     slimDurableToolCall: noop,
+    slimFinishedTraceSession: noop,
     ...overrides
   }
 }

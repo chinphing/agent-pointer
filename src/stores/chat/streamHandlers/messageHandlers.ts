@@ -246,6 +246,7 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
       const session = trace.session
       if (session) session.contentStreaming = false
       ctx.notifyScopedStreamWrite(r.conv, r.msg, null, e.traceId)
+      ctx.slimFinishedTraceSession(r.conv.id, r.msg.id, e.traceId)
       return
     }
     const terminalMediaDelivery =

@@ -6,8 +6,8 @@
 
 | 字段 | 来源 | 主气泡（`AssistantModelMessage` / `AgentMessageBody`） |
 |------|------|-------------------------------------|
-| **`thoughts`** | 正文 JSON 对象中的 `thoughts` 字符串（解析后写入 `message.thoughts` 或子 session） | **当前 LLM 回合流式输出时**：固定约 **2 行**高度局部预览；**该回合 `message_end` 后默认隐藏**。调试模式且勾选「显示 thoughts 摘要」时：不限高度，回合结束后仍保留。 |
-| **`reasoning`** | 兼容 OpenAI 的 **`reasoning_content`** 增量（亦接受 vLLM/部分 Qwen 的 **`reasoning`** 字段名） | 设置开启「显示推理过程」时展示；否则仅用于持久化/API 与 `RawWirePanel` 调试。不得拼进主区 Markdown。 |
+| **`thoughts`** | 正文 JSON 对象中的 `thoughts` 字符串（解析后写入 `message.thoughts` 或子 session） | **当前 LLM 回合流式输出时**：固定约 **2 行**高度局部预览；**该回合 `message_end` 后默认隐藏**，并从界面内存卸掉。调试模式且勾选「显示 thoughts 摘要」时：不限高度，回合结束后仍保留，这时再从数据库取回。 |
+| **`reasoning`** | 兼容 OpenAI 的 **`reasoning_content`** 增量（亦接受 vLLM/部分 Qwen 的 **`reasoning`** 字段名） | 设置开启「显示推理过程」时展示；否则仅用于持久化/API 与 `RawWirePanel` 调试。不得拼进主区 Markdown。一轮结束后从界面内存卸掉，打开上述面板时再取回。数据库里的全文仍在，下一轮请求用的是那一份。 |
 
 ## 「原始输出」（代码图标）
 

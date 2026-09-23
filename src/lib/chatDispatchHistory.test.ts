@@ -196,6 +196,26 @@ describe('rawContent wire stripping', () => {
     expect(tc?.arguments).toBe('')
   })
 
+  it('strips the memory-only aside flag before persist', () => {
+    const messages: ChatMessage[] = [
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'hello',
+        reasoning: 'think',
+        thoughts: 'plan',
+        status: 'done',
+        createdAt: 1,
+        asideEvicted: true
+      }
+    ]
+    const out = messagesForPersistAppend(messages)
+    expect(out[0].asideEvicted).toBeUndefined()
+    expect(out[0].reasoning).toBe('think')
+    expect(out[0].thoughts).toBe('plan')
+    expect(out[0].content).toBe('hello')
+  })
+
   it('strips nested agentTrace session rawContent too', () => {
     const messages: ChatMessage[] = [
       {

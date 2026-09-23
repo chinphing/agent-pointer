@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import type { AgentTrace, ChatMessage, ToolCall } from '../../../../types/chat'
 import { useSettingsStore } from '../../../../stores/settings'
@@ -111,6 +111,16 @@ const childBoardByTraceId = computed(() => {
 
 const isActiveGenerationMessage = computed(
   () => props.message.id === activeGeneratingMessageId.value
+)
+
+watch(
+  () => [props.message.asideEvicted, thoughtsDebugEnabled.value, messageUi.value.showReasoning] as const,
+  ([evicted, debugThoughts, showReasoning]) => {
+    if (!evicted) return
+    if (!debugThoughts && !showReasoning) return
+    void chatStore.ensureMessageAside(props.message.id)
+  },
+  { immediate: true }
 )
 
 const isStreaming = computed(() => isMessageStreaming(props.message.status))

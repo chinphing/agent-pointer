@@ -38,7 +38,7 @@ function cloneWithoutRawContent(m: ChatMessage): ChatMessage {
   // agentTrace[].session, scoped rows) and never serializes the debug payload.
   const clone = JSON.parse(
     JSON.stringify(m, (key, value) => (
-      key === 'rawContent' || key === 'bodyEvicted' || key === 'fileChange'
+      key === 'rawContent' || key === 'bodyEvicted' || key === 'fileChange' || key === 'asideEvicted'
         ? undefined
         : value
     ))

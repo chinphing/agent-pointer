@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { parseMarkdown } from '../../lib/markdownConfig'
 import {
   ChevronDown,
@@ -37,6 +37,18 @@ const props = defineProps<{
 const chat = useChatStore()
 const open = ref(false)
 
+watch(open, isOpen => {
+  if (isOpen) void chat.ensureToolCallBody(props.toolCall.id)
+  else chat.releaseToolCallBody(props.toolCall.id)
+})
+
+watch(
+  () => props.toolCall.bodyEvicted,
+  evicted => {
+    if (evicted && open.value) open.value = false
+  }
+)
+
 watch(
   () => props.isActiveSearchMatch,
   active => {
@@ -47,10 +59,15 @@ watch(
 
 watch(
   () => props.toolCall.id,
-  () => {
+  (_next, prev) => {
+    if (prev && open.value) chat.releaseToolCallBody(prev)
     open.value = false
   }
 )
+
+onUnmounted(() => {
+  if (open.value) chat.releaseToolCallBody(props.toolCall.id)
+})
 
 const isTerminal = computed(() => props.toolCall.name === 'terminal')
 const isRunSubagent = computed(() => toolCallBaseName(props.toolCall.name) === 'run_subagent')

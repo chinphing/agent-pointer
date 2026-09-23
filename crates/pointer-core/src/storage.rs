@@ -1164,6 +1164,21 @@ pub fn load_conversation_messages(conversation_id: &str) -> Result<Vec<ChatMessa
     crate::conversation_store::global_store()?.load_messages(conversation_id)
 }
 
+/// One transcript row by id. `Ok(None)` when the id is missing.
+pub fn load_conversation_message(
+    conversation_id: &str,
+    message_id: &str,
+) -> Result<Option<ChatMessage>> {
+    let id = message_id.trim();
+    if id.is_empty() {
+        log::warn!(
+            "storage: load_conversation_message skipped; empty message_id conversation_id={conversation_id}"
+        );
+        return Ok(None);
+    }
+    crate::conversation_store::global_store()?.load_message(conversation_id, id)
+}
+
 pub fn load_conversation_messages_page(
     conversation_id: &str,
     opts: &crate::conversation_store::LoadMessagesPageOpts,

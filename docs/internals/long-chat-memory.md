@@ -93,7 +93,9 @@ The same rule covers the remaining full-transcript readers:
 
 - `make_openai_messages_with_inject` still clones included rows into the filter/expand pipeline (needed for tool flatten).
 - Background memory review and parallel `web_search` may snapshot `history` into an owned `Vec` / `Arc` for async lifetimes.
-- Frontend **display slim** for old in-memory messages (phase 2.4) is deferred.
+- Frontend **display slim** for old assistant `content` / `reasoning` (phase 2.4) is deferred.
+  Finished tool bodies and the live terminal tail are slimmed in memory; see
+  [`../ui/tool-payload-memory.md`](../ui/tool-payload-memory.md).
 - `ConversationStore` fine-grained message writes are `pub(crate)` (sealed for
   external crates); legacy full-transcript `save_all` was removed from
   production (test-only convenience, `#[cfg(test)]`).

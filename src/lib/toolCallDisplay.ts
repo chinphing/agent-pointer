@@ -520,7 +520,35 @@ function writeAddsFromArgs(argumentsJson: string | undefined): number {
   return typeof args.content === 'string' ? countContentLines(args.content) : 0
 }
 
+function summaryFromRetainedFileChange(tc: ToolCall): FileChangeSummary | null {
+  const change = tc.fileChange
+  if (!change?.path?.trim()) return null
+  const path = change.path.trim()
+  return {
+    path,
+    fileName: pathBasename(path),
+    kind: change.kind,
+    adds: change.adds,
+    dels: change.dels,
+    diffs: []
+  }
+}
+
+/** Snapshot path and +/- before the body group is cleared. */
+export function rememberFileChange(tc: ToolCall): void {
+  if (tc.fileChange?.path?.trim()) return
+  const parsed = parseFileChangeResult(tc)
+  if (!parsed) return
+  tc.fileChange = {
+    path: parsed.path,
+    kind: parsed.kind,
+    adds: parsed.adds,
+    dels: parsed.dels
+  }
+}
+
 function parseFileChangeResult(tc: ToolCall): FileChangeSummary | null {
+  if (tc.bodyEvicted) return summaryFromRetainedFileChange(tc)
   const base = toolCallBaseName(tc.name)
   const method = resolveMethod(tc.name, tc.arguments)
   if (!isFileTool(base) || (method !== 'edit' && method !== 'write')) return null

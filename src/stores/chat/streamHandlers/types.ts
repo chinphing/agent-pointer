@@ -122,4 +122,14 @@ export interface StreamHandlerContext {
     traceId?: string
   ): void
   rebuildScopedTraceCache(convId: string, messages: readonly ChatMessage[]): void
+  /** Host row is on disk. Mark it persisted and drop finished tool bodies. */
+  retainDurableMessage(convId: string, msg: ChatMessage): void
+  /** Drop one finished tool body when its host row is already on disk. */
+  slimDurableToolCall(
+    convId: string,
+    messageId: string,
+    toolCallId: string,
+    traceId?: string,
+    scopedMessageId?: string
+  ): void
 }

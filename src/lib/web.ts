@@ -712,6 +712,20 @@ export async function cancelComputerMonitorPick(conversationId: string): Promise
   })
 }
 
+export async function loadConversationMessage(
+  conversationId: string,
+  messageId: string
+): Promise<ChatMessage | null> {
+  const id = messageId.trim()
+  if (!conversationId.trim() || !id) {
+    console.warn('[web] loadConversationMessage skipped: empty id', conversationId, messageId)
+    return null
+  }
+  return await request<ChatMessage | null>(
+    `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(id)}`
+  )
+}
+
 export async function loadConversationMessages(
   conversationId: string
 ): Promise<ChatMessage[]> {

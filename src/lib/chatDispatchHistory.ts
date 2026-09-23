@@ -37,7 +37,11 @@ function cloneWithoutRawContent(m: ChatMessage): ChatMessage {
   // The replacer omits rawContent at every nesting level (top-level,
   // agentTrace[].session, scoped rows) and never serializes the debug payload.
   const clone = JSON.parse(
-    JSON.stringify(m, (key, value) => (key === 'rawContent' ? undefined : value))
+    JSON.stringify(m, (key, value) => (
+      key === 'rawContent' || key === 'bodyEvicted' || key === 'fileChange'
+        ? undefined
+        : value
+    ))
   ) as ChatMessage
   return clone
 }

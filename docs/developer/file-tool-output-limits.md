@@ -33,7 +33,9 @@ Agent 不能靠把 `maxBytes` / `limit` / `maxOutputBytes` / `maxWallMs` 调大�
 - **`file_list`**：返回条数工具参数为 **`limit`**（默认 **100**，上限 **2000**）。
 - 单文件 **> 2 MiB** 仍跳过（实现常量，不计设置），计入 `skippedLargeFileCount`。
 - **`terminal`**：stdout / stderr **各自**截到上限；超限**留尾巴、丢开头**，前缀
-  `...[output truncated]`。实时预览不按此上限截；回给模型的工具结果按此截。
+  `...[output truncated]`。回给模型的工具结果按此截。
+  前端实时缓冲按同一上限留尾部，前缀相同。命令结束后这份缓冲和参数、结果一起按正文规则决定去留，见
+  [`../ui/tool-payload-memory.md`](../ui/tool-payload-memory.md)。
   空闲超时：未传 `timeoutMs` 时用设置默认值；工具参数可在 1s–86400s 内指定，不受设置默认值封顶。
   墙钟上限由设置控制；工具 `maxWallMs` 只能下调。
 

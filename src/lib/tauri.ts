@@ -582,6 +582,21 @@ export async function loadConversationMessages(conversationId: string): Promise<
   return await invoke<ChatMessage[]>('load_conversation_messages', { conversationId })
 }
 
+export async function loadConversationMessage(
+  conversationId: string,
+  messageId: string
+): Promise<ChatMessage | null> {
+  const id = messageId.trim()
+  if (!conversationId.trim() || !id) {
+    console.warn('[tauri] loadConversationMessage skipped: empty id', conversationId, messageId)
+    return null
+  }
+  return await invoke<ChatMessage | null>('load_conversation_message', {
+    conversationId,
+    messageId: id
+  })
+}
+
 export async function loadConversationMessagesPage(
   conversationId: string,
   opts?: import('./api').LoadConversationMessagesPageOpts

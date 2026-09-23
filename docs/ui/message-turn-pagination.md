@@ -47,6 +47,8 @@ Store 里可以同时有「当前 SQLite 窗口」和「越过游标的直播行
 
 裁剪算法（`computeHistoryTrimCutByViewedAt`）：从最老 user 往新扫，停在第一个「无戳或未过期」的保留锚点；若**全部已打戳且都过期**，则只受「至少保留 N 个 user 回合」地板约束（可裁到地板）。SQLite 仍有全量，滚上去会重新加载。
 
+这一层按用户回合整段进出内存。当前回合里的终端输出和工具正文另按一组卸掉，见 [tool-payload-memory.md](tool-payload-memory.md)。
+
 ## API
 
 `GET /api/conversations/:id/messages`（Tauri：`load_conversation_messages_page`）

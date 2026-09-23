@@ -324,6 +324,8 @@ export interface RuntimeApi {
   ): Promise<import('../types/chat').ConversationSearchMatch[]>
   listConversationOutline(conversationId: string): Promise<import('../types/chat').ConversationOutlineItem[]>
   loadConversationMessages(conversationId: string): Promise<ChatMessage[]>
+  /** One transcript row. Null when the id is not on disk yet. */
+  loadConversationMessage(conversationId: string, messageId: string): Promise<ChatMessage | null>
   /** Turn-windowed hydrate (tail / before / around). Prefer this over full load for UI. */
   loadConversationMessagesPage(
     conversationId: string,
@@ -511,6 +513,7 @@ export const listConversationSearchMatches = api.listConversationSearchMatches
 export const listConversationOutline = api.listConversationOutline
 export const loadConversationMessages = api.loadConversationMessages
 export const loadConversationMessagesPage = api.loadConversationMessagesPage
+export const loadConversationMessage = api.loadConversationMessage
 export const loadScopedSubMessagesForTrace = api.loadScopedSubMessagesForTrace
 export const saveConversationMeta = api.saveConversationMeta
 export const deleteConversation = api.deleteConversation

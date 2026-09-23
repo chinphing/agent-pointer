@@ -740,6 +740,10 @@ async fn main() -> anyhow::Result<()> {
             get(list_conversation_outline_handler),
         )
         .route(
+            "/api/conversations/:conversation_id/messages/:message_id",
+            get(load_conversation_message_handler),
+        )
+        .route(
             "/api/conversations/:conversation_id/messages",
             get(load_conversation_messages_handler),
         )
@@ -2141,6 +2145,31 @@ fn conversation_messages_wants_page(q: &ConversationMessagesQuery) -> bool {
         || q.around_message_id
             .as_ref()
             .is_some_and(|s| !s.trim().is_empty())
+}
+
+/// `GET /api/conversations/:id/messages/:messageId` — one transcript row, or null.
+async fn load_conversation_message_handler(
+    State(state): State<ServerState>,
+    Path((conversation_id, message_id)): Path<(String, String)>,
+) -> Result<Json<Option<pointer_core::models::ChatMessage>>, ApiError> {
+    require_platform_access(&state)?;
+    if message_id.trim().is_empty() || message_id == "append" {
+        log::warn!(
+            "server: load_conversation_message rejected conversation_id={conversation_id} message_id={message_id}"
+        );
+        return Ok(Json(None));
+    }
+    let message = storage::load_conversation_message(&conversation_id, &message_id)?;
+    if message.is_none() {
+        log::warn!(
+            "server: load_conversation_message missing conversation_id={conversation_id} message_id={message_id}"
+        );
+    } else {
+        log::info!(
+            "server: load_conversation_message conversation_id={conversation_id} message_id={message_id}"
+        );
+    }
+    Ok(Json(message))
 }
 
 async fn load_conversation_messages_handler(

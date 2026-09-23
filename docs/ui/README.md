@@ -22,6 +22,7 @@
 | [message-list-layout-cache.md](message-list-layout-cache.md) | 消息列表已完成 turn 结构指纹缓存，流式时只重算尾部 |
 | [message-list-scroll-follow.md](message-list-scroll-follow.md) | 流式输出贴底跟随：上滑脱离、贴底/按钮恢复 |
 | [message-turn-pagination.md](message-turn-pagination.md) | 消息按用户回合分页：滚顶更早、around 后滚底更新、跳转最新 |
+| [tool-payload-memory.md](tool-payload-memory.md) | 当前回合的终端输出和工具正文：内存里只留摘要，展开再取 |
 | [conversation-nav.md](conversation-nav.md) | 主区右缘短横条导航：全量用户消息，点击 around 定位 |
 | [streaming-markdown-throttle.md](streaming-markdown-throttle.md) | 流式 Markdown 渲染节流：默认 100ms，长文 250ms |
 | [subagent-stream-ui-perf.md](subagent-stream-ui-perf.md) | 多子 Agent 并发时流式 UI 批处理与 SubAgentFrame 减负 |

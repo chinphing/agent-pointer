@@ -1382,6 +1382,25 @@ pub fn list_conversation_outline(
 }
 
 #[tauri::command]
+pub fn load_conversation_message(
+    conversation_id: String,
+    message_id: String,
+) -> Result<Option<ChatMessage>, String> {
+    let message = storage::load_conversation_message(&conversation_id, &message_id)
+        .map_err(|e| e.to_string())?;
+    if message.is_none() {
+        log::warn!(
+            "tauri::load_conversation_message: missing conversation_id={conversation_id} message_id={message_id}"
+        );
+    } else {
+        log::info!(
+            "tauri::load_conversation_message: conversation_id={conversation_id} message_id={message_id}"
+        );
+    }
+    Ok(message)
+}
+
+#[tauri::command]
 pub fn load_conversation_messages(conversation_id: String) -> Result<Vec<ChatMessage>, String> {
     let messages =
         storage::load_conversation_messages(&conversation_id).map_err(|e| e.to_string())?;

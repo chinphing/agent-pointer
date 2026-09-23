@@ -6,6 +6,7 @@ import {
   loadConversationMetas,
   loadConversationMeta,
   loadConversationMessagesPage,
+  loadConversationMessage,
   loadScopedSubMessagesForTrace,
   DEFAULT_MESSAGE_PAGE_TURNS,
   saveConversationMeta,
@@ -45,6 +46,14 @@ import { resolveTraceTaskId, traceLookupId } from '../lib/subAgentStats'
 import { resolveStreamWriteMessage, rehydrateAgentTracesFromScopedMessages, ensureHostLinkedSubTraces, isScopedSubMessage, findLiveScopedAssistant } from '../lib/subAgentMessages'
 import { useConversationScopedStore } from '../lib/conversationScoped'
 import { stripWireAttachmentFields } from '../lib/messageNormalizer'
+import {
+  capTerminalOutput,
+  restoreToolCallBody,
+  slimMessageForMemory,
+  slimMessagesForMemory,
+  slimToolCallBody,
+  toolCallOnMessage
+} from '../lib/toolCallBody'
 import { isPersistableAttachmentPreviewUrl } from '../lib/attachmentSupport'
 import {
   clearLastConversationId,
@@ -133,6 +142,15 @@ import {
   uid
 } from './chat/helpers'
 import { activeConversationIdsFromQueueSnapshot, backgroundJobOccupancyFromQueueSnapshot } from './chat/dispatcherRunSync'
+
+/** Page rows entering the store: drop wire attachment bytes and oversized tool bodies. */
+function pageMessagesForMemory(messages: ChatMessage[]): ChatMessage[] {
+  return slimMessagesForMemory(
+    stripWireAttachmentFields(
+      messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
+    )
+  )
+}
 
 function stripEphemeralDesktopNoticesForDisk(conversations: Conversation[]): Conversation[] {
   return conversations.map(c => ({
@@ -583,6 +601,129 @@ export const useChatStore = defineStore('chat', () => {
     persistedMessageIdsByConv.delete(convId)
   }
 
+  /** Tool call whose body is currently restored for an open row. */
+  let pinnedToolBodyId = ''
+  let toolBodyLoadGen = 0
+
+  function appendCappedTerminalOutput(tc: ToolCall, toolCallId: string, text: string) {
+    const max = useSettingsStore().settings.terminalOutputMaxBytes ?? 16_384
+    const capped = capTerminalOutput(tc.terminalOutput || '', text, max)
+    if (capped.newlyTruncated) {
+      console.info('[chat] terminal output capped', toolCallId, 'limit', max)
+    }
+    tc.terminalOutput = capped.text
+  }
+
+  function locateToolCall(toolCallId: string): { conv: Conversation; msg: ChatMessage; tc: ToolCall } | null {
+    const id = toolCallId.trim()
+    if (!id) return null
+    const ordered: Conversation[] = []
+    if (current.value) ordered.push(current.value)
+    for (const conv of conversations.value) {
+      if (!ordered.some(item => item.id === conv.id)) ordered.push(conv)
+    }
+    for (const conv of ordered) {
+      for (const msg of conv.messages) {
+        const tc = toolCallOnMessage(msg, id)
+        if (tc) return { conv, msg, tc }
+      }
+      for (const msg of scopedStore.listRows(conv.id)) {
+        const tc = toolCallOnMessage(msg, id)
+        if (tc) return { conv, msg, tc }
+      }
+    }
+    return null
+  }
+
+  function retainDurableMessage(convId: string, msg: ChatMessage) {
+    const id = convId.trim()
+    if (!id || !msg.id) return
+    addPersistedMessageIds(id, [msg.id])
+    const cleared = slimMessageForMemory(msg, pinnedToolBodyId)
+    if (cleared > 0) {
+      console.info('[chat] evicted tool bodies', id, msg.id, 'chars', cleared)
+    }
+  }
+
+  function slimDurableToolCall(
+    convId: string,
+    messageId: string,
+    toolCallId: string,
+    traceId?: string,
+    scopedMessageId?: string
+  ) {
+    const id = toolCallId.trim()
+    if (!id || pinnedToolBodyId === id) return
+    const r = findMessage(messageId, convId)
+    if (!r) return
+    const target = resolveStreamWriteMessage(r.conv, r.msg, traceId, scopedMessageId) ?? r.msg
+    const host = persistedIdsFor(convId).has(target.id) ? target : r.msg
+    if (!persistedIdsFor(convId).has(host.id)) return
+    const tc = toolCallOnMessage(host, id)
+    if (!tc) return
+    const cleared = slimToolCallBody(tc)
+    if (cleared > 0) {
+      console.info('[chat] evicted tool body', convId, host.id, id, 'chars', cleared)
+    }
+  }
+
+  function releasePinnedToolBody(toolCallId?: string) {
+    const id = toolCallId?.trim() ?? ''
+    if (id && pinnedToolBodyId && pinnedToolBodyId !== id) return
+    const pinned = pinnedToolBodyId
+    pinnedToolBodyId = ''
+    toolBodyLoadGen += 1
+    if (!pinned) return
+    const found = locateToolCall(pinned)
+    if (!found) return
+    const cleared = slimToolCallBody(found.tc)
+    if (cleared > 0) {
+      console.info('[chat] evicted tool body', found.conv.id, found.msg.id, pinned, 'chars', cleared)
+    }
+  }
+
+  async function ensureToolCallBody(toolCallId: string): Promise<void> {
+    const id = toolCallId.trim()
+    if (!id) {
+      console.warn('[chat] ensureToolCallBody: empty toolCallId')
+      return
+    }
+    const found = locateToolCall(id)
+    if (!found) {
+      console.warn('[chat] ensureToolCallBody: tool call not in memory', id)
+      return
+    }
+    if (pinnedToolBodyId && pinnedToolBodyId !== id) releasePinnedToolBody(pinnedToolBodyId)
+    pinnedToolBodyId = id
+    if (!found.tc.bodyEvicted) return
+    const gen = ++toolBodyLoadGen
+    try {
+      const loaded = await loadConversationMessage(found.conv.id, found.msg.id)
+      if (gen !== toolBodyLoadGen || pinnedToolBodyId !== id) {
+        console.info('[chat] ensureToolCallBody stale', found.conv.id, id)
+        return
+      }
+      if (!loaded) {
+        console.warn(
+          '[chat] ensureToolCallBody: message not on disk yet',
+          found.conv.id,
+          found.msg.id,
+          id
+        )
+        return
+      }
+      const source = toolCallOnMessage(loaded, id)
+      if (!source) {
+        console.warn('[chat] ensureToolCallBody: tool call missing on disk message', found.msg.id, id)
+        return
+      }
+      restoreToolCallBody(found.tc, source)
+      console.info('[chat] restored tool call body', found.conv.id, found.msg.id, id)
+    } catch (err) {
+      console.error('[chat] ensureToolCallBody failed', found.conv.id, found.msg.id, id, err)
+    }
+  }
+
   /** Sidebar search (or similar) asks MessageList to scroll to this message after open/hydrate. */
   const pendingFocusMessage = ref<{
     conversationId: string
@@ -956,6 +1097,9 @@ export const useChatStore = defineStore('chat', () => {
         const n = applyPersistedBackgroundHostOutcomes(conv, persisted)
         if (n > 0) {
           console.info('[chat] occupancy: hydrated background hosts from disk', convId, n)
+        }
+        for (const msg of conv.messages) {
+          if (persistedIdsFor(convId).has(msg.id)) slimMessageForMemory(msg, pinnedToolBodyId)
         }
         finalizeOrphansAfterEmptyOccupancy(conv)
       } catch (error) {
@@ -1647,9 +1791,7 @@ export const useChatStore = defineStore('chat', () => {
           limitTurns: DEFAULT_MESSAGE_PAGE_TURNS
         })
         attachPagePositions(page)
-        const stripped = stripWireAttachmentFields(
-          page.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
-        )
+        const stripped = pageMessagesForMemory(page.messages)
         const dbPersistedIds = persistedCandidateMessageIds(stripped)
         let next = stripped
         if (isImConversation(convId)) {
@@ -1779,9 +1921,7 @@ export const useChatStore = defineStore('chat', () => {
           return false
         }
         attachPagePositions(page)
-        const stripped = stripWireAttachmentFields(
-          page.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
-        )
+        const stripped = pageMessagesForMemory(page.messages)
         if (stripped.length === 0) {
           const moreOlder = page.hasMoreOlder === true
           const nextOldest = page.oldestPosition ?? oldestAtStart
@@ -1899,9 +2039,7 @@ export const useChatStore = defineStore('chat', () => {
           return false
         }
         attachPagePositions(page)
-        const stripped = stripWireAttachmentFields(
-          page.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
-        )
+        const stripped = pageMessagesForMemory(page.messages)
         if (stripped.length === 0) {
           applyMessagePageState(convId, {
             hasMoreOlder: state.hasMoreOlder,
@@ -2136,9 +2274,7 @@ export const useChatStore = defineStore('chat', () => {
           aroundMessageId: targetId
         })
         attachPagePositions(page)
-        const stripped = stripWireAttachmentFields(
-          page.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
-        )
+        const stripped = pageMessagesForMemory(page.messages)
         let next = stripped
         if (isImConversation(convId)) {
           next = dedupeImInboundUserMessages(convId, stripped)
@@ -2865,7 +3001,7 @@ export const useChatStore = defineStore('chat', () => {
         traceId: lookup.traceId.trim(),
         agentInstanceId
       })
-      mergeScopedMessagesIntoConv(conv, stripWireAttachmentFields(rows), lookup)
+      mergeScopedMessagesIntoConv(conv, pageMessagesForMemory(rows), lookup)
       addPersistedMessageIds(convId, persistedCandidateMessageIds(rows))
     } catch (err) {
       console.warn('[chat] ensureScopedMessagesForTrace failed', convId, traceId, err)
@@ -3136,7 +3272,7 @@ export const useChatStore = defineStore('chat', () => {
     const target = resolveStreamWriteMessage(r.conv, r.msg, traceId, scopedMessageId)
     if (target) {
       const tc = target.toolCalls?.find(t => t.id === toolCallId)
-      if (tc) tc.terminalOutput = (tc.terminalOutput || '') + text
+      if (tc) appendCappedTerminalOutput(tc, toolCallId, text)
       if (isScopedSubMessage(target)) {
         scopedStore.touchRow(r.conv.id, target.id)
       }
@@ -3145,7 +3281,7 @@ export const useChatStore = defineStore('chat', () => {
     if (traceId?.trim()) {
       const trace = ensureSubTrace(r.msg, traceId.trim())
       const tc = trace.session?.toolCalls?.find(t => t.id === toolCallId)
-      if (tc) tc.terminalOutput = (tc.terminalOutput || '') + text
+      if (tc) appendCappedTerminalOutput(tc, toolCallId, text)
       scopedStore.touchLookup(
         r.conv.id,
         {
@@ -3158,7 +3294,7 @@ export const useChatStore = defineStore('chat', () => {
       return
     }
     const tc = r.msg.toolCalls?.find(t => t.id === toolCallId)
-    if (tc) tc.terminalOutput = (tc.terminalOutput || '') + text
+    if (tc) appendCappedTerminalOutput(tc, toolCallId, text)
   }
 
   function applyWebSearchOutputDeltaBatch(
@@ -3403,7 +3539,9 @@ export const useChatStore = defineStore('chat', () => {
       markConversationAwaitingView,
       markUserMessageViewed,
       notifyScopedStreamWrite,
-      rebuildScopedTraceCache
+      rebuildScopedTraceCache,
+      retainDurableMessage,
+      slimDurableToolCall
     }
   }
 
@@ -3780,6 +3918,7 @@ export const useChatStore = defineStore('chat', () => {
     scopedMessagesForTraceCached, getSubAgentLiveSignal, subAgentLiveSignals: scopedStore.liveSignals,
     getScopedMembershipSignal: scopedStore.getMembershipSignal,
     ensureScopedMessagesForTrace, evictScopedInstance: scopedStore.evictInstance,
+    ensureToolCallBody, releaseToolCallBody: releasePinnedToolBody,
     scopedRowsForAnchors: scopedStore.collectRowsForAnchors,
     scopedSpawnIdsForAnchors: scopedStore.listSpawnIdsForAnchors
   }

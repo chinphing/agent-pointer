@@ -169,6 +169,33 @@ describe('rawContent wire stripping', () => {
     expect(out[0].reasoning).toBe('thinking…')
   })
 
+  it('strips memory-only tool body flags before persist', () => {
+    const messages: ChatMessage[] = [
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'edited',
+        status: 'done',
+        createdAt: 1,
+        toolCalls: [
+          {
+            id: 'tc1',
+            name: 'file_edit',
+            arguments: '',
+            status: 'success',
+            bodyEvicted: true,
+            fileChange: { path: 'a.ts', kind: 'edit', adds: 1, dels: 0 }
+          }
+        ]
+      }
+    ]
+    const out = messagesForPersistAppend(messages)
+    const tc = out[0].toolCalls?.[0]
+    expect(tc?.bodyEvicted).toBeUndefined()
+    expect(tc?.fileChange).toBeUndefined()
+    expect(tc?.arguments).toBe('')
+  })
+
   it('strips nested agentTrace session rawContent too', () => {
     const messages: ChatMessage[] = [
       {

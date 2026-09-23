@@ -229,9 +229,11 @@ describe('messageHandlers', () => {
       contentStreaming: true
     })
     const clearRunState = vi.fn()
+    const retainDurableMessage = vi.fn()
     const ctx = createMockStreamHandlerContext([conv], {
       isConversationGenerating: () => true,
-      clearRunState
+      clearRunState,
+      retainDurableMessage
     })
     handleMessageEnd(ctx, {
       kind: 'message_end',
@@ -242,6 +244,10 @@ describe('messageHandlers', () => {
     })
     expect(conv.messages.find(m => m.id === 'sub-round-1')?.contentStreaming).toBe(false)
     expect(clearRunState).not.toHaveBeenCalled()
+    expect(retainDurableMessage).toHaveBeenCalledWith(
+      'conv1',
+      expect.objectContaining({ id: 'sub-round-1' })
+    )
   })
 
   describe('rawContent capture gating (rawContentViewEnabled)', () => {

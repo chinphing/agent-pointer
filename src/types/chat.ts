@@ -29,6 +29,21 @@ export interface ToolCall {
   displaySummary?: string
   /** Terminal tool is waiting for user input in a modal. */
   waitingForInput?: boolean
+  /**
+   * Memory-only. The body group (`arguments`, `result`, `terminalOutput`,
+   * `webSearchOutput`) was cleared together. Not written to the database.
+   */
+  bodyEvicted?: boolean
+  /**
+   * Memory-only +/- for the turn footer after the body is cleared.
+   * Not written to the database.
+   */
+  fileChange?: {
+    path: string
+    kind: 'edit' | 'write'
+    adds: number
+    dels: number
+  }
 }
 
 export const DEFAULT_LEAD_AGENT_ID = 'general'

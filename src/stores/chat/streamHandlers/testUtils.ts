@@ -87,6 +87,8 @@ export function createMockStreamHandlerContext(
     markUserMessageViewed: noop,
     notifyScopedStreamWrite: noop,
     rebuildScopedTraceCache: noop,
+    retainDurableMessage: noop,
+    slimDurableToolCall: noop,
     ...overrides
   }
 }

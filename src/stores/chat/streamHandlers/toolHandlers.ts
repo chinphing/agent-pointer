@@ -212,6 +212,13 @@ export function handleToolCallStatus(ctx: StreamHandlerContext, e: ToolCallStatu
   )
   ctx.notifyScopedStreamWrite(r.conv, r.msg, target, e.traceId)
   if (e.status !== 'running') {
+    ctx.slimDurableToolCall(
+      r.conv.id,
+      e.messageId,
+      e.toolCallId,
+      e.traceId,
+      e.scopedMessageId
+    )
     markToolCallWaitingForInput(
       ctx,
       e.messageId,

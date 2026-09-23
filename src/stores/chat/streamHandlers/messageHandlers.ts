@@ -238,6 +238,7 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
       }
       ctx.notifyScopedStreamWrite(r.conv, r.msg, scopedTarget, e.traceId)
       r.conv.updatedAt = Date.now()
+      ctx.retainDurableMessage(r.conv.id, scopedTarget)
       return
     }
     if (e.traceId?.trim()) {
@@ -273,6 +274,7 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
     delete r.msg.responseTextDraft
     if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts
     r.conv.updatedAt = Date.now()
+    ctx.retainDurableMessage(r.conv.id, r.msg)
   }
   if (r) ctx.markMetaDirty(r.conv.id)
 }

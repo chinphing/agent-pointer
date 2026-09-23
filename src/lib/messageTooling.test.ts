@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   agentTraceNeedsCollapsedSurface,
+  hostNeedsCollapsedSubAgentFrames,
   isCollapsedSurfaceToolCall,
   isInFlightSubagentHostToolCall,
   isInteractiveToolCall,
@@ -36,6 +37,25 @@ describe('messageTooling', () => {
       status: 'success',
       arguments: '{}'
     })).toBe(false)
+    expect(isCollapsedSurfaceToolCall({
+      id: '2',
+      name: 'run_subagent',
+      status: 'success',
+      arguments: '{}'
+    }, {
+      agentTrace: [{
+        status: 'running',
+        parentToolCallId: '2',
+        session: {
+          toolCalls: [{
+            id: 'ask',
+            name: 'ask_user',
+            status: 'pending',
+            arguments: '{}'
+          }]
+        }
+      }]
+    })).toBe(true)
     expect(agentTraceNeedsCollapsedSurface([{
       status: 'running',
       session: {
@@ -47,6 +67,40 @@ describe('messageTooling', () => {
         }]
       }
     }])).toBe(true)
+  })
+
+  it('keeps a finished run_subagent frame when the child lives on a trailing group', () => {
+    const host: ToolCall = {
+      id: 'host',
+      name: 'run_subagent',
+      status: 'success',
+      arguments: '{}'
+    }
+    const ask: ToolCall = {
+      id: 'ask',
+      name: 'ask_user',
+      status: 'running',
+      arguments: '{}'
+    }
+    const child = {
+      agentTrace: [{
+        status: 'running',
+        parentToolCallId: 'host',
+        session: { toolCalls: [ask] }
+      }]
+    }
+    expect(hostNeedsCollapsedSubAgentFrames({ toolCalls: [] }, [{
+      toolCalls: [host],
+      message: child
+    }])).toBe(true)
+    expect(hostNeedsCollapsedSubAgentFrames({
+      toolCalls: [{
+        id: 'done',
+        name: 'file_read',
+        status: 'success',
+        arguments: '{}'
+      }]
+    })).toBe(false)
   })
 
   it('classifies task_board and verify tools as sidecar', () => {

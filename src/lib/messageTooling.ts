@@ -20,11 +20,52 @@ export function isInFlightSubagentHostToolCall(tc: ToolCall): boolean {
 }
 
 /**
- * Collapsed-turn surface: direct interactive tools, plus running subagent hosts
- * (general→coder ask_user lives inside SubAgentFrame, not on the parent row).
+ * Collapsed-turn surface: direct interactive tools, plus subagent hosts whose
+ * child frame still needs a surface. A host can already be `success` while the
+ * child is running or still holding `ask_user` on session / scoped rows.
+ * `Array.filter` / `some` pass the index as the second argument — ignore that.
  */
-export function isCollapsedSurfaceToolCall(tc: ToolCall): boolean {
-  return isInteractiveToolCall(tc) || isInFlightSubagentHostToolCall(tc)
+type CollapsedHost = {
+  agentTrace?: ReadonlyArray<{
+    status?: string
+    parentToolCallId?: string
+    session?: { toolCalls?: ToolCall[] }
+  }>
+}
+
+export function isCollapsedSurfaceToolCall(
+  tc: ToolCall,
+  host?: CollapsedHost | number
+): boolean {
+  if (isInteractiveToolCall(tc) || isInFlightSubagentHostToolCall(tc)) return true
+  if (!host || typeof host !== 'object') return false
+  if (toolCallBaseName(tc.name) !== 'run_subagent') return false
+  const id = tc.id.trim()
+  if (!id) return false
+  const linked = (host.agentTrace ?? []).filter(
+    trace => (trace.parentToolCallId ?? '').trim() === id
+  )
+  return agentTraceNeedsCollapsedSurface(linked)
+}
+
+/**
+ * Collapsed parent turn: mount sub-agent frames when the lead message or a
+ * trailing tool group still has a child that needs a surface. Pass each
+ * group's own message — a finished `run_subagent` is invisible without it.
+ */
+export function hostNeedsCollapsedSubAgentFrames(
+  message: CollapsedHost & { toolCalls?: readonly ToolCall[] },
+  trailingGroups?: readonly {
+    toolCalls: readonly ToolCall[]
+    message: CollapsedHost
+  }[]
+): boolean {
+  if (agentTraceNeedsCollapsedSurface(message.agentTrace)) return true
+  if ((message.toolCalls ?? []).some(tc => isCollapsedSurfaceToolCall(tc, message))) return true
+  return (trailingGroups ?? []).some(group =>
+    agentTraceNeedsCollapsedSurface(group.message.agentTrace)
+    || group.toolCalls.some(tc => isCollapsedSurfaceToolCall(tc, group.message))
+  )
 }
 
 /** True when a lead message's agentTrace still needs a collapsed-frame surface. */

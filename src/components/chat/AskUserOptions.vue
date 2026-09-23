@@ -3,11 +3,14 @@ import { computed, ref } from 'vue'
 import { Check, Loader2 } from 'lucide-vue-next'
 import type { ToolCall } from '../../types/chat'
 import { submitAskUser } from '../../lib/api'
-import { parseAskUserArgs, parseAskUserSelection } from '../../lib/askUser'
+import { parseAskUserArgs, parseAskUserSelection, parseAskUserSummary } from '../../lib/askUser'
 
 const props = defineProps<{ toolCall: ToolCall }>()
 
-const args = computed(() => parseAskUserArgs(props.toolCall.arguments))
+const args = computed(() =>
+  parseAskUserArgs(props.toolCall.arguments)
+  ?? parseAskUserSummary(props.toolCall.displaySummary)
+)
 const completedSelection = computed(() => parseAskUserSelection(props.toolCall.result))
 const localSelection = ref<string[]>([])
 const otherText = ref('')

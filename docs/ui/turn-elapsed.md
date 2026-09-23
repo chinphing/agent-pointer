@@ -20,7 +20,7 @@
 实现要点：
 
 - `buildConversationTurns(..., { collapseActiveTurns, omitDeliveryWhileActive })`：仅开启时对 `active` 回合计算 `hiddenCount`；进行中不挂最终 delivery，避免中间叙述当「最终输出」
-- 收缩投影（`messageListLayout.projectCollapsedTurn`）：保留的 delivery 标 `contentOnly`，去掉 `trailingToolGroups` 与非交互工具行；`ask_user` / `pending_approval` **以及进行中的 `run_subagent` 宿主行**仍可见（子 Agent 内的询问挂在宿主下方，不能把整段 SubAgentFrame 藏掉）；**任务板（含进行中）始终保留**（进度 chrome，不是可隐藏过程）
+- 收缩投影（`messageListLayout.projectCollapsedTurn`）：保留的 delivery 标 `contentOnly`，去掉 `trailingToolGroups` 与非交互工具行；`ask_user` / `pending_approval` **以及仍要露出子任务框的 `run_subagent` 宿主行**仍可见（进行中，或宿主已结束但子 trace 仍在跑 / 还有未完成询问）。子 Agent 内的询问挂在宿主下方，不能把整段 SubAgentFrame 藏掉；**任务板（含进行中）始终保留**（进度 chrome，不是可隐藏过程）
 - `MessageList` 传入 `collapseActiveTurns: collapseProcessByDefault`
 - 未开启时 `shouldAutoExpandTurn` 仍要求 `state !== 'active'`
 

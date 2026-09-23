@@ -1,5 +1,6 @@
 import type { AgentMessageBodyModel } from '../components/chat/message/assistant/AgentMessageBody.vue'
 import type { AgentTrace, ChatMessage, Conversation, SubAgentToolStats, ToolCall } from '../types/chat'
+import { parseAskUserArgs } from './askUser'
 import { toolCallBaseName } from './messageTooling'
 import {
   emptySubAgentToolStats,
@@ -53,6 +54,47 @@ const SUB_AGENT_HOST_STUB_PREFIX = 'Begin. Your assigned task is in the system p
 export function isSubAgentHostStubContent(content: string | undefined): boolean {
   const text = content?.trim() ?? ''
   return text.startsWith(SUB_AGENT_HOST_STUB_PREFIX)
+}
+
+function richerSubAgentToolCall(current: ToolCall, incoming: ToolCall): ToolCall {
+  const currentArgs = current.arguments ?? ''
+  const incomingArgs = incoming.arguments ?? ''
+  const ask = toolCallBaseName(current.name) === 'ask_user'
+    || toolCallBaseName(incoming.name) === 'ask_user'
+  if (ask) {
+    const currentReady = parseAskUserArgs(currentArgs) != null
+    const incomingReady = parseAskUserArgs(incomingArgs) != null
+    if (incomingReady !== currentReady) return incomingReady ? incoming : current
+  }
+  if (incomingArgs.length !== currentArgs.length) {
+    return incomingArgs.length > currentArgs.length ? incoming : current
+  }
+  const currentSummary = current.displaySummary?.length ?? 0
+  const incomingSummary = incoming.displaySummary?.length ?? 0
+  if (incomingSummary !== currentSummary) {
+    return incomingSummary > currentSummary ? incoming : current
+  }
+  return current
+}
+
+/** Union tool calls from scoped rows and session. Same id keeps the copy that can render ask_user. */
+export function mergeSubAgentToolCalls(
+  lists: ReadonlyArray<readonly ToolCall[] | undefined>
+): ToolCall[] {
+  const byId = new Map<string, ToolCall>()
+  const order: string[] = []
+  for (const list of lists) {
+    for (const tc of list ?? []) {
+      const prev = byId.get(tc.id)
+      if (!prev) {
+        byId.set(tc.id, tc)
+        order.push(tc.id)
+        continue
+      }
+      if (prev !== tc) byId.set(tc.id, richerSubAgentToolCall(prev, tc))
+    }
+  }
+  return order.map(id => byId.get(id)!)
 }
 
 function dedupeToolCalls(messages: ChatMessage[]): ChatMessage['toolCalls'] {

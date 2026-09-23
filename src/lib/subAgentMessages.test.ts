@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ChatMessage, Conversation } from '../types/chat'
+import type { ChatMessage, Conversation, ToolCall } from '../types/chat'
 import {
   bindUnboundTracesToHosts,
   buildSubAgentBodyModelsFromScoped,
@@ -8,12 +8,42 @@ import {
   ensureHostLinkedSubTraces,
   ensureScopedChildMessage,
   isSubAgentHostStubContent,
+  mergeSubAgentToolCalls,
   rehydrateAgentTracesFromScopedMessages,
   scopedAssistantMessagesForTrace,
   scopedMessagesForTrace,
   subAgentFrameOwnsCompression
 } from './subAgentMessages'
 import { formatSubAgentSummaryLine } from './subAgentStats'
+
+describe('mergeSubAgentToolCalls', () => {
+  function tc(over: Partial<ToolCall> & Pick<ToolCall, 'id'>): ToolCall {
+    return {
+      name: 'ask_user',
+      status: 'running',
+      arguments: '',
+      ...over
+    }
+  }
+
+  it('keeps the session copy when scoped arguments cannot render options', () => {
+    const scoped = tc({
+      id: 'ask',
+      arguments: ''
+    })
+    const session = tc({
+      id: 'ask',
+      arguments: JSON.stringify({
+        question: '选哪个？',
+        options: [{ label: 'A' }, { label: 'B' }]
+      }),
+      displaySummary: '选哪个？\n1. A\n2. B'
+    })
+    const merged = mergeSubAgentToolCalls([[scoped], [session]])
+    expect(merged).toHaveLength(1)
+    expect(merged[0]?.arguments).toContain('选哪个')
+  })
+})
 
 describe('rehydrateAgentTracesFromScopedMessages', () => {
   it('stamps live scoped child rows with the agent instance id', () => {

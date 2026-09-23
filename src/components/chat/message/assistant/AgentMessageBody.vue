@@ -193,7 +193,9 @@ const tools = computed(() => {
     props.messageUi.showSidecarToolCalls === true,
     props.messageUi.showNonSidecarToolCalls !== false
   )
-  return props.contentOnly ? visible.filter(isCollapsedSurfaceToolCall) : visible
+  return props.contentOnly
+    ? visible.filter(tc => isCollapsedSurfaceToolCall(tc, props.leadMessage))
+    : visible
 })
 
 const footerMessage = computed((): ChatMessage | undefined => {
@@ -280,7 +282,9 @@ function trailingToolsForGroup(group: { toolCalls: ToolCall[]; message: ChatMess
     props.messageUi.showSidecarToolCalls === true,
     props.messageUi.showNonSidecarToolCalls !== false
   )
-  return props.contentOnly ? visible.filter(isCollapsedSurfaceToolCall) : visible
+  return props.contentOnly
+    ? visible.filter(tc => isCollapsedSurfaceToolCall(tc, group.message))
+    : visible
 }
 
 const showThoughtPanels = computed(() => !props.contentOnly && showThoughtsPanel.value)

@@ -584,20 +584,26 @@ function entryIsDelivery(entry: FlatEntry): boolean {
     && !isToolRunContinuityGlue(entry.message)
 }
 
-function toolCallsNeedCollapsedSurface(toolCalls: readonly ToolCall[] | undefined): boolean {
-  return (toolCalls ?? []).some(isCollapsedSurfaceToolCall)
+function toolCallsNeedCollapsedSurface(
+  toolCalls: readonly ToolCall[] | undefined,
+  host?: ChatMessage
+): boolean {
+  return (toolCalls ?? []).some(tc => isCollapsedSurfaceToolCall(tc, host))
 }
 
 function entryIsInteractive(entry: FlatEntry): boolean {
   if (entry.type === 'tool_run') {
     return entry.items.some(
-      item => item.kind === 'tools' && toolCallsNeedCollapsedSurface(item.group.toolCalls)
+      item => item.kind === 'tools' && (
+        toolCallsNeedCollapsedSurface(item.group.toolCalls, item.group.message)
+        || agentTraceNeedsCollapsedSurface(item.group.message.agentTrace)
+      )
     )
   }
   if (entry.type === 'message') {
-    if (toolCallsNeedCollapsedSurface(entry.message.toolCalls)) return true
+    if (toolCallsNeedCollapsedSurface(entry.message.toolCalls, entry.message)) return true
     if ((entry.trailingToolGroups ?? []).some(group =>
-      toolCallsNeedCollapsedSurface(group.toolCalls)
+      toolCallsNeedCollapsedSurface(group.toolCalls, group.message)
     )) {
       return true
     }
@@ -615,7 +621,7 @@ function filterCollapsedSurfaceToolGroups(
   const next = groups
     .map(group => ({
       ...group,
-      toolCalls: group.toolCalls.filter(isCollapsedSurfaceToolCall)
+      toolCalls: group.toolCalls.filter(tc => isCollapsedSurfaceToolCall(tc, group.message))
     }))
     .filter(group => group.toolCalls.length > 0)
   return next.length > 0 ? next : undefined
@@ -644,8 +650,9 @@ function entryContributesHiddenProcess(entry: FlatEntry): boolean {
 /**
  * Collapsed projection: keep reply body only. Strip process tools attached to
  * the delivery entry (trailingToolGroups / non-interactive toolCalls) so they
- * do not leak under the final content. Interactive tools and in-flight
- * `run_subagent` hosts stay (nested ask_user mounts under the host frame).
+ * do not leak under the final content. Interactive tools stay, and so do
+ * `run_subagent` hosts whose child still needs a surface (in-flight, or the
+ * host already finished while the child is running / still asking).
  */
 function projectCollapsedEntry(entry: FlatEntry): FlatEntry {
   if (entry.type === 'tool_run') {
@@ -654,7 +661,9 @@ function projectCollapsedEntry(entry: FlatEntry): FlatEntry {
       items: entry.items
         .map(item => {
           if (item.kind !== 'tools') return item
-          const toolCalls = item.group.toolCalls.filter(isCollapsedSurfaceToolCall)
+          const toolCalls = item.group.toolCalls.filter(tc =>
+            isCollapsedSurfaceToolCall(tc, item.group.message)
+          )
           if (toolCalls.length === 0) return null
           return {
             kind: 'tools' as const,

@@ -15,6 +15,7 @@ import {
   buildToolRawArgsFromMessages,
   computeSubAgentStatsFromMessages,
   latestSubAgentBodyModelFromSpawnRows,
+  mergeSubAgentToolCalls,
   subAgentFrameOwnsCompression
 } from '../../../../lib/subAgentMessages'
 import { useChatStore } from '../../../../stores/chat'
@@ -190,22 +191,14 @@ const goalLabel = computed(() => {
 })
 
 const innerToolCalls = computed((): ToolCall[] => {
-  const seen = new Set<string>()
-  const out: ToolCall[] = []
-  const pushAll = (list: ToolCall[] | undefined) => {
-    for (const tc of list ?? []) {
-      if (seen.has(tc.id)) continue
-      seen.add(tc.id)
-      out.push(tc)
-    }
-  }
-  for (const msg of scopedMessages.value) {
-    pushAll(msg.toolCalls)
-  }
-  // Merge legacy/session tools too — scoped rows alone can miss an in-flight
-  // ask_user that only landed on trace.session (or the reverse).
-  pushAll(latestStreamBody.value?.toolCalls ?? legacySession.value?.toolCalls)
-  return out
+  // Scoped rows and session are not the same object. A scoped copy can exist
+  // with empty arguments while the choice payload only landed on session
+  // (or the reverse). Keep the copy that can render the option card.
+  return mergeSubAgentToolCalls([
+    ...scopedMessages.value.map(msg => msg.toolCalls),
+    latestStreamBody.value?.toolCalls,
+    legacySession.value?.toolCalls
+  ])
 })
 
 const processInnerTools = computed((): ToolCall[] => {

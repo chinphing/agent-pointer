@@ -12,6 +12,7 @@ import {
   rememberTraceSearchToolCallIds,
   shouldRenderTerminalSubAgentStub
 } from '../../../../lib/subAgentFrameMount'
+import { isInteractiveToolCall } from '../../../../lib/messageTooling'
 import { isSubAgentTraceTerminal, toggleSubTraceExpanded } from '../../../../lib/subAgentSession'
 import { SUB_AGENT_PROCESS_PLACEHOLDER } from '../../../../lib/subAgentStats'
 import SubAgentFrame, { type SubAgentTaskBoardBinding } from './SubAgentFrame.vue'
@@ -93,9 +94,22 @@ const { stubIdleElapsed } = useTerminalSubAgentStub(traceRef, {
   pinned: searchPinned
 })
 
+/** Pending ask_user must stay on the full frame; the stub has no option card. */
+const interactiveBlocksStub = computed(() => {
+  if ((props.trace.session?.toolCalls ?? []).some(isInteractiveToolCall)) return true
+  if (!isSubAgentTraceTerminal(props.trace.status)) return false
+  const rows = chatStore.scopedMessagesForTraceCached(
+    effectiveAnchorId.value,
+    props.trace.id,
+    props.trace.agentInstanceId
+  )
+  return rows.some(msg => (msg.toolCalls ?? []).some(isInteractiveToolCall))
+})
+
 const showStub = computed(() =>
   shouldRenderTerminalSubAgentStub(props.trace, stubIdleElapsed.value)
   && !searchPinned.value
+  && !interactiveBlocksStub.value
 )
 
 const stubView = computed(() =>
@@ -127,18 +141,23 @@ const frameMemoDeps = computed(() => {
     compressing?.scope === 'sub_agent'
       ? `${compressing.insertBeforeMessageId ?? ''}:${compressing.messageId ?? ''}`
       : ''
+  const interactive = (props.trace.session?.toolCalls ?? [])
+    .filter(isInteractiveToolCall)
+    .map(tc => `${tc.id}:${tc.status}:${tc.arguments?.length ?? 0}:${tc.displaySummary?.length ?? 0}`)
+    .join(';')
   if (props.trace.status === 'running') {
     const live = chatStore.getSubAgentLiveSignal(
       props.trace.agentInstanceId?.trim() || props.trace.id
     )
-    return [props.trace.status, expanded, boardKey, live, search, compressKey]
+    return [props.trace.status, expanded, boardKey, live, search, compressKey, interactive]
   }
   return [
     props.trace.status,
     expanded,
     boardKey,
     isSubAgentTraceTerminal(props.trace.status) ? 1 : 0,
-    search
+    search,
+    interactive
   ]
 })
 

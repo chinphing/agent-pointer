@@ -1,5 +1,7 @@
 //! Same-conversation idle merge push: after the lead turn ends, deliver
-//! unclaimed Completed/Failed job bodies as one internal `run_chat`.
+//! unclaimed Completed/Failed bodies of jobs the lead itself spawned, as one
+//! internal `run_chat`. Jobs spawned by a sub-agent stay unclaimed for that
+//! agent's `job.await` and do not start a lead turn.
 //!
 //! Mutex with `job.await` via `claimed`. Cancelled jobs and process exit do
 //! not push. Debounces near-simultaneous finishes into one turn.
@@ -117,16 +119,14 @@ impl IdleJobPush {
         let user_msg_id = user_msg.id.clone();
         let user_msg_content = user_msg.content.clone();
         let user_msg_ui = user_msg.ui_bindings.clone();
-        let mut messages = match state.session_index.load_messages(conversation_id) {
-            Ok(history) => history,
-            Err(err) => {
-                log::warn!(
-                    "idle_job_push: load_messages failed conversation_id={conversation_id}: {err:#}"
-                );
-                Vec::new()
-            }
-        };
-        messages.push(user_msg);
+        // Delta only. `prepare_lead_history` appends this row and reloads the
+        // lead working set. Loading the full transcript here retains every
+        // soft-excluded payload (10k+ rows) for the rest of the process.
+        let messages = vec![user_msg];
+        log::info!(
+            "idle_job_push: dispatch delta conversation_id={conversation_id} dispatch_messages={}",
+            messages.len()
+        );
         stream_broadcast::broadcast_stream(&StreamEvent::InjectedUserMessage {
             conversation_id: conversation_id.to_string(),
             message_id: user_msg_id,

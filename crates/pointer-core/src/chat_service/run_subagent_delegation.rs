@@ -11,7 +11,7 @@ use crate::agents::{AgentDef, AgentRunResult, AgentTask};
 use crate::chat_service::self_fork::SelfForkSnapshot;
 use crate::llm_token_stats::ConversationLlmStats;
 use crate::models::ChatMessage;
-use crate::models::{AgentTrace, ComputerOperationTarget, Role, StreamEvent};
+use crate::models::{AgentTrace, ComputerOperationTarget, StreamEvent};
 use crate::provider::OpenAIProvider;
 use crate::session_sandbox::SessionSandbox;
 use crate::tools::run_subagent::{
@@ -58,6 +58,68 @@ fn serialize_subagent_result_without_task_id(
     // Parent context is the handoff body only. Sub-agent thinking stays on
     // scoped assistant rows and must not round-trip into this tool result.
     serde_json::to_string(&serde_json::Value::Object(obj))
+}
+
+/// Still-running jobs this worker started, so the caller can `job.await` them.
+/// Bodies stay out; finished jobs are not listed.
+fn handoff_with_open_background_jobs(
+    state: &AppState,
+    conversation_id: &str,
+    agent_instance_id: &str,
+    json: String,
+) -> String {
+    let jobs = state
+        .jobs
+        .open_jobs_spawned_by(conversation_id, agent_instance_id);
+    if jobs.is_empty() {
+        return json;
+    }
+    let mut value: serde_json::Value = match serde_json::from_str(&json) {
+        Ok(value) => value,
+        Err(err) => {
+            log::warn!(
+                "run_subagent: open background jobs not attached; result is not json conversation_id={conversation_id} agent_instance_id={agent_instance_id}: {err}"
+            );
+            return json;
+        }
+    };
+    let Some(obj) = value.as_object_mut() else {
+        log::warn!(
+            "run_subagent: open background jobs not attached; result is not an object conversation_id={conversation_id} agent_instance_id={agent_instance_id}"
+        );
+        return json;
+    };
+    let items: Vec<serde_json::Value> = jobs
+        .iter()
+        .map(|job| {
+            let mut item = serde_json::json!({
+                "jobId": job.job_id,
+                "status": job.status,
+                "kind": job.kind,
+            });
+            if let Some(title) = job.title.as_ref().filter(|title| !title.trim().is_empty()) {
+                item["title"] = serde_json::Value::String(title.clone());
+            }
+            item
+        })
+        .collect();
+    log::info!(
+        "run_subagent: open background jobs entered handoff conversation_id={conversation_id} agent_instance_id={agent_instance_id} count={}",
+        items.len()
+    );
+    obj.insert(
+        "openBackgroundJobs".to_string(),
+        serde_json::Value::Array(items),
+    );
+    match serde_json::to_string(&value) {
+        Ok(attached) => attached,
+        Err(err) => {
+            log::warn!(
+                "run_subagent: open background jobs reserialize failed conversation_id={conversation_id} agent_instance_id={agent_instance_id}: {err}"
+            );
+            json
+        }
+    }
 }
 
 pub(super) struct PreparedSubagentOutcome {
@@ -490,20 +552,28 @@ pub(super) async fn execute_owned_subagent(
     let run_result = Box::pin(super::sub_agent::run_sub_agent(&mut sub_ctx)).await;
     let (trace, exec) = match run_result {
         Ok(result) => match serialize_subagent_result_without_task_id(&result) {
-            Ok(json) => (
-                build_subagent_trace(
-                    &task,
-                    def_for_trace,
-                    &instance_scope,
-                    child_spawn_depth,
-                    None,
-                    Some(tool_call_id.as_str()),
-                    Some(message_id.as_str()),
-                    "completed",
-                    Some(truncate_str(&result.content, 160)),
-                ),
-                Ok((json, true, None)),
-            ),
+            Ok(json) => {
+                let json = handoff_with_open_background_jobs(
+                    state,
+                    conversation_id,
+                    &instance_scope.agent_instance_id,
+                    json,
+                );
+                (
+                    build_subagent_trace(
+                        &task,
+                        def_for_trace,
+                        &instance_scope,
+                        child_spawn_depth,
+                        None,
+                        Some(tool_call_id.as_str()),
+                        Some(message_id.as_str()),
+                        "completed",
+                        Some(truncate_str(&result.content, 160)),
+                    ),
+                    Ok((json, true, None)),
+                )
+            }
             Err(err) => {
                 log::warn!(
                     "run_subagent owned-wave result serialize failed conversation_id={} task_id={}: {err}",
@@ -624,6 +694,8 @@ pub(crate) struct BackgroundOwnedSpawn {
     pub host_trace_id: Option<String>,
     pub host_scoped_message_id: Option<String>,
     pub instance_scope: AgentInstanceScope,
+    /// Sub-agent that spawned this job. `None` means the lead.
+    pub parent_agent_instance_id: Option<String>,
     pub resume_history: Option<super::worker_followup::ResumedWorkerHistory>,
     pub followup_reserve: Option<super::job_supervisor::FollowupReserve>,
 }
@@ -693,6 +765,14 @@ pub(crate) fn spawn_background_owned_subagent(spawn: BackgroundOwnedSpawn) -> St
         spawn.cancel.clone(),
         &spawn.run_id,
     );
+    if let Some(parent) = spawn
+        .parent_agent_instance_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        spawn.state.jobs.bind_parent_agent(&job_id, parent);
+    }
     emit_background_jobs(&spawn.stream, &spawn.conversation_id, &spawn.state.jobs);
     log::info!(
         "run_subagent background spawn job_id={job_id} conversation_id={} tool_call_id={} task_id={}",
@@ -1029,20 +1109,20 @@ fn persist_background_host_tool_finish(
             return;
         }
     };
-    let mut messages = match store.load_messages(conversation_id) {
-        Ok(messages) => messages,
-        Err(err) => {
+    let mut msg = match store.load_message(conversation_id, message_id) {
+        Ok(Some(msg)) => msg,
+        Ok(None) => {
             log::warn!(
-                "run_subagent background load_messages failed conversation_id={conversation_id}: {err:#}"
+                "run_subagent background persist missed message conversation_id={conversation_id} message_id={message_id}"
             );
             return;
         }
-    };
-    let Some(msg) = messages.iter_mut().find(|m| m.id == message_id) else {
-        log::warn!(
-            "run_subagent background persist missed message conversation_id={conversation_id} message_id={message_id}"
-        );
-        return;
+        Err(err) => {
+            log::warn!(
+                "run_subagent background load_message failed conversation_id={conversation_id} message_id={message_id}: {err:#}"
+            );
+            return;
+        }
     };
     let Some(tc) = msg
         .tool_calls
@@ -1073,16 +1153,22 @@ fn persist_background_host_tool_finish(
     if !host_still_open && matches!(msg.status.as_str(), "streaming" | "pending") {
         msg.status = "done".into();
     }
-    super::conversation_persist::upsert_message(conversation_id, msg);
+    super::conversation_persist::upsert_message(conversation_id, &msg);
     if let Some(handle) = result {
-        if let Some(tool_msg) = messages.iter_mut().find(|m| {
-            matches!(m.role, Role::Tool) && m.tool_call_id.as_deref() == Some(tool_call_id)
-        }) {
-            tool_msg.content = handle;
-            if tool_msg.status == "streaming" || tool_msg.status.is_empty() {
-                tool_msg.status = "completed".into();
+        match store.load_tool_message_by_call_id(conversation_id, tool_call_id) {
+            Ok(Some(mut tool_msg)) => {
+                tool_msg.content = handle;
+                if tool_msg.status == "streaming" || tool_msg.status.is_empty() {
+                    tool_msg.status = "completed".into();
+                }
+                super::conversation_persist::upsert_message(conversation_id, &tool_msg);
             }
-            super::conversation_persist::upsert_message(conversation_id, tool_msg);
+            Ok(None) => {}
+            Err(err) => {
+                log::warn!(
+                    "run_subagent background load tool message failed conversation_id={conversation_id} tool_call_id={tool_call_id}: {err:#}"
+                );
+            }
         }
     }
     log::info!(
@@ -1307,6 +1393,9 @@ pub(super) async fn run_subagent_delegation(
                             host_trace_id: None,
                             host_scoped_message_id: None,
                             instance_scope: child_scope.clone(),
+                            parent_agent_instance_id: ctx
+                                .parent_agent_instance_id
+                                .map(str::to_string),
                             resume_history: resume_history.clone(),
                             followup_reserve: follow_reserve,
                         });
@@ -1518,6 +1607,12 @@ pub(super) async fn run_subagent_delegation(
                                     log::warn!("run_subagent result serialize failed: {e}");
                                     r#"{"error":"serialize_failed"}"#.to_string()
                                 });
+                            let json = handoff_with_open_background_jobs(
+                                state,
+                                conversation_id,
+                                &instance_scope.agent_instance_id,
+                                json,
+                            );
                             emit_subagent_trace_step(
                                 stream,
                                 ctx,

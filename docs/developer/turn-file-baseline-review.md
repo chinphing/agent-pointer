@@ -52,6 +52,17 @@
 长会话里 `conversations.db` 单会话可达数万行、百 MB 级 payload；
 全量加载会让点击「变更文件」打开右侧 diff 明显变慢（短会话不易察觉）。
 
+### 文件写入时的回合 id 不要每次查全量
+
+`turn_id` 就是本轮 lead 用户消息 id，一轮里不变。
+`run_chat` 开始时从已在内存的工作集取一次并记住（按 `conversation_id`）。
+之后同一次 run 的 `file_edit` / `file_write`（含子 Agent）直接复用，再设 `TurnBaselineGuard`。
+
+进程重启或写入时还没有记住：按 `position` 从尾部读 `message_id` + `content`
+（`role=user` 且 `is_scoped=0`），跳过合成用户行，命中后同样记住。
+不要用 `is_system_generated`，不要 `load_messages`。
+没有真实用户消息时用 `orphan-{conversation_id}`，并且不要把这个占位 id 记住。
+
 ## 性能
 
 | 路径 | 预期成本 | 禁止 |
@@ -60,6 +71,7 @@
 | `save_turn_file_changes` | 每轮冻结成功写一次 `summary.json` | 在每次 file_edit 写摘要；失败不得挡 UI |
 | `list_turn_file_changes` | 读 `summary.json`（或 `.path` 回退）；按 turnIds 批量 | 为页脚拉消息 / scoped |
 | `turn_file_diff` | 读两份全文 + diff；点击 Review 才触发 | 页脚列表里批量算整文件 diff |
+| 写入时的 `turn_id` | 本轮复用已记住的 lead 用户消息 id；未记住时尾部轻量查询一次 | `load_messages`；用 `is_system_generated` 当锚点 |
 
 页脚展示策略见 [`../ui/turn-change-summary.md`](../ui/turn-change-summary.md)「性能」。
 

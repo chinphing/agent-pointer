@@ -81,6 +81,8 @@ pub(super) async fn execute_tool_invocation(
                 provider.settings.workspace_root.clone(),
                 execution_scope,
                 run_id.unwrap_or(""),
+                sub.as_ref()
+                    .map(|config| config.instance_scope.agent_instance_id.as_str()),
             )
             .await
         }
@@ -203,6 +205,11 @@ pub(super) async fn invoke_prepared_parallel(
         "ask_user" => Err(anyhow::anyhow!("ask_user must not run in parallel wave")),
         "terminal" => {
             let run_id = sub_run_id.or(lead_run_id).unwrap_or("");
+            let parent_agent_instance_id = if sub_run_id.is_some() {
+                agent_instance_id
+            } else {
+                None
+            };
             terminal::run_terminal_tool(
                 stream,
                 state,
@@ -217,6 +224,7 @@ pub(super) async fn invoke_prepared_parallel(
                 provider.settings.workspace_root.clone(),
                 execution_scope,
                 run_id,
+                parent_agent_instance_id,
             )
             .await
         }

@@ -44,7 +44,13 @@ Hand off one **self-contained task** to a registered worker or a **self fork**.
 - **`background: false`** (or **`computer`**): **`content`** —
   Markdown: the worker’s final assistant message.
   Merge into your plan; do not paste the full handoff to the user.
-- Only **`content`** (or the job handle). Worker thinking is not included.
+- That result may include **`openBackgroundJobs`**.
+  Those jobs are still running. This worker started them.
+  Each entry has **`jobId`**, **`status`**, **`kind`**, and **`title`**.
+  No body. Use **`job.status`** or **`job.await`** on those ids.
+  Do not treat **`content`** as covering them.
+- Only **`content`**, **`openBackgroundJobs`**, or the job handle.
+  Worker thinking is not included.
 
 **End turn vs await**
 
@@ -107,10 +113,13 @@ Do not pack unrelated work; do not split a tight one-file edit.
 - **`computer`** must stay foreground (omit stays join).
 - Prefer **`background: false`** for **`coder`** when two writers would
   touch the same files in the same turn without sequencing.
-- If this turn ends first, keep jobs running.
-  The host later starts one more turn in this conversation
-  with finished unclaimed results. Do not say everything is done
-  while jobs are still running.
+- If this turn ends first, jobs you started keep running.
+  Do not say everything is done while jobs are still running.
+- A job you started from the lead may be delivered later
+  in one lead turn, if you did not `job.await` it.
+- A job started inside a sub-agent stays with that sub-agent.
+  Call `job.await` there. It is not delivered to the outer agent,
+  and the host does not start a new turn for it.
 - Task list is already complete → spawn them all (default background),
   then `job.await` `mode=all`. Host queues to the concurrency cap.
 - Next task depends on a finished result → `job.await` `mode=any`.

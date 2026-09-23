@@ -54,6 +54,41 @@ How Pointer reduces **peak RSS during a chat turn** without changing the persist
   `load_lead_working_messages`.
 - UI paging / FTS / meta listing still read SQLite directly (not the working set).
 
+## Do not load the full transcript to start a turn
+
+`run_chat` replaces the incoming vec with the lead working set
+(`context_included = 1`) inside `prepare_lead_history`. Callers that only
+need to append one new user row — idle job push, cron — pass that row alone.
+Loading `load_messages` first deserializes every soft-excluded and scoped
+payload (tens of thousands of rows on a long session) and the process keeps
+that allocator arena after the vec is dropped.
+
+Patching one host tool call or one tool result uses `load_message` /
+`load_tool_message_by_call_id`. Follow-up goal lookup uses the tool-content
+and assistant tool-call lookups. Those paths must not call `load_messages`.
+
+The same rule covers the remaining full-transcript readers:
+
+- **Turn id for file baselines.** `run_chat` pins the latest real lead user
+  message id once (`remember_active_turn_id`). `file_write` / `file_edit`
+  reuse that id for the rest of the turn, including sub-agent writes. A miss
+  (restart, or a write before the pin) reads `message_id` + `content` from
+  the tail (`role=user`, `is_scoped=0`, skip synthetic content) and then pins
+  it. Do not use `is_system_generated` for this anchor, and do not call
+  `load_messages`.
+- **IM and webhook append.** Dispatch only the new user message. Webhook
+  full-history override (more than one message, or any assistant/tool row)
+  still passes the request messages and does not read the transcript.
+- **Last assistant reply.** IM pages assistant payloads until `rawContent`
+  or `content` is non-empty. Webhook polling reads the newest non-empty
+  assistant `content` column.
+- **Attachments.** Find by id or media ref scans user payloads that contain
+  the needle, newest first, and stops on the first confirmed hit. Candidate
+  lists read recent user rows that have attachments until a few are collected.
+- **Legacy full loads** (`load_conversations`, unpaged
+  `load_conversation_messages`) stay available for external callers and log
+  the row count. Do not send the UI down those paths.
+
 ## Still cloned (acceptable / later)
 
 - `make_openai_messages_with_inject` still clones included rows into the filter/expand pipeline (needed for tool flatten).

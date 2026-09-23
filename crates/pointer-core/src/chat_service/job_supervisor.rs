@@ -101,6 +101,9 @@ struct JobRecord {
     conversation_id: String,
     /// Parent `run_chat` id; used to defer token `finalize_run` until idle.
     run_id: String,
+    /// Agent that spawned this job. `None` is the lead.
+    /// Sub-agent-owned jobs are not idle-pushed to the lead.
+    parent_agent_instance_id: Option<String>,
     kind: JobKind,
     status: JobStatus,
     content: Option<String>,
@@ -624,6 +627,7 @@ impl JobSupervisor {
             id: id.clone(),
             conversation_id: conversation_id.to_string(),
             run_id: run_id.to_string(),
+            parent_agent_instance_id: None,
             kind,
             status: JobStatus::Queued,
             content: None,
@@ -649,6 +653,57 @@ impl JobSupervisor {
         );
         self.notify();
         id
+    }
+
+    /// Still-queued or running jobs this sub-agent started.
+    /// Finished jobs are omitted; their bodies stay on `job.await`.
+    pub fn open_jobs_spawned_by(
+        &self,
+        conversation_id: &str,
+        parent_agent_instance_id: &str,
+    ) -> Vec<OpenBackgroundJob> {
+        let parent = parent_agent_instance_id.trim();
+        if parent.is_empty() {
+            log::warn!(
+                "job_supervisor: open jobs lookup skipped empty parent conversation_id={conversation_id}"
+            );
+            return Vec::new();
+        }
+        let inner = self.inner.lock();
+        let Some(ids) = inner.by_conversation.get(conversation_id) else {
+            return Vec::new();
+        };
+        ids.iter()
+            .filter_map(|id| {
+                let job = inner.jobs.get(id)?;
+                if job.parent_agent_instance_id.as_deref().map(str::trim) != Some(parent) {
+                    return None;
+                }
+                if job.status.is_terminal() {
+                    return None;
+                }
+                Some(open_background_job(job))
+            })
+            .collect()
+    }
+
+    /// Completion of this job stays with the spawning sub-agent (`job.await`),
+    /// and is not delivered by idle push to the lead.
+    pub fn bind_parent_agent(&self, job_id: &str, parent_agent_instance_id: &str) {
+        let parent = parent_agent_instance_id.trim();
+        if parent.is_empty() {
+            log::warn!("job_supervisor: bind parent skipped empty id job_id={job_id}");
+            return;
+        }
+        let mut inner = self.inner.lock();
+        let Some(job) = inner.jobs.get_mut(job_id) else {
+            log::warn!("job_supervisor: bind parent unknown job_id={job_id}");
+            return;
+        };
+        job.parent_agent_instance_id = Some(parent.to_string());
+        log::info!(
+            "job_supervisor: job_id={job_id} parent_agent_instance_id={parent} idle_push=false"
+        );
     }
 
     /// True when this sub-agent thread has a queued/running job or a follow-up claim.
@@ -818,9 +873,11 @@ impl JobSupervisor {
         job.error = error;
         let conversation_id = job.conversation_id.clone();
         let run_id = job.run_id.clone();
-        let pushable = matches!(status, JobStatus::Completed | JobStatus::Failed);
+        let lead_owned = spawned_by_lead(job);
+        let parent_agent_instance_id = job.parent_agent_instance_id.clone();
+        let pushable = lead_owned && matches!(status, JobStatus::Completed | JobStatus::Failed);
         log::info!(
-            "job_supervisor: job_id={job_id} conversation_id={} run_id={} status={}",
+            "job_supervisor: job_id={job_id} conversation_id={} run_id={} status={} lead_owned={lead_owned}",
             conversation_id,
             run_id,
             status.as_str()
@@ -831,6 +888,12 @@ impl JobSupervisor {
             if let Some(cb) = self.on_pushable.lock().clone() {
                 cb(conversation_id);
             }
+        } else if matches!(status, JobStatus::Completed | JobStatus::Failed) {
+            log::info!(
+                "job_supervisor: completion stays with spawning agent job_id={job_id} parent_agent_instance_id={} status={}",
+                parent_agent_instance_id.as_deref().unwrap_or(""),
+                status.as_str()
+            );
         }
         Some(run_id)
     }
@@ -1446,8 +1509,50 @@ fn job_list_item(job: &JobRecord, include_content: bool) -> JobListItem {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenBackgroundJob {
+    pub job_id: String,
+    pub status: String,
+    pub kind: String,
+    pub title: Option<String>,
+}
+
+fn open_background_job(job: &JobRecord) -> OpenBackgroundJob {
+    let (kind, title) = match &job.kind {
+        JobKind::Subagent(k) => (
+            "subagent",
+            Some(k.title.clone()).filter(|s| !s.trim().is_empty()),
+        ),
+        JobKind::Terminal(k) => (
+            "terminal",
+            Some(
+                k.label
+                    .clone()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| crate::text_util::truncate_chars(&k.command, 80)),
+            ),
+        ),
+    };
+    OpenBackgroundJob {
+        job_id: job.id.clone(),
+        status: job.status.as_str().to_string(),
+        kind: kind.to_string(),
+        title,
+    }
+}
+
+fn spawned_by_lead(job: &JobRecord) -> bool {
+    job.parent_agent_instance_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .is_none()
+}
+
 fn job_is_idle_pushable(job: &JobRecord) -> bool {
-    !job.claimed && matches!(job.status, JobStatus::Completed | JobStatus::Failed)
+    spawned_by_lead(job)
+        && !job.claimed
+        && matches!(job.status, JobStatus::Completed | JobStatus::Failed)
 }
 
 fn idle_push_item(job: &JobRecord) -> IdlePushItem {
@@ -2142,5 +2247,44 @@ mod tests {
         let again = sup.claim_pushable("c1");
         assert_eq!(again.len(), 1);
         assert_eq!(again[0].job_id, done);
+    }
+
+    #[test]
+    fn claim_pushable_skips_jobs_spawned_by_subagent() {
+        let sup = JobSupervisor::new();
+        let lead = sup.register("c1", kind(), CancellationToken::new(), "test-run");
+        let nested = sup.register("c1", kind(), CancellationToken::new(), "test-run");
+        sup.bind_parent_agent(&nested, "inst-a");
+        sup.finish(&lead, JobStatus::Completed, Some("lead-done".into()), None);
+        sup.finish(
+            &nested,
+            JobStatus::Completed,
+            Some("nested-done".into()),
+            None,
+        );
+        let items = sup.claim_pushable("c1");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].job_id, lead);
+        assert!(!sup.is_claimed(&nested));
+        let awaited = sup.claim_if_unclaimed(&nested).unwrap();
+        assert_eq!(awaited.content.as_deref(), Some("nested-done"));
+    }
+
+    #[test]
+    fn open_jobs_spawned_by_lists_only_live_jobs_of_that_agent() {
+        let sup = JobSupervisor::new();
+        let lead = sup.register("c1", kind(), CancellationToken::new(), "test-run");
+        let live = sup.register("c1", kind(), CancellationToken::new(), "test-run");
+        let done = sup.register("c1", kind(), CancellationToken::new(), "test-run");
+        sup.bind_parent_agent(&live, "inst-a");
+        sup.bind_parent_agent(&done, "inst-a");
+        sup.finish(&done, JobStatus::Completed, Some("gone".into()), None);
+        let open = sup.open_jobs_spawned_by("c1", "inst-a");
+        assert_eq!(open.len(), 1);
+        assert_eq!(open[0].job_id, live);
+        assert_eq!(open[0].status, "queued");
+        assert!(sup.open_jobs_spawned_by("c1", "inst-b").is_empty());
+        assert!(sup.open_jobs_spawned_by("c1", " ").is_empty());
+        assert_ne!(open[0].job_id, lead);
     }
 }

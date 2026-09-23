@@ -1,9 +1,8 @@
 //! Resolve attachment refs for task-board init (and related tools).
 
 use crate::models::{ChatMessage, MediaAttachment, Role};
-use crate::storage;
 
-use super::attachment_lookup::find_attachment_by_media_ref;
+use super::attachment_lookup::{find_attachment_by_id, find_attachment_by_media_ref};
 use super::manifest::{
     attachment_has_remote, attachment_local_abs_path, format_user_attachments_api_manifest,
 };
@@ -161,9 +160,12 @@ fn resolve_one_spec(
                 return Some(att);
             }
         }
-        if let Ok(messages) = storage::load_conversation_messages(conversation_id) {
-            if let Some(att) = find_attachment_by_id_in_messages(&messages, id) {
-                return Some(att);
+        match find_attachment_by_id(conversation_id, id) {
+            Ok(Some(att)) => return Some(att),
+            Ok(None) => {}
+            Err(error) => {
+                log::warn!("delegation: attachment id lookup failed {id}: {error:#}");
+                return None;
             }
         }
         log::warn!("delegation: attachment id not found: {id}");

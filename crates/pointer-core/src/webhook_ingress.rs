@@ -238,7 +238,7 @@ fn has_structured_message(body: &WebhookIngressBody) -> bool {
 
 /// Build the message history passed to `RunDispatcher` for one webhook ingress.
 pub fn build_webhook_dispatch_messages(
-    store: &ConversationStore,
+    _store: &ConversationStore,
     conversation_id: &str,
     inbound: &WebhookInboundTurn,
 ) -> Result<Vec<ChatMessage>> {
@@ -249,11 +249,17 @@ pub fn build_webhook_dispatch_messages(
             }
         }
         if is_full_history_override(msgs) {
+            log::info!(
+                "webhook ingress: full history override conversation_id={conversation_id} dispatch_messages={}",
+                msgs.len()
+            );
             return Ok(msgs.clone());
         }
-        let mut history = store.load_messages(conversation_id).unwrap_or_default();
-        history.extend(msgs.clone());
-        return Ok(history);
+        log::info!(
+            "webhook ingress: append delta conversation_id={conversation_id} dispatch_messages={}",
+            msgs.len()
+        );
+        return Ok(msgs.clone());
     }
 
     let raw = resolve_inbound_text(inbound)?;
@@ -263,9 +269,10 @@ pub fn build_webhook_dispatch_messages(
         validate_webhook_attachments(conversation_id, atts)?;
         user_msg.attachments = Some(atts.clone());
     }
-    let mut history = store.load_messages(conversation_id).unwrap_or_default();
-    history.push(user_msg);
-    Ok(history)
+    log::info!(
+        "webhook ingress: append delta conversation_id={conversation_id} dispatch_messages=1"
+    );
+    Ok(vec![user_msg])
 }
 
 /// Last user message in `messages` (for UI `InjectedUserMessage` broadcast).
@@ -331,9 +338,35 @@ mod tests {
             },
         )
         .unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].content, "new event");
+        let stored = s.load_messages(conv).unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].content, "prior");
+    }
+
+    #[test]
+    fn full_history_override_does_not_read_stored_transcript() {
+        let s = store();
+        let conv = "webhook:override";
+        s.append_missing_messages(conv, &[ChatMessage::user_text("prior")])
+            .unwrap();
+        let user = ChatMessage::user_text("replacement");
+        let mut assistant = ChatMessage::user_text("answer");
+        assistant.role = Role::Assistant;
+        let msgs = build_webhook_dispatch_messages(
+            &s,
+            conv,
+            &WebhookInboundTurn {
+                messages: Some(vec![user, assistant]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(msgs.len(), 2);
-        assert_eq!(msgs[0].content, "prior");
-        assert_eq!(msgs[1].content, "new event");
+        assert_eq!(msgs[0].content, "replacement");
+        assert_eq!(msgs[1].content, "answer");
+        assert!(msgs.iter().all(|m| m.content != "prior"));
     }
 
     #[test]

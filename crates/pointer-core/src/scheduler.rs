@@ -173,27 +173,17 @@ impl Scheduler {
                 expected_session_id
             );
         }
-        // Load the active session's transcript; on a rollover/first-fire this is
-        // empty (new session id), so the new prompt starts a fresh transcript.
-        let mut messages = match self.state.session_index.load_messages(&expected_session_id) {
-            Ok(history) => history,
-            Err(e) => {
-                log::warn!(
-                    "scheduler: load cron session history failed id={} session={}: {e:#}",
-                    job.id,
-                    expected_session_id
-                );
-                Vec::new()
-            }
-        };
         // Hermes-aligned: cron execution guidance is prepended to the user
         // message (`build_cron_user_prompt`), not injected as a system block.
         // Broadcast so a live-open cron session UI sees the user turn (same
         // pattern as IM inbound); otherwise only assistant stream events appear.
+        // Delta only — `prepare_lead_history` reloads the lead working set.
+        // A first-fire / rollover session has no prior rows, so this is the
+        // whole transcript until the turn writes more.
         let user_msg = ChatMessage::user_text(build_cron_user_prompt(&job.prompt_text));
         let user_msg_id = user_msg.id.clone();
         let user_msg_content = user_msg.content.clone();
-        messages.push(user_msg);
+        let messages = vec![user_msg];
         stream_broadcast::broadcast_stream(&StreamEvent::InjectedUserMessage {
             conversation_id: expected_session_id.clone(),
             message_id: user_msg_id,
@@ -202,10 +192,10 @@ impl Scheduler {
             ui_bindings: None,
         });
         log::info!(
-            "scheduler: dispatching job id={} session={} history_len={} prompt_len={} deliver={:?}",
+            "scheduler: dispatching job id={} session={} dispatch_messages={} prompt_len={} deliver={:?}",
             job.id,
             expected_session_id,
-            messages.len().saturating_sub(1),
+            messages.len(),
             job.prompt_text.len(),
             job.deliver,
         );

@@ -1,8 +1,7 @@
 //! Resolve persisted attachment metadata by `pointer-media://` ref.
 
 use crate::media::path_hint::MEDIA_URI_SCHEME;
-use crate::models::{MediaAttachment, Role};
-use crate::storage;
+use crate::models::MediaAttachment;
 use anyhow::Result;
 
 fn rel_from_media_ref(raw: &str) -> &str {
@@ -21,8 +20,8 @@ pub fn find_attachment_by_media_ref(
     if rel.is_empty() {
         return Ok(None);
     }
-    find_attachment(conversation_id, |att| {
-        let tail_id = rel.rsplit('/').next().unwrap_or(rel);
+    let tail_id = rel.rsplit('/').next().unwrap_or(rel);
+    find_attachment(conversation_id, rel, tail_id, |att| {
         att.storage_rel_path
             .as_deref()
             .is_some_and(|p| p.trim() == rel)
@@ -45,37 +44,20 @@ pub fn find_attachment_by_id(
     if id.is_empty() {
         return Ok(None);
     }
-    find_attachment(conversation_id, |att| att.id == id)
+    find_attachment(conversation_id, id, "", |att| att.id == id)
 }
 
 pub fn conversation_user_attachments(conversation_id: &str) -> Result<Vec<MediaAttachment>> {
-    let messages = storage::load_conversation_messages(conversation_id)?;
-    let mut out = Vec::new();
-    for msg in messages.iter().rev() {
-        if matches!(msg.role, Role::User) {
-            if let Some(atts) = &msg.attachments {
-                out.extend(atts.iter().cloned());
-            }
-        }
-    }
-    Ok(out)
+    let store = crate::conversation_store::global_store()?;
+    store.load_recent_user_attachments(conversation_id, 3)
 }
 
 fn find_attachment(
     conversation_id: &str,
+    needle: &str,
+    alt_needle: &str,
     matches: impl Fn(&MediaAttachment) -> bool,
 ) -> Result<Option<MediaAttachment>> {
-    let messages = storage::load_conversation_messages(conversation_id)?;
-    for msg in messages.iter().rev() {
-        if !matches!(msg.role, Role::User) {
-            continue;
-        }
-        let Some(atts) = &msg.attachments else {
-            continue;
-        };
-        if let Some(att) = atts.iter().find(|att| matches(att)) {
-            return Ok(Some(att.clone()));
-        }
-    }
-    Ok(None)
+    let store = crate::conversation_store::global_store()?;
+    store.find_user_attachment(conversation_id, needle, alt_needle, matches)
 }

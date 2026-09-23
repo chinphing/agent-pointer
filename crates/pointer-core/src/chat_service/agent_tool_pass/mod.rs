@@ -1202,6 +1202,11 @@ async fn run_self_fork_wave(
                             host_trace_id: input.host_trace_id.clone(),
                             host_scoped_message_id: input.host_scoped_message_id.clone(),
                             instance_scope: child_scope.clone(),
+                            parent_agent_instance_id: pass
+                                .ctx
+                                .sub
+                                .as_ref()
+                                .map(|sub| sub.instance_scope.agent_instance_id.clone()),
                             resume_history: input.resume_history.clone(),
                             followup_reserve: input.followup_reserve.take(),
                         },

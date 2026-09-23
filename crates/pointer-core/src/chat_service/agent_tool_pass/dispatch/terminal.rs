@@ -207,6 +207,7 @@ pub(super) async fn run_terminal_tool(
     session_workspace: String,
     execution_scope: ToolExecutionScope,
     run_id: &str,
+    parent_agent_instance_id: Option<&str>,
 ) -> ToolExecResult {
     let session_workspace = resolve_terminal_session_workspace(conversation_id, session_workspace);
     if session_workspace.trim().is_empty() {
@@ -242,6 +243,7 @@ pub(super) async fn run_terminal_tool(
             execution_scope,
             block_until_ms,
             run_id,
+            parent_agent_instance_id,
         )
         .await;
     }
@@ -378,6 +380,7 @@ async fn run_terminal_background(
     execution_scope: ToolExecutionScope,
     block_until_ms: u64,
     run_id: &str,
+    parent_agent_instance_id: Option<&str>,
 ) -> ToolExecResult {
     let job_cancel = CancellationToken::new();
     let (command, label) = terminal_job_title(&args_value);
@@ -390,6 +393,12 @@ async fn run_terminal_background(
     let job_id = state
         .jobs
         .register(conversation_id, kind, job_cancel.clone(), run_id);
+    if let Some(parent) = parent_agent_instance_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        state.jobs.bind_parent_agent(&job_id, parent);
+    }
     emit_background_jobs(stream, conversation_id, &state.jobs);
     log::info!(
         "terminal background spawn job_id={job_id} conversation_id={conversation_id} tool_call_id={} block_until_ms={block_until_ms} nested={}",

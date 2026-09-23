@@ -157,33 +157,60 @@ fn original_assigned_goal(
     conversation_id: &str,
     instance_id: &str,
 ) -> Option<String> {
-    let messages = match state.session_index.load_messages(conversation_id) {
-        Ok(messages) => messages,
+    let tool_msg = match state
+        .session_index
+        .load_first_tool_message_containing(conversation_id, instance_id)
+    {
+        Ok(Some(msg)) => msg,
+        Ok(None) => {
+            log::warn!(
+                "worker_followup: original goal not found conversation_id={conversation_id} agent_instance_id={instance_id}"
+            );
+            return None;
+        }
         Err(err) => {
             log::warn!(
-                "worker_followup: load lead messages for original goal failed conversation_id={conversation_id} agent_instance_id={instance_id}: {err:#}"
+                "worker_followup: load tool message for original goal failed conversation_id={conversation_id} agent_instance_id={instance_id}: {err:#}"
             );
             return None;
         }
     };
-    let tool_call_id = messages.iter().find_map(|msg| {
-        if !matches!(msg.role, Role::Tool) {
+    let Some(tool_call_id) = tool_msg.tool_call_id.filter(|id| !id.trim().is_empty()) else {
+        log::warn!(
+            "worker_followup: tool row has no tool_call_id conversation_id={conversation_id} agent_instance_id={instance_id} message_id={}",
+            tool_msg.id
+        );
+        return None;
+    };
+    let host = match state.session_index.load_assistant_message_with_tool_call(
+        conversation_id,
+        &tool_call_id,
+        "run_subagent",
+    ) {
+        Ok(Some(msg)) => msg,
+        Ok(None) => {
+            log::warn!(
+                "worker_followup: original goal not found conversation_id={conversation_id} agent_instance_id={instance_id}"
+            );
             return None;
         }
-        if !msg.content.contains(instance_id) {
+        Err(err) => {
+            log::warn!(
+                "worker_followup: load host tool call for original goal failed conversation_id={conversation_id} tool_call_id={tool_call_id}: {err:#}"
+            );
             return None;
         }
-        msg.tool_call_id.clone()
-    })?;
-    for msg in &messages {
-        let Some(calls) = msg.tool_calls.as_ref() else {
-            continue;
-        };
-        for call in calls {
-            if call.id != tool_call_id || call.name != "run_subagent" {
-                continue;
-            }
-            let goal = serde_json::from_str::<serde_json::Value>(&call.arguments)
+    };
+    let goal = host
+        .tool_calls
+        .as_ref()
+        .and_then(|calls| {
+            calls
+                .iter()
+                .find(|call| call.id == tool_call_id && call.name == "run_subagent")
+        })
+        .and_then(|call| {
+            serde_json::from_str::<serde_json::Value>(&call.arguments)
                 .ok()
                 .and_then(|value| {
                     value
@@ -192,19 +219,14 @@ fn original_assigned_goal(
                         .map(str::trim)
                         .filter(|s| !s.is_empty())
                         .map(str::to_string)
-                });
-            if goal.is_none() {
-                log::warn!(
-                    "worker_followup: original run_subagent has no goal conversation_id={conversation_id} tool_call_id={tool_call_id}"
-                );
-            }
-            return goal;
-        }
+                })
+        });
+    if goal.is_none() {
+        log::warn!(
+            "worker_followup: original run_subagent has no goal conversation_id={conversation_id} tool_call_id={tool_call_id}"
+        );
     }
-    log::warn!(
-        "worker_followup: original goal not found conversation_id={conversation_id} agent_instance_id={instance_id}"
-    );
-    None
+    goal
 }
 
 /// Close tool calls that never received a result, then append the follow-up instruction.

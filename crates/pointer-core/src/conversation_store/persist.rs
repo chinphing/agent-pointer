@@ -560,6 +560,168 @@ pub(crate) fn load_messages(conn: &Connection, conversation_id: &str) -> Result<
         .collect())
 }
 
+fn decode_stored_payload(
+    conversation_id: &str,
+    message_id: &str,
+    payload: &str,
+) -> Option<ChatMessage> {
+    match serde_json::from_str::<ChatMessage>(payload) {
+        Ok(msg) => Some(msg),
+        Err(err) => {
+            log::warn!(
+                "conversation_store: skip corrupt message conversation_id={conversation_id} message_id={message_id}: {err}"
+            );
+            None
+        }
+    }
+}
+
+/// One row by `(conversation_id, message_id)`. Does not scan the transcript.
+pub(crate) fn load_message_by_id(
+    conn: &Connection,
+    conversation_id: &str,
+    message_id: &str,
+) -> Result<Option<ChatMessage>> {
+    let id = message_id.trim();
+    if id.is_empty() {
+        log::warn!(
+            "conversation_store: load_message skipped; empty message_id conversation_id={conversation_id}"
+        );
+        return Ok(None);
+    }
+    let row: Option<(String, String)> = conn
+        .query_row(
+            "SELECT message_id, payload FROM messages
+             WHERE conversation_id = ?1 AND message_id = ?2",
+            params![conversation_id, id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let Some((message_id, payload)) = row else {
+        return Ok(None);
+    };
+    Ok(decode_stored_payload(
+        conversation_id,
+        &message_id,
+        &payload,
+    ))
+}
+
+/// First `role=tool` row whose payload `toolCallId` matches. One row, not the transcript.
+pub(crate) fn load_tool_message_by_call_id(
+    conn: &Connection,
+    conversation_id: &str,
+    tool_call_id: &str,
+) -> Result<Option<ChatMessage>> {
+    let id = tool_call_id.trim();
+    if id.is_empty() {
+        log::warn!(
+            "conversation_store: tool message lookup skipped; empty tool_call_id conversation_id={conversation_id}"
+        );
+        return Ok(None);
+    }
+    let row: Option<(String, String)> = conn
+        .query_row(
+            "SELECT message_id, payload FROM messages
+             WHERE conversation_id = ?1
+               AND role = 'tool'
+               AND json_valid(payload) = 1
+               AND json_extract(payload, '$.toolCallId') = ?2
+             ORDER BY position ASC
+             LIMIT 1",
+            params![conversation_id, id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let Some((message_id, payload)) = row else {
+        return Ok(None);
+    };
+    Ok(decode_stored_payload(
+        conversation_id,
+        &message_id,
+        &payload,
+    ))
+}
+
+/// First tool row whose `content` column contains `needle` (position order).
+pub(crate) fn load_first_tool_message_containing(
+    conn: &Connection,
+    conversation_id: &str,
+    needle: &str,
+) -> Result<Option<ChatMessage>> {
+    let needle = needle.trim();
+    if needle.is_empty() {
+        log::warn!(
+            "conversation_store: tool content lookup skipped; empty needle conversation_id={conversation_id}"
+        );
+        return Ok(None);
+    }
+    let row: Option<(String, String)> = conn
+        .query_row(
+            "SELECT message_id, payload FROM messages
+             WHERE conversation_id = ?1
+               AND role = 'tool'
+               AND instr(content, ?2) > 0
+             ORDER BY position ASC
+             LIMIT 1",
+            params![conversation_id, needle],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let Some((message_id, payload)) = row else {
+        return Ok(None);
+    };
+    Ok(decode_stored_payload(
+        conversation_id,
+        &message_id,
+        &payload,
+    ))
+}
+
+/// First assistant row that has a tool call with this id and name.
+pub(crate) fn load_assistant_message_with_tool_call(
+    conn: &Connection,
+    conversation_id: &str,
+    tool_call_id: &str,
+    tool_name: &str,
+) -> Result<Option<ChatMessage>> {
+    let id = tool_call_id.trim();
+    let name = tool_name.trim();
+    if id.is_empty() || name.is_empty() {
+        log::warn!(
+            "conversation_store: assistant tool-call lookup skipped; empty id or name conversation_id={conversation_id}"
+        );
+        return Ok(None);
+    }
+    // `json_each` errors when `toolCalls` is null. Match the id in SQL, then
+    // confirm name + id on the decoded row so a content substring cannot win.
+    let mut stmt = conn.prepare(
+        "SELECT message_id, payload FROM messages
+         WHERE conversation_id = ?1
+           AND role = 'assistant'
+           AND json_valid(payload) = 1
+           AND instr(payload, ?2) > 0
+         ORDER BY position ASC",
+    )?;
+    let rows = stmt.query_map(params![conversation_id, id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    for row in rows {
+        let (message_id, payload) = row?;
+        let Some(msg) = decode_stored_payload(conversation_id, &message_id, &payload) else {
+            continue;
+        };
+        let hit = msg
+            .tool_calls
+            .as_ref()
+            .is_some_and(|calls| calls.iter().any(|call| call.id == id && call.name == name));
+        if hit {
+            return Ok(Some(msg));
+        }
+    }
+    Ok(None)
+}
+
 /// Lead user turn ids after `turn_id`, ordered by position.
 ///
 /// Used by turn-file review to find the next baseline without deserializing the
@@ -611,6 +773,364 @@ pub(crate) fn load_subsequent_lead_turn_ids(
     }
     log::info!(
         "conversation_store: subsequent lead turns conversation_id={conversation_id} turn_id={turn_id} count={}",
+        out.len()
+    );
+    Ok(out)
+}
+
+const TAIL_PAGE: i64 = 32;
+
+struct TailCursor {
+    position: i64,
+    row_id: i64,
+}
+
+impl TailCursor {
+    fn start() -> Self {
+        Self {
+            position: i64::MAX,
+            row_id: i64::MAX,
+        }
+    }
+
+    fn advance(&mut self, position: i64, row_id: i64) {
+        self.position = position;
+        self.row_id = row_id;
+    }
+}
+
+/// Latest lead user message id (`role=user`, `is_scoped=0`, not synthetic).
+///
+/// Pages `message_id` + `content` from the tail. Does not deserialize `payload`
+/// and does not use `is_system_generated` (that column also skips screen injects).
+pub(crate) fn load_latest_real_lead_user_message_id(
+    conn: &Connection,
+    conversation_id: &str,
+) -> Result<Option<String>> {
+    let mut cursor = TailCursor::start();
+    let mut scanned = 0u32;
+    loop {
+        let mut stmt = conn.prepare(
+            "SELECT id, position, message_id, content FROM messages
+             WHERE conversation_id = ?1
+               AND role = 'user'
+               AND is_scoped = 0
+               AND (position < ?2 OR (position = ?2 AND id < ?3))
+             ORDER BY position DESC, id DESC
+             LIMIT ?4",
+        )?;
+        let rows = stmt.query_map(
+            params![conversation_id, cursor.position, cursor.row_id, TAIL_PAGE],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            },
+        )?;
+        let mut batch = Vec::new();
+        for row in rows {
+            batch.push(row?);
+        }
+        if batch.is_empty() {
+            log::info!(
+                "conversation_store: latest lead user turn conversation_id={conversation_id} scanned={scanned} found=false"
+            );
+            return Ok(None);
+        }
+        for (row_id, position, message_id, content) in &batch {
+            cursor.advance(*position, *row_id);
+            scanned += 1;
+            let id = message_id.trim();
+            if id.is_empty() {
+                continue;
+            }
+            if crate::message_context::is_synthetic_user_content(content) {
+                continue;
+            }
+            log::info!(
+                "conversation_store: latest lead user turn conversation_id={conversation_id} scanned={scanned} message_id={id}"
+            );
+            return Ok(Some(id.to_string()));
+        }
+        if (batch.len() as i64) < TAIL_PAGE {
+            log::info!(
+                "conversation_store: latest lead user turn conversation_id={conversation_id} scanned={scanned} found=false"
+            );
+            return Ok(None);
+        }
+    }
+}
+
+/// Last non-empty assistant `content` column, newest position first.
+///
+/// `content` is the indexed assistant body (`rawContent` is payload-only).
+pub(crate) fn load_last_assistant_content(
+    conn: &Connection,
+    conversation_id: &str,
+) -> Result<Option<String>> {
+    let content: Option<String> = conn
+        .query_row(
+            "SELECT content FROM messages
+             WHERE conversation_id = ?1
+               AND role = 'assistant'
+               AND length(trim(content)) > 0
+             ORDER BY position DESC, id DESC
+             LIMIT 1",
+            params![conversation_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let text = content
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    log::info!(
+        "conversation_store: last assistant content conversation_id={conversation_id} found={}",
+        text.is_some()
+    );
+    Ok(text)
+}
+
+/// Newest assistant body for IM delivery: `rawContent`, then `content`.
+///
+/// Pages assistant payloads from the tail and stops at the first non-empty body.
+pub(crate) fn load_last_assistant_outbound_text(
+    conn: &Connection,
+    conversation_id: &str,
+) -> Result<Option<String>> {
+    let mut cursor = TailCursor::start();
+    let mut scanned = 0u32;
+    loop {
+        let mut stmt = conn.prepare(
+            "SELECT id, position, message_id, payload FROM messages
+             WHERE conversation_id = ?1
+               AND role = 'assistant'
+               AND (position < ?2 OR (position = ?2 AND id < ?3))
+             ORDER BY position DESC, id DESC
+             LIMIT ?4",
+        )?;
+        let rows = stmt.query_map(
+            params![conversation_id, cursor.position, cursor.row_id, TAIL_PAGE],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            },
+        )?;
+        let mut batch = Vec::new();
+        for row in rows {
+            batch.push(row?);
+        }
+        if batch.is_empty() {
+            log::info!(
+                "conversation_store: last assistant outbound conversation_id={conversation_id} scanned={scanned} found=false"
+            );
+            return Ok(None);
+        }
+        for (row_id, position, message_id, payload) in &batch {
+            cursor.advance(*position, *row_id);
+            scanned += 1;
+            let Some(msg) = decode_stored_payload(conversation_id, message_id, payload) else {
+                continue;
+            };
+            let raw = msg.raw_content.as_deref().unwrap_or("").trim();
+            if !raw.is_empty() {
+                log::info!(
+                    "conversation_store: last assistant outbound conversation_id={conversation_id} scanned={scanned} source=raw message_id={message_id}"
+                );
+                return Ok(Some(raw.to_string()));
+            }
+            let content = msg.content.trim();
+            if !content.is_empty() {
+                log::info!(
+                    "conversation_store: last assistant outbound conversation_id={conversation_id} scanned={scanned} source=content message_id={message_id}"
+                );
+                return Ok(Some(content.to_string()));
+            }
+        }
+        if (batch.len() as i64) < TAIL_PAGE {
+            log::info!(
+                "conversation_store: last assistant outbound conversation_id={conversation_id} scanned={scanned} found=false"
+            );
+            return Ok(None);
+        }
+    }
+}
+
+fn payload_contains_needle_sql() -> &'static str {
+    "SELECT id, position, message_id, payload FROM messages
+     WHERE conversation_id = ?1
+       AND role = 'user'
+       AND (instr(payload, ?2) > 0 OR (?3 != '' AND instr(payload, ?3) > 0))
+       AND (position < ?4 OR (position = ?4 AND id < ?5))
+     ORDER BY position DESC, id DESC
+     LIMIT ?6"
+}
+
+/// Newest user row whose payload contains `needle` (or `alt_needle`) and whose
+/// attachment matches `matches`. Stops at the first confirmed hit.
+pub(crate) fn find_user_attachment(
+    conn: &Connection,
+    conversation_id: &str,
+    needle: &str,
+    alt_needle: &str,
+    matches: impl Fn(&crate::models::MediaAttachment) -> bool,
+) -> Result<Option<crate::models::MediaAttachment>> {
+    let needle = needle.trim();
+    let alt_needle = alt_needle.trim();
+    if needle.is_empty() && alt_needle.is_empty() {
+        log::warn!(
+            "conversation_store: attachment lookup skipped empty needle conversation_id={conversation_id}"
+        );
+        return Ok(None);
+    }
+    let primary = if needle.is_empty() {
+        alt_needle
+    } else {
+        needle
+    };
+    let alternate = if needle.is_empty() || alt_needle == primary {
+        ""
+    } else {
+        alt_needle
+    };
+    let mut cursor = TailCursor::start();
+    let mut scanned = 0u32;
+    loop {
+        let mut stmt = conn.prepare(payload_contains_needle_sql())?;
+        let rows = stmt.query_map(
+            params![
+                conversation_id,
+                primary,
+                alternate,
+                cursor.position,
+                cursor.row_id,
+                TAIL_PAGE
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            },
+        )?;
+        let mut batch = Vec::new();
+        for row in rows {
+            batch.push(row?);
+        }
+        if batch.is_empty() {
+            log::info!(
+                "conversation_store: attachment lookup conversation_id={conversation_id} scanned={scanned} found=false"
+            );
+            return Ok(None);
+        }
+        for (row_id, position, message_id, payload) in &batch {
+            cursor.advance(*position, *row_id);
+            scanned += 1;
+            if scanned == 64 {
+                log::warn!(
+                    "conversation_store: attachment lookup scanned 64 payloads without a confirm conversation_id={conversation_id}"
+                );
+            }
+            let Some(msg) = decode_stored_payload(conversation_id, message_id, payload) else {
+                continue;
+            };
+            let Some(atts) = msg.attachments else {
+                continue;
+            };
+            if let Some(att) = atts.into_iter().find(|att| matches(att)) {
+                log::info!(
+                    "conversation_store: attachment lookup conversation_id={conversation_id} scanned={scanned} attachment_id={}",
+                    att.id
+                );
+                return Ok(Some(att));
+            }
+        }
+        if (batch.len() as i64) < TAIL_PAGE {
+            log::info!(
+                "conversation_store: attachment lookup conversation_id={conversation_id} scanned={scanned} found=false"
+            );
+            return Ok(None);
+        }
+    }
+}
+
+/// Recent user attachments, newest message first, until `min_count` or the tail ends.
+pub(crate) fn load_recent_user_attachments(
+    conn: &Connection,
+    conversation_id: &str,
+    min_count: usize,
+) -> Result<Vec<crate::models::MediaAttachment>> {
+    let min_count = min_count.max(1);
+    let marker = "\"attachments\"";
+    let mut cursor = TailCursor::start();
+    let mut scanned = 0u32;
+    let mut out = Vec::new();
+    loop {
+        let mut stmt = conn.prepare(
+            "SELECT id, position, message_id, payload FROM messages
+             WHERE conversation_id = ?1
+               AND role = 'user'
+               AND instr(payload, ?2) > 0
+               AND (position < ?3 OR (position = ?3 AND id < ?4))
+             ORDER BY position DESC, id DESC
+             LIMIT ?5",
+        )?;
+        let rows = stmt.query_map(
+            params![
+                conversation_id,
+                marker,
+                cursor.position,
+                cursor.row_id,
+                TAIL_PAGE
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            },
+        )?;
+        let mut batch = Vec::new();
+        for row in rows {
+            batch.push(row?);
+        }
+        if batch.is_empty() {
+            break;
+        }
+        for (row_id, position, message_id, payload) in &batch {
+            cursor.advance(*position, *row_id);
+            scanned += 1;
+            let Some(msg) = decode_stored_payload(conversation_id, message_id, payload) else {
+                continue;
+            };
+            let Some(atts) = msg.attachments.filter(|atts| !atts.is_empty()) else {
+                continue;
+            };
+            out.extend(atts);
+            if out.len() >= min_count {
+                log::info!(
+                    "conversation_store: recent user attachments conversation_id={conversation_id} scanned={scanned} attachments={}",
+                    out.len()
+                );
+                return Ok(out);
+            }
+        }
+        if (batch.len() as i64) < TAIL_PAGE {
+            break;
+        }
+    }
+    log::info!(
+        "conversation_store: recent user attachments conversation_id={conversation_id} scanned={scanned} attachments={}",
         out.len()
     );
     Ok(out)

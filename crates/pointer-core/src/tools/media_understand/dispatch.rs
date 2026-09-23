@@ -68,8 +68,14 @@ fn attachment_candidates(conversation_id: &str, raw: &str) -> String {
         .and_then(|v| v.to_str())
         .unwrap_or(raw.trim())
         .to_ascii_lowercase();
-    let Ok(mut attachments) = conversation_user_attachments(conversation_id) else {
-        return String::new();
+    let mut attachments = match conversation_user_attachments(conversation_id) {
+        Ok(attachments) => attachments,
+        Err(error) => {
+            log::warn!(
+                "media_understand: attachment candidates failed conversation_id={conversation_id}: {error:#}"
+            );
+            return String::new();
+        }
     };
     attachments.sort_by_key(|att| {
         let name = att.file_name.to_ascii_lowercase();

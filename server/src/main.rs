@@ -1866,7 +1866,13 @@ async fn load_conversations(
     State(state): State<ServerState>,
 ) -> Result<Json<Vec<Conversation>>, ApiError> {
     require_platform_access(&state)?;
-    Ok(Json(storage::load_conversations()?))
+    let conversations = storage::load_conversations()?;
+    let messages: usize = conversations.iter().map(|c| c.messages.len()).sum();
+    log::info!(
+        "server: load_conversations conversations={} messages={messages}",
+        conversations.len()
+    );
+    Ok(Json(conversations))
 }
 
 #[derive(Deserialize)]
@@ -4361,7 +4367,6 @@ fn maybe_inject_optional_meta(html: &str, env_key: &str, meta_name: &str) -> Str
     }
 }
 
-
 fn resolve_brand_name() -> String {
     resolve_optional_branding_env("POINTER_SERVER_BRAND_NAME")
         .unwrap_or_else(|| DEFAULT_BRAND_NAME.to_string())
@@ -4371,7 +4376,6 @@ fn resolve_brand_icon() -> String {
     resolve_optional_branding_env("POINTER_SERVER_BRAND_ICON")
         .unwrap_or_else(|| DEFAULT_BRAND_ICON.to_string())
 }
-
 
 /// `true` / `1` / `yes` / `on` → show; `false` / `0` / `no` / `off` → hide.
 /// When unset, auto-detect host displays (hide on headless / non-UI hosts).
@@ -4455,7 +4459,11 @@ fn apply_web_branding(html_bytes: &[u8]) -> String {
     out = replace_or_inject_meta(
         &out,
         DESKTOP_SNAPSHOT_META,
-        if resolve_desktop_snapshot_enabled() { "1" } else { "0" },
+        if resolve_desktop_snapshot_enabled() {
+            "1"
+        } else {
+            "0"
+        },
     );
     out
 }
@@ -4653,7 +4661,6 @@ mod page_title_tests {
         );
         clear_branding_env();
     }
-
 }
 
 #[cfg(test)]

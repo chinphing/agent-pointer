@@ -226,7 +226,7 @@ WorkerLease Drop → running_roots -1，叫醒队头
 
 | 发生了什么 | 后台 job | 父模型 | 用户看到 |
 |------------|----------|--------|----------|
-| 父本轮不再调工具、正常 `done` | **继续跑**（不占 `session:{conversation}`） | 本轮结束。P2：job 终态且结果未被 `await` 认领 → **一轮**空闲 push，把摘要交回 lead | 子任务行仍「后台执行中」；侧栏该会话保持转圈，直到没有 running job |
+| 父本轮不再调工具、正常 `done` | **继续跑**（不占 `session:{conversation}`） | 本轮结束。P2：lead 自己开的 job 终态且结果未被 `await` 认领 → **一轮**空闲 push，把摘要交回 lead。子 Agent 自己开的不 push | 子任务行仍「后台执行中」；侧栏该会话保持转圈，直到没有 running job |
 | 用户又发了一句 | **继续跑** | 新一轮 lead 可 `job.list` / `await`；不要取消后台 | 主会话能聊，底下子任务还在动 |
 | 用户点停止 | **全部 cancel** | 本轮中止 | 「已取消」 |
 | 立即发送 / 结束等待（软取消） | **继续跑** | 本轮中止（`job.await` 也结束） | 后台行仍「后台执行中」 |
@@ -244,8 +244,8 @@ WorkerLease Drop → running_roots -1，叫醒队头
 |----|----|--------|
 | 1. 默认 | **宿主** | **`self` / `explore`**：不传 `background` = 后台。**`coder` / `computer` / `terminal`**：不传 = 前台 join。 |
 | 2. 开前台 | **父模型** | `self` / `explore` 写 `background: false` = 本条必须 join 到结束。 |
-| 3. 本轮要不要结果 | **父模型** | 开了后台之后：还要 `job.await` 才把 `content` 拿进本轮；不再调工具、直接 `done` = 本轮不等，结果走空闲 push。 |
-| 4. 纠错 | **用户 / UI / push** | Composer **停止** = lead + 本会话全部后台。**立即发送 / 结束等待** = 只停同步（含 `job.await`），后台继续。行上 **结束任务** = 只杀该 `jobId`。侧栏和子任务行永远按真实 running 画。父说完了但 job 还在：空闲 push 再给 lead 一轮，把摘要补回来。 |
+| 3. 本轮要不要结果 | **父模型** | 开了后台之后：还要 `job.await` 才把 `content` 拿进本轮；lead 不再调工具、直接 `done` = 本轮不等，结果走空闲 push。子 Agent 开的后台必须在它自己的回合里 `job.await`。 |
+| 4. 纠错 | **用户 / UI / push** | Composer **停止** = lead + 本会话全部后台。**立即发送 / 结束等待** = 只停同步（含 `job.await`），后台继续。行上 **结束任务** = 只杀该 `jobId`。侧栏和子任务行永远按真实 running 画。lead 说完了但自己开的 job 还在：空闲 push 再给 lead 一轮，把摘要补回来。子 Agent 开的 job 不补到 lead。 |
 
 「需要结果才能回答时就 await 或 `background: false`」是给模型的**提示词规则**，不是宿主分类器。宿主无法可靠判断「用户问的是不是必须等探索结束」——去解析正文再偷偷 join，会把后台废掉。
 
@@ -266,7 +266,9 @@ WorkerLease Drop → running_roots -1，叫醒队头
 
 仅当：job 为 **Completed / Failed** **且** 该会话没有进行中的 lead 轮 **且** 这条完成尚未被 `await` 认领。
 
-实现：`idle_job_push` 挂在 JobSupervisor 终态回调 + lead `on_run_finished/failed/cancelled`。约 **500ms** debounce 后认领本会话全部未认领终稿，`TriggerSource::Internal`（`internal_label=idle_job_push`）在**同一 `conversation_id`** 再开一轮。注入用户消息：`content` = 完整终稿（进模型）；`uiBindings.bubbleText` = 带任务名的短句（「后台任务已完成：搜索登录」；多条「等 N 个」；全部失败用「失败」）（仅气泡）；`hostKind=idle_job_push`。与 `await` 互斥 `claimed`。dispatch 时 `web_session_auth` 与 cron 相同，取 `automation_execution_auth()`（standalone 本地会话可无平台 LLM 凭证）；`Internal` 计入 headless automation，无会话时仍可用设置里的本地 API Key。dispatch 失败会 `unclaim` 以便重试。
+实现：`idle_job_push` 挂在 JobSupervisor 终态回调 + lead `on_run_finished/failed/cancelled`。约 **500ms** debounce 后认领本会话里 **lead 自己开的** 未认领终稿，`TriggerSource::Internal`（`internal_label=idle_job_push`）在**同一 `conversation_id`** 再开一轮。注入用户消息：`content` = 完整终稿（进模型）；`uiBindings.bubbleText` = 带任务名的短句（「后台任务已完成：搜索登录」；多条「等 N 个」；全部失败用「失败」）（仅气泡）；`hostKind=idle_job_push`。与 `await` 互斥 `claimed`。dispatch 时 `web_session_auth` 与 cron 相同，取 `automation_execution_auth()`（standalone 本地会话可无平台 LLM 凭证）；`Internal` 计入 headless automation，无会话时仍可用设置里的本地 API Key。dispatch 失败会 `unclaim` 以便重试。
+
+子 Agent 自己开的后台任务（嵌套 `run_subagent` 或它的后台终端）记在该子 Agent 的 `parent_agent_instance_id` 上。它交付时，仍在排队或运行的这些任务以 `openBackgroundJobs` 写进交回父会话的结果（只有 id、状态、类型、标题）。终态 **不** 空闲 push 给 lead，也 **不** 再开一轮。结果留在 job 上，由发起方在本轮 `job.await` 取走（对齐 Codex：完成回执进直接父线程，`trigger_turn` 为 false，不自动叫醒外层）。发起方这轮已经结束、又没有 await，结果就停在该 job 上，直到这个子 Agent 之后再 `job.await`。lead 不带 job id 的 `job.await` 仍按会话认领，可能取走这些终稿；开出来的 id 只回给发起方。
 
 **并发后台时的部分完成**：不必等全部 job 结束才 push。lead 发出 `Done` 后，`run_runner` 须立刻 `finalize_terminal`（释放 `runs`/`cancels`/session lane），**不要**先 `await` 仍被后台 `StreamTx` clone 占用的 forwarder——否则 `lead_busy` 会一直 defer，直到最后一个 job 结束才合并 flush。若 flush 时 lead 仍 busy，会再 debounce 重试。
 
@@ -303,8 +305,8 @@ WorkerLease Drop → running_roots -1，叫醒队头
 工具说明用英文、短行、不提文件名：
 
 - `self` / `explore` 默认后台。本轮下一步被结果堵住且不打算 `await` 时写 `background: false`。
-- 后台后用 `job.await`，不要结束本轮干等；能结束则结束，等空闲 push。
-- 若本轮先结束：后台继续；不要对用户说已经全部完成。结果走之后的 `await` 或完成后的那一轮汇总。
+- 后台后用 `job.await`，不要结束本轮干等。lead 自己开的、本轮不等的，结束后走空闲 push。子 Agent 自己开的必须在它这一轮 `job.await`，宿主不会叫醒外层。
+- 若本轮先结束：后台继续；不要对用户说已经全部完成。lead 开的结果走之后的 `await` 或完成后的那一轮汇总。子 Agent 开的不进那一轮。
 - 要打满并发、下一任务又依赖已完成结果：用 `await` `mode=any`，本拍已就绪的全部正文都在 `jobs[]`，再 spawn，不要 `all`。
 - 任务清单已齐、只要全部摘要：同一则消息里一次列出（可超过并发上限，宿主排队补位），再 `await` `mode=all`。
 - 并行探索：同一则消息里多个 `run_subagent`（默认后台）；要立刻再说话就直接说，不要假称已全部完成。

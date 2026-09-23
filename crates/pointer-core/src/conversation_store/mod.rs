@@ -84,6 +84,52 @@ impl ConversationStore {
         persist::load_messages(&conn, conversation_id)
     }
 
+    /// One transcript row. Prefer this over [`Self::load_messages`] when patching a single id.
+    pub fn load_message(
+        &self,
+        conversation_id: &str,
+        message_id: &str,
+    ) -> Result<Option<ChatMessage>> {
+        let conn = self.db.conn.lock();
+        persist::load_message_by_id(&conn, conversation_id, message_id)
+    }
+
+    /// Tool result row for `toolCallId`, earliest position first.
+    pub fn load_tool_message_by_call_id(
+        &self,
+        conversation_id: &str,
+        tool_call_id: &str,
+    ) -> Result<Option<ChatMessage>> {
+        let conn = self.db.conn.lock();
+        persist::load_tool_message_by_call_id(&conn, conversation_id, tool_call_id)
+    }
+
+    /// First tool row whose stored `content` contains `needle`.
+    pub fn load_first_tool_message_containing(
+        &self,
+        conversation_id: &str,
+        needle: &str,
+    ) -> Result<Option<ChatMessage>> {
+        let conn = self.db.conn.lock();
+        persist::load_first_tool_message_containing(&conn, conversation_id, needle)
+    }
+
+    /// First assistant row that issued `tool_name` with `tool_call_id`.
+    pub fn load_assistant_message_with_tool_call(
+        &self,
+        conversation_id: &str,
+        tool_call_id: &str,
+        tool_name: &str,
+    ) -> Result<Option<ChatMessage>> {
+        let conn = self.db.conn.lock();
+        persist::load_assistant_message_with_tool_call(
+            &conn,
+            conversation_id,
+            tool_call_id,
+            tool_name,
+        )
+    }
+
     /// Lead user turn ids after `turn_id` (no full payload deserialize).
     pub fn load_subsequent_lead_turn_ids(
         &self,
@@ -92,6 +138,52 @@ impl ConversationStore {
     ) -> Result<Vec<String>> {
         let conn = self.db.conn.lock();
         persist::load_subsequent_lead_turn_ids(&conn, conversation_id, turn_id)
+    }
+
+    /// Latest real lead user message id. Skips scoped and synthetic user rows.
+    pub fn load_latest_real_lead_user_message_id(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Option<String>> {
+        let conn = self.db.conn.lock();
+        persist::load_latest_real_lead_user_message_id(&conn, conversation_id)
+    }
+
+    /// Last non-empty assistant `content` (not `rawContent`).
+    pub fn load_last_assistant_content(&self, conversation_id: &str) -> Result<Option<String>> {
+        let conn = self.db.conn.lock();
+        persist::load_last_assistant_content(&conn, conversation_id)
+    }
+
+    /// Last assistant body for outbound delivery: `rawContent`, then `content`.
+    pub fn load_last_assistant_outbound_text(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Option<String>> {
+        let conn = self.db.conn.lock();
+        persist::load_last_assistant_outbound_text(&conn, conversation_id)
+    }
+
+    /// Newest user attachment whose payload contains `needle` or `alt_needle`.
+    pub fn find_user_attachment(
+        &self,
+        conversation_id: &str,
+        needle: &str,
+        alt_needle: &str,
+        matches: impl Fn(&crate::models::MediaAttachment) -> bool,
+    ) -> Result<Option<crate::models::MediaAttachment>> {
+        let conn = self.db.conn.lock();
+        persist::find_user_attachment(&conn, conversation_id, needle, alt_needle, matches)
+    }
+
+    /// Recent user attachments, newest first, until `min_count`.
+    pub fn load_recent_user_attachments(
+        &self,
+        conversation_id: &str,
+        min_count: usize,
+    ) -> Result<Vec<crate::models::MediaAttachment>> {
+        let conn = self.db.conn.lock();
+        persist::load_recent_user_attachments(&conn, conversation_id, min_count)
     }
 
     /// Full DB row count plus lead LLM working-set messages (`included`, non-scoped).

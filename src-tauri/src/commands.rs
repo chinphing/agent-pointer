@@ -1,17 +1,17 @@
 use pointer_core::agents::computer::capture_debug;
 use pointer_core::agents::AgentDef;
 use pointer_core::chat_service::AppState;
+use pointer_core::chat_service::GlobalMcpView;
 use pointer_core::dispatcher::{
     DeliverTarget, RunDispatcher, RunQueueSnapshot, TriggerMeta, TriggerRequest, TriggerSource,
 };
-use pointer_core::plugins::registry::PluginView;
-use pointer_core::chat_service::GlobalMcpView;
 use pointer_core::models::{
     ChatMediaPreview, ChatMessage, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
-    ConversationSearchHit, DebugSessionSettings, EffectiveSettingsView,
-    PlatformSettings, Project, ProjectCreationResult, ProjectCursor, ProjectPage, SendChatPayload,
-    SkillDef, SkillImportResult, ToolDef, UserSettings,
+    ConversationSearchHit, DebugSessionSettings, EffectiveSettingsView, PlatformSettings, Project,
+    ProjectCreationResult, ProjectCursor, ProjectPage, SendChatPayload, SkillDef,
+    SkillImportResult, ToolDef, UserSettings,
 };
+use pointer_core::plugins::registry::PluginView;
 
 use base64::Engine;
 use pointer_core::provider::OpenAIProvider;
@@ -74,10 +74,7 @@ pub async fn read_workspace_file(
 }
 
 #[tauri::command]
-pub fn delete_workspace_path(
-    workspace_root: String,
-    relative_path: String,
-) -> Result<(), String> {
+pub fn delete_workspace_path(workspace_root: String, relative_path: String) -> Result<(), String> {
     pointer_core::workspace_read::delete_path(Path::new(&workspace_root), &relative_path)
         .map_err(|e| e.to_string())
 }
@@ -156,12 +153,8 @@ pub async fn save_turn_file_changes(
     files: Vec<pointer_core::turn_file_baseline::TurnFileChangeEntry>,
 ) -> Result<(), String> {
     let result = tauri::async_runtime::spawn_blocking(move || {
-        pointer_core::turn_file_baseline::save_turn_file_changes(
-            &conversation_id,
-            &turn_id,
-            &files,
-        )
-        .map_err(|e| e.to_string())
+        pointer_core::turn_file_baseline::save_turn_file_changes(&conversation_id, &turn_id, &files)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("spawn_blocking failed: {e}"))?;
@@ -244,7 +237,13 @@ pub fn create_console_session(
 ) -> Result<pointer_core::console_session::ConsoleSessionInfo, String> {
     state
         .console_sessions
-        .create(&workspace_root, &conversation_id, cwd.as_deref(), cols, rows)
+        .create(
+            &workspace_root,
+            &conversation_id,
+            cwd.as_deref(),
+            cols,
+            rows,
+        )
         .map_err(|error| error.to_string())
 }
 
@@ -352,9 +351,7 @@ pub fn update_user_settings(
     state: State<'_, Arc<AppState>>,
     user: UserSettings,
 ) -> Result<EffectiveSettingsView, String> {
-    state
-        .update_user_settings(user)
-        .map_err(|e| e.to_string())
+    state.update_user_settings(user).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -412,9 +409,7 @@ pub fn list_skills(state: State<'_, Arc<AppState>>) -> Result<Vec<SkillDef>, Str
 
 #[tauri::command]
 pub fn reload_skill_meta(state: State<'_, Arc<AppState>>) -> Result<Vec<SkillDef>, String> {
-    state
-        .init_launch()
-        .map_err(|e| e.to_string())?;
+    state.init_launch().map_err(|e| e.to_string())?;
     Ok(state.skills.list())
 }
 
@@ -483,20 +478,30 @@ fn view_plugin(state: &AppState, plugin_id: &str) -> Result<PluginView, String> 
 }
 
 #[tauri::command]
-pub fn enable_plugin(state: State<'_, Arc<AppState>>, plugin_id: String) -> Result<PluginView, String> {
+pub fn enable_plugin(
+    state: State<'_, Arc<AppState>>,
+    plugin_id: String,
+) -> Result<PluginView, String> {
     state.plugin_enable(&plugin_id).map_err(|e| e.to_string())?;
     view_plugin(&state, &plugin_id)
 }
 
 #[tauri::command]
-pub fn disable_plugin(state: State<'_, Arc<AppState>>, plugin_id: String) -> Result<PluginView, String> {
-    state.plugin_disable(&plugin_id).map_err(|e| e.to_string())?;
+pub fn disable_plugin(
+    state: State<'_, Arc<AppState>>,
+    plugin_id: String,
+) -> Result<PluginView, String> {
+    state
+        .plugin_disable(&plugin_id)
+        .map_err(|e| e.to_string())?;
     view_plugin(&state, &plugin_id)
 }
 
 #[tauri::command]
 pub fn uninstall_plugin(state: State<'_, Arc<AppState>>, plugin_id: String) -> Result<(), String> {
-    state.plugin_uninstall(&plugin_id).map_err(|e| e.to_string())
+    state
+        .plugin_uninstall(&plugin_id)
+        .map_err(|e| e.to_string())
 }
 
 // ---- Global MCP management commands (P2b) ----
@@ -541,9 +546,7 @@ pub fn import_plugin(
     source: String,
 ) -> Result<Vec<pointer_core::plugins::importer::ImportReport>, String> {
     let source_path = std::path::PathBuf::from(source.trim());
-    state
-        .plugin_import(&source_path)
-        .map_err(|e| e.to_string())
+    state.plugin_import(&source_path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -551,7 +554,9 @@ pub fn import_plugin_zip(
     state: State<'_, Arc<AppState>>,
     zip_data: Vec<u8>,
 ) -> Result<Vec<pointer_core::plugins::importer::ImportReport>, String> {
-    state.plugin_import_zip(&zip_data).map_err(|e| e.to_string())
+    state
+        .plugin_import_zip(&zip_data)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -560,18 +565,14 @@ pub fn discover_plugins(
     dir: String,
 ) -> Result<Vec<pointer_core::plugins::importer::DiscoveredPlugin>, String> {
     let dir_path = std::path::PathBuf::from(dir.trim());
-    state
-        .plugin_discover(&dir_path)
-        .map_err(|e| e.to_string())
+    state.plugin_discover(&dir_path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn probe_external_plugins(
     state: State<'_, Arc<AppState>>,
 ) -> Result<pointer_core::plugins::external_probe::ExternalPluginsProbeResult, String> {
-    state
-        .plugin_probe_external()
-        .map_err(|e| e.to_string())
+    state.plugin_probe_external().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -673,8 +674,7 @@ pub fn save_bytes_to_path(path: String, content_base64: String) -> Result<(), St
     }
     if let Some(parent) = path_buf.parent() {
         if !parent.as_os_str().is_empty() && !parent.exists() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("创建目录失败: {e}"))?;
+            std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
         }
     }
     let bytes = base64::engine::general_purpose::STANDARD
@@ -684,7 +684,11 @@ pub fn save_bytes_to_path(path: String, content_base64: String) -> Result<(), St
         return Err("文件内容为空".into());
     }
     std::fs::write(&path_buf, &bytes).map_err(|e| format!("写入失败: {e}"))?;
-    log::info!("save_bytes_to_path: wrote {} bytes to {}", bytes.len(), path_buf.display());
+    log::info!(
+        "save_bytes_to_path: wrote {} bytes to {}",
+        bytes.len(),
+        path_buf.display()
+    );
     Ok(())
 }
 
@@ -1190,7 +1194,13 @@ pub fn cancel_computer_monitor_pick(
 
 #[tauri::command]
 pub fn load_conversations() -> Result<Vec<Conversation>, String> {
-    storage::load_conversations().map_err(|e| e.to_string())
+    let conversations = storage::load_conversations().map_err(|e| e.to_string())?;
+    let messages: usize = conversations.iter().map(|c| c.messages.len()).sum();
+    log::info!(
+        "tauri::load_conversations: conversations={} messages={messages}",
+        conversations.len()
+    );
+    Ok(conversations)
 }
 
 /// Cursor-paginated, meta-only conversation list (no messages).
@@ -1362,8 +1372,8 @@ pub fn list_conversation_outline(
     conversation_id: String,
 ) -> Result<Vec<pointer_core::models::ConversationOutlineItem>, String> {
     let scope = platform_list_scope(&state);
-    let items = storage::list_conversation_outline(&scope, &conversation_id)
-        .map_err(|e| e.to_string())?;
+    let items =
+        storage::list_conversation_outline(&scope, &conversation_id).map_err(|e| e.to_string())?;
     log::info!(
         "tauri::list_conversation_outline: id={conversation_id} returned {} rows",
         items.len()

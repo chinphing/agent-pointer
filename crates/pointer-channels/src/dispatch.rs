@@ -328,7 +328,14 @@ impl DispatchService {
             );
         }
 
-        let history = store.load_messages(&desktop_conv_id)?;
+        // Delta only. The inbound row is already upserted (or will be appended
+        // by `prepare_lead_history` if that upsert failed). Loading the full
+        // transcript here keeps every payload resident for the rest of the process.
+        let history = vec![user_msg.clone()];
+        log::info!(
+            "channel dispatch: delta desktop={desktop_conv_id} dispatch_messages={}",
+            history.len()
+        );
 
         if let Err(e) = store.ensure_im_title(
             &desktop_conv_id,
@@ -366,7 +373,8 @@ impl DispatchService {
         let channels_cfg = crate::config::load_channels_config().unwrap_or_default();
         let im_outbound_cfg = channels_cfg.meta.im_outbound.clone();
 
-        let (tx, mut rx) = pointer_core::models::ChatStreamSender::pair(&desktop_conv_id, &im_user_id);
+        let (tx, mut rx) =
+            pointer_core::models::ChatStreamSender::pair(&desktop_conv_id, &im_user_id);
         let mut reply_text = String::new();
         let mut stream_out =
             ImStreamOutbound::new(plugin, outbound.clone(), im_outbound_cfg, conv_id.clone());

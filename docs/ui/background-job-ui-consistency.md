@@ -51,7 +51,7 @@ job 终态（任意：正常结束 / 失败 / 取消）
 
 父轮 `Done` 之后后台仍可跑完：`StreamTx` / 落盘仍须送达；前端不得在 Done 后忽略该会话的 `ToolCallStatus`。
 
-空闲 push 会在同一会话插入一条用户消息并再开一轮 lead。消息带 **`uiBindings.hostKind=idle_job_push`** + **`bubbleText`**：带任务名，如「后台任务已完成：搜索登录」；多条只列前两个再写「等 N 个」；全部失败用「后台任务失败：…」。完整终稿在 `content` 里进 lead 上下文。UI 按 `bubbleText` 画气泡；旧消息若仍是「后台任务已完成。」可从 `content` 里的 `###` 标题补任务名。`InjectedUserMessage` 须进当前会话列表（与 cron 注入相同）。宿主行终态仍由上面的 job 终态路径写入，不要等 push 才改「后台执行中」。
+空闲 push 只收 lead 自己开的后台任务，会在同一会话插入一条用户消息并再开一轮 lead。子 Agent 自己开的任务不插入这条消息，也不再开一轮。消息带 **`uiBindings.hostKind=idle_job_push`** + **`bubbleText`**：带任务名，如「后台任务已完成：搜索登录」；多条只列前两个再写「等 N 个」；全部失败用「后台任务失败：…」。完整终稿在 `content` 里进 lead 上下文。UI 按 `bubbleText` 画气泡；旧消息若仍是「后台任务已完成。」可从 `content` 里的 `###` 标题补任务名。`InjectedUserMessage` 须进当前会话列表（与 cron 注入相同）。宿主行终态仍由上面的 job 终态路径写入，不要等 push 才改「后台执行中」。
 
 ## 占用对账（重启 / 弱网）
 

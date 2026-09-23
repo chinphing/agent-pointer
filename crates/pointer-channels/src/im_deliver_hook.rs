@@ -204,9 +204,7 @@ fn set_cron_delivery_error(
         .session_index
         .cron_jobs_set_last_delivery_error(job_id, err)
     {
-        log::warn!(
-            "im_deliver_hook: set_last_delivery_error failed job_id={job_id}: {e:#}"
-        );
+        log::warn!("im_deliver_hook: set_last_delivery_error failed job_id={job_id}: {e:#}");
     }
 }
 
@@ -217,19 +215,13 @@ fn last_assistant_reply(
     conversation_id: &str,
     store: &pointer_core::conversation_store::ConversationStore,
 ) -> Option<String> {
-    let messages = store.load_messages(conversation_id).ok()?;
-    for msg in messages.iter().rev() {
-        if !matches!(msg.role, pointer_core::models::Role::Assistant) {
-            continue;
-        }
-        let raw = msg.raw_content.as_deref().unwrap_or("").trim();
-        if !raw.is_empty() {
-            return Some(raw.to_string());
-        }
-        let content = msg.content.trim();
-        if !content.is_empty() {
-            return Some(content.to_string());
+    match store.load_last_assistant_outbound_text(conversation_id) {
+        Ok(text) => text,
+        Err(error) => {
+            log::warn!(
+                "im_deliver_hook: last assistant lookup failed conversation_id={conversation_id}: {error:#}"
+            );
+            None
         }
     }
-    None
 }

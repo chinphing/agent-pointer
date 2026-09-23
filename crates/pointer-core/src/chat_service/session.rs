@@ -135,6 +135,14 @@ pub async fn run_chat(
             }
         };
 
+    if let Some(turn_id) = crate::task_board::latest_real_user_message_id(&history) {
+        crate::turn_file_baseline::remember_active_turn_id(&conversation_id, &turn_id);
+    } else {
+        log::warn!(
+            "run_chat: no real lead user message to pin turn id conversation_id={conversation_id}"
+        );
+    }
+
     let run_id = run_id.unwrap_or_else(|| Uuid::new_v4().to_string());
     let mut run_span: Option<crate::observability::TraceEvent> = {
         let mut span = crate::observability::TraceEvent::new(
@@ -408,11 +416,7 @@ pub async fn run_chat(
         "run_chat conversation end: background job occupancy conversation_id={} running_count={background_running}",
         conversation_id
     );
-    super::run_subagent_delegation::emit_background_jobs(
-        &stream,
-        &conversation_id,
-        &state.jobs,
-    );
+    super::run_subagent_delegation::emit_background_jobs(&stream, &conversation_id, &state.jobs);
     emit(
         &stream,
         StreamEvent::Done {

@@ -16,15 +16,54 @@ use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 
 /// Skip baselines larger than this (bytes) to avoid blowing app-data disk.
 pub const MAX_BASELINE_BYTES: usize = 5 * 1024 * 1024;
 
 thread_local! {
     static TURN_BASELINE_CTX: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
+}
+
+/// Lead user message id for the active turn, keyed by conversation.
+/// File tools reuse this for the whole turn. The next lead `run_chat` replaces it.
+static ACTIVE_TURN_IDS: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn turn_id_map() -> std::sync::MutexGuard<'static, HashMap<String, String>> {
+    ACTIVE_TURN_IDS.lock().unwrap_or_else(|poisoned| {
+        warn!("turn_file_baseline: turn-id map lock poisoned; continuing with inner data");
+        poisoned.into_inner()
+    })
+}
+
+/// Remember the lead user message id for this conversation's active turn.
+pub fn remember_active_turn_id(conversation_id: &str, turn_id: &str) {
+    let conversation_id = conversation_id.trim();
+    let turn_id = turn_id.trim();
+    if conversation_id.is_empty() || turn_id.is_empty() {
+        warn!(
+            "turn_file_baseline: skip pin empty id conversation_id={conversation_id} turn_id={turn_id}"
+        );
+        return;
+    }
+    let mut map = turn_id_map();
+    if map.get(conversation_id).map(String::as_str) == Some(turn_id) {
+        return;
+    }
+    info!("turn_file_baseline: pin turn conversation_id={conversation_id} turn_id={turn_id}");
+    map.insert(conversation_id.to_string(), turn_id.to_string());
+}
+
+fn pinned_turn_id(conversation_id: &str) -> Option<String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return None;
+    }
+    turn_id_map().get(conversation_id).cloned()
 }
 
 /// Sets conversation + turn ids for baseline capture on the current worker thread.
@@ -484,20 +523,30 @@ pub fn turn_file_diff(
     })
 }
 
-/// Resolve the active user-turn id for baseline capture (latest real user message).
+/// Resolve the active user-turn id for baseline capture.
+///
+/// Reuses the id pinned at lead `run_chat` start. On a miss (process restart,
+/// or a write before the pin), reads the latest real lead user id from the tail
+/// and pins that. Does not load the full transcript.
 pub fn resolve_active_turn_id(conversation_id: &str) -> String {
+    if let Some(turn_id) = pinned_turn_id(conversation_id) {
+        return turn_id;
+    }
     match crate::conversation_store::global_store() {
-        Ok(store) => match store.load_messages(conversation_id) {
-            Ok(messages) => crate::task_board::latest_real_user_message_id(&messages)
-                .unwrap_or_else(|| {
-                    warn!(
-                        "turn_file_baseline: no user turn in history conversation_id={conversation_id}"
-                    );
-                    format!("orphan-{conversation_id}")
-                }),
+        Ok(store) => match store.load_latest_real_lead_user_message_id(conversation_id) {
+            Ok(Some(turn_id)) => {
+                remember_active_turn_id(conversation_id, &turn_id);
+                turn_id
+            }
+            Ok(None) => {
+                warn!(
+                    "turn_file_baseline: no user turn in history conversation_id={conversation_id}"
+                );
+                format!("orphan-{conversation_id}")
+            }
             Err(error) => {
                 warn!(
-                    "turn_file_baseline: load_messages failed conversation_id={conversation_id}: {error:#}"
+                    "turn_file_baseline: latest lead user lookup failed conversation_id={conversation_id}: {error:#}"
                 );
                 format!("orphan-{conversation_id}")
             }
@@ -598,5 +647,24 @@ mod tests {
         assert_eq!(listed[0].files.len(), 1);
         assert_eq!(listed[0].files[0].path, "/ws/legacy.ts");
         assert_eq!(listed[0].files[0].adds, 0);
+    }
+
+    #[test]
+    fn resolve_reuses_pinned_turn_id() {
+        let conv = format!("pin-{}", uuid::Uuid::new_v4());
+        remember_active_turn_id(&conv, "user-1");
+        assert_eq!(resolve_active_turn_id(&conv), "user-1");
+        remember_active_turn_id(&conv, "user-2");
+        assert_eq!(resolve_active_turn_id(&conv), "user-2");
+        remember_active_turn_id("", "user-3");
+        remember_active_turn_id(&conv, "  ");
+        assert_eq!(resolve_active_turn_id(&conv), "user-2");
+    }
+
+    #[test]
+    fn resolve_without_pin_does_not_cache_orphan() {
+        let conv = format!("miss-{}", uuid::Uuid::new_v4());
+        assert_eq!(resolve_active_turn_id(&conv), format!("orphan-{conv}"));
+        assert!(!turn_id_map().contains_key(&conv));
     }
 }

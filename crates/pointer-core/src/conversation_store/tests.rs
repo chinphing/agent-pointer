@@ -3,7 +3,7 @@ mod tests {
     use crate::conversation_store::persist::{msg, sample_conv};
     use crate::conversation_store::{ConversationStore, ListScope, LoadMessagesPageOpts};
     use crate::message_context::mark_excluded;
-    use crate::models::{ExcludedReason, Role};
+    use crate::models::{ExcludedReason, Role, ToolCall};
     use rusqlite::{params, Connection};
     use serde_json::{json, Value};
     use tempfile::TempDir;
@@ -2328,6 +2328,161 @@ mod tests {
             .load_subsequent_lead_turn_ids("sub-lead", "missing")
             .unwrap();
         assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn point_lookups_do_not_need_the_full_transcript() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("c-point", "T", "hello");
+        let mut host = msg("host1", Role::Assistant, "", 4);
+        host.tool_calls = Some(vec![ToolCall {
+            id: "call_1".into(),
+            name: "run_subagent".into(),
+            arguments: r#"{"goal":"find login"}"#.into(),
+            status: "running".into(),
+            result: None,
+            error: None,
+            duration_ms: None,
+            risk_level: None,
+            display_label: None,
+            display_summary: None,
+        }]);
+        let mut tool = msg("tool1", Role::Tool, "agentInstanceId: inst-9", 5);
+        tool.tool_call_id = Some("call_1".into());
+        tool.tool_name = Some("run_subagent".into());
+        conv.messages.push(host);
+        conv.messages.push(tool);
+        store.save_all(&[conv]).unwrap();
+
+        let loaded = store.load_message("c-point", "host1").unwrap().unwrap();
+        assert_eq!(loaded.tool_calls.as_ref().unwrap()[0].id, "call_1");
+        assert!(store.load_message("c-point", "missing").unwrap().is_none());
+        assert!(store.load_message("c-point", "  ").unwrap().is_none());
+
+        let tool_row = store
+            .load_tool_message_by_call_id("c-point", "call_1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(tool_row.id, "tool1");
+        assert!(store
+            .load_tool_message_by_call_id("c-point", "missing")
+            .unwrap()
+            .is_none());
+
+        let by_content = store
+            .load_first_tool_message_containing("c-point", "inst-9")
+            .unwrap()
+            .unwrap();
+        assert_eq!(by_content.tool_call_id.as_deref(), Some("call_1"));
+
+        let with_call = store
+            .load_assistant_message_with_tool_call("c-point", "call_1", "run_subagent")
+            .unwrap()
+            .unwrap();
+        assert_eq!(with_call.id, "host1");
+        assert!(store
+            .load_assistant_message_with_tool_call("c-point", "call_1", "other_tool")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn tail_lookups_do_not_need_the_full_transcript() {
+        use crate::models::MediaAttachment;
+
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("c-tail", "T", "older");
+        let mut old_att = msg("u-old", Role::User, "old file", 2);
+        old_att.attachments = Some(vec![MediaAttachment {
+            id: "att-old".into(),
+            kind: "document".into(),
+            mime_type: "text/plain".into(),
+            file_name: "old.txt".into(),
+            size_bytes: 4,
+            storage_rel_path: Some("c-tail/att-old_old.txt".into()),
+            content_base64: None,
+            derived_text: None,
+            local_abs_path: None,
+            remote_url: None,
+            oss_object_key: None,
+        }]);
+        let mut new_att = msg("u-new", Role::User, "new file", 3);
+        new_att.attachments = Some(vec![MediaAttachment {
+            id: "att-new".into(),
+            kind: "document".into(),
+            mime_type: "text/plain".into(),
+            file_name: "new.txt".into(),
+            size_bytes: 4,
+            storage_rel_path: Some("c-tail/att-new_new.txt".into()),
+            content_base64: None,
+            derived_text: None,
+            local_abs_path: None,
+            remote_url: None,
+            oss_object_key: None,
+        }]);
+        let mention = msg("u-mention", Role::User, "see att-old please", 4);
+        let mut raw = msg("a-raw", Role::Assistant, "", 5);
+        raw.raw_content = Some("raw reply".into());
+        conv.messages.push(old_att);
+        conv.messages.push(new_att);
+        conv.messages.push(mention);
+        conv.messages.push(raw);
+        for i in 0..33 {
+            conv.messages.push(msg(
+                &format!("a-empty-{i}"),
+                Role::Assistant,
+                "   ",
+                100 + i,
+            ));
+            conv.messages.push(msg(
+                &format!("syn-{i}"),
+                Role::User,
+                "[Conversation summary (auto-compression)]\nkeep",
+                200 + i,
+            ));
+        }
+        let mut scoped = msg("u-scoped", Role::User, "sub task", 300);
+        scoped.anchor_message_id = Some("u-mention".into());
+        conv.messages.push(scoped);
+        store.sync_conversations(&[conv]).unwrap();
+
+        assert_eq!(
+            store
+                .load_latest_real_lead_user_message_id("c-tail")
+                .unwrap()
+                .as_deref(),
+            Some("u-mention")
+        );
+        assert_eq!(
+            store
+                .load_last_assistant_content("c-tail")
+                .unwrap()
+                .as_deref(),
+            Some("Acknowledged.")
+        );
+        assert_eq!(
+            store
+                .load_last_assistant_outbound_text("c-tail")
+                .unwrap()
+                .as_deref(),
+            Some("raw reply")
+        );
+        let found = store
+            .find_user_attachment("c-tail", "att-old", "", |att| att.id == "att-old")
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.file_name, "old.txt");
+        assert!(store
+            .find_user_attachment("c-tail", "missing-att", "", |att| att.id == "missing-att")
+            .unwrap()
+            .is_none());
+        let recent = store.load_recent_user_attachments("c-tail", 3).unwrap();
+        assert_eq!(
+            recent.iter().map(|att| att.id.as_str()).collect::<Vec<_>>(),
+            vec!["att-new", "att-old"]
+        );
     }
 
     #[test]

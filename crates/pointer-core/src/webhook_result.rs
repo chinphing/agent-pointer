@@ -2,7 +2,6 @@
 
 use crate::conversation_store::ConversationStore;
 use crate::dispatcher::trigger::{TriggerMeta, TriggerSource};
-use crate::models::Role;
 use anyhow::Result;
 use serde::Serialize;
 
@@ -24,17 +23,7 @@ pub fn last_assistant_text(
     store: &ConversationStore,
     conversation_id: &str,
 ) -> Result<Option<String>> {
-    let messages = store.load_messages(conversation_id)?;
-    for msg in messages.iter().rev() {
-        if !matches!(msg.role, Role::Assistant) {
-            continue;
-        }
-        let trimmed = msg.content.trim();
-        if !trimmed.is_empty() {
-            return Ok(Some(trimmed.to_string()));
-        }
-    }
-    Ok(None)
+    store.load_last_assistant_content(conversation_id)
 }
 
 /// Load a webhook run for polling when it belongs to `:src`.
@@ -82,7 +71,7 @@ pub fn webhook_run_view_for_source(
 mod tests {
     use super::*;
     use crate::conversation_store::ConversationStore;
-    use crate::models::ChatMessage;
+    use crate::models::{ChatMessage, Role};
 
     fn store() -> ConversationStore {
         let dir = std::env::temp_dir().join(format!(

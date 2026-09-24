@@ -49,7 +49,7 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 |------|------|
 | **cacheable（第 1 段）** | `COMMUNICATION_PUBLIC` + Primary communication + loop + tools + `[Environment]` |
 | **dynamic（第 2 段）** | `[TASK_BOARD]`、`[LOCKED GOAL]`（有锁时） |
-| **user `[CUR_SCREEN]`** | 槽位标签 + 3–4 图（可选上一帧复用、当前屏、标注屏、指针放大图）+ 操作历史 + runtime + **Pointer position** + **Nearby overlay reference bboxes**（指针最近 **10** 条）。上一帧用已保存的原图，不再截一次 |
+| **user `[CUR_SCREEN]`** | 槽位标签 + 3–4 图（可选上一帧复用、当前屏、标注屏、指针放大图）+ 操作历史 + runtime + **Pointer position** + **Nearby overlay reference bboxes**（指针最近 **10** 条）。上一帧直接复用上一轮已画指针的图，不再截一次，也不重画指针 |
 
 **Verify**：宿主在 desktop tool 执行后自动校验（`computerPipelineVerifyHost`）；模型读 history 行 `verify:` 后缀，**不再**调用 `action_verify` sidecar。
 
@@ -67,11 +67,10 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 
 - 每档独立 `[Recent desktop tool calls]` 列表，最多 10 条。
 - 每行末尾由宿主维护 **`verify:`** 后缀（`verifying` / `verified - pass|fail|…` / `skipped`）。
-- 升档由宿主根据 verify fail 阈值执行；**pass** 重置到 `initial_tier`。
+- 会话档位固定为 `computerInitialTier`，Verify 失败不会升档，通过也不会改档。
 
 ## 配置（`AGENT.md` config）
 
-- `computerAutoUpgrade` — 是否自动升档（默认 true）
 - `computerInitialTier` — `primary` | `intermediate` | `advanced`
 - `computerModelPrimary` / `computerModelIntermediate` / `computerModelAdvanced`
 - `computerPipelineVerifyHost` — 宿主 post-execute verify（默认 true）
@@ -87,7 +86,7 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 2. **大对象坐标** — 全屏上能看见可点的内部，点落在内部仍然在控件上：窗口、面板、输入框、列表行、大按钮、菜单项。没有可用序号时，在 `[Screen after action]` 上用 `*_at`，不带 `zoom`。
 3. **小对象** — 只是一个记号，全屏上看不到能瞄准的内部：图标、复选框、光标、字形，或贴在大区域边缘的控件。本轮只把指针移到旁边，不点击。旁边指：指针和目标在同一可见区域（同一行、同一组按钮或同一条边缘），空隙短到下一轮放大图能包住目标。邻控件已有序号就移到那个序号；目标贴在大区域边缘时，落在该区域里靠目标一侧的空白，用偏向这一侧的粗坐标。区域序号会点到中心，这一拍不用。下一轮目标在 `[Zoom pointer after action]` 里时，坐标工具带 `zoom: true`，`x`/`y` 是放大图自己的 0–1000（左上 0，右下 1000）。宿主按本轮裁切窗口映射回全屏坐标。序号和大对象坐标不要带这个标记。目标不在放大图里就再移一次，这一拍不点击。
 
-`[Screen before action]` 是上一轮已经截下的原图，下一轮直接复用，不再为它重新截屏。规划不拿它覆盖宿主 `verify:`。Verify 另有自己的操作前/操作后。
+`[Screen before action]` 直接复用上一轮已经画好指针的图，不再截屏，也不重画指针。规划不拿它覆盖宿主 `verify:`。Verify 另有自己的操作前/操作后。
 
 工具正文：`tools/prompts/mouse.md`、`input.md`、`modified_click.md` 等。组装：`generate_tools_system_appendix`。
 

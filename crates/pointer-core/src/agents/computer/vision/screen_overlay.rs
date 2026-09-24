@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 pub const SLOT_SCREEN_CURRENT: &str = "[Current screen]";
 /// Position-phase: numbered overlay on the current desktop (pipeline).
 pub const SLOT_SCREEN_ANNOTATED_CURRENT: &str = "[Annotated current screen]";
-/// Full screenshot from the **prior** observation: **unmarked** capture from the previous turn with the **current** synthetic pointer drawn on it (pre-action desktop layout; pointer shows where the cursor is **now**).
+/// Prior capture's marked JPEG, reused as-is for `[Screen before action]`. The pointer is not redrawn.
 pub const SLOT_SCREEN_BEFORE_ACTION: &str = "[Screen before action]";
 /// Full screenshot from **this** observation (unmarked capture; no synthetic pointer overlay).
 pub const SLOT_SCREEN_AFTER_ACTION: &str = "[Screen after action]";

@@ -1,6 +1,6 @@
-# Computer Agent Tier Runtime — 三级升级核心逻辑
+# Computer Agent Tier Runtime
 
-> 本文档记录 Computer Agent 的 Primary / Intermediate / Advanced 三级运行时：升级决策引擎、模型配置链、提示词加载链、放弃与锁定机制。
+> 本文档记录 Computer Agent 的 Primary / Intermediate / Advanced 运行时：会话档位、模型配置链、提示词加载链、放弃与锁定机制。会话档位在 `computerInitialTier` 选定后保持不变，Verify 失败不会自动升档。
 
 ---
 
@@ -23,14 +23,15 @@
 代码：`crates/pointer-core/src/agents/computer/tier/mod.rs:29-46`
 
 ```rust
-TIER_UPGRADE_THRESHOLD: u32 = 3;   // 自动升级阈值（verify fail > 3 次）
 GOAL_LOCK_THRESHOLD: u32 = 3;      // [LOCKED GOAL] 锁定阈值（同一 goal fail > 3 次）
 GIVE_UP_THRESHOLD: u32 = 5;        // 放弃阈值（repetition >= 5）
 ```
 
 ---
 
-## 三、升级决策引擎 — `on_round_complete()`
+## 三、轮次决策 — `on_round_complete()`
+
+档位不在这里改变。`current_tier` 只在会话创建和用户新指导重置时写成 `computerInitialTier`。
 
 ### 3.1 触发路径
 
@@ -53,7 +54,6 @@ on_round_complete(config, parsed_verify, last_tool_goal, sidecar_rep, host_rep):
         return  // 没有 verify 信号，不做任何改变
     
     if step_result == "fail":
-        tier_error_streak += 1                       // tier 级别 fail 计数
         goal_fail_streak += 1                        // 同 goal fail 计数
         
         if goal_fail_streak > GOAL_LOCK_THRESHOLD (3):
@@ -61,44 +61,20 @@ on_round_complete(config, parsed_verify, last_tool_goal, sidecar_rep, host_rep):
             task_error_streak = goal_fail_streak
     
     if step_result == "pass":
-        tier_error_streak = 0                        // ★ 全部清零
         should_give_up = false
         locked_goal = None
         goal_fail_streak = 0
-        current_tier = config.initial_tier           // ★ 回到初始 tier
-        // 完成！退出升级逻辑
+        // current_tier 不变
     
     if step_result != "pass":
         effective_rep = max(sidecar_rep, host_rep)
-        
-        // ★ 自动升级判定
-        should_upgrade = 
-            (effective_rep > 0 && effective_rep > TIER_UPGRADE_THRESHOLD)
-            || (effective_rep == 0 && tier_error_streak > TIER_UPGRADE_THRESHOLD)
-        
-        if should_upgrade && config.auto_upgrade:
-            current_tier = current_tier.bump()       // Primary→Intermediate→Advanced
-            tier_error_streak = 0
         
         // ★ 放弃判定
         if effective_rep >= GIVE_UP_THRESHOLD:
             should_give_up = true
 ```
 
-### 3.3 升级路径图
-
-```
-                    verify fail > 3            verify fail > 3
-   Primary ──────────────────────→ Intermediate ──────────────────────→ Advanced
-      ↑                                                                   │
-      │                                                              (封顶)
-      │                                                                    │
-      └──────────── verify pass = 重置到 initial_tier ────────────────────┘
-```
-
-- **自动升级条件**：`auto_upgrade=true`（默认）且 `tier_error_streak > 3` 或 `effective_rep > 3`
-- **重置条件**：任何一步 `verify:report` 返回 `pass` → 立即回到 `config.initial_tier`
-- **Advanced 封顶**：`Advanced.bump() == Advanced`，到达 Advanced 后不再升级
+会话期间没有 Primary → Intermediate → Advanced 的自动切换。旧配置键 `computerAutoUpgrade` 会被忽略并打警告日志。
 
 ---
 
@@ -153,8 +129,7 @@ Tier 系统的输入有两个信号源，取两者最大值：
 代码：`tier/mod.rs:205-218`，`ComputerTierRuntime` 结构体
 
 ```
-current_tier          : ComputerTier    当前 tier (Primary/Intermediate/Advanced)
-tier_error_streak     : u32             tier 级别连续 verify fail 计数
+current_tier          : ComputerTier    会话档位，运行中不自动切换
 task_error_streak     : u32             锁定 goal 后的 fail 计数
 locked_goal           : Option<LockedGoal> 当前锁定的 goal
 goal_fail_fingerprint : String          当前 goal 的指纹（大小写+空白规范化）
@@ -163,7 +138,7 @@ should_give_up        : bool            是否应当放弃
 histories             : HashMap<ComputerTier, Vec<TierActionRecord>> 每个 tier 独立历史（最多 10 条）
 ```
 
-状态隔离：每个 tier 维护独立的历史记录，升级后新 tier 的历史从空开始。
+状态隔离：历史按档位分开存放。会话中途不换档，实际只用起始档那一份。
 
 ---
 
@@ -188,14 +163,13 @@ ADVANCED_THINKING_BUDGET            = 8192
 ```yaml
 # AGENT.md frontmatter
 config:
-  computerAutoUpgrade: "true"
   computerInitialTier: "intermediate"
   computerModelPrimary: "qwen3.5-flash"
   computerModelIntermediate: "qwen3.5-plus"
   computerModelAdvanced: "qwen3.6-plus"
 ```
 
-支持的 key: `computerAutoUpgrade`, `computerInitialTier`, `computerModelPrimary/Intermediate/Advanced`
+支持的 key: `computerInitialTier`, `computerModelPrimary/Intermediate/Advanced`。`computerAutoUpgrade` 已废弃，读到时警告并忽略。
 
 ### 6.3 apply_app_settings() — 用户设置覆盖
 
@@ -320,7 +294,7 @@ const COMPUTER_OS_PROMPT_MACOS        = include_str!("computer/prompts/os/macos.
 | `computer_communication_for_tier()` | `primary/communication.md` + OS + disabled controls | 同 Primary | 同 Primary |
 | `computer_agent_body_for_tier()` | `primary/loop.md` | 同 Primary | 同 Primary |
 
-**Tier 仅影响模型**：`ComputerRoundLlmOverrides::for_tier()` 选择 `computerModelPrimary/Intermediate/Advanced` 与 thinking budget；提示词与 `[CUR_SCREEN]` 截图布局（3–4 张：可选复用的上一帧、当前屏、标注屏、指针放大图）三档一致。上一帧用已保存的原图，不再截一次。坐标工具的 `zoom: true` 表示 `x`/`y` 是放大图 0–1000，宿主按本轮裁切窗口映射回全屏。
+**Tier 仅影响模型**：`ComputerRoundLlmOverrides::for_tier()` 选择 `computerModelPrimary/Intermediate/Advanced` 与 thinking budget；提示词与 `[CUR_SCREEN]` 截图布局（3–4 张：可选复用的上一帧、当前屏、标注屏、指针放大图）三档一致。上一帧直接复用上一轮已画指针的图，不再截一次，也不重画指针。坐标工具的 `zoom: true` 表示 `x`/`y` 是放大图 0–1000，宿主按本轮裁切窗口映射回全屏。
 
 ### 8.4 每轮 System Prompt 组装
 
@@ -395,7 +369,6 @@ if profile == AgentProfile::Computer {
 | 字段 | 重置行为 |
 |------|----------|
 | `should_give_up` | `false` |
-| `tier_error_streak` | `0` |
 | `task_error_streak` | `0` |
 | `goal_fail_streak` / `goal_fail_fingerprint` | 清零 |
 | `locked_goal` | `None` |
@@ -429,13 +402,12 @@ run_single_agent_loop()  [每一轮]
 │      ├── parse_tier_signal_from_sidecar_tool_calls()
 │      ├── same_goal_repetition_count_in_history()
 │      ├── tier_runtime.on_round_complete()
-│      │    ├── fail → tier_error_streak++; goal_fail_streak++
+│      │    ├── fail → goal_fail_streak++
 │      │    ├── fail>3 → locked_goal = Some(...)
-│      │    ├── fail>3 && auto_upgrade → current_tier.bump()
 │      │    ├── repetition>=5 → should_give_up = true
-│      │    └── pass → 全部重置，current_tier = initial_tier
+│      │    └── pass → 清除锁定与放弃标记；current_tier 不变
 │      └── if should_give_up → 退出循环
-└─ 回到步骤 1（下一轮用新 tier 的模型；提示词不变）
+└─ 回到步骤 1（下一轮仍用同一档的模型；提示词不变）
 ```
 
 ---
@@ -464,7 +436,7 @@ run_single_agent_loop()  [每一轮]
 - Fingerprint 大小写和空格规范化
 - `parse_verify_from_thoughts` 提取 step/cause
 - 历史行格式化（含/不含 cause）
-- 4 次 fail 后自动升级：Primary → Intermediate
+- 连续 4 次 fail 后档位保持不变
 - Primary tier 历史隐藏 cause
 - `same_goal_repetition_count` 仅计数 fail
 - Runtime block 展示策略提示

@@ -41,7 +41,7 @@ defaultSkillIds:
     - xlsx
 skillsPolicy: defaultsOnly
 config:
-  computerAutoUpgrade: "true"
+  annotateApiBase: "http://116.62.86.190"
   computerStandalonePlanner: "true"
   computerInitialTier: "intermediate"
   computerModelPrimary: "qwen3.5-flash"

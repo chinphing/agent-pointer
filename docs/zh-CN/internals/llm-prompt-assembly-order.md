@@ -26,8 +26,8 @@
 |------|------|------|--------|
 | **cacheable** | 1 | **公共 COMMUNICATION** | `rendered_communication_public_inject()` | 固定 |
 | | 2 | **文件交付（`MEDIA:`）** | `rendered_media_delivery_inject()` → [`agents/_shared/MEDIA_DELIVERY.md`](../../../crates/pointer-core/src/agents/_shared/MEDIA_DELIVERY.md) | **仅 general / coder / computer** |
-| | 3 | **图表（`chartjs`）** | `rendered_charts_inject()` → [`agents/_shared/CHARTS.md`](../../../crates/pointer-core/src/agents/_shared/CHARTS.md) | **仅 general / coder / computer** |
-| | 4 | **SVG 图示（`svg`）** | `rendered_svg_diagrams_inject()` → [`agents/_shared/SVG_DIAGRAMS.md`](../../../crates/pointer-core/src/agents/_shared/SVG_DIAGRAMS.md) | **仅 general / coder / computer** |
+| | 3 | **图表（`chartjs`）** | `rendered_charts_inject()` → [`agents/_shared/CHARTS.md`](../../../crates/pointer-core/src/agents/_shared/CHARTS.md) | **仅 general / coder** |
+| | 4 | **SVG 图示（`svg`）** | `rendered_svg_diagrams_inject()` → [`agents/_shared/SVG_DIAGRAMS.md`](../../../crates/pointer-core/src/agents/_shared/SVG_DIAGRAMS.md) | **仅 general / coder** |
 | | 5 | **Agent 系统提示**：Computer 为 **tier** communication + loop（`push_agent_role_cacheable_prompts`，主轮与子 Agent 共用）；非 Computer 为 `AGENT.md` + profile 通信；子 Agent 另在步骤 5 后追加短 **sub_agent_header** + **skills** | `agent_plan.system_prompts` / tier 运行时 | 会话内固定（`{{workspace_root}}` 随工作区变） |
 | | 6 | **工具系统附录** | `generate_tools_system_appendix` | 工具集不变则固定；同一 `ToolEntry::doc_source`（提示词 `.md` 路径）只输出一次 |
 | | 7 | **`[Environment]`**（OS、locale、**日历日期**） | `push_env_to_cacheable` | 按自然日变，**非每轮** |
@@ -41,7 +41,7 @@
 - **cacheable**：在 `run_before_main_llm_call` **之前** 填完（含 Environment）。
 - **dynamic**：仅钩子写入（**`ComputerTierDynamicHook`**）。
 - **user dynamic inject**：在 `run_message_loop_prompts_after` 末尾追加一条 `user`，承载 task board Markdown（有内容或 init hint 时）。
-- **Computer lead**：`prepare_single_agent_round_prompts` 每轮按 **tier** 重建 cacheable 中的档位 communication（升档时缓存失效一次）。
+- **Computer lead**：`prepare_single_agent_round_prompts` 每轮按会话档位重建 cacheable 中的 communication。档位在会话中途不变。
 
 合并为单条 system 字符串时，顺序为 **cacheable 全文 → dynamic 全文**；task board 已迁移到 `messages` 末尾的公共 user 注入块（仅在有 board 内容或 init hint 时追加）。
 
@@ -119,8 +119,8 @@
 |------|----------|------|
 | **COMMUNICATION_PUBLIC** | `agents/_shared/COMMUNICATION_PUBLIC.md` | cacheable |
 | **MEDIA_DELIVERY** | `agents/_shared/MEDIA_DELIVERY.md` | cacheable（仅 general / coder / computer） |
-| **CHARTS** | `agents/_shared/CHARTS.md` | cacheable（仅 general / coder / computer；与 agent body 解耦） |
-| **SVG_DIAGRAMS** | `agents/_shared/SVG_DIAGRAMS.md` | cacheable（仅 general / coder / computer；与 agent body 解耦） |
+| **CHARTS** | `agents/_shared/CHARTS.md` | cacheable（仅 general / coder；与 agent body 解耦） |
+| **SVG_DIAGRAMS** | `agents/_shared/SVG_DIAGRAMS.md` | cacheable（仅 general / coder；与 agent body 解耦） |
 | **AGENT.md** / **COMMUNICATION.md** | `agents/<id>/` | cacheable |
 | **Coder / Explore compose** | `agents/coder/mod.rs`, `agents/explore/mod.rs` → `composed_system_body()` | cacheable（`load_builtin_agent` 替换 AGENT 正文） |
 | **Tools** | `tools/prompts/*.md` 等 | cacheable |

@@ -7,7 +7,6 @@ use crate::models::ComputerTierLlmConfig;
 use serde_json::Value;
 use std::collections::HashMap;
 
-pub const CONFIG_KEY_AUTO_UPGRADE: &str = "computerAutoUpgrade";
 pub const CONFIG_KEY_INITIAL_TIER: &str = "computerInitialTier";
 pub const CONFIG_KEY_MODEL_PRIMARY: &str = "computerModelPrimary";
 pub const CONFIG_KEY_MODEL_INTERMEDIATE: &str = "computerModelIntermediate";
@@ -41,18 +40,6 @@ pub const ADVANCED_THINKING_BUDGET: u32 = 8192;
 
 const MAX_TIER_HISTORY: usize = 10;
 
-/// Triggers tier auto-upgrade (Primary → Intermediate → Advanced) when
-/// the model-reported `repetition_count` or consecutive verify-fail streak
-/// exceeds this value.
-pub const TIER_UPGRADE_THRESHOLD: u32 = 3;
-
-/// Back-compat alias for [`TIER_UPGRADE_THRESHOLD`].
-pub const REPETITION_STUCK_COUNT_THRESHOLD: u32 = TIER_UPGRADE_THRESHOLD;
-/// Back-compat alias for [`TIER_UPGRADE_THRESHOLD`].
-pub const REPETITION_FAIL_COUNT_STUCK_THRESHOLD: u32 = TIER_UPGRADE_THRESHOLD;
-/// Back-compat alias for [`TIER_UPGRADE_THRESHOLD`].
-pub const TIER_ERROR_THRESHOLD: u32 = TIER_UPGRADE_THRESHOLD;
-
 /// Same-goal verify fails before **`[LOCKED GOAL]`** engages (`>` this value).
 pub const GOAL_LOCK_THRESHOLD: u32 = 3;
 /// Back-compat alias for [`GOAL_LOCK_THRESHOLD`].
@@ -85,14 +72,6 @@ impl ComputerTier {
             Self::Primary => "primary",
             Self::Intermediate => "intermediate",
             Self::Advanced => "advanced",
-        }
-    }
-
-    pub fn bump(self) -> Self {
-        match self {
-            Self::Primary => Self::Intermediate,
-            Self::Intermediate => Self::Advanced,
-            Self::Advanced => Self::Advanced,
         }
     }
 
@@ -176,7 +155,6 @@ impl ComputerPipelineLlmConfig {
 /// Static tier options from agent manifest + platform overrides.
 #[derive(Debug, Clone)]
 pub struct ComputerTierConfig {
-    pub auto_upgrade: bool,
     pub initial_tier: ComputerTier,
     pub model_primary: String,
     pub model_intermediate: String,
@@ -190,7 +168,6 @@ pub struct ComputerTierConfig {
 impl Default for ComputerTierConfig {
     fn default() -> Self {
         Self {
-            auto_upgrade: true,
             initial_tier: ComputerTier::Intermediate,
             model_primary: DEFAULT_MODEL_PRIMARY.into(),
             model_intermediate: DEFAULT_MODEL_INTERMEDIATE.into(),
@@ -211,8 +188,10 @@ impl ComputerTierConfig {
         };
         for (k, v) in &def.config {
             match k.as_str() {
-                CONFIG_KEY_AUTO_UPGRADE => {
-                    cfg.auto_upgrade = v.eq_ignore_ascii_case("true") || v == "1";
+                "computerAutoUpgrade" => {
+                    log::warn!(
+                        "computer tier: computerAutoUpgrade is ignored; tier stays at computerInitialTier"
+                    );
                 }
                 CONFIG_KEY_INITIAL_TIER => {
                     cfg.initial_tier = ComputerTier::parse(v);
@@ -356,7 +335,6 @@ pub struct LockedGoal {
 #[derive(Debug, Clone)]
 pub struct ComputerTierRuntime {
     pub current_tier: ComputerTier,
-    pub tier_error_streak: u32,
     pub task_error_streak: u32,
     pub locked_goal: Option<LockedGoal>,
     histories: HashMap<ComputerTier, Vec<TierActionRecord>>,
@@ -377,7 +355,6 @@ impl ComputerTierRuntime {
     pub fn new(initial: ComputerTier) -> Self {
         Self {
             current_tier: initial,
-            tier_error_streak: 0,
             task_error_streak: 0,
             locked_goal: None,
             histories: HashMap::new(),
@@ -495,7 +472,7 @@ impl ComputerTierRuntime {
 
     pub fn on_round_complete(
         &mut self,
-        config: &ComputerTierConfig,
+        _config: &ComputerTierConfig,
         parsed: Option<&ParsedVerify>,
         last_tool_goal: Option<&str>,
         sidecar_repetition_count: Option<u32>,
@@ -509,7 +486,6 @@ impl ComputerTierRuntime {
         let is_pass = step == "pass";
 
         if is_fail {
-            self.tier_error_streak = self.tier_error_streak.saturating_add(1);
             if let Some(goal) = last_tool_goal.map(str::trim).filter(|s| !s.is_empty()) {
                 let fp = Self::fingerprint_goal(goal);
                 if self
@@ -536,7 +512,6 @@ impl ComputerTierRuntime {
                 }
             }
         } else if is_pass {
-            self.tier_error_streak = 0;
             self.should_give_up = false;
             let unlock = self.locked_goal.is_none()
                 || goal_matches_lock(last_tool_goal, self.locked_goal.as_ref());
@@ -545,9 +520,8 @@ impl ComputerTierRuntime {
                 self.task_error_streak = 0;
                 self.goal_fail_fingerprint = None;
                 self.goal_fail_streak = 0;
-                self.current_tier = config.initial_tier;
                 log::info!(
-                    "computer tier: goal verify pass — reset to {:?}",
+                    "computer tier: goal verify pass — cleared lock (tier stays {:?})",
                     self.current_tier
                 );
             }
@@ -556,23 +530,6 @@ impl ComputerTierRuntime {
         if !is_pass {
             let effective_rep =
                 Self::effective_repetition_count(sidecar_repetition_count, host_repetition_count);
-            let should_upgrade = if effective_rep > 0 {
-                effective_rep > TIER_UPGRADE_THRESHOLD
-            } else {
-                self.tier_error_streak > TIER_UPGRADE_THRESHOLD
-            };
-            if should_upgrade && config.auto_upgrade {
-                let prev = self.current_tier;
-                self.current_tier = prev.bump();
-                self.tier_error_streak = 0;
-                log::info!(
-                    "computer tier: auto_upgrade {:?} -> {:?} (sidecar={:?} host={host_repetition_count} effective={effective_rep})",
-                    prev,
-                    self.current_tier,
-                    sidecar_repetition_count,
-                );
-            }
-
             if effective_rep >= GIVE_UP_THRESHOLD {
                 log::info!(
                     "computer tier: give up — effective repetition={effective_rep} >= {GIVE_UP_THRESHOLD} (sidecar={:?} host={host_repetition_count})",
@@ -589,7 +546,6 @@ impl ComputerTierRuntime {
         let reference = self.build_give_up_reference_block();
         self.histories.clear();
         self.current_tier = initial_tier;
-        self.tier_error_streak = 0;
         self.task_error_streak = 0;
         self.locked_goal = None;
         self.goal_fail_fingerprint = None;
@@ -771,7 +727,7 @@ pub fn same_goal_fail_count_in_history(records: &[TierActionRecord]) -> u32 {
 /// Host-maintained counters for internal runtime diagnostics.
 pub fn format_tier_runtime_block(
     rt: &ComputerTierRuntime,
-    config: &ComputerTierConfig,
+    _config: &ComputerTierConfig,
     tier: ComputerTier,
     records: &[TierActionRecord],
 ) -> String {
@@ -779,23 +735,6 @@ pub fn format_tier_runtime_block(
         "[Computer tier runtime — host-maintained; not screenshots.]".to_string(),
         format!("Current tier: {}", tier.label()),
     ];
-    if config.auto_upgrade && tier != ComputerTier::Advanced {
-        let next = tier.bump().label();
-        lines.push(format!(
-            "Verify-fail streak: {} (auto-upgrade after >{} consecutive verify fail → {next})",
-            rt.tier_error_streak, TIER_UPGRADE_THRESHOLD
-        ));
-    } else if config.auto_upgrade {
-        lines.push(format!(
-            "Verify-fail streak: {} (already advanced; no further tier bump)",
-            rt.tier_error_streak
-        ));
-    } else {
-        lines.push(format!(
-            "Verify-fail streak: {} (computerAutoUpgrade=false — tier unchanged)",
-            rt.tier_error_streak
-        ));
-    }
     let rep_count = same_goal_repetition_count_in_history(records);
     if records.is_empty() {
         lines.push(
@@ -808,10 +747,8 @@ pub fn format_tier_runtime_block(
         ));
         let rep_policy = if rep_count == 0 {
             "repeat-policy: count=0 continue current tactic"
-        } else if rep_count <= TIER_UPGRADE_THRESHOLD {
-            "repeat-policy: count=1..3 switch tactic/method"
         } else if rep_count < GIVE_UP_THRESHOLD {
-            "repeat-policy: count=4 escalate tier/reasoning"
+            "repeat-policy: count=1..4 switch tactic"
         } else {
             "repeat-policy: count>=5 exhausted — request user guidance"
         };
@@ -830,7 +767,8 @@ pub fn format_tier_runtime_block(
         ));
     }
     lines.push(
-        "On verify pass for the active goal: tier resets to primary and streaks clear.".to_string(),
+        "On verify pass for the active goal: lock and streaks clear. Tier stays at the session tier."
+            .to_string(),
     );
     lines.join("\n")
 }
@@ -1185,9 +1123,8 @@ mod tests {
     }
 
     #[test]
-    fn tier_bumps_after_four_fails_when_auto_upgrade() {
+    fn tier_stays_after_four_fails() {
         let config = ComputerTierConfig {
-            auto_upgrade: true,
             initial_tier: ComputerTier::Intermediate,
             ..ComputerTierConfig::default()
         };
@@ -1204,7 +1141,7 @@ mod tests {
                 0,
             );
         }
-        assert_eq!(rt.current_tier, ComputerTier::Intermediate);
+        assert_eq!(rt.current_tier, ComputerTier::Primary);
     }
 
     #[test]
@@ -1445,10 +1382,9 @@ mod tests {
     }
 
     #[test]
-    fn tier_runtime_block_shows_repetition_policy_and_upgrade_hint() {
+    fn tier_runtime_block_shows_repetition_policy() {
         let config = ComputerTierConfig::default();
-        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
-        rt.tier_error_streak = 2;
+        let rt = ComputerTierRuntime::new(ComputerTier::Primary);
         let records = vec![TierActionRecord {
             tool_name: "t".into(),
             goal: "g".into(),
@@ -1458,10 +1394,10 @@ mod tests {
             extra_args_hint: None,
         }];
         let block = format_tier_runtime_block(&rt, &config, ComputerTier::Primary, &records);
-        assert!(block.contains("Verify-fail streak: 2"));
-        assert!(block.contains("intermediate"));
+        assert!(block.contains("Current tier: primary"));
         assert!(block.contains("Repetition count: 0"));
         assert!(block.contains("repeat-policy: count=0"));
+        assert!(!block.contains("auto-upgrade"));
     }
 
     #[test]
@@ -1501,7 +1437,7 @@ mod tests {
             .collect();
         let block = format_tier_runtime_block(&rt, &config, ComputerTier::Primary, &records);
         assert!(block.contains("Repetition count: 4"));
-        assert!(block.contains("repeat-policy: count=4 escalate tier/reasoning"));
+        assert!(block.contains("repeat-policy: count=1..4 switch tactic"));
     }
 
     #[test]
@@ -1579,7 +1515,6 @@ mod tests {
     #[test]
     fn reset_for_new_user_guidance_clears_streaks_and_archives_reference() {
         let mut rt = ComputerTierRuntime::new(ComputerTier::Advanced);
-        rt.tier_error_streak = 3;
         rt.task_error_streak = 2;
         rt.goal_fail_streak = 2;
         rt.goal_fail_fingerprint = Some("fp".into());
@@ -1604,7 +1539,6 @@ mod tests {
         );
         rt.reset_for_new_user_guidance(ComputerTier::Primary);
         assert!(!rt.should_give_up);
-        assert_eq!(rt.tier_error_streak, 0);
         assert_eq!(rt.task_error_streak, 0);
         assert_eq!(rt.goal_fail_streak, 0);
         assert!(rt.locked_goal.is_none());

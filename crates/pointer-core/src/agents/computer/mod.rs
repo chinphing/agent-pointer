@@ -22,8 +22,8 @@ pub use state::{
 };
 pub use tier::{
     current_computer_tier, tier_allows_index_tools, ComputerRoundLlmOverrides, ComputerTier,
-    ComputerTierConfig, ComputerTierGuard, ComputerTierRuntime, CONFIG_KEY_AUTO_UPGRADE,
-    CONFIG_KEY_INITIAL_TIER, CONFIG_KEY_MODEL_ADVANCED, CONFIG_KEY_MODEL_PRIMARY,
+    ComputerTierConfig, ComputerTierGuard, ComputerTierRuntime, CONFIG_KEY_INITIAL_TIER,
+    CONFIG_KEY_MODEL_ADVANCED, CONFIG_KEY_MODEL_PRIMARY,
 };
 pub use timing::{
     is_desktop_post_delay_tool, is_desktop_vision_log_tool,

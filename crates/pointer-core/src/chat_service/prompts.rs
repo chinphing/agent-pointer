@@ -6,12 +6,17 @@ use crate::agents::{
     rendered_svg_diagrams_inject, AgentProfile, SessionInjectVars,
 };
 
-/// `MEDIA_DELIVERY` / `CHARTS` / `SVG_DIAGRAMS` / `HTML_TABLES` — general / coder / computer.
+/// `MEDIA_DELIVERY` — general / coder / computer.
 fn wants_reply_media_prompts(profile: &AgentProfile) -> bool {
     matches!(
         profile,
         AgentProfile::General | AgentProfile::Coder | AgentProfile::Computer
     )
+}
+
+/// Charts, Mermaid, SVG, and HTML tables — general / coder only.
+fn wants_diagram_prompts(profile: &AgentProfile) -> bool {
+    matches!(profile, AgentProfile::General | AgentProfile::Coder)
 }
 
 /// Cacheable lead role prompts: `COMMUNICATION_PUBLIC` + computer tier slice, or non-computer system prompts.
@@ -31,6 +36,8 @@ pub(crate) fn push_agent_role_cacheable_prompts(
         if let Some(block) = rendered_media_delivery_inject() {
             cacheable.push(block);
         }
+    }
+    if wants_diagram_prompts(profile) {
         if let Some(block) = rendered_charts_inject() {
             cacheable.push(block);
         }

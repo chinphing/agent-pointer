@@ -17,7 +17,7 @@ use crate::agents::computer::vision::coord::CoordinateSystem;
 use crate::agents::computer::vision::reference_anchors;
 use crate::agents::computer::vision::screen;
 use crate::agents::computer::vision::screen_overlay::{
-    self, build_before_action_inject, build_vision_overlay_pack, VisionOverlayWork,
+    self, build_vision_overlay_pack, BeforeActionInject, VisionOverlayWork,
 };
 use crate::agents::computer::vision::vision_state::VisionState;
 use crate::agents::AgentRegistry;
@@ -57,8 +57,8 @@ pub struct ScreenCaptureResult {
     pub mouse_neighbor_reference_text: Option<String>,
     /// Logical monitor bounds for this capture.
     pub monitor: screen::MonitorInfo,
-    /// Previous capture reused as `[Screen before action]` (`None` on the first capture).
-    /// Built from the stored JPEG, not a second OS screenshot.
+    /// Previous capture's marked JPEG, reused as `[Screen before action]`.
+    /// Same bytes as that capture; the pointer is not redrawn.
     pub inject_before_action: Option<screen_overlay::BeforeActionInject>,
 }
 
@@ -85,10 +85,9 @@ pub enum SessionStatus {
 pub struct ComputerSession {
     pub vision_state: Arc<Mutex<VisionState>>,
     pub last_annotated: Option<(Vec<u8>, screen::MonitorInfo)>,
-    /// Prior turn’s unmarked capture JPEG. Next turn reuses these bytes as the before frame.
-    pub last_turn_raw_jpeg_unmarked: Option<Vec<u8>>,
-    pub last_turn_monitor: Option<screen::MonitorInfo>,
-    /// Current turn **unmarked** capture (annotate input).
+    /// Prior capture's marked JPEG (pointer already drawn). Next turn reuses these bytes.
+    pub last_turn_marked_jpeg: Option<Vec<u8>>,
+    /// Current turn **unmarked** capture (annotate input); used by `captcha_verify` crop.
     pub current_turn_raw_jpeg_unmarked: Option<Vec<u8>>,
     pub current_turn_capture_px: Option<(u32, u32)>,
     pub selected_monitor: Option<String>,
@@ -111,8 +110,7 @@ impl ComputerSession {
         Self {
             vision_state: Arc::new(Mutex::new(VisionState::new())),
             last_annotated: None,
-            last_turn_raw_jpeg_unmarked: None,
-            last_turn_monitor: None,
+            last_turn_marked_jpeg: None,
             current_turn_raw_jpeg_unmarked: None,
             current_turn_capture_px: None,
             selected_monitor: None,
@@ -514,7 +512,7 @@ impl ComputerState {
 
     /// Run annotation + vision refresh for an already-captured desktop JPEG (integration tests, tooling).
     ///
-    /// Stores this capture’s unmarked JPEG. The next turn reuses it as the before frame.
+    /// Stores this capture’s marked JPEG. The next turn reuses those bytes as the before frame.
     pub async fn apply_screen_capture(
         &self,
         conversation_id: &str,
@@ -530,30 +528,18 @@ impl ComputerState {
         let tier = session.lock().unwrap().tier_runtime.current_tier;
         let work = VisionOverlayWork::for_tier(tier);
 
-        let inject_before_action = if matches!(
-            tier,
-            ComputerTier::Primary | ComputerTier::Intermediate | ComputerTier::Advanced
-        ) {
+        let inject_before_action = {
             let s = session.lock().unwrap();
-            match (
-                s.last_turn_raw_jpeg_unmarked.as_deref(),
-                s.last_turn_monitor.as_ref(),
-            ) {
-                (Some(jpeg), Some(mon)) => {
-                    match build_before_action_inject(jpeg, mon, global_pointer) {
-                        Ok(pack) => Some(pack),
-                        Err(e) => {
-                            log::warn!(
-                                "apply_screen_capture: reuse prior unmarked frame failed: {e:#}"
-                            );
-                            None
-                        }
-                    }
+            s.last_turn_marked_jpeg.as_ref().map(|jpeg| {
+                log::info!(
+                    "apply_screen_capture: reuse prior marked frame bytes={}",
+                    jpeg.len()
+                );
+                BeforeActionInject {
+                    screen_jpeg: jpeg.clone(),
+                    zoom_pointer_png: Vec::new(),
                 }
-                _ => None,
-            }
-        } else {
-            None
+            })
         };
 
         let t = Instant::now();
@@ -600,16 +586,7 @@ impl ComputerState {
             let mut session = session.lock().unwrap();
             session.current_turn_raw_jpeg_unmarked = Some(screen_capture.to_vec());
             session.current_turn_capture_px = Some(capture_px);
-            if matches!(
-                tier,
-                ComputerTier::Primary | ComputerTier::Intermediate | ComputerTier::Advanced
-            ) {
-                session.last_turn_raw_jpeg_unmarked = Some(screen_capture.to_vec());
-                session.last_turn_monitor = Some(monitor);
-            } else {
-                session.last_turn_raw_jpeg_unmarked = None;
-                session.last_turn_monitor = None;
-            }
+            session.last_turn_marked_jpeg = Some(pack.raw_marked_jpeg.clone());
             session.last_annotated = Some((pack.annotated_marked_jpeg.clone(), monitor));
             if let Some(frame) = pack.pointer_zoom_frame {
                 log::info!(
@@ -779,7 +756,7 @@ impl ComputerState {
         )
     }
 
-    /// Host counters for repetition / auto-upgrade (injected under `[CUR_SCREEN]`).
+    /// Host counters for repetition (not injected; tier does not auto-upgrade).
     pub fn tier_runtime_prompt_block(&self, conversation_id: &str) -> String {
         let session = self.get_or_create_session(conversation_id);
         let s = session.lock().unwrap();

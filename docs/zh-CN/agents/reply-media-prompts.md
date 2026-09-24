@@ -12,11 +12,11 @@ Chart.js 与 SVG 示意图的模型侧说明从各 Agent `AGENT.md` 正文剥离
 `file_write` / `file_edit` 的写入已有轮次修改摘要追踪，默认不发 `MEDIA:`；
 用户明确要求附件交付时除外。
 
-在 `push_agent_role_cacheable_prompts` 中：仅 **`AgentProfile::General` / `Coder` / `Computer`**（主会话或子 Agent）注入：
+在 `push_agent_role_cacheable_prompts` 中：
 
-`COMMUNICATION_PUBLIC` →（general/coder/computer）`MEDIA_DELIVERY` → `CHARTS` → `MERMAID_DIAGRAMS` → `SVG_DIAGRAMS` → Agent 系统提示 → …
-
-其它 profile（explore / research 等）只注入 `COMMUNICATION_PUBLIC` + 自身系统提示，不带这三块。
+- **General / Coder**（主会话或子 Agent）：`COMMUNICATION_PUBLIC` → `MEDIA_DELIVERY` → `CHARTS` → `MERMAID_DIAGRAMS` → `SVG_DIAGRAMS` → `HTML_TABLES` → Agent 系统提示
+- **Computer**：`COMMUNICATION_PUBLIC` → `MEDIA_DELIVERY` → Agent 系统提示。不注入 Charts、Mermaid、SVG、HTML 表格
+- 其它 profile（explore / research / supervisor 等）：只注入 `COMMUNICATION_PUBLIC` + 自身系统提示
 
 约定：提示词英文、短行、不写仓库文件名；产品行为见 [`../ui/markdown-charts.md`](../ui/markdown-charts.md)、[`../ui/markdown-mermaid.md`](../ui/markdown-mermaid.md)、[`../ui/markdown-svg.md`](../ui/markdown-svg.md)。组装总序见 [`../internals/llm-prompt-assembly-order.md`](../internals/llm-prompt-assembly-order.md)。
 

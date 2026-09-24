@@ -1,3 +1,5 @@
+import { isTauriRuntime } from './runtime'
+
 /** Default composer prompt when no server / Vite override is present. */
 export const DEFAULT_COMPOSER_PLACEHOLDER = '告诉我你想做什么'
 
@@ -124,13 +126,14 @@ export function resolveBrandIcon(): string {
 
 /**
  * Whether the desktop snapshot button should show.
- * Server injects `pointer-desktop-snapshot` (`1`/`0`); headless hosts get `0`
- * via auto-detect. Unset (Vite / Tauri without meta) → show.
+ * The desktop app never shows it. Web / standalone follow
+ * `pointer-desktop-snapshot` (`1`/`0`, headless hosts get `0`); unset → hide.
  */
 export function resolveDesktopSnapshotEnabled(): boolean {
+  if (isTauriRuntime()) return false
   const fromVite = parseBoolFlag(readViteString('VITE_DESKTOP_SNAPSHOT_ENABLED'))
   if (fromVite != null) return fromVite
   const fromMeta = parseBoolFlag(readMeta(DESKTOP_SNAPSHOT_META))
   if (fromMeta != null) return fromMeta
-  return true
+  return false
 }

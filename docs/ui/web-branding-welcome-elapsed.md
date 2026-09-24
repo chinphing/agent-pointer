@@ -41,7 +41,7 @@ desktop_snapshot_enabled = false
 2. **耗时前缀**：进行中用 active；结束后用 done。未知耗时为 `{prefix}耗时未知`（默认仍为 `工作耗时未知`）。
 3. **默认收缩执行过程**：不由 server 强制。定制部署若要在进行中看到收起条，请在助手设置打开「默认收缩执行过程」（见 [turn-elapsed.md](turn-elapsed.md)）。
 4. **品牌名 / 图标**：侧栏/顶栏品牌字与左上角、左下角 logo 读取 `brand_name` / `brand_icon`（两处共用同一图标）；未配置时保持产品默认 `Pointer` 与 `/app-icon.png`。
-5. **桌面截图按钮**：无显示器（headless / 非 UI）默认不显示；三个入口（桌面 / Web / standalone）同一套 meta。可强制 `desktop_snapshot_enabled = true|false`。
+5. **桌面截图按钮**：桌面客户端固定不显示，不读 meta 和环境变量。Web / standalone 由服务端写入 `pointer-desktop-snapshot`：有显示器为 `1`，无显示器为 `0`；未注入时不显示。可强制 `desktop_snapshot_enabled = true|false`，或用 `VITE_DESKTOP_SNAPSHOT_ENABLED` 覆盖网页端。
 6. **非管理员**：不能打开设置（账户菜单隐藏「设置」、相关入口与 `openSettings` 均拦截）；右侧工作区按钮与面板不显示。
 
 ## 不做

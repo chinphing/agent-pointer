@@ -73,7 +73,7 @@ IM 出站超过直传上限时，服务端签发 `public-download` 链接，以 
 
 - API：`POST /api/computer/manual-snapshot` → 响应体为 **JPEG 二进制流**（`Content-Type: image/jpeg`，`Cache-Control: no-store`），不再 base64 包装 JSON
 - 格式：JPEG（默认质量 **68**）；服务端捕获后按预览用途压缩（长边 ≤1280px，单张 ≤100KB），避免 5s 轮询占用过多带宽
-- UI：Web 模式下侧栏「查看桌面」按钮（`DesktopSnapshotButton.vue`）
+- UI：侧栏「查看桌面」按钮（`DesktopSnapshotButton.vue`）。桌面客户端固定不显示。Web / standalone 由服务端按显示器探测写入 `pointer-desktop-snapshot`（`1`/`0`）；未注入时不显示
 - 预览打开时每 **5 秒**自动刷新一次截图；关闭预览后停止刷新
 - 显示的是 **pointer-server 进程所在主机** 的桌面（云 ECS = 云桌面）
 - 预览图叠加 **合成鼠标指针** 与 **输入焦点 I-beam**（与 Computer Agent 视觉 overlay 一致；Linux 上焦点坐标可能不可用）

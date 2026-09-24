@@ -1,5 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('./runtime', () => ({
+  isTauriRuntime: vi.fn(() => false)
+}))
 import {
   DEFAULT_BRAND_ICON,
   DEFAULT_BRAND_NAME,
@@ -11,6 +15,7 @@ import {
   resolveWelcomeTip
 } from './webBranding'
 import { formatTurnElapsed } from './turnElapsed'
+import { isTauriRuntime } from './runtime'
 
 function setMeta(name: string, content: string) {
   let el = document.querySelector(`meta[name="${name}"]`)
@@ -34,6 +39,7 @@ afterEach(() => {
   clearMeta('pointer-brand-name')
   clearMeta('pointer-brand-icon')
   clearMeta('pointer-desktop-snapshot')
+  vi.mocked(isTauriRuntime).mockReturnValue(false)
   vi.unstubAllEnvs()
 })
 
@@ -83,6 +89,14 @@ describe('web branding name / icons / snapshot', () => {
   it('defaults brand name and icon', () => {
     expect(resolveBrandName()).toBe(DEFAULT_BRAND_NAME)
     expect(resolveBrandIcon()).toBe(DEFAULT_BRAND_ICON)
+  })
+
+  it('hides desktop snapshot when unset', () => {
+    expect(resolveDesktopSnapshotEnabled()).toBe(false)
+  })
+
+  it('shows desktop snapshot when meta is 1', () => {
+    setMeta('pointer-desktop-snapshot', '1')
     expect(resolveDesktopSnapshotEnabled()).toBe(true)
   })
 
@@ -95,6 +109,13 @@ describe('web branding name / icons / snapshot', () => {
 
   it('hides desktop snapshot when meta is 0', () => {
     setMeta('pointer-desktop-snapshot', '0')
+    expect(resolveDesktopSnapshotEnabled()).toBe(false)
+  })
+
+  it('hides desktop snapshot in the desktop app even when enabled', () => {
+    vi.mocked(isTauriRuntime).mockReturnValue(true)
+    vi.stubEnv('VITE_DESKTOP_SNAPSHOT_ENABLED', '1')
+    setMeta('pointer-desktop-snapshot', '1')
     expect(resolveDesktopSnapshotEnabled()).toBe(false)
   })
 })

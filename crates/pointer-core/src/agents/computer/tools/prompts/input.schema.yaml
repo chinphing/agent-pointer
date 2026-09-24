@@ -39,6 +39,13 @@ input_at:
       type: number
     y:
       type: number
+    zoom:
+      type: boolean
+      description: >
+        Set true only when x and y are 0–1000 on
+        [Zoom pointer after action]. The host maps them
+        onto the full screen. Omit or false for full-screen
+        coordinates.
     text:
       type: string
     clear_first:

@@ -35,8 +35,6 @@ const {
   platformReadOnly,
   getAgentModelWithProvider,
   selectAgentModelWithProvider,
-  taskBoardTrimChecked,
-  setTaskBoardTrimLocal,
   PERFORMANCE_MODE_UI,
   agentModeLlm,
   selectAgentModeModel,
@@ -130,16 +128,6 @@ function skillLabel(skillId: string): string {
                           <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                         </select>
                       </div>
-
-                      <label class="inline-flex items-center gap-1.5 cursor-pointer shrink-0">
-                        <input
-                          type="checkbox"
-                          class="rounded border-border bg-card text-accent focus:ring-accent/40"
-                          :checked="taskBoardTrimChecked(w.id)"
-                          @change="setTaskBoardTrimLocal(w.id, ($event.target as HTMLInputElement).checked)"
-                        />
-                        <span class="text-[11px] text-muted">{{ t('settings.agentPanel.compactAfterBoard') }}</span>
-                      </label>
 
                     </div>
 

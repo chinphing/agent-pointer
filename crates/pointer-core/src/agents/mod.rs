@@ -1319,8 +1319,8 @@ mod builtin_agent_tests {
         assert!(agent.def.enabled);
         assert_eq!(agent.def.profile, AgentProfile::Computer);
         assert!(
-            agent.system_prompt.contains("Verify:"),
-            "computer communication should merge Verify stage"
+            agent.system_prompt.contains("## Verify state (host — read only)"),
+            "computer communication should keep the host verify section"
         );
         assert!(
             agent.system_prompt.contains("host runs **Verify**"),
@@ -1331,24 +1331,26 @@ mod builtin_agent_tests {
             "primary communication should reference annotated slot"
         );
         assert!(
-            agent.system_prompt.contains("N–target relation"),
-            "communication should require route decision"
+            agent.system_prompt.contains("## Positioning"),
+            "communication should state positioning scenes"
+        );
+        assert!(
+            agent.system_prompt.contains("Label index."),
+            "communication should prefer label index"
         );
         assert!(
             agent
                 .system_prompt
-                .contains("Step 1 — Apply verify outcome"),
-            "communication should include Verify step"
+                .contains("[Screen after action]"),
+            "communication should reference the current screen"
         );
         assert!(
-            agent
-                .system_prompt
-                .contains("Nearby overlay reference bboxes"),
-            "communication should reference nearby bboxes"
+            !agent.system_prompt.contains("N–target relation"),
+            "communication should not require the old route template"
         );
         assert!(
-            agent.system_prompt.contains("Locate (Primary"),
-            "communication should include Locate section"
+            !agent.system_prompt.contains("Locate (Primary"),
+            "communication should not include the Locate template"
         );
     }
 

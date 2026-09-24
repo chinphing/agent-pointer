@@ -27,23 +27,19 @@ the next turn — use **`input_*`** with **`text`** instead.
 - **`mouse_right_click_at`** — Requires **`x`**, **`y`**.
 - **`mouse_hover_at`** — Requires **`x`**, **`y`** (move cursor without clicking).
 - **`mouse_drag_from_to_at`** — Requires **`x1`**, **`y1`**, **`x2`**, **`y2`**.
+- Optional **`zoom`** (boolean). Set true only when the point is read on
+  **`[Zoom pointer after action]`**. Then every coordinate on that call
+  is 0–1000 of the crop. The host maps them onto the full screen.
+  Omit it for full-screen coordinates and for every **`*_index`** tool.
 
-**Scroll** — run **Scroll anchor check** before every **`mouse_scroll_*`** call:
+**Scroll**
 
-```text
-Scroll anchor check:
-Target region: <panel/list/page that must move — one visible landmark>
-Pointer on region: <yes | no — is pointer inside that scrollable panel now?>
-Route: <mouse_scroll_index | mouse_scroll_current>
-```
-
-| Pointer on region | Route | Tool |
-|-------------------|-------|------|
-| **no** — pointer outside target scroll panel, or first scroll on this surface | **index** | **`mouse_scroll_index`** — pick **`index`** **inside** target region (list row, panel body, not chrome outside it) |
-| **yes** — pointer already inside the same **Target region** | **current** | **`mouse_scroll_current`** — continue scrolling without re-aiming |
+If the pointer is already inside the panel that must move, use **`mouse_scroll_current`**.
+Otherwise use **`mouse_scroll_index`** and pick an **`index`** inside that panel
+(a list row or the panel body, not chrome outside it).
 
 - **`mouse_scroll_index`** — Requires **`index`**, **`lines`**. Moves to index center, then scrolls.
-- **`mouse_scroll_current`** — Requires **`lines`**. Scrolls at current pointer only when **Pointer on region: yes**.
+- **`mouse_scroll_current`** — Requires **`lines`**. Scrolls at the current pointer.
 
 **Choosing `lines`:** Signed line count (positive = up, negative = down). Estimate visible rows in **Target region**; runtime does not rescale.
 

@@ -1,6 +1,6 @@
 use super::args_util::{
     clamp_scroll_lines, human_like_from_args, require_non_empty_str, required_f32_arg,
-    required_u32_arg, resolve_index_pixels as resolve_index_from_vision,
+    required_u32_arg, resolve_index_pixels as resolve_index_from_vision, zoom_flag_from_args,
 };
 use super::method_route::MouseBackend;
 use crate::agents::computer::actions::ActionExecutor;
@@ -180,10 +180,14 @@ impl MouseAtTool {
         }
     }
 
-    fn resolve_coord(&self, x: f32, y: f32) -> Result<(i32, i32)> {
+    fn resolve_coord(&self, args: &Value, x: f32, y: f32) -> Result<(i32, i32)> {
+        let use_zoom = zoom_flag_from_args(args)?;
         let vision = self.vision_state.lock().unwrap();
+        let (sx, sy) = vision.model_point_to_session(x, y, use_zoom).ok_or_else(|| {
+            anyhow!("zoom is set but this turn has no pointer-zoom crop to map onto the screen")
+        })?;
         let out = vision
-            .resolve_coordinate(x, y)
+            .resolve_coordinate(sx, sy)
             .ok_or_else(|| anyhow!("Screen bounds not set"))?;
         drop(vision);
         Ok(out)
@@ -192,7 +196,7 @@ impl MouseAtTool {
     fn click(&self, args: &Value) -> Result<String> {
         let x = required_f32_arg(args, "x")?;
         let y = required_f32_arg(args, "y")?;
-        let (px, py) = self.resolve_coord(x, y)?;
+        let (px, py) = self.resolve_coord(args, x, y)?;
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
         executor.click_at(px, py, hl)?;
@@ -202,7 +206,7 @@ impl MouseAtTool {
     fn double_click(&self, args: &Value) -> Result<String> {
         let x = required_f32_arg(args, "x")?;
         let y = required_f32_arg(args, "y")?;
-        let (px, py) = self.resolve_coord(x, y)?;
+        let (px, py) = self.resolve_coord(args, x, y)?;
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
         executor.double_click_at(px, py, hl)?;
@@ -212,7 +216,7 @@ impl MouseAtTool {
     fn right_click(&self, args: &Value) -> Result<String> {
         let x = required_f32_arg(args, "x")?;
         let y = required_f32_arg(args, "y")?;
-        let (px, py) = self.resolve_coord(x, y)?;
+        let (px, py) = self.resolve_coord(args, x, y)?;
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
         executor.right_click_at(px, py, hl)?;
@@ -222,7 +226,7 @@ impl MouseAtTool {
     fn hover(&self, args: &Value) -> Result<String> {
         let x = required_f32_arg(args, "x")?;
         let y = required_f32_arg(args, "y")?;
-        let (px, py) = self.resolve_coord(x, y)?;
+        let (px, py) = self.resolve_coord(args, x, y)?;
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
         executor.hover_at(px, py, hl)?;
@@ -235,12 +239,23 @@ impl MouseAtTool {
         let y1 = required_f32_arg(args, "y1").map_err(|_| anyhow!("drag_from_to requires y1"))?;
         let x2 = required_f32_arg(args, "x2").map_err(|_| anyhow!("drag_from_to requires x2"))?;
         let y2 = required_f32_arg(args, "y2").map_err(|_| anyhow!("drag_from_to requires y2"))?;
+        let use_zoom = zoom_flag_from_args(args)?;
         let vision = self.vision_state.lock().unwrap();
+        let (sx1, sy1) = vision
+            .model_point_to_session(x1, y1, use_zoom)
+            .ok_or_else(|| {
+                anyhow!("zoom is set but this turn has no pointer-zoom crop to map onto the screen")
+            })?;
+        let (sx2, sy2) = vision
+            .model_point_to_session(x2, y2, use_zoom)
+            .ok_or_else(|| {
+                anyhow!("zoom is set but this turn has no pointer-zoom crop to map onto the screen")
+            })?;
         let (px1, py1) = vision
-            .resolve_coordinate(x1, y1)
+            .resolve_coordinate(sx1, sy1)
             .ok_or_else(|| anyhow!("Screen bounds not set"))?;
         let (px2, py2) = vision
-            .resolve_coordinate(x2, y2)
+            .resolve_coordinate(sx2, sy2)
             .ok_or_else(|| anyhow!("Screen bounds not set"))?;
         drop(vision);
         let hl = self.human_like(args);

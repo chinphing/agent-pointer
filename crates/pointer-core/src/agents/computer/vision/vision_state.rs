@@ -3,6 +3,7 @@
 use super::annotate::BoxInfo;
 use super::coord::CoordinateSystem;
 use super::screen::MonitorInfo;
+use super::screen_overlay::{zoom_norm_to_session, PointerZoomFrame};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -48,6 +49,8 @@ pub struct VisionState {
     screen_bbox: Option<MonitorInfo>,
     /// Current coordinate system.
     coordinate_system: CoordinateSystem,
+    /// Crop window for the current `[Zoom pointer after action]`, if injected.
+    pointer_zoom_frame: Option<PointerZoomFrame>,
     /// History of recent actions.
     action_history: Vec<RecentAction>,
     /// Maximum number of actions to keep in history.
@@ -202,6 +205,40 @@ impl VisionState {
     ///
     /// # Returns
     /// Some((x, y)) if screen bbox is set, None otherwise.
+    pub fn set_pointer_zoom_frame(&mut self, frame: Option<PointerZoomFrame>) {
+        self.pointer_zoom_frame = frame;
+    }
+
+    /// Session point for `resolve_coordinate`.
+    /// When `use_zoom` is set, `x`/`y` are 0–1000 on the zoom crop.
+    pub fn model_point_to_session(&self, x: f32, y: f32, use_zoom: bool) -> Option<(f32, f32)> {
+        if !use_zoom {
+            return Some((x, y));
+        }
+        let Some(frame) = self.pointer_zoom_frame else {
+            log::warn!("pointer zoom map: zoom flag set but crop frame is missing");
+            return None;
+        };
+        let (sx, sy) = match self.coordinate_system {
+            CoordinateSystem::Pixel => {
+                let px = frame.origin_x as f32 + (x / 1000.0) * frame.side_w as f32;
+                let py = frame.origin_y as f32 + (y / 1000.0) * frame.side_h as f32;
+                (px, py)
+            }
+            CoordinateSystem::Qwen | CoordinateSystem::Kimi => zoom_norm_to_session(&frame, x, y),
+        };
+        log::info!(
+            "pointer zoom map: zoom=({x:.1},{y:.1}) session=({sx:.1},{sy:.1}) origin=({},{}) side={}x{} frame={}x{}",
+            frame.origin_x,
+            frame.origin_y,
+            frame.side_w,
+            frame.side_h,
+            frame.frame_w,
+            frame.frame_h
+        );
+        Some((sx, sy))
+    }
+
     pub fn resolve_coordinate(&self, x: f32, y: f32) -> Option<(i32, i32)> {
         let monitor = self.screen_bbox?;
         Some(super::coord::normalized_to_screen(
@@ -369,6 +406,29 @@ mod tests {
 
         let pos = state.resolve_coordinate(500.0, 500.0);
         assert_eq!(pos, Some((960, 540)));
+    }
+
+    #[test]
+    fn zoom_flag_maps_crop_or_fails_without_frame() {
+        let mut state = VisionState::new();
+        assert_eq!(
+            state.model_point_to_session(10.0, 20.0, false),
+            Some((10.0, 20.0))
+        );
+        assert!(state.model_point_to_session(10.0, 20.0, true).is_none());
+        state.set_pointer_zoom_frame(Some(PointerZoomFrame {
+            origin_x: 100,
+            origin_y: 50,
+            side_w: 200,
+            side_h: 200,
+            frame_w: 1000,
+            frame_h: 500,
+        }));
+        let (x, y) = state
+            .model_point_to_session(0.0, 0.0, true)
+            .expect("mapped");
+        assert!((x - 100.0).abs() < 0.01, "{x}");
+        assert!((y - 100.0).abs() < 0.01, "{y}");
     }
 
     #[test]

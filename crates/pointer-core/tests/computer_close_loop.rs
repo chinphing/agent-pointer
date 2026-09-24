@@ -113,7 +113,7 @@ async fn mock_annotate_then_resolve_index_and_fake_click() {
 }
 
 #[tokio::test]
-async fn computer_state_apply_screen_capture_chains_previous_raw_for_inject() {
+async fn computer_state_apply_screen_capture_reuses_prior_jpeg() {
     let server = MockServer::start().await;
     let png_b64 = STANDARD.encode(tiny_png_bytes());
     Mock::given(method("POST"))
@@ -140,12 +140,11 @@ async fn computer_state_apply_screen_capture_chains_previous_raw_for_inject() {
         .apply_screen_capture("test", &jpeg_b, monitor, (64, 64), (20, 20), None)
         .await
         .expect("second pipeline");
-    let before = second.inject_before_action.as_ref().expect("before inject");
-    assert_ne!(
-        before.screen_jpeg.as_slice(),
-        first.raw_marked_jpeg.as_slice()
-    );
-    assert_ne!(before.screen_jpeg.as_slice(), jpeg_a.as_slice());
+    let before = second
+        .inject_before_action
+        .as_ref()
+        .expect("prior jpeg reused as before frame");
+    assert_ne!(before.screen_jpeg.as_slice(), jpeg_b.as_slice());
     assert!(!before.zoom_pointer_png.is_empty());
 
     let vs = state.vision_state_for_conversation("test");

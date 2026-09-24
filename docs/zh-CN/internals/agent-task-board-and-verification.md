@@ -77,35 +77,20 @@
 - 阶段 A（提示词）：关注前 3 轮内 `task_board_init` 命中率、`action_verify -> task_board_patch` 时序合规率。
 - 阶段 B（主会话 hint）：观察 `main_agent_init_hint` 触发后初始化成功率、误触发率（单步任务）。
 - 阶段 C（软门禁增强）：跟踪 `done_without_action` / `g_exec_not_terminal` 占比和 `reflection_required` 收敛速度。
-- Token 成本指标：单轮 prompt tokens、单任务累计 tokens、history trim 后回落幅度。
+- Token 成本指标：单轮 prompt tokens、单任务累计 tokens、in-run 压缩后的回落幅度。
 - 双入口一致性：桌面端与 Web 端都应收到 `task_board_updated` 且面板状态一致。
 
-## task_board 触发的历史截断（当前实现）
+## task_board 触发的历史截断（已停用）
 
-在 **`task_board`** 变更满足 **trim 触发** 条件且工具执行成功后，对已启用该能力的 Agent 可对会话 history 做 **soft-exclude**（`context_state.included = false`，`ExcludedReason::TaskBoardTrim`；**不**调用 LLM 摘要），与 [`context_compression`](../../../crates/pointer-core/src/context_compression/) 互补。实现：`task_board/history_trim.rs`，挂载：`agent_tool_pass.rs`。
+`maybe_trim_after_tool_pass` 在 task board 更新成功后直接返回，并打 `task_board_trim: skip_in_run_compression`。
+in-run 压缩已经负责变长上下文，task board trim 不再排除历史。
+已保存的 `agentTaskBoardHistoryTrim`（包括 `computer: true`）也不会再截断。
+设置里不再提供「任务板后精简历史」开关。
 
-**Trim 触发条件（`task_board/checkpoint.rs`，v4）：**
+`history_trim.rs` 里的 soft-exclude 函数还在，但工具回合不再调用。
+默认表里各 agent（含 `computer`）均为 off。
 
-- **`task_board_init` / `replace` / `finalize`** 成功 → 触发。
-- **`task_board_patch`** 成功 → 本批含实质进展：行 `status: done`、非空 **`remark`**、或顶层 **`work_item_delta`**。
-- 仅 **`in_progress`** 且无 remark / work_item_delta → 不触发。
-- v3 字段（`progress`、`validate_results` 等）→ **不**触发。
-- 仍参与 LLM 上下文的消息数 **&lt; 10** → 不截断（`MIN_INCLUDED_MESSAGES_FOR_TRIM`）。
-
-| 机制 | 触发 | 处理方式 | 成本 |
-|------|------|----------|------|
-| task_board 阶段截断 | 上表 + 工具成功 + Agent 开关 on | soft-exclude（UI 仍可见） | 无 LLM |
-| context compression | 字符预算 / 工具轮次上限 | 较早前缀 LLM 摘要 | 额外 API |
-
-**按 Agent 策略：**
-
-| Agent | 默认开关 | 保留集合 |
-|-------|----------|----------|
-| `computer` | on | **绑定 anchor user**（`get_main_task_board_anchor`）+ **最近 10 条消息** + **最新 live `[CUR_SCREEN]`**（非 placeholder）；其余 exclude |
-| 其它（`coder` 等） | off | 若启用：按 **user 边界**保留首条真实 user + 末尾 K=2 个 user 的 suffix（`trim_history_after_task_board`） |
-
-- **配置：** 设置里 **按智能体** `agentTaskBoardHistoryTrim`（`ModelSettings`）。
-- **计划状态：** 每轮 **`CommonUserDynamicInjectHook`** 末尾注入 Markdown **`[TASK_BOARD]`**（见 [`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)）；不依赖被 exclude 的旧 tool 正文。
+- **计划状态：** 每轮 **`CommonUserDynamicInjectHook`** 末尾注入 Markdown **`[TASK_BOARD]`**（见 [`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)）。
 - **绑定：** main-turn store key 与 **anchor user message id** 见 `session_inner::choose_main_task_board_store_key`、`app_state::set_main_task_board_binding`。
 
 ### v4 patch 与 Computer Type2（提示）
@@ -116,7 +101,7 @@
 
 ### 与 LLM 压缩的执行顺序
 
-1. 本回合 tool batch 结束 → 若 task_board trim checkpoint 满足且开关 on → soft-exclude。
+1. 本回合 tool batch 结束 → task board trim 不执行。
 2. 下一轮若仍超 `contextBudgetChars` → `maybe_compress_history`（LLM 摘要）。
 
 ---

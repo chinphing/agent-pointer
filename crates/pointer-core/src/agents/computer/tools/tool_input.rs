@@ -1,6 +1,6 @@
 use super::args_util::{
     human_like_from_args, json_bool_loose, require_non_empty_str, required_f32_arg,
-    required_u32_arg, resolve_index_pixels, text_from_args,
+    required_u32_arg, resolve_index_pixels, text_from_args, zoom_flag_from_args,
 };
 use super::method_route::InputBackend;
 use crate::agents::computer::actions::ActionExecutor;
@@ -107,9 +107,17 @@ impl InputAtTool {
         let use_clipboard = args
             .get("use_clipboard")
             .map_or(true, |v| json_bool_loose(Some(v)));
+        let use_zoom = zoom_flag_from_args(args)?;
         let vision = self.vision_state.lock().unwrap();
+        let (sx, sy) = vision
+            .model_point_to_session(x, y, use_zoom)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "zoom is set but this turn has no pointer-zoom crop to map onto the screen"
+                )
+            })?;
         let (px, py) = vision
-            .resolve_coordinate(x, y)
+            .resolve_coordinate(sx, sy)
             .ok_or_else(|| anyhow::anyhow!("Screen bounds not set"))?;
         drop(vision);
         let hl = self.human_like(args);

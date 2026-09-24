@@ -57,7 +57,8 @@ pub struct ScreenCaptureResult {
     pub mouse_neighbor_reference_text: Option<String>,
     /// Logical monitor bounds for this capture.
     pub monitor: screen::MonitorInfo,
-    /// **`[Screen before action]`** + **`[Zoom pointer before action]`** (`None` on first capture).
+    /// Previous capture reused as `[Screen before action]` (`None` on the first capture).
+    /// Built from the stored JPEG, not a second OS screenshot.
     pub inject_before_action: Option<screen_overlay::BeforeActionInject>,
 }
 
@@ -84,7 +85,7 @@ pub enum SessionStatus {
 pub struct ComputerSession {
     pub vision_state: Arc<Mutex<VisionState>>,
     pub last_annotated: Option<(Vec<u8>, screen::MonitorInfo)>,
-    /// Prior turn’s **unmarked** capture JPEG (same input as annotate that turn).
+    /// Prior turn’s unmarked capture JPEG. Next turn reuses these bytes as the before frame.
     pub last_turn_raw_jpeg_unmarked: Option<Vec<u8>>,
     pub last_turn_monitor: Option<screen::MonitorInfo>,
     /// Current turn **unmarked** capture (annotate input).
@@ -513,7 +514,7 @@ impl ComputerState {
 
     /// Run annotation + vision refresh for an already-captured desktop JPEG (integration tests, tooling).
     ///
-    /// On success, stores **unmarked** `screen_capture` for the next turn’s **`[Screen before action]`** inject.
+    /// Stores this capture’s unmarked JPEG. The next turn reuses it as the before frame.
     pub async fn apply_screen_capture(
         &self,
         conversation_id: &str,
@@ -543,9 +544,8 @@ impl ComputerState {
                         Ok(pack) => Some(pack),
                         Err(e) => {
                             log::warn!(
-                            "apply_screen_capture: build before-action inject from prior unmarked failed: {:#}",
-                            e
-                        );
+                                "apply_screen_capture: reuse prior unmarked frame failed: {e:#}"
+                            );
                             None
                         }
                     }
@@ -611,6 +611,26 @@ impl ComputerState {
                 session.last_turn_monitor = None;
             }
             session.last_annotated = Some((pack.annotated_marked_jpeg.clone(), monitor));
+            if let Some(frame) = pack.pointer_zoom_frame {
+                log::info!(
+                    "apply_screen_capture: pointer zoom frame origin=({},{}) side={}x{} frame={}x{}",
+                    frame.origin_x,
+                    frame.origin_y,
+                    frame.side_w,
+                    frame.side_h,
+                    frame.frame_w,
+                    frame.frame_h
+                );
+            } else if !pack.zoom_pointer_png.is_empty() {
+                log::warn!(
+                    "apply_screen_capture: pointer zoom image present but crop frame missing"
+                );
+            }
+            session
+                .vision_state
+                .lock()
+                .unwrap()
+                .set_pointer_zoom_frame(pack.pointer_zoom_frame);
         }
 
         let total_ms = t_total.elapsed().as_secs_f64() * 1000.0;
@@ -782,6 +802,8 @@ impl ComputerState {
     }
 
     /// Reuse the latest pipeline capture, or capture once when no cache exists.
+    ///
+    /// Used for Verify's before frame. Planning `[CUR_SCREEN]` captures on its own.
     pub async fn ensure_pipeline_capture(
         &self,
         conversation_id: &str,
@@ -791,7 +813,8 @@ impl ComputerState {
             let s = session.lock().unwrap();
             if let Some(cap) = s.pipeline.cached_capture.clone() {
                 log::info!(
-                    "pipeline capture: reuse cached frame conversation_id={conversation_id}"
+                    "pipeline capture: reuse cached frame conversation_id={conversation_id} bytes={}",
+                    cap.raw_marked_jpeg.len()
                 );
                 return Ok(cap);
             }
@@ -930,6 +953,31 @@ mod tests {
 
     fn make_state() -> ComputerState {
         ComputerState::with_annotate_url("http://127.0.0.1:9999")
+    }
+
+    #[test]
+    fn ensure_pipeline_capture_reuses_stored_frame() {
+        let state = make_state();
+        let cap = ScreenCaptureResult {
+            raw_unmarked_jpeg: vec![7],
+            raw_marked_jpeg: vec![9, 9, 9],
+            annotated_marked_jpeg: vec![8],
+            zoom_menu_bar_png: Vec::new(),
+            zoom_task_bar_png: Vec::new(),
+            zoom_pointer_png: vec![1],
+            mouse_neighbor_reference_text: None,
+            monitor: screen::MonitorInfo::new(0, 0, 100, 100),
+            inject_before_action: None,
+        };
+        state.store_pipeline_after_capture("reuse", cap);
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let got = rt
+            .block_on(state.ensure_pipeline_capture("reuse"))
+            .expect("reuse");
+        assert_eq!(got.raw_marked_jpeg, vec![9, 9, 9]);
     }
 
     #[test]

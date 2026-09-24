@@ -23,6 +23,8 @@ turn to type the same field. Put **`text`**, **`clear_first`**, and
 
 **Coordinate-based** (session 0–1000):
 - **`input_at`** — Click at **(x,y)**, then type. Requires **`x`**, **`y`**, **`text`**.
+  Optional **`zoom`**: true only when **`x`**, **`y`** are 0–1000 of
+  **`[Zoom pointer after action]`**. The host maps them onto the full screen.
 
 **Focused field:**
 - **`input_focused`** — Type into focused input (no click). Requires **`text`** only.

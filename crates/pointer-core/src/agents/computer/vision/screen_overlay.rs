@@ -67,21 +67,46 @@ const ACCENT_POINTER: Rgba<u8> = Rgba([60, 120, 220, 255]);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VisionOverlayWork {
     pub raw_marked_jpeg: bool,
+    /// Menu-bar and task-bar strips, plus the pointer zoom.
     pub zoom_crops: bool,
+    /// Pointer-neighborhood zoom only. Already covered when `zoom_crops` is set.
+    pub pointer_zoom: bool,
 }
 
 impl VisionOverlayWork {
     pub const FULL: Self = Self {
         raw_marked_jpeg: true,
         zoom_crops: true,
+        pointer_zoom: true,
     };
 
     pub fn for_tier(_tier: ComputerTier) -> Self {
         Self {
             raw_marked_jpeg: true,
             zoom_crops: false,
+            pointer_zoom: true,
         }
     }
+}
+
+/// Capture-pixel window of `[Zoom pointer after action]` on the annotated frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PointerZoomFrame {
+    pub origin_x: u32,
+    pub origin_y: u32,
+    pub side_w: u32,
+    pub side_h: u32,
+    pub frame_w: u32,
+    pub frame_h: u32,
+}
+
+/// Map a 0–1000 point on the zoom image onto the full frame's 0–1000 space.
+pub fn zoom_norm_to_session(frame: &PointerZoomFrame, x: f32, y: f32) -> (f32, f32) {
+    let fw = frame.frame_w.max(1) as f32;
+    let fh = frame.frame_h.max(1) as f32;
+    let px = frame.origin_x as f32 + (x / 1000.0) * frame.side_w as f32;
+    let py = frame.origin_y as f32 + (y / 1000.0) * frame.side_h as f32;
+    ((px / fw) * 1000.0, (py / fh) * 1000.0)
 }
 
 /// All extra vision assets for one `[CUR_SCREEN]` turn.
@@ -92,6 +117,7 @@ pub struct VisionOverlayPack {
     pub zoom_menu_bar_png: Vec<u8>,
     pub zoom_task_bar_png: Vec<u8>,
     pub zoom_pointer_png: Vec<u8>,
+    pub pointer_zoom_frame: Option<PointerZoomFrame>,
 }
 
 /// Global screen coordinates → bitmap-local (same space as annotate / vision_state).
@@ -312,6 +338,58 @@ fn crop_bottom_strip(src: &RgbaImage, take_h: u32) -> RgbaImage {
     copy_subimage(src, 0, y0, w, ch)
 }
 
+/// Clamped crop window on a `frame_w`×`frame_h` image, centered on `(lx, ly)`.
+pub fn pointer_zoom_frame(
+    frame_w: u32,
+    frame_h: u32,
+    lx: i32,
+    ly: i32,
+    side: u32,
+) -> PointerZoomFrame {
+    if frame_w == 0 || frame_h == 0 {
+        return PointerZoomFrame {
+            origin_x: 0,
+            origin_y: 0,
+            side_w: 1,
+            side_h: 1,
+            frame_w: 1,
+            frame_h: 1,
+        };
+    }
+    let sw = side.min(frame_w);
+    let sh = side.min(frame_h);
+    let mut x0 = lx - (sw / 2) as i32;
+    let mut y0 = ly - (sh / 2) as i32;
+    let wm = frame_w as i32;
+    let hm = frame_h as i32;
+    if x0 < 0 {
+        x0 = 0;
+    }
+    if y0 < 0 {
+        y0 = 0;
+    }
+    if x0 + sw as i32 > wm {
+        x0 = wm - sw as i32;
+    }
+    if y0 + sh as i32 > hm {
+        y0 = hm - sh as i32;
+    }
+    if x0 < 0 {
+        x0 = 0;
+    }
+    if y0 < 0 {
+        y0 = 0;
+    }
+    PointerZoomFrame {
+        origin_x: x0 as u32,
+        origin_y: y0 as u32,
+        side_w: sw,
+        side_h: sh,
+        frame_w,
+        frame_h,
+    }
+}
+
 /// `side`×`side` centered on `(lx, ly)`, clamped so the window stays inside the image.
 fn crop_square_around(src: &RgbaImage, lx: i32, ly: i32, side: u32) -> RgbaImage {
     let w = src.width();
@@ -415,7 +493,7 @@ pub fn build_vision_overlay_pack(
     let (mx, my) = local_on_monitor(global_pointer.0, global_pointer.1, monitor);
 
     // Lightweight path for tiers that only need annotated with no raw/zoom assets.
-    if !work.raw_marked_jpeg && !work.zoom_crops {
+    if !work.raw_marked_jpeg && !work.zoom_crops && !work.pointer_zoom {
         let mut ann_rgba = decode_png_to_rgba(annotated_png_unmarked)?;
         let (gw, gh) = (ann_rgba.width(), ann_rgba.height());
         let mouse_ann = overlay_position_if_inside(mx, my, gw, gh);
@@ -433,6 +511,7 @@ pub fn build_vision_overlay_pack(
             zoom_menu_bar_png: Vec::new(),
             zoom_task_bar_png: Vec::new(),
             zoom_pointer_png: Vec::new(),
+            pointer_zoom_frame: None,
         });
     }
 
@@ -474,25 +553,38 @@ pub fn build_vision_overlay_pack(
         empty.clone()
     };
 
-    let (zoom_menu_bar_png, zoom_task_bar_png, zoom_pointer_png) = if work.zoom_crops {
-        let zmx = mx.clamp(0, gw.saturating_sub(1) as i32);
-        let zmy = my.clamp(0, gh.saturating_sub(1) as i32);
-
-        let mut zoom_menu = crop_top_strip(&ann_rgba, ZOOM_MENU_H);
-        tint_zoom_border(&mut zoom_menu, ACCENT_MENU, ZoomBorderMode::TopAccent);
-
-        let mut zoom_task = crop_bottom_strip(&ann_rgba, ZOOM_TASK_H);
-        tint_zoom_border(&mut zoom_task, ACCENT_TASK, ZoomBorderMode::BottomAccent);
-
-        let mut zoom_ptr = crop_square_around(&ann_rgba, zmx, zmy, ZOOM_POINTER_CROP_SIDE);
+    let pointer_zoom_frame = if work.zoom_crops || work.pointer_zoom {
+        Some(pointer_zoom_frame(gw, gh, mx, my, ZOOM_POINTER_CROP_SIDE))
+    } else {
+        None
+    };
+    let (zoom_menu_bar_png, zoom_task_bar_png, zoom_pointer_png) = if work.zoom_crops
+        || work.pointer_zoom
+    {
+        let frame = pointer_zoom_frame.expect("pointer zoom frame");
+        let mut zoom_ptr = copy_subimage(
+            &ann_rgba,
+            frame.origin_x,
+            frame.origin_y,
+            frame.side_w,
+            frame.side_h,
+        );
         zoom_ptr = magnify_nearest(&zoom_ptr, ZOOM_POINTER_MAGNIFY_FACTOR);
         tint_zoom_border(&mut zoom_ptr, ACCENT_POINTER, ZoomBorderMode::LeftAccent);
-
-        (
-            rgba_to_png_bytes(&zoom_menu)?,
-            rgba_to_png_bytes(&zoom_task)?,
-            rgba_to_png_bytes(&zoom_ptr)?,
-        )
+        let zoom_pointer_png = rgba_to_png_bytes(&zoom_ptr)?;
+        if work.zoom_crops {
+            let mut zoom_menu = crop_top_strip(&ann_rgba, ZOOM_MENU_H);
+            tint_zoom_border(&mut zoom_menu, ACCENT_MENU, ZoomBorderMode::TopAccent);
+            let mut zoom_task = crop_bottom_strip(&ann_rgba, ZOOM_TASK_H);
+            tint_zoom_border(&mut zoom_task, ACCENT_TASK, ZoomBorderMode::BottomAccent);
+            (
+                rgba_to_png_bytes(&zoom_menu)?,
+                rgba_to_png_bytes(&zoom_task)?,
+                zoom_pointer_png,
+            )
+        } else {
+            (empty.clone(), empty.clone(), zoom_pointer_png)
+        }
     } else {
         (empty.clone(), empty.clone(), empty)
     };
@@ -506,6 +598,7 @@ pub fn build_vision_overlay_pack(
         zoom_menu_bar_png,
         zoom_task_bar_png,
         zoom_pointer_png,
+        pointer_zoom_frame,
     })
 }
 
@@ -674,10 +767,11 @@ mod tests {
     }
 
     #[test]
-    fn primary_work_keeps_raw_marked_and_skips_zoom() {
+    fn primary_work_keeps_raw_marked_and_pointer_zoom_only() {
         let work = VisionOverlayWork::for_tier(ComputerTier::Primary);
         assert!(work.raw_marked_jpeg);
         assert!(!work.zoom_crops);
+        assert!(work.pointer_zoom);
     }
 
     #[test]
@@ -696,5 +790,39 @@ mod tests {
             zoom.height(),
             BEFORE_POINTER_ZOOM_CROP_SIDE * BEFORE_POINTER_ZOOM_FACTOR
         );
+    }
+
+    #[test]
+    fn zoom_norm_maps_crop_onto_full_frame() {
+        let frame = PointerZoomFrame {
+            origin_x: 100,
+            origin_y: 50,
+            side_w: 200,
+            side_h: 200,
+            frame_w: 1000,
+            frame_h: 500,
+        };
+        let (x0, y0) = zoom_norm_to_session(&frame, 0.0, 0.0);
+        assert!((x0 - 100.0).abs() < 0.01, "{x0}");
+        assert!((y0 - 100.0).abs() < 0.01, "{y0}");
+        let (x1, y1) = zoom_norm_to_session(&frame, 1000.0, 1000.0);
+        assert!((x1 - 300.0).abs() < 0.01, "{x1}");
+        assert!((y1 - 500.0).abs() < 0.01, "{y1}");
+        let (xc, yc) = zoom_norm_to_session(&frame, 500.0, 500.0);
+        assert!((xc - 200.0).abs() < 0.01, "{xc}");
+        assert!((yc - 300.0).abs() < 0.01, "{yc}");
+    }
+
+    #[test]
+    fn pointer_zoom_window_clamps_inside_frame() {
+        let near = pointer_zoom_frame(400, 300, 10, 10, 200);
+        assert_eq!(near.origin_x, 0);
+        assert_eq!(near.origin_y, 0);
+        assert_eq!((near.side_w, near.side_h), (200, 200));
+        let far = pointer_zoom_frame(400, 300, 390, 290, 200);
+        assert_eq!(far.origin_x, 200);
+        assert_eq!(far.origin_y, 100);
+        assert_eq!(far.origin_x + far.side_w, 400);
+        assert_eq!(far.origin_y + far.side_h, 300);
     }
 }

@@ -1,5 +1,6 @@
 use super::args_util::{
     human_like_from_args, parse_indices, require_non_empty_str, value_to_f32_loose,
+    zoom_flag_from_args,
 };
 use super::method_route::ModifiedClickBackend;
 use crate::agents::computer::actions::ActionExecutor;
@@ -156,12 +157,16 @@ impl ModifiedClickAtTool {
             .get("positions")
             .and_then(|v| v.as_array())
             .ok_or_else(|| anyhow!("Missing 'positions' array"))?;
+        let use_zoom = zoom_flag_from_args(args)?;
         let vision = self.vision_state.lock().unwrap();
         let mut positions: Vec<(i32, i32)> = Vec::with_capacity(arr.len());
         for item in arr {
             let (x, y) = parse_click_position(item)?;
+            let (sx, sy) = vision.model_point_to_session(x, y, use_zoom).ok_or_else(|| {
+                anyhow!("zoom is set but this turn has no pointer-zoom crop to map onto the screen")
+            })?;
             let (nx, ny) = vision
-                .resolve_coordinate(x, y)
+                .resolve_coordinate(sx, sy)
                 .ok_or_else(|| anyhow!("Screen bounds not set"))?;
             positions.push((nx, ny));
         }
@@ -183,12 +188,16 @@ impl ModifiedClickAtTool {
             .get("positions")
             .and_then(|v| v.as_array())
             .ok_or_else(|| anyhow!("Missing 'positions' array"))?;
+        let use_zoom = zoom_flag_from_args(args)?;
         let vision = self.vision_state.lock().unwrap();
         let mut positions: Vec<(i32, i32)> = Vec::with_capacity(arr.len());
         for item in arr {
             let (x, y) = parse_click_position(item)?;
+            let (sx, sy) = vision.model_point_to_session(x, y, use_zoom).ok_or_else(|| {
+                anyhow!("zoom is set but this turn has no pointer-zoom crop to map onto the screen")
+            })?;
             let (nx, ny) = vision
-                .resolve_coordinate(x, y)
+                .resolve_coordinate(sx, sy)
                 .ok_or_else(|| anyhow!("Screen bounds not set"))?;
             positions.push((nx, ny));
         }

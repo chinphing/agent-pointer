@@ -308,7 +308,6 @@ function createSettingsDialogForm(deps: {
   const debugDumpLlmPrompts = ref(false)
   const terminalEnvRows = ref<Array<{ id: string; key: string; value: string }>>([])
   const taskBoardShowChildBoards = ref(false)
-  const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
   const computerHumanLike = ref(false)
   const computerAutoSwitchMonitor = ref(true)
   const computerAutoCompact = ref(true)
@@ -521,7 +520,6 @@ function createSettingsDialogForm(deps: {
     value
   }))
   taskBoardShowChildBoards.value = s.settings.taskBoardShowChildBoards === true
-  agentTaskBoardHistoryTrim.value = { ...(s.settings.agentTaskBoardHistoryTrim ?? {}) }
   computerHumanLike.value = s.settings.computerHumanLike === true
   computerAutoSwitchMonitor.value = s.settings.computerAutoSwitchMonitor !== false
   computerAutoCompact.value = s.userSettings.computerAutoCompact !== false
@@ -618,19 +616,6 @@ function createSettingsDialogForm(deps: {
     }
   }
   })
-
-  function taskBoardTrimChecked(agentId: string): boolean {
-  const v = agentTaskBoardHistoryTrim.value[agentId]
-  if (v !== undefined) return v
-  return s.defaultTaskBoardHistoryTrim(agentId)
-  }
-
-  function setTaskBoardTrimLocal(agentId: string, enabled: boolean) {
-  agentTaskBoardHistoryTrim.value = {
-    ...agentTaskBoardHistoryTrim.value,
-    [agentId]: enabled
-  }
-  }
 
   function getMediaModelWithProvider(kind: keyof MediaModelOverrides): string {
   const ref = s.getMediaModelOverride(kind)
@@ -1097,7 +1082,6 @@ function createSettingsDialogForm(deps: {
     removeTerminalEnvRow,
     saveTerminalEnvRows,
     taskBoardShowChildBoards,
-    agentTaskBoardHistoryTrim,
     computerHumanLike,
     computerAutoSwitchMonitor,
     computerAutoCompact,
@@ -1136,8 +1120,6 @@ function createSettingsDialogForm(deps: {
     ffmpegStatusDetail,
     ffmpegNeedsInstall,
     askAssistantInstallFfmpeg,
-    taskBoardTrimChecked,
-    setTaskBoardTrimLocal,
     selectMediaModelWithProvider,
     selectAgentModeModel,
     selectMediaModeModel,

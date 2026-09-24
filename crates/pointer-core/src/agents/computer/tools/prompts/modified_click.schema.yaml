@@ -47,6 +47,13 @@ modified_click_select_at:
       type: string
     positions:
       type: array
+    zoom:
+      type: boolean
+      description: >
+        Set true only when every position is 0–1000 on
+        [Zoom pointer after action]. The host maps them
+        onto the full screen. Omit or false for full-screen
+        coordinates.
     wait:
       type: number
       minimum: 1
@@ -65,6 +72,13 @@ modified_click_range_select_at:
       type: string
     positions:
       type: array
+    zoom:
+      type: boolean
+      description: >
+        Set true only when every position is 0–1000 on
+        [Zoom pointer after action]. The host maps them
+        onto the full screen. Omit or false for full-screen
+        coordinates.
     wait:
       type: number
       minimum: 1

@@ -9,6 +9,7 @@ use crate::agents::computer::capture_debug;
 use crate::agents::computer::screen;
 use crate::agents::computer::screen_overlay::{
     SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED, SLOT_SCREEN_BEFORE_ACTION,
+    SLOT_SCREEN_ZOOMED_POINTER,
 };
 use crate::agents::computer::tier::ComputerTier;
 use crate::agents::computer::ScreenCaptureResult;
@@ -66,34 +67,46 @@ pub(crate) fn strip_images_from_prior_messages(messages: &mut [ChatMessage]) {
 }
 
 /// Labels in wire order — must match `assemble_cur_screen_base64` image sequence.
-/// All tiers use the Primary slot layout (2–3 images).
-fn slot_labels_for_tier(_tier: ComputerTier, has_previous_raw: bool) -> Vec<&'static str> {
-    let mut labels = Vec::with_capacity(3);
+/// Optional before frame is the previous capture's JPEG, not a new screenshot.
+fn slot_labels_for_tier(
+    _tier: ComputerTier,
+    has_previous_raw: bool,
+    has_pointer_zoom: bool,
+) -> Vec<&'static str> {
+    let mut labels = Vec::with_capacity(4);
     if has_previous_raw {
         labels.push(SLOT_SCREEN_BEFORE_ACTION);
     }
     labels.push(SLOT_SCREEN_AFTER_ACTION);
     labels.push(SLOT_SCREEN_ANNOTATED);
+    if has_pointer_zoom {
+        labels.push(SLOT_SCREEN_ZOOMED_POINTER);
+    }
     labels
 }
 
-fn build_cur_screen_preamble(_tier: ComputerTier, _has_previous_raw: bool) -> String {
-    let cite = "Each screenshot below is preceded by its slot label on its own line. Treat only what you see in that labeled image as ground truth — when reasoning internally, cite **On [slot name]:**; do not invent UI from task text or prior turns. Do not write internal checklists in assistant message text. When the user must see a reply (question, blockage, completion), write plain text in **content** in the same turn — reasoning alone is invisible to the user.";
+fn build_cur_screen_preamble(_tier: ComputerTier) -> String {
+    let cite = "Each screenshot below is preceded by its slot label on its own line. Treat only what you see in that labeled image as ground truth. Do not invent UI from task text or prior turns. Do not write internal checklists in assistant message text. When the user must see a reply (question, blockage, completion), write plain text in **content** in the same turn — reasoning alone is invisible to the user.";
     format!(
-        "{CUR_SCREEN_TAG} Two or three labeled images this turn: optional {SLOT_SCREEN_BEFORE_ACTION}, then {SLOT_SCREEN_AFTER_ACTION}, then {SLOT_SCREEN_ANNOTATED}. {cite} \
+        "{CUR_SCREEN_TAG} Labeled images this turn: optional {SLOT_SCREEN_BEFORE_ACTION} (the previous capture, reused, not a new screenshot), then {SLOT_SCREEN_AFTER_ACTION}, then {SLOT_SCREEN_ANNOTATED}, then {SLOT_SCREEN_ZOOMED_POINTER} when present. {cite} \
          Text below includes **Pointer position** and **Nearby overlay reference bboxes** (10 nearest the pointer; session 0–1000 rects). \
          **Verify:** host records outcomes on history rows — read the `verify:` suffix on `[Recent desktop tool calls]`. \
-         **Next:** judge **N–target relation** (inner-center-wrap / inner-edge-wrap / unwrapped), then choose index or coordinate route.\n"
+         **Position:** prefer a label number on the target control itself. A large target shows a visible interior on the full screen; use coordinates and omit zoom. A small target is a mark with no interior to aim at; move beside it first. Next turn, if the target is inside {SLOT_SCREEN_ZOOMED_POINTER}, set zoom true and give 0–1000 of that crop. The host maps those coordinates onto the full screen.\n"
     )
 }
 
 fn assemble_cur_screen_base64(_tier: ComputerTier, cap: &ScreenCaptureResult) -> Vec<String> {
-    let mut out = Vec::with_capacity(3);
+    let mut out = Vec::with_capacity(4);
     if let Some(before) = &cap.inject_before_action {
         out.push(screen::encode_image_to_base64(&before.screen_jpeg));
     }
     out.push(screen::encode_image_to_base64(&cap.raw_marked_jpeg));
     out.push(screen::encode_image_to_base64(&cap.annotated_marked_jpeg));
+    if !cap.zoom_pointer_png.is_empty() {
+        out.push(screen::encode_image_to_base64(&cap.zoom_pointer_png));
+    } else {
+        log::warn!("computer screen inject: pointer zoom missing; small-target zoom slot omitted");
+    }
     out
 }
 
@@ -102,7 +115,8 @@ fn assemble_cur_screen_payload(
     cap: &ScreenCaptureResult,
 ) -> (Vec<String>, Vec<String>) {
     let has_previous_raw = cap.inject_before_action.is_some();
-    let labels: Vec<String> = slot_labels_for_tier(tier, has_previous_raw)
+    let has_pointer_zoom = !cap.zoom_pointer_png.is_empty();
+    let labels: Vec<String> = slot_labels_for_tier(tier, has_previous_raw, has_pointer_zoom)
         .into_iter()
         .map(str::to_string)
         .collect();
@@ -211,13 +225,12 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                 }
                 emit_screen_notice_update(ctx, notice_id, DESKTOP_NOTICE_READY.to_string());
                 strip_images_from_prior_messages(ctx.injected_tail.as_mut_slice());
-                let has_previous_raw = cap.inject_before_action.is_some();
                 let (image_slot_labels, images) = assemble_cur_screen_payload(tier, &cap);
                 let mut text = cur_screen_clock_prefix();
                 if let Some(label) = ctx.computer_state.locked_goal_label(ctx.conversation_id) {
                     text.push_str(&format!("Locked goal: {label}\n\n"));
                 }
-                text.push_str(&build_cur_screen_preamble(tier, has_previous_raw));
+                text.push_str(&build_cur_screen_preamble(tier));
                 if let Some(block) = ctx
                     .computer_state
                     .recent_actions_prompt_block(ctx.conversation_id)
@@ -403,30 +416,20 @@ mod tests {
     }
 
     #[test]
-    fn slot_labels_match_image_count_primary_with_optional_before() {
-        let cap_no_before = dummy_cap(false);
-        let (labels_no_before, images_no_before) =
-            assemble_cur_screen_payload(ComputerTier::Primary, &cap_no_before);
-        assert_eq!(labels_no_before.len(), 2);
+    fn slot_labels_match_image_count_primary() {
+        let cap = dummy_cap(true);
+        let (labels, images) = assemble_cur_screen_payload(ComputerTier::Primary, &cap);
+        assert_eq!(labels.len(), 4);
         assert_eq!(
-            labels_no_before,
-            vec![SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED]
-        );
-        assert_eq!(labels_no_before.len(), images_no_before.len());
-
-        let cap_with_before = dummy_cap(true);
-        let (labels_with_before, images_with_before) =
-            assemble_cur_screen_payload(ComputerTier::Primary, &cap_with_before);
-        assert_eq!(labels_with_before.len(), 3);
-        assert_eq!(
-            labels_with_before,
+            labels,
             vec![
                 SLOT_SCREEN_BEFORE_ACTION,
                 SLOT_SCREEN_AFTER_ACTION,
-                SLOT_SCREEN_ANNOTATED
+                SLOT_SCREEN_ANNOTATED,
+                SLOT_SCREEN_ZOOMED_POINTER
             ]
         );
-        assert_eq!(labels_with_before.len(), images_with_before.len());
+        assert_eq!(labels.len(), images.len());
     }
 
     #[test]
@@ -438,31 +441,13 @@ mod tests {
             ComputerTier::Advanced,
         ] {
             let (labels, images) = assemble_cur_screen_payload(tier, &cap);
-            assert_eq!(labels.len(), 2, "tier={tier:?}");
-            assert_eq!(
-                labels,
-                vec![SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED]
-            );
-            assert_eq!(labels.len(), images.len());
-        }
-    }
-
-    #[test]
-    fn all_tiers_use_primary_slot_layout_with_before() {
-        let cap = dummy_cap(true);
-        for tier in [
-            ComputerTier::Primary,
-            ComputerTier::Intermediate,
-            ComputerTier::Advanced,
-        ] {
-            let (labels, images) = assemble_cur_screen_payload(tier, &cap);
             assert_eq!(labels.len(), 3, "tier={tier:?}");
             assert_eq!(
                 labels,
                 vec![
-                    SLOT_SCREEN_BEFORE_ACTION,
                     SLOT_SCREEN_AFTER_ACTION,
-                    SLOT_SCREEN_ANNOTATED
+                    SLOT_SCREEN_ANNOTATED,
+                    SLOT_SCREEN_ZOOMED_POINTER
                 ]
             );
             assert_eq!(labels.len(), images.len());
@@ -470,10 +455,28 @@ mod tests {
     }
 
     #[test]
+    fn planning_reuses_prior_frame_without_a_new_slot_gap() {
+        let cap = dummy_cap(true);
+        for tier in [
+            ComputerTier::Primary,
+            ComputerTier::Intermediate,
+            ComputerTier::Advanced,
+        ] {
+            let (labels, images) = assemble_cur_screen_payload(tier, &cap);
+            assert_eq!(labels.first().map(String::as_str), Some(SLOT_SCREEN_BEFORE_ACTION));
+            assert_eq!(labels.len(), images.len());
+        }
+    }
+
+    #[test]
     fn preamble_mentions_labeled_images() {
-        let t = build_cur_screen_preamble(ComputerTier::Advanced, false);
-        assert!(t.contains("labeled images"));
-        assert!(t.contains("On [slot name]:"));
+        let t = build_cur_screen_preamble(ComputerTier::Advanced);
+        assert!(t.contains("Labeled images"));
+        assert!(t.contains("label number on the target"));
+        assert!(t.contains(SLOT_SCREEN_ZOOMED_POINTER));
         assert!(t.contains("verify:"));
+        assert!(t.contains("[Screen before action]"));
+        assert!(t.contains("reused"));
+        assert!(!t.contains("N–target relation"));
     }
 }

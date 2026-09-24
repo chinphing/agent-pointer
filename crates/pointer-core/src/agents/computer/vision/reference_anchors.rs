@@ -4,8 +4,9 @@
 use super::annotate::BoxInfo;
 use super::coord::CoordinateSystem;
 use super::screen::MonitorInfo;
+use super::screen_overlay::ZOOM_POINTER_MAGNIFY_FACTOR;
 
-const INJECT_RULES_TAIL_INDEX_TIER: &str = "Image-grounded analysis: cite **On [slot name]:** internally. **Nearby** rows must copy a bullet below character-for-character — if **`- R:`** is missing, **Inject match: NOT FOUND** and **hover_index** only; **forbidden** inventing **(left, top, right, bottom)**. **Verify:** judge **Expected vs Actual UI change** — pointer on target is **not** pass for click/copy goals. Overlay digits label bboxes only — **forbidden** treating digit position as the click point. Do not write reasoning in assistant message text. Follow **communication** rules.";
+const INJECT_RULES_TAIL_INDEX_TIER: &str = "Overlay digits are labels, not click points. Index tools click the bbox center. Coordinate tools use this session's 0–1000 space. Do not write reasoning in assistant message text.";
 
 /// Max overlay rows injected near the pointer.
 pub const MOUSE_NEARBY_REFERENCE_LIMIT: usize = 10;
@@ -153,6 +154,15 @@ fn format_pointer_position_line(
     }
 }
 
+fn format_pointer_zoom_line(_cw: f32, _ch: f32, coord: CoordinateSystem) -> String {
+    let magnify = ZOOM_POINTER_MAGNIFY_FACTOR;
+    match coord {
+        CoordinateSystem::Qwen | CoordinateSystem::Kimi | CoordinateSystem::Pixel => format!(
+            "**Pointer zoom** (`[Zoom pointer after action]`): {magnify}× crop of the current annotated frame, centered on the pointer. For a small target inside this crop, set **zoom** true and give **x**, **y** as 0–1000 of this image (left and top 0, right and bottom 1000). The host maps them onto the full screen. Near a screen edge the pointer may sit off-center. If the target is outside this crop, move again."
+        ),
+    }
+}
+
 /// Prose block: **Pointer position** + coordinate guidance (no bbox rows).
 pub fn format_pointer_coordinate_anchor(
     monitor: &MonitorInfo,
@@ -163,7 +173,10 @@ pub fn format_pointer_coordinate_anchor(
     let (mouse_bx, mouse_by, cw, ch) =
         pointer_capture_position(monitor, capture_px, global_pointer)?;
     let pointer_line = format_pointer_position_line(mouse_bx, mouse_by, cw, ch, coord);
-    Some(format!("{pointer_line}\n\n{INJECT_RULES_TAIL_INDEX_TIER}"))
+    let zoom_line = format_pointer_zoom_line(cw, ch, coord);
+    Some(format!(
+        "{pointer_line}\n\n{zoom_line}\n\n{INJECT_RULES_TAIL_INDEX_TIER}"
+    ))
 }
 
 /// **Pointer position** + up to **10** nearest **Nearby overlay reference bboxes**.
@@ -177,6 +190,7 @@ pub fn format_mouse_nearby_reference_bboxes(
     let (mouse_bx, mouse_by, cw, ch) =
         pointer_capture_position(monitor, capture_px, global_pointer)?;
     let pointer_line = format_pointer_position_line(mouse_bx, mouse_by, cw, ch, coord);
+    let zoom_line = format_pointer_zoom_line(cw, ch, coord);
     let nearby = select_boxes_near_pointer(boxes, mouse_bx, mouse_by, MOUSE_NEARBY_REFERENCE_LIMIT);
     let bbox_block = format_nearby_overlay_reference_bboxes(
         &nearby,
@@ -186,7 +200,7 @@ pub fn format_mouse_nearby_reference_bboxes(
         MOUSE_NEARBY_REFERENCE_LIMIT,
     );
     Some(format!(
-        "{pointer_line}\n\n{INJECT_RULES_TAIL_INDEX_TIER}\n\n{bbox_block}"
+        "{pointer_line}\n\n{zoom_line}\n\n{INJECT_RULES_TAIL_INDEX_TIER}\n\n{bbox_block}"
     ))
 }
 
@@ -205,7 +219,9 @@ mod tests {
         )
         .expect("line");
         assert!(s.contains("**Pointer position**"));
-        assert!(s.contains("Image-grounded analysis"));
+        assert!(s.contains("**Pointer zoom**"));
+        assert!(s.contains("Overlay digits are labels"));
+        assert!(!s.contains("Inject match"));
         assert!(
             !s.contains("**Nearby overlay reference bboxes**"),
             "pointer-only helper should not include nearby bbox block: {s}"

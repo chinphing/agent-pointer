@@ -8,9 +8,9 @@
 
 | Tier | 定位模式 | 默认模型 | thinking budget | 索引工具 | 截图 |
 |------|---------|---------|-----------------|---------|------|
-| Primary | index + coordinate | `qwen3.5-flash` | 2048 | ✅ 允许 | 2–3 张 |
-| Intermediate | index + coordinate | `qwen3.5-plus` | 2048 | ✅ 允许 | 2–3 张 |
-| Advanced | index + coordinate | `qwen3.6-plus` | 8192 | ✅ 允许 | 2–3 张 |
+| Primary | index + coordinate | `qwen3.5-flash` | 2048 | ✅ 允许 | 3–4 张 |
+| Intermediate | index + coordinate | `qwen3.5-plus` | 2048 | ✅ 允许 | 3–4 张 |
+| Advanced | index + coordinate | `qwen3.6-plus` | 8192 | ✅ 允许 | 3–4 张 |
 
 **提示词**：三档共用 Primary 的 `communication.md` + `loop.md`（`agents/mod.rs`）；仅 LLM 模型与 thinking budget 按 tier 切换。
 
@@ -320,7 +320,7 @@ const COMPUTER_OS_PROMPT_MACOS        = include_str!("computer/prompts/os/macos.
 | `computer_communication_for_tier()` | `primary/communication.md` + OS + disabled controls | 同 Primary | 同 Primary |
 | `computer_agent_body_for_tier()` | `primary/loop.md` | 同 Primary | 同 Primary |
 
-**Tier 仅影响模型**：`ComputerRoundLlmOverrides::for_tier()` 选择 `computerModelPrimary/Intermediate/Advanced` 与 thinking budget；提示词与 `[CUR_SCREEN]` 截图布局（2–3 张）三档一致。
+**Tier 仅影响模型**：`ComputerRoundLlmOverrides::for_tier()` 选择 `computerModelPrimary/Intermediate/Advanced` 与 thinking budget；提示词与 `[CUR_SCREEN]` 截图布局（3–4 张：可选复用的上一帧、当前屏、标注屏、指针放大图）三档一致。上一帧用已保存的原图，不再截一次。坐标工具的 `zoom: true` 表示 `x`/`y` 是放大图 0–1000，宿主按本轮裁切窗口映射回全屏。
 
 ### 8.4 每轮 System Prompt 组装
 

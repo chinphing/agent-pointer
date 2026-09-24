@@ -939,8 +939,8 @@ export const useSettingsStore = defineStore('settings', () => {
     return settings.value.agentDefaultModels[agentId]
   }
 
-  function defaultTaskBoardHistoryTrim(agentId: string): boolean {
-    return agentId.trim() === 'computer'
+  function defaultTaskBoardHistoryTrim(_agentId: string): boolean {
+    return false
   }
 
   function isTaskBoardHistoryTrimEnabled(agentId: string): boolean {

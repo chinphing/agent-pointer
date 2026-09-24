@@ -1,23 +1,13 @@
 //! Soft-exclude conversation prefix after successful `task_board` updates (no LLM summarization).
 
 use crate::context_compression::{SUMMARY_PREFIX_BUDGET, SUMMARY_PREFIX_TOOL_LIMIT};
-use crate::message_context::{
-    count_context_included_messages, find_split_at_user_boundary, is_context_included,
-    mark_excluded,
-};
-use crate::models::{
-    ChatMessage, ChatStreamSender, ExcludedReason, ModelSettings, Role, StreamEvent,
-};
+use crate::message_context::{find_split_at_user_boundary, is_context_included, mark_excluded};
+use crate::models::{ChatMessage, ChatStreamSender, ExcludedReason, ModelSettings, Role};
 use std::collections::HashMap;
 
 /// Prefix on legacy placeholder user rows after task_board-driven trim (UI detects this for styling).
 pub const TRIM_PLACEHOLDER_PREFIX: &str = "[History trimmed after task_board update]";
 
-const DEFAULT_KEEP_LAST_N_USERS: usize = 2;
-/// Do not trim when fewer than this many messages are still included in LLM context.
-const MIN_INCLUDED_MESSAGES_FOR_TRIM: usize = 10;
-/// Computer: keep task-board anchor user + last N messages (+ latest live `[CUR_SCREEN]` inject).
-const COMPUTER_KEEP_LAST_MESSAGES: usize = 10;
 const CUR_SCREEN_TAG: &str = "[CUR_SCREEN]";
 const CUR_SCREEN_OMITTED: &str =
     "[CUR_SCREEN] Earlier desktop screenshots are omitted here; use only the latest [CUR_SCREEN] message in this request for images.";
@@ -53,8 +43,8 @@ fn normalize_agent_id(agent_id: &str) -> String {
     }
 }
 
-fn default_trim_for_agent(agent_id: &str) -> bool {
-    agent_id == "computer"
+fn default_trim_for_agent(_agent_id: &str) -> bool {
+    false
 }
 
 /// Whether task_board stage trim is enabled for this worker id (settings override, then built-in default).
@@ -264,94 +254,26 @@ pub fn trim_history_after_task_board(
 }
 
 pub fn maybe_trim_after_tool_pass(
-    history: &mut Vec<ChatMessage>,
+    _history: &mut Vec<ChatMessage>,
     hook: &TaskBoardTrimHook<'_>,
     task_board_succeeded: bool,
 ) {
     if !task_board_succeeded {
         return;
     }
-    if !is_task_board_history_trim_enabled(hook.settings, hook.agent_id) {
-        log::info!(
-            "task_board_trim: skip_disabled conversation_id={} agent_id={}",
-            hook.conversation_id,
-            hook.agent_id
-        );
-        return;
-    }
-
-    let included_count = count_context_included_messages(history);
-    if included_count < MIN_INCLUDED_MESSAGES_FOR_TRIM {
-        log::info!(
-            "task_board_trim: skip_few_included conversation_id={} agent_id={} included={} min={}",
-            hook.conversation_id,
-            hook.agent_id,
-            included_count,
-            MIN_INCLUDED_MESSAGES_FOR_TRIM
-        );
-        return;
-    }
-
-    let agent = normalize_agent_id(hook.agent_id);
-    let stats = if agent == "computer" {
-        trim_history_first_user_and_tail(
-            history,
-            COMPUTER_KEEP_LAST_MESSAGES,
-            hook.anchor_message_id,
-        )
-    } else {
-        trim_history_after_task_board(history, DEFAULT_KEEP_LAST_N_USERS)
-    };
-    let Some(stats) = stats else {
-        log::info!(
-            "task_board_trim: skip_no_boundary conversation_id={} agent_id={} messages={}",
-            hook.conversation_id,
-            hook.agent_id,
-            history.len()
-        );
-        return;
-    };
-
+    // In-run compression already bounds context. Task-board trim is redundant,
+    // including when a saved per-agent override is still true.
     log::info!(
-        "task_board_trim: applied conversation_id={} agent_id={} messages_before={} messages_after={} split_at={} excluded={}",
+        "task_board_trim: skip_in_run_compression conversation_id={} agent_id={}",
         hook.conversation_id,
-        hook.agent_id,
-        stats.messages_before,
-        stats.messages_after,
-        stats.split_at,
-        stats.dropped_count
+        hook.agent_id
     );
-
-    let toast = crate::i18n::tf(
-        crate::i18n::current_ui_locale(),
-        "toast.taskBoardTrimmed",
-        &[("count", &stats.dropped_count.to_string())],
-    );
-    crate::stream_broadcast::publish_stream(
-        &hook.stream,
-        StreamEvent::UiToast {
-            conversation_id: hook.conversation_id.to_string(),
-            message: toast,
-            level: "info".to_string(),
-        },
-    );
-
-    if hook.emit_trim_ui_event {
-        crate::conversation_transcript::sync_ordered(hook.conversation_id, history);
-        crate::stream_broadcast::publish_stream(
-            &hook.stream,
-            StreamEvent::ContextTrimApplied {
-                conversation_id: hook.conversation_id.to_string(),
-                excluded_message_ids: stats.excluded_message_ids.clone(),
-            },
-        );
-    }
 }
 
 /// Built-in defaults when the user has not set per-agent overrides (for UI hints).
 pub fn default_agent_task_board_history_trim_table() -> HashMap<String, bool> {
     let mut m = HashMap::new();
-    m.insert("computer".into(), true);
+    m.insert("computer".into(), false);
     m.insert("coder".into(), false);
     m.insert("general".into(), false);
     m.insert("explore".into(), false);
@@ -557,10 +479,34 @@ mod tests {
     }
 
     #[test]
-    fn enabled_defaults_computer_only() {
+    fn enabled_defaults_off() {
         let settings = ModelSettings::default();
-        assert!(is_task_board_history_trim_enabled(&settings, "computer"));
+        assert!(!is_task_board_history_trim_enabled(&settings, "computer"));
         assert!(!is_task_board_history_trim_enabled(&settings, "coder"));
+    }
+
+    #[test]
+    fn maybe_trim_skips_even_when_setting_is_on() {
+        let mut hist = Vec::new();
+        hist.push(u("task"));
+        for i in 0..12 {
+            hist.push(a());
+            hist.push(u(&format!("step {i}")));
+        }
+        let mut settings = ModelSettings::default();
+        settings
+            .agent_task_board_history_trim
+            .insert("computer".into(), true);
+        let hook = TaskBoardTrimHook {
+            settings: &settings,
+            agent_id: "computer",
+            conversation_id: "c1",
+            stream: &crate::models::ChatStreamSender::unbound("c1", ""),
+            emit_trim_ui_event: true,
+            anchor_message_id: None,
+        };
+        maybe_trim_after_tool_pass(&mut hist, &hook, true);
+        assert!(!hist.iter().any(is_excluded));
     }
 
     #[test]

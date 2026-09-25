@@ -58,13 +58,18 @@ fn choose_main_task_board_store_key(
         if !crate::task_board::is_child_store_key(&active_key)
             && is_parent_board_unfinished(state.task_board_store.as_ref(), &active_key)
         {
-            state.set_main_task_board_binding(conversation_id, &active_key, last_user_id);
+            // Keep the board on the user message that opened it. A later turn
+            // (follow-up chat, or the idle push when a background job returns)
+            // must not slide the panel onto the newest user row.
+            let anchor = state
+                .get_main_task_board_anchor(conversation_id, &active_key)
+                .unwrap_or_else(|| last_user_id.to_string());
             state.set_active_main_task_board_key(conversation_id, &active_key);
             log::debug!(
                 "task_board_main_key: reuse_active conversation_id={} store_key={} anchor_message_id={}",
                 conversation_id,
                 active_key,
-                last_user_id
+                anchor
             );
             return active_key;
         }
@@ -707,7 +712,7 @@ mod workspace_tests {
     }
 
     #[test]
-    fn reused_parent_board_rebinds_to_current_triggering_user_message() {
+    fn reused_parent_board_keeps_originating_user_message() {
         let state = AppState::new();
         let original = vec![user_message("u-original", "start")];
         let key = choose_main_task_board_store_key(&state, "conv-resume", &original);
@@ -723,7 +728,7 @@ mod workspace_tests {
             state
                 .get_main_task_board_anchor("conv-resume", &key)
                 .as_deref(),
-            Some("u-resume")
+            Some("u-original")
         );
     }
 

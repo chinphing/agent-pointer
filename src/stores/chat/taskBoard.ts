@@ -156,20 +156,16 @@ export function applyTaskBoardDocumentToEntry(
       delete entry.parentByStoreKey[storeKey]
     }
     const explicitAnchor = anchorMessageId?.trim()
-    let resolvedAnchor =
-      explicitAnchor ||
-      entry.parentBindings[storeKey] ||
-      anchorFromMainTaskBoardStoreKey(storeKey) ||
-      ''
+    const existing = entry.parentBindings[storeKey]
+    const keyAnchor = anchorFromMainTaskBoardStoreKey(storeKey)
+    // Main-turn keys embed the user message that opened the board. Later
+    // updates (follow-up turns, background-job return) must not move it.
+    let resolvedAnchor = keyAnchor || existing || explicitAnchor || ''
     if (!resolvedAnchor && messagesForAnchorFallback) {
       resolvedAnchor = findLastRealUserMessage(messagesForAnchorFallback)?.id || ''
     }
-    if (resolvedAnchor) {
-      const existing = entry.parentBindings[storeKey]
-      // Keep anchor on the originating user message unless this is a new board (explicit anchor).
-      if (!existing || explicitAnchor) {
-        entry.parentBindings[storeKey] = resolvedAnchor
-      }
+    if (resolvedAnchor && (!existing || keyAnchor)) {
+      entry.parentBindings[storeKey] = resolvedAnchor
     }
     if (hasTaskBoardContent(doc) && !isTaskBoardTerminal(doc.meta?.status)) {
       entry.activeParentStoreKey = storeKey

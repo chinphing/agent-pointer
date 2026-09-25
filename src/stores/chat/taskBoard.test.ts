@@ -87,6 +87,24 @@ describe('taskBoard logic', () => {
     expect(binding?.isActive).toBe(true)
   })
 
+  it('keeps parent binding when a later update carries a newer explicit anchor', () => {
+    const entry = emptyTaskBoardEntry()
+    const storeKey = `conv1${TASK_BOARD_MAIN_TURN_SEP}u_original`
+    applyTaskBoardDocumentToEntry(entry, 'conv1', storeKey, doc('goal'), 'u_original', [])
+    applyTaskBoardDocumentToEntry(
+      entry,
+      'conv1',
+      storeKey,
+      doc('goal updated'),
+      'u_continue',
+      [
+        { id: 'u_original', role: 'user', content: 'start', status: 'done', createdAt: 0 },
+        { id: 'u_continue', role: 'user', content: '继续', status: 'done', createdAt: 1 }
+      ]
+    )
+    expect(entry.parentBindings[storeKey]).toBe('u_original')
+  })
+
   it('preserves parent binding on update without explicit anchor', () => {
     const entry = emptyTaskBoardEntry()
     const storeKey = `conv1${TASK_BOARD_MAIN_TURN_SEP}u_original`

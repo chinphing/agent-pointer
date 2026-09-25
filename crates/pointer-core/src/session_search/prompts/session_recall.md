@@ -14,7 +14,8 @@ Handles:
 - `jobId` — wait/cancel only. Not a transcript slice.
 
 Current conversation:
-- session_search without `agentInstanceId` skips this chat's lead.
+- session_search without `agentInstanceId` includes this chat's lead
+  and other chats. It skips this chat's child threads.
 - session_read of this chat without `agentInstanceId` is rejected.
   To read this lead, pass the lead `agentInstanceId`.
 - Past chats may use `conversation_id` alone.

@@ -56,7 +56,7 @@
 1. 持久化 lead instance + 写出 lead 消息时 stamp。旧会话无列值：第一次跑 mint，**不回填**历史消息（旧行只能 `conversation_id` 读）。
 2. 子回包带 `agentInstanceId`；后台 mint 一次传入 child。
 3. 可选：system 一行 `Your agentInstanceId is …`。读孩子看委派回包即可。
-4. `session_read(agentInstanceId)` 不看 `context_included`。当前会话无 instance、只带 conversation → search 不要扫 lead；read **拒绝**。
+4. `session_read(agentInstanceId)` 不看 `context_included`。当前会话无 instance、只带 conversation → search 只扫 lead（不含子线程）；read **拒绝**。
 5. Prompt：instance 只用于 search/read，不要传给 `run_subagent`。
 
 P0：`json_extract` + 当前 `conversation_id`。P1：`messages.agent_instance_id` 列 + 索引（已落地；检索走列，payload 仍 stamp 同一字段）。
@@ -65,9 +65,9 @@ P0：`json_extract` + 当前 `conversation_id`。P1：`messages.agent_instance_i
 
 实现可共用切片 SQL。**工具 JSON / prompt / `tools[]` 字段分开**，不要做成「同一组参数靠有没有 query 分派」。
 
-当前会话只传 `conversation_id`、不传 `agentInstanceId`：
+当前会话不传 `agentInstanceId`：
 
-- `session_search`：不要搜当前会话 lead。
+- `session_search`：包含本会话 **lead**（`is_scoped = 0`，含压缩后仍在库里的结论）以及其他会话。不包含本会话子线程；子线程必须带该子的 `agentInstanceId`。只传本会话 `conversation_id`、不传 instance 时同样只搜 lead，不再报错跳过。
 - `session_read`：**拒绝**。读本会话 lead 用 lead 的 `agentInstanceId`。
 
 剔除名为 `session_search` / `session_read` 的工具回包。
@@ -77,8 +77,8 @@ P0：`json_extract` + 当前 `conversation_id`。P1：`messages.agent_instance_i
 | 参数 | 必填 | 默认 | 含义 |
 |------|------|------|------|
 | `query` | 是 | — | FTS5。缺则错误 |
-| `conversation_id` | 否 | 不限（跳过当前 lead） | 收窄到该历史会话。`session_id` 别名 |
-| `agentInstanceId` | 否 | 不限线程 | 收窄到该 lead/子线程（默认当前会话） |
+| `conversation_id` | 否 | 不限（本会话只含 lead） | 收窄到该会话。当前会话不带 instance 时只含 lead。`session_id` 别名 |
+| `agentInstanceId` | 否 | 全部会话的 lead；本会话不含子线程 | 收窄到该 lead 或子线程 |
 | `role_filter` | 否 | 不限 | `user,assistant,tool` |
 | `tool_name` | 否 | 不限 | 如 `terminal`，逗号分隔 |
 | `limit` | 否 | 3，顶 10 | 最多几个**会话分组** |

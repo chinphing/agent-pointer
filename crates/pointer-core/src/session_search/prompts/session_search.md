@@ -4,7 +4,9 @@ Find text in stored transcripts (like file_grep). `query` is required.
 
 Optional:
 - `conversation_id` — one past chat
-- `agentInstanceId` — one lead or child thread (defaults to this chat)
+- `agentInstanceId` — one lead or child thread.
+  Omit it to search every chat, including this chat's lead.
+  This chat's child threads stay out until you pass their id.
 - `role_filter` — e.g. `user,assistant,tool`
 - `tool_name` — e.g. `terminal` (comma-separated)
 - `limit` — conversation groups (default 3, max 10)

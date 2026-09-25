@@ -94,9 +94,10 @@ fn dispatch_tool_inner(db: &DbHandle, args: &Value) -> Result<String> {
         && instance_id.is_none()
         && current_conversation_id == conversation_id
     {
-        return Ok(error_json(
-            "session_search skipped current conversation lead; pass agentInstanceId to search this thread",
-        ));
+        log::info!(
+            "session_search: current conversation without agentInstanceId searches lead only conversation_id={}",
+            conversation_id.unwrap_or("")
+        );
     }
 
     let limit = parse_limit(args.get("limit"))?;
@@ -228,7 +229,11 @@ fn discover(
                AND c.session_user_id = ?2
                AND (?4 IS NULL OR m.conversation_id = ?4)
                AND (?5 IS NULL OR m.agent_instance_id = ?5)
-               AND (?6 IS NULL OR m.conversation_id != ?6)
+               AND (
+                 ?6 IS NULL
+                 OR m.conversation_id != ?6
+                 OR COALESCE(m.is_scoped, 0) = 0
+               )
                {skip}
              ORDER BY rank
              LIMIT ?3",
@@ -290,11 +295,6 @@ fn discover(
     let mut groups: std::collections::HashMap<String, DiscGroup> = std::collections::HashMap::new();
     let mut order: Vec<String> = Vec::new();
     for hit in hits {
-        if instance_filter.is_none()
-            && current_conversation_id == Some(hit.conversation_id.as_str())
-        {
-            continue;
-        }
         if let Some(group) = groups.get_mut(&hit.conversation_id) {
             group
                 .instance_by_message
@@ -366,6 +366,8 @@ fn discover(
         let Some(meta) = meta else {
             continue;
         };
+        let lead_only = instance_filter.is_none()
+            && current_conversation_id == Some(conversation_id.as_str());
         let window_view = load_window(
             &conn,
             &conversation_id,
@@ -373,6 +375,7 @@ fn discover(
             window,
             query,
             instance_filter,
+            lead_only,
         )?;
         let matches_json: Vec<Value> = group
             .matches
@@ -402,8 +405,9 @@ fn discover(
     }
 
     log::info!(
-        "session_search: discover query={query:?} groups={} elapsed_ms={}",
+        "session_search: discover query={query:?} groups={} include_current_lead={} elapsed_ms={}",
         results.len(),
+        instance_filter.is_none(),
         started.elapsed().as_millis()
     );
     Ok(json!({
@@ -444,7 +448,7 @@ fn read_window(
         )));
     }
 
-    let ids = load_filtered_message_ids(&conn, &resolved, instance_id)?;
+    let ids = load_filtered_message_ids(&conn, &resolved, instance_id, false)?;
     let message_count = ids.len() as i64;
     let offset = if let Some(anchor) = around_message_id {
         match ids.iter().position(|id| id == anchor) {
@@ -528,8 +532,14 @@ fn load_filtered_message_ids(
     conn: &Connection,
     conversation_id: &str,
     instance_id: Option<&str>,
+    lead_only: bool,
 ) -> Result<Vec<String>> {
     let skip = sql_and_skip_session_search_dumps();
+    let lead_sql = if lead_only {
+        "AND COALESCE(m.is_scoped, 0) = 0"
+    } else {
+        ""
+    };
     let sql = if instance_id.is_some() {
         format!(
             "SELECT m.message_id FROM messages AS m
@@ -542,6 +552,7 @@ fn load_filtered_message_ids(
         format!(
             "SELECT m.message_id FROM messages AS m
              WHERE m.conversation_id = ?1
+               {lead_sql}
                {skip}
              ORDER BY m.position ASC"
         )
@@ -753,8 +764,9 @@ fn load_window(
     window: i64,
     query: &str,
     instance_id: Option<&str>,
+    lead_only: bool,
 ) -> Result<WindowView> {
-    let ids = load_filtered_message_ids(conn, conversation_id, instance_id)?;
+    let ids = load_filtered_message_ids(conn, conversation_id, instance_id, lead_only)?;
     let Some(anchor_idx) = ids.iter().position(|id| id == anchor_message_id) else {
         return Ok(WindowView {
             messages: vec![],

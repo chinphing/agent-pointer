@@ -644,14 +644,15 @@ mod tests {
             .into_iter()
             .find_map(|m| m.agent_instance_id)
             .expect("stamped instance");
-        let skipped = store
+        let included = store
             .dispatch_tool_for_test(&json!({
                 "query": "unique_scope_token",
                 "_conversation_id": "c_cur"
             }))
             .unwrap();
-        let skipped_p: Value = serde_json::from_str(&skipped).unwrap();
-        assert_eq!(skipped_p["count"], 0);
+        let included_p: Value = serde_json::from_str(&included).unwrap();
+        assert_eq!(included_p["count"], 1);
+        assert_eq!(included_p["results"][0]["conversation_id"], "c_cur");
         let scoped = store
             .dispatch_tool_for_test(&json!({
                 "query": "unique_scope_token",
@@ -661,6 +662,53 @@ mod tests {
             .unwrap();
         let scoped_p: Value = serde_json::from_str(&scoped).unwrap();
         assert_eq!(scoped_p["count"], 1);
+    }
+
+    #[test]
+    fn session_search_default_includes_current_lead_and_skips_children() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let child = "child-bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+        let mut conv = sample_conv("c_cur", "Current", "lead_conclusion_token");
+        let mut child_hit = msg(
+            "m_child",
+            Role::Assistant,
+            "child_only_deep_token",
+            1_700_000_002_000,
+        );
+        child_hit.agent_instance_id = Some(child.into());
+        child_hit.anchor_message_id = Some("msg_u1".into());
+        conv.messages.push(child_hit);
+        store.sync_conversations(&[conv]).unwrap();
+
+        let lead = store
+            .dispatch_tool_for_test(&json!({
+                "query": "lead_conclusion_token",
+                "_conversation_id": "c_cur"
+            }))
+            .unwrap();
+        let lead_p: Value = serde_json::from_str(&lead).unwrap();
+        assert_eq!(lead_p["success"], true);
+        assert_eq!(lead_p["count"], 1);
+
+        let child_default = store
+            .dispatch_tool_for_test(&json!({
+                "query": "child_only_deep_token",
+                "_conversation_id": "c_cur"
+            }))
+            .unwrap();
+        let child_default_p: Value = serde_json::from_str(&child_default).unwrap();
+        assert_eq!(child_default_p["count"], 0);
+
+        let child_scoped = store
+            .dispatch_tool_for_test(&json!({
+                "query": "child_only_deep_token",
+                "agentInstanceId": child,
+                "_conversation_id": "c_cur"
+            }))
+            .unwrap();
+        let child_scoped_p: Value = serde_json::from_str(&child_scoped).unwrap();
+        assert_eq!(child_scoped_p["count"], 1);
     }
 
     #[test]

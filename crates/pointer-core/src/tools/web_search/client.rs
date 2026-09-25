@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-pub const DEFAULT_WEB_SEARCH_TIMEOUT_SECS: u64 = 120;
+pub const DEFAULT_WEB_SEARCH_TIMEOUT_SECS: u64 = 600;
 /// Default `search_options.search_strategy` for generic tool (Generation API).
 pub const DEFAULT_TOOL_WEB_SEARCH_STRATEGY: &str = "pro_max";
 /// Alias kept for callers that import the tool default strategy name.

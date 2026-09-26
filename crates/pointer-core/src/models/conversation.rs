@@ -233,6 +233,9 @@ pub struct ConversationOutlineItem {
     #[serde(rename = "messageId")]
     pub message_id: String,
     pub preview: String,
+    /// User-marked milestone. Omitted on the wire when false.
+    #[serde(default, skip_serializing_if = "is_false_bool")]
+    pub milestone: bool,
 }
 
 /// One message hit inside a conversation search result.

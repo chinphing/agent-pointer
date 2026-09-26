@@ -477,6 +477,8 @@ export interface ConversationMetaPage {
 export interface ConversationOutlineItem {
   messageId: string
   preview: string
+  /** User-marked milestone. Absent when false. */
+  milestone?: boolean
 }
 
 /** One message hit inside a sidebar / discovery conversation result. */

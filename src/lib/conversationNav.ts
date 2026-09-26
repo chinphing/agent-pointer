@@ -79,6 +79,8 @@ export type ConversationNavTickVisual = {
   widthPx: number
   heightPx: number
   opacity: number
+  /** Milestone ticks are a diamond instead of a bar. */
+  diamond?: boolean
 }
 
 export function conversationNavPreview(
@@ -116,7 +118,30 @@ export function conversationNavRestTick(
   return { widthPx: 5, heightPx: 1.5, opacity: 0.22 }
 }
 
-function isOptimisticNavUserMessage(message: ChatMessage): boolean {
+/**
+ * Rest or fisheye size. Milestone ticks are a diamond: wider than the
+ * matching bar, and as tall as the tick slot.
+ */
+export function conversationNavTickVisual(input: {
+  hoverDistance: number | null
+  isActive: boolean
+  inLoadedWindow: boolean
+  milestone: boolean
+}): ConversationNavTickVisual {
+  const base =
+    input.hoverDistance == null
+      ? conversationNavRestTick(input.isActive, input.inLoadedWindow)
+      : conversationNavFisheye(input.hoverDistance)
+  if (!input.milestone) return base
+  return {
+    widthPx: Math.max(base.widthPx + 3, 8),
+    heightPx: CONVERSATION_NAV_TICK_SLOT_PX,
+    opacity: Math.min(1, base.opacity + 0.45),
+    diamond: true
+  }
+}
+
+export function isConversationNavUserMessage(message: ChatMessage): boolean {
   if (message.role !== 'user' || !message.id) return false
   if (message.anchorMessageId?.trim()) return false
   if (isScreenInjectUserMessage(message) || isInternalRetryUserMessage(message)) return false
@@ -132,7 +157,7 @@ export function mergeConversationNavItems(
   const known = new Set(fromApi.map(item => item.messageId))
   const extra: ConversationOutlineItem[] = []
   for (const message of messages) {
-    if (!isOptimisticNavUserMessage(message) || known.has(message.id)) continue
+    if (!isConversationNavUserMessage(message) || known.has(message.id)) continue
     extra.push({
       messageId: message.id,
       preview: conversationNavPreview(message.content)

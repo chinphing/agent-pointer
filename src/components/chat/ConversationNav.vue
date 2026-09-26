@@ -7,18 +7,19 @@ import { listConversationOutline } from '../../lib/api'
 import {
   CONVERSATION_NAV_TICK_GAP_PX,
   CONVERSATION_NAV_TICK_SLOT_PX,
-  conversationNavFisheye,
   conversationNavFocusFromPointer,
   conversationNavJumpLoadsTail,
   conversationNavMaxHeightPx,
   conversationNavPageDelta,
-  conversationNavRestTick,
   conversationNavScrollAffordances,
+  conversationNavTickVisual,
   mergeConversationNavItems
 } from '../../lib/conversationNav'
+import { useMessageMilestoneStore } from '../../stores/messageMilestones'
 import type { ConversationOutlineItem } from '../../types/chat'
 
 const chat = useChatStore()
+const milestones = useMessageMilestoneStore()
 const fromApi = ref<ConversationOutlineItem[]>([])
 const listEl = ref<HTMLElement | null>(null)
 const asideEl = ref<HTMLElement | null>(null)
@@ -27,9 +28,15 @@ const hoverFocus = ref<number | null>(null)
 const hoverPreview = ref<{ text: string; top: number; messageId: string } | null>(null)
 let fetchSeq = 0
 
-const items = computed(() =>
-  mergeConversationNavItems(fromApi.value, chat.current?.messages ?? [])
-)
+const items = computed(() => {
+  const merged = mergeConversationNavItems(fromApi.value, chat.current?.messages ?? [])
+  const convId = chat.currentId?.trim() ?? ''
+  if (!convId) return merged
+  return merged.map(item => ({
+    ...item,
+    milestone: milestones.isMilestone(convId, item.messageId)
+  }))
+})
 /** User turns currently in the painted page window (rest ticks slightly stronger). */
 const loadedWindowUserIds = computed(() => {
   const convId = chat.currentId?.trim()
@@ -53,12 +60,13 @@ let navOverflowObserver: ResizeObserver | null = null
 
 function tickVisual(index: number) {
   const item = items.value[index]
-  const inLoadedWindow = Boolean(item && loadedWindowUserIds.value.has(item.messageId))
   const focus = hoverFocus.value
-  if (focus == null) {
-    return conversationNavRestTick(item?.messageId === activeId.value, inLoadedWindow)
-  }
-  return conversationNavFisheye(Math.abs(index - focus))
+  return conversationNavTickVisual({
+    hoverDistance: focus == null ? null : Math.abs(index - focus),
+    isActive: item?.messageId === activeId.value,
+    inLoadedWindow: Boolean(item && loadedWindowUserIds.value.has(item.messageId)),
+    milestone: item?.milestone === true
+  })
 }
 
 function tickStyle(index: number) {
@@ -66,8 +74,14 @@ function tickStyle(index: number) {
   return {
     width: `${visual.widthPx}px`,
     height: `${visual.heightPx}px`,
-    opacity: String(visual.opacity)
+    opacity: String(visual.opacity),
+    clipPath: visual.diamond ? 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' : undefined,
+    borderRadius: visual.diamond ? '0' : '1px'
   }
+}
+
+function tickClass(index: number) {
+  return tickVisual(index).diamond ? 'bg-accent' : 'bg-foreground'
 }
 
 function setHoverFromEvent(event: MouseEvent | FocusEvent) {
@@ -199,6 +213,7 @@ watch(
       const rows = await listConversationOutline(convId)
       if (seq !== fetchSeq || chat.currentId !== convId) return
       fromApi.value = rows
+      milestones.hydrate(convId, rows)
       console.info('[nav] outline loaded', convId, rows.length)
     } catch (err) {
       console.warn('[nav] outline load failed', convId, err)
@@ -303,13 +318,14 @@ onBeforeUnmount(() => {
           :style="{ height: `${CONVERSATION_NAV_TICK_SLOT_PX}px` }"
           :data-nav-message-id="item.messageId"
           :aria-current="item.messageId === activeId ? 'true' : undefined"
-          :aria-label="item.preview"
+          :aria-label="item.milestone ? `里程碑 ${item.preview}` : item.preview"
           @focus="onTickFocus(item, $event)"
           @blur="onNavLeave"
           @click="onJump(item.messageId)"
         >
           <span
-            class="block rounded-[1px] bg-foreground transition-[width,height,opacity] duration-75 ease-out"
+            class="block transition-[width,height,opacity] duration-75 ease-out"
+            :class="tickClass(index)"
             :style="tickStyle(index)"
           />
         </button>

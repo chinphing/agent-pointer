@@ -1382,6 +1382,22 @@ pub fn list_conversation_outline(
 }
 
 #[tauri::command]
+pub fn set_message_milestone(
+    state: State<'_, Arc<AppState>>,
+    conversation_id: String,
+    message_id: String,
+    milestone: bool,
+) -> Result<(), String> {
+    let scope = platform_list_scope(&state);
+    storage::set_message_milestone(&scope, &conversation_id, &message_id, milestone)
+        .map_err(|e| e.to_string())?;
+    log::info!(
+        "tauri::set_message_milestone: id={conversation_id} message_id={message_id} milestone={milestone}"
+    );
+    Ok(())
+}
+
+#[tauri::command]
 pub fn load_conversation_message(
     conversation_id: String,
     message_id: String,

@@ -323,6 +323,7 @@ export interface RuntimeApi {
     query: string
   ): Promise<import('../types/chat').ConversationSearchMatch[]>
   listConversationOutline(conversationId: string): Promise<import('../types/chat').ConversationOutlineItem[]>
+  setMessageMilestone(conversationId: string, messageId: string, milestone: boolean): Promise<void>
   loadConversationMessages(conversationId: string): Promise<ChatMessage[]>
   /** One transcript row. Null when the id is not on disk yet. */
   loadConversationMessage(conversationId: string, messageId: string): Promise<ChatMessage | null>
@@ -511,6 +512,7 @@ export const deleteProject = api.deleteProject
 export const searchConversations = api.searchConversations
 export const listConversationSearchMatches = api.listConversationSearchMatches
 export const listConversationOutline = api.listConversationOutline
+export const setMessageMilestone = api.setMessageMilestone
 export const loadConversationMessages = api.loadConversationMessages
 export const loadConversationMessagesPage = api.loadConversationMessagesPage
 export const loadConversationMessage = api.loadConversationMessage

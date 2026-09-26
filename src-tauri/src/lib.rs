@@ -553,6 +553,7 @@ pub fn run() {
             commands::search_conversations,
             commands::list_conversation_search_matches,
             commands::list_conversation_outline,
+            commands::set_message_milestone,
             commands::load_conversation_message,
             commands::load_conversation_messages,
             commands::load_conversation_messages_page,

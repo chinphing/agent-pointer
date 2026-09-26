@@ -740,6 +740,10 @@ async fn main() -> anyhow::Result<()> {
             get(list_conversation_outline_handler),
         )
         .route(
+            "/api/conversations/:conversation_id/messages/:message_id/milestone",
+            post(set_message_milestone_handler),
+        )
+        .route(
             "/api/conversations/:conversation_id/messages/:message_id",
             get(load_conversation_message_handler),
         )
@@ -2119,6 +2123,26 @@ async fn list_conversation_outline_handler(
         items.len()
     );
     Ok(Json(items))
+}
+
+#[derive(Deserialize)]
+struct SetMessageMilestoneRequest {
+    milestone: bool,
+}
+
+async fn set_message_milestone_handler(
+    State(state): State<ServerState>,
+    Path((conversation_id, message_id)): Path<(String, String)>,
+    Json(body): Json<SetMessageMilestoneRequest>,
+) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
+    let scope = platform_list_scope(&state);
+    storage::set_message_milestone(&scope, &conversation_id, &message_id, body.milestone)?;
+    log::info!(
+        "server: set_message_milestone conversation_id={conversation_id} message_id={message_id} milestone={}",
+        body.milestone
+    );
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// `GET /api/conversations/:id/messages` — full list when no page query params;

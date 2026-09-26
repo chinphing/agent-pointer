@@ -659,6 +659,7 @@ pub fn replace_messages_in_conn(
     conversation_id: &str,
     messages: &[ChatMessage],
 ) -> Result<()> {
+    let milestones = super::persist::snapshot_message_milestones(conn, conversation_id)?;
     conn.execute(
         "DELETE FROM messages WHERE conversation_id = ?1",
         params![conversation_id],
@@ -666,6 +667,7 @@ pub fn replace_messages_in_conn(
     for (pos, msg) in messages.iter().enumerate() {
         insert_message_at(conn, conversation_id, msg, pos as i64)?;
     }
+    super::persist::restore_message_milestones(conn, conversation_id, &milestones)?;
     let count = messages.len() as u32;
     let preview = conversation_preview(messages);
     flush_conversation_meta_in_conn(conn, conversation_id, count, &preview)?;

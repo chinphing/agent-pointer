@@ -578,6 +578,14 @@ export async function listConversationOutline(
   return await invoke('list_conversation_outline', { conversationId })
 }
 
+export async function setMessageMilestone(
+  conversationId: string,
+  messageId: string,
+  milestone: boolean
+): Promise<void> {
+  await invoke('set_message_milestone', { conversationId, messageId, milestone })
+}
+
 export async function loadConversationMessages(conversationId: string): Promise<ChatMessage[]> {
   return await invoke<ChatMessage[]>('load_conversation_messages', { conversationId })
 }

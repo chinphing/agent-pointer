@@ -898,6 +898,17 @@ export async function listConversationOutline(
   )
 }
 
+export async function setMessageMilestone(
+  conversationId: string,
+  messageId: string,
+  milestone: boolean
+): Promise<void> {
+  await request(
+    `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/milestone`,
+    { method: 'POST', body: JSON.stringify({ milestone }) }
+  )
+}
+
 export async function saveConversationMeta(metas: import('../types/chat').ConversationMeta[]): Promise<void> {
   await request('/api/conversations/meta', { method: 'PUT', body: JSON.stringify(metas) })
 }

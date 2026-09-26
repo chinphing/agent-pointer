@@ -2334,6 +2334,56 @@ mod tests {
             .list_conversation_outline(&ListScope::All, "")
             .unwrap()
             .is_empty());
+        assert!(!items.iter().any(|item| item.milestone));
+    }
+
+    #[test]
+    fn message_milestone_survives_transcript_replace() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("nav-ms", "Nav", "first turn");
+        conv.messages.push(msg(
+            "u-syn",
+            Role::User,
+            "[CUR_SCREEN] shot",
+            1_700_000_004_000,
+        ));
+        store.sync_conversations(&[conv.clone()]).unwrap();
+
+        store
+            .set_message_milestone(&ListScope::All, "nav-ms", "msg_u1", true)
+            .unwrap();
+        let marked = store
+            .list_conversation_outline(&ListScope::All, "nav-ms")
+            .unwrap();
+        assert!(marked
+            .iter()
+            .any(|item| item.message_id == "msg_u1" && item.milestone));
+        assert!(marked
+            .iter()
+            .all(|item| item.message_id == "msg_u1" || !item.milestone));
+
+        let err = store
+            .set_message_milestone(&ListScope::All, "nav-ms", "u-syn", true)
+            .unwrap_err();
+        assert!(err.to_string().contains("not a user turn"));
+
+        conv.updated_at += 1;
+        store.sync_conversations(&[conv]).unwrap();
+        let kept = store
+            .list_conversation_outline(&ListScope::All, "nav-ms")
+            .unwrap();
+        assert!(kept
+            .iter()
+            .any(|item| item.message_id == "msg_u1" && item.milestone));
+
+        store
+            .set_message_milestone(&ListScope::All, "nav-ms", "msg_u1", false)
+            .unwrap();
+        let cleared = store
+            .list_conversation_outline(&ListScope::All, "nav-ms")
+            .unwrap();
+        assert!(cleared.iter().all(|item| !item.milestone));
     }
 
     #[test]

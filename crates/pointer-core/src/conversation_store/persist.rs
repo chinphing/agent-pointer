@@ -1291,7 +1291,7 @@ pub(crate) fn load_conversation_outline(
     conversation_id: &str,
 ) -> Result<Vec<ConversationOutlineItem>> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT message_id, substr(content, 1, ?2)
+        "SELECT message_id, substr(content, 1, ?2), is_milestone
          FROM messages
          WHERE conversation_id = ?1 AND role = 'user' AND is_system_generated = 0
          {SQL_LEAD_ROW_NOT_SCOPED}
@@ -1299,17 +1299,98 @@ pub(crate) fn load_conversation_outline(
     ))?;
     let rows = stmt.query_map(
         params![conversation_id, OUTLINE_CONTENT_PREFIX_CHARS],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        },
     )?;
     let mut out = Vec::new();
     for row in rows {
-        let (message_id, content) = row?;
+        let (message_id, content, milestone) = row?;
         out.push(ConversationOutlineItem {
             message_id,
             preview: conversation_nav_preview(&content),
+            milestone: milestone != 0,
         });
     }
     Ok(out)
+}
+
+/// Message ids the user marked as milestones. Full transcript replaces delete
+/// every row, so callers snapshot these ids and restore them after insert.
+pub(crate) fn snapshot_message_milestones(
+    conn: &Connection,
+    conversation_id: &str,
+) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT message_id FROM messages
+         WHERE conversation_id = ?1 AND is_milestone != 0",
+    )?;
+    let rows = stmt.query_map(params![conversation_id], |row| row.get(0))?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+pub(crate) fn restore_message_milestones(
+    conn: &Connection,
+    conversation_id: &str,
+    message_ids: &[String],
+) -> Result<()> {
+    if message_ids.is_empty() {
+        return Ok(());
+    }
+    let mut restored = 0usize;
+    for message_id in message_ids {
+        let n = conn.execute(
+            "UPDATE messages SET is_milestone = 1
+             WHERE conversation_id = ?1 AND message_id = ?2",
+            params![conversation_id, message_id],
+        )?;
+        restored += n;
+    }
+    if restored != message_ids.len() {
+        log::warn!(
+            "conversation_store: restored {restored}/{} message milestones conversation_id={conversation_id}",
+            message_ids.len()
+        );
+    } else {
+        log::info!(
+            "conversation_store: restored {restored} message milestones conversation_id={conversation_id}"
+        );
+    }
+    Ok(())
+}
+
+/// Mark or clear a real lead user turn. System-generated and scoped rows are
+/// not nav entries, so they cannot be milestones.
+pub(crate) fn set_message_milestone(
+    conn: &Connection,
+    conversation_id: &str,
+    message_id: &str,
+    milestone: bool,
+) -> Result<()> {
+    let n = conn.execute(
+        "UPDATE messages
+         SET is_milestone = ?1
+         WHERE conversation_id = ?2
+           AND message_id = ?3
+           AND role = 'user'
+           AND is_system_generated = 0
+           AND is_scoped = 0",
+        params![i64::from(milestone), conversation_id, message_id],
+    )?;
+    if n == 0 {
+        log::warn!(
+            "conversation_store: set_message_milestone matched 0 rows conversation_id={conversation_id} message_id={message_id}"
+        );
+        anyhow::bail!("message is not a user turn");
+    }
+    log::info!(
+        "conversation_store: set_message_milestone conversation_id={conversation_id} message_id={message_id} milestone={milestone}"
+    );
+    Ok(())
 }
 
 pub(crate) fn patch_agent_trace_json(
@@ -2106,6 +2187,7 @@ pub fn upsert_conversation(
     )?;
 
     if replace_messages {
+        let milestones = snapshot_message_milestones(conn, &conv.id)?;
         conn.execute(
             "DELETE FROM messages WHERE conversation_id = ?1",
             params![conv.id],
@@ -2141,6 +2223,7 @@ pub fn upsert_conversation(
                 ],
             )?;
         }
+        restore_message_milestones(conn, &conv.id, &milestones)?;
     }
     Ok(true)
 }

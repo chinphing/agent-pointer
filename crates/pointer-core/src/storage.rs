@@ -1160,6 +1160,20 @@ pub fn list_conversation_outline(
     crate::conversation_store::global_store()?.list_conversation_outline(scope, conversation_id)
 }
 
+pub fn set_message_milestone(
+    scope: &crate::conversation_store::ListScope,
+    conversation_id: &str,
+    message_id: &str,
+    milestone: bool,
+) -> Result<()> {
+    crate::conversation_store::global_store()?.set_message_milestone(
+        scope,
+        conversation_id,
+        message_id,
+        milestone,
+    )
+}
+
 pub fn load_conversation_messages(conversation_id: &str) -> Result<Vec<ChatMessage>> {
     crate::conversation_store::global_store()?.load_messages(conversation_id)
 }

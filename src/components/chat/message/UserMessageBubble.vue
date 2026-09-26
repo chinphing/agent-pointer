@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { parseMarkdown } from '../../../lib/markdownConfig'
-import { Clipboard, Download, FolderOpen, User } from 'lucide-vue-next'
+import { Clipboard, Download, Flag, FolderOpen, User } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../types/chat'
 import type { RenderableAttachment } from '../../../lib/messageNormalizer'
 import ChatAudioPlayer from './ChatAudioPlayer.vue'
@@ -23,8 +23,31 @@ import {
   openAttachmentWithSystemDefault
 } from '../../../lib/openAttachment'
 import { isTauriRuntime } from '../../../lib/runtime'
+import { isConversationNavUserMessage } from '../../../lib/conversationNav'
+import { useChatStore } from '../../../stores/chat'
+import { useMessageMilestoneStore } from '../../../stores/messageMilestones'
 
 const props = defineProps<{ message: ChatMessage }>()
+const chat = useChatStore()
+const milestones = useMessageMilestoneStore()
+
+const canMarkMilestone = computed(() => isConversationNavUserMessage(props.message))
+const milestoneOn = computed(() => {
+  const convId = chat.currentId?.trim() ?? ''
+  if (!convId) return false
+  return milestones.isMilestone(convId, props.message.id)
+})
+const milestonePending = computed(() => {
+  const convId = chat.currentId?.trim() ?? ''
+  if (!convId) return false
+  return milestones.isPending(convId, props.message.id)
+})
+
+function onToggleMilestone() {
+  const convId = chat.currentId?.trim() ?? ''
+  if (!convId || !canMarkMilestone.value || milestonePending.value) return
+  void milestones.setMilestone(convId, props.message.id, !milestoneOn.value)
+}
 
 const bodyRef = ref<HTMLElement | null>(null)
 
@@ -176,7 +199,40 @@ async function onOpenAttachment(att: RenderableAttachment) {
           :created-at="message.createdAt"
           :copy-text="displayContent"
           :show-copy="true"
-        />
+        >
+          <template #extra>
+            <button
+              v-if="canMarkMilestone"
+              type="button"
+              class="message-action-btn disabled:opacity-40"
+              :class="milestoneOn ? 'text-accent' : 'text-muted hover:text-foreground'"
+              :title="milestoneOn ? '取消里程碑' : '标为里程碑'"
+              :aria-pressed="milestoneOn"
+              :disabled="milestonePending"
+              @click="onToggleMilestone"
+            >
+              <Flag class="w-3 h-3" :fill="milestoneOn ? 'currentColor' : 'none'" />
+            </button>
+          </template>
+        </MessageFooterActions>
+      </div>
+      <div
+        v-else-if="canMarkMilestone"
+        class="message-user-stamp"
+      >
+        <div class="message-footer-actions justify-end">
+          <button
+            type="button"
+            class="message-action-btn disabled:opacity-40"
+            :class="milestoneOn ? 'text-accent' : 'text-muted hover:text-foreground'"
+            :title="milestoneOn ? '取消里程碑' : '标为里程碑'"
+            :aria-pressed="milestoneOn"
+            :disabled="milestonePending"
+            @click="onToggleMilestone"
+          >
+            <Flag class="w-3 h-3" :fill="milestoneOn ? 'currentColor' : 'none'" />
+          </button>
+        </div>
       </div>
     </div>
   </div>

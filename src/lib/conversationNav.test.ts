@@ -13,6 +13,7 @@ import {
   conversationNavPreview,
   conversationNavRestTick,
   conversationNavScrollAffordances,
+  conversationNavTickVisual,
   conversationNavTranscriptScroller,
   conversationNavVisibleMessageId,
   mergeConversationNavItems
@@ -58,6 +59,14 @@ describe('mergeConversationNavItems', () => {
     expect(merged[1]?.preview).toBe('just sent')
   })
 
+  it('keeps a milestone flag from the outline', () => {
+    const merged = mergeConversationNavItems(
+      [{ messageId: 'u1', preview: 'one', milestone: true }],
+      [user('u1', 'one')]
+    )
+    expect(merged[0]?.milestone).toBe(true)
+  })
+
   it('skips in-memory provider retry glue', () => {
     const merged = mergeConversationNavItems(
       [{ messageId: 'u1', preview: 'one' }],
@@ -88,6 +97,37 @@ describe('conversationNavFisheye', () => {
     expect(conversationNavRestTick(false, true).opacity).toBeGreaterThan(
       conversationNavRestTick(false).opacity
     )
+  })
+})
+
+describe('conversationNavTickVisual', () => {
+  it('draws milestones wider than the matching bar', () => {
+    const plain = conversationNavTickVisual({
+      hoverDistance: null,
+      isActive: false,
+      inLoadedWindow: false,
+      milestone: false
+    })
+    const marked = conversationNavTickVisual({
+      hoverDistance: null,
+      isActive: false,
+      inLoadedWindow: false,
+      milestone: true
+    })
+    expect(plain.diamond).toBeUndefined()
+    expect(marked.diamond).toBe(true)
+    expect(marked.widthPx).toBeGreaterThan(plain.widthPx)
+    expect(marked.heightPx).toBe(CONVERSATION_NAV_TICK_SLOT_PX)
+    expect(marked.opacity).toBeGreaterThan(plain.opacity)
+    const hovered = conversationNavTickVisual({
+      hoverDistance: 0,
+      isActive: false,
+      inLoadedWindow: true,
+      milestone: true
+    })
+    expect(hovered.diamond).toBe(true)
+    expect(hovered.widthPx).toBeGreaterThan(conversationNavFisheye(0).widthPx)
+    expect(hovered.heightPx).toBe(CONVERSATION_NAV_TICK_SLOT_PX)
   })
 })
 

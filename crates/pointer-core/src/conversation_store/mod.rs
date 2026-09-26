@@ -1003,6 +1003,36 @@ impl ConversationStore {
         persist::load_conversation_outline(&conn, conversation_id)
     }
 
+    /// Mark or clear a real lead user turn as a nav milestone.
+    pub fn set_message_milestone(
+        &self,
+        scope: &ListScope,
+        conversation_id: &str,
+        message_id: &str,
+        milestone: bool,
+    ) -> Result<()> {
+        let conversation_id = conversation_id.trim();
+        if conversation_id.is_empty() {
+            log::warn!("conversation_store: set_message_milestone skipped; empty conversation_id");
+            anyhow::bail!("conversation not found");
+        }
+        let message_id = message_id.trim();
+        if message_id.is_empty() {
+            log::warn!(
+                "conversation_store: set_message_milestone skipped; empty message_id conversation_id={conversation_id}"
+            );
+            anyhow::bail!("message id is empty");
+        }
+        let conversation_id = conversation_id.to_string();
+        let message_id = message_id.to_string();
+        self.db.execute_write(move |conn| {
+            if !persist::conversation_in_scope(conn, &conversation_id, scope.filter_uid())? {
+                anyhow::bail!("conversation not found");
+            }
+            persist::set_message_milestone(conn, &conversation_id, &message_id, milestone)
+        })
+    }
+
     /// Alias for tool registration / tests.
     pub fn dispatch_tool(&self, args: &serde_json::Value) -> Result<String> {
         self.dispatch_search_tool(args)
@@ -1250,6 +1280,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
            tool_name TEXT,
            agent_instance_id TEXT,
            is_scoped INTEGER NOT NULL DEFAULT 0,
+           is_milestone INTEGER NOT NULL DEFAULT 0,
            UNIQUE(conversation_id, message_id)
          );
          CREATE INDEX IF NOT EXISTS idx_conversations_updated
@@ -1309,6 +1340,14 @@ fn init_schema(conn: &Connection) -> Result<()> {
     )?;
     ensure_messages_agent_instance_id(conn)?;
     ensure_messages_is_scoped(conn)?;
+    // User-set nav milestone. Kept off the message payload so ordinary
+    // transcript upserts do not clear it. Full replaces snapshot/restore it.
+    add_column_if_missing(
+        conn,
+        "messages",
+        "is_milestone",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     // After column migrations, create indexes that depend on newer columns.
     ensure_conversations_user_updated_index(conn)?;
     ensure_projects_schema(conn)?;

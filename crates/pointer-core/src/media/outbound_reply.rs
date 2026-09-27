@@ -412,10 +412,10 @@ mod tests {
     #[test]
     fn strip_for_app_ui_keeps_unresolved_media_line() {
         let out = strip_outbound_media_markers(
-            "找到了桌面上的 baby_cover.jpg，发给你 👇\n\nMEDIA:/Users/starliu/Desktop/baby_cover.jpg",
+            "找到了桌面上的 baby_cover.jpg，发给你 👇\n\nMEDIA:/tmp/baby_cover.jpg",
         );
         assert!(out.contains("MEDIA:"));
-        assert!(out.contains("/Users/starliu/Desktop/baby_cover.jpg"));
+        assert!(out.contains("/tmp/baby_cover.jpg"));
         assert!(out.contains("发给你"));
         assert!(out.contains("baby_cover.jpg"));
     }

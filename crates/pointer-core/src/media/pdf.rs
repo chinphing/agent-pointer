@@ -127,12 +127,15 @@ mod tests {
         if !pdfium_render_available() {
             return;
         }
-        let path = "/Users/starliu/.pointer/skills/weilin-case-query/output/case_908005_doc.pdf";
-        if !std::path::Path::new(path).exists() {
+        let Ok(path) = std::env::var("POINTER_PDFIUM_PROBE_PDF") else {
+            return;
+        };
+        if path.trim().is_empty() || !std::path::Path::new(&path).exists() {
             return;
         }
-        let bytes = std::fs::read(path).expect("read pdf");
-        assert_eq!(pdf_page_count(&bytes, "case_908005_doc.pdf").unwrap(), 3);
+        let bytes = std::fs::read(&path).expect("read pdf");
+        let counted = pdf_page_count(&bytes, "probe.pdf").unwrap();
+        assert!(counted > 0);
     }
 
     #[test]

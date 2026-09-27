@@ -11,8 +11,14 @@ src-tauri/gen
 
 # signing secrets (local only)
 signing
+scripts/signing/macos/signing.env
+
+# local runtime logs (do not commit)
+logs/
+*.log
 
 **/*/__pycache__
+*.pyc
 
 # local test/debug scratch (scripts, logs, phoenix.db, venv)
 react-check/

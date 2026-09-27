@@ -94,7 +94,7 @@ No tool history, 2 images (after + annotated), no prior dialog
 
 ## Runtime dump reference (optional)
 
-Latest local dump: `/Users/starliu/Library/Application Support/PointerApp/logs/llm_prompts/1780447743300_9581fec74895487db7b478b8bb82d16b.json`
+Latest local dump: `{app_data}/logs/llm_prompts/example.json`
 Model: `qwen3.5-plus` · mtime: 2026-06-03T00:49:03.301654+00:00
 
 | Field | Tokens |
@@ -108,7 +108,7 @@ _Historical dump; may predate current system size or omit tools[] from file._
 
 ## Dump reconciliation
 
-File: `/Users/starliu/Library/Application Support/PointerApp/logs/llm_prompts/1780447743300_9581fec74895487db7b478b8bb82d16b.json`
+File: `{app_data}/logs/llm_prompts/example.json`
 
 | Component | Tokens |
 |-----------|-------:|

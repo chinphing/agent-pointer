@@ -55,6 +55,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", tauri_conf.display());
     emit_app_version_from_tauri_conf(&tauri_conf);
     emit_license_public_key(&manifest_dir);
+    emit_edition();
 
     let Some(config_path) = pick_config_path(&workspace_cfg, &local_cfg) else {
         return;
@@ -82,6 +83,16 @@ fn emit_app_version_from_tauri_conf(path: &Path) {
         let trimmed = version.trim();
         if !trimmed.is_empty() {
             println!("cargo:rustc-env=POINTER_APP_VERSION={trimmed}");
+        }
+    }
+}
+
+fn emit_edition() {
+    println!("cargo:rerun-if-env-changed=POINTER_EDITION");
+    if let Ok(raw) = env::var("POINTER_EDITION") {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            println!("cargo:rustc-env=POINTER_EDITION={trimmed}");
         }
     }
 }

@@ -1,14 +1,17 @@
 # 开发者文档（developer）
 
-面向**外部开发者、集成方与 Skill 作者**：对接 IM、编写 Skill、扩展 Agent、自部署云实例等。
+面向**外部开发者、集成方与 Skill 作者**：对接 IM、编写 Skill、扩展 Agent、自部署。
 
-**终端用户使用教程**见 **[`../user/`](../user/README.md)**。产品内部实现见 [`../internals/`](../internals/README.md)、[`../design/`](../design/README.md)。
+**终端用户使用教程**见 **[`../user/`](../user/README.md)**。
+
+先读 [architecture.md](architecture.md)，再按 [DEVELOPMENT.md](../../DEVELOPMENT.md) 跑起来。两种构建见 [../contributing/editions.md](../contributing/editions.md)。
 
 ## 集成与部署
 
 | 文档 | 说明 |
 |------|------|
-| [standalone-deployment.md](standalone-deployment.md) | pointer-server 独立部署、Ed25519 License 签发、机器绑定、本地认证、`[server]` Web 品牌参数与 CORS |
+| [architecture.md](architecture.md) | 桌面 / Web 共用 pointer-core |
+| [standalone-deployment.md](standalone-deployment.md) | pointer-server 配置参考：本地认证、License（仅官方包强制）、`[server]` 品牌参数与 CORS |
 | [standalone-local-login.md](standalone-local-login.md) | Standalone 账号密码 + 第三方 `?sso=` 本地验签登录 |
 | [channel-integration.md](channel-integration.md) | IM 通道完整对接（长连接 / Webhook、各平台步骤与排查） |
 | [webhook-api.md](webhook-api.md) | 通用 Webhook API（触发 Agent、鉴权、附件、同步/异步） |

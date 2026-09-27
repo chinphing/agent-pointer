@@ -177,22 +177,23 @@ mod tests {
         if !pdfium_render_available() {
             return;
         }
-        let path = "/Users/starliu/.pointer/skills/weilin-case-query/output/case_908005_doc.pdf";
-        if !std::path::Path::new(path).exists() {
+        let Ok(path) = std::env::var("POINTER_PDFIUM_PROBE_PDF") else {
+            return;
+        };
+        if !std::path::Path::new(&path).exists() {
             return;
         }
-        let bytes = std::fs::read(path).expect("read pdf");
+        let bytes = std::fs::read(&path).expect("read pdf");
         let t0 = std::time::Instant::now();
-        let total = super::pdfium_page_count(&bytes, "case_908005_doc.pdf").expect("count");
+        let total = super::pdfium_page_count(&bytes, "probe.pdf").expect("count");
         let range = PdfPageRange {
             start: 1,
             end: 3.min(total),
             user_specified: true,
         };
-        let frames =
-            render_pdf_pages_base64_range(&bytes, "case_908005_doc.pdf", &range).expect("render");
-        assert_eq!(total, 3);
-        assert_eq!(frames.len(), 3);
+        let frames = render_pdf_pages_base64_range(&bytes, "probe.pdf", &range).expect("render");
+        assert!(total > 0);
+        assert_eq!(frames.len(), range.end.min(total));
         assert!(t0.elapsed().as_secs() < 15);
     }
 
@@ -202,17 +203,19 @@ mod tests {
         if !pdfium_render_available() {
             return;
         }
-        let path = "/Users/starliu/Desktop/786394_调解书.pdf";
-        if !std::path::Path::new(path).exists() {
+        let Ok(path) = std::env::var("POINTER_PDFIUM_PROBE_PDF") else {
+            return;
+        };
+        if !std::path::Path::new(&path).exists() {
             return;
         }
-        let bytes = std::fs::read(path).expect("read pdf");
+        let bytes = std::fs::read(&path).expect("read pdf");
         let range = PdfPageRange {
             start: 1,
             end: 1,
             user_specified: true,
         };
-        let frames = render_pdf_pages_base64_range(&bytes, "调解书.pdf", &range).unwrap();
+        let frames = render_pdf_pages_base64_range(&bytes, "probe.pdf", &range).unwrap();
         assert_eq!(frames.len(), 1);
         assert!(frames[0].len() > 1000);
     }
@@ -229,7 +232,11 @@ mod tests {
             return;
         }
 
-        let dir = Path::new("/Users/starliu/.pointer/skills/weilin-case-query/output");
+        let Ok(dir_raw) = std::env::var("POINTER_PDFIUM_PROBE_DIR") else {
+            eprintln!("POINTER_PDFIUM_PROBE_DIR unset, skip");
+            return;
+        };
+        let dir = Path::new(&dir_raw);
         if !dir.is_dir() {
             eprintln!("output dir missing, skip");
             return;
@@ -306,18 +313,20 @@ mod tests {
         if !pdfium_render_available() {
             return;
         }
-        let path = "/Users/starliu/Desktop/案件材料/证据8：放款凭证.pdf";
-        if !std::path::Path::new(path).exists() {
+        let Ok(path) = std::env::var("POINTER_PDFIUM_PROBE_PDF") else {
+            return;
+        };
+        if !std::path::Path::new(&path).exists() {
             return;
         }
-        let bytes = std::fs::read(path).expect("read pdf");
+        let bytes = std::fs::read(&path).expect("read pdf");
         let range = PdfPageRange {
             start: 1,
             end: 1,
             user_specified: true,
         };
         let t0 = std::time::Instant::now();
-        let frames = render_pdf_pages_base64_range(&bytes, "证据8：放款凭证.pdf", &range).unwrap();
+        let frames = render_pdf_pages_base64_range(&bytes, "probe.pdf", &range).unwrap();
         eprintln!("scan pdf render elapsed: {}ms", t0.elapsed().as_millis());
         assert_eq!(frames.len(), 1);
         let decoded = base64::engine::general_purpose::STANDARD

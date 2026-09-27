@@ -192,7 +192,7 @@ mod tests {
         let real_unix = real.to_string_lossy().replace('\\', "/");
         let suffix = real_unix.trim_start_matches('/');
         let doubled = format!(
-            "/Users/starliu/Library/Application Support/PointerApp/session-sandboxes/1530c681-176d-40ca-84b4-a90a34312628/{suffix}"
+            "/Users/alice/Library/Application Support/PointerApp/session-sandboxes/00000000-0000-0000-0000-000000000000/{suffix}"
         );
         let path = resolve_local_media_path(&doubled).expect("recover nested media path");
         assert_eq!(path, real);

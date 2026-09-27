@@ -1,0 +1,24 @@
+Pointer
+Copyright 2026 Pointer contributors
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file.
+
+Trademarks
+----------
+The name Pointer, the application icons, and the domains readflowai.com
+(including pointer.readflowai.com and pointer-api.readflowai.com) are
+product and service marks. The Apache License does not grant rights to
+use those marks. Official signed installers are published by the Pointer
+maintainers; community builds from this repository are not official
+releases.
+
+Third-party notices
+-------------------
+sqlite-cjk-fts (MIT)
+  crates/pointer-core/vendor/sqlite-cjk-fts/LICENSE
+  Source: https://pypi.org/project/sqlite-cjk-fts/
+
+mermaid
+  The repository includes a patch-package diff under patches/mermaid+11.16.1.patch
+  against mermaid 11.16.1. Upstream mermaid remains under its own license.

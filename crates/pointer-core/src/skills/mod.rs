@@ -10,10 +10,6 @@ pub const BUNDLED_SKILL_IDS: &[&str] = &[
     "dev-env-setup",
     "skill-manager",
     "pointer-manager",
-    "docx",
-    "xlsx",
-    "pptx",
-    "pdf",
     "agent-browser",
 ];
 

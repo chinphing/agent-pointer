@@ -55,10 +55,6 @@ export const DEFAULT_ENABLED_SKILL_IDS = [
   'dev-env-setup',
   'skill-manager',
   'pointer-manager',
-  'docx',
-  'xlsx',
-  'pptx',
-  'pdf',
   'agent-browser'
 ] as const
 

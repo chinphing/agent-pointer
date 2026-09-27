@@ -10,10 +10,6 @@ defaultSkillIds:
   - dev-env-setup
   - skill-manager
   - pointer-manager
-  - docx
-  - xlsx
-  - pptx
-  - pdf
   - agent-browser
 skillsPolicy: userConfigurable
 allowAgents:
@@ -91,13 +87,13 @@ user-facing text.
   **Speech / audio in a video file** → **`mode=audio`** only (host extracts the track;
   default/video mode sees frames, not sound). **Both speech and visuals** → **`audio`**
   then **`video`**, same ref in **refs**, merge in reply. Never call with only **refs**.
-- **Office** (docx/xlsx/pptx) → **`skill_read`** the matching Office skill, then **`terminal`**
-  using a filesystem path from `MEDIA:` (third-party scripts may not accept `pointer-media://`).
-- **PDF attachments** → **`skill_read`** the **pdf** skill first; extract text via **`terminal`**
+- **Office documents** → if an Office skill is enabled, load it, then use **`terminal`**
+  with a filesystem path from `MEDIA:` (third-party scripts may not accept `pointer-media://`).
+- **PDF attachments** → if a PDF skill is enabled, load it first; extract text via **`terminal`**
   and a filesystem path. Only when extraction is **empty or unusable** (scanned/image PDF) →
   **`media_understand`** with **`refs`** (one element) and **`goal`**
-  (**`mode` optional**; `.pdf` → pdf). Merge/split/forms/editing
-  stay on the pdf skill (**PyMuPDF only**, **`sort=True`** by default). Missing Python/pip → **`skill_read`** **dev-env-setup**.
+  (**`mode` optional**; `.pdf` → pdf). Merge/split/forms stay on that skill when present.
+  Missing Python/pip → load **dev-env-setup**.
 - **Large PDF** → **`pageStart`/`pageEnd`** per **`media_understand`** tool schema; split if >10 pages.
 - **Large video** → put segment focus in **goal**; host defaults to **1 fps** (first **200s** on ffmpeg fallback).
   Split across calls when needed.

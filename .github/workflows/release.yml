@@ -83,6 +83,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          POINTER_EDITION: official
+          VITE_POINTER_EDITION: official
           NO_STRIP: ${{ matrix.platform == 'ubuntu-22.04' && 'true' || '' }}
           # macOS: set repository secrets to enable sign + notarize (see signing/macos/README.md)
           APPLE_CERTIFICATE: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE || '' }}

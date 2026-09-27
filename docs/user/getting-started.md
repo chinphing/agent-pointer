@@ -1,18 +1,21 @@
 # 快速上手
 
-## 安装
+先确认你用的是 [官方包还是社区构建](editions.md)。
 
-- **桌面端**：从官网下载对应平台的安装包（Windows / macOS / Linux）。
-- **Web 端**：由管理员部署 `pointer-server` 后通过浏览器访问（见 [`../developer/cloud-host-integration.md`](../developer/cloud-host-integration.md) 自行部署章节）。
+## 官方包
 
-## 配置模型
-
-1. 打开 **设置**
-2. 填入 **DashScope API Key**（阿里云百炼控制台获取）
+1. 从官网下载对应平台的安装包（Windows / macOS / Linux）
+2. 打开 **设置**，填写模型 API Key（默认可走千问 DashScope 兼容接口）
 3. 点击 **测试连接**
-4. 发送简单消息验证，例如 `你好`
+4. 发送一条消息，例如「你好」
 
-默认 Provider 为千问 `qwen-plus`，Base URL：`https://dashscope.aliyuncs.com/compatible-mode/v1`。
+**设置 → 账户** 登录官网后，才能使用云主机和充值。桌面 OAuth 成功后可能跳转官网。
+
+## 社区构建 / 自建 Web
+
+从源码运行见仓库 [DEVELOPMENT.md](../../DEVELOPMENT.md)。部署 `pointer-server` 并用浏览器访问，见 [standalone-server.md](standalone-server.md)。
+
+社区构建没有内置官网域名。模型地址和 Key 都在设置里自己填。
 
 ## 桌面端与 Web 端
 
@@ -21,19 +24,13 @@
 | 桌面端 | Tauri 客户端，本地存储与完整能力（含 IM 通道、电脑操控等） |
 | Web 端 | 浏览器访问已部署的 `pointer-server`，与桌面共用同一套对话逻辑 |
 
-Release 安装包已内置官网与 API 地址，一般无需配置环境变量。本地开发见仓库根目录 [`DEVELOPMENT.md`](../../DEVELOPMENT.md)。
-
-## 账户（可选）
-
-**设置 → 账户** 完成 OAuth 登录后，可使用云主机、官网同步能力等。桌面 OAuth 成功后可能跳转官网并显示一次性提示。
-
 ## 工具与确认
 
-- 默认 **自动允许** 工具调用；可在设置中改为敏感工具需二次确认。
-- 联网搜索（`web_search`）需有效 DashScope Key，按模型与搜索用量计费。
+- 默认 **自动允许** 工具调用；可在设置中改为敏感工具需二次确认
+- 联网搜索（`web_search`）需要有效的搜索/模型配置，按提供方计费
 
 ## 下一步
 
 - [Skills 使用](skills.md)
 - [IM 通道](im-channels.md)
-- [云主机](cloud-host.md)
+- [云主机](cloud-host.md)（仅官方包）

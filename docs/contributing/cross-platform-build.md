@@ -669,10 +669,11 @@ $env:RUST_LOG="debug"; npm run tauri:dev
 
 ---
 
-## 官网与环境变量（桌面 Release）
+## 官网与环境变量（桌面构建）
 
-Release 安装包已内置 `pointer.readflowai.com` 等生产域名。  
-本地 `tauri dev` 默认连本机 `3000/8001/8000`，可用 `POINTER_*` 环境变量覆盖（详见 README「开发」一节）。
+`POINTER_EDITION=official`（官方 CI）才内置 `pointer.readflowai.com` 等生产域名。  
+`POINTER_EDITION=community` 默认不连官方云。  
+未设置 edition 的本地 `tauri dev` 保持现有联调默认值，可用 `POINTER_*` 覆盖。详见 [editions.md](editions.md)。
 
 ---
 

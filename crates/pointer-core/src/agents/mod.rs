@@ -1750,10 +1750,6 @@ mod builtin_agent_tests {
             "dev-env-setup",
             "skill-manager",
             "pointer-manager",
-            "docx",
-            "xlsx",
-            "pptx",
-            "pdf",
             "agent-browser",
         ] {
             assert!(
@@ -1781,18 +1777,14 @@ mod builtin_agent_tests {
         )
         .expect("load coder")
         .def;
-        let ids = sub_agent_skill_ids(&coder, &["docx".into(), "pdf".into()], &HashMap::new());
+        let ids = sub_agent_skill_ids(&coder, &["find-skills".into()], &HashMap::new());
         assert_eq!(
             ids,
             vec![
                 "agent-browser".to_string(),
                 "dev-env-setup".to_string(),
-                "docx".to_string(),
                 "find-skills".to_string(),
-                "pdf".to_string(),
-                "pptx".to_string(),
                 "skill-manager".to_string(),
-                "xlsx".to_string()
             ]
         );
     }
@@ -1882,17 +1874,13 @@ mod builtin_agent_tests {
             vec![
                 "agent-browser".to_string(),
                 "dev-env-setup".to_string(),
-                "docx".to_string(),
                 "find-skills".to_string(),
-                "pdf".to_string(),
-                "pptx".to_string(),
                 "skill-manager".to_string(),
-                "xlsx".to_string()
             ]
         );
         // Parent/enabled list is ignored for UserConfigurable leads.
-        let ids = resolve_skill_ids(&coder, &["docx".into()], &HashMap::new());
-        assert_eq!(ids.len(), 8);
+        let ids = resolve_skill_ids(&coder, &["find-skills".into()], &HashMap::new());
+        assert_eq!(ids.len(), 4);
         assert!(ids.iter().any(|id| id == "skill-manager"));
     }
 }

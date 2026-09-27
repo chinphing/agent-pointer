@@ -9,7 +9,7 @@
   },
   "tokenizer": {
     "model_id": "Qwen/Qwen3.5-0.8B",
-    "local_path": "/Users/starliu/.cache/modelscope/hub/models/Qwen/Qwen3___5-0___8B",
+    "local_path": "~/.cache/modelscope/hub/models/Qwen/Qwen3___5-0___8B",
     "method": "len(tokenizer.encode(text, add_special_tokens=False))",
     "image_method": "Qwen3.x formula: (h_bar*w_bar)/(32*32)+2; not text tokenizer"
   },
@@ -324,7 +324,7 @@
     ]
   },
   "runtime_dump_reference": {
-    "file": "/Users/starliu/Library/Application Support/PointerApp/logs/llm_prompts/1780447743300_9581fec74895487db7b478b8bb82d16b.json",
+    "file": "{app_data}/logs/llm_prompts/example.json",
     "mtime_iso": "2026-06-03T00:49:03.301654+00:00",
     "model": "qwen3.5-plus",
     "phase": "stream_chat",
@@ -337,7 +337,7 @@
     "note": "Historical dump; may predate current system size or omit tools[] from file."
   },
   "dump_reconciliation": {
-    "file": "/Users/starliu/Library/Application Support/PointerApp/logs/llm_prompts/1780447743300_9581fec74895487db7b478b8bb82d16b.json",
+    "file": "{app_data}/logs/llm_prompts/example.json",
     "mtime_iso": "2026-06-03T00:49:03.301654+00:00",
     "model": "qwen3.5-plus",
     "phase": "stream_chat",

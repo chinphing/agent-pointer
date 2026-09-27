@@ -1,9 +1,10 @@
 //! pointer-server / SOM API base URLs.
 //!
-//! - **Release**（`tauri build`）：默认生产域名，用户无需配置环境变量。
-//! - **Debug**（`tauri dev`）：默认本机联调地址。
-//! - **Standalone**：不连接 readflowai.com；未配置 env 时返回空并 warn。
-//! - 任意构建均可通过 `POINTER_*` / `COMPUTER_ANNOTATE_API_BASE` 覆盖。
+//! - **Unset edition** (local `tauri dev` / default): production domains unless standalone.
+//! - **Official** (`POINTER_EDITION=official`): same production domains.
+//! - **Community** (`POINTER_EDITION=community`): empty defaults; set `POINTER_*` to opt in.
+//! - **Standalone**: empty unless env is set.
+//! - Any build can override with `POINTER_*` / `COMPUTER_ANNOTATE_API_BASE`.
 
 #[cfg(debug_assertions)]
 pub const DEFAULT_API_BASE: &str = "https://pointer-api.readflowai.com";
@@ -29,9 +30,9 @@ fn env_or_standalone_empty(key: &str, platform_default: &str) -> String {
             return trimmed.to_string();
         }
     }
-    if crate::deployment_mode::is_standalone() {
+    if crate::deployment_mode::is_standalone() || crate::edition::is_community() {
         log::warn!(
-            "platform_endpoints: {key} not set in standalone mode; related platform features disabled"
+            "platform_endpoints: {key} not set (standalone or community edition); related platform features disabled"
         );
         return String::new();
     }

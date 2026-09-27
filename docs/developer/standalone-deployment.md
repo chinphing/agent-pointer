@@ -21,8 +21,8 @@ pointer-server 支持**脱离官方平台独立部署**。本文档覆盖架构�
 
 | 模式             | 说明                                                                                 |
 | -------------- | ---------------------------------------------------------------------------------- |
-| `platform`（默认） | 连接 [readflowai.com](https://pointer-api.readflowai.com)，使用官方 OAuth + 云端 LLM Key 下发 |
-| `standalone`   | 脱离官方平台，使用本地账号密码登录 + Web 设置配置模型/密钥 + Ed25519 License 校验                           |
+| `platform`（默认） | 连接官方云（仅 **official** / 未设置 edition 时默认有域名），OAuth + 云端 Key |
+| `standalone`   | 本地账号密码 + Web 设置里的模型密钥。**community** 不强制 License；**official** standalone 仍校验 |
 
 
 **余额 / LLM 门禁：** 官方账户余额校验（`ensure_llm_allowed`、`GET /auth/partner/llm-credentials`）仅在 `platform` 模式生效；`standalone` 下为 no-op，不访问官方余额 API。

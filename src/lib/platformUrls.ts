@@ -1,24 +1,42 @@
 import { openExternalUrl } from './openExternalUrl'
 
-/** Matches `platform_endpoints::DEFAULT_WEB_BASE` (release). Override with `VITE_POINTER_WEB_BASE`. */
-const DEFAULT_WEB_BASE = 'https://pointer.readflowai.com'
+/** Matches `platform_endpoints` official/unset default. Community builds leave this empty. */
+const OFFICIAL_WEB_BASE = 'https://pointer.readflowai.com'
 
-export function platformWebBase(): string {
-  const fromEnv =
-    typeof import.meta !== 'undefined'
-      ? String((import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_POINTER_WEB_BASE ?? '').trim()
-      : ''
-  const base = (fromEnv || DEFAULT_WEB_BASE).replace(/\/$/, '')
-  return base
+function viteEnv(name: string): string {
+  if (typeof import.meta === 'undefined') return ''
+  const env = (import.meta as ImportMeta & { env?: Record<string, string> }).env
+  return String(env?.[name] ?? '').trim()
 }
 
-/** Official account billing / WeChat recharge page. */
+export function pointerEdition(): string {
+  return viteEnv('VITE_POINTER_EDITION').toLowerCase()
+}
+
+export function isCommunityEdition(): boolean {
+  return pointerEdition() === 'community'
+}
+
+export function platformWebBase(): string {
+  const fromEnv = viteEnv('VITE_POINTER_WEB_BASE')
+  const fallback = isCommunityEdition() ? '' : OFFICIAL_WEB_BASE
+  return (fromEnv || fallback).replace(/\/$/, '')
+}
+
+/** Official account billing / WeChat recharge page. Empty in community builds. */
 export function platformBillingUrl(): string {
-  return `${platformWebBase()}/profile/billing`
+  const base = platformWebBase()
+  if (!base) return ''
+  return `${base}/profile/billing`
 }
 
 export async function openPlatformBillingPage(): Promise<void> {
-  await openExternalUrl(platformBillingUrl())
+  const url = platformBillingUrl()
+  if (!url) {
+    console.warn('platformUrls: billing page skipped (no web base in this edition)')
+    return
+  }
+  await openExternalUrl(url)
 }
 
 export function isBalanceExhaustedMessage(text: string | null | undefined): boolean {

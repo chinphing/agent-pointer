@@ -373,24 +373,24 @@ describe('workspace-relative file tool paths', () => {
 
   it('shortens paths under the user Pointer directory across path styles', () => {
     expect(
-      workspaceRelativeDisplayPath('/Users/starliu/.pointer/skills/review/SKILL.md')
+      workspaceRelativeDisplayPath('/Users/alice/.pointer/skills/review/SKILL.md')
     ).toBe('review/SKILL.md')
     expect(
       workspaceRelativeDisplayPath('~/.pointer/skills/review/scripts/check.py')
     ).toBe('review/scripts/check.py')
     expect(
-      workspaceRelativeDisplayPath('C:\\Users\\starliu\\.pointer\\skills\\review\\SKILL.md')
+      workspaceRelativeDisplayPath('C:\\Users\\alice\\.pointer\\skills\\review\\SKILL.md')
     ).toBe('review/SKILL.md')
     expect(
-      workspaceRelativeDisplayPath('/Users/starliu/.pointer/cache/index.json')
-    ).toBe('/Users/starliu/.pointer/cache/index.json')
+      workspaceRelativeDisplayPath('/Users/alice/.pointer/cache/index.json')
+    ).toBe('/Users/alice/.pointer/cache/index.json')
   })
 
   it('prefers the active workspace when it is inside the Pointer directory', () => {
     expect(
       workspaceRelativeDisplayPath(
-        '/Users/starliu/.pointer/skills/review/scripts/check.py',
-        '/Users/starliu/.pointer/skills/review'
+        '/Users/alice/.pointer/skills/review/scripts/check.py',
+        '/Users/alice/.pointer/skills/review'
       )
     ).toBe('scripts/check.py')
   })
@@ -407,8 +407,8 @@ describe('workspace-relative file tool paths', () => {
 
   it('falls back to project / sandbox roots when the lead workspace is a skill dir', () => {
     const sandbox =
-      '/Users/starliu/Library/Application Support/PointerApp/session-sandboxes/1530c681-176d-40ca-84b4-a90a34312628'
-    const skill = '/Users/starliu/.pointer/skills/cwpt-reimburse-submit'
+      '/Users/alice/Library/Application Support/PointerApp/session-sandboxes/1530c681-176d-40ca-84b4-a90a34312628'
+    const skill = '/Users/alice/.pointer/skills/cwpt-reimburse-submit'
     const file = `${sandbox}/_year_repro/repro.py`
     expect(workspaceRelativeDisplayPath(file, skill)).toBe(file.replace(/\\/g, '/'))
     expect(

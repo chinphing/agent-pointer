@@ -228,6 +228,7 @@ pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
     let Some(path) = resolve_config_path()? else {
         eprintln!("pointer-server: no config file found (checked exe dir and cwd for pointer-server.toml/.env)");
         crate::deployment_mode::init_from_env();
+        crate::edition::init_from_env();
         return Ok(None);
     };
     let base_dir = path
@@ -253,6 +254,7 @@ pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
         }
     }
     crate::deployment_mode::init_from_env();
+    crate::edition::init_from_env();
     eprintln!("pointer-server: config file {}", path.display());
     if applied.is_empty() && skipped_env.is_empty() {
         eprintln!("pointer-server: config file has no recognized keys");

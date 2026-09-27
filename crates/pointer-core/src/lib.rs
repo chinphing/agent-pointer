@@ -15,6 +15,7 @@ pub mod conversation_transcript;
 pub mod deployment_mode;
 pub mod dispatcher;
 pub mod dotenv;
+pub mod edition;
 pub mod env_prompt;
 pub mod experiences;
 pub mod extensions;

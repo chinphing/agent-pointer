@@ -12,7 +12,7 @@
 #   POINTER_LICENSE_PUBLIC_KEY="$(cat /tmp/pointer-branding-dev/pub.txt)" \
 #   npm run server:dev
 #
-# Login (Web): admin / admin123 + captcha
+# Login (Web): set username + generate password_hmac, then enter that password + captcha
 #
 # Tip UI — empty VITE_WEB_API_BASE uses Vite /api proxy (same-origin cookies):
 #   VITE_WEB_API_BASE= \
@@ -30,8 +30,9 @@ mode = "standalone"
 
 [auth.local]
 username = "admin"
-hmac_secret = "dev-branding-hmac-secret"
-password_hmac = "a409631f3b56ec7e1ad97c8f9f6117f5f4fea00a19551b1cf46cbb91881d00af"
+hmac_secret = "replace-with-long-random-secret"
+# pointer-server --hash-password --secret '<hmac_secret>' '<password>'
+password_hmac = "replace-with-hmac-from-hash-password"
 
 [usage]
 report_enabled = false

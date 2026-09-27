@@ -106,7 +106,7 @@ async function main() {
   values.APPLE_CERTIFICATE_PATH = await ask(
     rl,
     'Path to .p12 certificate',
-    defaults.APPLE_CERTIFICATE_PATH || '../yzt.p12',
+    defaults.APPLE_CERTIFICATE_PATH || 'path/to/DeveloperID.p12',
   );
   values.APPLE_CERTIFICATE_PASSWORD = await askSecret(rl, 'p12 export password');
   values.APPLE_SIGNING_IDENTITY = await ask(

@@ -5,11 +5,23 @@ import { useAppUpdater } from '../../../composables/useAppUpdater'
 import { isTauriRuntime } from '../../../lib/runtime'
 import { APP_VERSION } from '../../../lib/appVersion'
 import { openExternalUrl } from '../../../lib/openExternalUrl'
+import { isCommunityEdition } from '../../../lib/platformUrls'
 
-const DOWNLOAD_URL = 'https://pointer-app.readflowai.com/download'
+const DOWNLOAD_URL = (() => {
+  const fromEnv = String(
+    (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_POINTER_DOWNLOAD_URL ??
+      ''
+  ).trim()
+  if (fromEnv) return fromEnv
+  if (isCommunityEdition()) return ''
+  return 'https://pointer-app.readflowai.com/download'
+})()
+
+const showUpdater = !isCommunityEdition() && isTauriRuntime()
 
 function openDownloadPage(e: MouseEvent) {
   e.preventDefault()
+  if (!DOWNLOAD_URL) return
   void openExternalUrl(DOWNLOAD_URL)
 }
 
@@ -71,7 +83,7 @@ function handleCheckUpdate() {
         </div>
 
         <button
-          v-if="!updateAvailable && !updateReady && !updating"
+          v-if="showUpdater && !updateAvailable && !updateReady && !updating"
           class="h-7 px-3 rounded-lg border border-border/60 text-xs text-muted cursor-pointer hover:bg-hover hover:text-foreground transition-colors inline-flex items-center gap-1.5 shrink-0 disabled:opacity-40"
           :disabled="checking"
           @click="handleCheckUpdate"
@@ -184,6 +196,7 @@ function handleCheckUpdate() {
       >
         {{ error }}
         <a
+          v-if="DOWNLOAD_URL"
           :href="DOWNLOAD_URL"
           class="ml-1 inline-flex items-center gap-0.5 underline underline-offset-2"
           @click="openDownloadPage"

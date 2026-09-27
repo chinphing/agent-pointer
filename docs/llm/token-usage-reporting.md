@@ -70,7 +70,7 @@ LLM usage is **post-paid soft overdraft** on the server (`charge_llm_yuan` alway
 | Mid-turn tool / multi-model rounds | No re-check (same turn may still soft-overdraft) |
 | Cloud agent open / oauth code | Same balance check |
 
-When exhausted, the desktop UI shows a composer banner and error card with a **去充值** button that opens `{POINTER_WEB_BASE}/profile/billing` (default `https://pointer.readflowai.com/profile/billing`).
+When exhausted, the official desktop UI shows a composer banner and error card with a **去充值** button that opens `{POINTER_WEB_BASE}/profile/billing` (official default `https://pointer.readflowai.com/profile/billing`). Community builds default to no usage upload and no billing URL unless you set the env vars.
 
 Login / token exchange / `GET /auth/partner/llm-credentials` are unchanged and do **not** perform this gate.
 

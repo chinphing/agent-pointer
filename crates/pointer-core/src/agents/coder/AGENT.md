@@ -8,12 +8,8 @@ enabled: true
 defaultSkillIds:
   - find-skills
   - skill-manager
-  - xlsx
-  - pdf
   - agent-browser
   - dev-env-setup
-  - docx
-  - pptx
 skillsPolicy: userConfigurable
 allowAgents:
   - explore

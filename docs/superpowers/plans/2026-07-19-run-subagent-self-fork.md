@@ -63,7 +63,7 @@ fn tools_can_disable_subagent_inheritance() {
 Run:
 
 ```bash
-CARGO_TARGET_DIR=/Users/starliu/pointer-all/pointer-app/target \
+CARGO_TARGET_DIR=target \
   cargo test -p pointer-core tools:: --lib
 ```
 
@@ -161,7 +161,7 @@ Also retain tests proving unknown and disallowed normal ids fail.
 - [ ] **Step 2: Run focused tests and verify failure**
 
 ```bash
-CARGO_TARGET_DIR=/Users/starliu/pointer-all/pointer-app/target \
+CARGO_TARGET_DIR=target \
   cargo test -p pointer-core run_subagent --lib
 ```
 
@@ -251,7 +251,7 @@ Test that:
 - [ ] **Step 2: Run focused tests and verify failure**
 
 ```bash
-CARGO_TARGET_DIR=/Users/starliu/pointer-all/pointer-app/target \
+CARGO_TARGET_DIR=target \
   cargo test -p pointer-core self_fork --lib
 ```
 
@@ -281,7 +281,7 @@ Both paths must create a fresh local history and unique
 - [ ] **Step 5: Run self-fork and sub-agent tests**
 
 ```bash
-CARGO_TARGET_DIR=/Users/starliu/pointer-all/pointer-app/target \
+CARGO_TARGET_DIR=target \
   cargo test -p pointer-core self_fork sub_agent --lib
 ```
 
@@ -342,7 +342,7 @@ Verify commits merge trace and usage only when called.
 - [ ] **Step 2: Run tests and verify failure**
 
 ```bash
-CARGO_TARGET_DIR=/Users/starliu/pointer-all/pointer-app/target \
+CARGO_TARGET_DIR=target \
   cargo test -p pointer-core run_subagent_delegation --lib
 ```
 
@@ -410,7 +410,7 @@ Determine self calls by parsed `agentId == "self"`, not by tool id alone.
 - [ ] **Step 2: Run batch tests and verify failure**
 
 ```bash
-CARGO_TARGET_DIR=/Users/starliu/pointer-all/pointer-app/target \
+CARGO_TARGET_DIR=target \
   cargo test -p pointer-core agent_tool_pass::batch --lib
 ```
 
@@ -455,7 +455,7 @@ Verify:
 - [ ] **Step 7: Run tool-pass tests**
 
 ```bash
-CARGO_TARGET_DIR=/Users/starliu/pointer-all/pointer-app/target \
+CARGO_TARGET_DIR=target \
   cargo test -p pointer-core agent_tool_pass --lib
 ```
 
@@ -517,7 +517,7 @@ receive only their child store key. Verify `task_board_abandon` is absent.
 - [ ] **Step 6: Run focused tests**
 
 ```bash
-CARGO_TARGET_DIR=/Users/starliu/pointer-all/pointer-app/target \
+CARGO_TARGET_DIR=target \
   cargo test -p pointer-core terminal file task_board --lib
 ```
 
@@ -581,7 +581,7 @@ Document:
 - [ ] **Step 5: Run registry/prompt tests**
 
 ```bash
-CARGO_TARGET_DIR=/Users/starliu/pointer-all/pointer-app/target \
+CARGO_TARGET_DIR=target \
   cargo test -p pointer-core agents:: run_subagent prompt --lib
 ```
 
@@ -605,7 +605,7 @@ If it fails, run `cargo fmt --all`, then rerun the check.
 - [ ] **Step 2: Run pointer-core tests**
 
 ```bash
-CARGO_TARGET_DIR=/Users/starliu/pointer-all/pointer-app/target \
+CARGO_TARGET_DIR=target \
   cargo test -p pointer-core --lib
 ```
 
@@ -614,7 +614,7 @@ Expected: zero failures.
 - [ ] **Step 3: Check both entry crates**
 
 ```bash
-CARGO_TARGET_DIR=/Users/starliu/pointer-all/pointer-app/target \
+CARGO_TARGET_DIR=target \
   cargo check -p pointer-app -p pointer-server
 ```
 

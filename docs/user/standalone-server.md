@@ -1,6 +1,8 @@
 # 独立部署 standalone-server
 
-pointer-server 可脱离官方平台独立部署。交付物为**安装包**（如 Linux `.deb`），无需 Docker，也无需源码。
+pointer-server 可脱离官方平台独立部署。社区构建从源码或社区包安装即可，**不必**向签发方申请 License。官方 standalone 安装包仍要 License，见文末。
+
+先读 [editions.md](editions.md) 确认你用的是哪一种。
 
 ---
 
@@ -24,17 +26,7 @@ sudo dpkg -i pointer-server_0.1.0_amd64.deb
 | 正式配置 | `/etc/pointer-server/pointer-server.toml` |
 | systemd 服务 | `pointer-server` |
 
-### 2. 获取机器绑定信息（首次部署）
-
-```bash
-/usr/bin/pointer-server --machine-id-json   # 推荐：完整 JSON（含漂移锚点）
-# 或
-/usr/bin/pointer-server --machine-id        # 仅主 token（fp1:…）
-```
-
-把输出发给 License 签发方。v2 指纹在 OS 重装后仍可通过 board / cloud 锚点验证。
-
-### 3. 编辑配置
+### 2. 编辑配置
 
 ```bash
 sudo cp /etc/pointer-server/pointer-server.toml.example /etc/pointer-server/pointer-server.toml
@@ -53,8 +45,7 @@ hmac_secret = "replace-with-long-random-secret"
 # Generate with: pointer-server --hash-password --secret '<hmac_secret>' '<password>'
 password_hmac = "..."
 
-[license]
-key = "base64_payload.base64_signature"
+# Community builds do not require [license]. Official packages do — see below.
 
 [usage]
 report_enabled = false
@@ -108,6 +99,18 @@ sudo systemctl status pointer-server
 在 `[server]` 中可覆盖标签页标题、输入框占位、全新空会话欢迎 tip、回合耗时前缀、品牌名/图标与桌面截图开关（`page_title` / `composer_placeholder` / `welcome_tip_*` / `turn_elapsed_*` / `brand_name` / `brand_icon` / `desktop_snapshot_enabled`）。对应环境变量见下方「环境变量」表。行为说明见开发者文档旁的 [`../ui/web-branding-welcome-elapsed.md`](../ui/web-branding-welcome-elapsed.md)。
 
 ---
+
+## 官方 standalone 安装包的 License
+
+社区自建跳过本节。只有官方签名的 `pointer-server` 才会在启动时强制校验。
+
+### 首次部署时获取机器绑定（仅官方包）
+
+```bash
+/usr/bin/pointer-server --machine-id-json
+```
+
+把输出发给 License 签发方。
 
 ## License 机制
 

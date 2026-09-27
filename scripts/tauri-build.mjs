@@ -27,6 +27,16 @@ if (process.platform === 'linux') {
 }
 
 const extra = process.argv.slice(2);
+const edition = (env.POINTER_EDITION || '').trim().toLowerCase();
+if (edition === 'community') {
+  extra.push('--config', 'src-tauri/tauri.community.conf.json');
+  env.VITE_POINTER_EDITION = env.VITE_POINTER_EDITION || 'community';
+  console.log('[tauri-build] POINTER_EDITION=community (no updater artifacts)');
+} else if (edition === 'official') {
+  env.VITE_POINTER_EDITION = env.VITE_POINTER_EDITION || 'official';
+  console.log('[tauri-build] POINTER_EDITION=official');
+}
+
 const result = spawnSync('npx', ['tauri', 'build', ...extra], {
   stdio: 'inherit',
   env,

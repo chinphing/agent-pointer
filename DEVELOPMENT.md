@@ -65,6 +65,8 @@ sudo apt-get install -y \
 npm install
 ```
 
+未设置 `POINTER_EDITION` 时，本地联调行为与开源前一致。打社区包时再设 `POINTER_EDITION=community`（见 [docs/contributing/editions.md](docs/contributing/editions.md)）。
+
 ## 启动开发模式
 
 ### 桌面端

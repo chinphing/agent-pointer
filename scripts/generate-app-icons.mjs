@@ -19,7 +19,7 @@ const CORNER_RADIUS_REF = 250;
 const MACOS_PADDING_RATIO = 0.1;
 const OUTPUT_SIZE = 1024;
 
-const defaultSource = resolve('/Users/starliu/Desktop/logo3.png');
+const defaultSource = join(iconsDir, '_source-sky-blue.png');
 const sourcePath = resolve(process.argv[2] ?? defaultSource);
 
 function roundedMask(size, radius) {

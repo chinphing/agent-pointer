@@ -2,7 +2,7 @@
 
 > 基于视觉大模型的计算机操作智能体（Vision-Based Computer Use Agent）
 >
-> 目标：将 `/Users/starliu/PyProjects/pointer/agents/computer` 的 Python 实现迁移至 `pointer-app` Rust 框架
+> 目标：将既有 Computer Use Agent 的 Python 实现迁移至 `pointer-app` Rust 框架
 >
 > **核心设计：两套定位体系**
 > 1. **基于标注序号（Index-based）**：模型使用标注覆盖图上的整数索引（1, 2, 3...），工具内部通过 `index_map` 解析为屏幕像素坐标。优先推荐，精度高。
@@ -70,7 +70,7 @@ crates/pointer-core/src/
 
 ### 1.2 参考代码（Python）核心能力
 
-`/Users/starliu/PyProjects/pointer/agents/computer/` 是一个成熟的 Computer Use Agent：
+既有 Computer Use Agent（Python）是一个成熟实现：
 
 ```
 agents/computer/

@@ -34,7 +34,13 @@ fn build_console_url(base: &str, code: &str, state: &str) -> Result<Url, String>
         urlencoding_encode(code),
         urlencoding_encode(state)
     );
-    Url::parse(&url_str).map_err(|_| "控制台地址无效".to_string())
+    Url::parse(&url_str).map_err(|_| {
+        pointer_core::i18n::t(
+            "err.cloud_console_url_invalid",
+            pointer_core::i18n::current_ui_locale(),
+        )
+        .to_string()
+    })
 }
 
 pub fn is_cloud_agent_window_open(app: &AppHandle, agent_id: &str) -> bool {
@@ -44,9 +50,13 @@ pub fn is_cloud_agent_window_open(app: &AppHandle, agent_id: &str) -> bool {
 
 pub fn focus_cloud_agent_window(app: &AppHandle, agent_id: &str) -> Result<(), String> {
     let label = cloud_window_label(agent_id);
-    let win = app
-        .get_webview_window(&label)
-        .ok_or_else(|| "云主机窗口未打开".to_string())?;
+    let win = app.get_webview_window(&label).ok_or_else(|| {
+        pointer_core::i18n::t(
+            "err.cloud_window_not_open",
+            pointer_core::i18n::current_ui_locale(),
+        )
+        .to_string()
+    })?;
     win.set_focus().map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -87,7 +97,13 @@ pub async fn open_cloud_agent_window(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| "智能体尚未就绪，无法打开".to_string())?;
+        .ok_or_else(|| {
+            pointer_core::i18n::t(
+                "err.cloud_agent_not_ready",
+                pointer_core::i18n::current_ui_locale(),
+            )
+            .to_string()
+        })?;
     let target = build_console_url(base, &oauth.code, &oauth.state)?;
 
     let label = cloud_window_label(&agent_id);
@@ -106,16 +122,23 @@ pub async fn open_cloud_agent_window(
         .title(window_title(&agent))
         .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
         .build()
-        .map_err(|e| format!("创建云主机窗口失败: {e}"))?;
+        .map_err(|e| {
+            pointer_core::i18n::tf(
+                "err.cloud_window_create_failed",
+                pointer_core::i18n::current_ui_locale(),
+                &[("e", &e.to_string())],
+            )
+        })?;
     log::info!("cloud_webview: opened {label}");
     Ok(())
 }
 
 fn window_title(agent: &CloudAgent) -> String {
+    let fallback = pointer_core::i18n::t("ui.cloud_host", pointer_core::i18n::current_ui_locale());
     let region = agent
         .server_region
         .as_ref()
         .map(|r| r.name_zh.as_str())
-        .unwrap_or("云主机");
+        .unwrap_or(fallback);
     format!("Pointer · {region}")
 }

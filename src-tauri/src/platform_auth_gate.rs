@@ -20,10 +20,13 @@ pub async fn require_logged_in(
 
 /// Desktop attachment / session-scoped paths: refresh, logged_in, and platform user id.
 pub async fn require_platform_user_id(state: &Arc<AppState>) -> Result<String, String> {
-    const HINT: &str = "请先登录 Pointer 账户";
+    let hint = pointer_core::i18n::t(
+        "err.login_required",
+        pointer_core::i18n::current_ui_locale(),
+    );
     let auth = state.active_platform_auth();
-    require_logged_in(auth.as_ref(), HINT).await?;
+    require_logged_in(auth.as_ref(), hint).await?;
     auth.platform_user_id()
         .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| HINT.to_string())
+        .ok_or_else(|| hint.to_string())
 }

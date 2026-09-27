@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Maximize2, Minimize2, Terminal, X } from 'lucide-vue-next'
 import { nextFollowOutputAfterScroll } from '../../lib/messageListScrollFollow'
 
+
+const { t } = useI18n()
 const props = defineProps<{
   command: string
   output: string
@@ -111,7 +114,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
       "
       role="dialog"
       aria-modal="true"
-      aria-label="终端命令输出"
+      :aria-label="t('terminalLiveOutput.ariaLabel')"
       @click.self="!fullscreen && close()"
     >
       <div
@@ -131,22 +134,22 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           </div>
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
-              <h2 class="text-base font-semibold text-foreground">终端输出</h2>
+              <h2 class="text-base font-semibold text-foreground">{{ t('terminalLiveOutput.title') }}</h2>
               <span
                 class="inline-flex h-2 w-2 shrink-0 rounded-full bg-accent"
                 aria-hidden="true"
-                title="运行中"
+                :title="t('terminalLiveOutput.runningTitle')"
               />
             </div>
             <p class="mt-1 text-[12px] text-muted leading-relaxed">
-              命令已运行超过 5 秒且有输出时可查看；可手动关闭，命令仍在后台执行。
+              {{ t('terminalLiveOutput.description') }}
             </p>
           </div>
           <div class="absolute top-4 right-4 flex items-center gap-1">
             <button
               type="button"
               class="rounded-lg p-2 text-muted transition-colors hover:bg-hover cursor-pointer"
-              :aria-label="fullscreen ? '退出全屏' : '全屏显示'"
+              :aria-label="fullscreen ? t('terminalLiveOutput.exitFullscreen') : t('terminalLiveOutput.fullscreen')"
               @click="toggleFullscreen"
             >
               <Minimize2 v-if="fullscreen" class="h-4 w-4" />
@@ -155,7 +158,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             <button
               type="button"
               class="rounded-lg p-2 text-muted transition-colors hover:bg-hover cursor-pointer"
-              aria-label="关闭"
+              :aria-label="t('terminalLiveOutput.close')"
               @click="close"
             >
               <X class="h-4 w-4" />
@@ -165,11 +168,11 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
         <div class="flex min-h-0 flex-1 flex-col gap-3 px-5 py-4">
           <div class="shrink-0">
-            <div class="mb-1 text-[10px] uppercase tracking-wider text-muted">执行命令</div>
+            <div class="mb-1 text-[10px] uppercase tracking-wider text-muted">{{ t('terminalLiveOutput.command') }}</div>
             <pre class="max-h-64 overflow-y-auto text-[12px] font-mono whitespace-pre-wrap break-all rounded-lg border border-border bg-[hsl(var(--code-bg))] p-2.5 text-foreground">{{ command || '—' }}</pre>
           </div>
           <div class="flex min-h-0 flex-1 flex-col">
-            <div class="mb-1 shrink-0 text-[10px] uppercase tracking-wider text-muted">控制台输出</div>
+            <div class="mb-1 shrink-0 text-[10px] uppercase tracking-wider text-muted">{{ t('terminalLiveOutput.consoleOutput') }}</div>
             <pre
               ref="outputEl"
               class="min-h-0 flex-1 overflow-y-auto text-[12px] font-mono whitespace-pre-wrap break-all rounded-lg border border-border bg-[hsl(var(--code-bg))] p-2.5 text-foreground"
@@ -179,7 +182,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
               @touchmove.passive="onOutputTouchMove"
               @touchend="onOutputTouchEnd"
               @touchcancel="onOutputTouchEnd"
-            >{{ hasOutput ? output : '（暂无输出）' }}</pre>
+            >{{ hasOutput ? output : t('terminalLiveOutput.noOutput') }}</pre>
           </div>
         </div>
       </div>

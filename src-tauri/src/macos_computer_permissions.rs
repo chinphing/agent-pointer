@@ -52,22 +52,27 @@ impl PermissionKind {
     }
 
     fn panel_title(self) -> &'static str {
+        let loc = pointer_core::i18n::current_ui_locale();
         match self {
-            Self::ScreenRecording => "屏幕录制",
-            Self::Accessibility => "辅助功能",
+            Self::ScreenRecording => pointer_core::i18n::t("macos.perm.screen_recording", loc),
+            Self::Accessibility => pointer_core::i18n::t("macos.perm.accessibility", loc),
         }
     }
 
     fn drag_instruction(self) -> &'static str {
+        let loc = pointer_core::i18n::current_ui_locale();
         match self {
-            Self::ScreenRecording => "拖到右侧「屏幕录制」列表",
-            Self::Accessibility => "拖到右侧「辅助功能」列表",
+            Self::ScreenRecording => pointer_core::i18n::t("macos.perm.drag_screen", loc),
+            Self::Accessibility => pointer_core::i18n::t("macos.perm.drag_accessibility", loc),
         }
     }
 
     fn drag_hint(self) -> &'static str {
         let _ = self;
-        "拖入后保持启用，将自动进入下一步"
+        pointer_core::i18n::t(
+            "macos.perm.drag_hint",
+            pointer_core::i18n::current_ui_locale(),
+        )
     }
 }
 
@@ -144,7 +149,13 @@ pub fn open_settings(kind: &str) -> Result<(), String> {
     std::process::Command::new("open")
         .arg(kind.settings_url())
         .spawn()
-        .map_err(|e| format!("无法打开系统设置: {e}"))?;
+        .map_err(|e| {
+            pointer_core::i18n::tf(
+                "err.open_system_settings_failed",
+                pointer_core::i18n::current_ui_locale(),
+                &[("e", &e.to_string())],
+            )
+        })?;
     log::info!("opened macOS settings: {:?}", kind);
     Ok(())
 }
@@ -193,7 +204,13 @@ fn prompt_accessibility() {
 
 fn show_drag_guide_on_main(kind: PermissionKind) -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("must run on main thread")?;
-    let bundle = app_bundle_path().ok_or("无法定位 Pointer 应用包路径")?;
+    let bundle = app_bundle_path().ok_or_else(|| {
+        pointer_core::i18n::t(
+            "err.app_bundle_path_missing",
+            pointer_core::i18n::current_ui_locale(),
+        )
+        .to_string()
+    })?;
     let path_ns = NSString::from_str(&bundle.display().to_string());
     let url = NSURL::fileURLWithPath(&path_ns);
     let icon = NSWorkspace::sharedWorkspace().iconForFile(&path_ns);

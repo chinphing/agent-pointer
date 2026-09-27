@@ -43,6 +43,7 @@ import { CODER_AGENT_ID, GENERAL_AGENT_ID } from '../lib/agentUi'
 import { promoteOutboundQueueItem } from '../lib/outboundQueue'
 import { getTaskBoardSnapshot } from '../lib/api'
 import { withRetries } from '../lib/retry'
+import { t } from '../i18n'
 import { resolveTraceTaskId, traceLookupId } from '../lib/subAgentStats'
 import { resolveStreamWriteMessage, rehydrateAgentTracesFromScopedMessages, ensureHostLinkedSubTraces, isScopedSubMessage, findLiveScopedAssistant } from '../lib/subAgentMessages'
 import { useConversationScopedStore } from '../lib/conversationScoped'
@@ -1042,7 +1043,9 @@ export const useChatStore = defineStore('chat', () => {
       if (
         errText.includes('token_quota_exhausted') ||
         errText.includes('账户余额已用尽') ||
-        errText.includes('账户余额不足')
+        errText.includes('账户余额不足') ||
+        errText.includes('Account balance exhausted') ||
+        errText.includes('Insufficient account balance')
       ) {
         usePlatformAuthStore().markTokenQuotaExhausted()
       }

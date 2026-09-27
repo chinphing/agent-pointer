@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { FolderOpen, Search } from 'lucide-vue-next'
 import { useSkillsStore } from '../../stores/skills'
 import { useChatStore } from '../../stores/chat'
 import { userSkillDirectoryCandidates } from '../../lib/skillDirectories'
 
+
+const { t } = useI18n()
 export interface SkillDirectoryOption {
   name: string
   path: string
@@ -54,8 +57,8 @@ function descriptionFor(path: string): string | undefined {
         <input
           v-model="query"
           type="text"
-          placeholder="搜索技能目录"
-          aria-label="搜索技能目录"
+          :placeholder="t('skills.searchSkillDirPlaceholder')"
+          :aria-label="t('skills.searchSkillDirPlaceholder')"
           class="w-full rounded-lg border border-border bg-transparent py-1 pl-6 pr-2 text-xs text-foreground outline-none transition-colors placeholder:text-muted focus:border-accent/60"
         >
       </div>
@@ -88,7 +91,7 @@ function descriptionFor(path: string): string | undefined {
         </span>
       </button>
       <div v-if="candidates.length === 0" class="col-span-2 px-1 py-3 text-center text-[11px] text-muted">
-        没有匹配的技能目录
+        {{ t('skills.noMatchingDirectories') }}
       </div>
     </div>
 
@@ -106,7 +109,7 @@ function descriptionFor(path: string): string | undefined {
         <span class="flex-1 truncate">{{ dir.name }}</span>
       </button>
       <div v-if="candidates.length === 0" class="px-3 py-2 text-center text-[11px] text-muted">
-        没有匹配的技能目录
+        {{ t('skills.noMatchingDirectories') }}
       </div>
     </div>
   </div>

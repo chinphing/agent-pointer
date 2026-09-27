@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { MIN_PANE_RATIO, type TerminalPaneBranch, type TerminalPaneNode } from '../../lib/terminalLayout'
 import TerminalPane from './TerminalPane.vue'
 
+
+const { t } = useI18n()
 const props = defineProps<{
   node: TerminalPaneNode
   workspaceRoot: string
@@ -65,7 +68,7 @@ function startDrag(event: PointerEvent, node: TerminalPaneBranch) {
     <div
       class="terminal-splitter"
       :class="node.direction === 'row' ? 'is-row' : 'is-column'"
-      :title="node.direction === 'row' ? '拖动调整左右窗格大小' : '拖动调整上下窗格大小'"
+      :title="node.direction === 'row' ? t('workspace.terminal.resizeRowTitle') : t('workspace.terminal.resizeColumnTitle')"
       @pointerdown.prevent="startDrag($event, node)"
     />
     <div class="terminal-pane-slot" :style="{ flexGrow: node.sizes[1], flexBasis: '0' }">

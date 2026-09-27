@@ -309,11 +309,7 @@ pub fn approve_tool_call(
     if state.approve_tool_call(&tool_call_id, approved) {
         Ok(())
     } else {
-        Err(pointer_core::i18n::t(
-            "err.tool_call_not_pending",
-            pointer_core::i18n::current_ui_locale(),
-        )
-        .into())
+        Err(ui_text("err.tool_call_not_pending"))
     }
 }
 
@@ -662,13 +658,7 @@ pub fn preview_computer_annotated_screen(
                 .to_string(),
             caption: "Annotated screenshot".into(),
         })
-        .ok_or_else(|| {
-            pointer_core::i18n::t(
-                "err.no_desktop_screenshot",
-                pointer_core::i18n::current_ui_locale(),
-            )
-            .into()
-        })
+        .ok_or_else(|| ui_text("err.no_desktop_screenshot"))
 }
 
 /// Load a saved annotated PNG by path relative to `computer-captures/` (from `AssistantRoundScreen`).
@@ -687,9 +677,8 @@ pub fn preview_chat_media(storage_rel_path: String) -> Result<ChatMediaPreview, 
 pub fn get_chat_media_local_path(storage_rel_path: String) -> Result<String, String> {
     let path = pointer_core::media::media_abs_path(&storage_rel_path).map_err(|e| e.to_string())?;
     if !path.is_file() {
-        return Err(pointer_core::i18n::tf(
+        return Err(ui_textf(
             "err.media_file_missing",
-            pointer_core::i18n::current_ui_locale(),
             &[("path", &path.display().to_string())],
         ));
     }
@@ -699,10 +688,9 @@ pub fn get_chat_media_local_path(storage_rel_path: String) -> Result<String, Str
 /// Write raw bytes (base64) to an absolute path chosen by the user (e.g. chart PNG export).
 #[tauri::command]
 pub fn save_bytes_to_path(path: String, content_base64: String) -> Result<(), String> {
-    let loc = pointer_core::i18n::current_ui_locale();
     let trimmed = path.trim();
     if trimmed.is_empty() {
-        return Err(pointer_core::i18n::t("err.save_path_empty", loc).into());
+        return Err(ui_text("err.save_path_empty"));
     }
     let path_buf =
         pointer_core::media::access::normalize_user_path(trimmed).map_err(|e| e.to_string())?;
@@ -712,12 +700,12 @@ pub fn save_bytes_to_path(path: String, content_base64: String) -> Result<(), St
         .unwrap_or("")
         .is_empty()
     {
-        return Err(pointer_core::i18n::t("err.save_path_invalid", loc).into());
+        return Err(ui_text("err.save_path_invalid"));
     }
     if let Some(parent) = path_buf.parent() {
         if !parent.as_os_str().is_empty() && !parent.exists() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                pointer_core::i18n::tf("err.create_dir_failed", loc, &[("e", &e.to_string())])
+                ui_textf("err.create_dir_failed", &[("e", &e.to_string())])
             })?;
         }
     }
@@ -725,11 +713,10 @@ pub fn save_bytes_to_path(path: String, content_base64: String) -> Result<(), St
         .decode(content_base64.trim())
         .map_err(|e| format!("decode base64: {e}"))?;
     if bytes.is_empty() {
-        return Err(pointer_core::i18n::t("err.file_content_empty", loc).into());
+        return Err(ui_text("err.file_content_empty"));
     }
-    std::fs::write(&path_buf, &bytes).map_err(|e| {
-        pointer_core::i18n::tf("err.write_failed", loc, &[("e", &e.to_string())])
-    })?;
+    std::fs::write(&path_buf, &bytes)
+        .map_err(|e| ui_textf("err.write_failed", &[("e", &e.to_string())]))?;
     log::info!(
         "save_bytes_to_path: wrote {} bytes to {}",
         bytes.len(),
@@ -745,28 +732,18 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
     let display = path_buf.display().to_string();
     #[cfg(target_os = "macos")]
     {
-        let loc = pointer_core::i18n::current_ui_locale();
         std::process::Command::new("open")
             .args(["-R", &display])
             .spawn()
-            .map_err(|e| {
-                pointer_core::i18n::tf("err.open_finder_failed", loc, &[("e", &e.to_string())])
-            })?;
+            .map_err(|e| ui_textf("err.open_finder_failed", &[("e", &e.to_string())]))?;
         return Ok(());
     }
     #[cfg(target_os = "windows")]
     {
-        let loc = pointer_core::i18n::current_ui_locale();
         std::process::Command::new("explorer")
             .args(["/select,", &display])
             .spawn()
-            .map_err(|e| {
-                pointer_core::i18n::tf(
-                    "err.open_file_manager_failed",
-                    loc,
-                    &[("e", &e.to_string())],
-                )
-            })?;
+            .map_err(|e| ui_textf("err.open_file_manager_failed", &[("e", &e.to_string())]))?;
         return Ok(());
     }
     #[cfg(target_os = "linux")]
@@ -789,19 +766,11 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
                 return Ok(());
             }
         }
-        Err(pointer_core::i18n::t(
-            "err.file_manager_unavailable",
-            pointer_core::i18n::current_ui_locale(),
-        )
-        .into())
+        Err(ui_text("err.file_manager_unavailable"))
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
-        Err(pointer_core::i18n::t(
-            "err.platform_unsupported",
-            pointer_core::i18n::current_ui_locale(),
-        )
-        .into())
+        Err(ui_text("err.platform_unsupported"))
     }
 }
 
@@ -834,7 +803,7 @@ fn open_path_with_system_default(path: &Path) -> Result<(), String> {
         std::process::Command::new("open")
             .arg(&path_str)
             .spawn()
-            .map_err(|e| format!("打开文件失败: {e}"))?;
+            .map_err(|e| ui_textf("err.open_file_failed", &[("e", &e.to_string())]))?;
         return Ok(());
     }
     #[cfg(target_os = "windows")]
@@ -842,7 +811,7 @@ fn open_path_with_system_default(path: &Path) -> Result<(), String> {
         std::process::Command::new("cmd")
             .args(["/C", "start", "", &path_str])
             .spawn()
-            .map_err(|e| format!("打开文件失败: {e}"))?;
+            .map_err(|e| ui_textf("err.open_file_failed", &[("e", &e.to_string())]))?;
         return Ok(());
     }
     #[cfg(target_os = "linux")]
@@ -850,7 +819,7 @@ fn open_path_with_system_default(path: &Path) -> Result<(), String> {
         std::process::Command::new("xdg-open")
             .arg(&path_str)
             .spawn()
-            .map_err(|e| format!("打开文件失败: {e}"))?;
+            .map_err(|e| ui_textf("err.open_file_failed", &[("e", &e.to_string())]))?;
         return Ok(());
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
@@ -930,9 +899,7 @@ pub fn get_media_oss_upload_status(state: State<'_, Arc<AppState>>) -> MediaOssU
     }
     MediaOssUploadStatus {
         configured: false,
-        message: Some(
-            "视频上传需要平台 OSS 配置，请登录 Pointer 账户或联系管理员在官网配置 OSS".into(),
-        ),
+        message: Some(ui_text("err.video_oss_need_platform")),
     }
 }
 
@@ -1021,15 +988,13 @@ pub async fn upload_composer_video_to_oss(
 fn format_video_oss_upload_error(e: impl std::fmt::Display) -> String {
     let msg = e.to_string();
     if msg.contains("NoSuchBucket") {
-        return format!(
-            "OSS Bucket 不存在，请在阿里云创建对应 Bucket 或将 Endpoint 配置为「https://<bucket>.oss-<region>.aliyuncs.com」格式。详情：{msg}"
-        );
+        return ui_textf("err.oss_bucket_missing", &[("msg", &msg)]);
     }
     if msg.contains("InvalidAccessKeyId") || msg.contains("SignatureDoesNotMatch") {
-        return format!("OSS 凭据无效，请检查官网 OSS 配置中的 AccessKey。详情：{msg}");
+        return ui_textf("err.oss_credentials_invalid", &[("msg", &msg)]);
     }
     if msg.to_ascii_lowercase().contains("timeout") || msg.contains("timed out") {
-        return format!("视频上传超时，请检查网络后重试。详情：{msg}");
+        return ui_textf("err.video_upload_timeout", &[("msg", &msg)]);
     }
     msg
 }
@@ -1115,7 +1080,8 @@ pub fn get_local_file_size(path: String) -> Result<u64, String> {
             &[("path", &path_buf.display().to_string())],
         ));
     }
-    let meta = fs::metadata(&path_buf).map_err(|e| format!("读取文件信息失败: {e}"))?;
+    let meta = fs::metadata(&path_buf)
+        .map_err(|e| ui_textf("err.read_file_meta_failed", &[("e", &e.to_string())]))?;
     Ok(meta.len())
 }
 
@@ -1130,7 +1096,8 @@ pub fn read_local_file_for_attachment(path: String) -> Result<LocalFileAttachmen
             &[("path", &path_buf.display().to_string())],
         ));
     }
-    let meta = fs::metadata(&path_buf).map_err(|e| format!("读取文件信息失败: {e}"))?;
+    let meta = fs::metadata(&path_buf)
+        .map_err(|e| ui_textf("err.read_file_meta_failed", &[("e", &e.to_string())]))?;
     let file_name = path_buf
         .file_name()
         .and_then(|n| n.to_str())
@@ -1148,7 +1115,8 @@ pub fn read_local_file_for_attachment(path: String) -> Result<LocalFileAttachmen
             &[("limit", &limit_mb.to_string())],
         ));
     }
-    let bytes = fs::read(&path_buf).map_err(|e| format!("读取文件失败: {e}"))?;
+    let bytes = fs::read(&path_buf)
+        .map_err(|e| ui_textf("err.read_file_failed", &[("e", &e.to_string())]))?;
     let mime_type = mime_from_file_name(&file_name);
     let content_base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(LocalFileAttachmentPayload {

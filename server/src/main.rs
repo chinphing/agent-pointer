@@ -564,7 +564,11 @@ async fn main() -> anyhow::Result<()> {
                 session_user_id: None,
                 event: StreamEvent::UiToast {
                     conversation_id: String::new(),
-                    message: "截图过期已清理".into(),
+                    message: pointer_core::i18n::t(
+                        "toast.capture_purged",
+                        pointer_core::i18n::current_ui_locale(),
+                    )
+                    .into(),
                     level: "warning".into(),
                 },
             });
@@ -1012,7 +1016,13 @@ async fn test_connection(State(state): State<ServerState>) -> Result<Json<u128>,
     require_platform_access(&state)?;
     let settings = state.core.effective_settings();
     if settings.api_key.is_empty() {
-        return Err(ApiError(anyhow::anyhow!("尚未配置 API Key")));
+        return Err(ApiError(anyhow::anyhow!(
+            "{}",
+            pointer_core::i18n::t(
+                "err.api_key_missing",
+                pointer_core::i18n::current_ui_locale()
+            )
+        )));
     }
     let api_key = settings.api_key.clone();
     let provider = OpenAIProvider::new(settings, api_key);
@@ -1182,7 +1192,16 @@ async fn enable_plugin(
         .core
         .plugins
         .get(&plugin_id)
-        .ok_or_else(|| ApiError(anyhow::anyhow!("插件不存在: {plugin_id}")))?;
+        .ok_or_else(|| {
+            ApiError(anyhow::anyhow!(
+                "{}",
+                pointer_core::i18n::tf(
+                    "err.plugin_not_found",
+                    pointer_core::i18n::current_ui_locale(),
+                    &[("plugin_id", &plugin_id)],
+                )
+            ))
+        })?;
     Ok(Json(PluginView::from_record(&record)))
 }
 
@@ -1196,7 +1215,16 @@ async fn disable_plugin(
         .core
         .plugins
         .get(&plugin_id)
-        .ok_or_else(|| ApiError(anyhow::anyhow!("插件不存在: {plugin_id}")))?;
+        .ok_or_else(|| {
+            ApiError(anyhow::anyhow!(
+                "{}",
+                pointer_core::i18n::tf(
+                    "err.plugin_not_found",
+                    pointer_core::i18n::current_ui_locale(),
+                    &[("plugin_id", &plugin_id)],
+                )
+            ))
+        })?;
     Ok(Json(PluginView::from_record(&record)))
 }
 
@@ -1289,7 +1317,11 @@ async fn preview_computer_annotated_screen(
         .map(Json)
         .ok_or_else(|| {
             ApiError(anyhow::anyhow!(
-                "暂无桌面截图：请先完成一次截图处理（发送 Computer 消息），或确认会话 ID 正确。"
+                "{}",
+                pointer_core::i18n::t(
+                    "err.no_desktop_screenshot",
+                    pointer_core::i18n::current_ui_locale()
+                )
             ))
         })
 }
@@ -3613,7 +3645,13 @@ async fn approve_tool_call(
     {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(ApiError(anyhow::anyhow!("未找到待审批的工具调用")))
+        Err(ApiError(anyhow::anyhow!(
+            "{}",
+            pointer_core::i18n::t(
+                "err.tool_call_not_pending",
+                pointer_core::i18n::current_ui_locale()
+            )
+        )))
     }
 }
 
@@ -3631,7 +3669,13 @@ async fn submit_ask_user(
     if state.core.submit_ask_user(&tool_call_id, payload.selected) {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(ApiError(anyhow::anyhow!("未找到待选择的 ask_user 请求")))
+        Err(ApiError(anyhow::anyhow!(
+            "{}",
+            pointer_core::i18n::t(
+                "err.ask_user_not_pending",
+                pointer_core::i18n::current_ui_locale()
+            )
+        )))
     }
 }
 
@@ -3649,7 +3693,13 @@ async fn submit_terminal_input(
     if state.core.submit_terminal_input(&request_id, payload.text) {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(ApiError(anyhow::anyhow!("未找到待输入的终端请求")))
+        Err(ApiError(anyhow::anyhow!(
+            "{}",
+            pointer_core::i18n::t(
+                "err.terminal_input_not_pending",
+                pointer_core::i18n::current_ui_locale()
+            )
+        )))
     }
 }
 
@@ -3661,7 +3711,13 @@ async fn dismiss_terminal_input(
     if state.core.dismiss_terminal_input(&request_id) {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(ApiError(anyhow::anyhow!("未找到待输入的终端请求")))
+        Err(ApiError(anyhow::anyhow!(
+            "{}",
+            pointer_core::i18n::t(
+                "err.terminal_input_not_pending",
+                pointer_core::i18n::current_ui_locale()
+            )
+        )))
     }
 }
 

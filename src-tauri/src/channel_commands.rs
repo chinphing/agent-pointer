@@ -46,9 +46,18 @@ fn build_status(cfg: &ChannelsConfig) -> ChannelsStatusResponse {
     ChannelsStatusResponse { channels }
 }
 
+fn ui_err(key: &str) -> String {
+    pointer_core::i18n::t(key, pointer_core::i18n::current_ui_locale()).to_string()
+}
+
+fn ui_errf(key: &str, args: &[(&str, &str)]) -> String {
+    pointer_core::i18n::tf(key, pointer_core::i18n::current_ui_locale(), args)
+}
+
 #[tauri::command]
 pub fn get_channels_config() -> Result<ChannelsConfig, String> {
-    load_channels_config().map_err(|e| format!("加载通道配置失败: {e:#}"))
+    load_channels_config()
+        .map_err(|e| ui_errf("err.channels_load_failed", &[("e", &format!("{e:#}"))]))
 }
 
 #[tauri::command]
@@ -61,25 +70,27 @@ pub fn update_channels_config(
     if restart_monitors.unwrap_or(false) {
         gateway
             .update_config_and_restart(cfg, monitors.supervisor().as_ref())
-            .map_err(|e| format!("保存通道配置失败: {e:#}"))?;
+            .map_err(|e| ui_errf("err.channels_save_failed", &[("e", &format!("{e:#}"))]))?;
         log::info!("channel monitors restarted after explicit connect");
     } else {
         gateway
             .update_config(cfg)
-            .map_err(|e| format!("保存通道配置失败: {e:#}"))?;
+            .map_err(|e| ui_errf("err.channels_save_failed", &[("e", &format!("{e:#}"))]))?;
     }
     Ok(())
 }
 
 #[tauri::command]
 pub fn list_channel_status() -> Result<ChannelsStatusResponse, String> {
-    let cfg = load_channels_config().map_err(|e| format!("加载通道配置失败: {e:#}"))?;
+    let cfg = load_channels_config()
+        .map_err(|e| ui_errf("err.channels_load_failed", &[("e", &format!("{e:#}"))]))?;
     Ok(build_status(&cfg))
 }
 
 #[tauri::command]
 pub fn get_channel_webhook_url(channel: String, account_id: String) -> Result<String, String> {
-    let cfg = load_channels_config().map_err(|e| format!("加载通道配置失败: {e:#}"))?;
+    let cfg = load_channels_config()
+        .map_err(|e| ui_errf("err.channels_load_failed", &[("e", &format!("{e:#}"))]))?;
     Ok(cfg.webhook_url(&channel, &account_id))
 }
 
@@ -90,7 +101,7 @@ pub async fn start_weixin_login(
 ) -> Result<QrLoginSession, String> {
     qr.start(&account_id)
         .await
-        .map_err(|e| format!("微信扫码登录启动失败: {e:#}"))
+        .map_err(|e| ui_errf("err.weixin_login_start_failed", &[("e", &format!("{e:#}"))]))
 }
 
 #[tauri::command]
@@ -103,8 +114,12 @@ pub async fn get_weixin_login_status(
 
 #[tauri::command]
 pub fn has_weixin_credentials(account_id: String) -> Result<bool, String> {
-    let creds = load_encrypted_json::<WeixinCredentials>("weixin", &account_id)
-        .map_err(|e| format!("读取微信凭证失败: {e:#}"))?;
+    let creds = load_encrypted_json::<WeixinCredentials>("weixin", &account_id).map_err(|e| {
+        ui_errf(
+            "err.weixin_credentials_read_failed",
+            &[("e", &format!("{e:#}"))],
+        )
+    })?;
     Ok(creds.is_some())
 }
 
@@ -136,11 +151,11 @@ pub fn approve_channel_pairing(
     let ok = gateway
         .pairing
         .approve(&channel, &account_id, &code)
-        .map_err(|e| format!("配对审批失败: {e:#}"))?;
+        .map_err(|e| ui_errf("err.pairing_approve_failed", &[("e", &format!("{e:#}"))]))?;
     if ok {
         Ok(())
     } else {
-        Err("配对码无效或已过期（请确认点击了正确通道的批准按钮，或使用最新收到的配对码）".into())
+        Err(ui_err("err.pairing_code_invalid"))
     }
 }
 
@@ -153,7 +168,12 @@ pub async fn start_channel_registration(
     registration
         .start(&channel, &account_id)
         .await
-        .map_err(|e| format!("{channel} 扫码注册启动失败: {e:#}"))
+        .map_err(|e| {
+            ui_errf(
+                "err.channel_registration_start_failed",
+                &[("channel", &channel), ("e", &format!("{e:#}"))],
+            )
+        })
 }
 
 #[tauri::command]

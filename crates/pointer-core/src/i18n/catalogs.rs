@@ -112,11 +112,60 @@ pub(super) fn lookup_zh_cn(key: &str) -> Option<&'static str> {
         "err.platform_unsupported" => "当前平台不支持",
         "err.file_missing" => "文件不存在: {path}",
         "err.oss_not_configured" => "OSS 未配置，请登录 Pointer 账户或联系管理员在官网配置 OSS",
+        "err.video_oss_need_platform" => {
+            "视频上传需要平台 OSS 配置，请登录 Pointer 账户或联系管理员在官网配置 OSS"
+        }
         "err.video_must_use_oss" => "视频请通过 OSS 上传：使用文件选择后自动上传，勿直接读取整文件到内存",
         "err.file_too_large" => "文件超过 {limit} MB 上限",
         "err.dir_name_invalid" => "目录名称无效",
         "err.parent_dir_unavailable" => "父目录不存在或不可访问",
         "err.plugin_not_found" => "插件不存在: {plugin_id}",
+        "err.create_dir_failed" => "创建目录失败: {e}",
+        "err.write_failed" => "写入失败: {e}",
+        "err.open_finder_failed" => "打开 Finder 失败: {e}",
+        "err.open_file_manager_failed" => "打开文件管理器失败: {e}",
+        "err.open_file_failed" => "打开文件失败: {e}",
+        "err.read_file_meta_failed" => "读取文件信息失败: {e}",
+        "err.read_file_failed" => "读取文件失败: {e}",
+        "err.no_desktop_screenshot" => {
+            "暂无桌面截图：请先完成一次截图处理（发送 Computer 消息），或确认会话 ID 正确。"
+        }
+        "err.oss_bucket_missing" => {
+            "OSS Bucket 不存在，请在阿里云创建对应 Bucket 或将 Endpoint 配置为「https://<bucket>.oss-<region>.aliyuncs.com」格式。详情：{msg}"
+        }
+        "err.oss_credentials_invalid" => {
+            "OSS 凭据无效，请检查官网 OSS 配置中的 AccessKey。详情：{msg}"
+        }
+        "err.video_upload_timeout" => "视频上传超时，请检查网络后重试。详情：{msg}",
+        "err.login_required" => "请先登录 Pointer 账户",
+        "err.login_required_platform" => "请先登录 Pointer 平台账户",
+        "err.cloud_console_url_invalid" => "控制台地址无效",
+        "err.cloud_window_not_open" => "云主机窗口未打开",
+        "err.cloud_agent_not_ready" => "智能体尚未就绪，无法打开",
+        "err.cloud_window_create_failed" => "创建云主机窗口失败: {e}",
+        "err.channels_load_failed" => "加载通道配置失败: {e}",
+        "err.channels_save_failed" => "保存通道配置失败: {e}",
+        "err.weixin_login_start_failed" => "微信扫码登录启动失败: {e}",
+        "err.weixin_credentials_read_failed" => "读取微信凭证失败: {e}",
+        "err.pairing_approve_failed" => "配对审批失败: {e}",
+        "err.pairing_code_invalid" => {
+            "配对码无效或已过期（请确认点击了正确通道的批准按钮，或使用最新收到的配对码）"
+        }
+        "err.channel_registration_start_failed" => "{channel} 扫码注册启动失败: {e}",
+        "err.open_system_settings_failed" => "无法打开系统设置: {e}",
+        "err.app_bundle_path_missing" => "无法定位 Pointer 应用包路径",
+
+        // Misc UI strings owned by the Rust host.
+        "toast.capture_purged" => "截图过期已清理",
+        "ui.cloud_host" => "云主机",
+        "tray.show_pointer" => "显示 Pointer",
+        "tray.quit" => "退出",
+        "macos.perm.screen_recording" => "屏幕录制",
+        "macos.perm.accessibility" => "辅助功能",
+        "macos.perm.drag_screen" => "拖到右侧「屏幕录制」列表",
+        "macos.perm.drag_accessibility" => "拖到右侧「辅助功能」列表",
+        "macos.perm.drag_hint" => "拖入后保持启用，将自动进入下一步",
+        "popup.wecom_auth_title" => "企业微信授权",
 
         _ => return None,
     })
@@ -247,6 +296,9 @@ pub(super) fn lookup_en(key: &str) -> Option<&'static str> {
         "err.oss_not_configured" => {
             "OSS is not configured; sign in to your Pointer account or ask an admin to configure OSS on the website"
         }
+        "err.video_oss_need_platform" => {
+            "Video upload requires platform OSS configuration; sign in to your Pointer account or ask an admin to configure OSS on the website"
+        }
         "err.video_must_use_oss" => {
             "Please upload videos via OSS: selecting a file uploads it automatically; do not read the whole file into memory"
         }
@@ -254,6 +306,55 @@ pub(super) fn lookup_en(key: &str) -> Option<&'static str> {
         "err.dir_name_invalid" => "Directory name is invalid",
         "err.parent_dir_unavailable" => "Parent directory does not exist or is not accessible",
         "err.plugin_not_found" => "Plugin not found: {plugin_id}",
+        "err.create_dir_failed" => "Failed to create directory: {e}",
+        "err.write_failed" => "Write failed: {e}",
+        "err.open_finder_failed" => "Failed to open Finder: {e}",
+        "err.open_file_manager_failed" => "Failed to open file manager: {e}",
+        "err.open_file_failed" => "Failed to open file: {e}",
+        "err.read_file_meta_failed" => "Failed to read file info: {e}",
+        "err.read_file_failed" => "Failed to read file: {e}",
+        "err.no_desktop_screenshot" => {
+            "No desktop screenshot yet: complete a screenshot step first (send a Computer message), or confirm the conversation ID is correct."
+        }
+        "err.oss_bucket_missing" => {
+            "OSS Bucket does not exist; create the Bucket in Alibaba Cloud or set Endpoint to https://<bucket>.oss-<region>.aliyuncs.com. Details: {msg}"
+        }
+        "err.oss_credentials_invalid" => {
+            "Invalid OSS credentials; check the AccessKey in the website OSS settings. Details: {msg}"
+        }
+        "err.video_upload_timeout" => {
+            "Video upload timed out; check your network and try again. Details: {msg}"
+        }
+        "err.login_required" => "Please sign in to your Pointer account",
+        "err.login_required_platform" => "Please sign in to your Pointer platform account",
+        "err.cloud_console_url_invalid" => "Console URL is invalid",
+        "err.cloud_window_not_open" => "Cloud host window is not open",
+        "err.cloud_agent_not_ready" => "Agent is not ready and cannot be opened",
+        "err.cloud_window_create_failed" => "Failed to create cloud host window: {e}",
+        "err.channels_load_failed" => "Failed to load channel config: {e}",
+        "err.channels_save_failed" => "Failed to save channel config: {e}",
+        "err.weixin_login_start_failed" => "Failed to start Weixin QR login: {e}",
+        "err.weixin_credentials_read_failed" => "Failed to read Weixin credentials: {e}",
+        "err.pairing_approve_failed" => "Pairing approval failed: {e}",
+        "err.pairing_code_invalid" => {
+            "Pairing code is invalid or expired (confirm you approved the correct channel, or use the latest code)"
+        }
+        "err.channel_registration_start_failed" => {
+            "Failed to start {channel} QR registration: {e}"
+        }
+        "err.open_system_settings_failed" => "Failed to open System Settings: {e}",
+        "err.app_bundle_path_missing" => "Could not locate the Pointer app bundle path",
+
+        "toast.capture_purged" => "Expired screenshots cleaned up",
+        "ui.cloud_host" => "Cloud host",
+        "tray.show_pointer" => "Show Pointer",
+        "tray.quit" => "Quit",
+        "macos.perm.screen_recording" => "Screen Recording",
+        "macos.perm.accessibility" => "Accessibility",
+        "macos.perm.drag_screen" => "Drag to the Screen Recording list on the right",
+        "macos.perm.drag_accessibility" => "Drag to the Accessibility list on the right",
+        "macos.perm.drag_hint" => "Keep it enabled after dropping; the next step will start automatically",
+        "popup.wecom_auth_title" => "WeCom authorization",
 
         _ => return None,
     })

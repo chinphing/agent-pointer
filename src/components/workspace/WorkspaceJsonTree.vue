@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { ChevronDown, ChevronRight } from 'lucide-vue-next'
 import type { JsonPreviewMatch, JsonPreviewNode } from '../../lib/workspaceJsonPreview'
 import {
@@ -10,6 +11,8 @@ import {
 } from '../../lib/workspaceJsonPreview'
 
 defineOptions({ name: 'WorkspaceJsonTree' })
+
+const { t } = useI18n()
 
 const props = defineProps<{
   node: JsonPreviewNode
@@ -71,7 +74,7 @@ function toggle(nodeId: string) {
         type="button"
         class="json-toggle"
         :aria-expanded="expanded(node)"
-        :aria-label="expanded(node) ? '折叠' : '展开'"
+        :aria-label="expanded(node) ? t('workspace.jsonTree.collapse') : t('workspace.jsonTree.expand')"
         @click="toggle(node.id)"
       >
         <ChevronDown v-if="expanded(node)" />

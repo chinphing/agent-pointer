@@ -15,7 +15,11 @@ use crate::cloud_webview;
 async fn ensure_platform(
     auth: &pointer_core::platform_auth::PlatformAuthManager,
 ) -> Result<(), String> {
-    crate::platform_auth_gate::require_logged_in(auth, "请先登录 Pointer 平台账户").await
+    let hint = pointer_core::i18n::t(
+        "err.login_required_platform",
+        pointer_core::i18n::current_ui_locale(),
+    );
+    crate::platform_auth_gate::require_logged_in(auth, hint).await
 }
 
 #[tauri::command]

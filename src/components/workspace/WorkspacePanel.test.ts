@@ -2,6 +2,7 @@
 
 import { createApp, nextTick } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import i18n from '../../i18n'
 
 import type { GitChange } from '../../lib/api'
 
@@ -91,6 +92,8 @@ describe('WorkspacePanel refresh behavior', () => {
     const host = document.createElement('div')
     document.body.append(host)
     const app = createApp(WorkspacePanel, { workspaceRoot: '/workspace' })
+    app.use(i18n)
+    i18n.global.locale.value = 'zh-CN'
     mountedApps.push(app)
     app.mount(host)
     await settle()

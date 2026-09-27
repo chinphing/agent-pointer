@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { FolderOpen, X } from 'lucide-vue-next'
 
+
+const { t } = useI18n()
 const open = defineModel<boolean>('open', { required: true })
 
 defineProps<{
@@ -41,7 +44,7 @@ watch(
       class="fixed inset-0 z-[220] flex items-center justify-center bg-foreground/32 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label="请先选择工作目录"
+      :aria-label="t('workspaceRequired.ariaLabel')"
       @click.self="close"
     >
       <div class="relative w-full max-w-md rounded-2xl border border-border bg-[hsl(var(--card-elevated))] shadow-2xl overflow-hidden">
@@ -50,15 +53,15 @@ watch(
             <FolderOpen class="w-4 h-4 text-warning" />
           </div>
           <div class="min-w-0 flex-1 pr-8">
-            <h2 class="text-base font-semibold text-foreground">请先选择工作目录</h2>
+            <h2 class="text-base font-semibold text-foreground">{{ t('workspaceRequired.title') }}</h2>
             <p class="text-[13px] text-muted mt-1 leading-relaxed">
-              您需要选择一个目录存放你的代码。
+              {{ t('workspaceRequired.description') }}
             </p>
           </div>
           <button
             type="button"
             class="absolute top-4 right-4 p-2 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors"
-            title="关闭 (Esc)"
+            :title="t('workspaceRequired.closeTitle')"
             @click="close"
           >
             <X class="w-4 h-4" />
@@ -71,14 +74,14 @@ watch(
             class="h-9 px-4 rounded-lg bg-hover hover:opacity-90 text-sm text-foreground cursor-pointer transition-opacity"
             @click="close"
           >
-            取消
+            {{ t('workspaceRequired.cancel') }}
           </button>
           <button
             type="button"
             class="h-9 px-4 rounded-lg bg-accent text-accent-foreground text-sm font-medium cursor-pointer hover:opacity-95 transition-opacity"
             @click="onPick"
           >
-            {{ isDesktop ? '选择目录' : '知道了' }}
+            {{ isDesktop ? t('workspaceRequired.chooseDirectory') : t('workspaceRequired.gotIt') }}
           </button>
         </footer>
       </div>

@@ -5,6 +5,7 @@ export const cleanedSessionIds = new Set<string>()
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { X } from 'lucide-vue-next'
 import {
   applyImeFriendlyTextareaStyles,
@@ -16,6 +17,8 @@ import {
 import { ensureTerminalFontsReady } from '../../lib/terminalFonts'
 import { useConsoleStore } from '../../stores/console'
 
+
+const { t } = useI18n()
 const props = defineProps<{
   workspaceRoot: string
   conversationId: string
@@ -393,14 +396,14 @@ onBeforeUnmount(() => {
   >
     <div v-show="tab" ref="host" class="terminal-host min-h-0 flex-1" data-terminal-pane-host />
     <div v-if="!tab" class="pane-empty flex min-h-0 flex-1 items-center justify-center px-3 text-center text-xs text-muted">
-      <p>此窗格暂无终端</p>
+      <p>{{ t('workspace.terminal.emptyPane') }}</p>
     </div>
     <button
       v-if="!tab"
       type="button"
       class="pane-close pane-close-empty"
-      title="关闭此窗格"
-      aria-label="关闭此窗格"
+      :title="t('workspace.terminal.closePaneTitle')"
+      :aria-label="t('workspace.terminal.closePaneTitle')"
       @click.stop="emit('close')"
     ><X class="h-3 w-3" /></button>
   </div>

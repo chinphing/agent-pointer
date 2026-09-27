@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 
+const { t } = useI18n()
 const props = defineProps<{
   form: SettingsDialogForm
 }>()
@@ -13,8 +15,8 @@ const { debugDumpLlmPrompts, rawContentViewEnabled, computerAnnotatedScreenViewE
     <div class="rounded-xl border border-border panel p-5">
       <div class="flex items-center justify-between gap-4">
         <div class="min-w-0">
-          <p class="text-sm font-medium text-foreground">保存每轮对话请求</p>
-          <p class="mt-1 text-xs text-muted">将每轮发送给模型的请求保存到本地调试日志</p>
+          <p class="text-sm font-medium text-foreground">{{ t('settings.debug.savePrompts') }}</p>
+          <p class="mt-1 text-xs text-muted">{{ t('settings.debug.savePromptsHint') }}</p>
         </div>
         <label class="relative inline-flex items-center cursor-pointer shrink-0">
           <input v-model="debugDumpLlmPrompts" type="checkbox" class="sr-only peer" />
@@ -26,8 +28,8 @@ const { debugDumpLlmPrompts, rawContentViewEnabled, computerAnnotatedScreenViewE
     <div class="rounded-xl border border-border panel p-5">
       <div class="flex items-center justify-between gap-4">
         <div class="min-w-0">
-          <p class="text-sm font-medium text-foreground">原始内容查看</p>
-          <p class="mt-1 text-xs text-muted">助手消息上显示「原始输出」调试入口（正文通道原始字串与 API reasoning）</p>
+          <p class="text-sm font-medium text-foreground">{{ t('settings.debug.rawContentView') }}</p>
+          <p class="mt-1 text-xs text-muted">{{ t('settings.debug.rawContentViewHint') }}</p>
         </div>
         <label class="relative inline-flex items-center cursor-pointer shrink-0">
           <input v-model="rawContentViewEnabled" type="checkbox" class="sr-only peer" />
@@ -39,8 +41,8 @@ const { debugDumpLlmPrompts, rawContentViewEnabled, computerAnnotatedScreenViewE
     <div class="rounded-xl border border-border panel p-5">
       <div class="flex items-center justify-between gap-4">
         <div class="min-w-0">
-          <p class="text-sm font-medium text-foreground">标记截图查看</p>
-          <p class="mt-1 text-xs text-muted">显示 Computer 使用的标注截图预览</p>
+          <p class="text-sm font-medium text-foreground">{{ t('settings.debug.annotatedScreenshotView') }}</p>
+          <p class="mt-1 text-xs text-muted">{{ t('settings.debug.annotatedScreenshotViewHint') }}</p>
         </div>
         <label class="relative inline-flex items-center cursor-pointer shrink-0">
           <input v-model="computerAnnotatedScreenViewEnabled" type="checkbox" class="sr-only peer" />

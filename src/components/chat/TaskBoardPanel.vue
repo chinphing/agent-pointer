@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ListChecks, CheckCircle2, Circle, Loader2, XCircle, Ban, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import type { TaskBoardDocument, TaskBoardItem } from '../../types/chat'
 import {
@@ -13,6 +14,8 @@ import {
 } from '../../lib/taskBoard'
 import { milestoneRowLabel } from '../../lib/taskBoardDisplay'
 
+
+const { t } = useI18n()
 const props = defineProps<{
   document: TaskBoardDocument | null
   isActive?: boolean
@@ -44,11 +47,11 @@ const currentMilestone = computed(() => {
 })
 const milestoneProgress = computed(() => taskBoardVisibleMilestoneProgress(props.document))
 const executionLabel = computed(() => taskBoardExecutionLabel(metaStatus.value))
-const boardFailed = computed(() => executionLabel.value === '失败')
+const boardFailed = computed(() => executionLabel.value === t('taskBoard.failed'))
 
-const summaryTitle = computed(() => goal.value || '任务板')
+const summaryTitle = computed(() => goal.value || t('taskBoard.boardTitle'))
 const summaryAria = computed(() => {
-  const parts = [summaryTitle.value, `进度 ${milestoneProgress.value}`]
+  const parts = [summaryTitle.value, t('taskBoard.progressAria', { progress: milestoneProgress.value })]
   if (executionLabel.value) parts.push(executionLabel.value)
   return parts.join('，')
 })
@@ -94,7 +97,7 @@ function rowLabel(item: TaskBoardItem): string {
 }
 
 function childGoal(doc: TaskBoardDocument): string {
-  return doc.meta?.goal?.trim() || '子任务'
+  return doc.meta?.goal?.trim() || t('taskBoard.subtask')
 }
 
 function toggleExpanded() {
@@ -154,7 +157,7 @@ function toggleExpanded() {
       <div
         v-if="!visibleMilestones.length"
         class="text-[13px] text-muted py-0.5"
-      >暂无步骤</div>
+      >{{ t('taskBoard.noSteps') }}</div>
       <div
         v-for="(child, taskIdKey) in childBoardsWithContent"
         :key="taskIdKey"

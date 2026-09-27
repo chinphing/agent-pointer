@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { ListChecks, Monitor, Maximize2, Square } from 'lucide-vue-next'
 import WindowDragRegion from '../layout/WindowDragRegion.vue'
 import type { TaskBoardCompactSummary } from '../../lib/taskBoardCollapsedLine'
 
+
+const { t } = useI18n()
 defineProps<{
   planSummary: TaskBoardCompactSummary | null
   planLine: string | null
@@ -64,8 +67,8 @@ const emit = defineEmits<{
         <button
           type="button"
           class="h-8 w-8 rounded-[10px] flex items-center justify-center text-danger hover:bg-danger/15 transition cursor-pointer"
-          title="终止"
-          aria-label="终止"
+          :title="t('computer.stopTitle')"
+          :aria-label="t('computer.stopTitle')"
           @click="emit('stop')"
         >
           <Square class="w-3.5 h-3.5" />
@@ -73,8 +76,8 @@ const emit = defineEmits<{
         <button
           type="button"
           class="h-8 w-8 rounded-[10px] flex items-center justify-center text-muted hover:text-foreground hover:bg-card transition cursor-pointer"
-          title="展开"
-          aria-label="展开"
+          :title="t('computer.expandTitle')"
+          :aria-label="t('computer.expandTitle')"
           @click="emit('expand')"
         >
           <Maximize2 class="w-3.5 h-3.5" />

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Loader2, RefreshCw, X, Minus, Plus, Sparkles } from 'lucide-vue-next'
 import { usePlatformAuthStore } from '../../../stores/platformAuth'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
@@ -68,6 +69,8 @@ const renewSubmitting = ref(false)
 const releaseAgent = ref<CloudAgent | null>(null)
 const releaseSubmitting = ref(false)
 
+const { t } = useI18n()
+
 const openingAgentId = ref<string | null>(null)
 
 const loggedIn = computed(() => platformAuth.session.logged_in)
@@ -77,30 +80,30 @@ const purchasePackageOptions = computed(() => {
   return [
     {
       kind: 'hourly_trial' as PackageKind,
-      label: '试用',
+      label: t('settings.cloud.planTrial'),
       price: p?.trial_hourly_rate_yuan,
-      unit: '元/小时',
+      unit: t('settings.cloud.yuanPerHour'),
       note: p?.trial_hourly_public_note
     },
     {
       kind: 'hourly_spot' as PackageKind,
-      label: '标准按时',
+      label: t('settings.cloud.planHourly'),
       price: p?.hourly_rate_yuan,
-      unit: '元/小时',
+      unit: t('settings.cloud.yuanPerHour'),
       note: p?.hourly_public_note
     },
     {
       kind: 'monthly' as PackageKind,
-      label: '包月',
+      label: t('settings.cloud.planMonthly'),
       price: p?.monthly_yuan,
-      unit: '元/月',
+      unit: t('settings.cloud.yuanPerMonth'),
       note: undefined
     },
     {
       kind: 'yearly' as PackageKind,
-      label: '包年',
+      label: t('settings.cloud.planYearly'),
       price: p?.yearly_yuan,
-      unit: '元/年',
+      unit: t('settings.cloud.yuanPerYear'),
       note: undefined
     }
   ]
@@ -112,10 +115,18 @@ const activePurchasePackageNote = computed(() => {
 })
 
 const purchaseDurationLabel = computed(() => {
-  if (purchaseTab.value === 'hourly_trial' || purchaseTab.value === 'hourly_spot') return '购买时长（小时）'
-  if (purchaseTab.value === 'monthly') return '购买时长（月）'
-  return '购买时长（年）'
+  if (purchaseTab.value === 'hourly_trial' || purchaseTab.value === 'hourly_spot') return t('settings.cloud.durationHours')
+  if (purchaseTab.value === 'monthly') return t('settings.cloud.durationMonths')
+  return t('settings.cloud.durationYears')
 })
+
+const statusFilterOptions = computed(() => ([
+  ['running', t('settings.cloud.status.running')],
+  ['starting', t('settings.cloud.status.starting')],
+  ['released', t('settings.cloud.status.released')],
+  ['all', t('settings.cloud.status.all')]
+] as const))
+
 
 const purchaseDurationValue = computed({
   get() {
@@ -437,13 +448,13 @@ onMounted(() => {
 <template>
   <div class="space-y-5">
     <div v-if="!loggedIn" class="rounded-xl border border-border panel p-5 space-y-3">
-      <p class="text-sm text-muted">登录账户后可管理云主机</p>
+      <p class="text-sm text-muted">{{ t('settings.cloud.loginHint') }}</p>
       <button
         type="button"
         class="h-8 px-4 rounded-lg bg-accent text-sm font-medium text-accent-foreground hover:opacity-95 cursor-pointer"
         @click="loginPlatformAccount"
       >
-        浏览器登录
+        {{ t('settings.cloud.browserLogin') }}
       </button>
     </div>
 
@@ -460,23 +471,23 @@ onMounted(() => {
           class="mt-1.5 inline-flex rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground hover:opacity-90 cursor-pointer"
           @click="openPlatformBillingPage"
         >
-          去充值
+          {{ t('settings.cloud.goRecharge') }}
         </button>
       </div>
 
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div v-if="me" class="text-sm flex flex-wrap items-center gap-2">
           <span>
-            <span class="text-muted">余额 </span>
+            <span class="text-muted">{{ t('settings.cloud.balanceLabel') }}</span>
             <span class="font-semibold tabular-nums text-accent">{{ me.balance_yuan }}</span>
-            <span class="text-muted text-xs"> 元</span>
+            <span class="text-muted text-xs"> {{ t('settings.cloud.yuan') }}</span>
           </span>
           <button
             type="button"
             class="h-7 px-2 rounded-lg border border-border text-[11px] hover:bg-hover cursor-pointer"
             @click="openPlatformBillingPage"
           >
-            充值
+            {{ t('settings.cloud.recharge') }}
           </button>
         </div>
         <div class="flex flex-wrap gap-2">
@@ -486,7 +497,7 @@ onMounted(() => {
             :disabled="loading"
             @click="loadAll"
           >
-            <RefreshCw class="w-3.5 h-3.5" />刷新
+            <RefreshCw class="w-3.5 h-3.5" />{{ t('common.refresh') }}
           </button>
           <button
             type="button"
@@ -494,19 +505,14 @@ onMounted(() => {
             @click="openPurchaseModal"
           >
             <Sparkles class="w-3.5 h-3.5" />
-            购买云主机
+            {{ t('settings.cloud.buyCloudHost') }}
           </button>
         </div>
       </div>
 
       <div class="flex flex-wrap gap-2">
         <button
-          v-for="f in ([
-            ['running', '运行中'],
-            ['starting', '启动中'],
-            ['released', '已释放'],
-            ['all', '全部']
-          ] as const)"
+          v-for="f in statusFilterOptions"
           :key="f[0]"
           type="button"
           class="h-7 px-3 rounded-full text-xs border cursor-pointer transition-colors"
@@ -526,7 +532,7 @@ onMounted(() => {
       </div>
 
       <div v-else-if="agents.length === 0" class="rounded-xl border border-border panel p-6 text-center text-sm text-muted">
-        暂无实例
+        {{ t('settings.cloud.noInstances') }}
       </div>
 
       <div v-else class="space-y-3">
@@ -538,10 +544,10 @@ onMounted(() => {
           <div class="flex flex-wrap items-start justify-between gap-2">
             <div>
               <p class="text-sm font-medium text-foreground">
-                {{ agent.server_region?.name_zh || '云主机' }}
+                {{ agent.server_region?.name_zh || t('settings.cloud.cloudHost') }}
               </p>
               <p class="text-xs text-muted mt-0.5">
-                到期 {{ agent.expires_at ? new Date(agent.expires_at).toLocaleString() : '—' }}
+                {{ t('settings.cloud.expiresAt', { value: agent.expires_at ? new Date(agent.expires_at).toLocaleString() : '—' }) }}
               </p>
             </div>
             <span
@@ -568,7 +574,7 @@ onMounted(() => {
               :disabled="openingAgentId === agent.id"
               @click="onOpenAgent(agent)"
             >
-              {{ openingAgentId === agent.id ? '打开中…' : '打开' }}
+              {{ openingAgentId === agent.id ? t('settings.cloud.opening') : t('settings.cloud.open') }}
             </button>
             <template v-if="openWindowMap[agent.id]">
               <button
@@ -576,14 +582,14 @@ onMounted(() => {
                 class="h-8 px-3 rounded-lg border border-border text-xs hover:bg-hover cursor-pointer"
                 @click="onFocusAgent(agent.id)"
               >
-                切换到云窗口
+                {{ t('settings.cloud.switchToCloudWindow') }}
               </button>
               <button
                 type="button"
                 class="h-8 px-3 rounded-lg border border-border text-xs hover:bg-hover cursor-pointer"
                 @click="onCloseWindow(agent.id)"
               >
-                关闭云窗口
+                {{ t('settings.cloud.closeCloudWindow') }}
               </button>
             </template>
             <button
@@ -592,7 +598,7 @@ onMounted(() => {
               class="h-8 px-3 rounded-lg border border-border text-xs hover:bg-hover cursor-pointer"
               @click="startRenew(agent)"
             >
-              续费
+              {{ t('settings.cloud.renew') }}
             </button>
             <button
               v-if="agent.instance_status !== 'released' && agent.instance_status !== 'releasing'"
@@ -600,7 +606,7 @@ onMounted(() => {
               class="h-8 px-3 rounded-lg border border-danger/30 text-xs text-danger hover:bg-danger/10 cursor-pointer"
               @click="releaseAgent = agent"
             >
-              释放
+              {{ t('settings.cloud.release') }}
             </button>
           </div>
         </div>
@@ -621,13 +627,13 @@ onMounted(() => {
       >
         <div class="flex items-start justify-between gap-3 px-5 pt-5 pb-4 border-b border-border/70">
           <div class="min-w-0">
-            <h4 id="cloud-purchase-title" class="text-base font-semibold text-foreground">购买云主机</h4>
-            <p class="mt-1 text-xs text-muted leading-relaxed">选择地域与套餐，确认扣款并创建实例</p>
+            <h4 id="cloud-purchase-title" class="text-base font-semibold text-foreground">{{ t('settings.cloud.purchaseTitle') }}</h4>
+            <p class="mt-1 text-xs text-muted leading-relaxed">{{ t('settings.cloud.purchaseHint') }}</p>
           </div>
           <button
             type="button"
             class="shrink-0 flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted hover:bg-hover hover:text-foreground transition-colors cursor-pointer"
-            aria-label="关闭"
+            :aria-label="t('common.close')"
             @click="closePurchaseModal"
           >
             <X class="w-4 h-4" />
@@ -636,11 +642,11 @@ onMounted(() => {
 
         <div class="px-5 py-4 space-y-5 max-h-[min(70vh,560px)] overflow-y-auto">
           <section class="space-y-2">
-            <p class="text-xs font-medium text-muted">部署地域</p>
+            <p class="text-xs font-medium text-muted">{{ t('settings.cloud.region') }}</p>
             <div
               class="flex gap-1 rounded-xl bg-hover/50 p-1"
               role="tablist"
-              aria-label="部署地域"
+              :aria-label="t('settings.cloud.region')"
             >
               <button
                 v-for="r in regions"
@@ -662,7 +668,7 @@ onMounted(() => {
           </section>
 
           <section class="space-y-2">
-            <p class="text-xs font-medium text-muted">套餐类型</p>
+            <p class="text-xs font-medium text-muted">{{ t('settings.cloud.planType') }}</p>
             <div class="grid grid-cols-2 gap-2">
               <button
                 v-for="opt in purchasePackageOptions"
@@ -681,7 +687,7 @@ onMounted(() => {
                   {{ opt.price }}
                   <span class="text-muted font-normal">{{ opt.unit }}</span>
                 </span>
-                <span v-else class="mt-1 block text-xs text-muted">加载单价…</span>
+                <span v-else class="mt-1 block text-xs text-muted">{{ t('settings.cloud.loadingUnitPrice') }}</span>
               </button>
             </div>
             <p
@@ -698,7 +704,7 @@ onMounted(() => {
               <button
                 type="button"
                 class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted hover:bg-hover cursor-pointer disabled:opacity-40"
-                aria-label="减少"
+                :aria-label="t('settings.cloud.decrease')"
                 @click="adjustPurchaseDuration(-1)"
               >
                 <Minus class="w-4 h-4" />
@@ -712,7 +718,7 @@ onMounted(() => {
               <button
                 type="button"
                 class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted hover:bg-hover cursor-pointer"
-                aria-label="增加"
+                :aria-label="t('settings.cloud.increase')"
                 @click="adjustPurchaseDuration(1)"
               >
                 <Plus class="w-4 h-4" />
@@ -730,29 +736,29 @@ onMounted(() => {
           >
             <div class="flex items-center justify-between gap-3">
               <div>
-                <p class="text-xs text-muted">应付金额</p>
+                <p class="text-xs text-muted">{{ t('settings.cloud.amountDue') }}</p>
                 <p
                   v-if="purchasePreviewLoading"
                   class="mt-1 text-sm text-muted inline-flex items-center gap-1.5"
                 >
                   <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                  计算中…
+                  {{ t('settings.cloud.calculating') }}
                 </p>
                 <p v-else-if="purchasePreview" class="mt-0.5 text-2xl font-semibold tabular-nums text-accent">
                   {{ purchasePreview.paid_yuan }}
-                  <span class="text-sm font-normal text-muted">元</span>
+                  <span class="text-sm font-normal text-muted">{{ t('settings.cloud.yuan') }}</span>
                 </p>
-                <p v-else class="mt-1 text-sm text-muted">填写有效时长后自动计算</p>
+                <p v-else class="mt-1 text-sm text-muted">{{ t('settings.cloud.enterDurationHint') }}</p>
               </div>
               <div v-if="me && purchasePreview" class="text-right text-[11px] text-muted leading-relaxed">
-                <p>当前余额 {{ me.balance_yuan }} 元</p>
+                <p>{{ t('settings.cloud.currentBalance', { balance: me.balance_yuan }) }}</p>
               </div>
             </div>
             <p
               v-if="purchasePreview && purchasePreview.discount_percent_applied > 0"
               class="mt-2 text-[11px] text-muted"
             >
-              已优惠 {{ purchasePreview.discount_yuan }} 元（{{ purchasePreview.discount_percent_applied }}%）
+              {{ t('settings.cloud.discountApplied', { amount: purchasePreview.discount_yuan, percent: purchasePreview.discount_percent_applied }) }}
             </p>
           </section>
         </div>
@@ -763,7 +769,7 @@ onMounted(() => {
             class="h-9 px-4 rounded-lg border border-border text-xs text-muted hover:bg-hover cursor-pointer"
             @click="closePurchaseModal"
           >
-            取消
+            {{ t('common.cancel') }}
           </button>
           <button
             type="button"
@@ -772,7 +778,7 @@ onMounted(() => {
             @click="confirmPurchase"
           >
             <Loader2 v-if="purchaseSubmitting" class="w-3.5 h-3.5 animate-spin" />
-            {{ purchaseSubmitting ? '提交中…' : '确认购买' }}
+            {{ purchaseSubmitting ? t('settings.cloud.submitting') : t('settings.cloud.confirmPurchase') }}
           </button>
         </div>
       </div>
@@ -785,18 +791,18 @@ onMounted(() => {
       @click.self="renewAgent = null"
     >
       <div class="w-full max-w-sm rounded-xl border border-border bg-[hsl(var(--card))] p-5 space-y-4">
-        <h4 class="text-sm font-semibold">续费云主机</h4>
-        <p class="text-xs text-muted">沿用当前套餐类型与时长参数</p>
-        <p v-if="renewPreview" class="text-sm">应付 {{ renewPreview.paid_yuan }} 元</p>
+        <h4 class="text-sm font-semibold">{{ t('settings.cloud.renewTitle') }}</h4>
+        <p class="text-xs text-muted">{{ t('settings.cloud.renewHint') }}</p>
+        <p v-if="renewPreview" class="text-sm">{{ t('settings.cloud.renewAmountDue', { amount: renewPreview.paid_yuan }) }}</p>
         <div class="flex justify-end gap-2">
-          <button type="button" class="h-8 px-3 rounded-lg border border-border text-xs" @click="renewAgent = null">取消</button>
+          <button type="button" class="h-8 px-3 rounded-lg border border-border text-xs" @click="renewAgent = null">{{ t('common.cancel') }}</button>
           <button
             type="button"
             class="h-8 px-3 rounded-lg bg-accent text-xs text-accent-foreground disabled:opacity-50"
             :disabled="renewSubmitting || !renewPreview"
             @click="confirmRenew"
           >
-            {{ renewSubmitting ? '提交中…' : '确认续费' }}
+            {{ renewSubmitting ? t('settings.cloud.submitting') : t('settings.cloud.confirmRenew') }}
           </button>
         </div>
       </div>
@@ -809,12 +815,12 @@ onMounted(() => {
       @click.self="releaseAgent = null"
     >
       <div class="w-full max-w-sm rounded-xl border border-border bg-[hsl(var(--card))] p-5 space-y-4">
-        <h4 class="text-sm font-semibold text-danger">释放云主机？</h4>
-        <p class="text-xs text-muted">释放后实例将被销毁，数据无法恢复。</p>
+        <h4 class="text-sm font-semibold text-danger">{{ t('settings.cloud.releaseTitle') }}</h4>
+        <p class="text-xs text-muted">{{ t('settings.cloud.releaseHint') }}</p>
         <div class="flex justify-end gap-2">
-          <button type="button" class="h-8 px-3 rounded-lg border border-border text-xs" @click="releaseAgent = null">取消</button>
+          <button type="button" class="h-8 px-3 rounded-lg border border-border text-xs" @click="releaseAgent = null">{{ t('common.cancel') }}</button>
           <button type="button" class="h-8 px-3 rounded-lg bg-danger text-xs text-white disabled:opacity-50" :disabled="releaseSubmitting" @click="confirmRelease">
-            {{ releaseSubmitting ? '释放中…' : '确认释放' }}
+            {{ releaseSubmitting ? t('settings.cloud.releasing') : t('settings.cloud.confirmRelease') }}
           </button>
         </div>
       </div>

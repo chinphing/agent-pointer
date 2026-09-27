@@ -58,7 +58,10 @@ fn handle_new_window(
         let label = format!("popup-{}", POPUP_COUNTER.fetch_add(1, Ordering::Relaxed));
         return match WebviewWindowBuilder::new(app_handle, &label, WebviewUrl::External(url))
             .window_features(features)
-            .title("企业微信授权")
+            .title(pointer_core::i18n::t(
+                "popup.wecom_auth_title",
+                pointer_core::i18n::current_ui_locale(),
+            ))
             .decorations(true)
             .resizable(false)
             .build()

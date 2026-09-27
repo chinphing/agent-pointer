@@ -261,14 +261,17 @@ pub fn run() {
             }
 
             {
-                let show_item = match MenuItemBuilder::with_id("show", "显示 Pointer").build(app) {
+                let loc = pointer_core::i18n::current_ui_locale();
+                let show_label = pointer_core::i18n::t("tray.show_pointer", loc);
+                let quit_label = pointer_core::i18n::t("tray.quit", loc);
+                let show_item = match MenuItemBuilder::with_id("show", show_label).build(app) {
                     Ok(item) => item,
                     Err(e) => {
                         log::warn!("tray: menu item 'show' failed: {e}");
                         return Ok(());
                     }
                 };
-                let quit_item = match MenuItemBuilder::with_id("quit", "退出").build(app) {
+                let quit_item = match MenuItemBuilder::with_id("quit", quit_label).build(app) {
                     Ok(item) => item,
                     Err(e) => {
                         log::warn!("tray: menu item 'quit' failed: {e}");
@@ -455,7 +458,11 @@ pub fn run() {
                         commands::STREAM_EVENT,
                         StreamEvent::UiToast {
                             conversation_id: String::new(),
-                            message: "截图过期已清理".into(),
+                            message: pointer_core::i18n::t(
+                                "toast.capture_purged",
+                                pointer_core::i18n::current_ui_locale(),
+                            )
+                            .into(),
                             level: "warning".into(),
                         },
                     ) {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 defineOptions({ name: 'WorkspaceTerminalPanel' })
 import { Columns2, Copy, FolderPlus, Loader2, RotateCcw, Rows2, X } from 'lucide-vue-next'
@@ -29,6 +30,8 @@ import {
 } from '../../lib/terminalGroups'
 import TerminalSplitPane from './TerminalSplitPane.vue'
 
+
+const { t } = useI18n()
 const props = defineProps<{ workspaceRoot: string; conversationId: string; active: boolean }>()
 
 const consoleStore = useConsoleStore()
@@ -100,14 +103,14 @@ function groupFocusedTab(group: TerminalGroup): WorkspaceConsoleTab | null {
 
 /** tab 标签：序号风格「终端 N」（hover 提示见 groupTitle）。 */
 function groupLabel(index: number): string {
-  return `终端 ${index + 1}`
+  return t('workspace.terminal.tabLabel', { index: index + 1 })
 }
 
 function groupTitle(group: TerminalGroup): string {
   const tab = groupFocusedTab(group)
-  if (!tab) return '终端'
+  if (!tab) return t('workspace.terminal.tabTitleDefault')
   const count = leafCount(group.layout)
-  return count > 1 ? `${tab.cwd}（${count} 个窗格）` : tab.cwd
+  return count > 1 ? t('workspace.terminal.tabTitleMultiPane', { cwd: tab.cwd, count }) : tab.cwd
 }
 
 function groupHasExited(group: TerminalGroup): boolean {
@@ -402,7 +405,7 @@ onBeforeUnmount(() => {
 <template>
   <section class="terminal-panel relative flex min-h-0 flex-1 flex-col bg-transparent text-foreground" @click.self="closeContextMenu">
     <header class="console-chrome flex h-8 shrink-0 items-center gap-1 border-b border-border px-2 text-[11px]">
-      <div class="console-tabs min-w-0 flex-1" role="tablist" aria-label="终端标签">
+      <div class="console-tabs min-w-0 flex-1" role="tablist" :aria-label="t('workspace.terminal.tabsAriaLabel')">
         <button
           v-for="(group, index) in groupsState.groups"
           :key="group.id"
@@ -423,17 +426,17 @@ onBeforeUnmount(() => {
           v-if="hasWorkspace"
           type="button"
           class="console-new-tab"
-          title="新建独立 Shell"
-          aria-label="新建独立 Shell"
+          :title="t('workspace.terminal.newIndependentShellTitle')"
+          :aria-label="t('workspace.terminal.newIndependentShellTitle')"
           :disabled="loading"
           @click="createTab()"
         ><FolderPlus class="h-3.5 w-3.5" /></button>
       </div>
-      <span v-if="loading" class="flex items-center gap-1 text-muted"><Loader2 class="h-3 w-3 animate-spin" />启动中</span>
-      <button type="button" class="terminal-action" title="左右拆分窗格" aria-label="左右拆分窗格" :disabled="!canSplit" @click="splitPane('row')"><Columns2 class="h-3.5 w-3.5" /></button>
-      <button type="button" class="terminal-action" title="上下拆分窗格" aria-label="上下拆分窗格" :disabled="!canSplit" @click="splitPane('column')"><Rows2 class="h-3.5 w-3.5" /></button>
-      <button type="button" class="terminal-action" title="重启当前 Shell" :disabled="loading || !activePaneTab" @click="restartActiveTab"><RotateCcw class="h-3.5 w-3.5" /></button>
-      <button type="button" class="terminal-action" title="结束当前 Shell" :disabled="loading || !activePaneTab" @click="activePaneLeaf && closePane(activePaneLeaf.id)"><X class="h-3.5 w-3.5" /></button>
+      <span v-if="loading" class="flex items-center gap-1 text-muted"><Loader2 class="h-3 w-3 animate-spin" />{{ t('workspace.terminal.starting') }}</span>
+      <button type="button" class="terminal-action" :title="t('workspace.terminal.splitHorizontalTitle')" :aria-label="t('workspace.terminal.splitHorizontalTitle')" :disabled="!canSplit" @click="splitPane('row')"><Columns2 class="h-3.5 w-3.5" /></button>
+      <button type="button" class="terminal-action" :title="t('workspace.terminal.splitVerticalTitle')" :aria-label="t('workspace.terminal.splitVerticalTitle')" :disabled="!canSplit" @click="splitPane('column')"><Rows2 class="h-3.5 w-3.5" /></button>
+      <button type="button" class="terminal-action" :title="t('workspace.terminal.restartShellTitle')" :disabled="loading || !activePaneTab" @click="restartActiveTab"><RotateCcw class="h-3.5 w-3.5" /></button>
+      <button type="button" class="terminal-action" :title="t('workspace.terminal.closeShellTitle')" :disabled="loading || !activePaneTab" @click="activePaneLeaf && closePane(activePaneLeaf.id)"><X class="h-3.5 w-3.5" /></button>
     </header>
     <div
       v-if="contextMenu"
@@ -441,13 +444,13 @@ onBeforeUnmount(() => {
       role="menu"
       :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
     >
-      <button type="button" role="menuitem" @click="copyPath(contextMenu.group)"><Copy class="h-3.5 w-3.5" />复制完整路径</button>
-      <button type="button" role="menuitem" @click="closeTab(contextMenu.group.id); closeContextMenu()"><X class="h-3.5 w-3.5" />关闭 Shell</button>
+      <button type="button" role="menuitem" @click="copyPath(contextMenu.group)"><Copy class="h-3.5 w-3.5" />{{ t('workspace.terminal.copyFullPath') }}</button>
+      <button type="button" role="menuitem" @click="closeTab(contextMenu.group.id); closeContextMenu()"><X class="h-3.5 w-3.5" />{{ t('workspace.terminal.closeShell') }}</button>
     </div>
-    <p v-if="!hasWorkspace" class="m-auto max-w-56 text-center text-xs text-muted">请先在输入区选择项目目录，再启动调试终端。</p>
+    <p v-if="!hasWorkspace" class="m-auto max-w-56 text-center text-xs text-muted">{{ t('workspace.terminal.selectWorkspaceHint') }}</p>
     <div v-else-if="groupsState.groups.length === 0 && !loading" class="m-auto flex flex-col items-center gap-3 text-center text-xs text-muted">
-      <p>新建一个独立 Shell；每个标签有自己的目录、环境和前台进程。</p>
-      <button type="button" class="console-create-first" @click="createTab()"><FolderPlus class="h-3.5 w-3.5" />新建终端</button>
+      <p>{{ t('workspace.terminal.newShellHint') }}</p>
+      <button type="button" class="console-create-first" @click="createTab()"><FolderPlus class="h-3.5 w-3.5" />{{ t('workspace.terminal.newTerminal') }}</button>
     </div>
     <p v-if="error" class="absolute inset-x-3 top-11 z-10 rounded border border-danger/40 bg-danger/10 p-2 text-xs text-danger">{{ error }}</p>
     <div

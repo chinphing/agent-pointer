@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   formatExperienceCardExcerpt,
   getExperienceDetail,
@@ -10,6 +11,8 @@ import type { ExperienceListItem } from '../../types/experience'
 import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 
+
+const { t } = useI18n()
 const HOT_LIMIT = 5
 
 const chat = useChatStore()
@@ -53,7 +56,7 @@ async function onSelect(item: ExperienceListItem) {
     }
   } catch (e) {
     console.warn('experience detail load failed', e)
-    chat.showUiToast('经验加载失败，请稍后重试', 'warning')
+    chat.showUiToast(t('experience.loadDetailFailed'), 'warning')
   } finally {
     loadingSlug.value = null
   }

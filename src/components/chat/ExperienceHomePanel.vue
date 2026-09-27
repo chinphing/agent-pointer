@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   listExperienceHome,
   searchExperiences,
@@ -17,6 +18,7 @@ import { usePlatformAuthStore } from '../../stores/platformAuth'
 
 const FEATURED_TAB_ID = '__featured__'
 
+const { t } = useI18n()
 const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
 
@@ -40,7 +42,7 @@ const homeTabs = computed((): ExperienceHomeCategoryBlock[] => {
   if (featuredItems.value.length > 0) {
     tabs.push({
       id: FEATURED_TAB_ID,
-      name_zh: '热门',
+      name_zh: t('experience.hotTabName'),
       items: featuredItems.value,
     })
   }
@@ -92,7 +94,7 @@ onMounted(async () => {
     }
   } catch (e) {
     console.warn('experience home load failed', e)
-    loadErr.value = '经验加载失败'
+    loadErr.value = t('experience.loadFailed')
   }
 })
 
@@ -132,7 +134,7 @@ async function onSelect(item: ExperienceListItem) {
     }
   } catch (e) {
     console.warn('experience detail load failed', e)
-    chat.showUiToast('经验加载失败，请稍后重试', 'warning')
+    chat.showUiToast(t('experience.loadDetailFailed'), 'warning')
   } finally {
     loadingSlug.value = null
   }
@@ -142,7 +144,7 @@ async function onSelect(item: ExperienceListItem) {
 <template>
   <section class="w-full space-y-4">
     <template v-if="!home && !loadErr">
-      <p class="text-center text-xs text-muted">加载中…</p>
+      <p class="text-center text-xs text-muted">{{ t('experience.loading') }}</p>
     </template>
 
     <template v-else-if="loadErr">
@@ -160,7 +162,7 @@ async function onSelect(item: ExperienceListItem) {
               v-if="!searchExpanded"
               type="button"
               class="inline-flex h-7 w-7 shrink-0 items-center justify-center text-muted transition-colors hover:text-foreground"
-              aria-label="搜索经验"
+              :aria-label="t('experience.searchAria')"
               @click="openSearch"
             >
               <Search class="h-3.5 w-3.5" />
@@ -171,7 +173,7 @@ async function onSelect(item: ExperienceListItem) {
                 ref="searchInputEl"
                 v-model="searchInput"
                 type="search"
-                placeholder="搜索…"
+                :placeholder="t('experience.searchPlaceholder')"
                 class="h-7 w-full min-w-0 rounded-full border-0 bg-transparent py-0 pl-8 pr-8 text-xs leading-none outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
                 autocomplete="off"
                 @keydown.esc="closeSearch"
@@ -179,7 +181,7 @@ async function onSelect(item: ExperienceListItem) {
               <button
                 type="button"
                 class="absolute right-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-muted hover:bg-hover hover:text-foreground"
-                aria-label="关闭搜索"
+                :aria-label="t('experience.closeSearchAria')"
                 @click="closeSearch"
               >
                 <X class="h-3.5 w-3.5" />
@@ -212,9 +214,9 @@ async function onSelect(item: ExperienceListItem) {
         </div>
 
         <div v-if="isSearching" role="search">
-          <p v-if="searchLoading" class="text-center text-xs text-muted">搜索中…</p>
+          <p v-if="searchLoading" class="text-center text-xs text-muted">{{ t('experience.searching') }}</p>
           <p v-else-if="searchResults.length === 0" class="text-center text-sm text-muted">
-            未找到相关经验
+            {{ t('experience.noResults') }}
           </p>
           <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <ExperienceHomeCard
@@ -233,7 +235,7 @@ async function onSelect(item: ExperienceListItem) {
             v-if="activeTab.items.length === 0"
             class="flex min-h-[8rem] items-center justify-center rounded-2xl border border-dashed border-border/70 px-4 py-8 text-sm text-muted"
           >
-            板块建设中，敬请期待...
+            {{ t('experience.comingSoon') }}
           </div>
           <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <ExperienceHomeCard

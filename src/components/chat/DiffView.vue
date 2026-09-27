@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ArrowDown, ArrowUp, ChevronDown, ChevronUp, Expand, Minimize2, Search, Space, WrapText, X } from 'lucide-vue-next'
 import { findDiffChangeBlocks, findDiffMatches, showDiffWhitespace } from '../../lib/diffView'
 
+
+
+const { t } = useI18n()
 export type DiffLine = {
   type: 'unchanged' | 'del' | 'ins' | 'collapse'
   text: string
@@ -162,18 +166,18 @@ const numWidth = computed(() => 'calc(3ch + 8px)')
     <div v-if="fillHeight" class="diff-toolbar">
       <label class="diff-search">
         <Search />
-        <input v-model="searchQuery" type="search" placeholder="搜索 Diff" @keydown.enter="onSearchEnter" @compositionstart="searchComposing = true" @compositionend="onSearchCompositionEnd" />
+        <input v-model="searchQuery" type="search" :placeholder="t('diffView.searchPlaceholder')" @keydown.enter="onSearchEnter" @compositionstart="searchComposing = true" @compositionend="onSearchCompositionEnd" />
         <span v-if="searchQuery">{{ searchMatches.length ? `${activeMatchIndex + 1}/${searchMatches.length}` : '0/0' }}</span>
-        <button v-if="searchQuery" type="button" title="清除搜索" @click="searchQuery = ''"><X /></button>
+        <button v-if="searchQuery" type="button" :title="t('diffView.clearSearchTitle')" @click="searchQuery = ''"><X /></button>
       </label>
-      <button type="button" :disabled="!searchMatches.length" title="上一个匹配" @click="stepMatch(-1)"><ArrowUp /></button>
-      <button type="button" :disabled="!searchMatches.length" title="下一个匹配" @click="stepMatch(1)"><ArrowDown /></button>
+      <button type="button" :disabled="!searchMatches.length" :title="t('diffView.prevMatchTitle')" @click="stepMatch(-1)"><ArrowUp /></button>
+      <button type="button" :disabled="!searchMatches.length" :title="t('diffView.nextMatchTitle')" @click="stepMatch(1)"><ArrowDown /></button>
       <span class="diff-toolbar-divider" />
-      <button type="button" :disabled="!changeBlocks.length" title="上一个变更块" @click="stepBlock(-1)"><ChevronUp /></button>
-      <button type="button" :disabled="!changeBlocks.length" title="下一个变更块" @click="stepBlock(1)"><ChevronDown /></button>
-      <button type="button" :class="wrapLines && 'is-active'" title="切换长行换行" @click="wrapLines = !wrapLines"><WrapText /></button>
-      <button type="button" :class="showWhitespace && 'is-active'" title="显示空白字符" @click="showWhitespace = !showWhitespace"><Space /></button>
-      <button type="button" :title="maximized ? '退出放大' : '放大 Diff'" @click="toggleMaximized">
+      <button type="button" :disabled="!changeBlocks.length" :title="t('diffView.prevChangeBlockTitle')" @click="stepBlock(-1)"><ChevronUp /></button>
+      <button type="button" :disabled="!changeBlocks.length" :title="t('diffView.nextChangeBlockTitle')" @click="stepBlock(1)"><ChevronDown /></button>
+      <button type="button" :class="wrapLines && 'is-active'" :title="t('diffView.toggleWrapTitle')" @click="wrapLines = !wrapLines"><WrapText /></button>
+      <button type="button" :class="showWhitespace && 'is-active'" :title="t('diffView.toggleWhitespaceTitle')" @click="showWhitespace = !showWhitespace"><Space /></button>
+      <button type="button" :title="maximized ? t('diffView.exitMaximizeTitle') : t('diffView.maximizeTitle')" @click="toggleMaximized">
         <Minimize2 v-if="maximized" /><Expand v-else />
       </button>
     </div>
@@ -191,7 +195,7 @@ const numWidth = computed(() => 'calc(3ch + 8px)')
             @click="!line.isHunkHeader && toggleCollapse(idx)"
           >
             <span v-if="!line.isHunkHeader" class="diff-collapse-icon">{{ expanded.has(idx) ? '▾' : '▸' }}</span>
-            <span class="diff-collapse-text">{{ line.isHunkHeader ? line.text : `┄ 展开 ${line.text} 行 ┄` }}</span>
+            <span class="diff-collapse-text">{{ line.isHunkHeader ? line.text : t('diffView.expandLines', { count: line.text }) }}</span>
           </div>
 
           <template v-if="line.type === 'collapse' && expanded.has(idx)">
@@ -224,9 +228,9 @@ const numWidth = computed(() => 'calc(3ch + 8px)')
       </div>
     </div>
     <div v-if="diffStats && (diffStats.adds || diffStats.dels)" class="diff-footer">
-      <span class="diff-stat-diff">+{{ diffStats.adds }}<span class="num-label"> 新增</span></span>
-      <span class="diff-stat-diff diff-stat-del">-{{ diffStats.dels }}<span class="num-label"> 删除</span></span>
-      <span v-if="fillHeight" class="ml-auto text-neutral-500">{{ changeBlocks.length }} 个变更块</span>
+      <span class="diff-stat-diff">+{{ diffStats.adds }}<span class="num-label"> {{ t('diffView.additions') }}</span></span>
+      <span class="diff-stat-diff diff-stat-del">-{{ diffStats.dels }}<span class="num-label"> {{ t('diffView.deletions') }}</span></span>
+      <span v-if="fillHeight" class="ml-auto text-neutral-500">{{ t('diffView.changeBlocksCount', { count: changeBlocks.length }) }}</span>
     </div>
   </div>
 </template>

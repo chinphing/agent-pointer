@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { MousePointerClick } from 'lucide-vue-next'
 import { formatExperienceCardExcerpt, truncateExperienceCardTitle } from '../../lib/experiences'
 import type { ExperienceListItem } from '../../types/experience'
 
+
+const { t } = useI18n()
 defineProps<{
   item: ExperienceListItem
   tone: string
@@ -36,7 +39,7 @@ const emit = defineEmits<{
     </div>
     <p class="experience-card__body">{{ formatExperienceCardExcerpt(item.excerpt) }}</p>
     <span class="experience-card__hint" aria-hidden="true">
-      点击使用
+      {{ t('experience.clickToUse') }}
       <MousePointerClick class="h-3.5 w-3.5 shrink-0" />
     </span>
   </button>

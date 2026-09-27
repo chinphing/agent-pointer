@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Image as ImageIcon, Mic, Video, X } from 'lucide-vue-next'
 import type { ComposerAttachment } from '../../types/chat'
 import { getComposerAttachmentPreviewUrl } from '../../lib/attachmentPayloadStore'
 import { videoPreviewUrlFromLocalPath, resolveVideoPreviewUrl } from '../../lib/chatMediaPreview'
 import AttachmentFileIcon from './AttachmentFileIcon.vue'
 
+
+
+const { t } = useI18n()
 const props = defineProps<{
   attachment: ComposerAttachment
 }>()
@@ -69,20 +73,21 @@ function previewUrl(att: ComposerAttachment): string | null {
 }
 
 function uploadLabel(att: ComposerAttachment): string | undefined {
-  if (att.uploadState === 'compressing') return '压缩中…'
+  if (att.uploadState === 'compressing') return t('attachmentChip.compressing')
   if (att.uploadState === 'uploading' || att.uploadState === 'pending') {
-    if (att.uploadError?.startsWith('重试')) return att.uploadError
+    // Retry status text from Composer (locale-aware) takes precedence over progress %.
+    if (att.uploadError) return att.uploadError
     const pct = att.uploadProgress ?? 0
     // 100% = bytes sent; server may still be saving / OSS — keep 100% visible.
-    if (pct >= 100) return '处理中 100%'
-    return `上传中 ${pct}%`
+    if (pct >= 100) return t('attachmentChip.processing100')
+    return t('attachmentChip.uploading', { pct })
   }
-  if (att.uploadState === 'error') return att.uploadError || '上传失败'
+  if (att.uploadState === 'error') return att.uploadError || t('attachmentChip.uploadFailed')
   if (att.uploadState === 'done') {
-    if (att.kind === 'video' && att.remoteUrl) return '已上传'
-    if (att.storageRelPath) return '已上传'
+    if (att.kind === 'video' && att.remoteUrl) return t('attachmentChip.uploaded')
+    if (att.storageRelPath) return t('attachmentChip.uploaded')
   }
-  if (att.kind === 'video' && att.remoteUrl) return '已上传'
+  if (att.kind === 'video' && att.remoteUrl) return t('attachmentChip.uploaded')
   return undefined
 }
 
@@ -138,7 +143,7 @@ const canRetryUpload = computed(() => props.attachment.uploadState === 'error')
       <button
         type="button"
         class="shrink-0 rounded p-0.5 text-muted hover:bg-muted hover:text-foreground"
-        aria-label="移除附件"
+        :aria-label="t('attachmentChip.removeAria')"
         @click="$emit('remove')"
       >
         <X class="h-3.5 w-3.5" />
@@ -171,7 +176,7 @@ const canRetryUpload = computed(() => props.attachment.uploadState === 'error')
           class="shrink-0 text-[10px] text-muted underline-offset-2 hover:text-foreground hover:underline"
           @click="$emit('cancel')"
         >
-          取消
+          {{ t('attachmentChip.cancel') }}
         </button>
         <button
           v-if="canRetryUpload"
@@ -179,7 +184,7 @@ const canRetryUpload = computed(() => props.attachment.uploadState === 'error')
           class="shrink-0 text-[10px] text-primary underline-offset-2 hover:underline"
           @click="$emit('retry')"
         >
-          重传
+          {{ t('attachmentChip.retry') }}
         </button>
       </div>
     </div>

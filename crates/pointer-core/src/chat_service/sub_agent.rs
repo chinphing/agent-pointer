@@ -164,10 +164,11 @@ pub(crate) async fn run_sub_agent(
             agent_round_lifecycle::LoopGuardOutcome::Continue => {}
             agent_round_lifecycle::LoopGuardOutcome::Cancelled => {
                 state.computer_state.mark_cancelled(conversation_id);
+                let loc = crate::i18n::current_ui_locale();
                 let toast_msg = if def.profile == AgentProfile::Computer {
-                    "计算机操作已取消"
+                    crate::i18n::t("toast.subagent_cancelled_computer", loc)
                 } else {
-                    "子 Agent 已停止"
+                    crate::i18n::t("toast.subagent_cancelled_generic", loc)
                 };
                 crate::stream_broadcast::publish_stream(
                     &stream,

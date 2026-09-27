@@ -1,4 +1,5 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   DEFAULT_CHANNEL_IDLE_MINUTES,
   type ChannelAccountConfig,
@@ -26,6 +27,7 @@ import {
 } from '../lib/channel-setup-status'
 
 export function useChannelSettingsForm() {
+  const { t } = useI18n()
   const loading = ref(false)
   const saving = ref(false)
   const connecting = ref(false)
@@ -33,12 +35,12 @@ export function useChannelSettingsForm() {
   const pairingCode = ref('')
   const pairingSuccess = ref('')
 
-  const CHANNEL_TABS: { id: ChannelTab; label: string }[] = [
-    { id: 'weixin', label: '微信' },
-    { id: 'feishu', label: '飞书' },
-    { id: 'wecom', label: '企微' },
-    { id: 'dingtalk', label: '钉钉' }
-  ]
+  const CHANNEL_TABS = computed<{ id: ChannelTab; label: string }[]>(() => [
+    { id: 'weixin', label: t('settings.channels.tabs.weixin') },
+    { id: 'feishu', label: t('settings.channels.tabs.feishu') },
+    { id: 'wecom', label: t('settings.channels.tabs.wecom') },
+    { id: 'dingtalk', label: t('settings.channels.tabs.dingtalk') }
+  ])
 
   const activeTab = ref<ChannelTab>('weixin')
 
@@ -84,34 +86,29 @@ export function useChannelSettingsForm() {
   let refreshingConfig = false
   let persistingConfig = false
 
-  const COMMON_SETTINGS_HELP =
-    '以下配置对所有 IM 通道（微信、飞书、企微、钉钉）生效。'
+  const COMMON_SETTINGS_HELP = computed(() => t('settings.channels.commonSettingsHelp'))
 
-  const SESSION_RESET_HELP =
-    'IM 中发送 /new、/reset、新对话 或 重新开始 可手动开新会话。下方为空闲自动重置，默认 60 分钟，0 表示关闭。'
+  const SESSION_RESET_HELP = computed(() => t('settings.channels.sessionResetHelp'))
 
-  const IM_OUTBOUND_HELP =
-    '控制 Agent 运行过程中推送到 IM 的消息。最终回复仍会发送；工具进度只推送「开始调用」，不推送完成/失败状态。'
+  const IM_OUTBOUND_HELP = computed(() => t('settings.channels.imOutboundHelp'))
 
-  const PUBLIC_BASE_URL_HELP =
-    '各通道启用 Webhook 模式时需要填写，用于生成平台回调地址。'
+  const PUBLIC_BASE_URL_HELP = computed(() => t('settings.channels.publicBaseUrlHelp'))
 
-  const PAIRING_HELP =
-    'DM 策略为配对模式时，陌生用户会收到配对码，在此输入并批准后可开始对话。'
+  const PAIRING_HELP = computed(() => t('settings.channels.pairingHelp'))
 
-  const CONNECTION_MODE_LABELS: Record<ChannelTab, string> = {
-    weixin: 'iLink 长轮询',
-    feishu: 'WSS 长连接',
-    wecom: 'WSS 长连接',
-    dingtalk: 'Stream 长连接'
-  }
+  const CONNECTION_MODE_LABELS = computed<Record<ChannelTab, string>>(() => ({
+    weixin: t('settings.channels.connectionModeLabels.weixin'),
+    feishu: t('settings.channels.connectionModeLabels.feishu'),
+    wecom: t('settings.channels.connectionModeLabels.wecom'),
+    dingtalk: t('settings.channels.connectionModeLabels.dingtalk')
+  }))
 
-  const tabHints: Record<ChannelTab, string> = {
-    weixin: '使用微信 App 扫描二维码，在手机上确认登录',
-    feishu: '使用飞书 App 扫描二维码，按提示完成应用授权',
-    wecom: '使用企业微信 App 扫描二维码，点击「一键创建智能机器人」',
-    dingtalk: '使用钉钉 App 扫描二维码，点击「一键创建新机器人」'
-  }
+  const tabHints = computed<Record<ChannelTab, string>>(() => ({
+    weixin: t('settings.channels.tabHints.weixin'),
+    feishu: t('settings.channels.tabHints.feishu'),
+    wecom: t('settings.channels.tabHints.wecom'),
+    dingtalk: t('settings.channels.tabHints.dingtalk')
+  }))
 
   function normalizeAllConnectionModes() {
     for (const ch of ['feishu', 'dingtalk', 'wecom'] as const) {
@@ -130,7 +127,7 @@ export function useChannelSettingsForm() {
 
   const channelStatusByTab = computed(() => {
     const out = {} as Record<ChannelTab, ReturnType<typeof resolveChannelStatus>>
-    for (const { id } of CHANNEL_TABS) {
+    for (const { id } of CHANNEL_TABS.value) {
       out[id] = resolveChannelStatus(
         id,
         config.value,
@@ -182,22 +179,22 @@ export function useChannelSettingsForm() {
   })
 
   const activeConnectLabel = computed(() => {
-    if (connecting.value) return '连接中…'
-    if (connectionByTab.value[activeTab.value]) return '重新连接'
-    return '连接'
+    if (connecting.value) return t('settings.channels.connecting')
+    if (connectionByTab.value[activeTab.value]) return t('settings.channels.reconnect')
+    return t('settings.channels.connect')
   })
 
   const activeScanLabel = computed(() => {
-    if (activeScanBusy.value) return '处理中…'
-    if (activeQrBase64.value || activeHasCredentials.value) return '重新扫码'
-    return '开始扫码'
+    if (activeScanBusy.value) return t('settings.channels.processing')
+    if (activeQrBase64.value || activeHasCredentials.value) return t('settings.channels.rescan')
+    return t('settings.channels.startScan')
   })
 
   const activeConnectionLabel = computed(() => {
-    if (activeTab.value === 'weixin') return CONNECTION_MODE_LABELS.weixin
+    if (activeTab.value === 'weixin') return CONNECTION_MODE_LABELS.value.weixin
     const acc = config.value[activeTab.value]?.default
-    if (acc?.connectionMode === 'webhook') return 'HTTP 回调'
-    return CONNECTION_MODE_LABELS[activeTab.value]
+    if (acc?.connectionMode === 'webhook') return t('settings.channels.connectionModeLabels.webhook')
+    return CONNECTION_MODE_LABELS.value[activeTab.value]
   })
 
   const idleMinutes = computed(
@@ -324,7 +321,7 @@ export function useChannelSettingsForm() {
       const status = await listChannelStatus()
       const next: Partial<Record<ChannelTab, boolean>> = {}
       for (const item of status.channels) {
-        if (item.accountId === 'default' && CHANNEL_TABS.some(t => t.id === item.channel)) {
+        if (item.accountId === 'default' && CHANNEL_TABS.value.some(tab => tab.id === item.channel)) {
           next[item.channel as ChannelTab] = item.connected
         }
       }
@@ -344,7 +341,7 @@ export function useChannelSettingsForm() {
       const nextConn: Partial<Record<ChannelTab, boolean>> = {}
       for (const item of status.channels) {
         webhookUrls.value[urlKey(item.channel, item.accountId)] = item.webhookUrl
-        if (item.accountId === 'default' && CHANNEL_TABS.some(t => t.id === item.channel)) {
+        if (item.accountId === 'default' && CHANNEL_TABS.value.some(tab => tab.id === item.channel)) {
           nextConn[item.channel as ChannelTab] = item.connected
         }
       }
@@ -444,18 +441,18 @@ export function useChannelSettingsForm() {
     error.value = ''
     try {
       enableChannelLocally(tab)
-      setChannelSessionMessage(tab, '正在连接…')
+      setChannelSessionMessage(tab, t('settings.channels.connectingStatus'))
       await persistConfig(true)
       const connected = await waitForChannelConnection(tab)
       setChannelSessionMessage(
         tab,
-        connected ? '连接成功，运行中可收发消息' : '连接未建立，请稍后点击「连接」重试'
+        connected ? t('settings.channels.connectSuccess') : t('settings.channels.connectPending')
       )
       if (!connected) {
-        error.value = '通道在预期时间内未建立连接，请检查凭证或网络后重试'
+        error.value = t('settings.channels.connectTimeoutError')
       }
     } catch (e) {
-      setChannelSessionMessage(tab, '连接失败')
+      setChannelSessionMessage(tab, t('settings.channels.connectFailed'))
       error.value = e instanceof Error ? e.message : String(e)
     } finally {
       connecting.value = false
@@ -479,15 +476,15 @@ export function useChannelSettingsForm() {
   function weixinStatusLabel(status: string): string {
     switch (status) {
       case 'pending':
-        return '等待扫码'
+        return t('settings.channels.weixinStatus.pending')
       case 'scanned':
-        return '已扫码，请在手机上确认'
+        return t('settings.channels.weixinStatus.scanned')
       case 'confirmed':
-        return '登录成功'
+        return t('settings.channels.weixinStatus.confirmed')
       case 'expired':
-        return '二维码已过期'
+        return t('settings.channels.weixinStatus.expired')
       case 'failed':
-        return '登录失败'
+        return t('settings.channels.weixinStatus.failed')
       default:
         return status
     }
@@ -496,17 +493,17 @@ export function useChannelSettingsForm() {
   function registrationStatusLabel(status: string): string {
     switch (status) {
       case 'pending':
-        return '等待扫码'
+        return t('settings.channels.registrationStatus.pending')
       case 'success':
-        return '授权成功，凭证已填入'
+        return t('settings.channels.registrationStatus.success')
       case 'denied':
-        return '用户拒绝授权'
+        return t('settings.channels.registrationStatus.denied')
       case 'expired':
-        return '二维码已过期'
+        return t('settings.channels.registrationStatus.expired')
       case 'timeout':
-        return '授权超时'
+        return t('settings.channels.registrationStatus.timeout')
       case 'failed':
-        return '授权失败'
+        return t('settings.channels.registrationStatus.failed')
       default:
         return status
     }
@@ -524,7 +521,7 @@ export function useChannelSettingsForm() {
   async function startWeixinQr() {
     error.value = ''
     weixinBusy.value = true
-    weixinLoginStatus.value = '正在获取二维码…'
+    weixinLoginStatus.value = t('settings.channels.fetchingQr')
     try {
       const session = await startWeixinLogin('default')
       weixinQr.value = session.qrcodePngBase64
@@ -577,7 +574,7 @@ export function useChannelSettingsForm() {
       if (session.status === 'success') {
         qrByChannel.value[channel] = ''
         applyRegistrationCredentials(channel, session)
-        regStatusByChannel.value[channel] = '授权成功，正在连接…'
+        regStatusByChannel.value[channel] = t('settings.channels.registrationSuccessConnecting')
         await connectChannel(channel)
         return
       }
@@ -587,13 +584,13 @@ export function useChannelSettingsForm() {
         return
       }
     }
-    regStatusByChannel.value[channel] = '授权超时，请重新扫码'
+    regStatusByChannel.value[channel] = t('settings.channels.registrationTimeout')
   }
 
   async function startQrRegistration(channel: 'feishu' | 'dingtalk' | 'wecom') {
     error.value = ''
     regBusy.value[channel] = true
-    regStatusByChannel.value[channel] = '正在获取二维码…'
+    regStatusByChannel.value[channel] = t('settings.channels.fetchingQr')
     try {
       const session = await startChannelRegistration(channel, 'default')
       qrByChannel.value[channel] = session.qrcodePngBase64
@@ -624,7 +621,7 @@ export function useChannelSettingsForm() {
         await refreshWeixinLoginState()
         if (weixinLoggedIn.value) {
           weixinQr.value = ''
-          weixinLoginStatus.value = '登录成功，正在连接…'
+          weixinLoginStatus.value = t('settings.channels.weixinLoginSuccessConnecting')
           await connectChannel('weixin')
         }
         return
@@ -633,7 +630,7 @@ export function useChannelSettingsForm() {
       if (s.status === 'confirmed') {
         weixinQr.value = ''
         weixinLoggedIn.value = true
-        weixinLoginStatus.value = '登录成功，正在连接…'
+        weixinLoginStatus.value = t('settings.channels.weixinLoginSuccessConnecting')
         await connectChannel('weixin')
         return
       }
@@ -643,7 +640,7 @@ export function useChannelSettingsForm() {
         return
       }
     }
-    weixinLoginStatus.value = '登录超时，请重新扫码'
+    weixinLoginStatus.value = t('settings.channels.weixinLoginTimeout')
   }
 
   async function approvePairingAuto() {
@@ -653,8 +650,8 @@ export function useChannelSettingsForm() {
       const channel = await approveChannelPairingAny('default', pairingCode.value.trim())
       pairingCode.value = ''
       error.value = ''
-      const label = CHANNEL_TABS.find(t => t.id === channel)?.label ?? channel
-      pairingSuccess.value = `配对成功（${label}），请重新发送消息。`
+      const label = CHANNEL_TABS.value.find(tab => tab.id === channel)?.label ?? channel
+      pairingSuccess.value = t('settings.channels.pairingSuccess', { label })
     } catch (e) {
       pairingSuccess.value = ''
       error.value = e instanceof Error ? e.message : String(e)

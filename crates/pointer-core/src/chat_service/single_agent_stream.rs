@@ -151,7 +151,11 @@ pub(super) async fn run_provider_stream_round(
                     &stream,
                     StreamEvent::UiToast {
                         conversation_id: conversation_id.clone(),
-                        message: "上下文超限，正在压缩后继续".into(),
+                        message: crate::i18n::t(
+                            "toast.single_agent_context_compressing",
+                            crate::i18n::current_ui_locale(),
+                        )
+                        .into(),
                         level: "warning".into(),
                     },
                 );
@@ -190,7 +194,10 @@ pub(super) async fn run_provider_stream_round(
                 );
                 state.computer_state.mark_cancelled(&conversation_id);
                 return Err(super::emit::chat_run_err(
-                    "上下文过大且无法压缩，请新开对话或删减内容",
+                    crate::i18n::t(
+                        "toast.context_too_large_short",
+                        crate::i18n::current_ui_locale(),
+                    ),
                     Some(assistant_id.clone()),
                 ));
             }

@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ChevronDown, CircleHelp, Copy, Plug, QrCode, RefreshCw } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import { useChannelSettingsForm } from '../../composables/useChannelSettingsForm'
+
+const { t } = useI18n()
 
 const {
   loading,
@@ -47,7 +50,7 @@ defineExpose({ save })
 <template>
   <div class="space-y-5">
     <p class="text-sm text-muted">
-      扫码授权成功后会自动连接；手填凭证需点「连接」。底部「保存」写入全部通道配置。飞书 / 企微为 WSS 长连接，钉钉为 Stream 长连接。
+      {{ t('settings.channels.intro') }}
     </p>
 
     <div v-if="error" class="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
@@ -89,7 +92,7 @@ defineExpose({ save })
           </div>
         </div>
         <label class="flex items-center gap-2 text-xs shrink-0">
-          <span class="text-muted">启用</span>
+          <span class="text-muted">{{ t('settings.channels.enable') }}</span>
           <input
             v-if="activeTab === 'weixin'"
             v-model="config.weixin!.default.enabled"
@@ -124,7 +127,7 @@ defineExpose({ save })
           </div>
           <div v-else class="qr-placeholder">
             <QrCode class="w-10 h-10 text-muted/50" />
-            <p class="text-sm text-muted mt-3">扫码连接</p>
+            <p class="text-sm text-muted mt-3">{{ t('settings.channels.scanToConnect') }}</p>
           </div>
 
           <p
@@ -158,30 +161,30 @@ defineExpose({ save })
           </div>
 
           <p v-if="activeTab === 'weixin' && !tauriMode" class="text-xs text-muted mt-2">
-            微信扫码登录仅支持桌面客户端
+            {{ t('settings.channels.weixinDesktopOnly') }}
           </p>
         </div>
 
         <details class="manual-section mt-5">
           <summary class="manual-summary">
-            <span>手动填写凭证</span>
+            <span>{{ t('settings.channels.manualCredentials') }}</span>
             <ChevronDown class="w-4 h-4 summary-chevron" />
           </summary>
 
           <div class="manual-body space-y-3">
             <template v-if="activeTab === 'weixin'">
-              <p class="text-xs text-muted">微信通过扫码登录获取凭证，无需手填。</p>
+              <p class="text-xs text-muted">{{ t('settings.channels.weixinManualHint') }}</p>
             </template>
 
             <template v-else-if="activeTab === 'feishu'">
               <input
                 v-model="config.feishu!.default.appId"
-                placeholder="App ID（如 cli_xxxxxxxx）"
+                :placeholder="t('settings.channels.feishuAppIdPlaceholder')"
                 class="field placeholder:text-muted"
               />
               <input
                 v-model="config.feishu!.default.appSecret"
-                placeholder="App Secret"
+                :placeholder="t('settings.channels.feishuAppSecretPlaceholder')"
                 class="field placeholder:text-muted"
               />
             </template>
@@ -189,17 +192,17 @@ defineExpose({ save })
             <template v-else-if="activeTab === 'wecom'">
               <input
                 v-model="config.wecom!.default.botId"
-                placeholder="智能机器人 Bot ID"
+                :placeholder="t('settings.channels.wecomBotIdPlaceholder')"
                 class="field placeholder:text-muted"
               />
               <input
                 v-model="config.wecom!.default.secret"
-                placeholder="Bot Secret"
+                :placeholder="t('settings.channels.wecomSecretPlaceholder')"
                 class="field placeholder:text-muted"
               />
               <input
                 v-model="config.wecom!.default.websocketUrl"
-                placeholder="WSS 地址（留空则用 wss://openws.work.weixin.qq.com）"
+                :placeholder="t('settings.channels.wecomWebsocketUrlPlaceholder')"
                 class="field placeholder:text-muted"
               />
             </template>
@@ -207,12 +210,12 @@ defineExpose({ save })
             <template v-else>
               <input
                 v-model="config.dingtalk!.default.clientId"
-                placeholder="Client ID / AppKey"
+                :placeholder="t('settings.channels.dingtalkClientIdPlaceholder')"
                 class="field placeholder:text-muted"
               />
               <input
                 v-model="config.dingtalk!.default.clientSecret"
-                placeholder="Client Secret / AppSecret"
+                :placeholder="t('settings.channels.dingtalkClientSecretPlaceholder')"
                 class="field placeholder:text-muted"
               />
             </template>
@@ -221,12 +224,12 @@ defineExpose({ save })
 
         <details class="manual-section mt-3">
           <summary class="manual-summary">
-            <span>高级设置（Webhook 备选）</span>
+            <span>{{ t('settings.channels.advancedWebhook') }}</span>
             <ChevronDown class="w-4 h-4 summary-chevron" />
           </summary>
           <div class="manual-body space-y-4">
             <p class="text-xs text-muted">
-              默认使用 WSS / Stream 长连接。仅在需要 HTTP 回调时才启用 Webhook 模式。
+              {{ t('settings.channels.advancedWebhookHint') }}
             </p>
 
             <div v-if="activeTab === 'feishu'" class="space-y-2">
@@ -236,13 +239,13 @@ defineExpose({ save })
                   :checked="config.feishu!.default.connectionMode === 'webhook'"
                   @change="config.feishu!.default.connectionMode = ($event.target as HTMLInputElement).checked ? 'webhook' : 'websocket'"
                 />
-                启用 HTTP 回调（飞书）
+                {{ t('settings.channels.enableFeishuWebhook') }}
               </label>
               <template v-if="config.feishu!.default.connectionMode === 'webhook'">
-                <input v-model="config.feishu!.default.encryptKey" placeholder="Encrypt Key" class="field" />
+                <input v-model="config.feishu!.default.encryptKey" :placeholder="t('settings.channels.encryptKeyPlaceholder')" class="field" />
                 <button type="button" class="btn-ghost" @click="copyWebhook('feishu')">
                   <Copy class="w-3.5 h-3.5" />
-                  复制 Webhook URL
+                  {{ t('settings.channels.copyWebhookUrl') }}
                 </button>
                 <p v-if="webhookUrls[urlKey('feishu')]" class="text-xs text-muted break-all">
                   {{ webhookUrls[urlKey('feishu')] }}
@@ -257,17 +260,17 @@ defineExpose({ save })
                   :checked="config.wecom!.default.connectionMode === 'webhook'"
                   @change="config.wecom!.default.connectionMode = ($event.target as HTMLInputElement).checked ? 'webhook' : 'websocket'"
                 />
-                启用 HTTP 回调（企微 Agent 模式）
+                {{ t('settings.channels.enableWecomWebhook') }}
               </label>
               <template v-if="config.wecom!.default.connectionMode === 'webhook'">
-                <input v-model="config.wecom!.default.corpId" placeholder="Corp ID" class="field" />
-                <input v-model="config.wecom!.default.agentId" placeholder="Agent ID" class="field" />
-                <input v-model="config.wecom!.default.secret" placeholder="应用 Secret" class="field" />
-                <input v-model="config.wecom!.default.token" placeholder="回调 Token" class="field" />
-                <input v-model="config.wecom!.default.encodingAesKey" placeholder="Encoding AES Key" class="field" />
+                <input v-model="config.wecom!.default.corpId" :placeholder="t('settings.channels.corpIdPlaceholder')" class="field" />
+                <input v-model="config.wecom!.default.agentId" :placeholder="t('settings.channels.agentIdPlaceholder')" class="field" />
+                <input v-model="config.wecom!.default.secret" :placeholder="t('settings.channels.wecomSecretFieldPlaceholder')" class="field" />
+                <input v-model="config.wecom!.default.token" :placeholder="t('settings.channels.callbackTokenPlaceholder')" class="field" />
+                <input v-model="config.wecom!.default.encodingAesKey" :placeholder="t('settings.channels.encodingAesKeyPlaceholder')" class="field" />
                 <button type="button" class="btn-ghost" @click="copyWebhook('wecom')">
                   <Copy class="w-3.5 h-3.5" />
-                  复制 Webhook URL
+                  {{ t('settings.channels.copyWebhookUrl') }}
                 </button>
               </template>
             </div>
@@ -279,12 +282,12 @@ defineExpose({ save })
                   :checked="config.dingtalk!.default.connectionMode === 'webhook'"
                   @change="config.dingtalk!.default.connectionMode = ($event.target as HTMLInputElement).checked ? 'webhook' : 'websocket'"
                 />
-                启用 HTTP 回调（钉钉）
+                {{ t('settings.channels.enableDingtalkWebhook') }}
               </label>
               <template v-if="config.dingtalk!.default.connectionMode === 'webhook'">
                 <button type="button" class="btn-ghost" @click="copyWebhook('dingtalk')">
                   <Copy class="w-3.5 h-3.5" />
-                  复制 Webhook URL
+                  {{ t('settings.channels.copyWebhookUrl') }}
                 </button>
                 <p v-if="webhookUrls[urlKey('dingtalk')]" class="text-xs text-muted break-all">
                   {{ webhookUrls[urlKey('dingtalk')] }}
@@ -292,7 +295,7 @@ defineExpose({ save })
               </template>
             </div>
 
-            <div v-else class="text-xs text-muted">微信仅支持 iLink 长轮询，无 Webhook 模式。</div>
+            <div v-else class="text-xs text-muted">{{ t('settings.channels.weixinNoWebhook') }}</div>
           </div>
         </details>
       </div>
@@ -300,12 +303,12 @@ defineExpose({ save })
 
     <div class="common-settings-card">
       <div class="common-settings-title flex items-center gap-1.5">
-        <h3>通用设置</h3>
+        <h3>{{ t('settings.channels.commonSettings') }}</h3>
         <button
           type="button"
           class="field-help"
           :title="COMMON_SETTINGS_HELP"
-          aria-label="通用设置说明"
+          :aria-label="t('settings.channels.commonSettingsHelpAria')"
           @click.stop
         >
           <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
@@ -316,12 +319,12 @@ defineExpose({ save })
         <div class="common-settings-grid">
           <div class="common-settings-cell">
             <div class="common-block-head">
-              <h4 class="common-block-title">IM 出站推送</h4>
+              <h4 class="common-block-title">{{ t('settings.channels.imOutbound') }}</h4>
               <button
                 type="button"
                 class="field-help"
                 :title="IM_OUTBOUND_HELP"
-                aria-label="IM 出站推送说明"
+                :aria-label="t('settings.channels.imOutboundHelpAria')"
                 @click.stop
               >
                 <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
@@ -330,22 +333,22 @@ defineExpose({ save })
             <div class="common-pair-controls common-pair-controls-loose">
               <label class="common-check">
                 <input v-model="sendIntermediateText" type="checkbox" class="rounded" />
-                <span>中间文字</span>
+                <span>{{ t('settings.channels.intermediateText') }}</span>
               </label>
               <label class="common-check">
                 <input v-model="sendToolCalls" type="checkbox" class="rounded" />
-                <span>工具调用</span>
+                <span>{{ t('settings.channels.toolCalls') }}</span>
               </label>
             </div>
           </div>
           <div class="common-settings-cell common-settings-cell-aside">
             <div class="common-block-head">
-              <h4 class="common-block-title">会话重置</h4>
+              <h4 class="common-block-title">{{ t('settings.channels.sessionReset') }}</h4>
               <button
                 type="button"
                 class="field-help"
                 :title="SESSION_RESET_HELP"
-                aria-label="会话重置说明"
+                :aria-label="t('settings.channels.sessionResetHelpAria')"
                 @click.stop
               >
                 <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
@@ -360,17 +363,17 @@ defineExpose({ save })
                 :value="idleMinutes"
                 @input="setIdleMinutes(($event.target as HTMLInputElement).value)"
               />
-              <span class="common-unit">分钟</span>
+              <span class="common-unit">{{ t('settings.channels.minutes') }}</span>
             </div>
           </div>
           <div class="common-settings-cell common-settings-cell-split">
             <div class="common-block-head">
-              <h4 class="common-block-title">公网 Base URL</h4>
+              <h4 class="common-block-title">{{ t('settings.channels.publicBaseUrl') }}</h4>
               <button
                 type="button"
                 class="field-help"
                 :title="PUBLIC_BASE_URL_HELP"
-                aria-label="公网 Base URL 说明"
+                :aria-label="t('settings.channels.publicBaseUrlHelpAria')"
                 @click.stop
               >
                 <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
@@ -379,26 +382,26 @@ defineExpose({ save })
             <input
               v-model="config.meta!.publicBaseUrl"
               class="field"
-              placeholder="https://pointer.example.com"
+              :placeholder="t('settings.channels.publicBaseUrlPlaceholder')"
             />
           </div>
           <div class="common-settings-cell common-settings-cell-aside common-settings-cell-split">
             <div class="common-block-head">
-              <h4 class="common-block-title">配对审批</h4>
+              <h4 class="common-block-title">{{ t('settings.channels.pairingApproval') }}</h4>
               <button
                 type="button"
                 class="field-help"
                 :title="PAIRING_HELP"
-                aria-label="配对审批说明"
+                :aria-label="t('settings.channels.pairingHelpAria')"
                 @click.stop
               >
                 <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
               </button>
             </div>
             <div class="common-aside-controls common-pair-controls">
-              <input v-model="pairingCode" placeholder="配对码" class="field min-w-0 flex-1" />
+              <input v-model="pairingCode" :placeholder="t('settings.channels.pairingCodePlaceholder')" class="field min-w-0 flex-1" />
               <button type="button" class="btn-primary btn-compact shrink-0" @click="approvePairingAuto">
-                批准
+                {{ t('settings.channels.approve') }}
               </button>
             </div>
           </div>
@@ -409,7 +412,7 @@ defineExpose({ save })
     <div class="flex gap-2 pt-1">
       <button type="button" class="btn-ghost" :disabled="loading" @click="refresh">
         <RefreshCw class="w-3.5 h-3.5" />
-        刷新状态
+        {{ t('settings.channels.refreshStatus') }}
       </button>
     </div>
   </div>

@@ -258,9 +258,17 @@ pub async fn run_chat(
                     StreamEvent::UiToast {
                         conversation_id: conversation_id.clone(),
                         message: if started {
-                            "上下文超限，正在压缩（请之后重发）".into()
+                            crate::i18n::t(
+                                "toast.context_compressing_retry_later",
+                                crate::i18n::current_ui_locale(),
+                            )
+                            .into()
                         } else {
-                            "上下文超限，正在压缩后重试".into()
+                            crate::i18n::t(
+                                "toast.context_compressing_retry",
+                                crate::i18n::current_ui_locale(),
+                            )
+                            .into()
                         },
                         level: "warning".into(),
                     },
@@ -310,7 +318,11 @@ pub async fn run_chat(
                         &stream,
                         StreamEvent::UiToast {
                             conversation_id: conversation_id.clone(),
-                            message: "上下文过大且无法压缩保留区，请新开对话或删减内容".into(),
+                            message: crate::i18n::t(
+                                "toast.context_too_large",
+                                crate::i18n::current_ui_locale(),
+                            )
+                            .into(),
                             level: "error".into(),
                         },
                     );

@@ -140,7 +140,11 @@ pub(super) async fn run_sub_agent_stream_round(
                     stream,
                     StreamEvent::UiToast {
                         conversation_id: conversation_id.to_string(),
-                        message: "子任务上下文超限，正在压缩后继续".into(),
+                        message: crate::i18n::t(
+                            "toast.subagent_context_compressing",
+                            crate::i18n::current_ui_locale(),
+                        )
+                        .into(),
                         level: "warning".into(),
                     },
                 );
@@ -180,7 +184,11 @@ pub(super) async fn run_sub_agent_stream_round(
                 }
                 state.computer_state.mark_cancelled(conversation_id);
                 return Err(anyhow!(
-                    "子任务上下文过大且无法压缩，请新开对话或缩小任务范围"
+                    "{}",
+                    crate::i18n::t(
+                        "toast.subagent_context_too_large",
+                        crate::i18n::current_ui_locale(),
+                    )
                 ));
             }
             let rate_limit_delay = rate_limit_retry_delay(&err, sub.local_history);

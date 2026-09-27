@@ -159,27 +159,44 @@ pub(crate) fn compression_done_toast(
     summary_failed: bool,
 ) -> (String, &'static str) {
     let level = if summary_failed { "warning" } else { "success" };
+    let loc = crate::i18n::current_ui_locale();
+    let dropped_s = dropped.to_string();
+    let keep_s = DROP_FALLBACK_KEEP_USER_TURNS.to_string();
     let msg = match ui.scope {
         CompressionScope::Main => {
             if summary_failed {
-                format!(
-                    "摘要生成失败，已丢弃较早 {dropped} 条记录，并保留最近 {keep} 轮用户消息",
-                    keep = DROP_FALLBACK_KEEP_USER_TURNS
+                crate::i18n::tf(
+                    "toast.compress.summary_failed_main",
+                    loc,
+                    &[("dropped", &dropped_s), ("keep", &keep_s)],
                 )
             } else {
-                format!("已压缩较早 {dropped} 条对话为摘要，并保留最近对话")
+                crate::i18n::tf(
+                    "toast.compress.success_main",
+                    loc,
+                    &[("dropped", &dropped_s)],
+                )
             }
         }
         CompressionScope::SubAgent => {
+            let fallback = crate::i18n::t("toast.compress.sub_agent_fallback_name", loc);
             let name = ui
                 .sub_agent_name
                 .as_deref()
                 .filter(|s| !s.is_empty())
-                .unwrap_or("子 Agent");
+                .unwrap_or(fallback);
             if summary_failed {
-                format!("{name} 子任务：摘要失败，已丢弃较早 {dropped} 条记录")
+                crate::i18n::tf(
+                    "toast.compress.summary_failed_sub",
+                    loc,
+                    &[("name", name), ("dropped", &dropped_s)],
+                )
             } else {
-                format!("{name} 子任务：已压缩较早 {dropped} 条记录为摘要")
+                crate::i18n::tf(
+                    "toast.compress.success_sub",
+                    loc,
+                    &[("name", name), ("dropped", &dropped_s)],
+                )
             }
         }
     };

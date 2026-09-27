@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   AlertTriangle,
   Download,
@@ -29,6 +30,7 @@ const emit = defineEmits<{
   (e: 'open-settings', section?: string): void
 }>()
 
+const { t } = useI18n()
 const s = useSettingsStore()
 const platformAuth = usePlatformAuthStore()
 const brandIcon = resolveBrandIcon()
@@ -54,37 +56,37 @@ const menuStyle = ref({ left: '8px', bottom: '0px' })
 const themeOptions = ['light', 'dark', 'system'] as const
 
 const platformAccountTitle = computed(() => {
-  if (!platformAuth.session.logged_in) return '未登录'
-  return platformAuth.session.user_nickname?.trim() || '已登录'
+  if (!platformAuth.session.logged_in) return t('shell.account.notLoggedIn')
+  return platformAuth.session.user_nickname?.trim() || t('shell.account.loggedIn')
 })
 
 const platformLogoutBusy = ref(false)
 
 const balanceLabel = computed(() => {
-  if (balanceLoading.value && balance.value == null) return '…'
-  return balance.value == null ? '--' : `${balance.value} 元`
+  if (balanceLoading.value && balance.value == null) return t('shell.balance.valueLoading')
+  return balance.value == null ? t('shell.balance.valueUnavailable') : t('shell.balance.valueAmount', { value: balance.value })
 })
 
 const theme = computed<ThemePreference>(() => (s.settings.theme as ThemePreference) || 'system')
 
-function themeLabel(t: ThemePreference): string {
-  if (t === 'light') return '浅色'
-  if (t === 'dark') return '深色'
-  return '跟随系统'
+function themeLabel(pref: ThemePreference): string {
+  if (pref === 'light') return t('settings.theme.light')
+  if (pref === 'dark') return t('settings.theme.dark')
+  return t('settings.theme.system')
 }
 
 const checkUpdateLabel = computed(() => {
-  if (updater.updating.value || updater.downloading.value) return '更新中…'
-  if (updater.checking.value) return '检查中…'
+  if (updater.updating.value || updater.downloading.value) return t('shell.updater.updating')
+  if (updater.checking.value) return t('shell.updater.checking')
   if (updater.statusMessage.value) return updater.statusMessage.value
-  return '检查更新'
+  return t('shell.updater.checkForUpdate')
 })
 
 const readyUpdateLabel = computed(() => {
-  if (updater.updating.value || updater.downloading.value) return '更新中…'
-  if (updater.updateReady.value) return '新版本已就绪，点击更新'
-  if (updater.updateVersion.value) return `发现新版本 v${updater.updateVersion.value}，点击更新`
-  return '立即更新'
+  if (updater.updating.value || updater.downloading.value) return t('shell.updater.updating')
+  if (updater.updateReady.value) return t('shell.updater.updateReady')
+  if (updater.updateVersion.value) return t('shell.updater.updateAvailable', { version: updater.updateVersion.value })
+  return t('shell.updater.updateNow')
 })
 
 async function saveThemeChoice(t: ThemePreference) {
@@ -208,24 +210,24 @@ onBeforeUnmount(() => {
           type="button"
           role="menuitem"
           class="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-hover transition-colors cursor-pointer"
-          :aria-label="`余额 ${balanceLabel}，前往充值`"
+          :aria-label="t('shell.balance.goToTopUp', { balance: balanceLabel })"
           @click="openPlatformBillingPage"
         >
           <AlertTriangle v-if="exhausted || lowBalance" class="h-[18px] w-[18px] shrink-0 text-warning" aria-hidden="true" />
           <WalletCards v-else class="h-[18px] w-[18px] shrink-0 text-muted" aria-hidden="true" />
-          <span class="min-w-0 flex-1 text-[13px] text-foreground">余额</span>
+          <span class="min-w-0 flex-1 text-[13px] text-foreground">{{ t('shell.balance.label') }}</span>
           <span class="shrink-0 text-[13px] font-semibold text-foreground/70">{{ balanceLabel }}</span>
         </button>
 
         <!-- 外观：固定调色板图标 + 标签 + 当前主题图标；hover 时中间滑入纯图标抽屉（不超出面板） -->
         <div class="group relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors hover:bg-hover">
           <Palette class="h-[18px] w-[18px] shrink-0 text-muted" aria-hidden="true" />
-          <span class="flex-1 text-[13px] text-foreground">外观</span>
+          <span class="flex-1 text-[13px] text-foreground">{{ t('shell.account.appearance') }}</span>
           <!-- 中间抽屉：hover 时三个图标逐项滑入（抽屉逐步推出效果） -->
           <div class="pointer-events-none absolute right-2 top-1/2 z-20 flex -translate-y-1/2 items-center gap-0.5 p-0.5 group-hover:pointer-events-auto">
             <button
-              v-for="(t, i) in themeOptions"
-              :key="t"
+              v-for="(opt, i) in themeOptions"
+              :key="opt"
               type="button"
               role="menuitemradio"
               class="flex h-7 w-7 items-center justify-center rounded-md opacity-0 translate-x-2 transition-all duration-200 cursor-pointer"
@@ -233,15 +235,15 @@ onBeforeUnmount(() => {
                 i === 0 ? 'group-hover:translate-x-0 group-hover:opacity-100' : '',
                 i === 1 ? 'delay-75 group-hover:translate-x-0 group-hover:opacity-100' : '',
                 i === 2 ? 'delay-150 group-hover:translate-x-0 group-hover:opacity-100' : '',
-                theme === t ? 'bg-hover text-foreground' : 'text-muted hover:bg-hover hover:text-foreground'
+                theme === opt ? 'bg-hover text-foreground' : 'text-muted hover:bg-hover hover:text-foreground'
               ]"
-              :title="themeLabel(t)"
-              :aria-label="themeLabel(t)"
-              :aria-checked="theme === t"
-              @click="saveThemeChoice(t)"
+              :title="themeLabel(opt)"
+              :aria-label="themeLabel(opt)"
+              :aria-checked="theme === opt"
+              @click="saveThemeChoice(opt)"
             >
               <component
-                :is="t === 'light' ? Sun : t === 'dark' ? Moon : Monitor"
+                :is="opt === 'light' ? Sun : opt === 'dark' ? Moon : Monitor"
                 class="h-4 w-4"
                 aria-hidden="true"
               />
@@ -251,8 +253,8 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border text-muted transition-all duration-150 group-hover:opacity-0 cursor-pointer"
-            :title="`当前：${themeLabel(theme)}`"
-            :aria-label="`当前：${themeLabel(theme)}，悬停选择主题`"
+            :title="t('shell.account.currentTheme', { theme: themeLabel(theme) })"
+            :aria-label="t('shell.account.currentThemeHint', { theme: themeLabel(theme) })"
             @click.stop
           >
             <component
@@ -272,7 +274,7 @@ onBeforeUnmount(() => {
           @click="menuOpen = false; emit('open-settings', 'assistant')"
         >
           <Settings class="h-[18px] w-[18px] shrink-0 text-muted" aria-hidden="true" />
-          <span class="flex-1">设置</span>
+          <span class="flex-1">{{ t('common.settings') }}</span>
         </button>
 
         <!-- 检查更新 -->
@@ -317,7 +319,7 @@ onBeforeUnmount(() => {
         >
           <Loader2 v-if="platformLogoutBusy" class="h-[18px] w-[18px] shrink-0 animate-spin" />
           <LogOut v-else class="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
-          <span class="flex-1">{{ platformLogoutBusy ? '退出中…' : '退出登录' }}</span>
+          <span class="flex-1">{{ platformLogoutBusy ? t('shell.account.loggingOut') : t('shell.account.logout') }}</span>
         </button>
         <button
           v-else
@@ -327,7 +329,7 @@ onBeforeUnmount(() => {
           @click="onPlatformLogin"
         >
           <LogIn class="h-[18px] w-[18px] shrink-0 text-muted" aria-hidden="true" />
-          <span class="flex-1">{{ platformAuth.loading ? '等待授权…' : '登录' }}</span>
+          <span class="flex-1">{{ platformAuth.loading ? t('shell.account.loggingIn') : t('shell.account.login') }}</span>
         </button>
       </div>
     </Teleport>
@@ -346,8 +348,8 @@ onBeforeUnmount(() => {
           aria-labelledby="account-menu-login-title"
         >
           <div class="mb-3 flex items-center justify-between">
-            <h2 id="account-menu-login-title" class="text-sm font-semibold text-foreground">登录</h2>
-            <button type="button" class="chrome-icon-btn" title="关闭" aria-label="关闭" @click="showLogin = false">
+            <h2 id="account-menu-login-title" class="text-sm font-semibold text-foreground">{{ t('shell.account.login') }}</h2>
+            <button type="button" class="chrome-icon-btn" :title="t('common.close')" :aria-label="t('common.close')" @click="showLogin = false">
               <X class="w-4 h-4" />
             </button>
           </div>

@@ -19,6 +19,7 @@ pub mod edition;
 pub mod env_prompt;
 pub mod experiences;
 pub mod extensions;
+pub mod i18n;
 pub mod im_ask_user;
 pub mod license;
 pub mod local_auth;

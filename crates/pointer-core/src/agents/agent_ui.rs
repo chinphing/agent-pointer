@@ -115,24 +115,30 @@ pub struct ResolvedAgentUi {
 }
 
 fn default_composer_label(profile: &AgentProfile, role: &str, id: &str) -> String {
+    let loc = crate::i18n::current_ui_locale();
     if role == "supervisor" {
-        return "团队模式".into();
+        return crate::i18n::t("agent.ui.supervisor", loc).into();
     }
-    match id {
-        "general" => "通用助手".into(),
-        "coder" => "氛围编程".into(),
-        "computer" => "电脑操控".into(),
-        "explore" => "代码探索".into(),
-        "general-worker" => "通用执行".into(),
-        _ => match profile {
-            AgentProfile::Computer => "电脑操控".into(),
-            AgentProfile::Coder => "氛围编程".into(),
-            AgentProfile::Explore => "代码探索".into(),
-            AgentProfile::Analyst => "深度研究".into(),
-            AgentProfile::Supervisor => "团队模式".into(),
-            _ => "通用助手".into(),
-        },
+    let key = match id {
+        "general" => Some("agent.ui.general"),
+        "coder" => Some("agent.ui.coder"),
+        "computer" => Some("agent.ui.computer"),
+        "explore" => Some("agent.ui.explore"),
+        "general-worker" => Some("agent.ui.general_worker"),
+        _ => None,
+    };
+    if let Some(k) = key {
+        return crate::i18n::t(k, loc).into();
     }
+    let key = match profile {
+        AgentProfile::Computer => "agent.ui.computer",
+        AgentProfile::Coder => "agent.ui.coder",
+        AgentProfile::Explore => "agent.ui.explore",
+        AgentProfile::Analyst => "agent.ui.research",
+        AgentProfile::Supervisor => "agent.ui.supervisor",
+        _ => "agent.ui.general",
+    };
+    crate::i18n::t(key, loc).into()
 }
 
 fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAgentUi {

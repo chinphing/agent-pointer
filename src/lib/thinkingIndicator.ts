@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import type { ChatMessage, ToolCall } from '../types/chat'
 
 export interface ThinkingStreamBody {
@@ -87,7 +88,7 @@ export function thinkingSteadyDotCount(streamedCharCount: number): number {
 }
 
 export function thinkingLabel(streamedCharCount: number): string {
-  return `思考中${'.'.repeat(thinkingDotCount(streamedCharCount))}`
+  return `${t('thinking.indicator')}${'.'.repeat(thinkingDotCount(streamedCharCount))}`
 }
 
 /**

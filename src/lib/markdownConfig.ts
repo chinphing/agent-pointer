@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import { marked, type Token } from 'marked'
 import {
   encodeChartConfigAttr,
@@ -38,7 +39,7 @@ export const STREAMING_CHART_FENCE =
 export const STREAMING_CHART_HOST_HTML =
   `<div class="md-chart group md-chart--pending" data-chart-config="${encodeChartConfigAttr(STREAMING_CHART_STUB_JSON)}">` +
   `<div class="md-chart-toolbar" hidden></div>` +
-  `<div class="md-chart-canvas-wrap"><div class="md-chart-status md-chart-status-pending">图表生成中…</div></div>` +
+  `<div class="md-chart-canvas-wrap"><div class="md-chart-status md-chart-status-pending">${t('markdown.chartGenerating')}</div></div>` +
   `<pre class="md-chart-source" hidden></pre>` +
   `</div>\n`
 
@@ -51,7 +52,7 @@ export const STREAMING_SVG_FENCE = '```svg\n' + STREAMING_SVG_STUB + '\n```'
 export const STREAMING_SVG_HOST_HTML =
   `<div class="md-svg group md-svg--pending" data-svg-config="${encodeSvgConfigAttr(STREAMING_SVG_STUB)}">` +
   `<div class="md-svg-toolbar" hidden></div>` +
-  `<div class="md-svg-frame"><div class="md-svg-status md-svg-status-pending">图示生成中…</div></div>` +
+  `<div class="md-svg-frame"><div class="md-svg-status md-svg-status-pending">${t('markdown.diagramGenerating')}</div></div>` +
   `<pre class="md-svg-source" hidden></pre>` +
   `</div>\n`
 

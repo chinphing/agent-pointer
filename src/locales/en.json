@@ -1438,7 +1438,8 @@
     },
     "refreshFilesFailed": "Workspace refresh failed; displayed content may be outdated",
     "refreshGitFailed": "Git changes refresh failed; displayed content may be outdated",
-    "baselineMissing": "No pre-edit snapshot for this turn; results may be incomplete"
+    "baselineMissing": "No pre-edit snapshot for this turn; results may be incomplete",
+    "gitInitTask": "Please initialize a Git repository for the current workspace. First analyze the project architecture and tech stack, identify build artifacts, local config, caches, IDE files, and sensitive files; check any existing .gitignore, and combine the analysis to choose an appropriate ignore template. Explain the proposed approach to me first, then write or extend .gitignore, finally run git init and git status to verify."
   },
   "tools": {
     "labels": {
@@ -1897,7 +1898,8 @@
     "chartRenderFailed": "Chart render failed",
     "mermaidPendingNode": "Generating diagram",
     "chartMissing": "Chart config missing",
-    "diagramMissing": "Diagram config missing"
+    "diagramMissing": "Diagram config missing",
+    "zoomHint": "Scroll to zoom · drag to pan · double-click to reset · Esc to close"
   },
   "lib": {
     "uploadCancelled": "Upload cancelled",

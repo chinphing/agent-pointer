@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import type { BackgroundJobView, ChatMessage, ToolCall } from '../types/chat'
 import { isJobAwaitCall } from './toolCallDisplay'
 
@@ -27,8 +28,8 @@ const RUNNING_STATUSES: ReadonlySet<ToolCall['status']> = new Set([
 export function occupancyJobTitle(job: BackgroundJobView): string {
   const title = job.title?.trim()
   if (title) return title
-  if (job.kind === 'terminal') return '终端'
-  return '子任务'
+  if (job.kind === 'terminal') return t('backgroundJobs.kind.terminal')
+  return t('backgroundJobs.kind.subtask')
 }
 
 /**

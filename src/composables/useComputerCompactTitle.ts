@@ -1,4 +1,5 @@
 import { computed, type Ref } from 'vue'
+import { t } from '../i18n'
 import { storeToRefs } from 'pinia'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
@@ -149,8 +150,8 @@ export function useComputerCompactTitle(stoppedHint: Ref<boolean>) {
   const planLine = computed((): string | null => planSummary.value?.fullLine ?? null)
 
   const statusLine = computed((): string => {
-    if (stoppedHint.value) return '已停止'
-    if (computerMonitorPickRequest.value) return '请选择操控屏幕…'
+    if (stoppedHint.value) return t('common.stopped')
+    if (computerMonitorPickRequest.value) return t('computer.pickScreen')
 
     const msg = activeMessage.value
     const conv = chat.current
@@ -171,10 +172,10 @@ export function useComputerCompactTitle(stoppedHint: Ref<boolean>) {
 
     if (plannerTool) return compactToolCallStatusLine(plannerTool, conv?.workspaceRoot)
 
-    if (planSummary.value) return '准备执行…'
+    if (planSummary.value) return t('computer.preparing')
 
     const preview = body.toolNamePreview?.trim()
-    if (preview && isComputerToolName(preview)) return '执行中…'
+    if (preview && isComputerToolName(preview)) return t('computer.executing')
 
     const chars = thinkingCharCountForCurrentRound(body)
     return thinkingLabel(chars)

@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import type { AgentTrace, ChatMessage, SubAgentSessionUi, ToolCall } from '../types/chat'
 import {
   agentInstanceIdFromTraceId,
@@ -215,7 +216,7 @@ export function subTraceHasVisibleActivity(trace: AgentTrace): boolean {
 }
 
 export function runningSubTraceSummaryLine(trace: AgentTrace): string {
-  return trace.name.trim() || '子任务'
+  return trace.name.trim() || t('agent.ui.subtask')
 }
 
 export function migrateLegacyTraceUiState(trace: AgentTrace): void {

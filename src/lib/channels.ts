@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import { invoke } from '@tauri-apps/api/core'
 import type {
   ChannelRegistrationSession,
@@ -31,11 +32,11 @@ async function webRequest<T>(path: string, init?: RequestInit): Promise<T> {
     return await res.json()
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') {
-      throw new Error('请求超时，请确认 pointer-server 已启动')
+      throw new Error(t('channels.requestTimeout'))
     }
     if (e instanceof TypeError) {
       throw new Error(
-        `无法连接 pointer-server（${WEB_API_BASE || '同源 /api'}）。请先运行 npm run server:dev，或使用 Tauri 桌面端本地保存配置。`
+        t('channels.connectFailed', { base: WEB_API_BASE || t('channels.sameOriginApi') })
       )
     }
     throw e
@@ -189,7 +190,7 @@ export async function approveChannelPairingAny(
   accountId: string,
   code: string
 ): Promise<string> {
-  let lastError = '配对码无效或已过期'
+  let lastError = t('channels.pairCodeInvalid')
   for (const channel of PAIRING_CHANNELS) {
     try {
       await approveChannelPairing(channel, accountId, code)

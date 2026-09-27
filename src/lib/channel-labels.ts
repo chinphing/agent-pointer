@@ -1,26 +1,14 @@
 import { t } from '../i18n'
 
-const IM_CHANNEL_IDS = ['weixin', 'feishu', 'wecom', 'dingtalk'] as const
-
-/** Channel id → short UI label (live via vue-i18n). */
-export function channelLabel(channel: string): string {
-  if ((IM_CHANNEL_IDS as readonly string[]).includes(channel)) {
-    return t(`settings.channels.tabs.${channel}`)
-  }
-  return channel
+/** Brand display names — never translate. */
+export const CHANNEL_LABELS: Record<string, string> = {
+  weixin: '微信',
+  feishu: '飞书',
+  wecom: '企微',
+  dingtalk: '钉钉'
 }
 
-/** Snapshot of channel labels for callers that need a Record (re-resolve each call). */
-export function channelLabels(): Record<string, string> {
-  return Object.fromEntries(IM_CHANNEL_IDS.map(id => [id, channelLabel(id)]))
-}
-
-/** @deprecated Prefer channelLabel(); kept for IM_CHANNELS membership checks. */
-export const CHANNEL_LABELS: Record<string, string> = Object.fromEntries(
-  IM_CHANNEL_IDS.map(id => [id, id])
-)
-
-const IM_CHANNELS = new Set<string>(IM_CHANNEL_IDS)
+const IM_CHANNELS = new Set(Object.keys(CHANNEL_LABELS))
 
 export function imBaseConversationId(conversationId: string): string {
   const at = conversationId.lastIndexOf('@s')
@@ -38,6 +26,10 @@ export function imSessionEpoch(conversationId: string): number {
     if (/^\d+$/.test(rest)) return Number(rest)
   }
   return 0
+}
+
+export function channelLabel(channel: string): string {
+  return CHANNEL_LABELS[channel] ?? channel
 }
 
 export function isImConversation(conversationId: string): boolean {

@@ -88,6 +88,7 @@ import {
 import { imConversationTitle, isImConversation } from '../lib/channel-labels'
 import {
   DEFAULT_CONVERSATION_TITLE,
+  isDefaultConversationTitle,
   maybeUpdateConversationTitle
 } from '../lib/conversationTitle'
 import { dedupeImInboundUserMessages } from '../lib/imMessageDedupe'
@@ -167,7 +168,7 @@ function stripEphemeralDesktopNoticesForDisk(conversations: Conversation[]): Con
 /** Desktop shell with default title and no messages (duplicate-prone if we always insert new rows). */
 function isBlankDesktopConversation(conv: Conversation): boolean {
   if (isImConversation(conv.id)) return false
-  if (conv.title !== DEFAULT_CONVERSATION_TITLE) return false
+  if (!isDefaultConversationTitle(conv.title)) return false
   // Meta-only boot path: messageCount is set from the DB row. Prefer it so we
   // can detect blanks without hydrating messages.
   if (typeof conv.messageCount === 'number') return conv.messageCount === 0

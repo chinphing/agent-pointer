@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import type { ModelSettings } from '../types/chat'
 import { isTauriRuntime } from './runtime'
 
@@ -40,7 +41,7 @@ export function formatVideoOssInvokeError(err: unknown): string {
     if (msg) return msg
   }
   console.error('video OSS upload failed with unknown error', err)
-  return '视频上传失败'
+  return t('upload.videoFailed')
 }
 
 export interface MediaOssUploadStatus {
@@ -67,7 +68,7 @@ async function uploadViaTauriPath(
   signal?: AbortSignal
 ): Promise<VideoOssUploadResult> {
   if (signal?.aborted) {
-    throw new Error('上传已取消')
+    throw new Error(t('upload.aborted'))
   }
   const { invoke } = await import('@tauri-apps/api/core')
   const { listen } = await import('@tauri-apps/api/event')
@@ -87,7 +88,7 @@ async function uploadViaTauriPath(
       compress
     })
     if (signal?.aborted) {
-      throw new Error('上传已取消')
+      throw new Error(t('upload.aborted'))
     }
     return {
       remoteUrl: result.remoteUrl,
@@ -139,7 +140,7 @@ export async function uploadComposerVideoToOss(
   const conversationId = options.conversationId
   const signal = options.signal
   if (signal?.aborted) {
-    throw new Error('上传已取消')
+    throw new Error(t('upload.aborted'))
   }
   onProgress({ attachmentId, loaded: 0, total: file.size, percent: 0 })
   if (isTauriRuntime()) {
@@ -156,7 +157,7 @@ export async function uploadComposerVideoToOss(
       )
     }
     throw new Error(
-      '请使用附件按钮（回形针）选择视频文件。桌面端不支持通过网页式文件选择器上传大视频。'
+      t('attachment.usePaperclipForVideo')
     )
   }
   return await uploadViaWebApi(attachmentId, conversationId, file, compress, onProgress, signal)

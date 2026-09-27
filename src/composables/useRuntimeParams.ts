@@ -1,4 +1,5 @@
 import type { Ref } from 'vue'
+import { t } from '../i18n'
 import type { ModelRuntimeOverrides, ProviderConfig } from '../types/chat'
 import {
   DEFAULT_THINKING_BUDGET,
@@ -99,11 +100,11 @@ export function parseExtraBodyJson(
     const parsed = JSON.parse(t) as unknown
     const obj = normalizeExtraBody(parsed)
     if (!obj) {
-      return { ok: false, error: '须为 JSON 对象，例如 { "repetition_penalty": 1.1 }' }
+      return { ok: false, error: t('settings.runtime.jsonObjectRequired') }
     }
     return { ok: true, value: obj }
   } catch {
-    return { ok: false, error: 'JSON 无效' }
+    return { ok: false, error: t('settings.runtime.jsonInvalid') }
   }
 }
 
@@ -467,7 +468,7 @@ export function useRuntimeParams(
 
   function setExtraBodyJson(text: string): { ok: true } | { ok: false; error: string } {
     const p = provider.value
-    if (!p) return { ok: false, error: '无服务商' }
+    if (!p) return { ok: false, error: t('settings.runtime.noProvider') }
     const parsed = parseExtraBodyJson(text)
     if (!parsed.ok) return parsed
     const mid = modelId.value

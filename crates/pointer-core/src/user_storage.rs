@@ -37,7 +37,10 @@ pub fn ensure_conversation_session_user(
 ) -> anyhow::Result<()> {
     let uid = session_user_id.trim();
     if uid.is_empty() {
-        anyhow::bail!("请先登录 Pointer 账户");
+        anyhow::bail!(crate::i18n::t(
+            "err.login_required",
+            crate::i18n::current_ui_locale(),
+        ));
     }
     crate::conversation_store::global_store()?
         .ensure_session_user_id(conversation_id, uid)

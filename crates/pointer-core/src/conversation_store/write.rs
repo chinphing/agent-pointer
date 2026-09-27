@@ -94,8 +94,9 @@ pub(crate) fn now_ms() -> i64 {
 }
 
 fn default_conversation_title(conversation_id: &str) -> String {
-    crate::channel_outbound::im_conversation_title(conversation_id, None, None)
-        .unwrap_or_else(|| "新会话".into())
+    crate::channel_outbound::im_conversation_title(conversation_id, None, None).unwrap_or_else(
+        || crate::i18n::t("ui.new_conversation", crate::i18n::current_ui_locale()).to_string(),
+    )
 }
 
 pub(crate) fn ensure_conversation_row(conn: &Connection, conversation_id: &str) -> Result<()> {
@@ -183,9 +184,11 @@ pub fn patch_title_if_default_in_conn(
     if title.trim().is_empty() {
         return Ok(());
     }
+    let zh = crate::i18n::t("ui.new_conversation", crate::i18n::UiLocale::ZhCn);
+    let en = crate::i18n::t("ui.new_conversation", crate::i18n::UiLocale::En);
     let updated = conn.execute(
-        "UPDATE conversations SET title = ?2 WHERE id = ?1 AND title = '新会话'",
-        params![conversation_id, title],
+        "UPDATE conversations SET title = ?2 WHERE id = ?1 AND (title = ?3 OR title = ?4)",
+        params![conversation_id, title, zh, en],
     )?;
     if updated == 0 {
         ensure_conversation_row_with_title(conn, conversation_id, Some(title))?;

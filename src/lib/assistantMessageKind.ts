@@ -1,6 +1,5 @@
 import type { ChatMessage, MessageStatus } from '../types/chat'
 import { extractOutboundMediaPaths } from './outboundMedia'
-import { t } from '../i18n'
 
 /** User-visible assistant body: text and/or inline media (persisted attachments or `MEDIA:` draft). */
 export function assistantHasDeliverableContent(message: ChatMessage): boolean {

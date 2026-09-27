@@ -1,4 +1,5 @@
 import { computed, ref, watch, type Ref } from 'vue'
+import { t } from '../i18n'
 import { storeToRefs } from 'pinia'
 import type { ChatMessage, ComputerAnnotatedPreview } from '../types/chat'
 import { useSettingsStore } from '../stores/settings'
@@ -130,7 +131,7 @@ export function useAssistantMessageDebug(
         if (cid) {
           screenPreview.value = await previewComputerAnnotatedScreen(cid)
         } else {
-          screenError.value = '无法获取当前会话 ID'
+          screenError.value = t('computer.noConversationId')
         }
       }
     } catch (e: unknown) {

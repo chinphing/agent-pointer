@@ -2,10 +2,20 @@ import { isTauriRuntime } from './runtime'
 import { t } from '../i18n'
 
 /** Default composer prompt when no server / Vite override is present. */
-export const DEFAULT_COMPOSER_PLACEHOLDER = t('chat.composer.defaultPlaceholder')
+export function defaultComposerPlaceholder(): string {
+  return t('chat.composer.defaultPlaceholder')
+}
 
-/** Default turn-elapsed chip prefix (`工作 N m SS s` / `工作耗时未知`). */
-export const DEFAULT_TURN_ELAPSED_PREFIX = t('chat.turnElapsed.prefix')
+/** @deprecated Prefer defaultComposerPlaceholder() so copy follows the active locale. */
+export const DEFAULT_COMPOSER_PLACEHOLDER = defaultComposerPlaceholder()
+
+/** Default turn-elapsed chip prefix (`Working N m SS s` / unknown). */
+export function defaultTurnElapsedPrefix(): string {
+  return t('chat.turnElapsed.prefix')
+}
+
+/** @deprecated Prefer defaultTurnElapsedPrefix() so copy follows the active locale. */
+export const DEFAULT_TURN_ELAPSED_PREFIX = defaultTurnElapsedPrefix()
 
 /** Default sidebar / top-bar product name. */
 export const DEFAULT_BRAND_NAME = 'Pointer'
@@ -55,7 +65,7 @@ export function resolveComposerPlaceholder(): string {
   return (
     readViteString('VITE_COMPOSER_PLACEHOLDER')
     ?? readMeta(COMPOSER_PLACEHOLDER_META)
-    ?? DEFAULT_COMPOSER_PLACEHOLDER
+    ?? defaultComposerPlaceholder()
   )
 }
 
@@ -90,13 +100,13 @@ export function resolveTurnElapsedPrefix(phase: TurnElapsedPhase): string {
     return (
       readViteString('VITE_TURN_ELAPSED_ACTIVE')
       ?? readMeta(TURN_ELAPSED_ACTIVE_META)
-      ?? DEFAULT_TURN_ELAPSED_PREFIX
+      ?? defaultTurnElapsedPrefix()
     )
   }
   return (
     readViteString('VITE_TURN_ELAPSED_DONE')
     ?? readMeta(TURN_ELAPSED_DONE_META)
-    ?? DEFAULT_TURN_ELAPSED_PREFIX
+    ?? defaultTurnElapsedPrefix()
   )
 }
 

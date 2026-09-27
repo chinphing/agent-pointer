@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { AppendedMessageRow } from './api'
@@ -248,7 +249,7 @@ export async function clearApiKey(): Promise<void> {
 export async function testConnection(): Promise<{ ok: boolean; latencyMs: number; message: string }> {
   try {
     const ms = await invoke<number>('test_connection')
-    return { ok: true, latencyMs: Number(ms), message: '连接成功' }
+    return { ok: true, latencyMs: Number(ms), message: t('connection.success') }
   } catch (e: any) {
     return { ok: false, latencyMs: 0, message: String(e?.message || e) }
   }
@@ -375,7 +376,7 @@ export async function saveChatAttachment(
   options?: { signal?: AbortSignal }
 ): Promise<string> {
   if (options?.signal?.aborted) {
-    throw new Error('上传已取消')
+    throw new Error(t('upload.aborted'))
   }
   const sourcePath = payload.sourcePath?.trim()
   if (sourcePath) {
@@ -386,7 +387,7 @@ export async function saveChatAttachment(
       fileName: payload.fileName?.trim() || null
     })
     if (options?.signal?.aborted) {
-      throw new Error('上传已取消')
+      throw new Error(t('upload.aborted'))
     }
     onProgress?.({ loaded: 1, total: 1, percent: 100 })
     return rel
@@ -403,7 +404,7 @@ export async function saveChatAttachment(
     fileName: payload.fileName
   })
   if (options?.signal?.aborted) {
-    throw new Error('上传已取消')
+    throw new Error(t('upload.aborted'))
   }
   onProgress?.({ loaded: 1, total: 1, percent: 100 })
   return rel

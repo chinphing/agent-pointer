@@ -1,4 +1,5 @@
 import { nextTick, onMounted, watch, type Ref } from 'vue'
+import { t } from '../i18n'
 
 const copyIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`
 const checkIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
@@ -7,7 +8,7 @@ function makeCopyButton(onClick: (e: MouseEvent) => void): HTMLButtonElement {
   const btn = document.createElement('button')
   btn.type = 'button'
   btn.className = 'code-copy-btn'
-  btn.title = '复制代码'
+  btn.title = t('common.copyCode')
   btn.innerHTML = copyIconSvg
   btn.addEventListener('click', e => onClick(e as MouseEvent))
   return btn
@@ -26,7 +27,7 @@ export function useMarkdownCodeCopy(rootRef: Ref<HTMLElement | null>, getTickSou
       .then(() => {
         const prevTitle = btn.title
         btn.innerHTML = checkIconSvg
-        btn.title = '已复制'
+        btn.title = t('common.copied')
         btn.classList.add('text-success')
         window.setTimeout(() => {
           btn.innerHTML = copyIconSvg

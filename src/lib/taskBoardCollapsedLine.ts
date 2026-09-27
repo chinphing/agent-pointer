@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import type { TaskBoardDocument } from '../types/chat'
 import {
   taskBoardCurrentMilestone,
@@ -26,7 +27,7 @@ export function taskBoardCompactSummary(
   const items = taskBoardVisibleMilestones(document)
   if (!items.length && !document?.meta?.goal?.trim()) return null
 
-  const goal = document?.meta?.goal?.trim() || '任务板'
+  const goal = document?.meta?.goal?.trim() || t('taskBoard.defaultGoal')
   const progress = taskBoardVisibleMilestoneProgress(document)
   const doneCount = items.filter(
     i => i.status === 'done' || i.status === 'failed'

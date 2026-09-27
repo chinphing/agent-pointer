@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import type { ChatMessage } from '../types/chat'
 import {
   assistantDisplayKind,
@@ -41,8 +42,11 @@ export function isInternalRetryUserMessage(message: ChatMessage): boolean {
   const t = message.content.trimStart()
   return (
     t.startsWith('你的上一次回复为空') ||
+    t.startsWith('Your previous reply was empty') ||
     t.startsWith('【环境反馈】') ||
-    t.startsWith('【输出长度】')
+    t.startsWith('【Environment feedback】') ||
+    t.startsWith('【输出长度】') ||
+    t.startsWith('【Output length】')
   )
 }
 
@@ -125,10 +129,10 @@ export function shouldShowGlueMessage(
 }
 
 export function glueMessagePreview(message: ChatMessage): string {
-  if (isScreenInjectUserMessage(message)) return '桌面截图'
+  if (isScreenInjectUserMessage(message)) return t('thread.desktopScreenshot')
   const text = message.content?.trim() ?? ''
   if (!text) {
-    if (message.role === 'tool') return '工具结果'
+    if (message.role === 'tool') return t('thread.toolResult')
     return '…'
   }
   const oneLine = text.split('\n').find(l => l.trim())?.trim() ?? text

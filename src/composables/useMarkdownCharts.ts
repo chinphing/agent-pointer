@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import { nextTick, onBeforeUnmount, onMounted, watch, type Ref } from 'vue'
 import type { Chart as ChartInstance } from 'chart.js'
 import {
@@ -347,8 +348,8 @@ export function useMarkdownCharts(
     const copyBtn = document.createElement('button')
     copyBtn.type = 'button'
     copyBtn.className = 'md-chart-btn'
-    copyBtn.title = '复制配置'
-    copyBtn.setAttribute('aria-label', '复制配置')
+    copyBtn.title = t('common.copyConfig')
+    copyBtn.setAttribute('aria-label', t('common.copyConfig'))
     copyBtn.innerHTML = copyIconSvg
     copyBtn.addEventListener('click', e => {
       e.preventDefault()
@@ -365,7 +366,7 @@ export function useMarkdownCharts(
       } catch {
         /* keep raw */
       }
-      void navigator.clipboard.writeText(text).then(() => flashButton(copyBtn, '已复制')).catch(err => {
+      void navigator.clipboard.writeText(text).then(() => flashButton(copyBtn, t('common.copied'))).catch(err => {
         console.error('[markdownCharts] copy failed', err)
       })
     })
@@ -373,8 +374,8 @@ export function useMarkdownCharts(
     const downloadBtn = document.createElement('button')
     downloadBtn.type = 'button'
     downloadBtn.className = 'md-chart-btn'
-    downloadBtn.title = '导出图片'
-    downloadBtn.setAttribute('aria-label', '导出图片')
+    downloadBtn.title = t('markdown.exportImage')
+    downloadBtn.setAttribute('aria-label', t('markdown.exportImage'))
     downloadBtn.innerHTML = downloadIconSvg
     downloadBtn.addEventListener('click', e => {
       e.preventDefault()
@@ -400,7 +401,7 @@ export function useMarkdownCharts(
         const fileName = `pointer-chart-${Date.now()}.png`
         void saveDataUrlAsFile(url, fileName, [{ name: 'PNG', extensions: ['png'] }])
           .then(result => {
-            if (result === 'saved') flashButton(downloadBtn, '已导出')
+            if (result === 'saved') flashButton(downloadBtn, t('markdown.exported'))
           })
           .catch(err => {
             console.error('[markdownCharts] export failed', err)
@@ -413,8 +414,8 @@ export function useMarkdownCharts(
     const sourceBtn = document.createElement('button')
     sourceBtn.type = 'button'
     sourceBtn.className = 'md-chart-btn'
-    sourceBtn.title = '查看配置'
-    sourceBtn.setAttribute('aria-label', '查看配置')
+    sourceBtn.title = t('markdown.viewConfig')
+    sourceBtn.setAttribute('aria-label', t('markdown.viewConfig'))
     sourceBtn.innerHTML = codeIconSvg
     sourceBtn.addEventListener('click', e => {
       e.preventDefault()
@@ -433,13 +434,13 @@ export function useMarkdownCharts(
         }
         pre.textContent = text
         pre.removeAttribute('hidden')
-        sourceBtn.title = '隐藏配置'
-        sourceBtn.setAttribute('aria-label', '隐藏配置')
+        sourceBtn.title = t('markdown.hideConfig')
+        sourceBtn.setAttribute('aria-label', t('markdown.hideConfig'))
         sourceBtn.classList.add('md-chart-btn-active')
       } else {
         pre.setAttribute('hidden', '')
-        sourceBtn.title = '查看配置'
-        sourceBtn.setAttribute('aria-label', '查看配置')
+        sourceBtn.title = t('markdown.viewConfig')
+        sourceBtn.setAttribute('aria-label', t('markdown.viewConfig'))
         sourceBtn.classList.remove('md-chart-btn-active')
       }
     })
@@ -447,8 +448,8 @@ export function useMarkdownCharts(
     const zoomBtn = document.createElement('button')
     zoomBtn.type = 'button'
     zoomBtn.className = 'md-chart-btn'
-    zoomBtn.title = '放大查看'
-    zoomBtn.setAttribute('aria-label', '放大查看')
+    zoomBtn.title = t('markdown.zoom')
+    zoomBtn.setAttribute('aria-label', t('markdown.zoom'))
     zoomBtn.innerHTML = zoomIconSvg
     zoomBtn.addEventListener('click', e => {
       e.preventDefault()
@@ -501,7 +502,7 @@ export function useMarkdownCharts(
   async function mountOrUpdateAsync(host: HTMLElement) {
     // Defer Chart.js until the assistant turn finishes streaming.
     if (isStreaming()) {
-      showStatus(host, '图表生成中…', 'pending')
+      showStatus(host, t('markdown.chartGenerating'), 'pending')
       return
     }
 
@@ -509,12 +510,12 @@ export function useMarkdownCharts(
 
     const encoded = host.getAttribute('data-chart-config')
     if (!encoded) {
-      showStatus(host, '图表配置缺失', 'error')
+      showStatus(host, t('markdown.chartMissingConfig'), 'error')
       return
     }
     const raw = decodeChartConfigAttr(encoded)
     if (raw == null) {
-      showStatus(host, '图表配置无法解析', 'error')
+      showStatus(host, t('markdown.chartUnparseable'), 'error')
       return
     }
     const parsed = tryParseChartConfig(raw)
@@ -522,7 +523,7 @@ export function useMarkdownCharts(
       const pending = parsed.reason === 'invalid_json' || parsed.reason === 'empty'
       showStatus(
         host,
-        pending ? '图表生成中…' : '图表配置无效',
+        pending ? t('markdown.chartGenerating') : t('markdown.chartInvalid'),
         pending ? 'pending' : 'error'
       )
       return
@@ -735,7 +736,7 @@ export function useMarkdownCharts(
       console.error('[markdownCharts] Chart.js failed', err)
       const state = hosts.get(host)
       if (state) state.pending = false
-      showStatus(host, '图表渲染失败', 'error')
+      showStatus(host, t('markdown.chartRenderFailed'), 'error')
     }
   }
 

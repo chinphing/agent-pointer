@@ -1723,7 +1723,8 @@
     "title": "工作区",
     "refreshFilesFailed": "工作区刷新失败，显示的可能不是最新内容",
     "refreshGitFailed": "Git 变更刷新失败，显示的可能不是最新内容",
-    "baselineMissing": "未找到本轮修改前快照，显示结果可能不完整"
+    "baselineMissing": "未找到本轮修改前快照，显示结果可能不完整",
+    "gitInitTask": "请为当前工作区初始化 Git 仓库。先分析项目架构和技术栈，识别构建产物、本地配置、缓存、IDE 文件及敏感文件；检查现有 .gitignore，并结合分析结果决定合适的忽略模板。先向我说明拟采用的方案，再写入或补充 .gitignore，最后执行 git init，并运行 git status 验证初始化结果。"
   },
   "workspaceRequired": {
     "ariaLabel": "请先选择工作目录",
@@ -1897,7 +1898,8 @@
     "chartRenderFailed": "图表渲染失败",
     "mermaidPendingNode": "图示生成中",
     "chartMissing": "图表配置缺失",
-    "diagramMissing": "图示配置缺失"
+    "diagramMissing": "图示配置缺失",
+    "zoomHint": "滚轮缩放 · 拖拽移动 · 双击恢复 · Esc 关闭"
   },
   "lib": {
     "uploadCancelled": "上传已取消",

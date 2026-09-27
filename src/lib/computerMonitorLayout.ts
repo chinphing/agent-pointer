@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import type { ComputerMonitor } from '../types/chat'
 
 export interface MonitorLayoutRect {
@@ -64,5 +65,5 @@ export function primaryComputerMonitor(monitors: ComputerMonitor[]): ComputerMon
 }
 
 export function monitorShortLabel(m: ComputerMonitor): string {
-  return m.isPrimary ? '主屏幕' : '扩展屏幕'
+  return m.isPrimary ? t('computer.monitor.primary') : t('computer.monitor.extended')
 }

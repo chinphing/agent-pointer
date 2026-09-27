@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import type { ChatMessage } from '../types/chat'
 import { isScopedSubMessage } from './subAgentMessages'
 import { isRealUserTaskMessage } from './threadLayoutGlue'
@@ -209,7 +210,7 @@ export function formatTurnElapsed(
   phase: TurnElapsedPhase = 'done'
 ): string {
   const prefix = resolveTurnElapsedPrefix(phase)
-  if (elapsedMs == null) return `${prefix}耗时未知`
+  if (elapsedMs == null) return t('chat.turnElapsed.unknown', { prefix })
   const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000))
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = String(totalSeconds % 60).padStart(2, '0')

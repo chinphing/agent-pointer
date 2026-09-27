@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import type { RenderableAttachment } from './messageNormalizer'
 import { isUserFilesystemPath } from './attachmentLocalPath'
 import { openPathWithDefaultApp, openChatMedia, downloadChatMedia, downloadChatMediaRef } from './api'
@@ -42,7 +43,7 @@ export async function openAttachmentWithSystemDefault(
       await openPathWithDefaultApp(ref)
       return
     }
-    throw new Error('无法打开该附件')
+    throw new Error(t('attachment.cannotOpen'))
   }
 
   const preview = loadedPreviewUrl || att.previewUrl
@@ -63,5 +64,5 @@ export async function openAttachmentWithSystemDefault(
     await downloadChatMediaRef(mediaRef, att.fileName || 'attachment')
     return
   }
-  throw new Error('网页端暂不支持打开该附件')
+  throw new Error(t('attachment.webUnsupported'))
 }

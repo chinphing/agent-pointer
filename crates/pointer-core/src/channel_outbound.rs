@@ -6,10 +6,20 @@ use crate::agents::{agent_display_label, AgentDef, AgentRegistry};
 use crate::session_sandbox::SessionSandbox;
 
 const IM_CHANNELS: &[&str] = &["feishu", "dingtalk", "wecom", "weixin"];
-const DEFAULT_CONVERSATION_TITLE: &str = "新会话";
 
 /// IM 会话内对用户暴露、可切换的智能体（通用助手 / 氛围编程 / 电脑操控）。
 pub const IM_VISIBLE_AGENT_IDS: &[&str] = &["general", "coder", "computer"];
+
+fn default_conversation_title_text() -> String {
+    crate::i18n::t("ui.new_conversation", crate::i18n::current_ui_locale()).to_string()
+}
+
+fn is_default_title_value(title: &str) -> bool {
+    let t = title.trim();
+    t.is_empty()
+        || t == crate::i18n::t("ui.new_conversation", crate::i18n::UiLocale::ZhCn)
+        || t == crate::i18n::t("ui.new_conversation", crate::i18n::UiLocale::En)
+}
 
 pub fn is_im_visible_agent_id(agent_id: &str) -> bool {
     IM_VISIBLE_AGENT_IDS
@@ -34,14 +44,16 @@ pub struct ImConversationParts {
     pub is_group: bool,
 }
 
-fn channel_display_name(channel: &str) -> &str {
-    match channel {
-        "feishu" => "飞书",
-        "dingtalk" => "钉钉",
-        "wecom" => "企微",
-        "weixin" => "微信",
-        _ => channel,
-    }
+fn channel_display_name(channel: &str) -> String {
+    let loc = crate::i18n::current_ui_locale();
+    let key = match channel {
+        "feishu" => "channel.feishu",
+        "dingtalk" => "channel.dingtalk",
+        "wecom" => "channel.wecom",
+        "weixin" => "channel.weixin",
+        _ => return channel.to_string(),
+    };
+    crate::i18n::t(key, loc).to_string()
 }
 
 /// Strip fork suffix `@sN` from a desktop IM conversation id.
@@ -107,7 +119,11 @@ pub fn im_session_fork_title(
     if session_epoch == 0 {
         Some(base_title)
     } else {
-        Some(format!("{base_title} · 新对话"))
+        Some(crate::i18n::tf(
+            "im.title.fork_suffix",
+            crate::i18n::current_ui_locale(),
+            &[("base", &base_title)],
+        ))
     }
 }
 
@@ -129,15 +145,20 @@ pub fn im_conversation_title(
         let preview: String = text.chars().take(24).collect();
         return Some(format!("{label} · {preview}"));
     }
+    let loc = crate::i18n::current_ui_locale();
     if parts.is_group {
-        Some(format!("{label} 群聊"))
+        Some(crate::i18n::tf(
+            "im.title.group",
+            loc,
+            &[("label", &label)],
+        ))
     } else {
-        Some(format!("{label} 私信"))
+        Some(crate::i18n::tf("im.title.dm", loc, &[("label", &label)]))
     }
 }
 
 pub fn is_default_conversation_title(title: &str) -> bool {
-    title.trim().is_empty() || title == DEFAULT_CONVERSATION_TITLE
+    is_default_title_value(title)
 }
 
 pub fn is_im_conversation(conversation_id: &str) -> bool {
@@ -236,55 +257,82 @@ pub fn im_session_commands_block(registry: &AgentRegistry) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::ENV_LOCALE_TEST_LOCK;
+
+    fn with_zh_cn_locale<R>(f: impl FnOnce() -> R) -> R {
+        let _guard = ENV_LOCALE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev_lc = std::env::var("LC_ALL").ok();
+        let prev_lang = std::env::var("LANG").ok();
+        std::env::set_var("LC_ALL", "zh_CN.UTF-8");
+        std::env::set_var("LANG", "zh_CN.UTF-8");
+        let result = f();
+        match prev_lc {
+            Some(v) => std::env::set_var("LC_ALL", v),
+            None => std::env::remove_var("LC_ALL"),
+        }
+        match prev_lang {
+            Some(v) => std::env::set_var("LANG", v),
+            None => std::env::remove_var("LANG"),
+        }
+        result
+    }
 
     #[test]
     fn im_title_prefers_sender_name() {
-        let id = "feishu:default:feishu:dm:oc_chat:ou_user";
-        assert_eq!(
-            im_conversation_title(id, Some("张三"), Some("hello")).as_deref(),
-            Some("飞书 · 张三")
-        );
+        with_zh_cn_locale(|| {
+            let id = "feishu:default:feishu:dm:oc_chat:ou_user";
+            assert_eq!(
+                im_conversation_title(id, Some("张三"), Some("hello")).as_deref(),
+                Some("飞书 · 张三")
+            );
+        });
     }
 
     #[test]
     fn im_title_uses_first_message_for_dm() {
-        let id = "dingtalk:default:dingtalk:dm:cid123:sender456";
-        assert_eq!(
-            im_conversation_title(id, None, Some("帮我查一下天气")).as_deref(),
-            Some("钉钉 · 帮我查一下天气")
-        );
+        with_zh_cn_locale(|| {
+            let id = "dingtalk:default:dingtalk:dm:cid123:sender456";
+            assert_eq!(
+                im_conversation_title(id, None, Some("帮我查一下天气")).as_deref(),
+                Some("钉钉 · 帮我查一下天气")
+            );
+        });
     }
 
     #[test]
     fn im_commands_block_lists_reset_and_visible_agents_only() {
-        let registry = crate::agents::AgentRegistry::new();
-        crate::agents::register_builtin_agents(&registry);
-        let block = im_session_commands_block(&registry);
-        assert!(block.contains("/new"));
-        assert!(block.contains("新对话"));
-        assert!(block.contains("final"));
-        assert!(!block.contains("channel_message"));
-        assert!(block.contains("general"));
-        assert!(block.contains("通用助手"));
-        assert!(block.contains("coder"));
-        assert!(block.contains("氛围编程"));
-        assert!(block.contains("computer"));
-        assert!(block.contains("电脑操控"));
-        assert!(!block.contains("supervisor"));
-        assert!(!block.contains("团队模式"));
-        assert!(!block.contains("research"));
-        assert!(!block.contains("深度研究"));
-        assert!(block.contains("blocks this turn"));
-        assert!(block.contains("ask_user"));
+        with_zh_cn_locale(|| {
+            let registry = crate::agents::AgentRegistry::new();
+            crate::agents::register_builtin_agents(&registry);
+            let block = im_session_commands_block(&registry);
+            assert!(block.contains("/new"));
+            assert!(block.contains("新对话"));
+            assert!(block.contains("final"));
+            assert!(!block.contains("channel_message"));
+            assert!(block.contains("general"));
+            assert!(block.contains("通用助手"));
+            assert!(block.contains("coder"));
+            assert!(block.contains("氛围编程"));
+            assert!(block.contains("computer"));
+            assert!(block.contains("电脑操控"));
+            assert!(!block.contains("supervisor"));
+            assert!(!block.contains("团队模式"));
+            assert!(!block.contains("research"));
+            assert!(!block.contains("深度研究"));
+            assert!(block.contains("blocks this turn"));
+            assert!(block.contains("ask_user"));
+        });
     }
 
     #[test]
     fn im_title_group_fallback() {
-        let id = "wecom:default:wecom:group:wr_group:userid";
-        assert_eq!(
-            im_conversation_title(id, None, None).as_deref(),
-            Some("企微 群聊")
-        );
+        with_zh_cn_locale(|| {
+            let id = "wecom:default:wecom:group:wr_group:userid";
+            assert_eq!(
+                im_conversation_title(id, None, None).as_deref(),
+                Some("企微 群聊")
+            );
+        });
     }
 
     #[test]
@@ -299,12 +347,14 @@ mod tests {
 
     #[test]
     fn im_fork_title_marks_new_session() {
-        let base = "feishu:default:feishu:dm:oc_chat:ou_user";
-        let forked = im_desktop_conversation_id(base, 1);
-        assert_eq!(
-            im_session_fork_title(&forked, Some("张三"), 1).as_deref(),
-            Some("飞书 · 张三 · 新对话")
-        );
+        with_zh_cn_locale(|| {
+            let base = "feishu:default:feishu:dm:oc_chat:ou_user";
+            let forked = im_desktop_conversation_id(base, 1);
+            assert_eq!(
+                im_session_fork_title(&forked, Some("张三"), 1).as_deref(),
+                Some("飞书 · 张三 · 新对话")
+            );
+        });
     }
 
     #[test]

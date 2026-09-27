@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 /** Mermaid fence helpers for markdown (`mermaid`). */
 
 import { canvasRgb } from './markdownChart'
@@ -12,7 +13,7 @@ export function isMermaidFenceLang(lang: string): boolean {
 
 /** Fixed Mermaid body for streaming placeholders (valid syntax, marked pending). */
 export const STREAMING_MERMAID_STUB =
-  '%% pointer-mermaid-pending\nflowchart TD\n  A[图示生成中]'
+  `%% pointer-mermaid-pending\nflowchart TD\n  A[${t('markdown.mermaidPendingNode')}]`
 
 export const STREAMING_MERMAID_FENCE =
   '```mermaid\n' + STREAMING_MERMAID_STUB + '\n```'
@@ -20,7 +21,7 @@ export const STREAMING_MERMAID_FENCE =
 export const STREAMING_MERMAID_HOST_HTML =
   `<div class="md-mermaid group md-mermaid--pending" data-mermaid-config="${encodeSvgConfigAttr(STREAMING_MERMAID_STUB)}">` +
   `<div class="md-mermaid-toolbar" hidden></div>` +
-  `<div class="md-mermaid-frame"><div class="md-mermaid-status md-mermaid-status-pending">图示生成中…</div></div>` +
+  `<div class="md-mermaid-frame"><div class="md-mermaid-status md-mermaid-status-pending">${t('markdown.diagramGenerating')}</div></div>` +
   `<pre class="md-mermaid-source" hidden></pre>` +
   `</div>\n`
 

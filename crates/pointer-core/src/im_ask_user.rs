@@ -24,10 +24,11 @@ pub fn format_im_clarify_message(args: &AskUserArgs) -> String {
         }
     }
     lines.push(String::new());
+    let loc = crate::i18n::current_ui_locale();
     if args.multi_select {
-        lines.push("请回复编号（可多选，用逗号分隔）、选项原文，或直接说明你的选择。".into());
+        lines.push(crate::i18n::t("im.ask_user.hint_multi", loc).into());
     } else {
-        lines.push("请回复编号、选项原文，或直接说明你的选择。".into());
+        lines.push(crate::i18n::t("im.ask_user.hint_single", loc).into());
     }
     lines.join("\n")
 }
@@ -150,7 +151,11 @@ impl ImAskUserRegistry {
 pub fn parse_im_ask_user_reply(args: &AskUserArgs, raw: &str) -> Result<Vec<String>, String> {
     let text = raw.trim();
     if text.is_empty() {
-        return Err("请回复选项编号、选项原文，或直接说明你的选择。".into());
+        return Err(crate::i18n::t(
+            "im.ask_user.empty_reply",
+            crate::i18n::current_ui_locale(),
+        )
+        .into());
     }
 
     if !args.multi_select {
@@ -258,11 +263,28 @@ mod tests {
 
     #[test]
     fn format_im_clarify_lists_options() {
+        let _guard = crate::i18n::ENV_LOCALE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let prev_lc = std::env::var("LC_ALL").ok();
+        let prev_lang = std::env::var("LANG").ok();
+        std::env::set_var("LC_ALL", "zh_CN.UTF-8");
+        std::env::set_var("LANG", "zh_CN.UTF-8");
+
         let text = format_im_clarify_message(&sample(false));
         assert!(text.contains("Pick"));
         assert!(text.contains("1. Allow"));
         assert!(text.contains("2. Deny"));
         assert!(text.contains("请回复编号"));
+
+        match prev_lc {
+            Some(v) => std::env::set_var("LC_ALL", v),
+            None => std::env::remove_var("LC_ALL"),
+        }
+        match prev_lang {
+            Some(v) => std::env::set_var("LANG", v),
+            None => std::env::remove_var("LANG"),
+        }
     }
 
     #[test]

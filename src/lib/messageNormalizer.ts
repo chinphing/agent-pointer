@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import { isPersistableAttachmentPreviewUrl, isUsableAttachmentPreviewUrl } from './attachmentSupport'
 import type { ChatMessage, MediaAttachment, MediaAttachmentKind } from '../types/chat'
 import { getComposerAttachmentPreviewUrl } from './attachmentPayloadStore'
@@ -127,7 +128,7 @@ export function stripSavedAttachmentHints(content: string): string {
     .trim()
 }
 
-const IDLE_JOB_PUSH_USER_LINE = '后台任务已完成。'
+const IDLE_JOB_PUSH_USER_LINE = t('idleJob.completed')
 const IDLE_JOB_PUSH_HOST_KIND = 'idle_job_push'
 const IDLE_JOB_PUSH_BUBBLE_TITLE_CHARS = 20
 const IDLE_JOB_PUSH_BUBBLE_TITLE_MAX = 2
@@ -157,12 +158,12 @@ function parseIdleJobPushHeadings(content: string): IdleJobPushHeading[] {
 function formatIdleJobPushBubble(jobs: IdleJobPushHeading[]): string {
   if (!jobs.length) return IDLE_JOB_PUSH_USER_LINE
   const allFailed = jobs.every(job => job.failed)
-  const prefix = allFailed ? '后台任务失败' : '后台任务已完成'
+  const prefix = allFailed ? t('idleJob.failed') : t('idleJob.completedPrefix')
   const titles = jobs.map(job => truncateIdleJobPushTitle(job.title))
   if (titles.length <= IDLE_JOB_PUSH_BUBBLE_TITLE_MAX) {
     return `${prefix}：${titles.join('、')}`
   }
-  return `${prefix}：${titles[0]}、${titles[1]} 等 ${titles.length} 个`
+  return t('idleJob.completedMany', { prefix, a: titles[0], b: titles[1], n: titles.length })
 }
 
 function idleJobPushDisplayLine(message: ChatMessage): string {

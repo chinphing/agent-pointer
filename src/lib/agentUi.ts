@@ -59,13 +59,18 @@ function profileKey(profile: AgentProfile, id: string): string {
   return 'general'
 }
 
-const COMPOSER_LABELS: Record<string, string> = {
-  general: t('agent.ui.general'),
-  'general-worker': t('agent.ui.generalWorker'),
-  coder: t('agent.ui.coder'),
-  computer: t('agent.ui.computer'),
-  explore: t('agent.ui.explore')
+function composerLabels(): Record<string, string> {
+  return {
+    general: t('agent.ui.general'),
+    'general-worker': t('agent.ui.generalWorker'),
+    coder: t('agent.ui.coder'),
+    computer: t('agent.ui.computer'),
+    explore: t('agent.ui.explore')
+  }
 }
+
+/** @deprecated Prefer composerLabels() so labels follow the active locale. */
+const COMPOSER_LABELS: Record<string, string> = composerLabels()
 
 function composerSelectableByProfile(id: string, key: string): boolean {
   return (
@@ -138,7 +143,7 @@ export function composerAgentLabel(
 ): string {
   if (!agent) return t('agent.ui.general')
   const ui = resolveAgentUi(agent, settings)
-  return ui.composerLabel.trim() || COMPOSER_LABELS[agent.id] || t('agent.ui.general')
+  return ui.composerLabel.trim() || composerLabels()[agent.id] || t('agent.ui.general')
 }
 
 /** User-visible Chinese label for an agent id (cron list, traces, etc.). */
@@ -150,7 +155,7 @@ export function composerAgentLabelById(
   const id = agentId?.trim() || DEFAULT_LEAD_AGENT_ID
   const agent = agents?.find(a => a.id === id)
   if (agent) return composerAgentLabel(agent, settings)
-  return COMPOSER_LABELS[id] ?? id
+  return composerLabels()[id] ?? id
 }
 
 /** Resolve user-visible label for a sub-agent trace row (handles legacy English slug in `trace.name`). */
@@ -166,7 +171,7 @@ export function traceAgentLabel(
   if (agent) return composerAgentLabel(agent, settings)
   const stored = trace.name.trim()
   if (stored && !stored.includes('-')) return stored
-  return (COMPOSER_LABELS[agentId] ?? stored) || t('agent.ui.subtask')
+  return (composerLabels()[agentId] ?? stored) || t('agent.ui.subtask')
 }
 
 export function resolveAgentUi(

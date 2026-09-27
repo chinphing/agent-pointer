@@ -110,14 +110,14 @@ function createSettingsDialogForm(deps: {
   const MODE_AGENT_IDS = new Set(['general', 'coder'])
 
   const AGENT_MODE_USER_ROWS: { id: string; label: string }[] = [
-  { id: 'general', label: '通用助手' },
-  { id: 'coder', label: '氛围编程' }
+  { id: 'general', label: t('settings.assistant.generalAssistant') },
+  { id: 'coder', label: t('settings.assistant.coder') }
   ]
 
   const MEDIA_MODE_USER_ROWS: { key: MediaDebugKind; label: string }[] = [
-  { key: 'image', label: '图片理解' },
-  { key: 'audio', label: '语音转写' },
-  { key: 'video', label: '视频理解' }
+  { key: 'image', label: t('settings.assistant.mediaModeLabel.image') },
+  { key: 'audio', label: t('settings.assistant.mediaModeLabel.audio') },
+  { key: 'video', label: t('settings.assistant.mediaModeLabel.video') }
   ]
 
   function isModeAgent(agentId: string): boolean {
@@ -329,23 +329,23 @@ function createSettingsDialogForm(deps: {
   const agents = ref<AgentDef[]>([])
 
   const TOOL_CALL_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
-  { key: 'showSidecarToolCalls', label: '显示 sidecar 工具调用' },
-  { key: 'showNonSidecarToolCalls', label: '显示非 sidecar 工具调用' },
-  { key: 'showToolCalls', label: '显示工具调用卡片' },
-  { key: 'showToolCallResults', label: '显示工具调用结果' },
+  { key: 'showSidecarToolCalls', label: t('settings.display.showSidecarToolCalls') },
+  { key: 'showNonSidecarToolCalls', label: t('settings.display.showNonSidecarToolCalls') },
+  { key: 'showToolCalls', label: t('settings.display.showToolCalls') },
+  { key: 'showToolCallResults', label: t('settings.display.showToolCallResults') },
   ]
 
   const AGENT_OUTPUT_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
-  { key: 'showReasoning', label: '显示推理过程' },
-  { key: 'showTaskBoardPanel', label: '显示任务板' },
-  { key: 'showSubAgentTrace', label: '显示子 Agent 边框面板' },
+  { key: 'showReasoning', label: t('settings.generation.toolCallShowReasoning') },
+  { key: 'showTaskBoardPanel', label: t('settings.generation.showTaskBoardPanel') },
+  { key: 'showSubAgentTrace', label: t('settings.generation.showSubAgentTrace') },
   ]
 
   const showDebugMenus = computed(() => debugMenusEnabled.value)
 
   const platformAccountTitle = computed(() => {
-  if (!platformAuth.session.logged_in) return '未登录'
-  return platformAuth.session.user_nickname?.trim() || '已登录'
+  if (!platformAuth.session.logged_in) return t('shell.account.notLoggedIn')
+  return platformAuth.session.user_nickname?.trim() || t('shell.account.loggedIn')
   })
 
   const platformLogoutBusy = ref(false)
@@ -434,29 +434,29 @@ function createSettingsDialogForm(deps: {
   scheduleAssistantSave()
   }
 
-  async function applyThemeChoice(t: ThemePreference) {
-  theme.value = t
-  applyTheme(t)
+  async function applyThemeChoice(pref: ThemePreference) {
+  theme.value = pref
+  applyTheme(pref)
   // Keep both mirrors in sync before persistence so concurrent settings updates
   // cannot temporarily restore the previous theme.
-  s.settings.theme = t
-  s.userSettings.theme = t
+  s.settings.theme = pref
+  s.userSettings.theme = pref
   try {
-    await s.saveUser({ theme: t })
+    await s.saveUser({ theme: pref })
   } catch (e) {
     console.error('[settings] failed to save theme', e)
   }
   }
 
-  function themeLabel(t: ThemePreference): string {
-  if (t === 'light') return '浅色'
-  if (t === 'dark') return '深色'
-  return '跟随系统'
+  function themeLabel(pref: ThemePreference): string {
+  if (pref === 'light') return t('settings.theme.light')
+  if (pref === 'dark') return t('settings.theme.dark')
+  return t('settings.theme.system')
   }
 
-  function nextTheme(t: ThemePreference): ThemePreference {
-  if (t === 'system') return 'light'
-  if (t === 'light') return 'dark'
+  function nextTheme(pref: ThemePreference): ThemePreference {
+  if (pref === 'system') return 'light'
+  if (pref === 'light') return 'dark'
   return 'system'
   }
 
@@ -570,16 +570,16 @@ function createSettingsDialogForm(deps: {
 
   const ffmpegStatusLabel = computed(() => {
   const deps = mediaDeps.value
-  if (!deps) return '检测中…'
+  if (!deps) return t('settings.generation.ffmpegStatus.checking')
   switch (deps.status) {
     case 'ready':
-      return '已就绪（可执行抽帧）'
+      return t('settings.generation.ffmpegStatus.ready')
     case 'partial':
-      return '未就绪：缺少部分组件'
+      return t('settings.generation.ffmpegStatus.partial')
     case 'not_executable':
-      return '未就绪：已找到但无法执行'
+      return t('settings.generation.ffmpegStatus.notExecutable')
     default:
-      return '未检测到'
+      return t('settings.generation.ffmpegStatus.notFound')
   }
   })
 
@@ -601,7 +601,7 @@ function createSettingsDialogForm(deps: {
 
   async function askAssistantInstallFfmpeg() {
   onClose()
-  await chat.sendUserMessage('帮我安装 ffmpeg')
+  await chat.sendUserMessage(t('settings.generation.installFfmpegMessage'))
   }
 
   watch(activeUiAgentId, id => {

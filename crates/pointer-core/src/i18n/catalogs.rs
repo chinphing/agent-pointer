@@ -207,6 +207,21 @@ pub(super) fn lookup_zh_cn(key: &str) -> Option<&'static str> {
             "本机回环自检超时（127.0.0.1:{port}）：请检查防火墙、安全软件、VPN 或系统代理是否拦截 localhost"
         }
 
+        // Channel / IM UI chrome.
+        "ui.new_conversation" => "新会话",
+        "channel.feishu" => "飞书",
+        "channel.dingtalk" => "钉钉",
+        "channel.wecom" => "企微",
+        "channel.weixin" => "微信",
+        "im.title.fork_suffix" => "{base} · 新对话",
+        "im.title.group" => "{label} 群聊",
+        "im.title.dm" => "{label} 私信",
+        "im.ask_user.hint_multi" => {
+            "请回复编号（可多选，用逗号分隔）、选项原文，或直接说明你的选择。"
+        }
+        "im.ask_user.hint_single" => "请回复编号、选项原文，或直接说明你的选择。",
+        "im.ask_user.empty_reply" => "请回复选项编号、选项原文，或直接说明你的选择。",
+
         _ => return None,
     })
 }
@@ -444,6 +459,24 @@ pub(super) fn lookup_en(key: &str) -> Option<&'static str> {
         }
         "err.loopback_timeout" => {
             "Local loopback probe timed out (127.0.0.1:{port}): check firewall, security software, VPN, or system proxy blocking localhost"
+        }
+
+        "ui.new_conversation" => "New chat",
+        "channel.feishu" => "Feishu",
+        "channel.dingtalk" => "DingTalk",
+        "channel.wecom" => "WeCom",
+        "channel.weixin" => "Weixin",
+        "im.title.fork_suffix" => "{base} · New conversation",
+        "im.title.group" => "{label} group",
+        "im.title.dm" => "{label} DM",
+        "im.ask_user.hint_multi" => {
+            "Reply with option numbers (comma-separated for multi-select), the option text, or describe your choice."
+        }
+        "im.ask_user.hint_single" => {
+            "Reply with an option number, the option text, or describe your choice."
+        }
+        "im.ask_user.empty_reply" => {
+            "Reply with an option number, the option text, or describe your choice."
         }
 
         _ => return None,

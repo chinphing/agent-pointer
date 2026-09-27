@@ -493,7 +493,11 @@ pub fn turn_file_diff(
     } else if abs.exists() {
         let meta = fs::metadata(&abs).with_context(|| format!("stat {}", abs.display()))?;
         if !meta.is_file() {
-            return Err(anyhow!("不是常规文件: {}", abs.display()));
+            return Err(anyhow!(crate::i18n::tf(
+                "err.not_regular_file",
+                crate::i18n::current_ui_locale(),
+                &[("path", &abs.display().to_string())],
+            )));
         }
         fs::read_to_string(&abs).with_context(|| format!("read {}", abs.display()))?
     } else {

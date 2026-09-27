@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import type { ChatMessage, ConversationOutlineItem } from '../types/chat'
 import { isCompressionSummaryMessage } from './compressionMessage'
 import { userMessageDisplayContent } from './messageNormalizer'
@@ -89,7 +90,7 @@ export function conversationNavPreview(
   maxChars = CONVERSATION_NAV_PREVIEW_CHARS
 ): string {
   const collapsed = content.trim().split(/\s+/).filter(Boolean).join(' ')
-  if (!collapsed) return '（无文字）'
+  if (!collapsed) return t('conversationNav.noText')
   const chars = [...collapsed]
   if (chars.length <= maxChars) return collapsed
   return `${chars.slice(0, Math.max(0, maxChars - 1)).join('')}…`

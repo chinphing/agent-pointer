@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import { trackFullscreenExit } from './fullscreenTrack'
 
 /**
@@ -158,7 +159,7 @@ export function openDiagramZoom(source: Element): () => void {
 
   const hint = document.createElement('div')
   hint.className = 'diagram-zoom-hint'
-  hint.textContent = '滚轮缩放 · 拖拽移动 · 双击恢复 · Esc 关闭'
+  hint.textContent = t('markdown.zoomHint')
   Object.assign(hint.style, {
     position: 'fixed',
     top: '16px',

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { t } from '../i18n'
 import {
   agentTraceNeedsCollapsedSurface,
   hostNeedsCollapsedSubAgentFrames,
@@ -123,16 +124,20 @@ describe('messageTooling', () => {
     ).toBe('#m1 → done')
     expect(
       taskBoardToolSummary('{"patched":[{"id":"m1"},{"id":"m2"}]}')
-    ).toBe('patch · 2 行')
-    expect(taskBoardToolSummary('{"method":"init","board_len":5}')).toBe('共 5 里程碑')
-    expect(taskBoardToolSummary('{"method":"patch"}')).toBe('任务板 · patch')
+    ).toBe(t('taskBoard.patchRows', { n: 2 }))
+    expect(taskBoardToolSummary('{"method":"init","board_len":5}')).toBe(
+      t('taskBoard.milestones', { n: 5 })
+    )
+    expect(taskBoardToolSummary('{"method":"patch"}')).toBe(
+      t('taskBoard.method', { method: 'patch' })
+    )
     expect(taskBoardToolSummary('{"summary":{"method":"prune"}}')).toBe(
-      '任务板 · prune'
+      t('taskBoard.method', { method: 'prune' })
     )
   })
 
   it('keeps the fallback for malformed task board result text', () => {
-    expect(taskBoardToolSummary('plain text')).toBe('任务板已更新')
+    expect(taskBoardToolSummary('plain text')).toBe(t('taskBoard.updated'))
   })
 
   it('derives patch summaries from arguments with item_id/status', () => {
@@ -144,7 +149,7 @@ describe('messageTooling', () => {
     ).toBeNull()
     expect(
       taskBoardPatchSummaryFromArgs('{"items":[{"id":"a","status":"done"},{"id":"b"}]}')
-    ).toBe('更新 · 2 行')
+    ).toBe(t('taskBoard.updateRows', { n: 2 }))
   })
 
   it('filters sidecar tool calls by default but keeps them when enabled', () => {

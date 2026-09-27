@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import { WEB_API_BASE } from './runtime'
 
 export type MultipartUploadProgress = {
@@ -14,7 +15,7 @@ export type MultipartUploadOptions = {
   signal?: AbortSignal
 }
 
-export const UPLOAD_ABORTED_MESSAGE = '上传已取消'
+export const UPLOAD_ABORTED_MESSAGE = t('upload.aborted')
 
 export function isUploadAbortedError(err: unknown): boolean {
   const msg = (err instanceof Error ? err.message : String(err)).trim()
@@ -53,7 +54,7 @@ export function postMultipartJson<T>(
     if (options.timeoutMs != null && options.timeoutMs > 0) {
       timeoutId = window.setTimeout(() => {
         xhr.abort()
-        reject(new Error(`上传超时（>${Math.round(options.timeoutMs! / 1000)}s）`))
+        reject(new Error(t('upload.timeout', { seconds: Math.round(options.timeoutMs! / 1000) })))
       }, options.timeoutMs)
     }
     const clearTimer = () => {
@@ -108,7 +109,7 @@ export function postMultipartJson<T>(
           reject(new Error('local_login_required'))
           return
         }
-        reject(new Error(body || `上传失败 (${xhr.status})`))
+        reject(new Error(body || t('upload.failedStatus', { status: xhr.status })))
         return
       }
       if (!xhr.responseText?.trim()) {
@@ -118,13 +119,13 @@ export function postMultipartJson<T>(
       try {
         resolve(JSON.parse(xhr.responseText) as T)
       } catch (e) {
-        reject(e instanceof Error ? e : new Error('解析上传响应失败'))
+        reject(e instanceof Error ? e : new Error(t('upload.parseResponseFailed')))
       }
     }
     xhr.onerror = () => {
       clearTimer()
       cleanupSignal()
-      reject(new Error('网络错误，上传失败'))
+      reject(new Error(t('upload.networkFailed')))
     }
     xhr.onabort = () => {
       clearTimer()

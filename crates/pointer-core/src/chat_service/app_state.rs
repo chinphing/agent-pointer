@@ -307,8 +307,19 @@ fn sync_global_mcp_sessions(
     global_mcp: &RwLock<GlobalMcpConfig>,
     sessions: &crate::plugins::mcp::McpSessionManager,
 ) {
+    // 写锁贯穿整个 检查→装配→注册 序列：watchdog 与 reload 必须互斥，
+    // 否则并发一方会在另一方装配途中注销工具/关闭会话（竞态丢工具）。
+    let cfg = global_mcp.write();
+    sync_global_mcp_sessions_locked(tools, &cfg, sessions);
+}
+
+/// 调用方必须已持有 `global_mcp` 写锁（见 [`sync_global_mcp_sessions`]）。
+fn sync_global_mcp_sessions_locked(
+    tools: &crate::tools::ToolRegistry,
+    cfg: &GlobalMcpConfig,
+    sessions: &crate::plugins::mcp::McpSessionManager,
+) {
     use crate::plugins::mcp::GLOBAL_MCP_KEY;
-    let cfg = global_mcp.read();
     if cfg.decls.is_empty() {
         let n = sessions.shutdown_plugin(GLOBAL_MCP_KEY);
         if n > 0 {
@@ -389,12 +400,11 @@ pub(crate) fn mcp_watchdog_cycle(
         }
     }
 
-    // P2b：全局（非插件）MCP——配置 clone 后释放锁（避免激活阻塞热重载写锁）。
-    let (decls, base_dir) = {
-        let cfg = global_mcp.read();
-        (cfg.decls.clone(), cfg.base_dir.clone())
-    };
-    if decls.is_empty() {
+    // P2b：全局（非插件）MCP。写锁贯穿 检查→重建→注册 全程，与
+    // `reload_global_mcp` 互斥；否则并发 reload 会在本循环装配途中
+    // （或反之）注销工具/关闭会话，造成工具短暂丢失的竞态。
+    let cfg = global_mcp.write();
+    if cfg.decls.is_empty() {
         return;
     }
     let alive = sessions.has_session(GLOBAL_MCP_KEY) && sessions.any_alive(GLOBAL_MCP_KEY);
@@ -410,7 +420,7 @@ pub(crate) fn mcp_watchdog_cycle(
     }
     sessions.shutdown_plugin(GLOBAL_MCP_KEY);
     tools.unregister_mcp_by_plugin(GLOBAL_MCP_KEY);
-    match crate::plugins::mcp::activate_global_mcp_servers(tools, &decls, &base_dir) {
+    match crate::plugins::mcp::activate_global_mcp_servers(tools, &cfg.decls, &cfg.base_dir) {
         Ok(clients) => {
             sessions.register(GLOBAL_MCP_KEY, clients);
             log::info!("全局 MCP: 会话已（重新）建立");
@@ -773,10 +783,13 @@ impl AppState {
         base_dir: PathBuf,
     ) -> anyhow::Result<()> {
         use crate::plugins::mcp::GLOBAL_MCP_KEY;
+        // 写锁贯穿 关闭→注销→换配置→重新装配 全程，与 watchdog 互斥，
+        // 避免装配窗口内被 watchdog 并发注销工具（竞态丢工具）。
+        let mut cfg = self.global_mcp.write();
         self.mcp_sessions.shutdown_plugin(GLOBAL_MCP_KEY);
         self.tools.unregister_mcp_by_plugin(GLOBAL_MCP_KEY);
-        *self.global_mcp.write() = GlobalMcpConfig { decls, base_dir };
-        sync_global_mcp_sessions(&self.tools, &self.global_mcp, &self.mcp_sessions);
+        *cfg = GlobalMcpConfig { decls, base_dir };
+        sync_global_mcp_sessions_locked(&self.tools, &cfg, &self.mcp_sessions);
         Ok(())
     }
 

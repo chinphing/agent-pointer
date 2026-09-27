@@ -2,11 +2,11 @@
 import { useI18n } from 'vue-i18n'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 
-const { t } = useI18n()
 const props = defineProps<{
   form: SettingsDialogForm
 }>()
 
+const { t } = useI18n()
 const { debugDumpLlmPrompts, rawContentViewEnabled, computerAnnotatedScreenViewEnabled } = props.form
 </script>
 

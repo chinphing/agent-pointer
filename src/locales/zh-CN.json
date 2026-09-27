@@ -689,7 +689,9 @@
       "subtaskDelegation": "子任务委托",
       "subtaskDelegationHint": "可委派的 worker 由主 Agent 的 AGENT.md 中 {allowAgents} 配置。",
       "maxNestingDepth": "子 Agent 最大嵌套深度",
-      "maxNestingDepthHint": "1 = 仅主 agent 可委派；2 = 子 agent 可再委派一层（默认）。"
+      "maxNestingDepthHint": "1 = 仅主 agent 可委派；2 = 子 agent 可再委派一层（默认）。",
+      "subtaskDelegationHintBefore": "可委派的 worker 由主 Agent 的 AGENT.md 中 ",
+      "subtaskDelegationHintAfter": " 配置。"
     },
     "cron": {
       "schedule": "调度",

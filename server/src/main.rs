@@ -636,6 +636,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/version", get(api_version))
         .route("/api/ready", get(api_ready))
         .route("/api/platform/session", get(get_platform_session))
+        .route("/api/token-usage", get(list_token_usage))
         .route("/api/auth/mode", get(local_auth::auth_mode))
         .route("/api/auth/login/start", post(start_platform_login))
         .route("/api/auth/local/captcha", get(local_auth::local_captcha))
@@ -3893,6 +3894,25 @@ static WEB_DIST: OnceLock<PathBuf> = OnceLock::new();
 
 async fn get_platform_session(State(state): State<ServerState>) -> Json<PlatformSessionView> {
     Json(state.core.active_platform_auth().session_view())
+}
+
+#[derive(Deserialize)]
+struct TokenUsageListQuery {
+    #[serde(default)]
+    from: Option<String>,
+    #[serde(default)]
+    to: Option<String>,
+}
+
+/// `GET /api/token-usage?from=&to=` — local token usage list for the account UI.
+async fn list_token_usage(
+    State(_state): State<ServerState>,
+    Query(q): Query<TokenUsageListQuery>,
+) -> Result<Json<pointer_core::token_usage_store::TokenUsageListResult>, ApiError> {
+    Ok(Json(pointer_core::token_usage_store::list_token_usage(
+        q.from.as_deref(),
+        q.to.as_deref(),
+    )?))
 }
 
 #[derive(Deserialize)]

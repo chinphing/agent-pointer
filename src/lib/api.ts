@@ -565,6 +565,12 @@ export const loadPlatformSessionFromKeyring = isTauriRuntime()
   ? tauriApi.loadPlatformSessionFromKeyring
   : webApi.loadPlatformSessionFromKeyring
 
+export type TokenUsageListItem = import('./tauri').TokenUsageListItem
+export type TokenUsageListResult = import('./tauri').TokenUsageListResult
+export const listTokenUsage = isTauriRuntime()
+  ? tauriApi.listTokenUsage
+  : webApi.listTokenUsage
+
 // ---- Phase 5/6: automation (cron jobs + webhook token) ----
 export const listCronJobs = api.listCronJobs
 export const listCronDeliveryTargets = api.listCronDeliveryTargets

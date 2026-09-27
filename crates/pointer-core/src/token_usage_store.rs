@@ -67,6 +67,119 @@ pub fn count_unsent_reports() -> Result<usize> {
     Ok(n as usize)
 }
 
+/// One row of the account token-usage list (per run × agent instance × model).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenUsageListItem {
+    pub run_id: String,
+    pub conversation_id: String,
+    pub agent_instance_id: String,
+    pub agent_role_id: Option<String>,
+    pub model_name: String,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub thinking_tokens: u64,
+    pub cached_tokens: u64,
+    pub total_tokens: u64,
+    pub llm_rounds: u64,
+    pub billing_mode: String,
+    pub unit_count: u64,
+    pub source: String,
+    pub report_status: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Result of a date-range query. `total_tokens` sums the listed rows.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenUsageListResult {
+    pub items: Vec<TokenUsageListItem>,
+    pub total_tokens: u64,
+    pub total_prompt_tokens: u64,
+    pub total_completion_tokens: u64,
+}
+
+const USAGE_LIST_LIMIT: i64 = 500;
+
+/// List token usage rows whose `updated_at` falls in `[from, to)` (RFC3339).
+/// `from`/`to` are optional; when both are `None`, all rows are listed (capped).
+pub fn list_token_usage(from: Option<&str>, to: Option<&str>) -> Result<TokenUsageListResult> {
+    let guard = connection()?;
+    let conn = guard.lock();
+    list_token_usage_on(&conn, from, to)
+}
+
+fn list_token_usage_on(
+    conn: &Connection,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Result<TokenUsageListResult> {
+    let mut sql = String::from(
+        "SELECT run_id, conversation_id, agent_instance_id, agent_role_id, model_name,
+                prompt_tokens, completion_tokens, thinking_tokens, cached_tokens,
+                total_tokens, llm_rounds, billing_mode, unit_count, source,
+                report_status, created_at, updated_at
+         FROM usage_accum
+         WHERE (llm_rounds > 0 OR total_tokens > 0 OR unit_count > 0)",
+    );
+    let mut bind: Vec<String> = Vec::new();
+    if let Some(f) = from.filter(|s| !s.trim().is_empty()) {
+        sql.push_str(" AND updated_at >= ?");
+        bind.push(f.trim().to_string());
+    }
+    if let Some(t) = to.filter(|s| !s.trim().is_empty()) {
+        sql.push_str(" AND updated_at < ?");
+        bind.push(t.trim().to_string());
+    }
+    sql.push_str(" ORDER BY updated_at DESC LIMIT ?");
+    bind.push(USAGE_LIST_LIMIT.to_string());
+
+    let mut stmt = conn.prepare(&sql)?;
+    let params: Vec<&dyn rusqlite::types::ToSql> = bind
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+    let rows = stmt
+        .query_map(params.as_slice(), |row| {
+            Ok(TokenUsageListItem {
+                run_id: row.get(0)?,
+                conversation_id: row.get(1)?,
+                agent_instance_id: row.get(2)?,
+                agent_role_id: row.get(3)?,
+                model_name: row.get(4)?,
+                prompt_tokens: row.get::<_, i64>(5)?.max(0) as u64,
+                completion_tokens: row.get::<_, i64>(6)?.max(0) as u64,
+                thinking_tokens: row.get::<_, i64>(7)?.max(0) as u64,
+                cached_tokens: row.get::<_, i64>(8)?.max(0) as u64,
+                total_tokens: row.get::<_, i64>(9)?.max(0) as u64,
+                llm_rounds: row.get::<_, i64>(10)?.max(0) as u64,
+                billing_mode: row.get(11)?,
+                unit_count: row.get::<_, i64>(12)?.max(0) as u64,
+                source: row.get(13)?,
+                report_status: row.get(14)?,
+                created_at: row.get(15)?,
+                updated_at: row.get(16)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let result = TokenUsageListResult {
+        total_tokens: rows.iter().map(|r| r.total_tokens).sum(),
+        total_prompt_tokens: rows.iter().map(|r| r.prompt_tokens).sum(),
+        total_completion_tokens: rows.iter().map(|r| r.completion_tokens).sum(),
+        items: rows,
+    };
+    log::info!(
+        "token_usage_store: list_token_usage from={:?} to={:?} rows={} total_tokens={}",
+        from,
+        to,
+        result.items.len(),
+        result.total_tokens
+    );
+    Ok(result)
+}
+
 /// Billing unit metadata for platform upload (tokens / per-image / per-sec).
 #[derive(Debug, Clone, Copy)]
 pub struct UsageBillingMeta {
@@ -1200,6 +1313,72 @@ mod tests {
         let conn = Connection::open_in_memory().expect("in-memory db");
         migrate_schema(&conn).expect("migrate schema");
         conn
+    }
+
+    fn seed_usage_row(
+        conn: &Connection,
+        run_id: &str,
+        model: &str,
+        total: i64,
+        updated_at: &str,
+    ) {
+        conn.execute(
+            "INSERT INTO usage_accum (
+               run_id, conversation_id, agent_instance_id, model_name, agent_role_id,
+               prompt_tokens, completion_tokens, thinking_tokens, cached_tokens,
+               total_tokens, llm_rounds, billing_mode, unit_count, source,
+               period_start, period_end, report_status, request_id, history_archive_path,
+               created_at, updated_at
+             ) VALUES (?1, 'conv', 'inst', ?2, 'general',
+                       ?3, 0, 0, 0, ?3, 1, 'tokens', 0, 'platform',
+                       NULL, NULL, 'sent', ?4, NULL, ?5, ?5)",
+            params![run_id, model, total, format!("req-{run_id}"), updated_at],
+        )
+        .expect("seed usage row");
+    }
+
+    #[test]
+    fn list_token_usage_filters_by_date_range() {
+        let conn = open_migrated_db();
+        seed_usage_row(&conn, "run-old", "qwen", 100, "2026-08-01T10:00:00Z");
+        seed_usage_row(&conn, "run-in", "qwen", 200, "2026-09-10T10:00:00Z");
+        seed_usage_row(&conn, "run-new", "glm", 300, "2026-09-26T10:00:00Z");
+
+        let all = list_token_usage_on(&conn, None, None).expect("list all");
+        assert_eq!(all.items.len(), 3);
+        assert_eq!(all.total_tokens, 600);
+        assert_eq!(all.items[0].run_id, "run-new");
+
+        let ranged = list_token_usage_on(
+            &conn,
+            Some("2026-09-01T00:00:00Z"),
+            Some("2026-09-20T00:00:00Z"),
+        )
+        .expect("list range");
+        assert_eq!(ranged.items.len(), 1);
+        assert_eq!(ranged.items[0].run_id, "run-in");
+        assert_eq!(ranged.total_tokens, 200);
+    }
+
+    #[test]
+    fn list_token_usage_skips_zero_rows() {
+        let conn = open_migrated_db();
+        conn.execute(
+            "INSERT INTO usage_accum (
+               run_id, conversation_id, agent_instance_id, model_name, agent_role_id,
+               prompt_tokens, completion_tokens, thinking_tokens, cached_tokens,
+               total_tokens, llm_rounds, billing_mode, unit_count, source,
+               period_start, period_end, report_status, request_id, history_archive_path,
+               created_at, updated_at
+             ) VALUES ('run-zero', 'conv', 'inst', 'qwen', 'general',
+                       0, 0, 0, 0, 0, 0, 'tokens', 0, 'platform',
+                       NULL, NULL, 'accumulating', 'req-zero', NULL,
+                       '2026-09-10T00:00:00Z', '2026-09-10T00:00:00Z')",
+            [],
+        )
+        .expect("seed zero row");
+        let all = list_token_usage_on(&conn, None, None).expect("list all");
+        assert!(all.items.is_empty());
     }
 
     #[test]

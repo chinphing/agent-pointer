@@ -595,6 +595,7 @@ pub fn run() {
             platform_commands::refresh_platform_session,
             platform_commands::logout_platform,
             platform_commands::flush_platform_token_usage,
+            platform_commands::list_token_usage,
             platform_commands::load_platform_session_persisted,
             platform_commands::load_platform_session_from_keyring,
             cloud_commands::get_cloud_platform_me,

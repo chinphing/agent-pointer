@@ -1003,6 +1003,20 @@ export async function loadPlatformSessionFromKeyring(): Promise<boolean> {
   return s.logged_in
 }
 
+export type TokenUsageListItem = import('./tauri').TokenUsageListItem
+export type TokenUsageListResult = import('./tauri').TokenUsageListResult
+
+export async function listTokenUsage(
+  from?: string,
+  to?: string
+): Promise<TokenUsageListResult> {
+  const params = new URLSearchParams()
+  if (from) params.set('from', from)
+  if (to) params.set('to', to)
+  const qs = params.toString()
+  return await request<TokenUsageListResult>(`/api/token-usage${qs ? `?${qs}` : ''}`)
+}
+
 /**
  * Subscribe to chat SSE. `onGap(reason)` fires when the browser must catch up
  * (broadcast lag, reconnect after drop, 502/504) — missed frames are not replayed.

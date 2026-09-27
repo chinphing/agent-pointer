@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onErrorCaptured, onMounted, ref, watch } from 'vue'
-import { ArrowLeft, Bug, Sparkles, Bot, Cpu, MessageSquare, Cloud, Clock, Info, Settings, Puzzle, Plug } from 'lucide-vue-next'
+import { ArrowLeft, Bug, Sparkles, Bot, Cpu, MessageSquare, Cloud, Clock, Info, Settings, Puzzle, Plug, Gauge } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import WindowDragRegion from '../layout/WindowDragRegion.vue'
@@ -16,6 +16,7 @@ import DebugSettingsPanel from './panels/DebugSettingsPanel.vue'
 import CloudSettingsPanel from './panels/CloudSettingsPanel.vue'
 import AutomationSettingsPanel from './panels/AutomationSettingsPanel.vue'
 import AboutSettingsPanel from './panels/AboutSettingsPanel.vue'
+import UsageSettingsPanel from './panels/UsageSettingsPanel.vue'
 import SkillsPanel from '../skills/SkillsPanel.vue'
 import PluginsPanel from './panels/PluginsPanel.vue'
 import McpPanel from './panels/McpPanel.vue'
@@ -114,6 +115,12 @@ const sections = computed<SidebarGroup[]>(() => {
     desc: '版本与更新',
     icon: Info
   }
+  const usage: SidebarItem = {
+    id: 'usage',
+    label: '用量',
+    desc: 'Token 消耗记录',
+    icon: Gauge
+  }
 
   const groups: SidebarGroup[] = [
     // 智能体与配置：决定 AI 怎么工作、怎么显示
@@ -149,6 +156,7 @@ const sections = computed<SidebarGroup[]>(() => {
   if (isTauriRuntime() && !platformAuth.isStandalone) {
     systemItems.push({ id: 'cloud', label: '云主机', desc: '购买与管理', icon: Cloud })
   }
+  systemItems.push(usage)
   systemItems.push(about)
   groups.push({ items: systemItems })
 
@@ -274,6 +282,10 @@ onMounted(() => {
 
             <section v-else-if="activeSection === 'cloud'" class="min-h-full flex flex-col">
               <CloudSettingsPanel :form="form" />
+            </section>
+
+            <section v-else-if="activeSection === 'usage'" class="min-h-full flex flex-col">
+              <UsageSettingsPanel />
             </section>
 
             <section v-else-if="activeSection === 'about'" class="min-h-full flex flex-col">

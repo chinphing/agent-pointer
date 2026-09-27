@@ -79,6 +79,14 @@ pub async fn flush_platform_token_usage(state: State<'_, Arc<AppState>>) -> Resu
 }
 
 #[tauri::command]
+pub fn list_token_usage(
+    from: Option<String>,
+    to: Option<String>,
+) -> Result<token_usage_store::TokenUsageListResult, String> {
+    token_usage_store::list_token_usage(from.as_deref(), to.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn load_platform_session_persisted(
     state: State<'_, Arc<AppState>>,
 ) -> Result<bool, String> {

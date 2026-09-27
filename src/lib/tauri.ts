@@ -735,6 +735,43 @@ export async function loadPlatformSessionFromKeyring(): Promise<boolean> {
   return await invoke<boolean>('load_platform_session_from_keyring')
 }
 
+export interface TokenUsageListItem {
+  runId: string
+  conversationId: string
+  agentInstanceId: string
+  agentRoleId?: string | null
+  modelName: string
+  promptTokens: number
+  completionTokens: number
+  thinkingTokens: number
+  cachedTokens: number
+  totalTokens: number
+  llmRounds: number
+  billingMode: string
+  unitCount: number
+  source: string
+  reportStatus: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TokenUsageListResult {
+  items: TokenUsageListItem[]
+  totalTokens: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+}
+
+export async function listTokenUsage(
+  from?: string,
+  to?: string
+): Promise<TokenUsageListResult> {
+  return await invoke<TokenUsageListResult>('list_token_usage', {
+    from: from ?? null,
+    to: to ?? null
+  })
+}
+
 // ---- Phase 5/6: automation (cron jobs + webhook token) ----
 
 export async function getDispatcherQueueSnapshot(): Promise<

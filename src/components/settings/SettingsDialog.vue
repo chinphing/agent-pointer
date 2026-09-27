@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onErrorCaptured, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ArrowLeft, Bug, Sparkles, Bot, Cpu, MessageSquare, Cloud, Clock, Info, Settings, Puzzle, Plug, Gauge } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useWindowChrome } from '../../composables/useWindowChrome'
@@ -32,6 +33,7 @@ const props = withDefaults(defineProps<{
 
 const s = useSettingsStore()
 const platformAuth = usePlatformAuthStore()
+const { t } = useI18n()
 
 const activeSection = ref(props.initialSection)
 const mainEl = ref<HTMLElement | null>(null)
@@ -67,22 +69,22 @@ watch(activeSection, () => {
   })
 })
 
-const alwaysSections = [
-  { id: 'automation', label: '自动化', desc: '定时任务与 Webhook', icon: Clock },
-  { id: 'channels', label: '连接', desc: '微信/飞书/企微/钉钉', icon: MessageSquare },
-  { id: 'skills', label: '技能', desc: '启用与管理技能', icon: Sparkles },
-  { id: 'plugins', label: '插件', desc: '管理 Pointer 插件', icon: Puzzle },
-  { id: 'mcp', label: 'MCP', desc: '外部工具服务', icon: Plug },
-  { id: 'assistant', label: '智能体', desc: '档位与行为', icon: Bot },
-  { id: 'models', label: '模型配置', desc: '服务商与档位映射', icon: Cpu },
-  { id: 'generation', label: '系统设置', desc: '界面、桌面与系统运行', icon: Settings }
+const alwaysSectionDefs = [
+  { id: 'automation', labelKey: 'settings.sections.automation', descKey: 'settings.sections.automationDesc', icon: Clock },
+  { id: 'channels', labelKey: 'settings.sections.connections', descKey: 'settings.sections.connectionsDesc', icon: MessageSquare },
+  { id: 'skills', labelKey: 'settings.sections.skills', descKey: 'settings.sections.skillsDesc', icon: Sparkles },
+  { id: 'plugins', labelKey: 'settings.sections.plugins', descKey: 'settings.sections.pluginsDesc', icon: Puzzle },
+  { id: 'mcp', labelKey: 'settings.sections.mcp', descKey: 'settings.sections.mcpDesc', icon: Plug },
+  { id: 'assistant', labelKey: 'settings.sections.assistant', descKey: 'settings.sections.assistantDescShort', icon: Bot },
+  { id: 'models', labelKey: 'settings.sections.models', descKey: 'settings.sections.modelsDesc', icon: Cpu },
+  { id: 'generation', labelKey: 'settings.sections.generation', descKey: 'settings.sections.generationDesc', icon: Settings }
 ] as const
 
-const debugSections = [
-  { id: 'debug', label: '调试', desc: '保存对话请求', icon: Bug }
+const debugSectionDefs = [
+  { id: 'debug', labelKey: 'settings.sections.debug', descKey: 'settings.sections.debugDesc', icon: Bug }
 ] as const
 
-const debugSectionIds = new Set<string>(debugSections.map(item => item.id))
+const debugSectionIds = new Set<string>(debugSectionDefs.map(item => item.id))
 
 const form = provideSettingsDialogForm({
   onClose: () => emit('close'),
@@ -108,53 +110,63 @@ interface SidebarGroup {
   items: SidebarItem[]
 }
 
+function sectionItem(
+  def: { id: string; labelKey: string; descKey: string; icon: typeof Bot }
+): SidebarItem {
+  return {
+    id: def.id,
+    label: t(def.labelKey),
+    desc: t(def.descKey),
+    icon: def.icon
+  }
+}
+
 const sections = computed<SidebarGroup[]>(() => {
   const about: SidebarItem = {
     id: 'about',
-    label: '关于',
-    desc: '版本与更新',
+    label: t('settings.sections.about'),
+    desc: t('settings.sections.aboutDesc'),
     icon: Info
   }
   const usage: SidebarItem = {
     id: 'usage',
-    label: '用量',
-    desc: 'Token 消耗记录',
+    label: t('settings.sections.usage'),
+    desc: t('settings.sections.usageDesc'),
     icon: Gauge
   }
 
+  const byId = new Map(alwaysSectionDefs.map(d => [d.id, sectionItem(d)]))
+
   const groups: SidebarGroup[] = [
-    // 智能体与配置：决定 AI 怎么工作、怎么显示
     {
       items: [
-        alwaysSections.find(item => item.id === 'assistant')!,
-        alwaysSections.find(item => item.id === 'models')!,
-        alwaysSections.find(item => item.id === 'generation')!
+        byId.get('assistant')!,
+        byId.get('models')!,
+        byId.get('generation')!
       ]
     },
-    // 自动化与集成：外部接入
     {
       items: [
-        alwaysSections.find(item => item.id === 'automation')!,
-        alwaysSections.find(item => item.id === 'channels')!,
-        alwaysSections.find(item => item.id === 'skills')!,
-        alwaysSections.find(item => item.id === 'plugins')!,
-        alwaysSections.find(item => item.id === 'mcp')!
+        byId.get('automation')!,
+        byId.get('channels')!,
+        byId.get('skills')!,
+        byId.get('plugins')!,
+        byId.get('mcp')!
       ]
     }
   ]
 
-  // 系统：管理员/桌面专属 + 版本信息，收到底部
   const systemItems: SidebarItem[] = []
   if (showAdminDebugSection.value) {
-    systemItems.push({
-      id: 'debug',
-      label: '调试',
-      desc: '保存对话请求',
-      icon: Bug
-    })
+    systemItems.push(sectionItem(debugSectionDefs[0]))
   }
   if (isTauriRuntime() && !platformAuth.isStandalone) {
-    systemItems.push({ id: 'cloud', label: '云主机', desc: '购买与管理', icon: Cloud })
+    systemItems.push({
+      id: 'cloud',
+      label: t('settings.sections.cloud'),
+      desc: t('settings.sections.cloudDesc'),
+      icon: Cloud
+    })
   }
   systemItems.push(usage)
   systemItems.push(about)

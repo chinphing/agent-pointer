@@ -62,6 +62,9 @@ export type AgentMode = 'single' | 'supervisor'
 
 export type ThemePreference = 'light' | 'dark' | 'system'
 
+/** UI language preference. `system` follows OS / browser locale. */
+export type UiLocalePreference = 'system' | 'zh-CN' | 'en'
+
 /** Computer agent vision tier (matches backend `ComputerTier`). */
 export type ComputerInitialTier = 'primary' | 'intermediate' | 'advanced'
 
@@ -627,6 +630,8 @@ export interface AgentModelRef {
 
 export interface UserSettings {
   theme?: ThemePreference
+  /** UI language: follow system, Chinese, or English. */
+  uiLocale?: UiLocalePreference
   userNickname?: string
   /**
    * Legacy globally enabled skill ids. Not used at runtime; migrated into

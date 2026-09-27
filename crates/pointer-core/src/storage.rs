@@ -502,6 +502,10 @@ fn default_theme() -> String {
     "system".into()
 }
 
+fn default_ui_locale() -> String {
+    "system".into()
+}
+
 fn default_computer_initial_tier() -> String {
     "intermediate".into()
 }
@@ -543,6 +547,9 @@ fn migrate_legacy_settings_if_needed() -> Result<()> {
     let mut user = stored_settings_to_user(&stored);
     if user.theme.trim().is_empty() {
         user.theme = default_theme();
+    }
+    if user.ui_locale.trim().is_empty() {
+        user.ui_locale = default_ui_locale();
     }
     write_user_settings_file(&user)?;
     fs::rename(&legacy, &migrated)?;

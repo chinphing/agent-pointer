@@ -3,6 +3,7 @@
 | 文档 | 说明 |
 |------|------|
 | [visual-theme.md](visual-theme.md) | 扁平主题 token、深浅色切换；对话列宽跟中间栏（含 Workspace 拖拽）自适应 |
+| [i18n.md](i18n.md) | UI 语言偏好（`uiLocale`）、vue-i18n 文案键、与 `user_settings.json` 持久化 |
 | [markdown-typography.md](markdown-typography.md) | 聊天 / 工作区 Markdown 正文字号、标题层级、加粗当标题 |
 | [external-links.md](external-links.md) | 应用内 http(s) 链接用系统默认浏览器打开（桌面）/ 新标签（Web） |
 | [markdown-charts.md](markdown-charts.md) | Markdown `chartjs` fence → 本地 Chart.js 交互图表 |

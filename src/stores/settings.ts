@@ -23,11 +23,13 @@ import type {
   PlatformSettings,
   ProviderConfig,
   ThemePreference,
+  UiLocalePreference,
   UserSettings
 } from '../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { GENERAL_AGENT_ID } from '../lib/agentUi'
 import { applyTheme } from '../lib/theme'
+import { applyUiLocale, isUiLocalePreference } from '../lib/uiLocale'
 import {
   modelCanGenerateImage,
   modelCanGenerateVideo,
@@ -270,6 +272,7 @@ function normalizeAgentDefaultModels(
 export const useSettingsStore = defineStore('settings', () => {
   const userSettings = ref<UserSettings>({
     theme: 'system',
+    uiLocale: 'system',
     agentSkillOverrides: {}
   })
   const platformSettings = ref<PlatformSettings>(defaultPlatformSettings())
@@ -336,7 +339,14 @@ export const useSettingsStore = defineStore('settings', () => {
   const testResult = ref<{ ok: boolean; latencyMs: number; message: string } | null>(null)
 
   function applyEffectiveView(view: EffectiveSettingsView) {
-    userSettings.value = { ...view.user, theme: (view.user.theme as ThemePreference) ?? 'system' }
+    const uiLocale: UiLocalePreference = isUiLocalePreference(view.user.uiLocale)
+      ? view.user.uiLocale
+      : 'system'
+    userSettings.value = {
+      ...view.user,
+      theme: (view.user.theme as ThemePreference) ?? 'system',
+      uiLocale
+    }
     // WEB non-admin responses omit debug / mode-LLM fields. Preserve the current
     // in-memory values when the payload lacks them so save→reopen does not snap
     // back to built-in defaults (admins now receive these fields from the API).
@@ -419,6 +429,7 @@ export const useSettingsStore = defineStore('settings', () => {
     }
     settings.value = normalizeMergedSettings(nextMerged, activeId)
     applyTheme(settings.value.theme)
+    applyUiLocale(userSettings.value.uiLocale)
   }
 
   function storeGlobalGenFallbackFrom(st?: Pick<ModelSettings, 'temperature' | 'maxTokens' | 'contextBudgetTokens'>): RuntimeGenFallback {
@@ -548,13 +559,18 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function saveUserSnapshot(snapshot: UserSettings) {
     if (snapshot.theme !== undefined) applyTheme(snapshot.theme)
+    if (snapshot.uiLocale !== undefined) applyUiLocale(snapshot.uiLocale)
     const view = await updateUserSettings(cloneJson(snapshot))
     // Only refresh the user slice. A full applyEffectiveView would re-apply the
     // still-stale platform map (often `terminalEnvOverrides: {}`) and wipe session
     // debug drafts captured earlier in the same settings-footer save.
+    const uiLocale: UiLocalePreference = isUiLocalePreference(view.user.uiLocale)
+      ? view.user.uiLocale
+      : 'system'
     const user = {
       ...view.user,
-      theme: (view.user.theme as ThemePreference) ?? 'system'
+      theme: (view.user.theme as ThemePreference) ?? 'system',
+      uiLocale
     }
     userSettings.value = user
     // 后端 update_user_settings 会把空/掩码的 apiKey 从内存 key 池回填后再落盘，
@@ -671,10 +687,12 @@ export const useSettingsStore = defineStore('settings', () => {
         mergedIn.computerPipelineLlm ?? user.computerPipelineLlm ?? settings.value.computerPipelineLlm
     }
     applyTheme(user.theme)
+    applyUiLocale(user.uiLocale)
   }
 
   async function saveUser(patch: Partial<UserSettings>) {
     if (patch.theme !== undefined) applyTheme(patch.theme)
+    if (patch.uiLocale !== undefined) applyUiLocale(patch.uiLocale)
     await saveUserSnapshot(createUserSnapshot(patch))
   }
 

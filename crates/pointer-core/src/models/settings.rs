@@ -1096,6 +1096,10 @@ fn default_theme() -> String {
     build_cfg_str!("THEME", "system")
 }
 
+fn default_ui_locale() -> String {
+    "system".into()
+}
+
 fn default_active_provider_id() -> String {
     // 平台模型配置全部由平台下发；本地默认无激活服务商（build 配置可覆盖）。
     build_cfg_str!("ACTIVE_PROVIDER_ID", "")
@@ -1806,6 +1810,9 @@ impl MediaOssConfig {
 pub struct UserSettings {
     #[serde(default = "default_theme", rename = "theme")]
     pub theme: String,
+    /// UI language: `system`, `zh-CN`, or `en`.
+    #[serde(default = "default_ui_locale", rename = "uiLocale")]
+    pub ui_locale: String,
     /// P2b：全局（非插件）MCP server 列表（界面直接配置，优先于 pointer-server.toml）。
     #[serde(default, rename = "globalMcpServers")]
     pub global_mcp_servers: Vec<crate::plugins::manifest::McpServerDecl>,
@@ -2061,6 +2068,7 @@ impl Default for UserSettings {
     fn default() -> Self {
         Self {
             theme: default_theme(),
+            ui_locale: default_ui_locale(),
             user_nickname: None,
             global_mcp_servers: Vec::new(),
             enabled_skill_ids: default_enabled_skill_ids(),

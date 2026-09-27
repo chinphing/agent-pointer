@@ -1,0 +1,142 @@
+{
+  "common": {
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "save": "Save",
+    "delete": "Delete",
+    "close": "Close",
+    "copy": "Copy",
+    "copied": "Copied",
+    "search": "Search",
+    "loading": "Loading…",
+    "retry": "Retry",
+    "edit": "Edit",
+    "rename": "Rename",
+    "create": "Create",
+    "add": "Add",
+    "remove": "Remove",
+    "enable": "Enable",
+    "disable": "Disable",
+    "on": "On",
+    "off": "Off",
+    "yes": "Yes",
+    "no": "No",
+    "unknown": "Unknown",
+    "error": "Error",
+    "success": "Success",
+    "warning": "Warning",
+    "none": "None",
+    "all": "All",
+    "back": "Back",
+    "next": "Next",
+    "done": "Done",
+    "more": "More",
+    "open": "Open",
+    "refresh": "Refresh",
+    "settings": "Settings",
+    "productName": "Pointer"
+  },
+  "settings": {
+    "language": {
+      "label": "Language",
+      "hint": "Applies immediately. No restart needed.",
+      "system": "System",
+      "zhCN": "中文",
+      "en": "English"
+    },
+    "sections": {
+      "assistant": "Agents",
+      "assistantDesc": "Agents, skills, and defaults",
+      "assistantDescShort": "Tiers and behavior",
+      "models": "Models",
+      "modelsDesc": "Providers and tier mapping",
+      "generation": "System",
+      "generationDesc": "Display, desktop, and runtime",
+      "automation": "Automation",
+      "automationDesc": "Scheduled tasks and webhooks",
+      "connections": "Connections",
+      "connectionsDesc": "WeChat / Feishu / WeCom / DingTalk",
+      "skills": "Skills",
+      "skillsDesc": "Enable and manage skills",
+      "plugins": "Plugins",
+      "pluginsDesc": "Manage Pointer plugins",
+      "mcp": "MCP",
+      "mcpDesc": "External tool servers",
+      "debug": "Debug",
+      "debugDesc": "Save conversation requests",
+      "cloud": "Cloud host",
+      "cloudDesc": "Purchase and manage",
+      "usage": "Usage",
+      "usageDesc": "Token usage history",
+      "about": "About",
+      "aboutDesc": "Version and updates"
+    },
+    "display": {
+      "heading": "Display",
+      "toolCalls": "Tool calls",
+      "agentOutput": "Agent output"
+    }
+  },
+  "shell": {
+    "newTask": "New task",
+    "scheduledTasks": "Scheduled",
+    "skills": "Skills",
+    "connections": "Connections",
+    "projects": "Projects",
+    "pinned": "Pinned",
+    "recent": "Recent",
+    "searchSessions": "Search sessions",
+    "noMatchingSessions": "No matching sessions",
+    "noSessions": "No sessions",
+    "addProject": "Add project",
+    "projectName": "Project name",
+    "selectDirectory": "Choose folder",
+    "createProject": "Create project",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "rename": "Rename",
+    "copySessionId": "Copy session ID",
+    "showInFinder": "Show in Finder",
+    "showInExplorer": "Show in Explorer",
+    "showInFiles": "Show in Files",
+    "deleteProject": "Delete project?",
+    "confirmDelete": "Delete",
+    "copiedSessionId": "Session ID copied",
+    "workspaceEmpty": "Workspace folder is empty",
+    "roleUser": "User",
+    "roleAssistant": "Assistant",
+    "roleTool": "Tool",
+    "roleMessage": "Message"
+  },
+  "chat": {
+    "composer": {
+      "placeholder": "Message Pointer…",
+      "send": "Send",
+      "stop": "Stop",
+      "attach": "Attach"
+    },
+    "empty": {
+      "title": "Start a conversation",
+      "hint": "Ask anything, or pick a skill below."
+    },
+    "toast": {
+      "generationStopped": "Generation stopped",
+      "sendFailed": "Failed to send",
+      "copied": "Copied"
+    }
+  },
+  "agent": {
+    "role": {
+      "general": "General assistant",
+      "coder": "Vibe coding",
+      "computer": "Computer control"
+    }
+  },
+  "tools": {
+    "askUser": "Ask user",
+    "launchApp": "Launch app",
+    "running": "Running",
+    "runningBackground": "Running in background",
+    "groupExploreFiles": "Explored {n} files"
+  }
+}

@@ -1,19 +1,23 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import type { LaneQueueView, RunQueueSnapshot } from '../../../types/automation'
+import type { UiLocalePreference } from '../../../types/chat'
 import { ChevronRight, CircleHelp, Film, Monitor, Plus, Sparkles, Terminal, Volume2, Wrench, X } from 'lucide-vue-next'
 import { getDispatcherQueueSnapshot } from '../../../lib/api'
 import { playTaskCompleteSound, primeTaskCompleteAudio } from '../../../lib/taskCompleteSound'
 import { laneQueueLabel, shortId, triggerSourceLabel } from '../../../lib/dispatcherQueueLabels'
 import { isSameTierRef, platformMediaGenerationDefault } from '../../../lib/platformTierDefaults'
 import { useSettingsStore } from '../../../stores/settings'
+import { UI_LOCALE_OPTIONS, isUiLocalePreference } from '../../../lib/uiLocale'
 
 const props = defineProps<{
   form: SettingsDialogForm
 }>()
 
 const s = useSettingsStore()
+const { t } = useI18n()
 
 function mediaGenDefaultLabel(kind: 'image' | 'video'): string {
   const ref = platformMediaGenerationDefault(s.platformSettings.tierDefaults, kind)
@@ -185,6 +189,35 @@ async function onPlaySoundToggle(checked: boolean) {
     soundSaving.value = false
   }
 }
+
+const localeSaving = ref(false)
+const uiLocale = ref<UiLocalePreference>(
+  isUiLocalePreference(s.userSettings.uiLocale) ? s.userSettings.uiLocale : 'system'
+)
+
+watch(
+  () => s.userSettings.uiLocale,
+  value => {
+    uiLocale.value = isUiLocalePreference(value) ? value : 'system'
+  }
+)
+
+async function onUiLocaleChange(value: string) {
+  const next: UiLocalePreference = isUiLocalePreference(value) ? value : 'system'
+  uiLocale.value = next
+  localeSaving.value = true
+  try {
+    await s.saveUser({ uiLocale: next })
+    console.info('[settings] uiLocale=%s', next)
+  } catch (err) {
+    uiLocale.value = isUiLocalePreference(s.userSettings.uiLocale)
+      ? s.userSettings.uiLocale
+      : 'system'
+    console.error('[settings] failed to save uiLocale', err)
+  } finally {
+    localeSaving.value = false
+  }
+}
 </script>
 
 <template>
@@ -192,13 +225,33 @@ async function onPlaySoundToggle(checked: boolean) {
     <!-- 界面显示 -->
     <section class="space-y-4" aria-labelledby="system-display-heading">
       <div class="flex items-center gap-2 px-1 pt-2 pb-1">
-        <h4 id="system-display-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">界面显示</h4>
+        <h4 id="system-display-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">{{ t('settings.display.heading') }}</h4>
         <div class="flex-1 h-px bg-border/60" />
+      </div>
+
+      <!-- Language -->
+      <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
+        <div class="flex items-center justify-between gap-4">
+          <div class="min-w-0">
+            <h4 class="text-sm font-medium text-foreground">{{ t('settings.language.label') }}</h4>
+            <p class="text-[12px] text-muted mt-0.5">{{ t('settings.language.hint') }}</p>
+          </div>
+          <select
+            class="shrink-0 rounded-lg border border-border bg-background px-3 py-1.5 text-[13px] text-foreground outline-none focus:ring-2 focus:ring-accent/40 disabled:opacity-60"
+            :value="uiLocale"
+            :disabled="localeSaving"
+            @change="onUiLocaleChange(($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="opt in UI_LOCALE_OPTIONS" :key="opt.value" :value="opt.value">
+              {{ t(opt.labelKey) }}
+            </option>
+          </select>
+        </div>
       </div>
 
       <!-- 工具调用 -->
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
-        <h4 class="text-sm font-medium text-foreground">工具调用</h4>
+        <h4 class="text-sm font-medium text-foreground">{{ t('settings.display.toolCalls') }}</h4>
         <div class="grid grid-cols-2 gap-y-3 gap-x-32">
           <div
             v-for="field in TOOL_CALL_UI_FIELDS"
@@ -216,7 +269,7 @@ async function onPlaySoundToggle(checked: boolean) {
 
       <!-- 智能体输出 -->
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
-        <h4 class="text-sm font-medium text-foreground">智能体输出</h4>
+        <h4 class="text-sm font-medium text-foreground">{{ t('settings.display.agentOutput') }}</h4>
         <div class="grid grid-cols-2 gap-y-3 gap-x-32">
           <div class="flex items-center justify-between gap-3">
             <h4 class="text-[12px] font-medium text-foreground">显示推理过程</h4>

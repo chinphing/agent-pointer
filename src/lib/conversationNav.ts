@@ -1,5 +1,6 @@
 import type { ChatMessage, ConversationOutlineItem } from '../types/chat'
 import { isCompressionSummaryMessage } from './compressionMessage'
+import { userMessageDisplayContent } from './messageNormalizer'
 import { isInternalRetryUserMessage, isScreenInjectUserMessage } from './threadLayoutGlue'
 
 /** In-chat 导航 one-line label (including `…` when truncated). */
@@ -160,7 +161,7 @@ export function mergeConversationNavItems(
     if (!isConversationNavUserMessage(message) || known.has(message.id)) continue
     extra.push({
       messageId: message.id,
-      preview: conversationNavPreview(message.content)
+      preview: conversationNavPreview(userMessageDisplayContent(message))
     })
     known.add(message.id)
   }

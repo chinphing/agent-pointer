@@ -2571,6 +2571,33 @@ mod tests {
     }
 
     #[test]
+    fn conversation_outline_preview_uses_bubble_text() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("nav-bubble", "Nav", "real user");
+        let mut pushed = msg(
+            "u-push",
+            Role::User,
+            "后台任务已完成。\n\nThese finished background results are in this turn.\n",
+            1_700_000_002_000,
+        );
+        pushed.ui_bindings = Some(crate::models::MessageUiBindings::idle_job_push_bubble(
+            "后台任务已完成：逐项详细解读B组漏报",
+        ));
+        conv.messages.push(pushed);
+        store.sync_conversations(&[conv]).unwrap();
+
+        let items = store
+            .list_conversation_outline(&ListScope::All, "nav-bubble")
+            .unwrap();
+        let preview = items
+            .iter()
+            .find(|item| item.message_id == "u-push")
+            .map(|item| item.preview.as_str());
+        assert_eq!(preview, Some("后台任务已完成：逐项详细解读B组漏报"));
+    }
+
+    #[test]
     fn message_milestone_survives_transcript_replace() {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();

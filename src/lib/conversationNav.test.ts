@@ -59,6 +59,26 @@ describe('mergeConversationNavItems', () => {
     expect(merged[1]?.preview).toBe('just sent')
   })
 
+  it('uses bubble text for an in-memory idle job push', () => {
+    const merged = mergeConversationNavItems(
+      [],
+      [
+        {
+          id: 'u-push',
+          role: 'user',
+          content: '后台任务已完成。\n\nThese finished background results are in this turn.\n',
+          status: 'done',
+          createdAt: 1,
+          uiBindings: {
+            hostKind: 'idle_job_push',
+            bubbleText: '后台任务已完成：逐项详细解读B组漏报'
+          }
+        }
+      ]
+    )
+    expect(merged[0]?.preview).toBe('后台任务已完成：逐项详细解读B组漏报')
+  })
+
   it('keeps a milestone flag from the outline', () => {
     const merged = mergeConversationNavItems(
       [{ messageId: 'u1', preview: 'one', milestone: true }],

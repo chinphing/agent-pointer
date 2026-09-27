@@ -225,7 +225,10 @@ pub(crate) fn build_idle_push_bubble_text(items: &[IdlePushItem]) -> String {
 
 pub(crate) fn build_idle_push_user_text(items: &[IdlePushItem]) -> String {
     let n = items.len();
-    let mut out = String::from("后台任务已完成。\n\n");
+    // First line is the same sentence as the bubble. Job bodies stay below
+    // so the lead can summarize them; the nav preview reads the bubble.
+    let mut out = build_idle_push_bubble_text(items);
+    out.push_str("\n\n");
     out.push_str("These finished background results are in this turn.\n");
     out.push_str("They are already claimed — do not job.await these ids again.\n");
     out.push_str("Other background jobs in this conversation may still be running.\n");
@@ -342,7 +345,7 @@ mod tests {
             error: None,
             agent_instance_id: Some("inst-1".into()),
         }]);
-        assert!(text.starts_with("后台任务已完成。"));
+        assert!(text.starts_with("后台任务已完成：搜索登录\n\n"));
         assert!(text.contains("搜索登录"));
         assert!(text.contains("found login.rs"));
         assert!(text.contains("already claimed"));

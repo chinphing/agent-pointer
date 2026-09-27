@@ -266,7 +266,7 @@ WorkerLease Drop → running_roots -1，叫醒队头
 
 仅当：job 为 **Completed / Failed** **且** 该会话没有进行中的 lead 轮 **且** 这条完成尚未被 `await` 认领。
 
-实现：`idle_job_push` 挂在 JobSupervisor 终态回调 + lead `on_run_finished/failed/cancelled`。约 **500ms** debounce 后认领本会话里 **lead 自己开的** 未认领终稿，`TriggerSource::Internal`（`internal_label=idle_job_push`）在**同一 `conversation_id`** 再开一轮。注入用户消息：`content` = 完整终稿（进模型）；`uiBindings.bubbleText` = 带任务名的短句（「后台任务已完成：搜索登录」；多条「等 N 个」；全部失败用「失败」）（仅气泡）；`hostKind=idle_job_push`。与 `await` 互斥 `claimed`。dispatch 时 `web_session_auth` 与 cron 相同，取 `automation_execution_auth()`（standalone 本地会话可无平台 LLM 凭证）；`Internal` 计入 headless automation，无会话时仍可用设置里的本地 API Key。dispatch 失败会 `unclaim` 以便重试。
+实现：`idle_job_push` 挂在 JobSupervisor 终态回调 + lead `on_run_finished/failed/cancelled`。约 **500ms** debounce 后认领本会话里 **lead 自己开的** 未认领终稿，`TriggerSource::Internal`（`internal_label=idle_job_push`）在**同一 `conversation_id`** 再开一轮。注入用户消息：`content` 第一句与 `uiBindings.bubbleText` 相同（「后台任务已完成：搜索登录」；多条「等 N 个」；全部失败用「失败」），其后是模型说明和完整终稿；`hostKind=idle_job_push`。气泡和对话导航都显示这一句。与 `await` 互斥 `claimed`。dispatch 时 `web_session_auth` 与 cron 相同，取 `automation_execution_auth()`（standalone 本地会话可无平台 LLM 凭证）；`Internal` 计入 headless automation，无会话时仍可用设置里的本地 API Key。dispatch 失败会 `unclaim` 以便重试。
 
 子 Agent 自己开的后台任务（嵌套 `run_subagent` 或它的后台终端）记在该子 Agent 的 `parent_agent_instance_id` 上。它交付时，仍在排队或运行的这些任务以 `openBackgroundJobs` 写进交回父会话的结果（只有 id、状态、类型、标题）。终态 **不** 空闲 push 给 lead，也 **不** 再开一轮。结果留在 job 上，由发起方在本轮 `job.await` 取走（对齐 Codex：完成回执进直接父线程，`trigger_turn` 为 false，不自动叫醒外层）。发起方这轮已经结束、又没有 await，结果就停在该 job 上，直到这个子 Agent 之后再 `job.await`。lead 不带 job id 的 `job.await` 仍按会话认领，可能取走这些终稿；开出来的 id 只回给发起方。
 

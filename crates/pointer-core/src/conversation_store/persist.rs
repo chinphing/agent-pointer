@@ -1416,14 +1416,20 @@ fn conversation_nav_preview(content: &str) -> String {
 }
 
 /// Full-session user-turn list for in-chat 导航. Same anchor filter as turn
-/// paging (`role=user` and `is_system_generated=0`); only a content prefix,
-/// never payload / tool blobs.
+/// paging (`role=user` and `is_system_generated=0`). Preview prefers
+/// `uiBindings.bubbleText` so it matches the bubble; otherwise a content
+/// prefix. Never loads tool blobs.
 pub(crate) fn load_conversation_outline(
     conn: &Connection,
     conversation_id: &str,
 ) -> Result<Vec<ConversationOutlineItem>> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT message_id, substr(content, 1, ?2), is_milestone
+        "SELECT message_id,
+                COALESCE(
+                  NULLIF(TRIM(json_extract(payload, '$.uiBindings.bubbleText')), ''),
+                  substr(content, 1, ?2)
+                ),
+                is_milestone
          FROM messages
          WHERE conversation_id = ?1 AND role = 'user' AND is_system_generated = 0
          {SQL_LEAD_ROW_NOT_SCOPED}

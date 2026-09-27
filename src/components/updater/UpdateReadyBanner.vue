@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { X, RefreshCw } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 defineProps<{
   version: string | null
@@ -23,7 +26,7 @@ const emit = defineEmits<{
           <RefreshCw class="w-4 h-4 text-accent" />
         </div>
         <h3 class="text-sm font-semibold text-foreground">
-          新版本 {{ version }} 已就绪
+          {{ t('updaterBanner.title', { version }) }}
         </h3>
       </div>
       <button
@@ -35,7 +38,7 @@ const emit = defineEmits<{
     </div>
 
     <p class="text-xs text-muted leading-relaxed">
-      安装完成后将自动重新打开应用
+      {{ t('updaterBanner.restartHint') }}
     </p>
 
     <p v-if="notes" class="text-xs text-muted leading-relaxed line-clamp-2">

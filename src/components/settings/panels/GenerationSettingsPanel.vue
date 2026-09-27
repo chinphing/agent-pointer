@@ -560,7 +560,7 @@ async function onUiLocaleChange(value: string) {
     <!-- 执行 -->
     <section class="space-y-4" aria-labelledby="system-exec-heading">
       <div class="flex items-center gap-2 px-1 pt-2 pb-1">
-        <h4 id="system-exec-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">执行</h4>
+        <h4 id="system-exec-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">{{ t('settings.generation.execution') }}</h4>
         <div class="flex-1 h-px bg-border/60" />
       </div>
 
@@ -569,16 +569,16 @@ async function onUiLocaleChange(value: string) {
           <div class="min-w-0">
             <div class="w-max max-w-full space-y-3">
               <div class="flex items-center justify-between gap-4 h-5">
-                <span class="text-[12px] font-medium text-foreground">工具并行</span>
+                <span class="text-[12px] font-medium text-foreground">{{ t('settings.generation.toolParallel') }}</span>
                 <label
                   class="relative inline-flex items-center cursor-pointer shrink-0"
-                  title="同一轮里多个工具一起跑；关掉则一个一个执行。"
+                  :title="t('settings.generation.toolParallelTitle')"
                 >
                   <input
                     v-model="parallelToolExecutionEnabled"
                     type="checkbox"
                     class="sr-only peer"
-                    aria-label="工具并行"
+                    :aria-label="t('settings.generation.toolParallelAria')"
                   />
                   <div class="settings-toggle-track"></div>
                 </label>
@@ -586,12 +586,12 @@ async function onUiLocaleChange(value: string) {
               <div v-if="parallelToolExecutionEnabled" class="flex flex-wrap items-start gap-x-5 gap-y-3">
                 <div>
                   <div class="flex items-center gap-1 mb-1.5">
-                    <span class="text-[12px] text-muted">通用工具</span>
+                    <span class="text-[12px] text-muted">{{ t('settings.generation.generalTools') }}</span>
                     <button
                       type="button"
                       class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                      title="同一轮里读文件、前台终端、搜索等可同时执行的数量。后台终端不走这里。"
-                      aria-label="通用工具说明"
+                      :title="t('settings.generation.generalToolsHelp')"
+                      :aria-label="t('settings.generation.generalToolsHelpAria')"
                     >
                       <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                     </button>
@@ -609,12 +609,12 @@ async function onUiLocaleChange(value: string) {
                 </div>
                 <div>
                   <div class="flex items-center gap-1 mb-1.5">
-                    <span class="text-[12px] text-muted">子 Agent</span>
+                    <span class="text-[12px] text-muted">{{ t('settings.generation.subAgent') }}</span>
                     <button
                       type="button"
                       class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                      title="本会话同时运行的子 Agent 上限，前台与后台共用；后台终端也占此额度。"
-                      aria-label="子 Agent 说明"
+                      :title="t('settings.generation.subAgentHelp')"
+                      :aria-label="t('settings.generation.subAgentHelpAria')"
                     >
                       <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                     </button>
@@ -632,12 +632,12 @@ async function onUiLocaleChange(value: string) {
                 </div>
                 <div>
                   <div class="flex items-center gap-1 mb-1.5">
-                    <span class="text-[12px] text-muted">媒体工具</span>
+                    <span class="text-[12px] text-muted">{{ t('settings.generation.mediaTools') }}</span>
                     <button
                       type="button"
                       class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                      title="同一轮里同时进行的图片、视频、多媒体理解数量。"
-                      aria-label="媒体工具说明"
+                      :title="t('settings.generation.mediaToolsHelp')"
+                      :aria-label="t('settings.generation.mediaToolsHelpAria')"
                     >
                       <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                     </button>
@@ -661,17 +661,17 @@ async function onUiLocaleChange(value: string) {
 
           <div class="min-w-0 space-y-3">
             <div class="flex items-center h-5">
-              <span class="text-[12px] font-medium text-foreground">轮次</span>
+              <span class="text-[12px] font-medium text-foreground">{{ t('settings.generation.rounds') }}</span>
             </div>
             <div class="flex flex-wrap items-start gap-x-5 gap-y-3">
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">本轮</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.generation.thisRound') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="这一轮里最多连续调用多少次工具。"
-                    aria-label="本轮轮次说明"
+                    :title="t('settings.generation.thisRoundHelp')"
+                    :aria-label="t('settings.generation.thisRoundHelpAria')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -687,12 +687,12 @@ async function onUiLocaleChange(value: string) {
               </div>
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">子任务</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.generation.subTask') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="每个子任务内部最多连续调用多少次工具。子任务面向小范围工作，上限 500。"
-                    aria-label="子任务轮次说明"
+                    :title="t('settings.generation.subTaskHelp')"
+                    :aria-label="t('settings.generation.subTaskHelpAria')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -713,16 +713,16 @@ async function onUiLocaleChange(value: string) {
 
           <div class="min-w-0 space-y-3">
             <div class="flex items-center h-5">
-              <span class="text-[12px] font-medium text-foreground">任务并行</span>
+              <span class="text-[12px] font-medium text-foreground">{{ t('settings.generation.taskParallel') }}</span>
             </div>
             <div>
               <div class="flex items-center gap-1 mb-1.5">
-                <span class="text-[12px] text-muted">同时任务数</span>
+                <span class="text-[12px] text-muted">{{ t('settings.generation.concurrentTaskCount') }}</span>
                 <button
                   type="button"
                   class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                  title="同时能跑几条独立任务。聊天、定时、Webhook 共用；同一会话仍排队。"
-                  aria-label="同时任务数说明"
+                  :title="t('settings.generation.concurrentTaskCountHelp')"
+                  :aria-label="t('settings.generation.concurrentTaskCountHelpAria')"
                 >
                   <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                 </button>
@@ -740,7 +740,7 @@ async function onUiLocaleChange(value: string) {
                   type="button"
                   class="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"
                   :title="queueStatusTitle"
-                  :aria-label="queueStatusTitle + '，查看队列'"
+                  :aria-label="t('settings.generation.viewQueueAria', { title: queueStatusTitle })"
                   @click="queueModalOpen = true"
                 >
                   <span
@@ -750,7 +750,7 @@ async function onUiLocaleChange(value: string) {
                       : 'bg-muted'"
                     aria-hidden="true"
                   />
-                  查看队列
+                  {{ t('settings.generation.viewQueue') }}
                   <ChevronRight class="w-3 h-3" />
                 </button>
               </div>

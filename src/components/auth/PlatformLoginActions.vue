@@ -236,7 +236,7 @@ watch(isStandalone, standalone => {
         >
           <Loader2 v-if="loading" class="h-4 w-4 shrink-0 animate-spin" />
           <ExternalLink v-else class="h-4 w-4 shrink-0 opacity-90" />
-          <span>{{ loading ? '等待授权' : '浏览器登录' }}</span>
+          <span>{{ loading ? t('auth.waitingAuthorization') : t('auth.browserLogin') }}</span>
         </button>
         <button
           v-if="loading"
@@ -244,7 +244,7 @@ watch(isStandalone, standalone => {
           class="inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-border px-3 text-sm text-foreground hover:bg-hover cursor-pointer transition-colors"
           @click="emit('cancel')"
         >
-          取消
+          {{ t('auth.cancel') }}
         </button>
       </div>
     </template>

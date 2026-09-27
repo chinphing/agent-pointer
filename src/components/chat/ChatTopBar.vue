@@ -217,8 +217,8 @@ onUnmounted(() => {
       <button
         type="button"
         class="chrome-icon-btn shrink-0"
-        title="展开侧栏"
-        aria-label="展开侧栏"
+        :title="t('shell.expandSidebar')"
+        :aria-label="t('shell.expandSidebar')"
         @click="emit('expand-sidebar')"
       >
         <PanelLeftOpen class="w-4 h-4" />
@@ -226,8 +226,8 @@ onUnmounted(() => {
       <button
         type="button"
         class="chrome-icon-btn shrink-0"
-        title="新建任务"
-        aria-label="新建任务"
+        :title="t('shell.newTask')"
+        :aria-label="t('shell.newTask')"
         @click="emit('new-task')"
       >
         <Plus class="w-4 h-4" />
@@ -251,7 +251,7 @@ onUnmounted(() => {
           type="button"
           class="composer-agent-trigger chat-topbar-project-btn max-w-[240px]"
           :class="projectLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'"
-          :title="projectLocked ? '项目已锁定' : workspaceTooltip"
+          :title="projectLocked ? t('chat.topBar.projectLocked') : workspaceTooltip"
           :disabled="projectLocked"
           @click="projectPickerOpen = !projectPickerOpen"
         >
@@ -278,7 +278,7 @@ onUnmounted(() => {
             >
               <FolderPlus class="w-3.5 h-3.5 shrink-0" />
               <span class="whitespace-nowrap text-foreground">
-                {{ projectCreationPending ? '正在创建项目…' : '本地目录' }}
+                {{ projectCreationPending ? t('chat.topBar.creatingProject') : t('chat.topBar.localDirectory') }}
               </span>
             </button>
             <input
@@ -286,8 +286,8 @@ onUnmounted(() => {
               ref="workspaceInputRef"
               :value="chat.current?.workspaceRoot ?? ''"
               type="text"
-              placeholder="输入本地目录创建新项目"
-              aria-label="输入本地目录创建新项目"
+              :placeholder="t('chat.topBar.enterLocalDirectory')"
+              :aria-label="t('chat.topBar.enterLocalDirectory')"
               class="composer-workspace-input"
               :title="workspaceTooltip"
               @input="onWorkspaceInput"
@@ -297,7 +297,7 @@ onUnmounted(() => {
             />
           </div>
           <div class="px-3 pb-1 pt-2">
-            <div class="text-[10px] text-muted font-medium whitespace-nowrap">已有项目</div>
+            <div class="text-[10px] text-muted font-medium whitespace-nowrap">{{ t('chat.topBar.existingProjects') }}</div>
           </div>
           <div class="max-h-44 space-y-0.5 overflow-y-auto p-1">
             <button
@@ -309,7 +309,7 @@ onUnmounted(() => {
               @click="selectProject(project.id)"
             >
               <FolderOpen class="w-3 h-3 shrink-0" />
-              <span class="flex-1 truncate">{{ project.isDefault ? '默认项目' : project.name }}</span>
+              <span class="flex-1 truncate">{{ project.isDefault ? t('chat.topBar.defaultProject') : project.name }}</span>
               <Check
                 v-if="project.id === (chat.current?.projectId ?? chat.current?.pendingProjectId)"
                 class="h-3 w-3 shrink-0 text-muted"
@@ -318,7 +318,7 @@ onUnmounted(() => {
           </div>
           <div class="border-t border-border p-1.5">
             <SkillDirectoryPicker
-              title="技能目录"
+              :title="t('chat.topBar.skillDirectory')"
               variant="list"
               :disabled="projectCreationPending"
               @select="onSkillDirectorySelect"

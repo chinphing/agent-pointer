@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import Composer from './Composer.vue'
 import ExperienceHomePanel from './ExperienceHomePanel.vue'
@@ -23,10 +24,11 @@ import { ChevronDown, ChevronUp, Search, X } from 'lucide-vue-next'
 import { showScrollbarWhileScrolling } from '../../lib/autoHideScrollbar'
 import ConversationNav from './ConversationNav.vue'
 
-/** 避免异步分包未返回前主区域长时间空白（Windows 杀毒/冷盘常见）。 */
+/** Avoid a long blank main pane before the async chunk resolves (common on Windows AV / cold disk). */
 const MessageListSkeleton = defineComponent({
   name: 'MessageListSkeleton',
   setup() {
+    const { t } = useI18n()
     return () =>
       h(
         'div',
@@ -39,7 +41,7 @@ const MessageListSkeleton = defineComponent({
             class:
               'h-9 w-9 rounded-full border-2 border-primary/25 border-t-primary-cyan animate-spin shrink-0'
           }),
-          h('span', {}, '加载消息列表…')
+          h('span', {}, t('chat.view.loadingMessages'))
         ]
       )
   }
@@ -51,6 +53,7 @@ const MessageList = defineAsyncComponent({
   delay: 0
 })
 
+const { t } = useI18n()
 const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
 const { uiToast, terminalLivePopup } = storeToRefs(chat)

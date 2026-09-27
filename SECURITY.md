@@ -10,7 +10,7 @@ Older tags are not guaranteed to receive backports.
 Do **not** open a public issue for security reports.
 
 1. Use GitHub **Private vulnerability reporting** on this repository, or
-2. Email `security@readflowai.com` with a description, impact, and reproduction
+2. Email `starphinliu@gmail.com` with a description, impact, and reproduction
    notes that do not include exploit payloads.
 
 You should receive an acknowledgement within a few business days. Please give

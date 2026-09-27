@@ -4,7 +4,7 @@ import { applyProjectCreationResult, projectNameFromWorkspaceRoot } from './proj
 import type { Project, ProjectCreationResult } from '../types/chat'
 
 const appShellSource = readFileSync(new URL('../components/layout/AppShell.vue', import.meta.url), 'utf8')
-const composerSource = readFileSync(new URL('../components/chat/Composer.vue', import.meta.url), 'utf8')
+const chatTopBarSource = readFileSync(new URL('../components/chat/ChatTopBar.vue', import.meta.url), 'utf8')
 
 const project: Project = {
   id: 'project-existing',
@@ -29,11 +29,11 @@ describe('project creation dialog submission', () => {
     expect(appShellSource).not.toContain('@keydown.enter="addProject"')
   })
 
-  it('creates or reuses a project when the composer chooses a workspace directory', () => {
-    expect(composerSource).toContain('await createOrSelectWorkspaceProject(dir)')
+  it('creates or reuses a project when the top bar chooses a workspace directory', () => {
+    expect(chatTopBarSource).toContain('await createOrSelectWorkspaceProject(dir)')
     // Enter commits via a guard that ignores IME composition (Chinese candidate confirm).
-    expect(composerSource).toContain('@keydown.enter="onWorkspaceEnter"')
-    expect(composerSource).toContain('event.isComposing || workspaceComposing.value')
+    expect(chatTopBarSource).toContain('@keydown.enter="onWorkspaceEnter"')
+    expect(chatTopBarSource).toContain('event.isComposing || workspaceComposing.value')
   })
 })
 

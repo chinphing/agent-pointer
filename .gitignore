@@ -9,8 +9,11 @@ target
 .codebuddy
 src-tauri/gen
 
-# signing secrets (local only)
-signing
+# macOS signing: only signing.env.example / README.md are committed;
+# real secrets and cert material stay local.
+signing/macos/signing.env
+signing/macos/*.p12
+signing/macos/*.p8
 scripts/signing/macos/signing.env
 
 # local runtime logs (do not commit)

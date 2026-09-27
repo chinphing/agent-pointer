@@ -21,7 +21,9 @@ const { t } = useI18n()
 
 function mediaGenDefaultLabel(kind: 'image' | 'video'): string {
   const ref = platformMediaGenerationDefault(s.platformSettings.tierDefaults, kind)
-  return ref?.model ? `平台默认（${ref.model}）` : '平台默认'
+  return ref?.model
+    ? t('settings.generation.platformDefaultWithModel', { model: ref.model })
+    : t('settings.generation.platformDefault')
 }
 
 function mediaGenOverridden(kind: 'imageGeneration' | 'videoGeneration', platformKind: 'image' | 'video'): boolean {
@@ -110,7 +112,7 @@ const totalLaneWaiting = computed(() =>
 )
 
 function laneStatusLine(lane: LaneQueueView): string {
-  return `${lane.active}/${lane.maxConcurrent} 执行中 · ${lane.waiting} 排队`
+  return `${lane.active}/${lane.maxConcurrent} ${t('settings.generation.laneRunning')} · ${lane.waiting} ${t('settings.generation.laneQueued')}`
 }
 
 async function refreshQueueSnapshot() {
@@ -145,11 +147,11 @@ const mediaDepsModalOpen = ref(false)
 const queueBusy = computed(() => pendingRunCount.value > 0 || totalLaneWaiting.value > 0)
 
 const queueStatusTitle = computed(() => {
-  if (queueLoading.value && !queueSnapshot.value) return '队列加载中'
+  if (queueLoading.value && !queueSnapshot.value) return t('settings.generation.queueLoading')
   if (queueBusy.value) {
-    return `${pendingRunCount.value} 个待执行，${totalLaneWaiting.value} 个在排队`
+    return t('settings.generation.queueBusy', { pending: pendingRunCount.value, waiting: totalLaneWaiting.value })
   }
-  return '当前无排队任务'
+  return t('settings.generation.queueIdle')
 })
 
 const soundSaving = ref(false)
@@ -272,28 +274,28 @@ async function onUiLocaleChange(value: string) {
         <h4 class="text-sm font-medium text-foreground">{{ t('settings.display.agentOutput') }}</h4>
         <div class="grid grid-cols-2 gap-y-3 gap-x-32">
           <div class="flex items-center justify-between gap-3">
-            <h4 class="text-[12px] font-medium text-foreground">显示推理过程</h4>
+            <h4 class="text-[12px] font-medium text-foreground">{{ t('settings.generation.toolCallShowReasoning') }}</h4>
             <label class="relative inline-flex items-center cursor-pointer shrink-0">
               <input type="checkbox" class="sr-only peer" :checked="displayUiChecked('showReasoning')" @change="setDisplayUi('showReasoning', ($event.target as HTMLInputElement).checked)" />
               <div class="settings-toggle-track" />
             </label>
           </div>
           <div class="flex items-center justify-between gap-3">
-            <h4 class="text-[12px] font-medium text-foreground">显示任务板</h4>
+            <h4 class="text-[12px] font-medium text-foreground">{{ t('settings.generation.showTaskBoardPanel') }}</h4>
             <label class="relative inline-flex items-center cursor-pointer shrink-0">
               <input type="checkbox" class="sr-only peer" :checked="displayUiChecked('showTaskBoardPanel')" @change="setDisplayUi('showTaskBoardPanel', ($event.target as HTMLInputElement).checked)" />
               <div class="settings-toggle-track" />
             </label>
           </div>
           <div class="flex items-center justify-between gap-3">
-            <h4 class="text-[12px] font-medium text-foreground">显示子 Agent 边框面板</h4>
+            <h4 class="text-[12px] font-medium text-foreground">{{ t('settings.generation.showSubAgentTrace') }}</h4>
             <label class="relative inline-flex items-center cursor-pointer shrink-0">
               <input type="checkbox" class="sr-only peer" :checked="displayUiChecked('showSubAgentTrace')" @change="setDisplayUi('showSubAgentTrace', ($event.target as HTMLInputElement).checked)" />
               <div class="settings-toggle-track" />
             </label>
           </div>
           <div class="flex items-center justify-between gap-3">
-            <h4 class="text-[12px] font-medium text-foreground">显示子任务板</h4>
+            <h4 class="text-[12px] font-medium text-foreground">{{ t('settings.generation.showChildTaskBoard') }}</h4>
             <label class="relative inline-flex items-center cursor-pointer shrink-0">
               <input v-model="taskBoardShowChildBoards" type="checkbox" class="sr-only peer" />
               <div class="settings-toggle-track" />
@@ -304,17 +306,17 @@ async function onUiLocaleChange(value: string) {
 
       <!-- 执行过程 -->
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
-        <h4 class="text-sm font-medium text-foreground">执行过程</h4>
+        <h4 class="text-sm font-medium text-foreground">{{ t('settings.generation.executionProcess') }}</h4>
         <div class="grid grid-cols-2 gap-y-3 gap-x-32">
           <div class="flex items-center justify-between gap-3">
-            <h4 class="text-[12px] font-medium text-foreground">执行时收缩为状态条</h4>
+            <h4 class="text-[12px] font-medium text-foreground">{{ t('settings.generation.collapseDuringExecution') }}</h4>
             <label class="relative inline-flex items-center cursor-pointer shrink-0">
               <input v-model="computerAutoCompact" type="checkbox" class="sr-only peer" />
               <div class="settings-toggle-track" />
             </label>
           </div>
           <div class="flex items-center justify-between gap-3">
-            <h4 class="text-[12px] font-medium text-foreground">默认收缩执行过程</h4>
+            <h4 class="text-[12px] font-medium text-foreground">{{ t('settings.generation.collapseByDefault') }}</h4>
             <label class="relative inline-flex items-center cursor-pointer shrink-0">
               <input v-model="collapseProcessByDefault" type="checkbox" class="sr-only peer" />
               <div class="settings-toggle-track" />
@@ -327,7 +329,7 @@ async function onUiLocaleChange(value: string) {
     <!-- 通知 -->
     <section class="space-y-4" aria-labelledby="system-notify-heading">
       <div class="flex items-center gap-2 px-1 pt-2 pb-1">
-        <h4 id="system-notify-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">通知</h4>
+        <h4 id="system-notify-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">{{ t('settings.generation.notifications') }}</h4>
         <div class="flex-1 h-px bg-border/60" />
       </div>
 
@@ -335,9 +337,9 @@ async function onUiLocaleChange(value: string) {
         <div class="flex items-center justify-between gap-4">
           <div class="min-w-0">
             <p class="text-sm font-medium text-foreground flex items-center gap-2">
-              <Volume2 class="w-4 h-4 text-accent" />完成时播放提示音
+              <Volume2 class="w-4 h-4 text-accent" />{{ t('settings.generation.playSoundOnFinish') }}
             </p>
-            <p class="mt-1 text-sm text-muted">对话回合结束时播放短促提示音</p>
+            <p class="mt-1 text-sm text-muted">{{ t('settings.generation.playSoundOnFinishHint') }}</p>
           </div>
           <label class="relative inline-flex items-center cursor-pointer shrink-0">
             <input
@@ -356,23 +358,23 @@ async function onUiLocaleChange(value: string) {
     <!-- 桌面自动化 -->
     <section class="space-y-4" aria-labelledby="system-desktop-heading">
       <div class="flex items-center gap-2 px-1 pt-2 pb-1">
-        <h4 id="system-desktop-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">桌面自动化</h4>
+        <h4 id="system-desktop-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">{{ t('settings.generation.desktopAutomation') }}</h4>
         <div class="flex-1 h-px bg-border/60" />
       </div>
 
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-5">
         <div>
           <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-            <Monitor class="w-4 h-4 text-accent shrink-0" />电脑行为
+            <Monitor class="w-4 h-4 text-accent shrink-0" />{{ t('settings.generation.computerBehavior') }}
           </h4>
-          <p class="mt-1 text-[11px] text-muted">桌面自动化的操作行为细节；起始档位在「智能体 → 场景档位」中选择。</p>
+          <p class="mt-1 text-[11px] text-muted">{{ t('settings.generation.computerBehaviorHint') }}</p>
         </div>
 
         <div class="border-t border-border pt-4 space-y-0 divide-y divide-border">
           <div class="flex items-start justify-between gap-4 py-3 first:pt-0">
             <div class="min-w-0">
-              <p class="text-[12px] font-medium text-foreground">人性化鼠标移动</p>
-              <p class="text-[11px] text-muted mt-0.5">曲线轨迹与微抖动；关闭时为直线匀速移动</p>
+              <p class="text-[12px] font-medium text-foreground">{{ t('settings.generation.humanLikeMouse') }}</p>
+              <p class="text-[11px] text-muted mt-0.5">{{ t('settings.generation.humanLikeMouseHint') }}</p>
             </div>
             <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
               <input
@@ -387,8 +389,8 @@ async function onUiLocaleChange(value: string) {
 
           <div class="flex items-start justify-between gap-4 py-3">
             <div class="min-w-0">
-              <p class="text-[12px] font-medium text-foreground">自动切换屏幕</p>
-              <p class="text-[11px] text-muted mt-0.5">默认主屏，打开应用后跟随窗口所在显示器</p>
+              <p class="text-[12px] font-medium text-foreground">{{ t('settings.generation.autoSwitchMonitor') }}</p>
+              <p class="text-[11px] text-muted mt-0.5">{{ t('settings.generation.autoSwitchMonitorHint') }}</p>
             </div>
             <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
               <input
@@ -407,23 +409,23 @@ async function onUiLocaleChange(value: string) {
     <!-- 媒体生成 -->
     <section class="space-y-4" aria-labelledby="system-media-gen-heading">
       <div class="flex items-center gap-2 px-1 pt-2 pb-1">
-        <h4 id="system-media-gen-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">媒体生成</h4>
+        <h4 id="system-media-gen-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">{{ t('settings.generation.mediaGeneration') }}</h4>
         <div class="flex-1 h-px bg-border/60" />
       </div>
 
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
         <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-          <Sparkles class="w-4 h-4 text-accent" />图片 / 视频生成
+          <Sparkles class="w-4 h-4 text-accent" />{{ t('settings.generation.imageVideoGeneration') }}
         </h4>
-        <p class="text-[11px] text-muted">暂时支持文本和图片生成视频。</p>
+        <p class="text-[11px] text-muted">{{ t('settings.generation.mediaGenerationHint') }}</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block text-[12px] text-muted mb-1.5 flex items-center gap-1.5">
-              图片生成
+              {{ t('settings.generation.imageGeneration') }}
               <span
                 v-if="imageGenOverridden"
                 class="rounded bg-warning/15 px-1 text-[9px] text-warning"
-              >已覆盖</span>
+              >{{ t('settings.generation.overridden') }}</span>
             </label>
             <select
               :value="mediaImageGenerationModel"
@@ -442,11 +444,11 @@ async function onUiLocaleChange(value: string) {
           </div>
           <div>
             <label class="block text-[12px] text-muted mb-1.5 flex items-center gap-1.5">
-              视频生成
+              {{ t('settings.generation.videoGeneration') }}
               <span
                 v-if="videoGenOverridden"
                 class="rounded bg-warning/15 px-1 text-[9px] text-warning"
-              >已覆盖</span>
+              >{{ t('settings.generation.overridden') }}</span>
             </label>
             <select
               :value="mediaVideoGenerationModel"
@@ -470,21 +472,21 @@ async function onUiLocaleChange(value: string) {
     <!-- 运行环境 -->
     <section class="space-y-4" aria-labelledby="system-runtime-heading">
       <div class="flex items-center gap-2 px-1 pt-2 pb-1">
-        <h4 id="system-runtime-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">运行环境</h4>
+        <h4 id="system-runtime-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">{{ t('settings.generation.runtimeEnvironment') }}</h4>
         <div class="flex-1 h-px bg-border/60" />
       </div>
 
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
         <div class="flex items-center justify-between gap-2">
           <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-            <Film class="w-4 h-4 text-accent" />多媒体理解
+            <Film class="w-4 h-4 text-accent" />{{ t('settings.generation.multimediaUnderstanding') }}
           </h4>
           <button
             type="button"
             class="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"
             @click="mediaDepsModalOpen = true"
           >
-            管理
+            {{ t('settings.generation.manage') }}
             <ChevronRight class="w-3 h-3" />
           </button>
         </div>
@@ -502,21 +504,21 @@ async function onUiLocaleChange(value: string) {
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
         <div class="flex items-center justify-between gap-2">
           <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-            <Terminal class="w-4 h-4 text-accent" />终端环境变量
+            <Terminal class="w-4 h-4 text-accent" />{{ t('settings.generation.terminalEnvVars') }}
           </h4>
           <button
             type="button"
             class="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"
             @click="addTerminalEnvRow(); onTerminalEnvRowChanged()"
           >
-            添加
+            {{ t('settings.generation.add') }}
             <Plus class="w-3 h-3" />
           </button>
         </div>
-        <p class="text-[11px] text-muted">Agent 终端子进程的 KEY→VALUE 环境变量覆盖（追加在进程与 .env 之后，优先级最高），保存后持久化。</p>
+        <p class="text-[11px] text-muted">{{ t('settings.generation.terminalEnvHint') }}</p>
 
         <div v-if="terminalEnvRows.length === 0" class="rounded-lg border border-dashed border-border bg-card/40 px-3 py-4 text-center text-[11px] text-muted">
-          暂无环境变量覆盖，点击「添加」新建
+          {{ t('settings.generation.noTerminalEnvVars') }}
         </div>
 
         <div v-else class="space-y-2">
@@ -529,7 +531,7 @@ async function onUiLocaleChange(value: string) {
               v-model="row.key"
               type="text"
               spellcheck="false"
-              placeholder="KEY（如 API_TOKEN）"
+              :placeholder="t('settings.generation.envKeyPlaceholder')"
               class="h-8 px-2.5 rounded-lg bg-card border border-border text-[12px] text-foreground font-mono outline-none focus:border-accent/50 transition-colors min-w-0"
               @input="onTerminalEnvRowChanged"
             />
@@ -537,15 +539,15 @@ async function onUiLocaleChange(value: string) {
               v-model="row.value"
               type="text"
               spellcheck="false"
-              placeholder="VALUE"
+              :placeholder="t('settings.generation.envValuePlaceholder')"
               class="h-8 px-2.5 rounded-lg bg-card border border-border text-[12px] text-foreground font-mono outline-none focus:border-accent/50 transition-colors min-w-0"
               @input="onTerminalEnvRowChanged"
             />
             <button
               type="button"
               class="p-1.5 rounded-lg text-muted hover:text-destructive hover:bg-destructive/10 cursor-pointer transition-colors shrink-0"
-              :title="`删除 ${row.key || '环境变量'}`"
-              aria-label="删除该环境变量"
+              :title="t('settings.generation.deleteEnvVar', { name: row.key || t('settings.generation.deleteEnvVarFallback') })"
+              :aria-label="t('settings.generation.deleteEnvVarAria')"
               @click="removeTerminalEnvRow(row.id); onTerminalEnvRowChanged()"
             >
               <X class="w-3.5 h-3.5" />

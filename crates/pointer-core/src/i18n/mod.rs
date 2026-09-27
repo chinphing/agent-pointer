@@ -105,6 +105,15 @@ pub fn tf(key: &str, locale: UiLocale, args: &[(&str, &str)]) -> String {
     out
 }
 
+/// Process-wide lock guarding `LANG`/`LC_ALL`/`LC_MESSAGES` mutation in tests.
+///
+/// These env vars are process-global, and `resolve_system_ui_locale` reads them, so any test
+/// (in this module or others, e.g. `tools::display` and `agents::agent_ui`) that temporarily
+/// overrides them to pin the resolved locale must hold this lock first to avoid racing with
+/// other tests running on other threads in the same test binary.
+#[cfg(test)]
+pub(crate) static ENV_LOCALE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,6 +132,7 @@ mod tests {
 
     #[test]
     fn resolve_ui_locale_system_checks_env() {
+        let _guard = ENV_LOCALE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let prev_lc_all = std::env::var("LC_ALL").ok();
         let prev_lang = std::env::var("LANG").ok();
         std::env::set_var("LC_ALL", "zh_CN.UTF-8");

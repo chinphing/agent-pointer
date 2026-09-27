@@ -486,11 +486,7 @@
       "executingAgent": "Executing agent",
       "modeTooltip": "Mode settings: fast, standard, expert",
       "modeLabel": "Mode",
-      "mode": {
-        "fast": "Fast",
-        "standard": "Standard",
-        "expert": "Expert"
-      },
+      "mode": "Mode",
       "modelSettingsTitle": "Model settings",
       "stopTurnTitle": "Stop the current turn and cancel all background jobs",
       "queueHint": "Queue message ({enter}). With an empty input, press {enter} again to send immediately (only pauses sync work; background jobs keep running). {immediate} does the same.",
@@ -507,7 +503,15 @@
       "retryingAttempt": "Retrying {n}/3…",
       "missingUploadFile": "Missing file to upload",
       "missingAttachmentContent": "Missing attachment content",
-      "conversationCreateFailed": "Couldn't create a conversation; attachment upload aborted"
+      "conversationCreateFailed": "Couldn't create a conversation; attachment upload aborted",
+      "executionAgents": "Agents",
+      "modeSettingsTitle": "Mode: Fast, Standard, Advanced",
+      "stopAllTitle": "Stop this turn and cancel all background jobs",
+      "queueSendHintMac": "Add to send queue (↩). Empty input + ↩ sends now (stops sync only; background continues). ⌘↩ also sends now",
+      "queueSendHintWin": "Add to send queue (Enter). Empty input + Enter sends now (stops sync only; background continues). Ctrl+Enter also sends now",
+      "sendHintMac": "Send (↩)",
+      "sendHintWin": "Send (Enter)",
+      "apiKeyMissing": "API Key not configured"
     },
     "empty": {
       "title": "Start a conversation",

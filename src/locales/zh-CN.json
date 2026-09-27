@@ -486,11 +486,7 @@
       "executingAgent": "执行智能体",
       "modeTooltip": "模式设置：快速、标准、高级",
       "modeLabel": "模式",
-      "mode": {
-        "fast": "快速",
-        "standard": "标准",
-        "expert": "高级"
-      },
+      "mode": "模式",
       "modelSettingsTitle": "模型设置",
       "stopTurnTitle": "停止当前回合并取消全部后台任务",
       "queueHint": "加入发送队列（{enter}）。空输入再 {enter} 立即发送（只停同步，后台继续）。{immediate} 同立即发送",
@@ -507,7 +503,15 @@
       "retryingAttempt": "重试中 {n}/3…",
       "missingUploadFile": "缺少上传文件",
       "missingAttachmentContent": "缺少附件内容",
-      "conversationCreateFailed": "无法创建会话，附件上传中止"
+      "conversationCreateFailed": "无法创建会话，附件上传中止",
+      "executionAgents": "执行智能体",
+      "modeSettingsTitle": "模式设置：快速、标准、高级",
+      "stopAllTitle": "停止当前回合并取消全部后台任务",
+      "queueSendHintMac": "加入发送队列 (↩)。空输入再 ↩ 立即发送（只停同步，后台继续）。⌘↩ 同立即发送",
+      "queueSendHintWin": "加入发送队列 (Enter)。空输入再 Enter 立即发送（只停同步，后台继续）。Ctrl+Enter 同立即发送",
+      "sendHintMac": "发送 (↩)",
+      "sendHintWin": "发送 (Enter)",
+      "apiKeyMissing": "未配置 Key"
     },
     "empty": {
       "title": "开始对话",

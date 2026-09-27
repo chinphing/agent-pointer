@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ExternalLink, Loader2, RefreshCw } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as api from '../../lib/api'
 import { isTauriRuntime } from '../../lib/runtime'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
+
+const { t } = useI18n()
 
 withDefaults(
   defineProps<{
@@ -32,7 +35,7 @@ const captchaLoading = ref(false)
 const localSubmitting = ref(false)
 const localError = ref<string | null>(null)
 
-const heroHintText = '将在系统浏览器中打开授权页面'
+const heroHintText = t('auth.heroHint')
 
 const displayError = computed(() => localError.value || null)
 
@@ -48,8 +51,8 @@ async function refreshCaptcha() {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     localError.value = msg.includes('local_auth_only_in_standalone')
-      ? '当前不是独立部署模式'
-      : '验证码加载失败，请重试'
+      ? t('auth.standaloneUnavailable')
+      : t('auth.captchaLoadFailed')
     console.warn('fetchLocalCaptcha failed', e)
   } finally {
     captchaLoading.value = false
@@ -62,11 +65,11 @@ async function submitLocalLogin() {
   const p = password.value
   const c = captcha.value.trim()
   if (!u || !p) {
-    localError.value = '请输入账号和密码'
+    localError.value = t('auth.enterCredentials')
     return
   }
   if (!captchaId.value || !c) {
-    localError.value = '请输入验证码'
+    localError.value = t('auth.enterCaptcha')
     return
   }
   localSubmitting.value = true
@@ -131,7 +134,7 @@ watch(isStandalone, standalone => {
           type="text"
           name="username"
           autocomplete="username"
-          placeholder="账号"
+          :placeholder="t('auth.usernamePlaceholder')"
           class="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
           :disabled="localSubmitting || loading"
         />
@@ -140,7 +143,7 @@ watch(isStandalone, standalone => {
           type="password"
           name="password"
           autocomplete="current-password"
-          placeholder="密码"
+          :placeholder="t('auth.passwordPlaceholder')"
           class="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
           :disabled="localSubmitting || loading"
         />
@@ -149,7 +152,7 @@ watch(isStandalone, standalone => {
             type="button"
             class="relative flex h-10 w-[8.75rem] shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-muted/40 cursor-pointer hover:bg-hover disabled:opacity-50"
             :disabled="captchaLoading || localSubmitting || loading"
-            title="点击刷新验证码"
+            :title="t('auth.refreshCaptchaTitle')"
             @click="refreshCaptcha"
           >
             <span

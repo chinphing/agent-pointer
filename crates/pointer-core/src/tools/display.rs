@@ -608,13 +608,11 @@ pub fn format_tool_display(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::ENV_LOCALE_TEST_LOCK;
     use serde_json::json;
-    use std::sync::Mutex;
-
-    static LOCALE_LOCK: Mutex<()> = Mutex::new(());
 
     fn with_zh_cn_locale<R>(f: impl FnOnce() -> R) -> R {
-        let _guard = LOCALE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCALE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let prev_lc = std::env::var("LC_ALL").ok();
         let prev_lang = std::env::var("LANG").ok();
         std::env::set_var("LC_ALL", "zh_CN.UTF-8");
@@ -632,7 +630,7 @@ mod tests {
     }
 
     fn with_en_locale<R>(f: impl FnOnce() -> R) -> R {
-        let _guard = LOCALE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCALE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let prev_lc = std::env::var("LC_ALL").ok();
         let prev_lang = std::env::var("LANG").ok();
         std::env::set_var("LC_ALL", "en_US.UTF-8");

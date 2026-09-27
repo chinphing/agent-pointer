@@ -281,9 +281,51 @@ mod tests {
 
     #[test]
     fn display_label_uses_chinese_not_english_slug() {
+        let _guard = crate::i18n::ENV_LOCALE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let prev_lc = std::env::var("LC_ALL").ok();
+        let prev_lang = std::env::var("LANG").ok();
+        std::env::set_var("LC_ALL", "zh_CN.UTF-8");
+        std::env::set_var("LANG", "zh_CN.UTF-8");
+
         let def = sample_def("general", "general-assistant", AgentProfile::General);
         assert_eq!(agent_display_label(&def), "通用助手");
         let coder = sample_def("coder", "vibe-coding", AgentProfile::Coder);
         assert_eq!(agent_display_label(&coder), "氛围编程");
+
+        match prev_lc {
+            Some(v) => std::env::set_var("LC_ALL", v),
+            None => std::env::remove_var("LC_ALL"),
+        }
+        match prev_lang {
+            Some(v) => std::env::set_var("LANG", v),
+            None => std::env::remove_var("LANG"),
+        }
+    }
+
+    #[test]
+    fn display_label_renders_english_when_locale_is_en() {
+        let _guard = crate::i18n::ENV_LOCALE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let prev_lc = std::env::var("LC_ALL").ok();
+        let prev_lang = std::env::var("LANG").ok();
+        std::env::set_var("LC_ALL", "en_US.UTF-8");
+        std::env::set_var("LANG", "en_US.UTF-8");
+
+        let def = sample_def("general", "general-assistant", AgentProfile::General);
+        assert_eq!(agent_display_label(&def), "General assistant");
+        let coder = sample_def("coder", "vibe-coding", AgentProfile::Coder);
+        assert_eq!(agent_display_label(&coder), "Vibe coding");
+
+        match prev_lc {
+            Some(v) => std::env::set_var("LC_ALL", v),
+            None => std::env::remove_var("LC_ALL"),
+        }
+        match prev_lang {
+            Some(v) => std::env::set_var("LANG", v),
+            None => std::env::remove_var("LANG"),
+        }
     }
 }

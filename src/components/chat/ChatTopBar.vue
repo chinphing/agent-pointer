@@ -3,6 +3,7 @@ import { resolveBrandName } from '../../lib/webBranding'
 
 const brandName = resolveBrandName()
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Check, FolderOpen, FolderPlus, PanelLeftOpen, Plus } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { isTauriRuntime } from '../../lib/runtime'
@@ -13,13 +14,13 @@ import SkillDirectoryPicker from '../skills/SkillDirectoryPicker.vue'
 
 const props = withDefaults(
   defineProps<{
-    /** 侧边栏是否处于收缩状态：为 true 时在品牌左侧并入「展开侧栏/新建任务」按钮，顶部保持单行。 */
+    /** Whether the sidebar is collapsed: when true, the "expand sidebar / new task" buttons merge in next to the brand, keeping the top row single-line. */
     collapsed?: boolean
-    /** macOS 红绿灯覆盖时是否需要为左上角留出系统按钮空间（收缩状态侧栏消失后适用）。 */
+    /** Whether to reserve top-left space for macOS traffic-light overlay buttons (applies once the collapsed sidebar disappears). */
     trafficLightPadding?: boolean
-    /** 是否显示品牌字样（Pointer ·）：客户端（Tauri）侧栏收缩时由顶栏补位显示；侧栏展开时品牌在侧栏左上角，此处隐藏。 */
+    /** Whether to show the brand text (Pointer ·): on desktop (Tauri) the top bar shows it when the sidebar is collapsed; when the sidebar is expanded the brand lives in its top-left corner and is hidden here. */
     showBrand?: boolean
-    /** 是否显示项目选择按钮：客户端（Tauri）常驻顶栏左侧；web 端项目切换在侧栏，此处不显示。 */
+    /** Whether to show the project picker button: desktop (Tauri) keeps it pinned to the top bar; on web, project switching lives in the sidebar and is not shown here. */
     showProjectPicker?: boolean
   }>(),
   { collapsed: false, trafficLightPadding: false, showBrand: true, showProjectPicker: true }
@@ -35,6 +36,7 @@ function isEphemeralWorkspacePath(path: string): boolean {
   return normalized.includes('/session-sandboxes/') || normalized.includes('/coder-sandboxes/')
 }
 
+const { t } = useI18n()
 const chat = useChatStore()
 
 const projectLocked = computed(
@@ -50,7 +52,7 @@ const projectCreationPending = ref(false)
 const projectDropdownDirection = ref<'up' | 'down'>('up')
 const projectDropdownMaxHeight = ref<number | null>(null)
 
-/** 项目选择弹窗内容较多，打开时按按钮上下可用空间动态选方向并限制高度，避免超出视口。 */
+/** The project picker holds a lot of content; pick a direction and cap height by available space above/below the button to avoid overflowing the viewport. */
 function updateProjectDropdownPlacement() {
   const btn = projectPickerButtonRef.value
   if (!btn) return

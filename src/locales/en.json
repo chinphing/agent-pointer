@@ -188,7 +188,15 @@
       "registrationSuccessConnecting": "Authorized, connecting…",
       "registrationTimeout": "Authorization timed out; please rescan",
       "weixinLoginSuccessConnecting": "Login successful, connecting…",
-      "weixinLoginTimeout": "Login timed out; please rescan"
+      "weixinLoginTimeout": "Login timed out; please rescan",
+      "setup": {
+        "noCredentials": "Scan to configure",
+        "notEnabled": "Credentials set — click Connect",
+        "webhookMode": "Currently in Webhook mode — switch back to long connection, then connect",
+        "ready": "Configured — click Connect",
+        "readyConnected": "Running — messaging works normally",
+        "readyDisconnected": "Not connected — click “Connect”"
+      }
     },
     "assistant": {
       "sceneTiers": "Scene tiers",
@@ -832,7 +840,13 @@
       "queued": "Queued ({n} pending)",
       "endTaskFailed": "Failed to end task",
       "projectCreateFailed": "Failed to create project — please retry",
-      "dirPickFailed": "Failed to pick folder — please retry"
+      "dirPickFailed": "Failed to pick folder — please retry",
+      "balanceExhausted": "Account balance exhausted",
+      "ephemeralSandboxCreated": "A temporary workspace was created automatically — you can switch to a project folder below the input",
+      "terminalNeedsPassword": "The terminal command needs a password — enter it in the dialog",
+      "terminalWaitingInput": "The terminal command is waiting for your input",
+      "attachmentNotReady": "Attachment “{name}” has not finished uploading",
+      "attachmentNotUploaded": "Attachment \"{name}\" has not finished uploading"
     },
     "topBar": {
       "projectLocked": "Project locked",
@@ -914,7 +928,23 @@
       "viewInjectedScreenshot": "View desktop screenshots injected into the model this turn (cached)",
       "copy": "Copy",
       "copied": "Copied"
-    }
+    },
+    "cronSessionTitle": "[Scheduled] cron session",
+    "cronSessionTitleLabeled": "[Scheduled] {label}",
+    "webhookSessionTitle": "[Webhook] session",
+    "webhookSessionTitleLabeled": "[Webhook] {label}",
+    "compression": {
+      "prefix": "【Compression】",
+      "subAgentDefaultName": "Sub-agent",
+      "subAgentNotice": "【Compression】{name} summarized {dropped} earlier records inside the sub-task into 1 (main chat unchanged).",
+      "toolLimitNotice": "【Compression】Tool-round trigger: summarized {dropped} earlier messages into 1, keeping recent originals.",
+      "inRunNotice": "【Compression】Summarized {dropped} in-turn process messages into 1, keeping your message and recent originals.",
+      "budgetNotice": "【Compression】Summarized {dropped} earlier messages into 1, keeping recent originals.",
+      "progressMain": "Compressing earlier records",
+      "progressSubAgent": "{name} is compressing earlier records inside the sub-task",
+      "traceDetail": "{name}: context compressed ({dropped} → summary)"
+    },
+    "webhookSessionTitleFromId": "[Webhook] {id}"
   },
   "agent": {
     "role": {
@@ -1036,7 +1066,31 @@
     "waitingAuth": "Complete authorization in your browser",
     "waitingAuthorization": "Waiting for authorization",
     "browserLogin": "Sign in with browser",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "errors": {
+      "loginTimeout": "Sign-in timed out — please try again",
+      "loginCancelled": "Sign-in cancelled",
+      "loopbackUnavailable": "Localhost loopback unavailable: check firewall, security software, VPN, or system proxy blocking localhost, then retry",
+      "sessionExpired": "Session expired — please sign in to your Pointer account again",
+      "serverAccessDenied": "This Server is not authorized for your account — contact an admin",
+      "invalidCaptcha": "Incorrect captcha — please try again",
+      "invalidCredentials": "Incorrect username or password",
+      "loginRequiredShort": "Please sign in first",
+      "cloudHostAutoLogin": "This is a cloud host page — login is injected by the platform, no need to sign in again",
+      "networkTransient": "Network error — temporarily unable to verify sign-in status, please retry later",
+      "ssoNotConfigured": "SSO is not configured — contact an admin",
+      "ssoNotStandalone": "This instance does not support SSO sign-in",
+      "ssoMissing": "Missing SSO ticket",
+      "ssoFailed": "SSO sign-in failed — reopen from the portal",
+      "refreshFailed": "Failed to refresh platform session"
+    },
+    "loginRequired": {
+      "platform": "Please sign in to your Pointer account",
+      "platformAttachment": "Please sign in to your Pointer account before adding attachments",
+      "standalone": "Please sign in first",
+      "standaloneAttachment": "Please sign in before adding attachments",
+      "cloud": "Please sign in to your Pointer account"
+    }
   },
   "updaterBanner": {
     "title": "New version {version} ready",
@@ -1494,5 +1548,124 @@
     "scrollUp": "Scroll up",
     "scrollDown": "Scroll down",
     "milestoneLabel": "Milestone {preview}"
+  },
+  "web": {
+    "requestTimeout": "Request timed out (>{seconds}s): {base} not responding. Confirm pointer-server is running (default 127.0.0.1:8787); for cross-origin set VITE_WEB_API_BASE and POINTER_SERVER_CORS_ORIGINS.",
+    "sendTimeout": "Send timed out (>{seconds}s). If you attached large files, retry later or compress images; confirm pointer-server is healthy.",
+    "stopTimeout": "Stop timed out. Please retry later.",
+    "workspacePreviewTimeout": "Workspace preview timed out (>{seconds}s)",
+    "connectionSuccess": "Connected",
+    "createDirectoryUnsupported": "This web environment cannot create folders — create the folder in your OS first, then select it",
+    "sameOriginApi": "same-origin /api"
+  },
+  "http": {
+    "requestFailed": "Request failed ({status})"
+  },
+  "cloud": {
+    "phase": {
+      "running": "Running",
+      "starting": "Starting",
+      "releasing": "Releasing",
+      "released": "Released",
+      "failed": "Failed to start",
+      "other": "Error"
+    },
+    "errors": {
+      "quotaExhausted": "Account balance used up",
+      "insufficientBalance": "Insufficient account balance",
+      "sessionExpired": "Platform session expired — sign in again under Account, then retry",
+      "desktopApiUnavailable": "This page cannot call desktop APIs — open Cloud from the main window or use the browser directly"
+    }
+  },
+  "thinking": {
+    "intensity": {
+      "unset": "Not set",
+      "off": "Off",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "max": "Max"
+    },
+    "protocol": {
+      "auto": "Auto",
+      "budget": "Qwen budget",
+      "effort": "DeepSeek effort",
+      "openrouter": "OpenRouter",
+      "kimi": "Kimi",
+      "openaiEffort": "OpenAI effort",
+      "off": "Disable structured",
+      "custom": "Extra params only"
+    }
+  },
+  "cron": {
+    "weekday": {
+      "0": "Sun",
+      "1": "Mon",
+      "2": "Tue",
+      "3": "Wed",
+      "4": "Thu",
+      "5": "Fri",
+      "6": "Sat"
+    },
+    "unit": {
+      "m": "minutes",
+      "h": "hours",
+      "d": "days"
+    },
+    "describe": {
+      "onceIn": "Run once after {n} {unit}",
+      "onceAt": "Run once at: {at}",
+      "everyMinute": "Every minute",
+      "everyNMinutes": "Every {n} minutes",
+      "everyNHours": "Every {n} hours",
+      "dailyAt": "Daily at {time}",
+      "weeklyAt": "Every {weekday} at {time}",
+      "monthlyAt": "Monthly on day {day} at {time}",
+      "custom": "Custom: {expr}",
+      "onceDoneWithRaw": "One-shot · done ({raw})",
+      "onceDone": "One-shot · done",
+      "onceNext": "One-shot · {when}",
+      "emDash": "—"
+    }
+  },
+  "provider": {
+    "templates": {
+      "openai_compatible": {
+        "label": "OpenAI-compatible",
+        "hint": "Other OpenAI-format endpoints; can set extra_body (e.g. repetition_penalty)"
+      },
+      "openrouter": {
+        "label": "OpenRouter",
+        "hint": "Aggregator gateway; call GPT-5.6 / Claude / Gemini and more"
+      },
+      "kimi": {
+        "label": "Kimi",
+        "hint": "Moonshot API; strong for long documents",
+        "defaultName": "Kimi (Moonshot)"
+      },
+      "zhipu": {
+        "label": "Zhipu GLM",
+        "hint": "Zhipu API; strong for code generation",
+        "defaultName": "Zhipu GLM"
+      }
+    }
+  },
+  "subAgent": {
+    "statusCompleted": "Completed",
+    "statusFailed": "Failed",
+    "statusRunning": "Running",
+    "statCount": "{label} ×{n}",
+    "toolsZero": "0 tools",
+    "processPlaceholder": "Process",
+    "defaultName": "Sub-task",
+    "statMouse": "Mouse",
+    "statInput": "Input",
+    "statOther": "Other",
+    "statSearch": "Search",
+    "statRead": "Read",
+    "statTerminal": "Terminal",
+    "statEdit": "Edit",
+    "statSkill": "Skill",
+    "statMedia": "Media"
   }
 }

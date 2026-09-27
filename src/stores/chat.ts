@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { t } from '../i18n'
 import { ref, computed, watch, nextTick } from 'vue'
 import {
   sendChat, cancelChat, cancelBackgroundJobs, abortTerminalCommand, approveToolCall, onStream,
@@ -228,7 +229,10 @@ function isPlatformLoginErrorMessage(msg: ChatMessage): boolean {
   return (
     text.includes('登录已失效') ||
     text.includes('请先登录 Pointer 账户') ||
-    text.includes('平台登录态刷新失败')
+    text.includes('平台登录态刷新失败') ||
+    text.includes('Session expired') ||
+    text.includes('Please sign in to your Pointer account') ||
+    text.includes('Failed to refresh platform login')
   )
 }
 
@@ -382,7 +386,7 @@ export const useChatStore = defineStore('chat', () => {
           .some(m => m.role === 'assistant' && assistantTurnActivelyRunning(m)))
 
     if (hasActiveTurn) {
-      showUiToast('已暂停当前任务，正在立即发送…', 'warning')
+      showUiToast(t('chat.toast.pausedAndSendingNow'), 'warning')
       await interruptActiveTurn(key, { cancelBackgroundJobs: false, drainQueue: true })
       return
     }
@@ -440,7 +444,7 @@ export const useChatStore = defineStore('chat', () => {
           row.errorMessage = undefined
         } else {
           row.status = 'cancelled'
-          row.errorMessage = '已停止生成'
+          row.errorMessage = t('chat.toast.generationStopped')
         }
         for (const tc of row.toolCalls ?? []) {
           if (tc.status === 'pending_approval') {
@@ -932,7 +936,7 @@ export const useChatStore = defineStore('chat', () => {
       const hydrated = await ensureMessagesLoaded(convId)
       if (!hydrated) {
         console.error('[chat] outbound drain paused: hydration failed', convId)
-        showUiToast('历史消息加载失败，待发送消息已保留', 'error')
+        showUiToast(t('chat.toast.historyLoadFailedDraftKept'), 'error')
         return
       }
     }
@@ -941,7 +945,7 @@ export const useChatStore = defineStore('chat', () => {
       const tailed = await ensureMessagesLoaded(convId, { force: true })
       if (!tailed) {
         console.error('[chat] outbound drain paused: force tail failed', convId)
-        showUiToast('历史消息加载失败，待发送消息已保留', 'error')
+        showUiToast(t('chat.toast.historyLoadFailedDraftKept'), 'error')
         return
       }
     }
@@ -1048,8 +1052,8 @@ export const useChatStore = defineStore('chat', () => {
         content: '',
         status: 'error',
         createdAt: Date.now(),
-        errorMessage: errText.includes('token_quota_exhausted') || errText.includes('账户余额已用尽')
-          ? '账户余额已用尽'
+        errorMessage: errText.includes('token_quota_exhausted') || errText.includes('账户余额已用尽') || errText.includes('Account balance exhausted')
+          ? t('chat.toast.balanceExhausted')
           : errText
       })
       persistAppend(conv.id)
@@ -1454,8 +1458,8 @@ export const useChatStore = defineStore('chat', () => {
     if (currentId.value !== conversationId) return
     if (conversations.value.some(c => c.id === conversationId)) return
     const title = conversationId.startsWith('webhook:')
-      ? `[Webhook] ${conversationId.slice('webhook:'.length)}`
-      : '[定时] cron 会话'
+      ? t('chat.webhookSessionTitleFromId', { id: conversationId.slice('webhook:'.length) })
+      : t('chat.cronSessionTitle')
     conversations.value.unshift({
       id: conversationId,
       title,
@@ -2763,7 +2767,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!conv) {
       conv = {
         id: sessionId,
-        title: label?.trim() ? `[定时] ${label}` : '[定时] cron 会话',
+        title: label?.trim() ? t('chat.cronSessionTitleLabeled', { label }) : t('chat.cronSessionTitle'),
         createdAt: Date.now(),
         updatedAt: Date.now(),
         messages: [],
@@ -2780,7 +2784,7 @@ export const useChatStore = defineStore('chat', () => {
     } else if (label?.trim()) {
       // Refresh the title/agent on re-open so a stale shell picks up the
       // task's current label (e.g. after rename) instead of keeping an old one.
-      conv.title = `[定时] ${label}`
+      conv.title = t('chat.cronSessionTitleLabeled', { label })
       conv.leadAgentId = leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
       conv.agentMode = (agentMode?.trim() || 'single') as AgentMode
     }
@@ -2813,7 +2817,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!conv) {
       conv = {
         id: sessionId,
-        title: label ? `[Webhook] ${label}` : '[Webhook] 会话',
+        title: label ? t('chat.webhookSessionTitleLabeled', { label }) : t('chat.webhookSessionTitle'),
         createdAt: Date.now(),
         updatedAt: Date.now(),
         messages: [],
@@ -3660,7 +3664,7 @@ export const useChatStore = defineStore('chat', () => {
       Object.assign(conv, previous)
       markMetaDirty(conv.id)
       console.error('[chat] first-send project binding failed', e)
-      showUiToast('项目绑定保存失败，请重试', 'error')
+      showUiToast(t('chat.toast.projectBindSaveFailed'), 'error')
       return false
     }
   }
@@ -3676,7 +3680,7 @@ export const useChatStore = defineStore('chat', () => {
       const hydrated = await ensureMessagesLoaded(conv.id)
       if (!hydrated) {
         console.error('[chat] send blocked because message hydration failed', conv.id)
-        showUiToast('历史消息加载失败，请重试', 'error')
+        showUiToast(t('chat.toast.historyLoadFailedRetry'), 'error')
         return
       }
     }
@@ -3703,7 +3707,7 @@ export const useChatStore = defineStore('chat', () => {
         content: '',
         status: 'error',
         createdAt: Date.now(),
-        errorMessage: '账户余额已用尽'
+        errorMessage: t('chat.toast.balanceExhausted')
       })
       return
     }
@@ -3742,7 +3746,7 @@ export const useChatStore = defineStore('chat', () => {
               })
             )
           } else {
-            throw new Error(`附件「${a.fileName}」尚未上传完成`)
+            throw new Error(t('chat.toast.attachmentNotUploaded', { name: a.fileName }))
           }
         } catch (e) {
           console.warn('[chat] saveChatAttachment failed', e)
@@ -3784,7 +3788,7 @@ export const useChatStore = defineStore('chat', () => {
       for (const att of attachments) {
         releaseComposerAttachment(att.id)
       }
-      showUiToast(`已加入队列（${outboundQueueCount(conv.id)} 条待发送）`, 'success')
+      showUiToast(t('chat.toast.queued', { n: outboundQueueCount(conv.id) }), 'success')
       return
     }
 
@@ -3793,7 +3797,7 @@ export const useChatStore = defineStore('chat', () => {
       const tailed = await ensureMessagesLoaded(conv.id, { force: true })
       if (!tailed) {
         console.error('[chat] send blocked because force tail failed', conv.id)
-        showUiToast('历史消息加载失败，请重试', 'error')
+        showUiToast(t('chat.toast.historyLoadFailedRetry'), 'error')
         return
       }
     }
@@ -3839,7 +3843,7 @@ export const useChatStore = defineStore('chat', () => {
       await cancelBackgroundJobs(current.value.id, [id])
     } catch (e) {
       console.error('[chat] cancelBackgroundJobs failed', e)
-      showUiToast('结束任务失败', 'error')
+      showUiToast(t('chat.toast.endTaskFailed'), 'error')
     }
   }
 

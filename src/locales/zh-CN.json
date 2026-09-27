@@ -188,7 +188,15 @@
       "registrationSuccessConnecting": "授权成功，正在连接…",
       "registrationTimeout": "授权超时，请重新扫码",
       "weixinLoginSuccessConnecting": "登录成功，正在连接…",
-      "weixinLoginTimeout": "登录超时，请重新扫码"
+      "weixinLoginTimeout": "登录超时，请重新扫码",
+      "setup": {
+        "noCredentials": "待扫码配置",
+        "notEnabled": "凭证已配置，点击连接",
+        "webhookMode": "当前为 Webhook 模式，请改回长连接后连接",
+        "ready": "已配置，点击连接",
+        "readyConnected": "运行中，可正常收发消息",
+        "readyDisconnected": "未连接，请点击「连接」"
+      }
     },
     "assistant": {
       "sceneTiers": "场景档位",
@@ -832,7 +840,13 @@
       "queued": "已加入队列（{n} 条待发送）",
       "endTaskFailed": "结束任务失败",
       "projectCreateFailed": "项目创建失败，请重试",
-      "dirPickFailed": "目录选择失败，请重试"
+      "dirPickFailed": "目录选择失败，请重试",
+      "balanceExhausted": "账户余额已用尽",
+      "ephemeralSandboxCreated": "已自动创建临时工作目录，可在输入框下方更换为项目目录",
+      "terminalNeedsPassword": "终端命令需要密码，请在弹窗中输入",
+      "terminalWaitingInput": "终端命令等待你的输入",
+      "attachmentNotReady": "附件「{name}」尚未上传完成",
+      "attachmentNotUploaded": "附件「{name}」尚未上传完成"
     },
     "topBar": {
       "projectLocked": "项目已锁定",
@@ -914,7 +928,23 @@
       "viewInjectedScreenshot": "查看本轮已注入模型的桌面截图（缓存）",
       "copy": "复制",
       "copied": "已复制"
-    }
+    },
+    "cronSessionTitle": "[定时] cron 会话",
+    "cronSessionTitleLabeled": "[定时] {label}",
+    "webhookSessionTitle": "[Webhook] 会话",
+    "webhookSessionTitleLabeled": "[Webhook] {label}",
+    "compression": {
+      "prefix": "【压缩】",
+      "subAgentDefaultName": "子 Agent",
+      "subAgentNotice": "【压缩】{name} 子任务内已将较早 {dropped} 条记录摘要为 1 条（主对话不变）。",
+      "toolLimitNotice": "【压缩】工具轮次触发：已将较早 {dropped} 条对话摘要为 1 条，并保留最近对话原文。",
+      "inRunNotice": "【压缩】已将当前轮次 {dropped} 条过程摘要为 1 条，并保留你的消息与最近原文。",
+      "budgetNotice": "【压缩】已将较早 {dropped} 条对话摘要为 1 条，并保留最近对话原文。",
+      "progressMain": "正在压缩较早记录",
+      "progressSubAgent": "{name} 子任务内正在压缩较早记录",
+      "traceDetail": "{name}：上下文已压缩（{dropped} 条 → 摘要）"
+    },
+    "webhookSessionTitleFromId": "[Webhook] {id}"
   },
   "agent": {
     "role": {
@@ -1163,7 +1193,31 @@
     "standaloneUnavailable": "当前不是独立部署模式",
     "usernamePlaceholder": "账号",
     "waitingAuth": "请在浏览器中完成授权",
-    "waitingAuthorization": "等待授权"
+    "waitingAuthorization": "等待授权",
+    "errors": {
+      "loginTimeout": "登录超时，请重试",
+      "loginCancelled": "已取消登录",
+      "loopbackUnavailable": "本机回环不可用：请检查防火墙、安全软件、VPN 或系统代理是否拦截 localhost，然后重试",
+      "sessionExpired": "登录已失效，请重新登录 Pointer 账户",
+      "serverAccessDenied": "此 Server 未授权您的账户，请联系管理员",
+      "invalidCaptcha": "验证码错误，请重试",
+      "invalidCredentials": "账号或密码错误",
+      "loginRequiredShort": "请先登录",
+      "cloudHostAutoLogin": "当前为云主机页面，登录态由平台自动注入，无需再次登录",
+      "networkTransient": "网络异常，暂时无法验证登录态，请稍后重试",
+      "ssoNotConfigured": "SSO 未配置，请联系管理员",
+      "ssoNotStandalone": "当前实例不支持 SSO 登录",
+      "ssoMissing": "缺少 SSO 票据",
+      "ssoFailed": "SSO 登录失败，请重新从门户打开",
+      "refreshFailed": "平台登录态刷新失败"
+    },
+    "loginRequired": {
+      "platform": "请先登录 Pointer 账户",
+      "platformAttachment": "请先登录 Pointer 账户后再添加附件",
+      "standalone": "请先登录",
+      "standaloneAttachment": "请先登录后再添加附件",
+      "cloud": "请先登录 Pointer 账户"
+    }
   },
   "backgroundJobs": {
     "cancelAll": "全部取消",
@@ -1494,5 +1548,124 @@
     "description": "您需要选择一个目录存放你的代码。",
     "gotIt": "知道了",
     "title": "请先选择工作目录"
+  },
+  "web": {
+    "requestTimeout": "请求超时（>{seconds}s）：{base} 无响应。请确认已启动 pointer-server（默认 127.0.0.1:8787）；跨源时需设置 VITE_WEB_API_BASE 与 POINTER_SERVER_CORS_ORIGINS。",
+    "sendTimeout": "发送超时（>{seconds}s）。若含大附件请稍后重试或压缩图片；确认 pointer-server 正常后再试。",
+    "stopTimeout": "停止超时。请稍后重试。",
+    "workspacePreviewTimeout": "加载工作区预览超时（>{seconds}s）",
+    "connectionSuccess": "连接成功",
+    "createDirectoryUnsupported": "当前网页环境不支持创建目录，请先在系统中创建目录后选择",
+    "sameOriginApi": "同源 /api"
+  },
+  "http": {
+    "requestFailed": "请求失败 ({status})"
+  },
+  "cloud": {
+    "phase": {
+      "running": "运行中",
+      "starting": "启动中",
+      "releasing": "释放中",
+      "released": "已释放",
+      "failed": "启动失败",
+      "other": "异常"
+    },
+    "errors": {
+      "quotaExhausted": "账户余额已用尽",
+      "insufficientBalance": "账户余额不足",
+      "sessionExpired": "平台登录已失效，请在「账户」重新登录后再试",
+      "desktopApiUnavailable": "当前页面无法调用桌面接口，请从主窗口打开云主机或使用浏览器直接访问"
+    }
+  },
+  "thinking": {
+    "intensity": {
+      "unset": "不设置",
+      "off": "关闭",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "max": "最高"
+    },
+    "protocol": {
+      "auto": "自动",
+      "budget": "千问预算",
+      "effort": "DeepSeek 力度",
+      "openrouter": "OpenRouter",
+      "kimi": "Kimi",
+      "openaiEffort": "OpenAI 力度",
+      "off": "关闭结构化",
+      "custom": "仅扩展参数"
+    }
+  },
+  "cron": {
+    "weekday": {
+      "0": "周日",
+      "1": "周一",
+      "2": "周二",
+      "3": "周三",
+      "4": "周四",
+      "5": "周五",
+      "6": "周六"
+    },
+    "unit": {
+      "m": "分钟",
+      "h": "小时",
+      "d": "天"
+    },
+    "describe": {
+      "onceIn": "{n} {unit}后执行一次",
+      "onceAt": "指定时间执行一次：{at}",
+      "everyMinute": "每分钟执行",
+      "everyNMinutes": "每 {n} 分钟执行",
+      "everyNHours": "每 {n} 小时执行",
+      "dailyAt": "每天 {time} 执行",
+      "weeklyAt": "每{weekday} {time} 执行",
+      "monthlyAt": "每月 {day} 日 {time} 执行",
+      "custom": "自定义：{expr}",
+      "onceDoneWithRaw": "一次性 · 已完成（{raw}）",
+      "onceDone": "一次性 · 已完成",
+      "onceNext": "一次性 · {when}",
+      "emDash": "—"
+    }
+  },
+  "provider": {
+    "templates": {
+      "openai_compatible": {
+        "label": "OpenAI 兼容",
+        "hint": "其它 OpenAI 格式端点；可配 extra_body（如 repetition_penalty）"
+      },
+      "openrouter": {
+        "label": "OpenRouter",
+        "hint": "聚合入口；可调用 GPT-5.6 / Claude / Gemini 等"
+      },
+      "kimi": {
+        "label": "Kimi",
+        "hint": "月之暗面 API；长文档处理突出",
+        "defaultName": "Kimi（月之暗面）"
+      },
+      "zhipu": {
+        "label": "智谱 GLM",
+        "hint": "智谱 API；代码生成突出",
+        "defaultName": "智谱 GLM"
+      }
+    }
+  },
+  "subAgent": {
+    "statusCompleted": "已完成",
+    "statusFailed": "失败",
+    "statusRunning": "进行中",
+    "statCount": "{label} {n} 次",
+    "toolsZero": "工具 0 次",
+    "processPlaceholder": "过程",
+    "defaultName": "子任务",
+    "statMouse": "鼠标",
+    "statInput": "输入",
+    "statOther": "其他",
+    "statSearch": "搜索",
+    "statRead": "读文件",
+    "statTerminal": "终端",
+    "statEdit": "编辑",
+    "statSkill": "技能",
+    "statMedia": "媒体"
   }
 }

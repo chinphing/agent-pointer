@@ -152,6 +152,16 @@ pub fn append_missing(
 /// Upsert one message and keep meta roughly in sync.
 pub fn upsert_message(conversation_id: &str, msg: &ChatMessage) -> Result<()> {
     let store = conversation_store::global_store()?;
+    upsert_message_in_store(&store, conversation_id, msg)
+}
+
+/// Same as [`upsert_message`] but through an explicit store handle, so
+/// callers holding a non-global store (tests, isolated DBs) stay consistent.
+pub fn upsert_message_in_store(
+    store: &conversation_store::ConversationStore,
+    conversation_id: &str,
+    msg: &ChatMessage,
+) -> Result<()> {
     store.upsert_message_no_refresh(conversation_id, msg)?;
     let count = store.message_count(conversation_id)?;
     let preview = match store.stored_conversation_preview(conversation_id) {

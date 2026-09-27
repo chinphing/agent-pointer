@@ -1,0 +1,22 @@
+# Allow test fixtures and vendor headers. Real secrets must still fail CI.
+title = "pointer-app"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Weixin unit-test AES vectors (not production keys)"
+paths = [
+  '''crates/pointer-channels/src/adapters/weixin/.*''',
+]
+regexes = [
+  '''00112233445566778899aabbccddeeff''',
+  '''MDAxMTIyMzM0NDU1NjY3Nzg4OTlhYWJiY2NkZGVlZmY=''',
+  '''ABEiM0RVZneImaq7zN3u/w==''',
+]
+
+[[allowlists]]
+description = "sqlite C API names look like keys to generic-api-key"
+paths = [
+  '''crates/pointer-core/vendor/sqlite-cjk-fts/sqlite3ext.h''',
+]

@@ -35,9 +35,6 @@ POINTER_EDITION=community VITE_POINTER_EDITION=community npm run tauri:build
 
 ## 推到 GitHub 前仍需人工做的事
 
-这些没有写进本次代码改动，需要你在发布副本上做：
-
 1. 轮换曾经进入 Git 历史的 Apple 证书口令；若仓库已被他人克隆，重签 Developer ID
-2. 用 `git filter-repo` 从**副本**历史中删除 `scripts/signing/macos/signing.env`，不要 force-push Codeup
-3. 推送前跑 gitleaks；仍有命中则改为单个初始提交
-4. 在 GitHub 打开 Private vulnerability reporting，并把官方签名 secret 只放进 Actions environment
+2. 清洗后的副本在仓库旁的 `pointer-app-oss-clean`（已去掉 `signing.env` 和打码服务密钥）。不要 force-push Codeup
+3. 在 GitHub 打开 Private vulnerability reporting，并把官方签名 secret 只放进 Actions environment

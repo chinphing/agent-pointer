@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ClipboardList, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../types/chat'
 import { taskBoardTrimNoticeBody } from '../../../lib/taskBoardTrimMessage'
 import MessageFooterActions from './MessageFooterActions.vue'
 
+
+const { t } = useI18n()
 const props = defineProps<{ message: ChatMessage }>()
 
 const expanded = ref(false)
@@ -31,8 +34,8 @@ const body = computed(() => taskBoardTrimNoticeBody(props.message.content))
           class="w-3.5 h-3.5 shrink-0 text-muted"
           aria-hidden="true"
         />
-        <span class="text-[12px] font-medium text-foreground">任务板更新后精简历史</span>
-        <span class="text-[10px] text-muted">旧版占位</span>
+        <span class="text-[12px] font-medium text-foreground">{{ t('chat.message.taskBoardTrim') }}</span>
+        <span class="text-[10px] text-muted">{{ t('chat.message.legacyPlaceholder') }}</span>
       </div>
       <p v-if="!expanded" class="mt-1.5 text-[11px] text-muted line-clamp-2 pl-5">
         {{ body }}

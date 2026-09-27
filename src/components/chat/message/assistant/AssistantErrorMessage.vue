@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { AlertCircle } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../../types/chat'
 import MessageFooterActions from '../MessageFooterActions.vue'
 import { isBalanceExhaustedMessage, openPlatformBillingPage } from '../../../../lib/platformUrls'
 import { usePlatformAuthStore } from '../../../../stores/platformAuth'
 
+
+const { t } = useI18n()
 const props = defineProps<{ message: ChatMessage }>()
 const platformAuth = usePlatformAuthStore()
 
@@ -32,12 +35,12 @@ async function onOpenBilling() {
     <div class="flex gap-2 items-start min-w-0">
       <AlertCircle class="w-4 h-4 shrink-0 mt-0.5 text-danger" />
       <div class="min-w-0 flex-1">
-        <div class="text-[11px] uppercase tracking-wide text-danger/90 mb-1">助手消息异常</div>
+        <div class="text-[11px] uppercase tracking-wide text-danger/90 mb-1">{{ t('chat.message.assistantError') }}</div>
         <div class="whitespace-pre-wrap break-words">
           {{
             showRecharge
-              ? '账户余额已用尽，充值后可继续对话'
-              : message.errorMessage || '生成失败'
+              ? t('chat.message.quotaExhausted')
+              : message.errorMessage || t('chat.message.generationFailed')
           }}
         </div>
         <button
@@ -46,13 +49,13 @@ async function onOpenBilling() {
           class="mt-2 inline-flex rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground hover:opacity-90 cursor-pointer"
           @click="onOpenBilling"
         >
-          去充值
+          {{ t('chat.message.goRecharge') }}
         </button>
       </div>
     </div>
     <MessageFooterActions
       :created-at="message.createdAt"
-      :copy-text="message.errorMessage || '生成失败'"
+      :copy-text="message.errorMessage || t('chat.message.generationFailed')"
       :show-copy="true"
     />
   </div>

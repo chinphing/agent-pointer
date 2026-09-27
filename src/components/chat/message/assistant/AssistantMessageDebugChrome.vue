@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, toRef, type Ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Code, Camera } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../../types/chat'
 import { useAssistantMessageDebug } from '../../../../composables/useAssistantMessageDebug'
@@ -7,6 +8,8 @@ import MessageFooterActions from '../MessageFooterActions.vue'
 import RawWirePanel from './RawWirePanel.vue'
 import ScreenPreviewModal from './ScreenPreviewModal.vue'
 
+
+const { t } = useI18n()
 const props = defineProps<{
   message: ChatMessage
   copyText?: string
@@ -61,7 +64,7 @@ const showFooter = computed(() => showMessageActions.value)
         type="button"
         class="message-action-btn text-muted hover:text-info disabled:opacity-40 disabled:cursor-wait"
         :disabled="screenLoading"
-        title="查看本轮已注入模型的桌面截图（缓存）"
+        :title="t('chat.message.viewInjectedScreenshot')"
         @click="openScreenPreview()"
       >
         <Camera class="w-3.5 h-3.5" />
@@ -71,7 +74,7 @@ const showFooter = computed(() => showMessageActions.value)
         type="button"
         class="message-action-btn"
         :class="showRawWire ? 'text-accent' : 'text-muted hover:text-foreground'"
-        :title="showRawWire ? '隐藏原始内容' : '查看原始内容'"
+        :title="showRawWire ? t('chat.message.hideRaw') : t('chat.message.showRaw')"
         @click="showRawWire = !showRawWire"
       >
         <Code class="w-3.5 h-3.5" />
@@ -89,7 +92,7 @@ const showFooter = computed(() => showMessageActions.value)
       type="button"
       class="message-action-btn text-muted hover:text-info disabled:opacity-40 disabled:cursor-wait"
       :disabled="screenLoading"
-      title="查看本轮已注入模型的桌面截图（缓存）"
+      :title="t('chat.message.viewInjectedScreenshot')"
       @click="openScreenPreview()"
     >
       <Camera class="w-3.5 h-3.5" />
@@ -99,7 +102,7 @@ const showFooter = computed(() => showMessageActions.value)
       type="button"
       class="message-action-btn"
       :class="showRawWire ? 'text-accent' : 'text-muted hover:text-foreground'"
-      :title="showRawWire ? '隐藏原始内容' : '查看原始内容'"
+      :title="showRawWire ? t('chat.message.hideRaw') : t('chat.message.showRaw')"
       @click="showRawWire = !showRawWire"
     >
       <Code class="w-3.5 h-3.5" />

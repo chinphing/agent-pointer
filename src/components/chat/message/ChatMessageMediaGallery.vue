@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Clipboard, Download, FolderOpen } from 'lucide-vue-next'
 import type { RenderableAttachment } from '../../../lib/messageNormalizer'
 import ChatAudioPlayer from './ChatAudioPlayer.vue'
@@ -14,6 +15,8 @@ import {
 } from '../../../lib/openAttachment'
 import { isTauriRuntime } from '../../../lib/runtime'
 
+
+const { t } = useI18n()
 const props = defineProps<{
   attachments: RenderableAttachment[]
   align?: 'start' | 'end'
@@ -57,13 +60,13 @@ const alignClass = computed(() =>
           v-else-if="showsWebDownloadOnly(att)"
           type="button"
           class="inline-flex max-w-full items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2 text-xs text-foreground cursor-pointer transition-colors hover:bg-muted/50"
-          :title="`下载 ${att.fileName}`"
+          :title="t('chat.message.downloadFile', { fileName: att.fileName })"
           @click="onDownloadAttachment(att)"
         >
           <AttachmentFileIcon :file-name="att.fileName" :mime-type="att.mimeType" />
           <span class="truncate max-w-[200px]">{{ att.fileName }}</span>
           <Download class="h-3.5 w-3.5 shrink-0 text-muted" />
-          <span class="shrink-0 text-muted">下载</span>
+          <span class="shrink-0 text-muted">{{ t('chat.message.download') }}</span>
         </button>
         <div
           v-else-if="att.kind === 'audio'"
@@ -91,7 +94,7 @@ const alignClass = computed(() =>
           v-else-if="isOpenableFileAttachment(att.kind)"
           type="button"
           class="inline-flex items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2 text-xs text-foreground cursor-pointer transition-colors hover:bg-muted/50"
-          :title="`打开 ${att.fileName}`"
+          :title="t('chat.message.openFile', { fileName: att.fileName })"
           @click="onOpenAttachment(att)"
         >
           <AttachmentFileIcon :file-name="att.fileName" :mime-type="att.mimeType" />
@@ -110,7 +113,7 @@ const alignClass = computed(() =>
         >
           <button
             class="p-1 rounded-md hover:bg-muted transition-colors"
-            title="复制文件路径"
+            :title="t('chat.message.copyPath')"
             @click="copyFilePath(att)"
           >
             <Clipboard class="h-3.5 w-3.5" />
@@ -118,7 +121,7 @@ const alignClass = computed(() =>
           <button
             v-if="isTauriRuntime()"
             class="p-1 rounded-md hover:bg-muted transition-colors"
-            title="在 Finder 中显示"
+            :title="t('chat.message.revealInFinder')"
             @click="onRevealInFinder(att)"
           >
             <FolderOpen class="h-3.5 w-3.5" />

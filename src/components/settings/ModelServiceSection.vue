@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Check, ChevronRight, Cloud, Copy, Cpu, Plus, Trash2, Wrench, X } from 'lucide-vue-next'
 import type { SettingsDialogForm } from '../../composables/useSettingsDialogForm'
 import type { ModelRuntimeOverrides, ProviderConfig } from '../../types/chat'
@@ -31,6 +32,7 @@ defineProps<{
   form: SettingsDialogForm
 }>()
 
+const { t } = useI18n()
 const s = useSettingsStore()
 const platformAuth = usePlatformAuthStore()
 const isStandalone = computed(() => platformAuth.isStandalone)
@@ -109,12 +111,12 @@ const displayKey = computed(() => {
 })
 
 const inputPlaceholder = computed(() => {
-  if (showAddProvider.value) return '请输入 API 密钥'
-  return '输入新密钥以替换原密钥'
+  if (showAddProvider.value) return t('settings.models.service.apiKeyPlaceholderAdd')
+  return t('settings.models.service.apiKeyPlaceholderEdit')
 })
 
 function providerKeyDisplay(key: unknown): string {
-  return typeof key === 'string' && key ? maskKey(key) : '未配置'
+  return typeof key === 'string' && key ? maskKey(key) : t('settings.models.service.notConfigured')
 }
 
 function cloneModelConfigs(p?: ProviderConfig['modelConfigs']): NonNullable<ProviderConfig['modelConfigs']> {
@@ -144,10 +146,10 @@ function modelCapabilitySummary(modelId: string): string {
   if (!p) return ''
   const caps = resolvedModelCapabilities([p], p.id, modelId)
   const parts: string[] = []
-  if (caps.supportsVision) parts.push('视觉')
-  if (caps.supportsAudio) parts.push('语音')
-  if (caps.canGenerateImage) parts.push('生图')
-  if (caps.canGenerateVideo) parts.push('生视频')
+  if (caps.supportsVision) parts.push(t('settings.models.service.capability.vision'))
+  if (caps.supportsAudio) parts.push(t('settings.models.service.capability.audio'))
+  if (caps.canGenerateImage) parts.push(t('settings.models.service.capability.imageGen'))
+  if (caps.canGenerateVideo) parts.push(t('settings.models.service.capability.videoGen'))
   return parts.join(' · ')
 }
 
@@ -343,11 +345,11 @@ function applyProviderSnapshotToStore(
 ): boolean {
   const id = snapshot.id.trim()
   if (wasAdd && s.settings.providers.some(p => p.id === id)) {
-    providerSaveError.value = '服务 ID 已存在，请换一个 ID'
+    providerSaveError.value = t('settings.models.service.errorIdExists')
     return false
   }
   if (!wasAdd && !s.settings.providers.some(p => p.id === id)) {
-    providerSaveError.value = '找不到要更新的服务商，请取消后重新编辑'
+    providerSaveError.value = t('settings.models.service.errorProviderNotFound')
     return false
   }
 
@@ -379,7 +381,7 @@ function flushEditingProviderToStore(reopenEdit = false): boolean {
   if (!editingProvider.value) return true
   const snapshot = buildProviderSnapshotFromEditor()
   if (!snapshot) {
-    providerSaveError.value = '请填写服务 ID、名称和 API 地址'
+    providerSaveError.value = t('settings.models.service.errorMissingFields')
     return false
   }
   return applyProviderSnapshotToStore(snapshot, showAddProvider.value, reopenEdit)
@@ -394,7 +396,7 @@ async function saveProvider() {
   providerSaveError.value = ''
   const snapshot = buildProviderSnapshotFromEditor()
   if (!snapshot) {
-    providerSaveError.value = '请填写服务 ID、名称和 API 地址'
+    providerSaveError.value = t('settings.models.service.errorMissingFields')
     return
   }
 
@@ -423,7 +425,7 @@ async function saveProvider() {
     providerSaveError.value = ''
   } catch (e) {
     console.error('[settings] save provider failed', e)
-    providerSaveError.value = '应用配置失败，请重试'
+    providerSaveError.value = t('settings.models.service.errorApplyFailed')
   }
 }
 
@@ -475,7 +477,7 @@ async function removeCustomProvider(provider: ProviderConfig) {
     s.settings.providers = before.providers
     s.settings.activeProviderId = before.activeProviderId
     s.settings.model = before.model
-    providerSaveError.value = '删除服务失败，请重试'
+    providerSaveError.value = t('settings.models.service.errorDeleteFailed')
     return
   }
 
@@ -510,10 +512,10 @@ defineExpose({
       <div class="flex items-center justify-between gap-3">
         <div>
           <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-            <Wrench class="w-4 h-4 text-accent" />自定义服务
+            <Wrench class="w-4 h-4 text-accent" />{{ t('settings.models.service.customServices') }}
           </h4>
           <p class="mt-1 text-[11px] text-muted">
-            {{ isStandalone ? '本实例模型服务；参数与能力与客户端自定义服务相同' : '自行接入的 OpenAI 兼容服务' }}
+            {{ isStandalone ? t('settings.models.service.customServicesHintStandalone') : t('settings.models.service.customServicesHintDefault') }}
           </p>
         </div>
         <button
@@ -522,7 +524,7 @@ defineExpose({
           @click="startAddProvider"
         >
           <Plus class="w-3.5 h-3.5" />
-          添加服务
+          {{ t('settings.models.service.addService') }}
         </button>
       </div>
       <div class="space-y-2">
@@ -537,18 +539,18 @@ defineExpose({
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2 min-w-0">
                 <span class="text-sm font-medium text-foreground truncate">{{ p.name }}</span>
-                <span class="text-[11px] text-muted shrink-0">{{ (p.models?.length ?? 0) > 0 ? `${p.models!.length} 个模型` : '未配置模型' }}</span>
-                <span v-if="s.settings.activeProviderId === p.id" class="px-1.5 py-0.5 rounded bg-hover text-[10px] font-medium text-foreground shrink-0">默认全局服务商</span>
+                <span class="text-[11px] text-muted shrink-0">{{ (p.models?.length ?? 0) > 0 ? t('settings.models.service.modelsCountSuffix', { n: p.models!.length }) : t('settings.models.service.noModelsConfigured') }}</span>
+                <span v-if="s.settings.activeProviderId === p.id" class="px-1.5 py-0.5 rounded bg-hover text-[10px] font-medium text-foreground shrink-0">{{ t('settings.models.service.defaultGlobalProvider') }}</span>
               </div>
               <p class="mt-0.5 text-[11px] text-muted truncate font-mono">{{ p.baseUrl }}</p>
-              <p class="mt-1 text-[11px] text-muted">密钥：{{ providerKeyDisplay(p.apiKey) }}</p>
+              <p class="mt-1 text-[11px] text-muted">{{ t('settings.models.service.apiKeyPrefix', { key: providerKeyDisplay(p.apiKey) }) }}</p>
             </div>
             <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
                 type="button"
                 class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors"
-                :title="`编辑 ${p.name}`"
-                :aria-label="`编辑 ${p.name}`"
+                :title="t('settings.models.service.editProviderTitle', { name: p.name })"
+                :aria-label="t('settings.models.service.editProviderTitle', { name: p.name })"
                 @click="startEditProvider(p)"
               >
                 <Wrench class="w-3.5 h-3.5 text-accent" />
@@ -557,8 +559,8 @@ defineExpose({
                 v-if="!isPlatformProvider(p) || isStandalone"
                 type="button"
                 class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors"
-                :title="`删除 ${p.name}`"
-                :aria-label="`删除 ${p.name}`"
+                :title="t('settings.models.service.deleteProviderTitle', { name: p.name })"
+                :aria-label="t('settings.models.service.deleteProviderTitle', { name: p.name })"
                 @click="requestCustomProviderDeletion(p)"
               >
                 <Trash2 class="w-3.5 h-3.5 text-danger" />
@@ -569,7 +571,7 @@ defineExpose({
                 class="ml-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors"
                 @click="s.setActiveProvider(p.id)"
               >
-                设为默认
+                {{ t('settings.models.service.setDefault') }}
               </button>
             </div>
           </div>
@@ -578,8 +580,8 @@ defineExpose({
         <p v-if="providerSaveError" class="text-[12px] text-danger" role="alert">{{ providerSaveError }}</p>
         <div v-if="customProviders.length === 0" class="rounded-xl border border-dashed border-border p-8 text-center">
           <Cpu class="w-8 h-8 text-muted/80 mx-auto mb-2" />
-          <p class="text-sm text-muted">暂无自定义模型服务</p>
-          <p class="text-xs text-muted/80 mt-1">点击上方「添加服务」开始配置</p>
+          <p class="text-sm text-muted">{{ t('settings.models.service.noCustomServices') }}</p>
+          <p class="text-xs text-muted/80 mt-1">{{ t('settings.models.service.noCustomServicesHint') }}</p>
         </div>
       </div>
     </section>
@@ -589,11 +591,11 @@ defineExpose({
       <div class="flex items-center justify-between gap-3">
         <div>
           <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-            <Cloud class="w-4 h-4 text-accent" />平台服务
+            <Cloud class="w-4 h-4 text-accent" />{{ t('settings.models.service.platformServices') }}
           </h4>
-          <p class="mt-1 text-[11px] text-muted">登录后由平台下发，统一管理</p>
+          <p class="mt-1 text-[11px] text-muted">{{ t('settings.models.service.platformServicesHint') }}</p>
         </div>
-        <span class="shrink-0 px-2 py-0.5 rounded-full bg-muted/50 text-[10px] text-muted font-medium">只读</span>
+        <span class="shrink-0 px-2 py-0.5 rounded-full bg-muted/50 text-[10px] text-muted font-medium">{{ t('settings.models.service.readOnly') }}</span>
       </div>
       <div class="space-y-2">
         <div
@@ -607,8 +609,8 @@ defineExpose({
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2 min-w-0">
                 <span class="text-sm font-medium text-foreground truncate">{{ p.name }}</span>
-                <span class="text-[11px] text-muted shrink-0">{{ (p.models?.length ?? 0) > 0 ? `${p.models!.length} 个模型` : '未配置模型' }}</span>
-                <span v-if="s.settings.activeProviderId === p.id" class="px-1.5 py-0.5 rounded bg-hover text-[10px] font-medium text-foreground shrink-0">默认全局服务商</span>
+                <span class="text-[11px] text-muted shrink-0">{{ (p.models?.length ?? 0) > 0 ? t('settings.models.service.modelsCountSuffix', { n: p.models!.length }) : t('settings.models.service.noModelsConfigured') }}</span>
+                <span v-if="s.settings.activeProviderId === p.id" class="px-1.5 py-0.5 rounded bg-hover text-[10px] font-medium text-foreground shrink-0">{{ t('settings.models.service.defaultGlobalProvider') }}</span>
               </div>
               <p class="mt-0.5 text-[11px] text-muted truncate font-mono">{{ p.baseUrl }}</p>
             </div>
@@ -619,15 +621,15 @@ defineExpose({
                 class="h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors"
                 @click="s.setActiveProvider(p.id)"
               >
-                设为默认
+                {{ t('settings.models.service.setDefault') }}
               </button>
             </div>
           </div>
         </div>
         <div v-if="platformProviders.length === 0" class="rounded-xl border border-dashed border-border p-8 text-center">
           <Cloud class="w-8 h-8 text-muted/80 mx-auto mb-2" />
-          <p class="text-sm text-muted">暂无平台模型服务</p>
-          <p class="text-xs text-muted/80 mt-1">登录后由平台下发</p>
+          <p class="text-sm text-muted">{{ t('settings.models.service.noPlatformServices') }}</p>
+          <p class="text-xs text-muted/80 mt-1">{{ t('settings.models.service.noPlatformServicesHint') }}</p>
         </div>
       </div>
     </section>
@@ -644,14 +646,14 @@ defineExpose({
           <div>
             <h4 class="text-sm font-semibold text-foreground flex items-center gap-2">
               <ChevronRight class="w-4 h-4 text-accent" />
-              {{ showAddProvider ? '添加模型服务' : '编辑模型服务' }}
+              {{ showAddProvider ? t('settings.models.service.addModelServiceTitle') : t('settings.models.service.editModelServiceTitle') }}
             </h4>
-            <p class="mt-0.5 text-[11px] text-muted">配置服务商默认参数与模型清单；各模型可单独配置参数。</p>
+            <p class="mt-0.5 text-[11px] text-muted">{{ t('settings.models.service.modalHint') }}</p>
           </div>
           <button
             type="button"
             class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0"
-            aria-label="关闭"
+            :aria-label="t('settings.models.service.close')"
             @click="cancelEditProvider"
           >
             <X class="w-4 h-4" />
@@ -660,7 +662,7 @@ defineExpose({
         <div class="p-5 space-y-4 overflow-y-auto">
 
       <div class="space-y-2">
-        <label class="block text-[12px] text-muted">服务类型</label>
+        <label class="block text-[12px] text-muted">{{ t('settings.models.service.serviceType') }}</label>
         <div class="inline-flex flex-wrap gap-1 rounded-lg bg-card border border-border p-0.5">
           <button
             v-for="opt in editableTemplateOptions"
@@ -675,44 +677,44 @@ defineExpose({
           </button>
         </div>
         <p class="text-[11px] text-muted">
-          与内置千问/深度求索相同：先设服务商默认参数，再在下方各模型单独配置。
+          {{ t('settings.models.service.templateHint') }}
           <span class="text-muted">（{{ providerTemplateHint }}）</span>
         </p>
       </div>
 
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="block text-[12px] text-muted mb-1.5">服务 ID</label>
-          <input v-model="editingProvider.id" :disabled="!showAddProvider" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 disabled:opacity-50 transition-colors" placeholder="例如：qwen, openai" />
+          <label class="block text-[12px] text-muted mb-1.5">{{ t('settings.models.service.serviceId') }}</label>
+          <input v-model="editingProvider.id" :disabled="!showAddProvider" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 disabled:opacity-50 transition-colors" :placeholder="t('settings.models.service.serviceIdPlaceholder')" />
         </div>
         <div>
-          <label class="block text-[12px] text-muted mb-1.5">服务名称</label>
-          <input v-model="editingProvider.name" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" placeholder="例如：千问" />
+          <label class="block text-[12px] text-muted mb-1.5">{{ t('settings.models.service.serviceName') }}</label>
+          <input v-model="editingProvider.name" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" :placeholder="t('settings.models.service.serviceNamePlaceholder')" />
         </div>
         <div class="col-span-2">
-          <label class="block text-[12px] text-muted mb-1.5">API 地址</label>
+          <label class="block text-[12px] text-muted mb-1.5">{{ t('settings.models.service.apiUrl') }}</label>
           <input v-model="editingProvider.baseUrl" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" placeholder="https://api.example.com/v1" />
         </div>
         <div class="col-span-2">
-          <label class="block text-[12px] text-muted mb-1.5">API 密钥</label>
+          <label class="block text-[12px] text-muted mb-1.5">{{ t('settings.models.service.apiKey') }}</label>
           <div class="flex items-center gap-2 h-9 px-3 rounded-lg bg-card border border-border transition-colors focus-within:border-primary/50">
             <input :value="displayKey" :type="editingApiKey || showAddProvider ? 'password' : 'text'" class="flex-1 bg-transparent border-0 outline-none text-sm text-foreground placeholder:text-muted font-mono" :placeholder="inputPlaceholder" @focus="clearMaskedInput" @input="e => { editingApiKey = (e.target as HTMLInputElement).value }" />
-            <button v-if="!showAddProvider && originalApiKey" type="button" class="p-1 rounded hover:bg-hover cursor-pointer transition" :class="copiedKey ? 'text-success' : 'text-muted hover:text-foreground'" :title="copiedKey ? '已复制' : '复制原始密钥'" @click="copyOriginalKey">
+            <button v-if="!showAddProvider && originalApiKey" type="button" class="p-1 rounded hover:bg-hover cursor-pointer transition" :class="copiedKey ? 'text-success' : 'text-muted hover:text-foreground'" :title="copiedKey ? t('settings.models.service.copied') : t('settings.models.service.copyOriginalKey')" @click="copyOriginalKey">
               <Check v-if="copiedKey" class="w-4 h-4" />
               <Copy v-else class="w-4 h-4" />
             </button>
           </div>
         </div>
         <div class="col-span-2">
-          <label class="block text-[12px] text-muted mb-1.5">模型列表</label>
+          <label class="block text-[12px] text-muted mb-1.5">{{ t('settings.models.service.modelList') }}</label>
           <input v-model="editingModelsText" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" placeholder="model-1, model-2, model-3" />
         </div>
         <div class="col-span-2 rounded-lg border border-border bg-[hsl(var(--card-elevated))] p-4 space-y-3">
-          <h5 class="text-[12px] font-medium text-foreground">模型参数</h5>
-          <p class="text-[11px] text-muted">服务商级默认；各模型可单独「配置」参数与视觉/生成能力，恢复默认即跟随服务商。</p>
+          <h5 class="text-[12px] font-medium text-foreground">{{ t('settings.models.service.modelParams') }}</h5>
+          <p class="text-[11px] text-muted">{{ t('settings.models.service.modelParamsHint') }}</p>
           <RuntimeParamsForm :api="providerRuntimeApi" />
           <div v-if="editingParsedModelIds.length" class="pt-2 border-t border-border space-y-1.5">
-            <div class="text-[11px] text-muted">各模型</div>
+            <div class="text-[11px] text-muted">{{ t('settings.models.service.perModel') }}</div>
             <ul class="rounded-lg border border-border bg-hover divide-y divide-border overflow-hidden">
               <li
                 v-for="mid in editingParsedModelIds"
@@ -724,8 +726,8 @@ defineExpose({
                   <span
                     v-if="modelConfigMode(mid) === 'custom'"
                     class="block text-[10px] text-accent truncate mt-0.5"
-                  >已定制<template v-if="modelCapabilitySummary(mid)"> · {{ modelCapabilitySummary(mid) }}</template></span>
-                  <span v-else class="block text-[10px] text-muted truncate mt-0.5">跟随服务商默认</span>
+                  >{{ t('settings.models.service.customized') }}<template v-if="modelCapabilitySummary(mid)"> · {{ modelCapabilitySummary(mid) }}</template></span>
+                  <span v-else class="block text-[10px] text-muted truncate mt-0.5">{{ t('settings.models.service.followsProviderDefault') }}</span>
                 </div>
                 <button
                   type="button"
@@ -733,7 +735,7 @@ defineExpose({
                   :class="modelConfigMode(mid) === 'custom' ? 'bg-hover text-foreground' : 'bg-hover/60 text-muted hover:bg-hover hover:text-foreground'"
                   @click="openModelConfigModal(mid)"
                 >
-                  {{ modelConfigMode(mid) === 'custom' ? '编辑' : '配置' }}
+                  {{ modelConfigMode(mid) === 'custom' ? t('settings.models.service.edit') : t('settings.models.service.configure') }}
                 </button>
               </li>
             </ul>
@@ -744,9 +746,9 @@ defineExpose({
         </div>
         <div class="flex items-center justify-end gap-2 border-t border-border px-5 py-3 shrink-0">
           <p v-if="providerSaveError" class="mr-auto text-[12px] text-danger">{{ providerSaveError }}</p>
-          <button type="button" class="h-8 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="cancelEditProvider">取消</button>
+          <button type="button" class="h-8 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="cancelEditProvider">{{ t('settings.models.service.cancel') }}</button>
           <button type="button" class="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50 transition-opacity" :disabled="!editingProvider.id?.trim() || !editingProvider.name?.trim() || !editingProvider.baseUrl?.trim()" @click="saveProvider">
-            {{ showAddProvider ? '添加' : '保存' }}
+            {{ showAddProvider ? t('settings.models.service.addAction') : t('settings.models.service.save') }}
           </button>
         </div>
       </div>
@@ -763,12 +765,12 @@ defineExpose({
     >
       <div class="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl p-5 space-y-4" role="alertdialog" aria-modal="true" aria-labelledby="delete-provider-title" @click.stop>
         <div class="space-y-1">
-          <h5 id="delete-provider-title" class="text-sm font-semibold text-foreground">确认删除模型服务</h5>
-          <p class="text-sm text-muted">将删除“{{ pendingProviderDeletion.name }}”及其本地模型配置。此操作无法撤销。</p>
+          <h5 id="delete-provider-title" class="text-sm font-semibold text-foreground">{{ t('settings.models.service.confirmDeleteProviderTitle') }}</h5>
+          <p class="text-sm text-muted">{{ t('settings.models.service.confirmDeleteProviderBody', { name: pendingProviderDeletion.name }) }}</p>
         </div>
         <div class="flex items-center justify-end gap-2">
-          <button type="button" class="h-8 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="cancelCustomProviderDeletion">取消</button>
-          <button type="button" class="h-8 px-4 rounded-lg bg-danger text-white text-sm font-medium cursor-pointer hover:opacity-95 transition-opacity" @click="confirmCustomProviderDeletion">确认删除</button>
+          <button type="button" class="h-8 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="cancelCustomProviderDeletion">{{ t('settings.models.service.cancel') }}</button>
+          <button type="button" class="h-8 px-4 rounded-lg bg-danger text-white text-sm font-medium cursor-pointer hover:opacity-95 transition-opacity" @click="confirmCustomProviderDeletion">{{ t('settings.models.service.confirmDelete') }}</button>
         </div>
       </div>
     </div>
@@ -784,10 +786,10 @@ defineExpose({
       <div class="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl p-4 space-y-3" @click.stop>
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0">
-            <h5 class="text-sm font-medium text-foreground">模型参数与能力</h5>
+            <h5 class="text-sm font-medium text-foreground">{{ t('settings.models.service.modelParamsAndCapabilities') }}</h5>
             <p class="mt-0.5 text-[11px] text-muted font-mono truncate" :title="modelConfigModalId">{{ modelConfigModalId }}</p>
           </div>
-          <button type="button" class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0" aria-label="关闭" @click="closeModelConfigModal">
+          <button type="button" class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0" :aria-label="t('settings.models.service.close')" @click="closeModelConfigModal">
             <X class="w-4 h-4" />
           </button>
         </div>
@@ -804,9 +806,9 @@ defineExpose({
             type="button"
             class="h-8 px-4 mr-auto rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors"
             @click="setModelConfigMode(modelConfigModalId, 'same')"
-          >恢复默认</button>
-          <button type="button" class="h-8 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="closeModelConfigModal">取消</button>
-          <button type="button" class="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-sm font-medium cursor-pointer hover:opacity-95 transition-opacity" @click="confirmModelConfigModal">完成</button>
+          >{{ t('settings.models.service.restoreDefault') }}</button>
+          <button type="button" class="h-8 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="closeModelConfigModal">{{ t('settings.models.service.cancel') }}</button>
+          <button type="button" class="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-sm font-medium cursor-pointer hover:opacity-95 transition-opacity" @click="confirmModelConfigModal">{{ t('settings.models.service.done') }}</button>
         </div>
       </div>
     </div>

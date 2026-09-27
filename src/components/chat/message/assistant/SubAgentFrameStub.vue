@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import type { AgentTrace } from '../../../../types/chat'
 import CollapsedRunHeader from '../../CollapsedRunHeader.vue'
 
+
+const { t } = useI18n()
 defineProps<{
   trace: AgentTrace
   summaryLine: string
@@ -26,7 +29,7 @@ const emit = defineEmits<{
         :expanded="false"
         :failed="trace.status === 'failed'"
         :show-chevron="showChevron"
-        :aria-label="summaryLine.trim() || '子任务过程'"
+        :aria-label="summaryLine.trim() || t('chat.message.subtaskProcess')"
         @toggle="emit('toggle')"
       />
     </div>

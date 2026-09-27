@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   thinkingDotsAtCap,
   thinkingSteadyDotCount,
   THINKING_LIVE_DOT_COUNT
 } from '../../../../lib/thinkingIndicator'
 
+
+const { t } = useI18n()
 const props = defineProps<{
   active: boolean
   charCount?: number
@@ -27,9 +30,9 @@ const steadyDots = computed(() => {
     class="text-[13px] text-muted px-3 py-1.5 select-none"
     role="status"
     aria-live="polite"
-    :aria-label="atCap ? '思考中，仍在执行' : undefined"
+    :aria-label="atCap ? t('chat.message.thinkingAtCap') : undefined"
   >
-    思考中{{ steadyDots }}<span
+    {{ t('chat.message.thinking') }}{{ steadyDots }}<span
       v-if="atCap"
       class="thinking-dots-live"
       aria-hidden="true"

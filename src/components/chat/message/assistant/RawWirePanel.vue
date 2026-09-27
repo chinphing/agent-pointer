@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Check, Copy } from 'lucide-vue-next'
 
+
+const { t } = useI18n()
 const props = defineProps<{
   /** API `reasoning_content` 流（与正文分开通道）；仅在此面板内展示，不写入主气泡。 */
   reasoning?: string
@@ -26,10 +29,10 @@ const combinedRawText = computed(() => {
   const r = reasoningText.value
   const o = outputText.value
   const parts: string[] = []
-  if (r.length > 0) parts.push(`【推理】\n${r}`)
-  if (o.length > 0) parts.push(`【正文通道原始】\n${o}`)
+  if (r.length > 0) parts.push(`${t('chat.message.reasoningSection')}\n${r}`)
+  if (o.length > 0) parts.push(`${t('chat.message.rawContentSection')}\n${o}`)
   if (toolRawArgsText.value.length > 0) {
-    parts.push(`【工具调用参数】\n${toolRawArgsText.value}`)
+    parts.push(`${t('chat.message.toolArgsSection')}\n${toolRawArgsText.value}`)
   }
   return parts.join('\n\n')
 })
@@ -50,42 +53,42 @@ function copyAll() {
 <template>
   <div class="raw-wire-panel mt-2 w-full overflow-hidden">
     <div class="raw-wire-header">
-      <span class="text-[11px] font-medium text-foreground">原始输出</span>
+      <span class="text-[11px] font-medium text-foreground">{{ t('chat.message.rawWireTitle') }}</span>
       <div class="flex items-center gap-1">
         <button
           v-if="hasAnything"
           type="button"
           class="raw-wire-action"
-          :title="copied ? '已复制' : '复制全部'"
+          :title="copied ? t('chat.message.rawWireCopied') : t('chat.message.rawWireCopyAll')"
           @click="copyAll"
         >
           <Check v-if="copied" class="w-3 h-3 text-success" />
           <Copy v-else class="w-3 h-3" />
         </button>
         <button type="button" class="raw-wire-action text-[11px]" @click="emit('close')">
-          收起
+          {{ t('chat.message.rawWireCollapse') }}
         </button>
       </div>
     </div>
 
     <div class="max-h-96 overflow-auto p-3 space-y-3">
       <section v-if="reasoningText">
-        <div class="raw-wire-section-label">推理</div>
+        <div class="raw-wire-section-label">{{ t('chat.message.reasoningLabel') }}</div>
         <pre class="raw-wire-block">{{ reasoningText }}</pre>
       </section>
 
       <section v-if="outputText">
-        <div class="raw-wire-section-label">正文通道原始</div>
+        <div class="raw-wire-section-label">{{ t('chat.message.rawContentChannel') }}</div>
         <pre class="raw-wire-block">{{ outputText }}</pre>
       </section>
 
       <section v-if="toolRawArgsText">
-        <div class="raw-wire-section-label">工具调用参数</div>
+        <div class="raw-wire-section-label">{{ t('chat.message.toolArgsLabel') }}</div>
         <pre class="raw-wire-block">{{ toolRawArgsText }}</pre>
       </section>
 
       <div v-if="!hasAnything" class="text-[11px] text-muted py-1">
-        暂无内容
+        {{ t('chat.message.noContent') }}
       </div>
     </div>
   </div>

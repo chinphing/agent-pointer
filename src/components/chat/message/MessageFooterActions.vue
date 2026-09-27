@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Copy, Check } from 'lucide-vue-next'
 import MessageTimeChip from './MessageTimeChip.vue'
 
+
+const { t } = useI18n()
 const props = defineProps<{
   createdAt: number
   copyText?: string
@@ -33,7 +36,7 @@ const showCopyButton = () => props.showCopy === true && !!(props.copyText?.trim(
       type="button"
       class="message-action-btn"
       :class="copied ? 'text-success' : 'text-muted hover:text-foreground'"
-      :title="copied ? '已复制' : '复制'"
+      :title="copied ? t('chat.message.copied') : t('chat.message.copy')"
       @click="copy"
     >
       <Check v-if="copied" class="w-3 h-3" />

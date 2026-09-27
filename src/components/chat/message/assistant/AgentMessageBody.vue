@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { parseMarkdown } from '../../../../lib/markdownConfig'
 import { useThrottledMarkdown } from '../../../../composables/useThrottledMarkdown'
 import type { MessageStatus, ToolCall, ChatMessage } from '../../../../types/chat'
@@ -20,6 +21,8 @@ import { shouldShowThinkingIndicator } from '../../../../lib/thinkingIndicator'
 import { isBalanceExhaustedMessage, openPlatformBillingPage } from '../../../../lib/platformUrls'
 import { usePlatformAuthStore } from '../../../../stores/platformAuth'
 
+
+const { t } = useI18n()
 export interface AgentMessageBodyModel {
   thoughts?: string
   toolNamePreview?: string
@@ -398,7 +401,7 @@ onUnmounted(() => clearReasoningCollapseTimer())
             :aria-expanded="reasoningOpen"
             @click="toggleReasoning"
           >
-            <span class="shrink-0 text-[11px] text-muted font-medium">推理过程</span>
+            <span class="shrink-0 text-[11px] text-muted font-medium">{{ t('chat.message.reasoningProcess') }}</span>
             <span
               class="inline-block w-3 shrink-0 text-muted text-center text-[10px] transition-transform pt-0.5"
               :class="reasoningOpen ? 'rotate-90' : ''"
@@ -444,8 +447,8 @@ onUnmounted(() => clearReasoningCollapseTimer())
             <div class="flex items-center gap-2">
               {{
                 showBalanceRecharge
-                  ? '账户余额已用尽，充值后可继续对话'
-                  : body.errorMessage || '生成失败'
+                  ? t('chat.message.quotaExhausted')
+                  : body.errorMessage || t('chat.message.generationFailed')
               }}
             </div>
             <button
@@ -454,7 +457,7 @@ onUnmounted(() => clearReasoningCollapseTimer())
               class="mt-1.5 inline-flex rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground hover:opacity-90 cursor-pointer"
               @click="onOpenBilling"
             >
-              去充值
+              {{ t('chat.message.goRecharge') }}
             </button>
           </div>
           </div>
@@ -491,7 +494,7 @@ onUnmounted(() => clearReasoningCollapseTimer())
           role="status"
         >
           <div class="py-0.5 inline-flex items-center text-[11px] text-muted">
-            已停止生成
+            {{ t('chat.message.generationStopped') }}
           </div>
         </div>
       </div>

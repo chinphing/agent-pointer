@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Pause, Play } from 'lucide-vue-next'
 
+
+const { t } = useI18n()
 const props = withDefaults(
   defineProps<{
     src: string | null
@@ -131,7 +134,7 @@ onBeforeUnmount(() => {
       class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-40"
       :class="playBtnClass"
       :disabled="!src || loading"
-      :aria-label="playing ? '暂停' : '播放'"
+      :aria-label="playing ? t('chat.message.pause') : t('chat.message.play')"
       @click="togglePlay"
     >
       <Pause v-if="playing" class="h-4 w-4" />
@@ -143,7 +146,7 @@ onBeforeUnmount(() => {
         type="button"
         class="flex h-7 w-full items-center gap-[2px] cursor-pointer"
         :disabled="!src || loading"
-        aria-label="调整播放进度"
+        :aria-label="t('chat.message.seekAria')"
         @click="onSeek"
       >
         <span
@@ -161,7 +164,7 @@ onBeforeUnmount(() => {
         />
       </button>
       <span class="text-[10px] leading-none text-muted tabular-nums">
-        {{ loading ? '加载中…' : timeLabel }}
+        {{ loading ? t('chat.message.loading') : timeLabel }}
       </span>
     </div>
 

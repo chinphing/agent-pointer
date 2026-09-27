@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { Loader2, Wrench } from 'lucide-vue-next'
 
+
+const { t } = useI18n()
 defineProps<{
   label: string
 }>()
@@ -18,7 +21,7 @@ defineProps<{
       <span>{{ label }}</span>
       <span class="shrink-0 inline-flex items-center gap-0.5 text-accent">
         <Loader2 class="w-2.5 h-2.5 animate-spin" />
-        <span>压缩中</span>
+        <span>{{ t('chat.message.compressing') }}</span>
       </span>
     </div>
   </div>

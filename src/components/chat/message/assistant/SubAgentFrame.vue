@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, ref, watch, type Ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Code } from 'lucide-vue-next'
 import type { AgentTrace, ChatMessage, TaskBoardDocument, ToolCall } from '../../../../types/chat'
 import { traceAgentLabel, type ResolvedAgentUi } from '../../../../lib/agentUi'
@@ -47,6 +48,8 @@ import TaskBoardPanel from '../../TaskBoardPanel.vue'
 import CollapsedRunHeader from '../../CollapsedRunHeader.vue'
 import ToolCallRow from '../../ToolCallRow.vue'
 
+
+const { t } = useI18n()
 export type SubAgentTaskBoardBinding = {
   document: TaskBoardDocument
   isActive: boolean
@@ -320,7 +323,7 @@ const liveAriaLabel = computed(() => {
       includeStatus: false
     })
   }
-  return liveLine.value || '子任务过程'
+  return liveLine.value || t('chat.message.subtaskProcess')
 })
 const liveKey = computed(() => {
   if (!isRunning.value) return null
@@ -455,7 +458,7 @@ watch(
         type="button"
         class="message-action-btn shrink-0"
         :class="showRawWire ? 'text-foreground' : 'text-muted hover:text-foreground'"
-        :title="showRawWire ? '隐藏原始内容' : '查看原始内容'"
+        :title="showRawWire ? t('chat.message.hideRaw') : t('chat.message.showRaw')"
         @click.stop="showRawWire = !showRawWire"
       >
         <Code class="w-3.5 h-3.5" />

@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { trackFullscreenExit } from '../../../lib/fullscreenTrack'
 
+
+const { t } = useI18n()
 const props = defineProps<{
   src: string
   alt?: string
@@ -156,7 +159,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
         v-if="scale !== 1"
         class="fixed top-4 right-4 px-3 py-1.5 rounded-lg bg-white/10 text-white/60 text-xs pointer-events-none"
       >
-        滚轮缩放 · 拖拽移动 · 双击恢复 · Esc 关闭
+        {{ t('chat.message.zoomHint') }}
       </div>
     </div>
   </Teleport>

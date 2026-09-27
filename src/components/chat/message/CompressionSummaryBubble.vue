@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ChevronDown, ChevronRight } from 'lucide-vue-next'
 import { parseMarkdown } from '../../../lib/markdownConfig'
 import type { ChatMessage } from '../../../types/chat'
@@ -10,6 +11,8 @@ import { useMarkdownSvgs } from '../../../composables/useMarkdownSvgs'
 import { useMarkdownMermaid } from '../../../composables/useMarkdownMermaid'
 import { useMarkdownExternalLinks } from '../../../composables/useMarkdownExternalLinks'
 
+
+const { t } = useI18n()
 const props = defineProps<{ message: ChatMessage }>()
 
 const expanded = ref(false)
@@ -34,7 +37,7 @@ useMarkdownExternalLinks(bodyRef, () => html.value)
       :aria-expanded="expanded"
       @click="expanded = !expanded"
     >
-      <span>自动压缩摘要</span>
+      <span>{{ t('chat.message.compressionSummary') }}</span>
       <component
         :is="expanded ? ChevronDown : ChevronRight"
         class="tool-call-chevron h-3 w-3 shrink-0 hidden"

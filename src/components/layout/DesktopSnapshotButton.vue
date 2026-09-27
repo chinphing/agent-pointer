@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Monitor } from 'lucide-vue-next'
 import ScreenPreviewModal from '../chat/message/assistant/ScreenPreviewModal.vue'
 import { captureManualDesktopSnapshot } from '../../lib/web'
 
+const { t } = useI18n()
+
 const SNAPSHOT_REFRESH_MS = 5000
-const CAPTION = '当前桌面'
+const caption = computed(() => t('shell.desktopSnapshot.caption'))
 
 const open = ref(false)
 const loading = ref(false)
@@ -53,7 +56,7 @@ async function refreshSnapshot(isBackground = false) {
     error.value = null
   } catch (e) {
     if (gen !== refreshGen || !open.value) return
-    const msg = e instanceof Error ? e.message : '截图失败'
+    const msg = e instanceof Error ? e.message : t('shell.desktopSnapshot.failed')
     if (!isBackground || !imageUrl.value) {
       error.value = msg
     } else {
@@ -91,7 +94,7 @@ onUnmounted(() => {
   <button
     type="button"
     class="chrome-icon-btn"
-    title="查看桌面"
+    :title="t('shell.desktopSnapshot.viewTitle')"
     @click="onClick"
   >
     <Monitor class="w-4 h-4" />
@@ -101,7 +104,7 @@ onUnmounted(() => {
     :loading="loading"
     :preview="null"
     :image-src="imageUrl"
-    :caption="CAPTION"
+    :caption="caption"
     :error="error"
   />
 </template>

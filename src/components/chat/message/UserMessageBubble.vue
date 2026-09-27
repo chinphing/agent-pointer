@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { parseMarkdown } from '../../../lib/markdownConfig'
 import { Clipboard, Download, Flag, FolderOpen, User } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../types/chat'
@@ -27,6 +28,8 @@ import { isConversationNavUserMessage } from '../../../lib/conversationNav'
 import { useChatStore } from '../../../stores/chat'
 import { useMessageMilestoneStore } from '../../../stores/messageMilestones'
 
+
+const { t } = useI18n()
 const props = defineProps<{ message: ChatMessage }>()
 const chat = useChatStore()
 const milestones = useMessageMilestoneStore()
@@ -85,7 +88,7 @@ async function onOpenAttachment(att: RenderableAttachment) {
     <div class="relative max-w-[85%] min-w-0 w-fit flex flex-col items-end gap-2">
       <div
         class="message-avatar-slot absolute left-full ml-2 top-0 w-8 h-8 rounded-lg shrink-0 flex items-center justify-center bg-hover border border-border"
-        title="用户"
+        :title="t('chat.message.user')"
       >
         <User class="w-4 h-4 text-muted" />
       </div>
@@ -105,13 +108,13 @@ async function onOpenAttachment(att: RenderableAttachment) {
               v-else-if="showsWebDownloadOnly(att)"
               type="button"
               class="inline-flex max-w-full items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2 text-xs text-foreground cursor-pointer transition-colors hover:bg-muted/50"
-              :title="`下载 ${att.fileName}`"
+              :title="t('chat.message.downloadFile', { fileName: att.fileName })"
               @click="onDownloadAttachment(att)"
             >
               <AttachmentFileIcon :file-name="att.fileName" :mime-type="att.mimeType" />
               <span class="truncate max-w-[200px]">{{ att.fileName }}</span>
               <Download class="h-3.5 w-3.5 shrink-0 text-muted" />
-              <span class="shrink-0 text-muted">下载</span>
+              <span class="shrink-0 text-muted">{{ t('chat.message.download') }}</span>
             </button>
             <div
               v-else-if="att.kind === 'audio'"
@@ -144,7 +147,7 @@ async function onOpenAttachment(att: RenderableAttachment) {
               v-else-if="isOpenableFileAttachment(att.kind)"
               type="button"
               class="inline-flex items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2 text-xs text-foreground cursor-pointer transition-colors hover:bg-muted/50"
-              :title="`打开 ${att.fileName}`"
+              :title="t('chat.message.openFile', { fileName: att.fileName })"
               @click="onOpenAttachment(att)"
             >
               <AttachmentFileIcon :file-name="att.fileName" :mime-type="att.mimeType" />
@@ -163,7 +166,7 @@ async function onOpenAttachment(att: RenderableAttachment) {
             >
               <button
                 class="p-1 rounded-md hover:bg-muted transition-colors"
-                title="复制文件路径"
+                :title="t('chat.message.copyPath')"
                 @click="copyFilePath(att)"
               >
                 <Clipboard class="h-3.5 w-3.5" />
@@ -171,7 +174,7 @@ async function onOpenAttachment(att: RenderableAttachment) {
               <button
                 v-if="isTauriRuntime()"
                 class="p-1 rounded-md hover:bg-muted transition-colors"
-                title="在 Finder 中显示"
+                :title="t('chat.message.revealInFinder')"
                 @click="onRevealInFinder(att)"
               >
                 <FolderOpen class="h-3.5 w-3.5" />
@@ -206,7 +209,7 @@ async function onOpenAttachment(att: RenderableAttachment) {
               type="button"
               class="message-action-btn disabled:opacity-40"
               :class="milestoneOn ? 'text-accent' : 'text-muted hover:text-foreground'"
-              :title="milestoneOn ? '取消里程碑' : '标为里程碑'"
+              :title="milestoneOn ? t('chat.message.unsetMilestone') : t('chat.message.setMilestone')"
               :aria-pressed="milestoneOn"
               :disabled="milestonePending"
               @click="onToggleMilestone"
@@ -225,7 +228,7 @@ async function onOpenAttachment(att: RenderableAttachment) {
             type="button"
             class="message-action-btn disabled:opacity-40"
             :class="milestoneOn ? 'text-accent' : 'text-muted hover:text-foreground'"
-            :title="milestoneOn ? '取消里程碑' : '标为里程碑'"
+            :title="milestoneOn ? t('chat.message.unsetMilestone') : t('chat.message.setMilestone')"
             :aria-pressed="milestoneOn"
             :disabled="milestonePending"
             @click="onToggleMilestone"

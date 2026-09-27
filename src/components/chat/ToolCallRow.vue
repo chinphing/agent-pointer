@@ -359,7 +359,7 @@ const statusInfo = computed(() => {
     }
     case 'failed': {
       // Legacy stored error text may still contain the Chinese cancellation marker.
-      const cancelled = /cancel|interrupted|已停止/i.test(props.toolCall.error || '')
+      const cancelled = /cancel|interrupted|已停止|stopped/i.test(props.toolCall.error || '')
       if (isBackgroundSubagentCall(props.toolCall) && cancelled) {
         return { label: t('tools.status.cancelled'), color: 'text-muted/45' }
       }

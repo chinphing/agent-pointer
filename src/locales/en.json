@@ -689,7 +689,9 @@
       "subtaskDelegation": "Subtask delegation",
       "subtaskDelegationHint": "Delegatable workers are configured via {allowAgents} in the lead Agent’s AGENT.md.",
       "maxNestingDepth": "Max sub-agent nesting depth",
-      "maxNestingDepthHint": "1 = only the lead agent can delegate; 2 = sub-agents may delegate one more level (default)."
+      "maxNestingDepthHint": "1 = only the lead agent can delegate; 2 = sub-agents may delegate one more level (default).",
+      "subtaskDelegationHintBefore": "Delegatable workers are configured via ",
+      "subtaskDelegationHintAfter": " in the lead Agent’s AGENT.md."
     },
     "cron": {
       "schedule": "Schedule",

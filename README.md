@@ -73,25 +73,26 @@ A digital employee should not compete with a person for the computer. The memory
 
 ### General agent capabilities
 
-| What you need | What Pointer provides |
+| Capability | What you get |
 | --- | --- |
-| Split work and run it in parallel | [Sub-agents](docs/user/subagents.md) for exploring a codebase, writing changes, and operating the computer. The main conversation can continue |
-| Give a digital employee eyes and hands | Vision computer control. Read screenshots, then use the mouse and keyboard. It can control any GUI application on the computer (still being improved) |
-| Show up where people already work | Desktop app, or stable operation on a [cloud host](docs/user/cloud-host.md). [Feishu, DingTalk, WeCom, and WeChat](docs/user/im-channels.md) |
-| Let outside systems wake it up | [Webhooks](docs/user/webhook.md) and scheduled tasks |
-| Choose where models and tools come from | Not tied to a specific vendor's models, and not tied to a specific vendor's ecosystem. Qwen and DeepSeek are built in. Doubao, Kimi, Zhipu, OpenRouter, and any OpenAI-compatible endpoint can be added. [MCP](docs/user/mcp.md) for external tools |
+| Agent system | Built-in general, coder, computer, and explore. [Sub-agents](docs/user/subagents.md) can run in the background so the main conversation can continue |
+| Chat engine | Streaming, prompt assembly, and tool calling; long conversations, context compression, and milestone recall |
+| Tools | Terminal, file read/write/search, web search and fetch, task board; vision computer control for GUI apps (still being improved) |
+| Skills and extensions | [Skills](docs/user/skills.md), [plugins](docs/user/plugins.md), and user rules; external tools via [MCP](docs/user/mcp.md) |
+| Dispatch and triggers | Scheduled tasks, [webhooks](docs/user/webhook.md), and IM inbound events enter chat through one dispatcher |
+| Entry points | Desktop, web, [cloud host](docs/user/cloud-host.md), and [Feishu, DingTalk, WeCom, and WeChat](docs/user/im-channels.md) |
+| Model access | OpenAI-compatible APIs. Qwen and DeepSeek are built in; Doubao, Kimi, Zhipu, OpenRouter, and others can be added—no single-vendor lock-in |
 
 ### What was added for Skill development and testing
 
-After a role is written as a reusable Skill, you need to edit it, install it, and run it again immediately.
+After a role is written as a reusable Skill, you need a shared format, an easy install path, editing in the conversation, and a way to validate it at scale.
 
 | What you need | What Pointer provides |
 | --- | --- |
 | Write in a shared format | [Skills](docs/user/skills.md) use a common skill format, compatible with Codex and similar directories. Instructions, references, scripts, and assets stay separate |
 | Install, then turn it on | Enable skills in the library, including zip import. Existing skills can be imported from Codex, Claude, OpenClaw, and Hermes |
 | Author and edit in the conversation | Creating, editing, reviewing, and packaging goes to the coding sub-agent. A skill can also ship inside a [plugin](docs/user/plugins.md) |
-| Test again right after an edit | Skill instructions are read from disk each time. No restart: the next call uses the new content |
-| Check scripts and on-screen results | Run scripts in the terminal and check the code. For a skill that drives a UI, use computer control or browser automation to see whether it actually finished |
+| Skill validation | Run the Skill under high-concurrency background sub-agents in isolated environments, and sweep many test samples quickly to check stability and correctness |
 | Fill in a missing runtime | If Node, Python, or another runtime is missing, install it in the conversation and keep testing the skill |
 
 Start with [getting started](docs/user/getting-started.md).

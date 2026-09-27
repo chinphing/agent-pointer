@@ -73,25 +73,26 @@
 
 ### 通用 Agent 能力
 
-| 场景 | 怎么做 |
+| 能力 | 说明 |
 | --- | --- |
-| 大任务拆开一起干 | [子智能体](docs/user/subagents.md) 可以去翻代码、改代码、操控电脑，主对话不用停 |
-| 看得见、点得动 | 纯视觉电脑操控：截屏理解当前界面，再点击、输入、滚动、打开应用。有界面的软件都能控（还在打磨） |
-| 人在哪，它就在哪 | 桌面端本地跑，也可以挂在[云主机](docs/user/cloud-host.md)上长期跑。还能接[飞书、钉钉、企业微信、微信](docs/user/im-channels.md) |
-| 外部系统来触发 | [Webhook](docs/user/webhook.md)、定时任务都行 |
-| 模型和工具自己定 | 不绑死某一家模型，也不绑死某一家生态。内置千问、深度求索，也可接豆包、Kimi、智谱、OpenRouter，以及任意 OpenAI 兼容接口。外部工具走 [MCP](docs/user/mcp.md) |
+| Agent 系统 | 内置 general、coder、computer、explore。[子智能体](docs/user/subagents.md) 可后台并行，主对话不用停 |
+| 对话引擎 | 流式输出、Prompt 组装、工具调用；支持超长会话、上下文压缩、里程碑召回 |
+| 工具执行 | 终端、文件读写检索、联网搜索与抓取、任务板；电脑侧靠纯视觉操控有界面的软件（还在打磨） |
+| 技能与扩展 | [Skills](docs/user/skills.md)、[插件](docs/user/plugins.md)、用户 Rules；外部工具接 [MCP](docs/user/mcp.md) |
+| 调度与触发 | 定时任务、[Webhook](docs/user/webhook.md)、IM 入站，经统一调度进对话 |
+| 多入口 | 桌面端、Web 端、[云主机](docs/user/cloud-host.md)，以及[飞书、钉钉、企业微信、微信](docs/user/im-channels.md) |
+| 模型接入 | OpenAI 兼容接口。内置千问、深度求索，也可接豆包、Kimi、智谱、OpenRouter 等，不绑死一家 |
 
 ### 为 Skill 开发与测试补上的能力
 
-岗位流程写成可复用 Skill 之后，要改得动、装得上、改完马上就能再跑。
+岗位流程写成可复用 Skill 之后，要写得顺、装得上、在对话里改得动，还能大批量验证稳不稳、对不对。
 
 | 场景 | 怎么做 |
 | --- | --- |
 | 按通用格式来写 | [Skills](docs/user/skills.md) 用常见的技能说明格式，和 Codex 一类目录兼容。说明、参考资料、脚本、资源分开放 |
 | 装进技能库再打开 | 技能库里勾选启用，也支持 zip 导入。本机已有的 Codex、Claude、OpenClaw、Hermes 技能可以一键迁过来 |
 | 对着对话就能改 | 新建、修改、审查、打包交给写代码的子智能体。也可以打进[插件](docs/user/plugins.md)一起发 |
-| 改完立刻验 | 技能说明每次现读磁盘，不用重启，下一轮就是新内容 |
-| 脚本和界面都要验 | 终端里跑脚本，代码检查看改动对不对；要动界面时，用电脑操控或浏览器自动化看结果成不成 |
+| Skill 验证 | 用高并发的后台子 Agent，在隔离环境里跑 Skill，快速过大量测试样本，看执行稳不稳、对不对 |
 | 缺环境就补环境 | 缺 Node、Python 之类，对话里装好再继续测 |
 
 想上手，看 [快速上手](docs/user/getting-started.md)。

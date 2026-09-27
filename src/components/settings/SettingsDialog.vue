@@ -201,12 +201,12 @@ onMounted(() => {
               type="button"
               class="min-w-0 flex-1 h-full flex items-center gap-2 text-left transition-colors cursor-pointer group"
               :class="chromeEnabled && macTrafficLightPadding ? 'pl-2' : 'pl-3'"
-              title="返回对话"
-              aria-label="返回对话"
+              :title="t('settings.dialog.backToChat')"
+              :aria-label="t('settings.dialog.backToChat')"
               @click="emit('close')"
             >
               <ArrowLeft class="w-3.5 h-3.5 shrink-0 text-muted/70 group-hover:text-foreground/80" />
-              <span class="truncate text-[13px] font-medium text-foreground/50 group-hover:text-foreground/90">返回对话</span>
+              <span class="truncate text-[13px] font-medium text-foreground/50 group-hover:text-foreground/90">{{ t('settings.dialog.backToChat') }}</span>
             </button>
           </WindowDragRegion>
           <nav class="flex min-h-0 flex-1 flex-col overflow-y-auto pl-3 pr-2 pt-3 pb-3">
@@ -253,7 +253,7 @@ onMounted(() => {
               v-if="renderError"
               class="sticky top-0 z-20 mb-3 px-3 py-2 rounded-lg border border-danger/30 bg-danger/10 text-[11px] text-danger"
             >
-              设置页渲染异常：{{ renderError }}
+              {{ t('settings.dialog.renderError', { error: renderError }) }}
             </div>
             <!-- 保挂载：模型服务编辑在途状态切换分区不丢失（独立于 v-if 链） -->
             <section v-show="activeSection === 'assistant'" class="min-h-full flex flex-col">

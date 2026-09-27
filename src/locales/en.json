@@ -34,7 +34,11 @@
     "open": "Open",
     "refresh": "Refresh",
     "settings": "Settings",
-    "productName": "Pointer"
+    "productName": "Pointer",
+    "clearSearch": "Clear search",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "loadMore": "Load more"
   },
   "settings": {
     "language": {
@@ -43,6 +47,11 @@
       "system": "System",
       "zhCN": "中文",
       "en": "English"
+    },
+    "theme": {
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
     },
     "sections": {
       "assistant": "Agents",
@@ -75,6 +84,10 @@
       "heading": "Display",
       "toolCalls": "Tool calls",
       "agentOutput": "Agent output"
+    },
+    "dialog": {
+      "backToChat": "Back to chat",
+      "renderError": "Settings page render error: {error}"
     }
   },
   "shell": {

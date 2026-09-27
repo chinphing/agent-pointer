@@ -68,9 +68,16 @@ pub(crate) fn push_agent_role_cacheable_prompts(
 }
 
 /// Appends `[Environment]` + **calendar date only** to cacheable system slices.
+/// Reply-language rule follows `UserSettings.uiLocale`.
 pub(crate) fn push_env_to_cacheable(system_cacheable: &mut Vec<String>) {
+    let ui_locale = crate::storage::load_user_settings()
+        .map(|u| u.ui_locale)
+        .unwrap_or_else(|e| {
+            log::warn!("[env_prompt] load_user_settings for uiLocale failed: {e}");
+            "system".into()
+        });
     system_cacheable.push(format!(
         "[Environment]\n{}",
-        crate::env_prompt::build_environment_system_prompt_slice()
+        crate::env_prompt::build_environment_system_prompt_slice_for(&ui_locale)
     ));
 }

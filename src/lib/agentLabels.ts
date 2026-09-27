@@ -1,12 +1,15 @@
-/** Agent role id → 用户可见中文名。未知 id 原样显示。 */
-const AGENT_ROLE_LABELS: Record<string, string> = {
-  general: '通用助手',
-  coder: '氛围编程',
-  computer: '电脑操控'
+import { t } from '../i18n'
+
+/** Agent role id → user-visible label. Unknown ids are shown as-is. */
+const AGENT_ROLE_LABEL_KEYS: Record<string, string> = {
+  general: 'agent.role.general',
+  coder: 'agent.role.coder',
+  computer: 'agent.role.computer'
 }
 
 export function agentRoleLabel(roleId: string | null | undefined): string {
   const id = (roleId ?? '').trim()
   if (!id) return ''
-  return AGENT_ROLE_LABELS[id] ?? id
+  const key = AGENT_ROLE_LABEL_KEYS[id]
+  return key ? t(key) : id
 }

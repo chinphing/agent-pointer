@@ -15,7 +15,8 @@ export const UI_LOCALE_OPTIONS: { value: UiLocalePreference; labelKey: string }[
 ]
 
 let currentPref: UiLocalePreference = 'system'
-let i18nRef: Composer | null = null
+// Loosely typed so createI18n's typed Composer still binds cleanly.
+let i18nRef: { locale: { value: string } } | null = null
 
 export function isUiLocalePreference(value: unknown): value is UiLocalePreference {
   return value === 'system' || value === 'zh-CN' || value === 'en'
@@ -41,7 +42,7 @@ export function resolveUiLocale(pref: UiLocalePreference | undefined | null): Re
   return detectSystemUiLocale()
 }
 
-export function bindI18nComposer(composer: Composer) {
+export function bindI18nComposer(composer: { locale: { value: string } }) {
   i18nRef = composer
 }
 

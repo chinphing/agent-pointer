@@ -1,6 +1,5 @@
-//! Environment snippets: **calendar date only** in trailing `[Environment]` `system` text;
-//! **full date+time** in Computer `[CUR_SCREEN]` inject.
-//! Both include brief **OS** and **Time baseline** usage lines for every agent.
+//! Host environment slice for system prompts (OS, locale, calendar date).
+//! Reply-language guidance follows the user's UI locale preference.
 
 use chrono::Local;
 use std::env;
@@ -24,7 +23,7 @@ fn os_label() -> &'static str {
     }
 }
 
-fn locale_hint() -> String {
+fn locale_hint_from_os() -> String {
     env::var("LANG")
         .ok()
         .and_then(|lang| {
@@ -38,6 +37,31 @@ fn locale_hint() -> String {
             }
         })
         .unwrap_or_else(|| "unknown".into())
+}
+
+/// Resolve UI preference (`system` | `zh-CN` | `en`) to a reply-language label for the model.
+pub fn resolve_reply_language_label(ui_locale: &str) -> &'static str {
+    match ui_locale.trim() {
+        "zh-CN" => "Chinese (Simplified)",
+        "en" => "English",
+        _ => {
+            // system / unknown → follow OS locale hint
+            if locale_hint_from_os().starts_with("Chinese") {
+                "Chinese (Simplified)"
+            } else {
+                "English"
+            }
+        }
+    }
+}
+
+fn reply_language_rule(ui_locale: &str) -> String {
+    let lang = resolve_reply_language_label(ui_locale);
+    format!(
+        "- Reply language: Reply to the user in **{lang}** unless they clearly write \
+in another language or ask otherwise. Keep tool arguments, code identifiers, and \
+file paths unchanged."
+    )
 }
 
 fn os_usage(os: &str) -> String {
@@ -57,14 +81,22 @@ current relative to {reference_label}—not stale training defaults or guessed y
 }
 
 /// OS + locale + **calendar date only** — last slice of `system_prompts` for `stream_chat`.
+///
+/// `ui_locale` is the persisted preference (`system` | `zh-CN` | `en`).
 pub fn build_environment_system_prompt_slice() -> String {
+    build_environment_system_prompt_slice_for("system")
+}
+
+/// Same as [`build_environment_system_prompt_slice`] with an explicit UI locale preference.
+pub fn build_environment_system_prompt_slice_for(ui_locale: &str) -> String {
     let os = os_label();
     format!(
-        "Environment:\n- OS: {os}\n{}\n- Locale hint: {}\n- Local date: {}\n{}",
+        "Environment:\n- OS: {os}\n{}\n- Locale hint: {}\n- Local date: {}\n{}\n{}",
         os_usage(os),
-        locale_hint(),
+        locale_hint_from_os(),
         format_local_date_calendar(),
-        time_baseline_usage("Local date")
+        time_baseline_usage("Local date"),
+        reply_language_rule(ui_locale)
     )
 }
 
@@ -81,5 +113,14 @@ mod tests {
         assert!(slice.contains("Time baseline:"));
         assert!(slice.contains("**Local date**"));
         assert!(slice.contains("authoritative clock"));
+        assert!(slice.contains("Reply language:"));
+    }
+
+    #[test]
+    fn reply_language_follows_explicit_ui_locale() {
+        let zh = build_environment_system_prompt_slice_for("zh-CN");
+        assert!(zh.contains("Chinese (Simplified)"));
+        let en = build_environment_system_prompt_slice_for("en");
+        assert!(en.contains("**English**"));
     }
 }

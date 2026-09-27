@@ -23,6 +23,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install Linux dependencies
+        # Keep in sync with the Linux deps in release.yml — xcap links
+        # libgbm/EGL/DRM/Wayland, missing dev packages fail at link time.
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -37,7 +39,11 @@ jobs:
             libxdo-dev \
             libpipewire-0.3-dev \
             libspa-0.2-dev \
-            libclang-dev
+            libclang-dev \
+            libgbm-dev \
+            libegl1-mesa-dev \
+            libdrm-dev \
+            libwayland-dev
 
       - name: Install frontend dependencies
         run: npm ci

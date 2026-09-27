@@ -18,6 +18,7 @@ Versions follow the root `VERSION` file.
   Import equivalent skills yourself if you need them.
 - Community builds do not default to readflowai.com, auto-update, usage
   reporting, or standalone license enforcement.
+- The public repository is named **agent-pointer**.
 
 ### Security
 

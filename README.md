@@ -1,6 +1,6 @@
-# Pointer
+# agent-pointer
 
-Cross-platform AI workstation: desktop (Tauri 2 + Vue 3) and web (`pointer-server` + the same UI). Core chat, tools, Skills, and agents live in `crates/pointer-core`.
+Open-source **Pointer** workstation: desktop (Tauri 2 + Vue 3) and web (`pointer-server` + the same UI). Core chat, tools, Skills, and agents live in `crates/pointer-core`.
 
 [简体中文](README.zh-CN.md)
 

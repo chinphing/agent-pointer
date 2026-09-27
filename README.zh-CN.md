@@ -1,6 +1,6 @@
-# Pointer
+# agent-pointer
 
-跨平台 AI 工作台：桌面端（Tauri 2 + Vue 3）与 Web 端（`pointer-server` + 同一套界面）。对话、工具、Skills 和 Agent 在 `crates/pointer-core`。
+开源的 **Pointer** 工作台：桌面端（Tauri 2 + Vue 3）与 Web 端（`pointer-server` + 同一套界面）。对话、工具、Skills 和 Agent 在 `crates/pointer-core`。
 
 [English](README.md)
 

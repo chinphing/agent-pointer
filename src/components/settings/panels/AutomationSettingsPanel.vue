@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Clock, Plus, Trash2, Webhook, ShieldCheck, AlertTriangle, AlertCircle, RefreshCw, MessagesSquare, CircleHelp, X, Copy, Check, Pencil } from 'lucide-vue-next'
 import { useChatStore } from '../../../stores/chat'
 import {

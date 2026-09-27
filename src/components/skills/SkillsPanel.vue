@@ -139,10 +139,10 @@ async function onImportFile(event: Event) {
     const result = await skills.importZip(file)
     const names = result.imported.map(skill => skill.name).join('、')
     importMessage.value = result.imported.length
-      ? `已导入并启用 ${result.imported.length} 个技能：${names}`
-      : '未导入任何技能'
+      ? t('skills.importedSummary', { count: result.imported.length, names })
+      : t('skills.importedNone')
     if (result.skipped.length) {
-      importMessage.value += `；跳过 ${result.skipped.length} 项`
+      importMessage.value += t('skills.skippedSuffix', { count: result.skipped.length })
       const detail = result.skipped.slice(0, 3).join('；')
       if (detail) importMessage.value += `（${detail}${result.skipped.length > 3 ? '…' : ''}）`
     }
@@ -167,7 +167,7 @@ async function onImportFile(event: Event) {
       >
         <span class="inline-flex items-center gap-1.5">
           <Upload class="h-3.5 w-3.5 text-accent" aria-hidden="true" />
-          {{ importing ? '导入中…' : '导入 zip' }}
+          {{ importing ? t('skills.importing') : t('skills.importZip') }}
         </span>
       </button>
     </div>
@@ -182,7 +182,7 @@ async function onImportFile(event: Event) {
     <div class="rounded-2xl border border-border panel p-5">
       <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div class="w-full sm:max-w-md">
-          <p class="mb-2 text-xs font-medium uppercase tracking-wide text-muted">应用范围</p>
+          <p class="mb-2 text-xs font-medium uppercase tracking-wide text-muted">{{ t('skills.scope') }}</p>
           <div class="flex items-center gap-1 rounded-xl bg-[hsl(var(--code-bg))] p-0.5">
             <button
               v-for="tab in AGENT_TABS"
@@ -194,11 +194,11 @@ async function onImportFile(event: Event) {
                 : 'text-muted hover:text-foreground'"
               @click="selectedAgentId = tab.id"
             >
-              {{ tab.label }}
+              {{ tab.label() }}
             </button>
           </div>
         </div>
-        <p class="text-sm text-muted tabular-nums">已启用 {{ enabledCount }} / {{ filtered.length }}</p>
+        <p class="text-sm text-muted tabular-nums">{{ t('skills.enabledCount', { enabled: enabledCount, total: filtered.length }) }}</p>
       </div>
 
       <div class="mt-3 flex flex-wrap items-center gap-2">
@@ -212,7 +212,7 @@ async function onImportFile(event: Event) {
             : 'text-muted hover:bg-hover hover:text-foreground'"
           @click="sourceFilter = f.id"
         >
-          {{ f.label }}
+          {{ f.label() }}
           <span class="tabular-nums">{{ sourceCount(f.id) }}</span>
         </button>
       </div>
@@ -222,20 +222,20 @@ async function onImportFile(event: Event) {
         <input
           v-model="q"
           type="text"
-          placeholder="搜索技能名、说明或标签"
+          :placeholder="t('skills.searchPlaceholder')"
           class="flex-1 border-0 bg-transparent text-sm text-foreground outline-none placeholder:text-muted"
         />
       </div>
     </div>
 
-    <div v-if="loading" class="py-12 text-center text-sm text-muted">正在刷新技能列表…</div>
+    <div v-if="loading" class="py-12 text-center text-sm text-muted">{{ t('skills.refreshing') }}</div>
     <div v-else class="grid grid-cols-1 gap-3 xl:grid-cols-2">
       <button
         v-for="skill in filtered"
         :key="skill.id"
         type="button"
         :aria-disabled="isPluginSkill(skill)"
-        :title="isPluginSkill(skill) ? '由插件管理，无法手动切换' : undefined"
+        :title="isPluginSkill(skill) ? t('skills.managedByPluginTitle') : undefined"
         class="rounded-xl border p-4 text-left transition-all"
         :class="[
           isPluginSkill(skill) ? 'cursor-default' : 'cursor-pointer',
@@ -258,7 +258,7 @@ async function onImportFile(event: Event) {
             class="ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px]"
             :class="skillEnabled(skill.id) ? 'bg-accent/15 text-accent' : 'bg-[hsl(var(--code-bg))] text-muted'"
           >
-            {{ skillEnabled(skill.id) ? '已启用' : '未启用' }}
+            {{ skillEnabled(skill.id) ? t('skills.enabled') : t('skills.disabled') }}
           </span>
         </div>
         <p class="mt-1.5 line-clamp-3 text-[12px] leading-5 text-muted">{{ skill.description }}</p>
@@ -277,7 +277,7 @@ async function onImportFile(event: Event) {
         </div>
       </button>
       <div v-if="!filtered.length" class="py-12 text-center text-sm text-muted xl:col-span-2">
-        没有匹配的技能
+        {{ t('skills.noMatches') }}
       </div>
     </div>
   </div>

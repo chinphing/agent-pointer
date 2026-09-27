@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { ToolCall } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
 import {
@@ -21,6 +22,7 @@ const props = defineProps<{
   isActiveSearchMatch?: boolean
 }>()
 
+const { t } = useI18n()
 const chat = useChatStore()
 const expanded = ref(false)
 
@@ -51,7 +53,7 @@ const summaryLine = computed(() => {
   )
   if (groupLine) return groupLine
   // Empty live group (first-round / post-ask_user gap): keep summary blank and
-  // put「思考中」on the live slot so it matches mid-run tool gaps.
+  // put "Thinking…" on the live slot so it matches mid-run tool gaps.
   if (props.tools.length === 0) return ''
   if (!effectiveLiveTool.value && props.thinkingLine?.trim()) return props.thinkingLine.trim()
   return ''
@@ -73,7 +75,7 @@ const headerAriaLabel = computed(() => {
       includeStatus: false
     })
   }
-  return liveLine.value || '思考中'
+  return liveLine.value || t('tools.thinking')
 })
 
 const liveKey = computed(() => {

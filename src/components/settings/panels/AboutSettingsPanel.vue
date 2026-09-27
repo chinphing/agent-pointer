@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Info, ArrowUpRight, Loader2 } from 'lucide-vue-next'
 import { useAppUpdater } from '../../../composables/useAppUpdater'
 import { isTauriRuntime } from '../../../lib/runtime'
 import { APP_VERSION } from '../../../lib/appVersion'
 import { openExternalUrl } from '../../../lib/openExternalUrl'
 import { isCommunityEdition } from '../../../lib/platformUrls'
+
+const { t } = useI18n()
 
 const DOWNLOAD_URL = (() => {
   const fromEnv = String(
@@ -77,7 +80,7 @@ function handleCheckUpdate() {
             <Info class="w-4 h-4 text-accent" />
           </div>
           <div>
-            <p class="text-sm font-medium text-foreground">当前版本</p>
+            <p class="text-sm font-medium text-foreground">{{ t('settings.about.currentVersion') }}</p>
             <p class="text-xs text-muted">v{{ currentVersion }}</p>
           </div>
         </div>
@@ -89,9 +92,9 @@ function handleCheckUpdate() {
           @click="handleCheckUpdate"
         >
           <Loader2 v-if="checking" class="w-3.5 h-3.5 animate-spin" />
-          <span v-if="checking">检查中…</span>
-          <span v-else-if="statusMessage">重新检查</span>
-          <span v-else>检查更新</span>
+          <span v-if="checking">{{ t('settings.about.checking') }}</span>
+          <span v-else-if="statusMessage">{{ t('settings.about.recheck') }}</span>
+          <span v-else>{{ t('settings.about.checkUpdate') }}</span>
         </button>
       </div>
 
@@ -102,10 +105,10 @@ function handleCheckUpdate() {
       >
         <div>
           <p class="text-sm font-medium text-foreground">
-            发现新版本 v{{ updateVersion }}
+            {{ t('settings.about.newVersionFound', { version: updateVersion }) }}
           </p>
           <p class="mt-1 text-xs text-muted leading-relaxed">
-            将下载并安装，完成后自动重新打开应用
+            {{ t('settings.about.willDownloadInstall') }}
           </p>
           <p v-if="updateNotes" class="mt-2 text-xs text-muted leading-relaxed line-clamp-3">
             {{ updateNotes }}
@@ -116,19 +119,19 @@ function handleCheckUpdate() {
             class="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-xs font-medium cursor-pointer hover:opacity-95 transition-opacity"
             @click="applyUpdateNow"
           >
-            立即更新
+            {{ t('settings.about.updateNow') }}
           </button>
           <button
             class="h-8 px-3 rounded-lg bg-hover text-foreground text-xs cursor-pointer hover:bg-hover/80 transition-colors"
             @click="dismissAvailable"
           >
-            稍后
+            {{ t('settings.about.later') }}
           </button>
           <button
             class="h-8 px-3 rounded-lg text-muted text-xs cursor-pointer hover:text-foreground transition-colors"
             @click="skipVersion"
           >
-            跳过此版本
+            {{ t('settings.about.skipVersion') }}
           </button>
         </div>
       </div>
@@ -140,10 +143,10 @@ function handleCheckUpdate() {
       >
         <div>
           <p class="text-sm font-medium text-foreground">
-            新版本 v{{ updateVersion }} 已就绪
+            {{ t('settings.about.readyTitle', { version: updateVersion }) }}
           </p>
           <p class="mt-1 text-xs text-muted leading-relaxed">
-            安装完成后将自动重新打开应用
+            {{ t('settings.about.readyHint') }}
           </p>
           <p v-if="updateNotes" class="mt-2 text-xs text-muted leading-relaxed line-clamp-3">
             {{ updateNotes }}
@@ -154,19 +157,19 @@ function handleCheckUpdate() {
             class="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-xs font-medium cursor-pointer hover:opacity-95 transition-opacity"
             @click="applyUpdateNow"
           >
-            立即更新
+            {{ t('settings.about.updateNow') }}
           </button>
           <button
             class="h-8 px-3 rounded-lg bg-hover text-foreground text-xs cursor-pointer hover:bg-hover/80 transition-colors"
             @click="dismissReady"
           >
-            稍后
+            {{ t('settings.about.later') }}
           </button>
           <button
             class="h-8 px-3 rounded-lg text-muted text-xs cursor-pointer hover:text-foreground transition-colors"
             @click="skipVersion"
           >
-            跳过此版本
+            {{ t('settings.about.skipVersion') }}
           </button>
         </div>
       </div>
@@ -178,8 +181,8 @@ function handleCheckUpdate() {
       >
         <Loader2 class="w-3.5 h-3.5 animate-spin text-accent shrink-0 mt-0.5" />
         <div>
-          <p class="text-xs font-medium text-foreground">正在更新 v{{ updateVersion }}…</p>
-          <p class="mt-0.5 text-xs text-muted">请勿关闭应用，完成后将自动重新打开</p>
+          <p class="text-xs font-medium text-foreground">{{ t('settings.about.updating', { version: updateVersion }) }}</p>
+          <p class="mt-0.5 text-xs text-muted">{{ t('settings.about.updatingHint') }}</p>
         </div>
       </div>
 
@@ -201,7 +204,7 @@ function handleCheckUpdate() {
           class="ml-1 inline-flex items-center gap-0.5 underline underline-offset-2"
           @click="openDownloadPage"
         >
-          前往官网<ArrowUpRight class="w-3 h-3" />
+          {{ t('settings.about.goWebsite') }}<ArrowUpRight class="w-3 h-3" />
         </a>
       </div>
     </div>

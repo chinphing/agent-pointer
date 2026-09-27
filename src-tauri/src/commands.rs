@@ -23,6 +23,16 @@ use tauri::{AppHandle, Emitter, State};
 
 pub const STREAM_EVENT: &str = "chat://stream";
 
+/// Resolve a user-visible message by i18n key using the current UI locale.
+fn ui_text(key: &str) -> String {
+    pointer_core::i18n::t(key, pointer_core::i18n::current_ui_locale()).to_string()
+}
+
+/// Like [`ui_text`] but substitutes `{name}` placeholders.
+fn ui_textf(key: &str, args: &[(&str, &str)]) -> String {
+    pointer_core::i18n::tf(key, pointer_core::i18n::current_ui_locale(), args)
+}
+
 fn platform_list_scope(state: &AppState) -> pointer_core::conversation_store::ListScope {
     let auth = state.active_platform_auth();
     pointer_core::conversation_store::ListScope::from_viewer(
@@ -653,7 +663,11 @@ pub fn preview_computer_annotated_screen(
             caption: "Annotated screenshot".into(),
         })
         .ok_or_else(|| {
-            "暂无桌面截图：请先完成一次截图处理（发送 Computer 消息），或确认会话 ID 正确。".into()
+            pointer_core::i18n::t(
+                "err.no_desktop_screenshot",
+                pointer_core::i18n::current_ui_locale(),
+            )
+            .into()
         })
 }
 
@@ -673,7 +687,11 @@ pub fn preview_chat_media(storage_rel_path: String) -> Result<ChatMediaPreview, 
 pub fn get_chat_media_local_path(storage_rel_path: String) -> Result<String, String> {
     let path = pointer_core::media::media_abs_path(&storage_rel_path).map_err(|e| e.to_string())?;
     if !path.is_file() {
-        return Err(format!("媒体文件不存在: {}", path.display()));
+        return Err(pointer_core::i18n::tf(
+            "err.media_file_missing",
+            pointer_core::i18n::current_ui_locale(),
+            &[("path", &path.display().to_string())],
+        ));
     }
     Ok(path.to_string_lossy().to_string())
 }
@@ -681,9 +699,10 @@ pub fn get_chat_media_local_path(storage_rel_path: String) -> Result<String, Str
 /// Write raw bytes (base64) to an absolute path chosen by the user (e.g. chart PNG export).
 #[tauri::command]
 pub fn save_bytes_to_path(path: String, content_base64: String) -> Result<(), String> {
+    let loc = pointer_core::i18n::current_ui_locale();
     let trimmed = path.trim();
     if trimmed.is_empty() {
-        return Err("保存路径为空".into());
+        return Err(pointer_core::i18n::t("err.save_path_empty", loc).into());
     }
     let path_buf =
         pointer_core::media::access::normalize_user_path(trimmed).map_err(|e| e.to_string())?;
@@ -693,20 +712,24 @@ pub fn save_bytes_to_path(path: String, content_base64: String) -> Result<(), St
         .unwrap_or("")
         .is_empty()
     {
-        return Err("保存路径无效".into());
+        return Err(pointer_core::i18n::t("err.save_path_invalid", loc).into());
     }
     if let Some(parent) = path_buf.parent() {
         if !parent.as_os_str().is_empty() && !parent.exists() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                pointer_core::i18n::tf("err.create_dir_failed", loc, &[("e", &e.to_string())])
+            })?;
         }
     }
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(content_base64.trim())
         .map_err(|e| format!("decode base64: {e}"))?;
     if bytes.is_empty() {
-        return Err("文件内容为空".into());
+        return Err(pointer_core::i18n::t("err.file_content_empty", loc).into());
     }
-    std::fs::write(&path_buf, &bytes).map_err(|e| format!("写入失败: {e}"))?;
+    std::fs::write(&path_buf, &bytes).map_err(|e| {
+        pointer_core::i18n::tf("err.write_failed", loc, &[("e", &e.to_string())])
+    })?;
     log::info!(
         "save_bytes_to_path: wrote {} bytes to {}",
         bytes.len(),
@@ -722,18 +745,28 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
     let display = path_buf.display().to_string();
     #[cfg(target_os = "macos")]
     {
+        let loc = pointer_core::i18n::current_ui_locale();
         std::process::Command::new("open")
             .args(["-R", &display])
             .spawn()
-            .map_err(|e| format!("打开 Finder 失败: {e}"))?;
+            .map_err(|e| {
+                pointer_core::i18n::tf("err.open_finder_failed", loc, &[("e", &e.to_string())])
+            })?;
         return Ok(());
     }
     #[cfg(target_os = "windows")]
     {
+        let loc = pointer_core::i18n::current_ui_locale();
         std::process::Command::new("explorer")
             .args(["/select,", &display])
             .spawn()
-            .map_err(|e| format!("打开文件管理器失败: {e}"))?;
+            .map_err(|e| {
+                pointer_core::i18n::tf(
+                    "err.open_file_manager_failed",
+                    loc,
+                    &[("e", &e.to_string())],
+                )
+            })?;
         return Ok(());
     }
     #[cfg(target_os = "linux")]
@@ -756,11 +789,19 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
                 return Ok(());
             }
         }
-        Err("未找到可用的文件管理器".into())
+        Err(pointer_core::i18n::t(
+            "err.file_manager_unavailable",
+            pointer_core::i18n::current_ui_locale(),
+        )
+        .into())
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
-        Err("当前平台不支持")
+        Err(pointer_core::i18n::t(
+            "err.platform_unsupported",
+            pointer_core::i18n::current_ui_locale(),
+        )
+        .into())
     }
 }
 
@@ -782,7 +823,10 @@ pub struct LocalFileAttachmentPayload {
 
 fn open_path_with_system_default(path: &Path) -> Result<(), String> {
     if !path.is_file() {
-        return Err(format!("文件不存在: {}", path.display()));
+        return Err(ui_textf(
+            "err.file_missing",
+            &[("path", &path.display().to_string())],
+        ));
     }
     let path_str = path.to_string_lossy().to_string();
     #[cfg(target_os = "macos")]
@@ -811,7 +855,7 @@ fn open_path_with_system_default(path: &Path) -> Result<(), String> {
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
-        Err("当前平台不支持".into())
+        Err(ui_text("err.platform_unsupported"))
     }
 }
 

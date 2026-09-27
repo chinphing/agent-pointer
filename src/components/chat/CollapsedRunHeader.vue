@@ -88,7 +88,7 @@ watch(
     const next = snapFromProps()
     const force = props.forceLiveSlot === true
 
-    // Push when the keyed current-task changes (tool ↔ 思考中).
+    // Push when the keyed current-task changes (tool ↔ thinking).
     // Same key (thinking dots) updates the line in place.
     if (key && next.text) {
       if (resting.value.text && restingKey.value !== key) {

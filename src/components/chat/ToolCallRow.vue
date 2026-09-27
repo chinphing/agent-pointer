@@ -167,7 +167,7 @@ const argsParseError = computed(() => {
     parseToolCallArguments(text)
     return ''
   } catch (error) {
-    return error instanceof Error ? error.message : '无效 JSON'
+    return error instanceof Error ? error.message : t('tools.args.invalidJson')
   }
 })
 
@@ -468,7 +468,7 @@ function openSourceUrl(url: string) {
           v-if="terminalElevated"
           class="shrink-0 text-[10px] text-warning inline-flex items-center gap-0.5"
         >
-          <ShieldAlert class="w-2.5 h-2.5" />提权
+          <ShieldAlert class="w-2.5 h-2.5" />{{ t('tools.terminal.elevated') }}
         </span>
         <span
           v-if="showStatusLabel"
@@ -493,23 +493,23 @@ function openSourceUrl(url: string) {
         v-if="canViewTerminalLive"
         type="button"
         class="shrink-0 border-0 bg-transparent px-0.5 py-1 text-[11px] text-accent hover:text-accent/80 cursor-pointer transition-colors"
-        title="查看终端输出"
+        :title="t('tools.terminal.viewOutputTitle')"
         @click="viewTerminalLive"
-      >查看</button>
+      >{{ t('tools.terminal.view') }}</button>
       <button
         v-if="showEndBackgroundJob"
         type="button"
         class="shrink-0 border-0 bg-transparent px-0.5 py-1 text-[11px] text-danger/80 hover:text-danger cursor-pointer transition-all opacity-0 group-hover:opacity-100"
-        title="只结束这一条后台任务"
+        :title="t('backgroundJobs.endJobOnlyTitle')"
         @click.stop="cancelThisBackgroundJob"
-      >结束任务</button>
+      >{{ t('backgroundJobs.endJob') }}</button>
       <button
         v-if="showEndWait"
         type="button"
         class="shrink-0 border-0 bg-transparent px-0.5 py-1 text-[11px] text-danger/80 hover:text-danger cursor-pointer transition-all opacity-0 group-hover:opacity-100"
-        title="结束等待，后台任务继续跑"
+        :title="t('backgroundJobs.endWaitTitle')"
         @click.stop="endWaitOnly"
-      >结束等待</button>
+      >{{ t('backgroundJobs.endWait') }}</button>
     </div>
 
     <AskUserOptions
@@ -525,31 +525,31 @@ function openSourceUrl(url: string) {
         v-if="terminalElevated"
         class="text-[11px] text-warning leading-relaxed"
       >
-        提权命令：允许后还会在系统中弹出管理员确认（UAC / 密码 / polkit）。
+        {{ t('tools.terminal.elevationWarning') }}
       </p>
       <p
         v-if="isVideoGenerate && videoGenerateDuration"
         class="text-[11px] text-warning leading-relaxed"
       >
-        本次视频生成预估花费 {{ videoGenerateDuration }} 元，您确认要生成吗？
+        {{ t('tools.video.confirmCostEstimate', { duration: videoGenerateDuration }) }}
       </p>
       <p
         v-else-if="isVideoGenerate"
         class="text-[11px] text-warning leading-relaxed"
       >
-        本次视频生成按 1 元/秒计费，您确认要生成吗？
+        {{ t('tools.video.confirmCostPerSecond') }}
       </p>
       <div class="flex items-center gap-2">
         <button
           type="button"
           class="h-8 px-3 rounded-lg bg-success/20 hover:bg-success/30 text-success text-xs flex items-center gap-1.5 cursor-pointer transition"
           @click="approve(true)"
-        ><Check class="w-3.5 h-3.5" />允许</button>
+        ><Check class="w-3.5 h-3.5" />{{ t('tools.allow') }}</button>
         <button
           type="button"
           class="h-8 px-3 rounded-lg bg-danger/15 hover:bg-danger/25 text-danger text-xs flex items-center gap-1.5 cursor-pointer transition"
           @click="approve(false)"
-        ><X class="w-3.5 h-3.5" />拒绝</button>
+        ><X class="w-3.5 h-3.5" />{{ t('tools.reject') }}</button>
       </div>
     </div>
 
@@ -557,19 +557,19 @@ function openSourceUrl(url: string) {
       <template v-if="isTerminal">
         <div>
           <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-muted mb-1">
-            <span>执行命令</span>
+            <span>{{ t('tools.terminal.command') }}</span>
             <button
               v-if="effectiveStatus === 'running'"
               type="button"
               class="normal-case tracking-normal h-6 px-2 rounded-md bg-danger/15 hover:bg-danger/25 text-danger text-[11px] cursor-pointer transition"
               @click.stop="abortTerminalOnly"
-            >结束命令</button>
+            >{{ t('tools.terminal.abortAction') }}</button>
           </div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground font-mono max-h-64">{{ terminalCommand || '—' }}</pre>
         </div>
         <div v-if="showResults && (toolCall.terminalOutput || (toolCall.result && !isBackgroundJobHandleResult(toolCall.result)))">
           <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-muted mb-1">
-            <span>控制台输出</span>
+            <span>{{ t('tools.terminal.consoleOutput') }}</span>
             <span v-if="terminalMeta" class="normal-case tracking-normal">{{ terminalMeta }}</span>
           </div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground max-h-64">{{ terminalOutput || '—' }}</pre>
@@ -578,11 +578,11 @@ function openSourceUrl(url: string) {
 
       <template v-else-if="isWebSearch">
         <div>
-          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">搜索问题</div>
+          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">{{ t('tools.webSearch.query') }}</div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground">{{ webSearchQuery || '—' }}</pre>
         </div>
         <div v-if="webSearchSourcesView.length">
-          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">来源</div>
+          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">{{ t('tools.webSearch.sources') }}</div>
           <ul class="text-[12px] space-y-1.5 text-foreground">
             <li v-for="{ source: s, siteLabel } in webSearchSourcesView" :key="s.url + s.index" class="min-w-0">
               <div class="flex items-baseline gap-1 min-w-0 truncate">
@@ -604,7 +604,7 @@ function openSourceUrl(url: string) {
           </ul>
         </div>
         <div v-if="webSearchOutput || effectiveStatus === 'running'">
-          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">回答</div>
+          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">{{ t('tools.webSearch.answer') }}</div>
           <div
             v-if="webSearchAnswerHtml"
             ref="webSearchAnswerRef"
@@ -630,12 +630,12 @@ function openSourceUrl(url: string) {
           <div
             class="text-[10px] uppercase tracking-wider mb-1"
             :class="argsParseError ? 'text-danger' : 'text-muted'"
-          >{{ argsParseError ? '参数解析失败 · 原始参数' : '参数' }}</div>
+          >{{ argsParseError ? t('tools.args.parseFailed') : t('tools.args.label') }}</div>
           <div v-if="argsParseError" class="text-[11px] text-danger mb-1 break-words">{{ argsParseError }}</div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground">{{ prettyArgs || '—' }}</pre>
         </div>
         <div v-if="showResults && toolCall.result && !isBackgroundSubagentCall(toolCall) && !isBackgroundJobHandleResult(toolCall.result)">
-          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">结果</div>
+          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">{{ t('tools.result.label') }}</div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground max-h-48">{{ toolCall.result }}</pre>
         </div>
       </template>

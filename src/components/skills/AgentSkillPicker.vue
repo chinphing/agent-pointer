@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RotateCcw, Search, Sparkles, Wrench, X } from 'lucide-vue-next'
 import { useSkillsStore } from '../../stores/skills'
 import type { AgentDef } from '../../types/chat'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   agent: AgentDef

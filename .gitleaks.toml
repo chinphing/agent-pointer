@@ -4,19 +4,16 @@ title = "pointer-app"
 [extend]
 useDefault = true
 
-[[allowlists]]
-description = "Weixin unit-test AES vectors (not production keys)"
+[allowlist]
+description = "Test fixtures, vendor C headers, and local branding example"
 paths = [
-  '''crates/pointer-channels/src/adapters/weixin/.*''',
+  '''(^|/)crates/pointer-channels/src/adapters/weixin/''',
+  '''(^|/)crates/pointer-core/vendor/sqlite-cjk-fts/sqlite3ext\.h$''',
+  '''(^|/)server/pointer-server\.branding-dev\.toml$''',
 ]
 regexes = [
   '''00112233445566778899aabbccddeeff''',
   '''MDAxMTIyMzM0NDU1NjY3Nzg4OTlhYWJiY2NkZGVlZmY=''',
   '''ABEiM0RVZneImaq7zN3u/w==''',
-]
-
-[[allowlists]]
-description = "sqlite C API names look like keys to generic-api-key"
-paths = [
-  '''crates/pointer-core/vendor/sqlite-cjk-fts/sqlite3ext.h''',
+  '''a409631f3b56ec7e1ad97c8f9f6117f5f4fea00a19551b1cf46cbb91881d00af''',
 ]

@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { t } from '../i18n'
 import { loginRequiredMessage } from './platformAuthMessages'
 
 export type PackageKind = 'hourly_trial' | 'hourly_spot' | 'monthly' | 'yearly'
@@ -179,17 +180,17 @@ export function agentUiPhase(agent: CloudAgent): string {
 export function agentPhaseLabel(phase: string): string {
   switch (phase) {
     case 'running':
-      return '运行中'
+      return t('cloud.phase.running')
     case 'starting':
-      return '启动中'
+      return t('cloud.phase.starting')
     case 'releasing':
-      return '释放中'
+      return t('cloud.phase.releasing')
     case 'released':
-      return '已释放'
+      return t('cloud.phase.released')
     case 'failed':
-      return '启动失败'
+      return t('cloud.phase.failed')
     default:
-      return '异常'
+      return t('cloud.phase.other')
   }
 }
 
@@ -203,16 +204,20 @@ export function canOpenCloudAgent(agent: CloudAgent): boolean {
 
 export function formatApiError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e)
-  if (msg.includes('token_quota_exhausted')) return '账户余额已用尽'
-  if (msg.includes('insufficient_balance')) return '账户余额不足'
-  if (msg.includes('platform_login_required') || msg.includes('请先登录')) {
+  if (msg.includes('token_quota_exhausted')) return t('cloud.errors.quotaExhausted')
+  if (msg.includes('insufficient_balance')) return t('cloud.errors.insufficientBalance')
+  if (
+    msg.includes('platform_login_required') ||
+    msg.includes('请先登录') ||
+    msg.includes('Please sign in')
+  ) {
     return loginRequiredMessage(false, 'cloud')
   }
   if (msg.includes('Invalid token') || msg.includes('invalid_refresh_token')) {
-    return '平台登录已失效，请在「账户」重新登录后再试'
+    return t('cloud.errors.sessionExpired')
   }
   if (msg.includes('Plugin not found') || msg.includes('not allowed')) {
-    return '当前页面无法调用桌面接口，请从主窗口打开云主机或使用浏览器直接访问'
+    return t('cloud.errors.desktopApiUnavailable')
   }
   return msg
 }

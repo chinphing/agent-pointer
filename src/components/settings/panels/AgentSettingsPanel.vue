@@ -6,7 +6,7 @@ import type { AgentDef } from '../../../types/chat'
 import AgentSkillPicker from '../../skills/AgentSkillPicker.vue'
 import { useSettingsStore } from '../../../stores/settings'
 import { useSkillsStore } from '../../../stores/skills'
-import { Bot, RotateCcw, Sparkles, Users } from 'lucide-vue-next'
+import { Bot, RotateCcw, Sparkles } from 'lucide-vue-next'
 import { composerAgentLabel } from '../../../lib/agentUi'
 import {
   THINKING_INTENSITY_OPTIONS,
@@ -29,7 +29,6 @@ const {
   enabledWorkers,
   isModeAgent,
   showDebugMenus,
-  platformReadOnly,
   getAgentModelWithProvider,
   selectAgentModelWithProvider,
   taskBoardTrimChecked,
@@ -323,9 +322,15 @@ function skillLabel(skillId: string): string {
               class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3"
             >
               <h4 class="text-sm font-medium text-foreground">{{ t('settings.agent.subtaskDelegation') }}</h4>
-              <p class="text-[11px] text-muted">
-                {{ t('settings.agent.subtaskDelegationHint', { allowAgents: 'allowAgents' }) }}
-              </p>
+              <i18n-t
+                keypath="settings.agent.subtaskDelegationHint"
+                tag="p"
+                class="text-[11px] text-muted"
+              >
+                <template #allowAgents>
+                  <code class="text-muted">allowAgents</code>
+                </template>
+              </i18n-t>
               <div>
                 <label class="block text-[12px] text-muted mb-1.5">{{ t('settings.agent.maxNestingDepth') }}</label>
                 <p class="text-[11px] text-muted mb-1.5">{{ t('settings.agent.maxNestingDepthHint') }}</p>

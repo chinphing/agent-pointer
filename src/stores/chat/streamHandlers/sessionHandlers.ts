@@ -1,3 +1,4 @@
+import { t } from '../../../i18n'
 import { isImConversation } from '../../../lib/channel-labels'
 import { maybeUpdateConversationTitle } from '../../../lib/conversationTitle'
 import { dedupeImInboundUserMessages } from '../../../lib/imMessageDedupe'
@@ -84,7 +85,7 @@ export function handleWorkspaceUpdated(ctx: StreamHandlerContext, e: WorkspaceUp
     }
   }
   if (e.isEphemeralSandbox) {
-    ctx.showUiToast('已自动创建临时工作目录，可在输入框下方更换为项目目录', 'warning')
+    ctx.showUiToast(t('chat.toast.ephemeralSandboxCreated'), 'warning')
   }
 }
 
@@ -252,7 +253,7 @@ export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
       if (cancelled) {
         // Keep the row so the muted「已停止生成」caption remains visible.
         r.msg.status = 'cancelled'
-        r.msg.errorMessage = '已停止生成'
+        r.msg.errorMessage = t('chat.toast.generationStopped')
         r.msg.contentStreaming = false
       } else {
         r.msg.status = 'error'

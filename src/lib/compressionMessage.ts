@@ -1,4 +1,5 @@
 import type { ChatMessage, ContextCompressionInfo } from '../types/chat'
+import { t } from '../i18n'
 
 export const COMPRESSION_SUMMARY_PREFIX = '[Conversation summary (auto-compression'
 
@@ -28,16 +29,16 @@ export function compressionSummaryBody(content: string): string {
 export function buildCompressionNoticeContent(info: ContextCompressionInfo): string {
   const dropped = info.droppedCount
   if (info.scope === 'sub_agent') {
-    const name = info.subAgentName?.trim() || '子 Agent'
-    return `【压缩】${name} 子任务内已将较早 ${dropped} 条记录摘要为 1 条（主对话不变）。`
+    const name = info.subAgentName?.trim() || t('chat.compression.subAgentDefaultName')
+    return t('chat.compression.subAgentNotice', { name, dropped })
   }
   if (info.reason === 'tool_limit' || info.reason === 'tool_limit_in_run') {
-    return `【压缩】工具轮次触发：已将较早 ${dropped} 条对话摘要为 1 条，并保留最近对话原文。`
+    return t('chat.compression.toolLimitNotice', { dropped })
   }
   if (info.reason === 'in_run' || info.reason === 'overflow_in_run' || info.reason === 'in_run_drop') {
-    return `【压缩】已将当前轮次 ${dropped} 条过程摘要为 1 条，并保留你的消息与最近原文。`
+    return t('chat.compression.inRunNotice', { dropped })
   }
-  return `【压缩】已将较早 ${dropped} 条对话摘要为 1 条，并保留最近对话原文。`
+  return t('chat.compression.budgetNotice', { dropped })
 }
 
 /** In-thread tool-row label while compression LLM is running. */
@@ -48,10 +49,10 @@ export function buildCompressionProgressLabel(info: {
   inSubAgentFrame?: boolean
 }): string {
   if (info.scope === 'sub_agent' && !info.inSubAgentFrame) {
-    const name = info.subAgentName?.trim() || '子 Agent'
-    return `${name} 子任务内正在压缩较早记录`
+    const name = info.subAgentName?.trim() || t('chat.compression.subAgentDefaultName')
+    return t('chat.compression.progressSubAgent', { name })
   }
-  return '正在压缩较早记录'
+  return t('chat.compression.progressMain')
 }
 
 /** Parent turn list only places the lead-thread cut. Sub-agent cuts belong in SubAgentFrame. */

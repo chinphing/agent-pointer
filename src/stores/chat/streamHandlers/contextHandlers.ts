@@ -1,3 +1,4 @@
+import { t } from '../../../i18n'
 import {
   buildCompressionNoticeContent,
 } from '../../../lib/compressionMessage'
@@ -91,7 +92,7 @@ export function handleContextCompressed(ctx: StreamHandlerContext, e: ContextCom
     const step = r.msg.agentTrace.find(a => a.id === agentId)
     if (step) {
       const name = e.compression.subAgentName?.trim() || step.name
-      step.detail = `${name}：上下文已压缩（${e.compression.droppedCount} 条 → 摘要）`
+      step.detail = t('chat.compression.traceDetail', { name, dropped: e.compression.droppedCount })
     }
   }
   ctx.showUiToast(buildCompressionNoticeContent(e.compression), 'success')

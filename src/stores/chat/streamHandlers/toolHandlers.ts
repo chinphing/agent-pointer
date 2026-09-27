@@ -1,3 +1,4 @@
+import { t } from '../../../i18n'
 import {
   clearToolArgsDeltaBufferForTool,
   enqueueToolArgsDelta,
@@ -254,7 +255,9 @@ export function handleTerminalNeedsInput(ctx: StreamHandlerContext, e: TerminalN
   }
   syncTerminalInputOutputContext(ctx, e.messageId, e.toolCallId, e.traceId, e.scopedMessageId)
   ctx.showUiToast(
-    e.inputClass === 'secret' ? '终端命令需要密码，请在弹窗中输入' : '终端命令等待你的输入',
+    e.inputClass === 'secret'
+      ? t('chat.toast.terminalNeedsPassword')
+      : t('chat.toast.terminalWaitingInput'),
     'warning'
   )
 }

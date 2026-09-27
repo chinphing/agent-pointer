@@ -158,6 +158,7 @@ pub(super) fn lookup_zh_cn(key: &str) -> Option<&'static str> {
         // Misc UI strings owned by the Rust host.
         "toast.capture_purged" => "截图过期已清理",
         "ui.cloud_host" => "云主机",
+        "ui.no_text" => "（无文字）",
         "tray.show_pointer" => "显示 Pointer",
         "tray.quit" => "退出",
         "macos.perm.screen_recording" => "屏幕录制",
@@ -166,6 +167,45 @@ pub(super) fn lookup_zh_cn(key: &str) -> Option<&'static str> {
         "macos.perm.drag_accessibility" => "拖到右侧「辅助功能」列表",
         "macos.perm.drag_hint" => "拖入后保持启用，将自动进入下一步",
         "popup.wecom_auth_title" => "企业微信授权",
+
+        // idle_job_push bubble (user-visible chat chrome).
+        "idle.fallback.terminal" => "终端",
+        "idle.fallback.subtask" => "子任务",
+        "idle.join.pair" => "{a}、{b}",
+        "idle.join.many" => "{a}、{b} 等 {n} 个",
+        "idle.bubble.done_empty" => "后台任务已完成。",
+        "idle.bubble.prefix_failed" => "后台任务失败",
+        "idle.bubble.prefix_done" => "后台任务已完成",
+        "idle.bubble.with_titles" => "{prefix}：{titles}",
+        "idle.bubble.prefix_only" => "{prefix}。",
+
+        // Additional host errors that reach the UI.
+        "err.video_sandbox_forbidden" => "视频请通过 OSS 上传，勿直接复制到沙箱",
+        "err.git_not_installed" => "Git 未安装或不可用",
+        "err.git_run_failed" => "无法运行 Git：{error}",
+        "err.git_command_failed" => "Git 命令执行失败",
+        "err.not_regular_file" => "不是常规文件: {path}",
+        "err.file_too_large_full_diff" => "文件过大（>{bytes} bytes），无法展示整文件 Diff",
+        "err.content_too_large" => "内容过大（>{bytes} bytes）：{label}",
+        "err.binary_diff_unsupported" => "二进制文件不支持 Diff：{label}",
+        "err.non_utf8_diff" => "非 UTF-8 文本，无法 Diff：{label}",
+        "err.balance_exhausted" => "账户余额已用尽，请前往 Pointer 官网余额页充值。",
+        "err.network_check_retry" => "网络异常，请检查网络链接是否正常，然后重试。",
+        "err.network_verify_login" => "网络异常，暂时无法验证登录态，请稍后重试",
+        "err.network_refresh_login" => "网络异常，暂时无法刷新登录态，请稍后重试",
+        "err.login_required_short" => "请先登录",
+        "err.automation_llm_credentials" => {
+            "自动化触发需要 LLM 凭证：云实例请先从桌面「打开云主机」或 Web 端完成一次登录；自部署请在设置 → 模型配置中填写 API Key"
+        }
+        "err.api_key_missing_provider" => {
+            "尚未配置 API Key（{provider}），请先登录账户或在设置中配置密钥"
+        }
+        "err.loopback_unavailable" => {
+            "本机回环不可用（127.0.0.1:{port}）：请检查防火墙、安全软件、VPN 或系统代理是否拦截 localhost"
+        }
+        "err.loopback_timeout" => {
+            "本机回环自检超时（127.0.0.1:{port}）：请检查防火墙、安全软件、VPN 或系统代理是否拦截 localhost"
+        }
 
         _ => return None,
     })
@@ -347,6 +387,7 @@ pub(super) fn lookup_en(key: &str) -> Option<&'static str> {
 
         "toast.capture_purged" => "Expired screenshots cleaned up",
         "ui.cloud_host" => "Cloud host",
+        "ui.no_text" => "(no text)",
         "tray.show_pointer" => "Show Pointer",
         "tray.quit" => "Quit",
         "macos.perm.screen_recording" => "Screen Recording",
@@ -355,6 +396,55 @@ pub(super) fn lookup_en(key: &str) -> Option<&'static str> {
         "macos.perm.drag_accessibility" => "Drag to the Accessibility list on the right",
         "macos.perm.drag_hint" => "Keep it enabled after dropping; the next step will start automatically",
         "popup.wecom_auth_title" => "WeCom authorization",
+
+        "idle.fallback.terminal" => "Terminal",
+        "idle.fallback.subtask" => "Subtask",
+        "idle.join.pair" => "{a}, {b}",
+        "idle.join.many" => "{a}, {b}, and {n} more",
+        "idle.bubble.done_empty" => "Background tasks completed.",
+        "idle.bubble.prefix_failed" => "Background tasks failed",
+        "idle.bubble.prefix_done" => "Background tasks completed",
+        "idle.bubble.with_titles" => "{prefix}: {titles}",
+        "idle.bubble.prefix_only" => "{prefix}.",
+
+        "err.video_sandbox_forbidden" => {
+            "Upload videos via OSS; do not copy them directly into the sandbox"
+        }
+        "err.git_not_installed" => "Git is not installed or unavailable",
+        "err.git_run_failed" => "Unable to run Git: {error}",
+        "err.git_command_failed" => "Git command failed",
+        "err.not_regular_file" => "Not a regular file: {path}",
+        "err.file_too_large_full_diff" => {
+            "File too large (>{bytes} bytes) to show a full-file diff"
+        }
+        "err.content_too_large" => "Content too large (>{bytes} bytes): {label}",
+        "err.binary_diff_unsupported" => "Binary files do not support diff: {label}",
+        "err.non_utf8_diff" => "Non-UTF-8 text cannot be diffed: {label}",
+        "err.balance_exhausted" => {
+            "Account balance exhausted; please top up on the Pointer website balance page."
+        }
+        "err.network_check_retry" => {
+            "Network error: please check your connection and try again."
+        }
+        "err.network_verify_login" => {
+            "Network error: temporarily unable to verify login. Please try again later."
+        }
+        "err.network_refresh_login" => {
+            "Network error: temporarily unable to refresh login. Please try again later."
+        }
+        "err.login_required_short" => "Please sign in",
+        "err.automation_llm_credentials" => {
+            "Automation triggers need LLM credentials: on a cloud instance open Cloud Host from the desktop or sign in once via the web UI; for self-hosting, add an API key under Settings → Model configuration"
+        }
+        "err.api_key_missing_provider" => {
+            "API key is not configured yet ({provider}); sign in or add a key in Settings"
+        }
+        "err.loopback_unavailable" => {
+            "Local loopback unavailable (127.0.0.1:{port}): check firewall, security software, VPN, or system proxy blocking localhost"
+        }
+        "err.loopback_timeout" => {
+            "Local loopback probe timed out (127.0.0.1:{port}): check firewall, security software, VPN, or system proxy blocking localhost"
+        }
 
         _ => return None,
     })

@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import type { ChannelAccountConfig, ChannelsConfig } from '../types/channels'
 
 export type ChannelTab = 'weixin' | 'feishu' | 'wecom' | 'dingtalk'
@@ -16,11 +17,13 @@ export interface ChannelStatusView {
   tone: StatusTone
 }
 
-const SETUP_LABELS: Record<SetupState, string> = {
-  no_credentials: '待扫码配置',
-  not_enabled: '凭证已配置，点击连接',
-  webhook_mode: '当前为 Webhook 模式，请改回长连接后连接',
-  ready: '已配置，点击连接'
+function setupLabels(): Record<SetupState, string> {
+  return {
+    no_credentials: t('settings.channels.setup.noCredentials'),
+    not_enabled: t('settings.channels.setup.notEnabled'),
+    webhook_mode: t('settings.channels.setup.webhookMode'),
+    ready: t('settings.channels.setup.ready')
+  }
 }
 
 const PLACEHOLDER_EXACT = new Set(['xxx', 'cli_xxx', 'test_encrypt_key', 'test', 'placeholder'])
@@ -193,9 +196,13 @@ export function resolveSetupState(
 }
 
 function sessionTone(text: string): StatusTone {
+  const lower = text.toLowerCase()
   if (
     text.includes('连接未建立') ||
-    text.includes('连接失败')
+    text.includes('连接失败') ||
+    lower.includes('connection not established') ||
+    lower.includes('connection failed') ||
+    lower.includes('failed to connect')
   ) {
     return 'error'
   }
@@ -203,7 +210,11 @@ function sessionTone(text: string): StatusTone {
     text.includes('成功') ||
     text.includes('凭证已填入') ||
     text.includes('创建成功') ||
-    text.includes('运行中')
+    text.includes('运行中') ||
+    lower.includes('success') ||
+    lower.includes('credentials filled') ||
+    lower.includes('created successfully') ||
+    lower.includes('running')
   ) {
     return 'success'
   }
@@ -213,7 +224,15 @@ function sessionTone(text: string): StatusTone {
     text.includes('超时') ||
     text.includes('拒绝') ||
     text.includes('取消') ||
-    text.includes('拦截')
+    text.includes('拦截') ||
+    lower.includes('failed') ||
+    lower.includes('expired') ||
+    lower.includes('timeout') ||
+    lower.includes('timed out') ||
+    lower.includes('denied') ||
+    lower.includes('cancelled') ||
+    lower.includes('canceled') ||
+    lower.includes('blocked')
   ) {
     return 'error'
   }
@@ -221,7 +240,11 @@ function sessionTone(text: string): StatusTone {
     text.includes('已扫码') ||
     text.includes('等待') ||
     text.includes('正在连接') ||
-    text.includes('正在获取')
+    text.includes('正在获取') ||
+    lower.includes('scanned') ||
+    lower.includes('waiting') ||
+    lower.includes('connecting') ||
+    lower.includes('fetching')
   ) {
     return 'warn'
   }
@@ -235,9 +258,9 @@ function setupTone(state: SetupState): StatusTone {
 }
 
 function resolveReadyLabel(connected?: boolean): string {
-  if (connected === true) return '运行中，可正常收发消息'
-  if (connected === false) return '未连接，请点击「连接」'
-  return SETUP_LABELS.ready
+  if (connected === true) return t('settings.channels.setup.readyConnected')
+  if (connected === false) return t('settings.channels.setup.readyDisconnected')
+  return setupLabels().ready
 }
 
 export function resolveChannelStatus(
@@ -248,7 +271,7 @@ export function resolveChannelStatus(
   connected?: boolean
 ): ChannelStatusView {
   const setup = resolveSetupState(tab, cfg, weixinLoggedIn)
-  let setupLabel = SETUP_LABELS[setup]
+  let setupLabel = setupLabels()[setup]
   if (setup === 'ready') {
     setupLabel = resolveReadyLabel(connected)
   }

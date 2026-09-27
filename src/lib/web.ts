@@ -39,6 +39,7 @@ import type {
 
 import { WEB_API_BASE } from './runtime'
 import { summarizeErrorResponse } from './httpError'
+import { t } from '../i18n'
 
 /** Windows 上连接未监听端口时，fetch 可能长时间挂起；超时后尽快失败以便界面可用。 */
 const REQUEST_TIMEOUT_MS = 12_000
@@ -53,7 +54,10 @@ type WebRequestInit = RequestInit & {
 }
 
 function defaultTimeoutMessage(timeoutMs: number): string {
-  return `请求超时（>${timeoutMs / 1000}s）：${WEB_API_BASE || '同源 /api'} 无响应。请确认已启动 pointer-server（默认 127.0.0.1:8787）；跨源时需设置 VITE_WEB_API_BASE 与 POINTER_SERVER_CORS_ORIGINS。`
+  return t('web.requestTimeout', {
+    seconds: timeoutMs / 1000,
+    base: WEB_API_BASE || t('web.sameOriginApi')
+  })
 }
 
 export interface SendChatPayload {
@@ -155,7 +159,7 @@ export async function sendChat(payload: SendChatPayload): Promise<void> {
     body: JSON.stringify(payload),
     // History may still carry large attachment payloads on the wire.
     timeoutMs: UPLOAD_TIMEOUT_MS,
-    timeoutMessage: `发送超时（>${UPLOAD_TIMEOUT_MS / 1000}s）。若含大附件请稍后重试或压缩图片；确认 pointer-server 正常后再试。`
+    timeoutMessage: t('web.sendTimeout', { seconds: UPLOAD_TIMEOUT_MS / 1000 })
   })
 }
 
@@ -240,7 +244,7 @@ export async function workspaceFileMediaObjectUrl(
     `/api/workspace/file-media?${workspaceQuery(workspaceRoot, relativePath)}`,
     {
       timeoutMs: UPLOAD_TIMEOUT_MS,
-      timeoutMessage: `加载工作区预览超时（>${UPLOAD_TIMEOUT_MS / 1000}s）`
+      timeoutMessage: t('web.workspacePreviewTimeout', { seconds: UPLOAD_TIMEOUT_MS / 1000 })
     }
   )
   return URL.createObjectURL(blob)
@@ -413,7 +417,7 @@ export async function clearApiKey(): Promise<void> {
 export async function testConnection(): Promise<{ ok: boolean; latencyMs: number; message: string }> {
   try {
     const ms = await request<number>('/api/test-connection', { method: 'POST' })
-    return { ok: true, latencyMs: Number(ms), message: '连接成功' }
+    return { ok: true, latencyMs: Number(ms), message: t('web.connectionSuccess') }
   } catch (e: any) {
     return { ok: false, latencyMs: 0, message: String(e?.message || e) }
   }
@@ -850,7 +854,7 @@ export async function createProject(name: string, workspaceRoot: string): Promis
 }
 
 export async function createDirectory(_parentPath: string, _name: string): Promise<string> {
-  throw new Error('当前网页环境不支持创建目录，请先在系统中创建目录后选择')
+  throw new Error(t('web.createDirectoryUnsupported'))
 }
 
 export async function updateProject(

@@ -247,7 +247,11 @@ function formatReportLine(r: ImportReport): string {
   const converted = r.converted.join(sep)
   const skipped = r.skipped.length ? t('settings.plugins.skippedSuffix', { items: r.skipped.join(sep) }) : ''
   const unmapped = r.unmapped.length ? t('settings.plugins.unmappedSuffix', { count: r.unmapped.length }) : ''
-  return `「${r.pluginName}」（${r.pluginId}）：${converted}${skipped}${unmapped}`
+  return t('settings.plugins.reportLine', {
+    name: r.pluginName,
+    id: r.pluginId,
+    details: `${converted}${skipped}${unmapped}`
+  })
 }
 
 /** 批量导入：后端自动按 Pointer → Codex → Claude 顺序逐个导入目录/zip 中的插件候选。 */

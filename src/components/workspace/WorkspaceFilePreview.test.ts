@@ -2,6 +2,7 @@
 
 import { createApp, nextTick } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import i18n from '../../i18n'
 import WorkspaceFilePreview from './WorkspaceFilePreview.vue'
 
 const mountedApps: Array<ReturnType<typeof createApp>> = []
@@ -18,6 +19,8 @@ function mountPreview(props: Record<string, unknown>) {
   document.body.append(panel)
   panel.append(host)
   const app = createApp(WorkspaceFilePreview, props)
+  app.use(i18n)
+  i18n.global.locale.value = 'zh-CN'
   mountedApps.push(app)
   app.mount(host)
   return host

@@ -77,6 +77,17 @@ function resetTestState() {
   chatState.current = null
 }
 
+function mountWorkspacePanel(props: Record<string, unknown>) {
+  const host = document.createElement('div')
+  document.body.append(host)
+  const app = createApp(WorkspacePanel, props)
+  app.use(i18n)
+  i18n.global.locale.value = 'zh-CN'
+  mountedApps.push(app)
+  app.mount(host)
+  return host
+}
+
 afterEach(() => {
   for (const app of mountedApps.splice(0)) app.unmount()
   document.body.innerHTML = ''
@@ -89,13 +100,7 @@ describe('WorkspacePanel refresh behavior', () => {
     apiMocks.getWorkspaceGitStatus.mockResolvedValue({
       changes: [{ path: 'a.ts', status: 'modified', staged: false }]
     })
-    const host = document.createElement('div')
-    document.body.append(host)
-    const app = createApp(WorkspacePanel, { workspaceRoot: '/workspace' })
-    app.use(i18n)
-    i18n.global.locale.value = 'zh-CN'
-    mountedApps.push(app)
-    app.mount(host)
+    const host = mountWorkspacePanel({ workspaceRoot: '/workspace' })
     await settle()
 
     const changesTab = [...host.querySelectorAll<HTMLButtonElement>('.workspace-tab-icon')]
@@ -122,11 +127,7 @@ describe('WorkspacePanel refresh behavior', () => {
   })
 
   it('silently refreshes the Git badge when the window regains focus', async () => {
-    const host = document.createElement('div')
-    document.body.append(host)
-    const app = createApp(WorkspacePanel, { workspaceRoot: '/workspace' })
-    mountedApps.push(app)
-    app.mount(host)
+    const host = mountWorkspacePanel({ workspaceRoot: '/workspace' })
     await settle()
     apiMocks.getWorkspaceGitStatus.mockClear()
 
@@ -144,8 +145,6 @@ describe('WorkspacePanel refresh behavior', () => {
   })
 
   it('refreshes the tree and Git badge after the current turn writes a file', async () => {
-    const host = document.createElement('div')
-    document.body.append(host)
     chatState.current = {
       id: 'conversation-1',
       messages: [
@@ -165,12 +164,10 @@ describe('WorkspacePanel refresh behavior', () => {
       ] as any
     }
     chatState.generating = true
-    const app = createApp(WorkspacePanel, {
+    const host = mountWorkspacePanel({
       workspaceRoot: '/workspace',
       conversationId: 'conversation-1'
     })
-    mountedApps.push(app)
-    app.mount(host)
     await settle()
     apiMocks.listWorkspaceDirectory.mockClear()
     apiMocks.getWorkspaceGitStatus.mockClear()
@@ -186,11 +183,7 @@ describe('WorkspacePanel refresh behavior', () => {
 
 describe('WorkspacePanel terminal tab', () => {
   it('places the Terminal tab before Files and Changes', async () => {
-    const host = document.createElement('div')
-    document.body.append(host)
-    const app = createApp(WorkspacePanel, { workspaceRoot: '/workspace' })
-    mountedApps.push(app)
-    app.mount(host)
+    const host = mountWorkspacePanel({ workspaceRoot: '/workspace' })
     await settle()
 
     const tabs = [...host.querySelectorAll<HTMLButtonElement>('.workspace-tab-icon')]
@@ -213,11 +206,7 @@ describe('WorkspacePanel Markdown references', () => {
       truncated: false,
       binary: false
     }))
-    const host = document.createElement('div')
-    document.body.append(host)
-    const app = createApp(WorkspacePanel, { workspaceRoot: '/workspace' })
-    mountedApps.push(app)
-    app.mount(host)
+    const host = mountWorkspacePanel({ workspaceRoot: '/workspace' })
     await settle()
 
     const readmeRow = [...host.querySelectorAll<HTMLElement>('[role="button"], button')]
@@ -248,11 +237,7 @@ describe('WorkspacePanel Markdown references', () => {
       throw new Error('File not found')
     })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const host = document.createElement('div')
-    document.body.append(host)
-    const app = createApp(WorkspacePanel, { workspaceRoot: '/workspace' })
-    mountedApps.push(app)
-    app.mount(host)
+    const host = mountWorkspacePanel({ workspaceRoot: '/workspace' })
     await settle()
 
     const readmeRow = [...host.querySelectorAll<HTMLElement>('[role="button"], button')]
@@ -274,11 +259,7 @@ describe('WorkspacePanel Markdown references', () => {
   })
 
   it('covers the panel while dragging the resize handle', async () => {
-    const host = document.createElement('div')
-    document.body.append(host)
-    const app = createApp(WorkspacePanel, { workspaceRoot: '/workspace' })
-    mountedApps.push(app)
-    app.mount(host)
+    const host = mountWorkspacePanel({ workspaceRoot: '/workspace' })
     await settle()
 
     const panel = host.querySelector('.workspace-panel')

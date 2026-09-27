@@ -10,10 +10,6 @@ const IM_CHANNELS: &[&str] = &["feishu", "dingtalk", "wecom", "weixin"];
 /// IM 会话内对用户暴露、可切换的智能体（通用助手 / 氛围编程 / 电脑操控）。
 pub const IM_VISIBLE_AGENT_IDS: &[&str] = &["general", "coder", "computer"];
 
-fn default_conversation_title_text() -> String {
-    crate::i18n::t("ui.new_conversation", crate::i18n::current_ui_locale()).to_string()
-}
-
 fn is_default_title_value(title: &str) -> bool {
     let t = title.trim();
     t.is_empty()

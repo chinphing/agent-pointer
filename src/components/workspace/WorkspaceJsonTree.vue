@@ -71,7 +71,7 @@ function toggle(nodeId: string) {
         type="button"
         class="json-toggle"
         :aria-expanded="expanded(node)"
-        :aria-label="expanded(node) ? '折叠' : '展开'"
+        :aria-label="expanded(node) ? $t('workspace.collapse') : $t('workspace.expand')"
         @click="toggle(node.id)"
       >
         <ChevronDown v-if="expanded(node)" />

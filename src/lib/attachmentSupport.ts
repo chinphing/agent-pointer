@@ -1,3 +1,5 @@
+import { t } from '../i18n'
+
 /** No MIME filter — user may attach from any folder and any file type. */
 export const CHAT_ATTACHMENT_ACCEPT = '*/*'
 
@@ -43,7 +45,7 @@ export function composerAttachmentUploadMaxBytes(raw?: number): number {
 
 export function composerAttachmentTooLargeMessage(fileName: string, limitBytes: number): string {
   const limitMb = Math.max(1, Math.floor(limitBytes / (1024 * 1024)))
-  return `「${fileName}」超过 ${limitMb} MB 上限`
+  return t('chat.attachmentTooLarge', { fileName, limitMb })
 }
 
 export function mediaKindFromFile(
@@ -122,15 +124,10 @@ export function isLargeComposerVideo(sizeBytes: number): boolean {
 export function composerVideoCompressConfirmMessage(fileName: string, sizeBytes: number): string {
   const limitMb = COMPOSER_VIDEO_ADVISORY_BYTES / (1024 * 1024)
   const sizeMb = (sizeBytes / (1024 * 1024)).toFixed(1)
-  return (
-    `视频「${fileName}」约 ${sizeMb} MB。\n\n` +
-    `超过 ${limitMb} MB 不能直接上传。Pointer 将启用压缩，把视频压缩到 ${limitMb} MB 以下后再上传；` +
-    '视频的帧率和分辨率可能会降低。\n\n' +
-    '是否继续？'
-  )
+  return t('chat.videoCompressConfirm', { fileName, sizeMb, limitMb })
 }
 
 /** Composer hint while compressing and uploading a large video. */
 export function composerVideoCompressHint(fileName: string): string {
-  return `正在压缩并上传「${fileName}」…`
+  return t('chat.videoCompressing', { fileName })
 }

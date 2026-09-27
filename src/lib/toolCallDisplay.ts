@@ -1,4 +1,5 @@
 import type { ToolCall } from '../types/chat'
+import { t } from '../i18n'
 import { taskBoardPatchSummaryFromArgs, toolCallBaseName } from './messageTooling'
 import { toolCallShowsKindLabel } from './toolCallKindIcon'
 
@@ -104,19 +105,19 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
   if (base === 'ask_user') {
     // Question is rendered once in AskUserOptions; keep the tool header label-only.
     return {
-      label: '询问用户',
+      label: t('tools.askUser'),
       summary: ''
     }
   }
   if (base === 'launch_app') {
     return {
-      label: '启动应用',
+      label: t('tools.launchApp'),
       summary: truncateToolSummary(strField(args, ['app']) || strField(args, ['goal']))
     }
   }
   if (base === 'list_apps') {
     return {
-      label: '列出应用',
+      label: t('tools.listApps'),
       summary: truncateToolSummary(strField(args, ['goal']))
     }
   }
@@ -136,7 +137,7 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
   }
   if (base === 'session_search') {
     return {
-      label: '搜索会话',
+      label: t('tools.sessionSearch'),
       summary: truncateToolSummary(strField(args, ['query']))
     }
   }
@@ -145,12 +146,12 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
     const offset = args.offset
     const offsetLabel =
       typeof offset === 'number' && Number.isFinite(offset)
-        ? `第 ${offset} 条`
+        ? t('tools.messageN', { n: offset })
         : typeof offset === 'string' && offset.trim()
-          ? `第 ${offset.trim()} 条`
+          ? t('tools.messageN', { n: offset.trim() })
           : ''
     return {
-      label: '读取会话',
+      label: t('tools.sessionRead'),
       summary: truncateToolSummary(
         around || offsetLabel || strField(args, ['conversation_id', 'session_id'])
       )
@@ -206,32 +207,32 @@ function inferCronJobAction(args: Record<string, unknown>): string {
 function cronJobActionLabel(action: string): string {
   switch (action) {
     case 'create':
-      return '创建定时任务'
+      return t('tools.cronCreate')
     case 'list':
-      return '列出定时任务'
+      return t('tools.cronList')
     case 'enable':
-      return '启用定时任务'
+      return t('tools.cronEnable')
     case 'disable':
-      return '停用定时任务'
+      return t('tools.cronDisable')
     case 'delete':
-      return '删除定时任务'
+      return t('tools.cronDelete')
     default:
-      return '定时任务'
+      return t('tools.cron')
   }
 }
 
 function jobActionLabel(action: string): string {
   switch (action) {
     case 'list':
-      return '查看后台任务'
+      return t('tools.jobList')
     case 'status':
-      return '后台任务状态'
+      return t('tools.jobStatus')
     case 'await':
-      return '等待后台任务'
+      return t('tools.jobAwait')
     case 'cancel':
-      return '取消后台任务'
+      return t('tools.jobCancel')
     default:
-      return '后台任务'
+      return t('tools.job')
   }
 }
 
@@ -396,8 +397,8 @@ export function isJobAwaitCall(tc: ToolCall): boolean {
 }
 
 export function toolCallProgressLabel(tc: ToolCall): string {
-  if (isBackgroundJobHost(tc) && isLiveBackgroundHostTool(tc)) return '后台执行中'
-  return '执行中'
+  if (isBackgroundJobHost(tc) && isLiveBackgroundHostTool(tc)) return t('tools.backgroundRunning')
+  return t('tools.running')
 }
 
 function isInProgress(status: ToolCall['status']): boolean {
@@ -722,24 +723,25 @@ export function buildToolGroupStats(tools: ToolCall[]): ToolGroupStats {
   return stats
 }
 
-/** Cursor-style one-line summary, e.g. 探索 14 个文件，1 次搜索 */
+/** Cursor-style one-line summary, e.g. explored 14 files, 1 search */
 export function formatToolGroupSummary(stats: ToolGroupStats): string {
+  const join = t('tools.summaryJoin')
   const explore: string[] = []
-  if (stats.readFiles) explore.push(`${stats.readFiles} 个文件`)
+  if (stats.readFiles) explore.push(t('tools.filesCount', { count: stats.readFiles }))
   const searches = stats.fileSearch + stats.webSearch
-  if (searches) explore.push(`${searches} 次搜索`)
-  if (stats.listed) explore.push(`${stats.listed} 次列出`)
+  if (searches) explore.push(t('tools.searchesCount', { count: searches }))
+  if (stats.listed) explore.push(t('tools.listedCount', { count: stats.listed }))
 
   const parts: string[] = []
-  if (explore.length) parts.push(`探索 ${explore.join('，')}`)
-  if (stats.terminal) parts.push(`执行 ${stats.terminal} 条命令`)
-  if (stats.created) parts.push(`创建 ${stats.created} 个文件`)
-  if (stats.edited) parts.push(`编辑 ${stats.edited} 个文件`)
-  if (stats.editing) parts.push(`正在编辑 ${stats.editing} 个`)
-  if (stats.skill) parts.push(`技能 ${stats.skill} 次`)
-  if (stats.mediaUnderstand) parts.push(`理解 ${stats.mediaUnderstand} 次`)
-  if (stats.other) parts.push(`操作 ${stats.other} 次`)
-  return parts.join('，')
+  if (explore.length) parts.push(t('tools.exploreJoined', { parts: explore.join(join) }))
+  if (stats.terminal) parts.push(t('tools.ranCommands', { count: stats.terminal }))
+  if (stats.created) parts.push(t('tools.createdFiles', { count: stats.created }))
+  if (stats.edited) parts.push(t('tools.editedFiles', { count: stats.edited }))
+  if (stats.editing) parts.push(t('tools.editingFiles', { count: stats.editing }))
+  if (stats.skill) parts.push(t('tools.skillTimes', { count: stats.skill }))
+  if (stats.mediaUnderstand) parts.push(t('tools.understandTimes', { count: stats.mediaUnderstand }))
+  if (stats.other) parts.push(t('tools.otherOps', { count: stats.other }))
+  return parts.join(join)
 }
 
 export function toolGroupSummaryIcon(stats: ToolGroupStats): ToolSummaryIcon {
@@ -757,30 +759,55 @@ export function toolRowMuted(tc: ToolCall): boolean {
   return isFileTool(base) && method === 'read' && !isInProgress(tc.status)
 }
 
-const SHORT_LABELS: Record<string, string> = {
-  '读取文件': '读取',
-  '搜索内容': '搜索',
-  '搜索文件': '搜索',
-  '编辑文件': '编辑',
-  '写入文件': '创建',
-  '列出目录': '列出',
-  '终端命令': '终端',
-  '联网搜索': '搜索',
-  '抓取网页': '抓取',
-  '文件操作': '文件',
-  '创建定时任务': '定时',
-  '列出定时任务': '定时',
-  '启用定时任务': '定时',
-  '停用定时任务': '定时',
-  '删除定时任务': '定时',
-  '定时任务': '定时',
+/** Full label key → short label key (resolved via current UI locale). */
+const SHORT_LABEL_KEYS: Array<[string, string]> = [
+  ['tools.fileRead', 'tools.shortRead'],
+  ['tools.fileGrep', 'tools.shortSearch'],
+  ['tools.fileGlob', 'tools.shortSearch'],
+  ['tools.fileEdit', 'tools.shortEdit'],
+  ['tools.fileWrite', 'tools.shortCreate'],
+  ['tools.fileList', 'tools.shortList'],
+  ['tools.terminal', 'tools.shortTerminal'],
+  ['tools.webSearch', 'tools.shortSearch'],
+  ['tools.webFetch', 'tools.shortFetch'],
+  ['tools.fileOp', 'tools.shortFile'],
+  ['tools.cronCreate', 'tools.shortCron'],
+  ['tools.cronList', 'tools.shortCron'],
+  ['tools.cronEnable', 'tools.shortCron'],
+  ['tools.cronDisable', 'tools.shortCron'],
+  ['tools.cronDelete', 'tools.shortCron'],
+  ['tools.cron', 'tools.shortCron'],
+]
+
+/** Legacy Chinese backend labels until Rust catalog (P4) ships. */
+const LEGACY_ZH_SHORT: Record<string, string> = {
+  读取文件: 'tools.shortRead',
+  搜索内容: 'tools.shortSearch',
+  搜索文件: 'tools.shortSearch',
+  编辑文件: 'tools.shortEdit',
+  写入文件: 'tools.shortCreate',
+  列出目录: 'tools.shortList',
+  终端命令: 'tools.shortTerminal',
+  联网搜索: 'tools.shortSearch',
+  抓取网页: 'tools.shortFetch',
+  文件操作: 'tools.shortFile',
+  创建定时任务: 'tools.shortCron',
+  列出定时任务: 'tools.shortCron',
+  启用定时任务: 'tools.shortCron',
+  停用定时任务: 'tools.shortCron',
+  删除定时任务: 'tools.shortCron',
+  定时任务: 'tools.shortCron',
 }
 
 export function toolShortLabel(tc: ToolCall): string {
   const label = tc.displayLabel?.trim() || tc.name
-  if (SHORT_LABELS[label]) return SHORT_LABELS[label]
-  for (const [full, short] of Object.entries(SHORT_LABELS)) {
-    if (label.startsWith(full)) return short
+  for (const [fullKey, shortKey] of SHORT_LABEL_KEYS) {
+    const full = t(fullKey)
+    if (label === full || label.startsWith(full)) return t(shortKey)
+  }
+  if (LEGACY_ZH_SHORT[label]) return t(LEGACY_ZH_SHORT[label])
+  for (const [full, shortKey] of Object.entries(LEGACY_ZH_SHORT)) {
+    if (label.startsWith(full)) return t(shortKey)
   }
   return label
 }
@@ -950,7 +977,7 @@ export function formatCollapsedToolGroupLine(
 ): string {
   if (tools.length === 0) return ''
   const summary = formatToolGroupSummary(buildToolGroupStats(tools))
-  return summary || `工具 ${tools.length} 次`
+  return summary || t('tools.toolsCount', { count: tools.length })
 }
 
 /** Prefer the partitioned live tool; else any in-progress tool (parallel finish order). */

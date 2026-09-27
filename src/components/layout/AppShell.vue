@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick, defineAsyncComponent, provide } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   Plus,
   Search,
@@ -76,6 +77,8 @@ const emit = defineEmits<{
   (e: 'open-settings', section?: string): void
   (e: 'open-automation'): void
 }>()
+
+const { t } = useI18n()
 
 // Chat UI (ChatTopBar / Composer) opens the settings dialog through this.
 const chat = useChatStore()
@@ -255,7 +258,7 @@ const projectMenuId = ref<string | null>(null)
 const projectMenuPosition = ref({ left: 0, top: 0 })
 
 function displayProjectName(project: Project): string {
-  return project.isDefault ? '默认项目' : project.name
+  return project.isDefault ? t('shell.defaultProject') : project.name
 }
 
 function toggleProjectMenu(project: Project, event: MouseEvent) {
@@ -273,7 +276,7 @@ function toggleProjectMenu(project: Project, event: MouseEvent) {
 
 async function pickProjectDirectory() {
   if (!isTauriRuntime()) {
-    projectError.value = '当前环境不支持目录选择，请手动填写目录路径'
+    projectError.value = t('shell.dirPickUnsupported')
     return
   }
   try {
@@ -289,7 +292,7 @@ async function addProject() {
   const name = projectName.value.trim()
   const root = projectRoot.value.trim()
   if (!name || !root) {
-    projectError.value = '请输入项目名称并选择项目目录'
+    projectError.value = t('shell.projectFormIncomplete')
     return
   }
   try {
@@ -547,13 +550,13 @@ const expandedSearchId = ref<string | null>(null)
 function matchRoleLabel(role?: string): string {
   switch ((role || '').trim().toLowerCase()) {
     case 'user':
-      return '用户'
+      return t('shell.roleUser')
     case 'assistant':
-      return '助手'
+      return t('shell.roleAssistant')
     case 'tool':
-      return '工具'
+      return t('shell.roleTool')
     default:
-      return '消息'
+      return t('shell.roleMessage')
   }
 }
 
@@ -666,7 +669,7 @@ function openConversationMenu(event: MouseEvent, c: { id: string; title?: string
   conversationMenu.value = {
     target: {
       id: c.id,
-      title: full?.title?.trim() || c.title?.trim() || '会话',
+      title: full?.title?.trim() || c.title?.trim() || t('shell.conversation'),
       isPinned: !!full?.isPinned,
       workspaceRoot: resolveConversationWorkspaceRoot(c.id)
     },
@@ -682,15 +685,15 @@ function closeConversationMenu() {
 async function copyText(label: string, text: string) {
   const value = text.trim()
   if (!value) {
-    chat.showUiToast(`${label}为空`, 'warning')
+    chat.showUiToast(t('shell.toastEmpty', { label }), 'warning')
     return
   }
   try {
     await navigator.clipboard.writeText(value)
-    chat.showUiToast(`已复制${label}`, 'success')
+    chat.showUiToast(t('shell.toastCopied', { label }), 'success')
   } catch (err) {
     console.error('[sidebar] clipboard write failed', label, err)
-    chat.showUiToast(`复制${label}失败`, 'error')
+    chat.showUiToast(t('shell.toastCopyFailed', { label }), 'error')
   }
 }
 
@@ -712,14 +715,14 @@ async function onConversationMenuCopyId() {
   const target = conversationMenu.value?.target
   closeConversationMenu()
   if (!target) return
-  await copyText('会话 ID', target.id)
+  await copyText(t('shell.conversationId'), target.id)
 }
 
 async function onConversationMenuCopyWorkspace() {
   const target = conversationMenu.value?.target
   closeConversationMenu()
   if (!target) return
-  await copyText('工作目录', target.workspaceRoot)
+  await copyText(t('shell.workspaceDir'), target.workspaceRoot)
 }
 
 async function onConversationMenuRevealWorkspace() {
@@ -728,18 +731,18 @@ async function onConversationMenuRevealWorkspace() {
   if (!target) return
   const root = target.workspaceRoot.trim()
   if (!root) {
-    chat.showUiToast('工作目录为空', 'warning')
+    chat.showUiToast(t('shell.workspaceEmpty'), 'warning')
     return
   }
   if (!isTauriRuntime()) {
-    chat.showUiToast('网页端不支持在 Finder 中显示', 'warning')
+    chat.showUiToast(t('shell.revealUnsupportedWeb'), 'warning')
     return
   }
   try {
     await revealInFinder(root)
   } catch (err) {
     console.error('[sidebar] revealInFinder failed', root, err)
-    chat.showUiToast('打开目录失败', 'error')
+    chat.showUiToast(t('shell.openDirFailed'), 'error')
   }
 }
 
@@ -919,7 +922,7 @@ watch(searchQuery, q => {
           <button
             type="button"
             class="chrome-icon-btn shrink-0"
-            title="收起侧栏"
+            :title="t('shell.collapseSidebar')"
             @click="toggleSidebar"
           >
             <PanelLeftClose class="w-4 h-4" />
@@ -938,7 +941,7 @@ watch(searchQuery, q => {
               @click="newTask()"
             >
               <Plus class="w-4 h-4" />
-              新建任务
+              {{ t('shell.newTask') }}
             </button>
             <button
               v-if="isAppAdmin"
@@ -947,7 +950,7 @@ watch(searchQuery, q => {
               @click="openAutomation"
             >
               <Clock3 class="w-4 h-4" />
-              定时任务
+              {{ t('shell.scheduledTasks') }}
             </button>
             <button
               v-if="isAppAdmin"
@@ -956,7 +959,7 @@ watch(searchQuery, q => {
               @click="emit('open-settings', 'skills')"
             >
               <Sparkles class="w-4 h-4" />
-              技能
+              {{ t('shell.skills') }}
             </button>
             <button
               v-if="isAppAdmin"
@@ -965,7 +968,7 @@ watch(searchQuery, q => {
               @click="emit('open-settings', 'channels')"
             >
               <Link2 class="w-4 h-4" />
-              连接
+              {{ t('shell.connections') }}
             </button>
           </div>
 
@@ -978,10 +981,10 @@ watch(searchQuery, q => {
                 type="button"
                 class="sidebar-section-collapse mr-auto"
                 :aria-expanded="!projectsSectionCollapsed"
-                :title="projectsSectionCollapsed ? '展开项目' : '收起项目'"
+                :title="projectsSectionCollapsed ? t('shell.expandProjects') : t('shell.collapseProjects')"
                 @click="toggleProjectsSection"
               >
-                <h2 class="sidebar-section-title">项目</h2>
+                <h2 class="sidebar-section-title">{{ t('shell.projects') }}</h2>
                 <component
                   :is="projectsSectionCollapsed ? ChevronRight : ChevronDown"
                   class="h-3.5 w-3.5 opacity-0 transition-opacity group-hover/section-header:opacity-100 group-focus-within/section-header:opacity-100"
@@ -1001,16 +1004,16 @@ watch(searchQuery, q => {
                     v-model="projectSearchQuery"
                     type="search"
                     class="sidebar-section-search-input"
-                    placeholder="搜索项目"
-                    aria-label="搜索项目"
+                    :placeholder="t('shell.searchProjects')"
+                    :aria-label="t('shell.searchProjects')"
                     @keydown.esc="closeProjectSearch"
                   >
                   <button
                     v-if="projectSearchExpanded && projectSearchQuery"
                     type="button"
                     class="sidebar-section-search-clear"
-                    title="清除搜索"
-                    aria-label="清除搜索"
+                    :title="t('shell.clearSearch')"
+                    :aria-label="t('shell.clearSearch')"
                     @click="projectSearchQuery = ''"
                   ><X class="w-3 h-3" /></button>
                 </div>
@@ -1018,16 +1021,16 @@ watch(searchQuery, q => {
                   type="button"
                   class="sidebar-section-header-action"
                   :class="projectSearchExpanded && 'is-active'"
-                  :title="projectSearchExpanded ? '关闭项目搜索' : '搜索项目'"
+                  :title="projectSearchExpanded ? t('shell.closeProjectSearch') : t('shell.searchProjects')"
                   :aria-expanded="projectSearchExpanded"
-                  aria-label="搜索项目"
+                  :aria-label="t('shell.searchProjects')"
                   @click="projectSearchExpanded ? closeProjectSearch() : openProjectSearch()"
                 ><Search class="w-3.5 h-3.5" /></button>
                 <button
                   type="button"
                   class="sidebar-section-header-action"
-                  title="新增项目"
-                  aria-label="新增项目"
+                  :title="t('shell.addProject')"
+                  :aria-label="t('shell.addProject')"
                   @click="showProjectCreator = true; projectError = ''"
                 ><Plus class="w-3.5 h-3.5" /></button>
               </div>
@@ -1041,26 +1044,26 @@ watch(searchQuery, q => {
                 <section class="project-create-dialog" role="dialog" aria-modal="true" aria-labelledby="project-create-title">
                   <div class="flex items-center justify-between gap-3">
                     <div>
-                      <h2 id="project-create-title" class="text-sm font-semibold text-foreground">新增项目</h2>
-                      <p class="mt-0.5 text-[11px] text-muted">选择已有目录</p>
+                      <h2 id="project-create-title" class="text-sm font-semibold text-foreground">{{ t('shell.addProject') }}</h2>
+                      <p class="mt-0.5 text-[11px] text-muted">{{ t('shell.chooseExistingDirHint') }}</p>
                     </div>
-                    <button type="button" class="chrome-icon-btn" title="关闭" aria-label="关闭" @click="showProjectCreator = false"><X class="w-4 h-4" /></button>
+                    <button type="button" class="chrome-icon-btn" :title="t('common.close')" :aria-label="t('common.close')" @click="showProjectCreator = false"><X class="w-4 h-4" /></button>
                   </div>
                   <form class="mt-4" @submit.prevent="addProject">
                     <div class="space-y-3">
                       <label class="block text-xs text-muted">
-                        项目名称
-                        <input v-model="projectName" class="project-dialog-input mt-1" placeholder="例如：Pointer App">
+                        {{ t('shell.projectName') }}
+                        <input v-model="projectName" class="project-dialog-input mt-1" :placeholder="t('shell.projectNamePlaceholder')">
                       </label>
                       <div>
-                        <label class="block text-xs text-muted">项目目录</label>
+                        <label class="block text-xs text-muted">{{ t('shell.projectDirectory') }}</label>
                         <div class="mt-1 flex gap-2">
-                          <input v-model="projectRoot" class="project-dialog-input min-w-0 flex-1" placeholder="选择已有目录">
-                          <button type="button" class="project-dialog-secondary shrink-0" title="选择已有目录" @click="pickProjectDirectory"><FolderGit2 class="w-3.5 h-3.5" />选择目录</button>
+                          <input v-model="projectRoot" class="project-dialog-input min-w-0 flex-1" :placeholder="t('shell.chooseExistingDir')">
+                          <button type="button" class="project-dialog-secondary shrink-0" :title="t('shell.chooseExistingDir')" @click="pickProjectDirectory"><FolderGit2 class="w-3.5 h-3.5" />{{ t('shell.pickDirectory') }}</button>
                         </div>
                         <div class="mt-2">
                           <SkillDirectoryPicker
-                            title="技能目录"
+                            :title="t('shell.skillDirectory')"
                             variant="grid"
                             searchable
                             @select="createProjectFromSkill"
@@ -1070,8 +1073,8 @@ watch(searchQuery, q => {
                     </div>
                     <p v-if="projectError" class="mt-3 text-xs text-danger">{{ projectError }}</p>
                     <div class="mt-5 flex justify-end gap-2">
-                      <button type="button" class="project-dialog-secondary" @click="showProjectCreator = false">取消</button>
-                      <button type="submit" class="project-dialog-primary" :disabled="!projectName.trim() || !projectRoot.trim()">创建项目</button>
+                      <button type="button" class="project-dialog-secondary" @click="showProjectCreator = false">{{ t('common.cancel') }}</button>
+                      <button type="submit" class="project-dialog-primary" :disabled="!projectName.trim() || !projectRoot.trim()">{{ t('shell.createProject') }}</button>
                     </div>
                   </form>
                 </section>
@@ -1096,9 +1099,9 @@ watch(searchQuery, q => {
                   <button
                     type="button"
                     class="sidebar-project-expand"
-                    :title="isProjectExpanded(project.id) ? '收起' : '展开'"
+                    :title="isProjectExpanded(project.id) ? t('shell.collapse') : t('shell.expand')"
                     :aria-expanded="isProjectExpanded(project.id)"
-                    :aria-label="isProjectExpanded(project.id) ? '收起项目' : '展开项目'"
+                    :aria-label="isProjectExpanded(project.id) ? t('shell.collapseProject') : t('shell.expandProject')"
                     @click="onProjectChevronClick(project)"
                   >
                     <component
@@ -1119,7 +1122,7 @@ watch(searchQuery, q => {
                 <button
                   type="button"
                   class="project-menu-trigger opacity-0 group-hover/project:opacity-100"
-                  :title="`${displayProjectName(project)} 操作`"
+                  :title="t('shell.projectOps', { name: displayProjectName(project) })"
                   @click.stop="toggleProjectMenu(project, $event)"
                 >
                   <MoreHorizontal class="w-3.5 h-3.5" />
@@ -1130,15 +1133,15 @@ watch(searchQuery, q => {
                     class="project-context-menu"
                     :style="{ left: `${projectMenuPosition.left}px`, top: `${projectMenuPosition.top}px` }"
                   >
-                    <button type="button" @click="newTask(project); projectMenuId = null"><Plus />新建本地任务</button>
-                    <button type="button" @click="toggleProjectPin(project)"><Pin />{{ project.isPinned ? '取消置顶' : '置顶项目' }}</button>
-                    <button type="button" @click="openProjectSettings(project)"><Settings2 />项目设置</button>
+                    <button type="button" @click="newTask(project); projectMenuId = null"><Plus />{{ t('shell.newLocalTask') }}</button>
+                    <button type="button" @click="toggleProjectPin(project)"><Pin />{{ project.isPinned ? t('shell.unpinProject') : t('shell.pinProject') }}</button>
+                    <button type="button" @click="openProjectSettings(project)"><Settings2 />{{ t('shell.projectSettings') }}</button>
                     <button
                       v-if="!project.isDefault"
                       type="button"
                       class="text-danger"
                       @click="requestDeleteProject(project)"
-                    ><Trash2 />删除项目</button>
+                    ><Trash2 />{{ t('shell.deleteProject') }}</button>
                   </div>
                 </Teleport>
                 <div
@@ -1168,8 +1171,8 @@ watch(searchQuery, q => {
                       <span
                         v-else-if="chat.isConversationAwaitingView(conversation.id)"
                         class="sidebar-awaiting-dot"
-                        title="有新完成"
-                        aria-label="有新完成"
+                        :title="t('shell.hasNewComplete')"
+                        :aria-label="t('shell.hasNewComplete')"
                       />
                       <MessageSquare v-else class="w-3.5 h-3.5 shrink-0" />
                       <span
@@ -1182,13 +1185,13 @@ watch(searchQuery, q => {
                       <button
                         type="button"
                         class="project-task-action"
-                        title="取消"
+                        :title="t('common.cancel')"
                         @click.stop="cancelDeleteConversation"
                       ><X /></button>
                       <button
                         type="button"
                         class="project-task-action text-danger"
-                        title="确认删除"
+                        :title="t('shell.confirmDelete')"
                         @click.stop="confirmDeleteConversation(conversation)"
                       ><Check /></button>
                     </template>
@@ -1196,13 +1199,13 @@ watch(searchQuery, q => {
                       <button
                         type="button"
                         class="project-task-action opacity-0 group-hover/task:opacity-100"
-                        title="置顶"
+                        :title="t('shell.pin')"
                         @click.stop="toggleConversationPin(conversation)"
                       ><Pin /></button>
                       <button
                         type="button"
                         class="project-task-action opacity-0 group-hover/task:opacity-100"
-                        title="删除任务"
+                        :title="t('shell.deleteTask')"
                         @click.stop="askDeleteConversation(conversation)"
                       ><Trash2 /></button>
                     </template>
@@ -1210,7 +1213,7 @@ watch(searchQuery, q => {
                   <div
                     v-if="!projectLoading.has(project.id) && projectConversations(project).length === 0"
                     class="px-2 py-1 text-[11px] text-muted"
-                  >无任务</div>
+                  >{{ t('shell.noTasks') }}</div>
                   <button
                     v-if="projectCursors[project.id]"
                     type="button"
@@ -1218,7 +1221,7 @@ watch(searchQuery, q => {
                     :disabled="projectLoading.has(project.id)"
                     @click="loadMoreProjectConversations(project)"
                   >
-                    {{ projectLoading.has(project.id) ? '加载中…' : '加载更多' }}
+                    {{ projectLoading.has(project.id) ? t('shell.loadingEllipsis') : t('shell.loadMore') }}
                   </button>
                 </div>
                 </div>
@@ -1229,7 +1232,7 @@ watch(searchQuery, q => {
                 class="sidebar-project-conversation mt-1 text-accent"
                 :disabled="chat.loadingMoreProjects"
                 @click="loadMoreProjects"
-              >{{ chat.loadingMoreProjects ? '加载中…' : '加载更多项目' }}</button>
+              >{{ chat.loadingMoreProjects ? t('shell.loadingEllipsis') : t('shell.loadMoreProjects') }}</button>
             </div>
           </section>
 
@@ -1242,10 +1245,10 @@ watch(searchQuery, q => {
                 type="button"
                 class="sidebar-section-collapse mr-auto"
                 :aria-expanded="!pinnedSectionCollapsed"
-                :title="pinnedSectionCollapsed ? '展开置顶' : '收起置顶'"
+                :title="pinnedSectionCollapsed ? t('shell.expandPinned') : t('shell.collapsePinned')"
                 @click="togglePinnedSection"
               >
-                <h2 class="sidebar-section-title">置顶</h2>
+                <h2 class="sidebar-section-title">{{ t('shell.pinned') }}</h2>
                 <component
                   :is="pinnedSectionCollapsed ? ChevronRight : ChevronDown"
                   class="h-3.5 w-3.5 opacity-0 transition-opacity group-hover/section-header:opacity-100 group-focus-within/section-header:opacity-100"
@@ -1276,8 +1279,8 @@ watch(searchQuery, q => {
                   <span
                     v-else-if="chat.isConversationAwaitingView(c.id)"
                     class="sidebar-awaiting-dot"
-                    title="有新完成"
-                    aria-label="有新完成"
+                    :title="t('shell.hasNewComplete')"
+                    :aria-label="t('shell.hasNewComplete')"
                   />
                   <MessageSquare
                     v-else
@@ -1299,7 +1302,7 @@ watch(searchQuery, q => {
                       <button
                         type="button"
                         class="p-1 rounded hover:bg-hover cursor-pointer"
-                        title="取消"
+                        :title="t('common.cancel')"
                         @click.stop="cancelDeleteConversation()"
                       >
                         <X class="w-3.5 h-3.5 text-muted" />
@@ -1307,7 +1310,7 @@ watch(searchQuery, q => {
                       <button
                         type="button"
                         class="p-1 rounded hover:bg-danger/15 cursor-pointer"
-                        title="确认删除"
+                        :title="t('shell.confirmDelete')"
                         @click.stop="confirmDeleteConversation(c)"
                       >
                         <Check class="w-3.5 h-3.5 text-danger" />
@@ -1317,7 +1320,7 @@ watch(searchQuery, q => {
                       <button
                         type="button"
                         class="p-1 rounded hover:bg-hover cursor-pointer"
-                        title="取消置顶"
+                        :title="t('shell.unpin')"
                         @click.stop="toggleConversationPin(c)"
                       >
                         <PinOff class="w-3.5 h-3.5 text-muted" />
@@ -1325,7 +1328,7 @@ watch(searchQuery, q => {
                       <button
                         type="button"
                         class="p-1 rounded hover:bg-hover cursor-pointer"
-                        title="删除"
+                        :title="t('common.delete')"
                         @click.stop="askDeleteConversation(c)"
                       >
                       <Trash2 class="w-3.5 h-3.5 text-muted" />
@@ -1347,10 +1350,10 @@ watch(searchQuery, q => {
                 type="button"
                 class="sidebar-section-collapse mr-auto"
                 :aria-expanded="!conversationsSectionCollapsed"
-                :title="conversationsSectionCollapsed ? '展开最近' : '收起最近'"
+                :title="conversationsSectionCollapsed ? t('shell.expandRecent') : t('shell.collapseRecent')"
                 @click="toggleConversationsSection"
               >
-                <h2 class="sidebar-section-title">最近</h2>
+                <h2 class="sidebar-section-title">{{ t('shell.recent') }}</h2>
                 <component
                   :is="conversationsSectionCollapsed ? ChevronRight : ChevronDown"
                   class="h-3.5 w-3.5 opacity-0 transition-opacity group-hover/section-header:opacity-100 group-focus-within/section-header:opacity-100"
@@ -1370,16 +1373,16 @@ watch(searchQuery, q => {
                     v-model="searchQuery"
                     type="search"
                     class="sidebar-section-search-input"
-                    placeholder="搜索会话"
-                    aria-label="搜索会话"
+                    :placeholder="t('shell.searchConversations')"
+                    :aria-label="t('shell.searchConversations')"
                     @keydown.esc="closeConversationSearch"
                   >
                   <button
                     v-if="conversationSearchExpanded && searchQuery"
                     type="button"
                     class="sidebar-section-search-clear"
-                    title="清除搜索"
-                    aria-label="清除搜索"
+                    :title="t('shell.clearSearch')"
+                    :aria-label="t('shell.clearSearch')"
                     @click="searchQuery = ''"
                   ><X class="w-3 h-3" /></button>
                 </div>
@@ -1387,16 +1390,16 @@ watch(searchQuery, q => {
                   type="button"
                   class="sidebar-section-header-action"
                   :class="conversationSearchExpanded && 'is-active'"
-                  :title="conversationSearchExpanded ? '关闭会话搜索' : '搜索会话'"
+                  :title="conversationSearchExpanded ? t('shell.closeConversationSearch') : t('shell.searchConversations')"
                   :aria-expanded="conversationSearchExpanded"
-                  aria-label="搜索会话"
+                  :aria-label="t('shell.searchConversations')"
                   @click="conversationSearchExpanded ? closeConversationSearch() : openConversationSearch()"
                 ><Search class="w-3.5 h-3.5" /></button>
                 <button
                   type="button"
                   class="sidebar-section-header-action"
-                  title="新建任务"
-                  aria-label="新建任务"
+                  :title="t('shell.newTask')"
+                  :aria-label="t('shell.newTask')"
                   @click="newTask()"
                 ><Plus class="w-3.5 h-3.5" /></button>
               </div>
@@ -1428,8 +1431,8 @@ watch(searchQuery, q => {
               <span
                 v-else-if="chat.isConversationAwaitingView(c.id)"
                 class="sidebar-awaiting-dot"
-                title="有新完成"
-                aria-label="有新完成"
+                :title="t('shell.hasNewComplete')"
+                :aria-label="t('shell.hasNewComplete')"
               />
               <MessageSquare
                 v-else
@@ -1447,11 +1450,11 @@ watch(searchQuery, q => {
                     v-if="(c.matchCount ?? 0) > 1"
                     type="button"
                     class="sidebar-search-match-count"
-                    :title="`${c.matchCount} 处`"
+                    :title="t('shell.matchCount', { count: c.matchCount })"
                     :aria-expanded="expandedSearchId === c.id"
                     @click.stop="toggleSearchMatches(c.id)"
                   >
-                    <span>{{ c.matchCount }}</span> 处
+                    <span>{{ t('shell.matchCount', { count: c.matchCount }) }}</span>
                   </button>
                 </div>
                 <div
@@ -1471,14 +1474,14 @@ watch(searchQuery, q => {
                   <button
                     class="p-1 rounded hover:bg-hover cursor-pointer"
                     @click.stop="cancelDeleteConversation()"
-                    title="取消"
+                    :title="t('common.cancel')"
                   >
                     <X class="w-3.5 h-3.5 text-muted" />
                   </button>
                   <button
                     class="p-1 rounded hover:bg-danger/15 cursor-pointer"
                     @click.stop="confirmDeleteConversation(c)"
-                    title="确认删除"
+                    :title="t('shell.confirmDelete')"
                   >
                     <Check class="w-3.5 h-3.5 text-danger" />
                   </button>
@@ -1487,14 +1490,14 @@ watch(searchQuery, q => {
                   <button
                     class="p-1 rounded hover:bg-hover cursor-pointer"
                     @click.stop="toggleConversationPin(c)"
-                    title="置顶"
+                    :title="t('shell.pin')"
                   >
                     <Pin class="w-3.5 h-3.5 text-muted" />
                   </button>
                   <button
                     class="p-1 rounded hover:bg-hover cursor-pointer"
                     @click.stop="askDeleteConversation(c)"
-                    title="删除"
+                    :title="t('common.delete')"
                   >
                     <Trash2 class="w-3.5 h-3.5 text-muted" />
                   </button>
@@ -1532,16 +1535,16 @@ watch(searchQuery, q => {
               v-if="searchLoading"
               class="px-3 py-2 text-center text-xs text-muted"
             >
-              搜索中…
+              {{ t('shell.searching') }}
             </div>
             <div
               v-else-if="chat.loadingMoreConversations"
               class="px-3 py-2 text-center text-xs text-muted"
             >
-              加载中…
+              {{ t('shell.loadingEllipsis') }}
             </div>
             <div v-if="!searchLoading && !sidebarRows.length" class="px-3 py-8 text-center text-xs text-muted">
-              {{ searchQuery.trim() ? '没有找到匹配的会话' : '没有会话' }}
+              {{ searchQuery.trim() ? t('shell.noMatchingConversations') : t('shell.noConversations') }}
             </div>
             </div>
             </div>
@@ -1570,8 +1573,8 @@ watch(searchQuery, q => {
               v-if="isAppAdmin && !workspacePanelOpen"
               type="button"
               class="chrome-icon-btn"
-              title="打开工作区"
-              aria-label="打开工作区"
+              :title="t('shell.openWorkspace')"
+              :aria-label="t('shell.openWorkspace')"
               @click="setWorkspacePanelOpen(true)"
             >
               <PanelRightOpen class="w-4 h-4" />
@@ -1598,7 +1601,7 @@ watch(searchQuery, q => {
         :workspace-root="chat.current?.workspaceRoot ?? ''"
         :conversation-id="chat.current?.id ?? ''"
         @initialize-git="chat.sendUserMessage(GIT_INITIALIZATION_TASK)"
-        @install-git="chat.sendUserMessage('帮我安装 Git')"
+        @install-git="chat.sendUserMessage(t('chat.installGitPrompt'))"
         @close="setWorkspacePanelOpen(false)"
       />
     </div>
@@ -1622,14 +1625,14 @@ watch(searchQuery, q => {
           >
             <PinOff v-if="conversationMenu.target.isPinned" />
             <Pin v-else />
-            {{ conversationMenu.target.isPinned ? '取消置顶' : '置顶' }}
+            {{ conversationMenu.target.isPinned ? t('shell.unpin') : t('shell.pin') }}
           </button>
           <button type="button" role="menuitem" @click="onConversationMenuRename">
-            <Pencil />重命名
+            <Pencil />{{ t('shell.rename') }}
           </button>
           <div class="conversation-context-separator" />
           <button type="button" role="menuitem" @click="onConversationMenuCopyId">
-            <Copy />复制会话 ID
+            <Copy />{{ t('shell.copyConversationId') }}
           </button>
           <button
             type="button"
@@ -1637,7 +1640,7 @@ watch(searchQuery, q => {
             :disabled="!conversationMenu.target.workspaceRoot"
             @click="onConversationMenuCopyWorkspace"
           >
-            <Copy />复制工作目录
+            <Copy />{{ t('shell.copyWorkspace') }}
           </button>
           <button
             v-if="isTauriRuntime()"
@@ -1646,7 +1649,7 @@ watch(searchQuery, q => {
             :disabled="!conversationMenu.target.workspaceRoot"
             @click="onConversationMenuRevealWorkspace"
           >
-            <FolderOpen />在 Finder 中显示
+            <FolderOpen />{{ t('shell.revealInFinder') }}
           </button>
         </div>
       </div>
@@ -1663,13 +1666,13 @@ watch(searchQuery, q => {
         aria-labelledby="rename-conversation-title"
       >
         <div class="mb-3 flex items-center justify-between">
-          <h2 id="rename-conversation-title" class="text-sm font-semibold text-foreground">重命名会话</h2>
-          <button type="button" class="chrome-icon-btn" title="关闭" aria-label="关闭" @click="cancelRename">
+          <h2 id="rename-conversation-title" class="text-sm font-semibold text-foreground">{{ t('shell.renameConversation') }}</h2>
+          <button type="button" class="chrome-icon-btn" :title="t('common.close')" :aria-label="t('common.close')" @click="cancelRename">
             <X class="w-4 h-4" />
           </button>
         </div>
         <label class="block text-xs text-muted">
-          会话名称
+          {{ t('shell.conversationName') }}
           <input
             ref="renameInputRef"
             v-model="renameTitle"
@@ -1686,13 +1689,13 @@ watch(searchQuery, q => {
             type="button"
             class="rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-hover"
             @click="cancelRename"
-          >取消</button>
+          >{{ t('common.cancel') }}</button>
           <button
             type="button"
             class="rounded-md bg-accent px-3 py-1.5 text-sm text-accent-foreground disabled:opacity-50"
             :disabled="!renameTitle.trim()"
             @click="saveRename"
-          >保存</button>
+          >{{ t('common.save') }}</button>
         </div>
       </section>
     </div>
@@ -1703,27 +1706,27 @@ watch(searchQuery, q => {
     >
       <section class="w-full max-w-md rounded-xl border border-border bg-card p-4 shadow-xl">
         <div class="mb-3 flex items-center justify-between">
-          <h2 class="text-sm font-semibold text-foreground">项目设置</h2>
+          <h2 class="text-sm font-semibold text-foreground">{{ t('shell.projectSettings') }}</h2>
           <button class="chrome-icon-btn" @click="projectEditing = null"><X class="w-4 h-4" /></button>
         </div>
         <div class="space-y-3">
           <label class="block text-xs text-muted">
-            项目名称
+            {{ t('shell.projectName') }}
             <input v-model="projectEditing.name" class="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-foreground">
           </label>
           <label class="block text-xs text-muted">
-            项目目录
+            {{ t('shell.projectDirectory') }}
             <input v-model="projectEditing.workspaceRoot" class="mt-1 w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-foreground">
           </label>
         </div>
         <p v-if="projectError" class="mt-2 text-xs text-danger">{{ projectError }}</p>
         <div class="mt-5 flex justify-end gap-2">
-          <button class="rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-hover" @click="projectEditing = null">取消</button>
+          <button class="rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-hover" @click="projectEditing = null">{{ t('common.cancel') }}</button>
           <button
             class="rounded-md bg-accent px-3 py-1.5 text-sm text-accent-foreground"
             :disabled="!projectEditing.name.trim() || !projectEditing.workspaceRoot.trim()"
             @click="persistProject(projectEditing); projectEditing = null"
-          >保存</button>
+          >{{ t('common.save') }}</button>
         </div>
       </section>
     </div>
@@ -1733,15 +1736,14 @@ watch(searchQuery, q => {
       @click.self="projectPendingDeletion = null"
     >
       <section class="w-full max-w-sm rounded-xl border border-border bg-card p-5">
-        <h2 class="text-base font-semibold text-foreground">删除项目？</h2>
+        <h2 class="text-base font-semibold text-foreground">{{ t('shell.deleteProjectConfirmTitle') }}</h2>
         <p class="mt-2 text-sm leading-6 text-muted">
-          删除“{{ displayProjectName(projectPendingDeletion) }}”会删除项目下所有会话记录，
-          不会删除本地文件。确认删除项目吗？
+          {{ t('shell.deleteProjectConfirmBody', { name: displayProjectName(projectPendingDeletion) }) }}
         </p>
         <div class="mt-3 rounded-lg border border-border bg-hover/50 px-3 py-2">
-          <div class="text-[11px] font-medium text-muted">项目目录</div>
+          <div class="text-[11px] font-medium text-muted">{{ t('shell.projectDirectory') }}</div>
           <div class="mt-0.5 break-all font-mono text-xs text-foreground">
-            {{ projectPendingDeletion.workspaceRoot || '未设置目录' }}
+            {{ projectPendingDeletion.workspaceRoot || t('shell.workspaceNotSet') }}
           </div>
         </div>
         <div class="mt-5 flex justify-end gap-2">
@@ -1749,12 +1751,12 @@ watch(searchQuery, q => {
             type="button"
             class="rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-hover"
             @click="projectPendingDeletion = null"
-          >取消</button>
+          >{{ t('common.cancel') }}</button>
           <button
             type="button"
             class="rounded-md bg-danger px-3 py-1.5 text-sm text-white hover:opacity-90"
             @click="confirmProjectDeletion"
-          >删除项目</button>
+          >{{ t('shell.deleteProject') }}</button>
         </div>
       </section>
     </div>

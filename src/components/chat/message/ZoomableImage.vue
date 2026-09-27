@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { trackFullscreenExit } from '../../../lib/fullscreenTrack'
 
@@ -156,7 +160,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
         v-if="scale !== 1"
         class="fixed top-4 right-4 px-3 py-1.5 rounded-lg bg-white/10 text-white/60 text-xs pointer-events-none"
       >
-        滚轮缩放 · 拖拽移动 · 双击恢复 · Esc 关闭
+        {{ t('chat.esc_81bae7') }}
       </div>
     </div>
   </Teleport>

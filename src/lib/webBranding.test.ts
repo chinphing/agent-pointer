@@ -1,21 +1,26 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./runtime', () => ({
   isTauriRuntime: vi.fn(() => false)
 }))
+import { i18n } from '../i18n'
 import {
   DEFAULT_BRAND_ICON,
   DEFAULT_BRAND_NAME,
-  DEFAULT_TURN_ELAPSED_PREFIX,
   resolveBrandIcon,
   resolveBrandName,
+  resolveComposerPlaceholder,
   resolveDesktopSnapshotEnabled,
   resolveTurnElapsedPrefix,
   resolveWelcomeTip
 } from './webBranding'
 import { formatTurnElapsed } from './turnElapsed'
 import { isTauriRuntime } from './runtime'
+
+beforeAll(() => {
+  i18n.global.locale.value = 'zh-CN'
+})
 
 function setMeta(name: string, content: string) {
   let el = document.querySelector(`meta[name="${name}"]`)
@@ -39,8 +44,10 @@ afterEach(() => {
   clearMeta('pointer-brand-name')
   clearMeta('pointer-brand-icon')
   clearMeta('pointer-desktop-snapshot')
+  clearMeta('pointer-composer-placeholder')
   vi.mocked(isTauriRuntime).mockReturnValue(false)
   vi.unstubAllEnvs()
+  i18n.global.locale.value = 'zh-CN'
 })
 
 describe('web branding tip / elapsed', () => {
@@ -57,9 +64,9 @@ describe('web branding tip / elapsed', () => {
     })
   })
 
-  it('defaults turn elapsed prefix to 工作', () => {
-    expect(resolveTurnElapsedPrefix('active')).toBe(DEFAULT_TURN_ELAPSED_PREFIX)
-    expect(resolveTurnElapsedPrefix('done')).toBe(DEFAULT_TURN_ELAPSED_PREFIX)
+  it('defaults turn elapsed prefix from locale catalog', () => {
+    expect(resolveTurnElapsedPrefix('active')).toBe('工作')
+    expect(resolveTurnElapsedPrefix('done')).toBe('工作')
   })
 
   it('reads active / done prefixes from meta', () => {
@@ -67,6 +74,18 @@ describe('web branding tip / elapsed', () => {
     setMeta('pointer-turn-elapsed-done', '报销单已填写')
     expect(resolveTurnElapsedPrefix('active')).toBe('报销单填写中')
     expect(resolveTurnElapsedPrefix('done')).toBe('报销单已填写')
+  })
+
+  it('ignores stock Chinese composer meta when locale is en', () => {
+    setMeta('pointer-composer-placeholder', '告诉我你想做什么')
+    i18n.global.locale.value = 'en'
+    expect(resolveComposerPlaceholder()).toBe("Tell me what you'd like to do")
+  })
+
+  it('keeps custom white-label composer placeholder', () => {
+    setMeta('pointer-composer-placeholder', 'Upload an invoice…')
+    i18n.global.locale.value = 'en'
+    expect(resolveComposerPlaceholder()).toBe('Upload an invoice…')
   })
 })
 
@@ -82,6 +101,12 @@ describe('formatTurnElapsed branding', () => {
     setMeta('pointer-turn-elapsed-done', '报销单已填写')
     expect(formatTurnElapsed(125_999, 'active')).toBe('报销单填写中 2 m 05 s')
     expect(formatTurnElapsed(null, 'done')).toBe('报销单已填写耗时未知')
+  })
+
+  it('switches work prefix with English locale', () => {
+    i18n.global.locale.value = 'en'
+    expect(formatTurnElapsed(125_999)).toBe('Work 2 m 05 s')
+    expect(formatTurnElapsed(null)).toBe('Work · time unknown')
   })
 })
 

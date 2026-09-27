@@ -71,14 +71,15 @@ pub(super) async fn run_single_agent_loop(
             super::agent_round_lifecycle::LoopGuardOutcome::Continue => {}
             super::agent_round_lifecycle::LoopGuardOutcome::Cancelled => {
                 ctx.tool_budget.sync_out(ctx.consumed_single);
-                return Err(anyhow!("已停止生成"));
+                return Err(anyhow!(crate::i18n::generation_stopped_msg()));
             }
             super::agent_round_lifecycle::LoopGuardOutcome::BudgetExhausted => {
                 ctx.tool_budget.sync_out(ctx.consumed_single);
-                return Err(anyhow!(
-                    "本会话单智能体工具调用轮次已达上限（{}）。请新开对话。",
-                    max_cap
-                ));
+                return Err(anyhow!(crate::i18n::tf(
+                    crate::i18n::current_ui_locale(),
+                    "errors.leadToolBudget",
+                    &[("max", &max_cap.to_string())],
+                )));
             }
         }
 
@@ -98,7 +99,7 @@ pub(super) async fn run_single_agent_loop(
         .await;
         if cancel.is_cancelled() {
             ctx.tool_budget.sync_out(ctx.consumed_single);
-            return Err(anyhow!("已停止生成"));
+            return Err(anyhow!(crate::i18n::generation_stopped_msg()));
         }
 
         let assistant_id = {

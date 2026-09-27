@@ -91,7 +91,7 @@ pub async fn execute_generation_web_search(
         .json(&body);
 
     let resp = tokio::select! {
-        _ = cancel.cancelled() => return Err(anyhow!("已停止生成")),
+        _ = cancel.cancelled() => return Err(anyhow!(crate::i18n::generation_stopped_msg())),
         r = send.send() => r.context("web search HTTP request failed")?,
     };
 

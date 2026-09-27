@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, inject, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { Component } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Check, ChevronDown, Gauge, Paperclip, Rocket, Send, Settings2, Square, Zap } from 'lucide-vue-next'
@@ -53,7 +54,11 @@ import {
   releaseComposerAttachment
 } from '../../lib/attachmentPayloadStore'
 import { maybeCompressImageFile } from '../../lib/imageCompress'
-import { isUploadAbortedError, UPLOAD_ABORTED_MESSAGE } from '../../lib/multipartUpload'
+import {
+  isUploadAbortedError,
+  UPLOAD_ABORTED_MESSAGE,
+  uploadAbortedMessage
+} from '../../lib/multipartUpload'
 import { withRetries } from '../../lib/retry'
 import { isMediaOssConfigured, uploadComposerVideoToOss, formatVideoOssInvokeError, getMediaOssUploadStatus } from '../../lib/videoOssUpload'
 import OutboundQueuePanel from './OutboundQueuePanel.vue'
@@ -80,6 +85,7 @@ const props = withDefaults(
   { placement: 'footer' }
 )
 
+const { t } = useI18n()
 const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
 const settings = useSettingsStore()
@@ -95,9 +101,9 @@ const composerPlaceholder = computed(() => {
     return platformAuth.loginHint()
   }
   if (tokenQuotaBlocked.value) {
-    return '账户余额已用尽'
+    return t('chat.balanceExhausted')
   }
-  return settings.settings.hasKey ? resolveComposerPlaceholder() : '请先在设置中配置 API Key'
+  return settings.settings.hasKey ? resolveComposerPlaceholder() : t('chat.configureApiKey')
 })
 
 const composing = ref(false)
@@ -256,7 +262,7 @@ const PERFORMANCE_MODE_ICONS: Record<PerformanceMode, Component> = {
 const performanceModeIcon = computed(() => PERFORMANCE_MODE_ICONS[performanceMode.value])
 
 const performanceModeLabel = computed(
-  () => PERFORMANCE_MODE_OPTIONS.find(o => o.value === performanceMode.value)?.label ?? '标准'
+  () => t(`chat.mode${performanceMode.value === 'fast' ? 'Fast' : performanceMode.value === 'expert' ? 'Expert' : 'Standard'}`)
 )
 
 function selectMode(mode: PerformanceMode) {
@@ -409,14 +415,14 @@ function abortAttachmentUpload(attachmentId: string) {
 function ensureComposerConversationId(): string {
   if (!chat.current) chat.newConversation()
   const id = chat.current?.id?.trim()
-  if (!id) throw new Error('无法创建会话，附件上传中止')
+  if (!id) throw new Error(t('chat.cannotCreateConversation'))
   return id
 }
 
 function formatAttachmentPersistError(err: unknown): string {
-  if (isUploadAbortedError(err)) return UPLOAD_ABORTED_MESSAGE
+  if (isUploadAbortedError(err)) return uploadAbortedMessage()
   const mapped = platformAuth.formatLoginGateError(err, 'attachment')
-  return mapped || '上传失败'
+  return mapped || t('chat.uploadFailed')
 }
 
 /** Persist non-video attachment (multipart on web; path copy or base64 on desktop). */
@@ -458,7 +464,7 @@ async function persistComposerAttachment(
     }
     updateComposerAttachment(attachmentId, { uploadState: 'uploading', uploadProgress: 0 })
     if (!isTauriRuntime()) {
-      if (!uploadFile) throw new Error('缺少上传文件')
+      if (!uploadFile) throw new Error(t('chat.missingUploadFile'))
       const fileForUpload = uploadFile
       const storageRelPath = await withRetries(
         async () =>
@@ -485,7 +491,7 @@ async function persistComposerAttachment(
             updateComposerAttachment(attachmentId, {
               uploadState: 'uploading',
               uploadProgress: 0,
-              uploadError: `重试中 ${nextAttempt}/3…`
+              uploadError: t('chat.retryingUpload', { attempt: nextAttempt })
             })
           }
         }
@@ -527,7 +533,7 @@ async function persistComposerAttachment(
             updateComposerAttachment(attachmentId, {
               uploadState: 'uploading',
               uploadProgress: 0,
-              uploadError: `重试中 ${nextAttempt}/3…`
+              uploadError: t('chat.retryingUpload', { attempt: nextAttempt })
             })
           }
         }
@@ -543,7 +549,7 @@ async function persistComposerAttachment(
       return
     }
     if (!contentBase64?.trim()) {
-      if (!uploadFile) throw new Error('缺少附件内容')
+      if (!uploadFile) throw new Error(t('chat.missingAttachmentContent'))
       const dataUrl = await readFileAsDataUrl(uploadFile)
       contentBase64 = dataUrlToBase64(dataUrl)
     }
@@ -574,7 +580,7 @@ async function persistComposerAttachment(
           updateComposerAttachment(attachmentId, {
             uploadState: 'uploading',
             uploadProgress: 0,
-            uploadError: `重试中 ${nextAttempt}/3…`
+            uploadError: t('chat.retryingUpload', { attempt: nextAttempt })
           })
         }
       }
@@ -622,13 +628,13 @@ async function addNonVideoFileOptimistic(file: File) {
 async function addAttachmentFile(file: File) {
   attachmentHint.value = null
   if (!isSupportedChatAttachmentFile(file)) {
-    attachmentHint.value = `无法添加附件：${file.name}`
+    attachmentHint.value = t('chat.cannotAddAttachment', { name: file.name })
     console.warn('unsupported attachment', file.name, file.type)
     return
   }
   if (isVideoAttachmentFile(file)) {
     if (isTauriRuntime()) {
-      attachmentHint.value = '请使用附件按钮（回形针）选择视频文件'
+      attachmentHint.value = t('chat.videoViaPaperclip')
       return
     }
     await addVideoAttachment(file)
@@ -654,7 +660,7 @@ async function addAttachmentFromLocalPath(path: string) {
   const mime = mimeTypeFromFileName(name)
   const fileLike = { name, type: mime, size: 0 }
   if (!isSupportedChatAttachmentFile(fileLike)) {
-    attachmentHint.value = `无法添加附件：${name}`
+    attachmentHint.value = t('chat.cannotAddAttachment', { name })
     return
   }
   if (isVideoAttachmentFile(fileLike)) {
@@ -767,7 +773,7 @@ async function startVideoOssUpload(
           updateComposerAttachment(attachment.id, {
             uploadState: 'uploading',
             uploadProgress: 0,
-            uploadError: `重试中 ${nextAttempt}/3…`
+            uploadError: t('chat.retryingUpload', { attempt: nextAttempt })
           })
         }
       }
@@ -800,7 +806,7 @@ async function startVideoOssUpload(
     updateComposerAttachment(attachment.id, {
       uploadState: 'error',
       uploadError: isUploadAbortedError(err)
-        ? UPLOAD_ABORTED_MESSAGE
+        ? uploadAbortedMessage()
         : formatVideoOssInvokeError(err)
     })
   } finally {
@@ -813,12 +819,12 @@ async function ensureVideoOssReady(): Promise<string | null> {
     await settings.load()
     const status = await getMediaOssUploadStatus()
     if (!status.configured) {
-      return status.message ?? '视频上传需要平台 OSS 配置，请登录 Pointer 账户或联系管理员在官网配置 OSS'
+      return status.message ?? t('chat.videoOssRequired')
     }
     return null
   }
   if (!isMediaOssConfigured(settings.settings)) {
-    return '视频上传需要平台 OSS 配置，请登录 Pointer 账户或联系管理员在官网配置 OSS'
+    return t('chat.videoOssRequired')
   }
   return null
 }
@@ -885,7 +891,7 @@ function cancelComposerAttachmentUpload(attachmentId: string) {
   abortAttachmentUpload(attachmentId)
   updateComposerAttachment(attachmentId, {
     uploadState: 'error',
-    uploadError: UPLOAD_ABORTED_MESSAGE
+    uploadError: uploadAbortedMessage()
   })
   console.info('[composer] user cancelled attachment upload', attachmentId)
 }
@@ -906,7 +912,7 @@ async function retryComposerAttachmentUpload(attachmentId: string) {
   if (!file && !contentBase64?.trim() && !sourcePath) {
     updateComposerAttachment(attachmentId, {
       uploadState: 'error',
-      uploadError: '无法重传：缺少本地文件'
+      uploadError: t('chat.cannotRetryMissingFile')
     })
     console.warn('[composer] retry missing payload', attachmentId)
     return
@@ -923,9 +929,9 @@ function composerAttachmentBlockedHint(): string {
   if (needsPlatformLogin.value) {
     return platformAuth.loginHint('attachment')
   }
-  if (tokenQuotaBlocked.value) return '账户余额已用尽，暂无法添加附件'
-  if (!settings.settings.hasKey) return '请先在设置中配置 API Key'
-  return '当前无法添加附件'
+  if (tokenQuotaBlocked.value) return t('chat.cannotAttachBalance')
+  if (!settings.settings.hasKey) return t('chat.cannotAttachNoKey')
+  return t('chat.cannotAttach')
 }
 
 /*
@@ -978,7 +984,7 @@ async function ingestDroppedPaths(paths: string[]) {
         await addAttachmentFromLocalPath(path)
       } catch (err) {
         console.error('drop attachment from path failed', path, err)
-        attachmentHint.value = formatVideoOssInvokeError(err) || `无法读取文件：${path}`
+        attachmentHint.value = formatVideoOssInvokeError(err) || t('chat.cannotReadFile', { path })
       }
     })
   )
@@ -1118,7 +1124,7 @@ async function openAttachmentPicker() {
           await addAttachmentFromLocalPath(path)
         } catch (err) {
           console.error('attachment from path failed', path, err)
-          attachmentHint.value = formatVideoOssInvokeError(err) || `无法读取文件：${path}`
+          attachmentHint.value = formatVideoOssInvokeError(err) || t('chat.cannotReadFile', { path })
         }
       }
       return
@@ -1289,7 +1295,7 @@ async function beginSubagentMonitorPickFlow(req: ComputerMonitorPickRequest) {
       showScreenPicker.value = true
       return
     }
-    throw new Error('未检测到可用屏幕')
+    throw new Error(t('chat.noMonitors'))
   } catch (e: unknown) {
     screenPickerError.value = String((e as { message?: string })?.message || e)
     screenPickerMonitors.value = req.monitors
@@ -1538,7 +1544,7 @@ onUnmounted(() => {
           class="inline-flex max-w-full flex-wrap items-center gap-3 rounded-xl border border-accent/20 bg-accent-muted/40 px-3.5 py-2.5"
         >
           <p class="shrink-0 text-xs leading-snug text-foreground">
-            {{ platformAuth.error || '未登录，登录后可继续对话' }}
+            {{ platformAuth.error || t('chat.notLoggedInContinue') }}
           </p>
           <PlatformLoginActions
             variant="compact"
@@ -1559,14 +1565,14 @@ onUnmounted(() => {
           class="inline-flex max-w-full flex-wrap items-center gap-3 rounded-xl border border-danger/30 bg-danger/10 px-3.5 py-2.5"
         >
           <p class="shrink-0 text-xs leading-snug text-foreground">
-            账户余额已用尽，充值后可继续对话
+            {{ t('chat.balanceExhaustedContinue') }}
           </p>
           <button
             type="button"
             class="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground hover:opacity-90 cursor-pointer"
             @click="onOpenBilling"
           >
-            去充值
+            {{ t('chat.goRecharge') }}
           </button>
         </div>
       </div>
@@ -1623,7 +1629,7 @@ onUnmounted(() => {
           <button
             type="button"
             class="composer-agent-trigger mb-0.5 shrink-0 self-end cursor-pointer md:hidden"
-            title="添加附件"
+            :title="t('chat.addAttachment')"
             @click="openAttachmentPicker"
           >
             <Paperclip class="w-3.5 h-3.5 shrink-0 text-muted" />
@@ -1649,7 +1655,7 @@ onUnmounted(() => {
               <button
                 type="button"
                 class="composer-agent-trigger cursor-pointer"
-                title="添加附件"
+                :title="t('chat.addAttachment')"
                 @click="openAttachmentPicker"
               >
                 <Paperclip class="w-3 h-3 shrink-0 text-muted" />
@@ -1673,7 +1679,7 @@ onUnmounted(() => {
                   :class="props.placement === 'inline' ? 'composer-dropdown--down' : 'composer-dropdown--up'"
                 >
                   <div class="px-2 py-1.5 border-b border-border">
-                    <div class="text-[11px] text-muted font-medium whitespace-nowrap">执行智能体</div>
+                    <div class="text-[11px] text-muted font-medium whitespace-nowrap">{{ t('chat.executionAgent') }}</div>
                   </div>
                   <div class="p-1 space-y-0.5 max-h-60 overflow-y-auto">
                     <button
@@ -1696,7 +1702,7 @@ onUnmounted(() => {
                   ref="modePickerButtonRef"
                   type="button"
                   class="composer-agent-trigger"
-                  title="模式设置：快速、标准、高级"
+                  :title="t('chat.modeSettingsTitle')"
                   @click="modePickerOpen = !modePickerOpen"
                 >
                   <component :is="performanceModeIcon" class="w-3 h-3 shrink-0 text-muted" />
@@ -1711,11 +1717,11 @@ onUnmounted(() => {
                 >
                   <!-- 右上角快速入口：进入智能体设置页设置模型 -->
                   <div class="flex items-center justify-between gap-2 px-2 py-1.5 border-b border-border">
-                    <div class="text-[11px] text-muted font-medium whitespace-nowrap">模式</div>
+                    <div class="text-[11px] text-muted font-medium whitespace-nowrap">{{ t('chat.mode') }}</div>
                     <button
                       type="button"
                       class="inline-flex items-center gap-1 rounded p-1 text-muted hover:bg-hover hover:text-foreground cursor-pointer transition-colors"
-                      title="模型设置"
+                      :title="t('chat.modelSettings')"
                       @click="openAgentSettings"
                     >
                       <Settings2 class="w-3.5 h-3.5" />
@@ -1731,7 +1737,7 @@ onUnmounted(() => {
                       @click="selectMode(m.value)"
                     >
                       <component :is="PERFORMANCE_MODE_ICONS[m.value]" class="w-3 h-3 shrink-0" />
-                      <span class="flex-1 whitespace-nowrap">{{ m.label }}</span>
+                      <span class="flex-1 whitespace-nowrap">{{ t(m.value === 'fast' ? 'chat.modeFast' : m.value === 'expert' ? 'chat.modeExpert' : 'chat.modeStandard') }}</span>
                       <Check v-if="m.value === performanceMode" class="h-3 w-3 shrink-0 text-muted" />
                     </button>
                   </div>
@@ -1743,7 +1749,7 @@ onUnmounted(() => {
               v-if="generating || chat.hasBackgroundJobs(chat.current?.id ?? '')"
               class="h-9 w-9 shrink-0 rounded-xl bg-danger/20 hover:bg-danger/30 text-danger flex items-center justify-center cursor-pointer transition md:h-10 md:w-10"
               @click="chat.stop()"
-              title="停止当前回合并取消全部后台任务"
+              :title="t('chat.stopTurn')"
             ><Square class="w-4 h-4" /></button>
             <button
               class="h-9 w-9 shrink-0 rounded-xl flex items-center justify-center transition md:h-10 md:w-10"
@@ -1752,10 +1758,8 @@ onUnmounted(() => {
                 : 'bg-hover text-muted cursor-not-allowed'"
               :disabled="!canSend"
               :title="generating
-                ? (isMacOs
-                  ? '加入发送队列 (↩)。空输入再 ↩ 立即发送（只停同步，后台继续）。⌘↩ 同立即发送'
-                  : '加入发送队列 (Enter)。空输入再 Enter 立即发送（只停同步，后台继续）。Ctrl+Enter 同立即发送')
-                : (isMacOs ? '发送 (↩)' : '发送 (Enter)')"
+                ? (isMacOs ? t('chat.queueSendMac') : t('chat.queueSendWin'))
+                : (isMacOs ? t('chat.sendMac') : t('chat.sendWin'))"
               @click="send"
             ><Send class="w-4 h-4" /></button>
           </div>
@@ -1770,7 +1774,7 @@ onUnmounted(() => {
       >
         <div class="flex-1" />
 
-        <span v-if="!settings.settings.hasKey" class="text-[10px] text-muted">未配置 Key</span>
+        <span v-if="!settings.settings.hasKey" class="text-[10px] text-muted">{{ t('chat.noKeyConfigured') }}</span>
       </div>
     </div>
   </div>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   ArrowDown,
   ArrowUp,
@@ -60,6 +61,7 @@ const emit = defineEmits<{
   (e: 'open-reference', href: string): void
 }>()
 
+const { t } = useI18n()
 const rootElement = ref<HTMLElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
 const markdownRoot = ref<HTMLElement | null>(null)
@@ -210,7 +212,7 @@ async function refreshMediaUrl() {
     const root = props.workspaceRoot?.trim() ?? ''
     const relative = props.relativePath?.trim() ?? ''
     if (!root || !relative) {
-      throw new Error('缺少工作区路径，无法预览')
+      throw new Error(t('workspace.missingPathForPreview'))
     }
     const url = await workspaceFileMediaObjectUrl(root, relative)
     if (seq !== mediaLoadSeq) {
@@ -608,32 +610,32 @@ onBeforeUnmount(() => {
     <div class="file-preview-toolbar">
       <span>{{ language }}</span>
       <span>{{ sizeLabel }}</span>
-      <span v-if="preview.truncated" class="text-warning">仅显示前 1 MB</span>
+      <span v-if="preview.truncated" class="text-warning">{{ t('workspace.truncated1mb') }}</span>
       <span class="flex-1" />
       <div
         v-if="showModeSwitch"
         class="file-preview-mode-switch"
         role="group"
-        aria-label="显示模式"
+        :aria-label="t('workspace.displayMode')"
       >
         <button
           type="button"
           :class="viewMode === 'source' && 'is-active'"
           :aria-pressed="viewMode === 'source'"
           @click="viewMode = 'source'"
-        >原文</button>
+        >{{ t('workspace.source') }}</button>
         <button
           type="button"
           :class="viewMode === 'preview' && 'is-active'"
           :aria-pressed="viewMode === 'preview'"
           @click="viewMode = 'preview'"
-        >预览</button>
+        >{{ t('workspace.preview') }}</button>
       </div>
       <button
         v-if="canSearch"
         type="button"
         :class="searchOpen && 'is-active'"
-        title="查找（⌘F / Ctrl+F）"
+        :title="t('workspace.findShortcut')"
         @click="searchOpen ? closeSearch() : openSearch()"
       >
         <Search />
@@ -642,12 +644,12 @@ onBeforeUnmount(() => {
         v-if="showingSource"
         type="button"
         :class="wrapLines && 'is-active'"
-        title="切换自动换行"
+        :title="t('workspace.toggleWrap')"
         @click="wrapLines = !wrapLines"
       >
         <WrapText />
       </button>
-      <button type="button" title="复制绝对路径" @click="copyPath">
+      <button type="button" :title="t('workspace.copyAbsolutePath')" @click="copyPath">
         <Check v-if="copied" /><Copy v-else />
       </button>
     </div>
@@ -662,14 +664,14 @@ onBeforeUnmount(() => {
         ref="searchInput"
         v-model="searchQuery"
         type="search"
-        placeholder="查找"
-        aria-label="在当前文件中查找"
+        :placeholder="t('workspace.find')"
+        :aria-label="t('workspace.findInFile')"
         @keydown="onSearchKeydown"
       />
       <span class="file-preview-search-count">{{ matchCountLabel }}</span>
       <button
         type="button"
-        title="上一个匹配（Shift+Enter）"
+        :title="t('workspace.prevMatchShift')"
         :disabled="!hasSearchMatches"
         @click="stepMatch(-1)"
       >
@@ -677,22 +679,22 @@ onBeforeUnmount(() => {
       </button>
       <button
         type="button"
-        title="下一个匹配（Enter）"
+        :title="t('workspace.nextMatchEnter')"
         :disabled="!hasSearchMatches"
         @click="stepMatch(1)"
       >
         <ArrowDown />
       </button>
-      <button type="button" title="关闭（Esc）" @click="closeSearch">
+      <button type="button" :title="t('workspace.closeEsc')" @click="closeSearch">
         <X />
       </button>
     </div>
 
     <div v-if="isImage || isPdf" class="file-preview-media">
-      <div v-if="mediaLoading" class="file-preview-empty">加载预览…</div>
+      <div v-if="mediaLoading" class="file-preview-empty">{{ t('workspace.loadingPreview') }}</div>
       <div v-else-if="mediaError" class="file-preview-empty">
         <FileWarning class="w-5 h-5" />
-        <strong>无法加载预览</strong>
+        <strong>{{ t('workspace.previewLoadFailed') }}</strong>
         <span>{{ mediaError }}</span>
       </div>
       <img v-else-if="isImage && mediaUrl" :src="mediaUrl" :alt="preview.path" />
@@ -700,7 +702,7 @@ onBeforeUnmount(() => {
     </div>
     <div v-else-if="preview.binary" class="file-preview-empty">
       <FileWarning class="w-5 h-5" />
-      <strong>无法预览二进制文件</strong>
+      <strong>{{ t('workspace.binaryCannotPreview') }}</strong>
       <span>{{ preview.path }} · {{ sizeLabel }}</span>
     </div>
     <div
@@ -752,7 +754,7 @@ onBeforeUnmount(() => {
         :sandbox="HTML_PREVIEW_SANDBOX"
         referrerpolicy="no-referrer"
         :srcdoc="htmlPreviewSrcdoc"
-        title="HTML 预览"
+        :title="t('workspace.htmlPreview')"
         @load="onHtmlPreviewLoad"
       />
     </div>

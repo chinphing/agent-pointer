@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onErrorCaptured, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ArrowLeft, Bug, Sparkles, Bot, Cpu, MessageSquare, Cloud, Clock, Info, Settings, Puzzle, Plug, Gauge } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useWindowChrome } from '../../composables/useWindowChrome'
@@ -20,6 +21,8 @@ import UsageSettingsPanel from './panels/UsageSettingsPanel.vue'
 import SkillsPanel from '../skills/SkillsPanel.vue'
 import PluginsPanel from './panels/PluginsPanel.vue'
 import McpPanel from './panels/McpPanel.vue'
+
+const { t } = useI18n()
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -67,22 +70,18 @@ watch(activeSection, () => {
   })
 })
 
-const alwaysSections = [
-  { id: 'automation', label: '自动化', desc: '定时任务与 Webhook', icon: Clock },
-  { id: 'channels', label: '连接', desc: '微信/飞书/企微/钉钉', icon: MessageSquare },
-  { id: 'skills', label: '技能', desc: '启用与管理技能', icon: Sparkles },
-  { id: 'plugins', label: '插件', desc: '管理 Pointer 插件', icon: Puzzle },
-  { id: 'mcp', label: 'MCP', desc: '外部工具服务', icon: Plug },
-  { id: 'assistant', label: '智能体', desc: '档位与行为', icon: Bot },
-  { id: 'models', label: '模型配置', desc: '服务商与档位映射', icon: Cpu },
-  { id: 'generation', label: '系统设置', desc: '界面、桌面与系统运行', icon: Settings }
+const alwaysSectionDefs = [
+  { id: 'automation', labelKey: 'settings.sections.automation', descKey: 'settings.sections.automationDesc', icon: Clock },
+  { id: 'channels', labelKey: 'settings.sections.channels', descKey: 'settings.sections.channelsDesc', icon: MessageSquare },
+  { id: 'skills', labelKey: 'settings.sections.skills', descKey: 'settings.sections.skillsDesc', icon: Sparkles },
+  { id: 'plugins', labelKey: 'settings.sections.plugins', descKey: 'settings.sections.pluginsDesc', icon: Puzzle },
+  { id: 'mcp', labelKey: 'settings.sections.mcp', descKey: 'settings.sections.mcpDesc', icon: Plug },
+  { id: 'assistant', labelKey: 'settings.sections.assistant', descKey: 'settings.sections.assistantDesc', icon: Bot },
+  { id: 'models', labelKey: 'settings.sections.models', descKey: 'settings.sections.modelsDesc', icon: Cpu },
+  { id: 'generation', labelKey: 'settings.sections.generation', descKey: 'settings.sections.generationDesc', icon: Settings }
 ] as const
 
-const debugSections = [
-  { id: 'debug', label: '调试', desc: '保存对话请求', icon: Bug }
-] as const
-
-const debugSectionIds = new Set<string>(debugSections.map(item => item.id))
+const debugSectionIds = new Set<string>(['debug'])
 
 const form = provideSettingsDialogForm({
   onClose: () => emit('close'),
@@ -108,56 +107,47 @@ interface SidebarGroup {
   items: SidebarItem[]
 }
 
+function sectionItem(
+  id: string,
+  labelKey: string,
+  descKey: string,
+  icon: typeof Bot
+): SidebarItem {
+  return { id, label: t(labelKey), desc: t(descKey), icon }
+}
+
 const sections = computed<SidebarGroup[]>(() => {
-  const about: SidebarItem = {
-    id: 'about',
-    label: '关于',
-    desc: '版本与更新',
-    icon: Info
-  }
-  const usage: SidebarItem = {
-    id: 'usage',
-    label: '用量',
-    desc: 'Token 消耗记录',
-    icon: Gauge
+  const byId = (id: string) => {
+    const def = alwaysSectionDefs.find(item => item.id === id)!
+    return sectionItem(def.id, def.labelKey, def.descKey, def.icon)
   }
 
   const groups: SidebarGroup[] = [
-    // 智能体与配置：决定 AI 怎么工作、怎么显示
     {
-      items: [
-        alwaysSections.find(item => item.id === 'assistant')!,
-        alwaysSections.find(item => item.id === 'models')!,
-        alwaysSections.find(item => item.id === 'generation')!
-      ]
+      items: [byId('assistant'), byId('models'), byId('generation')]
     },
-    // 自动化与集成：外部接入
     {
-      items: [
-        alwaysSections.find(item => item.id === 'automation')!,
-        alwaysSections.find(item => item.id === 'channels')!,
-        alwaysSections.find(item => item.id === 'skills')!,
-        alwaysSections.find(item => item.id === 'plugins')!,
-        alwaysSections.find(item => item.id === 'mcp')!
-      ]
+      items: [byId('automation'), byId('channels'), byId('skills'), byId('plugins'), byId('mcp')]
     }
   ]
 
-  // 系统：管理员/桌面专属 + 版本信息，收到底部
   const systemItems: SidebarItem[] = []
   if (showAdminDebugSection.value) {
-    systemItems.push({
-      id: 'debug',
-      label: '调试',
-      desc: '保存对话请求',
-      icon: Bug
-    })
+    systemItems.push(
+      sectionItem('debug', 'settings.sections.debug', 'settings.sections.debugDesc', Bug)
+    )
   }
   if (isTauriRuntime() && !platformAuth.isStandalone) {
-    systemItems.push({ id: 'cloud', label: '云主机', desc: '购买与管理', icon: Cloud })
+    systemItems.push(
+      sectionItem('cloud', 'settings.sections.cloud', 'settings.sections.cloudDesc', Cloud)
+    )
   }
-  systemItems.push(usage)
-  systemItems.push(about)
+  systemItems.push(
+    sectionItem('usage', 'settings.sections.usage', 'settings.sections.usageDesc', Gauge)
+  )
+  systemItems.push(
+    sectionItem('about', 'settings.sections.about', 'settings.sections.aboutDesc', Info)
+  )
   groups.push({ items: systemItems })
 
   return groups
@@ -189,12 +179,12 @@ onMounted(() => {
               type="button"
               class="min-w-0 flex-1 h-full flex items-center gap-2 text-left transition-colors cursor-pointer group"
               :class="chromeEnabled && macTrafficLightPadding ? 'pl-2' : 'pl-3'"
-              title="返回对话"
-              aria-label="返回对话"
+              :title="t('settings.backToChat')"
+              :aria-label="t('settings.backToChat')"
               @click="emit('close')"
             >
               <ArrowLeft class="w-3.5 h-3.5 shrink-0 text-muted/70 group-hover:text-foreground/80" />
-              <span class="truncate text-[13px] font-medium text-foreground/50 group-hover:text-foreground/90">返回对话</span>
+              <span class="truncate text-[13px] font-medium text-foreground/50 group-hover:text-foreground/90">{{ t('settings.backToChat') }}</span>
             </button>
           </WindowDragRegion>
           <nav class="flex min-h-0 flex-1 flex-col overflow-y-auto pl-3 pr-2 pt-3 pb-3">
@@ -241,7 +231,7 @@ onMounted(() => {
               v-if="renderError"
               class="sticky top-0 z-20 mb-3 px-3 py-2 rounded-lg border border-danger/30 bg-danger/10 text-[11px] text-danger"
             >
-              设置页渲染异常：{{ renderError }}
+              {{ t('settings.renderError', { error: renderError }) }}
             </div>
             <!-- 保挂载：模型服务编辑在途状态切换分区不丢失（独立于 v-if 链） -->
             <section v-show="activeSection === 'assistant'" class="min-h-full flex flex-col">

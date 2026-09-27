@@ -13,6 +13,8 @@ export function mergeDebugDisplayUi(
   return ui
 }
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
+import { t } from '../i18n'
+import { agentRoleLabel } from './agentLabels'
 
 /** Built-in general agent id. */
 export const GENERAL_AGENT_ID = 'general'
@@ -58,14 +60,6 @@ function profileKey(profile: AgentProfile, id: string): string {
   return 'general'
 }
 
-const COMPOSER_LABELS: Record<string, string> = {
-  general: '通用助手',
-  'general-worker': '通用执行',
-  coder: '氛围编程',
-  computer: '电脑操控',
-  explore: '代码探索'
-}
-
 function composerSelectableByProfile(id: string, key: string): boolean {
   return (
     id === 'general' ||
@@ -92,7 +86,7 @@ function profileDefaults(profile: AgentProfile, id: string): ResolvedAgentUi {
     showComputerMonitorPicker: key === 'computer',
     showTaskBoardPanel: true,
     userSelectable: composerSelectableByProfile(id, key),
-    composerLabel: COMPOSER_LABELS[key] ?? COMPOSER_LABELS[id] ?? '',
+    composerLabel: agentRoleLabel(id) || agentRoleLabel(key) || '',
     avatar: key
   }
 }
@@ -112,7 +106,15 @@ function mergeUi(
     if (mv !== undefined && mv !== null) return mv as ResolvedAgentUi[K]
     return base[k]
   }
-  const labelFallback = COMPOSER_LABELS[agentId] ?? base.composerLabel
+  const labelFallback = agentRoleLabel(agentId) || base.composerLabel
+  // Prefer locale-aware role label over AGENT.md Chinese composerLabel.
+  const roleLabel = agentRoleLabel(agentId)
+  const overrideLabel = (o.composerLabel ?? '').trim()
+  const composerLabel =
+    overrideLabel ||
+    (roleLabel && roleLabel !== agentId.trim() ? roleLabel : '') ||
+    ((m.composerLabel ?? base.composerLabel) as string).trim() ||
+    labelFallback
   return {
     showInComposer: pick('showInComposer') as boolean,
     showSidecarToolCalls: pick('showSidecarToolCalls') as boolean,
@@ -126,7 +128,7 @@ function mergeUi(
     showComputerMonitorPicker: pick('showComputerMonitorPicker') as boolean,
     showTaskBoardPanel: pick('showTaskBoardPanel') as boolean,
     userSelectable: pick('userSelectable') as boolean,
-    composerLabel: ((o.composerLabel ?? m.composerLabel ?? base.composerLabel) as string).trim() || labelFallback,
+    composerLabel,
     avatar: (o.avatar ?? m.avatar ?? base.avatar) as string
   }
 }
@@ -135,12 +137,20 @@ export function composerAgentLabel(
   agent: AgentDef | undefined,
   settings?: Pick<ModelSettings, 'agentUiOverrides'>
 ): string {
-  if (!agent) return '通用助手'
+  if (!agent) return t('agents.general')
+  // Built-in roles: prefer vue-i18n so AGENT.md Chinese composerLabel
+  // (e.g. 通用助手) does not win over the active UI locale.
+  const roleLabel = agentRoleLabel(agent.id)
+  if (roleLabel && roleLabel !== agent.id.trim()) {
+    const override = settings?.agentUiOverrides?.[agent.id]?.composerLabel?.trim()
+    if (override) return override
+    return roleLabel
+  }
   const ui = resolveAgentUi(agent, settings)
-  return ui.composerLabel.trim() || COMPOSER_LABELS[agent.id] || '通用助手'
+  return ui.composerLabel.trim() || roleLabel || t('agents.general')
 }
 
-/** User-visible Chinese label for an agent id (cron list, traces, etc.). */
+/** User-visible label for an agent id (cron list, traces, etc.). */
 export function composerAgentLabelById(
   agentId: string | null | undefined,
   agents?: AgentDef[],
@@ -149,7 +159,7 @@ export function composerAgentLabelById(
   const id = agentId?.trim() || DEFAULT_LEAD_AGENT_ID
   const agent = agents?.find(a => a.id === id)
   if (agent) return composerAgentLabel(agent, settings)
-  return COMPOSER_LABELS[id] ?? id
+  return agentRoleLabel(id) || id
 }
 
 /** Resolve user-visible label for a sub-agent trace row (handles legacy English slug in `trace.name`). */
@@ -165,7 +175,7 @@ export function traceAgentLabel(
   if (agent) return composerAgentLabel(agent, settings)
   const stored = trace.name.trim()
   if (stored && !stored.includes('-')) return stored
-  return (COMPOSER_LABELS[agentId] ?? stored) || '子任务'
+  return agentRoleLabel(agentId) || stored || t('chat.subtask')
 }
 
 export function resolveAgentUi(

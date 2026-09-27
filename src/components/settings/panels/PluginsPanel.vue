@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RefreshCw, Plus, Power, Trash2, Upload, FolderOpen, Download, ChevronDown, FileArchive } from 'lucide-vue-next'
 import { open } from '@tauri-apps/plugin-dialog'
@@ -34,20 +38,20 @@ function toggleDetails(id: string) {
   expandedId.value = expandedId.value === id ? '' : id
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  discovered: '未授权',
-  rejected: '校验失败',
-  enabled: '已启用',
-  disabled: '已禁用',
-  needs_reauth: '需重新授权',
-  degraded: '运行异常'
-}
+const STATUS_LABEL = computed(() => ({
+  discovered: t('settings.plugins.statusDiscovered'),
+  rejected: t('settings.plugins.statusRejected'),
+  enabled: t('settings.plugins.statusEnabled'),
+  disabled: t('settings.plugins.statusDisabled'),
+  needs_reauth: t('settings.plugins.statusNeedsReauth'),
+  degraded: t('settings.plugins.statusDegraded')
+}))
 
 const enabledCount = computed(() => plugins.value.filter(p => p.isEnabled).length)
 
 const isDesktop = isTauriRuntime()
 
-/** 桌面端「导入插件」下拉菜单：合并目录导入与 zip 导入两个入口。 */
+/** Desktop import menu: folder + zip. */
 const importMenuOpen = ref(false)
 const importTriggerRef = ref<HTMLButtonElement | null>(null)
 
@@ -138,7 +142,7 @@ async function toggle(p: PluginView) {
     if (p.isEnabled) {
       await disablePlugin(p.pluginId)
     } else if (p.status === 'rejected') {
-      message.value = `插件 ${p.name} 校验失败，无法启用`
+      message.value = t('settings.plugins.verifyFail', { name: p.name })
     } else {
       // needs_reauth / discovered / disabled → 授权并启用
       await enablePlugin(p.pluginId)
@@ -154,7 +158,7 @@ async function toggle(p: PluginView) {
 }
 
 async function onUninstall(p: PluginView) {
-  const ok = window.confirm(`确定卸载插件「${p.name}」？将删除其目录并移除全部能力。`)
+  const ok = window.confirm(t('settings.plugins.uninstallConfirm', { name: p.name }))
   if (!ok) return
   busyId.value = p.pluginId
   message.value = ''
@@ -176,7 +180,7 @@ async function pickAndImport() {
     return
   }
   try {
-    const selected = await open({ directory: true, title: '选择插件所在的顶层目录（自动识别 Pointer / Codex / Claude 插件并导入）' })
+    const selected = await open({ directory: true, title: t('settings.plugins.pickDirTitle') })
     if (typeof selected === 'string' && selected) {
       await doImport(selected)
     }
@@ -191,8 +195,8 @@ async function pickZipAndImport() {
   try {
     const selected = await open({
       multiple: false,
-      filters: [{ name: '插件压缩包', extensions: ['zip'] }],
-      title: '选择插件 zip 包（自动识别 Pointer / Codex / Claude 插件并导入）'
+      filters: [{ name: t('settings.plugins.zipFilter'), extensions: ['zip'] }],
+      title: t('settings.plugins.pickZipTitle')
     })
     if (typeof selected === 'string' && selected) {
       await doImport(selected)
@@ -227,11 +231,11 @@ async function doImportZip(file: File) {
   try {
     const reports = await importPluginZip(file)
     if (reports.length === 0) {
-      message.value = `未在 ${file.name} 中发现插件元数据`
+      message.value = t('settings.plugins.noMetaInFile', { name: file.name })
       return
     }
     const lines = reports.map(formatReportLine)
-    message.value = `已导入 ${reports.length} 个插件：\n${lines.join('\n')}`
+    message.value = t('settings.plugins.imported', { count: reports.length, lines: lines.join('\n') })
     showImport.value = false
     await refresh()
     await skillsStore.load({ rescan: true }).catch(() => {})
@@ -244,23 +248,23 @@ async function doImportZip(file: File) {
 
 function formatReportLine(r: ImportReport): string {
   const converted = r.converted.join('、')
-  const skipped = r.skipped.length ? `；跳过 ${r.skipped.join('、')}` : ''
-  const unmapped = r.unmapped.length ? `；未映射 ${r.unmapped.length} 项` : ''
+  const skipped = r.skipped.length ? t('settings.plugins.skipped', { items: r.skipped.join('、') }) : ''
+  const unmapped = r.unmapped.length ? t('settings.plugins.unmapped', { count: r.unmapped.length }) : ''
   return `「${r.pluginName}」（${r.pluginId}）：${converted}${skipped}${unmapped}`
 }
 
-/** 批量导入：后端自动按 Pointer → Codex → Claude 顺序逐个导入目录/zip 中的插件候选。 */
+/** Batch import: Pointer → Codex → Claude order. */
 async function doImport(source: string) {
   importing.value = true
   message.value = ''
   try {
     const reports = await importPlugin(source)
     if (reports.length === 0) {
-      message.value = `未在 ${source} 中发现插件元数据`
+      message.value = t('settings.plugins.noMetaInSource', { source })
       return
     }
     const lines = reports.map(formatReportLine)
-    message.value = `已导入 ${reports.length} 个插件：\n${lines.join('\n')}`
+    message.value = t('settings.plugins.imported', { count: reports.length, lines: lines.join('\n') })
     sourcePath.value = ''
     showImport.value = false
     await refresh()
@@ -278,7 +282,7 @@ async function onImportExternal(sourceId: string) {
   message.value = ''
   try {
     const report = await importExternalPlugin(sourceId)
-    message.value = `已导入插件「${report.pluginName}」（${report.pluginId}）：${report.converted.join('、')}`
+    message.value = t('settings.plugins.importedOne', { name: report.pluginName, id: report.pluginId, converted: report.converted.join('、') })
     await refresh()
     await probeExternal()
   } catch (err: unknown) {
@@ -305,7 +309,7 @@ async function dismissExternal() {
         >
           <span class="inline-flex items-center gap-1.5">
             <RefreshCw class="h-3.5 w-3.5 text-accent" aria-hidden="true" />
-            刷新
+            {{ t('workspace.refresh') }}
           </span>
         </button>
         <button
@@ -320,7 +324,7 @@ async function dismissExternal() {
         >
           <span class="inline-flex items-center gap-1.5">
             <Upload class="h-3.5 w-3.5 text-accent" aria-hidden="true" />
-            导入插件
+            {{ t('settings.plugins.importPlugin') }}
             <ChevronDown
               class="h-3.5 w-3.5 text-muted transition-transform"
               :class="importMenuOpen ? 'rotate-180' : ''"
@@ -337,7 +341,7 @@ async function dismissExternal() {
         >
           <span class="inline-flex items-center gap-1.5">
             <Plus class="h-3.5 w-3.5 text-accent" aria-hidden="true" />
-            导入
+            {{ t('settings.plugins.import') }}
           </span>
         </button>
         <Teleport to="body">
@@ -346,7 +350,7 @@ async function dismissExternal() {
             class="plugin-import-panel fixed z-[310] w-max min-w-36 rounded-xl border border-border bg-card p-1 shadow-xl"
             :style="importMenuStyle"
             role="menu"
-            aria-label="导入插件"
+            :aria-label="t('settings.plugins.importPlugin')"
           >
             <button
               type="button"
@@ -356,7 +360,7 @@ async function dismissExternal() {
               @click="closeImportMenu(); pickAndImport()"
             >
               <FolderOpen class="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
-              导入目录
+              {{ t('settings.plugins.importDir') }}
             </button>
             <button
               type="button"
@@ -366,7 +370,7 @@ async function dismissExternal() {
               @click="closeImportMenu(); pickZipAndImport()"
             >
               <FileArchive class="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
-              导入ZIP文件
+              {{ t('settings.plugins.importZip') }}
             </button>
           </div>
         </Teleport>
@@ -386,7 +390,7 @@ async function dismissExternal() {
         <div class="flex items-center gap-2">
           <Download class="h-4 w-4 text-accent" aria-hidden="true" />
           <p class="text-sm font-medium text-foreground">
-            检测到 {{ external.total }} 个外部插件（Claude Code / Codex），可导入为 Pointer 原生插件
+            {{ t('settings.plugins.externalBanner', { count: external.total }) }}
           </p>
         </div>
         <button
@@ -394,7 +398,7 @@ async function dismissExternal() {
           class="text-xs text-muted hover:text-foreground cursor-pointer"
           @click="dismissExternal"
         >
-          忽略
+          {{ t('settings.plugins.ignore') }}
         </button>
       </div>
       <div class="mt-3 space-y-2">
@@ -415,21 +419,21 @@ async function dismissExternal() {
             @click="onImportExternal(src.id)"
           >
             <Download class="h-3.5 w-3.5" aria-hidden="true" />
-            {{ busyId === src.id ? '导入中…' : '导入' }}
+            {{ busyId === src.id ? t('settings.plugins.importing') : t('settings.plugins.import') }}
           </button>
         </div>
       </div>
     </div>
-    <div v-else-if="probingExternal" class="text-xs text-muted">正在检测本机外部插件…</div>
+    <div v-else-if="probingExternal" class="text-xs text-muted">{{ t('settings.plugins.probing') }}</div>
 
     <!-- Web 端路径/zip 导入降级 -->
     <div v-if="showImport && !isDesktop" class="rounded-2xl border border-border panel p-5">
-      <p class="mb-2 text-xs font-medium uppercase tracking-wide text-muted">导入插件（目录 / zip 路径或 zip 上传）</p>
+      <p class="mb-2 text-xs font-medium uppercase tracking-wide text-muted">{{ t('settings.plugins.importWebTitle') }}</p>
       <div class="flex flex-col gap-2 sm:flex-row">
         <input
           v-model="sourcePath"
           type="text"
-          placeholder="例如 /path/to/my-plugin 或 /path/to/plugin.zip"
+          :placeholder="t('settings.plugins.pathPlaceholder')"
           class="h-9 flex-1 rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-accent"
           @keyup.enter="onImport"
         />
@@ -441,7 +445,7 @@ async function dismissExternal() {
         >
           <span class="inline-flex items-center gap-1.5">
             <Upload class="h-3.5 w-3.5" aria-hidden="true" />
-            {{ importing ? '导入中…' : '导入' }}
+            {{ importing ? t('settings.plugins.importing') : t('settings.plugins.import') }}
           </span>
         </button>
         <button
@@ -452,22 +456,22 @@ async function dismissExternal() {
         >
           <span class="inline-flex items-center gap-1.5">
             <Upload class="h-3.5 w-3.5 text-accent" aria-hidden="true" />
-            {{ importing ? '导入中…' : '上传 zip' }}
+            {{ importing ? t('settings.plugins.importing') : t('settings.plugins.uploadZip') }}
           </span>
         </button>
         <input ref="zipInput" type="file" accept=".zip,application/zip" class="hidden" @change="onZipFileChange" />
       </div>
     </div>
 
-    <div v-if="loading" class="py-8 text-center text-sm text-muted">加载中…</div>
+    <div v-if="loading" class="py-8 text-center text-sm text-muted">{{ t('settings.automation.loading') }}</div>
 
     <div v-else-if="plugins.length === 0" class="rounded-2xl border border-dashed border-border py-10 text-center text-sm text-muted">
-      暂无插件。可将 Claude 格式插件目录导入到 <code class="rounded bg-[hsl(var(--code-bg))] px-1.5 py-0.5 text-xs">~/.pointer/plugins</code>。
+      {{ t('settings.plugins.empty') }} <code class="rounded bg-[hsl(var(--code-bg))] px-1.5 py-0.5 text-xs">~/.pointer/plugins</code>。
     </div>
 
     <div v-else class="space-y-3">
       <div class="flex items-center justify-between text-xs text-muted">
-        <span>{{ plugins.length }} 个插件 · {{ enabledCount }} 个已启用</span>
+        <span>{{ t('settings.plugins.summary', { total: plugins.length, enabled: enabledCount }) }}</span>
       </div>
       <div
         v-for="p in plugins"
@@ -484,9 +488,9 @@ async function dismissExternal() {
               >
                 {{ STATUS_LABEL[p.status] ?? p.status }}
               </span>
-              <span v-if="!p.isUserLevel" class="shrink-0 rounded-full bg-[hsl(var(--code-bg))] px-2 py-0.5 text-[10px] text-muted">工作区</span>
+              <span v-if="!p.isUserLevel" class="shrink-0 rounded-full bg-[hsl(var(--code-bg))] px-2 py-0.5 text-[10px] text-muted">{{ t('workspace.title') }}</span>
             </div>
-            <p class="mt-1 text-xs text-muted">{{ p.description || '（无描述）' }}</p>
+            <p class="mt-1 text-xs text-muted">{{ p.description || t('settings.plugins.noDesc') }}</p>
             <p class="mt-1 font-mono text-[11px] text-muted">{{ p.pluginId }} · v{{ p.version }}</p>
             <p v-if="p.statusReason" class="mt-1 text-[11px] text-danger">{{ p.statusReason }}</p>
           </div>
@@ -502,7 +506,7 @@ async function dismissExternal() {
                 :class="expandedId === p.pluginId ? 'rotate-180' : ''"
                 aria-hidden="true"
               />
-              详情
+              {{ t('settings.plugins.details') }}
             </button>
             <button
               type="button"
@@ -511,7 +515,7 @@ async function dismissExternal() {
               @click="toggle(p)"
             >
               <Power class="h-3.5 w-3.5" aria-hidden="true" />
-              {{ p.isEnabled ? '禁用' : (p.status === 'rejected' ? '无法启用' : '启用') }}
+              {{ p.isEnabled ? t('common.disable') : (p.status === 'rejected' ? t('settings.plugins.cannotEnable') : t('common.enable')) }}
             </button>
             <button
               type="button"
@@ -520,18 +524,18 @@ async function dismissExternal() {
               @click="onUninstall(p)"
             >
               <Trash2 class="h-3.5 w-3.5" aria-hidden="true" />
-              卸载
+              {{ t('settings.plugins.uninstall') }}
             </button>
           </div>
         </div>
 
-        <!-- 详情：能力单元清单 + 元信息 -->
+        <!-- details -->
         <div
           v-if="expandedId === p.pluginId"
           class="mt-3 rounded-xl border border-border bg-[hsl(var(--code-bg))]/40 p-3"
         >
           <div class="flex flex-wrap items-center gap-2">
-            <span class="text-[11px] font-medium text-muted">能力单元</span>
+            <span class="text-[11px] font-medium text-muted">{{ t('settings.plugins.capabilities') }}</span>
             <span
               v-for="cap in p.capabilities"
               :key="cap"
@@ -539,12 +543,12 @@ async function dismissExternal() {
             >
               {{ cap }}
             </span>
-            <span v-if="!p.capabilities.length" class="text-[11px] text-muted">无能力声明</span>
+            <span v-if="!p.capabilities.length" class="text-[11px] text-muted">{{ t('settings.plugins.noCapabilities') }}</span>
           </div>
           <p class="mt-2 text-[11px] text-muted">
-            位置：<code class="rounded bg-[hsl(var(--code-bg))] px-1 py-0.5">{{ p.isUserLevel ? '~/.pointer/plugins' : '工作区 .pointer/plugins' }}/{{ p.pluginId }}</code>
-            · 授权：{{ p.isAuthorized ? '已授权' : '未授权' }}
-            · 状态：{{ STATUS_LABEL[p.status] ?? p.status }}
+            {{ t('settings.plugins.location') }}<code class="rounded bg-[hsl(var(--code-bg))] px-1 py-0.5">{{ p.isUserLevel ? '~/.pointer/plugins' : `${t('settings.plugins.workspace')} .pointer/plugins` }}/{{ p.pluginId }}</code>
+            · {{ p.isAuthorized ? t('settings.plugins.authYes') : t('settings.plugins.authNo') }}
+            · {{ t('settings.plugins.status') }} {{ STATUS_LABEL[p.status] ?? p.status }}
           </p>
         </div>
       </div>

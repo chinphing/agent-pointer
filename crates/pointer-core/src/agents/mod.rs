@@ -20,7 +20,10 @@ pub mod coder;
 pub mod explore;
 
 pub mod agent_ui;
-pub use agent_ui::{agent_display_label, resolve_agent_ui, AgentUiConfig, ResolvedAgentUi};
+pub use agent_ui::{
+    agent_display_label, agent_display_label_for, resolve_agent_ui, resolve_agent_ui_for,
+    AgentUiConfig, ResolvedAgentUi,
+};
 
 pub const AGENT_MODE_SINGLE: &str = "single";
 pub const DEFAULT_AGENT_ID: &str = "general";

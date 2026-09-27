@@ -1,3 +1,5 @@
+import { t } from '../i18n'
+
 /** User-facing login gate copy (Composer / send / cloud). */
 export type LoginRequiredPurpose = 'default' | 'attachment' | 'cloud'
 
@@ -5,13 +7,15 @@ export function loginRequiredMessage(
   isStandalone: boolean,
   purpose: LoginRequiredPurpose = 'default'
 ): string {
-  if (purpose === 'cloud') return '请先登录 Pointer 账户'
+  if (purpose === 'cloud') return t('auth.loginRequiredPointer')
   if (isStandalone) {
-    return purpose === 'attachment' ? '请先登录后再添加附件' : '请先登录'
+    return purpose === 'attachment'
+      ? t('auth.loginRequiredAttach')
+      : t('auth.loginRequired')
   }
   return purpose === 'attachment'
-    ? '请先登录 Pointer 账户后再添加附件'
-    : '请先登录 Pointer 账户'
+    ? t('auth.loginRequiredPointerAttach')
+    : t('auth.loginRequiredPointer')
 }
 
 /** Map backend/login-gate errors to the standard login hint; otherwise null. */
@@ -23,7 +27,8 @@ export function mapLoginGateError(
   if (
     message.includes('platform_login_required') ||
     message.includes('local_login_required') ||
-    message.includes('请先登录')
+    message.includes('请先登录') ||
+    message.includes('Sign in')
   ) {
     return loginRequiredMessage(isStandalone, purpose)
   }

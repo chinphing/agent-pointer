@@ -124,7 +124,7 @@ where
 
     loop {
         let item = tokio::select! {
-            _ = cancel.cancelled() => return Err(anyhow!("已停止生成")),
+            _ = cancel.cancelled() => return Err(anyhow!(crate::i18n::generation_stopped_msg())),
             v = byte_stream.next() => v,
         };
         let chunk = match item {

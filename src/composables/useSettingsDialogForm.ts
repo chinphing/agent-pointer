@@ -47,6 +47,7 @@ import {
   withInheritedThinking
 } from '../lib/platformTierDefaults'
 import { mergeTierLlmPatch, thinkingPatchFromProviderModel } from '../lib/thinkingIntensity'
+import { t } from '../i18n'
 
 export type SettingsDialogForm = ReturnType<typeof createSettingsDialogForm>
 
@@ -93,32 +94,36 @@ function createSettingsDialogForm(deps: {
 
   const platformReadOnly = computed(() => !s.canEditPlatform)
 
-  const COMPUTER_TIER_UI: { key: ComputerTierKey; label: string }[] = [
-  { key: 'primary', label: '快速' },
-  { key: 'intermediate', label: '标准' },
-  { key: 'advanced', label: '高级' }
-  ]
+  const COMPUTER_TIER_UI = computed(() => [
+  { key: 'primary' as ComputerTierKey, label: t('settings.tiers.fast') },
+  { key: 'intermediate' as ComputerTierKey, label: t('settings.tiers.standard') },
+  { key: 'advanced' as ComputerTierKey, label: t('settings.tiers.expert') }
+  ])
 
-  const PERFORMANCE_MODE_UI = PERFORMANCE_MODE_OPTIONS
+  const PERFORMANCE_MODE_UI = computed(() =>
+    PERFORMANCE_MODE_OPTIONS.map(o => ({
+      value: o.value,
+      label: t(o.labelKey)
+    }))
+  )
 
-  const PERFORMANCE_MODE_HELP =
-  '快速、标准、高级由低到高：速度从高到低，价格从低到高，智能从低到高。'
+  const PERFORMANCE_MODE_HELP = computed(() => t('settings.tiers.help'))
 
   const MEDIA_DEBUG_KINDS = ['image', 'audio', 'video'] as const
   type MediaDebugKind = (typeof MEDIA_DEBUG_KINDS)[number]
 
   const MODE_AGENT_IDS = new Set(['general', 'coder'])
 
-  const AGENT_MODE_USER_ROWS: { id: string; label: string }[] = [
-  { id: 'general', label: '通用助手' },
-  { id: 'coder', label: '氛围编程' }
-  ]
+  const AGENT_MODE_USER_ROWS = computed(() => [
+  { id: 'general', label: t('agents.general') },
+  { id: 'coder', label: t('agents.coder') }
+  ])
 
-  const MEDIA_MODE_USER_ROWS: { key: MediaDebugKind; label: string }[] = [
-  { key: 'image', label: '图片理解' },
-  { key: 'audio', label: '语音转写' },
-  { key: 'video', label: '视频理解' }
-  ]
+  const MEDIA_MODE_USER_ROWS = computed(() => [
+  { key: 'image' as MediaDebugKind, label: t('settings.mediaKinds.image') },
+  { key: 'audio' as MediaDebugKind, label: t('settings.mediaKinds.audio') },
+  { key: 'video' as MediaDebugKind, label: t('settings.mediaKinds.video') }
+  ])
 
   function isModeAgent(agentId: string): boolean {
   return MODE_AGENT_IDS.has(agentId)
@@ -328,24 +333,24 @@ function createSettingsDialogForm(deps: {
   const mediaDeps = ref<import('../types/chat').MediaDepsStatus | null>(null)
   const agents = ref<AgentDef[]>([])
 
-  const TOOL_CALL_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
-  { key: 'showSidecarToolCalls', label: '显示 sidecar 工具调用' },
-  { key: 'showNonSidecarToolCalls', label: '显示非 sidecar 工具调用' },
-  { key: 'showToolCalls', label: '显示工具调用卡片' },
-  { key: 'showToolCallResults', label: '显示工具调用结果' },
-  ]
+  const TOOL_CALL_UI_FIELDS = computed(() => [
+  { key: 'showSidecarToolCalls' as keyof AgentUiConfig, label: t('settings.toolCallUi.showSidecar') },
+  { key: 'showNonSidecarToolCalls' as keyof AgentUiConfig, label: t('settings.toolCallUi.showNonSidecar') },
+  { key: 'showToolCalls' as keyof AgentUiConfig, label: t('settings.toolCallUi.showCards') },
+  { key: 'showToolCallResults' as keyof AgentUiConfig, label: t('settings.toolCallUi.showResults') },
+  ])
 
-  const AGENT_OUTPUT_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
-  { key: 'showReasoning', label: '显示推理过程' },
-  { key: 'showTaskBoardPanel', label: '显示任务板' },
-  { key: 'showSubAgentTrace', label: '显示子 Agent 边框面板' },
-  ]
+  const AGENT_OUTPUT_UI_FIELDS = computed(() => [
+  { key: 'showReasoning' as keyof AgentUiConfig, label: t('settings.display.showReasoning') },
+  { key: 'showTaskBoardPanel' as keyof AgentUiConfig, label: t('settings.display.showTaskBoard') },
+  { key: 'showSubAgentTrace' as keyof AgentUiConfig, label: t('settings.display.showSubAgentTrace') },
+  ])
 
   const showDebugMenus = computed(() => debugMenusEnabled.value)
 
   const platformAccountTitle = computed(() => {
-  if (!platformAuth.session.logged_in) return '未登录'
-  return platformAuth.session.user_nickname?.trim() || '已登录'
+  if (!platformAuth.session.logged_in) return t('settings.auth.notLoggedIn')
+  return platformAuth.session.user_nickname?.trim() || t('settings.auth.loggedIn')
   })
 
   const platformLogoutBusy = ref(false)
@@ -448,10 +453,10 @@ function createSettingsDialogForm(deps: {
   }
   }
 
-  function themeLabel(t: ThemePreference): string {
-  if (t === 'light') return '浅色'
-  if (t === 'dark') return '深色'
-  return '跟随系统'
+  function themeLabel(themePref: ThemePreference): string {
+  if (themePref === 'light') return t('settings.theme.light')
+  if (themePref === 'dark') return t('settings.theme.dark')
+  return t('settings.theme.system')
   }
 
   function nextTheme(t: ThemePreference): ThemePreference {
@@ -570,16 +575,16 @@ function createSettingsDialogForm(deps: {
 
   const ffmpegStatusLabel = computed(() => {
   const deps = mediaDeps.value
-  if (!deps) return '检测中…'
+  if (!deps) return t('settings.ffmpeg.checking')
   switch (deps.status) {
     case 'ready':
-      return '已就绪（可执行抽帧）'
+      return t('settings.ffmpeg.ready')
     case 'partial':
-      return '未就绪：缺少部分组件'
+      return t('settings.ffmpeg.partial')
     case 'not_executable':
-      return '未就绪：已找到但无法执行'
+      return t('settings.ffmpeg.notExecutable')
     default:
-      return '未检测到'
+      return t('settings.ffmpeg.notFound')
   }
   })
 
@@ -601,7 +606,7 @@ function createSettingsDialogForm(deps: {
 
   async function askAssistantInstallFfmpeg() {
   onClose()
-  await chat.sendUserMessage('帮我安装 ffmpeg')
+  await chat.sendUserMessage(t('settings.ffmpeg.installPrompt'))
   }
 
   watch(activeUiAgentId, id => {
@@ -1051,7 +1056,12 @@ function createSettingsDialogForm(deps: {
     activeSection,
     platformReadOnly,
     COMPUTER_TIER_UI,
-    COMPUTER_INITIAL_TIER_OPTIONS,
+    COMPUTER_INITIAL_TIER_OPTIONS: computed(() =>
+      COMPUTER_INITIAL_TIER_OPTIONS.map(o => ({
+        value: o.value,
+        label: t(o.labelKey)
+      }))
+    ),
     composerAgentLabel,
     PERFORMANCE_MODE_UI,
     PERFORMANCE_MODE_HELP,

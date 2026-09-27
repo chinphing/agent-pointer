@@ -65,7 +65,7 @@ function startDrag(event: PointerEvent, node: TerminalPaneBranch) {
     <div
       class="terminal-splitter"
       :class="node.direction === 'row' ? 'is-row' : 'is-column'"
-      :title="node.direction === 'row' ? '拖动调整左右窗格大小' : '拖动调整上下窗格大小'"
+      :title="node.direction === 'row' ? $t('workspace.resizeSplitH') : $t('workspace.resizeSplitV')"
       @pointerdown.prevent="startDrag($event, node)"
     />
     <div class="terminal-pane-slot" :style="{ flexGrow: node.sizes[1], flexBasis: '0' }">

@@ -180,7 +180,11 @@ pub(super) async fn drain_provider_events(
             ProviderEvent::ToolCallStart { id, name, .. } => {
                 let display = state
                     .tools
-                    .format_display(&name, &parse_tool_call_arguments(""));
+                    .format_display_for(
+                        &name,
+                        &parse_tool_call_arguments(""),
+                        state.ui_locale(),
+                    );
                 let (display_label, display_summary) = tool_display_stream_fields(&display);
                 log_tool_call_parsed_block("start", message_id, sub_trace_id, &id, &name, None);
                 emit(
@@ -313,7 +317,9 @@ fn emit_tool_starts(
             &t.name,
             Some(&t.arguments),
         );
-        let display = state.tools.format_display(&t.name, &args_v);
+        let display = state
+            .tools
+            .format_display_for(&t.name, &args_v, state.ui_locale());
         let (display_label, display_summary) = tool_display_stream_fields(&display);
         t.display_label = display_label;
         t.display_summary = display_summary;

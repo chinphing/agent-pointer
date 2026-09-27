@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
+
 import { computed, onMounted, ref } from 'vue'
 import { Clock, Plus, Trash2, Webhook, ShieldCheck, AlertTriangle, AlertCircle, RefreshCw, MessagesSquare, CircleHelp, X, Copy, Check, Pencil } from 'lucide-vue-next'
 import { useChatStore } from '../../../stores/chat'
@@ -97,21 +100,15 @@ const savingDeliver = ref(false)
 
 const isDesktop = isTauriRuntime()
 
-const CRON_SECTION_DESC =
-  '定时或延迟一次触发；每个任务独占隔离会话。一次性任务执行后保留为已完成，可点「查看会话」。'
-const WEBHOOK_SECTION_DESC =
-  '每个来源独立 Token，须与 URL 路径中的来源标识匹配。POST 请求体支持 text 或 messages。触发后可点「查看会话」阅读 transcript。'
-const DELIVER_HINT =
-  '开启后，run 结束会把最终回复推到所选通道。每个通道对应最近一次私聊 Pointer 的人；未绑定的通道需先在该通道私聊。回复 [SILENT] 可跳过当次推送。'
-const WEBHOOK_REF_BLOCKING =
-  'body 传 "blocking": true 时保持连接至 run 结束，返回 { ok, runId, text }；可选 "timeoutSeconds"（默认 120，最大 600）。未传时为 202 异步 ack，可用 GET /api/webhooks/:src/runs/:runId 轮询结果。'
-const SESSION_MODE_HINT =
-  '按日续接：同一来源在本地日内共享上下文；按投递隔离：每次投递独立会话（可用 X-GitHub-Delivery 或 idempotencyKey 区分）。'
-const LEGACY_TOKEN_DESC = '检测到旧版全局 Token，对所有来源生效。建议改为按来源配置。'
-const AUTH_HEADER_HINT =
-  '留空则使用 Authorization: Bearer 或 X-Pointer-Token'
-const TOKEN_HINT = '自动生成 Token，添加后可随时点击尾号复制。'
-const WEBHOOK_TOKEN_COPY_UNAVAILABLE = 'Token 不可用'
+const CRON_SECTION_DESC = computed(() => t('settings.automation.cronDesc'))
+const WEBHOOK_SECTION_DESC = computed(() => t('settings.automation.webhookDesc'))
+const DELIVER_HINT = computed(() => t('settings.automation.deliverHint'))
+const WEBHOOK_REF_BLOCKING = computed(() => t('settings.automation.blockingHint'))
+const SESSION_MODE_HINT = computed(() => t('settings.automation.sessionModeHint'))
+const LEGACY_TOKEN_DESC = computed(() => t('settings.automation.legacyTokenDesc'))
+const AUTH_HEADER_HINT = computed(() => t('settings.automation.authHeaderHint'))
+const TOKEN_HINT = computed(() => t('settings.automation.tokenHint'))
+const WEBHOOK_TOKEN_COPY_UNAVAILABLE = computed(() => t('settings.automation.tokenUnavailable'))
 
 function fmtMs(ms?: number | null): string {
   if (!ms) return '—'
@@ -122,15 +119,15 @@ function genId(): string {
   return 'cron-' + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4)
 }
 
-const CHANNEL_LABEL: Record<string, string> = {
-  feishu: '飞书',
-  dingtalk: '钉钉',
-  wecom: '企业微信',
-  weixin: '微信'
-}
+const CHANNEL_LABEL = computed((): Record<string, string> => ({
+  feishu: t('settings.channels.brands.feishu'),
+  dingtalk: t('settings.channels.brands.dingtalk'),
+  wecom: t('settings.automation.brandWecom'),
+  weixin: t('settings.channels.brands.weixin')
+}))
 
 function channelLabel(channel: string): string {
-  return CHANNEL_LABEL[channel] || channel
+  return CHANNEL_LABEL.value[channel] || channel
 }
 
 /** Bound channels first; used by create/edit multi-select. */
@@ -248,11 +245,11 @@ function openCreateForm() {
 }
 
 async function submitCreate() {
-  if (!form.value.label.trim()) { formError.value = '请填写名称'; return }
-  if (!form.value.cronExpr.trim()) { formError.value = '请填写调度'; return }
-  if (!form.value.promptText.trim()) { formError.value = '请填写触发提示词'; return }
+  if (!form.value.label.trim()) { formError.value = t('settings.automation.nameRequired'); return }
+  if (!form.value.cronExpr.trim()) { formError.value = t('settings.automation.cronRequired'); return }
+  if (!form.value.promptText.trim()) { formError.value = t('settings.automation.promptRequired'); return }
   if (form.value.pushIm && form.value.deliverChannels.length === 0) {
-    formError.value = '请选择至少一个推送通道'
+    formError.value = t('settings.automation.channelRequired')
     return
   }
   creating.value = true
@@ -283,7 +280,7 @@ async function submitCreate() {
 
 async function toggleEnabled(job: CronJob, enabled: boolean) {
   if (enabled && job.scheduleKind === 'once') {
-    jobsError.value = '一次性任务不可重新启用，请新建'
+    jobsError.value = t('settings.automation.onceNoReenable')
     return
   }
   try {
@@ -313,7 +310,7 @@ function cancelEditDeliver() {
 
 async function saveEditDeliver(job: CronJob) {
   if (editPushIm.value && editDeliverChannels.value.length === 0) {
-    jobsError.value = '请选择至少一个推送通道'
+    jobsError.value = t('settings.automation.channelRequired')
     return
   }
   savingDeliver.value = true
@@ -358,16 +355,26 @@ function cronAgentLabel(job: CronJob): string {
 
 function cronJobTitle(job: CronJob): string {
   const deliver = formatDeliverLabel(job.deliver)
-  const deliverPart = deliver ? ` · 投递：${deliver}` : ''
-  const err = job.lastDeliveryError ? ` · 投递失败：${job.lastDeliveryError}` : ''
-  return `${job.label} · ${cronAgentLabel(job)} · ${describeCronJob(job)} · 下次：${fmtMs(job.nextRunAtMs)} · 上次：${fmtMs(job.lastRunAtMs)}${deliverPart}${err}`
+  const deliverPart = deliver ? t('settings.automation.deliverSep', { label: deliver }) : ''
+  const err = job.lastDeliveryError
+    ? t('settings.automation.deliveryFailSep', { error: job.lastDeliveryError })
+    : ''
+  return t('settings.automation.jobTitleFull', {
+    label: job.label,
+    agent: cronAgentLabel(job),
+    schedule: describeCronJob(job),
+    next: fmtMs(job.nextRunAtMs),
+    last: fmtMs(job.lastRunAtMs),
+    deliver: deliverPart,
+    error: err
+  })
 }
 
 // Open the cron job's active isolated session in the main panel.
 function viewSession(job: CronJob) {
   const sessionId = cronViewSessionId(job)
   if (!sessionId) {
-    jobsError.value = '该任务尚未触发，暂无专属会话可查看'
+    jobsError.value = t('settings.automation.noSessionJob')
     return
   }
   jobsError.value = null
@@ -380,12 +387,12 @@ function viewSession(job: CronJob) {
 
 async function submitWebhookSource() {
   const src = webhookSrcInput.value.trim()
-  if (!src) { webhookFormError.value = '请填写来源标识'; return }
+  if (!src) { webhookFormError.value = t('settings.automation.sourceIdRequired'); return }
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(src)) {
-    webhookFormError.value = '来源标识以字母或数字开头，仅可含字母、数字、-、_'
+    webhookFormError.value = t('settings.automation.sourceIdInvalid')
     return
   }
-  if (!tokenInput.value.trim()) { webhookFormError.value = '请输入 Token'; return }
+  if (!tokenInput.value.trim()) { webhookFormError.value = t('settings.automation.tokenRequired'); return }
   const token = tokenInput.value.trim()
   const authHeaderName = authHeaderInput.value.trim() || null
   settingToken.value = true
@@ -395,10 +402,10 @@ async function submitWebhookSource() {
   try {
     webhook.value = await setWebhookSourceToken(src, token, authHeaderName, sessionModeInput.value)
     if (!isDesktop) {
-      webhookInfo.value = 'Token 已复制到剪贴板。'
+      webhookInfo.value = t('settings.automation.tokenCopied')
       navigator.clipboard.writeText(token).catch(e => {
         console.warn('[automation] copy webhook token after create failed', e)
-        webhookInfo.value = '来源已添加。请点击尾号复制 Token。'
+        webhookInfo.value = t('settings.automation.sourceAdded')
       })
     }
     webhookSrcInput.value = ''
@@ -459,7 +466,9 @@ async function updateWebhookSessionMode(source: WebhookSource, mode: WebhookSess
 }
 
 function webhookSessionModeLabel(mode?: WebhookSessionMode): string {
-  return mode === 'per_delivery' ? '按投递隔离' : '按日续接'
+  return mode === 'per_delivery'
+    ? t('settings.automation.modePerDelivery')
+    : t('settings.automation.modeDaily')
 }
 
 function webhookViewSessionId(source: WebhookSource): string | null {
@@ -469,7 +478,7 @@ function webhookViewSessionId(source: WebhookSource): string | null {
 function viewWebhookSession(source: WebhookSource) {
   const sessionId = webhookViewSessionId(source)
   if (!sessionId) {
-    webhookError.value = '该来源尚未触发，暂无专属会话可查看'
+    webhookError.value = t('settings.automation.noSessionSrcDetail')
     return
   }
   webhookError.value = null
@@ -486,7 +495,7 @@ async function resolveWebhookToken(source: WebhookSource): Promise<string | null
     const revealed = await revealWebhookSourceToken(source.src)
     return revealed.token?.trim() || null
   } catch (e) {
-    webhookError.value = (e as Error).message || WEBHOOK_TOKEN_COPY_UNAVAILABLE
+    webhookError.value = (e as Error).message || WEBHOOK_TOKEN_COPY_UNAVAILABLE.value
     return null
   } finally {
     if (revealingWebhookTokenSrc.value === source.src) {
@@ -498,7 +507,7 @@ async function resolveWebhookToken(source: WebhookSource): Promise<string | null
 async function copyWebhookCurl(source: WebhookSource) {
   const token = await resolveWebhookToken(source)
   if (!token) {
-    if (!webhookError.value) webhookError.value = WEBHOOK_TOKEN_COPY_UNAVAILABLE
+    if (!webhookError.value) webhookError.value = WEBHOOK_TOKEN_COPY_UNAVAILABLE.value
     return
   }
   webhookError.value = null
@@ -514,7 +523,7 @@ async function copyWebhookCurl(source: WebhookSource) {
 async function copyWebhookToken(source: WebhookSource) {
   const token = await resolveWebhookToken(source)
   if (!token) {
-    if (!webhookError.value) webhookError.value = WEBHOOK_TOKEN_COPY_UNAVAILABLE
+    if (!webhookError.value) webhookError.value = WEBHOOK_TOKEN_COPY_UNAVAILABLE.value
     return
   }
   webhookError.value = null
@@ -555,12 +564,12 @@ onMounted(() => {
       <div class="flex items-center justify-between gap-3 mb-3">
         <div class="flex items-center gap-2 min-w-0">
           <Clock class="w-4 h-4 text-accent shrink-0" />
-          <span class="text-sm font-medium text-foreground whitespace-nowrap">定时任务</span>
+          <span class="text-sm font-medium text-foreground whitespace-nowrap">{{ t('settings.automation.cronJobs') }}</span>
           <button
             type="button"
             class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
             :title="CRON_SECTION_DESC"
-            aria-label="定时任务说明"
+            :aria-label="t('settings.s_2a438d')"
             @click.stop
           >
             <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
@@ -569,7 +578,7 @@ onMounted(() => {
         <div class="flex items-center gap-2 shrink-0">
           <button
             class="h-7 w-7 rounded-md border border-border hover:bg-hover inline-flex items-center justify-center cursor-pointer shrink-0"
-            title="刷新"
+            :title="t('workspace.refresh')"
             :disabled="loadingJobs"
             @click="refreshJobs"
           >
@@ -579,7 +588,7 @@ onMounted(() => {
             class="h-7 px-3 rounded-md bg-accent text-accent-foreground text-xs font-medium hover:opacity-95 inline-flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
             @click="openCreateForm"
           >
-            <Plus class="w-3.5 h-3.5 shrink-0" />新建
+            <Plus class="w-3.5 h-3.5 shrink-0" />{{ t('settings.automation.new') }}
           </button>
         </div>
       </div>
@@ -587,7 +596,7 @@ onMounted(() => {
       <p v-if="jobsError" class="text-xs text-danger mb-2">{{ jobsError }}</p>
 
       <div v-if="!loadingJobs && jobs.length === 0" class="text-xs text-muted py-4 text-center">
-        暂无定时任务
+        {{ t('settings.automation.empty') }}
       </div>
 
       <div v-else class="space-y-2">
@@ -600,7 +609,7 @@ onMounted(() => {
             <button
               class="relative h-5 w-9 rounded-full transition-colors shrink-0 cursor-pointer"
               :class="job.enabled ? 'bg-accent' : 'bg-hover'"
-              :title="job.enabled ? '已启用（点击停用）' : '已停用（点击启用）'"
+              :title="job.enabled ? t('settings.automation.enabledClickDisable') : t('settings.automation.disabledClickEnable')"
               @click="toggleEnabled(job, !job.enabled)"
             >
               <span
@@ -619,19 +628,19 @@ onMounted(() => {
               <span class="text-muted truncate">{{ describeCronJob(job) }}</span>
               <template v-if="formatDeliverLabel(job.deliver)">
                 <span class="text-muted/50 shrink-0">·</span>
-                <span class="text-accent/80 truncate text-[11px]" :title="`投递：${formatDeliverLabel(job.deliver)}`">{{ formatDeliverLabel(job.deliver) }}</span>
+                <span class="text-accent/80 truncate text-[11px]" :title="t('settings.automation.deliverPrefix', { label: formatDeliverLabel(job.deliver) })">{{ formatDeliverLabel(job.deliver) }}</span>
               </template>
             </div>
             <div
               class="text-[11px] text-muted shrink-0 whitespace-nowrap"
-              :title="`下次：${fmtMs(job.nextRunAtMs)} · 上次：${fmtMs(job.lastRunAtMs)}`"
+              :title="t('settings.automation.nextLast', { next: fmtMs(job.nextRunAtMs), last: fmtMs(job.lastRunAtMs) })"
             >
-              下次 {{ fmtMs(job.nextRunAtMs) }}
+              {{ t('settings.automation.nextRunShort', { when: fmtMs(job.nextRunAtMs) }) }}
             </div>
             <div class="flex items-center gap-1 shrink-0">
               <button
                 class="h-7 w-7 rounded-md border border-border hover:bg-hover inline-flex items-center justify-center text-muted cursor-pointer shrink-0"
-                :title="job.deliver ? '修改投递目标' : '设置投递目标'"
+                :title="job.deliver ? t('settings.automation.editDelivery') : t('settings.automation.setDelivery')"
                 @click="openEditDeliver(job)"
               >
                 <Pencil class="w-3.5 h-3.5" />
@@ -641,7 +650,7 @@ onMounted(() => {
                 :class="cronViewSessionId(job)
                   ? 'border border-border bg-hover text-foreground hover:bg-hover cursor-pointer'
                   : 'border border-border text-muted cursor-not-allowed'"
-                :title="cronViewSessionId(job) ? '查看会话' : '任务尚未触发，暂无会话可查看'"
+                :title="cronViewSessionId(job) ? t('settings.automation.viewSession') : t('settings.automation.noSessionYet')"
                 :disabled="!cronViewSessionId(job)"
                 @click="viewSession(job)"
               >
@@ -652,7 +661,7 @@ onMounted(() => {
                 :class="pendingDeleteJobId === job.id
                   ? 'border-danger/40 bg-danger/10 text-danger hover:bg-danger/15'
                   : 'border-border hover:bg-hover text-muted'"
-                :title="pendingDeleteJobId === job.id ? '确认删除' : '删除'"
+                :title="pendingDeleteJobId === job.id ? t('settings.automation.confirmDelete') : t('common.delete')"
                 @click="removeJob(job)"
               >
                 <Trash2 class="w-3.5 h-3.5" />
@@ -660,7 +669,7 @@ onMounted(() => {
               <button
                 v-if="pendingDeleteJobId === job.id"
                 class="h-7 w-7 rounded-md border border-border hover:bg-hover inline-flex items-center justify-center text-muted cursor-pointer shrink-0"
-                title="取消"
+                :title="t('common.cancel')"
                 @click="cancelDeleteJob"
               >
                 <X class="w-3.5 h-3.5" />
@@ -672,7 +681,7 @@ onMounted(() => {
             class="text-[11px] text-warning truncate pl-11"
             :title="job.lastDeliveryError"
           >
-            投递失败：{{ job.lastDeliveryError }}
+            {{ t('settings.automation.deliveryFail', { error: job.lastDeliveryError }) }}
           </p>
           <div
             v-if="editingDeliverJobId === job.id"
@@ -680,7 +689,7 @@ onMounted(() => {
           >
             <label class="flex items-center gap-2 text-[12px] text-foreground cursor-pointer">
               <input v-model="editPushIm" type="checkbox" class="rounded border-border" />
-              推送到 IM
+              {{ t('settings.automation.pushIm') }}
               <span
                 class="inline-flex items-center text-muted hover:text-foreground transition-colors cursor-help"
                 :title="DELIVER_HINT"
@@ -690,25 +699,25 @@ onMounted(() => {
             </label>
             <div v-if="editPushIm" class="space-y-1.5">
               <label
-                v-for="t in deliveryTargets"
-                :key="t.channel"
+                v-for="dt in deliveryTargets"
+                :key="dt.channel"
                 class="flex items-center gap-2 text-[12px]"
-                :class="t.bound ? 'text-foreground cursor-pointer' : 'text-muted cursor-not-allowed'"
+                :class="dt.bound ? 'text-foreground cursor-pointer' : 'text-muted cursor-not-allowed'"
               >
                 <input
                   type="checkbox"
                   class="rounded border-border"
-                  :disabled="!t.bound"
-                  :checked="editDeliverChannels.includes(t.channel)"
-                  @change="toggleEditChannel(t.channel, ($event.target as HTMLInputElement).checked)"
+                  :disabled="!dt.bound"
+                  :checked="editDeliverChannels.includes(dt.channel)"
+                  @change="toggleEditChannel(dt.channel, ($event.target as HTMLInputElement).checked)"
                 />
-                <span>{{ t.label }}</span>
+                <span>{{ dt.label }}</span>
               </label>
               <p v-if="deliveryTargets.length === 0" class="text-[11px] text-muted">
-                暂无已启用的 IM 通道。
+                {{ t('settings.automation.noImChannel') }}
               </p>
               <p v-else-if="boundDeliveryTargets.length === 0" class="text-[11px] text-muted">
-                请先在对应通道私聊 Pointer，完成绑定后再选。
+                {{ t('settings.automation.bindImFirst') }}
               </p>
             </div>
             <div class="flex items-center justify-end gap-2">
@@ -716,14 +725,14 @@ onMounted(() => {
                 class="h-7 px-3 rounded-md bg-hover hover:bg-hover text-xs text-foreground cursor-pointer"
                 @click="cancelEditDeliver"
               >
-                取消
+                {{ t('settings.automation.cancel') }}
               </button>
               <button
                 class="h-7 px-3 rounded-md bg-accent text-accent-foreground text-xs font-medium hover:opacity-95 cursor-pointer disabled:opacity-50"
                 :disabled="savingDeliver"
                 @click="saveEditDeliver(job)"
               >
-                {{ savingDeliver ? '保存中…' : '保存' }}
+                {{ savingDeliver ? t('settings.automation.saving') : t('common.save') }}
               </button>
             </div>
           </div>
@@ -734,25 +743,25 @@ onMounted(() => {
       <div v-if="showForm" class="mt-4 rounded-lg border border-accent/30 bg-accent/5 p-4 space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <label class="block">
-            <span class="text-[11px] text-muted">名称</span>
-            <input v-model="form.label" class="input-base mt-1" placeholder="如：每日日报" />
+            <span class="text-[11px] text-muted">{{ t('settings.automation.name') }}</span>
+            <input v-model="form.label" class="input-base mt-1" :placeholder="t('settings.automation.namePlaceholder')" />
           </label>
           <label class="block">
-            <span class="text-[11px] text-muted">智能体</span>
+            <span class="text-[11px] text-muted">{{ t('settings.automation.agent') }}</span>
             <select v-model="form.agentId" class="input-base mt-1">
               <option v-for="a in agentOptions" :key="a.id" :value="a.id">{{ a.label }}</option>
             </select>
           </label>
         </div>
         <label class="block">
-          <span class="text-[11px] text-muted">触发提示词</span>
-          <textarea v-model="form.promptText" rows="3" class="input-base mt-1 resize-y" placeholder="每次触发时发送给智能体的提示词" />
+          <span class="text-[11px] text-muted">{{ t('settings.automation.prompt') }}</span>
+          <textarea v-model="form.promptText" rows="3" class="input-base mt-1 resize-y" :placeholder="t('settings.automation.promptPlaceholder')" />
         </label>
         <CronSchedulePicker v-model="form.cronExpr" />
         <div class="space-y-2">
           <label class="flex items-center gap-2 text-[12px] text-foreground cursor-pointer">
             <input v-model="form.pushIm" type="checkbox" class="rounded border-border" />
-            推送到 IM
+            {{ t('settings.automation.pushIm') }}
             <span
               class="inline-flex items-center text-muted hover:text-foreground transition-colors cursor-help"
               :title="DELIVER_HINT"
@@ -762,37 +771,37 @@ onMounted(() => {
           </label>
           <div v-if="form.pushIm" class="space-y-1.5 pl-0.5">
             <label
-              v-for="t in deliveryTargets"
-              :key="t.channel"
+              v-for="dt in deliveryTargets"
+              :key="dt.channel"
               class="flex items-center gap-2 text-[12px]"
-              :class="t.bound ? 'text-foreground cursor-pointer' : 'text-muted cursor-not-allowed'"
+              :class="dt.bound ? 'text-foreground cursor-pointer' : 'text-muted cursor-not-allowed'"
             >
               <input
                 type="checkbox"
                 class="rounded border-border"
-                :disabled="!t.bound"
-                :checked="form.deliverChannels.includes(t.channel)"
-                @change="toggleFormChannel(t.channel, ($event.target as HTMLInputElement).checked)"
+                :disabled="!dt.bound"
+                :checked="form.deliverChannels.includes(dt.channel)"
+                @change="toggleFormChannel(dt.channel, ($event.target as HTMLInputElement).checked)"
               />
-              <span>{{ t.label }}</span>
+              <span>{{ dt.label }}</span>
             </label>
             <p v-if="deliveryTargets.length === 0" class="text-[11px] text-muted">
-              暂无已启用的 IM 通道。
+              {{ t('settings.automation.noImChannel') }}
             </p>
             <p v-else-if="boundDeliveryTargets.length === 0" class="text-[11px] text-muted">
-              请先在对应通道私聊 Pointer，完成绑定后再选。
+              {{ t('settings.automation.bindImFirst') }}
             </p>
           </div>
         </div>
         <p v-if="formError" class="text-xs text-danger">{{ formError }}</p>
         <div class="flex items-center justify-end gap-2">
-          <button class="h-8 px-3 rounded-md bg-hover hover:bg-hover text-xs text-foreground cursor-pointer" @click="showForm = false">取消</button>
+          <button class="h-8 px-3 rounded-md bg-hover hover:bg-hover text-xs text-foreground cursor-pointer" @click="showForm = false">{{ t('settings.automation.cancel') }}</button>
           <button
             class="h-8 px-4 rounded-md bg-accent text-accent-foreground text-xs font-medium hover:opacity-95 cursor-pointer disabled:opacity-50"
             :disabled="creating"
             @click="submitCreate"
           >
-            {{ creating ? '创建中…' : '创建' }}
+            {{ creating ? t('settings.automation.creating') : t('settings.automation.create') }}
           </button>
         </div>
       </div>
@@ -803,12 +812,12 @@ onMounted(() => {
       <div class="flex items-center justify-between gap-3 mb-3">
         <div class="flex items-center gap-2 min-w-0">
           <Webhook class="w-4 h-4 text-accent shrink-0" />
-          <span class="text-sm font-medium text-foreground whitespace-nowrap">Webhook 调用</span>
+          <span class="text-sm font-medium text-foreground whitespace-nowrap">{{ t('settings.automation.webhook') }}</span>
           <button
             type="button"
             class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
             :title="WEBHOOK_SECTION_DESC"
-            aria-label="Webhook 说明"
+            :aria-label="t('settings.automation.webhookHelp')"
             @click.stop
           >
             <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
@@ -817,7 +826,7 @@ onMounted(() => {
         <div class="flex items-center gap-2 shrink-0">
           <button
             class="h-7 w-7 rounded-md border border-border hover:bg-hover inline-flex items-center justify-center cursor-pointer shrink-0"
-            title="刷新"
+            :title="t('settings.automation.refresh')"
             :disabled="loadingWebhook"
             @click="refreshWebhook"
           >
@@ -827,7 +836,7 @@ onMounted(() => {
             class="h-7 px-3 rounded-md bg-accent text-accent-foreground text-xs font-medium hover:opacity-95 inline-flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
             @click="openWebhookCreateForm"
           >
-            <Plus class="w-3.5 h-3.5 shrink-0" />新建
+            <Plus class="w-3.5 h-3.5 shrink-0" />{{ t('settings.automation.new') }}
           </button>
         </div>
       </div>
@@ -843,21 +852,21 @@ onMounted(() => {
           <AlertTriangle class="w-3.5 h-3.5 text-warning shrink-0" />
           <span
             class="min-w-0 flex-1 truncate text-foreground"
-            :title="`检测到旧版全局 Token（${webhook.legacyPreview}），${LEGACY_TOKEN_DESC}`"
+            :title="t('settings.automation.legacyTokenBanner', { preview: webhook.legacyPreview, desc: LEGACY_TOKEN_DESC })"
           >
-            检测到旧版全局 Token（{{ webhook.legacyPreview }}），{{ LEGACY_TOKEN_DESC }}
+            {{ t('settings.automation.legacyTokenBanner', { preview: webhook.legacyPreview, desc: LEGACY_TOKEN_DESC }) }}
           </span>
           <button
             class="h-7 px-2 rounded border border-border hover:bg-hover text-xs cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
             :disabled="clearingLegacy"
             @click="clearLegacyToken"
           >
-            {{ clearingLegacy ? '清除中…' : '清除旧 Token' }}
+            {{ clearingLegacy ? t('settings.automation.clearing') : t('settings.automation.clearLegacyToken') }}
           </button>
         </div>
 
         <div v-if="!loadingWebhook && webhook.sources.length === 0" class="text-xs text-muted py-4 text-center">
-          尚未配置任何来源
+          {{ t('settings.automation.noSources') }}
         </div>
 
         <div v-else-if="webhook.sources.length" class="space-y-2">
@@ -878,12 +887,12 @@ onMounted(() => {
                 class="font-mono text-muted truncate hover:text-foreground cursor-pointer text-left min-w-0 disabled:opacity-50"
                 :disabled="revealingWebhookTokenSrc === s.src"
                 :title="revealingWebhookTokenSrc === s.src
-                  ? '获取 Token 中…'
-                  : (copiedWebhookTokenSrc === s.src ? '已复制 Token' : '复制 Token')"
+                  ? t('settings.automation.fetchingToken')
+                  : (copiedWebhookTokenSrc === s.src ? t('settings.automation.tokenCopiedShort') : t('settings.automation.copyToken'))"
                 @click="copyWebhookToken(s)"
               >
-                <span v-if="copiedWebhookTokenSrc === s.src" class="text-success">已复制</span>
-                <span v-else-if="revealingWebhookTokenSrc === s.src" class="text-muted">复制中…</span>
+                <span v-if="copiedWebhookTokenSrc === s.src" class="text-success">{{ t('settings.automation.copied') }}</span>
+                <span v-else-if="revealingWebhookTokenSrc === s.src" class="text-muted">{{ t('settings.automation.copying') }}</span>
                 <span v-else>{{ s.preview }}</span>
               </button>
               <span v-if="s.authHeaderName" class="text-muted/50 shrink-0">·</span>
@@ -901,15 +910,15 @@ onMounted(() => {
                 :title="SESSION_MODE_HINT"
                 @change="updateWebhookSessionMode(s, ($event.target as HTMLSelectElement).value as WebhookSessionMode)"
               >
-                <option value="daily">按日续接</option>
-                <option value="per_delivery">按投递隔离</option>
+                <option value="daily">{{ t('settings.automation.modeDaily') }}</option>
+                <option value="per_delivery">{{ t('settings.automation.modePerDelivery') }}</option>
               </select>
               <button
                 class="h-7 w-7 rounded-md inline-flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                 :class="webhookViewSessionId(s)
                   ? 'border border-border bg-hover text-foreground hover:bg-hover cursor-pointer'
                   : 'border border-border text-muted cursor-not-allowed'"
-                :title="webhookViewSessionId(s) ? '查看会话' : '尚未触发，暂无会话可查看'"
+                :title="webhookViewSessionId(s) ? t('settings.automation.viewSessionSrc') : t('settings.automation.noSessionSrc')"
                 :disabled="!webhookViewSessionId(s)"
                 @click="viewWebhookSession(s)"
               >
@@ -918,7 +927,7 @@ onMounted(() => {
               <button
                 class="h-7 w-7 rounded-md border border-border hover:bg-hover inline-flex items-center justify-center shrink-0 cursor-pointer text-muted disabled:opacity-40 disabled:cursor-not-allowed"
                 :disabled="revealingWebhookTokenSrc === s.src"
-                :title="revealingWebhookTokenSrc === s.src ? '获取 Token 中…' : '复制 curl'"
+                :title="revealingWebhookTokenSrc === s.src ? t('settings.automation.fetchingToken') : t('settings.automation.copyCurl')"
                 @click="copyWebhookCurl(s)"
               >
                 <Check v-if="copiedWebhookCurlSrc === s.src" class="w-3.5 h-3.5 text-success" />
@@ -929,7 +938,7 @@ onMounted(() => {
                 :class="pendingDeleteWebhookSrc === s.src
                   ? 'border-danger/40 bg-danger/10 text-danger hover:bg-danger/15'
                   : 'border-border hover:bg-hover text-muted'"
-                :title="pendingDeleteWebhookSrc === s.src ? '确认删除' : '删除来源'"
+                :title="pendingDeleteWebhookSrc === s.src ? t('settings.automation.confirmDeleteSource') : t('settings.automation.deleteSource')"
                 :disabled="clearingWebhookSrc === s.src"
                 @click="removeWebhookSource(s.src)"
               >
@@ -938,7 +947,7 @@ onMounted(() => {
               <button
                 v-if="pendingDeleteWebhookSrc === s.src"
                 class="h-7 w-7 rounded-md border border-border hover:bg-hover inline-flex items-center justify-center text-muted cursor-pointer shrink-0"
-                title="取消"
+                :title="t('common.cancel')"
                 @click="cancelDeleteWebhookSource"
               >
                 <X class="w-3.5 h-3.5" />
@@ -952,7 +961,7 @@ onMounted(() => {
           <div class="flex items-end gap-4 min-w-0">
             <label class="block shrink-0 space-y-2">
               <div class="flex h-[14px] items-center">
-                <span class="text-[11px] text-muted whitespace-nowrap">来源标识</span>
+                <span class="text-[11px] text-muted whitespace-nowrap">{{ t('settings.automation.sourceId') }}</span>
               </div>
               <input
                 v-model="webhookSrcInput"
@@ -976,7 +985,7 @@ onMounted(() => {
                   v-model="tokenInput"
                   type="password"
                   class="input-base flex-1 min-w-0 font-mono text-[12px]"
-                  placeholder="Bearer Token（仅可设置一次）"
+                  :placeholder="t('settings.automation.bearerOnce')"
                   autocomplete="new-password"
                   spellcheck="false"
                   :disabled="settingToken"
@@ -984,7 +993,7 @@ onMounted(() => {
                 <button
                   type="button"
                   class="h-9 w-9 rounded-md border border-border hover:bg-hover inline-flex items-center justify-center shrink-0 cursor-pointer text-muted"
-                  title="重新生成 Token"
+                  :title="t('settings.automation.regenToken')"
                   :disabled="settingToken"
                   @click="tokenInput = generateWebhookToken()"
                 >
@@ -994,7 +1003,7 @@ onMounted(() => {
             </label>
             <label class="block shrink-0 space-y-2">
               <div class="flex h-[14px] items-center gap-1">
-                <span class="text-[11px] text-muted whitespace-nowrap">鉴权 Header</span>
+                <span class="text-[11px] text-muted whitespace-nowrap">{{ t('settings.automation.authHeader') }}</span>
                 <span
                   class="inline-flex items-center text-muted hover:text-foreground transition-colors cursor-help shrink-0"
                   :title="AUTH_HEADER_HINT"
@@ -1005,13 +1014,13 @@ onMounted(() => {
               <input
                 v-model="authHeaderInput"
                 class="input-base w-[24ch] max-w-[24ch] font-mono text-[12px]"
-                placeholder="可选"
+                :placeholder="t('settings.automation.optional')"
                 :disabled="settingToken"
               />
             </label>
             <label class="block shrink-0 space-y-2">
               <div class="flex h-[14px] items-center gap-1">
-                <span class="text-[11px] text-muted whitespace-nowrap">会话模式</span>
+                <span class="text-[11px] text-muted whitespace-nowrap">{{ t('settings.automation.sessionMode') }}</span>
                 <span
                   class="inline-flex items-center text-muted hover:text-foreground transition-colors cursor-help shrink-0"
                   :title="SESSION_MODE_HINT"
@@ -1024,8 +1033,8 @@ onMounted(() => {
                 class="input-base w-[9rem] text-[12px] cursor-pointer"
                 :disabled="settingToken"
               >
-                <option value="daily">按日续接</option>
-                <option value="per_delivery">按投递隔离</option>
+                <option value="daily">{{ t('settings.automation.modeDaily') }}</option>
+                <option value="per_delivery">{{ t('settings.automation.modePerDelivery') }}</option>
               </select>
             </label>
           </div>
@@ -1035,14 +1044,14 @@ onMounted(() => {
               class="h-8 px-3 rounded-md bg-hover hover:bg-hover text-xs text-foreground cursor-pointer"
               @click="showWebhookForm = false"
             >
-              取消
+              {{ t('common.cancel') }}
             </button>
             <button
               class="h-8 px-4 rounded-md bg-accent text-accent-foreground text-xs font-medium hover:opacity-95 cursor-pointer disabled:opacity-50"
               :disabled="settingToken"
               @click="submitWebhookSource"
             >
-              {{ settingToken ? '添加中…' : '添加' }}
+              {{ settingToken ? t('settings.automation.adding') : t('settings.automation.add') }}
             </button>
           </div>
         </div>
@@ -1051,25 +1060,28 @@ onMounted(() => {
           class="rounded-lg border border-border/60 bg-card/30 px-3 py-2.5 space-y-1.5 text-[11px] text-muted leading-relaxed"
         >
           <div class="flex items-start gap-1.5 min-w-0">
-            <span class="shrink-0 whitespace-nowrap">地址模板</span>
+            <span class="shrink-0 whitespace-nowrap">{{ t('settings.automation.urlTemplate') }}</span>
             <code class="font-mono text-foreground break-all">{{ WEBHOOK_URL_TEMPLATE }}</code>
           </div>
           <div class="min-w-0">
-            鉴权：默认 <code class="font-mono text-foreground/90">Authorization: Bearer …</code>
-            或 <code class="font-mono text-foreground/90">X-Pointer-Token</code>；
-            每个来源可配置自定义 Header 明文 Token
+            {{ t('settings.automation.authDefault') }}
+            <code class="font-mono text-foreground/90">Authorization: Bearer …</code>
+            {{ t('settings.automation.authOr') }}
+            <code class="font-mono text-foreground/90">X-Pointer-Token</code>{{ t('settings.automation.authCustom') }}
           </div>
           <div class="min-w-0">
-            消息：优先 <code class="font-mono text-foreground/90">text</code> /
-            <code class="font-mono text-foreground/90">message</code>；无则整段 body 作为消息（兼容第三方原生 JSON）
+            {{ t('settings.automation.msgPrefer') }}
+            <code class="font-mono text-foreground/90">text</code> /
+            <code class="font-mono text-foreground/90">message</code>{{ t('settings.automation.msgFallback') }}
           </div>
           <div class="min-w-0" :title="WEBHOOK_REF_BLOCKING">
-            同步模式：<code class="font-mono text-foreground/90">"blocking": true</code>，
-            可选 <code class="font-mono text-foreground/90">"timeoutSeconds"</code>（默认 120，最大 600）
+            {{ t('settings.automation.syncMode') }}
+            <code class="font-mono text-foreground/90">"blocking": true</code>{{ t('settings.automation.syncOptional') }}
+            <code class="font-mono text-foreground/90">"timeoutSeconds"</code>{{ t('settings.automation.syncRange') }}
           </div>
         </div>
       </div>
-      <div v-else-if="loadingWebhook" class="text-xs text-muted">加载中…</div>
+      <div v-else-if="loadingWebhook" class="text-xs text-muted">{{ t('settings.automation.loading') }}</div>
     </section>
   </div>
 </template>

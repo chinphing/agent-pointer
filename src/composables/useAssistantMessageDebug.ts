@@ -7,6 +7,7 @@ import { previewComputerAnnotatedScreen, previewComputerRoundScreen } from '../l
 import { isMessageStreaming } from '../lib/assistantMessageKind'
 import { showAnnotatedScreenAction } from '../lib/computerMessageContext'
 import { toolCallBaseName } from '../lib/messageTooling'
+import { t } from '../i18n'
 
 function formatToolArgs(raw: string | undefined): string {
   const text = (raw ?? '').trim()
@@ -130,7 +131,7 @@ export function useAssistantMessageDebug(
         if (cid) {
           screenPreview.value = await previewComputerAnnotatedScreen(cid)
         } else {
-          screenError.value = '无法获取当前会话 ID'
+          screenError.value = t('chat.debug.noSessionId')
         }
       }
     } catch (e: unknown) {

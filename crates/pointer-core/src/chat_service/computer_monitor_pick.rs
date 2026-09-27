@@ -73,7 +73,7 @@ pub async fn ensure_computer_monitor_for_subagent(
     let outcome = tokio::select! {
         _ = cancel.cancelled() => {
             state.monitor_picks.lock().remove(conversation_id);
-            Err(anyhow!("已停止生成"))
+            Err(anyhow!(crate::i18n::generation_stopped_msg()))
         }
         v = rx => match v {
             Ok(Ok(())) => Ok(()),

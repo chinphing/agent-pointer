@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { ProviderConfig } from '../../types/chat'
 import { resolvedModelCapabilities } from '../../lib/modelCapabilities'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   provider: ProviderConfig
@@ -26,9 +29,9 @@ function patch(flag: 'supportsVision' | 'supportsAudio' | 'canGenerateImage' | '
 
 <template>
   <div class="rounded-lg border border-border bg-[hsl(var(--card-elevated))] p-3 space-y-2">
-    <p class="text-[12px] font-medium text-foreground">模型能力</p>
+    <p class="text-[12px] font-medium text-foreground">{{ t('settings.capability.heading') }}</p>
     <p class="text-[11px] text-muted">
-      勾选后会出现在对应场景的模型列表中。
+      {{ t('settings.capability.hint') }}
     </p>
     <label class="inline-flex items-center gap-2 cursor-pointer text-[12px] text-foreground">
       <input
@@ -37,7 +40,7 @@ function patch(flag: 'supportsVision' | 'supportsAudio' | 'canGenerateImage' | '
         :checked="caps.supportsVision"
         @change="patch('supportsVision', ($event.target as HTMLInputElement).checked)"
       />
-      支持视觉理解
+      {{ t('settings.capability.vision') }}
     </label>
     <label class="inline-flex items-center gap-2 cursor-pointer text-[12px] text-foreground">
       <input
@@ -46,7 +49,7 @@ function patch(flag: 'supportsVision' | 'supportsAudio' | 'canGenerateImage' | '
         :checked="caps.supportsAudio"
         @change="patch('supportsAudio', ($event.target as HTMLInputElement).checked)"
       />
-      支持语音转写
+      {{ t('settings.capability.audio') }}
     </label>
     <label class="inline-flex items-center gap-2 cursor-pointer text-[12px] text-foreground">
       <input
@@ -55,7 +58,7 @@ function patch(flag: 'supportsVision' | 'supportsAudio' | 'canGenerateImage' | '
         :checked="caps.canGenerateImage"
         @change="patch('canGenerateImage', ($event.target as HTMLInputElement).checked)"
       />
-      可生成图片
+      {{ t('settings.capability.imageGen') }}
     </label>
     <label class="inline-flex items-center gap-2 cursor-pointer text-[12px] text-foreground">
       <input
@@ -64,7 +67,7 @@ function patch(flag: 'supportsVision' | 'supportsAudio' | 'canGenerateImage' | '
         :checked="caps.canGenerateVideo"
         @change="patch('canGenerateVideo', ($event.target as HTMLInputElement).checked)"
       />
-      可生成视频
+      {{ t('settings.capability.videoGen') }}
     </label>
   </div>
 </template>

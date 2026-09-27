@@ -19,7 +19,10 @@ pub mod tool_md;
 pub mod web_fetch;
 pub mod web_search;
 
-pub use display::{default_display, format_tool_display, ToolDisplay, ToolDisplayFn};
+pub use display::{
+    default_display, default_display_for, format_tool_display, format_tool_display_for, ToolDisplay,
+    ToolDisplayFn,
+};
 
 pub use tool_doc::{
     doc_markdown_without_schema_fence, json_schema_from_markdown, load_tool_doc_and_schema,
@@ -686,9 +689,19 @@ impl ToolRegistry {
 
     /// UI display label + parameter summary for a tool invocation (not sent to the LLM).
     pub fn format_display(&self, raw_name: &str, args: &serde_json::Value) -> ToolDisplay {
+        self.format_display_for(raw_name, args, crate::i18n::current_ui_locale())
+    }
+
+    /// UI display label + parameter summary for an explicit UI locale.
+    pub fn format_display_for(
+        &self,
+        raw_name: &str,
+        args: &serde_json::Value,
+        locale: crate::i18n::UiLocale,
+    ) -> ToolDisplay {
         let base = registry_tool_base_name(raw_name);
         let custom = self.inner.read().get(base).and_then(|e| e.display.clone());
-        format_tool_display(raw_name, args, custom.as_ref())
+        format_tool_display_for(raw_name, args, custom.as_ref(), locale)
     }
 
     pub fn openai_tools(&self, allow: &[String]) -> Vec<serde_json::Value> {

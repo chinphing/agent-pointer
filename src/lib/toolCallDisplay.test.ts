@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import type { ToolCall } from '../types/chat'
+import { i18n } from '../i18n'
 import { buildFileChangeSummaries, backgroundJobIdFromToolCall, collapsedLiveRunItemKey, collapsedToolListItems, compactToolCallLiveText, compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, fileToolDisplayPath, formatCollapsedToolGroupLine, formatToolDurationLabel, isBackgroundJobHandleResult, isBackgroundSubagentCall, isJobAwaitCall, latestToolCallForCompactStatus, partitionCollapsedToolCalls, resolveBackgroundHostDisplayStatus, resolveCollapsedGroupLiveTool, resolveToolDisplayForCall, shouldPinSubAgentHostRow, truncatePathKeepEnd, workspaceRelativeDisplayPath, workspaceRelativeDisplayPathWithFallbacks } from './toolCallDisplay'
+
+beforeAll(() => {
+  // Fallback labels assert against zh-CN catalog until tests cover both locales.
+  i18n.global.locale.value = 'zh-CN'
+})
 
 function tc(partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name' | 'status'>): ToolCall {
   return {

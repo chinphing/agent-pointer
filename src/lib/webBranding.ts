@@ -1,9 +1,12 @@
+import { t } from '../i18n'
 import { isTauriRuntime } from './runtime'
 
 /** Default composer prompt when no server / Vite override is present. */
-export const DEFAULT_COMPOSER_PLACEHOLDER = '告诉我你想做什么'
+export function defaultComposerPlaceholder(): string {
+  return t('chat.composerDefault')
+}
 
-/** Default turn-elapsed chip prefix (`工作 N m SS s` / `工作耗时未知`). */
+/** @deprecated Use resolveTurnElapsedPrefix() — locale-aware. */
 export const DEFAULT_TURN_ELAPSED_PREFIX = '工作'
 
 /** Default sidebar / top-bar product name. */
@@ -20,6 +23,14 @@ const TURN_ELAPSED_DONE_META = 'pointer-turn-elapsed-done'
 const BRAND_NAME_META = 'pointer-brand-name'
 const BRAND_ICON_META = 'pointer-brand-icon'
 const DESKTOP_SNAPSHOT_META = 'pointer-desktop-snapshot'
+
+/** Stock Chinese placeholders that must not override the UI locale catalog. */
+const STOCK_ZH_COMPOSER_PLACEHOLDERS = new Set([
+  '告诉我你想做什么',
+  '有什么可以帮你？',
+  '输入消息…',
+  '输入消息...'
+])
 
 function readMeta(name: string): string | null {
   if (typeof document === 'undefined') return null
@@ -47,15 +58,15 @@ function parseBoolFlag(raw: string | null): boolean | null {
 
 /**
  * Composer empty-state placeholder for the default (logged-in + key) case.
- * Priority: `VITE_COMPOSER_PLACEHOLDER` → `<meta name="pointer-composer-placeholder">`
- * (injected by pointer-server from `[server].composer_placeholder`) → default.
+ * UI locale catalog is authoritative. Vite / meta branding applies only when
+ * it is a custom white-label string (not a stock Chinese product default).
  */
 export function resolveComposerPlaceholder(): string {
-  return (
-    readViteString('VITE_COMPOSER_PLACEHOLDER')
-    ?? readMeta(COMPOSER_PLACEHOLDER_META)
-    ?? DEFAULT_COMPOSER_PLACEHOLDER
-  )
+  const branded =
+    readViteString('VITE_COMPOSER_PLACEHOLDER') ?? readMeta(COMPOSER_PLACEHOLDER_META)
+  const localized = defaultComposerPlaceholder()
+  if (!branded || STOCK_ZH_COMPOSER_PLACEHOLDERS.has(branded)) return localized
+  return branded
 }
 
 export type WelcomeTip = {
@@ -81,21 +92,21 @@ export function resolveWelcomeTip(): WelcomeTip | null {
 export type TurnElapsedPhase = 'active' | 'done'
 
 /**
- * Turn elapsed chip prefix. Default `工作`.
- * Priority: Vite → server meta → default.
+ * Turn elapsed chip prefix. Default follows UI locale (`chat.workPrefix`).
+ * Custom Vite / meta branding still wins for white-label builds.
  */
 export function resolveTurnElapsedPrefix(phase: TurnElapsedPhase): string {
   if (phase === 'active') {
     return (
       readViteString('VITE_TURN_ELAPSED_ACTIVE')
       ?? readMeta(TURN_ELAPSED_ACTIVE_META)
-      ?? DEFAULT_TURN_ELAPSED_PREFIX
+      ?? t('chat.workPrefix')
     )
   }
   return (
     readViteString('VITE_TURN_ELAPSED_DONE')
     ?? readMeta(TURN_ELAPSED_DONE_META)
-    ?? DEFAULT_TURN_ELAPSED_PREFIX
+    ?? t('chat.workPrefix')
   )
 }
 
@@ -122,7 +133,6 @@ export function resolveBrandIcon(): string {
     ?? DEFAULT_BRAND_ICON
   )
 }
-
 
 /**
  * Whether the desktop snapshot button should show.

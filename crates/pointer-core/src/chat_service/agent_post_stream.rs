@@ -44,7 +44,9 @@ fn assistant_tool_calls_with_risk(
                     .tools
                     .tool_risk_level_for_invocation(&t.name, &args_v)
                     .or(Some("low".into()));
-                let display = state.tools.format_display(&t.name, &args_v);
+                let display = state
+                    .tools
+                    .format_display_for(&t.name, &args_v, state.ui_locale());
                 t.display_label = Some(display.label);
                 t.display_summary = if display.summary.is_empty() {
                     None
@@ -476,7 +478,8 @@ mod tests {
             &state,
         );
         let tcs = msg.tool_calls.expect("tool_calls");
-        assert_eq!(tcs[0].display_label.as_deref(), Some("读取文件"));
+        let expected = crate::i18n::t(state.ui_locale(), "tools.fileRead");
+        assert_eq!(tcs[0].display_label.as_deref(), Some(expected.as_str()));
         assert_eq!(tcs[0].display_summary.as_deref(), Some("App.vue"));
     }
 
@@ -527,7 +530,8 @@ mod tests {
             &state,
         );
         let tcs = msg.tool_calls.expect("tool_calls");
-        assert_eq!(tcs[0].display_label.as_deref(), Some("终端命令"));
+        let expected = crate::i18n::t(state.ui_locale(), "tools.terminal");
+        assert_eq!(tcs[0].display_label.as_deref(), Some(expected.as_str()));
         assert_eq!(tcs[0].display_summary.as_deref(), Some("npm test"));
     }
 }

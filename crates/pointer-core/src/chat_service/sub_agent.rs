@@ -164,27 +164,32 @@ pub(crate) async fn run_sub_agent(
             agent_round_lifecycle::LoopGuardOutcome::Continue => {}
             agent_round_lifecycle::LoopGuardOutcome::Cancelled => {
                 state.computer_state.mark_cancelled(conversation_id);
+                let locale = state.ui_locale();
                 let toast_msg = if def.profile == AgentProfile::Computer {
-                    "计算机操作已取消"
+                    crate::i18n::t(locale, "toast.computerCancelled")
                 } else {
-                    "子 Agent 已停止"
+                    crate::i18n::t(locale, "toast.subAgentStopped")
                 };
                 crate::stream_broadcast::publish_stream(
                     &stream,
                     StreamEvent::UiToast {
                         conversation_id: conversation_id.to_string(),
-                        message: toast_msg.to_string(),
+                        message: toast_msg,
                         level: "warning".to_string(),
                     },
                 );
-                return Err(anyhow!("已停止生成"));
+                return Err(anyhow!(crate::i18n::t(
+                    locale,
+                    "errors.generationStopped"
+                )));
             }
             agent_round_lifecycle::LoopGuardOutcome::BudgetExhausted => {
                 state.computer_state.mark_cancelled(conversation_id);
-                return Err(anyhow!(
-                    "子 Agent 工具调用轮次已达上限（{}）。请新开对话或在设置中调高上限。",
-                    max_cap
-                ));
+                return Err(anyhow!(crate::i18n::tf(
+                    state.ui_locale(),
+                    "errors.subAgentToolBudget",
+                    &[("max", &max_cap.to_string())],
+                )));
             }
         }
 
@@ -208,7 +213,7 @@ pub(crate) async fn run_sub_agent(
         .await;
         if cancel.is_cancelled() {
             state.computer_state.mark_cancelled(conversation_id);
-            return Err(anyhow!("已停止生成"));
+            return Err(anyhow!(crate::i18n::generation_stopped_msg()));
         }
 
         let round_message_id = new_id("agent_msg");
@@ -275,6 +280,7 @@ pub(crate) async fn run_sub_agent(
                 def: &def,
                 workspace_root: sub_provider.settings.workspace_root.as_str(),
                 user_dynamic_inject_enabled: sub_provider.settings.user_dynamic_inject_enabled,
+                ui_locale: sub_provider.settings.ui_locale.as_str(),
                 spawn_depth,
             })
             .await?;

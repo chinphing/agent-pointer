@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, ref } from 'vue'
 import { Check, Loader2 } from 'lucide-vue-next'
 import type { ToolCall } from '../../types/chat'
@@ -52,7 +56,7 @@ async function submit(selected: string[]) {
   if (submitting.value || isCompleted.value) return
   const cleaned = selected.map(item => item.trim()).filter(Boolean)
   if (cleaned.length === 0) {
-    error.value = '请输入内容'
+    error.value = t('chat.s_a11cc7')
     return
   }
   submitting.value = true
@@ -100,7 +104,7 @@ function onOtherInput(event: Event) {
 function confirmOtherSingle() {
   const text = otherText.value.trim()
   if (!text) {
-    error.value = '请输入内容'
+    error.value = t('chat.s_a11cc7')
     return
   }
   localSelection.value = [text]
@@ -112,7 +116,7 @@ function confirmMultiple() {
   const text = otherText.value.trim()
   if (text && !selected.includes(text)) selected.push(text)
   if (selected.length === 0) {
-    error.value = '请选择选项或输入其他内容'
+    error.value = t('chat.s_22d64a')
     return
   }
   void submit(selected)
@@ -198,11 +202,11 @@ const canConfirmMultiple = computed(
         >
           <Check v-if="otherActive" class="h-3 w-3" stroke-width="3" />
         </span>
-        <span class="shrink-0 text-xs leading-4 font-medium">其他</span>
+        <span class="shrink-0 text-xs leading-4 font-medium">{{ t('chat.s_0d98c7') }}</span>
         <input
           type="text"
           class="h-7 w-full max-w-[14rem] min-w-0 rounded-md border border-border bg-transparent px-2 text-xs text-foreground placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-foreground/25 disabled:opacity-80"
-          :placeholder="isCompleted ? '' : '请输入其他选项'"
+          :placeholder="isCompleted ? '' : t('chat.otherOptionPlaceholder')"
           :value="isCompleted ? freeTextSelected : otherText"
           :disabled="submitting || isCompleted"
           :readonly="isCompleted"
@@ -226,19 +230,19 @@ const canConfirmMultiple = computed(
       >
         <span class="inline-flex items-center gap-1.5">
           <Loader2 v-if="submitting" class="h-3 w-3 animate-spin" />
-          确认选择
+          {{ t('chat.s_0faff9') }}
         </span>
       </button>
       <span class="text-[11px] text-muted">
-        已选 {{ localSelection.length + (otherText.trim() ? 1 : 0) }} 项
+        {{ t('chat.selectedCount', { count: localSelection.length + (otherText.trim() ? 1 : 0) }) }}
       </span>
     </div>
 
     <p v-else-if="submitting" class="inline-flex items-center gap-1.5 text-[11px] text-muted">
-      <Loader2 class="h-3 w-3 animate-spin" />正在提交选择
+      <Loader2 class="h-3 w-3 animate-spin" />{{ t('chat.s_0d76a4') }}
     </p>
-    <p v-else-if="isCompleted" class="text-[11px] text-muted truncate" :title="'已选择：' + displaySelected.join('、')">
-      已选择：{{ displaySelected.join('、') }}
+    <p v-else-if="isCompleted" class="text-[11px] text-muted truncate" :title="t('chat.selectedList', { items: displaySelected.join(t('common.listSep')) })">
+      {{ t('chat.selectedList', { items: displaySelected.join(t('common.listSep')) }) }}
     </p>
     <p v-if="error" class="text-[11px] leading-4 text-danger">{{ error }}</p>
     </div>

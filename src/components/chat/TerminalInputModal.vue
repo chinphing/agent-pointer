@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { KeyRound, Terminal, X } from 'lucide-vue-next'
 import { dismissTerminalInput, submitTerminalInput } from '../../lib/api'
@@ -17,7 +21,7 @@ const submitting = ref(false)
 const error = ref('')
 
 const isSecret = computed(() => props.request.inputClass === 'secret')
-const title = computed(() => (isSecret.value ? '需要密码' : '命令需要输入'))
+const title = computed(() => (isSecret.value ? t('chat.s_94964b') : t('chat.s_e86081')))
 const commandText = computed(() => props.request.command?.trim() ?? '')
 const outputContext = computed(() => props.request.outputContext?.trim() ?? '')
 const showContext = computed(() => commandText.value.length > 0 || outputContext.value.length > 0)
@@ -36,7 +40,7 @@ watch(outputContext, () => {
 async function submit() {
   const value = text.value
   if (!value.trim()) {
-    error.value = '请输入内容'
+    error.value = t('chat.s_a11cc7')
     return
   }
   submitting.value = true
@@ -104,7 +108,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           <button
             type="button"
             class="absolute top-4 right-4 rounded-lg p-2 text-muted transition-colors hover:bg-hover cursor-pointer"
-            aria-label="取消"
+            :aria-label="t('common.cancel')"
             :disabled="submitting"
             @click="dismiss()"
           >
@@ -114,13 +118,13 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
         <div v-if="showContext" class="shrink-0 space-y-3 border-b border-border px-5 py-3">
           <div v-if="commandText">
-            <p class="mb-1 text-[12px] text-muted">命令</p>
+            <p class="mb-1 text-[12px] text-muted">{{ t('chat.s_ddf7d2') }}</p>
             <pre
               class="max-h-20 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background/80 px-3 py-2 font-mono text-[12px] leading-relaxed text-foreground"
             >{{ commandText }}</pre>
           </div>
           <div v-if="outputContext">
-            <p class="mb-1 text-[12px] text-muted">终端输出</p>
+            <p class="mb-1 text-[12px] text-muted">{{ t('chat.s_6b8e4b') }}</p>
             <pre
               ref="outputEl"
               class="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-background/80 px-3 py-2 font-mono text-[12px] leading-relaxed text-foreground"
@@ -134,7 +138,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             :type="isSecret ? 'password' : 'text'"
             autocomplete="off"
             class="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
-            :placeholder="isSecret ? '密码' : '输入…'"
+            :placeholder="isSecret ? t('chat.password') : t('chat.inputEllipsis')"
             :disabled="submitting"
           />
           <p v-if="error" class="text-[12px] text-destructive">{{ error }}</p>
@@ -145,7 +149,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
               :disabled="submitting"
               @click="dismiss()"
             >
-              取消
+              {{ t('common.cancel') }}
             </button>
             <button
               type="button"
@@ -153,7 +157,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
               :disabled="submitting"
               @click="submit()"
             >
-              提交
+              {{ t('chat.s_939d53') }}
             </button>
           </div>
         </div>

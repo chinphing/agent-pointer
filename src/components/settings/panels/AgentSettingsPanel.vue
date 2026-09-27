@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, ref } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import type { AgentDef } from '../../../types/chat'
@@ -8,7 +12,7 @@ import { useSkillsStore } from '../../../stores/skills'
 import { Bot, RotateCcw, Sparkles, Users } from 'lucide-vue-next'
 import { composerAgentLabel } from '../../../lib/agentUi'
 import {
-  THINKING_INTENSITY_OPTIONS,
+  thinkingIntensityOptions,
   patchTierThinkingIntensity,
   tierThinkingIntensityValue
 } from '../../../lib/thinkingIntensity'
@@ -19,6 +23,7 @@ const props = defineProps<{
 
 const s = useSettingsStore()
 const skillsStore = useSkillsStore()
+const THINKING_INTENSITY_OPTIONS = computed(() => thinkingIntensityOptions())
 const skillPickerAgent = ref<AgentDef | null>(null)
 const skillPickerAgentName = computed(() =>
   skillPickerAgent.value ? composerAgentLabel(skillPickerAgent.value, s.settings) : ''
@@ -75,14 +80,14 @@ function skillLabel(skillId: string): string {
 
 <template>            <div>
               <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
-                <Bot class="w-4 h-4 text-accent" />智能模式
+                <Bot class="w-4 h-4 text-accent" />{{ t('settings.agentPanel.smartMode') }}
               </h3>
-              <p class="mt-0.5 text-xs text-muted">选择 AI 的工作方式和工具使用权限</p>
+              <p class="mt-0.5 text-xs text-muted">{{ t('settings.agentPanel.smartModeHint') }}</p>
             </div>
 
             <!-- Agent Cards -->
             <div class="space-y-2">
-              <h4 class="text-[12px] font-medium text-muted uppercase tracking-wider">执行智能体</h4>
+              <h4 class="text-[12px] font-medium text-muted uppercase tracking-wider">{{ t('settings.agentPanel.execAgents') }}</h4>
 
               <!-- Worker Agents -->
               <div
@@ -105,23 +110,23 @@ function skillLabel(skillId: string): string {
                     <div class="flex items-center gap-2">
                       <span class="text-sm font-medium text-foreground">{{ composerAgentLabel(w, s.settings) }}</span>
                       <span class="px-1.5 py-0.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[10px] text-muted font-mono">{{ w.name }}</span>
-                      <span v-if="!isLeadAgentSelectable(w)" class="px-1.5 py-0.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[10px] text-muted">子智能体</span>
-                      <span v-else-if="isLeadWorkerSelected(w.id)" class="px-1.5 py-0.5 rounded bg-hover text-[10px] font-medium text-foreground">已选择</span>
+                      <span v-if="!isLeadAgentSelectable(w)" class="px-1.5 py-0.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[10px] text-muted">{{ t('settings.agentPanel.subAgents') }}</span>
+                      <span v-else-if="isLeadWorkerSelected(w.id)" class="px-1.5 py-0.5 rounded bg-hover text-[10px] font-medium text-foreground">{{ t('settings.agentPanel.selected') }}</span>
                     </div>
-                    <p class="mt-0.5 text-[11px] text-muted">{{ w.description || '通用智能体' }}</p>
+                    <p class="mt-0.5 text-[11px] text-muted">{{ w.description || t('settings.agentPanel.generalAgentFallback') }}</p>
 
                     <!-- Per-agent default model (lead or delegated sub-agent runs) -->
                     <div class="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2" @click.stop>
                       <div v-if="!isModeAgent(w.id)" class="flex items-center gap-2 min-w-0">
                         <Sparkles class="w-3.5 h-3.5 text-accent shrink-0" />
-                        <span class="text-[11px] text-muted shrink-0">默认模型</span>
+                        <span class="text-[11px] text-muted shrink-0">{{ t('settings.agentPanel.defaultModel') }}</span>
                         <select
                           :value="getAgentModelWithProvider(w.id)"
                           @change.stop="selectAgentModelWithProvider(w.id, ($event.target as HTMLSelectElement).value)"
                           @click.stop
                           class="w-48 h-7 px-2 rounded bg-card border border-border text-[11px] text-foreground cursor-pointer outline-none focus:border-accent/50 transition-colors"
                         >
-                          <option value="">使用全局默认</option>
+                          <option value="">{{ t('settings.agentPanel.useGlobalDefault') }}</option>
                           <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                         </select>
                       </div>
@@ -133,18 +138,18 @@ function skillLabel(skillId: string): string {
                           :checked="taskBoardTrimChecked(w.id)"
                           @change="setTaskBoardTrimLocal(w.id, ($event.target as HTMLInputElement).checked)"
                         />
-                        <span class="text-[11px] text-muted">任务板后精简历史</span>
+                        <span class="text-[11px] text-muted">{{ t('settings.agentPanel.compactAfterBoard') }}</span>
                       </label>
 
                     </div>
 
                     <div v-if="supportsSkills(w)" class="mt-2.5 flex flex-wrap items-center gap-2" @click.stop>
                       <Sparkles class="w-3.5 h-3.5 text-accent shrink-0" />
-                      <span class="text-[11px] text-muted shrink-0">技能</span>
+                      <span class="text-[11px] text-muted shrink-0">{{ t('skills.title') }}</span>
                       <span
                         v-if="!skillsStore.hasAgentOverride(w.id)"
                         class="text-[11px] text-muted"
-                      >继承全局设置</span>
+                      >{{ t('settings.agentPanel.inheritGlobal') }}</span>
                       <template v-else-if="configuredSkillIds(w).length">
                         <span
                           v-for="skillId in configuredSkillIds(w).slice(0, 4)"
@@ -155,12 +160,12 @@ function skillLabel(skillId: string): string {
                           +{{ configuredSkillIds(w).length - 4 }}
                         </span>
                       </template>
-                      <span v-else class="text-[11px] text-muted">未启用技能</span>
+                      <span v-else class="text-[11px] text-muted">{{ t('settings.agentPanel.noSkills') }}</span>
                       <button
                         type="button"
                         class="h-7 px-2 rounded border border-border bg-card hover:bg-hover text-[11px] text-foreground transition-colors"
                         @click.stop="skillPickerAgent = w"
-                      >配置</button>
+                      >{{ t('settings.models.configure') }}</button>
                       <button
                         v-if="skillsStore.hasAgentOverride(w.id)"
                         type="button"
@@ -168,7 +173,7 @@ function skillLabel(skillId: string): string {
                         @click.stop="skillsStore.resetAgentOverride(w.id)"
                       >
                         <RotateCcw class="w-3 h-3" />
-                        重置
+                        {{ t('settings.agentPanel.reset') }}
                       </button>
                     </div>
 
@@ -177,8 +182,8 @@ function skillLabel(skillId: string): string {
                       class="col-span-full mt-3 rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4 space-y-3"
                     >
                       <div class="flex items-center justify-between gap-2">
-                        <h4 class="text-xs font-medium text-foreground">各模式对应模型（调试）</h4>
-                        <span class="text-[10px] text-muted">快速 / 标准 / 高级 各模式对应模型</span>
+                        <h4 class="text-xs font-medium text-foreground">{{ t('settings.agentPanel.modeModelsDebug') }}</h4>
+                        <span class="text-[10px] text-muted">{{ t('settings.agentPanel.modeModelsHint') }}</span>
                       </div>
                       <div
                         v-for="mode in PERFORMANCE_MODE_UI"
@@ -212,8 +217,8 @@ function skillLabel(skillId: string): string {
                       class="col-span-full mt-3 rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4 space-y-3"
                     >
                       <div class="flex items-center justify-between gap-2">
-                        <h4 class="text-xs font-medium text-foreground">电脑操控各模式对应模型（调试）</h4>
-                        <span class="text-[10px] text-muted">快速 / 标准 / 高级 各模式对应模型与思考参数</span>
+                        <h4 class="text-xs font-medium text-foreground">{{ t('settings.agentPanel.computerModeModelsDebug') }}</h4>
+                        <span class="text-[10px] text-muted">{{ t('settings.agentPanel.computerModeModelsHint') }}</span>
                       </div>
                       <div
                         v-for="tier in COMPUTER_TIER_UI"
@@ -242,8 +247,8 @@ function skillLabel(skillId: string): string {
                       </div>
                       <div class="border-t border-border pt-3 space-y-2">
                         <div class="flex items-center justify-between gap-2 px-2">
-                          <h5 class="text-[11px] font-medium text-foreground">Verify 模块（调试）</h5>
-                          <span class="text-[10px] text-muted">宿主执行后校验 LLM 模型与思考预算</span>
+                          <h5 class="text-[11px] font-medium text-foreground">{{ t('settings.agentPanel.verifyDebug') }}</h5>
+                          <span class="text-[10px] text-muted">{{ t('settings.agentPanel.verifyHint') }}</span>
                         </div>
                         <div class="grid grid-cols-[4.5rem_1fr_auto_6rem] gap-2 items-center px-2 py-1.5">
                           <span class="text-[11px] text-muted font-medium">Verify</span>
@@ -254,7 +259,7 @@ function skillLabel(skillId: string): string {
                           >
                             <option v-for="item in s.allModels" :key="'verify-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                           </select>
-                          <span class="text-[11px] text-muted whitespace-nowrap">推理预算</span>
+                          <span class="text-[11px] text-muted whitespace-nowrap">{{ t('settings.agentPanel.thinkingBudget') }}</span>
                           <input
                             type="number"
                             min="256"
@@ -276,11 +281,11 @@ function skillLabel(skillId: string): string {
                 class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4 space-y-3"
               >
                 <div class="flex items-center justify-between gap-2">
-                  <h4 class="text-xs font-medium text-foreground">多媒体理解各模式对应模型（调试）</h4>
-                  <span class="text-[10px] text-muted">图片 / 语音 / 视频各模式对应模型</span>
+                  <h4 class="text-xs font-medium text-foreground">{{ t('settings.agentPanel.mediaModeModelsDebug') }}</h4>
+                  <span class="text-[10px] text-muted">{{ t('settings.agentPanel.mediaModeModelsHint') }}</span>
                 </div>
                 <div v-for="kind in MEDIA_DEBUG_KINDS" :key="'media-debug-' + kind" class="space-y-2">
-                  <span class="text-[12px] text-foreground font-medium">{{ kind === 'image' ? '图片' : kind === 'audio' ? '语音' : '视频' }}</span>
+                  <span class="text-[12px] text-foreground font-medium">{{ kind === 'image' ? t('settings.mediaKinds.imageShort') : kind === 'audio' ? t('settings.mediaKinds.audioShort') : t('settings.mediaKinds.videoShort') }}</span>
                   <div
                     v-for="mode in PERFORMANCE_MODE_UI"
                     :key="kind + '-' + mode.value"
@@ -313,13 +318,13 @@ function skillLabel(skillId: string): string {
             <div
               class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3"
             >
-              <h4 class="text-sm font-medium text-foreground">子任务委托</h4>
+              <h4 class="text-sm font-medium text-foreground">{{ t('settings.agentPanel.delegation') }}</h4>
               <p class="text-[11px] text-muted">
-                可委派的 worker 由主 Agent 的 AGENT.md 中 <code class="text-muted">allowAgents</code> 配置。
+                {{ t('settings.agentPanel.delegationHintBefore') }} <code class="text-muted">allowAgents</code> {{ t('settings.agentPanel.delegationHintAfter') }}
               </p>
               <div>
-                <label class="block text-[12px] text-muted mb-1.5">子 Agent 最大嵌套深度</label>
-                <p class="text-[11px] text-muted mb-1.5">1 = 仅主 agent 可委派；2 = 子 agent 可再委派一层（默认）。</p>
+                <label class="block text-[12px] text-muted mb-1.5">{{ t('settings.agentPanel.maxNestDepth') }}</label>
+                <p class="text-[11px] text-muted mb-1.5">{{ t('settings.agentPanel.maxNestDepthHint') }}</p>
                 <input
                   v-model.number="maxSubAgentSpawnDepth"
                   type="number"

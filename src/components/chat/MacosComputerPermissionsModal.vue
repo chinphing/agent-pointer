@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { Check, Keyboard, Monitor, X } from 'lucide-vue-next'
 import type { MacosComputerPermissionsStatus } from '../../types/macosPermissions'
@@ -23,12 +27,12 @@ const emit = defineEmits<{
 const STEPS = [
   {
     id: 'accessibility' as MacosPermissionDragKind,
-    title: '辅助功能',
+    title: t('chat.s_3b6fab'),
     icon: Keyboard
   },
   {
     id: 'screenRecording' as MacosPermissionDragKind,
-    title: '屏幕录制',
+    title: t('chat.s_45cb79'),
     icon: Monitor
   }
 ] as const
@@ -270,7 +274,7 @@ onUnmounted(() => {
       style="background: hsl(var(--foreground) / 0.36)"
       role="dialog"
       aria-modal="true"
-      aria-label="电脑操控权限"
+      :aria-label="t('chat.s_786b10')"
       @click.self="onLater"
     >
       <div
@@ -283,13 +287,13 @@ onUnmounted(() => {
           <button
             type="button"
             class="absolute top-3.5 right-3.5 p-2 rounded-lg text-muted hover:text-foreground hover:bg-hover cursor-pointer"
-            title="关闭 (Esc)"
+            :title="t('skills.closeEsc')"
             @click="onLater"
           >
             <X class="w-4 h-4" />
           </button>
-          <h2 class="text-base font-semibold text-foreground pr-8">电脑操控权限</h2>
-          <p class="text-[12px] text-muted mt-1">拖拽 Pointer 到系统设置列表并保持启用</p>
+          <h2 class="text-base font-semibold text-foreground pr-8">{{ t('chat.s_786b10') }}</h2>
+          <p class="text-[12px] text-muted mt-1">{{ t('chat.pointer_536433') }}</p>
           <div class="mt-3 h-1 rounded-full bg-hover overflow-hidden">
             <div
               class="h-full bg-accent transition-all duration-400"
@@ -308,7 +312,7 @@ onUnmounted(() => {
             {{ error }}
           </div>
 
-          <ul class="space-y-2" aria-label="授权步骤">
+          <ul class="space-y-2" :aria-label="t('chat.s_178abc')">
             <li
               v-for="(s, idx) in STEPS"
               :key="s.id"
@@ -340,13 +344,13 @@ onUnmounted(() => {
                 <span
                   v-if="stepState(s.id) === 'done'"
                   class="text-[11px] text-success shrink-0"
-                >{{ stepSystemGranted(s.id) ? '完成' : '已确认' }}</span>
+                >{{ stepSystemGranted(s.id) ? t('common.done') : t('chat.stepConfirmed') }}</span>
               </div>
 
               <template v-if="stepState(s.id) === 'active'">
                 <div class="mt-3 pt-3 border-t border-border/50 space-y-2.5">
                   <p class="text-[12px] text-muted leading-relaxed">
-                    点击按钮后，将左侧浮动卡片中的图标拖到系统设置列表，并保持启用。
+                    {{ t('chat.s_787e0e') }}
                   </p>
                   <button
                     type="button"
@@ -354,29 +358,29 @@ onUnmounted(() => {
                     :disabled="busy"
                     @click="onDragGrant(s.id)"
                   >
-                    {{ busy && activeDragKind === s.id ? '正在打开设置…' : '打开设置并拖拽' }}
+                    {{ busy && activeDragKind === s.id ? t('chat.openingSettings') : t('chat.openSettingsAndDrag') }}
                   </button>
                   <p
                     v-if="showDetectingHint(s.id)"
                     class="text-[11px] text-muted text-center"
                   >
-                    正在检测授权…
+                    {{ t('chat.s_5eea6c') }}
                   </p>
                   <div
                     v-if="showSkipFallback(s.id)"
                     class="rounded-lg border border-dashed border-border bg-muted/5 px-3 py-2.5 space-y-2"
                   >
                     <p class="text-[11px] leading-snug">
-                      <span class="font-medium text-accent">我已操作，但系统未检测到已授权</span>
+                      <span class="font-medium text-accent">{{ t('chat.s_2b779e') }}</span>
                     </p>
                     <p class="text-[11px] text-muted leading-snug">
-                      完全退出 Pointer 后从「应用程序」重新打开，检测通常会通过；也可先进入下一步继续设置。
+                      {{ t('chat.pointer_bd3322') }}
                     </p>
                     <p
                       v-if="status && !status.runningFromAppBundle"
                       class="text-[10px] text-muted leading-snug break-all"
                     >
-                      当前为开发运行路径，请在系统设置中授权此可执行文件，或使用打包后的 Pointer.app。
+                      {{ t('chat.pointerApp_f8d825') }}
                     </p>
                     <button
                       type="button"
@@ -384,7 +388,7 @@ onUnmounted(() => {
                       :disabled="busy"
                       @click="onManualComplete(s.id)"
                     >
-                      先进入下一步
+                      {{ t('chat.s_f1ccc5') }}
                     </button>
                   </div>
                 </div>
@@ -396,13 +400,13 @@ onUnmounted(() => {
             v-if="allGranted"
             class="text-[13px] text-success text-center py-1"
           >
-            权限已就绪
+            {{ t('chat.s_d09bda') }}
           </p>
           <p
             v-else-if="allWizardDone && !allGranted"
             class="text-[13px] text-muted text-center py-1 leading-relaxed"
           >
-            步骤已确认，系统尚未全部通过。可点「仍要继续」发消息；操控异常请重启应用。
+            {{ t('chat.s_7c3154') }}
           </p>
         </div>
 
@@ -412,7 +416,7 @@ onUnmounted(() => {
             class="h-8 px-3 rounded-lg text-sm text-muted hover:bg-hover cursor-pointer"
             @click="onLater"
           >
-            稍后再说
+            {{ t('chat.s_87e4d9') }}
           </button>
           <button
             v-if="allWizardDone"
@@ -420,7 +424,7 @@ onUnmounted(() => {
             class="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-sm font-medium cursor-pointer hover:opacity-95"
             @click="onContinue"
           >
-            {{ allGranted ? '继续' : '仍要继续' }}
+            {{ allGranted ? t('common.continue') : t('common.continueAnyway') }}
           </button>
         </footer>
       </div>

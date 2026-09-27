@@ -1,4 +1,5 @@
 import type { ComputerTierLlmConfig } from '../types/chat'
+import { t } from '../i18n'
 
 /** Unified product thinking intensity ladder. */
 export type ThinkingIntensity = 'off' | 'low' | 'medium' | 'high' | 'max'
@@ -17,25 +18,29 @@ export type ThinkingProtocol =
 /** Narrow ladder still used by DeepSeek-only scene dropdowns. */
 export type EffortThinkingIntensity = 'off' | 'high' | 'max'
 
-export const THINKING_INTENSITY_OPTIONS: { value: '' | ThinkingIntensity; label: string }[] = [
-  { value: '', label: '不设置' },
-  { value: 'off', label: '关闭' },
-  { value: 'low', label: '低' },
-  { value: 'medium', label: '中' },
-  { value: 'high', label: '高' },
-  { value: 'max', label: '最高' }
-]
+export function thinkingIntensityOptions(): { value: '' | ThinkingIntensity; label: string }[] {
+  return [
+    { value: '', label: t('settings.thinking.unset') },
+    { value: 'off', label: t('settings.thinking.off') },
+    { value: 'low', label: t('settings.thinking.low') },
+    { value: 'medium', label: t('settings.thinking.medium') },
+    { value: 'high', label: t('settings.thinking.high') },
+    { value: 'max', label: t('settings.thinking.max') }
+  ]
+}
 
-export const THINKING_PROTOCOL_OPTIONS: { value: ThinkingProtocol; label: string }[] = [
-  { value: 'auto', label: '自动' },
-  { value: 'budget', label: '千问预算' },
-  { value: 'effort', label: 'DeepSeek 力度' },
-  { value: 'openrouter', label: 'OpenRouter' },
-  { value: 'kimi', label: 'Kimi' },
-  { value: 'openai_effort', label: 'OpenAI 力度' },
-  { value: 'off', label: '关闭结构化' },
-  { value: 'custom', label: '仅扩展参数' }
-]
+export function thinkingProtocolOptions(): { value: ThinkingProtocol; label: string }[] {
+  return [
+    { value: 'auto', label: t('settings.thinking.protocolAuto') },
+    { value: 'budget', label: t('settings.thinking.protocolBudget') },
+    { value: 'effort', label: t('settings.thinking.protocolEffort') },
+    { value: 'openrouter', label: 'OpenRouter' },
+    { value: 'kimi', label: 'Kimi' },
+    { value: 'openai_effort', label: t('settings.thinking.protocolOpenaiEffort') },
+    { value: 'off', label: t('settings.thinking.protocolOff') },
+    { value: 'custom', label: t('settings.thinking.protocolCustom') }
+  ]
+}
 
 export function parseThinkingIntensity(raw: unknown): ThinkingIntensity | '' {
   if (typeof raw !== 'string') return ''

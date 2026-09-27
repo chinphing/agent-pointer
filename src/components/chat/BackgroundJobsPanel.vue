@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { ChevronDown } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
@@ -36,7 +40,7 @@ const rows = computed(() =>
 
 const generating = computed(() => chat.isConversationGenerating(props.conversationId))
 const companionHint = computed(() =>
-  generating.value ? '后台仍在执行' : '执行中，不影响继续对话'
+  generating.value ? t('chat.s_ba9e6f') : t('chat.s_b94d62')
 )
 
 /** 可一键取消的 host 行（拿到了 jobId）。 */
@@ -45,10 +49,10 @@ const cancelableHosts = computed(
 )
 
 function rowLabel(item: BackgroundJobsPanelItem): string {
-  if (item.kind === 'host') return item.title || '后台任务'
+  if (item.kind === 'host') return item.title || t('tools.job')
   return compactToolCallStatusLine(item.toolCall, chat.current?.workspaceRoot, {
     includeStatus: false
-  }) || '等待后台任务'
+  }) || t('tools.jobAwait')
 }
 
 function cancelJob(item: Extract<BackgroundJobsPanelItem, { kind: 'host' }>) {
@@ -99,7 +103,7 @@ onBeforeUnmount(disarmCancel)
         @click="expanded = !expanded"
       >
         <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-accent animate-pulse" aria-hidden="true" />
-        <span class="text-[12px] font-medium text-muted flex-1 min-w-0 truncate">后台任务</span>
+        <span class="text-[12px] font-medium text-muted flex-1 min-w-0 truncate">{{ t('tools.job') }}</span>
         <span class="text-[10px] px-1.5 py-0.5 rounded bg-hover text-muted shrink-0 tabular-nums">
           {{ count }}
         </span>
@@ -115,11 +119,11 @@ onBeforeUnmount(disarmCancel)
         class="shrink-0 rounded-md px-2 py-1 text-[11px] font-medium border-0 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         :class="armedCancel ? 'bg-danger text-white hover:opacity-90' : 'text-danger/80 hover:bg-danger/10'"
         :disabled="cancelableHosts.length === 0"
-        :title="armedCancel ? '再次点击确认取消全部后台任务' : '取消全部后台任务'"
-        aria-label="取消全部后台任务"
+        :title="armedCancel ? t('chat.confirmCancelAllJobs') : t('chat.cancelAllJobs')"
+        :aria-label="t('chat.s_14d493')"
         @click.stop="onCancelAll"
       >
-        {{ armedCancel ? '确认取消' : '全部取消' }}
+        {{ armedCancel ? t('chat.confirmCancel') : t('chat.cancelAll') }}
       </button>
     </div>
 
@@ -137,19 +141,19 @@ onBeforeUnmount(disarmCancel)
           v-if="item.kind === 'host' && item.jobId"
           type="button"
           class="shrink-0 border-0 bg-transparent px-1 py-0.5 text-[11px] text-danger/80 hover:text-danger cursor-pointer transition-colors"
-          :title="'只结束这条后台任务'"
+          :title="t('chat.endThisBackgroundJob')"
           @click.stop="cancelJob(item)"
-        >结束任务</button>
+        >{{ t('chat.s_f3120e') }}</button>
         <button
           v-else-if="item.kind === 'await'"
           type="button"
           class="shrink-0 border-0 bg-transparent px-1 py-0.5 text-[11px] text-danger/80 hover:text-danger cursor-pointer transition-colors"
-          :title="'结束等待，后台任务继续跑'"
+          :title="t('chat.endWaitKeepBackground')"
           @click.stop="endWait"
-        >结束等待</button>
+        >{{ t('chat.s_7d8ba7') }}</button>
       </li>
       <li v-if="!rows.length" class="px-3 py-2 text-[11px] text-muted">
-        任务仍在运行，详情见上方消息记录
+        {{ t('chat.s_3ded60') }}
       </li>
     </ul>
   </div>

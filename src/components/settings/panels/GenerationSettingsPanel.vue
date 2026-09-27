@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import type { LaneQueueView, RunQueueSnapshot } from '../../../types/automation'
-import { ChevronRight, CircleHelp, Film, Monitor, Plus, Sparkles, Terminal, Volume2, Wrench, X } from 'lucide-vue-next'
+import type { UiLocalePreference } from '../../../types/chat'
+import { ChevronRight, CircleHelp, Film, Languages, Monitor, Plus, Sparkles, Terminal, Volume2, Wrench, X } from 'lucide-vue-next'
 import { getDispatcherQueueSnapshot } from '../../../lib/api'
 import { playTaskCompleteSound, primeTaskCompleteAudio } from '../../../lib/taskCompleteSound'
 import { laneQueueLabel, shortId, triggerSourceLabel } from '../../../lib/dispatcherQueueLabels'
 import { isSameTierRef, platformMediaGenerationDefault } from '../../../lib/platformTierDefaults'
+import { applyUiLocale, normalizeUiLocalePreference } from '../../../lib/uiLocale'
 import { useSettingsStore } from '../../../stores/settings'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   form: SettingsDialogForm
@@ -17,7 +22,9 @@ const s = useSettingsStore()
 
 function mediaGenDefaultLabel(kind: 'image' | 'video'): string {
   const ref = platformMediaGenerationDefault(s.platformSettings.tierDefaults, kind)
-  return ref?.model ? `平台默认（${ref.model}）` : '平台默认'
+  return ref?.model
+    ? t('settings.platformDefaultWithModel', { model: ref.model })
+    : t('settings.platformDefault')
 }
 
 function mediaGenOverridden(kind: 'imageGeneration' | 'videoGeneration', platformKind: 'image' | 'video'): boolean {
@@ -106,7 +113,7 @@ const totalLaneWaiting = computed(() =>
 )
 
 function laneStatusLine(lane: LaneQueueView): string {
-  return `${lane.active}/${lane.maxConcurrent} 执行中 · ${lane.waiting} 排队`
+  return t('settings.queue.laneActive', { active: lane.active, max: lane.maxConcurrent, waiting: lane.waiting })
 }
 
 async function refreshQueueSnapshot() {
@@ -141,15 +148,50 @@ const mediaDepsModalOpen = ref(false)
 const queueBusy = computed(() => pendingRunCount.value > 0 || totalLaneWaiting.value > 0)
 
 const queueStatusTitle = computed(() => {
-  if (queueLoading.value && !queueSnapshot.value) return '队列加载中'
+  if (queueLoading.value && !queueSnapshot.value) return t('settings.queue.loading')
   if (queueBusy.value) {
-    return `${pendingRunCount.value} 个待执行，${totalLaneWaiting.value} 个在排队`
+    return t('settings.queue.summary', { pending: pendingRunCount.value, waiting: totalLaneWaiting.value })
   }
-  return '当前无排队任务'
+  return t('settings.queue.empty')
 })
 
 const soundSaving = ref(false)
 const playSoundOnFinish = ref(s.userSettings.playSoundOnFinish !== false)
+
+const localeSaving = ref(false)
+const uiLocale = ref<UiLocalePreference>(
+  normalizeUiLocalePreference(s.userSettings.uiLocale) as UiLocalePreference
+)
+
+watch(
+  () => s.userSettings.uiLocale,
+  v => {
+    uiLocale.value = normalizeUiLocalePreference(v) as UiLocalePreference
+  }
+)
+
+const localeOptions: { value: UiLocalePreference; labelKey: string }[] = [
+  { value: 'system', labelKey: 'settings.languageSystem' },
+  { value: 'zh-CN', labelKey: 'settings.languageZhCN' },
+  { value: 'en', labelKey: 'settings.languageEn' }
+]
+
+async function onUiLocaleChange(next: UiLocalePreference) {
+  const prev = uiLocale.value
+  uiLocale.value = next
+  applyUiLocale(next)
+  localeSaving.value = true
+  try {
+    await s.saveUser({ uiLocale: next })
+    console.info('[settings] uiLocale=%s', next)
+  } catch (err) {
+    uiLocale.value = prev
+    applyUiLocale(prev)
+    console.error('[settings] failed to save uiLocale', err)
+  } finally {
+    localeSaving.value = false
+  }
+}
 
 let terminalEnvSaveTimer: ReturnType<typeof setTimeout> | null = null
 function onTerminalEnvRowChanged() {
@@ -192,13 +234,36 @@ async function onPlaySoundToggle(checked: boolean) {
     <!-- 界面显示 -->
     <section class="space-y-4" aria-labelledby="system-display-heading">
       <div class="flex items-center gap-2 px-1 pt-2 pb-1">
-        <h4 id="system-display-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">界面显示</h4>
+        <h4 id="system-display-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">{{ t('settings.display.heading') }}</h4>
         <div class="flex-1 h-px bg-border/60" />
+      </div>
+
+      <!-- Language -->
+      <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
+        <div class="flex items-center justify-between gap-4">
+          <div class="min-w-0">
+            <p class="text-sm font-medium text-foreground flex items-center gap-2">
+              <Languages class="w-4 h-4 text-accent" />{{ t('settings.language') }}
+            </p>
+            <p class="mt-1 text-sm text-muted">{{ t('settings.languageHint') }}</p>
+          </div>
+          <select
+            class="h-9 min-w-[8.5rem] shrink-0 rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-accent/50 cursor-pointer disabled:opacity-50"
+            :value="uiLocale"
+            :disabled="localeSaving"
+            :aria-label="t('settings.language')"
+            @change="onUiLocaleChange(($event.target as HTMLSelectElement).value as UiLocalePreference)"
+          >
+            <option v-for="opt in localeOptions" :key="opt.value" :value="opt.value">
+              {{ t(opt.labelKey) }}
+            </option>
+          </select>
+        </div>
       </div>
 
       <!-- 工具调用 -->
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
-        <h4 class="text-sm font-medium text-foreground">工具调用</h4>
+        <h4 class="text-sm font-medium text-foreground">{{ t('settings.display.toolCalls') }}</h4>
         <div class="grid grid-cols-2 gap-y-3 gap-x-32">
           <div
             v-for="field in TOOL_CALL_UI_FIELDS"
@@ -214,33 +279,33 @@ async function onPlaySoundToggle(checked: boolean) {
         </div>
       </div>
 
-      <!-- 智能体输出 -->
+      <!-- {{ t('settings.display.agentOutput') }} -->
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
-        <h4 class="text-sm font-medium text-foreground">智能体输出</h4>
+        <h4 class="text-sm font-medium text-foreground">{{ t('settings.display.agentOutput') }}</h4>
         <div class="grid grid-cols-2 gap-y-3 gap-x-32">
           <div class="flex items-center justify-between gap-3">
-            <h4 class="text-[12px] font-medium text-foreground">显示推理过程</h4>
+            <h4 class="text-[12px] font-medium text-foreground">{{ t('settings.display.showReasoning') }}</h4>
             <label class="relative inline-flex items-center cursor-pointer shrink-0">
               <input type="checkbox" class="sr-only peer" :checked="displayUiChecked('showReasoning')" @change="setDisplayUi('showReasoning', ($event.target as HTMLInputElement).checked)" />
               <div class="settings-toggle-track" />
             </label>
           </div>
           <div class="flex items-center justify-between gap-3">
-            <h4 class="text-[12px] font-medium text-foreground">显示任务板</h4>
+            <h4 class="text-[12px] font-medium text-foreground">{{ t('settings.display.showTaskBoard') }}</h4>
             <label class="relative inline-flex items-center cursor-pointer shrink-0">
               <input type="checkbox" class="sr-only peer" :checked="displayUiChecked('showTaskBoardPanel')" @change="setDisplayUi('showTaskBoardPanel', ($event.target as HTMLInputElement).checked)" />
               <div class="settings-toggle-track" />
             </label>
           </div>
           <div class="flex items-center justify-between gap-3">
-            <h4 class="text-[12px] font-medium text-foreground">显示子 Agent 边框面板</h4>
+            <h4 class="text-[12px] font-medium text-foreground">{{ t('settings.display.showSubAgentTrace') }}</h4>
             <label class="relative inline-flex items-center cursor-pointer shrink-0">
               <input type="checkbox" class="sr-only peer" :checked="displayUiChecked('showSubAgentTrace')" @change="setDisplayUi('showSubAgentTrace', ($event.target as HTMLInputElement).checked)" />
               <div class="settings-toggle-track" />
             </label>
           </div>
           <div class="flex items-center justify-between gap-3">
-            <h4 class="text-[12px] font-medium text-foreground">显示子任务板</h4>
+            <h4 class="text-[12px] font-medium text-foreground">{{ t('settings.display.showChildBoards') }}</h4>
             <label class="relative inline-flex items-center cursor-pointer shrink-0">
               <input v-model="taskBoardShowChildBoards" type="checkbox" class="sr-only peer" />
               <div class="settings-toggle-track" />
@@ -249,19 +314,19 @@ async function onPlaySoundToggle(checked: boolean) {
         </div>
       </div>
 
-      <!-- 执行过程 -->
+      <!-- {{ t('settings.display.execution') }} -->
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
-        <h4 class="text-sm font-medium text-foreground">执行过程</h4>
+        <h4 class="text-sm font-medium text-foreground">{{ t('settings.display.execution') }}</h4>
         <div class="grid grid-cols-2 gap-y-3 gap-x-32">
           <div class="flex items-center justify-between gap-3">
-            <h4 class="text-[12px] font-medium text-foreground">执行时收缩为状态条</h4>
+            <h4 class="text-[12px] font-medium text-foreground">{{ t('settings.display.autoCompact') }}</h4>
             <label class="relative inline-flex items-center cursor-pointer shrink-0">
               <input v-model="computerAutoCompact" type="checkbox" class="sr-only peer" />
               <div class="settings-toggle-track" />
             </label>
           </div>
           <div class="flex items-center justify-between gap-3">
-            <h4 class="text-[12px] font-medium text-foreground">默认收缩执行过程</h4>
+            <h4 class="text-[12px] font-medium text-foreground">{{ t('settings.display.collapseProcess') }}</h4>
             <label class="relative inline-flex items-center cursor-pointer shrink-0">
               <input v-model="collapseProcessByDefault" type="checkbox" class="sr-only peer" />
               <div class="settings-toggle-track" />
@@ -274,7 +339,7 @@ async function onPlaySoundToggle(checked: boolean) {
     <!-- 通知 -->
     <section class="space-y-4" aria-labelledby="system-notify-heading">
       <div class="flex items-center gap-2 px-1 pt-2 pb-1">
-        <h4 id="system-notify-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">通知</h4>
+        <h4 id="system-notify-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">{{ t('settings.notify.heading') }}</h4>
         <div class="flex-1 h-px bg-border/60" />
       </div>
 
@@ -282,9 +347,9 @@ async function onPlaySoundToggle(checked: boolean) {
         <div class="flex items-center justify-between gap-4">
           <div class="min-w-0">
             <p class="text-sm font-medium text-foreground flex items-center gap-2">
-              <Volume2 class="w-4 h-4 text-accent" />完成时播放提示音
+              <Volume2 class="w-4 h-4 text-accent" />{{ t('settings.notify.playSound') }}
             </p>
-            <p class="mt-1 text-sm text-muted">对话回合结束时播放短促提示音</p>
+            <p class="mt-1 text-sm text-muted">{{ t('settings.notify.playSoundHint') }}</p>
           </div>
           <label class="relative inline-flex items-center cursor-pointer shrink-0">
             <input
@@ -303,23 +368,23 @@ async function onPlaySoundToggle(checked: boolean) {
     <!-- 桌面自动化 -->
     <section class="space-y-4" aria-labelledby="system-desktop-heading">
       <div class="flex items-center gap-2 px-1 pt-2 pb-1">
-        <h4 id="system-desktop-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">桌面自动化</h4>
+        <h4 id="system-desktop-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">{{ t('settings.desktop.heading') }}</h4>
         <div class="flex-1 h-px bg-border/60" />
       </div>
 
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-5">
         <div>
           <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-            <Monitor class="w-4 h-4 text-accent shrink-0" />电脑行为
+            <Monitor class="w-4 h-4 text-accent shrink-0" />{{ t('settings.desktop.computerBehavior') }}
           </h4>
-          <p class="mt-1 text-[11px] text-muted">桌面自动化的操作行为细节；起始档位在「智能体 → 场景档位」中选择。</p>
+          <p class="mt-1 text-[11px] text-muted">{{ t('settings.desktop.computerBehaviorHint') }}</p>
         </div>
 
         <div class="border-t border-border pt-4 space-y-0 divide-y divide-border">
           <div class="flex items-start justify-between gap-4 py-3 first:pt-0">
             <div class="min-w-0">
-              <p class="text-[12px] font-medium text-foreground">人性化鼠标移动</p>
-              <p class="text-[11px] text-muted mt-0.5">曲线轨迹与微抖动；关闭时为直线匀速移动</p>
+              <p class="text-[12px] font-medium text-foreground">{{ t('settings.desktop.humanLikeMouse') }}</p>
+              <p class="text-[11px] text-muted mt-0.5">{{ t('settings.desktop.humanLikeMouseHint') }}</p>
             </div>
             <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
               <input
@@ -334,8 +399,8 @@ async function onPlaySoundToggle(checked: boolean) {
 
           <div class="flex items-start justify-between gap-4 py-3">
             <div class="min-w-0">
-              <p class="text-[12px] font-medium text-foreground">自动切换屏幕</p>
-              <p class="text-[11px] text-muted mt-0.5">默认主屏，打开应用后跟随窗口所在显示器</p>
+              <p class="text-[12px] font-medium text-foreground">{{ t('settings.desktop.autoSwitchMonitor') }}</p>
+              <p class="text-[11px] text-muted mt-0.5">{{ t('settings.desktop.autoSwitchMonitorHint') }}</p>
             </div>
             <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
               <input
@@ -354,23 +419,23 @@ async function onPlaySoundToggle(checked: boolean) {
     <!-- 媒体生成 -->
     <section class="space-y-4" aria-labelledby="system-media-gen-heading">
       <div class="flex items-center gap-2 px-1 pt-2 pb-1">
-        <h4 id="system-media-gen-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">媒体生成</h4>
+        <h4 id="system-media-gen-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">{{ t('settings.mediaGen.heading') }}</h4>
         <div class="flex-1 h-px bg-border/60" />
       </div>
 
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
         <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-          <Sparkles class="w-4 h-4 text-accent" />图片 / 视频生成
+          <Sparkles class="w-4 h-4 text-accent" />{{ t('settings.mediaGen.title') }}
         </h4>
-        <p class="text-[11px] text-muted">暂时支持文本和图片生成视频。</p>
+        <p class="text-[11px] text-muted">{{ t('settings.mediaGen.hint') }}</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block text-[12px] text-muted mb-1.5 flex items-center gap-1.5">
-              图片生成
+              {{ t('settings.mediaGen.image') }}
               <span
                 v-if="imageGenOverridden"
                 class="rounded bg-warning/15 px-1 text-[9px] text-warning"
-              >已覆盖</span>
+              >{{ t('settings.overridden') }}</span>
             </label>
             <select
               :value="mediaImageGenerationModel"
@@ -389,11 +454,11 @@ async function onPlaySoundToggle(checked: boolean) {
           </div>
           <div>
             <label class="block text-[12px] text-muted mb-1.5 flex items-center gap-1.5">
-              视频生成
+              {{ t('settings.mediaGen.video') }}
               <span
                 v-if="videoGenOverridden"
                 class="rounded bg-warning/15 px-1 text-[9px] text-warning"
-              >已覆盖</span>
+              >{{ t('settings.overridden') }}</span>
             </label>
             <select
               :value="mediaVideoGenerationModel"
@@ -417,21 +482,21 @@ async function onPlaySoundToggle(checked: boolean) {
     <!-- 运行环境 -->
     <section class="space-y-4" aria-labelledby="system-runtime-heading">
       <div class="flex items-center gap-2 px-1 pt-2 pb-1">
-        <h4 id="system-runtime-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">运行环境</h4>
+        <h4 id="system-runtime-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">{{ t('settings.runtime.heading') }}</h4>
         <div class="flex-1 h-px bg-border/60" />
       </div>
 
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
         <div class="flex items-center justify-between gap-2">
           <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-            <Film class="w-4 h-4 text-accent" />多媒体理解
+            <Film class="w-4 h-4 text-accent" />{{ t('settings.runtime.mediaUnderstanding') }}
           </h4>
           <button
             type="button"
             class="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"
             @click="mediaDepsModalOpen = true"
           >
-            管理
+            {{ t('settings.runtime.manage') }}
             <ChevronRight class="w-3 h-3" />
           </button>
         </div>
@@ -449,21 +514,21 @@ async function onPlaySoundToggle(checked: boolean) {
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
         <div class="flex items-center justify-between gap-2">
           <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-            <Terminal class="w-4 h-4 text-accent" />终端环境变量
+            <Terminal class="w-4 h-4 text-accent" />{{ t('settings.runtime.terminalEnv') }}
           </h4>
           <button
             type="button"
             class="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"
             @click="addTerminalEnvRow(); onTerminalEnvRowChanged()"
           >
-            添加
+            {{ t('settings.runtime.add') }}
             <Plus class="w-3 h-3" />
           </button>
         </div>
-        <p class="text-[11px] text-muted">Agent 终端子进程的 KEY→VALUE 环境变量覆盖（追加在进程与 .env 之后，优先级最高），保存后持久化。</p>
+        <p class="text-[11px] text-muted">{{ t('settings.runtime.terminalEnvHint') }}</p>
 
         <div v-if="terminalEnvRows.length === 0" class="rounded-lg border border-dashed border-border bg-card/40 px-3 py-4 text-center text-[11px] text-muted">
-          暂无环境变量覆盖，点击「添加」新建
+          {{ t('settings.runtime.terminalEnvEmpty') }}
         </div>
 
         <div v-else class="space-y-2">
@@ -476,7 +541,7 @@ async function onPlaySoundToggle(checked: boolean) {
               v-model="row.key"
               type="text"
               spellcheck="false"
-              placeholder="KEY（如 API_TOKEN）"
+              :placeholder="t('settings.keyAPITOKEN_105c40')"
               class="h-8 px-2.5 rounded-lg bg-card border border-border text-[12px] text-foreground font-mono outline-none focus:border-accent/50 transition-colors min-w-0"
               @input="onTerminalEnvRowChanged"
             />
@@ -491,8 +556,8 @@ async function onPlaySoundToggle(checked: boolean) {
             <button
               type="button"
               class="p-1.5 rounded-lg text-muted hover:text-destructive hover:bg-destructive/10 cursor-pointer transition-colors shrink-0"
-              :title="`删除 ${row.key || '环境变量'}`"
-              aria-label="删除该环境变量"
+              :title="t('settings.runtime.deleteEnv', { key: row.key || t('settings.runtime.envVarFallback') })"
+              :aria-label="t('settings.runtime.deleteEnvAria')"
               @click="removeTerminalEnvRow(row.id); onTerminalEnvRowChanged()"
             >
               <X class="w-3.5 h-3.5" />
@@ -505,7 +570,7 @@ async function onPlaySoundToggle(checked: boolean) {
     <!-- 执行 -->
     <section class="space-y-4" aria-labelledby="system-exec-heading">
       <div class="flex items-center gap-2 px-1 pt-2 pb-1">
-        <h4 id="system-exec-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">执行</h4>
+        <h4 id="system-exec-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">{{ t('settings.exec.heading') }}</h4>
         <div class="flex-1 h-px bg-border/60" />
       </div>
 
@@ -514,16 +579,16 @@ async function onPlaySoundToggle(checked: boolean) {
           <div class="min-w-0">
             <div class="w-max max-w-full space-y-3">
               <div class="flex items-center justify-between gap-4 h-5">
-                <span class="text-[12px] font-medium text-foreground">工具并行</span>
+                <span class="text-[12px] font-medium text-foreground">{{ t('settings.exec.toolParallel') }}</span>
                 <label
                   class="relative inline-flex items-center cursor-pointer shrink-0"
-                  title="同一轮里多个工具一起跑；关掉则一个一个执行。"
+                  :title="t('settings.exec.toolParallelHint')"
                 >
                   <input
                     v-model="parallelToolExecutionEnabled"
                     type="checkbox"
                     class="sr-only peer"
-                    aria-label="工具并行"
+                    aria-label="{{ t('settings.exec.toolParallel') }}"
                   />
                   <div class="settings-toggle-track"></div>
                 </label>
@@ -531,12 +596,12 @@ async function onPlaySoundToggle(checked: boolean) {
               <div v-if="parallelToolExecutionEnabled" class="flex flex-wrap items-start gap-x-5 gap-y-3">
                 <div>
                   <div class="flex items-center gap-1 mb-1.5">
-                    <span class="text-[12px] text-muted">通用工具</span>
+                    <span class="text-[12px] text-muted">{{ t('settings.exec.generalTools') }}</span>
                     <button
                       type="button"
                       class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                      title="同一轮里读文件、前台终端、搜索等可同时执行的数量。后台终端不走这里。"
-                      aria-label="通用工具说明"
+                      :title="t('settings.exec.generalToolsHint')"
+                      :aria-label="t('settings.exec.generalTools')"
                     >
                       <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                     </button>
@@ -554,12 +619,12 @@ async function onPlaySoundToggle(checked: boolean) {
                 </div>
                 <div>
                   <div class="flex items-center gap-1 mb-1.5">
-                    <span class="text-[12px] text-muted">子 Agent</span>
+                    <span class="text-[12px] text-muted">{{ t('settings.exec.subAgent') }}</span>
                     <button
                       type="button"
                       class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                      title="本会话同时运行的子 Agent 上限，前台与后台共用；后台终端也占此额度。"
-                      aria-label="子 Agent 说明"
+                      :title="t('settings.exec.subAgentHint')"
+                      :aria-label="t('settings.exec.subAgent')"
                     >
                       <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                     </button>
@@ -577,12 +642,12 @@ async function onPlaySoundToggle(checked: boolean) {
                 </div>
                 <div>
                   <div class="flex items-center gap-1 mb-1.5">
-                    <span class="text-[12px] text-muted">媒体工具</span>
+                    <span class="text-[12px] text-muted">{{ t('settings.exec.mediaTools') }}</span>
                     <button
                       type="button"
                       class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                      title="同一轮里同时进行的图片、视频、多媒体理解数量。"
-                      aria-label="媒体工具说明"
+                      :title="t('settings.exec.mediaToolsHint')"
+                      :aria-label="t('settings.exec.mediaTools')"
                     >
                       <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                     </button>
@@ -606,17 +671,17 @@ async function onPlaySoundToggle(checked: boolean) {
 
           <div class="min-w-0 space-y-3">
             <div class="flex items-center h-5">
-              <span class="text-[12px] font-medium text-foreground">轮次</span>
+              <span class="text-[12px] font-medium text-foreground">{{ t('settings.exec.rounds') }}</span>
             </div>
             <div class="flex flex-wrap items-start gap-x-5 gap-y-3">
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">本轮</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.exec.thisRound') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="这一轮里最多连续调用多少次工具。"
-                    aria-label="本轮轮次说明"
+                    :title="t('settings.exec.thisRoundHint')"
+                    :aria-label="t('settings.exec.thisRound')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -632,12 +697,12 @@ async function onPlaySoundToggle(checked: boolean) {
               </div>
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">子任务</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.exec.subTask') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="每个子任务内部最多连续调用多少次工具。子任务面向小范围工作，上限 500。"
-                    aria-label="子任务轮次说明"
+                    :title="t('settings.exec.subTaskHint')"
+                    :aria-label="t('settings.exec.subTask')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -658,16 +723,16 @@ async function onPlaySoundToggle(checked: boolean) {
 
           <div class="min-w-0 space-y-3">
             <div class="flex items-center h-5">
-              <span class="text-[12px] font-medium text-foreground">任务并行</span>
+              <span class="text-[12px] font-medium text-foreground">{{ t('settings.exec.taskParallel') }}</span>
             </div>
             <div>
               <div class="flex items-center gap-1 mb-1.5">
-                <span class="text-[12px] text-muted">同时任务数</span>
+                <span class="text-[12px] text-muted">{{ t('settings.exec.concurrentTasks') }}</span>
                 <button
                   type="button"
                   class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                  title="同时能跑几条独立任务。聊天、定时、Webhook 共用；同一会话仍排队。"
-                  aria-label="同时任务数说明"
+                  :title="t('settings.exec.concurrentTasksHint')"
+                  :aria-label="t('settings.exec.concurrentTasks')"
                 >
                   <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                 </button>
@@ -685,7 +750,7 @@ async function onPlaySoundToggle(checked: boolean) {
                   type="button"
                   class="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"
                   :title="queueStatusTitle"
-                  :aria-label="queueStatusTitle + '，查看队列'"
+                  :aria-label="t('settings.exec.viewQueueAria', { status: queueStatusTitle })"
                   @click="queueModalOpen = true"
                 >
                   <span
@@ -695,7 +760,7 @@ async function onPlaySoundToggle(checked: boolean) {
                       : 'bg-muted'"
                     aria-hidden="true"
                   />
-                  查看队列
+                  {{ t('settings.exec.viewQueue') }}
                   <ChevronRight class="w-3 h-3" />
                 </button>
               </div>
@@ -708,12 +773,12 @@ async function onPlaySoundToggle(checked: boolean) {
         <div class="grid grid-cols-1 min-[960px]:grid-cols-[max-content_auto_max-content_minmax(2.5rem,1fr)] items-stretch gap-x-8 gap-y-6">
           <div class="w-max max-w-full space-y-3">
             <div class="flex items-center gap-1 h-5">
-              <span class="text-[12px] font-medium text-foreground">内容上限</span>
+              <span class="text-[12px] font-medium text-foreground">{{ t('settings.exec.contentLimits') }}</span>
               <button
                 type="button"
                 class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                title="上传、读文件、搜索和终端输出回给 AI 的上限。视频上传仍走独立压缩。工具参数只能下调。"
-                aria-label="内容上限说明"
+                :title="t('settings.exec.contentLimitsHint')"
+                :aria-label="t('settings.exec.contentLimits')"
               >
                 <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
               </button>
@@ -721,12 +786,12 @@ async function onPlaySoundToggle(checked: boolean) {
             <div class="flex flex-wrap min-[960px]:flex-nowrap items-start gap-x-5 gap-y-3">
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">上传（MB）</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.exec.uploadMb') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="对话里上传文件的大小上限，不含视频。"
-                    aria-label="上传上限说明"
+                    :title="t('settings.exec.uploadHint')"
+                    :aria-label="t('settings.exec.uploadMb')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -742,12 +807,12 @@ async function onPlaySoundToggle(checked: boolean) {
               </div>
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">正文（KB）</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.exec.bodyKb') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="一次读取文件时返回的正文上限。"
-                    aria-label="正文上限说明"
+                    :title="t('settings.exec.bodyHint')"
+                    :aria-label="t('settings.exec.bodyKb')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -763,12 +828,12 @@ async function onPlaySoundToggle(checked: boolean) {
               </div>
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">单行（字节）</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.exec.lineBytes') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="读文件或搜索时，一行最多保留多少字节。"
-                    aria-label="单行上限说明"
+                    :title="t('settings.exec.lineHint')"
+                    :aria-label="t('settings.exec.lineBytes')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -784,12 +849,12 @@ async function onPlaySoundToggle(checked: boolean) {
               </div>
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">搜索条数</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.exec.grepCount') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="一次搜索最多返回多少条结果。"
-                    aria-label="搜索条数说明"
+                    :title="t('settings.exec.grepHint')"
+                    :aria-label="t('settings.exec.grepCount')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -805,12 +870,12 @@ async function onPlaySoundToggle(checked: boolean) {
               </div>
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">终端（KB）</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.exec.terminalKb') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="终端命令每路输出回给 AI 的上限，超限只保留末尾。"
-                    aria-label="终端输出上限说明"
+                    :title="t('settings.exec.terminalHint')"
+                    :aria-label="t('settings.exec.terminalKb')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -831,12 +896,12 @@ async function onPlaySoundToggle(checked: boolean) {
 
           <div class="w-max max-w-full space-y-3">
             <div class="flex items-center gap-1 h-5">
-              <span class="text-[12px] font-medium text-foreground">终端超时</span>
+              <span class="text-[12px] font-medium text-foreground">{{ t('settings.exec.terminalTimeout') }}</span>
               <button
                 type="button"
                 class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                title="空闲时间为未指定时的默认值，命令可覆盖。最长运行是上限，工具参数只能下调。"
-                aria-label="终端超时说明"
+                :title="t('settings.exec.terminalTimeoutHint')"
+                :aria-label="t('settings.exec.terminalTimeout')"
               >
                 <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
               </button>
@@ -844,12 +909,12 @@ async function onPlaySoundToggle(checked: boolean) {
             <div class="flex flex-nowrap items-start gap-x-5">
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">空闲（秒）</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.exec.idleSec') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="命令未指定超时时使用。这段时间没有新输出就结束命令，有输出会重新计时。1–86400 秒。"
-                    aria-label="空闲超时说明"
+                    :title="t('settings.exec.idleHint')"
+                    :aria-label="t('settings.exec.idleSec')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -866,12 +931,12 @@ async function onPlaySoundToggle(checked: boolean) {
               </div>
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">最长运行（小时）</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.exec.maxWallHours') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="终端命令从启动到强制结束的最长墙钟时间，1–10000 小时。"
-                    aria-label="最长运行说明"
+                    :title="t('settings.exec.maxWallHint')"
+                    :aria-label="t('settings.exec.maxWallHours')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -892,28 +957,28 @@ async function onPlaySoundToggle(checked: boolean) {
       </div>
     </section>
 
-    <!-- 工具使用权限 -->
+    <!-- {{ t('settings.toolPerm.heading') }} -->
     <section class="space-y-4" aria-labelledby="system-tool-approval-heading">
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
         <h4 id="system-tool-approval-heading" class="text-sm font-medium text-foreground flex items-center gap-2">
-          <Wrench class="w-4 h-4 text-accent" />工具使用权限
+          <Wrench class="w-4 h-4 text-accent" />{{ t('settings.toolPerm.heading') }}
         </h4>
         <div class="grid grid-cols-2 gap-3">
           <label class="rounded-xl border p-3 cursor-pointer transition-all" :class="toolApprovalMode === 'auto' ? 'border-border bg-hover' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'">
             <input v-model="toolApprovalMode" type="radio" value="auto" class="sr-only" />
-            <span class="block text-sm text-foreground">自动执行</span>
-            <span class="mt-1 block text-[11px] text-muted">AI 使用工具时自动执行，无需确认</span>
+            <span class="block text-sm text-foreground">{{ t('settings.toolPerm.auto') }}</span>
+            <span class="mt-1 block text-[11px] text-muted">{{ t('settings.toolPerm.autoHint') }}</span>
           </label>
           <label class="rounded-xl border p-3 cursor-pointer transition-all" :class="toolApprovalMode === 'manual' ? 'border-border bg-hover' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'">
             <input v-model="toolApprovalMode" type="radio" value="manual" class="sr-only" />
-            <span class="block text-sm text-foreground">敏感操作确认</span>
-            <span class="mt-1 block text-[11px] text-muted">涉及文件、命令等操作时需要你确认</span>
+            <span class="block text-sm text-foreground">{{ t('settings.toolPerm.manual') }}</span>
+            <span class="mt-1 block text-[11px] text-muted">{{ t('settings.toolPerm.manualHint') }}</span>
           </label>
         </div>
       </div>
     </section>
 
-    <!-- 队列详情弹窗（低频） -->
+    <!-- queue modal -->
     <Teleport to="body">
       <div
         v-if="queueModalOpen"
@@ -924,13 +989,13 @@ async function onPlaySoundToggle(checked: boolean) {
         <div class="w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" @click.stop>
           <div class="flex items-start justify-between gap-2 border-b border-border px-5 py-4 shrink-0">
             <div class="min-w-0">
-              <h4 class="text-sm font-semibold text-foreground">队列详情</h4>
+              <h4 class="text-sm font-semibold text-foreground">{{ t('settings.queue.title') }}</h4>
               <p class="mt-0.5 text-[11px] text-muted">{{ queueStatusTitle }}</p>
             </div>
             <button
               type="button"
               class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0"
-              aria-label="关闭"
+              :aria-label="t('common.close')"
               @click="queueModalOpen = false"
             >
               <X class="w-4 h-4" />
@@ -963,7 +1028,7 @@ async function onPlaySoundToggle(checked: boolean) {
               v-if="queueSnapshot && pendingRunCount > 0"
               class="rounded-lg border border-border bg-[hsl(var(--card-elevated))] px-3 py-2 space-y-1.5"
             >
-              <div class="text-[12px] font-medium text-foreground">待执行任务</div>
+              <div class="text-[12px] font-medium text-foreground">{{ t('settings.queue.pending') }}</div>
               <ul class="space-y-1 max-h-36 overflow-y-auto">
                 <li
                   v-for="run in queueSnapshot.pendingRuns"
@@ -982,17 +1047,17 @@ async function onPlaySoundToggle(checked: boolean) {
               v-if="queueSnapshot && pendingRunCount === 0 && !totalLaneWaiting"
               class="text-[11px] text-muted text-center py-4"
             >
-              当前无排队任务
+              {{ t('settings.queue.empty') }}
             </p>
             <p v-else-if="!queueSnapshot && !queueLoading" class="text-[11px] text-muted text-center py-4">
-              队列信息暂不可用
+              {{ t('settings.queue.unavailable') }}
             </p>
           </div>
         </div>
       </div>
     </Teleport>
 
-    <!-- 多媒体理解环境弹窗（低频） -->
+    <!-- ffmpeg modal -->
     <Teleport to="body">
       <div
         v-if="mediaDepsModalOpen"
@@ -1003,13 +1068,13 @@ async function onPlaySoundToggle(checked: boolean) {
         <div class="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl p-5 space-y-4" @click.stop>
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
-              <h4 class="text-sm font-semibold text-foreground">多媒体理解环境</h4>
-              <p class="mt-0.5 text-[11px] text-muted">IM 视频与抽帧理解依赖本机 ffmpeg</p>
+              <h4 class="text-sm font-semibold text-foreground">{{ t('settings.ffmpeg.modalTitle') }}</h4>
+              <p class="mt-0.5 text-[11px] text-muted">{{ t('settings.ffmpeg.modalHint') }}</p>
             </div>
             <button
               type="button"
               class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0"
-              aria-label="关闭"
+              :aria-label="t('common.close')"
               @click="mediaDepsModalOpen = false"
             >
               <X class="w-4 h-4" />
@@ -1017,7 +1082,7 @@ async function onPlaySoundToggle(checked: boolean) {
           </div>
           <div class="rounded-lg border border-border bg-card/50 px-3 py-2.5 space-y-1">
             <p class="text-[12px] font-medium text-foreground">ffmpeg / ffprobe</p>
-            <p class="text-[11px] text-muted">IM 视频与抽帧理解需要本机安装；未安装时不打包进应用。</p>
+            <p class="text-[11px] text-muted">{{ t('settings.ffmpeg.needInstall') }}</p>
             <p
               class="text-[11px] mt-1"
               :class="mediaDeps?.status === 'ready' ? 'text-success' : 'text-warning'"
@@ -1028,7 +1093,7 @@ async function onPlaySoundToggle(checked: boolean) {
               {{ ffmpegStatusDetail }}
             </p>
             <p v-if="mediaDeps?.status === 'ready'" class="text-[10px] text-muted mt-0.5">
-              单个视频仍可能因编码或文件损坏抽帧失败，不代表未安装 ffmpeg。
+              {{ t('settings.ffmpeg.frameFailNote') }}
             </p>
           </div>
           <div class="flex items-center justify-end gap-2">
@@ -1037,7 +1102,7 @@ async function onPlaySoundToggle(checked: boolean) {
               class="h-8 px-3 rounded-lg border border-border text-xs text-foreground hover:bg-muted/50 cursor-pointer transition-colors"
               @click="refreshMediaDeps()"
             >
-              重新检测
+              {{ t('settings.ffmpeg.redetect') }}
             </button>
             <button
               v-if="ffmpegNeedsInstall"
@@ -1045,7 +1110,7 @@ async function onPlaySoundToggle(checked: boolean) {
               class="h-8 px-3 rounded-lg bg-accent text-accent-foreground text-xs hover:opacity-90 cursor-pointer transition-colors"
               @click="askAssistantInstallFfmpeg()"
             >
-              让助手安装
+              {{ t('settings.ffmpeg.askInstall') }}
             </button>
           </div>
         </div>

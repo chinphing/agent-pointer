@@ -2,6 +2,7 @@
 
 import { createApp, nextTick, reactive, ref } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { i18n } from '../../i18n'
 import type { ProviderConfig } from '../../types/chat'
 
 const storeState = vi.hoisted(() => {
@@ -93,12 +94,14 @@ function mountSection() {
   const app = createApp(ModelServiceSection, {
     form: { platformReadOnly: ref(false) }
   })
+  app.use(i18n)
   mountedApps.push(app)
   app.mount(host)
   return host
 }
 
 beforeEach(() => {
+  i18n.global.locale.value = 'zh-CN'
   platformAuthState.isStandalone.value = false
   storeState.settings.providers = [provider('qwen', 'platform'), provider('local')]
   storeState.settings.activeProviderId = 'qwen'

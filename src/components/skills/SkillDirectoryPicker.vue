@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { FolderOpen, Search } from 'lucide-vue-next'
 import { useSkillsStore } from '../../stores/skills'
 import { useChatStore } from '../../stores/chat'
@@ -13,9 +14,9 @@ export interface SkillDirectoryOption {
 
 const props = withDefaults(
   defineProps<{
-    /** 分组标题；与搜索框同一行显示。 */
+    /** Group title; shown on the same row as the search box. */
     title?: string
-    /** grid: 图标卡片（新增项目对话框内嵌）；list: 紧凑列表（Composer 下拉）。 */
+    /** grid: icon cards (new project dialog); list: compact (Composer dropdown). */
     variant?: 'grid' | 'list'
     searchable?: boolean
     disabled?: boolean
@@ -25,6 +26,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{ (e: 'select', dir: SkillDirectoryOption): void }>()
 
+const { t } = useI18n()
 const skillsStore = useSkillsStore()
 const chat = useChatStore()
 const query = ref('')
@@ -54,8 +56,8 @@ function descriptionFor(path: string): string | undefined {
         <input
           v-model="query"
           type="text"
-          placeholder="搜索技能目录"
-          aria-label="搜索技能目录"
+          :placeholder="t('skills.searchDirectory')"
+          :aria-label="t('skills.searchDirectory')"
           class="w-full rounded-lg border border-border bg-transparent py-1 pl-6 pr-2 text-xs text-foreground outline-none transition-colors placeholder:text-muted focus:border-accent/60"
         >
       </div>
@@ -88,7 +90,7 @@ function descriptionFor(path: string): string | undefined {
         </span>
       </button>
       <div v-if="candidates.length === 0" class="col-span-2 px-1 py-3 text-center text-[11px] text-muted">
-        没有匹配的技能目录
+        {{ t('skills.noMatchDirectory') }}
       </div>
     </div>
 
@@ -106,7 +108,7 @@ function descriptionFor(path: string): string | undefined {
         <span class="flex-1 truncate">{{ dir.name }}</span>
       </button>
       <div v-if="candidates.length === 0" class="px-3 py-2 text-center text-[11px] text-muted">
-        没有匹配的技能目录
+        {{ t('skills.noMatchDirectory') }}
       </div>
     </div>
   </div>

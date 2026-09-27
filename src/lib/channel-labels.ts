@@ -1,3 +1,8 @@
+import { t, te } from '../i18n'
+
+const CHANNEL_IDS = ['weixin', 'feishu', 'wecom', 'dingtalk'] as const
+
+/** @deprecated Prefer channelLabel() — locale-aware via settings.channels.brands.*. */
 export const CHANNEL_LABELS: Record<string, string> = {
   weixin: '微信',
   feishu: '飞书',
@@ -5,7 +10,7 @@ export const CHANNEL_LABELS: Record<string, string> = {
   dingtalk: '钉钉'
 }
 
-const IM_CHANNELS = new Set(Object.keys(CHANNEL_LABELS))
+const IM_CHANNELS = new Set<string>(CHANNEL_IDS)
 
 export function imBaseConversationId(conversationId: string): string {
   const at = conversationId.lastIndexOf('@s')
@@ -26,6 +31,8 @@ export function imSessionEpoch(conversationId: string): number {
 }
 
 export function channelLabel(channel: string): string {
+  const key = `settings.channels.brands.${channel}`
+  if (te(key)) return t(key)
   return CHANNEL_LABELS[channel] ?? channel
 }
 
@@ -44,12 +51,13 @@ export function imConversationTitle(
   const epoch = imSessionEpoch(conversationId)
   const senderName = opts?.senderName?.trim()
   if (senderName) {
-    const titled = `${label} · ${senderName}`
-    return epoch > 0 ? `${titled} · 新对话` : titled
+    return epoch > 0
+      ? t('chat.imWithSenderNew', { label, sender: senderName })
+      : t('chat.imWithSender', { label, sender: senderName })
   }
   const firstUserText = opts?.firstUserText?.trim()
   if (firstUserText) return `${label} · ${firstUserText.slice(0, 24)}`
-  if (epoch > 0) return `${label} · 新对话`
-  if (baseId.includes(':group:')) return `${label} 群聊`
-  return `${label} 私信`
+  if (epoch > 0) return t('chat.imNewChat', { label })
+  if (baseId.includes(':group:')) return t('chat.imGroup', { label })
+  return t('chat.imDm', { label })
 }

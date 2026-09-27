@@ -322,9 +322,10 @@ pub fn maybe_trim_after_tool_pass(
         stats.dropped_count
     );
 
-    let toast = format!(
-        "任务板更新后已将较早 {} 条对话从上下文排除",
-        stats.dropped_count
+    let toast = crate::i18n::tf(
+        crate::i18n::current_ui_locale(),
+        "toast.taskBoardTrimmed",
+        &[("count", &stats.dropped_count.to_string())],
     );
     crate::stream_broadcast::publish_stream(
         &hook.stream,

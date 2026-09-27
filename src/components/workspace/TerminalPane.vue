@@ -393,14 +393,14 @@ onBeforeUnmount(() => {
   >
     <div v-show="tab" ref="host" class="terminal-host min-h-0 flex-1" data-terminal-pane-host />
     <div v-if="!tab" class="pane-empty flex min-h-0 flex-1 items-center justify-center px-3 text-center text-xs text-muted">
-      <p>此窗格暂无终端</p>
+      <p>{{ $t('workspace.emptyPane') }}</p>
     </div>
     <button
       v-if="!tab"
       type="button"
       class="pane-close pane-close-empty"
-      title="关闭此窗格"
-      aria-label="关闭此窗格"
+      :title="$t('workspace.closePane')"
+      :aria-label="$t('workspace.closePane')"
       @click.stop="emit('close')"
     ><X class="h-3 w-3" /></button>
   </div>

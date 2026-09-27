@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import {
   ArrowDown,
@@ -114,6 +115,7 @@ type ContextMenuState =
   | { kind: 'tab'; tabId: string; left: number; top: number }
 
 const workspacePanelStore = useWorkspacePanelStore()
+const { t } = useI18n()
 const chat = useChatStore()
 const consoleStore = useConsoleStore()
 
@@ -256,7 +258,7 @@ async function loadRoot(options?: { silent?: boolean }) {
     const message = err instanceof Error ? err.message : String(err)
     if (silent) {
       console.warn('[WorkspacePanel] background file tree failed', message)
-      refreshWarning.value = '工作区刷新失败，显示的可能不是最新内容'
+      refreshWarning.value = t('workspace.refreshFailed')
     } else {
       error.value = message
       roots.value = []
@@ -324,7 +326,7 @@ async function loadChanges(options?: { silent?: boolean }) {
     const message = err instanceof Error ? err.message : String(err)
     if (silent) {
       console.warn('[WorkspacePanel] background git status failed', message)
-      refreshWarning.value = 'Git 变更刷新失败，显示的可能不是最新内容'
+      refreshWarning.value = t('workspace.gitRefreshFailed')
     } else {
       changes.value = []
       error.value = message
@@ -451,7 +453,7 @@ async function loadTurnDiffTab(tabItem: TurnDiffPreviewTab) {
     }
     tabItem.baselineMissing = Boolean(result.baselineMissing)
     if (result.baselineMissing) {
-      tabItem.error = '未找到本轮修改前快照，显示结果可能不完整'
+      tabItem.error = t('workspace.snapshotMissing')
     }
   } catch (err) {
     tabItem.diffLines = []
@@ -464,7 +466,7 @@ async function loadTurnDiffTab(tabItem: TurnDiffPreviewTab) {
 
 function openTurnDiff(conversationId: string, turnId: string, path: string) {
   if (!props.workspaceRoot.trim()) {
-    error.value = '请先选择工作区'
+    error.value = t('workspace.selectWorkspaceFirst')
     return
   }
   const id = workspacePreviewTabId('turn-diff', path, turnId)
@@ -603,11 +605,11 @@ async function openMarkdownReference(href: string) {
       return
     }
     if (reference.kind === 'local') {
-      if (!isDesktop) throw new Error('网页端无法打开工作区外的本地文件')
+      if (!isDesktop) throw new Error(t('workspace.webCannotOpenOutside'))
       await openPathWithDefaultApp(reference.path)
       return
     }
-    throw new Error(`不支持打开此链接：${reference.label}`)
+    throw new Error(t('workspace.unsupportedLink', { label: reference.label }))
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.warn('[WorkspacePanel] Failed to open Markdown reference', { href, message })
@@ -1182,12 +1184,12 @@ onBeforeUnmount(() => {
     @pointerenter="pointerOverPanel = true"
     @pointerleave="pointerOverPanel = false"
   >
-    <div class="workspace-resize-handle" title="拖动调整宽度" @mousedown="beginResize" />
+    <div class="workspace-resize-handle" :title="t('workspace.resizeWidth')" @mousedown="beginResize" />
 
     <header class="h-10 shrink-0 flex items-center gap-2 px-3 border-b border-border">
       <FolderOpen class="w-4 h-4 text-muted" />
-      <span class="text-xs font-semibold truncate flex-1" :title="workspaceRoot">{{ workspaceName || '工作区' }}</span>
-      <button class="chrome-icon-btn" title="关闭工作区" type="button" @click="$emit('close')"><X class="w-4 h-4" /></button>
+      <span class="text-xs font-semibold truncate flex-1" :title="workspaceRoot">{{ workspaceName || t('workspace.title') }}</span>
+      <button class="chrome-icon-btn" :title="t('workspace.closeWorkspace')" type="button" @click="$emit('close')"><X class="w-4 h-4" /></button>
     </header>
 
     <div class="workspace-tabs-bar">
@@ -1195,8 +1197,8 @@ onBeforeUnmount(() => {
         type="button"
         class="workspace-tab workspace-tab-icon shrink-0"
         :class="activeView === 'files' && 'is-active'"
-        title="工作区文件"
-        aria-label="工作区文件"
+        :title="t('workspace.filesTab')"
+        :aria-label="t('workspace.filesTab')"
         @click="activatePrimaryView('files')"
       >
         <FolderOpen class="w-3.5 h-3.5" />
@@ -1205,8 +1207,8 @@ onBeforeUnmount(() => {
         type="button"
         class="workspace-tab workspace-tab-icon shrink-0"
         :class="activeView === 'changes' && 'is-active'"
-        title="变更文件"
-        aria-label="变更文件"
+        :title="t('workspace.changesTab')"
+        :aria-label="t('workspace.changesTab')"
         @click="activatePrimaryView('changes')"
       >
         <GitBranch class="w-3.5 h-3.5" />
@@ -1216,8 +1218,8 @@ onBeforeUnmount(() => {
         type="button"
         class="workspace-tab workspace-tab-icon shrink-0"
         :class="activeView === 'terminal' && 'is-active'"
-        title="调试终端"
-        aria-label="调试终端"
+        :title="t('workspace.debugTerminal')"
+        :aria-label="t('workspace.debugTerminal')"
         @click="activatePrimaryView('terminal')"
       >
         <SquareTerminal class="w-3.5 h-3.5" />
@@ -1242,11 +1244,11 @@ onBeforeUnmount(() => {
           <X class="w-3 h-3 shrink-0" @click.stop="closePreviewTabs(previewTab.id)" />
         </button>
       </div>
-      <button type="button" class="ml-auto px-3 text-muted hover:text-foreground shrink-0" title="刷新" @click="refreshActiveTab"><RefreshCw class="w-3.5 h-3.5" /></button>
+      <button type="button" class="ml-auto px-3 text-muted hover:text-foreground shrink-0" :title="t('workspace.refresh')" @click="refreshActiveTab"><RefreshCw class="w-3.5 h-3.5" /></button>
     </div>
 
     <div v-if="!hasWorkspace" class="flex-1 grid place-items-center p-6 text-center text-xs text-muted">
-      请先在输入区选择项目目录，工作区文件与 Git 变更会显示在这里。
+      {{ t('workspace.emptyHint') }}
     </div>
     <div v-else-if="error" class="p-4 text-xs text-danger break-words">{{ error }}</div>
 
@@ -1281,8 +1283,8 @@ onBeforeUnmount(() => {
             v-model="treeSearchQuery"
             class="w-full min-w-0 bg-transparent px-1.5 py-1 text-xs text-foreground outline-none placeholder:text-muted"
             type="search"
-            placeholder="查找文件"
-            aria-label="查找工作区文件"
+            :placeholder="t('workspace.findFiles')"
+            :aria-label="t('workspace.findFilesAria')"
             @keydown="onTreeSearchKeydown"
           />
           <span class="min-w-10 shrink-0 text-center text-[10px] tabular-nums text-muted">
@@ -1292,7 +1294,7 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="rounded p-1 text-muted transition hover:bg-hover hover:text-foreground disabled:opacity-40"
-            title="上一个（Shift+Enter）"
+            :title="t('workspace.prevMatch')"
             :disabled="!treeSearchMatches.length"
             @click="stepTreeSearchMatch(-1)"
           >
@@ -1301,7 +1303,7 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="rounded p-1 text-muted transition hover:bg-hover hover:text-foreground disabled:opacity-40"
-            title="下一个（Enter）"
+            :title="t('workspace.nextMatch')"
             :disabled="!treeSearchMatches.length"
             @click="stepTreeSearchMatch(1)"
           >
@@ -1310,14 +1312,14 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="rounded p-1 text-muted transition hover:bg-hover hover:text-foreground"
-            title="关闭（Esc）"
+            :title="t('workspace.closeEsc')"
             @click="closeTreeSearch"
           >
             <X class="h-3.5 w-3.5" />
           </button>
         </div>
-        <div v-if="loadingFiles || workspaceTransitioning" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载工作区…</div>
-        <div v-else-if="!roots.length" class="workspace-empty">目录为空</div>
+        <div v-if="loadingFiles || workspaceTransitioning" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> {{ t('workspace.loadingWorkspace') }}</div>
+        <div v-else-if="!roots.length" class="workspace-empty">{{ t('workspace.dirEmpty') }}</div>
         <WorkspaceTreeNode
           v-for="node in visibleRoots"
           :key="node.path"
@@ -1331,29 +1333,29 @@ onBeforeUnmount(() => {
           v-if="rootRenderMoreVisible"
           class="py-2 text-center text-[10px] tabular-nums text-muted"
         >
-          已显示 {{ visibleRootCount }} / {{ roots.length }} 项，向下滚动加载更多
+          {{ t('workspace.shownItems', { shown: visibleRootCount, total: roots.length }) }}
         </div>
       </div>
 
       <div v-show="activeView === 'changes'" class="workspace-scroll-area flex-1 min-h-0 overflow-auto p-2">
-        <div v-if="loadingChanges" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载中…</div>
+        <div v-if="loadingChanges" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> {{ t('common.loading') }}</div>
         <div v-else-if="gitError" class="workspace-empty flex-col text-center">
           <GitBranch class="w-4 h-4" />
-          <span>{{ gitError.code === 'not_repository' ? '当前目录不是 Git 仓库' : gitError.code === 'git_not_installed' ? '未检测到 Git' : gitError.message }}</span>
+          <span>{{ gitError.code === 'not_repository' ? t('workspace.notGitRepo') : gitError.code === 'git_not_installed' ? t('workspace.gitNotInstalled') : gitError.message }}</span>
           <button
             v-if="gitError.code === 'not_repository'"
             type="button"
             class="workspace-action-btn"
             @click="emit('initialize-git')"
-          >让 Pointer 初始化 Git 仓库</button>
+          >{{ t('workspace.initGit') }}</button>
           <button
             v-else-if="gitError.code === 'git_not_installed'"
             type="button"
             class="workspace-action-btn"
             @click="emit('install-git')"
-          >帮我安装 Git</button>
+          >{{ t('workspace.installGit') }}</button>
         </div>
-        <div v-else-if="!changes.length" class="workspace-empty"><GitBranch class="w-4 h-4" /> 没有 Git 变更</div>
+        <div v-else-if="!changes.length" class="workspace-empty"><GitBranch class="w-4 h-4" /> {{ t('workspace.noGitChanges') }}</div>
         <button
           v-for="change in changes"
           :key="`${change.staged}-${change.path}`"
@@ -1377,7 +1379,7 @@ onBeforeUnmount(() => {
         class="flex-1 min-h-0 overflow-hidden p-2"
       >
         <template v-if="previewTab.kind === 'file'">
-          <div v-if="previewTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载文件…</div>
+          <div v-if="previewTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> {{ t('workspace.loadingFile') }}</div>
           <div v-else-if="previewTab.error" class="text-xs text-danger break-words p-2">{{ previewTab.error }}</div>
           <WorkspaceFilePreview
             v-else-if="previewTab.preview"
@@ -1387,10 +1389,10 @@ onBeforeUnmount(() => {
             :relative-path="previewTab.path"
             @open-reference="openMarkdownReference"
           />
-          <div v-else class="workspace-empty">无法显示该文件</div>
+          <div v-else class="workspace-empty">{{ t('workspace.cannotShowFile') }}</div>
         </template>
         <template v-else-if="previewTab.kind === 'turn-diff'">
-          <div v-if="previewTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载 Diff…</div>
+          <div v-if="previewTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> {{ t('workspace.loadingDiff') }}</div>
           <div v-else-if="previewTab.error && !previewTab.diffLines.length" class="text-xs text-danger break-words p-2">{{ previewTab.error }}</div>
           <template v-else>
             <p v-if="previewTab.error" class="text-[11px] text-muted px-1 pb-1">{{ previewTab.error }}</p>
@@ -1400,11 +1402,11 @@ onBeforeUnmount(() => {
               :diff-lines="previewTab.diffLines"
               :diff-stats="previewTab.diffStats"
             />
-            <div v-else class="workspace-empty">该文件没有可显示的文本 Diff</div>
+            <div v-else class="workspace-empty">{{ t('workspace.noTextDiff') }}</div>
           </template>
         </template>
         <template v-else>
-          <div v-if="previewTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> 加载 Diff…</div>
+          <div v-if="previewTab.loading" class="workspace-empty"><Loader2 class="w-4 h-4 animate-spin" /> {{ t('workspace.loadingDiff') }}</div>
           <div v-else-if="previewTab.error" class="text-xs text-danger break-words p-2">{{ previewTab.error }}</div>
           <DiffView
             v-else-if="previewTab.diffLines.length"
@@ -1412,13 +1414,13 @@ onBeforeUnmount(() => {
             :diff-lines="previewTab.diffLines"
             :diff-stats="previewTab.diffStats"
           />
-          <div v-else class="workspace-empty">该文件没有可显示的文本 Diff</div>
+          <div v-else class="workspace-empty">{{ t('workspace.noTextDiff') }}</div>
         </template>
       </div>
       <div
         v-if="!previewTabs.length && activeView !== 'terminal' && activeView !== 'files' && activeView !== 'changes'"
         class="workspace-empty"
-      >预览标签已关闭</div>
+      >{{ t('workspace.previewTabClosed') }}</div>
     </template>
 
     <Teleport to="body">
@@ -1430,36 +1432,36 @@ onBeforeUnmount(() => {
           @mousedown.stop
         >
           <template v-if="contextMenu.kind === 'tree'">
-            <button type="button" role="menuitem" @click="runTreeContextAction('preview')"><FileCode2 />{{ contextMenu.node.kind === 'directory' ? '展开/收起' : '预览文件' }}</button>
-            <button v-if="isDesktop && contextMenu.node.kind === 'file'" type="button" role="menuitem" @click="runTreeContextAction('open-system')"><ExternalLink />使用默认应用打开</button>
+            <button type="button" role="menuitem" @click="runTreeContextAction('preview')"><FileCode2 />{{ contextMenu.node.kind === 'directory' ? t('workspace.toggleExpand') : t('workspace.previewFile') }}</button>
+            <button v-if="isDesktop && contextMenu.node.kind === 'file'" type="button" role="menuitem" @click="runTreeContextAction('open-system')"><ExternalLink />{{ t('workspace.openWithDefault') }}</button>
             <div class="workspace-context-separator" />
-            <button type="button" role="menuitem" @click="runTreeContextAction('copy-absolute')"><Copy />复制绝对路径</button>
-            <button type="button" role="menuitem" @click="runTreeContextAction('copy-relative')"><Copy />复制相对路径</button>
-            <button v-if="isDesktop" type="button" role="menuitem" @click="runTreeContextAction('reveal')"><FolderOpen />在 Finder 中显示</button>
-            <button type="button" role="menuitem" @click="runTreeContextAction('refresh')"><RefreshCw />刷新文件树</button>
+            <button type="button" role="menuitem" @click="runTreeContextAction('copy-absolute')"><Copy />{{ t('workspace.copyAbsolutePath') }}</button>
+            <button type="button" role="menuitem" @click="runTreeContextAction('copy-relative')"><Copy />{{ t('workspace.copyRelativePath') }}</button>
+            <button v-if="isDesktop" type="button" role="menuitem" @click="runTreeContextAction('reveal')"><FolderOpen />{{ t('workspace.revealInFinder') }}</button>
+            <button type="button" role="menuitem" @click="runTreeContextAction('refresh')"><RefreshCw />{{ t('workspace.refreshTree') }}</button>
             <div class="workspace-context-separator" />
-            <button type="button" role="menuitem" class="is-danger" @click="runTreeContextAction('delete')"><Trash2 />删除</button>
+            <button type="button" role="menuitem" class="is-danger" @click="runTreeContextAction('delete')"><Trash2 />{{ t('common.delete') }}</button>
           </template>
 
           <template v-else-if="contextMenu.kind === 'change'">
-            <button type="button" role="menuitem" @click="runChangeContextAction('diff')"><FileDiff />查看 Diff</button>
-            <button type="button" role="menuitem" @click="runChangeContextAction('preview')"><FileCode2 />预览文件</button>
+            <button type="button" role="menuitem" @click="runChangeContextAction('diff')"><FileDiff />{{ t('workspace.viewDiff') }}</button>
+            <button type="button" role="menuitem" @click="runChangeContextAction('preview')"><FileCode2 />{{ t('workspace.previewFile') }}</button>
             <div class="workspace-context-separator" />
-            <button type="button" role="menuitem" @click="runChangeContextAction('copy-absolute')"><Copy />复制绝对路径</button>
-            <button type="button" role="menuitem" @click="runChangeContextAction('copy-relative')"><Copy />复制相对路径</button>
-            <button v-if="isDesktop" type="button" role="menuitem" @click="runChangeContextAction('reveal')"><FolderOpen />在 Finder 中显示</button>
+            <button type="button" role="menuitem" @click="runChangeContextAction('copy-absolute')"><Copy />{{ t('workspace.copyAbsolutePath') }}</button>
+            <button type="button" role="menuitem" @click="runChangeContextAction('copy-relative')"><Copy />{{ t('workspace.copyRelativePath') }}</button>
+            <button v-if="isDesktop" type="button" role="menuitem" @click="runChangeContextAction('reveal')"><FolderOpen />{{ t('workspace.revealInFinder') }}</button>
           </template>
 
           <template v-else>
-            <button type="button" role="menuitem" @click="runTabContextAction('close')"><X />关闭</button>
-            <button type="button" role="menuitem" @click="runTabContextAction('close-others')"><X />关闭其他标签</button>
-            <button type="button" role="menuitem" @click="runTabContextAction('close-right')"><X />关闭右侧标签</button>
-            <button type="button" role="menuitem" @click="runTabContextAction('close-all')"><X />关闭所有标签</button>
-            <button type="button" role="menuitem" @click="runTabContextAction('refresh')"><RefreshCw />刷新标签</button>
+            <button type="button" role="menuitem" @click="runTabContextAction('close')"><X />{{ t('workspace.closeTab') }}</button>
+            <button type="button" role="menuitem" @click="runTabContextAction('close-others')"><X />{{ t('workspace.closeOtherTabs') }}</button>
+            <button type="button" role="menuitem" @click="runTabContextAction('close-right')"><X />{{ t('workspace.closeRightTabs') }}</button>
+            <button type="button" role="menuitem" @click="runTabContextAction('close-all')"><X />{{ t('workspace.closeAllTabs') }}</button>
+            <button type="button" role="menuitem" @click="runTabContextAction('refresh')"><RefreshCw />{{ t('workspace.refreshTab') }}</button>
             <div class="workspace-context-separator" />
-            <button type="button" role="menuitem" @click="runTabContextAction('copy-absolute')"><Copy />复制绝对路径</button>
-            <button type="button" role="menuitem" @click="runTabContextAction('copy-relative')"><Copy />复制相对路径</button>
-            <button v-if="isDesktop" type="button" role="menuitem" @click="runTabContextAction('reveal')"><FolderOpen />在 Finder 中显示</button>
+            <button type="button" role="menuitem" @click="runTabContextAction('copy-absolute')"><Copy />{{ t('workspace.copyAbsolutePath') }}</button>
+            <button type="button" role="menuitem" @click="runTabContextAction('copy-relative')"><Copy />{{ t('workspace.copyRelativePath') }}</button>
+            <button v-if="isDesktop" type="button" role="menuitem" @click="runTabContextAction('reveal')"><FolderOpen />{{ t('workspace.revealInFinder') }}</button>
           </template>
         </div>
       </div>
@@ -1471,17 +1473,17 @@ onBeforeUnmount(() => {
         class="fixed inset-0 z-[310] flex items-center justify-center bg-[hsl(var(--foreground)/0.32)] p-4"
         @click.self="!deletingPath && (pendingDelete = null)"
       >
-        <section class="w-full max-w-sm rounded-xl border border-border bg-card p-5" role="dialog" aria-modal="true" aria-label="确认删除">
+        <section class="w-full max-w-sm rounded-xl border border-border bg-card p-5" role="dialog" aria-modal="true" :aria-label="t('workspace.confirmDelete')">
           <h2 class="text-base font-semibold text-foreground">
-            {{ pendingDelete.kind === 'directory' ? '删除文件夹？' : '删除文件？' }}
+            {{ pendingDelete.kind === 'directory' ? t('workspace.deleteFolderQ') : t('workspace.deleteFileQ') }}
           </h2>
           <p class="mt-2 text-sm leading-6 text-muted">
             {{ pendingDelete.kind === 'directory'
-              ? '将永久删除该文件夹及其全部内容，此操作不可撤销。'
-              : '将永久删除该文件，此操作不可撤销。' }}
+              ? t('workspace.deleteFolderBody')
+              : t('workspace.deleteFileBody') }}
           </p>
           <div class="mt-3 rounded-lg border border-border bg-hover/50 px-3 py-2">
-            <div class="text-[11px] font-medium text-muted">路径</div>
+            <div class="text-[11px] font-medium text-muted">{{ t('workspace.path') }}</div>
             <div class="mt-0.5 break-all font-mono text-xs text-foreground">{{ pendingDelete.path }}</div>
           </div>
           <div class="mt-5 flex justify-end gap-2">
@@ -1490,13 +1492,13 @@ onBeforeUnmount(() => {
               class="rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-hover disabled:opacity-50"
               :disabled="deletingPath"
               @click="pendingDelete = null"
-            >取消</button>
+            >{{ t('common.cancel') }}</button>
             <button
               type="button"
               class="rounded-md bg-danger px-3 py-1.5 text-sm text-white hover:opacity-90 disabled:opacity-50"
               :disabled="deletingPath"
               @click="confirmPendingDelete"
-            >{{ deletingPath ? '删除中…' : '删除' }}</button>
+            >{{ deletingPath ? t('workspace.deleting') : t('common.delete') }}</button>
           </div>
         </section>
       </div>

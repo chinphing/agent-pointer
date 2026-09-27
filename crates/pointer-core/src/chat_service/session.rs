@@ -253,14 +253,15 @@ pub async fn run_chat(
                     )
                 });
                 let ui = crate::context_compression::CompressionUiContext::main(ui_scope);
+                let locale = state.ui_locale();
                 emit(
                     &stream,
                     StreamEvent::UiToast {
                         conversation_id: conversation_id.clone(),
                         message: if started {
-                            "上下文超限，正在压缩（请之后重发）".into()
+                            crate::i18n::t(locale, "toast.contextOverflowCompressLater")
                         } else {
-                            "上下文超限，正在压缩后重试".into()
+                            crate::i18n::t(locale, "toast.contextOverflowCompressRetry")
                         },
                         level: "warning".into(),
                     },
@@ -310,7 +311,10 @@ pub async fn run_chat(
                         &stream,
                         StreamEvent::UiToast {
                             conversation_id: conversation_id.clone(),
-                            message: "上下文过大且无法压缩保留区，请新开对话或删减内容".into(),
+                            message: crate::i18n::t(
+                                state.ui_locale(),
+                                "toast.contextOverflowUnrecoverable",
+                            ),
                             level: "error".into(),
                         },
                     );

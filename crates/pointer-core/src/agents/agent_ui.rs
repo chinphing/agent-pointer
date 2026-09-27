@@ -1,6 +1,7 @@
 //! Per-agent chat UI visibility defaults (merged with AGENT.md `ui` block).
 
 use super::{AgentDef, AgentProfile};
+use crate::i18n::{t, UiLocale};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -114,28 +115,33 @@ pub struct ResolvedAgentUi {
     pub avatar: String,
 }
 
-fn default_composer_label(profile: &AgentProfile, role: &str, id: &str) -> String {
+fn default_composer_label(locale: UiLocale, profile: &AgentProfile, role: &str, id: &str) -> String {
     if role == "supervisor" {
-        return "团队模式".into();
+        return t(locale, "agents.supervisor");
     }
     match id {
-        "general" => "通用助手".into(),
-        "coder" => "氛围编程".into(),
-        "computer" => "电脑操控".into(),
-        "explore" => "代码探索".into(),
-        "general-worker" => "通用执行".into(),
+        "general" => t(locale, "agents.general"),
+        "coder" => t(locale, "agents.coder"),
+        "computer" => t(locale, "agents.computer"),
+        "explore" => t(locale, "agents.explore"),
+        "general-worker" => t(locale, "agents.generalWorker"),
         _ => match profile {
-            AgentProfile::Computer => "电脑操控".into(),
-            AgentProfile::Coder => "氛围编程".into(),
-            AgentProfile::Explore => "代码探索".into(),
-            AgentProfile::Analyst => "深度研究".into(),
-            AgentProfile::Supervisor => "团队模式".into(),
-            _ => "通用助手".into(),
+            AgentProfile::Computer => t(locale, "agents.computer"),
+            AgentProfile::Coder => t(locale, "agents.coder"),
+            AgentProfile::Explore => t(locale, "agents.explore"),
+            AgentProfile::Analyst => t(locale, "agents.analyst"),
+            AgentProfile::Supervisor => t(locale, "agents.supervisor"),
+            _ => t(locale, "agents.general"),
         },
     }
 }
 
-fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAgentUi {
+fn profile_defaults(
+    locale: UiLocale,
+    profile: &AgentProfile,
+    role: &str,
+    id: &str,
+) -> ResolvedAgentUi {
     let is_supervisor = role == "supervisor";
     let is_computer = matches!(profile, AgentProfile::Computer) || id == "computer";
     let is_coder = matches!(profile, AgentProfile::Coder) || id == "coder";
@@ -165,7 +171,7 @@ fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAge
         show_computer_monitor_picker: is_computer,
         show_task_board_panel: has_task_board,
         user_selectable: is_computer || is_coder || is_research || id == "general",
-        composer_label: default_composer_label(profile, role, id),
+        composer_label: default_composer_label(locale, profile, role, id),
         avatar: if is_supervisor {
             "supervisor".into()
         } else if is_computer {
@@ -195,6 +201,7 @@ fn merge_str(manifest: Option<String>, base: String) -> String {
 }
 
 fn merge_composer_label(
+    locale: UiLocale,
     manifest: Option<String>,
     profile: &AgentProfile,
     role: &str,
@@ -202,16 +209,25 @@ fn merge_composer_label(
 ) -> String {
     manifest
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| default_composer_label(profile, role, id))
+        .unwrap_or_else(|| default_composer_label(locale, profile, role, id))
 }
 
-/// User-visible agent label (Chinese composer label). English slug stays in `AgentDef::name` for settings only.
+/// User-visible agent label (composer label). English slug stays in `AgentDef::name` for settings only.
 pub fn agent_display_label(def: &AgentDef) -> String {
-    resolve_agent_ui(def).composer_label
+    agent_display_label_for(def, crate::i18n::current_ui_locale())
+}
+
+/// User-visible agent label for an explicit UI locale.
+pub fn agent_display_label_for(def: &AgentDef, locale: UiLocale) -> String {
+    resolve_agent_ui_for(def, locale).composer_label
 }
 
 pub fn resolve_agent_ui(def: &AgentDef) -> ResolvedAgentUi {
-    let base = profile_defaults(&def.profile, &def.role, &def.id);
+    resolve_agent_ui_for(def, crate::i18n::current_ui_locale())
+}
+
+pub fn resolve_agent_ui_for(def: &AgentDef, locale: UiLocale) -> ResolvedAgentUi {
+    let base = profile_defaults(locale, &def.profile, &def.role, &def.id);
     let ui = &def.ui;
     ResolvedAgentUi {
         show_in_composer: merge_bool(ui.show_in_composer, base.show_in_composer),
@@ -237,6 +253,7 @@ pub fn resolve_agent_ui(def: &AgentDef) -> ResolvedAgentUi {
         show_task_board_panel: merge_bool(ui.show_task_board_panel, base.show_task_board_panel),
         user_selectable: merge_bool(ui.user_selectable, base.user_selectable),
         composer_label: merge_composer_label(
+            locale,
             ui.composer_label.clone(),
             &def.profile,
             &def.role,
@@ -276,8 +293,23 @@ mod tests {
     #[test]
     fn display_label_uses_chinese_not_english_slug() {
         let def = sample_def("general", "general-assistant", AgentProfile::General);
-        assert_eq!(agent_display_label(&def), "通用助手");
+        assert_eq!(
+            agent_display_label_for(&def, UiLocale::ZhCn),
+            "通用助手"
+        );
         let coder = sample_def("coder", "vibe-coding", AgentProfile::Coder);
-        assert_eq!(agent_display_label(&coder), "氛围编程");
+        assert_eq!(
+            agent_display_label_for(&coder, UiLocale::ZhCn),
+            "氛围编程"
+        );
+    }
+
+    #[test]
+    fn display_label_english_catalog() {
+        let def = sample_def("computer", "computer-use", AgentProfile::Computer);
+        assert_eq!(
+            agent_display_label_for(&def, UiLocale::En),
+            "Computer use"
+        );
     }
 }

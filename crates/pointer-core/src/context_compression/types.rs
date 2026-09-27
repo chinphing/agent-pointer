@@ -158,28 +158,45 @@ pub(crate) fn compression_done_toast(
     _keep_users: u32,
     summary_failed: bool,
 ) -> (String, &'static str) {
+    let locale = crate::i18n::current_ui_locale();
     let level = if summary_failed { "warning" } else { "success" };
+    let dropped_s = dropped.to_string();
+    let keep_s = DROP_FALLBACK_KEEP_USER_TURNS.to_string();
     let msg = match ui.scope {
         CompressionScope::Main => {
             if summary_failed {
-                format!(
-                    "摘要生成失败，已丢弃较早 {dropped} 条记录，并保留最近 {keep} 轮用户消息",
-                    keep = DROP_FALLBACK_KEEP_USER_TURNS
+                crate::i18n::tf(
+                    locale,
+                    "toast.compressionSummaryFailed",
+                    &[("dropped", dropped_s.as_str()), ("keep", keep_s.as_str())],
                 )
             } else {
-                format!("已压缩较早 {dropped} 条对话为摘要，并保留最近对话")
+                crate::i18n::tf(
+                    locale,
+                    "toast.compressionDone",
+                    &[("dropped", dropped_s.as_str())],
+                )
             }
         }
         CompressionScope::SubAgent => {
+            let fallback = crate::i18n::t(locale, "toast.subAgentFallbackName");
             let name = ui
                 .sub_agent_name
                 .as_deref()
                 .filter(|s| !s.is_empty())
-                .unwrap_or("子 Agent");
+                .unwrap_or(fallback.as_str());
             if summary_failed {
-                format!("{name} 子任务：摘要失败，已丢弃较早 {dropped} 条记录")
+                crate::i18n::tf(
+                    locale,
+                    "toast.subCompressionSummaryFailed",
+                    &[("name", name), ("dropped", dropped_s.as_str())],
+                )
             } else {
-                format!("{name} 子任务：已压缩较早 {dropped} 条记录为摘要")
+                crate::i18n::tf(
+                    locale,
+                    "toast.subCompressionDone",
+                    &[("name", name), ("dropped", dropped_s.as_str())],
+                )
             }
         }
     };

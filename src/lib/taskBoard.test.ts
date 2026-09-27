@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import type { TaskBoardDocument } from '../types/chat'
+import { i18n } from '../i18n'
 import {
   hasTaskBoardContent,
   milestoneShowsRunning,
@@ -10,6 +11,10 @@ import {
   taskBoardVisibleMilestoneProgress,
   taskBoardVisibleMilestones
 } from './taskBoard'
+
+beforeAll(() => {
+  i18n.global.locale.value = 'zh-CN'
+})
 
 describe('taskBoard helpers', () => {
   it('reads v4 global_milestones', () => {

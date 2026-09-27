@@ -5,6 +5,7 @@ import './styles/globals.css'
 import { applyThemeBootstrap } from './lib/theme'
 import { isTauriRuntime } from './lib/runtime'
 import { installExternalLinkClickHandler } from './lib/externalLinkClick'
+import { i18n } from './i18n'
 
 applyThemeBootstrap()
 installExternalLinkClickHandler()
@@ -15,6 +16,7 @@ if (isTauriRuntime()) {
 
 const app = createApp(App)
 app.use(createPinia())
+app.use(i18n)
 
 app.config.errorHandler = (err, _vm, info) => {
   console.error('[Vue Error]', info, err)

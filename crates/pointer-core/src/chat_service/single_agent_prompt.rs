@@ -69,6 +69,7 @@ pub(super) async fn prepare_single_agent_round_prompts(
         &session_vars,
         non_computer_prompts,
     );
+    crate::i18n::push_ui_locale_reply_rule_to_cacheable(&mut cacheable, &settings.ui_locale);
     if !tools_system_appendix.is_empty() {
         cacheable.push(tools_system_appendix);
     }

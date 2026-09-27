@@ -1,9 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { t } from '../i18n'
+import { applyUiLocale } from '../lib/uiLocale'
 import { loginRequiredMessage, mapLoginGateError } from '../lib/platformAuthMessages'
 import {
   extractPlatformAuthHttpStatus,
   isPlatformAuthTransientError
 } from './platformAuth'
+
+beforeEach(() => {
+  applyUiLocale('zh-CN')
+})
 
 describe('platformAuth error classification', () => {
   it('extracts http_status tag first', () => {
@@ -40,7 +46,7 @@ describe('platformAuth error classification', () => {
       isPlatformAuthTransientError('token exchange failed http_status=429 (429 Too Many Requests)')
     ).toBe(true)
     expect(isPlatformAuthTransientError('token request failed: error sending request')).toBe(true)
-    expect(isPlatformAuthTransientError('网络异常，暂时无法验证登录态，请稍后重试')).toBe(true)
+    expect(isPlatformAuthTransientError(t('auth.networkVerifyFailed'))).toBe(true)
   })
 
   it('does not treat bare "401" in unrelated text as an HTTP status', () => {
@@ -67,18 +73,18 @@ describe('platformAuth error classification', () => {
 
 describe('loginRequiredMessage / mapLoginGateError', () => {
   it('returns purpose-specific copy for platform and standalone', () => {
-    expect(loginRequiredMessage(false, 'default')).toBe('请先登录 Pointer 账户')
-    expect(loginRequiredMessage(true, 'default')).toBe('请先登录')
-    expect(loginRequiredMessage(false, 'attachment')).toBe('请先登录 Pointer 账户后再添加附件')
-    expect(loginRequiredMessage(true, 'attachment')).toBe('请先登录后再添加附件')
-    expect(loginRequiredMessage(false, 'cloud')).toBe('请先登录 Pointer 账户')
+    expect(loginRequiredMessage(false, 'default')).toBe(t('auth.loginRequiredPointer'))
+    expect(loginRequiredMessage(true, 'default')).toBe(t('auth.loginRequired'))
+    expect(loginRequiredMessage(false, 'attachment')).toBe(t('auth.loginRequiredPointerAttach'))
+    expect(loginRequiredMessage(true, 'attachment')).toBe(t('auth.loginRequiredAttach'))
+    expect(loginRequiredMessage(false, 'cloud')).toBe(t('auth.loginRequiredPointer'))
   })
 
   it('maps backend login-gate errors to the standard hint', () => {
     expect(mapLoginGateError('platform_login_required', false, 'attachment')).toBe(
-      '请先登录 Pointer 账户后再添加附件'
+      t('auth.loginRequiredPointerAttach')
     )
-    expect(mapLoginGateError('local_login_required', true, 'default')).toBe('请先登录')
+    expect(mapLoginGateError('local_login_required', true, 'default')).toBe(t('auth.loginRequired'))
     expect(mapLoginGateError('something else', false, 'default')).toBeNull()
   })
 })

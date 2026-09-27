@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { Pause, Play } from 'lucide-vue-next'
 
@@ -131,7 +135,7 @@ onBeforeUnmount(() => {
       class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-40"
       :class="playBtnClass"
       :disabled="!src || loading"
-      :aria-label="playing ? '暂停' : '播放'"
+      :aria-label="playing ? t('chat.pause') : t('chat.play')"
       @click="togglePlay"
     >
       <Pause v-if="playing" class="h-4 w-4" />
@@ -143,7 +147,7 @@ onBeforeUnmount(() => {
         type="button"
         class="flex h-7 w-full items-center gap-[2px] cursor-pointer"
         :disabled="!src || loading"
-        aria-label="调整播放进度"
+        :aria-label="t('chat.s_ee9310')"
         @click="onSeek"
       >
         <span
@@ -161,7 +165,7 @@ onBeforeUnmount(() => {
         />
       </button>
       <span class="text-[10px] leading-none text-muted tabular-nums">
-        {{ loading ? '加载中…' : timeLabel }}
+        {{ loading ? t('common.loading') : timeLabel }}
       </span>
     </div>
 

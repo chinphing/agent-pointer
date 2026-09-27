@@ -29,7 +29,7 @@ async fn poll_volcengine_video(
     let url = volcengine_video_task_url(&cfg.base_url, task_id);
     for _ in 0..MAX_POLL_ATTEMPTS {
         if cancel.is_cancelled() {
-            return Err(anyhow!("已停止生成"));
+            return Err(anyhow!(crate::i18n::generation_stopped_msg()));
         }
         let resp = client
             .get(&url)
@@ -78,7 +78,7 @@ pub async fn generate_image_volcengine(
         body["image"] = json!(resolve_reference_image_for_api(raw)?);
     }
     if cancel.is_cancelled() {
-        return Err(anyhow!("已停止生成"));
+        return Err(anyhow!(crate::i18n::generation_stopped_msg()));
     }
     let url = volcengine_image_url(&cfg.base_url);
     let resp = client
@@ -121,7 +121,7 @@ pub async fn generate_image_volcengine(
             continue;
         }
         if cancel.is_cancelled() {
-            return Err(anyhow!("已停止生成"));
+            return Err(anyhow!(crate::i18n::generation_stopped_msg()));
         }
         let path = save_generated_bytes(conversation_id, &[], "gen.png")?;
         download_url_to_file(&client, &image_url, &path).await?;
@@ -199,7 +199,7 @@ pub async fn generate_video_volcengine(
     }
     body["watermark"] = json!(false);
     if cancel.is_cancelled() {
-        return Err(anyhow!("已停止生成"));
+        return Err(anyhow!(crate::i18n::generation_stopped_msg()));
     }
     let submit_url = volcengine_video_tasks_url(&cfg.base_url);
     let resp = client
@@ -236,7 +236,7 @@ pub async fn generate_video_volcengine(
         .max(1);
     let usage = GenerationUsage::per_video_seconds(duration);
     if cancel.is_cancelled() {
-        return Err(anyhow!("已停止生成"));
+        return Err(anyhow!(crate::i18n::generation_stopped_msg()));
     }
     let path = save_generated_bytes(conversation_id, &[], "gen.mp4")?;
     download_url_to_file(&client, video_url, &path).await?;

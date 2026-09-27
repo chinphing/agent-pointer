@@ -151,7 +151,10 @@ pub(super) async fn run_provider_stream_round(
                     &stream,
                     StreamEvent::UiToast {
                         conversation_id: conversation_id.clone(),
-                        message: "上下文超限，正在压缩后继续".into(),
+                        message: crate::i18n::t(
+                            crate::i18n::current_ui_locale(),
+                            "toast.contextOverflowCompressContinue",
+                        ),
                         level: "warning".into(),
                     },
                 );

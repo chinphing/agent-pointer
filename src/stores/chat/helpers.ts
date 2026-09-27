@@ -1,3 +1,4 @@
+import { t } from '../../i18n'
 import { isDiscardableEmptyAssistant, assistantHasUserFacingProgress } from '../../lib/assistantMessageKind'
 import { leadThreadCompressionInsertIndex } from '../../lib/compressionLayout'
 import { isBackgroundJobHost, isBackgroundJobHandleResult, isToolCallInProgress, isLiveBackgroundHostTool, backgroundHandleStatus, isBackgroundHandleInProgress } from '../../lib/toolCallDisplay'
@@ -402,7 +403,7 @@ export function markTrailingAssistantCancelled(conv: Conversation): boolean {
   if (!last || last.role !== 'assistant') return false
   if (last.status === 'done' || last.status === 'error') return false
   last.status = 'cancelled'
-  last.errorMessage = '已停止生成'
+  last.errorMessage = t('chat.stopped')
   last.contentStreaming = false
   conv.updatedAt = Date.now()
   return true

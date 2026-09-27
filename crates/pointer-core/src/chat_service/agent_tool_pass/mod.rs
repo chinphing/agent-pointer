@@ -229,7 +229,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                 .state
                 .computer_state
                 .mark_cancelled(pass.ctx.session.conversation_id);
-            return Err(anyhow!("已停止生成"));
+            return Err(anyhow!(crate::i18n::generation_stopped_msg()));
         }
 
         let args_value = match parse_tool_call_arguments_strict(&tc.arguments) {
@@ -536,7 +536,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                             .state
                             .computer_state
                             .mark_cancelled(pass.ctx.session.conversation_id);
-                        return Err(anyhow!("已停止生成"));
+                        return Err(anyhow!(crate::i18n::generation_stopped_msg()));
                     }
                     let outcome = run_one_prepared(
                         &mut pass,
@@ -844,7 +844,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                         .state
                         .computer_state
                         .mark_cancelled(pass.ctx.session.conversation_id);
-                    return Err(anyhow!("已停止生成"));
+                    return Err(anyhow!(crate::i18n::generation_stopped_msg()));
                 }
             }
             ToolWave::ParallelSelfFork(indices) => {
@@ -869,7 +869,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                         .state
                         .computer_state
                         .mark_cancelled(pass.ctx.session.conversation_id);
-                    return Err(anyhow!("已停止生成"));
+                    return Err(anyhow!(crate::i18n::generation_stopped_msg()));
                 }
             }
         }
@@ -884,7 +884,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
             .state
             .computer_state
             .mark_cancelled(pass.ctx.session.conversation_id);
-        return Err(anyhow!("已停止生成"));
+        return Err(anyhow!(crate::i18n::generation_stopped_msg()));
     }
 
     if let Some(hook) = pass.trim_hook.as_ref() {
@@ -1383,12 +1383,11 @@ fn record_background_spawn_result(
         &body,
         &persist,
     );
-    let display = pass
-        .ctx
-        .session
-        .state
-        .tools
-        .format_display(&prep.tc.name, &prep.args_value);
+    let display = pass.ctx.session.state.tools.format_display_for(
+        &prep.tc.name,
+        &prep.args_value,
+        pass.ctx.session.state.ui_locale(),
+    );
     patch_assistant_tool_call_display(
         pass.ctx.transcript.history,
         &pass.ctx.message_id,
@@ -1700,7 +1699,7 @@ fn emit_tool_pass_cancelled(
     prep: &PreparedTool,
     sub_trace_id: &Option<String>,
 ) {
-    let err = "已停止生成";
+    let err = crate::i18n::generation_stopped_msg();
     let scoped_message_id = pass.ctx.sub.as_ref().map(|s| s.scoped_message_id.as_str());
     emit_tool_failed(
         pass.ctx.session.stream,
@@ -1708,7 +1707,7 @@ fn emit_tool_pass_cancelled(
         &prep.tc,
         sub_trace_id.as_deref(),
         scoped_message_id,
-        err,
+        err.as_str(),
     );
     patch_assistant_tool_call_outcome(
         pass.ctx.transcript.history,
@@ -1716,7 +1715,7 @@ fn emit_tool_pass_cancelled(
         &prep.tc.id,
         "failed",
         None,
-        Some(err),
+        Some(err.as_str()),
         Some(0),
         None,
         None,
@@ -1761,7 +1760,9 @@ fn build_self_fork_running_event(
     trace_id: Option<&str>,
     scoped_message_id: Option<&str>,
 ) -> Option<(super::StreamTx, StreamEvent)> {
-    let display = state.tools.format_display(&tc.name, args_value);
+    let display = state
+        .tools
+        .format_display_for(&tc.name, args_value, state.ui_locale());
     patch_assistant_tool_call_display(history, message_id, &tc.id, &display);
     let (display_label, display_summary) = tool_display_stream_fields(&display);
     let event = StreamEvent::ToolCallStatus {
@@ -1791,7 +1792,9 @@ fn emit_tool_running(
     scoped_message_id: Option<&str>,
     _background_job_id: Option<&str>,
 ) {
-    let display = state.tools.format_display(&tc.name, args_value);
+    let display = state
+        .tools
+        .format_display_for(&tc.name, args_value, state.ui_locale());
     patch_assistant_tool_call_display(history, message_id, &tc.id, &display);
     let (display_label, display_summary) = tool_display_stream_fields(&display);
     emit(

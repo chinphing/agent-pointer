@@ -7,12 +7,13 @@ import { latestSubAgentBodyModelFromScoped } from '../lib/subAgentMessages'
 import { useConversationScopedStore } from '../lib/conversationScoped'
 import { taskBoardCompactSummary } from '../lib/taskBoardCollapsedLine'
 import { visibleToolCalls } from '../lib/messageTooling'
+import { t } from '../i18n'
 import {
   compactToolCallStatusLine,
   latestToolCallForCompactStatus
 } from '../lib/toolCallDisplay'
 import { thinkingLabel, thinkingCharCountForCurrentRound } from '../lib/thinkingIndicator'
-import { isPlannerPhaseThoughts, PLANNER_PHASE_THOUGHTS } from '../lib/plannerPhase'
+import { isPlannerPhaseThoughts } from '../lib/plannerPhase'
 import type { ChatMessage, ToolCall } from '../types/chat'
 
 const COMPUTER_HIDE_TOOL_NAMES = [
@@ -149,8 +150,8 @@ export function useComputerCompactTitle(stoppedHint: Ref<boolean>) {
   const planLine = computed((): string | null => planSummary.value?.fullLine ?? null)
 
   const statusLine = computed((): string => {
-    if (stoppedHint.value) return '已停止'
-    if (computerMonitorPickRequest.value) return '请选择操控屏幕…'
+    if (stoppedHint.value) return t('chat.computer.stopped')
+    if (computerMonitorPickRequest.value) return t('chat.computer.pickScreen')
 
     const msg = activeMessage.value
     const conv = chat.current
@@ -166,15 +167,15 @@ export function useComputerCompactTitle(stoppedHint: Ref<boolean>) {
 
     if (isPlannerPhaseThoughts(body.thoughts)) {
       if (plannerTool) return compactToolCallStatusLine(plannerTool, conv?.workspaceRoot)
-      return PLANNER_PHASE_THOUGHTS
+      return t('chat.computer.planning')
     }
 
     if (plannerTool) return compactToolCallStatusLine(plannerTool, conv?.workspaceRoot)
 
-    if (planSummary.value) return '准备执行…'
+    if (planSummary.value) return t('chat.computer.readyToRun')
 
     const preview = body.toolNamePreview?.trim()
-    if (preview && isComputerToolName(preview)) return '执行中…'
+    if (preview && isComputerToolName(preview)) return t('chat.computer.running')
 
     const chars = thinkingCharCountForCurrentRound(body)
     return thinkingLabel(chars)

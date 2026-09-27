@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, ref, watch } from 'vue'
 
 const props = defineProps<{
@@ -90,7 +94,7 @@ const hasContent = computed(() => showXmlThoughts.value)
         :aria-expanded="thoughtsOpen"
         @click="toggleThoughts"
       >
-        <span class="shrink-0 text-[11px] text-muted font-medium">思考过程</span>
+        <span class="shrink-0 text-[11px] text-muted font-medium">{{ t('chat.s_0178ef') }}</span>
         <span
           class="inline-block w-3 shrink-0 text-muted text-center text-[10px] transition-transform pt-0.5"
           :class="thoughtsOpen ? 'rotate-90' : ''"

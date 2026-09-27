@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, ref } from 'vue'
 import { ClipboardList, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../types/chat'
@@ -31,8 +35,8 @@ const body = computed(() => taskBoardTrimNoticeBody(props.message.content))
           class="w-3.5 h-3.5 shrink-0 text-muted"
           aria-hidden="true"
         />
-        <span class="text-[12px] font-medium text-foreground">任务板更新后精简历史</span>
-        <span class="text-[10px] text-muted">旧版占位</span>
+        <span class="text-[12px] font-medium text-foreground">{{ t('chat.s_812ef9') }}</span>
+        <span class="text-[10px] text-muted">{{ t('chat.s_3ac130') }}</span>
       </div>
       <p v-if="!expanded" class="mt-1.5 text-[11px] text-muted line-clamp-2 pl-5">
         {{ body }}

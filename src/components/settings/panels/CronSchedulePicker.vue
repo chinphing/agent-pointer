@@ -1,13 +1,19 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, ref, watch } from 'vue'
 import {
   buildCron,
   describeCron,
   parseCron,
-  WEEKDAY_LABELS,
+  weekdayLabels,
   type CronMode,
   type CronPreset
 } from '../../../lib/cronSchedule'
+
+const weekdayOptions = computed(() => weekdayLabels())
 
 const props = defineProps<{ modelValue: string }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: string): void }>()
@@ -80,17 +86,17 @@ const rawExpr = computed<string>({
   }
 })
 
-const modeOptions: { value: CronMode; label: string }[] = [
-  { value: 'onceIn', label: '延迟一次' },
-  { value: 'onceAt', label: '指定时间一次' },
-  { value: 'everyMinute', label: '每分钟' },
-  { value: 'everyNMinutes', label: '每隔 N 分钟' },
-  { value: 'everyNHours', label: '每隔 N 小时' },
-  { value: 'dailyAt', label: '每天定时' },
-  { value: 'weeklyAt', label: '每周定时' },
-  { value: 'monthlyAt', label: '每月定时' },
-  { value: 'custom', label: '自定义表达式' }
-]
+const modeOptions = computed(() => [
+  { value: 'onceIn' as CronMode, label: t('settings.cron.onceIn') },
+  { value: 'onceAt' as CronMode, label: t('settings.cron.onceAt') },
+  { value: 'everyMinute' as CronMode, label: t('settings.cron.everyMinute') },
+  { value: 'everyNMinutes' as CronMode, label: t('settings.cron.everyNMinutes') },
+  { value: 'everyNHours' as CronMode, label: t('settings.cron.everyNHours') },
+  { value: 'dailyAt' as CronMode, label: t('settings.cron.dailyAt') },
+  { value: 'weeklyAt' as CronMode, label: t('settings.cron.weeklyAt') },
+  { value: 'monthlyAt' as CronMode, label: t('settings.cron.monthlyAt') },
+  { value: 'custom' as CronMode, label: t('settings.cron.custom') }
+])
 
 function setMode(m: CronMode) {
   // Carry over sensible defaults when switching into a mode that lacks params.
@@ -148,7 +154,7 @@ function pad(n: number): string {
     <!-- Repeat mode + inline params on one row. flex-wrap keeps it graceful on
          narrow widths. Custom mode has no inline params (raw input below). -->
     <div class="flex items-center gap-2 flex-wrap">
-      <span class="text-[11px] text-muted w-10 shrink-0">调度</span>
+      <span class="text-[11px] text-muted w-10 shrink-0">{{ t('settings.cron.schedule') }}</span>
       <select
         :value="preset.mode"
         class="input-base w-32 shrink-0"
@@ -160,9 +166,9 @@ function pad(n: number): string {
       <template v-if="preset.mode === 'onceIn'">
         <input v-model.number="delayAmount" type="number" min="1" max="9999" class="input-base w-20" />
         <select v-model="delayUnit" class="input-base w-20">
-          <option value="m">分钟</option>
-          <option value="h">小时</option>
-          <option value="d">天</option>
+          <option value="m">{{ t('settings.cron.minutes') }}</option>
+          <option value="h">{{ t('settings.cron.hours') }}</option>
+          <option value="d">{{ t('settings.cron.days') }}</option>
         </select>
       </template>
 
@@ -171,15 +177,15 @@ function pad(n: number): string {
       </template>
 
       <template v-else-if="preset.mode === 'everyNMinutes'">
-        <span class="text-[11px] text-muted">间隔</span>
+        <span class="text-[11px] text-muted">{{ t('settings.cron.interval') }}</span>
         <input v-model.number="interval" type="number" min="1" max="59" class="input-base w-20" />
-        <span class="text-[11px] text-muted">分钟</span>
+        <span class="text-[11px] text-muted">{{ t('settings.cron.minutes') }}</span>
       </template>
 
       <template v-else-if="preset.mode === 'everyNHours'">
-        <span class="text-[11px] text-muted">间隔</span>
+        <span class="text-[11px] text-muted">{{ t('settings.cron.interval') }}</span>
         <input v-model.number="interval" type="number" min="1" max="23" class="input-base w-20" />
-        <span class="text-[11px] text-muted">小时</span>
+        <span class="text-[11px] text-muted">{{ t('settings.cron.hours') }}</span>
       </template>
 
       <template v-else-if="preset.mode === 'dailyAt'">
@@ -188,13 +194,13 @@ function pad(n: number): string {
 
       <template v-else-if="preset.mode === 'weeklyAt'">
         <select v-model.number="weekday" class="input-base w-20">
-          <option v-for="(label, idx) in WEEKDAY_LABELS" :key="idx" :value="idx">{{ label }}</option>
+          <option v-for="(label, idx) in weekdayOptions" :key="idx" :value="idx">{{ label }}</option>
         </select>
         <input v-model="timeOfDay" type="time" class="input-base w-28" />
       </template>
       <template v-else-if="preset.mode === 'monthlyAt'">
         <input v-model.number="dayOfMonth" type="number" min="1" max="31" class="input-base w-16" />
-        <span class="text-[11px] text-muted">日</span>
+        <span class="text-[11px] text-muted">{{ t('settings.cron.dayOfMonth') }}</span>
         <input v-model="timeOfDay" type="time" class="input-base w-28" />
       </template>
     </div>
@@ -204,9 +210,9 @@ function pad(n: number): string {
       <input
         v-model="rawExpr"
         class="input-base font-mono w-full"
-        placeholder="0 * * * * *  (秒 分 时 日 月 周)"
+        :placeholder="t('settings.cron.cronPlaceholder')"
       />
-      <p class="text-[11px] text-muted">6 段、秒级；字段按本地时区解释。</p>
+      <p class="text-[11px] text-muted">{{ t('settings.cron.cronHint') }}</p>
     </div>
 
     <!-- Preview footer: Chinese schedule summary + raw cron (hover title). -->
@@ -214,7 +220,7 @@ function pad(n: number): string {
       class="flex items-center gap-1.5 text-[11px] pt-2 mt-1 border-t border-border/60 min-w-0"
       :title="buildCron(preset)"
     >
-      <span class="text-muted shrink-0">预览</span>
+      <span class="text-muted shrink-0">{{ t('settings.cron.preview') }}</span>
       <span class="text-foreground truncate">{{ describeCron(buildCron(preset)) }}</span>
       <span class="text-muted/50 shrink-0">·</span>
       <span class="text-muted/70 font-mono truncate">{{ buildCron(preset) }}</span>

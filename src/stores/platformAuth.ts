@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
+import { t } from '../i18n'
 import * as api from '../lib/api'
 import type { AuthMode } from '../lib/api'
 import {
@@ -58,7 +59,8 @@ function isTransientHttpStatus(status: number): boolean {
 export function isPlatformAuthTransientError(message: string): boolean {
   const msg = message.toLowerCase()
   if (msg.includes('invalid_refresh_token')) return false
-  if (msg.includes('登录已失效')) return false
+  // Localized session-expired copy (zh / en) is not a transport blip.
+  if (msg.includes('登录已失效') || msg.includes('session expired')) return false
   if (msg.includes('platform_login_required') || msg.includes('local_login_required')) return false
   if (msg.includes('platform_token_expired')) return false
 
@@ -74,6 +76,8 @@ export function isPlatformAuthTransientError(message: string): boolean {
   return (
     msg.includes('网络异常') ||
     msg.includes('暂时无法') ||
+    msg.includes('network error') ||
+    msg.includes('cannot verify session') ||
     msg.includes('token request failed') ||
     msg.includes('error sending request') ||
     msg.includes('error trying to connect') ||
@@ -113,10 +117,10 @@ function accessHasHeadroom(session: PlatformSessionView, minRemainMs = 120_000):
 
 export function formatPlatformAuthError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e)
-  if (msg.includes('oauth callback timeout')) return '登录超时，请重试'
-  if (msg.includes('platform_login_cancelled')) return '已取消登录'
-  if (msg.includes('本机回环')) {
-    return '本机回环不可用：请检查防火墙、安全软件、VPN 或系统代理是否拦截 localhost，然后重试'
+  if (msg.includes('oauth callback timeout')) return t('auth.loginTimeout')
+  if (msg.includes('platform_login_cancelled')) return t('auth.loginCancelled')
+  if (msg.includes('本机回环') || msg.toLowerCase().includes('loopback')) {
+    return t('auth.loopbackUnavailable')
   }
   const status = extractPlatformAuthHttpStatus(msg)
   if (
@@ -124,17 +128,17 @@ export function formatPlatformAuthError(e: unknown): string {
     msg.includes('platform_token_expired') ||
     (status != null && isAuthFailureHttpStatus(status))
   ) {
-    return '登录已失效，请重新登录 Pointer 账户'
+    return t('auth.sessionExpired')
   }
-  if (msg.includes('server_access_denied')) return '此 Server 未授权您的账户，请联系管理员'
-  if (msg.includes('invalid_captcha')) return '验证码错误，请重试'
-  if (msg.includes('invalid_credentials')) return '账号或密码错误'
-  if (msg.includes('local_login_required')) return '请先登录'
+  if (msg.includes('server_access_denied')) return t('auth.serverAccessDenied')
+  if (msg.includes('invalid_captcha')) return t('auth.invalidCaptcha')
+  if (msg.includes('invalid_credentials')) return t('auth.invalidCredentials')
+  if (msg.includes('local_login_required')) return t('auth.loginRequired')
   if (msg.includes('Plugin not found') || msg.includes('not allowed')) {
-    return '当前为云主机页面，登录态由平台自动注入，无需再次登录'
+    return t('auth.cloudInjected')
   }
   if (isPlatformAuthTransientError(msg)) {
-    return '网络异常，暂时无法验证登录态，请稍后重试'
+    return t('auth.networkVerifyFailed')
   }
   return msg
 }
@@ -170,13 +174,13 @@ function consumeOAuthRedirectQuery(): string | null {
   url.searchParams.delete('sso_error')
   window.history.replaceState({}, '', url.toString())
   if (errorMsg === 'server_access_denied') {
-    return '此 Server 未授权您的账户，请联系管理员'
+    return t('auth.serverAccessDenied')
   }
   if (ssoError) {
-    if (ssoError === 'not_configured') return 'SSO 未配置，请联系管理员'
-    if (ssoError === 'not_standalone') return '当前实例不支持 SSO 登录'
-    if (ssoError === 'missing') return '缺少 SSO 票据'
-    return 'SSO 登录失败，请重新从门户打开'
+    if (ssoError === 'not_configured') return t('auth.ssoNotConfigured')
+    if (ssoError === 'not_standalone') return t('auth.ssoNotStandalone')
+    if (ssoError === 'missing') return t('auth.ssoMissing')
+    return t('auth.ssoFailed')
   }
   return errorMsg ? decodeURIComponent(errorMsg) : null
 }
@@ -296,7 +300,7 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
           session.value = { logged_in: false }
           lastFreshAtMs = 0
         }
-        throw new Error(error.value || '平台登录态刷新失败')
+        throw new Error(error.value || t('auth.refreshFailed'))
       } finally {
         freshInflight = null
       }

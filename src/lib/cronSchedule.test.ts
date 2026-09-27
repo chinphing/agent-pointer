@@ -1,10 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { i18n } from '../i18n'
 import {
   buildCron,
   describeCron,
   parseCron,
   type CronPreset
 } from './cronSchedule'
+
+beforeAll(() => {
+  i18n.global.locale.value = 'zh-CN'
+})
 
 describe('buildCron', () => {
   it('everyMinute', () => {

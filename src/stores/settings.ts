@@ -28,6 +28,8 @@ import type {
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { GENERAL_AGENT_ID } from '../lib/agentUi'
 import { applyTheme } from '../lib/theme'
+import { applyUiLocale, normalizeUiLocalePreference } from '../lib/uiLocale'
+import type { UiLocalePreference } from '../types/chat'
 import {
   modelCanGenerateImage,
   modelCanGenerateVideo,
@@ -270,6 +272,7 @@ function normalizeAgentDefaultModels(
 export const useSettingsStore = defineStore('settings', () => {
   const userSettings = ref<UserSettings>({
     theme: 'system',
+    uiLocale: 'system',
     agentSkillOverrides: {}
   })
   const platformSettings = ref<PlatformSettings>(defaultPlatformSettings())
@@ -336,7 +339,13 @@ export const useSettingsStore = defineStore('settings', () => {
   const testResult = ref<{ ok: boolean; latencyMs: number; message: string } | null>(null)
 
   function applyEffectiveView(view: EffectiveSettingsView) {
-    userSettings.value = { ...view.user, theme: (view.user.theme as ThemePreference) ?? 'system' }
+    const uiLocale = normalizeUiLocalePreference(view.user.uiLocale) as UiLocalePreference
+    userSettings.value = {
+      ...view.user,
+      theme: (view.user.theme as ThemePreference) ?? 'system',
+      uiLocale
+    }
+    applyUiLocale(uiLocale)
     // WEB non-admin responses omit debug / mode-LLM fields. Preserve the current
     // in-memory values when the payload lacks them so save→reopen does not snap
     // back to built-in defaults (admins now receive these fields from the API).
@@ -548,15 +557,19 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function saveUserSnapshot(snapshot: UserSettings) {
     if (snapshot.theme !== undefined) applyTheme(snapshot.theme)
+    if (snapshot.uiLocale !== undefined) applyUiLocale(snapshot.uiLocale)
     const view = await updateUserSettings(cloneJson(snapshot))
     // Only refresh the user slice. A full applyEffectiveView would re-apply the
     // still-stale platform map (often `terminalEnvOverrides: {}`) and wipe session
     // debug drafts captured earlier in the same settings-footer save.
+    const uiLocale = normalizeUiLocalePreference(view.user.uiLocale) as UiLocalePreference
     const user = {
       ...view.user,
-      theme: (view.user.theme as ThemePreference) ?? 'system'
+      theme: (view.user.theme as ThemePreference) ?? 'system',
+      uiLocale
     }
     userSettings.value = user
+    applyUiLocale(uiLocale)
     // 后端 update_user_settings 会把空/掩码的 apiKey 从内存 key 池回填后再落盘，
     // 返回的 merged.providers 才是最新的 key 状态。若不把 providers 同步回来，
     // 本地 merged 视图里编辑项的 apiKey 停留在保存前被置空的值，UI 会显示
@@ -675,6 +688,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function saveUser(patch: Partial<UserSettings>) {
     if (patch.theme !== undefined) applyTheme(patch.theme)
+    if (patch.uiLocale !== undefined) applyUiLocale(patch.uiLocale)
     await saveUserSnapshot(createUserSnapshot(patch))
   }
 

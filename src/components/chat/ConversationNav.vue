@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ChevronDown, ChevronUp } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
@@ -278,7 +282,7 @@ onBeforeUnmount(() => {
     v-if="hasItems"
     ref="asideEl"
     class="pointer-events-none absolute inset-y-0 right-0 z-20 flex w-7 items-center justify-end pr-1"
-    aria-label="导航"
+    :aria-label="t('chat.s_056f2d')"
   >
     <p
       v-if="hoverPreview"
@@ -295,7 +299,7 @@ onBeforeUnmount(() => {
         v-if="canScrollUp"
         type="button"
         class="flex h-4 w-6 shrink-0 items-center justify-center text-muted transition hover:text-foreground"
-        aria-label="向上"
+        :aria-label="t('chat.s_00d5a2')"
         @click.stop="onArrowClick(-1)"
       >
         <ChevronUp class="h-3 w-3" stroke-width="2.5" />
@@ -318,7 +322,7 @@ onBeforeUnmount(() => {
           :style="{ height: `${CONVERSATION_NAV_TICK_SLOT_PX}px` }"
           :data-nav-message-id="item.messageId"
           :aria-current="item.messageId === activeId ? 'true' : undefined"
-          :aria-label="item.milestone ? `里程碑 ${item.preview}` : item.preview"
+          :aria-label="item.milestone ? t('chat.milestoneWithPreview', { preview: item.preview }) : item.preview"
           @focus="onTickFocus(item, $event)"
           @blur="onNavLeave"
           @click="onJump(item.messageId)"
@@ -334,7 +338,7 @@ onBeforeUnmount(() => {
         v-if="canScrollDown"
         type="button"
         class="flex h-4 w-6 shrink-0 items-center justify-center text-muted transition hover:text-foreground"
-        aria-label="向下"
+        :aria-label="t('chat.s_c4557f')"
         @click.stop="onArrowClick(1)"
       >
         <ChevronDown class="h-3 w-3" stroke-width="2.5" />

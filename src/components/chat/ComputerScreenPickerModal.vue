@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, ref, watch } from 'vue'
 import { Monitor, X } from 'lucide-vue-next'
 import type { ComputerMonitor } from '../../types/chat'
@@ -52,7 +56,7 @@ watch(
       class="fixed inset-0 z-[220] flex items-center justify-center bg-foreground/32 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label="选择屏幕"
+      :aria-label="t('chat.s_c37bfb')"
       @click.self="close"
     >
       <div class="relative w-full max-w-xl rounded-2xl border border-border bg-[hsl(var(--card-elevated))] shadow-2xl overflow-hidden">
@@ -61,15 +65,15 @@ watch(
             <Monitor class="w-4 h-4 text-accent" />
           </div>
           <div class="min-w-0 flex-1 pr-8">
-            <h2 class="text-base font-semibold text-foreground">选择要操作的屏幕</h2>
+            <h2 class="text-base font-semibold text-foreground">{{ t('chat.s_d87548') }}</h2>
             <p class="text-[12px] text-muted mt-0.5 leading-relaxed">
-              按桌面排列点击屏幕。Agent 将在所选屏幕上截图并执行操作。
+              {{ t('chat.agent_705dbe') }}
             </p>
           </div>
           <button
             type="button"
             class="absolute top-4 right-4 p-2 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors"
-            title="关闭 (Esc)"
+            :title="t('skills.closeEsc')"
             @click="close"
           >
             <X class="w-4 h-4" />
@@ -80,9 +84,9 @@ watch(
           <div v-if="error" class="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
             {{ error }}
           </div>
-          <div v-else-if="loading" class="text-sm text-muted py-2">正在读取屏幕列表…</div>
+          <div v-else-if="loading" class="text-sm text-muted py-2">{{ t('chat.s_b18112') }}</div>
           <div v-else-if="!layout.rects.length" class="text-center text-sm text-muted py-6">
-            未检测到可用屏幕
+            {{ t('chat.noMonitors') }}
           </div>
           <div v-else class="space-y-4">
             <div
@@ -116,7 +120,7 @@ watch(
               </button>
             </div>
             <p class="text-[11px] text-muted text-center">
-              布局与系统「显示器排列」一致；点击一块屏幕以继续。
+              {{ t('chat.s_083f5a') }}
             </p>
           </div>
         </div>

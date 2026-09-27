@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { ref, watch } from 'vue'
 import { ShieldCheck, X } from 'lucide-vue-next'
 import { approveChannelPairingAny, type PairingPendingItem } from '../../lib/channels'
 import { channelLabel } from '../../lib/channel-labels'
 import { useChatStore } from '../../stores/chat'
+
+const { t } = useI18n()
 
 const open = defineModel<boolean>('open', { required: true })
 
@@ -46,7 +49,10 @@ async function approve() {
   error.value = ''
   try {
     const channel = await approveChannelPairingAny('default', code)
-    chat.showUiToast(`配对成功（${channelLabel(channel)}），请让对方重新发送消息`, 'success')
+    chat.showUiToast(
+      t('settings.channels.pairingOkAskResend', { label: channelLabel(channel) }),
+      'success'
+    )
     emit('approved')
     open.value = false
   } catch (e) {
@@ -78,7 +84,7 @@ watch(
       class="fixed inset-0 z-[220] flex items-center justify-center bg-foreground/32 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label="IM 配对审批"
+      :aria-label="t('settings.channels.imPairing')"
       @click.self="!busy && close()"
     >
       <div
@@ -89,21 +95,21 @@ watch(
             <ShieldCheck class="h-4 w-4 text-accent" />
           </div>
           <div class="min-w-0 flex-1 pr-8">
-            <h2 class="text-base font-semibold text-foreground">IM 配对审批</h2>
+            <h2 class="text-base font-semibold text-foreground">{{ t('settings.channels.imPairing') }}</h2>
             <p class="mt-1 text-[13px] leading-relaxed text-muted">
               <template v-if="pending">
                 <span class="text-foreground">{{ channelLabel(pending.channel) }}</span>
-                有新用户发来消息，请确认配对码并批准（将自动识别通道）。
+                {{ t('settings.channels.pairingPendingBody') }}
               </template>
               <template v-else>
-                输入配对码即可，系统会自动识别微信 / 飞书 / 企微 / 钉钉。
+                {{ t('settings.channels.pairingCodeOnlyBody') }}
               </template>
             </p>
           </div>
           <button
             type="button"
             class="absolute right-4 top-4 cursor-pointer rounded-lg p-2 text-muted transition-colors hover:bg-hover"
-            title="稍后处理 (Esc)"
+            :title="t('settings.channels.laterEsc')"
             :disabled="busy"
             @click="close"
           >
@@ -113,12 +119,12 @@ watch(
 
         <div class="space-y-3 px-5 py-4">
           <div>
-            <label class="mb-1.5 block text-xs text-muted">配对码</label>
+            <label class="mb-1.5 block text-xs text-muted">{{ t('settings.channels.pairingCode') }}</label>
             <input
               v-model="pairingCode"
               type="text"
               class="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono tracking-wider placeholder:text-muted"
-              placeholder="8 位配对码"
+              :placeholder="t('settings.channels.codePlaceholder')"
               autocomplete="off"
               :disabled="busy"
             />
@@ -133,7 +139,7 @@ watch(
             :disabled="busy"
             @click="close"
           >
-            稍后处理
+            {{ t('settings.channels.later') }}
           </button>
           <button
             type="button"
@@ -141,7 +147,7 @@ watch(
             :disabled="busy || !pairingCode.trim()"
             @click="approve"
           >
-            {{ busy ? '审批中…' : '批准' }}
+            {{ busy ? t('common.approving') : t('settings.channels.approve') }}
           </button>
         </footer>
       </div>

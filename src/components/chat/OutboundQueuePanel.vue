@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, ref, watch } from 'vue'
 import { ArrowUp, ChevronDown, Clock, Paperclip, X } from 'lucide-vue-next'
 import type { OutboundQueueItem } from '../../types/chat'
@@ -28,8 +32,8 @@ function preview(item: OutboundQueueItem): string {
   const text = item.content.trim()
   if (text) return text.length > 120 ? `${text.slice(0, 119)}…` : text
   const n = item.attachments?.length ?? 0
-  if (n > 0) return `${n} 个附件`
-  return '（空消息）'
+  if (n > 0) return t('chat.attachmentCount', { count: n })
+  return t('chat.s_b7cb28')
 }
 
 function removeItem(itemId: string) {
@@ -60,13 +64,13 @@ async function forceSend(itemId: string) {
     >
       <Clock class="w-3.5 h-3.5 text-muted shrink-0" aria-hidden="true" />
       <span class="text-[12px] font-medium text-muted flex-1 min-w-0 truncate">
-        待发送
+        {{ t('chat.s_57a3b6') }}
       </span>
       <span class="text-[10px] px-1.5 py-0.5 rounded bg-hover text-muted shrink-0 tabular-nums">
         {{ count }}
       </span>
       <span class="hidden sm:inline text-[10px] text-muted/80 shrink-0">
-        Enter 立即发送队首 · ⌘/Ctrl+Enter 停止并发送
+        {{ t('chat.enterCtrlEnter_19ca66') }}
       </span>
       <ChevronDown
         class="w-3.5 h-3.5 text-muted shrink-0 transition-transform duration-200"
@@ -93,15 +97,15 @@ async function forceSend(itemId: string) {
           <p class="text-foreground whitespace-pre-wrap break-words leading-snug">{{ preview(item) }}</p>
           <p v-if="item.attachments?.length" class="mt-1 flex items-center gap-1 text-[10px] text-muted">
             <Paperclip class="w-3 h-3 shrink-0" aria-hidden="true" />
-            {{ item.attachments.length }} 个附件
+            {{ t('chat.attachmentCount', { count: item.attachments.length }) }}
           </p>
         </div>
         <div class="shrink-0 flex items-center gap-0.5">
           <button
             type="button"
             class="inline-flex items-center justify-center h-7 w-7 rounded-md text-muted hover:text-foreground hover:bg-hover cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            title="强制发送：暂停当前任务并立即发送（⌘/Ctrl+Enter）"
-            aria-label="强制发送"
+            :title="t('chat.ctrlEnter_3cdf36')"
+            :aria-label="t('chat.s_9970e4')"
             :disabled="forcingId !== null"
             @click.stop="forceSend(item.id)"
           >
@@ -110,8 +114,8 @@ async function forceSend(itemId: string) {
           <button
             type="button"
             class="inline-flex items-center justify-center h-7 w-7 rounded-md text-muted hover:text-foreground hover:bg-hover cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            title="移出队列"
-            aria-label="移出队列"
+            :title="t('chat.s_945a81')"
+            :aria-label="t('chat.s_945a81')"
             :disabled="forcingId !== null"
             @click.stop="removeItem(item.id)"
           >

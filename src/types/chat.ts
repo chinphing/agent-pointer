@@ -62,13 +62,17 @@ export type AgentMode = 'single' | 'supervisor'
 
 export type ThemePreference = 'light' | 'dark' | 'system'
 
+/** UI language: follow OS, Chinese, or English. Persisted in user_settings.json. */
+export type UiLocalePreference = 'system' | 'zh-CN' | 'en'
+
 /** Computer agent vision tier (matches backend `ComputerTier`). */
 export type ComputerInitialTier = 'primary' | 'intermediate' | 'advanced'
 
-export const COMPUTER_INITIAL_TIER_OPTIONS: { value: ComputerInitialTier; label: string }[] = [
-  { value: 'primary', label: '快速' },
-  { value: 'intermediate', label: '标准' },
-  { value: 'advanced', label: '高级' }
+/** Value-only tier options; UI labels via `settings.tiers.*` / `chat.mode*`. */
+export const COMPUTER_INITIAL_TIER_OPTIONS: { value: ComputerInitialTier; labelKey: string }[] = [
+  { value: 'primary', labelKey: 'settings.tiers.fast' },
+  { value: 'intermediate', labelKey: 'settings.tiers.standard' },
+  { value: 'advanced', labelKey: 'settings.tiers.expert' }
 ]
 
 /** Per-agent chat UI visibility (from AGENT.md `ui` block). */
@@ -547,10 +551,11 @@ export type PerformanceMode = 'fast' | 'standard' | 'expert'
 
 export type PerformanceModeKey = PerformanceMode
 
-export const PERFORMANCE_MODE_OPTIONS: { value: PerformanceMode; label: string }[] = [
-  { value: 'fast', label: '快速' },
-  { value: 'standard', label: '标准' },
-  { value: 'expert', label: '高级' }
+/** Value-only mode options; UI labels via `chat.modeFast` / `settings.tiers.*`. */
+export const PERFORMANCE_MODE_OPTIONS: { value: PerformanceMode; labelKey: string }[] = [
+  { value: 'fast', labelKey: 'chat.modeFast' },
+  { value: 'standard', labelKey: 'chat.modeStandard' },
+  { value: 'expert', labelKey: 'chat.modeExpert' }
 ]
 
 export interface MediaUnderstandingModes {
@@ -627,6 +632,8 @@ export interface AgentModelRef {
 
 export interface UserSettings {
   theme?: ThemePreference
+  /** UI language preference; default `system`. */
+  uiLocale?: UiLocalePreference
   userNickname?: string
   /**
    * Legacy globally enabled skill ids. Not used at runtime; migrated into

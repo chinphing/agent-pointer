@@ -974,6 +974,9 @@ pub struct ModelSettings {
     /// UI theme: `light`, `dark`, or `system`.
     #[serde(default = "default_theme", rename = "theme")]
     pub theme: String,
+    /// UI language preference: `system`, `zh-CN`, or `en` (merged from user settings).
+    #[serde(default = "default_ui_locale", rename = "uiLocale")]
+    pub ui_locale: String,
     /// Per-agent UI overrides keyed by agent id.
     #[serde(default, rename = "agentUiOverrides")]
     pub agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
@@ -1094,6 +1097,10 @@ macro_rules! build_cfg_f32 {
 
 fn default_theme() -> String {
     build_cfg_str!("THEME", "system")
+}
+
+fn default_ui_locale() -> String {
+    "system".to_string()
 }
 
 fn default_active_provider_id() -> String {
@@ -1588,6 +1595,7 @@ impl Default for ModelSettings {
             curator_idle_hours: default_curator_idle_hours(),
             curator_interval_days: default_curator_interval_days(),
             theme: default_theme(),
+            ui_locale: default_ui_locale(),
             agent_ui_overrides: HashMap::new(),
             web_search_model: default_web_search_model_setting(),
             media_model_overrides: default_media_generation_overrides(),
@@ -1806,6 +1814,9 @@ impl MediaOssConfig {
 pub struct UserSettings {
     #[serde(default = "default_theme", rename = "theme")]
     pub theme: String,
+    /// UI language: `system`, `zh-CN`, or `en`.
+    #[serde(default = "default_ui_locale", rename = "uiLocale")]
+    pub ui_locale: String,
     /// P2b：全局（非插件）MCP server 列表（界面直接配置，优先于 pointer-server.toml）。
     #[serde(default, rename = "globalMcpServers")]
     pub global_mcp_servers: Vec<crate::plugins::manifest::McpServerDecl>,
@@ -2061,6 +2072,7 @@ impl Default for UserSettings {
     fn default() -> Self {
         Self {
             theme: default_theme(),
+            ui_locale: default_ui_locale(),
             user_nickname: None,
             global_mcp_servers: Vec::new(),
             enabled_skill_ids: default_enabled_skill_ids(),
@@ -2723,6 +2735,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         curator_idle_hours: user.curator_idle_hours,
         curator_interval_days: user.curator_interval_days,
         theme: user.theme.clone(),
+        ui_locale: user.ui_locale.clone(),
         agent_ui_overrides: user.agent_ui_overrides.clone(),
         web_search_model: user.web_search_model.clone(),
         media_model_overrides: user.media_model_overrides.clone(),

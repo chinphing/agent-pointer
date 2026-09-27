@@ -1,6 +1,7 @@
 //! UI display labels and parameter summaries for tool invocations (not sent to the LLM).
 
 use super::registry_tool_base_name;
+use crate::i18n::{t, tf, UiLocale};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -109,27 +110,28 @@ fn flat_method_from_tool_name(name: &str) -> Option<String> {
     None
 }
 
-fn file_method_label(method: &str) -> &'static str {
-    match method {
-        "read" => "读取文件",
-        "write" => "写入文件",
-        "edit" => "编辑文件",
-        "glob" => "搜索文件",
-        "grep" => "搜索内容",
-        "list" => "列出目录",
-        _ => "文件操作",
-    }
+fn file_method_label(locale: UiLocale, method: &str) -> String {
+    let key = match method {
+        "read" => "tools.fileRead",
+        "write" => "tools.fileWrite",
+        "edit" => "tools.fileEdit",
+        "glob" => "tools.fileGlob",
+        "grep" => "tools.fileGrep",
+        "list" => "tools.fileList",
+        _ => "tools.fileOp",
+    };
+    t(locale, key)
 }
 
-fn mouse_method_label(method: &str) -> String {
+fn mouse_method_label(locale: UiLocale, method: &str) -> String {
     match method {
-        "click_at" | "click_index" => "点击".to_string(),
-        "double_click_at" | "double_click_index" => "双击".to_string(),
-        "right_click_at" | "right_click_index" => "右键".to_string(),
-        "hover_at" | "hover_index" => "悬停".to_string(),
-        "drag_from_to_at" | "drag_from_to_index" => "拖拽".to_string(),
-        "scroll" => "滚动".to_string(),
-        m if m.contains("type_text") => "输入文字".to_string(),
+        "click_at" | "click_index" => t(locale, "tools.click"),
+        "double_click_at" | "double_click_index" => t(locale, "tools.doubleClick"),
+        "right_click_at" | "right_click_index" => t(locale, "tools.rightClick"),
+        "hover_at" | "hover_index" => t(locale, "tools.hover"),
+        "drag_from_to_at" | "drag_from_to_index" => t(locale, "tools.drag"),
+        "scroll" => t(locale, "tools.scroll"),
+        m if m.contains("type_text") => t(locale, "tools.typeText"),
         m => m.to_string(),
     }
 }
@@ -150,15 +152,16 @@ fn infer_cron_job_action(args: &Value) -> String {
     }
 }
 
-fn cron_job_action_label(action: &str) -> &'static str {
-    match action {
-        "create" => "创建定时任务",
-        "list" => "列出定时任务",
-        "enable" => "启用定时任务",
-        "disable" => "停用定时任务",
-        "delete" => "删除定时任务",
-        _ => "定时任务",
-    }
+fn cron_job_action_label(locale: UiLocale, action: &str) -> String {
+    let key = match action {
+        "create" => "tools.cronCreate",
+        "list" => "tools.cronList",
+        "enable" => "tools.cronEnable",
+        "disable" => "tools.cronDisable",
+        "delete" => "tools.cronDelete",
+        _ => "tools.cron",
+    };
+    t(locale, key)
 }
 
 fn cron_job_summary(action: &str, args: &Value) -> String {
@@ -175,7 +178,7 @@ fn cron_job_summary(action: &str, args: &Value) -> String {
     }
 }
 
-fn computer_action_summary(args: &Value) -> String {
+fn computer_action_summary(locale: UiLocale, args: &Value) -> String {
     fn has_workspace_noise(s: &str) -> bool {
         let lower = s.to_lowercase();
         lower.contains("工作目录") || lower.contains("workspace")
@@ -195,7 +198,7 @@ fn computer_action_summary(args: &Value) -> String {
         return format!("({}, {})", x, y);
     }
     if let Some(idx) = args.get("index").or_else(|| args.get("indices")) {
-        return format!("索引 {idx}");
+        return tf(locale, "tools.indexN", &[("idx", &idx.to_string())]);
     }
     String::new()
 }
@@ -243,21 +246,22 @@ fn hotkey_summary(args: &Value) -> String {
         .unwrap_or_default()
 }
 
-fn task_board_method_label(method: &str) -> &'static str {
-    match method {
-        "patch" | "" => "更新",
-        "replace" => "替换",
-        "init" => "初始化",
-        "prune" => "清理",
-        "finalize" => "完成",
-        "check_deps" => "检查依赖",
-        "get" => "读取",
-        _ => "操作",
-    }
+fn task_board_method_label(locale: UiLocale, method: &str) -> String {
+    let key = match method {
+        "patch" | "" => "tools.patch",
+        "replace" => "tools.replace",
+        "init" => "tools.init",
+        "prune" => "tools.prune",
+        "finalize" => "tools.finalize",
+        "check_deps" => "tools.checkDeps",
+        "get" => "tools.get",
+        _ => "tools.op",
+    };
+    t(locale, key)
 }
 
-fn task_board_invoke_summary(method: &str, args: &Value) -> String {
-    let ml = task_board_method_label(method);
+fn task_board_invoke_summary(locale: UiLocale, method: &str, args: &Value) -> String {
+    let ml = task_board_method_label(locale, method);
     if method == "check_deps" {
         if let Some(id) = args
             .get("item_id")
@@ -266,15 +270,19 @@ fn task_board_invoke_summary(method: &str, args: &Value) -> String {
             .map(str::trim)
             .filter(|s| !s.is_empty())
         {
-            return format!("{ml} · #{id}");
+            return tf(
+                locale,
+                "tools.checkDepsItem",
+                &[("method", ml.as_str()), ("id", id)],
+            );
         }
-        return ml.to_string();
+        return ml;
     }
     if method == "init" {
         if let Some(goal) = str_field(args, &["goal"]) {
             return truncate(&goal, SUMMARY_MAX);
         }
-        return ml.to_string();
+        return ml;
     }
     let rows = crate::task_board::args::board_rows_from_args(args);
     if rows.is_empty() {
@@ -298,11 +306,20 @@ fn task_board_invoke_summary(method: &str, args: &Value) -> String {
         }
         return format!("#{id}");
     }
-    format!("{ml} · {} 行", rows.len())
+    tf(
+        locale,
+        "tools.methodRows",
+        &[("method", ml.as_str()), ("count", &rows.len().to_string())],
+    )
+}
+
+/// Default display formatter using the current settings locale.
+pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
+    default_display_for(raw_name, args, crate::i18n::current_ui_locale())
 }
 
 /// Default display formatter for tools without a custom `display_fn`.
-pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
+pub fn default_display_for(raw_name: &str, args: &Value, locale: UiLocale) -> ToolDisplay {
     let base = registry_tool_base_name(raw_name);
     let method = resolve_method(raw_name, args);
 
@@ -313,9 +330,9 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
             let label = if elevated {
-                "终端命令（提权）".to_string()
+                t(locale, "tools.terminalElevated")
             } else {
-                "终端命令".to_string()
+                t(locale, "tools.terminal")
             };
             (
                 label,
@@ -333,25 +350,45 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
             } else {
                 method.as_str()
             };
-            (file_method_label(m).to_string(), file_summary(args, m))
+            (file_method_label(locale, m), file_summary(args, m))
         }
         n if n.starts_with("mouse_") => {
-            let ml = mouse_method_label(if method.is_empty() {
-                "click_index"
-            } else {
-                &method
-            });
-            (format!("鼠标 · {ml}"), computer_action_summary(args))
+            let ml = mouse_method_label(
+                locale,
+                if method.is_empty() {
+                    "click_index"
+                } else {
+                    &method
+                },
+            );
+            (
+                tf(locale, "tools.mouse", &[("action", ml.as_str())]),
+                computer_action_summary(locale, args),
+            )
         }
         n if n.starts_with("input_") => {
-            let ml = mouse_method_label(if method.is_empty() { "action" } else { &method });
-            (format!("文本输入 · {ml}"), computer_action_summary(args))
+            let ml = mouse_method_label(
+                locale,
+                if method.is_empty() {
+                    "action"
+                } else {
+                    &method
+                },
+            );
+            (
+                tf(locale, "tools.textInput", &[("action", ml.as_str())]),
+                computer_action_summary(locale, args),
+            )
         }
         n if n.starts_with("modified_click_") => {
-            let ml = mouse_method_label(if method.is_empty() { "click" } else { &method });
-            (format!("修饰点击 · {ml}"), computer_action_summary(args))
+            let ml =
+                mouse_method_label(locale, if method.is_empty() { "click" } else { &method });
+            (
+                tf(locale, "tools.modClick", &[("action", ml.as_str())]),
+                computer_action_summary(locale, args),
+            )
         }
-        "hotkey" => ("快捷键".to_string(), hotkey_summary(args)),
+        "hotkey" => (t(locale, "tools.hotkey"), hotkey_summary(args)),
         "wait" => {
             let secs = args
                 .get("seconds")
@@ -368,22 +405,25 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                     }
                 })
                 .unwrap_or_else(|| "?".to_string());
-            (format!("等待 {secs} 秒"), String::new())
+            (
+                tf(locale, "tools.waitSecs", &[("secs", secs.as_str())]),
+                String::new(),
+            )
         }
         "clipboard" => {
             let ml = match method.as_str() {
-                "read" => "读取",
-                "write" => "写入",
+                "read" => t(locale, "tools.read"),
+                "write" => t(locale, "tools.write"),
                 _ => {
                     if method.is_empty() {
-                        "操作"
+                        t(locale, "tools.op")
                     } else {
-                        method.as_str()
+                        method.clone()
                     }
                 }
             };
             (
-                format!("剪贴板 · {ml}"),
+                tf(locale, "tools.clipboard", &[("action", ml.as_str())]),
                 str_field(args, &["text", "content"])
                     .map(|t| truncate(&t, SUMMARY_MAX))
                     .unwrap_or_default(),
@@ -395,16 +435,16 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                     let has_path = str_field(args, &["path", "resource"])
                         .is_some_and(|s| !s.trim().is_empty());
                     if has_path {
-                        "读取技能资源"
+                        t(locale, "tools.skillReadResource")
                     } else {
-                        "加载技能"
+                        t(locale, "tools.skillLoad")
                     }
                 }
-                "patch" => "更新技能",
-                _ => "技能",
+                "patch" => t(locale, "tools.skillPatch"),
+                _ => t(locale, "tools.skill"),
             };
             (
-                label.to_string(),
+                label,
                 str_field(args, &["skill_id", "resource", "path"])
                     .map(|s| truncate(&s, SUMMARY_MAX))
                     .unwrap_or_default(),
@@ -412,17 +452,20 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
         }
         "session_search" => {
             let q = str_field(args, &["query"]).unwrap_or_default();
-            ("搜索会话".to_string(), truncate(&q, SUMMARY_MAX))
+            (
+                t(locale, "tools.sessionSearch"),
+                truncate(&q, SUMMARY_MAX),
+            )
         }
         "session_read" => {
             let summary = str_field(args, &["around_message_id"])
                 .or_else(|| {
                     args.get("offset").and_then(|v| {
                         if let Some(n) = v.as_i64() {
-                            Some(format!("第 {n} 条"))
+                            Some(tf(locale, "tools.messageN", &[("n", &n.to_string())]))
                         } else if let Some(s) = v.as_str().map(str::trim).filter(|s| !s.is_empty())
                         {
-                            Some(format!("第 {s} 条"))
+                            Some(tf(locale, "tools.messageN", &[("n", s)]))
                         } else {
                             None
                         }
@@ -430,11 +473,14 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                 })
                 .or_else(|| str_field(args, &["conversation_id", "session_id"]))
                 .unwrap_or_default();
-            ("读取会话".to_string(), truncate(&summary, SUMMARY_MAX))
+            (
+                t(locale, "tools.sessionRead"),
+                truncate(&summary, SUMMARY_MAX),
+            )
         }
         "web_search" => {
             let q = str_field(args, &["query"]).unwrap_or_default();
-            ("联网搜索".to_string(), truncate(&q, SUMMARY_MAX))
+            (t(locale, "tools.webSearch"), truncate(&q, SUMMARY_MAX))
         }
         "web_fetch" => {
             let u = str_field(args, &["url"]).unwrap_or_else(|| {
@@ -445,38 +491,42 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                     .unwrap_or("")
                     .to_string()
             });
-            ("抓取网页".to_string(), truncate(&u, SUMMARY_MAX))
+            (t(locale, "tools.webFetch"), truncate(&u, SUMMARY_MAX))
         }
         "media_understand" => {
             let goal = str_field(args, &["label", "goal", "question"]).unwrap_or_default();
-            ("媒体理解".to_string(), truncate(&goal, SUMMARY_MAX))
+            (
+                t(locale, "tools.mediaUnderstand"),
+                truncate(&goal, SUMMARY_MAX),
+            )
         }
         "run_subagent" => (
-            "委派子任务".to_string(),
+            t(locale, "tools.runSubagent"),
             str_field(args, &["title", "goal", "agentId"])
                 .map(|s| truncate(&s, SUMMARY_MAX))
                 .unwrap_or_default(),
         ),
-        "read_lints" => ("代码检查".to_string(), file_summary(args, "read")),
+        "read_lints" => (t(locale, "tools.readLints"), file_summary(args, "read")),
         n if n.starts_with("task_board") => {
             let m = if method.is_empty() {
                 "patch"
             } else {
                 method.as_str()
             };
+            let action = task_board_method_label(locale, m);
             (
-                format!("任务板 · {}", task_board_method_label(m)),
-                task_board_invoke_summary(m, args),
+                tf(locale, "tools.taskBoard", &[("action", action.as_str())]),
+                task_board_invoke_summary(locale, m, args),
             )
         }
         "list_apps" => (
-            "列出应用".to_string(),
+            t(locale, "tools.listApps"),
             str_field(args, &["goal"])
                 .map(|s| truncate(&s, SUMMARY_MAX))
                 .unwrap_or_default(),
         ),
         "launch_app" => (
-            "启动应用".to_string(),
+            t(locale, "tools.launchApp"),
             str_field(args, &["app"])
                 .map(|s| truncate(&s, SUMMARY_MAX))
                 .or_else(|| str_field(args, &["goal"]).map(|s| truncate(&s, SUMMARY_MAX)))
@@ -485,7 +535,7 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
         "cron_job" => {
             let action = infer_cron_job_action(args);
             (
-                cron_job_action_label(&action).to_string(),
+                cron_job_action_label(locale, &action),
                 cron_job_summary(&action, args),
             )
         }
@@ -495,17 +545,17 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                 .and_then(|v| v.as_str())
                 .unwrap_or("list")
                 .trim();
-            let label = match action {
-                "list" => "查看后台任务",
-                "status" => "后台任务状态",
-                "await" => "等待后台任务",
-                "cancel" => "取消后台任务",
-                _ => "后台任务",
+            let key = match action {
+                "list" => "tools.jobList",
+                "status" => "tools.jobStatus",
+                "await" => "tools.jobAwait",
+                "cancel" => "tools.jobCancel",
+                _ => "tools.job",
             };
-            (label.to_string(), String::new())
+            (t(locale, key), String::new())
         }
-        "ask_user" => ("询问用户".to_string(), format_ask_user_summary(args)),
-        "response" => ("回复用户".to_string(), String::new()),
+        "ask_user" => (t(locale, "tools.askUser"), format_ask_user_summary(args)),
+        "response" => (t(locale, "tools.response"), String::new()),
         _ => {
             if !method.is_empty() {
                 (format!("{base} · {method}"), String::new())
@@ -518,16 +568,26 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
     ToolDisplay { label, summary }
 }
 
-/// Format display for a tool invocation.
+/// Format display for a tool invocation using the current settings locale.
 pub fn format_tool_display(
     raw_name: &str,
     args: &Value,
     custom: Option<&ToolDisplayFn>,
 ) -> ToolDisplay {
+    format_tool_display_for(raw_name, args, custom, crate::i18n::current_ui_locale())
+}
+
+/// Format display for a tool invocation.
+pub fn format_tool_display_for(
+    raw_name: &str,
+    args: &Value,
+    custom: Option<&ToolDisplayFn>,
+    locale: UiLocale,
+) -> ToolDisplay {
     if let Some(f) = custom {
         return f(raw_name, args);
     }
-    default_display(raw_name, args)
+    default_display_for(raw_name, args, locale)
 }
 
 #[cfg(test)]
@@ -535,9 +595,13 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn zh(raw_name: &str, args: &Value) -> ToolDisplay {
+        default_display_for(raw_name, args, UiLocale::ZhCn)
+    }
+
     #[test]
     fn file_read_label_and_basename_only() {
-        let d = default_display("file_read", &json!({"path": "src/App.vue"}));
+        let d = zh("file_read", &json!({"path": "src/App.vue"}));
         assert_eq!(d.label, "读取文件");
         assert_eq!(d.summary, "App.vue");
         assert!(!d.summary.contains('/'));
@@ -545,7 +609,7 @@ mod tests {
 
     #[test]
     fn file_edit_label_uses_top_level_path() {
-        let d = default_display(
+        let d = zh(
             "file_edit",
             &json!({
                 "path": "src/App.vue",
@@ -559,7 +623,7 @@ mod tests {
 
     #[test]
     fn task_board_flat_patch_shows_item_and_status() {
-        let d = default_display(
+        let d = zh(
             "task_board_patch",
             &json!({
                 "item_id": "2",
@@ -573,7 +637,7 @@ mod tests {
 
     #[test]
     fn file_grep_shows_pattern_not_search_path() {
-        let d = default_display(
+        let d = zh(
             "file_grep",
             &json!({"pattern": "fn main", "path": "src/components/App.vue"}),
         );
@@ -583,14 +647,14 @@ mod tests {
 
     #[test]
     fn file_glob_shows_pattern() {
-        let d = default_display("file_glob", &json!({"pattern": "**/*.rs", "base": "src"}));
+        let d = zh("file_glob", &json!({"pattern": "**/*.rs", "base": "src"}));
         assert_eq!(d.label, "搜索文件");
         assert_eq!(d.summary, "**/*.rs");
     }
 
     #[test]
     fn file_glob_shows_pattern_not_search_root() {
-        let d = default_display(
+        let d = zh(
             "file_glob",
             &json!({"pattern": "**/*.vue", "path": "src/components", "base": "src"}),
         );
@@ -600,21 +664,21 @@ mod tests {
 
     #[test]
     fn file_grep_keeps_pattern_not_path() {
-        let d = default_display("file_grep", &json!({"pattern": "fn main"}));
+        let d = zh("file_grep", &json!({"pattern": "fn main"}));
         assert_eq!(d.label, "搜索内容");
         assert_eq!(d.summary, "fn main");
     }
 
     #[test]
     fn terminal_command_summary() {
-        let d = default_display("terminal", &json!({"command": "npm test"}));
+        let d = zh("terminal", &json!({"command": "npm test"}));
         assert_eq!(d.label, "终端命令");
         assert_eq!(d.summary, "npm test");
     }
 
     #[test]
     fn media_understand_summary_uses_goal() {
-        let d = default_display(
+        let d = zh(
             "media_understand",
             &json!({
                 "refs": ["pointer-media://c/a.pdf"],
@@ -628,7 +692,7 @@ mod tests {
 
     #[test]
     fn media_understand_summary_prefers_label() {
-        let d = default_display(
+        let d = zh(
             "media_understand",
             &json!({
                 "refs": ["pointer-media://c/a.pdf"],
@@ -641,21 +705,21 @@ mod tests {
 
     #[test]
     fn session_search_label_uses_query() {
-        let d = default_display("session_search", &json!({"query": "上次改过登录"}));
+        let d = zh("session_search", &json!({"query": "上次改过登录"}));
         assert_eq!(d.label, "搜索会话");
         assert_eq!(d.summary, "上次改过登录");
     }
 
     #[test]
     fn session_read_label_uses_offset() {
-        let d = default_display("session_read", &json!({"offset": 12, "limit": 40}));
+        let d = zh("session_read", &json!({"offset": 12, "limit": 40}));
         assert_eq!(d.label, "读取会话");
         assert_eq!(d.summary, "第 12 条");
     }
 
     #[test]
     fn web_search_summary_uses_query() {
-        let d = default_display("web_search", &json!({"query": "Rust 2024 edition"}));
+        let d = zh("web_search", &json!({"query": "Rust 2024 edition"}));
         assert_eq!(d.label, "联网搜索");
         assert_eq!(d.summary, "Rust 2024 edition");
     }
@@ -670,7 +734,7 @@ mod tests {
 
     #[test]
     fn mouse_prefers_action() {
-        let d = default_display(
+        let d = zh(
             "mouse_click_at",
             &json!({"action": "Click Save", "x": 1, "y": 2}),
         );
@@ -680,7 +744,7 @@ mod tests {
 
     #[test]
     fn launch_app_label_and_app_summary() {
-        let d = default_display(
+        let d = zh(
             "launch_app",
             &json!({"goal": "打开微信", "app": "WeChat", "action": "启动微信"}),
         );
@@ -690,14 +754,14 @@ mod tests {
 
     #[test]
     fn list_apps_label_and_goal_summary() {
-        let d = default_display("list_apps", &json!({"goal": "查找微信"}));
+        let d = zh("list_apps", &json!({"goal": "查找微信"}));
         assert_eq!(d.label, "列出应用");
         assert_eq!(d.summary, "查找微信");
     }
 
     #[test]
     fn cron_job_create_label_and_schedule_summary() {
-        let d = default_display(
+        let d = zh(
             "cron_job",
             &json!({
                 "action": "create",
@@ -711,7 +775,7 @@ mod tests {
 
     #[test]
     fn cron_job_delete_uses_job_id_summary() {
-        let d = default_display(
+        let d = zh(
             "cron_job",
             &json!({"action": "delete", "job_id": "cron-abc123"}),
         );
@@ -721,7 +785,7 @@ mod tests {
 
     #[test]
     fn cron_job_delete_with_label_summary() {
-        let d = default_display(
+        let d = zh(
             "cron_job",
             &json!({"action": "delete", "job_id": "cron-abc123", "label": "每分钟提醒"}),
         );
@@ -731,7 +795,7 @@ mod tests {
 
     #[test]
     fn terminal_label_takes_priority_over_command() {
-        let d = default_display(
+        let d = zh(
             "terminal",
             &json!({"command": "cargo test -p pointer-core task_board::", "label": "运行 task_board 单元测试"}),
         );
@@ -741,14 +805,14 @@ mod tests {
 
     #[test]
     fn terminal_falls_back_to_command_when_label_absent() {
-        let d = default_display("terminal", &json!({"command": "cargo build --release"}));
+        let d = zh("terminal", &json!({"command": "cargo build --release"}));
         assert_eq!(d.label, "终端命令");
         assert_eq!(d.summary, "cargo build --release");
     }
 
     #[test]
     fn ask_user_formats_question_and_options_summary() {
-        let d = default_display(
+        let d = zh(
             "ask_user",
             &json!({
                 "question": "是否允许桌面控制？",
@@ -761,8 +825,16 @@ mod tests {
 
     #[test]
     fn job_await_uses_wait_label() {
-        let d = default_display("job", &json!({"action": "await", "mode": "any"}));
+        let d = zh("job", &json!({"action": "await", "mode": "any"}));
         assert_eq!(d.label, "等待后台任务");
         assert!(d.summary.is_empty());
+    }
+
+    #[test]
+    fn english_labels_for_common_tools() {
+        let d = default_display_for("file_read", &json!({"path": "a.rs"}), UiLocale::En);
+        assert_eq!(d.label, "Read file");
+        let d = default_display_for("terminal", &json!({"command": "ls"}), UiLocale::En);
+        assert_eq!(d.label, "Terminal");
     }
 }

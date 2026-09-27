@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use crate::agents::{agent_display_label, AgentDef, AgentRegistry};
+use crate::agents::{AgentDef, AgentRegistry};
 use crate::session_sandbox::SessionSandbox;
 
 const IM_CHANNELS: &[&str] = &["feishu", "dingtalk", "wecom", "weixin"];
@@ -185,8 +185,9 @@ pub fn im_session_commands_block(registry: &AgentRegistry) -> String {
         "Available agents:".to_string(),
     ];
 
+    let locale = crate::i18n::current_ui_locale();
     for def in im_visible_workers(registry) {
-        let label = agent_display_label(&def);
+        let label = crate::agents::agent_display_label_for(&def, locale);
         lines.push(format!("- `{}` / `{}`", def.id, label));
     }
 
@@ -265,15 +266,16 @@ mod tests {
         assert!(block.contains("final"));
         assert!(!block.contains("channel_message"));
         assert!(block.contains("general"));
-        assert!(block.contains("通用助手"));
         assert!(block.contains("coder"));
-        assert!(block.contains("氛围编程"));
         assert!(block.contains("computer"));
-        assert!(block.contains("电脑操控"));
+        let locale = crate::i18n::current_ui_locale();
+        assert!(block.contains(&crate::i18n::t(locale, "agents.general")));
+        assert!(block.contains(&crate::i18n::t(locale, "agents.coder")));
+        assert!(block.contains(&crate::i18n::t(locale, "agents.computer")));
         assert!(!block.contains("supervisor"));
-        assert!(!block.contains("团队模式"));
+        assert!(!block.contains(&crate::i18n::t(locale, "agents.supervisor")));
         assert!(!block.contains("research"));
-        assert!(!block.contains("深度研究"));
+        assert!(!block.contains(&crate::i18n::t(locale, "agents.analyst")));
         assert!(block.contains("blocks this turn"));
         assert!(block.contains("ask_user"));
     }

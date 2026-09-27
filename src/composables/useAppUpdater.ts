@@ -1,6 +1,7 @@
 import { ref, onMounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { t } from '../i18n'
 import { isTauriRuntime } from '../lib/runtime'
 import { usePlatformAuthStore } from '../stores/platformAuth'
 
@@ -82,11 +83,11 @@ async function checkForUpdateManual() {
     })
 
     if (!result.available || !result.version) {
-      showStatusMessage('已是最新版本')
+      showStatusMessage(t('updater.upToDate'))
       return
     }
     if (skipped === result.version) {
-      showStatusMessage(`已跳过版本 ${result.version}，有新版本时会通知你`)
+      showStatusMessage(t('updater.skippedVersion', { version: result.version }))
       return
     }
 

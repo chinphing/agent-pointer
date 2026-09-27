@@ -1,5 +1,6 @@
 import type { Ref } from 'vue'
 import type { ModelRuntimeOverrides, ProviderConfig } from '../types/chat'
+import { t } from '../i18n'
 import {
   DEFAULT_THINKING_BUDGET,
   detectProviderTemplateId,
@@ -93,17 +94,17 @@ export function formatExtraBodyJson(v: unknown): string {
 export function parseExtraBodyJson(
   text: string
 ): { ok: true; value?: Record<string, unknown> } | { ok: false; error: string } {
-  const t = text.trim()
-  if (!t) return { ok: true, value: undefined }
+  const trimmed = text.trim()
+  if (!trimmed) return { ok: true, value: undefined }
   try {
-    const parsed = JSON.parse(t) as unknown
+    const parsed = JSON.parse(trimmed) as unknown
     const obj = normalizeExtraBody(parsed)
     if (!obj) {
-      return { ok: false, error: '须为 JSON 对象，例如 { "repetition_penalty": 1.1 }' }
+      return { ok: false, error: t('settings.runtimeParams.extraBodyMustObject') }
     }
     return { ok: true, value: obj }
   } catch {
-    return { ok: false, error: 'JSON 无效' }
+    return { ok: false, error: t('settings.runtimeParams.invalidJson') }
   }
 }
 
@@ -467,7 +468,7 @@ export function useRuntimeParams(
 
   function setExtraBodyJson(text: string): { ok: true } | { ok: false; error: string } {
     const p = provider.value
-    if (!p) return { ok: false, error: '无服务商' }
+    if (!p) return { ok: false, error: t('settings.runtimeParams.noProvider') }
     const parsed = parseExtraBodyJson(text)
     if (!parsed.ok) return parsed
     const mid = modelId.value

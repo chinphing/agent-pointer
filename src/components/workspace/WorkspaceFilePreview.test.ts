@@ -1,10 +1,16 @@
 // @vitest-environment happy-dom
 
 import { createApp, nextTick } from 'vue'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { i18n, t } from '../../i18n'
+import { applyUiLocale } from '../../lib/uiLocale'
 import WorkspaceFilePreview from './WorkspaceFilePreview.vue'
 
 const mountedApps: Array<ReturnType<typeof createApp>> = []
+
+beforeEach(() => {
+  applyUiLocale('zh-CN')
+})
 
 afterEach(() => {
   for (const app of mountedApps.splice(0)) app.unmount()
@@ -18,6 +24,7 @@ function mountPreview(props: Record<string, unknown>) {
   document.body.append(panel)
   panel.append(host)
   const app = createApp(WorkspaceFilePreview, props)
+  app.use(i18n)
   mountedApps.push(app)
   app.mount(host)
   return host
@@ -117,8 +124,8 @@ describe('WorkspaceFilePreview', () => {
     })
     await nextTick()
 
-    expect(host.textContent).toContain('原文')
-    expect(host.textContent).toContain('预览')
+    expect(host.textContent).toContain(t('workspace.source'))
+    expect(host.textContent).toContain(t('workspace.preview'))
     expect(host.querySelectorAll('.file-preview-mode-switch')).toHaveLength(1)
     expect(host.querySelector('[data-json-node-id="$"]')).toBeTruthy()
     expect(host.textContent).toContain('{1}')
@@ -131,7 +138,7 @@ describe('WorkspaceFilePreview', () => {
     expect(host.textContent).toContain('l3')
 
     const sourceButton = [...host.querySelectorAll('.file-preview-mode-switch button')]
-      .find(button => button.textContent === '原文') as HTMLButtonElement
+      .find(button => button.textContent === t('workspace.source')) as HTMLButtonElement
     sourceButton.click()
     await nextTick()
     expect(host.querySelector('[data-json-node-id="$"]')).toBeNull()
@@ -152,7 +159,7 @@ describe('WorkspaceFilePreview', () => {
     })
     await nextTick()
 
-    expect(host.textContent).not.toContain('预览')
+    expect(host.textContent).not.toContain(t('workspace.preview'))
     expect(host.querySelector('.file-preview-line-number')).toBeTruthy()
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
@@ -179,7 +186,7 @@ describe('WorkspaceFilePreview', () => {
     expect(iframe?.srcdoc || iframe?.getAttribute('srcdoc') || '').toContain('charset="utf-8"')
 
     const sourceButton = [...host.querySelectorAll('.file-preview-mode-switch button')]
-      .find(button => button.textContent === '原文') as HTMLButtonElement
+      .find(button => button.textContent === t('workspace.source')) as HTMLButtonElement
     sourceButton.click()
     await nextTick()
     expect(host.querySelector('.file-preview-html iframe')).toBeNull()

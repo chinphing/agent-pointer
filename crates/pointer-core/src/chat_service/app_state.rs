@@ -1192,6 +1192,11 @@ impl AppState {
         storage::load_user_settings().unwrap_or_default()
     }
 
+    /// Resolved UI locale from `UserSettings.ui_locale` (same rules as frontend `resolveUiLocale`).
+    pub fn ui_locale(&self) -> crate::i18n::UiLocale {
+        crate::i18n::resolve_ui_locale(&self.load_user_settings().ui_locale)
+    }
+
     /// Deprecated legacy field accessor. Skill resolve no longer uses
     /// `enabledSkillIds`; prefer [`Self::default_run_agent_skill_overrides`].
     pub fn default_run_enabled_skill_ids(&self) -> Vec<String> {
@@ -1344,6 +1349,16 @@ impl AppState {
         if incoming.theme.trim().is_empty() {
             incoming.theme = "system".into();
         }
+        if incoming.ui_locale.trim().is_empty() {
+            log::warn!("i18n: uiLocale empty on save; falling back to system");
+            incoming.ui_locale = "system".into();
+        } else {
+            let normalized =
+                crate::i18n::normalize_ui_locale_preference(&incoming.ui_locale).to_string();
+            if normalized != incoming.ui_locale.trim() {
+                incoming.ui_locale = normalized;
+            }
+        }
         let existing = self.load_user_settings();
         if !self.active_platform_auth().is_platform_admin() {
             crate::models::preserve_platform_debug_settings_in_user(&mut incoming, &existing);
@@ -1470,7 +1485,7 @@ impl AppState {
 
         let monitor_picks: Vec<_> = self.monitor_picks.lock().drain().collect();
         for (_, tx) in monitor_picks {
-            let _ = tx.send(Err("已停止生成".into()));
+            let _ = tx.send(Err(crate::i18n::generation_stopped_msg()));
         }
         let pending_inputs = {
             let mut pending = self.terminal_input_pending.lock();

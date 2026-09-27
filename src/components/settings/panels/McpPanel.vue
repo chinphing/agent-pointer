@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
 import { computed, onMounted, ref } from 'vue'
 import { Plug, RefreshCw, Plus, Pencil, Trash2, X, ChevronDown, ChevronRight, Eye } from 'lucide-vue-next'
 import { listMcpServers, saveMcpServers, restartMcpServer } from '../../../lib/api'
@@ -9,12 +11,12 @@ const loading = ref(false)
 const saving = ref(false)
 const message = ref('')
 
-const STATUS_LABEL: Record<string, string> = {
-  healthy: '正常',
-  crashed: '已中断',
-  degraded: '运行异常',
-  stopped: '未启用'
-}
+const STATUS_LABEL = computed((): Record<string, string> => ({
+  healthy: t('settings.mcp.statusHealthy'),
+  crashed: t('settings.mcp.statusCrashed'),
+  degraded: t('settings.mcp.statusDegraded'),
+  stopped: t('settings.mcp.statusStopped')
+}))
 
 const healthyCount = computed(
   () => view.value?.servers.filter(s => s.status === 'healthy').length ?? 0
@@ -22,7 +24,7 @@ const healthyCount = computed(
 
 /** 成功/失败消息配色：失败（含加载失败）用 danger，其余用常规前景色。 */
 const isError = computed(
-  () => message.value.includes('失败') || message.value.startsWith('加载')
+  () => message.value.includes(t('common.error')) || message.value.includes('fail') || message.value.includes(t('chat.toolFailed')) || message.value.startsWith(t('settings.loadFailed').slice(0,2)) || message.value.startsWith(t('settings.s_4793ea')) || message.value.toLowerCase().includes('fail')
 )
 
 /** 列表主行展示的连接目标：http 显示地址，stdio 显示命令。 */
@@ -108,7 +110,7 @@ async function refresh() {
   try {
     view.value = await listMcpServers()
   } catch (e) {
-    message.value = `加载失败: ${e instanceof Error ? e.message : String(e)}`
+    message.value = t('settings.mcp.loadFailed', { error: e instanceof Error ? e.message : String(e) })
   } finally {
     loading.value = false
   }
@@ -117,7 +119,7 @@ async function refresh() {
 async function save() {
   if (!view.value) return
   if (!form.value.name.trim()) {
-    message.value = '请填写服务名称'
+    message.value = t('settings.mcp.nameRequired')
     return
   }
   saving.value = true
@@ -126,7 +128,7 @@ async function save() {
     let decl: GlobalMcpServerView
     if (connType.value === 'http') {
       if (!form.value.url?.trim()) {
-        message.value = '请填写服务地址'
+        message.value = t('settings.mcp.urlRequired')
         saving.value = false
         return
       }
@@ -149,7 +151,7 @@ async function save() {
       }
     } else {
       if (!form.value.command.trim()) {
-        message.value = '请填写启动命令'
+        message.value = t('settings.mcp.cmdRequired')
         saving.value = false
         return
       }
@@ -173,9 +175,9 @@ async function save() {
     }
     view.value = await saveMcpServers(servers)
     modalOpen.value = false
-    message.value = '配置已保存'
+    message.value = t('settings.mcp.saved')
   } catch (e) {
-    message.value = `保存失败: ${e instanceof Error ? e.message : String(e)}`
+    message.value = t('settings.mcp.saveFailed', { error: e instanceof Error ? e.message : String(e) })
   } finally {
     saving.value = false
   }
@@ -189,9 +191,9 @@ async function remove(index: number) {
     const servers = [...view.value.servers]
     servers.splice(index, 1)
     view.value = await saveMcpServers(servers)
-    message.value = '已删除'
+    message.value = t('settings.mcp.deleted')
   } catch (e) {
-    message.value = `删除失败: ${e instanceof Error ? e.message : String(e)}`
+    message.value = t('settings.mcp.deleteFailed', { error: e instanceof Error ? e.message : String(e) })
   } finally {
     saving.value = false
   }
@@ -202,9 +204,9 @@ async function restart() {
   message.value = ''
   try {
     view.value = await restartMcpServer()
-    message.value = '服务已重启'
+    message.value = t('settings.mcp.restarted')
   } catch (e) {
-    message.value = `重启失败: ${e instanceof Error ? e.message : String(e)}`
+    message.value = t('settings.mcp.restartFailed', { error: e instanceof Error ? e.message : String(e) })
   } finally {
     saving.value = false
   }
@@ -223,21 +225,21 @@ onMounted(() => {
           type="button"
           class="h-9 inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm text-foreground hover:bg-hover cursor-pointer transition-colors disabled:opacity-50"
           :disabled="saving || loading"
-          title="重新获取服务状态"
+          :title="t('settings.mcp.refreshTitle')"
           @click="refresh"
         >
           <RefreshCw class="w-4 h-4" aria-hidden="true" />
-          刷新状态
+          {{ t('settings.mcp.refresh') }}
         </button>
         <button
           type="button"
           class="h-9 inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm text-foreground hover:bg-hover cursor-pointer transition-colors disabled:opacity-50"
           :disabled="saving || loading"
-          title="重新启动所有服务"
+          :title="t('settings.mcp.restartAllTitle')"
           @click="restart"
         >
           <Plug class="w-4 h-4" aria-hidden="true" />
-          重启服务
+          {{ t('settings.mcp.restart') }}
         </button>
         <button
           type="button"
@@ -246,7 +248,7 @@ onMounted(() => {
           @click="openNew"
         >
           <Plus class="w-4 h-4" aria-hidden="true" />
-          添加服务
+          {{ t('settings.mcp.add') }}
         </button>
       </div>
     </div>
@@ -260,7 +262,7 @@ onMounted(() => {
     </div>
 
     <div v-if="!view" class="text-sm text-muted py-8 text-center">
-      {{ loading ? '加载中…' : '暂无数据' }}
+      {{ loading ? t('settings.mcp.loading') : t('settings.mcp.noData') }}
     </div>
 
     <div
@@ -268,7 +270,7 @@ onMounted(() => {
       class="rounded-2xl border border-dashed border-border py-10 text-center flex flex-col items-center gap-3"
     >
       <Plug class="w-6 h-6 text-muted" aria-hidden="true" />
-      <div class="text-sm text-muted">还没有外部工具服务，添加一个后对话中即可直接调用它的工具</div>
+      <div class="text-sm text-muted">{{ t('settings.mcp.empty') }}</div>
       <button
         type="button"
         class="h-8 inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 text-xs font-medium text-accent-foreground hover:opacity-90 cursor-pointer transition-opacity disabled:opacity-50"
@@ -276,13 +278,13 @@ onMounted(() => {
         @click="openNew"
       >
         <Plus class="w-4 h-4" aria-hidden="true" />
-        添加服务
+        {{ t('settings.mcp.add') }}
       </button>
     </div>
 
     <div v-else class="space-y-3">
       <div class="flex items-center justify-between text-xs text-muted">
-        <span>{{ view.servers.length }} 个服务 · {{ healthyCount }} 个正常</span>
+        <span>{{ t('settings.mcp.summary', { total: view.servers.length, healthy: healthyCount }) }}</span>
       </div>
       <div
         v-for="(s, index) in view.servers"
@@ -313,12 +315,12 @@ onMounted(() => {
           </div>
         </div>
         <div class="flex items-center gap-1 shrink-0">
-          <span v-if="s.restartCount > 0" class="text-xs text-muted mr-1">自动重启 {{ s.restartCount }} 次</span>
+          <span v-if="s.restartCount > 0" class="text-xs text-muted mr-1">{{ t('settings.mcp.autoRestart', { count: s.restartCount }) }}</span>
           <button
             type="button"
             class="p-1.5 rounded-lg text-muted hover:text-foreground hover:bg-hover cursor-pointer transition-colors"
             :disabled="saving"
-            title="查看工具"
+            :title="t('settings.mcp.viewTools')"
             @click="toolsModal = s"
           >
             <Eye class="w-4 h-4" aria-hidden="true" />
@@ -327,7 +329,7 @@ onMounted(() => {
             type="button"
             class="p-1.5 rounded-lg text-muted hover:text-foreground hover:bg-hover cursor-pointer transition-colors"
             :disabled="saving"
-            title="编辑"
+            :title="t('settings.mcp.editTitle')"
             @click="openEdit(index)"
           >
             <Pencil class="w-4 h-4" aria-hidden="true" />
@@ -336,7 +338,7 @@ onMounted(() => {
             type="button"
             class="p-1.5 rounded-lg text-muted hover:text-danger hover:bg-danger/10 cursor-pointer transition-colors"
             :disabled="saving"
-            title="删除"
+            :title="t('settings.mcp.deleteTitle')"
             @click="remove(index)"
           >
             <Trash2 class="w-4 h-4" aria-hidden="true" />
@@ -357,16 +359,16 @@ onMounted(() => {
           <div class="flex items-start justify-between gap-2 border-b border-border px-5 py-4 shrink-0">
             <div class="min-w-0">
               <h4 class="text-sm font-semibold text-foreground">
-                {{ editingIndex === 'new' ? '添加服务' : '编辑服务' }}
+                {{ editingIndex === 'new' ? t('settings.mcp.add') : t('settings.mcp.edit') }}
               </h4>
               <p class="mt-0.5 text-[11px] text-muted">
-                {{ connType === 'http' ? '填服务地址（URL），适合使用别人提供的服务' : '填程序或脚本路径，适合自己开发的服务' }}
+                {{ connType === 'http' ? t('settings.mcp.httpHint') : t('settings.mcp.stdioHint') }}
               </p>
             </div>
             <button
               type="button"
               class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0"
-              title="关闭"
+              :title="t('common.close')"
               @click="closeModal"
             >
               <X class="w-4 h-4" aria-hidden="true" />
@@ -375,8 +377,8 @@ onMounted(() => {
 
           <div class="px-5 py-4 overflow-y-auto flex flex-col gap-4">
             <label class="block">
-              <span class="text-[11px] text-muted">服务名称 <span class="text-danger">*</span></span>
-              <input v-model="form.name" class="input-base mt-1" placeholder="例如：天气服务、数据库助手" />
+              <span class="text-[11px] text-muted">{{ t('settings.mcp.name') }} <span class="text-danger">*</span></span>
+              <input v-model="form.name" class="input-base mt-1" :placeholder="t('settings.mcp.namePlaceholder')" />
             </label>
 
             <!-- 连接方式 -->
@@ -387,8 +389,8 @@ onMounted(() => {
                 :class="connType === 'http' ? 'border-accent/60 bg-accent/10' : 'border-border bg-card hover:bg-hover'"
                 @click="connType = 'http'"
               >
-                <span class="text-xs font-medium" :class="connType === 'http' ? 'text-accent' : 'text-foreground'">连接远程服务</span>
-                <span class="mt-0.5 text-[11px] text-muted">填服务地址（URL）</span>
+                <span class="text-xs font-medium" :class="connType === 'http' ? 'text-accent' : 'text-foreground'">{{ t('settings.mcp.remote') }}</span>
+                <span class="mt-0.5 text-[11px] text-muted">{{ t('settings.mcp.remoteHint') }}</span>
               </button>
               <button
                 type="button"
@@ -396,25 +398,25 @@ onMounted(() => {
                 :class="connType === 'stdio' ? 'border-accent/60 bg-accent/10' : 'border-border bg-card hover:bg-hover'"
                 @click="connType = 'stdio'"
               >
-                <span class="text-xs font-medium" :class="connType === 'stdio' ? 'text-accent' : 'text-foreground'">启动本机程序</span>
-                <span class="mt-0.5 text-[11px] text-muted">填程序或脚本路径</span>
+                <span class="text-xs font-medium" :class="connType === 'stdio' ? 'text-accent' : 'text-foreground'">{{ t('settings.mcp.local') }}</span>
+                <span class="mt-0.5 text-[11px] text-muted">{{ t('settings.mcp.localHint') }}</span>
               </button>
             </div>
 
             <template v-if="connType === 'http'">
               <label class="block">
-                <span class="text-[11px] text-muted">服务地址 <span class="text-danger">*</span></span>
+                <span class="text-[11px] text-muted">{{ t('settings.mcp.url') }} <span class="text-danger">*</span></span>
                 <input v-model="form.url" class="input-base mt-1 font-mono" placeholder="https://example.com/mcp" />
               </label>
               <label class="block">
-                <span class="text-[11px] text-muted">访问令牌（可选）</span>
-                <input v-model="tokenText" class="input-base mt-1 font-mono" placeholder="服务方提供的 API 令牌" />
+                <span class="text-[11px] text-muted">{{ t('settings.mcp.tokenOptional') }}</span>
+                <input v-model="tokenText" class="input-base mt-1 font-mono" :placeholder="t('settings.mcp.tokenPlaceholder')" />
               </label>
             </template>
             <template v-else>
               <label class="block">
-                <span class="text-[11px] text-muted">启动命令 <span class="text-danger">*</span></span>
-                <input v-model="form.command" class="input-base mt-1 font-mono" placeholder="程序路径或脚本，例如 /usr/local/bin/my-mcp" />
+                <span class="text-[11px] text-muted">{{ t('settings.mcp.command') }} <span class="text-danger">*</span></span>
+                <input v-model="form.command" class="input-base mt-1 font-mono" :placeholder="t('settings.usrLocalBinMy_e908cb')" />
               </label>
 
               <button
@@ -424,16 +426,16 @@ onMounted(() => {
               >
                 <ChevronDown v-if="showAdvanced" class="w-3.5 h-3.5" aria-hidden="true" />
                 <ChevronRight v-else class="w-3.5 h-3.5" aria-hidden="true" />
-                高级设置
+                {{ t('settings.mcp.advanced') }}
               </button>
 
               <div v-if="showAdvanced" class="flex flex-col gap-3 pl-3 border-l-2 border-border">
                 <label class="block">
-                  <span class="text-[11px] text-muted">命令参数（可选，空格分隔）</span>
-                  <input v-model="argsText" class="input-base mt-1 font-mono" placeholder="例如：serve --port 8080" />
+                  <span class="text-[11px] text-muted">{{ t('settings.mcp.argsOptional') }}</span>
+                  <input v-model="argsText" class="input-base mt-1 font-mono" :placeholder="t('settings.servePort8080_d922fd')" />
                 </label>
                 <label class="block">
-                  <span class="text-[11px] text-muted">环境变量（可选，每行一个 KEY=VALUE）</span>
+                  <span class="text-[11px] text-muted">{{ t('settings.mcp.envOptional') }}</span>
                   <textarea v-model="envText" rows="3" class="input-base mt-1 font-mono resize-none" placeholder="TOKEN=replace-me" />
                 </label>
               </div>
@@ -441,14 +443,14 @@ onMounted(() => {
           </div>
 
           <div class="flex items-center justify-end gap-2 border-t border-border px-5 py-3 shrink-0">
-            <button type="button" class="h-8 px-3 rounded-md bg-hover hover:bg-hover text-xs text-foreground cursor-pointer" :disabled="saving" @click="closeModal">取消</button>
+            <button type="button" class="h-8 px-3 rounded-md bg-hover hover:bg-hover text-xs text-foreground cursor-pointer" :disabled="saving" @click="closeModal">{{ t('common.cancel') }}</button>
             <button
               type="button"
               class="h-8 px-4 rounded-md bg-accent text-accent-foreground text-xs font-medium hover:opacity-95 cursor-pointer disabled:opacity-50"
               :disabled="saving"
               @click="save"
             >
-              {{ saving ? '保存中…' : '保存' }}
+              {{ saving ? t('settings.mcp.saving') : t('common.save') }}
             </button>
           </div>
         </div>
@@ -466,13 +468,13 @@ onMounted(() => {
         <div class="w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" @click.stop>
           <div class="flex items-start justify-between gap-2 border-b border-border px-5 py-4 shrink-0">
             <div class="min-w-0">
-              <h4 class="text-sm font-semibold text-foreground">{{ toolsModal.name }} · 工具列表</h4>
-              <p class="mt-0.5 text-[11px] text-muted">已注册的工具可被对话中的模型直接调用</p>
+              <h4 class="text-sm font-semibold text-foreground">{{ t('settings.mcp.toolsTitle', { name: toolsModal.name }) }}</h4>
+              <p class="mt-0.5 text-[11px] text-muted">{{ t('settings.mcp.toolsHint') }}</p>
             </div>
             <button
               type="button"
               class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0"
-              title="关闭"
+              :title="t('common.close')"
               @click="toolsModal = null"
             >
               <X class="w-4 h-4" aria-hidden="true" />
@@ -484,7 +486,7 @@ onMounted(() => {
               v-if="toolsModal.tools.length === 0"
               class="text-sm text-muted py-6 text-center"
             >
-              {{ toolsModal.status === 'healthy' ? '该服务当前未注册任何工具' : '服务未连接，暂无工具列表' }}
+              {{ toolsModal.status === 'healthy' ? t('settings.mcp.noToolsHealthy') : t('settings.mcp.noToolsOffline') }}
             </div>
             <div
               v-for="t in toolsModal.tools"
@@ -497,13 +499,13 @@ onMounted(() => {
           </div>
 
           <div class="flex items-center justify-end gap-2 border-t border-border px-5 py-3 shrink-0">
-            <span class="text-[11px] text-muted mr-auto">{{ toolsModal.tools.length }} 个工具</span>
+            <span class="text-[11px] text-muted mr-auto">{{ t('settings.mcp.toolsCount', { count: toolsModal.tools.length }) }}</span>
             <button
               type="button"
               class="h-8 px-3 rounded-md bg-hover hover:bg-hover text-xs text-foreground cursor-pointer"
               @click="toolsModal = null"
             >
-              关闭
+              {{ t('common.close') }}
             </button>
           </div>
         </div>

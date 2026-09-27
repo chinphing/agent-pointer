@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { parseMarkdown } from '../../lib/markdownConfig'
 import {
@@ -92,8 +96,7 @@ const videoGenerateDuration = computed(() => {
   return null
 })
 const boardSummary = computed(() => {
-  // 只对 task_board 系列工具解析 result；其他工具（如 ask_user 的
-  // {"selected": ...}）绝不能误显示成"任务板 · …"。
+  // Only parse result for task_board tools (not ask_user JSON, etc.).
   const name = props.toolCall.name
   const base = name.indexOf(':') === -1 ? name : name.slice(0, name.indexOf(':'))
   if (!base.startsWith('task_board')) return null
@@ -165,7 +168,7 @@ const argsParseError = computed(() => {
     parseToolCallArguments(text)
     return ''
   } catch (error) {
-    return error instanceof Error ? error.message : '无效 JSON'
+    return error instanceof Error ? error.message : t('chat.json_a7e546')
   }
 })
 
@@ -323,40 +326,40 @@ const terminalMeta = computed(() => {
   const items = []
   if (typeof result.exitCode !== 'undefined' && result.exitCode !== null) items.push(`exit ${result.exitCode}`)
   if (result.timedOut) items.push('timeout')
-  if (result.elevationDenied) items.push('已拒绝提权')
-  if (result.runAborted) items.push('已结束命令')
-  if (result.cancelled) items.push('已停止')
+  if (result.elevationDenied) items.push(t('chat.s_cd6122'))
+  if (result.runAborted) items.push(t('chat.s_1513bc'))
+  if (result.cancelled) items.push(t('chat.s_829778'))
   return items.join(' · ')
 })
 
 const statusInfo = computed(() => {
   if (props.toolCall.waitingForInput) {
-    return { label: '等待你的输入', color: 'text-warning' }
+    return { label: t('chat.s_9b5fb8'), color: 'text-warning' }
   }
   switch (effectiveStatus.value) {
-    case 'pending_approval': return { label: '等待确认', color: 'text-warning' }
-    case 'running': return { label: isBackgroundJobHost(props.toolCall) ? '后台执行中' : '执行中', color: 'text-accent' }
+    case 'pending_approval': return { label: t('chat.s_70f361'), color: 'text-warning' }
+    case 'running': return { label: isBackgroundJobHost(props.toolCall) ? t('tools.backgroundRunning') : t('tools.running'), color: 'text-accent' }
     case 'success': {
       if (isJobAwaitCall(props.toolCall)) {
         try {
           const parsed = JSON.parse(props.toolCall.result || '') as { reason?: string }
           if (parsed.reason === 'wait_ended') {
-            return { label: '已结束等待', color: 'text-muted' }
+            return { label: t('chat.s_d5c0ce'), color: 'text-muted' }
           }
         } catch {
           /* ignore */
         }
       }
-      return { label: isBackgroundSubagentCall(props.toolCall) ? '已完成' : '成功', color: 'text-success' }
+      return { label: isBackgroundSubagentCall(props.toolCall) ? t('chat.s_fad522') : t('common.success'), color: 'text-success' }
     }
     case 'failed': {
       const cancelled = /cancel|interrupted|已停止/i.test(props.toolCall.error || '')
       if (isBackgroundSubagentCall(props.toolCall) && cancelled) {
-        return { label: '已取消', color: 'text-muted/45' }
+        return { label: t('chat.s_2111cc'), color: 'text-muted/45' }
       }
-      return { label: '失败', color: 'text-muted/45' }
+      return { label: t('chat.toolFailed'), color: 'text-muted/45' }
     }
-    case 'rejected': return { label: '已拒绝', color: 'text-muted' }
+    case 'rejected': return { label: t('chat.s_81233d'), color: 'text-muted' }
   }
   return { label: '', color: '' }
 })
@@ -459,7 +462,7 @@ function openSourceUrl(url: string) {
           v-if="terminalElevated"
           class="shrink-0 text-[10px] text-warning inline-flex items-center gap-0.5"
         >
-          <ShieldAlert class="w-2.5 h-2.5" />提权
+          <ShieldAlert class="w-2.5 h-2.5" />{{ t('chat.s_e8ac86') }}
         </span>
         <span
           v-if="showStatusLabel"
@@ -484,23 +487,23 @@ function openSourceUrl(url: string) {
         v-if="canViewTerminalLive"
         type="button"
         class="shrink-0 border-0 bg-transparent px-0.5 py-1 text-[11px] text-accent hover:text-accent/80 cursor-pointer transition-colors"
-        title="查看终端输出"
+        :title="t('chat.s_089673')"
         @click="viewTerminalLive"
-      >查看</button>
+      >{{ t('chat.s_607e7a') }}</button>
       <button
         v-if="showEndBackgroundJob"
         type="button"
         class="shrink-0 border-0 bg-transparent px-0.5 py-1 text-[11px] text-danger/80 hover:text-danger cursor-pointer transition-all opacity-0 group-hover:opacity-100"
-        title="只结束这一条后台任务"
+        :title="t('chat.s_7055f2')"
         @click.stop="cancelThisBackgroundJob"
-      >结束任务</button>
+      >{{ t('chat.s_f3120e') }}</button>
       <button
         v-if="showEndWait"
         type="button"
         class="shrink-0 border-0 bg-transparent px-0.5 py-1 text-[11px] text-danger/80 hover:text-danger cursor-pointer transition-all opacity-0 group-hover:opacity-100"
-        title="结束等待，后台任务继续跑"
+        :title="t('chat.s_77142f')"
         @click.stop="endWaitOnly"
-      >结束等待</button>
+      >{{ t('chat.s_7d8ba7') }}</button>
     </div>
 
     <AskUserOptions
@@ -516,31 +519,31 @@ function openSourceUrl(url: string) {
         v-if="terminalElevated"
         class="text-[11px] text-warning leading-relaxed"
       >
-        提权命令：允许后还会在系统中弹出管理员确认（UAC / 密码 / polkit）。
+        {{ t('chat.uacPolkit_a4e2a4') }}
       </p>
       <p
         v-if="isVideoGenerate && videoGenerateDuration"
         class="text-[11px] text-warning leading-relaxed"
       >
-        本次视频生成预估花费 {{ videoGenerateDuration }} 元，您确认要生成吗？
+        {{ t('chat.videoConfirmCost', { amount: videoGenerateDuration }) }}
       </p>
       <p
         v-else-if="isVideoGenerate"
         class="text-[11px] text-warning leading-relaxed"
       >
-        本次视频生成按 1 元/秒计费，您确认要生成吗？
+        {{ t('chat.videoConfirmRate') }}
       </p>
       <div class="flex items-center gap-2">
         <button
           type="button"
           class="h-8 px-3 rounded-lg bg-success/20 hover:bg-success/30 text-success text-xs flex items-center gap-1.5 cursor-pointer transition"
           @click="approve(true)"
-        ><Check class="w-3.5 h-3.5" />允许</button>
+        ><Check class="w-3.5 h-3.5" />{{ t('chat.s_e6a5c3') }}</button>
         <button
           type="button"
           class="h-8 px-3 rounded-lg bg-danger/15 hover:bg-danger/25 text-danger text-xs flex items-center gap-1.5 cursor-pointer transition"
           @click="approve(false)"
-        ><X class="w-3.5 h-3.5" />拒绝</button>
+        ><X class="w-3.5 h-3.5" />{{ t('chat.reject') }}</button>
       </div>
     </div>
 
@@ -548,19 +551,19 @@ function openSourceUrl(url: string) {
       <template v-if="isTerminal">
         <div>
           <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-muted mb-1">
-            <span>执行命令</span>
+            <span>{{ t('chat.s_24cc0d') }}</span>
             <button
               v-if="effectiveStatus === 'running'"
               type="button"
               class="normal-case tracking-normal h-6 px-2 rounded-md bg-danger/15 hover:bg-danger/25 text-danger text-[11px] cursor-pointer transition"
               @click.stop="abortTerminalOnly"
-            >结束命令</button>
+            >{{ t('chat.s_1e74fe') }}</button>
           </div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground font-mono max-h-64">{{ terminalCommand || '—' }}</pre>
         </div>
         <div v-if="showResults && (toolCall.terminalOutput || (toolCall.result && !isBackgroundJobHandleResult(toolCall.result)))">
           <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-muted mb-1">
-            <span>控制台输出</span>
+            <span>{{ t('chat.s_c308cb') }}</span>
             <span v-if="terminalMeta" class="normal-case tracking-normal">{{ terminalMeta }}</span>
           </div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground max-h-64">{{ terminalOutput || '—' }}</pre>
@@ -569,11 +572,11 @@ function openSourceUrl(url: string) {
 
       <template v-else-if="isWebSearch">
         <div>
-          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">搜索问题</div>
+          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">{{ t('chat.s_0c98c3') }}</div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground">{{ webSearchQuery || '—' }}</pre>
         </div>
         <div v-if="webSearchSourcesView.length">
-          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">来源</div>
+          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">{{ t('chat.s_26ca20') }}</div>
           <ul class="text-[12px] space-y-1.5 text-foreground">
             <li v-for="{ source: s, siteLabel } in webSearchSourcesView" :key="s.url + s.index" class="min-w-0">
               <div class="flex items-baseline gap-1 min-w-0 truncate">
@@ -595,7 +598,7 @@ function openSourceUrl(url: string) {
           </ul>
         </div>
         <div v-if="webSearchOutput || effectiveStatus === 'running'">
-          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">回答</div>
+          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">{{ t('chat.s_c08a41') }}</div>
           <div
             v-if="webSearchAnswerHtml"
             ref="webSearchAnswerRef"
@@ -621,12 +624,12 @@ function openSourceUrl(url: string) {
           <div
             class="text-[10px] uppercase tracking-wider mb-1"
             :class="argsParseError ? 'text-danger' : 'text-muted'"
-          >{{ argsParseError ? '参数解析失败 · 原始参数' : '参数' }}</div>
+          >{{ argsParseError ? t('chat.argsParseFailed') : t('chat.argsLabel') }}</div>
           <div v-if="argsParseError" class="text-[11px] text-danger mb-1 break-words">{{ argsParseError }}</div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground">{{ prettyArgs || '—' }}</pre>
         </div>
         <div v-if="showResults && toolCall.result && !isBackgroundSubagentCall(toolCall) && !isBackgroundJobHandleResult(toolCall.result)">
-          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">结果</div>
+          <div class="text-[10px] uppercase tracking-wider text-muted mb-1">{{ t('chat.s_5ad7f5') }}</div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground max-h-48">{{ toolCall.result }}</pre>
         </div>
       </template>

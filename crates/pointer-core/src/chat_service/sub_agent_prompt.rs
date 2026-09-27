@@ -374,6 +374,7 @@ pub(super) async fn prepare_sub_agent_round_prompts(
     let def = ctx.def;
     let workspace_root = ctx.workspace_root;
     let user_dynamic_inject_enabled = ctx.user_dynamic_inject_enabled;
+    let ui_locale = ctx.ui_locale;
     let round_prep = Instant::now();
     let mut injected_tail = Vec::new();
     let mut prompts_after_ctx = MessageLoopPromptsAfterContext {
@@ -410,6 +411,7 @@ pub(super) async fn prepare_sub_agent_round_prompts(
         &session_vars,
         &[],
     );
+    crate::i18n::push_ui_locale_reply_rule_to_cacheable(&mut cacheable, ui_locale);
     cacheable.extend(session_extras.iter().cloned());
     if !tools_system_appendix.is_empty() {
         cacheable.push(tools_system_appendix.to_string());

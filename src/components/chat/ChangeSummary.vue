@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ChevronDown, FileText } from 'lucide-vue-next'
 import type { FileChangeSummary } from '../../lib/toolCallDisplay'
 import { workspaceRelativeDisplayPathWithFallbacks } from '../../lib/toolCallDisplay'
@@ -18,6 +19,7 @@ const emit = defineEmits<{
   toggle: []
 }>()
 
+const { t } = useI18n()
 const chat = useChatStore()
 const workspacePanel = useWorkspacePanelStore()
 const platformAuth = usePlatformAuthStore()
@@ -35,9 +37,9 @@ const singleFile = computed(() => (props.files.length === 1 ? props.files[0] : n
 
 const headerLabel = computed(() => {
   if (singleFile.value) {
-    return `修改了 ${singleFile.value.fileName}`
+    return t('chat.modifiedOneFile', { name: singleFile.value.fileName })
   }
-  return `修改了 ${props.files.length} 个文件`
+  return t('chat.modifiedFiles', { count: props.files.length })
 })
 
 const totals = computed(() => {

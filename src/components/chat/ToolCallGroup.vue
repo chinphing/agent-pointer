@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, ref, watch } from 'vue'
 import type { ToolCall } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
@@ -73,7 +77,7 @@ const headerAriaLabel = computed(() => {
       includeStatus: false
     })
   }
-  return liveLine.value || '思考中'
+  return liveLine.value || t('chat.s_dc269a')
 })
 
 const liveKey = computed(() => {

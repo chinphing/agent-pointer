@@ -38,6 +38,7 @@ import type {
 } from '../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import type { RunQueueSnapshot } from '../types/automation'
+import { t } from '../i18n'
 import { CODER_AGENT_ID, GENERAL_AGENT_ID } from '../lib/agentUi'
 import { promoteOutboundQueueItem } from '../lib/outboundQueue'
 import { getTaskBoardSnapshot } from '../lib/api'
@@ -86,7 +87,8 @@ import {
 } from '../lib/reasoningDeltaBatch'
 import { imConversationTitle, isImConversation } from '../lib/channel-labels'
 import {
-  DEFAULT_CONVERSATION_TITLE,
+  defaultConversationTitle,
+  isDefaultConversationTitle,
   maybeUpdateConversationTitle
 } from '../lib/conversationTitle'
 import { dedupeImInboundUserMessages } from '../lib/imMessageDedupe'
@@ -166,7 +168,7 @@ function stripEphemeralDesktopNoticesForDisk(conversations: Conversation[]): Con
 /** Desktop shell with default title and no messages (duplicate-prone if we always insert new rows). */
 function isBlankDesktopConversation(conv: Conversation): boolean {
   if (isImConversation(conv.id)) return false
-  if (conv.title !== DEFAULT_CONVERSATION_TITLE) return false
+  if (!isDefaultConversationTitle(conv.title)) return false
   // Meta-only boot path: messageCount is set from the DB row. Prefer it so we
   // can detect blanks without hydrating messages.
   if (typeof conv.messageCount === 'number') return conv.messageCount === 0
@@ -382,7 +384,7 @@ export const useChatStore = defineStore('chat', () => {
           .some(m => m.role === 'assistant' && assistantTurnActivelyRunning(m)))
 
     if (hasActiveTurn) {
-      showUiToast('已暂停当前任务，正在立即发送…', 'warning')
+      showUiToast(t('chat.pausedSendingNow'), 'warning')
       await interruptActiveTurn(key, { cancelBackgroundJobs: false, drainQueue: true })
       return
     }
@@ -440,7 +442,7 @@ export const useChatStore = defineStore('chat', () => {
           row.errorMessage = undefined
         } else {
           row.status = 'cancelled'
-          row.errorMessage = '已停止生成'
+          row.errorMessage = t('chat.stopped')
         }
         for (const tc of row.toolCalls ?? []) {
           if (tc.status === 'pending_approval') {
@@ -932,7 +934,7 @@ export const useChatStore = defineStore('chat', () => {
       const hydrated = await ensureMessagesLoaded(convId)
       if (!hydrated) {
         console.error('[chat] outbound drain paused: hydration failed', convId)
-        showUiToast('历史消息加载失败，待发送消息已保留', 'error')
+        showUiToast(t('chat.historyLoadFailedKept'), 'error')
         return
       }
     }
@@ -941,7 +943,7 @@ export const useChatStore = defineStore('chat', () => {
       const tailed = await ensureMessagesLoaded(convId, { force: true })
       if (!tailed) {
         console.error('[chat] outbound drain paused: force tail failed', convId)
-        showUiToast('历史消息加载失败，待发送消息已保留', 'error')
+        showUiToast(t('chat.historyLoadFailedKept'), 'error')
         return
       }
     }
@@ -1049,7 +1051,7 @@ export const useChatStore = defineStore('chat', () => {
         status: 'error',
         createdAt: Date.now(),
         errorMessage: errText.includes('token_quota_exhausted') || errText.includes('账户余额已用尽')
-          ? '账户余额已用尽'
+          ? t('chat.balanceExhausted')
           : errText
       })
       persistAppend(conv.id)
@@ -2643,7 +2645,7 @@ export const useChatStore = defineStore('chat', () => {
     const createdAt = Date.now()
     const c: Conversation = {
       id: uid(),
-      title: DEFAULT_CONVERSATION_TITLE,
+      title: defaultConversationTitle(),
       createdAt,
       updatedAt: nextConversationActivityAt(createdAt),
       isPinned: false,
@@ -2858,7 +2860,7 @@ export const useChatStore = defineStore('chat', () => {
     if (existing) return existing
     const shell = metaToConversationShell({
       id,
-      title: meta.title?.trim() || DEFAULT_CONVERSATION_TITLE,
+      title: meta.title?.trim() || defaultConversationTitle(),
       createdAt: meta.updatedAt ?? Date.now(),
       updatedAt: meta.updatedAt ?? Date.now(),
       skillIds: [],
@@ -3660,7 +3662,7 @@ export const useChatStore = defineStore('chat', () => {
       Object.assign(conv, previous)
       markMetaDirty(conv.id)
       console.error('[chat] first-send project binding failed', e)
-      showUiToast('项目绑定保存失败，请重试', 'error')
+      showUiToast(t('chat.projectBindFailed'), 'error')
       return false
     }
   }
@@ -3676,7 +3678,7 @@ export const useChatStore = defineStore('chat', () => {
       const hydrated = await ensureMessagesLoaded(conv.id)
       if (!hydrated) {
         console.error('[chat] send blocked because message hydration failed', conv.id)
-        showUiToast('历史消息加载失败，请重试', 'error')
+        showUiToast(t('chat.historyLoadFailed'), 'error')
         return
       }
     }
@@ -3703,7 +3705,7 @@ export const useChatStore = defineStore('chat', () => {
         content: '',
         status: 'error',
         createdAt: Date.now(),
-        errorMessage: '账户余额已用尽'
+        errorMessage: t('chat.balanceExhausted')
       })
       return
     }
@@ -3742,7 +3744,7 @@ export const useChatStore = defineStore('chat', () => {
               })
             )
           } else {
-            throw new Error(`附件「${a.fileName}」尚未上传完成`)
+            throw new Error(t('chat.attachmentNotReady', { name: a.fileName }))
           }
         } catch (e) {
           console.warn('[chat] saveChatAttachment failed', e)
@@ -3784,7 +3786,7 @@ export const useChatStore = defineStore('chat', () => {
       for (const att of attachments) {
         releaseComposerAttachment(att.id)
       }
-      showUiToast(`已加入队列（${outboundQueueCount(conv.id)} 条待发送）`, 'success')
+      showUiToast(t('chat.queuedPending', { count: outboundQueueCount(conv.id) }), 'success')
       return
     }
 
@@ -3793,7 +3795,7 @@ export const useChatStore = defineStore('chat', () => {
       const tailed = await ensureMessagesLoaded(conv.id, { force: true })
       if (!tailed) {
         console.error('[chat] send blocked because force tail failed', conv.id)
-        showUiToast('历史消息加载失败，请重试', 'error')
+        showUiToast(t('chat.historyLoadFailed'), 'error')
         return
       }
     }
@@ -3839,7 +3841,7 @@ export const useChatStore = defineStore('chat', () => {
       await cancelBackgroundJobs(current.value.id, [id])
     } catch (e) {
       console.error('[chat] cancelBackgroundJobs failed', e)
-      showUiToast('结束任务失败', 'error')
+      showUiToast(t('chat.endTaskFailed'), 'error')
     }
   }
 

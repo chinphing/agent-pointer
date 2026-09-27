@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, watch } from 'vue'
 import { Image, X } from 'lucide-vue-next'
 import type { ComputerAnnotatedPreview } from '../../../../types/chat'
@@ -49,7 +53,7 @@ watch(
       class="fixed inset-0 z-[200] flex items-center justify-center bg-foreground/32 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label="截图处理预览"
+      :aria-label="t('chat.s_653b79')"
       @click.self="close"
     >
       <div
@@ -60,7 +64,7 @@ watch(
             <Image class="w-4 h-4 text-accent" />
           </div>
           <div class="min-w-0 flex-1 pr-8">
-            <h2 class="text-sm font-semibold text-foreground">截图处理预览</h2>
+            <h2 class="text-sm font-semibold text-foreground">{{ t('chat.s_653b79') }}</h2>
             <p v-if="displayCaption" class="text-[11px] text-muted mt-0.5 leading-relaxed line-clamp-2">
               {{ displayCaption }}
             </p>
@@ -68,7 +72,7 @@ watch(
           <button
             type="button"
             class="absolute top-3 right-3 p-2 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors"
-            title="关闭 (Esc)"
+            :title="t('skills.closeEsc')"
             @click="close"
           >
             <X class="w-4 h-4" />
@@ -79,7 +83,7 @@ watch(
           <div v-if="error" class="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
             {{ error }}
           </div>
-          <div v-else-if="loading" class="text-sm text-muted">加载中…</div>
+          <div v-else-if="loading" class="text-sm text-muted">{{ t('settings.automation.loading') }}</div>
           <img
             v-else-if="displaySrc"
             :src="displaySrc"

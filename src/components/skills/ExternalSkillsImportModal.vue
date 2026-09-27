@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Download, X } from 'lucide-vue-next'
 import type { ExternalSkillSource } from '../../types/chat'
 
@@ -16,6 +17,7 @@ const emit = defineEmits<{
   (e: 'dismiss'): void
 }>()
 
+const { t } = useI18n()
 const selected = ref<Set<string>>(new Set())
 
 watch(
@@ -74,7 +76,7 @@ watch(
       class="fixed inset-0 z-[220] flex items-center justify-center bg-foreground/32 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label="导入外部 Skills"
+      :aria-label="t('skills.importExternalAria')"
       @click.self="onDismiss"
     >
       <div class="relative w-full max-w-lg rounded-2xl border border-border bg-[hsl(var(--card-elevated))] shadow-2xl overflow-hidden">
@@ -83,16 +85,16 @@ watch(
             <Download class="w-4 h-4 text-accent" />
           </div>
           <div class="min-w-0 flex-1 pr-8">
-            <h2 class="text-base font-semibold text-foreground">发现外部 Skills</h2>
+            <h2 class="text-base font-semibold text-foreground">{{ t('skills.discoverExternal') }}</h2>
             <p class="text-[13px] text-muted mt-1 leading-relaxed">
-              检测到本机其他 Agent 的 Skills 目录，共 {{ totalSkills }} 个可导入项。导入后将保存到
-              <code class="text-xs">~/.pointer/skills</code>，系统内置 Skills 仍保留在应用数据目录且不可修改。
+              {{ t('skills.discoverExternalHint', { count: totalSkills }) }}
+              <code class="text-xs">~/.pointer/skills</code>{{ t('skills.discoverExternalHintTail') }}
             </p>
           </div>
           <button
             type="button"
             class="absolute top-4 right-4 p-2 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors"
-            title="关闭 (Esc)"
+            :title="t('skills.closeEsc')"
             @click="onDismiss"
           >
             <X class="w-4 h-4" />
@@ -107,7 +109,7 @@ watch(
               :checked="allSelected"
               @change="toggleAll"
             />
-            全选
+            {{ t('skills.selectAll') }}
           </label>
           <label
             v-for="source in sources"
@@ -123,7 +125,7 @@ watch(
             <div class="min-w-0 flex-1">
               <div class="text-sm font-medium text-foreground">{{ source.label }}</div>
               <div class="text-xs text-muted mt-0.5 truncate">{{ source.path }}</div>
-              <div class="text-xs text-muted mt-1">{{ source.skillCount }} 个 Skill 可导入</div>
+              <div class="text-xs text-muted mt-1">{{ t('skills.skillImportCount', { count: source.skillCount }) }}</div>
             </div>
           </label>
         </div>
@@ -135,7 +137,7 @@ watch(
             :disabled="importing"
             @click="onDismiss"
           >
-            暂不导入
+            {{ t('skills.skipImport') }}
           </button>
           <button
             type="button"
@@ -143,7 +145,7 @@ watch(
             :disabled="importing || selected.size === 0"
             @click="onImport"
           >
-            {{ importing ? '导入中…' : '一键导入' }}
+            {{ importing ? t('skills.importing') : t('skills.importNow') }}
           </button>
         </footer>
       </div>

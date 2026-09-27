@@ -57,7 +57,10 @@ pub(super) async fn record_tool_exec_outcome(
                 // file_edit / file_write results are short summaries (no diff_lines).
                 truncate_str(&out, 800)
             };
-            let display = state.tools.format_display(&tc.name, args_for_desktop_log);
+            let display =
+                state
+                    .tools
+                    .format_display_for(&tc.name, args_for_desktop_log, state.ui_locale());
             let (display_label, display_summary) =
                 super::super::util::tool_display_stream_fields(&display);
             let stay_running = ok && crate::tools::job::host_tool_stays_running(tool_id, &out);

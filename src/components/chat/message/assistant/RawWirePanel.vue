@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, ref } from 'vue'
 import { Check, Copy } from 'lucide-vue-next'
 
@@ -26,10 +30,10 @@ const combinedRawText = computed(() => {
   const r = reasoningText.value
   const o = outputText.value
   const parts: string[] = []
-  if (r.length > 0) parts.push(`【推理】\n${r}`)
-  if (o.length > 0) parts.push(`【正文通道原始】\n${o}`)
+  if (r.length > 0) parts.push(`${t('chat.rawReasoningHeader')}\n${r}`)
+  if (o.length > 0) parts.push(`${t('chat.rawContentHeader')}\n${o}`)
   if (toolRawArgsText.value.length > 0) {
-    parts.push(`【工具调用参数】\n${toolRawArgsText.value}`)
+    parts.push(`${t('chat.rawToolArgsHeader')}\n${toolRawArgsText.value}`)
   }
   return parts.join('\n\n')
 })
@@ -50,42 +54,42 @@ function copyAll() {
 <template>
   <div class="raw-wire-panel mt-2 w-full overflow-hidden">
     <div class="raw-wire-header">
-      <span class="text-[11px] font-medium text-foreground">原始输出</span>
+      <span class="text-[11px] font-medium text-foreground">{{ t('chat.s_13cbd4') }}</span>
       <div class="flex items-center gap-1">
         <button
           v-if="hasAnything"
           type="button"
           class="raw-wire-action"
-          :title="copied ? '已复制' : '复制全部'"
+          :title="copied ? t('common.copied') : t('chat.copyAll')"
           @click="copyAll"
         >
           <Check v-if="copied" class="w-3 h-3 text-success" />
           <Copy v-else class="w-3 h-3" />
         </button>
         <button type="button" class="raw-wire-action text-[11px]" @click="emit('close')">
-          收起
+          {{ t('shell.collapse') }}
         </button>
       </div>
     </div>
 
     <div class="max-h-96 overflow-auto p-3 space-y-3">
       <section v-if="reasoningText">
-        <div class="raw-wire-section-label">推理</div>
+        <div class="raw-wire-section-label">{{ t('chat.s_ed6f7e') }}</div>
         <pre class="raw-wire-block">{{ reasoningText }}</pre>
       </section>
 
       <section v-if="outputText">
-        <div class="raw-wire-section-label">正文通道原始</div>
+        <div class="raw-wire-section-label">{{ t('chat.s_ea3cec') }}</div>
         <pre class="raw-wire-block">{{ outputText }}</pre>
       </section>
 
       <section v-if="toolRawArgsText">
-        <div class="raw-wire-section-label">工具调用参数</div>
+        <div class="raw-wire-section-label">{{ t('chat.s_827c50') }}</div>
         <pre class="raw-wire-block">{{ toolRawArgsText }}</pre>
       </section>
 
       <div v-if="!hasAnything" class="text-[11px] text-muted py-1">
-        暂无内容
+        {{ t('chat.s_4726ff') }}
       </div>
     </div>
   </div>

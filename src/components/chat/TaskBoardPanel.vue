@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, ref } from 'vue'
 import { ListChecks, CheckCircle2, Circle, Loader2, XCircle, Ban, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import type { TaskBoardDocument, TaskBoardItem } from '../../types/chat'
@@ -44,13 +48,16 @@ const currentMilestone = computed(() => {
 })
 const milestoneProgress = computed(() => taskBoardVisibleMilestoneProgress(props.document))
 const executionLabel = computed(() => taskBoardExecutionLabel(metaStatus.value))
-const boardFailed = computed(() => executionLabel.value === '失败')
+const boardFailed = computed(() => executionLabel.value === t('chat.toolFailed'))
 
-const summaryTitle = computed(() => goal.value || '任务板')
+const summaryTitle = computed(() => goal.value || t('chat.s_aa28ab'))
 const summaryAria = computed(() => {
-  const parts = [summaryTitle.value, `进度 ${milestoneProgress.value}`]
+  const parts = [
+    summaryTitle.value,
+    t('chat.progressWithValue', { progress: milestoneProgress.value })
+  ]
   if (executionLabel.value) parts.push(executionLabel.value)
-  return parts.join('，')
+  return parts.join(t('common.listSep'))
 })
 
 const childBoardsWithContent = computed(() => {
@@ -94,7 +101,7 @@ function rowLabel(item: TaskBoardItem): string {
 }
 
 function childGoal(doc: TaskBoardDocument): string {
-  return doc.meta?.goal?.trim() || '子任务'
+  return doc.meta?.goal?.trim() || t('settings.exec.subTask')
 }
 
 function toggleExpanded() {
@@ -154,7 +161,7 @@ function toggleExpanded() {
       <div
         v-if="!visibleMilestones.length"
         class="text-[13px] text-muted py-0.5"
-      >暂无步骤</div>
+      >{{ t('chat.s_ad0220') }}</div>
       <div
         v-for="(child, taskIdKey) in childBoardsWithContent"
         :key="taskIdKey"

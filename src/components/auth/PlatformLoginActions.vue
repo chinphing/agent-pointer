@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ExternalLink, Loader2, RefreshCw } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as api from '../../lib/api'
 import { isTauriRuntime } from '../../lib/runtime'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
@@ -20,6 +21,7 @@ const emit = defineEmits<{
   (e: 'local-success'): void
 }>()
 
+const { t } = useI18n()
 const platformAuth = usePlatformAuthStore()
 const isStandalone = computed(() => platformAuth.isStandalone)
 
@@ -31,8 +33,6 @@ const captchaSvg = ref('')
 const captchaLoading = ref(false)
 const localSubmitting = ref(false)
 const localError = ref<string | null>(null)
-
-const heroHintText = '将在系统浏览器中打开授权页面'
 
 const displayError = computed(() => localError.value || null)
 
@@ -48,8 +48,8 @@ async function refreshCaptcha() {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     localError.value = msg.includes('local_auth_only_in_standalone')
-      ? '当前不是独立部署模式'
-      : '验证码加载失败，请重试'
+      ? t('auth.notStandalone')
+      : t('auth.captchaLoadFailed')
     console.warn('fetchLocalCaptcha failed', e)
   } finally {
     captchaLoading.value = false
@@ -62,11 +62,11 @@ async function submitLocalLogin() {
   const p = password.value
   const c = captcha.value.trim()
   if (!u || !p) {
-    localError.value = '请输入账号和密码'
+    localError.value = t('auth.needCredentials')
     return
   }
   if (!captchaId.value || !c) {
-    localError.value = '请输入验证码'
+    localError.value = t('auth.needCaptcha')
     return
   }
   localSubmitting.value = true
@@ -131,7 +131,7 @@ watch(isStandalone, standalone => {
           type="text"
           name="username"
           autocomplete="username"
-          placeholder="账号"
+          :placeholder="t('auth.username')"
           class="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
           :disabled="localSubmitting || loading"
         />
@@ -140,7 +140,7 @@ watch(isStandalone, standalone => {
           type="password"
           name="password"
           autocomplete="current-password"
-          placeholder="密码"
+          :placeholder="t('auth.password')"
           class="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
           :disabled="localSubmitting || loading"
         />
@@ -149,7 +149,7 @@ watch(isStandalone, standalone => {
             type="button"
             class="relative flex h-10 w-[8.75rem] shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-muted/40 cursor-pointer hover:bg-hover disabled:opacity-50"
             :disabled="captchaLoading || localSubmitting || loading"
-            title="点击刷新验证码"
+            :title="t('auth.refreshCaptcha')"
             @click="refreshCaptcha"
           >
             <span
@@ -165,7 +165,7 @@ watch(isStandalone, standalone => {
             type="text"
             name="captcha"
             autocomplete="off"
-            placeholder="验证码"
+            :placeholder="t('auth.captcha')"
             class="h-10 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             :disabled="localSubmitting || loading"
           />
@@ -176,7 +176,7 @@ watch(isStandalone, standalone => {
           :disabled="localSubmitting || loading"
         >
           <Loader2 v-if="localSubmitting || loading" class="h-4 w-4 shrink-0 animate-spin" />
-          <span>{{ localSubmitting || loading ? '登录中…' : '登录' }}</span>
+          <span>{{ localSubmitting || loading ? t('auth.signingIn') : t('auth.signIn') }}</span>
         </button>
       </form>
     </template>
@@ -197,7 +197,7 @@ watch(isStandalone, standalone => {
         class="inline-flex flex-col-reverse items-center gap-2"
       >
         <p class="whitespace-nowrap text-center text-[11px] leading-relaxed text-muted">
-          {{ loading ? '请在浏览器中完成授权' : heroHintText }}
+          {{ loading ? t('auth.completeInBrowser') : t('auth.heroHint') }}
         </p>
         <div class="flex w-[calc(100%+0.75rem)] items-center justify-center gap-2">
           <button
@@ -208,7 +208,7 @@ watch(isStandalone, standalone => {
           >
             <Loader2 v-if="loading" class="h-4 w-4 shrink-0 animate-spin" />
             <ExternalLink v-else class="h-4 w-4 shrink-0 opacity-90" />
-            <span>{{ loading ? '等待授权' : '浏览器登录' }}</span>
+            <span>{{ loading ? t('auth.waitingAuth') : t('auth.browserLogin') }}</span>
           </button>
           <button
             v-if="loading"
@@ -216,7 +216,7 @@ watch(isStandalone, standalone => {
             class="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-border px-4 text-sm text-foreground hover:bg-hover cursor-pointer transition-colors"
             @click="emit('cancel')"
           >
-            取消
+            {{ t('common.cancel') }}
           </button>
         </div>
       </div>
@@ -233,7 +233,7 @@ watch(isStandalone, standalone => {
         >
           <Loader2 v-if="loading" class="h-4 w-4 shrink-0 animate-spin" />
           <ExternalLink v-else class="h-4 w-4 shrink-0 opacity-90" />
-          <span>{{ loading ? '等待授权' : '浏览器登录' }}</span>
+          <span>{{ loading ? t('auth.waitingAuth') : t('auth.browserLogin') }}</span>
         </button>
         <button
           v-if="loading"
@@ -241,7 +241,7 @@ watch(isStandalone, standalone => {
           class="inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-border px-3 text-sm text-foreground hover:bg-hover cursor-pointer transition-colors"
           @click="emit('cancel')"
         >
-          取消
+          {{ t('common.cancel') }}
         </button>
       </div>
     </template>

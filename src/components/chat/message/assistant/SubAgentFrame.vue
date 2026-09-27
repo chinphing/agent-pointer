@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, inject, ref, watch, type Ref } from 'vue'
 import { Code } from 'lucide-vue-next'
 import type { AgentTrace, ChatMessage, TaskBoardDocument, ToolCall } from '../../../../types/chat'
@@ -320,7 +324,7 @@ const liveAriaLabel = computed(() => {
       includeStatus: false
     })
   }
-  return liveLine.value || '子任务过程'
+  return liveLine.value || t('chat.s_fc6dde')
 })
 const liveKey = computed(() => {
   if (!isRunning.value) return null
@@ -455,7 +459,7 @@ watch(
         type="button"
         class="message-action-btn shrink-0"
         :class="showRawWire ? 'text-foreground' : 'text-muted hover:text-foreground'"
-        :title="showRawWire ? '隐藏原始内容' : '查看原始内容'"
+        :title="showRawWire ? t('chat.hideRawContent') : t('chat.showRawContent')"
         @click.stop="showRawWire = !showRawWire"
       >
         <Code class="w-3.5 h-3.5" />

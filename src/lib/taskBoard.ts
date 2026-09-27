@@ -1,4 +1,5 @@
 import type { TaskBoardDocument, TaskBoardItem } from '../types/chat'
+import { t } from '../i18n'
 
 /** v4 `global_milestones` with legacy v3 `board` fallback. */
 export function taskBoardGlobalMilestones(
@@ -75,11 +76,11 @@ export function hasTaskBoardContent(doc: TaskBoardDocument | null | undefined): 
  */
 export function taskBoardExecutionLabel(status: string | undefined): string | null {
   const s = (status ?? '').trim().toLowerCase()
-  if (s === 'failed') return '失败'
-  if (s === 'paused') return '已暂停'
+  if (s === 'failed') return t('chat.toolFailed')
+  if (s === 'paused') return t('chat.paused')
   if (s === 'completed') return null
-  if (s === 'cancelled' || s === 'canceled') return '已取消'
-  if (s === 'running' || s === 'active' || s === '') return '执行中'
+  if (s === 'cancelled' || s === 'canceled') return t('chat.cancelled')
+  if (s === 'running' || s === 'active' || s === '') return t('chat.toolRunning')
   return null
 }
 

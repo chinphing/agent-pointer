@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, toRef, type Ref } from 'vue'
 import { Code, Camera } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../../types/chat'
@@ -61,7 +65,7 @@ const showFooter = computed(() => showMessageActions.value)
         type="button"
         class="message-action-btn text-muted hover:text-info disabled:opacity-40 disabled:cursor-wait"
         :disabled="screenLoading"
-        title="查看本轮已注入模型的桌面截图（缓存）"
+        :title="t('chat.s_a957bb')"
         @click="openScreenPreview()"
       >
         <Camera class="w-3.5 h-3.5" />
@@ -71,7 +75,7 @@ const showFooter = computed(() => showMessageActions.value)
         type="button"
         class="message-action-btn"
         :class="showRawWire ? 'text-accent' : 'text-muted hover:text-foreground'"
-        :title="showRawWire ? '隐藏原始内容' : '查看原始内容'"
+        :title="showRawWire ? t('chat.hideRawContent') : t('chat.showRawContent')"
         @click="showRawWire = !showRawWire"
       >
         <Code class="w-3.5 h-3.5" />
@@ -89,7 +93,7 @@ const showFooter = computed(() => showMessageActions.value)
       type="button"
       class="message-action-btn text-muted hover:text-info disabled:opacity-40 disabled:cursor-wait"
       :disabled="screenLoading"
-      title="查看本轮已注入模型的桌面截图（缓存）"
+      :title="t('chat.s_a957bb')"
       @click="openScreenPreview()"
     >
       <Camera class="w-3.5 h-3.5" />
@@ -99,7 +103,7 @@ const showFooter = computed(() => showMessageActions.value)
       type="button"
       class="message-action-btn"
       :class="showRawWire ? 'text-accent' : 'text-muted hover:text-foreground'"
-      :title="showRawWire ? '隐藏原始内容' : '查看原始内容'"
+      :title="showRawWire ? t('chat.hideRawContent') : t('chat.showRawContent')"
       @click="showRawWire = !showRawWire"
     >
       <Code class="w-3.5 h-3.5" />

@@ -1,4 +1,5 @@
 import { nextTick, onBeforeUnmount, onMounted, watch, type Ref } from 'vue'
+import { t } from '../i18n'
 import {
   applySvgMountLayout,
   decodeSvgConfigAttr,
@@ -114,8 +115,8 @@ export function useMarkdownMermaid(
     const copyBtn = document.createElement('button')
     copyBtn.type = 'button'
     copyBtn.className = 'md-mermaid-btn'
-    copyBtn.title = '复制源码'
-    copyBtn.setAttribute('aria-label', '复制源码')
+    copyBtn.title = t('chat.md.copySource')
+    copyBtn.setAttribute('aria-label', t('chat.md.copySource'))
     copyBtn.innerHTML = copyIconSvg
     copyBtn.addEventListener('click', e => {
       e.preventDefault()
@@ -126,7 +127,7 @@ export function useMarkdownMermaid(
         console.warn('[markdownMermaid] copy: missing config')
         return
       }
-      void navigator.clipboard.writeText(raw).then(() => flashButton(copyBtn, '已复制')).catch(err => {
+      void navigator.clipboard.writeText(raw).then(() => flashButton(copyBtn, t('common.copied'))).catch(err => {
         console.error('[markdownMermaid] copy failed', err)
       })
     })
@@ -134,8 +135,8 @@ export function useMarkdownMermaid(
     const downloadBtn = document.createElement('button')
     downloadBtn.type = 'button'
     downloadBtn.className = 'md-mermaid-btn'
-    downloadBtn.title = '导出 SVG'
-    downloadBtn.setAttribute('aria-label', '导出 SVG')
+    downloadBtn.title = t('chat.md.exportSvg')
+    downloadBtn.setAttribute('aria-label', t('chat.md.exportSvg'))
     downloadBtn.innerHTML = downloadIconSvg
     downloadBtn.addEventListener('click', e => {
       e.preventDefault()
@@ -150,7 +151,7 @@ export function useMarkdownMermaid(
       const fileName = `pointer-diagram-${Date.now()}.svg`
       void saveDataUrlAsFile(dataUrl, fileName, [{ name: 'SVG', extensions: ['svg'] }])
         .then(result => {
-          if (result === 'saved') flashButton(downloadBtn, '已导出')
+          if (result === 'saved') flashButton(downloadBtn, t('chat.md.exported'))
         })
         .catch(err => {
           console.error('[markdownMermaid] export failed', err)
@@ -160,8 +161,8 @@ export function useMarkdownMermaid(
     const sourceBtn = document.createElement('button')
     sourceBtn.type = 'button'
     sourceBtn.className = 'md-mermaid-btn'
-    sourceBtn.title = '查看源码'
-    sourceBtn.setAttribute('aria-label', '查看源码')
+    sourceBtn.title = t('chat.md.viewSource')
+    sourceBtn.setAttribute('aria-label', t('chat.md.viewSource'))
     sourceBtn.innerHTML = codeIconSvg
     sourceBtn.addEventListener('click', e => {
       e.preventDefault()
@@ -174,13 +175,13 @@ export function useMarkdownMermaid(
         const raw = encoded ? decodeSvgConfigAttr(encoded) : ''
         pre.textContent = raw || ''
         pre.removeAttribute('hidden')
-        sourceBtn.title = '隐藏源码'
-        sourceBtn.setAttribute('aria-label', '隐藏源码')
+        sourceBtn.title = t('chat.md.hideSource')
+        sourceBtn.setAttribute('aria-label', t('chat.md.hideSource'))
         sourceBtn.classList.add('md-mermaid-btn-active')
       } else {
         pre.setAttribute('hidden', '')
-        sourceBtn.title = '查看源码'
-        sourceBtn.setAttribute('aria-label', '查看源码')
+        sourceBtn.title = t('chat.md.viewSource')
+        sourceBtn.setAttribute('aria-label', t('chat.md.viewSource'))
         sourceBtn.classList.remove('md-mermaid-btn-active')
       }
     })
@@ -188,8 +189,8 @@ export function useMarkdownMermaid(
     const zoomBtn = document.createElement('button')
     zoomBtn.type = 'button'
     zoomBtn.className = 'md-mermaid-btn'
-    zoomBtn.title = '放大查看'
-    zoomBtn.setAttribute('aria-label', '放大查看')
+    zoomBtn.title = t('chat.md.zoomView')
+    zoomBtn.setAttribute('aria-label', t('chat.md.zoomView'))
     zoomBtn.innerHTML = zoomIconSvg
     zoomBtn.addEventListener('click', e => {
       e.preventDefault()
@@ -231,7 +232,7 @@ export function useMarkdownMermaid(
 
     const encoded = host.getAttribute('data-mermaid-config')
     if (!encoded) {
-      showStatus(host, '图示配置缺失', 'error')
+      showStatus(host, t('chat.md.diagramMissing'), 'error')
       return
     }
     let raw: string | null
@@ -241,14 +242,14 @@ export function useMarkdownMermaid(
       raw = null
     }
     if (raw == null) {
-      showStatus(host, '图示无法解析', 'error')
+      showStatus(host, t('chat.md.diagramParseFail'), 'error')
       return
     }
 
     // Defer rendering until the assistant turn finishes: Mermaid render is
     // comparatively expensive and only the final source should be laid out.
     if (isStreaming() || isStreamingMermaidStub(raw)) {
-      showStatus(host, '图示生成中…', 'pending')
+      showStatus(host, t('chat.md.diagramPending'), 'pending')
       return
     }
 
@@ -319,7 +320,7 @@ export function useMarkdownMermaid(
           const state = hosts.get(host)
           if (state) state.pending = false
           console.warn('[markdownMermaid] source empty after stripping theme directives')
-          showStatus(host, '图示语法错误', 'error')
+          showStatus(host, t('chat.md.diagramSyntax'), 'error')
           return
         }
         const holder = document.createElement('div')
@@ -337,7 +338,7 @@ export function useMarkdownMermaid(
         if (!parsed.ok) {
           const state = hosts.get(host)
           if (state) state.pending = false
-          showStatus(host, '图示渲染失败', 'error')
+          showStatus(host, t('chat.md.diagramRenderFail'), 'error')
           return
         }
         cleaned = roundMermaidSvgRects(parsed.svg)
@@ -346,7 +347,7 @@ export function useMarkdownMermaid(
         console.error('[markdownMermaid] render failed', err)
         const state = hosts.get(host)
         if (state) state.pending = false
-        showStatus(host, '图示语法错误', 'error')
+        showStatus(host, t('chat.md.diagramSyntax'), 'error')
         return
       }
     }
@@ -378,17 +379,17 @@ export function useMarkdownMermaid(
       const doc = new DOMParser().parseFromString(cleaned, 'image/svg+xml')
       const parseError = doc.querySelector('parsererror')
       if (parseError) {
-        showStatus(host, '图示无效', 'error')
+        showStatus(host, t('chat.md.diagramInvalid'), 'error')
         return
       }
       const root = doc.documentElement
       if (!root || root.localName.toLowerCase() !== 'svg') {
-        showStatus(host, '图示无效', 'error')
+        showStatus(host, t('chat.md.diagramInvalid'), 'error')
         return
       }
       const imported = document.importNode(root, true)
       if (!(imported instanceof SVGElement)) {
-        showStatus(host, '图示无效', 'error')
+        showStatus(host, t('chat.md.diagramInvalid'), 'error')
         return
       }
       imported.setAttribute('role', 'img')
@@ -422,7 +423,7 @@ export function useMarkdownMermaid(
       console.error('[markdownMermaid] mount failed', err)
       const state = hosts.get(host)
       if (state) state.pending = false
-      showStatus(host, '图示渲染失败', 'error')
+      showStatus(host, t('chat.md.diagramRenderFail'), 'error')
     }
   }
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import Composer from './Composer.vue'
 import ExperienceHomePanel from './ExperienceHomePanel.vue'
@@ -23,6 +24,9 @@ import { ChevronDown, ChevronUp, Search, X } from 'lucide-vue-next'
 import { showScrollbarWhileScrolling } from '../../lib/autoHideScrollbar'
 import ConversationNav from './ConversationNav.vue'
 
+const { t } = useI18n()
+
+
 /** 避免异步分包未返回前主区域长时间空白（Windows 杀毒/冷盘常见）。 */
 const MessageListSkeleton = defineComponent({
   name: 'MessageListSkeleton',
@@ -39,7 +43,7 @@ const MessageListSkeleton = defineComponent({
             class:
               'h-9 w-9 rounded-full border-2 border-primary/25 border-t-primary-cyan animate-spin shrink-0'
           }),
-          h('span', {}, '加载消息列表…')
+          h('span', {}, t('chat.s_f9b3f4'))
         ]
       )
   }
@@ -286,8 +290,8 @@ const toastClass = computed(() => {
           v-model="pageSearchQuery"
           class="w-56 bg-transparent px-1.5 py-1 text-sm text-foreground outline-none placeholder:text-muted"
           type="search"
-          placeholder="在已加载消息中查找"
-          aria-label="在已加载消息中查找"
+          :placeholder="t('chat.s_03c0ed')"
+          :aria-label="t('chat.s_03c0ed')"
           @keydown="onPageSearchKeydown"
         />
         <span class="min-w-12 text-center text-xs tabular-nums text-muted">
@@ -296,7 +300,7 @@ const toastClass = computed(() => {
         <button
           type="button"
           class="rounded p-1 text-muted transition hover:bg-hover hover:text-foreground disabled:opacity-40"
-          title="上一个匹配（Shift+Enter）"
+          :title="t('workspace.prevMatchShift')"
           :disabled="pageSearchMatches.length === 0"
           @click="movePageSearch(-1)"
         >
@@ -305,7 +309,7 @@ const toastClass = computed(() => {
         <button
           type="button"
           class="rounded p-1 text-muted transition hover:bg-hover hover:text-foreground disabled:opacity-40"
-          title="下一个匹配（Enter）"
+          :title="t('workspace.nextMatchEnter')"
           :disabled="pageSearchMatches.length === 0"
           @click="movePageSearch(1)"
         >
@@ -314,7 +318,7 @@ const toastClass = computed(() => {
         <button
           type="button"
           class="rounded p-1 text-muted transition hover:bg-hover hover:text-foreground"
-          title="关闭（Esc）"
+          :title="t('workspace.closeEsc')"
           @click="closePageSearch"
         >
           <X class="h-4 w-4" />
@@ -341,7 +345,7 @@ const toastClass = computed(() => {
                 v-else
                 class="mb-[30px] max-w-[22rem] text-center text-[1.375rem] font-semibold leading-snug tracking-tight text-foreground sm:max-w-none sm:text-[1.625rem] md:text-[1.75rem]"
               >
-                <span class="brand-text">{{ brandName }}</span>：你说，我做，就这么简单！
+                <span class="brand-text">{{ brandName }}</span>{{ t('chat.welcome.slogan') }}
               </h1>
             </div>
 
@@ -378,7 +382,7 @@ const toastClass = computed(() => {
                   :aria-expanded="experienceSectionExpanded"
                   @click="experienceSectionExpanded = !experienceSectionExpanded"
                 >
-                  <span class="text-xs font-medium text-muted">更多经验</span>
+                  <span class="text-xs font-medium text-muted">{{ t('chat.s_79f3b1') }}</span>
                   <ChevronDown
                     class="h-3.5 w-3.5 shrink-0 text-muted transition-transform duration-200"
                     :class="experienceSectionExpanded ? 'rotate-180' : ''"

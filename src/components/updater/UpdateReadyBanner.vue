@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { X, RefreshCw } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 
 defineProps<{
   version: string | null
@@ -11,6 +12,8 @@ const emit = defineEmits<{
   (e: 'dismiss'): void
   (e: 'skipVersion'): void
 }>()
+
+const { t } = useI18n()
 </script>
 
 <template>
@@ -23,7 +26,7 @@ const emit = defineEmits<{
           <RefreshCw class="w-4 h-4 text-accent" />
         </div>
         <h3 class="text-sm font-semibold text-foreground">
-          新版本 {{ version }} 已就绪
+          {{ t('updater.readyTitle', { version }) }}
         </h3>
       </div>
       <button
@@ -35,7 +38,7 @@ const emit = defineEmits<{
     </div>
 
     <p class="text-xs text-muted leading-relaxed">
-      安装完成后将自动重新打开应用
+      {{ t('updater.readyHint') }}
     </p>
 
     <p v-if="notes" class="text-xs text-muted leading-relaxed line-clamp-2">
@@ -47,19 +50,19 @@ const emit = defineEmits<{
         class="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-xs font-medium cursor-pointer hover:opacity-95 transition-opacity"
         @click="emit('apply')"
       >
-        立即更新
+        {{ t('updater.updateNow') }}
       </button>
       <button
         class="h-8 px-3 rounded-lg bg-hover text-foreground text-xs cursor-pointer hover:bg-hover/80 transition-colors"
         @click="emit('dismiss')"
       >
-        稍后
+        {{ t('updater.later') }}
       </button>
       <button
         class="h-8 px-3 rounded-lg text-muted text-xs cursor-pointer hover:text-foreground transition-colors ml-auto"
         @click="emit('skipVersion')"
       >
-        跳过此版本
+        {{ t('updater.skipVersion') }}
       </button>
     </div>
   </div>

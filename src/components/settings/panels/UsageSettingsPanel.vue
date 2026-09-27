@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Loader2, RefreshCw } from 'lucide-vue-next'
 import { listTokenUsage, type TokenUsageListResult } from '../../../lib/api'
 import { agentRoleLabel } from '../../../lib/agentLabels'
 
+const { t } = useI18n()
+
 type RangeKey = 'today' | 'yesterday' | 'week' | 'month'
 
-const rangeOptions: { key: RangeKey; label: string }[] = [
-  { key: 'today', label: '今天' },
-  { key: 'yesterday', label: '昨天' },
-  { key: 'week', label: '最近一周' },
-  { key: 'month', label: '最近一月' }
-]
+const rangeOptions = computed(() => [
+  { key: 'today' as const, label: t('settings.usage.today') },
+  { key: 'yesterday' as const, label: t('settings.usage.yesterday') },
+  { key: 'week' as const, label: t('settings.usage.week') },
+  { key: 'month' as const, label: t('settings.usage.month') }
+])
 
 const activeRange = ref<RangeKey>('month')
 const loading = ref(false)
@@ -99,8 +102,8 @@ onMounted(() => {
         type="button"
         class="flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-hover hover:text-foreground transition-colors cursor-pointer disabled:opacity-50"
         :disabled="loading"
-        title="刷新"
-        aria-label="刷新"
+        :title="t('settings.usage.refresh')"
+        :aria-label="t('settings.usage.refresh')"
         @click="load"
       >
         <RefreshCw class="h-3.5 w-3.5" :class="loading ? 'animate-spin' : ''" />
@@ -108,9 +111,9 @@ onMounted(() => {
     </div>
 
     <div v-if="result" class="flex items-baseline gap-4 text-[12px] text-muted">
-      <span>合计 <span class="text-foreground font-semibold">{{ formatTokens(result.totalTokens) }}</span> tokens</span>
-      <span>输入 {{ formatTokens(result.totalPromptTokens) }}</span>
-      <span>输出 {{ formatTokens(result.totalCompletionTokens) }}</span>
+      <span>{{ t('settings.usage.total') }} <span class="text-foreground font-semibold">{{ formatTokens(result.totalTokens) }}</span> tokens</span>
+      <span>{{ t('settings.usage.input') }} {{ formatTokens(result.totalPromptTokens) }}</span>
+      <span>{{ t('settings.usage.output') }} {{ formatTokens(result.totalCompletionTokens) }}</span>
     </div>
 
     <p v-if="error" class="text-[12px] text-danger">{{ error }}</p>
@@ -120,19 +123,19 @@ onMounted(() => {
     </div>
 
     <p v-else-if="!items.length" class="py-10 text-center text-[12px] text-muted">
-      该时间范围内没有消耗记录
+      {{ t('settings.usage.empty') }}
     </p>
 
     <div v-else class="overflow-auto rounded-lg border border-border">
       <table class="w-full text-[12px]">
         <thead>
           <tr class="border-b border-border bg-hover/40 text-left text-muted">
-            <th class="px-2.5 py-1.5 font-medium">时间</th>
-            <th class="px-2.5 py-1.5 font-medium">模型</th>
-            <th class="px-2.5 py-1.5 font-medium">智能体</th>
-            <th class="px-2.5 py-1.5 font-medium text-right">输入</th>
-            <th class="px-2.5 py-1.5 font-medium text-right">输出</th>
-            <th class="px-2.5 py-1.5 font-medium text-right">合计</th>
+            <th class="px-2.5 py-1.5 font-medium">{{ t('settings.usage.time') }}</th>
+            <th class="px-2.5 py-1.5 font-medium">{{ t('settings.usage.model') }}</th>
+            <th class="px-2.5 py-1.5 font-medium">{{ t('settings.usage.agent') }}</th>
+            <th class="px-2.5 py-1.5 font-medium text-right">{{ t('settings.usage.input') }}</th>
+            <th class="px-2.5 py-1.5 font-medium text-right">{{ t('settings.usage.output') }}</th>
+            <th class="px-2.5 py-1.5 font-medium text-right">{{ t('settings.usage.total') }}</th>
           </tr>
         </thead>
         <tbody>

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { computed, ref } from 'vue'
 import { ChevronDown, ChevronRight } from 'lucide-vue-next'
 import { parseMarkdown } from '../../../lib/markdownConfig'
@@ -34,7 +38,7 @@ useMarkdownExternalLinks(bodyRef, () => html.value)
       :aria-expanded="expanded"
       @click="expanded = !expanded"
     >
-      <span>自动压缩摘要</span>
+      <span>{{ t('chat.s_2cae38') }}</span>
       <component
         :is="expanded ? ChevronDown : ChevronRight"
         class="tool-call-chevron h-3 w-3 shrink-0 hidden"

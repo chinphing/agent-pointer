@@ -125,7 +125,7 @@ async fn poll_dashscope_task(
     let headers = auth_headers(&cfg.api_key);
     for _ in 0..MAX_POLL_ATTEMPTS {
         if cancel.is_cancelled() {
-            return Err(anyhow!("已停止生成"));
+            return Err(anyhow!(crate::i18n::generation_stopped_msg()));
         }
         let resp = client
             .get(&url)
@@ -276,7 +276,7 @@ pub async fn generate_image_dashscope(
     });
     let url = dashscope_multimodal_image_url(&cfg.base_url);
     if cancel.is_cancelled() {
-        return Err(anyhow!("已停止生成"));
+        return Err(anyhow!(crate::i18n::generation_stopped_msg()));
     }
     let resp = client
         .post(&url)
@@ -302,7 +302,7 @@ pub async fn generate_image_dashscope(
     let mut local_paths = Vec::new();
     for (i, image_url) in urls.iter().enumerate() {
         if cancel.is_cancelled() {
-            return Err(anyhow!("已停止生成"));
+            return Err(anyhow!(crate::i18n::generation_stopped_msg()));
         }
         let path = download_to_conversation(&client, conversation_id, image_url, ".png").await?;
         local_paths.push(path);
@@ -359,7 +359,7 @@ pub async fn generate_video_dashscope(
     };
     let url = dashscope_video_synthesis_url(&cfg.base_url);
     if cancel.is_cancelled() {
-        return Err(anyhow!("已停止生成"));
+        return Err(anyhow!(crate::i18n::generation_stopped_msg()));
     }
     let resp = client
         .post(&url)
@@ -393,7 +393,7 @@ pub async fn generate_video_dashscope(
     let mut local_paths = Vec::new();
     for video_url in &urls {
         if cancel.is_cancelled() {
-            return Err(anyhow!("已停止生成"));
+            return Err(anyhow!(crate::i18n::generation_stopped_msg()));
         }
         let path = download_to_conversation(&client, conversation_id, video_url, ".mp4").await?;
         local_paths.push(path);

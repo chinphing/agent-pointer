@@ -1455,7 +1455,7 @@ pub(super) async fn run_subagent_delegation(
                                 "run_subagent computer monitor pick failed conversation_id={conversation_id}: {msg}"
                             );
                             if cancel.is_cancelled() {
-                                return Err(anyhow::anyhow!("已停止生成"));
+                                return Err(anyhow::anyhow!(crate::i18n::generation_stopped_msg()));
                             }
                             return Ok((format!("ERROR: {msg}"), false, Some(msg)));
                         }
@@ -1645,7 +1645,7 @@ pub(super) async fn run_subagent_delegation(
                             // stops; otherwise the session lane stays occupied and the
                             // next user message queues with no reply.
                             if cancelled {
-                                return Err(anyhow::anyhow!("已停止生成"));
+                                return Err(anyhow::anyhow!(crate::i18n::generation_stopped_msg()));
                             }
                             Ok((format!("ERROR: {e}"), false, None))
                         }

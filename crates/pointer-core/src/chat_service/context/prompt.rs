@@ -31,6 +31,8 @@ pub struct SubAgentPromptContext<'a> {
     pub def: &'a AgentDef,
     pub workspace_root: &'a str,
     pub user_dynamic_inject_enabled: bool,
+    /// UI language preference (`system` / `zh-CN` / `en`) for reply-language inject.
+    pub ui_locale: &'a str,
     pub task_dynamic_blocks: &'a [String],
     pub spawn_depth: u32,
 }

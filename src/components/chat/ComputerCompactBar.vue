@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 import { ListChecks, Monitor, Maximize2, Square } from 'lucide-vue-next'
 import WindowDragRegion from '../layout/WindowDragRegion.vue'
 import type { TaskBoardCompactSummary } from '../../lib/taskBoardCollapsedLine'
@@ -64,8 +68,8 @@ const emit = defineEmits<{
         <button
           type="button"
           class="h-8 w-8 rounded-[10px] flex items-center justify-center text-danger hover:bg-danger/15 transition cursor-pointer"
-          title="终止"
-          aria-label="终止"
+          :title="t('chat.s_ff6c6a')"
+          :aria-label="t('chat.s_ff6c6a')"
           @click="emit('stop')"
         >
           <Square class="w-3.5 h-3.5" />
@@ -73,8 +77,8 @@ const emit = defineEmits<{
         <button
           type="button"
           class="h-8 w-8 rounded-[10px] flex items-center justify-center text-muted hover:text-foreground hover:bg-card transition cursor-pointer"
-          title="展开"
-          aria-label="展开"
+          :title="t('workspace.expand')"
+          :aria-label="t('workspace.expand')"
           @click="emit('expand')"
         >
           <Maximize2 class="w-3.5 h-3.5" />

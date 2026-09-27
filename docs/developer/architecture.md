@@ -21,4 +21,6 @@ Vue 界面
 
 一次对话：界面发消息 → 适配层进入 `pointer-core` 编排 → Provider 流式返回 → 工具/子 Agent 按注册表执行 → 结果写回会话库并推到界面。
 
+架构全景图：[中文](../design/pointer-architecture.zh-CN.svg) · [English](../design/pointer-architecture.en.svg)。
+
 实现细节见 [../internals/](../internals/README.md)。两种构建的默认云地址见 [../contributing/editions.md](../contributing/editions.md)。

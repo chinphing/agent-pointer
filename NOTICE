@@ -17,6 +17,14 @@ use those marks. Official signed installers are published by the Pointer
 maintainers; community builds from this repository are not official
 releases.
 
+Acknowledgments
+---------------
+Pointer learned from and was inspired by OpenClaw
+(https://github.com/openclaw/openclaw) by Peter Steinberger and the
+OpenClaw Foundation (https://openclaw.org), and Hermes Agent
+(https://github.com/NousResearch/hermes-agent) by Nous Research.
+Those projects remain under their own licenses.
+
 Third-party notices
 -------------------
 sqlite-cjk-fts (MIT)

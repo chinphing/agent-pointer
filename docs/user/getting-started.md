@@ -4,7 +4,7 @@
 
 ## 官方包
 
-1. 从官网下载对应平台的安装包（Windows / macOS / Linux）
+1. 从 [官网下载页](https://pointer.readflowai.com/download) 下载对应平台的安装包（Windows / macOS / Linux）
 2. 打开 **设置**，填写模型 API Key（默认可走千问 DashScope 兼容接口）
 3. 点击 **测试连接**
 4. 发送一条消息，例如「你好」
@@ -13,7 +13,7 @@
 
 ## 社区构建 / 自建 Web
 
-从源码运行见仓库 [DEVELOPMENT.md](../../DEVELOPMENT.md)。部署 `pointer-server` 并用浏览器访问，见 [standalone-server.md](standalone-server.md)。
+企业内部部署从 [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) 获取安装包。从源码运行见仓库 [DEVELOPMENT.md](../../DEVELOPMENT.md)。部署 `pointer-server` 并用浏览器访问，见 [standalone-server.md](standalone-server.md)。
 
 社区构建没有内置官网域名。模型地址和 Key 都在设置里自己填。
 

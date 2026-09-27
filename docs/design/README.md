@@ -4,6 +4,9 @@
 
 | 文档 | 说明 |
 |------|------|
+| [pointer-architecture.zh-CN.svg](pointer-architecture.zh-CN.svg) | 架构全景（中文，README.zh-CN 引用） |
+| [pointer-architecture.en.svg](pointer-architecture.en.svg) | Architecture overview (English README) |
+| [pointer-architecture.svg](pointer-architecture.svg) | 与中文版同步的默认架构图 |
 | [conversation-store-append-migration.md](conversation-store-append-migration.md) | SQLite 对话存储 + **ConversationTranscript**：P0–P2a、append-only、tool 行 canonical |
 | [persistent-memory-and-self-improvement.md](persistent-memory-and-self-improvement.md) | 跨会话 **MEMORY/USER** 记忆与 **Self-improvement review**（后台自省）设计稿；参考 Hermes，**暂未实现** |
 | [explore-subagent-for-coder.md](explore-subagent-for-coder.md) | 内置 **explore** worker、`run_subagent` 与 Cursor Explore 对齐、Lead→explore 约定 |

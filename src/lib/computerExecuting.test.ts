@@ -14,7 +14,6 @@ describe('isComputerToolName', () => {
     expect(isComputerToolName('list_apps')).toBe(true)
     expect(isComputerToolName('clipboard_read')).toBe(true)
     expect(isComputerToolName('clipboard_write')).toBe(true)
-    expect(isComputerToolName('captcha_verify')).toBe(true)
   })
 
   it('rejects unrelated tools', () => {

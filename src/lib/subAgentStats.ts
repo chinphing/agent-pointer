@@ -81,8 +81,7 @@ function desktopToolFamily(base: string): 'mouse' | 'input' | 'other' | null {
     base === 'hotkey' ||
     base === 'wait' ||
     base.startsWith('clipboard_') ||
-    base.startsWith('modified_click_') ||
-    base.startsWith('captcha_verify_')
+    base.startsWith('modified_click_')
   ) {
     return 'other'
   }

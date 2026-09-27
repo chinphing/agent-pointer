@@ -61,8 +61,7 @@ impl PositionWireFormat {
             | OperationFamily::Scroll
             | OperationFamily::Drag
             | OperationFamily::Input
-            | OperationFamily::ModifiedClick
-            | OperationFamily::Captcha => Self::AnnotatedDualScreen,
+            | OperationFamily::ModifiedClick => Self::AnnotatedDualScreen,
             _ => Self::AnnotatedDualScreen,
         }
     }

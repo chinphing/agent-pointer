@@ -31,7 +31,6 @@ pub enum OperationFamily {
     Drag,
     Input,
     ModifiedClick,
-    Captcha,
     Hotkey,
     Wait,
     Clipboard,
@@ -48,7 +47,6 @@ impl OperationFamily {
             Self::Drag => "drag",
             Self::Input => "input",
             Self::ModifiedClick => "modified_click",
-            Self::Captcha => "captcha",
             Self::Hotkey => "hotkey",
             Self::Wait => "wait",
             Self::Clipboard => "clipboard",
@@ -67,7 +65,6 @@ impl OperationFamily {
                 | Self::Drag
                 | Self::Input
                 | Self::ModifiedClick
-                | Self::Captcha
         )
     }
 
@@ -100,9 +97,6 @@ pub fn operation_family_for_tool(tool_name: &str) -> OperationFamily {
     }
     if n == "modified_click" {
         return OperationFamily::ModifiedClick;
-    }
-    if n.starts_with("captcha_verify") {
-        return OperationFamily::Captcha;
     }
     if n == "hotkey" {
         return OperationFamily::Hotkey;

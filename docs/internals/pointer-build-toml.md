@@ -46,13 +46,6 @@ computer_human_like = false
 computer_initial_tier = "intermediate"
 computer_annotated_screen_view_enabled = false
 computer_show_monitor_picker = true
-
-# captcha / dati
-dati_api_url = "https://api.laladama.com"
-dati_authcode = ""
-dati_typeno = ""
-dati_author = ""
-captcha_slider_offset_px = 0
 ```
 
 ## Notes

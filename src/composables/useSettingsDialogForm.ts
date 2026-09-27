@@ -312,7 +312,6 @@ function createSettingsDialogForm(deps: {
   const userCodingRules = ref('')
   const computerInitialTier = ref<ComputerInitialTier>('intermediate')
   const computerAnnotatedScreenViewEnabled = ref(false)
-  const captchaSliderOffsetPx = ref(0)
   const theme = ref<ThemePreference>('system')
   const debugMenusEnabled = ref(false)
   const agentUiLocal = ref<Partial<AgentUiConfig>>({})
@@ -527,7 +526,6 @@ function createSettingsDialogForm(deps: {
   userCodingRules.value = s.userSettings.userCodingRules ?? ''
   computerInitialTier.value = s.settings.computerInitialTier ?? 'intermediate'
   computerAnnotatedScreenViewEnabled.value = s.settings.computerAnnotatedScreenViewEnabled === true
-  captchaSliderOffsetPx.value = Number(s.settings.captchaSliderOffsetPx ?? 0) || 0
   theme.value = (s.settings.theme as ThemePreference) || 'system'
   debugMenusEnabled.value = s.canEditPlatform && s.settings.debugMenusEnabled === true
   agentUiLocal.value = { ...(s.settings.agentUiOverrides?.[activeUiAgentId.value] ?? {}) }
@@ -828,7 +826,6 @@ function createSettingsDialogForm(deps: {
     computerHumanLike: computerHumanLike.value,
     computerAutoSwitchMonitor: computerAutoSwitchMonitor.value,
     computerInitialTier: computerInitialTier.value,
-    captchaSliderOffsetPx: Number(captchaSliderOffsetPx.value) || 0,
     parallelToolExecutionEnabled: parallelToolExecutionEnabled.value,
     maxParallelToolCalls: parallelToolExecutionEnabled.value
       ? optionalParallelLimit(maxParallelToolCalls.value)
@@ -887,7 +884,6 @@ function createSettingsDialogForm(deps: {
     s.settings.mediaUnderstandingModes = { ...payload.mediaUnderstandingModes }
     s.settings.computerHumanLike = payload.computerHumanLike
     s.settings.computerAutoSwitchMonitor = payload.computerAutoSwitchMonitor
-    s.settings.captchaSliderOffsetPx = payload.captchaSliderOffsetPx
     s.settings.fileReadMaxBytes = payload.fileReadMaxBytes
     s.settings.fileLineMaxBytes = payload.fileLineMaxBytes
     s.settings.fileGrepMaxResults = payload.fileGrepMaxResults
@@ -917,7 +913,6 @@ function createSettingsDialogForm(deps: {
     s.userSettings.mediaUnderstandingModes = { ...payload.mediaUnderstandingModes }
     s.userSettings.computerHumanLike = payload.computerHumanLike
     s.userSettings.computerAutoSwitchMonitor = payload.computerAutoSwitchMonitor
-    s.userSettings.captchaSliderOffsetPx = payload.captchaSliderOffsetPx
     s.userSettings.fileReadMaxBytes = payload.fileReadMaxBytes
     s.userSettings.fileLineMaxBytes = payload.fileLineMaxBytes
     s.userSettings.fileGrepMaxResults = payload.fileGrepMaxResults
@@ -1026,7 +1021,6 @@ function createSettingsDialogForm(deps: {
       collapseProcessByDefault,
       userCodingRules,
       computerInitialTier,
-      captchaSliderOffsetPx,
       rawContentViewEnabled,
       computerAnnotatedScreenViewEnabled,
       taskBoardShowChildBoards,
@@ -1104,7 +1098,6 @@ function createSettingsDialogForm(deps: {
     userCodingRules,
     computerInitialTier,
     computerAnnotatedScreenViewEnabled,
-    captchaSliderOffsetPx,
     theme,
     debugMenusEnabled,
     agentUiLocal,

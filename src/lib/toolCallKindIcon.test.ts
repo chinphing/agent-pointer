@@ -12,7 +12,6 @@ describe('toolCallKindIcon', () => {
     expect(isKnownToolKind('file_read')).toBe(true)
     expect(isKnownToolKind('mouse_click_at')).toBe(true)
     expect(isKnownToolKind('clipboard_read')).toBe(true)
-    expect(isKnownToolKind('captcha_verify_click')).toBe(true)
     expect(isKnownToolKind('skill_read')).toBe(true)
     expect(isKnownToolKind('task_board_patch')).toBe(true)
     expect(isKnownToolKind('read_lints')).toBe(true)

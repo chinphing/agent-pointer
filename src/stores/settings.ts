@@ -52,11 +52,7 @@ const defaultPlatformSettings = (): PlatformSettings => ({
   providers: defaultProviders,
   modelCatalog: {},
   tierDefaults: {},
-  mediaOss: undefined,
-  datiApiUrl: '',
-  datiAuthcode: '',
-  datiTypeno: '',
-  datiAuthor: ''
+  mediaOss: undefined
 })
 
 function migratePlannerSettingsFields(
@@ -143,7 +139,6 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     computerInitialTier: normalizeComputerInitialTier(s.computerInitialTier),
     computerAutoSwitchMonitor: s.computerAutoSwitchMonitor !== false,
     computerAnnotatedScreenViewEnabled: s.computerAnnotatedScreenViewEnabled === true,
-    captchaSliderOffsetPx: Number.isFinite(Number(s.captchaSliderOffsetPx)) ? Number(s.captchaSliderOffsetPx) : 0,
     theme: (s.theme as ThemePreference) ?? 'system',
     agentUiOverrides: { ...(s.agentUiOverrides ?? {}) },
     mediaModelOverrides: { ...(s.mediaModelOverrides ?? {}) },
@@ -314,7 +309,6 @@ export const useSettingsStore = defineStore('settings', () => {
     computerInitialTier: 'intermediate',
     computerAutoSwitchMonitor: true,
     computerAnnotatedScreenViewEnabled: false,
-    captchaSliderOffsetPx: 0,
     agentUiOverrides: {},
     mediaModelOverrides: {},
     computerTierLlm: {},
@@ -612,10 +606,6 @@ export const useSettingsStore = defineStore('settings', () => {
         mergedIn.computerAutoSwitchMonitor
         ?? user.computerAutoSwitchMonitor
         ?? settings.value.computerAutoSwitchMonitor,
-      captchaSliderOffsetPx:
-        mergedIn.captchaSliderOffsetPx
-        ?? user.captchaSliderOffsetPx
-        ?? settings.value.captchaSliderOffsetPx,
       contextCompressionEnabled: true,
       contextBudgetTokens:
         mergedIn.contextBudgetTokens

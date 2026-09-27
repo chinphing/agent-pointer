@@ -499,17 +499,9 @@ Treat a reference row as valid only when both hold:
 
 ### Allowed tools (this tier)
 
-### CAPTCHA routing rule (hard)
-
-- **New/unsolved challenge** → `captcha_verify_*` (not `mouse_*` / `input_*` for in-image targets).
-- **After captcha ran** on same puzzle → `mouse_*` for separate Confirm/Verify/Submit; **no second captcha** until new puzzle or failed retry.
-- Mouse only to **reveal** hidden CAPTCHA.
-
 Index tools: **`mouse_hover_index`**, **`mouse_click_index`**, **`mouse_double_click_index`**, **`input_index`**, **`mouse_drag_from_to_index`**, **`modified_click_select_index`**.
 
 Coordinate tools: **`mouse_hover_at`**, **`mouse_click_at`**, **`mouse_double_click_at`**, **`input_at`**, **`mouse_drag_from_to_at`**, **`modified_click_select_at`**.
-
-CAPTCHA tool: **`captcha_verify`**.
 
 Every call needs **`goal`** + **`action`** + route-matched args:
 - index-style route: `index` (or `from_index`/`to_index` for drag);

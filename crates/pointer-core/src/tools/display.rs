@@ -96,9 +96,6 @@ fn flat_method_from_tool_name(name: &str) -> Option<String> {
     if let Some(suffix) = name.strip_prefix("clipboard_") {
         return Some(suffix.to_string());
     }
-    if let Some(suffix) = name.strip_prefix("captcha_verify_") {
-        return Some(suffix.to_string());
-    }
     if let Some(suffix) = name.strip_prefix("skill_") {
         if !suffix.is_empty() {
             return Some(suffix.to_string());
@@ -134,16 +131,6 @@ fn mouse_method_label(method: &str) -> String {
         "scroll" => "滚动".to_string(),
         m if m.contains("type_text") => "输入文字".to_string(),
         m => m.to_string(),
-    }
-}
-
-fn captcha_action_label(action: &str) -> &'static str {
-    match action {
-        "click" => "点选",
-        "drag" => "拖拽",
-        "input" => "输入",
-        "solve" => "识别",
-        _ => "识别",
     }
 }
 
@@ -480,17 +467,6 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
             (
                 format!("任务板 · {}", task_board_method_label(m)),
                 task_board_invoke_summary(m, args),
-            )
-        }
-        "captcha_verify" => {
-            let action = if method.is_empty() {
-                str_field(args, &["action", "method"]).unwrap_or_default()
-            } else {
-                method.clone()
-            };
-            (
-                format!("验证码 · {}", captcha_action_label(action.as_str())),
-                computer_action_summary(args),
             )
         }
         "list_apps" => (

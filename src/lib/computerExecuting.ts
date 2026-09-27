@@ -13,8 +13,7 @@ const COMPUTER_TOOL_BASES = new Set([
   'type',
   'wait',
   'input',
-  'modified_click',
-  'captcha_verify'
+  'modified_click'
 ])
 
 export function isComputerToolBase(base: string): boolean {
@@ -26,7 +25,6 @@ export function isComputerToolBase(base: string): boolean {
   if (b.startsWith('input_')) return true
   if (b.startsWith('modified_click_')) return true
   if (b.startsWith('clipboard_')) return true
-  if (b.startsWith('captcha_verify')) return true
   return false
 }
 

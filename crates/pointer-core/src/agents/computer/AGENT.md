@@ -14,7 +14,6 @@ toolNames:
   - clipboard
   - list_apps
   - launch_app
-  - captcha_verify
 accessPolicy:
   allowTools:
     - mouse
@@ -27,7 +26,6 @@ accessPolicy:
     - launch_app
     - terminal
     - task_board
-    - captcha_verify
     - im_send
   denyTools: []
 ui:

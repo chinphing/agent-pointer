@@ -25,7 +25,7 @@ impl OperationFamily {
             Self::PointerClick | Self::PointerHover | Self::Input => {
                 Some(PositionSpatialModel::SingleIndexOrAt)
             }
-            Self::Scroll | Self::Captcha => Some(PositionSpatialModel::SingleIndexOrXy),
+            Self::Scroll => Some(PositionSpatialModel::SingleIndexOrXy),
             Self::Drag | Self::ModifiedClick => Some(PositionSpatialModel::MultipleIndexOrXy),
             _ => None,
         }

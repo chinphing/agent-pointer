@@ -1785,7 +1785,7 @@ fn emit_tool_running(
     history: &mut Vec<crate::models::ChatMessage>,
     message_id: &str,
     tc: &ToolCall,
-    tool_id: &str,
+    _tool_id: &str,
     args_value: &serde_json::Value,
     trace_id: Option<&str>,
     scoped_message_id: Option<&str>,
@@ -1809,23 +1809,6 @@ fn emit_tool_running(
             scoped_message_id: trace_id_opt(scoped_message_id),
         },
     );
-    if tool_id.starts_with("captcha_verify_") {
-        emit(
-            stream,
-            StreamEvent::ToolCallStatus {
-                message_id: message_id.to_string(),
-                tool_call_id: tc.id.clone(),
-                status: "running".into(),
-                result: Some("识别中...".into()),
-                error: None,
-                duration_ms: None,
-                display_label: None,
-                display_summary: Some("识别中...".into()),
-                trace_id: trace_id_opt(trace_id),
-                scoped_message_id: trace_id_opt(scoped_message_id),
-            },
-        );
-    }
 }
 
 #[cfg(test)]

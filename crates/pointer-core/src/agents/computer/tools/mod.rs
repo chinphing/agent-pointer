@@ -3,10 +3,8 @@
 //! Sibling modules (`actions`, `screen`, [`crate::agents::computer::ComputerState`], etc.) live in the parent [`crate::agents::computer`] package.
 
 pub mod args_util;
-mod dati_client;
 pub mod method_route;
 pub(crate) mod tool_app_access;
-mod tool_captcha_verify;
 mod tool_clipboard;
 mod tool_hotkey;
 mod tool_input;
@@ -289,58 +287,6 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 )
                 .with_schema(schema)
                 .with_subagent_inheritance(false),
-            );
-        }
-    }
-
-    // ── captcha_verify (flat tools) ───────────────────────────────────────
-    {
-        const CAPTCHA_DOC_SOURCE: &str = "agents/computer/tools/prompts/captcha_verify.md";
-        const CAPTCHA_SCHEMA_YAML: &str = include_str!("prompts/captcha_verify.schema.yaml");
-        let captcha_schemas: HashMap<String, serde_json::Value> =
-            load_tools_from_schema_yaml(CAPTCHA_SCHEMA_YAML)
-                .expect("captcha_verify.schema.yaml must be valid")
-                .into_iter()
-                .collect();
-
-        let cv_state = state.clone();
-        let doc = include_str!("prompts/captcha_verify.md").trim().to_string();
-        let cv_handlers: &[(&str, &str)] = &[
-            ("captcha_verify_type", "type"),
-            ("captcha_verify_click", "click"),
-            ("captcha_verify_drag", "drag"),
-        ];
-
-        for (name, method) in cv_handlers {
-            let s = cv_state.clone();
-            let prompt = doc.clone();
-            let tool_name = name.to_string();
-            let method = method.to_string();
-            let schema = captcha_schemas
-                .get(*name)
-                .cloned()
-                .unwrap_or_else(|| panic!("captcha_verify.schema.yaml missing entry for {name}"));
-
-            let handler: ToolHandler = Arc::new(move |args| {
-                let cid = conversation_id_from_args(&args)
-                    .unwrap_or_default()
-                    .to_string();
-                let tier = s.tier_for_conversation(&cid);
-                let vision = s.vision_state_for_conversation(&cid);
-                let tool = tool_captcha_verify::CaptchaVerifyTool::new(
-                    s.executor.clone(),
-                    tier,
-                    s.clone(),
-                    cid.clone(),
-                    vision,
-                );
-                tool.execute(&method, &args)
-            });
-
-            reg.register(
-                ToolEntry::new(tool_name, CAPTCHA_DOC_SOURCE, "low", false, prompt, handler)
-                    .with_schema(schema)
-                    .with_subagent_inheritance(false),
             );
         }
     }

@@ -109,7 +109,6 @@ agents/computer/
     ├── wait.py             # 等待工具
     ├── screen_reader.py    # 屏幕阅读/提取
     ├── account_login.py    # 自动登录
-    ├── captcha_verify.py   # 验证码识别
     ├── clipboard.py        # 剪贴板操作
     └── checkpoint.py       # 检查点
 ```
@@ -502,14 +501,7 @@ async fn inject_computer_vision(
 | 凭据存储 | 集成系统 keychain 或加密文件存储 | 低 |
 | 凭据检索 | 根据 system + user_label 查找凭据 | 低 |
 
-#### 5.2.3 验证码识别 (`tool_captcha.rs`)
-
-| 任务 | 说明 | 优先级 |
-|------|------|--------|
-| `verify` | 调用 DaTi 等打码平台 | 低 |
-| 配置集成 | Settings 中配置 dati_api_url、authcode 等 | 低 |
-
-#### 5.2.4 象限放大 (`agents/computer/quadrant_zoom.rs`)
+#### 5.2.3 象限放大 (`agents/computer/quadrant_zoom.rs`)
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
@@ -1210,7 +1202,6 @@ mod tests {
 | `tools/wait.py` | `agents/computer/tools/tool_wait.rs` | wait 工具 |
 | `tools/screen_reader.py` | `agents/computer/tools/tool_screen_reader.rs`（第三期） | screen_reader 工具 |
 | `tools/account_login.py` | `agents/computer/tools/tool_account_login.rs`（第三期） | account_login 工具 |
-| `tools/captcha_verify.py` | `agents/computer/tools/tool_captcha.rs`（第三期） | captcha_verify 工具 |
 | `tools/checkpoint.py` | `agents/computer/checkpoint.rs`（第二期） | checkpoint 工具 |
 | `prompts/*.md` | `agents/computer/tools/prompts/*.md` | 系统 prompt 文件 |
 | `agent.json` | `agents/computer/AGENT.md` | Agent 定义 |

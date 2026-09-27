@@ -88,25 +88,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn captcha_verify_gets_conversation_binding() {
-        let out = inject_host_task_board_conversation_id(
-            "captcha_verify_drag",
-            serde_json::json!({"goal": "x", "index_captcha_area": 1}),
-            "conv-abc",
-            "conv-abc::tb",
-            "user-1",
-            &[],
-            None,
-            false,
-            false,
-        );
-        assert_eq!(
-            out.get("_conversation_id").and_then(|v| v.as_str()),
-            Some("conv-abc")
-        );
-    }
-
-    #[test]
     fn flat_mouse_click_index_gets_conversation_binding() {
         let out = inject_host_task_board_conversation_id(
             "mouse_click_index",

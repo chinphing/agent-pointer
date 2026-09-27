@@ -21,7 +21,6 @@ import {
   MousePointer2,
   ScanEye,
   Search,
-  ShieldCheck,
   Sparkles,
   SquareTerminal,
   Timer,
@@ -67,7 +66,6 @@ export function toolCallKindIcon(name: string): LucideIcon {
   if (base === 'media_understand') return ScanEye
   // Sidecar create/patch rows only. The live board widget uses ListChecks.
   if (base.startsWith('task_board')) return ListTodo
-  if (base.startsWith('captcha_verify')) return ShieldCheck
   if (base === 'read_lints') return FileSearch
   return Wrench
 }

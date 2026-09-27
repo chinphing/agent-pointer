@@ -115,7 +115,7 @@ export interface SubAgentToolStats {
   mouseCount?: number
   /** Computer: input_* */
   inputCount?: number
-  /** Computer: hotkey, wait, clipboard, captcha, etc. */
+  /** Computer: hotkey, wait, clipboard, etc. */
   otherCount?: number
 }
 
@@ -693,7 +693,6 @@ export interface UserSettings {
   computerInitialTier?: ComputerInitialTier
   computerAutoSwitchMonitor?: boolean
   computerAnnotatedScreenViewEnabled?: boolean
-  captchaSliderOffsetPx?: number
   agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
   webSearchModel?: string
   mediaModelOverrides?: MediaModelOverrides
@@ -801,9 +800,9 @@ export interface PlatformProviderTemplate {
 }
 
 /** Platform/runtime fields (in-memory only; never persisted). Only session-scoped /
- *  sensitive config lives here: runtime providers (with injected keys), OAuth media
- *  OSS credentials, and server-side DaTi CAPTCHA settings. All user-editable
- *  preferences (incl. debug) live in `UserSettings` / merged `ModelSettings`. */
+ *  sensitive config lives here: runtime providers (with injected keys) and OAuth
+ *  media OSS credentials. All user-editable preferences (incl. debug) live in
+ *  `UserSettings` / merged `ModelSettings`. */
 export interface PlatformSettings {
   providers: ProviderConfig[]
   /** Read-only platform model directory; never included in user settings saves. */
@@ -813,10 +812,6 @@ export interface PlatformSettings {
   /** 场景档位默认（agent/media/computer 快速/标准/高级默认模型映射）。 */
   tierDefaults?: Record<string, unknown>
   mediaOss?: MediaOssConfig
-  datiApiUrl?: string
-  datiAuthcode?: string
-  datiTypeno?: string
-  datiAuthor?: string
 }
 
 export interface EffectiveSettingsView {
@@ -889,7 +884,6 @@ export interface ModelSettings {
   computerAutoSwitchMonitor?: boolean
   /** Show annotated screenshot preview on Computer Use assistant messages */
   computerAnnotatedScreenViewEnabled?: boolean
-  captchaSliderOffsetPx?: number
   /** UI color scheme */
   theme?: ThemePreference
   /** Per-agent UI overrides (merged over manifest `ui`) */

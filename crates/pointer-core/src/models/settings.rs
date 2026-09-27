@@ -921,24 +921,6 @@ pub struct ModelSettings {
         rename = "computerAnnotatedScreenViewEnabled"
     )]
     pub computer_annotated_screen_view_enabled: bool,
-    /// DaTi CAPTCHA API endpoint.
-    #[serde(default = "default_dati_api_url", rename = "datiApiUrl")]
-    pub dati_api_url: String,
-    /// DaTi CAPTCHA API authcode.
-    #[serde(default = "default_dati_authcode", rename = "datiAuthcode")]
-    pub dati_authcode: String,
-    /// DaTi CAPTCHA question type number.
-    #[serde(default = "default_dati_typeno", rename = "datiTypeno")]
-    pub dati_typeno: String,
-    /// DaTi CAPTCHA developer author.
-    #[serde(default = "default_dati_author", rename = "datiAuthor")]
-    pub dati_author: String,
-    /// Pixel adjustment applied to the final point of slider CAPTCHA drags.
-    #[serde(
-        default = "default_captcha_slider_offset_px",
-        rename = "captchaSliderOffsetPx"
-    )]
-    pub captcha_slider_offset_px: i32,
     /// When true, Composer shows the monitor picker for the computer agent.
     #[serde(
         default = "default_computer_show_monitor_picker",
@@ -1097,15 +1079,6 @@ macro_rules! build_cfg_u32 {
         option_env!(concat!("POINTER_BUILD_", $name))
             .map(str::trim)
             .and_then(|v| v.parse::<u32>().ok())
-            .unwrap_or($default)
-    }};
-}
-
-macro_rules! build_cfg_i32 {
-    ($name:literal, $default:expr) => {{
-        option_env!(concat!("POINTER_BUILD_", $name))
-            .map(str::trim)
-            .and_then(|v| v.parse::<i32>().ok())
             .unwrap_or($default)
     }};
 }
@@ -1549,26 +1522,6 @@ fn default_computer_auto_switch_monitor() -> bool {
     true
 }
 
-fn default_dati_api_url() -> String {
-    build_cfg_str!("DATI_API_URL", "")
-}
-
-fn default_dati_authcode() -> String {
-    build_cfg_str!("DATI_AUTHCODE", "")
-}
-
-fn default_dati_typeno() -> String {
-    build_cfg_str!("DATI_TYPENO", "")
-}
-
-fn default_dati_author() -> String {
-    build_cfg_str!("DATI_AUTHOR", "")
-}
-
-fn default_captcha_slider_offset_px() -> i32 {
-    build_cfg_i32!("CAPTCHA_SLIDER_OFFSET_PX", 0)
-}
-
 fn default_web_search_model_setting() -> String {
     build_cfg_str!("WEB_SEARCH_MODEL", "")
 }
@@ -1621,11 +1574,6 @@ impl Default for ModelSettings {
             computer_initial_tier: default_computer_initial_tier(),
             computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(
             ),
-            dati_api_url: default_dati_api_url(),
-            dati_authcode: default_dati_authcode(),
-            dati_typeno: default_dati_typeno(),
-            dati_author: default_dati_author(),
-            captcha_slider_offset_px: default_captcha_slider_offset_px(),
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
             computer_auto_switch_monitor: default_computer_auto_switch_monitor(),
             memory_enabled: default_memory_enabled(),
@@ -2052,11 +2000,6 @@ pub struct UserSettings {
     )]
     pub computer_annotated_screen_view_enabled: bool,
     #[serde(
-        default = "default_captcha_slider_offset_px",
-        rename = "captchaSliderOffsetPx"
-    )]
-    pub captcha_slider_offset_px: i32,
-    #[serde(
         default = "default_computer_show_monitor_picker",
         rename = "computerShowMonitorPicker"
     )]
@@ -2172,7 +2115,6 @@ impl Default for UserSettings {
             computer_initial_tier: default_computer_initial_tier(),
             computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(
             ),
-            captcha_slider_offset_px: default_captcha_slider_offset_px(),
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
             computer_auto_switch_monitor: default_computer_auto_switch_monitor(),
             agent_ui_overrides: HashMap::new(),
@@ -2295,8 +2237,8 @@ fn default_pipeline_thinking_budget_verify() -> u32 {
 
 /// In-memory platform configuration. Only session-scoped / sensitive fields
 /// live here (never persisted): runtime provider list (with injected keys),
-/// OAuth media OSS credentials, and server-side DaTi CAPTCHA config.
-/// All user-editable preferences (incl. debug) live in [`UserSettings`].
+/// OAuth media OSS credentials. All user-editable preferences (incl. debug)
+/// live in [`UserSettings`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlatformSettings {
     pub providers: Vec<ProviderConfig>,
@@ -2314,14 +2256,6 @@ pub struct PlatformSettings {
     pub tier_defaults: serde_json::Value,
     #[serde(default, rename = "mediaOss")]
     pub media_oss: MediaOssConfig,
-    #[serde(default = "default_dati_api_url", rename = "datiApiUrl")]
-    pub dati_api_url: String,
-    #[serde(default = "default_dati_authcode", rename = "datiAuthcode")]
-    pub dati_authcode: String,
-    #[serde(default = "default_dati_typeno", rename = "datiTypeno")]
-    pub dati_typeno: String,
-    #[serde(default = "default_dati_author", rename = "datiAuthor")]
-    pub dati_author: String,
 }
 
 /// Process-local debug model configuration. This DTO must never be persisted.
@@ -2513,10 +2447,6 @@ impl Default for PlatformSettings {
             providers: default_providers_empty(),
             model_catalog: HashMap::new(),
             tier_defaults: serde_json::Value::Null,
-            dati_api_url: default_dati_api_url(),
-            dati_authcode: default_dati_authcode(),
-            dati_typeno: default_dati_typeno(),
-            dati_author: default_dati_author(),
             media_oss: MediaOssConfig::default(),
         }
     }
@@ -2533,9 +2463,6 @@ pub struct EffectiveSettingsView {
     #[serde(rename = "isPlatformAdmin")]
     pub is_platform_admin: bool,
 }
-
-const DATI_SETTINGS_JSON_KEYS: &[&str] =
-    &["datiApiUrl", "datiAuthcode", "datiTypeno", "datiAuthor"];
 
 /// Debug-only settings (visible when debug menus are enabled).
 /// Omitted from pointer-server Web API responses for **non-admin** users so
@@ -2560,31 +2487,6 @@ const DEBUG_WEB_SETTINGS_JSON_KEYS: &[&str] = &[
     "agentTaskBoardHistoryTrim",
     "maxSubAgentSpawnDepth",
 ];
-
-/// Remove DaTi CAPTCHA fields from a settings JSON object (`platform` / `merged` slices).
-pub fn strip_dati_keys_from_settings_json(value: &mut serde_json::Value) {
-    let serde_json::Value::Object(obj) = value else {
-        return;
-    };
-    for key in DATI_SETTINGS_JSON_KEYS {
-        obj.remove(*key);
-    }
-    if let Some(platform) = obj.get_mut("platform") {
-        strip_dati_keys_from_settings_object(platform);
-    }
-    if let Some(merged) = obj.get_mut("merged") {
-        strip_dati_keys_from_settings_object(merged);
-    }
-}
-
-fn strip_dati_keys_from_settings_object(value: &mut serde_json::Value) {
-    let serde_json::Value::Object(obj) = value else {
-        return;
-    };
-    for key in DATI_SETTINGS_JSON_KEYS {
-        obj.remove(*key);
-    }
-}
 
 fn strip_debug_keys_from_settings_object(value: &mut serde_json::Value) {
     let serde_json::Value::Object(obj) = value else {
@@ -2641,7 +2543,6 @@ fn redact_settings_object_secrets(
         }
     }
     if let Some(platform) = obj.get_mut("platform") {
-        strip_dati_keys_from_settings_object(platform);
         if strip_debug {
             strip_debug_keys_from_settings_object(platform);
         }
@@ -2655,7 +2556,6 @@ fn redact_settings_object_secrets(
         }
     }
     if let Some(merged) = obj.get_mut("merged") {
-        strip_dati_keys_from_settings_object(merged);
         if strip_debug {
             strip_debug_keys_from_settings_object(merged);
         }
@@ -2712,7 +2612,7 @@ pub fn preserve_platform_debug_settings_in_user(
     incoming.computer_pipeline_llm = existing.computer_pipeline_llm.clone();
 }
 
-/// Strip DaTi fields and redact secrets for pointer-server Web API responses.
+/// Redact secrets for pointer-server Web API responses.
 /// When `strip_debug` is true (non-admin), also omit session-only debug fields.
 pub fn redact_settings_json_for_web_api(value: &mut serde_json::Value, strip_debug: bool) {
     let serde_json::Value::Object(obj) = value else {
@@ -2721,7 +2621,7 @@ pub fn redact_settings_json_for_web_api(value: &mut serde_json::Value, strip_deb
     redact_settings_object_secrets(obj, strip_debug);
 }
 
-/// Web API response wrapper: omits DaTi fields (server-side only; desktop Tauri unchanged).
+/// Web API response wrapper: redacts secrets for non-admin viewers (desktop Tauri unchanged).
 /// Platform admins keep debug / mode-LLM fields so settings save → reopen round-trips.
 pub struct WebEffectiveSettingsView(pub EffectiveSettingsView);
 
@@ -2809,11 +2709,6 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         computer_human_like: user.computer_human_like,
         computer_initial_tier: user.computer_initial_tier.clone(),
         computer_annotated_screen_view_enabled: user.computer_annotated_screen_view_enabled,
-        dati_api_url: platform.dati_api_url.clone(),
-        dati_authcode: platform.dati_authcode.clone(),
-        dati_typeno: platform.dati_typeno.clone(),
-        dati_author: platform.dati_author.clone(),
-        captcha_slider_offset_px: user.captcha_slider_offset_px,
         computer_show_monitor_picker: user.computer_show_monitor_picker,
         computer_auto_switch_monitor: user.computer_auto_switch_monitor,
         memory_enabled: user.memory_enabled,
@@ -4039,15 +3934,11 @@ mod effective_extra_body_tests {
     }
 
     #[test]
-    fn web_effective_settings_view_omits_dati_fields() {
+    fn web_effective_settings_view_redacts_secrets_for_non_admin() {
         let mut platform = PlatformSettings::default();
         platform
             .providers
             .push(sample_settings().providers.remove(0));
-        platform.dati_api_url = "https://dati.example".into();
-        platform.dati_authcode = "secret-auth".into();
-        platform.dati_typeno = "501057".into();
-        platform.dati_author = "author".into();
         platform.providers[0].api_key = "sk-live-secret".into();
         platform.media_oss.access_key_secret = "oss-secret".into();
         let mut user = UserSettings::default();
@@ -4064,10 +3955,6 @@ mod effective_extra_body_tests {
             is_platform_admin: false,
         };
         let json = serde_json::to_string(&WebEffectiveSettingsView(view)).unwrap();
-        assert!(!json.contains("datiApiUrl"));
-        assert!(!json.contains("datiAuthcode"));
-        assert!(!json.contains("datiTypeno"));
-        assert!(!json.contains("datiAuthor"));
         assert!(!json.contains("secret-auth"));
         assert!(!json.contains("sk-live-secret"));
         assert!(!json.contains("oss-secret"));

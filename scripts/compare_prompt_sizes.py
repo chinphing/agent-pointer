@@ -15,7 +15,6 @@ FILES = [
     "crates/pointer-core/src/agents/computer/prompts/os/macos.md",
     "crates/pointer-core/src/agents/computer/prompts/os/linux.md",
     "crates/pointer-core/src/agents/computer/tools/prompts/action_verify.md",
-    "crates/pointer-core/src/agents/computer/tools/prompts/captcha_verify.md",
     "crates/pointer-core/src/agents/computer/tools/prompts/clipboard.md",
     "crates/pointer-core/src/agents/computer/tools/prompts/hotkey.md",
     "crates/pointer-core/src/agents/computer/tools/prompts/input.md",
@@ -157,7 +156,6 @@ def _appendix_sizes(ref: str) -> tuple[int, int]:
         paths = [
             "composite_action",
             "modified_click",
-            "captcha_verify",
             "clipboard",
             "hotkey",
             "wait",
@@ -175,7 +173,6 @@ def _appendix_sizes(ref: str) -> tuple[int, int]:
     families: list[tuple[int, str]] = [
         (12, "crates/pointer-core/src/agents/computer/tools/prompts/mouse.md"),
         (4, "crates/pointer-core/src/agents/computer/tools/prompts/modified_click.md"),
-        (3, "crates/pointer-core/src/agents/computer/tools/prompts/captcha_verify.md"),
         (2, "crates/pointer-core/src/agents/computer/tools/prompts/clipboard.md"),
         (1, "crates/pointer-core/src/agents/computer/tools/prompts/hotkey.md"),
         (1, "crates/pointer-core/src/agents/computer/tools/prompts/wait.md"),

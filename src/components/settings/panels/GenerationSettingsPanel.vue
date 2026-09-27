@@ -40,7 +40,6 @@ const {
   collapseProcessByDefault,
   taskBoardShowChildBoards,
   computerHumanLike,
-  captchaSliderOffsetPx,
   computerAutoSwitchMonitor,
   mediaImageGenerationModel,
   mediaVideoGenerationModel,
@@ -347,19 +346,6 @@ async function onPlaySoundToggle(checked: boolean) {
               />
               <div class="settings-toggle-track" />
             </label>
-          </div>
-
-          <div class="flex items-start justify-between gap-4 py-3">
-            <div class="min-w-0">
-              <p class="text-[12px] font-medium text-foreground">滑块验证偏移</p>
-              <p class="text-[11px] text-muted mt-0.5">滑块验证码拖拽终点的像素微调</p>
-            </div>
-            <input
-              v-model.number="captchaSliderOffsetPx"
-              type="number"
-              step="1"
-              class="w-20 h-9 shrink-0 rounded-lg border border-border bg-card px-2 text-[12px] text-right text-foreground outline-none focus:border-accent/50 mt-0.5"
-            />
           </div>
         </div>
       </div>

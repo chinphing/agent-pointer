@@ -36,11 +36,6 @@ const SUPPORTED_PLATFORM_KEYS: &[(&str, &str)] = &[
         "COMPUTER_SHOW_MONITOR_PICKER",
     ),
     ("web_search_model", "WEB_SEARCH_MODEL"),
-    ("dati_api_url", "DATI_API_URL"),
-    ("dati_authcode", "DATI_AUTHCODE"),
-    ("dati_typeno", "DATI_TYPENO"),
-    ("dati_author", "DATI_AUTHOR"),
-    ("captcha_slider_offset_px", "CAPTCHA_SLIDER_OFFSET_PX"),
 ];
 
 fn main() {

@@ -86,7 +86,7 @@ pub struct ComputerSession {
     /// Prior turn’s **unmarked** capture JPEG (same input as annotate that turn).
     pub last_turn_raw_jpeg_unmarked: Option<Vec<u8>>,
     pub last_turn_monitor: Option<screen::MonitorInfo>,
-    /// Current turn **unmarked** capture (annotate input); used by `captcha_verify` crop.
+    /// Current turn **unmarked** capture (annotate input).
     pub current_turn_raw_jpeg_unmarked: Option<Vec<u8>>,
     pub current_turn_capture_px: Option<(u32, u32)>,
     pub selected_monitor: Option<String>,
@@ -696,35 +696,6 @@ impl ComputerState {
         let session = self.get_or_create_session(conversation_id);
         let s = session.lock().unwrap();
         s.last_annotated.clone()
-    }
-
-    /// Current-turn **unmarked** capture JPEG + monitor + bitmap size (same frame as `[CUR_SCREEN]` annotate input).
-    pub fn current_turn_raw_capture_for_conversation(
-        &self,
-        conversation_id: &str,
-    ) -> anyhow::Result<(Vec<u8>, screen::MonitorInfo, (u32, u32))> {
-        let session = self.get_or_create_session(conversation_id);
-        let s = session.lock().unwrap();
-        let jpeg = s
-            .current_turn_raw_jpeg_unmarked
-            .clone()
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "No current-turn raw screenshot; wait for [CUR_SCREEN] inject before captcha_verify."
-                )
-            })?;
-        let capture_px = s.current_turn_capture_px.ok_or_else(|| {
-            anyhow::anyhow!("No current-turn capture dimensions for captcha_verify.")
-        })?;
-        let monitor = s
-            .vision_state
-            .lock()
-            .unwrap()
-            .screen_bbox()
-            .ok_or_else(|| {
-                anyhow::anyhow!("No screen bbox for current turn; wait for [CUR_SCREEN] inject.")
-            })?;
-        Ok((jpeg, monitor, capture_px))
     }
 
     /// Get a reference to the vision state for a specific conversation.

@@ -1236,20 +1236,14 @@ impl AppState {
         if !self.active_platform_auth().is_platform_admin() {
             anyhow::bail!("only platform admins may edit platform settings");
         }
-        // Platform settings are in-memory only: providers (runtime keys), media_oss,
-        // and server-side DaTi config. User-owned fields live in user_settings.json.
+        // Platform settings are in-memory only: providers (runtime keys) and
+        // media_oss. User-owned fields live in user_settings.json.
         let mut platform = self.platform_config.write();
         if !patch.providers.is_empty() {
             platform.providers = patch.providers;
         }
         if !patch.media_oss.bucket.trim().is_empty() {
             platform.media_oss = patch.media_oss;
-        }
-        if !patch.dati_api_url.trim().is_empty() {
-            platform.dati_api_url = patch.dati_api_url;
-            platform.dati_authcode = patch.dati_authcode;
-            platform.dati_typeno = patch.dati_typeno;
-            platform.dati_author = patch.dati_author;
         }
         drop(platform);
         Ok(self.effective_settings_view())

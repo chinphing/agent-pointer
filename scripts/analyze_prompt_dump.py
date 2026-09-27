@@ -174,8 +174,7 @@ def main() -> None:
     print("=== TOOLS APPENDIX SUB-BREAKDOWN ===")
     tools = sections["Tools appendix"]
     tool_parts = [
-        ("action_verify", "### action_verify", "### captcha_verify"),
-        ("captcha family", "### captcha_verify", "### clipboard_read"),
+        ("action_verify", "### action_verify", "### clipboard_read"),
         ("clipboard", "### clipboard_read", "### hotkey"),
         ("hotkey", "### hotkey\nDescription:", "### modified_click"),
         ("modified_click", "### modified_click", "### mouse_click"),

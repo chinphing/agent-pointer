@@ -177,7 +177,7 @@ pub fn registry_tool_in_allow_list(allowed: &[String], registry_tool_id: &str) -
         .any(|a| tool_matches_allow_entry(registry_tool_id, a))
 }
 
-/// Expand family allow entries (e.g. `mouse`, `captcha_verify`) into flat registry tool ids.
+/// Expand family allow entries (e.g. `mouse`, `input`) into flat registry tool ids.
 pub fn expand_family_allow_names(
     names: &[String],
     available: &std::collections::HashSet<String>,
@@ -1065,10 +1065,10 @@ mod openai_tools_schema_tests {
     }
 
     #[test]
-    fn registry_tool_in_allow_list_accepts_captcha_family_for_flat_ids() {
+    fn registry_tool_in_allow_list_accepts_modified_click_family_for_flat_ids() {
         use super::registry_tool_in_allow_list;
-        let allow = vec!["captcha_verify".into()];
-        assert!(registry_tool_in_allow_list(&allow, "captcha_verify_click"));
+        let allow = vec!["modified_click".into()];
+        assert!(registry_tool_in_allow_list(&allow, "modified_click_select_index"));
         assert!(!registry_tool_in_allow_list(&allow, "mouse_click_index"));
     }
 
@@ -1131,7 +1131,6 @@ mod openai_tools_schema_tests {
             "input_focused",
             "modified_click_select_index",
             "modified_click_select_at",
-            "captcha_verify_click",
             "clipboard_read",
             "clipboard_write",
             "hotkey",
@@ -1150,7 +1149,6 @@ mod openai_tools_schema_tests {
             "wait".into(),
             "clipboard".into(),
             "task_board".into(),
-            "captcha_verify".into(),
         ];
         names = expand_family_allow_names(&names, &available);
         normalize_allowed_tool_names(&mut names, &available);
@@ -1162,7 +1160,6 @@ mod openai_tools_schema_tests {
             "input_index",
             "modified_click_select_index",
             "clipboard_read",
-            "captcha_verify_click",
             "hotkey",
             "wait",
             "task_board_patch",
@@ -1175,31 +1172,30 @@ mod openai_tools_schema_tests {
     }
 
     #[test]
-    fn openai_tools_captcha_family_allow_exposes_flat_tools_with_schema() {
+    fn openai_tools_modified_click_family_allow_exposes_flat_tools_with_schema() {
         use super::tool_doc::load_tools_from_schema_yaml;
         use super::ToolEntry;
         use super::ToolRegistry;
         use std::collections::HashSet;
         use std::sync::Arc;
 
-        let yaml = include_str!("../agents/computer/tools/prompts/captcha_verify.schema.yaml");
+        let yaml = include_str!("../agents/computer/tools/prompts/modified_click.schema.yaml");
         let schemas: std::collections::HashMap<String, serde_json::Value> =
             load_tools_from_schema_yaml(yaml)
                 .unwrap()
                 .into_iter()
                 .collect();
-        let doc = include_str!("../agents/computer/tools/prompts/captcha_verify.md");
+        let doc = include_str!("../agents/computer/tools/prompts/modified_click.md");
         let reg = ToolRegistry::new();
         for name in [
-            "captcha_verify_type",
-            "captcha_verify_click",
-            "captcha_verify_drag",
+            "modified_click_select_index",
+            "modified_click_select_at",
         ] {
             let schema = schemas.get(name).cloned().unwrap();
             reg.register(
                 ToolEntry::new(
                     name,
-                    "agents/computer/tools/prompts/captcha_verify.md",
+                    "agents/computer/tools/prompts/modified_click.md",
                     "low",
                     false,
                     doc,
@@ -1208,17 +1204,17 @@ mod openai_tools_schema_tests {
                 .with_schema(schema),
             );
         }
-        let allow = vec!["captcha_verify".into()];
+        let allow = vec!["modified_click".into()];
         let tools = reg.openai_tools(&allow);
-        assert_eq!(tools.len(), 3);
+        assert_eq!(tools.len(), 2);
         let names: HashSet<_> = tools
             .iter()
             .filter_map(|t| t["function"]["name"].as_str())
             .collect();
-        assert!(names.contains("captcha_verify_click"));
+        assert!(names.contains("modified_click_select_index"));
         let click = tools
             .iter()
-            .find(|t| t["function"]["name"] == "captcha_verify_click")
+            .find(|t| t["function"]["name"] == "modified_click_select_index")
             .unwrap();
         assert!(click["function"]["parameters"]["required"]
             .as_array()
@@ -1282,16 +1278,16 @@ mod openai_tools_schema_tests {
             "type": "object",
             "properties": {
                 "action": { "type": "string" },
-                "index_captcha_area": { "type": "integer" },
+                "target_index": { "type": "integer" },
                 "is_slider": { "type": "boolean" },
                 "is_click_block": { "type": "boolean" }
             },
-            "required": ["action", "is_slider", "index_captcha_area", "is_click_block"]
+            "required": ["action", "is_slider", "target_index", "is_click_block"]
         });
         reg.register(
             ToolEntry::new(
-                "captcha_verify",
-                "test:captcha_verify",
+                "sample_desktop_action",
+                "test:sample_desktop_action",
                 "high",
                 false,
                 "plain doc without schema fence",
@@ -1304,9 +1300,9 @@ mod openai_tools_schema_tests {
         assert_eq!(tools.len(), 1);
         let params = &tools[0]["function"]["parameters"];
         assert_eq!(params["required"][0], "action");
-        assert_eq!(params["required"][2], "index_captcha_area");
+        assert_eq!(params["required"][2], "target_index");
         assert_eq!(
-            params["properties"]["index_captcha_area"]["type"],
+            params["properties"]["target_index"]["type"],
             "integer"
         );
         assert_eq!(params["properties"]["is_slider"]["type"], "boolean");

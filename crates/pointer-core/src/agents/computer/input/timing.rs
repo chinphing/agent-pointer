@@ -100,7 +100,6 @@ pub const DESKTOP_POST_DELAY_TOOL_IDS: &[&str] = &[
     "hotkey",
     "input",
     "modified_click",
-    "captcha_verify",
     "launch_app",
 ];
 
@@ -120,9 +119,6 @@ pub fn desktop_tool_family_id(tool_id: &str) -> Option<&'static str> {
     }
     if id.starts_with("modified_click_") {
         return Some("modified_click");
-    }
-    if id.starts_with("captcha_verify_") {
-        return Some("captcha_verify");
     }
     if id.starts_with("clipboard_") {
         return Some("clipboard");
@@ -154,22 +150,12 @@ mod tests {
     }
 
     #[test]
-    fn captcha_verify_is_session_bound_desktop_tool() {
-        assert!(is_desktop_vision_log_tool("captcha_verify_click"));
-        assert!(is_desktop_post_delay_tool("captcha_verify_click"));
-    }
-
-    #[test]
     fn flat_computer_tool_ids_map_to_families() {
         assert_eq!(desktop_tool_family_id("mouse_click_index"), Some("mouse"));
         assert_eq!(desktop_tool_family_id("input_index"), Some("input"));
         assert_eq!(
             desktop_tool_family_id("modified_click_select_index"),
             Some("modified_click")
-        );
-        assert_eq!(
-            desktop_tool_family_id("captcha_verify_click"),
-            Some("captcha_verify")
         );
         assert_eq!(desktop_tool_family_id("clipboard_read"), Some("clipboard"));
         assert!(is_desktop_vision_log_tool("mouse_click_index"));

@@ -62,7 +62,6 @@ const COMPUTER_VERIFY_DRAG: &str = include_str!("computer/prompts/modules/verify
 const COMPUTER_VERIFY_INPUT: &str = include_str!("computer/prompts/modules/verify/input.md");
 const COMPUTER_VERIFY_MODIFIED_CLICK: &str =
     include_str!("computer/prompts/modules/verify/modified_click.md");
-const COMPUTER_VERIFY_CAPTCHA: &str = include_str!("computer/prompts/modules/verify/captcha.md");
 const COMPUTER_VERIFY_HOTKEY: &str = include_str!("computer/prompts/modules/verify/hotkey.md");
 const COMPUTER_VERIFY_WAIT: &str = include_str!("computer/prompts/modules/verify/wait.md");
 const COMPUTER_VERIFY_CLIPBOARD: &str =
@@ -213,7 +212,6 @@ pub fn computer_verify_prompt(family: computer::pipeline::operation::OperationFa
         computer::pipeline::operation::OperationFamily::ModifiedClick => {
             COMPUTER_VERIFY_MODIFIED_CLICK
         }
-        computer::pipeline::operation::OperationFamily::Captcha => COMPUTER_VERIFY_CAPTCHA,
         computer::pipeline::operation::OperationFamily::Hotkey => COMPUTER_VERIFY_HOTKEY,
         computer::pipeline::operation::OperationFamily::Wait => COMPUTER_VERIFY_WAIT,
         computer::pipeline::operation::OperationFamily::Clipboard => COMPUTER_VERIFY_CLIPBOARD,
@@ -1312,48 +1310,6 @@ mod builtin_agent_tests {
         assert!(
             !names.contains(&"mcp.查询技术文档.query-docs".to_string()),
             "denyTools 应能排除 MCP 工具，got: {names:?}"
-        );
-    }
-
-    #[test]
-    fn computer_resolve_tools_expands_captcha_family_to_flat_tools() {
-        use crate::agents::computer::ComputerState;
-        use crate::tools::builtin;
-        use std::sync::Arc;
-
-        let tools = crate::tools::ToolRegistry::new();
-        let store = Arc::new(crate::task_board::TaskBoardStore::new());
-        builtin::register_all(&tools, store);
-        let computer_state = Arc::new(ComputerState::with_annotate_url("http://127.0.0.1:9"));
-        builtin::register_computer_tools(&tools, computer_state);
-        let raw = include_str!("computer/AGENT.md");
-        let comm = builtin_computer_communication();
-        let agent = load_builtin_agent("computer", raw, &comm).expect("load computer");
-        let names = resolve_tools(&agent.def.access_policy, &[], &tools);
-        assert!(
-            names.iter().any(|n| n == "captcha_verify_click"),
-            "expected flat captcha tools in allow list, got: {names:?}"
-        );
-        assert!(
-            names.iter().any(|n| n == "captcha_verify_type"),
-            "expected captcha_verify_type, got: {names:?}"
-        );
-        assert!(
-            names.iter().any(|n| n == "captcha_verify_drag"),
-            "expected captcha_verify_drag, got: {names:?}"
-        );
-        let captcha_only: Vec<String> = names
-            .iter()
-            .filter(|n| n.starts_with("captcha_verify_"))
-            .cloned()
-            .collect();
-        let openai = tools.openai_tools(&captcha_only);
-        assert_eq!(openai.len(), 3);
-        assert!(
-            openai
-                .iter()
-                .any(|t| t["function"]["name"] == "captcha_verify_click"),
-            "captcha_verify_click should be exposed to the model"
         );
     }
 

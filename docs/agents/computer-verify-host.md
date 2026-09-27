@@ -75,7 +75,7 @@ Advanced 档在 `computerAdvancedPipeline=true`（默认）时启用四阶段宿
 
 | 格式 | 阶段 | 适用 Family | 内容 |
 |------|------|-------------|------|
-| `AnnotatedDualScreen` | Position | click/hover/scroll/drag/input/modified_click/captcha | `[POSITION_CONTEXT]` + 当前屏 + 标注屏 + bbox 列表 |
+| `AnnotatedDualScreen` | Position | click/hover/scroll/drag/input/modified_click | `[POSITION_CONTEXT]` + 当前屏 + 标注屏 + bbox 列表 |
 | `BeforeAfterScreenshots` | Verify | 默认（视觉类工具） | `[VERIFY_CONTEXT]` + before/after 截图 |
 | `ClipboardWithScreenshots` | Verify | Clipboard | `[VERIFY_CONTEXT]` + `[Tool result]` + before/after 截图 |
 
@@ -91,7 +91,6 @@ Advanced 档在 `computerAdvancedPipeline=true`（默认）时启用四阶段宿
 | drag | `mouse_drag_*` | `position/drag.md` | Verify LLM |
 | input | `input_index`, `input_at`, `input_focused` | `position/input.md` | Verify LLM `verify/input.md` |
 | modified_click | `modified_click_*` | `position/modified_click.md` | Verify LLM |
-| captcha | `captcha_verify_*` | `position/captcha.md` | Verify LLM |
 | hotkey | `hotkey` | 跳过 | Verify LLM `verify/hotkey.md` |
 | wait | `wait` | 跳过 | Verify LLM `verify/wait.md` |
 | clipboard | `clipboard_*` | 跳过 | Verify LLM `verify/clipboard.md` |
@@ -138,7 +137,7 @@ Verify wire 注入 **[Tool result]**（工具返回的剪贴板正文）以及 b
 | 模型 | Family | Position JSON | 执行路由 |
 |------|--------|---------------|----------|
 | `SingleIndexOrAt` | click/hover/input | `{index}` 或 `{x,y,reference_index}` | `*_index` / `*_at` |
-| `SingleIndexOrXy` | scroll/captcha | `{index}` 或 `{x,y}` | `mouse_scroll_*` 等 |
+| `SingleIndexOrXy` | scroll | `{index}` 或 `{x,y}` | `mouse_scroll_*` 等 |
 | `MultipleIndexOrXy` | drag/modified_click | `{indices:[…]}` 或 `{positions:[{x,y},…]}` | `mouse_drag_*` / `modified_click_*` |
 
 [`merge_position_output`] 在 merge 阶段直接写入执行参数字段（如 drag 的 `from_index`/`to_index`，modified_click 的 `indices`/`positions`），无独立 adapter 层。
@@ -156,7 +155,7 @@ Schema 定义：`position_strategy.rs`（`schemas.rs` 委托）。
 | Family | JSON 字段 | 说明 |
 |--------|-----------|------|
 | PointerClick / PointerHover / Input | **二选一**：`{ index }` 或 `{ x, y, reference_index }` | index = 目标 overlay；reference_index = at 路线锚点 R |
-| Scroll / Captcha | **二选一**：`{ index }` 或 `{ x, y }` | 互斥，不可混用 |
+| Scroll | **二选一**：`{ index }` 或 `{ x, y }` | 互斥，不可混用 |
 | Drag / ModifiedClick | **二选一**：`{ indices: [N,…] }` 或 `{ positions: [{x,y},…] }` | merge 时映射为执行工具字段（drag → `from_index`/`to_index` 等） |
 
 ### Verify LLM 输出（统一 schema）

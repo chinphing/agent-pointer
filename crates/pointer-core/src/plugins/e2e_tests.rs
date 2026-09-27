@@ -457,12 +457,12 @@ done
         .reload_global_mcp(vec![decl], cfg_dir.clone())
         .unwrap();
 
-    // 全局工具命名 `mcp.<server>.<tool>`；可调用
-    assert!(state.tools.get_def("mcp.demo.mcp_echo").is_some());
+    // 全局工具注册名为 OpenAI 兼容 wire 名（`mcp.<server>.<tool>` 中的点号转下划线）；可调用
+    assert!(state.tools.get_def("mcp_demo_mcp_echo").is_some());
     assert_eq!(
         state
             .tools
-            .invoke("mcp.demo.mcp_echo", serde_json::json!({}))
+            .invoke("mcp_demo_mcp_echo", serde_json::json!({}))
             .unwrap(),
         "mcp-e2e-ok"
     );
@@ -472,7 +472,7 @@ done
 
     // 热重载：清空配置 → 工具注销、会话关闭
     state.reload_global_mcp(vec![], cfg_dir.clone()).unwrap();
-    assert!(state.tools.get_def("mcp.demo.mcp_echo").is_none());
+    assert!(state.tools.get_def("mcp_demo_mcp_echo").is_none());
     assert!(!state
         .mcp_sessions
         .has_session(crate::plugins::mcp::GLOBAL_MCP_KEY));
@@ -552,11 +552,11 @@ done
     assert_eq!(view.servers.len(), 1);
     assert_eq!(view.servers[0].name, "demo");
     assert_eq!(view.servers[0].status, "healthy");
-    assert!(state.tools.get_def("mcp.demo.mcp_echo").is_some());
+    assert!(state.tools.get_def("mcp_demo_mcp_echo").is_some());
     assert_eq!(
         state
             .tools
-            .invoke("mcp.demo.mcp_echo", serde_json::json!({}))
+            .invoke("mcp_demo_mcp_echo", serde_json::json!({}))
             .unwrap(),
         "mcp-e2e-ok"
     );
@@ -564,7 +564,7 @@ done
     // 模拟重启：新 AppState 从 user_settings 恢复
     let state2 = Arc::new(AppState::new());
     assert!(
-        state2.tools.get_def("mcp.demo.mcp_echo").is_some(),
+        state2.tools.get_def("mcp_demo_mcp_echo").is_some(),
         "重启后全局 MCP 应从用户配置恢复"
     );
     assert!(state2
@@ -573,7 +573,7 @@ done
     assert_eq!(
         state2
             .tools
-            .invoke("mcp.demo.mcp_echo", serde_json::json!({}))
+            .invoke("mcp_demo_mcp_echo", serde_json::json!({}))
             .unwrap(),
         "mcp-e2e-ok"
     );
@@ -636,11 +636,11 @@ HTTPServer(('127.0.0.1', int(sys.argv[1])), H).serve_forever()
         .reload_global_mcp(vec![decl], std::path::PathBuf::from("."))
         .unwrap();
 
-    assert!(state.tools.get_def("mcp.httpdemo.http_echo").is_some());
+    assert!(state.tools.get_def("mcp_httpdemo_http_echo").is_some());
     assert_eq!(
         state
             .tools
-            .invoke("mcp.httpdemo.http_echo", serde_json::json!({}))
+            .invoke("mcp_httpdemo_http_echo", serde_json::json!({}))
             .unwrap(),
         "http-mcp-e2e-ok"
     );
@@ -695,7 +695,7 @@ done
     assert_eq!(
         state
             .tools
-            .invoke("mcp.demo.mcp_echo", serde_json::json!({}))
+            .invoke("mcp_demo_mcp_echo", serde_json::json!({}))
             .unwrap(),
         "mcp-e2e-ok"
     );
@@ -703,7 +703,7 @@ done
     // 触发崩溃：脚本退出 → 等 watchdog 自动重建（不手动驱动 cycle）
     let _ = state
         .tools
-        .invoke("mcp.demo.mcp_echo", serde_json::json!({ "crash": true }));
+        .invoke("mcp_demo_mcp_echo", serde_json::json!({ "crash": true }));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     let mut recovered = false;
     while std::time::Instant::now() < deadline {
@@ -713,7 +713,7 @@ done
         {
             if let Ok(out) = state
                 .tools
-                .invoke("mcp.demo.mcp_echo", serde_json::json!({}))
+                .invoke("mcp_demo_mcp_echo", serde_json::json!({}))
             {
                 if out == "mcp-e2e-ok" {
                     recovered = true;

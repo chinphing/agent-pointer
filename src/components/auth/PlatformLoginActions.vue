@@ -168,7 +168,7 @@ watch(isStandalone, standalone => {
             type="text"
             name="captcha"
             autocomplete="off"
-            placeholder="验证码"
+            :placeholder="t('auth.captchaPlaceholder')"
             class="h-10 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             :disabled="localSubmitting || loading"
           />
@@ -179,7 +179,7 @@ watch(isStandalone, standalone => {
           :disabled="localSubmitting || loading"
         >
           <Loader2 v-if="localSubmitting || loading" class="h-4 w-4 shrink-0 animate-spin" />
-          <span>{{ localSubmitting || loading ? '登录中…' : '登录' }}</span>
+          <span>{{ localSubmitting || loading ? t('auth.loggingIn') : t('auth.login') }}</span>
         </button>
       </form>
     </template>
@@ -200,7 +200,7 @@ watch(isStandalone, standalone => {
         class="inline-flex flex-col-reverse items-center gap-2"
       >
         <p class="whitespace-nowrap text-center text-[11px] leading-relaxed text-muted">
-          {{ loading ? '请在浏览器中完成授权' : heroHintText }}
+          {{ loading ? t('auth.waitingAuth') : heroHintText }}
         </p>
         <div class="flex w-[calc(100%+0.75rem)] items-center justify-center gap-2">
           <button
@@ -211,7 +211,7 @@ watch(isStandalone, standalone => {
           >
             <Loader2 v-if="loading" class="h-4 w-4 shrink-0 animate-spin" />
             <ExternalLink v-else class="h-4 w-4 shrink-0 opacity-90" />
-            <span>{{ loading ? '等待授权' : '浏览器登录' }}</span>
+            <span>{{ loading ? t('auth.waitingAuthorization') : t('auth.browserLogin') }}</span>
           </button>
           <button
             v-if="loading"
@@ -219,7 +219,7 @@ watch(isStandalone, standalone => {
             class="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-border px-4 text-sm text-foreground hover:bg-hover cursor-pointer transition-colors"
             @click="emit('cancel')"
           >
-            取消
+            {{ t('auth.cancel') }}
           </button>
         </div>
       </div>

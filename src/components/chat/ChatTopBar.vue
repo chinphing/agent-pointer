@@ -74,23 +74,23 @@ watch(projectPickerOpen, open => {
 
 const workspaceTooltip = computed(() => {
   const p = chat.current?.workspaceRoot?.trim()
-  if (!p) return '留空时将继承上一会话工作目录；清除后发送则使用临时目录'
-  if (isEphemeralWorkspacePath(p)) return `临时工作目录：${p}`
+  if (!p) return t('chat.topBar.workspaceHintEmpty')
+  if (isEphemeralWorkspacePath(p)) return t('chat.topBar.workspaceHintTemp', { path: p })
   return p
 })
 
 const workspaceLabel = computed(() =>
   selectedProject.value
     ? selectedProject.value.isDefault
-      ? '默认项目'
+      ? t('chat.topBar.defaultProject')
       : selectedProject.value.name
-    : '选择项目'
+    : t('chat.topBar.selectProject')
 )
 
 function selectProject(projectId: string) {
   if (projectLocked.value) return
   const currentProjectId = chat.current?.projectId ?? chat.current?.pendingProjectId
-  // 点击已选中的目录 → 自动取消选择，且不退出下拉框
+  // Clicking the already-selected folder clears the selection without closing the dropdown.
   if (projectId === currentProjectId) {
     clearWorkspace()
     return
@@ -117,7 +117,7 @@ async function createOrSelectWorkspaceProject(workspaceRoot: string): Promise<bo
     return true
   } catch (error) {
     console.error('[chat-topbar] create project from workspace failed', { workspaceRoot: root, error })
-    chat.showUiToast('项目创建失败，请重试', 'error')
+    chat.showUiToast(t('chat.toast.projectCreateFailed'), 'error')
     return false
   } finally {
     projectCreationPending.value = false
@@ -126,7 +126,7 @@ async function createOrSelectWorkspaceProject(workspaceRoot: string): Promise<bo
 
 async function onSkillDirectorySelect(dir: { name: string; path: string }) {
   const ok = await createOrSelectWorkspaceProject(dir.path)
-  // 技能目录项目默认使用 coder agent（技能脚本/代码工程类任务）
+  // Skill-directory projects default to the coder agent (skill scripts / code engineering tasks).
   if (ok && !projectLocked.value) {
     chat.setConversationAgent('coder', 'single')
   }
@@ -148,7 +148,7 @@ async function pickWorkspaceFolder() {
     }
   } catch (e) {
     console.error('[chat-topbar] pick workspace folder failed', e)
-    chat.showUiToast('目录选择失败，请重试', 'error')
+    chat.showUiToast(t('chat.toast.dirPickFailed'), 'error')
   }
 }
 

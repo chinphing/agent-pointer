@@ -1,14 +1,20 @@
 import { t } from '../i18n'
 
-/** Brand display names — never translate. */
-export const CHANNEL_LABELS: Record<string, string> = {
-  weixin: '微信',
-  feishu: '飞书',
-  wecom: '企微',
-  dingtalk: '钉钉'
+/** IM channel ids used for conversation-id detection. */
+const IM_CHANNELS = new Set(['weixin', 'feishu', 'wecom', 'dingtalk'])
+
+/** Brand display names from settings.channels.tabs (locale-aware). */
+export function channelLabels(): Record<string, string> {
+  return {
+    weixin: t('settings.channels.tabs.weixin'),
+    feishu: t('settings.channels.tabs.feishu'),
+    wecom: t('settings.channels.tabs.wecom'),
+    dingtalk: t('settings.channels.tabs.dingtalk')
+  }
 }
 
-const IM_CHANNELS = new Set(Object.keys(CHANNEL_LABELS))
+/** @deprecated Prefer channelLabels() so labels follow the active locale. */
+export const CHANNEL_LABELS: Record<string, string> = channelLabels()
 
 export function imBaseConversationId(conversationId: string): string {
   const at = conversationId.lastIndexOf('@s')
@@ -29,7 +35,7 @@ export function imSessionEpoch(conversationId: string): number {
 }
 
 export function channelLabel(channel: string): string {
-  return CHANNEL_LABELS[channel] ?? channel
+  return channelLabels()[channel] ?? channel
 }
 
 export function isImConversation(conversationId: string): boolean {

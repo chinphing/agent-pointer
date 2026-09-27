@@ -19,5 +19,6 @@
 | 操作指南 | [user/](user/README.md) 其余篇 |
 | 参考 | [developer/standalone-deployment.md](developer/standalone-deployment.md)、[contributing/editions.md](contributing/editions.md)、通道 / Skill / 协议 |
 | 说明 | [developer/architecture.md](developer/architecture.md)、维护者笔记 |
+| 设计 | [design/control-plane-and-editions.md](design/control-plane-and-editions.md) 账户与控制面改造 |
 
 根目录还有 [LICENSE](../LICENSE)、[SECURITY.md](../SECURITY.md)、[CHANGELOG.md](../CHANGELOG.md)。

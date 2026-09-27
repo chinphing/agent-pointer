@@ -12,7 +12,7 @@ chrono = "0.4"
 dirs = "5"
 hmac = "0.12"
 log = "0.4"
-md5 = "0.7"
+md5 = "0.8"
 mime_guess = "2"
 parking_lot = "0.12"
 pointer-core = { path = "../pointer-core" }

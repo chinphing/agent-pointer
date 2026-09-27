@@ -38,4 +38,4 @@ npm run web:dev
 
 ## 许可证
 
-Apache License 2.0。商标与官方域名见 [NOTICE](NOTICE)。
+Apache License 2.0。版权所有 © 2026 刘新星（https://pointer.readflowai.com）。商标与官方域名见 [NOTICE](NOTICE)。

@@ -41,4 +41,4 @@ Leave `POINTER_EDITION` unset for local work. Details: [DEVELOPMENT.md](DEVELOPM
 
 ## License
 
-Apache License 2.0. Trademarks and official domains are described in [NOTICE](NOTICE).
+Apache License 2.0. Copyright 2026 刘新星 (https://pointer.readflowai.com). Trademarks and official domains are described in [NOTICE](NOTICE).

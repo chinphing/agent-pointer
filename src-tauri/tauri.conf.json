@@ -53,7 +53,7 @@
     "category": "Productivity",
     "shortDescription": "Pointer AI desktop chat client",
     "longDescription": "Pointer is a cross-platform desktop AI chat client built with Tauri 2 and Vue 3.",
-    "copyright": "Copyright © 2026 Pointer",
+    "copyright": "Copyright © 2026 刘新星 (https://pointer.readflowai.com)",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

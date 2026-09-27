@@ -393,6 +393,71 @@
         "close": "Close",
         "overridden": "Overridden",
         "liveUpdateHint": "Changes apply immediately, and stay in sync with \"Agents → Scene tiers\""
+      },
+      "service": {
+        "customServices": "Custom services",
+        "customServicesHintStandalone": "Model services for this instance; params and capabilities match client custom services",
+        "customServicesHintDefault": "Self-connected OpenAI-compatible services",
+        "addService": "Add service",
+        "modelsCountSuffix": "{n} models",
+        "noModelsConfigured": "No models configured",
+        "defaultGlobalProvider": "Default global provider",
+        "apiKeyPrefix": "Key: {key}",
+        "editProviderTitle": "Edit {name}",
+        "deleteProviderTitle": "Delete {name}",
+        "setDefault": "Set as default",
+        "noCustomServices": "No custom model services yet",
+        "noCustomServicesHint": "Click \"Add service\" above to configure one",
+        "platformServices": "Platform services",
+        "platformServicesHint": "Provisioned by the platform after sign-in and centrally managed",
+        "readOnly": "Read-only",
+        "noPlatformServices": "No platform model services yet",
+        "noPlatformServicesHint": "Provisioned by the platform after sign-in",
+        "addModelServiceTitle": "Add model service",
+        "editModelServiceTitle": "Edit model service",
+        "modalHint": "Configure the provider's default params and model list; each model can also be configured individually.",
+        "close": "Close",
+        "serviceType": "Service type",
+        "templateHint": "Same as the built-in Qwen / DeepSeek: set provider defaults first, then configure individual models below.",
+        "serviceId": "Service ID",
+        "serviceIdPlaceholder": "e.g. qwen, openai",
+        "serviceName": "Service name",
+        "serviceNamePlaceholder": "e.g. Qwen",
+        "apiUrl": "API URL",
+        "apiKey": "API key",
+        "apiKeyPlaceholderAdd": "Enter API key",
+        "apiKeyPlaceholderEdit": "Enter a new key to replace the current one",
+        "copied": "Copied",
+        "copyOriginalKey": "Copy original key",
+        "modelList": "Model list",
+        "modelParams": "Model params",
+        "modelParamsHint": "Provider-level defaults; each model can be individually \"configured\" for params and vision/generation capabilities. Restoring defaults follows the provider.",
+        "perModel": "Per model",
+        "customized": "Customized",
+        "followsProviderDefault": "Follows provider default",
+        "edit": "Edit",
+        "configure": "Configure",
+        "addAction": "Add",
+        "save": "Save",
+        "confirmDeleteProviderTitle": "Confirm deleting this model service",
+        "confirmDeleteProviderBody": "This deletes “{name}” and its local model configs. This cannot be undone.",
+        "confirmDelete": "Confirm delete",
+        "modelParamsAndCapabilities": "Model params and capabilities",
+        "restoreDefault": "Restore default",
+        "cancel": "Cancel",
+        "done": "Done",
+        "notConfigured": "Not configured",
+        "capability": {
+          "vision": "Vision",
+          "audio": "Speech",
+          "imageGen": "Image gen",
+          "videoGen": "Video gen"
+        },
+        "errorIdExists": "Service ID already exists; choose a different one",
+        "errorProviderNotFound": "Couldn't find the provider to update; cancel and edit again",
+        "errorMissingFields": "Please fill in the service ID, name, and API URL",
+        "errorApplyFailed": "Failed to apply config, please retry",
+        "errorDeleteFailed": "Failed to delete service, please retry"
       }
     },
     "usage": {
@@ -540,6 +605,18 @@
       "updateReady": "New version ready — click to update",
       "updateAvailable": "New version v{version} available — click to update",
       "updateNow": "Update now"
+    },
+    "window": {
+      "ariaLabel": "Window",
+      "minimize": "Minimize",
+      "maximize": "Maximize",
+      "restore": "Restore",
+      "close": "Close"
+    },
+    "desktopSnapshot": {
+      "caption": "Current desktop",
+      "failed": "Screenshot failed",
+      "viewTitle": "View desktop"
     }
   },
   "chat": {
@@ -630,6 +707,58 @@
       "newConversationConfirmBody": "This switches to a new conversation. The current one stays in your history and won't be lost.",
       "confirmNewConversation": "Start new",
       "scrollToBottomTitle": "Scroll to bottom"
+    },
+    "changeSummary": {
+      "modifiedFile": "Modified {fileName}",
+      "modifiedFiles": "Modified {count} files"
+    },
+    "message": {
+      "thinking": "Thinking",
+      "thinkingAtCap": "Thinking, still working",
+      "thinkingProcess": "Thought process",
+      "reasoningProcess": "Reasoning",
+      "generationStopped": "Generation stopped",
+      "generationFailed": "Generation failed",
+      "quotaExhausted": "Your balance is used up — top up to continue chatting",
+      "goRecharge": "Top up",
+      "assistantError": "Assistant message error",
+      "compressing": "Compressing",
+      "compressionSummary": "Auto-compression summary",
+      "taskBoardTrim": "History trimmed after task board update",
+      "legacyPlaceholder": "Legacy placeholder",
+      "rawWireTitle": "Raw output",
+      "rawWireCopied": "Copied",
+      "rawWireCopyAll": "Copy all",
+      "rawWireCollapse": "Collapse",
+      "reasoningLabel": "Reasoning",
+      "rawContentChannel": "Raw content channel",
+      "toolArgsLabel": "Tool call arguments",
+      "noContent": "No content yet",
+      "reasoningSection": "【Reasoning】",
+      "rawContentSection": "【Raw content channel】",
+      "toolArgsSection": "【Tool call arguments】",
+      "subtaskProcess": "Subtask process",
+      "hideRaw": "Hide raw content",
+      "showRaw": "View raw content",
+      "screenPreviewAria": "Screenshot processing preview",
+      "screenPreviewTitle": "Screenshot processing preview",
+      "closeEsc": "Close (Esc)",
+      "loading": "Loading…",
+      "zoomHint": "Scroll to zoom · drag to pan · double-click to reset · Esc to close",
+      "pause": "Pause",
+      "play": "Play",
+      "seekAria": "Seek playback",
+      "user": "User",
+      "download": "Download",
+      "downloadFile": "Download {fileName}",
+      "openFile": "Open {fileName}",
+      "copyPath": "Copy file path",
+      "revealInFinder": "Show in Finder",
+      "setMilestone": "Mark as milestone",
+      "unsetMilestone": "Remove milestone",
+      "viewInjectedScreenshot": "View desktop screenshots injected into the model this turn (cached)",
+      "copy": "Copy",
+      "copied": "Copied"
     }
   },
   "agent": {
@@ -675,12 +804,18 @@
       "deliverInline": "Delivery: {value}",
       "deliveryFailedInline": "Delivery failed: {value}",
       "nextInline": "Next: {value}",
-      "lastInline": "Last: {value}"
+      "lastInline": "Last: {value}",
+      "nextRunShort": "Next {value}",
+      "channelSep": ", "
     },
     "webhook": {
       "heading": "Webhook calls",
       "sectionDesc": "Each source has its own token, matched against the source identifier in the URL path. POST bodies support text or messages. After a trigger, click \"View session\" to read the transcript.",
       "sectionDescAria": "Webhook info",
+      "refBlockingHint": "Pass \"blocking\": true in the body to hold the connection open until the run ends, returning { ok, runId, text }; optional \"timeoutSeconds\" (default 120, max 600). Without it you get a 202 async ack — poll with GET /api/webhooks/:src/runs/:runId.",
+      "sessionModeHint": "Daily continuation: the same source shares context within a local day; per-delivery isolation: each delivery gets its own session (can be distinguished with X-GitHub-Delivery or idempotencyKey).",
+      "authHeaderHint": "Leave empty to use Authorization: Bearer or X-Pointer-Token",
+      "tokenHint": "The token is auto-generated; after adding, click the masked value anytime to copy it.",
       "new": "New",
       "legacyDetected": "Legacy global token detected ({preview}), {desc}",
       "legacyDesc": "A legacy global token was detected, effective for all sources. Consider switching to per-source configuration.",
@@ -933,7 +1068,10 @@
     "gitDiffMessages": {
       "additions": "additions",
       "deletions": "deletions"
-    }
+    },
+    "refreshFilesFailed": "Workspace refresh failed; displayed content may be outdated",
+    "refreshGitFailed": "Git changes refresh failed; displayed content may be outdated",
+    "baselineMissing": "No pre-edit snapshot for this turn; results may be incomplete"
   },
   "tools": {
     "labels": {
@@ -1158,7 +1296,8 @@
       "partialGranted": "Steps confirmed; the system hasn't fully approved them yet. You can click \"Continue anyway\" to send; restart the app if control misbehaves.",
       "later": "Later",
       "continue": "Continue",
-      "continueAnyway": "Continue anyway"
+      "continueAnyway": "Continue anyway",
+      "stepsAria": "Permission steps"
     }
   },
   "workspaceRequired": {

@@ -1,10 +1,14 @@
 version: 2
 updates:
+  # open-pull-requests-limit: 0 — 关闭版本升级 PR（噪音大、大版本跳跃直接红 CI），
+  # 安全更新 PR 不受此限制，仍由 Dependabot security updates 发起。
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 0
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 0

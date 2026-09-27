@@ -1,4 +1,5 @@
 import type { ToolCall } from '../types/chat'
+import { t } from '../i18n'
 import { taskBoardPatchSummaryFromArgs, toolCallBaseName } from './messageTooling'
 import { toolCallShowsKindLabel } from './toolCallKindIcon'
 
@@ -104,19 +105,19 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
   if (base === 'ask_user') {
     // Question is rendered once in AskUserOptions; keep the tool header label-only.
     return {
-      label: '询问用户',
+      label: t('tools.labels.askUser'),
       summary: ''
     }
   }
   if (base === 'launch_app') {
     return {
-      label: '启动应用',
+      label: t('tools.labels.launchApp'),
       summary: truncateToolSummary(strField(args, ['app']) || strField(args, ['goal']))
     }
   }
   if (base === 'list_apps') {
     return {
-      label: '列出应用',
+      label: t('tools.labels.listApps'),
       summary: truncateToolSummary(strField(args, ['goal']))
     }
   }
@@ -136,7 +137,7 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
   }
   if (base === 'session_search') {
     return {
-      label: '搜索会话',
+      label: t('tools.labels.sessionSearch'),
       summary: truncateToolSummary(strField(args, ['query']))
     }
   }
@@ -145,12 +146,12 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
     const offset = args.offset
     const offsetLabel =
       typeof offset === 'number' && Number.isFinite(offset)
-        ? `第 ${offset} 条`
+        ? t('tools.labels.sessionOffset', { n: offset })
         : typeof offset === 'string' && offset.trim()
-          ? `第 ${offset.trim()} 条`
+          ? t('tools.labels.sessionOffset', { n: offset.trim() })
           : ''
     return {
-      label: '读取会话',
+      label: t('tools.labels.sessionRead'),
       summary: truncateToolSummary(
         around || offsetLabel || strField(args, ['conversation_id', 'session_id'])
       )
@@ -206,32 +207,32 @@ function inferCronJobAction(args: Record<string, unknown>): string {
 function cronJobActionLabel(action: string): string {
   switch (action) {
     case 'create':
-      return '创建定时任务'
+      return t('tools.labels.cronCreate')
     case 'list':
-      return '列出定时任务'
+      return t('tools.labels.cronList')
     case 'enable':
-      return '启用定时任务'
+      return t('tools.labels.cronEnable')
     case 'disable':
-      return '停用定时任务'
+      return t('tools.labels.cronDisable')
     case 'delete':
-      return '删除定时任务'
+      return t('tools.labels.cronDelete')
     default:
-      return '定时任务'
+      return t('tools.labels.cronDefault')
   }
 }
 
 function jobActionLabel(action: string): string {
   switch (action) {
     case 'list':
-      return '查看后台任务'
+      return t('tools.labels.jobList')
     case 'status':
-      return '后台任务状态'
+      return t('tools.labels.jobStatus')
     case 'await':
-      return '等待后台任务'
+      return t('tools.labels.jobAwait')
     case 'cancel':
-      return '取消后台任务'
+      return t('tools.labels.jobCancel')
     default:
-      return '后台任务'
+      return t('tools.labels.jobDefault')
   }
 }
 
@@ -396,8 +397,10 @@ export function isJobAwaitCall(tc: ToolCall): boolean {
 }
 
 export function toolCallProgressLabel(tc: ToolCall): string {
-  if (isBackgroundJobHost(tc) && isLiveBackgroundHostTool(tc)) return '后台执行中'
-  return '执行中'
+  if (isBackgroundJobHost(tc) && isLiveBackgroundHostTool(tc)) {
+    return t('tools.progress.runningBackground')
+  }
+  return t('tools.progress.running')
 }
 
 function isInProgress(status: ToolCall['status']): boolean {
@@ -722,24 +725,27 @@ export function buildToolGroupStats(tools: ToolCall[]): ToolGroupStats {
   return stats
 }
 
-/** Cursor-style one-line summary, e.g. 探索 14 个文件，1 次搜索 */
+/** Cursor-style one-line summary, e.g. explored N files, M searches */
 export function formatToolGroupSummary(stats: ToolGroupStats): string {
   const explore: string[] = []
-  if (stats.readFiles) explore.push(`${stats.readFiles} 个文件`)
+  if (stats.readFiles) explore.push(t('tools.group.filesCount', { n: stats.readFiles }))
   const searches = stats.fileSearch + stats.webSearch
-  if (searches) explore.push(`${searches} 次搜索`)
-  if (stats.listed) explore.push(`${stats.listed} 次列出`)
+  if (searches) explore.push(t('tools.group.searchesCount', { n: searches }))
+  if (stats.listed) explore.push(t('tools.group.listedCount', { n: stats.listed }))
 
   const parts: string[] = []
-  if (explore.length) parts.push(`探索 ${explore.join('，')}`)
-  if (stats.terminal) parts.push(`执行 ${stats.terminal} 条命令`)
-  if (stats.created) parts.push(`创建 ${stats.created} 个文件`)
-  if (stats.edited) parts.push(`编辑 ${stats.edited} 个文件`)
-  if (stats.editing) parts.push(`正在编辑 ${stats.editing} 个`)
-  if (stats.skill) parts.push(`技能 ${stats.skill} 次`)
-  if (stats.mediaUnderstand) parts.push(`理解 ${stats.mediaUnderstand} 次`)
-  if (stats.other) parts.push(`操作 ${stats.other} 次`)
-  return parts.join('，')
+  const sep = t('tools.group.sep')
+  if (explore.length) parts.push(t('tools.group.explored', { items: explore.join(sep) }))
+  if (stats.terminal) parts.push(t('tools.group.ranCommands', { n: stats.terminal }))
+  if (stats.created) parts.push(t('tools.group.createdFiles', { n: stats.created }))
+  if (stats.edited) parts.push(t('tools.group.editedFiles', { n: stats.edited }))
+  if (stats.editing) parts.push(t('tools.group.editingFiles', { n: stats.editing }))
+  if (stats.skill) parts.push(t('tools.group.skillUses', { n: stats.skill }))
+  if (stats.mediaUnderstand) {
+    parts.push(t('tools.group.mediaUnderstandUses', { n: stats.mediaUnderstand }))
+  }
+  if (stats.other) parts.push(t('tools.group.otherOps', { n: stats.other }))
+  return parts.join(sep)
 }
 
 export function toolGroupSummaryIcon(stats: ToolGroupStats): ToolSummaryIcon {
@@ -757,30 +763,30 @@ export function toolRowMuted(tc: ToolCall): boolean {
   return isFileTool(base) && method === 'read' && !isInProgress(tc.status)
 }
 
-const SHORT_LABELS: Record<string, string> = {
-  '读取文件': '读取',
-  '搜索内容': '搜索',
-  '搜索文件': '搜索',
-  '编辑文件': '编辑',
-  '写入文件': '创建',
-  '列出目录': '列出',
-  '终端命令': '终端',
-  '联网搜索': '搜索',
-  '抓取网页': '抓取',
-  '文件操作': '文件',
-  '创建定时任务': '定时',
-  '列出定时任务': '定时',
-  '启用定时任务': '定时',
-  '停用定时任务': '定时',
-  '删除定时任务': '定时',
-  '定时任务': '定时',
-}
+const SHORT_LABEL_KEYS: { fullKey: string; shortKey: string }[] = [
+  { fullKey: 'tools.full.readFile', shortKey: 'tools.short.readFile' },
+  { fullKey: 'tools.full.searchContent', shortKey: 'tools.short.searchContent' },
+  { fullKey: 'tools.full.searchFiles', shortKey: 'tools.short.searchFiles' },
+  { fullKey: 'tools.full.editFile', shortKey: 'tools.short.editFile' },
+  { fullKey: 'tools.full.writeFile', shortKey: 'tools.short.writeFile' },
+  { fullKey: 'tools.full.listDir', shortKey: 'tools.short.listDir' },
+  { fullKey: 'tools.full.terminal', shortKey: 'tools.short.terminal' },
+  { fullKey: 'tools.full.webSearch', shortKey: 'tools.short.webSearch' },
+  { fullKey: 'tools.full.webFetch', shortKey: 'tools.short.webFetch' },
+  { fullKey: 'tools.full.fileOp', shortKey: 'tools.short.fileOp' },
+  { fullKey: 'tools.labels.cronCreate', shortKey: 'tools.short.cron' },
+  { fullKey: 'tools.labels.cronList', shortKey: 'tools.short.cron' },
+  { fullKey: 'tools.labels.cronEnable', shortKey: 'tools.short.cron' },
+  { fullKey: 'tools.labels.cronDisable', shortKey: 'tools.short.cron' },
+  { fullKey: 'tools.labels.cronDelete', shortKey: 'tools.short.cron' },
+  { fullKey: 'tools.labels.cronDefault', shortKey: 'tools.short.cron' },
+]
 
 export function toolShortLabel(tc: ToolCall): string {
   const label = tc.displayLabel?.trim() || tc.name
-  if (SHORT_LABELS[label]) return SHORT_LABELS[label]
-  for (const [full, short] of Object.entries(SHORT_LABELS)) {
-    if (label.startsWith(full)) return short
+  for (const { fullKey, shortKey } of SHORT_LABEL_KEYS) {
+    const full = t(fullKey)
+    if (label === full || label.startsWith(full)) return t(shortKey)
   }
   return label
 }
@@ -950,7 +956,7 @@ export function formatCollapsedToolGroupLine(
 ): string {
   if (tools.length === 0) return ''
   const summary = formatToolGroupSummary(buildToolGroupStats(tools))
-  return summary || `工具 ${tools.length} 次`
+  return summary || t('tools.group.toolCallsCount', { n: tools.length })
 }
 
 /** Prefer the partitioned live tool; else any in-progress tool (parallel finish order). */

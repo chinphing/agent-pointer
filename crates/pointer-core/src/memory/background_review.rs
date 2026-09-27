@@ -341,7 +341,11 @@ fn format_review_toast(memory_actions: &[String]) -> Result<Option<String>> {
     if memory.is_empty() {
         return Ok(None);
     }
-    Ok(Some(format!("已更新记忆：{}", memory.join(" · "))))
+    Ok(Some(crate::i18n::tf(
+        "toast.memory_updated",
+        crate::i18n::current_ui_locale(),
+        &[("items", &memory.join(" · "))],
+    )))
 }
 
 fn dedupe(items: &[String]) -> Vec<String> {

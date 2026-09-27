@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Search, Wrench, Upload } from 'lucide-vue-next'
 import { useSkillsStore } from '../../stores/skills'
 import { listPlugins } from '../../lib/api'
 import type { SkillDef } from '../../types/chat'
 
+const { t } = useI18n()
+
 const AGENT_TABS = [
-  { id: 'general', label: '通用助手' },
-  { id: 'coder', label: '氛围编程' },
-  { id: 'computer', label: '电脑操控' }
+  { id: 'general', label: () => t('skills.agentTabs.general') },
+  { id: 'coder', label: () => t('skills.agentTabs.coder') },
+  { id: 'computer', label: () => t('skills.agentTabs.computer') }
 ] as const
 
 const skills = useSkillsStore()
@@ -44,15 +47,19 @@ async function loadPluginNames() {
 function skillSource(skill: SkillDef): { label: string; kind: string; title: string } {
   if (skill.pluginId) {
     const name = pluginNames.value[skill.pluginId] ?? skill.pluginId
-    return { label: `插件 · ${name}`, kind: 'plugin', title: `由插件 ${skill.pluginId} 提供` }
+    return {
+      label: t('skills.sourceLabels.pluginNamed', { name }),
+      kind: 'plugin',
+      title: t('skills.sourceTitles.plugin', { pluginId: skill.pluginId })
+    }
   }
   if (skill.builtin || skill.provenance === 'system') {
-    return { label: '内置', kind: 'system', title: 'Pointer 自带技能' }
+    return { label: t('skills.sourceLabels.builtin'), kind: 'system', title: t('skills.sourceTitles.builtin') }
   }
   if (skill.provenance === 'external') {
-    return { label: '外部', kind: 'external', title: '来自 ~/.agents/skills 兼容目录（只读）' }
+    return { label: t('skills.sourceLabels.external'), kind: 'external', title: t('skills.sourceTitles.external') }
   }
-  return { label: '用户', kind: 'user', title: '来自 ~/.pointer/skills 用户技能目录' }
+  return { label: t('skills.sourceLabels.user'), kind: 'user', title: t('skills.sourceTitles.user') }
 }
 
 function sourceClass(kind: string): string {
@@ -92,11 +99,11 @@ const filtered = computed(() => {
 
 /** 来源筛选 chips 配置（全部 + 四类来源）。 */
 const SOURCE_FILTERS = [
-  { id: 'all', label: '全部' },
-  { id: 'user', label: '用户' },
-  { id: 'system', label: '内置' },
-  { id: 'external', label: '外部' },
-  { id: 'plugin', label: '插件' }
+  { id: 'all', label: () => t('skills.filters.all') },
+  { id: 'user', label: () => t('skills.filters.user') },
+  { id: 'system', label: () => t('skills.filters.system') },
+  { id: 'external', label: () => t('skills.filters.external') },
+  { id: 'plugin', label: () => t('skills.filters.plugin') }
 ] as const
 
 function skillEnabled(skillId: string): boolean {

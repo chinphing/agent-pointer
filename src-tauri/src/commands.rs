@@ -299,7 +299,11 @@ pub fn approve_tool_call(
     if state.approve_tool_call(&tool_call_id, approved) {
         Ok(())
     } else {
-        Err("未找到待审批的工具调用".into())
+        Err(pointer_core::i18n::t(
+            "err.tool_call_not_pending",
+            pointer_core::i18n::current_ui_locale(),
+        )
+        .into())
     }
 }
 
@@ -312,7 +316,11 @@ pub fn submit_ask_user(
     if state.submit_ask_user(&tool_call_id, selected) {
         Ok(())
     } else {
-        Err("未找到待选择的 ask_user 请求".into())
+        Err(pointer_core::i18n::t(
+            "err.ask_user_not_pending",
+            pointer_core::i18n::current_ui_locale(),
+        )
+        .into())
     }
 }
 
@@ -325,7 +333,11 @@ pub fn submit_terminal_input(
     if state.submit_terminal_input(&request_id, text) {
         Ok(())
     } else {
-        Err("未找到待输入的终端请求".into())
+        Err(pointer_core::i18n::t(
+            "err.terminal_input_not_pending",
+            pointer_core::i18n::current_ui_locale(),
+        )
+        .into())
     }
 }
 
@@ -337,7 +349,11 @@ pub fn dismiss_terminal_input(
     if state.dismiss_terminal_input(&request_id) {
         Ok(())
     } else {
-        Err("未找到待输入的终端请求".into())
+        Err(pointer_core::i18n::t(
+            "err.terminal_input_not_pending",
+            pointer_core::i18n::current_ui_locale(),
+        )
+        .into())
     }
 }
 
@@ -395,7 +411,11 @@ pub fn clear_api_key() -> Result<(), String> {
 pub async fn test_connection(state: State<'_, Arc<AppState>>) -> Result<u128, String> {
     let settings = state.effective_settings();
     if settings.api_key.is_empty() {
-        return Err("尚未配置 API Key".into());
+        return Err(pointer_core::i18n::t(
+            "err.api_key_missing",
+            pointer_core::i18n::current_ui_locale(),
+        )
+        .into());
     }
     let api_key = settings.api_key.clone();
     let provider = OpenAIProvider::new(settings, api_key);
@@ -466,10 +486,13 @@ pub fn list_plugins(state: State<'_, Arc<AppState>>) -> Result<Vec<PluginView>, 
 }
 
 fn view_plugin(state: &AppState, plugin_id: &str) -> Result<PluginView, String> {
-    let record = state
-        .plugins
-        .get(plugin_id)
-        .ok_or_else(|| format!("插件不存在: {plugin_id}"))?;
+    let record = state.plugins.get(plugin_id).ok_or_else(|| {
+        pointer_core::i18n::tf(
+            "err.plugin_not_found",
+            pointer_core::i18n::current_ui_locale(),
+            &[("plugin_id", plugin_id)],
+        )
+    })?;
     let mut v = PluginView::from_record(&record);
     if state.mcp_sessions.is_degraded(plugin_id) {
         v.status = "degraded".to_string();

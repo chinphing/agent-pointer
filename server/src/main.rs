@@ -4586,7 +4586,9 @@ impl IntoResponse for ApiError {
         if msg.contains("media file not found") || msg.contains("download path outside") {
             return (StatusCode::NOT_FOUND, msg).into_response();
         }
-        if msg.contains("文件超过") || msg.contains("too large") {
+        if msg.contains("文件超过") || msg.contains("MB 上限") || msg.contains("too large")
+            || msg.contains("exceeds the") && msg.contains("MB limit")
+        {
             return (StatusCode::PAYLOAD_TOO_LARGE, msg).into_response();
         }
         (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()

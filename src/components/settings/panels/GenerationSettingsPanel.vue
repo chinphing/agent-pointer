@@ -763,12 +763,12 @@ async function onUiLocaleChange(value: string) {
         <div class="grid grid-cols-1 min-[960px]:grid-cols-[max-content_auto_max-content_minmax(2.5rem,1fr)] items-stretch gap-x-8 gap-y-6">
           <div class="w-max max-w-full space-y-3">
             <div class="flex items-center gap-1 h-5">
-              <span class="text-[12px] font-medium text-foreground">内容上限</span>
+              <span class="text-[12px] font-medium text-foreground">{{ t('settings.generation.contentLimits') }}</span>
               <button
                 type="button"
                 class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                title="上传、读文件、搜索和终端输出回给 AI 的上限。视频上传仍走独立压缩。工具参数只能下调。"
-                aria-label="内容上限说明"
+                :title="t('settings.generation.contentLimitsHelp')"
+                :aria-label="t('settings.generation.contentLimitsHelpAria')"
               >
                 <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
               </button>
@@ -776,12 +776,12 @@ async function onUiLocaleChange(value: string) {
             <div class="flex flex-wrap min-[960px]:flex-nowrap items-start gap-x-5 gap-y-3">
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">上传（MB）</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.generation.uploadMb') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="对话里上传文件的大小上限，不含视频。"
-                    aria-label="上传上限说明"
+                    :title="t('settings.generation.uploadMbHelp')"
+                    :aria-label="t('settings.generation.uploadMbHelpAria')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -797,12 +797,12 @@ async function onUiLocaleChange(value: string) {
               </div>
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">正文（KB）</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.generation.bodyKb') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="一次读取文件时返回的正文上限。"
-                    aria-label="正文上限说明"
+                    :title="t('settings.generation.bodyKbHelp')"
+                    :aria-label="t('settings.generation.bodyKbHelpAria')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -818,12 +818,12 @@ async function onUiLocaleChange(value: string) {
               </div>
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">单行（字节）</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.generation.lineBytes') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="读文件或搜索时，一行最多保留多少字节。"
-                    aria-label="单行上限说明"
+                    :title="t('settings.generation.lineBytesHelp')"
+                    :aria-label="t('settings.generation.lineBytesHelpAria')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -839,12 +839,12 @@ async function onUiLocaleChange(value: string) {
               </div>
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">搜索条数</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.generation.searchResults') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="一次搜索最多返回多少条结果。"
-                    aria-label="搜索条数说明"
+                    :title="t('settings.generation.searchResultsHelp')"
+                    :aria-label="t('settings.generation.searchResultsHelpAria')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -860,12 +860,12 @@ async function onUiLocaleChange(value: string) {
               </div>
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">终端（KB）</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.generation.terminalKb') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="终端命令每路输出回给 AI 的上限，超限只保留末尾。"
-                    aria-label="终端输出上限说明"
+                    :title="t('settings.generation.terminalKbHelp')"
+                    :aria-label="t('settings.generation.terminalKbHelpAria')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -886,12 +886,12 @@ async function onUiLocaleChange(value: string) {
 
           <div class="w-max max-w-full space-y-3">
             <div class="flex items-center gap-1 h-5">
-              <span class="text-[12px] font-medium text-foreground">终端超时</span>
+              <span class="text-[12px] font-medium text-foreground">{{ t('settings.generation.terminalTimeout') }}</span>
               <button
                 type="button"
                 class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                title="空闲时间为未指定时的默认值，命令可覆盖。最长运行是上限，工具参数只能下调。"
-                aria-label="终端超时说明"
+                :title="t('settings.generation.terminalTimeoutHelp')"
+                :aria-label="t('settings.generation.terminalTimeoutHelpAria')"
               >
                 <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
               </button>
@@ -899,12 +899,12 @@ async function onUiLocaleChange(value: string) {
             <div class="flex flex-nowrap items-start gap-x-5">
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">空闲（秒）</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.generation.idleSeconds') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="命令未指定超时时使用。这段时间没有新输出就结束命令，有输出会重新计时。1–86400 秒。"
-                    aria-label="空闲超时说明"
+                    :title="t('settings.generation.idleSecondsHelp')"
+                    :aria-label="t('settings.generation.idleSecondsHelpAria')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -921,12 +921,12 @@ async function onUiLocaleChange(value: string) {
               </div>
               <div>
                 <div class="flex items-center gap-1 mb-1.5">
-                  <span class="text-[12px] text-muted">最长运行（小时）</span>
+                  <span class="text-[12px] text-muted">{{ t('settings.generation.maxRuntimeHours') }}</span>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors"
-                    title="终端命令从启动到强制结束的最长墙钟时间，1–10000 小时。"
-                    aria-label="最长运行说明"
+                    :title="t('settings.generation.maxRuntimeHoursHelp')"
+                    :aria-label="t('settings.generation.maxRuntimeHoursHelpAria')"
                   >
                     <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
@@ -951,18 +951,18 @@ async function onUiLocaleChange(value: string) {
     <section class="space-y-4" aria-labelledby="system-tool-approval-heading">
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
         <h4 id="system-tool-approval-heading" class="text-sm font-medium text-foreground flex items-center gap-2">
-          <Wrench class="w-4 h-4 text-accent" />工具使用权限
+          <Wrench class="w-4 h-4 text-accent" />{{ t('settings.generation.toolApproval') }}
         </h4>
         <div class="grid grid-cols-2 gap-3">
           <label class="rounded-xl border p-3 cursor-pointer transition-all" :class="toolApprovalMode === 'auto' ? 'border-border bg-hover' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'">
             <input v-model="toolApprovalMode" type="radio" value="auto" class="sr-only" />
-            <span class="block text-sm text-foreground">自动执行</span>
-            <span class="mt-1 block text-[11px] text-muted">AI 使用工具时自动执行，无需确认</span>
+            <span class="block text-sm text-foreground">{{ t('settings.generation.toolApprovalAuto') }}</span>
+            <span class="mt-1 block text-[11px] text-muted">{{ t('settings.generation.toolApprovalAutoDesc') }}</span>
           </label>
           <label class="rounded-xl border p-3 cursor-pointer transition-all" :class="toolApprovalMode === 'manual' ? 'border-border bg-hover' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'">
             <input v-model="toolApprovalMode" type="radio" value="manual" class="sr-only" />
-            <span class="block text-sm text-foreground">敏感操作确认</span>
-            <span class="mt-1 block text-[11px] text-muted">涉及文件、命令等操作时需要你确认</span>
+            <span class="block text-sm text-foreground">{{ t('settings.generation.toolApprovalManual') }}</span>
+            <span class="mt-1 block text-[11px] text-muted">{{ t('settings.generation.toolApprovalManualDesc') }}</span>
           </label>
         </div>
       </div>
@@ -979,13 +979,13 @@ async function onUiLocaleChange(value: string) {
         <div class="w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" @click.stop>
           <div class="flex items-start justify-between gap-2 border-b border-border px-5 py-4 shrink-0">
             <div class="min-w-0">
-              <h4 class="text-sm font-semibold text-foreground">队列详情</h4>
+              <h4 class="text-sm font-semibold text-foreground">{{ t('settings.generation.queueDetails') }}</h4>
               <p class="mt-0.5 text-[11px] text-muted">{{ queueStatusTitle }}</p>
             </div>
             <button
               type="button"
               class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0"
-              aria-label="关闭"
+              :aria-label="t('settings.generation.close')"
               @click="queueModalOpen = false"
             >
               <X class="w-4 h-4" />
@@ -1018,7 +1018,7 @@ async function onUiLocaleChange(value: string) {
               v-if="queueSnapshot && pendingRunCount > 0"
               class="rounded-lg border border-border bg-[hsl(var(--card-elevated))] px-3 py-2 space-y-1.5"
             >
-              <div class="text-[12px] font-medium text-foreground">待执行任务</div>
+              <div class="text-[12px] font-medium text-foreground">{{ t('settings.generation.pendingTasks') }}</div>
               <ul class="space-y-1 max-h-36 overflow-y-auto">
                 <li
                   v-for="run in queueSnapshot.pendingRuns"
@@ -1037,10 +1037,10 @@ async function onUiLocaleChange(value: string) {
               v-if="queueSnapshot && pendingRunCount === 0 && !totalLaneWaiting"
               class="text-[11px] text-muted text-center py-4"
             >
-              当前无排队任务
+              {{ t('settings.generation.noQueuedTasks') }}
             </p>
             <p v-else-if="!queueSnapshot && !queueLoading" class="text-[11px] text-muted text-center py-4">
-              队列信息暂不可用
+              {{ t('settings.generation.queueUnavailable') }}
             </p>
           </div>
         </div>
@@ -1058,13 +1058,13 @@ async function onUiLocaleChange(value: string) {
         <div class="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl p-5 space-y-4" @click.stop>
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
-              <h4 class="text-sm font-semibold text-foreground">多媒体理解环境</h4>
-              <p class="mt-0.5 text-[11px] text-muted">IM 视频与抽帧理解依赖本机 ffmpeg</p>
+              <h4 class="text-sm font-semibold text-foreground">{{ t('settings.generation.mediaDepsModalTitle') }}</h4>
+              <p class="mt-0.5 text-[11px] text-muted">{{ t('settings.generation.mediaDepsModalHint') }}</p>
             </div>
             <button
               type="button"
               class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0"
-              aria-label="关闭"
+              :aria-label="t('settings.generation.close')"
               @click="mediaDepsModalOpen = false"
             >
               <X class="w-4 h-4" />
@@ -1072,7 +1072,7 @@ async function onUiLocaleChange(value: string) {
           </div>
           <div class="rounded-lg border border-border bg-card/50 px-3 py-2.5 space-y-1">
             <p class="text-[12px] font-medium text-foreground">ffmpeg / ffprobe</p>
-            <p class="text-[11px] text-muted">IM 视频与抽帧理解需要本机安装；未安装时不打包进应用。</p>
+            <p class="text-[11px] text-muted">{{ t('settings.generation.ffmpegNote') }}</p>
             <p
               class="text-[11px] mt-1"
               :class="mediaDeps?.status === 'ready' ? 'text-success' : 'text-warning'"
@@ -1083,7 +1083,7 @@ async function onUiLocaleChange(value: string) {
               {{ ffmpegStatusDetail }}
             </p>
             <p v-if="mediaDeps?.status === 'ready'" class="text-[10px] text-muted mt-0.5">
-              单个视频仍可能因编码或文件损坏抽帧失败，不代表未安装 ffmpeg。
+              {{ t('settings.generation.ffmpegPartialNote') }}
             </p>
           </div>
           <div class="flex items-center justify-end gap-2">
@@ -1092,7 +1092,7 @@ async function onUiLocaleChange(value: string) {
               class="h-8 px-3 rounded-lg border border-border text-xs text-foreground hover:bg-muted/50 cursor-pointer transition-colors"
               @click="refreshMediaDeps()"
             >
-              重新检测
+              {{ t('settings.generation.recheck') }}
             </button>
             <button
               v-if="ffmpegNeedsInstall"
@@ -1100,7 +1100,7 @@ async function onUiLocaleChange(value: string) {
               class="h-8 px-3 rounded-lg bg-accent text-accent-foreground text-xs hover:opacity-90 cursor-pointer transition-colors"
               @click="askAssistantInstallFfmpeg()"
             >
-              让助手安装
+              {{ t('settings.generation.letAssistantInstall') }}
             </button>
           </div>
         </div>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { parseMarkdown } from '../../lib/markdownConfig'
 import {
   ChevronDown,
@@ -34,6 +35,7 @@ const props = defineProps<{
   /** Match collapsed group line height while this row is the live trailing tool. */
   dense?: boolean
 }>()
+const { t } = useI18n()
 const chat = useChatStore()
 const open = ref(false)
 
@@ -92,8 +94,8 @@ const videoGenerateDuration = computed(() => {
   return null
 })
 const boardSummary = computed(() => {
-  // 只对 task_board 系列工具解析 result；其他工具（如 ask_user 的
-  // {"selected": ...}）绝不能误显示成"任务板 · …"。
+  // Only parse `result` for task_board-family tools; other tools (e.g. ask_user's
+  // {"selected": ...}) must never render as "Task board · …".
   const name = props.toolCall.name
   const base = name.indexOf(':') === -1 ? name : name.slice(0, name.indexOf(':'))
   if (!base.startsWith('task_board')) return null
@@ -323,40 +325,47 @@ const terminalMeta = computed(() => {
   const items = []
   if (typeof result.exitCode !== 'undefined' && result.exitCode !== null) items.push(`exit ${result.exitCode}`)
   if (result.timedOut) items.push('timeout')
-  if (result.elevationDenied) items.push('已拒绝提权')
-  if (result.runAborted) items.push('已结束命令')
-  if (result.cancelled) items.push('已停止')
+  if (result.elevationDenied) items.push(t('tools.terminal.elevationDenied'))
+  if (result.runAborted) items.push(t('tools.terminal.aborted'))
+  if (result.cancelled) items.push(t('tools.terminal.cancelled'))
   return items.join(' · ')
 })
 
 const statusInfo = computed(() => {
   if (props.toolCall.waitingForInput) {
-    return { label: '等待你的输入', color: 'text-warning' }
+    return { label: t('tools.status.waitingForInput'), color: 'text-warning' }
   }
   switch (effectiveStatus.value) {
-    case 'pending_approval': return { label: '等待确认', color: 'text-warning' }
-    case 'running': return { label: isBackgroundJobHost(props.toolCall) ? '后台执行中' : '执行中', color: 'text-accent' }
+    case 'pending_approval': return { label: t('tools.status.pendingApproval'), color: 'text-warning' }
+    case 'running': return {
+      label: isBackgroundJobHost(props.toolCall) ? t('tools.progress.runningBackground') : t('tools.progress.running'),
+      color: 'text-accent'
+    }
     case 'success': {
       if (isJobAwaitCall(props.toolCall)) {
         try {
           const parsed = JSON.parse(props.toolCall.result || '') as { reason?: string }
           if (parsed.reason === 'wait_ended') {
-            return { label: '已结束等待', color: 'text-muted' }
+            return { label: t('tools.status.waitEnded'), color: 'text-muted' }
           }
         } catch {
           /* ignore */
         }
       }
-      return { label: isBackgroundSubagentCall(props.toolCall) ? '已完成' : '成功', color: 'text-success' }
+      return {
+        label: isBackgroundSubagentCall(props.toolCall) ? t('tools.status.completed') : t('tools.status.success'),
+        color: 'text-success'
+      }
     }
     case 'failed': {
+      // Legacy stored error text may still contain the Chinese cancellation marker.
       const cancelled = /cancel|interrupted|已停止/i.test(props.toolCall.error || '')
       if (isBackgroundSubagentCall(props.toolCall) && cancelled) {
-        return { label: '已取消', color: 'text-muted/45' }
+        return { label: t('tools.status.cancelled'), color: 'text-muted/45' }
       }
-      return { label: '失败', color: 'text-muted/45' }
+      return { label: t('tools.status.failed'), color: 'text-muted/45' }
     }
-    case 'rejected': return { label: '已拒绝', color: 'text-muted' }
+    case 'rejected': return { label: t('tools.status.rejected'), color: 'text-muted' }
   }
   return { label: '', color: '' }
 })

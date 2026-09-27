@@ -357,7 +357,14 @@
         "notFound": "未检测到"
       },
       "laneRunning": "执行中",
-      "laneQueued": "排队"
+      "laneQueued": "排队",
+      "pendingRuns": "待执行任务",
+      "mediaEnvTitle": "多媒体理解环境",
+      "mediaEnvHint": "IM 视频与抽帧理解依赖本机 ffmpeg",
+      "mediaEnvInstallHint": "IM 视频与抽帧理解需要本机安装；未安装时不打包进应用。",
+      "mediaEnvCodecNote": "单个视频仍可能因编码或文件损坏抽帧失败，不代表未安装 ffmpeg。",
+      "redetect": "重新检测",
+      "askAssistantInstall": "让助手安装"
     }
   },
   "shell": {

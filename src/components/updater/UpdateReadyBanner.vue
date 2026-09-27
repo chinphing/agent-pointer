@@ -50,19 +50,19 @@ const emit = defineEmits<{
         class="h-8 px-4 rounded-lg bg-accent text-accent-foreground text-xs font-medium cursor-pointer hover:opacity-95 transition-opacity"
         @click="emit('apply')"
       >
-        立即更新
+        {{ t('updaterBanner.updateNow') }}
       </button>
       <button
         class="h-8 px-3 rounded-lg bg-hover text-foreground text-xs cursor-pointer hover:bg-hover/80 transition-colors"
         @click="emit('dismiss')"
       >
-        稍后
+        {{ t('updaterBanner.later') }}
       </button>
       <button
         class="h-8 px-3 rounded-lg text-muted text-xs cursor-pointer hover:text-foreground transition-colors ml-auto"
         @click="emit('skipVersion')"
       >
-        跳过此版本
+        {{ t('updaterBanner.skipVersion') }}
       </button>
     </div>
   </div>

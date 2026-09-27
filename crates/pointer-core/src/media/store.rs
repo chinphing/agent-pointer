@@ -41,7 +41,13 @@ pub fn composer_attachment_max_bytes(file_name: &str) -> u64 {
 pub fn ensure_composer_attachment_size(len: u64, file_name: &str) -> Result<()> {
     let limit = composer_attachment_max_bytes(file_name);
     if len > limit {
-        anyhow::bail!("文件超过 {} MB 上限", (limit / (1024 * 1024)).max(1));
+        let limit_mb = (limit / (1024 * 1024)).max(1);
+        let msg = crate::i18n::tf(
+            "err.file_too_large",
+            crate::i18n::current_ui_locale(),
+            &[("limit", &limit_mb.to_string())],
+        );
+        anyhow::bail!(msg);
     }
     Ok(())
 }

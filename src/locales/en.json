@@ -337,8 +337,8 @@
       "queueDetails": "Queue details",
       "close": "Close",
       "pendingTasks": "Pending tasks",
-      "noQueuedTasks": "No queued tasks right now",
-      "queueUnavailable": "Queue information is unavailable",
+      "noQueuedTasks": "No queued tasks",
+      "queueUnavailable": "Queue info unavailable",
       "mediaDepsModalTitle": "Multimedia understanding environment",
       "mediaDepsModalHint": "IM video and frame-extraction understanding rely on a local ffmpeg",
       "ffmpegNote": "IM video and frame-extraction understanding require a local install; it isn't bundled with the app when missing.",
@@ -357,7 +357,14 @@
         "notFound": "Not detected"
       },
       "laneRunning": "running",
-      "laneQueued": "queued"
+      "laneQueued": "queued",
+      "pendingRuns": "Pending runs",
+      "mediaEnvTitle": "Media understanding environment",
+      "mediaEnvHint": "IM video and frame extraction need local ffmpeg",
+      "mediaEnvInstallHint": "Install on this machine for IM video / frame extraction; it is not bundled with the app.",
+      "mediaEnvCodecNote": "A single video may still fail frame extraction due to codec or file corruption; that does not mean ffmpeg is missing.",
+      "redetect": "Check again",
+      "askAssistantInstall": "Ask assistant to install"
     }
   },
   "shell": {

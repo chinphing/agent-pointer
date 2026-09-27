@@ -289,8 +289,8 @@ const toastClass = computed(() => {
           v-model="pageSearchQuery"
           class="w-56 bg-transparent px-1.5 py-1 text-sm text-foreground outline-none placeholder:text-muted"
           type="search"
-          placeholder="在已加载消息中查找"
-          aria-label="在已加载消息中查找"
+          :placeholder="t('chat.view.searchPlaceholder')"
+          :aria-label="t('chat.view.searchPlaceholder')"
           @keydown="onPageSearchKeydown"
         />
         <span class="min-w-12 text-center text-xs tabular-nums text-muted">
@@ -299,7 +299,7 @@ const toastClass = computed(() => {
         <button
           type="button"
           class="rounded p-1 text-muted transition hover:bg-hover hover:text-foreground disabled:opacity-40"
-          title="上一个匹配（Shift+Enter）"
+          :title="t('chat.view.prevMatchTitle')"
           :disabled="pageSearchMatches.length === 0"
           @click="movePageSearch(-1)"
         >
@@ -308,7 +308,7 @@ const toastClass = computed(() => {
         <button
           type="button"
           class="rounded p-1 text-muted transition hover:bg-hover hover:text-foreground disabled:opacity-40"
-          title="下一个匹配（Enter）"
+          :title="t('chat.view.nextMatchTitle')"
           :disabled="pageSearchMatches.length === 0"
           @click="movePageSearch(1)"
         >
@@ -317,7 +317,7 @@ const toastClass = computed(() => {
         <button
           type="button"
           class="rounded p-1 text-muted transition hover:bg-hover hover:text-foreground"
-          title="关闭（Esc）"
+          :title="t('chat.view.closeSearchTitle')"
           @click="closePageSearch"
         >
           <X class="h-4 w-4" />
@@ -344,7 +344,7 @@ const toastClass = computed(() => {
                 v-else
                 class="mb-[30px] max-w-[22rem] text-center text-[1.375rem] font-semibold leading-snug tracking-tight text-foreground sm:max-w-none sm:text-[1.625rem] md:text-[1.75rem]"
               >
-                <span class="brand-text">{{ brandName }}</span>：你说，我做，就这么简单！
+                <span class="brand-text">{{ brandName }}</span>{{ t('chat.view.welcomeSloganSuffix') }}
               </h1>
             </div>
 
@@ -381,7 +381,7 @@ const toastClass = computed(() => {
                   :aria-expanded="experienceSectionExpanded"
                   @click="experienceSectionExpanded = !experienceSectionExpanded"
                 >
-                  <span class="text-xs font-medium text-muted">更多经验</span>
+                  <span class="text-xs font-medium text-muted">{{ t('chat.view.moreExperience') }}</span>
                   <ChevronDown
                     class="h-3.5 w-3.5 shrink-0 text-muted transition-transform duration-200"
                     :class="experienceSectionExpanded ? 'rotate-180' : ''"

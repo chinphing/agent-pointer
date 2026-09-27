@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onBeforeUnmount, provide, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { ArrowDown, ChevronDown, ChevronRight, Plus, X } from 'lucide-vue-next'
 import MessageRow from './message/MessageRow.vue'
@@ -121,6 +122,7 @@ const props = withDefaults(defineProps<{
   searchQuery: ''
 })
 
+const { t } = useI18n()
 const chat = useChatStore()
 const settings = useSettingsStore()
 const agentsCatalog = useAgentsCatalog()
@@ -1689,9 +1691,9 @@ function turnElapsedLabel(turnId: string): string {
 }
 
 /**
- * 「工作」chip: finished turns only, unless「默认收缩执行过程」shows live elapsed
- * on an *active* turn. Hide the finished-style chip when hydrate briefly mis-labels
- * a still-running turn as completed (sidebar switch).
+ * "Worked" chip: finished turns only, unless "collapse process by default" shows
+ * live elapsed on an *active* turn. Hide the finished-style chip when hydrate briefly
+ * mis-labels a still-running turn as completed (sidebar switch).
  */
 function shouldShowTurnElapsedChip(turn: (typeof conversationTurns.value)[number]): boolean {
   if (turn.hiddenCount <= 0) return false
@@ -1945,7 +1947,7 @@ function entrySpacing(
         class="text-xs text-muted"
         role="status"
       >
-        没有更早的消息
+        {{ t('chat.list.noOlderMessages') }}
       </p>
     </div>
 
@@ -2132,8 +2134,8 @@ function entrySpacing(
       v-if="showMobileNewConversationButton"
       type="button"
       class="absolute bottom-4 left-4 z-40 h-10 w-10 rounded-full panel shadow-lg flex items-center justify-center cursor-pointer hover:bg-hover transition md:hidden"
-      title="新建会话"
-      aria-label="新建会话"
+      :title="t('chat.list.newConversationTitle')"
+      :aria-label="t('chat.list.newConversationTitle')"
       @click="openNewConversationConfirmation"
     >
       <Plus class="w-5 h-5 text-foreground" />
@@ -2149,9 +2151,9 @@ function entrySpacing(
         @click.self="closeNewConversationConfirmation"
       >
         <div class="w-full max-w-md rounded-2xl border border-border bg-[hsl(var(--card-elevated))] p-5 shadow-2xl">
-          <h2 id="new-conversation-confirm-title" class="text-base font-semibold text-foreground">新建会话？</h2>
+          <h2 id="new-conversation-confirm-title" class="text-base font-semibold text-foreground">{{ t('chat.list.newConversationConfirmTitle') }}</h2>
           <p class="mt-2 text-[13px] leading-relaxed text-muted">
-            将切换到一个新的会话。当前会话会保留在历史记录中，不会丢失。
+            {{ t('chat.list.newConversationConfirmBody') }}
           </p>
           <div class="mt-5 flex justify-end gap-2">
             <button
@@ -2159,14 +2161,14 @@ function entrySpacing(
               class="h-9 rounded-lg bg-hover px-4 text-sm text-foreground transition-opacity hover:opacity-90"
               @click="closeNewConversationConfirmation"
             >
-              取消
+              {{ t('common.cancel') }}
             </button>
             <button
               type="button"
               class="h-9 rounded-lg bg-accent px-4 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-95"
               @click="confirmNewConversation"
             >
-              确认新建
+              {{ t('chat.list.confirmNewConversation') }}
             </button>
           </div>
         </div>
@@ -2178,7 +2180,7 @@ function entrySpacing(
       type="button"
       class="absolute bottom-4 right-4 z-40 h-10 w-10 rounded-full panel shadow-lg flex items-center justify-center cursor-pointer hover:bg-hover transition"
       @click="jumpToLatest"
-      title="滚动到底部"
+      :title="t('chat.list.scrollToBottomTitle')"
     >
       <ArrowDown class="w-5 h-5 text-foreground" />
     </button>

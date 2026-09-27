@@ -786,6 +786,11 @@
     "agentMode": {
       "general": "General assistant",
       "coder": "Vibe coding"
+    },
+    "runtime": {
+      "jsonObjectRequired": "Must be a JSON object, e.g. { \"repetition_penalty\": 1.1 }",
+      "jsonInvalid": "Invalid JSON",
+      "noProvider": "No provider"
     }
   },
   "shell": {
@@ -974,7 +979,6 @@
       "ephemeralSandboxCreated": "A temporary workspace was created automatically — you can switch to a project folder below the input",
       "terminalNeedsPassword": "The terminal command needs a password — enter it in the dialog",
       "terminalWaitingInput": "The terminal command is waiting for your input",
-      "attachmentNotReady": "Attachment “{name}” has not finished uploading",
       "attachmentNotUploaded": "Attachment \"{name}\" has not finished uploading"
     },
     "topBar": {
@@ -1602,7 +1606,15 @@
     "patchRows": "patch · {n} rows",
     "milestones": "{n} milestones",
     "method": "Task board · {method}",
-    "updated": "Task board updated"
+    "updated": "Task board updated",
+    "status": {
+      "completed": "Completed",
+      "failed": "Failed",
+      "running": "In progress",
+      "paused": "Paused",
+      "cancelled": "Cancelled"
+    },
+    "defaultGoal": "Task board"
   },
   "backgroundJobs": {
     "runningHint": "Still running in the background",
@@ -1619,7 +1631,11 @@
     "endJob": "End job",
     "endWaitTitle": "End waiting; the background job keeps running",
     "endWait": "End wait",
-    "stillRunning": "Still running — see the message history above for details"
+    "stillRunning": "Still running — see the message history above for details",
+    "kind": {
+      "terminal": "Terminal",
+      "subtask": "Subtask"
+    }
   },
   "outboundQueue": {
     "emptyMessage": "(Empty message)",
@@ -1669,8 +1685,13 @@
       "stepsAria": "Permission steps"
     },
     "preparing": "Preparing…",
-    "executing": "Executing…",
-    "stopped": "Stopped"
+    "executing": "Running…",
+    "stopped": "Stopped",
+    "noConversationId": "Unable to get the current conversation ID",
+    "monitor": {
+      "primary": "Primary display",
+      "extended": "Extended display"
+    }
   },
   "workspaceRequired": {
     "ariaLabel": "Please choose a working folder first",
@@ -1710,7 +1731,8 @@
     "ariaLabel": "Navigation",
     "scrollUp": "Scroll up",
     "scrollDown": "Scroll down",
-    "milestoneLabel": "Milestone {preview}"
+    "milestoneLabel": "Milestone {preview}",
+    "noText": "(no text)"
   },
   "web": {
     "requestTimeout": "Request timed out (>{seconds}s): {base} not responding. Confirm pointer-server is running (default 127.0.0.1:8787); for cross-origin set VITE_WEB_API_BASE and POINTER_SERVER_CORS_ORIGINS.",
@@ -1758,7 +1780,8 @@
       "openaiEffort": "OpenAI effort",
       "off": "Structured off",
       "custom": "Extra params only"
-    }
+    },
+    "indicator": "Thinking"
   },
   "cron": {
     "weekday": {
@@ -1842,7 +1865,6 @@
       "group": "{label} group",
       "dm": "{label} DM"
     },
-    "ui": {},
     "im": {
       "newChat": "New chat",
       "groupChat": "group",
@@ -1872,7 +1894,10 @@
     "chartMissingConfig": "Chart config missing",
     "chartUnparseable": "Chart config could not be parsed",
     "chartInvalid": "Invalid chart config",
-    "chartRenderFailed": "Chart render failed"
+    "chartRenderFailed": "Chart render failed",
+    "mermaidPendingNode": "Generating diagram",
+    "chartMissing": "Chart config missing",
+    "diagramMissing": "Diagram config missing"
   },
   "lib": {
     "uploadCancelled": "Upload cancelled",
@@ -1890,5 +1915,66 @@
     "fast": "Fast",
     "standard": "Standard",
     "expert": "Advanced"
+  },
+  "upload": {
+    "aborted": "Upload cancelled",
+    "failed": "Upload failed",
+    "videoFailed": "Video upload failed",
+    "timeout": "Upload timed out (>{seconds}s)",
+    "failedStatus": "Upload failed ({status})",
+    "parseResponseFailed": "Failed to parse upload response",
+    "networkFailed": "Network error; upload failed"
+  },
+  "dispatcher": {
+    "lane": {
+      "main": "Main task pool",
+      "cron": "Scheduled task pool",
+      "session": "Session {id}"
+    },
+    "kind": {
+      "chat": "Chat",
+      "cron": "Scheduled",
+      "internal": "Internal"
+    }
+  },
+  "planner": {
+    "phaseThoughts": "Planning the task…"
+  },
+  "attachment": {
+    "cannotOpen": "Cannot open this attachment",
+    "webUnsupported": "Opening this attachment is not supported on the web",
+    "overLimit": "\"{name}\" exceeds the {limitMb} MB limit",
+    "videoCompressConfirm": "Video \"{name}\" is about {sizeMb} MB.\n\nFiles over {limitMb} MB cannot be uploaded directly. Pointer will compress the video below {limitMb} MB before upload; frame rate and resolution may decrease.\n\nContinue?",
+    "compressingUpload": "Compressing and uploading \"{name}\"…",
+    "usePaperclipForVideo": "Use the attachment (paperclip) button to choose a video. The desktop app does not support large video uploads via a web-style file picker.",
+    "compressConfirm": "Video \"{name}\" is about {sizeMb} MB.\n\nFiles over {limitMb} MB cannot be uploaded directly. Pointer will compress the video below {limitMb} MB before upload; frame rate and resolution may decrease.\n\nContinue?"
+  },
+  "connection": {
+    "success": "Connected"
+  },
+  "project": {
+    "defaultName": "New project",
+    "linkedExisting": "Directory linked to existing project \"{name}\""
+  },
+  "idleJob": {
+    "completed": "Background job completed.",
+    "failed": "Background job failed",
+    "completedPrefix": "Background jobs completed",
+    "completedMany": "{prefix}: {a}, {b}, and {n} total"
+  },
+  "cloudAgents": {
+    "running": "Running",
+    "starting": "Starting",
+    "releasing": "Releasing"
+  },
+  "channels": {
+    "requestTimeout": "Request timed out; confirm pointer-server is running",
+    "connectFailed": "Cannot reach pointer-server ({base}). Run npm run server:dev, or save settings in the Tauri desktop app.",
+    "sameOriginApi": "same-origin /api",
+    "pairCodeInvalid": "Pairing code invalid or expired"
+  },
+  "thread": {
+    "desktopScreenshot": "Desktop screenshot",
+    "toolResult": "Tool result"
   }
 }

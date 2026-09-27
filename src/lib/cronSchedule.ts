@@ -2,14 +2,15 @@
  * Cron schedule helpers for the automation UI. The backend uses a 6-field,
  * second-level cron expression (`sec min hour dom mon dow`), which most users
  * cannot write by hand. These helpers bridge a small set of friendly presets
- * to/from that raw expression, plus a human-readable Chinese description.
+ * to/from that raw expression, plus a human-readable description.
  *
  * Fields are interpreted in the user's local timezone by the backend
- * (`cron::Schedule::after(Local::now())`), so "每天 09:30" means local 09:30.
+ * (`cron::Schedule::after(Local::now())`), so "daily at 09:30" means local 09:30.
  */
 
-/** Friendly schedule modes backed by generated cron / one-shot strings. */
 import { t } from '../i18n'
+
+/** Friendly schedule modes backed by generated cron / one-shot strings. */
 export type CronMode =
   | 'onceIn'
   | 'onceAt'

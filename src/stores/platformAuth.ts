@@ -92,8 +92,7 @@ export function isPlatformAuthTransientError(message: string): boolean {
     msg.includes('timeout') ||
     msg.includes('dns error') ||
     msg.includes('network unreachable') ||
-    msg.includes('连接') ||
-    msg.includes('connect')
+    msg.includes('连接')
   )
 }
 

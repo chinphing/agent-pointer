@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { t } from '../i18n'
 import {
   buildCron,
   describeCron,
@@ -96,32 +97,32 @@ describe('parseCron round-trips presets', () => {
 
 describe('describeCron', () => {
   it('everyMinute', () => {
-    expect(describeCron('0 * * * * *')).toBe('每分钟执行')
+    expect(describeCron('0 * * * * *')).toBe(t('cron.describe.everyMinute'))
   })
 
   it('everyNMinutes', () => {
-    expect(describeCron('0 */15 * * * *')).toBe('每 15 分钟执行')
+    expect(describeCron('0 */15 * * * *')).toBe(t('cron.describe.everyNMinutes', { n: 15 }))
   })
 
   it('everyNHours', () => {
-    expect(describeCron('0 0 */6 * * *')).toBe('每 6 小时执行')
+    expect(describeCron('0 0 */6 * * *')).toBe(t('cron.describe.everyNHours', { n: 6 }))
   })
 
   it('dailyAt zero-pads', () => {
-    expect(describeCron('0 5 9 * * *')).toBe('每天 09:05 执行')
+    expect(describeCron('0 5 9 * * *')).toBe(t('cron.describe.dailyAt', { time: '09:05' }))
   })
 
   it('weeklyAt', () => {
-    expect(describeCron('0 30 9 * * 1')).toBe('每周一 09:30 执行')
-    expect(describeCron('0 0 0 * * 0')).toBe('每周日 00:00 执行')
+    expect(describeCron('0 30 9 * * 1')).toBe(t('cron.describe.weeklyAt', { weekday: t('cron.weekday.1'), time: '09:30' }))
+    expect(describeCron('0 0 0 * * 0')).toBe(t('cron.describe.weeklyAt', { weekday: t('cron.weekday.0'), time: '00:00' }))
   })
 
   it('monthlyAt', () => {
-    expect(describeCron('0 30 9 1 * *')).toBe('每月 1 日 09:30 执行')
-    expect(describeCron('0 0 0 15 * *')).toBe('每月 15 日 00:00 执行')
+    expect(describeCron('0 30 9 1 * *')).toBe(t('cron.describe.monthlyAt', { day: 1, time: '09:30' }))
+    expect(describeCron('0 0 0 15 * *')).toBe(t('cron.describe.monthlyAt', { day: 15, time: '00:00' }))
   })
 
   it('custom', () => {
-    expect(describeCron('0 0 0 1 1 *')).toBe('自定义：0 0 0 1 1 *')
+    expect(describeCron('0 0 0 1 1 *')).toBe(t('cron.describe.custom', { expr: '0 0 0 1 1 *' }))
   })
 })

@@ -786,6 +786,11 @@
     "agentMode": {
       "general": "通用助手",
       "coder": "氛围编程"
+    },
+    "runtime": {
+      "jsonObjectRequired": "须为 JSON 对象，例如 { \"repetition_penalty\": 1.1 }",
+      "jsonInvalid": "JSON 无效",
+      "noProvider": "无服务商"
     }
   },
   "shell": {
@@ -974,7 +979,6 @@
       "ephemeralSandboxCreated": "已自动创建临时工作目录，可在输入框下方更换为项目目录",
       "terminalNeedsPassword": "终端命令需要密码，请在弹窗中输入",
       "terminalWaitingInput": "终端命令等待你的输入",
-      "attachmentNotReady": "附件「{name}」尚未上传完成",
       "attachmentNotUploaded": "附件「{name}」尚未上传完成"
     },
     "topBar": {
@@ -1388,7 +1392,11 @@
     "runningHint": "后台仍在执行",
     "stillRunning": "任务仍在运行，详情见上方消息记录",
     "title": "后台任务",
-    "waitingFallback": "等待后台任务"
+    "waitingFallback": "等待后台任务",
+    "kind": {
+      "terminal": "终端",
+      "subtask": "子任务"
+    }
   },
   "channelPairing": {
     "approve": "批准",
@@ -1431,24 +1439,30 @@
     },
     "pickScreen": {
       "ariaLabel": "选择屏幕",
-      "title": "选择要操作的屏幕",
-      "description": "按桌面排列点击屏幕。Agent 将在所选屏幕上截图并执行操作。",
       "closeTitle": "关闭 (Esc)",
+      "description": "按桌面排列点击屏幕。Agent 将在所选屏幕上截图并执行操作。",
+      "layoutHint": "布局与系统「显示器排列」一致；点击一块屏幕以继续。",
       "loading": "正在读取屏幕列表…",
       "noScreens": "未检测到可用屏幕",
-      "layoutHint": "布局与系统「显示器排列」一致；点击一块屏幕以继续。",
+      "title": "选择要操作的屏幕",
       "compact": "请选择操控屏幕…"
     },
     "stopTitle": "终止",
     "preparing": "准备执行…",
     "executing": "执行中…",
-    "stopped": "已停止"
+    "stopped": "已停止",
+    "noConversationId": "无法获取当前会话 ID",
+    "monitor": {
+      "primary": "主屏幕",
+      "extended": "扩展屏幕"
+    }
   },
   "conversationNav": {
     "ariaLabel": "导航",
     "milestoneLabel": "里程碑 {preview}",
     "scrollDown": "向下",
-    "scrollUp": "向上"
+    "scrollUp": "向上",
+    "noText": "（无文字）"
   },
   "diffView": {
     "additions": "新增",
@@ -1557,7 +1571,15 @@
     "patchRows": "patch · {n} 行",
     "milestones": "共 {n} 里程碑",
     "method": "任务板 · {method}",
-    "updated": "任务板已更新"
+    "updated": "任务板已更新",
+    "status": {
+      "completed": "已完成",
+      "failed": "失败",
+      "running": "进行中",
+      "paused": "已暂停",
+      "cancelled": "已取消"
+    },
+    "defaultGoal": "任务板"
   },
   "terminalInputModal": {
     "cancel": "取消",
@@ -1758,7 +1780,8 @@
       "openaiEffort": "OpenAI 力度",
       "off": "关闭结构化",
       "custom": "仅扩展参数"
-    }
+    },
+    "indicator": "思考中"
   },
   "cron": {
     "weekday": {
@@ -1871,7 +1894,10 @@
     "chartMissingConfig": "图表配置缺失",
     "chartUnparseable": "图表配置无法解析",
     "chartInvalid": "图表配置无效",
-    "chartRenderFailed": "图表渲染失败"
+    "chartRenderFailed": "图表渲染失败",
+    "mermaidPendingNode": "图示生成中",
+    "chartMissing": "图表配置缺失",
+    "diagramMissing": "图示配置缺失"
   },
   "lib": {
     "uploadCancelled": "上传已取消",
@@ -1889,5 +1915,66 @@
     "fast": "快速",
     "standard": "标准",
     "expert": "高级"
+  },
+  "upload": {
+    "aborted": "上传已取消",
+    "failed": "上传失败",
+    "videoFailed": "视频上传失败",
+    "timeout": "上传超时（>{seconds}s）",
+    "failedStatus": "上传失败 ({status})",
+    "parseResponseFailed": "解析上传响应失败",
+    "networkFailed": "网络错误，上传失败"
+  },
+  "dispatcher": {
+    "lane": {
+      "main": "主任务池",
+      "cron": "定时任务池",
+      "session": "会话 {id}"
+    },
+    "kind": {
+      "chat": "聊天",
+      "cron": "定时",
+      "internal": "内部"
+    }
+  },
+  "planner": {
+    "phaseThoughts": "正在规划任务…"
+  },
+  "attachment": {
+    "cannotOpen": "无法打开该附件",
+    "webUnsupported": "网页端暂不支持打开该附件",
+    "overLimit": "「{name}」超过 {limitMb} MB 上限",
+    "videoCompressConfirm": "视频「{name}」约 {sizeMb} MB。\n\n超过 {limitMb} MB 不能直接上传。Pointer 将启用压缩，把视频压缩到 {limitMb} MB 以下后再上传；视频的帧率和分辨率可能会降低。\n\n是否继续？",
+    "compressingUpload": "正在压缩并上传「{name}」…",
+    "usePaperclipForVideo": "请使用附件按钮（回形针）选择视频文件。桌面端不支持通过网页式文件选择器上传大视频。",
+    "compressConfirm": "视频「{name}」约 {sizeMb} MB。\n\n超过 {limitMb} MB 不能直接上传。Pointer 将启用压缩，把视频压缩到 {limitMb} MB 以下后再上传；视频的帧率和分辨率可能会降低。\n\n是否继续？"
+  },
+  "connection": {
+    "success": "连接成功"
+  },
+  "project": {
+    "defaultName": "新项目",
+    "linkedExisting": "目录已关联到现有项目「{name}」"
+  },
+  "idleJob": {
+    "completed": "后台任务已完成。",
+    "failed": "后台任务失败",
+    "completedPrefix": "后台任务已完成",
+    "completedMany": "{prefix}：{a}、{b} 等 {n} 个"
+  },
+  "cloudAgents": {
+    "running": "运行中",
+    "starting": "启动中",
+    "releasing": "释放中"
+  },
+  "channels": {
+    "requestTimeout": "请求超时，请确认 pointer-server 已启动",
+    "connectFailed": "无法连接 pointer-server（{base}）。请先运行 npm run server:dev，或使用 Tauri 桌面端本地保存配置。",
+    "sameOriginApi": "同源 /api",
+    "pairCodeInvalid": "配对码无效或已过期"
+  },
+  "thread": {
+    "desktopScreenshot": "桌面截图",
+    "toolResult": "工具结果"
   }
 }

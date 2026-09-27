@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { t } from '../i18n'
 import {
   agentInstanceIdFromTraceId,
   emptySubAgentToolStats,
@@ -7,10 +8,14 @@ import {
   incrementSubAgentToolStats,
   resolveCollapsedSubAgentView,
   resolveSubAgentSummaryDisplay,
-  SUB_AGENT_PROCESS_PLACEHOLDER,
+  subAgentProcessPlaceholder,
   subAgentIdFromTraceId,
   subTaskIdFromTraceId
 } from './subAgentStats'
+
+function stat(labelKey: string, n: number): string {
+  return t('subAgent.statCount', { label: t(labelKey), n })
+}
 
 describe('sub-agent trace identity parsing', () => {
   it('preserves task and agent ids for instance-scoped self-fork traces', () => {
@@ -40,7 +45,15 @@ describe('subAgentStats general-worker', () => {
     incrementSubAgentToolStats(stats, 'file_read', '{}')
 
     const line = formatSubAgentSummaryLine('通用执行', 'completed', stats, 'general-worker')
-    expect(line).toBe('通用执行 · 终端 1 次 · 技能 2 次 · 媒体 1 次 · 读文件 1 次')
+    expect(line).toBe(
+      [
+        '通用执行',
+        t('subAgent.statCount', { label: t('subAgent.statTerminal'), n: 1 }),
+        t('subAgent.statCount', { label: t('subAgent.statSkill'), n: 2 }),
+        t('subAgent.statCount', { label: t('subAgent.statMedia'), n: 1 }),
+        t('subAgent.statCount', { label: t('subAgent.statRead'), n: 1 })
+      ].join(' · ')
+    )
   })
 
   it('does not fall back to explore-only buckets for general-worker', () => {
@@ -48,8 +61,8 @@ describe('subAgentStats general-worker', () => {
     incrementSubAgentToolStats(stats, 'terminal', '{}')
     incrementSubAgentToolStats(stats, 'terminal', '{}')
     const line = formatSubAgentSummaryLine('通用执行', 'completed', stats, 'general-worker')
-    expect(line).toContain('终端 2 次')
-    expect(line).not.toBe('通用执行 · 工具 0 次')
+    expect(line).toContain(t('subAgent.statCount', { label: t('subAgent.statTerminal'), n: 2 }))
+    expect(line).not.toBe(`通用执行 · ${t('subAgent.toolsZero')}`)
   })
 })
 
@@ -60,32 +73,34 @@ describe('subAgentStats explore / self-fork summary', () => {
     incrementSubAgentToolStats(stats, 'terminal', '{}')
     incrementSubAgentToolStats(stats, 'terminal', '{}')
     const line = formatSubAgentSummaryLine('代码探索', 'completed', stats, 'explore')
-    expect(line).toBe('代码探索 · 读文件 1 次 · 终端 2 次')
+    expect(line).toBe(['代码探索', stat('subAgent.statRead', 1), stat('subAgent.statTerminal', 2)].join(' · '))
   })
 
   it('keeps 失败 on failed traces and omits 已完成 on success', () => {
     const stats = emptySubAgentToolStats()
     incrementSubAgentToolStats(stats, 'file_read', '{}')
     expect(formatSubAgentSummaryLine('代码探索', 'failed', stats, 'explore')).toBe(
-      '代码探索 · 读文件 1 次 · 失败'
+      ['代码探索', stat('subAgent.statRead', 1), t('subAgent.statusFailed')].join(' · ')
     )
-    expect(formatSubAgentSummaryLine('代码探索', 'completed', stats, 'explore')).not.toContain('已完成')
+    expect(formatSubAgentSummaryLine('代码探索', 'completed', stats, 'explore')).not.toContain(
+      t('subAgent.statusCompleted')
+    )
   })
 
   it('omits 进行中 / 执行中 while the sub-agent is still running', () => {
     const stats = emptySubAgentToolStats()
     incrementSubAgentToolStats(stats, 'file_read', '{}')
     const line = formatSubAgentSummaryLine('代码探索', 'running', stats, 'explore')
-    expect(line).toBe('代码探索 · 读文件 1 次')
-    expect(line).not.toContain('进行中')
-    expect(line).not.toContain('执行中')
+    expect(line).toBe(['代码探索', stat('subAgent.statRead', 1)].join(' · '))
+    expect(line).not.toContain(t('subAgent.statusRunning'))
+    expect(line).not.toContain(t('tools.progress.running'))
   })
 
   it('includes terminal for self-fork current-agent traces', () => {
     const stats = emptySubAgentToolStats()
     incrementSubAgentToolStats(stats, 'terminal', '{}')
     const line = formatSubAgentSummaryLine('当前 Agent', 'completed', stats, 'current-agent')
-    expect(line).toContain('终端 1 次')
+    expect(line).toContain(stat('subAgent.statTerminal', 1))
   })
 })
 
@@ -93,8 +108,10 @@ describe('formatSubAgentStatsLine', () => {
   it('omits the task goal so the host row can own it', () => {
     const stats = emptySubAgentToolStats()
     incrementSubAgentToolStats(stats, 'file_read', '{}')
-    expect(formatSubAgentStatsLine('completed', stats, 'explore')).toBe('读文件 1 次')
-    expect(formatSubAgentStatsLine('failed', stats, 'explore')).toBe('读文件 1 次 · 失败')
+    expect(formatSubAgentStatsLine('completed', stats, 'explore')).toBe(stat('subAgent.statRead', 1))
+    expect(formatSubAgentStatsLine('failed', stats, 'explore')).toBe(
+      [stat('subAgent.statRead', 1), t('subAgent.statusFailed')].join(' · ')
+    )
   })
 })
 
@@ -108,7 +125,7 @@ describe('resolveCollapsedSubAgentView', () => {
       stats,
       agentId: 'general-worker'
     })
-    expect(view.summaryLine).toBe('终端 1 次')
+    expect(view.summaryLine).toBe(stat('subAgent.statTerminal', 1))
     expect(view.liveLine).toBeNull()
   })
 
@@ -130,7 +147,7 @@ describe('resolveCollapsedSubAgentView', () => {
       agentId: 'general-worker',
       liveToolLine: '终端 · du -sh'
     })
-    expect(view.summaryLine).toBe('终端 1 次')
+    expect(view.summaryLine).toBe(stat('subAgent.statTerminal', 1))
     expect(view.liveLine).toBe('终端 · du -sh')
   })
 
@@ -151,7 +168,7 @@ describe('resolveCollapsedSubAgentView', () => {
       agentId: 'general-worker',
       thinkingLine: '思考中..'
     })
-    expect(view.summaryLine).toBe('终端 1 次')
+    expect(view.summaryLine).toBe(stat('subAgent.statTerminal', 1))
     expect(view.liveLine).toBe('思考中..')
   })
 
@@ -162,7 +179,7 @@ describe('resolveCollapsedSubAgentView', () => {
       stats,
       agentId: 'general-worker'
     })
-    expect(view.summaryLine).toBe('系统信息探测 · 终端 1 次')
+    expect(view.summaryLine).toBe(['系统信息探测', stat('subAgent.statTerminal', 1)].join(' · '))
   })
 
   it('keeps collapsed stats as tool counts only while background host is running', () => {
@@ -178,7 +195,7 @@ describe('resolveCollapsedSubAgentView', () => {
       stats,
       agentId: 'explore'
     })
-    expect(withStats.summaryLine).toBe('终端 1 次')
+    expect(withStats.summaryLine).toBe(stat('subAgent.statTerminal', 1))
   })
 })
 
@@ -210,6 +227,6 @@ describe('resolveSubAgentSummaryDisplay', () => {
         running: false,
         liveLine: null
       })
-    ).toBe(SUB_AGENT_PROCESS_PLACEHOLDER)
+    ).toBe(subAgentProcessPlaceholder())
   })
 })

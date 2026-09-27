@@ -91,7 +91,7 @@ export function isGenerationCancelledMessage(message: string): boolean {
   const s = message.trim().toLowerCase()
   if (!s) return false
   if (s.includes('已停止')) return true
-  if (s.includes('generation stopped')) return true
+  if (s.includes('generation stopped') || s.includes('stopped generating')) return true
   // Provider / Tokio cancel paths often surface bare English "cancelled".
   if (/\bcancell?ed\b/.test(s)) return true
   return false

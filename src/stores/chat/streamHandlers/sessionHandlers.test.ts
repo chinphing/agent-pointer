@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { t } from '../../../i18n'
 import { handleBackgroundJobs, handleDone, handleStreamError } from './sessionHandlers'
 import { recordTurnStart, turnElapsedMs, hasActiveTurn } from '../../../lib/turnElapsed'
 import { createMockStreamHandlerContext, sampleConversation } from './testUtils'
@@ -248,7 +249,7 @@ describe('sessionHandlers', () => {
 
     expect(conv.messages).toHaveLength(1)
     expect(conv.messages[0].status).toBe('cancelled')
-    expect(conv.messages[0].errorMessage).toBe('已停止生成')
+    expect(conv.messages[0].errorMessage).toBe(t('chat.toast.generationStopped'))
   })
 
   it('handleStreamError keeps empty streaming shell as cancelled on stop', () => {
@@ -271,12 +272,12 @@ describe('sessionHandlers', () => {
       kind: 'error',
       conversationId: 'conv1',
       messageId: 'a1',
-      message: '已停止生成'
+      message: t('chat.toast.generationStopped')
     })
 
     expect(conv.messages).toHaveLength(1)
     expect(conv.messages[0].status).toBe('cancelled')
-    expect(conv.messages[0].errorMessage).toBe('已停止生成')
+    expect(conv.messages[0].errorMessage).toBe(t('chat.toast.generationStopped'))
   })
   it('handleStreamError does not push a second row when messageId already marked error', () => {
     const conv = sampleConversation()

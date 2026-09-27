@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { t } from '../i18n'
 import {
   buildCompressionNoticeContent,
   buildCompressionProgressLabel,
@@ -33,13 +34,13 @@ describe('compression summary roles', () => {
 
 describe('buildCompressionProgressLabel', () => {
   it('uses main-thread copy by default', () => {
-    expect(buildCompressionProgressLabel({ scope: 'main' })).toBe('正在压缩较早记录')
+    expect(buildCompressionProgressLabel({ scope: 'main' })).toBe(t('chat.compression.progressMain'))
   })
 
   it('includes sub-agent name', () => {
     expect(
       buildCompressionProgressLabel({ scope: 'sub_agent', subAgentName: 'explore' })
-    ).toBe('explore 子任务内正在压缩较早记录')
+    ).toBe(t('chat.compression.progressSubAgent', { name: 'explore' }))
   })
 
   it('uses parent-thread copy inside the sub-agent frame', () => {
@@ -49,7 +50,7 @@ describe('buildCompressionProgressLabel', () => {
         subAgentName: 'explore',
         inSubAgentFrame: true
       })
-    ).toBe('正在压缩较早记录')
+    ).toBe(t('chat.compression.progressMain'))
   })
 })
 
@@ -78,7 +79,7 @@ describe('buildCompressionNoticeContent', () => {
         keepRecentUserTurns: 6,
         scope: 'main'
       })
-    ).toBe('【压缩】已将较早 6 条对话摘要为 1 条，并保留最近对话原文。')
+    ).toBe(t('chat.compression.budgetNotice', { dropped: 6 }))
   })
 
   it('uses in-run copy for current-turn compression', () => {
@@ -91,6 +92,6 @@ describe('buildCompressionNoticeContent', () => {
         keepRecentUserTurns: 1,
         scope: 'main'
       })
-    ).toBe('【压缩】已将当前轮次 28 条过程摘要为 1 条，并保留你的消息与最近原文。')
+    ).toBe(t('chat.compression.inRunNotice', { dropped: 28 }))
   })
 })

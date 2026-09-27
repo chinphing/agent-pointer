@@ -232,7 +232,8 @@ function isPlatformLoginErrorMessage(msg: ChatMessage): boolean {
     text.includes('平台登录态刷新失败') ||
     text.includes('Session expired') ||
     text.includes('Please sign in to your Pointer account') ||
-    text.includes('Failed to refresh platform login')
+    text.includes('Failed to refresh platform login') ||
+    text.includes('Failed to refresh platform session')
   )
 }
 

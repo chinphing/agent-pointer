@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { t } from '../../../i18n'
 import {
   clearContentDeltaBuffer,
   clearStreamDeltaBuffers,
@@ -199,7 +200,7 @@ describe('messageHandlers', () => {
     conv.messages.push({
       ...sampleAssistantMessage('a1'),
       status: 'cancelled',
-      errorMessage: '已停止生成',
+      errorMessage: t('chat.toast.generationStopped'),
       contentStreaming: false,
       toolCalls: [{ id: 't1', name: 'terminal', status: 'failed', arguments: '{}' }]
     })
@@ -212,7 +213,7 @@ describe('messageHandlers', () => {
       content: ''
     })
     expect(conv.messages[0].status).toBe('cancelled')
-    expect(conv.messages[0].errorMessage).toBe('已停止生成')
+    expect(conv.messages[0].errorMessage).toBe(t('chat.toast.generationStopped'))
   })
 
   it('handleMessageEnd for scoped sub-agent clears contentStreaming only', () => {

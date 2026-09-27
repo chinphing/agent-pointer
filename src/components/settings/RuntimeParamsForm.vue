@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { RuntimeParamsApi } from '../../composables/useRuntimeParams'
 import { THINKING_INTENSITY_OPTIONS } from '../../lib/thinkingIntensity'
 
 const props = defineProps<{
   api: RuntimeParamsApi
 }>()
+
+const { t } = useI18n()
 
 const extraBodyDraft = ref('')
 const extraBodyError = ref('')
@@ -36,7 +39,7 @@ function commitExtraBody() {
     <!-- Row 1: max output + thinking controls -->
     <div class="flex flex-nowrap items-center gap-x-3 gap-y-2 overflow-x-auto">
       <div class="flex items-center gap-1.5 shrink-0">
-        <span class="text-[12px] text-muted whitespace-nowrap">最大输出</span>
+        <span class="text-[12px] text-muted whitespace-nowrap">{{ t('settings.models.runtimeParams.maxOutput') }}</span>
         <input
           type="number"
           min="64"
@@ -48,7 +51,7 @@ function commitExtraBody() {
         />
       </div>
       <div class="flex items-center gap-1.5 shrink-0">
-        <span class="text-[12px] text-muted whitespace-nowrap">上下文</span>
+        <span class="text-[12px] text-muted whitespace-nowrap">{{ t('settings.models.runtimeParams.context') }}</span>
         <input
           type="number"
           min="4096"
@@ -61,7 +64,7 @@ function commitExtraBody() {
       </div>
 
       <div class="flex items-center gap-1.5 shrink-0">
-        <span class="text-[12px] text-muted whitespace-nowrap">思考强度</span>
+        <span class="text-[12px] text-muted whitespace-nowrap">{{ t('settings.models.runtimeParams.thinkingIntensity') }}</span>
         <select
           class="h-8 px-1.5 rounded-lg bg-card border border-border text-foreground text-[12px] outline-none focus:border-accent/50"
           :value="api.thinkingIntensity()"
@@ -80,7 +83,7 @@ function commitExtraBody() {
     <div class="flex flex-nowrap items-center gap-x-3 gap-y-2">
       <div class="flex-1 min-w-0 max-w-[min(100%,18rem)] space-y-1.5">
         <div class="flex items-center justify-between gap-2">
-          <span class="text-[12px] text-muted">创造性</span>
+          <span class="text-[12px] text-muted">{{ t('settings.models.runtimeParams.creativity') }}</span>
           <span class="text-sm font-mono text-accent">{{ api.temperature().toFixed(1) }}</span>
         </div>
         <input
@@ -109,7 +112,7 @@ function commitExtraBody() {
         />
       </div>
       <div class="flex items-center gap-1.5 shrink-0">
-        <span class="text-[12px] text-muted whitespace-nowrap">回传推理</span>
+        <span class="text-[12px] text-muted whitespace-nowrap">{{ t('settings.models.runtimeParams.returnReasoning') }}</span>
         <label class="relative inline-flex items-center cursor-pointer shrink-0">
           <input
             type="checkbox"
@@ -125,8 +128,8 @@ function commitExtraBody() {
     <!-- Hermes-style extra_body: flattened to request root on wire -->
     <div class="space-y-1.5">
       <div class="flex items-baseline justify-between gap-2">
-        <span class="text-[12px] text-muted">扩展参数 (extra_body)</span>
-        <span class="text-[10px] text-muted/80">JSON 对象，发请求时与 temperature 同级</span>
+        <span class="text-[12px] text-muted">{{ t('settings.models.runtimeParams.extraBody') }}</span>
+        <span class="text-[10px] text-muted/80">{{ t('settings.models.runtimeParams.extraBodyHint') }}</span>
       </div>
       <textarea
         v-model="extraBodyDraft"

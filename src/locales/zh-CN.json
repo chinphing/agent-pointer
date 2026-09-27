@@ -382,6 +382,17 @@
         "returnReasoning": "回传推理",
         "extraBody": "扩展参数 (extra_body)",
         "extraBodyHint": "JSON 对象，发请求时与 temperature 同级"
+      },
+      "sceneTier": {
+        "computerControlLabel": "电脑操控",
+        "webSearchLabel": "联网搜索",
+        "sceneLabelFallback": "场景",
+        "tierMappingTitle": "{scene} · 三档模型映射",
+        "tierMappingHintWebSearch": "各档位对应 DashScope 搜索模型；「已覆盖」表示非默认模型",
+        "tierMappingHintDefault": "各档位对应模型与推理参数；「已覆盖」表示非默认模型",
+        "close": "关闭",
+        "overridden": "已覆盖",
+        "liveUpdateHint": "变更即时生效，与「智能体 → 场景档位」联动"
       }
     },
     "usage": {
@@ -633,6 +644,7 @@
       "heading": "定时任务",
       "sectionDesc": "定时或延迟一次触发；每个任务独占隔离会话。一次性任务执行后保留为已完成，可点「查看会话」。",
       "sectionDescAria": "定时任务说明",
+      "deliverHint": "开启后，run 结束会把最终回复推到所选通道。每个通道对应最近一次私聊 Pointer 的人；未绑定的通道需先在该通道私聊。回复 [SILENT] 可跳过当次推送。",
       "new": "新建",
       "empty": "暂无定时任务",
       "toggleOnTitle": "已启用（点击停用）",

@@ -37,6 +37,7 @@ import CronSchedulePicker from './CronSchedulePicker.vue'
 
 const emit = defineEmits<{ (e: 'view-session'): void }>()
 
+const { t } = useI18n()
 const chat = useChatStore()
 
 const jobs = ref<CronJob[]>([])
@@ -98,21 +99,19 @@ const savingDeliver = ref(false)
 
 const isDesktop = isTauriRuntime()
 
-const CRON_SECTION_DESC =
-  '定时或延迟一次触发；每个任务独占隔离会话。一次性任务执行后保留为已完成，可点「查看会话」。'
-const WEBHOOK_SECTION_DESC =
-  '每个来源独立 Token，须与 URL 路径中的来源标识匹配。POST 请求体支持 text 或 messages。触发后可点「查看会话」阅读 transcript。'
+const CRON_SECTION_DESC = computed(() => t('automation.cron.sectionDesc'))
+const WEBHOOK_SECTION_DESC = computed(() => t('automation.webhook.sectionDesc'))
 const DELIVER_HINT =
   '开启后，run 结束会把最终回复推到所选通道。每个通道对应最近一次私聊 Pointer 的人；未绑定的通道需先在该通道私聊。回复 [SILENT] 可跳过当次推送。'
 const WEBHOOK_REF_BLOCKING =
   'body 传 "blocking": true 时保持连接至 run 结束，返回 { ok, runId, text }；可选 "timeoutSeconds"（默认 120，最大 600）。未传时为 202 异步 ack，可用 GET /api/webhooks/:src/runs/:runId 轮询结果。'
 const SESSION_MODE_HINT =
   '按日续接：同一来源在本地日内共享上下文；按投递隔离：每次投递独立会话（可用 X-GitHub-Delivery 或 idempotencyKey 区分）。'
-const LEGACY_TOKEN_DESC = '检测到旧版全局 Token，对所有来源生效。建议改为按来源配置。'
+const LEGACY_TOKEN_DESC = computed(() => t('automation.webhook.legacyDesc'))
 const AUTH_HEADER_HINT =
   '留空则使用 Authorization: Bearer 或 X-Pointer-Token'
 const TOKEN_HINT = '自动生成 Token，添加后可随时点击尾号复制。'
-const WEBHOOK_TOKEN_COPY_UNAVAILABLE = 'Token 不可用'
+const WEBHOOK_TOKEN_COPY_UNAVAILABLE = computed(() => t('automation.webhook.tokenCopyUnavailable'))
 
 function fmtMs(ms?: number | null): string {
   if (!ms) return '—'

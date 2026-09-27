@@ -76,10 +76,10 @@ async function resetOverride() {
           <Sparkles class="w-4 h-4 text-accent" />
         </div>
         <div class="min-w-0">
-          <h2 class="text-base font-semibold text-foreground truncate">配置 {{ agentName }} 的技能</h2>
+          <h2 class="text-base font-semibold text-foreground truncate">{{ t('skills.configureFor', { agent: agentName }) }}</h2>
           <p class="text-[11px] text-muted">
-            已启用 {{ enabledCount }} / {{ availableSkills.length }}
-            <span v-if="!skillsStore.hasAgentOverride(agent.id)"> · 当前继承全局设置</span>
+            {{ t('skills.enabledCount', { enabled: enabledCount, total: availableSkills.length }) }}
+            <span v-if="!skillsStore.hasAgentOverride(agent.id)"> {{ t('skills.inheritsGlobal') }}</span>
           </p>
         </div>
         <div class="flex-1" />
@@ -90,12 +90,12 @@ async function resetOverride() {
           @click="resetOverride"
         >
           <RotateCcw class="w-3.5 h-3.5" />
-          重置为默认
+          {{ t('skills.resetToDefault') }}
         </button>
         <button
           type="button"
           class="p-2 rounded-lg hover:bg-hover transition-colors"
-          aria-label="关闭"
+          :aria-label="t('skills.close')"
           @click="$emit('close')"
         >
           <X class="w-4 h-4 text-accent" />
@@ -108,7 +108,7 @@ async function resetOverride() {
           <input
             v-model="query"
             type="text"
-            placeholder="搜索技能名、说明或标签"
+            :placeholder="t('skills.searchPlaceholder')"
             class="flex-1 bg-transparent border-0 outline-none text-sm text-foreground placeholder:text-muted"
           />
         </div>
@@ -116,7 +116,7 @@ async function resetOverride() {
 
       <div class="flex-1 overflow-y-auto p-5 grid grid-cols-1 md:grid-cols-2 gap-3 min-h-0">
         <div v-if="loading" class="col-span-full text-center text-muted py-12 text-sm">
-          正在加载技能列表…
+          {{ t('skills.loadingList') }}
         </div>
         <template v-else>
           <button
@@ -133,10 +133,10 @@ async function resetOverride() {
             <div class="flex items-center gap-2 min-w-0">
               <span class="text-[14px] font-semibold text-foreground truncate">{{ skill.name }}</span>
               <span class="text-[10px] px-1.5 py-0.5 rounded bg-[hsl(var(--code-bg))] text-muted shrink-0">
-                {{ skill.builtin ? '内置' : '外部' }}
+                {{ skill.builtin ? t('skills.builtinShort') : t('skills.externalShort') }}
               </span>
               <span class="ml-auto inline-flex items-center gap-2 shrink-0">
-                <span class="text-[10px]" :class="enabledIds.has(skill.id) ? 'text-accent' : 'text-muted'">{{ enabledIds.has(skill.id) ? '已启用' : '未启用' }}</span>
+                <span class="text-[10px]" :class="enabledIds.has(skill.id) ? 'text-accent' : 'text-muted'">{{ enabledIds.has(skill.id) ? t('skills.enabled') : t('skills.disabled') }}</span>
                 <span
                   class="relative w-8 h-[18px] rounded-full transition-colors"
                   :class="enabledIds.has(skill.id) ? 'bg-accent' : 'bg-[hsl(var(--code-bg))]'"
@@ -162,7 +162,7 @@ async function resetOverride() {
             </div>
           </button>
           <div v-if="!filteredSkills.length" class="col-span-full text-center text-muted py-12 text-sm">
-            没有匹配的技能
+            {{ t('skills.noMatches') }}
           </div>
         </template>
       </div>

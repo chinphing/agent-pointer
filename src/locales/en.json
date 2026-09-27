@@ -382,6 +382,17 @@
         "returnReasoning": "Return reasoning",
         "extraBody": "Extra params (extra_body)",
         "extraBodyHint": "A JSON object sent at the same level as temperature in the request"
+      },
+      "sceneTier": {
+        "computerControlLabel": "Computer control",
+        "webSearchLabel": "Web search",
+        "sceneLabelFallback": "Scene",
+        "tierMappingTitle": "{scene} · Tier model mapping",
+        "tierMappingHintWebSearch": "Each tier maps to a DashScope search model; \"Overridden\" means it differs from the default",
+        "tierMappingHintDefault": "Each tier maps to a model and reasoning params; \"Overridden\" means it differs from the default",
+        "close": "Close",
+        "overridden": "Overridden",
+        "liveUpdateHint": "Changes apply immediately, and stay in sync with \"Agents → Scene tiers\""
       }
     },
     "usage": {
@@ -633,6 +644,7 @@
       "heading": "Scheduled tasks",
       "sectionDesc": "Triggers once on a schedule or after a delay; each task owns an isolated session. One-time tasks stay as completed after they run — click \"View session\".",
       "sectionDescAria": "Scheduled tasks info",
+      "deliverHint": "Once on, the final reply is pushed to the selected channels when the run ends. Each channel maps to the last person who DM'd Pointer there; unbound channels need a DM first. Reply [SILENT] to skip that push.",
       "new": "New",
       "empty": "No scheduled tasks yet",
       "toggleOnTitle": "Enabled (click to disable)",

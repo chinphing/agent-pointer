@@ -959,7 +959,7 @@ pub async fn upload_composer_video_to_oss(
         log::warn!(
             "upload_composer_video_to_oss: rejected attachment={attachment_id} — OSS not configured"
         );
-        return Err("OSS 未配置，请登录 Pointer 账户或联系管理员在官网配置 OSS".into());
+        return Err(ui_text("err.oss_not_configured"));
     }
     let path_buf = pointer_core::media::access::normalize_user_path(&path).map_err(|e| {
         log::warn!("upload_composer_video_to_oss: invalid path {path}: {e}");
@@ -970,7 +970,10 @@ pub async fn upload_composer_video_to_oss(
             "upload_composer_video_to_oss: file missing attachment={attachment_id} path={}",
             path_buf.display()
         );
-        return Err(format!("文件不存在: {}", path_buf.display()));
+        return Err(ui_textf(
+            "err.file_missing",
+            &[("path", &path_buf.display().to_string())],
+        ));
     }
     let last_pct = std::sync::Arc::new(std::sync::Mutex::new(0u32));
     let aid = attachment_id.clone();
@@ -1055,7 +1058,7 @@ pub async fn upload_composer_video_bytes_to_oss(
         log::warn!(
             "upload_composer_video_bytes_to_oss: rejected attachment={attachment_id} — OSS not configured"
         );
-        return Err("OSS 未配置，请登录 Pointer 账户或联系管理员在官网配置 OSS".into());
+        return Err(ui_text("err.oss_not_configured"));
     }
     let last_pct = std::sync::Arc::new(std::sync::Mutex::new(0u32));
     let aid = attachment_id.clone();
@@ -1107,7 +1110,10 @@ pub fn get_local_file_size(path: String) -> Result<u64, String> {
     let path_buf =
         pointer_core::media::access::normalize_user_path(&path).map_err(|e| e.to_string())?;
     if !path_buf.is_file() {
-        return Err(format!("文件不存在: {}", path_buf.display()));
+        return Err(ui_textf(
+            "err.file_missing",
+            &[("path", &path_buf.display().to_string())],
+        ));
     }
     let meta = fs::metadata(&path_buf).map_err(|e| format!("读取文件信息失败: {e}"))?;
     Ok(meta.len())
@@ -1119,7 +1125,10 @@ pub fn read_local_file_for_attachment(path: String) -> Result<LocalFileAttachmen
     let path_buf =
         pointer_core::media::access::normalize_user_path(&path).map_err(|e| e.to_string())?;
     if !path_buf.is_file() {
-        return Err(format!("文件不存在: {}", path_buf.display()));
+        return Err(ui_textf(
+            "err.file_missing",
+            &[("path", &path_buf.display().to_string())],
+        ));
     }
     let meta = fs::metadata(&path_buf).map_err(|e| format!("读取文件信息失败: {e}"))?;
     let file_name = path_buf
@@ -1129,12 +1138,15 @@ pub fn read_local_file_for_attachment(path: String) -> Result<LocalFileAttachmen
         .unwrap_or("attachment")
         .to_string();
     if pointer_core::media::is_video_file_name(&file_name) {
-        return Err("视频请通过 OSS 上传：使用文件选择后自动上传，勿直接读取整文件到内存".into());
+        return Err(ui_text("err.video_must_use_oss"));
     }
     let limit = max_attachment_bytes(&file_name);
     if meta.len() > limit {
         let limit_mb = limit / (1024 * 1024);
-        return Err(format!("文件超过 {limit_mb} MB 上限"));
+        return Err(ui_textf(
+            "err.file_too_large",
+            &[("limit", &limit_mb.to_string())],
+        ));
     }
     let bytes = fs::read(&path_buf).map_err(|e| format!("读取文件失败: {e}"))?;
     let mime_type = mime_from_file_name(&file_name);
@@ -1368,10 +1380,10 @@ pub fn create_directory(parent_path: String, name: String) -> Result<String, Str
         || trimmed_name.contains('/')
         || trimmed_name.contains('\\')
     {
-        return Err("目录名称无效".into());
+        return Err(ui_text("err.dir_name_invalid"));
     }
     if !parent.is_dir() {
-        return Err("父目录不存在或不可访问".into());
+        return Err(ui_text("err.parent_dir_unavailable"));
     }
     let target = parent.join(trimmed_name);
     fs::create_dir(&target).map_err(|e| e.to_string())?;

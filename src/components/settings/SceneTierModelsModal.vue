@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { X } from 'lucide-vue-next'
 import type { SettingsDialogForm } from '../../composables/useSettingsDialogForm'
 import { composerAgentLabel } from '../../lib/agentUi'
@@ -26,6 +27,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ (e: 'close'): void }>()
 
+const { t } = useI18n()
 const s = useSettingsStore()
 const form = props.form
 const { PERFORMANCE_MODE_UI, COMPUTER_TIER_UI, AGENT_MODE_USER_ROWS, MEDIA_MODE_USER_ROWS } = form
@@ -39,15 +41,15 @@ const isAgent = computed(() => !isComputer.value && !isMedia.value)
 const mediaKind = computed(() => scene.value as MediaKind)
 
 const sceneLabel = computed(() => {
-  if (scene.value === 'computer') return '电脑操控'
-  if (scene.value === 'web_search') return '联网搜索'
+  if (scene.value === 'computer') return t('settings.models.sceneTier.computerControlLabel')
+  if (scene.value === 'web_search') return t('settings.models.sceneTier.webSearchLabel')
   const agent = AGENT_MODE_USER_ROWS.find(row => row.id === scene.value)
   if (agent) return agent.label
   const media = MEDIA_MODE_USER_ROWS.find(row => row.key === scene.value)
   if (media) return media.label
   const worker = form.enabledWorkers.value.find(w => w.id === scene.value)
   if (worker) return composerAgentLabel(worker, s.settings)
-  return '场景'
+  return t('settings.models.sceneTier.sceneLabelFallback')
 })
 
 /** DashScope-compatible models only — web_search calls native DashScope search APIs. */
@@ -119,17 +121,17 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
       <div class="w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" @click.stop>
         <div class="flex items-start justify-between gap-2 border-b border-border px-5 py-4 shrink-0">
           <div class="min-w-0">
-            <h4 class="text-sm font-semibold text-foreground">{{ sceneLabel }} · 三档模型映射</h4>
+            <h4 class="text-sm font-semibold text-foreground">{{ t('settings.models.sceneTier.tierMappingTitle', { scene: sceneLabel }) }}</h4>
             <p class="mt-0.5 text-[11px] text-muted">
               {{ isWebSearch
-                ? '各档位对应 DashScope 搜索模型；「已覆盖」表示非默认模型'
-                : '各档位对应模型与推理参数；「已覆盖」表示非默认模型' }}
+                ? t('settings.models.sceneTier.tierMappingHintWebSearch')
+                : t('settings.models.sceneTier.tierMappingHintDefault') }}
             </p>
           </div>
           <button
             type="button"
             class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0"
-            aria-label="关闭"
+            :aria-label="t('settings.models.sceneTier.close')"
             @click="emit('close')"
           >
             <X class="w-4 h-4" />
@@ -142,7 +144,7 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
             <div v-for="tier in modeTiers" :key="'agent-' + scene + '-' + tier.key" class="space-y-1">
               <div class="flex items-center gap-1.5">
                 <span class="text-[11px] font-medium text-foreground">{{ tier.label }}</span>
-                <span v-if="modeOverridden(form.agentModeLlm(scene, tier.key), tier.key, 'agent', scene)" class="rounded bg-warning/15 px-1 text-[9px] text-warning">已覆盖</span>
+                <span v-if="modeOverridden(form.agentModeLlm(scene, tier.key), tier.key, 'agent', scene)" class="rounded bg-warning/15 px-1 text-[9px] text-warning">{{ t('settings.models.sceneTier.overridden') }}</span>
               </div>
               <div class="grid grid-cols-[minmax(0,1fr)_9.5rem] gap-2 items-center">
                 <select
@@ -172,7 +174,7 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
             <div v-for="tier in modeTiers" :key="'media-' + scene + '-' + tier.key" class="space-y-1">
               <div class="flex items-center gap-1.5">
                 <span class="text-[11px] font-medium text-foreground">{{ tier.label }}</span>
-                <span v-if="modeOverridden(form.mediaModeLlm(mediaKind, tier.key), tier.key, 'media', mediaKind)" class="rounded bg-warning/15 px-1 text-[9px] text-warning">已覆盖</span>
+                <span v-if="modeOverridden(form.mediaModeLlm(mediaKind, tier.key), tier.key, 'media', mediaKind)" class="rounded bg-warning/15 px-1 text-[9px] text-warning">{{ t('settings.models.sceneTier.overridden') }}</span>
               </div>
               <div class="grid grid-cols-[minmax(0,1fr)_9.5rem] gap-2 items-center">
                 <select
@@ -202,7 +204,7 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
             <div v-for="tier in computerTiers" :key="'computer-' + tier.key" class="space-y-1">
               <div class="flex items-center gap-1.5">
                 <span class="text-[11px] font-medium text-foreground">{{ tier.label }}</span>
-                <span v-if="modeOverridden(form.computerTierLlm(tier.key), tier.key, 'computer')" class="rounded bg-warning/15 px-1 text-[9px] text-warning">已覆盖</span>
+                <span v-if="modeOverridden(form.computerTierLlm(tier.key), tier.key, 'computer')" class="rounded bg-warning/15 px-1 text-[9px] text-warning">{{ t('settings.models.sceneTier.overridden') }}</span>
               </div>
               <div class="grid grid-cols-[minmax(0,1fr)_9.5rem] gap-2 items-center">
                 <select
@@ -229,7 +231,7 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
         </div>
 
         <div class="border-t border-border px-5 py-3 shrink-0">
-          <p class="text-[10px] text-muted">变更即时生效，与「智能体 → 场景档位」联动</p>
+          <p class="text-[10px] text-muted">{{ t('settings.models.sceneTier.liveUpdateHint') }}</p>
         </div>
       </div>
     </div>

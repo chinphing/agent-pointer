@@ -262,7 +262,7 @@ macOS 电脑操控需「屏幕录制 + 辅助功能」。
 
 ## Linux（Ubuntu / Debian）
 
-CI 使用 **ubuntu-22.04**；Ubuntu 24.04 同样适用下列依赖。
+CI 使用 **ubuntu-24.04**。注意：屏幕录制依赖（xcap → pipewire/libspa 0.9）需要 PipeWire ≥ 1.0 的头文件，Ubuntu 22.04 自带的 0.3.48 无法编译；因此 Linux 构建基线为 24.04，产物的 glibc 下限为 2.39。
 
 ### 系统依赖
 
@@ -620,7 +620,7 @@ npm run icons
 |--------|------|
 | `windows-latest` | Windows MSI 安装包 |
 | `macos-latest` | Universal macOS（`--target universal-apple-darwin`） |
-| `ubuntu-22.04` | Linux deb + AppImage |
+| `ubuntu-24.04` | Linux deb + AppImage |
 
 **触发方式：**
 

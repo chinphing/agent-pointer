@@ -178,14 +178,18 @@ pub(crate) async fn run_sub_agent(
                         level: "warning".to_string(),
                     },
                 );
-                return Err(anyhow!("已停止生成"));
+                return Err(anyhow!(crate::i18n::t(
+                    "err.generation_stopped",
+                    crate::i18n::current_ui_locale(),
+                )));
             }
             agent_round_lifecycle::LoopGuardOutcome::BudgetExhausted => {
                 state.computer_state.mark_cancelled(conversation_id);
-                return Err(anyhow!(
-                    "子 Agent 工具调用轮次已达上限（{}）。请新开对话或在设置中调高上限。",
-                    max_cap
-                ));
+                return Err(anyhow!(crate::i18n::tf(
+                    "err.subagent_tool_rounds_exhausted",
+                    crate::i18n::current_ui_locale(),
+                    &[("max_cap", &max_cap.to_string())],
+                )));
             }
         }
 
@@ -209,7 +213,10 @@ pub(crate) async fn run_sub_agent(
         .await;
         if cancel.is_cancelled() {
             state.computer_state.mark_cancelled(conversation_id);
-            return Err(anyhow!("已停止生成"));
+            return Err(anyhow!(crate::i18n::t(
+            "err.generation_stopped",
+            crate::i18n::current_ui_locale(),
+        )));
         }
 
         let round_message_id = new_id("agent_msg");
@@ -337,8 +344,10 @@ pub(crate) async fn run_sub_agent(
                     );
                     state.computer_state.mark_cancelled(conversation_id);
                     return Err(super::emit::chat_run_err(
-                        format!(
-                            "模型服务连续异常（已重试 {MAX_RETRIES} 次），请稍后重试或检查服务状态。"
+                        crate::i18n::tf(
+                            "err.model_service_retries_exhausted",
+                            crate::i18n::current_ui_locale(),
+                            &[("count", &MAX_RETRIES.to_string())],
                         ),
                         Some(message_id.to_string()),
                     ));
@@ -374,7 +383,11 @@ pub(crate) async fn run_sub_agent(
             retry_count += 1;
             if retry_count > MAX_RETRIES {
                 return Err(anyhow!(
-                    "子 Agent 输出截断重试次数已达上限（{MAX_RETRIES} 次）"
+                    crate::i18n::tf(
+                    "err.subagent_truncation_retries_exhausted",
+                    crate::i18n::current_ui_locale(),
+                    &[("count", &MAX_RETRIES.to_string())],
+                )
                 ));
             }
             log::warn!(
@@ -425,7 +438,11 @@ pub(crate) async fn run_sub_agent(
             retry_count += 1;
             if retry_count > MAX_RETRIES {
                 return Err(anyhow!(
-                    "子 Agent 连续返回空响应，重试次数已达上限（{MAX_RETRIES} 次）"
+                    crate::i18n::tf(
+                    "err.subagent_empty_response_retries_exhausted",
+                    crate::i18n::current_ui_locale(),
+                    &[("count", &MAX_RETRIES.to_string())],
+                )
                 ));
             }
             log::warn!(

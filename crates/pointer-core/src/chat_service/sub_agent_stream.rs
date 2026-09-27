@@ -132,7 +132,10 @@ pub(super) async fn run_sub_agent_stream_round(
                     );
                     state.computer_state.mark_cancelled(conversation_id);
                     return Err(super::emit::chat_run_err(
-                        "子任务上下文压缩后仍然过大，请缩小任务范围后再试。",
+                        crate::i18n::t(
+                            "err.subagent_context_still_too_large",
+                            crate::i18n::current_ui_locale(),
+                        ),
                         Some(sub.message_id.to_string()),
                     ));
                 }
@@ -223,7 +226,10 @@ pub(super) async fn run_sub_agent_stream_round(
                     }
                     tokio::select! {
                         _ = tokio::time::sleep(delay) => {}
-                        _ = cancel.cancelled() => return Err(anyhow!("请求已取消")),
+                        _ = cancel.cancelled() => return Err(anyhow!(crate::i18n::t(
+                            "err.request_cancelled",
+                            crate::i18n::current_ui_locale(),
+                        ))),
                     }
                 }
                 let hint = provider_stream_recoverable_retry_message(
@@ -285,7 +291,11 @@ pub(super) async fn run_sub_agent_stream_round(
                     .await;
                     state.computer_state.mark_cancelled(conversation_id);
                     return Err(anyhow!(
-                        "子 Agent 内工具调用轮次已达上限（{max_cap}）。请新开对话或在设置中调高上限。"
+                        crate::i18n::tf(
+                            "err.subagent_inner_tool_rounds_exhausted",
+                            crate::i18n::current_ui_locale(),
+                            &[("max_cap", &max_cap.to_string())],
+                        )
                     ));
                 }
                 return Ok(SubAgentStreamOutcome::RetryAfterRecoveryHint);
@@ -295,7 +305,11 @@ pub(super) async fn run_sub_agent_stream_round(
         }
         Err(err) => {
             state.computer_state.mark_cancelled(conversation_id);
-            Err(anyhow!("子 Agent 任务异常：{err}"))
+            Err(anyhow!(crate::i18n::tf(
+                "err.subagent_task_failed",
+                crate::i18n::current_ui_locale(),
+                &[("err", &err.to_string())],
+            )))
         }
     }
 }

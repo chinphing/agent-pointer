@@ -143,7 +143,10 @@ pub(super) async fn run_provider_stream_round(
                     );
                     state.computer_state.mark_cancelled(&conversation_id);
                     return Err(super::emit::chat_run_err(
-                        "上下文压缩后仍然过大，请删减内容后再试。",
+                        crate::i18n::t(
+                            "err.context_still_too_large",
+                            crate::i18n::current_ui_locale(),
+                        ),
                         Some(assistant_id.clone()),
                     ));
                 }
@@ -235,7 +238,10 @@ pub(super) async fn run_provider_stream_round(
                         _ = tokio::time::sleep(delay) => {}
                         _ = cancel.cancelled() => {
                             return Err(super::emit::chat_run_err(
-                                "请求已取消",
+                                crate::i18n::t(
+                                    "err.request_cancelled",
+                                    crate::i18n::current_ui_locale(),
+                                ),
                                 Some(assistant_id.clone()),
                             ));
                         }
@@ -283,8 +289,10 @@ pub(super) async fn run_provider_stream_round(
                     ctx.tool_budget.sync_out(ctx.consumed_single);
                     state.computer_state.mark_cancelled(&conversation_id);
                     return Err(super::emit::chat_run_err(
-                        format!(
-                            "单智能体模式下工具调用轮次已达上限（{max_cap}）。请新开对话或在设置中调高上限。"
+                        crate::i18n::tf(
+                            "err.single_agent_tool_rounds_exhausted",
+                            crate::i18n::current_ui_locale(),
+                            &[("max_cap", &max_cap.to_string())],
                         ),
                         Some(assistant_id.clone()),
                     ));
@@ -317,7 +325,11 @@ pub(super) async fn run_provider_stream_round(
             ctx.tool_budget.sync_out(ctx.consumed_single);
             state.computer_state.mark_cancelled(&conversation_id);
             return Err(super::emit::chat_run_err(
-                format!("任务异常：{e}"),
+                crate::i18n::tf(
+                    "err.task_failed",
+                    crate::i18n::current_ui_locale(),
+                    &[("e", &e.to_string())],
+                ),
                 Some(assistant_id.clone()),
             ));
         }

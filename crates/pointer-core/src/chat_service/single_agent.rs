@@ -71,14 +71,18 @@ pub(super) async fn run_single_agent_loop(
             super::agent_round_lifecycle::LoopGuardOutcome::Continue => {}
             super::agent_round_lifecycle::LoopGuardOutcome::Cancelled => {
                 ctx.tool_budget.sync_out(ctx.consumed_single);
-                return Err(anyhow!("已停止生成"));
+                return Err(anyhow!(crate::i18n::t(
+                    "err.generation_stopped",
+                    crate::i18n::current_ui_locale(),
+                )));
             }
             super::agent_round_lifecycle::LoopGuardOutcome::BudgetExhausted => {
                 ctx.tool_budget.sync_out(ctx.consumed_single);
-                return Err(anyhow!(
-                    "本会话单智能体工具调用轮次已达上限（{}）。请新开对话。",
-                    max_cap
-                ));
+                return Err(anyhow!(crate::i18n::tf(
+                    "err.single_agent_session_tool_rounds_exhausted",
+                    crate::i18n::current_ui_locale(),
+                    &[("max_cap", &max_cap.to_string())],
+                )));
             }
         }
 
@@ -98,7 +102,10 @@ pub(super) async fn run_single_agent_loop(
         .await;
         if cancel.is_cancelled() {
             ctx.tool_budget.sync_out(ctx.consumed_single);
-            return Err(anyhow!("已停止生成"));
+            return Err(anyhow!(crate::i18n::t(
+                "err.generation_stopped",
+                crate::i18n::current_ui_locale(),
+            )));
         }
 
         let assistant_id = {
@@ -348,7 +355,10 @@ pub(super) async fn run_single_agent_loop(
             );
             ctx.tool_budget.sync_out(ctx.consumed_single);
             return Err(super::emit::chat_run_err(
-                "模型连续多次返回空响应，请尝试重新描述问题或新开对话。",
+                crate::i18n::t(
+                    "err.model_empty_responses",
+                    crate::i18n::current_ui_locale(),
+                ),
                 Some(assistant_id.clone()),
             ));
         }
@@ -358,7 +368,11 @@ pub(super) async fn run_single_agent_loop(
             retry_count += 1;
             if retry_count > MAX_RETRIES {
                 return Err(super::emit::chat_run_err(
-                    format!("模型输出截断重试次数已达上限（{MAX_RETRIES} 次）"),
+                    crate::i18n::tf(
+                    "err.model_output_truncation_retries_exhausted",
+                    crate::i18n::current_ui_locale(),
+                    &[("count", &MAX_RETRIES.to_string())],
+                ),
                     Some(assistant_id.clone()),
                 ));
             }

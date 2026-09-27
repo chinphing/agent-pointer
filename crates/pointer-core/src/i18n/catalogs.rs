@@ -222,6 +222,41 @@ pub(super) fn lookup_zh_cn(key: &str) -> Option<&'static str> {
         "im.ask_user.hint_single" => "请回复编号、选项原文，或直接说明你的选择。",
         "im.ask_user.empty_reply" => "请回复选项编号、选项原文，或直接说明你的选择。",
 
+        // chat_service stream / run errors shown in the UI.
+        "err.context_still_too_large" => "上下文压缩后仍然过大，请删减内容后再试。",
+        "err.subagent_context_still_too_large" => "子任务上下文压缩后仍然过大，请缩小任务范围后再试。",
+        "err.request_cancelled" => "请求已取消",
+        "err.generation_stopped" => "已停止生成",
+        "err.single_agent_tool_rounds_exhausted" => {
+            "单智能体模式下工具调用轮次已达上限（{max_cap}）。请新开对话或在设置中调高上限。"
+        }
+        "err.subagent_tool_rounds_exhausted" => {
+            "子 Agent 工具调用轮次已达上限（{max_cap}）。请新开对话或在设置中调高上限。"
+        }
+        "err.subagent_inner_tool_rounds_exhausted" => {
+            "子 Agent 内工具调用轮次已达上限（{max_cap}）。请新开对话或在设置中调高上限。"
+        }
+        "err.task_failed" => "任务异常：{e}",
+        "err.subagent_task_failed" => "子 Agent 任务异常：{err}",
+        "err.model_service_retries_exhausted" => {
+            "模型服务连续异常（已重试 {count} 次），请稍后重试或检查服务状态。"
+        }
+        "err.subagent_truncation_retries_exhausted" => {
+            "子 Agent 输出截断重试次数已达上限（{count} 次）"
+        }
+        "err.subagent_empty_response_retries_exhausted" => {
+            "子 Agent 连续返回空响应，重试次数已达上限（{count} 次）"
+        }
+        "err.model_output_truncation_retries_exhausted" => {
+            "模型输出截断重试次数已达上限（{count} 次）"
+        }
+        "err.single_agent_session_tool_rounds_exhausted" => {
+            "本会话单智能体工具调用轮次已达上限（{max_cap}）。请新开对话。"
+        }
+        "err.model_empty_responses" => {
+            "模型连续多次返回空响应，请尝试重新描述问题或新开对话。"
+        }
+
         _ => return None,
     })
 }
@@ -477,6 +512,44 @@ pub(super) fn lookup_en(key: &str) -> Option<&'static str> {
         }
         "im.ask_user.empty_reply" => {
             "Reply with an option number, the option text, or describe your choice."
+        }
+
+        "err.context_still_too_large" => {
+            "Context is still too large after compression; please trim content and try again."
+        }
+        "err.subagent_context_still_too_large" => {
+            "Subtask context is still too large after compression; narrow the task and try again."
+        }
+        "err.request_cancelled" => "Request cancelled",
+        "err.generation_stopped" => "Generation stopped",
+        "err.single_agent_tool_rounds_exhausted" => {
+            "Tool-call rounds reached the single-agent limit ({max_cap}). Start a new chat or raise the limit in Settings."
+        }
+        "err.subagent_tool_rounds_exhausted" => {
+            "Sub-agent tool-call rounds reached the limit ({max_cap}). Start a new chat or raise the limit in Settings."
+        }
+        "err.subagent_inner_tool_rounds_exhausted" => {
+            "Tool-call rounds inside the sub-agent reached the limit ({max_cap}). Start a new chat or raise the limit in Settings."
+        }
+        "err.task_failed" => "Task failed: {e}",
+        "err.subagent_task_failed" => "Sub-agent task failed: {err}",
+        "err.model_service_retries_exhausted" => {
+            "Model service kept failing after {count} retries; try again later or check service status."
+        }
+        "err.subagent_truncation_retries_exhausted" => {
+            "Sub-agent output truncation retries reached the limit ({count})"
+        }
+        "err.subagent_empty_response_retries_exhausted" => {
+            "Sub-agent kept returning empty responses; retries reached the limit ({count})"
+        }
+        "err.model_output_truncation_retries_exhausted" => {
+            "Model output truncation retries reached the limit ({count})"
+        }
+        "err.single_agent_session_tool_rounds_exhausted" => {
+            "This conversation reached the single-agent tool-call limit ({max_cap}). Start a new chat."
+        }
+        "err.model_empty_responses" => {
+            "The model returned empty responses repeatedly; rephrase the question or start a new chat."
         }
 
         _ => return None,

@@ -20,10 +20,13 @@ impl SubMessageLinkage {
         msg.task_id = Some(self.task_id.clone());
         msg.spawn_depth = Some(self.spawn_depth);
         msg.agent_instance_id = Some(self.agent_instance_id.clone());
-        msg.context_state = Some(MessageContextState {
-            included: false,
-            excluded_reason: None,
-        });
+        // Membership is the instance id. Do not write included=false without a
+        // reason; that stamp used to hide the row from its own worker loop.
+        if let Some(state) = msg.context_state.as_ref() {
+            if !state.included && state.excluded_reason.is_none() {
+                msg.context_state = None;
+            }
+        }
     }
 }
 
@@ -344,7 +347,32 @@ mod tests {
         link.stamp(&mut msg);
         assert_eq!(msg.anchor_message_id.as_deref(), Some("anchor"));
         assert_eq!(msg.agent_instance_id.as_deref(), Some("instance-a"));
-        assert_eq!(msg.context_state.as_ref().map(|s| s.included), Some(false));
+        assert!(msg.context_state.is_none());
+        assert!(crate::message_context::is_context_included(&msg));
+    }
+
+    #[test]
+    fn stamp_keeps_real_exclusion() {
+        let mut msg = sample_msg("m1", None, None);
+        msg.context_state = Some(MessageContextState {
+            included: false,
+            excluded_reason: Some(crate::models::ExcludedReason::ContextCompression),
+        });
+        let link = SubMessageLinkage {
+            anchor_message_id: "anchor".into(),
+            trace_id: "task:explore".into(),
+            task_id: "task".into(),
+            spawn_depth: 1,
+            agent_instance_id: "instance-a".into(),
+        };
+        link.stamp(&mut msg);
+        assert!(!crate::message_context::is_context_included(&msg));
+        assert_eq!(
+            msg.context_state
+                .as_ref()
+                .and_then(|state| state.excluded_reason),
+            Some(crate::models::ExcludedReason::ContextCompression)
+        );
     }
 
     #[test]
@@ -398,7 +426,8 @@ mod tests {
             agent_instance_id: "instance-a".into(),
         };
         link.stamp(&mut msg);
-        assert!(!crate::message_context::is_context_included(&msg));
+        assert!(crate::message_context::is_context_included(&msg));
+        assert!(crate::models::is_scoped_sub_message(&msg));
         clear_scoped_linkage_for_loop(&mut msg);
         assert!(msg.agent_instance_id.is_none());
         assert!(crate::message_context::is_context_included(&msg));

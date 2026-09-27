@@ -656,6 +656,14 @@ pub(crate) async fn compress_history_inner(
             &insert_before_message_id,
             &preview_for_disk,
         );
+    } else if matches!(ui.scope, CompressionScope::SubAgent) {
+        super::precompress::persist_sub_agent_compression_splice(
+            conversation_id,
+            ui,
+            &splice.excluded_for_persist,
+            &summary_msg,
+            &insert_before_message_id,
+        );
     }
 
     splice_summary_into_drop_window(

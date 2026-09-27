@@ -10,7 +10,6 @@ use super::background_host_merge::merge_incoming_over_stored;
 use super::persist::{conversation_preview, message_index_content, role_str};
 
 pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> Result<()> {
-    let previous_lead = super::persist::stored_lead_agent_id(conn, &meta.id)?;
     let skill_ids_json = serde_json::to_string(&meta.skill_ids)?;
     let preview: Option<String> = conn
         .query_row(
@@ -69,12 +68,7 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
             i64::from(meta.is_pinned),
         ],
     )?;
-    super::persist::rotate_lead_instance_if_agent_changed(
-        conn,
-        &meta.id,
-        previous_lead.as_deref(),
-        &meta.lead_agent_id,
-    )?;
+    super::persist::mint_lead_agent_instance_if_empty(conn, &meta.id)?;
     Ok(())
 }
 
@@ -164,21 +158,15 @@ pub fn patch_session_agent_in_conn(
     agent_mode: &str,
 ) -> Result<()> {
     ensure_conversation_row(conn, conversation_id)?;
-    let old_lead = super::persist::stored_lead_agent_id(conn, conversation_id)?.unwrap_or_default();
     conn.execute(
         "UPDATE conversations SET lead_agent_id = ?2, agent_mode = ?3, updated_at_ms = ?4 WHERE id = ?1",
         params![conversation_id, lead_agent_id, agent_mode, now_ms()],
     )?;
-    super::persist::rotate_lead_instance_if_agent_changed(
-        conn,
-        conversation_id,
-        Some(old_lead.as_str()),
-        lead_agent_id,
-    )?;
+    super::persist::mint_lead_agent_instance_if_empty(conn, conversation_id)?;
     Ok(())
 }
 
-/// Mint a lead thread id if missing; reuse across every `run_chat` until lead agent switches.
+/// Mint a lead thread id if missing. Reuse it for the life of the conversation.
 pub fn ensure_lead_agent_instance_in_conn(
     conn: &Connection,
     conversation_id: &str,
@@ -648,6 +636,86 @@ pub fn persist_context_compression_in_conn(
     log::info!(
         "conversation_store: persist_context_compression conversation_id={conversation_id} excluded={} insert_pos={insert_pos} db_count={count}",
         excluded_messages.len()
+    );
+    Ok(())
+}
+
+/// Mark dropped sub-agent rows excluded in place and insert the summary as a
+/// scoped row. Does not replace the lead conversation preview.
+pub fn persist_sub_agent_compression_in_conn(
+    conn: &Connection,
+    conversation_id: &str,
+    excluded_messages: &[ChatMessage],
+    summary: &ChatMessage,
+    insert_before_message_id: &str,
+    anchor_message_id: &str,
+    agent_instance_id: &str,
+) -> Result<()> {
+    ensure_conversation_row(conn, conversation_id)?;
+    let anchor = anchor_message_id.trim();
+    let instance = agent_instance_id.trim();
+    if anchor.is_empty() || instance.is_empty() {
+        log::warn!(
+            "conversation_store: sub-agent compression persist skipped conversation_id={conversation_id} anchor_empty={} instance_empty={}",
+            anchor.is_empty(),
+            instance.is_empty()
+        );
+        return Ok(());
+    }
+
+    let positions = message_positions(conn, conversation_id)?;
+    let mut persisted_excluded: Vec<ChatMessage> = Vec::new();
+    for msg in excluded_messages {
+        let Some(mut stored) = load_stored_message(conn, conversation_id, &msg.id)? else {
+            log::warn!(
+                "conversation_store: sub-agent compression exclude skip missing message_id={} conversation_id={conversation_id}",
+                msg.id
+            );
+            continue;
+        };
+        crate::message_context::mark_excluded(
+            &mut stored,
+            crate::models::ExcludedReason::ContextCompression,
+        );
+        if let Some(&pos) = positions.get(&stored.id) {
+            insert_message_at(conn, conversation_id, &stored, pos)?;
+            persisted_excluded.push(stored);
+        } else {
+            log::warn!(
+                "conversation_store: sub-agent compression exclude skip missing position message_id={} conversation_id={conversation_id}",
+                msg.id
+            );
+        }
+    }
+
+    let mut summary = summary.clone();
+    summary.anchor_message_id = Some(anchor.to_string());
+    summary.agent_instance_id = Some(instance.to_string());
+    summary.context_state = None;
+
+    let insert_before = insert_before_message_id.trim();
+    let insert_pos = if insert_before.is_empty() {
+        insert_pos_after_excluded(&positions, &persisted_excluded, conn, conversation_id)?
+    } else if let Some(&p) = positions.get(insert_before) {
+        shift_positions_from(conn, conversation_id, p)?;
+        p
+    } else {
+        log::warn!(
+            "conversation_store: sub-agent compression insert_before missing id={insert_before} conversation_id={conversation_id}"
+        );
+        insert_pos_after_excluded(&positions, &persisted_excluded, conn, conversation_id)?
+    };
+    insert_message_at(conn, conversation_id, &summary, insert_pos)?;
+    let count = message_count_in_conn(conn, conversation_id)?;
+    let preview: String = conn.query_row(
+        "SELECT preview FROM conversations WHERE id = ?1",
+        params![conversation_id],
+        |row| row.get(0),
+    )?;
+    flush_conversation_meta_in_conn(conn, conversation_id, count, &preview)?;
+    log::info!(
+        "conversation_store: persist_sub_agent_compression conversation_id={conversation_id} excluded={} insert_pos={insert_pos} db_count={count} agent_instance_id={instance}",
+        persisted_excluded.len()
     );
     Ok(())
 }

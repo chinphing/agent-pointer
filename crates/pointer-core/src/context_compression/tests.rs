@@ -440,6 +440,56 @@ fn prefix_when_current_turn_is_many_short_rows_but_few_tokens() {
 }
 
 #[test]
+fn stamped_sub_prefix_without_reason_plans_prefix_not_thin_in_run() {
+    use crate::models::MessageContextState;
+
+    let mut msgs = Vec::new();
+    for i in 0..8 {
+        let mut row = msg(&format!("p{i}"), Role::Assistant, &"x".repeat(20_000));
+        row.anchor_message_id = Some("lead".into());
+        row.agent_instance_id = Some("worker".into());
+        row.context_state = Some(MessageContextState {
+            included: false,
+            excluded_reason: None,
+        });
+        msgs.push(row);
+    }
+    let mut follow = msg("follow", Role::User, "continue this same worker");
+    follow.agent_instance_id = Some("worker".into());
+    msgs.push(follow);
+    for i in 0..4 {
+        let mut row = msg(&format!("t{i}"), Role::Assistant, "short");
+        row.agent_instance_id = Some("worker".into());
+        msgs.push(row);
+    }
+    let prefix_tokens: usize = msgs[..8]
+        .iter()
+        .map(estimate_one_message_payload_tokens)
+        .sum();
+    assert!(prefix_tokens > 0, "legacy scope stamp must still count tokens");
+    assert!(current_turn_token_share(&msgs) < IN_RUN_TURN_TOKEN_RATIO);
+    match plan_compression(&msgs, None, 8_000, 1, false, false, true) {
+        CompressionPlan::Prefix { split } => {
+            assert!(split > 0);
+            assert!(split <= 8);
+        }
+        other => panic!("expected Prefix, got {other:?}"),
+    }
+}
+
+#[test]
+fn compression_reason_estimates_zero_tokens() {
+    let mut row = msg("old", Role::Assistant, &"x".repeat(20_000));
+    row.anchor_message_id = Some("lead".into());
+    crate::message_context::mark_excluded(
+        &mut row,
+        crate::models::ExcludedReason::ContextCompression,
+    );
+    assert!(!crate::message_context::is_context_included(&row));
+    assert_eq!(estimate_one_message_payload_tokens(&row), 0);
+}
+
+#[test]
 fn plan_compression_in_run_when_latest_turn_dominates_tokens() {
     let mut msgs = vec![msg("u0", Role::User, "task")];
     for i in 0..12 {

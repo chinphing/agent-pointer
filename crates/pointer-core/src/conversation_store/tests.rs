@@ -712,7 +712,7 @@ mod tests {
     }
 
     #[test]
-    fn save_meta_rotates_lead_instance_when_lead_agent_changes() {
+    fn save_meta_keeps_lead_instance_when_lead_agent_changes() {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();
         store
@@ -727,11 +727,244 @@ mod tests {
         metas[0].updated_at += 1;
         store.save_meta_all(&metas).unwrap();
         let after = store.ensure_lead_agent_instance("c_meta").unwrap();
-        assert_ne!(after, before);
+        assert_eq!(after, before);
         metas[0].agent_mode = "supervisor".into();
         metas[0].updated_at += 1;
         store.save_meta_all(&metas).unwrap();
         assert_eq!(store.ensure_lead_agent_instance("c_meta").unwrap(), after);
+    }
+
+    #[test]
+    fn backfill_thread_identity_clears_fake_stamps_and_rewrites_lead_ids() {
+        use crate::models::MessageContextState;
+
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("bf-id", "BF", "lead text");
+        let mut fake = msg("fake-scoped", Role::Assistant, "worker history", 3);
+        fake.anchor_message_id = Some("msg_u1".into());
+        fake.agent_instance_id = Some("worker-1".into());
+        fake.context_state = Some(MessageContextState {
+            included: false,
+            excluded_reason: None,
+        });
+        let mut real = msg("real-excl", Role::Assistant, "dropped", 4);
+        real.anchor_message_id = Some("msg_u1".into());
+        real.agent_instance_id = Some("worker-1".into());
+        real.context_state = Some(MessageContextState {
+            included: false,
+            excluded_reason: Some(ExcludedReason::ContextCompression),
+        });
+        conv.messages.push(fake);
+        conv.messages.push(real);
+        store.save_all(&[conv]).unwrap();
+        let lead = store.ensure_lead_agent_instance("bf-id").unwrap();
+        drop(store);
+
+        let db_path = dir.path().join("conversations.db");
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute(
+                "UPDATE messages
+                 SET agent_instance_id = 'stale-lead',
+                     payload = json_set(payload, '$.agentInstanceId', 'stale-lead')
+                 WHERE message_id = 'msg_u1'",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "UPDATE messages SET context_included = 0 WHERE message_id = 'fake-scoped'",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "DELETE FROM store_meta WHERE key = 'thread_context_identity_v1'",
+                [],
+            )
+            .unwrap();
+        }
+
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let loaded = store.load_messages("bf-id").unwrap();
+        let lead_row = loaded.iter().find(|m| m.id == "msg_u1").unwrap();
+        assert_eq!(lead_row.agent_instance_id.as_deref(), Some(lead.as_str()));
+        let fake_row = loaded.iter().find(|m| m.id == "fake-scoped").unwrap();
+        assert!(fake_row.context_state.is_none());
+        assert_eq!(fake_row.agent_instance_id.as_deref(), Some("worker-1"));
+        let real_row = loaded.iter().find(|m| m.id == "real-excl").unwrap();
+        assert!(!crate::message_context::is_context_included(real_row));
+
+        let conn = Connection::open(&db_path).unwrap();
+        let fake_flag: i64 = conn
+            .query_row(
+                "SELECT context_included FROM messages WHERE message_id = 'fake-scoped'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(fake_flag, 1);
+        let real_flag: i64 = conn
+            .query_row(
+                "SELECT context_included FROM messages WHERE message_id = 'real-excl'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(real_flag, 0);
+        let lead_col: String = conn
+            .query_row(
+                "SELECT agent_instance_id FROM messages WHERE message_id = 'msg_u1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(lead_col, lead);
+    }
+
+    #[test]
+    fn lead_working_set_keeps_empty_instance_and_drops_scoped() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("c-lead", "T", "hello");
+        let mut scoped = msg("sub-row", Role::Assistant, "child", 3);
+        scoped.anchor_message_id = Some("msg_u1".into());
+        scoped.agent_instance_id = Some("worker-1".into());
+        conv.messages.push(scoped);
+        store.save_all(&[conv]).unwrap();
+
+        let conn = Connection::open(dir.path().join("conversations.db")).unwrap();
+        conn.execute(
+            "UPDATE messages
+             SET agent_instance_id = NULL,
+                 payload = json_remove(payload, '$.agentInstanceId'),
+                 context_included = 1
+             WHERE message_id = 'msg_a1'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE messages SET context_included = 1 WHERE message_id = 'sub-row'",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        let (working, db_count) = store.load_lead_working_messages("c-lead").unwrap();
+        assert_eq!(db_count, 3);
+        let ids: Vec<&str> = working.iter().map(|m| m.id.as_str()).collect();
+        assert!(ids.contains(&"msg_u1"));
+        assert!(ids.contains(&"msg_a1"));
+        assert!(!ids.contains(&"sub-row"));
+    }
+
+    #[test]
+    fn persist_sub_agent_compression_stays_scoped_and_keeps_lead_preview() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("c-sub", "T", "lead hello");
+        let mut sub = msg("sub-1", Role::Assistant, "worker step", 3);
+        sub.anchor_message_id = Some("msg_u1".into());
+        sub.agent_instance_id = Some("worker-1".into());
+        let mut follow = msg("sub-2", Role::User, "continue worker", 4);
+        follow.anchor_message_id = Some("msg_u1".into());
+        follow.agent_instance_id = Some("worker-1".into());
+        conv.messages.push(sub);
+        conv.messages.push(follow);
+        store.save_all(&[conv]).unwrap();
+        let preview_before: String = {
+            let conn = Connection::open(dir.path().join("conversations.db")).unwrap();
+            conn.query_row(
+                "SELECT preview FROM conversations WHERE id = 'c-sub'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+
+        let excluded = store
+            .load_messages("c-sub")
+            .unwrap()
+            .into_iter()
+            .find(|m| m.id == "sub-1")
+            .unwrap();
+        let summary = msg(
+            "sub-sum",
+            Role::User,
+            "[Conversation summary (auto-compression)] worker",
+            5,
+        );
+        store
+            .persist_sub_agent_compression(
+                "c-sub",
+                &[excluded],
+                &summary,
+                "sub-2",
+                "msg_u1",
+                "worker-1",
+            )
+            .unwrap();
+
+        let loaded = store.load_messages("c-sub").unwrap();
+        let dropped = loaded.iter().find(|m| m.id == "sub-1").unwrap();
+        assert_eq!(dropped.anchor_message_id.as_deref(), Some("msg_u1"));
+        assert_eq!(dropped.agent_instance_id.as_deref(), Some("worker-1"));
+        assert!(!crate::message_context::is_context_included(dropped));
+        let sum = loaded.iter().find(|m| m.id == "sub-sum").unwrap();
+        assert_eq!(sum.anchor_message_id.as_deref(), Some("msg_u1"));
+        assert_eq!(sum.agent_instance_id.as_deref(), Some("worker-1"));
+        assert!(crate::models::is_scoped_sub_message(sum));
+
+        let conn = Connection::open(dir.path().join("conversations.db")).unwrap();
+        let (included, scoped): (i64, i64) = conn
+            .query_row(
+                "SELECT context_included, is_scoped FROM messages WHERE message_id = 'sub-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(included, 0);
+        assert_eq!(scoped, 1);
+        let sum_scoped: i64 = conn
+            .query_row(
+                "SELECT is_scoped FROM messages WHERE message_id = 'sub-sum'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(sum_scoped, 1);
+        drop(conn);
+
+        let (working, _) = store.load_lead_working_messages("c-sub").unwrap();
+        assert!(working.iter().all(|m| m.id != "sub-1" && m.id != "sub-sum"));
+        let preview_after: String = {
+            let conn = Connection::open(dir.path().join("conversations.db")).unwrap();
+            conn.query_row(
+                "SELECT preview FROM conversations WHERE id = 'c-sub'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(preview_after, preview_before);
+
+        let resumed = store
+            .load_scoped_sub_messages_for_trace("c-sub", "", "", Some("worker-1"))
+            .unwrap();
+        assert!(
+            resumed.iter().any(|m| m.id == "sub-1"),
+            "session_read still returns the compressed row"
+        );
+        let admitted: Vec<&str> = resumed
+            .iter()
+            .filter(|m| crate::message_context::is_context_included(m))
+            .map(|m| m.id.as_str())
+            .collect();
+        assert!(admitted.contains(&"sub-sum"));
+        assert!(admitted.contains(&"sub-2"));
+        assert!(
+            !admitted.contains(&"sub-1"),
+            "follow-up admission must omit the compressed row"
+        );
     }
 
     #[test]

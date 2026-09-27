@@ -31,10 +31,10 @@
 
 | 角色 | 何时 mint | 何时复用 | 何时换 |
 |------|-----------|----------|--------|
-| **Lead** | 会话还没有 lead instance 时 | 之后每一次 `run_chat` / 溢出重跑 `run_chat_inner` | 用户 **切换 `lead_agent_id`**（如 general→coder）时新 mint；`/new` 新会话本身就是新 conversation |
+| **Lead** | 会话创建或 upsert 时若还没有 lead instance | 该会话整个生命周期（含切换助手、压缩、溢出重跑） | 不换。助手身份看 `lead_agent_id`。`/new` 新会话本身就是新 conversation |
 | **子** | `run_subagent` spawn（后台在 `register` 时 mint 并传入 child） | 该子循环结束前 | 下一次 spawn 一定新 UUID（含同一 `taskId` 续跑） |
 
-落库：`conversations` 增加 **`lead_agent_instance_id`**（可空，旧会话第一次 `run_chat` 再填）。`ChatLlmTokenSession` 用 `AgentInstanceScope::with_instance_id`，禁止每轮 `new()`。lead 写出的消息 stamp 这个 id。侧栏换 agent（`save_conversation_meta`）与 IM `patch_session_agent` 在 `lead_agent_id` 真变时都旋转 instance。
+落库：`conversations.lead_agent_instance_id`。创建或 upsert 时若为空则 mint 一次，之后不旋转。`ChatLlmTokenSession` 用 `AgentInstanceScope::with_instance_id`，禁止每轮 `new()`。lead 写出的消息 stamp 这个 id。侧栏换 agent 与 IM `patch_session_agent` 只改 `lead_agent_id`，不换 instance。
 
 压缩不旋转 instance（不学 Hermes 压缩切 `session_id`）。token / 压缩日志仍可用同一把。
 
@@ -51,7 +51,7 @@
 
 ### 还要补的
 
-子行已经 stamp `agentInstanceId`。父行默认没有。
+子行 stamp 自己的 `agentInstanceId`。父行 stamp 会话的 lead instance。空 instance 且 `is_scoped = 0` 的旧行仍算 lead。界面分页、时间线、`session_search` 的父会话范围继续用 `is_scoped`。
 
 1. 持久化 lead instance + 写出 lead 消息时 stamp。旧会话无列值：第一次跑 mint，**不回填**历史消息（旧行只能 `conversation_id` 读）。
 2. 子回包带 `agentInstanceId`；后台 mint 一次传入 child。
@@ -152,8 +152,8 @@ handoff 已够则不要 `session_read` 过程。并行多个 `self` 必须带**�
 
 | 阶段 | 内容 |
 |------|------|
-| **P0** | `conversations.lead_agent_instance_id`；`run_chat` 复用；切换 lead 换 id（`patch_session_agent` 与 `save_conversation_meta` 都旋转）；消息 stamp；子回包 + 后台 mint 一次；`session_read`；prompt + 测试 |
-| **P1** | 物化 `messages.agent_instance_id` 列 + 索引（从 payload 回填已 stamp 的行，不发明历史 id） |
+| **P0** | `conversations.lead_agent_instance_id`；会话生命周期内复用，切换助手不换 id；消息 stamp；子回包 + 后台 mint 一次；`session_read`；prompt + 测试 |
+| **P1** | 物化 `messages.agent_instance_id` 列 + 索引。未 stamp 的父行回填为该会话的 lead instance（`thread_context_identity_v1`） |
 | **P2** | 仅 `agent_id` 的 ambiguous candidates |
 
 对照：[`async-subagent-and-terminal.md`](async-subagent-and-terminal.md)、[`../developer/pointer-run-subagent.md`](../developer/pointer-run-subagent.md)、[`../developer/session-search-output-limits.md`](../developer/session-search-output-limits.md)。

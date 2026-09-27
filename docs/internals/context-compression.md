@@ -90,6 +90,9 @@ Provider 在本轮工具循环中返回上下文过长时：
 - **子 Agent 预压队列与 lead 隔离**（`sub:{conversationId}:{agentInstanceId}`）。
   过 80% 时后台摘要、下一轮 LLM 前接入；硬预算则等待 inflight 再同步。
   子循环结束丢弃未接入的 pending，避免误压父聊天。
+  接入后把丢掉的子行落成 `included=false` + 压缩原因（保留 anchor 与 instance），
+  摘要行写入同一子线程（anchor + 该 worker 的 instance），不替换父会话预览。
+  下一次 follow-up 按 instance 加载时不再把这些行送进模型。
 - 预压缩仍可广播 UI 事件。
 
 ## 上下文超限（阻塞路径）
@@ -105,8 +108,10 @@ Provider 返回上下文/prompt 过长类错误时：
 
 ## 摘要输入预算
 
-压缩只读取 `context_state.included=true` 的旧前缀消息。
-已被历史压缩或任务板 trim 排除的数据库行不会再次进入摘要。
+压缩只读取本线程仍进入模型的消息。
+无 `context_state`、`included=true`、或 `included=false` 且没有排除原因，都算进入。
+带排除原因（压缩、任务板 trim、planner shell）的行不进入摘要，也不再计入 token。
+父会话另外要求 `is_scoped = 0`。子线程按自己的 `agentInstanceId` 取行。
 
 当格式化后的前缀超过输入上限时：
 

@@ -113,10 +113,12 @@ pub fn transcript_generation(conversation_id: &str) -> u64 {
 fn filter_lead_working_history(
     messages: impl IntoIterator<Item = ChatMessage>,
 ) -> Vec<ChatMessage> {
-    // `is_context_included` already excludes scoped sub-agent rows.
     messages
         .into_iter()
-        .filter(|m| crate::message_context::is_context_included(m))
+        .filter(|m| {
+            !crate::models::is_scoped_sub_message(m)
+                && crate::message_context::is_context_included(m)
+        })
         .collect()
 }
 

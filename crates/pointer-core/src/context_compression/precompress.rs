@@ -251,6 +251,43 @@ pub fn try_apply_pending_compression(
     true
 }
 
+pub(crate) fn persist_sub_agent_compression_splice(
+    conversation_id: &str,
+    ui: &CompressionUiContext,
+    excluded: &[crate::models::ChatMessage],
+    summary: &crate::models::ChatMessage,
+    insert_before_message_id: &str,
+) {
+    let Some(scope) = ui.agent_scope.as_ref() else {
+        log::warn!(
+            "context_compress: sub-agent splice missing agent scope conversation_id={conversation_id}"
+        );
+        return;
+    };
+    let anchor = ui.message_id.as_deref().unwrap_or("");
+    let store = match crate::conversation_store::global_store() {
+        Ok(store) => store,
+        Err(e) => {
+            log::warn!(
+                "context_compress: sub-agent splice store unavailable conversation_id={conversation_id}: {e:#}"
+            );
+            return;
+        }
+    };
+    if let Err(e) = store.persist_sub_agent_compression(
+        conversation_id,
+        excluded,
+        summary,
+        insert_before_message_id,
+        anchor,
+        &scope.agent_instance_id,
+    ) {
+        log::warn!(
+            "context_compress: sub-agent splice persist failed conversation_id={conversation_id}: {e:#}"
+        );
+    }
+}
+
 pub(crate) fn splice_pending_into_history(
     history: &mut Vec<ChatMessage>,
     pending: &PendingCompressionSplice,
@@ -319,6 +356,15 @@ pub(crate) fn try_apply_pending_keyed(
             pending.fingerprint_prefix_ids.len()
         );
         return false;
+    }
+    if matches!(pending.ui.scope, CompressionScope::SubAgent) {
+        persist_sub_agent_compression_splice(
+            &conversation_id,
+            &pending.ui,
+            &pending.excluded_for_persist,
+            &pending.summary_msg,
+            &pending.insert_before_message_id,
+        );
     }
     if matches!(pending.ui.scope, CompressionScope::Main) {
         let preview_for_disk = crate::conversation_store::conversation_preview(history);
@@ -520,6 +566,13 @@ pub(crate) async fn prepare_sub_agent_history_between_llm_rounds(
             conversation_id
         );
         return;
+    }
+    if let Some(scope) = ui.agent_scope.as_ref() {
+        crate::message_context::ensure_loop_instance_id(history, &scope.agent_instance_id);
+    } else {
+        log::warn!(
+            "context_compress: sub_agent history missing agent scope conversation_id={conversation_id}"
+        );
     }
     let mut tokens = reported_prompt_tokens;
     if try_apply_pending_keyed(lease.key(), history, stream, None) {

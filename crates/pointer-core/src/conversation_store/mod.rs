@@ -847,6 +847,32 @@ impl ConversationStore {
         Ok(())
     }
 
+    /// Soft-exclude sub-agent rows in place and insert a scoped summary.
+    /// Does not publish the lead working set.
+    pub(crate) fn persist_sub_agent_compression(
+        &self,
+        conversation_id: &str,
+        excluded_messages: &[ChatMessage],
+        summary: &ChatMessage,
+        insert_before_message_id: &str,
+        anchor_message_id: &str,
+        agent_instance_id: &str,
+    ) -> Result<()> {
+        self.db.execute_write(|conn| {
+            write::persist_sub_agent_compression_in_conn(
+                conn,
+                conversation_id,
+                excluded_messages,
+                summary,
+                insert_before_message_id,
+                anchor_message_id,
+                agent_instance_id,
+            )
+        })?;
+        crate::conversation_session::note_transcript_mutated(conversation_id);
+        Ok(())
+    }
+
     /// P2b: replace full transcript from client-held messages.
     ///
     /// Crate-private: used by store unit tests and legacy in-crate paths.
@@ -1340,6 +1366,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
     )?;
     ensure_messages_agent_instance_id(conn)?;
     ensure_messages_is_scoped(conn)?;
+    crate::conversation_store::persist::backfill_thread_context_identity(conn)?;
     // User-set nav milestone. Kept off the message payload so ordinary
     // transcript upserts do not clear it. Full replaces snapshot/restore it.
     add_column_if_missing(
@@ -1756,7 +1783,7 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
     // v23: per-conversation performance tier override (Composer picker).
     // NULL = no override → global agentPerformanceModes default applies.
     add_column_if_missing(conn, "conversations", "performance_mode", "TEXT")?;
-    // v24: lead agent thread id (reused across run_chat; rotated on lead_agent_id change).
+    // v24: lead agent thread id. One id per conversation; not rotated on agent switch.
     add_column_if_missing(conn, "conversations", "lead_agent_instance_id", "TEXT")?;
     // v21: materialized turn-anchor flag on messages. Backfill only touches
     // user rows that should be flagged (idempotent + store_meta gated);
@@ -1789,6 +1816,7 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
     // v25: materialize payload.agentInstanceId for instance-scoped recall.
     ensure_messages_agent_instance_id(conn)?;
     ensure_messages_is_scoped(conn)?;
+    crate::conversation_store::persist::backfill_thread_context_identity(conn)?;
     conn.execute(
         "UPDATE conversations SET session_user_id = trim(session_user_id)
          WHERE session_user_id != trim(session_user_id)",

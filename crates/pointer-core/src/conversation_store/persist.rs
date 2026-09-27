@@ -36,6 +36,7 @@ fn content_marks_system_generated_user(content: &str) -> bool {
 
 const SYSTEM_GENERATED_BACKFILL_META: &str = "is_system_generated_backfilled_v2";
 const CONTEXT_INCLUDED_BACKFILL_META: &str = "context_included_backfilled";
+const THREAD_CONTEXT_IDENTITY_META: &str = "thread_context_identity_v1";
 const IS_SCOPED_BACKFILL_META: &str = "is_scoped_backfilled_v26";
 const AGENT_INSTANCE_ID_COL_BACKFILL_META: &str = "agent_instance_id_col_v25";
 /// Indexed `messages.content` for a prior `session_search` tool row.
@@ -119,9 +120,15 @@ pub fn is_scoped_column_value(msg: &ChatMessage) -> i64 {
     i64::from(crate::models::is_scoped_sub_message(msg))
 }
 
-/// Column value mirroring [`crate::message_context::is_context_included`].
+/// Column value: whether the row enters its own thread's LLM call.
+/// Scoped sub-agent rows are included when they are not really excluded.
+/// Lead working-set loads also require `is_scoped = 0`.
 pub fn context_included_column_value(msg: &ChatMessage) -> i64 {
     i64::from(crate::message_context::is_context_included(msg))
+}
+
+fn missing_lead_instance_column(err: &rusqlite::Error) -> bool {
+    err.to_string().contains("no such column: lead_agent_instance_id")
 }
 
 /// Mint a lead thread id if the conversation row exists and the column is empty.
@@ -129,14 +136,27 @@ pub fn mint_lead_agent_instance_if_empty(
     conn: &Connection,
     conversation_id: &str,
 ) -> Result<String> {
-    let stored: Option<String> = conn
+    let stored: Option<String> = match conn
         .query_row(
             "SELECT lead_agent_instance_id FROM conversations WHERE id = ?1",
             params![conversation_id],
             |row| row.get(0),
         )
-        .optional()?
-        .flatten();
+        .optional()
+    {
+        Ok(value) => value.flatten(),
+        Err(err) if missing_lead_instance_column(&err) => {
+            log::warn!(
+                "conversation_store: conversations.lead_agent_instance_id missing, adding column conversation_id={conversation_id}"
+            );
+            conn.execute(
+                "ALTER TABLE conversations ADD COLUMN lead_agent_instance_id TEXT",
+                [],
+            )?;
+            None
+        }
+        Err(err) => return Err(err.into()),
+    };
     if let Some(id) = stored.filter(|s| !s.trim().is_empty()) {
         return Ok(id);
     }
@@ -161,46 +181,8 @@ pub fn mint_lead_agent_instance_if_empty(
     Ok(id)
 }
 
-pub fn stored_lead_agent_id(conn: &Connection, conversation_id: &str) -> Result<Option<String>> {
-    conn.query_row(
-        "SELECT lead_agent_id FROM conversations WHERE id = ?1",
-        params![conversation_id],
-        |row| row.get(0),
-    )
-    .optional()
-    .map_err(Into::into)
-}
-
-/// New mint when `lead_agent_id` actually changes. New conversation rows stay empty
-/// until the first `run_chat` (`mint_lead_agent_instance_if_empty`).
-pub fn rotate_lead_instance_if_agent_changed(
-    conn: &Connection,
-    conversation_id: &str,
-    previous_lead_agent_id: Option<&str>,
-    new_lead_agent_id: &str,
-) -> Result<()> {
-    let Some(old) = previous_lead_agent_id else {
-        return Ok(());
-    };
-    if old.trim() == new_lead_agent_id.trim() {
-        return Ok(());
-    }
-    let minted = uuid::Uuid::new_v4().to_string();
-    let updated = conn.execute(
-        "UPDATE conversations SET lead_agent_instance_id = ?2 WHERE id = ?1",
-        params![conversation_id, minted],
-    )?;
-    if updated == 0 {
-        log::warn!(
-            "conversation_store: rotate lead instance skipped, conversation missing conversation_id={conversation_id}"
-        );
-        return Ok(());
-    }
-    log::info!(
-        "conversation_store: rotated lead_agent_instance_id conversation_id={conversation_id} lead_agent_id={new_lead_agent_id}"
-    );
-    Ok(())
-}
+/// Lead instance stays for the life of the conversation. Assistant identity is
+/// `lead_agent_id` and does not rotate this id. Compression does not rotate it either.
 
 pub fn stamp_new_lead_message(
     conn: &Connection,
@@ -278,6 +260,119 @@ pub(crate) fn backfill_context_included(conn: &Connection) -> Result<()> {
 
     log::info!(
         "conversation_store: context_included backfill done updated={updated} elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
+    Ok(())
+}
+
+/// One-time migration: stable lead instance, lead-row instance ids, and legacy
+/// scope stamps (`included=false` with no reason) back to admitted.
+///
+/// Set-based. Does not rewrite sub-agent instance ids. Real exclusions
+/// (compression / trim / planner shell) stay `context_included = 0`.
+pub(crate) fn backfill_thread_context_identity(conn: &Connection) -> Result<()> {
+    let done: Option<String> = conn
+        .query_row(
+            "SELECT value FROM store_meta WHERE key = ?1",
+            params![THREAD_CONTEXT_IDENTITY_META],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if done.as_deref() == Some("1") {
+        return Ok(());
+    }
+
+    log::info!("conversation_store: backfilling thread context identity");
+    let started = std::time::Instant::now();
+    let missing: Vec<String> = {
+        let mut stmt = conn.prepare(
+            "SELECT id FROM conversations
+             WHERE lead_agent_instance_id IS NULL OR trim(lead_agent_instance_id) = ''",
+        )?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
+        rows.collect::<Result<Vec<String>, _>>()?
+    };
+    for id in &missing {
+        mint_lead_agent_instance_if_empty(conn, id)?;
+    }
+    if !missing.is_empty() {
+        log::info!(
+            "conversation_store: minted missing lead instances count={}",
+            missing.len()
+        );
+    }
+
+    let apply = || -> Result<(u64, u64, u64)> {
+        conn.execute_batch("BEGIN IMMEDIATE")?;
+        let lead_ids = conn.execute(
+            "UPDATE messages
+             SET agent_instance_id = (
+                   SELECT c.lead_agent_instance_id FROM conversations c
+                   WHERE c.id = messages.conversation_id
+                 ),
+                 payload = json_set(
+                   payload,
+                   '$.agentInstanceId',
+                   (SELECT c.lead_agent_instance_id FROM conversations c
+                    WHERE c.id = messages.conversation_id)
+                 )
+             WHERE is_scoped = 0
+               AND json_valid(payload) = 1
+               AND EXISTS (
+                 SELECT 1 FROM conversations c
+                 WHERE c.id = messages.conversation_id
+                   AND c.lead_agent_instance_id IS NOT NULL
+                   AND trim(c.lead_agent_instance_id) != ''
+               )
+               AND (
+                 agent_instance_id IS NULL
+                 OR trim(agent_instance_id) = ''
+                 OR agent_instance_id != (
+                   SELECT c.lead_agent_instance_id FROM conversations c
+                   WHERE c.id = messages.conversation_id
+                 )
+               )",
+            [],
+        )? as u64;
+        let fake_stamps = conn.execute(
+            "UPDATE messages
+             SET context_included = 1,
+                 payload = json_remove(payload, '$.contextState')
+             WHERE json_valid(payload) = 1
+               AND json_extract(payload, '$.contextState.included') = 0
+               AND json_extract(payload, '$.contextState.excludedReason') IS NULL",
+            [],
+        )? as u64;
+        let scoped_admitted = conn.execute(
+            "UPDATE messages
+             SET context_included = 1
+             WHERE is_scoped = 1
+               AND context_included = 0
+               AND json_valid(payload) = 1
+               AND (
+                 json_extract(payload, '$.contextState.included') IS NULL
+                 OR json_extract(payload, '$.contextState.included') != 0
+               )",
+            [],
+        )? as u64;
+        conn.execute(
+            "INSERT INTO store_meta(key, value) VALUES (?1, '1')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![THREAD_CONTEXT_IDENTITY_META],
+        )?;
+        conn.execute_batch("COMMIT")?;
+        Ok((lead_ids, fake_stamps, scoped_admitted))
+    };
+    let (lead_ids, fake_stamps, scoped_admitted) = match apply() {
+        Ok(counts) => counts,
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            log::error!("conversation_store: thread context identity backfill failed: {e:#}");
+            return Err(e);
+        }
+    };
+    log::info!(
+        "conversation_store: thread context identity backfill done lead_instance_rows={lead_ids} cleared_scope_stamps={fake_stamps} scoped_admitted={scoped_admitted} elapsed_ms={}",
         started.elapsed().as_millis()
     );
     Ok(())
@@ -1136,9 +1231,11 @@ pub(crate) fn load_recent_user_attachments(
     Ok(out)
 }
 
-/// Lead `run_chat` working set via materialized `context_included` (schema v22).
-/// Soft-excluded / scoped payloads are not selected, so they are never deserialized
-/// into the returned Vec. `db_count` is still the full transcript row count.
+/// Lead `run_chat` working set.
+///
+/// `context_included` is admission into the row's own thread. Lead membership is
+/// `is_scoped = 0` plus this conversation's lead instance (empty instance is a
+/// legacy lead row). `db_count` is still the full transcript row count.
 pub(crate) fn load_lead_working_messages(
     conn: &Connection,
     conversation_id: &str,
@@ -1151,9 +1248,27 @@ pub(crate) fn load_lead_working_messages(
             Ok(n as u32)
         },
     )?;
+    let lead_instance: Option<String> = conn
+        .query_row(
+            "SELECT lead_agent_instance_id FROM conversations WHERE id = ?1",
+            params![conversation_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .flatten()
+        .filter(|s: &String| !s.trim().is_empty());
     let mut stmt = conn.prepare(
         "SELECT message_id, position, payload FROM messages
-         WHERE conversation_id = ?1 AND context_included = 1
+         WHERE conversation_id = ?1
+           AND is_scoped = 0
+           AND context_included = 1
+           AND (
+             agent_instance_id IS NULL
+             OR trim(agent_instance_id) = ''
+             OR agent_instance_id = (
+               SELECT lead_agent_instance_id FROM conversations WHERE id = ?1
+             )
+           )
          ORDER BY position ASC",
     )?;
     let rows = stmt.query_map(params![conversation_id], |row| {
@@ -1172,13 +1287,30 @@ pub(crate) fn load_lead_working_messages(
                 if msg.strip_tool_raw_output() {
                     scrub.push((message_id, position, msg.clone()));
                 }
-                // Belt-and-suspenders if a row's column drifted from payload.
+                if crate::models::is_scoped_sub_message(&msg) {
+                    log::warn!(
+                        "conversation_store: scoped row in lead working set conversation_id={conversation_id} message_id={}",
+                        msg.id
+                    );
+                    continue;
+                }
                 if !crate::message_context::is_context_included(&msg) {
                     log::warn!(
                         "conversation_store: context_included column stale conversation_id={conversation_id} message_id={}",
                         msg.id
                     );
                     continue;
+                }
+                if let Some(lead) = lead_instance.as_deref() {
+                    if let Some(inst) = msg.agent_instance_id.as_deref().map(str::trim) {
+                        if !inst.is_empty() && inst != lead {
+                            log::warn!(
+                                "conversation_store: foreign instance in lead working set conversation_id={conversation_id} message_id={} agent_instance_id={inst}",
+                                msg.id
+                            );
+                            continue;
+                        }
+                    }
                 }
                 working.push(msg);
             }
@@ -2115,14 +2247,8 @@ pub fn upsert_conversation(
             |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
         )
         .optional()?;
-    let previous_lead = stored_lead_agent_id(conn, &conv.id)?;
     if unchanged == Some((conv.updated_at, conv.messages.len() as i64)) {
-        rotate_lead_instance_if_agent_changed(
-            conn,
-            &conv.id,
-            previous_lead.as_deref(),
-            &conv.lead_agent_id,
-        )?;
+        mint_lead_agent_instance_if_empty(conn, &conv.id)?;
         return Ok(false);
     }
 
@@ -2179,12 +2305,7 @@ pub fn upsert_conversation(
             i64::from(conv.is_pinned),
         ],
     )?;
-    rotate_lead_instance_if_agent_changed(
-        conn,
-        &conv.id,
-        previous_lead.as_deref(),
-        &conv.lead_agent_id,
-    )?;
+    mint_lead_agent_instance_if_empty(conn, &conv.id)?;
 
     if replace_messages {
         let milestones = snapshot_message_milestones(conn, &conv.id)?;

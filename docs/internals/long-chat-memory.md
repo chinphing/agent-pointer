@@ -37,11 +37,16 @@ How Pointer reduces **peak RSS during a chat turn** without changing the persist
 
 ## Phase 2.2b (implemented) — `context_included` column (schema v22)
 
-- `messages.context_included` mirrors `is_context_included` (soft-exclude + scoped).
-- Writes set the column on insert/upsert; one-time set-based JSON backfill is
-  gated by `store_meta.context_included_backfilled`.
-- Working-set load uses `WHERE context_included = 1` so excluded payloads are not
-  deserialized on the `run_chat` path (`COUNT(*)` still supplies full `db_count`).
+- `messages.context_included` means the row enters **its own thread's** LLM call.
+  Unset `included`, `included=true`, and a legacy `included=false` with no reason
+  are admitted. A real `excludedReason` stays out (`0`).
+- Lead working-set load is `is_scoped = 0 AND context_included = 1` plus the
+  conversation lead instance (empty instance remains a legacy lead row).
+  UI paging stays on `is_scoped` and still shows compressed lead rows.
+- Writes set the column on insert/upsert. `store_meta.context_included_backfilled`
+  is the older soft-exclude materialization. `thread_context_identity_v1` later
+  clears no-reason stamps, admits scoped rows that are not really excluded, and
+  stamps unscoped rows with the conversation lead instance.
 
 ## Phase 2.3 (implemented) — `conversation_session` facade
 

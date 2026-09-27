@@ -237,6 +237,15 @@ pub(super) fn resume_history_from_loaded(
     context: &str,
     original_goal: Option<&str>,
 ) -> (Vec<ChatMessage>, Vec<ChatMessage>) {
+    let before = history.len();
+    history.retain(crate::message_context::is_context_included);
+    let dropped = before.saturating_sub(history.len());
+    if dropped > 0 {
+        log::info!(
+            "worker_followup: omitted excluded rows from resumed history count={dropped} kept={}",
+            history.len()
+        );
+    }
     let mut fresh = close_open_tool_calls(&mut history);
     let mut instruction =
         ChatMessage::user_text(followup_user_content(goal, context, original_goal));

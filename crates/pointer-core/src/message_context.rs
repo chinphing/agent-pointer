@@ -14,22 +14,50 @@ pub enum LlmHistoryScope {
     SubAgentLoop,
 }
 
-/// Whether this message participates in LLM context (default true when unset).
+/// Whether this row may enter its own thread's LLM call.
+///
+/// `included` defaults to true. `included=false` with no excluded reason is the
+/// legacy scope stamp and still enters. A real reason (compression, trim,
+/// planner shell) stays out. Thread membership is `agentInstanceId`, not this flag.
+/// Lead wire additionally drops rows that carry `anchorMessageId`.
 pub fn is_context_included(m: &ChatMessage) -> bool {
-    if crate::models::is_scoped_sub_message(m) {
-        return false;
+    match m.context_state.as_ref() {
+        None => true,
+        Some(state) if state.included => true,
+        Some(state) => state.excluded_reason.is_none(),
     }
-    m.context_state.as_ref().map(|s| s.included).unwrap_or(true)
 }
 
-/// Sub-agent loop inclusion: honor real exclusions (compression/trim), not scoped linkage stamps.
+/// Sub-agent loop inclusion. Same admission rule as [`is_context_included`].
 pub fn is_sub_agent_loop_included(m: &ChatMessage) -> bool {
-    if let Some(state) = m.context_state.as_ref() {
-        if !state.included {
-            return state.excluded_reason.is_none();
+    is_context_included(m)
+}
+
+/// Fill a missing in-memory `agentInstanceId` so the live loop matches the persisted thread.
+pub fn ensure_loop_instance_id(history: &mut [ChatMessage], instance_id: &str) {
+    let id = instance_id.trim();
+    if id.is_empty() {
+        log::warn!("message_context: skip instance stamp, empty agent_instance_id");
+        return;
+    }
+    let mut filled = 0u32;
+    for msg in history.iter_mut() {
+        let missing = msg
+            .agent_instance_id
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty();
+        if missing {
+            msg.agent_instance_id = Some(id.to_string());
+            filled += 1;
         }
     }
-    true
+    if filled > 0 {
+        log::info!(
+            "message_context: stamped in-memory instance count={filled} agent_instance_id={id}"
+        );
+    }
 }
 
 pub fn mark_excluded(m: &mut ChatMessage, reason: ExcludedReason) {
@@ -41,7 +69,7 @@ pub fn mark_excluded(m: &mut ChatMessage, reason: ExcludedReason) {
 
 pub fn filter_context_messages(msgs: &[ChatMessage]) -> Vec<ChatMessage> {
     msgs.iter()
-        .filter(|m| is_context_included(m))
+        .filter(|m| !crate::models::is_scoped_sub_message(m) && is_context_included(m))
         .cloned()
         .collect()
 }
@@ -65,7 +93,9 @@ pub fn filter_messages_for_llm_scope(
 
 fn is_included_for_llm_scope(m: &ChatMessage, scope: LlmHistoryScope) -> bool {
     match scope {
-        LlmHistoryScope::Lead => is_context_included(m),
+        LlmHistoryScope::Lead => {
+            !crate::models::is_scoped_sub_message(m) && is_context_included(m)
+        }
         LlmHistoryScope::SubAgentLoop => is_sub_agent_loop_included(m),
     }
 }

@@ -1,8 +1,14 @@
+import { t } from '../i18n'
 import { imConversationTitle, isImConversation } from './channel-labels'
 import { isRealUserTaskMessage } from './threadLayoutGlue'
 import type { Conversation } from '../types/chat'
 
-export const DEFAULT_CONVERSATION_TITLE = '新会话'
+export function defaultConversationTitle(): string {
+  return t('chat.defaultTitle')
+}
+
+/** Snapshot at module load; prefer defaultConversationTitle() when locale may change. */
+export const DEFAULT_CONVERSATION_TITLE = defaultConversationTitle()
 
 /** Sidebar title from first user message when still on the default placeholder. */
 export function deriveConversationTitle(conv: Conversation): string | null {

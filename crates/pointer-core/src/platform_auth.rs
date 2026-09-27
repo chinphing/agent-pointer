@@ -744,7 +744,10 @@ impl PlatformAuthManager {
             Ok(None) => Err(anyhow!("platform_login_required")),
             Err(e) if self.is_refresh_transient_failure(&e) => {
                 log::warn!("platform_auth: ensure_access_token transient refresh failure: {e:#}");
-                Err(anyhow!("网络异常，暂时无法刷新登录态，请稍后重试"))
+                Err(anyhow!(crate::i18n::t(
+                    "err.network_refresh_login",
+                    crate::i18n::current_ui_locale(),
+                )))
             }
             Err(e) => Err(e),
         }
@@ -1027,7 +1030,10 @@ impl PlatformAuthManager {
                     return Err(e);
                 }
                 if self.is_refresh_transient_failure(&e) {
-                    return Err(anyhow!("网络异常，请检查网络链接是否正常，然后重试。"));
+                    return Err(anyhow!(crate::i18n::t(
+                        "err.network_check_retry",
+                        crate::i18n::current_ui_locale(),
+                    )));
                 }
                 Err(e)
             }
@@ -1328,12 +1334,16 @@ pub async fn probe_loopback(listener: &tokio::net::TcpListener, port: u16) -> Re
             log::info!("platform_auth: loopback probe ok port={port}");
             Ok(())
         }
-        Ok(Err(e)) => Err(e).context(format!(
-            "本机回环不可用（127.0.0.1:{port}）：请检查防火墙、安全软件、VPN 或系统代理是否拦截 localhost"
+        Ok(Err(e)) => Err(e).context(crate::i18n::tf(
+            "err.loopback_unavailable",
+            crate::i18n::current_ui_locale(),
+            &[("port", &port.to_string())],
         )),
-        Err(_) => Err(anyhow!(
-            "本机回环自检超时（127.0.0.1:{port}）：请检查防火墙、安全软件、VPN 或系统代理是否拦截 localhost"
-        )),
+        Err(_) => Err(anyhow!(crate::i18n::tf(
+            "err.loopback_timeout",
+            crate::i18n::current_ui_locale(),
+            &[("port", &port.to_string())],
+        ))),
     }
 }
 

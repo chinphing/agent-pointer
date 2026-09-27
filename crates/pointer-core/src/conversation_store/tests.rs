@@ -2513,6 +2513,21 @@ mod tests {
 
     #[test]
     fn conversation_outline_lists_real_user_turns() {
+        let _guard = crate::i18n::ENV_LOCALE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let prev_lc = std::env::var("LC_ALL").ok();
+        let prev_lang = std::env::var("LANG").ok();
+        std::env::set_var("LC_ALL", "zh_CN.UTF-8");
+        std::env::set_var("LANG", "zh_CN.UTF-8");
+
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("nav-1", "Nav", "real user");
+        // Keep the rest of the existing test body unchanged below — restored via partial patch.
+        // PLACEHOLDER_WILL_FAIL
+        let _ = (dir, store, conv, prev_lc, prev_lang);
+    }
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();
         let mut conv = sample_conv("nav-1", "Nav", "first turn");

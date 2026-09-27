@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 export type Role = 'system' | 'user' | 'assistant' | 'tool'
 
 export interface WebSearchSourceEntry {
@@ -69,9 +70,9 @@ export type UiLocalePreference = 'system' | 'zh-CN' | 'en'
 export type ComputerInitialTier = 'primary' | 'intermediate' | 'advanced'
 
 export const COMPUTER_INITIAL_TIER_OPTIONS: { value: ComputerInitialTier; label: string }[] = [
-  { value: 'primary', label: '快速' },
-  { value: 'intermediate', label: '标准' },
-  { value: 'advanced', label: '高级' }
+  { value: 'primary', label: t('settings.performance.primary') },
+  { value: 'intermediate', label: t('settings.performance.intermediate') },
+  { value: 'advanced', label: t('settings.performance.advanced') }
 ]
 
 /** Per-agent chat UI visibility (from AGENT.md `ui` block). */
@@ -551,9 +552,9 @@ export type PerformanceMode = 'fast' | 'standard' | 'expert'
 export type PerformanceModeKey = PerformanceMode
 
 export const PERFORMANCE_MODE_OPTIONS: { value: PerformanceMode; label: string }[] = [
-  { value: 'fast', label: '快速' },
-  { value: 'standard', label: '标准' },
-  { value: 'expert', label: '高级' }
+  { value: 'fast', label: t('settings.performance.primary') },
+  { value: 'standard', label: t('settings.performance.intermediate') },
+  { value: 'expert', label: t('settings.performance.advanced') }
 ]
 
 export interface MediaUnderstandingModes {

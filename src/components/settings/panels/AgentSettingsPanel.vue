@@ -9,7 +9,7 @@ import { useSkillsStore } from '../../../stores/skills'
 import { Bot, RotateCcw, Sparkles } from 'lucide-vue-next'
 import { composerAgentLabel } from '../../../lib/agentUi'
 import {
-  THINKING_INTENSITY_OPTIONS,
+  thinkingIntensityOptions,
   patchTierThinkingIntensity,
   tierThinkingIntensityValue
 } from '../../../lib/thinkingIntensity'
@@ -19,6 +19,7 @@ const props = defineProps<{
 }>()
 
 const { t } = useI18n()
+const intensityOptions = computed(() => thinkingIntensityOptions())
 const s = useSettingsStore()
 const skillsStore = useSkillsStore()
 const skillPickerAgent = ref<AgentDef | null>(null)
@@ -207,7 +208,7 @@ function skillLabel(skillId: string): string {
                           @change="patchAgentModeLlm(w.id, mode.value, patchTierThinkingIntensity(($event.target as HTMLSelectElement).value as '' | 'off' | 'low' | 'medium' | 'high' | 'max'))"
                         >
                           <option
-                            v-for="opt in THINKING_INTENSITY_OPTIONS"
+                            v-for="opt in intensityOptions"
                             :key="opt.value || 'unset'"
                             :value="opt.value"
                           >{{ opt.label }}</option>
@@ -242,7 +243,7 @@ function skillLabel(skillId: string): string {
                           @change="patchComputerTierLlm(tier.key, patchTierThinkingIntensity(($event.target as HTMLSelectElement).value as '' | 'off' | 'low' | 'medium' | 'high' | 'max'))"
                         >
                           <option
-                            v-for="opt in THINKING_INTENSITY_OPTIONS"
+                            v-for="opt in intensityOptions"
                             :key="opt.value || 'unset'"
                             :value="opt.value"
                           >{{ opt.label }}</option>
@@ -308,7 +309,7 @@ function skillLabel(skillId: string): string {
                       @change="patchMediaModeLlm(kind, mode.value, patchTierThinkingIntensity(($event.target as HTMLSelectElement).value as '' | 'off' | 'low' | 'medium' | 'high' | 'max'))"
                     >
                       <option
-                        v-for="opt in THINKING_INTENSITY_OPTIONS"
+                        v-for="opt in intensityOptions"
                         :key="opt.value || 'unset'"
                         :value="opt.value"
                       >{{ opt.label }}</option>

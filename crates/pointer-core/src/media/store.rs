@@ -320,7 +320,11 @@ pub fn save_attachment_from_path(
     let source = super::access::normalize_user_path(&source_path.to_string_lossy())
         .with_context(|| format!("normalize attachment source {}", source_path.display()))?;
     if !source.is_file() {
-        anyhow::bail!("文件不存在: {}", source.display());
+        anyhow::bail!(crate::i18n::tf(
+            "err.file_missing",
+            crate::i18n::current_ui_locale(),
+            &[("path", &source.display().to_string())],
+        ));
     }
     let display_name = {
         let trimmed = file_name.trim();
@@ -336,7 +340,10 @@ pub fn save_attachment_from_path(
         }
     };
     if super::video::is_video_file_name(&display_name) {
-        anyhow::bail!("视频请通过 OSS 上传，勿直接复制到沙箱");
+        anyhow::bail!(crate::i18n::t(
+            "err.video_sandbox_forbidden",
+            crate::i18n::current_ui_locale(),
+        ));
     }
     let meta = fs::metadata(&source)
         .with_context(|| format!("stat attachment source {}", source.display()))?;

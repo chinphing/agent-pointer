@@ -173,7 +173,7 @@ export async function cancelChat(
       cancelBackgroundJobs: options?.cancelBackgroundJobs ?? true,
     }),
     timeoutMs: 20_000,
-    timeoutMessage: '停止超时。请稍后重试。',
+    timeoutMessage: t('web.stopTimeout'),
   })
 }
 

@@ -6,7 +6,7 @@ import type { SettingsDialogForm } from '../../composables/useSettingsDialogForm
 import type { ModelRuntimeOverrides, ProviderConfig } from '../../types/chat'
 import {
   detectProviderTemplateId,
-  PROVIDER_TEMPLATE_OPTIONS,
+  providerTemplateOptions,
   providerDraftForTemplate,
   providerTemplateMeta,
   stripProviderExtensionFields,
@@ -47,16 +47,17 @@ const customProviders = computed(() =>
     : s.settings.providers.filter(provider => !isPlatformProvider(provider))
 )
 const editableTemplateOptions = computed(() => {
+  const options = providerTemplateOptions()
   if (showAddProvider.value) {
     // 添加服务：已有服务商 id（含平台注入）不要再用同 id 模板自建。
     const occupiedIds = new Set(s.settings.providers.map(p => p.id))
-    return PROVIDER_TEMPLATE_OPTIONS.filter(
+    return options.filter(
       option => !option.defaultId || !occupiedIds.has(option.defaultId)
     )
   }
   // 编辑已有服务：类型锁定为当前服务的类型，只显示一个按钮，
   // 避免把所有模板（看起来像所有 provider）都列出来。
-  return PROVIDER_TEMPLATE_OPTIONS.filter(option => option.id === providerTemplate.value)
+  return options.filter(option => option.id === providerTemplate.value)
 })
 
 const copiedKey = ref(false)

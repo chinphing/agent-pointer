@@ -574,30 +574,51 @@ fn read_worktree_text(root: &Path, relative: &str) -> Result<String> {
         return Ok(String::new());
     }
     let meta = fs::metadata(&full).with_context(|| format!("stat {}", full.display()))?;
+    let loc = crate::i18n::current_ui_locale();
     if !meta.is_file() {
-        return Err(anyhow!("不是常规文件: {}", full.display()));
+        return Err(anyhow!(crate::i18n::tf(
+            "err.not_regular_file",
+            loc,
+            &[("path", &full.display().to_string())],
+        )));
     }
     if meta.len() as usize > GIT_FULL_DIFF_MAX_BYTES {
-        return Err(anyhow!(
-            "文件过大（>{} bytes），无法展示整文件 Diff",
-            GIT_FULL_DIFF_MAX_BYTES
-        ));
+        return Err(anyhow!(crate::i18n::tf(
+            "err.file_too_large_full_diff",
+            loc,
+            &[("bytes", &GIT_FULL_DIFF_MAX_BYTES.to_string())],
+        )));
     }
     let bytes = fs::read(&full).with_context(|| format!("read {}", full.display()))?;
     decode_text_blob(&bytes, relative)
 }
 
 fn decode_text_blob(bytes: &[u8], label: &str) -> Result<String> {
+    let loc = crate::i18n::current_ui_locale();
     if bytes.len() > GIT_FULL_DIFF_MAX_BYTES {
-        return Err(anyhow!(
-            "内容过大（>{} bytes）：{label}",
-            GIT_FULL_DIFF_MAX_BYTES
-        ));
+        return Err(anyhow!(crate::i18n::tf(
+            "err.content_too_large",
+            loc,
+            &[
+                ("bytes", &GIT_FULL_DIFF_MAX_BYTES.to_string()),
+                ("label", label),
+            ],
+        )));
     }
     if bytes.contains(&0) {
-        return Err(anyhow!("二进制文件不支持 Diff：{label}"));
+        return Err(anyhow!(crate::i18n::tf(
+            "err.binary_diff_unsupported",
+            loc,
+            &[("label", label)],
+        )));
     }
-    String::from_utf8(bytes.to_vec()).map_err(|_| anyhow!("非 UTF-8 文本，无法 Diff：{label}"))
+    String::from_utf8(bytes.to_vec()).map_err(|_| {
+        anyhow!(crate::i18n::tf(
+            "err.non_utf8_diff",
+            loc,
+            &[("label", label)],
+        ))
+    })
 }
 
 fn original_field_present(field: Option<&&[u8]>) -> bool {
@@ -654,15 +675,20 @@ where
 }
 
 fn git_spawn_error(error: io::Error) -> anyhow::Error {
+    let loc = crate::i18n::current_ui_locale();
     let info = if error.kind() == io::ErrorKind::NotFound {
         GitErrorInfo {
             code: GitErrorCode::GitNotInstalled,
-            message: "Git 未安装或不可用".to_owned(),
+            message: crate::i18n::t("err.git_not_installed", loc).to_owned(),
         }
     } else {
         GitErrorInfo {
             code: GitErrorCode::CommandFailed,
-            message: format!("无法运行 Git：{error}"),
+            message: crate::i18n::tf(
+                "err.git_run_failed",
+                loc,
+                &[("error", &error.to_string())],
+            ),
         }
     };
     GitCommandError(info).into()
@@ -681,7 +707,7 @@ fn parse_git_output(output: Output) -> Result<Vec<u8>> {
     Err(GitCommandError(GitErrorInfo {
         code,
         message: if stderr.is_empty() {
-            "Git 命令执行失败".to_owned()
+            crate::i18n::t("err.git_command_failed", crate::i18n::current_ui_locale()).to_owned()
         } else {
             stderr
         },

@@ -1,17 +1,17 @@
+import { t } from '../i18n'
+
 /**
- * Summarize an HTTP error response body into short text so nginx HTML pages or
- * large JSON blobs do not become the raw error message.
+ * Summarize an HTTP error response body into short text so nginx HTML pages
+ * or large JSON blobs do not become the raw error message.
  *
  * Strategy:
- * 1. Empty body → `Request failed ({status})`
- * 2. HTML → extract `<title>`; otherwise strip tags and take first 200 chars
+ * 1. Empty body → `Request failed (${status})`
+ * 2. HTML → extract `<title>`; without title, strip tags and take first 200 chars
  * 3. JSON → take `error || message || detail` string fields
  * 4. Plain text → first 500 chars
  *
- * Keep status digits and keywords (e.g. "413") so retry.ts regexes still match.
+ * Keep status codes and keywords (e.g. "413") so retry.ts regexes still match.
  */
-import { t } from '../i18n'
-
 export async function summarizeErrorResponse(res: Response): Promise<string> {
   const status = res.status
   let text = ''
@@ -48,7 +48,7 @@ export async function summarizeErrorResponse(res: Response): Promise<string> {
         return `[${status}] ${detail.trim().slice(0, 500)}`
       }
     } catch {
-      // fall through to plain-text clip
+      // fall through to plain-text truncation
     }
   }
 

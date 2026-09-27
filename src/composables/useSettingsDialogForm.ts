@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import { computed, getCurrentInstance, inject, nextTick, onScopeDispose, provide, ref, watch, type InjectionKey, type Ref } from 'vue'
 import {
   Bot,
@@ -94,15 +95,14 @@ function createSettingsDialogForm(deps: {
   const platformReadOnly = computed(() => !s.canEditPlatform)
 
   const COMPUTER_TIER_UI: { key: ComputerTierKey; label: string }[] = [
-  { key: 'primary', label: '快速' },
-  { key: 'intermediate', label: '标准' },
-  { key: 'advanced', label: '高级' }
+  { key: 'primary', label: t('settings.performance.primary') },
+  { key: 'intermediate', label: t('settings.performance.intermediate') },
+  { key: 'advanced', label: t('settings.performance.advanced') }
   ]
 
   const PERFORMANCE_MODE_UI = PERFORMANCE_MODE_OPTIONS
 
-  const PERFORMANCE_MODE_HELP =
-  '快速、标准、高级由低到高：速度从高到低，价格从低到高，智能从低到高。'
+  const PERFORMANCE_MODE_HELP = t('settings.performance.help')
 
   const MEDIA_DEBUG_KINDS = ['image', 'audio', 'video'] as const
   type MediaDebugKind = (typeof MEDIA_DEBUG_KINDS)[number]

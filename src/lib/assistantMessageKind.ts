@@ -1,5 +1,6 @@
 import type { ChatMessage, MessageStatus } from '../types/chat'
 import { extractOutboundMediaPaths } from './outboundMedia'
+import { t } from '../i18n'
 
 /** User-visible assistant body: text and/or inline media (persisted attachments or `MEDIA:` draft). */
 export function assistantHasDeliverableContent(message: ChatMessage): boolean {
@@ -13,8 +14,8 @@ export function assistantHasDeliverableContent(message: ChatMessage): boolean {
 /** How we render an assistant row in the thread (layout + emphasis). */
 export type AssistantDisplayKind = 'model' | 'injected_notice' | 'error' | 'cancelled'
 
-/** 全角 closing bracket `】`，勿写成 ASCII `]`（否则会匹配失败，提示行会走普通助手大气泡）。 */
-const NOTICE_PREFIX_RE = /^【(桌面|提示|压缩)】/
+/** Fullwidth closing `】` — do not use ASCII `]` (notice rows would render as normal bubbles). */
+const NOTICE_PREFIX_RE = /^【(桌面|提示|压缩|Desktop|Hint|Compression)】/i
 
 export function assistantDisplayKind(message: ChatMessage): AssistantDisplayKind {
   if (message.role !== 'assistant') return 'model'
@@ -65,16 +66,20 @@ export function assistantHasUserFacingProgress(message: ChatMessage): boolean {
 
 /** Sub-styles for injected lines (copy/tones only; layout stays `injected_notice`). */
 export function injectedNoticeFlavor(content: string): 'desktop' | 'hint' | 'compression' | 'generic' {
-  const t = content.trim()
-  if (t.startsWith('【桌面】')) return 'desktop'
-  if (t.startsWith('【提示】')) return 'hint'
-  if (t.startsWith('【压缩】')) return 'compression'
+  const s = content.trim()
+  if (s.startsWith('【桌面】') || s.startsWith('【Desktop】')) return 'desktop'
+  if (s.startsWith('【提示】') || s.startsWith('【Hint】')) return 'hint'
+  if (s.startsWith('【压缩】') || s.startsWith('【Compression】')) return 'compression'
   return 'generic'
 }
 
 /** 桌面截图流水线注入的助手状态行：仅会话内展示，不写本地会话存档。 */
 export function isEphemeralDesktopNoticeMessage(message: ChatMessage): boolean {
-  return message.role === 'assistant' && message.content.trimStart().startsWith('【桌面】')
+  const c = message.content.trimStart()
+  return (
+    message.role === 'assistant' &&
+    (c.startsWith('【桌面】') || c.startsWith('【Desktop】'))
+  )
 }
 
 export function isMessageStreaming(status: MessageStatus): boolean {
@@ -83,11 +88,12 @@ export function isMessageStreaming(status: MessageStatus): boolean {
 
 /** User cancelled generation (UI stop or host cancel). */
 export function isGenerationCancelledMessage(message: string): boolean {
-  const t = message.trim().toLowerCase()
-  if (!t) return false
-  if (t.includes('已停止')) return true
+  const s = message.trim().toLowerCase()
+  if (!s) return false
+  if (s.includes('已停止')) return true
+  if (s.includes('generation stopped')) return true
   // Provider / Tokio cancel paths often surface bare English "cancelled".
-  if (/\bcancell?ed\b/.test(t)) return true
+  if (/\bcancell?ed\b/.test(s)) return true
   return false
 }
 

@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import type { ComputerTierLlmConfig } from '../types/chat'
 
 /** Unified product thinking intensity ladder. */
@@ -17,25 +18,37 @@ export type ThinkingProtocol =
 /** Narrow ladder still used by DeepSeek-only scene dropdowns. */
 export type EffortThinkingIntensity = 'off' | 'high' | 'max'
 
-export const THINKING_INTENSITY_OPTIONS: { value: '' | ThinkingIntensity; label: string }[] = [
-  { value: '', label: '不设置' },
-  { value: 'off', label: '关闭' },
-  { value: 'low', label: '低' },
-  { value: 'medium', label: '中' },
-  { value: 'high', label: '高' },
-  { value: 'max', label: '最高' }
-]
+export function thinkingIntensityOptions(): { value: '' | ThinkingIntensity; label: string }[] {
+  return [
+    { value: '', label: t('thinking.intensity.unset') },
+    { value: 'off', label: t('thinking.intensity.off') },
+    { value: 'low', label: t('thinking.intensity.low') },
+    { value: 'medium', label: t('thinking.intensity.medium') },
+    { value: 'high', label: t('thinking.intensity.high') },
+    { value: 'max', label: t('thinking.intensity.max') }
+  ]
+}
 
-export const THINKING_PROTOCOL_OPTIONS: { value: ThinkingProtocol; label: string }[] = [
-  { value: 'auto', label: '自动' },
-  { value: 'budget', label: '千问预算' },
-  { value: 'effort', label: 'DeepSeek 力度' },
-  { value: 'openrouter', label: 'OpenRouter' },
-  { value: 'kimi', label: 'Kimi' },
-  { value: 'openai_effort', label: 'OpenAI 力度' },
-  { value: 'off', label: '关闭结构化' },
-  { value: 'custom', label: '仅扩展参数' }
-]
+/** @deprecated Prefer thinkingIntensityOptions() so labels follow the active locale. */
+export const THINKING_INTENSITY_OPTIONS: { value: '' | ThinkingIntensity; label: string }[] =
+  thinkingIntensityOptions()
+
+export function thinkingProtocolOptions(): { value: ThinkingProtocol; label: string }[] {
+  return [
+    { value: 'auto', label: t('thinking.protocol.auto') },
+    { value: 'budget', label: t('thinking.protocol.budget') },
+    { value: 'effort', label: t('thinking.protocol.effort') },
+    { value: 'openrouter', label: t('thinking.protocol.openrouter') },
+    { value: 'kimi', label: t('thinking.protocol.kimi') },
+    { value: 'openai_effort', label: t('thinking.protocol.openaiEffort') },
+    { value: 'off', label: t('thinking.protocol.off') },
+    { value: 'custom', label: t('thinking.protocol.custom') }
+  ]
+}
+
+/** @deprecated Prefer thinkingProtocolOptions() so labels follow the active locale. */
+export const THINKING_PROTOCOL_OPTIONS: { value: ThinkingProtocol; label: string }[] =
+  thinkingProtocolOptions()
 
 export function parseThinkingIntensity(raw: unknown): ThinkingIntensity | '' {
   if (typeof raw !== 'string') return ''

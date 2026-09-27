@@ -9,6 +9,7 @@
  */
 
 /** Friendly schedule modes backed by generated cron / one-shot strings. */
+import { t } from '../i18n'
 export type CronMode =
   | 'onceIn'
   | 'onceAt'
@@ -43,7 +44,12 @@ export interface CronPreset {
   raw?: string
 }
 
-export const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+export function weekdayLabels(): string[] {
+  return [0, 1, 2, 3, 4, 5, 6].map(i => t(`cron.weekday.${i}`))
+}
+
+/** @deprecated Prefer weekdayLabels() so labels follow the active locale. */
+export const WEEKDAY_LABELS = weekdayLabels()
 
 const DEFAULT_PRESET: CronPreset = { mode: 'dailyAt', hour: 9, minute: 0 }
 
@@ -168,29 +174,40 @@ export function parseCron(expr: string): CronPreset {
 /** Human-readable Chinese description of a schedule string or cron expression. */
 export function describeCron(expr: string): string {
   const p = parseCron(expr)
+  const weekdays = weekdayLabels()
   switch (p.mode) {
     case 'onceIn': {
       const n = p.delayAmount ?? 30
-      const u = p.delayUnit === 'h' ? '小时' : p.delayUnit === 'd' ? '天' : '分钟'
-      return `${n} ${u}后执行一次`
+      const unitKey = p.delayUnit === 'h' ? 'h' : p.delayUnit === 'd' ? 'd' : 'm'
+      return t('cron.describe.onceIn', { n, unit: t(`cron.unit.${unitKey}`) })
     }
     case 'onceAt':
-      return `指定时间执行一次：${p.atLocal ?? expr}`
+      return t('cron.describe.onceAt', { at: p.atLocal ?? expr })
     case 'everyMinute':
-      return '每分钟执行'
+      return t('cron.describe.everyMinute')
     case 'everyNMinutes':
-      return `每 ${p.interval ?? 5} 分钟执行`
+      return t('cron.describe.everyNMinutes', { n: p.interval ?? 5 })
     case 'everyNHours':
-      return `每 ${p.interval ?? 2} 小时执行`
+      return t('cron.describe.everyNHours', { n: p.interval ?? 2 })
     case 'dailyAt':
-      return `每天 ${pad(p.hour ?? 9)}:${pad(p.minute ?? 0)} 执行`
+      return t('cron.describe.dailyAt', {
+        time: `${pad(p.hour ?? 9)}:${pad(p.minute ?? 0)}`
+      })
     case 'weeklyAt':
-      return `每${WEEKDAY_LABELS[p.weekday ?? 1]} ${pad(p.hour ?? 9)}:${pad(p.minute ?? 0)} 执行`
+      return t('cron.describe.weeklyAt', {
+        weekday: weekdays[p.weekday ?? 1],
+        time: `${pad(p.hour ?? 9)}:${pad(p.minute ?? 0)}`
+      })
     case 'monthlyAt':
-      return `每月 ${p.dayOfMonth ?? 1} 日 ${pad(p.hour ?? 9)}:${pad(p.minute ?? 0)} 执行`
+      return t('cron.describe.monthlyAt', {
+        day: p.dayOfMonth ?? 1,
+        time: `${pad(p.hour ?? 9)}:${pad(p.minute ?? 0)}`
+      })
     case 'custom':
     default:
-      return `自定义：${(expr ?? '').trim() || '—'}`
+      return t('cron.describe.custom', {
+        expr: (expr ?? '').trim() || t('cron.describe.emDash')
+      })
   }
 }
 
@@ -205,10 +222,14 @@ export function describeCronJob(job: {
   if (job.scheduleKind === 'once') {
     if (job.enabled === false && !job.nextRunAtMs) {
       const raw = job.scheduleRaw?.trim()
-      return raw ? `一次性 · 已完成（${raw}）` : '一次性 · 已完成'
+      return raw
+        ? t('cron.describe.onceDoneWithRaw', { raw })
+        : t('cron.describe.onceDone')
     }
     if (job.nextRunAtMs) {
-      return `一次性 · ${new Date(job.nextRunAtMs).toLocaleString()}`
+      return t('cron.describe.onceNext', {
+        when: new Date(job.nextRunAtMs).toLocaleString()
+      })
     }
     return describeCron(job.scheduleRaw || job.cronExpr)
   }

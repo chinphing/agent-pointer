@@ -1,5 +1,6 @@
 import { toolCallBaseName } from './messageTooling'
 import type { AgentTrace, SubAgentToolStats } from '../types/chat'
+import { t } from '../i18n'
 
 export function emptySubAgentToolStats(): SubAgentToolStats {
   return {
@@ -139,60 +140,65 @@ export function incrementSubAgentToolStats(
 }
 
 export function subAgentStatusLabel(status: string): string {
-  if (status === 'completed') return '已完成'
-  if (status === 'failed') return '失败'
-  if (status === 'running') return '进行中'
+  if (status === 'completed') return t('subAgent.statusCompleted')
+  if (status === 'failed') return t('subAgent.statusFailed')
+  if (status === 'running') return t('subAgent.statusRunning')
   return status
 }
 
 function statSeg(label: string, count: number | undefined): string | null {
   const n = count ?? 0
-  return n > 0 ? `${label} ${n} 次` : null
+  return n > 0 ? t('subAgent.statCount', { label, n }) : null
 }
 
 function joinStatSegments(parts: Array<string | null>): string {
   const visible = parts.filter((p): p is string => !!p)
-  return visible.length > 0 ? visible.join(' · ') : '工具 0 次'
+  return visible.length > 0 ? visible.join(' · ') : t('subAgent.toolsZero')
 }
 
 function formatStatsForAgent(agentId: string, stats: SubAgentToolStats): string {
   const id = agentId.trim().toLowerCase()
   if (id === 'computer') {
     return joinStatSegments([
-      statSeg('鼠标', stats.mouseCount),
-      statSeg('输入', stats.inputCount),
-      statSeg('其他', stats.otherCount)
+      statSeg(t('subAgent.statMouse'), stats.mouseCount),
+      statSeg(t('subAgent.statInput'), stats.inputCount),
+      statSeg(t('subAgent.statOther'), stats.otherCount)
     ])
   }
   if (id === 'coder') {
     return joinStatSegments([
-      statSeg('搜索', stats.searchCount),
-      statSeg('读文件', stats.readCount),
-      statSeg('终端', stats.terminalCount),
-      statSeg('编辑', stats.writeCount)
+      statSeg(t('subAgent.statSearch'), stats.searchCount),
+      statSeg(t('subAgent.statRead'), stats.readCount),
+      statSeg(t('subAgent.statTerminal'), stats.terminalCount),
+      statSeg(t('subAgent.statEdit'), stats.writeCount)
     ])
   }
   if (id === 'general-worker' || id === 'general_worker') {
     return joinStatSegments([
-      statSeg('终端', stats.terminalCount),
-      statSeg('技能', stats.skillCount),
-      statSeg('媒体', stats.mediaCount),
-      statSeg('搜索', stats.webSearchCount),
-      statSeg('读文件', stats.readCount),
-      statSeg('编辑', stats.writeCount)
+      statSeg(t('subAgent.statTerminal'), stats.terminalCount),
+      statSeg(t('subAgent.statSkill'), stats.skillCount),
+      statSeg(t('subAgent.statMedia'), stats.mediaCount),
+      statSeg(t('subAgent.statSearch'), stats.webSearchCount),
+      statSeg(t('subAgent.statRead'), stats.readCount),
+      statSeg(t('subAgent.statEdit'), stats.writeCount)
     ])
   }
   // explore, self-fork (`current-agent`), and other file-heavy workers
   return joinStatSegments([
-    statSeg('搜索', stats.searchCount),
-    statSeg('读文件', stats.readCount),
-    statSeg('终端', stats.terminalCount),
-    statSeg('编辑', stats.writeCount)
+    statSeg(t('subAgent.statSearch'), stats.searchCount),
+    statSeg(t('subAgent.statRead'), stats.readCount),
+    statSeg(t('subAgent.statTerminal'), stats.terminalCount),
+    statSeg(t('subAgent.statEdit'), stats.writeCount)
   ])
 }
 
 /** Collapsed process row when scoped stats are not hydrated yet. */
-export const SUB_AGENT_PROCESS_PLACEHOLDER = '过程'
+export function subAgentProcessPlaceholder(): string {
+  return t('subAgent.processPlaceholder')
+}
+
+/** @deprecated Prefer subAgentProcessPlaceholder(). */
+export const SUB_AGENT_PROCESS_PLACEHOLDER = subAgentProcessPlaceholder()
 
 /**
  * Stats line under the host row. While the spawn is running and a live /
@@ -207,7 +213,7 @@ export function resolveSubAgentSummaryDisplay(input: {
   const stats = input.statsSummary.trim()
   if (stats) return stats
   if (input.running && (input.liveLine ?? '').trim()) return ''
-  return SUB_AGENT_PROCESS_PLACEHOLDER
+  return subAgentProcessPlaceholder()
 }
 
 /** Counts only — host「委派子任务」row already shows the goal. */
@@ -229,7 +235,7 @@ export function formatSubAgentSummaryLine(
   stats: SubAgentToolStats,
   agentId?: string
 ): string {
-  const label = name.trim() || '子任务'
+  const label = name.trim() || t('subAgent.defaultName')
   return `${label} · ${formatSubAgentStatsLine(status, stats, agentId)}`
 }
 
@@ -252,7 +258,7 @@ export function resolveCollapsedSubAgentView(input: {
   thinkingLine?: string | null
 }): CollapsedSubAgentView {
   const metrics = formatStatsForAgent(input.agentId ?? 'explore', input.stats)
-  const hasStats = input.status === 'failed' || metrics !== '工具 0 次'
+  const hasStats = input.status === 'failed' || metrics !== t('subAgent.toolsZero')
   let statsLine = hasStats
     ? formatSubAgentStatsLine(input.status, input.stats, input.agentId)
     : ''

@@ -38,7 +38,11 @@
     "clearSearch": "清除搜索",
     "collapse": "收起",
     "expand": "展开",
-    "loadMore": "加载更多"
+    "loadMore": "加载更多",
+    "copyCode": "复制代码",
+    "copySource": "复制源码",
+    "copyConfig": "复制配置",
+    "stopped": "已停止"
   },
   "settings": {
     "language": {
@@ -51,7 +55,12 @@
     "theme": {
       "light": "浅色",
       "dark": "深色",
-      "system": "跟随系统"
+      "system": "跟随系统",
+      "labels": {
+        "light": "浅色",
+        "dark": "深色",
+        "system": "跟随系统"
+      }
     },
     "sections": {
       "assistant": "智能体",
@@ -83,7 +92,11 @@
     "display": {
       "heading": "界面显示",
       "toolCalls": "工具调用",
-      "agentOutput": "智能体输出"
+      "agentOutput": "智能体输出",
+      "showSidecarToolCalls": "显示 sidecar 工具调用",
+      "showNonSidecarToolCalls": "显示非 sidecar 工具调用",
+      "showToolCalls": "显示工具调用卡片",
+      "showToolCallResults": "显示工具调用结果"
     },
     "dialog": {
       "backToChat": "返回对话",
@@ -241,7 +254,18 @@
       "moreToolsModalTitle": "更多工具",
       "moreToolsModalHint": "调整联网搜索等工具的档位与模型",
       "webSearch": "联网搜索",
-      "webSearchDesc": "外部事实检索与来源汇总"
+      "webSearchDesc": "外部事实检索与来源汇总",
+      "performanceModeHelp": "快速、标准、高级由低到高：速度从高到低，价格从低到高，智能从低到高。",
+      "tier": {
+        "primary": "快速",
+        "intermediate": "标准",
+        "advanced": "高级"
+      },
+      "mediaModeLabel": {
+        "image": "图片理解",
+        "audio": "语音转写",
+        "video": "视频理解"
+      }
     },
     "generation": {
       "toolCallShowReasoning": "显示推理过程",
@@ -372,7 +396,8 @@
       "mediaEnvInstallHint": "IM 视频与抽帧理解需要本机安装；未安装时不打包进应用。",
       "mediaEnvCodecNote": "单个视频仍可能因编码或文件损坏抽帧失败，不代表未安装 ffmpeg。",
       "redetect": "重新检测",
-      "askAssistantInstall": "让助手安装"
+      "askAssistantInstall": "让助手安装",
+      "showReasoning": "显示推理过程"
     },
     "models": {
       "title": "模型能力",
@@ -730,6 +755,37 @@
       "rawContentViewHint": "助手消息上显示「原始输出」调试入口（正文通道原始字串与 API reasoning）",
       "annotatedScreenshotView": "标记截图查看",
       "annotatedScreenshotViewHint": "显示 Computer 使用的标注截图预览"
+    },
+    "thinking": {
+      "unset": "不设置",
+      "off": "关闭",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "max": "最高",
+      "protocolAuto": "自动",
+      "protocolBudget": "千问预算",
+      "protocolEffort": "DeepSeek 力度",
+      "protocolOpenaiEffort": "OpenAI 力度",
+      "protocolOff": "关闭结构化",
+      "protocolCustom": "仅扩展参数"
+    },
+    "performance": {
+      "primary": "快速",
+      "intermediate": "标准",
+      "advanced": "高级",
+      "help": "快速、标准、高级由低到高：速度从高到低，价格从低到高，智能从低到高。"
+    },
+    "ffmpeg": {
+      "checking": "检测中…",
+      "ready": "已就绪（可执行抽帧）",
+      "missingParts": "未就绪：缺少部分组件",
+      "foundButUnusable": "未就绪：已找到但无法执行",
+      "notDetected": "未检测到"
+    },
+    "agentMode": {
+      "general": "通用助手",
+      "coder": "氛围编程"
     }
   },
   "shell": {
@@ -895,7 +951,8 @@
       "queueSendHintWin": "加入发送队列 (Enter)。空输入再 Enter 立即发送（只停同步，后台继续）。Ctrl+Enter 同立即发送",
       "sendHintMac": "发送 (↩)",
       "sendHintWin": "发送 (Enter)",
-      "apiKeyMissing": "未配置 Key"
+      "apiKeyMissing": "未配置 Key",
+      "defaultPlaceholder": "告诉我你想做什么"
     },
     "empty": {
       "title": "开始对话",
@@ -1016,13 +1073,34 @@
       "progressSubAgent": "{name} 子任务内正在压缩较早记录",
       "traceDetail": "{name}：上下文已压缩（{dropped} 条 → 摘要）"
     },
-    "webhookSessionTitleFromId": "[Webhook] {id}"
+    "webhookSessionTitleFromId": "[Webhook] {id}",
+    "defaultTitle": "新会话",
+    "turnElapsed": {
+      "prefix": "工作",
+      "unknown": "{prefix}耗时未知"
+    },
+    "thread": {
+      "desktopScreenshot": "桌面截图",
+      "toolResult": "工具结果"
+    }
   },
   "agent": {
     "role": {
       "general": "通用助手",
       "coder": "氛围编程",
-      "computer": "电脑操控"
+      "computer": "电脑操控",
+      "generalWorker": "通用执行",
+      "explore": "代码探索",
+      "subtask": "子任务"
+    },
+    "ui": {
+      "general": "通用助手",
+      "generalWorker": "通用执行",
+      "coder": "氛围编程",
+      "computer": "电脑操控",
+      "explorer": "探索",
+      "explore": "代码探索",
+      "subtask": "子任务"
     }
   },
   "automation": {
@@ -1289,6 +1367,10 @@
       "standalone": "请先登录",
       "standaloneAttachment": "请先登录后再添加附件",
       "cloud": "请先登录 Pointer 账户"
+    },
+    "status": {
+      "notLoggedIn": "未登录",
+      "loggedIn": "已登录"
     }
   },
   "backgroundJobs": {
@@ -1349,14 +1431,18 @@
     },
     "pickScreen": {
       "ariaLabel": "选择屏幕",
-      "closeTitle": "关闭 (Esc)",
+      "title": "选择要操作的屏幕",
       "description": "按桌面排列点击屏幕。Agent 将在所选屏幕上截图并执行操作。",
-      "layoutHint": "布局与系统「显示器排列」一致；点击一块屏幕以继续。",
+      "closeTitle": "关闭 (Esc)",
       "loading": "正在读取屏幕列表…",
       "noScreens": "未检测到可用屏幕",
-      "title": "选择要操作的屏幕"
+      "layoutHint": "布局与系统「显示器排列」一致；点击一块屏幕以继续。",
+      "compact": "请选择操控屏幕…"
     },
-    "stopTitle": "终止"
+    "stopTitle": "终止",
+    "preparing": "准备执行…",
+    "executing": "执行中…",
+    "stopped": "已停止"
   },
   "conversationNav": {
     "ariaLabel": "导航",
@@ -1466,7 +1552,12 @@
     "failed": "失败",
     "noSteps": "暂无步骤",
     "progressAria": "进度 {progress}",
-    "subtask": "子任务"
+    "subtask": "子任务",
+    "updateRows": "更新 · {n} 行",
+    "patchRows": "patch · {n} 行",
+    "milestones": "共 {n} 里程碑",
+    "method": "任务板 · {method}",
+    "updated": "任务板已更新"
   },
   "terminalInputModal": {
     "cancel": "取消",
@@ -1739,5 +1830,64 @@
     "statEdit": "编辑",
     "statSkill": "技能",
     "statMedia": "媒体"
+  },
+  "updater": {
+    "upToDate": "已是最新版本",
+    "skippedVersion": "已跳过版本 {version}，有新版本时会通知你"
+  },
+  "channel": {
+    "conversation": {
+      "newChat": "{label} · 新对话",
+      "newChatWithSender": "{label} · {sender} · 新对话",
+      "group": "{label} 群聊",
+      "dm": "{label} 私信"
+    },
+    "im": {
+      "newChat": "新对话",
+      "groupChat": "群聊",
+      "directMessage": "私信"
+    }
+  },
+  "markdown": {
+    "copied": "已复制",
+    "exported": "已导出",
+    "copyCode": "复制代码",
+    "copySource": "复制源码",
+    "copyConfig": "复制配置",
+    "exportSvg": "导出 SVG",
+    "exportImage": "导出图片",
+    "viewSource": "查看源码",
+    "hideSource": "隐藏源码",
+    "viewConfig": "查看配置",
+    "hideConfig": "隐藏配置",
+    "zoom": "放大查看",
+    "diagramMissingConfig": "图示配置缺失",
+    "diagramUnparseable": "图示无法解析",
+    "diagramGenerating": "图示生成中…",
+    "diagramInvalid": "图示无效",
+    "diagramRenderFailed": "图示渲染失败",
+    "diagramSyntaxError": "图示语法错误",
+    "chartGenerating": "图表生成中…",
+    "chartMissingConfig": "图表配置缺失",
+    "chartUnparseable": "图表配置无法解析",
+    "chartInvalid": "图表配置无效",
+    "chartRenderFailed": "图表渲染失败"
+  },
+  "lib": {
+    "uploadCancelled": "上传已取消",
+    "videoUploadFailed": "视频上传失败",
+    "videoUseAttachmentButton": "请使用附件按钮（回形针）选择视频文件。桌面端不支持通过网页式文件选择器上传大视频。",
+    "connectionSuccess": "连接成功",
+    "jsonMustBeObject": "须为 JSON 对象，例如 { \"repetition_penalty\": 1.1 }",
+    "jsonInvalid": "JSON 无效",
+    "noProvider": "无服务商",
+    "cannotGetSessionId": "无法获取当前会话 ID",
+    "ffmpegInstallPrompt": "帮我安装 ffmpeg",
+    "gitInitTask": "请为当前工作区初始化 Git 仓库。先分析项目架构和技术栈，识别构建产物、本地配置、缓存、IDE 文件及敏感文件；检查现有 .gitignore，并结合分析结果决定合适的忽略模板。先向我说明拟采用的方案，再写入或补充 .gitignore，最后执行 git init，并运行 git status 验证初始化结果。"
+  },
+  "performanceMode": {
+    "fast": "快速",
+    "standard": "标准",
+    "expert": "高级"
   }
 }

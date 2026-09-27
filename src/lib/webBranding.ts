@@ -1,10 +1,11 @@
 import { isTauriRuntime } from './runtime'
+import { t } from '../i18n'
 
 /** Default composer prompt when no server / Vite override is present. */
-export const DEFAULT_COMPOSER_PLACEHOLDER = '告诉我你想做什么'
+export const DEFAULT_COMPOSER_PLACEHOLDER = t('chat.composer.defaultPlaceholder')
 
 /** Default turn-elapsed chip prefix (`工作 N m SS s` / `工作耗时未知`). */
-export const DEFAULT_TURN_ELAPSED_PREFIX = '工作'
+export const DEFAULT_TURN_ELAPSED_PREFIX = t('chat.turnElapsed.prefix')
 
 /** Default sidebar / top-bar product name. */
 export const DEFAULT_BRAND_NAME = 'Pointer'

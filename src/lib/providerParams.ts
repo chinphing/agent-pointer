@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import type { ModelRuntimeOverrides, ProviderConfig } from '../types/chat'
 import {
   defaultProtocolForTemplate,
@@ -26,22 +27,16 @@ export interface ProviderTemplateMeta {
   defaultModels: string[]
 }
 
-export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
+const PROVIDER_TEMPLATE_BASE: Omit<ProviderTemplateMeta, 'label' | 'hint' | 'defaultName'>[] = [
   {
     id: 'openai_compatible',
-    label: 'OpenAI 兼容',
-    hint: '其它 OpenAI 格式端点；可配 extra_body（如 repetition_penalty）',
     defaultId: '',
-    defaultName: '',
     defaultBaseUrl: 'https://api.openai.com/v1',
     defaultModels: []
   },
   {
     id: 'openrouter',
-    label: 'OpenRouter',
-    hint: '聚合入口；可调用 GPT-5.6 / Claude / Gemini 等',
     defaultId: 'openrouter',
-    defaultName: 'OpenRouter',
     defaultBaseUrl: 'https://openrouter.ai/api/v1',
     defaultModels: [
       'stepfun/step-3.7-flash',
@@ -58,23 +53,39 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
   },
   {
     id: 'kimi',
-    label: 'Kimi',
-    hint: '月之暗面 API；长文档处理突出',
     defaultId: 'kimi',
-    defaultName: 'Kimi（月之暗面）',
     defaultBaseUrl: 'https://api.moonshot.cn/v1',
     defaultModels: ['kimi-k3']
   },
   {
     id: 'zhipu',
-    label: '智谱 GLM',
-    hint: '智谱 API；代码生成突出',
     defaultId: 'zhipu',
-    defaultName: '智谱 GLM',
     defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     defaultModels: ['glm-5.2']
   }
 ]
+
+function localizeProviderTemplate(
+  base: Omit<ProviderTemplateMeta, 'label' | 'hint' | 'defaultName'>
+): ProviderTemplateMeta {
+  const id = base.id
+  const label = t(`provider.templates.${id}.label`)
+  const hint = t(`provider.templates.${id}.hint`)
+  const defaultName =
+    id === 'openai_compatible'
+      ? ''
+      : id === 'openrouter'
+        ? 'OpenRouter'
+        : t(`provider.templates.${id}.defaultName`)
+  return { ...base, label, hint, defaultName }
+}
+
+export function providerTemplateOptions(): ProviderTemplateMeta[] {
+  return PROVIDER_TEMPLATE_BASE.map(localizeProviderTemplate)
+}
+
+/** @deprecated Prefer providerTemplateOptions() so labels follow the active locale. */
+export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = providerTemplateOptions()
 
 function providerIdLower(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): string {
   return typeof p?.id === 'string' ? p.id.toLowerCase() : ''
@@ -123,10 +134,11 @@ export function detectProviderTemplateId(
 }
 
 export function providerTemplateMeta(id: ProviderTemplateId): ProviderTemplateMeta {
+  const options = providerTemplateOptions()
   return (
-    PROVIDER_TEMPLATE_OPTIONS.find(t => t.id === id)
-    ?? PROVIDER_TEMPLATE_OPTIONS.find(t => t.id === 'openai_compatible')
-    ?? PROVIDER_TEMPLATE_OPTIONS[0]
+    options.find(opt => opt.id === id)
+    ?? options.find(opt => opt.id === 'openai_compatible')
+    ?? options[0]
   )
 }
 

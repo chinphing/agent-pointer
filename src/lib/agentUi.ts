@@ -13,6 +13,7 @@ export function mergeDebugDisplayUi(
   return ui
 }
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
+import { t } from '../i18n'
 
 /** Built-in general agent id. */
 export const GENERAL_AGENT_ID = 'general'
@@ -59,11 +60,11 @@ function profileKey(profile: AgentProfile, id: string): string {
 }
 
 const COMPOSER_LABELS: Record<string, string> = {
-  general: '通用助手',
-  'general-worker': '通用执行',
-  coder: '氛围编程',
-  computer: '电脑操控',
-  explore: '代码探索'
+  general: t('agent.ui.general'),
+  'general-worker': t('agent.ui.generalWorker'),
+  coder: t('agent.ui.coder'),
+  computer: t('agent.ui.computer'),
+  explore: t('agent.ui.explore')
 }
 
 function composerSelectableByProfile(id: string, key: string): boolean {
@@ -135,9 +136,9 @@ export function composerAgentLabel(
   agent: AgentDef | undefined,
   settings?: Pick<ModelSettings, 'agentUiOverrides'>
 ): string {
-  if (!agent) return '通用助手'
+  if (!agent) return t('agent.ui.general')
   const ui = resolveAgentUi(agent, settings)
-  return ui.composerLabel.trim() || COMPOSER_LABELS[agent.id] || '通用助手'
+  return ui.composerLabel.trim() || COMPOSER_LABELS[agent.id] || t('agent.ui.general')
 }
 
 /** User-visible Chinese label for an agent id (cron list, traces, etc.). */
@@ -165,7 +166,7 @@ export function traceAgentLabel(
   if (agent) return composerAgentLabel(agent, settings)
   const stored = trace.name.trim()
   if (stored && !stored.includes('-')) return stored
-  return (COMPOSER_LABELS[agentId] ?? stored) || '子任务'
+  return (COMPOSER_LABELS[agentId] ?? stored) || t('agent.ui.subtask')
 }
 
 export function resolveAgentUi(

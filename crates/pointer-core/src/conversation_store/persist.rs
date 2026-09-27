@@ -1410,7 +1410,7 @@ pub(crate) fn conversation_in_scope(
 fn conversation_nav_preview(content: &str) -> String {
     let collapsed = crate::text_util::collapse_whitespace(content);
     if collapsed.is_empty() {
-        return "（无文字）".to_string();
+        return crate::i18n::t("ui.no_text", crate::i18n::current_ui_locale()).to_string();
     }
     crate::text_util::truncate_chars_fit(&collapsed, OUTLINE_PREVIEW_CHARS)
 }

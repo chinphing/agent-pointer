@@ -180,6 +180,7 @@ const BUBBLE_TITLE_CHARS: usize = 20;
 const BUBBLE_TITLE_MAX: usize = 2;
 
 fn idle_push_item_title(item: &IdlePushItem) -> String {
+    let loc = crate::i18n::current_ui_locale();
     let raw = item
         .title
         .as_deref()
@@ -188,39 +189,57 @@ fn idle_push_item_title(item: &IdlePushItem) -> String {
     let text = match raw {
         Some(s) => s,
         None => match item.kind {
-            "terminal" => "终端",
-            _ => "子任务",
+            "terminal" => crate::i18n::t("idle.fallback.terminal", loc),
+            _ => crate::i18n::t("idle.fallback.subtask", loc),
         },
     };
     crate::text_util::truncate_chars_fit(text, BUBBLE_TITLE_CHARS)
 }
 
 fn join_idle_push_titles(titles: &[String]) -> String {
+    let loc = crate::i18n::current_ui_locale();
     match titles.len() {
         0 => String::new(),
         1 => titles[0].clone(),
-        n if n <= BUBBLE_TITLE_MAX => titles.join("、"),
-        n => format!("{}、{} 等 {n} 个", titles[0], titles[1]),
+        n if n <= BUBBLE_TITLE_MAX => crate::i18n::tf(
+            "idle.join.pair",
+            loc,
+            &[("a", titles[0].as_str()), ("b", titles[1].as_str())],
+        ),
+        n => crate::i18n::tf(
+            "idle.join.many",
+            loc,
+            &[
+                ("a", titles[0].as_str()),
+                ("b", titles[1].as_str()),
+                ("n", &n.to_string()),
+            ],
+        ),
     }
 }
 
 /// Short user-facing bubble. Full bodies stay in `content` for the lead.
 pub(crate) fn build_idle_push_bubble_text(items: &[IdlePushItem]) -> String {
+    let loc = crate::i18n::current_ui_locale();
     if items.is_empty() {
-        return "后台任务已完成。".into();
+        return crate::i18n::t("idle.bubble.done_empty", loc).into();
     }
     let all_failed = items.iter().all(|item| item.status == "failed");
     let prefix = if all_failed {
-        "后台任务失败"
+        crate::i18n::t("idle.bubble.prefix_failed", loc)
     } else {
-        "后台任务已完成"
+        crate::i18n::t("idle.bubble.prefix_done", loc)
     };
     let titles: Vec<String> = items.iter().map(idle_push_item_title).collect();
     let shown = join_idle_push_titles(&titles);
     if shown.is_empty() {
-        return format!("{prefix}。");
+        return crate::i18n::tf("idle.bubble.prefix_only", loc, &[("prefix", prefix)]);
     }
-    format!("{prefix}：{shown}")
+    crate::i18n::tf(
+        "idle.bubble.with_titles",
+        loc,
+        &[("prefix", prefix), ("titles", &shown)],
+    )
 }
 
 pub(crate) fn build_idle_push_user_text(items: &[IdlePushItem]) -> String {
@@ -332,29 +351,30 @@ impl OnRunCancelledHook for IdleJobPushHook {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::ENV_LOCALE_TEST_LOCK;
+
+    fn with_zh_cn_locale<R>(f: impl FnOnce() -> R) -> R {
+        let _guard = ENV_LOCALE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev_lc = std::env::var("LC_ALL").ok();
+        let prev_lang = std::env::var("LANG").ok();
+        std::env::set_var("LC_ALL", "zh_CN.UTF-8");
+        std::env::set_var("LANG", "zh_CN.UTF-8");
+        let result = f();
+        match prev_lc {
+            Some(v) => std::env::set_var("LC_ALL", v),
+            None => std::env::remove_var("LC_ALL"),
+        }
+        match prev_lang {
+            Some(v) => std::env::set_var("LANG", v),
+            None => std::env::remove_var("LANG"),
+        }
+        result
+    }
 
     #[test]
     fn user_text_starts_with_short_chinese_and_includes_bodies() {
-        let text = build_idle_push_user_text(&[IdlePushItem {
-            job_id: "job_a".into(),
-            status: "completed",
-            kind: "subagent",
-            title: Some("搜索登录".into()),
-            agent_id: Some("explore".into()),
-            content: Some("found login.rs".into()),
-            error: None,
-            agent_instance_id: Some("inst-1".into()),
-        }]);
-        assert!(text.starts_with("后台任务已完成：搜索登录\n\n"));
-        assert!(text.contains("搜索登录"));
-        assert!(text.contains("found login.rs"));
-        assert!(text.contains("already claimed"));
-        assert!(text.contains("agentInstanceId: inst-1"));
-        assert!(text.contains("followupInstanceId"));
-        assert!(text.contains("may still be running"));
-        assert!(!text.to_lowercase().contains("thoughts:"));
-        assert_eq!(
-            build_idle_push_bubble_text(&[IdlePushItem {
+        with_zh_cn_locale(|| {
+            let text = build_idle_push_user_text(&[IdlePushItem {
                 job_id: "job_a".into(),
                 status: "completed",
                 kind: "subagent",
@@ -362,41 +382,36 @@ mod tests {
                 agent_id: Some("explore".into()),
                 content: Some("found login.rs".into()),
                 error: None,
-                agent_instance_id: None,
-            }]),
-            "后台任务已完成：搜索登录"
-        );
+                agent_instance_id: Some("inst-1".into()),
+            }]);
+            assert!(text.starts_with("后台任务已完成：搜索登录\n\n"));
+            assert!(text.contains("搜索登录"));
+            assert!(text.contains("found login.rs"));
+            assert!(text.contains("already claimed"));
+            assert!(text.contains("agentInstanceId: inst-1"));
+            assert!(text.contains("followupInstanceId"));
+            assert!(text.contains("may still be running"));
+            assert!(!text.to_lowercase().contains("thoughts:"));
+            assert_eq!(
+                build_idle_push_bubble_text(&[IdlePushItem {
+                    job_id: "job_a".into(),
+                    status: "completed",
+                    kind: "subagent",
+                    title: Some("搜索登录".into()),
+                    agent_id: Some("explore".into()),
+                    content: Some("found login.rs".into()),
+                    error: None,
+                    agent_instance_id: None,
+                }]),
+                "后台任务已完成：搜索登录"
+            );
+        });
     }
 
     #[test]
     fn user_text_merges_multiple_jobs() {
-        let text = build_idle_push_user_text(&[
-            IdlePushItem {
-                job_id: "j1".into(),
-                status: "completed",
-                kind: "subagent",
-                title: Some("A".into()),
-                agent_id: None,
-                content: Some("one".into()),
-                error: None,
-                agent_instance_id: None,
-            },
-            IdlePushItem {
-                job_id: "j2".into(),
-                status: "failed",
-                kind: "terminal",
-                title: Some("测测试".into()),
-                agent_id: None,
-                content: None,
-                error: Some("exit 1".into()),
-                agent_instance_id: None,
-            },
-        ]);
-        assert!(text.contains("2 jobs:"));
-        assert!(text.contains("### A"));
-        assert!(text.contains("exit 1"));
-        assert_eq!(
-            build_idle_push_bubble_text(&[
+        with_zh_cn_locale(|| {
+            let text = build_idle_push_user_text(&[
                 IdlePushItem {
                     job_id: "j1".into(),
                     status: "completed",
@@ -417,9 +432,36 @@ mod tests {
                     error: Some("exit 1".into()),
                     agent_instance_id: None,
                 },
-            ]),
-            "后台任务已完成：A、测测试"
-        );
+            ]);
+            assert!(text.contains("2 jobs:"));
+            assert!(text.contains("### A"));
+            assert!(text.contains("exit 1"));
+            assert_eq!(
+                build_idle_push_bubble_text(&[
+                    IdlePushItem {
+                        job_id: "j1".into(),
+                        status: "completed",
+                        kind: "subagent",
+                        title: Some("A".into()),
+                        agent_id: None,
+                        content: Some("one".into()),
+                        error: None,
+                        agent_instance_id: None,
+                    },
+                    IdlePushItem {
+                        job_id: "j2".into(),
+                        status: "failed",
+                        kind: "terminal",
+                        title: Some("测测试".into()),
+                        agent_id: None,
+                        content: None,
+                        error: Some("exit 1".into()),
+                        agent_instance_id: None,
+                    },
+                ]),
+                "后台任务已完成：A、测测试"
+            );
+        });
     }
 
     fn push_item(status: &'static str, kind: &'static str, title: Option<&str>) -> IdlePushItem {
@@ -437,27 +479,30 @@ mod tests {
 
     #[test]
     fn bubble_text_uses_title_and_failure_prefix() {
-        assert_eq!(
-            build_idle_push_bubble_text(&[push_item("failed", "subagent", Some("跑测试"))]),
-            "后台任务失败：跑测试"
-        );
-        assert_eq!(
-            build_idle_push_bubble_text(&[push_item("completed", "terminal", None)]),
-            "后台任务已完成：终端"
-        );
-        let many = vec![
-            push_item("completed", "subagent", Some("线 1")),
-            push_item("completed", "subagent", Some("线 2 首都圈")),
-            push_item("completed", "subagent", Some("线 3")),
-        ];
-        assert_eq!(
-            build_idle_push_bubble_text(&many),
-            "后台任务已完成：线 1、线 2 首都圈 等 3 个"
-        );
-        let long = "abcdefghijklmnopqrstuvwxyz";
-        let bubble = build_idle_push_bubble_text(&[push_item("completed", "subagent", Some(long))]);
-        assert!(bubble.starts_with("后台任务已完成："));
-        assert!(bubble.contains('…'));
-        assert!(bubble.chars().count() < 20 + "后台任务已完成：".chars().count() + 2);
+        with_zh_cn_locale(|| {
+            assert_eq!(
+                build_idle_push_bubble_text(&[push_item("failed", "subagent", Some("跑测试"))]),
+                "后台任务失败：跑测试"
+            );
+            assert_eq!(
+                build_idle_push_bubble_text(&[push_item("completed", "terminal", None)]),
+                "后台任务已完成：终端"
+            );
+            let many = vec![
+                push_item("completed", "subagent", Some("线 1")),
+                push_item("completed", "subagent", Some("线 2 超长圈")),
+                push_item("completed", "subagent", Some("线 3")),
+            ];
+            assert_eq!(
+                build_idle_push_bubble_text(&many),
+                "后台任务已完成：线 1、线 2 超长圈 等 3 个"
+            );
+            let long = "abcdefghijklmnopqrstuvwxyz";
+            let bubble =
+                build_idle_push_bubble_text(&[push_item("completed", "subagent", Some(long))]);
+            assert!(bubble.starts_with("后台任务已完成："));
+            assert!(bubble.contains('…'));
+            assert!(bubble.chars().count() < 20 + "后台任务已完成：".chars().count() + 2);
+        });
     }
 }

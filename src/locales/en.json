@@ -38,7 +38,11 @@
     "clearSearch": "Clear search",
     "collapse": "Collapse",
     "expand": "Expand",
-    "loadMore": "Load more"
+    "loadMore": "Load more",
+    "copyCode": "Copy code",
+    "copySource": "Copy source",
+    "copyConfig": "Copy config",
+    "stopped": "Stopped"
   },
   "settings": {
     "language": {
@@ -51,7 +55,12 @@
     "theme": {
       "light": "Light",
       "dark": "Dark",
-      "system": "System"
+      "system": "System",
+      "labels": {
+        "light": "Light",
+        "dark": "Dark",
+        "system": "System"
+      }
     },
     "sections": {
       "assistant": "Agents",
@@ -83,7 +92,11 @@
     "display": {
       "heading": "Display",
       "toolCalls": "Tool calls",
-      "agentOutput": "Agent output"
+      "agentOutput": "Agent output",
+      "showSidecarToolCalls": "Show sidecar tool calls",
+      "showNonSidecarToolCalls": "Show non-sidecar tool calls",
+      "showToolCalls": "Show tool call cards",
+      "showToolCallResults": "Show tool call results"
     },
     "dialog": {
       "backToChat": "Back to chat",
@@ -241,7 +254,18 @@
       "moreToolsModalTitle": "More tools",
       "moreToolsModalHint": "Adjust the tier and model for tools like web search",
       "webSearch": "Web search",
-      "webSearchDesc": "External fact lookup and source aggregation"
+      "webSearchDesc": "External fact lookup and source aggregation",
+      "performanceModeHelp": "Fast, Standard, and Advanced from low to high: speed goes high→low, price low→high, capability low→high.",
+      "tier": {
+        "primary": "Fast",
+        "intermediate": "Standard",
+        "advanced": "Advanced"
+      },
+      "mediaModeLabel": {
+        "image": "Image understanding",
+        "audio": "Speech transcription",
+        "video": "Video understanding"
+      }
     },
     "generation": {
       "toolCallShowReasoning": "Show reasoning",
@@ -372,7 +396,8 @@
       "mediaEnvInstallHint": "Install on this machine for IM video / frame extraction; it is not bundled with the app.",
       "mediaEnvCodecNote": "A single video may still fail frame extraction due to codec or file corruption; that does not mean ffmpeg is missing.",
       "redetect": "Check again",
-      "askAssistantInstall": "Ask assistant to install"
+      "askAssistantInstall": "Ask assistant to install",
+      "showReasoning": "Show reasoning"
     },
     "models": {
       "title": "Model capabilities",
@@ -730,6 +755,37 @@
       "rawContentViewHint": "Show a “Raw output” debug entry on assistant messages (raw body channel text and API reasoning)",
       "annotatedScreenshotView": "Annotated screenshot view",
       "annotatedScreenshotViewHint": "Show annotated screenshot previews used by Computer"
+    },
+    "thinking": {
+      "unset": "Unset",
+      "off": "Off",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "max": "Max",
+      "protocolAuto": "Auto",
+      "protocolBudget": "Qwen budget",
+      "protocolEffort": "DeepSeek effort",
+      "protocolOpenaiEffort": "OpenAI effort",
+      "protocolOff": "Structured off",
+      "protocolCustom": "Extra params only"
+    },
+    "performance": {
+      "primary": "Fast",
+      "intermediate": "Standard",
+      "advanced": "Advanced",
+      "help": "Fast, Standard, and Advanced go from lower to higher capability: speed decreases, price increases, intelligence increases."
+    },
+    "ffmpeg": {
+      "checking": "Checking…",
+      "ready": "Ready (can extract frames)",
+      "missingParts": "Not ready: some components missing",
+      "foundButUnusable": "Not ready: found but cannot run",
+      "notDetected": "Not detected"
+    },
+    "agentMode": {
+      "general": "General assistant",
+      "coder": "Vibe coding"
     }
   },
   "shell": {
@@ -895,7 +951,8 @@
       "queueSendHintWin": "Add to send queue (Enter). Empty input + Enter sends now (stops sync only; background continues). Ctrl+Enter also sends now",
       "sendHintMac": "Send (↩)",
       "sendHintWin": "Send (Enter)",
-      "apiKeyMissing": "API Key not configured"
+      "apiKeyMissing": "API Key not configured",
+      "defaultPlaceholder": "Tell me what you want to do"
     },
     "empty": {
       "title": "Start a conversation",
@@ -1016,13 +1073,34 @@
       "progressSubAgent": "{name} is compressing earlier records inside the sub-task",
       "traceDetail": "{name}: context compressed ({dropped} → summary)"
     },
-    "webhookSessionTitleFromId": "[Webhook] {id}"
+    "webhookSessionTitleFromId": "[Webhook] {id}",
+    "defaultTitle": "New chat",
+    "turnElapsed": {
+      "prefix": "Working",
+      "unknown": "{prefix} time unknown"
+    },
+    "thread": {
+      "desktopScreenshot": "Desktop screenshot",
+      "toolResult": "Tool result"
+    }
   },
   "agent": {
     "role": {
       "general": "General assistant",
       "coder": "Vibe coding",
-      "computer": "Computer control"
+      "computer": "Computer control",
+      "generalWorker": "General worker",
+      "explore": "Code explore",
+      "subtask": "Sub-task"
+    },
+    "ui": {
+      "general": "General assistant",
+      "generalWorker": "General worker",
+      "coder": "Vibe coding",
+      "computer": "Computer control",
+      "explorer": "Explore",
+      "explore": "Code explore",
+      "subtask": "Subtask"
     }
   },
   "automation": {
@@ -1162,6 +1240,10 @@
       "standalone": "Please sign in first",
       "standaloneAttachment": "Please sign in before adding attachments",
       "cloud": "Please sign in to your Pointer account"
+    },
+    "status": {
+      "notLoggedIn": "Not signed in",
+      "loggedIn": "Signed in"
     }
   },
   "updaterBanner": {
@@ -1515,7 +1597,12 @@
     "boardTitle": "Task board",
     "progressAria": "Progress {progress}",
     "noSteps": "No steps yet",
-    "subtask": "Subtask"
+    "subtask": "Subtask",
+    "updateRows": "Update · {n} rows",
+    "patchRows": "patch · {n} rows",
+    "milestones": "{n} milestones",
+    "method": "Task board · {method}",
+    "updated": "Task board updated"
   },
   "backgroundJobs": {
     "runningHint": "Still running in the background",
@@ -1554,7 +1641,8 @@
       "closeTitle": "Close (Esc)",
       "loading": "Loading screen list…",
       "noScreens": "No available screens detected",
-      "layoutHint": "Layout matches your system display arrangement; click a screen to continue."
+      "layoutHint": "Layout matches your system display arrangement; click a screen to continue.",
+      "compact": "Select a screen to control…"
     },
     "permissions": {
       "ariaLabel": "Computer control permissions",
@@ -1579,7 +1667,10 @@
       "continue": "Continue",
       "continueAnyway": "Continue anyway",
       "stepsAria": "Permission steps"
-    }
+    },
+    "preparing": "Preparing…",
+    "executing": "Executing…",
+    "stopped": "Stopped"
   },
   "workspaceRequired": {
     "ariaLabel": "Please choose a working folder first",
@@ -1651,7 +1742,7 @@
   },
   "thinking": {
     "intensity": {
-      "unset": "Not set",
+      "unset": "Unset",
       "off": "Off",
       "low": "Low",
       "medium": "Medium",
@@ -1665,7 +1756,7 @@
       "openrouter": "OpenRouter",
       "kimi": "Kimi",
       "openaiEffort": "OpenAI effort",
-      "off": "Disable structured",
+      "off": "Structured off",
       "custom": "Extra params only"
     }
   },
@@ -1739,5 +1830,65 @@
     "statEdit": "Edit",
     "statSkill": "Skill",
     "statMedia": "Media"
+  },
+  "updater": {
+    "upToDate": "You are up to date",
+    "skippedVersion": "Skipped version {version}; you will be notified of newer releases"
+  },
+  "channel": {
+    "conversation": {
+      "newChat": "{label} · New chat",
+      "newChatWithSender": "{label} · {sender} · New chat",
+      "group": "{label} group",
+      "dm": "{label} DM"
+    },
+    "ui": {},
+    "im": {
+      "newChat": "New chat",
+      "groupChat": "group",
+      "directMessage": "DM"
+    }
+  },
+  "markdown": {
+    "copied": "Copied",
+    "exported": "Exported",
+    "copyCode": "Copy code",
+    "copySource": "Copy source",
+    "copyConfig": "Copy config",
+    "exportSvg": "Export SVG",
+    "exportImage": "Export image",
+    "viewSource": "View source",
+    "hideSource": "Hide source",
+    "viewConfig": "View config",
+    "hideConfig": "Hide config",
+    "zoom": "Zoom",
+    "diagramMissingConfig": "Diagram config missing",
+    "diagramUnparseable": "Diagram could not be parsed",
+    "diagramGenerating": "Generating diagram…",
+    "diagramInvalid": "Invalid diagram",
+    "diagramRenderFailed": "Diagram render failed",
+    "diagramSyntaxError": "Diagram syntax error",
+    "chartGenerating": "Generating chart…",
+    "chartMissingConfig": "Chart config missing",
+    "chartUnparseable": "Chart config could not be parsed",
+    "chartInvalid": "Invalid chart config",
+    "chartRenderFailed": "Chart render failed"
+  },
+  "lib": {
+    "uploadCancelled": "Upload cancelled",
+    "videoUploadFailed": "Video upload failed",
+    "videoUseAttachmentButton": "Use the attachment button (paperclip) to choose a video. Desktop does not support uploading large videos via the web-style file picker.",
+    "connectionSuccess": "Connected",
+    "jsonMustBeObject": "Must be a JSON object, e.g. { \"repetition_penalty\": 1.1 }",
+    "jsonInvalid": "Invalid JSON",
+    "noProvider": "No provider",
+    "cannotGetSessionId": "Could not get the current session ID",
+    "ffmpegInstallPrompt": "Help me install ffmpeg",
+    "gitInitTask": "Please initialize a Git repository for the current workspace. First analyze the project architecture and tech stack, identify build artifacts, local config, caches, IDE files, and sensitive files; check any existing .gitignore, and combine the analysis to choose an appropriate ignore template. Explain the proposed approach to me first, then write or extend .gitignore, finally run git init and git status to verify."
+  },
+  "performanceMode": {
+    "fast": "Fast",
+    "standard": "Standard",
+    "expert": "Advanced"
   }
 }

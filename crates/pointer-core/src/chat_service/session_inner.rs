@@ -183,16 +183,21 @@ pub(super) async fn run_chat_inner(
                 Ok(None) => {}
                 Err(e) => {
                     let raw = e.to_string();
+                    let loc = crate::i18n::current_ui_locale();
+                    let network_check =
+                        crate::i18n::t("err.network_check_retry", crate::i18n::UiLocale::ZhCn);
+                    let network_check_en =
+                        crate::i18n::t("err.network_check_retry", crate::i18n::UiLocale::En);
                     let msg = if raw.contains("token_quota_exhausted") {
-                        "账户余额已用尽，请前往 Pointer 官网余额页充值。".to_string()
-                    } else if raw.contains("网络异常") {
+                        crate::i18n::t("err.balance_exhausted", loc).to_string()
+                    } else if raw.contains(network_check) || raw.contains(network_check_en) {
                         // Already normalized after balance-check retries.
                         raw
                     } else if state
                         .active_platform_auth()
                         .is_refresh_transient_failure(&e)
                     {
-                        "网络异常，请检查网络链接是否正常，然后重试。".to_string()
+                        crate::i18n::t("err.network_check_retry", loc).to_string()
                     } else {
                         raw
                     };
@@ -212,20 +217,25 @@ pub(super) async fn run_chat_inner(
             conversation_id
         );
     } else if is_automation {
-        return Err(anyhow!(
-            "自动化触发需要 LLM 凭证：云实例请先从桌面「打开云主机」或 Web 端完成一次登录；自部署请在设置 → 模型配置中填写 API Key"
-        ));
+        return Err(anyhow!(crate::i18n::t(
+            "err.automation_llm_credentials",
+            crate::i18n::current_ui_locale(),
+        )));
     } else if let Some(detail) = refresh_transient_error {
         // Access token expired and refresh hit a transport/upstream blip — not a real logout.
         log::warn!(
             "platform_auth: chat gated by transient refresh failure conversation_id={conversation_id} detail={detail}"
         );
-        return Err(anyhow!("网络异常，暂时无法验证登录态，请稍后重试"));
+        return Err(anyhow!(crate::i18n::t(
+            "err.network_verify_login",
+            crate::i18n::current_ui_locale(),
+        )));
     } else {
+        let loc = crate::i18n::current_ui_locale();
         let msg = if crate::deployment_mode::is_standalone() {
-            "请先登录"
+            crate::i18n::t("err.login_required_short", loc)
         } else {
-            "请先登录 Pointer 账户"
+            crate::i18n::t("err.login_required", loc)
         };
         return Err(anyhow!(msg));
     }
@@ -351,10 +361,11 @@ pub(super) async fn run_chat_inner(
         request_performance_mode,
     );
     if api_key.is_empty() {
-        return Err(anyhow!(
-            "尚未配置 API Key（{}），请先登录账户或在设置中配置密钥",
-            settings.active_provider_id
-        ));
+        return Err(anyhow!(crate::i18n::tf(
+            "err.api_key_missing_provider",
+            crate::i18n::current_ui_locale(),
+            &[("provider", settings.active_provider_id.as_str())],
+        )));
     }
     crate::context_compression::remember_session_llm(conversation_id, &settings, &api_key, None);
     let media_t = Instant::now();

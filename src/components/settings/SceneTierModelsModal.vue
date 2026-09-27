@@ -13,7 +13,7 @@ import {
   platformMediaModeDefault
 } from '../../lib/platformTierDefaults'
 import {
-  THINKING_INTENSITY_OPTIONS,
+  thinkingIntensityOptions,
   patchTierThinkingIntensity,
   tierThinkingIntensityValue
 } from '../../lib/thinkingIntensity'
@@ -28,6 +28,7 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const { t } = useI18n()
+const intensityOptions = computed(() => thinkingIntensityOptions())
 const s = useSettingsStore()
 const form = props.form
 const { PERFORMANCE_MODE_UI, COMPUTER_TIER_UI, AGENT_MODE_USER_ROWS, MEDIA_MODE_USER_ROWS } = form
@@ -160,7 +161,7 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
                   @change="patchVariant(patch => form.patchAgentModeLlm(scene, tier.key, patch), ($event.target as HTMLSelectElement).value)"
                 >
                   <option
-                    v-for="opt in THINKING_INTENSITY_OPTIONS"
+                    v-for="opt in intensityOptions"
                     :key="opt.value || 'unset'"
                     :value="opt.value"
                   >{{ opt.label }}</option>
@@ -190,7 +191,7 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
                   @change="patchVariant(patch => form.patchMediaModeLlm(mediaKind, tier.key, patch), ($event.target as HTMLSelectElement).value)"
                 >
                   <option
-                    v-for="opt in THINKING_INTENSITY_OPTIONS"
+                    v-for="opt in intensityOptions"
                     :key="opt.value || 'unset'"
                     :value="opt.value"
                   >{{ opt.label }}</option>
@@ -220,7 +221,7 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
                   @change="patchVariant(patch => form.patchComputerTierLlm(tier.key, patch), ($event.target as HTMLSelectElement).value)"
                 >
                   <option
-                    v-for="opt in THINKING_INTENSITY_OPTIONS"
+                    v-for="opt in intensityOptions"
                     :key="opt.value || 'unset'"
                     :value="opt.value"
                   >{{ opt.label }}</option>

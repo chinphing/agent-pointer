@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { RuntimeParamsApi } from '../../composables/useRuntimeParams'
-import { THINKING_INTENSITY_OPTIONS } from '../../lib/thinkingIntensity'
+import { thinkingIntensityOptions } from '../../lib/thinkingIntensity'
 
 const props = defineProps<{
   api: RuntimeParamsApi
 }>()
 
 const { t } = useI18n()
+const intensityOptions = computed(() => thinkingIntensityOptions())
 
 const extraBodyDraft = ref('')
 const extraBodyError = ref('')
@@ -71,7 +72,7 @@ function commitExtraBody() {
           @change="api.setThinkingIntensity(($event.target as HTMLSelectElement).value)"
         >
           <option
-            v-for="opt in THINKING_INTENSITY_OPTIONS"
+            v-for="opt in intensityOptions"
             :key="opt.value || 'unset'"
             :value="opt.value"
           >{{ opt.label }}</option>

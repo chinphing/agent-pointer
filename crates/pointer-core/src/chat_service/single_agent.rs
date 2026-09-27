@@ -255,8 +255,10 @@ pub(super) async fn run_single_agent_loop(
                     ctx.tool_budget.sync_out(ctx.consumed_single);
                     state.computer_state.mark_cancelled(conversation_id);
                     return Err(super::emit::chat_run_err(
-                        format!(
-                            "模型服务连续异常（已重试 {MAX_RETRIES} 次），请稍后重试或检查服务状态。"
+                        crate::i18n::tf(
+                            "err.model_service_retries_exhausted",
+                            crate::i18n::current_ui_locale(),
+                            &[("count", &MAX_RETRIES.to_string())],
                         ),
                         Some(assistant_id.clone()),
                     ));

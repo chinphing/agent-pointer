@@ -2523,13 +2523,6 @@ mod tests {
 
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();
-        let mut conv = sample_conv("nav-1", "Nav", "real user");
-        // Keep the rest of the existing test body unchanged below — restored via partial patch.
-        // PLACEHOLDER_WILL_FAIL
-        let _ = (dir, store, conv, prev_lc, prev_lang);
-    }
-        let dir = TempDir::new().unwrap();
-        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
         let mut conv = sample_conv("nav-1", "Nav", "first turn");
         conv.messages.push(msg(
             "msg_u2",
@@ -2583,6 +2576,15 @@ mod tests {
             .unwrap()
             .is_empty());
         assert!(!items.iter().any(|item| item.milestone));
+
+        match prev_lc {
+            Some(v) => std::env::set_var("LC_ALL", v),
+            None => std::env::remove_var("LC_ALL"),
+        }
+        match prev_lang {
+            Some(v) => std::env::set_var("LANG", v),
+            None => std::env::remove_var("LANG"),
+        }
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! Sub-agent scoped messages: linkage fields, filtering, and per-row persistence.
 
-use crate::models::{AgentTrace, ChatMessage, MessageContextState};
+use crate::models::{AgentTrace, ChatMessage};
 
 use super::conversation_persist;
 
@@ -280,7 +280,7 @@ pub fn strip_scoped_from_lead_history(history: &mut Vec<ChatMessage>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::Role;
+    use crate::models::{MessageContextState, Role};
 
     #[test]
     fn persist_anchor_agent_trace_only_for_terminal_status() {

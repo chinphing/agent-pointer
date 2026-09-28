@@ -25,8 +25,62 @@ const webApiProxyTarget =
     ? 'http://127.0.0.1:8787'
     : undefined)
 
+/**
+ * Mermaid ships ~40 diagram types; this build renders six of them (see
+ * `src/lib/markdownMermaid.ts`). Stub the rest so Rollup does not emit their
+ * chunks — the render-time gate lives in the app code, this only trims size.
+ */
+const UNSUPPORTED_MERMAID_CHUNKS = [
+  'abnf',
+  'architecture',
+  'block',
+  'c4',
+  'cynefin',
+  'ebnf',
+  'eventmodeling',
+  'gitGraph',
+  'info',
+  'ishikawa',
+  'journey',
+  'kanban',
+  'mindmap',
+  'packet',
+  'peg',
+  'pie',
+  'quadrant',
+  'radar',
+  'railroad',
+  'requirement',
+  'sankey',
+  'swimlanes',
+  'timeline',
+  'treeView',
+  'treemap',
+  'venn',
+  'wardley',
+  'xychart'
+]
+
+const DISABLED_MERMAID_MODULE = '\0pointer:disabled-mermaid-diagram'
+const disabledMermaidChunkRe = new RegExp(
+  `chunks/mermaid\\.core/(?:${UNSUPPORTED_MERMAID_CHUNKS.join('|')})[^/]*$`
+)
+
+function dropUnsupportedMermaidDiagrams() {
+  return {
+    name: 'pointer:drop-unsupported-mermaid-diagrams',
+    enforce: 'pre' as const,
+    resolveId(source: string) {
+      return disabledMermaidChunkRe.test(source) ? DISABLED_MERMAID_MODULE : null
+    },
+    load(id: string) {
+      return id === DISABLED_MERMAID_MODULE ? 'export {}' : null
+    }
+  }
+}
+
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [dropUnsupportedMermaidDiagrams(), vue()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src')

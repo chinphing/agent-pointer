@@ -40,7 +40,7 @@
     "build:linux:appimage": "npm run tauri:build -- --bundles appimage",
     "version:sync": "node scripts/sync-version.mjs",
     "version:check": "node scripts/sync-version.mjs --check",
-    "postinstall": "patch-package"
+    "licenses": "node scripts/generate-third-party-notices.mjs"
   },
   "dependencies": {
     "@tanstack/vue-virtual": "^3.13.34",
@@ -69,7 +69,6 @@
     "@vitejs/plugin-vue": "^5.2.1",
     "autoprefixer": "^10.4.20",
     "happy-dom": "^20.11.1",
-    "patch-package": "^8.0.1",
     "postcss": "^8.5.0",
     "sharp": "^0.35.1",
     "tailwind-merge": "^2.5.5",

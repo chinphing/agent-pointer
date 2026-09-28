@@ -6,7 +6,7 @@ Chat (and markdown file preview) render process / architecture diagrams from a f
 
 Language: `mermaid`.
 
-Supported types: `flowchart`, `sequenceDiagram`, `classDiagram`, `stateDiagram`, `erDiagram`, `gantt`. Other types are not bundled — use `svg` instead.
+Supported types: `flowchart`, `sequenceDiagram`, `classDiagram`, `stateDiagram`, `erDiagram`, `gantt`. Other types are rejected at render time — use `svg` instead.
 
 Example:
 

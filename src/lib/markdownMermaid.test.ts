@@ -6,6 +6,7 @@ import { canvasRgb } from './markdownChart'
 import {
   isMermaidFenceLang,
   isStreamingMermaidStub,
+  isSupportedMermaidSource,
   mermaidHostHtml,
   mermaidInitializeConfig,
   mermaidThemeCacheKey,
@@ -162,6 +163,49 @@ describe('mermaid host theme', () => {
     expect(mermaidInitializeConfig().htmlLabels).toBe(false)
     expect(mermaidInitializeConfig().flowchart.htmlLabels).toBe(false)
     expect(mermaidInitializeConfig().flowchart.padding).toBe(12)
+  })
+
+  it('accepts the supported diagram type ids and rejects the rest', () => {
+    const supported = [
+      'flowchart',
+      'flowchart-v2',
+      'sequence',
+      'class',
+      'classDiagram',
+      'state',
+      'stateDiagram',
+      'er',
+      'gantt',
+    ]
+    for (const type of supported) {
+      expect(isSupportedMermaidSource({ detectType: () => type }, 'x')).toBe(true)
+    }
+    const rejected = [
+      'pie',
+      'gitGraph',
+      'mindmap',
+      'xychart',
+      'timeline',
+      'sankey',
+      'c4',
+      'block',
+      'info',
+      'journey',
+      'quadrantChart',
+      'requirement',
+      'architecture',
+      'kanban',
+    ]
+    for (const type of rejected) {
+      expect(isSupportedMermaidSource({ detectType: () => type }, 'x')).toBe(false)
+    }
+  })
+
+  it('lets Mermaid report its own error when no diagram type is detected', () => {
+    const detectType = () => {
+      throw new Error('No diagram type detected')
+    }
+    expect(isSupportedMermaidSource({ detectType }, 'nonsense')).toBe(true)
   })
 
   it('strips init directives and keeps the diagram body', () => {

@@ -420,6 +420,7 @@
       "diagramPending": "Generating diagram…",
       "diagramInvalid": "Invalid diagram",
       "diagramSyntax": "Diagram syntax error",
+      "diagramUnsupported": "Unsupported diagram type — use svg instead",
       "diagramRenderFail": "Diagram render failed",
       "chartPending": "Generating chart…",
       "chartMissing": "Chart config missing",

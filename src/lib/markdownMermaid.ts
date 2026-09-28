@@ -10,6 +10,41 @@ export function isMermaidFenceLang(lang: string): boolean {
   return MERMAID_FENCE_LANGS.has(lang.toLowerCase())
 }
 
+/**
+ * Diagram type ids this build renders. Mermaid ships ~40 types; only these six
+ * families are supported (the rest are rejected before render). The ids are what
+ * `mermaid.detectType()` returns, which differs from the fence keyword:
+ * `flowchart TD` → `flowchart-v2`, `graph TD` → `flowchart`, `sequenceDiagram` →
+ * `sequence`, `classDiagram` → `class`, `stateDiagram-v2` → `stateDiagram`,
+ * `erDiagram` → `er`, `gantt` → `gantt`.
+ */
+export const SUPPORTED_MERMAID_TYPES = new Set([
+  'flowchart',
+  'flowchart-v2',
+  'sequence',
+  'class',
+  'classDiagram',
+  'state',
+  'stateDiagram',
+  'er',
+  'gantt',
+])
+
+/**
+ * True when the source's diagram type is one this build supports.
+ * Undetected sources return true so Mermaid reports its own syntax error.
+ */
+export function isSupportedMermaidSource(
+  api: { detectType: (source: string) => string },
+  source: string,
+): boolean {
+  try {
+    return SUPPORTED_MERMAID_TYPES.has(api.detectType(source))
+  } catch {
+    return true
+  }
+}
+
 /** Fixed Mermaid body for streaming placeholders (valid syntax, marked pending). */
 export const STREAMING_MERMAID_STUB =
   '%% pointer-mermaid-pending\nflowchart TD\n  A[图示生成中]'

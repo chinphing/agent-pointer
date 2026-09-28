@@ -420,6 +420,7 @@
       "diagramPending": "图示生成中…",
       "diagramInvalid": "图示无效",
       "diagramSyntax": "图示语法错误",
+      "diagramUnsupported": "不支持的图类型，请改用 svg",
       "diagramRenderFail": "图示渲染失败",
       "chartPending": "图表生成中…",
       "chartMissing": "图表配置缺失",

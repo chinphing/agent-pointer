@@ -7,6 +7,7 @@ import {
 } from '../lib/markdownSvg'
 import {
   isStreamingMermaidStub,
+  isSupportedMermaidSource,
   mermaidInitializeConfig,
   mermaidThemeCacheKey,
   mermaidThemeScheme,
@@ -321,6 +322,12 @@ export function useMarkdownMermaid(
           if (state) state.pending = false
           console.warn('[markdownMermaid] source empty after stripping theme directives')
           showStatus(host, t('chat.md.diagramSyntax'), 'error')
+          return
+        }
+        if (!isSupportedMermaidSource(mermaid, source)) {
+          const state = hosts.get(host)
+          if (state) state.pending = false
+          showStatus(host, t('chat.md.diagramUnsupported'), 'error')
           return
         }
         const holder = document.createElement('div')

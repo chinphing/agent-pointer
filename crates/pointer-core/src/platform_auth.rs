@@ -683,6 +683,14 @@ impl PlatformAuthManager {
             return Ok(Some(fresh));
         }
 
+        // Without a control plane there is nothing to refresh against. A stale session
+        // left over from a previous binding would otherwise build a request against a
+        // relative URL and spin the transient retry loop (plus the log spam) on every
+        // caller: startup, the background flush, the Tauri command and the chat gate.
+        if !crate::platform_endpoints::control_plane_bound() {
+            return Ok(None);
+        }
+
         let refresh = self.resolve_refresh_token();
         if refresh.is_empty() {
             return Ok(None);
@@ -1746,6 +1754,39 @@ mod tests {
         assert_eq!(
             PlatformAuthManager::refresh_transient_retry_delay(3).as_millis(),
             4000
+        );
+    }
+
+    /// Regression: with a stale session from a previous binding and no control plane,
+    /// the refresh used to build a request against a relative URL and burn all four
+    /// transient retries (800ms + 2000ms + 4000ms of backoff, plus the warn log) on
+    /// every caller — startup, the background flush, the Tauri command and the chat gate.
+    #[tokio::test]
+    async fn refresh_if_needed_is_a_noop_without_a_control_plane() {
+        let _dir = crate::storage::test_app_data_dir_lock();
+        let tmp = std::env::temp_dir().join("pointer-refresh-gate-test");
+        let _ = std::fs::create_dir_all(&tmp);
+        crate::storage::set_test_app_data_dir(tmp);
+
+        let auth = PlatformAuthManager::new();
+        let stale: PlatformSession = serde_json::from_value(serde_json::json!({
+            "access_token": "expired",
+            "refresh_token": "stale",
+            "expires_at": 0,
+            "agent_id": "",
+            "user": { "id": "u" }
+        }))
+        .expect("stale session fixture");
+        auth.set_session(stale);
+
+        assert!(
+            !crate::platform_endpoints::control_plane_bound(),
+            "this test asserts the unbound path"
+        );
+        let out = auth.refresh_if_needed().await;
+        assert!(
+            matches!(out, Ok(None)),
+            "unbound refresh must be a silent no-op, got {out:?}"
         );
     }
 

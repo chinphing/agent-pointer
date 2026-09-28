@@ -71,6 +71,10 @@ A digital employee should not compete with a person for the computer. The memory
 
 ## What Pointer does
 
+Pointer is more than a runtime for Skills. It builds the business system, helps turn manual work into a Skill that drives it through its UI and HTTP interfaces, and carries what manual runs teach back into the Skill and the system itself.
+
+![Pointer business flow](docs/design/pointer-business-flow.en.svg)
+
 ### General agent capabilities
 
 | Capability | What you get |

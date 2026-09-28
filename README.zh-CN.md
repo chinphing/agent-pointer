@@ -71,6 +71,10 @@
 
 ## Pointer 能做什么
 
+Pointer 不只是一个跑 Skill 的运行时。它开发业务系统，把人工流程做成 Skill（经 UI 与 HTTP 接口驱动业务系统），再把人工执行沉淀的经验和确定性规则，分别回写到 Skill 和业务系统本身。
+
+![Pointer 业务架构](docs/design/pointer-business-flow.zh-CN.svg)
+
 ### 通用 Agent 能力
 
 | 能力 | 说明 |

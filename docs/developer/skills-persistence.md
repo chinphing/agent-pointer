@@ -92,13 +92,9 @@ effective = merge missing bundled ids from defaultSkillIds
 
 **Agent 默认**：见各 agent `AGENT.md` 的 `defaultSkillIds`（与 bundled 对齐）。`general` 默认包含全部内置 skill。
 
-**Office 技能（docx / xlsx / pptx / pdf）** 直接来自上游
-[anthropics/skills](https://github.com/anthropics/skills)（含 `SKILL.md` 与 `scripts/`），
-不要在本仓库手写精简版。更新时运行：
-
-```bash
-./scripts/sync-anthropic-office-skills.sh
-```
+**Office 技能（docx / xlsx / pptx / pdf）** 不随仓库打包，按需从上游
+[anthropics/skills](https://github.com/anthropics/skills)（MIT，含 `SKILL.md` 与 `scripts/`）
+安装，见 `skills/find-skills`。不要在本仓库手写精简版，也不要把它同步进打包目录 `skills/`。
 
 ## 实现入口
 

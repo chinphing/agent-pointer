@@ -106,19 +106,19 @@ flowchart TD
 
 ```toml
 [plugin]
-id = "com.example.cwpt"          # 反向域名，全局唯一
-name = "CWPT 报销工具"
+id = "com.example.demo"          # 反向域名，全局唯一
+name = "DEMO 报销工具"
 version = "1.2.0"
 api_version = "v1"
-description = "协和 CWPT 报销提交与预审"
+description = "示例 报销提交与预审"
 author = "example"
 license = "MIT"
 
 [permissions]
-network = ["https://cwpt.whuh.com"]   # 域名白名单
+network = ["https://plugin.example.com"]   # 域名白名单
 filesystem = ["workspace:read"]       # 路径范围
 env = []
-secrets = ["CWPT_TOKEN"]              # 声明式密钥引用
+secrets = ["DEMO_TOKEN"]              # 声明式密钥引用
 
 [skills]
 path = "skills/"                      # 子目录各含 SKILL.md
@@ -130,18 +130,18 @@ path = "agents/"                      # *.md + frontmatter
 path = "hooks/hooks.json"
 
 [[mcp_servers.server]]
-name = "cwpt"
+name = "demo"
 transport = "stdio"                   # stdio | http
-command = "bin/cwpt-mcp"
+command = "bin/demo-mcp"
 args = ["serve"]
-env = { CWPT_TOKEN = "${secrets.CWPT_TOKEN}" }
+env = { DEMO_TOKEN = "${secrets.DEMO_TOKEN}" }
 
 [[tools.tool]]                        # 进程外工具声明（Sidecar 执行，执行载体必填）
-name = "cwpt_submit"
+name = "demo_submit"
 risk_level = "high"
 requires_approval = true
 parallel_eligible = false
-exec = { command = "bin/cwpt-tool", transport = "sidecar" }  # 执行载体：MCP server 或 sidecar 进程，二选一必填
+exec = { command = "bin/demo-tool", transport = "sidecar" }  # 执行载体：MCP server 或 sidecar 进程，二选一必填
 ```
 
 > 审查注 4.1.1（2026-08-18）：**插件工具只有两种执行载体：MCP server 或 Sidecar 进程，无进程内代码执行**（§9 明确不做 dylib，且 `ToolEntry.handler` 是必填的同步实现，插件无法提供）。因此 `[[tools.tool]]` 必须携带 `exec`；只有元数据而无执行器的工具声明为无效配置，P1 校验阶段直接 `rejected`。为此 `ProcessToolProvider`（基础版：stdio + JSON 入参/出参协议）**从 P4 提前至 P1**（见 §8），否则 P1 验收"示例插件可启用"覆盖不到工具单元。

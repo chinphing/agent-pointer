@@ -1259,21 +1259,21 @@ mod tests {
     fn ui_search_finds_ascii_acronym_in_hyphenated_token() {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();
-        let mut conv = sample_conv("c_cwpt", "报销技能", "帮我找一下报销 skill");
+        let mut conv = sample_conv("c_demo", "报销技能", "帮我找一下报销 skill");
         conv.messages.push(msg(
-            "a_cwpt",
+            "a_demo",
             Role::Assistant,
-            "找到了 **`cwpt-reimburse-review`** 和 CWPT_TOKEN",
+            "找到了 **`demo-reimburse-review`** 和 DEMO_TOKEN",
             1_700_000_002_000,
         ));
         store.sync_conversations(&[conv]).unwrap();
 
         let hits = store
-            .search_conversations(&ListScope::All, "CWPT", 10)
+            .search_conversations(&ListScope::All, "DEMO", 10)
             .unwrap();
-        assert_eq!(hits.len(), 1, "expected CWPT body hit, got {hits:?}");
+        assert_eq!(hits.len(), 1, "expected DEMO body hit, got {hits:?}");
         assert!(
-            hits[0].snippet.to_lowercase().contains("cwpt"),
+            hits[0].snippet.to_lowercase().contains("demo"),
             "snippet={:?}",
             hits[0].snippet
         );
@@ -2858,7 +2858,7 @@ mod tests {
         )
         .unwrap_or_else(|err| panic!("open {path}: {err}"));
         let db = crate::conversation_store::db::DbHandle::wrap_connection(conn);
-        for q in ["搜索", "hello", "北京", "agent", "文件", "CWPT", "cwpt"] {
+        for q in ["搜索", "hello", "北京", "agent", "文件", "DEMO", "demo"] {
             let started = std::time::Instant::now();
             let hits = crate::conversation_store::search::search_conversations_for_ui(
                 &db,

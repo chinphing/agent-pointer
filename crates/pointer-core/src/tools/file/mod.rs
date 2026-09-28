@@ -1143,7 +1143,7 @@ mod tests {
         let skill = root
             .join(".pointer")
             .join("skills")
-            .join("cwpt-reimburse-submit");
+            .join("demo-reimburse-submit");
         fs::create_dir_all(&skill).unwrap();
         fs::write(skill.join("SKILL.md"), "body").unwrap();
         let abs_pattern = format!("{}/**/*.md", skill.display()).replace('\\', "/");

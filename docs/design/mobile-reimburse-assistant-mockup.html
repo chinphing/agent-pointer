@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Pointer · 财务报销助手 · 移动端设计稿</title>
+  <title>Pointer · 示例助手 · 移动端设计稿</title>
   <style>
     :root {
       --background: 240 5% 96%;
@@ -404,7 +404,7 @@
   </style>
 </head>
 <body>
-  <h1>Pointer · 财务报销助手 · 移动端设计稿</h1>
+  <h1>Pointer · 示例助手 · 移动端设计稿</h1>
 
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" aria-selected="true" data-state="welcome">1 · 首次进入</button>
@@ -419,7 +419,7 @@
     </div>
     <div class="topbar">
       <button class="icon-btn" aria-label="菜单" type="button">☰</button>
-      <div class="title">财务报销助手</div>
+      <div class="title">示例助手</div>
       <button class="icon-btn" aria-label="更多" type="button">⋯</button>
     </div>
 
@@ -434,8 +434,8 @@
             </svg>
           </div>
           <div>
-            <h2>我是财务报销助手</h2>
-            <p>您提交附件后我会自动帮你填报销单，预计 10–30 分钟，期间您可以离开，完成任务后您回来确认信息即可。</p>
+            <h2>我是示例助手</h2>
+            <p>提交附件后我会自动处理，预计 10–30 分钟，期间您可以离开，完成后回来确认即可。</p>
           </div>
         </div>
         <div class="empty-note" style="margin-top: 48px;">上传发票或说明后开始</div>
@@ -448,7 +448,7 @@
           <div class="attach"><span class="file">PDF</span>发票_差旅.pdf</div>
         </div>
         <button class="elapsed live" type="button" title="展开过程">
-          <span>报销单填写中&nbsp;&nbsp;12 m 08 s</span>
+          <span>任务处理中&nbsp;&nbsp;12 m 08 s</span>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M9 6l6 6-6 6"/></svg>
         </button>
       </div>
@@ -460,7 +460,7 @@
           <div class="attach"><span class="file">PDF</span>发票_差旅.pdf</div>
         </div>
         <button class="elapsed" type="button" title="展开过程">
-          <span>报销单已填写&nbsp;&nbsp;18 m 42 s</span>
+          <span>任务已完成&nbsp;&nbsp;18 m 42 s</span>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M9 6l6 6-6 6"/></svg>
         </button>
         <div class="delivery">
@@ -490,7 +490,7 @@
                       已完成
                     </div>
                   </td>
-                  <td class="desc"><strong>差旅审批表：</strong>已登记并完成事实提取、附件上传：差旅费审批表-王国宏-2026-06-02.pdf</td>
+                  <td class="desc"><strong>差旅审批表：</strong>已登记并完成事实提取、附件上传：差旅费审批表-示例-2026-01-01.pdf</td>
                 </tr>
                 <tr>
                   <td class="status">
@@ -501,7 +501,7 @@
                       已完成
                     </div>
                   </td>
-                  <td class="desc"><strong>交通票据：</strong>已登记并完成事实提取、附件上传：电子票根-G1830.pdf、电子票根-G1811.pdf</td>
+                  <td class="desc"><strong>交通票据：</strong>已登记并完成事实提取、附件上传：电子票根-示例1.pdf、电子票根-示例2.pdf</td>
                 </tr>
                 <tr>
                   <td class="status">
@@ -512,7 +512,7 @@
                       已完成
                     </div>
                   </td>
-                  <td class="desc"><strong>住宿发票：</strong>已登记并完成事实提取、附件上传：25000616211000022067.pdf</td>
+                  <td class="desc"><strong>住宿发票：</strong>已登记并完成事实提取、附件上传：INV-0001.pdf</td>
                 </tr>
                 <tr>
                   <td class="status">
@@ -523,7 +523,7 @@
                       已完成
                     </div>
                   </td>
-                  <td class="desc"><strong>公务卡支付凭证：</strong>已登记并完成事实提取、附件上传：微信图片_2026-06-03_153256_666.jpg、微信图片_2026-06-03_153303_152.jpg</td>
+                  <td class="desc"><strong>公务卡支付凭证：</strong>已登记并完成事实提取、附件上传：scan-01.jpg、scan-02.jpg</td>
                 </tr>
                 <tr>
                   <td class="status">
@@ -560,8 +560,8 @@
     <strong>交互约定</strong>
     <ol>
       <li><strong>首次进入</strong>：空会话顶部固定提醒条（非对话气泡），说明身份、时长与可离开。</li>
-      <li><strong>进行中</strong>：默认收起执行过程；文案由「工作」改为「报销单填写中」，后接实时计时 <code>N m SS s</code>，箭头在文案后。</li>
-      <li><strong>结束后</strong>：仍默认收起；文案改为「报销单已填写」+ 最终耗时；下方交付为「报销进度汇总」标题 + 圆角表格（阶段 / 状态 / 处理说明，阶段列纵向合并），无额外操作按钮；过程仍可点开查看。</li>
+      <li><strong>进行中</strong>：默认收起执行过程；文案由「工作」改为「任务处理中」，后接实时计时 <code>N m SS s</code>，箭头在文案后。</li>
+      <li><strong>结束后</strong>：仍默认收起；文案改为「任务已完成」+ 最终耗时；下方交付为「报销进度汇总」标题 + 圆角表格（阶段 / 状态 / 处理说明，阶段列纵向合并），无额外操作按钮；过程仍可点开查看。</li>
     </ol>
   </div>
 

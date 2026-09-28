@@ -1337,7 +1337,7 @@ mod cwd_tests {
     #[test]
     fn allows_commands_without_session_user_id_keyword() {
         reject_session_user_id_keyword_in_terminal_args(&serde_json::json!({
-            "command": "python3 scripts/cwpt_platform_cli.py login",
+            "command": "python3 scripts/demo_platform_cli.py login",
             "stdin": "ok\n"
         }))
         .unwrap();

@@ -12,7 +12,7 @@ use std::collections::HashMap;
 /// 插件元信息段 `[plugin]`。
 #[derive(Debug, Clone, Deserialize)]
 pub struct PluginMeta {
-    /// 反向域名，全局唯一（如 `com.example.cwpt`）。
+    /// 反向域名，全局唯一（如 `com.example.demo`）。
     pub id: String,
     pub name: String,
     pub version: String,
@@ -183,12 +183,12 @@ impl PluginManifest {
         let meta = &self.plugin;
         if meta.id.trim().is_empty() {
             return Err(anyhow!(
-                "[plugin].id 不能为空（建议反向域名，如 com.example.cwpt）"
+                "[plugin].id 不能为空（建议反向域名，如 com.example.demo）"
             ));
         }
         if !is_reverse_domain(&meta.id) {
             return Err(anyhow!(
-                "[plugin].id `{}` 必须是反向域名（如 com.example.cwpt，仅小写字母/数字/连字符/点）",
+                "[plugin].id `{}` 必须是反向域名（如 com.example.demo，仅小写字母/数字/连字符/点）",
                 meta.id
             ));
         }
@@ -295,18 +295,18 @@ mod tests {
 
     const VALID: &str = r#"
 [plugin]
-id = "com.example.cwpt"
-name = "CWPT 报销工具"
+id = "com.example.demo"
+name = "DEMO 报销工具"
 version = "1.2.0"
 api_version = "v1"
-description = "协和 CWPT 报销提交与预审"
+description = "示例 报销提交与预审"
 author = "example"
 license = "MIT"
 
 [permissions]
-network = ["https://cwpt.whuh.com"]
+network = ["https://plugin.example.com"]
 filesystem = ["workspace:read"]
-secrets = ["CWPT_TOKEN"]
+secrets = ["DEMO_TOKEN"]
 
 [skills]
 path = "skills/"
@@ -318,43 +318,43 @@ path = "agents/"
 path = "rules/"
 
 [[mcp_servers.server]]
-name = "cwpt"
+name = "demo"
 transport = "stdio"
-command = "bin/cwpt-mcp"
+command = "bin/demo-mcp"
 args = ["serve"]
-env = { CWPT_TOKEN = "${secrets.CWPT_TOKEN}" }
+env = { DEMO_TOKEN = "${secrets.DEMO_TOKEN}" }
 
 [[tools.tool]]
-name = "cwpt_submit"
+name = "demo_submit"
 risk_level = "high"
 requires_approval = true
 parallel_eligible = false
-exec = { command = "bin/cwpt-tool", transport = "sidecar" }
+exec = { command = "bin/demo-tool", transport = "sidecar" }
 "#;
 
     #[test]
     fn parses_valid_manifest() {
         let m = parse(VALID).unwrap();
-        assert_eq!(m.plugin.id, "com.example.cwpt");
+        assert_eq!(m.plugin.id, "com.example.demo");
         assert_eq!(m.plugin.api_version, "v1");
-        assert_eq!(m.permissions.secrets, vec!["CWPT_TOKEN"]);
+        assert_eq!(m.permissions.secrets, vec!["DEMO_TOKEN"]);
         assert_eq!(m.skills.as_ref().unwrap().path, "skills/");
         assert_eq!(m.agents.as_ref().unwrap().path, "agents/");
         assert_eq!(m.rules.as_ref().unwrap().path, "rules/");
         assert_eq!(m.mcp_servers.server.len(), 1);
-        assert_eq!(m.mcp_servers.server[0].name, "cwpt");
+        assert_eq!(m.mcp_servers.server[0].name, "demo");
         assert_eq!(m.tools.tool.len(), 1);
-        assert_eq!(m.tools.tool[0].name, "cwpt_submit");
+        assert_eq!(m.tools.tool[0].name, "demo_submit");
         assert_eq!(m.tools.tool[0].risk_level, "high");
         assert!(m.tools.tool[0].requires_approval);
         let exec = m.tools.tool[0].exec.as_ref().unwrap();
-        assert_eq!(exec.command, "bin/cwpt-tool");
+        assert_eq!(exec.command, "bin/demo-tool");
         assert_eq!(exec.transport, "sidecar");
     }
 
     #[test]
     fn rejects_missing_id() {
-        let raw = VALID.replace("id = \"com.example.cwpt\"\n", "");
+        let raw = VALID.replace("id = \"com.example.demo\"\n", "");
         let err = parse(&raw).unwrap_err().to_string();
         assert!(err.contains("id"), "unexpected: {err}");
     }
@@ -369,7 +369,7 @@ exec = { command = "bin/cwpt-tool", transport = "sidecar" }
     #[test]
     fn rejects_tool_without_exec() {
         let raw = VALID.replace(
-            "exec = { command = \"bin/cwpt-tool\", transport = \"sidecar\" }\n",
+            "exec = { command = \"bin/demo-tool\", transport = \"sidecar\" }\n",
             "",
         );
         let err = parse(&raw).unwrap_err().to_string();
@@ -379,8 +379,8 @@ exec = { command = "bin/cwpt-tool", transport = "sidecar" }
     #[test]
     fn rejects_bad_transport() {
         let raw = VALID.replace(
-            "exec = { command = \"bin/cwpt-tool\", transport = \"sidecar\" }",
-            "exec = { command = \"bin/cwpt-tool\", transport = \"docker\" }",
+            "exec = { command = \"bin/demo-tool\", transport = \"sidecar\" }",
+            "exec = { command = \"bin/demo-tool\", transport = \"docker\" }",
         );
         let err = parse(&raw).unwrap_err().to_string();
         assert!(err.contains("transport"), "unexpected: {err}");
@@ -389,8 +389,8 @@ exec = { command = "bin/cwpt-tool", transport = "sidecar" }
     #[test]
     fn rejects_mcp_transport_without_server_ref() {
         let raw = VALID.replace(
-            "exec = { command = \"bin/cwpt-tool\", transport = \"sidecar\" }",
-            "exec = { command = \"bin/cwpt-mcp\", transport = \"mcp\" }",
+            "exec = { command = \"bin/demo-tool\", transport = \"sidecar\" }",
+            "exec = { command = \"bin/demo-mcp\", transport = \"mcp\" }",
         );
         let err = parse(&raw).unwrap_err().to_string();
         assert!(err.contains("exec.server"), "unexpected: {err}");
@@ -399,13 +399,13 @@ exec = { command = "bin/cwpt-tool", transport = "sidecar" }
     #[test]
     fn accepts_mcp_transport_with_server_ref() {
         let raw = VALID.replace(
-            "exec = { command = \"bin/cwpt-tool\", transport = \"sidecar\" }",
-            "exec = { command = \"bin/cwpt-mcp\", transport = \"mcp\", server = \"cwpt\" }",
+            "exec = { command = \"bin/demo-tool\", transport = \"sidecar\" }",
+            "exec = { command = \"bin/demo-mcp\", transport = \"mcp\", server = \"demo\" }",
         );
         let m = parse(&raw).unwrap();
         let exec = m.tools.tool[0].exec.as_ref().unwrap();
         assert_eq!(exec.transport, "mcp");
-        assert_eq!(exec.server.as_deref(), Some("cwpt"));
+        assert_eq!(exec.server.as_deref(), Some("demo"));
     }
 
     #[test]
@@ -417,9 +417,9 @@ exec = { command = "bin/cwpt-tool", transport = "sidecar" }
 
     #[test]
     fn reverse_domain_validation() {
-        assert!(is_reverse_domain("com.example.cwpt"));
+        assert!(is_reverse_domain("com.example.demo"));
         assert!(is_reverse_domain("io.github.user"));
-        assert!(!is_reverse_domain("cwpt"));
+        assert!(!is_reverse_domain("demo"));
         assert!(!is_reverse_domain("com.example."));
         assert!(!is_reverse_domain(".com.example"));
         assert!(!is_reverse_domain("com..example"));

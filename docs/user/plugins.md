@@ -50,7 +50,7 @@ my-plugin/
 └── .mcp.json                  # 可选：MCP 声明（Claude 约定，P2）
 ```
 
-插件 id 是**反向域名**（`com.example.cwpt`），安装到 `~/.pointer/plugins/<id>/`。
+插件 id 是**反向域名**（`com.example.demo`），安装到 `~/.pointer/plugins/<id>/`。
 
 ---
 
@@ -59,7 +59,7 @@ my-plugin/
 ```toml
 # ── 必填段 ──────────────────────────────────────────────
 [plugin]
-id = "com.example.cwpt"        # 反向域名，全局唯一，仅小写字母/数字/连字符/点
+id = "com.example.demo"        # 反向域名，全局唯一，仅小写字母/数字/连字符/点
 name = "示例插件"               # 必填
 version = "1.0.0"              # 必填
 api_version = "v1"             # 可选，默认 v1（当前仅支持 v1）
@@ -138,7 +138,7 @@ mkdir -p ~/dev/my-plugin/{skills/hello,agents/worker,rules,bin}
 # 2. 写清单（见上节，id 用反向域名）
 cat > ~/dev/my-plugin/pointer-plugin.toml <<'EOF'
 [plugin]
-id = "com.example.cwpt"
+id = "com.example.demo"
 name = "示例插件"
 version = "1.0.0"
 description = "演示能力单元"

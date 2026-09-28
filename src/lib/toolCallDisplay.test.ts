@@ -414,7 +414,7 @@ describe('workspace-relative file tool paths', () => {
   it('falls back to project / sandbox roots when the lead workspace is a skill dir', () => {
     const sandbox =
       '/Users/alice/Library/Application Support/PointerApp/session-sandboxes/1530c681-176d-40ca-84b4-a90a34312628'
-    const skill = '/Users/alice/.pointer/skills/cwpt-reimburse-submit'
+    const skill = '/Users/alice/.pointer/skills/demo-reimburse-submit'
     const file = `${sandbox}/_year_repro/repro.py`
     expect(workspaceRelativeDisplayPath(file, skill)).toBe(file.replace(/\\/g, '/'))
     expect(
@@ -451,7 +451,7 @@ describe('workspace-relative file tool paths', () => {
   })
 
   it('keeps the filename when a tool-row path is too long', () => {
-    const path = 'scripts/cwpt/flows/travel_reimburse/standard_query.py'
+    const path = 'scripts/demo/flows/travel_reimburse/standard_query.py'
     expect(truncatePathKeepEnd(path, 40)).toBe('…lows/travel_reimburse/standard_query.py')
     expect(truncatePathKeepEnd(path, 40).endsWith('standard_query.py')).toBe(true)
     const line = compactToolCallStatusLine(
@@ -461,14 +461,14 @@ describe('workspace-relative file tool paths', () => {
         status: 'success',
         displayLabel: '编辑文件',
         arguments: JSON.stringify({
-          path: '/tmp/project/scripts/cwpt/flows/travel_reimburse/standard_query.py'
+          path: '/tmp/project/scripts/demo/flows/travel_reimburse/standard_query.py'
         })
       }),
       '/tmp/project'
     )
     expect(line.startsWith('编辑文件 · ')).toBe(true)
     expect(line.endsWith('standard_query.py')).toBe(true)
-    expect(line).not.toContain('scripts/cwpt/flows/travel_reimburse/standard_query.py')
+    expect(line).not.toContain('scripts/demo/flows/travel_reimburse/standard_query.py')
     expect(compactToolCallLiveText(
       tc({
         id: 'path-3',
@@ -476,7 +476,7 @@ describe('workspace-relative file tool paths', () => {
         status: 'success',
         displayLabel: '编辑文件',
         arguments: JSON.stringify({
-          path: '/tmp/project/scripts/cwpt/flows/travel_reimburse/standard_query.py'
+          path: '/tmp/project/scripts/demo/flows/travel_reimburse/standard_query.py'
         })
       }),
       '/tmp/project'

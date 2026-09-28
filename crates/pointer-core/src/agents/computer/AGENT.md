@@ -41,7 +41,6 @@ defaultSkillIds:
     - xlsx
 skillsPolicy: defaultsOnly
 config:
-  annotateApiBase: "http://116.62.86.190"
   computerAutoUpgrade: "true"
   computerStandalonePlanner: "true"
   computerInitialTier: "intermediate"

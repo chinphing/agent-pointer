@@ -28,12 +28,12 @@ function project(partial: Partial<Project> & { id: string; workspaceRoot: string
 describe('userSkillDirectoryCandidates', () => {
   it('includes user and external skills with a source path', () => {
     const skills = [
-      skill({ id: 'cwpt-submit', name: 'cwpt-submit', provenance: 'user', source: '/Users/u/.pointer/skills/cwpt-submit' }),
+      skill({ id: 'demo-submit', name: 'demo-submit', provenance: 'user', source: '/Users/u/.pointer/skills/demo-submit' }),
       skill({ id: 'agent-browser', name: 'agent-browser', provenance: 'external', source: '/Users/u/.agents/skills/agent-browser' })
     ]
     expect(userSkillDirectoryCandidates(skills, [])).toEqual([
       { name: 'agent-browser', path: '/Users/u/.agents/skills/agent-browser' },
-      { name: 'cwpt-submit', path: '/Users/u/.pointer/skills/cwpt-submit' }
+      { name: 'demo-submit', path: '/Users/u/.pointer/skills/demo-submit' }
     ])
   })
 

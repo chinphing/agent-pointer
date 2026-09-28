@@ -19,7 +19,7 @@
 | [coder-agent-capability-roadmap.md](coder-agent-capability-roadmap.md) | Coder 能力增强路线图与优先级矩阵 |
 | [computer-use-implementation-plan.md](computer-use-implementation-plan.md) | Computer Use Agent（视觉桌面）迁移与分期计划 |
 | [computer-compact-dock-bar.md](computer-compact-dock-bar.md) | 电脑操控时 OS 窗口收缩为右下角 Dock Bar（已确认：OS 级、结束自动展开、含子 agent） |
-| [mobile-reimburse-assistant-mockup.html](mobile-reimburse-assistant-mockup.html) | 财务报销助手移动端三态交互稿（欢迎 tip / 填写中 / 已填写） |
+| [mobile-reimburse-assistant-mockup.html](mobile-reimburse-assistant-mockup.html) | 示例助手移动端三态交互稿（欢迎 tip / 填写中 / 已填写） |
 | [web-branding-welcome-elapsed.md](web-branding-welcome-elapsed.md) | Web branding：欢迎 tip + 回合耗时前缀（server 可定制，默认不动） |
 | [trigger-and-event-driven-refactor.md](trigger-and-event-driven-refactor.md) | Trigger & Event-Driven 重构：`RunDispatcher` 统一入口、队列、事件总线、钩子、HTTP Runs API、Webhook、Cron（分阶段交付 + 范围取舍） |
 | [file-grep-d-enhancement-proposal.md](file-grep-d-enhancement-proposal.md) | `file:grep` 增强草案（对齐 rg 行为等） |

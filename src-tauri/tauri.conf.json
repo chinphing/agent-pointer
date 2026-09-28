@@ -62,7 +62,10 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../skills/": "skills/"
+      "../skills/": "skills/",
+      "../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md",
+      "../NOTICE": "NOTICE",
+      "../LICENSE": "LICENSE"
     },
     "windows": {
       "digestAlgorithm": "sha256",

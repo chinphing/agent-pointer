@@ -27,10 +27,15 @@ Those projects remain under their own licenses.
 
 Third-party notices
 -------------------
+Bundled third-party packages and their license texts are listed in
+THIRD-PARTY-NOTICES.md, which ships with every build. Regenerate after a
+dependency change with `npm run licenses`.
+
 sqlite-cjk-fts (MIT)
   crates/pointer-core/vendor/sqlite-cjk-fts/LICENSE
   Source: https://pypi.org/project/sqlite-cjk-fts/
 
-mermaid
-  The repository includes a patch-package diff under patches/mermaid+11.16.1.patch
-  against mermaid 11.16.1. Upstream mermaid remains under its own license.
+mermaid 11.16.1 (MIT)
+  Copyright (c) 2014 - 2022 Knut Sveidqvist.
+  Bundled unmodified. This build renders only the diagram types listed in
+  docs/ui/markdown-mermaid.md and rejects the rest at render time.

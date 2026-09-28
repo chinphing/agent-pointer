@@ -1,8 +1,9 @@
 # Office skill dependencies (anthropics/skills)
 
-Bundled **docx** / **xlsx** / **pptx** / **pdf** skills come from
-[anthropics/skills](https://github.com/anthropics/skills) (MIT). Install only what the
-loaded skill body asks for.
+The **docx** / **xlsx** / **pptx** / **pdf** skills are **not bundled** with Pointer.
+Install them on demand from [anthropics/skills](https://github.com/anthropics/skills)
+(MIT) — see the **find-skills** skill. This file only lists the runtimes those skills
+need; install only what the loaded skill body asks for.
 
 ## Common
 

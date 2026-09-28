@@ -193,6 +193,21 @@ or proceed without the skill.
 after a GitHub connectivity or timeout error, or when the user says GitHub
 is blocked or slow.
 
+## Office Document Skills (docx / xlsx / pptx / pdf)
+
+Pointer does **not** bundle the Office document skills. When the user needs to read or
+write Word / Excel / PowerPoint / PDF files, install them on demand from
+[anthropics/skills](https://github.com/anthropics/skills) (MIT):
+
+```bash
+npx skills add anthropics/skills@docx -g -y    # also: xlsx, pptx, pdf
+```
+
+Then **`skill_import`** (`auto_enable` true), or the user enables it in Settings.
+The runtimes those skills need (Python, LibreOffice, pandoc, pymupdf, …) are listed in
+the **`dev-env-setup`** skill (`references/office-python.md`) — install only what the
+loaded skill body asks for.
+
 ## Common Skill Categories
 
 When searching, consider these common categories:

@@ -6,6 +6,7 @@ use std::sync::OnceLock;
 
 macro_rules! entries {
     ($($key:literal => $zh:literal, $en:literal),* $(,)?) => {
+        #[cfg(test)] // parity test in `i18n::mod` is the only consumer
         pub const ALL_KEYS: &[&str] = &[$($key),*];
         fn zh_map() -> HashMap<&'static str, &'static str> {
             HashMap::from([$(($key, $zh)),*])

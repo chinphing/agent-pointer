@@ -243,7 +243,6 @@ You are sub-agent depth {d}/{max}. …
 | 层 | 文件 |
 |----|------|
 | Rust 默认 | `models/settings.rs`、`platform_config.rs`、`storage.rs` |
-| 构建默认 | `.pointer-build.toml` / `build.rs`（若其它 runtime 默认在此） |
 | 前端 | `stores/settings.ts`、`useSettingsDialogForm.ts`、`RuntimeParamsForm.vue`（或等价设置页） |
 | Tauri API | `src-tauri` commands 透传（与 `maxSubAgentToolRounds` 同路径） |
 

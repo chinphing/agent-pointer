@@ -586,7 +586,6 @@ src-tauri/target/release/bundle/
 | `package.json` | `tauri:dev` / `tauri:build` / `build:*` / `icons` 脚本 |
 | `scripts/tauri-build.mjs` | 跨平台 `tauri build`；**仅 Linux** 自动 `NO_STRIP=true`（AppImage） |
 | `.github/workflows/release.yml` | 三端 CI 自动打包 |
-| `.pointer-build.toml` | 编译期默认配置（非运行时），见 [`docs/internals/pointer-build-toml.md`](../internals/pointer-build-toml.md) |
 
 ### 图标
 
@@ -671,9 +670,8 @@ $env:RUST_LOG="debug"; npm run tauri:dev
 
 ## 官网与环境变量（桌面构建）
 
-`POINTER_EDITION=official`（官方 CI）才内置 `pointer.readflowai.com` 等生产域名。  
-`POINTER_EDITION=community` 默认不连官方云。  
-未设置 edition 的本地 `tauri dev` 保持现有联调默认值，可用 `POINTER_*` 覆盖。详见 [editions.md](editions.md)。
+`npm run tauri:dev` / `tauri:build` 会加载本机 **`pointer.local.env`**（gitignore，见 `pointer.local.env.example`）；无文件时默认 `POINTER_EDITION=community`（纯本地）。  
+绑定控制面时在该文件或环境里设置域名 + `official`。官方 CI 注入 `POINTER_EDITION=official`。详见 [editions.md](editions.md)。
 
 ---
 
@@ -684,6 +682,5 @@ $env:RUST_LOG="debug"; npm run tauri:dev
 | [DEVELOPMENT.md](../../DEVELOPMENT.md) | 日常调试、Skills、常见问题 |
 | [README.md](../../README.md) | 项目概览与快速开始 |
 | [macos-computer-permissions.md](../internals/macos-computer-permissions.md) | macOS 电脑操控权限 |
-| [pointer-build-toml.md](../internals/pointer-build-toml.md) | 编译期默认配置 |
 
 [返回 guides 索引](README.md)

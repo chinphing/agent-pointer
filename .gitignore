@@ -9,6 +9,9 @@ target
 .codebuddy
 src-tauri/gen
 
+# Per-developer control-plane defaults (see pointer.local.env.example).
+pointer.local.env
+
 # macOS signing: only signing.env.example / README.md are committed;
 # real secrets and cert material stay local.
 signing/macos/signing.env

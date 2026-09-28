@@ -27,4 +27,4 @@
 | 开箱即用 | [官网下载](https://pointer.readflowai.com/download) |
 | 企业内部部署 | [GitHub Releases](https://github.com/chinphing/agent-pointer/releases)，服务端见 [standalone-server.md](standalone-server.md) |
 
-开发者如何打两种包，见 [../contributing/editions.md](../contributing/editions.md)。
+开发者如何用本机 `pointer.local.env` 绑定控制面或打本地包，见 [../contributing/editions.md](../contributing/editions.md)。

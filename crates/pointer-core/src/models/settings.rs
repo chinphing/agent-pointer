@@ -1053,50 +1053,8 @@ pub struct ModelSettings {
     pub round_thinking_locked: bool,
 }
 
-macro_rules! build_cfg_str {
-    ($name:literal, $default:expr) => {{
-        option_env!(concat!("POINTER_BUILD_", $name))
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(ToOwned::to_owned)
-            .unwrap_or_else(|| $default.to_string())
-    }};
-}
-
-macro_rules! build_cfg_bool {
-    ($name:literal, $default:expr) => {{
-        match option_env!(concat!("POINTER_BUILD_", $name))
-            .map(str::trim)
-            .map(|v| v.to_ascii_lowercase())
-            .as_deref()
-        {
-            Some("1" | "true" | "yes" | "on") => true,
-            Some("0" | "false" | "no" | "off") => false,
-            _ => $default,
-        }
-    }};
-}
-
-macro_rules! build_cfg_u32 {
-    ($name:literal, $default:expr) => {{
-        option_env!(concat!("POINTER_BUILD_", $name))
-            .map(str::trim)
-            .and_then(|v| v.parse::<u32>().ok())
-            .unwrap_or($default)
-    }};
-}
-
-macro_rules! build_cfg_f32 {
-    ($name:literal, $default:expr) => {{
-        option_env!(concat!("POINTER_BUILD_", $name))
-            .map(str::trim)
-            .and_then(|v| v.parse::<f32>().ok())
-            .unwrap_or($default)
-    }};
-}
-
 fn default_theme() -> String {
-    build_cfg_str!("THEME", "system")
+    "system".to_string()
 }
 
 fn default_ui_locale() -> String {
@@ -1104,32 +1062,32 @@ fn default_ui_locale() -> String {
 }
 
 fn default_active_provider_id() -> String {
-    // 平台模型配置全部由平台下发；本地默认无激活服务商（build 配置可覆盖）。
-    build_cfg_str!("ACTIVE_PROVIDER_ID", "")
+    // 平台模型配置全部由平台下发；本地默认无激活服务商。
+    String::new()
 }
 
 fn default_model_name() -> String {
-    build_cfg_str!("MODEL", "")
+    String::new()
 }
 
 fn default_model_temperature() -> f32 {
-    build_cfg_f32!("TEMPERATURE", 0.7)
+    0.7
 }
 
 fn default_model_max_tokens() -> u32 {
-    build_cfg_u32!("MAX_TOKENS", 2048)
+    2048
 }
 
 fn default_workspace_root() -> String {
-    build_cfg_str!("WORKSPACE_ROOT", "")
+    String::new()
 }
 
 pub(crate) fn default_lead_agent_id() -> String {
-    build_cfg_str!("LEAD_AGENT_ID", "general")
+    "general".to_string()
 }
 
 fn default_computer_initial_tier() -> String {
-    build_cfg_str!("COMPUTER_INITIAL_TIER", "intermediate")
+    "intermediate".to_string()
 }
 
 fn default_computer_human_like() -> bool {
@@ -1234,31 +1192,31 @@ pub fn ensure_agent_model_refs_have_provider(settings: &mut ModelSettings) {
 }
 
 fn default_tool_approval_mode() -> String {
-    build_cfg_str!("TOOL_APPROVAL_MODE", "auto")
+    "auto".to_string()
 }
 
 pub(crate) fn default_agent_mode() -> String {
-    build_cfg_str!("AGENT_MODE", "single")
+    "single".to_string()
 }
 
 fn default_context_compression_enabled() -> bool {
-    build_cfg_bool!("CONTEXT_COMPRESSION_ENABLED", true)
+    true
 }
 
 fn default_context_budget_tokens() -> u32 {
-    build_cfg_u32!("CONTEXT_BUDGET_TOKENS", 256 * 1024)
+    256 * 1024
 }
 
 fn default_context_keep_recent_user_turns() -> u32 {
-    build_cfg_u32!("CONTEXT_KEEP_RECENT_USER_TURNS", 6)
+    6
 }
 
 fn default_context_summary_max_tokens() -> u32 {
-    build_cfg_u32!("CONTEXT_SUMMARY_MAX_TOKENS", 2048)
+    2048
 }
 
 fn default_max_tool_rounds() -> u32 {
-    build_cfg_u32!("MAX_TOOL_ROUNDS", 5000)
+    5000
 }
 
 /// Sub-agents are small-scope; keep this far below the lead `maxToolRounds`.
@@ -1267,7 +1225,7 @@ pub const CEILING_MAX_SUB_AGENT_TOOL_ROUNDS: u32 = 500;
 const LEGACY_MAX_SUB_AGENT_TOOL_ROUNDS: u32 = 200;
 
 fn default_max_sub_agent_tool_rounds() -> u32 {
-    build_cfg_u32!("MAX_SUB_AGENT_TOOL_ROUNDS", 500).clamp(1, CEILING_MAX_SUB_AGENT_TOOL_ROUNDS)
+    500
 }
 
 pub fn clamp_max_sub_agent_tool_rounds(n: u32) -> u32 {
@@ -1494,19 +1452,19 @@ mod sub_agent_tool_round_limit_tests {
 }
 
 fn default_max_sub_agent_spawn_depth() -> u32 {
-    build_cfg_u32!("MAX_SUB_AGENT_SPAWN_DEPTH", 2)
+    2
 }
 
 fn default_raw_content_view_enabled() -> bool {
-    build_cfg_bool!("RAW_CONTENT_VIEW_ENABLED", false)
+    false
 }
 
 fn default_debug_dump_llm_prompts() -> bool {
-    build_cfg_bool!("DEBUG_DUMP_LLM_PROMPTS", false)
+    false
 }
 
 fn default_debug_menus_enabled() -> bool {
-    build_cfg_bool!("DEBUG_MENUS_ENABLED", false)
+    false
 }
 
 fn default_task_board_show_child_boards() -> bool {
@@ -1514,15 +1472,15 @@ fn default_task_board_show_child_boards() -> bool {
 }
 
 fn default_user_dynamic_inject_enabled() -> bool {
-    build_cfg_bool!("USER_DYNAMIC_INJECT_ENABLED", true)
+    true
 }
 
 fn default_computer_annotated_screen_view_enabled() -> bool {
-    build_cfg_bool!("COMPUTER_ANNOTATED_SCREEN_VIEW_ENABLED", false)
+    false
 }
 
 fn default_computer_show_monitor_picker() -> bool {
-    build_cfg_bool!("COMPUTER_SHOW_MONITOR_PICKER", true)
+    true
 }
 
 fn default_computer_auto_switch_monitor() -> bool {
@@ -1530,7 +1488,7 @@ fn default_computer_auto_switch_monitor() -> bool {
 }
 
 fn default_web_search_model_setting() -> String {
-    build_cfg_str!("WEB_SEARCH_MODEL", "")
+    String::new()
 }
 
 fn default_parallel_tool_execution_enabled() -> bool {
@@ -2095,8 +2053,8 @@ impl Default for UserSettings {
             providers: default_providers_empty(),
             active_provider_id: default_active_provider_id(),
             model: default_model_name(),
-            temperature: build_cfg_f32!("TEMPERATURE", platform_default_temperature()),
-            max_tokens: build_cfg_u32!("MAX_TOKENS", platform_default_max_tokens()),
+            temperature: platform_default_temperature(),
+            max_tokens: platform_default_max_tokens(),
             tool_approval_mode: default_tool_approval_mode(),
             agent_mode: default_agent_mode(),
             workspace_root: default_workspace_root(),

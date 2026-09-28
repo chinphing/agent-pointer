@@ -12,7 +12,7 @@
     "test:watch": "vitest",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
+    "tauri:dev": "node scripts/tauri-dev.mjs",
     "tauri:build": "node scripts/tauri-build.mjs",
     "server:dev": "cargo run -p pointer-server",
     "server:build": "node scripts/build-server.mjs",

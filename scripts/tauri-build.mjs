@@ -7,8 +7,10 @@
  */
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { applyPointerLocalEnv } from './lib/load-pointer-local-env.mjs';
 
 const env = { ...process.env };
+applyPointerLocalEnv(env, { logPrefix: '[tauri-build]' });
 
 // Read signing key from file path instead of inline env var
 const keyPath = env.TAURI_SIGNING_PRIVATE_KEY_PATH;

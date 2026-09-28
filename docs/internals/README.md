@@ -16,7 +16,6 @@
 | [sidebar-project-navigation.md](sidebar-project-navigation.md) | 侧边栏项目分组与入口行为 |
 | [taskboard-lifecycle-and-fields.md](taskboard-lifecycle-and-fields.md) | Task Board v4 生命周期与字段语义 |
 | [terminal-shell-path.md](terminal-shell-path.md) | `terminal` 工具在各平台的 PATH / shell 行为 |
-| [pointer-build-toml.md](pointer-build-toml.md) | 编译期 `.pointer-build.toml` |
 | [macos-computer-permissions.md](macos-computer-permissions.md) | macOS 电脑操控权限 |
 | [user-platform-config-split.md](user-platform-config-split.md) | 用户 / 平台配置拆分；平台模型目录是平台服务商与档位默认的唯一来源 |
 | [settings-provider-ui.md](settings-provider-ui.md) | 设置页 Provider UI |

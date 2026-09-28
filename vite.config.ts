@@ -1,6 +1,10 @@
 import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 import path from 'node:path'
+import { applyPointerLocalEnvToProcess } from './scripts/lib/load-pointer-local-env.mjs'
+
+// Per-machine control-plane defaults (gitignored pointer.local.env).
+applyPointerLocalEnvToProcess({ logPrefix: '[vite]' })
 
 const host = process.env.TAURI_DEV_HOST
 

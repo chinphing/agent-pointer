@@ -19,7 +19,14 @@ fn media_understand_max_tokens(settings: &ModelSettings) -> u32 {
     let wanted = thinking
         .saturating_add(MEDIA_ANSWER_MAX_TOKENS)
         .max(MEDIA_ANSWER_MAX_TOKENS);
-    wanted.min(crate::models::effective_max_tokens(settings))
+    // Only a cap the provider/model itself declares is a real API limit. The user's
+    // own output setting must not squeeze this budget: `reasoning_content` counts
+    // toward `max_tokens`, so a small chat cap would leave the visible answer with
+    // nothing and the tool would report a blank failure.
+    match crate::models::declared_max_tokens(settings) {
+        Some(cap) => wanted.min(cap),
+        None => wanted,
+    }
 }
 
 fn require_understand_text(kind: &str, out: &ChatOnceOutput, max_tokens: u32) -> Result<String> {
@@ -533,10 +540,8 @@ mod tests {
         }
     }
 
-    /// `ModelSettings::default()` caps `max_tokens` at 2048, which is below the
-    /// media answer budget; `media_understand_max_tokens` clamps to
-    /// `effective_max_tokens`, so the fixture needs a realistic output cap or
-    /// these tests would only exercise the clamp.
+    /// A realistic output cap, so these assertions exercise the budget arithmetic
+    /// rather than a clamp.
     fn settings_with_large_output_cap() -> ModelSettings {
         let mut s = ModelSettings::default();
         s.max_tokens = MEDIA_ANSWER_MAX_TOKENS.saturating_mul(2);
@@ -557,6 +562,19 @@ mod tests {
     fn max_tokens_without_thinking_uses_answer_budget() {
         let s = settings_with_large_output_cap();
         assert_eq!(media_understand_max_tokens(&s), MEDIA_ANSWER_MAX_TOKENS);
+    }
+
+    /// Regression: the chat's own output setting is not an API limit. A small cap
+    /// used to clamp this budget down to the thinking budget, leaving the visible
+    /// answer with nothing.
+    #[test]
+    fn small_chat_output_cap_does_not_squeeze_media_budget() {
+        let mut s = ModelSettings::default(); // max_tokens defaults to the product's 2048
+        s.round_thinking_budget = Some(4096);
+        assert_eq!(
+            media_understand_max_tokens(&s),
+            4096 + MEDIA_ANSWER_MAX_TOKENS
+        );
     }
 
     #[test]

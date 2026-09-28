@@ -444,6 +444,20 @@ pub fn effective_max_tokens(settings: &ModelSettings) -> u32 {
     settings.max_tokens.max(64)
 }
 
+/// Max output tokens **declared by the active provider or model itself**.
+///
+/// `None` when the value would only come from the user's own output setting.
+/// Callers that need a real API limit — media understanding reserves room for a
+/// visible answer on top of the thinking budget — must not treat that preference
+/// as one.
+pub(crate) fn declared_max_tokens(settings: &ModelSettings) -> Option<u32> {
+    let (p, model) = active_provider_and_model(settings)?;
+    if let Some(n) = p.model_configs.get(model).and_then(|o| o.max_tokens) {
+        return Some(n.max(64));
+    }
+    p.max_tokens.map(|n| n.max(64))
+}
+
 pub const CONTEXT_BUDGET_TOKENS_FLOOR: u32 = 4096;
 pub const CONTEXT_BUDGET_TOKENS_CEILING: u32 = 2_097_152;
 /// Previous product defaults: decimal 100k/120k and 100/120 Ki.
@@ -3644,6 +3658,28 @@ mod effective_generation_tests {
         s.max_tokens = 512;
         s.providers[0].max_tokens = Some(8192);
         assert_eq!(effective_max_tokens(&s), 8192);
+    }
+
+    #[test]
+    fn declared_max_tokens_ignores_the_user_output_setting() {
+        let mut s = sample_settings();
+        s.providers[0].max_tokens = None;
+        s.providers[0].model_configs.clear();
+        s.max_tokens = 512;
+        assert_eq!(declared_max_tokens(&s), None);
+    }
+
+    #[test]
+    fn declared_max_tokens_reports_provider_and_model_caps() {
+        let mut s = sample_settings();
+        s.providers[0].max_tokens = Some(8192);
+        assert_eq!(declared_max_tokens(&s), Some(8192));
+        s.providers[0]
+            .model_configs
+            .entry(s.model.clone())
+            .or_default()
+            .max_tokens = Some(4096);
+        assert_eq!(declared_max_tokens(&s), Some(4096));
     }
 
     #[test]

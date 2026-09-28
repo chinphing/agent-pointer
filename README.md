@@ -1,6 +1,6 @@
 # Pointer
 
-**Open-source desktop agent foundation for the enterprise.**
+**An out-of-the-box, ultra-low-resource desktop agent foundation for building digital employees. Built for developers and the enterprise.**
 
 Build and run digital employees on the computer people already use, and keep them running stably on a server. Both the agent and the model can stay inside your own environment, with no per-seat fees. The desktop app and the web app share the same capabilities, on Windows, macOS, and Linux.
 

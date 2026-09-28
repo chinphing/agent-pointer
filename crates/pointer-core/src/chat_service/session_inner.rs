@@ -105,7 +105,11 @@ pub(super) async fn run_chat_inner(
     // Refresh platform session and gate chat before binding session_user_id or persisting media.
     let web_session = crate::web_request_auth::scoped_login_creds().is_some();
     let is_local_session = crate::web_request_auth::is_local_scoped_session();
-    let skip_platform_refresh = crate::deployment_mode::is_standalone() && is_local_session;
+    let skip_platform_refresh = crate::deployment_mode::should_skip_platform_refresh(
+        crate::platform_endpoints::control_plane_bound(),
+        crate::deployment_mode::is_standalone(),
+        is_local_session,
+    );
     let mut refresh_transient_error: Option<String> = None;
     let auth_refresh_t = Instant::now();
     if !skip_platform_refresh {

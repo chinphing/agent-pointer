@@ -55,6 +55,19 @@ pub fn init_from_env() {
     );
 }
 
+/// Whether the pre-chat platform session refresh can be skipped.
+///
+/// Without a control plane there is nothing to refresh, and a stale session left
+/// over from a previous binding must not fail the turn. A standalone local session
+/// never talks to a control plane either.
+pub fn should_skip_platform_refresh(
+    control_plane_bound: bool,
+    standalone: bool,
+    local_session: bool,
+) -> bool {
+    !control_plane_bound || (standalone && local_session)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,5 +82,19 @@ mod tests {
     fn unbound_defaults_to_standalone() {
         assert_eq!(derive_mode("", false), "standalone");
         assert_eq!(derive_mode("", true), "platform");
+    }
+
+    #[test]
+    fn unbound_skips_platform_refresh() {
+        // A stale session must not fail the turn when there is no control plane.
+        assert!(should_skip_platform_refresh(false, true, false));
+        assert!(should_skip_platform_refresh(false, false, false));
+    }
+
+    #[test]
+    fn bound_refreshes_except_standalone_local_session() {
+        assert!(!should_skip_platform_refresh(true, false, false));
+        assert!(!should_skip_platform_refresh(true, true, false));
+        assert!(should_skip_platform_refresh(true, true, true));
     }
 }

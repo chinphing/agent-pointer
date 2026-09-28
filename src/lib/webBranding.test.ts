@@ -56,10 +56,10 @@ describe('web branding tip / elapsed', () => {
   })
 
   it('reads welcome tip from meta', () => {
-    setMeta('pointer-welcome-tip-title', '我是财务报销助手')
+    setMeta('pointer-welcome-tip-title', '我是 Acme AI 助手')
     setMeta('pointer-welcome-tip-body', '预计 10–30 分钟')
     expect(resolveWelcomeTip()).toEqual({
-      title: '我是财务报销助手',
+      title: '我是 Acme AI 助手',
       body: '预计 10–30 分钟'
     })
   })
@@ -70,10 +70,10 @@ describe('web branding tip / elapsed', () => {
   })
 
   it('reads active / done prefixes from meta', () => {
-    setMeta('pointer-turn-elapsed-active', '报销单填写中')
-    setMeta('pointer-turn-elapsed-done', '报销单已填写')
-    expect(resolveTurnElapsedPrefix('active')).toBe('报销单填写中')
-    expect(resolveTurnElapsedPrefix('done')).toBe('报销单已填写')
+    setMeta('pointer-turn-elapsed-active', '任务处理中')
+    setMeta('pointer-turn-elapsed-done', '任务已完成')
+    expect(resolveTurnElapsedPrefix('active')).toBe('任务处理中')
+    expect(resolveTurnElapsedPrefix('done')).toBe('任务已完成')
   })
 
   it('ignores stock Chinese composer meta when locale is en', () => {
@@ -97,10 +97,10 @@ describe('formatTurnElapsed branding', () => {
   })
 
   it('uses custom prefixes including unknown', () => {
-    setMeta('pointer-turn-elapsed-active', '报销单填写中')
-    setMeta('pointer-turn-elapsed-done', '报销单已填写')
-    expect(formatTurnElapsed(125_999, 'active')).toBe('报销单填写中 2 m 05 s')
-    expect(formatTurnElapsed(null, 'done')).toBe('报销单已填写耗时未知')
+    setMeta('pointer-turn-elapsed-active', '任务处理中')
+    setMeta('pointer-turn-elapsed-done', '任务已完成')
+    expect(formatTurnElapsed(125_999, 'active')).toBe('任务处理中 2 m 05 s')
+    expect(formatTurnElapsed(null, 'done')).toBe('任务已完成耗时未知')
   })
 
   it('switches work prefix with English locale', () => {

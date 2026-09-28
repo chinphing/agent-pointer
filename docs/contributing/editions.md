@@ -74,8 +74,7 @@ npm run tauri:dev   # 自动读 pointer.local.env；无文件则 community
 - 换域名、更新公钥、证书：只改官方 CI 或维护者本机 `pointer.local.env`，勿提交
 - 外部 PR 默认按 community 理解；合入前确认没有写死某一家控制面域名
 
-## 推到 GitHub 前仍需人工做的事
+## 发布前检查
 
-1. 轮换曾经进入 Git 历史的 Apple 证书口令；若仓库已被他人克隆，重签 Developer ID
-2. 清洗后的副本在仓库旁的 `agent-pointer`（已去掉 `signing.env` 和打码服务密钥）。不要 force-push Codeup
-3. 在 GitHub 打开 Private vulnerability reporting，并把官方签名 secret 只放进 Actions environment
+- 签名与密钥只放在 CI 的 secret / environment 里，不写进仓库、不写进本机配置文件
+- 在 GitHub 打开 Private vulnerability reporting

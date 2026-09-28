@@ -327,11 +327,11 @@ skills_dir = "skills"
 # --- Web 品牌文案（可选；详见 docs/ui/web-branding-welcome-elapsed.md）---
 # page_title = "Acme · AI 助手"                 # env POINTER_SERVER_PAGE_TITLE
 # composer_placeholder = "有什么可以帮你？"      # env POINTER_SERVER_COMPOSER_PLACEHOLDER
-# welcome_tip_title = "我是财务报销助手"         # env POINTER_SERVER_WELCOME_TIP_TITLE
-# welcome_tip_body = "您提交附件后我会自动帮你填报销单…"  # env POINTER_SERVER_WELCOME_TIP_BODY
-# turn_elapsed_active = "报销单填写中"           # env POINTER_SERVER_TURN_ELAPSED_ACTIVE
-# turn_elapsed_done = "报销单已填写"             # env POINTER_SERVER_TURN_ELAPSED_DONE
-# brand_name = "财务助手"                       # env POINTER_SERVER_BRAND_NAME
+# welcome_tip_title = "我是 Acme AI 助手"        # env POINTER_SERVER_WELCOME_TIP_TITLE
+# welcome_tip_body = "提交附件后我会自动处理…"    # env POINTER_SERVER_WELCOME_TIP_BODY
+# turn_elapsed_active = "任务处理中"             # env POINTER_SERVER_TURN_ELAPSED_ACTIVE
+# turn_elapsed_done = "任务已完成"               # env POINTER_SERVER_TURN_ELAPSED_DONE
+# brand_name = "Acme 助手"                      # env POINTER_SERVER_BRAND_NAME
 # brand_icon = "/branding/logo.png"            # env POINTER_SERVER_BRAND_ICON（左上/左下共用）
 # desktop_snapshot_enabled = false             # env POINTER_SERVER_DESKTOP_SNAPSHOT_ENABLED
 # （进行中收起条需在助手设置打开「默认收缩执行过程」，server 不强制）

@@ -65,19 +65,19 @@ skills_dir = "skills"
 #
 # Brand-new empty chat tip (optional). Both title and body should be set to show
 # the tip; see docs/ui/web-branding-welcome-elapsed.md
-# welcome_tip_title = "我是财务报销助手"
-# welcome_tip_body = "您提交附件后我会自动帮你填报销单，预计 10–30 分钟，期间您可以离开，完成任务后您回来确认信息即可。"
+# welcome_tip_title = "我是 Acme AI 助手"
+# welcome_tip_body = "提交附件后我会自动处理，预计 10–30 分钟，期间您可以离开，完成后回来确认即可。"
 # Env: POINTER_SERVER_WELCOME_TIP_TITLE / POINTER_SERVER_WELCOME_TIP_BODY
 #
 # Turn elapsed chip prefixes (optional). Default both: 工作 →「工作 N m SS s」
-# turn_elapsed_active = "报销单填写中"
+# turn_elapsed_active = "任务处理中"
 # Turn elapsed chip prefixes (optional). Default both: 工作 →「工作 N m SS s」
-# turn_elapsed_active = "报销单填写中"
-# turn_elapsed_done = "报销单已填写"
+# turn_elapsed_active = "任务处理中"
+# turn_elapsed_done = "任务已完成"
 # Env: POINTER_SERVER_TURN_ELAPSED_ACTIVE / POINTER_SERVER_TURN_ELAPSED_DONE
 #
 # Brand name shown in sidebar / top bar (like page_title). Default: Pointer
-# brand_name = "财务助手"
+# brand_name = "Acme 助手"
 # Env: POINTER_SERVER_BRAND_NAME
 #
 # Brand icon for top-left and bottom-left (same logo; URL or static path under dist).

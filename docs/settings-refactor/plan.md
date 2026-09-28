@@ -2,7 +2,7 @@
 
 > 分支：`refactor/settings-ui`（独立 worktree 已拆除；设置页以 `main` 为准）
 > 基线：`main @ 418d36f1`
-> 状态：已评审并完成界面迭代（2026-08-08）：O4 明确 = 平台配置由 **pointer-official 官网 API** 下发；设置已调整为全屏、余额仅账户页、豆包归平台、调试仅保留请求保存。
+> 状态：已评审并完成界面迭代（2026-08-08）：O4 明确 = 平台配置由 **官网控制面 API** 下发；设置已调整为全屏、余额仅账户页、豆包归平台、调试仅保留请求保存。
 
 ## 1. 目标
 
@@ -69,23 +69,22 @@
 
 关键结论：平台模式后端已能下发 `platform.providers` 等，但前端仍用硬编码默认值兜底。第 2 期需要新增「平台目录」数据（服务商模板 + 模型三档 + 能力标注），并让默认值完全由平台侧下发。
 
-### 2.5 pointer-official 官网现状（第 2 期对接基础）
+### 2.5 官网控制面现状（第 2 期对接基础）
 
-**架构**：`apps/web`（Next.js 官网/控制台）+ `apps/api`（FastAPI :8001）+ `infra`（Postgres/Redis）。桌面端 Release 默认 `https://pointer.readflowai.com`（web）/ `https://pointer-api.readflowai.com`（api）。
+**产品级现状**：官方控制面负责账户登录、LLM 凭据下发、云主机与余额充值；桌面端 Release 默认指向官方控制面地址。
 
-**已有设施（与本需求直接相关）**：
+**已有能力（与本需求直接相关）**：
 
-| 设施 | 位置 | 说明 |
-|---|---|---|
-| 登录下发 LLM 凭据 | `apps/api/app/routers/app_oauth.py` → `build_oauth_llm_payload`（`services/user_llm_capability.py`） | `POST /auth/app/token` 返回 `api_key` / `llm_provider` / `llm_source` / `provider_api_keys` / `media_oss` |
-| 平台密钥池 | `services/platform_provider_llm.py` | `PlatformProviderLlmKey`（qwen/deepseek/doubao 多 TOKEN 随机选取）；`PlatformNoviceLlmConfig` 旧版迁移 |
-| 用户自有密钥 | `routers/me_llm_api_keys.py` | `/api/me/llm-api-keys` CRUD + `/reveal` 一次性取明文；`UserLlmApiKey` 表 |
-| 供应商规范化 | `schemas.py` | `normalize_llm_provider`（qwen/deepseek/aliyun_qwen→qwen/doubao，支持自定义）、`llm_provider_label_zh` |
-| 计费/余额 | `services/billing.py`、`services/balance_credit.py`、`routers/me_llm_api_keys.py` | `/api/me/balance-ledger`、`/auth/partner/balance`（run_chat 门禁）、充值（微信支付） |
+| 能力 | 说明 |
+|---|---|
+| 登录下发 LLM 凭据 | 客户端登录后，控制面下发可用的模型凭据与媒体存储配置 |
+| 用户自有密钥 | 用户可在控制面维护自己的模型服务密钥，客户端按需取用 |
+| 供应商规范化 | 控制面把不同供应商名归一为统一标识，供客户端匹配 |
+| 计费 / 余额 | 控制面提供余额与账本能力，云主机与平台密钥用量据此结算 |
 
 **pointer-app 侧消费链路**：
 - 桌面/云上 server 登录后：`crates/pointer-core/src/platform_config.rs` `apply_login_credentials_to_model_settings` / `app_state.rs` `apply_login_credentials` → 把登录下发的 key 注入 `platform_config.providers`（按 `resolve_llm_provider_id` 匹配 provider）。
-- **但 provider 的 baseUrl/模型清单/默认参数仍来自硬编码**：Rust `src-tauri/src/models.rs` `PlatformSettings::default()`（千问/OpenAI/本地/深度求索）+ 前端 `providerParams.ts` / `settings.ts` / `modelCapabilities.ts`。官网 API 目前**不下发** provider 目录（baseUrl/模型/三档/能力），这是第 2 期要补的核心缺口。
+- **但 provider 的 baseUrl/模型清单/默认参数仍来自硬编码**：Rust `src-tauri/src/models.rs` `PlatformSettings::default()`（千问/OpenAI/本地/深度求索）+ 前端 `providerParams.ts` / `settings.ts` / `modelCapabilities.ts`。控制面 API 目前**不下发** provider 目录（baseUrl/模型/三档/能力），这是第 2 期要补的核心缺口。
 
 ---
 
@@ -165,11 +164,11 @@
 
 **范围：移除平台配置硬编码，默认值平台化。**
 
-#### 4.4 平台目录下发（数据源 = pointer-official API）
+#### 4.4 平台目录下发（数据源 = 官网控制面 API）
 
 **目标**：平台配置（服务商 baseUrl/模型清单/能力标注/三档默认/全局默认）由官网 API 下发，代码（前端 + Rust）不再固化；默认值在平台侧设置。
 
-**官网 API 侧（pointer-official，新增/扩展）**
+**官网 API 侧（控制面，新增/扩展）**
 
 1. 新增平台目录接口（建议 `GET /api/llm/catalog`，公开或 partner 鉴权均可，数据含模型清单与默认值，不含密钥）：
    ```ts
@@ -235,7 +234,7 @@
 - **O2**（更新）：设置页与 AppShell 互斥渲染，覆盖整个应用；聊天与工作区侧栏均不保留，返回回到聊天。macOS 红绿灯与「返回对话」同一行（inset 后再留空隙）。Windows / Linux 无红绿灯，设置页右上角补自定义窗口按钮（`decorations: false`）。分区标题以侧栏为准，内容区不再重复页头。
 - **O3**（更新）：平台服务商为千问、DeepSeek、豆包；第 1 期每个平台保持单实例（密钥可换），多实例归入自定义。
 - **O6**（新增）：普通“打开设置”默认进入账户；智能体页负责选择档位，并可直达模型服务配置每档模型。管理员自动看到“调试 → 保存对话请求”入口，无需右上角开关。
-- **O4**（已确认）：平台配置由 **pointer-official 官网 API** 下发（`GET /api/llm/catalog` 等，见 §4.4）；不从百炼/DeepSeek 官网直接抓取。
+- **O4**（已确认）：平台配置由 **官网控制面 API** 下发（`GET /api/llm/catalog` 等，见 §4.4）；不从百炼/DeepSeek 官网直接抓取。
 - **O5**（已确认）：三档命名统一为「快速/标准/高级」（agent/media 原「专家」改为「高级」，computer 保持「高级」）。
 
 ## 8. 里程碑

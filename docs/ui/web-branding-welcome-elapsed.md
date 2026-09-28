@@ -24,13 +24,13 @@ Standalone server 可覆盖空会话欢迎提示与「工作」耗时前缀，�
 
 ```toml
 [server]
-page_title = "财务报销助手"
-composer_placeholder = "上传发票或说明…"
-welcome_tip_title = "我是财务报销助手"
-welcome_tip_body = "您提交附件后我会自动帮你填报销单，预计 10–30 分钟，期间您可以离开，完成任务后您回来确认信息即可。"
-turn_elapsed_active = "报销单填写中"
-turn_elapsed_done = "报销单已填写"
-brand_name = "财务助手"
+page_title = "Acme · AI 助手"
+composer_placeholder = "有什么可以帮你？"
+welcome_tip_title = "我是 Acme AI 助手"
+welcome_tip_body = "提交附件后我会自动处理，预计 10–30 分钟，期间您可以离开，完成后回来确认即可。"
+turn_elapsed_active = "任务处理中"
+turn_elapsed_done = "任务已完成"
+brand_name = "Acme 助手"
 brand_icon = "/branding/logo.png"
 desktop_snapshot_enabled = false
 ```

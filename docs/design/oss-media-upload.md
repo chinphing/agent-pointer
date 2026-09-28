@@ -52,8 +52,8 @@ OSS 凭据由 **Pointer 官网管理后台**（「OSS」页）配置，仅保存
 | 字段 | 默认值 |
 |------|--------|
 | `enabled` | `true`（凭据齐全时） |
-| `bucket` | `pointer-app-media` |
-| `region` | 从 `endpoint` 解析（如 `oss-cn-hangzhou` → `cn-hangzhou`），否则 `cn-hangzhou` |
+| `bucket` | 示例 `my-bucket`（生产值由平台下发） |
+| `region` | 从 `endpoint` 解析（如 `oss-cn-example` → `cn-example`），否则取 endpoint 所在区域 |
 | `keyPrefix` | `pointer-media-attachments/` |
 | `presignExpiresSec` | `604800`（7 天，OSS 预签名 URL 上限） |
 | `deleteAfterUse` | `true` |

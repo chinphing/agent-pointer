@@ -14,14 +14,14 @@
 
 ## 云实例环境约定（自行部署）
 
-在 Windows ECS 上部署 pointer-server + Vue 静态资源，并配置：
+在 Windows 服务器上部署 pointer-server + Vue 静态资源，并配置：
 
 | 项 | 说明 |
 |----|------|
-| 监听 | `POINTER_SERVER_ADDR=0.0.0.0:${AGENT_PORT}`（与平台 ECS profile 一致） |
+| 监听 | `POINTER_SERVER_ADDR=0.0.0.0:${AGENT_PORT}` |
 | 健康检查 | `GET /api/health` 返回 2xx；就绪探测另可请求 `GET /api/ready`（需静态 UI 已挂载） |
-| `AGENT_HEALTH_PATH` | 平台 Worker 探活路径，生产设为 `/api/health` |
-| ALB | 与 ECS 同 VPC；Worker 为每 agent 创建 Server Group + Host 规则，`console_url` 为 `https://agent-{id}.readflowai.com/`（泛域名 `*.readflowai.com` → ALB） |
+| `AGENT_HEALTH_PATH` | 平台探活路径，生产设为 `/api/health` |
+| 对外访问 | 平台为每个实例分配对外地址；桌面端用 `console_url` 打开该实例的 Web UI |
 | `POINTER_API_BASE` | 平台 API 根地址 |
 | `POINTER_OAUTH_CLIENT_SECRET` | 与平台一致的换码密钥 |
 | `allowed_user_ids` | （推荐生产必填）仅允许 listed 平台 user id 登录/使用 server；对应 env `POINTER_SERVER_ALLOWED_USER_IDS`（逗号分隔） |

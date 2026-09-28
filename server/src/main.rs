@@ -4679,14 +4679,14 @@ mod page_title_tests {
     fn injects_optional_welcome_and_elapsed_metas() {
         let _guard = env_guard();
         clear_branding_env();
-        std::env::set_var("POINTER_SERVER_WELCOME_TIP_TITLE", "我是财务报销助手");
+        std::env::set_var("POINTER_SERVER_WELCOME_TIP_TITLE", "我是 Acme AI 助手");
         std::env::set_var("POINTER_SERVER_WELCOME_TIP_BODY", "预计 10–30 分钟");
-        std::env::set_var("POINTER_SERVER_TURN_ELAPSED_ACTIVE", "报销单填写中");
-        std::env::set_var("POINTER_SERVER_TURN_ELAPSED_DONE", "报销单已填写");
+        std::env::set_var("POINTER_SERVER_TURN_ELAPSED_ACTIVE", "任务处理中");
+        std::env::set_var("POINTER_SERVER_TURN_ELAPSED_DONE", "任务已完成");
         let html = "<head><title>t</title></head>";
         let out = apply_web_branding(html.as_bytes());
         assert!(
-            out.contains(r#"name="pointer-welcome-tip-title" content="我是财务报销助手""#),
+            out.contains(r#"name="pointer-welcome-tip-title" content="我是 Acme AI 助手""#),
             "{out}"
         );
         assert!(
@@ -4694,11 +4694,11 @@ mod page_title_tests {
             "{out}"
         );
         assert!(
-            out.contains(r#"name="pointer-turn-elapsed-active" content="报销单填写中""#),
+            out.contains(r#"name="pointer-turn-elapsed-active" content="任务处理中""#),
             "{out}"
         );
         assert!(
-            out.contains(r#"name="pointer-turn-elapsed-done" content="报销单已填写""#),
+            out.contains(r#"name="pointer-turn-elapsed-done" content="任务已完成""#),
             "{out}"
         );
         clear_branding_env();

@@ -930,11 +930,11 @@ command = "bin/min"
 [server]
 page_title = "Acme · AI 助手"
 composer_placeholder = "有什么可以帮你？"
-welcome_tip_title = "我是财务报销助手"
-welcome_tip_body = "提交附件后自动填单"
-turn_elapsed_active = "报销单填写中"
-turn_elapsed_done = "报销单已填写"
-brand_name = "财务助手"
+welcome_tip_title = "我是 Acme AI 助手"
+welcome_tip_body = "提交附件后自动处理"
+turn_elapsed_active = "任务处理中"
+turn_elapsed_done = "任务已完成"
+brand_name = "Acme 助手"
 brand_icon = "/branding/logo.png"
 desktop_snapshot_enabled = false
 "#,
@@ -954,26 +954,26 @@ desktop_snapshot_enabled = false
         assert_eq!(
             map.get("POINTER_SERVER_WELCOME_TIP_TITLE")
                 .map(String::as_str),
-            Some("我是财务报销助手")
+            Some("我是 Acme AI 助手")
         );
         assert_eq!(
             map.get("POINTER_SERVER_WELCOME_TIP_BODY")
                 .map(String::as_str),
-            Some("提交附件后自动填单")
+            Some("提交附件后自动处理")
         );
         assert_eq!(
             map.get("POINTER_SERVER_TURN_ELAPSED_ACTIVE")
                 .map(String::as_str),
-            Some("报销单填写中")
+            Some("任务处理中")
         );
         assert_eq!(
             map.get("POINTER_SERVER_TURN_ELAPSED_DONE")
                 .map(String::as_str),
-            Some("报销单已填写")
+            Some("任务已完成")
         );
         assert_eq!(
             map.get("POINTER_SERVER_BRAND_NAME").map(String::as_str),
-            Some("财务助手")
+            Some("Acme 助手")
         );
         assert_eq!(
             map.get("POINTER_SERVER_BRAND_ICON").map(String::as_str),

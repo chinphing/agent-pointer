@@ -131,6 +131,7 @@
     "workspaceDir": "工作目录",
     "conversationId": "会话 ID",
     "notLoggedIn": "未登录",
+    "localMode": "本地模式",
     "loggedIn": "已登录",
     "appearance": "外观",
     "balanceLabel": "余额",

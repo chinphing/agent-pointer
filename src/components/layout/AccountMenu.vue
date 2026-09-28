@@ -57,6 +57,8 @@ const menuStyle = ref({ left: '8px', bottom: '0px' })
 const themeOptions = ['light', 'dark', 'system'] as const
 
 const platformAccountTitle = computed(() => {
+  // Standalone installs have no control plane: there is no account to sign in to.
+  if (platformAuth.isStandalone) return t('shell.localMode')
   if (!platformAuth.session.logged_in) return t('shell.notLoggedIn')
   return platformAuth.session.user_nickname?.trim() || t('shell.loggedIn')
 })
@@ -325,7 +327,7 @@ onBeforeUnmount(() => {
           <span class="flex-1">{{ platformLogoutBusy ? t('shell.signingOut') : t('shell.signOut') }}</span>
         </button>
         <button
-          v-else
+          v-else-if="!platformAuth.isStandalone"
           type="button"
           role="menuitem"
           class="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] text-foreground hover:bg-hover transition-colors cursor-pointer"

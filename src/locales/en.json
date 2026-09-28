@@ -131,6 +131,7 @@
     "workspaceDir": "Workspace",
     "conversationId": "Chat ID",
     "notLoggedIn": "Not signed in",
+    "localMode": "Local mode",
     "loggedIn": "Signed in",
     "appearance": "Appearance",
     "balanceLabel": "Balance",

@@ -14,6 +14,7 @@ import {
   turnMessageCreatedAtSpan
 } from './turnElapsed'
 import type { ChatMessage } from '../types/chat'
+import { applyUiLocale } from './uiLocale'
 
 function msg(
   id: string,
@@ -27,6 +28,10 @@ function msg(
 describe('turn elapsed', () => {
   beforeEach(() => {
     localStorage.clear()
+    // `formatTurnElapsed` renders through the shared i18n instance, whose locale
+    // comes from localStorage / `navigator.language` (ambient, English in
+    // happy-dom). Pin it so the localized expectations below are deterministic.
+    applyUiLocale('zh-CN')
   })
 
   it('records dispatch-to-done elapsed time by conversation and user turn', () => {

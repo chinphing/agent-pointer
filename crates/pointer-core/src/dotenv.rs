@@ -325,13 +325,20 @@ mod tests {
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
-    /// Module env lock + process-global settings lock so `build_terminal_child_environment`
-    /// tests (which mutate terminalEnvOverrides via `replace_global_user_settings_for_test`)
-    /// cannot race with `local_sso` / other tests that read the same globals.
-    struct EnvTestGuard(MutexGuard<'static, ()>, MutexGuard<'static, ()>);
+    /// Module env lock + shared PATH lock + process-global settings lock so
+    /// `build_terminal_child_environment` tests (which mutate terminalEnvOverrides
+    /// via `replace_global_user_settings_for_test` and read/restore process `PATH`)
+    /// cannot race with `local_sso`, `terminal_elevated`, or other tests that read
+    /// the same globals.
+    struct EnvTestGuard(
+        MutexGuard<'static, ()>,
+        MutexGuard<'static, ()>,
+        MutexGuard<'static, ()>,
+    );
 
     fn env_test_guard() -> EnvTestGuard {
         EnvTestGuard(
+            crate::test_support::path_env_lock(),
             ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner()),
             crate::platform_config::settings_test_lock(),
         )

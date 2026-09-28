@@ -533,9 +533,19 @@ mod tests {
         }
     }
 
+    /// `ModelSettings::default()` caps `max_tokens` at 2048, which is below the
+    /// media answer budget; `media_understand_max_tokens` clamps to
+    /// `effective_max_tokens`, so the fixture needs a realistic output cap or
+    /// these tests would only exercise the clamp.
+    fn settings_with_large_output_cap() -> ModelSettings {
+        let mut s = ModelSettings::default();
+        s.max_tokens = MEDIA_ANSWER_MAX_TOKENS.saturating_mul(2);
+        s
+    }
+
     #[test]
     fn max_tokens_covers_thinking_budget() {
-        let mut s = ModelSettings::default();
+        let mut s = settings_with_large_output_cap();
         s.round_thinking_budget = Some(4096);
         assert_eq!(
             media_understand_max_tokens(&s),
@@ -545,7 +555,7 @@ mod tests {
 
     #[test]
     fn max_tokens_without_thinking_uses_answer_budget() {
-        let s = ModelSettings::default();
+        let s = settings_with_large_output_cap();
         assert_eq!(media_understand_max_tokens(&s), MEDIA_ANSWER_MAX_TOKENS);
     }
 

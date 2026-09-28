@@ -82,3 +82,7 @@ pub mod tools_system_appendix;
 mod unix_locale;
 pub mod web_request_auth;
 mod windows_shell_encoding;
+
+/// Shared process-global isolation guards for unit tests (env vars, etc.).
+#[cfg(test)]
+mod test_support;

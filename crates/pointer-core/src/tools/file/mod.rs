@@ -922,6 +922,9 @@ mod tests {
 
     #[test]
     fn writable_path_accepts_tilde_home_file() {
+        // `~` expands from the process HOME, which other tests swap; hold the
+        // shared HOME lock so the value cannot move mid-test.
+        let _home_lock = crate::test_support::home_env_lock();
         let ws = tempfile::tempdir().expect("tmp");
         let home = dirs::home_dir().expect("home");
         let dir = home.join(format!(".pointer-writable-test-{}", std::process::id()));
@@ -950,6 +953,7 @@ mod tests {
 
     #[test]
     fn accessible_path_expands_tilde_home() {
+        let _home_lock = crate::test_support::home_env_lock();
         let ws = tempfile::tempdir().expect("tmp");
         let home = dirs::home_dir().expect("home");
         let got = resolve_accessible_path(ws.path(), "~").expect("tilde");

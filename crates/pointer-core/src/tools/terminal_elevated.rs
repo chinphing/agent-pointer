@@ -672,6 +672,9 @@ mod tests {
 
     #[test]
     fn build_elevated_child_environment_path_matches_process_after_refresh() {
+        // Shared PATH lock: `dotenv` tests swap PATH too, and any test spawning
+        // an external command (`git`, `sh`) must not observe a bogus PATH.
+        let _path_lock = crate::test_support::path_env_lock();
         let _path_guard = PathGuard::capture();
         std::env::set_var("PATH", "/pointer/elevated-path-test");
 

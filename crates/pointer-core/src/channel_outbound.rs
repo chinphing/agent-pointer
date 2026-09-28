@@ -258,6 +258,11 @@ mod tests {
 
     #[test]
     fn im_commands_block_lists_reset_and_visible_agents_only() {
+        // The block and the expected labels are both rendered with
+        // `current_ui_locale()`, which reads the app data dir from disk. Hold the
+        // data-dir lock so a concurrent test cannot swap that dir between the two
+        // reads (which flips the locale mid-test).
+        let _data_dir_guard = crate::storage::test_app_data_dir_lock();
         let registry = crate::agents::AgentRegistry::new();
         crate::agents::register_builtin_agents(&registry);
         let block = im_session_commands_block(&registry);

@@ -965,10 +965,11 @@ mod tests {
     #[test]
     fn load_external_skills_reads_home_agents_skills() {
         use std::fs;
-        use std::sync::{Mutex, OnceLock};
 
-        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        let _guard = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        // HOME is process-global: hold the shared lock (other modules expand `~`
+        // too) and restore it on drop so a panic cannot leak the temp home.
+        let _home_lock = crate::test_support::home_env_lock();
+        let _restore = crate::test_support::EnvRestore::capture(&["HOME", "USERPROFILE"]);
 
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path();
@@ -980,14 +981,9 @@ mod tests {
         )
         .unwrap();
 
-        let prev_home = std::env::var("HOME").ok();
         std::env::set_var("HOME", home);
+        std::env::set_var("USERPROFILE", home);
         let loaded = load_external_skills().unwrap();
-        if let Some(h) = prev_home {
-            std::env::set_var("HOME", h);
-        } else {
-            std::env::remove_var("HOME");
-        }
 
         let skill = loaded
             .iter()
@@ -1043,28 +1039,16 @@ mod tests {
     }
 
     fn with_temp_home<T>(f: impl FnOnce(&Path) -> T) -> T {
-        use std::sync::{Mutex, OnceLock};
-
-        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        let _guard = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        // Shared HOME lock + RAII restore: this helper is used by several tests
+        // and by `~`-expanding code paths in other modules, so a module-local
+        // lock is not enough and a panicking assert must not leak the temp home.
+        let _home_lock = crate::test_support::home_env_lock();
+        let _restore = crate::test_support::EnvRestore::capture(&["HOME", "USERPROFILE"]);
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path();
-        let prev_home = std::env::var("HOME").ok();
-        let prev_profile = std::env::var("USERPROFILE").ok();
         std::env::set_var("HOME", home);
         std::env::set_var("USERPROFILE", home);
-        let out = f(home);
-        if let Some(h) = prev_home {
-            std::env::set_var("HOME", h);
-        } else {
-            std::env::remove_var("HOME");
-        }
-        if let Some(p) = prev_profile {
-            std::env::set_var("USERPROFILE", p);
-        } else {
-            std::env::remove_var("USERPROFILE");
-        }
-        out
+        f(home)
     }
 
     fn zip_skill_bytes(name: &str, body: &str, extra: &[(&str, &[u8])]) -> Vec<u8> {

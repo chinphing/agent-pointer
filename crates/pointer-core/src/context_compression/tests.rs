@@ -668,6 +668,9 @@ fn parse_model_context_length_from_vllm_overflow() {
 
 #[test]
 fn compress_budget_tokens_subtracts_max_tokens_from_configured() {
+    // The remembered-window map is process-global; serialize with the sibling
+    // test that inserts/clears the same map.
+    let _window_lock = crate::test_support::remembered_model_window_lock();
     clear_remembered_model_windows_for_test();
     let mut s = crate::models::sample_settings();
     s.model = "budget-no-window".into();
@@ -684,6 +687,7 @@ fn compress_budget_tokens_subtracts_max_tokens_from_configured() {
 
 #[test]
 fn compress_budget_tokens_caps_to_remembered_window() {
+    let _window_lock = crate::test_support::remembered_model_window_lock();
     clear_remembered_model_windows_for_test();
     let mut s = crate::models::sample_settings();
     s.model = "budget-with-window".into();

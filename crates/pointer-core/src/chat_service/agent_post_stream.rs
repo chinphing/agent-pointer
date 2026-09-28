@@ -430,6 +430,9 @@ mod tests {
 
     #[test]
     fn assistant_tool_calls_fill_display_fields_for_file_read() {
+        // Tool labels are localized from the app data dir on disk; hold the
+        // data-dir lock so the locale cannot flip between the build and the assert.
+        let _data_dir_guard = crate::storage::test_app_data_dir_lock();
         let state = AppState::new();
         let tool_calls = vec![sample_tool_call(
             "file_read",
@@ -485,6 +488,7 @@ mod tests {
 
     #[test]
     fn assistant_tool_calls_fill_display_fields_for_terminal() {
+        let _data_dir_guard = crate::storage::test_app_data_dir_lock();
         let state = AppState::new();
         let tool_calls = vec![sample_tool_call("terminal", r#"{"command":"npm test"}"#)];
         let plan = AgentPlan {

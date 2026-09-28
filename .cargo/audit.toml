@@ -1,0 +1,56 @@
+# cargo-audit configuration for this repository.
+# https://github.com/rustsec/rustsec/tree/main/cargo-audit
+#
+# Run from the repository root:
+#     cargo audit
+#
+# On machines without working access to the GitHub advisory-db mirror / the
+# crates.io sparse index, add:
+#     cargo audit --no-fetch --no-yanked
+# (those two flags are local workarounds and are intentionally NOT encoded
+# here, so CI can still refresh the advisory database.)
+#
+# Policy: only advisories that CANNOT be resolved by upgrading a dependency
+# are listed below. Every entry states why it is ignored and the date by which
+# it must be re-evaluated. cargo-audit *warnings* (unmaintained / unsound
+# crates) are deliberately NOT suppressed, so they stay visible in the report.
+
+[advisories]
+ignore = [
+  # RUSTSEC-2026-0194 - quick-xml 0.39.3: quadratic run time when checking a
+  # start tag for duplicate attribute names (denial of service, CVSS 7.5).
+  #
+  # Why it cannot be fixed by an upgrade:
+  #   - quick-xml 0.39.3 is pulled in only by ossify 0.4.2 (our Alibaba Cloud
+  #     OSS client, see crates/pointer-core/src/media/oss.rs); ossify pins
+  #     `quick-xml = "0.39"`.
+  #   - The patched release is quick-xml >= 0.41.0; there is no fixed release
+  #     inside the ^0.39 range (0.39.4 is still affected), and forcing
+  #     quick-xml out of that range makes cargo abort with
+  #     `failed to select a version for the requirement quick-xml = "^0.39"`.
+  #   - No published ossify release (latest is 0.4.2) accepts quick-xml
+  #     >= 0.41.0; upstream has had no commits since 2026-05-19.
+  #
+  # Residual exposure: the affected path (BytesStart::attributes(), reached
+  # through quick-xml's serde deserializer) only ever parses XML bodies
+  # returned by the configured OSS endpoint, so triggering it requires a
+  # hostile/compromised endpoint or an active MITM on that TLS channel.
+  #
+  # REVISIT BY: 2027-01-01 - re-check ossify for a quick-xml >= 0.41.0 bump.
+  "RUSTSEC-2026-0194",
+
+  # RUSTSEC-2026-0195 - quick-xml 0.39.3: unbounded namespace-declaration
+  # allocation in `NsReader` enables memory-exhaustion denial of service
+  # (CVSS 7.5).
+  #
+  # Same dependency chain, same blocker and same review trigger as
+  # RUSTSEC-2026-0194 above: ossify 0.4.2 -> quick-xml ^0.39, with the fix
+  # only available in quick-xml >= 0.41.0. Note that quick-xml 0.39.3's
+  # `de::from_str` does build an `NsReader` internally, so the advisory's
+  # code path is technically on ossify's deserialization route - but again
+  # only for XML returned by the configured OSS endpoint, not for
+  # user-supplied documents.
+  #
+  # REVISIT BY: 2027-01-01 - re-check ossify for a quick-xml >= 0.41.0 bump.
+  "RUSTSEC-2026-0195",
+]

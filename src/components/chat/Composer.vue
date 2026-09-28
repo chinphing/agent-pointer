@@ -10,6 +10,7 @@ import { useSettingsStore } from '../../stores/settings'
 import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
 import { resolveAgentUi, resolveLeadAgentUi, composerAgentLabel } from '../../lib/agentUi'
 import { iconForAgent, sortComposerAgents } from '../../lib/agentIcons'
+import { hasAnyProviderKey } from '../../lib/providerKeys'
 import { useAgentsCatalog } from '../../composables/useAgentUi'
 import type { AgentDef, ComputerMonitor, ComputerMonitorPickRequest, ComposerAttachment, PerformanceMode } from '../../types/chat'
 import { DEFAULT_LEAD_AGENT_ID, PERFORMANCE_MODE_OPTIONS } from '../../types/chat'
@@ -96,6 +97,9 @@ const tokenQuotaBlocked = computed(() => platformAuth.tokenQuotaExhausted)
 const needsPlatformLogin = computed(
   () => !platformAuth.isStandalone && !platformAuth.session.logged_in
 )
+// A turn resolves its provider from the selected agent + tier, so a missing key on
+// the merged default provider must not block the composer: any configured key will do.
+const hasAnyKey = computed(() => hasAnyProviderKey(settings.settings))
 const showLoginBanner = computed(
   () => needsPlatformLogin.value && (chat.current?.messages.length ?? 0) > 0
 )
@@ -106,7 +110,7 @@ const composerPlaceholder = computed(() => {
   if (tokenQuotaBlocked.value) {
     return t('chat.balanceExhausted')
   }
-  return settings.settings.hasKey ? resolveComposerPlaceholder() : t('chat.configureApiKey')
+  return hasAnyKey.value ? resolveComposerPlaceholder() : t('chat.configureApiKey')
 })
 
 const composing = ref(false)
@@ -210,7 +214,7 @@ const canSend = computed(() => {
       attachments.length > 0) &&
     !needsPlatformLogin.value &&
     !tokenQuotaBlocked.value &&
-    settings.settings.hasKey &&
+    hasAnyKey.value &&
     !uploadBlocked
   )
 })
@@ -925,7 +929,7 @@ async function retryComposerAttachmentUpload(attachmentId: string) {
 }
 
 function canAcceptComposerAttachments(): boolean {
-  return !needsPlatformLogin.value && !tokenQuotaBlocked.value && settings.settings.hasKey
+  return !needsPlatformLogin.value && !tokenQuotaBlocked.value && hasAnyKey.value
 }
 
 function composerAttachmentBlockedHint(): string {
@@ -933,7 +937,7 @@ function composerAttachmentBlockedHint(): string {
     return platformAuth.loginHint('attachment')
   }
   if (tokenQuotaBlocked.value) return t('chat.cannotAttachBalance')
-  if (!settings.settings.hasKey) return t('chat.cannotAttachNoKey')
+  if (!hasAnyKey.value) return t('chat.cannotAttachNoKey')
   return t('chat.cannotAttach')
 }
 
@@ -1772,12 +1776,12 @@ onUnmounted(() => {
 
 
       <div
-        v-if="!settings.settings.hasKey"
+        v-if="!hasAnyKey"
         class="flex flex-wrap items-center gap-2 mt-2"
       >
         <div class="flex-1" />
 
-        <span v-if="!settings.settings.hasKey" class="text-[10px] text-muted">{{ t('chat.noKeyConfigured') }}</span>
+        <span v-if="!hasAnyKey" class="text-[10px] text-muted">{{ t('chat.noKeyConfigured') }}</span>
       </div>
     </div>
   </div>

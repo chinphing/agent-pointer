@@ -676,14 +676,21 @@ mod tests {
         // an external command (`git`, `sh`) must not observe a bogus PATH.
         let _path_lock = crate::test_support::path_env_lock();
         let _path_guard = PathGuard::capture();
-        std::env::set_var("PATH", "/pointer/elevated-path-test");
+        // Marker PATH must stay usable: this window is process-wide and the lib
+        // test binary runs every module in one process, so a concurrent test that
+        // spawns `git` / `python3` / `sh` still has to resolve them here.
+        let marker_path = crate::test_support::marker_path("/pointer/elevated-path-test");
+        std::env::set_var("PATH", &marker_path);
 
         // Snapshot before refresh freezes PATH even if the process env moves afterward.
         let stale_snapshot = build_terminal_child_environment(&[]);
-        std::env::set_var("PATH", "/pointer/elevated-path-test;/registry/added");
+        std::env::set_var(
+            "PATH",
+            crate::test_support::marker_path("/pointer/elevated-path-test;/registry/added"),
+        );
         assert_eq!(
             stale_snapshot.get("PATH").map(String::as_str),
-            Some("/pointer/elevated-path-test")
+            Some(marker_path.as_str())
         );
 
         let env = build_elevated_child_environment(&[]);
@@ -697,6 +704,25 @@ mod tests {
         assert_eq!(
             child_path, &process_path,
             "elevated env PATH must match process PATH after refresh+snapshot"
+        );
+    }
+
+    /// Regression for the process-wide marker `PATH` window: a bare marker (no
+    /// inherited entries) breaks any concurrent test that spawns an external
+    /// command — `git`, `python3`, `sh` — which surfaced as a ~1-in-20 flake in
+    /// the lib test binary. The marker must stay usable while it is installed.
+    #[test]
+    fn marker_path_keeps_external_commands_resolvable() {
+        let _path_lock = crate::test_support::path_env_lock();
+        let _path_guard = PathGuard::capture();
+        std::env::set_var(
+            "PATH",
+            crate::test_support::marker_path("/pointer/elevated-path-test"),
+        );
+        let resolved = std::process::Command::new("git").arg("--version").output();
+        assert!(
+            resolved.is_ok(),
+            "git must resolve while a marker PATH window is open: {resolved:?}"
         );
     }
 }

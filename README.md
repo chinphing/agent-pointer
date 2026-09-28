@@ -2,7 +2,7 @@
 
 **Open-source desktop agent foundation for the enterprise.**
 
-Build and run digital employees on the computer people already use, and keep them running stably in the cloud. The desktop app and the web app share the same capabilities, on Windows, macOS, and Linux.
+Build and run digital employees on the computer people already use, and keep them running stably on a server. Both the agent and the model can stay inside your own environment, with no per-seat fees. The desktop app and the web app share the same capabilities, on Windows, macOS, and Linux.
 
 | You want | Get it here |
 | --- | --- |
@@ -29,40 +29,40 @@ A digital employee has to work inside a real office setup. It needs a license th
     <tr>
       <td>Product form</td>
       <td>Open-source agents are mostly CLI, for developers</td>
-      <td>A desktop app, and open source. Everyone in the company can use it</td>
+      <td><strong>A desktop app</strong>, and open source. <strong>Everyone in the company can use it</strong></td>
     </tr>
     <tr>
       <td>Open source, commercial use</td>
       <td>Desktop apps are usually priced per seat</td>
-      <td>Free to use, and free to customize. <a href="LICENSE">Apache 2.0</a></td>
+      <td><strong>Free to use, and free to customize.</strong> <a href="LICENSE">Apache 2.0</a></td>
     </tr>
     <tr>
       <td rowspan="3">Resource use</td>
       <td>About 300 MB installer download</td>
-      <td>About 25 MB</td>
+      <td><strong>About 25 MB</strong></td>
     </tr>
     <tr>
       <td>1 GB+ resident memory</td>
-      <td>About 300 MB</td>
+      <td><strong>About 300 MB</strong></td>
     </tr>
     <tr>
       <td>One task can take 100%+ CPU. Extra tasks crowd out other work</td>
-      <td>About 10% of one CPU core while running. 10+ sub-agents at once. Other tasks are completely unaffected</td>
+      <td><strong>About 10% of one CPU core</strong> while running. <strong>10+ sub-agents at once</strong>. Other tasks are completely unaffected</td>
     </tr>
     <tr>
       <td>Long conversations</td>
       <td>When the context fills up, you start a new chat, and earlier work is easy to lose</td>
-      <td>Stay in one conversation for as long as you want. It pages automatically, compresses context automatically, and you can mark milestones for quick recall</td>
+      <td><strong>Stay in one conversation for as long as you want.</strong> It pages automatically, compresses context automatically, and you can mark milestones for quick recall</td>
     </tr>
     <tr>
       <td>Computer control</td>
       <td>No hands or eyes, or browser-only / accessibility-tree control</td>
-      <td>Built-in vision computer control: read screenshots, then use the mouse and keyboard on desktop apps. It can control any GUI application on the computer (still being improved), filling the last capability gap for digital employees</td>
+      <td><strong>Built-in vision computer control</strong>: read screenshots, then use the mouse and keyboard on desktop apps. It can control any GUI application on the computer (still being improved), filling the last capability gap for digital employees</td>
     </tr>
     <tr>
       <td>Vendors</td>
       <td>Tied to a specific vendor's models, or a specific vendor's ecosystem</td>
-      <td>Not tied to a specific vendor's models, and not tied to a specific vendor's ecosystem</td>
+      <td><strong>Not tied to a specific vendor's models</strong>, and not tied to a specific vendor's ecosystem</td>
     </tr>
   </tbody>
 </table>
@@ -100,6 +100,13 @@ After a role is written as a reusable Skill, you need a shared format, an easy i
 | Fill in a missing runtime | If Node, Python, or another runtime is missing, install it in the conversation and keep testing the skill |
 
 Start with [getting started](docs/user/getting-started.md).
+
+## Roadmap
+
+1. Keep improving Skill and plugin development.
+2. Support Skill authorization across multiple accounts.
+3. Add sandbox-based, server-side per-user isolation.
+4. More to come.
 
 ## Architecture
 

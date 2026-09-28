@@ -35,6 +35,7 @@ const UNSUPPORTED_MERMAID_CHUNKS = [
   'architecture',
   'block',
   'c4',
+  'cose-bilkent',
   'cynefin',
   'ebnf',
   'eventmodeling',
@@ -65,6 +66,9 @@ const DISABLED_MERMAID_MODULE = '\0pointer:disabled-mermaid-diagram'
 const disabledMermaidChunkRe = new RegExp(
   `chunks/mermaid\\.core/(?:${UNSUPPORTED_MERMAID_CHUNKS.join('|')})[^/]*$`
 )
+const disabledMermaidOutputRe = new RegExp(
+  `^(?:${UNSUPPORTED_MERMAID_CHUNKS.join('|')})[^/]*\\.js$`
+)
 
 function dropUnsupportedMermaidDiagrams() {
   return {
@@ -75,6 +79,16 @@ function dropUnsupportedMermaidDiagrams() {
     },
     load(id: string) {
       return id === DISABLED_MERMAID_MODULE ? 'export {}' : null
+    },
+    /**
+     * Belt and braces: some diagrams (and the cose-bilkent layout) are reached
+     * through shared mermaid chunks, so also drop the emitted files.
+     */
+    generateBundle(_options: unknown, bundle: Record<string, unknown>) {
+      for (const fileName of Object.keys(bundle)) {
+        const base = fileName.slice(fileName.lastIndexOf('/') + 1)
+        if (disabledMermaidOutputRe.test(base)) delete bundle[fileName]
+      }
     }
   }
 }

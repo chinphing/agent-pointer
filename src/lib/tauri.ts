@@ -711,6 +711,11 @@ export async function getPlatformSession(): Promise<PlatformSessionView> {
   return await invoke<PlatformSessionView>('get_platform_session')
 }
 
+/** Mirror of the web server's `/api/auth/mode`. */
+export async function getAuthMode(): Promise<'platform' | 'standalone'> {
+  return await invoke<'platform' | 'standalone'>('get_auth_mode')
+}
+
 export async function openPlatformLogin(): Promise<PlatformSessionView> {
   return await invoke<PlatformSessionView>('open_platform_login')
 }

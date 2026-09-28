@@ -1,6 +1,6 @@
 # 独立部署 standalone-server
 
-pointer-server 可脱离官方平台独立部署。社区构建从源码或社区包安装即可，**不必**向签发方申请 License。官方 standalone 安装包仍要 License，见文末。
+pointer-server 可脱离官方平台独立部署。本地构建（未绑定控制面）从源码或本地包安装即可，**不必**向签发方申请 License。官方 standalone 安装包仍要 License，见文末。
 
 先读 [editions.md](editions.md) 确认你用的是哪一种。
 
@@ -45,7 +45,7 @@ hmac_secret = "replace-with-long-random-secret"
 # Generate with: pointer-server --hash-password --secret '<hmac_secret>' '<password>'
 password_hmac = "..."
 
-# Community builds do not require [license]. Official packages do — see below.
+# Unbound (non-official) builds do not require [license]. Official packages do — see below.
 
 [usage]
 report_enabled = false
@@ -102,7 +102,7 @@ sudo systemctl status pointer-server
 
 ## 官方 standalone 安装包的 License
 
-社区自建跳过本节。只有官方签名的 `pointer-server` 才会在启动时强制校验。
+自建（未绑定控制面）跳过本节。只有官方签名的 `pointer-server` 才会在启动时强制校验。
 
 ### 首次部署时获取机器绑定（仅官方包）
 

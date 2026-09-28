@@ -670,7 +670,7 @@ $env:RUST_LOG="debug"; npm run tauri:dev
 
 ## 官网与环境变量（桌面构建）
 
-`npm run tauri:dev` / `tauri:build` 会加载本机 **`pointer.local.env`**（gitignore，见 `pointer.local.env.example`）；无文件时默认 `POINTER_EDITION=community`（纯本地）。  
+`npm run tauri:dev` / `tauri:build` 会加载本机 **`pointer.local.env`**（gitignore，见 `pointer.local.env.example`）；无文件时未绑定控制面（纯本地 / standalone）。  
 绑定控制面时在该文件或环境里设置域名 + `official`。官方 CI 注入 `POINTER_EDITION=official`。详见 [editions.md](editions.md)。
 
 ---

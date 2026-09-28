@@ -10,6 +10,17 @@ pub fn get_platform_session(state: State<'_, Arc<AppState>>) -> PlatformSessionV
     state.platform_auth.session_view()
 }
 
+/// Mirror of the web server's `GET /api/auth/mode`: `standalone` when no control
+/// plane is bound, `platform` otherwise.
+#[tauri::command]
+pub fn get_auth_mode() -> String {
+    if pointer_core::deployment_mode::is_standalone() {
+        "standalone".to_string()
+    } else {
+        "platform".to_string()
+    }
+}
+
 #[tauri::command]
 pub async fn open_platform_login(
     state: State<'_, Arc<AppState>>,

@@ -218,10 +218,6 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
   )
 
   async function loadAuthMode() {
-    if (isTauriRuntime()) {
-      authMode.value = 'platform'
-      return
-    }
     try {
       authMode.value = await api.getAuthMode()
     } catch (e) {
@@ -318,6 +314,11 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     const purpose = options.purpose ?? 'default'
     const onTransient = options.onTransient ?? 'error'
     const hint = loginRequiredMessage(isStandalone.value, purpose)
+    // Standalone installs have no control plane to sign in to: local model keys
+    // are the credential, so there is no session to require.
+    if (isStandalone.value) {
+      return session.value
+    }
     try {
       await ensureFreshSession({ maxAgeMs: options.maxAgeMs })
     } catch (e) {

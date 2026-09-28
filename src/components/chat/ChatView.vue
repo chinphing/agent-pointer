@@ -105,7 +105,10 @@ const showFooterComposer = computed(() =>
     isHydratingMessages.value && (chat.current?.messages.length ?? 0) === 0
   )
 )
-const needsPlatformLogin = computed(() => !platformAuth.session.logged_in)
+// Standalone installs (no control plane) chat with local model keys — no login.
+const needsPlatformLogin = computed(
+  () => !platformAuth.isStandalone && !platformAuth.session.logged_in
+)
 const experienceSectionExpanded = ref(false)
 let mobileMediaQuery: MediaQueryList | null = null
 

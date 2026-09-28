@@ -1821,7 +1821,10 @@ mod tests {
     #[test]
     fn desktop_oauth_success_redirect_includes_query_flag() {
         let url = super::desktop_oauth_success_redirect_url();
-        assert!(url.starts_with("https://pointer.readflowai.com/"));
+        // The host comes from the bound control plane; an unbound build gets a
+        // relative URL, which is why login is only offered when bound.
+        let web_base = crate::platform_endpoints::web_base();
+        assert!(url.starts_with(&format!("{web_base}/")));
         assert!(url.contains("desktop_oauth=success"));
     }
 

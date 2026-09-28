@@ -5,7 +5,7 @@ Please read [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before participating.
 ## Issues and pull requests
 
 - Use the bug template for defects. Say whether you used an **official** signed
-  installer or a **community** build from source, plus OS and version.
+  installer or a **local** build from source, plus OS and version.
 - Use the feature template for requests.
 - Security reports go to [SECURITY.md](SECURITY.md), not public issues.
 
@@ -31,8 +31,9 @@ npm test
 cargo test --workspace
 ```
 
-Leave `POINTER_EDITION` unset for everyday local work. Set
-`POINTER_EDITION=community` only when you need community-build defaults.
+Leave `POINTER_EDITION` unset for everyday local work: the app stays
+unbound and runs standalone. Set `POINTER_EDITION=official` only when you
+need the official control-plane defaults.
 Details: [docs/contributing/editions.md](docs/contributing/editions.md).
 
 ## Version numbers

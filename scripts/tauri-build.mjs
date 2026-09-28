@@ -30,13 +30,13 @@ if (process.platform === 'linux') {
 
 const extra = process.argv.slice(2);
 const edition = (env.POINTER_EDITION || '').trim().toLowerCase();
-if (edition === 'community') {
-  extra.push('--config', 'src-tauri/tauri.community.conf.json');
-  env.VITE_POINTER_EDITION = env.VITE_POINTER_EDITION || 'community';
-  console.log('[tauri-build] POINTER_EDITION=community (no updater artifacts)');
-} else if (edition === 'official') {
+if (edition === 'official') {
   env.VITE_POINTER_EDITION = env.VITE_POINTER_EDITION || 'official';
   console.log('[tauri-build] POINTER_EDITION=official');
+} else {
+  // Personal build: no updater artifacts, no baked-in control plane.
+  extra.push('--config', 'src-tauri/tauri.personal.conf.json');
+  console.log('[tauri-build] personal build (no updater artifacts)');
 }
 
 const result = spawnSync('npx', ['tauri', 'build', ...extra], {

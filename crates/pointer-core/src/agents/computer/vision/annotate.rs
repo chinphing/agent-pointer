@@ -515,10 +515,12 @@ mod tests {
 
     #[test]
     fn test_client_default_url() {
+        // The client follows the resolved endpoint: an official build gets the
+        // production host, an unbound build stays empty (no control plane).
         let client = AnnotateClient::new().unwrap();
         assert_eq!(
             client.base_url.trim_end_matches('/'),
-            platform_endpoints::DEFAULT_ANNOTATE_API_BASE.trim_end_matches('/')
+            platform_endpoints::annotate_api_base().trim_end_matches('/')
         );
     }
 

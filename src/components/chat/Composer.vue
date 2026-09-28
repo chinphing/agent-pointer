@@ -92,7 +92,10 @@ const settings = useSettingsStore()
 const { composerPrefill, composerText, composerAttachments, generating, currentOutboundQueue } = storeToRefs(chat)
 
 const tokenQuotaBlocked = computed(() => platformAuth.tokenQuotaExhausted)
-const needsPlatformLogin = computed(() => !platformAuth.session.logged_in)
+// Standalone installs (no control plane) chat with local model keys — no login.
+const needsPlatformLogin = computed(
+  () => !platformAuth.isStandalone && !platformAuth.session.logged_in
+)
 const showLoginBanner = computed(
   () => needsPlatformLogin.value && (chat.current?.messages.length ?? 0) > 0
 )

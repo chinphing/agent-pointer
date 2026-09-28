@@ -7,12 +7,12 @@
 | **未绑定域名** | 纯本地 Agent：模型、Key、通道等只依赖本机设置；默认不连外部账户云 |
 | **绑定域名** | 走同一套控制面逻辑（登录、目录、用量等）。官网发包装 `readflowai.com`；企业装自己的内网域名 |
 
-打包标签仍用 `POINTER_EDITION` / `VITE_POINTER_EDITION`：
+打包口味仍用 `POINTER_EDITION` / `VITE_POINTER_EDITION`：
 
 | 值 | 效果 |
 | --- | --- |
-| `community`（dev/build **默认**） | 不预填官方域名；关 Tauri 更新产物（`tauri.community.conf.json`） |
-| `official` | 可预填/使用控制面域名；官方更新端点与 standalone License 策略 |
+| 未设置（**personal 构建**） | 不预填官方域名（未绑定 ⇒ standalone）；关 Tauri 更新产物（`tauri.personal.conf.json`） |
+| `official` | 预填控制面域名；官方更新端点与 standalone License 策略 |
 
 运行时仍可用环境变量覆盖：`POINTER_API_BASE`、`POINTER_WEB_BASE`、`COMPUTER_ANNOTATE_API_BASE`、`POINTER_USAGE_REPORT_ENABLED`。前端对应 `VITE_POINTER_EDITION`、`VITE_POINTER_WEB_BASE`。
 
@@ -29,7 +29,7 @@ cp pointer.local.env.example pointer.local.env
 
 | 角色 | 建议 |
 | --- | --- |
-| 开源 / 个人 | 不建文件，或只写 `POINTER_EDITION=community` → 纯本地 |
+| 开源 / 个人 | 不建文件（不设域名即未绑定 ⇒ standalone） |
 | 官网维护者 | 在 `pointer.local.env` 写 `official` + 官网 API/Web/SOM 域名 |
 | 企业内部 | 同样写 `official`（或等价绑定），域名改成内网控制面 |
 
@@ -37,7 +37,7 @@ cp pointer.local.env.example pointer.local.env
 
 ## 怎么打
 
-未设置环境变量且无本地文件时，`npm run tauri:build` **默认 community（本地包）**：
+未设置环境变量且无本地文件时，`npm run tauri:build` **默认本地包（未绑定 ⇒ standalone）**：
 
 ```bash
 npm run tauri:build
@@ -62,7 +62,7 @@ POINTER_EDITION=official VITE_POINTER_EDITION=official \
 ## 日常开发
 
 ```bash
-npm run tauri:dev   # 自动读 pointer.local.env；无文件则 community
+npm run tauri:dev   # 自动读 pointer.local.env；无文件则不绑定控制面（standalone）
 ```
 
 不要把生产域名、签名口令写进公开 `main`。需要联调控制面时只改本机 `pointer.local.env`。
@@ -72,7 +72,7 @@ npm run tauri:dev   # 自动读 pointer.local.env；无文件则 community
 - 通用功能：公开仓库 PR → 本地包与绑定控制面的包共用
 - 只对付费云能力：改私有云 / 计费 / 更新服务
 - 换域名、更新公钥、证书：只改官方 CI 或维护者本机 `pointer.local.env`，勿提交
-- 外部 PR 默认按 community 理解；合入前确认没有写死某一家控制面域名
+- 外部 PR 默认按未绑定理解；合入前确认没有写死某一家控制面域名
 
 ## 发布前检查
 

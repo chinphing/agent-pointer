@@ -8,7 +8,7 @@ Versions follow the root `VERSION` file.
 
 ### Added
 
-- Community and official build editions via `POINTER_EDITION`.
+- Build editions via `POINTER_EDITION` (`official` or unset).
 - Open-source repository files: license, security policy, contributing guide,
   code of conduct, and GitHub issue / PR templates.
 
@@ -16,8 +16,8 @@ Versions follow the root `VERSION` file.
 
 - Bundled Office/PDF skills that could not be redistributed were removed.
   Import equivalent skills yourself if you need them.
-- Community builds do not default to readflowai.com, auto-update, usage
-  reporting, or standalone license enforcement.
+- Builds without the `official` flavor do not default to readflowai.com,
+  auto-update, usage reporting, or standalone license enforcement.
 - The public repository is named **agent-pointer**.
 
 ### Security

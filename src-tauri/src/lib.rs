@@ -590,6 +590,7 @@ pub fn run() {
             channel_commands::approve_channel_pairing,
             channel_commands::list_channel_pairing_pending,
             platform_commands::get_platform_session,
+            platform_commands::get_auth_mode,
             platform_commands::open_platform_login,
             platform_commands::cancel_platform_login,
             platform_commands::refresh_platform_session,

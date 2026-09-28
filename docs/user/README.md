@@ -6,7 +6,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [editions.md](editions.md) | 官方签名包与社区构建的差别 |
+| [editions.md](editions.md) | 官方签名包与本地构建的差别 |
 | [getting-started.md](getting-started.md) | 第一次对话 |
 | [standalone-server.md](standalone-server.md) | 自建 pointer-server |
 

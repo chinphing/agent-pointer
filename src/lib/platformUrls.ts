@@ -1,6 +1,6 @@
 import { openExternalUrl } from './openExternalUrl'
 
-/** Matches `platform_endpoints` official/unset default. Community builds leave this empty. */
+/** Matches `platform_endpoints` official default. Personal builds leave this empty. */
 const OFFICIAL_WEB_BASE = 'https://pointer.readflowai.com'
 
 function viteEnv(name: string): string {
@@ -9,21 +9,22 @@ function viteEnv(name: string): string {
   return String(env?.[name] ?? '').trim()
 }
 
+/** Packaging flavour: `official`, or empty for a personal build. Gates nothing. */
 export function pointerEdition(): string {
   return viteEnv('VITE_POINTER_EDITION').toLowerCase()
 }
 
-export function isCommunityEdition(): boolean {
-  return pointerEdition() === 'community'
+export function isOfficialEdition(): boolean {
+  return pointerEdition() === 'official'
 }
 
 export function platformWebBase(): string {
   const fromEnv = viteEnv('VITE_POINTER_WEB_BASE')
-  const fallback = isCommunityEdition() ? '' : OFFICIAL_WEB_BASE
+  const fallback = isOfficialEdition() ? OFFICIAL_WEB_BASE : ''
   return (fromEnv || fallback).replace(/\/$/, '')
 }
 
-/** Official account billing / WeChat recharge page. Empty in community builds. */
+/** Official account billing / WeChat recharge page. Empty for personal builds. */
 export function platformBillingUrl(): string {
   const base = platformWebBase()
   if (!base) return ''

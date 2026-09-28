@@ -1237,7 +1237,10 @@ impl AppState {
         let user = self.load_user_settings();
         let platform = self.platform_config.read().clone();
         let merged = self.effective_settings();
-        let is_platform_admin = self.active_platform_auth().is_platform_admin();
+        // Standalone installs (no control plane) have no platform to administer:
+        // the local operator owns every setting, so keep the admin surfaces open.
+        let is_platform_admin = crate::deployment_mode::is_standalone()
+            || self.active_platform_auth().is_platform_admin();
         EffectiveSettingsView {
             user,
             platform,

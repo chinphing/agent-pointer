@@ -8,7 +8,7 @@ Fixes #
 
 - [ ] `npm test`
 - [ ] `cargo test --workspace` (or the crate you touched)
-- [ ] Checked official vs community defaults if this changes endpoints, updates, usage reporting, or license
+- [ ] Checked bound vs unbound (standalone) defaults if this changes endpoints, updates, usage reporting, or license
 
 ## Notes
 

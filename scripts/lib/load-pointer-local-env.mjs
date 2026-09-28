@@ -20,12 +20,11 @@ function isBlank(value) {
 
 /**
  * @param {NodeJS.ProcessEnv | Record<string, string | undefined>} env
- * @param {{ defaultEdition?: 'community' | null, logPrefix?: string }} [opts]
+ * @param {{ logPrefix?: string }} [opts]
  * @returns {{ loaded: boolean, path: string }}
  */
 export function applyPointerLocalEnv(env, opts = {}) {
   const logPrefix = opts.logPrefix || '[pointer.local.env]';
-  const defaultEdition = opts.defaultEdition === undefined ? 'community' : opts.defaultEdition;
   let loaded = false;
 
   if (fs.existsSync(POINTER_LOCAL_ENV_PATH)) {
@@ -52,17 +51,11 @@ export function applyPointerLocalEnv(env, opts = {}) {
     }
   }
 
-  if (defaultEdition && isBlank(env.POINTER_EDITION)) {
-    env.POINTER_EDITION = defaultEdition;
-    if (isBlank(env.VITE_POINTER_EDITION)) {
-      env.VITE_POINTER_EDITION = defaultEdition;
-    }
-    if (!loaded) {
-      console.log(
-        `${logPrefix} no file; default POINTER_EDITION=${defaultEdition} (local-only). ` +
-          `Copy pointer.local.env.example → pointer.local.env to bind a control plane.`,
-      );
-    }
+  if (!loaded) {
+    console.log(
+      `${logPrefix} no file; running standalone (no control plane). ` +
+        `Copy pointer.local.env.example → pointer.local.env to bind a control plane.`,
+    );
   }
 
   return { loaded, path: POINTER_LOCAL_ENV_PATH };

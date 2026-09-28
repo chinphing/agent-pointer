@@ -1,12 +1,13 @@
-//! Build edition: community (self-hosted defaults) vs official (readflowai.com).
+//! Build edition: `official` (ships Pointer's own control-plane defaults) vs unset.
 //!
-//! Unset `POINTER_EDITION` keeps today's local-dev defaults (production
-//! platform URLs unless standalone). Set at compile time via
-//! `POINTER_EDITION` when invoking cargo, or override at runtime.
+//! `POINTER_EDITION` is a **packaging flavour**, not a gate: whether a build can
+//! reach a control plane is decided at runtime by
+//! `platform_endpoints::control_plane_bound()` / `deployment_mode::is_standalone()`.
+//! Set at compile time via `POINTER_EDITION` when invoking cargo, or override at runtime.
 
 const ENV_EDITION: &str = "POINTER_EDITION";
 
-/// Effective edition string: `community`, `official`, or empty (unset).
+/// Effective edition string: `official`, or empty (unset).
 pub fn edition() -> String {
     if let Ok(raw) = std::env::var(ENV_EDITION) {
         let trimmed = raw.trim().to_ascii_lowercase();
@@ -21,12 +22,7 @@ pub fn edition() -> String {
         .unwrap_or_default()
 }
 
-/// Community build: no default official cloud, no usage upload, no license gate.
-pub fn is_community() -> bool {
-    edition() == "community"
-}
-
-/// Official signed build: production domains and standalone license.
+/// Official build: ships Pointer's production control-plane defaults.
 pub fn is_official() -> bool {
     edition() == "official"
 }
@@ -35,7 +31,7 @@ pub fn is_official() -> bool {
 pub fn init_from_env() {
     let value = edition();
     if value.is_empty() {
-        log::info!("edition: unset (local-dev defaults)");
+        log::info!("edition: unset (personal defaults)");
     } else {
         log::info!("edition: {value}");
     }
@@ -46,7 +42,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unset_is_neither_community_nor_official() {
+    fn unset_is_not_official() {
         // Compile-time POINTER_EDITION is usually empty in `cargo test`.
         if std::env::var(ENV_EDITION).ok().filter(|v| !v.trim().is_empty()).is_some() {
             return;
@@ -57,7 +53,6 @@ mod tests {
         {
             return;
         }
-        assert!(!is_community());
         assert!(!is_official());
         assert!(edition().is_empty());
     }

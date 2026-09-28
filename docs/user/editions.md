@@ -1,4 +1,4 @@
-# 官方包与社区构建
+# 官方包与本地构建
 
 开源仓库名为 **agent-pointer**。Pointer 只有一份源码，两种安装形态。
 
@@ -11,14 +11,14 @@
 - 登录后可上报用量、打开云主机、前往充值页
 - 官方 `pointer-server` 安装包在独立部署时校验 License
 
-## 社区构建
+## 本地构建
 
 企业内部部署使用 [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) 里发布的安装包。也可以从本仓库源码编译。
 
 - 自己在设置里填写模型 Base URL 和 API Key
-- 默认不连接官方云，没有自动更新和用量上报
+- 默认不绑定控制面，没有自动更新和用量上报
 - 自建 `pointer-server` 不需要向签发方申请 License
-- 没有云主机购买入口
+- 云主机页可打开，未绑定控制面时不能购买
 
 ## 怎么选
 

@@ -529,9 +529,7 @@ export type PlatformSessionView = import('./tauri').PlatformSessionView
 export type AuthMode = import('./web').AuthMode
 export type LocalCaptcha = import('./web').LocalCaptcha
 
-export const getAuthMode = isTauriRuntime()
-  ? (async (): Promise<AuthMode> => 'platform')
-  : webApi.getAuthMode
+export const getAuthMode = isTauriRuntime() ? tauriApi.getAuthMode : webApi.getAuthMode
 export const fetchLocalCaptcha = isTauriRuntime()
   ? (async (): Promise<LocalCaptcha> => {
       throw new Error('local captcha is only available on pointer-server web')

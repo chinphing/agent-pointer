@@ -1,6 +1,6 @@
 # 快速上手
 
-先确认你用的是 [官方包还是社区构建](editions.md)。
+先确认你用的是 [官方包还是本地构建](editions.md)。
 
 ## 官方包
 
@@ -11,11 +11,11 @@
 
 **设置 → 账户** 登录官网后，才能使用云主机和充值。桌面 OAuth 成功后可能跳转官网。
 
-## 社区构建 / 自建 Web
+## 本地构建 / 自建 Web
 
 企业内部部署从 [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) 获取安装包。从源码运行见仓库 [DEVELOPMENT.md](../../DEVELOPMENT.md)。部署 `pointer-server` 并用浏览器访问，见 [standalone-server.md](standalone-server.md)。
 
-社区构建没有内置官网域名。模型地址和 Key 都在设置里自己填。
+本地构建没有内置官网域名。模型地址和 Key 都在设置里自己填。
 
 ## 桌面端与 Web 端
 

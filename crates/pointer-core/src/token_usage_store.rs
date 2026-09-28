@@ -1184,15 +1184,10 @@ fn parse_bool_env(key: &str) -> Option<bool> {
 }
 
 /// Whether unsent token-usage reports should be flushed to the platform API.
-/// Community and standalone default to false; official/unset platform defaults to true.
+/// Standalone (no control plane) defaults to false; a bound control plane to true.
 pub fn usage_report_enabled() -> bool {
-    parse_bool_env(ENV_USAGE_REPORT_ENABLED).unwrap_or_else(|| {
-        if crate::edition::is_community() {
-            false
-        } else {
-            !crate::deployment_mode::is_standalone()
-        }
-    })
+    parse_bool_env(ENV_USAGE_REPORT_ENABLED)
+        .unwrap_or_else(|| !crate::deployment_mode::is_standalone())
 }
 
 /// Refresh the platform access token only when there is pending work and the

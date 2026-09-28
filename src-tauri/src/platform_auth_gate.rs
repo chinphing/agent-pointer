@@ -18,10 +18,20 @@ pub async fn require_logged_in(
     Ok(())
 }
 
+/// Local placeholder owner used when no control plane is bound.
+const LOCAL_USER_ID: &str = "local";
+
 /// Desktop attachment / session-scoped paths: refresh, logged_in, and platform user id.
 pub async fn require_platform_user_id(state: &Arc<AppState>) -> Result<String, String> {
     const HINT: &str = "请先登录 Pointer 账户";
     let auth = state.active_platform_auth();
+    if pointer_core::deployment_mode::is_standalone() {
+        // No control plane: attachments belong to the local operator.
+        if let Some(uid) = auth.platform_user_id().filter(|s| !s.trim().is_empty()) {
+            return Ok(uid);
+        }
+        return Ok(LOCAL_USER_ID.to_string());
+    }
     require_logged_in(auth.as_ref(), HINT).await?;
     auth.platform_user_id()
         .filter(|s| !s.trim().is_empty())

@@ -6,7 +6,7 @@ import { useAppUpdater } from '../../../composables/useAppUpdater'
 import { isTauriRuntime } from '../../../lib/runtime'
 import { APP_VERSION } from '../../../lib/appVersion'
 import { openExternalUrl } from '../../../lib/openExternalUrl'
-import { isCommunityEdition } from '../../../lib/platformUrls'
+import { isOfficialEdition } from '../../../lib/platformUrls'
 
 const { t } = useI18n()
 
@@ -16,11 +16,11 @@ const DOWNLOAD_URL = (() => {
       ''
   ).trim()
   if (fromEnv) return fromEnv
-  if (isCommunityEdition()) return ''
+  if (!isOfficialEdition()) return ''
   return 'https://pointer-app.readflowai.com/download'
 })()
 
-const showUpdater = !isCommunityEdition() && isTauriRuntime()
+const showUpdater = isOfficialEdition() && isTauriRuntime()
 
 function openDownloadPage(e: MouseEvent) {
   e.preventDefault()

@@ -9,7 +9,7 @@ assignees: []
 ## Build
 
 - [ ] Official signed installer
-- [ ] Community build from source
+- [ ] Local build from source
 - [ ] Local `tauri dev` / `web:dev`
 
 Version (from About, or `VERSION` file):

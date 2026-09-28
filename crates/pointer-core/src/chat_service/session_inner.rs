@@ -221,9 +221,14 @@ pub(super) async fn run_chat_inner(
             "platform_auth: chat gated by transient refresh failure conversation_id={conversation_id} detail={detail}"
         );
         return Err(anyhow!("网络异常，暂时无法验证登录态，请稍后重试"));
+    } else if has_local_llm && crate::deployment_mode::is_standalone() {
+        // Personal / self-hosted install with a local model key: no login wall.
+        log::info!(
+            "standalone without platform identity: using local LLM credentials conversation_id={conversation_id}"
+        );
     } else {
         let msg = if crate::deployment_mode::is_standalone() {
-            "请先登录"
+            "请先登录，或在设置 → 模型配置中填写 API Key"
         } else {
             "请先登录 Pointer 账户"
         };

@@ -244,10 +244,6 @@ pub fn active_license_status_view() -> LicenseStatusView {
 
 /// Verify configured license key and cache claims. Fails fast on invalid/expired license.
 pub fn validate_license_at_startup() -> Result<()> {
-    if crate::edition::is_community() {
-        log::info!("license: skipped (community edition)");
-        return Ok(());
-    }
     if !crate::deployment_mode::is_standalone() {
         log::info!("license: skipped (platform deployment mode)");
         return Ok(());
@@ -285,7 +281,7 @@ pub fn validate_license_at_startup() -> Result<()> {
 
 /// Re-read `POINTER_LICENSE_KEY` from env and re-verify without process restart.
 pub fn reload_license_from_env() -> Result<LicenseStatusView> {
-    if crate::edition::is_community() || !crate::deployment_mode::is_standalone() {
+    if !crate::deployment_mode::is_standalone() {
         return Ok(LicenseStatusView {
             status: LicenseStatus::NotConfigured,
             customer_id: None,

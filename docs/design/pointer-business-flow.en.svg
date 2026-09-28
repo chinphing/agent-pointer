@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 350" width="100%" style="max-width:1300px" role="img">
   <title>Pointer business flow: business system —UI/HTTP— Skill → manual execution → automated execution</title>
-  <desc>Four nodes: business system, Skill, manual execution, automated execution. The business system and the Skill are joined by two curved interfaces, UI and HTTP. Skill → manual execution → automated execution is the main path. Pointer is one entity that acts on every node: it develops the business system, helps develop the Skill, and provides the runtime for manual and automated execution. Manual execution feeds lessons back into the Skill and codifies deterministic rules back into the business system.</desc>
+  <desc>Four nodes: business system, Skill, manual execution, automated execution. The business system and the Skill are joined by two curved interfaces, UI and HTTP. Skill → manual execution → automated execution is the main path. Pointer is one entity that acts on every node: it develops the business system, helps develop the Skill, and provides the runtime — an employee's PC for manual execution, a server for automated execution. Manual execution feeds lessons back into the Skill and codifies deterministic rules back into the business system.</desc>
 
   <defs>
     <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
@@ -32,8 +32,8 @@
   <!-- What Pointer does at each node -->
   <text x="178" y="172" font-size="11.5" fill="#64748B">Develop (programmers)</text>
   <text x="518" y="172" font-size="11.5" fill="#64748B">Develop (domain experts | programmers)</text>
-  <text x="828" y="172" font-size="11.5" fill="#64748B">Runtime</text>
-  <text x="1138" y="172" font-size="11.5" fill="#64748B">Runtime</text>
+  <text x="828" y="172" font-size="11.5" fill="#64748B">Runtime (employee PC)</text>
+  <text x="1138" y="172" font-size="11.5" fill="#64748B">Runtime (server)</text>
 
   <!-- Four nodes -->
   <rect x="60" y="190" width="220" height="68" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.3"/>

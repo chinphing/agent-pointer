@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 350" width="100%" style="max-width:1300px" role="img">
   <title>Pointer 业务架构：业务系统 —UI/HTTP— Skill → 人工执行 → 自动执行</title>
-  <desc>四个节点：业务系统、Skill、人工执行、自动执行。业务系统与 Skill 之间由 UI、HTTP 两个接口曲线相连；Skill → 人工执行 → 自动执行 为主流程。Pointer 是一个整体实体，对每个节点都发挥作用：开发业务系统、开发 Skill、提供人工执行与自动执行的运行环境。人工执行沉淀的经验回流 Skill，确定性规则固化回业务系统。</desc>
+  <desc>四个节点：业务系统、Skill、人工执行、自动执行。业务系统与 Skill 之间由 UI、HTTP 两个接口曲线相连；Skill → 人工执行 → 自动执行 为主流程。Pointer 是一个整体实体，对每个节点都发挥作用：开发业务系统、开发 Skill、提供运行环境——人工执行跑在员工电脑上，自动执行跑在服务器上。人工执行沉淀的经验回流 Skill，确定性规则固化回业务系统。</desc>
 
   <defs>
     <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
@@ -32,8 +32,8 @@
   <!-- Pointer 在每个节点的作用 -->
   <text x="178" y="172" font-size="11.5" fill="#64748B">开发（程序员）</text>
   <text x="518" y="172" font-size="11.5" fill="#64748B">开发（业务骨干｜程序员）</text>
-  <text x="828" y="172" font-size="11.5" fill="#64748B">环境</text>
-  <text x="1138" y="172" font-size="11.5" fill="#64748B">环境</text>
+  <text x="828" y="172" font-size="11.5" fill="#64748B">环境（员工电脑）</text>
+  <text x="1138" y="172" font-size="11.5" fill="#64748B">环境（服务器）</text>
 
   <!-- 四个节点 -->
   <rect x="60" y="190" width="220" height="68" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="1.3"/>

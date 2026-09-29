@@ -1,4 +1,9 @@
 # Allow test fixtures and vendor headers. Real secrets must still fail CI.
+#
+# Keep the legacy `[allowlist]` (singular) block. Verified empirically against
+# gitleaks 8.24.3: with identical regexes, the newer `[[allowlists]]` form still
+# reports these fixtures while `[allowlist]` clears them. Do not "modernize" it
+# without re-running `gitleaks dir crates/pointer-channels/src/adapters/weixin`.
 title = "pointer-app"
 
 [extend]
@@ -7,7 +12,6 @@ useDefault = true
 [allowlist]
 description = "Test fixtures, vendor C headers, and local branding example"
 paths = [
-  '''(^|/)crates/pointer-channels/src/adapters/weixin/''',
   '''(^|/)crates/pointer-core/vendor/sqlite-cjk-fts/sqlite3ext\.h$''',
   '''(^|/)server/pointer-server\.branding-dev\.toml$''',
 ]

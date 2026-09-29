@@ -1,7 +1,7 @@
 # 跨平台开发与打包
 
 本文档汇总 **Windows / macOS / Linux** 上的环境准备、本地开发、编译打包与 CI 发版流程。  
-工作目录均为仓库内的 **`pointer-app/`**（Tauri + Vue 项目根）。
+工作目录均为仓库内的 **`agent-pointer/`**（Tauri + Vue 项目根）。
 
 ---
 

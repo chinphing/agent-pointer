@@ -15,6 +15,7 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { assertNoForbiddenReleasePaths } from './lib/release-hygiene.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
@@ -166,7 +167,7 @@ Version: ${PACKAGE_VERSION}
 Section: net
 Priority: optional
 Architecture: ${debArch}
-Maintainer: Pointer Team <dev@pointer.com>
+Maintainer: Pointer Team <dev@readflowai.com>
 Depends: libc6 (>= 2.31)
 Description: Pointer Server — Standalone AI Agent Service
  Pointer Server is a standalone AI agent backend service.
@@ -233,6 +234,13 @@ esac
 `
   )
   chmod(path.join(debianDir, 'prerm'), 0o755)
+
+  // Defence in depth: the staging tree is built from explicit inputs (never the
+  // repository root), but no release may carry per-developer or signing material.
+  assertNoForbiddenReleasePaths(
+    fs.readdirSync(D, { recursive: true }),
+    'deb staging tree'
+  )
 
   // Build .deb
   const debPath = path.join(ROOT, 'target', 'release', 'bundle', 'deb')

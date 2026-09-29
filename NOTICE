@@ -30,6 +30,13 @@ Bundled third-party packages and their license texts are listed in
 THIRD-PARTY-NOTICES.md, which ships with every build. Regenerate after a
 dependency change with `npm run licenses`.
 
+Bundled skills
+--------------
+The `skills/` directory ships with every build and is covered by the same
+Apache License 2.0 as the rest of this repository, with one exception:
+`skills/agent-browser` is a discovery stub for the third-party `agent-browser`
+CLI, which is not bundled and remains under its own license.
+
 sqlite-cjk-fts (MIT)
   crates/pointer-core/vendor/sqlite-cjk-fts/LICENSE
   Source: https://pypi.org/project/sqlite-cjk-fts/

@@ -10,3 +10,6 @@ resolver = "2"
 
 [workspace.package]
 version = "0.1.2"
+license = "Apache-2.0"
+authors = ["刘新星 <https://pointer.readflowai.com>"]
+repository = "https://github.com/chinphing/agent-pointer"

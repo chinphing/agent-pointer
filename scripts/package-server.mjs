@@ -10,6 +10,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { platformTag } from './lib/platform-tag.mjs'
 import { syncServerDeployScripts } from './lib/sync-server-deploy-scripts.mjs'
+import { assertNoForbiddenReleasePaths } from './lib/release-hygiene.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
@@ -147,6 +148,13 @@ function main() {
   const releaseDir = path.join(ROOT, 'target', 'release')
   syncServerDeployScripts(releaseDir)
   copyTree(SKILLS_DIR, path.join(releaseDir, 'skills'))
+
+  // Defence in depth: the staging tree is built from explicit inputs (never the
+  // repository root), but no release may carry per-developer or signing material.
+  assertNoForbiddenReleasePaths(
+    fs.readdirSync(stagingRoot, { recursive: true }),
+    'server bundle staging tree'
+  )
 
   createZip(stagingRoot, zipPath)
   fs.rmSync(stagingRoot, { recursive: true, force: true })

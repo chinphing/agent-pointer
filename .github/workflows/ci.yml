@@ -70,6 +70,24 @@ jobs:
       - name: Rust tests
         run: cargo test --workspace
 
+      - name: Dependency audit (Rust)
+        # Reads .cargo/audit.toml, which ignores only the two quick-xml advisories
+        # that ossify 0.4.2 pins us to — see that file for the reason and the
+        # revisit date. Everything else must be clean.
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+
+      - name: Dependency audit (npm)
+        run: npm audit --audit-level=high
+
+      - name: Third-party notices in sync
+        # THIRD-PARTY-NOTICES.md ships inside the desktop build; a stale file
+        # ships wrong license data. `npm run licenses` is deterministic.
+        run: |
+          npm run licenses
+          git diff --exit-code -- THIRD-PARTY-NOTICES.md
+
       - name: Gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:

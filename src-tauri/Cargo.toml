@@ -2,7 +2,9 @@
 name = "pointer-app"
 version.workspace = true
 description = "Pointer AI desktop chat client"
-authors = ["刘新星 <https://pointer.readflowai.com>"]
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
 edition = "2021"
 
 [lib]

@@ -2,6 +2,13 @@
   "name": "agent-pointer",
   "author": "刘新星 (https://pointer.readflowai.com)",
   "homepage": "https://pointer.readflowai.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chinphing/agent-pointer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/chinphing/agent-pointer/issues"
+  },
   "license": "Apache-2.0",
   "version": "0.1.2",
   "type": "module",

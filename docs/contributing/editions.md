@@ -57,7 +57,7 @@ POINTER_EDITION=official VITE_POINTER_EDITION=official \
   npm run tauri:build
 ```
 
-官方发版由 [`.github/workflows/release.yml`](../../.github/workflows/release.yml) 注入 `POINTER_EDITION=official`、控制面域名（repository variables，见该 workflow 的 env 段）与签名 secret，不依赖开发者本机的 `pointer.local.env`。
+官方发版在本地打（用上面的变量清单），不依赖 [`.github/workflows/release.yml`](../../.github/workflows/release.yml) —— 该 workflow 产出的是 **standalone 包**（未绑定控制面，无更新产物）。
 
 ## 日常开发
 

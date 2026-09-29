@@ -1,4 +1,8 @@
-name: Release
+# Builds the **standalone** package: no control plane is bound, so the app runs
+# with local models and keys only, and no updater artifacts are produced.
+# An official package (Pointer's own control plane) is built locally instead —
+# see docs/contributing/editions.md.
+name: Release (standalone)
 
 on:
   workflow_dispatch:
@@ -16,11 +20,11 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: --target universal-apple-darwin
+            args: --target universal-apple-darwin --config src-tauri/tauri.personal.conf.json
           - platform: ubuntu-24.04
-            args: ''
+            args: --config src-tauri/tauri.personal.conf.json
           - platform: windows-latest
-            args: ''
+            args: --config src-tauri/tauri.personal.conf.json
 
     runs-on: ${{ matrix.platform }}
 
@@ -83,17 +87,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          POINTER_EDITION: official
-          VITE_POINTER_EDITION: official
-          # Control-plane domains for an official package. The open-source tree
-          # hardcodes none, and `pointer-core/build.rs` fails the build when the
-          # official flavour is set without them. Set these as repository
-          # variables: Settings → Secrets and variables → Actions → Variables.
-          POINTER_API_BASE: ${{ vars.POINTER_API_BASE }}
-          POINTER_WEB_BASE: ${{ vars.POINTER_WEB_BASE }}
-          COMPUTER_ANNOTATE_API_BASE: ${{ vars.COMPUTER_ANNOTATE_API_BASE }}
-          VITE_POINTER_WEB_BASE: ${{ vars.POINTER_WEB_BASE }}
-          VITE_POINTER_DOWNLOAD_URL: ${{ vars.POINTER_DOWNLOAD_URL }}
+          # No control-plane domains: this workflow builds the standalone flavour.
           NO_STRIP: ${{ matrix.platform == 'ubuntu-24.04' && 'true' || '' }}
           # macOS: set repository secrets to enable sign + notarize (see signing/macos/README.md)
           APPLE_CERTIFICATE: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE || '' }}
@@ -104,8 +98,8 @@ jobs:
           APPLE_PASSWORD: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_PASSWORD || '' }}
         with:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
-          releaseName: Pointer ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
-          releaseBody: Cross-platform release for Windows, macOS and Linux.
+          releaseName: Pointer standalone ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
+          releaseBody: Standalone build for Windows, macOS and Linux. No control plane is bound — local models and keys only.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

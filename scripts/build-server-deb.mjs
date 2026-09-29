@@ -167,7 +167,7 @@ Version: ${PACKAGE_VERSION}
 Section: net
 Priority: optional
 Architecture: ${debArch}
-Maintainer: Pointer Team <dev@readflowai.com>
+Maintainer: ${process.env.POINTER_DEB_MAINTAINER || 'Pointer Team <dev@example.com>'}
 Depends: libc6 (>= 2.31)
 Description: Pointer Server — Standalone AI Agent Service
  Pointer Server is a standalone AI agent backend service.

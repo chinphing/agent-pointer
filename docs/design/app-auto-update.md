@@ -156,9 +156,6 @@ export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="..."
   "plugins": {
     "updater": {
       "pubkey": "<PUBLIC_KEY_CONTENT>",
-      "endpoints": [
-        "https://pointer-api.readflowai.com/api/updates/latest?target={{target}}&arch={{arch}}&current_version={{current_version}}"
-      ],
       "windows": {
         "installMode": "passive"
       }

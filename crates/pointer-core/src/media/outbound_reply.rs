@@ -431,6 +431,12 @@ mod tests {
 
     #[test]
     fn bare_pointer_media_resolved_is_outbound() {
+        // Resolution reads the process-global app data dir, so take the same lock
+        // every other test that replaces it uses, and pin a directory of our own.
+        let _lock = crate::storage::test_app_data_dir_lock();
+        let dir = tempfile::tempdir().expect("temp data dir");
+        crate::storage::set_test_app_data_dir(dir.path().to_path_buf());
+
         let root = crate::storage::app_data_dir().expect("app data dir");
         let rel = format!("_anonymous/outbound-bare-{}/out.md", uuid::Uuid::new_v4());
         let file = root.join("conversation-media").join(&rel);

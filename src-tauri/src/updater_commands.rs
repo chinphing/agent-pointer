@@ -1,6 +1,41 @@
 use serde::Serialize;
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, State, Url};
+
+/// Update-check endpoint derived from the control plane.
+///
+/// The open-source tree hardcodes no vendor domain: an unbound build (empty
+/// `POINTER_API_BASE`) yields `None`, and the updater then reports that it has no
+/// endpoints instead of silently pointing at someone else's server.
+fn update_endpoint(api_base: &str) -> Option<Url> {
+    let base = api_base.trim().trim_end_matches('/');
+    if base.is_empty() {
+        return None;
+    }
+    let raw = format!(
+        "{base}/api/updates/latest?target={{{{target}}}}&arch={{{{arch}}}}&current_version={{{{current_version}}}}"
+    );
+    match Url::parse(&raw) {
+        Ok(url) => Some(url),
+        Err(e) => {
+            log::warn!("[updater] ignoring unusable POINTER_API_BASE {base:?}: {e}");
+            None
+        }
+    }
+}
+
+/// Updater bound to the control-plane endpoint, when this build has one.
+fn build_updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let mut builder = app.updater_builder();
+    if let Some(endpoint) = update_endpoint(&pointer_core::platform_endpoints::api_base()) {
+        builder = builder
+            .endpoints(vec![endpoint])
+            .map_err(|e| e.to_string())?;
+    }
+    builder.build().map_err(|e| e.to_string())
+}
 
 /// Downloaded updater package waiting for the user to confirm install/restart.
 #[derive(Default)]
@@ -28,14 +63,10 @@ pub struct UpdateCheckResult {
 
 #[tauri::command]
 pub async fn check_for_update(app: AppHandle) -> Result<UpdateCheckResult, String> {
-    use tauri_plugin_updater::UpdaterExt;
-
     let current_version = app.package_info().version.to_string();
     log::info!("[updater] checking for update: current={current_version}");
 
-    let Some(update) = app
-        .updater()
-        .map_err(|e| e.to_string())?
+    let Some(update) = build_updater(&app)?
         .check()
         .await
         .map_err(|e| {
@@ -75,13 +106,9 @@ pub async fn download_update(
     app: AppHandle,
     pending: State<'_, PendingUpdateState>,
 ) -> Result<(), String> {
-    use tauri_plugin_updater::UpdaterExt;
-
     log::info!("[updater] starting download (install deferred until user confirms)");
 
-    let Some(update) = app
-        .updater()
-        .map_err(|e| e.to_string())?
+    let Some(update) = build_updater(&app)?
         .check()
         .await
         .map_err(|e| {
@@ -152,8 +179,6 @@ pub async fn install_and_restart(
     app: AppHandle,
     pending: State<'_, PendingUpdateState>,
 ) -> Result<(), String> {
-    use tauri_plugin_updater::UpdaterExt;
-
     let PendingUpdate { version, bytes } = {
         let mut guard = pending.inner.lock().map_err(|e| e.to_string())?;
         guard.take().ok_or_else(|| {
@@ -164,9 +189,7 @@ pub async fn install_and_restart(
 
     log::info!("[updater] user confirmed install of {version}");
 
-    let Some(update) = app
-        .updater()
-        .map_err(|e| e.to_string())?
+    let Some(update) = build_updater(&app)?
         .check()
         .await
         .map_err(|e| {
@@ -209,4 +232,45 @@ pub async fn install_and_restart(
 pub async fn restart_app(app: AppHandle) {
     log::info!("[updater] restarting app");
     app.restart();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn update_endpoint_derives_from_the_control_plane_base() {
+        let url = update_endpoint("https://api.example.com/").expect("endpoint");
+        let s = url.as_str();
+        assert!(
+            s.starts_with("https://api.example.com/api/updates/latest"),
+            "{s}"
+        );
+        for key in ["target=", "arch=", "current_version="] {
+            assert!(s.contains(key), "missing {key} in {s}");
+        }
+    }
+
+    #[test]
+    fn update_endpoint_keeps_a_path_prefix() {
+        let url = update_endpoint("https://api.example.com/pointer").expect("endpoint");
+        assert!(
+            url.as_str()
+                .starts_with("https://api.example.com/pointer/api/updates/latest"),
+            "{}",
+            url.as_str()
+        );
+    }
+
+    #[test]
+    fn update_endpoint_is_none_without_a_control_plane() {
+        assert!(update_endpoint("").is_none());
+        assert!(update_endpoint("   ").is_none());
+        assert!(update_endpoint("/").is_none());
+    }
+
+    #[test]
+    fn update_endpoint_is_none_for_an_unusable_base() {
+        assert!(update_endpoint("not a url").is_none());
+    }
 }

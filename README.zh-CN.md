@@ -29,12 +29,12 @@
     <tr>
       <td>产品形态</td>
       <td>开源的多半是命令行，主要给开发用</td>
-      <td><strong>桌面版 + Web 服务端</strong>，而且开源。<strong>企业里谁都能上手</strong>。<strong>同一套 harness</strong>：开发和运行技能一致性更高</td>
+      <td><strong>桌面版 + Web 服务端</strong>。<strong>部署简单，企业里谁都能上手</strong>。<strong>同一套 harness</strong>：开发和运行技能一致性更高</td>
     </tr>
     <tr>
       <td>企业特性</td>
       <td>每个人自己配账号和密钥，技能靠手动拷贝分发，没有统一管控</td>
-      <td><strong>统一登录、统一 API Key 管理、统一 Skill 分发和权限管理</strong></td>
+      <td><strong>统一登录、统一 API Key 管理、统一 Skill 分发和权限管理、对话记录上报，还有更多</strong></td>
     </tr>
     <tr>
       <td>开源商用</td>

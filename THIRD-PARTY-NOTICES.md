@@ -10,7 +10,7 @@ Regenerate after any dependency change:
 npm run licenses
 ```
 
-Generated from 157 JavaScript package(s) and 904 Rust crate(s).
+Generated from 157 JavaScript package(s) and 913 Rust crate(s).
 
 ## JavaScript packages
 
@@ -82,7 +82,6 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 ### MIT — 105 packages
 
 - @antfu/install-pkg 1.1.0
-- @antfu/install-pkg/node_modules/tinyexec 1.3.0
 - @babel/helper-string-parser 7.27.1
 - @babel/helper-validator-identifier 7.28.5
 - @babel/parser 7.29.3
@@ -94,7 +93,7 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - @intlify/devtools-types 11.4.12
 - @intlify/message-compiler 11.4.12
 - @intlify/shared 11.4.12
-- @jridgewell/sourcemap-codec 1.5.5
+- @jridgewell/sourcemap-codec 1.6.0
 - @kurkle/color 0.3.4
 - @mermaid-js/parser 1.2.0
 - @tanstack/virtual-core 3.17.6
@@ -171,16 +170,17 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - marked 14.1.4
 - mermaid 11.16.1
 - mermaid/node_modules/marked 16.4.2
-- nanoid 3.3.12
+- nanoid 3.3.19
 - package-manager-detector 1.8.0
 - path-data-parser 0.1.0
 - pinia 2.3.1
 - points-on-curve 0.2.0
 - points-on-path 0.2.1
-- postcss 8.5.14
+- postcss 8.5.28
 - roughjs 4.6.6
 - safer-buffer 2.1.2
 - stylis 4.4.0
+- tinyexec 1.3.1
 - ts-dedent 2.3.0
 - uuid 14.0.1
 - vue 3.5.34
@@ -265,7 +265,7 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 ### Apache-2.0 OR ISC OR MIT — 3 packages
 
 - hyper-rustls 0.27.9 — https://github.com/rustls/hyper-rustls
-- rustls 0.23.40 — https://github.com/rustls/rustls
+- rustls 0.23.45 — https://github.com/rustls/rustls
 - rustls-native-certs 0.8.4 — https://github.com/rustls/rustls-native-certs
 
 ### Apache-2.0 OR MIT — 69 packages
@@ -456,18 +456,18 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 
 - libloading 0.7.4 — https://github.com/nagisa/rust_libloading/
 - libloading 0.8.9 — https://github.com/nagisa/rust_libloading/
-- rustls-webpki 0.103.13 — https://github.com/rustls/webpki
+- rustls-webpki 0.103.15 — https://github.com/rustls/webpki
 - untrusted 0.9.0 — https://github.com/briansmith/untrusted
 
 ### ISC AND (Apache-2.0 OR ISC) — 1 package
 
-- aws-lc-rs 1.17.0 — https://github.com/aws/aws-lc-rs
+- aws-lc-rs 1.18.1 — https://github.com/aws/aws-lc-rs
 
 ### ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0) — 1 package
 
-- aws-lc-sys 0.41.0 — https://github.com/aws/aws-lc-rs
+- aws-lc-sys 0.45.0 — https://github.com/aws/aws-lc-rs
 
-### MIT — 220 packages
+### MIT — 221 packages
 
 - aligned-vec 0.6.4 — https://github.com/sarah-ek/aligned-vec/
 - arg_enum_proc_macro 0.3.4 — https://github.com/lu-zero/arg_enum_proc_macro
@@ -487,7 +487,7 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - bytes 1.11.1 — https://github.com/tokio-rs/bytes
 - cairo-rs 0.18.5 — https://github.com/gtk-rs/gtk-rs-core
 - cairo-sys-rs 0.18.2 — https://github.com/gtk-rs/gtk-rs-core
-- calamine 0.26.1 — https://github.com/tafia/calamine
+- calamine 0.36.1 — https://github.com/tafia/calamine
 - cargo_metadata 0.19.2 — https://github.com/oli-obk/cargo_metadata
 - cfb 0.7.3 — https://github.com/mdsteele/rust-cfb
 - cfg_aliases 0.1.1 — https://github.com/katharostech/cfg_aliases
@@ -497,9 +497,9 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - convert_case 0.8.0 — https://github.com/rutrum/convert-case
 - cookie-factory 0.3.3 — https://github.com/rust-bakery/cookie-factory
 - crunchy 0.2.4 — https://github.com/eira-fransham/crunchy
-- darling 0.23.0 — https://github.com/TedDriggs/darling
-- darling_core 0.23.0 — https://github.com/TedDriggs/darling
-- darling_macro 0.23.0 — https://github.com/TedDriggs/darling
+- darling 0.24.1 — https://github.com/TedDriggs/darling
+- darling_core 0.24.1 — https://github.com/TedDriggs/darling
+- darling_macro 0.24.1 — https://github.com/TedDriggs/darling
 - data-encoding 2.11.0 — https://github.com/ia0/data-encoding
 - derive_more 2.1.1 — https://github.com/JelteF/derive_more
 - derive_more-impl 2.1.1 — https://github.com/JelteF/derive_more
@@ -540,7 +540,7 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - gtk 0.18.2 — https://github.com/gtk-rs/gtk3-rs
 - gtk-sys 0.18.2 — https://github.com/gtk-rs/gtk3-rs
 - gtk3-macros 0.18.2 — https://github.com/gtk-rs/gtk3-rs
-- h2 0.4.14 — https://github.com/hyperium/h2
+- h2 0.4.16 — https://github.com/hyperium/h2
 - http-body 1.0.1 — https://github.com/hyperium/http-body
 - http-body-util 0.1.3 — https://github.com/hyperium/http-body
 - http-range 0.1.5 — https://github.com/bancek/rust-http-range
@@ -593,7 +593,7 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - pipewire 0.9.2 — https://gitlab.freedesktop.org/pipewire/pipewire-rs
 - pipewire-sys 0.9.2 — https://gitlab.freedesktop.org/pipewire/pipewire-rs
 - piston-float 1.0.1 — https://github.com/pistondevelopers/float
-- plist 1.9.0 — https://github.com/ebarnard/rust-plist/
+- plist 1.10.1 — https://github.com/ebarnard/rust-plist/
 - portable-pty 0.9.0 — https://github.com/wezterm/wezterm
 - precomputed-hash 0.1.1 — https://github.com/emilio/precomputed-hash
 - protoc-bin-vendored 3.2.0 — https://github.com/stepancheg/rust-protoc-bin-vendored/
@@ -605,9 +605,9 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - protoc-bin-vendored-macos-aarch_64 3.2.0 — https://github.com/stepancheg/rust-protoc-bin-vendored/
 - protoc-bin-vendored-macos-x86_64 3.2.0 — https://github.com/stepancheg/rust-protoc-bin-vendored/
 - protoc-bin-vendored-win32 3.2.0 — https://github.com/stepancheg/rust-protoc-bin-vendored/
-- quick-xml 0.30.0 — https://github.com/tafia/quick-xml
-- quick-xml 0.31.0 — https://github.com/tafia/quick-xml
 - quick-xml 0.39.3 — https://github.com/tafia/quick-xml
+- quick-xml 0.41.0 — https://github.com/tafia/quick-xml
+- quick-xml 0.42.0 — https://github.com/tafia/quick-xml
 - redox_syscall 0.5.18 — https://gitlab.redox-os.org/redox-os/syscall
 - redox_users 0.4.6 — https://gitlab.redox-os.org/redox-os/users
 - redox_users 0.5.2 — https://gitlab.redox-os.org/redox-os/users
@@ -659,7 +659,7 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - wayland-client 0.31.14 — https://github.com/smithay/wayland-rs
 - wayland-protocols 0.32.12 — https://github.com/smithay/wayland-rs
 - wayland-protocols-wlr 0.3.12 — https://github.com/smithay/wayland-rs
-- wayland-scanner 0.31.10 — https://github.com/smithay/wayland-rs
+- wayland-scanner 0.31.11 — https://github.com/smithay/wayland-rs
 - wayland-server 0.31.13 — https://github.com/smithay/wayland-rs
 - wayland-sys 0.31.11 — https://github.com/smithay/wayland-rs
 - webkit2gtk 2.0.2 — https://github.com/tauri-apps/webkit2gtk-rs
@@ -676,7 +676,7 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - winreg 0.55.0 — https://github.com/gentoo90/winreg-rs
 - x11 2.21.0 — https://github.com/AltF02/x11-rs
 - x11-dl 2.21.0 — https://github.com/AltF02/x11-rs
-- xcb 1.7.0 — https://github.com/rust-x-bindings/rust-xcb
+- xcb 1.7.1 — https://github.com/rust-x-bindings/rust-xcb
 - xkbcommon 0.7.0 — https://github.com/rust-x-bindings/xkbcommon-rs
 - xml-rs 0.8.28 — https://github.com/kornelski/xml-rs
 - y4m 0.8.0 — https://github.com/image-rs/y4m
@@ -685,6 +685,7 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - zbus_names 4.3.2 — https://github.com/z-galaxy/zbus/
 - zip 2.4.2 — https://github.com/zip-rs/zip2
 - zip 4.6.1 — https://github.com/zip-rs/zip2
+- zip 8.6.0 — https://github.com/zip-rs/zip2
 - zmij 1.0.21 — https://github.com/dtolnay/zmij
 - zvariant 5.11.0 — https://github.com/z-galaxy/zbus/
 - zvariant_derive 5.11.0 — https://github.com/z-galaxy/zbus/
@@ -694,7 +695,7 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 
 - matchit 0.7.3 — https://github.com/ibraheemdev/matchit
 
-### MIT OR Apache-2.0 — 382 packages
+### MIT OR Apache-2.0 — 388 packages
 
 - aead 0.5.2 — https://github.com/RustCrypto/traits
 - aes 0.8.4 — https://github.com/RustCrypto/block-ciphers
@@ -715,9 +716,11 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - async-compression 0.4.42 — https://github.com/Nullus157/async-compression
 - async-recursion 1.1.1 — https://github.com/dcchut/async-recursion
 - async-trait 0.1.89 — https://github.com/dtolnay/async-trait
+- atoi_simd 0.18.1 — https://github.com/RoDmitry/atoi_simd
 - base64 0.21.7 — https://github.com/marshallpierce/rust-base64
 - base64 0.22.1 — https://github.com/marshallpierce/rust-base64
-- bitflags 2.11.1 — https://github.com/bitflags/bitflags
+- base64 0.23.1 — https://github.com/marshallpierce/rust-base64
+- bitflags 2.13.2 — https://github.com/bitflags/bitflags
 - block-buffer 0.10.4 — https://github.com/RustCrypto/utils
 - block-buffer 0.12.1 — https://github.com/RustCrypto/utils
 - block-padding 0.3.3 — https://github.com/RustCrypto/utils
@@ -754,13 +757,14 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - cron 0.15.0 — https://github.com/zslayton/cron
 - crossbeam-channel 0.5.15 — https://github.com/crossbeam-rs/crossbeam
 - crossbeam-deque 0.8.6 — https://github.com/crossbeam-rs/crossbeam
-- crossbeam-epoch 0.9.18 — https://github.com/crossbeam-rs/crossbeam
+- crossbeam-epoch 0.9.20 — https://github.com/crossbeam-rs/crossbeam
 - crossbeam-utils 0.8.21 — https://github.com/crossbeam-rs/crossbeam
 - crypto-common 0.1.7 — https://github.com/RustCrypto/traits
 - crypto-common 0.2.2 — https://github.com/RustCrypto/traits
 - ctr 0.9.2 — https://github.com/RustCrypto/block-modes
 - deadpool 0.12.3 — https://github.com/bikeshedder/deadpool
 - deadpool-runtime 0.1.4 — https://github.com/bikeshedder/deadpool
+- debug_unsafe 0.1.4 — https://github.com/RoDmitry/debug_unsafe
 - deranged 0.5.8 — https://github.com/jhpratt/deranged
 - derive_arbitrary 1.4.2 — https://github.com/rust-fuzz/arbitrary
 - digest 0.10.7 — https://github.com/RustCrypto/traits
@@ -781,6 +785,7 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - env_logger 0.11.10 — https://github.com/rust-cli/env_logger
 - erased-serde 0.4.10 — https://github.com/dtolnay/erased-serde
 - errno 0.3.14 — https://github.com/lambda-fairy/rust-errno
+- fast-float2 0.2.4 — https://github.com/Alexhuszagh/fast-float-rust
 - fdeflate 0.3.7 — https://github.com/image-rs/fdeflate
 - field-offset 0.3.6 — https://github.com/Diggsey/rust-field-offset
 - find-msvc-tools 0.1.9 — https://github.com/rust-lang/cc-rs
@@ -897,7 +902,7 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - profiling-procmacros 1.0.18 — https://github.com/aclysma/profiling
 - qrcode 0.14.1 — https://github.com/kennytm/qrcode-rust
 - quinn 0.11.9 — https://github.com/quinn-rs/quinn
-- quinn-proto 0.11.14 — https://github.com/quinn-rs/quinn
+- quinn-proto 0.11.15 — https://github.com/quinn-rs/quinn
 - quinn-udp 0.5.14 — https://github.com/quinn-rs/quinn
 - quote 1.0.45 — https://github.com/dtolnay/quote
 - rand 0.8.6 — https://github.com/rust-random/rand
@@ -930,13 +935,13 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - serde_core 1.0.228 — https://github.com/serde-rs/serde
 - serde_derive 1.0.228 — https://github.com/serde-rs/serde
 - serde_derive_internals 0.29.1 — https://github.com/serde-rs/serde
-- serde_json 1.0.149 — https://github.com/serde-rs/json
+- serde_json 1.0.151 — https://github.com/serde-rs/json
 - serde_path_to_error 0.1.20 — https://github.com/dtolnay/path-to-error
 - serde_repr 0.1.20 — https://github.com/dtolnay/serde-repr
 - serde_spanned 0.6.9 — https://github.com/toml-rs/toml
 - serde_spanned 1.1.1 — https://github.com/toml-rs/toml
-- serde_with 3.19.0 — https://github.com/jonasbb/serde_with/
-- serde_with_macros 3.19.0 — https://github.com/jonasbb/serde_with/
+- serde_with 3.24.0 — https://github.com/jonasbb/serde_with/
+- serde_with_macros 3.24.0 — https://github.com/jonasbb/serde_with/
 - serde_yaml 0.9.34+deprecated — https://github.com/dtolnay/serde-yaml
 - serde-untagged 0.1.9 — https://github.com/dtolnay/serde-untagged
 - serialize-to-javascript 0.1.2 — https://github.com/chippers/serialize-to-javascript
@@ -958,6 +963,7 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - swift-rs 1.0.7 — https://github.com/Brendonovich/swift-rs
 - syn 1.0.109 — https://github.com/dtolnay/syn
 - syn 2.0.117 — https://github.com/dtolnay/syn
+- syn 3.0.6 — https://github.com/dtolnay/syn
 - system-deps 6.2.2 — https://github.com/gdesmott/system-deps
 - system-deps 7.0.8 — https://github.com/gdesmott/system-deps
 - tao-macros 0.1.3 — https://github.com/tauri-apps/tao
@@ -986,6 +992,7 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - tray-icon 0.23.1 — https://github.com/tauri-apps/tray-icon
 - ttf-parser 0.25.1 — https://github.com/harfbuzz/ttf-parser
 - tungstenite 0.24.0 — https://github.com/snapview/tungstenite-rs
+- typed-path 0.12.3 — https://github.com/chipsenkbeil/typed-path
 - typeid 1.0.3 — https://github.com/dtolnay/typeid
 - typenum 1.20.0 — https://github.com/paholg/typenum
 - unicase 2.9.0 — https://github.com/seanmonstar/unicase
@@ -1102,11 +1109,12 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 
 - miniz_oxide 0.8.9 — https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide
 
-### MIT/Apache-2.0 — 40 packages
+### MIT/Apache-2.0 — 41 packages
 
 - android_system_properties 0.1.5 — https://github.com/nical/android_system_properties
 - bitflags 1.3.2 — https://github.com/bitflags/bitflags
 - bitstream-io 4.10.0 — https://github.com/tuffy/bitstream-io
+- bs58 0.5.1 — https://github.com/Nullus157/bs58-rs
 - console_log 1.0.0 — https://github.com/iamcodemaker/console_log
 - curve25519-dalek-derive 0.1.1 — https://github.com/dalek-cryptography/curve25519-dalek
 - downcast-rs 1.2.1 — https://github.com/marcianx/downcast-rs
@@ -1198,10 +1206,11 @@ Generated from 157 JavaScript package(s) and 904 Rust crate(s).
 - same-file 1.0.6 — https://github.com/BurntSushi/same-file
 - walkdir 2.5.0 — https://github.com/BurntSushi/walkdir
 
-### Zlib — 2 packages
+### Zlib — 3 packages
 
 - foldhash 0.1.5 — https://github.com/orlp/foldhash
 - foldhash 0.2.0 — https://github.com/orlp/foldhash
+- zlib-rs 0.6.8 — https://github.com/trifectatechfoundation/zlib-rs
 
 ### Zlib OR Apache-2.0 OR MIT — 30 packages
 
@@ -1266,33 +1275,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 2. Used by @antfu/install-pkg/node_modules/tinyexec 1.3.0
-
-```text
-MIT License
-
-Copyright (c) 2024 Tinylibs
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-### 3. Used by @babel/helper-string-parser 7.27.1, @babel/helper-validator-identifier 7.28.5, @babel/types 7.29.0
+### 2. Used by @babel/helper-string-parser 7.27.1, @babel/helper-validator-identifier 7.28.5, @babel/types 7.29.0
 
 ```text
 MIT License
@@ -1319,7 +1302,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### 4. Used by @babel/parser 7.29.3
+### 3. Used by @babel/parser 7.29.3
 
 ```text
 Copyright (C) 2012-2014 by various contributors (see AUTHORS)
@@ -1343,7 +1326,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### 5. Used by @braintree/sanitize-url 7.1.2
+### 4. Used by @braintree/sanitize-url 7.1.2
 
 ```text
 MIT License
@@ -1369,7 +1352,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 6. Used by @chevrotain/types 11.1.2, dompurify 3.4.14, approx 0.5.1, clang-sys 1.8.1
+### 5. Used by @chevrotain/types 11.1.2, dompurify 3.4.14, approx 0.5.1, clang-sys 1.8.1
 
 ```text
 Apache License
@@ -1575,7 +1558,7 @@ Apache License
    limitations under the License.
 ```
 
-### 7. Used by @iconify/types 2.0.0
+### 6. Used by @iconify/types 2.0.0
 
 ```text
 MIT License
@@ -1601,7 +1584,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 8. Used by @iconify/utils 3.1.4
+### 7. Used by @iconify/utils 3.1.4
 
 ```text
 MIT License
@@ -1627,7 +1610,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 9. Used by @intlify/core-base 11.4.12, @intlify/message-compiler 11.4.12, @intlify/shared 11.4.12, vue-i18n 11.4.12
+### 8. Used by @intlify/core-base 11.4.12, @intlify/message-compiler 11.4.12, @intlify/shared 11.4.12, vue-i18n 11.4.12
 
 ```text
 The MIT License (MIT)
@@ -1652,7 +1635,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### 10. Used by @intlify/devtools-types 11.4.12
+### 9. Used by @intlify/devtools-types 11.4.12
 
 ```text
 The MIT License (MIT)
@@ -1677,7 +1660,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### 11. Used by @jridgewell/sourcemap-codec 1.5.5
+### 10. Used by @jridgewell/sourcemap-codec 1.6.0
 
 ```text
 Copyright 2024 Justin Ridgewell <justin@ridgewell.name>
@@ -1701,7 +1684,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 12. Used by @kurkle/color 0.3.4
+### 11. Used by @kurkle/color 0.3.4
 
 ```text
 The MIT License (MIT)
@@ -1715,7 +1698,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### 13. Used by @mermaid-js/parser 1.2.0
+### 12. Used by @mermaid-js/parser 1.2.0
 
 ```text
 The MIT License (MIT)
@@ -1741,7 +1724,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 14. Used by @tanstack/virtual-core 3.17.6, @tanstack/vue-virtual 3.13.34
+### 13. Used by @tanstack/virtual-core 3.17.6, @tanstack/vue-virtual 3.13.34
 
 ```text
 MIT License
@@ -1767,7 +1750,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 15. Used by @types/d3 7.4.3, @types/d3-array 3.2.2, @types/d3-axis 3.0.6, @types/d3-brush 3.0.6, @types/d3-chord 3.0.6, @types/d3-color 3.1.3, @types/d3-contour 3.0.6, @types/d3-delaunay 6.0.4, … (+25 more)
+### 14. Used by @types/d3 7.4.3, @types/d3-array 3.2.2, @types/d3-axis 3.0.6, @types/d3-brush 3.0.6, @types/d3-chord 3.0.6, @types/d3-color 3.1.3, @types/d3-contour 3.0.6, @types/d3-delaunay 6.0.4, … (+25 more)
 
 ```text
 MIT License
@@ -1793,7 +1776,7 @@ MIT License
     SOFTWARE
 ```
 
-### 16. Used by @upsetjs/venn.js 2.0.0
+### 15. Used by @upsetjs/venn.js 2.0.0
 
 ```text
 MIT License
@@ -1820,7 +1803,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 17. Used by @vue/compiler-core 3.5.34, @vue/compiler-dom 3.5.34, @vue/compiler-sfc 3.5.34, @vue/compiler-ssr 3.5.34, @vue/reactivity 3.5.34, @vue/runtime-core 3.5.34, @vue/runtime-dom 3.5.34, @vue/server-renderer 3.5.34, … (+2 more)
+### 16. Used by @vue/compiler-core 3.5.34, @vue/compiler-dom 3.5.34, @vue/compiler-sfc 3.5.34, @vue/compiler-ssr 3.5.34, @vue/reactivity 3.5.34, @vue/runtime-core 3.5.34, @vue/runtime-dom 3.5.34, @vue/server-renderer 3.5.34, … (+2 more)
 
 ```text
 The MIT License (MIT)
@@ -1846,7 +1829,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### 18. Used by @xterm/addon-fit 0.11.0
+### 17. Used by @xterm/addon-fit 0.11.0
 
 ```text
 Copyright (c) 2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
@@ -1870,7 +1853,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### 19. Used by @xterm/xterm 6.0.0
+### 18. Used by @xterm/xterm 6.0.0
 
 ```text
 Copyright (c) 2017-2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
@@ -1896,7 +1879,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### 20. Used by argparse 2.0.1
+### 19. Used by argparse 2.0.1
 
 ```text
 A. HISTORY OF THE SOFTWARE
@@ -2155,7 +2138,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
 OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### 21. Used by chart.js 4.5.1
+### 20. Used by chart.js 4.5.1
 
 ```text
 The MIT License (MIT)
@@ -2169,7 +2152,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### 22. Used by cose-base 1.0.3, cytoscape-fcose/node_modules/cose-base 2.2.0
+### 21. Used by cose-base 1.0.3, cytoscape-fcose/node_modules/cose-base 2.2.0
 
 ```text
 MIT License
@@ -2195,7 +2178,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 23. Used by csstype 3.2.3
+### 22. Used by csstype 3.2.3
 
 ```text
 Copyright (c) 2017-2018 Fredrik Nicol
@@ -2219,7 +2202,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 24. Used by cytoscape 3.34.1
+### 23. Used by cytoscape 3.34.1
 
 ```text
 Copyright (c) 2016-2026, The Cytoscape Consortium.
@@ -2243,7 +2226,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 25. Used by cytoscape-cose-bilkent 4.1.0
+### 24. Used by cytoscape-cose-bilkent 4.1.0
 
 ```text
 Copyright (c) 2016-2018, The Cytoscape Consortium.
@@ -2267,7 +2250,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 26. Used by cytoscape-fcose 2.2.0
+### 25. Used by cytoscape-fcose 2.2.0
 
 ```text
 Copyright (c) 2018 - present, iVis-at-Bilkent.
@@ -2291,7 +2274,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 27. Used by cytoscape-fcose/node_modules/layout-base 2.0.1, layout-base 1.0.2
+### 26. Used by cytoscape-fcose/node_modules/layout-base 2.0.1, layout-base 1.0.2
 
 ```text
 MIT License
@@ -2317,7 +2300,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 28. Used by d3 7.9.0, d3-array 3.2.4
+### 27. Used by d3 7.9.0, d3-array 3.2.4
 
 ```text
 Copyright 2010-2023 Mike Bostock
@@ -2335,7 +2318,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-### 29. Used by d3-axis 3.0.0, d3-brush 3.0.0, d3-chord 3.0.1, d3-dispatch 3.0.1, d3-drag 3.0.0, d3-force 3.0.0, d3-hierarchy 3.1.2, d3-interpolate 3.0.1, … (+9 more)
+### 28. Used by d3-axis 3.0.0, d3-brush 3.0.0, d3-chord 3.0.1, d3-dispatch 3.0.1, d3-drag 3.0.0, d3-force 3.0.0, d3-hierarchy 3.1.2, d3-interpolate 3.0.1, … (+9 more)
 
 ```text
 Copyright 2010-2021 Mike Bostock
@@ -2353,7 +2336,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-### 30. Used by d3-color 3.1.0, d3-shape 3.2.0, d3-time 3.1.0
+### 29. Used by d3-color 3.1.0, d3-shape 3.2.0, d3-time 3.1.0
 
 ```text
 Copyright 2010-2022 Mike Bostock
@@ -2371,7 +2354,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-### 31. Used by d3-contour 4.0.2
+### 30. Used by d3-contour 4.0.2
 
 ```text
 Copyright 2012-2023 Mike Bostock
@@ -2389,7 +2372,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-### 32. Used by d3-delaunay 6.0.4
+### 31. Used by d3-delaunay 6.0.4
 
 ```text
 Copyright 2018-2021 Observable, Inc.
@@ -2408,7 +2391,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-### 33. Used by d3-dsv 3.0.1
+### 32. Used by d3-dsv 3.0.1
 
 ```text
 Copyright 2013-2021 Mike Bostock
@@ -2426,7 +2409,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-### 34. Used by d3-dsv/node_modules/commander 7.2.0, katex/node_modules/commander 8.3.0
+### 33. Used by d3-dsv/node_modules/commander 7.2.0, katex/node_modules/commander 8.3.0
 
 ```text
 (The MIT License)
@@ -2453,7 +2436,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### 35. Used by d3-ease 3.0.1
+### 34. Used by d3-ease 3.0.1
 
 ```text
 Copyright 2010-2021 Mike Bostock
@@ -2486,7 +2469,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### 36. Used by d3-fetch 3.0.1
+### 35. Used by d3-fetch 3.0.1
 
 ```text
 Copyright 2016-2021 Mike Bostock
@@ -2504,7 +2487,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-### 37. Used by d3-format 3.1.2
+### 36. Used by d3-format 3.1.2
 
 ```text
 Copyright 2010-2026 Mike Bostock
@@ -2522,7 +2505,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-### 38. Used by d3-geo 3.1.1
+### 37. Used by d3-geo 3.1.1
 
 ```text
 Copyright 2010-2024 Mike Bostock
@@ -2561,7 +2544,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### 39. Used by d3-path 3.1.0
+### 38. Used by d3-path 3.1.0
 
 ```text
 Copyright 2015-2022 Mike Bostock
@@ -2579,7 +2562,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-### 40. Used by d3-sankey 0.12.3
+### 39. Used by d3-sankey 0.12.3
 
 ```text
 Copyright 2015, Mike Bostock
@@ -2611,7 +2594,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### 41. Used by d3-sankey/node_modules/d3-array 2.12.1
+### 40. Used by d3-sankey/node_modules/d3-array 2.12.1
 
 ```text
 Copyright 2010-2020 Mike Bostock
@@ -2643,7 +2626,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### 42. Used by d3-sankey/node_modules/d3-path 1.0.9
+### 41. Used by d3-sankey/node_modules/d3-path 1.0.9
 
 ```text
 Copyright 2015-2016 Mike Bostock
@@ -2675,7 +2658,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### 43. Used by d3-sankey/node_modules/d3-shape 1.3.7
+### 42. Used by d3-sankey/node_modules/d3-shape 1.3.7
 
 ```text
 Copyright 2010-2015 Mike Bostock
@@ -2707,7 +2690,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### 44. Used by d3-sankey/node_modules/internmap 1.0.1, internmap 2.0.3
+### 43. Used by d3-sankey/node_modules/internmap 1.0.1, internmap 2.0.3
 
 ```text
 Copyright 2021 Mike Bostock
@@ -2725,7 +2708,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-### 45. Used by d3-scale-chromatic 3.1.0
+### 44. Used by d3-scale-chromatic 3.1.0
 
 ```text
 Copyright 2010-2024 Mike Bostock
@@ -2758,7 +2741,7 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 ```
 
-### 46. Used by dagre-d3-es 7.0.14
+### 45. Used by dagre-d3-es 7.0.14
 
 ```text
 Original dagre-d3 copyright: Copyright (c) 2013 Chris Pettitt
@@ -2786,7 +2769,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### 47. Used by dayjs 1.11.21
+### 46. Used by dayjs 1.11.21
 
 ```text
 MIT License
@@ -2812,7 +2795,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 48. Used by delaunator 5.1.0
+### 47. Used by delaunator 5.1.0
 
 ```text
 ISC License
@@ -2832,7 +2815,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-### 49. Used by entities 7.0.1
+### 48. Used by entities 7.0.1
 
 ```text
 Copyright (c) Felix Böhm
@@ -2848,7 +2831,7 @@ THIS IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRE
 EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### 50. Used by es-toolkit 1.50.0
+### 49. Used by es-toolkit 1.50.0
 
 ```text
 MIT License
@@ -2874,7 +2857,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 51. Used by estree-walker 2.0.2
+### 50. Used by estree-walker 2.0.2
 
 ```text
 Copyright (c) 2015-20 [these people](https://github.com/Rich-Harris/estree-walker/graphs/contributors)
@@ -2886,7 +2869,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### 52. Used by hachure-fill 0.5.2
+### 51. Used by hachure-fill 0.5.2
 
 ```text
 MIT License
@@ -2912,7 +2895,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 53. Used by iconv-lite 0.6.3
+### 52. Used by iconv-lite 0.6.3
 
 ```text
 Copyright (c) 2011 Alexander Shtuchkin
@@ -2937,7 +2920,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### 54. Used by import-meta-resolve 4.2.0
+### 53. Used by import-meta-resolve 4.2.0
 
 ```text
 (The MIT License)
@@ -3016,7 +2999,7 @@ IN THE SOFTWARE.
 """
 ```
 
-### 55. Used by js-yaml 5.4.1
+### 54. Used by js-yaml 5.4.1
 
 ```text
 (The MIT License)
@@ -3042,7 +3025,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### 56. Used by katex 0.16.47
+### 55. Used by katex 0.16.47
 
 ```text
 The MIT License (MIT)
@@ -3068,7 +3051,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 57. Used by khroma 2.1.0
+### 56. Used by khroma 2.1.0
 
 ```text
 The MIT License (MIT)
@@ -3094,7 +3077,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-### 58. Used by lodash-es 4.18.1
+### 57. Used by lodash-es 4.18.1
 
 ```text
 Copyright OpenJS Foundation and other contributors <https://openjsf.org/>
@@ -3146,7 +3129,7 @@ licenses; we recommend you read them, as their terms may differ from the
 terms above.
 ```
 
-### 59. Used by lucide-vue-next 0.460.0
+### 58. Used by lucide-vue-next 0.460.0
 
 ```text
 ISC License
@@ -3166,7 +3149,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### 60. Used by magic-string 0.30.21
+### 59. Used by magic-string 0.30.21
 
 ```text
 Copyright 2018 Rich Harris
@@ -3178,7 +3161,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### 61. Used by marked 14.1.4, mermaid/node_modules/marked 16.4.2
+### 60. Used by marked 14.1.4, mermaid/node_modules/marked 16.4.2
 
 ```text
 # License information
@@ -3227,7 +3210,7 @@ Redistribution and use in source and binary forms, with or without modification,
 This software is provided by the copyright holders and contributors “as is” and any express or implied warranties, including, but not limited to, the implied warranties of merchantability and fitness for a particular purpose are disclaimed. In no event shall the copyright owner or contributors be liable for any direct, indirect, incidental, special, exemplary, or consequential damages (including, but not limited to, procurement of substitute goods or services; loss of use, data, or profits; or business interruption) however caused and on any theory of liability, whether in contract, strict liability, or tort (including negligence or otherwise) arising in any way out of the use of this software, even if advised of the possibility of such damage.
 ```
 
-### 62. Used by mermaid 11.16.1
+### 61. Used by mermaid 11.16.1
 
 ```text
 The MIT License (MIT)
@@ -3253,7 +3236,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 63. Used by nanoid 3.3.12
+### 62. Used by nanoid 3.3.19
 
 ```text
 The MIT License (MIT)
@@ -3278,7 +3261,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### 64. Used by package-manager-detector 1.8.0
+### 63. Used by package-manager-detector 1.8.0
 
 ```text
 MIT License
@@ -3304,7 +3287,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 65. Used by path-data-parser 0.1.0, points-on-curve 0.2.0
+### 64. Used by path-data-parser 0.1.0, points-on-curve 0.2.0
 
 ```text
 MIT License
@@ -3330,7 +3313,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 66. Used by picocolors 1.1.1
+### 65. Used by picocolors 1.1.1
 
 ```text
 ISC License
@@ -3350,7 +3333,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### 67. Used by pinia 2.3.1
+### 66. Used by pinia 2.3.1
 
 ```text
 The MIT License (MIT)
@@ -3376,7 +3359,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 68. Used by points-on-path 0.2.1
+### 67. Used by points-on-path 0.2.1
 
 ```text
 MIT License
@@ -3402,7 +3385,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 69. Used by postcss 8.5.14
+### 68. Used by postcss 8.5.28
 
 ```text
 The MIT License (MIT)
@@ -3427,7 +3410,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### 70. Used by robust-predicates 3.0.3
+### 69. Used by robust-predicates 3.0.3
 
 ```text
 This is free and unencumbered software released into the public domain.
@@ -3456,7 +3439,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 For more information, please refer to <http://unlicense.org>
 ```
 
-### 71. Used by roughjs 4.6.6
+### 70. Used by roughjs 4.6.6
 
 ```text
 MIT License
@@ -3482,7 +3465,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 72. Used by rw 1.3.3
+### 71. Used by rw 1.3.3
 
 ```text
 Copyright (c) 2014-2016, Michael Bostock
@@ -3513,7 +3496,7 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
 EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### 73. Used by safer-buffer 2.1.2
+### 72. Used by safer-buffer 2.1.2
 
 ```text
 MIT License
@@ -3539,7 +3522,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 74. Used by source-map-js 1.2.1
+### 73. Used by source-map-js 1.2.1
 
 ```text
 Copyright (c) 2009-2011, Mozilla Foundation and contributors
@@ -3571,12 +3554,38 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### 75. Used by stylis 4.4.0
+### 74. Used by stylis 4.4.0
 
 ```text
 MIT License
 
 Copyright (c) 2016-present Sultan Tarimo
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### 75. Used by tinyexec 1.3.1
+
+```text
+MIT License
+
+Copyright (c) 2024 Tinylibs
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -4192,7 +4201,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### 92. Used by aws-lc-rs 1.17.0
+### 92. Used by aws-lc-rs 1.18.1
 
 ```text
 SPDX-License-Identifier: ISC AND (Apache-2.0 OR ISC)
@@ -4399,7 +4408,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### 93. Used by aws-lc-sys 0.41.0
+### 93. Used by aws-lc-sys 0.45.0
 
 ```text
 AWS Libcrypto (AWS-LC)
@@ -5908,7 +5917,7 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### 110. Used by darling 0.23.0, darling_core 0.23.0, darling_macro 0.23.0
+### 110. Used by darling 0.24.1, darling_core 0.24.1, darling_macro 0.24.1
 
 ```text
 MIT License
@@ -7343,7 +7352,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-### 134. Used by h2 0.4.14
+### 134. Used by h2 0.4.16
 
 ```text
 Copyright (c) 2017 h2 authors
@@ -9283,7 +9292,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### 176. Used by plist 1.9.0
+### 176. Used by plist 1.10.1
 
 ```text
 Copyright (c) 2015 Edward Barnard
@@ -9530,7 +9539,7 @@ respectively.  You may use this software under the terms of any
 of these licenses, at your option.
 ```
 
-### 186. Used by rustls-webpki 0.103.13
+### 186. Used by rustls-webpki 0.103.15
 
 ```text
 Except as otherwise noted, this project is licensed under the following
@@ -9725,7 +9734,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-### 193. Used by spin 0.9.8
+### 193. Used by spin 0.9.8, zip 8.6.0
 
 ```text
 The MIT License (MIT)
@@ -10590,7 +10599,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### 219. Used by wayland-backend 0.3.15, wayland-client 0.31.14, wayland-protocols 0.32.12, wayland-protocols-wlr 0.3.12, wayland-scanner 0.31.10, wayland-server 0.31.13, wayland-sys 0.31.11
+### 219. Used by wayland-backend 0.3.15, wayland-client 0.31.14, wayland-protocols 0.32.12, wayland-protocols-wlr 0.3.12, wayland-scanner 0.31.11, wayland-server 0.31.13, wayland-sys 0.31.11
 
 ```text
 Copyright (c) 2015 Elinor Berger
@@ -10982,7 +10991,7 @@ Apache License
    limitations under the License.
 ```
 
-### 226. Used by xcb 1.7.0
+### 226. Used by xcb 1.7.1
 
 ```text
 Copyright (c) 2013 James Miller <james@aatch.net>
@@ -11155,7 +11164,31 @@ Some files in the "tests/data" subdirectory of this repository are under other
 licences; see files named LICENSE.*.txt for details.
 ```
 
-### 232. Used by zopfli 0.8.3
+### 232. Used by zlib-rs 0.6.8
+
+```text
+(C) 2024 Trifecta Tech Foundation 
+
+This software is provided 'as-is', without any express or implied
+warranty. In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software
+   in a product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+
+3. This notice may not be removed or altered from any source distribution.
+```
+
+### 233. Used by zopfli 0.8.3
 
 ```text
 Apache License

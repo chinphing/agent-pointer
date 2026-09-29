@@ -16,7 +16,7 @@
 
 Standalone 模式要点：
 
-- **必须**有效 License（Ed25519 验签，公钥编译在 `crates/pointer-core/license.pub`）
+- **官方包必须**有效 License（Ed25519 验签，公钥编译在 `crates/pointer-core/license.pub`）；非 official 自建包不强制 —— 未配置时以 `notConfigured` 运行，许可功能关闭
 - **必须**在 Web 设置 → 模型配置 添加服务并填写 API Key（不要写在 TOML）
 - **使用账号密码 + 验证码登录**，不走 readflowai.com OAuth
 - 默认**不上报** Token 用量（`report_enabled = false`）

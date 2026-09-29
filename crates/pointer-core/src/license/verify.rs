@@ -242,15 +242,24 @@ pub fn active_license_status_view() -> LicenseStatusView {
     }
 }
 
-/// Verify configured license key and cache claims. Fails fast on invalid/expired license.
+/// Verify configured license key and cache claims.
+///
+/// Only the **official** flavour enforces a license (see
+/// `docs/design/control-plane-and-editions.md`): a personal / self-built server starts
+/// unlicensed, with licensed features off, instead of failing to boot. An invalid or
+/// expired key still fails fast — the key is optional here, not unchecked.
 pub fn validate_license_at_startup() -> Result<()> {
     if !crate::deployment_mode::is_standalone() {
         log::info!("license: skipped (platform deployment mode)");
         return Ok(());
     }
+    if !crate::edition::is_official() {
+        log::info!("license: not enforced (non-official build; licensed features stay off)");
+        return Ok(());
+    }
     let Some(key) = license_key_from_env() else {
         bail!(
-            "standalone mode requires a license key: set [license].key in pointer-server.toml or {ENV_LICENSE_KEY}"
+            "official standalone build requires a license key: set [license].key in pointer-server.toml or {ENV_LICENSE_KEY}"
         );
     };
     let verifier = LicenseVerifier::from_embedded()?;
@@ -433,5 +442,24 @@ mod tests {
             Some(v) => std::env::set_var(ENV_LICENSE_PUBLIC_KEY, v),
             None => std::env::remove_var(ENV_LICENSE_PUBLIC_KEY),
         }
+    }
+
+    /// A self-built (non-official) server must boot without a license key — only the
+    /// official flavour enforces one. The lib test binary derives standalone and, with
+    /// no `POINTER_EDITION`, is not official: exactly the case a stranger hits after
+    /// cloning the repo.
+    #[test]
+    fn non_official_standalone_boots_without_a_license_key() {
+        for key in ["POINTER_DEPLOYMENT_MODE", "POINTER_LICENSE_KEY", "POINTER_EDITION"] {
+            if std::env::var(key).is_ok() {
+                // The harness pinned a mode / edition / key; the rule is not observable here.
+                return;
+            }
+        }
+        if !crate::deployment_mode::is_standalone() || crate::edition::is_official() {
+            return;
+        }
+        validate_license_at_startup()
+            .expect("non-official standalone must not require a license key");
     }
 }

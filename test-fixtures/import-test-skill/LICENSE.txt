@@ -1,3 +1,0 @@
-MIT License (test stub)
-
-This zip is for manual import testing only.

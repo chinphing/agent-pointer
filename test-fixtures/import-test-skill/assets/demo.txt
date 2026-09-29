@@ -1,2 +1,0 @@
-import-test-skill asset file
-If this exists on disk, assets/ was imported correctly.

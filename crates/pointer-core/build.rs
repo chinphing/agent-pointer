@@ -11,6 +11,7 @@ fn main() {
     emit_app_version_from_tauri_conf(&tauri_conf);
     emit_license_public_key(&manifest_dir);
     emit_edition();
+    emit_platform_domains();
 }
 
 fn emit_app_version_from_tauri_conf(path: &Path) {
@@ -35,6 +36,44 @@ fn emit_edition() {
         if !trimmed.is_empty() {
             println!("cargo:rustc-env=POINTER_EDITION={trimmed}");
         }
+    }
+}
+
+/// Control-plane domains for an official package, baked in at compile time.
+///
+/// The open-source tree carries no Pointer production domain: an official build
+/// must supply them here, and a build that does not stays unbound (standalone).
+fn emit_platform_domains() {
+    const DOMAINS: [(&str, &str); 3] = [
+        ("POINTER_API_BASE", "POINTER_BUILTIN_API_BASE"),
+        ("POINTER_WEB_BASE", "POINTER_BUILTIN_WEB_BASE"),
+        (
+            "COMPUTER_ANNOTATE_API_BASE",
+            "POINTER_BUILTIN_ANNOTATE_API_BASE",
+        ),
+    ];
+
+    let official = env::var("POINTER_EDITION")
+        .map(|raw| raw.trim().eq_ignore_ascii_case("official"))
+        .unwrap_or(false);
+
+    let mut missing: Vec<&str> = Vec::new();
+    for (key, rustc_env) in DOMAINS {
+        println!("cargo:rerun-if-env-changed={key}");
+        let value = env::var(key).unwrap_or_default();
+        let value = value.trim();
+        if value.is_empty() {
+            missing.push(key);
+        }
+        println!("cargo:rustc-env={rustc_env}={value}");
+    }
+
+    if official && !missing.is_empty() {
+        panic!(
+            "pointer-core: an official build must inject its control-plane domains, but these are missing or empty: {}. \
+             The open-source tree no longer hardcodes them; see docs/contributing/editions.md.",
+            missing.join(", ")
+        );
     }
 }
 

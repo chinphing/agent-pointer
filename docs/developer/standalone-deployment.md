@@ -248,7 +248,7 @@ Standalone **不从** `pointer-server.toml` 读取模型、地址或 API Key。�
 
 | 模块                                   | Standalone 行为                                           |
 | ------------------------------------ | ------------------------------------------------------- |
-| `platform_endpoints.rs`              | 不回落 readflowai.com 默认域名，未配置时 warn                       |
+| `platform_endpoints.rs`              | 不回落官方默认域名（源码不硬编码，未注入即未绑定），未配置时 warn                       |
 | `cloud_agent_auth.rs`                | 禁用云 OAuth code exchange                                 |
 | `token_usage_store.rs`               | `usage_report_enabled()` 默认 false，跳过上报                  |
 | `media/oss.rs`                       | 从 `[media_oss]` 或 `OSS_*` 环境变量读取，不从 OAuth 注入            |

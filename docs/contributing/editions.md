@@ -12,9 +12,9 @@
 | 值 | 效果 |
 | --- | --- |
 | 未设置（**personal 构建**） | 不预填官方域名（未绑定 ⇒ standalone）；关 Tauri 更新产物（`tauri.personal.conf.json`） |
-| `official` | 预填控制面域名；官方更新端点与 standalone License 策略 |
+| `official` | 要求控制面域名（**构建期注入，缺失则构建失败**）；官方更新端点与 standalone License 策略 |
 
-运行时仍可用环境变量覆盖：`POINTER_API_BASE`、`POINTER_WEB_BASE`、`COMPUTER_ANNOTATE_API_BASE`、`POINTER_USAGE_REPORT_ENABLED`。前端对应 `VITE_POINTER_EDITION`、`VITE_POINTER_WEB_BASE`。
+源码不硬编码任何官方域名。控制面域名在**构建期**注入：`POINTER_API_BASE`、`POINTER_WEB_BASE`、`COMPUTER_ANNOTATE_API_BASE`（由 `crates/pointer-core/build.rs` 读入并烧进二进制）；前端对应 `VITE_POINTER_EDITION`、`VITE_POINTER_WEB_BASE`、`VITE_POINTER_DOWNLOAD_URL`。运行时仍可用同名 `POINTER_*` 环境变量覆盖，`POINTER_USAGE_REPORT_ENABLED` 亦同。
 
 ## 本机默认：`pointer.local.env`（不提交）
 
@@ -57,7 +57,7 @@ POINTER_EDITION=official VITE_POINTER_EDITION=official \
   npm run tauri:build
 ```
 
-官方发版由 [`.github/workflows/release.yml`](../../.github/workflows/release.yml) 注入 `POINTER_EDITION=official` 与签名 secret，不依赖开发者本机的 `pointer.local.env`。
+官方发版由 [`.github/workflows/release.yml`](../../.github/workflows/release.yml) 注入 `POINTER_EDITION=official`、控制面域名（repository variables，见该 workflow 的 env 段）与签名 secret，不依赖开发者本机的 `pointer.local.env`。
 
 ## 日常开发
 

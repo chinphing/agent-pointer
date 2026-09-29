@@ -10,15 +10,14 @@ import { isOfficialEdition } from '../../../lib/platformUrls'
 
 const { t } = useI18n()
 
-const DOWNLOAD_URL = (() => {
-  const fromEnv = String(
-    (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_POINTER_DOWNLOAD_URL ??
-      ''
-  ).trim()
-  if (fromEnv) return fromEnv
-  if (!isOfficialEdition()) return ''
-  return 'https://pointer-app.readflowai.com/download'
-})()
+/**
+ * Download page for the error-state fallback link. Supplied by the build
+ * (`VITE_POINTER_DOWNLOAD_URL`); the open-source tree hardcodes no vendor domain,
+ * so a build without it simply shows no link.
+ */
+const DOWNLOAD_URL = String(
+  (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_POINTER_DOWNLOAD_URL ?? ''
+).trim()
 
 const showUpdater = isOfficialEdition() && isTauriRuntime()
 

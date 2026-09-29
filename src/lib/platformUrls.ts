@@ -1,8 +1,5 @@
 import { openExternalUrl } from './openExternalUrl'
 
-/** Matches `platform_endpoints` official default. Personal builds leave this empty. */
-const OFFICIAL_WEB_BASE = 'https://pointer.readflowai.com'
-
 function viteEnv(name: string): string {
   if (typeof import.meta === 'undefined') return ''
   const env = (import.meta as ImportMeta & { env?: Record<string, string> }).env
@@ -18,10 +15,13 @@ export function isOfficialEdition(): boolean {
   return pointerEdition() === 'official'
 }
 
+/**
+ * Web base for platform pages (billing, …). Supplied by the build
+ * (`VITE_POINTER_WEB_BASE`); the open-source tree hardcodes no vendor domain, so
+ * a build without it returns empty and callers stay inert.
+ */
 export function platformWebBase(): string {
-  const fromEnv = viteEnv('VITE_POINTER_WEB_BASE')
-  const fallback = isOfficialEdition() ? OFFICIAL_WEB_BASE : ''
-  return (fromEnv || fallback).replace(/\/$/, '')
+  return viteEnv('VITE_POINTER_WEB_BASE').replace(/\/$/, '')
 }
 
 /** Official account billing / WeChat recharge page. Empty for personal builds. */

@@ -1,30 +1,27 @@
 //! pointer-server / SOM API base URLs.
 //!
-//! - **Official build** (`POINTER_EDITION=official`): production domains by default.
+//! The open-source tree hardcodes no Pointer domain. An official build injects
+//! the domains at build time (see `build.rs`); without them this build is unbound.
+//!
+//! - **Official build** (`POINTER_EDITION=official`): the injected domains.
 //! - **Any other build**: unbound unless `POINTER_*` is set, i.e. standalone.
 //! - **Standalone / unbound**: empty, so related platform features stay disabled.
 //! - Any build can override with `POINTER_*` / `COMPUTER_ANNOTATE_API_BASE`.
 
-#[cfg(debug_assertions)]
-pub const DEFAULT_API_BASE: &str = "https://pointer-api.readflowai.com";
-#[cfg(not(debug_assertions))]
-pub const DEFAULT_API_BASE: &str = "https://pointer-api.readflowai.com";
+/// Baked in by `build.rs` from `POINTER_API_BASE`; empty when the build supplied none.
+pub const DEFAULT_API_BASE: &str = env!("POINTER_BUILTIN_API_BASE");
 
-#[cfg(debug_assertions)]
-pub const DEFAULT_WEB_BASE: &str = "https://pointer.readflowai.com";
-#[cfg(not(debug_assertions))]
-pub const DEFAULT_WEB_BASE: &str = "https://pointer.readflowai.com";
+/// Baked in by `build.rs` from `POINTER_WEB_BASE`; empty when the build supplied none.
+pub const DEFAULT_WEB_BASE: &str = env!("POINTER_BUILTIN_WEB_BASE");
 
 pub const DEFAULT_OAUTH_CLIENT_ID: &str = "pointer-desktop";
 
-#[cfg(debug_assertions)]
-pub const DEFAULT_ANNOTATE_API_BASE: &str = "https://pointer-som.readflowai.com";
-#[cfg(not(debug_assertions))]
-pub const DEFAULT_ANNOTATE_API_BASE: &str = "https://pointer-som.readflowai.com";
+/// Baked in by `build.rs` from `COMPUTER_ANNOTATE_API_BASE`; empty when the build supplied none.
+pub const DEFAULT_ANNOTATE_API_BASE: &str = env!("POINTER_BUILTIN_ANNOTATE_API_BASE");
 
 /// Resolve one platform base URL: an explicit env var wins, otherwise only an
-/// official build falls back to the production default. Anything else is unbound
-/// and behaves as standalone.
+/// official build falls back to the domain injected at build time. Anything else
+/// is unbound and behaves as standalone.
 fn resolve_platform_base(key: &str, platform_default: &str) -> String {
     if let Ok(raw) = std::env::var(key) {
         let trimmed = raw.trim();
@@ -58,4 +55,97 @@ pub fn oauth_client_id() -> String {
 
 pub fn annotate_api_base() -> String {
     resolve_platform_base("COMPUTER_ANNOTATE_API_BASE", DEFAULT_ANNOTATE_API_BASE)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Guard: the open-source tree must not carry a vendor production domain in
+    /// shipped code. Docs, licences, metadata, and example configs may name it.
+    #[test]
+    fn shipped_code_hardcodes_no_vendor_domain() {
+        let domain = concat!("readflow", "ai.com");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut offenders: Vec<String> = Vec::new();
+        collect_offenders(&root, &root, domain, &mut offenders);
+        assert!(
+            offenders.is_empty(),
+            "shipped code must not hardcode a vendor domain — inject it at build time instead: {offenders:#?}"
+        );
+    }
+
+    fn collect_offenders(
+        root: &std::path::Path,
+        dir: &std::path::Path,
+        domain: &str,
+        out: &mut Vec<String>,
+    ) {
+        const SKIP_DIRS: [&str; 7] = [
+            "target",
+            "node_modules",
+            "dist",
+            ".git",
+            ".scratch",
+            "gen",
+            "vendor",
+        ];
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+
+            // Local-only files (env overrides, scratch) are not shipped; dotfiles
+            // are tool state. Everything else under the repo is fair game.
+            if name.starts_with('.') || name.ends_with(".env") || name.contains(".local.") {
+                continue;
+            }
+            let Ok(rel) = path.strip_prefix(root) else {
+                continue;
+            };
+            let rel = rel.to_string_lossy().replace('\\', "/");
+            if path.is_dir() {
+                if SKIP_DIRS.contains(&name.as_str()) {
+                    continue;
+                }
+                collect_offenders(root, &path, domain, out);
+                continue;
+            }
+            if is_allowed_path(&rel) {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            for (n, line) in text.lines().enumerate() {
+                if line.contains(domain) {
+                    out.push(format!("{rel}:{}", n + 1));
+                }
+            }
+        }
+    }
+
+    fn is_allowed_path(rel: &str) -> bool {
+        const ALLOWED_DIRS: [&str; 2] = ["docs/", "skills/"];
+        const ALLOWED_FILES: [&str; 15] = [
+            "NOTICE",
+            "LICENSE",
+            "README.md",
+            "README.zh-CN.md",
+            "CHANGELOG.md",
+            "DEVELOPMENT.md",
+            "CONTRIBUTING.md",
+            "package.json",
+            "Cargo.toml",
+            "Cargo.lock",
+            "src-tauri/tauri.conf.json",
+            "scripts/build-server-deb.mjs",
+            "pointer.local.env.example",
+            "server/pointer-server.toml.example",
+            "src-tauri/tauri.personal.conf.json",
+        ];
+        ALLOWED_DIRS.iter().any(|d| rel.starts_with(d)) || ALLOWED_FILES.contains(&rel)
+    }
 }

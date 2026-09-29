@@ -1779,10 +1779,11 @@ mod tests {
         .expect("stale session fixture");
         auth.set_session(stale);
 
-        assert!(
-            !crate::platform_endpoints::control_plane_bound(),
-            "this test asserts the unbound path"
-        );
+        // This test asserts the unbound path; skip when the build is bound —
+        // domains injected at build time, or POINTER_* set in the environment.
+        if crate::platform_endpoints::control_plane_bound() {
+            return;
+        }
         let out = auth.refresh_if_needed().await;
         assert!(
             matches!(out, Ok(None)),

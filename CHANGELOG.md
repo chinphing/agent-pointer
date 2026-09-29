@@ -18,6 +18,9 @@ Versions follow the root `VERSION` file.
   Import equivalent skills yourself if you need them.
 - Builds without the `official` flavor do not default to readflowai.com,
   auto-update, usage reporting, or standalone license enforcement.
+- The source tree no longer hardcodes Pointer's production domains. An `official`
+  build injects them at build time, and the build fails when the flavour is set
+  without them (see `docs/contributing/editions.md`).
 - The public repository is named **agent-pointer**.
 
 ### Security

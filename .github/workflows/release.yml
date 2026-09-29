@@ -85,6 +85,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           POINTER_EDITION: official
           VITE_POINTER_EDITION: official
+          # Control-plane domains for an official package. The open-source tree
+          # hardcodes none, and `pointer-core/build.rs` fails the build when the
+          # official flavour is set without them. Set these as repository
+          # variables: Settings → Secrets and variables → Actions → Variables.
+          POINTER_API_BASE: ${{ vars.POINTER_API_BASE }}
+          POINTER_WEB_BASE: ${{ vars.POINTER_WEB_BASE }}
+          COMPUTER_ANNOTATE_API_BASE: ${{ vars.COMPUTER_ANNOTATE_API_BASE }}
+          VITE_POINTER_WEB_BASE: ${{ vars.POINTER_WEB_BASE }}
+          VITE_POINTER_DOWNLOAD_URL: ${{ vars.POINTER_DOWNLOAD_URL }}
           NO_STRIP: ${{ matrix.platform == 'ubuntu-24.04' && 'true' || '' }}
           # macOS: set repository secrets to enable sign + notarize (see signing/macos/README.md)
           APPLE_CERTIFICATE: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE || '' }}

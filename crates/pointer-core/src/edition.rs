@@ -1,4 +1,4 @@
-//! Build edition: `official` (ships Pointer's own control-plane defaults) vs unset.
+//! Build edition: `official` (control-plane domains must be injected at build time) vs unset.
 //!
 //! `POINTER_EDITION` is a **packaging flavour**, not a gate: whether a build can
 //! reach a control plane is decided at runtime by

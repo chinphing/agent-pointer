@@ -62,7 +62,7 @@ Agent 跑在哪？
 
 | 口味 `POINTER_EDITION` | 客户端 | 服务端 |
 | --- | --- | --- |
-| `official` | 预填官网域名；自动更新 | standalone 要 License |
+| `official` | 构建期注入官网域名；自动更新 | standalone 要 License |
 | 未设置（personal） | 未绑定；无更新 | 不要 License |
 
 发布时按需打格子，不要说「一个官方包 / 一个本地包」：
@@ -105,13 +105,13 @@ deployment_mode          仅服务端：platform（控制面 OAuth）
 
 | | official | 未设置 |
 | --- | --- | --- |
-| 默认控制面 | 编译期常量 readflowai.com | 空（未绑定） |
+| 默认控制面 | 构建期注入的域名 | 空（未绑定） |
 | 客户端自动更新 | 开 | 关（personal 构建） |
 | 用量上报默认 | 已绑定且非 standalone 时开 | 关 |
 | 服务端 standalone License | 要 | 不要 |
 | 登录 / 云主机 / 余额 / 充值代码 | 保留 | 保留 |
 
-官方域名可以留在源码当常量。未设置时不写入绑定。
+官方域名由构建期注入，源码不写常量。未设置时不写入绑定。
 
 ### 5.2 控制面绑定
 
@@ -119,7 +119,7 @@ deployment_mode          仅服务端：platform（控制面 OAuth）
 
 1. `POINTER_API_BASE` / `POINTER_WEB_BASE` / `VITE_POINTER_WEB_BASE`
 2. 用户设置（P1）
-3. 构建默认：official 用常量，未设置则为空
+3. 构建默认：official 用构建期注入的域名，未设置则为空
 
 已绑定：`api_base` 与 `web_base` 都非空。
 
@@ -242,7 +242,7 @@ IdP、组织、店铺、计费在控制面仓库做。
 ## 9. 明确不做
 
 - 不为未绑定构建去掉登录、云主机、充值
-- 不从源码删除官方默认域名
+- 不在源码里硬编码官方域名（官方口味由构建期注入；见 `docs/contributing/editions.md`）
 - 不给 standalone 加店铺来凑公司云主机
 - 不新增长期商业分支
 - 不在提示词里写文件名或开发注释

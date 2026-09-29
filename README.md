@@ -29,12 +29,17 @@ A digital employee has to work inside a real office setup. It needs a license th
     <tr>
       <td>Product form</td>
       <td>Open-source agents are mostly CLI, for developers</td>
-      <td><strong>A desktop app &amp; web server</strong>. <strong>Easy to distribute, and easy for everyone in the company to use</strong>. <strong>One harness</strong>: developing and running Skills stay consistent</td>
+      <td><strong>A desktop app &amp; web server</strong>. <strong>Easy to distribute, and easy for everyone in the company to use</strong></td>
+    </tr>
+    <tr>
+      <td>Skill development</td>
+      <td>Skills pass in development and fail in production because the environments differ</td>
+      <td><strong>One harness</strong>: developing and running Skills stay consistent</td>
     </tr>
     <tr>
       <td>Enterprise features</td>
-      <td>Each person configures their own account and keys, and Skills are copied around by hand — no central control</td>
-      <td><strong>Unified login, unified API-key management, unified Skill distribution and permissions, and conversation-record reporting — and more</strong></td>
+      <td>Each person sets up their own account and keys; there is no central control</td>
+      <td><strong>Unified login, unified API-key management, unified Skill distribution, and conversation-record reporting — and more</strong></td>
     </tr>
     <tr>
       <td>Open source, commercial use</td>

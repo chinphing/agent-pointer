@@ -29,7 +29,12 @@ A digital employee has to work inside a real office setup. It needs a license th
     <tr>
       <td>Product form</td>
       <td>Open-source agents are mostly CLI, for developers</td>
-      <td><strong>A desktop app</strong>, and open source. <strong>Everyone in the company can use it</strong></td>
+      <td><strong>A desktop app &amp; web server</strong>, and open source. <strong>Everyone in the company can use it</strong>. <strong>One harness</strong>: developing and running Skills stay consistent</td>
+    </tr>
+    <tr>
+      <td>Enterprise features</td>
+      <td>Each person configures their own account and keys, and Skills are copied around by hand — no central control</td>
+      <td><strong>Unified login, unified API-key management, and unified Skill distribution and permissions</strong></td>
     </tr>
     <tr>
       <td>Open source, commercial use</td>
@@ -53,11 +58,6 @@ A digital employee has to work inside a real office setup. It needs a license th
       <td>Long conversations</td>
       <td>When the context fills up, you start a new chat, and earlier work is easy to lose</td>
       <td><strong>Stay in one conversation for as long as you want.</strong> It pages automatically, compresses context automatically, and you can mark milestones for quick recall</td>
-    </tr>
-    <tr>
-      <td>Computer control</td>
-      <td>No hands or eyes, or browser-only / accessibility-tree control</td>
-      <td><strong>Built-in vision computer control</strong>: read screenshots, then use the mouse and keyboard on desktop apps. It can control any GUI application on the computer (still being improved), filling the last capability gap for digital employees</td>
     </tr>
     <tr>
       <td>Vendors</td>

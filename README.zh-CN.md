@@ -29,7 +29,12 @@
     <tr>
       <td>产品形态</td>
       <td>开源的多半是命令行，主要给开发用</td>
-      <td><strong>桌面版</strong>，而且开源。<strong>企业里谁都能上手</strong></td>
+      <td><strong>桌面版 + Web 服务端</strong>，而且开源。<strong>企业里谁都能上手</strong>。<strong>同一套 harness</strong>：开发和运行技能一致性更高</td>
+    </tr>
+    <tr>
+      <td>企业特性</td>
+      <td>每个人自己配账号和密钥，技能靠手动拷贝分发，没有统一管控</td>
+      <td><strong>统一登录、统一 API Key 管理、统一 Skill 分发和权限管理</strong></td>
     </tr>
     <tr>
       <td>开源商用</td>
@@ -53,11 +58,6 @@
       <td>超长会话</td>
       <td>上下文一满就得新开，以前聊过的容易丢</td>
       <td><strong>想一直聊就一直聊。</strong>自动分页、自动压缩上下文，重要节点可标里程碑，随时跳回去</td>
-    </tr>
-    <tr>
-      <td>电脑操控</td>
-      <td>没有手和眼，或者只能搞浏览器、靠无障碍接口</td>
-      <td><strong>自带纯视觉电脑操控</strong>：看截图，用鼠标键盘操作。电脑上有界面的软件都能控（还在打磨），补上数字员工缺的那一块</td>
     </tr>
     <tr>
       <td>供应商</td>

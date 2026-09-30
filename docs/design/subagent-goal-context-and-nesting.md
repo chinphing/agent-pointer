@@ -57,7 +57,7 @@ Lead 调用：`run_subagent(agentId="self", goal=…, context=…)`。Repo / ski
 }
 ```
 
-提示词落地：`tools/prompts/run_subagent.md`、`agents/general/AGENT.md`、`agents/supervisor/AGENT.md`；computer worker 的 delegatable `description` 亦提示 outcome-only goal。
+提示词落地：`tools/prompts/run_subagent.md`、`agents/general/AGENT.md`；computer worker 的 delegatable `description` 亦提示 outcome-only goal。
 
 ### 1.2 `AgentTask`（Supervisor 同形）
 
@@ -218,7 +218,6 @@ You are sub-agent depth {d}/{max}. …
 |------|------|
 | `tools/prompts/run_subagent.md` | `goal`/`context`；深度限制；**Goal authoring**（explore / computer / coder）；删除 instruction |
 | `agents/coder/prompts/delegation.md` | Goal/Context 模板；何时子 coder 可再委派 explore |
-| `agents/supervisor/AGENT.md` | `goal` + `context`；深度默认 1 |
 | `agents/explore/AGENT.md` | 只读；`allowAgents: [explore]`（不含写型 worker） |
 
 ### 5.2 子 agent system 附录

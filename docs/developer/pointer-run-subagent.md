@@ -63,8 +63,6 @@ allowAgents:
 
 **留在 general 主线程**：对话、通识、**`skill_*`**、附件；无需读仓库的简单 Q&A。
 
-Supervisor 团队模式： **`supervisor/AGENT.md`** 与 **`supervisor_plan.rs`** 规划提示同步同一政策。
-
 ## `general` → `coder` 工作目录
 
 general 无 Composer 工作区选择器。委派 **coder** 前应在对话中询问用户**项目绝对路径**：

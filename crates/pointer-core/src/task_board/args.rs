@@ -413,11 +413,6 @@ pub fn constraints_from_args(args: &Value) -> Option<String> {
     })
 }
 
-#[deprecated(note = "use constraints_from_args")]
-pub fn constraint_from_args(args: &Value) -> Option<String> {
-    constraints_from_args(args)
-}
-
 pub fn done_when_from_args(args: &Value) -> Option<String> {
     str_meta_field(args, "done_when")
 }

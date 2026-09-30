@@ -112,6 +112,44 @@ describe('createConversationScopedStore', () => {
     expect(store.getRows('c1', { agentInstanceId: 'inst-1' }).map(m => m.id)).toEqual(['m1'])
   })
 
+  it('ask_user revision ignores text growth and bumps on ask_user changes', () => {
+    const store = createConversationScopedStore()
+    const row = scopedMsg({
+      id: 'm1',
+      agentInstanceId: 'inst-1',
+      status: 'streaming',
+      toolCalls: [
+        { id: 'tc-ask', name: 'ask_user', status: 'pending', arguments: '{"question":"q"' },
+        { id: 'tc-read', name: 'read', status: 'running', arguments: '{}' }
+      ]
+    })
+    store.ensureInstance('c1', {
+      agentInstanceId: 'inst-1',
+      traceId: 'task:explore',
+      anchorMessageId: 'anchor-1'
+    }, row)
+    const afterSpawn = store.getAskUserRevision('c1')
+    expect(afterSpawn).toBeGreaterThan(0)
+    expect(store.getAskUserRevision('other')).toBe(0)
+
+    // Streamed text / non-ask_user tool traffic: the banner must not rescan.
+    row.content = 'streamed body'
+    row.toolCalls![1]!.result = 'x'.repeat(400)
+    row.toolCalls![0]!.result = JSON.stringify({ selected: ['A'] })
+    store.touchRow('c1', 'm1')
+    expect(store.getAskUserRevision('c1')).toBe(afterSpawn)
+
+    // ask_user arguments keep streaming → the banner must re-render the question.
+    row.toolCalls![0]!.arguments += ',"options":[]}'
+    store.touchRow('c1', 'm1')
+    expect(store.getAskUserRevision('c1')).toBe(afterSpawn + 1)
+
+    // Status change → the banner must rescan.
+    row.toolCalls![0]!.status = 'success'
+    store.touchRow('c1', 'm1')
+    expect(store.getAskUserRevision('c1')).toBe(afterSpawn + 2)
+  })
+
   it('ensureInstance with empty lookup warns and skips', () => {
     const store = createConversationScopedStore()
     expect(store.ensureInstance('c1', {}, scopedMsg({ id: 'm1' }))).toBeUndefined()

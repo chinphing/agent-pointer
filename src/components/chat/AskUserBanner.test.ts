@@ -10,6 +10,7 @@ import {
   useConversationScopedStore
 } from '../../lib/conversationScoped'
 import { submitAskUser } from '../../lib/api'
+import { pendingAskUserToolCalls } from '../../lib/askUserBanner'
 import AskUserBanner from './AskUserBanner.vue'
 
 const hoisted = vi.hoisted(() => ({
@@ -26,6 +27,15 @@ vi.mock('../../stores/chat', () => ({
 vi.mock('../../lib/api', () => ({
   submitAskUser: vi.fn(async () => {})
 }))
+
+// Count the banner's queue scans: the regression was `pending` subscribing to the
+// conversation-wide live signal, so every streamed chunk rescanned all rows.
+vi.mock('../../lib/askUserBanner', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../lib/askUserBanner')>()
+  return { ...actual, pendingAskUserToolCalls: vi.fn(actual.pendingAskUserToolCalls) }
+})
+
+const pendingScan = vi.mocked(pendingAskUserToolCalls)
 
 const mountedApps: Array<ReturnType<typeof createApp>> = []
 
@@ -74,6 +84,7 @@ beforeEach(() => {
   hoisted.chatState.currentId = 'c1'
   hoisted.chatState.current = { id: 'c1', messages: [] }
   vi.mocked(submitAskUser).mockClear()
+  pendingScan.mockClear()
 })
 
 afterEach(() => {
@@ -171,5 +182,61 @@ describe('AskUserBanner', () => {
     await vi.advanceTimersByTimeAsync(2000)
     await flush()
     expect(host.textContent).toContain('第二个问题')
+  })
+
+  it('does not rescan for streamed row text', async () => {
+    const store = useConversationScopedStore()
+    const row = deepScopedRow()
+    store.ingestRows('c1', [row])
+    const host = mountBanner()
+    await flush()
+    expect(host.querySelector('[data-ask-user-banner]')).toBeTruthy()
+
+    const scansBefore = pendingScan.mock.calls.length
+    const liveBefore = store.getLiveSignal('c1', 'inst-deep')
+
+    row.content += '流式正文'
+    row.thoughts = '还在推理'
+    row.toolCalls![0]!.result = 'x'.repeat(200)
+    store.touchRow('c1', 'scoped-deep')
+    await flush()
+
+    // The live signal really moved — but the banner did not rescan its queue.
+    expect(store.getLiveSignal('c1', 'inst-deep')).not.toBe(liveBefore)
+    expect(pendingScan.mock.calls.length).toBe(scansBefore)
+    expect(host.querySelector('[data-ask-user-banner]')).toBeTruthy()
+  })
+
+  it('rescans while an ask_user call still streams its arguments', async () => {
+    const store = useConversationScopedStore()
+    const row = deepScopedRow()
+    store.ingestRows('c1', [row])
+    mountBanner()
+    await flush()
+
+    const scansBefore = pendingScan.mock.calls.length
+    row.toolCalls![0]!.arguments += ',"multi_select":false}'
+    store.touchRow('c1', 'scoped-deep')
+    await flush()
+
+    // The banner renders the question / options straight from `arguments`.
+    expect(pendingScan.mock.calls.length).toBeGreaterThan(scansBefore)
+  })
+
+  it('rescans when a scoped ask_user tool call changes status', async () => {
+    const store = useConversationScopedStore()
+    const row = deepScopedRow()
+    store.ingestRows('c1', [row])
+    const host = mountBanner()
+    await flush()
+    expect(host.querySelector('[data-ask-user-banner]')).toBeTruthy()
+
+    const scansBefore = pendingScan.mock.calls.length
+    row.toolCalls![0]!.status = 'success'
+    store.touchRow('c1', 'scoped-deep')
+    await flush()
+
+    expect(pendingScan.mock.calls.length).toBeGreaterThan(scansBefore)
+    expect(host.querySelector('[data-ask-user-banner]')).toBeNull()
   })
 })

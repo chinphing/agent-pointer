@@ -1,4 +1,5 @@
 import type { AgentTrace, ChatMessage } from '../../types/chat'
+import { toolCallBaseName } from '../messageTooling'
 
 /** Cheap live-line fingerprint for v-memo on running SubAgentFrame rows. */
 export function computeSubAgentLiveFingerprint(
@@ -33,4 +34,24 @@ export function computeSubAgentLiveFingerprint(
     }
   }
   return `${textLen}|${toolSig}`
+}
+
+/**
+ * Ask_user-relevant signature for one spawn's rows.
+ *
+ * The top-of-chat banner is the only consumer: it rescans its queue whenever this
+ * changes. Only `ask_user` tool calls count, and only the fields the banner renders —
+ * `status` plus `arguments` (the question / options, which stream in chunk by chunk)
+ * and the `displaySummary` fallback. Row text, tool `result` growth and non-ask_user
+ * tool traffic stay invisible, so a streaming row no longer rescans the banner.
+ */
+export function computeScopedAskUserSignature(scoped: readonly ChatMessage[]): string {
+  let out = ''
+  for (const msg of scoped) {
+    for (const tc of msg.toolCalls ?? []) {
+      if (toolCallBaseName(tc.name) !== 'ask_user') continue
+      out += `${msg.id}/${tc.id}:${tc.status}:${tc.arguments?.length ?? 0}:${tc.displaySummary?.length ?? 0};`
+    }
+  }
+  return out
 }

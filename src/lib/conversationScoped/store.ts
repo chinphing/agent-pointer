@@ -1,6 +1,6 @@
 import { ref, shallowRef } from 'vue'
 import type { AgentTrace, ChatMessage } from '../../types/chat'
-import { computeSubAgentLiveFingerprint } from './liveFingerprint'
+import { computeScopedAskUserSignature, computeSubAgentLiveFingerprint } from './liveFingerprint'
 import { agentIdFromLookup, resolveSpawnId, taskIdFromLookup } from './spawnId'
 import type {
   ScopedEvictReason,
@@ -42,7 +42,8 @@ function emptyTranscript(lookup: SpawnLookup & { instanceId: SpawnId }): ScopedI
     agentId: agentIdFromLookup(lookup),
     rows: [],
     loadState: 'streaming',
-    liveFingerprint: ''
+    liveFingerprint: '',
+    askUserSignature: ''
   }
 }
 
@@ -51,12 +52,25 @@ export function createConversationScopedStore() {
   const liveSignals = ref<Record<string, Record<string, string>>>({})
   /** Bumps only when a spawn is added or removed — not on token writes. */
   const membership = ref<Record<string, number>>({})
+  /**
+   * Bumps only when a spawn's ask_user-relevant signature changes (see
+   * `computeScopedAskUserSignature`) — row text growth and non-ask_user tool traffic
+   * leave it untouched. The top-of-chat banner reads this instead of the live
+   * fingerprint, which is replaced on every streamed chunk.
+   */
+  const askUserRevisions = ref<Record<string, number>>({})
   const version = ref(0)
 
   function bumpMembership(convId: string) {
     const id = convId.trim()
     if (!id) return
     membership.value[id] = (membership.value[id] ?? 0) + 1
+  }
+
+  function bumpAskUserRevision(convId: string) {
+    const id = convId.trim()
+    if (!id) return
+    askUserRevisions.value[id] = (askUserRevisions.value[id] ?? 0) + 1
   }
 
   function getState(convId: string): ConvScopedState | undefined {
@@ -124,6 +138,13 @@ export function createConversationScopedStore() {
   ) {
     transcript.liveFingerprint = computeSubAgentLiveFingerprint(transcript.rows, legacySession)
     publishLive(convId, transcript)
+    // Narrow signal for the ask_user banner: row text growth and non-ask_user tool
+    // traffic must not invalidate it (see computeScopedAskUserSignature).
+    const askUserSignature = computeScopedAskUserSignature(transcript.rows)
+    if (askUserSignature !== transcript.askUserSignature) {
+      transcript.askUserSignature = askUserSignature
+      bumpAskUserRevision(convId)
+    }
   }
 
   function upsertTranscript(
@@ -436,6 +457,9 @@ export function createConversationScopedStore() {
     if (id in membership.value) {
       delete membership.value[id]
     }
+    if (id in askUserRevisions.value) {
+      delete askUserRevisions.value[id]
+    }
     version.value += 1
   }
 
@@ -443,6 +467,7 @@ export function createConversationScopedStore() {
     states.value = new Map()
     liveSignals.value = {}
     membership.value = {}
+    askUserRevisions.value = {}
     version.value += 1
   }
 
@@ -456,6 +481,16 @@ export function createConversationScopedStore() {
     const id = convId?.trim()
     if (!id) return 0
     return membership.value[id] ?? 0
+  }
+
+  /**
+   * Narrow per-conversation revision for the ask_user banner: changes only when a
+   * spawn's ask_user-relevant signature changes (never on token writes).
+   */
+  function getAskUserRevision(convId: string | null | undefined): number {
+    const id = convId?.trim()
+    if (!id) return 0
+    return askUserRevisions.value[id] ?? 0
   }
 
   return {
@@ -483,7 +518,8 @@ export function createConversationScopedStore() {
     clearConversation,
     clearAll,
     getLiveSignal,
-    getMembershipSignal
+    getMembershipSignal,
+    getAskUserRevision
   }
 }
 

@@ -10,6 +10,27 @@ export type CurrentConversationSearchMatch = {
   contentMessageId?: string
 }
 
+/**
+ * Shared frozen empties for the current-conversation search surface.
+ *
+ * The search props bound to `MessageList` must keep a stable identity while the search
+ * is idle: the virtual list re-renders whenever an array prop changes identity, and a
+ * streamed sub-agent chunk used to hand it a brand-new `[]` on every token.
+ *
+ * Consumers only read (`includes` / `some` / `map` / `filter`) — mutating one throws.
+ */
+export const EMPTY_SEARCH_MATCHES: readonly CurrentConversationSearchMatch[] = Object.freeze([])
+
+function frozenEmptyIds(): string[] {
+  // `Object.freeze` types as `readonly string[]`, while the search props are declared
+  // mutable for their consumers — keep the single assertion here instead of widening
+  // every prop / provide type.
+  return Object.freeze([]) as unknown as string[]
+}
+
+/** Shared frozen empty id list — see {@link EMPTY_SEARCH_MATCHES}. */
+export const EMPTY_SEARCH_IDS: string[] = frozenEmptyIds()
+
 function searchableValues(values: unknown[]): string {
   return values
     .filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -61,7 +82,7 @@ function scopedRowOrder(row: ChatMessage): number {
  * content block.
  */
 export function findCurrentConversationMatches(
-  messages: ChatMessage[],
+  messages: readonly ChatMessage[],
   query: string,
   scopedMessages: readonly ChatMessage[] = []
 ): CurrentConversationSearchMatch[] {

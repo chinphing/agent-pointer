@@ -29,11 +29,12 @@ const pending = computed(() => {
   const convId = (chat.currentId ?? chat.current?.id ?? '').trim()
   const scopedRows = convId ? scopedStore.listRows(convId) : []
   if (convId) {
-    // Scoped rows live behind a shallowRef map: spawn membership + the live
-    // fingerprint are the reactive hooks that make new rows / status changes
-    // re-evaluate this computed.
+    // Scoped rows live behind a shallowRef map: spawn membership + the ask_user
+    // revision are the reactive hooks that make new rows / status changes re-evaluate
+    // this computed. The live fingerprint is deliberately NOT read — it is replaced on
+    // every streamed chunk, which used to rescan every row per token.
     void scopedStore.getMembershipSignal(convId)
-    void scopedStore.getLiveSignal(convId, '')
+    void scopedStore.getAskUserRevision(convId)
   }
   return pendingAskUserToolCalls([...(chat.current?.messages ?? []), ...scopedRows])
 })

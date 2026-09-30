@@ -18,6 +18,11 @@ export interface ScopedInstanceTranscript {
   rows: ChatMessage[]
   loadState: ScopedLoadState
   liveFingerprint: string
+  /**
+   * Ask_user-relevant signature of `rows` (see `computeScopedAskUserSignature`).
+   * Cached so the store only bumps its narrow revision when it actually changes.
+   */
+  askUserSignature: string
 }
 
 export interface SpawnLookup {

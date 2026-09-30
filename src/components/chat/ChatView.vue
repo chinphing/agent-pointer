@@ -9,8 +9,7 @@ import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
 import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import TerminalLiveOutputModal from './TerminalLiveOutputModal.vue'
-import { findCurrentConversationMatches } from '../../lib/currentConversationSearch'
-import { useConversationScopedStore } from '../../lib/conversationScoped'
+import { useCurrentConversationSearch } from '../../lib/useCurrentConversationSearch'
 import { shouldShowMessageListPlaceholder, shouldShowWelcomeHome } from '../../lib/chatMainPane'
 import {
   MOBILE_VIEWPORT_MEDIA_QUERY,
@@ -122,33 +121,21 @@ const debouncedPageSearchQuery = ref('')
 const pageSearchIndex = ref(0)
 const pageSearchInput = ref<HTMLInputElement | null>(null)
 let pageSearchDebounceTimer: number | null = null
-const pageSearchMatches = computed(() =>
-  findCurrentConversationMatches(
-    chat.current?.messages ?? [],
-    debouncedPageSearchQuery.value,
-    scopedSearchRows.value
-  )
-)
-/** Sub-agent rows live outside the lead transcript; the search reads them separately. */
-const scopedSearchRows = computed(() => {
-  const convId = (chat.currentId ?? chat.current?.id ?? '').trim()
-  if (!convId) return []
-  const store = useConversationScopedStore()
-  // Scoped rows sit behind a shallowRef map — membership (new spawn) and the live
-  // fingerprint (row / tool status writes) are what make this computed re-evaluate.
-  void store.getMembershipSignal(convId)
-  void store.getLiveSignal(convId, '')
-  return store.listRows(convId)
+/**
+ * Conversation-wide find box. Idle (blank query) the composable hands back shared
+ * frozen empties and never reads the scoped store, so streamed sub-agent chunks cannot
+ * churn the search props bound to `MessageList`.
+ */
+const {
+  matches: pageSearchMatches,
+  matchMessageIds: pageSearchMatchMessageIds,
+  matchToolCallIds: pageSearchMatchToolCallIds,
+  matchContentIds: pageSearchMatchContentIds
+} = useCurrentConversationSearch({
+  query: debouncedPageSearchQuery,
+  conversationId: () => chat.currentId ?? chat.current?.id ?? '',
+  messages: () => chat.current?.messages ?? []
 })
-const pageSearchMatchMessageIds = computed(() =>
-  pageSearchMatches.value.filter(match => !match.toolCallId).map(match => match.messageId)
-)
-const pageSearchMatchToolCallIds = computed(() =>
-  pageSearchMatches.value.flatMap(match => match.toolCallId ? [match.toolCallId] : [])
-)
-const pageSearchMatchContentIds = computed(() =>
-  pageSearchMatches.value.flatMap(match => match.contentMessageId ? [match.contentMessageId] : [])
-)
 const activePageSearchMatch = computed(() =>
   pageSearchMatches.value[pageSearchIndex.value] ?? null
 )

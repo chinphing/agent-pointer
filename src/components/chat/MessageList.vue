@@ -25,6 +25,7 @@ import {
   isToolOnlyAssistantMessage
 } from '../../lib/assistantMessageKind'
 import { shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
+import { rootTracesOf } from '../../lib/subAgentTraceTree'
 import { messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
 import {
   buildMessageListLayout,
@@ -1228,7 +1229,7 @@ function toolRunAssistantMessage(groups: ToolRunGroup[]): ChatMessage | null {
       tracesById.set(trace.id, trace)
     }
   }
-  const agentTrace = tracesById.size > 0 ? [...tracesById.values()] : host.agentTrace
+  const agentTrace = tracesById.size > 0 ? rootTracesOf([...tracesById.values()]) : host.agentTrace
   if (tools === host.toolCalls && agentTrace === host.agentTrace) return host
   return {
     ...host,

@@ -78,6 +78,9 @@ pub struct SubagentDelegationContext<'a> {
     /// Owner chain of the agent issuing this spawn (empty = lead). Children
     /// extend it with their own instance id.
     pub issuer_chain: &'a [String],
+    /// `AgentTrace.id` (= instance id) of the agent issuing this spawn; `None` for the
+    /// lead. Written as the child trace's `parent_trace_id` so the UI can tree it.
+    pub issuer_trace_id: Option<&'a str>,
     /// Lead transcript buffer; used to persist `agent_trace` on the anchor assistant row.
     pub history: Option<&'a mut Vec<ChatMessage>>,
     pub state_arc: std::sync::Arc<crate::chat_service::app_state::AppState>,

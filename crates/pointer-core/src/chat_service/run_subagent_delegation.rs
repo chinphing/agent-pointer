@@ -137,6 +137,16 @@ pub(crate) enum OwnedSubagentSource {
     Registered(AgentDef),
 }
 
+impl OwnedSubagentSource {
+    /// `AgentTrace.delegation` value: tells a self fork apart from a real worker.
+    pub(crate) fn delegation_kind(&self) -> &'static str {
+        match self {
+            OwnedSubagentSource::SelfFork(_) => "self",
+            OwnedSubagentSource::Registered(_) => "registered",
+        }
+    }
+}
+
 pub(crate) struct OwnedSubagentExecutionInput<'a> {
     pub stream: &'a super::StreamTx,
     pub state: &'a AppState,
@@ -162,6 +172,9 @@ pub(crate) struct OwnedSubagentExecutionInput<'a> {
     /// Host tool-pass trace (nested spawn); lead-owned forks leave this empty.
     pub host_trace_id: Option<String>,
     pub host_scoped_message_id: Option<String>,
+    /// `AgentTrace.id` of the issuing agent instance (nested spawn); lead-owned spawns
+    /// leave this empty. Written as the child trace's `parent_trace_id`.
+    pub issuer_trace_id: Option<String>,
     pub state_arc: std::sync::Arc<AppState>,
     /// Foreground join writes a worker preview onto the host `run_subagent` row.
     /// Background spawn keeps that row as a job handle; skip the preview status event.
@@ -204,6 +217,7 @@ pub(super) fn failed_owned_subagent_outcome(
     tool_call_id: &str,
     task: AgentTask,
     source: &OwnedSubagentSource,
+    issuer_trace_id: Option<&str>,
     child_spawn_depth: u32,
     preset_instance: Option<AgentInstanceScope>,
     error: String,
@@ -235,6 +249,8 @@ pub(super) fn failed_owned_subagent_outcome(
             None,
             "failed",
             Some(error.clone()),
+            issuer_trace_id,
+            Some(source.delegation_kind()),
         ),
         usage: ConversationLlmStats::default(),
         exec: Ok((format!("ERROR: {error}"), false, Some(error))),
@@ -247,6 +263,7 @@ pub(super) fn cancelled_owned_subagent_outcome(
     tool_call_id: &str,
     task: AgentTask,
     source: &OwnedSubagentSource,
+    issuer_trace_id: Option<&str>,
     child_spawn_depth: u32,
     preset_instance: Option<AgentInstanceScope>,
 ) -> PreparedSubagentOutcome {
@@ -276,6 +293,8 @@ pub(super) fn cancelled_owned_subagent_outcome(
             None,
             "cancelled",
             Some("cancelled".into()),
+            issuer_trace_id,
+            Some(source.delegation_kind()),
         ),
         usage: ConversationLlmStats::default(),
         exec: Ok(("ERROR: cancelled".into(), false, Some("cancelled".into()))),
@@ -450,6 +469,7 @@ pub(super) async fn execute_owned_subagent(
             &input.tool_call_id,
             input.task,
             &input.source,
+            input.issuer_trace_id.as_deref(),
             input.child_spawn_depth,
             input.instance_scope.clone(),
         );
@@ -474,6 +494,7 @@ pub(super) async fn execute_owned_subagent(
         resume_agent_chain,
         host_trace_id,
         host_scoped_message_id,
+        issuer_trace_id,
         state_arc,
         emit_host_tool_status,
         instance_scope: preset_instance,
@@ -517,6 +538,8 @@ pub(super) async fn execute_owned_subagent(
         def_for_trace.id,
         instance_scope.agent_instance_id
     );
+    let parent_trace_id = issuer_trace_id.as_deref();
+    let delegation = source.delegation_kind();
 
     // Emit running before sub_message_start / tool events so the UI can nest the
     // frame under this run_subagent row for the whole lifetime (not only at commit).
@@ -534,6 +557,8 @@ pub(super) async fn execute_owned_subagent(
             Some(message_id.as_str()),
             "running",
             Some(truncate_str(&task.title, 200)),
+            parent_trace_id,
+            Some(delegation),
         ),
     );
 
@@ -588,6 +613,8 @@ pub(super) async fn execute_owned_subagent(
                         Some(message_id.as_str()),
                         "completed",
                         Some(truncate_str(&result.content, 160)),
+                        parent_trace_id,
+                        Some(delegation),
                     ),
                     Ok((json, true, None)),
                 )
@@ -610,6 +637,8 @@ pub(super) async fn execute_owned_subagent(
                         Some(message_id.as_str()),
                         "failed",
                         Some(message.clone()),
+                        parent_trace_id,
+                        Some(delegation),
                     ),
                     Ok((format!("ERROR: {message}"), false, Some(message))),
                 )
@@ -648,6 +677,8 @@ pub(super) async fn execute_owned_subagent(
                     Some(message_id.as_str()),
                     status,
                     Some(error_note.clone()),
+                    parent_trace_id,
+                    Some(delegation),
                 ),
                 Ok((format!("ERROR: {error_note}"), false, Some(error_note))),
             )
@@ -711,6 +742,8 @@ pub(crate) struct BackgroundOwnedSpawn {
     pub max_spawn_depth: u32,
     pub host_trace_id: Option<String>,
     pub host_scoped_message_id: Option<String>,
+    /// `AgentTrace.id` of the issuing agent instance (nested spawn); `None` for the lead.
+    pub issuer_trace_id: Option<String>,
     pub instance_scope: AgentInstanceScope,
     /// Owner chain of the agent that issued this spawn (empty = lead). Becomes
     /// the job's `owner_chain` and the prefix of the child's own chain.
@@ -826,6 +859,7 @@ async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwne
                     &spawn.tool_call_id,
                     spawn.task.clone(),
                     &spawn.source,
+                    spawn.issuer_trace_id.as_deref(),
                     spawn.child_spawn_depth,
                     Some(spawn.instance_scope.clone()),
                 );
@@ -886,6 +920,7 @@ async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwne
                 &spawn.tool_call_id,
                 spawn.task.clone(),
                 &spawn.source,
+                spawn.issuer_trace_id.as_deref(),
                 spawn.child_spawn_depth,
                 Some(spawn.instance_scope.clone()),
                 msg.clone(),
@@ -942,6 +977,7 @@ async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwne
         resume_agent_chain: spawn.resume_agent_chain.clone(),
         host_trace_id: spawn.host_trace_id.clone(),
         host_scoped_message_id: spawn.host_scoped_message_id.clone(),
+        issuer_trace_id: spawn.issuer_trace_id.clone(),
         state_arc: spawn.state.clone(),
         emit_host_tool_status: false,
         instance_scope: Some(spawn.instance_scope.clone()),
@@ -1250,6 +1286,8 @@ fn build_subagent_trace(
     anchor_message_id: Option<&str>,
     status: &str,
     detail: Option<String>,
+    parent_trace_id: Option<&str>,
+    delegation: Option<&str>,
 ) -> AgentTrace {
     AgentTrace {
         // Phase G: UI / store primary key is SpawnId (= agent_instance_id).
@@ -1278,6 +1316,14 @@ fn build_subagent_trace(
         task_id: Some(task.id.clone()),
         agent_id: Some(def.id.clone()),
         search_tool_call_ids: None,
+        parent_trace_id: parent_trace_id
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string),
+        delegation: delegation
+            .map(str::trim)
+            .filter(|kind| !kind.is_empty())
+            .map(str::to_string),
     }
 }
 
@@ -1294,6 +1340,7 @@ pub(super) async fn run_subagent_delegation(
     let args_value = ctx.args_value.clone();
     let run_id = ctx.run_id;
     let allow_agents = ctx.allow_agents;
+    let issuer_trace_id = ctx.issuer_trace_id;
     let enabled_skill_ids = ctx.enabled_skill_ids;
     let cancel = ctx.session.cancel;
     let max_spawn_depth = provider.settings.max_sub_agent_spawn_depth.max(1);
@@ -1409,6 +1456,7 @@ pub(super) async fn run_subagent_delegation(
                             max_spawn_depth,
                             host_trace_id: None,
                             host_scoped_message_id: None,
+                            issuer_trace_id: issuer_trace_id.map(str::to_string),
                             instance_scope: child_scope.clone(),
                             issuer_chain: ctx.issuer_chain.to_vec(),
                             resume_agent_chain: follow
@@ -1590,6 +1638,8 @@ pub(super) async fn run_subagent_delegation(
                             Some(message_id),
                             status,
                             detail,
+                            issuer_trace_id,
+                            Some("registered"),
                         )
                     };
                     emit_subagent_trace_step(stream, ctx, make_trace("running", Some(detail)));
@@ -1769,6 +1819,8 @@ mod trace_tests {
             None,
             "running",
             None,
+            None,
+            Some("registered"),
         );
 
         assert_eq!(trace.id, "instance-1");
@@ -1776,6 +1828,51 @@ mod trace_tests {
         assert_eq!(trace.parent_tool_call_id.as_deref(), Some("call-1"));
         assert_eq!(trace.task_id.as_deref(), Some("task-1"));
         assert_eq!(trace.agent_id.as_deref(), Some("current-agent"));
+        // Lead-spawned worker: no parent trace, but the delegation kind is recorded.
+        assert_eq!(trace.parent_trace_id, None);
+        assert_eq!(trace.delegation.as_deref(), Some("registered"));
+    }
+
+    /// Nested spawn: the issuing agent instance id becomes the child's `parent_trace_id`
+    /// and a self fork is flagged so the UI can tell it apart from a real worker.
+    #[test]
+    fn nested_child_trace_records_parent_trace_id_and_self_fork_delegation() {
+        let task = AgentTask {
+            id: "task-2".into(),
+            agent_id: "self".into(),
+            title: "Fork".into(),
+            goal: "Inspect".into(),
+            context: String::new(),
+            depends_on: vec![],
+        };
+        let def = completed_trace_def();
+        let scope = AgentInstanceScope::with_instance_id(
+            "run",
+            "conversation",
+            "current-agent",
+            "instance-2",
+        );
+
+        let trace = build_subagent_trace(
+            &task,
+            &def,
+            &scope,
+            2,
+            None,
+            Some("call-2"),
+            Some("round-message-1"),
+            "running",
+            None,
+            Some("instance-1"),
+            Some("self"),
+        );
+
+        assert_eq!(trace.id, "instance-2");
+        assert_eq!(trace.depth, Some(2));
+        assert_eq!(trace.parent_trace_id.as_deref(), Some("instance-1"));
+        assert_eq!(trace.delegation.as_deref(), Some("self"));
+        // The anchor stays this layer's own scoped row, never the lead message.
+        assert_eq!(trace.anchor_message_id.as_deref(), Some("round-message-1"));
     }
 
     fn anchor_message() -> ChatMessage {
@@ -1860,6 +1957,8 @@ mod trace_tests {
             None,
             "completed",
             Some("done".into()),
+            None,
+            Some("self"),
         )
     }
 
@@ -2029,6 +2128,7 @@ mod trace_tests {
             "call-failed",
             task,
             &OwnedSubagentSource::SelfFork(snapshot),
+            Some("parent-instance-id"),
             2,
             Some(preset),
             "spawn depth limit".into(),
@@ -2232,6 +2332,7 @@ mod trace_tests {
             resume_agent_chain: None,
             host_trace_id: None,
             host_scoped_message_id: None,
+            issuer_trace_id: None,
             state_arc: state.clone(),
             emit_host_tool_status: true,
             instance_scope: None,
@@ -2325,6 +2426,7 @@ mod trace_tests {
                 resume_agent_chain: None,
                 host_trace_id: None,
                 host_scoped_message_id: None,
+                issuer_trace_id: None,
                 state_arc: state.clone(),
                 emit_host_tool_status: true,
                 instance_scope: None,

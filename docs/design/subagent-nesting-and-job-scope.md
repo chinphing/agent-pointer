@@ -145,20 +145,26 @@ depth 1 的 48 行 `general` 是 **lead 自己的 self fork**。
 | `AgentTrace.anchor_message_id`（已有，**语义不变**） | 同上 | 该层自己的 scoped 行锚点 → 帧取数用 |
 | `spawn_depth` / `agent_chain`（已有） | `models/message.rs:359` 一带 | scoped 行持久化，恢复用 |
 
-#### 挂载（前端）
+#### 挂载 / 建树（前端）
 
-`handleAgentStep`（`agentHandlers.ts:20-40`）：depth > 0 时**一律挂到 lead 消息的 `agentTrace`**，并按 `parent_trace_id` 建树；不再挂到 scoped 行。
-取数仍走 `trace.anchorMessageId`（`SubAgentFrame.vue:86` `effectiveAnchorId` 已优先它）→ 深层帧能取到自己那一层的 scoped 行。
+**唯一数据源 = trace 选择器**（live 与重载共用）：把「lead 消息的 `agentTrace`（第一层）」与「本会话全部 scoped 行的 `agentTrace`（更深层）」合并，按 `parent_trace_id` 建树。
+
+- 不改 `handleAgentStep` 的落库语义：depth>0 的 trace 仍写在**它自己那一层的 scoped 行**上（现状即如此，DB 里 scoped 行 payload 已有 `agentTrace` 字段），保证重载后树可重建；
+- 渲染层用选择器取整棵树，不再依赖"帧是否挂载"或"父行是否渲染"；
+- 取数仍走 `trace.anchorMessageId`（`SubAgentFrame.vue:86` `effectiveAnchorId` 已优先它）→ 每层帧能取到自己那一层的 scoped 行。
+
+> 说明：早期草案写的是"depth>0 一律挂到 lead 消息"，会与 scoped 行上的持久化重复。改为上面的选择器方案。
 
 #### 渲染
 
-- `MessageList.vue:1219-1238` 的 host 归并：收集组内**全部** trace（含孙），按 `parent_trace_id` 组装父子列表。
+- `MessageList.vue:1219-1238` 的 host 归并：用同一个选择器取树，按 `parent_trace_id` 组装父子列表。
 - `SubAgentFrame.vue` 在工具行之后递归渲染子帧：
   ```html
   <SubAgentFrame v-for="child in childTraces" :key="child.id"
                  :trace="child" :anchor-message-id="effectiveAnchorId" />
   ```
 - 缩进：沿用 `marginLeft = (depth-1)*12px`（`:425`），或改为纯帧内缩进避免叠加。
+- **fork 标识（D-A7）**：`AgentTrace` 增 `delegation: Option<"self"|"registered">`（后端埋点），前端对 `self` 显示 `coder (fork)` 或独立图标，避免与真 worker 混淆（§1.4）。
 
 #### 折叠 / 统计 / 搜索 / 恢复
 
@@ -346,9 +352,40 @@ depth 1 的 48 行 `general` 是 **lead 自己的 self fork**。
 
 | 批次 | 内容 | 依赖 |
 |------|------|------|
-| **A** | §4 ask_user 顶部条 + 剔除旧外显逻辑 | 无 |
-| **B** | §2.5 UI 树化渲染 + §2.11 D-A7 fork 标识（含 `parent_trace_id` 埋点） | 无 |
+| **A** | §4 ask_user 顶部条 + 剔除旧外显逻辑 | ✅ 已落地（`e0cec02c`） |
+| **B** | §2.5 UI 树化渲染 + §2.11 D-A7 fork 标识（含 `parent_trace_id` / `delegation` 埋点） | 无 |
 | **C** | §2.3 节点矩阵 + §2.4 深度语义统一（含 self fork 可委派） | D-A1/A2 |
 | **D** | §2.7 扇出护栏 `maxChildrenPerAgent` + 取消级联 + §2.7 根槽提升 | 无 |
+| **E** | §6 子 agent `content` 显示 | B（复用同一渲染骨架） |
 
-每批次独立提交；A/B 为前端为主，C/D 为后端为主。
+每批次独立提交；A/B/E 为前端为主，C/D 为后端为主。
+
+---
+
+## 6. 批次 E：子 agent 的 `content` 显示（新需求）
+
+### 6.1 现状
+
+`SubAgentFrame.vue:146` 已经用 `latestSubAgentBodyModelFromSpawnRows`（`src/lib/subAgentMessages.ts:305`）算出 body（其注释写明 "aggregate tools across rounds; **keep latest assistant text**"），但**模板只用它的 `toolCalls`（`:203`）与 raw 面板**，`body.content` **从未渲染** → 子 agent 写的中间结论与最终 handoff 在 UI 上不可见（只有统计摘要行）。
+
+### 6.2 目标
+
+在子 agent 帧内显示它的 assistant 文本：**每轮的中间结论**（与工具行按时间交错）+ **最终 handoff**。
+
+### 6.3 方案
+
+| 项 | 设计 |
+|----|------|
+| 展开帧 | 按轮次交错渲染「该轮 `content` → 该轮工具行」；轮次切分用现成的 `buildSubAgentBodyModelsFromScoped`（`subAgentMessages.ts:183`），压缩标记走 `splitSubAgentBodyModelsForCompression`（`:221`） |
+| 文本渲染 | **不复用 `AgentMessageBody`**（它带 lead 专属 chrome：复制按钮 / 媒体 / 任务板 / 平台余额）；抽一个轻量 `SubAgentContentBlock.vue`，复用 `parseMarkdown`（`lib/markdownConfig`）+ `useThrottledMarkdown`（流式节流）+ 代码复制 composable |
+| 折叠帧 | 统计摘要行之后追加**一行内容预览**（最新 `content` 的首个非空行，截断）；最终 handoff 长文本只在展开态全文 |
+| 搜索 | 帧内 `content` 需能被会话内搜索命中（与现有 tool call 搜索一致） |
+| 依赖 | 复用批次 B 的渲染骨架（递归帧 + 选择器），B 之后做，避免两次改同一模板 |
+
+### 6.4 决策点
+
+| 编号 | 问题 | 建议 |
+|------|------|------|
+| **D-E1** | 折叠帧是否显示一行内容预览 | 显示 |
+| **D-E2** | 显示全部轮次 content 还是只显示最终 content | 全部轮次，按时间交错 |
+| **D-E3** | 是否复用 `AgentMessageBody` | 不复用，抽轻量块 |

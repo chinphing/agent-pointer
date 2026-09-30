@@ -409,6 +409,8 @@ mod agent_trace_persistence_tests {
             task_id: Some("task-1".into()),
             agent_id: Some("computer".into()),
             search_tool_call_ids: None,
+            parent_trace_id: None,
+            delegation: Some("registered".into()),
             session: Some(SubAgentSessionUi {
                 thoughts: Some("done".into()),
                 stats: SubAgentToolStats {

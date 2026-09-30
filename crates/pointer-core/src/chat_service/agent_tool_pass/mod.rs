@@ -1098,6 +1098,11 @@ async fn run_self_fork_wave(
                         .sub
                         .as_ref()
                         .map(|s| s.scoped_message_id.clone()),
+                    issuer_trace_id: pass
+                        .ctx
+                        .sub
+                        .as_ref()
+                        .map(|s| s.instance_scope.agent_instance_id.clone()),
                     state_arc: pass.ctx.state_arc.clone(),
                     emit_host_tool_status: true,
                     instance_scope: None,
@@ -1140,6 +1145,7 @@ async fn run_self_fork_wave(
                                     &prep.tc.id,
                                     input.task.clone(),
                                     &input.source,
+                                    input.issuer_trace_id.as_deref(),
                                     input.child_spawn_depth,
                                     None,
                                     msg,
@@ -1170,6 +1176,7 @@ async fn run_self_fork_wave(
                                 &prep.tc.id,
                                 input.task.clone(),
                                 &input.source,
+                                input.issuer_trace_id.as_deref(),
                                 input.child_spawn_depth,
                                 None,
                                 msg,
@@ -1216,6 +1223,7 @@ async fn run_self_fork_wave(
                             max_spawn_depth: input.max_spawn_depth,
                             host_trace_id: input.host_trace_id.clone(),
                             host_scoped_message_id: input.host_scoped_message_id.clone(),
+                            issuer_trace_id: input.issuer_trace_id.clone(),
                             instance_scope: child_scope.clone(),
                             issuer_chain: input.issuer_chain.clone(),
                             resume_agent_chain: input.resume_agent_chain.clone(),
@@ -1292,6 +1300,11 @@ async fn run_self_fork_wave(
                     &prep.tc.id,
                     task,
                     &source,
+                    pass
+                        .ctx
+                        .sub
+                        .as_ref()
+                        .map(|s| s.instance_scope.agent_instance_id.as_str()),
                     parent_spawn_depth.saturating_add(1),
                     None,
                     error,
@@ -1342,6 +1355,7 @@ async fn run_self_fork_wave(
                         &input.tool_call_id,
                         input.task,
                         &input.source,
+                        input.issuer_trace_id.as_deref(),
                         input.child_spawn_depth,
                         input.instance_scope,
                     ),
@@ -1351,6 +1365,7 @@ async fn run_self_fork_wave(
                         &input.tool_call_id,
                         input.task,
                         &input.source,
+                        input.issuer_trace_id.as_deref(),
                         input.child_spawn_depth,
                         input.instance_scope,
                         msg,

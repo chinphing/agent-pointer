@@ -105,6 +105,9 @@ export function ensureSubTrace(
       agentId: patch?.agentId,
       computerTarget: patch?.computerTarget,
       parentToolCallId: patch?.parentToolCallId,
+      anchorMessageId: patch?.anchorMessageId,
+      parentTraceId: patch?.parentTraceId,
+      delegation: patch?.delegation,
       collapsed: patch?.collapsed ?? true,
       userExpanded: patch?.userExpanded ?? false
     }

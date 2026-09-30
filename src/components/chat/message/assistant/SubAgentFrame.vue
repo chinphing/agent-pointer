@@ -30,6 +30,10 @@ import {
   toggleSubTraceExpanded
 } from '../../../../lib/subAgentSession'
 import {
+  buildSubAgentTraceTree,
+  selfForkTraceLabel
+} from '../../../../lib/subAgentTraceTree'
+import {
   compactToolCallLiveText,
   compactToolCallStatusLine,
   effectiveToolDisplaySummary,
@@ -78,7 +82,10 @@ const settingsStore = useSettingsStore()
 const agentsCatalog = useAgentsCatalog()
 const chatStore = useChatStore()
 const traceLabel = computed(() =>
-  traceAgentLabel(props.trace, agentsCatalog.value, settingsStore.settings)
+  selfForkTraceLabel(
+    traceAgentLabel(props.trace, agentsCatalog.value, settingsStore.settings),
+    props.trace
+  )
 )
 const rawContentViewEnabled = computed(() => settingsStore.settings.rawContentViewEnabled === true)
 
@@ -117,6 +124,18 @@ const scopedTraceMessages = computed(() => {
     props.trace.id,
     props.trace.agentInstanceId
   )
+})
+
+/**
+ * Direct child frames (this worker's own nested spawns). They persist on *this*
+ * layer's scoped rows, so the tree is rebuilt from those rows — the lead message
+ * never carries deeper levels. Collapsed parents hide their whole subtree.
+ */
+const childTraces = computed((): AgentTrace[] => {
+  if (collapsed.value) return []
+  const rows = scopedTraceMessages.value
+  if (rows.length === 0) return []
+  return buildSubAgentTraceTree({ scopedRows: rows }).childrenOf(props.trace.id)
 })
 
 const ownsCompression = computed(() => {
@@ -491,6 +510,22 @@ watch(
         :raw-content="rawWireContent"
         :tool-raw-args="toolRawArgs"
         @close="showRawWire = false"
+      />
+      <!-- Nested spawns of this worker, rebuilt from this layer's own scoped rows. -->
+      <SubAgentFrame
+        v-for="child in childTraces"
+        :key="child.id"
+        :trace="child"
+        :anchor-message-id="effectiveAnchorId"
+        :messages="messages"
+        :message-ui="messageUi"
+        :created-at="createdAt"
+        :thoughts-debug-enabled="thoughtsDebugEnabled"
+        :generating="generating"
+        :is-active-generation-message="isActiveGenerationMessage"
+        :show-message-actions="showMessageActions"
+        :task-board="null"
+        :host-tool="null"
       />
     </div>
     <!-- Collapsed: keep pending approval cards actionable (main-turn parity). -->

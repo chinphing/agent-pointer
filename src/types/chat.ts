@@ -177,6 +177,10 @@ export interface AgentTrace {
   summaryLine?: string
   /** Tool-call ids in this spawn; stub search pin after scoped rows are evicted. */
   searchToolCallIds?: string[]
+  /** `AgentTrace.id` of the agent instance that spawned this one; absent for lead-spawned (depth 1). */
+  parentTraceId?: string
+  /** `self` for a self fork, `registered` for a real worker — keeps forks distinguishable. */
+  delegation?: 'self' | 'registered'
 }
 
 export type AgentProfile =

@@ -191,6 +191,19 @@ pub struct AgentTrace {
         rename = "searchToolCallIds"
     )]
     pub search_tool_call_ids: Option<Vec<String>>,
+    /// `AgentTrace.id` of the agent instance that spawned this one. `None` when the
+    /// lead spawned it directly (depth 1). The UI rebuilds the nesting tree from this
+    /// at read time; the trace itself still persists on its own layer's scoped row.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "parentTraceId"
+    )]
+    pub parent_trace_id: Option<String>,
+    /// `"self"` for a self fork, `"registered"` for a registered worker. Keeps a fork
+    /// distinguishable from a real worker that shares its agent id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegation: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

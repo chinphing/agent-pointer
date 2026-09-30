@@ -511,6 +511,8 @@ mod tests {
             task_id: Some("task".into()),
             agent_id: Some("explore".into()),
             search_tool_call_ids: None,
+            parent_trace_id: None,
+            delegation: Some("registered".into()),
         }];
         // DB may be unavailable in unit tests; history mutation is still required.
         sync_anchor_agent_trace_index("conv", &mut history, "lead", &traces);

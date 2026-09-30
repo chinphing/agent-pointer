@@ -10,7 +10,7 @@
 
 | 术语 | 含义 |
 | --- | --- |
-| 口味 **`managed`（集中管理）** | 构建期注入控制面域名：默认连控制面（登录、目录、用量、自动更新）。旧值 `official` 仍被接受，**等价 `managed`，已 deprecated**。 |
+| 口味 **`managed`（集中管理）** | 构建期注入控制面域名：默认连控制面（登录、目录、用量、自动更新）。 |
 | 口味 **standalone（独立）** | **未设置** `POINTER_EDITION`。源码不写入任何控制面域名 ⇒ 未绑定：本地模型 / Key；服务端用账密或 `?sso=`。 |
 | **客户端** | Tauri 桌面 App（`src-tauri/`）。Agent 跑在本机进程里，不依赖 pointer-server。 |
 | **服务端** | `pointer-server`（axum HTTP/SSE + 同一套 Vue 界面）。浏览器 / 云主机用。 |
@@ -97,7 +97,7 @@ npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 
 | 变量 | 必需 | 说明 |
 | --- | --- | --- |
-| `POINTER_EDITION=managed` | ✅ | 口味（旧值 `official` 等价，deprecated） |
+| `POINTER_EDITION=managed` | ✅ | 口味 |
 | `VITE_POINTER_EDITION=managed` | ✅ | 前端口味；未设时脚本会由 `POINTER_EDITION` 补齐 |
 | `POINTER_API_BASE` / `POINTER_WEB_BASE` / `COMPUTER_ANNOTATE_API_BASE` | ✅ | 三个控制面域名，缺一即构建 panic |
 | `VITE_POINTER_WEB_BASE` / `POINTER_DOWNLOAD_URL` | 建议 | 前端跳转与关于页下载链接 |

@@ -15,7 +15,7 @@
 | **`managed`**（集中管理，构建期注入控制面域名） | [构建与部署](../contributing/editions.md#managed-client) | [构建与部署](../contributing/editions.md#managed-server) |
 | **standalone**（独立，默认：不设口味） | [构建与部署](../contributing/editions.md#standalone-client) | [构建与部署](../contributing/editions.md#standalone-server)<br>完整交付流程见 [../internals/standalone-server-deployment.md](../internals/standalone-server-deployment.md) |
 
-旧值 `POINTER_EDITION=official` 仍被接受（等价 `managed`，已 deprecated）。跨平台环境准备见 [../contributing/cross-platform-build.md](../contributing/cross-platform-build.md)。
+`official` 一词仅指 Pointer 官方发布，不是 `POINTER_EDITION` 的取值。跨平台环境准备见 [../contributing/cross-platform-build.md](../contributing/cross-platform-build.md)。
 
 ## 集成与部署
 

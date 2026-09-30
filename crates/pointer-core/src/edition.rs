@@ -6,12 +6,13 @@
 //! Set at compile time via `POINTER_EDITION` when invoking cargo, or override at runtime.
 //!
 //! `managed` describes **any** build that ships a control plane — Pointer's own
-//! release and an enterprise deployment pointed at its internal hosts alike. The
-//! legacy value `official` is still accepted.
+//! release and an enterprise deployment pointed at its internal hosts alike.
+//! "Official" is reserved for Pointer's own release and is **not** a value of
+//! `POINTER_EDITION`.
 
 const ENV_EDITION: &str = "POINTER_EDITION";
 
-/// Effective edition string: `managed` (or the legacy `official`), or empty (unset).
+/// Effective edition string: `managed`, or empty (unset).
 pub fn edition() -> String {
     if let Ok(raw) = std::env::var(ENV_EDITION) {
         let trimmed = raw.trim().to_ascii_lowercase();
@@ -27,14 +28,8 @@ pub fn edition() -> String {
 }
 
 /// Whether a raw `POINTER_EDITION` value means a managed build.
-///
-/// `official` is the legacy value and is still accepted, so an enterprise build
-/// script written before the rename keeps working.
 fn value_is_managed(raw: &str) -> bool {
-    matches!(
-        raw.trim().to_ascii_lowercase().as_str(),
-        "managed" | "official"
-    )
+    raw.trim().eq_ignore_ascii_case("managed")
 }
 
 /// Managed build: ships control-plane defaults, so the control-plane domains
@@ -74,12 +69,13 @@ mod tests {
     }
 
     #[test]
-    fn legacy_official_value_is_still_managed() {
+    fn only_the_managed_value_is_managed() {
         assert!(value_is_managed("managed"));
         assert!(value_is_managed("managed "));
         assert!(value_is_managed("MANAGED"));
-        assert!(value_is_managed("official"));
-        assert!(value_is_managed(" OFFICIAL "));
+        // "official" describes Pointer's own release, not a POINTER_EDITION value.
+        assert!(!value_is_managed("official"));
+        assert!(!value_is_managed("OFFICIAL"));
         assert!(!value_is_managed("standalone"));
         assert!(!value_is_managed(""));
     }

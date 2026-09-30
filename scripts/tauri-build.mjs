@@ -30,8 +30,7 @@ if (process.platform === 'linux') {
 
 const extra = process.argv.slice(2);
 const edition = (env.POINTER_EDITION || '').trim().toLowerCase();
-// `official` is the legacy value of POINTER_EDITION and still means managed.
-const isManaged = edition === 'managed' || edition === 'official';
+const isManaged = edition === 'managed';
 if (isManaged) {
   env.VITE_POINTER_EDITION = env.VITE_POINTER_EDITION || 'managed';
   console.log(`[tauri-build] POINTER_EDITION=${edition}`);

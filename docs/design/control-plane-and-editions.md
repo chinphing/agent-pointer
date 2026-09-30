@@ -6,7 +6,7 @@
 
 本文是改造设计，不是用户教程。
 对外文案用「三种用法」；打包用「客户端 / 服务端」；
-`managed`（旧值 `official`，仍兼容，deprecated）只作为打包口味出现在构建说明里。
+`managed` 只作为打包口味出现在构建说明里（「official」一词仅指 Pointer 官方发布，不是 `POINTER_EDITION` 的取值）。
 
 > 口径更新：口味值已由 `official` 改名为 `managed`；未设置口味即 standalone。四格构建 / 部署步骤见 [`../contributing/editions.md`](../contributing/editions.md)。
 
@@ -64,7 +64,7 @@ Agent 跑在哪？
 
 | 口味 `POINTER_EDITION` | 客户端 | 服务端 |
 | --- | --- | --- |
-| `managed`（旧值 `official`） | 构建期注入官网域名；自动更新 | standalone 要 License |
+| `managed` | 构建期注入官网域名；自动更新 | standalone 要 License |
 | 未设置（standalone） | 未绑定；无更新 | 不要 License |
 
 发布时按需打格子，不要说「一个官方包 / 一个本地包」：

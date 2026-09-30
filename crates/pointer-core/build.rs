@@ -53,12 +53,8 @@ fn emit_platform_domains() {
         ),
     ];
 
-    // `official` is the legacy value of POINTER_EDITION and still means managed.
     let managed = env::var("POINTER_EDITION")
-        .map(|raw| {
-            let value = raw.trim().to_ascii_lowercase();
-            value == "managed" || value == "official"
-        })
+        .map(|raw| raw.trim().eq_ignore_ascii_case("managed"))
         .unwrap_or(false);
 
     let mut missing: Vec<&str> = Vec::new();

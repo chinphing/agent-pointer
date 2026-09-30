@@ -39,7 +39,7 @@
 Run on a secure machine:
 
 ```bash
-cd pointer-app
+cd agent-pointer
 npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 ```
 
@@ -76,7 +76,7 @@ git commit -m "docs: updater signing and official release integration"
 - [ ] **Step 1: Add updater plugin via CLI**
 
 ```bash
-cd pointer-app
+cd agent-pointer
 npm run tauri add updater
 ```
 

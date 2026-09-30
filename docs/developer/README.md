@@ -4,7 +4,18 @@
 
 **终端用户使用教程**见 **[`../user/`](../user/README.md)**。
 
-先读 [architecture.md](architecture.md)，再按 [DEVELOPMENT.md](../../DEVELOPMENT.md) 跑起来。两种构建见 [../contributing/editions.md](../contributing/editions.md)。
+先读 [architecture.md](architecture.md)，再按 [DEVELOPMENT.md](../../DEVELOPMENT.md) 跑起来。
+
+## 打包与部署：四格入口
+
+**打包口味**（`managed` 集中管理 / `standalone` 独立）× **运行形态**（客户端 / 服务端）四格，每格都有**构建命令 / 需要的变量 / 产物位置 / 怎么验证 / 外部依赖**，统一见 [../contributing/editions.md](../contributing/editions.md)：
+
+| 口味 | 客户端（Tauri 桌面 App） | 服务端（`pointer-server`） |
+|------|--------------------------|-----------------------------|
+| **`managed`**（集中管理，构建期注入控制面域名） | [构建与部署](../contributing/editions.md#managed-client) | [构建与部署](../contributing/editions.md#managed-server) |
+| **standalone**（独立，默认：不设口味） | [构建与部署](../contributing/editions.md#standalone-client) | [构建与部署](../contributing/editions.md#standalone-server)<br>完整交付流程见 [../internals/standalone-server-deployment.md](../internals/standalone-server-deployment.md) |
+
+旧值 `POINTER_EDITION=official` 仍被接受（等价 `managed`，已 deprecated）。跨平台环境准备见 [../contributing/cross-platform-build.md](../contributing/cross-platform-build.md)。
 
 ## 集成与部署
 

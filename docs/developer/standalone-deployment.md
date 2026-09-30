@@ -21,8 +21,8 @@ pointer-server 支持**脱离官方平台独立部署**。本文档覆盖架构�
 
 | 模式             | 说明                                                                                 |
 | -------------- | ---------------------------------------------------------------------------------- |
-| `platform`（已绑定时默认） | 连接官方云（仅 **official** 构建预填域名），OAuth + 云端 Key |
-| `standalone`   | 本地账号密码 + Web 设置里的模型密钥。非 **official** 构建不强制 License；**official** standalone 仍校验 |
+| `platform`（已绑定时默认） | 连接控制面（仅 **managed** 口味预填域名），OAuth + 云端 Key |
+| `standalone`   | 本地账号密码 + Web 设置里的模型密钥。**managed** 口味的 standalone 仍校验 License；未设置口味（自建 / 未绑定）不强制 |
 
 
 **余额 / LLM 门禁：** 官方账户余额校验（`ensure_llm_allowed`、`GET /auth/partner/llm-credentials`）仅在 `platform` 模式生效；`standalone` 下为 no-op，不访问官方余额 API。

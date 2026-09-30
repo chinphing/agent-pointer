@@ -128,7 +128,7 @@ Tauri updater 使用 **独立的 minisign Ed25519 密钥对**，与 Apple Develo
 生成（一次性）：
 
 ```bash
-cd pointer-app
+cd agent-pointer
 npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 ```
 

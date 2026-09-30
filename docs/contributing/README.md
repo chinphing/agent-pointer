@@ -4,7 +4,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [**editions.md**](editions.md) | **控制面绑定 / `pointer.local.env`**（先看 [改造设计](../design/control-plane-and-editions.md)） |
+| [**editions.md**](editions.md) | **打包口味 × 运行形态四格**（managed / standalone × 客户端 / 服务端）：构建命令 / 变量 / 产物 / 验证 / 外部依赖（先看 [改造设计](../design/control-plane-and-editions.md)） |
 | [**cross-platform-build.md**](cross-platform-build.md) | **Windows / macOS / Linux 开发与打包**（环境、命令、产物、CI） |
 | [**versioning.md**](versioning.md) | **版本号单一来源**（`VERSION` + `npm run version:sync`） |
 | [**macos-window-chrome.md**](macos-window-chrome.md) | **macOS 红绿灯与顶栏对齐**（reapply/repair、紧凑模式、常量同步、排查） |

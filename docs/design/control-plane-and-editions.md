@@ -6,7 +6,9 @@
 
 本文是改造设计，不是用户教程。
 对外文案用「三种用法」；打包用「客户端 / 服务端」；
-`official` 只作为打包口味出现在构建说明里。
+`managed`（旧值 `official`，仍兼容，deprecated）只作为打包口味出现在构建说明里。
+
+> 口径更新：口味值已由 `official` 改名为 `managed`；未设置口味即 standalone。四格构建 / 部署步骤见 [`../contributing/editions.md`](../contributing/editions.md)。
 
 ## 1. 为什么改
 
@@ -51,7 +53,7 @@ Agent 跑在哪？
 
 ## 3. 打包：客户端 / 服务端
 
-本仓库只打两种产物。`official` 是唯一打包口味，不是第三种包。
+本仓库只打两种产物。`managed` 是唯一的「绑定控制面」口味，不是第三种包（未设置口味即 standalone）。
 
 | 产物 | 命令 | 职责 |
 | --- | --- | --- |
@@ -62,8 +64,8 @@ Agent 跑在哪？
 
 | 口味 `POINTER_EDITION` | 客户端 | 服务端 |
 | --- | --- | --- |
-| `official` | 构建期注入官网域名；自动更新 | standalone 要 License |
-| 未设置（personal） | 未绑定；无更新 | 不要 License |
+| `managed`（旧值 `official`） | 构建期注入官网域名；自动更新 | standalone 要 License |
+| 未设置（standalone） | 未绑定；无更新 | 不要 License |
 
 发布时按需打格子，不要说「一个官方包 / 一个本地包」：
 
@@ -91,7 +93,7 @@ Agent 跑在哪？
 
 ```text
 产物                     客户端 或 服务端
-POINTER_EDITION          该产物口味：默认域名、客户端更新、服务端 License
+POINTER_EDITION          该产物口味（`managed` / 未设置）：默认域名、客户端更新、服务端 License
 control_plane binding    当前进程是否有可用的 web_base + api_base
 deployment_mode          仅服务端：platform（控制面 OAuth）
                          或 standalone（账密 + 门户短时票）
@@ -103,10 +105,10 @@ deployment_mode          仅服务端：platform（控制面 OAuth）
 
 ### 5.1 口味只决定默认值和商业约束
 
-| | official | 未设置 |
+| | managed | 未设置（standalone） |
 | --- | --- | --- |
 | 默认控制面 | 构建期注入的域名 | 空（未绑定） |
-| 客户端自动更新 | 开 | 关（personal 构建） |
+| 客户端自动更新 | 开 | 关（standalone 构建） |
 | 用量上报默认 | 已绑定且非 standalone 时开 | 关 |
 | 服务端 standalone License | 要 | 不要 |
 | 登录 / 云主机 / 余额 / 充值代码 | 保留 | 保留 |
@@ -119,7 +121,7 @@ deployment_mode          仅服务端：platform（控制面 OAuth）
 
 1. `POINTER_API_BASE` / `POINTER_WEB_BASE` / `VITE_POINTER_WEB_BASE`
 2. 用户设置（P1）
-3. 构建默认：official 用构建期注入的域名，未设置则为空
+3. 构建默认：`managed` 用构建期注入的域名，未设置则为空
 
 已绑定：`api_base` 与 `web_base` 都非空。
 
@@ -153,7 +155,7 @@ standalone 关闭云主机 OAuth 和店铺。
 
 | 用法 | 默认产物口味 | 控制面 | 认证 |
 | --- | --- | --- | --- |
-| 用 Pointer | 官方客户端（`official`） | 默认官网 | 登录 Pointer 账户 |
+| 用 Pointer | 官方客户端（`managed`） | 默认官网 | 登录 Pointer 账户 |
 | 自己用 | 本地客户端（未设置） | 未绑定 | 不登录，本地 Key |
 | 自己用，勾选官网 | 本地客户端（未设置） | 用户绑定官网 | 与「用 Pointer」同一套登录和店铺 |
 | 公司只要 server | 本地服务端（未设置） | 未绑定 | standalone 账密或短时票 |
@@ -242,7 +244,7 @@ IdP、组织、店铺、计费在控制面仓库做。
 ## 9. 明确不做
 
 - 不为未绑定构建去掉登录、云主机、充值
-- 不在源码里硬编码官方域名（官方口味由构建期注入；见 `docs/contributing/editions.md`）
+- 不在源码里硬编码官方域名（`managed` 口味由构建期注入；见 `docs/contributing/editions.md`）
 - 不给 standalone 加店铺来凑公司云主机
 - 不新增长期商业分支
 - 不在提示词里写文件名或开发注释

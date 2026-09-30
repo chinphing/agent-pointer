@@ -16,7 +16,7 @@
 
 Standalone 模式要点：
 
-- **官方包必须**有效 License（Ed25519 验签，公钥编译在 `crates/pointer-core/license.pub`）；非 official 自建包不强制 —— 未配置时以 `notConfigured` 运行，许可功能关闭
+- **managed 口味的 standalone 包必须**有效 License（Ed25519 验签，公钥编译在 `crates/pointer-core/license.pub`）；未设置口味（自建 / 未绑定）不强制 —— 未配置时以 `notConfigured` 运行，许可功能关闭；platform 模式（绑定控制面）跳过 License 校验
 - **必须**在 Web 设置 → 模型配置 添加服务并填写 API Key（不要写在 TOML）
 - **使用账号密码 + 验证码登录**，不走 readflowai.com OAuth
 - 默认**不上报** Token 用量（`report_enabled = false`）
@@ -24,6 +24,8 @@ Standalone 模式要点：
 ---
 
 ## 2. 构建发布包（Pointer 侧）
+
+本节打的是 **standalone（独立）** 包。**managed（集中管理）** 口味服务端要额外注入控制面域名（`scripts/build-server.mjs` 没有 edition 分支，必须显式导出），步骤见 [`../contributing/editions.md`](../contributing/editions.md#managed-server)。
 
 统一命令（与桌面端 `tauri:build` 相同 `{模块}:dev|build` 风格）：
 
@@ -520,6 +522,7 @@ npm run license-gen:build
 |------|------|
 | [`../user/standalone-server.md`](../user/standalone-server.md) | 客户运维 |
 | [`../developer/standalone-deployment.md`](../developer/standalone-deployment.md) | 开发实现 |
+| [`../contributing/editions.md`](../contributing/editions.md) | 四格打包与部署（含 managed 服务端） |
 | [`../contributing/cross-platform-build.md`](../contributing/cross-platform-build.md) | 跨平台构建命令 |
 
 [返回 internals 索引](README.md)

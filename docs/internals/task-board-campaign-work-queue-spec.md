@@ -1532,7 +1532,7 @@ pub async fn get_campaign_stats(store_key: String) -> Result<CampaignStats>;
 pub async fn continue_campaign(conversation_id: String) -> Result<()>;
 ```
 
-Web route mirror under `pointer-app/server/`.
+Web route mirror under `agent-pointer/server/`.
 
 ---
 

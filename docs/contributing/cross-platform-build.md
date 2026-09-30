@@ -58,7 +58,7 @@ Tauri CLI 由项目 devDependency 提供，**不要依赖全局 `tauri` 命令**
 首次进入项目：
 
 ```bash
-cd pointer-app
+cd agent-pointer
 npm install
 ```
 
@@ -115,7 +115,7 @@ npm run tauri:build
 ### 开发
 
 ```powershell
-cd pointer-app
+cd agent-pointer
 npm install
 npm run tauri:dev
 ```
@@ -182,7 +182,7 @@ xcode-select --install
 ### 开发
 
 ```bash
-cd pointer-app
+cd agent-pointer
 npm install
 npm run tauri:dev
 ```
@@ -328,7 +328,7 @@ source "$HOME/.cargo/env"
 ### 开发
 
 ```bash
-cd pointer-app
+cd agent-pointer
 npm install
 npm run tauri:dev
 ```
@@ -404,7 +404,7 @@ Web 端复用同一 Vue 界面，`pointer-core` 由 `server` crate 提供 HTTP/S
 终端 1 — 后端：
 
 ```bash
-cd pointer-app
+cd agent-pointer
 npm run server:dev
 # 默认 http://127.0.0.1:8787
 ```
@@ -551,7 +551,7 @@ Web 端不提供完整电脑操控；桌面能力（`invoke`、本地存储等�
 无论平台，推荐顺序：
 
 ```bash
-cd pointer-app
+cd agent-pointer
 npm install
 npm run icons          # 首次或更换 icon.png 后
 npm run tauri:build      # 或 build:windows / build:macos / build:linux
@@ -584,8 +584,8 @@ src-tauri/target/release/bundle/
 |------|------|
 | `src-tauri/tauri.conf.json` | 窗口、bundle 目标、Linux deb/AppImage、Windows NSIS |
 | `package.json` | `tauri:dev` / `tauri:build` / `build:*` / `icons` 脚本 |
-| `scripts/tauri-build.mjs` | 跨平台 `tauri build`；**仅 Linux** 自动 `NO_STRIP=true`（AppImage） |
-| `.github/workflows/release.yml` | 三端 CI 自动打包 |
+| `scripts/tauri-build.mjs` | 跨平台 `tauri build`；读 `TAURI_SIGNING_PRIVATE_KEY_PATH`；`managed` 口味烧入控制面域名，standalone 自动加 `--config src-tauri/tauri.personal.conf.json`；**仅 Linux** 自动 `NO_STRIP=true`（AppImage） |
+| `.github/workflows/release.yml` | 三端 CI 自动打包（**仅 standalone 包**） |
 
 ### 图标
 
@@ -633,6 +633,8 @@ git push origin v0.1.0
 
 CI 步骤：checkout → Node 20 → Rust stable →（Linux 装系统依赖）→ `npm install` → `npm run icons` → `tauri-apps/tauri-action` → 上传 **Draft Release**。
 
+**该 workflow 只产 standalone 包**：三端都带 `--config src-tauri/tauri.personal.conf.json`，不注入控制面域名，也没有 updater 产物。managed 客户端需在本地或企业 CI 打，见 [editions.md](editions.md)。
+
 ---
 
 ## 编译前检查清单
@@ -671,7 +673,7 @@ $env:RUST_LOG="debug"; npm run tauri:dev
 ## 官网与环境变量（桌面构建）
 
 `npm run tauri:dev` / `tauri:build` 会加载本机 **`pointer.local.env`**（gitignore，见 `pointer.local.env.example`）；无文件时未绑定控制面（纯本地 / standalone）。  
-绑定控制面时在该文件或环境里设置域名 + `official`。官方 CI 注入 `POINTER_EDITION=official`。详见 [editions.md](editions.md)。
+绑定控制面时在该文件或环境里设置域名 + `POINTER_EDITION=managed`（旧值 `official` 仍被接受，已 deprecated）。`.github/workflows/release.yml` **只产 standalone 包**，不注入任何 `POINTER_*`；managed（官方 / 企业）包在本地或企业 CI 打。四格完整步骤见 [editions.md](editions.md)。
 
 ---
 
@@ -679,6 +681,7 @@ $env:RUST_LOG="debug"; npm run tauri:dev
 
 | 文档 | 说明 |
 |------|------|
+| [editions.md](editions.md) | **打包口味 × 运行形态四格**：构建命令 / 变量 / 产物 / 验证 / 外部依赖 |
 | [DEVELOPMENT.md](../../DEVELOPMENT.md) | 日常调试、Skills、常见问题 |
 | [README.md](../../README.md) | 项目概览与快速开始 |
 | [macos-computer-permissions.md](../internals/macos-computer-permissions.md) | macOS 电脑操控权限 |

@@ -34,7 +34,7 @@ A digital employee has to work inside a real office setup. It needs a license th
     <tr>
       <td>Skill development</td>
       <td>Skills pass in development and fail in production because the environments differ</td>
-      <td><strong>One harness</strong>: developing and running Skills stay consistent</td>
+      <td><strong>One harness</strong>: developing and running Skills stay consistent. <strong>Built for batch Skill testing</strong>: high-concurrency background execution, 20 sub-agents on a single CPU core</td>
     </tr>
     <tr>
       <td>Enterprise features</td>
@@ -57,7 +57,7 @@ A digital employee has to work inside a real office setup. It needs a license th
     </tr>
     <tr>
       <td>One task can take 100%+ CPU. Extra tasks crowd out other work</td>
-      <td><strong>About 10% of one CPU core</strong> while running. <strong>10+ sub-agents at once</strong>. Other tasks are completely unaffected</td>
+      <td><strong>About 5% of one CPU core</strong> while running. <strong>20+ sub-agents at once</strong>. Other tasks are completely unaffected</td>
     </tr>
     <tr>
       <td>Long conversations</td>

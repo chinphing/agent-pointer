@@ -34,7 +34,7 @@
     <tr>
       <td>技能开发</td>
       <td>技能在开发环境跑通，上线却因环境不同失败</td>
-      <td><strong>同一套 harness</strong>：开发和运行技能一致性更高</td>
+      <td><strong>同一套 harness</strong>：开发和运行技能一致性更高。<strong>专为 Skill 批量测试优化</strong>：后台高性能并发执行，单核支持 20 个子智能体</td>
     </tr>
     <tr>
       <td>企业特性</td>
@@ -57,7 +57,7 @@
     </tr>
     <tr>
       <td>一个任务就能把 CPU 打满。多开几个任务，本机其他工作就卡了</td>
-      <td><strong>运行大约吃单核 10%</strong>。<strong>十几个子智能体同时跑也没问题</strong>，其他任务基本不受影响</td>
+      <td><strong>运行大约吃单核 5%</strong>。<strong>20 个以上子智能体同时跑也没问题</strong>，其他任务基本不受影响</td>
     </tr>
     <tr>
       <td>超长会话</td>

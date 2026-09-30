@@ -868,6 +868,8 @@
       "delegationHintAfter": ".",
       "maxNestDepth": "Max sub-agent nest depth",
       "maxNestDepthHint": "1 = only the lead may delegate; 2 = a child may delegate one more level (default).",
+      "maxChildrenPerAgent": "Max children per agent",
+      "maxChildrenPerAgentHint": "Live sub-agent children one agent may have at once (foreground joins + background jobs). Default 8, range 1–32; going over returns an error instead of queueing.",
       "generalAgentFallback": "General agent"
     },
     "models": {

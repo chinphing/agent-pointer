@@ -1344,6 +1344,8 @@ pub(super) async fn run_subagent_delegation(
     let enabled_skill_ids = ctx.enabled_skill_ids;
     let cancel = ctx.session.cancel;
     let max_spawn_depth = provider.settings.max_sub_agent_spawn_depth.max(1);
+    let max_children =
+        crate::models::clamp_max_children_per_agent(provider.settings.max_children_per_agent);
     let parsed = crate::tools::run_subagent::parse_run_subagent_args(&args_value);
     match parsed {
         Err(msg) => Ok((format!("ERROR: {msg}"), false, Some(msg))),
@@ -1413,6 +1415,16 @@ pub(super) async fn run_subagent_delegation(
                     let resume_history = follow.as_ref().map(|item| item.history.clone());
                     let mut follow_reserve = None;
                     if parsed.background {
+                        if let Err(msg) = state.jobs.check_child_spawn(
+                            conversation_id,
+                            ctx.issuer_chain.last().map(String::as_str),
+                            max_children as usize,
+                        ) {
+                            log::info!(
+                                "run_subagent background fan-out refused conversation_id={conversation_id} tool_call_id={tool_call_id}: {msg}"
+                            );
+                            return Ok((format!("ERROR: {msg}"), false, Some(msg)));
+                        }
                         let task = AgentTask {
                             id: tid,
                             agent_id: agent_id.clone(),
@@ -1480,28 +1492,38 @@ pub(super) async fn run_subagent_delegation(
                         crate::tools::parallel::ParallelLimits::from_settings(&provider.settings)
                             .max_parallel_sub_agents,
                     );
-                    let _worker_slot = if super::job_supervisor::worker_needs_root_slot(
-                        child_spawn_depth,
+                    let issuer_instance_id = ctx.issuer_chain.last().map(String::as_str);
+                    let _child_slot = match state.jobs.try_begin_child_spawn(
+                        conversation_id,
+                        issuer_instance_id,
+                        max_children as usize,
                     ) {
-                        match state
-                            .jobs
-                            .acquire_root(conversation_id, slot_cap, cancel)
-                            .await
-                        {
-                            Some(lease) => Some(lease),
-                            None => {
-                                let msg = "cancelled".to_string();
-                                log::info!(
-                                    "run_subagent serial cancelled before root slot conversation_id={conversation_id} tool_call_id={tool_call_id}"
-                                );
-                                return Ok((format!("ERROR: {msg}"), false, Some(msg)));
-                            }
-                        }
-                    } else {
-                        if let Err(msg) = state.jobs.acquire_nested(conversation_id) {
+                        Ok(guard) => guard,
+                        Err(msg) => {
+                            log::info!(
+                                "run_subagent serial fan-out refused conversation_id={conversation_id} tool_call_id={tool_call_id}: {msg}"
+                            );
                             return Ok((format!("ERROR: {msg}"), false, Some(msg)));
                         }
-                        None
+                    };
+                    let _worker_slot = match state
+                        .jobs
+                        .acquire_worker_slot(
+                            conversation_id,
+                            slot_cap,
+                            cancel,
+                            super::job_supervisor::worker_needs_root_slot(child_spawn_depth),
+                        )
+                        .await
+                    {
+                        Some(lease) => lease,
+                        None => {
+                            let msg = "cancelled".to_string();
+                            log::info!(
+                                "run_subagent serial cancelled before worker slot conversation_id={conversation_id} tool_call_id={tool_call_id}"
+                            );
+                            return Ok((format!("ERROR: {msg}"), false, Some(msg)));
+                        }
                     };
                     if def.id == "computer" {
                         if let Err(e) =

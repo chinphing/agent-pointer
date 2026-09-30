@@ -439,6 +439,25 @@ impl NestedLease {
     }
 }
 
+/// Worker pool slot held by one sub-agent run.
+///
+/// First-level workers take a real root slot; deeper workers share an ancestor
+/// root. A nested worker whose ancestor root is already gone is promoted to a
+/// root slot (D-A4) so the run is never left unaccounted.
+pub enum WorkerSlotLease {
+    Root(WorkerLease),
+    Nested(NestedLease),
+}
+
+impl WorkerSlotLease {
+    pub fn conversation_id(&self) -> &str {
+        match self {
+            Self::Root(lease) => lease.conversation_id(),
+            Self::Nested(lease) => lease.conversation_id(),
+        }
+    }
+}
+
 /// First-level workers under the lead (`child_spawn_depth == 1`) take a root slot.
 /// Deeper nested workers share the ancestor's root (no new slot — avoids N=1 deadlock).
 pub fn worker_needs_root_slot(child_spawn_depth: u32) -> bool {
@@ -453,6 +472,83 @@ pub struct JobSupervisor {
     on_pushable: Mutex<Option<Arc<dyn Fn(String) + Send + Sync>>>,
     /// Instance ids claimed by a follow-up that has not registered its job yet.
     followup_reserves: Arc<Mutex<HashSet<(String, String)>>>,
+    /// In-flight **foreground** children per `(conversation, issuing instance)`
+    /// (empty instance = lead). Background children are counted from the job
+    /// table; both together form the per-agent fan-out (`maxChildrenPerAgent`).
+    foreground_children: Arc<Mutex<HashMap<(String, String), usize>>>,
+}
+
+/// `(conversation_id, issuing instance id)`; empty instance id = the lead.
+type ChildFanoutKey = (String, String);
+
+/// RAII slot for one live foreground sub-agent child of an issuing instance.
+/// Dropping it frees the fan-out slot. `ChildSpawnGuard::drop` is the only
+/// release path, so a cancelled or failed child never leaks a slot.
+#[derive(Debug)]
+pub struct ChildSpawnGuard {
+    key: ChildFanoutKey,
+    live: Arc<Mutex<HashMap<ChildFanoutKey, usize>>>,
+}
+
+impl Drop for ChildSpawnGuard {
+    fn drop(&mut self) {
+        let mut live = self.live.lock();
+        let Some(count) = live.get_mut(&self.key) else {
+            return;
+        };
+        *count = count.saturating_sub(1);
+        if *count == 0 {
+            live.remove(&self.key);
+        }
+    }
+}
+
+/// Fan-out key: a blank/absent issuer instance id means the lead.
+fn child_fanout_key(conversation_id: &str, issuer_instance_id: Option<&str>) -> ChildFanoutKey {
+    (
+        conversation_id.to_string(),
+        issuer_instance_id
+            .map(str::trim)
+            .unwrap_or_default()
+            .to_string(),
+    )
+}
+
+/// Non-terminal background jobs this issuer spawned directly.
+fn live_background_children_in(inner: &Inner, conversation_id: &str, issuer: &str) -> usize {
+    let Some(ids) = inner.by_conversation.get(conversation_id) else {
+        return 0;
+    };
+    ids.iter()
+        .filter(|id| {
+            inner.jobs.get(*id).is_some_and(|job| {
+                if job.status.is_terminal() {
+                    return false;
+                }
+                if issuer.is_empty() {
+                    job.is_lead_owned()
+                } else {
+                    job.direct_owner() == Some(issuer)
+                }
+            })
+        })
+        .count()
+}
+
+/// Deterministic fan-out refusal. Names the configured limit so the caller can
+/// act on it instead of retrying blindly.
+fn child_limit_error(
+    issuer_instance_id: Option<&str>,
+    max_children: usize,
+    live: usize,
+) -> String {
+    let who = match issuer_instance_id.map(str::trim).filter(|id| !id.is_empty()) {
+        Some(id) => format!("agent instance `{id}`"),
+        None => "the lead agent".to_string(),
+    };
+    format!(
+        "fan-out limit: {who} already has {live} live sub-agent children; maxChildrenPerAgent={max_children}"
+    )
 }
 
 /// Holds one sub-agent instance until the follow-up job is registered or the run ends.
@@ -492,6 +588,7 @@ impl JobSupervisor {
             }),
             on_pushable: Mutex::new(None),
             followup_reserves: Arc::new(Mutex::new(HashSet::new())),
+            foreground_children: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -676,6 +773,119 @@ impl JobSupervisor {
         );
         log::error!("job_supervisor: {msg}");
         Err(msg)
+    }
+
+    /// Acquire the pool slot for one worker run.
+    ///
+    /// `needs_root` = first-level worker (`worker_needs_root_slot`). A nested
+    /// worker shares an ancestor root; when that root is already gone (a queued
+    /// nested job starting after its spawner finished) it is **promoted to a
+    /// root slot** instead of being refused, so the run stays accounted (D-A4).
+    /// Returns `None` only when cancelled before a root slot is acquired.
+    pub async fn acquire_worker_slot(
+        &self,
+        conversation_id: &str,
+        cap: usize,
+        cancel: &CancellationToken,
+        needs_root: bool,
+    ) -> Option<WorkerSlotLease> {
+        if !needs_root {
+            if self.pool.has_root(conversation_id) {
+                if let Ok(nested) = self.acquire_nested(conversation_id) {
+                    return Some(WorkerSlotLease::Nested(nested));
+                }
+            }
+            log::info!(
+                "job_supervisor: nested worker promoted to root slot conversation_id={conversation_id} (no ancestor root)"
+            );
+        }
+        self.acquire_root(conversation_id, cap, cancel)
+            .await
+            .map(WorkerSlotLease::Root)
+    }
+
+    /// Live sub-agent children of one issuing instance: its non-terminal
+    /// background jobs plus its in-flight foreground joins.
+    pub fn live_children_count(
+        &self,
+        conversation_id: &str,
+        issuer_instance_id: Option<&str>,
+    ) -> usize {
+        let key = child_fanout_key(conversation_id, issuer_instance_id);
+        let background = {
+            let inner = self.inner.lock();
+            live_background_children_in(&inner, conversation_id, &key.1)
+        };
+        let foreground = self
+            .foreground_children
+            .lock()
+            .get(&key)
+            .copied()
+            .unwrap_or(0);
+        background + foreground
+    }
+
+    /// Fan-out check for a spawn that will register a job immediately after
+    /// (background spawns are counted from the job table).
+    pub fn check_child_spawn(
+        &self,
+        conversation_id: &str,
+        issuer_instance_id: Option<&str>,
+        max_children: usize,
+    ) -> Result<(), String> {
+        let max = max_children.max(1);
+        let live = self.live_children_count(conversation_id, issuer_instance_id);
+        if live >= max {
+            let msg = child_limit_error(issuer_instance_id, max, live);
+            log::warn!(
+                "job_supervisor: fan-out refused conversation_id={conversation_id} issuer={} live={live} max={max}",
+                issuer_instance_id.unwrap_or("lead")
+            );
+            return Err(msg);
+        }
+        Ok(())
+    }
+
+    /// Reserve one fan-out slot for a **foreground** child. Fails
+    /// deterministically when the issuer is already at `max_children`; it never
+    /// queues. The returned guard holds the slot until the child finishes.
+    pub fn try_begin_child_spawn(
+        &self,
+        conversation_id: &str,
+        issuer_instance_id: Option<&str>,
+        max_children: usize,
+    ) -> Result<ChildSpawnGuard, String> {
+        let max = max_children.max(1);
+        let key = child_fanout_key(conversation_id, issuer_instance_id);
+        let background = {
+            let inner = self.inner.lock();
+            live_background_children_in(&inner, conversation_id, &key.1)
+        };
+        let mut live = self.foreground_children.lock();
+        let entry = live.entry(key.clone()).or_insert(0);
+        let total = background.saturating_add(*entry);
+        if total >= max {
+            if *entry == 0 {
+                live.remove(&key);
+            }
+            let msg = child_limit_error(issuer_instance_id, max, total);
+            log::warn!(
+                "job_supervisor: fan-out refused conversation_id={conversation_id} issuer={} live={total} max={max}",
+                issuer_instance_id.unwrap_or("lead")
+            );
+            return Err(msg);
+        }
+        *entry += 1;
+        let total = total + 1;
+        drop(live);
+        log::info!(
+            "job_supervisor: fan-out slot reserved conversation_id={conversation_id} issuer={} live={total} max={max}",
+            issuer_instance_id.unwrap_or("lead")
+        );
+        Ok(ChildSpawnGuard {
+            key,
+            live: Arc::clone(&self.foreground_children),
+        })
     }
 
     /// Register a job in `queued`. Caller must spawn work that acquires a slot.
@@ -1076,8 +1286,13 @@ impl JobSupervisor {
                 })
                 .collect()
         };
-        let cancelled: Vec<String> = tokens.iter().map(|(id, _)| id.clone()).collect();
-        for (id, token) in &tokens {
+        let cascade = self.cascade_cancel_tokens(conversation_id, &tokens, caller);
+        let cancelled: Vec<String> = tokens
+            .iter()
+            .chain(cascade.iter())
+            .map(|(id, _)| id.clone())
+            .collect();
+        for (id, token) in tokens.iter().chain(cascade.iter()) {
             log::info!("job_supervisor: cancelling job_id={id} conversation_id={conversation_id}");
             token.cancel();
         }
@@ -1088,6 +1303,59 @@ impl JobSupervisor {
         }
         self.notify();
         JobCancelOutcome { cancelled, denied }
+    }
+
+    /// Jobs to cancel on top of `tokens`: cancelling a sub-agent job cancels its
+    /// whole subtree, because every descendant job's `owner_chain` contains the
+    /// cancelled job's own instance id. Still filtered by `visible_to(caller)`
+    /// so the P1 owner-chain scope is never widened.
+    fn cascade_cancel_tokens(
+        &self,
+        conversation_id: &str,
+        tokens: &[(String, CancellationToken)],
+        caller: JobCaller<'_>,
+    ) -> Vec<(String, CancellationToken)> {
+        let inner = self.inner.lock();
+        let seeds: Vec<String> = tokens
+            .iter()
+            .filter_map(|(id, _)| match inner.jobs.get(id).map(|job| &job.kind) {
+                Some(JobKind::Subagent(kind)) => Some(kind.agent_instance_id.clone()),
+                _ => None,
+            })
+            .filter(|id| !id.trim().is_empty())
+            .collect();
+        if seeds.is_empty() {
+            return Vec::new();
+        }
+        let Some(ids) = inner.by_conversation.get(conversation_id) else {
+            return Vec::new();
+        };
+        let cascade: Vec<(String, CancellationToken)> = ids
+            .iter()
+            .filter(|id| !tokens.iter().any(|(cancelled, _)| cancelled == *id))
+            .filter_map(|id| {
+                let job = inner.jobs.get(id)?;
+                if job.status.is_terminal() || !job.visible_to(caller) {
+                    return None;
+                }
+                if !job
+                    .owner_chain
+                    .iter()
+                    .any(|owner| seeds.iter().any(|seed| seed == owner))
+                {
+                    return None;
+                }
+                Some((id.clone(), job.cancel.clone()))
+            })
+            .collect();
+        if !cascade.is_empty() {
+            log::info!(
+                "job_supervisor: cancel cascade conversation_id={conversation_id} roots={} subtree={}",
+                tokens.len(),
+                cascade.len()
+            );
+        }
+        cascade
     }
 
     pub fn cancel_conversation(&self, conversation_id: &str) -> usize {
@@ -2924,5 +3192,153 @@ mod tests {
         let inner = sup.inner.lock();
         assert_eq!(inner.jobs.get(&id).unwrap().owner_chain, vec!["inst-a"]);
         assert!(inner.jobs.get(&lead).unwrap().is_lead_owned());
+    }
+
+    #[test]
+    fn fanout_limit_rejects_extra_spawn() {
+        let sup = JobSupervisor::new();
+        let conv = "c-fanout";
+        let max = 2;
+
+        // Foreground joins hold a slot until the guard drops.
+        let first = sup
+            .try_begin_child_spawn(conv, Some("inst-coder"), max)
+            .expect("first child");
+        let second = sup
+            .try_begin_child_spawn(conv, Some("inst-coder"), max)
+            .expect("second child");
+        let err = sup
+            .try_begin_child_spawn(conv, Some("inst-coder"), max)
+            .expect_err("over limit must fail");
+        assert!(
+            err.contains("maxChildrenPerAgent=2"),
+            "error names the limit: {err}"
+        );
+        assert_eq!(sup.live_children_count(conv, Some("inst-coder")), 2);
+
+        // Other instances and the lead keep their own budget.
+        assert!(sup
+            .try_begin_child_spawn(conv, Some("inst-other"), max)
+            .is_ok());
+        assert!(sup.try_begin_child_spawn(conv, None, max).is_ok());
+
+        // Releasing one foreground join frees exactly one slot.
+        drop(first);
+        assert_eq!(sup.live_children_count(conv, Some("inst-coder")), 1);
+        let third = sup
+            .try_begin_child_spawn(conv, Some("inst-coder"), max)
+            .expect("freed slot");
+        drop(third);
+        drop(second);
+        assert_eq!(sup.live_children_count(conv, Some("inst-coder")), 0);
+
+        // Background children are counted from the job table instead.
+        let job = sup.register(
+            conv,
+            subtree_kind(&["inst-coder"]),
+            CancellationToken::new(),
+            "run",
+            vec!["inst-coder".into()],
+        );
+        sup.mark_running(&job);
+        assert_eq!(sup.live_children_count(conv, Some("inst-coder")), 1);
+        assert!(sup.check_child_spawn(conv, Some("inst-coder"), 1).is_err());
+        sup.finish(&job, JobStatus::Completed, Some("done".into()), None);
+        assert_eq!(sup.live_children_count(conv, Some("inst-coder")), 0);
+        assert!(sup.check_child_spawn(conv, Some("inst-coder"), 1).is_ok());
+    }
+
+    #[test]
+    fn cancel_cascades_to_subtree() {
+        let sup = JobSupervisor::new();
+        let conv = "c-cascade";
+        let parent_token = CancellationToken::new();
+        let child_token = CancellationToken::new();
+        let grand_token = CancellationToken::new();
+        let sibling_token = CancellationToken::new();
+        let parent = sup.register(
+            conv,
+            subtree_kind(&["inst-a"]),
+            parent_token.clone(),
+            "run",
+            Vec::new(),
+        );
+        let child = sup.register(
+            conv,
+            subtree_kind(&["inst-a", "inst-b"]),
+            child_token.clone(),
+            "run",
+            vec!["inst-a".into()],
+        );
+        let grand = sup.register(
+            conv,
+            subtree_kind(&["inst-a", "inst-b", "inst-c"]),
+            grand_token.clone(),
+            "run",
+            vec!["inst-a".into(), "inst-b".into()],
+        );
+        let sibling = sup.register(
+            conv,
+            subtree_kind(&["inst-sibling"]),
+            sibling_token.clone(),
+            "run",
+            Vec::new(),
+        );
+
+        // Cancelling one job explicitly takes its whole subtree with it.
+        let outcome = sup.cancel_ids(conv, Some(&[parent.clone()]), JobCaller::Lead);
+        assert_eq!(outcome.cancelled.len(), 3);
+        assert!(outcome.cancelled.contains(&parent));
+        assert!(outcome.cancelled.contains(&child));
+        assert!(outcome.cancelled.contains(&grand));
+        assert!(outcome.denied.is_empty());
+        assert!(parent_token.is_cancelled());
+        assert!(child_token.is_cancelled());
+        assert!(grand_token.is_cancelled());
+        assert!(!sibling_token.is_cancelled());
+
+        // Lead `cancel` without ids still cancels the whole conversation.
+        let outcome = sup.cancel_ids(conv, None, JobCaller::Lead);
+        assert!(outcome.cancelled.contains(&sibling));
+        assert!(sibling_token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn nested_worker_without_ancestor_root_is_promoted_to_root() {
+        let sup = JobSupervisor::new();
+        let conv = "c-promote";
+        let parent = sup
+            .acquire_root(conv, 4, &CancellationToken::new())
+            .await
+            .expect("ancestor root");
+        assert_eq!(sup.pool_running_roots(conv), 1);
+
+        let nested = sup
+            .acquire_worker_slot(conv, 4, &CancellationToken::new(), false)
+            .await
+            .expect("nested lease under an ancestor root");
+        assert!(matches!(nested, WorkerSlotLease::Nested(_)));
+        assert_eq!(sup.pool_running_roots(conv), 1);
+        drop(nested);
+
+        parent.release();
+        assert_eq!(sup.pool_running_roots(conv), 0);
+
+        // Ancestor root gone: a nested worker is promoted, never left unaccounted.
+        let promoted = sup
+            .acquire_worker_slot(conv, 4, &CancellationToken::new(), false)
+            .await
+            .expect("promoted root lease");
+        assert!(matches!(promoted, WorkerSlotLease::Root(_)));
+        assert_eq!(sup.pool_running_roots(conv), 1);
+
+        // The pool cap still applies: a full pool makes the promotion wait.
+        let waited = tokio::time::timeout(
+            Duration::from_millis(80),
+            sup.acquire_worker_slot(conv, 1, &CancellationToken::new(), true),
+        )
+        .await;
+        assert!(waited.is_err(), "cap=1 with a root held must wait, not exceed");
+        assert_eq!(sup.pool_running_roots(conv), 1);
     }
 }

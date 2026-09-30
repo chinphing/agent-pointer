@@ -37,6 +37,10 @@ import { listAgents, checkMediaDeps } from '../lib/api'
 import { usePlatformAuthStore } from '../stores/platformAuth'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
+import {
+  clampMaxChildrenPerAgent,
+  DEFAULT_MAX_CHILDREN_PER_AGENT
+} from '../stores/settings'
 import { splitProviderModelValue } from '../lib/modelSelectValue'
 import {
   emptyTierConfig,
@@ -305,6 +309,7 @@ function createSettingsDialogForm(deps: {
     return Number.isFinite(n) && n >= 1 ? Math.floor(n) : autoParallelLimit
   }
   const maxSubAgentSpawnDepth = ref(2)
+  const maxChildrenPerAgent = ref(DEFAULT_MAX_CHILDREN_PER_AGENT)
   const rawContentViewEnabled = ref(false)
   const debugDumpLlmPrompts = ref(false)
   const terminalEnvRows = ref<Array<{ id: string; key: string; value: string }>>([])
@@ -515,6 +520,7 @@ function createSettingsDialogForm(deps: {
   maxConcurrentRuns.value = s.settings.maxConcurrentRuns ?? 4
   maxSubAgentToolRounds.value = migrateSubAgentToolRounds(s.settings.maxSubAgentToolRounds)
   maxSubAgentSpawnDepth.value = s.settings.maxSubAgentSpawnDepth ?? 2
+  maxChildrenPerAgent.value = clampMaxChildrenPerAgent(s.settings.maxChildrenPerAgent)
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled === true
   debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
   terminalEnvRows.value = Object.entries(s.settings.terminalEnvOverrides ?? {}).map(([key, value]) => ({
@@ -846,6 +852,7 @@ function createSettingsDialogForm(deps: {
     contextKeepRecentUserTurns: Number(contextKeepRecentUserTurns.value),
     maxToolRounds: Number(maxToolRounds.value),
     maxSubAgentToolRounds: migrateSubAgentToolRounds(maxSubAgentToolRounds.value),
+    maxChildrenPerAgent: clampMaxChildrenPerAgent(maxChildrenPerAgent.value),
     fileReadMaxBytes: Math.min(1024 * 1024, Math.max(4096, Math.round(Number(fileReadMaxKb.value) || 64) * 1024)),
     fileLineMaxBytes: Math.min(16 * 1024, Math.max(256, Math.floor(Number(fileLineMaxBytes.value) || 1024))),
     fileGrepMaxResults: Math.min(200, Math.max(1, Math.floor(Number(fileGrepMaxResults.value) || 50))),
@@ -898,6 +905,7 @@ function createSettingsDialogForm(deps: {
     s.settings.attachmentUploadMaxBytes = payload.attachmentUploadMaxBytes
     s.settings.maxToolRounds = payload.maxToolRounds
     s.settings.maxSubAgentToolRounds = payload.maxSubAgentToolRounds
+    s.settings.maxChildrenPerAgent = payload.maxChildrenPerAgent
     s.settings.contextCompressionEnabled = payload.contextCompressionEnabled
     s.settings.contextKeepRecentUserTurns = payload.contextKeepRecentUserTurns
     s.settings.parallelToolExecutionEnabled = payload.parallelToolExecutionEnabled
@@ -927,6 +935,7 @@ function createSettingsDialogForm(deps: {
     s.userSettings.attachmentUploadMaxBytes = payload.attachmentUploadMaxBytes
     s.userSettings.maxToolRounds = payload.maxToolRounds
     s.userSettings.maxSubAgentToolRounds = payload.maxSubAgentToolRounds
+    s.userSettings.maxChildrenPerAgent = payload.maxChildrenPerAgent
     s.userSettings.contextCompressionEnabled = payload.contextCompressionEnabled
     s.userSettings.contextKeepRecentUserTurns = payload.contextKeepRecentUserTurns
     s.userSettings.parallelToolExecutionEnabled = payload.parallelToolExecutionEnabled
@@ -1011,6 +1020,7 @@ function createSettingsDialogForm(deps: {
       contextKeepRecentUserTurns,
       maxToolRounds,
       maxSubAgentToolRounds,
+      maxChildrenPerAgent,
       fileReadMaxKb,
       fileLineMaxBytes,
       fileGrepMaxResults,
@@ -1093,6 +1103,7 @@ function createSettingsDialogForm(deps: {
     maxConcurrentRuns,
     maxSubAgentToolRounds,
     maxSubAgentSpawnDepth,
+    maxChildrenPerAgent,
     rawContentViewEnabled,
     debugDumpLlmPrompts,
     terminalEnvRows,

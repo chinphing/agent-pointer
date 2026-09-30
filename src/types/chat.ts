@@ -692,6 +692,8 @@ export interface UserSettings {
   /** Max tool rounds inside each sub-agent loop (default 500, max 500). */
   maxSubAgentToolRounds?: number
   maxSubAgentSpawnDepth?: number
+  /** Max live sub-agent children one agent instance may have (default 8, clamped 1–32). */
+  maxChildrenPerAgent?: number
   rawContentViewEnabled?: boolean
   debugDumpLlmPrompts?: boolean
   terminalEnvOverrides?: Record<string, string>
@@ -873,6 +875,8 @@ export interface ModelSettings {
   /** Max tool rounds inside each `run_subagent` / `run_sub_agent` inner loop (default 500, max 500) */
   maxSubAgentToolRounds?: number
   maxSubAgentSpawnDepth?: number
+  /** Max live sub-agent children one agent instance may have (default 8, clamped 1–32) */
+  maxChildrenPerAgent?: number
   /** 助手消息上「原始输出」调试入口（代码图标）；含正文通道原始字串与 API reasoning，不在主气泡展示 reasoning */
   rawContentViewEnabled: boolean
   /** Write each LLM request payload to app data `logs/llm_prompts/{conversationId}/` (debug) */

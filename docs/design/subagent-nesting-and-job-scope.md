@@ -358,7 +358,9 @@ depth 1 的 48 行 `general` 是 **lead 自己的 self fork**。
 
 **批次 C 落地记录**：`general.allowAgents += explore`；`explore.allowAgents = [explore]` 并新增 `run_subagent` / `job`（否则 allowAgents 是死配置）；`SelfForkSnapshot` 带 `spawn_tools` + `allow_agents`，fork 在**还有深度预算时**恢复编排工具、到 max 深度即 leaf；删掉 wave 路径的 `max_spawn_depth.max(trace_depth)` 逃生 → **所有节点（含 fork）都吃真实深度**；`resolve_subagent_spawn_capability` 在 max 深度一律 `None`。
 行为变化（有意）：到达深度上限的注册 agent 不再有"self-only 逃生"，一律 leaf。
-| **D** | §2.7 扇出护栏 `maxChildrenPerAgent` + 取消级联 + §2.7 根槽提升 | 无 |
+| **D** | §2.7 扇出护栏 `maxChildrenPerAgent` + 取消级联 + §2.7 根槽提升 | ✅ 已落地 |
+
+**批次 D 落地记录**：`maxChildrenPerAgent`（默认 8，clamp 1–32）按"该 instance 未终态后台子任务（按 `owner_chain` 末位统计）+ 前台 join（RAII guard）"计数，超限**确定性 ERROR**（不排队）；`cancel_ids` 增加子树级联（被取消 worker 的 `agent_instance_id` 作为种子，取消所有 `owner_chain` 含它的非终态 job，P1 的可见性过滤未放宽）；新增 `acquire_worker_slot(needs_root)`：嵌套 worker 在祖先根槽已消失时**提升为根槽**（受池容量约束），删除 wave 的 `NestedRefused` 分支。
 | **E** | §6 子 agent `content` 显示 | B（复用同一渲染骨架） |
 
 每批次独立提交；A/B/E 为前端为主，C/D 为后端为主。

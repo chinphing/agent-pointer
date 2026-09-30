@@ -87,17 +87,9 @@ enum SelfForkWaveWork<'a> {
     Prepared(PreparedSubagentOutcome),
 }
 
-enum HeldWorkerSlot {
-    #[allow(dead_code)]
-    Root(crate::chat_service::job_supervisor::WorkerLease),
-    #[allow(dead_code)]
-    Nested(crate::chat_service::job_supervisor::NestedLease),
-}
-
 #[derive(Debug, Clone)]
 enum WaveSlotSkip {
     CancelledBeforeSlot,
-    NestedRefused(String),
 }
 
 async fn collect_self_fork_wave<T, F, Fut, S>(
@@ -125,7 +117,10 @@ where
         let jobs = jobs;
         futures.push(async move {
             let wait_started = Instant::now();
-            let held: Result<HeldWorkerSlot, WaveSlotSkip> = if needs_root {
+            let held: Result<
+                crate::chat_service::job_supervisor::WorkerSlotLease,
+                WaveSlotSkip,
+            > = if needs_root {
                 tokio::select! {
                     biased;
                     _ = cancel.cancelled() => {
@@ -139,22 +134,27 @@ where
                     }
                     lease = jobs.acquire_root(&conversation_id, cap, &cancel) => {
                         match lease {
-                            Some(lease) => Ok(HeldWorkerSlot::Root(lease)),
+                            Some(lease) => Ok(crate::chat_service::job_supervisor::WorkerSlotLease::Root(lease)),
                             None => Err(WaveSlotSkip::CancelledBeforeSlot),
                         }
                     }
                 }
             } else {
-                match jobs.acquire_nested(&conversation_id) {
-                    Ok(nested) => Ok(HeldWorkerSlot::Nested(nested)),
-                    Err(msg) => {
-                        log::error!(
-                            "run_subagent self-fork nested refused task_id={} fork_id={} index={}: {msg}",
+                // Nested workers share the ancestor root; if that root is gone
+                // they are promoted to a root slot instead of being refused.
+                match jobs
+                    .acquire_worker_slot(&conversation_id, cap, &cancel, false)
+                    .await
+                {
+                    Some(lease) => Ok(lease),
+                    None => {
+                        log::info!(
+                            "run_subagent self-fork skipped wait task_id={} fork_id={} index={} (cancelled before worker slot)",
                             item.task_id,
                             item.tool_call_id,
                             item.index
                         );
-                        Err(WaveSlotSkip::NestedRefused(msg))
+                        Err(WaveSlotSkip::CancelledBeforeSlot)
                     }
                 }
             };
@@ -961,6 +961,9 @@ async fn run_self_fork_wave(
     any_executed: &mut bool,
 ) -> Result<()> {
     let mut items = Vec::new();
+    // Holds the fan-out slot of every foreground child in this wave until the
+    // wave finishes (background children are counted from the job table).
+    let mut foreground_guards = Vec::new();
     for idx in indices {
         let prep = &prepared[idx];
         let run_id = pass
@@ -1037,6 +1040,15 @@ async fn run_self_fork_wave(
                     "parallel subagent wave requires an active parent agent"
                 ));
             };
+        let max_children = crate::models::clamp_max_children_per_agent(
+            pass.ctx.provider.settings.max_children_per_agent,
+        ) as usize;
+        let issuer_instance_id = pass
+            .ctx
+            .sub
+            .as_ref()
+            .and_then(|sub| sub.agent_chain.last())
+            .map(String::as_str);
         let mut running_event = build_self_fork_running_event(
             pass.ctx.session.stream,
             pass.ctx.session.state,
@@ -1191,6 +1203,31 @@ async fn run_self_fork_wave(
                             continue;
                         }
                     }
+                    if let Err(msg) = pass.ctx.session.state.jobs.check_child_spawn(
+                        pass.ctx.session.conversation_id,
+                        issuer_instance_id,
+                        max_children,
+                    ) {
+                        let outcome = failed_owned_subagent_outcome(
+                            &run_id,
+                            pass.ctx.session.conversation_id,
+                            &prep.tc.id,
+                            input.task.clone(),
+                            &input.source,
+                            input.issuer_trace_id.as_deref(),
+                            input.child_spawn_depth,
+                            None,
+                            msg,
+                        );
+                        items.push(SelfForkWaveItem {
+                            index: idx,
+                            task_id: input.task.id.clone(),
+                            tool_call_id: prep.tc.id.clone(),
+                            input: SelfForkWaveWork::Prepared(outcome),
+                            running_event,
+                        });
+                        continue;
+                    }
                     if let Some((stream, event)) = running_event.take() {
                         emit(&stream, event);
                     }
@@ -1240,6 +1277,35 @@ async fn run_self_fork_wave(
                     *any_executed = true;
                     continue;
                 }
+                let child_guard = match pass.ctx.session.state.jobs.try_begin_child_spawn(
+                    pass.ctx.session.conversation_id,
+                    issuer_instance_id,
+                    max_children,
+                ) {
+                    Ok(guard) => guard,
+                    Err(msg) => {
+                        let outcome = failed_owned_subagent_outcome(
+                            &run_id,
+                            pass.ctx.session.conversation_id,
+                            &prep.tc.id,
+                            input.task.clone(),
+                            &input.source,
+                            input.issuer_trace_id.as_deref(),
+                            input.child_spawn_depth,
+                            None,
+                            msg,
+                        );
+                        items.push(SelfForkWaveItem {
+                            index: idx,
+                            task_id: input.task.id.clone(),
+                            tool_call_id: prep.tc.id.clone(),
+                            input: SelfForkWaveWork::Prepared(outcome),
+                            running_event,
+                        });
+                        continue;
+                    }
+                };
+                foreground_guards.push(child_guard);
                 (task_id, SelfForkWaveWork::Execute(input))
             }
             Err(error) => {
@@ -1360,17 +1426,6 @@ async fn run_self_fork_wave(
                         input.issuer_trace_id.as_deref(),
                         input.child_spawn_depth,
                         input.instance_scope,
-                    ),
-                    WaveSlotSkip::NestedRefused(msg) => failed_owned_subagent_outcome(
-                        &input.run_id,
-                        input.conversation_id,
-                        &input.tool_call_id,
-                        input.task,
-                        &input.source,
-                        input.issuer_trace_id.as_deref(),
-                        input.child_spawn_depth,
-                        input.instance_scope,
-                        msg,
                     ),
                 },
             };
@@ -2119,7 +2174,6 @@ mod self_fork_wave_tests {
             },
             |_, skip| match skip {
                 WaveSlotSkip::CancelledBeforeSlot => "cancelled",
-                WaveSlotSkip::NestedRefused(_) => "nested-refused",
             },
         )
         .await;
@@ -2245,7 +2299,7 @@ mod self_fork_wave_tests {
     }
 
     #[tokio::test]
-    async fn nested_wave_without_ancestor_does_not_execute() {
+    async fn nested_wave_without_ancestor_promotes_to_root_and_executes() {
         let jobs = JobSupervisor::new();
         let executed = Arc::new(AtomicUsize::new(0));
         let items = (0..2)
@@ -2261,7 +2315,7 @@ mod self_fork_wave_tests {
         let outcomes = collect_self_fork_wave(
             items,
             &jobs,
-            "conv-nested-refuse",
+            "conv-nested-promote",
             1,
             false,
             tokio_util::sync::CancellationToken::new(),
@@ -2272,13 +2326,13 @@ mod self_fork_wave_tests {
                     index
                 }
             },
-            |index, skip| {
-                assert!(matches!(skip, WaveSlotSkip::NestedRefused(_)));
-                index + 100
-            },
+            |_, skip| panic!("unexpected skip: {skip:?}"),
         )
         .await;
-        assert_eq!(executed.load(Ordering::SeqCst), 0);
-        assert_eq!(outcomes, vec![(0, 100), (1, 101)]);
+        // No ancestor root: each nested item is promoted to a root slot instead
+        // of being refused, so the work is never dropped.
+        assert_eq!(executed.load(Ordering::SeqCst), 2);
+        assert_eq!(outcomes, vec![(0, 0), (1, 1)]);
+        assert_eq!(jobs.pool_running_roots("conv-nested-promote"), 0);
     }
 }

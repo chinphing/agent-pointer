@@ -877,6 +877,14 @@ pub struct ModelSettings {
         rename = "maxSubAgentSpawnDepth"
     )]
     pub max_sub_agent_spawn_depth: u32,
+    /// Max **live** sub-agent children one agent instance may have at once
+    /// (its own non-terminal jobs + in-flight foreground joins). Spawning past
+    /// this returns a deterministic `ERROR` instead of queueing.
+    #[serde(
+        default = "default_max_children_per_agent",
+        rename = "maxChildrenPerAgent"
+    )]
+    pub max_children_per_agent: u32,
     /// When true, chat UI shows the assistant “原始输出” inspector (code icon); includes wire text and API reasoning for debug, not inline in the bubble.
     #[serde(
         default = "default_raw_content_view_enabled",
@@ -1469,6 +1477,41 @@ fn default_max_sub_agent_spawn_depth() -> u32 {
     2
 }
 
+pub const DEFAULT_MAX_CHILDREN_PER_AGENT: u32 = 8;
+pub const FLOOR_MAX_CHILDREN_PER_AGENT: u32 = 1;
+pub const CEILING_MAX_CHILDREN_PER_AGENT: u32 = 32;
+
+fn default_max_children_per_agent() -> u32 {
+    DEFAULT_MAX_CHILDREN_PER_AGENT
+}
+
+/// Clamp the per-agent live-children fan-out cap to 1–32 (default 8).
+pub fn clamp_max_children_per_agent(n: u32) -> u32 {
+    n.clamp(FLOOR_MAX_CHILDREN_PER_AGENT, CEILING_MAX_CHILDREN_PER_AGENT)
+}
+
+#[cfg(test)]
+mod max_children_per_agent_limit_tests {
+    use super::*;
+
+    #[test]
+    fn clamps_max_children_per_agent_to_small_scope() {
+        assert_eq!(clamp_max_children_per_agent(0), FLOOR_MAX_CHILDREN_PER_AGENT);
+        assert_eq!(clamp_max_children_per_agent(1), 1);
+        assert_eq!(clamp_max_children_per_agent(8), 8);
+        assert_eq!(
+            clamp_max_children_per_agent(u32::MAX),
+            CEILING_MAX_CHILDREN_PER_AGENT
+        );
+    }
+
+    #[test]
+    fn default_max_children_per_agent_is_eight() {
+        assert_eq!(default_max_children_per_agent(), 8);
+        assert_eq!(platform_default_max_children_per_agent(), 8);
+    }
+}
+
 fn default_raw_content_view_enabled() -> bool {
     false
 }
@@ -1541,6 +1584,7 @@ impl Default for ModelSettings {
             attachment_upload_max_bytes: default_attachment_upload_max_bytes(),
             max_sub_agent_tool_rounds: default_max_sub_agent_tool_rounds(),
             max_sub_agent_spawn_depth: default_max_sub_agent_spawn_depth(),
+            max_children_per_agent: default_max_children_per_agent(),
             raw_content_view_enabled: default_raw_content_view_enabled(),
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             terminal_env_overrides: HashMap::new(),
@@ -1938,6 +1982,11 @@ pub struct UserSettings {
     )]
     pub max_sub_agent_spawn_depth: u32,
     #[serde(
+        default = "platform_default_max_children_per_agent",
+        rename = "maxChildrenPerAgent"
+    )]
+    pub max_children_per_agent: u32,
+    #[serde(
         default = "platform_default_raw_content_view_enabled",
         rename = "rawContentViewEnabled"
     )]
@@ -2087,6 +2136,7 @@ impl Default for UserSettings {
             attachment_upload_max_bytes: default_attachment_upload_max_bytes(),
             max_sub_agent_tool_rounds: platform_default_max_sub_agent_tool_rounds(),
             max_sub_agent_spawn_depth: platform_default_max_sub_agent_spawn_depth(),
+            max_children_per_agent: platform_default_max_children_per_agent(),
             raw_content_view_enabled: platform_default_raw_content_view_enabled(),
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             terminal_env_overrides: HashMap::new(),
@@ -2408,6 +2458,10 @@ fn platform_default_max_sub_agent_spawn_depth() -> u32 {
     2
 }
 
+fn platform_default_max_children_per_agent() -> u32 {
+    DEFAULT_MAX_CHILDREN_PER_AGENT
+}
+
 fn platform_default_raw_content_view_enabled() -> bool {
     false
 }
@@ -2470,6 +2524,7 @@ const DEBUG_WEB_SETTINGS_JSON_KEYS: &[&str] = &[
     "computerPipelineLlm",
     "agentTaskBoardHistoryTrim",
     "maxSubAgentSpawnDepth",
+    "maxChildrenPerAgent",
 ];
 
 fn strip_debug_keys_from_settings_object(value: &mut serde_json::Value) {
@@ -2573,6 +2628,7 @@ pub fn preserve_platform_debug_settings_in_model(
     incoming.agent_ui_overrides = user.agent_ui_overrides.clone();
     incoming.agent_task_board_history_trim = user.agent_task_board_history_trim.clone();
     incoming.max_sub_agent_spawn_depth = user.max_sub_agent_spawn_depth;
+    incoming.max_children_per_agent = clamp_max_children_per_agent(user.max_children_per_agent);
     incoming.computer_pipeline_llm = user.computer_pipeline_llm.clone();
 }
 
@@ -2593,6 +2649,7 @@ pub fn preserve_platform_debug_settings_in_user(
     incoming.agent_ui_overrides = existing.agent_ui_overrides.clone();
     incoming.agent_task_board_history_trim = existing.agent_task_board_history_trim.clone();
     incoming.max_sub_agent_spawn_depth = existing.max_sub_agent_spawn_depth;
+    incoming.max_children_per_agent = clamp_max_children_per_agent(existing.max_children_per_agent);
     incoming.computer_pipeline_llm = existing.computer_pipeline_llm.clone();
 }
 
@@ -2682,6 +2739,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
             user.max_sub_agent_tool_rounds,
         ),
         max_sub_agent_spawn_depth: user.max_sub_agent_spawn_depth,
+        max_children_per_agent: clamp_max_children_per_agent(user.max_children_per_agent),
         raw_content_view_enabled: user.raw_content_view_enabled,
         debug_dump_llm_prompts: user.debug_dump_llm_prompts,
         terminal_env_overrides: user.terminal_env_overrides.clone(),

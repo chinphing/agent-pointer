@@ -868,6 +868,8 @@
       "delegationHintAfter": "配置。",
       "maxNestDepth": "子 Agent 最大嵌套深度",
       "maxNestDepthHint": "1 = 仅主 agent 可委派；2 = 子 agent 可再委派一层（默认）。",
+      "maxChildrenPerAgent": "单个 Agent 最大子任务数",
+      "maxChildrenPerAgentHint": "同一 agent 同时存活的子任务上限（含前台等待与后台任务），默认 8，范围 1–32；超出时直接报错，不排队。",
       "generalAgentFallback": "通用智能体"
     },
     "models": {

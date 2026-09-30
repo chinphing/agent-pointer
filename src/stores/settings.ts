@@ -101,6 +101,17 @@ function normalizeContextBudgetTokens(raw?: number): number {
   return clampContextBudgetTokens(Math.floor(Number(raw)))
 }
 
+/** Per-agent live sub-agent children cap (`maxChildrenPerAgent`): 1–32, default 8. */
+export const DEFAULT_MAX_CHILDREN_PER_AGENT = 8
+export const MIN_MAX_CHILDREN_PER_AGENT = 1
+export const MAX_MAX_CHILDREN_PER_AGENT = 32
+
+export function clampMaxChildrenPerAgent(raw?: number): number {
+  const n = Math.floor(Number(raw))
+  if (!Number.isFinite(n)) return DEFAULT_MAX_CHILDREN_PER_AGENT
+  return Math.min(MAX_MAX_CHILDREN_PER_AGENT, Math.max(MIN_MAX_CHILDREN_PER_AGENT, n))
+}
+
 function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSettings {
   const migrated = migratePlannerSettingsFields(s)
   const contextBudgetTokens = normalizeContextBudgetTokens(
@@ -130,6 +141,7 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     attachmentUploadMaxBytes: s.attachmentUploadMaxBytes ?? 100 * 1024 * 1024,
     maxSubAgentToolRounds: normalizeSubAgentToolRounds(s.maxSubAgentToolRounds),
     maxSubAgentSpawnDepth: s.maxSubAgentSpawnDepth ?? 2,
+    maxChildrenPerAgent: clampMaxChildrenPerAgent(s.maxChildrenPerAgent),
     rawContentViewEnabled: s.rawContentViewEnabled === true,
     debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
     terminalEnvOverrides: { ...(s.terminalEnvOverrides ?? {}) },
@@ -301,6 +313,7 @@ export const useSettingsStore = defineStore('settings', () => {
     attachmentUploadMaxBytes: 100 * 1024 * 1024,
     maxSubAgentToolRounds: DEFAULT_SUB_AGENT_TOOL_ROUNDS,
     maxSubAgentSpawnDepth: 2,
+    maxChildrenPerAgent: DEFAULT_MAX_CHILDREN_PER_AGENT,
     rawContentViewEnabled: false,
     debugDumpLlmPrompts: false,
     terminalEnvOverrides: {},
@@ -612,6 +625,11 @@ export const useSettingsStore = defineStore('settings', () => {
         mergedIn.maxSubAgentToolRounds
         ?? user.maxSubAgentToolRounds
         ?? settings.value.maxSubAgentToolRounds
+      ),
+      maxChildrenPerAgent: clampMaxChildrenPerAgent(
+        mergedIn.maxChildrenPerAgent
+        ?? user.maxChildrenPerAgent
+        ?? settings.value.maxChildrenPerAgent
       ),
       toolApprovalMode: mergedIn.toolApprovalMode ?? user.toolApprovalMode ?? settings.value.toolApprovalMode,
       computerHumanLike: mergedIn.computerHumanLike ?? user.computerHumanLike ?? settings.value.computerHumanLike,

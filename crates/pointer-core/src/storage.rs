@@ -422,6 +422,11 @@ struct StoredSettings {
     )]
     max_sub_agent_spawn_depth: u32,
     #[serde(
+        default = "default_max_children_per_agent",
+        rename = "maxChildrenPerAgent"
+    )]
+    max_children_per_agent: u32,
+    #[serde(
         default = "default_raw_content_view_enabled",
         rename = "rawContentViewEnabled"
     )]
@@ -492,6 +497,10 @@ fn default_max_sub_agent_tool_rounds() -> u32 {
 
 fn default_max_sub_agent_spawn_depth() -> u32 {
     2
+}
+
+fn default_max_children_per_agent() -> u32 {
+    crate::models::DEFAULT_MAX_CHILDREN_PER_AGENT
 }
 
 fn default_raw_content_view_enabled() -> bool {
@@ -823,6 +832,9 @@ fn stored_settings_to_user(stored: &StoredSettings) -> UserSettings {
         max_tool_rounds: stored.max_tool_rounds,
         max_sub_agent_tool_rounds: stored.max_sub_agent_tool_rounds,
         max_sub_agent_spawn_depth: stored.max_sub_agent_spawn_depth,
+        max_children_per_agent: crate::models::clamp_max_children_per_agent(
+            stored.max_children_per_agent,
+        ),
         raw_content_view_enabled: stored.raw_content_view_enabled,
         debug_dump_llm_prompts: stored.debug_dump_llm_prompts,
         debug_menus_enabled: stored.debug_menus_enabled,
@@ -981,6 +993,7 @@ impl Default for StoredSettings {
             max_tool_rounds: s.max_tool_rounds,
             max_sub_agent_tool_rounds: s.max_sub_agent_tool_rounds,
             max_sub_agent_spawn_depth: s.max_sub_agent_spawn_depth,
+            max_children_per_agent: s.max_children_per_agent,
             raw_content_view_enabled: s.raw_content_view_enabled,
             debug_dump_llm_prompts: s.debug_dump_llm_prompts,
             debug_menus_enabled: s.debug_menus_enabled,

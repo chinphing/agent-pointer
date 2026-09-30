@@ -43,7 +43,7 @@
 **加载顺序（容易踩）**
 
 - `npm run tauri:dev` / `tauri:build` / Vite（`web:dev`）会自动读仓库根目录 gitignore 的 `pointer.local.env`（**已存在的 OS / CI 环境变量优先**，文件只补空项）。模板见 [`pointer.local.env.example`](../../pointer.local.env.example)。
-- `npm run server:build`（`scripts/build-server.mjs`）**不读** `pointer.local.env`，必须显式导出变量。
+- `npm run server:build`（`scripts/build-server.mjs`）**同样读** `pointer.local.env`，并把同一份变量透传给 Vue 构建与 `cargo`（两边不会再各读各的）。构建后、打包前还会校验两半是否一致：managed 口味下二进制缺控制面域名、或 Web 资源缺 Web base，直接非零退出（见 §4.2）。
 - 运行时仍可用同名 `POINTER_*` 环境变量覆盖构建期默认值；服务端另有 `POINTER_DEPLOYMENT_MODE`。
 
 ---
@@ -53,7 +53,7 @@
 | 格子 | 构建命令 | 关键变量 | 产物 | 一句话验证 | 外部依赖 |
 | --- | --- | --- | --- | --- | --- |
 | [managed × 客户端](#managed-client) | `npm run tauri:build`（或 `build:windows` / `build:macos` / `build:linux`） | `POINTER_EDITION=managed` + 3 个域名 + updater 私钥 | `src-tauri/target/release/bundle/**` + `*.sig` | 构建日志 `[tauri-build] POINTER_EDITION=managed`；bundle 内有 `*.sig` | 控制面域名、updater 私钥 |
-| [managed × 服务端](#managed-server) | `POINTER_EDITION=managed … npm run server:build` | 同上（不含 updater 私钥）+ `[pointer]` 运行期配置 | `target/release/pointer-server-bundle/pointer-server-{平台}-{架构}.zip`（Linux 另有 `.deb`） | 启动日志 `deployment_mode: platform (control_plane_bound=true)` | 控制面 OAuth（secret 与控制面对齐） |
+| [managed × 服务端](#managed-server) | `npm run server:build`（`pointer.local.env` 写 `managed` + 3 域名，或显式导出） | 同上（不含 updater 私钥）+ `[pointer]` 运行期配置 | `target/release/pointer-server-bundle/pointer-server-{平台}-{架构}.zip`（Linux 另有 `.deb`） | 构建日志 `[server-build] edition=managed domains=3/3 baked, web=managed`；启动日志 `deployment_mode: platform (control_plane_bound=true)` | 控制面 OAuth（secret 与控制面对齐） |
 | [standalone × 客户端](#standalone-client) | `npm run tauri:build` | 无（不设口味） | 同上目录，**没有** `*.sig` | 构建日志 `[tauri-build] standalone build (no updater artifacts)` | 无 |
 | [standalone × 服务端](#standalone-server) | `npm run server:build` | `[deployment] mode = "standalone"` + 账密 | 同上 zip / deb | `/api/auth/mode` 返回 `standalone`，账密登录成功 | 无（官方签名包需 License） |
 
@@ -135,7 +135,7 @@ src-tauri/target/release/bundle/
 <a id="managed-server"></a>
 ## 4. managed × 服务端
 
-> 现状：`scripts/build-server.mjs` **没有 edition 分支**，也不读 `pointer.local.env` —— 必须在命令里显式导出控制面变量，`cargo` 会继承它们，由 `crates/pointer-core/build.rs` 编译期烧进二进制。
+> 现状：`scripts/build-server.mjs` 读 `pointer.local.env`（已存在的 OS / CI 变量优先），把同一份环境透传给 Vue 构建与 `cargo`；`crates/pointer-core/build.rs` 把域名编译期烧进二进制。构建后、打包前由 `scripts/lib/verify-baked-edition.mjs` 校验两半一致：managed 口味下任一半缺失即构建失败。
 
 ### 4.1 构建命令
 
@@ -143,6 +143,10 @@ src-tauri/target/release/bundle/
 cd agent-pointer
 npm install
 
+# 方式 A：本机 pointer.local.env 写好 managed + 3 个域名（日常）
+npm run server:build
+
+# 方式 B：一次性导出（CI / 临时；键名与 pointer.local.env.example 一致）
 POINTER_EDITION=managed \
 VITE_POINTER_EDITION=managed \
 POINTER_API_BASE=https://pointer-api.example.com \
@@ -152,11 +156,11 @@ VITE_POINTER_WEB_BASE=https://pointer.example.com \
 npm run server:build
 ```
 
-`server:build` = Vue 同源构建（`VITE_WEB_API_BASE` 置空）→ `cargo build -p pointer-server --release` → 打 zip；Linux 上有 `dpkg-deb` 时再加 `.deb`。
+`server:build` = Vue 同源构建（`VITE_WEB_API_BASE` 置空）→ `cargo build -p pointer-server --release` → **校验两半口味一致** → 打 zip；Linux 上有 `dpkg-deb` 时再加 `.deb`。`--package-only` / `--deb-only` 不重新编译，但同样校验已有产物。
 
 ### 4.2 需要的变量
 
-**构建期**（上表 3 个域名 + 口味，必须显式导出）：
+**构建期**（上表 3 个域名 + 口味；写进 `pointer.local.env` 或显式导出）：
 
 | 变量 | 必需 | 说明 |
 | --- | --- | --- |
@@ -187,6 +191,9 @@ target/release/bundle/deb/pointer-server_0.1.0_{amd64|arm64}.deb      # Linux
 ### 4.4 怎么验证
 
 ```bash
+# 0) 构建日志先看守卫结论（两半一致才会继续打包）
+#    [server-build] edition=managed domains=3/3 baked, web=managed
+
 # 1) 域名已烧入
 strings target/release/pointer-server | grep -m1 <你的 api_base 域名>
 
@@ -296,7 +303,7 @@ curl -s http://127.0.0.1:8787/api/license/status  # 自建 notConfigured；官�
 ## 7. CI 与发布口径
 
 - `.github/workflows/release.yml` **只产 standalone 客户端包**：三端都带 `--config src-tauri/tauri.personal.conf.json`，不注入任何 `POINTER_*`，产物上传 Draft Release。**managed（官方 / 企业）客户端在本地或企业 CI 打**。
-- 没有 managed 服务端的 CI：`scripts/build-server.mjs` 不带 edition 分支，managed server 需在带控制面变量的机器 / 流水线上打（照 [4.1](#managed-server) 抄）。
+- 没有 managed 服务端的 CI：managed server 需在带控制面变量的机器 / 流水线上打（照 [4.1](#managed-server) 抄）。`scripts/build-server.mjs` 会把 `pointer.local.env` 或 CI 环境变量同时交给两半，并在打包前校验；CI 上请用环境变量（没有 `pointer.local.env` 文件）。
 - 发布 managed 客户端后，安装包 + updater 压缩包 + `.sig` 走控制台「客户端发布」；standalone 包直接发 GitHub Release。
 
 ---
@@ -317,7 +324,7 @@ npm run server:dev                                # 服务端调试（不受 poi
 
 不要把生产域名、签名口令写进公开 `main`。需要联调控制面时只改本机 `pointer.local.env`。
 
-加载实现：`scripts/lib/load-pointer-local-env.mjs`（由 `tauri-dev.mjs` / `tauri-build.mjs` / `vite.config.ts` 调用）。`POINTER_*` 与对应 `VITE_*` 会互相补齐空白项。
+加载实现：`scripts/lib/load-pointer-local-env.mjs`（由 `tauri-dev.mjs` / `tauri-build.mjs` / `build-server.mjs` / `vite.config.ts` 调用）。`POINTER_*` 与对应 `VITE_*` 会互相补齐空白项。服务端两半一致性校验：`scripts/lib/verify-baked-edition.mjs`（`build-server.mjs` 在打包前调用）。
 
 ---
 
@@ -335,3 +342,4 @@ npm run server:dev                                # 服务端调试（不受 poi
 - 签名与密钥只放在 CI 的 secret / environment 里，不写进仓库、不写进本机配置文件。
 - 在 GitHub 打开 Private vulnerability reporting。
 - managed 包发布前确认：`*.sig` 齐全、域名指向正确环境（生产 / 预发不混）、`plugins.updater.pubkey` 与签名私钥配对。
+- managed 服务端发布前确认：`npm run server:build` 日志为 `edition=managed domains=3/3 baked, web=managed`（守卫不通过会直接中断打包）。

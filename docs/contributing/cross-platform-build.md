@@ -449,6 +449,8 @@ npm run server:status   # 查看运行状态
 # 或直接 ./target/release/pointer-server
 ```
 
+`server:build` 会读取仓库根目录的 `pointer.local.env`（已存在的 OS / CI 变量优先），并把同一份变量同时交给 Vue 构建与 `cargo`；打包前校验两半口味一致 —— managed 口味下二进制缺控制面域名、或 Web 资源缺 Web base，构建直接失败，不会产出半绑定的包。口味与变量见 [editions.md](editions.md)。
+
 Web 前端独立开发（连远程或本机 server API）：
 
 ```bash

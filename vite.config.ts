@@ -102,7 +102,8 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts']
+    // `scripts/**` covers the build-script guardrails (plain .mjs, no DOM).
+    include: ['src/**/*.test.ts', 'scripts/**/*.test.mjs']
   },
   clearScreen: false,
   build: {

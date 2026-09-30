@@ -25,7 +25,7 @@ Standalone 模式要点：
 
 ## 2. 构建发布包（Pointer 侧）
 
-本节打的是 **standalone（独立）** 包。**managed（集中管理）** 口味服务端要额外注入控制面域名（`scripts/build-server.mjs` 没有 edition 分支，必须显式导出），步骤见 [`../contributing/editions.md`](../contributing/editions.md#managed-server)。
+本节打的是 **standalone（独立）** 包。**managed（集中管理）** 口味服务端要额外注入控制面域名（`scripts/build-server.mjs` 会读 `pointer.local.env`，也可用 OS / CI 环境变量显式导出；打包前会校验两半一致），步骤见 [`../contributing/editions.md`](../contributing/editions.md#managed-server)。
 
 统一命令（与桌面端 `tauri:build` 相同 `{模块}:dev|build` 风格）：
 

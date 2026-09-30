@@ -11,6 +11,8 @@ import { parseAskUserArgs, parseAskUserSelection, parseAskUserSummary } from '..
 
 const props = defineProps<{ toolCall: ToolCall }>()
 
+const emit = defineEmits<{ submitted: [labels: string[]] }>()
+
 const args = computed(() =>
   parseAskUserArgs(props.toolCall.arguments)
   ?? parseAskUserSummary(props.toolCall.displaySummary)
@@ -64,6 +66,7 @@ async function submit(selected: string[]) {
   try {
     await submitAskUser(props.toolCall.id, cleaned)
     submitted.value = true
+    emit('submitted', cleaned)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause)
   } finally {

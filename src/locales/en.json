@@ -394,6 +394,7 @@
     "cancelled": "Cancelled",
     "selectedCount": "Selected {count}",
     "selectedList": "Selected: {items}",
+    "askUserBannerRemaining": "{count} more waiting",
     "milestoneWithPreview": "Milestone {preview}",
     "expandLines": "┄ Expand {count} lines ┄",
     "downloadFile": "Download {name}",

@@ -41,7 +41,7 @@ import {
   thinkingCharCountForCollapsedSubAgent,
   subAgentThinkingActive
 } from '../../../../lib/thinkingIndicator'
-import { isInteractiveToolCall, visibleToolCalls } from '../../../../lib/messageTooling'
+import { isPendingApprovalToolCall, isPendingAskUserToolCall, visibleToolCalls } from '../../../../lib/messageTooling'
 import { useSettingsStore } from '../../../../stores/settings'
 import { useAgentsCatalog } from '../../../../composables/useAgentUi'
 import type { AgentMessageBodyModel } from './AgentMessageBody.vue'
@@ -215,16 +215,19 @@ const processInnerTools = computed((): ToolCall[] => {
   )
 })
 
-const interactiveInnerTools = computed((): ToolCall[] =>
-  processInnerTools.value.filter(isInteractiveToolCall)
+/** Collapsed frames keep approval cards; pending ask_user lives in the top banner. */
+const approvalInnerTools = computed((): ToolCall[] =>
+  processInnerTools.value.filter(isPendingApprovalToolCall)
 )
 
 const liveInnerTool = computed(() => {
   if (!isRunning.value) return null
-  // Collapsed frames surface ask_user / approval cards below the summary —
-  // keep the live line for non-interactive process tools only.
+  // Collapsed frames surface approval cards below the summary; ask_user is the
+  // banner's job now. Keep the live line for other process tools.
   const candidates = collapsed.value
-    ? processInnerTools.value.filter(tc => !isInteractiveToolCall(tc))
+    ? processInnerTools.value.filter(
+      tc => !isPendingApprovalToolCall(tc) && !isPendingAskUserToolCall(tc)
+    )
     : processInnerTools.value
   const latest = latestToolCallForCompactStatus(candidates)
   if (!latest || !isToolCallInProgress(latest.status)) return null
@@ -490,13 +493,13 @@ watch(
         @close="showRawWire = false"
       />
     </div>
-    <!-- Collapsed: keep pending ask_user / approval cards actionable (main-turn parity). -->
+    <!-- Collapsed: keep pending approval cards actionable (main-turn parity). -->
     <div
-      v-else-if="interactiveInnerTools.length > 0"
+      v-else-if="approvalInnerTools.length > 0"
       class="space-y-0.5"
     >
       <ToolCallRow
-        v-for="tc in interactiveInnerTools"
+        v-for="tc in approvalInnerTools"
         :key="tc.id"
         :tool-call="tc"
         :show-tool-call-results="messageUi.showToolCallResults"

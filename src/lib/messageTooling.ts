@@ -5,9 +5,16 @@ export function toolCallBaseName(name: string): string {
   return i === -1 ? name : name.slice(0, i)
 }
 
-/** Tools that must stay visible while a turn is collapsed (user must act). */
-export function isInteractiveToolCall(tc: ToolCall): boolean {
-  if (tc.status === 'pending_approval') return true
+/** Approval still needs its own surface on a collapsed turn. */
+export function isPendingApprovalToolCall(tc: ToolCall): boolean {
+  return tc.status === 'pending_approval'
+}
+
+/**
+ * Pending `ask_user` — surfaced by the top-of-chat banner (design doc §4), never
+ * by keeping a frame / collapsed row alive.
+ */
+export function isPendingAskUserToolCall(tc: ToolCall): boolean {
   const base = toolCallBaseName(tc.name)
   return base === 'ask_user'
     && (tc.status === 'pending' || tc.status === 'running')
@@ -20,9 +27,9 @@ export function isInFlightSubagentHostToolCall(tc: ToolCall): boolean {
 }
 
 /**
- * Collapsed-turn surface: direct interactive tools, plus subagent hosts whose
+ * Collapsed-turn surface: direct approval tools, plus subagent hosts whose
  * child frame still needs a surface. A host can already be `success` while the
- * child is running or still holding `ask_user` on session / scoped rows.
+ * child is still running.
  * `Array.filter` / `some` pass the index as the second argument — ignore that.
  */
 type CollapsedHost = {
@@ -37,7 +44,7 @@ export function isCollapsedSurfaceToolCall(
   tc: ToolCall,
   host?: CollapsedHost | number
 ): boolean {
-  if (isInteractiveToolCall(tc) || isInFlightSubagentHostToolCall(tc)) return true
+  if (isPendingApprovalToolCall(tc) || isInFlightSubagentHostToolCall(tc)) return true
   if (!host || typeof host !== 'object') return false
   if (toolCallBaseName(tc.name) !== 'run_subagent') return false
   const id = tc.id.trim()
@@ -72,11 +79,9 @@ export function hostNeedsCollapsedSubAgentFrames(
 export function agentTraceNeedsCollapsedSurface(
   traces: readonly { status?: string; session?: { toolCalls?: ToolCall[] } }[] | undefined
 ): boolean {
-  for (const trace of traces ?? []) {
-    if (trace.status === 'running') return true
-    if ((trace.session?.toolCalls ?? []).some(isInteractiveToolCall)) return true
-  }
-  return false
+  // Running children keep their live frame. Pending `ask_user` no longer does —
+  // the top-of-chat banner owns that entry point (design doc §4).
+  return (traces ?? []).some(trace => trace.status === 'running')
 }
 
 /** Assistant row used the `response` tool (final user-visible reply), not an intermediate tool round. */

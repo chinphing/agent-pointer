@@ -227,7 +227,7 @@ describe('collapsed turn projection', () => {
     expect(turn.hiddenCount).toBeGreaterThan(0)
   })
 
-  it('keeps pending ask_user visible on an active collapsed turn', () => {
+  it('drops pending ask_user from the collapsed turn (the top banner owns it)', () => {
     const ask: ChatMessage = {
       id: 'ask1',
       role: 'assistant',
@@ -254,14 +254,13 @@ describe('collapsed turn projection', () => {
     })
     const turn = result.turns[0]!
     expect(turn.state).toBe('active')
-    // ask_user is attached as trailingToolGroups on the preceding assistant row.
+    // ask_user is attached as trailingToolGroups on the preceding assistant row,
+    // but it no longer keeps that row (or its tool group) alive.
     const host = turn.collapsedEntries.find(
       (e): e is Extract<typeof e, { type: 'message' }> =>
         e.type === 'message' && e.message.id === 'a1'
     )
-    expect(host?.contentOnly).toBe(true)
-    expect(host?.trailingToolGroups?.map(g => g.id)).toEqual(['ask1'])
-    expect(host?.trailingToolGroups?.[0]?.toolCalls.map(tc => tc.name)).toEqual(['ask_user'])
+    expect(host?.trailingToolGroups ?? []).toEqual([])
   })
 
   it('keeps in-flight run_subagent so nested coder ask_user can surface when collapsed', () => {

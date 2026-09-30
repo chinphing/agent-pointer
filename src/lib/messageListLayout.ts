@@ -15,7 +15,7 @@ import {
 import {
   agentTraceNeedsCollapsedSurface,
   isCollapsedSurfaceToolCall,
-  isInteractiveToolCall
+  isPendingApprovalToolCall
 } from './messageTooling'
 import { isScopedSubMessage } from './subAgentMessages'
 import { isRealUserTaskMessage, isToolRunContinuityGlue } from './threadLayoutGlue'
@@ -632,16 +632,18 @@ function entryContributesHiddenProcess(entry: FlatEntry): boolean {
   if (entry.type === 'tool_run') {
     return entry.items.some(
       item => item.kind === 'tools'
-        && item.group.toolCalls.some(tc => !isInteractiveToolCall(tc))
+        && item.group.toolCalls.some(tc => !isCollapsedSurfaceToolCall(tc, item.group.message))
     )
   }
   if (entry.type !== 'message') return false
   if ((entry.trailingToolGroups ?? []).some(group =>
-    group.toolCalls.some(tc => !isInteractiveToolCall(tc))
+    group.toolCalls.some(tc => !isCollapsedSurfaceToolCall(tc, group.message))
   )) {
     return true
   }
-  if ((entry.message.toolCalls ?? []).some(tc => !isInteractiveToolCall(tc))) return true
+  if ((entry.message.toolCalls ?? []).some(tc => !isCollapsedSurfaceToolCall(tc, entry.message))) {
+    return true
+  }
   if ((entry.message.agentTrace?.length ?? 0) > 0) return true
   if (entry.message.thoughts?.trim() || entry.message.reasoning?.trim()) return true
   return false

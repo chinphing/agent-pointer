@@ -416,18 +416,21 @@ const toastClass = computed(() => {
         </div>
       </div>
 
-      <div v-else class="relative h-full min-h-0">
-        <MessageListSkeleton v-if="showMessageListPlaceholder" />
-        <MessageList
-          v-else
-          :key="chat.currentId ?? 'none'"
-          :search-match-ids="pageSearchMatchMessageIds"
-          :search-match-tool-call-ids="pageSearchMatchToolCallIds"
-          :active-search-message-id="activePageSearchMessageId"
-          :active-search-tool-call-id="activePageSearchToolCallId"
-          :search-query="debouncedPageSearchQuery"
-        />
-        <ConversationNav />
+      <div v-else class="flex h-full min-h-0 flex-col">
+        <AskUserBanner />
+        <div class="relative min-h-0 flex-1">
+          <MessageListSkeleton v-if="showMessageListPlaceholder" />
+          <MessageList
+            v-else
+            :key="chat.currentId ?? 'none'"
+            :search-match-ids="pageSearchMatchMessageIds"
+            :search-match-tool-call-ids="pageSearchMatchToolCallIds"
+            :active-search-message-id="activePageSearchMessageId"
+            :active-search-tool-call-id="activePageSearchToolCallId"
+            :search-query="debouncedPageSearchQuery"
+          />
+          <ConversationNav />
+        </div>
       </div>
     </div>
     <Composer v-if="showFooterComposer" />

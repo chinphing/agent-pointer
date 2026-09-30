@@ -4,7 +4,8 @@ import {
   hostNeedsCollapsedSubAgentFrames,
   isCollapsedSurfaceToolCall,
   isInFlightSubagentHostToolCall,
-  isInteractiveToolCall,
+  isPendingApprovalToolCall,
+  isPendingAskUserToolCall,
   isSidecarToolCall,
   taskBoardPatchSummaryFromArgs,
   taskBoardToolSummary,
@@ -21,7 +22,7 @@ describe('messageTooling', () => {
     expect(toolCallBaseName('task_board_patch')).toBe('task_board_patch')
   })
 
-  it('keeps running run_subagent on the collapsed surface for nested ask_user', () => {
+  it('keeps approval and in-flight hosts on the collapsed surface, never pending ask_user', () => {
     const host: ToolCall = {
       id: '1',
       name: 'run_subagent',
@@ -30,13 +31,14 @@ describe('messageTooling', () => {
     }
     expect(isInFlightSubagentHostToolCall(host)).toBe(true)
     expect(isCollapsedSurfaceToolCall(host)).toBe(true)
-    expect(isInteractiveToolCall(host)).toBe(false)
+    expect(isPendingApprovalToolCall(host)).toBe(false)
     expect(isCollapsedSurfaceToolCall({
       id: '2',
       name: 'run_subagent',
       status: 'success',
       arguments: '{}'
     })).toBe(false)
+    // A running child keeps its frame; a pending ask_user alone does not.
     expect(isCollapsedSurfaceToolCall({
       id: '2',
       name: 'run_subagent',
@@ -56,6 +58,50 @@ describe('messageTooling', () => {
         }
       }]
     })).toBe(true)
+    expect(isCollapsedSurfaceToolCall({
+      id: '3',
+      name: 'run_subagent',
+      status: 'success',
+      arguments: '{}'
+    }, {
+      agentTrace: [{
+        status: 'done',
+        parentToolCallId: '3',
+        session: {
+          toolCalls: [{
+            id: 'ask',
+            name: 'ask_user',
+            status: 'pending',
+            arguments: '{}'
+          }]
+        }
+      }]
+    })).toBe(false)
+    // The banner owns pending ask_user: it never holds a collapsed row itself.
+    expect(isPendingAskUserToolCall({
+      id: 'ask',
+      name: 'ask_user',
+      status: 'pending',
+      arguments: '{}'
+    })).toBe(true)
+    expect(isCollapsedSurfaceToolCall({
+      id: 'ask',
+      name: 'ask_user',
+      status: 'pending',
+      arguments: '{}'
+    })).toBe(false)
+    expect(isPendingApprovalToolCall({
+      id: 'appr',
+      name: 'terminal',
+      status: 'pending_approval',
+      arguments: '{}'
+    })).toBe(true)
+    expect(isCollapsedSurfaceToolCall({
+      id: 'appr',
+      name: 'terminal',
+      status: 'pending_approval',
+      arguments: '{}'
+    })).toBe(true)
     expect(agentTraceNeedsCollapsedSurface([{
       status: 'running',
       session: {
@@ -67,6 +113,17 @@ describe('messageTooling', () => {
         }]
       }
     }])).toBe(true)
+    expect(agentTraceNeedsCollapsedSurface([{
+      status: 'done',
+      session: {
+        toolCalls: [{
+          id: 'ask',
+          name: 'ask_user',
+          status: 'pending',
+          arguments: '{}'
+        }]
+      }
+    }])).toBe(false)
   })
 
   it('keeps a finished run_subagent frame when the child lives on a trailing group', () => {

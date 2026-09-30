@@ -394,6 +394,7 @@
     "cancelled": "已取消",
     "selectedCount": "已选 {count} 项",
     "selectedList": "已选择：{items}",
+    "askUserBannerRemaining": "还有 {count} 条待回答",
     "milestoneWithPreview": "里程碑 {preview}",
     "expandLines": "┄ 展开 {count} 行 ┄",
     "downloadFile": "下载 {name}",

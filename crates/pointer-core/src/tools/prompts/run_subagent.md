@@ -70,9 +70,19 @@ Await only when the user's question cannot be answered without the result.
 - **`goal`** must stand alone — the worker does **not** see the main chat.
 - One tool call represents one task.
 - Use **`agentId: "self"`** to fork the current agent for an independent task.
-- Self forks are leaf workers and cannot call **`run_subagent`**.
+- A self fork inherits your **`allowAgents`** and keeps **`run_subagent`** /
+  **`job`** while it still has depth budget. Every spawn — fork included —
+  consumes one real depth level; at **`maxSubAgentSpawnDepth`** the node is a
+  leaf and has no **`run_subagent`**.
 - Registered delegation stops at **`maxSubAgentSpawnDepth`** (default 2).
-- Self leaf forks remain allowed at that depth.
+- Nesting nodes: **`general`** → `coder` / `computer` / `explore`;
+  **`coder`** → `explore`; **`explore`** → `explore` only (read-only, never
+  `coder`); **`computer`** stays a leaf and always foreground.
+- Fan-out: **`maxChildrenPerAgent`** (default 8, clamp 1–32) caps the live
+  sub-agent children of one instance. A spawn past the limit returns a
+  deterministic **`ERROR`** naming the limit — it is not queued.
+- A grandchild's **`content`** returns to its **direct parent** only; the lead
+  sees that parent's handoff plus **`openBackgroundJobs`**.
 - Workers finish with **Markdown** in final assistant **`content`** (no tools on that turn).
 - Optional **`taskId`** is for **explicitly continuing the same logical task**: reuse it only when a later handoff genuinely continues the same task (e.g. retry or follow-up on the same goal). For a **new** logical task, omit `taskId` so the host assigns a fresh id — do **not** copy a `taskId` seen in a previous completed result.
 - To correct or extend a **finished** worker, pass **`followupInstanceId`**
@@ -226,8 +236,9 @@ Unverified assumptions (optional).
   domain.
 - **When not:** work that belongs to **`coder`** / **`computer`** /
   **`explore`** per the sections above — stay on this brief only for
-  in-domain leaf work; simple Q&A stays on the lead.
-- Worker is a **leaf** (no nested **`run_subagent`**, no user clarify) — brief must be self-contained.
+  in-domain work; simple Q&A stays on the lead.
+- The worker keeps **`run_subagent`** / **`job`** while it has depth budget, but
+  it cannot ask the user (no clarify) — the brief must be self-contained.
 - Parallel rules: see **Parallel wave** above.
 
 **`computer` (general lead only)**

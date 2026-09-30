@@ -140,7 +140,7 @@ handoff 已够则不要 `session_read` 过程。并行多个 `self` 必须带**�
 ## 7. 实现要点
 
 - 模块仍在 `session_search/`：`tool.rs` 注册两个 entry，或 `search_tool.rs` + `read_tool.rs`。
-- 继承：与现网 `session_search` 相同（默认可进子 Agent）。self leaf 很少需要；不单独关 inheritance。
+- 继承：与现网 `session_search` 相同（默认可进子 Agent）。self fork 很少需要；不单独关 inheritance。
 - 并行：`session_read` 与 `session_search` 一样标只读可并行。
 - 切片键：`agentInstanceId`（见 §1.1）。`job.await` 与 `session_read` 不要混用。
 - 错误不静默。观测：`session_search:` / `session_read:` 两条日志。

@@ -1,7 +1,7 @@
 # 子 Agent 嵌套（多节点 + 树化渲染）与后台 job 作用域（子树）
 
-> 状态：**§3 job 作用域已落地并提交**（`3b0782e0`）。**§2 嵌套 = 待评审的新方案**（问题 1 重新梳理版）。
-> 实现以仓库代码为准；落地后回更 `subagent-goal-context-and-nesting.md`、`async-subagent-and-terminal.md`。
+> 状态：**批次 A–E 全部落地**（§5 实施队列）：§3 job 作用域（`3b0782e0`）、§4 ask_user 顶部条（`e0cec02c`）、§2.5 UI 树化（B）、§2.3 / §2.4 节点矩阵与深度统一（C）、§2.7 扇出护栏（D）、§6 子 agent 正文（E）。
+> §1 是批次 C 之前的实测基线，保留作对照；提示词与文档回更见 §2.12 与 §5 的落地记录。实现以仓库代码为准。
 
 ## 0. 决策台账
 
@@ -16,7 +16,7 @@
 
 ---
 
-## 1. 现状证据
+## 1. 现状证据（批次 C 之前的基线，保留作对照）
 
 ### 1.1 嵌套已开启，但只有一条链
 
@@ -68,7 +68,7 @@ depth 1 的 48 行 `general` 是 **lead 自己的 self fork**。
 2. `coder.allowAgents = [explore]`，而 `explore` 只读 → coder 想要"另一个能写代码的 agent"只有 `self` 一条路；
 3. 工具文档把 self fork 定位为"独立实现切片"（`tools/prompts/run_subagent.md`），模型照着用。
 
-**为什么最多两层**：self fork 被剥 `run_subagent`（`sub_agent_prompt.rs:221`）+ `allow_agents = []`（`:228`）→ fork 是 leaf。
+**为什么当时最多两层**（批次 C 已改，见 §5）：当时 self fork 被剥 `run_subagent`（`sub_agent_prompt.rs:221`）+ `allow_agents = []`（`:228`），因此到不了第三层。
 
 **顺带发现的路径不一致**：串行委派路径对 `self` 是硬错误
 （`run_subagent_delegation.rs:1326-1334` "self-fork execution is not available in this implementation stage"），
@@ -102,7 +102,7 @@ depth 1 的 48 行 `general` 是 **lead 自己的 self fork**。
 | 缺口 | 内容 | 本方案对应 |
 |------|------|-----------|
 | A | UI 只渲染一层，深层过程不可见（§1.2） | §2.5 |
-| B | `self` fork 是 leaf → `general` 无法作为嵌套节点；且深度有两套语义（§1.3） | §2.3 / §2.4 |
+| B | `self` fork 曾是 leaf → `general` 无法作为嵌套节点；且深度有两套语义（§1.3） | §2.3 / §2.4（✅ 已落地，见 §5） |
 | C | 节点集合被写死成单链（只有 coder→explore） | §2.3 |
 | D | 扇出无上限（深度是唯一护栏） | §2.7 |
 | E | 嵌套后台任务的交付规则没写进提示词（P1 已给出机制） | §2.6 |
@@ -264,7 +264,7 @@ depth 1 的 48 行 `general` 是 **lead 自己的 self fork**。
 | 风险 | 缓解 |
 |------|------|
 | 放开 `coder` 嵌套后同一 checkout 多写者 | coder 保持串行 + 提示词建议 `background: false`；worktree 隔离留后续 |
-| `self` fork 不再 leaf，提示词/文档与实际不符 | P3 同批回更；`SubAgentSpawnCapability::SelfFork` 文案明确"可委派但不进并行 wave" |
+| `self` fork 不再 leaf，提示词/文档与实际不符 | ✅ 已回更（批次 C 同批 + 本批）：`run_subagent.md`、coder `COMMUNICATION.md` / `prompts/delegation.md`、`pointer-run-subagent.md`、本文档；`SubAgentSpawnCapability::SelfFork` 文案明确"可委派但不进并行 wave" |
 | 树化渲染影响既有折叠/统计/搜索 | 建树函数单测 + 折叠态快照测试；搜索命中后按祖先路径展开 |
 | 深层嵌套 token/时间成本 | 深度 + 扇出双护栏；`idleSlots` 语义不变（共享池） |
 | 只读隔离被 `explore → coder` 绕过 | D-A2 默认禁止；若确需放开，需在策略层显式声明"委派出去的写权限" |

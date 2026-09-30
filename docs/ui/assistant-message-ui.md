@@ -39,7 +39,7 @@
 
 - 主 Agent 流式：`reasoning_delta`、`assistant_json_partial`、`message_end` 等 **无 `traceId`** → 写入父消息根字段。
 - 子 Agent 流式：`reasoning_delta` / `raw_content_delta` 等带 **`traceId`** → 写入 `trace.session`（含 `reasoning`、`rawContent`），**不污染**父消息根字段。
-- 子 Agent **`response` handoff** 仍进入 tool result 供父 Agent 推理，但 UI **不展示**（`SubAgentFrame` + `hideResponse`）。
+- 子 Agent **`response` handoff** 仍进入 tool result 供父 Agent 推理；UI 在对应 `SubAgentFrame` 内按轮次显示该子 Agent 的 `content`（含中间结论与最终 handoff），不再是「不展示」。
 - 子 Agent 每轮 LLM 结束发带 `traceId`（及可选 `scopedMessageId`）的 `message_end`，`session.contentStreaming=false`，thoughts 收起。
 - **主回合结束只认 `StreamEvent::Done`**（及 `error` / 用户停止）。前端不再用 lead `message_end` 后的启发式兜底清 `generating`（旧 `scheduleMaybeFinishGenerating` 会在工具轮间隙 / 子 Agent 结束后误清状态并提前冲出站队列）。
 - **`error` / `done`**：必须带 **`conversationId`**。前端按该 id 落消息 / 清 run state，**禁止**默认写到当前打开会话（后台会话失败时否则会串会话）。`error` 有 `messageId` 时优先按消息定位，并以事件里的 `conversationId` 作为 `findMessage` 偏好会话。
@@ -52,9 +52,13 @@
 - 布局：收缩态**不要**再套一层卡片（无 `rounded-xl` / 额外 `p-3` / `px-1`），与连续工具摘要同一左缘。
 - **收缩交互**：统计行与连续工具组相同——`13px` `text-muted` 单行摘要，箭头在文案后；收起时桌面悬停 / 键盘聚焦才显现（触控端始终显示）；**展开后箭头固定显示**。悬停底只包统计文案、箭头，以及第二行「思考中」/当前工具，不要拉满列宽。失败用 `text-danger`。展开后统计行仍用同一行次数（不要改成英文 `running` / `completed`）。点统计行展开为内层一条条工具行，**不要**再套一层「探索 N 个文件」摘要。**统计行默认显示**（收缩的是内层工具，不是次数行）。次数写在 `agentTrace.summaryLine`，hydrate 不拉过程明细；缺摘要时补一次 scoped 算出次数再卸掉。补算前暂显「过程」。**进行中**若已有第三行 live（当前工具 /「思考中」），不要再用「过程」占统计行——与父会话首轮只有思考行一致。后台子 Agent 在父回合已返回 job 句柄后仍以 `trace.status=running` 为准显示工具间隙「思考中」，**不要**因 lead 已不 `generating` 而只剩「过程」。
 - **默认收缩与轨迹**：收缩态只看到统计 + 当前工具/思考；完整工具轨迹要点开统计行展开。展开后应列出内层工具行（流式中来自 scoped store；终态 stub 会 lazy load）。**默认收缩**统计行（内层过程工具卡片不渲染；任务板仍显示在摘要上方），执行中与完成后均如此。流式 `agent_step` 不得覆盖用户手动展开状态。
+- **帧内正文**：展开帧按轮次交错渲染「该轮 `content` → 该轮工具行」（`buildSubAgentRoundsFromScoped`：每个 assistant scoped 行 = 一轮，不合并）；正文用轻量 `SubAgentContentBlock.vue`（复用 `parseMarkdown` + 流式节流），**不带** lead 专属 chrome（复制按钮 / 媒体 / 任务板 / 平台余额）。折叠帧在统计摘要行之后追加**一行正文预览**（最新 `content` 首个非空行，截断 140 字）；无 scoped 行的旧会话退化为「单轮仅工具」。运行中尚未归属某轮的工具作为尾轮追加。
+- **会话搜索覆盖 scoped 行**：`findCurrentConversationMatches(messages, query, scopedRows)` 把 scoped 行（深层工具行与正文）纳入搜索面；命中以该帧**锚点消息**为 `messageId`，并带 `toolCallId` 或 `contentMessageId`。正文命中定位选择器 `[data-sub-agent-content-id]`。命中子孙层时用 `traceSubtreeContainsSearchTarget` **自动展开全部祖先帧**，stub 不被降级。
 - **嵌套位置**：`AgentTrace.parentToolCallId` 指向父消息里对应的 **`run_subagent`** 工具行；UI 将统计/过程挂在该工具行**下方**（`after-tool`）。无该字段或找不到工具行时，回退到消息底部（兼容旧会话，补 `px-3` 对齐，统计行自带目标文案）。并行多个 explore / self 时各自一条。owned-wave（explore / self）在拿到并发许可后立刻发 `status=running` 的 `agent_step`（已带 `parentToolCallId`），避免只在结束时才关联。**每个 fork 结束时立刻发 completed/failed/cancelled**（并清掉宿主行「执行中」），不要等整波 join 才一起改状态。
-- **收缩态仍露出交互卡片**：pending / running 的 `ask_user`、以及 `pending_approval`（与主会话收缩回合的 `isInteractiveToolCall` 一致）。用户不必先展开子任务框才能作答；摘要第二行的 live 当前工具不重复画这些交互项（卡片本身已是交互面）。
-- **父回合「默认收缩执行过程」**：`contentOnly` **不得**关掉仍在跑的 `SubAgentFrame`。进行中的 `run_subagent` 宿主行要留在收缩投影里，否则 general→coder 等子 Agent 内的 `ask_user` 会被整段藏掉。已结束的子任务过程仍只在展开后显示。
+- **嵌套树**：深层子 Agent 的 trace 也写在**它自己那一层的 scoped 行**上（DB 里有 `agentTrace.parentTraceId`）。渲染用 `buildSubAgentTraceTree`（`src/lib/subAgentTraceTree.ts`）按 `parentTraceId` 建树，`SubAgentFrame` 在过程块之后递归渲染 `childrenOf(trace.id)`；缺 `parentTraceId` 的旧行回退挂到宿主工具行。折叠父帧 → 子帧一并隐藏；展开父帧 → 子帧按各自状态渲染。`parentTraceId` 成环/悬空时按无父处理，不能丢帧。
+- **fork 标识**：`AgentTrace.delegation`（`self` / `registered`）由后端埋点。`self` fork 在标签后加 **` (fork)`**（`SELF_FORK_LABEL_SUFFIX`，如 `coder (fork)`），与真 worker 区分；`self` fork 的 trace id 含唯一 instance 段，并行 fork 互不覆盖。
+- **收缩态仍露出交互卡片**：只有 **`pending_approval`**（与主会话收缩回合的 `isPendingApprovalToolCall` 一致）。`ask_user` 不再靠帧/宿主行保留来外显，改由对话区顶部固定条承载（见下）；摘要第二行的 live 当前工具不重复画这些交互项（卡片本身已是交互面）。
+- **父回合「默认收缩执行过程」**：`contentOnly` **不得**关掉仍在跑的 `SubAgentFrame`，否则进行中的子任务过程与嵌套层级会被整段藏掉（`ask_user` 已改由顶部条承载，不再依赖帧保留）。已结束的子任务过程仍只在展开后显示。
 - 统计：结束后按工具分桶计数（完成态不写「已完成」，**运行中也不写「进行中」「执行中」**）。失败写在统计数字**后面**（`读文件 1 次 · 失败`）。维度按子 agent `agentId`——`explore`：搜索/读文件；`coder`：搜索/读文件/终端/编辑；`computer`：鼠标/输入/其他；`research`：联网搜索。历史 trace 中的 `general-worker` 仍按既有 metadata 渲染（`agentUi` / `subAgentStats`），registry 不再加载该 agent。
 - 子 Agent **任务板**与外层相同组件 `TaskBoardPanel`，绑定在 **lead assistant 消息**（`task_board_updated.anchorMessageId` → `childBindings`），渲染在对应 `SubAgentFrame` **内、执行过程上方**；收缩与展开时都显示（不随工具区折叠隐藏）。样式与工具摘要同一套：默认一行 `13px` muted（**步骤勾选图标** + 目标 + 进度），点开才是步骤列表；不要卡片、不要「active」徽章。摘要只跟执行状态：进行中写「执行中」，完成不写状态，失败写「失败」。**嵌套看板的「执行中」跟子 Agent 是否还在跑**（trace 已结束就不要因看板 `meta.running` 残留继续显示）。不要用空方框清单图标——那是 sidecar「任务板 · 初始化」工具行（默认隐藏；内层过程工具同样走 `visibleToolCalls`，只有设置里打开「显示 sidecar 工具调用」才出现）。嵌套看板与统计行 / 内层工具同一条左缘：缩进画在 `.sub-agent-nested` 内层（过 fork 图标对齐委派标题），不要和 `overflow-hidden` 外框叠在同一层。父会话板靠右（`justify-end` + `w-fit`）时，箭头始终占位、步骤宽度跟摘要走，避免悬停/展开把整块撑开左右跳。
 - 嵌套看板、统计行、展开后的内层工具共用 `space-y-0.5`，与连续工具行、统计行到「思考中」相同；看板改成摘要行后不要再按旧卡片留 `space-y-2`。
@@ -110,6 +114,17 @@
 行宽不够时与轮次修改摘要相同：`.ellipsis-start`（外层 `direction: rtl` 省略号在左）+ 内层 `.ellipsis-start-content`（`direction: ltr; unicode-bidi: isolate`）保持路径字形顺序，避免绝对路径开头的 `/` 被画到末尾成「`.py/`」；`title` 仍是完整相对路径。不要只靠文末 `&lrm;`。
 无 CSS 宽度的一行状态（紧凑坞、子任务收缩摘要）用 `truncatePathKeepEnd`，同样保尾。
 
+## 询问用户顶部条（`AskUserBanner`）
+
+深层子 Agent 的 `ask_user` 不再靠「保留帧 / 宿主行」外显，改由**对话区顶部固定条**承载：
+
+- 挂载：`ChatView.vue` 消息区容器内、`<MessageList>` 之上（消息区自己滚动，条始终钉在对话区顶部；移动端同位置）。
+- 数据源**与帧是否挂载无关**：当前会话 lead `messages[].toolCalls` 里的 `ask_user`（pending / running）＋ `useConversationScopedStore().listRows(convId)` 里的深层 scoped 行。响应式依赖 = `getMembershipSignal` + `getLiveSignal`。
+- 队列（`src/lib/askUserBanner.ts`）：显示最早一条，答完自动切下一条，条上提示「还有 N 条待回答」。
+- 提交后进入「已选择 X」态并**保留 2 秒**（`ASK_USER_BANNER_LINGER_MS`，从提交成功起算，避免 tool call 立刻变 success 导致提前卸载）；linger 期间若出现**提交时不在队列里**的新 pending，立即替换确认态。
+- 交互与卡片一致：单选点击即提交；多选保留确认按钮；「其他」输入保留。IM 不受影响（走 `im_ask_user` 推送）。
+- 旧逻辑已剔除：`isInteractiveToolCall` 拆为 `isPendingApprovalToolCall` + `isPendingAskUserToolCall`；`agentTraceNeedsCollapsedSurface` 只按 `status === 'running'`；折叠帧只保留 approval 卡片；`SubAgentFrameHost` 的 stub 降级判据改为 `approvalBlocksStub`。`ToolCallRow` 仍在工具行自身渲染处显示 `ask_user` 卡片（展开帧中与顶部条并存，属既有渲染路径）。
+
 ## `ask_user` 工具行
 
 - 工具行标题只显示 **图标 +「询问用户」**（不加 `displaySummary` / 问题摘要）。
@@ -123,7 +138,7 @@
   勾选填充为 `bg-foreground/55 text-background`，不要写死灰阶、紫色或未定义的 `muted-foreground`。
 - **选完之后的工具间隙**：`ask_user` 不可并进工具组，完成后会落在列表末尾。须在其后保留 live「思考中.」槽（主会话 `collapsedToolListItems` 尾部空组；子 Agent 统计行第二行，**展开过程时也要留**思考间隙，不要只在收缩态显示）。用户不应在选完选项后长时间既无思考提示、也无下一工具。
 - **进行中的子 Agent / 后台宿主**：父列表里若有 in-flight 的 `run_subagent`（或 live 后台宿主），`parentThinkingSuppressedByHost` 为真时**不要**再挂父级「思考中」（也不要追加尾部空组）——`SubAgentFrame` 内已有 live / 思考面，外层再叠一行会出现在宿主下方、与当前子任务工具行并列的重复「思考中」。
-- **子 Agent**：框默认收缩时，pending / running 的询问卡片仍画在统计行下方（与主会话收缩回合保留交互工具相同）；不要要求用户先点开过程才能作答。scoped 行和 session 上的同一次调用要合并，留下能画出选项的那一份（scoped 空参数不能挡住 session）。参数还是空时，用展示摘要里的问题和编号选项画卡片。终态轻量 stub 在仍有未完成询问时不要替换完整框。
+- **子 Agent**：询问卡片改由对话区顶部固定条（`AskUserBanner`）承载，帧内不再为露出 `ask_user` 保留过程/宿主行。帧里若仍渲染到 `ask_user` 工具行，卡片照常可答（既有渲染路径）；scoped 行和 session 上的同一次调用要合并，留下能画出选项的那一份（scoped 空参数不能挡住 session）。
 - **参数**：schema 里 `options` 已是 `type: array`；界面和执行端都兼容模型把数组二次字符串化的写法（解析 JSON 数组；容忍尾部多余 `]`）。工具文档明确要求传原生数组，不要传字符串。
 
 ## 上下文压缩进行中标记

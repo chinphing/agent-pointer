@@ -151,7 +151,7 @@ P0 不含 elevated、需交互 stdin 的命令。Workspace 用户终端仍独立
 | 前台 `terminal`（无 `blockUntilMs`） | 否 | **否** | 现网；不要顺手并进工人槽 |
 | 嵌套 `run_subagent`（`spawn_depth > 0`） | 仅当 `background` | **否**（挂在祖先那 1 格上） | 否则外层占满 N、内层再要槽、外层还在 join → `N=1` 死锁 |
 
-嵌套不计新槽。深度仍用现有 `maxSubAgentSpawnDepth`，不抄 Codex `close_agent`。没有祖先根槽还走嵌套路径 → error 日志并拒绝（不要静默再占一格，也不要空转）。
+嵌套不计新槽；**祖先根槽已释放时，嵌套 worker 提升为根槽**（受池容量约束，池满则排队等待），不再"拒绝 / 丢任务"——原 `NestedRefused` 分支已在批次 D 删除。深度仍用现有 `maxSubAgentSpawnDepth`，不抄 Codex `close_agent`。
 
 #### API（落在 JobSupervisor，删掉 per-pass `subagent_sem`）
 

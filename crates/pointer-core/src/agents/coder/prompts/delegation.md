@@ -83,7 +83,7 @@ Second **`run_subagent`** when handoff **`## Gaps for parent`** blocks safe edit
 
 ## Self fork (`run_subagent`, `agentId="self"`)
 
-Use **`self`** for **independent substantial slices** when isolated context helps. Self forks
-are **leaf** workers — no nested **`run_subagent`**. Broad read-only mapping → **`explore`**,
-not **`self`**.
+Use **`self`** for **independent substantial slices** when isolated context helps. A self fork
+inherits your **`allowAgents`** and may delegate again while it still has depth budget; at
+**`maxSubAgentSpawnDepth`** it is a leaf. Broad read-only mapping → **`explore`**, not **`self`**.
 Parallel wave (`self` / `explore`): follow **Parallel wave** in the **`run_subagent`** tool doc.

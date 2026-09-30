@@ -1,12 +1,14 @@
 # 子 Agent：`goal` / `context` 与嵌套 `run_subagent`
 
 > 设计稿。实现以仓库代码为准；落地后回更本文。
+>
+> **回更说明**：§1.2 / §2.2 / §2.3 / §1.3 的节点与深度语义、§9 的 `maxChildrenPerAgent` 已落地（批次 C / D，见 [`subagent-nesting-and-job-scope.md`](subagent-nesting-and-job-scope.md) §2.3、§2.4、§2.7、§5）。要点：`self` fork 在**还有深度预算时**可再委派（到 `maxSubAgentSpawnDepth` 才 leaf）；`general` / `coder` / `explore` 都是嵌套节点，`computer` 仍为 leaf。
 
 ## 目标
 
 1. **Instruct 协议**：`goal` + 可选 `context`（**不保留 `instruction`**），宿主组装 system/user（对齐 Hermes 分离 + OpenClaw 任务放 system）。
 2. **嵌套委派**：按 **spawn depth** 允许子 worker 再调 `run_subagent`，上限可配置（对齐 Hermes `max_spawn_depth` / OpenClaw `maxSpawnDepth`）。
-3. **`self` fork**：general / coder 等 lead 通过 **`run_subagent(agentId="self")`** 做 **leaf 隔离执行**（见 §1.2）。
+3. **`self` fork**：general / coder 等 lead 通过 **`run_subagent(agentId="self")`** 做 **隔离执行**——fork 继承父的 `allowAgents`，**还有深度预算时可再委派**，到 `maxSubAgentSpawnDepth` 才成为 leaf（见 §1.2）。
 
 ---
 
@@ -15,7 +17,7 @@
 | 角色 | lead（如 `general` / `coder`） | self fork（sub） |
 |------|-------------------------------|------------------|
 | 对用户 | ✅ 最终回复、澄清 | ❌ 仅 handoff |
-| `run_subagent` | ✅ 注册 worker + **`self`** | ❌ leaf |
+| `run_subagent` | ✅ 注册 worker + **`self`** | ✅ **还有深度预算时**（fork 继承父 `allowAgents`）；到 `maxSubAgentSpawnDepth` 才 leaf |
 | Skills | lead 有效列表 | **继承** 父快照 |
 | 典型用途 | 编排、路由 | 多 skill 步骤、research、附件流水线、独立实现切片 |
 
@@ -87,7 +89,7 @@ pub struct AgentTask {
 | **≥ max** | Leaf 子 agent | **禁止**；工具列表剔除 `run_subagent`，调用时硬拒绝 |
 
 - Hermes 默认 `max_spawn_depth=1` → 仅 parent(0) 可委派，child(1) 为 leaf。
-- OpenClaw 默认 `maxSpawnDepth=1`（部分发行说明推荐 2）；Pointer **默认 1**，设置可调至 ≥2。
+- OpenClaw 默认 `maxSpawnDepth=1`（部分发行说明推荐 2）；Pointer **默认 2**（主 agent + 一层子委派），设置可调 1–4。
 - **无上限封顶**（Hermes 风格）：配置值 floor 为 1，不设硬顶（合理范围文档建议 1–4）。
 
 ---
@@ -115,8 +117,8 @@ can_spawn = spawn_depth < max_spawn_depth
 
 allowed_tools:
   - 若 !can_spawn → 从列表移除 run_subagent
-  - explore / computer 等默认无 allowAgents → 自然为 leaf
-  - coder（allowAgents: [explore]）在 depth=1、max=2 时为 orchestrator
+  - `computer` 无 allowAgents → 自然为 leaf；`explore` 的 allowAgents 只有 `explore`（只读，不含写型 worker）
+  - coder（allowAgents: [explore]）在 depth=1、max=2 时为 orchestrator；`self` fork 继承父的 allowAgents，同样受深度门控
 ```
 
 **不**在全局硬剔除子 agent 的 `run_subagent`（修正现有文档「一律禁止嵌套」表述）；改为 **深度 + allowAgents** 门控。
@@ -125,7 +127,7 @@ allowed_tools:
 
 - 嵌套委派校验 **`validate_run_subagent_target(registry, current_agent.allow_agents, agentId)`**。
 - 子 agent **不继承** lead 的 `allowAgents`；用**当前 worker** manifest 中的列表。
-- 典型：`coder` 子任务可再委派 `explore`；`explore` 无 `allowAgents` → 不能继续 spawn。
+- 典型：`coder` 子任务可再委派 `explore`；`explore` 只能再委派 `explore`（只读，不含写型 worker）；`computer` 无 `allowAgents` → 不能继续 spawn。`self` fork 继承的是**父的** `allowAgents`（不是 lead 的），同样受深度门控。
 
 ### 2.4 Handoff 链
 
@@ -217,7 +219,7 @@ You are sub-agent depth {d}/{max}. …
 | `tools/prompts/run_subagent.md` | `goal`/`context`；深度限制；**Goal authoring**（explore / computer / coder）；删除 instruction |
 | `agents/coder/prompts/delegation.md` | Goal/Context 模板；何时子 coder 可再委派 explore |
 | `agents/supervisor/AGENT.md` | `goal` + `context`；深度默认 1 |
-| `agents/explore/AGENT.md` | 明确 leaf（无 allowAgents） |
+| `agents/explore/AGENT.md` | 只读；`allowAgents: [explore]`（不含写型 worker） |
 
 ### 5.2 子 agent system 附录
 
@@ -302,7 +304,7 @@ You are sub-agent depth {d}/{max}. …
 
 - `instruction` 别名 / 迁移 shim
 - 并行 `tasks[]` 批量 spawn（Hermes batch 模式）
-- `maxChildrenPerAgent` / 单轮并发子 agent 上限（可后续加）
+- ~~`maxChildrenPerAgent` / 单轮并发子 agent 上限~~：**`maxChildrenPerAgent` 已落地**（默认 8，clamp 1–32，见 [`subagent-nesting-and-job-scope.md`](subagent-nesting-and-job-scope.md) §2.7 / §5）；单轮并发子 agent 上限仍为后续项
 - 子 agent 独立模型覆盖（仍为可选后续）
 
 ---

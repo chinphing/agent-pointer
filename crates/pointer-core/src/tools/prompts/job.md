@@ -124,6 +124,7 @@ tool call is blocked on a specific result.
 **`cancel`**
 
 - **`jobIds`**: omit = cancel every background job **in your scope**.
+- Cancelling a worker's job cascades to that worker's whole subtree.
 - Explicit ids outside your scope are **skipped** and listed in
   `denied[]`; everything else in the call still cancels.
 - A sub-agent never cancels the lead's jobs or a sibling's jobs.

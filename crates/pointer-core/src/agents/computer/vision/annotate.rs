@@ -515,8 +515,8 @@ mod tests {
 
     #[test]
     fn test_client_default_url() {
-        // The client follows the resolved endpoint: an official build gets the
-        // production host, an unbound build stays empty (no control plane).
+        // The client follows the resolved endpoint: a managed build gets the
+        // injected host, an unbound build stays empty (no control plane).
         let client = AnnotateClient::new().unwrap();
         assert_eq!(
             client.base_url.trim_end_matches('/'),

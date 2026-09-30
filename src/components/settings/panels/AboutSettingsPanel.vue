@@ -6,7 +6,7 @@ import { useAppUpdater } from '../../../composables/useAppUpdater'
 import { isTauriRuntime } from '../../../lib/runtime'
 import { APP_VERSION } from '../../../lib/appVersion'
 import { openExternalUrl } from '../../../lib/openExternalUrl'
-import { isOfficialEdition } from '../../../lib/platformUrls'
+import { isManagedEdition } from '../../../lib/platformUrls'
 
 const { t } = useI18n()
 
@@ -19,7 +19,7 @@ const DOWNLOAD_URL = String(
   (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_POINTER_DOWNLOAD_URL ?? ''
 ).trim()
 
-const showUpdater = isOfficialEdition() && isTauriRuntime()
+const showUpdater = isManagedEdition() && isTauriRuntime()
 
 function openDownloadPage(e: MouseEvent) {
   e.preventDefault()

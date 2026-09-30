@@ -1,9 +1,10 @@
 //! pointer-server / SOM API base URLs.
 //!
-//! The open-source tree hardcodes no Pointer domain. An official build injects
+//! The open-source tree hardcodes no Pointer domain. A managed build injects
 //! the domains at build time (see `build.rs`); without them this build is unbound.
 //!
-//! - **Official build** (`POINTER_EDITION=official`): the injected domains.
+//! - **Managed build** (`POINTER_EDITION=managed`, or the legacy `official`): the
+//!   injected domains.
 //! - **Any other build**: unbound unless `POINTER_*` is set, i.e. standalone.
 //! - **Standalone / unbound**: empty, so related platform features stay disabled.
 //! - Any build can override with `POINTER_*` / `COMPUTER_ANNOTATE_API_BASE`.
@@ -19,8 +20,8 @@ pub const DEFAULT_OAUTH_CLIENT_ID: &str = "pointer-desktop";
 /// Baked in by `build.rs` from `COMPUTER_ANNOTATE_API_BASE`; empty when the build supplied none.
 pub const DEFAULT_ANNOTATE_API_BASE: &str = env!("POINTER_BUILTIN_ANNOTATE_API_BASE");
 
-/// Resolve one platform base URL: an explicit env var wins, otherwise only an
-/// official build falls back to the domain injected at build time. Anything else
+/// Resolve one platform base URL: an explicit env var wins, otherwise only a
+/// managed build falls back to the domain injected at build time. Anything else
 /// is unbound and behaves as standalone.
 fn resolve_platform_base(key: &str, platform_default: &str) -> String {
     if let Ok(raw) = std::env::var(key) {
@@ -29,7 +30,7 @@ fn resolve_platform_base(key: &str, platform_default: &str) -> String {
             return trimmed.to_string();
         }
     }
-    if crate::edition::is_official() {
+    if crate::edition::is_managed() {
         return platform_default.to_string();
     }
     String::new()

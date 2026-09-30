@@ -39,10 +39,10 @@ fn emit_edition() {
     }
 }
 
-/// Control-plane domains for an official package, baked in at compile time.
+/// Control-plane domains for a managed package, baked in at compile time.
 ///
-/// The open-source tree carries no Pointer production domain: an official build
-/// must supply them here, and a build that does not stays unbound (standalone).
+/// The open-source tree carries no production domain: a managed build must
+/// supply them here, and a build that does not stays unbound (standalone).
 fn emit_platform_domains() {
     const DOMAINS: [(&str, &str); 3] = [
         ("POINTER_API_BASE", "POINTER_BUILTIN_API_BASE"),
@@ -53,8 +53,12 @@ fn emit_platform_domains() {
         ),
     ];
 
-    let official = env::var("POINTER_EDITION")
-        .map(|raw| raw.trim().eq_ignore_ascii_case("official"))
+    // `official` is the legacy value of POINTER_EDITION and still means managed.
+    let managed = env::var("POINTER_EDITION")
+        .map(|raw| {
+            let value = raw.trim().to_ascii_lowercase();
+            value == "managed" || value == "official"
+        })
         .unwrap_or(false);
 
     let mut missing: Vec<&str> = Vec::new();
@@ -68,9 +72,9 @@ fn emit_platform_domains() {
         println!("cargo:rustc-env={rustc_env}={value}");
     }
 
-    if official && !missing.is_empty() {
+    if managed && !missing.is_empty() {
         panic!(
-            "pointer-core: an official build must inject its control-plane domains, but these are missing or empty: {}. \
+            "pointer-core: a managed build must inject its control-plane domains, but these are missing or empty: {}. \
              The open-source tree no longer hardcodes them; see docs/contributing/editions.md.",
             missing.join(", ")
         );

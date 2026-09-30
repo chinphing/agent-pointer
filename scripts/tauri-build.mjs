@@ -30,13 +30,15 @@ if (process.platform === 'linux') {
 
 const extra = process.argv.slice(2);
 const edition = (env.POINTER_EDITION || '').trim().toLowerCase();
-if (edition === 'official') {
-  env.VITE_POINTER_EDITION = env.VITE_POINTER_EDITION || 'official';
-  console.log('[tauri-build] POINTER_EDITION=official');
+// `official` is the legacy value of POINTER_EDITION and still means managed.
+const isManaged = edition === 'managed' || edition === 'official';
+if (isManaged) {
+  env.VITE_POINTER_EDITION = env.VITE_POINTER_EDITION || 'managed';
+  console.log(`[tauri-build] POINTER_EDITION=${edition}`);
 } else {
-  // Personal build: no updater artifacts, no baked-in control plane.
+  // Standalone build: no updater artifacts, no baked-in control plane.
   extra.push('--config', 'src-tauri/tauri.personal.conf.json');
-  console.log('[tauri-build] personal build (no updater artifacts)');
+  console.log('[tauri-build] standalone build (no updater artifacts)');
 }
 
 const result = spawnSync('npx', ['tauri', 'build', ...extra], {

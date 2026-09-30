@@ -6,13 +6,15 @@ function viteEnv(name: string): string {
   return String(env?.[name] ?? '').trim()
 }
 
-/** Packaging flavour: `official`, or empty for a personal build. Gates nothing. */
+/** Packaging flavour: `managed` (legacy: `official`), or empty for standalone. Gates nothing. */
 export function pointerEdition(): string {
   return viteEnv('VITE_POINTER_EDITION').toLowerCase()
 }
 
-export function isOfficialEdition(): boolean {
-  return pointerEdition() === 'official'
+export function isManagedEdition(): boolean {
+  const edition = pointerEdition()
+  // `official` is the legacy value of VITE_POINTER_EDITION and still means managed.
+  return edition === 'managed' || edition === 'official'
 }
 
 /**

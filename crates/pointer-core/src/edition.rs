@@ -1,13 +1,17 @@
-//! Build edition: `official` (control-plane domains must be injected at build time) vs unset.
+//! Build edition: `managed` (control-plane domains must be injected at build time) vs unset.
 //!
 //! `POINTER_EDITION` is a **packaging flavour**, not a gate: whether a build can
 //! reach a control plane is decided at runtime by
 //! `platform_endpoints::control_plane_bound()` / `deployment_mode::is_standalone()`.
 //! Set at compile time via `POINTER_EDITION` when invoking cargo, or override at runtime.
+//!
+//! `managed` describes **any** build that ships a control plane — Pointer's own
+//! release and an enterprise deployment pointed at its internal hosts alike. The
+//! legacy value `official` is still accepted.
 
 const ENV_EDITION: &str = "POINTER_EDITION";
 
-/// Effective edition string: `official`, or empty (unset).
+/// Effective edition string: `managed` (or the legacy `official`), or empty (unset).
 pub fn edition() -> String {
     if let Ok(raw) = std::env::var(ENV_EDITION) {
         let trimmed = raw.trim().to_ascii_lowercase();
@@ -22,16 +26,28 @@ pub fn edition() -> String {
         .unwrap_or_default()
 }
 
-/// Official build: ships Pointer's production control-plane defaults.
-pub fn is_official() -> bool {
-    edition() == "official"
+/// Whether a raw `POINTER_EDITION` value means a managed build.
+///
+/// `official` is the legacy value and is still accepted, so an enterprise build
+/// script written before the rename keeps working.
+fn value_is_managed(raw: &str) -> bool {
+    matches!(
+        raw.trim().to_ascii_lowercase().as_str(),
+        "managed" | "official"
+    )
+}
+
+/// Managed build: ships control-plane defaults, so the control-plane domains
+/// must be injected at build time (`build.rs` fails the build without them).
+pub fn is_managed() -> bool {
+    value_is_managed(&edition())
 }
 
 /// Log edition once after config env vars are applied.
 pub fn init_from_env() {
     let value = edition();
     if value.is_empty() {
-        log::info!("edition: unset (personal defaults)");
+        log::info!("edition: unset (standalone defaults)");
     } else {
         log::info!("edition: {value}");
     }
@@ -42,7 +58,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unset_is_not_official() {
+    fn unset_is_not_managed() {
         // Compile-time POINTER_EDITION is usually empty in `cargo test`.
         if std::env::var(ENV_EDITION).ok().filter(|v| !v.trim().is_empty()).is_some() {
             return;
@@ -53,7 +69,18 @@ mod tests {
         {
             return;
         }
-        assert!(!is_official());
+        assert!(!is_managed());
         assert!(edition().is_empty());
+    }
+
+    #[test]
+    fn legacy_official_value_is_still_managed() {
+        assert!(value_is_managed("managed"));
+        assert!(value_is_managed("managed "));
+        assert!(value_is_managed("MANAGED"));
+        assert!(value_is_managed("official"));
+        assert!(value_is_managed(" OFFICIAL "));
+        assert!(!value_is_managed("standalone"));
+        assert!(!value_is_managed(""));
     }
 }

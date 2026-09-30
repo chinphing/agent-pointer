@@ -94,7 +94,6 @@ pub(super) async fn run_chat_inner(
     let stream = ctx.stream.clone();
     let state = ctx.state.clone();
     let conversation_id = ctx.conversation_id;
-    let request_agent_mode = req.agent_mode.as_deref();
     let request_lead_agent_id = req.lead_agent_id_override.as_deref();
     let request_performance_mode = req.performance_mode_override.as_deref();
     let tool_rounds_used_single_start = req.tool_rounds_used_single_start;
@@ -337,10 +336,6 @@ pub(super) async fn run_chat_inner(
         settings.workspace_root = effective_workspace.trim().to_string();
     }
     let tool_approval_mode = settings.tool_approval_mode.clone();
-    let effective_agent_mode = request_agent_mode
-        .filter(|mode| !mode.trim().is_empty())
-        .unwrap_or(&settings.agent_mode)
-        .to_string();
     let lead_worker_id: Option<String> = request_lead_agent_id
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -355,7 +350,6 @@ pub(super) async fn run_chat_inner(
         });
     let api_key = prepare_session_llm_settings(
         &mut settings,
-        &effective_agent_mode,
         lead_worker_id.as_deref(),
         request_performance_mode,
     );
@@ -406,7 +400,6 @@ pub(super) async fn run_chat_inner(
         &state.tools,
         &[],
         &req.agent_skill_overrides,
-        &effective_agent_mode,
         lead_worker_id.as_deref(),
     );
     let mut agent_plan = agent_plan;
@@ -439,7 +432,7 @@ pub(super) async fn run_chat_inner(
     };
     let lead_role = lead_worker_id
         .clone()
-        .unwrap_or_else(|| effective_agent_mode.clone());
+        .unwrap_or_else(|| crate::agents::DEFAULT_AGENT_ID.to_string());
     let lead_instance_id = match crate::conversation_store::global_store() {
         Ok(store) => match store.ensure_lead_agent_instance(conversation_id) {
             Ok(id) => id,

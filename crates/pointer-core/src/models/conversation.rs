@@ -97,20 +97,13 @@ pub struct Conversation {
         skip_serializing_if = "is_false_bool"
     )]
     pub workspace_inherit_disabled: bool,
-    /// Per-conversation lead worker when `agent_mode` is `single`.
+    /// Per-conversation lead worker.
     #[serde(
         default = "super::settings::default_lead_agent_id",
         rename = "leadAgentId",
         skip_serializing_if = "is_default_session_lead_agent"
     )]
     pub lead_agent_id: String,
-    /// Per-conversation orchestration mode (`single` or `supervisor`).
-    #[serde(
-        default = "super::settings::default_agent_mode",
-        rename = "agentMode",
-        skip_serializing_if = "is_default_session_agent_mode"
-    )]
-    pub agent_mode: String,
     /// Per-conversation performance tier override (Composer picker); `None` = global default.
     #[serde(
         default,
@@ -129,10 +122,6 @@ pub struct Conversation {
 
 fn is_default_session_lead_agent(id: &str) -> bool {
     id.trim().is_empty() || id.trim() == super::settings::default_lead_agent_id()
-}
-
-fn is_default_session_agent_mode(mode: &str) -> bool {
-    mode.trim().is_empty() || mode.trim() == super::settings::default_agent_mode()
 }
 
 fn is_false_bool(v: &bool) -> bool {
@@ -193,12 +182,6 @@ pub struct ConversationMeta {
         skip_serializing_if = "is_default_session_lead_agent"
     )]
     pub lead_agent_id: String,
-    #[serde(
-        default = "super::settings::default_agent_mode",
-        rename = "agentMode",
-        skip_serializing_if = "is_default_session_agent_mode"
-    )]
-    pub agent_mode: String,
     /// Per-conversation performance tier override (Composer picker); `None` = global default.
     #[serde(
         default,
@@ -294,7 +277,6 @@ impl From<&Conversation> for ConversationMeta {
             workspace_user_set: c.workspace_user_set,
             workspace_inherit_disabled: c.workspace_inherit_disabled,
             lead_agent_id: c.lead_agent_id.clone(),
-            agent_mode: c.agent_mode.clone(),
             performance_mode: c.performance_mode.clone(),
             message_count: 0,
             preview: String::new(),
@@ -336,8 +318,6 @@ pub struct SendChatPayload {
     pub enabled_skill_ids: Vec<String>,
     #[serde(default, rename = "agentSkillOverrides")]
     pub agent_skill_overrides: HashMap<String, Vec<String>>,
-    #[serde(default, rename = "agentMode")]
-    pub agent_mode: Option<String>,
     /// Session cumulative tool rounds (single-agent mode) before this user message.
     #[serde(default, rename = "toolRoundsUsed")]
     pub tool_rounds_used: u32,
@@ -373,7 +353,7 @@ pub struct SendChatPayload {
 
 #[cfg(test)]
 mod agent_trace_persistence_tests {
-    use super::super::settings::{default_agent_mode, default_lead_agent_id};
+    use super::super::settings::default_lead_agent_id;
     use super::*;
     use crate::models::{
         AgentTrace, ChatMessage, ComputerOperationTarget, Role, SubAgentSessionUi,
@@ -460,7 +440,6 @@ mod agent_trace_persistence_tests {
             workspace_user_set: false,
             workspace_inherit_disabled: false,
             lead_agent_id: default_lead_agent_id(),
-            agent_mode: default_agent_mode(),
             performance_mode: None,
             session_user_id: String::new(),
         };

@@ -788,12 +788,10 @@ pub struct ModelSettings {
     pub has_key: bool,
     #[serde(default = "default_tool_approval_mode", rename = "toolApprovalMode")]
     pub tool_approval_mode: String,
-    #[serde(default = "default_agent_mode", rename = "agentMode")]
-    pub agent_mode: String,
     /// Absolute path to workspace root for file tools & terminal default cwd (optional).
     #[serde(default, rename = "workspaceRoot")]
     pub workspace_root: String,
-    /// When agentMode is single, which worker id leads (kebab-case). Empty = computer agent.
+    /// Which worker id leads (kebab-case). Empty = computer agent.
     #[serde(default, rename = "leadAgentId")]
     pub lead_agent_id: String,
     /// Always on. Kept in JSON for older clients; load/save force true.
@@ -1217,10 +1215,6 @@ fn default_tool_approval_mode() -> String {
     "auto".to_string()
 }
 
-pub(crate) fn default_agent_mode() -> String {
-    "single".to_string()
-}
-
 fn default_context_compression_enabled() -> bool {
     true
 }
@@ -1567,7 +1561,6 @@ impl Default for ModelSettings {
             max_tokens: default_model_max_tokens(),
             has_key: false,
             tool_approval_mode: default_tool_approval_mode(),
-            agent_mode: default_agent_mode(),
             workspace_root: default_workspace_root(),
             lead_agent_id: default_lead_agent_id(),
             context_compression_enabled: default_context_compression_enabled(),
@@ -1913,8 +1906,6 @@ pub struct UserSettings {
     pub max_tokens: u32,
     #[serde(default = "default_tool_approval_mode", rename = "toolApprovalMode")]
     pub tool_approval_mode: String,
-    #[serde(default = "default_agent_mode", rename = "agentMode")]
-    pub agent_mode: String,
     #[serde(default, rename = "workspaceRoot")]
     pub workspace_root: String,
     #[serde(default = "default_lead_agent_id", rename = "leadAgentId")]
@@ -2119,7 +2110,6 @@ impl Default for UserSettings {
             temperature: platform_default_temperature(),
             max_tokens: platform_default_max_tokens(),
             tool_approval_mode: default_tool_approval_mode(),
-            agent_mode: default_agent_mode(),
             workspace_root: default_workspace_root(),
             lead_agent_id: default_lead_agent_id(),
             context_compression_enabled: platform_default_context_compression_enabled(),
@@ -2718,7 +2708,6 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         max_tokens: user.max_tokens,
         has_key: platform.providers.iter().any(|p| !p.api_key.is_empty()),
         tool_approval_mode: user.tool_approval_mode.clone(),
-        agent_mode: user.agent_mode.clone(),
         workspace_root: user.workspace_root.clone(),
         lead_agent_id: user.lead_agent_id.clone(),
         context_compression_enabled: true,

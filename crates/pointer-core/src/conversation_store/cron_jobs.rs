@@ -35,7 +35,6 @@ pub struct CronJobRecord {
     /// with openclaw's per-sessionId transcript retention).
     pub current_session_id: Option<String>,
     pub prompt_text: String,
-    pub agent_mode: Option<String>,
     pub lead_agent_id: Option<String>,
     pub enabled: bool,
     pub last_run_at_ms: Option<i64>,
@@ -69,7 +68,6 @@ pub struct NewCronJob<'a> {
     pub next_run_at_ms: Option<i64>,
     pub conversation_id: &'a str,
     pub prompt_text: &'a str,
-    pub agent_mode: Option<&'a str>,
     pub lead_agent_id: Option<&'a str>,
     pub enabled: bool,
     /// Optional Run → IM delivery spec. `None` / empty means no IM push.
@@ -187,8 +185,8 @@ pub fn insert(conn: &Connection, job: &NewCronJob<'_>) -> Result<bool> {
     let affected = conn.execute(
         "INSERT OR IGNORE INTO cron_jobs
            (id, label, cron_expr, schedule_kind, schedule_raw, conversation_id, prompt_text,
-            agent_mode, lead_agent_id, enabled, next_run_at_ms, created_at_ms, deliver)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            lead_agent_id, enabled, next_run_at_ms, created_at_ms, deliver)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             job.id,
             job.label,
@@ -197,7 +195,6 @@ pub fn insert(conn: &Connection, job: &NewCronJob<'_>) -> Result<bool> {
             schedule_raw,
             session_id,
             job.prompt_text,
-            job.agent_mode,
             job.lead_agent_id,
             job.enabled as i32,
             next,
@@ -224,7 +221,7 @@ pub fn insert(conn: &Connection, job: &NewCronJob<'_>) -> Result<bool> {
 pub fn list_due(conn: &Connection, now_ms: i64) -> Result<Vec<CronJobRecord>> {
     let mut stmt = conn.prepare(
         "SELECT id, label, cron_expr, schedule_kind, schedule_raw, conversation_id, current_session_id,
-                prompt_text, agent_mode, lead_agent_id, enabled, last_run_at_ms,
+                prompt_text, lead_agent_id, enabled, last_run_at_ms,
                 next_run_at_ms, created_at_ms, deliver, last_delivery_error
            FROM cron_jobs
           WHERE enabled = 1
@@ -240,7 +237,7 @@ pub fn list_due(conn: &Connection, now_ms: i64) -> Result<Vec<CronJobRecord>> {
 pub fn list_all(conn: &Connection) -> Result<Vec<CronJobRecord>> {
     let mut stmt = conn.prepare(
         "SELECT id, label, cron_expr, schedule_kind, schedule_raw, conversation_id, current_session_id,
-                prompt_text, agent_mode, lead_agent_id, enabled, last_run_at_ms,
+                prompt_text, lead_agent_id, enabled, last_run_at_ms,
                 next_run_at_ms, created_at_ms, deliver, last_delivery_error
            FROM cron_jobs
           ORDER BY created_at_ms ASC",
@@ -255,7 +252,7 @@ pub fn get(conn: &Connection, id: &str) -> Result<Option<CronJobRecord>> {
     let row = conn
         .query_row(
             "SELECT id, label, cron_expr, schedule_kind, schedule_raw, conversation_id, current_session_id,
-                    prompt_text, agent_mode, lead_agent_id, enabled, last_run_at_ms,
+                    prompt_text, lead_agent_id, enabled, last_run_at_ms,
                     next_run_at_ms, created_at_ms, deliver, last_delivery_error
                FROM cron_jobs WHERE id = ?1",
             params![id],
@@ -362,14 +359,13 @@ fn row_to_record(r: &rusqlite::Row<'_>) -> rusqlite::Result<CronJobRecord> {
         conversation_id: r.get(5)?,
         current_session_id: r.get(6)?,
         prompt_text: r.get(7)?,
-        agent_mode: r.get(8)?,
-        lead_agent_id: r.get(9)?,
-        enabled: r.get::<_, i32>(10)? != 0,
-        last_run_at_ms: r.get(11)?,
-        next_run_at_ms: r.get(12)?,
-        created_at_ms: r.get(13)?,
-        deliver: r.get(14)?,
-        last_delivery_error: r.get(15)?,
+        lead_agent_id: r.get(8)?,
+        enabled: r.get::<_, i32>(9)? != 0,
+        last_run_at_ms: r.get(10)?,
+        next_run_at_ms: r.get(11)?,
+        created_at_ms: r.get(12)?,
+        deliver: r.get(13)?,
+        last_delivery_error: r.get(14)?,
     })
 }
 
@@ -391,7 +387,6 @@ pub struct CronJobView {
     /// not exposed here.
     pub current_session_id: Option<String>,
     pub prompt_text: String,
-    pub agent_mode: Option<String>,
     pub lead_agent_id: Option<String>,
     pub enabled: bool,
     pub last_run_at_ms: Option<i64>,
@@ -432,7 +427,6 @@ impl CronJobView {
             conversation_id: r.conversation_id.clone(),
             current_session_id: Self::resolve_view_session_id(r),
             prompt_text: r.prompt_text.clone(),
-            agent_mode: r.agent_mode.clone(),
             lead_agent_id: r.lead_agent_id.clone(),
             enabled: r.enabled,
             last_run_at_ms: r.last_run_at_ms,
@@ -531,7 +525,6 @@ mod tests {
             next_run_at_ms: None,
             conversation_id: "c1",
             prompt_text: "ping",
-            agent_mode: None,
             lead_agent_id: None,
             enabled: true,
             deliver: None,
@@ -559,7 +552,6 @@ mod tests {
                 next_run_at_ms: None,
                 conversation_id: "c2",
                 prompt_text: "x",
-                agent_mode: None,
                 lead_agent_id: None,
                 enabled: false,
                 deliver: None,
@@ -586,7 +578,6 @@ mod tests {
                 next_run_at_ms: None,
                 conversation_id: "c3",
                 prompt_text: "y",
-                agent_mode: None,
                 lead_agent_id: None,
                 enabled: true,
                 deliver: None,
@@ -617,7 +608,6 @@ mod tests {
                 next_run_at_ms: Some(fire),
                 conversation_id: "",
                 prompt_text: "ping me",
-                agent_mode: None,
                 lead_agent_id: None,
                 enabled: true,
                 deliver: None,
@@ -698,7 +688,6 @@ mod tests {
             conversation_id: "cron:job1".into(),
             current_session_id: None,
             prompt_text: "hi".into(),
-            agent_mode: None,
             lead_agent_id: None,
             enabled: true,
             last_run_at_ms: Some(

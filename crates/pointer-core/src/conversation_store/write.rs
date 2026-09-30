@@ -24,10 +24,10 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
            id, title, created_at_ms, updated_at_ms, message_count, preview,
            skill_ids_json, tool_rounds_used,
            computer_monitor_id, project_id, workspace_root, workspace_user_set, workspace_inherit_disabled,
-           lead_agent_id, agent_mode, performance_mode, session_user_id, is_pinned
+           lead_agent_id, performance_mode, session_user_id, is_pinned
          ) VALUES (?1,?2,?3,?4,
            COALESCE((SELECT message_count FROM conversations WHERE id = ?1), 0),
-           ?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)
+           ?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            updated_at_ms = excluded.updated_at_ms,
@@ -39,7 +39,6 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
            workspace_user_set = excluded.workspace_user_set,
            workspace_inherit_disabled = excluded.workspace_inherit_disabled,
            lead_agent_id = excluded.lead_agent_id,
-           agent_mode = excluded.agent_mode,
            performance_mode = excluded.performance_mode,
            session_user_id = CASE
              WHEN trim(excluded.session_user_id) != '' THEN excluded.session_user_id
@@ -60,7 +59,6 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
             i64::from(meta.workspace_user_set),
             i64::from(meta.workspace_inherit_disabled),
             meta.lead_agent_id,
-            meta.agent_mode,
             meta.performance_mode,
             meta.session_user_id,
             i64::from(meta.is_pinned),
@@ -139,7 +137,6 @@ pub(crate) fn ensure_conversation_row_with_title(
             workspace_user_set: false,
             workspace_inherit_disabled: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
-            agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
             performance_mode: None,
             message_count: 0,
             preview: String::new(),
@@ -152,12 +149,11 @@ pub fn patch_session_agent_in_conn(
     conn: &Connection,
     conversation_id: &str,
     lead_agent_id: &str,
-    agent_mode: &str,
 ) -> Result<()> {
     ensure_conversation_row(conn, conversation_id)?;
     conn.execute(
-        "UPDATE conversations SET lead_agent_id = ?2, agent_mode = ?3, updated_at_ms = ?4 WHERE id = ?1",
-        params![conversation_id, lead_agent_id, agent_mode, now_ms()],
+        "UPDATE conversations SET lead_agent_id = ?2, updated_at_ms = ?3 WHERE id = ?1",
+        params![conversation_id, lead_agent_id, now_ms()],
     )?;
     super::persist::mint_lead_agent_instance_if_empty(conn, conversation_id)?;
     Ok(())
@@ -771,7 +767,6 @@ mod tests {
             workspace_user_set: true,
             workspace_inherit_disabled: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
-            agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
             performance_mode: None,
             message_count: 0,
             preview: String::new(),

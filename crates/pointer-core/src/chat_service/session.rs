@@ -71,7 +71,6 @@ pub async fn run_chat(
     mut history: Vec<ChatMessage>,
     _enabled_skill_ids: Vec<String>,
     agent_skill_overrides: HashMap<String, Vec<String>>,
-    agent_mode: Option<String>,
     lead_agent_id_override: Option<String>,
     performance_mode_override: Option<String>,
     tool_rounds_used_single_start: u32,
@@ -93,11 +92,10 @@ pub async fn run_chat(
     // Filled with the lead's resolved skill ids after build_plan (for inherit/import).
     let mut enabled_skill_ids: Vec<String> = Vec::new();
     log::info!(
-        "run_chat start conversation_id={} incoming_history_messages={} agent_skill_overrides={} request_agent_mode={:?} lead_agent_id_override={:?} tool_rounds_used_single_start={} trigger_source={:?} im_auto_deliver={}",
+        "run_chat start conversation_id={} incoming_history_messages={} agent_skill_overrides={} lead_agent_id_override={:?} tool_rounds_used_single_start={} trigger_source={:?} im_auto_deliver={}",
         conversation_id,
         history.len(),
         agent_skill_overrides.len(),
-        agent_mode,
         lead_agent_id_override,
         tool_rounds_used_single_start,
         trigger_source,
@@ -161,7 +159,6 @@ pub async fn run_chat(
     };
     let mut consumed_single = 0u32;
     let run_req = super::context::ChatRunRequest {
-        agent_mode: agent_mode.clone(),
         lead_agent_id_override: lead_agent_id_override.clone(),
         performance_mode_override: performance_mode_override.clone(),
         agent_skill_overrides: agent_skill_overrides.clone(),
@@ -202,12 +199,8 @@ pub async fn run_chat(
                 (snap.settings, snap.api_key)
             } else {
                 let mut llm_settings = settings.clone();
-                let mode = agent_mode
-                    .clone()
-                    .unwrap_or_else(|| llm_settings.agent_mode.clone());
                 let api_key = prepare_session_llm_settings(
                     &mut llm_settings,
-                    &mode,
                     lead_agent_id_override.as_deref(),
                     performance_mode_override.as_deref(),
                 );
@@ -236,13 +229,15 @@ pub async fn run_chat(
                 let lead_role = lead_agent_id_override
                     .clone()
                     .filter(|s| !s.trim().is_empty())
-                    .unwrap_or_else(|| {
-                        if llm_settings.lead_agent_id.trim().is_empty() {
-                            llm_settings.agent_mode.clone()
+                    .or_else(|| {
+                        let id = llm_settings.lead_agent_id.trim();
+                        if id.is_empty() {
+                            None
                         } else {
-                            llm_settings.lead_agent_id.clone()
+                            Some(id.to_string())
                         }
-                    });
+                    })
+                    .unwrap_or_else(|| crate::agents::DEFAULT_AGENT_ID.to_string());
                 let ui_scope = overflow_scope.unwrap_or_else(|| {
                     crate::agent_instance_scope::AgentInstanceScope::new(
                         run_id.clone(),

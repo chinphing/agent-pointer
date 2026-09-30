@@ -1,6 +1,5 @@
 import type { Ref } from 'vue'
 import type {
-  AgentMode,
   BackgroundJobView,
   ChatMessage,
   ComputerMonitorPickRequest,
@@ -94,8 +93,7 @@ export interface StreamHandlerContext {
   scheduleDesktopNoticeRemoval(conversationId: string, messageId: string): void
   applySessionAgentToConversation(
     conv: Conversation,
-    leadAgentId: string,
-    agentMode: AgentMode
+    leadAgentId: string
   ): void
   loadActiveComposerDraft(conversationId: string | null): void
   refreshConversationMessages(conversationId: string): void

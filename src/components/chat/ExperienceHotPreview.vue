@@ -48,7 +48,7 @@ async function onSelect(item: ExperienceListItem) {
     const detail = await getExperienceDetail(item.slug)
     const agentId = resolveAgentId(detail.agent_id ?? item.agent_id)
     if (!chat.current) chat.newConversation()
-    chat.setConversationAgent(agentId, 'single')
+    chat.setConversationAgent(agentId)
     const prompt = detail.prompt_text?.trim()
     if (prompt) {
       chat.prefillComposer(prompt)

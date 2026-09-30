@@ -373,7 +373,6 @@ mod tests {
             workspace_user_set: false,
             workspace_inherit_disabled: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
-            agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
             performance_mode: None,
             session_user_id: String::new(),
         }

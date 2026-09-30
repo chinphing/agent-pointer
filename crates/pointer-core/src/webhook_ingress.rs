@@ -73,7 +73,6 @@ pub struct WebhookIngressBody {
     /// User attachments for the inbound turn (`text` / `message` path).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attachments: Option<Vec<MediaAttachment>>,
-    pub agent_mode: Option<String>,
     pub lead_agent_id: Option<String>,
     pub idempotency_key: Option<String>,
     #[serde(default)]

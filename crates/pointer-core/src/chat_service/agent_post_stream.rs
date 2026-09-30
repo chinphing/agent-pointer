@@ -442,7 +442,6 @@ mod tests {
             r#"{"path":"src/components/App.vue"}"#,
         )];
         let plan = AgentPlan {
-            mode: "single".into(),
             lead_agent_id: "coder".into(),
             lead_agent_name: "Coder".into(),
             system_prompts: vec![],
@@ -495,7 +494,6 @@ mod tests {
         let state = AppState::new();
         let tool_calls = vec![sample_tool_call("terminal", r#"{"command":"npm test"}"#)];
         let plan = AgentPlan {
-            mode: "single".into(),
             lead_agent_id: "coder".into(),
             lead_agent_name: "Coder".into(),
             system_prompts: vec![],

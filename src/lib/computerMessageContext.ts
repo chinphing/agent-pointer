@@ -1,15 +1,13 @@
-import type { AgentMode, ChatMessage } from '../types/chat'
+import type { ChatMessage } from '../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { isComputerAgentTrace } from './computerExecuting'
 
 export interface ComputerUiSettings {
-  agentMode: AgentMode
   leadAgentId: string
   annotatedScreenViewEnabled: boolean
 }
 
 export function computerSingleLead(settings: ComputerUiSettings): boolean {
-  if (settings.agentMode !== 'single') return false
   const id = settings.leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
   return id === 'computer'
 }

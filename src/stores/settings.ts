@@ -296,7 +296,6 @@ export const useSettingsStore = defineStore('settings', () => {
     maxTokens: 64_000,
     hasKey: false,
     toolApprovalMode: 'auto',
-    agentMode: 'single',
     workspaceRoot: '',
     leadAgentId: 'general',
     contextCompressionEnabled: true,

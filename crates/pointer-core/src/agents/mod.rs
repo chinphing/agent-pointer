@@ -25,9 +25,8 @@ pub use agent_ui::{
     AgentUiConfig, ResolvedAgentUi,
 };
 
-pub const AGENT_MODE_SINGLE: &str = "single";
 pub const DEFAULT_AGENT_ID: &str = "general";
-/// Default worker selected in single-agent mode when `leadAgentId` is unset.
+/// Default worker used as the lead when `leadAgentId` is unset.
 pub const DEFAULT_LEAD_AGENT_ID: &str = "general";
 const AGENTS_DIR: &str = "agents";
 const AGENT_MANIFEST: &str = "AGENT.md";
@@ -358,7 +357,6 @@ pub struct AgentDef {
 
 #[derive(Debug, Clone)]
 pub struct AgentPlan {
-    pub mode: String,
     pub lead_agent_id: String,
     pub lead_agent_name: String,
     pub system_prompts: Vec<String>,
@@ -608,7 +606,6 @@ impl AgentOrchestrator {
         tools: &ToolRegistry,
         enabled_skill_ids: &[String],
         agent_skill_overrides: &HashMap<String, Vec<String>>,
-        _mode: &str,
         lead_worker_id: Option<&str>,
     ) -> AgentPlan {
         let default_agent = agents.get(DEFAULT_LEAD_AGENT_ID).or_else(|| {
@@ -645,7 +642,6 @@ impl AgentOrchestrator {
         system_prompts.extend(skill_prompts.clone());
 
         AgentPlan {
-            mode: AGENT_MODE_SINGLE.into(),
             lead_agent_id: agent.id.clone(),
             lead_agent_name: agent_ui::agent_display_label(&agent),
             system_prompts,
@@ -1202,7 +1198,6 @@ mod builtin_agent_tests {
             &tools,
             &[],
             &overrides,
-            AGENT_MODE_SINGLE,
             Some("general"),
         );
 

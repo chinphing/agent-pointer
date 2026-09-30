@@ -1,7 +1,7 @@
 use anyhow::Result;
 use futures_util::future::FutureExt;
 use parking_lot::Mutex;
-use pointer_core::agents::{AGENT_MODE_SINGLE, DEFAULT_LEAD_AGENT_ID};
+use pointer_core::agents::DEFAULT_LEAD_AGENT_ID;
 use pointer_core::chat_service::{run_chat, AppState};
 use pointer_core::conversation_store::im_session::ImSessionState;
 use pointer_core::dispatcher::TriggerSource;
@@ -35,7 +35,6 @@ fn broadcast_im_session_agent(
         conversation_id: desktop_conv_id.to_string(),
         base_conversation_id: base_conv_id.to_string(),
         lead_agent_id: session_state.lead_agent_id.clone(),
-        agent_mode: session_state.agent_mode.clone(),
     });
 }
 
@@ -47,7 +46,6 @@ fn sync_im_desktop_session_agent(
     if let Err(e) = store.patch_session_agent(
         desktop_conv_id,
         &session_state.lead_agent_id,
-        &session_state.agent_mode,
     ) {
         log::warn!("channel patch session agent failed desktop={desktop_conv_id}: {e:#}");
     }
@@ -97,14 +95,6 @@ fn lead_agent_override(session_state: &ImSessionState) -> Option<String> {
         None
     } else {
         Some(session_state.lead_agent_id.clone())
-    }
-}
-
-fn request_agent_mode(session_state: &ImSessionState) -> Option<String> {
-    if session_state.agent_mode.trim() == AGENT_MODE_SINGLE {
-        None
-    } else {
-        Some(session_state.agent_mode.clone())
     }
 }
 
@@ -254,7 +244,6 @@ impl DispatchService {
 
         match detect_agent_switch(&state.agents, &user_text) {
             Some(AgentSwitchAction::SwitchOnly(target)) => {
-                im_session.agent_mode = target.agent_mode.clone();
                 im_session.lead_agent_id = target
                     .lead_agent_id
                     .clone()
@@ -268,14 +257,12 @@ impl DispatchService {
                 sync_im_desktop_session_agent(&*store, &desktop_conv_id, &im_session);
                 broadcast_im_session_agent(&desktop_conv_id, &conv_id, &im_session);
                 log::info!(
-                    "channel session agent switch conv={conv_id} mode={} lead={:?}",
-                    target.agent_mode,
+                    "channel session agent switch conv={conv_id} lead={:?}",
                     target.lead_agent_id
                 );
                 return Ok(());
             }
             Some(AgentSwitchAction::SwitchWithMessage(target, rest)) => {
-                im_session.agent_mode = target.agent_mode.clone();
                 im_session.lead_agent_id = target
                     .lead_agent_id
                     .clone()
@@ -283,8 +270,7 @@ impl DispatchService {
                 store.save_im_session(&conv_id, &im_session)?;
                 user_text = rest;
                 log::info!(
-                    "channel session agent switch with message conv={conv_id} mode={} lead={:?}",
-                    target.agent_mode,
+                    "channel session agent switch with message conv={conv_id} lead={:?}",
                     target.lead_agent_id
                 );
             }
@@ -381,7 +367,6 @@ impl DispatchService {
             ImStreamOutbound::new(plugin, outbound.clone(), im_outbound_cfg, conv_id.clone());
 
         let automation_auth = state.automation_execution_auth();
-        let agent_mode = request_agent_mode(&im_session);
         let lead_agent = lead_agent_override(&im_session);
         let run = run_with_optional_web_session(automation_auth, || {
             run_chat(
@@ -392,7 +377,6 @@ impl DispatchService {
                 Vec::new(),
                 // Empty → run_chat loads agentSkillOverrides from user_settings.
                 std::collections::HashMap::new(),
-                agent_mode,
                 lead_agent,
                 None,
                 0,

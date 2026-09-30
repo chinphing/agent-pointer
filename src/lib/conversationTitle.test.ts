@@ -15,7 +15,6 @@ function conv(partial: Partial<Conversation> & Pick<Conversation, 'id'>): Conver
     skillIds: [],
     toolRoundsUsed: 0,
     leadAgentId: 'general',
-    agentMode: 'single',
     ...partial
   }
 }

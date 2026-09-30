@@ -144,12 +144,10 @@ let composerDragDropMounted = false
 
 const agents = useAgentsCatalog()
 
-const sessionAgentMode = computed(() => chat.effectiveConversationAgentMode(chat.current))
 const sessionLeadAgentId = computed(() => chat.effectiveConversationLeadAgentId(chat.current))
 
 const sessionAgentSettings = computed(() => ({
   ...settings.settings,
-  agentMode: sessionAgentMode.value,
   leadAgentId: sessionLeadAgentId.value
 }))
 
@@ -164,7 +162,6 @@ const workers = computed(() => {
 })
 
 const selectedWorker = computed(() => {
-  if (sessionAgentMode.value !== 'single') return undefined
   const id = sessionLeadAgentId.value
   return workers.value.find(w => w.id === id) ?? workers.value.find(w => w.id === DEFAULT_LEAD_AGENT_ID)
 })
@@ -172,12 +169,11 @@ const selectedWorker = computed(() => {
 const selectedWorkerId = computed(() => selectedWorker.value?.id?.trim() || DEFAULT_LEAD_AGENT_ID)
 
 function isLeadAgentSelected(agentId: string): boolean {
-  if (sessionAgentMode.value !== 'single') return false
   return sessionLeadAgentId.value === agentId
 }
 
 const showComputerMonitorPicker = computed(
-  () => sessionAgentMode.value === 'single' && leadUi.value.showComputerMonitorPicker
+  () => leadUi.value.showComputerMonitorPicker
 )
 
 const computerAutoSwitchMonitor = computed(
@@ -1373,7 +1369,7 @@ function onCompositionEnd() {
 }
 
 function selectWorkerAgent(agent: AgentDef) {
-  chat.setConversationAgent(agent.id, 'single')
+  chat.setConversationAgent(agent.id)
   showAgentPicker.value = false
 }
 

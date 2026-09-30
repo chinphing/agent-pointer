@@ -129,7 +129,7 @@ async function onSkillDirectorySelect(dir: { name: string; path: string }) {
   const ok = await createOrSelectWorkspaceProject(dir.path)
   // 技能目录项目默认使用 coder agent（技能脚本/代码工程类任务）
   if (ok && !projectLocked.value) {
-    chat.setConversationAgent('coder', 'single')
+    chat.setConversationAgent('coder')
   }
 }
 

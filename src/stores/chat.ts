@@ -20,7 +20,6 @@ import {
   deleteProject as deleteProjectApi
 } from '../lib/api'
 import type {
-  AgentMode,
   BackgroundJobView,
   ChatMessage,
   ComputerMonitorPickRequest,
@@ -36,7 +35,7 @@ import type {
   ToolCall,
   TaskBoardDocument
 } from '../types/chat'
-import { DEFAULT_LEAD_AGENT_ID, normalizeAgentMode } from '../types/chat'
+import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import type { RunQueueSnapshot } from '../types/automation'
 import { t } from '../i18n'
 import { CODER_AGENT_ID, GENERAL_AGENT_ID } from '../lib/agentUi'
@@ -1017,7 +1016,6 @@ export const useChatStore = defineStore('chat', () => {
             messages: history,
             // Skills resolve on the backend from user_settings.agentSkillOverrides.
             enabledSkillIds: [],
-            agentMode: effectiveConversationAgentMode(conv),
             leadAgentId: effectiveConversationLeadAgentId(conv),
             performanceMode: effectiveConversationPerformanceMode(conv),
             toolRoundsUsed: 0,
@@ -1372,10 +1370,6 @@ export const useChatStore = defineStore('chat', () => {
     return id ? runStateFor(id).contextCompressing : null
   })
 
-  function effectiveConversationAgentMode(_conv?: Conversation | null): AgentMode {
-    return 'single'
-  }
-
   function effectiveConversationLeadAgentId(conv?: Conversation | null): string {
     const id = conv?.leadAgentId?.trim()
     return id || DEFAULT_LEAD_AGENT_ID
@@ -1391,11 +1385,9 @@ export const useChatStore = defineStore('chat', () => {
 
   function applySessionAgentToConversation(
     conv: Conversation,
-    leadAgentId: string,
-    agentMode: AgentMode
+    leadAgentId: string
   ) {
     conv.leadAgentId = leadAgentId.trim() || DEFAULT_LEAD_AGENT_ID
-    conv.agentMode = agentMode
     conv.updatedAt = Date.now()
   }
 
@@ -1440,8 +1432,7 @@ export const useChatStore = defineStore('chat', () => {
         updatedAt: Date.now(),
         skillIds: [],
         toolRoundsUsed: 0,
-        leadAgentId: DEFAULT_LEAD_AGENT_ID,
-        agentMode: 'single'
+        leadAgentId: DEFAULT_LEAD_AGENT_ID
       },
       ...conversations.value
     ]
@@ -1467,8 +1458,7 @@ export const useChatStore = defineStore('chat', () => {
       workspaceRoot: '',
       workspaceUserSet: false,
       workspaceInheritDisabled: false,
-      leadAgentId: DEFAULT_LEAD_AGENT_ID,
-      agentMode: 'single'
+      leadAgentId: DEFAULT_LEAD_AGENT_ID
     })
   }
 
@@ -1501,7 +1491,6 @@ export const useChatStore = defineStore('chat', () => {
       workspaceUserSet: m.workspaceUserSet,
       workspaceInheritDisabled: m.workspaceInheritDisabled,
       leadAgentId: m.leadAgentId,
-      agentMode: normalizeAgentMode(m.agentMode),
       performanceMode: m.performanceMode,
       messageCount: m.messageCount
     }
@@ -1529,7 +1518,6 @@ export const useChatStore = defineStore('chat', () => {
       }
       const shell = metaToConversationShell(meta)
       if (!shell.leadAgentId?.trim()) shell.leadAgentId = DEFAULT_LEAD_AGENT_ID
-      if (!shell.agentMode?.trim()) shell.agentMode = 'single'
       conversations.value = [shell, ...conversations.value]
       sortConversationsInPlace()
       console.info('[chat] boot: restored last conversation outside first page', lastId)
@@ -1567,7 +1555,6 @@ export const useChatStore = defineStore('chat', () => {
     const shells = pruned.list
     for (const conv of shells) {
       if (!conv.leadAgentId?.trim()) conv.leadAgentId = DEFAULT_LEAD_AGENT_ID
-      if (!conv.agentMode?.trim()) conv.agentMode = 'single'
     }
     conversations.value = shells
     sortConversationsInPlace()
@@ -2419,7 +2406,6 @@ export const useChatStore = defineStore('chat', () => {
       if (fresh.length > 0) {
         for (const conv of fresh) {
           if (!conv.leadAgentId?.trim()) conv.leadAgentId = DEFAULT_LEAD_AGENT_ID
-          if (!conv.agentMode?.trim()) conv.agentMode = 'single'
         }
         conversations.value = [...conversations.value, ...fresh]
         sortConversationsInPlace()
@@ -2475,7 +2461,6 @@ export const useChatStore = defineStore('chat', () => {
       workspaceUserSet: c.workspaceUserSet,
       workspaceInheritDisabled: c.workspaceInheritDisabled,
       leadAgentId: c.leadAgentId,
-      agentMode: c.agentMode,
       performanceMode: c.performanceMode
     }
   }
@@ -2651,7 +2636,6 @@ export const useChatStore = defineStore('chat', () => {
       workspaceUserSet: false,
       workspaceInheritDisabled: false,
       leadAgentId: DEFAULT_LEAD_AGENT_ID,
-      agentMode: 'single',
       projectId: resolvedProjectId
     }
     conversations.value.unshift(c)
@@ -2748,8 +2732,7 @@ export const useChatStore = defineStore('chat', () => {
   function openCronConversation(
     sessionId: string,
     label: string,
-    leadAgentId?: string | null,
-    agentMode?: string | null
+    leadAgentId?: string | null
   ): void {
     if (!sessionId) {
       console.warn('[chat] openCronConversation: empty sessionId')
@@ -2768,8 +2751,7 @@ export const useChatStore = defineStore('chat', () => {
         workspaceRoot: '',
         workspaceUserSet: false,
         workspaceInheritDisabled: false,
-        leadAgentId: leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID,
-        agentMode: normalizeAgentMode(agentMode)
+        leadAgentId: leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
       }
       conversations.value.unshift(conv)
     } else if (label?.trim()) {
@@ -2777,7 +2759,6 @@ export const useChatStore = defineStore('chat', () => {
       // task's current label (e.g. after rename) instead of keeping an old one.
       conv.title = `[定时] ${label}`
       conv.leadAgentId = leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
-      conv.agentMode = normalizeAgentMode(agentMode)
     }
     // Always re-hydrate from DB: cron shells are transient, hydratedIds may
     // cache an empty snapshot from before the first tick finished, and
@@ -2817,8 +2798,7 @@ export const useChatStore = defineStore('chat', () => {
         workspaceRoot: '',
         workspaceUserSet: false,
         workspaceInheritDisabled: false,
-        leadAgentId: DEFAULT_LEAD_AGENT_ID,
-        agentMode: 'single'
+        leadAgentId: DEFAULT_LEAD_AGENT_ID
       }
       conversations.value.unshift(conv)
     } else if (label) {
@@ -3843,9 +3823,9 @@ export const useChatStore = defineStore('chat', () => {
       .catch(e => console.error(e))
   }
 
-  function setConversationAgent(leadAgentId: string, agentMode: AgentMode = 'single') {
+  function setConversationAgent(leadAgentId: string) {
     const conv = current.value ?? newConversation()
-    applySessionAgentToConversation(conv, leadAgentId, agentMode)
+    applySessionAgentToConversation(conv, leadAgentId)
     markMetaDirty(conv.id)
   }
 
@@ -3973,7 +3953,7 @@ export const useChatStore = defineStore('chat', () => {
     childBoardBindingForTrace, childBoardsForParent, lookupChildTaskBoard,
     setConversationWorkspace, setConversationProject, setConversationAgent,
     setConversationPerformanceMode,
-    effectiveConversationLeadAgentId, effectiveConversationAgentMode,
+    effectiveConversationLeadAgentId,
     showUiToast,
     clearPlatformLoginErrorMessages,
     composerPrefill, prefillComposer, consumeComposerPrefill,

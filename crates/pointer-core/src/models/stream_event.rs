@@ -353,10 +353,8 @@ pub enum StreamEvent {
         session_epoch: u32,
         #[serde(rename = "leadAgentId")]
         lead_agent_id: String,
-        #[serde(rename = "agentMode")]
-        agent_mode: String,
     },
-    /// IM session agent / mode changed (mirror sidebar + Composer).
+    /// IM session agent changed (mirror sidebar + Composer).
     ImSessionAgentChanged {
         #[serde(rename = "conversationId")]
         conversation_id: String,
@@ -364,8 +362,6 @@ pub enum StreamEvent {
         base_conversation_id: String,
         #[serde(rename = "leadAgentId")]
         lead_agent_id: String,
-        #[serde(rename = "agentMode")]
-        agent_mode: String,
     },
     /// Short assistant-role line in the thread (e.g. desktop capture status); not from the model.
     InjectedAssistantMessage {

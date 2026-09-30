@@ -58,13 +58,6 @@ export const DEFAULT_ENABLED_SKILL_IDS = [
   'agent-browser'
 ] as const
 
-export type AgentMode = 'single'
-
-/** Orchestration mode is single-only; legacy persisted values normalise to `single` on read. */
-export function normalizeAgentMode(_persisted?: string | null): AgentMode {
-  return 'single'
-}
-
 export type ThemePreference = 'light' | 'dark' | 'system'
 
 /** UI language: follow OS, Chinese, or English. Persisted in user_settings.json. */
@@ -395,10 +388,8 @@ export interface Conversation {
   workspaceUserSet?: boolean
   /** User cleared workspace; prefer session sandbox over inherit. */
   workspaceInheritDisabled?: boolean
-  /** Per-conversation lead worker when agentMode is single. */
+  /** Per-conversation lead worker. */
   leadAgentId?: string
-  /** Per-conversation orchestration mode. */
-  agentMode?: AgentMode
   /** Per-conversation performance tier override (Composer picker); unset = global default. */
   performanceMode?: PerformanceMode
   /** DB-backed message count (populated on meta-only list load; not present on legacy full-load). */
@@ -421,7 +412,6 @@ export type ConversationMetaBase = Pick<
   | 'workspaceUserSet'
   | 'workspaceInheritDisabled'
   | 'leadAgentId'
-  | 'agentMode'
   | 'performanceMode'
 >
 
@@ -664,7 +654,6 @@ export interface UserSettings {
   temperature?: number
   maxTokens?: number
   toolApprovalMode?: 'auto' | 'manual'
-  agentMode?: AgentMode
   workspaceRoot?: string
   leadAgentId?: string
   /** Always on. Kept for older JSON; load/save force true. */
@@ -844,10 +833,9 @@ export interface ModelSettings {
   maxTokens: number
   hasKey: boolean
   toolApprovalMode: 'auto' | 'manual'
-  agentMode: AgentMode
   /** Absolute path to project root for coder file tools */
   workspaceRoot: string
-  /** When agentMode is single, worker agent id (kebab-case); empty = computer agent */
+  /** Worker agent id (kebab-case); empty = computer agent */
   leadAgentId: string
   /** Always on. Kept for older JSON; load/save force true. */
   contextCompressionEnabled: boolean
@@ -1122,14 +1110,12 @@ export type StreamEvent =
       title: string
       sessionEpoch: number
       leadAgentId: string
-      agentMode: AgentMode
     }
   | {
       kind: 'im_session_agent_changed'
       conversationId: string
       baseConversationId: string
       leadAgentId: string
-      agentMode: AgentMode
     }
   | {
       kind: 'user_message_attachments_updated'

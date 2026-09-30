@@ -159,7 +159,7 @@ fn create_job(store: &ConversationStore, args: &Value) -> Result<String> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .trim();
-    let (lead_agent_id, agent_mode) = resolve_agent_defaults(store, conv_id);
+    let lead_agent_id = resolve_agent_defaults(store, conv_id);
 
     let label = args
         .get("label")
@@ -182,7 +182,6 @@ fn create_job(store: &ConversationStore, args: &Value) -> Result<String> {
     let job_id_ref = job_id.as_str();
     let label_ref = label.as_str();
     let lead_ref = lead_agent_id.as_str();
-    let mode_ref = agent_mode.as_str();
     let deliver_ref = deliver.as_deref();
 
     let new = NewCronJob {
@@ -194,7 +193,6 @@ fn create_job(store: &ConversationStore, args: &Value) -> Result<String> {
         next_run_at_ms: next_override,
         conversation_id: "",
         prompt_text: prompt,
-        agent_mode: Some(mode_ref),
         lead_agent_id: Some(lead_ref),
         enabled: true,
         deliver: deliver_ref,
@@ -318,27 +316,20 @@ fn require_job_id(args: &Value) -> Result<String> {
         .ok_or_else(|| anyhow!("job_id is required for this action"))
 }
 
-fn resolve_agent_defaults(store: &ConversationStore, conv_id: &str) -> (String, String) {
-    const DEFAULT_LEAD: &str = "general";
-    const DEFAULT_MODE: &str = "single";
+fn resolve_agent_defaults(store: &ConversationStore, conv_id: &str) -> String {
+    const DEFAULT_LEAD: &str = crate::agents::DEFAULT_LEAD_AGENT_ID;
     if conv_id.is_empty() {
-        return (DEFAULT_LEAD.into(), DEFAULT_MODE.into());
+        return DEFAULT_LEAD.into();
     }
     match store.load_meta(conv_id) {
         Ok(Some(meta)) => {
-            let lead = if meta.lead_agent_id.trim().is_empty() {
+            if meta.lead_agent_id.trim().is_empty() {
                 DEFAULT_LEAD.to_string()
             } else {
                 meta.lead_agent_id
-            };
-            let mode = if meta.agent_mode.trim().is_empty() {
-                DEFAULT_MODE.to_string()
-            } else {
-                meta.agent_mode
-            };
-            (lead, mode)
+            }
         }
-        Ok(None) | Err(_) => (DEFAULT_LEAD.into(), DEFAULT_MODE.into()),
+        Ok(None) | Err(_) => DEFAULT_LEAD.into(),
     }
 }
 

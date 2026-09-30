@@ -573,7 +573,7 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, created_at_ms, updated_at_ms, skill_ids_json,
                 tool_rounds_used, computer_monitor_id, project_id, workspace_root,
-                workspace_user_set, workspace_inherit_disabled, lead_agent_id, agent_mode, performance_mode,
+                workspace_user_set, workspace_inherit_disabled, lead_agent_id, performance_mode,
                 session_user_id, is_pinned
          FROM conversations
          WHERE id NOT LIKE 'cron:%'
@@ -594,10 +594,9 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             row.get::<_, i64>(9)? != 0,
             row.get::<_, i64>(10)? != 0,
             row.get::<_, String>(11)?,
-            row.get::<_, String>(12)?,
-            row.get::<_, Option<String>>(13)?,
-            row.get::<_, String>(14)?,
-            row.get::<_, i64>(15)? != 0,
+            row.get::<_, Option<String>>(12)?,
+            row.get::<_, String>(13)?,
+            row.get::<_, i64>(14)? != 0,
         ))
     })?;
     let mut out = Vec::new();
@@ -615,7 +614,6 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             workspace_user_set,
             workspace_inherit_disabled,
             lead_agent_id,
-            agent_mode,
             performance_mode,
             session_user_id,
             is_pinned,
@@ -637,7 +635,6 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             workspace_user_set,
             workspace_inherit_disabled,
             lead_agent_id,
-            agent_mode,
             performance_mode,
             session_user_id,
         });
@@ -1940,7 +1937,7 @@ pub fn load_project_metas_from_conn(
         "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview,
                 skill_ids_json, tool_rounds_used,
                 computer_monitor_id, project_id, workspace_root, workspace_user_set,
-                workspace_inherit_disabled, lead_agent_id, agent_mode, performance_mode,
+                workspace_inherit_disabled, lead_agent_id, performance_mode,
                 session_user_id, is_pinned
          FROM conversations
          WHERE id NOT LIKE 'cron:%' AND id NOT LIKE 'webhook:%'
@@ -1971,10 +1968,9 @@ pub fn load_project_metas_from_conn(
                 workspace_user_set: row.get::<_, i64>(11)? != 0,
                 workspace_inherit_disabled: row.get::<_, i64>(12)? != 0,
                 lead_agent_id: row.get(13)?,
-                agent_mode: row.get(14)?,
-                performance_mode: row.get(15)?,
-                session_user_id: row.get(16)?,
-                is_pinned: row.get::<_, i64>(17)? != 0,
+                performance_mode: row.get(14)?,
+                session_user_id: row.get(15)?,
+                is_pinned: row.get::<_, i64>(16)? != 0,
             })
         },
     )?;
@@ -2008,7 +2004,7 @@ pub fn load_metas_from_conn(
         "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview,
                 skill_ids_json, tool_rounds_used,
                 computer_monitor_id, project_id, workspace_root, workspace_user_set,
-                workspace_inherit_disabled, lead_agent_id, agent_mode, performance_mode,
+                workspace_inherit_disabled, lead_agent_id, performance_mode,
                 session_user_id, is_pinned
          FROM conversations
          WHERE id NOT LIKE 'cron:%'
@@ -2044,10 +2040,9 @@ pub fn load_metas_from_conn(
                 workspace_user_set: row.get::<_, i64>(11)? != 0,
                 workspace_inherit_disabled: row.get::<_, i64>(12)? != 0,
                 lead_agent_id: row.get(13)?,
-                agent_mode: row.get(14)?,
-                performance_mode: row.get(15)?,
-                session_user_id: row.get(16)?,
-                is_pinned: row.get::<_, i64>(17)? != 0,
+                performance_mode: row.get(14)?,
+                session_user_id: row.get(15)?,
+                is_pinned: row.get::<_, i64>(16)? != 0,
             })
         },
     )?;
@@ -2074,7 +2069,7 @@ pub fn load_meta_from_conn(conn: &Connection, id: &str) -> Result<Option<Convers
             "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview,
                     skill_ids_json, tool_rounds_used,
                     computer_monitor_id, project_id, workspace_root, workspace_user_set,
-                    workspace_inherit_disabled, lead_agent_id, agent_mode, performance_mode,
+                    workspace_inherit_disabled, lead_agent_id, performance_mode,
                     session_user_id, is_pinned
              FROM conversations WHERE id = ?1",
             params![id],
@@ -2094,10 +2089,9 @@ pub fn load_meta_from_conn(conn: &Connection, id: &str) -> Result<Option<Convers
                     workspace_user_set: row.get::<_, i64>(11)? != 0,
                     workspace_inherit_disabled: row.get::<_, i64>(12)? != 0,
                     lead_agent_id: row.get(13)?,
-                    agent_mode: row.get(14)?,
-                    performance_mode: row.get(15)?,
-                    session_user_id: row.get(16)?,
-                    is_pinned: row.get::<_, i64>(17)? != 0,
+                    performance_mode: row.get(14)?,
+                    session_user_id: row.get(15)?,
+                    is_pinned: row.get::<_, i64>(16)? != 0,
                 })
             },
         )
@@ -2127,7 +2121,6 @@ pub fn load_meta_from_conn(conn: &Connection, id: &str) -> Result<Option<Convers
         workspace_user_set: r.workspace_user_set,
         workspace_inherit_disabled: r.workspace_inherit_disabled,
         lead_agent_id: r.lead_agent_id,
-        agent_mode: r.agent_mode,
         performance_mode: r.performance_mode,
         message_count: r.message_count,
         preview: r.preview,
@@ -2186,7 +2179,6 @@ struct MetaRow {
     workspace_user_set: bool,
     workspace_inherit_disabled: bool,
     lead_agent_id: String,
-    agent_mode: String,
     performance_mode: Option<String>,
     session_user_id: String,
     is_pinned: bool,
@@ -2217,7 +2209,6 @@ fn meta_from_row(r: MetaRow) -> Result<ConversationMeta> {
         workspace_user_set: r.workspace_user_set,
         workspace_inherit_disabled: r.workspace_inherit_disabled,
         lead_agent_id: r.lead_agent_id,
-        agent_mode: r.agent_mode,
         performance_mode: r.performance_mode,
         message_count: r.message_count,
         preview: r.preview,
@@ -2256,8 +2247,8 @@ pub fn upsert_conversation(
            id, title, created_at_ms, updated_at_ms, message_count, preview,
            skill_ids_json, tool_rounds_used,
            computer_monitor_id, project_id, workspace_root, workspace_user_set, workspace_inherit_disabled,
-           lead_agent_id, agent_mode, performance_mode, session_user_id, is_pinned
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
+           lead_agent_id, performance_mode, session_user_id, is_pinned
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            created_at_ms = excluded.created_at_ms,
@@ -2272,7 +2263,6 @@ pub fn upsert_conversation(
            workspace_user_set = excluded.workspace_user_set,
            workspace_inherit_disabled = excluded.workspace_inherit_disabled,
            lead_agent_id = excluded.lead_agent_id,
-           agent_mode = excluded.agent_mode,
            performance_mode = excluded.performance_mode,
            session_user_id = CASE
              WHEN trim(excluded.session_user_id) != '' THEN excluded.session_user_id
@@ -2294,7 +2284,6 @@ pub fn upsert_conversation(
             i64::from(conv.workspace_user_set),
             i64::from(conv.workspace_inherit_disabled),
             conv.lead_agent_id,
-            conv.agent_mode,
             conv.performance_mode,
             conv.session_user_id,
             i64::from(conv.is_pinned),
@@ -2541,7 +2530,6 @@ pub fn sample_conv(id: &str, title: &str, user_text: &str) -> Conversation {
         workspace_user_set: false,
         workspace_inherit_disabled: false,
         lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
-        agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
         performance_mode: None,
         session_user_id: String::new(),
     }

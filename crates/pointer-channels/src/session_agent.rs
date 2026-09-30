@@ -1,11 +1,10 @@
 //! IM session agent / mode switch via agent display name or id.
 
-use pointer_core::agents::{agent_display_label, AgentRegistry, AGENT_MODE_SINGLE};
+use pointer_core::agents::{agent_display_label, AgentRegistry};
 use pointer_core::channel_outbound::im_visible_workers;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentSwitchTarget {
-    pub agent_mode: String,
     pub lead_agent_id: Option<String>,
     pub label: String,
 }
@@ -27,9 +26,8 @@ struct AliasEntry {
     target: AgentSwitchTarget,
 }
 
-fn push_aliases(entries: &mut Vec<AliasEntry>, mode: &str, lead: Option<String>, label: &str, id: &str, name: &str) {
+fn push_aliases(entries: &mut Vec<AliasEntry>, lead: Option<String>, label: &str, id: &str, name: &str) {
     let target = AgentSwitchTarget {
-        agent_mode: mode.to_string(),
         lead_agent_id: lead,
         label: label.to_string(),
     };
@@ -50,7 +48,6 @@ fn collect_aliases(registry: &AgentRegistry) -> Vec<AliasEntry> {
     for def in im_visible_workers(registry) {
         push_aliases(
             &mut entries,
-            AGENT_MODE_SINGLE,
             Some(def.id.clone()),
             &agent_display_label(&def),
             &def.id,
@@ -111,7 +108,6 @@ mod tests {
         let action = detect_agent_switch(&reg, "电脑操控").unwrap();
         match action {
             AgentSwitchAction::SwitchOnly(t) => {
-                assert_eq!(t.agent_mode, AGENT_MODE_SINGLE);
                 assert_eq!(t.lead_agent_id.as_deref(), Some("computer"));
             }
             _ => panic!("expected switch only"),

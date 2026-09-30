@@ -3,7 +3,6 @@ import type { ImportReport, PluginView, DiscoveredPlugin, ExternalPluginsProbeRe
 import type { GlobalMcpView, McpServerDecl } from '../types/mcp'
 import type {
   AgentDef,
-  AgentMode,
   ChatMessage,
   ComputerAnnotatedPreview,
   ChatMediaPreview,
@@ -61,7 +60,6 @@ export interface SendChatPayload {
   messages: ChatMessage[]
   enabledSkillIds: string[]
   agentSkillOverrides?: Record<string, string[]>
-  agentMode?: AgentMode
   toolRoundsUsed?: number
   workspaceRoot?: string
   workspaceInheritDisabled?: boolean

@@ -120,7 +120,7 @@ export function handleImSessionForked(ctx: StreamHandlerContext, e: ImSessionFor
   ctx.ensureImConversation(e.conversationId, e.title)
   const forked = ctx.conversations.value.find(c => c.id === e.conversationId)
   if (forked) {
-    ctx.applySessionAgentToConversation(forked, e.leadAgentId, e.agentMode)
+    ctx.applySessionAgentToConversation(forked, e.leadAgentId)
   }
   ctx.currentId.value = e.conversationId
   ctx.loadActiveComposerDraft(e.conversationId)
@@ -131,7 +131,7 @@ export function handleImSessionAgentChanged(ctx: StreamHandlerContext, e: ImSess
   ctx.ensureImConversation(e.conversationId)
   const conv = ctx.conversations.value.find(c => c.id === e.conversationId)
   if (conv) {
-    ctx.applySessionAgentToConversation(conv, e.leadAgentId, e.agentMode)
+    ctx.applySessionAgentToConversation(conv, e.leadAgentId)
     ctx.markMetaDirty(e.conversationId)
   }
 }

@@ -135,10 +135,6 @@ fn import_legacy_channel_meta(conn: &Connection, dir: &Path) -> Result<()> {
                 .lead_agent_id
                 .filter(|s| !s.trim().is_empty())
                 .unwrap_or_else(|| crate::agents::DEFAULT_LEAD_AGENT_ID.to_string()),
-            agent_mode: legacy
-                .agent_mode
-                .filter(|s| !s.trim().is_empty())
-                .unwrap_or_else(|| crate::agents::AGENT_MODE_SINGLE.to_string()),
         };
         im_session::save_im_session_in_conn(conn, &base, &state)?;
         log::info!(
@@ -156,8 +152,6 @@ struct LegacyChannelMeta {
     last_interaction_at: i64,
     #[serde(default, rename = "leadAgentId")]
     lead_agent_id: Option<String>,
-    #[serde(default, rename = "agentMode")]
-    agent_mode: Option<String>,
     #[serde(default, rename = "sessionEpoch")]
     session_epoch: u32,
     #[serde(default, rename = "activeConversationId")]

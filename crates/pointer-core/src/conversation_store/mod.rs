@@ -935,10 +935,9 @@ impl ConversationStore {
         &self,
         conversation_id: &str,
         lead_agent_id: &str,
-        agent_mode: &str,
     ) -> Result<()> {
         self.db.execute_write(|conn| {
-            write::patch_session_agent_in_conn(conn, conversation_id, lead_agent_id, agent_mode)
+            write::patch_session_agent_in_conn(conn, conversation_id, lead_agent_id)
         })
     }
 

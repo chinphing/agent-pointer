@@ -16,7 +16,6 @@ export interface CronJob {
   /** Active cron session id (`cron:{jobId}:{yyyymmdd}`); null until first fire. */
   currentSessionId?: string | null
   promptText: string
-  agentMode?: string | null
   leadAgentId?: string | null
   enabled: boolean
   lastRunAtMs?: number | null
@@ -42,7 +41,6 @@ export interface CreateCronJobInput {
   /** Ignored by the backend: each cron job owns a dedicated `cron:{id}` session. */
   conversationId?: string
   promptText: string
-  agentMode?: string | null
   leadAgentId?: string | null
   enabled?: boolean
   /** Optional Run → IM delivery spec. See `CronJob.deliver`. */

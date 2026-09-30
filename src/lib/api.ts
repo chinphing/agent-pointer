@@ -1,7 +1,6 @@
 import type { UnlistenFn } from '@tauri-apps/api/event'
 import type {
   AgentDef,
-  AgentMode,
   ChatMessage,
   ComputerAnnotatedPreview,
   ChatMediaPreview,
@@ -171,7 +170,6 @@ export interface SendChatPayload {
   messages: ChatMessage[]
   enabledSkillIds: string[]
   agentSkillOverrides?: Record<string, string[]>
-  agentMode?: AgentMode
   /** Cumulative single-agent tool rounds before this send. */
   toolRoundsUsed?: number
   /** Per-conversation workspace root for this run. */

@@ -81,7 +81,6 @@ export function useAssistantMessageDebug(
     if (!msg) return false
     if (settingsStore.settings.computerAnnotatedScreenViewEnabled !== true) return false
     return showAnnotatedScreenAction(msg, {
-      agentMode: settingsStore.settings.agentMode,
       leadAgentId: settingsStore.settings.leadAgentId ?? '',
       annotatedScreenViewEnabled: true
     })

@@ -262,8 +262,6 @@ async function submitCreate() {
       schedule,
       cronExpr: schedule,
       promptText: form.value.promptText.trim(),
-      // Single agent mode; the picked agent is the lead worker (default 通用助手).
-      agentMode: 'single',
       leadAgentId: form.value.agentId || DEFAULT_LEAD_AGENT_ID,
       enabled: form.value.enabled,
       deliver: channelsToDeliver(form.value.pushIm, form.value.deliverChannels)
@@ -378,7 +376,7 @@ function viewSession(job: CronJob) {
     return
   }
   jobsError.value = null
-  chat.openCronConversation(sessionId, job.label, job.leadAgentId, job.agentMode)
+  chat.openCronConversation(sessionId, job.label, job.leadAgentId)
   // Close the settings dialog so the user actually sees the conversation they
   // just opened — otherwise the dialog stays on top and the click appears to
   // do nothing.

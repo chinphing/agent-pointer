@@ -382,8 +382,6 @@ struct StoredSettings {
     max_tokens: u32,
     #[serde(default = "default_tool_approval_mode")]
     tool_approval_mode: String,
-    #[serde(default = "default_agent_mode")]
-    agent_mode: String,
     #[serde(default, rename = "workspaceRoot")]
     workspace_root: String,
     #[serde(default, rename = "leadAgentId")]
@@ -465,10 +463,6 @@ struct StoredSettings {
 
 fn default_tool_approval_mode() -> String {
     "auto".into()
-}
-
-fn default_agent_mode() -> String {
-    "single".into()
 }
 
 fn default_context_compression_enabled() -> bool {
@@ -822,7 +816,6 @@ fn stored_settings_to_user(stored: &StoredSettings) -> UserSettings {
         temperature: stored.temperature,
         max_tokens: stored.max_tokens,
         tool_approval_mode: stored.tool_approval_mode.clone(),
-        agent_mode: stored.agent_mode.clone(),
         workspace_root: stored.workspace_root.clone(),
         lead_agent_id: stored.lead_agent_id.clone(),
         context_compression_enabled: true,
@@ -983,7 +976,6 @@ impl Default for StoredSettings {
             temperature: s.temperature,
             max_tokens: s.max_tokens,
             tool_approval_mode: s.tool_approval_mode,
-            agent_mode: s.agent_mode,
             workspace_root: s.workspace_root,
             lead_agent_id: s.lead_agent_id,
             context_compression_enabled: s.context_compression_enabled,

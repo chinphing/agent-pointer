@@ -36,8 +36,7 @@ function conv(messages: ChatMessage[] = []): Conversation {
     updatedAt: 0,
     skillIds: [],
     toolRoundsUsed: 0,
-    leadAgentId: 'general',
-    agentMode: 'single'
+    leadAgentId: 'general'
   }
 }
 

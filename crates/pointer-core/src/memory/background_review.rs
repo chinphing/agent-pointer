@@ -32,7 +32,6 @@ pub enum ReviewKind {
 
 fn review_base_eligible(settings: &ModelSettings) -> bool {
     settings.background_review_enabled
-        && settings.agent_mode == "single"
         && settings.lead_agent_id.trim() == "general"
 }
 
@@ -480,7 +479,6 @@ mod tests {
     #[test]
     fn memory_review_when_interval_matches() {
         let mut settings = ModelSettings::default();
-        settings.agent_mode = "single".into();
         settings.lead_agent_id = "general".into();
         settings.memory_nudge_interval = 2;
         settings.background_review_enabled = true;
@@ -496,7 +494,6 @@ mod tests {
     #[test]
     fn skill_review_disabled_after_patch_removal() {
         let mut settings = ModelSettings::default();
-        settings.agent_mode = "single".into();
         settings.lead_agent_id = "general".into();
         settings.skill_creation_nudge_interval = 10;
         settings.background_review_enabled = true;

@@ -2315,7 +2315,6 @@ async fn send_chat(
         messages: payload.messages,
         enabled_skill_ids: payload.enabled_skill_ids,
         agent_skill_overrides: payload.agent_skill_overrides,
-        agent_mode: payload.agent_mode,
         lead_agent_id: payload.lead_agent_id,
         performance_mode: payload.performance_mode,
         tool_rounds_used_single_start: payload.tool_rounds_used,
@@ -2921,7 +2920,6 @@ async fn webhook_ingress(
         enabled_skill_ids: Vec::new(),
         // Empty → run_chat loads agentSkillOverrides from user_settings.
         agent_skill_overrides: HashMap::new(),
-        agent_mode: body.agent_mode,
         lead_agent_id: body.lead_agent_id,
         performance_mode: None,
         tool_rounds_used_single_start: 0,
@@ -2991,8 +2989,6 @@ struct CreateCronJobBody {
     conversation_id: String,
     #[serde(rename = "promptText")]
     prompt_text: String,
-    #[serde(default, rename = "agentMode")]
-    agent_mode: Option<String>,
     #[serde(default, rename = "leadAgentId")]
     lead_agent_id: Option<String>,
     #[serde(default = "default_true")]
@@ -3078,7 +3074,6 @@ async fn create_cron_job(
         next_run_at_ms: next_override,
         conversation_id: &body.conversation_id,
         prompt_text: &body.prompt_text,
-        agent_mode: body.agent_mode.as_deref(),
         lead_agent_id: body.lead_agent_id.as_deref(),
         enabled: body.enabled,
         deliver: deliver.as_deref(),

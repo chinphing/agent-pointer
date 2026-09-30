@@ -1,4 +1,4 @@
-import type { AgentMode, AgentTrace, ChatMessage } from '../types/chat'
+import type { AgentTrace, ChatMessage } from '../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { subAgentIdFromTraceId } from './subAgentStats'
 import { toolCallBaseName } from './messageTooling'
@@ -74,16 +74,13 @@ function messageHasInProgressComputerTool(message: ChatMessage): boolean {
 /** True while computer agent (lead or sub-agent) is actively executing. */
 export function isComputerExecuting(
   generating: boolean,
-  agentMode: AgentMode,
   leadAgentId: string | undefined,
   message: ChatMessage | undefined
 ): boolean {
   if (!generating) return false
 
-  if (agentMode === 'single') {
-    const lead = leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
-    if (lead === 'computer') return true
-  }
+  const lead = leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
+  if (lead === 'computer') return true
 
   if (!message) return false
   if (message.agentId === 'computer') return true
@@ -98,8 +95,7 @@ export function activeComputerTrace(message: ChatMessage | undefined) {
   return message.agentTrace?.find(t => isComputerAgentTrace(t) && t.status === 'running')
 }
 
-function isLeadComputerAgent(agentMode: AgentMode, leadAgentId: string | undefined): boolean {
-  if (agentMode !== 'single') return false
+function isLeadComputerAgent(leadAgentId: string | undefined): boolean {
   const lead = leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
   return lead === 'computer'
 }
@@ -111,12 +107,11 @@ function isLeadComputerAgent(agentMode: AgentMode, leadAgentId: string | undefin
  */
 export function shouldShrinkComputerWindow(
   generating: boolean,
-  agentMode: AgentMode,
   leadAgentId: string | undefined,
   message: ChatMessage | undefined
 ): boolean {
-  if (!isComputerExecuting(generating, agentMode, leadAgentId, message)) return false
-  if (isLeadComputerAgent(agentMode, leadAgentId)) return true
+  if (!isComputerExecuting(generating, leadAgentId, message)) return false
+  if (isLeadComputerAgent(leadAgentId)) return true
   const trace = activeComputerTrace(message)
   if (trace?.computerTarget === 'self') return false
   return true

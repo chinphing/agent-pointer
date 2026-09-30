@@ -152,7 +152,6 @@ impl IdleJobPush {
             messages,
             enabled_skill_ids: Vec::new(),
             agent_skill_overrides: HashMap::new(),
-            agent_mode: meta.as_ref().map(|m| m.agent_mode.clone()),
             lead_agent_id: meta.as_ref().map(|m| m.lead_agent_id.clone()),
             performance_mode: meta.as_ref().and_then(|m| m.performance_mode.clone()),
             tool_rounds_used_single_start: 0,

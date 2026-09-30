@@ -728,10 +728,6 @@ mod tests {
         store.save_meta_all(&metas).unwrap();
         let after = store.ensure_lead_agent_instance("c_meta").unwrap();
         assert_eq!(after, before);
-        metas[0].agent_mode = "supervisor".into();
-        metas[0].updated_at += 1;
-        store.save_meta_all(&metas).unwrap();
-        assert_eq!(store.ensure_lead_agent_instance("c_meta").unwrap(), after);
     }
 
     #[test]
@@ -1367,7 +1363,6 @@ mod tests {
             workspace_user_set: false,
             workspace_inherit_disabled: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
-            agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
             performance_mode: None,
             session_user_id: String::new(),
         };
@@ -1424,7 +1419,6 @@ mod tests {
             workspace_user_set: false,
             workspace_inherit_disabled: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
-            agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
             performance_mode: None,
             session_user_id: String::new(),
         };
@@ -1600,7 +1594,6 @@ mod tests {
             workspace_user_set: false,
             workspace_inherit_disabled: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
-            agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
             performance_mode: None,
             session_user_id: String::new(),
         };
@@ -1640,7 +1633,6 @@ mod tests {
             active_conversation_id: Some(format!("{base}@s2")),
             last_interaction_at_ms: 0,
             lead_agent_id: "coder".into(),
-            agent_mode: "single".into(),
         };
         store.save_im_session(base, &state).unwrap();
         let loaded = store.load_im_session(base).unwrap();
@@ -1828,7 +1820,6 @@ mod tests {
             workspace_user_set: false,
             workspace_inherit_disabled: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
-            agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
             performance_mode: None,
             message_count: 0,
             preview: String::new(),

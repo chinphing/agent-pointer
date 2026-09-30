@@ -230,7 +230,7 @@ export function shouldShowSubAgentTrace(
 /** UI flags for content inside a sub-agent frame (always show tools/reasoning). */
 export function uiForSubAgentFrame(
   trace: { id: string; name: string; role?: string; agentId?: string },
-  settings: Pick<ModelSettings, 'agentUiOverrides' | 'agentMode' | 'leadAgentId'>,
+  settings: Pick<ModelSettings, 'agentUiOverrides' | 'leadAgentId'>,
   agents: import('../types/chat').AgentDef[],
   fallbackUi: ResolvedAgentUi
 ): ResolvedAgentUi {

@@ -30,7 +30,6 @@ pub fn fork_im_desktop_session(
         .unwrap_or_else(|| "新会话".to_string());
     let now = chrono::Utc::now().timestamp_millis();
     let lead_agent_id = session_state.lead_agent_id.clone();
-    let agent_mode = session_state.agent_mode.clone();
     store.upsert_meta(&ConversationMeta {
         id: new_id.clone(),
         title: title.clone(),
@@ -45,7 +44,6 @@ pub fn fork_im_desktop_session(
         workspace_user_set: false,
         workspace_inherit_disabled: false,
         lead_agent_id: lead_agent_id.clone(),
-        agent_mode: agent_mode.clone(),
         performance_mode: None,
         message_count: 0,
         preview: String::new(),
@@ -58,7 +56,6 @@ pub fn fork_im_desktop_session(
         title,
         session_epoch: session_state.session_epoch,
         lead_agent_id,
-        agent_mode,
     });
 
     Ok(new_id)

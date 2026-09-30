@@ -86,8 +86,6 @@ pub struct ModelSettings {
     pub has_key: bool,
     #[serde(default, rename = "toolApprovalMode")]
     pub tool_approval_mode: String,
-    #[serde(default, rename = "agentMode")]
-    pub agent_mode: String,
     #[serde(default, rename = "workspaceRoot")]
     pub workspace_root: String,
     #[serde(default, rename = "leadAgentId")]
@@ -127,7 +125,6 @@ impl Default for ModelSettings {
             max_tokens: 2048,
             has_key: false,
             tool_approval_mode: "auto".into(),
-            agent_mode: "single".into(),
             workspace_root: String::new(),
             lead_agent_id: "general".into(),
             context_compression_enabled: true,

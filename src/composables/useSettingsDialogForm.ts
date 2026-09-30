@@ -261,7 +261,6 @@ function createSettingsDialogForm(deps: {
   }
 
   const toolApprovalMode = ref<'auto' | 'manual'>('auto')
-  const agentMode = ref<'single'>('single')
   const leadAgentId = ref('')
   const contextKeepRecentUserTurns = ref(6)
   const DEFAULT_TOOL_ROUNDS = 5000
@@ -490,7 +489,6 @@ function createSettingsDialogForm(deps: {
 
   function initFormFromStore() {
   toolApprovalMode.value = s.settings.toolApprovalMode || 'auto'
-  agentMode.value = 'single'
   leadAgentId.value = s.settings.leadAgentId || DEFAULT_LEAD_AGENT_ID
   contextKeepRecentUserTurns.value = s.settings.contextKeepRecentUserTurns ?? 6
   maxToolRounds.value = migrateToolRounds(s.settings.maxToolRounds)
@@ -1081,7 +1079,6 @@ function createSettingsDialogForm(deps: {
     TOOL_CALL_UI_FIELDS,
     AGENT_OUTPUT_UI_FIELDS,
     toolApprovalMode,
-    agentMode,
     leadAgentId,
     contextKeepRecentUserTurns,
     maxToolRounds,

@@ -11,7 +11,6 @@ use super::super::StreamTx;
 
 /// Immutable request payload from Tauri / HTTP boundary into `run_chat_inner`.
 pub struct ChatRunRequest {
-    pub agent_mode: Option<String>,
     pub lead_agent_id_override: Option<String>,
     /// Per-conversation performance tier override; `None` = global default.
     pub performance_mode_override: Option<String>,

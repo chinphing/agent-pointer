@@ -174,7 +174,6 @@ pub(crate) fn trigger_request_from_payload(payload: SendChatPayload) -> TriggerR
         messages: payload.messages,
         enabled_skill_ids: payload.enabled_skill_ids,
         agent_skill_overrides: payload.agent_skill_overrides,
-        agent_mode: payload.agent_mode,
         lead_agent_id: payload.lead_agent_id,
         performance_mode: payload.performance_mode,
         tool_rounds_used_single_start: payload.tool_rounds_used,
@@ -1605,8 +1604,6 @@ pub struct CreateCronJobArgs {
     pub conversation_id: String,
     pub prompt_text: String,
     #[serde(default)]
-    pub agent_mode: Option<String>,
-    #[serde(default)]
     pub lead_agent_id: Option<String>,
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -1673,7 +1670,6 @@ pub fn create_cron_job(
         next_run_at_ms: next_override,
         conversation_id: &args.conversation_id,
         prompt_text: &args.prompt_text,
-        agent_mode: args.agent_mode.as_deref(),
         lead_agent_id: args.lead_agent_id.as_deref(),
         enabled: args.enabled,
         deliver: deliver.as_deref(),

@@ -105,6 +105,7 @@ pub(crate) async fn run_sub_agent(
         ctx.agent_skill_overrides,
         ctx.spawn_depth,
         ctx.max_spawn_depth,
+        ctx.agent_chain,
         ctx.resume_history.take(),
     )?;
     let def = session.def;
@@ -135,6 +136,7 @@ pub(crate) async fn run_sub_agent(
         task_id: task.id.clone(),
         spawn_depth,
         agent_instance_id: instance_scope.agent_instance_id.clone(),
+        agent_chain: ctx.agent_chain.to_vec(),
     };
     let max_cap = ctx.sub_tool_budget.cap();
     let tools_appendix_enabled = !tools_system_appendix.is_empty();
@@ -246,6 +248,7 @@ pub(crate) async fn run_sub_agent(
             trace_id: None,
             task_id: None,
             spawn_depth: None,
+            agent_chain: None,
         };
         super::sub_message::persist_sub_message(conversation_id, &sub_linkage, &round_placeholder);
         emit(
@@ -588,6 +591,7 @@ pub(crate) async fn run_sub_agent(
             allow_agents: &allow_agents,
             agent_skill_overrides: ctx.agent_skill_overrides,
             instance_scope: &instance_scope,
+            agent_chain: ctx.agent_chain.to_vec(),
             agent_trace: ctx.agent_trace,
             accumulated_content: content.clone(),
             trace_id: sub_linkage.trace_id.clone(),
@@ -762,6 +766,7 @@ mod handoff_tests {
             trace_id: None,
             task_id: None,
             spawn_depth: None,
+            agent_chain: None,
         }
     }
 

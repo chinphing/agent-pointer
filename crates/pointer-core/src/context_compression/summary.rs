@@ -835,5 +835,6 @@ pub(crate) fn new_summary_message(body: String, in_run: bool) -> ChatMessage {
         trace_id: None,
         task_id: None,
         spawn_depth: None,
+        agent_chain: None,
     }
 }

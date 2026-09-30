@@ -150,6 +150,7 @@ fn fresh_sub_agent_local_history() -> Vec<ChatMessage> {
         trace_id: None,
         task_id: None,
         spawn_depth: None,
+        agent_chain: None,
     }]
 }
 
@@ -159,6 +160,7 @@ fn build_sub_agent_linkage(
     def: &AgentDef,
     instance_scope: &AgentInstanceScope,
     spawn_depth: u32,
+    agent_chain: &[String],
 ) -> SubMessageLinkage {
     SubMessageLinkage {
         anchor_message_id: anchor_message_id.to_string(),
@@ -166,6 +168,7 @@ fn build_sub_agent_linkage(
         task_id: task.id.clone(),
         spawn_depth,
         agent_instance_id: instance_scope.agent_instance_id.clone(),
+        agent_chain: agent_chain.to_vec(),
     }
 }
 
@@ -182,6 +185,7 @@ pub(super) fn init_sub_agent_session(
     agent_skill_overrides: &std::collections::HashMap<String, Vec<String>>,
     spawn_depth: u32,
     max_spawn_depth: u32,
+    agent_chain: &[String],
     resume_history: Option<super::worker_followup::ResumedWorkerHistory>,
 ) -> Result<SubAgentSession> {
     let (def, system_prompt, skill_ids, skill_prompts, allowed_tools, allow_agents, workspace_root) =
@@ -304,8 +308,14 @@ pub(super) fn init_sub_agent_session(
         &format!("appendix_chars={}", tools_system_appendix.len()),
     );
     let tool_approval_mode = state.effective_settings().tool_approval_mode;
-    let linkage =
-        build_sub_agent_linkage(anchor_message_id, task, &def, &instance_scope, spawn_depth);
+    let linkage = build_sub_agent_linkage(
+        anchor_message_id,
+        task,
+        &def,
+        &instance_scope,
+        spawn_depth,
+        agent_chain,
+    );
     let local_history = if let Some(resumed) = resume_history {
         let fresh: std::collections::HashSet<&str> = resumed
             .fresh_message_ids
@@ -561,7 +571,7 @@ mod definition_source_tests {
 
         let source = SubAgentDefinitionSource::Snapshot(&snapshot);
         let instance_scope = source.new_instance_scope("run", "conversation");
-        let linkage = build_sub_agent_linkage("anchor", &task, &snapshot.def, &instance_scope, 1);
+        let linkage = build_sub_agent_linkage("anchor", &task, &snapshot.def, &instance_scope, 1, &[]);
 
         assert_eq!(
             linkage.trace_id,
@@ -602,7 +612,7 @@ mod definition_source_tests {
         let source = SubAgentDefinitionSource::Registered(&task);
         let instance_scope = source.new_instance_scope("run", "conversation");
 
-        let linkage = build_sub_agent_linkage("anchor", &task, &def, &instance_scope, 1);
+        let linkage = build_sub_agent_linkage("anchor", &task, &def, &instance_scope, 1, &[]);
 
         assert_eq!(
             linkage.trace_id,
@@ -642,7 +652,7 @@ mod definition_source_tests {
         let source = SubAgentDefinitionSource::Registered(&task);
         let instance_scope = source.new_instance_scope("run", "conversation");
 
-        let linkage = build_sub_agent_linkage("anchor", &task, &def, &instance_scope, 1);
+        let linkage = build_sub_agent_linkage("anchor", &task, &def, &instance_scope, 1, &[]);
 
         // explore/self spawns are instance-scoped so repeated delegates of the
         // same task do not collide on one trace row.

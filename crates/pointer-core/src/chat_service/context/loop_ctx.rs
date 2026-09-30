@@ -48,6 +48,9 @@ pub struct SubAgentLoopContext<'a> {
     /// Depth of this sub-agent run (lead's first child = 1).
     pub spawn_depth: u32,
     pub max_spawn_depth: u32,
+    /// This sub-agent's owner chain (root-most ancestor first, ending with its
+    /// own instance id). Jobs it starts inherit this chain.
+    pub agent_chain: &'a [String],
     pub state_arc: std::sync::Arc<crate::chat_service::app_state::AppState>,
     /// Background worker job id for this nested loop.
     pub background_job_id: Option<String>,
@@ -72,8 +75,9 @@ pub struct SubagentDelegationContext<'a> {
     pub args_value: serde_json::Value,
     /// Depth of the agent issuing `run_subagent` (lead = 0).
     pub parent_spawn_depth: u32,
-    /// Sub-agent instance that issued this spawn. `None` is the lead.
-    pub parent_agent_instance_id: Option<&'a str>,
+    /// Owner chain of the agent issuing this spawn (empty = lead). Children
+    /// extend it with their own instance id.
+    pub issuer_chain: &'a [String],
     /// Lead transcript buffer; used to persist `agent_trace` on the anchor assistant row.
     pub history: Option<&'a mut Vec<ChatMessage>>,
     pub state_arc: std::sync::Arc<crate::chat_service::app_state::AppState>,

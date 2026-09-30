@@ -88,6 +88,7 @@ fn channel_message_with_id(
         trace_id: None,
         task_id: None,
         spawn_depth: None,
+        agent_chain: None,
     }
 }
 

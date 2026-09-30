@@ -770,6 +770,7 @@ mod tests {
                 trace_id: None,
                 task_id: None,
                 spawn_depth: None,
+                agent_chain: None,
             },
             ChatMessage {
                 id: "2".into(),
@@ -800,6 +801,7 @@ mod tests {
                 trace_id: None,
                 task_id: None,
                 spawn_depth: None,
+                agent_chain: None,
             },
         ];
         assert_eq!(count_real_user_turns(&history), 1);

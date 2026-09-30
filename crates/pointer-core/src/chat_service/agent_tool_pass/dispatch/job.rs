@@ -1,5 +1,9 @@
 //! `job` tool: list / status / await / cancel JobSupervisor entries.
+//!
+//! Every action is scoped to the caller: the lead sees the whole conversation,
+//! a sub-agent instance only its own subtree (see `JobCaller`).
 
+use crate::chat_service::job_supervisor::JobCaller;
 use crate::tools::job::{parse_job_args, JobAction};
 use crate::tools::parallel::ParallelLimits;
 use serde_json::json;
@@ -13,6 +17,7 @@ pub(super) async fn dispatch_job(
     conversation_id: &str,
     args_value: serde_json::Value,
     cancel: &CancellationToken,
+    caller: JobCaller<'_>,
 ) -> ToolExecResult {
     let parsed = parse_job_args(&args_value).map_err(|e| anyhow::anyhow!(e))?;
     let slot_cap =
@@ -23,7 +28,7 @@ pub(super) async fn dispatch_job(
     let pool_running = state.jobs.pool_running_roots(conversation_id);
     let exec = match parsed.action {
         JobAction::List => {
-            let jobs = state.jobs.list(conversation_id, false);
+            let jobs = state.jobs.list(conversation_id, false, caller);
             log::info!(
                 "job tool: list conversation_id={conversation_id} count={} running_count={running_count} pool_running={pool_running} idle_slots={idle_slots} slot_cap={slot_cap}",
                 jobs.len()
@@ -45,7 +50,7 @@ pub(super) async fn dispatch_job(
                 .job_id
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("status requires jobId"))?;
-            match state.jobs.status(conversation_id, job_id) {
+            match state.jobs.status(conversation_id, job_id, caller) {
                 Ok(item) => {
                     log::info!(
                         "job tool: status conversation_id={conversation_id} job_id={job_id} status={}",
@@ -75,10 +80,11 @@ pub(super) async fn dispatch_job(
                 ids,
                 parsed.timeout_ms
             );
-            let result = state
+            let awaited = state
                 .jobs
                 .await_jobs(
                     conversation_id,
+                    caller,
                     ids,
                     mode,
                     parsed.timeout(),
@@ -86,6 +92,15 @@ pub(super) async fn dispatch_job(
                     slot_cap,
                 )
                 .await;
+            let result = match awaited {
+                Ok(result) => result,
+                Err(err) => {
+                    log::warn!(
+                        "job tool: await rejected conversation_id={conversation_id}: {err}"
+                    );
+                    return Ok((format!("ERROR: {err}"), false, Some(err)));
+                }
+            };
             log::info!(
                 "job tool: await done conversation_id={conversation_id} timed_out={} returned={} updates={} still_running={} unclaimed={} running_count={} idle_slots={}",
                 result.timed_out,
@@ -104,17 +119,19 @@ pub(super) async fn dispatch_job(
             } else {
                 Some(parsed.job_ids.as_slice())
             };
-            let cancelled = state.jobs.cancel_ids(conversation_id, ids);
+            let outcome = state.jobs.cancel_ids(conversation_id, ids, caller);
             let running_after = state.jobs.running_count_for_conversation(conversation_id);
             let idle_after = state.jobs.idle_slots(conversation_id, slot_cap);
             let pool_after = state.jobs.pool_running_roots(conversation_id);
             log::info!(
-                "job tool: cancel conversation_id={conversation_id} count={} running_count={running_after} idle_slots={idle_after}",
-                cancelled.len()
+                "job tool: cancel conversation_id={conversation_id} count={} denied={} running_count={running_after} idle_slots={idle_after}",
+                outcome.cancelled.len(),
+                outcome.denied.len()
             );
             Ok((
                 serde_json::to_string(&json!({
-                    "cancelled": cancelled,
+                    "cancelled": outcome.cancelled,
+                    "denied": outcome.denied,
                     "runningCount": running_after,
                     "slotCap": slot_cap,
                     "idleSlots": idle_after,

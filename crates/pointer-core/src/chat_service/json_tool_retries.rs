@@ -57,6 +57,7 @@ pub(crate) fn push_injected_format_retry_turn(
         trace_id: None,
         task_id: None,
         spawn_depth: None,
+        agent_chain: None,
     });
     super::conversation_persist::upsert_message(
         conversation_id,

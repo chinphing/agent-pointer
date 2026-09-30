@@ -66,6 +66,7 @@ pub fn tool_result_message(tool_call_id: &str, content: &str) -> ChatMessage {
         trace_id: None,
         task_id: None,
         spawn_depth: None,
+        agent_chain: None,
     }
 }
 

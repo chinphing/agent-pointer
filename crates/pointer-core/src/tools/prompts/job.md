@@ -41,10 +41,24 @@ Two kinds — do not mix them up:
 Jobs keep running after this turn ends.
 Do not tell the user everything is finished while jobs are still running.
 
+**Scope (read first)**
+
+Every action sees only **your own subtree**:
+the jobs **you** started plus the jobs started by **your sub-agents**.
+The lead sees the whole conversation.
+
+- You do **not** see the job you are running inside, your parent's jobs,
+  or a sibling worker's jobs.
+- An id you cannot see is not yours: do **not** retry it, do not guess.
+  Passing it explicitly is a hard error (see `await`).
+- Job ids from your `run_subagent` handoff (`openBackgroundJobs`) and from
+  your own `terminal` calls are always in scope.
+
 **`list`**
 
-- This conversation's background jobs.
+- Background jobs in **your scope** (see above).
 - Includes `runningCount`, `slotCap`, `idleSlots`, and `poolRunning`.
+  These four are **conversation-wide** occupancy numbers, not scope counts.
 - `runningCount` = background jobs still queued or running
   (sidebar occupancy).
 - `poolRunning` = root worker slots held now
@@ -64,6 +78,7 @@ Do not tell the user everything is finished while jobs are still running.
 
 - One job. Requires **`jobId`**.
 - Same metadata as list. **No `content`.** Does **not** claim.
+- A job outside your scope returns `ERROR` — it is not yours to inspect.
 - If this turn needs the body, **`await`** the id.
 
 **Await vs end turn (read first)**
@@ -78,15 +93,17 @@ tool call is blocked on a specific result.
 - Wait until a **whole job** finishes. Inner tool calls
   on a still-running worker do **not** complete this await.
 - Does **not** kill jobs on timeout.
-- **`jobIds`**: omit = every background job in this conversation.
+- **`jobIds`**: omit = every background job in **your scope**.
   Finished unclaimed jobs are eligible immediately.
+  Passing an id outside your scope is `ERROR` — that job belongs to
+  your parent, a sibling, or an ancestor.
 - **`mode`**: `any` (default) = wake when at least one job
-  in this conversation is finished and unclaimed.
+  **in your scope** is finished and unclaimed.
   On wake: return every currently finished unclaimed body
   in `jobs[]` (claimed). Jobs still running stay in `running`.
   Already-claimed jobs are omitted from `jobs`.
   `all` = wait until this set is finished, then return and claim
-  every still-unclaimed finished job in this conversation
+  every still-unclaimed finished job **in your scope**
   (including ones outside this set).
   Already-claimed jobs are omitted. Finished unclaimed jobs do
   not rerun.
@@ -95,6 +112,8 @@ tool call is blocked on a specific result.
 - Use `any` when the next task depends on a finished result.
 - Use `all` when the full set is already spawned and you only
   need the summary.
+- A worker that omitted `jobIds` with **no sub-jobs** gets
+  `jobs: []` immediately — it never waits for itself.
 - `jobs[]` is the bodies. `running[]` is ids still running.
   `runningCount` is background occupancy.
   `idleSlots` / `poolRunning` are the shared worker pool
@@ -104,7 +123,10 @@ tool call is blocked on a specific result.
 
 **`cancel`**
 
-- **`jobIds`**: omit = cancel every background job in this conversation.
+- **`jobIds`**: omit = cancel every background job **in your scope**.
+- Explicit ids outside your scope are **skipped** and listed in
+  `denied[]`; everything else in the call still cancels.
+- A sub-agent never cancels the lead's jobs or a sibling's jobs.
 
 Do not call `await` just to idle; if this turn can end, end it
 and leave jobs running.

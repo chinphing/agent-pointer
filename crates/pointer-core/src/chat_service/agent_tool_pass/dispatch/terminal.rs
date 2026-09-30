@@ -1,7 +1,7 @@
 //! Terminal tool streaming execution.
 
 use crate::chat_service::job_supervisor::{
-    AwaitMode, JobKind, JobKindTerminal, JobStatus, JobSupervisor,
+    AwaitMode, JobCaller, JobKind, JobKindTerminal, JobStatus, JobSupervisor,
 };
 use crate::chat_service::run_subagent_delegation::{
     background_job_handle_json, emit_and_persist_host_tool_finish, emit_background_jobs,
@@ -207,7 +207,7 @@ pub(super) async fn run_terminal_tool(
     session_workspace: String,
     execution_scope: ToolExecutionScope,
     run_id: &str,
-    parent_agent_instance_id: Option<&str>,
+    owner_chain: &[String],
 ) -> ToolExecResult {
     let session_workspace = resolve_terminal_session_workspace(conversation_id, session_workspace);
     if session_workspace.trim().is_empty() {
@@ -243,7 +243,7 @@ pub(super) async fn run_terminal_tool(
             execution_scope,
             block_until_ms,
             run_id,
-            parent_agent_instance_id,
+            owner_chain,
         )
         .await;
     }
@@ -380,7 +380,7 @@ async fn run_terminal_background(
     execution_scope: ToolExecutionScope,
     block_until_ms: u64,
     run_id: &str,
-    parent_agent_instance_id: Option<&str>,
+    owner_chain: &[String],
 ) -> ToolExecResult {
     let job_cancel = CancellationToken::new();
     let (command, label) = terminal_job_title(&args_value);
@@ -390,15 +390,13 @@ async fn run_terminal_background(
         command,
         label,
     });
-    let job_id = state
-        .jobs
-        .register(conversation_id, kind, job_cancel.clone(), run_id);
-    if let Some(parent) = parent_agent_instance_id
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-    {
-        state.jobs.bind_parent_agent(&job_id, parent);
-    }
+    let job_id = state.jobs.register(
+        conversation_id,
+        kind,
+        job_cancel.clone(),
+        run_id,
+        owner_chain.to_vec(),
+    );
     emit_background_jobs(stream, conversation_id, &state.jobs);
     log::info!(
         "terminal background spawn job_id={job_id} conversation_id={conversation_id} tool_call_id={} block_until_ms={block_until_ms} nested={}",
@@ -443,17 +441,29 @@ async fn run_terminal_background(
     log::info!(
         "terminal background waiting job_id={job_id} conversation_id={conversation_id} block_until_ms={block_until_ms}"
     );
-    let result = state
+    let result = match state
         .jobs
         .await_jobs(
             conversation_id,
+            terminal_self_caller(owner_chain),
             Some(vec![job_id.clone()]),
             AwaitMode::All,
             Some(Duration::from_millis(block_until_ms)),
             parent_cancel,
             slot_cap,
         )
-        .await;
+        .await
+    {
+        Ok(result) => result,
+        Err(err) => {
+            // Only reachable if the caller is not on the job's own chain; the
+            // job keeps running, so hand the handle back instead of failing.
+            log::warn!(
+                "terminal background self-await rejected job_id={job_id} conversation_id={conversation_id}: {err}"
+            );
+            return Ok((handle, true, None));
+        }
+    };
 
     if let Some(item) = result.jobs.into_iter().next() {
         if item.status != "queued" && item.status != "running" {
@@ -491,6 +501,15 @@ async fn run_terminal_background(
         "terminal background still running after wait job_id={job_id} conversation_id={conversation_id}"
     );
     Ok((handle, true, None))
+}
+
+/// The issuer of a terminal job is the last link of its own chain (empty = lead),
+/// which is also who may wait on it (`blockUntilMs`).
+fn terminal_self_caller(owner_chain: &[String]) -> JobCaller<'_> {
+    match owner_chain.last() {
+        Some(instance_id) => JobCaller::Instance(instance_id.as_str()),
+        None => JobCaller::Lead,
+    }
 }
 
 fn status_from_wire(status: &str) -> JobStatus {
@@ -659,4 +678,22 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
         spawn.conversation_id,
         status.as_str()
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::terminal_self_caller;
+    use crate::chat_service::job_supervisor::JobCaller;
+
+    /// `blockUntilMs` waits as the job's own issuer, so the host self-wait keeps
+    /// working after `job` became subtree-scoped.
+    #[test]
+    fn terminal_self_wait_uses_the_job_owner() {
+        assert_eq!(terminal_self_caller(&[]), JobCaller::Lead);
+        let chain = vec!["inst-coder".to_string(), "inst-terminal".to_string()];
+        assert_eq!(
+            terminal_self_caller(&chain),
+            JobCaller::Instance("inst-terminal")
+        );
+    }
 }

@@ -77,6 +77,9 @@ pub struct SubToolPassConfig<'a> {
     pub allow_agents: &'a [String],
     pub agent_skill_overrides: &'a std::collections::HashMap<String, Vec<String>>,
     pub instance_scope: &'a AgentInstanceScope,
+    /// This sub-agent's own owner chain (root-most ancestor first, ending with
+    /// its own instance id). Empty = lead. Children spawned from here extend it.
+    pub agent_chain: Vec<String>,
     pub agent_trace: &'a mut Vec<AgentTrace>,
     pub accumulated_content: String,
     pub trace_id: String,

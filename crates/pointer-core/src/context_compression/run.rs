@@ -317,6 +317,7 @@ pub(crate) async fn compress_history_inner(
         trace_id: None,
         task_id: None,
         spawn_depth: None,
+        agent_chain: None,
     };
 
     let summary_prefix = if force_ignore_char_budget {

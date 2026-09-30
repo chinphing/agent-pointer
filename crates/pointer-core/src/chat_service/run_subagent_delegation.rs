@@ -154,6 +154,11 @@ pub(crate) struct OwnedSubagentExecutionInput<'a> {
     pub agent_skill_overrides: std::collections::HashMap<String, Vec<String>>,
     pub child_spawn_depth: u32,
     pub max_spawn_depth: u32,
+    /// Owner chain of the agent that issued this spawn (empty = lead).
+    pub issuer_chain: Vec<String>,
+    /// Restored chain when resuming a worker; `None` mints
+    /// `issuer_chain + [child instance id]`.
+    pub resume_agent_chain: Option<Vec<String>>,
     /// Host tool-pass trace (nested spawn); lead-owned forks leave this empty.
     pub host_trace_id: Option<String>,
     pub host_scoped_message_id: Option<String>,
@@ -465,6 +470,8 @@ pub(super) async fn execute_owned_subagent(
         agent_skill_overrides,
         child_spawn_depth,
         max_spawn_depth,
+        issuer_chain,
+        resume_agent_chain,
         host_trace_id,
         host_scoped_message_id,
         state_arc,
@@ -492,6 +499,16 @@ pub(super) async fn execute_owned_subagent(
     };
     let instance_scope = preset_instance
         .unwrap_or_else(|| definition_source.new_instance_scope(&run_id, conversation_id));
+    // Child chain = issuer chain + own instance id; a resumed worker keeps the
+    // chain it was originally spawned with.
+    let agent_chain: Vec<String> = match resume_agent_chain {
+        Some(chain) => chain,
+        None => {
+            let mut chain = issuer_chain;
+            chain.push(instance_scope.agent_instance_id.clone());
+            chain
+        }
+    };
     log::info!(
         "run_subagent owned-wave start conversation_id={} task_id={} tool_call_id={} agent_id={} agent_instance_id={}",
         conversation_id,
@@ -545,6 +562,7 @@ pub(super) async fn execute_owned_subagent(
         llm_stats: &mut child_usage,
         spawn_depth: child_spawn_depth,
         max_spawn_depth,
+        agent_chain: &agent_chain,
         state_arc,
         background_job_id,
         resume_history,
@@ -694,8 +712,12 @@ pub(crate) struct BackgroundOwnedSpawn {
     pub host_trace_id: Option<String>,
     pub host_scoped_message_id: Option<String>,
     pub instance_scope: AgentInstanceScope,
-    /// Sub-agent that spawned this job. `None` means the lead.
-    pub parent_agent_instance_id: Option<String>,
+    /// Owner chain of the agent that issued this spawn (empty = lead). Becomes
+    /// the job's `owner_chain` and the prefix of the child's own chain.
+    pub issuer_chain: Vec<String>,
+    /// Restored chain when this spawn resumes a worker (`followupInstanceId`);
+    /// `None` mints `issuer_chain + [child instance id]`.
+    pub resume_agent_chain: Option<Vec<String>>,
     pub resume_history: Option<super::worker_followup::ResumedWorkerHistory>,
     pub followup_reserve: Option<super::job_supervisor::FollowupReserve>,
 }
@@ -764,15 +786,8 @@ pub(crate) fn spawn_background_owned_subagent(spawn: BackgroundOwnedSpawn) -> St
         kind,
         spawn.cancel.clone(),
         &spawn.run_id,
+        spawn.issuer_chain.clone(),
     );
-    if let Some(parent) = spawn
-        .parent_agent_instance_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-    {
-        spawn.state.jobs.bind_parent_agent(&job_id, parent);
-    }
     emit_background_jobs(&spawn.stream, &spawn.conversation_id, &spawn.state.jobs);
     log::info!(
         "run_subagent background spawn job_id={job_id} conversation_id={} tool_call_id={} task_id={}",
@@ -923,6 +938,8 @@ async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwne
         agent_skill_overrides: spawn.agent_skill_overrides.clone(),
         child_spawn_depth: spawn.child_spawn_depth,
         max_spawn_depth: spawn.max_spawn_depth,
+        issuer_chain: spawn.issuer_chain.clone(),
+        resume_agent_chain: spawn.resume_agent_chain.clone(),
         host_trace_id: spawn.host_trace_id.clone(),
         host_scoped_message_id: spawn.host_scoped_message_id.clone(),
         state_arc: spawn.state.clone(),
@@ -1393,9 +1410,10 @@ pub(super) async fn run_subagent_delegation(
                             host_trace_id: None,
                             host_scoped_message_id: None,
                             instance_scope: child_scope.clone(),
-                            parent_agent_instance_id: ctx
-                                .parent_agent_instance_id
-                                .map(str::to_string),
+                            issuer_chain: ctx.issuer_chain.to_vec(),
+                            resume_agent_chain: follow
+                                .as_ref()
+                                .map(|item| item.agent_chain.clone()),
                             resume_history: resume_history.clone(),
                             followup_reserve: follow_reserve,
                         });
@@ -1551,6 +1569,16 @@ pub(super) async fn run_subagent_delegation(
                     } else {
                         definition_source.new_instance_scope(run_id, conversation_id)
                     };
+                    // Child chain = issuer chain + own instance id; a resumed
+                    // worker keeps the chain it was originally spawned with.
+                    let agent_chain: Vec<String> = match follow.as_ref() {
+                        Some(item) => item.agent_chain.clone(),
+                        None => {
+                            let mut chain = ctx.issuer_chain.to_vec();
+                            chain.push(instance_scope.agent_instance_id.clone());
+                            chain
+                        }
+                    };
                     let make_trace = |status: &str, detail: Option<String>| {
                         build_subagent_trace(
                             &task,
@@ -1589,6 +1617,7 @@ pub(super) async fn run_subagent_delegation(
                         llm_stats: ctx.llm_stats,
                         spawn_depth: child_spawn_depth,
                         max_spawn_depth,
+                        agent_chain: &agent_chain,
                         state_arc: ctx.state_arc.clone(),
                         background_job_id: None,
                         resume_history: resume_history.clone(),
@@ -1779,6 +1808,7 @@ mod trace_tests {
             trace_id: None,
             task_id: None,
             spawn_depth: None,
+            agent_chain: None,
         }
     }
 
@@ -2198,6 +2228,8 @@ mod trace_tests {
             agent_skill_overrides: HashMap::new(),
             child_spawn_depth: 1,
             max_spawn_depth: 2,
+            issuer_chain: Vec::new(),
+            resume_agent_chain: None,
             host_trace_id: None,
             host_scoped_message_id: None,
             state_arc: state.clone(),
@@ -2289,6 +2321,8 @@ mod trace_tests {
                 agent_skill_overrides: HashMap::new(),
                 child_spawn_depth: 1,
                 max_spawn_depth: 2,
+                issuer_chain: Vec::new(),
+                resume_agent_chain: None,
                 host_trace_id: None,
                 host_scoped_message_id: None,
                 state_arc: state.clone(),

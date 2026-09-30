@@ -101,9 +101,12 @@ struct JobRecord {
     conversation_id: String,
     /// Parent `run_chat` id; used to defer token `finalize_run` until idle.
     run_id: String,
-    /// Agent that spawned this job. `None` is the lead.
-    /// Sub-agent-owned jobs are not idle-pushed to the lead.
-    parent_agent_instance_id: Option<String>,
+    /// Issuer path from the conversation root, ending with the agent that
+    /// spawned this job (root-most ancestor first). Empty = the lead spawned it.
+    /// A job is visible to [`JobCaller::Lead`] and to every instance on this
+    /// chain, so a worker sees its own jobs plus its descendants' — never its
+    /// parent's or its siblings'.
+    owner_chain: Vec<String>,
     kind: JobKind,
     status: JobStatus,
     content: Option<String>,
@@ -115,6 +118,58 @@ struct JobRecord {
     mail_seq: u64,
     last_progress_text: Option<String>,
     last_progress_at: Option<Instant>,
+}
+
+impl JobRecord {
+    /// Instance that spawned this job. `None` = lead-owned.
+    fn direct_owner(&self) -> Option<&str> {
+        self.owner_chain.last().map(String::as_str)
+    }
+
+    /// Lead-owned jobs are idle-pushed to the lead and visible to every caller.
+    fn is_lead_owned(&self) -> bool {
+        self.owner_chain.is_empty()
+    }
+
+    /// `Lead` sees the whole conversation; an instance sees the jobs it started
+    /// plus the ones its descendants started.
+    fn visible_to(&self, caller: JobCaller<'_>) -> bool {
+        match caller {
+            JobCaller::Lead => true,
+            JobCaller::Instance(id) => {
+                let id = id.trim();
+                !id.is_empty() && self.owner_chain.iter().any(|owner| owner == id)
+            }
+        }
+    }
+}
+
+/// Who is asking about background jobs.
+///
+/// The lead owns the conversation and sees every job; a sub-agent instance sees
+/// only its own subtree (its own jobs + its descendants'). A worker therefore
+/// cannot `await` the job that *is* itself, which is what used to block a
+/// background worker until its own timeout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JobCaller<'a> {
+    Lead,
+    Instance(&'a str),
+}
+
+/// Trim and drop empty entries so a malformed chain degrades to lead-owned
+/// instead of creating an invisible job.
+fn normalize_owner_chain(owner_chain: Vec<String>) -> Vec<String> {
+    owner_chain
+        .into_iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect()
+}
+
+/// `jobId` the caller may not touch: it exists in this conversation but belongs
+/// to another agent's subtree.
+fn ownership_error(job_id: &str) -> String {
+    format!("jobId `{job_id}` is not owned by this agent or its sub-agents")
 }
 
 #[derive(Debug, Clone)]
@@ -205,6 +260,16 @@ pub struct JobAwaitResult {
     pub idle_slots: usize,
     /// Root slots currently held (foreground join + background).
     pub pool_running: usize,
+}
+
+/// Result of `job.cancel`: what was cancelled, plus explicit ids the caller is
+/// not allowed to touch (another agent's subtree).
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobCancelOutcome {
+    pub cancelled: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub denied: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -615,19 +680,27 @@ impl JobSupervisor {
 
     /// Register a job in `queued`. Caller must spawn work that acquires a slot.
     /// `run_id` ties the job to the parent `run_chat` for deferred token finalize.
+    /// `owner_chain` is the issuer's chain ([`JobCaller`] doc); empty = lead-owned.
     pub fn register(
         &self,
         conversation_id: &str,
         kind: JobKind,
         cancel: CancellationToken,
         run_id: &str,
+        owner_chain: Vec<String>,
     ) -> String {
         let id = format!("job_{}", uuid::Uuid::new_v4().simple());
+        let owner_chain = normalize_owner_chain(owner_chain);
+        let owner_log = if owner_chain.is_empty() {
+            "lead".to_string()
+        } else {
+            owner_chain.join(">")
+        };
         let record = JobRecord {
             id: id.clone(),
             conversation_id: conversation_id.to_string(),
             run_id: run_id.to_string(),
-            parent_agent_instance_id: None,
+            owner_chain,
             kind,
             status: JobStatus::Queued,
             content: None,
@@ -649,13 +722,13 @@ impl JobSupervisor {
             inner.jobs.insert(id.clone(), record);
         }
         log::info!(
-            "job_supervisor: registered job_id={id} conversation_id={conversation_id} run_id={run_id} status=queued"
+            "job_supervisor: registered job_id={id} conversation_id={conversation_id} run_id={run_id} owner_chain={owner_log} status=queued"
         );
         self.notify();
         id
     }
 
-    /// Still-queued or running jobs this sub-agent started.
+    /// Still-queued or running jobs this sub-agent started **directly**.
     /// Finished jobs are omitted; their bodies stay on `job.await`.
     pub fn open_jobs_spawned_by(
         &self,
@@ -676,7 +749,7 @@ impl JobSupervisor {
         ids.iter()
             .filter_map(|id| {
                 let job = inner.jobs.get(id)?;
-                if job.parent_agent_instance_id.as_deref().map(str::trim) != Some(parent) {
+                if job.direct_owner() != Some(parent) {
                     return None;
                 }
                 if job.status.is_terminal() {
@@ -685,25 +758,6 @@ impl JobSupervisor {
                 Some(open_background_job(job))
             })
             .collect()
-    }
-
-    /// Completion of this job stays with the spawning sub-agent (`job.await`),
-    /// and is not delivered by idle push to the lead.
-    pub fn bind_parent_agent(&self, job_id: &str, parent_agent_instance_id: &str) {
-        let parent = parent_agent_instance_id.trim();
-        if parent.is_empty() {
-            log::warn!("job_supervisor: bind parent skipped empty id job_id={job_id}");
-            return;
-        }
-        let mut inner = self.inner.lock();
-        let Some(job) = inner.jobs.get_mut(job_id) else {
-            log::warn!("job_supervisor: bind parent unknown job_id={job_id}");
-            return;
-        };
-        job.parent_agent_instance_id = Some(parent.to_string());
-        log::info!(
-            "job_supervisor: job_id={job_id} parent_agent_instance_id={parent} idle_push=false"
-        );
     }
 
     /// True when this sub-agent thread has a queued/running job or a follow-up claim.
@@ -873,8 +927,8 @@ impl JobSupervisor {
         job.error = error;
         let conversation_id = job.conversation_id.clone();
         let run_id = job.run_id.clone();
-        let lead_owned = spawned_by_lead(job);
-        let parent_agent_instance_id = job.parent_agent_instance_id.clone();
+        let lead_owned = job.is_lead_owned();
+        let direct_owner = job.direct_owner().map(str::to_string);
         let pushable = lead_owned && matches!(status, JobStatus::Completed | JobStatus::Failed);
         log::info!(
             "job_supervisor: job_id={job_id} conversation_id={} run_id={} status={} lead_owned={lead_owned}",
@@ -890,8 +944,8 @@ impl JobSupervisor {
             }
         } else if matches!(status, JobStatus::Completed | JobStatus::Failed) {
             log::info!(
-                "job_supervisor: completion stays with spawning agent job_id={job_id} parent_agent_instance_id={} status={}",
-                parent_agent_instance_id.as_deref().unwrap_or(""),
+                "job_supervisor: completion stays with spawning agent job_id={job_id} direct_owner={} status={}",
+                direct_owner.as_deref().unwrap_or(""),
                 status.as_str()
             );
         }
@@ -941,22 +995,33 @@ impl JobSupervisor {
         }
     }
 
-    pub fn list(&self, conversation_id: &str, include_content: bool) -> Vec<JobListItem> {
+    pub fn list(
+        &self,
+        conversation_id: &str,
+        include_content: bool,
+        caller: JobCaller<'_>,
+    ) -> Vec<JobListItem> {
         let inner = self.inner.lock();
         let Some(ids) = inner.by_conversation.get(conversation_id) else {
             return Vec::new();
         };
         ids.iter()
             .filter_map(|id| {
-                inner
-                    .jobs
-                    .get(id)
-                    .map(|j| job_list_item(j, include_content))
+                let job = inner.jobs.get(id)?;
+                if !job.visible_to(caller) {
+                    return None;
+                }
+                Some(job_list_item(job, include_content))
             })
             .collect()
     }
 
-    pub fn status(&self, conversation_id: &str, job_id: &str) -> Result<JobListItem, String> {
+    pub fn status(
+        &self,
+        conversation_id: &str,
+        job_id: &str,
+        caller: JobCaller<'_>,
+    ) -> Result<JobListItem, String> {
         let inner = self.inner.lock();
         let Some(job) = inner.jobs.get(job_id) else {
             return Err(format!("unknown jobId `{job_id}`"));
@@ -964,19 +1029,39 @@ impl JobSupervisor {
         if job.conversation_id != conversation_id {
             return Err("jobId does not belong to this conversation".into());
         }
+        if !job.visible_to(caller) {
+            return Err(ownership_error(job_id));
+        }
         Ok(job_list_item(job, false))
     }
 
-    pub fn cancel_ids(&self, conversation_id: &str, job_ids: Option<&[String]>) -> Vec<String> {
+    /// Cancel background jobs. `None`/empty `job_ids` = every job visible to
+    /// `caller` (a sub-agent never cancels the lead's or a sibling's work).
+    /// Explicit ids outside the caller's subtree are skipped and reported in
+    /// [`JobCancelOutcome::denied`]; unknown ids stay silent.
+    pub fn cancel_ids(
+        &self,
+        conversation_id: &str,
+        job_ids: Option<&[String]>,
+        caller: JobCaller<'_>,
+    ) -> JobCancelOutcome {
+        let mut denied = Vec::new();
         let tokens: Vec<(String, CancellationToken)> = {
             let inner = self.inner.lock();
-            let ids = match job_ids {
-                Some(ids) if !ids.is_empty() => ids.to_vec(),
-                _ => inner
-                    .by_conversation
-                    .get(conversation_id)
+            let ids: Vec<String> = match job_ids {
+                Some(ids) if !ids.is_empty() => ids
+                    .iter()
+                    .filter(|id| match inner.jobs.get(id.as_str()) {
+                        None => false,
+                        Some(job) if job.visible_to(caller) => true,
+                        Some(_) => {
+                            denied.push((*id).clone());
+                            false
+                        }
+                    })
                     .cloned()
-                    .unwrap_or_default(),
+                    .collect(),
+                _ => visible_job_ids(&inner, conversation_id, caller),
             };
             ids.into_iter()
                 .filter_map(|id| {
@@ -996,12 +1081,20 @@ impl JobSupervisor {
             log::info!("job_supervisor: cancelling job_id={id} conversation_id={conversation_id}");
             token.cancel();
         }
+        if !denied.is_empty() {
+            log::warn!(
+                "job_supervisor: cancel denied for foreign jobs conversation_id={conversation_id} denied={denied:?}"
+            );
+        }
         self.notify();
-        cancelled
+        JobCancelOutcome { cancelled, denied }
     }
 
     pub fn cancel_conversation(&self, conversation_id: &str) -> usize {
-        let n = self.cancel_ids(conversation_id, None).len();
+        let n = self
+            .cancel_ids(conversation_id, None, JobCaller::Lead)
+            .cancelled
+            .len();
         if n > 0 {
             log::info!(
                 "job_supervisor: cancel_conversation conversation_id={conversation_id} jobs={n}"
@@ -1013,15 +1106,20 @@ impl JobSupervisor {
     /// Claim terminal results and drain leftover mailbox for `await`.
     /// `mode=any` wakes only on an unclaimed terminal job (not inner-tool progress).
     /// Already-claimed jobs are skipped (mutex with idle push).
+    ///
+    /// Explicit `jobIds` outside the caller's subtree are a hard error: the
+    /// caller must not silently wait on someone else's work.
     pub async fn await_jobs(
         &self,
         conversation_id: &str,
+        caller: JobCaller<'_>,
         job_ids: Option<Vec<String>>,
         mode: AwaitMode,
         timeout: Option<Duration>,
         parent_cancel: &CancellationToken,
         slot_cap: usize,
-    ) -> JobAwaitResult {
+    ) -> Result<JobAwaitResult, String> {
+        let job_ids = self.visible_await_ids(conversation_id, caller, job_ids)?;
         let timeout = timeout.unwrap_or(DEFAULT_AWAIT_TIMEOUT);
         let mut rx = self.subscribe();
         let deadline = tokio::time::Instant::now() + timeout;
@@ -1031,18 +1129,19 @@ impl JobSupervisor {
                     "job_supervisor: await cancelled conversation_id={conversation_id} mode={:?}",
                     mode
                 );
-                return self.snapshot_await(
+                return Ok(self.snapshot_await(
                     conversation_id,
                     job_ids.as_deref(),
                     mode,
                     false,
                     slot_cap,
-                );
+                    caller,
+                ));
             }
             if let Some(ready) =
-                self.try_claim_await(conversation_id, job_ids.as_deref(), mode, slot_cap)
+                self.try_claim_await(conversation_id, job_ids.as_deref(), mode, slot_cap, caller)
             {
-                return ready;
+                return Ok(ready);
             }
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {
@@ -1050,51 +1149,84 @@ impl JobSupervisor {
                     "job_supervisor: await timed out conversation_id={conversation_id} mode={:?} (jobs keep running)",
                     mode
                 );
-                return self.snapshot_await(
+                return Ok(self.snapshot_await(
                     conversation_id,
                     job_ids.as_deref(),
                     mode,
                     true,
                     slot_cap,
-                );
+                    caller,
+                ));
             }
             tokio::select! {
                 biased;
                 _ = parent_cancel.cancelled() => {
-                    return self.snapshot_await(
+                    return Ok(self.snapshot_await(
                         conversation_id,
                         job_ids.as_deref(),
                         mode,
                         false,
                         slot_cap,
-                    );
+                        caller,
+                    ));
                 }
                 _ = tokio::time::sleep(remaining) => {
                     log::info!(
                         "job_supervisor: await timed out conversation_id={conversation_id} mode={:?} (jobs keep running)",
                         mode
                     );
-                    return self.snapshot_await(
+                    return Ok(self.snapshot_await(
                         conversation_id,
                         job_ids.as_deref(),
                         mode,
                         true,
                         slot_cap,
-                    );
+                        caller,
+                    ));
                 }
                 changed = rx.changed() => {
                     if changed.is_err() {
-                        return self.snapshot_await(
+                        return Ok(self.snapshot_await(
                             conversation_id,
                             job_ids.as_deref(),
                             mode,
                             false,
                             slot_cap,
-                        );
+                            caller,
+                        ));
                     }
                 }
             }
         }
+    }
+
+    /// Explicit `jobIds` must be visible to the caller. An id that exists in
+    /// this conversation but belongs to another subtree is rejected; an unknown
+    /// id keeps the historical silent behaviour (it simply matches nothing).
+    fn visible_await_ids(
+        &self,
+        conversation_id: &str,
+        caller: JobCaller<'_>,
+        job_ids: Option<Vec<String>>,
+    ) -> Result<Option<Vec<String>>, String> {
+        let Some(ids) = job_ids.filter(|ids| !ids.is_empty()) else {
+            return Ok(None);
+        };
+        {
+            let inner = self.inner.lock();
+            for id in &ids {
+                let foreign = inner.jobs.get(id.as_str()).is_some_and(|job| {
+                    job.conversation_id == conversation_id && !job.visible_to(caller)
+                });
+                if foreign {
+                    log::warn!(
+                        "job_supervisor: await rejected foreign jobId conversation_id={conversation_id} job_id={id}"
+                    );
+                    return Err(ownership_error(id));
+                }
+            }
+        }
+        Ok(Some(ids))
     }
 
     fn try_claim_await(
@@ -1103,11 +1235,12 @@ impl JobSupervisor {
         job_ids: Option<&[String]>,
         mode: AwaitMode,
         slot_cap: usize,
+        caller: JobCaller<'_>,
     ) -> Option<JobAwaitResult> {
         let idle = self.idle_slots(conversation_id, slot_cap);
         let pool_running = self.pool_running_roots(conversation_id);
         let mut inner = self.inner.lock();
-        let ids = resolve_job_ids(&inner, conversation_id, job_ids);
+        let ids = resolve_job_ids(&inner, conversation_id, job_ids, caller);
         if ids.is_empty() {
             return Some(empty_await(
                 mode,
@@ -1133,7 +1266,7 @@ impl JobSupervisor {
         }
         match mode {
             AwaitMode::Any => {
-                let ready = unclaimed_finished_conversation(&inner, conversation_id);
+                let ready = unclaimed_finished_conversation(&inner, conversation_id, caller);
                 if ready.is_empty() {
                     if running.is_empty() {
                         return Some(empty_await(
@@ -1171,7 +1304,7 @@ impl JobSupervisor {
                 if !running.is_empty() {
                     return None;
                 }
-                let extra = unclaimed_finished_conversation(&inner, conversation_id);
+                let extra = unclaimed_finished_conversation(&inner, conversation_id, caller);
                 let mut ready = Vec::new();
                 for id in &terminal {
                     if extra.iter().any(|e| e == id) {
@@ -1218,11 +1351,12 @@ impl JobSupervisor {
         mode: AwaitMode,
         timed_out: bool,
         slot_cap: usize,
+        caller: JobCaller<'_>,
     ) -> JobAwaitResult {
         let idle = self.idle_slots(conversation_id, slot_cap);
         let pool_running = self.pool_running_roots(conversation_id);
         let mut inner = self.inner.lock();
-        let ids = resolve_job_ids(&inner, conversation_id, job_ids);
+        let ids = resolve_job_ids(&inner, conversation_id, job_ids, caller);
         let mut running = Vec::new();
         for id in &ids {
             let Some(job) = inner.jobs.get(id) else {
@@ -1236,7 +1370,7 @@ impl JobSupervisor {
             }
         }
         let running_count = running_count_in(&inner, conversation_id);
-        let unclaimed = unclaimed_finished_conversation(&inner, conversation_id);
+        let unclaimed = unclaimed_finished_conversation(&inner, conversation_id, caller);
         let updates = drain_mail_for_ids(&mut inner, conversation_id, &ids);
         pack_await(
             match mode {
@@ -1321,11 +1455,34 @@ fn unclaimed_finished_in(inner: &Inner, conversation_id: &str, ids: &[String]) -
         .collect()
 }
 
-fn unclaimed_finished_conversation(inner: &Inner, conversation_id: &str) -> Vec<String> {
+fn unclaimed_finished_conversation(
+    inner: &Inner,
+    conversation_id: &str,
+    caller: JobCaller<'_>,
+) -> Vec<String> {
     let Some(ids) = inner.by_conversation.get(conversation_id) else {
         return Vec::new();
     };
-    unclaimed_finished_in(inner, conversation_id, ids)
+    let ids: Vec<String> = ids
+        .iter()
+        .filter(|id| inner.jobs.get(*id).is_some_and(|job| job.visible_to(caller)))
+        .cloned()
+        .collect();
+    unclaimed_finished_in(inner, conversation_id, &ids)
+}
+
+/// Every job in this conversation the caller may see.
+fn visible_job_ids(inner: &Inner, conversation_id: &str, caller: JobCaller<'_>) -> Vec<String> {
+    inner
+        .by_conversation
+        .get(conversation_id)
+        .map(|ids| {
+            ids.iter()
+                .filter(|id| inner.jobs.get(*id).is_some_and(|job| job.visible_to(caller)))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn claim_ready_jobs(inner: &mut Inner, ids: &[String]) -> Vec<JobAwaitItem> {
@@ -1393,14 +1550,19 @@ fn resolve_job_ids(
     inner: &Inner,
     conversation_id: &str,
     job_ids: Option<&[String]>,
+    caller: JobCaller<'_>,
 ) -> Vec<String> {
     match job_ids {
-        Some(ids) if !ids.is_empty() => ids.to_vec(),
-        _ => inner
-            .by_conversation
-            .get(conversation_id)
+        Some(ids) if !ids.is_empty() => ids
+            .iter()
+            .filter(|id| {
+                inner.jobs.get(id.as_str()).is_some_and(|job| {
+                    job.conversation_id == conversation_id && job.visible_to(caller)
+                })
+            })
             .cloned()
-            .unwrap_or_default(),
+            .collect(),
+        _ => visible_job_ids(inner, conversation_id, caller),
     }
 }
 
@@ -1541,16 +1703,8 @@ fn open_background_job(job: &JobRecord) -> OpenBackgroundJob {
     }
 }
 
-fn spawned_by_lead(job: &JobRecord) -> bool {
-    job.parent_agent_instance_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .is_none()
-}
-
 fn job_is_idle_pushable(job: &JobRecord) -> bool {
-    spawned_by_lead(job)
+    job.is_lead_owned()
         && !job.claimed
         && matches!(job.status, JobStatus::Completed | JobStatus::Failed)
 }
@@ -1622,8 +1776,8 @@ mod tests {
     async fn await_any_claims_first_terminal_and_leaves_running() {
         let sup = JobSupervisor::new();
         let conv = "c1";
-        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run");
-        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
+        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
         sup.mark_running(&a);
         sup.mark_running(&b);
         sup.finish(
@@ -1637,13 +1791,15 @@ mod tests {
         let result = sup
             .await_jobs(
                 conv,
+                JobCaller::Lead,
                 Some(vec![a.clone(), b.clone()]),
                 AwaitMode::Any,
                 Some(Duration::from_secs(1)),
                 &parent,
                 4,
-            )
-            .await;
+                        )
+            .await
+            .expect("lead await");
         assert_eq!(result.jobs.len(), 1);
         assert_eq!(result.jobs[0].job_id, a);
         assert_eq!(
@@ -1655,7 +1811,7 @@ mod tests {
         assert_eq!(result.running_count, 1);
         assert!(!result.timed_out);
 
-        let listed = sup.list(conv, false);
+        let listed = sup.list(conv, false, JobCaller::Lead);
         let a_row = listed.iter().find(|j| j.job_id == a).unwrap();
         assert!(a_row.claimed);
         let b_row = listed.iter().find(|j| j.job_id == b).unwrap();
@@ -1667,8 +1823,8 @@ mod tests {
     async fn await_any_does_not_wake_on_inner_tool_progress() {
         let sup = Arc::new(JobSupervisor::new());
         let conv = "c-progress";
-        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run");
-        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
+        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
         sup.mark_running(&a);
         sup.mark_running(&b);
         sup.post_progress(&a, "read · src/auth.rs");
@@ -1677,13 +1833,15 @@ mod tests {
         let timed = Arc::clone(&sup)
             .await_jobs(
                 conv,
+                JobCaller::Lead,
                 Some(vec![a.clone(), b.clone()]),
                 AwaitMode::Any,
                 Some(Duration::from_millis(80)),
                 &parent,
                 4,
-            )
-            .await;
+                        )
+            .await
+            .expect("lead await");
         assert!(
             timed.timed_out,
             "inner-tool progress must not complete await"
@@ -1691,7 +1849,7 @@ mod tests {
         assert!(timed.jobs.is_empty());
         assert_eq!(timed.running, vec![a.clone(), b.clone()]);
         assert!(
-            !sup.list(conv, false)
+            !sup.list(conv, false, JobCaller::Lead)
                 .iter()
                 .find(|j| j.job_id == a)
                 .unwrap()
@@ -1702,13 +1860,15 @@ mod tests {
         let done = Arc::clone(&sup)
             .await_jobs(
                 conv,
+                JobCaller::Lead,
                 Some(vec![a.clone(), b.clone()]),
                 AwaitMode::Any,
                 Some(Duration::from_secs(1)),
                 &parent,
                 4,
-            )
-            .await;
+                        )
+            .await
+            .expect("lead await");
         assert!(!done.timed_out);
         assert_eq!(done.jobs.len(), 1);
         assert_eq!(done.jobs[0].job_id, a);
@@ -1721,9 +1881,9 @@ mod tests {
     async fn await_any_drains_all_ready_siblings_with_content() {
         let sup = JobSupervisor::new();
         let conv = "c1";
-        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run");
-        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run");
-        let c = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
+        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
+        let c = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
         sup.mark_running(&a);
         sup.mark_running(&b);
         sup.mark_running(&c);
@@ -1734,13 +1894,15 @@ mod tests {
         let result = sup
             .await_jobs(
                 conv,
+                JobCaller::Lead,
                 Some(vec![a.clone(), b.clone(), c.clone()]),
                 AwaitMode::Any,
                 Some(Duration::from_secs(1)),
                 &parent,
                 3,
-            )
-            .await;
+                        )
+            .await
+            .expect("lead await");
         assert_eq!(result.jobs.len(), 2);
         assert_eq!(result.jobs[0].job_id, a);
         assert_eq!(result.jobs[0].content.as_deref(), Some("one"));
@@ -1752,7 +1914,7 @@ mod tests {
         assert_eq!(result.slot_cap, 3);
         assert_eq!(result.idle_slots, 3);
         assert_eq!(result.pool_running, 0);
-        let listed = sup.list(conv, false);
+        let listed = sup.list(conv, false, JobCaller::Lead);
         assert!(listed.iter().find(|j| j.job_id == a).unwrap().claimed);
         assert!(listed.iter().find(|j| j.job_id == c).unwrap().claimed);
         assert!(!listed.iter().find(|j| j.job_id == b).unwrap().claimed);
@@ -1762,8 +1924,8 @@ mod tests {
     async fn await_any_drains_ready_outside_wait_set_with_content() {
         let sup = JobSupervisor::new();
         let conv = "c1";
-        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run");
-        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
+        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
         sup.mark_running(&a);
         sup.mark_running(&b);
         sup.finish(&a, JobStatus::Completed, Some("done-a".into()), None);
@@ -1773,13 +1935,15 @@ mod tests {
         let result = sup
             .await_jobs(
                 conv,
+                JobCaller::Lead,
                 Some(vec![b.clone()]),
                 AwaitMode::Any,
                 Some(Duration::from_secs(5)),
                 &parent,
                 3,
-            )
-            .await;
+                        )
+            .await
+            .expect("lead await");
         assert!(started.elapsed() < Duration::from_secs(1));
         assert_eq!(result.jobs.len(), 1);
         assert_eq!(result.jobs[0].job_id, a);
@@ -1791,7 +1955,7 @@ mod tests {
         assert_eq!(result.pool_running, 0);
         assert!(!result.timed_out);
         let a_row = sup
-            .list(conv, false)
+            .list(conv, false, JobCaller::Lead)
             .into_iter()
             .find(|j| j.job_id == a)
             .unwrap();
@@ -1802,8 +1966,8 @@ mod tests {
     async fn await_all_waits_until_every_id_is_terminal() {
         let sup = JobSupervisor::new();
         let conv = "c1";
-        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run");
-        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
+        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
         sup.finish(&a, JobStatus::Completed, Some("a".into()), None);
 
         let parent = CancellationToken::new();
@@ -1817,13 +1981,15 @@ mod tests {
         let result = sup
             .await_jobs(
                 conv,
+                JobCaller::Lead,
                 Some(vec![a, b]),
                 AwaitMode::All,
                 Some(Duration::from_secs(2)),
                 &parent,
                 4,
-            )
-            .await;
+                        )
+            .await
+            .expect("lead await");
         assert_eq!(result.jobs.len(), 2);
         assert!(result.running.is_empty());
         assert!(!result.timed_out);
@@ -1833,21 +1999,23 @@ mod tests {
     async fn await_all_drains_finished_outside_wait_set() {
         let sup = JobSupervisor::new();
         let conv = "c1";
-        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run");
-        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
+        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
         sup.finish(&a, JobStatus::Completed, Some("done-a".into()), None);
         sup.finish(&b, JobStatus::Completed, Some("done-b".into()), None);
         let parent = CancellationToken::new();
         let result = sup
             .await_jobs(
                 conv,
+                JobCaller::Lead,
                 Some(vec![b.clone()]),
                 AwaitMode::All,
                 Some(Duration::from_secs(1)),
                 &parent,
                 3,
-            )
-            .await;
+                        )
+            .await
+            .expect("lead await");
         assert_eq!(result.jobs.len(), 2);
         assert_eq!(result.jobs[0].job_id, b);
         assert_eq!(result.jobs[0].content.as_deref(), Some("done-b"));
@@ -1861,8 +2029,8 @@ mod tests {
     async fn await_all_omits_already_claimed_content() {
         let sup = JobSupervisor::new();
         let conv = "c1";
-        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run");
-        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
+        let b = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
         sup.mark_running(&a);
         sup.mark_running(&b);
         sup.finish(&a, JobStatus::Completed, Some("first".into()), None);
@@ -1871,13 +2039,15 @@ mod tests {
         let first = sup
             .await_jobs(
                 conv,
+                JobCaller::Lead,
                 Some(vec![a.clone(), b.clone()]),
                 AwaitMode::Any,
                 Some(Duration::from_secs(1)),
                 &parent,
                 3,
-            )
-            .await;
+                        )
+            .await
+            .expect("lead await");
         assert_eq!(first.jobs.len(), 1);
         assert_eq!(first.jobs[0].job_id, a);
         assert!(sup.is_claimed(&a));
@@ -1886,13 +2056,15 @@ mod tests {
         let second = sup
             .await_jobs(
                 conv,
+                JobCaller::Lead,
                 Some(vec![a.clone(), b.clone()]),
                 AwaitMode::All,
                 Some(Duration::from_secs(1)),
                 &parent,
                 3,
-            )
-            .await;
+                        )
+            .await
+            .expect("lead await");
         assert_eq!(second.jobs.len(), 1);
         assert_eq!(second.jobs[0].job_id, b);
         assert_eq!(second.jobs[0].content.as_deref(), Some("second"));
@@ -1904,32 +2076,34 @@ mod tests {
     async fn timeout_does_not_kill_or_claim() {
         let sup = JobSupervisor::new();
         let conv = "c1";
-        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let a = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
         sup.mark_running(&a);
         let parent = CancellationToken::new();
         let result = sup
             .await_jobs(
                 conv,
+                JobCaller::Lead,
                 Some(vec![a.clone()]),
                 AwaitMode::All,
                 Some(Duration::from_millis(20)),
                 &parent,
                 4,
-            )
-            .await;
+                        )
+            .await
+            .expect("lead await");
         assert!(result.timed_out);
         assert!(result.jobs.is_empty());
         assert_eq!(result.running, vec![a.clone()]);
-        assert!(!sup.list(conv, false)[0].claimed);
-        assert_eq!(sup.status(conv, &a).unwrap().status, "running");
+        assert!(!sup.list(conv, false, JobCaller::Lead)[0].claimed);
+        assert_eq!(sup.status(conv, &a, JobCaller::Lead).unwrap().status, "running");
     }
 
     #[tokio::test]
     async fn timeout_with_finished_sibling_does_not_deliver_unclaimed_content() {
         let sup = JobSupervisor::new();
         let conv = "c1";
-        let done = sup.register(conv, kind(), CancellationToken::new(), "test-run");
-        let running = sup.register(conv, kind(), CancellationToken::new(), "test-run");
+        let done = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
+        let running = sup.register(conv, kind(), CancellationToken::new(), "test-run", Vec::new());
         sup.mark_running(&done);
         sup.mark_running(&running);
         sup.finish(
@@ -1942,13 +2116,15 @@ mod tests {
         let result = sup
             .await_jobs(
                 conv,
+                JobCaller::Lead,
                 Some(vec![done.clone(), running.clone()]),
                 AwaitMode::All,
                 Some(Duration::from_millis(20)),
                 &parent,
                 4,
-            )
-            .await;
+                        )
+            .await
+            .expect("lead await");
         assert!(result.timed_out);
         assert!(
             result.jobs.is_empty(),
@@ -1961,13 +2137,15 @@ mod tests {
         let claimed = sup
             .await_jobs(
                 conv,
+                JobCaller::Lead,
                 Some(vec![done.clone()]),
                 AwaitMode::All,
                 Some(Duration::from_secs(1)),
                 &parent,
                 4,
-            )
-            .await;
+                        )
+            .await
+            .expect("lead await");
         assert_eq!(claimed.jobs.len(), 1);
         assert_eq!(claimed.jobs[0].content.as_deref(), Some("secret body"));
         assert!(sup.is_claimed(&done));
@@ -2058,7 +2236,7 @@ mod tests {
     fn cancel_conversation_signals_tokens() {
         let sup = JobSupervisor::new();
         let token = CancellationToken::new();
-        let id = sup.register("c1", kind(), token.clone(), "test-run");
+        let id = sup.register("c1", kind(), token.clone(), "test-run", Vec::new());
         assert_eq!(sup.cancel_conversation("c1"), 1);
         assert!(token.is_cancelled());
         assert_eq!(sup.cancel_token(&id).unwrap().is_cancelled(), true);
@@ -2067,7 +2245,7 @@ mod tests {
     #[test]
     fn list_distinguishes_terminal_from_subagent() {
         let sup = JobSupervisor::new();
-        let sub = sup.register("c1", kind(), CancellationToken::new(), "test-run");
+        let sub = sup.register("c1", kind(), CancellationToken::new(), "test-run", Vec::new());
         let term = sup.register(
             "c1",
             JobKind::Terminal(JobKindTerminal {
@@ -2078,8 +2256,9 @@ mod tests {
             }),
             CancellationToken::new(),
             "test-run",
+            Vec::new()
         );
-        let listed = sup.list("c1", false);
+        let listed = sup.list("c1", false, JobCaller::Lead);
         let sub_row = listed.iter().find(|j| j.job_id == sub).unwrap();
         let term_row = listed.iter().find(|j| j.job_id == term).unwrap();
         assert_eq!(sub_row.kind, "subagent");
@@ -2092,20 +2271,20 @@ mod tests {
     #[test]
     fn list_and_status_omit_job_body() {
         let sup = JobSupervisor::new();
-        let id = sup.register("c1", kind(), CancellationToken::new(), "test-run");
+        let id = sup.register("c1", kind(), CancellationToken::new(), "test-run", Vec::new());
         sup.finish(
             &id,
             JobStatus::Completed,
             Some("worker handoff markdown".into()),
             None,
         );
-        let listed = sup.list("c1", false);
+        let listed = sup.list("c1", false, JobCaller::Lead);
         assert!(listed[0].content.is_none());
-        let st = sup.status("c1", &id).unwrap();
+        let st = sup.status("c1", &id, JobCaller::Lead).unwrap();
         assert!(st.content.is_none());
         assert_eq!(st.status, "completed");
         assert!(!st.claimed);
-        let peeked = sup.list("c1", true);
+        let peeked = sup.list("c1", true, JobCaller::Lead);
         assert_eq!(
             peeked[0].content.as_deref(),
             Some("worker handoff markdown")
@@ -2115,9 +2294,9 @@ mod tests {
     #[test]
     fn occupancy_by_conversation_skips_terminal_jobs() {
         let sup = JobSupervisor::new();
-        let live = sup.register("c1", kind(), CancellationToken::new(), "test-run");
-        let done = sup.register("c1", kind(), CancellationToken::new(), "test-run");
-        let other = sup.register("c2", kind(), CancellationToken::new(), "test-run");
+        let live = sup.register("c1", kind(), CancellationToken::new(), "test-run", Vec::new());
+        let done = sup.register("c1", kind(), CancellationToken::new(), "test-run", Vec::new());
+        let other = sup.register("c2", kind(), CancellationToken::new(), "test-run", Vec::new());
         sup.mark_running(&live);
         sup.finish(&done, JobStatus::Completed, Some("ok".into()), None);
         let rows = sup.occupancy_by_conversation();
@@ -2142,14 +2321,14 @@ mod tests {
     #[test]
     fn followup_reserve_rejects_a_live_job() {
         let sup = JobSupervisor::new();
-        let _job = sup.register("c1", kind(), CancellationToken::new(), "test-run");
+        let _job = sup.register("c1", kind(), CancellationToken::new(), "test-run", Vec::new());
         assert!(sup.try_reserve_followup("c1", "inst-job").is_none());
     }
 
     #[test]
     fn occupancy_items_include_background_terminals() {
         let sup = JobSupervisor::new();
-        let sub = sup.register("c1", kind(), CancellationToken::new(), "test-run");
+        let sub = sup.register("c1", kind(), CancellationToken::new(), "test-run", Vec::new());
         let term = sup.register(
             "c1",
             JobKind::Terminal(JobKindTerminal {
@@ -2160,6 +2339,7 @@ mod tests {
             }),
             CancellationToken::new(),
             "test-run",
+            Vec::new()
         );
         sup.mark_running(&sub);
         sup.mark_running(&term);
@@ -2198,6 +2378,7 @@ mod tests {
             }),
             CancellationToken::new(),
             "test-run",
+            Vec::new()
         );
         assert!(sup.claim_if_unclaimed(&id).is_none());
         sup.finish(
@@ -2218,10 +2399,10 @@ mod tests {
     #[test]
     fn claim_pushable_skips_cancelled_and_already_claimed() {
         let sup = JobSupervisor::new();
-        let done = sup.register("c1", kind(), CancellationToken::new(), "test-run");
-        let failed = sup.register("c1", kind(), CancellationToken::new(), "test-run");
-        let cancelled = sup.register("c1", kind(), CancellationToken::new(), "test-run");
-        let awaited = sup.register("c1", kind(), CancellationToken::new(), "test-run");
+        let done = sup.register("c1", kind(), CancellationToken::new(), "test-run", Vec::new());
+        let failed = sup.register("c1", kind(), CancellationToken::new(), "test-run", Vec::new());
+        let cancelled = sup.register("c1", kind(), CancellationToken::new(), "test-run", Vec::new());
+        let awaited = sup.register("c1", kind(), CancellationToken::new(), "test-run", Vec::new());
         sup.finish(&done, JobStatus::Completed, Some("ok".into()), None);
         sup.finish(&failed, JobStatus::Failed, None, Some("boom".into()));
         sup.finish(
@@ -2252,9 +2433,14 @@ mod tests {
     #[test]
     fn claim_pushable_skips_jobs_spawned_by_subagent() {
         let sup = JobSupervisor::new();
-        let lead = sup.register("c1", kind(), CancellationToken::new(), "test-run");
-        let nested = sup.register("c1", kind(), CancellationToken::new(), "test-run");
-        sup.bind_parent_agent(&nested, "inst-a");
+        let lead = sup.register("c1", kind(), CancellationToken::new(), "test-run", Vec::new());
+        let nested = sup.register(
+            "c1",
+            kind(),
+            CancellationToken::new(),
+            "test-run",
+            vec!["inst-a".into()],
+        );
         sup.finish(&lead, JobStatus::Completed, Some("lead-done".into()), None);
         sup.finish(
             &nested,
@@ -2273,11 +2459,21 @@ mod tests {
     #[test]
     fn open_jobs_spawned_by_lists_only_live_jobs_of_that_agent() {
         let sup = JobSupervisor::new();
-        let lead = sup.register("c1", kind(), CancellationToken::new(), "test-run");
-        let live = sup.register("c1", kind(), CancellationToken::new(), "test-run");
-        let done = sup.register("c1", kind(), CancellationToken::new(), "test-run");
-        sup.bind_parent_agent(&live, "inst-a");
-        sup.bind_parent_agent(&done, "inst-a");
+        let lead = sup.register("c1", kind(), CancellationToken::new(), "test-run", Vec::new());
+        let live = sup.register(
+            "c1",
+            kind(),
+            CancellationToken::new(),
+            "test-run",
+            vec!["inst-a".into()],
+        );
+        let done = sup.register(
+            "c1",
+            kind(),
+            CancellationToken::new(),
+            "test-run",
+            vec!["inst-a".into()],
+        );
         sup.finish(&done, JobStatus::Completed, Some("gone".into()), None);
         let open = sup.open_jobs_spawned_by("c1", "inst-a");
         assert_eq!(open.len(), 1);
@@ -2286,5 +2482,447 @@ mod tests {
         assert!(sup.open_jobs_spawned_by("c1", "inst-b").is_empty());
         assert!(sup.open_jobs_spawned_by("c1", " ").is_empty());
         assert_ne!(open[0].job_id, lead);
+    }
+
+    fn kind_for(instance_id: &str) -> JobKind {
+        JobKind::Subagent(JobKindSubagent {
+            tool_call_id: "tc1".into(),
+            message_id: "m1".into(),
+            agent_id: "explore".into(),
+            title: "map auth".into(),
+            agent_instance_id: instance_id.into(),
+        })
+    }
+
+    fn subtree_kind(chain: &[&str]) -> JobKind {
+        kind_for(chain.last().copied().unwrap_or("inst"))
+    }
+
+    /// `lead -> coder(inst-coder) -> explore(inst-explore)`.
+    /// The coder's own job is lead-owned, so it is structurally invisible to the
+    /// coder — an id-less `await` must return at once instead of waiting itself.
+    #[tokio::test]
+    async fn await_without_ids_excludes_own_parent_spawned_job() {
+        let sup = JobSupervisor::new();
+        let conv = "c-subtree";
+        let own = sup.register(
+            conv,
+            subtree_kind(&["inst-coder"]),
+            CancellationToken::new(),
+            "run",
+            Vec::new(),
+        );
+        sup.mark_running(&own);
+
+        let started = tokio::time::Instant::now();
+        let result = sup
+            .await_jobs(
+                conv,
+                JobCaller::Instance("inst-coder"),
+                None,
+                AwaitMode::All,
+                Some(Duration::from_secs(30)),
+                &CancellationToken::new(),
+                4,
+            )
+            .await
+            .expect("scoped await");
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "a worker must never wait for its own job"
+        );
+        assert!(result.jobs.is_empty());
+        assert!(result.running.is_empty());
+        // Occupancy numbers stay conversation-wide for the UI.
+        assert_eq!(result.running_count, 1);
+        assert!(!sup.is_claimed(&own));
+    }
+
+    /// Same shape, but with a descendant still to finish: the coder's `await all`
+    /// resolves on the descendant while its own job keeps running.
+    #[tokio::test]
+    async fn await_all_waits_only_for_descendants() {
+        let sup = JobSupervisor::new();
+        let conv = "c-subtree";
+        let own = sup.register(
+            conv,
+            subtree_kind(&["inst-coder"]),
+            CancellationToken::new(),
+            "run",
+            Vec::new(),
+        );
+        let child = sup.register(
+            conv,
+            subtree_kind(&["inst-coder", "inst-explore"]),
+            CancellationToken::new(),
+            "run",
+            vec!["inst-coder".into()],
+        );
+        sup.mark_running(&own);
+        sup.mark_running(&child);
+        sup.finish(
+            &child,
+            JobStatus::Completed,
+            Some("explore-done".into()),
+            None,
+        );
+
+        let started = tokio::time::Instant::now();
+        let result = sup
+            .await_jobs(
+                conv,
+                JobCaller::Instance("inst-coder"),
+                None,
+                AwaitMode::All,
+                Some(Duration::from_secs(30)),
+                &CancellationToken::new(),
+                4,
+            )
+            .await
+            .expect("scoped await");
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert_eq!(result.jobs.len(), 1);
+        assert_eq!(result.jobs[0].job_id, child);
+        assert_eq!(result.jobs[0].content.as_deref(), Some("explore-done"));
+        assert!(result.running.is_empty());
+        assert_eq!(result.running_count, 1);
+    }
+
+    #[tokio::test]
+    async fn await_sees_descendant_jobs() {
+        let sup = JobSupervisor::new();
+        let conv = "c-subtree";
+        let own = sup.register(
+            conv,
+            subtree_kind(&["inst-coder"]),
+            CancellationToken::new(),
+            "run",
+            Vec::new(),
+        );
+        let child = sup.register(
+            conv,
+            subtree_kind(&["inst-coder", "inst-explore"]),
+            CancellationToken::new(),
+            "run",
+            vec!["inst-coder".into()],
+        );
+        sup.mark_running(&own);
+        sup.mark_running(&child);
+        sup.finish(
+            &child,
+            JobStatus::Completed,
+            Some("child-done".into()),
+            None,
+        );
+
+        let result = sup
+            .await_jobs(
+                conv,
+                JobCaller::Instance("inst-coder"),
+                Some(vec![child.clone()]),
+                AwaitMode::All,
+                Some(Duration::from_secs(1)),
+                &CancellationToken::new(),
+                4,
+            )
+            .await
+            .expect("descendant await");
+        assert_eq!(result.jobs.len(), 1);
+        assert_eq!(result.jobs[0].job_id, child);
+        assert!(sup.is_claimed(&child));
+        assert!(!sup.is_claimed(&own));
+    }
+
+    #[tokio::test]
+    async fn await_rejects_foreign_job_id() {
+        let sup = JobSupervisor::new();
+        let conv = "c-subtree";
+        let parent_job = sup.register(
+            conv,
+            subtree_kind(&["inst-coder"]),
+            CancellationToken::new(),
+            "run",
+            Vec::new(),
+        );
+        let sibling = sup.register(
+            conv,
+            subtree_kind(&["inst-sibling"]),
+            CancellationToken::new(),
+            "run",
+            vec!["inst-sibling".into()],
+        );
+        sup.mark_running(&parent_job);
+        sup.mark_running(&sibling);
+
+        for foreign in [parent_job.as_str(), sibling.as_str()] {
+            let err = sup
+                .await_jobs(
+                    conv,
+                    JobCaller::Instance("inst-coder"),
+                    Some(vec![foreign.to_string()]),
+                    AwaitMode::All,
+                    Some(Duration::from_secs(1)),
+                    &CancellationToken::new(),
+                    4,
+                )
+                .await
+                .expect_err("foreign jobId must be rejected");
+            assert!(err.contains(foreign), "error names the id: {err}");
+        }
+        // The lead is unaffected: it still sees both.
+        assert_eq!(sup.list(conv, false, JobCaller::Lead).len(), 2);
+        assert!(sup
+            .await_jobs(
+                conv,
+                JobCaller::Lead,
+                Some(vec![parent_job.clone()]),
+                AwaitMode::Any,
+                Some(Duration::from_millis(50)),
+                &CancellationToken::new(),
+                4,
+            )
+            .await
+            .is_ok());
+    }
+
+    #[test]
+    fn list_and_status_are_scoped_to_subtree() {
+        let sup = JobSupervisor::new();
+        let conv = "c-subtree";
+        let lead_child = sup.register(
+            conv,
+            subtree_kind(&["inst-other"]),
+            CancellationToken::new(),
+            "run",
+            Vec::new(),
+        );
+        let own = sup.register(
+            conv,
+            subtree_kind(&["inst-coder"]),
+            CancellationToken::new(),
+            "run",
+            vec!["inst-coder".into()],
+        );
+        let child = sup.register(
+            conv,
+            subtree_kind(&["inst-coder", "inst-explore"]),
+            CancellationToken::new(),
+            "run",
+            vec!["inst-coder".into()],
+        );
+        let sibling = sup.register(
+            conv,
+            subtree_kind(&["inst-sibling"]),
+            CancellationToken::new(),
+            "run",
+            vec!["inst-sibling".into()],
+        );
+
+        let caller = JobCaller::Instance("inst-coder");
+        let ids: Vec<String> = sup
+            .list(conv, false, caller)
+            .into_iter()
+            .map(|job| job.job_id)
+            .collect();
+        assert!(ids.contains(&own));
+        assert!(ids.contains(&child));
+        assert!(!ids.contains(&lead_child));
+        assert!(!ids.contains(&sibling));
+
+        assert!(sup.status(conv, &child, caller).is_ok());
+        assert!(sup.status(conv, &lead_child, caller).is_err());
+        assert!(sup.status(conv, &sibling, caller).is_err());
+
+        // Lead regression: unchanged, conversation-wide.
+        assert_eq!(sup.list(conv, false, JobCaller::Lead).len(), 4);
+        assert!(sup.status(conv, &lead_child, JobCaller::Lead).is_ok());
+    }
+
+    #[test]
+    fn cancel_without_ids_scoped_to_subtree() {
+        let sup = JobSupervisor::new();
+        let conv = "c-subtree";
+        let other_token = CancellationToken::new();
+        let own_token = CancellationToken::new();
+        let child_token = CancellationToken::new();
+        let sibling_token = CancellationToken::new();
+        let other = sup.register(
+            conv,
+            subtree_kind(&["inst-other"]),
+            other_token.clone(),
+            "run",
+            Vec::new(),
+        );
+        sup.register(
+            conv,
+            subtree_kind(&["inst-coder"]),
+            own_token.clone(),
+            "run",
+            vec!["inst-coder".into()],
+        );
+        sup.register(
+            conv,
+            subtree_kind(&["inst-coder", "inst-explore"]),
+            child_token.clone(),
+            "run",
+            vec!["inst-coder".into()],
+        );
+        let sibling = sup.register(
+            conv,
+            subtree_kind(&["inst-sibling"]),
+            sibling_token.clone(),
+            "run",
+            vec!["inst-sibling".into()],
+        );
+
+        let outcome = sup.cancel_ids(conv, None, JobCaller::Instance("inst-coder"));
+        assert_eq!(outcome.cancelled.len(), 2);
+        assert!(outcome.denied.is_empty());
+        assert!(own_token.is_cancelled());
+        assert!(child_token.is_cancelled());
+        assert!(!other_token.is_cancelled());
+        assert!(!sibling_token.is_cancelled());
+
+        // Explicit foreign ids: skipped and reported, never cancelled.
+        let denied = sup.cancel_ids(
+            conv,
+            Some(&[other.clone(), sibling.clone()]),
+            JobCaller::Instance("inst-coder"),
+        );
+        assert!(denied.cancelled.is_empty());
+        assert_eq!(denied.denied.len(), 2);
+        assert!(!other_token.is_cancelled());
+        assert!(!sibling_token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn lead_await_still_sees_every_job() {
+        let sup = JobSupervisor::new();
+        let conv = "c-lead";
+        let running = sup.register(
+            conv,
+            subtree_kind(&["inst-a"]),
+            CancellationToken::new(),
+            "run",
+            Vec::new(),
+        );
+        let nested = sup.register(
+            conv,
+            subtree_kind(&["inst-a", "inst-b"]),
+            CancellationToken::new(),
+            "run",
+            vec!["inst-a".into()],
+        );
+        let deep = sup.register(
+            conv,
+            subtree_kind(&["inst-a", "inst-b", "inst-c"]),
+            CancellationToken::new(),
+            "run",
+            vec!["inst-a".into(), "inst-b".into()],
+        );
+        sup.mark_running(&running);
+        sup.mark_running(&nested);
+        sup.mark_running(&deep);
+        sup.finish(&nested, JobStatus::Completed, Some("nested".into()), None);
+        sup.finish(&deep, JobStatus::Completed, Some("deep".into()), None);
+
+        let result = sup
+            .await_jobs(
+                conv,
+                JobCaller::Lead,
+                None,
+                AwaitMode::Any,
+                Some(Duration::from_secs(1)),
+                &CancellationToken::new(),
+                4,
+            )
+            .await
+            .expect("lead await");
+        let ids: Vec<&str> = result.jobs.iter().map(|j| j.job_id.as_str()).collect();
+        assert!(ids.contains(&nested.as_str()));
+        assert!(ids.contains(&deep.as_str()));
+        assert_eq!(result.running, vec![running.clone()]);
+        assert_eq!(sup.list(conv, false, JobCaller::Lead).len(), 3);
+    }
+
+    #[test]
+    fn owner_chain_derives_direct_owner_and_lead_ownership() {
+        let sup = JobSupervisor::new();
+        let conv = "c-chain";
+        let lead_owned = sup.register(
+            conv,
+            subtree_kind(&["inst-lead-child"]),
+            CancellationToken::new(),
+            "run",
+            Vec::new(),
+        );
+        let direct = sup.register(
+            conv,
+            subtree_kind(&["inst-a"]),
+            CancellationToken::new(),
+            "run",
+            vec!["inst-a".into()],
+        );
+        let grand = sup.register(
+            conv,
+            subtree_kind(&["inst-a", "inst-b"]),
+            CancellationToken::new(),
+            "run",
+            vec!["inst-a".into(), "inst-b".into()],
+        );
+
+        // `open_jobs_spawned_by` keeps its meaning: direct children only.
+        let open: Vec<String> = sup
+            .open_jobs_spawned_by(conv, "inst-a")
+            .into_iter()
+            .map(|job| job.job_id)
+            .collect();
+        assert!(open.contains(&direct));
+        assert!(!open.contains(&grand));
+        let grand_open: Vec<String> = sup
+            .open_jobs_spawned_by(conv, "inst-b")
+            .into_iter()
+            .map(|job| job.job_id)
+            .collect();
+        assert_eq!(grand_open, vec![grand.clone()]);
+        assert!(sup.open_jobs_spawned_by(conv, "inst-nobody").is_empty());
+
+        // Idle push keeps its meaning: lead-owned jobs only.
+        sup.finish(&lead_owned, JobStatus::Completed, Some("lead".into()), None);
+        sup.finish(&direct, JobStatus::Completed, Some("direct".into()), None);
+        sup.finish(&grand, JobStatus::Completed, Some("grand".into()), None);
+        let pushed: Vec<String> = sup
+            .claim_pushable(conv)
+            .into_iter()
+            .map(|item| item.job_id)
+            .collect();
+        assert_eq!(pushed, vec![lead_owned.clone()]);
+
+        // A descendant job stays awaitable by any ancestor on its chain.
+        assert!(sup.claim_if_unclaimed(&grand).is_some());
+        assert!(sup.is_claimed(&grand));
+    }
+
+    #[test]
+    fn register_normalizes_blank_chain_entries() {
+        let sup = JobSupervisor::new();
+        let id = sup.register(
+            "c1",
+            kind(),
+            CancellationToken::new(),
+            "run",
+            vec!["  ".into(), "inst-a".into()],
+        );
+        // Fully blank chains degrade to lead-owned (visible everywhere, idle-pushed).
+        let lead = sup.register(
+            "c1",
+            kind(),
+            CancellationToken::new(),
+            "run",
+            vec!["".into()],
+        );
+        let inner = sup.inner.lock();
+        assert_eq!(inner.jobs.get(&id).unwrap().owner_chain, vec!["inst-a"]);
+        assert!(inner.jobs.get(&lead).unwrap().is_lead_owned());
     }
 }

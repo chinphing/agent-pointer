@@ -81,11 +81,11 @@
 
 | 值 | 行为 | 对齐 |
 |----|------|------|
-| 省略 / `true`（仅 **`self`** / **`explore`**） | 立刻 `{ jobId, status: "running", kind: "subagent" }`；child 在 JobSupervisor 里跑。这次调用的 tool result **保持句柄**，结束后只把 handle 的 status 改成 completed/failed/cancelled，不把工人 Markdown 写回 `run_subagent`。终稿走 `job.await` / 空闲 push | Cursor Background 默认档（Pointer：空闲 push 已落地后可默认） |
+| 省略 / `true`（仅 **`self`** / **`explore`** / **`coder`**） | 立刻 `{ jobId, status: "running", kind: "subagent" }`；child 在 JobSupervisor 里跑。这次调用的 tool result **保持句柄**，结束后只把 handle 的 status 改成 completed/failed/cancelled，不把工人 Markdown 写回 `run_subagent`。终稿走 `job.await` / 空闲 push | Cursor Background 默认档（Pointer：空闲 push 已落地后可默认） |
 | `false` | 阻塞到结束，tool result 带 `content` | Cursor Foreground |
 | **`coder`** / **`computer`** | 始终前台 join；传 `background: true` 工具失败 | 写冲突 / 桌面权限 |
 
-P0 起仅 `self` / `explore` 可后台。其它 agentId 传 `background: true` 时工具失败并说明须前台 join。
+P0 起仅 `self` / `explore` 可后台，后放开 `coder`；其它 agentId 传 `background: true` 时工具失败并说明须前台 join。
 
 ### `terminal.blockUntilMs`
 
@@ -195,17 +195,19 @@ WorkerLease Drop → running_roots -1，叫醒队头
 
 | action | 含义 |
 |--------|------|
-| `list` | 本会话后台 job（含子 Agent 与终端）。每条带 **`claimed`**。**不带 `content`** |
-| `status` | 单个 job 元数据。**不带 `content`**，**不**认领 |
+| `list` | **调用者子树**内的后台 job（lead = 整会话；子 agent = 自己 + 自己子 agent 启动的）。每条带 **`claimed`**。**不带 `content`** |
+| `status` | 单个 job 元数据。**不带 `content`**，**不**认领。越权（存在但不属于该子树）返回 `ERROR` |
 | `await` | 见下表。**唯一**把终态 `content` 写进本轮并置 **`claimed: true`** |
-| `cancel` | 按 id 杀；缺省杀本会话全部后台 |
+| `cancel` | 按 id 杀；缺省杀**调用者子树**内全部后台。显式越权 id 跳过并在 `denied[]` 里列出 |
+
+**作用域（owner chain）**：job 记录发起者的祖先链（`chain(lead) = []`，`chain(child) = chain(parent) + [child]`，`job.owner_chain = chain(发起者)`）。`JobCaller::Lead` 全可见；`JobCaller::Instance(C)` 仅当 `owner_chain` 含 C 可见。子 agent 因此**看不到自己所在的那条 job**（由父发起，链上不含自己）→ 省略 `jobIds` 的 `await` 结构上不可能自等。`runningCount` / `slotCap` / `idleSlots` / `poolRunning` 仍是**会话级**占用数字，不按子树过滤。
 
 `await`：
 
 | 字段 | 含义 |
 |------|------|
-| `jobIds` | 省略 = 本会话全部后台 job（含已完成未认领）。指定则这一组是等待集 |
-| `mode` | `any`（默认）：等到本会话至少一条 **未认领终态**。醒后：此刻所有已完成未认领的进 `jobs[]` 并认领。内部工具 running/结果 **不**叫醒父模型。还在跑的只在 `running[]`。`all`：这组全部终态才返回，只认领**尚未 claimed** 的（含会话里其它已完成未认领的）。已认领的不再进 `jobs` |
+| `jobIds` | 省略 = **调用者子树**内全部后台 job（含已完成未认领）。指定则这一组是等待集；显式列了子树外的 id（父/兄弟/祖先）→ `ERROR`，不静默过滤。未知 id 仍静默忽略（lead 行为不变） |
+| `mode` | `any`（默认）：等到**子树内**至少一条 **未认领终态**。醒后：此刻子树内所有已完成未认领的进 `jobs[]` 并认领。内部工具 running/结果 **不**叫醒父模型。还在跑的只在 `running[]`。`all`：这组全部终态才返回，只认领**尚未 claimed** 的（含子树里其它已完成未认领的）。已认领的不再进 `jobs` |
 | `timeoutMs` | 默认 30min；超时不杀、不认领正文 |
 | 回包 | `jobs`（本拍认领的正文）、`running`、`runningCount` / `slotCap` / `idleSlots` / `poolRunning`。超时未认领终态 id 才出现在 `unclaimed` |
 

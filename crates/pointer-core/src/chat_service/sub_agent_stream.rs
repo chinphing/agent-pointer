@@ -255,6 +255,7 @@ pub(super) async fn run_sub_agent_stream_round(
                     trace_id: None,
                     task_id: None,
                     spawn_depth: None,
+                    agent_chain: None,
                 });
                 if ctx.sub_tool_budget.is_exhausted() {
                     log::warn!(

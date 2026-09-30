@@ -1526,12 +1526,24 @@ impl AppState {
 
     /// Cancel one or more background jobs without stopping the lead turn.
     /// `job_ids` omit/empty = every background job in this conversation.
+    /// Host/UI path: runs as the lead, so it sees every job.
     pub fn cancel_background_jobs(
         &self,
         conversation_id: &str,
         job_ids: Option<&[String]>,
     ) -> Vec<String> {
-        let cancelled = self.jobs.cancel_ids(conversation_id, job_ids);
+        let outcome = self.jobs.cancel_ids(
+            conversation_id,
+            job_ids,
+            crate::chat_service::job_supervisor::JobCaller::Lead,
+        );
+        let cancelled = outcome.cancelled;
+        if !outcome.denied.is_empty() {
+            log::warn!(
+                "app_state: cancel_background_jobs ignored foreign ids conversation_id={conversation_id} denied={:?}",
+                outcome.denied
+            );
+        }
         if !cancelled.is_empty() {
             log::info!(
                 "app_state: cancel_background_jobs conversation_id={conversation_id} count={} ids={cancelled:?}",
@@ -2470,7 +2482,7 @@ mod active_main_task_board_tests {
 
     #[test]
     fn soft_cancel_keeps_background_jobs_and_skips_terminal_abort() {
-        use crate::chat_service::job_supervisor::{JobKind, JobKindSubagent, JobStatus};
+        use crate::chat_service::job_supervisor::{JobCaller, JobKind, JobKindSubagent, JobStatus};
         use tokio_util::sync::CancellationToken;
 
         let state = AppState::new();
@@ -2487,6 +2499,7 @@ mod active_main_task_board_tests {
             }),
             job_token.clone(),
             "run-soft",
+            Vec::new(),
         );
         state.jobs.mark_running(&job_id);
 
@@ -2500,7 +2513,7 @@ mod active_main_task_board_tests {
         assert!(!abort_flag.load(Ordering::SeqCst));
         assert_eq!(state.jobs.running_count_for_conversation(conv), 1);
         assert_eq!(
-            state.jobs.list(conv, false)[0].status,
+            state.jobs.list(conv, false, JobCaller::Lead)[0].status,
             JobStatus::Running.as_str()
         );
 

@@ -235,6 +235,7 @@ async fn run_background_review(
             trace_id: None,
             task_id: None,
             spawn_depth: None,
+            agent_chain: None,
         });
 
         for tc in &out.tool_calls {
@@ -299,6 +300,7 @@ async fn run_background_review(
                 trace_id: None,
                 task_id: None,
                 spawn_depth: None,
+                agent_chain: None,
             });
         }
     }
@@ -401,6 +403,7 @@ fn review_user_message(kind: ReviewKind, enabled_skill_ids: &[String]) -> ChatMe
         trace_id: None,
         task_id: None,
         spawn_depth: None,
+        agent_chain: None,
     }
 }
 
@@ -470,6 +473,7 @@ mod tests {
             trace_id: None,
             task_id: None,
             spawn_depth: None,
+            agent_chain: None,
         }
     }
 

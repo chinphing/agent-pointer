@@ -259,6 +259,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     trace_id: None,
                     task_id: None,
                     spawn_depth: None,
+                    agent_chain: None,
                 });
             }
             Err(e) => {
@@ -298,6 +299,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     trace_id: None,
                     task_id: None,
                     spawn_depth: None,
+                    agent_chain: None,
                 });
             }
         }
@@ -341,6 +343,7 @@ mod tests {
             trace_id: None,
             task_id: None,
             spawn_depth: None,
+            agent_chain: None,
         }
     }
 

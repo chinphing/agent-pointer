@@ -164,7 +164,7 @@ pub(super) async fn dispatch_run_subagent(
             tool_call_id: &tc.id,
             args_value,
             parent_spawn_depth: 0,
-            parent_agent_instance_id: None,
+            issuer_chain: &[],
             history: Some(anchor_history),
             state_arc,
         };
@@ -193,7 +193,7 @@ pub(super) async fn dispatch_run_subagent(
             tool_call_id: &tc.id,
             args_value,
             parent_spawn_depth: sub_cfg.spawn_depth,
-            parent_agent_instance_id: Some(sub_cfg.instance_scope.agent_instance_id.as_str()),
+            issuer_chain: sub_cfg.agent_chain.as_slice(),
             history: None,
             state_arc,
         };

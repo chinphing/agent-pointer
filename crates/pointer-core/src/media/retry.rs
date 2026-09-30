@@ -251,6 +251,7 @@ mod tests {
             trace_id: None,
             task_id: None,
             spawn_depth: None,
+            agent_chain: None,
         }];
         let plan = detect_media_retry_plan(&history).expect("plan");
         assert_eq!(plan.scope, MediaRetryScope::VideoOnly);

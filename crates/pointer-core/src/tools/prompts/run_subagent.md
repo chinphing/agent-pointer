@@ -120,6 +120,12 @@ Do not pack unrelated work; do not split a tight one-file edit.
 - A job started inside a sub-agent stays with that sub-agent.
   Call `job.await` there. It is not delivered to the outer agent,
   and the host does not start a new turn for it.
+- **`job` scope is per agent subtree.** The lead sees every job in the
+  conversation; a sub-agent sees only the jobs it started plus the ones
+  its own sub-agents started. It never sees the job it is running inside,
+  its parent's jobs, or a sibling's jobs — so `job.await` with no
+  `jobIds` waits on its sub-jobs only (no sub-jobs → returns
+  `jobs: []` immediately instead of waiting for itself).
 - Task list is already complete → spawn them all (default background),
   then `job.await` `mode=all`. Host queues to the concurrency cap.
 - Next task depends on a finished result → `job.await` `mode=any`.

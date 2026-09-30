@@ -91,6 +91,7 @@ mod tests {
             trace_id: None,
             task_id: None,
             spawn_depth: None,
+            agent_chain: None,
             tool_raw_output: None,
         }
     }

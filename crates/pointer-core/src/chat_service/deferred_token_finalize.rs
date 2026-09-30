@@ -190,7 +190,7 @@ mod tests {
         let conv = "conv-defer-1";
         let job_id = state
             .jobs
-            .register(conv, subagent_kind(), CancellationToken::new(), run_id);
+            .register(conv, subagent_kind(), CancellationToken::new(), run_id, Vec::new());
         state.jobs.mark_running(&job_id);
 
         on_parent_run_finished(&state, run_id, conv, &[]).await;
@@ -225,10 +225,10 @@ mod tests {
         let conv = "conv-partial-cancel";
         let a = state
             .jobs
-            .register(conv, subagent_kind(), CancellationToken::new(), run_id);
+            .register(conv, subagent_kind(), CancellationToken::new(), run_id, Vec::new());
         let b = state
             .jobs
-            .register(conv, subagent_kind(), CancellationToken::new(), run_id);
+            .register(conv, subagent_kind(), CancellationToken::new(), run_id, Vec::new());
         state.jobs.mark_running(&a);
         state.jobs.mark_running(&b);
 
@@ -255,10 +255,10 @@ mod tests {
         let state = AppState::new();
         let a = state
             .jobs
-            .register("c1", subagent_kind(), CancellationToken::new(), "run-a");
+            .register("c1", subagent_kind(), CancellationToken::new(), "run-a", Vec::new());
         let _b = state
             .jobs
-            .register("c1", subagent_kind(), CancellationToken::new(), "run-b");
+            .register("c1", subagent_kind(), CancellationToken::new(), "run-b", Vec::new());
         state.jobs.mark_running(&a);
         assert_eq!(state.jobs.running_count_for_run("run-a"), 1);
         assert_eq!(state.jobs.running_count_for_run("run-b"), 1);

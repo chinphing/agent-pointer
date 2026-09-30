@@ -12,6 +12,7 @@ pub(super) mod web_search;
 use std::sync::atomic::AtomicBool;
 
 use crate::agents::AgentProfile;
+use crate::chat_service::job_supervisor::JobCaller;
 use crate::dispatcher::TriggerSource;
 use crate::models::ToolCall;
 use crate::provider::OpenAIProvider;
@@ -82,7 +83,8 @@ pub(super) async fn execute_tool_invocation(
                 execution_scope,
                 run_id.unwrap_or(""),
                 sub.as_ref()
-                    .map(|config| config.instance_scope.agent_instance_id.as_str()),
+                    .map(|config| config.agent_chain.as_slice())
+                    .unwrap_or(&[]),
             )
             .await
         }
@@ -157,7 +159,15 @@ pub(super) async fn execute_tool_invocation(
             args_value,
             lead,
         ),
-        "job" => job::dispatch_job(state, conversation_id, args_value, cancel).await,
+        "job" => {
+            let caller = match sub.as_ref() {
+                Some(config) => JobCaller::Instance(
+                    config.instance_scope.agent_instance_id.as_str(),
+                ),
+                None => JobCaller::Lead,
+            };
+            job::dispatch_job(state, conversation_id, args_value, cancel, caller).await
+        }
         _ => {
             registry::dispatch_registry_invoke(
                 state,
@@ -193,6 +203,8 @@ pub(super) async fn invoke_prepared_parallel(
     lead_run_id: Option<&str>,
     sub_run_id: Option<&str>,
     agent_instance_id: Option<&str>,
+    // Issuer chain of a sub-agent wave member (empty/None = lead).
+    agent_chain: Option<Vec<String>>,
     web_search_invocation: Option<web_search::WebSearchInvocation>,
     web_search_history: Option<&[crate::models::ChatMessage]>,
     cancel: &CancellationToken,
@@ -205,10 +217,10 @@ pub(super) async fn invoke_prepared_parallel(
         "ask_user" => Err(anyhow::anyhow!("ask_user must not run in parallel wave")),
         "terminal" => {
             let run_id = sub_run_id.or(lead_run_id).unwrap_or("");
-            let parent_agent_instance_id = if sub_run_id.is_some() {
-                agent_instance_id
+            let owner_chain: &[String] = if sub_run_id.is_some() {
+                agent_chain.as_deref().unwrap_or(&[])
             } else {
-                None
+                &[]
             };
             terminal::run_terminal_tool(
                 stream,
@@ -224,7 +236,7 @@ pub(super) async fn invoke_prepared_parallel(
                 provider.settings.workspace_root.clone(),
                 execution_scope,
                 run_id,
-                parent_agent_instance_id,
+                owner_chain,
             )
             .await
         }

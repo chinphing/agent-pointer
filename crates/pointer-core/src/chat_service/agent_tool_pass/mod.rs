@@ -706,6 +706,12 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                                 .as_ref()
                                 .map(|l| l.instance_scope.agent_instance_id.clone())
                         });
+                    let agent_chain = pass
+                        .ctx
+                        .sub
+                        .as_ref()
+                        .map(|s| s.agent_chain.clone())
+                        .unwrap_or_default();
                     let (web_search_invocation, web_search_history) = if prep.tool_id
                         == "web_search"
                     {
@@ -761,6 +767,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                             lead_run_id.as_deref(),
                             sub_run_id.as_deref(),
                             agent_instance_id.as_deref(),
+                            Some(agent_chain.clone()),
                             web_search_invocation,
                             web_search_history
                                 .as_deref()
@@ -1078,6 +1085,13 @@ async fn run_self_fork_wave(
                     agent_skill_overrides: skill_overrides.clone(),
                     child_spawn_depth: invocation.child_spawn_depth,
                     max_spawn_depth: invocation.max_spawn_depth,
+                    issuer_chain: pass
+                        .ctx
+                        .sub
+                        .as_ref()
+                        .map(|s| s.agent_chain.clone())
+                        .unwrap_or_default(),
+                    resume_agent_chain: None,
                     host_trace_id: pass.ctx.sub.as_ref().map(|s| s.trace_id.clone()),
                     host_scoped_message_id: pass
                         .ctx
@@ -1115,6 +1129,7 @@ async fn run_self_fork_wave(
                                 input.task.id = prepared.task_id;
                                 input.child_spawn_depth = prepared.spawn_depth;
                                 input.instance_scope = Some(prepared.instance_scope);
+                                input.resume_agent_chain = Some(prepared.agent_chain);
                                 input.followup_reserve = prepared.reserve;
                                 input.resume_history = Some(prepared.history);
                             }
@@ -1202,11 +1217,8 @@ async fn run_self_fork_wave(
                             host_trace_id: input.host_trace_id.clone(),
                             host_scoped_message_id: input.host_scoped_message_id.clone(),
                             instance_scope: child_scope.clone(),
-                            parent_agent_instance_id: pass
-                                .ctx
-                                .sub
-                                .as_ref()
-                                .map(|sub| sub.instance_scope.agent_instance_id.clone()),
+                            issuer_chain: input.issuer_chain.clone(),
+                            resume_agent_chain: input.resume_agent_chain.clone(),
                             resume_history: input.resume_history.clone(),
                             followup_reserve: input.followup_reserve.take(),
                         },

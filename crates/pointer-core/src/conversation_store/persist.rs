@@ -2590,6 +2590,7 @@ pub fn msg(id: &str, role: Role, content: &str, created_at: i64) -> ChatMessage 
         trace_id: None,
         task_id: None,
         spawn_depth: None,
+        agent_chain: None,
     }
 }
 

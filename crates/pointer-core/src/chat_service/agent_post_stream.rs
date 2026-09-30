@@ -150,6 +150,7 @@ pub(super) fn build_final_reply_delivery_message(
         trace_id: None,
         task_id: None,
         spawn_depth: None,
+        agent_chain: None,
     }
 }
 
@@ -211,6 +212,7 @@ pub(super) fn build_lead_assistant_message_after_stream(
         trace_id: None,
         task_id: None,
         spawn_depth: None,
+        agent_chain: None,
     }
 }
 
@@ -262,6 +264,7 @@ pub(super) fn build_sub_assistant_message_after_stream(
         trace_id: None,
         task_id: None,
         spawn_depth: None,
+        agent_chain: None,
     }
 }
 

@@ -22,6 +22,9 @@ pub(super) struct PreparedWorkerFollowup {
     pub history: ResumedWorkerHistory,
     pub task_id: String,
     pub spawn_depth: u32,
+    /// Restored owner chain of the resumed worker. Jobs it starts during this
+    /// follow-up hang off the same chain as the original run.
+    pub agent_chain: Vec<String>,
     pub reserve: Option<FollowupReserve>,
 }
 
@@ -114,6 +117,9 @@ pub(super) fn prepare_worker_followup(
             );
             1
         });
+    // Legacy rows predate `agent_chain`; fall back to a self-only chain so the
+    // resumed worker still owns its own new jobs (conservative visibility).
+    let agent_chain = restored_agent_chain(&loaded, instance_id);
     let role = stored_agent
         .clone()
         .filter(|s| !s.is_empty())
@@ -139,8 +145,25 @@ pub(super) fn prepare_worker_followup(
         },
         task_id,
         spawn_depth,
+        agent_chain,
         reserve: Some(reserve),
     })
+}
+
+/// Owner chain restored for a resumed worker. Legacy rows (no `agentChain`)
+/// degrade to a self-only chain, which keeps the worker's own new jobs visible
+/// to it (and to its ancestors only through the lead).
+fn restored_agent_chain(loaded: &[ChatMessage], instance_id: &str) -> Vec<String> {
+    loaded
+        .iter()
+        .find_map(|m| m.agent_chain.clone())
+        .filter(|chain| !chain.is_empty())
+        .unwrap_or_else(|| {
+            log::warn!(
+                "worker_followup: transcript has no owner chain agent_instance_id={instance_id}; using self-only chain"
+            );
+            vec![instance_id.to_string()]
+        })
 }
 
 /// `self` continues a fork whose stored id is the parent role, not the literal `self`.
@@ -395,5 +418,30 @@ mod tests {
         assert!(last.contains("Original assigned task:"));
         assert!(last.contains("map login"));
         assert!(last.contains("fix the path"));
+    }
+
+    #[test]
+    fn followup_resumes_the_original_owner_chain() {
+        let mut worker = ChatMessage::user_text("earlier work");
+        worker.agent_chain = Some(vec!["inst-coder".into(), "inst-worker".into()]);
+        assert_eq!(
+            restored_agent_chain(&[worker], "inst-worker"),
+            vec!["inst-coder".to_string(), "inst-worker".to_string()]
+        );
+    }
+
+    #[test]
+    fn followup_without_a_stored_chain_falls_back_to_self_only() {
+        assert_eq!(
+            restored_agent_chain(&[ChatMessage::user_text("legacy row")], "inst-worker"),
+            vec!["inst-worker".to_string()]
+        );
+        // A blank stored chain is treated the same as a missing one.
+        let mut blank = ChatMessage::user_text("legacy row");
+        blank.agent_chain = Some(Vec::new());
+        assert_eq!(
+            restored_agent_chain(&[blank], "inst-worker"),
+            vec!["inst-worker".to_string()]
+        );
     }
 }

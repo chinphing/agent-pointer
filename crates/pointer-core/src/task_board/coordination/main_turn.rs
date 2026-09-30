@@ -230,6 +230,7 @@ mod tests {
             trace_id: None,
             task_id: None,
             spawn_depth: None,
+            agent_chain: None,
         };
         let mut stub = lead.clone();
         stub.id = "sub_task_stub".into();

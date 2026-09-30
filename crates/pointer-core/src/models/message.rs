@@ -357,6 +357,12 @@ pub struct ChatMessage {
         skip_serializing_if = "Option::is_none"
     )]
     pub spawn_depth: Option<u32>,
+    /// Owner chain of the sub-agent that produced this scoped row (root-most
+    /// ancestor first, ending with its own instance id). Restored on
+    /// `followupInstanceId` so a resumed worker keeps spawning jobs onto its
+    /// original chain. `None` on legacy rows = treat as "self only".
+    #[serde(default, rename = "agentChain", skip_serializing_if = "Option::is_none")]
+    pub agent_chain: Option<Vec<String>>,
 }
 
 impl ChatMessage {
@@ -413,6 +419,7 @@ impl ChatMessage {
             trace_id: None,
             task_id: None,
             spawn_depth: None,
+            agent_chain: None,
         }
     }
 }

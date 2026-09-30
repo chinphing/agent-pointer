@@ -11,6 +11,10 @@ pub struct SubMessageLinkage {
     pub task_id: String,
     pub spawn_depth: u32,
     pub agent_instance_id: String,
+    /// Owner chain of this worker (root-most ancestor first, ending with
+    /// `agent_instance_id`). Restored on follow-up so resumed workers keep
+    /// spawning jobs onto their original chain.
+    pub agent_chain: Vec<String>,
 }
 
 impl SubMessageLinkage {
@@ -20,6 +24,9 @@ impl SubMessageLinkage {
         msg.task_id = Some(self.task_id.clone());
         msg.spawn_depth = Some(self.spawn_depth);
         msg.agent_instance_id = Some(self.agent_instance_id.clone());
+        if !self.agent_chain.is_empty() {
+            msg.agent_chain = Some(self.agent_chain.clone());
+        }
         // Membership is the instance id. Do not write included=false without a
         // reason; that stamp used to hide the row from its own worker loop.
         if let Some(state) = msg.context_state.as_ref() {
@@ -321,6 +328,7 @@ mod tests {
             trace_id: trace.map(str::to_string),
             task_id: trace.map(|_| "task_a".to_string()),
             spawn_depth: Some(1),
+            agent_chain: None,
         }
     }
 
@@ -343,6 +351,7 @@ mod tests {
             task_id: "task".into(),
             spawn_depth: 1,
             agent_instance_id: "instance-a".into(),
+            agent_chain: Vec::new(),
         };
         link.stamp(&mut msg);
         assert_eq!(msg.anchor_message_id.as_deref(), Some("anchor"));
@@ -364,6 +373,7 @@ mod tests {
             task_id: "task".into(),
             spawn_depth: 1,
             agent_instance_id: "instance-a".into(),
+            agent_chain: Vec::new(),
         };
         link.stamp(&mut msg);
         assert!(!crate::message_context::is_context_included(&msg));
@@ -383,6 +393,7 @@ mod tests {
             task_id: "task".into(),
             spawn_depth: 1,
             agent_instance_id: "instance-a".into(),
+            agent_chain: Vec::new(),
         };
         let mut matching = sample_msg("sub1", Some("anchor"), Some("task:explore"));
         matching.agent_instance_id = Some("instance-a".into());
@@ -402,6 +413,7 @@ mod tests {
             task_id: "task".into(),
             spawn_depth: 1,
             agent_instance_id: "instance-new".into(),
+            agent_chain: Vec::new(),
         };
         let mut old = sample_msg("old", Some("anchor"), Some("task:explore"));
         old.agent_instance_id = Some("instance-old".into());
@@ -424,6 +436,7 @@ mod tests {
             task_id: "task".into(),
             spawn_depth: 1,
             agent_instance_id: "instance-a".into(),
+            agent_chain: Vec::new(),
         };
         link.stamp(&mut msg);
         assert!(crate::message_context::is_context_included(&msg));
@@ -477,6 +490,7 @@ mod tests {
             trace_id: None,
             task_id: None,
             spawn_depth: None,
+            agent_chain: None,
         }];
         let traces = vec![AgentTrace {
             id: "task:explore".into(),

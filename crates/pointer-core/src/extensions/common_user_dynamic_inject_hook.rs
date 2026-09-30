@@ -83,6 +83,7 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
             trace_id: None,
             task_id: None,
             spawn_depth: None,
+            agent_chain: None,
         });
         if ctx.lead_agent_profile == AgentProfile::Computer
             || ctx.lead_agent_profile == AgentProfile::Coder

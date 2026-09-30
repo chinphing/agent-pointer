@@ -1,6 +1,5 @@
 use crate::models::{
-    ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults,
-    ensure_provider_model_capability_defaults, merge_user_platform, AgentModelRef, ChatMessage,
+    ensure_agent_model_refs_have_provider, merge_user_platform, AgentModelRef, ChatMessage,
     Conversation, ConversationMeta, ConversationSearchHit, ModelRuntimeOverrides, ModelSettings,
     PlatformSettings, Project, ProjectCreationResult, ProjectCursor, ProjectPage, ProviderConfig,
     UserSettings,
@@ -900,27 +899,6 @@ pub fn clear_platform_refresh_token() -> Result<()> {
     Ok(())
 }
 
-/// Legacy helper: user theme + code-default platform (no in-memory admin overrides).
-#[deprecated(note = "use AppState::effective_settings or PlatformConfigManager")]
-pub fn load_settings() -> Result<ModelSettings> {
-    ensure_legacy_settings_migrated();
-    let user = load_user_settings()?;
-    let platform = PlatformSettings::default();
-    let mut settings = merge_user_platform(&user, &platform);
-    ensure_agent_model_refs_have_provider(&mut settings);
-    ensure_provider_generation_defaults(&mut settings);
-    ensure_provider_model_capability_defaults(&mut settings);
-    if let Some(p) = settings
-        .providers
-        .iter()
-        .find(|p| p.id == settings.active_provider_id)
-    {
-        settings.api_key = p.api_key.clone();
-        settings.has_key = !p.api_key.is_empty();
-    }
-    Ok(settings)
-}
-
 impl Default for StoredSettings {
     fn default() -> Self {
         let s = ModelSettings::default();
@@ -1008,33 +986,6 @@ impl Default for StoredSettings {
             legacy_reasoning_in_messages: None,
         }
     }
-}
-
-/// Deprecated: platform settings are in-memory only.
-#[deprecated(note = "use update_platform_settings API")]
-pub fn save_settings(_s: &ModelSettings) -> Result<()> {
-    Ok(())
-}
-
-/// Deprecated: API keys live in platform config memory.
-#[deprecated(note = "keys are injected via OAuth into platform config")]
-pub fn save_api_key(_key: &str) -> Result<()> {
-    Ok(())
-}
-
-#[deprecated(note = "keys are injected via OAuth into platform config")]
-pub fn load_api_key() -> Result<Option<String>> {
-    Ok(None)
-}
-
-#[deprecated(note = "keys are injected via OAuth into platform config")]
-pub fn has_key() -> Result<bool> {
-    Ok(false)
-}
-
-#[deprecated(note = "keys are injected via OAuth into platform config")]
-pub fn clear_api_key() -> Result<()> {
-    Ok(())
 }
 
 pub fn load_conversations() -> Result<Vec<Conversation>> {

@@ -92,28 +92,6 @@ impl SessionSandbox {
         Ok(())
     }
 
-    // --- Deprecated aliases (tests / gradual migration) ---
-
-    #[deprecated(note = "use default_path or legacy_conversation_path")]
-    pub fn path(conversation_id: &str) -> Result<PathBuf> {
-        Self::legacy_conversation_path(conversation_id)
-    }
-
-    #[deprecated(note = "use ensure_default")]
-    pub fn ensure(conversation_id: &str) -> Result<PathBuf> {
-        Self::ensure_default(conversation_id, "")
-    }
-
-    #[deprecated(note = "use is_default_sandbox_path or is_sandbox")]
-    pub fn is_path_for(conversation_id: &str, path: &Path) -> Result<bool> {
-        Self::is_default_sandbox_path(conversation_id, "", path)
-            .or_else(|_| Ok(path == Self::legacy_conversation_path(conversation_id)?))
-    }
-
-    #[deprecated(note = "use cleanup_for_conversation")]
-    pub fn cleanup(conversation_id: &str) -> Result<()> {
-        Self::cleanup_for_conversation(conversation_id)
-    }
 }
 
 #[cfg(test)]

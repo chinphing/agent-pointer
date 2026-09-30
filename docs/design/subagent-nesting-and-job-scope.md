@@ -354,7 +354,10 @@ depth 1 的 48 行 `general` 是 **lead 自己的 self fork**。
 |------|------|------|
 | **A** | §4 ask_user 顶部条 + 剔除旧外显逻辑 | ✅ 已落地（`e0cec02c`） |
 | **B** | §2.5 UI 树化渲染 + §2.11 D-A7 fork 标识（含 `parent_trace_id` / `delegation` 埋点） | 无 |
-| **C** | §2.3 节点矩阵 + §2.4 深度语义统一（含 self fork 可委派） | D-A1/A2 |
+| **C** | §2.3 节点矩阵 + §2.4 深度语义统一（含 self fork 可委派） | ✅ 已落地 |
+
+**批次 C 落地记录**：`general.allowAgents += explore`；`explore.allowAgents = [explore]` 并新增 `run_subagent` / `job`（否则 allowAgents 是死配置）；`SelfForkSnapshot` 带 `spawn_tools` + `allow_agents`，fork 在**还有深度预算时**恢复编排工具、到 max 深度即 leaf；删掉 wave 路径的 `max_spawn_depth.max(trace_depth)` 逃生 → **所有节点（含 fork）都吃真实深度**；`resolve_subagent_spawn_capability` 在 max 深度一律 `None`。
+行为变化（有意）：到达深度上限的注册 agent 不再有"self-only 逃生"，一律 leaf。
 | **D** | §2.7 扇出护栏 `maxChildrenPerAgent` + 取消级联 + §2.7 根槽提升 | 无 |
 | **E** | §6 子 agent `content` 显示 | B（复用同一渲染骨架） |
 

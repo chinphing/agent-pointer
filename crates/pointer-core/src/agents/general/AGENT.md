@@ -15,6 +15,7 @@ skillsPolicy: userConfigurable
 allowAgents:
   - coder
   - computer
+  - explore
 accessPolicy:
   allowTools:
     - memory

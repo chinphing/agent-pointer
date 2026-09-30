@@ -1657,6 +1657,65 @@ mod builtin_agent_tests {
                 .is_ok(),
             "general allowAgents should include computer"
         );
+        assert!(
+            agent
+                .def
+                .allow_agents
+                .binary_search(&"explore".to_string())
+                .is_ok(),
+            "general allowAgents should include explore"
+        );
+    }
+
+    #[test]
+    fn explore_builtin_is_a_nesting_node() {
+        let raw = include_str!("explore/AGENT.md");
+        let comm = include_str!("explore/COMMUNICATION.md");
+        let agent = load_builtin_agent("explore", raw, comm).expect("load builtin explore");
+        assert!(
+            agent
+                .def
+                .allow_agents
+                .binary_search(&"explore".to_string())
+                .is_ok(),
+            "explore allowAgents should include explore (read-only nesting)"
+        );
+        assert!(
+            agent
+                .def
+                .allow_agents
+                .binary_search(&"coder".to_string())
+                .is_err(),
+            "explore allowAgents must not include the writing coder (read-only isolation)"
+        );
+        for tool in ["run_subagent", "job"] {
+            assert!(
+                agent
+                    .def
+                    .access_policy
+                    .allow_tools
+                    .contains(&tool.to_string()),
+                "explore allowTools should include {tool} to orchestrate its subtree"
+            );
+        }
+    }
+
+    #[test]
+    fn computer_builtin_stays_a_leaf() {
+        let raw = include_str!("computer/AGENT.md");
+        let agent = load_builtin_agent("computer", raw, "").expect("load builtin computer");
+        assert!(
+            agent.def.allow_agents.is_empty(),
+            "computer must stay a leaf: no allowAgents"
+        );
+        assert!(
+            !agent
+                .def
+                .access_policy
+                .allow_tools
+                .contains(&"run_subagent".to_string()),
+            "computer must not hold run_subagent"
+        );
     }
 
     #[test]

@@ -1,7 +1,12 @@
-use crate::agents::AgentDef;
+use crate::agents::{normalize_allow_agents, AgentDef};
 use crate::tools::ToolRegistry;
 
 use super::agent_tool_allowlist::retain_inheritable_subagent_tools;
+
+/// Non-inheritable tools a fork needs to orchestrate its own subtree.
+/// [`retain_inheritable_subagent_tools`] strips them; the sub-agent session
+/// restores them while the fork still has spawn-depth budget.
+pub const SUBAGENT_ORCHESTRATION_TOOLS: &[&str] = &["run_subagent", "job"];
 
 #[derive(Debug, Clone)]
 pub struct SelfForkSnapshot {
@@ -10,6 +15,11 @@ pub struct SelfForkSnapshot {
     pub skill_ids: Vec<String>,
     pub skill_prompts: Vec<String>,
     pub allowed_tools: Vec<String>,
+    /// Orchestration tools the parent held (see [`SUBAGENT_ORCHESTRATION_TOOLS`]),
+    /// re-enabled for the fork while it still has depth budget.
+    pub spawn_tools: Vec<String>,
+    /// Parent's effective `allowAgents`, so a fork delegates like its parent.
+    pub allow_agents: Vec<String>,
     pub workspace_root: String,
 }
 
@@ -19,11 +29,18 @@ pub fn build_self_fork_snapshot(
     current_skill_ids: &[String],
     current_skill_prompts: &[String],
     current_allowed_tools: &[String],
+    current_allow_agents: &[String],
     workspace_root: &str,
     registry: &ToolRegistry,
 ) -> SelfForkSnapshot {
     let mut allowed_tools = current_allowed_tools.to_vec();
     retain_inheritable_subagent_tools(&mut allowed_tools, registry);
+
+    let spawn_tools = SUBAGENT_ORCHESTRATION_TOOLS
+        .iter()
+        .filter(|name| current_allowed_tools.iter().any(|tool| tool == *name))
+        .map(|name| (*name).to_string())
+        .collect();
 
     SelfForkSnapshot {
         def: current_def.clone(),
@@ -31,6 +48,8 @@ pub fn build_self_fork_snapshot(
         skill_ids: current_skill_ids.to_vec(),
         skill_prompts: current_skill_prompts.to_vec(),
         allowed_tools,
+        spawn_tools,
+        allow_agents: normalize_allow_agents(current_allow_agents),
         workspace_root: workspace_root.to_string(),
     }
 }
@@ -111,6 +130,7 @@ mod tests {
             &skill_ids,
             &skill_prompts,
             &allowed_tools,
+            &["explore".to_string()],
             "/workspace/current",
             &registry,
         );
@@ -125,5 +145,47 @@ mod tests {
             snapshot.allowed_tools,
             vec!["terminal", "file_write", "file_edit"]
         );
+        assert_eq!(snapshot.spawn_tools, vec!["run_subagent"]);
+        assert_eq!(snapshot.allow_agents, vec!["explore"]);
+    }
+
+    #[test]
+    fn snapshot_carries_spawn_tools_only_when_the_parent_held_them() {
+        let registry = ToolRegistry::new();
+        register(&registry, "terminal", true);
+        register(&registry, "run_subagent", false);
+        register(&registry, "job", false);
+
+        let mut def = current_def();
+        def.allow_agents = vec!["explore".to_string(), "coder".to_string()];
+
+        let without_spawn_tools = build_self_fork_snapshot(
+            &def,
+            "prompt",
+            &[],
+            &[],
+            &["terminal".to_string()],
+            &[],
+            "/ws",
+            &registry,
+        );
+        assert!(without_spawn_tools.spawn_tools.is_empty());
+        assert!(without_spawn_tools.allow_agents.is_empty());
+
+        let with_spawn_tools = build_self_fork_snapshot(
+            &def,
+            "prompt",
+            &[],
+            &[],
+            &["run_subagent".to_string(), "job".to_string()],
+            &["coder".to_string(), "explore".to_string(), "coder".to_string()],
+            "/ws",
+            &registry,
+        );
+        assert_eq!(
+            with_spawn_tools.spawn_tools,
+            vec!["run_subagent", "job"]
+        );
+        assert_eq!(with_spawn_tools.allow_agents, vec!["coder", "explore"]);
     }
 }

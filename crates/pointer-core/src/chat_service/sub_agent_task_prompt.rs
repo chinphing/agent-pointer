@@ -51,14 +51,16 @@ pub fn build_subagent_spawn_depth_block(
              or with `agentId: \"self\"`.\n\n\
              Delegate when a subtask needs isolated context; \
              do not pass through your entire goal unchanged.\n\
-             Child results return to you as tool output — synthesize before your final handoff."
+             Child results return to you as tool output — synthesize before your final handoff.\n\
+             Every spawn, `self` fork included, consumes one real depth level."
         ),
         SubAgentSpawnCapability::SelfOnly => format!(
-            "## Sub-agent spawning (self leaf only)\n\n\
-             You are at cross-role depth {spawn_depth}/{max_spawn_depth}.\n\
+            "## Sub-agent spawning (self fork only)\n\n\
+             You are at depth {spawn_depth}/{max_spawn_depth}.\n\
              You may call `run_subagent` only with `agentId: \"self\"`.\n\
-             A self fork is a leaf and cannot call `run_subagent`.\n\
-             You cannot delegate to registered agents at this depth."
+             A self fork inherits your `allowAgents` and may delegate again \
+             while it still has depth budget.\n\
+             You cannot delegate to registered agents: your `allowAgents` is empty."
         ),
         SubAgentSpawnCapability::None => format!(
             "## Sub-agent spawning (leaf)\n\n\
@@ -127,10 +129,10 @@ mod tests {
     }
 
     #[test]
-    fn self_only_block_allows_leaf_self_fork_without_registered_catalog() {
-        let b = build_subagent_spawn_depth_block(2, 2, SubAgentSpawnCapability::SelfOnly);
+    fn self_only_block_allows_self_fork_without_registered_catalog() {
+        let b = build_subagent_spawn_depth_block(1, 2, SubAgentSpawnCapability::SelfOnly);
         assert!(b.contains(r#"agentId: "self""#));
-        assert!(b.contains("leaf"));
+        assert!(b.contains("inherits your `allowAgents`"));
         assert!(b.contains("cannot delegate to registered agents"));
     }
 

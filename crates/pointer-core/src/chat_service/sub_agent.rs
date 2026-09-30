@@ -826,6 +826,8 @@ mod execution_provider_tests {
             skill_ids: vec![],
             skill_prompts: vec![],
             allowed_tools: vec![],
+            spawn_tools: vec![],
+            allow_agents: vec![],
             workspace_root: "/snapshot/workspace".into(),
         }
     }

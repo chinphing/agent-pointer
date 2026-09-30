@@ -8,6 +8,7 @@ use super::super::types::{
 pub(in crate::chat_service::agent_tool_pass) fn build_active_self_fork_snapshot(
     state: &super::super::super::app_state::AppState,
     active: &ActiveAgentExecutionState<'_>,
+    allow_agents: &[String],
     workspace_root: &str,
 ) -> crate::chat_service::self_fork::SelfForkSnapshot {
     crate::chat_service::self_fork::build_self_fork_snapshot(
@@ -16,6 +17,7 @@ pub(in crate::chat_service::agent_tool_pass) fn build_active_self_fork_snapshot(
         active.skill_ids,
         active.skill_prompts,
         active.allowed_tools,
+        allow_agents,
         workspace_root,
         &state.tools,
     )
@@ -25,7 +27,7 @@ pub(in crate::chat_service::agent_tool_pass) struct PreparedOwnedSubagentInvocat
     pub run_id: String,
     pub task: crate::agents::AgentTask,
     pub source: crate::chat_service::run_subagent_delegation::OwnedSubagentSource,
-    /// Self-fork: UI nesting only. Explore: real spawn-depth consumption.
+    /// Real spawn depth of the child; every node (self fork included) consumes one level.
     pub child_spawn_depth: u32,
     pub max_spawn_depth: u32,
 }
@@ -85,15 +87,17 @@ pub(in crate::chat_service::agent_tool_pass) fn prepare_owned_subagent_invocatio
                 .map_err(|err| format!("invalid workspaceRoot for self fork: {err}"))?,
             None => workspace_root.to_string(),
         };
-        let trace_depth = parent_spawn_depth.saturating_add(1);
+        // Forks consume a real depth level like any other node (no trace-only escape).
+        let child_spawn_depth =
+            crate::tools::run_subagent::validate_spawn_depth(parent_spawn_depth, max_spawn_depth)?;
         return Ok(PreparedOwnedSubagentInvocation {
             run_id: run_id.to_string(),
             task,
             source: crate::chat_service::run_subagent_delegation::OwnedSubagentSource::SelfFork(
-                build_active_self_fork_snapshot(state, active, &workspace_root),
+                build_active_self_fork_snapshot(state, active, allow_agents, &workspace_root),
             ),
-            child_spawn_depth: trace_depth,
-            max_spawn_depth: max_spawn_depth.max(trace_depth),
+            child_spawn_depth,
+            max_spawn_depth,
         });
     }
 
@@ -252,7 +256,12 @@ mod self_fork_preparation_tests {
         mutable_enabled_ids.clear();
         mutable_enabled_ids.push("changed-after-plan".into());
 
-        let snapshot = build_active_self_fork_snapshot(&state, &active, "/captured/workspace");
+        let snapshot = build_active_self_fork_snapshot(
+            &state,
+            &active,
+            &["explore".to_string()],
+            "/captured/workspace",
+        );
 
         assert_eq!(snapshot.def.id, "coder");
         assert_eq!(snapshot.system_prompt, "captured system prompt");
@@ -260,6 +269,8 @@ mod self_fork_preparation_tests {
         assert_eq!(mutable_enabled_ids, vec!["changed-after-plan"]);
         assert_eq!(snapshot.skill_prompts, skill_prompts);
         assert_eq!(snapshot.allowed_tools, vec!["terminal"]);
+        assert_eq!(snapshot.spawn_tools, vec!["run_subagent"]);
+        assert_eq!(snapshot.allow_agents, vec!["explore"]);
         assert_eq!(snapshot.workspace_root, "/captured/workspace");
     }
 
@@ -283,7 +294,7 @@ mod self_fork_preparation_tests {
                 &state,
                 &active,
                 "coder-run",
-                &[],
+                &["explore".to_string()],
                 1,
                 2,
                 "/coder/workspace",
@@ -294,17 +305,23 @@ mod self_fork_preparation_tests {
 
             assert_eq!(prepared.run_id, "coder-run");
             assert_eq!(prepared.child_spawn_depth, 2);
+            assert_eq!(prepared.max_spawn_depth, 2);
             assert_eq!(prepared.task.id, call_id);
             assert!(matches!(
                 prepared.source,
                 crate::chat_service::run_subagent_delegation::OwnedSubagentSource::SelfFork(ref s)
-                    if s.def.id == "coder" && s.skill_prompts == skill_prompts
+                    if s.def.id == "coder"
+                        && s.skill_prompts == skill_prompts
+                        && s.allow_agents == vec!["explore".to_string()]
+                        && s.spawn_tools == vec!["run_subagent".to_string()]
             ));
         }
     }
 
+    /// A self fork consumes a real spawn-depth level, so at max depth it is rejected
+    /// instead of escaping via `max_spawn_depth.max(trace_depth)`.
     #[test]
-    fn delegated_coder_self_fork_prepares_at_cross_role_depth_limit() {
+    fn self_fork_at_max_depth_is_rejected() {
         let state = crate::chat_service::AppState::new();
         let def = coder_def();
         let skill_ids = vec![];
@@ -318,21 +335,22 @@ mod self_fork_preparation_tests {
             allowed_tools: &allowed_tools,
         };
 
-        let prepared = prepare_owned_subagent_invocation(
+        let error = match prepare_owned_subagent_invocation(
             &state,
             &active,
             "coder-run",
-            &[],
+            &["explore".to_string()],
             2,
             2,
             "/coder/workspace",
             &serde_json::json!({"agentId": "self", "goal": "leaf work"}),
             "call-at-limit",
-        )
-        .expect("self fork must not consume cross-role spawn depth");
+        ) {
+            Ok(_) => panic!("self fork at max depth must be rejected"),
+            Err(error) => error,
+        };
 
-        assert_eq!(prepared.child_spawn_depth, 3);
-        assert_eq!(prepared.task.agent_id, "self");
+        assert!(error.contains("spawn depth limit"), "unexpected error: {error}");
     }
 
     /// Delegating to your own id is rewritten to `self` during tool-pass preparation.

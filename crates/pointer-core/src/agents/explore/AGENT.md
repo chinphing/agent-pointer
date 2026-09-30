@@ -13,6 +13,8 @@ profile: explore
 enabled: true
 defaultSkillIds: []
 skillsPolicy: disabled
+allowAgents:
+  - explore
 accessPolicy:
   allowTools:
     - file_read
@@ -21,6 +23,8 @@ accessPolicy:
     - file_glob
     - file_grep
     - file_list
+    - run_subagent
+    - job
   denyTools: []
 ui:
   userSelectable: false

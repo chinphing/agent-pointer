@@ -73,11 +73,35 @@ fn resolve_subagent_spawn_capability(
     if !allowed_tools.iter().any(|tool| tool == "run_subagent") {
         return SubAgentSpawnCapability::None;
     }
-    if can_spawn_subagents(spawn_depth, max_spawn_depth) && !allow_agents.is_empty() {
-        SubAgentSpawnCapability::Registered
-    } else {
-        SubAgentSpawnCapability::SelfOnly
+    if !can_spawn_subagents(spawn_depth, max_spawn_depth) {
+        // Hard cap: at max depth every node is a leaf, forks included.
+        return SubAgentSpawnCapability::None;
     }
+    if allow_agents.is_empty() {
+        SubAgentSpawnCapability::SelfOnly
+    } else {
+        SubAgentSpawnCapability::Registered
+    }
+}
+
+/// Re-enable the orchestration tools the inheritable-tool filter strips, but only
+/// while the fork still has spawn-depth budget; returns the inherited `allowAgents`.
+/// At max depth nothing is restored and the fork stays a leaf.
+pub(super) fn restore_fork_spawn_tools(
+    allowed_tools: &mut Vec<String>,
+    snapshot: &SelfForkSnapshot,
+    spawn_depth: u32,
+    max_spawn_depth: u32,
+) -> Vec<String> {
+    if can_spawn_subagents(spawn_depth, max_spawn_depth) {
+        for tool in &snapshot.spawn_tools {
+            if !allowed_tools.iter().any(|name| name == tool) {
+                allowed_tools.push(tool.clone());
+            }
+        }
+        allowed_tools.sort();
+    }
+    normalize_allow_agents(&snapshot.allow_agents)
 }
 
 pub(super) fn sub_agent_trace_id(
@@ -188,7 +212,7 @@ pub(super) fn init_sub_agent_session(
     agent_chain: &[String],
     resume_history: Option<super::worker_followup::ResumedWorkerHistory>,
 ) -> Result<SubAgentSession> {
-    let (def, system_prompt, skill_ids, skill_prompts, allowed_tools, allow_agents, workspace_root) =
+    let (def, system_prompt, skill_ids, skill_prompts, mut allowed_tools, allow_agents, workspace_root) =
         match definition_source {
             SubAgentDefinitionSource::Registered(source_task) => {
                 let agent = state
@@ -218,14 +242,19 @@ pub(super) fn init_sub_agent_session(
             SubAgentDefinitionSource::Snapshot(snapshot) => {
                 let mut allowed_tools = snapshot.allowed_tools.clone();
                 retain_inheritable_subagent_tools(&mut allowed_tools, &state.tools);
-                allowed_tools.retain(|name| name != "run_subagent");
+                let allow_agents = restore_fork_spawn_tools(
+                    &mut allowed_tools,
+                    snapshot,
+                    spawn_depth,
+                    max_spawn_depth,
+                );
                 (
                     snapshot.def.clone(),
                     snapshot.system_prompt.clone(),
                     snapshot.skill_ids.clone(),
                     snapshot.skill_prompts.clone(),
                     allowed_tools,
-                    Vec::new(),
+                    allow_agents,
                     snapshot.workspace_root.trim().to_string(),
                 )
             }
@@ -495,7 +524,7 @@ pub(super) async fn prepare_sub_agent_round_prompts(
 mod definition_source_tests {
     use super::{
         build_sub_agent_linkage, fresh_sub_agent_local_history, resolve_child_task_board_store_key,
-        resolve_subagent_spawn_capability, SubAgentDefinitionSource,
+        resolve_subagent_spawn_capability, restore_fork_spawn_tools, SubAgentDefinitionSource,
     };
     use crate::agents::{
         AccessPolicy, AgentDef, AgentProfile, AgentTask, AgentUiConfig, SkillsPolicy,
@@ -528,6 +557,8 @@ mod definition_source_tests {
             skill_ids: vec!["skill-a".into()],
             skill_prompts: vec!["Skill A prompt".into()],
             allowed_tools: vec!["terminal".into()],
+            spawn_tools: vec!["run_subagent".into()],
+            allow_agents: vec!["explore".into()],
             workspace_root: "/active/workspace".into(),
         }
     }
@@ -669,17 +700,74 @@ mod definition_source_tests {
     }
 
     #[test]
-    fn registered_agent_at_depth_limit_keeps_self_only_run_subagent() {
-        let mut allowed_tools = vec!["terminal".to_string(), "run_subagent".to_string()];
+    fn capability_is_none_at_max_depth_for_every_node() {
+        let allowed_tools = vec!["terminal".to_string(), "run_subagent".to_string()];
         let allow_agents = vec!["explore".to_string()];
 
-        let capability = resolve_subagent_spawn_capability(&mut allowed_tools, &allow_agents, 2, 2);
+        let capability =
+            resolve_subagent_spawn_capability(&allowed_tools, &allow_agents, 2, 2);
+
+        assert_eq!(
+            capability,
+            crate::chat_service::sub_agent_task_prompt::SubAgentSpawnCapability::None
+        );
+    }
+
+    #[test]
+    fn capability_is_registered_below_max_depth_with_allow_agents() {
+        let allowed_tools = vec!["terminal".to_string(), "run_subagent".to_string()];
+        let allow_agents = vec!["explore".to_string()];
+
+        let capability =
+            resolve_subagent_spawn_capability(&allowed_tools, &allow_agents, 1, 2);
+
+        assert_eq!(
+            capability,
+            crate::chat_service::sub_agent_task_prompt::SubAgentSpawnCapability::Registered
+        );
+    }
+
+    #[test]
+    fn capability_is_self_only_below_max_depth_without_allow_agents() {
+        let allowed_tools = vec!["run_subagent".to_string()];
+
+        let capability = resolve_subagent_spawn_capability(&allowed_tools, &[], 1, 2);
 
         assert_eq!(
             capability,
             crate::chat_service::sub_agent_task_prompt::SubAgentSpawnCapability::SelfOnly
         );
+    }
+
+    #[test]
+    fn fork_restores_spawn_tools_while_depth_budget_remains() {
+        let snapshot = snapshot();
+        let mut allowed_tools = snapshot.allowed_tools.clone();
+
+        let allow_agents =
+            restore_fork_spawn_tools(&mut allowed_tools, &snapshot, 1, 2);
+
         assert!(allowed_tools.iter().any(|tool| tool == "run_subagent"));
+        assert_eq!(allow_agents, vec!["explore".to_string()]);
+        assert_eq!(
+            resolve_subagent_spawn_capability(&allowed_tools, &allow_agents, 1, 2),
+            crate::chat_service::sub_agent_task_prompt::SubAgentSpawnCapability::Registered
+        );
+    }
+
+    #[test]
+    fn fork_stays_leaf_at_max_depth_without_spawn_tools() {
+        let snapshot = snapshot();
+        let mut allowed_tools = snapshot.allowed_tools.clone();
+
+        let allow_agents =
+            restore_fork_spawn_tools(&mut allowed_tools, &snapshot, 2, 2);
+
+        assert!(!allowed_tools.iter().any(|tool| tool == "run_subagent"));
+        assert_eq!(
+            resolve_subagent_spawn_capability(&allowed_tools, &allow_agents, 2, 2),
+            crate::chat_service::sub_agent_task_prompt::SubAgentSpawnCapability::None
+        );
     }
 
     #[test]

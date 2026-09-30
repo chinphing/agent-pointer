@@ -2105,6 +2105,8 @@ mod trace_tests {
             skill_ids: vec![],
             skill_prompts: vec![],
             allowed_tools: vec![],
+            spawn_tools: vec![],
+            allow_agents: vec![],
             workspace_root: "/tmp".into(),
         };
         let task = AgentTask {
@@ -2298,6 +2300,8 @@ mod trace_tests {
             skill_ids: vec![],
             skill_prompts: vec![],
             allowed_tools: vec![],
+            spawn_tools: vec![],
+            allow_agents: vec![],
             workspace_root: "/tmp".into(),
         };
         let provider = crate::provider::OpenAIProvider::new(
@@ -2415,6 +2419,8 @@ mod trace_tests {
                         skill_ids: vec![],
                         skill_prompts: vec![],
                         allowed_tools: vec![],
+                        spawn_tools: vec![],
+                        allow_agents: vec![],
                         workspace_root: "/tmp".into(),
                     },
                 ),

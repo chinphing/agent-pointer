@@ -1280,6 +1280,7 @@ async fn run_self_fork_wave(
                         dispatch::subagent::build_active_self_fork_snapshot(
                             pass.ctx.session.state,
                             &active,
+                            &allow_agents,
                             pass.ctx.workspace_root,
                         ),
                     )
@@ -1290,6 +1291,7 @@ async fn run_self_fork_wave(
                         dispatch::subagent::build_active_self_fork_snapshot(
                             pass.ctx.session.state,
                             &active,
+                            &allow_agents,
                             pass.ctx.workspace_root,
                         ),
                     )

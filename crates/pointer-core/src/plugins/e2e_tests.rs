@@ -254,7 +254,7 @@ async fn mcp_tool_meta_and_mcp_request_span() {
     let iso = isolate();
     let plugins_root = iso.plugins_home.path().join("plugins");
     fs::create_dir_all(&plugins_root).unwrap();
-    let dir = write_full_plugin(&plugins_root, "com.example.e2e");
+    let _dir = write_full_plugin(&plugins_root, "com.example.e2e");
 
     // 收集 bus 替换默认（AppState.trace_bus 为 pub 字段）。
     let collecting = Arc::new(CollectingExporter::new());
@@ -348,7 +348,7 @@ async fn hook_execution_emits_hook_span() {
     let iso = isolate();
     let plugins_root = iso.plugins_home.path().join("plugins");
     fs::create_dir_all(&plugins_root).unwrap();
-    let dir = write_full_plugin(&plugins_root, "com.example.e2e");
+    let _dir = write_full_plugin(&plugins_root, "com.example.e2e");
 
     let collecting = Arc::new(CollectingExporter::new());
     let mut reg = crate::observability::exporters::ExporterRegistry::new();
@@ -734,7 +734,7 @@ async fn mcp_crash_recovers_via_watchdog() {
     let iso = isolate();
     let plugins_root = iso.plugins_home.path().join("plugins");
     fs::create_dir_all(&plugins_root).unwrap();
-    let dir = write_full_plugin(&plugins_root, "com.example.e2e");
+    let _dir = write_full_plugin(&plugins_root, "com.example.e2e");
 
     let state = Arc::new(AppState::new());
     state.plugin_enable("com.example.e2e").unwrap();
@@ -793,7 +793,7 @@ async fn mcp_degraded_stops_auto_restart() {
     let iso = isolate();
     let plugins_root = iso.plugins_home.path().join("plugins");
     fs::create_dir_all(&plugins_root).unwrap();
-    let dir = write_full_plugin(&plugins_root, "com.example.e2e");
+    let _dir = write_full_plugin(&plugins_root, "com.example.e2e");
 
     let state = Arc::new(AppState::new());
     state.plugin_enable("com.example.e2e").unwrap();

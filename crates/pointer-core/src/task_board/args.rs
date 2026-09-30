@@ -545,6 +545,9 @@ mod tests {
     }
 
     #[test]
+    // Covers the deprecated legacy shim on purpose: unified_patch_rows_from_args
+    // is not equivalent (it has no global_milestones priority).
+    #[allow(deprecated)]
     fn global_milestones_patch_takes_priority() {
         let args = serde_json::json!({
             "global_milestones": [{"id": "g_exec", "status": "done"}],
@@ -555,6 +558,8 @@ mod tests {
     }
 
     #[test]
+    // Same: pins the deprecated shim's milestones-vs-global discrimination.
+    #[allow(deprecated)]
     fn milestones_patch_separate_from_global() {
         let args = serde_json::json!({
             "milestones": [{"id": "m1", "status": "done"}]

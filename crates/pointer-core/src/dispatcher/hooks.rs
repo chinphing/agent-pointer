@@ -654,7 +654,7 @@ mod tests {
             }
         }
 
-        let mut reg = HookRegistry::new();
+        let reg = HookRegistry::new();
         reg.register_on_trigger_received(Arc::new(RewriteHook {
             id: StaticId {
                 key: "a",
@@ -696,7 +696,7 @@ mod tests {
                 self.0.sort_key()
             }
         }
-        let mut reg = HookRegistry::new();
+        let reg = HookRegistry::new();
         reg.register_on_trigger_received(Arc::new(RejectHook(StaticId {
             key: "r",
             sk: "_10",

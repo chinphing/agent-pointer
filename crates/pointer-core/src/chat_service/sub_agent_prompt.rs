@@ -212,7 +212,7 @@ pub(super) fn init_sub_agent_session(
     agent_chain: &[String],
     resume_history: Option<super::worker_followup::ResumedWorkerHistory>,
 ) -> Result<SubAgentSession> {
-    let (def, system_prompt, skill_ids, skill_prompts, mut allowed_tools, allow_agents, workspace_root) =
+    let (def, system_prompt, skill_ids, skill_prompts, allowed_tools, allow_agents, workspace_root) =
         match definition_source {
             SubAgentDefinitionSource::Registered(source_task) => {
                 let agent = state

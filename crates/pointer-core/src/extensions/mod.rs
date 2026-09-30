@@ -262,7 +262,7 @@ mod tests {
     async fn same_override_key_replaces_earlier_hook() {
         let c1 = Arc::new(AtomicU8::new(0));
         let c2 = Arc::new(AtomicU8::new(0));
-        let mut reg = ExtensionRegistry::new();
+        let reg = ExtensionRegistry::new();
         reg.register_message_loop_prompts_after(Arc::new(CountingHook {
             key: "_dup",
             order: "_10_a",
@@ -319,7 +319,7 @@ mod tests {
             }
         }
 
-        let mut reg = ExtensionRegistry::new();
+        let reg = ExtensionRegistry::new();
         reg.register_message_loop_prompts_after(Arc::new(TagHook {
             tag: 'b',
             key: "_b",

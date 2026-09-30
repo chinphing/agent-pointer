@@ -746,19 +746,6 @@ impl ConversationStore {
         webhook_sources::session_mode(&conn, src)
     }
 
-    /// P0: insert or update one message.
-    ///
-    /// Crate-private: external crates must use [`crate::conversation_session`].
-    /// Retained for store unit tests (`upsert` with refresh); production uses
-    /// [`Self::upsert_message_no_refresh`] via the session facade.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn upsert_message(&self, conversation_id: &str, msg: &ChatMessage) -> Result<()> {
-        self.db
-            .execute_write(|conn| write::upsert_message_in_conn(conn, conversation_id, msg))?;
-        crate::conversation_session::note_transcript_mutated(conversation_id);
-        Ok(())
-    }
-
     pub(crate) fn upsert_message_no_refresh(
         &self,
         conversation_id: &str,

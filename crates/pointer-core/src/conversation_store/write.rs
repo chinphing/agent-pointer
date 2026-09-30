@@ -415,38 +415,6 @@ pub fn upsert_message_no_refresh_in_conn(
     Ok(())
 }
 
-/// P0: upsert a single message at the end (or update payload in place).
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn upsert_message_in_conn(
-    conn: &Connection,
-    conversation_id: &str,
-    msg: &ChatMessage,
-) -> Result<()> {
-    ensure_conversation_row(conn, conversation_id)?;
-    let exists: bool = conn
-        .query_row(
-            "SELECT 1 FROM messages WHERE conversation_id = ?1 AND message_id = ?2 LIMIT 1",
-            params![conversation_id, msg.id],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some();
-    let position = if exists {
-        conn.query_row(
-            "SELECT position FROM messages WHERE conversation_id = ?1 AND message_id = ?2",
-            params![conversation_id, msg.id],
-            |row| row.get::<_, i64>(0),
-        )?
-    } else {
-        max_message_position(conn, conversation_id)? + 1
-    };
-    insert_message_at(conn, conversation_id, msg, position)?;
-    let count = message_count_in_conn(conn, conversation_id)?;
-    let preview = stored_preview_in_conn(conn, conversation_id)?;
-    flush_conversation_meta_in_conn(conn, conversation_id, count, &preview)?;
-    Ok(())
-}
-
 pub fn sync_messages_ordered_with_meta_in_conn(
     conn: &Connection,
     conversation_id: &str,

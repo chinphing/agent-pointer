@@ -253,16 +253,16 @@ pub fn init_runtime_logging(log_dir: &Path, default_filter: &str) -> Result<(), 
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn release_default_filter_omits_provider_debug() {
+        // Body is compiled out in debug builds, so the parent item is qualified
+        // explicitly instead of glob-imported.
         #[cfg(not(debug_assertions))]
         {
             assert!(
-                !default_runtime_log_filter().contains("provider=debug"),
+                !super::default_runtime_log_filter().contains("provider=debug"),
                 "release default filter must not enable provider debug: {}",
-                default_runtime_log_filter()
+                super::default_runtime_log_filter()
             );
         }
     }

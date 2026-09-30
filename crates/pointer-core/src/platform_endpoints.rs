@@ -60,8 +60,6 @@ pub fn annotate_api_base() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     /// Guard: the open-source tree must not carry a vendor production domain in
     /// shipped code. Docs, licences, metadata, and example configs may name it.
     #[test]

@@ -330,18 +330,20 @@ mod tests {
     /// via `replace_global_user_settings_for_test` and read/restore process `PATH`)
     /// cannot race with `local_sso`, `terminal_elevated`, or other tests that read
     /// the same globals.
-    struct EnvTestGuard(
-        MutexGuard<'static, ()>,
-        MutexGuard<'static, ()>,
-        MutexGuard<'static, ()>,
-    );
+    /// Fields are never read: the guards exist only to hold the three locks
+    /// (drop order = declaration order), so they are underscore-prefixed.
+    struct EnvTestGuard {
+        _path: MutexGuard<'static, ()>,
+        _env: MutexGuard<'static, ()>,
+        _settings: MutexGuard<'static, ()>,
+    }
 
     fn env_test_guard() -> EnvTestGuard {
-        EnvTestGuard(
-            crate::test_support::path_env_lock(),
-            ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner()),
-            crate::platform_config::settings_test_lock(),
-        )
+        EnvTestGuard {
+            _path: crate::test_support::path_env_lock(),
+            _env: ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner()),
+            _settings: crate::platform_config::settings_test_lock(),
+        }
     }
 
     /// Restore process PATH on drop so concurrent tests that spawn external

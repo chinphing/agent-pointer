@@ -59,6 +59,9 @@ import TaskBoardPanel from '../../TaskBoardPanel.vue'
 import CollapsedRunHeader from '../../CollapsedRunHeader.vue'
 import ToolCallRow from '../../ToolCallRow.vue'
 import SubAgentContentBlock from './SubAgentContentBlock.vue'
+// Mutual import with the frame is intentional: a child goes through the same
+// stub-or-frame decision as a lead-level trace (see the child loop below).
+import SubAgentFrameHost from './SubAgentFrameHost.vue'
 
 export type SubAgentTaskBoardBinding = {
   document: TaskBoardDocument
@@ -132,15 +135,20 @@ const scopedTraceMessages = computed(() => {
 })
 
 /**
- * Direct child frames (this worker's own nested spawns). They persist on *this*
- * layer's scoped rows, so the tree is rebuilt from those rows — the lead message
- * never carries deeper levels. Collapsed parents hide their whole subtree.
+ * Direct child frames (this worker's own nested spawns). A nested spawn is recorded
+ * on the row of *its issuer*, so the deeper levels come from this layer's own scoped
+ * rows — the lead message never carries them. This trace is the head of that subtree
+ * and sits on the layer above, so it has to be seeded into the merge or every child
+ * resolves to a missing parent and drops out. Collapsed parents hide their subtree.
  */
 const childTraces = computed((): AgentTrace[] => {
   if (collapsed.value) return []
   const rows = scopedTraceMessages.value
   if (rows.length === 0) return []
-  return buildSubAgentTraceTree({ scopedRows: rows }).childrenOf(props.trace.id)
+  return buildSubAgentTraceTree({
+    leadTraces: [props.trace],
+    scopedRows: rows
+  }).childrenOf(props.trace.id)
 })
 
 const ownsCompression = computed(() => {
@@ -628,8 +636,10 @@ watch(
         :tool-raw-args="toolRawArgs"
         @close="showRawWire = false"
       />
-      <!-- Nested spawns of this worker, rebuilt from this layer's own scoped rows. -->
-      <SubAgentFrame
+      <!-- Nested spawns of this worker, rebuilt from this layer's own scoped rows.
+           Each child goes through the host so a terminal collapsed child degrades
+           to the same stub as a lead-level trace instead of keeping every round. -->
+      <SubAgentFrameHost
         v-for="child in childTraces"
         :key="child.id"
         :trace="child"

@@ -31,6 +31,14 @@ vi.mock('../../../../stores/chat', async () => {
     ensureToolCallBody: async () => {},
     releaseToolCallBody: () => {},
     openTerminalLivePopup: () => {},
+    // Real store semantics: the stub path frees that child's own scoped heap.
+    evictScopedInstance: (
+      convId: string,
+      lookup: { anchorMessageId?: string | null; traceId?: string | null; agentInstanceId?: string | null },
+      reason: 'stub' | 'trim' | 'manual' | 'conversation'
+    ) => {
+      scopedStore().evictInstance(convId, lookup, reason)
+    },
     scopedMessagesForTraceCached: (
       anchorMessageId: string,
       traceId: string,
@@ -216,5 +224,111 @@ describe('SubAgentFrame round content', () => {
     await flush()
 
     expect(host.querySelector('[data-sub-agent-content-id="r3"]')).toBeTruthy()
+  })
+})
+
+/**
+ * A nested spawn is persisted on *its issuer's* scoped row (`agentTrace`), while the
+ * issuer's own trace sits on the layer above — so the frame has to seed the tree with
+ * itself, then the deeper levels come from its own rows.
+ */
+function childTrace(over: Partial<AgentTrace> = {}): AgentTrace {
+  return {
+    id: 'inst-2',
+    name: 'explore',
+    role: 'worker',
+    status: 'completed',
+    depth: 2,
+    agentInstanceId: 'inst-2',
+    parentTraceId: 'inst-1',
+    parentToolCallId: 'tc-child',
+    anchorMessageId: 'p-round-1',
+    userExpanded: false,
+    ...over
+  }
+}
+
+/** Issuer row (this frame's own round) that hosted the nested spawn. */
+function parentRoundRow(child: AgentTrace): ChatMessage {
+  return scopedRow('p-round-1', {
+    content: '父层结论',
+    createdAt: 1,
+    toolCalls: [{ id: 'tc-child', name: 'run_subagent', arguments: '{}', status: 'success' }],
+    agentTrace: [child]
+  })
+}
+
+/** Child's own scoped row — anchored on the issuer row, owned by the child instance. */
+function childRoundRow(over: Partial<ChatMessage> = {}): ChatMessage {
+  return {
+    id: 'c-round-1',
+    role: 'assistant',
+    content: '子层结论',
+    status: 'done',
+    createdAt: 2,
+    anchorMessageId: 'p-round-1',
+    traceId: 'inst-2',
+    agentInstanceId: 'inst-2',
+    ...over
+  }
+}
+
+function mountParentWithChild(
+  child: AgentTrace,
+  extraRows: ChatMessage[] = [],
+  provides: Record<string, unknown> = {}
+): HTMLElement {
+  useConversationScopedStore().ingestRows('c1', [parentRoundRow(child), ...extraRows])
+  return mountFrame(trace({ userExpanded: true }), provides)
+}
+
+describe('nested child frames', () => {
+  it('degrades a terminal collapsed child to the same stub as a top-level frame', async () => {
+    const child = childTrace({ summaryLine: '读文件 3 次' })
+    const host = mountParentWithChild(child, [childRoundRow()])
+    await flush()
+
+    const stubs = host.querySelectorAll('.sub-agent-frame-stub')
+    expect(stubs).toHaveLength(1)
+    expect(stubs[0]?.textContent).toContain('读文件 3 次')
+    // Parent stays a full frame; the child's rounds and content never mount.
+    expect(host.querySelector('[data-sub-agent-content-id="p-round-1"]')).toBeTruthy()
+    expect(host.querySelector('[data-tool-call-id="tc-child"]')).toBeTruthy()
+    expect(host.querySelector('[data-sub-agent-content-id="c-round-1"]')).toBeNull()
+  })
+
+  it('keeps a child with a pending approval on the full frame', async () => {
+    const child = childTrace({ summaryLine: '等待批准' })
+    const approval = {
+      id: 'ap1',
+      name: 'file_write',
+      arguments: '{}',
+      status: 'pending_approval' as const
+    }
+    const host = mountParentWithChild(child, [
+      childRoundRow({ toolCalls: [approval] })
+    ])
+    await flush()
+
+    // Stub has no approval card, so the pending row keeps the child on a full frame.
+    expect(host.querySelectorAll('.sub-agent-frame-stub')).toHaveLength(0)
+    expect(host.querySelectorAll('.sub-agent-frame')).toHaveLength(2)
+    expect(host.querySelector('[data-tool-call-id="ap1"]')).toBeTruthy()
+  })
+
+  it('keeps a search-hit child expanded instead of stubbing it away', async () => {
+    const child = reactive(childTrace({ summaryLine: '读文件 1 次' }))
+    const host = mountParentWithChild(
+      child,
+      [childRoundRow({ content: '中间结论：先看仓库' })],
+      { currentConversationSearchContentIds: ref(['c-round-1']) }
+    )
+    await flush()
+
+    expect(host.querySelectorAll('.sub-agent-frame-stub')).toHaveLength(0)
+    // Parent + child both stay full frames, and the hit is reachable in the child.
+    expect(host.querySelectorAll('.sub-agent-frame')).toHaveLength(2)
+    expect(host.querySelector('[data-sub-agent-content-id="c-round-1"]')?.textContent)
+      .toContain('中间结论')
   })
 })

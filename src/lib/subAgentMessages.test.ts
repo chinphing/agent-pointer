@@ -9,10 +9,8 @@ import {
   ensureHostLinkedSubTraces,
   ensureScopedChildMessage,
   isSubAgentHostStubContent,
-  latestSubAgentContent,
   mergeSubAgentToolCalls,
   rehydrateAgentTracesFromScopedMessages,
-  subAgentContentPreviewLine,
   scopedAssistantMessagesForTrace,
   scopedMessagesForTrace,
   subAgentFrameOwnsCompression
@@ -711,43 +709,5 @@ describe('buildSubAgentRoundsFromScoped', () => {
     const models = buildSubAgentRoundsFromScoped(rounds(), 'lead', 'inst-1', 'inst-1')
     expect(models).toHaveLength(3)
     expect(models[0]!.content).not.toBe(models[2]!.content)
-  })
-})
-
-describe('latestSubAgentContent / subAgentContentPreviewLine', () => {
-  it('prefers the last non-empty round and falls back to the legacy session text', () => {
-    const models = buildSubAgentRoundsFromScoped(
-      [
-        {
-          id: 'r1',
-          role: 'assistant',
-          content: '中间结论',
-          status: 'done',
-          createdAt: 1,
-          anchorMessageId: 'lead',
-          traceId: 'inst-1',
-          agentInstanceId: 'inst-1'
-        }
-      ],
-      'lead',
-      'inst-1',
-      'inst-1'
-    )
-    expect(latestSubAgentContent(models)).toBe('中间结论')
-    expect(latestSubAgentContent([], 'legacy text')).toBe('legacy text')
-    expect(latestSubAgentContent([], undefined)).toBe('')
-  })
-
-  it('takes the first non-empty line and strips heading / list decoration', () => {
-    expect(subAgentContentPreviewLine('\n\n## 交付\n细节')).toBe('交付')
-    expect(subAgentContentPreviewLine('- 完成 A 与 B')).toBe('完成 A 与 B')
-    expect(subAgentContentPreviewLine('> 引用行')).toBe('引用行')
-  })
-
-  it('collapses whitespace, truncates and blanks out empty content', () => {
-    expect(subAgentContentPreviewLine('a   b\nc')).toBe('a b')
-    expect(subAgentContentPreviewLine('x'.repeat(200), 10)).toBe('xxxxxxxxxx…')
-    expect(subAgentContentPreviewLine('   \n  ')).toBe('')
-    expect(subAgentContentPreviewLine(undefined)).toBe('')
   })
 })

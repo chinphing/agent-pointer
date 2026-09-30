@@ -20,9 +20,7 @@ import {
   buildToolRawArgsFromMessages,
   computeSubAgentStatsFromMessages,
   latestSubAgentBodyModelFromSpawnRows,
-  latestSubAgentContent,
   mergeSubAgentToolCalls,
-  subAgentContentPreviewLine,
   subAgentFrameOwnsCompression
 } from '../../../../lib/subAgentMessages'
 import { traceSubtreeContainsSearchTarget } from '../../../../lib/subAgentSearch'
@@ -357,11 +355,6 @@ const roundsForRender = computed(() => {
   ]
 })
 
-/** Collapsed one-line preview of the latest round text (D-E1). */
-const contentPreview = computed(() =>
-  subAgentContentPreviewLine(latestSubAgentContent(roundBodies.value))
-)
-
 const collapsedView = computed(() => {
   // Read the live signal directly so this computed re-evaluates when the
   // fingerprint changes — getRows() returns the same array reference, so
@@ -588,15 +581,6 @@ watch(
       >
         <Code class="w-3.5 h-3.5" />
       </button>
-    </div>
-
-    <!-- D-E1: collapsed frames keep one line of the latest round text. -->
-    <div
-      v-if="collapsed && contentPreview"
-      class="min-w-0 w-full pl-4 pr-2"
-      data-sub-agent-content-preview
-    >
-      <span class="block truncate text-[12px] leading-5 text-muted/70">{{ contentPreview }}</span>
     </div>
 
     <div

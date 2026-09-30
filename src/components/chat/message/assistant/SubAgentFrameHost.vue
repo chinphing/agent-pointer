@@ -15,11 +15,6 @@ import {
 import { isPendingApprovalToolCall } from '../../../../lib/messageTooling'
 import { isSubAgentTraceTerminal, toggleSubTraceExpanded } from '../../../../lib/subAgentSession'
 import { SUB_AGENT_PROCESS_PLACEHOLDER } from '../../../../lib/subAgentStats'
-import {
-  buildSubAgentRoundsFromScoped,
-  latestSubAgentContent,
-  subAgentContentPreviewLine
-} from '../../../../lib/subAgentMessages'
 import { traceSubtreeContainsSearchTarget } from '../../../../lib/subAgentSearch'
 import SubAgentFrame, { type SubAgentTaskBoardBinding } from './SubAgentFrame.vue'
 import SubAgentFrameStub from './SubAgentFrameStub.vue'
@@ -149,20 +144,6 @@ const stubSummaryLine = computed(
   () => stubView.value.summaryLine.trim() || SUB_AGENT_PROCESS_PLACEHOLDER
 )
 
-/** D-E1 preview for the degraded collapsed stub (empty once rows are evicted). */
-const stubPreviewLine = computed(() =>
-  subAgentContentPreviewLine(
-    latestSubAgentContent(
-      buildSubAgentRoundsFromScoped(
-        scopedForStub.value,
-        effectiveAnchorId.value,
-        props.trace.id,
-        props.trace.agentInstanceId
-      )
-    )
-  )
-)
-
 function onStubToggle() {
   toggleSubTraceExpanded(props.trace)
 }
@@ -276,7 +257,6 @@ watch(
     v-if="showStub"
     :trace="trace"
     :summary-line="stubSummaryLine"
-    :preview-line="stubPreviewLine"
     :show-chevron="true"
     @toggle="onStubToggle"
   />

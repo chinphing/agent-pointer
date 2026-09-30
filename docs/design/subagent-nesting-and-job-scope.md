@@ -383,7 +383,7 @@ depth 1 的 48 行 `general` 是 **lead 自己的 self fork**。
 |----|------|
 | 展开帧 | 按轮次交错渲染「该轮 `content` → 该轮工具行」；轮次切分用 `buildSubAgentRoundsFromScoped`（不合并轮次；`buildSubAgentBodyModelsFromScoped` 仍保留给压缩标题等合并消费者，见 §6.5） |
 | 文本渲染 | **不复用 `AgentMessageBody`**（它带 lead 专属 chrome：复制按钮 / 媒体 / 任务板 / 平台余额）；抽一个轻量 `SubAgentContentBlock.vue`，复用 `parseMarkdown`（`lib/markdownConfig`）+ `useThrottledMarkdown`（流式节流）+ 代码复制 composable |
-| 折叠帧 | 统计摘要行之后追加**一行内容预览**（最新 `content` 的首个非空行，截断）；最终 handoff 长文本只在展开态全文 |
+| 折叠帧 | **不显示正文**：折叠态只留统计摘要行（与折叠工具组一致）；最终 handoff 长文本只在展开态全文。原 D-E1 的「一行内容预览」已按决定移除（见 §6.5） |
 | 搜索 | 帧内 `content` 需能被会话内搜索命中（与现有 tool call 搜索一致） |
 | 依赖 | 复用批次 B 的渲染骨架（递归帧 + 选择器），B 之后做，避免两次改同一模板 |
 
@@ -391,7 +391,7 @@ depth 1 的 48 行 `general` 是 **lead 自己的 self fork**。
 
 | 编号 | 问题 | 建议 |
 |------|------|------|
-| **D-E1** | 折叠帧是否显示一行内容预览 | 显示 |
+| **D-E1** | 折叠帧是否显示一行内容预览 | 原建议「显示」→ **已按决定改为不显示**（折叠态与工具行一致，只留统计摘要行；见 §6.5） |
 | **D-E2** | 显示全部轮次 content 还是只显示最终 content | 全部轮次，按时间交错 |
 | **D-E3** | 是否复用 `AgentMessageBody` | 不复用，抽轻量块 |
 
@@ -402,7 +402,7 @@ depth 1 的 48 行 `general` 是 **lead 自己的 self fork**。
 | 轮次切分 | 新增 `buildSubAgentRoundsFromScoped`（`src/lib/subAgentMessages.ts`）：每个 assistant scoped 行 = 一轮，保留该轮自己的 `content` + 自己的 `toolCalls`，**不合并**（与 §6.3 原稿的差异：`buildSubAgentBodyModelsFromScoped` 语义是「合并成一条 body、保留最新正文」，压缩标题（`useComputerCompactTitle`）仍依赖它，故不改其语义）；空轮（无正文且无工具）丢弃，host stub 正文不渲染 |
 | 文本块 | 新增 `src/components/chat/message/assistant/SubAgentContentBlock.vue`：`parseMarkdown` + `useThrottledMarkdown`（流式 100ms / 长文 250ms，与 lead 一致）+ 代码复制 / 图表 / SVG / Mermaid / 外链 composable；不带 lead 专属 chrome；根元素带 `data-sub-agent-content-id="<scoped row id>"` |
 | 帧内渲染 | `SubAgentFrame` 展开态按 `roundsForRender` 渲染「该轮 content → 该轮工具行」，其后才是 raw 面板与子帧；工具取 `mergeSubAgentToolCalls` 的**最富副本**（保留 ask_user 可渲染修复）但保持轮次归属；压缩标记仍在过程块顶部；无 scoped 行的 legacy 会话退化为「单轮仅工具」（与旧行为一致）；运行中但尚未落到某轮的工具作为尾轮追加 |
-| 折叠预览 | `subAgentContentPreviewLine`（最新正文首个非空行，去标题/列表装饰、折叠空白、截断 140 字）渲染为 `[data-sub-agent-content-preview]`；`SubAgentFrame` 与降级 `SubAgentFrameStub`（host 计算，行被 evict 时自然为空）都显示 |
+| 折叠预览（**已移除**） | 原实现：`subAgentContentPreviewLine`（最新正文首个非空行，去标题/列表装饰、折叠空白、截断 140 字）渲染为 `[data-sub-agent-content-preview]`，`SubAgentFrame` 与降级 `SubAgentFrameStub`（host 计算）都显示。**后续按决定移除**：折叠态只留统计摘要行（与折叠工具组一致），`SubAgentFrameStub` 的 `previewLine` prop、host 的 `stubPreviewLine` 与 helper `latestSubAgentContent` / `subAgentContentPreviewLine` 一并删除；展开态按轮次渲染不变 |
 | 搜索 | `findCurrentConversationMatches(messages, query, scopedRows)`：搜索面新增 scoped 行（此前深层工具行/正文根本不可命中）。scoped 命中以**该帧锚点消息**为 `messageId`，并带 `toolCallId` 或 `contentMessageId`（scoped 行 id）；`MessageList` 经 `currentConversationSearchContentIds` / `currentConversationActiveSearchContentId` 下发，定位选择器 `[data-sub-agent-content-id]`；`SubAgentFrame.isSearchHit` 与 `SubAgentFrameHost.searchPinned` 用 `traceSubtreeContainsSearchTarget`（`src/lib/subAgentSearch.ts`）**含子孙命中** → 折叠祖先自动展开、stub 不被降级 |
-| 未改（有意） | `buildSubAgentBodyModelsFromScoped` / `buildSubAgentBodyModelsSplitAtCut`（后者无组件消费者，压缩标记位置未变）；`AgentMessageBody`；`SubAgentFrameHost` 的 stub / 统计 / memo 逻辑（仅新增 `searchPinned` 的正文命中与 stub 预览） |
-| 测试 | 新增 `src/lib/subAgentSearch.test.ts`（自身命中 / 子孙命中 / 关闭搜索不扫行 / 环状 linkage）、`src/components/chat/message/assistant/SubAgentFrame.test.ts`（轮次顺序 `r1→t1→t2→r3`、markdown、stub 正文不渲染、折叠预览、正文命中自动展开）；扩展 `subAgentMessages.test.ts`（轮次 / 预览）、`currentConversationSearch.test.ts`（scoped 正文与工具命中、锚点映射、行序、无锚点行） |
+| 未改（有意） | `buildSubAgentBodyModelsFromScoped` / `buildSubAgentBodyModelsSplitAtCut`（后者无组件消费者，压缩标记位置未变）；`AgentMessageBody`；`SubAgentFrameHost` 的 stub / 统计 / memo 逻辑（仅新增 `searchPinned` 的正文命中；stub 预览已按后续决定移除） |
+| 测试 | 新增 `src/lib/subAgentSearch.test.ts`（自身命中 / 子孙命中 / 关闭搜索不扫行 / 环状 linkage）、`src/components/chat/message/assistant/SubAgentFrame.test.ts`（轮次顺序 `r1→t1→t2→r3`、markdown、stub 正文不渲染、折叠态不渲染正文、正文命中自动展开）；扩展 `subAgentMessages.test.ts`（轮次）、`currentConversationSearch.test.ts`（scoped 正文与工具命中、锚点映射、行序、无锚点行） |

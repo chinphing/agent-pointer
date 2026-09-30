@@ -238,42 +238,6 @@ export function buildSubAgentRoundsFromScoped(
 }
 
 /** Latest non-empty round text (final handoff wins); `fallback` covers legacy sessions. */
-export function latestSubAgentContent(
-  rounds: readonly SubAgentRoundBody[],
-  fallback?: string | null
-): string {
-  for (let i = rounds.length - 1; i >= 0; i -= 1) {
-    const content = rounds[i]!.content.trim()
-    if (content) return content
-  }
-  return fallback?.trim() ?? ''
-}
-
-export const SUB_AGENT_CONTENT_PREVIEW_MAX_CHARS = 140
-
-/**
- * One-line collapsed preview: the first non-empty line of the latest round text,
- * whitespace-collapsed, light markdown decoration stripped and truncated.
- */
-export function subAgentContentPreviewLine(
-  content: string | null | undefined,
-  maxChars = SUB_AGENT_CONTENT_PREVIEW_MAX_CHARS
-): string {
-  const firstLine = (content ?? '')
-    .split('\n')
-    .map(line => line.replace(/\s+/g, ' ').trim())
-    .find(line => line.length > 0) ?? ''
-  if (!firstLine) return ''
-  const plain = firstLine
-    .replace(/^#{1,6}\s+/, '')
-    .replace(/^>\s*/, '')
-    .replace(/^[-*+]\s+/, '')
-    .trim()
-  if (!plain) return ''
-  const limit = Math.max(1, maxChars)
-  return plain.length > limit ? `${plain.slice(0, limit).trimEnd()}…` : plain
-}
-
 function sortedScopedMessagesForTrace(
   messages: ChatMessage[],
   anchorMessageId: string,

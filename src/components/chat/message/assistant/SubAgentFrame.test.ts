@@ -200,7 +200,7 @@ describe('SubAgentFrame round content', () => {
     expect(host.textContent).not.toContain('Assigned task')
   })
 
-  it('shows one line of the latest round text while collapsed', async () => {
+  it('renders no content text while collapsed', async () => {
     useConversationScopedStore().ingestRows('c1', [
       scopedRow('r1', { content: '第一轮结论', createdAt: 1 }),
       scopedRow('r3', { content: '## 最终 handoff\n更多细节', createdAt: 2 })
@@ -208,9 +208,10 @@ describe('SubAgentFrame round content', () => {
     const host = mountFrame(trace({ userExpanded: false }))
     await flush()
 
-    const preview = host.querySelector('[data-sub-agent-content-preview]')
-    expect(preview?.textContent?.trim()).toBe('最终 handoff')
+    // Collapsed frames behave like collapsed tool groups: stats header only, no content preview.
+    expect(host.querySelector('[data-sub-agent-content-preview]')).toBeNull()
     expect(host.querySelectorAll('[data-sub-agent-content-id]')).toHaveLength(0)
+    expect(host.textContent).not.toContain('最终 handoff')
   })
 
   it('expands a collapsed frame when the search hit is a round content row', async () => {
@@ -291,6 +292,9 @@ describe('nested child frames', () => {
     const stubs = host.querySelectorAll('.sub-agent-frame-stub')
     expect(stubs).toHaveLength(1)
     expect(stubs[0]?.textContent).toContain('读文件 3 次')
+    // Collapsed stub keeps the stats header only — no content preview, no child text.
+    expect(stubs[0]?.querySelector('[data-sub-agent-content-preview]')).toBeNull()
+    expect(stubs[0]?.textContent).not.toContain('子层结论')
     // Parent stays a full frame; the child's rounds and content never mount.
     expect(host.querySelector('[data-sub-agent-content-id="p-round-1"]')).toBeTruthy()
     expect(host.querySelector('[data-tool-call-id="tc-child"]')).toBeTruthy()

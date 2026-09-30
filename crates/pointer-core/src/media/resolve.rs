@@ -150,6 +150,12 @@ mod tests {
         use crate::storage::app_data_dir;
         use std::fs;
 
+        // Resolution reads the process-global app data dir, so take the same lock
+        // every other test that replaces it uses, and pin a directory of our own.
+        let _lock = crate::storage::test_app_data_dir_lock();
+        let dir = tempfile::tempdir().expect("temp data dir");
+        crate::storage::set_test_app_data_dir(dir.path().to_path_buf());
+
         let root = app_data_dir().expect("app data");
         let rel = format!("{GENERATED_MEDIA_PREFIX}_resolve_test/conv/a.png");
         let file = root.join(&rel);

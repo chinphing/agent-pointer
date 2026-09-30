@@ -16,12 +16,16 @@ import {
 } from '../../../../lib/subAgentStats'
 import { useConversationScopedStore } from '../../../../lib/conversationScoped'
 import {
+  buildSubAgentRoundsFromScoped,
   buildToolRawArgsFromMessages,
   computeSubAgentStatsFromMessages,
   latestSubAgentBodyModelFromSpawnRows,
+  latestSubAgentContent,
   mergeSubAgentToolCalls,
+  subAgentContentPreviewLine,
   subAgentFrameOwnsCompression
 } from '../../../../lib/subAgentMessages'
+import { traceSubtreeContainsSearchTarget } from '../../../../lib/subAgentSearch'
 import { useChatStore } from '../../../../stores/chat'
 import {
   isSubAgentTraceTerminal,
@@ -54,6 +58,7 @@ import RawWirePanel from './RawWirePanel.vue'
 import TaskBoardPanel from '../../TaskBoardPanel.vue'
 import CollapsedRunHeader from '../../CollapsedRunHeader.vue'
 import ToolCallRow from '../../ToolCallRow.vue'
+import SubAgentContentBlock from './SubAgentContentBlock.vue'
 
 export type SubAgentTaskBoardBinding = {
   document: TaskBoardDocument
@@ -206,6 +211,15 @@ const activeSearchToolCallId = inject<Ref<string | null>>(
   'currentConversationActiveToolCallId',
   ref<string | null>(null)
 )
+/** Scoped row ids whose round text matched the conversation search. */
+const searchContentIds = inject<Ref<string[]>>(
+  'currentConversationSearchContentIds',
+  ref<string[]>([])
+)
+const activeSearchContentId = inject<Ref<string | null>>(
+  'currentConversationActiveSearchContentId',
+  ref<string | null>(null)
+)
 
 const goalLabel = computed(() => {
   const host = props.hostTool
@@ -278,6 +292,67 @@ const visibleInnerTools = computed((): ToolCall[] => {
   if (tools.some(tc => tc.id === live.id)) return tools
   return [...tools, live]
 })
+
+/** Per-round bodies: each round's own text + that round's own tools (design doc §6). */
+const roundBodies = computed(() =>
+  buildSubAgentRoundsFromScoped(
+    scopedTraceMessages.value,
+    effectiveAnchorId.value,
+    props.trace.id,
+    props.trace.agentInstanceId
+  )
+)
+
+function visibleRoundTools(calls: readonly ToolCall[]): ToolCall[] {
+  if (!props.messageUi.showToolCalls) return []
+  // Scoped copies can be thinner than the session copy (see innerToolCalls) — keep
+  // the round's membership but render the richest copy of each id.
+  const byId = new Map(innerToolCalls.value.map(tc => [tc.id, tc]))
+  return visibleToolCalls(
+    calls
+      .map(tc => byId.get(tc.id) ?? tc)
+      .filter(tc => !isSubResponseToolName(tc.name)),
+    props.messageUi.hideToolNames,
+    props.messageUi.showSidecarToolCalls === true,
+    props.messageUi.showNonSidecarToolCalls !== false
+  )
+}
+
+const processRounds = computed(() =>
+  roundBodies.value.map(round => ({
+    key: round.messageId,
+    messageId: round.messageId,
+    content: round.content,
+    streaming: round.contentStreaming,
+    tools: visibleRoundTools(round.toolCalls)
+  }))
+)
+
+/** Rounds to paint: this spawn's rounds, else the legacy session's single body. */
+const roundsForRender = computed(() => {
+  const rounds = processRounds.value
+  if (rounds.length > 0) {
+    const live = liveInnerTool.value
+    if (!live || rounds.some(round => round.tools.some(tc => tc.id === live.id))) return rounds
+    return [...rounds, { key: `live-${live.id}`, messageId: '', content: '', streaming: false, tools: [live] }]
+  }
+  const legacy = legacySession.value
+  if (!legacy) return rounds
+  return [
+    {
+      key: 'legacy',
+      messageId: '',
+      content: '',
+      streaming: false,
+      tools: visibleRoundTools(legacy.toolCalls ?? [])
+    }
+  ]
+})
+
+/** Collapsed one-line preview of the latest round text (D-E1). */
+const contentPreview = computed(() =>
+  subAgentContentPreviewLine(latestSubAgentContent(roundBodies.value))
+)
 
 const collapsedView = computed(() => {
   // Read the live signal directly so this computed re-evaluates when the
@@ -423,10 +498,29 @@ watch(
   }
 )
 
+/**
+ * Search hit for this frame — including a hit inside a nested spawn, so the
+ * collapsed ancestors expand and mount the path to it (design doc §2.5).
+ */
 const isSearchHit = computed(() => {
-  const ids = searchToolCallIds.value
-  if (ids.length === 0) return false
-  return visibleInnerTools.value.some(tc => ids.includes(tc.id))
+  const toolIds = searchToolCallIds.value
+  if (toolIds.length > 0 && visibleInnerTools.value.some(tc => toolIds.includes(tc.id))) {
+    return true
+  }
+  return traceSubtreeContainsSearchTarget({
+    trace: props.trace,
+    ownRows: scopedTraceMessages.value,
+    targets: {
+      toolCallIds: toolIds,
+      contentMessageIds: searchContentIds.value
+    },
+    rowsForTrace: trace =>
+      chatStore.scopedMessagesForTraceCached(
+        trace.anchorMessageId?.trim() || effectiveAnchorId.value,
+        trace.id,
+        trace.agentInstanceId
+      )
+  })
 })
 
 watch(
@@ -488,6 +582,15 @@ watch(
       </button>
     </div>
 
+    <!-- D-E1: collapsed frames keep one line of the latest round text. -->
+    <div
+      v-if="collapsed && contentPreview"
+      class="min-w-0 w-full pl-4 pr-2"
+      data-sub-agent-content-preview
+    >
+      <span class="block truncate text-[12px] leading-5 text-muted/70">{{ contentPreview }}</span>
+    </div>
+
     <div
       v-if="!collapsed"
       class="space-y-0.5"
@@ -496,14 +599,28 @@ watch(
         v-if="showCompressionMarker"
         :label="compressionProgressLabel"
       />
-      <ToolCallRow
-        v-for="tc in visibleInnerTools"
-        :key="tc.id"
-        :tool-call="tc"
-        :show-tool-call-results="messageUi.showToolCallResults"
-        :is-search-match="searchToolCallIds.includes(tc.id)"
-        :is-active-search-match="activeSearchToolCallId === tc.id"
-      />
+      <!-- Per-round interleave: that round's content, then that round's tools. -->
+      <template
+        v-for="round in roundsForRender"
+        :key="round.key"
+      >
+        <SubAgentContentBlock
+          v-if="round.content"
+          :content="round.content"
+          :message-id="round.messageId || undefined"
+          :streaming="round.streaming"
+          :is-search-match="!!round.messageId && searchContentIds.includes(round.messageId)"
+          :is-active-search-match="!!round.messageId && activeSearchContentId === round.messageId"
+        />
+        <ToolCallRow
+          v-for="tc in round.tools"
+          :key="tc.id"
+          :tool-call="tc"
+          :show-tool-call-results="messageUi.showToolCallResults"
+          :is-search-match="searchToolCallIds.includes(tc.id)"
+          :is-active-search-match="activeSearchToolCallId === tc.id"
+        />
+      </template>
       <RawWirePanel
         v-if="showRawWire && hasRawWire"
         :reasoning="rawWireReasoning"

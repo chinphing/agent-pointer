@@ -196,6 +196,84 @@ export function buildSubAgentBodyModelsFromScoped(
   return merged ? [merged] : []
 }
 
+/** One assistant round of a spawn: that round's own text plus that round's own tools. */
+export interface SubAgentRoundBody {
+  /** Scoped row id of the round — content anchor and conversation-search target. */
+  messageId: string
+  content: string
+  contentStreaming: boolean
+  toolCalls: ToolCall[]
+  createdAt: number
+}
+
+function roundBodyFromMessage(msg: ChatMessage): SubAgentRoundBody {
+  return {
+    messageId: msg.id,
+    content: isSubAgentHostStubContent(msg.content) ? '' : (msg.content ?? ''),
+    contentStreaming: msg.contentStreaming === true || msg.status === 'streaming',
+    toolCalls: msg.toolCalls ?? [],
+    createdAt: msg.createdAt
+  }
+}
+
+/**
+ * Per-round bodies for the frame: one entry per assistant round, in time order.
+ * Unlike {@link buildSubAgentBodyModelsFromScoped} this does **not** merge rounds,
+ * so the frame can interleave「该轮 content → 该轮工具行」.
+ */
+export function buildSubAgentRoundsFromScoped(
+  messages: ChatMessage[],
+  anchorMessageId: string,
+  traceId: string,
+  agentInstanceId?: string
+): SubAgentRoundBody[] {
+  return scopedAssistantMessagesForTrace(
+    messages,
+    anchorMessageId,
+    traceId,
+    agentInstanceId
+  )
+    .map(roundBodyFromMessage)
+    .filter(round => round.content.trim().length > 0 || round.toolCalls.length > 0)
+}
+
+/** Latest non-empty round text (final handoff wins); `fallback` covers legacy sessions. */
+export function latestSubAgentContent(
+  rounds: readonly SubAgentRoundBody[],
+  fallback?: string | null
+): string {
+  for (let i = rounds.length - 1; i >= 0; i -= 1) {
+    const content = rounds[i]!.content.trim()
+    if (content) return content
+  }
+  return fallback?.trim() ?? ''
+}
+
+export const SUB_AGENT_CONTENT_PREVIEW_MAX_CHARS = 140
+
+/**
+ * One-line collapsed preview: the first non-empty line of the latest round text,
+ * whitespace-collapsed, light markdown decoration stripped and truncated.
+ */
+export function subAgentContentPreviewLine(
+  content: string | null | undefined,
+  maxChars = SUB_AGENT_CONTENT_PREVIEW_MAX_CHARS
+): string {
+  const firstLine = (content ?? '')
+    .split('\n')
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .find(line => line.length > 0) ?? ''
+  if (!firstLine) return ''
+  const plain = firstLine
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/^>\s*/, '')
+    .replace(/^[-*+]\s+/, '')
+    .trim()
+  if (!plain) return ''
+  const limit = Math.max(1, maxChars)
+  return plain.length > limit ? `${plain.slice(0, limit).trimEnd()}…` : plain
+}
+
 function sortedScopedMessagesForTrace(
   messages: ChatMessage[],
   anchorMessageId: string,

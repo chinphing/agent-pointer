@@ -4,12 +4,15 @@ import {
   bindUnboundTracesToHosts,
   buildSubAgentBodyModelsFromScoped,
   buildSubAgentBodyModelsSplitAtCut,
+  buildSubAgentRoundsFromScoped,
   computeSubAgentStatsFromMessages,
   ensureHostLinkedSubTraces,
   ensureScopedChildMessage,
   isSubAgentHostStubContent,
+  latestSubAgentContent,
   mergeSubAgentToolCalls,
   rehydrateAgentTracesFromScopedMessages,
+  subAgentContentPreviewLine,
   scopedAssistantMessagesForTrace,
   scopedMessagesForTrace,
   subAgentFrameOwnsCompression
@@ -633,5 +636,118 @@ describe('ensureHostLinkedSubTraces', () => {
     expect(lead.agentTrace![0]!.id).toBe('inst-hydrated')
     expect(lead.agentTrace![0]!.parentToolCallId).toBe('call-fg')
     expect(lead.agentTrace![0]!.agentInstanceId).toBe('inst-hydrated')
+  })
+})
+
+describe('buildSubAgentRoundsFromScoped', () => {
+  function rounds(): ChatMessage[] {
+    return [
+      {
+        id: 'stub',
+        role: 'user',
+        content: 'Begin. Your assigned task is in the system prompt under **Assigned task**.',
+        status: 'done',
+        createdAt: 0,
+        anchorMessageId: 'lead',
+        traceId: 'inst-1',
+        agentInstanceId: 'inst-1'
+      },
+      {
+        id: 'r1',
+        role: 'assistant',
+        content: '第一轮：先看仓库结构',
+        status: 'done',
+        createdAt: 1,
+        anchorMessageId: 'lead',
+        traceId: 'inst-1',
+        agentInstanceId: 'inst-1',
+        toolCalls: [{ id: 't1', name: 'file_list', arguments: '{}', status: 'success' }]
+      },
+      {
+        id: 'r2',
+        role: 'assistant',
+        content: '',
+        status: 'done',
+        createdAt: 2,
+        anchorMessageId: 'lead',
+        traceId: 'inst-1',
+        agentInstanceId: 'inst-1',
+        toolCalls: [{ id: 't2', name: 'file_read', arguments: '{}', status: 'success' }]
+      },
+      {
+        id: 'r3',
+        role: 'assistant',
+        content: '最终 handoff：已完成',
+        status: 'done',
+        createdAt: 3,
+        anchorMessageId: 'lead',
+        traceId: 'inst-1',
+        agentInstanceId: 'inst-1'
+      }
+    ]
+  }
+
+  it('keeps one body per round, each with that round own tools', () => {
+    const models = buildSubAgentRoundsFromScoped(rounds(), 'lead', 'inst-1', 'inst-1')
+    expect(models.map(r => r.messageId)).toEqual(['r1', 'r2', 'r3'])
+    expect(models[0]!.content).toBe('第一轮：先看仓库结构')
+    expect(models[0]!.toolCalls.map(tc => tc.id)).toEqual(['t1'])
+    expect(models[1]!.content).toBe('')
+    expect(models[1]!.toolCalls.map(tc => tc.id)).toEqual(['t2'])
+    expect(models[2]!.toolCalls).toEqual([])
+    expect(models[2]!.content).toBe('最终 handoff：已完成')
+  })
+
+  it('marks the streaming round and drops host stub text', () => {
+    const rows = rounds()
+    rows[1]!.contentStreaming = true
+    rows[0]!.content = 'Begin. Your assigned task is in the system prompt'
+    const models = buildSubAgentRoundsFromScoped(rows, 'lead', 'inst-1', 'inst-1')
+    expect(models[0]!.contentStreaming).toBe(true)
+    expect(models.every(r => !isSubAgentHostStubContent(r.content))).toBe(true)
+  })
+
+  it('does not merge rounds into the last one', () => {
+    const models = buildSubAgentRoundsFromScoped(rounds(), 'lead', 'inst-1', 'inst-1')
+    expect(models).toHaveLength(3)
+    expect(models[0]!.content).not.toBe(models[2]!.content)
+  })
+})
+
+describe('latestSubAgentContent / subAgentContentPreviewLine', () => {
+  it('prefers the last non-empty round and falls back to the legacy session text', () => {
+    const models = buildSubAgentRoundsFromScoped(
+      [
+        {
+          id: 'r1',
+          role: 'assistant',
+          content: '中间结论',
+          status: 'done',
+          createdAt: 1,
+          anchorMessageId: 'lead',
+          traceId: 'inst-1',
+          agentInstanceId: 'inst-1'
+        }
+      ],
+      'lead',
+      'inst-1',
+      'inst-1'
+    )
+    expect(latestSubAgentContent(models)).toBe('中间结论')
+    expect(latestSubAgentContent([], 'legacy text')).toBe('legacy text')
+    expect(latestSubAgentContent([], undefined)).toBe('')
+  })
+
+  it('takes the first non-empty line and strips heading / list decoration', () => {
+    expect(subAgentContentPreviewLine('\n\n## 交付\n细节')).toBe('交付')
+    expect(subAgentContentPreviewLine('- 完成 A 与 B')).toBe('完成 A 与 B')
+    expect(subAgentContentPreviewLine('> 引用行')).toBe('引用行')
+  })
+
+  it('collapses whitespace, truncates and blanks out empty content', () => {
+    expect(subAgentContentPreviewLine('a   b\nc')).toBe('a b')
+    expect(subAgentContentPreviewLine('x'.repeat(200), 10)).toBe('xxxxxxxxxx…')
+    expect(subAgentContentPreviewLine('   \n  ')).toBe('')
+    expect(subAgentContentPreviewLine(undefined)).toBe('')
   })
 })

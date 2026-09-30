@@ -8,6 +8,8 @@ import CollapsedRunHeader from '../../CollapsedRunHeader.vue'
 defineProps<{
   trace: AgentTrace
   summaryLine: string
+  /** One-line latest-round content preview (design doc §6.3, D-E1). */
+  previewLine?: string
   showChevron: boolean
 }>()
 
@@ -32,6 +34,13 @@ const emit = defineEmits<{
         :aria-label="summaryLine.trim() || t('chat.subtaskProcess')"
         @toggle="emit('toggle')"
       />
+      <div
+        v-if="previewLine"
+        class="min-w-0 w-full pl-4 pr-2"
+        data-sub-agent-content-preview
+      >
+        <span class="block truncate text-[12px] leading-5 text-muted/70">{{ previewLine }}</span>
+      </div>
     </div>
   </div>
 </template>

@@ -55,3 +55,60 @@ describe('current conversation search', () => {
     expect(findCurrentConversationMatches([message('a', 'text')], '   ')).toEqual([])
   })
 })
+
+describe('current conversation search over sub-agent scoped rows', () => {
+  function scopedRow(id: string, over: Partial<ChatMessage> = {}): ChatMessage {
+    return {
+      id,
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 1,
+      anchorMessageId: 'lead',
+      agentInstanceId: 'inst-1',
+      ...over
+    }
+  }
+
+  it('reports a content hit against the frame anchor plus the scoped row id', () => {
+    const rows = [scopedRow('round-1', { content: '中间结论：先看仓库' })]
+    expect(findCurrentConversationMatches([], '中间结论', rows)).toEqual([
+      { messageId: 'lead', contentMessageId: 'round-1' }
+    ])
+  })
+
+  it('reports a tool hit on a scoped row with its tool call id', () => {
+    const rows = [
+      scopedRow('round-2', {
+        toolCalls: [
+          { id: 'deep-tool', name: 'terminal', arguments: '{}', status: 'success', result: 'deep output' }
+        ]
+      })
+    ]
+    expect(findCurrentConversationMatches([], 'deep output', rows)).toEqual([
+      { messageId: 'lead', toolCallId: 'deep-tool' }
+    ])
+  })
+
+  it('keeps transcript hits first and then scoped rows in row order', () => {
+    const rows = [
+      scopedRow('round-b', { content: 'hit b', createdAt: 5, position: 5 }),
+      scopedRow('round-a', { content: 'hit a', createdAt: 2, position: 2 })
+    ]
+    expect(findCurrentConversationMatches([message('lead', 'hit transcript')], 'hit', rows)).toEqual([
+      { messageId: 'lead' },
+      { messageId: 'lead', contentMessageId: 'round-a' },
+      { messageId: 'lead', contentMessageId: 'round-b' }
+    ])
+  })
+
+  it('ignores rows without an anchor and keeps the default call shape', () => {
+    const orphan = scopedRow('orphan', { content: 'orphan hit', anchorMessageId: '' })
+    expect(findCurrentConversationMatches([message('a', 'hit')], 'hit', [orphan])).toEqual([
+      { messageId: 'a' }
+    ])
+    expect(findCurrentConversationMatches([message('a', 'hit')], 'hit')).toEqual([
+      { messageId: 'a' }
+    ])
+  })
+})

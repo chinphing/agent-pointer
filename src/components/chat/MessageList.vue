@@ -112,14 +112,20 @@ import { listTurnFileChanges, saveTurnFileChanges } from '../../lib/api'
 const props = withDefaults(defineProps<{
   searchMatchIds?: string[]
   searchMatchToolCallIds?: string[]
+  /** Scoped sub-agent row ids whose round content matched the search. */
+  searchMatchContentIds?: string[]
   activeSearchMessageId?: string | null
   activeSearchToolCallId?: string | null
+  /** Scoped sub-agent row of the active content hit (deep frame locate). */
+  activeSearchContentId?: string | null
   searchQuery?: string
 }>(), {
   searchMatchIds: () => [],
   searchMatchToolCallIds: () => [],
+  searchMatchContentIds: () => [],
   activeSearchMessageId: null,
   activeSearchToolCallId: null,
+  activeSearchContentId: null,
   searchQuery: ''
 })
 
@@ -143,6 +149,8 @@ const locatingFocus = ref(false)
 
 provide('currentConversationSearchToolCallIds', computed(() => props.searchMatchToolCallIds))
 provide('currentConversationActiveToolCallId', computed(() => props.activeSearchToolCallId))
+provide('currentConversationSearchContentIds', computed(() => props.searchMatchContentIds))
+provide('currentConversationActiveSearchContentId', computed(() => props.activeSearchContentId))
 
 const contextCompressingLabel = computed(() => {
   const state = chat.contextCompressing
@@ -860,9 +868,10 @@ watch(
   () => [
     props.activeSearchMessageId,
     props.activeSearchToolCallId,
+    props.activeSearchContentId,
     props.searchQuery
   ] as const,
-  async ([messageId, toolCallId, searchQuery]) => {
+  async ([messageId, toolCallId, contentId, searchQuery]) => {
     const root = scroller.value
     if (root) clearSearchTextMarks(root, PAGE_SEARCH_MARK_CLASS)
 
@@ -875,9 +884,12 @@ watch(
       const settledRoot = scroller.value
       if (!settledRoot) return
       const targetToolCallId = toolCallId?.trim()
+      const targetContentId = contentId?.trim()
       const selector = targetToolCallId
         ? `[data-tool-call-id="${CSS.escape(targetToolCallId)}"]`
-        : `[data-message-id="${CSS.escape(targetMessageId)}"]`
+        : targetContentId
+          ? `[data-sub-agent-content-id="${CSS.escape(targetContentId)}"]`
+          : `[data-message-id="${CSS.escape(targetMessageId)}"]`
       const matches = settledRoot.querySelectorAll(selector)
       let el: HTMLElement | null = null
       for (const node of matches) {
@@ -891,7 +903,7 @@ watch(
       if (!el) return
       const precise = highlightSearchText(el, query, {
         markClass: PAGE_SEARCH_MARK_CLASS,
-        excludeSelector: targetToolCallId ? undefined : '[data-tool-call-id]'
+        excludeSelector: targetToolCallId || targetContentId ? undefined : '[data-tool-call-id]'
       })
       ;(precise.scrollTarget ?? el).scrollIntoView({ block: 'center', behavior: 'smooth' })
     } finally {

@@ -15,6 +15,12 @@ import {
 import { isPendingApprovalToolCall } from '../../../../lib/messageTooling'
 import { isSubAgentTraceTerminal, toggleSubTraceExpanded } from '../../../../lib/subAgentSession'
 import { SUB_AGENT_PROCESS_PLACEHOLDER } from '../../../../lib/subAgentStats'
+import {
+  buildSubAgentRoundsFromScoped,
+  latestSubAgentContent,
+  subAgentContentPreviewLine
+} from '../../../../lib/subAgentMessages'
+import { traceSubtreeContainsSearchTarget } from '../../../../lib/subAgentSearch'
 import SubAgentFrame, { type SubAgentTaskBoardBinding } from './SubAgentFrame.vue'
 import SubAgentFrameStub from './SubAgentFrameStub.vue'
 import type { ResolvedAgentUi } from '../../../../lib/agentUi'
@@ -48,6 +54,10 @@ const searchToolCallIds = inject<Ref<string[]>>(
   'currentConversationSearchToolCallIds',
   ref<string[]>([])
 )
+const searchContentIds = inject<Ref<string[]>>(
+  'currentConversationSearchContentIds',
+  ref<string[]>([])
+)
 
 const effectiveAnchorId = computed(
   () => props.trace.anchorMessageId?.trim() || props.anchorMessageId
@@ -73,7 +83,10 @@ const searchPinned = computed(() => {
   const ids = new Set(
     (searchToolCallIds.value ?? []).map(id => id.trim()).filter(Boolean)
   )
-  if (ids.size === 0) return false
+  const contentIds = new Set(
+    (searchContentIds.value ?? []).map(id => id.trim()).filter(Boolean)
+  )
+  if (ids.size === 0 && contentIds.size === 0) return false
   for (const id of props.trace.searchToolCallIds ?? []) {
     if (ids.has(id.trim())) return true
   }
@@ -81,13 +94,24 @@ const searchPinned = computed(() => {
     const id = tc.id?.trim()
     if (id && ids.has(id)) return true
   }
-  for (const msg of scopedForStub.value) {
-    for (const tc of msg.toolCalls ?? []) {
-      const id = tc.id?.trim()
-      if (id && ids.has(id)) return true
-    }
-  }
-  return false
+  return traceSubtreeContainsSearchTarget({
+    trace: props.trace,
+    ownRows: chatStore.scopedMessagesForTraceCached(
+      effectiveAnchorId.value,
+      props.trace.id,
+      props.trace.agentInstanceId
+    ),
+    targets: {
+      toolCallIds: [...ids],
+      contentMessageIds: [...contentIds]
+    },
+    rowsForTrace: trace =>
+      chatStore.scopedMessagesForTraceCached(
+        trace.anchorMessageId?.trim() || effectiveAnchorId.value,
+        trace.id,
+        trace.agentInstanceId
+      )
+  })
 })
 
 const { stubIdleElapsed } = useTerminalSubAgentStub(traceRef, {
@@ -123,6 +147,20 @@ const stubView = computed(() =>
 
 const stubSummaryLine = computed(
   () => stubView.value.summaryLine.trim() || SUB_AGENT_PROCESS_PLACEHOLDER
+)
+
+/** D-E1 preview for the degraded collapsed stub (empty once rows are evicted). */
+const stubPreviewLine = computed(() =>
+  subAgentContentPreviewLine(
+    latestSubAgentContent(
+      buildSubAgentRoundsFromScoped(
+        scopedForStub.value,
+        effectiveAnchorId.value,
+        props.trace.id,
+        props.trace.agentInstanceId
+      )
+    )
+  )
 )
 
 function onStubToggle() {
@@ -238,6 +276,7 @@ watch(
     v-if="showStub"
     :trace="trace"
     :summary-line="stubSummaryLine"
+    :preview-line="stubPreviewLine"
     :show-chevron="true"
     @toggle="onStubToggle"
   />

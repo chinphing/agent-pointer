@@ -36,7 +36,7 @@ Lead 调用：`run_subagent(agentId="self", goal=…, context=…)`。Repo / ski
 | `context` | ✗ | Lead 已验证事实、依赖摘要、路径、语言等 |
 | `title` / `taskId` / `workspaceRoot` / `computerTarget` | ✗ | 与现语义相同 |
 
-#### Goal 编写规范（Lead / Supervisor）
+#### Goal 编写规范（Lead）
 
 | worker | `goal` 写什么 | 不要写什么 |
 |--------|---------------|------------|
@@ -59,7 +59,7 @@ Lead 调用：`run_subagent(agentId="self", goal=…, context=…)`。Repo / ski
 
 提示词落地：`tools/prompts/run_subagent.md`、`agents/general/AGENT.md`；computer worker 的 delegatable `description` 亦提示 outcome-only goal。
 
-### 1.2 `AgentTask`（Supervisor 同形）
+### 1.2 `AgentTask`
 
 ```rust
 pub struct AgentTask {
@@ -84,7 +84,7 @@ pub struct AgentTask {
 
 | 深度 | 角色 | `run_subagent` |
 |------|------|----------------|
-| **0** | Lead（主会话 / Supervisor 编排层） | 允许（若 `allowAgents` 非空） |
+| **0** | Lead（主会话） | 允许（若 `allowAgents` 非空） |
 | **1 … max−1** | Orchestrator 子 agent | 允许（若本 agent 工具策略含 `run_subagent` 且 `allowAgents` 非空） |
 | **≥ max** | Leaf 子 agent | **禁止**；工具列表剔除 `run_subagent`，调用时硬拒绝 |
 
@@ -175,7 +175,7 @@ You are sub-agent depth {d}/{max}. …
 
 短 stub，**不重复 goal**（OpenClaw 风格）。
 
-### 3.4 Supervisor `dependsOn`
+### 3.4 `dependsOn`
 
 前置任务摘要写入子任务 **`context`**，不拼进 `goal`。
 
@@ -191,7 +191,7 @@ You are sub-agent depth {d}/{max}. …
 |------|------|
 | `anchorMessageId` | 父 lead assistant 消息 id |
 | `traceId` | `{taskId}:{agentId}`，对应 `agentTrace.id` |
-| `taskId` | supervisor / run_subagent 任务 id |
+| `taskId` | run_subagent 任务 id |
 | `spawnDepth` | 嵌套深度 |
 | `contextState.included` | 默认 `false`，不进 lead LLM 上下文 |
 
@@ -259,7 +259,6 @@ You are sub-agent depth {d}/{max}. …
 - [ ] A2 `RunSubagentArgs` + `parse_run_subagent_args`（拒绝 `instruction`）
 - [ ] A3 `tool_envelope.rs`：`goal`、`context` raw 保留
 - [ ] A4 `sub_agent_task_prompt.rs` + `sub_agent_prompt.rs` 组装
-- [ ] A5 `supervisor_plan.rs` / `supervisor.rs` / `plan_sync.rs`
 - [ ] A6 `run_subagent_delegation.rs` 构造 `AgentTask`
 
 ### Phase B — 嵌套深度
@@ -283,7 +282,7 @@ You are sub-agent depth {d}/{max}. …
 - [ ] F2 深度：max=1 时 depth-1 子 agent 无 `run_subagent`；max=2 时 coder 子可委派 explore
 - [ ] F3 超深度 spawn 返回 ERROR
 - [ ] F4 `build_subagent_task_*` 块内容
-- [ ] F5 `cargo test -p pointer-core -- run_subagent sub_agent supervisor`
+- [ ] F5 `cargo test -p pointer-core -- run_subagent sub_agent`
 
 ---
 

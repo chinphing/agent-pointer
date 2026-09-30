@@ -917,7 +917,7 @@ pub struct ModelSettings {
         rename = "userDynamicInjectEnabled"
     )]
     pub user_dynamic_inject_enabled: bool,
-    /// Per-agent default LLM: worker id or `"supervisor"` → explicit provider + model.
+    /// Per-agent default LLM: worker id → explicit provider + model.
     #[serde(
         default,
         rename = "agentDefaultModels",

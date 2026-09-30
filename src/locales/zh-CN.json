@@ -471,9 +471,7 @@
     "computer": "电脑操控",
     "explore": "代码探索",
     "generalWorker": "通用执行",
-    "analyst": "深度研究",
-    "supervisor": "团队模式",
-    "teamMode": "团队模式"
+    "analyst": "深度研究"
   },
   "tools": {
     "fileRead": "读取文件",

@@ -277,8 +277,6 @@ mod tests {
         assert!(block.contains(&crate::i18n::t(locale, "agents.general")));
         assert!(block.contains(&crate::i18n::t(locale, "agents.coder")));
         assert!(block.contains(&crate::i18n::t(locale, "agents.computer")));
-        assert!(!block.contains("supervisor"));
-        assert!(!block.contains(&crate::i18n::t(locale, "agents.supervisor")));
         assert!(!block.contains("research"));
         assert!(!block.contains(&crate::i18n::t(locale, "agents.analyst")));
         assert!(block.contains("blocks this turn"));

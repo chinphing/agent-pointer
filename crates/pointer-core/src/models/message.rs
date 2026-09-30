@@ -131,7 +131,7 @@ pub struct AgentTrace {
     pub detail: Option<String>,
     #[serde(default)]
     pub content: Option<String>,
-    /// UI indentation: 0 = top-level (lead / supervisor), 1 = delegated sub-agent step.
+    /// UI indentation: 0 = top-level (lead), 1 = delegated sub-agent step.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub depth: Option<u32>,
     /// Legacy nested UI session; superseded by scoped child `ChatMessage` rows. Read-only for old data.

@@ -2,7 +2,7 @@
 
 use uuid::Uuid;
 
-/// One runtime agent invocation (lead, sub-agent, or supervisor segment).
+/// One runtime agent invocation (lead or sub-agent).
 #[derive(Debug, Clone)]
 pub struct AgentInstanceScope {
     pub run_id: String,

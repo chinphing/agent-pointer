@@ -295,7 +295,7 @@ WorkerLease Drop → running_roots -1，叫醒队头
 ## UI / 文案
 
 - 后台子任务仍挂在宿主 `run_subagent` 行下，统计行 +「思考中」规则与前台相同。
-- 界面只说「后台执行中 / 已完成 / 已取消」，不要写 jobId、lane、supervisor；不要把句柄 JSON 当「结果」展开给用户。
+- 界面只说「后台执行中 / 已完成 / 已取消」，不要写 jobId、lane；不要把句柄 JSON 当「结果」展开给用户。
 - 侧栏会话在有后台 job 时保持转圈，直到该会话 **没有** running job（用户应能边聊边看）。
 - 停止按钮 = 本会话 `generating` **或** 后台占用 > 0。不是只靠 `Done`。
   - `generating`：发出本轮时点亮，`Done` / 停止 / 报错 / 队列对账清掉。

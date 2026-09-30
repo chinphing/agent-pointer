@@ -5,7 +5,6 @@
 //! - **Stream**: `run_provider_stream_round` vs `run_sub_agent_stream_round` (sub uses parent `message_id`, trace UI)
 //! - **History**: main `history` + DB persist vs sub `local_history` only (`persist_transcript = sub.is_none()` in tool pass)
 //! - **Tool pass**: `run_single_agent_tool_pass` vs `run_agent_tool_pass` + `SubToolPassConfig`
-//! - **Supervisor**: no inner loop; delegates each task to `run_sub_agent`
 
 use anyhow::{anyhow, Result};
 

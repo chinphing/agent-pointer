@@ -36,7 +36,7 @@ import type {
   ToolCall,
   TaskBoardDocument
 } from '../types/chat'
-import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
+import { DEFAULT_LEAD_AGENT_ID, normalizeAgentMode } from '../types/chat'
 import type { RunQueueSnapshot } from '../types/automation'
 import { t } from '../i18n'
 import { CODER_AGENT_ID, GENERAL_AGENT_ID } from '../lib/agentUi'
@@ -1021,7 +1021,6 @@ export const useChatStore = defineStore('chat', () => {
             leadAgentId: effectiveConversationLeadAgentId(conv),
             performanceMode: effectiveConversationPerformanceMode(conv),
             toolRoundsUsed: 0,
-            toolRoundsUsedSupervisor: 0,
             workspaceRoot: conv.workspaceInheritDisabled ? '' : (conv.workspaceRoot ?? '').trim(),
             ...(conv.workspaceInheritDisabled ? { workspaceInheritDisabled: true } : {})
           }),
@@ -1441,7 +1440,6 @@ export const useChatStore = defineStore('chat', () => {
         updatedAt: Date.now(),
         skillIds: [],
         toolRoundsUsed: 0,
-        toolRoundsUsedSupervisor: 0,
         leadAgentId: DEFAULT_LEAD_AGENT_ID,
         agentMode: 'single'
       },
@@ -1466,7 +1464,6 @@ export const useChatStore = defineStore('chat', () => {
       messages: [],
       skillIds: [],
       toolRoundsUsed: 0,
-      toolRoundsUsedSupervisor: 0,
       workspaceRoot: '',
       workspaceUserSet: false,
       workspaceInheritDisabled: false,
@@ -1498,14 +1495,13 @@ export const useChatStore = defineStore('chat', () => {
       messages: [],
       skillIds: m.skillIds ?? [],
       toolRoundsUsed: m.toolRoundsUsed,
-      toolRoundsUsedSupervisor: m.toolRoundsUsedSupervisor,
       computerMonitorId: m.computerMonitorId,
       projectId: m.projectId,
       workspaceRoot: m.workspaceRoot,
       workspaceUserSet: m.workspaceUserSet,
       workspaceInheritDisabled: m.workspaceInheritDisabled,
       leadAgentId: m.leadAgentId,
-      agentMode: m.agentMode,
+      agentMode: normalizeAgentMode(m.agentMode),
       performanceMode: m.performanceMode,
       messageCount: m.messageCount
     }
@@ -2473,7 +2469,6 @@ export const useChatStore = defineStore('chat', () => {
       isPinned: !!c.isPinned,
       skillIds: c.skillIds,
       toolRoundsUsed: c.toolRoundsUsed,
-      toolRoundsUsedSupervisor: c.toolRoundsUsedSupervisor,
       computerMonitorId: c.computerMonitorId,
       projectId: c.projectId,
       workspaceRoot: c.workspaceRoot,
@@ -2652,7 +2647,6 @@ export const useChatStore = defineStore('chat', () => {
       messages: [],
       skillIds: [],
       toolRoundsUsed: 0,
-      toolRoundsUsedSupervisor: 0,
       workspaceRoot: resolvedWorkspaceRoot,
       workspaceUserSet: false,
       workspaceInheritDisabled: false,
@@ -2771,12 +2765,11 @@ export const useChatStore = defineStore('chat', () => {
         messages: [],
         skillIds: [],
         toolRoundsUsed: 0,
-        toolRoundsUsedSupervisor: 0,
         workspaceRoot: '',
         workspaceUserSet: false,
         workspaceInheritDisabled: false,
         leadAgentId: leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID,
-        agentMode: (agentMode?.trim() || 'single') as AgentMode
+        agentMode: normalizeAgentMode(agentMode)
       }
       conversations.value.unshift(conv)
     } else if (label?.trim()) {
@@ -2784,7 +2777,7 @@ export const useChatStore = defineStore('chat', () => {
       // task's current label (e.g. after rename) instead of keeping an old one.
       conv.title = `[定时] ${label}`
       conv.leadAgentId = leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
-      conv.agentMode = (agentMode?.trim() || 'single') as AgentMode
+      conv.agentMode = normalizeAgentMode(agentMode)
     }
     // Always re-hydrate from DB: cron shells are transient, hydratedIds may
     // cache an empty snapshot from before the first tick finished, and
@@ -2821,7 +2814,6 @@ export const useChatStore = defineStore('chat', () => {
         messages: [],
         skillIds: [],
         toolRoundsUsed: 0,
-        toolRoundsUsedSupervisor: 0,
         workspaceRoot: '',
         workspaceUserSet: false,
         workspaceInheritDisabled: false,

@@ -348,9 +348,6 @@ export function handleDone(ctx: StreamHandlerContext, e: Done) {
       normalizeInterruptedAssistantStatuses([conv])
       removeTrailingDiscardableEmptyAssistant(conv)
       if (e.toolRoundsUsedTotal != null) conv.toolRoundsUsed = e.toolRoundsUsedTotal
-      if (e.toolRoundsUsedSupervisorTotal != null) {
-        conv.toolRoundsUsedSupervisor = e.toolRoundsUsedSupervisorTotal
-      }
       ctx.persistAppend(convId)
       if (convId.startsWith('cron:') || convId.startsWith('webhook:')) {
         ctx.refreshConversationMessages(convId)

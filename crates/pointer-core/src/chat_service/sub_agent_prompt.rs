@@ -500,7 +500,7 @@ pub(super) async fn prepare_sub_agent_round_prompts(
         .map(|m| m.images_base64.as_ref().map(|v| v.len()).unwrap_or(0))
         .sum();
     log::info!(
-        "run_chat supervisor_sub_agent pre_stream_chat conversation_id={} task_id={} message_id={} spawn_depth={} local_history_messages={} injected_tail_messages={} injected_image_slots={} cloned_history=false message_loop_prompts_after_ms={} assemble_system_prompts_ms={} before_main_llm_tail_ms={} pre_stream_total_ms={}",
+        "run_chat sub_agent pre_stream_chat conversation_id={} task_id={} message_id={} spawn_depth={} local_history_messages={} injected_tail_messages={} injected_image_slots={} cloned_history=false message_loop_prompts_after_ms={} assemble_system_prompts_ms={} before_main_llm_tail_ms={} pre_stream_total_ms={}",
         conversation_id,
         task_id,
         message_id,

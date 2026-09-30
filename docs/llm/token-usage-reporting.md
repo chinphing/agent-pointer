@@ -6,8 +6,8 @@
 |-------|---------|
 | `platform_agent_id` | OAuth desktop binding (JWT `agent_id`); auth only |
 | `run_id` | UUID per `run_chat`; scopes finalize to one run |
-| `agent_instance_id` | New UUID per lead / sub-agent / supervisor segment; stats + logs + dedup |
-| `agent_role_id` | Template id (`coder`, `explore`, `supervisor`) for admin filters |
+| `agent_instance_id` | New UUID per lead / sub-agent segment; stats + logs + dedup |
+| `agent_role_id` | Template id (`coder`, `explore`) for admin filters |
 | `request_id` | `run:{run_id}:{agent_instance_id}:{model_name}`; server dedup key |
 
 Runtime logs on LLM / sub-agent paths use `run_id`, `agent_instance_id`, and `agent_role_id`, not the platform agent UUID.

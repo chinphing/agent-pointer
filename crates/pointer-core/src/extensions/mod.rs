@@ -41,7 +41,7 @@ pub struct MessageLoopPromptsAfterContext<'a> {
     /// Screen inject uses this to attach per-turn annotated previews.
     pub round_assistant_message_id: Option<String>,
     /// File-name prefix for capture dumps; defaults to `round_assistant_message_id` when unset.
-    /// Supervisor sub-agents set this to a per-iteration id while UI events stay on the parent message.
+    /// Sub-agents set this to a per-iteration id while UI events stay on the parent message.
     pub round_screen_dump_prefix: Option<String>,
     /// Shared task board store for dynamic user inject hooks.
     pub task_board_store: Arc<TaskBoardStore>,

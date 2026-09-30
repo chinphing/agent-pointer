@@ -22,7 +22,7 @@ const moreModal = ref(false)
 // 媒体列「更多」：联网搜索等工具档位（非子智能体，与左侧 explore 入口对称）
 const moreMediaModal = ref(false)
 const WEB_SEARCH_SCENE_ID = 'web_search'
-const RETIRED_MORE_AGENT_IDS = new Set(['research', 'supervisor'])
+const RETIRED_MORE_AGENT_IDS = new Set(['research'])
 const moreWorkers = computed(() =>
   enabledWorkers.value.filter(
     w =>

@@ -12,7 +12,6 @@ export function sampleConversation(id = 'conv1'): Conversation {
     updatedAt: 0,
     skillIds: [],
     toolRoundsUsed: 0,
-    toolRoundsUsedSupervisor: 0,
     leadAgentId: 'general',
     agentMode: 'single'
   }

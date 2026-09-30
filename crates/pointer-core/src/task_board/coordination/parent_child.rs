@@ -7,22 +7,22 @@ use anyhow::{anyhow, Result};
 pub const SUB_AGENT_KEY_SEP: &str = "\u{1f}ptr_sub_agent\u{1f}";
 pub const SUB_AGENT_INSTANCE_KEY_SEP: &str = "\u{1f}ptr_agent_instance\u{1f}";
 
-pub fn sub_agent_task_board_store_key(parent_store_key: &str, supervisor_task_id: &str) -> String {
+pub fn sub_agent_task_board_store_key(parent_store_key: &str, sub_agent_task_id: &str) -> String {
     format!(
         "{parent}{SUB_AGENT_KEY_SEP}{task}",
         parent = parent_store_key.trim(),
-        task = supervisor_task_id.trim()
+        task = sub_agent_task_id.trim()
     )
 }
 
 pub fn sub_agent_task_board_store_key_for_instance(
     parent_store_key: &str,
-    supervisor_task_id: &str,
+    sub_agent_task_id: &str,
     agent_instance_id: &str,
 ) -> String {
     format!(
         "{}{SUB_AGENT_INSTANCE_KEY_SEP}{}",
-        sub_agent_task_board_store_key(parent_store_key, supervisor_task_id),
+        sub_agent_task_board_store_key(parent_store_key, sub_agent_task_id),
         agent_instance_id.trim()
     )
 }

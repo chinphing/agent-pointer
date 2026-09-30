@@ -81,7 +81,6 @@ pub fn patch_ephemeral_workspace(conversation_id: &str, workspace_root: &str) {
 pub fn patch_tool_rounds(
     conversation_id: &str,
     tool_rounds_used: u32,
-    tool_rounds_used_supervisor: u32,
     updated_at_ms: i64,
 ) {
     let Some(store) = store() else {
@@ -96,7 +95,6 @@ pub fn patch_tool_rounds(
     };
     let mut meta = conv;
     meta.tool_rounds_used = tool_rounds_used;
-    meta.tool_rounds_used_supervisor = tool_rounds_used_supervisor;
     meta.updated_at = updated_at_ms;
     upsert_meta(&meta);
 }

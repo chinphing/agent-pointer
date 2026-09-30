@@ -1,4 +1,4 @@
-//! Agent loop entry contexts (lead single, sub, supervisor).
+//! Agent loop entry contexts (lead, sub-agent).
 
 use crate::agent_instance_scope::AgentInstanceScope;
 use crate::agents::{AgentPlan, AgentTask};

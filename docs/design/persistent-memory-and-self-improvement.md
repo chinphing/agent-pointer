@@ -358,7 +358,6 @@ crates/pointer-core/src/memory/
 | ----------------------------------- | ----------- | --------------------------------------------------- |
 | general（single lead）                | 默认启用        | 是                                                   |
 | coder / explore / research 等 worker | 否           | 否（子 Agent 无独立跨会话记忆）                                 |
-| Supervisor 父线程                      | 是           | 是；子 Agent 完成后可将摘要交给父级 memory（`on_delegation` 同型，拟议） |
 | Computer                            | 是（环境/UI 惯例） | 是；不记逐步操作日志                                          |
 
 

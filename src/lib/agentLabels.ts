@@ -8,9 +8,7 @@ const AGENT_ROLE_KEYS: Record<string, string> = {
   explore: 'agents.explore',
   general_worker: 'agents.generalWorker',
   'general-worker': 'agents.generalWorker',
-  analyst: 'agents.analyst',
-  supervisor: 'agents.supervisor',
-  team: 'agents.teamMode'
+  analyst: 'agents.analyst'
 }
 
 export function agentRoleLabel(roleId: string | null | undefined): string {

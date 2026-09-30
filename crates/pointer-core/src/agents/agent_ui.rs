@@ -115,10 +115,7 @@ pub struct ResolvedAgentUi {
     pub avatar: String,
 }
 
-fn default_composer_label(locale: UiLocale, profile: &AgentProfile, role: &str, id: &str) -> String {
-    if role == "supervisor" {
-        return t(locale, "agents.supervisor");
-    }
+fn default_composer_label(locale: UiLocale, profile: &AgentProfile, id: &str) -> String {
     match id {
         "general" => t(locale, "agents.general"),
         "coder" => t(locale, "agents.coder"),
@@ -130,51 +127,37 @@ fn default_composer_label(locale: UiLocale, profile: &AgentProfile, role: &str, 
             AgentProfile::Coder => t(locale, "agents.coder"),
             AgentProfile::Explore => t(locale, "agents.explore"),
             AgentProfile::Analyst => t(locale, "agents.analyst"),
-            AgentProfile::Supervisor => t(locale, "agents.supervisor"),
             _ => t(locale, "agents.general"),
         },
     }
 }
 
-fn profile_defaults(
-    locale: UiLocale,
-    profile: &AgentProfile,
-    role: &str,
-    id: &str,
-) -> ResolvedAgentUi {
-    let is_supervisor = role == "supervisor";
+fn profile_defaults(locale: UiLocale, profile: &AgentProfile, id: &str) -> ResolvedAgentUi {
     let is_computer = matches!(profile, AgentProfile::Computer) || id == "computer";
     let is_coder = matches!(profile, AgentProfile::Coder) || id == "coder";
     let is_research = matches!(profile, AgentProfile::Analyst);
-    let has_task_board = !is_supervisor;
     ResolvedAgentUi {
-        show_in_composer: !is_supervisor,
+        show_in_composer: true,
         show_agent_label: true,
         show_sidecar_tool_calls: false,
         show_non_sidecar_tool_calls: true,
         show_reasoning: false,
-        show_sub_agent_trace: is_supervisor || is_research,
-        show_tool_calls: !is_supervisor,
+        show_sub_agent_trace: is_research,
+        show_tool_calls: true,
         show_tool_call_results: false,
-        hide_tool_names: if has_task_board {
-            vec![
-                "task_board_init".into(),
-                "task_board_patch".into(),
-                "task_board_replace".into(),
-                "task_board_finalize".into(),
-                "task_board_abandon".into(),
-            ]
-        } else {
-            vec![]
-        },
+        hide_tool_names: vec![
+            "task_board_init".into(),
+            "task_board_patch".into(),
+            "task_board_replace".into(),
+            "task_board_finalize".into(),
+            "task_board_abandon".into(),
+        ],
         show_workspace_picker: is_coder,
         show_computer_monitor_picker: is_computer,
-        show_task_board_panel: has_task_board,
+        show_task_board_panel: true,
         user_selectable: is_computer || is_coder || is_research || id == "general",
-        composer_label: default_composer_label(locale, profile, role, id),
-        avatar: if is_supervisor {
-            "supervisor".into()
-        } else if is_computer {
+        composer_label: default_composer_label(locale, profile, id),
+        avatar: if is_computer {
             "computer".into()
         } else if is_coder {
             "coder".into()
@@ -204,12 +187,11 @@ fn merge_composer_label(
     locale: UiLocale,
     manifest: Option<String>,
     profile: &AgentProfile,
-    role: &str,
     id: &str,
 ) -> String {
     manifest
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| default_composer_label(locale, profile, role, id))
+        .unwrap_or_else(|| default_composer_label(locale, profile, id))
 }
 
 /// User-visible agent label (composer label). English slug stays in `AgentDef::name` for settings only.
@@ -227,7 +209,7 @@ pub fn resolve_agent_ui(def: &AgentDef) -> ResolvedAgentUi {
 }
 
 pub fn resolve_agent_ui_for(def: &AgentDef, locale: UiLocale) -> ResolvedAgentUi {
-    let base = profile_defaults(locale, &def.profile, &def.role, &def.id);
+    let base = profile_defaults(locale, &def.profile, &def.id);
     let ui = &def.ui;
     ResolvedAgentUi {
         show_in_composer: merge_bool(ui.show_in_composer, base.show_in_composer),
@@ -256,7 +238,6 @@ pub fn resolve_agent_ui_for(def: &AgentDef, locale: UiLocale) -> ResolvedAgentUi
             locale,
             ui.composer_label.clone(),
             &def.profile,
-            &def.role,
             &def.id,
         ),
         avatar: merge_str(ui.avatar.clone(), base.avatar),

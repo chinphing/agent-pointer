@@ -40,7 +40,7 @@ computer 在执行
 | 层 | 文件 |
 |----|------|
 | 参数 / 推断 | `tools/run_subagent.rs` → `resolve_computer_operation_target` |
-| 写入 trace | `run_subagent_delegation.rs`、`supervisor.rs`（computer 子任务） |
+| 写入 trace | `run_subagent_delegation.rs`（computer 子任务） |
 | 前端门控 | `computerExecuting.ts` → `shouldShrinkComputerWindow`；`useComputerCompactMode.ts` |
 | Lead 提示 | `tools/prompts/run_subagent.md`、`agents/general/AGENT.md` |
 
@@ -102,7 +102,7 @@ if (generating && messageHasComputerTools(msg) && hasInProgressComputerTool(msg)
 
 说明：
 
-- supervisor 委派 computer 时，`agent_step` 会将 trace `id === 'computer'` 且 `status === 'running'` 写入活跃消息（见 `AgentTrace`）。
+- 委派 computer 子任务时，`agent_step` 会将 trace `id === 'computer'` 且 `status === 'running'` 写入活跃消息（见 `AgentTrace`）。
 - 子 agent 工具调用带 `traceId`，标题区读 **computer trace 对应** 的 toolCalls（或主消息上可见的 computer 工具）。
 - `hideToolNames` 中的 sidecar（`task_board_patch`、`action_verify`）不参与标题，与聊天区一致。
 
@@ -228,7 +228,7 @@ stateDiagram-v2
 ## 验收
 
 1. Lead = computer：发送任务后窗口收缩至当前屏右下角一行。
-2. Supervisor 委派 computer：子 agent `running` 期间同样收缩；computer 结束后若整轮仍在 generating 但无 computer 执行 → **不保持收缩**（仅 computer 执行期间收缩）。
+2. 委派 computer 子任务：子 agent `running` 期间同样收缩；computer 结束后若整轮仍在 generating 但无 computer 执行 → **不保持收缩**（仅 computer 执行期间收缩）。
 3. 工具行实时显示「鼠标 · …」「快捷键 · …」等。
 4. 任务结束后 **自动展开** 且窗口位置/尺寸与进入前一致。
 5. macOS / Windows / Linux 冒烟通过；Web 为 fixed 浮条降级。

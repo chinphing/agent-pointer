@@ -16,7 +16,7 @@ Chart.js 与 SVG 示意图的模型侧说明从各 Agent `AGENT.md` 正文剥离
 
 `COMMUNICATION_PUBLIC` →（general/coder/computer）`MEDIA_DELIVERY` → `CHARTS` → `MERMAID_DIAGRAMS` → `SVG_DIAGRAMS` → Agent 系统提示 → …
 
-其它 profile（explore / research / supervisor 等）只注入 `COMMUNICATION_PUBLIC` + 自身系统提示，不带这三块。
+其它 profile（explore / research 等）只注入 `COMMUNICATION_PUBLIC` + 自身系统提示，不带这三块。
 
 约定：提示词英文、短行、不写仓库文件名；产品行为见 [`../ui/markdown-charts.md`](../ui/markdown-charts.md)、[`../ui/markdown-mermaid.md`](../ui/markdown-mermaid.md)、[`../ui/markdown-svg.md`](../ui/markdown-svg.md)。组装总序见 [`../internals/llm-prompt-assembly-order.md`](../internals/llm-prompt-assembly-order.md)。
 

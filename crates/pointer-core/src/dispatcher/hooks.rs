@@ -621,7 +621,6 @@ mod tests {
             lead_agent_id: None,
             performance_mode: None,
             tool_rounds_used_single_start: 0,
-            tool_rounds_used_supervisor_start: 0,
             workspace_root: String::new(),
             workspace_inherit_disabled: None,
             deliver: DeliverTarget::None,

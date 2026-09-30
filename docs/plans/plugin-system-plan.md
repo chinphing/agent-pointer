@@ -320,7 +320,7 @@ Run Span
  └── Approval Span（审批等待时长）
 ```
 
-> 审查注 7.1（2026-08-18）：观测 trace_id 与现有 trace_id 的关系：**观测 trace_id = run_id**（一个 Run 一条 trace）；Run 内子任务（sub-agent、self-fork、sidecar 调用）沿用现有 `sub_agent_trace_id` 生成链，作为嵌套关联键。两者并存：现有 trace_id 继续服务 UI 消息路由（不改动），观测 span 树新增 span_id/parent_span_id 挂在 TraceEvent 上。P0 实施前先确认 run_id 在 dispatcher 所有执行路径（含 supervisor 子 agent）均可达。
+> 审查注 7.1（2026-08-18）：观测 trace_id 与现有 trace_id 的关系：**观测 trace_id = run_id**（一个 Run 一条 trace）；Run 内子任务（sub-agent、self-fork、sidecar 调用）沿用现有 `sub_agent_trace_id` 生成链，作为嵌套关联键。两者并存：现有 trace_id 继续服务 UI 消息路由（不改动），观测 span 树新增 span_id/parent_span_id 挂在 TraceEvent 上。P0 实施前先确认 run_id 在 dispatcher 所有执行路径（含子 agent）均可达。
 > Retry Span 采集点（审查注 7.2，2026-08-18）：现有重试分布在 `single_agent.rs` / `sub_agent.rs`（格式/空响应重试，指数退避）与 `provider_stream.rs`（rate-limit 重试）——在各"重试决策点"（决定注入重试轮次/延迟时）记录。
 
 ### 7.2 异步管道（不干扰模型执行）
@@ -440,7 +440,7 @@ CREATE INDEX idx_run_spans_run_time   ON run_spans(run_id, started_at_ms);
 ### P0 前置探索（已完成，审查注 8.1，2026-08-18）
 
 1. 读 `dispatcher/hooks.rs` 与 `chat_service/agent_tool_pass/`，确认 `pre/post_tool_call` 接线点（原风险表已列）；
-2. **全量 LLM 调用点清单**：`single_agent_stream.rs` / `sub_agent_stream.rs` / `supervisor.rs` / `computer_pipeline_loop.rs` 等，据此决定 LlmBefore/LlmAfter 是统一 provider 包装还是逐点埋点——逐点埋点与"最小改动"原则张力最大，倾向统一包装；
+2. **全量 LLM 调用点清单**：`single_agent_stream.rs` / `sub_agent_stream.rs` / `computer_pipeline_loop.rs` 等，据此决定 LlmBefore/LlmAfter 是统一 provider 包装还是逐点埋点——逐点埋点与"最小改动"原则张力最大，倾向统一包装；
 3. **观测 trace_id 复用决策**：确认 run_id 在 dispatcher 全路径可达性，落定 §7.1 注 7.1 的关系。
 
 ### 阶段内提交节奏（启动后适用）

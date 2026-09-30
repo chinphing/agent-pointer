@@ -1,4 +1,4 @@
-/// Per-pool cap: `max` tool cycles; pool is either single-agent or Supervisor (sub-agents) for the conversation.
+/// Per-pool cap: `max` tool cycles for this conversation run.
 #[derive(Debug)]
 pub(crate) struct SessionToolBudget {
     max: u32,

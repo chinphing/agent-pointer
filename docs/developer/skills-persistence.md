@@ -72,7 +72,6 @@ effective = merge missing bundled ids from defaultSkillIds
   **general** 可 **`file_*`** + **`skill_import`**；何时本地写、何时
   **`run_subagent(coder)`** → 见 `run_subagent` 工具提示词 **`coder`** 小节
   （唯一来源）。**coder** 仅 **`skill_read`** + **`file_*`**。
-- **Supervisor**：不加载技能。
 - **子 Agent**：**coder** 用自身 `defaultSkillIds`（经同一链路）；**self fork** 用 `inheritsFromParent`（父已解析列表）。其他子 Agent 通常不加载 skill。
 
 升级补全：resolve 时把 agent `defaultSkillIds` 中仍属 bundled 的 id 补进 stale override（例如旧 coder override 漏掉 **`skill-manager`**）。前端 `ensureSystemSkillsEnabled` 只做同逻辑的 **持久化**，让设置页勾选与运行时一致。

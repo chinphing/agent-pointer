@@ -339,7 +339,7 @@ def explore_sub_agent_header(ref: str) -> str:
         f"profile: {EXPLORE_PROFILE}\n"
         f"description: {EXPLORE_DESC}\n\n"
         f"{system_prompt}\n\n"
-        f"Complete only the subtask delivered in the next user message from the Supervisor. "
+        f"Complete only the subtask delivered in the next user message from the lead. "
         f"That message is task instructions (it may include a digest of prior task outputs) and does "
         f"**not** include the main chat history. Finish by writing your full handoff directly in "
         f"assistant Markdown content (conclusions, evidence, traces, open questions). When no further "

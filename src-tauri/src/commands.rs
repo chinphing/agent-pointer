@@ -178,7 +178,6 @@ pub(crate) fn trigger_request_from_payload(payload: SendChatPayload) -> TriggerR
         lead_agent_id: payload.lead_agent_id,
         performance_mode: payload.performance_mode,
         tool_rounds_used_single_start: payload.tool_rounds_used,
-        tool_rounds_used_supervisor_start: payload.tool_rounds_used_supervisor,
         workspace_root: payload.workspace_root,
         workspace_inherit_disabled: payload.workspace_inherit_disabled,
         deliver: DeliverTarget::None,

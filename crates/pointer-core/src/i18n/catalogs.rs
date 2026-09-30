@@ -25,8 +25,6 @@ entries! {
     "agents.explore" => "代码探索", "Code explore",
     "agents.generalWorker" => "通用执行", "General worker",
     "agents.analyst" => "深度研究", "Deep research",
-    "agents.supervisor" => "团队模式", "Team mode",
-    "agents.teamMode" => "团队模式", "Team mode",
     // tools
     "tools.fileRead" => "读取文件", "Read file",
     "tools.fileWrite" => "写入文件", "Write file",

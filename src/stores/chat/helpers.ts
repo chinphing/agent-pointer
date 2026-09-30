@@ -672,7 +672,7 @@ export function countRunningBackgroundSubagents(conv: Conversation): number {
 
 /**
  * JobSupervisor is in-memory: process restart drops jobs, but SQLite may still
- * have host rows at `running`. Occupancy snapshot 0 means the supervisor is
+ * have host rows at `running`. Occupancy snapshot 0 means JobSupervisor is
  * empty — reconcile each live host from its handle JSON first. Only treat as
  * interrupted when the handle still claims `running` (true zombie after restart).
  * Never map completed jobs to「已取消」.
@@ -718,7 +718,7 @@ export function finalizeOrphanBackgroundHosts(conv: Conversation): number {
         changed += 1
         continue
       }
-      // Handle missing or still "running" while supervisor occupancy is 0.
+      // Handle missing or still "running" while JobSupervisor occupancy is 0.
       tc.status = 'failed'
       if (!tc.error) tc.error = 'interrupted'
       changed += 1

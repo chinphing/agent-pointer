@@ -235,7 +235,6 @@ fn push_trimmed(parts: &mut Vec<&str>, s: &'static str) {
 #[serde(rename_all = "snake_case")]
 pub enum AgentProfile {
     General,
-    Supervisor,
     Planner,
     Coder,
     Writer,
@@ -587,7 +586,7 @@ pub fn delegatable_sub_agents_system_block(
             continue;
         };
         let d = exec.def();
-        if d.role == "supervisor" || !d.enabled {
+        if !d.enabled {
             lines.push(format!(
                 "- id: {} (not a delegatable worker; tool calls will fail)",
                 d.id
@@ -931,8 +930,8 @@ fn validate_agent_manifest(manifest: &AgentManifest) -> Result<()> {
     if manifest.description.trim().is_empty() {
         return Err(anyhow!("description 不能为空"));
     }
-    if manifest.role != "worker" && manifest.role != "supervisor" {
-        return Err(anyhow!("role 只能是 worker 或 supervisor"));
+    if manifest.role != "worker" {
+        return Err(anyhow!("role 只能是 worker"));
     }
     if manifest.body.trim().is_empty() {
         return Err(anyhow!("AGENT.md 正文必须包含 system prompt"));

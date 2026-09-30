@@ -63,12 +63,12 @@
 | 字段 | 含义 |
 |------|------|
 | `computer_state` | 全局唯一的 Computer 运行时状态：截图/标注客户端、共享的 `VisionState`（索引 → 像素）、动作执行器等。 |
-| `lead_agent_profile` | **当前这一轮**要对话的 Agent 的 profile。单智能体模式下为主 lead 的 profile；Supervisor 子任务模式下为**该子 Agent 定义**的 profile（例如 `Computer` / `Coder`）。钩子用它决定是否为 no-op（如仅 `Computer` 才注入屏幕）。 |
+| `lead_agent_profile` | **当前这一轮**要对话的 Agent 的 profile。单智能体模式下为主 lead 的 profile；子 Agent 轮次下为**该子 Agent 定义**的 profile（例如 `Computer` / `Coder`）。钩子用它决定是否为 no-op（如仅 `Computer` 才注入屏幕）。 |
 | `base_messages` | **只读**：本轮权威 transcript（主会话 `history` 或子 Agent `local_history`）。钩子**不得**修改或向其 `push`。 |
 | `injected_tail` | **可变**：本轮仅用于 API 的 ephemeral 行。钩子在此**追加**（如 `[CUR_SCREEN]` / task-board user 块）；**不会**写回持久化 `history`。 |
 | `conversation_id` | 当前会话 id（与前端/Tauri 流一致）。 |
 | `stream` | 可选的 `ChatStreamSender`；若存在，钩子可发送 **`StreamEvent::UiToast`**（仅界面横幅提醒，**不**写入聊天记录、**不**进入模型 payload）。 |
-| `round_assistant_message_id` | 可选；本轮助手消息 id（与主循环 `MessageStart` 一致，或 Supervisor 子任务下**父级**助手气泡 id）。注入用它发送 **`StreamEvent::AssistantRoundScreen`**。 |
+| `round_assistant_message_id` | 可选；本轮助手消息 id（与主循环 `MessageStart` 一致，或子 Agent 轮次下**父级**助手气泡 id）。注入用它发送 **`StreamEvent::AssistantRoundScreen`**。 |
 | `round_screen_dump_prefix` | 可选；落盘调试图时的文件名前缀，缺省同 `round_assistant_message_id`。子 Agent 每轮迭代用自己的 id，避免与父消息 id 混用。 |
 | `workspace_root` | 本轮会话工作区（`ensure_workspace_at_run_start` 之后）。插件规则等 hook 可读；**`AGENTS.md` 已不再经本扩展点注入**（见 [`workspace-root.md`](workspace-root.md)）。 |
 
@@ -83,7 +83,7 @@
 | `system_prompts_dynamic` | **可变**：本轮 **dynamic** 分区（常见为 `[LOCKED GOAL]` 等）。**cacheable** 已在钩子前含公共通信、Agent/Skills、工具附录、**`[Environment]`**。详见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。 |
 | `conversation_id` | 主会话 id（流式/UI）；子 Agent 下仍为**父会话** id。 |
 | `task_board_store` | `Arc<TaskBoardStore>`，供内置或自定义钩子读取任务板。 |
-| `task_board_store_key` | 传入 `TaskBoardStore::snapshot_for_prompt` 的键：主会话为 `conversation_id`；Supervisor 子 Agent 为 `sub_agent_task_board_store_key(...)` 的复合键。 |
+| `task_board_store_key` | 传入 `TaskBoardStore::snapshot_for_prompt` 的键：主会话为 `conversation_id`；子 Agent 为 `sub_agent_task_board_store_key(...)` 的复合键。 |
 
 ---
 
@@ -96,7 +96,7 @@
 在同一轮迭代里，顺序固定为：
 
 1. **进入本轮** — 检查取消、工具预算；生成本轮 `assistant_id`（UI 流式用）。
-2. **`MessageStart`（及 Supervisor 的 `AgentStep`）** — 先创建前端助手气泡，再跑注入，以便把本圈截图事件绑定到该 `message_id`。
+2. **`MessageStart`（及子 Agent 的 `AgentStep`）** — 先创建前端助手气泡，再跑注入，以便把本圈截图事件绑定到该 `message_id`。
 3. **准备 Provider** — 新建 `OpenAIProvider`、channel；尚未发 HTTP。
 4. **准备 API 输入** — 只读借用基础历史（单智能体：`history`；子 Agent：`local_history`），新建空的 `injected_tail`，并填入 `round_assistant_message_id`。
 5. **`message_loop_prompts_after`** — `run_message_loop_prompts_after`：仅向 `injected_tail` 追加 ephemeral 行（例如屏幕注入）。
@@ -146,9 +146,7 @@ sequenceDiagram
 
 ---
 
-## 5. 子 Agent（Supervisor）：上下文如何传入、是否独立
-
-Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `AgentTask`；每个任务调用 `run_sub_agent`。
+## 5. 子 Agent：上下文如何传入、是否独立
 
 ### 5.1 子 Agent 的「对话上下文」——**独立 mini 会话**
 
@@ -190,14 +188,9 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 |------|------|
 | `AppState.computer_state` | 同一块 `VisionState`、同一套标注客户端与执行器。子 Agent `Computer` 若跑屏幕注入，会更新**同一** `index_map` / `screen_bbox`。主会话若也使用 Computer，或连续多个 Computer 子任务，后一轮会看到上一轮写入的视觉状态，除非在业务层清空或隔离。 |
 | `AppState.tools` / `skills` / `agents` | 全局注册表，仅配置只读。 |
-| 工具预算 `SessionToolBudget` | **外层**编排（单智能体主循环或 Supervisor 每完成一个子任务）与 **内层**子 Agent 工具循环 **分开计数**：每次 `run_sub_agent` 使用 **新的**内层预算实例（上限来自 `maxSubAgentToolRounds`）；外层在包含工具执行的一轮结束时 `record_tool_cycle` 一次（含 `run_subagent` 所在轮）。 |
+| 工具预算 `SessionToolBudget` | **外层**编排（单智能体主循环每完成一次 `run_subagent`）与 **内层**子 Agent 工具循环 **分开计数**：每次 `run_sub_agent` 使用 **新的**内层预算实例（上限来自 `maxSubAgentToolRounds`）；外层在包含工具执行的一轮结束时 `record_tool_cycle` 一次（含 `run_subagent` 所在轮）。 |
 
 **结论（运行时）**：子 Agent **对话上下文独立**，**Computer 等带副作用的全局状态不独立**；设计扩展或并行子任务时需考虑 `VisionState` 与预算的语义。
-
-### 5.4 Supervisor 规划阶段与扩展的关系
-
-- `plan_agent_tasks`（`supervisor_plan.rs`）/ `synthesize_final_answer`（`supervisor_synth.rs`）使用 `provider.chat_once(history, &[planning_prompt], …)`：**不经过**本文档中的 `message_loop_prompts_after` / `before_main_llm_call`；编排入口为 `supervisor.rs` 的 `run_supervisor_chat`。
-- 仅**子 Agent（及单智能体主循环）**在 `stream_chat` 前走扩展链。
 
 ---
 

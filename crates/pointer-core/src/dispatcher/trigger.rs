@@ -208,8 +208,6 @@ pub struct TriggerRequest {
     pub performance_mode: Option<String>,
     #[serde(default)]
     pub tool_rounds_used_single_start: u32,
-    #[serde(default)]
-    pub tool_rounds_used_supervisor_start: u32,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub workspace_root: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -174,8 +174,6 @@ export interface SendChatPayload {
   agentMode?: AgentMode
   /** Cumulative single-agent tool rounds before this send. */
   toolRoundsUsed?: number
-  /** Cumulative Supervisor/sub-agent tool rounds before this send. */
-  toolRoundsUsedSupervisor?: number
   /** Per-conversation workspace root for this run. */
   workspaceRoot?: string
   /** When true, backend uses session sandbox instead of inheriting another conversation's workspace. */

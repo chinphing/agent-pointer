@@ -63,7 +63,7 @@ crates/pointer-core/src/
 ```
 
 关键特性：
-- **Agent 系统**：`AgentProfile` 枚举区分角色（General, Coder, Supervisor 等），支持系统 prompt 和工具白名单
+- **Agent 系统**：`AgentProfile` 枚举区分角色（General, Coder 等），支持系统 prompt 和工具白名单
 - **工具系统**：`ToolRegistry` 注册 `ToolDef` + `ToolHandler`，支持 JSON 参数解析和代码围栏剥离
 - **对话循环**：`ChatService` 处理消息流、工具调用、历史管理、预算控制
 - **多模态**：`ChatMessage` 支持文本 + 工具调用，图片支持需确认/扩展

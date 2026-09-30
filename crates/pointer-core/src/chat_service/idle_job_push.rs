@@ -156,7 +156,6 @@ impl IdleJobPush {
             lead_agent_id: meta.as_ref().map(|m| m.lead_agent_id.clone()),
             performance_mode: meta.as_ref().and_then(|m| m.performance_mode.clone()),
             tool_rounds_used_single_start: 0,
-            tool_rounds_used_supervisor_start: 0,
             workspace_root: meta
                 .as_ref()
                 .map(|m| m.workspace_root.clone())

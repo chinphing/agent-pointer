@@ -81,7 +81,7 @@ run_chat
 
 ### 3.3 Assistant / 注入 user 行
 
-`commit_lead_assistant_turn`、`supervisor` 终稿、`json_tool_retries` 注入行：
+`commit_lead_assistant_turn`、`json_tool_retries` 注入行：
 
 - 有 Registry → `upsert_message_no_refresh` + `flush_conversation_meta`（增量 count/preview）
 - 无 Registry → `upsert_no_refresh` + `COUNT(*)` + preview（打 warn）

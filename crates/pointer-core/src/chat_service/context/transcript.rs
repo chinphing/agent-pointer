@@ -12,7 +12,7 @@ pub struct TranscriptRefs<'a> {
 /// How assistant/tool rows are persisted for this tool-pass scope.
 #[derive(Debug, Clone)]
 pub enum TranscriptPersist {
-    /// Lead single-agent / supervisor: main transcript flush + upsert.
+    /// Lead: main transcript flush + upsert.
     Main,
     /// Sub-agent: per-row upsert with parent linkage (not a full-transcript flush).
     SubLinked(SubMessageLinkage),

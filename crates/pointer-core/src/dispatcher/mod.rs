@@ -531,7 +531,6 @@ impl RunDispatcher {
             req.lead_agent_id,
             req.performance_mode,
             req.tool_rounds_used_single_start,
-            req.tool_rounds_used_supervisor_start,
             req.workspace_root,
             req.workspace_inherit_disabled,
             Some(req.trigger_source),
@@ -561,7 +560,6 @@ impl RunDispatcher {
                 crate::stream_broadcast::publish_global_stream(crate::models::StreamEvent::Done {
                     conversation_id: conversation_id.clone(),
                     tool_rounds_used_total: None,
-                    tool_rounds_used_supervisor_total: None,
                     max_tool_rounds: None,
                     started_at_ms: None,
                     finished_at_ms: None,
@@ -952,7 +950,6 @@ impl RunDispatcher {
             lead_agent_id: None,
             performance_mode: None,
             tool_rounds_used_single_start: 0,
-            tool_rounds_used_supervisor_start: 0,
             workspace_root: String::new(),
             workspace_inherit_disabled: None,
             deliver: DeliverTarget::None,

@@ -75,7 +75,6 @@ pub async fn run_chat(
     lead_agent_id_override: Option<String>,
     performance_mode_override: Option<String>,
     tool_rounds_used_single_start: u32,
-    tool_rounds_used_supervisor_start: u32,
     workspace_root: String,
     workspace_inherit_disabled: Option<bool>,
     trigger_source: Option<TriggerSource>,
@@ -94,14 +93,13 @@ pub async fn run_chat(
     // Filled with the lead's resolved skill ids after build_plan (for inherit/import).
     let mut enabled_skill_ids: Vec<String> = Vec::new();
     log::info!(
-        "run_chat start conversation_id={} incoming_history_messages={} agent_skill_overrides={} request_agent_mode={:?} lead_agent_id_override={:?} tool_rounds_used_single_start={} tool_rounds_used_supervisor_start={} trigger_source={:?} im_auto_deliver={}",
+        "run_chat start conversation_id={} incoming_history_messages={} agent_skill_overrides={} request_agent_mode={:?} lead_agent_id_override={:?} tool_rounds_used_single_start={} trigger_source={:?} im_auto_deliver={}",
         conversation_id,
         history.len(),
         agent_skill_overrides.len(),
         agent_mode,
         lead_agent_id_override,
         tool_rounds_used_single_start,
-        tool_rounds_used_supervisor_start,
         trigger_source,
         im_auto_deliver,
     );
@@ -381,7 +379,6 @@ pub async fn run_chat(
     super::conversation_persist::patch_tool_rounds(
         &conversation_id,
         consumed_single,
-        0,
         super::util::now_ms(),
     );
     let main_store_key = state
@@ -426,7 +423,6 @@ pub async fn run_chat(
         StreamEvent::Done {
             conversation_id: conversation_id.clone(),
             tool_rounds_used_total: Some(consumed_single),
-            tool_rounds_used_supervisor_total: Some(0),
             max_tool_rounds: Some(max_tr),
             started_at_ms: Some(run_started_at_ms),
             finished_at_ms: Some(run_finished_at_ms),

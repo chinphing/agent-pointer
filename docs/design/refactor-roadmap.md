@@ -123,15 +123,15 @@ models/
 
 ---
 
-## P2 — Supervisor / Sub-agent 循环
+## P2 — Sub-agent 循环
 
-**问题**：`run_supervisor_chat`（417 行）、`run_sub_agent`（305 行）与 `single_agent` 循环重复。
+**问题**：`run_sub_agent`（305 行）与 `single_agent` 循环重复。
 
 **目标**：共用 `AgentLoopRunner` 或 phase 函数（plan / execute / finalize）。
 
 **步骤**
 
-- [x] 梳理 lead / sub / supervisor 三处差异点（见 `agent_round_lifecycle.rs` 模块注释）
+- [x] 梳理 lead / sub 两处差异点（见 `agent_round_lifecycle.rs` 模块注释）
 - [x] 提取共享 stream → tool_pass 骨架（`check_loop_guards` / `resolve_post_assistant_action` / `finish_tool_round_cycle`）
 - [x] 保留 sub-agent `local_history` + `persist_transcript` 语义
 

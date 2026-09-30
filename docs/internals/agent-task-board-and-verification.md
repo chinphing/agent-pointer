@@ -5,7 +5,7 @@
 ## 聊天 UI 任务板面板
 
 - 会话里的 **`TaskBoardPanel`**（可折叠）：默认一行摘要（目标 + 进度），展开看里程碑与子板；与工具摘要同一视觉层次，不是独立卡片。
-- 数据：`GET` / Tauri **`get_task_board_snapshot`**；流式 **`task_board_updated`**（`task_board` 工具成功或 Supervisor 规划同步后）。
+- 数据：`GET` / Tauri **`get_task_board_snapshot`**；流式 **`task_board_updated`**（`task_board` 工具成功或子任务状态回写父板后）。
 - Agent **`AGENT.md`** 的 **`ui.showTaskBoardPanel`** / **`ui.hideToolNames`** 控制面板与工具卡展示（见 `docs/ui/visual-theme.md` 同目录的 agent `ui` 约定）。
 
 ## 目标
@@ -23,9 +23,9 @@
 
 - 注册名：`task_board`；行为通过 **`task_board:replace`** / **`task_board:patch`**（与 qualified `tool_name` 解析一致）。
 - 存储：`AppState` 上的 **`TaskBoardStore`**（`crates/pointer-core/src/task_board/`，内存软缓存 + SQLite `{app_data}/task_boards.db`，按 **存储键** 分区）。有持久化时：`completed`/`failed` 写后即卸内存；空闲 **120 分钟**卸；缓存上限 **20**，超出 LRU。卸缓存不影响盘上数据与 UI（下次 `ensure_loaded` 回源）。无持久化（单测）不驱逐。v4 文档见 [`task-board-v2-schema.md`](task-board-v2-schema.md)；父子协调见 [`task-board-parent-child-coordination.md`](task-board-parent-child-coordination.md)。
-- **主会话（单智能体 / Supervisor 主消息）**：存储键通常为 **`main_turn_task_board_store_key(conversation_id, anchor_user_message_id)`**（见 `session_inner`）；`task_board` 的 **`_conversation_id`** 写入该 **store key**（非裸 `conversation_id`）。每轮由 **`CommonUserDynamicInjectHook`** 在 `message_loop_prompts_after` 末尾追加 user 注入块（Markdown v4：`## Task` / `## Global milestones` / `done_when` / `remark` 等，有 board 或 init hint 时）。见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。
-- **Supervisor 子 Agent**：与主会话 **隔离**。存储键为  
-  **`{conversation_id}\x1fptr_sub_agent\x1f{supervisor_task_id}`**（实现见 `task_board::sub_agent_task_board_store_key`）。  
+- **主会话（lead 主消息）**：存储键通常为 **`main_turn_task_board_store_key(conversation_id, anchor_user_message_id)`**（见 `session_inner`）；`task_board` 的 **`_conversation_id`** 写入该 **store key**（非裸 `conversation_id`）。每轮由 **`CommonUserDynamicInjectHook`** 在 `message_loop_prompts_after` 末尾追加 user 注入块（Markdown v4：`## Task` / `## Global milestones` / `done_when` / `remark` 等，有 board 或 init hint 时）。见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。
+- **子 Agent**：与主会话 **隔离**。存储键为  
+  **`{conversation_id}\x1fptr_sub_agent\x1f{task_id}`**（实现见 `task_board::sub_agent_task_board_store_key`）。  
   子 Agent 的任务板摘要同样经公共 user 注入路径注入（store key 为 `sub_task_board_key`）；**`task_board`** 读写只针对该子任务键，**不会**看到或修改主会话任务板。
 - **可信会话键**：宿主在 `invoke` 前写入 **`_conversation_id`**，覆盖模型可能传入的同名字段，防止伪造；子 Agent 路径下写入的是上述 **子任务键**，不是裸 `conversation_id`。
 - 侧车标记：注册为 **`ToolEntry::new_sidecar`**（宿主侧 **`validate_envelope_tool_batch`** 等约束）；用法与 **`response` / `<sidecar_tools>`** 约定见 **`COMMUNICATION_PUBLIC`** 及各工具 **`doc_markdown`**（经 **`generate_tools_system_appendix`** 进入系统提示中的 **`## Tools`**）。未授权该工具时不会出现在上述附录中。
@@ -48,8 +48,7 @@
 ## Agent 白名单
 
 - 在对应 **`AGENT.md`** 的 **`accessPolicy.allowTools`**（及 computer 的 **`toolNames`** 若使用）中加入 **`task_board`**，模型才会在提示中看到该工具并合法调用。
-- Supervisor 主流程本身不跑子 Agent 工具循环；子 Agent 各自按上表授权。
-- 子 Agent 的 **`task_board`** 与主会话 **分区存储**（见上文「Supervisor 子 Agent」）；若需要把主会话进度写进子任务，由 Supervisor 在 **`instruction`** 文本中自行摘要，而不是共享存储键。
+- 子 Agent 的 **`task_board`** 与主会话 **分区存储**（见上文「子 Agent」）；若需要把主会话进度写进子任务，由 lead 在 **`goal`** / **`context`** 文本中自行摘要，而不是共享存储键。
 
 ## 任务粒度与 v4 验收字段
 
@@ -169,5 +168,5 @@
 - 批校验与工具注册：`crates/pointer-core/src/tools/mod.rs`
 - 会话注入与执行：`crates/pointer-core/src/chat_service/`（主流程 `session_inner.rs`，单智能体 `single_agent.rs` + 薄封装，子 Agent `sub_agent.rs` + `sub_agent_prompt.rs` / `sub_agent_stream.rs`，共用 `agent_stream_round.rs` / `agent_post_stream.rs` / `agent_tool_pass.rs`）；任务板快照钩子：`crates/pointer-core/src/extensions/task_board_hook.rs`
 - task_board 阶段截断：`task_board/history_trim.rs`、`message_context.rs`（`find_split_at_user_boundary`）、`agent_tool_pass.rs`（挂载点）
-- 父子 Gateway：`task_board/gateway/`、`chat_service/supervisor.rs`（`dispatch_to_child` / `report_child_status`）
+- 父子 Gateway：`task_board/coordination/`（`parent_child` / `context_tunnel`）
 - Computer 每轮 user 注入：`crates/pointer-core/src/agents/computer/extension_hooks/screen_inject.rs`；API 展平：`models.rs`（`flatten_tool_rounds_computer_style_for_api`）

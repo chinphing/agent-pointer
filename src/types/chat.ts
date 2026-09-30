@@ -58,7 +58,12 @@ export const DEFAULT_ENABLED_SKILL_IDS = [
   'agent-browser'
 ] as const
 
-export type AgentMode = 'single' | 'supervisor'
+export type AgentMode = 'single'
+
+/** Orchestration mode is single-only; legacy persisted values normalise to `single` on read. */
+export function normalizeAgentMode(_persisted?: string | null): AgentMode {
+  return 'single'
+}
 
 export type ThemePreference = 'light' | 'dark' | 'system'
 
@@ -185,7 +190,6 @@ export interface AgentTrace {
 
 export type AgentProfile =
   | 'general'
-  | 'supervisor'
   | 'planner'
   | 'coder'
   | 'reviewer'
@@ -379,8 +383,6 @@ export interface Conversation {
   skillIds: string[]
   /** Cumulative tool rounds for single-agent replies (cap in settings). */
   toolRoundsUsed?: number
-  /** Cumulative tool rounds for Supervisor / sub-agents (separate cap pool). */
-  toolRoundsUsedSupervisor?: number
   /** Selected desktop monitor for Computer agent; empty = auto (monitor under cursor). */
   computerMonitorId?: string
   /** Persisted project that owns this conversation after first-send binding. */
@@ -413,7 +415,6 @@ export type ConversationMetaBase = Pick<
   | 'isPinned'
   | 'skillIds'
   | 'toolRoundsUsed'
-  | 'toolRoundsUsedSupervisor'
   | 'computerMonitorId'
   | 'projectId'
   | 'workspaceRoot'
@@ -1142,7 +1143,7 @@ export type StreamEvent =
   /** Same `messageId` as a prior `injected_assistant_message`; updates its `content` only. */
   | { kind: 'injected_assistant_message_update'; conversationId: string; messageId: string; content: string }
   | { kind: 'error'; conversationId?: string; messageId?: string; message: string }
-  | { kind: 'done'; conversationId: string; toolRoundsUsedTotal?: number; toolRoundsUsedSupervisorTotal?: number; maxToolRounds?: number; startedAtMs?: number; finishedAtMs?: number; backgroundRunningCount?: number }
+  | { kind: 'done'; conversationId: string; toolRoundsUsedTotal?: number; maxToolRounds?: number; startedAtMs?: number; finishedAtMs?: number; backgroundRunningCount?: number }
   | { kind: 'context_trim_applied'; conversationId: string; excludedMessageIds: string[] }
   /** Ephemeral: compression in progress (tool-row marker); not persisted. */
   | {

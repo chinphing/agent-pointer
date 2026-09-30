@@ -1,4 +1,4 @@
-//! Inner orchestration (`run_chat_inner`): settings, supervisor vs single-agent loop.
+//! Inner orchestration (`run_chat_inner`): settings and the lead agent loop.
 
 use crate::agents::{delegatable_sub_agents_system_block, AgentOrchestrator};
 use crate::dispatcher::TriggerSource;

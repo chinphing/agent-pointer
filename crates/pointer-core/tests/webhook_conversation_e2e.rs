@@ -116,7 +116,6 @@ async fn webhook_trigger_completes_assistant_reply_with_local_api_key() {
         lead_agent_id: None,
         performance_mode: None,
         tool_rounds_used_single_start: 0,
-        tool_rounds_used_supervisor_start: 0,
         workspace_root: String::new(),
         workspace_inherit_disabled: None,
         deliver: DeliverTarget::None,

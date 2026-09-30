@@ -398,11 +398,6 @@ pub enum StreamEvent {
             rename = "toolRoundsUsedTotal"
         )]
         tool_rounds_used_total: Option<u32>,
-        #[serde(
-            skip_serializing_if = "Option::is_none",
-            rename = "toolRoundsUsedSupervisorTotal"
-        )]
-        tool_rounds_used_supervisor_total: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none", rename = "maxToolRounds")]
         max_tool_rounds: Option<u32>,
         /// 本轮 run_chat 的真实开始时间（epoch ms）。UI 用它计算"工作耗时"，
@@ -780,7 +775,6 @@ mod tests {
         let ev = StreamEvent::Done {
             conversation_id: "conv-a".into(),
             tool_rounds_used_total: None,
-            tool_rounds_used_supervisor_total: None,
             max_tool_rounds: None,
             started_at_ms: None,
             finished_at_ms: None,

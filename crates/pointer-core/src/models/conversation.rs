@@ -65,9 +65,6 @@ pub struct Conversation {
     /// Cumulative tool rounds for **single-agent** replies in this conversation.
     #[serde(default, rename = "toolRoundsUsed")]
     pub tool_rounds_used: u32,
-    /// Cumulative tool rounds for **Supervisor** runs (all sub-agents) in this conversation.
-    #[serde(default, rename = "toolRoundsUsedSupervisor")]
-    pub tool_rounds_used_supervisor: u32,
     /// Selected desktop monitor id for Computer agent (session UX). Empty/None = auto (monitor under cursor).
     #[serde(
         default,
@@ -164,8 +161,6 @@ pub struct ConversationMeta {
     pub skill_ids: Vec<String>,
     #[serde(default, rename = "toolRoundsUsed")]
     pub tool_rounds_used: u32,
-    #[serde(default, rename = "toolRoundsUsedSupervisor")]
-    pub tool_rounds_used_supervisor: u32,
     #[serde(
         default,
         rename = "computerMonitorId",
@@ -293,7 +288,6 @@ impl From<&Conversation> for ConversationMeta {
             is_pinned: c.is_pinned,
             skill_ids: c.skill_ids.clone(),
             tool_rounds_used: c.tool_rounds_used,
-            tool_rounds_used_supervisor: c.tool_rounds_used_supervisor,
             computer_monitor_id: c.computer_monitor_id.clone(),
             project_id: c.project_id.clone(),
             workspace_root: c.workspace_root.clone(),
@@ -347,9 +341,6 @@ pub struct SendChatPayload {
     /// Session cumulative tool rounds (single-agent mode) before this user message.
     #[serde(default, rename = "toolRoundsUsed")]
     pub tool_rounds_used: u32,
-    /// Session cumulative tool rounds (Supervisor / sub-agents) before this user message.
-    #[serde(default, rename = "toolRoundsUsedSupervisor")]
-    pub tool_rounds_used_supervisor: u32,
     /// Workspace root for this conversation run (overrides global settings when non-empty).
     #[serde(
         default,
@@ -463,7 +454,6 @@ mod agent_trace_persistence_tests {
             }],
             skill_ids: vec![],
             tool_rounds_used: 0,
-            tool_rounds_used_supervisor: 0,
             computer_monitor_id: None,
             project_id: None,
             workspace_root: String::new(),

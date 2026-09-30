@@ -221,7 +221,6 @@ impl Scheduler {
             lead_agent_id: job.lead_agent_id.clone(),
             performance_mode: None,
             tool_rounds_used_single_start: 0,
-            tool_rounds_used_supervisor_start: 0,
             workspace_root: String::new(),
             workspace_inherit_disabled: None,
             deliver: deliver_marker,

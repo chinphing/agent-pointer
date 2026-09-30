@@ -4,7 +4,7 @@ During each `run_chat` session, pointer-core accumulates OpenAI-compatible `usag
 
 ## Per-round (debug)
 
-After each streaming or non-streaming model call in the main loop, sub-agents, supervisor planning, or supervisor synthesis:
+After each streaming or non-streaming model call in the main loop or sub-agents:
 
 - `log::debug!` in `llm_token_stats` with round index and token fields when `usage` is present (`total`, `prompt`, `completion`, `cache_hit`, `cache_miss`).
 - Missing `usage` for that round increments `rounds_missing_usage` (visible in the end-of-session summary).
@@ -22,7 +22,7 @@ Streaming requests set `stream_options: { "include_usage": true }` by default (O
 When the `ChatLlmTokenSession` guard is dropped at the end of `run_chat_inner`, an `log::info!` line is emitted (if there was at least one LLM round or one tool invocation) with:
 
 - `conversation_id`
-- `llm_rounds` — model calls (stream rounds + supervisor plan + synthesize + sub-agent stream rounds)
+- `llm_rounds` — model calls (stream rounds + sub-agent stream rounds)
 - `total_tokens`, `prompt_tokens` (summed over rounds)
 - `cache_hit` / `cache_miss` — summed context-cache hit and miss prompt tokens (see below)
 - `tool_invocations` — each tool run after validation (success or failure)

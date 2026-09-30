@@ -90,7 +90,7 @@ pub(super) enum ContentDeltaMode<'a> {
         stream: &'a StreamTx,
         message_id: String,
     },
-    /// Sub-agent under supervisor / `run_subagent`: UI routed by `trace_id` (no trace.content streaming).
+    /// Sub-agent spawned by `run_subagent`: UI routed by `trace_id` (no trace.content streaming).
     SubAgentTrace {
         trace_id: String,
         scoped_message_id: String,

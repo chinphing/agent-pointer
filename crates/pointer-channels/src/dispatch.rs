@@ -396,7 +396,6 @@ impl DispatchService {
                 lead_agent,
                 None,
                 0,
-                0,
                 workspace_root,
                 None,
                 Some(TriggerSource::Im),

@@ -30,7 +30,6 @@ Related:
 
 - Parallel Computer UI automation (resource mutex deferred)
 - Temporal / external workflow engine
-- Replacing Supervisor team mode
 - Auto-planner that bulk-seeds 10k **enumerated** rows without user/host/file input
 - Using work_items for every task (see §3.5 — small jobs stay Type1 `global_milestones` only)
 
@@ -365,7 +364,7 @@ Extends [`task-board-parent-child-coordination.md`](task-board-parent-child-coor
 #### 3.6.1 Principle (three layers)
 
 ```text
-Parent board milestone     ← Supervisor task / batch / wave (task_2, batch_01)
+Parent board milestone     ← sub-agent task / batch / wave (task_2, batch_01)
     │
     ├─ work_items (parent campaign_id ONLY)   ← atomic units + dedupe + stats
     │
@@ -392,10 +391,10 @@ User → Computer lead
          no sub-agent queue split
 ```
 
-**Pattern B — Supervisor: parent milestone = batch slice**
+**Pattern B — Parent milestone = batch slice**
 
 ```text
-Supervisor sync_parent_board:
+Parent board sync:
   task_2 (computer) → assigned_batch_id: batch_01  (items #1–#10)
 
 dispatch_to_child(task_2):
@@ -428,7 +427,7 @@ ALTER TABLE work_items ADD COLUMN assigned_task_id TEXT;  -- parent milestone id
 ALTER TABLE work_items ADD COLUMN assigned_child_key TEXT; -- child store key while in_progress
 ```
 
-Parent `BoardItem` extension for Supervisor dispatch:
+Parent `BoardItem` extension for sub-agent dispatch:
 
 ```typescript
 interface BoardItem {
@@ -528,7 +527,7 @@ Do **not** inject the full work_items list — at most **assigned slice summary*
 
 ```text
 Parent: init_campaign_quota(50, "3y Rust…")
-Supervisor parent board:
+Parent board:
   task_c1: computer, sub_quota 10
   task_c2: computer, sub_quota 10, depends_on task_c1
   … (5 children × 10)
@@ -559,7 +558,7 @@ Same target_key cannot be claimed by two children (parent unique index).
 |-------|--------|
 | v1 | Single lead + work_items; existing child boards without queue |
 | v1.1 | Gateway + child scoped tools + `[TASK_BOARD_PARENT]` assignment fields |
-| v1.2 | Supervisor `work_assignment` on planned `AgentTask`; parallel computer children with mutex |
+| v1.2 | `work_assignment` on delegated `AgentTask`; parallel computer children with mutex |
 
 ---
 
@@ -1288,7 +1287,7 @@ async fn run_chat_inner(ctx: &mut ChatRunContext<'_>, req: &ChatRunRequest<'_>) 
         }
     }
 
-    // ... existing single-agent / supervisor loop ...
+    // ... existing single-agent / sub-agent loop ...
 }
 ```
 
@@ -1678,7 +1677,7 @@ fn duplicate_target_key_blocked_across_children() {
 2. **Parallel dequeue**: when `coder` batch has no UI mutex, `dequeue_ready(limit: N)` with `N>1` — Phase 2.
 3. **`campaign_append_items`**: extend enumerated campaign after seed — defer.
 4. **Dynamic `target_key` extraction**: host helper from URL vs model-only — start model-only; optional host normalize.
-5. **Supervisor `AgentTask.work_assignment`**: schema in planner JSON vs host-only dispatch ctx — see §3.6.3.
+5. **`AgentTask.work_assignment`**: schema in planner JSON vs host-only dispatch ctx — see §3.6.3.
 
 ---
 

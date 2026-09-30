@@ -55,7 +55,7 @@ describe('taskBoard logic', () => {
 
   it('resolveCompactTaskBoardDocument prefers child board for delegated computer sub-agent', () => {
     const entry = emptyTaskBoardEntry()
-    applyTaskBoardDocumentToEntry(entry, 'conv1', 'conv1', doc('supervisor goal'), 'u1', [])
+    applyTaskBoardDocumentToEntry(entry, 'conv1', 'conv1', doc('lead goal'), 'u1', [])
     const storeKey = childStoreKey('conv1', 'task_a')
     applyTaskBoardDocumentToEntry(entry, 'conv1', storeKey, doc('click button'), 'task_a:computer', [])
     const out = resolveCompactTaskBoardDocument(entry, 'msg_lead', 'task_a', 'task_a:computer')

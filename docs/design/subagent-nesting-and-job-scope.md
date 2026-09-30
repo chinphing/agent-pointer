@@ -283,7 +283,7 @@ depth 1 的 48 行 `general` 是 **lead 自己的 self fork**。
 | 不变 | `running_count_for_conversation` / `idle_slots` / `pool_running_roots` / `background_jobs_event`（会话级，UI 与槽位） |
 | 宿主自等 | `terminal_self_caller(owner_chain)` = `owner_chain.last()`，`blockUntilMs` 不受影响 |
 | 持久化 | scoped 行 `agentChain`；`worker_followup` 回读（缺省退化为自链） |
-| 复测 | lib 全量 1654 passed / 0 failed；`job/supervisor/subagent` 过滤 119 passed |
+| 复测 | lib 全量 1654 passed / 0 failed；`job/subagent` 过滤 119 passed |
 
 ---
 

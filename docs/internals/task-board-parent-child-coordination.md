@@ -10,17 +10,16 @@ Child boards never write to the parent board. A child's findings reach the lead 
 
 | Board | Key |
 |-------|-----|
-| Parent (lead / supervisor session) | `conversation_id` |
+| Parent (lead session) | `conversation_id` |
 | Child (sub-agent) | `{conversation_id}\u{1f}ptr_sub_agent\u{1f}{task_id}` |
 
 ## Gateway (`task_board/gateway/`)
 
 | API | Caller | Purpose |
 |-----|--------|---------|
-| `sync_parent_board_from_supervisor_plan` | `supervisor.rs` after plan | Upsert parent milestones from planned `AgentTask` rows |
-| `dispatch_to_child` | `supervisor.rs` before each sub-agent | Init child meta + seed `local_01` when child board empty |
-| `report_child_status` | `supervisor.rs` after sub-agent | Parent milestone → `done` / `failed` + `output` |
-| `check_dependencies` | Supervisor before dispatch | `Ready` / `Blocked` |
+| `dispatch_to_child` | before each sub-agent delegation | Init child meta + seed `local_01` when child board empty |
+| `report_child_status` | after sub-agent exit | Parent milestone → `done` / `failed` + `output` |
+| `check_dependencies` | before dispatch | `Ready` / `Blocked` |
 
 `report_child_status` is **not** an LLM tool (avoids races on the parent board).
 
@@ -32,7 +31,7 @@ Child boards never write to the parent board. A child's findings reach the lead 
 
 ## Observability
 
-Structured logs use prefix **`task_board_obs:`** (`task_board/observability.rs`): `supervisor_plan_sync`, `dispatch_child`, `store_apply`, `snapshot_injected` / `snapshot_skipped_empty`, `sub_agent_init_hint`, `main_agent_init_hint`, `done_soft_validation`. Lines use the global log format from `pointer_core::logging` (local timestamp prefix on every `log` line).
+Structured logs use prefix **`task_board_obs:`** (`task_board/observability.rs`): `dispatch_child`, `store_apply`, `snapshot_injected` / `snapshot_skipped_empty`, `sub_agent_init_hint`, `main_agent_init_hint`, `done_soft_validation`. Lines use the global log format from `pointer_core::logging` (local timestamp prefix on every `log` line).
 
 ## Soft `done` validation
 

@@ -49,7 +49,6 @@ export interface SendChatPayload {
   agentSkillOverrides?: Record<string, string[]>
   agentMode?: AgentMode
   toolRoundsUsed?: number
-  toolRoundsUsedSupervisor?: number
   workspaceRoot?: string
   workspaceInheritDisabled?: boolean
   leadAgentId?: string

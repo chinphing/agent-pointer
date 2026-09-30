@@ -346,7 +346,7 @@ export function childBoardBindingForTrace(
 export function resolveCompactTaskBoardDocument(
   entry: ConversationTaskBoardState | null | undefined,
   messageId: string | null | undefined,
-  /** Supervisor sub-task id only (not lead trace id `computer`). */
+  /** Sub-agent task id only (not lead trace id `computer`). */
   computerSubTaskId?: string | null,
   /** Full delegated trace id when known. */
   computerTraceId?: string | null

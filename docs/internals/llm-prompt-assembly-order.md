@@ -109,7 +109,6 @@
 
 | 场景 | 说明 | 参考代码 |
 |------|------|----------|
-| Supervisor **规划** / **汇总** | `chat_once` + 独立 system 模板（可含完整 **Local time**） | `supervisor_plan.rs`、`supervisor_synth.rs`；`SystemPromptSections::all_cacheable` |
 | **上下文压缩** 摘要 | `chat_once` + 固定摘要 system | `context_compression/` |
 
 ---

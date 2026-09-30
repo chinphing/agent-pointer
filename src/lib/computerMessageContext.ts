@@ -1,9 +1,9 @@
-import type { ChatMessage } from '../types/chat'
+import type { AgentMode, ChatMessage } from '../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { isComputerAgentTrace } from './computerExecuting'
 
 export interface ComputerUiSettings {
-  agentMode: 'single' | 'supervisor'
+  agentMode: AgentMode
   leadAgentId: string
   annotatedScreenViewEnabled: boolean
 }

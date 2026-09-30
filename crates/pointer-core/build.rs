@@ -34,6 +34,15 @@ fn emit_edition() {
     if let Ok(raw) = env::var("POINTER_EDITION") {
         let trimmed = raw.trim();
         if !trimmed.is_empty() {
+            // Fail closed: any other value would silently produce an unbound
+            // (standalone) build, which is how a typo or a stale script loses
+            // its control plane without anyone noticing.
+            if !trimmed.eq_ignore_ascii_case("managed") {
+                panic!(
+                    "pointer-core: POINTER_EDITION must be `managed` or unset, got `{trimmed}`. \
+                     See docs/contributing/editions.md."
+                );
+            }
             println!("cargo:rustc-env=POINTER_EDITION={trimmed}");
         }
     }

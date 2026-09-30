@@ -97,7 +97,7 @@ npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 
 | 变量 | 必需 | 说明 |
 | --- | --- | --- |
-| `POINTER_EDITION=managed` | ✅ | 口味 |
+| `POINTER_EDITION=managed` | ✅ | 口味。**只接受 `managed` 或留空**：其他任何值（含旧值 `official`）会让构建直接失败，避免静默降级为未绑定 |
 | `VITE_POINTER_EDITION=managed` | ✅ | 前端口味；未设时脚本会由 `POINTER_EDITION` 补齐 |
 | `POINTER_API_BASE` / `POINTER_WEB_BASE` / `COMPUTER_ANNOTATE_API_BASE` | ✅ | 三个控制面域名，缺一即构建 panic |
 | `VITE_POINTER_WEB_BASE` / `POINTER_DOWNLOAD_URL` | 建议 | 前端跳转与关于页下载链接 |

@@ -43,8 +43,12 @@ pub fn init_from_env() {
     let value = edition();
     if value.is_empty() {
         log::info!("edition: unset (standalone defaults)");
-    } else {
+    } else if value == "managed" {
         log::info!("edition: {value}");
+    } else {
+        // The build already fails on an unknown POINTER_EDITION; this catches a
+        // runtime override, which would otherwise silently stay unbound.
+        log::warn!("edition: unknown value `{value}` (expected `managed`); staying unbound");
     }
 }
 

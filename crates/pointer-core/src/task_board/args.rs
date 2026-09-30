@@ -326,18 +326,6 @@ pub fn milestone_patch_rows_from_args(args: &Value) -> Option<Vec<Value>> {
     array_from_key(args, "milestones")
 }
 
-/// Patch global rows (`global_milestones` len=1) or legacy `items` for Type1.
-#[deprecated(note = "use unified_patch_rows_from_args for patch")]
-pub fn global_patch_rows_from_args(args: &Value) -> Option<Vec<Value>> {
-    if let Some(rows) = array_from_key(args, "global_milestones") {
-        return Some(rows);
-    }
-    if args.get("milestones").is_some() {
-        return None;
-    }
-    items_array_from_args(args)
-}
-
 pub fn board_rows_from_args(args: &Value) -> Vec<Value> {
     let global = global_rows_from_args(args);
     if !global.is_empty() {
@@ -545,27 +533,12 @@ mod tests {
     }
 
     #[test]
-    // Covers the deprecated legacy shim on purpose: unified_patch_rows_from_args
-    // is not equivalent (it has no global_milestones priority).
-    #[allow(deprecated)]
-    fn global_milestones_patch_takes_priority() {
-        let args = serde_json::json!({
-            "global_milestones": [{"id": "g_exec", "status": "done"}],
-            "items": [{"id": "ignored", "status": "done"}]
-        });
-        let rows = global_patch_rows_from_args(&args).expect("rows");
-        assert_eq!(rows[0]["id"], "g_exec");
-    }
-
-    #[test]
-    // Same: pins the deprecated shim's milestones-vs-global discrimination.
-    #[allow(deprecated)]
-    fn milestones_patch_separate_from_global() {
+    fn milestones_patch_rows_from_args_reads_milestones_array() {
         let args = serde_json::json!({
             "milestones": [{"id": "m1", "status": "done"}]
         });
-        assert!(milestone_patch_rows_from_args(&args).is_some());
-        assert!(global_patch_rows_from_args(&args).is_none());
+        let rows = milestone_patch_rows_from_args(&args).expect("rows");
+        assert_eq!(rows[0]["id"], "m1");
     }
 
     #[test]

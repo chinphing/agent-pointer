@@ -1,5 +1,16 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, onMounted, onUpdated, watch } from 'vue'
+import { bump, renderPerfEnabled } from '../../../../lib/renderPerf'
+
+// Dev-only render perf counters — one boolean check, no-op unless the HUD is on.
+onMounted(() => {
+  if (!renderPerfEnabled()) return
+  bump('mount:AssistantModelMessage')
+})
+onUpdated(() => {
+  if (!renderPerfEnabled()) return
+  bump('render:AssistantModelMessage')
+})
 import { storeToRefs } from 'pinia'
 import type { AgentTrace, ChatMessage, ToolCall } from '../../../../types/chat'
 import { useSettingsStore } from '../../../../stores/settings'

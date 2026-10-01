@@ -1,5 +1,16 @@
 <script setup lang="ts">
-import { computed, inject, ref, toRef, watch, type Ref } from 'vue'
+import { computed, inject, onMounted, onUpdated, ref, toRef, watch, type Ref } from 'vue'
+import { bump, renderPerfEnabled } from '../../../../lib/renderPerf'
+
+// Dev-only render perf counters — one boolean check, no-op unless the HUD is on.
+onMounted(() => {
+  if (!renderPerfEnabled()) return
+  bump('mount:SubAgentFrameHost')
+})
+onUpdated(() => {
+  if (!renderPerfEnabled()) return
+  bump('render:SubAgentFrameHost')
+})
 import type { AgentTrace, ChatMessage, ToolCall } from '../../../../types/chat'
 import { useChatStore } from '../../../../stores/chat'
 import { useSettingsStore } from '../../../../stores/settings'

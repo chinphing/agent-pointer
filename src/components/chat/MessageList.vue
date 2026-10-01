@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onBeforeUnmount, provide, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onBeforeUnmount, onUpdated, provide, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useVirtualizer } from '@tanstack/vue-virtual'
@@ -27,6 +27,14 @@ import {
 import { shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
 import { rootTracesOf } from '../../lib/subAgentTraceTree'
 import { messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
+import {
+  PERF_GAUGE_SCOPED_ROWS,
+  PERF_GAUGE_VISIBLE_ROWS,
+  bump,
+  record,
+  renderPerfEnabled,
+  setGauge
+} from '../../lib/renderPerf'
 import {
   buildMessageListLayout,
   coalesceToolRunItems,
@@ -1230,7 +1238,7 @@ function visibleToolsForGroups(groups: ToolRunGroup[]): ToolCall[] {
 }
 
 /** Merge tools + agentTrace onto the tool-run host so SubAgentFrame nests under hosts. */
-function toolRunAssistantMessage(groups: ToolRunGroup[]): ChatMessage | null {
+function buildToolRunAssistantMessage(groups: ToolRunGroup[]): ChatMessage | null {
   const host = toolRunHostMessage(groups)
   if (!host) return null
   const tools = visibleToolsForGroups(groups)
@@ -1248,6 +1256,22 @@ function toolRunAssistantMessage(groups: ToolRunGroup[]): ChatMessage | null {
     toolCalls: tools,
     ...(agentTrace ? { agentTrace } : {})
   }
+}
+
+/**
+ * Template-facing wrapper around {@link buildToolRunAssistantMessage}.
+ *
+ * The template calls this once per tool-run block per render, so the perf HUD
+ * counts the calls and their cost (fresh object per render is a jank suspect).
+ * While the HUD is off this is one boolean check plus a direct call — no closure.
+ */
+function toolRunAssistantMessage(groups: ToolRunGroup[]): ChatMessage | null {
+  if (!renderPerfEnabled()) return buildToolRunAssistantMessage(groups)
+  const startedAt = performance.now()
+  const message = buildToolRunAssistantMessage(groups)
+  record('ms:toolRunAssistantMessage', performance.now() - startedAt)
+  bump('call:toolRunAssistantMessage')
+  return message
 }
 
 function toolRunBlockKey(block: ReturnType<typeof coalesceToolRunItems>[number]): string {
@@ -1364,12 +1388,17 @@ let frozenFileChangesCache: FrozenFileChangesCache | null = null
 const extraScopedForWindow = computed(() => {
   const convId = chat.currentId
   if (!convId) return [] as ChatMessage[]
+  // Perf HUD: single boolean read when off, no closure allocated either way.
+  const perf = renderPerfEnabled()
+  const startedAt = perf ? performance.now() : 0
   const anchorIds = pageWindowMessages.value.map(m => m.id)
   void chat.getScopedMembershipSignal(convId)
   for (const spawnId of chat.scopedSpawnIdsForAnchors(convId, anchorIds)) {
     void chat.getSubAgentLiveSignal(spawnId)
   }
-  return chat.scopedRowsForAnchors(convId, anchorIds)
+  const rows = chat.scopedRowsForAnchors(convId, anchorIds)
+  if (perf) record('ms:extraScopedForWindow', performance.now() - startedAt)
+  return rows
 })
 
 /** Latest lead turn still running → do not freeze it yet. */
@@ -1840,8 +1869,29 @@ watch(virtualRows, () => {
 })
 
 function setVirtualRowElement(node: Element | ComponentPublicInstance | null) {
-  rowVirtualizer.value.measureElement(node instanceof HTMLDivElement ? node : null)
+  const el = node instanceof HTMLDivElement ? node : null
+  if (!renderPerfEnabled()) {
+    rowVirtualizer.value.measureElement(el)
+    return
+  }
+  const startedAt = performance.now()
+  rowVirtualizer.value.measureElement(el)
+  record('ms:measureElement', performance.now() - startedAt)
+  bump('call:measureElement')
 }
+
+// --- dev-only render perf instrumentation (no-op unless the HUD is enabled) ---
+onMounted(() => {
+  if (!renderPerfEnabled()) return
+  bump('mount:MessageList')
+})
+
+onUpdated(() => {
+  if (!renderPerfEnabled()) return
+  bump('render:MessageList')
+  setGauge(PERF_GAUGE_VISIBLE_ROWS, virtualRows.value.length)
+  setGauge(PERF_GAUGE_SCOPED_ROWS, extraScopedForWindow.value.length)
+})
 
 function spacingPixels(
   entry: FlatEntry,

@@ -23,6 +23,8 @@ import WelcomeTipBanner from './WelcomeTipBanner.vue'
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-vue-next'
 import { showScrollbarWhileScrolling } from '../../lib/autoHideScrollbar'
 import ConversationNav from './ConversationNav.vue'
+import RenderPerfHud from '../dev/RenderPerfHud.vue'
+import { useRenderPerfEnabled } from '../../lib/renderPerf'
 
 const { t } = useI18n()
 
@@ -110,6 +112,8 @@ const needsPlatformLogin = computed(
   () => !platformAuth.isStandalone && !platformAuth.session.logged_in
 )
 const experienceSectionExpanded = ref(false)
+/** Dev-only render perf overlay — off unless toggled (see `lib/renderPerf.ts`). */
+const perfHudOn = useRenderPerfEnabled()
 let mobileMediaQuery: MediaQueryList | null = null
 
 function updateMobileViewport() {
@@ -445,6 +449,7 @@ const toastClass = computed(() => {
       </div>
     </div>
     <Composer v-if="showFooterComposer" />
+    <RenderPerfHud v-if="perfHudOn" />
   </div>
 </template>
 

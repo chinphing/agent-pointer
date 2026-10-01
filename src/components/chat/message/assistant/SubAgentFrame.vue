@@ -3,7 +3,18 @@ import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
 
-import { computed, inject, ref, watch, type Ref } from 'vue'
+import { computed, inject, onMounted, onUpdated, ref, watch, type Ref } from 'vue'
+import { bump, renderPerfEnabled } from '../../../../lib/renderPerf'
+
+// Dev-only render perf counters — one boolean check, no-op unless the HUD is on.
+onMounted(() => {
+  if (!renderPerfEnabled()) return
+  bump('mount:SubAgentFrame')
+})
+onUpdated(() => {
+  if (!renderPerfEnabled()) return
+  bump('render:SubAgentFrame')
+})
 import { Code } from 'lucide-vue-next'
 import type { AgentTrace, ChatMessage, TaskBoardDocument, ToolCall } from '../../../../types/chat'
 import { traceAgentLabel, type ResolvedAgentUi } from '../../../../lib/agentUi'

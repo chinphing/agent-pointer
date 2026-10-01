@@ -1,5 +1,16 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, onUpdated, ref } from 'vue'
+import { bump, renderPerfEnabled } from '../../../../lib/renderPerf'
+
+// Dev-only render perf counters — one boolean check, no-op unless the HUD is on.
+onMounted(() => {
+  if (!renderPerfEnabled()) return
+  bump('mount:SubAgentContentBlock')
+})
+onUpdated(() => {
+  if (!renderPerfEnabled()) return
+  bump('render:SubAgentContentBlock')
+})
 import { parseMarkdown } from '../../../../lib/markdownConfig'
 import { useThrottledMarkdown } from '../../../../composables/useThrottledMarkdown'
 import { useMarkdownCodeCopy } from '../../../../composables/useMarkdownCodeCopy'

@@ -22,6 +22,9 @@ import {
 import { highlightCodeFenceHtml } from './workspaceFilePreview'
 import {
   PERF_ACTIVITY_MARKDOWN_PARSE,
+  PERF_ACTIVITY_MARKDOWN_PARSE_MARKED,
+  PERF_ACTIVITY_MARKDOWN_PARSE_PREP,
+  PERF_ACTIVITY_MARKDOWN_PARSE_WRAP,
   beginPerfActivity,
   endPerfActivity,
   renderPerfEnabled
@@ -146,7 +149,9 @@ const BLOCKQUOTE_LINE_RE = /^[ \t]{0,8}>/
  * other wraps stay in the item. Insert one blank line; skip fenced code.
  */
 export function ensureBlankLineAfterListBeforeSection(src: string): string {
-  if (!src.includes('\n')) return src
+  // This pass only ever writes a line before one that starts with `**`, so a
+  // source without that marker cannot change: skip the split + line scan.
+  if (!src.includes('\n') || !src.includes('**')) return src
   const lines = src.split('\n')
   const out: string[] = []
   let inList = false
@@ -262,6 +267,18 @@ export function ensureBlankLinesAroundHtmlTables(src: string): string {
   // Blank line after </table> when the next line has content (not already blank).
   out = out.replace(/<\/table>([ \t]*)\n(?=[ \t]*\S)/gi, '</table>$1\n\n')
   return out
+}
+
+/**
+ * Close a GFM table row that is directly followed by a non-blank line, so the
+ * following prose is not swallowed into the table.
+ *
+ * The regex needs both a `|` and a `\n`, so sources without either are returned
+ * as-is instead of running it.
+ */
+export function ensureBlankLineAfterTableRow(src: string): string {
+  if (!src.includes('|') || !src.includes('\n')) return src
+  return src.replace(/(\|[^\n]*\|\s*\n)(?=[^\s|])/g, '$1\n')
 }
 
 function tableAlignClass(align: string | null | undefined): string | null {
@@ -538,37 +555,126 @@ export type ParseMarkdownOptions = {
 }
 
 /**
+ * Cap on cached parse results. The virtualizer unmounts and remounts message
+ * rows while scrolling; without a cache every remount re-runs the whole
+ * pipeline for a message that has not changed. Least-recently-used entries are
+ * dropped first once either bound is crossed.
+ */
+export const MARKDOWN_PARSE_CACHE_MAX_ENTRIES = 120
+/** Cap on the source characters the cache may hold in total (memory proxy). */
+export const MARKDOWN_PARSE_CACHE_MAX_SOURCE_CHARS = 200_000
+
+interface MarkdownParseCacheEntry {
+  html: string
+  sourceChars: number
+}
+
+/** Map insertion order is the LRU order: a hit re-inserts its key at the end. */
+const markdownParseCache = new Map<string, MarkdownParseCacheEntry>()
+let markdownParseCacheSourceChars = 0
+
+/**
+ * Cache key: a fixed-width flag prefix followed by the source verbatim, so two
+ * different (flags, source) pairs can never collide.
+ */
+function markdownParseCacheKey(
+  src: string,
+  streamingCharts: boolean,
+  streamingSvgs: boolean,
+  streamingMermaid: boolean
+): string {
+  const flags =
+    (streamingCharts ? '1' : '0') +
+    (streamingSvgs ? '1' : '0') +
+    (streamingMermaid ? '1' : '0')
+  return `${flags}\n${src}`
+}
+
+function rememberMarkdownParse(key: string, sourceChars: number, html: string): void {
+  const previous = markdownParseCache.get(key)
+  if (previous) {
+    markdownParseCache.delete(key)
+    markdownParseCacheSourceChars -= previous.sourceChars
+  }
+  // One source larger than the whole budget would evict every other entry and
+  // still not fit: leave it uncached instead of flushing the cache for it.
+  if (sourceChars > MARKDOWN_PARSE_CACHE_MAX_SOURCE_CHARS) return
+  markdownParseCache.set(key, { html, sourceChars })
+  markdownParseCacheSourceChars += sourceChars
+  while (
+    markdownParseCache.size > MARKDOWN_PARSE_CACHE_MAX_ENTRIES ||
+    markdownParseCacheSourceChars > MARKDOWN_PARSE_CACHE_MAX_SOURCE_CHARS
+  ) {
+    const oldestKey = markdownParseCache.keys().next().value
+    if (oldestKey === undefined) break
+    const oldest = markdownParseCache.get(oldestKey)
+    markdownParseCache.delete(oldestKey)
+    if (oldest) markdownParseCacheSourceChars -= oldest.sourceChars
+  }
+}
+
+/**
  * Parse Markdown to HTML with shared configuration.
  *
  * Includes pre-processing that inserts blank lines after GFM / HTML tables,
  * after a list when the next line starts with `**`, and after a blockquote when
  * the next line omits `>` (CommonMark lazy continuation), so chat prose does not
  * swallow the following paragraph into the quote.
+ *
+ * Results are cached per source + streaming flags (see the cache constants), so
+ * re-rendering an unchanged message costs one `Map` lookup.
  */
 export function parseMarkdown(src: string, options?: ParseMarkdownOptions): string {
   if (!src.trim()) return ''
-  // Single funnel for every markdown render in the app, so the marker goes here
-  // rather than at each `parseMarkdown` call site.
-  const perf = renderPerfEnabled()
-  if (perf) beginPerfActivity(PERF_ACTIVITY_MARKDOWN_PARSE)
   const streamingCharts = options?.streamingCharts === true
   const streamingSvgs = options?.streamingSvgs === true
   const streamingMermaid = options?.streamingMermaid === true
-  let prepared = src
-  if (streamingCharts) prepared = stabilizeStreamingChartFences(prepared)
-  if (streamingSvgs) prepared = stabilizeStreamingSvgFences(prepared)
-  if (streamingMermaid) prepared = stabilizeStreamingMermaidFences(prepared)
-  prepared = ensureBlankLineAfterListBeforeSection(prepared)
-  prepared = ensureBlankLineAfterBlockquote(prepared)
-  prepared = ensureBlankLinesAroundHtmlTables(prepared)
-  const fixed = prepared.replace(/(\|[^\n]*\|\s*\n)(?=[^\s|])/g, '$1\n')
-  parseStreamingCharts = streamingCharts
-  parseStreamingSvgs = streamingSvgs
+
+  const cacheKey = markdownParseCacheKey(src, streamingCharts, streamingSvgs, streamingMermaid)
+  const cached = markdownParseCache.get(cacheKey)
+  if (cached) {
+    // Re-insert to move the key to the end: the front of the Map is the LRU end.
+    markdownParseCache.delete(cacheKey)
+    markdownParseCache.set(cacheKey, cached)
+    return cached.html
+  }
+
+  // Single funnel for every markdown render in the app, so the marker goes here
+  // rather than at each `parseMarkdown` call site. The three phases nest inside
+  // it, so a gap is still blamed on `markdownParse` as a whole.
+  const perf = renderPerfEnabled()
+  if (perf) beginPerfActivity(PERF_ACTIVITY_MARKDOWN_PARSE)
   try {
-    return wrapBareHtmlTables(marked.parse(fixed) as string)
+    if (perf) beginPerfActivity(PERF_ACTIVITY_MARKDOWN_PARSE_PREP)
+    let prepared = src
+    if (streamingCharts) prepared = stabilizeStreamingChartFences(prepared)
+    if (streamingSvgs) prepared = stabilizeStreamingSvgFences(prepared)
+    if (streamingMermaid) prepared = stabilizeStreamingMermaidFences(prepared)
+    prepared = ensureBlankLineAfterListBeforeSection(prepared)
+    prepared = ensureBlankLineAfterBlockquote(prepared)
+    prepared = ensureBlankLinesAroundHtmlTables(prepared)
+    const fixed = ensureBlankLineAfterTableRow(prepared)
+    if (perf) endPerfActivity(PERF_ACTIVITY_MARKDOWN_PARSE_PREP)
+
+    parseStreamingCharts = streamingCharts
+    parseStreamingSvgs = streamingSvgs
+    let raw: string
+    if (perf) beginPerfActivity(PERF_ACTIVITY_MARKDOWN_PARSE_MARKED)
+    try {
+      raw = marked.parse(fixed) as string
+    } finally {
+      if (perf) endPerfActivity(PERF_ACTIVITY_MARKDOWN_PARSE_MARKED)
+      parseStreamingCharts = false
+      parseStreamingSvgs = false
+    }
+
+    if (perf) beginPerfActivity(PERF_ACTIVITY_MARKDOWN_PARSE_WRAP)
+    const html = wrapBareHtmlTables(raw)
+    if (perf) endPerfActivity(PERF_ACTIVITY_MARKDOWN_PARSE_WRAP)
+
+    rememberMarkdownParse(cacheKey, src.length, html)
+    return html
   } finally {
     if (perf) endPerfActivity(PERF_ACTIVITY_MARKDOWN_PARSE)
-    parseStreamingCharts = false
-    parseStreamingSvgs = false
   }
 }

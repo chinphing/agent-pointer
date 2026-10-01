@@ -112,6 +112,14 @@ export const PERF_ACTIVITY_LOAD_OLDER = 'loadOlder'
 export const PERF_ACTIVITY_LOAD_NEWER = 'loadNewer'
 export const PERF_ACTIVITY_MEASURE_BATCH = 'measureBatch'
 export const PERF_ACTIVITY_MARKDOWN_PARSE = 'markdownParse'
+/**
+ * Phases of `parseMarkdown`, nested inside `PERF_ACTIVITY_MARKDOWN_PARSE` so a
+ * gap can still be blamed on the whole parse while the HUD shows which phase
+ * held the time (source pre-processing, `marked.parse`, HTML post-pass).
+ */
+export const PERF_ACTIVITY_MARKDOWN_PARSE_PREP = 'markdownParse:prep'
+export const PERF_ACTIVITY_MARKDOWN_PARSE_MARKED = 'markdownParse:marked'
+export const PERF_ACTIVITY_MARKDOWN_PARSE_WRAP = 'markdownParse:wrap'
 /** Shown instead of an activity name when no marker covers the moment. */
 export const PERF_ACTIVITY_IDLE = 'idle'
 /**

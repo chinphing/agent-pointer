@@ -5,6 +5,12 @@ import {
   PERF_CALL_KEYS,
   PERF_GAUGE_FROZEN_TURNS,
   PERF_GAUGE_SCOPED_ROWS,
+  PERF_GAUGE_VIRTUAL_BLANK,
+  PERF_GAUGE_VIRTUAL_FIRST,
+  PERF_GAUGE_VIRTUAL_LAST,
+  PERF_GAUGE_VIRTUAL_MEASURED,
+  PERF_GAUGE_VIRTUAL_SCROLL_HEIGHT,
+  PERF_GAUGE_VIRTUAL_TOTAL,
   PERF_GAUGE_VISIBLE_ROWS,
   PERF_HUD_SHORTCUT_LABEL,
   PERF_MOUNT_KEYS,
@@ -96,6 +102,13 @@ function formatDistance(px: number): string {
   return `${(px / 1000).toFixed(1)}k px`
 }
 
+/** `+155 px` / `-12 px` — direction matters for the blank-region gap. */
+function formatSignedDistance(px: number): string {
+  if (!Number.isFinite(px) || px === 0) return '0 px'
+  const body = formatDistance(Math.abs(px))
+  return px > 0 ? `+${body}` : `-${body}`
+}
+
 /** Compact per-1000-px cost: `12.3`, `0.80`, `0` — readable at 10px wide. */
 function formatCost(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return '0'
@@ -127,6 +140,29 @@ function activityLine(label: string, value: string, activity: string): string {
   return `${label.padEnd(10)}${value.padStart(8)} @ ${activity || PERF_ACTIVITY_IDLE}`
 }
 
+/**
+ * Virtualizer geometry, one line per concern (see `publishVirtualGeometryGauges`):
+ * content height against the scroller's own height — their difference, `v.blank`,
+ * is space the scroller can scroll into, which means the box is too tall rather
+ * than that rows are missing — and the rendered index span against how many rows
+ * have a measured height instead of `estimateSize`.
+ */
+function virtualGeometryLines(gauges: Record<string, number>): string[] {
+  const total = gauges[PERF_GAUGE_VIRTUAL_TOTAL] ?? 0
+  const scrollHeight = gauges[PERF_GAUGE_VIRTUAL_SCROLL_HEIGHT] ?? 0
+  const blank = gauges[PERF_GAUGE_VIRTUAL_BLANK] ?? 0
+  const first = gauges[PERF_GAUGE_VIRTUAL_FIRST] ?? -1
+  const last = gauges[PERF_GAUGE_VIRTUAL_LAST] ?? -1
+  const measured = gauges[PERF_GAUGE_VIRTUAL_MEASURED] ?? 0
+  return [
+    `v.total ${formatDistance(total).padStart(8)}`
+      + `  v.scrollH ${formatDistance(scrollHeight).padStart(8)}`
+      + `  v.blank ${formatSignedDistance(blank).padStart(9)}`,
+    `v.range ${(first < 0 ? 'none' : `${first}-${last}`).padStart(8)}`
+      + `  v.measured ${String(measured).padStart(5)}`
+  ]
+}
+
 const text = computed(() => {
   const s = snapshot.value
   return [
@@ -149,6 +185,7 @@ const text = computed(() => {
       + `frozen ${String(s.gauges[PERF_GAUGE_FROZEN_TURNS] ?? 0).padStart(3)}  `
       + `renders/row ${s.rendersPerVisibleRow.toFixed(2)}`
       + ` pk ${s.rendersPerVisibleRowPeak.toFixed(2)}`,
+    ...virtualGeometryLines(s.gauges),
     ...scrollCostLines(s.scrollDistancePx, s.per1000Px),
     ...memoryLines(s.memory),
     ...group(PERF_RENDER_KEYS, s.renders, s.peakRenders),

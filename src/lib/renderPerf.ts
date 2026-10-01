@@ -10,7 +10,8 @@ import type { MemoryStats } from './memoryProbe'
  * - **Off by default, free when off.** `renderPerfEnabled()` is a plain boolean
  *   read. Every instrumentation point early-returns on it, the HUD component is
  *   not mounted, the rAF probe is not scheduled and the snapshot interval does
- *   not exist. The only cost while off is the (single) keydown listener.
+ *   not exist. The only costs while off are the (single) keydown listener and one
+ *   sampler reference registered by a mounted `MessageList` — never a read.
  * - **No allocation on the hot path.** `bump` / `record` / `setGauge` mutate
  *   existing `Map` entries. Records are rebuilt once per snapshot (4 Hz), never
  *   per render.
@@ -98,6 +99,22 @@ export const PERF_GAUGE_VISIBLE_ROWS = 'visibleRows'
 export const PERF_GAUGE_SCOPED_ROWS = 'scopedRows'
 /** Entries in `MessageList`'s frozen per-turn file-changes cache. */
 export const PERF_GAUGE_FROZEN_TURNS = 'frozenTurns'
+/** Height the virtualizer computed for all rows (`getTotalSize()`). */
+export const PERF_GAUGE_VIRTUAL_TOTAL = 'virtualTotal'
+/** `scroller.scrollHeight` — the height the browser thinks the content has. */
+export const PERF_GAUGE_VIRTUAL_SCROLL_HEIGHT = 'virtualScrollHeight'
+/** First / last rendered row index; `-1` while nothing is rendered. */
+export const PERF_GAUGE_VIRTUAL_FIRST = 'virtualFirst'
+export const PERF_GAUGE_VIRTUAL_LAST = 'virtualLast'
+/** Rows whose height was measured, as opposed to still reading `estimateSize`. */
+export const PERF_GAUGE_VIRTUAL_MEASURED = 'virtualMeasured'
+/**
+ * `scrollHeight - getTotalSize()`. A large positive value means the scroller can
+ * scroll past the content — blank space *below* the last row, i.e. the box is
+ * taller than the rows it holds, not that rows are missing. A negative value
+ * means the opposite (content taller than the box it scrolls in).
+ */
+export const PERF_GAUGE_VIRTUAL_BLANK = 'virtualBlank'
 
 // --- activity markers -------------------------------------------------------
 
@@ -314,6 +331,71 @@ export function recordScrollDistance(px: number): void {
   if (!enabled) return
   if (!Number.isFinite(px)) return
   scrollDistancePx += Math.abs(px)
+}
+
+// --- virtualizer geometry ---------------------------------------------------
+
+/**
+ * Structural view of the row virtualizer. Typed structurally so this module
+ * keeps no dependency on `@tanstack/virtual-core` (and tests need no virtualizer).
+ */
+export interface PerfVirtualizerLike {
+  /** Content height the virtualizer computed from its measurements. */
+  getTotalSize: () => number
+  /** Cache of *measured* row heights (public in virtual-core 3.17.6); only `size` is read. */
+  itemSizeCache?: { size: number } | null
+}
+
+/** Structural view of the scroll container — `scrollHeight` is the only read. */
+export interface PerfScrollerLike {
+  scrollHeight: number
+}
+
+/** One rendered row, as much as the gauge needs of it. */
+export interface PerfVirtualRowLike {
+  index: number
+}
+
+/**
+ * Publish the virtualizer's geometry, so a *persistent* blank region can be told
+ * apart from a missing-row bug:
+ *
+ * - `virtualTotal` against `virtualScrollHeight` — their difference
+ *   (`virtualBlank`) is emptiness the scroller can still scroll into: every row
+ *   is present, the box around them is too tall. (A missing row instead shrinks
+ *   `virtualTotal`, and the two stay in step.)
+ * - `virtualMeasured` against the rendered range — how many rows the offsets
+ *   come from real heights rather than from `estimateSize`, which is what makes
+ *   a freshly prepended page sit at a wrong offset.
+ *
+ * A missing virtualizer or scroller (before mount, after teardown, a null ref) is
+ * a legal state, not an error: the gauges are published as `0` / `-1` rather than
+ * throwing or leaving a stale reading from the previous conversation.
+ *
+ * While the HUD is off this is one boolean read, like every other point here.
+ */
+export function publishVirtualGeometryGauges(
+  virtualizer: PerfVirtualizerLike | null | undefined,
+  scroller: PerfScrollerLike | null | undefined,
+  rows: readonly PerfVirtualRowLike[] | null | undefined
+): void {
+  if (!enabled) return
+  const totalSize = virtualizer ? virtualizer.getTotalSize() : 0
+  const scrollHeight = scroller ? scroller.scrollHeight : 0
+  const hasRows = !!rows && rows.length > 0
+  const firstRow = rows && hasRows ? rows[0] : undefined
+  const lastRow = rows && hasRows ? rows[rows.length - 1] : undefined
+  setGauge(PERF_GAUGE_VIRTUAL_TOTAL, totalSize)
+  setGauge(PERF_GAUGE_VIRTUAL_SCROLL_HEIGHT, scrollHeight)
+  setGauge(PERF_GAUGE_VIRTUAL_FIRST, firstRow?.index ?? -1)
+  setGauge(PERF_GAUGE_VIRTUAL_LAST, lastRow?.index ?? -1)
+  setGauge(PERF_GAUGE_VIRTUAL_MEASURED, virtualizer?.itemSizeCache?.size ?? 0)
+  // Only meaningful with both sides present: a missing scroller would otherwise
+  // read as a large negative "blank".
+  setGauge(
+    PERF_GAUGE_VIRTUAL_BLANK,
+    virtualizer && scroller ? scrollHeight - totalSize : 0
+  )
 }
 
 /**
@@ -541,6 +623,34 @@ export function setRenderPerfMemorySampler(
   memorySampler = sampler
 }
 
+// --- gauge sampler ----------------------------------------------------------
+
+/**
+ * Optional virtualizer-geometry sampler, installed by `MessageList` (see
+ * `publishVirtualGeometryGauges`). Like the memory sampler it is invoked only
+ * while `enabled` — and it rides the existing snapshot tick instead of a timer
+ * of its own, so the read (which includes `scrollHeight`, a layout-forcing one)
+ * happens at the HUD's 4 Hz cadence rather than once per component update.
+ */
+let gaugeSampler: (() => void) | null = null
+
+/** Low-level slot, mirroring `setRenderPerfMemorySampler` (tests, one sampler at a time). */
+export function setRenderPerfGaugeSampler(sampler: (() => void) | null): void {
+  gaugeSampler = sampler
+}
+
+/**
+ * Install a geometry sampler and return its disposer. The disposer clears the
+ * slot only while this sampler is still the installed one, so a component that
+ * unmounts after a newer one registered cannot unsubscribe its successor.
+ */
+export function installRenderPerfGaugeSampler(sampler: () => void): () => void {
+  gaugeSampler = sampler
+  return () => {
+    if (gaugeSampler === sampler) gaugeSampler = null
+  }
+}
+
 // --- snapshot ---------------------------------------------------------------
 
 /**
@@ -625,6 +735,9 @@ export function renderPerfSnapshot(nowOverride?: number): RenderPerfSnapshot {
   for (const [name, value] of closedMs) {
     if (value > 0) msPerSecond[name] = value
   }
+  // Refresh the live geometry gauges once per snapshot — never per update: the
+  // read includes `scrollHeight`, which forces layout when the DOM is dirty.
+  if (enabled && gaugeSampler) gaugeSampler()
   const gaugeSnapshot: Record<string, number> = {}
   for (const [name, value] of gauges) gaugeSnapshot[name] = value
 

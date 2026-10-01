@@ -7,6 +7,12 @@ import {
   PERF_ACTIVITY_MEASURE_BATCH,
   PERF_ACTIVITY_STALE_MS,
   PERF_FRAME_SUSPENSION_MS,
+  PERF_GAUGE_VIRTUAL_BLANK,
+  PERF_GAUGE_VIRTUAL_FIRST,
+  PERF_GAUGE_VIRTUAL_LAST,
+  PERF_GAUGE_VIRTUAL_MEASURED,
+  PERF_GAUGE_VIRTUAL_SCROLL_HEIGHT,
+  PERF_GAUGE_VIRTUAL_TOTAL,
   PERF_GAUGE_VISIBLE_ROWS,
   PERF_HUD_SNAPSHOT_MS,
   PERF_HUD_STORAGE_KEY,
@@ -16,8 +22,10 @@ import {
   currentPerfActivity,
   endPerfActivity,
   initRenderPerf,
+  installRenderPerfGaugeSampler,
   isPerfHudShortcut,
   parsePerfHudUrlFlag,
+  publishVirtualGeometryGauges,
   record,
   recordScrollDistance,
   renderPerfEnabled,
@@ -26,6 +34,7 @@ import {
   resolveInitialPerfHudEnabled,
   setGauge,
   setRenderPerfEnabled,
+  setRenderPerfGaugeSampler,
   toggleRenderPerf,
   useRenderPerfEnabled,
   useRenderPerfSnapshot,
@@ -41,6 +50,9 @@ const requestFrame = vi.fn((cb: FrameRequestCallback) => {
 const cancelFrame = vi.fn(() => {
   rafCallback = null
 })
+
+/** Disposer of the geometry sampler a test installed (cleared in `afterEach`). */
+let disposeGaugeSampler: (() => void) | null = null
 
 beforeAll(() => {
   localStorage.clear()
@@ -60,6 +72,9 @@ beforeEach(() => {
 
 afterEach(() => {
   setRenderPerfEnabled(false, { persist: false })
+  disposeGaugeSampler?.()
+  disposeGaugeSampler = null
+  setRenderPerfGaugeSampler(null)
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.useRealTimers()
@@ -676,5 +691,109 @@ describe('renderPerf activity attribution', () => {
     setRenderPerfEnabled(true, { persist: false })
 
     expect(currentPerfActivity()).toBe('')
+  })
+})
+
+describe('renderPerf virtualizer geometry gauges', () => {
+  it('publishes total size, scroller height, rendered range, measured rows and the blank gap', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    publishVirtualGeometryGauges(
+      { getTotalSize: () => 5000, itemSizeCache: new Map([['turn-a', 120], ['turn-b', 300]]) },
+      { scrollHeight: 5400 },
+      [{ index: 4 }, { index: 5 }, { index: 6 }]
+    )
+
+    const gauges = renderPerfSnapshot(1000).gauges
+    expect(gauges[PERF_GAUGE_VIRTUAL_TOTAL]).toBe(5000)
+    expect(gauges[PERF_GAUGE_VIRTUAL_SCROLL_HEIGHT]).toBe(5400)
+    expect(gauges[PERF_GAUGE_VIRTUAL_FIRST]).toBe(4)
+    expect(gauges[PERF_GAUGE_VIRTUAL_LAST]).toBe(6)
+    expect(gauges[PERF_GAUGE_VIRTUAL_MEASURED]).toBe(2)
+    // The scroller is 400 px taller than the content: scrollable emptiness.
+    expect(gauges[PERF_GAUGE_VIRTUAL_BLANK]).toBe(400)
+  })
+
+  it('publishes zeros without a virtualizer or scroller instead of throwing', () => {
+    setRenderPerfEnabled(true, { persist: false })
+
+    expect(() => publishVirtualGeometryGauges(null, null, null)).not.toThrow()
+    expect(() => publishVirtualGeometryGauges(undefined, undefined, [])).not.toThrow()
+
+    const gauges = renderPerfSnapshot(1000).gauges
+    expect(gauges[PERF_GAUGE_VIRTUAL_TOTAL]).toBe(0)
+    expect(gauges[PERF_GAUGE_VIRTUAL_SCROLL_HEIGHT]).toBe(0)
+    expect(gauges[PERF_GAUGE_VIRTUAL_FIRST]).toBe(-1)
+    expect(gauges[PERF_GAUGE_VIRTUAL_LAST]).toBe(-1)
+    expect(gauges[PERF_GAUGE_VIRTUAL_MEASURED]).toBe(0)
+    expect(gauges[PERF_GAUGE_VIRTUAL_BLANK]).toBe(0)
+  })
+
+  it('treats a virtualizer without the measured-size cache as zero measured rows', () => {
+    setRenderPerfEnabled(true, { persist: false })
+
+    expect(() =>
+      publishVirtualGeometryGauges(
+        { getTotalSize: () => 900 },
+        { scrollHeight: 900 },
+        [{ index: 0 }]
+      )
+    ).not.toThrow()
+
+    const gauges = renderPerfSnapshot(1000).gauges
+    expect(gauges[PERF_GAUGE_VIRTUAL_TOTAL]).toBe(900)
+    expect(gauges[PERF_GAUGE_VIRTUAL_MEASURED]).toBe(0)
+    expect(gauges[PERF_GAUGE_VIRTUAL_BLANK]).toBe(0)
+  })
+
+  it('keeps the blank gap at 0 when only one side is present', () => {
+    setRenderPerfEnabled(true, { persist: false })
+
+    // Scroller but no virtualizer: 900 px of scroll height is not "blank".
+    publishVirtualGeometryGauges(undefined, { scrollHeight: 900 }, [])
+    expect(renderPerfSnapshot(1000).gauges[PERF_GAUGE_VIRTUAL_BLANK]).toBe(0)
+
+    // Virtualizer but no scroller: 900 px of content is not a negative blank.
+    publishVirtualGeometryGauges({ getTotalSize: () => 900 }, null, [])
+    expect(renderPerfSnapshot(2000).gauges[PERF_GAUGE_VIRTUAL_BLANK]).toBe(0)
+  })
+
+  it('reads nothing at all while the HUD is off', () => {
+    const getTotalSize = vi.fn(() => 4000)
+
+    publishVirtualGeometryGauges(
+      { getTotalSize, itemSizeCache: new Map() },
+      { scrollHeight: 4000 },
+      [{ index: 0 }]
+    )
+
+    expect(getTotalSize).not.toHaveBeenCalled()
+    expect(renderPerfSnapshot(1000).gauges).toEqual({})
+  })
+
+  it('runs the installed sampler once per snapshot, and only while enabled', () => {
+    const virtualizer = { getTotalSize: vi.fn(() => 4000), itemSizeCache: new Map() }
+    const scroller = { scrollHeight: 4120 }
+    disposeGaugeSampler = installRenderPerfGaugeSampler(() =>
+      publishVirtualGeometryGauges(virtualizer, scroller, [{ index: 0 }])
+    )
+
+    // Off: the snapshot tick must not touch the virtualizer or the scroller.
+    renderPerfSnapshot(1000)
+    expect(virtualizer.getTotalSize).not.toHaveBeenCalled()
+
+    setRenderPerfEnabled(true, { persist: false })
+    const gauges = renderPerfSnapshot(2000).gauges
+    expect(virtualizer.getTotalSize).toHaveBeenCalledTimes(1)
+    expect(gauges[PERF_GAUGE_VIRTUAL_BLANK]).toBe(120)
+  })
+
+  it('leaves a newer sampler installed when an older one is disposed', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    const older = installRenderPerfGaugeSampler(() => setGauge(PERF_GAUGE_VIRTUAL_TOTAL, 1))
+    disposeGaugeSampler = installRenderPerfGaugeSampler(() => setGauge(PERF_GAUGE_VIRTUAL_TOTAL, 2))
+
+    older()
+
+    expect(renderPerfSnapshot(1000).gauges[PERF_GAUGE_VIRTUAL_TOTAL]).toBe(2)
   })
 })

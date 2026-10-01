@@ -228,4 +228,24 @@ describe('RenderPerfHud', () => {
     expect(hudText()).toMatch(/worst gap\s+753ms @ layoutRebuild/)
     expect(hudText()).toMatch(/pass pk\s+86\.0ms @ layoutRebuild/)
   })
+
+  it('shows virtualizer geometry, including the blank gap below the last row', async () => {
+    setRenderPerfEnabled(true, { persist: false })
+    mountHud()
+
+    setGauge('virtualTotal', 5000)
+    setGauge('virtualScrollHeight', 5400)
+    setGauge('virtualFirst', 4)
+    setGauge('virtualLast', 19)
+    setGauge('virtualMeasured', 128)
+    setGauge('virtualBlank', 400)
+    await advanceOneSecond()
+
+    const text = hudText()
+    expect(text).toMatch(/v\.total\s+5000 px/)
+    expect(text).toMatch(/v\.scrollH\s+5400 px/)
+    expect(text).toMatch(/v\.blank\s+\+400 px/)
+    expect(text).toMatch(/v\.range\s+4-19/)
+    expect(text).toMatch(/v\.measured\s+128/)
+  })
 })

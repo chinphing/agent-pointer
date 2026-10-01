@@ -83,13 +83,25 @@ export const PERF_MOUNT_KEYS = [
 
 /** Duration of one coalesced `MessageList` scroll pass (see `runScrollPass`). */
 export const PERF_MS_SCROLL_PASS = 'ms:scrollPass'
+/**
+ * Read phase of the same pass: the scroller metrics, the sticky-board snapshot,
+ * the visible-nav read and the trim anchor — the half that forces layout.
+ */
+export const PERF_MS_SCROLL_PASS_READ = 'ms:scrollPass:read'
+/**
+ * Write phase of the same pass: refs, the follow decision, the sticky snapshot
+ * applied, prefetch checks, viewed stamps, nav update and trim.
+ */
+export const PERF_MS_SCROLL_PASS_WRITE = 'ms:scrollPass:write'
 
 /** Accumulated milliseconds per second, keyed by `ms:<work>` (see `record`). */
 export const PERF_MS_KEYS = [
   'ms:extraScopedForWindow',
   'ms:measureElement',
   'ms:toolRunAssistantMessage',
-  PERF_MS_SCROLL_PASS
+  PERF_MS_SCROLL_PASS,
+  PERF_MS_SCROLL_PASS_READ,
+  PERF_MS_SCROLL_PASS_WRITE
 ] as const
 
 /** Per-second call count of `toolRunAssistantMessage` (fresh object per render). */
@@ -126,6 +138,12 @@ export const PERF_GAUGE_VIRTUAL_SLACK = 'virtualSlack'
  * height the assumed offsets do not account for, i.e. rows overlapping.
  */
 export const PERF_GAUGE_VIRTUAL_OVERLAP = 'virtualOverlap'
+/**
+ * The height currently assumed for a row with no measured size yet, in px
+ * (`createMessageRowHeightEstimator` in `lib/messageVirtualization.ts`). Read next
+ * to `virtualMeasured`: it is the number that places every unmeasured row.
+ */
+export const PERF_GAUGE_VIRTUAL_ESTIMATE = 'virtualEstimate'
 /**
  * Height of the pull-to-load top spacer, which `MessageList` renders *inside* the
  * same scroll box as the rows. It is part of `virtualBlank` (together with the

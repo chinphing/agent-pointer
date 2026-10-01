@@ -38,8 +38,11 @@ import {
   PERF_ACTIVITY_TRIM_HISTORY,
   PERF_GAUGE_FROZEN_TURNS,
   PERF_GAUGE_SCOPED_ROWS,
+  PERF_GAUGE_VIRTUAL_ESTIMATE,
   PERF_GAUGE_VISIBLE_ROWS,
   PERF_MS_SCROLL_PASS,
+  PERF_MS_SCROLL_PASS_READ,
+  PERF_MS_SCROLL_PASS_WRITE,
   beginPerfActivity,
   bump,
   endPerfActivity,
@@ -1297,19 +1300,26 @@ function onScroll(_event: Event) {
  */
 function runScrollPass() {
   if (!renderPerfEnabled()) {
-    runScrollPassBody()
+    runScrollPassBody(false, 0)
     return
   }
   const startedAt = performance.now()
-  runScrollPassBody()
+  runScrollPassBody(true, startedAt)
   record(PERF_MS_SCROLL_PASS, performance.now() - startedAt)
 }
 
 /**
  * One scroll pass per animation frame. Every scroller read happens up front so
  * the reactive / store writes below never interleave with a layout read.
+ *
+ * `perf` is the caller's single boolean check, passed down instead of read again:
+ * with the HUD on, the pass is split at that read/write boundary into
+ * `ms:scrollPass:read` and `ms:scrollPass:write`, because the read half is the one
+ * that forces layout. The split costs two `performance.now()` calls and nothing
+ * else — `passStartedAt` is the whole-pass timestamp the caller already took, so
+ * the read phase needs no timestamp of its own, and nothing is timed while off.
  */
-function runScrollPassBody() {
+function runScrollPassBody(perf: boolean, passStartedAt: number) {
   const el = scroller.value
   const metrics = el ? readScrollMetrics(el) : null
   const scrollTop = metrics?.scrollTop ?? 0
@@ -1321,6 +1331,11 @@ function runScrollPassBody() {
   const nav = metrics ? readVisibleNavMessageId(metrics) : null
   const trimEligible = canTrimConversationHistory()
   const trimAnchor = trimEligible ? captureVisibleTurnAnchor() : null
+
+  // End of the read phase — everything above may force layout, nothing below
+  // reads the DOM.
+  const readEndedAt = perf ? performance.now() : 0
+  if (perf) record(PERF_MS_SCROLL_PASS_READ, readEndedAt - passStartedAt)
 
   if (el && scrollTop > 2 && noOlderPullPx.value > 0) {
     releaseNoOlderPull()
@@ -1349,6 +1364,7 @@ function runScrollPassBody() {
   stampVisibleUserMessagesViewed()
   if (nav) chat.setVisibleNavMessageId(nav.id)
   if (trimEligible) maybeTrimConversationHistory(trimAnchor)
+  if (perf) record(PERF_MS_SCROLL_PASS_WRITE, performance.now() - readEndedAt)
 }
 
 function isTaskBoardTerminal(status: string | undefined): boolean {
@@ -2117,6 +2133,10 @@ const disposePerfGaugeSampler = installRenderPerfGaugeSampler(() => {
   // the same attribute the measure batch reads.
   const rowSlack = measureRenderedRowSlack(scroller.value, virtualRows.value)
   publishVirtualRowSlackGauges(rowSlack.slack, rowSlack.overlap)
+  // The height currently assumed for rows without a measured size. Read next to
+  // `v.measured` in the HUD: it is what places every unmeasured row, and it moves
+  // only when the measure batch folds a new pass (see `rowHeightEstimator`).
+  setGauge(PERF_GAUGE_VIRTUAL_ESTIMATE, rowHeightEstimator.estimate)
 })
 onBeforeUnmount(disposePerfGaugeSampler)
 

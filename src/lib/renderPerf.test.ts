@@ -2,6 +2,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, type Ref } from 'vue'
 import { measureRenderedRowSlack } from './virtualRowSlack'
+import { MESSAGE_VIRTUAL_ROW_ESTIMATE, createMessageRowHeightEstimator } from './messageVirtualization'
 import {
   PERF_ACTIVITY_LAYOUT_REBUILD,
   PERF_ACTIVITY_LOAD_OLDER,
@@ -9,6 +10,7 @@ import {
   PERF_ACTIVITY_STALE_MS,
   PERF_FRAME_SUSPENSION_MS,
   PERF_GAUGE_VIRTUAL_BLANK,
+  PERF_GAUGE_VIRTUAL_ESTIMATE,
   PERF_GAUGE_VIRTUAL_FIRST,
   PERF_GAUGE_VIRTUAL_LAST,
   PERF_GAUGE_VIRTUAL_MEASURED,
@@ -20,7 +22,10 @@ import {
   PERF_GAUGE_VISIBLE_ROWS,
   PERF_HUD_SNAPSHOT_MS,
   PERF_HUD_STORAGE_KEY,
+  PERF_MS_KEYS,
   PERF_MS_SCROLL_PASS,
+  PERF_MS_SCROLL_PASS_READ,
+  PERF_MS_SCROLL_PASS_WRITE,
   beginPerfActivity,
   bump,
   currentPerfActivity,
@@ -91,6 +96,8 @@ describe('renderPerf counters', () => {
 
     bump('render:MessageList')
     record('ms:extraScopedForWindow', 5)
+    record(PERF_MS_SCROLL_PASS_READ, 3.5)
+    record(PERF_MS_SCROLL_PASS_WRITE, 14.5)
     setGauge(PERF_GAUGE_VISIBLE_ROWS, 9)
 
     const snapshot = renderPerfSnapshot(1000)
@@ -850,6 +857,59 @@ describe('renderPerf virtualizer geometry gauges', () => {
     setRenderPerfEnabled(true, { persist: false })
 
     expect(renderPerfSnapshot(5000).peakGauges).toEqual({})
+  })
+
+  it('records the two scroll-pass phases under their own keys, beside the whole pass', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    renderPerfSnapshot(1000)
+
+    // What `runScrollPass` records for one pass: the read half forces layout, the
+    // write half applies refs / follow / prefetch / stamps / trim.
+    record(PERF_MS_SCROLL_PASS_READ, 3.5)
+    record(PERF_MS_SCROLL_PASS_WRITE, 14.5)
+    record(PERF_MS_SCROLL_PASS, 18)
+
+    const snapshot = renderPerfSnapshot(2000)
+    expect(snapshot.msPerSecond[PERF_MS_SCROLL_PASS_READ]).toBe(3.5)
+    expect(snapshot.msPerSecond[PERF_MS_SCROLL_PASS_WRITE]).toBe(14.5)
+    // The whole-pass total is untouched by the split, and the two phases add up
+    // to it: the read phase runs from the pass start the caller already took, and
+    // the write phase from the read's end.
+    expect(snapshot.msPerSecond[PERF_MS_SCROLL_PASS]).toBe(18)
+    expect(
+      (snapshot.msPerSecond[PERF_MS_SCROLL_PASS_READ] ?? 0)
+        + (snapshot.msPerSecond[PERF_MS_SCROLL_PASS_WRITE] ?? 0)
+    ).toBe(snapshot.msPerSecond[PERF_MS_SCROLL_PASS])
+    expect(snapshot.peakMsPerSecond[PERF_MS_SCROLL_PASS_READ]).toBe(3.5)
+    expect(snapshot.peakMsPerSecond[PERF_MS_SCROLL_PASS_WRITE]).toBe(14.5)
+  })
+
+  it('lists both phase keys for the HUD rows', () => {
+    expect(PERF_MS_KEYS).toContain(PERF_MS_SCROLL_PASS)
+    expect(PERF_MS_KEYS).toContain(PERF_MS_SCROLL_PASS_READ)
+    expect(PERF_MS_KEYS).toContain(PERF_MS_SCROLL_PASS_WRITE)
+  })
+
+  it('publishes the live row-height estimate as a gauge', () => {
+    const estimator = createMessageRowHeightEstimator()
+    disposeGaugeSampler = installRenderPerfGaugeSampler(() =>
+      setGauge(PERF_GAUGE_VIRTUAL_ESTIMATE, estimator.estimate)
+    )
+
+    // Off: the sampler never runs, so nothing is published and nothing is read.
+    expect(renderPerfSnapshot(1000).gauges[PERF_GAUGE_VIRTUAL_ESTIMATE]).toBeUndefined()
+
+    setRenderPerfEnabled(true, { persist: false })
+    expect(renderPerfSnapshot(2000).gauges[PERF_GAUGE_VIRTUAL_ESTIMATE])
+      .toBe(MESSAGE_VIRTUAL_ROW_ESTIMATE)
+
+    // The gauge follows the estimator as the measure batch folds new heights.
+    estimator.sample([{ size: 96 }, { size: 96 }])
+    expect(renderPerfSnapshot(3000).gauges[PERF_GAUGE_VIRTUAL_ESTIMATE]).toBe(96)
+
+    estimator.reset()
+    expect(renderPerfSnapshot(4000).gauges[PERF_GAUGE_VIRTUAL_ESTIMATE])
+      .toBe(MESSAGE_VIRTUAL_ROW_ESTIMATE)
   })
 
   it('runs the installed sampler once per snapshot, and only while enabled', () => {

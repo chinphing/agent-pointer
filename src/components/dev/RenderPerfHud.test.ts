@@ -240,17 +240,25 @@ describe('RenderPerfHud', () => {
     setGauge('virtualMeasured', 128)
     setGauge('virtualBlank', 400)
     setGauge('virtualPullSpacer', 24)
+    setGauge('virtualEstimate', 96)
     // The stripe spikes, then passes: the current value is 124, the peak 980.
     setGauge('virtualSlack', 980)
     setGauge('virtualSlack', 124)
     setGauge('virtualOverlap', 0)
+    record('ms:scrollPass:read', 3.5)
+    record('ms:scrollPass:write', 14.5)
     await advanceOneSecond()
 
     const text = hudText()
     expect(text).toMatch(/v\.total\s+5000 px/)
     expect(text).toMatch(/v\.scrollH\s+5400 px/)
     expect(text).toMatch(/v\.range\s+4-19/)
-    expect(text).toMatch(/v\.measured\s+128/)
+    // `v.est` sits right after the measured-row count it is the alternative to.
+    expect(text).toMatch(/v\.measured\s+128\s+v\.est\s+96 px/)
+    // Both halves of the pass are listed next to the whole-pass total.
+    expect(text).toMatch(/ms:scrollPass\s+0\.0/)
+    expect(text).toMatch(/ms:scrollPass:read\s+3\.5/)
+    expect(text).toMatch(/ms:scrollPass:write\s+14\.5/)
     // `v.pull` sits on the same row, immediately after the gap it decomposes.
     expect(text).toMatch(/v\.blank\*\s+\+400 px\s+v\.pull\s+24 px/)
     // The per-row pair is the headline, each with the peak that outlives it; the

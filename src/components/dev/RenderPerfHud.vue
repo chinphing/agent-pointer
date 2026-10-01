@@ -6,6 +6,7 @@ import {
   PERF_GAUGE_FROZEN_TURNS,
   PERF_GAUGE_SCOPED_ROWS,
   PERF_GAUGE_VIRTUAL_BLANK,
+  PERF_GAUGE_VIRTUAL_ESTIMATE,
   PERF_GAUGE_VIRTUAL_FIRST,
   PERF_GAUGE_VIRTUAL_LAST,
   PERF_GAUGE_VIRTUAL_MEASURED,
@@ -155,7 +156,8 @@ function activityLine(label: string, value: string, activity: string): string {
  *   which is where a blank stripe between rows actually shows; each carries its
  *   session `pk`, because the stripe that matters is a transient one that has
  *   already passed by the time the HUD is read. `v.range` and `v.measured` say how
- *   much of the window is measured rather than estimated.
+ *   much of the window is measured rather than estimated, and `v.est` is the height
+ *   currently assumed for the rows that are *not* — the number placing them.
  */
 function virtualGeometryLines(
   gauges: Record<string, number>,
@@ -170,6 +172,7 @@ function virtualGeometryLines(
   const first = gauges[PERF_GAUGE_VIRTUAL_FIRST] ?? -1
   const last = gauges[PERF_GAUGE_VIRTUAL_LAST] ?? -1
   const measured = gauges[PERF_GAUGE_VIRTUAL_MEASURED] ?? 0
+  const estimate = gauges[PERF_GAUGE_VIRTUAL_ESTIMATE] ?? 0
   return [
     `v.total ${formatDistance(total).padStart(8)}`
       + `  v.scrollH ${formatDistance(scrollHeight).padStart(8)}`
@@ -180,7 +183,8 @@ function virtualGeometryLines(
       + `  v.overlap ${formatDistance(overlap).padStart(7)}`
       + `  pk ${formatDistance(peaks[PERF_GAUGE_VIRTUAL_OVERLAP] ?? 0).padStart(7)}`,
     `v.range ${(first < 0 ? 'none' : `${first}-${last}`).padStart(8)}`
-      + `  v.measured ${String(measured).padStart(5)}`,
+      + `  v.measured ${String(measured).padStart(5)}`
+      + `  v.est ${formatDistance(estimate).padStart(7)}`,
     '  * v.blank agrees by construction (container height := v.total);'
       + ' v.slack / v.overlap are the per-row truth, pk is their session peak'
   ]

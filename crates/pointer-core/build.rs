@@ -40,7 +40,7 @@ fn emit_edition() {
             if !trimmed.eq_ignore_ascii_case("managed") {
                 panic!(
                     "pointer-core: POINTER_EDITION must be `managed` or unset, got `{trimmed}`. \
-                     See docs/contributing/editions.md."
+                     See docs/en/deploy/editions.md."
                 );
             }
             println!("cargo:rustc-env=POINTER_EDITION={trimmed}");
@@ -80,7 +80,7 @@ fn emit_platform_domains() {
     if managed && !missing.is_empty() {
         panic!(
             "pointer-core: a managed build must inject its control-plane domains, but these are missing or empty: {}. \
-             The open-source tree no longer hardcodes them; see docs/contributing/editions.md.",
+             The open-source tree no longer hardcodes them; see docs/en/deploy/editions.md.",
             missing.join(", ")
         );
     }

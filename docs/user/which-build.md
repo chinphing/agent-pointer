@@ -1,5 +1,7 @@
 # 官方包与本地构建
 
+[English](../en/user/which-build.md) | 简体中文
+
 开源仓库名为 **agent-pointer**。Pointer 只有一份源码，两种安装形态。
 
 ## 官方签名包
@@ -27,4 +29,4 @@
 | 开箱即用 | [官网下载](https://pointer.readflowai.com/download) |
 | 企业内部部署 | [GitHub Releases](https://github.com/chinphing/agent-pointer/releases)，服务端见 [standalone-server.md](standalone-server.md) |
 
-开发者如何用本机 `pointer.local.env` 绑定控制面或打本地包，见 [../contributing/editions.md](../contributing/editions.md)。
+开发者如何用本机 `pointer.local.env` 绑定控制面或打本地包，见 [../zh-CN/deploy/editions.md](../zh-CN/deploy/editions.md)。

@@ -1,5 +1,7 @@
 # 外部工具服务（MCP）使用说明
 
+[English](../en/user/mcp.md) | 简体中文
+
 > 面向 **Pointer 终端用户**。讲如何在设置界面直接添加外部工具服务（MCP server），
 > 让对话可以直接调用外部服务提供的工具。
 > 插件内声明的 MCP server 见 [`plugins.md`](plugins.md)。

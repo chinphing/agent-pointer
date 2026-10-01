@@ -1,7 +1,7 @@
 # Builds the **standalone** package: no control plane is bound, so the app runs
 # with local models and keys only, and no updater artifacts are produced.
 # An official package (Pointer's own control plane) is built locally instead —
-# see docs/contributing/editions.md.
+# see docs/en/deploy/editions.md.
 name: Release (standalone)
 
 on:

@@ -1,5 +1,7 @@
 # IM 通道
 
+[English](../en/user/im-channels.md) | 简体中文
+
 在 **设置 → IM 通道** 中对接飞书、钉钉、企业微信、微信，在 IM 里与 Pointer 对话。
 
 ## 推荐方式：长连接

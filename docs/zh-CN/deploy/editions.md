@@ -1,8 +1,10 @@
 # 打包口味 × 运行形态：四格构建与部署
 
+[English](../../en/deploy/editions.md) | 简体中文
+
 同一份源码，**打包口味**（`POINTER_EDITION`）与**运行形态**（客户端 / 服务端）正交。本文给出四种组合各自的**构建命令 / 需要的变量 / 产物位置 / 怎么验证 / 外部依赖**，打包维护者照着执行即可。
 
-> 账户与控制面的改造设计（P0/P1）见 [`../design/control-plane-and-editions.md`](../design/control-plane-and-editions.md)；跨平台环境准备见 [`cross-platform-build.md`](cross-platform-build.md)。
+> 账户与控制面的改造设计（P0/P1）见 [`../../design/control-plane-and-editions.md`](../../design/control-plane-and-editions.md)；跨平台环境准备见 [`../../contributing/cross-platform-build.md`](../../contributing/cross-platform-build.md)。
 
 ---
 
@@ -42,7 +44,7 @@
 
 **加载顺序（容易踩）**
 
-- `npm run tauri:dev` / `tauri:build` / Vite（`web:dev`）会自动读仓库根目录 gitignore 的 `pointer.local.env`（**已存在的 OS / CI 环境变量优先**，文件只补空项）。模板见 [`pointer.local.env.example`](../../pointer.local.env.example)。
+- `npm run tauri:dev` / `tauri:build` / Vite（`web:dev`）会自动读仓库根目录 gitignore 的 `pointer.local.env`（**已存在的 OS / CI 环境变量优先**，文件只补空项）。模板见 [`pointer.local.env.example`](../../../pointer.local.env.example)。
 - `npm run server:build`（`scripts/build-server.mjs`）**同样读** `pointer.local.env`，并把同一份变量透传给 Vue 构建与 `cargo`（两边不会再各读各的）。构建后、打包前还会校验两半是否一致：managed 口味下二进制缺控制面域名、或 Web 资源缺 Web base，直接非零退出（见 §4.2）。
 - 运行时仍可用同名 `POINTER_*` 环境变量覆盖构建期默认值；服务端另有 `POINTER_DEPLOYMENT_MODE`。
 
@@ -186,7 +188,7 @@ target/release/pointer-server-bundle/pointer-server-{macos-arm64|macos-x64|windo
 target/release/bundle/deb/pointer-server_0.1.0_{amd64|arm64}.deb      # Linux
 ```
 
-包内结构（二进制 + `dist/` + `skills/` + `pointer-server.toml.example` + start/stop 脚本）见 [`../internals/standalone-server-deployment.md`](../internals/standalone-server-deployment.md) 第 2 节。
+包内结构（二进制 + `dist/` + `skills/` + `pointer-server.toml.example` + start/stop 脚本）见 [`../../internals/standalone-server-deployment.md`](../../internals/standalone-server-deployment.md) 第 2 节。
 
 ### 4.4 怎么验证
 
@@ -261,7 +263,7 @@ npm install
 npm run server:build
 ```
 
-完整交付流程（构建 → License 签发 → 客户上线 → 验收 → 排障）见 [`../internals/standalone-server-deployment.md`](../internals/standalone-server-deployment.md)；配置与实现参考 [`../developer/standalone-deployment.md`](../developer/standalone-deployment.md)。
+完整交付流程（构建 → License 签发 → 客户上线 → 验收 → 排障）见 [`../../internals/standalone-server-deployment.md`](../../internals/standalone-server-deployment.md)；配置与实现参考 [`../../developer/standalone-deployment.md`](../../developer/standalone-deployment.md)。
 
 ### 6.2 需要的变量
 

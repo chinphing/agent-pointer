@@ -1,5 +1,7 @@
 # Skills 使用
 
+[English](../en/user/skills.md) | 简体中文
+
 Pointer 通过 **Skills** 为对话注入可复用能力说明（翻译、文档处理、领域流程等）。
 
 ## 技能库

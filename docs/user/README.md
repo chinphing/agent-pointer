@@ -1,12 +1,14 @@
 # 用户使用指南（user）
 
+[English](../en/user/README.md) | 简体中文
+
 面向 **Pointer 终端用户**：安装、日常对话、Skills、IM 通道等。
 
 ## 教程
 
 | 文档 | 说明 |
 |------|------|
-| [editions.md](editions.md) | 官方签名包与本地构建的差别 |
+| [which-build.md](which-build.md) | 官方签名包与本地构建的差别 |
 | [getting-started.md](getting-started.md) | 第一次对话 |
 | [standalone-server.md](standalone-server.md) | 自建 pointer-server |
 

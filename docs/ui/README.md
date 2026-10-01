@@ -1,5 +1,7 @@
 # 界面与前端（ui）
 
+[English](../en/ui/README.md) | 简体中文
+
 | 文档 | 说明 |
 |------|------|
 | [i18n.md](i18n.md) | 界面中英国际化：`uiLocale`、vue-i18n、locale 文件约定与分期进度 |

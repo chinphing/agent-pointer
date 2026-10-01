@@ -146,9 +146,23 @@ npm run web:dev
 
 日常开发不用设 `POINTER_EDITION`。细节见 [DEVELOPMENT.md](DEVELOPMENT.md)。
 
+## 部署
+
+**打包口味**（`POINTER_EDITION`）与**运行形态**（客户端 / 服务端）正交。先定位你的格子，再照清单做：
+
+| 你要做的事 | 去哪 |
+| --- | --- |
+| 自己用，或给同事发**自己构建**的客户端 | [standalone × 客户端](docs/zh-CN/deploy/README.md#standalone-client) |
+| 自己搭一台服务器给团队用 | [standalone × 服务端](docs/zh-CN/deploy/README.md#standalone-server) |
+| 企业：客户端连**内网**控制面 | [managed × 客户端](docs/zh-CN/deploy/README.md#managed-client) |
+| 企业：部署内网控制面服务端 | [managed × 服务端](docs/zh-CN/deploy/README.md#managed-server) |
+
+四格完整清单（构建命令 / 变量 / 产物 / 验证 / 外部依赖）：[docs/zh-CN/deploy/README.md](docs/zh-CN/deploy/README.md)。
+三平台打包：[docs/contributing/cross-platform-build.md](docs/contributing/cross-platform-build.md)。
+
 ## 发布
 
-改根目录 `VERSION`，同步版本号，再推一个 `v*.*.*` 标签。CI 会打 Windows / macOS / Linux 包，并在 [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) 生成草稿。
+改根目录 `VERSION`，同步版本号，再推一个 `v*.*.*` 标签。CI 会打 Windows / macOS / Linux 包，并在 [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) 生成草稿。**CI 只产 standalone 客户端包** —— managed（官方 / 企业）包在本地或企业 CI 打。
 
 ```bash
 # 编辑 VERSION 后：

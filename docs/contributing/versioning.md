@@ -1,5 +1,7 @@
 # 版本号管理
 
+[English](../en/contributing/versioning.md) | 简体中文
+
 应用版本以仓库根目录 **`VERSION`** 为唯一来源（当前如 `0.1.2`）。
 
 让 AI / Agent 升级版本时：只改 `VERSION`，然后**必须**执行 `npm run version:sync`（见 `.cursor/rules/versioning.mdc`）。不要手改各处的版本字面量。

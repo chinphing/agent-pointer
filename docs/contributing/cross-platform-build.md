@@ -1,7 +1,11 @@
 # 跨平台开发与打包
 
+[English](../en/contributing/cross-platform-build.md) | 简体中文
+
 本文档汇总 **Windows / macOS / Linux** 上的环境准备、本地开发、编译打包与 CI 发版流程。  
 工作目录均为仓库内的 **`agent-pointer/`**（Tauri + Vue 项目根）。
+
+> 平台打包速查（环境前置 / 构建命令 / 产物位置 / CI 口径）见 [`../zh-CN/deploy/platforms.md`](../zh-CN/deploy/platforms.md)；打包与部署总入口见 [`../zh-CN/deploy/README.md`](../zh-CN/deploy/README.md)。
 
 ---
 
@@ -260,6 +264,7 @@ macOS 电脑操控需「屏幕录制 + 辅助功能」。
 
 ---
 
+<a id="linux"></a>
 ## Linux（Ubuntu / Debian）
 
 CI 使用 **ubuntu-24.04**。注意：屏幕录制依赖（xcap → pipewire/libspa 0.9）需要 PipeWire ≥ 1.0 的头文件，Ubuntu 22.04 自带的 0.3.48 无法编译；因此 Linux 构建基线为 24.04，产物的 glibc 下限为 2.39。
@@ -449,7 +454,7 @@ npm run server:status   # 查看运行状态
 # 或直接 ./target/release/pointer-server
 ```
 
-`server:build` 会读取仓库根目录的 `pointer.local.env`（已存在的 OS / CI 变量优先），并把同一份变量同时交给 Vue 构建与 `cargo`；打包前校验两半口味一致 —— managed 口味下二进制缺控制面域名、或 Web 资源缺 Web base，构建直接失败，不会产出半绑定的包。口味与变量见 [editions.md](editions.md)。
+`server:build` 会读取仓库根目录的 `pointer.local.env`（已存在的 OS / CI 变量优先），并把同一份变量同时交给 Vue 构建与 `cargo`；打包前校验两半口味一致 —— managed 口味下二进制缺控制面域名、或 Web 资源缺 Web base，构建直接失败，不会产出半绑定的包。口味与变量见 [editions.md](../zh-CN/deploy/editions.md)。
 
 Web 前端独立开发（连远程或本机 server API）：
 
@@ -635,7 +640,7 @@ git push origin v0.1.0
 
 CI 步骤：checkout → Node 20 → Rust stable →（Linux 装系统依赖）→ `npm install` → `npm run icons` → `tauri-apps/tauri-action` → 上传 **Draft Release**。
 
-**该 workflow 只产 standalone 包**：三端都带 `--config src-tauri/tauri.personal.conf.json`，不注入控制面域名，也没有 updater 产物。managed 客户端需在本地或企业 CI 打，见 [editions.md](editions.md)。
+**该 workflow 只产 standalone 包**：三端都带 `--config src-tauri/tauri.personal.conf.json`，不注入控制面域名，也没有 updater 产物。managed 客户端需在本地或企业 CI 打，见 [editions.md](../zh-CN/deploy/editions.md)。
 
 ---
 
@@ -675,7 +680,7 @@ $env:RUST_LOG="debug"; npm run tauri:dev
 ## 官网与环境变量（桌面构建）
 
 `npm run tauri:dev` / `tauri:build` 会加载本机 **`pointer.local.env`**（gitignore，见 `pointer.local.env.example`）；无文件时未绑定控制面（纯本地 / standalone）。  
-绑定控制面时在该文件或环境里设置域名 + `POINTER_EDITION=managed`（`official` 一词仅指 Pointer 官方发布，不是口味取值）。`.github/workflows/release.yml` **只产 standalone 包**，不注入任何 `POINTER_*`；managed（官方 / 企业）包在本地或企业 CI 打。四格完整步骤见 [editions.md](editions.md)。
+绑定控制面时在该文件或环境里设置域名 + `POINTER_EDITION=managed`（`official` 一词仅指 Pointer 官方发布，不是口味取值）。`.github/workflows/release.yml` **只产 standalone 包**，不注入任何 `POINTER_*`；managed（官方 / 企业）包在本地或企业 CI 打。四格完整步骤见 [editions.md](../zh-CN/deploy/editions.md)。
 
 ---
 
@@ -683,7 +688,7 @@ $env:RUST_LOG="debug"; npm run tauri:dev
 
 | 文档 | 说明 |
 |------|------|
-| [editions.md](editions.md) | **打包口味 × 运行形态四格**：构建命令 / 变量 / 产物 / 验证 / 外部依赖 |
+| [editions.md](../zh-CN/deploy/editions.md) | **打包口味 × 运行形态四格**：构建命令 / 变量 / 产物 / 验证 / 外部依赖 |
 | [DEVELOPMENT.md](../../DEVELOPMENT.md) | 日常调试、Skills、常见问题 |
 | [README.md](../../README.md) | 项目概览与快速开始 |
 | [macos-computer-permissions.md](../internals/macos-computer-permissions.md) | macOS 电脑操控权限 |

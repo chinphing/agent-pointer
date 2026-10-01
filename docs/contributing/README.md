@@ -1,10 +1,12 @@
 # 贡献者指南（contributing）
 
+[English](../en/contributing/README.md) | 简体中文
+
 面向**本仓库贡献者与打包维护**：从源码构建、平台专项 UI、内部评测等。
 
 | 文档 | 说明 |
 |------|------|
-| [**editions.md**](editions.md) | **打包口味 × 运行形态四格**（managed / standalone × 客户端 / 服务端）：构建命令 / 变量 / 产物 / 验证 / 外部依赖（先看 [改造设计](../design/control-plane-and-editions.md)） |
+| [**editions.md**](../zh-CN/deploy/editions.md) | **打包口味 × 运行形态四格**（managed / standalone × 客户端 / 服务端）：构建命令 / 变量 / 产物 / 验证 / 外部依赖（先看 [改造设计](../design/control-plane-and-editions.md)） |
 | [**cross-platform-build.md**](cross-platform-build.md) | **Windows / macOS / Linux 开发与打包**（环境、命令、产物、CI） |
 | [**versioning.md**](versioning.md) | **版本号单一来源**（`VERSION` + `npm run version:sync`） |
 | [**macos-window-chrome.md**](macos-window-chrome.md) | **macOS 红绿灯与顶栏对齐**（reapply/repair、紧凑模式、常量同步、排查） |

@@ -1,5 +1,7 @@
 # pointer-server 独立部署完整流程（内部）
 
+[English](../en/internals/standalone-server-deployment.md) | 简体中文
+
 面向 Pointer 团队：**从构建发布包、签发 License，到客户侧 standalone 上线** 的一站式操作手册。
 
 用户向导读 [`../user/standalone-server.md`](../user/standalone-server.md)；实现细节见 [`../developer/standalone-deployment.md`](../developer/standalone-deployment.md)。
@@ -25,7 +27,7 @@ Standalone 模式要点：
 
 ## 2. 构建发布包（Pointer 侧）
 
-本节打的是 **standalone（独立）** 包。**managed（集中管理）** 口味服务端要额外注入控制面域名（`scripts/build-server.mjs` 会读 `pointer.local.env`，也可用 OS / CI 环境变量显式导出；打包前会校验两半一致），步骤见 [`../contributing/editions.md`](../contributing/editions.md#managed-server)。
+本节打的是 **standalone（独立）** 包。**managed（集中管理）** 口味服务端要额外注入控制面域名（`scripts/build-server.mjs` 会读 `pointer.local.env`，也可用 OS / CI 环境变量显式导出；打包前会校验两半一致），步骤见 [`../zh-CN/deploy/editions.md`](../zh-CN/deploy/editions.md#managed-server)。
 
 统一命令（与桌面端 `tauri:build` 相同 `{模块}:dev|build` 风格）：
 
@@ -522,7 +524,7 @@ npm run license-gen:build
 |------|------|
 | [`../user/standalone-server.md`](../user/standalone-server.md) | 客户运维 |
 | [`../developer/standalone-deployment.md`](../developer/standalone-deployment.md) | 开发实现 |
-| [`../contributing/editions.md`](../contributing/editions.md) | 四格打包与部署（含 managed 服务端） |
+| [`../zh-CN/deploy/editions.md`](../zh-CN/deploy/editions.md) | 四格打包与部署（含 managed 服务端） |
 | [`../contributing/cross-platform-build.md`](../contributing/cross-platform-build.md) | 跨平台构建命令 |
 
 [返回 internals 索引](README.md)

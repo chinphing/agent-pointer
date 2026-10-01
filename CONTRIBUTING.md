@@ -35,7 +35,7 @@ Leave `POINTER_EDITION` unset for everyday local work: the app stays
 unbound and runs standalone. Set `POINTER_EDITION=managed` only when you
 need control-plane defaults, and inject the domains with it; any other value
 fails the build.
-Details: [docs/contributing/editions.md](docs/contributing/editions.md).
+Details: [docs/en/deploy/editions.md](docs/en/deploy/editions.md).
 
 ## Version numbers
 

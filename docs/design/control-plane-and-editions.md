@@ -1,5 +1,7 @@
 # Pointer 客户端 / 服务端：账户与控制面改造
 
+[English](../en/design/control-plane-and-editions.md) | 简体中文
+
 状态：P0（门禁与可见性）已落地；P1（可绑定的控制面）待评审。  
 仓库：agent-pointer。产品名：Pointer。  
 官网控制面后续单独开源；本仓库只消费其 HTTP API。
@@ -8,7 +10,7 @@
 对外文案用「三种用法」；打包用「客户端 / 服务端」；
 `managed` 只作为打包口味出现在构建说明里（「official」一词仅指 Pointer 官方发布，不是 `POINTER_EDITION` 的取值）。
 
-> 口径更新：口味值已由 `official` 改名为 `managed`；未设置口味即 standalone。四格构建 / 部署步骤见 [`../contributing/editions.md`](../contributing/editions.md)。
+> 口径更新：口味值已由 `official` 改名为 `managed`；未设置口味即 standalone。四格构建 / 部署步骤见 [`../zh-CN/deploy/editions.md`](../zh-CN/deploy/editions.md)。
 
 ## 1. 为什么改
 
@@ -244,7 +246,7 @@ IdP、组织、店铺、计费在控制面仓库做。
 ## 9. 明确不做
 
 - 不为未绑定构建去掉登录、云主机、充值
-- 不在源码里硬编码官方域名（`managed` 口味由构建期注入；见 `docs/contributing/editions.md`）
+- 不在源码里硬编码官方域名（`managed` 口味由构建期注入；见 `docs/zh-CN/deploy/editions.md`）
 - 不给 standalone 加店铺来凑公司云主机
 - 不新增长期商业分支
 - 不在提示词里写文件名或开发注释
@@ -284,9 +286,9 @@ P0 已落地：`standalone` 由「是否绑定控制面」推导，客户端与�
 
 ## 13. 随各期同步的文档
 
-- [../contributing/editions.md](../contributing/editions.md)
+- [../zh-CN/deploy/editions.md](../zh-CN/deploy/editions.md)
 - [../contributing/cross-platform-build.md](../contributing/cross-platform-build.md)
-- [../user/editions.md](../user/editions.md)
+- [../user/which-build.md](../user/which-build.md)
 - [../user/cloud-host.md](../user/cloud-host.md)
 - [../user/standalone-server.md](../user/standalone-server.md)
 - [../developer/standalone-deployment.md](../developer/standalone-deployment.md)

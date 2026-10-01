@@ -1,5 +1,7 @@
 # 内部机制（internals）
 
+[English](../en/internals/README.md) | 简体中文
+
 实现细节与消息管线说明，面向**维护 `pointer-core` 的 Pointer 团队**。
 
 用户使用见 **[`../user/`](../user/README.md)**；扩展集成见 **[`../developer/`](../developer/README.md)**。

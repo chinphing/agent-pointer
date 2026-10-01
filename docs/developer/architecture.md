@@ -1,5 +1,7 @@
 # 架构说明
 
+[English](../en/developer/architecture.md) | 简体中文
+
 桌面端和 Web 端共用一套对话与工具实现。
 
 ```text
@@ -23,4 +25,4 @@ Vue 界面
 
 架构全景图：[中文](../design/pointer-architecture.zh-CN.svg) · [English](../design/pointer-architecture.en.svg)。
 
-实现细节见 [../internals/](../internals/README.md)。两种构建的默认云地址见 [../contributing/editions.md](../contributing/editions.md)。
+实现细节见 [../internals/](../internals/README.md)。两种构建的默认云地址见 [../zh-CN/deploy/editions.md](../zh-CN/deploy/editions.md)。

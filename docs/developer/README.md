@@ -1,5 +1,7 @@
 # 开发者文档（developer）
 
+[English](../en/developer/README.md) | 简体中文
+
 面向**外部开发者、集成方与 Skill 作者**：对接 IM、编写 Skill、扩展 Agent、自部署。
 
 **终端用户使用教程**见 **[`../user/`](../user/README.md)**。
@@ -8,12 +10,12 @@
 
 ## 打包与部署：四格入口
 
-**打包口味**（`managed` 集中管理 / `standalone` 独立）× **运行形态**（客户端 / 服务端）四格，每格都有**构建命令 / 需要的变量 / 产物位置 / 怎么验证 / 外部依赖**，统一见 [../contributing/editions.md](../contributing/editions.md)：
+**打包口味**（`managed` 集中管理 / `standalone` 独立）× **运行形态**（客户端 / 服务端）四格，每格都有**构建命令 / 需要的变量 / 产物位置 / 怎么验证 / 外部依赖**，入口见 [`../zh-CN/deploy/README.md`](../zh-CN/deploy/README.md)（详细手册 [`editions.md`](../zh-CN/deploy/editions.md)）：
 
 | 口味 | 客户端（Tauri 桌面 App） | 服务端（`pointer-server`） |
 |------|--------------------------|-----------------------------|
-| **`managed`**（集中管理，构建期注入控制面域名） | [构建与部署](../contributing/editions.md#managed-client) | [构建与部署](../contributing/editions.md#managed-server) |
-| **standalone**（独立，默认：不设口味） | [构建与部署](../contributing/editions.md#standalone-client) | [构建与部署](../contributing/editions.md#standalone-server)<br>完整交付流程见 [../internals/standalone-server-deployment.md](../internals/standalone-server-deployment.md) |
+| **`managed`**（集中管理，构建期注入控制面域名） | [构建与部署](../zh-CN/deploy/README.md#managed-client) | [构建与部署](../zh-CN/deploy/README.md#managed-server) |
+| **standalone**（独立，默认：不设口味） | [构建与部署](../zh-CN/deploy/README.md#standalone-client) | [构建与部署](../zh-CN/deploy/README.md#standalone-server)<br>完整交付流程见 [../internals/standalone-server-deployment.md](../internals/standalone-server-deployment.md) |
 
 `official` 一词仅指 Pointer 官方发布，不是 `POINTER_EDITION` 的取值。跨平台环境准备见 [../contributing/cross-platform-build.md](../contributing/cross-platform-build.md)。
 

@@ -1,5 +1,7 @@
 # 独立部署开发文档
 
+[English](../en/developer/standalone-deployment.md) | 简体中文
+
 pointer-server 支持**脱离官方平台独立部署**。本文档覆盖架构、配置格式、API 端点与实现模块。
 
 ## 目录

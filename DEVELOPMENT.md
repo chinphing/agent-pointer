@@ -1,5 +1,7 @@
 # 开发调试说明
 
+[English](docs/en/DEVELOPMENT.md) | 简体中文
+
 本文档用于说明 `Pointer` 的本地开发、调试、检查与常见问题处理流程。
 
 ## 环境要求
@@ -65,7 +67,7 @@ sudo apt-get install -y \
 npm install
 ```
 
-未设置 `POINTER_EDITION` 时即未绑定控制面（standalone，纯本地）。要联调控制面时在 `pointer.local.env` 里设 `POINTER_EDITION=managed` 和三个域名（见 [docs/contributing/editions.md](docs/contributing/editions.md)）；写成别的值（含旧值 `official`）会让构建直接失败。
+未设置 `POINTER_EDITION` 时即未绑定控制面（standalone，纯本地）。要联调控制面时在 `pointer.local.env` 里设 `POINTER_EDITION=managed` 和三个域名（见 [docs/zh-CN/deploy/editions.md](docs/zh-CN/deploy/editions.md)）；写成别的值（含旧值 `official`）会让构建直接失败。
 
 ## 启动开发模式
 

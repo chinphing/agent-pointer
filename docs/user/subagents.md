@@ -1,5 +1,7 @@
 # 子 Agent 设置
 
+[English](../en/user/subagents.md) | 简体中文
+
 Pointer 可通过 **run_subagent** 将子任务委派给专用 worker（如 **explore** 探索代码库、**coder** 写代码）。
 
 ## 用户设置

@@ -1,5 +1,7 @@
 # Pointer 插件开发指南（用户级）
 
+[English](../en/user/plugins.md) | 简体中文
+
 > 面向插件作者。本文档讲**如何从零编写一个 Pointer 原生插件**（`pointer-plugin.toml`），
 > 以及如何把已有的 Codex / Claude Code 插件导入为 Pointer 原生格式。
 > 插件机制实现位置：`crates/pointer-core/src/plugins/`（manifest / importer / activation / registry）。

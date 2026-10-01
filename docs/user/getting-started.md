@@ -1,6 +1,8 @@
 # 快速上手
 
-先确认你用的是 [官方包还是本地构建](editions.md)。
+[English](../en/user/getting-started.md) | 简体中文
+
+先确认你用的是 [官方包还是本地构建](which-build.md)。
 
 ## 官方包
 

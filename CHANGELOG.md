@@ -20,13 +20,13 @@ Versions follow the root `VERSION` file.
   auto-update, usage reporting, or standalone license enforcement.
 - The source tree no longer hardcodes Pointer's production domains. A `managed`
   build injects them at build time, and the build fails when the flavour is set
-  without them (see `docs/contributing/editions.md`).
+  without them (see `docs/en/deploy/editions.md`).
 - The build flavour is named **`managed`**: any build that ships a control
   plane, whether it is Pointer's own release or an enterprise pointed at its
   internal hosts. `official` now describes Pointer's own release only and is no
   longer a valid `POINTER_EDITION` value — an unknown value fails the build
   instead of silently staying unbound.
-- `docs/contributing/editions.md` documents all four build × runtime
+- `docs/en/deploy/editions.md` documents all four build × runtime
   combinations; `docs/developer/README.md` carries the entry table.
 - The public repository is named **agent-pointer**.
 

@@ -84,12 +84,12 @@ Pointer is more than a runtime for Skills. It builds the business system, helps 
 
 | Capability | What you get |
 | --- | --- |
-| Agent system | Built-in general, coder, computer, and explore. [Sub-agents](docs/user/subagents.md) can run in the background so the main conversation can continue |
+| Agent system | Built-in general, coder, computer, and explore. [Sub-agents](docs/en/user/subagents.md) can run in the background so the main conversation can continue |
 | Chat engine | Streaming, prompt assembly, and tool calling; long conversations, context compression, and milestone recall |
 | Tools | Terminal, file read/write/search, web search and fetch, task board; vision computer control for GUI apps (still being improved) |
-| Skills and extensions | [Skills](docs/user/skills.md), [plugins](docs/user/plugins.md), and user rules; external tools via [MCP](docs/user/mcp.md) |
+| Skills and extensions | [Skills](docs/en/user/skills.md), [plugins](docs/en/user/plugins.md), and user rules; external tools via [MCP](docs/en/user/mcp.md) |
 | Dispatch and triggers | Scheduled tasks, [webhooks](docs/user/webhook.md), and IM inbound events enter chat through one dispatcher |
-| Entry points | Desktop, web, [cloud host](docs/user/cloud-host.md), and [Feishu, DingTalk, WeCom, and WeChat](docs/user/im-channels.md) |
+| Entry points | Desktop, web, [cloud host](docs/en/user/cloud-host.md), and [Feishu, DingTalk, WeCom, and WeChat](docs/en/user/im-channels.md) |
 | Model access | OpenAI-compatible APIs. Qwen and DeepSeek are built in; Doubao, Kimi, Zhipu, OpenRouter, and others can be added—no single-vendor lock-in |
 
 ### What was added for Skill development and testing
@@ -98,13 +98,13 @@ After a role is written as a reusable Skill, you need a shared format, an easy i
 
 | What you need | What Pointer provides |
 | --- | --- |
-| Write in a shared format | [Skills](docs/user/skills.md) use a common skill format, compatible with Codex and similar directories. Instructions, references, scripts, and assets stay separate |
+| Write in a shared format | [Skills](docs/en/user/skills.md) use a common skill format, compatible with Codex and similar directories. Instructions, references, scripts, and assets stay separate |
 | Install, then turn it on | Enable skills in the library, including zip import. Existing skills can be imported from Codex, Claude, OpenClaw, and Hermes |
-| Author and edit in the conversation | Creating, editing, reviewing, and packaging goes to the coding sub-agent. A skill can also ship inside a [plugin](docs/user/plugins.md) |
+| Author and edit in the conversation | Creating, editing, reviewing, and packaging goes to the coding sub-agent. A skill can also ship inside a [plugin](docs/en/user/plugins.md) |
 | Skill validation | Run the Skill under high-concurrency background sub-agents in isolated environments, and sweep many test samples quickly to check stability and correctness |
 | Fill in a missing runtime | If Node, Python, or another runtime is missing, install it in the conversation and keep testing the skill |
 
-Start with [getting started](docs/user/getting-started.md).
+Start with [getting started](docs/en/user/getting-started.md).
 
 ## Roadmap
 
@@ -119,15 +119,15 @@ The desktop app, web app, and IM channels share one `pointer-core`. The UI handl
 
 ![Pointer architecture](docs/design/pointer-architecture.en.svg)
 
-Layer notes: [docs/developer/architecture.md](docs/developer/architecture.md).
+Layer notes: [docs/en/developer/architecture.md](docs/en/developer/architecture.md).
 
 ## Documentation
 
 | Audience | Start here |
 | --- | --- |
-| Users | [docs/user/](docs/user/README.md) |
-| Developers | [docs/developer/](docs/developer/README.md) |
-| Contributors | [CONTRIBUTING.md](CONTRIBUTING.md) · [DEVELOPMENT.md](DEVELOPMENT.md) |
+| Users | [docs/user/](docs/en/user/README.md) |
+| Developers | [docs/developer/](docs/en/developer/README.md) |
+| Contributors | [CONTRIBUTING.md](CONTRIBUTING.md) · [docs/en/DEVELOPMENT.md](docs/en/DEVELOPMENT.md) |
 | Security | [SECURITY.md](SECURITY.md) |
 | Changes | [CHANGELOG.md](CHANGELOG.md) |
 
@@ -145,11 +145,25 @@ npm test
 cargo test --workspace
 ```
 
-Leave `POINTER_EDITION` unset for local work. Details: [DEVELOPMENT.md](DEVELOPMENT.md).
+Leave `POINTER_EDITION` unset for local work. Details: [docs/en/DEVELOPMENT.md](docs/en/DEVELOPMENT.md).
+
+## Deploy
+
+Packaging flavour (`POINTER_EDITION`) and runtime form (client / server) are orthogonal. Pick your combination, then follow the checklist:
+
+| What you are doing | Start here |
+| --- | --- |
+| Run a client locally, or hand a self-built client to colleagues | [standalone × client](docs/en/deploy/README.md#standalone-client) |
+| Stand up a server for your team | [standalone × server](docs/en/deploy/README.md#standalone-server) |
+| Enterprise: client bound to your internal control plane | [managed × client](docs/en/deploy/README.md#managed-client) |
+| Enterprise: deploy the control-plane server | [managed × server](docs/en/deploy/README.md#managed-server) |
+
+All four — build command, variables, artifacts, verification, dependencies: [docs/en/deploy/README.md](docs/en/deploy/README.md).
+Platform packaging (Windows / macOS / Linux): [docs/en/deploy/platforms.md](docs/en/deploy/platforms.md).
 
 ## Release
 
-Bump the root `VERSION` file, sync, then push a `v*.*.*` tag. CI builds Windows / macOS / Linux and opens a draft on [GitHub Releases](https://github.com/chinphing/agent-pointer/releases).
+Bump the root `VERSION` file, sync, then push a `v*.*.*` tag. CI builds Windows / macOS / Linux and opens a draft on [GitHub Releases](https://github.com/chinphing/agent-pointer/releases). **CI produces the standalone client package only** — managed (official / enterprise) packages are built locally or on your own CI.
 
 ```bash
 # edit VERSION, then:
@@ -164,7 +178,7 @@ npm run tauri:build
 npm run server:build
 ```
 
-Details: [docs/contributing/cross-platform-build.md](docs/contributing/cross-platform-build.md) · [docs/contributing/versioning.md](docs/contributing/versioning.md).
+Details: [docs/en/contributing/cross-platform-build.md](docs/en/contributing/cross-platform-build.md) · [docs/en/contributing/versioning.md](docs/en/contributing/versioning.md).
 
 ## Acknowledgments
 

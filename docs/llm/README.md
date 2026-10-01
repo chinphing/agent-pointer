@@ -1,5 +1,7 @@
 # LLM 观测与模型行为（llm）
 
+[English](../en/llm/README.md) | 简体中文
+
 | 文档 | 说明 |
 |------|------|
 | [llm-token-usage-logging.md](llm-token-usage-logging.md) | 每轮 LLM usage 日志与调试开关 |

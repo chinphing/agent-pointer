@@ -26,7 +26,7 @@ import {
 } from '../../lib/assistantMessageKind'
 import { shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
 import { rootTracesOf } from '../../lib/subAgentTraceTree'
-import { MESSAGE_VIRTUAL_ROW_CLASS, createMessageRowHeightEstimator, messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
+import { MESSAGE_VIRTUAL_ROW_CLASS, MESSAGE_VIRTUAL_ROW_ESTIMATE, messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
 import { createScrollPassScheduler, createViewedStampDedupe } from '../../lib/chatScrollPass'
 import { createVirtualRowMeasureBatch } from '../../lib/virtualRowMeasureBatch'
 import { measureRenderedRowSlack } from '../../lib/virtualRowSlack'
@@ -1953,19 +1953,6 @@ watch(
 )
 
 /**
- * Running average of the row heights the measure batch reads, used as
- * `estimateSize` for rows that have no measured height yet — a fixed 180 px
- * places every one of them wrongly, and each later correction moves the rows
- * below it (see `createMessageRowHeightEstimator`).
- *
- * Lifetime: created here, so it belongs to this component instance. `MessageList`
- * is keyed by conversation id (`ChatView`) and `useVirtualizer` keeps one
- * virtualizer per instance, so a conversation switch or a recreated virtualizer
- * starts from the fallback estimate with no carry-over.
- */
-const rowHeightEstimator = createMessageRowHeightEstimator()
-
-/**
  * Row heights are read in one batch per patch instead of one read per row while
  * the patch is still writing DOM (see `virtualRowMeasureBatch`): the ref
  * callback only queues the element, and the flush — a microtask, so it still
@@ -1974,10 +1961,6 @@ const rowHeightEstimator = createMessageRowHeightEstimator()
  */
 const rowMeasureBatch = createVirtualRowMeasureBatch<HTMLDivElement>({
   applySizes(measurements) {
-    // Fold the heights this pass read before the virtualizer is told about them,
-    // so rows that are still unmeasured are placed with this pass's average
-    // instead of the fixed estimate — the batch's own correction is then smaller.
-    rowHeightEstimator.sample(measurements)
     const perf = renderPerfEnabled()
     for (const measurement of measurements) {
       // Registration plus the height the flush already read.
@@ -2005,11 +1988,7 @@ const rowMeasureBatch = createVirtualRowMeasureBatch<HTMLDivElement>({
 const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>(computed(() => ({
   ...messageVirtualizerBaseOptions(
     conversationTurns.value.length,
-    index => `turn-${conversationTurns.value[index]!.id}`,
-    // Read when the virtualizer places a row without a measured size. A plain
-    // field on purpose: reactive state here would let the estimate change between
-    // two frames with no measurement behind it.
-    () => rowHeightEstimator.estimate
+    index => `turn-${conversationTurns.value[index]!.id}`
   ),
   getScrollElement: () => scroller.value,
   // Row heights come from the batch's read pass; reuse them here instead of
@@ -2133,10 +2112,10 @@ const disposePerfGaugeSampler = installRenderPerfGaugeSampler(() => {
   // the same attribute the measure batch reads.
   const rowSlack = measureRenderedRowSlack(scroller.value, virtualRows.value)
   publishVirtualRowSlackGauges(rowSlack.slack, rowSlack.overlap)
-  // The height currently assumed for rows without a measured size. Read next to
-  // `v.measured` in the HUD: it is what places every unmeasured row, and it moves
-  // only when the measure batch folds a new pass (see `rowHeightEstimator`).
-  setGauge(PERF_GAUGE_VIRTUAL_ESTIMATE, rowHeightEstimator.estimate)
+  // The height assumed for rows without a measured size — the fixed constant the
+  // virtualizer is configured with (`messageVirtualizerBaseOptions`), published
+  // next to `v.measured` so the HUD shows what places every unmeasured row.
+  setGauge(PERF_GAUGE_VIRTUAL_ESTIMATE, MESSAGE_VIRTUAL_ROW_ESTIMATE)
 })
 onBeforeUnmount(disposePerfGaugeSampler)
 

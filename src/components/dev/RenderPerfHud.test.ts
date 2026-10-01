@@ -18,6 +18,7 @@ import {
 } from '../../lib/renderPerf'
 import type { MemoryGaugeReading } from '../../lib/memoryProbe'
 import { CLIPBOARD_FEEDBACK_MS } from '../../lib/clipboardText'
+import { MESSAGE_VIRTUAL_ROW_ESTIMATE } from '../../lib/messageVirtualization'
 
 let container: HTMLDivElement | null = null
 let app: App | null = null
@@ -278,7 +279,7 @@ describe('RenderPerfHud', () => {
     setGauge('virtualMeasured', 128)
     setGauge('virtualBlank', 400)
     setGauge('virtualPullSpacer', 24)
-    setGauge('virtualEstimate', 96)
+    setGauge('virtualEstimate', MESSAGE_VIRTUAL_ROW_ESTIMATE)
     // The stripe spikes, then passes: the current value is 124, the peak 980.
     setGauge('virtualSlack', 980)
     setGauge('virtualSlack', 124)
@@ -292,7 +293,7 @@ describe('RenderPerfHud', () => {
     expect(text).toMatch(/v\.scrollH\s+5400 px/)
     expect(text).toMatch(/v\.range\s+4-19/)
     // `v.est` sits right after the measured-row count it is the alternative to.
-    expect(text).toMatch(/v\.measured\s+128\s+v\.est\s+96 px/)
+    expect(text).toMatch(/v\.measured\s+128\s+v\.est\s+180 px/)
     // Both halves of the pass are listed next to the whole-pass total.
     expect(text).toMatch(/ms:scrollPass\s+0\.0/)
     expect(text).toMatch(/ms:scrollPass:read\s+3\.5/)

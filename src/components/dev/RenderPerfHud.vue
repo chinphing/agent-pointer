@@ -204,8 +204,8 @@ function activityLine(label: string, value: string, activity: string): string {
  *   which is where a blank stripe between rows actually shows; each carries its
  *   session `pk`, because the stripe that matters is a transient one that has
  *   already passed by the time the HUD is read. `v.range` and `v.measured` say how
- *   much of the window is measured rather than estimated, and `v.est` is the height
- *   currently assumed for the rows that are *not* — the number placing them.
+ *   much of the window is measured rather than estimated, and `v.est` is the fixed
+ *   height assumed for the rows that are *not* — the constant placing them.
  */
 function virtualGeometryLines(
   gauges: Record<string, number>,

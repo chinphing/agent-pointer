@@ -139,9 +139,10 @@ export const PERF_GAUGE_VIRTUAL_SLACK = 'virtualSlack'
  */
 export const PERF_GAUGE_VIRTUAL_OVERLAP = 'virtualOverlap'
 /**
- * The height currently assumed for a row with no measured size yet, in px
- * (`createMessageRowHeightEstimator` in `lib/messageVirtualization.ts`). Read next
- * to `virtualMeasured`: it is the number that places every unmeasured row.
+ * The height assumed for a row that has no measured size yet, in px: the fixed
+ * `MESSAGE_VIRTUAL_ROW_ESTIMATE` the virtualizer is configured with. Read next to
+ * `virtualMeasured` — it is the number that places every unmeasured row, and the
+ * constant it reports is what makes a `virtualSlack` reading interpretable.
  */
 export const PERF_GAUGE_VIRTUAL_ESTIMATE = 'virtualEstimate'
 /**

@@ -2,7 +2,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, type Ref } from 'vue'
 import { measureRenderedRowSlack } from './virtualRowSlack'
-import { MESSAGE_VIRTUAL_ROW_ESTIMATE, createMessageRowHeightEstimator } from './messageVirtualization'
+import { MESSAGE_VIRTUAL_ROW_ESTIMATE } from './messageVirtualization'
 import {
   PERF_ACTIVITY_LAYOUT_REBUILD,
   PERF_ACTIVITY_LOAD_OLDER,
@@ -890,10 +890,11 @@ describe('renderPerf virtualizer geometry gauges', () => {
     expect(PERF_MS_KEYS).toContain(PERF_MS_SCROLL_PASS_WRITE)
   })
 
-  it('publishes the live row-height estimate as a gauge', () => {
-    const estimator = createMessageRowHeightEstimator()
+  it('publishes the assumed row height as a constant gauge', () => {
+    // What the sampler publishes is the fixed estimate the virtualizer is
+    // configured with (`messageVirtualizerBaseOptions`) — no measurement feeds it.
     disposeGaugeSampler = installRenderPerfGaugeSampler(() =>
-      setGauge(PERF_GAUGE_VIRTUAL_ESTIMATE, estimator.estimate)
+      setGauge(PERF_GAUGE_VIRTUAL_ESTIMATE, MESSAGE_VIRTUAL_ROW_ESTIMATE)
     )
 
     // Off: the sampler never runs, so nothing is published and nothing is read.
@@ -902,13 +903,8 @@ describe('renderPerf virtualizer geometry gauges', () => {
     setRenderPerfEnabled(true, { persist: false })
     expect(renderPerfSnapshot(2000).gauges[PERF_GAUGE_VIRTUAL_ESTIMATE])
       .toBe(MESSAGE_VIRTUAL_ROW_ESTIMATE)
-
-    // The gauge follows the estimator as the measure batch folds new heights.
-    estimator.sample([{ size: 96 }, { size: 96 }])
-    expect(renderPerfSnapshot(3000).gauges[PERF_GAUGE_VIRTUAL_ESTIMATE]).toBe(96)
-
-    estimator.reset()
-    expect(renderPerfSnapshot(4000).gauges[PERF_GAUGE_VIRTUAL_ESTIMATE])
+    // It stays the constant across snapshots: it cannot drift with measurements.
+    expect(renderPerfSnapshot(3000).gauges[PERF_GAUGE_VIRTUAL_ESTIMATE])
       .toBe(MESSAGE_VIRTUAL_ROW_ESTIMATE)
   })
 

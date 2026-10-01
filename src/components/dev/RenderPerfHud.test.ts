@@ -65,6 +65,7 @@ describe('RenderPerfHud', () => {
 
     expect(hudText()).toContain(PERF_HUD_SHORTCUT_LABEL)
     expect(hudText()).toContain('fps')
+    expect(hudText()).toContain('sus')
     expect(hudText()).toContain('renders/row')
 
     bump('render:MessageList')
@@ -101,6 +102,30 @@ describe('RenderPerfHud', () => {
     leadMsgs = 25
     await advanceOneSecond()
     expect(hudText()).toMatch(/mem\s+lead msgs 25\s+pk 25\s+Δ \+15/)
+  })
+
+  it('keeps session peaks visible after the per-second counters reset', async () => {
+    setRenderPerfEnabled(true, { persist: false })
+    mountHud()
+    setGauge('visibleRows', 4)
+
+    bump('render:MessageList')
+    bump('render:MessageList')
+    bump('render:MessageList')
+    record('ms:extraScopedForWindow', 7)
+    await advanceOneSecond()
+
+    expect(hudText()).toMatch(/render:MessageList\s+3\s+pk\s+3/)
+    expect(hudText()).toMatch(/ms:extraScopedForWindow\s+7\.0\s+pk\s+7\.0/)
+    expect(hudText()).toMatch(/renders\/s\s+3\s+pk\s+3/)
+    expect(hudText()).toMatch(/renders\/row\s+0\.75\s+pk\s+0\.75/)
+
+    // A quiet second resets the per-second value but not the peak — this is what
+    // makes a screenshot taken after a scroll still readable.
+    await advanceOneSecond()
+    expect(hudText()).toMatch(/render:MessageList\s+0\s+pk\s+3/)
+    expect(hudText()).toMatch(/renders\/s\s+0\s+pk\s+3/)
+    expect(hudText()).toMatch(/renders\/row\s+0\.00\s+pk\s+0\.75/)
   })
 
   it('clears counters and stops refreshing once the HUD is turned off', async () => {

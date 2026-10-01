@@ -20,6 +20,16 @@ import type { MemoryStats } from './memoryProbe'
  * - **Two clocks of evidence.** Frame stats are a live trailing 1 s window
  *   (fps + longest gap); render/mount counters are reported for the last
  *   *completed* second so the numbers do not jitter between snapshots.
+ * - **Peaks are free, and they are what survives a screenshot.** A per-second
+ *   counter is zero by the time a HUD screenshot is taken after a scroll, so
+ *   each key also keeps its session peak, folded from the *closing* window
+ *   inside the same rollover that clears the per-second value. No second timer,
+ *   no per-render work, no allocation on the hot path.
+ * - **A suspended frame loop is not a frame gap.** `requestAnimationFrame`
+ *   stops while the page is hidden (display asleep, window minimized, debugger
+ *   paused), so the gap after it resumes measures the suspension, not the app.
+ *   Gaps above `PERF_FRAME_SUSPENSION_MS` are counted separately and kept out of
+ *   `frameGapMaxMs`; see that constant for why the threshold is where it is.
  */
 
 /** localStorage flag: `'1'` = HUD on. Absent = off (the default). */
@@ -30,6 +40,19 @@ export const PERF_HUD_URL_PARAM = 'perfHud'
 export const PERF_HUD_SNAPSHOT_MS = 250
 /** Aggregation window for the per-second counters. */
 export const PERF_HUD_WINDOW_MS = 1000
+/**
+ * Frame gap above which the loop is assumed to have been *suspended* rather than
+ * the main thread blocked: the page was hidden (rAF stops), the display slept, or
+ * a debugger paused the process. Such a gap is counted in `frameSuspensions` and
+ * kept out of `frameGapMaxMs`.
+ *
+ * Why 5 s: a genuinely blocked main thread has to stay blocked for five whole
+ * seconds to be misclassified, which no plausible synchronous render/mount pass
+ * reaches (the counters here exist because individual passes cost tens of ms),
+ * while every suspension above — backgrounded window, sleeping display,
+ * breakpoint — produces gaps of many seconds to minutes.
+ */
+export const PERF_FRAME_SUSPENSION_MS = 5000
 /** Human-readable shortcut, shown in the HUD header. */
 export const PERF_HUD_SHORTCUT_LABEL = 'Cmd/Ctrl+Shift+Alt+P'
 
@@ -71,8 +94,10 @@ export interface RenderPerfSnapshot {
   fps: number
   /** Longest gap between consecutive frames in the trailing second. */
   frameGapMs: number
-  /** Longest frame gap since the HUD was enabled. */
+  /** Longest frame gap since the HUD was enabled; suspensions are excluded. */
   frameGapMaxMs: number
+  /** Gaps above `PERF_FRAME_SUSPENSION_MS` skipped since the HUD was enabled. */
+  frameSuspensions: number
   /** Per-second render counts, keyed `render:<Component>`. */
   renders: Record<string, number>
   /** Per-second mount counts, keyed `mount:<Component>`. */
@@ -87,6 +112,21 @@ export interface RenderPerfSnapshot {
   totalRendersPerSecond: number
   /** `totalRendersPerSecond / visibleRows` — repeated re-rendering at a glance. */
   rendersPerVisibleRow: number
+  /**
+   * Highest value each `renders` key reached in any completed second. Survives
+   * the per-second reset, so a screenshot after a scroll still shows the cost.
+   */
+  peakRenders: Record<string, number>
+  /** Highest value each `mounts` key reached in any completed second. */
+  peakMounts: Record<string, number>
+  /** Highest value each `calls` key reached in any completed second. */
+  peakCalls: Record<string, number>
+  /** Highest value each `msPerSecond` key reached in any completed second. */
+  peakMsPerSecond: Record<string, number>
+  /** Highest `totalRendersPerSecond` seen in a completed second. */
+  totalRendersPerSecondPeak: number
+  /** Highest `rendersPerVisibleRow` seen at a rollover; 0 visible rows never raises it. */
+  rendersPerVisibleRowPeak: number
   /**
    * Latest frontend memory reading (see `lib/memoryProbe.ts`). `null` while the
    * HUD is off, or before the HUD installs its sampler.
@@ -108,6 +148,14 @@ let msTotals = new Map<string, number>()
 let closedCounts = new Map<string, number>()
 let closedMs = new Map<string, number>()
 const gauges = new Map<string, number>()
+/**
+ * Session peaks. Folded from each *closing* window by `foldPeaks`, so they cost
+ * nothing per render and only grow until the HUD is toggled (see `resetPerf`).
+ */
+let peakCounts = new Map<string, number>()
+let peakMs = new Map<string, number>()
+let peakTotalRenders = 0
+let peakRendersPerVisibleRow = 0
 
 /** Fixed ring for frame timestamps — no per-frame allocation. */
 const FRAME_RING = 600
@@ -117,6 +165,7 @@ let frameTotal = 0
 let hasLastFrame = false
 let lastFrameTs = 0
 let frameGapMaxMs = 0
+let frameSuspensions = 0
 let rafHandle: number | null = null
 
 function nowMs(): number {
@@ -152,18 +201,23 @@ export function setGauge(name: string, value: number): void {
   gauges.set(name, Number.isFinite(value) ? value : 0)
 }
 
-/** Drop all accumulated counters, gauges and frame samples. */
+/** Drop all accumulated counters, gauges, session peaks and frame samples. */
 export function resetPerf(): void {
   counts = new Map()
   msTotals = new Map()
   closedCounts = new Map()
   closedMs = new Map()
   gauges.clear()
+  peakCounts = new Map()
+  peakMs = new Map()
+  peakTotalRenders = 0
+  peakRendersPerVisibleRow = 0
   frameWrite = 0
   frameTotal = 0
   hasLastFrame = false
   lastFrameTs = 0
   frameGapMaxMs = 0
+  frameSuspensions = 0
   windowStartMs = -1
 }
 
@@ -177,7 +231,13 @@ function onFrame(ts: number): void {
   rafHandle = requestAnimationFrame(onFrame)
   if (hasLastFrame) {
     const gap = ts - lastFrameTs
-    if (gap > frameGapMaxMs) frameGapMaxMs = gap
+    if (gap > PERF_FRAME_SUSPENSION_MS) {
+      // The loop was stopped (hidden page / sleeping display / paused debugger).
+      // Keep it out of the maximum so a suspension never reads as a frame stall.
+      frameSuspensions++
+    } else if (gap > frameGapMaxMs) {
+      frameGapMaxMs = gap
+    }
   }
   hasLastFrame = true
   lastFrameTs = ts
@@ -208,7 +268,8 @@ function readFrameStats(t: number): { fps: number; frameGapMs: number } {
     fps++
     if (newer >= 0) {
       const gap = newer - ts
-      if (gap > longest) longest = gap
+      // A suspension inside the window is not a frame gap either (see onFrame).
+      if (gap <= PERF_FRAME_SUSPENSION_MS && gap > longest) longest = gap
     }
     newer = ts
   }
@@ -233,6 +294,30 @@ export function setRenderPerfMemorySampler(
 // --- snapshot ---------------------------------------------------------------
 
 /**
+ * Fold one *closing* window into the session peaks. Runs at most once per second
+ * (from the rollover in `renderPerfSnapshot`), so peaks add no timer and no
+ * per-render work; `rendersPerVisibleRow` only folds while rows are visible, so
+ * an empty transcript cannot drag the ratio's peak to zero.
+ */
+function foldPeaks(windowCounts: Map<string, number>, windowMs: Map<string, number>): void {
+  let windowRenders = 0
+  for (const [name, value] of windowCounts) {
+    if (value <= 0) continue
+    if (value > (peakCounts.get(name) ?? 0)) peakCounts.set(name, value)
+    if (name.startsWith('render:')) windowRenders += value
+  }
+  for (const [name, value] of windowMs) {
+    if (value <= 0) continue
+    if (value > (peakMs.get(name) ?? 0)) peakMs.set(name, value)
+  }
+  if (windowRenders > peakTotalRenders) peakTotalRenders = windowRenders
+  const visibleRows = gauges.get(PERF_GAUGE_VISIBLE_ROWS) ?? 0
+  if (visibleRows > 0 && windowRenders / visibleRows > peakRendersPerVisibleRow) {
+    peakRendersPerVisibleRow = windowRenders / visibleRows
+  }
+}
+
+/**
  * Build a snapshot, closing the current second when it has elapsed.
  *
  * `nowOverride` exists so tests can drive the aggregation deterministically
@@ -243,6 +328,7 @@ export function renderPerfSnapshot(nowOverride?: number): RenderPerfSnapshot {
   if (windowStartMs < 0) {
     windowStartMs = t
   } else if (t - windowStartMs >= PERF_HUD_WINDOW_MS) {
+    foldPeaks(counts, msTotals)
     closedCounts = counts
     closedMs = msTotals
     counts = new Map()
@@ -273,12 +359,25 @@ export function renderPerfSnapshot(nowOverride?: number): RenderPerfSnapshot {
   const gaugeSnapshot: Record<string, number> = {}
   for (const [name, value] of gauges) gaugeSnapshot[name] = value
 
+  // Peaks are rebuilt with the snapshot (4 Hz), exactly like the other records.
+  const peakRenders: Record<string, number> = {}
+  const peakMounts: Record<string, number> = {}
+  const peakCalls: Record<string, number> = {}
+  for (const [name, value] of peakCounts) {
+    if (name.startsWith('render:')) peakRenders[name] = value
+    else if (name.startsWith('mount:')) peakMounts[name] = value
+    else if (name.startsWith('call:')) peakCalls[name] = value
+  }
+  const peakMsPerSecond: Record<string, number> = {}
+  for (const [name, value] of peakMs) peakMsPerSecond[name] = value
+
   const visibleRows = gauges.get(PERF_GAUGE_VISIBLE_ROWS) ?? 0
   return {
     enabled,
     fps: frames.fps,
     frameGapMs: frames.frameGapMs,
     frameGapMaxMs,
+    frameSuspensions,
     renders,
     mounts,
     calls,
@@ -286,6 +385,12 @@ export function renderPerfSnapshot(nowOverride?: number): RenderPerfSnapshot {
     gauges: gaugeSnapshot,
     totalRendersPerSecond: totalRenders,
     rendersPerVisibleRow: visibleRows > 0 ? totalRenders / visibleRows : 0,
+    peakRenders,
+    peakMounts,
+    peakCalls,
+    peakMsPerSecond,
+    totalRendersPerSecondPeak: peakTotalRenders,
+    rendersPerVisibleRowPeak: peakRendersPerVisibleRow,
     memory: enabled && memorySampler ? memorySampler(t) : null
   }
 }

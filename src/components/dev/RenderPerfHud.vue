@@ -54,8 +54,16 @@ function pad(value: number, width: number, digits = 1): string {
   return value.toFixed(digits).padStart(width, ' ')
 }
 
-function group(keys: readonly string[], values: Record<string, number>, digits = 0, width = 6): string[] {
-  return keys.map(key => `${key.padEnd(30)}${pad(values[key] ?? 0, width, digits)}`)
+function group(
+  keys: readonly string[],
+  values: Record<string, number>,
+  peaks: Record<string, number>,
+  digits = 0,
+  width = 6
+): string[] {
+  return keys.map(key =>
+    `${key.padEnd(30)}${pad(values[key] ?? 0, width, digits)}`
+      + `  pk ${pad(peaks[key] ?? 0, width, digits)}`)
 }
 
 /**
@@ -82,17 +90,20 @@ const text = computed(() => {
   const s = snapshot.value
   return [
     `render perf  ${PERF_HUD_SHORTCUT_LABEL}`,
-    `fps ${pad(s.fps, 6)}  gap ${pad(s.frameGapMs, 7)}ms  max ${pad(s.frameGapMaxMs, 8)}ms`,
-    `renders/s ${String(s.totalRendersPerSecond).padStart(4)}  `
+    `fps ${pad(s.fps, 6)}  gap ${pad(s.frameGapMs, 7)}ms  max ${pad(s.frameGapMaxMs, 8)}ms`
+      + `  sus ${String(s.frameSuspensions).padStart(3)}`,
+    `renders/s ${String(s.totalRendersPerSecond).padStart(4)}`
+      + ` pk ${String(s.totalRendersPerSecondPeak).padStart(4)}  `
       + `vis rows ${String(s.gauges[PERF_GAUGE_VISIBLE_ROWS] ?? 0).padStart(3)}  `
       + `scoped ${String(s.gauges[PERF_GAUGE_SCOPED_ROWS] ?? 0).padStart(3)}  `
       + `frozen ${String(s.gauges[PERF_GAUGE_FROZEN_TURNS] ?? 0).padStart(3)}  `
-      + `renders/row ${s.rendersPerVisibleRow.toFixed(2)}`,
+      + `renders/row ${s.rendersPerVisibleRow.toFixed(2)}`
+      + ` pk ${s.rendersPerVisibleRowPeak.toFixed(2)}`,
     ...memoryLines(s.memory),
-    ...group(PERF_RENDER_KEYS, s.renders),
-    ...group(PERF_MOUNT_KEYS, s.mounts),
-    ...group(PERF_CALL_KEYS, s.calls),
-    ...group(PERF_MS_KEYS, s.msPerSecond, 1)
+    ...group(PERF_RENDER_KEYS, s.renders, s.peakRenders),
+    ...group(PERF_MOUNT_KEYS, s.mounts, s.peakMounts),
+    ...group(PERF_CALL_KEYS, s.calls, s.peakCalls),
+    ...group(PERF_MS_KEYS, s.msPerSecond, s.peakMsPerSecond, 1)
   ].join('\n')
 })
 </script>

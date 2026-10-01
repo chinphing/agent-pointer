@@ -2,6 +2,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, type Ref } from 'vue'
 import {
+  PERF_FRAME_SUSPENSION_MS,
   PERF_GAUGE_VISIBLE_ROWS,
   PERF_HUD_SNAPSHOT_MS,
   PERF_HUD_STORAGE_KEY,
@@ -71,6 +72,13 @@ describe('renderPerf counters', () => {
     expect(snapshot.msPerSecond).toEqual({})
     expect(snapshot.gauges).toEqual({})
     expect(snapshot.rendersPerVisibleRow).toBe(0)
+    expect(snapshot.peakRenders).toEqual({})
+    expect(snapshot.peakMounts).toEqual({})
+    expect(snapshot.peakCalls).toEqual({})
+    expect(snapshot.peakMsPerSecond).toEqual({})
+    expect(snapshot.totalRendersPerSecondPeak).toBe(0)
+    expect(snapshot.rendersPerVisibleRowPeak).toBe(0)
+    expect(snapshot.frameSuspensions).toBe(0)
     expect(requestFrame.mock.calls.length).toBe(framesBefore)
   })
 
@@ -118,6 +126,83 @@ describe('renderPerf counters', () => {
     expect(snapshot.msPerSecond['ms:measureElement']).toBeUndefined()
   })
 
+  it('tracks a session peak per counter key, surviving the per-second reset', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    renderPerfSnapshot(1000)
+
+    bump('render:MessageList')
+    bump('render:MessageList')
+    bump('render:MessageList')
+    bump('mount:SubAgentFrame')
+    bump('call:toolRunAssistantMessage')
+    record('ms:extraScopedForWindow', 4)
+
+    const closed = renderPerfSnapshot(2000)
+    expect(closed.renders['render:MessageList']).toBe(3)
+    expect(closed.peakRenders['render:MessageList']).toBe(3)
+    expect(closed.peakMounts['mount:SubAgentFrame']).toBe(1)
+    expect(closed.peakCalls['call:toolRunAssistantMessage']).toBe(1)
+    expect(closed.peakMsPerSecond['ms:extraScopedForWindow']).toBe(4)
+
+    // A quiet second drops the per-second value but keeps the peak.
+    const quiet = renderPerfSnapshot(3000)
+    expect(quiet.renders['render:MessageList']).toBeUndefined()
+    expect(quiet.peakRenders['render:MessageList']).toBe(3)
+    expect(quiet.peakMsPerSecond['ms:extraScopedForWindow']).toBe(4)
+
+    // A busier second raises the peak.
+    for (let i = 0; i < 5; i++) bump('render:MessageList')
+    const busy = renderPerfSnapshot(4000)
+    expect(busy.renders['render:MessageList']).toBe(5)
+    expect(busy.peakRenders['render:MessageList']).toBe(5)
+  })
+
+  it('tracks renders/s and renders/row peaks without letting 0 rows reset them', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    setGauge(PERF_GAUGE_VISIBLE_ROWS, 4)
+    renderPerfSnapshot(1000)
+
+    for (let i = 0; i < 8; i++) bump('render:SubAgentFrame')
+    const busy = renderPerfSnapshot(2000)
+    expect(busy.totalRendersPerSecond).toBe(8)
+    expect(busy.rendersPerVisibleRow).toBeCloseTo(2)
+    expect(busy.totalRendersPerSecondPeak).toBe(8)
+    expect(busy.rendersPerVisibleRowPeak).toBeCloseTo(2)
+
+    bump('render:SubAgentFrame')
+    bump('render:SubAgentFrame')
+    const quieter = renderPerfSnapshot(3000)
+    expect(quieter.totalRendersPerSecond).toBe(2)
+    expect(quieter.totalRendersPerSecondPeak).toBe(8)
+    expect(quieter.rendersPerVisibleRowPeak).toBeCloseTo(2)
+
+    // No visible rows: the ratio reads 0, and that must not become the peak.
+    setGauge(PERF_GAUGE_VISIBLE_ROWS, 0)
+    for (let i = 0; i < 20; i++) bump('render:SubAgentFrame')
+    const noRows = renderPerfSnapshot(4000)
+    expect(noRows.totalRendersPerSecond).toBe(20)
+    expect(noRows.totalRendersPerSecondPeak).toBe(20)
+    expect(noRows.rendersPerVisibleRow).toBe(0)
+    expect(noRows.rendersPerVisibleRowPeak).toBeCloseTo(2)
+  })
+
+  it('clears the peaks when the HUD is toggled, like the memory deltas', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    renderPerfSnapshot(1000)
+    bump('render:MessageList')
+    expect(renderPerfSnapshot(2000).peakRenders['render:MessageList']).toBe(1)
+
+    setRenderPerfEnabled(false, { persist: false })
+    setRenderPerfEnabled(true, { persist: false })
+    const fresh = renderPerfSnapshot(5000)
+    expect(fresh.peakRenders).toEqual({})
+    expect(fresh.peakMounts).toEqual({})
+    expect(fresh.peakCalls).toEqual({})
+    expect(fresh.peakMsPerSecond).toEqual({})
+    expect(fresh.totalRendersPerSecondPeak).toBe(0)
+    expect(fresh.rendersPerVisibleRowPeak).toBe(0)
+  })
+
   it('derives renders-per-visible-row from the latest gauges', () => {
     setRenderPerfEnabled(true, { persist: false })
     renderPerfSnapshot(1000)
@@ -156,6 +241,44 @@ describe('renderPerf counters', () => {
     expect(later.frameGapMs).toBe(0)
     // …but the session maximum is kept.
     expect(later.frameGapMaxMs).toBe(968)
+  })
+
+  it('counts a suspended frame loop separately instead of as a frame gap', () => {
+    setRenderPerfEnabled(true, { persist: false })
+
+    rafCallback?.(0)
+    rafCallback?.(16)
+    rafCallback?.(32)
+    expect(renderPerfSnapshot(32).frameGapMaxMs).toBe(16)
+
+    // Hidden page / sleeping display: the loop resumes 77 s later. That is a
+    // suspension, not a frame the app dropped.
+    rafCallback?.(32 + 77_000)
+    rafCallback?.(32 + 77_800)
+    const resumed = renderPerfSnapshot(32 + 77_800)
+    expect(resumed.frameSuspensions).toBe(1)
+    // The 77 s suspension is not the maximum; the 800 ms gap after resuming is.
+    expect(resumed.frameGapMaxMs).toBe(800)
+    expect(resumed.frameGapMs).toBe(800)
+
+    // A real stall below the threshold still raises the maximum.
+    rafCallback?.(32 + 78_700)
+    expect(renderPerfSnapshot(32 + 78_700).frameGapMaxMs).toBe(900)
+  })
+
+  it('treats the suspension threshold as a strict lower bound', () => {
+    setRenderPerfEnabled(true, { persist: false })
+
+    rafCallback?.(0)
+    rafCallback?.(PERF_FRAME_SUSPENSION_MS)
+    const atThreshold = renderPerfSnapshot(PERF_FRAME_SUSPENSION_MS)
+    expect(atThreshold.frameSuspensions).toBe(0)
+    expect(atThreshold.frameGapMaxMs).toBe(PERF_FRAME_SUSPENSION_MS)
+
+    rafCallback?.(PERF_FRAME_SUSPENSION_MS * 2 + 1)
+    const above = renderPerfSnapshot(PERF_FRAME_SUSPENSION_MS * 2 + 1)
+    expect(above.frameSuspensions).toBe(1)
+    expect(above.frameGapMaxMs).toBe(PERF_FRAME_SUSPENSION_MS)
   })
 
   it('stops the frame probe and clears samples when disabled', () => {

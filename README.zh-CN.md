@@ -7,7 +7,7 @@
 | 你想要 | 怎么拿 |
 | --- | --- |
 | 装上就能用 | [官网下载](https://pointer.readflowai.com/download) |
-| 放进公司自己的环境 | [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) |
+| 放进公司自己的环境 | [GitHub Releases](https://github.com/chinphing/agent-pointer/releases)（官方包）· [部署指南](docs/zh-CN/deploy/README.md)（自建） |
 
 [English](README.md)
 

@@ -7,7 +7,7 @@ Build and run digital employees on the computer people already use, and keep the
 | You want | Get it here |
 | --- | --- |
 | Ready to use, out of the box | [Official download](https://pointer.readflowai.com/download) |
-| Deploy inside your company | [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) |
+| Deploy inside your company | [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) (official package) · [Deployment guide](docs/en/deploy/README.md) (self-hosted) |
 
 [简体中文](README.zh-CN.md)
 

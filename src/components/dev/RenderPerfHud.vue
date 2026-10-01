@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onScopeDispose } from 'vue'
+import { computed, onScopeDispose, ref } from 'vue'
 import {
   PERF_ACTIVITY_IDLE,
   PERF_CALL_KEYS,
@@ -34,16 +34,24 @@ import {
   type MemoryGaugeReading,
   type MemoryStats
 } from '../../lib/memoryProbe'
+import { writeClipboardText, CLIPBOARD_FEEDBACK_MS } from '../../lib/clipboardText'
 
 /**
  * Dev-only render performance overlay (see `lib/renderPerf.ts`).
  *
  * Mounted behind `v-if` in `ChatView.vue`, so nothing here exists while the HUD
- * is off. `pointer-events-none` + `fixed` keeps it out of the chat's way and
- * out of layout.
+ * is off — no timer, no click target, no listener.
  *
  * Rendered as a single pre-formatted text block: the 4 Hz refresh then costs
  * one text update instead of a vnode tree.
+ *
+ * Clicking the block copies that block (see `lib/clipboardText.ts`), so the
+ * numbers can be pasted instead of screenshotted, and the title row reports the
+ * outcome while it is on screen. It is a debug surface, so it takes the clicks in
+ * its own box rather than passing them through — `pointer-events-none` is
+ * deliberately gone. It stays `aria-hidden` and out of the tab order: a focusable
+ * element would put this dense debug text into the accessibility tree, and the
+ * overlay is decoration by design.
  *
  * The frontend memory rows come from `lib/memoryProbe.ts`. The probe is installed
  * here — so it exists only while the HUD is mounted — and samples at most once a
@@ -62,6 +70,46 @@ const memoryProbe = installMemoryProbe({
 onScopeDispose(() => memoryProbe.dispose())
 
 const snapshot = useRenderPerfSnapshot()
+
+// --- click to copy ----------------------------------------------------------
+
+/** Title row while idle: the toggle shortcut plus the click affordance. */
+const TITLE_LINE = `render perf  ${PERF_HUD_SHORTCUT_LABEL}  ·  click to copy`
+
+type CopyState = 'idle' | 'copied' | 'failed'
+
+const copyState = ref<CopyState>('idle')
+/**
+ * The confirmation's timer. Only ever created by a click (there is no timer while
+ * the overlay is idle, and none at all while it is unmounted), and cleared with
+ * the component so a stray timer cannot outlive the HUD.
+ */
+let copyResetTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearCopyResetTimer(): void {
+  if (copyResetTimer === null) return
+  clearTimeout(copyResetTimer)
+  copyResetTimer = null
+}
+
+/**
+ * Copy what the overlay is showing. Reads `text` — the same computed the rows are
+ * built from — so the clipboard gets the exact rendered string instead of a
+ * re-render, and reports the outcome in the title row either way.
+ */
+async function copyHudText(): Promise<void> {
+  const copied = await writeClipboardText(text.value)
+  copyState.value = copied ? 'copied' : 'failed'
+  clearCopyResetTimer()
+  copyResetTimer = setTimeout(() => {
+    copyResetTimer = null
+    copyState.value = 'idle'
+  }, CLIPBOARD_FEEDBACK_MS)
+}
+
+onScopeDispose(() => {
+  clearCopyResetTimer()
+})
 
 function pad(value: number, width: number, digits = 1): string {
   return value.toFixed(digits).padStart(width, ' ')
@@ -190,7 +238,10 @@ function virtualGeometryLines(
   ]
 }
 
-const text = computed(() => {
+/**
+ * Body rows, without the title line — the overlay's own content, in order.
+ */
+const bodyLines = computed<string[]>(() => {
   const s = snapshot.value
   return [
     `render perf  ${PERF_HUD_SHORTCUT_LABEL}`,
@@ -219,14 +270,33 @@ const text = computed(() => {
     ...group(PERF_MOUNT_KEYS, s.mounts, s.peakMounts),
     ...group(PERF_CALL_KEYS, s.calls, s.peakCalls),
     ...group(PERF_MS_KEYS, s.msPerSecond, s.peakMsPerSecond, 1)
-  ].join('\n')
+  ]
+})
+
+/**
+ * The exact text the overlay copies: the title row plus the body rows, from the
+ * same computed the template renders — never a re-render, and never carrying the
+ * copy confirmation.
+ */
+const text = computed(() => [TITLE_LINE, ...bodyLines.value].join('\n'))
+
+/**
+ * What the template renders: identical to `text` except while a copy result is
+ * showing, when the title row is swapped for the marker.
+ */
+const displayText = computed(() => {
+  if (copyState.value === 'idle') return text.value
+  const marker = copyState.value === 'copied' ? 'copied' : 'copy failed'
+  return [`render perf  ${marker}`, ...bodyLines.value].join('\n')
 })
 </script>
 
 <template>
   <div
-    class="pointer-events-none fixed bottom-2 left-2 z-[250] select-none whitespace-pre rounded-md border border-white/10 bg-black/80 px-2.5 py-1.5 font-mono text-[10px] leading-[1.4] text-emerald-100/90 shadow-lg"
+    class="fixed bottom-2 left-2 z-[250] cursor-pointer select-none whitespace-pre rounded-md border border-white/10 bg-black/80 px-2.5 py-1.5 font-mono text-[10px] leading-[1.4] text-emerald-100/90 shadow-lg"
     aria-hidden="true"
     data-testid="render-perf-hud"
-  >{{ text }}</div>
+    title="Click to copy the HUD text"
+    @click="copyHudText"
+  >{{ displayText }}</div>
 </template>

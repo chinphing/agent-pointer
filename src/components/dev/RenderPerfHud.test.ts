@@ -17,6 +17,7 @@ import {
   setRenderPerfMemorySampler
 } from '../../lib/renderPerf'
 import type { MemoryGaugeReading } from '../../lib/memoryProbe'
+import { CLIPBOARD_FEEDBACK_MS } from '../../lib/clipboardText'
 
 let container: HTMLDivElement | null = null
 let app: App | null = null
@@ -66,8 +67,43 @@ async function advanceOneSecond(): Promise<void> {
   await nextTick()
 }
 
+/** The overlay's clickable block. */
+function hudElement(): HTMLElement {
+  const element = container?.querySelector<HTMLElement>('[data-testid="render-perf-hud"]')
+  if (!element) throw new Error('HUD element is not mounted')
+  return element
+}
+
+/**
+ * Let a click's clipboard promise settle and the confirmation render: the handler
+ * awaits the clipboard API (and possibly the fallback), so the state change lands a
+ * few microtasks after the click, not on the next tick alone.
+ */
+async function settleCopy(): Promise<void> {
+  await vi.advanceTimersByTimeAsync(0)
+  await nextTick()
+}
+
+/** Own-property override: happy-dom ships a working `navigator.clipboard`. */
+function stubClipboard(clipboard: unknown): void {
+  Object.defineProperty(navigator, 'clipboard', {
+    value: clipboard,
+    configurable: true,
+    writable: true
+  })
+}
+
+function stubExecCommand(execCommand: unknown): void {
+  Object.defineProperty(document, 'execCommand', {
+    value: execCommand,
+    configurable: true,
+    writable: true
+  })
+}
+
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  // The copy confirmation rides a `setTimeout`, the snapshot tick a `setInterval`.
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
   fakeNowMs = 0
   vi.spyOn(performance, 'now').mockImplementation(() => fakeNowMs)
   setRenderPerfEnabled(false, { persist: false })
@@ -81,6 +117,8 @@ afterEach(() => {
   container = null
   setRenderPerfEnabled(false, { persist: false })
   setRenderPerfMemorySampler(null)
+  Reflect.deleteProperty(navigator as unknown as Record<string, unknown>, 'clipboard')
+  Reflect.deleteProperty(document as unknown as Record<string, unknown>, 'execCommand')
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.useRealTimers()
@@ -266,5 +304,105 @@ describe('RenderPerfHud', () => {
     expect(text).toMatch(/v\.slack\s+124 px\s+pk\s+980 px/)
     expect(text).toMatch(/v\.overlap\s+0 px\s+pk\s+0 px/)
     expect(text).toMatch(/v\.blank agrees by construction/)
+  })
+})
+
+describe('RenderPerfHud copy to clipboard', () => {
+  it('copies the exact rendered text in one click', async () => {
+    setRenderPerfEnabled(true, { persist: false })
+    mountHud()
+    bump('render:MessageList')
+    record('ms:scrollPass:write', 14.5)
+    await advanceOneSecond()
+
+    const writeText = vi.fn(async (_text: string) => {})
+    stubClipboard({ writeText })
+
+    // What is on screen at the moment of the click — every row, footnote included.
+    const shown = hudText()
+    expect(shown).toContain(PERF_HUD_SHORTCUT_LABEL)
+    expect(shown).toContain('render:MessageList')
+    expect(shown).toContain('ms:scrollPass:write')
+    expect(shown).toContain('v.slack')
+    expect(shown).toContain('v.blank agrees by construction')
+
+    hudElement().click()
+    await settleCopy()
+
+    expect(writeText).toHaveBeenCalledTimes(1)
+    expect(writeText).toHaveBeenCalledWith(shown)
+    // The confirmation took over the title row; the payload kept the real one.
+    expect(hudText()).toContain('copied')
+    expect(shown).not.toContain('copied')
+  })
+
+  it('falls back to the textarea path when the primary API rejects', async () => {
+    setRenderPerfEnabled(true, { persist: false })
+    mountHud()
+
+    const writeText = vi.fn(async (_text: string) => {
+      throw new Error('Document is not focused')
+    })
+    stubClipboard({ writeText })
+    const execCommand = vi.fn(() => true)
+    stubExecCommand(execCommand)
+
+    const shown = hudText()
+    hudElement().click()
+    await settleCopy()
+
+    expect(writeText).toHaveBeenCalledWith(shown)
+    expect(execCommand).toHaveBeenCalledWith('copy')
+    // The fallback succeeded, so the confirmation is the success one.
+    expect(hudText()).toContain('copied')
+  })
+
+  it('shows a failure state instead of doing nothing when both paths fail', async () => {
+    setRenderPerfEnabled(true, { persist: false })
+    mountHud()
+
+    stubClipboard({
+      writeText: async () => {
+        throw new Error('denied')
+      }
+    })
+    stubExecCommand(undefined)
+
+    hudElement().click()
+    await settleCopy()
+
+    expect(hudText()).toContain('copy failed')
+  })
+
+  it('clears the confirmation after a couple of seconds', async () => {
+    setRenderPerfEnabled(true, { persist: false })
+    mountHud()
+    stubClipboard({ writeText: vi.fn(async (_text: string) => {}) })
+
+    hudElement().click()
+    await settleCopy()
+    expect(hudText()).toContain('copied')
+
+    vi.advanceTimersByTime(CLIPBOARD_FEEDBACK_MS)
+    await nextTick()
+
+    expect(hudText()).not.toContain('copied')
+    // Back to the idle title row, affordance included.
+    expect(hudText()).toContain(PERF_HUD_SHORTCUT_LABEL)
+    expect(hudText()).toContain('click to copy')
+  })
+
+  it('never touches the clipboard on a re-render', async () => {
+    setRenderPerfEnabled(true, { persist: false })
+    mountHud()
+
+    const writeText = vi.fn(async (_text: string) => {})
+    stubClipboard({ writeText })
+
+    // Several snapshot ticks, each re-rendering the whole block.
+    await advanceOneSecond()
+    await advanceOneSecond()
+
+    expect(writeText).not.toHaveBeenCalled()
   })
 })

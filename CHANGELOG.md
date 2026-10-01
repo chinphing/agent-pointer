@@ -40,9 +40,9 @@ Versions follow the root `VERSION` file.
   `<askuserbanner>` element: a question asked by a sub-agent had no surface once
   the frames stopped keeping pending `ask_user` cards.
 - Sub-agent stats lines now fold every tool the named buckets do not cover
-  (`ask_user`, `task_board_*`, `job`, `run_subagent`, `read_lints`, …) into「其他 N 次」
-  instead of reporting「工具 0 次」, so a spawn that only asked a question no longer
-  collapses to the bare「过程」placeholder.
+  (`ask_user`, `task_board_*`, `read_lints`, …) into「其他 N 次」instead of reporting
+  「工具 0 次」, and give `job` / `run_subagent` their own「后台任务」/「委派」buckets — so a
+  spawn that only asked a question no longer collapses to the bare「过程」placeholder.
 
 - The sub-agent `ask_user` bar mounts only once its question is parseable
   (`askUserQuestionIsDrawable`): a call whose arguments are still streaming used to

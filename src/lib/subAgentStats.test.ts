@@ -71,6 +71,15 @@ describe('subAgentStats explore / self-fork summary', () => {
       .toBe('代码探索 · 其他 2 次')
   })
 
+  it('keeps background jobs and re-delegation in their own buckets', () => {
+    const stats = emptySubAgentToolStats()
+    incrementSubAgentToolStats(stats, 'job', '{}')
+    incrementSubAgentToolStats(stats, 'run_subagent', '{}')
+    incrementSubAgentToolStats(stats, 'ask_user', '{}')
+    expect(formatSubAgentSummaryLine('代码探索', 'completed', stats, 'explore'))
+      .toBe('代码探索 · 后台任务 1 次 · 委派 1 次 · 其他 1 次')
+  })
+
   it('keeps 失败 on failed traces and omits 已完成 on success', () => {
     const stats = emptySubAgentToolStats()
     incrementSubAgentToolStats(stats, 'file_read', '{}')

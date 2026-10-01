@@ -113,6 +113,10 @@ export interface SubAgentToolStats {
   skillCount?: number
   /** media_understand / image_generate / video_generate */
   mediaCount?: number
+  /** job — background job management from inside a sub-agent */
+  jobCount?: number
+  /** run_subagent — this spawn delegating further (re-delegation) */
+  delegateCount?: number
   /** Computer: mouse_* */
   mouseCount?: number
   /** Computer: input_* */

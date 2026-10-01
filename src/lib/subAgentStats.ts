@@ -10,6 +10,8 @@ export function emptySubAgentToolStats(): SubAgentToolStats {
     webSearchCount: 0,
     skillCount: 0,
     mediaCount: 0,
+    jobCount: 0,
+    delegateCount: 0,
     mouseCount: 0,
     inputCount: 0,
     otherCount: 0
@@ -140,9 +142,17 @@ export function incrementSubAgentToolStats(
     stats.webSearchCount = (stats.webSearchCount ?? 0) + 1
     return
   }
+  if (base === 'job') {
+    stats.jobCount = (stats.jobCount ?? 0) + 1
+    return
+  }
+  if (base === 'run_subagent') {
+    stats.delegateCount = (stats.delegateCount ?? 0) + 1
+    return
+  }
   // Everything the buckets above do not name still counts: interaction / orchestration
-  // tools (ask_user, task_board_*, job, run_subagent, read_lints …). Without this a spawn
-  // that only asked a question reported「工具 0 次」and collapsed to「过程」.
+  // tools (ask_user, task_board_*, read_lints …). Without this a spawn that only asked a
+  // question reported「工具 0 次」and collapsed to「过程」.
   stats.otherCount = (stats.otherCount ?? 0) + 1
 }
 
@@ -169,6 +179,8 @@ function formatStatsForAgent(agentId: string, stats: SubAgentToolStats): string 
     return joinStatSegments([
       statSeg('鼠标', stats.mouseCount),
       statSeg('输入', stats.inputCount),
+      statSeg('后台任务', stats.jobCount),
+      statSeg('委派', stats.delegateCount),
       statSeg('其他', stats.otherCount)
     ])
   }
@@ -178,6 +190,8 @@ function formatStatsForAgent(agentId: string, stats: SubAgentToolStats): string 
       statSeg('读文件', stats.readCount),
       statSeg('终端', stats.terminalCount),
       statSeg('编辑', stats.writeCount),
+      statSeg('后台任务', stats.jobCount),
+      statSeg('委派', stats.delegateCount),
       statSeg('其他', stats.otherCount)
     ])
   }
@@ -189,6 +203,8 @@ function formatStatsForAgent(agentId: string, stats: SubAgentToolStats): string 
       statSeg('搜索', stats.webSearchCount),
       statSeg('读文件', stats.readCount),
       statSeg('编辑', stats.writeCount),
+      statSeg('后台任务', stats.jobCount),
+      statSeg('委派', stats.delegateCount),
       statSeg('其他', stats.otherCount)
     ])
   }
@@ -198,6 +214,8 @@ function formatStatsForAgent(agentId: string, stats: SubAgentToolStats): string 
     statSeg('读文件', stats.readCount),
     statSeg('终端', stats.terminalCount),
     statSeg('编辑', stats.writeCount),
+    statSeg('后台任务', stats.jobCount),
+    statSeg('委派', stats.delegateCount),
     statSeg('其他', stats.otherCount)
   ])
 }

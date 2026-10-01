@@ -99,6 +99,29 @@ export const PERF_GAUGE_SCOPED_ROWS = 'scopedRows'
 /** Entries in `MessageList`'s frozen per-turn file-changes cache. */
 export const PERF_GAUGE_FROZEN_TURNS = 'frozenTurns'
 
+// --- activity markers -------------------------------------------------------
+
+/**
+ * Names of the heavy operations the HUD can blame a frame gap or a slow second
+ * on. Fixed strings (never built at the call site), so attribution costs no
+ * allocation — see `beginPerfActivity`.
+ */
+export const PERF_ACTIVITY_LAYOUT_REBUILD = 'layoutRebuild'
+export const PERF_ACTIVITY_TRIM_HISTORY = 'trimHistory'
+export const PERF_ACTIVITY_LOAD_OLDER = 'loadOlder'
+export const PERF_ACTIVITY_LOAD_NEWER = 'loadNewer'
+export const PERF_ACTIVITY_MEASURE_BATCH = 'measureBatch'
+export const PERF_ACTIVITY_MARKDOWN_PARSE = 'markdownParse'
+/** Shown instead of an activity name when no marker covers the moment. */
+export const PERF_ACTIVITY_IDLE = 'idle'
+/**
+ * An activity still open after this long is assumed to have missed its `end`
+ * and is dropped, so a bug in one call site cannot pin the HUD to a stale
+ * operation for the rest of the session. Well above the slowest real operation
+ * (the worst gap observed is ~0.75 s) and far below a session.
+ */
+export const PERF_ACTIVITY_STALE_MS = 5000
+
 export interface RenderPerfSnapshot {
   enabled: boolean
   /** rAF frames observed in the trailing second. */
@@ -107,6 +130,12 @@ export interface RenderPerfSnapshot {
   frameGapMs: number
   /** Longest frame gap since the HUD was enabled; suspensions are excluded. */
   frameGapMaxMs: number
+  /**
+   * Operation that was running when `frameGapMaxMs` was recorded: the innermost
+   * open activity, else the last activity to close since the previous frame,
+   * else `''` — rendered as `idle` by the HUD. See `beginPerfActivity`.
+   */
+  frameGapMaxActivity: string
   /** Gaps above `PERF_FRAME_SUSPENSION_MS` skipped since the HUD was enabled. */
   frameSuspensions: number
   /** Per-second render counts, keyed `render:<Component>`. */
@@ -134,6 +163,12 @@ export interface RenderPerfSnapshot {
   peakCalls: Record<string, number>
   /** Highest value each `msPerSecond` key reached in any completed second. */
   peakMsPerSecond: Record<string, number>
+  /**
+   * Operation that held the most time in the completed second which set
+   * `peakMsPerSecond[PERF_MS_SCROLL_PASS]`; `''` when nothing was marked in that
+   * second. See `beginPerfActivity`.
+   */
+  peakScrollPassActivity: string
   /** Highest `totalRendersPerSecond` seen in a completed second. */
   totalRendersPerSecondPeak: number
   /** Highest `rendersPerVisibleRow` seen at a rollover; 0 visible rows never raises it. */
@@ -199,6 +234,24 @@ let sessionTotals = new Map<string, number>()
 /** Sum of `|ΔscrollTop|` reported by `recordScrollDistance` (see `per1000Px`). */
 let scrollDistancePx = 0
 
+/**
+ * Innermost-first stack of open activities, with parallel start times used only
+ * to drop a marker whose `end` never came. Both arrays are reused (push / pop /
+ * in-place shift) so a marker allocates nothing per call.
+ */
+const activityStack: string[] = []
+const activityStartMs: number[] = []
+/** Open count per name, so an `end` without a `begin` stays a no-op. */
+const activityCounts = new Map<string, number>()
+/** Most recently closed activity — the one a frame gap is blamed on. */
+let lastActivityName = ''
+/** Set when an activity closes; cleared by the next frame callback. */
+let activityEndedSinceFrame = false
+/** Milliseconds each activity held in the current second (pass-peak attribution). */
+const activityMsWindow = new Map<string, number>()
+let frameGapMaxActivity = ''
+let peakScrollPassActivity = ''
+
 /** Fixed ring for frame timestamps — no per-frame allocation. */
 const FRAME_RING = 600
 const frameTimes = new Float64Array(FRAME_RING)
@@ -255,6 +308,124 @@ export function recordScrollDistance(px: number): void {
   scrollDistancePx += Math.abs(px)
 }
 
+/**
+ * Mark the start of a heavy operation so a frame gap or a slow second can be
+ * blamed on it instead of on the app in general. Pair with `endPerfActivity`.
+ *
+ * Contract:
+ *
+ * - **Free while the HUD is off** — one boolean read, like `bump` / `record`.
+ * - **Nesting-safe** — `begin` / `end` pair up per name and the innermost open
+ *   activity is the one reported.
+ * - **Never throws, never goes negative** — an `end` without a `begin` is
+ *   ignored, and an activity whose `end` never comes is dropped after
+ *   `PERF_ACTIVITY_STALE_MS` (see `pruneStaleActivities`).
+ * - **No allocation per call** — the name is pushed on a reused array and its
+ *   ref count is an existing `Map` entry.
+ *
+ * Call sites read `renderPerfEnabled()` once and branch, like every other
+ * instrumentation point, so nothing here needs a closure.
+ */
+export function beginPerfActivity(name: string): void {
+  if (!enabled || !name) return
+  activityStack.push(name)
+  activityStartMs.push(nowMs())
+  activityCounts.set(name, (activityCounts.get(name) ?? 0) + 1)
+}
+
+/**
+ * Close the innermost open `name`.
+ *
+ * The elapsed time also lands in the current second's activity totals, which is
+ * what attributes a slow `ms:scrollPass` second to an operation.
+ */
+export function endPerfActivity(name: string): void {
+  if (!enabled || !name) return
+  const open = activityCounts.get(name) ?? 0
+  // `end` without `begin`, or a double `end`: ignore rather than corrupt the
+  // stack or drive the count negative.
+  if (open <= 0) return
+  if (open === 1) activityCounts.delete(name)
+  else activityCounts.set(name, open - 1)
+
+  let index = -1
+  for (let i = activityStack.length - 1; i >= 0; i -= 1) {
+    if (activityStack[i] === name) {
+      index = i
+      break
+    }
+  }
+  if (index < 0) return
+
+  const startedAt = activityStartMs[index] ?? 0
+  const endedAt = nowMs()
+  // In-place shift: `splice` would allocate a result array on every call.
+  for (let i = index; i < activityStack.length - 1; i += 1) {
+    activityStack[i] = activityStack[i + 1] ?? ''
+    activityStartMs[i] = activityStartMs[i + 1] ?? 0
+  }
+  activityStack.pop()
+  activityStartMs.pop()
+
+  lastActivityName = name
+  activityEndedSinceFrame = true
+  const spent = endedAt - startedAt
+  if (spent > 0) activityMsWindow.set(name, (activityMsWindow.get(name) ?? 0) + spent)
+}
+
+/** Innermost open activity, or `''` when none is marked. */
+export function currentPerfActivity(): string {
+  return activityStack.length > 0 ? activityStack[activityStack.length - 1] ?? '' : ''
+}
+
+/**
+ * Drop activities open longer than `PERF_ACTIVITY_STALE_MS`. A call site that
+ * missed its `end` (threw, early-returned, forgot) must not leave the HUD
+ * blaming an operation that finished minutes ago. Runs once per frame while
+ * enabled, so the bound needs no timer of its own.
+ */
+function pruneStaleActivities(now: number): void {
+  for (let i = activityStack.length - 1; i >= 0; i -= 1) {
+    if (now - (activityStartMs[i] ?? now) <= PERF_ACTIVITY_STALE_MS) continue
+    const name = activityStack[i] ?? ''
+    for (let j = i; j < activityStack.length - 1; j += 1) {
+      activityStack[j] = activityStack[j + 1] ?? ''
+      activityStartMs[j] = activityStartMs[j + 1] ?? 0
+    }
+    activityStack.pop()
+    activityStartMs.pop()
+    const open = activityCounts.get(name) ?? 0
+    if (open <= 1) activityCounts.delete(name)
+    else activityCounts.set(name, open - 1)
+  }
+}
+
+/**
+ * Operation to blame for a frame gap detected now.
+ *
+ * A gap is noticed *after* the blocking work has finished — that is what frees
+ * the frame callback — so a synchronous operation has already closed by then.
+ * The "closed since the previous frame" flag is therefore what attributes it;
+ * an activity still open covers the async paths (`loadOlder` / `loadNewer`).
+ */
+function attributeFrameGapActivity(): string {
+  if (activityStack.length > 0) return activityStack[activityStack.length - 1] ?? ''
+  return activityEndedSinceFrame ? lastActivityName : ''
+}
+
+/** Activity holding the most time in the window that is closing. */
+function dominantActivityOfWindow(): string {
+  let best = ''
+  let bestMs = 0
+  for (const [name, ms] of activityMsWindow) {
+    if (ms > bestMs) {
+      bestMs = ms
+      best = name
+    }
+  }
+  return best
+}
+
 /** Drop all accumulated counters, gauges, session peaks and frame samples. */
 export function resetPerf(): void {
   counts = new Map()
@@ -268,6 +439,14 @@ export function resetPerf(): void {
   peakRendersPerVisibleRow = 0
   sessionTotals = new Map()
   scrollDistancePx = 0
+  activityStack.length = 0
+  activityStartMs.length = 0
+  activityCounts.clear()
+  lastActivityName = ''
+  activityEndedSinceFrame = false
+  activityMsWindow.clear()
+  frameGapMaxActivity = ''
+  peakScrollPassActivity = ''
   frameWrite = 0
   frameTotal = 0
   hasLastFrame = false
@@ -285,6 +464,9 @@ function frameLoopAvailable(): boolean {
 
 function onFrame(ts: number): void {
   rafHandle = requestAnimationFrame(onFrame)
+  // Bound a marker whose `end` never came (see pruneStaleActivities) before the
+  // gap below is attributed to whatever is still open.
+  pruneStaleActivities(nowMs())
   if (hasLastFrame) {
     const gap = ts - lastFrameTs
     if (gap > PERF_FRAME_SUSPENSION_MS) {
@@ -293,8 +475,12 @@ function onFrame(ts: number): void {
       frameSuspensions++
     } else if (gap > frameGapMaxMs) {
       frameGapMaxMs = gap
+      frameGapMaxActivity = attributeFrameGapActivity()
     }
   }
+  // Every frame consumes the "an activity closed since the last frame" flag, so
+  // a gap is only ever blamed on work done inside that one inter-frame window.
+  activityEndedSinceFrame = false
   hasLastFrame = true
   lastFrameTs = ts
   frameTimes[frameWrite] = ts
@@ -365,7 +551,12 @@ function foldPeaks(windowCounts: Map<string, number>, windowMs: Map<string, numb
   }
   for (const [name, value] of windowMs) {
     if (value <= 0) continue
-    if (value > (peakMs.get(name) ?? 0)) peakMs.set(name, value)
+    if (value > (peakMs.get(name) ?? 0)) {
+      peakMs.set(name, value)
+      // The pass peak is what a post-scroll screenshot shows, so record which
+      // operation held that second — the window's totals are still intact here.
+      if (name === PERF_MS_SCROLL_PASS) peakScrollPassActivity = dominantActivityOfWindow()
+    }
     sessionTotals.set(name, (sessionTotals.get(name) ?? 0) + value)
   }
   if (windowRenders > peakTotalRenders) peakTotalRenders = windowRenders
@@ -400,6 +591,9 @@ export function renderPerfSnapshot(nowOverride?: number): RenderPerfSnapshot {
     closedMs = msTotals
     counts = new Map()
     msTotals = new Map()
+    // The window's activity totals are only read by `foldPeaks` above; start the
+    // next second's attribution from empty.
+    activityMsWindow.clear()
     windowStartMs = t
   }
 
@@ -460,6 +654,7 @@ export function renderPerfSnapshot(nowOverride?: number): RenderPerfSnapshot {
     fps: frames.fps,
     frameGapMs: frames.frameGapMs,
     frameGapMaxMs,
+    frameGapMaxActivity,
     frameSuspensions,
     renders,
     mounts,
@@ -472,6 +667,7 @@ export function renderPerfSnapshot(nowOverride?: number): RenderPerfSnapshot {
     peakMounts,
     peakCalls,
     peakMsPerSecond,
+    peakScrollPassActivity,
     totalRendersPerSecondPeak: peakTotalRenders,
     rendersPerVisibleRowPeak: peakRendersPerVisibleRow,
     scrollDistancePx,

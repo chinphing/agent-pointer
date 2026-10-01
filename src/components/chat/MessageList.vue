@@ -29,11 +29,18 @@ import { rootTracesOf } from '../../lib/subAgentTraceTree'
 import { messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
 import { createScrollPassScheduler, createViewedStampDedupe } from '../../lib/chatScrollPass'
 import {
+  PERF_ACTIVITY_LAYOUT_REBUILD,
+  PERF_ACTIVITY_LOAD_NEWER,
+  PERF_ACTIVITY_LOAD_OLDER,
+  PERF_ACTIVITY_MEASURE_BATCH,
+  PERF_ACTIVITY_TRIM_HISTORY,
   PERF_GAUGE_FROZEN_TURNS,
   PERF_GAUGE_SCOPED_ROWS,
   PERF_GAUGE_VISIBLE_ROWS,
   PERF_MS_SCROLL_PASS,
+  beginPerfActivity,
   bump,
+  endPerfActivity,
   record,
   recordScrollDistance,
   renderPerfEnabled,
@@ -1012,7 +1019,12 @@ async function loadOlderWithScrollAnchor() {
   const anchor = captureVisibleTurnAnchor()
   markProgrammaticScroll()
   try {
+    // The store load (IPC + prepend) is the heavy part; the multi-frame scroll
+    // settle below is left unmarked so it cannot mask other operations.
+    const perf = renderPerfEnabled()
+    if (perf) beginPerfActivity(PERF_ACTIVITY_LOAD_OLDER)
     const added = await chat.loadOlderMessages()
+    if (perf) endPerfActivity(PERF_ACTIVITY_LOAD_OLDER)
     if (!added) return
     // Remeasured prepended rows change totalSize over several frames; re-pin
     // the same turn id + viewport offset each frame (not scrollHeight delta).
@@ -1103,7 +1115,10 @@ async function loadNewerWithoutFollow() {
   newerPrefetchArmed = false
   followOutput = false
   try {
+    const perf = renderPerfEnabled()
+    if (perf) beginPerfActivity(PERF_ACTIVITY_LOAD_NEWER)
     const added = await chat.loadNewerMessages()
+    if (perf) endPerfActivity(PERF_ACTIVITY_LOAD_NEWER)
     if (added) {
       console.info('[MessageList] appended newer page without follow')
     }
@@ -1247,7 +1262,12 @@ function maybeTrimConversationHistory(anchor?: MessageListScrollAnchor | null) {
   const convId = chat.currentId?.trim()
   if (!convId || !canTrimConversationHistory()) return
   const resolvedAnchor = anchor === undefined ? captureVisibleTurnAnchor() : anchor
+  // The store call is the heavy part: dropping rows and moving the paging
+  // cursor. The async anchor restore below spans frames and is left unmarked.
+  const perf = renderPerfEnabled()
+  if (perf) beginPerfActivity(PERF_ACTIVITY_TRIM_HISTORY)
   const removed = chat.trimConversationHistory(convId)
+  if (perf) endPerfActivity(PERF_ACTIVITY_TRIM_HISTORY)
   lastHistoryTrimAt = Date.now()
   if (removed > 0 && resolvedAnchor) {
     // Rows above the viewport were dropped; re-pin the same turn + offset.
@@ -1414,6 +1434,10 @@ const messageListLayout = computed(() => {
   void chat.taskBoards
   void settings.settings
   void agentsCatalog.value
+  // The marker sits on the computed body itself, not on a caller that merely
+  // precedes it: rebuilding the whole page window is the operation.
+  const perf = renderPerfEnabled()
+  if (perf) beginPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
   const result = buildMessageListLayout({
     conversationId: chat.currentId,
     messages: pageWindowMessages.value,
@@ -1425,6 +1449,7 @@ const messageListLayout = computed(() => {
     cache: layoutCacheHold,
     collapseActiveTurns: settings.userSettings.collapseProcessByDefault === true
   })
+  if (perf) endPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
   layoutCacheHold = result.cache
   return result
 })
@@ -1983,7 +2008,11 @@ function setVirtualRowElement(node: Element | ComponentPublicInstance | null) {
     return
   }
   const startedAt = performance.now()
+  // One ref callback per rendered row; the batch is these calls inside a single
+  // patch, so the marker wraps the measure itself.
+  beginPerfActivity(PERF_ACTIVITY_MEASURE_BATCH)
   rowVirtualizer.value.measureElement(el)
+  endPerfActivity(PERF_ACTIVITY_MEASURE_BATCH)
   record('ms:measureElement', performance.now() - startedAt)
   bump('call:measureElement')
 }

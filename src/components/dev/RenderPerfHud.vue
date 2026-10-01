@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onScopeDispose } from 'vue'
 import {
+  PERF_ACTIVITY_IDLE,
   PERF_CALL_KEYS,
   PERF_GAUGE_FROZEN_TURNS,
   PERF_GAUGE_SCOPED_ROWS,
@@ -8,6 +9,7 @@ import {
   PERF_HUD_SHORTCUT_LABEL,
   PERF_MOUNT_KEYS,
   PERF_MS_KEYS,
+  PERF_MS_SCROLL_PASS,
   PERF_RENDER_KEYS,
   useRenderPerfSnapshot,
   type RenderPerfCostPer1000Px
@@ -120,12 +122,26 @@ function scrollCostLines(distancePx: number, cost: RenderPerfCostPer1000Px): str
   ]
 }
 
+/** `worst gap    753ms @ layoutRebuild` — a number plus the operation it is blamed on. */
+function activityLine(label: string, value: string, activity: string): string {
+  return `${label.padEnd(10)}${value.padStart(8)} @ ${activity || PERF_ACTIVITY_IDLE}`
+}
+
 const text = computed(() => {
   const s = snapshot.value
   return [
     `render perf  ${PERF_HUD_SHORTCUT_LABEL}`,
     `fps ${pad(s.fps, 6)}  gap ${pad(s.frameGapMs, 7)}ms  max ${pad(s.frameGapMaxMs, 8)}ms`
       + `  sus ${String(s.frameSuspensions).padStart(3)}`,
+    // Attribution rows: the two numbers that survive a screenshot (`max` above
+    // and the `ms:scrollPass` peak below), each blamed on the operation that was
+    // running — `@ idle` when nothing was marked.
+    activityLine('worst gap', `${Math.round(s.frameGapMaxMs)}ms`, s.frameGapMaxActivity),
+    activityLine(
+      'pass pk',
+      `${(s.peakMsPerSecond[PERF_MS_SCROLL_PASS] ?? 0).toFixed(1)}ms`,
+      s.peakScrollPassActivity
+    ),
     `renders/s ${String(s.totalRendersPerSecond).padStart(4)}`
       + ` pk ${String(s.totalRendersPerSecondPeak).padStart(4)}  `
       + `vis rows ${String(s.gauges[PERF_GAUGE_VISIBLE_ROWS] ?? 0).padStart(3)}  `

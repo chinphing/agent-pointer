@@ -2,11 +2,19 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, type Ref } from 'vue'
 import {
+  PERF_ACTIVITY_LAYOUT_REBUILD,
+  PERF_ACTIVITY_LOAD_OLDER,
+  PERF_ACTIVITY_MEASURE_BATCH,
+  PERF_ACTIVITY_STALE_MS,
   PERF_FRAME_SUSPENSION_MS,
   PERF_GAUGE_VISIBLE_ROWS,
   PERF_HUD_SNAPSHOT_MS,
   PERF_HUD_STORAGE_KEY,
+  PERF_MS_SCROLL_PASS,
+  beginPerfActivity,
   bump,
+  currentPerfActivity,
+  endPerfActivity,
   initRenderPerf,
   isPerfHudShortcut,
   parsePerfHudUrlFlag,
@@ -52,6 +60,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setRenderPerfEnabled(false, { persist: false })
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.useRealTimers()
 })
@@ -466,5 +475,206 @@ describe('renderPerf scroll-distance normalisation', () => {
     setRenderPerfEnabled(false, { persist: false })
     setRenderPerfEnabled(true, { persist: false })
     expect(renderPerfSnapshot(5000).scrollDistancePx).toBe(0)
+  })
+})
+
+describe('renderPerf activity attribution', () => {
+  it('nests activities and reports the innermost open one', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    expect(currentPerfActivity()).toBe('')
+
+    beginPerfActivity(PERF_ACTIVITY_LOAD_OLDER)
+    expect(currentPerfActivity()).toBe(PERF_ACTIVITY_LOAD_OLDER)
+
+    beginPerfActivity(PERF_ACTIVITY_MEASURE_BATCH)
+    expect(currentPerfActivity()).toBe(PERF_ACTIVITY_MEASURE_BATCH)
+
+    // Closing the inner one falls back to the outer, not to idle.
+    endPerfActivity(PERF_ACTIVITY_MEASURE_BATCH)
+    expect(currentPerfActivity()).toBe(PERF_ACTIVITY_LOAD_OLDER)
+
+    endPerfActivity(PERF_ACTIVITY_LOAD_OLDER)
+    expect(currentPerfActivity()).toBe('')
+  })
+
+  it('keeps a re-entered activity open until its last end', () => {
+    setRenderPerfEnabled(true, { persist: false })
+
+    beginPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+    beginPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+    endPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+    expect(currentPerfActivity()).toBe(PERF_ACTIVITY_LAYOUT_REBUILD)
+
+    endPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+    expect(currentPerfActivity()).toBe('')
+  })
+
+  it('ignores an end without a begin instead of throwing or unwinding the stack', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    beginPerfActivity(PERF_ACTIVITY_LOAD_OLDER)
+
+    expect(() => endPerfActivity('neverBegun')).not.toThrow()
+    expect(currentPerfActivity()).toBe(PERF_ACTIVITY_LOAD_OLDER)
+
+    // A double `end` is a no-op too — it must not close the outer activity.
+    endPerfActivity(PERF_ACTIVITY_LOAD_OLDER)
+    expect(() => endPerfActivity(PERF_ACTIVITY_LOAD_OLDER)).not.toThrow()
+    expect(currentPerfActivity()).toBe('')
+  })
+
+  it('blames the worst frame gap on the activity that ran inside it', () => {
+    setRenderPerfEnabled(true, { persist: false })
+
+    rafCallback?.(0)
+    rafCallback?.(16)
+
+    // A synchronous rebuild: it opens and closes inside the stall it causes, so
+    // it is already closed by the time the next frame callback runs.
+    beginPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+    endPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+
+    rafCallback?.(16 + 753)
+    const stalled = renderPerfSnapshot(16 + 753)
+    expect(stalled.frameGapMaxMs).toBe(753)
+    expect(stalled.frameGapMaxActivity).toBe(PERF_ACTIVITY_LAYOUT_REBUILD)
+
+    // A smaller gap never overwrites the attribution of the worst one.
+    beginPerfActivity(PERF_ACTIVITY_MEASURE_BATCH)
+    endPerfActivity(PERF_ACTIVITY_MEASURE_BATCH)
+    rafCallback?.(16 + 753 + 30)
+    const smaller = renderPerfSnapshot(16 + 753 + 30)
+    expect(smaller.frameGapMaxMs).toBe(753)
+    expect(smaller.frameGapMaxActivity).toBe(PERF_ACTIVITY_LAYOUT_REBUILD)
+  })
+
+  it('blames a gap on an activity still open when the frame fires', () => {
+    setRenderPerfEnabled(true, { persist: false })
+
+    rafCallback?.(0)
+    rafCallback?.(16)
+
+    // Async work (a page load) stays open across frames.
+    beginPerfActivity(PERF_ACTIVITY_LOAD_OLDER)
+    rafCallback?.(616)
+
+    const stalled = renderPerfSnapshot(616)
+    expect(stalled.frameGapMaxMs).toBe(600)
+    expect(stalled.frameGapMaxActivity).toBe(PERF_ACTIVITY_LOAD_OLDER)
+
+    endPerfActivity(PERF_ACTIVITY_LOAD_OLDER)
+  })
+
+  it('reads idle when nothing was marked during the gap', () => {
+    setRenderPerfEnabled(true, { persist: false })
+
+    rafCallback?.(0)
+    rafCallback?.(16)
+    rafCallback?.(916)
+
+    const stalled = renderPerfSnapshot(916)
+    expect(stalled.frameGapMaxMs).toBe(900)
+    expect(stalled.frameGapMaxActivity).toBe('')
+  })
+
+  it('does not reuse a closed activity for the next gap', () => {
+    setRenderPerfEnabled(true, { persist: false })
+
+    rafCallback?.(0)
+    rafCallback?.(16)
+
+    beginPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+    endPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+    rafCallback?.(416)
+    expect(renderPerfSnapshot(416).frameGapMaxActivity).toBe(PERF_ACTIVITY_LAYOUT_REBUILD)
+
+    // The frame above consumed the marker, so this larger gap is unattributed.
+    rafCallback?.(416 + 900)
+    const idle = renderPerfSnapshot(416 + 900)
+    expect(idle.frameGapMaxMs).toBe(900)
+    expect(idle.frameGapMaxActivity).toBe('')
+  })
+
+  it('drops a marker whose end never came instead of blaming it forever', () => {
+    let clock = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    setRenderPerfEnabled(true, { persist: false })
+
+    beginPerfActivity(PERF_ACTIVITY_LOAD_OLDER)
+    expect(currentPerfActivity()).toBe(PERF_ACTIVITY_LOAD_OLDER)
+
+    // Still inside the bound: a slow operation is not dropped.
+    clock = PERF_ACTIVITY_STALE_MS
+    rafCallback?.(16)
+    expect(currentPerfActivity()).toBe(PERF_ACTIVITY_LOAD_OLDER)
+
+    // Past the bound the missed `end` is assumed and the marker is dropped.
+    clock = PERF_ACTIVITY_STALE_MS + 1
+    rafCallback?.(32)
+    expect(currentPerfActivity()).toBe('')
+  })
+
+  it('blames the worst ms:scrollPass second on the operation that dominated it', () => {
+    let clock = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    setRenderPerfEnabled(true, { persist: false })
+    renderPerfSnapshot(0)
+
+    // One scrolling second: 86 ms of pass time, 60 ms of it inside a rebuild and
+    // 5 ms inside a measure batch — the rebuild is what that second is spent on.
+    clock = 10
+    beginPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+    clock = 70
+    endPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+    clock = 80
+    beginPerfActivity(PERF_ACTIVITY_MEASURE_BATCH)
+    clock = 85
+    endPerfActivity(PERF_ACTIVITY_MEASURE_BATCH)
+    record(PERF_MS_SCROLL_PASS, 86)
+
+    const closed = renderPerfSnapshot(1000)
+    expect(closed.peakMsPerSecond[PERF_MS_SCROLL_PASS]).toBe(86)
+    expect(closed.peakScrollPassActivity).toBe(PERF_ACTIVITY_LAYOUT_REBUILD)
+
+    // A quieter second keeps both the peak and its attribution.
+    const quiet = renderPerfSnapshot(2000)
+    expect(quiet.peakMsPerSecond[PERF_MS_SCROLL_PASS]).toBe(86)
+    expect(quiet.peakScrollPassActivity).toBe(PERF_ACTIVITY_LAYOUT_REBUILD)
+  })
+
+  it('reads idle for a slow second with nothing marked', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    renderPerfSnapshot(0)
+
+    record(PERF_MS_SCROLL_PASS, 86)
+
+    const closed = renderPerfSnapshot(1000)
+    expect(closed.peakMsPerSecond[PERF_MS_SCROLL_PASS]).toBe(86)
+    expect(closed.peakScrollPassActivity).toBe('')
+  })
+
+  it('is a no-op while the HUD is off', () => {
+    beginPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+    expect(currentPerfActivity()).toBe('')
+    endPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+
+    rafCallback?.(0)
+    rafCallback?.(900)
+    record(PERF_MS_SCROLL_PASS, 86)
+
+    const snapshot = renderPerfSnapshot(900)
+    expect(snapshot.enabled).toBe(false)
+    expect(snapshot.frameGapMaxMs).toBe(0)
+    expect(snapshot.frameGapMaxActivity).toBe('')
+    expect(snapshot.peakScrollPassActivity).toBe('')
+  })
+
+  it('clears open markers when the HUD is toggled', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    beginPerfActivity(PERF_ACTIVITY_LOAD_OLDER)
+
+    setRenderPerfEnabled(false, { persist: false })
+    setRenderPerfEnabled(true, { persist: false })
+
+    expect(currentPerfActivity()).toBe('')
   })
 })

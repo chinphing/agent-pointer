@@ -3,9 +3,12 @@ import { createApp, nextTick, type App } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import RenderPerfHud from './RenderPerfHud.vue'
 import {
+  PERF_ACTIVITY_LAYOUT_REBUILD,
   PERF_HUD_SHORTCUT_LABEL,
   PERF_HUD_SNAPSHOT_MS,
+  beginPerfActivity,
   bump,
+  endPerfActivity,
   record,
   recordScrollDistance,
   resetPerf,
@@ -29,6 +32,29 @@ function mountHud(props: { readGauges?: () => MemoryGaugeReading[] } = {}): void
 
 function hudText(): string {
   return container?.textContent ?? ''
+}
+
+/**
+ * Manual rAF harness for the tests that need to fire frames. Declared at module
+ * scope (like `renderPerf.test.ts`) so TypeScript keeps the nullable type at the
+ * use sites instead of narrowing it to the `null` initializer.
+ */
+let frameCallback: ((ts: number) => void) | null = null
+
+function installManualFrames(): void {
+  frameCallback = null
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+    frameCallback = cb as (ts: number) => void
+    return 1
+  })
+  vi.stubGlobal('cancelAnimationFrame', () => {
+    frameCallback = null
+  })
+}
+
+/** Fire the pending frame callback; a no-op when none is scheduled. */
+function fireFrame(ts: number): void {
+  frameCallback?.(ts)
 }
 
 /** Four 250 ms ticks = one completed aggregation window, then flush the render. */
@@ -56,6 +82,7 @@ afterEach(() => {
   setRenderPerfEnabled(false, { persist: false })
   setRenderPerfMemorySampler(null)
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   vi.useRealTimers()
 })
 
@@ -167,5 +194,38 @@ describe('RenderPerfHud', () => {
     // 2 renders / 2500 px, 1 mount / 2500 px, 10 ms and 2.5 ms per 2500 px.
     expect(text).toMatch(/per 1k px\s+renders 0\.80\s+mounts 0\.40/)
     expect(text).toMatch(/measure 4\.0ms\s+pass 1\.0ms/)
+  })
+
+  it('reads idle for the worst gap and the slowest second when nothing was marked', async () => {
+    setRenderPerfEnabled(true, { persist: false })
+    mountHud()
+
+    expect(hudText()).toMatch(/worst gap\s+0ms @ idle/)
+    expect(hudText()).toMatch(/pass pk\s+0\.0ms @ idle/)
+  })
+
+  it('attributes the worst frame gap and the slowest scroll second to an operation', async () => {
+    // Manual frame harness: the gap is only detected on a frame callback.
+    installManualFrames()
+
+    setRenderPerfEnabled(true, { persist: false })
+    mountHud()
+
+    fireFrame(0)
+    fireFrame(16)
+
+    // A rebuild that opens and closes inside the 753 ms stall it causes, plus a
+    // slow scroll second dominated by that same rebuild.
+    fakeNowMs = 100
+    beginPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+    fakeNowMs = 160
+    endPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+    record('ms:scrollPass', 86)
+    fireFrame(16 + 753)
+
+    await advanceOneSecond()
+
+    expect(hudText()).toMatch(/worst gap\s+753ms @ layoutRebuild/)
+    expect(hudText()).toMatch(/pass pk\s+86\.0ms @ layoutRebuild/)
   })
 })

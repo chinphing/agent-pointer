@@ -20,6 +20,12 @@ import {
   tryParseSvgFence,
 } from './markdownSvg'
 import { highlightCodeFenceHtml } from './workspaceFilePreview'
+import {
+  PERF_ACTIVITY_MARKDOWN_PARSE,
+  beginPerfActivity,
+  endPerfActivity,
+  renderPerfEnabled
+} from './renderPerf'
 
 // Configure marked once at module load — all importers share this instance.
 marked.setOptions({ breaks: true, gfm: true })
@@ -541,6 +547,10 @@ export type ParseMarkdownOptions = {
  */
 export function parseMarkdown(src: string, options?: ParseMarkdownOptions): string {
   if (!src.trim()) return ''
+  // Single funnel for every markdown render in the app, so the marker goes here
+  // rather than at each `parseMarkdown` call site.
+  const perf = renderPerfEnabled()
+  if (perf) beginPerfActivity(PERF_ACTIVITY_MARKDOWN_PARSE)
   const streamingCharts = options?.streamingCharts === true
   const streamingSvgs = options?.streamingSvgs === true
   const streamingMermaid = options?.streamingMermaid === true
@@ -557,6 +567,7 @@ export function parseMarkdown(src: string, options?: ParseMarkdownOptions): stri
   try {
     return wrapBareHtmlTables(marked.parse(fixed) as string)
   } finally {
+    if (perf) endPerfActivity(PERF_ACTIVITY_MARKDOWN_PARSE)
     parseStreamingCharts = false
     parseStreamingSvgs = false
   }

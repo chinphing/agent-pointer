@@ -35,7 +35,7 @@ One ladder per turn (host projection):
 3. **## Current task** (+ **## Current task plan** when plan exists); queue exec may show `exec_progress` / `exec_met`
 4. **## Work items** — window + `[WORK_ITEM_FOCUS]` (queue mode)
 
-See [`internals/task-board-unified-milestone-inject.md`](task-board-unified-milestone-inject.md) for projection rules.
+See [`task-board-unified-milestone-inject.md`](task-board-unified-milestone-inject.md) for projection rules.
 
 **Final user summary:** derive tables and counts from injected **`remark`** on `done` rows and `result_summary` on terminal work_items — not from chat memory.
 
@@ -62,7 +62,7 @@ Type enforcement (schema + host):
 
 ## History trim (maintainer)
 
-- **Trigger:** `init` / `replace` / `finalize`, or `patch` with substantive progress: row `done`, non-empty `remark`, or `work_item_delta`. Details: [`internals/agent-task-board-and-verification.md`](agent-task-board-and-verification.md#task_board-触发的历史截断当前实现).
+- **Trigger:** `init` / `replace` / `finalize`, or `patch` with substantive progress: row `done`, non-empty `remark`, or `work_item_delta`. Details: [`agent-task-board-and-verification.md`](agent-task-board-and-verification.md#task_board-触发的历史截断当前实现).
 - **Not a trigger:** `in_progress` only; v3 fields (`progress`, `validate_results`, …).
 - Computer keeps anchor user + last 10 messages + latest live `[CUR_SCREEN]`.
 

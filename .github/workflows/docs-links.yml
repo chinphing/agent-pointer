@@ -1,0 +1,26 @@
+name: Docs links
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  check-doc-links:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check markdown links
+        # Relative links must resolve (existing file + existing #anchor). The
+        # checker is zero-dependency, so there is no install step; fenced code
+        # blocks and inline code are skipped on purpose (upstream license text
+        # inside fences is not a link).
+        run: node scripts/check-doc-links.mjs

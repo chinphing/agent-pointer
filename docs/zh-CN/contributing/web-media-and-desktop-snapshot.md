@@ -80,4 +80,4 @@ IM 出站超过直传上限时，服务端签发 `public-download` 链接，以 
 
 ## ALB / 就绪（平台）
 
-见 `pointer-official/apps/api/README.md` 与 [cloud-host-integration.md](../developer/cloud-host-integration.md)。
+见 [cloud-host-integration.md](../developer/cloud-host-integration.md)；平台侧 ALB / 就绪细节见私有仓 `pointer-official/apps/api/README.md`（无公开链接）。

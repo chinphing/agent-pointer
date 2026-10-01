@@ -29,6 +29,7 @@ import { rootTracesOf } from '../../lib/subAgentTraceTree'
 import { MESSAGE_VIRTUAL_ROW_CLASS, messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
 import { createScrollPassScheduler, createViewedStampDedupe } from '../../lib/chatScrollPass'
 import { createVirtualRowMeasureBatch } from '../../lib/virtualRowMeasureBatch'
+import { measureRenderedRowSlack } from '../../lib/virtualRowSlack'
 import {
   PERF_ACTIVITY_LAYOUT_REBUILD,
   PERF_ACTIVITY_LOAD_NEWER,
@@ -44,6 +45,7 @@ import {
   endPerfActivity,
   installRenderPerfGaugeSampler,
   publishVirtualGeometryGauges,
+  publishVirtualRowSlackGauges,
   record,
   recordScrollDistance,
   renderPerfEnabled,
@@ -2069,13 +2071,16 @@ onUpdated(() => {
 })
 
 /**
- * Virtualizer geometry (content height vs the scroller's own height, the rendered
- * range, how many rows have a measured height, and the pull-to-load spacer that
- * shares the scroll box) is published on the HUD's own snapshot tick rather than
- * from `onUpdated` above: the read includes `scrollHeight`, which forces layout,
- * and this component updates once per scroll frame — reading there would both
- * cost more than the 4 Hz HUD can show and perturb the very measurement the HUD
- * is taking.
+ * Virtualizer geometry is published on the HUD's own snapshot tick rather than
+ * from `onUpdated` above: the reads include `scrollHeight` and the row heights,
+ * which force layout, and this component updates once per scroll frame — reading
+ * there would both cost more than the 4 Hz HUD can show and perturb the very
+ * measurement the HUD is taking.
+ *
+ * Two things come out of this one pass: the box-level geometry (content height,
+ * scroller height, rendered range, measured rows, pull spacer) and the per-row
+ * assumed-vs-actual deviation, which is what shows a blank stripe *between* rows
+ * — the box-level `v.blank` agrees with the virtualizer by construction.
  *
  * Registered for the component's lifetime; the sampler is only invoked while the
  * HUD is enabled, so nothing is read while it is off.
@@ -2087,6 +2092,10 @@ const disposePerfGaugeSampler = installRenderPerfGaugeSampler(() => {
     virtualRows.value,
     noOlderPullPx.value
   )
+  // `measureRenderedRowSlack` queries the rendered rows by their `data-index`,
+  // the same attribute the measure batch reads.
+  const rowSlack = measureRenderedRowSlack(scroller.value, virtualRows.value)
+  publishVirtualRowSlackGauges(rowSlack.slack, rowSlack.overlap)
 })
 onBeforeUnmount(disposePerfGaugeSampler)
 

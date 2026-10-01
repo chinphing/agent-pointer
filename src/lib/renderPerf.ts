@@ -109,12 +109,23 @@ export const PERF_GAUGE_VIRTUAL_LAST = 'virtualLast'
 /** Rows whose height was measured, as opposed to still reading `estimateSize`. */
 export const PERF_GAUGE_VIRTUAL_MEASURED = 'virtualMeasured'
 /**
- * `scrollHeight - getTotalSize()`. A large positive value means the scroller can
- * scroll past the content — blank space *below* the last row, i.e. the box is
- * taller than the rows it holds, not that rows are missing. A negative value
- * means the opposite (content taller than the box it scrolls in).
+ * `scrollHeight - getTotalSize()`. **Agrees by construction** — the scroll
+ * container's content height is written from `getTotalSize()`, so this only ever
+ * reports the surrounding padding (plus the pull spacer). Kept because a *stuck*
+ * pull spacer still moves it; the per-row truth is `virtualSlack` / `virtualOverlap`.
  */
 export const PERF_GAUGE_VIRTUAL_BLANK = 'virtualBlank'
+/**
+ * Σ max(0, assumed - actual) over the rendered rows: how many px of the window
+ * the rows were placed lower than their real height needs, i.e. blank stripes
+ * between rows (see `lib/virtualRowSlack.ts`).
+ */
+export const PERF_GAUGE_VIRTUAL_SLACK = 'virtualSlack'
+/**
+ * Σ max(0, actual - assumed) over the rendered rows: how many px of real row
+ * height the assumed offsets do not account for, i.e. rows overlapping.
+ */
+export const PERF_GAUGE_VIRTUAL_OVERLAP = 'virtualOverlap'
 /**
  * Height of the pull-to-load top spacer, which `MessageList` renders *inside* the
  * same scroll box as the rows. It is part of `virtualBlank` (together with the
@@ -411,6 +422,20 @@ export function publishVirtualGeometryGauges(
     PERF_GAUGE_VIRTUAL_BLANK,
     virtualizer && scroller ? scrollHeight - totalSize : 0
   )
+}
+
+/**
+ * Publish the per-row deviation summed by `measureRenderedRowSlack`
+ * (`lib/virtualRowSlack.ts`), which is the gauge pair that actually shows the
+ * blank stripes: `virtualBlank` above agrees by construction and cannot.
+ *
+ * Both sums are built from `max(0, …)`, so a negative here can only come from a
+ * caller bug; it is clamped rather than published, the same way the pull spacer is.
+ */
+export function publishVirtualRowSlackGauges(slackPx: number, overlapPx: number): void {
+  if (!enabled) return
+  setGauge(PERF_GAUGE_VIRTUAL_SLACK, slackPx > 0 ? slackPx : 0)
+  setGauge(PERF_GAUGE_VIRTUAL_OVERLAP, overlapPx > 0 ? overlapPx : 0)
 }
 
 /**

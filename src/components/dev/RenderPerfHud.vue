@@ -9,8 +9,10 @@ import {
   PERF_GAUGE_VIRTUAL_FIRST,
   PERF_GAUGE_VIRTUAL_LAST,
   PERF_GAUGE_VIRTUAL_MEASURED,
+  PERF_GAUGE_VIRTUAL_OVERLAP,
   PERF_GAUGE_VIRTUAL_PULL_SPACER,
   PERF_GAUGE_VIRTUAL_SCROLL_HEIGHT,
+  PERF_GAUGE_VIRTUAL_SLACK,
   PERF_GAUGE_VIRTUAL_TOTAL,
   PERF_GAUGE_VISIBLE_ROWS,
   PERF_HUD_SHORTCUT_LABEL,
@@ -142,28 +144,38 @@ function activityLine(label: string, value: string, activity: string): string {
 }
 
 /**
- * Virtualizer geometry, one line per concern (see `publishVirtualGeometryGauges`):
- * content height against the scroller's own height — their difference, `v.blank`,
- * is space the scroller can scroll into, which means the box is too tall rather
- * than that rows are missing — with `v.pull` (the pull-to-load spacer that shares
- * the scroll box) right next to it to decompose that gap, and the rendered index
- * span against how many rows have a measured height instead of `estimateSize`.
+ * Virtualizer geometry, one line per concern (see `publishVirtualGeometryGauges`
+ * and `publishVirtualRowSlackGauges`):
+ *
+ * - the box: content height against the scroller's own height. `v.blank` is their
+ *   difference, which *agrees by construction* (the container height is written
+ *   from `v.total`) and so is marked with `*`; `v.pull` is the pull-to-load spacer
+ *   that shares the scroll box and is what a stuck `v.blank` is made of.
+ * - the rows: `v.slack` / `v.overlap` sum the per-row assumed-vs-actual deviation,
+ *   which is where a blank stripe between rows actually shows; `v.range` and
+ *   `v.measured` say how much of the window is measured rather than estimated.
  */
 function virtualGeometryLines(gauges: Record<string, number>): string[] {
   const total = gauges[PERF_GAUGE_VIRTUAL_TOTAL] ?? 0
   const scrollHeight = gauges[PERF_GAUGE_VIRTUAL_SCROLL_HEIGHT] ?? 0
   const blank = gauges[PERF_GAUGE_VIRTUAL_BLANK] ?? 0
   const pullSpacer = gauges[PERF_GAUGE_VIRTUAL_PULL_SPACER] ?? 0
+  const slack = gauges[PERF_GAUGE_VIRTUAL_SLACK] ?? 0
+  const overlap = gauges[PERF_GAUGE_VIRTUAL_OVERLAP] ?? 0
   const first = gauges[PERF_GAUGE_VIRTUAL_FIRST] ?? -1
   const last = gauges[PERF_GAUGE_VIRTUAL_LAST] ?? -1
   const measured = gauges[PERF_GAUGE_VIRTUAL_MEASURED] ?? 0
   return [
     `v.total ${formatDistance(total).padStart(8)}`
       + `  v.scrollH ${formatDistance(scrollHeight).padStart(8)}`
-      + `  v.blank ${formatSignedDistance(blank).padStart(9)}`
+      + `  v.blank* ${formatSignedDistance(blank).padStart(8)}`
       + `  v.pull ${formatDistance(pullSpacer).padStart(7)}`,
-    `v.range ${(first < 0 ? 'none' : `${first}-${last}`).padStart(8)}`
-      + `  v.measured ${String(measured).padStart(5)}`
+    `v.slack ${formatDistance(slack).padStart(8)}`
+      + `  v.overlap ${formatDistance(overlap).padStart(7)}`
+      + `  v.range ${(first < 0 ? 'none' : `${first}-${last}`).padStart(8)}`
+      + `  v.measured ${String(measured).padStart(5)}`,
+    '  * v.blank agrees by construction (container height := v.total);'
+      + ' v.slack / v.overlap are the per-row truth'
   ]
 }
 

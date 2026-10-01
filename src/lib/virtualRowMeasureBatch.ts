@@ -66,8 +66,10 @@ const microtaskScheduler: VirtualRowMeasureFlushScheduler = (() => {
 /**
  * Attribute the row elements carry their virtual index on. Matches the
  * virtualizer's own `indexAttribute` default, which `indexFromElement` reads.
+ * Exported so the perf HUD reads rows through the same attribute instead of
+ * hard-coding a second copy of the name.
  */
-const ROW_INDEX_ATTRIBUTE = 'data-index'
+export const ROW_INDEX_ATTRIBUTE = 'data-index'
 
 export interface VirtualRowMeasurement<TElement extends HTMLElement = HTMLElement> {
   index: number

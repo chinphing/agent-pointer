@@ -229,7 +229,7 @@ describe('RenderPerfHud', () => {
     expect(hudText()).toMatch(/pass pk\s+86\.0ms @ layoutRebuild/)
   })
 
-  it('shows virtualizer geometry, including the blank gap and the pull spacer beside it', async () => {
+  it('shows virtualizer geometry, the row slack beside the marked blank gauge', async () => {
     setRenderPerfEnabled(true, { persist: false })
     mountHud()
 
@@ -240,15 +240,20 @@ describe('RenderPerfHud', () => {
     setGauge('virtualMeasured', 128)
     setGauge('virtualBlank', 400)
     setGauge('virtualPullSpacer', 24)
+    setGauge('virtualSlack', 124)
+    setGauge('virtualOverlap', 0)
     await advanceOneSecond()
 
     const text = hudText()
     expect(text).toMatch(/v\.total\s+5000 px/)
     expect(text).toMatch(/v\.scrollH\s+5400 px/)
-    expect(text).toMatch(/v\.blank\s+\+400 px/)
     expect(text).toMatch(/v\.range\s+4-19/)
     expect(text).toMatch(/v\.measured\s+128/)
     // `v.pull` sits on the same row, immediately after the gap it decomposes.
-    expect(text).toMatch(/v\.blank\s+\+400 px\s+v\.pull\s+24 px/)
+    expect(text).toMatch(/v\.blank\*\s+\+400 px\s+v\.pull\s+24 px/)
+    // The per-row pair is the headline; the box-level gauge is marked as agreeing
+    // by construction, with the footnote saying so.
+    expect(text).toMatch(/v\.slack\s+124 px\s+v\.overlap\s+0 px/)
+    expect(text).toMatch(/v\.blank agrees by construction/)
   })
 })

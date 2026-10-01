@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, type Ref } from 'vue'
+import { measureRenderedRowSlack } from './virtualRowSlack'
 import {
   PERF_ACTIVITY_LAYOUT_REBUILD,
   PERF_ACTIVITY_LOAD_OLDER,
@@ -11,8 +12,10 @@ import {
   PERF_GAUGE_VIRTUAL_FIRST,
   PERF_GAUGE_VIRTUAL_LAST,
   PERF_GAUGE_VIRTUAL_MEASURED,
+  PERF_GAUGE_VIRTUAL_OVERLAP,
   PERF_GAUGE_VIRTUAL_PULL_SPACER,
   PERF_GAUGE_VIRTUAL_SCROLL_HEIGHT,
+  PERF_GAUGE_VIRTUAL_SLACK,
   PERF_GAUGE_VIRTUAL_TOTAL,
   PERF_GAUGE_VISIBLE_ROWS,
   PERF_HUD_SNAPSHOT_MS,
@@ -27,6 +30,7 @@ import {
   isPerfHudShortcut,
   parsePerfHudUrlFlag,
   publishVirtualGeometryGauges,
+  publishVirtualRowSlackGauges,
   record,
   recordScrollDistance,
   renderPerfEnabled,
@@ -784,9 +788,30 @@ describe('renderPerf virtualizer geometry gauges', () => {
       [{ index: 0 }],
       72
     )
+    publishVirtualRowSlackGauges(120, 40)
 
     expect(getTotalSize).not.toHaveBeenCalled()
     expect(renderPerfSnapshot(1000).gauges).toEqual({})
+  })
+
+  it('publishes the summed row slack and overlap', () => {
+    setRenderPerfEnabled(true, { persist: false })
+
+    publishVirtualRowSlackGauges(124, 0)
+
+    const gauges = renderPerfSnapshot(1000).gauges
+    expect(gauges[PERF_GAUGE_VIRTUAL_SLACK]).toBe(124)
+    expect(gauges[PERF_GAUGE_VIRTUAL_OVERLAP]).toBe(0)
+  })
+
+  it('never publishes a negative slack or overlap', () => {
+    setRenderPerfEnabled(true, { persist: false })
+
+    publishVirtualRowSlackGauges(-8, Number.NaN)
+
+    const gauges = renderPerfSnapshot(1000).gauges
+    expect(gauges[PERF_GAUGE_VIRTUAL_SLACK]).toBe(0)
+    expect(gauges[PERF_GAUGE_VIRTUAL_OVERLAP]).toBe(0)
   })
 
   it('runs the installed sampler once per snapshot, and only while enabled', () => {
@@ -794,25 +819,44 @@ describe('renderPerf virtualizer geometry gauges', () => {
     const scroller = { scrollHeight: 4120 }
     // Stands in for `MessageList`'s `noOlderPullPx` ref: read fresh every pass.
     let pullSpacerPx = 0
-    disposeGaugeSampler = installRenderPerfGaugeSampler(() =>
+    // Stands in for the scroller's row elements: proves the row reads are part of
+    // the same pass, and that they do not run while the HUD is off.
+    const rowHeights = { 0: 300 }
+    const querySelectorAll = vi.fn(() => [
+      { getAttribute: () => '0', offsetHeight: rowHeights[0] }
+    ])
+    disposeGaugeSampler = installRenderPerfGaugeSampler(() => {
       publishVirtualGeometryGauges(virtualizer, scroller, [{ index: 0 }], pullSpacerPx)
-    )
+      const rowSlack = measureRenderedRowSlack({ querySelectorAll }, [
+        { index: 0, start: 0, end: 420 }
+      ])
+      publishVirtualRowSlackGauges(rowSlack.slack, rowSlack.overlap)
+    })
 
-    // Off: the snapshot tick must not touch the virtualizer or the scroller.
+    // Off: the snapshot tick must not touch the virtualizer, the scroller or the rows.
     renderPerfSnapshot(1000)
     expect(virtualizer.getTotalSize).not.toHaveBeenCalled()
+    expect(querySelectorAll).not.toHaveBeenCalled()
 
     setRenderPerfEnabled(true, { persist: false })
     const gauges = renderPerfSnapshot(2000).gauges
     expect(virtualizer.getTotalSize).toHaveBeenCalledTimes(1)
+    expect(querySelectorAll).toHaveBeenCalledTimes(1)
     expect(gauges[PERF_GAUGE_VIRTUAL_BLANK]).toBe(120)
     expect(gauges[PERF_GAUGE_VIRTUAL_PULL_SPACER]).toBe(0)
+    // 420 px assumed vs a 300 px row: a 120 px blank stripe inside the window.
+    expect(gauges[PERF_GAUGE_VIRTUAL_SLACK]).toBe(120)
+    expect(gauges[PERF_GAUGE_VIRTUAL_OVERLAP]).toBe(0)
 
     // A stuck spacer lands in the very next pass, next to the gap it explains.
     pullSpacerPx = 96
+    rowHeights[0] = 480
     const withSpacer = renderPerfSnapshot(3000).gauges
     expect(virtualizer.getTotalSize).toHaveBeenCalledTimes(2)
     expect(withSpacer[PERF_GAUGE_VIRTUAL_PULL_SPACER]).toBe(96)
+    // The row grew past its slot: the same pass reports overlap instead of slack.
+    expect(withSpacer[PERF_GAUGE_VIRTUAL_SLACK]).toBe(0)
+    expect(withSpacer[PERF_GAUGE_VIRTUAL_OVERLAP]).toBe(60)
   })
 
   it('leaves a newer sampler installed when an older one is disposed', () => {

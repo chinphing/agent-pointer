@@ -28,6 +28,7 @@ import { shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
 import { rootTracesOf } from '../../lib/subAgentTraceTree'
 import { messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
 import { createScrollPassScheduler, createViewedStampDedupe } from '../../lib/chatScrollPass'
+import { createVirtualRowMeasureBatch } from '../../lib/virtualRowMeasureBatch'
 import {
   PERF_ACTIVITY_LAYOUT_REBUILD,
   PERF_ACTIVITY_LOAD_NEWER,
@@ -610,6 +611,7 @@ onBeforeUnmount(() => {
     historyTrimTimer = null
   }
   scrollPass.cancel()
+  rowMeasureBatch.cancel()
   if (scrollFrame != null) {
     cancelAnimationFrame(scrollFrame)
     scrollFrame = null
@@ -1930,12 +1932,47 @@ watch(
   }
 )
 
+/**
+ * Row heights are read in one batch per frame instead of one read per row while
+ * the patch is still writing DOM (see `virtualRowMeasureBatch`): the ref
+ * callback only queues the element, and the flush reads every queued height
+ * before the virtualizer is updated at all.
+ */
+const rowMeasureBatch = createVirtualRowMeasureBatch<HTMLDivElement>({
+  applySizes(measurements) {
+    const perf = renderPerfEnabled()
+    for (const measurement of measurements) {
+      // Registration plus the height the flush already read.
+      rowVirtualizer.value.measureElement(measurement.element)
+      if (perf) bump('call:measureElement')
+    }
+  },
+  wrapFlush(flush) {
+    if (!renderPerfEnabled()) {
+      flush()
+      return
+    }
+    const startedAt = performance.now()
+    // The whole batch is one activity: every read and every write of the flush.
+    beginPerfActivity(PERF_ACTIVITY_MEASURE_BATCH)
+    try {
+      flush()
+    } finally {
+      endPerfActivity(PERF_ACTIVITY_MEASURE_BATCH)
+      record('ms:measureElement', performance.now() - startedAt)
+    }
+  }
+})
+
 const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>(computed(() => ({
   ...messageVirtualizerBaseOptions(
     conversationTurns.value.length,
     index => `turn-${conversationTurns.value[index]!.id}`
   ),
-  getScrollElement: () => scroller.value
+  getScrollElement: () => scroller.value,
+  // Row heights come from the batch's read pass; reuse them here instead of
+  // forcing a second layout inside the virtualizer.
+  measureElement: rowMeasureBatch.measureElementOption
 })))
 
 // Estimate → measure (and late-expanding last turns) change totalSize after the
@@ -2003,18 +2040,13 @@ watch(virtualRows, () => {
 
 function setVirtualRowElement(node: Element | ComponentPublicInstance | null) {
   const el = node instanceof HTMLDivElement ? node : null
-  if (!renderPerfEnabled()) {
-    rowVirtualizer.value.measureElement(el)
+  if (!el) {
+    // The row unmounted: let the virtualizer drop it from its element cache.
+    rowVirtualizer.value.measureElement(null)
     return
   }
-  const startedAt = performance.now()
-  // One ref callback per rendered row; the batch is these calls inside a single
-  // patch, so the marker wraps the measure itself.
-  beginPerfActivity(PERF_ACTIVITY_MEASURE_BATCH)
-  rowVirtualizer.value.measureElement(el)
-  endPerfActivity(PERF_ACTIVITY_MEASURE_BATCH)
-  record('ms:measureElement', performance.now() - startedAt)
-  bump('call:measureElement')
+  // Queue only; the batch reads every queued height in one pass on the next frame.
+  rowMeasureBatch.register(el)
 }
 
 // --- dev-only render perf instrumentation (no-op unless the HUD is enabled) ---

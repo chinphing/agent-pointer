@@ -1933,10 +1933,11 @@ watch(
 )
 
 /**
- * Row heights are read in one batch per frame instead of one read per row while
+ * Row heights are read in one batch per patch instead of one read per row while
  * the patch is still writing DOM (see `virtualRowMeasureBatch`): the ref
- * callback only queues the element, and the flush reads every queued height
- * before the virtualizer is updated at all.
+ * callback only queues the element, and the flush — a microtask, so it still
+ * lands before the browser paints — reads every queued height before the
+ * virtualizer is updated at all.
  */
 const rowMeasureBatch = createVirtualRowMeasureBatch<HTMLDivElement>({
   applySizes(measurements) {
@@ -2045,7 +2046,7 @@ function setVirtualRowElement(node: Element | ComponentPublicInstance | null) {
     rowVirtualizer.value.measureElement(null)
     return
   }
-  // Queue only; the batch reads every queued height in one pass on the next frame.
+  // Queue only; the batch reads every queued height in one pass before the frame paints.
   rowMeasureBatch.register(el)
 }
 

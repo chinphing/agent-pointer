@@ -318,8 +318,12 @@
    * Virtual message row (MessageList.vue). Rows are absolutely positioned and
    * moved with an inline `translateY`, so their layout is self-contained:
    * `contain: layout` keeps a row resize from invalidating layout for the whole
-   * transcript, and `will-change: transform` keeps the row on its own
-   * composited layer while the virtual window moves.
+   * transcript.
+   *
+   * Deliberately NOT `will-change: transform` — promoting every rendered row
+   * (20-30 tall rows) to its own compositor layer left unpainted areas while
+   * the compositor caught up during fast scrolling; the inline `translateY`
+   * already animates on the compositor without the hint.
    *
    * Deliberately NOT `contain: paint` — it would clip the hover pills and avatar
    * slots that hang outside the row box. Deliberately NOT `content-visibility` —
@@ -328,7 +332,6 @@
    */
   .chat-virtual-row {
     contain: layout;
-    will-change: transform;
   }
   .chat-scroll-area {
     scroll-padding-bottom: 2.5rem;

@@ -9,9 +9,15 @@
  * `createVirtualRowMeasureBatch` turns that into two passes:
  *
  * - `register` only queues the element — it touches no layout;
- * - one flush per animation frame reads every queued height first and then
+ * - one flush per registration burst reads every queued height first and then
  *   hands the whole batch to the virtualizer, so the batch forces a single
  *   layout and no read can observe a half-applied batch.
+ *
+ * The flush is queued as a microtask, not on the next animation frame: the
+ * patch that registers the rows is synchronous, so a microtask still runs after
+ * Vue's DOM update and before the browser paints. Waiting a frame let rows keep
+ * their 180 px estimate for a frame after they mounted, and during fast
+ * scrolling the stale offsets showed as gaps between rows.
  *
  * Registrations that no longer describe a live row are dropped before the
  * first read: a `null` node (row unmounted), a detached element, and an element
@@ -20,16 +26,42 @@
  */
 import { measureElement as defaultMeasureElement, type Virtualizer } from '@tanstack/vue-virtual'
 
-/** Injectable frame clock so the coalescing can be tested without a real rAF. */
-export interface VirtualRowMeasureFrameHost {
+/**
+ * Injectable scheduler for the coalesced flush, so the batching can be tested
+ * without a real microtask queue.
+ */
+export interface VirtualRowMeasureFlushScheduler {
   request(callback: () => void): number
   cancel(handle: number): void
 }
 
-const browserFrameHost: VirtualRowMeasureFrameHost = {
-  request: callback => requestAnimationFrame(callback),
-  cancel: handle => cancelAnimationFrame(handle)
-}
+/**
+ * Default scheduler: a microtask. `register` runs inside the patch that mounts
+ * or updates the rows, so the callback lands once the patch (and Vue's DOM
+ * update) has returned, but before the browser paints the frame.
+ *
+ * `queueMicrotask` has no cancel token, so `cancel` marks the handle; the
+ * callback still runs but does nothing. Only handles cancelled before their
+ * microtask ran are tracked, and each is dropped when the microtask fires.
+ */
+const microtaskScheduler: VirtualRowMeasureFlushScheduler = (() => {
+  let nextHandle = 1
+  const cancelled = new Set<number>()
+  return {
+    request(callback) {
+      const handle = nextHandle
+      nextHandle += 1
+      queueMicrotask(() => {
+        if (cancelled.delete(handle)) return
+        callback()
+      })
+      return handle
+    },
+    cancel(handle) {
+      cancelled.add(handle)
+    }
+  }
+})()
 
 /**
  * Attribute the row elements carry their virtual index on. Matches the
@@ -54,8 +86,8 @@ export interface VirtualRowMeasureBatchOptions<TElement extends HTMLElement = HT
   readHeight?(element: TElement): number
   /** Optional middleware around one flush (the perf marker); must call `flush()` once. */
   wrapFlush?(flush: () => void): void
-  /** Frame clock; defaults to `requestAnimationFrame` / `cancelAnimationFrame`. */
-  host?: VirtualRowMeasureFrameHost
+  /** Flush scheduler; defaults to a microtask queued from the registering patch. */
+  host?: VirtualRowMeasureFlushScheduler
 }
 
 export interface VirtualRowMeasureBatch<TElement extends HTMLElement = HTMLElement> {
@@ -82,7 +114,7 @@ export interface VirtualRowMeasureBatch<TElement extends HTMLElement = HTMLEleme
 export function createVirtualRowMeasureBatch<TElement extends HTMLElement = HTMLElement>(
   options: VirtualRowMeasureBatchOptions<TElement>
 ): VirtualRowMeasureBatch<TElement> {
-  const host = options.host ?? browserFrameHost
+  const host = options.host ?? microtaskScheduler
   const readHeight = options.readHeight ?? ((element: TElement) => element.offsetHeight)
   /** Heights of the running flush, consumed by `measureElementOption`. */
   const flushHeights = new Map<TElement, number>()

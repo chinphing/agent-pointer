@@ -3,10 +3,10 @@ import { Virtualizer, elementScroll } from '@tanstack/virtual-core'
 import { messageVirtualizerBaseOptions } from './messageVirtualization'
 import {
   createVirtualRowMeasureBatch,
-  type VirtualRowMeasureFrameHost
+  type VirtualRowMeasureFlushScheduler
 } from './virtualRowMeasureBatch'
 
-/** Manual frame clock: nothing runs until `flush()`. */
+/** Manual flush scheduler: nothing runs until `flush()`. */
 function createFrameHost() {
   const callbacks = new Map<number, () => void>()
   let nextHandle = 1
@@ -28,7 +28,7 @@ function createFrameHost() {
     pendingCount() {
       return callbacks.size
     }
-  } satisfies VirtualRowMeasureFrameHost & {
+  } satisfies VirtualRowMeasureFlushScheduler & {
     flush(): void
     pendingCount(): number
   }
@@ -104,7 +104,7 @@ describe('virtual row measure batch', () => {
     expect(batch.pending).toBe(false)
   })
 
-  it('coalesces every registration of one frame into a single flush', () => {
+  it('coalesces every registration of one patch into a single flush', () => {
     const host = createFrameHost()
     const log: string[] = []
     const batch = createVirtualRowMeasureBatch<HTMLDivElement>({ host, applySizes: () => {} })
@@ -117,9 +117,33 @@ describe('virtual row measure batch', () => {
     host.flush()
 
     expect(log).toEqual(['read:0', 'read:1', 'read:2', 'read:3', 'read:4'])
-    // A later patch opens a new frame instead of staying latched to the flush.
+    // A later patch schedules its own flush instead of staying latched.
     batch.register(asRowElement(new FakeRow(log, 0, 90)))
     expect(host.request).toHaveBeenCalledTimes(2)
+  })
+
+  it('flushes on the default scheduler in the registering task, before any frame', async () => {
+    const log: string[] = []
+    const batch = createVirtualRowMeasureBatch<HTMLDivElement>({
+      applySizes(measurements) {
+        for (const measurement of measurements) log.push(`write:${measurement.index}`)
+      }
+    })
+
+    batch.register(asRowElement(new FakeRow(log, 0, 100)))
+    batch.register(asRowElement(new FakeRow(log, 1, 220)))
+
+    // The patch is still writing DOM: queued, nothing read or applied.
+    expect(log).toEqual([])
+    expect(batch.pending).toBe(true)
+
+    // No animation frame and no timer: the microtask queued by `register` runs
+    // as soon as the patch that registered the rows returns, which is what puts
+    // the real heights on screen in the frame the rows mounted.
+    await Promise.resolve()
+
+    expect(log).toEqual(['read:0', 'read:1', 'write:0', 'write:1'])
+    expect(batch.pending).toBe(false)
   })
 
   it('keeps the newest element when the same row is registered twice in one patch', () => {

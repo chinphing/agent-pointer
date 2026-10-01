@@ -33,10 +33,14 @@ function virtualRowStartTag(source: string): string {
 }
 
 describe('virtual message row containment', () => {
-  it('scopes each row layout and hints a composited transform', () => {
+  it('scopes each row layout without promoting a compositor layer per row', () => {
     const body = cssRuleBody(globalsCss, MESSAGE_VIRTUAL_ROW_CLASS)
     expect(body).toMatch(/contain:\s*layout\b/)
-    expect(body).toMatch(/will-change:\s*transform\b/)
+    // `will-change: transform` was reverted: promoting every rendered row
+    // (20-30 tall rows) to its own composited layer left unpainted areas while
+    // the compositor caught up during fast scrolling. The inline `translateY`
+    // still animates on the compositor, so the hint bought nothing.
+    expect(body).not.toMatch(/will-change/)
   })
 
   it('never clips the row or skips its subtree', () => {

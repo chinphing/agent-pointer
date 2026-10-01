@@ -4,8 +4,10 @@ export const MESSAGE_VIRTUAL_OVERSCAN = 8
  * Class on the virtual message row wrapper (MessageList.vue). Rows are placed by
  * an inline `translateY`, so each row's layout is self-contained; the rule in
  * `src/styles/globals.css` turns that into `contain: layout` (a measurement
- * batch stops invalidating the whole transcript) plus `will-change: transform`
- * (the row keeps its own composited layer while the window moves).
+ * batch stops invalidating the whole transcript). The rule deliberately carries
+ * no `will-change: transform`: a composited layer per rendered row left blank
+ * areas during fast scrolling, and the inline `translateY` already animates on
+ * the compositor without the hint.
  */
 export const MESSAGE_VIRTUAL_ROW_CLASS = 'chat-virtual-row'
 export const MESSAGE_VIRTUAL_PADDING_START = 24

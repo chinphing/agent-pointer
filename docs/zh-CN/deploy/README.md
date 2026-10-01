@@ -6,11 +6,11 @@
 
 | 轴 | 取值 | 在哪 |
 |---|---|---|
-| **打包口味** `POINTER_EDITION` | `managed`（集中管理，构建期注入控制面域名）／ **不设置**（standalone，独立） | 本文 §1–§4 |
-| **运行形态** | 客户端（Tauri 桌面 App）／ 服务端（`pointer-server`） | 本文 §1–§4 |
+| **打包口味** `POINTER_EDITION` | `managed`（集中管理，构建期注入控制面域名）／ **不设置**（standalone，独立） | 本文 §1–§4 四格清单（managed/standalone × 客户端/服务端） |
+| **运行形态** | 客户端（Tauri 桌面 App）／ 服务端（`pointer-server`） | 本文 §1–§4 四格清单（managed/standalone × 客户端/服务端） |
 | **目标平台** | Windows / macOS / Linux | [§5 平台打包](#platforms) |
 
-**本页是唯一入口。** 先在 §0 定位到你的格子，照 checklist 做完；需要细节再进详细手册。
+**本页是唯一入口。** 先在 §0「先定位：你要做什么？」找到你的格子，照 checklist 做完；需要细节再进详细手册。
 
 > **术语**：`official` **不是** `POINTER_EDITION` 的取值，它只用来指 Pointer 官方发布。
 > 写成别的值（含 `official`）会让构建**直接失败** —— 这是刻意的，避免静默降级成未绑定。
@@ -22,18 +22,18 @@
 
 | 你要做的事 | 你的格子 | 去哪 |
 |---|---|---|
-| 自己用，或给同事发一个**自己构建**的客户端 | standalone × 客户端 | [§3](#standalone-client) |
-| 自己搭一台服务器给团队用 | standalone × 服务端 | [§4](#standalone-server) |
-| 企业：客户端连**内网**控制面 | managed × 客户端 | [§1](#managed-client) |
-| 企业：部署内网控制面服务端 | managed × 服务端 | [§2](#managed-server) |
+| 自己用，或给同事发一个**自己构建**的客户端 | standalone × 客户端 | [§3 standalone × 客户端](#standalone-client) |
+| 自己搭一台服务器给团队用 | standalone × 服务端 | [§4 standalone × 服务端](#standalone-server) |
+| 企业：客户端连**内网**控制面 | managed × 客户端 | [§1 managed × 客户端](#managed-client) |
+| 企业：部署内网控制面服务端 | managed × 服务端 | [§2 managed × 服务端](#managed-server) |
 | 想要 Pointer **官方签名包** | —— | 不在本仓产出，见 [`../../user/which-build.md`](../../user/which-build.md) |
 
 **总表**（每格五项：构建命令 / 需要的变量 / 产物位置 / 怎么验证 / 外部依赖）：
 
 | 口味 | 客户端（Tauri 桌面 App） | 服务端（`pointer-server`） |
 |------|--------------------------|-----------------------------|
-| **`managed`**（集中管理） | [§1](#managed-client) | [§2](#managed-server) |
-| **standalone**（独立，默认） | [§3](#standalone-client) | [§4](#standalone-server) |
+| **`managed`**（集中管理） | [§1 managed × 客户端](#managed-client) | [§2 managed × 服务端](#managed-server) |
+| **standalone**（独立，默认） | [§3 standalone × 客户端](#standalone-client) | [§4 standalone × 服务端](#standalone-server) |
 
 详细版（含产物清单、排障、CI 口径）：[`editions.md`](editions.md)。
 

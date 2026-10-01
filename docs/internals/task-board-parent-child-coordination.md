@@ -44,4 +44,4 @@ On `patch` → `done`, the host injects `_recent_action_tools` plus verify signa
 
 ## Campaign work_items + sub-agents (v4)
 
-When the parent board uses Type2 **`work_items`**, see [`task-board-campaign-work-queue-spec.md`](task-board-campaign-work-queue-spec.md) **§3.6** (historical v1 notes). Runtime: single parent **`store_id`**, flat work_items queue, child claim/report via host Gateway (`gateway/work_item_child.rs`), extended `[TASK_BOARD_PARENT]` assignment fields.
+When the parent board uses Type2 **`work_items`**, see [`task-board-campaign-work-queue-spec.md`](task-board-campaign-work-queue-spec.md) **§3.6 Parent / child agents + work_items** (historical v1 notes). Runtime: single parent **`store_id`**, flat work_items queue, child claim/report via host Gateway (`gateway/work_item_child.rs`), extended `[TASK_BOARD_PARENT]` assignment fields.

@@ -161,7 +161,7 @@ sequenceDiagram
 
 ### 5.2 子 Agent 与扩展钩子
 
-- 会话初始化与每轮 prompt 组装在 **`sub_agent_prompt.rs`**（`init_sub_agent_session` / `prepare_sub_agent_round_prompts`）；流式收包在 **`sub_agent_stream.rs`**（内部共用 **`agent_stream_round.rs`**）；流后决策与工具执行分别共用 **`agent_post_stream.rs`** / **`agent_tool_pass.rs`**（与 Lead 同构，见 §5.2.1）。
+- 会话初始化与每轮 prompt 组装在 **`sub_agent_prompt.rs`**（`init_sub_agent_session` / `prepare_sub_agent_round_prompts`）；流式收包在 **`sub_agent_stream.rs`**（内部共用 **`agent_stream_round.rs`**）；流后决策与工具执行分别共用 **`agent_post_stream.rs`** / **`agent_tool_pass.rs`**（与 Lead 同构，见 §5.2.1 Lead 与子 Agent 共用模块的差异（行为不变））。
 - 每一轮子 Agent 的每次模型请求前，同样执行：
   - 只读借用 `local_history`，新建 `injected_tail`
   - `run_message_loop_prompts_after`（`lead_agent_profile = def.profile`，例如子 Agent 为 `computer` 时仍会注入屏幕）

@@ -21,7 +21,7 @@ macOS 使用 **Overlay 标题栏**：系统绘制红绿灯，Web 内容延伸到
 
 1. **竞态**：原生 inset 在 `run_on_main_thread` + 延迟任务中执行，前端布局已先渲染。
 2. **几何变化**：`Resized` / `ScaleFactorChanged` / 最大化后 title bar frame 被系统改写，未触发 repair。
-3. **紧凑模式恢复顺序错误**：先 reapply chrome 再 setSize，overlay 会被后续几何操作冲掉（见 §5）。
+3. **紧凑模式恢复顺序错误**：先 reapply chrome 再 setSize，overlay 会被后续几何操作冲掉（见 §5 紧凑浮条（Computer Compact）交互）。
 
 ---
 

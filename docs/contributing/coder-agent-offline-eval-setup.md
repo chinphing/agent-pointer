@@ -61,7 +61,7 @@ expect_exit_code = 0
 4. 打印一行 JSON：`{"id":"case-001","pass":true}` 便于 CI 收集。
 
 **收益**：完全 **A 判分**；不依赖 Pointer UI；Docker 可选。  
-**与 Pointer 的关系**：此层验证「任务定义是否合理」；Agent 接入见 §4。
+**与 Pointer 的关系**：此层验证「任务定义是否合理」；Agent 接入见 §4 接入 Pointer：用本地 Web Server + API 驱动 Coder。
 
 ---
 
@@ -93,7 +93,7 @@ npm run server:dev
 
 ### 4.2 配置 API 与模型
 
-1. 浏览器打开 Web 端或调用 `PUT /api/settings`（见服务端路由）设置 **`workspaceRoot`** 指向 **§2 里临时副本** 或专用小仓库。  
+1. 浏览器打开 Web 端或调用 `PUT /api/settings`（见服务端路由）设置 **`workspaceRoot`** 指向 **§2 最小可行方案（建议第一步）：「金样任务 + 脚本判分」里临时副本** 或专用小仓库。  
 2. **云端模型**：`POST /api/key` 写入 Key；或  
 3. **本机模型（C）**：在设置里将 **Base URL** 设为例如 `http://127.0.0.1:11434/v1`（Ollama OpenAI 兼容），模型名填 Ollama 中已有名称。
 
@@ -105,9 +105,9 @@ npm run server:dev
   - `agentMode`：设为 coder 对应模式字符串（与前端选择 Coder 时一致；可通过 `GET /api/agents` 核对列表与 id）。  
   - `enabledSkillIds` / `toolRoundsUsed`：按需要传，与线上一致即可。
 
-- **流式结果**：`GET /api/chat/:conversation_id/stream`（SSE），脚本需解析事件直至 `Done` 或工具轮结束，再从持久化对话或事件中抽取 **最终工作区是否被修改**，再回到 **§2 的 `grade.sh`** 做判分。
+- **流式结果**：`GET /api/chat/:conversation_id/stream`（SSE），脚本需解析事件直至 `Done` 或工具轮结束，再从持久化对话或事件中抽取 **最终工作区是否被修改**，再回到 **§2 最小可行方案（建议第一步）：「金样任务 + 脚本判分」的 `grade.sh`** 做判分。
 
-**说明**：仓库内 **尚无** 现成「一条 CLI 跑完 eval」命令；自动化通常是自己写 **Python/Node 小脚本** 调上述 API + SSE。若未来在 `examples/` 或 `eval/` 增加官方 runner，可作为后续实现项（见 [`coder-agent-capability-roadmap.md`](../design/coder-agent-capability-roadmap.md) §L）。
+**说明**：仓库内 **尚无** 现成「一条 CLI 跑完 eval」命令；自动化通常是自己写 **Python/Node 小脚本** 调上述 API + SSE。若未来在 `examples/` 或 `eval/` 增加官方 runner，可作为后续实现项（见 [`coder-agent-capability-roadmap.md`](../design/coder-agent-capability-roadmap.md) §5.11 L — 离线评测集）。
 
 ### 4.4 工具审批
 
@@ -136,13 +136,13 @@ npm run server:dev
 ## 7. 常见问题
 
 **Q：没有 API Key 能否测 Agent？**  
-A：可测 **§2 判分链路**；要测真实模型调用需 **本机模型（C）** 或内网网关，否则仍需 Key。
+A：可测 **§2 最小可行方案（建议第一步）：「金样任务 + 脚本判分」判分链路**；要测真实模型调用需 **本机模型（C）** 或内网网关，否则仍需 Key。
 
 **Q：能否完全断网？**  
 A：**判分脚本**可以；**云端 LLM** 不能。完全断网需 **C**。
 
 **Q：和 SWE-bench 二选一吗？**  
-A：不互斥。自研 `eval/` 管 **你们产品回归**；SWE-bench 管 **横向对标**；后者见路线图 §5.11 及前文讨论。
+A：不互斥。自研 `eval/` 管 **你们产品回归**；SWE-bench 管 **横向对标**；后者见路线图 §5.11 L — 离线评测集 及前文讨论。
 
 ---
 
@@ -153,4 +153,4 @@ A：不互斥。自研 `eval/` 管 **你们产品回归**；SWE-bench 管 **横�
 
 ---
 
-**相关文档**：[`coder-agent-capability-roadmap.md`](../design/coder-agent-capability-roadmap.md)（§5.11 L、度量 §7）
+**相关文档**：[`coder-agent-capability-roadmap.md`](../design/coder-agent-capability-roadmap.md)（§5.11 L — 离线评测集、度量 §7）

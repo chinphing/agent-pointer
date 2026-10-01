@@ -31,7 +31,7 @@ Related:
 - Parallel Computer UI automation (resource mutex deferred)
 - Temporal / external workflow engine
 - Auto-planner that bulk-seeds 10k **enumerated** rows without user/host/file input
-- Using work_items for every task (see §3.5 — small jobs stay Type1 `global_milestones` only)
+- Using work_items for every task (see §3.5 When to use work_items (decision table) — small jobs stay Type1 `global_milestones` only)
 
 ---
 
@@ -75,7 +75,7 @@ Campaign (meta + stats + checkpoint)
 3. Prompt injects **working set** only.
 4. Final delivery aggregates from `work_items` + board `remark` / `g_deliver`.
 
-**Two campaign modes (§3.3):**
+**Two campaign modes (§3.3 Campaign modes: `enumerated` vs `dynamic`):**
 
 | Mode | Example | work_items created |
 |------|---------|-------------------|
@@ -581,7 +581,7 @@ crates/pointer-core/src/task_board/
     claim.rs            // dynamic: claim_work_slot + dedupe
     artifact.rs         // read/write result files
   gateway/
-    work_item_child.rs  // claim/report child → parent campaign (§3.6)
+    work_item_child.rs  // claim/report child → parent campaign (§3.6 Parent / child agents + work_items)
   snapshot_working_set.rs  // inject mode for large campaigns
 ```
 
@@ -1053,7 +1053,7 @@ pub fn advance_wave_if_complete(
     Ok(Some(WaveAdvanceOutcome::Advanced { wave_index: next_wave }))
 }
 
-// gateway/work_item_child.rs — §3.6
+// gateway/work_item_child.rs — §3.6 Parent / child agents + work_items
 pub fn claim_child_work_slot(/* … */) -> Result<ClaimOutcome> { todo!() }
 pub fn report_child_work_item(/* … */) -> Result<()> { todo!() }
 pub fn assign_work_slice(/* … */) -> Result<ChildWorkAssignment> { todo!() }
@@ -1069,7 +1069,7 @@ When `is_child_store_key(_conversation_id)` and parent has `work_queue_enabled`,
 
 Child lead **without** assignment gets tool result error `no_work_assignment` (fall back to local board only).
 
-See §3.6.4–3.6.5 for API table and ACL.
+See §3.6.4–3.6.5 Gateway APIs (host-only, not LLM tools) for API table and ACL.
 
 ---
 
@@ -1574,7 +1574,7 @@ Add to `task_board/prompts/task_board.md`:
 | A | `WorkItemStore` + SQLite + artifacts | `campaign.workQueueEnabled` default false |
 | B | `seed_work_items`, `report_work_item` tools | Computer `allowTools` only |
 | B2 | `init_campaign_quota`, `claim_work_slot` (dynamic) | same + recruit-style flows |
-| B3 | Gateway `claim_child_work_item` / child-scoped tools | sub-agent + campaign (§3.6) |
+| B3 | Gateway `claim_child_work_item` / child-scoped tools | sub-agent + campaign (§3.6 Parent / child agents + work_items) |
 | C | Working set snapshot | auto when `work_queue_enabled` |
 | D | `CampaignRunner` slice in `session_inner` | settings `campaignAutoSlice` |
 | E | UI progress + work item drill-down | always when stats present |
@@ -1677,7 +1677,7 @@ fn duplicate_target_key_blocked_across_children() {
 2. **Parallel dequeue**: when `coder` batch has no UI mutex, `dequeue_ready(limit: N)` with `N>1` — Phase 2.
 3. **`campaign_append_items`**: extend enumerated campaign after seed — defer.
 4. **Dynamic `target_key` extraction**: host helper from URL vs model-only — start model-only; optional host normalize.
-5. **`AgentTask.work_assignment`**: schema in planner JSON vs host-only dispatch ctx — see §3.6.3.
+5. **`AgentTask.work_assignment`**: schema in planner JSON vs host-only dispatch ctx — see §3.6.3 Assignment model.
 
 ---
 
@@ -1688,9 +1688,9 @@ fn duplicate_target_key_blocked_across_children() {
 | Campaign | `BoardDocument.meta` | Host + LLM init |
 | Mode | `meta.campaign_mode` | `enumerated` (seed) or `dynamic` (quota + claim) |
 | Wave | `BoardDocument.board` (≤15 rows) | Host materialize (enumerated) or single `quota_exec` (dynamic) |
-| Atomic | `work_items.db` + artifacts | Parent campaign only; child via Gateway (§3.6) |
+| Atomic | `work_items.db` + artifacts | Parent campaign only; child via Gateway (§3.6 Parent / child agents + work_items) |
 | Sub-agent | Child board `local_*` | Local patch; claim/report → Gateway |
 | Inject | `[TASK_BOARD]` working set | Parent + child `[TASK_BOARD_PARENT]` assignment |
 | Loop | `CampaignRunner` | Parent store; child slices via assignment + budget |
 
-This spec preserves task board v3 milestone semantics while adding the **work queue + host slice** pattern used by Deep Agents, durable-agents, and OpenHands durable execution — without requiring an external workflow engine in v1. **Dynamic quota** covers repeat actions with runtime target selection (e.g. recruit greet N people) via `init_campaign_quota` + `claim_work_slot`, not upfront enumeration. **Parent/child** agents share one work_items ledger on the parent campaign; sub-agents execute locally and settle atoms through host Gateway (§3.6).
+This spec preserves task board v3 milestone semantics while adding the **work queue + host slice** pattern used by Deep Agents, durable-agents, and OpenHands durable execution — without requiring an external workflow engine in v1. **Dynamic quota** covers repeat actions with runtime target selection (e.g. recruit greet N people) via `init_campaign_quota` + `claim_work_slot`, not upfront enumeration. **Parent/child** agents share one work_items ledger on the parent campaign; sub-agents execute locally and settle atoms through host Gateway (§3.6 Parent / child agents + work_items).

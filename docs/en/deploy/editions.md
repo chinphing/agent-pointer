@@ -45,7 +45,7 @@ With no flavour set, the source writes no control-plane default ⇒ unbound ⇒ 
 **Load order (easy to trip over)**
 
 - `npm run tauri:dev` / `tauri:build` / Vite (`web:dev`) automatically read the gitignored `pointer.local.env` at the repository root (**pre-existing OS / CI environment variables win**; the file only fills the blanks). Template: [`pointer.local.env.example`](../../../pointer.local.env.example).
-- `npm run server:build` (`scripts/build-server.mjs`) **reads it too**, and passes the same set of variables through to both the Vue build and `cargo` (neither side reads its own copy). After the build and before packaging it also verifies that the two halves agree: under the managed flavour, a binary missing control-plane domains or web assets missing the web base aborts with a non-zero exit (see §4.2).
+- `npm run server:build` (`scripts/build-server.mjs`) **reads it too**, and passes the same set of variables through to both the Vue build and `cargo` (neither side reads its own copy). After the build and before packaging it also verifies that the two halves agree: under the managed flavour, a binary missing control-plane domains or web assets missing the web base aborts with a non-zero exit (see §4.2 Required variables).
 - At runtime the same-named `POINTER_*` environment variables can still override the build-time defaults; the server additionally has `POINTER_DEPLOYMENT_MODE`.
 
 ---

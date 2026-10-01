@@ -4,7 +4,7 @@
 > 传输的 MCP server、配置载体、装配与生命周期、管理 API、测试。
 > 用户使用说明见 [`../user/mcp.md`](../user/mcp.md)；插件内 MCP 声明见
 > [`../user/plugins.md`](../user/plugins.md)；整体设计见
-> [`../plans/plugin-system-plan.md`](../plans/plugin-system-plan.md) §6.1。
+> [`../plans/plugin-system-plan.md`](../plans/plugin-system-plan.md) §6.1 全局 MCP（非插件，P2b）。
 
 ---
 

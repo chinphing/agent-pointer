@@ -6,11 +6,11 @@ One source tree; three orthogonal axes decide what you need to do:
 
 | Axis | Values | Where |
 |---|---|---|
-| **Packaging flavour** `POINTER_EDITION` | `managed` (centrally managed, control-plane domains injected at build time) / **unset** (standalone, independent) | §1–§4 below |
-| **Runtime form** | client (Tauri desktop app) / server (`pointer-server`) | §1–§4 below |
+| **Packaging flavour** `POINTER_EDITION` | `managed` (centrally managed, control-plane domains injected at build time) / **unset** (standalone, independent) | §1–§4 (the four-cell checklist: managed/standalone × client/server) below |
+| **Runtime form** | client (Tauri desktop app) / server (`pointer-server`) | §1–§4 (the four-cell checklist: managed/standalone × client/server) below |
 | **Target platform** | Windows / macOS / Linux | [§5 Platform packaging](#platforms) |
 
-**This page is the single entry point.** First locate your cell in §0 and work through its checklist; go to the detailed manuals only when you need the detail.
+**This page is the single entry point.** First locate your cell in §0 ("Locate yourself first") and work through its checklist; go to the detailed manuals only when you need the detail.
 
 > **Terminology**: `official` is **not** a `POINTER_EDITION` value; it only refers to a Pointer official release.
 > Writing any other value (including `official`) makes the build **fail outright** — deliberately so, to avoid silently degrading into an unbound build.
@@ -22,18 +22,18 @@ One source tree; three orthogonal axes decide what you need to do:
 
 | What you want to do | Your cell | Where |
 |---|---|---|
-| Use it yourself, or hand a **self-built** client to a colleague | standalone × client | [§3](#standalone-client) |
-| Stand up a server for your team | standalone × server | [§4](#standalone-server) |
-| Enterprise: client connecting to an **internal** control plane | managed × client | [§1](#managed-client) |
-| Enterprise: deploy the internal control-plane server | managed × server | [§2](#managed-server) |
+| Use it yourself, or hand a **self-built** client to a colleague | standalone × client | [§3 standalone × client](#standalone-client) |
+| Stand up a server for your team | standalone × server | [§4 standalone × server](#standalone-server) |
+| Enterprise: client connecting to an **internal** control plane | managed × client | [§1 managed × client](#managed-client) |
+| Enterprise: deploy the internal control-plane server | managed × server | [§2 managed × server](#managed-server) |
 | You want a Pointer **official signed package** | —— | Not produced by this repo; see [`../user/which-build.md`](../user/which-build.md) |
 
 **Master table** (five items per cell: build command / required variables / artifact location / how to verify / external dependencies):
 
 | Flavour | Client (Tauri desktop app) | Server (`pointer-server`) |
 |------|--------------------------|-----------------------------|
-| **`managed`** (centrally managed) | [§1](#managed-client) | [§2](#managed-server) |
-| **standalone** (independent, default) | [§3](#standalone-client) | [§4](#standalone-server) |
+| **`managed`** (centrally managed) | [§1 managed × client](#managed-client) | [§2 managed × server](#managed-server) |
+| **standalone** (independent, default) | [§3 standalone × client](#standalone-client) | [§4 standalone × server](#standalone-server) |
 
 Detailed version (artifact lists, troubleshooting, CI policy): [`editions.md`](editions.md).
 

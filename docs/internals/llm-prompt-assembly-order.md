@@ -16,7 +16,7 @@
 | 同轮扩展 | `run_message_loop_prompts_after`：仅向 **`injected_tail`** 追加（如 Computer **`user` + `[CUR_SCREEN]`**、公共 **user dynamic inject**） | Computer：`agents/computer/extension_hooks/screen_inject.rs`；公共：`extensions/common_user_dynamic_inject_hook.rs` |
 | 组 wire | `make_openai_messages_with_inject(base, injected_tail, …)` → HTTP JSON；spawn 只持有 wire | `provider.rs` — `build_stream_chat_wire` / `stream_chat_wired` |
 
-**说明**：API `messages` **不含** `[Environment]` user；环境日期等在 **§1.2** cacheable 的 `[Environment]` 块中。峰值内存说明见 [`long-chat-memory.md`](long-chat-memory.md)。
+**说明**：API `messages` **不含** `[Environment]` user；环境日期等在 **§1.2 `SystemPromptSections`（cacheable + dynamic）** cacheable 的 `[Environment]` 块中。峰值内存说明见 [`long-chat-memory.md`](long-chat-memory.md)。
 
 ### 1.2 `SystemPromptSections`（cacheable + dynamic）
 
@@ -49,7 +49,7 @@
 
 | 顺序 | 角色 | 说明 |
 |------|------|------|
-| 1 | `system` | 见 **§1.4** |
+| 1 | `system` | 见 **§1.4 千问显式 Context Cache 序列化** |
 | 2… | `user` / `assistant` / … | scope-filtered **base** history，再追加本轮 **`injected_tail`**，然后 `expand_tool_messages_for_openai_request` → `flatten_tool_rounds_computer_style_for_api` |
 
 | 参考代码 | 说明 |
@@ -93,7 +93,7 @@
 
 ### 1.5 Native OpenAI `tools[]`（与 system 附录分工）
 
-除 **§1.2 cacheable** 中的 **`## Tools`** 附录（按 `doc_source` dedup 一次）外，每轮还在 HTTP body 的 **`tools`** 字段发送 flat tool schema（`ToolRegistry::openai_tools`）。
+除 **§1.2 `SystemPromptSections`（cacheable + dynamic） cacheable** 中的 **`## Tools`** 附录（按 `doc_source` dedup 一次）外，每轮还在 HTTP body 的 **`tools`** 字段发送 flat tool schema（`ToolRegistry::openai_tools`）。
 
 | 字段 | 策略 |
 |------|------|
@@ -113,7 +113,7 @@
 
 ---
 
-## 3. 提示词资产与 §1 的对应关系（清单）
+## 3. 提示词资产与 §1 `stream_chat` 主路径（单智能体与子 Agent 同构）的对应关系（清单）
 
 | 类型 | 典型位置 | 分区 |
 |------|----------|------|
@@ -127,7 +127,7 @@
 | **Env** | `env_prompt::build_environment_system_prompt_slice` | cacheable（日历日期）；Computer **`[CUR_SCREEN]`** 含完整墙钟时间 |
 | **Task board** | `CommonUserDynamicInjectHook` | `message_loop_prompts_after` 的 user 注入（有 board 或 hint 时） |
 | **AGENTS.md** | `agents_md::push_agents_md_to_cacheable` | cacheable **`# Project Context`** |
-| **屏幕等多模态** | `screen_inject.rs` | **§1.1** `user` + 图 |
+| **屏幕等多模态** | `screen_inject.rs` | **§1.1 `messages`（base + `injected_tail`）** `user` + 图 |
 
 ### 3.1 Coder / Explore `composed_system_body()` 顺序
 

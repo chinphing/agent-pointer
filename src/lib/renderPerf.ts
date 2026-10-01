@@ -115,6 +115,14 @@ export const PERF_GAUGE_VIRTUAL_MEASURED = 'virtualMeasured'
  * means the opposite (content taller than the box it scrolls in).
  */
 export const PERF_GAUGE_VIRTUAL_BLANK = 'virtualBlank'
+/**
+ * Height of the pull-to-load top spacer, which `MessageList` renders *inside* the
+ * same scroll box as the rows. It is part of `virtualBlank` (together with the
+ * scroller's own bottom padding), so publishing it is what decomposes a blank
+ * region: a spacer left standing after an older-load reads as
+ * `virtualBlank ≈ virtualPullSpacer` + padding, with every row still present.
+ */
+export const PERF_GAUGE_VIRTUAL_PULL_SPACER = 'virtualPullSpacer'
 
 // --- activity markers -------------------------------------------------------
 
@@ -367,6 +375,9 @@ export interface PerfVirtualRowLike {
  * - `virtualMeasured` against the rendered range — how many rows the offsets
  *   come from real heights rather than from `estimateSize`, which is what makes
  *   a freshly prepended page sit at a wrong offset.
+ * - `virtualPullSpacer` — the pull-to-load spacer lives inside the same scroll
+ *   box, so it is part of `virtualBlank`; when the two roughly match (plus the
+ *   scroller's bottom padding) the blank region is that spacer, not lost rows.
  *
  * A missing virtualizer or scroller (before mount, after teardown, a null ref) is
  * a legal state, not an error: the gauges are published as `0` / `-1` rather than
@@ -377,7 +388,8 @@ export interface PerfVirtualRowLike {
 export function publishVirtualGeometryGauges(
   virtualizer: PerfVirtualizerLike | null | undefined,
   scroller: PerfScrollerLike | null | undefined,
-  rows: readonly PerfVirtualRowLike[] | null | undefined
+  rows: readonly PerfVirtualRowLike[] | null | undefined,
+  pullSpacerPx: number
 ): void {
   if (!enabled) return
   const totalSize = virtualizer ? virtualizer.getTotalSize() : 0
@@ -390,6 +402,9 @@ export function publishVirtualGeometryGauges(
   setGauge(PERF_GAUGE_VIRTUAL_FIRST, firstRow?.index ?? -1)
   setGauge(PERF_GAUGE_VIRTUAL_LAST, lastRow?.index ?? -1)
   setGauge(PERF_GAUGE_VIRTUAL_MEASURED, virtualizer?.itemSizeCache?.size ?? 0)
+  // Read from the caller's own state (a ref), not from the DOM: the spacer is a
+  // height the component renders, and a negative one is meaningless.
+  setGauge(PERF_GAUGE_VIRTUAL_PULL_SPACER, pullSpacerPx > 0 ? pullSpacerPx : 0)
   // Only meaningful with both sides present: a missing scroller would otherwise
   // read as a large negative "blank".
   setGauge(

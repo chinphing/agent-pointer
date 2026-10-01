@@ -2070,17 +2070,23 @@ onUpdated(() => {
 
 /**
  * Virtualizer geometry (content height vs the scroller's own height, the rendered
- * range, and how many rows have a measured height) is published on the HUD's own
- * snapshot tick rather than from `onUpdated` above: the read includes
- * `scrollHeight`, which forces layout, and this component updates once per scroll
- * frame — reading there would both cost more than the 4 Hz HUD can show and
- * perturb the very measurement the HUD is taking.
+ * range, how many rows have a measured height, and the pull-to-load spacer that
+ * shares the scroll box) is published on the HUD's own snapshot tick rather than
+ * from `onUpdated` above: the read includes `scrollHeight`, which forces layout,
+ * and this component updates once per scroll frame — reading there would both
+ * cost more than the 4 Hz HUD can show and perturb the very measurement the HUD
+ * is taking.
  *
  * Registered for the component's lifetime; the sampler is only invoked while the
  * HUD is enabled, so nothing is read while it is off.
  */
 const disposePerfGaugeSampler = installRenderPerfGaugeSampler(() => {
-  publishVirtualGeometryGauges(rowVirtualizer.value, scroller.value, virtualRows.value)
+  publishVirtualGeometryGauges(
+    rowVirtualizer.value,
+    scroller.value,
+    virtualRows.value,
+    noOlderPullPx.value
+  )
 })
 onBeforeUnmount(disposePerfGaugeSampler)
 

@@ -229,7 +229,7 @@ describe('RenderPerfHud', () => {
     expect(hudText()).toMatch(/pass pk\s+86\.0ms @ layoutRebuild/)
   })
 
-  it('shows virtualizer geometry, including the blank gap below the last row', async () => {
+  it('shows virtualizer geometry, including the blank gap and the pull spacer beside it', async () => {
     setRenderPerfEnabled(true, { persist: false })
     mountHud()
 
@@ -239,6 +239,7 @@ describe('RenderPerfHud', () => {
     setGauge('virtualLast', 19)
     setGauge('virtualMeasured', 128)
     setGauge('virtualBlank', 400)
+    setGauge('virtualPullSpacer', 24)
     await advanceOneSecond()
 
     const text = hudText()
@@ -247,5 +248,7 @@ describe('RenderPerfHud', () => {
     expect(text).toMatch(/v\.blank\s+\+400 px/)
     expect(text).toMatch(/v\.range\s+4-19/)
     expect(text).toMatch(/v\.measured\s+128/)
+    // `v.pull` sits on the same row, immediately after the gap it decomposes.
+    expect(text).toMatch(/v\.blank\s+\+400 px\s+v\.pull\s+24 px/)
   })
 })

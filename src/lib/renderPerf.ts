@@ -192,6 +192,13 @@ export interface RenderPerfSnapshot {
   msPerSecond: Record<string, number>
   /** Latest gauge values (`visibleRows`, `scopedRows`, …). */
   gauges: Record<string, number>
+  /**
+   * Highest value each gauge reached since the HUD was toggled on, folded on
+   * every `setGauge` rather than at the rollover: a spike that passes within a
+   * frame or two (a transient blank stripe) is gone by the time the next second
+   * closes, so the peak is the only trace a later reading can show.
+   */
+  peakGauges: Record<string, number>
   /** Sum of all `render:*` counters for the last completed second. */
   totalRendersPerSecond: number
   /** `totalRendersPerSecond / visibleRows` — repeated re-rendering at a glance. */
@@ -262,6 +269,11 @@ let msTotals = new Map<string, number>()
 let closedCounts = new Map<string, number>()
 let closedMs = new Map<string, number>()
 const gauges = new Map<string, number>()
+/**
+ * Session peak per gauge, folded in `setGauge` so a value that spikes and returns
+ * between two snapshots still leaves a trace (see `RenderPerfSnapshot.peakGauges`).
+ */
+const gaugePeaks = new Map<string, number>()
 /**
  * Session peaks. Folded from each *closing* window by `foldPeaks`, so they cost
  * nothing per render and only grow until the HUD is toggled (see `resetPerf`).
@@ -337,7 +349,12 @@ export function record(name: string, ms: number): void {
 /** Latest point-in-time value (window size, row count, …). */
 export function setGauge(name: string, value: number): void {
   if (!enabled) return
-  gauges.set(name, Number.isFinite(value) ? value : 0)
+  const next = Number.isFinite(value) ? value : 0
+  gauges.set(name, next)
+  // Folded here, not at the rollover: a transient spike (a blank stripe that
+  // passes in a frame or two) is gone by the time the next second closes, and its
+  // peak is the only trace a later reading can show.
+  if (next > (gaugePeaks.get(name) ?? 0)) gaugePeaks.set(name, next)
 }
 
 /**
@@ -563,6 +580,7 @@ export function resetPerf(): void {
   closedCounts = new Map()
   closedMs = new Map()
   gauges.clear()
+  gaugePeaks.clear()
   peakCounts = new Map()
   peakMs = new Map()
   peakTotalRenders = 0
@@ -780,6 +798,8 @@ export function renderPerfSnapshot(nowOverride?: number): RenderPerfSnapshot {
   if (enabled && gaugeSampler) gaugeSampler()
   const gaugeSnapshot: Record<string, number> = {}
   for (const [name, value] of gauges) gaugeSnapshot[name] = value
+  const peakGaugeSnapshot: Record<string, number> = {}
+  for (const [name, value] of gaugePeaks) peakGaugeSnapshot[name] = value
 
   // Peaks are rebuilt with the snapshot (4 Hz), exactly like the other records.
   const peakRenders: Record<string, number> = {}
@@ -822,6 +842,7 @@ export function renderPerfSnapshot(nowOverride?: number): RenderPerfSnapshot {
     calls,
     msPerSecond,
     gauges: gaugeSnapshot,
+    peakGauges: peakGaugeSnapshot,
     totalRendersPerSecond: totalRenders,
     rendersPerVisibleRow: visibleRows > 0 ? totalRenders / visibleRows : 0,
     peakRenders,

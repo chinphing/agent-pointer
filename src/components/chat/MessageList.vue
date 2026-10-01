@@ -26,7 +26,7 @@ import {
 } from '../../lib/assistantMessageKind'
 import { shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
 import { rootTracesOf } from '../../lib/subAgentTraceTree'
-import { MESSAGE_VIRTUAL_ROW_CLASS, messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
+import { MESSAGE_VIRTUAL_ROW_CLASS, createMessageRowHeightEstimator, messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
 import { createScrollPassScheduler, createViewedStampDedupe } from '../../lib/chatScrollPass'
 import { createVirtualRowMeasureBatch } from '../../lib/virtualRowMeasureBatch'
 import { measureRenderedRowSlack } from '../../lib/virtualRowSlack'
@@ -1937,6 +1937,19 @@ watch(
 )
 
 /**
+ * Running average of the row heights the measure batch reads, used as
+ * `estimateSize` for rows that have no measured height yet — a fixed 180 px
+ * places every one of them wrongly, and each later correction moves the rows
+ * below it (see `createMessageRowHeightEstimator`).
+ *
+ * Lifetime: created here, so it belongs to this component instance. `MessageList`
+ * is keyed by conversation id (`ChatView`) and `useVirtualizer` keeps one
+ * virtualizer per instance, so a conversation switch or a recreated virtualizer
+ * starts from the fallback estimate with no carry-over.
+ */
+const rowHeightEstimator = createMessageRowHeightEstimator()
+
+/**
  * Row heights are read in one batch per patch instead of one read per row while
  * the patch is still writing DOM (see `virtualRowMeasureBatch`): the ref
  * callback only queues the element, and the flush — a microtask, so it still
@@ -1945,6 +1958,10 @@ watch(
  */
 const rowMeasureBatch = createVirtualRowMeasureBatch<HTMLDivElement>({
   applySizes(measurements) {
+    // Fold the heights this pass read before the virtualizer is told about them,
+    // so rows that are still unmeasured are placed with this pass's average
+    // instead of the fixed estimate — the batch's own correction is then smaller.
+    rowHeightEstimator.sample(measurements)
     const perf = renderPerfEnabled()
     for (const measurement of measurements) {
       // Registration plus the height the flush already read.
@@ -1972,7 +1989,11 @@ const rowMeasureBatch = createVirtualRowMeasureBatch<HTMLDivElement>({
 const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>(computed(() => ({
   ...messageVirtualizerBaseOptions(
     conversationTurns.value.length,
-    index => `turn-${conversationTurns.value[index]!.id}`
+    index => `turn-${conversationTurns.value[index]!.id}`,
+    // Read when the virtualizer places a row without a measured size. A plain
+    // field on purpose: reactive state here would let the estimate change between
+    // two frames with no measurement behind it.
+    () => rowHeightEstimator.estimate
   ),
   getScrollElement: () => scroller.value,
   // Row heights come from the batch's read pass; reuse them here instead of

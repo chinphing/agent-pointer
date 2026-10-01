@@ -152,10 +152,15 @@ function activityLine(label: string, value: string, activity: string): string {
  *   from `v.total`) and so is marked with `*`; `v.pull` is the pull-to-load spacer
  *   that shares the scroll box and is what a stuck `v.blank` is made of.
  * - the rows: `v.slack` / `v.overlap` sum the per-row assumed-vs-actual deviation,
- *   which is where a blank stripe between rows actually shows; `v.range` and
- *   `v.measured` say how much of the window is measured rather than estimated.
+ *   which is where a blank stripe between rows actually shows; each carries its
+ *   session `pk`, because the stripe that matters is a transient one that has
+ *   already passed by the time the HUD is read. `v.range` and `v.measured` say how
+ *   much of the window is measured rather than estimated.
  */
-function virtualGeometryLines(gauges: Record<string, number>): string[] {
+function virtualGeometryLines(
+  gauges: Record<string, number>,
+  peaks: Record<string, number>
+): string[] {
   const total = gauges[PERF_GAUGE_VIRTUAL_TOTAL] ?? 0
   const scrollHeight = gauges[PERF_GAUGE_VIRTUAL_SCROLL_HEIGHT] ?? 0
   const blank = gauges[PERF_GAUGE_VIRTUAL_BLANK] ?? 0
@@ -171,11 +176,13 @@ function virtualGeometryLines(gauges: Record<string, number>): string[] {
       + `  v.blank* ${formatSignedDistance(blank).padStart(8)}`
       + `  v.pull ${formatDistance(pullSpacer).padStart(7)}`,
     `v.slack ${formatDistance(slack).padStart(8)}`
+      + `  pk ${formatDistance(peaks[PERF_GAUGE_VIRTUAL_SLACK] ?? 0).padStart(8)}`
       + `  v.overlap ${formatDistance(overlap).padStart(7)}`
-      + `  v.range ${(first < 0 ? 'none' : `${first}-${last}`).padStart(8)}`
+      + `  pk ${formatDistance(peaks[PERF_GAUGE_VIRTUAL_OVERLAP] ?? 0).padStart(7)}`,
+    `v.range ${(first < 0 ? 'none' : `${first}-${last}`).padStart(8)}`
       + `  v.measured ${String(measured).padStart(5)}`,
     '  * v.blank agrees by construction (container height := v.total);'
-      + ' v.slack / v.overlap are the per-row truth'
+      + ' v.slack / v.overlap are the per-row truth, pk is their session peak'
   ]
 }
 
@@ -201,7 +208,7 @@ const text = computed(() => {
       + `frozen ${String(s.gauges[PERF_GAUGE_FROZEN_TURNS] ?? 0).padStart(3)}  `
       + `renders/row ${s.rendersPerVisibleRow.toFixed(2)}`
       + ` pk ${s.rendersPerVisibleRowPeak.toFixed(2)}`,
-    ...virtualGeometryLines(s.gauges),
+    ...virtualGeometryLines(s.gauges, s.peakGauges),
     ...scrollCostLines(s.scrollDistancePx, s.per1000Px),
     ...memoryLines(s.memory),
     ...group(PERF_RENDER_KEYS, s.renders, s.peakRenders),

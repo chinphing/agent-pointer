@@ -240,6 +240,8 @@ describe('RenderPerfHud', () => {
     setGauge('virtualMeasured', 128)
     setGauge('virtualBlank', 400)
     setGauge('virtualPullSpacer', 24)
+    // The stripe spikes, then passes: the current value is 124, the peak 980.
+    setGauge('virtualSlack', 980)
     setGauge('virtualSlack', 124)
     setGauge('virtualOverlap', 0)
     await advanceOneSecond()
@@ -251,9 +253,10 @@ describe('RenderPerfHud', () => {
     expect(text).toMatch(/v\.measured\s+128/)
     // `v.pull` sits on the same row, immediately after the gap it decomposes.
     expect(text).toMatch(/v\.blank\*\s+\+400 px\s+v\.pull\s+24 px/)
-    // The per-row pair is the headline; the box-level gauge is marked as agreeing
-    // by construction, with the footnote saying so.
-    expect(text).toMatch(/v\.slack\s+124 px\s+v\.overlap\s+0 px/)
+    // The per-row pair is the headline, each with the peak that outlives it; the
+    // box-level gauge is marked as agreeing by construction, with a footnote.
+    expect(text).toMatch(/v\.slack\s+124 px\s+pk\s+980 px/)
+    expect(text).toMatch(/v\.overlap\s+0 px\s+pk\s+0 px/)
     expect(text).toMatch(/v\.blank agrees by construction/)
   })
 })

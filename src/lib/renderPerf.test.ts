@@ -794,6 +794,18 @@ describe('renderPerf virtualizer geometry gauges', () => {
     expect(renderPerfSnapshot(1000).gauges).toEqual({})
   })
 
+  it('exposes gauge peaks in the snapshot but nothing at all while off', () => {
+    publishVirtualRowSlackGauges(980, 60)
+    expect(renderPerfSnapshot(1000).peakGauges).toEqual({})
+
+    setRenderPerfEnabled(true, { persist: false })
+    publishVirtualRowSlackGauges(980, 60)
+    expect(renderPerfSnapshot(2000).peakGauges).toEqual({
+      [PERF_GAUGE_VIRTUAL_SLACK]: 980,
+      [PERF_GAUGE_VIRTUAL_OVERLAP]: 60
+    })
+  })
+
   it('publishes the summed row slack and overlap', () => {
     setRenderPerfEnabled(true, { persist: false })
 
@@ -812,6 +824,32 @@ describe('renderPerf virtualizer geometry gauges', () => {
     const gauges = renderPerfSnapshot(1000).gauges
     expect(gauges[PERF_GAUGE_VIRTUAL_SLACK]).toBe(0)
     expect(gauges[PERF_GAUGE_VIRTUAL_OVERLAP]).toBe(0)
+  })
+
+  it('keeps a gauge peak after the transient value has passed', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    renderPerfSnapshot(1000)
+
+    // The stripe spikes and is gone again before the next snapshot closes.
+    publishVirtualRowSlackGauges(980, 60)
+    publishVirtualRowSlackGauges(0, 0)
+
+    const snapshot = renderPerfSnapshot(2000)
+    expect(snapshot.gauges[PERF_GAUGE_VIRTUAL_SLACK]).toBe(0)
+    expect(snapshot.gauges[PERF_GAUGE_VIRTUAL_OVERLAP]).toBe(0)
+    expect(snapshot.peakGauges[PERF_GAUGE_VIRTUAL_SLACK]).toBe(980)
+    expect(snapshot.peakGauges[PERF_GAUGE_VIRTUAL_OVERLAP]).toBe(60)
+  })
+
+  it('clears the gauge peaks when the HUD is toggled, like the other session peaks', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    publishVirtualRowSlackGauges(980, 0)
+    expect(renderPerfSnapshot(1000).peakGauges[PERF_GAUGE_VIRTUAL_SLACK]).toBe(980)
+
+    setRenderPerfEnabled(false, { persist: false })
+    setRenderPerfEnabled(true, { persist: false })
+
+    expect(renderPerfSnapshot(5000).peakGauges).toEqual({})
   })
 
   it('runs the installed sampler once per snapshot, and only while enabled', () => {

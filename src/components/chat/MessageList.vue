@@ -28,6 +28,7 @@ import { shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
 import { rootTracesOf } from '../../lib/subAgentTraceTree'
 import { messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
 import {
+  PERF_GAUGE_FROZEN_TURNS,
   PERF_GAUGE_SCOPED_ROWS,
   PERF_GAUGE_VISIBLE_ROWS,
   bump,
@@ -1891,6 +1892,9 @@ onUpdated(() => {
   bump('render:MessageList')
   setGauge(PERF_GAUGE_VISIBLE_ROWS, virtualRows.value.length)
   setGauge(PERF_GAUGE_SCOPED_ROWS, extraScopedForWindow.value.length)
+  // Map size, not a scan: the frozen per-turn file-changes cache is the largest
+  // app-side cache this component owns.
+  setGauge(PERF_GAUGE_FROZEN_TURNS, frozenFileChangesCache?.map.size ?? 0)
 })
 
 function spacingPixels(

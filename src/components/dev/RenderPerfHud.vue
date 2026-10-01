@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onScopeDispose } from 'vue'
 import {
   PERF_CALL_KEYS,
+  PERF_GAUGE_FROZEN_TURNS,
   PERF_GAUGE_SCOPED_ROWS,
   PERF_GAUGE_VISIBLE_ROWS,
   PERF_HUD_SHORTCUT_LABEL,
@@ -10,6 +11,16 @@ import {
   PERF_RENDER_KEYS,
   useRenderPerfSnapshot
 } from '../../lib/renderPerf'
+import {
+  formatBytes,
+  formatCount,
+  formatDelta,
+  installMemoryProbe,
+  readDomNodeCount,
+  readJsHeap,
+  type MemoryGaugeReading,
+  type MemoryStats
+} from '../../lib/memoryProbe'
 
 /**
  * Dev-only render performance overlay (see `lib/renderPerf.ts`).
@@ -20,7 +31,23 @@ import {
  *
  * Rendered as a single pre-formatted text block: the 4 Hz refresh then costs
  * one text update instead of a vnode tree.
+ *
+ * The frontend memory rows come from `lib/memoryProbe.ts`. The probe is installed
+ * here — so it exists only while the HUD is mounted — and samples at most once a
+ * second off the existing snapshot tick (no second timer).
  */
+const props = defineProps<{
+  /** Cheap app-side counters (transcript length, cache entries, …), read at sample time only. */
+  readGauges?: () => MemoryGaugeReading[]
+}>()
+
+const memoryProbe = installMemoryProbe({
+  readDomNodes: readDomNodeCount,
+  readHeap: readJsHeap,
+  readGauges: () => props.readGauges?.() ?? []
+})
+onScopeDispose(() => memoryProbe.dispose())
+
 const snapshot = useRenderPerfSnapshot()
 
 function pad(value: number, width: number, digits = 1): string {
@@ -31,6 +58,26 @@ function group(keys: readonly string[], values: Record<string, number>, digits =
   return keys.map(key => `${key.padEnd(30)}${pad(values[key] ?? 0, width, digits)}`)
 }
 
+/**
+ * Current / peak / delta-since-open rows, with `n/a` for anything the webview or
+ * the app cannot report (WKWebView has no `performance.memory`).
+ */
+function memoryLines(stats: MemoryStats | null): string[] {
+  if (!stats) return ['mem  heap n/a  nodes n/a']
+  return [
+    `mem  heap ${formatBytes(stats.heapUsed.current)} / ${formatBytes(stats.heapTotalBytes)}`
+      + `  pk ${formatBytes(stats.heapUsed.peak)}`
+      + `  Δ ${formatDelta(stats.heapUsed.delta, formatBytes)}`,
+    `mem  nodes ${formatCount(stats.domNodes.current)}`
+      + `  pk ${formatCount(stats.domNodes.peak)}`
+      + `  Δ ${formatDelta(stats.domNodes.delta, formatCount)}`,
+    ...stats.gauges.map(gauge =>
+      `mem  ${gauge.label} ${formatCount(gauge.metric.current)}`
+        + `  pk ${formatCount(gauge.metric.peak)}`
+        + `  Δ ${formatDelta(gauge.metric.delta, formatCount)}`)
+  ]
+}
+
 const text = computed(() => {
   const s = snapshot.value
   return [
@@ -39,7 +86,9 @@ const text = computed(() => {
     `renders/s ${String(s.totalRendersPerSecond).padStart(4)}  `
       + `vis rows ${String(s.gauges[PERF_GAUGE_VISIBLE_ROWS] ?? 0).padStart(3)}  `
       + `scoped ${String(s.gauges[PERF_GAUGE_SCOPED_ROWS] ?? 0).padStart(3)}  `
+      + `frozen ${String(s.gauges[PERF_GAUGE_FROZEN_TURNS] ?? 0).padStart(3)}  `
       + `renders/row ${s.rendersPerVisibleRow.toFixed(2)}`,
+    ...memoryLines(s.memory),
     ...group(PERF_RENDER_KEYS, s.renders),
     ...group(PERF_MOUNT_KEYS, s.mounts),
     ...group(PERF_CALL_KEYS, s.calls),

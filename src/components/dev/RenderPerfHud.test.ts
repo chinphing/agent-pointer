@@ -9,18 +9,20 @@ import {
   record,
   resetPerf,
   setGauge,
-  setRenderPerfEnabled
+  setRenderPerfEnabled,
+  setRenderPerfMemorySampler
 } from '../../lib/renderPerf'
+import type { MemoryGaugeReading } from '../../lib/memoryProbe'
 
 let container: HTMLDivElement | null = null
 let app: App | null = null
 /** Manually driven clock — vitest's `toFake: ['performance']` does not advance it. */
 let fakeNowMs = 0
 
-function mountHud(): void {
+function mountHud(props: { readGauges?: () => MemoryGaugeReading[] } = {}): void {
   container = document.createElement('div')
   document.body.appendChild(container)
-  app = createApp(RenderPerfHud)
+  app = createApp(RenderPerfHud, props)
   app.mount(container)
 }
 
@@ -51,6 +53,7 @@ afterEach(() => {
   container?.remove()
   container = null
   setRenderPerfEnabled(false, { persist: false })
+  setRenderPerfMemorySampler(null)
   vi.restoreAllMocks()
   vi.useRealTimers()
 })
@@ -83,6 +86,21 @@ describe('RenderPerfHud', () => {
     expect(text).toMatch(/scoped\s+11/)
     // 2 renders / 4 visible rows
     expect(text).toMatch(/renders\/row\s+0\.50/)
+  })
+
+  it('shows frontend memory rows with current, peak and delta', async () => {
+    setRenderPerfEnabled(true, { persist: false })
+    let leadMsgs = 10
+    mountHud({ readGauges: () => [{ label: 'lead msgs', value: leadMsgs }] })
+
+    // happy-dom exposes no `performance.memory` — the heap row must say so.
+    expect(hudText()).toMatch(/mem\s+heap n\/a \/ n\/a\s+pk n\/a\s+Δ n\/a/)
+    expect(hudText()).toMatch(/mem\s+nodes \d+\s+pk \d+\s+Δ 0/)
+    expect(hudText()).toMatch(/mem\s+lead msgs 10\s+pk 10\s+Δ 0/)
+
+    leadMsgs = 25
+    await advanceOneSecond()
+    expect(hudText()).toMatch(/mem\s+lead msgs 25\s+pk 25\s+Δ \+15/)
   })
 
   it('clears counters and stops refreshing once the HUD is turned off', async () => {

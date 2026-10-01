@@ -1,4 +1,5 @@
 import { getCurrentScope, onScopeDispose, ref, type Ref } from 'vue'
+import type { MemoryStats } from './memoryProbe'
 
 /**
  * Dev-only render performance instrumentation, surfaced by
@@ -61,6 +62,8 @@ export const PERF_CALL_KEYS = ['call:toolRunAssistantMessage'] as const
 
 export const PERF_GAUGE_VISIBLE_ROWS = 'visibleRows'
 export const PERF_GAUGE_SCOPED_ROWS = 'scopedRows'
+/** Entries in `MessageList`'s frozen per-turn file-changes cache. */
+export const PERF_GAUGE_FROZEN_TURNS = 'frozenTurns'
 
 export interface RenderPerfSnapshot {
   enabled: boolean
@@ -84,6 +87,11 @@ export interface RenderPerfSnapshot {
   totalRendersPerSecond: number
   /** `totalRendersPerSecond / visibleRows` — repeated re-rendering at a glance. */
   rendersPerVisibleRow: number
+  /**
+   * Latest frontend memory reading (see `lib/memoryProbe.ts`). `null` while the
+   * HUD is off, or before the HUD installs its sampler.
+   */
+  memory: MemoryStats | null
 }
 
 // --- module state -----------------------------------------------------------
@@ -207,6 +215,21 @@ function readFrameStats(t: number): { fps: number; frameGapMs: number } {
   return { fps, frameGapMs: longest }
 }
 
+// --- memory sampler ---------------------------------------------------------
+
+/**
+ * Optional frontend memory sampler, installed by the HUD (`lib/memoryProbe.ts`).
+ * It is only invoked while `enabled`, so an installed-but-off probe never reads
+ * the DOM or any cache.
+ */
+let memorySampler: ((nowMs: number) => MemoryStats) | null = null
+
+export function setRenderPerfMemorySampler(
+  sampler: ((nowMs: number) => MemoryStats) | null
+): void {
+  memorySampler = sampler
+}
+
 // --- snapshot ---------------------------------------------------------------
 
 /**
@@ -262,7 +285,8 @@ export function renderPerfSnapshot(nowOverride?: number): RenderPerfSnapshot {
     msPerSecond,
     gauges: gaugeSnapshot,
     totalRendersPerSecond: totalRenders,
-    rendersPerVisibleRow: visibleRows > 0 ? totalRenders / visibleRows : 0
+    rendersPerVisibleRow: visibleRows > 0 ? totalRenders / visibleRows : 0,
+    memory: enabled && memorySampler ? memorySampler(t) : null
   }
 }
 

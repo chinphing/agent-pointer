@@ -25,6 +25,7 @@ import { showScrollbarWhileScrolling } from '../../lib/autoHideScrollbar'
 import ConversationNav from './ConversationNav.vue'
 import RenderPerfHud from '../dev/RenderPerfHud.vue'
 import { useRenderPerfEnabled } from '../../lib/renderPerf'
+import type { MemoryGaugeReading } from '../../lib/memoryProbe'
 
 const { t } = useI18n()
 
@@ -114,6 +115,22 @@ const needsPlatformLogin = computed(
 const experienceSectionExpanded = ref(false)
 /** Dev-only render perf overlay — off unless toggled (see `lib/renderPerf.ts`). */
 const perfHudOn = useRenderPerfEnabled()
+
+/**
+ * App-side counters for the HUD's memory rows (`lib/memoryProbe.ts`). Called at
+ * most once per second and only while the HUD is on. Reads array lengths and
+ * agent-trace counts — never walks the scoped sub-agent store.
+ */
+function readMemoryGauges(): MemoryGaugeReading[] {
+  const messages = chat.current?.messages ?? []
+  let spawns = 0
+  for (const message of messages) spawns += message.agentTrace?.length ?? 0
+  return [
+    { label: 'lead msgs', value: messages.length },
+    { label: 'spawns', value: spawns }
+  ]
+}
+
 let mobileMediaQuery: MediaQueryList | null = null
 
 function updateMobileViewport() {
@@ -449,7 +466,7 @@ const toastClass = computed(() => {
       </div>
     </div>
     <Composer v-if="showFooterComposer" />
-    <RenderPerfHud v-if="perfHudOn" />
+    <RenderPerfHud v-if="perfHudOn" :read-gauges="readMemoryGauges" />
   </div>
 </template>
 

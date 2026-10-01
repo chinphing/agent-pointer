@@ -26,6 +26,8 @@ import ConversationNav from './ConversationNav.vue'
 import RenderPerfHud from '../dev/RenderPerfHud.vue'
 import { useRenderPerfEnabled } from '../../lib/renderPerf'
 import type { MemoryGaugeReading } from '../../lib/memoryProbe'
+import { measureChatRetention } from '../../lib/chatRetention'
+import { EMPTY_RESIDENCY_CHAT, type ResidencyChatReading } from '../../lib/residencyProbe'
 
 const { t } = useI18n()
 
@@ -129,6 +131,25 @@ function readMemoryGauges(): MemoryGaugeReading[] {
     { label: 'lead msgs', value: messages.length },
     { label: 'spawns', value: spawns }
   ]
+}
+
+/**
+ * Retained chat text for the HUD's residency rows (`lib/residencyProbe.ts`), read
+ * at most once every few seconds and only while the HUD is on. Walks the lead
+ * transcript and the live scoped rows — the dominant holders in a long
+ * conversation, and the thing a leak has to be told apart from — so it is not a
+ * per-tick read.
+ */
+function readResidency(): ResidencyChatReading {
+  const conversation = chat.current
+  if (!conversation) return EMPTY_RESIDENCY_CHAT
+  return {
+    ...measureChatRetention(
+      conversation.messages ?? [],
+      chat.listScopedRows(conversation.id)
+    ),
+    scopedSpawns: chat.countScopedSpawns(conversation.id)
+  }
 }
 
 let mobileMediaQuery: MediaQueryList | null = null
@@ -466,7 +487,7 @@ const toastClass = computed(() => {
       </div>
     </div>
     <Composer v-if="showFooterComposer" />
-    <RenderPerfHud v-if="perfHudOn" :read-gauges="readMemoryGauges" />
+    <RenderPerfHud v-if="perfHudOn" :read-gauges="readMemoryGauges" :read-residency="readResidency" />
   </div>
 </template>
 

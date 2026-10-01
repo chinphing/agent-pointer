@@ -709,22 +709,37 @@ export function setRenderPerfMemorySampler(
  * of its own, so the read (which includes `scrollHeight`, a layout-forcing one)
  * happens at the HUD's 4 Hz cadence rather than once per component update.
  */
-let gaugeSampler: (() => void) | null = null
+/**
+ * Geometry samplers, registered by whoever has live gauges to publish
+ * (`MessageList` for the virtualizer, `lib/residencyProbe.ts` for the cache and
+ * chat residency). Like the memory sampler they are invoked only while `enabled`
+ * — and they ride the existing snapshot tick instead of a timer of their own, so
+ * a read that forces layout (`scrollHeight`) happens at the HUD's 4 Hz cadence
+ * rather than once per component update.
+ *
+ * A set, not a slot: the geometry gauges and the residency panel are published on
+ * the same tick, and installing one must not unregister the other.
+ */
+const gaugeSamplers = new Set<(nowMs: number) => void>()
 
-/** Low-level slot, mirroring `setRenderPerfMemorySampler` (tests, one sampler at a time). */
-export function setRenderPerfGaugeSampler(sampler: (() => void) | null): void {
-  gaugeSampler = sampler
+/** Low-level replace-all, mirroring `setRenderPerfMemorySampler` (tests, one sampler). */
+export function setRenderPerfGaugeSampler(sampler: ((nowMs: number) => void) | null): void {
+  gaugeSamplers.clear()
+  if (sampler) gaugeSamplers.add(sampler)
 }
 
 /**
- * Install a geometry sampler and return its disposer. The disposer clears the
- * slot only while this sampler is still the installed one, so a component that
- * unmounts after a newer one registered cannot unsubscribe its successor.
+ * Install a sampler and return its disposer. The disposer removes exactly this
+ * sampler, so a component that unmounts after a newer one registered cannot
+ * unsubscribe its successor. The sampler receives the tick's timestamp, so every
+ * sampler on the pass shares one clock.
  */
-export function installRenderPerfGaugeSampler(sampler: () => void): () => void {
-  gaugeSampler = sampler
+export function installRenderPerfGaugeSampler(
+  sampler: (nowMs: number) => void
+): () => void {
+  gaugeSamplers.add(sampler)
   return () => {
-    if (gaugeSampler === sampler) gaugeSampler = null
+    gaugeSamplers.delete(sampler)
   }
 }
 
@@ -812,9 +827,11 @@ export function renderPerfSnapshot(nowOverride?: number): RenderPerfSnapshot {
   for (const [name, value] of closedMs) {
     if (value > 0) msPerSecond[name] = value
   }
-  // Refresh the live geometry gauges once per snapshot — never per update: the
-  // read includes `scrollHeight`, which forces layout when the DOM is dirty.
-  if (enabled && gaugeSampler) gaugeSampler()
+  // Refresh the live gauges once per snapshot — never per update: the read
+  // includes `scrollHeight`, which forces layout when the DOM is dirty.
+  if (enabled) {
+    for (const sampler of gaugeSamplers) sampler(t)
+  }
   const gaugeSnapshot: Record<string, number> = {}
   for (const [name, value] of gauges) gaugeSnapshot[name] = value
   const peakGaugeSnapshot: Record<string, number> = {}

@@ -315,6 +315,27 @@ export function createConversationScopedStore() {
     return out
   }
 
+  /**
+   * Live scoped rows for one conversation, counted without building the array
+   * `listRows` returns. Read-only, for the HUD's residency panel: it is the row
+   * count that tells a growing transcript apart from a leak (see `lib/residencyProbe.ts`).
+   */
+  function countRows(convId: string): number {
+    const state = getState(convId)
+    if (!state) return 0
+    let count = 0
+    for (const transcript of state.bySpawn.values()) {
+      if (transcript.loadState === 'evicted') continue
+      count += transcript.rows.length
+    }
+    return count
+  }
+
+  /** Spawn transcripts retained for one conversation, evicted ones included. */
+  function countSpawns(convId: string): number {
+    return getState(convId)?.bySpawn.size ?? 0
+  }
+
   function listUnpersistedRows(
     convId: string,
     persistedIds?: ReadonlySet<string>
@@ -507,6 +528,8 @@ export function createConversationScopedStore() {
     getRows,
     hasLoadedRows,
     listRows,
+    countRows,
+    countSpawns,
     listUnpersistedRows,
     listSpawnIdsForAnchors,
     collectRowsForAnchors,

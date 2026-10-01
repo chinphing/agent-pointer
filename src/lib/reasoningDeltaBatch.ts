@@ -89,6 +89,22 @@ let toolOutputApplyHandler: ToolOutputDeltaApply | null = null
 let webSearchOutputApplyHandler: WebSearchOutputDeltaApply | null = null
 let jsonPartialApplyHandler: AssistantJsonPartialApply | null = null
 
+/**
+ * Entries still buffered across all six pending maps. Read-only: these are
+ * released per message (`delete`/`clear`), so a number that only ever grows
+ * between flushes means a message stopped being released (see `lib/residencyProbe.ts`).
+ */
+export function pendingDeltaCount(): number {
+  return (
+    reasoningPending.size +
+    contentPending.size +
+    toolArgsPending.size +
+    toolOutputPending.size +
+    webSearchOutputPending.size +
+    jsonPartialPending.size
+  )
+}
+
 function bufferKey(messageId: string, traceId?: string, scopedMessageId?: string): string {
   const tid = traceId?.trim()
   const sid = scopedMessageId?.trim()

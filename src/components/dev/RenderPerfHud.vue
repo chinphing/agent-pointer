@@ -35,6 +35,13 @@ import {
   type MemoryStats
 } from '../../lib/memoryProbe'
 import { writeClipboardText, CLIPBOARD_FEEDBACK_MS } from '../../lib/clipboardText'
+import {
+  EMPTY_RESIDENCY_CHAT,
+  RESIDENCY_CACHES,
+  RESIDENCY_GAUGES,
+  installResidencyProbe,
+  type ResidencyChatReading
+} from '../../lib/residencyProbe'
 
 /**
  * Dev-only render performance overlay (see `lib/renderPerf.ts`).
@@ -56,10 +63,21 @@ import { writeClipboardText, CLIPBOARD_FEEDBACK_MS } from '../../lib/clipboardTe
  * The frontend memory rows come from `lib/memoryProbe.ts`. The probe is installed
  * here — so it exists only while the HUD is mounted — and samples at most once a
  * second off the existing snapshot tick (no second timer).
+ *
+ * The residency rows come from `lib/residencyProbe.ts`, installed the same way and
+ * on the same tick: every long-lived cache's entry count, the retained chat text,
+ * and the growth of the three things that can leak (characters, DOM nodes, cache
+ * entries) since the HUD was opened. Its chat counters are read at most once every
+ * few seconds, because that read walks the transcript.
  */
 const props = defineProps<{
   /** Cheap app-side counters (transcript length, cache entries, …), read at sample time only. */
   readGauges?: () => MemoryGaugeReading[]
+  /**
+   * Retained chat text for the residency rows, read at sample time only. Injected
+   * because it needs the chat store, which this dev component must not import.
+   */
+  readResidency?: () => ResidencyChatReading
 }>()
 
 const memoryProbe = installMemoryProbe({
@@ -68,6 +86,12 @@ const memoryProbe = installMemoryProbe({
   readGauges: () => props.readGauges?.() ?? []
 })
 onScopeDispose(() => memoryProbe.dispose())
+
+const residencyProbe = installResidencyProbe({
+  readChat: () => props.readResidency?.() ?? EMPTY_RESIDENCY_CHAT,
+  readDomNodes: readDomNodeCount
+})
+onScopeDispose(() => residencyProbe.dispose())
 
 const snapshot = useRenderPerfSnapshot()
 
@@ -145,6 +169,75 @@ function memoryLines(stats: MemoryStats | null): string[] {
         + `  pk ${formatCount(gauge.metric.peak)}`
         + `  Δ ${formatDelta(gauge.metric.delta, formatCount)}`)
   ]
+}
+
+/** `1234 px`, `12.3k px` — the normalising denominator, kept short. */
+/** `84.2k` / `1.20M` — a character count, kept to a few columns. */
+function formatChars(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return 'n/a'
+  const magnitude = Math.abs(value)
+  if (magnitude < 10_000) return String(Math.round(value))
+  if (magnitude < 1_000_000) return `${(value / 1000).toFixed(1)}k`
+  return `${(value / 1_000_000).toFixed(2)}M`
+}
+
+/** `+12.4k` / `-3` — direction is the whole point of a growth row. */
+function formatSignedChars(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return 'n/a'
+  if (value === 0) return '0'
+  return `${value > 0 ? '+' : '-'}${formatChars(Math.abs(value))}`
+}
+
+/** `+8.9k` / `-0.40` — a per-minute rate; `n/a` before any time has passed. */
+function formatRate(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return 'n/a'
+  if (value === 0) return '0'
+  if (Math.abs(value) >= 1) return formatSignedChars(value)
+  return `${value > 0 ? '+' : '-'}${Math.abs(value).toFixed(2)}`
+}
+
+/**
+ * Residency rows (see `lib/residencyProbe.ts`): one row per long-lived cache with
+ * its entry count (and, for the markdown parse cache, the source characters it
+ * retains — 120 short messages and 120 long ones are not the same amount of
+ * memory), then the retained chat text, then the growth of the three things that
+ * can leak. Growth is `Δ since the HUD was opened` and the same delta per minute:
+ * a transcript that grows while scrolling is characters per minute, a cache that
+ * never shrinks after its bound should have evicted is entries per minute. `n/a`
+ * means the reading is unavailable or too young to have a rate.
+ */
+function residencyLines(gauges: Record<string, number>): string[] {
+  const openMinutes = (gauges[RESIDENCY_GAUGES.elapsedMs] ?? 0) / 60_000
+  const lines = [`residency  open ${openMinutes.toFixed(1)} min`]
+
+  for (const cache of RESIDENCY_CACHES) {
+    const entries = String(gauges[cache.gauge] ?? 0).padStart(5)
+    const chars = cache.chars
+      ? `  src ${formatChars(gauges[cache.chars.gauge] ?? 0).padStart(7)}`
+      : ''
+    lines.push(`  ${cache.label.padEnd(18)}${entries} ent${chars}`)
+  }
+
+  const growthRow = (label: string, deltaGauge: string, rateGauge: string): string =>
+    `  growth ${label.padEnd(10)}${formatSignedChars(gauges[deltaGauge] ?? null).padStart(8)}`
+      + `  ${formatRate(gauges[rateGauge] ?? null).padStart(8)}/min`
+
+  lines.push(
+    `  ${'cache total'.padEnd(18)}${String(gauges[RESIDENCY_GAUGES.cacheEntries] ?? 0).padStart(5)} ent`,
+    `  ${'lead chars'.padEnd(18)}${formatChars(gauges[RESIDENCY_GAUGES.leadChars] ?? 0).padStart(7)}`
+      + `  msgs ${String(gauges[RESIDENCY_GAUGES.leadMessages] ?? 0).padStart(4)}`,
+    `  ${'scoped chars'.padEnd(18)}${formatChars(gauges[RESIDENCY_GAUGES.scopedChars] ?? 0).padStart(7)}`
+      + `  rows ${String(gauges[RESIDENCY_GAUGES.scopedRows] ?? 0).padStart(4)}`
+      + `  spawns ${String(gauges[RESIDENCY_GAUGES.scopedSpawns] ?? 0).padStart(3)}`,
+    `  ${'tool bodies'.padEnd(18)}${String(gauges[RESIDENCY_GAUGES.toolBodies] ?? 0).padStart(5)}`
+      + `  asides ${String(gauges[RESIDENCY_GAUGES.asides] ?? 0).padStart(4)}`
+      + `  nodes ${formatChars(gauges[RESIDENCY_GAUGES.domNodes] ?? 0).padStart(7)}`,
+    growthRow('chars', RESIDENCY_GAUGES.charsDelta, RESIDENCY_GAUGES.charsPerMinute),
+    growthRow('caches', RESIDENCY_GAUGES.cacheEntriesDelta, RESIDENCY_GAUGES.cacheEntriesPerMinute),
+    growthRow('nodes', RESIDENCY_GAUGES.domNodesDelta, RESIDENCY_GAUGES.domNodesPerMinute)
+  )
+
+  return lines
 }
 
 /** `1234 px`, `12.3k px` — the normalising denominator, kept short. */
@@ -266,6 +359,7 @@ const bodyLines = computed<string[]>(() => {
     ...virtualGeometryLines(s.gauges, s.peakGauges),
     ...scrollCostLines(s.scrollDistancePx, s.per1000Px),
     ...memoryLines(s.memory),
+    ...residencyLines(s.gauges),
     ...group(PERF_RENDER_KEYS, s.renders, s.peakRenders),
     ...group(PERF_MOUNT_KEYS, s.mounts, s.peakMounts),
     ...group(PERF_CALL_KEYS, s.calls, s.peakCalls),

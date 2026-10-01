@@ -3968,6 +3968,11 @@ export const useChatStore = defineStore('chat', () => {
     ensureToolCallBody, releaseToolCallBody: releasePinnedToolBody,
     ensureMessageAside,
     scopedRowsForAnchors: scopedStore.collectRowsForAnchors,
-    scopedSpawnIdsForAnchors: scopedStore.listSpawnIdsForAnchors
+    scopedSpawnIdsForAnchors: scopedStore.listSpawnIdsForAnchors,
+    // Read-only residency reads for the HUD's residency panel
+    // (`lib/residencyProbe.ts`): the live scoped rows and the transcripts retained
+    // for the open conversation. Neither writes, and neither changes eviction.
+    listScopedRows: scopedStore.listRows,
+    countScopedSpawns: scopedStore.countSpawns
   }
 })

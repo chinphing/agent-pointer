@@ -9,6 +9,14 @@ type AttachmentPayload = {
 
 const payloads = new Map<string, AttachmentPayload>()
 
+/**
+ * Attachments whose bytes are still held in memory. Read-only: `releaseComposerAttachment`
+ * and `clearComposerAttachmentPayloads` remain the only writers (see `lib/residencyProbe.ts`).
+ */
+export function composerAttachmentPayloadCount(): number {
+  return payloads.size
+}
+
 function createObjectUrl(file: File): string | undefined {
   if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
     return undefined

@@ -55,6 +55,16 @@ const ANON_SCOPE = 'anon'
 const byConversation = new Map<string, MutableTurnExpandUiState>()
 let activeScope = ANON_SCOPE
 
+/**
+ * Conversations whose expand/collapse state is retained. Read-only: eviction
+ * (`MAX_CONVERSATIONS`) and the scope reset stay the only writers — this is the
+ * row that shows whether the map is holding far more conversations than the cap
+ * (see `lib/residencyProbe.ts`).
+ */
+export function turnExpandConversationCount(): number {
+  return byConversation.size
+}
+
 function cloneSet(ids: ReadonlySet<string>): Set<string> {
   return new Set(ids)
 }

@@ -574,6 +574,25 @@ const markdownParseCache = new Map<string, MarkdownParseCacheEntry>()
 let markdownParseCacheSourceChars = 0
 
 /**
+ * Entries currently held by `markdownParseCache`. Read-only: the HUD reports it
+ * (see `lib/residencyProbe.ts`) and nothing here branches on it, so the bound and
+ * the eviction order above stay the only thing that decides the cache's size.
+ */
+export function markdownParseCacheSize(): number {
+  return markdownParseCache.size
+}
+
+/**
+ * Source characters the cached entries retain, the second dimension of the same
+ * cache (bounded by `MARKDOWN_PARSE_CACHE_MAX_SOURCE_CHARS`). This is the number
+ * that makes the entry count interpretable: 120 short messages and 120 long ones
+ * cost very different amounts of memory.
+ */
+export function markdownParseCacheRetainedChars(): number {
+  return markdownParseCacheSourceChars
+}
+
+/**
  * Cache key: a fixed-width flag prefix followed by the source verbatim, so two
  * different (flags, source) pairs can never collide.
  */

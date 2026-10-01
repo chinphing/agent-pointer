@@ -953,13 +953,46 @@ describe('renderPerf virtualizer geometry gauges', () => {
     expect(withSpacer[PERF_GAUGE_VIRTUAL_OVERLAP]).toBe(60)
   })
 
+  it('runs every installed sampler on the same tick', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    const geometryCalls = vi.fn()
+    const residencyCalls = vi.fn()
+    const disposeGeometry = installRenderPerfGaugeSampler(nowMs => {
+      geometryCalls(nowMs)
+      setGauge('samplerGeometry', nowMs)
+    })
+    disposeGaugeSampler = installRenderPerfGaugeSampler(nowMs => {
+      residencyCalls(nowMs)
+      setGauge('samplerResidency', nowMs)
+    })
+
+    const gauges = renderPerfSnapshot(1000).gauges
+
+    // One pass, both samplers, one clock.
+    expect(geometryCalls).toHaveBeenCalledWith(1000)
+    expect(residencyCalls).toHaveBeenCalledWith(1000)
+    expect(gauges.samplerGeometry).toBe(1000)
+    expect(gauges.samplerResidency).toBe(1000)
+
+    // Disposing one leaves the other registered.
+    disposeGeometry()
+    expect(renderPerfSnapshot(2000).gauges.samplerResidency).toBe(2000)
+    expect(geometryCalls).toHaveBeenCalledTimes(1)
+  })
+
   it('leaves a newer sampler installed when an older one is disposed', () => {
     setRenderPerfEnabled(true, { persist: false })
-    const older = installRenderPerfGaugeSampler(() => setGauge(PERF_GAUGE_VIRTUAL_TOTAL, 1))
+    const olderCalls = vi.fn()
+    const older = installRenderPerfGaugeSampler(nowMs => {
+      olderCalls(nowMs)
+      setGauge(PERF_GAUGE_VIRTUAL_TOTAL, 1)
+    })
     disposeGaugeSampler = installRenderPerfGaugeSampler(() => setGauge(PERF_GAUGE_VIRTUAL_TOTAL, 2))
 
     older()
 
     expect(renderPerfSnapshot(1000).gauges[PERF_GAUGE_VIRTUAL_TOTAL]).toBe(2)
+    // Disposed means gone, not merely outvoted by the newer writer.
+    expect(olderCalls).not.toHaveBeenCalled()
   })
 })

@@ -19,13 +19,23 @@ import {
 import type { MemoryGaugeReading } from '../../lib/memoryProbe'
 import { CLIPBOARD_FEEDBACK_MS } from '../../lib/clipboardText'
 import { MESSAGE_VIRTUAL_ROW_ESTIMATE } from '../../lib/messageVirtualization'
+import {
+  EMPTY_RESIDENCY_CHAT,
+  RESIDENCY_CACHES,
+  type ResidencyChatReading
+} from '../../lib/residencyProbe'
 
 let container: HTMLDivElement | null = null
 let app: App | null = null
 /** Manually driven clock — vitest's `toFake: ['performance']` does not advance it. */
 let fakeNowMs = 0
 
-function mountHud(props: { readGauges?: () => MemoryGaugeReading[] } = {}): void {
+function mountHud(
+  props: {
+    readGauges?: () => MemoryGaugeReading[]
+    readResidency?: () => ResidencyChatReading
+  } = {}
+): void {
   container = document.createElement('div')
   document.body.appendChild(container)
   app = createApp(RenderPerfHud, props)
@@ -59,13 +69,18 @@ function fireFrame(ts: number): void {
   frameCallback?.(ts)
 }
 
-/** Four 250 ms ticks = one completed aggregation window, then flush the render. */
-async function advanceOneSecond(): Promise<void> {
-  for (let i = 0; i < 4; i++) {
+/** `count` snapshot ticks, keeping the manual clock in step with the timer. */
+async function advanceTicks(count: number): Promise<void> {
+  for (let i = 0; i < count; i++) {
     fakeNowMs += PERF_HUD_SNAPSHOT_MS
     vi.advanceTimersByTime(PERF_HUD_SNAPSHOT_MS)
   }
   await nextTick()
+}
+
+/** Four 250 ms ticks = one completed aggregation window, then flush the render. */
+async function advanceOneSecond(): Promise<void> {
+  await advanceTicks(4)
 }
 
 /** The overlay's clickable block. */
@@ -405,5 +420,63 @@ describe('RenderPerfHud copy to clipboard', () => {
     await advanceOneSecond()
 
     expect(writeText).not.toHaveBeenCalled()
+  })
+})
+
+describe('RenderPerfHud residency panel', () => {
+  it('reports every cache, the retained text and the growth since open', async () => {
+    setRenderPerfEnabled(true, { persist: false })
+    let reading: ResidencyChatReading = {
+      ...EMPTY_RESIDENCY_CHAT,
+      leadMessages: 12,
+      leadChars: 4_000,
+      scopedRows: 3,
+      scopedChars: 500,
+      scopedSpawns: 1,
+      toolBodies: 4,
+      asides: 2
+    }
+    mountHud({ readResidency: () => reading })
+
+    // The first tick takes the baseline.
+    await advanceTicks(1)
+    const baseline = hudText()
+
+    // Every cache in the registry has its own row, with an entry count.
+    for (const cache of RESIDENCY_CACHES) {
+      expect(baseline).toMatch(new RegExp(`${cache.label}\\s+\\d+ ent`))
+    }
+    expect(baseline).toMatch(/cache total\s+\d+ ent/)
+    expect(baseline).toMatch(/residency\s+open 0\.0 min/)
+    expect(baseline).toMatch(/lead chars\s+4000\s+msgs\s+12/)
+    expect(baseline).toMatch(/scoped chars\s+500\s+rows\s+3\s+spawns\s+1/)
+    expect(baseline).toMatch(/tool bodies\s+4\s+asides\s+2\s+nodes\s+\d/)
+    // No time has passed yet, so there is a delta but no rate to divide by.
+    expect(baseline).toMatch(/growth chars\s+0\s+n\/a\/min/)
+    expect(baseline).toMatch(/growth caches\s+0\s+n\/a\/min/)
+
+    reading = { ...reading, leadChars: 6_000 }
+    // Ticks 2..13: the read at +3000 ms is the first one outside the throttle.
+    await advanceTicks(12)
+
+    // +2000 characters over exactly 3 s = +40k/min.
+    expect(hudText()).toMatch(/growth chars\s+\+2000\s+\+40\.0k\/min/)
+    expect(hudText()).toMatch(/lead chars\s+6000\s+msgs\s+12/)
+    // The cache entries and the DOM nodes have their own growth rows.
+    expect(hudText()).toMatch(/growth caches\s+0\s+0\/min/)
+    expect(hudText()).toMatch(/growth nodes\s+[-+0-9.km]+\s+[-+0-9.km]+\/min/)
+  })
+
+  it('does not read the chat counters while the HUD is off', async () => {
+    const readResidency = vi.fn(() => EMPTY_RESIDENCY_CHAT)
+    mountHud({ readResidency })
+
+    // Unmounted HUD: no probe, so no tick and no read at all.
+    await advanceTicks(4)
+    expect(readResidency).not.toHaveBeenCalled()
+
+    setRenderPerfEnabled(true, { persist: false })
+    await advanceTicks(1)
+    expect(readResidency).toHaveBeenCalledTimes(1)
   })
 })

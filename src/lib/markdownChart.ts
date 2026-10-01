@@ -103,6 +103,15 @@ export function canvasHsl(varName: string, fallbackChannels: string, alpha = 1):
  */
 const canvasRgbCache = new Map<string, string>()
 
+/**
+ * Entries currently held by `canvasRgbCache`. Read-only, and the one cache here
+ * with no bound of its own: the HUD row is how its growth becomes visible
+ * (see `lib/residencyProbe.ts`) without changing when entries are written.
+ */
+export function canvasRgbCacheSize(): number {
+  return canvasRgbCache.size
+}
+
 function canvasRgbCacheKey(varName: string, alpha: number): string {
   const scheme =
     typeof document !== 'undefined' && document.documentElement.classList.contains('dark')

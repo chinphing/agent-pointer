@@ -67,6 +67,15 @@ type MermaidHostState = {
 const cleanedSvgByConfig = new Map<string, string>()
 const CLEANED_SVG_CACHE_MAX = 32
 
+/**
+ * Entries currently held by the cleaned-Mermaid cache. Read-only, for the HUD's
+ * residency panel (see `lib/residencyProbe.ts`); `cacheCleanedSvg` and its LRU
+ * bound stay the only thing that writes it.
+ */
+export function markdownMermaidCacheSize(): number {
+  return cleanedSvgByConfig.size
+}
+
 function cacheCleanedSvg(encoded: string, svg: string) {
   if (cleanedSvgByConfig.has(encoded)) {
     cleanedSvgByConfig.delete(encoded)

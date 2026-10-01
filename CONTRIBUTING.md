@@ -32,8 +32,9 @@ cargo test --workspace
 ```
 
 Leave `POINTER_EDITION` unset for everyday local work: the app stays
-unbound and runs standalone. Set `POINTER_EDITION=official` only when you
-need the official control-plane defaults.
+unbound and runs standalone. Set `POINTER_EDITION=managed` only when you
+need control-plane defaults, and inject the domains with it; any other value
+fails the build.
 Details: [docs/contributing/editions.md](docs/contributing/editions.md).
 
 ## Version numbers

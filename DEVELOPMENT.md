@@ -65,7 +65,7 @@ sudo apt-get install -y \
 npm install
 ```
 
-未设置 `POINTER_EDITION` 时即未绑定控制面（standalone，纯本地）。要联调控制面时在 `pointer.local.env` 里设 `POINTER_EDITION=official` 和域名（见 [docs/contributing/editions.md](docs/contributing/editions.md)）。
+未设置 `POINTER_EDITION` 时即未绑定控制面（standalone，纯本地）。要联调控制面时在 `pointer.local.env` 里设 `POINTER_EDITION=managed` 和三个域名（见 [docs/contributing/editions.md](docs/contributing/editions.md)）；写成别的值（含旧值 `official`）会让构建直接失败。
 
 ## 启动开发模式
 

@@ -64,7 +64,7 @@ skills_dir = "skills"
 # Env override: POINTER_SERVER_COMPOSER_PLACEHOLDER
 #
 # Brand-new empty chat tip (optional). Both title and body should be set to show
-# the tip; see docs/ui/web-branding-welcome-elapsed.md
+# the tip; see docs/zh-CN/ui/web-branding-welcome-elapsed.md
 # welcome_tip_title = "我是 Acme AI 助手"
 # welcome_tip_body = "提交附件后我会自动处理，预计 10–30 分钟，期间您可以离开，完成后回来确认即可。"
 # Env: POINTER_SERVER_WELCOME_TIP_TITLE / POINTER_SERVER_WELCOME_TIP_BODY

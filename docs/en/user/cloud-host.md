@@ -1,6 +1,6 @@
 # Cloud host
 
-English | [简体中文](../../user/cloud-host.md)
+English | [简体中文](../../zh-CN/user/cloud-host.md)
 
 Available only with an **officially signed build** and after signing in to the official website account. Builds not bound to a control plane have no purchase entry point.
 
@@ -32,4 +32,4 @@ In a cloud instance's Web UI you can also:
 
 ## Deploying a cloud instance yourself
 
-To deploy `pointer-server`, an ALB, environment variables and multi-user isolation on your own ECS, see **[`../../developer/cloud-host-integration.md`](../../developer/cloud-host-integration.md)**.
+To deploy `pointer-server`, an ALB, environment variables and multi-user isolation on your own ECS, see **[`../../developer/cloud-host-integration.md`](../../zh-CN/developer/cloud-host-integration.md)**.

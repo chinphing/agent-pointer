@@ -1,6 +1,6 @@
 # Using Skills
 
-English | [简体中文](../../user/skills.md)
+English | [简体中文](../../zh-CN/user/skills.md)
 
 Pointer injects reusable capability instructions (translation, document handling, domain workflows, …) into conversations through **Skills**.
 
@@ -33,6 +33,6 @@ On first launch, if Skills are found in directories such as Codex / Claude / Ope
 
 ## Format and compatibility
 
-For the Skill directory structure, frontmatter fields and compatibility rules with Codex / `.agents/skills`, see **[`../../developer/skills-compatibility.md`](../../developer/skills-compatibility.md)**.
+For the Skill directory structure, frontmatter fields and compatibility rules with Codex / `.agents/skills`, see **[`../../developer/skills-compatibility.md`](../../zh-CN/developer/skills-compatibility.md)**.
 
-For implementation details of persistence and load scope see **[`../../developer/skills-persistence.md`](../../developer/skills-persistence.md)** (for integrators and maintainers).
+For implementation details of persistence and load scope see **[`../../developer/skills-persistence.md`](../../zh-CN/developer/skills-persistence.md)** (for integrators and maintainers).

@@ -950,7 +950,7 @@ function composerAttachmentBlockedHint(): string {
  *   remount races / duplicate native events previously added the same file multiple times
  *   into the shared `composerAttachments` store.
  *
- * Common regressions (see docs/contributing/web-media-and-desktop-snapshot.md):
+ * Common regressions (see docs/zh-CN/contributing/web-media-and-desktop-snapshot.md):
  * - Setting `dragDropEnabled: false` in tauri.conf.json — breaks native drops on macOS;
  *   HTML5 fallback is unreliable in Tauri WebView. Keep default `true`.
  * - DOMRect / `getBoundingClientRect` hit tests on `event.payload.position` — coords are

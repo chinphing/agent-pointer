@@ -9,4 +9,4 @@ Runtime slices are merged in `coder/mod.rs` and `explore/mod.rs`. The model only
 | `trace_when.md` | explore body |
 | `file_discipline.md` | explore body; referenced by coder COMMUNICATION |
 
-Dev doc: `docs/agents/coder-explore-prompts.md`.
+Dev doc: `docs/zh-CN/agents/coder-explore-prompts.md`.

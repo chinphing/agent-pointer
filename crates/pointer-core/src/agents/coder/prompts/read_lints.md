@@ -97,4 +97,4 @@ Config entries use the same shell rules as **`terminal`**: Windows `cmd /C`, mac
 
 #### `.pointer/lint.toml`
 
-See **`docs/user/project-lint.md`**. **`parser`** values include `eslint-json`, `ruff-json`, `cargo-json-lines`, **`maven-log`**, `text-on-failure`.
+See **`docs/zh-CN/user/project-lint.md`**. **`parser`** values include `eslint-json`, `ruff-json`, `cargo-json-lines`, **`maven-log`**, `text-on-failure`.

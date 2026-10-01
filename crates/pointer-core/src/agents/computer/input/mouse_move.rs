@@ -3,7 +3,7 @@
 //! Geometry (waypoints) and timing (per-step delays) are planned separately, matching
 //! the Python `MouseMove._generate_path` / `_calculate_intervals` split.
 //!
-//! See `docs/design/computer-mouse-movement-roadmap.md`.
+//! See `docs/zh-CN/design/computer-mouse-movement-roadmap.md`.
 
 use super::mouse_path::{bezier_path, BezierPathConfig, DEFAULT_CONTROL_JITTER_PX};
 use super::timing::{

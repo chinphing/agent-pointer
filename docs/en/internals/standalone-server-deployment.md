@@ -1,6 +1,6 @@
 # pointer-server standalone deployment: the full flow (internal)
 
-English | [简体中文](../../internals/standalone-server-deployment.md)
+English | [简体中文](../../zh-CN/internals/standalone-server-deployment.md)
 
 For the Pointer team: a one-stop operations manual covering **building the release package, issuing a License, and bringing a customer-side standalone deployment online**.
 

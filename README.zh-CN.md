@@ -78,18 +78,18 @@
 
 Pointer 不只是一个跑 Skill 的运行时。它开发业务系统，把人工流程做成 Skill（经 UI 与 HTTP 接口驱动业务系统），再把人工执行沉淀的经验和确定性规则，分别回写到 Skill 和业务系统本身。
 
-![Pointer 业务架构](docs/design/pointer-business-flow.zh-CN.svg)
+![Pointer 业务架构](docs/zh-CN/design/pointer-business-flow.zh-CN.svg)
 
 ### 通用 Agent 能力
 
 | 能力 | 说明 |
 | --- | --- |
-| Agent 系统 | 内置 general、coder、computer、explore。[子智能体](docs/user/subagents.md) 可后台并行，主对话不用停 |
+| Agent 系统 | 内置 general、coder、computer、explore。[子智能体](docs/zh-CN/user/subagents.md) 可后台并行，主对话不用停 |
 | 对话引擎 | 流式输出、Prompt 组装、工具调用；支持超长会话、上下文压缩、里程碑召回 |
 | 工具执行 | 终端、文件读写检索、联网搜索与抓取、任务板；电脑侧靠纯视觉操控有界面的软件（还在打磨） |
-| 技能与扩展 | [Skills](docs/user/skills.md)、[插件](docs/user/plugins.md)、用户 Rules；外部工具接 [MCP](docs/user/mcp.md) |
-| 调度与触发 | 定时任务、[Webhook](docs/user/webhook.md)、IM 入站，经统一调度进对话 |
-| 多入口 | 桌面端、Web 端、[云主机](docs/user/cloud-host.md)，以及[飞书、钉钉、企业微信、微信](docs/user/im-channels.md) |
+| 技能与扩展 | [Skills](docs/zh-CN/user/skills.md)、[插件](docs/zh-CN/user/plugins.md)、用户 Rules；外部工具接 [MCP](docs/zh-CN/user/mcp.md) |
+| 调度与触发 | 定时任务、[Webhook](docs/zh-CN/user/webhook.md)、IM 入站，经统一调度进对话 |
+| 多入口 | 桌面端、Web 端、[云主机](docs/zh-CN/user/cloud-host.md)，以及[飞书、钉钉、企业微信、微信](docs/zh-CN/user/im-channels.md) |
 | 模型接入 | OpenAI 兼容接口。内置千问、深度求索，也可接豆包、Kimi、智谱、OpenRouter 等，不绑死一家 |
 
 ### 为 Skill 开发与测试补上的能力
@@ -98,13 +98,13 @@ Pointer 不只是一个跑 Skill 的运行时。它开发业务系统，把人�
 
 | 场景 | 怎么做 |
 | --- | --- |
-| 按通用格式来写 | [Skills](docs/user/skills.md) 用常见的技能说明格式，和 Codex 一类目录兼容。说明、参考资料、脚本、资源分开放 |
+| 按通用格式来写 | [Skills](docs/zh-CN/user/skills.md) 用常见的技能说明格式，和 Codex 一类目录兼容。说明、参考资料、脚本、资源分开放 |
 | 装进技能库再打开 | 技能库里勾选启用，也支持 zip 导入。本机已有的 Codex、Claude、OpenClaw、Hermes 技能可以一键迁过来 |
-| 对着对话就能改 | 新建、修改、审查、打包交给写代码的子智能体。也可以打进[插件](docs/user/plugins.md)一起发 |
+| 对着对话就能改 | 新建、修改、审查、打包交给写代码的子智能体。也可以打进[插件](docs/zh-CN/user/plugins.md)一起发 |
 | Skill 验证 | 用高并发的后台子 Agent，在隔离环境里跑 Skill，快速过大量测试样本，看执行稳不稳、对不对 |
 | 缺环境就补环境 | 缺 Node、Python 之类，对话里装好再继续测 |
 
-想上手，看 [快速上手](docs/user/getting-started.md)。
+想上手，看 [快速上手](docs/zh-CN/user/getting-started.md)。
 
 ## 路线图
 
@@ -117,16 +117,16 @@ Pointer 不只是一个跑 Skill 的运行时。它开发业务系统，把人�
 
 桌面端、Web 端、IM 通道共用一套 `pointer-core`：界面只负责交互，编排、工具、Skills、会话都在核心层。
 
-![Pointer 架构](docs/design/pointer-architecture.zh-CN.svg)
+![Pointer 架构](docs/zh-CN/design/pointer-architecture.zh-CN.svg)
 
-分层说明见 [docs/developer/architecture.md](docs/developer/architecture.md)。
+分层说明见 [docs/developer/architecture.md](docs/zh-CN/developer/architecture.md)。
 
 ## 文档
 
 | 读者 | 入口 |
 | --- | --- |
-| 用户 | [docs/user/](docs/user/README.md) |
-| 开发者 | [docs/developer/](docs/developer/README.md) |
+| 用户 | [docs/user/](docs/zh-CN/user/README.md) |
+| 开发者 | [docs/developer/](docs/zh-CN/developer/README.md) |
 | 贡献者 | [CONTRIBUTING.md](CONTRIBUTING.md) · [DEVELOPMENT.md](DEVELOPMENT.md) |
 | 安全 | [SECURITY.md](SECURITY.md) |
 | 变更 | [CHANGELOG.md](CHANGELOG.md) |
@@ -158,7 +158,7 @@ npm run web:dev
 | 企业：部署内网控制面服务端 | [managed × 服务端](docs/zh-CN/deploy/README.md#managed-server) |
 
 四格完整清单（构建命令 / 变量 / 产物 / 验证 / 外部依赖）：[docs/zh-CN/deploy/README.md](docs/zh-CN/deploy/README.md)。
-三平台打包：[docs/contributing/cross-platform-build.md](docs/contributing/cross-platform-build.md)。
+三平台打包：[docs/contributing/cross-platform-build.md](docs/zh-CN/contributing/cross-platform-build.md)。
 
 ## 发布
 
@@ -177,7 +177,7 @@ npm run tauri:build
 npm run server:build
 ```
 
-打包细节：[docs/contributing/cross-platform-build.md](docs/contributing/cross-platform-build.md)；版本号规则：[docs/contributing/versioning.md](docs/contributing/versioning.md)。
+打包细节：[docs/contributing/cross-platform-build.md](docs/zh-CN/contributing/cross-platform-build.md)；版本号规则：[docs/contributing/versioning.md](docs/zh-CN/contributing/versioning.md)。
 
 ## 致谢
 

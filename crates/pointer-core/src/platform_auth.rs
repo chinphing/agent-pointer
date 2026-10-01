@@ -36,7 +36,7 @@ const LOOPBACK_FIRST_BYTE_TIMEOUT_MS: u64 = 2_500;
 const LOOPBACK_HEADERS_TIMEOUT_SEC: u64 = 30;
 /// 上次成功绑定的 loopback 端口；下次从下一个端口起绑，避免浏览器复用旧 keep-alive。
 static LAST_LOOPBACK_PORT: AtomicU16 = AtomicU16::new(0);
-/// 桌面 OAuth 成功后跳转官网首页时携带的 query 名；官网据此展示一次性提示（见 `docs/developer/desktop-oauth-web-integration.md`）。
+/// 桌面 OAuth 成功后跳转官网首页时携带的 query 名；官网据此展示一次性提示（见 `docs/zh-CN/developer/desktop-oauth-web-integration.md`）。
 pub const DESKTOP_OAUTH_SUCCESS_QUERY: &str = "desktop_oauth";
 /// 与 [`DESKTOP_OAUTH_SUCCESS_QUERY`] 搭配的值。
 pub const DESKTOP_OAUTH_SUCCESS_VALUE: &str = "success";

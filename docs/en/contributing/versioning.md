@@ -1,6 +1,6 @@
 # Version management
 
-English | [简体中文](../../contributing/versioning.md)
+English | [简体中文](../../zh-CN/contributing/versioning.md)
 
 The application version has a single source of truth: the repository root **`VERSION`** file (currently e.g. `0.1.2`).
 

@@ -78,7 +78,7 @@ A digital employee should not compete with a person for the computer. The memory
 
 Pointer is more than a runtime for Skills. It builds the business system, helps turn manual work into a Skill that drives it through its UI and HTTP interfaces, and carries what manual runs teach back into the Skill and the system itself.
 
-![Pointer business flow](docs/design/pointer-business-flow.en.svg)
+![Pointer business flow](docs/zh-CN/design/pointer-business-flow.en.svg)
 
 ### General agent capabilities
 
@@ -88,7 +88,7 @@ Pointer is more than a runtime for Skills. It builds the business system, helps 
 | Chat engine | Streaming, prompt assembly, and tool calling; long conversations, context compression, and milestone recall |
 | Tools | Terminal, file read/write/search, web search and fetch, task board; vision computer control for GUI apps (still being improved) |
 | Skills and extensions | [Skills](docs/en/user/skills.md), [plugins](docs/en/user/plugins.md), and user rules; external tools via [MCP](docs/en/user/mcp.md) |
-| Dispatch and triggers | Scheduled tasks, [webhooks](docs/user/webhook.md), and IM inbound events enter chat through one dispatcher |
+| Dispatch and triggers | Scheduled tasks, [webhooks](docs/zh-CN/user/webhook.md), and IM inbound events enter chat through one dispatcher |
 | Entry points | Desktop, web, [cloud host](docs/en/user/cloud-host.md), and [Feishu, DingTalk, WeCom, and WeChat](docs/en/user/im-channels.md) |
 | Model access | OpenAI-compatible APIs. Qwen and DeepSeek are built in; Doubao, Kimi, Zhipu, OpenRouter, and others can be added—no single-vendor lock-in |
 
@@ -117,7 +117,7 @@ Start with [getting started](docs/en/user/getting-started.md).
 
 The desktop app, web app, and IM channels share one `pointer-core`. The UI handles interaction; orchestration, tools, Skills, and sessions live in the core.
 
-![Pointer architecture](docs/design/pointer-architecture.en.svg)
+![Pointer architecture](docs/zh-CN/design/pointer-architecture.en.svg)
 
 Layer notes: [docs/en/developer/architecture.md](docs/en/developer/architecture.md).
 

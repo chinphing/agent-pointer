@@ -1,6 +1,6 @@
 # Pointer client / server: the account and control-plane rework
 
-English | [简体中文](../../design/control-plane-and-editions.md)
+English | [简体中文](../../zh-CN/design/control-plane-and-editions.md)
 
 Status: P0 (gating and visibility) has landed; P1 (a bindable control plane) awaits review.  
 Repository: agent-pointer. Product name: Pointer.  
@@ -293,4 +293,4 @@ Known leftovers (for a later dedicated pass):
 - [../user/standalone-server.md](../user/standalone-server.md)
 - [../developer/standalone-deployment.md](../developer/standalone-deployment.md)
 - [../developer/architecture.md](../developer/architecture.md)
-- [../../developer/desktop-oauth-web-integration.md](../../developer/desktop-oauth-web-integration.md)
+- [../../developer/desktop-oauth-web-integration.md](../../zh-CN/developer/desktop-oauth-web-integration.md)

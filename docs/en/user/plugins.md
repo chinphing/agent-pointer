@@ -1,6 +1,6 @@
 # Pointer plugin development guide (user level)
 
-English | [简体中文](../../user/plugins.md)
+English | [简体中文](../../zh-CN/user/plugins.md)
 
 > For plugin authors. This document explains **how to write a Pointer native plugin from scratch** (`pointer-plugin.toml`),
 > and how to import an existing Codex / Claude Code plugin as the Pointer native format.

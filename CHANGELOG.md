@@ -27,7 +27,7 @@ Versions follow the root `VERSION` file.
   longer a valid `POINTER_EDITION` value — an unknown value fails the build
   instead of silently staying unbound.
 - `docs/en/deploy/editions.md` documents all four build × runtime
-  combinations; `docs/developer/README.md` carries the entry table.
+  combinations; `docs/zh-CN/developer/README.md` carries the entry table.
 - The public repository is named **agent-pointer**.
 
 ### Security

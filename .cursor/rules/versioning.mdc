@@ -12,4 +12,4 @@ When the user asks to upgrade / bump the app version:
 3. Run `npm run version:check` and confirm it passes.
 4. Do **not** hand-edit `package.json`, `tauri.conf.json`, Cargo crate versions, or `src/lib/appVersion.ts` for version bumps.
 
-Details: `docs/contributing/versioning.md`.
+Details: `docs/zh-CN/contributing/versioning.md`.

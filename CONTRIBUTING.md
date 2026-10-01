@@ -41,10 +41,10 @@ Details: [docs/en/deploy/editions.md](docs/en/deploy/editions.md).
 
 Change only the root `VERSION` file, then run `npm run version:sync`.
 Do not hand-edit `package.json` or `tauri.conf.json` versions.
-See [docs/contributing/versioning.md](docs/contributing/versioning.md).
+See [docs/contributing/versioning.md](docs/zh-CN/contributing/versioning.md).
 
 ## Documentation
 
-- User tutorials: [docs/user/](docs/user/README.md)
-- Developer docs: [docs/developer/](docs/developer/README.md)
-- Build and packaging: [docs/contributing/](docs/contributing/README.md)
+- User tutorials: [docs/user/](docs/zh-CN/user/README.md)
+- Developer docs: [docs/developer/](docs/zh-CN/developer/README.md)
+- Build and packaging: [docs/contributing/](docs/zh-CN/contributing/README.md)

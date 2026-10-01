@@ -1,6 +1,6 @@
 # Official packages vs. local builds
 
-English | [简体中文](../../user/which-build.md)
+English | [简体中文](../../zh-CN/user/which-build.md)
 
 The open-source repository is called **agent-pointer**. Pointer has one source tree and two installation forms.
 

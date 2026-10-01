@@ -1,4 +1,4 @@
-//! Pointer 原生插件机制（设计稿 docs/plans/plugin-system-plan.md P1）。
+//! Pointer 原生插件机制（设计稿 docs/zh-CN/plans/plugin-system-plan.md P1）。
 //!
 //! - [`manifest`]：`pointer-plugin.toml` 解析与校验（唯一运行时格式）。
 //! - [`registry`]：发现 / 授权 / 状态机（P1）。

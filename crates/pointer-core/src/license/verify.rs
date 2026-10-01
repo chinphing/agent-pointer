@@ -245,7 +245,7 @@ pub fn active_license_status_view() -> LicenseStatusView {
 /// Verify configured license key and cache claims.
 ///
 /// Only the **managed** flavour enforces a license (see
-/// `docs/design/control-plane-and-editions.md`): a standalone / self-built server starts
+/// `docs/zh-CN/design/control-plane-and-editions.md`): a standalone / self-built server starts
 /// unlicensed, with licensed features off, instead of failing to boot. An invalid or
 /// expired key still fails fast — the key is optional here, not unchecked.
 pub fn validate_license_at_startup() -> Result<()> {

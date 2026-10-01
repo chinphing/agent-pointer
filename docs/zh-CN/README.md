@@ -4,27 +4,27 @@
 
 `docs/` 按读者和文档类型划分。`internals/`、`agents/`、`llm/`、`ui/` 是维护者笔记，随仓库公开，不是用户教程；设计/计划记录另见 `../design/`、`../plans/`、`../settings-refactor/`、`../superpowers/`。
 
-> 除本页与 [`deploy/`](deploy/README.md) 外，其余文档**仍在迁移中**，暂时留在 `docs/` 下的原位置（`../user/`、`../developer/` 等）。
+> 本页与 [`deploy/`](deploy/README.md) 都在本树内；**`zh-CN/` 是完整中文树**，[`../en/`](../en/README.md) 是仍在补全的英文子集（目前覆盖部署入口、各入口索引页与部分用户 / 开发者指南）。
 
 ## 按读者
 
 | 我是… | 从这里开始 |
 |--------|------------|
-| **用户** | [`../user/`](../user/README.md) |
-| **开发者 / 集成方** | [`../developer/`](../developer/README.md) |
+| **用户** | [`../user/`](user/README.md) |
+| **开发者 / 集成方** | [`../developer/`](developer/README.md) |
 | **部署 / 打包者** | [`deploy/`](deploy/README.md) 四格清单入口 |
-| **仓库贡献者** | [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md)、[`../../DEVELOPMENT.md`](../../DEVELOPMENT.md)、[`../contributing/`](../contributing/README.md) |
-| **核心维护者** | [`../internals/`](../internals/README.md)、[`../design/`](../design/README.md)、[`../agents/`](../agents/README.md)、[`../llm/`](../llm/README.md)、[`../ui/`](../ui/README.md) |
+| **仓库贡献者** | [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md)、[`../../DEVELOPMENT.md`](../../DEVELOPMENT.md)、[`../contributing/`](contributing/README.md) |
+| **核心维护者** | [`../internals/`](internals/README.md)、[`../design/`](design/README.md)、[`../agents/`](agents/README.md)、[`../llm/`](llm/README.md)、[`../ui/`](ui/README.md) |
 
 ## 按类型
 
 | 类型 | 内容 |
 |------|------|
 | **部署** | [deploy/README.md](deploy/README.md) 四格清单入口（打包口味 × 运行形态） |
-| 教程 | [../user/getting-started.md](../user/getting-started.md)、[../user/standalone-server.md](../user/standalone-server.md) |
-| 操作指南 | [../user/](../user/README.md) 其余篇 |
-| 参考 | [../developer/standalone-deployment.md](../developer/standalone-deployment.md)、[deploy/editions.md](deploy/editions.md)、通道 / Skill / 协议 |
-| 说明 | [../developer/architecture.md](../developer/architecture.md)、维护者笔记 |
-| 设计 | [../design/control-plane-and-editions.md](../design/control-plane-and-editions.md) 账户与控制面改造 |
+| 教程 | [../user/getting-started.md](user/getting-started.md)、[../user/standalone-server.md](user/standalone-server.md) |
+| 操作指南 | [../user/](user/README.md) 其余篇 |
+| 参考 | [../developer/standalone-deployment.md](developer/standalone-deployment.md)、[deploy/editions.md](deploy/editions.md)、通道 / Skill / 协议 |
+| 说明 | [../developer/architecture.md](developer/architecture.md)、维护者笔记 |
+| 设计 | [../design/control-plane-and-editions.md](design/control-plane-and-editions.md) 账户与控制面改造 |
 
 根目录还有 [LICENSE](../../LICENSE)、[SECURITY.md](../../SECURITY.md)、[CHANGELOG.md](../../CHANGELOG.md)。

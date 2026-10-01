@@ -4,7 +4,7 @@
 # Prefer an isolated app_data_dir (copy of PointerApp user_settings / API keys)
 # so desktop PointerApp does not lock conversations.db. Example macOS:
 #   app_data_dir = "/Users/YOU/Library/Application Support/PointerAppBrandingDev"
-# Docs: docs/developer/standalone-deployment.md · docs/ui/web-branding-welcome-elapsed.md
+# Docs: docs/zh-CN/developer/standalone-deployment.md · docs/zh-CN/ui/web-branding-welcome-elapsed.md
 #
 # Start server:
 #   POINTER_SERVER_CONFIG="$(pwd)/server/pointer-server.branding-dev.toml" \

@@ -1,6 +1,6 @@
 # Sub-agent settings
 
-English | [简体中文](../../user/subagents.md)
+English | [简体中文](../../zh-CN/user/subagents.md)
 
 Pointer can delegate subtasks to specialised workers via **run_subagent** (e.g. **explore** to explore the codebase, **coder** to write code).
 
@@ -27,4 +27,4 @@ Adjustable in **Settings → System settings → Execution** (or `settings.json`
 
 ## Custom agents
 
-If you write a custom **Lead Agent** (`AGENT.md`) in a workspace or extension, you can control the list of delegatable workers via the frontmatter **`allowAgents`**. For the format, parameters and explore conventions see **[`../../developer/pointer-run-subagent.md`](../../developer/pointer-run-subagent.md)**.
+If you write a custom **Lead Agent** (`AGENT.md`) in a workspace or extension, you can control the list of delegatable workers via the frontmatter **`allowAgents`**. For the format, parameters and explore conventions see **[`../../developer/pointer-run-subagent.md`](../../zh-CN/developer/pointer-run-subagent.md)**.

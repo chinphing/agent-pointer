@@ -1,6 +1,6 @@
 # Cross-platform development and packaging
 
-English | [简体中文](../../contributing/cross-platform-build.md)
+English | [简体中文](../../zh-CN/contributing/cross-platform-build.md)
 
 This document collects environment preparation, local development, compilation/packaging and the CI release flow on **Windows / macOS / Linux**.  
 The working directory is always **`agent-pointer/`** inside the repository (the Tauri + Vue project root).
@@ -236,7 +236,7 @@ target/universal-apple-darwin/release/bundle/   # signed packaging / build:macos
 
 Computer control on macOS needs "Screen Recording + Accessibility".  
 Under `tauri dev` the executable may not live inside a `.app`, so the permission wizard can be incomplete — **test with a packaged `.app`**.  
-See [`docs/internals/macos-computer-permissions.md`](../../internals/macos-computer-permissions.md).
+See [`docs/internals/macos-computer-permissions.md`](../../zh-CN/internals/macos-computer-permissions.md).
 
 ### "Damaged and can't be opened" prompt
 
@@ -691,6 +691,6 @@ To bind a control plane, set the domains in that file or in the environment plus
 | [editions.md](../deploy/editions.md) | **Packaging flavour × runtime form four cells**: build command / variables / artifacts / verification / external dependencies |
 | [DEVELOPMENT.md](../DEVELOPMENT.md) | Day-to-day debugging, Skills, FAQ |
 | [README.md](../../../README.md) | Project overview and quick start |
-| [macos-computer-permissions.md](../../internals/macos-computer-permissions.md) | macOS computer-control permissions |
+| [macos-computer-permissions.md](../../zh-CN/internals/macos-computer-permissions.md) | macOS computer-control permissions |
 
 [Back to the guides index](README.md)

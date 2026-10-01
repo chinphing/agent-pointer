@@ -1,6 +1,6 @@
 # Standalone deployment developer documentation
 
-English | [简体中文](../../developer/standalone-deployment.md)
+English | [简体中文](../../zh-CN/developer/standalone-deployment.md)
 
 pointer-server supports **being deployed standalone, detached from the official platform**. This document covers the architecture, configuration format, API endpoints and implementation modules.
 
@@ -365,7 +365,7 @@ skills_dir = "skills"
 | `sse_padding_bytes` | `POINTER_SERVER_SSE_PADDING_BYTES` | Padding byte count | `10240` |
 | `cors_origins` | `POINTER_SERVER_CORS_ORIGINS` | Origins allowed for browser CORS | off (same-origin only) |
 
-The "when unset" column quotes the built-in defaults verbatim — the parenthesised text translates the Chinese copy the product ships with. Behaviour and the frontend contract are in [`../ui/web-branding-welcome-elapsed.md`](../../ui/web-branding-welcome-elapsed.md). For local Vite development the same-named `VITE_*` variables override the meta (an empty `VITE_WEB_API_BASE` goes through the same-origin `/api` proxy, avoiding cross-site cookie loss).
+The "when unset" column quotes the built-in defaults verbatim — the parenthesised text translates the Chinese copy the product ships with. Behaviour and the frontend contract are in [`../ui/web-branding-welcome-elapsed.md`](../../zh-CN/ui/web-branding-welcome-elapsed.md). For local Vite development the same-named `VITE_*` variables override the meta (an empty `VITE_WEB_API_BASE` goes through the same-origin `/api` proxy, avoiding cross-site cookie loss).
 
 ### CORS
 

@@ -17,6 +17,6 @@ computer/
   assets/
 ```
 
-Product docs: `docs/agents/computer-agent-prompts.md`.
+Product docs: `docs/zh-CN/agents/computer-agent-prompts.md`.
 
 Public API paths (`crate::agents::computer::screen`, `::actions`, etc.) are preserved via `mod.rs` re-exports.

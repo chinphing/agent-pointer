@@ -1,6 +1,6 @@
 # Getting started
 
-English | [简体中文](../../user/getting-started.md)
+English | [简体中文](../../zh-CN/user/getting-started.md)
 
 First decide whether you are using the [official build or a local build](which-build.md).
 

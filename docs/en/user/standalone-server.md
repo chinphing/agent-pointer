@@ -1,6 +1,6 @@
 # Standalone deployment: standalone-server
 
-English | [简体中文](../../user/standalone-server.md)
+English | [简体中文](../../zh-CN/user/standalone-server.md)
 
 pointer-server can be deployed independently of the official platform. A local build (unbound to a control plane) can be installed from source or from a local package, and you **do not** need to request a License from the issuer. Official standalone packages still need a License — see the end of this document.
 
@@ -98,7 +98,7 @@ Model providers in Settings are the same as the desktop client's custom provider
 
 ### Web branding copy (optional)
 
-In `[server]` you can override the browser tab title, the composer placeholder, the brand-new-empty-chat welcome tip, the turn elapsed prefixes, the brand name/icon and the desktop snapshot switch (`page_title` / `composer_placeholder` / `welcome_tip_*` / `turn_elapsed_*` / `brand_name` / `brand_icon` / `desktop_snapshot_enabled`). The matching environment variables are in the "Environment variables" table below. Behaviour is documented in [`../../ui/web-branding-welcome-elapsed.md`](../../ui/web-branding-welcome-elapsed.md) next to the developer docs.
+In `[server]` you can override the browser tab title, the composer placeholder, the brand-new-empty-chat welcome tip, the turn elapsed prefixes, the brand name/icon and the desktop snapshot switch (`page_title` / `composer_placeholder` / `welcome_tip_*` / `turn_elapsed_*` / `brand_name` / `brand_icon` / `desktop_snapshot_enabled`). The matching environment variables are in the "Environment variables" table below. Behaviour is documented in [`../../ui/web-branding-welcome-elapsed.md`](../../zh-CN/ui/web-branding-welcome-elapsed.md) next to the developer docs.
 
 ---
 
@@ -197,7 +197,7 @@ Customer side                       Issuer (administrator)
 
 Standalone does **not** go through the official-site cloud PC `code/state` exchange. It supports:
 
-1. **Third-party SSO**: the portal issues a short-lived ticket and then opens `https://{public_url}/?sso=<ticket>` (configuration is in the developer doc [standalone-local-login.md](../../developer/standalone-local-login.md)).
+1. **Third-party SSO**: the portal issues a short-lived ticket and then opens `https://{public_url}/?sso=<ticket>` (configuration is in the developer doc [standalone-local-login.md](../../zh-CN/developer/standalone-local-login.md)).
 2. **Account, password and graphical captcha** (operations fallback):
 
 ```bash
@@ -229,7 +229,7 @@ After signing in, open **Settings → Models → Custom providers** and add at l
 
 Saving writes to this machine's user settings, and the key is stored encrypted. Do not put models or keys in `pointer-server.toml`; the old `[llm]` section is ignored.
 
-More parameter details are in [`../../llm/model-thinking-api.md`](../../llm/model-thinking-api.md).
+More parameter details are in [`../../llm/model-thinking-api.md`](../../zh-CN/llm/model-thinking-api.md).
 
 ---
 

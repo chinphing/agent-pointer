@@ -44,4 +44,4 @@ sqlite-cjk-fts (MIT)
 mermaid 11.16.1 (MIT)
   Copyright (c) 2014 - 2022 Knut Sveidqvist.
   Bundled unmodified. This build renders only the diagram types listed in
-  docs/ui/markdown-mermaid.md and rejects the rest at render time.
+  docs/zh-CN/ui/markdown-mermaid.md and rejects the rest at render time.

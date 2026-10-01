@@ -26,7 +26,7 @@
 | 自己搭一台服务器给团队用 | standalone × 服务端 | [§4 standalone × 服务端](#standalone-server) |
 | 企业：客户端连**内网**控制面 | managed × 客户端 | [§1 managed × 客户端](#managed-client) |
 | 企业：部署内网控制面服务端 | managed × 服务端 | [§2 managed × 服务端](#managed-server) |
-| 想要 Pointer **官方签名包** | —— | 不在本仓产出，见 [`../../user/which-build.md`](../../user/which-build.md) |
+| 想要 Pointer **官方签名包** | —— | 不在本仓产出，见 [`../../user/which-build.md`](../user/which-build.md) |
 
 **总表**（每格五项：构建命令 / 需要的变量 / 产物位置 / 怎么验证 / 外部依赖）：
 
@@ -90,14 +90,14 @@
 
 **外部依赖**：无。
 
-**完整交付流程**（构建 → License 签发 → 客户上线 → 验收 → 排障）见 [`../../internals/standalone-server-deployment.md`](../../internals/standalone-server-deployment.md)；客户侧运维见 [`../../user/standalone-server.md`](../../user/standalone-server.md)。
+**完整交付流程**（构建 → License 签发 → 客户上线 → 验收 → 排障）见 [`../../internals/standalone-server-deployment.md`](../internals/standalone-server-deployment.md)；客户侧运维见 [`../../user/standalone-server.md`](../user/standalone-server.md)。
 
 ---
 
 <a id="platforms"></a>
 ## 5. 平台打包
 
-三平台的环境前置、构建命令、产物位置与 CI 口径见 [`platforms.md`](platforms.md)（详细正文 [`../../contributing/cross-platform-build.md`](../../contributing/cross-platform-build.md)）。
+三平台的环境前置、构建命令、产物位置与 CI 口径见 [`platforms.md`](platforms.md)（详细正文 [`../../contributing/cross-platform-build.md`](../contributing/cross-platform-build.md)）。
 
 ---
 
@@ -107,11 +107,11 @@
 |---|---|
 | [`editions.md`](editions.md) | 四格详细步骤（构建命令 / 变量 / 产物 / 验证 / 外部依赖） |
 | [`platforms.md`](platforms.md) | Windows / macOS / Linux 平台打包索引（环境前置 / 产物 / CI 口径） |
-| [`../../contributing/cross-platform-build.md`](../../contributing/cross-platform-build.md) | Windows / macOS / Linux 环境与打包命令 |
-| [`../../internals/standalone-server-deployment.md`](../../internals/standalone-server-deployment.md) | standalone 服务端完整交付流程（构建 → License → 上线 → 验收） |
-| [`../../developer/standalone-deployment.md`](../../developer/standalone-deployment.md) | pointer-server 配置参考（实现向） |
-| [`../../user/which-build.md`](../../user/which-build.md) | 官方签名包与本地构建的差别（用户视角） |
-| [`../../user/standalone-server.md`](../../user/standalone-server.md) | 自建 pointer-server 运维 |
-| [`../../design/control-plane-and-editions.md`](../../design/control-plane-and-editions.md) | 账户与控制面改造设计（背景） |
+| [`../../contributing/cross-platform-build.md`](../contributing/cross-platform-build.md) | Windows / macOS / Linux 环境与打包命令 |
+| [`../../internals/standalone-server-deployment.md`](../internals/standalone-server-deployment.md) | standalone 服务端完整交付流程（构建 → License → 上线 → 验收） |
+| [`../../developer/standalone-deployment.md`](../developer/standalone-deployment.md) | pointer-server 配置参考（实现向） |
+| [`../../user/which-build.md`](../user/which-build.md) | 官方签名包与本地构建的差别（用户视角） |
+| [`../../user/standalone-server.md`](../user/standalone-server.md) | 自建 pointer-server 运维 |
+| [`../../design/control-plane-and-editions.md`](../design/control-plane-and-editions.md) | 账户与控制面改造设计（背景） |
 
 [返回文档总索引](../../README.md)

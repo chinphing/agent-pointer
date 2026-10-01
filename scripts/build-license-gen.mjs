@@ -141,7 +141,7 @@ Offline Ed25519 license signing tool for pointer-server standalone deployments.
 \`\`\`
 
 Keep \`license.key\` offline. Embed \`license.pub\` in pointer-core/license.pub for release builds.
-See docs/developer/standalone-deployment.md for full details.
+See docs/zh-CN/developer/standalone-deployment.md for full details.
 `
 
   const bundleRoot = path.join(ROOT, 'target', 'release', 'license-gen-bundle')

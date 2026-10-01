@@ -2,7 +2,7 @@
 
 English | [简体中文](../zh-CN/README.md)
 
-`docs/` is organised by audience and document type. `internals/`, `design/`, `agents/`, `llm/` and `ui/` are maintainer notes: public with the repository, but not user tutorials.
+`docs/` is organised by audience and document type. `internals/`, `agents/`, `llm/` and `ui/` are maintainer notes: public with the repository, but not user tutorials. Design and planning records live in `design/`, `plans/`, `settings-refactor/` and `superpowers/`.
 
 > This page, [`deploy/`](deploy/README.md), [`DEVELOPMENT.md`](DEVELOPMENT.md) and the audience entry pages ([`user/`](user/README.md), [`developer/`](developer/README.md), [`contributing/`](contributing/README.md), [`internals/`](internals/README.md), [`design/`](design/README.md), [`agents/`](agents/README.md), [`llm/`](llm/README.md), [`ui/`](ui/README.md)) are in English. **Documents not yet migrated** stay at their original locations under `docs/` (`../user/`, `../developer/`, …) — links to them from the English tree still point there.
 

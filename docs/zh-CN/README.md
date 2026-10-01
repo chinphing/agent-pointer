@@ -2,7 +2,7 @@
 
 [English](../en/README.md) | 简体中文
 
-`docs/` 按读者和文档类型划分。`internals/`、`design/`、`agents/`、`llm/`、`ui/` 是维护者笔记，随仓库公开，不是用户教程。
+`docs/` 按读者和文档类型划分。`internals/`、`agents/`、`llm/`、`ui/` 是维护者笔记，随仓库公开，不是用户教程；设计/计划记录另见 `../design/`、`../plans/`、`../settings-refactor/`、`../superpowers/`。
 
 > 除本页与 [`deploy/`](deploy/README.md) 外，其余文档**仍在迁移中**，暂时留在 `docs/` 下的原位置（`../user/`、`../developer/` 等）。
 

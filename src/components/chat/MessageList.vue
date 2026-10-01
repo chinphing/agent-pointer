@@ -32,8 +32,10 @@ import {
   PERF_GAUGE_FROZEN_TURNS,
   PERF_GAUGE_SCOPED_ROWS,
   PERF_GAUGE_VISIBLE_ROWS,
+  PERF_MS_SCROLL_PASS,
   bump,
   record,
+  recordScrollDistance,
   renderPerfEnabled,
   setGauge
 } from '../../lib/renderPerf'
@@ -1262,10 +1264,26 @@ function onScroll(_event: Event) {
 }
 
 /**
+ * Perf-instrumented entry point for the scroll-pass scheduler. Reads the enabled
+ * flag once — like every other instrumented call site — so the pass body itself
+ * stays branch-free, and times the pass as `ms:scrollPass`, the denominator that
+ * makes the other costs comparable per 1000 px scrolled.
+ */
+function runScrollPass() {
+  if (!renderPerfEnabled()) {
+    runScrollPassBody()
+    return
+  }
+  const startedAt = performance.now()
+  runScrollPassBody()
+  record(PERF_MS_SCROLL_PASS, performance.now() - startedAt)
+}
+
+/**
  * One scroll pass per animation frame. Every scroller read happens up front so
  * the reactive / store writes below never interleave with a layout read.
  */
-function runScrollPass() {
+function runScrollPassBody() {
   const el = scroller.value
   const metrics = el ? readScrollMetrics(el) : null
   const scrollTop = metrics?.scrollTop ?? 0
@@ -1296,7 +1314,12 @@ function runScrollPass() {
   applyActiveBoardStickySnapshot(board)
   maybePrefetchOlder(scrollingUp, scrollTop)
   maybePrefetchNewer(scrollingDown, distance)
-  if (el) lastScrollTop = scrollTop
+  if (el) {
+    // |ΔscrollTop| of this pass: the HUD's denominator for its per-1000-px
+    // costs. One boolean read while the HUD is off (see recordScrollDistance).
+    recordScrollDistance(scrollTop - lastScrollTop)
+    lastScrollTop = scrollTop
+  }
   stampVisibleUserMessagesViewed()
   if (nav) chat.setVisibleNavMessageId(nav.id)
   if (trimEligible) maybeTrimConversationHistory(trimAnchor)

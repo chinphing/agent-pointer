@@ -9,7 +9,8 @@ import {
   PERF_MOUNT_KEYS,
   PERF_MS_KEYS,
   PERF_RENDER_KEYS,
-  useRenderPerfSnapshot
+  useRenderPerfSnapshot,
+  type RenderPerfCostPer1000Px
 } from '../../lib/renderPerf'
 import {
   formatBytes,
@@ -86,6 +87,39 @@ function memoryLines(stats: MemoryStats | null): string[] {
   ]
 }
 
+/** `1234 px`, `12.3k px` — the normalising denominator, kept short. */
+function formatDistance(px: number): string {
+  if (!Number.isFinite(px) || px <= 0) return '0 px'
+  if (px < 10_000) return `${Math.round(px)} px`
+  return `${(px / 1000).toFixed(1)}k px`
+}
+
+/** Compact per-1000-px cost: `12.3`, `0.80`, `0` — readable at 10px wide. */
+function formatCost(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0'
+  if (value >= 1000) return String(Math.round(value))
+  if (value >= 1) return value.toFixed(1)
+  return value.toFixed(2)
+}
+
+/**
+ * Accumulated scroll distance and the session costs it normalises. Two rows: the
+ * first is the denominator, the second reads renders, mounts, `measureElement`
+ * and the scroll pass itself per 1000 px scrolled, so two runs with different
+ * gestures can be compared. `n/a` until the window has moved at all.
+ */
+function scrollCostLines(distancePx: number, cost: RenderPerfCostPer1000Px): string[] {
+  if (!(distancePx > 0)) {
+    return ['scroll 0 px', 'per 1k px  n/a (nothing scrolled yet)']
+  }
+  return [
+    `scroll ${formatDistance(distancePx)}`,
+    `per 1k px  renders ${formatCost(cost.renders)}  mounts ${formatCost(cost.mounts)}`
+      + `  measure ${formatCost(cost.measureElementMs)}ms`
+      + `  pass ${formatCost(cost.scrollPassMs)}ms`
+  ]
+}
+
 const text = computed(() => {
   const s = snapshot.value
   return [
@@ -99,6 +133,7 @@ const text = computed(() => {
       + `frozen ${String(s.gauges[PERF_GAUGE_FROZEN_TURNS] ?? 0).padStart(3)}  `
       + `renders/row ${s.rendersPerVisibleRow.toFixed(2)}`
       + ` pk ${s.rendersPerVisibleRowPeak.toFixed(2)}`,
+    ...scrollCostLines(s.scrollDistancePx, s.per1000Px),
     ...memoryLines(s.memory),
     ...group(PERF_RENDER_KEYS, s.renders, s.peakRenders),
     ...group(PERF_MOUNT_KEYS, s.mounts, s.peakMounts),

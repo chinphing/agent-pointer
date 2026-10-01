@@ -7,6 +7,7 @@ import {
   PERF_HUD_SNAPSHOT_MS,
   bump,
   record,
+  recordScrollDistance,
   resetPerf,
   setGauge,
   setRenderPerfEnabled,
@@ -145,5 +146,26 @@ describe('RenderPerfHud', () => {
     vi.advanceTimersByTime(PERF_HUD_SNAPSHOT_MS * 4)
     await nextTick()
     expect(hudText()).toBe(frozen)
+  })
+
+  it('shows the accumulated scroll distance and the per-1000-px costs', async () => {
+    setRenderPerfEnabled(true, { persist: false })
+    mountHud()
+
+    expect(hudText()).toContain('per 1k px  n/a (nothing scrolled yet)')
+
+    recordScrollDistance(2500)
+    bump('render:MessageList')
+    bump('render:MessageList')
+    bump('mount:AssistantModelMessage')
+    record('ms:measureElement', 10)
+    record('ms:scrollPass', 2.5)
+    await advanceOneSecond()
+
+    const text = hudText()
+    expect(text).toMatch(/scroll\s+2500 px/)
+    // 2 renders / 2500 px, 1 mount / 2500 px, 10 ms and 2.5 ms per 2500 px.
+    expect(text).toMatch(/per 1k px\s+renders 0\.80\s+mounts 0\.40/)
+    expect(text).toMatch(/measure 4\.0ms\s+pass 1\.0ms/)
   })
 })

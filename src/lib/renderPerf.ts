@@ -25,6 +25,13 @@ import type { MemoryStats } from './memoryProbe'
  *   each key also keeps its session peak, folded from the *closing* window
  *   inside the same rollover that clears the per-second value. No second timer,
  *   no per-render work, no allocation on the hot path.
+ * - **Per-second numbers are not comparable across gestures.** One second of a
+ *   slow drag and one second of a fling do very different amounts of work, so
+ *   two runs with different gestures cannot be compared row by row.
+ *   `recordScrollDistance` accumulates `|ΔscrollTop|` (called from the scroll
+ *   pass with the delta it already computed; a no-op while off) and the
+ *   snapshot divides the session totals by it — every cost then reads per
+ *   1000 px scrolled, whatever the gesture was.
  * - **A suspended frame loop is not a frame gap.** `requestAnimationFrame`
  *   stops while the page is hidden (display asleep, window minimized, debugger
  *   paused), so the gap after it resumes measures the suspension, not the app.
@@ -73,11 +80,15 @@ export const PERF_MOUNT_KEYS = [
   'mount:SubAgentContentBlock'
 ] as const
 
+/** Duration of one coalesced `MessageList` scroll pass (see `runScrollPass`). */
+export const PERF_MS_SCROLL_PASS = 'ms:scrollPass'
+
 /** Accumulated milliseconds per second, keyed by `ms:<work>` (see `record`). */
 export const PERF_MS_KEYS = [
   'ms:extraScopedForWindow',
   'ms:measureElement',
-  'ms:toolRunAssistantMessage'
+  'ms:toolRunAssistantMessage',
+  PERF_MS_SCROLL_PASS
 ] as const
 
 /** Per-second call count of `toolRunAssistantMessage` (fresh object per render). */
@@ -128,10 +139,34 @@ export interface RenderPerfSnapshot {
   /** Highest `rendersPerVisibleRow` seen at a rollover; 0 visible rows never raises it. */
   rendersPerVisibleRowPeak: number
   /**
+   * Sum of `|ΔscrollTop|` over every scroll pass since the HUD was enabled
+   * (see `recordScrollDistance`). The denominator of the per-1000-px costs; `0`
+   * until the transcript window has actually moved.
+   */
+  scrollDistancePx: number
+  /**
+   * Session totals divided by `scrollDistancePx`, so two runs with different
+   * gestures can be compared per 1000 px scrolled. All zero while no distance
+   * has accumulated (never a division by zero).
+   */
+  per1000Px: RenderPerfCostPer1000Px
+  /**
    * Latest frontend memory reading (see `lib/memoryProbe.ts`). `null` while the
    * HUD is off, or before the HUD installs its sampler.
    */
   memory: MemoryStats | null
+}
+
+/** Session cost per 1000 px of accumulated scroll distance (see `per1000Px`). */
+export interface RenderPerfCostPer1000Px {
+  /** Every `render:*` counter summed over the session, per 1000 px. */
+  renders: number
+  /** Every `mount:*` counter summed over the session, per 1000 px. */
+  mounts: number
+  /** `ms:measureElement` accumulated over the session, per 1000 px. */
+  measureElementMs: number
+  /** `ms:scrollPass` accumulated over the session, per 1000 px. */
+  scrollPassMs: number
 }
 
 // --- module state -----------------------------------------------------------
@@ -156,6 +191,13 @@ let peakCounts = new Map<string, number>()
 let peakMs = new Map<string, number>()
 let peakTotalRenders = 0
 let peakRendersPerVisibleRow = 0
+/**
+ * Session totals, folded from each *closing* window right next to the peaks
+ * (in place, at most once per second) — the numerator of the per-1000-px costs.
+ */
+let sessionTotals = new Map<string, number>()
+/** Sum of `|ΔscrollTop|` reported by `recordScrollDistance` (see `per1000Px`). */
+let scrollDistancePx = 0
 
 /** Fixed ring for frame timestamps — no per-frame allocation. */
 const FRAME_RING = 600
@@ -201,6 +243,18 @@ export function setGauge(name: string, value: number): void {
   gauges.set(name, Number.isFinite(value) ? value : 0)
 }
 
+/**
+ * Add `px` of scrolled distance (`|ΔscrollTop|`) to the session total that
+ * normalises every cost per 1000 px. Called once per scroll pass with the delta
+ * that pass already computed; while off it is one boolean read, like the other
+ * instrumentation points.
+ */
+export function recordScrollDistance(px: number): void {
+  if (!enabled) return
+  if (!Number.isFinite(px)) return
+  scrollDistancePx += Math.abs(px)
+}
+
 /** Drop all accumulated counters, gauges, session peaks and frame samples. */
 export function resetPerf(): void {
   counts = new Map()
@@ -212,6 +266,8 @@ export function resetPerf(): void {
   peakMs = new Map()
   peakTotalRenders = 0
   peakRendersPerVisibleRow = 0
+  sessionTotals = new Map()
+  scrollDistancePx = 0
   frameWrite = 0
   frameTotal = 0
   hasLastFrame = false
@@ -294,27 +350,38 @@ export function setRenderPerfMemorySampler(
 // --- snapshot ---------------------------------------------------------------
 
 /**
- * Fold one *closing* window into the session peaks. Runs at most once per second
- * (from the rollover in `renderPerfSnapshot`), so peaks add no timer and no
- * per-render work; `rendersPerVisibleRow` only folds while rows are visible, so
- * an empty transcript cannot drag the ratio's peak to zero.
+ * Fold one *closing* window into the session peaks and the session totals. Runs
+ * at most once per second (from the rollover in `renderPerfSnapshot`), so both
+ * add no timer and no per-render work; `rendersPerVisibleRow` only folds while
+ * rows are visible, so an empty transcript cannot drag the ratio's peak to zero.
  */
 function foldPeaks(windowCounts: Map<string, number>, windowMs: Map<string, number>): void {
   let windowRenders = 0
   for (const [name, value] of windowCounts) {
     if (value <= 0) continue
     if (value > (peakCounts.get(name) ?? 0)) peakCounts.set(name, value)
+    sessionTotals.set(name, (sessionTotals.get(name) ?? 0) + value)
     if (name.startsWith('render:')) windowRenders += value
   }
   for (const [name, value] of windowMs) {
     if (value <= 0) continue
     if (value > (peakMs.get(name) ?? 0)) peakMs.set(name, value)
+    sessionTotals.set(name, (sessionTotals.get(name) ?? 0) + value)
   }
   if (windowRenders > peakTotalRenders) peakTotalRenders = windowRenders
   const visibleRows = gauges.get(PERF_GAUGE_VISIBLE_ROWS) ?? 0
   if (visibleRows > 0 && windowRenders / visibleRows > peakRendersPerVisibleRow) {
     peakRendersPerVisibleRow = windowRenders / visibleRows
   }
+}
+
+/**
+ * Session total → cost per 1000 px scrolled. A session that has not scrolled
+ * (distance `0`, or not yet known) reads `0` rather than dividing by zero.
+ */
+function perThousandPx(total: number, distancePx: number): number {
+  if (!(distancePx > 0)) return 0
+  return (total * 1000) / distancePx
 }
 
 /**
@@ -372,6 +439,22 @@ export function renderPerfSnapshot(nowOverride?: number): RenderPerfSnapshot {
   for (const [name, value] of peakMs) peakMsPerSecond[name] = value
 
   const visibleRows = gauges.get(PERF_GAUGE_VISIBLE_ROWS) ?? 0
+
+  // Session totals → per-1000-px costs. Derived here, once per snapshot, so the
+  // scroll pass only ever adds the distance and nothing stores a ratio.
+  let sessionRenders = 0
+  let sessionMounts = 0
+  for (const [name, value] of sessionTotals) {
+    if (name.startsWith('render:')) sessionRenders += value
+    else if (name.startsWith('mount:')) sessionMounts += value
+  }
+  const per1000Px: RenderPerfCostPer1000Px = {
+    renders: perThousandPx(sessionRenders, scrollDistancePx),
+    mounts: perThousandPx(sessionMounts, scrollDistancePx),
+    measureElementMs: perThousandPx(sessionTotals.get('ms:measureElement') ?? 0, scrollDistancePx),
+    scrollPassMs: perThousandPx(sessionTotals.get(PERF_MS_SCROLL_PASS) ?? 0, scrollDistancePx)
+  }
+
   return {
     enabled,
     fps: frames.fps,
@@ -391,6 +474,8 @@ export function renderPerfSnapshot(nowOverride?: number): RenderPerfSnapshot {
     peakMsPerSecond,
     totalRendersPerSecondPeak: peakTotalRenders,
     rendersPerVisibleRowPeak: peakRendersPerVisibleRow,
+    scrollDistancePx,
+    per1000Px,
     memory: enabled && memorySampler ? memorySampler(t) : null
   }
 }

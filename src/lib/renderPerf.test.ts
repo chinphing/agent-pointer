@@ -11,6 +11,7 @@ import {
   isPerfHudShortcut,
   parsePerfHudUrlFlag,
   record,
+  recordScrollDistance,
   renderPerfEnabled,
   renderPerfSnapshot,
   resetPerf,
@@ -395,5 +396,75 @@ describe('renderPerf Vue bindings', () => {
     expect(snapshot.value).toBe(afterDisable)
 
     scope.stop()
+  })
+})
+
+describe('renderPerf scroll-distance normalisation', () => {
+  it('accumulates |ΔscrollTop| and stays a no-op while disabled', () => {
+    recordScrollDistance(120)
+    recordScrollDistance(-80)
+    expect(renderPerfSnapshot(1000).scrollDistancePx).toBe(0)
+
+    setRenderPerfEnabled(true, { persist: false })
+    renderPerfSnapshot(1000)
+
+    recordScrollDistance(120)
+    recordScrollDistance(-30)
+    recordScrollDistance(0)
+    recordScrollDistance(Number.NaN)
+
+    expect(renderPerfSnapshot(1500).scrollDistancePx).toBe(150)
+  })
+
+  it('derives per-1000-px costs from the session totals', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    renderPerfSnapshot(1000)
+
+    recordScrollDistance(2000)
+    bump('render:MessageList')
+    bump('render:SubAgentFrame')
+    bump('mount:AssistantModelMessage')
+    record('ms:measureElement', 12)
+    record('ms:scrollPass', 3)
+    // Another `ms:` key must not leak into the per-1000-px row.
+    record('ms:extraScopedForWindow', 999)
+
+    const snapshot = renderPerfSnapshot(2000)
+    expect(snapshot.scrollDistancePx).toBe(2000)
+    expect(snapshot.per1000Px).toEqual({
+      renders: 1, // 2 renders / 2000 px
+      mounts: 0.5, // 1 mount / 2000 px
+      measureElementMs: 6, // 12 ms / 2000 px
+      scrollPassMs: 1.5 // 3 ms / 2000 px
+    })
+  })
+
+  it('reads zero per-1000-px costs without dividing by a zero distance', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    renderPerfSnapshot(1000)
+
+    bump('render:MessageList')
+    record('ms:measureElement', 9)
+    record('ms:scrollPass', 2)
+
+    const snapshot = renderPerfSnapshot(2000)
+    expect(snapshot.scrollDistancePx).toBe(0)
+    expect(snapshot.per1000Px).toEqual({
+      renders: 0,
+      mounts: 0,
+      measureElementMs: 0,
+      scrollPassMs: 0
+    })
+    expect(Object.values(snapshot.per1000Px).every(Number.isFinite)).toBe(true)
+  })
+
+  it('clears the accumulated distance when the HUD is toggled', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    recordScrollDistance(500)
+    expect(renderPerfSnapshot(1000).scrollDistancePx).toBe(500)
+
+    setRenderPerfEnabled(false, { persist: false })
+    setRenderPerfEnabled(true, { persist: false })
+    expect(renderPerfSnapshot(5000).scrollDistancePx).toBe(0)
   })
 })

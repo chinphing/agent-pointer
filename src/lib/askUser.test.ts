@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseAskUserArgs, parseAskUserSelection, parseAskUserSummary } from './askUser'
+import { askUserQuestionIsDrawable, parseAskUserArgs, parseAskUserSelection, parseAskUserSummary } from './askUser'
 
 describe('askUser parsing', () => {
   it('parses options and multi-select mode', () => {
@@ -51,5 +51,23 @@ describe('askUser parsing', () => {
 
   it('reads the completed selection', () => {
     expect(parseAskUserSelection('{"selected":["App","Web"]}')).toEqual(['App', 'Web'])
+  })
+})
+
+describe('askUserQuestionIsDrawable', () => {
+  it('accepts complete arguments', () => {
+    expect(askUserQuestionIsDrawable({
+      arguments: JSON.stringify({ question: 'Q', options: [{ label: 'A' }, { label: 'B' }] })
+    })).toBe(true)
+  })
+
+  it('accepts the backend summary when arguments are empty', () => {
+    expect(askUserQuestionIsDrawable({ arguments: '', displaySummary: 'Q\n1. A\n2. B' })).toBe(true)
+  })
+
+  it('rejects arguments that are still streaming', () => {
+    expect(askUserQuestionIsDrawable({ arguments: '{"question":"Q","opt' })).toBe(false)
+    expect(askUserQuestionIsDrawable({ arguments: '{"question":"Q","options":[]}' })).toBe(false)
+    expect(askUserQuestionIsDrawable({})).toBe(false)
   })
 })

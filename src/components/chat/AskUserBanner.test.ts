@@ -239,4 +239,63 @@ describe('AskUserBanner', () => {
     expect(pendingScan.mock.calls.length).toBeGreaterThan(scansBefore)
     expect(host.querySelector('[data-ask-user-banner]')).toBeNull()
   })
+
+  it('ignores the lead agent question: that card is already inline in the transcript', async () => {
+    const lead: ChatMessage = {
+      id: 'lead-1',
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+      createdAt: 1,
+      toolCalls: [
+        {
+          id: 'tc-lead',
+          name: 'ask_user',
+          status: 'pending',
+          arguments: JSON.stringify({
+            question: '主 Agent 提问',
+            options: [{ label: '选项A' }, { label: '选项B' }]
+          })
+        }
+      ]
+    }
+    hoisted.chatState.current = { id: 'c1', messages: [lead] }
+    const host = mountBanner()
+    await flush()
+    expect(host.querySelector('[data-ask-user-banner]')).toBeNull()
+  })
+
+  it('renders the standard ask_user card, with no extra shell around it', async () => {
+    useConversationScopedStore().ingestRows('c1', [deepScopedRow()])
+    const host = mountBanner()
+    await flush()
+
+    const banner = host.querySelector('[data-ask-user-banner]') as HTMLElement
+    // The card keeps its own header chrome — the banner must not restyle or wrap it.
+    expect(banner.querySelector('.fence-block')).toBeTruthy()
+    expect(banner.querySelector('.fence-block-header')).toBeTruthy()
+    expect(banner.className).not.toContain('composer-companion')
+    expect(banner.className).not.toContain('border')
+  })
+
+  it('stays hidden while the question arguments are still streaming', async () => {
+    // ToolCallStart lands with empty arguments: mounting the shell here is the empty bar
+    // above the composer that reads as「没显示」.
+    const streaming: ChatMessage = {
+      id: 'scoped-stream',
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+      createdAt: 1,
+      anchorMessageId: 'lead-1',
+      agentInstanceId: 'inst-stream',
+      toolCalls: [
+        { id: 'tc-stream', name: 'ask_user', status: 'pending', arguments: '{"question":"还' }
+      ]
+    }
+    useConversationScopedStore().ingestRows('c1', [streaming])
+    const host = mountBanner()
+    await flush()
+    expect(host.querySelector('[data-ask-user-banner]')).toBeNull()
+  })
 })

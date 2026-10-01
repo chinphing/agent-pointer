@@ -49,6 +49,32 @@ describe('askUserBanner', () => {
     expect(pendingAskUserToolCalls([lead, scoped]).map(tc => tc.id)).toEqual(['tc-1', 'tc-2'])
   })
 
+  it('skips a question whose arguments are still streaming', () => {
+    // ToolCallStart carries empty arguments — queueing it renders the banner shell with
+    // no card inside (the empty bar above the composer).
+    const streaming: ToolCall = {
+      id: 'tc-stream',
+      name: 'ask_user',
+      status: 'pending',
+      arguments: '{"question":"还在流式","opt'
+    }
+    const ready = row('scoped-1', [askUser('tc-ready')])
+    expect(pendingAskUserToolCalls([row('lead-1', [streaming]), ready]).map(tc => tc.id))
+      .toEqual(['tc-ready'])
+  })
+
+  it('accepts the backend displaySummary when arguments are empty', () => {
+    const fromSummary: ToolCall = {
+      id: 'tc-summary',
+      name: 'ask_user',
+      status: 'running',
+      arguments: '',
+      displaySummary: '选哪个？\n1. 选项A\n2. 选项B'
+    }
+    expect(pendingAskUserToolCalls([row('scoped-2', [fromSummary])]).map(tc => tc.id))
+      .toEqual(['tc-summary'])
+  })
+
   it('de-duplicates the same tool call id across rows and ignores approvals', () => {
     const dup: ChatMessage = row('scoped-2', [
       askUser('tc-1'),

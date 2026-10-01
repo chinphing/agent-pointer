@@ -1,12 +1,14 @@
 import type { ToolCall } from '../types/chat'
+import { askUserQuestionIsDrawable } from './askUser'
 import { isPendingAskUserToolCall } from './messageTooling'
 
 /**
- * Top-of-chat ask_user banner state (design doc §4).
+ * Top-of-composer ask_user banner state (design doc §4).
  *
- * The banner owns the pending-`ask_user` surface: frames / collapsed turns no
- * longer retain anything for ask_user, so the queue must be derived from the
- * lead messages plus the conversation's scoped rows (deep sub-agents included).
+ * The banner owns the **sub-agent** pending-`ask_user` surface: frames / collapsed
+ * turns no longer retain anything for ask_user, so the queue is derived from the
+ * conversation's scoped rows (deep sub-agents included). The lead agent's own
+ * question stays inline in the transcript and is not queued here.
  */
 
 /** How long「已选择 X」stays after submit before the banner moves on (D-C3). */
@@ -32,6 +34,10 @@ export type AskUserBannerRow = { toolCalls?: readonly ToolCall[] | undefined }
 /**
  * Pending / running `ask_user` tool calls in display order, de-duplicated by id.
  * Works for lead messages and scoped (deep sub-agent) rows alike.
+ *
+ * Only calls the option card can draw are queued: while `ask_user` streams its
+ * arguments there is no question to render, and showing the shell anyway would put an
+ * empty bar above the composer. The question appears as soon as it is parseable.
  */
 export function pendingAskUserToolCalls(
   rows: readonly AskUserBannerRow[] | undefined
@@ -41,6 +47,7 @@ export function pendingAskUserToolCalls(
   for (const row of rows ?? []) {
     for (const tc of row.toolCalls ?? []) {
       if (!isPendingAskUserToolCall(tc)) continue
+      if (!askUserQuestionIsDrawable(tc)) continue
       const id = tc.id?.trim()
       if (!id || seen.has(id)) continue
       seen.add(id)

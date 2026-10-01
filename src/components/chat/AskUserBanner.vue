@@ -13,10 +13,13 @@ import {
 import AskUserOptions from './AskUserOptions.vue'
 
 /**
- * Top-of-chat pending `ask_user` surface (design doc §4).
+ * Pending `ask_user` surface for **sub-agents**, mounted by `Composer` above the input
+ * box — the same auxiliary stack as the background-job / outbound-queue panels
+ * (design doc §4).
  *
- * Sources the queue from the lead messages **and** the conversation's scoped
- * rows, so a deep sub-agent question shows even when no frame is mounted.
+ * The lead agent's own `ask_user` needs no banner: its card renders inline in the
+ * transcript. Only scoped rows (any spawn depth) are queued here, so a sub-agent
+ * question shows even when its frame is collapsed or not mounted.
  */
 const { t } = useI18n()
 const chat = useChatStore()
@@ -36,7 +39,7 @@ const pending = computed(() => {
     void scopedStore.getMembershipSignal(convId)
     void scopedStore.getAskUserRevision(convId)
   }
-  return pendingAskUserToolCalls([...(chat.current?.messages ?? []), ...scopedRows])
+  return pendingAskUserToolCalls(scopedRows)
 })
 
 const view = computed(() => resolveAskUserBannerView(pending.value, linger.value, Date.now()))
@@ -93,33 +96,26 @@ onBeforeUnmount(clearLingerTimer)
 <template>
   <div
     v-if="view"
-    class="shrink-0 px-3 pb-1 pt-2"
     data-ask-user-banner
   >
-    <div class="chat-column mx-auto w-full">
-      <div class="rounded-lg border border-border bg-background/95 shadow-sm backdrop-blur">
-        <div
-          v-if="view.remaining > 0"
-          class="border-b border-border px-3 py-1 text-[11px] text-muted"
-          data-ask-user-banner-remaining
-        >
-          {{ t('chat.askUserBannerRemaining', { count: view.remaining }) }}
-        </div>
-        <div class="px-3 py-2">
-          <p
-            v-if="view.kind === 'linger'"
-            class="text-xs text-muted"
-            data-ask-user-banner-linger
-          >
-            {{ lingerText }}
-          </p>
-          <AskUserOptions
-            v-else
-            :tool-call="view.toolCall"
-            @submitted="onSubmitted"
-          />
-        </div>
-      </div>
+    <div
+      v-if="view.remaining > 0"
+      class="mb-1 px-1 text-[11px] text-muted"
+      data-ask-user-banner-remaining
+    >
+      {{ t('chat.askUserBannerRemaining', { count: view.remaining }) }}
     </div>
+    <p
+      v-if="view.kind === 'linger'"
+      class="mb-2 px-1 text-xs text-muted"
+      data-ask-user-banner-linger
+    >
+      {{ lingerText }}
+    </p>
+    <AskUserOptions
+      v-else
+      :tool-call="view.toolCall"
+      @submitted="onSubmitted"
+    />
   </div>
 </template>

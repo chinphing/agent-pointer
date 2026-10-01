@@ -468,7 +468,6 @@ const toastClass = computed(() => {
       </div>
 
       <div v-else class="flex h-full min-h-0 flex-col">
-        <AskUserBanner />
         <div class="relative min-h-0 flex-1">
           <MessageListSkeleton v-if="showMessageListPlaceholder" />
           <MessageList

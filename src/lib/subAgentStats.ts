@@ -108,13 +108,16 @@ export function incrementSubAgentToolStats(
     stats.otherCount = (stats.otherCount ?? 0) + 1
     return
   }
-  if (base.startsWith('file_')) {
-    if (base === 'file_read') stats.readCount += 1
-    else if (base === 'file_write' || base === 'file_edit') {
-      stats.writeCount = (stats.writeCount ?? 0) + 1
-    } else if (base === 'file_grep' || base === 'file_glob' || base === 'file_list') {
-      stats.searchCount += 1
-    }
+  if (base === 'file_read') {
+    stats.readCount += 1
+    return
+  }
+  if (base === 'file_write' || base === 'file_edit') {
+    stats.writeCount = (stats.writeCount ?? 0) + 1
+    return
+  }
+  if (base === 'file_grep' || base === 'file_glob' || base === 'file_list') {
+    stats.searchCount += 1
     return
   }
   if (base === 'skill_read' || base === 'skill_import') {
@@ -135,7 +138,12 @@ export function incrementSubAgentToolStats(
   }
   if (base === 'web_search') {
     stats.webSearchCount = (stats.webSearchCount ?? 0) + 1
+    return
   }
+  // Everything the buckets above do not name still counts: interaction / orchestration
+  // tools (ask_user, task_board_*, job, run_subagent, read_lints …). Without this a spawn
+  // that only asked a question reported「工具 0 次」and collapsed to「过程」.
+  stats.otherCount = (stats.otherCount ?? 0) + 1
 }
 
 export function subAgentStatusLabel(status: string): string {
@@ -169,7 +177,8 @@ function formatStatsForAgent(agentId: string, stats: SubAgentToolStats): string 
       statSeg('搜索', stats.searchCount),
       statSeg('读文件', stats.readCount),
       statSeg('终端', stats.terminalCount),
-      statSeg('编辑', stats.writeCount)
+      statSeg('编辑', stats.writeCount),
+      statSeg('其他', stats.otherCount)
     ])
   }
   if (id === 'general-worker' || id === 'general_worker') {
@@ -179,7 +188,8 @@ function formatStatsForAgent(agentId: string, stats: SubAgentToolStats): string 
       statSeg('媒体', stats.mediaCount),
       statSeg('搜索', stats.webSearchCount),
       statSeg('读文件', stats.readCount),
-      statSeg('编辑', stats.writeCount)
+      statSeg('编辑', stats.writeCount),
+      statSeg('其他', stats.otherCount)
     ])
   }
   // explore, self-fork (`current-agent`), and other file-heavy workers
@@ -187,7 +197,8 @@ function formatStatsForAgent(agentId: string, stats: SubAgentToolStats): string 
     statSeg('搜索', stats.searchCount),
     statSeg('读文件', stats.readCount),
     statSeg('终端', stats.terminalCount),
-    statSeg('编辑', stats.writeCount)
+    statSeg('编辑', stats.writeCount),
+    statSeg('其他', stats.otherCount)
   ])
 }
 

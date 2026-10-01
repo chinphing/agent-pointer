@@ -63,6 +63,7 @@ import {
 import { withRetries } from '../../lib/retry'
 import { isMediaOssConfigured, uploadComposerVideoToOss, formatVideoOssInvokeError, getMediaOssUploadStatus } from '../../lib/videoOssUpload'
 import OutboundQueuePanel from './OutboundQueuePanel.vue'
+import AskUserBanner from './AskUserBanner.vue'
 import BackgroundJobsPanel from './BackgroundJobsPanel.vue'
 import { videoPreviewUrlFromLocalPath, videoPreviewUrlFromStorage } from '../../lib/chatMediaPreview'
 import type { MacosComputerPermissionsStatus } from '../../types/macosPermissions'
@@ -1579,6 +1580,9 @@ onUnmounted(() => {
           </button>
         </div>
       </div>
+
+      <!-- Pending ask_user question: same stack as the job / queue bars, above the input box. -->
+      <AskUserBanner />
 
       <BackgroundJobsPanel
         v-if="chat.current?.id"

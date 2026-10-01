@@ -2,7 +2,7 @@
 
 import { createApp, nextTick, reactive, ref, type App } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentTrace, ChatMessage } from '../../../../types/chat'
+import type { AgentTrace, ChatMessage, ToolCall } from '../../../../types/chat'
 import type { ResolvedAgentUi } from '../../../../lib/agentUi'
 import { i18n } from '../../../../i18n'
 import { applyUiLocale } from '../../../../lib/uiLocale'
@@ -111,7 +111,8 @@ const mountedApps: App[] = []
 
 function mountFrame(
   traceValue: AgentTrace,
-  provides: Record<string, unknown> = {}
+  provides: Record<string, unknown> = {},
+  hostTool: ToolCall | null = null
 ): HTMLElement {
   const host = document.createElement('div')
   document.body.append(host)
@@ -125,7 +126,7 @@ function mountFrame(
     createdAt: 1,
     generating: false,
     isActiveGenerationMessage: false,
-    hostTool: null
+    hostTool
   })
   app.use(i18n)
   for (const [key, value] of Object.entries(provides)) app.provide(key, value)
@@ -282,6 +283,66 @@ function mountParentWithChild(
   useConversationScopedStore().ingestRows('c1', [parentRoundRow(child), ...extraRows])
   return mountFrame(trace({ userExpanded: true }), provides)
 }
+
+describe('collapsed process row label', () => {
+  it('keeps the「过程」placeholder for a finished ask_user-only spawn', async () => {
+    // The retry case: the earlier attempt's only tool was ask_user, which is outside the
+    // stats whitelist, so a hosted terminal stub has no stats and no orphan title → the
+    // host falls back to the placeholder. This is where a bare「过程」next to another
+    // spawn's「思考中..」comes from.
+    useConversationScopedStore().ingestRows('c1', [
+      scopedRow('ask-round', {
+        createdAt: 1,
+        toolCalls: [
+          {
+            id: 'tc-ask',
+            name: 'ask_user',
+            status: 'success',
+            arguments: '{"question":"选哪个？","options":[{"label":"A"},{"label":"B"}]}'
+          }
+        ]
+      })
+    ])
+    vi.useFakeTimers()
+    const hostRow: ToolCall = {
+      id: 'host-1',
+      name: 'run_subagent',
+      status: 'success',
+      arguments: '{}'
+    }
+    const host = mountFrame(trace({ status: 'cancelled', userExpanded: false }), {}, hostRow)
+    await vi.advanceTimersByTimeAsync(90_000) // past TERMINAL_COLLAPSED_STUB_IDLE_MS (60s)
+    await flush()
+    expect(host.textContent).toContain('其他 1 次')
+    expect(host.textContent).not.toContain('过程')
+    vi.useRealTimers()
+  })
+
+  it('still falls back to「过程」for a spawn that ran no tool at all', async () => {
+    vi.useFakeTimers()
+    const hostRow: ToolCall = {
+      id: 'host-2',
+      name: 'run_subagent',
+      status: 'success',
+      arguments: '{}'
+    }
+    const host = mountFrame(trace({ status: 'cancelled', userExpanded: false }), {}, hostRow)
+    await vi.advanceTimersByTimeAsync(90_000) // past TERMINAL_COLLAPSED_STUB_IDLE_MS (60s)
+    await flush()
+    expect(host.textContent).toContain('过程')
+    vi.useRealTimers()
+  })
+
+  it('drops「过程」while a running spawn already shows its live line', async () => {
+    useConversationScopedStore().ingestRows('c1', [
+      scopedRow('live', { contentStreaming: true, reasoning: '想一下要不要问用户', createdAt: 1 })
+    ])
+    const host = mountFrame(trace({ status: 'running', userExpanded: false }))
+    await flush()
+    expect(host.textContent).toContain('思考中')
+    expect(host.textContent).not.toContain('过程')
+  })
+})
 
 describe('nested child frames', () => {
   it('degrades a terminal collapsed child to the same stub as a top-level frame', async () => {

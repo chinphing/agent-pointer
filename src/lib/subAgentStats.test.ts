@@ -63,6 +63,14 @@ describe('subAgentStats explore / self-fork summary', () => {
     expect(line).toBe('代码探索 · 读文件 1 次 · 终端 2 次')
   })
 
+  it('folds unnamed tools into「其他」so interaction-only spawns stay visible', () => {
+    const stats = emptySubAgentToolStats()
+    incrementSubAgentToolStats(stats, 'ask_user', '{}')
+    incrementSubAgentToolStats(stats, 'task_board_patch', '{}')
+    expect(formatSubAgentSummaryLine('代码探索', 'completed', stats, 'explore'))
+      .toBe('代码探索 · 其他 2 次')
+  })
+
   it('keeps 失败 on failed traces and omits 已完成 on success', () => {
     const stats = emptySubAgentToolStats()
     incrementSubAgentToolStats(stats, 'file_read', '{}')

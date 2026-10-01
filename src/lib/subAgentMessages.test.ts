@@ -579,6 +579,34 @@ describe('rehydrateAgentTracesFromScopedMessages', () => {
     expect(line).toContain('其他 1 次')
     expect(line).not.toContain('工具 0 次')
   })
+
+  it('folds interaction tools like ask_user into「其他」instead of hiding them', () => {
+    // Every call the buckets do not name lands in `otherCount`, so an ask_user-only round
+    // reports「其他 1 次」rather than「工具 0 次」(which used to collapse the row to「过程」).
+    const messages = [
+      {
+        id: 'a1',
+        role: 'assistant' as const,
+        content: '',
+        status: 'done' as const,
+        createdAt: 1,
+        anchorMessageId: 'lead',
+        traceId: 't:general',
+        toolCalls: [
+          {
+            id: 'call_ask',
+            name: 'ask_user',
+            arguments: '{"question":"选哪个？","options":[{"label":"A"},{"label":"B"}]}',
+            status: 'success' as const
+          }
+        ]
+      }
+    ]
+    const stats = computeSubAgentStatsFromMessages(messages)
+    const line = formatSubAgentSummaryLine('测试子代理', 'completed', stats, 'general')
+    expect(line).toContain('其他 1 次')
+    expect(line).not.toContain('工具 0 次')
+  })
 })
 
 describe('ensureHostLinkedSubTraces', () => {

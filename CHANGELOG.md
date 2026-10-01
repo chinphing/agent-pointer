@@ -30,6 +30,27 @@ Versions follow the root `VERSION` file.
   combinations; `docs/zh-CN/developer/README.md` carries the entry table.
 - The public repository is named **agent-pointer**.
 
+### Fixed
+
+- The `ask_user` question card renders again, above the input box (same stack as
+  the background-job / outbound-queue bars; it renders the standard ask_user card
+  unchanged, with no extra shell of its own), and only for **sub-agent** questions: the lead agent's own
+  card is already inline in the transcript. `ChatView.vue` mounted
+  `<AskUserBanner />` without importing it, so Vue fell back to an inert
+  `<askuserbanner>` element: a question asked by a sub-agent had no surface once
+  the frames stopped keeping pending `ask_user` cards.
+- Sub-agent stats lines now fold every tool the named buckets do not cover
+  (`ask_user`, `task_board_*`, `job`, `run_subagent`, `read_lints`, …) into「其他 N 次」
+  instead of reporting「工具 0 次」, so a spawn that only asked a question no longer
+  collapses to the bare「过程」placeholder.
+
+- The sub-agent `ask_user` bar mounts only once its question is parseable
+  (`askUserQuestionIsDrawable`): a call whose arguments are still streaming used to
+  show an empty bar above the composer.
+- `scripts/check-vue-template-imports.mjs` fails `npm test` when a template
+  renders a component the SFC never imports (self-references and Vue built-ins
+  excluded) — `vue-tsc` does not catch that case.
+
 ### Security
 
 - Signing environment files and local logs must stay out of git.

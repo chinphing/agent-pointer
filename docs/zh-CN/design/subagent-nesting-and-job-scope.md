@@ -12,7 +12,7 @@
 | **D-2** | 孙 agent 结果**只回直接父层** | ✅ 已定（§2.6，现状已满足 + 固化） |
 | **D-A1…A6** | general 走 self fork / explore 不派写型 / 父帧显示子任务数 / 根槽提升 / 深度 2 / 扇出 8 | ✅ 已定（§2.11，均按建议值） |
 | **D-A7** | self fork 在 UI/日志上与真 worker 区分 | ✅ 已定（纳入 P2） |
-| **D-C1…C3** | ask_user 顶部条：挂载位置 / 多 pending 处理 / 2s 计时起点 | ✅ 已落地（§4.6，按建议值） |
+| **D-C1…C3** | ask_user 条：挂载位置 / 多 pending 处理 / 2s 计时起点 | ✅ 已落地（§4.6）；**D-C1 于 2026-10-01 反转**：由对话区顶部改为输入框上方（与后台任务条同一位置） |
 
 ---
 
@@ -307,13 +307,13 @@ depth 1 的 48 行 `general` 是 **lead 自己的 self fork**。
 **剔除范围（只针对 ask_user，`pending_approval` 行为不变）**：
 `isInteractiveToolCall` 拆为 `isPendingApprovalToolCall`（保留原语义）与 `isPendingAskUserToolCall`（仅供顶部条使用）；上表各处不再因 **ask_user** 保留帧 / 行 / stub。
 
-### 4.3 新表面：对话区顶部固定条
+### 4.3 新表面：输入框上方的固定条（原设计在对话区顶部，见 D-C1 反转）
 
 | 项 | 设计 |
 |----|------|
 | 组件 | `src/components/chat/AskUserBanner.vue`（复用 `AskUserOptions.vue` 的选项卡片；Banner 只负责定位 toolCall 与残留计时） |
-| 挂载 | `src/components/chat/ChatView.vue` 主区 `<MessageList>` 之上（对话区顶部，sticky，移动端同位置）。备选：`<Composer>` 之上（一个挂载点的差别） |
-| 数据源（**与帧是否渲染无关**） | ① `chat.current.messages[].toolCalls` 里的 `ask_user`(pending/running)；② **scoped 行**（深层子 agent）——需 `useConversationScopedStore()` 提供"按会话取全部行"的只读访问器（若缺则补） |
+| 挂载 | `src/components/chat/Composer.vue` 的 `chat-column` 内、`<BackgroundJobsPanel>` / `<OutboundQueuePanel>` 之上、输入框 shell 之上（2026-10-01 反转；原设计为 `ChatView.vue` 消息区 `<MessageList>` 之上，对话区顶部） |
+| 数据源（**与帧是否渲染无关**） | **只有 scoped 行**（深层子 agent，`useConversationScopedStore().listRows(convId)`）。主 Agent 的 `ask_user` 不进条：它的卡片本来就内联在消息里、用户可见（2026-10-01 修正，避免重复外显） |
 | 多 pending | 队列：显示最早的一条，答完自动切下一条；可提示"还有 N 条" |
 | 提交后 | 进入"已选择 X"态并**保留 2 秒**再消失（本地 linger 状态，避免 tool call 立刻变 success 导致提前卸载）；2s 内若出现新 pending 则替换 |
 | 交互 | 与现有卡片一致：单选点击即提交；多选保留确认按钮；"其他"输入保留 |
@@ -329,7 +329,7 @@ depth 1 的 48 行 `general` 是 **lead 自己的 self fork**。
 
 | 编号 | 问题 | 默认 |
 |------|------|------|
-| **D-C1** | 挂载位置：对话区顶部 / 输入框上方 | 对话区顶部 |
+| **D-C1** | 挂载位置：对话区顶部 / 输入框上方 | ~~对话区顶部~~ → **输入框上方**（2026-10-01 反转：实际使用后要求与后台任务条同一位置） |
 | **D-C2** | 多个 pending：队列逐个答 / 只显示最早一条 + 剩余数量提示 | 队列逐个答（并显示剩余数量） |
 | **D-C3** | 2s 从提交时开始计 | 是 |
 
@@ -339,8 +339,8 @@ depth 1 的 48 行 `general` 是 **lead 自己的 self fork**。
 |----|------|
 | 新组件 | `src/components/chat/AskUserBanner.vue`（复用 `AskUserOptions.vue`）；`AskUserOptions` 新增 `submitted` 事件，2s 从提交成功起算（D-C3） |
 | 队列逻辑（纯函数） | `src/lib/askUserBanner.ts`：`pendingAskUserToolCalls` / `resolveAskUserBannerView` / `createAskUserLinger`；`ASK_USER_BANNER_LINGER_MS = 2000` |
-| 挂载 | `src/components/chat/ChatView.vue`：消息区容器改为 `flex h-full min-h-0 flex-col`，条挂在 `<MessageList>` 之上（D-C1）。消息区自己滚动，条因此始终钉在对话区顶部（未用 CSS `sticky`，效果等同） |
-| 数据源 | 当前会话 lead `messages[].toolCalls` + `useConversationScopedStore().listRows(convId)`（**深层 scoped 行**，不依赖任何帧挂载）；响应式依赖 = `getMembershipSignal`（spawn 增删）+ `getLiveSignal`（行/工具状态变化） |
+| 挂载 | **D-C1 反转（2026-10-01）**：条改挂 `src/components/chat/Composer.vue` 的 `chat-column` 内、`<BackgroundJobsPanel>` / `<OutboundQueuePanel>` 之上、输入框 shell 之上（与后台任务条同一位置）；条自身只留 `mb-2`，宽度由 `chat-column` 决定。原实现挂在 `ChatView.vue` 消息区 `<MessageList>` 之上（对话区顶部） |
+| 数据源 | **只有** `useConversationScopedStore().listRows(convId)`（**scoped 行**，不依赖任何帧挂载）。2026-10-01 起不再收 lead `messages[].toolCalls`（主 Agent 的卡片内联在消息里，进条就是重复）；同日外框改为**不额外套壳**：直接用标准 `ask_user` 卡片（`.fence-block` + 其头部样式，均不改）。响应式依赖 = `getMembershipSignal`（spawn 增删）+ `getAskUserRevision`（只跟 `ask_user` 行的 status / 参数长度 / 摘要长度） |
 | 多 pending | D-C2：队列逐个答，条上提示「还有 N 条待回答」；linger 期间若出现**提交时不在队列里的**新 pending，则立即替换确认态 |
 | 旧逻辑剔除 | `messageTooling.ts`：`isInteractiveToolCall` 拆为 `isPendingApprovalToolCall` + `isPendingAskUserToolCall`；`agentTraceNeedsCollapsedSurface` 只按 `status === 'running'`；`SubAgentFrame.vue` 折叠区只保留 approval 卡片；`SubAgentFrameHost.vue` `interactiveBlocksStub` → `approvalBlocksStub`（含 frame memo 依赖）；`messageListLayout.ts` hidden-process 计数改用 `isCollapsedSurfaceToolCall` |
 | 未改（有意） | `conversationTurns.ts` 的 `isInteractive` 是通用保留钩子（approval / running 仍需），ask_user 耦合只在 `messageListLayout.entryIsInteractive`；`ToolCallRow.vue` 仍在工具行自身渲染处显示 ask_user 卡片（展开帧中会与顶部条并存，属既有渲染路径，本次未动） |

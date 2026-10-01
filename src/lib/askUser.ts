@@ -129,6 +129,23 @@ export function parseAskUserSummary(raw?: string): AskUserArgs | null {
   return { question, options, multiSelect: false }
 }
 
+/**
+ * Whether the option card can actually draw this call.
+ *
+ * `ask_user` streams its arguments, and the backend `displaySummary` fallback only
+ * carries the question once arguments exist. Queueing a call before that mounts the
+ * banner shell with nothing inside it — an empty bar above the composer. Both readers
+ * use the same two parsers, so the banner and `AskUserOptions` always agree.
+ */
+export function askUserQuestionIsDrawable(toolCall: {
+  arguments?: string
+  displaySummary?: string
+}): boolean {
+  return (
+    (parseAskUserArgs(toolCall.arguments) ?? parseAskUserSummary(toolCall.displaySummary)) !== null
+  )
+}
+
 export function parseAskUserSelection(raw?: string): string[] {
   if (!raw?.trim()) return []
   try {

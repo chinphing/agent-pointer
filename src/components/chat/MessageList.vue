@@ -27,6 +27,7 @@ import {
 import { shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
 import { rootTracesOf } from '../../lib/subAgentTraceTree'
 import { messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
+import { createScrollPassScheduler, createViewedStampDedupe } from '../../lib/chatScrollPass'
 import {
   PERF_GAUGE_FROZEN_TURNS,
   PERF_GAUGE_SCOPED_ROWS,
@@ -178,6 +179,10 @@ let followOutput = true
 /** Wall-clock suppress for programmatic sticks (not a depth counter — stream sticks coalesce). */
 let programmaticScrollUntilMs = 0
 let scrollFrame: number | null = null
+/** One coalesced scroll pass per animation frame; cancelled on unmount. */
+const scrollPass = createScrollPassScheduler(runScrollPass)
+/** Remembers the rows the previous pass already stamped as viewed. */
+const viewedStamps = createViewedStampDedupe()
 /** Minimum wall-clock gap between two programmatic scroll-to-bottom calls. */
 const SCROLL_MIN_INTERVAL_MS = 80
 /** How long `onScroll` ignores follow updates after a programmatic stick. */
@@ -283,10 +288,29 @@ function releaseNoOlderPull() {
   }
 }
 
+type ScrollMetrics = {
+  scrollTop: number
+  clientHeight: number
+  /** `scrollHeight - scrollTop - clientHeight`, from the same read. */
+  distanceFromBottom: number
+}
+
+/** Read every scroller metric at once so a pass never re-reads between writes. */
+function readScrollMetrics(el: HTMLElement): ScrollMetrics {
+  const scrollTop = el.scrollTop
+  const clientHeight = el.clientHeight
+  return {
+    scrollTop,
+    clientHeight,
+    distanceFromBottom: el.scrollHeight - scrollTop - clientHeight
+  }
+}
+
+/** Wheel / touch pull hints only need the bottom distance. */
 function distanceFromBottom(): number {
   const el = scroller.value
   if (!el) return 0
-  return el.scrollHeight - el.scrollTop - el.clientHeight
+  return readScrollMetrics(el).distanceFromBottom
 }
 
 /** Refresh the suppress window; overlapping stream sticks extend it, they do not stack. */
@@ -556,6 +580,9 @@ onMounted(() => {
     toBottom({ settle: true })
   })
   historyTrimTimer = setInterval(() => {
+    // Renew the stamps for a parked viewport so the trim below cannot drop the
+    // rows the user is looking at.
+    viewedStamps.reset()
     stampVisibleUserMessagesViewed()
     maybeTrimConversationHistory()
   }, TRIM_HISTORY_TICK_MS)
@@ -573,6 +600,7 @@ onBeforeUnmount(() => {
     clearInterval(historyTrimTimer)
     historyTrimTimer = null
   }
+  scrollPass.cancel()
   if (scrollFrame != null) {
     cancelAnimationFrame(scrollFrame)
     scrollFrame = null
@@ -924,27 +952,40 @@ watch(
   { immediate: true }
 )
 
-function updateActiveBoardStickyState() {
+type ActiveBoardStickySnapshot = {
+  inlineScrollTop: number | null
+  isSticky: boolean
+}
+
+/**
+ * DOM reads for the sticky board pill. Kept apart from the ref writes so a
+ * scroll pass can finish every layout read before it writes anything.
+ */
+function readActiveBoardStickySnapshot(): ActiveBoardStickySnapshot {
   const el = scroller.value
   const board = activeBoard.value
-  if (!el || !board) {
-    activeBoardInlineScrollTop.value = null
-    activeBoardIsSticky.value = false
-    return
-  }
+  if (!el || !board) return { inlineScrollTop: null, isSticky: false }
 
   const inline = el.querySelector(
     `[data-active-parent-board-inline="${CSS.escape(board.storeKey)}"]`
   ) as HTMLElement | null
-  if (inline) {
-    activeBoardInlineScrollTop.value =
-      inline.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop
+  // No inline board in the DOM keeps the previous offset, as before.
+  const inlineScrollTop = inline
+    ? inline.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop
+    : activeBoardInlineScrollTop.value
+  return {
+    inlineScrollTop,
+    isSticky: shouldStickActiveTaskBoard(el.scrollTop, inlineScrollTop, true)
   }
-  activeBoardIsSticky.value = shouldStickActiveTaskBoard(
-    el.scrollTop,
-    activeBoardInlineScrollTop.value,
-    true
-  )
+}
+
+function applyActiveBoardStickySnapshot(snapshot: ActiveBoardStickySnapshot) {
+  activeBoardInlineScrollTop.value = snapshot.inlineScrollTop
+  activeBoardIsSticky.value = snapshot.isSticky
+}
+
+function updateActiveBoardStickyState() {
+  applyActiveBoardStickySnapshot(readActiveBoardStickySnapshot())
 }
 
 async function loadOlderWithScrollAnchor() {
@@ -1036,12 +1077,12 @@ function restoreVisibleTurnAnchor(anchor: MessageListScrollAnchor | null): boole
   return true
 }
 
-function maybePrefetchOlder(scrollingUp: boolean) {
+function maybePrefetchOlder(scrollingUp: boolean, scrollTop: number) {
   const el = scroller.value
   if (!el || isProgrammaticScroll() || locatingFocus.value) return
   if (olderLoadInFlight || newerLoadInFlight || currentMessagePage.value?.loadingOlder) return
-  const atTop = el.scrollTop <= LOAD_OLDER_TOP_PX
-  if (shouldRearmOlderPrefetch(el.scrollTop)) {
+  const atTop = scrollTop <= LOAD_OLDER_TOP_PX
+  if (shouldRearmOlderPrefetch(scrollTop)) {
     olderPrefetchArmed = true
   }
   if (!shouldAutoPrefetchOlderOnScroll({ atTop, scrollingUp, armed: olderPrefetchArmed })) return
@@ -1069,12 +1110,11 @@ async function loadNewerWithoutFollow() {
   }
 }
 
-function maybePrefetchNewer(scrollingDown: boolean) {
+function maybePrefetchNewer(scrollingDown: boolean, distance: number) {
   const el = scroller.value
   if (!el || isProgrammaticScroll() || locatingFocus.value) return
   if (newerLoadInFlight || olderLoadInFlight || currentMessagePage.value?.loadingNewer) return
   if (chat.isCurrentConversationHydrating) return
-  const distance = distanceFromBottom()
   const atBottomBand = distance <= LOAD_NEWER_BOTTOM_PX
   if (!atBottomBand && distance > LOAD_NEWER_LEAVE_BOTTOM_PX) {
     newerPrefetchArmed = true
@@ -1116,28 +1156,47 @@ async function jumpToLatest() {
   toBottom({ settle: true })
 }
 
+/** Ids of the user messages inside the virtual viewport, in row order. */
+function visibleUserMessageIds(): string[] {
+  const ids: string[] = []
+  const turns = conversationTurns.value
+  for (const row of virtualRows.value) {
+    const turn = turns[row.index]
+    if (!turn) continue
+    for (const entry of turn.entries) {
+      if (entry.type !== 'message' || entry.message.role !== 'user') continue
+      ids.push(entry.message.id)
+    }
+  }
+  return ids
+}
+
 /** Stamp every user message currently inside the virtual viewport as "viewed". */
 function stampVisibleUserMessagesViewed() {
   const convId = chat.currentId?.trim()
   if (!convId) return
-  for (const row of virtualRows.value) {
-    const turn = conversationTurns.value[row.index]
-    if (!turn) continue
-    for (const entry of turn.entries) {
-      if (entry.type !== 'message' || entry.message.role !== 'user') continue
-      chat.markUserMessageViewed(convId, entry.message.id)
-    }
-  }
+  viewedStamps.apply(convId, visibleUserMessageIds(), id => {
+    chat.markUserMessageViewed(convId, id)
+  })
 }
 
 function updateVisibleNavMessage() {
-  if (locatingFocus.value) return
   const el = scroller.value
   if (!el) return
+  const nav = readVisibleNavMessageId(readScrollMetrics(el))
+  if (nav) chat.setVisibleNavMessageId(nav.id)
+}
+
+/**
+ * Nav marker for an already-read scroller snapshot, or null when the update
+ * does not apply (locating a search hit, empty transcript). Performs no writes.
+ */
+function readVisibleNavMessageId(metrics: ScrollMetrics): { id: string | null } | null {
+  if (locatingFocus.value) return null
   const turns = conversationTurns.value
   const rows = virtualRows.value
-  if (rows.length === 0 || turns.length === 0) return
-  const marker = el.scrollTop + Math.min(72, Math.max(24, el.clientHeight * 0.18))
+  if (rows.length === 0 || turns.length === 0) return null
+  const marker = metrics.scrollTop + Math.min(72, Math.max(24, metrics.clientHeight * 0.18))
   let markerTurnId: string | null = null
   for (const row of rows) {
     if (row.start > marker) break
@@ -1156,13 +1215,21 @@ function updateVisibleNavMessage() {
       break
     }
   }
-  chat.setVisibleNavMessageId(
-    conversationNavVisibleMessageId({
-      atBottom: distanceFromBottom() <= ATTACH_BOTTOM_PX,
+  return {
+    id: conversationNavVisibleMessageId({
+      atBottom: metrics.distanceFromBottom <= ATTACH_BOTTOM_PX,
       lastLoadedTurnId,
       markerTurnId
     })
-  )
+  }
+}
+
+/** Cheap guards for a scroll-driven history trim — no DOM reads. */
+function canTrimConversationHistory(): boolean {
+  const convId = chat.currentId?.trim()
+  if (!convId || locatingFocus.value || isProgrammaticScroll()) return false
+  if (olderLoadInFlight || newerLoadInFlight) return false
+  return Date.now() - lastHistoryTrimAt >= TRIM_HISTORY_COOLDOWN_MS
 }
 
 /**
@@ -1170,33 +1237,50 @@ function updateVisibleNavMessage() {
  * messages above the viewport have not been viewed within the stale window.
  * SQLite keeps the rows; scrolling back up near the top reloads them through
  * `loadOlderMessages` because `oldestPosition` was advanced.
+ *
+ * @param anchor — viewport anchor the caller already read; `undefined`
+ *   captures it here (interval timer path).
  */
-function maybeTrimConversationHistory() {
+function maybeTrimConversationHistory(anchor?: MessageListScrollAnchor | null) {
   const convId = chat.currentId?.trim()
-  if (!convId || locatingFocus.value || isProgrammaticScroll()) return
-  if (olderLoadInFlight || newerLoadInFlight) return
-  if (Date.now() - lastHistoryTrimAt < TRIM_HISTORY_COOLDOWN_MS) return
-  const anchor = captureVisibleTurnAnchor()
+  if (!convId || !canTrimConversationHistory()) return
+  const resolvedAnchor = anchor === undefined ? captureVisibleTurnAnchor() : anchor
   const removed = chat.trimConversationHistory(convId)
   lastHistoryTrimAt = Date.now()
-  if (removed > 0 && anchor) {
+  if (removed > 0 && resolvedAnchor) {
     // Rows above the viewport were dropped; re-pin the same turn + offset.
     void (async () => {
       await nextTick()
       await nextAnimationFrame()
-      restoreVisibleTurnAnchor(anchor)
+      restoreVisibleTurnAnchor(resolvedAnchor)
     })()
   }
 }
 
 function onScroll(_event: Event) {
+  scrollPass.schedule()
+}
+
+/**
+ * One scroll pass per animation frame. Every scroller read happens up front so
+ * the reactive / store writes below never interleave with a layout read.
+ */
+function runScrollPass() {
   const el = scroller.value
-  if (el && el.scrollTop > 2 && noOlderPullPx.value > 0) {
+  const metrics = el ? readScrollMetrics(el) : null
+  const scrollTop = metrics?.scrollTop ?? 0
+  const distance = metrics?.distanceFromBottom ?? 0
+  const scrollingUp = el != null && scrollTop < lastScrollTop - 1
+  const scrollingDown = el != null && scrollTop > lastScrollTop + 1
+  const board = readActiveBoardStickySnapshot()
+  const holeBlocksFollow = holeWindowBlocksFollow()
+  const nav = metrics ? readVisibleNavMessageId(metrics) : null
+  const trimEligible = canTrimConversationHistory()
+  const trimAnchor = trimEligible ? captureVisibleTurnAnchor() : null
+
+  if (el && scrollTop > 2 && noOlderPullPx.value > 0) {
     releaseNoOlderPull()
   }
-  const distance = distanceFromBottom()
-  const scrollingUp = el != null && el.scrollTop < lastScrollTop - 1
-  const scrollingDown = el != null && el.scrollTop > lastScrollTop + 1
   if (!isProgrammaticScroll()) {
     followOutput = nextFollowOutputAfterScroll({
       followOutput,
@@ -1206,16 +1290,16 @@ function onScroll(_event: Event) {
       detachPx: DETACH_BOTTOM_PX
     })
     // Loaded bottom of an around window is not the transcript tail.
-    if (holeWindowBlocksFollow()) followOutput = false
+    if (holeBlocksFollow) followOutput = false
   }
-  showScrollButton.value = !followOutput || holeWindowBlocksFollow()
-  updateActiveBoardStickyState()
-  maybePrefetchOlder(scrollingUp)
-  maybePrefetchNewer(scrollingDown)
-  if (el) lastScrollTop = el.scrollTop
+  showScrollButton.value = !followOutput || holeBlocksFollow
+  applyActiveBoardStickySnapshot(board)
+  maybePrefetchOlder(scrollingUp, scrollTop)
+  maybePrefetchNewer(scrollingDown, distance)
+  if (el) lastScrollTop = scrollTop
   stampVisibleUserMessagesViewed()
-  updateVisibleNavMessage()
-  maybeTrimConversationHistory()
+  if (nav) chat.setVisibleNavMessageId(nav.id)
+  if (trimEligible) maybeTrimConversationHistory(trimAnchor)
 }
 
 function isTaskBoardTerminal(status: string | undefined): boolean {

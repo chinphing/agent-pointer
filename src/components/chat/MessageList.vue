@@ -26,7 +26,7 @@ import {
 } from '../../lib/assistantMessageKind'
 import { shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
 import { rootTracesOf } from '../../lib/subAgentTraceTree'
-import { messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
+import { MESSAGE_VIRTUAL_ROW_CLASS, messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
 import { createScrollPassScheduler, createViewedStampDedupe } from '../../lib/chatScrollPass'
 import { createVirtualRowMeasureBatch } from '../../lib/virtualRowMeasureBatch'
 import {
@@ -2210,7 +2210,7 @@ function entrySpacing(
         :ref="setVirtualRowElement"
         :data-index="row.virtualRow.index"
         :data-turn-id="row.turn.id"
-        class="absolute left-0 top-0 w-full"
+        :class="['absolute left-0 top-0 w-full', MESSAGE_VIRTUAL_ROW_CLASS]"
         :style="{
           transform: `translateY(${row.virtualRow.start}px)`,
           paddingTop: `${messageTurnSpacingPixels(row.virtualRow.index)}px`

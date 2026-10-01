@@ -314,6 +314,22 @@
     /* Fill the padded shell up to 1024px; side spacing comes from .chat-shell. */
     max-width: min(1024px, 100%);
   }
+  /*
+   * Virtual message row (MessageList.vue). Rows are absolutely positioned and
+   * moved with an inline `translateY`, so their layout is self-contained:
+   * `contain: layout` keeps a row resize from invalidating layout for the whole
+   * transcript, and `will-change: transform` keeps the row on its own
+   * composited layer while the virtual window moves.
+   *
+   * Deliberately NOT `contain: paint` — it would clip the hover pills and avatar
+   * slots that hang outside the row box. Deliberately NOT `content-visibility` —
+   * a skipped subtree would make the measure batch's `offsetHeight` read return
+   * the wrong height and corrupt the virtualizer offsets.
+   */
+  .chat-virtual-row {
+    contain: layout;
+    will-change: transform;
+  }
   .chat-scroll-area {
     scroll-padding-bottom: 2.5rem;
     /* overflow-y:auto makes overflow-x compute to auto; clip sideways so a

@@ -57,10 +57,9 @@
   margin: 12px 0 0;
 }
 
-/* The docs are plain Markdown tables; keep wide ones scrollable instead of
-   overflowing the content column. */
-.vp-doc table {
-  display: table;
-  width: 100%;
-  overflow-x: auto;
-}
+/* Wide Markdown tables must scroll horizontally inside the content column.
+   Do NOT override `.vp-doc table` with `display: table`: `overflow-x` only
+   applies to block containers, so the table escapes the column and slides
+   under the outline panel. VitePress's own rule
+   (`.vp-doc table { display: block; overflow-x: auto }`) is what makes wide
+   tables scroll — it is deliberately left unoverridden here. */

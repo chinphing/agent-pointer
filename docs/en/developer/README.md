@@ -55,8 +55,6 @@ For user settings see [`../user/subagents.md`](../user/subagents.md); workspace 
 | Document | Description |
 |------|------|
 | [channel-integration.md](channel-integration.md) | Full IM channel integration (long connection / Webhook, per-platform steps and troubleshooting) |
-| [feishu-cli-integration-sop.md](feishu-cli-integration-sop.md) | Feishu CLI integration SOP |
-| [lark-cli-quickstart.md](lark-cli-quickstart.md) | Lark CLI quickstart |
 | [cloud-host-integration.md](cloud-host-integration.md) | Self-hosting cloud instances, environment variables, auth chain |
 | [desktop-oauth-web-integration.md](desktop-oauth-web-integration.md) | Desktop OAuth callback and the official site's `?desktop_oauth=success` |
 | [mcp.md](mcp.md) | MCP client integration: stdio / HTTP dual transport, config carriers, lifecycle, management API |

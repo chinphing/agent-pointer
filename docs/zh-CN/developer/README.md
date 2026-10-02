@@ -55,8 +55,6 @@
 | 文档 | 说明 |
 |------|------|
 | [channel-integration.md](channel-integration.md) | IM 通道完整对接（长连接 / Webhook、各平台步骤与排查） |
-| [feishu-cli-integration-sop.md](feishu-cli-integration-sop.md) | 飞书 CLI 集成 SOP |
-| [lark-cli-quickstart.md](lark-cli-quickstart.md) | Lark CLI 快速上手 |
 | [cloud-host-integration.md](cloud-host-integration.md) | 云实例自部署、环境变量、认证链路 |
 | [desktop-oauth-web-integration.md](desktop-oauth-web-integration.md) | 桌面 OAuth 回调与官网 `?desktop_oauth=success` |
 | [mcp.md](mcp.md) | MCP 客户端接入：stdio / HTTP 双传输、配置载体、生命周期、管理 API |

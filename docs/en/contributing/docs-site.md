@@ -82,13 +82,13 @@ A page's physical location and its sidebar membership **can differ**. Example: `
 
 ### Example: the four groups of the "Development" section
 
-The 35 pages in `zh-CN/developer/` are split by topic into 4 groups plus a catch-all, with the page lists in the `ZH_DEV_*` constants of `config.mts`:
+The 33 pages in `zh-CN/developer/` are split by topic into 4 groups plus a catch-all, with the page lists in the `ZH_DEV_*` constants of `config.mts`:
 
 | Group | Pages | Content |
 |----|:---:|------|
 | **Concepts** | 6 | architecture, workspace root, attachment storage, extension hooks, Skills compatibility and persistence |
 | **Tools and protocols** | 10 | tool-calling protocol, `run_subagent`, file / web / terminal / session tools, logging |
-| **Integrations** | 7 | IM channels, Feishu and Lark CLI, cloud hosts, desktop OAuth, MCP, Webhook |
+| **Integrations** | 5 | IM channels, cloud hosts, desktop OAuth, MCP, Webhook |
 | **Troubleshooting** | 8 | streaming errors and reconnect, auth refresh, text truncation, chunking, session id, turn baseline, message position collisions |
 | **Other** | catch-all | `cli.md`, `standalone-local-login.md`, and **new pages not listed in the four groups above** |
 

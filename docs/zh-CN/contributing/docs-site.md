@@ -82,13 +82,13 @@ export const SITE_EXCLUDES = [
 
 ### 例：「开发」分区的四组
 
-`zh-CN/developer/` 的 35 篇按主题分成 4 组 + 一个兜底组，篇目写在 `config.mts` 的 `ZH_DEV_*` 常量里：
+`zh-CN/developer/` 的 33 篇按主题分成 4 组 + 一个兜底组，篇目写在 `config.mts` 的 `ZH_DEV_*` 常量里：
 
 | 组 | 篇数 | 内容 |
 |----|:---:|------|
 | **概念** | 6 | 架构、工作区根、附件存储、扩展钩子、Skills 兼容与持久化 |
 | **工具与协议** | 10 | 工具调用协议、`run_subagent`、file / web / terminal / session 工具、logging |
-| **集成** | 7 | IM 通道、飞书与 Lark CLI、云主机、桌面 OAuth、MCP、Webhook |
+| **集成** | 5 | IM 通道、云主机、桌面 OAuth、MCP、Webhook |
 | **排障** | 8 | 流式错误与重连、认证刷新、文本截断、chunking、session id、轮次基线、消息位置碰撞 |
 | **其他** | 兜底 | `cli.md`、`standalone-local-login.md`，以及**未列入上面四组的新页** |
 

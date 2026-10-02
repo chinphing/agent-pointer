@@ -100,8 +100,6 @@ const ZH_DEV_TOOLS = [
 
 const ZH_DEV_INTEGRATION = [
   'zh-CN/developer/channel-integration.md',
-  'zh-CN/developer/feishu-cli-integration-sop.md',
-  'zh-CN/developer/lark-cli-quickstart.md',
   'zh-CN/developer/cloud-host-integration.md',
   'zh-CN/developer/desktop-oauth-web-integration.md',
   'zh-CN/developer/mcp.md',
@@ -159,8 +157,6 @@ const EN_DEV_TOOLS = [
 
 const EN_DEV_INTEGRATION = [
   'en/developer/channel-integration.md',
-  'en/developer/feishu-cli-integration-sop.md',
-  'en/developer/lark-cli-quickstart.md',
   'en/developer/cloud-host-integration.md',
   'en/developer/desktop-oauth-web-integration.md',
   'en/developer/mcp.md',

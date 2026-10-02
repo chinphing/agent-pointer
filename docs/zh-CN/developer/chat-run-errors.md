@@ -1,4 +1,6 @@
-# Chat run errors (`StreamEvent::Error`)
+# 对话运行错误（`StreamEvent::Error`）
+
+[English](../../en/developer/chat-run-errors.md) | 简体中文
 
 `StreamEvent::Error` is emitted **once**, at the end of [`run_chat`](../../../crates/pointer-core/src/chat_service/session.rs), when the run returns `Err`.
 

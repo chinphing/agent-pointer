@@ -1,4 +1,4 @@
-# Task board: parent / child coordination (maintainer)
+# 任务板：父子协调（维护者）
 
 ## Principle
 

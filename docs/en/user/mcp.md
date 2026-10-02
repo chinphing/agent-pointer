@@ -5,6 +5,7 @@ English | [简体中文](../../zh-CN/user/mcp.md)
 > For **Pointer end users**. It explains how to add an external tool service (MCP server) directly in the settings UI,
 > so a conversation can call the tools that external service provides.
 > For MCP servers declared inside a plugin see [`plugins.md`](plugins.md).
+> For implementation details (transport protocol, lifecycle, management API, global declaration) see the developer doc [`../developer/mcp.md`](../developer/mcp.md).
 
 ---
 

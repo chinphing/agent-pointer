@@ -1,6 +1,10 @@
 # 飞书 CLI（lark-cli）初始对接与授权 SOP
 
+[English](../../en/developer/lark-cli-quickstart.md) | 简体中文
+
 > 版本: 1.0 | 适用平台: Windows | 工具: `@larksuite/cli`
+>
+> 本页只讲首次对接与授权。完整命令 SOP（发消息、文档、表格、中文编码、错误处理）见 [feishu-cli-integration-sop.md](feishu-cli-integration-sop.md)。
 
 ---
 

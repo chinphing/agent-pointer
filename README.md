@@ -89,7 +89,7 @@ Pointer is more than a runtime for Skills. It builds the business system, helps 
 | Tools | Terminal, file read/write/search, web search and fetch, task board; vision computer control for GUI apps (still being improved) |
 | Skills and extensions | [Skills](docs/en/user/skills.md), [plugins](docs/en/user/plugins.md), and user rules; external tools via [MCP](docs/en/user/mcp.md) |
 | Dispatch and triggers | Scheduled tasks, [webhooks](docs/zh-CN/user/webhook.md), and IM inbound events enter chat through one dispatcher |
-| Entry points | Desktop, web, [cloud host](docs/en/user/cloud-host.md), and [Feishu, DingTalk, WeCom, and WeChat](docs/en/user/im-channels.md) |
+| Entry points | Desktop, web, and [Feishu, DingTalk, WeCom, and WeChat](docs/en/user/im-channels.md) |
 | Model access | OpenAI-compatible APIs. Qwen and DeepSeek are built in; Doubao, Kimi, Zhipu, OpenRouter, and others can be added—no single-vendor lock-in |
 
 ### What was added for Skill development and testing

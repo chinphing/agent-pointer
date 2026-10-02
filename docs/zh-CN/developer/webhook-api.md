@@ -1,4 +1,6 @@
-# Webhook API
+# Webhook 接口
+
+[English](../../en/developer/webhook-api.md) | 简体中文
 
 通过 HTTP 触发 Pointer Agent（CI、GitHub、自定义系统等）。**仅 Pointer server** 提供入站；需先部署并暴露 `pointer-server` 公网地址。
 

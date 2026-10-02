@@ -1,4 +1,4 @@
-# Long-chat memory (peak working set)
+# 长会话内存（峰值工作集）
 
 How Pointer reduces **peak RSS during a chat turn** without changing the persisted transcript model.
 

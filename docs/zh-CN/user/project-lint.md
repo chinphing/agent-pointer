@@ -1,4 +1,6 @@
-# Hybrid `read_lints` configuration
+# `read_lints` 混合配置
+
+[English](../../en/user/project-lint.md) | 简体中文
 
 > 用户使用说明索引：[`../user/README.md`](../user/README.md)。下文为工作区 **`.pointer/lint.toml`** 完整配置参考。
 

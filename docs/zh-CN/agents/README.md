@@ -1,5 +1,4 @@
-# Agent 专题（agents）
-
+# Agent 专题
 [English](../../en/agents/README.md) | 简体中文
 
 按 Agent 或策略划分的说明文档。

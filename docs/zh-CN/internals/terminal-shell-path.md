@@ -1,4 +1,4 @@
-# Terminal tool: shell PATH (macOS / Linux / Windows)
+# 终端工具：shell PATH（macOS / Linux / Windows）
 
 ## macOS & Linux
 

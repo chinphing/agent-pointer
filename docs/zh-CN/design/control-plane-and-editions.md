@@ -289,7 +289,6 @@ P0 已落地：`standalone` 由「是否绑定控制面」推导，客户端与�
 - [../zh-CN/deploy/editions.md](../deploy/editions.md)
 - [../contributing/cross-platform-build.md](../contributing/cross-platform-build.md)
 - [../user/which-build.md](../user/which-build.md)
-- [../user/cloud-host.md](../user/cloud-host.md)
 - [../user/standalone-server.md](../user/standalone-server.md)
 - [../developer/standalone-deployment.md](../developer/standalone-deployment.md)
 - [../developer/architecture.md](../developer/architecture.md)

@@ -1,4 +1,4 @@
-# LLM token usage logging (pointer-core)
+# LLM token 用量记录（pointer-core）
 
 During each `run_chat` session, pointer-core accumulates OpenAI-compatible `usage` from chat/completions and prints logs to the process console (stderr when using flexi_logger / env_logger).
 

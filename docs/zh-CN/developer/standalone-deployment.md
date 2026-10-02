@@ -139,8 +139,8 @@ pub fn verify_machine_binding(...) -> Result<()>
 
 ```
 main()
-  → deployment_mode == standalone?
-    → 读取 POINTER_LICENSE_KEY / [license].key
+  → deployment_mode == standalone?（且仅 managed 口味强制，见上）
+    → 读取 POINTER_LICENSE_KEY（来自 [license].key，或 [license].license_file 指向的文件）
     → base64url 解码 payload 和 signature
     → Ed25519 验签（公钥编译嵌入 license.pub；仅 debug 构建允许 POINTER_LICENSE_PUBLIC_KEY 覆盖，release 忽略）
     → 检查 expiry
@@ -235,7 +235,7 @@ curl -X POST http://localhost:8787/api/license/reload
 
 ## 模型配置
 
-Standalone **不从** `pointer-server.toml` 读取模型、地址或 API Key。配置文件里的 `[llm]` 段会被忽略。
+Standalone **不从** `pointer-server.toml` 读取模型、地址或 API Key：配置解析器里没有 `[llm]` 字段，未知段被 serde 静默丢弃 —— **旧 `[llm]` 段既不生效，也不报错、不告警**；旧变量 `POINTER_LLM_ACTIVE_PROVIDER` 同样不再映射。模型服务只在**设置**里配，见 [`../user/model-providers.md`](../user/model-providers.md)。
 
 登录后打开 **设置 → 模型配置 → 自定义服务**，与桌面客户端自定义服务相同：添加服务商（id、名称、API 地址、模型名单、密钥），以及上下文、最大输出、思考强度、能力勾选、`extra_body` 和单模型覆盖。保存走 `updateUserSettings`，写入 `user_settings.json`；密钥以 `enc:v1:` 加密落盘。
 
@@ -308,9 +308,17 @@ hmac_secret = "replace-with-long-random-secret"
 # pointer-server --hash-password --secret '<hmac_secret>' '<password>'
 password_hmac = "...."
 
+# 第三方 SSO 短时票（可选；不配则只用账号密码）
+# [auth.local.sso]
+# enabled = true                       # env POINTER_SERVER_SSO_ENABLED（不设则按 secret / audience 自动判定）
+# secret = "shared-with-portal"        # env POINTER_SERVER_SSO_SECRET
+# secret_prev = "rotating-old-secret"  # env POINTER_SERVER_SSO_SECRET_PREV（轮换窗口用的次密钥）
+# audience = "pointer-server"          # env POINTER_SERVER_SSO_AUDIENCE（须与票的 aud 一致）
+# max_skew_secs = 30                   # env POINTER_SERVER_SSO_MAX_SKEW_SECS（默认 30）
+
 [license]
-key = "base64_payload.base64_sig"      # license key 字符串
-# 或：key_file = "license.key"         # 从文件读取
+key = "base64_payload.base64_sig"      # license key 字符串（非空时优先）
+# 或：license_file = "license.key"     # 从文件读取；相对路径以本配置文件所在目录为基准
 
 [usage]
 report_enabled = false                 # standalone 默认不上报用量
@@ -345,6 +353,30 @@ skills_dir = "skills"
 
 # Browser CORS（默认关闭，仅同源）。桌面客户端走 IPC，不受影响。
 # cors_origins = ["http://localhost:1420"]   # env POINTER_SERVER_CORS_ORIGINS
+
+# 平台用户白名单（逗号分隔）。留空 = 允许任意平台用户。
+# allowed_user_ids = ["1001", "1002"]         # env POINTER_SERVER_ALLOWED_USER_IDS
+# 为 true 且白名单为空则拒绝启动
+# require_allowed_users = false               # env POINTER_SERVER_REQUIRE_ALLOWED_USERS
+# 禁止 Agent 终端里出现 SESSION_USER_ID 字面量（默认 false）
+# forbid_session_user_id_in_terminal = false  # env POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL
+
+# Webhook 入站鉴权（未设时 /api/webhooks/:src 一律 401）
+[webhooks]
+# bearer_token = "long-random-token"         # env POINTER_WEBHOOK_BEARER_TOKEN
+
+# 任意环境变量注入：仅在该 KEY 尚未由 OS 环境变量设置时生效
+[env]
+# OTEL_EXPORTER_OTLP_ENDPOINT = "http://127.0.0.1:4317"
+
+# 全局 MCP 服务（仅 TOML，无环境变量形式）
+[[mcp_servers.server]]
+# name = "weather"                           # 必填
+# transport = "stdio"                        # stdio（默认）| http
+# command = "npx"                            # stdio：启动命令
+# args = ["-y", "mcp-weather"]
+# url = "https://example.com/mcp"            # http：服务地址
+# headers = { Authorization = "Bearer …" }   # http：附加请求头
 ```
 
 ### `[server]` Web 品牌 / 文案参数
@@ -379,6 +411,56 @@ skills_dir = "skills"
 | `"*"` 与具体 Origin 混写 | 启动失败 |
 
 本地 `web:dev` 默认同源（Vite 把 `/api` 代理到 8787）。若前端仍直连 `http://127.0.0.1:8787`，需要打开 CORS。前后端分离部署（静态页与 API 不同源）同样需要配置允许的 Origin。
+
+### 身份与访问控制（`[server]` / `[webhooks]`）
+
+| TOML | 环境变量 | 默认 | 说明 |
+|------|----------|------|------|
+| `allowed_user_ids` | `POINTER_SERVER_ALLOWED_USER_IDS`（逗号分隔） | 空 | 空 = 允许任意平台用户；非空 = 精确白名单 |
+| `require_allowed_users` | `POINTER_SERVER_REQUIRE_ALLOWED_USERS` | `false` | 为 true 且白名单为空 → **启动失败**（`POINTER_SERVER_REQUIRE_ALLOWED_USERS is set but POINTER_SERVER_ALLOWED_USER_IDS is empty`） |
+| `forbid_session_user_id_in_terminal` | `POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL` | `false` | 为 true 时 Agent 的 `terminal` 拒绝 command / stdin 里出现 `SESSION_USER_ID` 字面量（软约束，防串号） |
+| `[webhooks] bearer_token` | `POINTER_WEBHOOK_BEARER_TOKEN` | 空 | 未设时 `POST /api/webhooks/:src` 一律返回 401 |
+
+> 对外可访问的实例建议同时设置 `public_url` 与 `allowed_user_ids`。白名单为空且公网可达，等于把实例交给任意平台用户。
+
+### `[auth.local.sso]`（第三方短时票）
+
+| TOML | 环境变量 | 默认 |
+|------|----------|------|
+| `enabled` | `POINTER_SERVER_SSO_ENABLED` | 不设时按 `secret` / `audience` 是否配置自动判定 |
+| `secret` | `POINTER_SERVER_SSO_SECRET` | 空 |
+| `secret_prev` | `POINTER_SERVER_SSO_SECRET_PREV` | 空（轮换窗口用的次密钥） |
+| `audience` | `POINTER_SERVER_SSO_AUDIENCE` | 空（须与票的 `aud` 一致） |
+| `max_skew_secs` | `POINTER_SERVER_SSO_MAX_SKEW_SECS` | `30` |
+
+登录流程见 [`standalone-local-login.md`](standalone-local-login.md)；运维视角见 [`../user/standalone-server.md`](../user/standalone-server.md)。
+
+### `[env]` 与 `[[mcp_servers.server]]`
+
+`[env]` 是**任意键值注入**：键名就是环境变量名。唯一规则是**仅在该环境变量尚未由 OS 设置时生效** —— OS 环境变量永远优先，注入只补空缺。路径类键（后缀 `_DIR` / `_PATH`、等于 `PATH`、含 `STATIC`）的相对值按配置文件所在目录解析。
+
+`[[mcp_servers.server]]` 声明**全局 MCP 服务**，只走 TOML（没有环境变量形式）：
+
+| 字段 | 必填 | 默认 | 说明 |
+|------|------|------|------|
+| `name` | ✅ | — | 服务名 |
+| `transport` | — | `stdio` | `stdio` 或 `http` |
+| `command` / `args` / `env` | — | — | `stdio` 用 |
+| `url` / `headers` | — | — | `http` 用 |
+
+### 配置文件发现顺序
+
+```
+1. POINTER_SERVER_CONFIG             ← 显式路径；设了但不可读 → 直接报错，不回退
+2. {exe_dir}/pointer-server.toml
+3. {exe_dir}/pointer-server.env
+4. {cwd}/pointer-server.toml
+5. {cwd}/pointer-server.env
+```
+
+**第一个存在的文件胜出，只加载一个，不做合并。** 文件里的键会被映射成环境变量注入进程，但 **OS 环境变量永远优先**：已经由 OS 设好的键会被跳过。启动日志会打印 applied / skipped 清单（敏感键脱敏）。
+
+> 第二个候选扩展名是 `pointer-server.env`，不是 `.env`。
 
 ---
 

@@ -1,5 +1,7 @@
 # Webhook 自动化
 
+[English](../../en/user/webhook.md) | 简体中文
+
 通过 HTTP 从 CI、脚本或外部系统触发 Pointer Agent，并可选附带附件。
 
 ## 前置条件

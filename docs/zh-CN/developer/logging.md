@@ -1,4 +1,6 @@
-# Logging levels (run_chat)
+# 日志级别（`run_chat`）
+
+[English](../../en/developer/logging.md) | 简体中文
 
 Default console filters are usually `info`. Prefer:
 

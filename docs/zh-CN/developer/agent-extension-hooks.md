@@ -1,5 +1,7 @@
 # Agent 扩展钩子（Extension Hooks）
 
+[English](../../en/developer/agent-extension-hooks.md) | 简体中文
+
 本文档说明 **pointer-app** 中与 Python 项目 **Pointer**（`PyProjects/pointer`）里 `python.helpers.extension` 相对应的插件机制：扩展点在何时触发、如何注册、如何与 Computer 等 Agent 协作。
 
 实现位置：`crates/pointer-core/src/extensions/`。主对话里 **system 拼接块、env、task board、历史消息** 在 HTTP 中的先后关系（含「改前」基线说明）见 **[`llm-prompt-assembly-order.md`](../internals/llm-prompt-assembly-order.md)**。

@@ -1,4 +1,4 @@
-# Conversation session facade
+# 会话门面（Conversation session）
 
 In-process owner of lead transcript mutations and the LLM working-set cache.
 

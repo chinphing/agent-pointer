@@ -1,5 +1,7 @@
 # Skills 启用状态与加载范围
 
+[English](../../en/developer/skills-persistence.md) | 简体中文
+
 ## 目录与可变性（Hermes 对齐 + Pointer 扩展）
 
 | 层级 | 路径 | 来源 | 修改方式 |

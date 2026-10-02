@@ -1,5 +1,4 @@
-# Agent topics (agents)
-
+# Agent topics
 English | [简体中文](../../zh-CN/agents/README.md)
 
 Documents organised by agent or strategy.

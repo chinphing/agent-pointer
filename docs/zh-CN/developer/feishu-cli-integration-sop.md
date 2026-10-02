@@ -1,6 +1,10 @@
 # 飞书 CLI（lark-cli）集成 SOP
 
+[English](../../en/developer/feishu-cli-integration-sop.md) | 简体中文
+
 > 版本: 1.0 | 适用平台: Windows | 工具: `@larksuite/cli` v1.0.53
+>
+> 只差「首次对接 + 授权」这一步？见 [lark-cli-quickstart.md](lark-cli-quickstart.md)（Device Flow、scope 增补、验证清单）。本页是完整命令 SOP。
 
 ---
 

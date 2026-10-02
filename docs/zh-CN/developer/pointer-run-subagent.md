@@ -1,5 +1,7 @@
 # run_subagent 与 allowAgents
 
+[English](../../en/developer/pointer-run-subagent.md) | 简体中文
+
 > 设置中的 **`maxSubAgentToolRounds`** / **`maxSubAgentSpawnDepth`** 见 **[`../user/subagents.md`](../user/subagents.md)**。
 
 设计与 Cursor Explore 的对照、Lead→explore 约定等见 **[设计文档：explore 子代理](../design/explore-subagent-for-coder.md)**。

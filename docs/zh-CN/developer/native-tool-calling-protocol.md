@@ -1,4 +1,6 @@
-# Native Tool Calling Protocol
+# 原生工具调用协议
+
+[English](../../en/developer/native-tool-calling-protocol.md) | 简体中文
 
 This project uses provider-native tool calling as the only runtime protocol
 for agent actions. User-facing delivery aligns with OpenClaw: **final replies

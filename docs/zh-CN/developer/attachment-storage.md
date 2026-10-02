@@ -1,4 +1,6 @@
-# Attachment storage
+# 附件存储
+
+[English](../../en/developer/attachment-storage.md) | 简体中文
 
 New attachments are stored in the default user sandbox, not in
 `conversation-media/` or `generated-media/`.

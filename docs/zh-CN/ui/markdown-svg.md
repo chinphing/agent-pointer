@@ -1,4 +1,4 @@
-# Markdown SVG diagrams
+# Markdown SVG 示意图
 
 Chat (and markdown file preview) can render inline diagrams from a fenced SVG block. The model emits SVG markup only; the client sanitizes then mounts it (no arbitrary HTML pages, no scripts).
 

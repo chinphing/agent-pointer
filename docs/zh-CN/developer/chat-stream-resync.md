@@ -1,5 +1,7 @@
 # Web 端聊天流弱网对账（SSE gap）
 
+[English](../../en/developer/chat-stream-resync.md) | 简体中文
+
 ## 问题
 
 网页端通过 `GET /api/chat/:id/stream`（SSE）接收 `StreamEvent`。

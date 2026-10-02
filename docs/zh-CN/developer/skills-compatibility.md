@@ -1,5 +1,7 @@
 # Skills 生态兼容（Codex / Agent 标准）
 
+[English](../../en/developer/skills-compatibility.md) | 简体中文
+
 Pointer 采用社区通用的 **`SKILL.md`** 格式（YAML frontmatter + Markdown 正文），与 OpenAI Codex、`.agents/skills` 等 Agent 标准目录结构兼容。不自动扫描 Cursor（`.cursor/skills`）或 Claude Code（`.claude/skills`），避免与本机其它 IDE 的 skills 互相干扰。
 
 ## 自动发现路径

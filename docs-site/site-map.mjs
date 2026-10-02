@@ -53,7 +53,7 @@ export const SECONDARY_LOCALE = 'zh-CN';
  * Kept in sync with VitePress `srcExclude` (globs are srcDir-relative).
  */
 export const SITE_EXCLUDES = [
-  'README.md', // docs/ language picker — collides with the zh-CN index route
+  'README.md', // docs/ language picker — rewrites to `/`, the same route as en/README.md (the default locale)
   'zh-CN/design',
   'zh-CN/plans',
   'zh-CN/settings-refactor',

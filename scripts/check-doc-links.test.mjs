@@ -184,8 +184,9 @@ describe('alternateLocale', () => {
   it('falls back to the other locale home when the page is not translated', () => {
     // English-only page: zh-CN/DEVELOPMENT.md does not exist.
     expect(alternateLocale('DEVELOPMENT.md', index)).toEqual({ text: '简体中文', link: '/zh-CN/' });
-    // The complete tree is Chinese, so most Chinese pages have no English page.
-    expect(alternateLocale('zh-CN/user/webhook.md', index)).toEqual({ text: 'English', link: '/' });
+    // The five user-facing trees are fully translated; the maintainer-notes
+    // trees (internals / agents / llm / ui) are still Chinese-only.
+    expect(alternateLocale('zh-CN/internals/long-chat-memory.md', index)).toEqual({ text: 'English', link: '/' });
   });
 
   it('returns null for pages outside the published locale trees', () => {

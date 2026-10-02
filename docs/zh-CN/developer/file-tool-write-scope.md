@@ -1,5 +1,7 @@
 # File 工具写入范围（`file_write` / `file_edit`）
 
+[English](../../en/developer/file-tool-write-scope.md) | 简体中文
+
 实现：`crates/pointer-core/src/tools/file/path.rs` → `resolve_writable_path`。
 
 ## 相对路径

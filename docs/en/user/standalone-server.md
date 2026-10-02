@@ -197,7 +197,7 @@ Customer side                       Issuer (administrator)
 
 Standalone does **not** go through the official-site cloud PC `code/state` exchange. It supports:
 
-1. **Third-party SSO**: the portal issues a short-lived ticket and then opens `https://{public_url}/?sso=<ticket>` (configuration is in the developer doc [standalone-local-login.md](../../zh-CN/developer/standalone-local-login.md)).
+1. **Third-party SSO**: the portal issues a short-lived ticket and then opens `https://{public_url}/?sso=<ticket>` (configuration is in the developer doc [standalone-local-login.md](../developer/standalone-local-login.md)).
 2. **Account, password and graphical captcha** (operations fallback):
 
 ```bash
@@ -230,6 +230,42 @@ After signing in, open **Settings → Models → Custom providers** and add at l
 Saving writes to this machine's user settings, and the key is stored encrypted. Do not put models or keys in `pointer-server.toml`; the old `[llm]` section is ignored.
 
 More parameter details are in [`../../llm/model-thinking-api.md`](../../zh-CN/llm/model-thinking-api.md).
+
+---
+
+## Limits in the browser
+
+`pointer-server` serves the **same UI**, but a browser is not a desktop shell: a few **local OS capabilities** have no equivalent on the web, and other capabilities "work, but go through the server channel". Both are listed separately below.
+
+### Not available at all
+
+| Capability | Behaviour |
+|------|------|
+| **Reveal in Finder / the file manager** | The entry point is hidden; the only path still visible is the conversation context menu, and clicking it says "Reveal in Finder is not available on the web" |
+| **Opening a file with the default app** | There is no "Open with default app" button in the workspace; for local files outside the workspace it says "Web cannot open local files outside the workspace" |
+| **Local folder picker** | Creating a project means **typing the path by hand**, and it says "Folder picker is unavailable; enter the path manually" |
+| **Updater** | The web has no notion of updating — what updates is `pointer-server` itself, by you redeploying it |
+| **Tray icon** | Desktop only; the browser has no equivalent |
+| **Cloud host shop** | There is no "Cloud host" section in Settings (that section only appears on the **desktop** and when it is **not standalone**) |
+
+> Creating a directory: the API layer is not implemented on the web (it is desktop-only), but the current UI **exposes no entry point** — you will not see a "cannot create a directory" error, there is simply nowhere to create one.
+
+### Different, but usable
+
+| Capability | How the web does it |
+|------|--------------|
+| **Attachments** | The desktop references local paths; the web switches to **multipart upload** (the same size limit, 100 MB by default) |
+| **Opening attachments / media** | The desktop hands them to the system default app; the web uses a **browser download** or a new-window preview |
+| **Terminal** | Available, and it is a real server-side PTY. **But it runs in the workspace directory on the host where `pointer-server` lives**, not on the browser's own machine |
+| **Computer control (computer)** | Available, and it likewise acts on the desktop of the **`pointer-server` host**; the web also has an extra "View desktop" manual snapshot button (which the desktop does not) |
+| **Plugin import** | The desktop picks a folder / zip; the web switches to entering a path or uploading a zip |
+| **Webhook inbound** | Only appears on the web / server side (the desktop's "Automation" has no such block) |
+| **Sign-in state** | The desktop keeps it in local credentials; the web uses **one HttpOnly cookie per browser** — switch browsers and you sign in again |
+
+### Two more that are easy to misjudge
+
+- **Platform-delivered items are read-only for non-administrators**: the "Platform services" under model configuration are read-only for every non-platform-administrator. This is **not a web-only limitation**; the desktop behaves the same way
+- **The workspace panel and the settings entry are gated by administrator rights**: when signing in with a platform account, a non-administrator on the web cannot see the workspace panel or the settings entry; a standalone administrator is not subject to this
 
 ---
 
@@ -278,6 +314,8 @@ More parameter details are in [`../../llm/model-thinking-api.md`](../../zh-CN/ll
 | `POINTER_SERVER_ALLOWED_USER_IDS` | Platform user allowlist | empty |
 | `POINTER_SERVER_CORS_ORIGINS` | Origins allowed for browser CORS (comma-separated; `*` mirrors any origin) | off (same-origin only) |
 
+> This is a **curated subset**. For the full key table — including `require_allowed_users`, `forbid_session_user_id_in_terminal`, `[webhooks] bearer_token`, the five `[auth.local.sso]` keys, `[env]` and `[[mcp_servers.server]]` — see the "Configuration reference" in the [standalone deployment developer doc](../developer/standalone-deployment.md).
+
 ---
 
 ## FAQ
@@ -297,3 +335,13 @@ The Web session is not signed in under standalone. Open the page and sign in wit
 ### Q: After signing in I cannot chat / there is no model
 
 Add a custom provider and fill in the API Key under **Settings → Models**. An `[llm]` section in the configuration file no longer takes effect.
+
+---
+
+## Related
+
+| Document | Description |
+|------|------|
+| [Standalone deployment developer doc](../developer/standalone-deployment.md) | Full configuration reference, License module, API endpoints (developer-facing) |
+| [standalone local sign-in](../developer/standalone-local-login.md) | Third-party SSO short-lived tickets and account/password sign-in |
+| [Model providers](model-providers.md) | User-facing guide to configuring model services |

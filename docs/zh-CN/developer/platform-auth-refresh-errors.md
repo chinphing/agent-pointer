@@ -1,5 +1,7 @@
 # 平台登录刷新：网络抖动 vs 需要重新登录
 
+[English](../../en/developer/platform-auth-refresh-errors.md) | 简体中文
+
 ## 问题
 
 access token 过期后，发送消息会先 `refresh_if_needed()`。若此时官网换票接口因网络抖动失败：

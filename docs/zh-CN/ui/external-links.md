@@ -1,4 +1,4 @@
-# External links (default browser)
+# 外部链接（默认浏览器）
 
 In-app `http` / `https` links open in the **OS default browser** (desktop) or a **new tab** (web). They must not navigate the main Tauri webview away from the SPA.
 

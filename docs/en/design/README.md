@@ -1,5 +1,4 @@
-# Design documents (design)
-
+# Design documents
 English | [简体中文](../../zh-CN/design/README.md)
 
 This directory holds **design proposals**, roadmaps, implementation plans and technical proposals, for review, effort estimation and cross-checking against the code.

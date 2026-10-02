@@ -27,14 +27,17 @@ npm run docs:preview   # serve the built output
 
 ## How the tree is mounted
 
-- **Source dir** — `docs/` itself; `zh-CN/` is stripped so Chinese is the
-  default locale at `/`, English stays under `/en/`.
+- **Source dir** — `docs/` itself; `en/` is stripped so **English is the default
+  locale at `/`** and Chinese stays under `/zh-CN/` (`DEFAULT_LOCALE` in
+  `site-map.mjs`).
 - **`README.md` → `index.md`** — every directory README becomes that
-  directory's index route (`/user/`, `/en/user/`, …).
+  directory's index route (`docs/zh-CN/user/README.md` → `/zh-CN/user/`,
+  `docs/en/user/README.md` → `/user/`).
 - **Off-site content** — `docs/README.md` (the language picker) plus
-  `design/`, `plans/`, `settings-refactor/`, `superpowers/` and `en/design/`
-  are excluded via `srcExclude`; links pointing at them are rewritten to GitHub
-  blob URLs at build time instead of becoming dead links.
+  `zh-CN/design/`, `zh-CN/plans/`, `zh-CN/settings-refactor/`,
+  `zh-CN/superpowers/` and `en/design/` are excluded via `srcExclude`; links
+  pointing at them are rewritten to GitHub blob URLs at build time instead of
+  becoming dead links.
 - **Stray HTML** — prose placeholders such as `<plugin name>` or `<String>`
   would break the Vue SFC template; `.vitepress/doc-links.mts` turns unknown
   tags back into literal text.

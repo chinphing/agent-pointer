@@ -1,5 +1,7 @@
 # 会话消息 `position` 碰撞（上下文压缩）
 
+[English](../../en/developer/conversation-message-position-collision.md) | 简体中文
+
 > **状态**：已修复（2026-07，`persist_context_compression` + orphan-aware `sync`）。  
 > **相关**：[`../design/conversation-store-append-migration.md`](../design/conversation-store-append-migration.md)
 

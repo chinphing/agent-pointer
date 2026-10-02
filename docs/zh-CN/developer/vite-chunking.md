@@ -1,5 +1,7 @@
 # Vite 前端分包
 
+[English](../../en/developer/vite-chunking.md) | 简体中文
+
 生产构建用 `manualChunks` 把重型依赖拆出主入口，并配合异步组件 / 动态 import 推迟加载。
 
 ## Vendor chunks（`vite.config.ts`）

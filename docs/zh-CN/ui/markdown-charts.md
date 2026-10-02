@@ -1,4 +1,4 @@
-# Markdown charts (Chart.js)
+# Markdown 图表（Chart.js）
 
 Chat (and markdown file preview) can render interactive charts from a fenced JSON block. The model emits configuration only; the client renders with a **local** Chart.js build (no CDN, no arbitrary HTML/`script`).
 

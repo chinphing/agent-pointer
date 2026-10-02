@@ -1,4 +1,4 @@
-# Task Board Campaign + Work Queue — Technical Spec (v1 design notes)
+# 任务板 Campaign 与工作队列 —— 技术方案（v1 设计笔记）
 
 > **v4 runtime (2026):** Implemented behavior follows **[Task Board v4](task-board-v2-schema.md)**.
 > When reading this doc, map: `board[]` → `global_milestones[]`; `campaign_id` → `store_id`; no `batch_id`;

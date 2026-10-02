@@ -1,4 +1,6 @@
-# Web fetch tool (`web_fetch`)
+# 联网抓取工具（`web_fetch`）
+
+[English](../../en/developer/web-fetch-tool.md) | 简体中文
 
 HTTP GET for **known public URLs**, inspired by Hermes **`web_extract`** and OpenClaw **`web_fetch`**.
 Returns readable text (HTML stripped; JSON pretty-printed). Does **not** execute JavaScript.

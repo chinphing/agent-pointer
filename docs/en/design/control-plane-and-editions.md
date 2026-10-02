@@ -289,7 +289,6 @@ Known leftovers (for a later dedicated pass):
 - [../deploy/editions.md](../deploy/editions.md)
 - [../contributing/cross-platform-build.md](../contributing/cross-platform-build.md)
 - [../user/which-build.md](../user/which-build.md)
-- [../user/cloud-host.md](../user/cloud-host.md)
 - [../user/standalone-server.md](../user/standalone-server.md)
 - [../developer/standalone-deployment.md](../developer/standalone-deployment.md)
 - [../developer/architecture.md](../developer/architecture.md)

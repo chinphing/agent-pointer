@@ -1,4 +1,6 @@
-# Session user id
+# 会话用户标识
+
+[English](../../en/developer/session-user-id.md) | 简体中文
 
 Each conversation row stores `session_user_id` (API field `sessionUserId`).
 

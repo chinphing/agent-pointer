@@ -1,5 +1,7 @@
 # 本轮文件修改 Review（turn baseline）
 
+[English](../../en/developer/turn-file-baseline-review.md) | 简体中文
+
 ## 行为
 
 1. **工具结果与 UI 拆开**：`file_edit` / `file_write` 的 tool result **不含** `diff_lines`（`path` / `success` / `stats`；edit 另有 `replaced`，write 另有 `bytesWritten` / `created`）。工具行片段 Diff 由前端用参数里的 `oldString`/`newString` 现算；整文件净 diff 由 turn baseline 懒算。

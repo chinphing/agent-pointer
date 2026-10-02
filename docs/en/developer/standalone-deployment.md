@@ -139,8 +139,8 @@ pub fn verify_machine_binding(...) -> Result<()>
 
 ```
 main()
-  → deployment_mode == standalone?
-    → read POINTER_LICENSE_KEY / [license].key
+  → deployment_mode == standalone? (and only enforced for the managed flavour, see above)
+    → read POINTER_LICENSE_KEY (from [license].key, or the file [license].license_file points at)
     → base64url-decode payload and signature
     → Ed25519 signature check (the public key is compiled in as license.pub; only debug builds allow POINTER_LICENSE_PUBLIC_KEY to override it, release ignores it)
     → check expiry
@@ -235,7 +235,7 @@ curl -X POST http://localhost:8787/api/license/reload
 
 ## Model configuration
 
-Standalone does **not** read models, addresses or API keys from `pointer-server.toml`. The `[llm]` section in the configuration file is ignored.
+Standalone does **not** read models, addresses or API keys from `pointer-server.toml`: the configuration parser has no `[llm]` field, and unknown sections are silently dropped by serde — **an old `[llm]` section neither takes effect nor reports an error or a warning**; the old `POINTER_LLM_ACTIVE_PROVIDER` variable is likewise no longer mapped. Model services are configured only in **Settings**; see [`../user/model-providers.md`](../user/model-providers.md).
 
 After logging in, open **Settings → Model configuration → Custom services**, the same as custom services in the desktop client: add a provider (id, name, API address, model list, key), plus context, max output, thinking effort, capability checkboxes, `extra_body` and per-model overrides. Saving goes through `updateUserSettings` and writes `user_settings.json`; the key is stored encrypted on disk as `enc:v1:`.
 
@@ -308,9 +308,17 @@ hmac_secret = "replace-with-long-random-secret"
 # pointer-server --hash-password --secret '<hmac_secret>' '<password>'
 password_hmac = "...."
 
+# Third-party SSO short-lived ticket (optional; without it only account + password is used)
+# [auth.local.sso]
+# enabled = true                       # env POINTER_SERVER_SSO_ENABLED (when unset, decided automatically from secret / audience)
+# secret = "shared-with-portal"        # env POINTER_SERVER_SSO_SECRET
+# secret_prev = "rotating-old-secret"  # env POINTER_SERVER_SSO_SECRET_PREV (secondary key for the rotation window)
+# audience = "pointer-server"          # env POINTER_SERVER_SSO_AUDIENCE (must match the ticket's aud)
+# max_skew_secs = 30                   # env POINTER_SERVER_SSO_MAX_SKEW_SECS (default 30)
+
 [license]
-key = "base64_payload.base64_sig"      # license key string
-# or: key_file = "license.key"         # read from a file
+key = "base64_payload.base64_sig"      # license key string (takes precedence when non-empty)
+# or: license_file = "license.key"     # read from a file; relative paths resolve against the directory containing this configuration file
 
 [usage]
 report_enabled = false                 # standalone does not report usage by default
@@ -345,6 +353,30 @@ skills_dir = "skills"
 
 # Browser CORS (off by default, same-origin only). The desktop client goes through IPC and is unaffected.
 # cors_origins = ["http://localhost:1420"]   # env POINTER_SERVER_CORS_ORIGINS
+
+# Platform user allow-list (comma-separated). Empty = allow any platform user.
+# allowed_user_ids = ["1001", "1002"]         # env POINTER_SERVER_ALLOWED_USER_IDS
+# When true and the allow-list is empty, startup is refused
+# require_allowed_users = false               # env POINTER_SERVER_REQUIRE_ALLOWED_USERS
+# Forbid the literal SESSION_USER_ID in an agent terminal (default false)
+# forbid_session_user_id_in_terminal = false  # env POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL
+
+# Webhook inbound auth (when unset, /api/webhooks/:src always returns 401)
+[webhooks]
+# bearer_token = "long-random-token"         # env POINTER_WEBHOOK_BEARER_TOKEN
+
+# Arbitrary environment-variable injection: takes effect only while that KEY is not already set by an OS environment variable
+[env]
+# OTEL_EXPORTER_OTLP_ENDPOINT = "http://127.0.0.1:4317"
+
+# Global MCP servers (TOML only, no environment-variable form)
+[[mcp_servers.server]]
+# name = "weather"                           # required
+# transport = "stdio"                        # stdio (default) | http
+# command = "npx"                            # stdio: launch command
+# args = ["-y", "mcp-weather"]
+# url = "https://example.com/mcp"            # http: server address
+# headers = { Authorization = "Bearer …" }   # http: extra request headers
 ```
 
 ### `[server]` web branding / copy parameters
@@ -379,6 +411,56 @@ Off by default: no CORS layer is mounted, and only same-origin browser requests 
 | `"*"` mixed with concrete origins | Startup fails |
 
 Local `web:dev` is same-origin by default (Vite proxies `/api` to 8787). If the frontend still talks to `http://127.0.0.1:8787` directly, CORS must be enabled. A split frontend/backend deployment (static pages and API on different origins) likewise needs the allowed origins configured.
+
+### Identity and access control (`[server]` / `[webhooks]`)
+
+| TOML | Environment variable | Default | Description |
+|------|----------|------|------|
+| `allowed_user_ids` | `POINTER_SERVER_ALLOWED_USER_IDS` (comma-separated) | empty | Empty = allow any platform user; non-empty = exact allow-list |
+| `require_allowed_users` | `POINTER_SERVER_REQUIRE_ALLOWED_USERS` | `false` | true with an empty allow-list → **startup fails** (`POINTER_SERVER_REQUIRE_ALLOWED_USERS is set but POINTER_SERVER_ALLOWED_USER_IDS is empty`) |
+| `forbid_session_user_id_in_terminal` | `POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL` | `false` | When true, the agent's `terminal` rejects the literal `SESSION_USER_ID` in command / stdin (a soft guard against mixing up users) |
+| `[webhooks] bearer_token` | `POINTER_WEBHOOK_BEARER_TOKEN` | empty | When unset, `POST /api/webhooks/:src` always returns 401 |
+
+> For an externally reachable instance, set both `public_url` and `allowed_user_ids`. An empty allow-list on a publicly reachable instance hands it to any platform user.
+
+### `[auth.local.sso]` (third-party short-lived ticket)
+
+| TOML | Environment variable | Default |
+|------|----------|------|
+| `enabled` | `POINTER_SERVER_SSO_ENABLED` | when unset, decided automatically from whether `secret` / `audience` are configured |
+| `secret` | `POINTER_SERVER_SSO_SECRET` | empty |
+| `secret_prev` | `POINTER_SERVER_SSO_SECRET_PREV` | empty (secondary key for the rotation window) |
+| `audience` | `POINTER_SERVER_SSO_AUDIENCE` | empty (must match the ticket's `aud`) |
+| `max_skew_secs` | `POINTER_SERVER_SSO_MAX_SKEW_SECS` | `30` |
+
+For the login flow see [`standalone-local-login.md`](standalone-local-login.md); for the operations view see [`../user/standalone-server.md`](../user/standalone-server.md).
+
+### `[env]` and `[[mcp_servers.server]]`
+
+`[env]` is **arbitrary key-value injection**: the key name is the environment-variable name. The only rule is that it **takes effect only while that environment variable is not already set by the OS** — OS environment variables always win, and the injection only fills the gaps. For path-like keys (suffix `_DIR` / `_PATH`, equal to `PATH`, or containing `STATIC`) a relative value is resolved against the directory containing the configuration file.
+
+`[[mcp_servers.server]]` declares **global MCP servers**, TOML only (there is no environment-variable form):
+
+| Field | Required | Default | Description |
+|------|------|------|------|
+| `name` | ✅ | — | Server name |
+| `transport` | — | `stdio` | `stdio` or `http` |
+| `command` / `args` / `env` | — | — | used by `stdio` |
+| `url` / `headers` | — | — | used by `http` |
+
+### Configuration file discovery order
+
+```
+1. POINTER_SERVER_CONFIG             ← explicit path; set but unreadable → error out immediately, no fallback
+2. {exe_dir}/pointer-server.toml
+3. {exe_dir}/pointer-server.env
+4. {cwd}/pointer-server.toml
+5. {cwd}/pointer-server.env
+```
+
+**The first file that exists wins; only one is loaded, no merging.** Keys in the file are mapped to environment variables and injected into the process, but **OS environment variables always win**: keys already set by the OS are skipped. The startup log prints the applied / skipped lists (sensitive keys redacted).
+
+> The second candidate extension is `pointer-server.env`, not `.env`.
 
 ---
 

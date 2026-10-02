@@ -1,4 +1,4 @@
-# Visual theme (flat, light / dark)
+# 视觉主题（扁平、明暗）
 
 ## Tokens
 

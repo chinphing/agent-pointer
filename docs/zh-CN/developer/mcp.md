@@ -1,5 +1,7 @@
 # MCP 客户端接入说明（developer）
 
+[English](../../en/developer/mcp.md) | 简体中文
+
 > 面向**开发者**。讲 Pointer 作为 MCP **客户端**的实现：如何连接 stdio / HTTP 两种
 > 传输的 MCP server、配置载体、装配与生命周期、管理 API、测试。
 > 用户使用说明见 [`../user/mcp.md`](../user/mcp.md)；插件内 MCP 声明见

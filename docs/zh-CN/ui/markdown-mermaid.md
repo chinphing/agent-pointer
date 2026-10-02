@@ -1,4 +1,4 @@
-# Markdown Mermaid
+# Markdown Mermaid 图
 
 Chat (and markdown file preview) render process / architecture diagrams from a fenced Mermaid block. The model emits nodes and edges only; the client paints with the **app light/dark tokens** (no CDN).
 

@@ -5,6 +5,7 @@
 > 面向 **Pointer 终端用户**。讲如何在设置界面直接添加外部工具服务（MCP server），
 > 让对话可以直接调用外部服务提供的工具。
 > 插件内声明的 MCP server 见 [`plugins.md`](plugins.md)。
+> 实现细节（传输协议、生命周期、管理 API、全局声明）见开发者文档 [`../developer/mcp.md`](../developer/mcp.md)。
 
 ---
 

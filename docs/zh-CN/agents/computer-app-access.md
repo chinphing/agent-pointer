@@ -1,4 +1,4 @@
-# Computer agent — app list/launch (Codex aligned)
+# Computer 智能体 —— 应用列表与启动（对齐 Codex）
 
 Cross-platform application discovery and launch aligned with [OpenAI Codex Computer Use](https://developers.openai.com/codex/app/computer-use).
 

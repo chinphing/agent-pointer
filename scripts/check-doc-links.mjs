@@ -191,6 +191,15 @@ export function findBrokenLinks({
         // A `/route` link addresses the built site, not the filesystem.
         if (decodedPath.startsWith('/') && site) {
           record.scope = 'route';
+          // Public assets (`docs/public/**`) are copied verbatim to the site
+          // root by VitePress, so `/foo.svg` is a real file, not a page route.
+          const publicFile = path.join(site.srcDir, 'public', decodedPath.slice(1));
+          if (fs.existsSync(publicFile)) {
+            record.scope = 'public';
+            record.resolved = path.relative(site.repoRoot, publicFile).split(path.sep).join('/');
+            links.push(record);
+            continue;
+          }
           const page = site.routes.get(normalizeRoute(decodedPath));
           if (page) {
             record.resolved = page;

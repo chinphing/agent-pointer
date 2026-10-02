@@ -1,5 +1,7 @@
 # Standalone 本地登录约定
 
+[English](../../en/developer/standalone-local-login.md) | 简体中文
+
 独立部署（`deployment.mode = "standalone"`）**不走**官网云电脑 `code/state` 换码。
 
 登录方式：

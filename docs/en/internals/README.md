@@ -6,12 +6,14 @@ Implementation details and message-pipeline notes, for the **Pointer team mainta
 
 For user documentation see **[`../user/`](../user/README.md)**; for extension integration see **[`../developer/`](../developer/README.md)**.
 
+> Repository layout: `docs/` is organised by audience and document type. `internals/`, `agents/`, `llm/` and `ui/` are maintainer notes — public with the repository, but not user tutorials; design and planning records live in `docs/zh-CN/design/`, `docs/zh-CN/plans/`, `docs/zh-CN/settings-refactor/` and `docs/zh-CN/superpowers/`, and stay off the docs site.
+
 | Document | Description |
 |------|------|
 | [llm-prompt-assembly-order.md](../../zh-CN/internals/llm-prompt-assembly-order.md) | Order in which `messages` and `SystemPromptSections` are assembled before `stream_chat` |
 | [long-chat-memory.md](../../zh-CN/internals/long-chat-memory.md) | Long-conversation peak memory: base + injected_tail, wire-before-spawn |
 | [context-compression.md](../../zh-CN/internals/context-compression.md) | Context compression: dynamic summary budget, keeping the last 3 turns of user text on failure, reload consistency |
-| [trigger-dispatcher.md](../../zh-CN/internals/trigger-dispatcher.md) | Unified trigger entry point `RunDispatcher`: queues, Cron (for Webhook see [`../../developer/webhook-api.md`](../../zh-CN/developer/webhook-api.md)) |
+| [trigger-dispatcher.md](../../zh-CN/internals/trigger-dispatcher.md) | Unified trigger entry point `RunDispatcher`: queues, Cron (for Webhook see [`../developer/webhook-api.md`](../developer/webhook-api.md)) |
 | [standalone-server-deployment.md](standalone-server-deployment.md) | Complete pointer-server standalone deployment flow (build, License, config template, acceptance) |
 | [agent-task-board-and-verification.md](../../zh-CN/internals/agent-task-board-and-verification.md) | Task board, the `verification` field and multi-agent conventions |
 | [sidebar-conversation-search.md](../../zh-CN/internals/sidebar-conversation-search.md) | Sidebar conversation search: FTS hits + match-centered snippets |

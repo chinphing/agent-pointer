@@ -1,5 +1,7 @@
 # Web 附件与桌面截图
 
+[English](../../en/contributing/web-media-and-desktop-snapshot.md) | 简体中文
+
 ## 附件（Web 与桌面）
 
 Composer 支持三种添加方式：回形针选择、粘贴图片、拖入文件（拖入区域为输入框面板）。

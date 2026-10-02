@@ -1,5 +1,4 @@
-# UI and frontend (ui)
-
+# UI and frontend
 English | [简体中文](../../zh-CN/ui/README.md)
 
 | Document | Description |

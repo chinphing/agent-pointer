@@ -31,4 +31,4 @@ If a platform requires an HTTP callback:
 - **pairing**: only user IDs on the pairing list are allowed (exact match)
 - When someone requests pairing, the desktop shows an approval prompt; with nothing pending it does not keep polling the API
 
-For per-platform step-by-step configuration, event subscription order, log keywords and troubleshooting see the full guide **[`../../developer/channel-integration.md`](../../zh-CN/developer/channel-integration.md)**.
+For per-platform step-by-step configuration, event subscription order, log keywords and troubleshooting see the full guide **[`../../developer/channel-integration.md`](../developer/channel-integration.md)**.

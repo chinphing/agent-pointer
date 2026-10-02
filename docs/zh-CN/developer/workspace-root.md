@@ -1,4 +1,6 @@
-# Session workspace root
+# 会话工作区根路径
+
+[English](../../en/developer/workspace-root.md) | 简体中文
 
 The **workspace root** is the directory used by `file`, `terminal`, `read_lints`, and related tools for a conversation. It is persisted as `workspaceRoot` on the conversation row and exposed to scripts as `WORKING_DIR` (see [terminal-environment-variables.md](terminal-environment-variables.md)). App-local storage (DB, sandboxes, system skills) is exposed separately as `DATA_DIR`; the user skill library (`~/.pointer/skills`) as `SKILL_DIR`.
 

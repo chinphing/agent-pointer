@@ -1,5 +1,4 @@
-# LLM 观测与模型行为（llm）
-
+# LLM 观测与模型行为
 [English](../../en/llm/README.md) | 简体中文
 
 | 文档 | 说明 |

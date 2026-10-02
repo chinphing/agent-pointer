@@ -1,5 +1,7 @@
 # `session_search` / `session_read` 出站上限
 
+[English](../../en/developer/session-search-output-limits.md) | 简体中文
+
 拆成两个工具的方案见 [`../design/session-search-scope-extension.md`](../design/session-search-scope-extension.md)（P0 已落地）。
 
 工具回给模型的 JSON **不是**库里的原文。SQLite 仍保存完整消息。

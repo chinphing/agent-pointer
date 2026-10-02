@@ -1,5 +1,7 @@
 # macOS 窗口 Chrome 与红绿灯对齐
 
+[English](../../en/contributing/macos-window-chrome.md) | 简体中文
+
 本文档记录 **macOS 原生红绿灯（traffic lights）** 与 **前端顶栏按钮**（侧栏收起、拖拽区等）的对齐机制。该问题容易在改窗口形态、紧凑浮条、最大化等场景后**间歇性复发**，修改前请先读本文。
 
 相关 UI 约定见 [visual-theme.md](../ui/visual-theme.md)；紧凑浮条形态见 [computer-compact-dock-bar.md](../design/computer-compact-dock-bar.md)。

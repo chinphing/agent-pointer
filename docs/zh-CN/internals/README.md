@@ -1,10 +1,11 @@
-# 内部机制（internals）
-
+# 内部机制
 [English](../../en/internals/README.md) | 简体中文
 
 实现细节与消息管线说明，面向**维护 `pointer-core` 的 Pointer 团队**。
 
 用户使用见 **[`../user/`](../user/README.md)**；扩展集成见 **[`../developer/`](../developer/README.md)**。
+
+> 仓库布局：`docs/` 按读者和文档类型划分。`internals/`、`agents/`、`llm/`、`ui/` 是维护者笔记 —— 随仓库公开，但不是用户教程；设计/计划记录在 `docs/zh-CN/design/`、`docs/zh-CN/plans/`、`docs/zh-CN/settings-refactor/`、`docs/zh-CN/superpowers/`，不上文档站。
 
 | 文档 | 说明 |
 |------|------|

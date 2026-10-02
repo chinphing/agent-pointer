@@ -1,4 +1,4 @@
-# Task board unified milestone injection
+# 任务板统一里程碑注入
 
 Design for reducing model burden: **one milestone layer in inject**, unified section names, host-managed global phase for queue (work_item) campaigns.
 

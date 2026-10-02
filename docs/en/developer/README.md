@@ -1,5 +1,4 @@
-# Developer documentation (developer)
-
+# Developer documentation
 English | [简体中文](../../zh-CN/developer/README.md)
 
 For **external developers, integrators and Skill authors**: connecting IM, writing Skills, extending agents, self-hosting.
@@ -7,6 +6,8 @@ For **external developers, integrators and Skill authors**: connecting IM, writi
 **End-user tutorials** are in **[`../user/`](../user/README.md)**.
 
 Read [architecture.md](architecture.md) first, then get it running with [DEVELOPMENT.md](../DEVELOPMENT.md).
+
+> This page follows the four groups of the 开发 (Development) sidebar section: **Concepts / Tools and protocols / Integration / Troubleshooting** (plus Other). `standalone-deployment.md` lives under Deployment.
 
 ## Packaging and deployment: the four-cell entry
 
@@ -19,69 +20,70 @@ Read [architecture.md](architecture.md) first, then get it running with [DEVELOP
 
 The word `official` refers only to an official Pointer release; it is not a value of `POINTER_EDITION`. For cross-platform environment setup see [../contributing/cross-platform-build.md](../contributing/cross-platform-build.md).
 
-## Integration and deployment
+## Concepts
 
 | Document | Description |
 |------|------|
-| [architecture.md](architecture.md) | Desktop / web sharing pointer-core |
-| [standalone-deployment.md](standalone-deployment.md) | pointer-server configuration reference: local auth, License (enforced only for official builds), `[server]` branding parameters and CORS |
-| [standalone-local-login.md](../../zh-CN/developer/standalone-local-login.md) | Standalone username/password + third-party `?sso=` local signature-verified login |
-| [channel-integration.md](../../zh-CN/developer/channel-integration.md) | Full IM channel integration (long connection / Webhook, per-platform steps and troubleshooting) |
-| [webhook-api.md](../../zh-CN/developer/webhook-api.md) | Generic Webhook API (triggering agents, auth, attachments, sync/async) |
-| [cloud-host-integration.md](../../zh-CN/developer/cloud-host-integration.md) | Self-hosting cloud instances, environment variables, auth chain |
-| [desktop-oauth-web-integration.md](../../zh-CN/developer/desktop-oauth-web-integration.md) | Desktop OAuth callback and the official site's `?desktop_oauth=success` |
-| [platform-auth-refresh-errors.md](../../zh-CN/developer/platform-auth-refresh-errors.md) | Login refresh: network blips vs. needing to sign in again |
-| [chat-stream-resync.md](../../zh-CN/developer/chat-stream-resync.md) | Web SSE dropped events on weak networks: resync / reconciling execution state and messages |
-| [feishu-cli-integration-sop.md](../../zh-CN/developer/feishu-cli-integration-sop.md) | Feishu CLI integration SOP |
-| [lark-cli-quickstart.md](../../zh-CN/developer/lark-cli-quickstart.md) | Lark CLI quickstart |
-
-For user-side IM / cloud host summaries see [`../user/im-channels.md`](../user/im-channels.md), [`../user/cloud-host.md`](../user/cloud-host.md).
-
-## Skills
-
-| Document | Description |
-|------|------|
-| [skills-compatibility.md](../../zh-CN/developer/skills-compatibility.md) | `SKILL.md` format and Codex / Agent directory compatibility |
-| [skills-persistence.md](../../zh-CN/developer/skills-persistence.md) | Load order, persistence, Curator (implementation-oriented) |
+| [architecture.md](architecture.md) | Desktop / web sharing pointer-core; crate map and architecture overview |
+| [workspace-root.md](workspace-root.md) | Session workspace root path resolution and sandbox directory layout |
+| [attachment-storage.md](attachment-storage.md) | Attachment storage location and naming (`session-sandboxes/`) |
+| [agent-extension-hooks.md](agent-extension-hooks.md) | Extension registry and hook trigger points |
+| [skills-compatibility.md](skills-compatibility.md) | `SKILL.md` format and Codex / Agent directory compatibility |
+| [skills-persistence.md](skills-persistence.md) | Load order, persistence, Curator (implementation-oriented) |
 
 For user import and enabling see [`../user/skills.md`](../user/skills.md).
 
-## Agents and sub-agents
+## Tools and protocols
 
 | Document | Description |
 |------|------|
-| [pointer-run-subagent.md](../../zh-CN/developer/pointer-run-subagent.md) | `run_subagent`, `allowAgents`, built-in explore, background `background` / `terminal.blockUntilMs` / `job` |
-| [agent-extension-hooks.md](../../zh-CN/developer/agent-extension-hooks.md) | Extension registry and hook trigger points |
+| [native-tool-calling-protocol.md](native-tool-calling-protocol.md) | Provider native tool calling conventions |
+| [pointer-run-subagent.md](pointer-run-subagent.md) | `run_subagent`, `allowAgents`, built-in explore, background `background` / `terminal.blockUntilMs` / `job` |
+| [file-tool-write-scope.md](file-tool-write-scope.md) | Directories `file_write` / `file_edit` are allowed to write to |
+| [file-tool-output-limits.md](file-tool-output-limits.md) | Read file / glob / list / search / terminal response caps and terminal timeouts (Settings → Content limits / Terminal timeouts) |
+| [web-search-tool.md](web-search-tool.md) | `web_search` tool behaviour and the DashScope API |
+| [web-fetch-tool.md](web-fetch-tool.md) | `web_fetch` fetching public URLs (aligned with Hermes `web_extract`) |
+| [terminal-environment-variables.md](terminal-environment-variables.md) | **`terminal`** subprocess environment variables (`WORKING_DIR`, `SESSION_USER_ID`, `DATA_DIR`, `SKILL_DIR`) |
+| [terminal-interactive-input.md](terminal-interactive-input.md) | Interactive input for SSH / sudo etc.: in-app password modal, ASKPASS, prompt conventions |
+| [session-search-output-limits.md](session-search-output-limits.md) | `session_search` / `session_read` hit truncation, dropping old responses by tool name, tool `matches[]` caps; the sidebar expands all hits |
+| [logging.md](logging.md) | Conventions for choosing info / debug in `run_chat` |
 
-For user settings see [`../user/subagents.md`](../user/subagents.md).
+For user settings see [`../user/subagents.md`](../user/subagents.md); workspace lint configuration is in [`../user/project-lint.md`](../user/project-lint.md).
 
-## Tools and runtime
-
-| Document | Description |
-|------|------|
-| [file-tool-write-scope.md](../../zh-CN/developer/file-tool-write-scope.md) | Directories `file_write` / `file_edit` are allowed to write to |
-| [file-tool-output-limits.md](../../zh-CN/developer/file-tool-output-limits.md) | Read file / glob / list / search / terminal response caps and terminal timeouts (Settings → Content limits / Terminal timeouts; `file_read` line counts and `file_glob` / `file_list` entry counts are implementation constants) |
-| [session-search-output-limits.md](../../zh-CN/developer/session-search-output-limits.md) | `session_search` / `session_read` hit truncation, dropping old responses by tool name, tool `matches[]` caps; the sidebar expands all hits |
-| [turn-file-baseline-review.md](../../zh-CN/developer/turn-file-baseline-review.md) | Turn footer change summary, file baseline and the right-hand Review panel |
-| [web-search-tool.md](../../zh-CN/developer/web-search-tool.md) | `web_search` tool behaviour and the DashScope API |
-| [web-fetch-tool.md](../../zh-CN/developer/web-fetch-tool.md) | `web_fetch` fetching public URLs (aligned with Hermes `web_extract`) |
-| [terminal-environment-variables.md](../../zh-CN/developer/terminal-environment-variables.md) | **`terminal`** subprocess environment variables (`WORKING_DIR`, `SESSION_USER_ID`, `DATA_DIR`, `SKILL_DIR`) |
-| [terminal-interactive-input.md](../../zh-CN/developer/terminal-interactive-input.md) | Interactive input for SSH / sudo etc.: in-app password modal, ASKPASS, prompt conventions |
-| [mcp.md](../../zh-CN/developer/mcp.md) | MCP client integration: stdio / HTTP dual transport, config carriers, lifecycle, management API |
-| [workspace-root.md](../../zh-CN/developer/workspace-root.md) | Session workspace root path resolution and sandbox directory layout |
-| [session-user-id.md](../../zh-CN/developer/session-user-id.md) | Conversation `session_user_id` persistence and resolution |
-| [rust-text-truncation.md](../../zh-CN/developer/rust-text-truncation.md) | UTF-8 safe string truncation (`text_util`) |
-| [logging.md](../../zh-CN/developer/logging.md) | Conventions for choosing info / debug in `run_chat` |
-| [chat-run-errors.md](../../zh-CN/developer/chat-run-errors.md) | `StreamEvent::Error` is emitted only by `run_chat` |
-| [vite-chunking.md](../../zh-CN/developer/vite-chunking.md) | Frontend Vite `manualChunks` and on-demand loading (Chart / Workspace) |
-
-For workspace lint configuration (user-facing) see [`../user/project-lint.md`](../../zh-CN/user/project-lint.md).
-
-## Protocols
+## Integration
 
 | Document | Description |
 |------|------|
-| [native-tool-calling-protocol.md](../../zh-CN/developer/native-tool-calling-protocol.md) | Provider native tool calling conventions |
+| [channel-integration.md](channel-integration.md) | Full IM channel integration (long connection / Webhook, per-platform steps and troubleshooting) |
+| [feishu-cli-integration-sop.md](feishu-cli-integration-sop.md) | Feishu CLI integration SOP |
+| [lark-cli-quickstart.md](lark-cli-quickstart.md) | Lark CLI quickstart |
+| [cloud-host-integration.md](cloud-host-integration.md) | Self-hosting cloud instances, environment variables, auth chain |
+| [desktop-oauth-web-integration.md](desktop-oauth-web-integration.md) | Desktop OAuth callback and the official site's `?desktop_oauth=success` |
+| [mcp.md](mcp.md) | MCP client integration: stdio / HTTP dual transport, config carriers, lifecycle, management API |
+| [webhook-api.md](webhook-api.md) | Generic Webhook API (triggering agents, auth, attachments, sync/async) |
+
+For user-side IM summaries see [`../user/im-channels.md`](../user/im-channels.md).
+
+## Troubleshooting
+
+| Document | Description |
+|------|------|
+| [chat-run-errors.md](chat-run-errors.md) | `StreamEvent::Error` is emitted only by `run_chat` |
+| [chat-stream-resync.md](chat-stream-resync.md) | Web SSE dropped events on weak networks: resync / reconciling execution state and messages |
+| [platform-auth-refresh-errors.md](platform-auth-refresh-errors.md) | Login refresh: network blips vs. needing to sign in again |
+| [rust-text-truncation.md](rust-text-truncation.md) | UTF-8 safe string truncation (`text_util`) |
+| [vite-chunking.md](vite-chunking.md) | Frontend Vite `manualChunks` and on-demand loading (Chart / Workspace) |
+| [session-user-id.md](session-user-id.md) | Conversation `session_user_id` persistence and resolution |
+| [turn-file-baseline-review.md](turn-file-baseline-review.md) | Turn footer change summary, file baseline and the right-hand Review panel |
+| [conversation-message-position-collision.md](conversation-message-position-collision.md) | Conversation message `position` collision (context compression), fixed |
+
+## Other
+
+| Document | Description |
+|------|------|
+| [cli.md](cli.md) | `pointer-server` arguments, npm scripts, deployment scripts and which packages have a bin |
+| [standalone-local-login.md](standalone-local-login.md) | Standalone username/password + third-party `?sso=` local signature-verified login |
+| [standalone-deployment.md](standalone-deployment.md) | pointer-server configuration reference: local auth and SSO, License (enforced only for managed builds), access control, `[server]` branding parameters and CORS, config discovery order (listed under Deployment in the sidebar) |
 
 ## Building Pointer from source
 

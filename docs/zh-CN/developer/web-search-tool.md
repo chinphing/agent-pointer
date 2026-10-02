@@ -1,4 +1,6 @@
-# Web search tool (`web_search`)
+# 联网搜索工具（`web_search`）
+
+[English](../../en/developer/web-search-tool.md) | 简体中文
 
 DashScope hosted web search for **external** facts. Implemented in `pointer-core` as a first-class tool.
 

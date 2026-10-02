@@ -1,5 +1,7 @@
 # 桌面 OAuth 与官网首页提示
 
+[English](../../en/developer/desktop-oauth-web-integration.md) | 简体中文
+
 桌面客户端完成 loopback 回调后，会向浏览器返回 **302**，跳转到官网首页并附带专用 query，由官网展示「登录成功」类提示。正常访问首页不会出现该提示。
 
 ## 跳转 URL

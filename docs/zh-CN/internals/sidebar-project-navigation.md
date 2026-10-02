@@ -1,4 +1,4 @@
-# Sidebar project navigation
+# 侧边栏项目导航
 
 ## Persisted model
 

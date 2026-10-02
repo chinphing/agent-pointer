@@ -1,5 +1,7 @@
 # Coder 离线验证环境：本地搭建指南
 
+[English](../../en/contributing/coder-agent-offline-eval-setup.md) | 简体中文
+
 > **读者**：要在本机跑「可重复判分」的回归任务，评估 prompt / 模型 / 工具改动。  
 > **说明**：「离线」在下面分 **三层** 理解，可按需只做其中一层。
 

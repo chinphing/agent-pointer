@@ -1,4 +1,6 @@
-# Terminal environment variables
+# 终端环境变量
+
+[English](../../en/developer/terminal-environment-variables.md) | 简体中文
 
 Pointer injects session-scoped variables into **`terminal`** child processes only.
 The host process and other tools are unchanged.

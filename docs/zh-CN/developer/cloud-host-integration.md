@@ -1,6 +1,8 @@
 # 云主机集成（pointer-app 桌面端）
 
-> 终端用户购买与打开云实例见 **[`../user/cloud-host.md`](../user/cloud-host.md)**。下文为自部署与环境约定。
+[English](../../en/developer/cloud-host-integration.md) | 简体中文
+
+> 下文为自部署与环境约定。
 
 桌面客户端通过 Pointer 平台 API 管理云主机，并以**独立 WebView 窗口**打开远程 pointer-server Web UI 进行对话。
 
@@ -10,7 +12,7 @@
 - **打开**：签发 OAuth code，在新窗口加载 `console_url?code=&state=`
 - **切换到云窗口 / 关闭云窗口**：回到本地主窗口继续本地对话
 
-需先 **设置 → 账户** 完成 OAuth 登录。
+需先通过**账户菜单 → 登录**完成 OAuth 登录。
 
 ## 云实例环境约定（自行部署）
 

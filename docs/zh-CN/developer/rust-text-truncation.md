@@ -1,5 +1,7 @@
 # Rust 字符串截断
 
+[English](../../en/developer/rust-text-truncation.md) | 简体中文
+
 `pointer-core` 中需要截断用户可见文本或日志预览时，**禁止**使用 `&s[..n]` / `s[..s.len().min(n)]` 按字节切片 —— 可能在 CJK、emoji 等多字节字符中间切断并 **panic**。
 
 统一使用 [`crates/pointer-core/src/text_util.rs`](../../../crates/pointer-core/src/text_util.rs)：

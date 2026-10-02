@@ -1,4 +1,6 @@
-# Terminal interactive input (SSH / PTY)
+# 终端交互输入（SSH / PTY）
+
+[English](../../en/developer/terminal-interactive-input.md) | 简体中文
 
 When the UI provides terminal input hooks, Pointer can show a modal for
 interactive prompts instead of requiring a host TTY.

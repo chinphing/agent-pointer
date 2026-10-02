@@ -1,4 +1,4 @@
-# User vs platform configuration split
+# 用户配置与平台配置的划分
 
 ## Overview
 

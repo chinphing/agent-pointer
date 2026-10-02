@@ -1,4 +1,4 @@
-# Token usage reporting (per agent instance)
+# Token 用量上报（按智能体实例）
 
 ## Identity fields
 

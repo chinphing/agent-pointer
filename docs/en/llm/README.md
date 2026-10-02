@@ -1,5 +1,4 @@
-# LLM observability and model behaviour (llm)
-
+# LLM observability and model behaviour
 English | [简体中文](../../zh-CN/llm/README.md)
 
 | Document | Description |

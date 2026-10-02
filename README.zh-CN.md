@@ -89,7 +89,7 @@ Pointer 不只是一个跑 Skill 的运行时。它开发业务系统，把人�
 | 工具执行 | 终端、文件读写检索、联网搜索与抓取、任务板；电脑侧靠纯视觉操控有界面的软件（还在打磨） |
 | 技能与扩展 | [Skills](docs/zh-CN/user/skills.md)、[插件](docs/zh-CN/user/plugins.md)、用户 Rules；外部工具接 [MCP](docs/zh-CN/user/mcp.md) |
 | 调度与触发 | 定时任务、[Webhook](docs/zh-CN/user/webhook.md)、IM 入站，经统一调度进对话 |
-| 多入口 | 桌面端、Web 端、[云主机](docs/zh-CN/user/cloud-host.md)，以及[飞书、钉钉、企业微信、微信](docs/zh-CN/user/im-channels.md) |
+| 多入口 | 桌面端、Web 端，以及[飞书、钉钉、企业微信、微信](docs/zh-CN/user/im-channels.md) |
 | 模型接入 | OpenAI 兼容接口。内置千问、深度求索，也可接豆包、Kimi、智谱、OpenRouter 等，不绑死一家 |
 
 ### 为 Skill 开发与测试补上的能力

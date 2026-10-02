@@ -21,7 +21,7 @@ Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, pl
 ### Settings save actions
 
 - **智能体 / 模型服务 / 界面配置 / 调试**: all persist to `user_settings.json` (single save path; provider apiKey cleared on write).
-- **Provider keys**: only keys the user explicitly typed are encrypted into `provider_keys.enc` (AES-256-GCM, machine-bound, separate purpose key from `auth.dat`) and survive restarts. Platform-injected keys (OAuth / login) are never persisted — they live only in platform memory. Standalone keys are user-typed and persist the same way as desktop custom providers.
+- **Provider keys**: only keys the user explicitly typed are encrypted into `provider_keys.enc` (AES-256-GCM, machine-bound, separate purpose key from `auth.dat`) and survive restarts. Platform-injected keys (OAuth / login) are never persisted — they live only in platform memory. Standalone keys are user-typed and persist the same way as desktop custom services.
 - **平台账户**: login/logout via OAuth (`auth.dat`); no footer save.
 - Theme follows `user_settings.json` (round-trips through the API).
 

@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { handleBackgroundJobs, handleDone, handleStreamError } from './sessionHandlers'
 import { recordTurnStart, turnElapsedMs, hasActiveTurn } from '../../../lib/turnElapsed'
+import { applyUiLocale } from '../../../lib/uiLocale'
 import { createMockStreamHandlerContext, sampleConversation } from './testUtils'
 
 const playTaskCompleteSoundIfEnabled = vi.hoisted(() => vi.fn())
@@ -11,6 +12,13 @@ vi.mock('../../../lib/taskCompleteSound', () => ({
   playTaskCompleteSoundIfEnabled,
   disarmTaskCompleteAudio
 }))
+
+// Cancellation copy comes from the i18n catalogue, and the UI locale is
+// resolved from the host language — pin it so the assertions do not depend on
+// the machine locale (jsdom's `navigator.language` follows LC_ALL / LANG).
+beforeEach(() => {
+  applyUiLocale('zh-CN')
+})
 
 describe('sessionHandlers', () => {
   beforeEach(() => {

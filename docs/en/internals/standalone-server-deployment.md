@@ -310,7 +310,7 @@ Environment variables can override the TOML (they take precedence), see section 
 
 ## 7. Model configuration
 
-After signing in, open **Settings → Models** and add a custom provider (address, model list, API Key, context, thinking effort, `extra_body`, …), the same as a custom provider in the desktop client. Do not configure models in the TOML or in environment variables; the old `[llm]` / `POINTER_LLM_ACTIVE_PROVIDER` are deprecated.
+After signing in, open **Settings → Models** and add a custom service (address, model list, API Key, context, thinking effort, `extra_body`, …), the same as a custom service in the desktop client. Do not configure models in the TOML or in environment variables; the old `[llm]` / `POINTER_LLM_ACTIVE_PROVIDER` are deprecated.
 
 ---
 

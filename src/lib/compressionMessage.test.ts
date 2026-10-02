@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { applyUiLocale } from './uiLocale'
 import {
   buildCompressionNoticeContent,
   buildCompressionProgressLabel,
@@ -6,6 +7,13 @@ import {
   isParentThreadCompressionProgress,
   isPrefixCompressionSummaryMessage
 } from './compressionMessage'
+
+// The copy under test comes from the i18n catalogue, and the UI locale is
+// resolved from the host language — pin it so the assertions do not depend on
+// the machine locale (jsdom's `navigator.language` follows LC_ALL / LANG).
+beforeEach(() => {
+  applyUiLocale('zh-CN')
+})
 
 describe('compression summary roles', () => {
   it('treats user summaries as prefix and assistant summaries as in-run', () => {

@@ -94,7 +94,7 @@ sudo systemctl status pointer-server
 
 Open the configured `public_url` in a browser (on the same machine you can start with `http://localhost:8787`) → sign in with account, password and captcha → **Settings → Models** → add a provider and fill in the API Key → start chatting.
 
-Model providers in Settings are the same as the desktop client's custom providers: you can change the address, model list, key, context, maximum output, thinking effort, vision and other capabilities.
+Model providers in Settings are the same as the desktop client's custom services: you can change the address, model list, key, context, maximum output, thinking effort, vision and other capabilities.
 
 ### Web branding copy (optional)
 
@@ -221,7 +221,7 @@ The old `admin_token` is deprecated and ignored.
 
 ## Model configuration
 
-After signing in, open **Settings → Models → Custom providers** and add at least one provider with its API Key. As with desktop custom providers you can configure:
+After signing in, open **Settings → Models → Custom services** and add at least one provider with its API Key. As with the desktop client's custom services you can configure:
 
 - Provider ID, name, API address, model list, key
 - Context, maximum output, thinking effort, vision and other capabilities
@@ -334,7 +334,7 @@ The Web session is not signed in under standalone. Open the page and sign in wit
 
 ### Q: After signing in I cannot chat / there is no model
 
-Add a custom provider and fill in the API Key under **Settings → Models**. An `[llm]` section in the configuration file no longer takes effect.
+Add a custom service and fill in the API Key under **Settings → Models**. An `[llm]` section in the configuration file no longer takes effect.
 
 ---
 

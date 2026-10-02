@@ -1,3 +1,5 @@
+import path from 'node:path';
+import type { Plugin } from 'vite';
 import { defineConfig } from 'vitepress';
 import { docLinks, strayHtml } from './doc-links.mts';
 import { buildSidebar, type SectionSpec } from './sidebar.mts';
@@ -5,6 +7,7 @@ import {
   GITHUB_OWNER,
   GITHUB_REPO,
   SITE_BASE,
+  SITE_DIR,
   SRC_DIR,
   SRC_EXCLUDE_GLOBS,
   alternateLocale,
@@ -14,6 +17,36 @@ import {
 
 /** Published file path for every page. `en/` is stripped, `README.md` → `index.md`. */
 const rewrites = (page: string) => rewritePage(page);
+
+/**
+ * Resolve `vue` / `vue/*` from the docs-site workspace.
+ *
+ * The markdown sources live in `../docs/`, i.e. *outside* this workspace, so
+ * Node's upward `node_modules` lookup starts from the importer's own directory.
+ * Locally that escapes to the repository root and silently bundles the
+ * **application's** Vue (3.5.34 here, not this workspace's 3.5.43); on CI the
+ * repository root has no `node_modules` at all — only `docs-site/` is installed
+ * — and the build dies with
+ * `failed to resolve import "vue/server-renderer"`.
+ *
+ * Re-resolving through Vite's own resolver keeps the package `exports` map and
+ * the active conditions intact, so `vue`, `vue/server-renderer` and
+ * `vue/compiler-sfc` land on exactly the files they resolve to for every
+ * importer inside `docs-site/`. (`resolve.alias` would bypass `exports` and
+ * change which build of `vue/compiler-sfc` the Vue plugin loads;
+ * `resolve.dedupe` cannot help either, because VitePress sets Vite's `root` to
+ * `docs/`, which is still outside this workspace.)
+ */
+function vueFromSiteRoot(): Plugin {
+  return {
+    name: 'docs-site:vue-from-workspace',
+    enforce: 'pre',
+    resolveId(source, _importer, options) {
+      if (source !== 'vue' && !source.startsWith('vue/')) return null;
+      return this.resolve(source, path.join(SITE_DIR, 'package.json'), { ...options, skipSelf: true });
+    },
+  };
+}
 
 /** Published page index, built once — powers the language-switch targets below. */
 const siteIndex = buildSiteIndex();
@@ -112,6 +145,9 @@ export default defineConfig({
     // The docs site is a standalone VitePress project: do not inherit the app's
     // repo-root `postcss.config.js` (Tailwind + autoprefixer).
     css: { postcss: { plugins: [] } },
+    // `vue` must come from this workspace, not from the importer's directory —
+    // the markdown sources live outside `docs-site/`. See `vueFromSiteRoot`.
+    plugins: [vueFromSiteRoot()],
   },
 
   transformPageData(pageData) {

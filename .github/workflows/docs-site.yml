@@ -1,0 +1,68 @@
+name: Docs site
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'docs-site/**'
+      - '.github/workflows/docs-site.yml'
+  workflow_dispatch:
+
+# GitHub Pages deploys through OIDC: write the artifact, then let the deploy job
+# claim the id-token. No repository secrets are involved.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; let an in-flight deploy finish instead of cancelling it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+
+      - name: Configure Pages
+        # Supplies the Pages origin; the site's own `base` is pinned to
+        # `/agent-pointer/` in docs-site/.vitepress/config.mts — the project-site
+        # default address, with no custom domain bound.
+        uses: actions/configure-pages@v5
+
+      - name: Install docs dependencies
+        # The docs site is a standalone VitePress project with its own lockfile
+        # and its own Vite 5.x, so the application's Vite 7 is left untouched.
+        run: npm ci
+        working-directory: docs-site
+
+      - name: Build docs site
+        run: npm run docs:build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs-site/.vitepress/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

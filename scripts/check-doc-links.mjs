@@ -18,11 +18,22 @@
  * `[LICENSE-APACHE](LICENSE-APACHE)` inside a fence; naive mode reports it as broken.
  * `--include-code-fences` restores that naive mode for debugging.
  *
+ * Site awareness: `docs/` is mounted in place by the VitePress site in
+ * `docs-site/` (route map in `docs-site/site-map.mjs`). Site routes do not match
+ * file paths (`en/x.md` → `/x`, `zh-CN/x.md` → `/zh-CN/x`, `README.md` → `/index`), so this script also:
+ *   - classifies every relative link as `site` (stays on the site) or `github`
+ *     (rewritten to a GitHub blob URL at build time), and
+ *   - resolves `/route` links against the published page set, reporting
+ *     `missing-route` — the failure mode that would 404 the built site.
+ * `/route` links are only read as site routes while the scanned root contains
+ * the docs tree, so `--root <tmpdir>` keeps the plain filesystem reading.
+ *
  * Exit code: 1 when any link is broken, 0 otherwise (2 on usage error).
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { REPO_ROOT, SRC_DIR, buildSiteIndex, isOnSite } from '../docs-site/site-map.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(SCRIPT_DIR, '..');
@@ -119,11 +130,35 @@ export function walkMarkdown(dir, out = []) {
   return out;
 }
 
+/** `/user/` and `/user` are the same site route; the root stays `/`. */
+function normalizeRoute(route) {
+  const trimmed = route.replace(/\/+$/, '');
+  return trimmed === '' ? '/' : trimmed;
+}
+
+/**
+ * Site context for a scanned root, or `null` when the root does not contain the
+ * VitePress source tree (e.g. the `--root <tmpdir>` unit tests) — in that case
+ * `/route` links keep the plain filesystem reading.
+ */
+export function resolveSiteContext(root) {
+  const rel = path.relative(root, SRC_DIR);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  const { byRoute } = buildSiteIndex();
+  const routes = new Map();
+  for (const [route, file] of byRoute) routes.set(normalizeRoute(route), file);
+  return { srcDir: SRC_DIR, repoRoot: REPO_ROOT, routes };
+}
+
 /**
  * Check every relative link in every markdown file under `root`.
  * Returns `{ files, links, broken }`; `links` holds one record per checked link.
  */
-export function findBrokenLinks({ root = DEFAULT_ROOT, includeCodeFences = false } = {}) {
+export function findBrokenLinks({
+  root = DEFAULT_ROOT,
+  includeCodeFences = false,
+  site = resolveSiteContext(root),
+} = {}) {
   const files = walkMarkdown(root).sort();
   const anchorCache = new Map();
   const links = [];
@@ -143,13 +178,48 @@ export function findBrokenLinks({ root = DEFAULT_ROOT, includeCodeFences = false
 
         const [rawPath, fragment] = target.split('#');
         const decodedPath = decodeURIComponent(rawPath ?? '');
-        const record = { file: rel, line: i + 1, target, resolved: null, kind: null };
+        const record = { file: rel, line: i + 1, target, resolved: null, kind: null, scope: 'local' };
+
+        /** Anchor ids of `targetFile`, cached for the whole scan. */
+        const checkAnchor = (targetFile) => {
+          if (!fragment) return;
+          if (!anchorCache.has(targetFile)) anchorCache.set(targetFile, anchorsOf(targetFile));
+          const anchors = anchorCache.get(targetFile);
+          if (anchors && !anchors.has(decodeURIComponent(fragment))) record.kind = 'missing-anchor';
+        };
+
+        // A `/route` link addresses the built site, not the filesystem.
+        if (decodedPath.startsWith('/') && site) {
+          record.scope = 'route';
+          const page = site.routes.get(normalizeRoute(decodedPath));
+          if (page) {
+            record.resolved = page;
+            checkAnchor(path.join(site.srcDir, page));
+          } else {
+            record.resolved = decodedPath;
+            record.kind = 'missing-route';
+          }
+          links.push(record);
+          if (record.kind) broken.push(record);
+          continue;
+        }
 
         let resolved;
         if (!decodedPath) resolved = file;
         else if (decodedPath.startsWith('/')) resolved = path.join(root, decodedPath.slice(1));
         else resolved = path.resolve(path.dirname(file), decodedPath);
         record.resolved = path.relative(root, resolved);
+
+        if (site) {
+          const siteRel = path.relative(site.srcDir, resolved).split(path.sep).join('/');
+          if (!siteRel.startsWith('..') && isOnSite(siteRel)) {
+            record.scope = 'site'; // stays on the site (build emits a site route)
+          } else {
+            const repoRel = path.relative(site.repoRoot, resolved).split(path.sep).join('/');
+            // published nowhere: the build rewrites it to a GitHub blob URL
+            if (!repoRel.startsWith('..') && !path.isAbsolute(repoRel)) record.scope = 'github';
+          }
+        }
 
         if (!fs.existsSync(resolved)) {
           record.kind = 'missing-path';
@@ -158,9 +228,7 @@ export function findBrokenLinks({ root = DEFAULT_ROOT, includeCodeFences = false
           fs.statSync(resolved).isFile() &&
           MD_EXT.has(path.extname(resolved).toLowerCase())
         ) {
-          if (!anchorCache.has(resolved)) anchorCache.set(resolved, anchorsOf(resolved));
-          const anchors = anchorCache.get(resolved);
-          if (anchors && !anchors.has(decodeURIComponent(fragment))) record.kind = 'missing-anchor';
+          checkAnchor(resolved);
         }
 
         links.push(record);
@@ -169,13 +237,18 @@ export function findBrokenLinks({ root = DEFAULT_ROOT, includeCodeFences = false
     });
   }
 
-  return { files, links, broken };
+  return { files, links, broken, site };
 }
 
 const HELP = `Usage: node scripts/check-doc-links.mjs [options]
 
 Checks relative links in every markdown file: target file exists, and #fragment
 matches an anchor in that file. Fenced code blocks and inline code are skipped.
+
+When the scanned root contains the VitePress source tree (docs/), links are also
+read through the site route map: /route links must match a published page, and
+each relative link is classified as "site" (stays on the site) or "github"
+(rewritten to a GitHub blob URL at build time).
 
 Options:
   --verbose                list every checked link, not just the broken ones
@@ -212,13 +285,23 @@ export function main(argv = process.argv.slice(2)) {
     return 0;
   }
 
-  const { files, links, broken } = findBrokenLinks(opts);
+  const { files, links, broken, site } = findBrokenLinks(opts);
 
   console.log(
     `mode: ${opts.includeCodeFences ? 'include-code-fences (naive)' : 'markdown-correct (skip fences + inline code)'}`,
   );
   console.log(`root: ${opts.root}`);
   console.log(`scanned ${files.length} markdown files, checked ${links.length} relative links`);
+  if (site) {
+    const scope = (name) => links.filter((link) => link.scope === name).length;
+    console.log(
+      `site map: ${site.routes.size} published pages; ` +
+        `links → site ${scope('site')}, route ${scope('route')}, github ${scope('github')}, ` +
+        `local ${scope('local')}`,
+    );
+  } else {
+    console.log('site map: not applicable (scanned root does not contain docs/)');
+  }
   console.log(`broken: ${broken.length}`);
 
   if (opts.verbose) {

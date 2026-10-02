@@ -47,7 +47,11 @@
     "build:linux:appimage": "npm run tauri:build -- --bundles appimage",
     "version:sync": "node scripts/sync-version.mjs",
     "version:check": "node scripts/sync-version.mjs --check",
-    "licenses": "node scripts/generate-third-party-notices.mjs"
+    "licenses": "node scripts/generate-third-party-notices.mjs",
+    "docs:install": "npm --prefix docs-site install",
+    "docs:dev": "npm --prefix docs-site run dev",
+    "docs:build": "npm --prefix docs-site run build",
+    "docs:preview": "npm --prefix docs-site run preview"
   },
   "dependencies": {
     "@tanstack/vue-virtual": "^3.13.34",

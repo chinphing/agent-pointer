@@ -1,0 +1,15 @@
+{
+  "name": "agent-pointer-docs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "VitePress documentation site for agent-pointer. Mounts the existing docs/ tree in place (no file moves).",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "1.6.4"
+  }
+}

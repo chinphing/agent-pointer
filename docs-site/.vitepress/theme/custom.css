@@ -1,0 +1,66 @@
+/* Light theme customisation on top of the VitePress default theme. */
+
+:root {
+  --vp-c-brand-1: #2563eb;
+  --vp-c-brand-2: #1d4ed8;
+  --vp-c-brand-3: #1e40af;
+  --vp-layout-max-width: 1480px;
+}
+
+.pointer-maintainer-note {
+  margin: 0 0 24px;
+  padding: 12px 16px;
+  border-left: 4px solid var(--vp-c-brand-1);
+  border-radius: 0 8px 8px 0;
+  background: var(--vp-c-brand-soft);
+  color: var(--vp-c-text-1);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.pointer-maintainer-note p {
+  margin: 0;
+}
+
+/* The built-in language menu derives its "corresponding page" link from the
+   rewritten path, which dead-links whenever the page is not translated
+   (`/zh-CN/DEVELOPMENT`, `/user/webhook`, …). The theme renders its own
+   switcher from the `altLocale` frontmatter instead (see Layout.vue), which
+   falls back to the other locale's landing page. */
+.VPNavBarTranslations,
+.VPNavScreenTranslations {
+  display: none !important;
+}
+
+.pointer-lang-switch {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  margin-left: 12px;
+  padding: 0 10px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--vp-c-text-1);
+  white-space: nowrap;
+  transition: color 0.25s, border-color 0.25s;
+}
+
+.pointer-lang-switch:hover {
+  color: var(--vp-c-brand-1);
+  border-color: var(--vp-c-brand-1);
+}
+
+.pointer-lang-switch-screen {
+  margin: 12px 0 0;
+}
+
+/* The docs are plain Markdown tables; keep wide ones scrollable instead of
+   overflowing the content column. */
+.vp-doc table {
+  display: table;
+  width: 100%;
+  overflow-x: auto;
+}

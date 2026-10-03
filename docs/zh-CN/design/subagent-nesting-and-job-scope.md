@@ -2,6 +2,7 @@
 
 > 状态：**批次 A–E 全部落地**（§5 实施队列）：§3 job 作用域（`3b0782e0`）、§4 ask_user 顶部条（`e0cec02c`）、§2.5 UI 树化（B）、§2.3 / §2.4 节点矩阵与深度统一（C）、§2.7 扇出护栏（D）、§6 子 agent 正文（E）。
 > §1 是批次 C 之前的实测基线，保留作对照；提示词与文档回更见 §2.12 与 §5 的落地记录。实现以仓库代码为准。
+> **§7（2026-10-04 新增）**是**缺口 F：归属渲染** —— P0 选择器已落地在分支 `feat/subagent-turn-spawn-tree`（未提交），P0.1–P5 待排期；同一份 `agentTrace` 的持久化侧审计见 `conversation-payload-write-amplification.md`。
 
 ## 0. 决策台账
 
@@ -13,6 +14,7 @@
 | **D-A1…A6** | general 走 self fork / explore 不派写型 / 父帧显示子任务数 / 根槽提升 / 深度 2 / 扇出 8 | ✅ 已定（§2.11，均按建议值） |
 | **D-A7** | self fork 在 UI/日志上与真 worker 区分 | ✅ 已定（纳入 P2） |
 | **D-C1…C3** | ask_user 条：挂载位置 / 多 pending 处理 / 2s 计时起点 | ✅ 已落地（§4.6）；**D-C1 于 2026-10-01 反转**：由对话区顶部改为输入框上方（与后台任务条同一位置） |
+| **D-F1** | 归属是**数据关系**（`parentToolCallId`），渲染不再按消息局部配对；折叠只决定「画不画」，不决定「有没有」 | ⏳ P0 已落地（`feat/subagent-turn-spawn-tree`），P0.1–P5 待排期（§7） |
 
 ---
 
@@ -406,3 +408,70 @@ depth 1 的 48 行 `general` 是 **lead 自己的 self fork**。
 | 搜索 | `findCurrentConversationMatches(messages, query, scopedRows)`：搜索面新增 scoped 行（此前深层工具行/正文根本不可命中）。scoped 命中以**该帧锚点消息**为 `messageId`，并带 `toolCallId` 或 `contentMessageId`（scoped 行 id）；`MessageList` 经 `currentConversationSearchContentIds` / `currentConversationActiveSearchContentId` 下发，定位选择器 `[data-sub-agent-content-id]`；`SubAgentFrame.isSearchHit` 与 `SubAgentFrameHost.searchPinned` 用 `traceSubtreeContainsSearchTarget`（`src/lib/subAgentSearch.ts`）**含子孙命中** → 折叠祖先自动展开、stub 不被降级 |
 | 未改（有意） | `buildSubAgentBodyModelsFromScoped` / `buildSubAgentBodyModelsSplitAtCut`（后者无组件消费者，压缩标记位置未变）；`AgentMessageBody`；`SubAgentFrameHost` 的 stub / 统计 / memo 逻辑（仅新增 `searchPinned` 的正文命中；stub 预览已按后续决定移除） |
 | 测试 | 新增 `src/lib/subAgentSearch.test.ts`（自身命中 / 子孙命中 / 关闭搜索不扫行 / 环状 linkage）、`src/components/chat/message/assistant/SubAgentFrame.test.ts`（轮次顺序 `r1→t1→t2→r3`、markdown、stub 正文不渲染、折叠态不渲染正文、正文命中自动展开）；扩展 `subAgentMessages.test.ts`（轮次）、`currentConversationSearch.test.ts`（scoped 正文与工具命中、锚点映射、行序、无锚点行） |
+
+---
+
+## 7. 归属渲染：从「按消息找」到「按数据找」（缺口 F）
+
+> 记录日期：2026-10-04
+> 状态：**P0 / P0.1 / P1 已落地**（P1 = 渲染单一权威 + 缺行补拉）；P2–P5 待排期。
+> 触发案例：会话 `c18c15d2-97ae-4d4a-9984-2db2d58e3a06`（00:14–00:15）—— lead 分三轮派出 5 个后台 writer（第 1 轮 3 个、第 2/3 轮各 1 个），随后一轮 `job await mode=all`；界面上 5 个子 agent 的统计行**全部平铺**在「等待后台任务」那一行下面（其中 4 行没有名字）。
+
+### 7.1 判定式（根因）
+
+前端渲染时的配对是**消息局部**的（`AssistantModelMessage.vue:60-83`）：
+
+```ts
+const subTraces = computed(() => subTracesForMessage(props.message))   // 只取本条消息的 trace
+const knownToolCallIds = computed(() => { /* 本条消息 toolCalls ∪ trailingToolGroups */ })
+const orphanTraces = computed(() => orphanSubTraces(subTraces.value, knownToolCallIds.value))
+function tracesUnderTool(tc) { return subTracesForParentToolCall(subTraces.value, tc.id) }
+```
+
+即：`trace.parentToolCallId ∉ 本消息的行 id 集合` → 判为孤儿 → 平铺到消息末尾。
+
+**关键**：`messageId` 只决定「trace 存在哪条消息上」（投递地址），匹配却发生在「那条消息内部」。两者只有在「投递消息 = 工单行所在消息」时才一致。
+
+### 7.2 三条独立成因
+
+| # | 成因 | 证据 |
+|---|------|------|
+| F-1 | **投递地址漂移**：后台子 agent 在**收结果那一轮**才 finalize，用「当前轮」的 `message_id` 写索引与 publish | `run_subagent_delegation.rs:364-380`（`parent.message_id`）、`agent_tool_pass/mod.rs:1555`（`&pass.ctx.message_id`） |
+| F-2 | **折叠投影删行**：已结束的 `run_subagent` 行被 `filterCollapsedSurfaceToolGroups` 从画面删除 → 无 slot → 子帧既不画也不算孤儿（静默消失） | `messageListLayout.ts:616-628`、`ToolCallList.vue:76-102` |
+| F-3 | **嵌套层没有「找」的动作**：父帧渲染子帧时 `:host-tool="null"` 且循环放在正文之后 → 孙帧一律平铺 | `SubAgentFrame.vue` 子帧循环 |
+
+附带现象：**收缩后名字丢失** —— `buildTerminalSubAgentStubView` 有 `summaryLine` 就提前返回，不再拼 agent 名字（`subAgentFrameMount.ts:56-72`）。
+
+### 7.3 不变式
+
+| 编号 | 不变式 |
+|------|--------|
+| **I1** | **归属是数据**：`AgentTrace.parentToolCallId` 必须在**整个回合**内解析到唯一一张宿主行（只认 `run_subagent` 行；`job` 行永不作宿主）。解析不到 → 显式「未关联子任务」组，绝不静默平铺 |
+| **I2** | **折叠只决定「画不画」**：隐藏的行不删数据；子帧上提到最近的**可见容器**；链上无可见容器 → `detached`（显式可见） |
+| **I3** | **每行自证身份**：子 agent 行恒显示 `名字 · 统计`，名字在**渲染期**得出，不依赖持久化 `summaryLine` 里是否烘焙了前缀 |
+
+### 7.4 分期
+
+| 编号 | 内容 | 状态 |
+|------|------|------|
+| **P0** | 回合级归属选择器 `src/lib/subAgentRenderTree.ts`（索引三处行来源：lead 消息 / scoped 行 / trailing groups；只认 `run_subagent`；`planSurfaces` 提供 lift / detached） | ✅ 已落地（+246 行，13 用例） |
+| **P0.1** ✅ | 缺行显式补拉：`missingHostFetches(plan, message, requested)`（`src/lib/subAgentRenderTree.ts`）→ `AssistantModelMessage` 逐个 `ensureScopedMessagesForTrace` **按锚精确拉一次**（每 trace 一次；失败停在 `unbound`） | ✅ 已落地（5 用例；vitest 6 文件 / 98 用例 + `vue-tsc` 全绿） |
+| **P1** ✅ | 渲染单一权威：`MessageList` 每回合构建 `TurnSpawnPlan`（树用未投影 `turn.entries`；drawn 用投影后条目）并注入 `AssistantModelMessage`；`tracesUnderTool` 改为向树要（`nodeForRow(rowId).trace`）；兜底收窄为 `unplaced + unbound` | ✅ 已落地（`spawnPlan` prop 链：MessageList → MessageRow → AssistantMessage → AssistantModelMessage） |
+| P2 | 折叠＝投影：`projectCollapsedEntry` / `filterCollapsedSurfaceToolGroups` 由「删行」改为「标隐藏 + 容器键」 | 待做 |
+| P3 | 承载与身份：`ToolCallGroup` 折叠态承载成员帧；嵌套子帧改 `childrenOfRow` 挂到父帧内的工单行；每行带名字 | 待做 |
+| P4 | 释放与折叠解耦：`evict` 从渲染 watch 移出，交给独立内存策略 | 待确认 |
+| P5 | 本文件 §2.5 / §4.2 回更：「宿主行被隐藏 → 子帧上提到容器」 | 待做 |
+
+### 7.5 验收标准
+
+1. 折叠态**不得加载** scoped 行（终态一律 `summaryLine`）；展开态才允许加载；
+2. 归属与加载解耦：折叠态摘要必须挂在自己的工单行下，判定**不依赖**「行是否已加载」；
+3. 释放后仍挂在工单行下，只退化为摘要行（**名字仍在**）；
+4. 孤儿分支必须罕见且显式：只在「数据里真的没有归属」时命中；
+5. 场景 A（前台派发、行与 trace 同一条消息）的渲染输出与现状**逐像素一致**。
+
+### 7.6 与 payload 写放大问题的关系
+
+`agentTrace` 是两边的交叉点：前端读它做归属，后端把它写在 `messages.payload` 里。
+两者**可独立推进**（P0/P1 纯前端、零后端改动；搬表纯后端、前端无感），共同模式是**「把生命周期不同的东西放在同一个容器里」**。
+详见 `conversation-payload-write-amplification.md`。

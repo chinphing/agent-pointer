@@ -80,6 +80,13 @@ impl ActiveChild {
         match self {
             Self::Process(child) => super::terminal::kill_terminal_child_tree_best_effort(child),
             Self::Pty(child) => {
+                // portable-pty spawns the command with `setsid()`, so the child is
+                // both session and process-group leader: signalling the group also
+                // reaps grandchildren, not just the direct child.
+                #[cfg(unix)]
+                if let Some(pid) = child.process_id() {
+                    super::terminal::kill_unix_process_group(pid);
+                }
                 if let Err(e) = child.kill() {
                     warn!("terminal pty: kill failed: {e}");
                 }

@@ -18,7 +18,8 @@ import {
 } from '../../lib/compressionMessage'
 import { useSettingsStore } from '../../stores/settings'
 import { uiForMessageAgent, useAgentsCatalog } from '../../composables/useAgentUi'
-import { visibleToolCalls } from '../../lib/messageTooling'
+import { isCollapsedSurfaceToolCall, visibleToolCalls } from '../../lib/messageTooling'
+import { buildTurnSpawnPlan, type TurnSpawnPlan } from '../../lib/subAgentRenderTree'
 import type { ChatMessage, ToolCall } from '../../types/chat'
 import {
   isEphemeralDesktopNoticeMessage,
@@ -1862,6 +1863,89 @@ function displayedTurnEntries(turn: (typeof conversationTurns.value)[number]): F
   return turnIsExpanded(turn.id) ? turn.entries : turn.collapsedEntries
 }
 
+/**
+ * P1：每个回合一份「归属渲染计划」（子 agent 帧挂在哪张工单行下）。
+ * - 树用**未投影**的 `turn.entries`：折叠不该改变归属；
+ * - drawn 集用**投影后**的 `displayedTurnEntries(turn)`：被折叠藏起来的行不算「画出来了」。
+ */
+const turnSpawnPlans = computed(() => {
+  const out = new Map<string, TurnSpawnPlan>()
+  const convId = chat.currentId ?? ''
+  for (const turn of conversationTurns.value) {
+    const messages: ChatMessage[] = []
+    const seen = new Set<string>()
+    const extra = new Map<string, ToolCall[]>()
+    const pushMessage = (msg: ChatMessage | null | undefined) => {
+      if (!msg || seen.has(msg.id)) return
+      seen.add(msg.id)
+      messages.push(msg)
+    }
+    const pushExtra = (msg: ChatMessage, toolCalls: readonly ToolCall[]) => {
+      const list = extra.get(msg.id)
+      if (list) list.push(...toolCalls)
+      else extra.set(msg.id, [...toolCalls])
+    }
+    for (const entry of turn.entries) {
+      if (entry.type === 'message') {
+        pushMessage(entry.message)
+        for (const group of entry.trailingToolGroups ?? []) {
+          pushMessage(group.message)
+          pushExtra(group.message, group.toolCalls)
+        }
+        continue
+      }
+      if (entry.type === 'tool_run') {
+        for (const block of coalesceToolRunItems(entry.items)) {
+          if (block.kind === 'glue') continue
+          for (const group of block.groups) pushMessage(group.message)
+        }
+      }
+    }
+
+    const drawnRowIdsByMessage = new Map<string, string[]>()
+    const addDrawn = (messageId: string, rows: readonly ToolCall[]) => {
+      const list = drawnRowIdsByMessage.get(messageId) ?? []
+      for (const tc of rows) {
+        const id = (tc.id ?? '').trim()
+        if (id) list.push(id)
+      }
+      drawnRowIdsByMessage.set(messageId, list)
+    }
+    for (const entry of displayedTurnEntries(turn)) {
+      if (entry.type === 'message') {
+        const rows = visibleToolsForMessage(entry.message, entry.message.toolCalls ?? [])
+        addDrawn(
+          entry.message.id,
+          entry.contentOnly ? rows.filter(tc => isCollapsedSurfaceToolCall(tc)) : rows
+        )
+        for (const group of entry.trailingToolGroups ?? []) {
+          addDrawn(group.message.id, visibleToolsForMessage(group.message, group.toolCalls))
+        }
+        continue
+      }
+      if (entry.type === 'tool_run') {
+        for (const block of coalesceToolRunItems(entry.items)) {
+          if (block.kind === 'glue') continue
+          const display = toolRunAssistantMessage(block.groups)
+          if (!display) continue
+          addDrawn(display.id, visibleToolsForGroups(block.groups))
+        }
+      }
+    }
+
+    out.set(
+      turn.id,
+      buildTurnSpawnPlan({
+        messages,
+        scopedRows: chat.scopedRowsForAnchors(convId, messages.map(m => m.id)),
+        extraToolCallsByMessageId: extra,
+        drawnRowIdsByMessage
+      })
+    )
+  }
+  return out
+})
+
 function turnElapsedLabel(turnId: string): string {
   const conversationId = chat.currentId?.trim()
   // Running turn: render a live duration driven by the 1s ticker (reading
@@ -2308,6 +2392,7 @@ function entrySpacing(
                 :message="entry.message"
                 :trailing-tool-groups="entry.trailingToolGroups"
                 :content-only="entry.contentOnly"
+                :spawn-plan="turnSpawnPlans.get(row.turn.id) ?? null"
               />
             </div>
             <div
@@ -2352,6 +2437,7 @@ function entrySpacing(
                       v-if="display"
                       :message="display"
                       tool-only
+                      :spawn-plan="turnSpawnPlans.get(row.turn.id) ?? null"
                     />
                   </template>
                 </div>

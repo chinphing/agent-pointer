@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { Bot } from 'lucide-vue-next'
 import type { ChatMessage, ToolCall } from '../../../types/chat'
+import type { TurnSpawnPlan } from '../../../lib/subAgentRenderTree'
 import {
   assistantDisplayKind,
   isEphemeralDesktopNoticeMessage,
@@ -20,6 +21,8 @@ const props = defineProps<{
   compact?: boolean
   trailingToolGroups?: { id: string; toolCalls: ToolCall[]; message: ChatMessage }[]
   contentOnly?: boolean
+  /** Turn-level spawn plan (P1): frames resolve by data ownership, not by this message. */
+  spawnPlan?: TurnSpawnPlan | null
 }>()
 
 const settings = useSettingsStore()
@@ -73,6 +76,7 @@ const compactShell = computed(() => toolOnly.value || desktopNotice.value)
         :tool-only="toolOnly"
         :trailing-tool-groups="trailingToolGroups"
         :content-only="contentOnly"
+        :spawn-plan="spawnPlan"
       />
     </div>
   </div>

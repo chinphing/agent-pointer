@@ -25,6 +25,11 @@ import {
   subTracesForMessage,
   subTracesForParentToolCall
 } from '../../../../lib/subAgentSession'
+import {
+  framesForMessage,
+  missingHostFetches,
+  type TurnSpawnPlan
+} from '../../../../lib/subAgentRenderTree'
 import { resolveTraceTaskId, traceLookupId } from '../../../../lib/subAgentStats'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
 import SubAgentFrameHost, { type SubAgentTaskBoardBinding } from './SubAgentFrameHost.vue'
@@ -35,6 +40,11 @@ const props = defineProps<{
   toolOnly?: boolean
   trailingToolGroups?: { id: string; toolCalls: ToolCall[]; message: ChatMessage }[]
   contentOnly?: boolean
+  /**
+   * 回合级归属计划（P1）。有它时：子帧由**数据归属**决定（谁画宿主行，谁画子帧），
+   * 与本消息的 `agentTrace` 数组无关；没有它时保持旧的「消息局部配对」行为。
+   */
+  spawnPlan?: TurnSpawnPlan | null
 }>()
 
 const settingsStore = useSettingsStore()
@@ -59,6 +69,14 @@ const showSubAgentTrace = computed(() =>
 
 const subTraces = computed(() => subTracesForMessage(props.message))
 
+/**
+ * P1：回合级归属计划。有注入时，子帧由**数据归属**决定（谁画宿主行，谁画子帧），
+ * 与本消息的 `agentTrace` 数组无关；没有注入时保持旧的「消息局部配对」行为。
+ */
+const spawnFrames = computed(() =>
+  props.spawnPlan ? framesForMessage(props.spawnPlan, props.message) : null
+)
+
 const knownToolCallIds = computed(() => {
   const ids = new Set<string>()
   for (const tc of props.message.toolCalls ?? []) {
@@ -72,11 +90,19 @@ const knownToolCallIds = computed(() => {
   return ids
 })
 
-const orphanTraces = computed(() =>
-  orphanSubTraces(subTraces.value, knownToolCallIds.value)
-)
+/**
+ * 兜底：只放**本回合任何地方都没画出来**的档案（宿主行被折叠隐藏，或本回合根本没有宿主行）。
+ * 宿主行已在别处画出来的档案不会进这里 —— 避免重复渲染。
+ */
+const orphanTraces = computed(() => {
+  const planned = spawnFrames.value
+  if (planned) return [...planned.unplaced, ...planned.unbound]
+  return orphanSubTraces(subTraces.value, knownToolCallIds.value)
+})
 
 function tracesUnderTool(toolCall: ToolCall): AgentTrace[] {
+  const planned = spawnFrames.value
+  if (planned) return planned.byRow.get((toolCall.id ?? '').trim()) ?? []
   return subTracesForParentToolCall(subTraces.value, toolCall.id)
 }
 
@@ -95,6 +121,30 @@ const thoughtsDebugEnabled = computed(
 
 const chatStore = useChatStore()
 const { generating, activeGeneratingMessageId, taskBoards } = storeToRefs(chatStore)
+
+/**
+ * P0.1：宿主行还没加载时，按锚**精确补拉一次**。
+ * 嵌套层（第 2 层及更深）的派发行写在父 worker 的 scoped 行上，那条行未加载 / 被驱逐时
+ * 回合索引里没有它 → 会被误判成「未关联」。这里只补拉一次，失败就停在未关联组，不重试。
+ */
+const requestedHostFetches = new Set<string>()
+watch(
+  () =>
+    props.spawnPlan
+      ? missingHostFetches(props.spawnPlan, props.message, requestedHostFetches)
+      : [],
+  items => {
+    for (const item of items) {
+      requestedHostFetches.add(item.traceId)
+      void chatStore.ensureScopedMessagesForTrace(
+        item.anchorMessageId,
+        item.traceId,
+        item.agentInstanceId
+      )
+    }
+  },
+  { immediate: true }
+)
 
 const conversationMessages = computed(() => chatStore.current?.messages ?? [])
 
@@ -157,6 +207,8 @@ const leadBody = computed((): AgentMessageBodyModel => ({
 }))
 
 const showSubAgentFrames = computed(() => {
+  // P1：本消息画出来的行上有子帧 → 必须画（即使本消息自身没携带 agentTrace）。
+  if ((spawnFrames.value?.byRow.size ?? 0) > 0) return true
   if (!showSubAgentTrace.value) return false
   if (!props.contentOnly) return true
   // Collapsed turns used to hide the whole SubAgentFrame (contentOnly), which

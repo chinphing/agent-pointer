@@ -14,6 +14,7 @@ pub mod vision;
 
 // --- Stable paths for the rest of the crate (`crate::agents::computer::…`) ---
 pub use input::actions;
+#[cfg(feature = "computer")]
 pub use input::enigo as action_enigo;
 pub use input::{mouse_move, mouse_path, timing};
 pub use state::{

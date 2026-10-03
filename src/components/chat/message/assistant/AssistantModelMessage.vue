@@ -124,8 +124,8 @@ const { generating, activeGeneratingMessageId, taskBoards } = storeToRefs(chatSt
 
 /**
  * P0.1：宿主行还没加载时，按锚**精确补拉一次**。
- * 嵌套层（第 2 层及更深）的派发行写在父 worker 的 scoped 行上，那条行未加载 / 被驱逐时
- * 回合索引里没有它 → 会被误判成「未关联」。这里只补拉一次，失败就停在未关联组，不重试。
+ * 缺的宿主行写在**父级**的行里（不是这条档案自己的行），所以补拉对象是父 trace 的实例；
+ * 每个父实例只拉一次，失败就停在未关联组，不重试。
  */
 const requestedHostFetches = new Set<string>()
 watch(
@@ -135,7 +135,7 @@ watch(
       : [],
   items => {
     for (const item of items) {
-      requestedHostFetches.add(item.traceId)
+      requestedHostFetches.add(item.key)
       void chatStore.ensureScopedMessagesForTrace(
         item.anchorMessageId,
         item.traceId,

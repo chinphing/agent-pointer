@@ -335,38 +335,96 @@ export function framesForMessage(plan: TurnSpawnPlan, message: ChatMessage): Mes
 }
 
 export type MissingHostFetch = {
+  /** 去重键：同一个父实例只拉一次。 */
+  key: string
+  /** 要拉的是**父实例**的行 —— 缺的宿主行（那次 `run_subagent` 调用）写在父的行里。 */
   traceId: string
-  /** 取数锚点：该层 scoped 行所在的消息（嵌套层 = 父 worker 的 scoped 行 id）。 */
   anchorMessageId: string
   agentInstanceId?: string
+  /** 触发这次补拉的档案（诊断用）。 */
+  traceIds: string[]
 }
 
 /**
  * 「宿主行还没加载」的补拉清单（P0.1）。
  *
- * 回合索引只覆盖**内存里已加载**的 scoped 行，所以嵌套层（第 2 层及更深 —— 派发行写在父 worker
- * 的 scoped 行上）在未加载 / 被驱逐时解析不到宿主行，会被误判成「未关联」。这里给出需要补拉的
- * 档案，调用方用 `ensureScopedMessagesForTrace(anchorMessageId, traceId, agentInstanceId)`
- * **按锚精确拉一次**（不是全表扫）。
+ * 关键：缺的宿主行是**父级**发出的那次 `run_subagent` 调用 —— 按定义永远不在档案自己的行里。
+ * 所以补拉的对象必须是**父 trace 对应的实例**
+ * （`ensureScopedMessagesForTrace(父锚, 父 traceId, 父 instanceId)`），而不是这条档案自己。
  *
- * 纯函数：不做副作用、不缓存；`requested` 由调用方维护，用来保证每个 trace 只拉一次。
- * 没有 `parentToolCallId` 的历史档案不补拉 —— 补了也解析不出宿主行。
+ * 父 trace 从本回合的树里找（第 1 层父就是 lead 消息上的档案）。找不到父 trace 时不请求 ——
+ * 拉自己那一份对解析宿主行没有帮助。
+ *
+ * 纯函数；`requested`（键集合）由调用方维护，保证每个父实例只拉一次。
  */
 export function missingHostFetches(
   plan: TurnSpawnPlan,
   message: ChatMessage,
   requested?: ReadonlySet<string> | null
 ): MissingHostFetch[] {
-  const out: MissingHostFetch[] = []
+  const byKey = new Map<string, MissingHostFetch>()
   for (const trace of subTracesForMessage(message)) {
     const traceId = trimId(trace.id)
-    if (!traceId || requested?.has(traceId)) continue
+    if (!traceId) continue
     const rowId = trimId(trace.parentToolCallId)
     if (!rowId) continue
     if (plan.tree.nodeForRow(rowId)) continue
-    const anchorMessageId = trimId(trace.anchorMessageId) || trimId(message.id)
+    const parentId = trimId(trace.parentTraceId)
+    if (!parentId) continue
+    const parent = plan.tree.nodeForTrace(parentId)?.trace
+    if (!parent) continue
+    const anchorMessageId = trimId(parent.anchorMessageId) || trimId(message.id)
     if (!anchorMessageId) continue
-    out.push({ traceId, anchorMessageId, agentInstanceId: trace.agentInstanceId })
+    const instanceId = trimId(parent.agentInstanceId) || trimId(parent.id)
+    const key = `${anchorMessageId}\u0000${instanceId}`
+    if (requested?.has(key)) continue
+    const existing = byKey.get(key)
+    if (existing) {
+      existing.traceIds.push(traceId)
+      continue
+    }
+    byKey.set(key, {
+      key,
+      traceId: trimId(parent.id) || parentId,
+      anchorMessageId,
+      // 与 SubAgentFrameHost 一致：没有 agentInstanceId 时用 trace id 兜底
+      agentInstanceId: instanceId,
+      traceIds: [traceId]
+    })
+  }
+  return [...byKey.values()]
+}
+
+/**
+ * 把「锚在给定消息上」的 scoped 行做**传递闭包**。
+ *
+ * 嵌套层的行锚在**父级的行 id** 上（父 worker 的 scoped 行），只取一层会漏掉第 2 层及更深 ——
+ * 于是宿主行找不到、帧被误判成「未关联」。
+ */
+export function scopedRowClosure(
+  seedIds: readonly string[],
+  collectRowsForAnchors: (anchorIds: readonly string[]) => readonly ChatMessage[],
+  maxDepth = 4
+): ChatMessage[] {
+  const out: ChatMessage[] = []
+  const seen = new Set<string>()
+  let frontier: string[] = []
+  for (const raw of seedIds) {
+    const id = trimId(raw)
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    frontier.push(id)
+  }
+  for (let depth = 0; depth < maxDepth && frontier.length > 0; depth++) {
+    const next: string[] = []
+    for (const row of collectRowsForAnchors(frontier)) {
+      const id = trimId(row.id)
+      if (!id || seen.has(id)) continue
+      seen.add(id)
+      out.push(row)
+      next.push(id)
+    }
+    frontier = next
   }
   return out
 }

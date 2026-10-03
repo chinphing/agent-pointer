@@ -19,7 +19,11 @@ import {
 import { useSettingsStore } from '../../stores/settings'
 import { uiForMessageAgent, useAgentsCatalog } from '../../composables/useAgentUi'
 import { isCollapsedSurfaceToolCall, visibleToolCalls } from '../../lib/messageTooling'
-import { buildTurnSpawnPlan, type TurnSpawnPlan } from '../../lib/subAgentRenderTree'
+import {
+  buildTurnSpawnPlan,
+  scopedRowClosure,
+  type TurnSpawnPlan
+} from '../../lib/subAgentRenderTree'
 import type { ChatMessage, ToolCall } from '../../types/chat'
 import {
   isEphemeralDesktopNoticeMessage,
@@ -1869,8 +1873,20 @@ function displayedTurnEntries(turn: (typeof conversationTurns.value)[number]): F
  * - drawn 集用**投影后**的 `displayedTurnEntries(turn)`：被折叠藏起来的行不算「画出来了」。
  */
 const turnSpawnPlans = computed(() => {
-  const out = new Map<string, TurnSpawnPlan>()
+  // 失效依赖：scoped 存储的加载 / 驱逐 / 流式更新。
+  // （assignLoaded 不 bump membership，所以必须同时订阅 liveSignals；驱逐只 bump membership。）
+  void chat.getSubAgentLiveSignal('')
   const convId = chat.currentId ?? ''
+  void chat.getScopedMembershipSignal(convId)
+
+  const pending: {
+    id: string
+    messages: ChatMessage[]
+    extra: Map<string, ToolCall[]>
+    drawn: Map<string, string[]>
+  }[] = []
+  const seedIds: string[] = []
+
   for (const turn of conversationTurns.value) {
     const messages: ChatMessage[] = []
     const seen = new Set<string>()
@@ -1933,13 +1949,22 @@ const turnSpawnPlans = computed(() => {
       }
     }
 
+    pending.push({ id: turn.id, messages, extra, drawn: drawnRowIdsByMessage })
+    for (const msg of messages) seedIds.push(msg.id)
+  }
+
+  // 嵌套层的行锚在**父级行 id** 上（父 worker 的 scoped 行），只取一层会漏掉第 2 层及更深。
+  const scopedRows = scopedRowClosure(seedIds, ids => chat.scopedRowsForAnchors(convId, ids))
+
+  const out = new Map<string, TurnSpawnPlan>()
+  for (const entry of pending) {
     out.set(
-      turn.id,
+      entry.id,
       buildTurnSpawnPlan({
-        messages,
-        scopedRows: chat.scopedRowsForAnchors(convId, messages.map(m => m.id)),
-        extraToolCallsByMessageId: extra,
-        drawnRowIdsByMessage
+        messages: entry.messages,
+        scopedRows,
+        extraToolCallsByMessageId: entry.extra,
+        drawnRowIdsByMessage: entry.drawn
       })
     )
   }

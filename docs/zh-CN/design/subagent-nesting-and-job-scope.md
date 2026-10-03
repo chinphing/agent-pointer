@@ -455,7 +455,7 @@ function tracesUnderTool(tc) { return subTracesForParentToolCall(subTraces.value
 | 编号 | 内容 | 状态 |
 |------|------|------|
 | **P0** | 回合级归属选择器 `src/lib/subAgentRenderTree.ts`（索引三处行来源：lead 消息 / scoped 行 / trailing groups；只认 `run_subagent`；`planSurfaces` 提供 lift / detached） | ✅ 已落地（+246 行，13 用例） |
-| **P0.1** ✅ | 缺行显式补拉：`missingHostFetches(plan, message, requested)`（`src/lib/subAgentRenderTree.ts`）→ `AssistantModelMessage` 逐个 `ensureScopedMessagesForTrace` **按锚精确拉一次**（每 trace 一次；失败停在 `unbound`） | ✅ 已落地（5 用例；vitest 6 文件 / 98 用例 + `vue-tsc` 全绿） |
+| **P0.1** ✅ | 缺行显式补拉（重做版）：`missingHostFetches(plan, message, requested)` 用 `parentTraceId` 找到**父 trace** → 拉**父实例**的行（缺的宿主行写在父的行里，不在档案自己的行里）；同父合并、每父一次；父不在本回合则不请求。`MessageList` 用 `scopedRowClosure` 做嵌套行传递闭包（锚在父级行 id 上的行），并订阅 `getSubAgentLiveSignal` / `getScopedMembershipSignal` 保证补拉落地后重算 | ✅ 已落地（lib 单测 24 用例；vitest 8 文件 / 160 用例 + `vue-tsc` 全绿）；⚠️ 未做真实数据端到端验证 |
 | **P1** ✅ | 渲染单一权威：`MessageList` 每回合构建 `TurnSpawnPlan`（树用未投影 `turn.entries`；drawn 用投影后条目）并注入 `AssistantModelMessage`；`tracesUnderTool` 改为向树要（`nodeForRow(rowId).trace`）；兜底收窄为 `unplaced + unbound` | ✅ 已落地（`spawnPlan` prop 链：MessageList → MessageRow → AssistantMessage → AssistantModelMessage） |
 | P2 | 折叠＝投影：`projectCollapsedEntry` / `filterCollapsedSurfaceToolGroups` 由「删行」改为「标隐藏 + 容器键」 | 待做 |
 | P3 | 承载与身份：`ToolCallGroup` 折叠态承载成员帧；嵌套子帧改 `childrenOfRow` 挂到父帧内的工单行；每行带名字 | 待做 |

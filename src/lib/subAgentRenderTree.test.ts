@@ -5,6 +5,7 @@ import {
   buildTurnSpawnTree,
   framesForMessage,
   missingHostFetches,
+  scopedRowClosure,
   SPAWN_TOOL_BASE_NAME
 } from './subAgentRenderTree'
 
@@ -346,15 +347,20 @@ describe('buildTurnSpawnPlan · 回合级归属（P1）', () => {
   })
 })
 
-describe('missingHostFetches · P0.1 缺行补拉', () => {
-  /** 孙 agent：派发行写在父 worker 的 scoped 行上，而那条行**没有加载**。 */
-  function nestedUnloaded() {
-    const host = leadMessage({
+describe('missingHostFetches · P0.1 缺行补拉（父级）', () => {
+  /**
+   * 父（第 1 层，锚在 a1）派了子；子的档案被投递到 lead 的另一条消息上（投递漂移），
+   * 而父自己的行**还没加载** → 子的宿主行 `r_nested` 不在索引里。
+   */
+  function driftedNested(opts: { parentLoaded?: boolean } = {}) {
+    const dispatch = leadMessage({
       id: 'a1',
       toolCalls: [spawnRow('r_parent')],
-      agentTrace: [trace({ id: 'inst_parent', parentToolCallId: 'r_parent' })]
+      agentTrace: [
+        trace({ id: 'inst_parent', parentToolCallId: 'r_parent', anchorMessageId: 'a1' })
+      ]
     })
-    const message = leadMessage({
+    const drifted = leadMessage({
       id: 'a2',
       agentTrace: [
         trace({
@@ -362,47 +368,80 @@ describe('missingHostFetches · P0.1 缺行补拉', () => {
           depth: 2,
           parentTraceId: 'inst_parent',
           parentToolCallId: 'r_nested',
-          anchorMessageId: 's_parent'
+          anchorMessageId: 'r_parent'
         })
       ]
     })
-    return { message, plan: buildTurnSpawnPlan({ messages: [host, message] }) }
+    const parentRow = scopedRow({
+      id: 's_parent_row',
+      agentInstanceId: 'inst_parent',
+      toolCalls: [spawnRow('r_nested')]
+    })
+    const plan = buildTurnSpawnPlan({
+      messages: [dispatch, drifted],
+      scopedRows: opts.parentLoaded ? [parentRow] : []
+    })
+    return { dispatch, drifted, plan }
   }
 
-  it('嵌套层宿主行未加载 → 给出补拉请求（锚点用档案自己的 anchorMessageId）', () => {
-    const { message, plan } = nestedUnloaded()
-    expect(missingHostFetches(plan, message)).toEqual([
-      { traceId: 'inst_nested', anchorMessageId: 's_parent', agentInstanceId: undefined }
+  it('缺的是父级的行 → 请求指向父实例（不是档案自己）', () => {
+    const { drifted, plan } = driftedNested()
+    expect(missingHostFetches(plan, drifted)).toEqual([
+      {
+        key: 'a1\u0000inst_parent',
+        traceId: 'inst_parent',
+        anchorMessageId: 'a1',
+        agentInstanceId: 'inst_parent',
+        traceIds: ['inst_nested']
+      }
     ])
   })
 
-  it('父 worker 的 scoped 行已在索引里 → 不再请求', () => {
-    const host = leadMessage({
+  it('父级的行已加载 → 不请求', () => {
+    const { drifted, plan } = driftedNested({ parentLoaded: true })
+    expect(missingHostFetches(plan, drifted)).toEqual([])
+  })
+
+  it('父 trace 不在本回合 → 不请求（拉自己那一份解析不出宿主行）', () => {
+    const message = leadMessage({
       id: 'a1',
-      toolCalls: [spawnRow('r_parent')],
-      agentTrace: [trace({ id: 'inst_parent', parentToolCallId: 'r_parent' })]
-    })
-    const parentRow = scopedRow({
-      id: 's_parent',
-      agentInstanceId: 'inst_parent',
-      toolCalls: [spawnRow('r_nested')],
       agentTrace: [
         trace({
-          id: 'inst_nested',
+          id: 'inst_orphan',
           depth: 2,
-          parentTraceId: 'inst_parent',
-          parentToolCallId: 'r_nested',
-          anchorMessageId: 's_parent'
+          parentTraceId: 'inst_absent',
+          parentToolCallId: 'r_missing'
         })
       ]
     })
-    const plan = buildTurnSpawnPlan({ messages: [host], scopedRows: [parentRow] })
-    expect(missingHostFetches(plan, parentRow)).toEqual([])
+    const plan = buildTurnSpawnPlan({ messages: [message] })
+    expect(missingHostFetches(plan, message)).toEqual([])
   })
 
-  it('已请求过的不再返回（每个 trace 只拉一次）', () => {
-    const { message, plan } = nestedUnloaded()
-    expect(missingHostFetches(plan, message, new Set(['inst_nested']))).toEqual([])
+  it('同一个父实例下的多个档案合并成一个请求', () => {
+    const dispatch = leadMessage({
+      id: 'a1',
+      toolCalls: [spawnRow('r_parent')],
+      agentTrace: [
+        trace({ id: 'inst_parent', parentToolCallId: 'r_parent', anchorMessageId: 'a1' })
+      ]
+    })
+    const drifted = leadMessage({
+      id: 'a2',
+      agentTrace: [
+        trace({ id: 'inst_a', depth: 2, parentTraceId: 'inst_parent', parentToolCallId: 'r_a' }),
+        trace({ id: 'inst_b', depth: 2, parentTraceId: 'inst_parent', parentToolCallId: 'r_b' })
+      ]
+    })
+    const plan = buildTurnSpawnPlan({ messages: [dispatch, drifted] })
+    const fetches = missingHostFetches(plan, drifted)
+    expect(fetches).toHaveLength(1)
+    expect(fetches[0].traceIds).toEqual(['inst_a', 'inst_b'])
+  })
+
+  it('已请求过（同键）不再返回', () => {
+    const { drifted, plan } = driftedNested()
+    expect(missingHostFetches(plan, drifted, new Set(['a1\u0000inst_parent']))).toEqual([])
   })
 
   it('没有 parentToolCallId 的历史档案不补拉', () => {
@@ -410,15 +449,26 @@ describe('missingHostFetches · P0.1 缺行补拉', () => {
     const plan = buildTurnSpawnPlan({ messages: [message] })
     expect(missingHostFetches(plan, message)).toEqual([])
   })
+})
 
-  it('锚点缺失时回落到本条消息 id', () => {
-    const message = leadMessage({
-      id: 'a1',
-      agentTrace: [trace({ id: 'inst_x', parentToolCallId: 'r_missing' })]
-    })
-    const plan = buildTurnSpawnPlan({ messages: [message] })
-    expect(missingHostFetches(plan, message)).toEqual([
-      { traceId: 'inst_x', anchorMessageId: 'a1', agentInstanceId: undefined }
+describe('scopedRowClosure · 嵌套行闭包', () => {
+  it('把「锚在父级行上」的嵌套行也收进来', () => {
+    const byAnchor = new Map<string, ChatMessage[]>([
+      ['a1', [scopedRow({ id: 's1', agentInstanceId: 'inst_1' })]],
+      ['s1', [scopedRow({ id: 's2', agentInstanceId: 'inst_2' })]]
     ])
+    const rows = scopedRowClosure(['a1'], ids => ids.flatMap(id => byAnchor.get(id) ?? []))
+    expect(rows.map(row => row.id)).toEqual(['s1', 's2'])
+  })
+
+  it('遵守 maxDepth 且不重复收集', () => {
+    const byAnchor = new Map<string, ChatMessage[]>([
+      ['a1', [scopedRow({ id: 's1', agentInstanceId: 'inst_1' })]],
+      ['s1', [scopedRow({ id: 's2', agentInstanceId: 'inst_2' })]],
+      ['s2', [scopedRow({ id: 's3', agentInstanceId: 'inst_3' })]]
+    ])
+    const collect = (ids: readonly string[]) => ids.flatMap(id => byAnchor.get(id) ?? [])
+    expect(scopedRowClosure(['a1'], collect, 1).map(row => row.id)).toEqual(['s1'])
+    expect(scopedRowClosure(['a1'], collect, 4).map(row => row.id)).toEqual(['s1', 's2', 's3'])
   })
 })

@@ -92,3 +92,115 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Headless CLI + Terminal-Bench adapter. Kept as two independent jobs so a
+  # packaging regression and an adapter-test regression are reported separately:
+  #   cli-dist  builds the static musl archive and uploads it;
+  #   cli-tests consumes that archive, then runs the pointer-cli e2e checks and
+  #             the Terminal-Bench adapter unit tests.
+  # Both build only `pointer-cli --no-default-features`, so they need no desktop
+  # GUI system libraries (unlike the workspace-wide `test` job above).
+  cli-dist:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_INCREMENTAL: 0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/share/powershell /opt/microsoft /opt/google || true
+          docker system prune -af || true
+          df -h /
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl toolchain
+        # build-dist.sh links with musl-gcc for a static x86_64-unknown-linux-musl
+        # binary; build-essential/pkg-config cover the bundled SQLite + CJK FTS
+        # extension that pointer-core compiles from C.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config musl-tools
+
+      - name: Build distribution archive
+        run: crates/pointer-cli/packaging/build-dist.sh
+
+      - name: Verify distribution archive
+        run: |
+          cd crates/pointer-cli/dist
+          sha256sum -c pointer-cli-linux-x64.tar.gz.sha256
+          tar -tzf pointer-cli-linux-x64.tar.gz >/dev/null
+
+      - name: Upload distribution artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pointer-cli-dist
+          path: |
+            crates/pointer-cli/dist/pointer-cli-linux-x64.tar.gz
+            crates/pointer-cli/dist/pointer-cli-linux-x64.tar.gz.sha256
+          if-no-files-found: error
+
+  cli-tests:
+    runs-on: ubuntu-24.04
+    needs: cli-dist
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/share/powershell /opt/microsoft /opt/google || true
+          docker system prune -af || true
+          df -h /
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config
+
+      - name: Download distribution artifact
+        # The adapter's TestInstall cases read the default archive path, so the
+        # freshly built tarball must sit at crates/pointer-cli/dist/.
+        uses: actions/download-artifact@v4
+        with:
+          name: pointer-cli-dist
+          path: crates/pointer-cli/dist
+
+      - name: Build pointer-cli (debug, headless)
+        run: cargo build -p pointer-cli --no-default-features
+
+      - name: E2E controllability checks
+        # Local mock provider — no network and no API key required.
+        run: bash crates/pointer-cli/tests/e2e_controls.sh
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Terminal-Bench adapter unit tests
+        # The adapter unit tests import harbor. If it cannot be installed the
+        # step is skipped with an explicit ::warning:: annotation — never a
+        # silent pass. A real test failure still fails the step.
+        run: |
+          VENV="$RUNNER_TEMP/harbor-venv"
+          if ! python3 -m venv "$VENV" \
+             || ! "$VENV/bin/pip" install --disable-pip-version-check -q harbor; then
+            echo "::warning title=Adapter unit tests skipped::harbor could not be installed — benchmarks/terminal_bench unit tests were SKIPPED, not passed."
+            echo "SKIPPED: harbor unavailable — adapter unit tests did not run"
+            exit 0
+          fi
+          PYTHONPATH=benchmarks "$VENV/bin/python" -m unittest terminal_bench.test_pointer_agent -v

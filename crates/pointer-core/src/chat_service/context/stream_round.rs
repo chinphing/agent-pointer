@@ -20,6 +20,9 @@ pub struct StreamRoundInput {
     pub system_prompts: SystemPromptSections,
     pub native_tools: Vec<serde_json::Value>,
     pub tools_appendix_enabled: bool,
+    /// One-round output budget override (reasoning-budget escalation retry).
+    /// `None` uses the provider/model effective `max_tokens`.
+    pub max_tokens_override: Option<u32>,
 }
 
 /// Lead single-agent provider stream round.

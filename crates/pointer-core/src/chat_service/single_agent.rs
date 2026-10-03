@@ -65,6 +65,9 @@ pub(super) async fn run_single_agent_loop(
     const MAX_RETRIES: u32 = 3;
     let mut retry_count: u32 = 0;
     let mut overflow_recoveries: u32 = 0;
+    // Set when a reasoning-only length stop needs a bigger output budget for the
+    // retry; cleared once a round completes normally.
+    let mut length_output_override: Option<u32> = None;
 
     loop {
         match super::agent_round_lifecycle::check_loop_guards(&cancel, ctx.tool_budget) {
@@ -207,6 +210,7 @@ pub(super) async fn run_single_agent_loop(
             system_prompts: round_prompts.system_prompts,
             native_tools,
             tools_appendix_enabled,
+            max_tokens_override: length_output_override,
         };
         let stream_outcome = super::single_agent_stream::run_provider_stream_round(
             &mut stream_ctx,
@@ -355,18 +359,67 @@ pub(super) async fn run_single_agent_loop(
         }
 
         // ── 输出截断检测 ──
+        // `finish_reason=length` has two very different meanings:
+        //   1. visible output (content / tool call) was cut off → real truncation;
+        //      re-ask with a "shrink the payload" hint.
+        //   2. only reasoning was produced and it exhausted the output budget →
+        //      re-sending the identical request at the same budget cannot help,
+        //      so raise the budget for the retry instead.
         if buf.finish_reason == "length" {
+            let has_visible_output =
+                !buf.raw_content_buf.trim().is_empty() || !buf.final_tool_calls.is_empty();
+            let has_reasoning =
+                buf.reasoning_chars > 0 || !buf.reasoning_buf.trim().is_empty();
+            let reasoning_only = super::json_tool_retries::is_reasoning_only_length_stop(
+                &buf.finish_reason,
+                has_visible_output,
+                has_reasoning,
+            );
+
             retry_count += 1;
             if retry_count > MAX_RETRIES {
+                let reason = if reasoning_only {
+                    "模型思考（reasoning）反复耗尽输出预算，未能产出可见回复"
+                } else {
+                    "模型输出截断"
+                };
                 return Err(super::emit::chat_run_err(
-                    format!("模型输出截断重试次数已达上限（{MAX_RETRIES} 次）"),
+                    format!("{reason}，重试次数已达上限（{MAX_RETRIES} 次）"),
                     Some(assistant_id.clone()),
                 ));
             }
-            log::warn!(
-                "output truncated conversation_id={conversation_id} assistant_id={assistant_id} finish_reason={}",
-                buf.finish_reason
-            );
+
+            let current_budget = length_output_override
+                .unwrap_or_else(|| crate::models::effective_max_tokens(settings));
+            let hint = if reasoning_only {
+                let ceiling = super::json_tool_retries::reasoning_output_ceiling(
+                    crate::models::declared_max_tokens(settings),
+                    settings.max_tokens,
+                );
+                let next_budget = super::json_tool_retries::escalated_reasoning_output_budget(
+                    current_budget,
+                    ceiling,
+                );
+                length_output_override = Some(next_budget);
+                log::warn!(
+                    "reasoning-only length stop conversation_id={conversation_id} assistant_id={assistant_id} reasoning_chars={} max_tokens={current_budget}->{next_budget}",
+                    buf.reasoning_chars
+                );
+                super::json_tool_retries::reasoning_length_retry_supplement(
+                    current_budget,
+                    next_budget,
+                )
+            } else {
+                log::warn!(
+                    "output truncated conversation_id={conversation_id} assistant_id={assistant_id} finish_reason={}",
+                    buf.finish_reason
+                );
+                super::json_tool_retries::output_length_retry_supplement(
+                    current_budget,
+                    &buf.finish_reason,
+                )
+            };
+
             emit(
                 &stream,
                 StreamEvent::MessageEnd {
@@ -381,10 +434,6 @@ pub(super) async fn run_single_agent_loop(
                     attachments: None,
                 },
             );
-            let hint = super::json_tool_retries::output_length_retry_supplement(
-                crate::models::effective_max_tokens(settings),
-                &buf.finish_reason,
-            );
             super::json_tool_retries::push_injected_format_retry_turn(
                 &stream,
                 conversation_id,
@@ -397,7 +446,7 @@ pub(super) async fn run_single_agent_loop(
                 &trace_bus,
                 &lead_run_id,
                 conversation_id,
-                "length",
+                if reasoning_only { "length_reasoning" } else { "length" },
                 retry_count,
                 delay.as_millis() as u64,
             );
@@ -408,6 +457,7 @@ pub(super) async fn run_single_agent_loop(
         // A normal completed round clears transient retry pressure; failures in a later
         // round must not inherit retries from an earlier, already successful round.
         retry_count = 0;
+        length_output_override = None;
 
         let lead_scope = ctx.token_session.lead_scope.clone();
         let lead_instance_id = Some(lead_scope.agent_instance_id.clone());

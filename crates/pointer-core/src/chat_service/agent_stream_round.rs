@@ -20,6 +20,10 @@ const TOOL_ARGS_LOG_MAX_CHARS: usize = 400;
 pub(super) struct StreamRoundBuffers {
     pub raw_content_buf: String,
     pub reasoning_buf: String,
+    /// Reasoning characters seen this round, counted **regardless** of whether
+    /// reasoning is persisted (`reasoning_in_messages`). Used to tell a
+    /// reasoning-only `finish_reason=length` stop from a real payload truncation.
+    pub reasoning_chars: usize,
     pub final_tool_calls: Vec<ToolCall>,
     pub finish_reason: String,
     pub json_finish_diag: JsonToolFinishDiagnostics,
@@ -31,6 +35,7 @@ impl Default for StreamRoundBuffers {
         Self {
             raw_content_buf: String::new(),
             reasoning_buf: String::new(),
+            reasoning_chars: 0,
             final_tool_calls: Vec::new(),
             finish_reason: String::from("stop"),
             json_finish_diag: JsonToolFinishDiagnostics::default(),
@@ -164,6 +169,7 @@ pub(super) async fn drain_provider_events(
                 }
             }
             ProviderEvent::ReasoningDelta(delta) => {
+                buffers.reasoning_chars += delta.chars().count();
                 if reasoning_in_messages {
                     buffers.reasoning_buf.push_str(&delta);
                 }

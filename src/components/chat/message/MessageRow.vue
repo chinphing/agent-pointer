@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ChatMessage, ToolCall } from '../../../types/chat'
+import type { TurnSpawnPlan } from '../../../lib/subAgentRenderTree'
 import { isCompressionSummaryMessage } from '../../../lib/compressionMessage'
 import { isTaskBoardTrimMessage } from '../../../lib/taskBoardTrimMessage'
 import UserMessageBubble from './UserMessageBubble.vue'
@@ -14,6 +15,8 @@ defineProps<{
   trailingToolGroups?: { id: string; toolCalls: ToolCall[]; message: ChatMessage }[]
   /** Collapsed turn: final reply body only (no process chrome). */
   contentOnly?: boolean
+  /** Turn-level spawn plan (P1): frames resolve by data ownership, not by this message. */
+  spawnPlan?: TurnSpawnPlan | null
 }>()
 </script>
 
@@ -27,6 +30,7 @@ defineProps<{
     :compact="compact"
     :trailing-tool-groups="trailingToolGroups"
     :content-only="contentOnly"
+    :spawn-plan="spawnPlan"
   />
   <template v-else-if="message.role === 'tool'" />
   <!-- Cancelled before first token: message may linger briefly; do not show debug fallback. -->

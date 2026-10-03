@@ -2,6 +2,7 @@
 
 use super::args_util::require_non_empty_str;
 use anyhow::{anyhow, Result};
+#[cfg(feature = "computer")]
 use arboard::Clipboard;
 use log::{info, warn};
 use serde_json::Value;
@@ -30,10 +31,7 @@ impl ClipboardTool {
 
     fn read_clipboard(&self, args: &Value) -> Result<String> {
         let goal = args["goal"].as_str().unwrap_or("").trim();
-        let mut cb = Clipboard::new().map_err(|e| anyhow!("Clipboard unavailable: {e}"))?;
-        let text = cb
-            .get_text()
-            .map_err(|e| anyhow!("read_clipboard failed: {e}"))?;
+        let text = clipboard_read_text()?;
         let (body, truncated) = truncate_clipboard_reply(&text);
         let note = if truncated {
             " (truncated in reply)"
@@ -65,9 +63,7 @@ impl ClipboardTool {
             .get("text")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'text' in tool_args for write_clipboard"))?;
-        let mut cb = Clipboard::new().map_err(|e| anyhow!("Clipboard unavailable: {e}"))?;
-        cb.set_text(text)
-            .map_err(|e| anyhow!("write_clipboard failed: {e}"))?;
+        clipboard_write_text(text)?;
         info!(
             "clipboard write_clipboard: goal_len={} chars_written={}",
             goal.chars().count(),
@@ -79,6 +75,38 @@ impl ClipboardTool {
             text.len()
         ))
     }
+}
+
+/// Read the system clipboard as plain text.
+#[cfg(feature = "computer")]
+fn clipboard_read_text() -> Result<String> {
+    let mut cb = Clipboard::new().map_err(|e| anyhow!("Clipboard unavailable: {e}"))?;
+    cb.get_text()
+        .map_err(|e| anyhow!("read_clipboard failed: {e}"))
+}
+
+/// Read the system clipboard as plain text (headless builds return an error).
+#[cfg(not(feature = "computer"))]
+fn clipboard_read_text() -> Result<String> {
+    Err(anyhow!(
+        "computer feature disabled: clipboard backend unavailable"
+    ))
+}
+
+/// Write plain text to the system clipboard.
+#[cfg(feature = "computer")]
+fn clipboard_write_text(text: &str) -> Result<()> {
+    let mut cb = Clipboard::new().map_err(|e| anyhow!("Clipboard unavailable: {e}"))?;
+    cb.set_text(text)
+        .map_err(|e| anyhow!("write_clipboard failed: {e}"))
+}
+
+/// Write plain text to the system clipboard (headless builds return an error).
+#[cfg(not(feature = "computer"))]
+fn clipboard_write_text(_text: &str) -> Result<()> {
+    Err(anyhow!(
+        "computer feature disabled: clipboard backend unavailable"
+    ))
 }
 
 /// Host verify shortcut — skip Verify LLM when the outcome is unambiguous.

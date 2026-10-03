@@ -184,7 +184,11 @@ pub(crate) fn strip_windows_extended_path_prefix(path: String) -> String {
 }
 
 /// 超时或需要强制结束时：在 Windows 上仅 `Child::kill` 往往只杀掉 shell（如 PowerShell），
-/// 由其拉起的子进程会继续跑；用 `taskkill /T` 结束整棵进程树。其他平台仍用 `kill`。
+/// 由其拉起的子进程会继续跑；用 `taskkill /T` 结束整棵进程树。
+///
+/// Unix 上 terminal 子进程被放进独立进程组（`configure_terminal_process_group`），
+/// 因此对**进程组**发 `SIGKILL` 才能连同孙进程一起终止 —— `sh -lc` 会为管道、
+/// 后台任务、常驻服务等 fork 出子进程，只杀 shell 会把它们变成孤儿。
 pub(crate) fn kill_terminal_child_tree_best_effort(child: &mut std::process::Child) {
     #[cfg(windows)]
     {
@@ -196,8 +200,35 @@ pub(crate) fn kill_terminal_child_tree_best_effort(child: &mut std::process::Chi
                 .status();
         }
     }
+    #[cfg(unix)]
+    kill_unix_process_group(child.id());
     let _ = child.kill();
 }
+
+/// `SIGKILL` 整个进程组。terminal 子进程是该组的组长（`process_group(0)` /
+/// portable-pty 的 `setsid()`），所以 `pgid == pid`；组已消失时 `kill(2)` 返回
+/// `ESRCH`，忽略即可。
+#[cfg(unix)]
+pub(crate) fn kill_unix_process_group(pid: u32) {
+    if pid == 0 || pid > i32::MAX as u32 {
+        return;
+    }
+    // SAFETY: negative pid = "signal the process group"; no memory is touched.
+    unsafe {
+        libc::kill(-(pid as i32), libc::SIGKILL);
+    }
+}
+
+/// 让 terminal 子进程成为独立进程组的组长，使取消/超时能一次终止整棵树
+/// （见 `kill_terminal_child_tree_best_effort`）。
+#[cfg(unix)]
+fn configure_terminal_process_group(cmd: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    cmd.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_terminal_process_group(_cmd: &mut Command) {}
 
 fn run_terminal_command(args: serde_json::Value) -> Result<String> {
     let command = args
@@ -392,6 +423,7 @@ pub fn run_terminal_command_streaming(
         let want_stdin_pipe = stdin_text.is_some();
         let (_shell, mut cmd) = terminal_shell_command(command);
         cmd.current_dir(&cwd);
+        configure_terminal_process_group(&mut cmd);
         apply_supplemental_env_files(&mut cmd, &paths);
         stdin_piped = want_stdin_pipe;
         cmd.stdin(if want_stdin_pipe {
@@ -1380,6 +1412,87 @@ mod cwd_tests {
     fn effective_terminal_cwd_errors_without_workspace() {
         let err = effective_terminal_cwd(None, "").unwrap_err().to_string();
         assert!(err.contains("未设置工作区"), "{err}");
+    }
+}
+
+/// Cancel/timeout must terminate the whole process tree, not only the `sh -lc`
+/// wrapper: commands that fork (pipelines, background jobs, dev servers) leave
+/// the long-lived process in a *grandchild* position.
+#[cfg(all(test, unix))]
+mod process_tree_tests {
+    use super::*;
+
+    /// Exists and has not been reaped into a zombie (a container whose PID 1 does
+    /// not reap orphans would otherwise keep reporting `Z` entries as alive).
+    fn process_is_alive(pid: i32) -> bool {
+        if unsafe { libc::kill(pid, 0) } != 0 {
+            return false;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+                let state = stat
+                    .rsplit(')')
+                    .next()
+                    .and_then(|rest| rest.split_whitespace().next());
+                if state == Some("Z") {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    #[test]
+    fn cancel_kills_forked_grandchild() {
+        let _path_lock = crate::test_support::path_env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path().display().to_string();
+        let pidfile = dir.path().join("grandchild.pid");
+        // `&` forces the shell to fork, so the recorded pid is a grandchild of the
+        // terminal child — exactly like a real pipeline / dev server.
+        let command = format!("sleep 300 & echo $! > {}; wait", pidfile.display());
+
+        let cancel = CancellationToken::new();
+        let cancel_from_thread = cancel.clone();
+        let pidfile_for_trigger = pidfile.clone();
+        let trigger = thread::spawn(move || {
+            // Let the shell fork the background job before tripping the token.
+            for _ in 0..200 {
+                if pidfile_for_trigger.exists() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(25));
+            }
+            cancel_from_thread.cancel();
+        });
+
+        let result = run_terminal_command_streaming(
+            serde_json::json!({
+                "command": command,
+                "cwd": ws.clone(),
+                "maxWallMs": 30_000_u64,
+            }),
+            ws,
+            |_| {},
+            Some(cancel),
+            None,
+            None,
+        )
+        .expect("terminal run");
+        trigger.join().unwrap();
+
+        assert!(result.cancelled, "expected the cooperative cancel to trip");
+        let pid: i32 = std::fs::read_to_string(&pidfile)
+            .expect("the forked grandchild must record its pid")
+            .trim()
+            .parse()
+            .expect("pid");
+        let alive = process_is_alive(pid);
+        if alive {
+            unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
+        assert!(!alive, "grandchild pid {pid} outlived the cancelled run");
     }
 }
 

@@ -5212,6 +5212,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pointer-cli"
+version = "0.1.2"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "pointer-core",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pointer-core"
 version = "0.1.2"
 dependencies = [

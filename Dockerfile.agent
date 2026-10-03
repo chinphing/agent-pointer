@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1
+#
+# Smoke image for the packaged headless agent: it unpacks the released tarball,
+# installs it with the shipped installer, and runs it. Nothing else is
+# installed and no network access is needed — the binary is a static musl build
+# and the base is Alpine + busybox only.
+#
+# Build the archive first:
+#   crates/pointer-cli/packaging/build-dist.sh
+#
+# Then build the image from the dist directory (small build context):
+#   docker build -f Dockerfile.agent -t pointer-cli:dev crates/pointer-cli/dist
+#
+# Or from the repository root:
+#   docker build -f Dockerfile.agent \
+#     --build-arg DIST_ARCHIVE=crates/pointer-cli/dist/pointer-cli-linux-x64.tar.gz \
+#     -t pointer-cli:dev .
+#
+# Run:
+#   docker run --rm pointer-cli:dev --version
+#   docker run --rm -e POINTER_API_KEY -v "$PWD:/workspace" pointer-cli:dev run \
+#     --instruction "Summarize this repository." --workspace /workspace
+
+FROM alpine:3.20
+
+ARG DIST_ARCHIVE=pointer-cli-linux-x64.tar.gz
+
+COPY ${DIST_ARCHIVE} /tmp/pointer-cli-linux-x64.tar.gz
+
+# The build fails here if the archive cannot be unpacked, the checksum does not
+# match, or the binary cannot run in a clean image — which is exactly what this
+# image exists to prove.
+RUN set -eux; \
+    mkdir -p /tmp/pa /opt/pointer-cli; \
+    tar -xzf /tmp/pointer-cli-linux-x64.tar.gz -C /tmp/pa; \
+    cp -a /tmp/pa/pointer-cli-linux-x64/. /opt/pointer-cli/; \
+    rm -rf /tmp/pa /tmp/pointer-cli-linux-x64.tar.gz; \
+    /opt/pointer-cli/install.sh --prefix /usr/local; \
+    pointer-cli --version
+
+# Task working trees are conventionally mounted here.
+WORKDIR /workspace
+
+ENTRYPOINT ["/usr/local/bin/pointer-cli"]
+CMD ["--help"]

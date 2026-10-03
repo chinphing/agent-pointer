@@ -383,6 +383,18 @@ pub struct StreamChatWire {
     pub injected_tail_count: usize,
 }
 
+impl StreamChatWire {
+    /// Override the serialized `max_tokens` for this one request.
+    ///
+    /// Used when a reasoning-only `finish_reason=length` stop shows the model
+    /// needs more output headroom than the provider/model effective value.
+    pub fn set_max_tokens_override(&mut self, max_tokens: u32) {
+        if let Some(obj) = self.wire_body.as_object_mut() {
+            obj.insert("max_tokens".to_string(), serde_json::json!(max_tokens));
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 struct NativeToolCallState {
     id: String,

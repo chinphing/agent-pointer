@@ -1,6 +1,7 @@
 //! Per-conversation session, screen capture pipeline, and tier-aware desktop logging.
 
 use crate::agents::computer::input::actions::{self, ActionExecutor};
+#[cfg(feature = "computer")]
 use crate::agents::computer::input::enigo::EnigoBackend;
 use crate::agents::computer::input::mouse_move::MouseMoveProfile;
 use crate::agents::computer::input::timing::is_desktop_vision_log_tool;
@@ -238,6 +239,7 @@ impl ComputerState {
         platform_auth: Option<SharedPlatformAuth>,
         platform_config: Option<SharedPlatformConfig>,
     ) -> Self {
+        #[cfg(feature = "computer")]
         let executor = match EnigoBackend::new() {
             Ok(backend) => Arc::new(Mutex::new(ActionExecutor::new(Box::new(backend)))),
             Err(err) => {
@@ -247,6 +249,11 @@ impl ComputerState {
                 );
                 Arc::new(Mutex::new(ActionExecutor::new(Box::new(FallbackBackend))))
             }
+        };
+        #[cfg(not(feature = "computer"))]
+        let executor = {
+            log::debug!("computer feature disabled: desktop input backend unavailable");
+            Arc::new(Mutex::new(ActionExecutor::new(Box::new(FallbackBackend))))
         };
         let base_url = if annotate_api_base.is_empty() {
             platform_endpoints::annotate_api_base()

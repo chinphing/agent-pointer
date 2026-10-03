@@ -20,6 +20,8 @@ use super::provider_stream::{
 pub(super) struct SingleAgentRoundStream {
     pub raw_content_buf: String,
     pub reasoning_buf: String,
+    /// Reasoning characters seen this round (independent of persistence).
+    pub reasoning_chars: usize,
     pub final_tool_calls: Vec<ToolCall>,
     pub xml_thoughts: Option<String>,
     pub finish_reason: String,
@@ -66,7 +68,7 @@ pub(super) async fn run_provider_stream_round(
     // Build wire synchronously from session history + ephemeral injects so the spawned
     // HTTP task does not retain a full `ChatMessage` history clone for the stream lifetime.
     // Use `prov` (round settings) so computer-tier LLM overrides apply to wire + stream.
-    let wire = prov.build_stream_chat_wire(
+    let mut wire = prov.build_stream_chat_wire(
         ctx.history,
         &input.injected_tail,
         &input.system_prompts,
@@ -74,6 +76,9 @@ pub(super) async fn run_provider_stream_round(
         Some(dump_lbl.as_str()),
         crate::message_context::LlmHistoryScope::Lead,
     )?;
+    if let Some(max_tokens) = input.max_tokens_override {
+        wire.set_max_tokens_override(max_tokens);
+    }
     drop(input.injected_tail);
     drop(input.system_prompts);
 
@@ -322,6 +327,7 @@ pub(super) async fn run_provider_stream_round(
     Ok(ProviderRoundOutcome::Completed(SingleAgentRoundStream {
         raw_content_buf: buffers.raw_content_buf,
         reasoning_buf: buffers.reasoning_buf,
+        reasoning_chars: buffers.reasoning_chars,
         final_tool_calls: buffers.final_tool_calls,
         xml_thoughts: buffers.xml_thoughts,
         finish_reason: buffers.finish_reason,

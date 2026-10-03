@@ -64,7 +64,7 @@ pub(super) async fn run_sub_agent_stream_round(
     let dump_lbl = format!("{}_{}_sub_{}", conversation_id, sub.message_id, sub.task.id);
     // Build wire from local_history + injects before spawn (no full history clone on the HTTP task).
     // Use `prov` (round settings) — not session `provider` — so computer-tier LLM overrides apply.
-    let wire = prov.build_stream_chat_wire(
+    let mut wire = prov.build_stream_chat_wire(
         sub.local_history,
         &input.injected_tail,
         &input.system_prompts,
@@ -72,6 +72,9 @@ pub(super) async fn run_sub_agent_stream_round(
         Some(dump_lbl.as_str()),
         crate::message_context::LlmHistoryScope::SubAgentLoop,
     )?;
+    if let Some(max_tokens) = input.max_tokens_override {
+        wire.set_max_tokens_override(max_tokens);
+    }
     drop(input.injected_tail);
     drop(input.system_prompts);
 

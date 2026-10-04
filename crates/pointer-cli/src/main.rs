@@ -156,6 +156,24 @@ struct RunArgs {
     /// Tool approval mode (`auto`, `manual`, …).
     #[arg(long, default_value = "auto")]
     approval: String,
+    /// Agent role (lead worker id) that runs the instruction. Defaults to
+    /// `coder` for this headless runner; the desktop app default is unchanged.
+    #[arg(long, default_value = "coder", value_parser = ["general", "coder", "explore", "computer"])]
+    agent_role: String,
+    /// Thinking intensity for the active provider (`low` | `medium` | `high` |
+    /// `max`). Maps onto the provider's thinking strategy (budget / effort / …).
+    #[arg(long, default_value = "max", value_parser = ["low", "medium", "high", "max"])]
+    thinking_intensity: String,
+    /// Lead system-prompt profile. `default` keeps the shipped agent prompt;
+    /// `minimal` swaps it for a short mini-swe-agent-style prompt and drops the
+    /// desktop scaffolding layers (tool system appendix, project context,
+    /// memory, user rules, locale rule).
+    #[arg(long, value_parser = ["default", "minimal"])]
+    prompt_profile: Option<String>,
+    /// Replace the lead system prompt with the contents of this file.
+    /// Implies `--prompt-profile minimal` unless that flag is given explicitly.
+    #[arg(long, value_name = "PATH")]
+    system_prompt_file: Option<PathBuf>,
     /// Restrict the run to this comma-separated tool allow list. Entries may be
     /// exact tool ids (`file_read`) or family names (`file`, `terminal`).
     /// When omitted, every registered tool stays available (unchanged default).
@@ -234,6 +252,47 @@ fn run(args: RunArgs) -> i32 {
     }
 }
 
+/// Env var read by `pointer_core::agents::LeadPromptOverride` for the profile.
+const ENV_PROMPT_PROFILE: &str = "POINTER_PROMPT_PROFILE";
+/// Env var read by `pointer_core::agents::LeadPromptOverride` for the file path.
+const ENV_SYSTEM_PROMPT_FILE: &str = "POINTER_SYSTEM_PROMPT_FILE";
+
+/// Effective prompt profile: an explicit `--prompt-profile` wins; a bare
+/// `--system-prompt-file` implies the minimal layer set.
+fn effective_prompt_profile(args: &RunArgs) -> &'static str {
+    match args.prompt_profile.as_deref() {
+        Some("minimal") => "minimal",
+        Some(_) => "default",
+        None if args.system_prompt_file.is_some() => "minimal",
+        None => "default",
+    }
+}
+
+/// Export the prompt-profile flags through the environment variables the core
+/// prompt assembler reads, validating the override file up front so a typo
+/// fails fast with a usage error instead of silently falling back.
+fn install_prompt_override(args: &RunArgs) -> Result<&'static str> {
+    let profile = effective_prompt_profile(args);
+    std::env::set_var(ENV_PROMPT_PROFILE, profile);
+    if let Some(path) = args.system_prompt_file.as_ref() {
+        let text = std::fs::read_to_string(path).map_err(|err| {
+            cli_error(
+                EXIT_USAGE,
+                format!("failed to read system prompt file {}: {err}", path.display()),
+            )
+        })?;
+        if text.trim().is_empty() {
+            return Err(cli_error(
+                EXIT_USAGE,
+                format!("system prompt file {} is empty", path.display()),
+            ));
+        }
+        let absolute = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
+        std::env::set_var(ENV_SYSTEM_PROMPT_FILE, absolute);
+    }
+    Ok(profile)
+}
+
 fn resolve_instruction(args: &RunArgs) -> Result<String> {
     let text = match (&args.instruction, &args.instruction_file) {
         (Some(text), _) => text.clone(),
@@ -287,6 +346,8 @@ fn apply_tool_whitelist(registry: &ToolRegistry, allowed: &[String]) -> (Vec<Str
 
 async fn run_async(args: RunArgs) -> Result<i32> {
     let instruction = resolve_instruction(&args)?;
+    // Must be exported before dispatch: the core prompt assembler reads it.
+    let prompt_profile = install_prompt_override(&args)?;
     let workspace = std::fs::canonicalize(&args.workspace)
         .with_context(|| format!("workspace not found: {}", args.workspace.display()))?;
 
@@ -342,6 +403,13 @@ async fn run_async(args: RunArgs) -> Result<i32> {
                 "api_key_present": api_key.is_some(),
             },
             "approval": args.approval,
+            "agent_role": args.agent_role,
+            "thinking_intensity": args.thinking_intensity,
+            "prompt_profile": prompt_profile,
+            "system_prompt_file": args
+                .system_prompt_file
+                .as_ref()
+                .map(|path| path.to_string_lossy().to_string()),
             "allowed_tools": args.allowed_tools,
             "max_turns": args.max_turns,
             "timeout_secs": args.timeout,
@@ -408,7 +476,7 @@ async fn run_async(args: RunArgs) -> Result<i32> {
             thinking_budget: None,
             reasoning_effort: None,
             thinking_protocol: None,
-            thinking_intensity: None,
+            thinking_intensity: Some(args.thinking_intensity.clone()),
             source: Some("platform".to_string()),
             extra_body: None,
         }];
@@ -509,7 +577,7 @@ async fn run_async(args: RunArgs) -> Result<i32> {
         messages: vec![ChatMessage::user_text(instruction.clone())],
         enabled_skill_ids: vec![],
         agent_skill_overrides: std::collections::HashMap::new(),
-        lead_agent_id: None,
+        lead_agent_id: Some(args.agent_role.clone()),
         performance_mode: None,
         tool_rounds_used_single_start: 0,
         workspace_root: workspace.to_string_lossy().to_string(),
@@ -654,6 +722,9 @@ async fn run_async(args: RunArgs) -> Result<i32> {
         "max_tool_rounds": max,
         "max_turns": args.max_turns,
         "timeout_secs": args.timeout,
+        "agent_role": args.agent_role,
+        "thinking_intensity": args.thinking_intensity,
+        "prompt_profile": prompt_profile,
         "allowed_tools": whitelist_report,
     });
     let result_path = out_dir.join("result.json");
@@ -737,6 +808,125 @@ mod tests {
         assert_eq!(EXIT_USAGE, 2);
         assert_eq!(EXIT_TIMEOUT, 10);
         assert_eq!(EXIT_TURN_LIMIT, 14);
+    }
+
+    /// Parse `run` with a minimal instruction plus any extra flags.
+    fn parse_run(extra: &[&str]) -> RunArgs {
+        let mut argv: Vec<&str> = vec!["pointer-cli", "run", "--instruction", "hello"];
+        argv.extend_from_slice(extra);
+        match Cli::try_parse_from(argv).expect("args should parse").command {
+            Some(Command::Run(args)) => args,
+            None => panic!("expected the run subcommand"),
+        }
+    }
+
+    #[test]
+    fn agent_role_and_thinking_intensity_default_to_coder_and_max() {
+        let args = parse_run(&[]);
+        assert_eq!(args.agent_role, "coder");
+        assert_eq!(args.thinking_intensity, "max");
+    }
+
+    #[test]
+    fn agent_role_and_thinking_intensity_can_be_overridden() {
+        let args = parse_run(&["--agent-role", "explore", "--thinking-intensity", "high"]);
+        assert_eq!(args.agent_role, "explore");
+        assert_eq!(args.thinking_intensity, "high");
+    }
+
+    #[test]
+    fn invalid_agent_role_and_thinking_intensity_are_rejected() {
+        assert!(Cli::try_parse_from([
+            "pointer-cli",
+            "run",
+            "--instruction",
+            "hello",
+            "--agent-role",
+            "nope",
+        ])
+        .is_err());
+        assert!(Cli::try_parse_from([
+            "pointer-cli",
+            "run",
+            "--instruction",
+            "hello",
+            "--thinking-intensity",
+            "ultra",
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn prompt_profile_defaults_to_unset_and_accepts_known_values() {
+        let args = parse_run(&[]);
+        assert!(args.prompt_profile.is_none());
+        assert!(args.system_prompt_file.is_none());
+        assert_eq!(effective_prompt_profile(&args), "default");
+
+        let args = parse_run(&["--prompt-profile", "minimal"]);
+        assert_eq!(args.prompt_profile.as_deref(), Some("minimal"));
+        assert_eq!(effective_prompt_profile(&args), "minimal");
+
+        assert!(Cli::try_parse_from([
+            "pointer-cli",
+            "run",
+            "--instruction",
+            "hello",
+            "--prompt-profile",
+            "verbose",
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn system_prompt_file_implies_minimal_unless_overridden() {
+        let args = parse_run(&["--system-prompt-file", "/tmp/pointer-prompt.md"]);
+        assert_eq!(effective_prompt_profile(&args), "minimal");
+
+        let args = parse_run(&[
+            "--system-prompt-file",
+            "/tmp/pointer-prompt.md",
+            "--prompt-profile",
+            "default",
+        ]);
+        assert_eq!(effective_prompt_profile(&args), "default");
+    }
+
+    #[test]
+    fn install_prompt_override_rejects_missing_or_empty_files() {
+        let args = parse_run(&["--system-prompt-file", "/nonexistent/pointer-prompt.md"]);
+        let err = install_prompt_override(&args).expect_err("missing file must fail");
+        assert!(err.to_string().contains("failed to read system prompt file"));
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let empty = dir.path().join("empty.md");
+        std::fs::write(&empty, "   \n").expect("write empty prompt");
+        let args = parse_run(&["--system-prompt-file", empty.to_str().unwrap()]);
+        let err = install_prompt_override(&args).expect_err("empty file must fail");
+        assert!(err.to_string().contains("is empty"));
+    }
+
+    #[test]
+    fn install_prompt_override_exports_profile_and_absolute_file_path() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let prompt = dir.path().join("prompt.md");
+        std::fs::write(&prompt, "You are a tiny agent.").expect("write prompt");
+        let args = parse_run(&["--system-prompt-file", prompt.to_str().unwrap()]);
+        let profile = install_prompt_override(&args).expect("override installs");
+        assert_eq!(profile, "minimal");
+        assert_eq!(
+            std::env::var(ENV_PROMPT_PROFILE).as_deref(),
+            Ok("minimal")
+        );
+        let exported = std::env::var(ENV_SYSTEM_PROMPT_FILE).expect("file env exported");
+        assert!(std::path::Path::new(&exported).is_absolute());
+        assert_eq!(
+            std::fs::read_to_string(&exported).expect("exported path readable"),
+            "You are a tiny agent."
+        );
+        // Reset so sibling tests see the default profile.
+        std::env::remove_var(ENV_PROMPT_PROFILE);
+        std::env::remove_var(ENV_SYSTEM_PROMPT_FILE);
     }
 
     #[test]

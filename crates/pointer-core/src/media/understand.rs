@@ -573,7 +573,7 @@ mod tests {
     /// answer with nothing.
     #[test]
     fn small_chat_output_cap_does_not_squeeze_media_budget() {
-        let mut s = ModelSettings::default(); // max_tokens defaults to the product's 2048
+        let mut s = ModelSettings::default(); // max_tokens defaults to the product's 16384
         s.round_thinking_budget = Some(4096);
         assert_eq!(
             media_understand_max_tokens(&s),

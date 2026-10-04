@@ -403,6 +403,12 @@ pub(super) async fn run_chat_inner(
         lead_worker_id.as_deref(),
     );
     let mut agent_plan = agent_plan;
+    // Headless / benchmark override (env-driven; inert unless a caller opts in).
+    // Replaces the lead role prompt and, for the `minimal` profile, the desktop
+    // scaffolding layers appended below.
+    let prompt_override = crate::agents::LeadPromptOverride::from_env();
+    prompt_override.apply(&mut agent_plan);
+    let minimal_profile = agent_plan.prompt_profile.is_minimal();
     // Effective list for inherit / skill_import persistence (not a resolve input).
     *ctx.enabled_skill_ids = agent_plan.resolved_skill_ids.clone();
     if crate::channel_outbound::is_im_conversation(conversation_id) {
@@ -419,10 +425,12 @@ pub(super) async fn run_chat_inner(
             .system_prompts
             .push(crate::scheduler::auto_deliver_system_prompt());
     }
-    if let Some(block) =
-        delegatable_sub_agents_system_block(&state.agents, &agent_plan.allow_agents)
-    {
-        agent_plan.system_prompts.push(block);
+    if !minimal_profile {
+        if let Some(block) =
+            delegatable_sub_agents_system_block(&state.agents, &agent_plan.allow_agents)
+        {
+            agent_plan.system_prompts.push(block);
+        }
     }
     let provider = OpenAIProvider::new(settings.clone(), api_key);
     let model_name = if settings.model.trim().is_empty() {

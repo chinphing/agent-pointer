@@ -321,7 +321,7 @@ pub fn effective_reasoning_in_messages(settings: &ModelSettings) -> bool {
 
 pub const DEFAULT_MODEL_TEMPERATURE: f32 = 0.7;
 pub const DEFAULT_MODEL_TOP_P: f32 = 0.95;
-pub const DEFAULT_MODEL_MAX_TOKENS: u32 = 2048;
+pub const DEFAULT_MODEL_MAX_TOKENS: u32 = 16_384;
 /// Qwen `thinking_budget` when deep thinking is enabled and no explicit budget is set.
 pub const DEFAULT_THINKING_BUDGET: u32 = 2048;
 
@@ -1095,7 +1095,7 @@ fn default_model_temperature() -> f32 {
 }
 
 fn default_model_max_tokens() -> u32 {
-    2048
+    DEFAULT_MODEL_MAX_TOKENS
 }
 
 fn default_workspace_root() -> String {
@@ -3705,6 +3705,22 @@ mod effective_generation_tests {
         s.max_tokens = 512;
         s.providers[0].max_tokens = Some(8192);
         assert_eq!(effective_max_tokens(&s), 8192);
+    }
+
+    #[test]
+    fn default_output_budget_is_16384() {
+        assert_eq!(DEFAULT_MODEL_MAX_TOKENS, 16_384);
+        assert_eq!(default_model_max_tokens(), DEFAULT_MODEL_MAX_TOKENS);
+        assert_eq!(ModelSettings::default().max_tokens, DEFAULT_MODEL_MAX_TOKENS);
+    }
+
+    /// The CLI seeds `user_settings.json` without `maxTokens`; the serde default
+    /// is what reaches the provider as the output budget.
+    #[test]
+    fn user_settings_missing_max_tokens_uses_the_default_budget() {
+        let s: UserSettings =
+            serde_json::from_str("{}").expect("empty user settings should deserialize");
+        assert_eq!(s.max_tokens, DEFAULT_MODEL_MAX_TOKENS);
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! Per-round prompt assembly for the single-agent loop (extensions + system env).
 
 use crate::agents::{AgentProfile, SessionInjectVars};
+use crate::agents::expand_agent_prompt_placeholders;
 use crate::extensions::{BeforeMainLlmCallContext, MessageLoopPromptsAfterContext};
 use crate::models::{ChatMessage, SystemPromptSections};
 use anyhow::Result;
@@ -61,35 +62,49 @@ pub(super) async fn prepare_single_agent_round_prompts(
     } else {
         agent_plan.system_prompts.as_slice()
     };
-    push_agent_role_cacheable_prompts(
-        &mut cacheable,
+    // Minimal profile (headless / benchmark): one short role prompt + the
+    // environment slice. Every desktop scaffolding layer below is skipped so a
+    // caller can measure the agent with a mini-swe-agent-style system prompt.
+    let minimal_profile = crate::agents::prompt_profile::uses_minimal_layers(
+        agent_plan.prompt_profile,
         &lead_profile,
-        state.computer_state.as_ref(),
-        conversation_id,
-        &session_vars,
-        non_computer_prompts,
     );
-    crate::i18n::push_ui_locale_reply_rule_to_cacheable(&mut cacheable, &settings.ui_locale);
-    if !tools_system_appendix.is_empty() {
-        cacheable.push(tools_system_appendix);
+    if minimal_profile {
+        cacheable.push(expand_agent_prompt_placeholders(
+            &non_computer_prompts.join("\n\n"),
+            &session_vars,
+        ));
+    } else {
+        push_agent_role_cacheable_prompts(
+            &mut cacheable,
+            &lead_profile,
+            state.computer_state.as_ref(),
+            conversation_id,
+            &session_vars,
+            non_computer_prompts,
+        );
+        crate::i18n::push_ui_locale_reply_rule_to_cacheable(&mut cacheable, &settings.ui_locale);
+        if !tools_system_appendix.is_empty() {
+            cacheable.push(tools_system_appendix);
+        }
+        crate::memory::push_memory_to_cacheable(
+            &mut cacheable,
+            &state.memory_store,
+            crate::user_storage::session_user_id_for_conversation(conversation_id).as_str(),
+            settings.memory_enabled,
+            settings.user_profile_enabled,
+        );
+        crate::user_rules::push_user_coding_rules_to_cacheable(
+            &mut cacheable,
+            &settings.user_coding_rules,
+        );
+        crate::plugins::agents_md::push_agents_md_to_cacheable(
+            &mut cacheable,
+            settings.workspace_root.trim(),
+            conversation_id,
+        );
     }
     push_env_to_cacheable(&mut cacheable);
-    crate::memory::push_memory_to_cacheable(
-        &mut cacheable,
-        &state.memory_store,
-        crate::user_storage::session_user_id_for_conversation(conversation_id).as_str(),
-        settings.memory_enabled,
-        settings.user_profile_enabled,
-    );
-    crate::user_rules::push_user_coding_rules_to_cacheable(
-        &mut cacheable,
-        &settings.user_coding_rules,
-    );
-    crate::plugins::agents_md::push_agents_md_to_cacheable(
-        &mut cacheable,
-        settings.workspace_root.trim(),
-        conversation_id,
-    );
     let assemble_system_prompts_ms = t.elapsed().as_millis();
 
     let t = Instant::now();

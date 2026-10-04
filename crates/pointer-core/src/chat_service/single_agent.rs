@@ -391,15 +391,15 @@ pub(super) async fn run_single_agent_loop(
 
             let current_budget = length_output_override
                 .unwrap_or_else(|| crate::models::effective_max_tokens(settings));
+            // Both truncation kinds get more headroom on retry: a reasoning-only
+            // stop burned the budget on thinking, and a visible truncation simply
+            // needs room for a larger payload. Never exceeds the provider ceiling.
+            let next_budget = super::json_tool_retries::escalated_length_output_budget(
+                current_budget,
+                crate::models::declared_max_tokens(settings),
+                settings.max_tokens,
+            );
             let hint = if reasoning_only {
-                let ceiling = super::json_tool_retries::reasoning_output_ceiling(
-                    crate::models::declared_max_tokens(settings),
-                    settings.max_tokens,
-                );
-                let next_budget = super::json_tool_retries::escalated_reasoning_output_budget(
-                    current_budget,
-                    ceiling,
-                );
                 length_output_override = Some(next_budget);
                 log::warn!(
                     "reasoning-only length stop conversation_id={conversation_id} assistant_id={assistant_id} reasoning_chars={} max_tokens={current_budget}->{next_budget}",
@@ -410,8 +410,9 @@ pub(super) async fn run_single_agent_loop(
                     next_budget,
                 )
             } else {
+                length_output_override = Some(next_budget);
                 log::warn!(
-                    "output truncated conversation_id={conversation_id} assistant_id={assistant_id} finish_reason={}",
+                    "output truncated conversation_id={conversation_id} assistant_id={assistant_id} finish_reason={} max_tokens={current_budget}->{next_budget}",
                     buf.finish_reason
                 );
                 super::json_tool_retries::output_length_retry_supplement(

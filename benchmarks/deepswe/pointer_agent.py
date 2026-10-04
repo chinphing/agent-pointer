@@ -211,6 +211,7 @@ def build_run_command(
     timeout_sec: int | None = None,
     max_turns: int | None = None,
     prompt_profile: str | None = None,
+    reasoning_in_messages: bool | None = None,
     extra_flags: str = "",
     binary: str = REMOTE_BINARY,
 ) -> str:
@@ -240,6 +241,9 @@ def build_run_command(
         parts.append(f"--max-turns {int(max_turns)}")
     if prompt_profile:
         parts.append(f"--prompt-profile {shlex.quote(str(prompt_profile))}")
+    if reasoning_in_messages is not None:
+        value = "true" if reasoning_in_messages else "false"
+        parts.append(f"--reasoning-in-messages {value}")
     if extra_flags.strip():
         parts.append(extra_flags.strip())
     return " ".join(parts)
@@ -371,6 +375,13 @@ class PointerAgent(BaseInstalledAgent):
             cli="--prompt-profile",
             type="str",
             default=None,
+        ),
+        CliFlag(
+            "reasoning_in_messages",
+            cli="--reasoning-in-messages",
+            type="bool",
+            default=True,
+            format="--reasoning-in-messages {value}",
         ),
         CliFlag(
             "base_url",
@@ -510,6 +521,7 @@ class PointerAgent(BaseInstalledAgent):
             timeout_sec=self._pointer_timeout_sec(),
             max_turns=self._resolved_flag("max_turns"),
             prompt_profile=self._resolved_flag("prompt_profile"),
+            reasoning_in_messages=self._resolved_flag("reasoning_in_messages"),
         )
 
         await self.exec_as_agent(

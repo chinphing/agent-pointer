@@ -164,6 +164,16 @@ struct RunArgs {
     /// `max`). Maps onto the provider's thinking strategy (budget / effort / …).
     #[arg(long, default_value = "max", value_parser = ["low", "medium", "high", "max"])]
     thinking_intensity: String,
+    /// Echo the model's reasoning (`reasoning_content`) back on assistant
+    /// messages sent to the provider. Mirrors the desktop setting
+    /// `reasoningInMessages`; defaults to `false`.
+    #[arg(
+        long,
+        default_value_t = false,
+        action = clap::ArgAction::Set,
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
+    reasoning_in_messages: bool,
     /// Lead system-prompt profile. `default` keeps the shipped agent prompt;
     /// `minimal` swaps it for a short mini-swe-agent-style prompt and drops the
     /// desktop scaffolding layers (tool system appendix, project context,
@@ -405,6 +415,7 @@ async fn run_async(args: RunArgs) -> Result<i32> {
             "approval": args.approval,
             "agent_role": args.agent_role,
             "thinking_intensity": args.thinking_intensity,
+            "reasoning_in_messages": args.reasoning_in_messages,
             "prompt_profile": prompt_profile,
             "system_prompt_file": args
                 .system_prompt_file
@@ -466,7 +477,7 @@ async fn run_async(args: RunArgs) -> Result<i32> {
             base_url: args.base_url.clone(),
             api_key,
             models: vec![args.model.clone()],
-            reasoning_in_messages: None,
+            reasoning_in_messages: Some(args.reasoning_in_messages),
             temperature: None,
             top_p: None,
             max_tokens: None,
@@ -724,6 +735,7 @@ async fn run_async(args: RunArgs) -> Result<i32> {
         "timeout_secs": args.timeout,
         "agent_role": args.agent_role,
         "thinking_intensity": args.thinking_intensity,
+        "reasoning_in_messages": args.reasoning_in_messages,
         "prompt_profile": prompt_profile,
         "allowed_tools": whitelist_report,
     });
@@ -832,6 +844,18 @@ mod tests {
         let args = parse_run(&["--agent-role", "explore", "--thinking-intensity", "high"]);
         assert_eq!(args.agent_role, "explore");
         assert_eq!(args.thinking_intensity, "high");
+    }
+
+    #[test]
+    fn reasoning_in_messages_defaults_to_false_and_can_be_set() {
+        let args = parse_run(&[]);
+        assert!(!args.reasoning_in_messages);
+
+        let args = parse_run(&["--reasoning-in-messages", "true"]);
+        assert!(args.reasoning_in_messages);
+
+        let args = parse_run(&["--reasoning-in-messages", "false"]);
+        assert!(!args.reasoning_in_messages);
     }
 
     #[test]

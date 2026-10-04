@@ -206,6 +206,7 @@ class TestBuildRunCommand(unittest.TestCase):
             "--timeout",
             "--max-turns",
             "--prompt-profile",
+            "--reasoning-in-messages",
         ):
             self.assertNotIn(flag, command)
 
@@ -220,6 +221,7 @@ class TestBuildRunCommand(unittest.TestCase):
             timeout_sec=120,
             max_turns=25,
             prompt_profile="minimal",
+            reasoning_in_messages=True,
         )
         self.assertIn("--base-url https://example.test/v1", command)
         self.assertIn("--allowed-tools terminal,file_read", command)
@@ -227,6 +229,7 @@ class TestBuildRunCommand(unittest.TestCase):
         self.assertIn("--timeout 120", command)
         self.assertIn("--max-turns 25", command)
         self.assertIn("--prompt-profile minimal", command)
+        self.assertIn("--reasoning-in-messages true", command)
 
     def test_instruction_path_is_quoted(self):
         command = build_run_command(
@@ -394,6 +397,7 @@ class TestAgentWiring(BaseAgentTest):
             self.assertIsNone(agent._resolved_flag("max_turns"))
             self.assertIsNone(agent._resolved_flag("base_url"))
             self.assertIsNone(agent._resolved_flag("prompt_profile"))
+            self.assertIs(agent._resolved_flag("reasoning_in_messages"), True)
 
     def test_kwargs_override_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -405,12 +409,14 @@ class TestAgentWiring(BaseAgentTest):
                 approval="manual",
                 base_url="https://example.test/v1",
                 prompt_profile="minimal",
+                reasoning_in_messages=False,
             )
             self.assertEqual(agent._resolved_flag("timeout_sec"), 90)
             self.assertEqual(agent._resolved_flag("max_turns"), 7)
             self.assertEqual(agent._resolved_flag("allowed_tools"), "terminal")
             self.assertEqual(agent._resolved_flag("approval"), "manual")
             self.assertEqual(agent._resolved_flag("prompt_profile"), "minimal")
+            self.assertIs(agent._resolved_flag("reasoning_in_messages"), False)
             self.assertEqual(agent._resolve_base_url(), "https://example.test/v1")
 
     def test_base_url_falls_back_to_env(self):

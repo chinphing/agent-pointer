@@ -23,6 +23,12 @@ export interface ScopedInstanceTranscript {
    * Cached so the store only bumps its narrow revision when it actually changes.
    */
   askUserSignature: string
+  /**
+   * Shape signature of `rows` (see `computeScopedStructureSignature`): ids, statuses
+   * and links only — never text. Cached so the store only bumps its narrow
+   * structure revision when the spawn's shape actually changes.
+   */
+  structureSignature: string
 }
 
 export interface SpawnLookup {

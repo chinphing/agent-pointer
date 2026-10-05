@@ -78,9 +78,10 @@ Await only when the user's question cannot be answered without the result.
 - Nesting nodes: **`general`** → `coder` / `computer` / `explore`;
   **`coder`** → `explore`; **`explore`** → `explore` only (read-only, never
   `coder`); **`computer`** stays a leaf and always foreground.
-- Fan-out: **`maxChildrenPerAgent`** (default 8, clamp 1–32) caps the live
-  sub-agent children of one instance. A spawn past the limit returns a
-  deterministic **`ERROR`** naming the limit — it is not queued.
+- Fan-out: **`maxChildrenPerAgent`** caps the live sub-agent children of one
+  instance. Default and ceiling are both **CPU logical cores × 10** (never below
+  32, never above 100, min 1). A spawn past the limit returns a deterministic
+  **`ERROR`** naming the limit — it is not queued.
 - A grandchild's **`content`** returns to its **direct parent** only; the lead
   sees that parent's handoff plus **`openBackgroundJobs`**.
 - Workers finish with **Markdown** in final assistant **`content`** (no tools on that turn).

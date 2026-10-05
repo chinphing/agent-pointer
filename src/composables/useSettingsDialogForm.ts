@@ -39,7 +39,8 @@ import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import {
   clampMaxChildrenPerAgent,
-  DEFAULT_MAX_CHILDREN_PER_AGENT
+  defaultMaxChildrenPerAgent,
+  maxChildrenPerAgentCeiling
 } from '../stores/settings'
 import { splitProviderModelValue } from '../lib/modelSelectValue'
 import {
@@ -308,7 +309,7 @@ function createSettingsDialogForm(deps: {
     return Number.isFinite(n) && n >= 1 ? Math.floor(n) : autoParallelLimit
   }
   const maxSubAgentSpawnDepth = ref(2)
-  const maxChildrenPerAgent = ref(DEFAULT_MAX_CHILDREN_PER_AGENT)
+  const maxChildrenPerAgent = ref(defaultMaxChildrenPerAgent())
   const rawContentViewEnabled = ref(false)
   const debugDumpLlmPrompts = ref(false)
   const terminalEnvRows = ref<Array<{ id: string; key: string; value: string }>>([])
@@ -1101,6 +1102,7 @@ function createSettingsDialogForm(deps: {
     maxSubAgentToolRounds,
     maxSubAgentSpawnDepth,
     maxChildrenPerAgent,
+    maxChildrenPerAgentCeiling: maxChildrenPerAgentCeiling(),
     rawContentViewEnabled,
     debugDumpLlmPrompts,
     terminalEnvRows,

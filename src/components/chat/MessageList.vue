@@ -32,6 +32,7 @@ import {
 import { shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
 import { rootTracesOf } from '../../lib/subAgentTraceTree'
 import { MESSAGE_VIRTUAL_ROW_CLASS, MESSAGE_VIRTUAL_ROW_ESTIMATE, messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
+import { messageRowMemoDeps } from '../../lib/messageListRowMemo'
 import { createScrollPassScheduler, createViewedStampDedupe } from '../../lib/chatScrollPass'
 import { createVirtualRowMeasureBatch } from '../../lib/virtualRowMeasureBatch'
 import { measureRenderedRowSlack } from '../../lib/virtualRowSlack'
@@ -67,8 +68,10 @@ import {
   insertContextCompressingMarker,
   toolRunHostMessage,
   turnElapsedHostIndex,
+  turnSegmentFingerprint,
   withTurnElapsedFollowingSpacing,
   type FlatEntry,
+  type FlattenDeps,
   type MessageListLayoutCache,
   type ToolRunGroup
 } from '../../lib/messageListLayout'
@@ -1457,6 +1460,26 @@ function shouldShowThreadGlue(message: ChatMessage): boolean {
  */
 let layoutCacheHold: MessageListLayoutCache | null = null
 
+/**
+ * Shared structure deps for the layout builder and the per-turn spawn plan cache.
+ * Same fingerprint source on purpose: a turn the layout reuses must key its cached
+ * spawn plan off exactly the fields the layout treated as unchanged.
+ */
+const layoutDeps: FlattenDeps = {
+  boardsForMessage: messageId => chat.parentBoardsBoundToMessage(chat.currentId, messageId),
+  visibleToolCallsFor: message => visibleToolsForMessage(message, message.toolCalls ?? []),
+  shouldShowGlue: shouldShowThreadGlue
+}
+
+/**
+ * Per-turn spawn plan cache (non-reactive on purpose — a ref write inside the
+ * computed would retrigger itself). Keyed by `convId\0turnId`; the value's key is
+ * the turn structure fingerprint plus the scoped structure revision, so a turn whose
+ * shape did not move keeps handing out the **same** `TurnSpawnPlan` object and the
+ * `:spawn-plan` prop chain stays referentially stable.
+ */
+let spawnPlanCache = new Map<string, { key: string; plan: TurnSpawnPlan }>()
+
 const messageListLayout = computed(() => {
   void chat.taskBoards
   void settings.settings
@@ -1468,11 +1491,7 @@ const messageListLayout = computed(() => {
   const result = buildMessageListLayout({
     conversationId: chat.currentId,
     messages: pageWindowMessages.value,
-    deps: {
-      boardsForMessage: messageId => chat.parentBoardsBoundToMessage(chat.currentId, messageId),
-      visibleToolCallsFor: message => visibleToolsForMessage(message, message.toolCalls ?? []),
-      shouldShowGlue: shouldShowThreadGlue
-    },
+    deps: layoutDeps,
     cache: layoutCacheHold,
     collapseActiveTurns: settings.userSettings.collapseProcessByDefault === true
   })
@@ -1873,10 +1892,12 @@ function displayedTurnEntries(turn: (typeof conversationTurns.value)[number]): F
  * - drawn 集用**投影后**的 `displayedTurnEntries(turn)`：被折叠藏起来的行不算「画出来了」。
  */
 const turnSpawnPlans = computed(() => {
-  // 失效依赖：scoped 存储的加载 / 驱逐 / 流式更新。
-  // （assignLoaded 不 bump membership，所以必须同时订阅 liveSignals；驱逐只 bump membership。）
-  void chat.getSubAgentLiveSignal('')
+  // 失效依赖：scoped 存储的**结构**变化（行增删 / 工具状态 / 档案链接）+ spawn 成员增删。
+  // 这里**不再**订阅 liveSignals：那是每个流式 chunk 都会动的高频信号，旧代码用
+  // `getSubAgentLiveSignal('')`（空 key 永远不会被写入）订阅，靠的是 publishLive 整体替换
+  // 外层槽位 —— 结果任何 spawn 的任何一个 token 都会重建全部回合的 plan。
   const convId = chat.currentId ?? ''
+  const structureRevision = chat.getScopedStructureRevision(convId)
   void chat.getScopedMembershipSignal(convId)
 
   const pending: {
@@ -1957,17 +1978,34 @@ const turnSpawnPlans = computed(() => {
   const scopedRows = scopedRowClosure(seedIds, ids => chat.scopedRowsForAnchors(convId, ids))
 
   const out = new Map<string, TurnSpawnPlan>()
+  const nextCache = new Map<string, { key: string; plan: TurnSpawnPlan }>()
   for (const entry of pending) {
-    out.set(
-      entry.id,
-      buildTurnSpawnPlan({
-        messages: entry.messages,
-        scopedRows,
-        extraToolCallsByMessageId: entry.extra,
-        drawnRowIdsByMessage: entry.drawn
-      })
-    )
+    const cacheKey = `${convId}\u0000${entry.id}`
+    // 回合结构指纹（消息 / 工具行状态 / 档案 / 任务板）+ scoped 结构版本：
+    // 二者都没动 → 复用同一个 plan 对象，子组件 prop 身份不变，不触发重渲染。
+    const key = `${structureRevision}\u0001${turnSegmentFingerprint(
+      entry.messages,
+      0,
+      entry.messages.length,
+      layoutDeps
+    )}`
+    const cached = spawnPlanCache.get(cacheKey)
+    if (cached && cached.key === key) {
+      out.set(entry.id, cached.plan)
+      nextCache.set(cacheKey, cached)
+      continue
+    }
+    const plan = buildTurnSpawnPlan({
+      messages: entry.messages,
+      scopedRows,
+      extraToolCallsByMessageId: entry.extra,
+      drawnRowIdsByMessage: entry.drawn
+    })
+    out.set(entry.id, plan)
+    nextCache.set(cacheKey, { key, plan })
   }
+  // Drop turns that left the window (conversation switch / compression trim).
+  spawnPlanCache = nextCache
   return out
 })
 
@@ -2179,6 +2217,40 @@ function setVirtualRowElement(node: Element | ComponentPublicInstance | null) {
   rowMeasureBatch.register(el)
 }
 
+/**
+ * Row-level `v-memo` vector — see `lib/messageListRowMemo.ts` for why it must sit on
+ * the geometry wrapper (and why the geometry inputs are part of it). This function is
+ * the bridge: it reads the reactive sources once per render and hands the values over.
+ */
+function rowMemoDeps(row: {
+  virtualRow: { start: number; index: number }
+  turn: (typeof conversationTurns.value)[number]
+}): unknown[] {
+  const turn = row.turn
+  const showElapsed = shouldShowTurnElapsedChip(turn)
+  return messageRowMemoDeps({
+    start: row.virtualRow.start,
+    index: row.virtualRow.index,
+    turn,
+    expanded: turnIsExpanded(turn.id),
+    showElapsed,
+    // Only read the 1 Hz clock when the chip is actually on screen.
+    elapsedLabel: showElapsed ? turnElapsedLabel(turn.id) : '',
+    files: turnFileChanges.value.get(turn.id) ?? null,
+    changeSummaryExpanded: changeSummaryExpanded(turn.id),
+    spawnPlan: turnSpawnPlans.value.get(turn.id) ?? null,
+    searchMatchIds: props.searchMatchIds,
+    activeSearchMessageId: props.activeSearchMessageId ?? null,
+    activeSearchToolCallId: props.activeSearchToolCallId ?? null,
+    focusHighlightMessageId: focusHighlightMessageId.value,
+    activeBoard: activeBoard.value,
+    activeBoardSticky: activeBoardIsSticky.value,
+    conversationId: chat.currentId,
+    taskBoards: chat.taskBoards,
+    glueEnabled: settings.settings.computerAnnotatedScreenViewEnabled === true
+  })
+}
+
 // --- dev-only render perf instrumentation (no-op unless the HUD is enabled) ---
 onMounted(() => {
   if (!renderPerfEnabled()) return
@@ -2367,8 +2439,15 @@ function entrySpacing(
       class="chat-column relative w-full shrink-0"
       :style="{ height: `${rowVirtualizer.getTotalSize()}px` }"
     >
+      <!--
+        Row-level memo. It has to sit on the `v-for` element itself (a nested
+        `v-memo` compiles to a shared cache slot — no-op or vnode aliasing; see
+        `lib/messageListRowMemo.ts`). `rowMemoDeps` carries `start` / `index`, so a
+        memo hit means the wrapper geometry is unchanged; any move repaints it.
+      -->
       <div
         v-for="row in renderedRows"
+        v-memo="rowMemoDeps(row)"
         :key="String(row.virtualRow.key)"
         :ref="setVirtualRowElement"
         :data-index="row.virtualRow.index"

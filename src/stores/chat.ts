@@ -78,6 +78,7 @@ import {
   flushStreamDeltaBuffers,
   setAssistantJsonPartialApplyHandler,
   setContentDeltaApplyHandler,
+  setScopedMessageIdPredicate,
   setReasoningDeltaApplyHandler,
   setToolArgsDeltaApplyHandler,
   setToolOutputDeltaApplyHandler,
@@ -3268,6 +3269,10 @@ export const useChatStore = defineStore('chat', () => {
   setContentDeltaApplyHandler(applyContentDeltaBatch)
   setReasoningDeltaApplyHandler(applyReasoningDeltaBatch)
   setAssistantJsonPartialApplyHandler(applyAssistantJsonPartialBatch)
+  // The `content` channel's event carries no identity, so its lane is decided by this
+  // O(1) lookup into the scoped store's global row index. Default-false on the store
+  // side too: an unknown id is a lead row and keeps the fast lane.
+  setScopedMessageIdPredicate(scopedStore.isScopedMessageId)
 
   function applyToolArgsDeltaBatch(
     messageId: string,
@@ -3964,6 +3969,7 @@ export const useChatStore = defineStore('chat', () => {
     terminalLivePopup, terminalLiveViewReadyToolCallId, dismissTerminalLivePopup, openTerminalLivePopup,
     scopedMessagesForTraceCached, getSubAgentLiveSignal, subAgentLiveSignals: scopedStore.liveSignals,
     getScopedMembershipSignal: scopedStore.getMembershipSignal,
+    getScopedStructureRevision: scopedStore.getStructureRevision,
     ensureScopedMessagesForTrace, evictScopedInstance: scopedStore.evictInstance,
     ensureToolCallBody, releaseToolCallBody: releasePinnedToolBody,
     ensureMessageAside,

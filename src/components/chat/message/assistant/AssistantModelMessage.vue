@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUpdated, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { bump, renderPerfEnabled } from '../../../../lib/renderPerf'
+
+const { t } = useI18n()
 
 // Dev-only render perf counters — one boolean check, no-op unless the HUD is on.
 onMounted(() => {
@@ -33,6 +36,7 @@ import {
 import { resolveTraceTaskId, traceLookupId } from '../../../../lib/subAgentStats'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
 import SubAgentFrameHost, { type SubAgentTaskBoardBinding } from './SubAgentFrameHost.vue'
+import SubAgentOrphanGroup from './SubAgentOrphanGroup.vue'
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
 
 const props = defineProps<{
@@ -253,22 +257,31 @@ const showSubAgentFrames = computed(() => {
       </template>
     </AgentMessageBody>
 
-    <!-- Legacy / unmatched traces (no parentToolCallId or tool row missing). -->
-    <SubAgentFrameHost
-      v-for="trace in orphanTraces"
+    <!-- Legacy / unmatched traces: the host `run_subagent` row is collapsed away or
+         absent from the turn (see `subAgentRenderTree` I3). Never silently appended at
+         the end of the message — the group is labelled so a misplaced frame is visible
+         instead of reading as part of the lead body. -->
+    <SubAgentOrphanGroup
+      v-if="orphanTraces.length > 0"
       v-show="showSubAgentFrames"
-      :key="trace.id"
-      class="px-3"
-      :trace="trace"
-      :anchor-message-id="message.id"
-      :messages="conversationMessages"
-      :message-ui="subTraceUi(trace)"
-      :created-at="message.createdAt"
-      :thoughts-debug-enabled="thoughtsDebugEnabled"
-      :generating="generating"
-      :is-active-generation-message="isActiveGenerationMessage"
-      :show-message-actions="showMessageActions"
-      :task-board="childBoardByTraceId.get(trace.id) ?? null"
-    />
+      :count="orphanTraces.length"
+    >
+      <SubAgentFrameHost
+        v-for="trace in orphanTraces"
+        v-show="showSubAgentFrames"
+        :key="trace.id"
+        class="px-3"
+        :trace="trace"
+        :anchor-message-id="message.id"
+        :messages="conversationMessages"
+        :message-ui="subTraceUi(trace)"
+        :created-at="message.createdAt"
+        :thoughts-debug-enabled="thoughtsDebugEnabled"
+        :generating="generating"
+        :is-active-generation-message="isActiveGenerationMessage"
+        :show-message-actions="showMessageActions"
+        :task-board="childBoardByTraceId.get(trace.id) ?? null"
+      />
+    </SubAgentOrphanGroup>
   </div>
 </template>

@@ -200,7 +200,10 @@ pub(super) async fn dispatch_run_subagent(
             parent_spawn_depth: sub_cfg.spawn_depth,
             issuer_chain: sub_cfg.agent_chain.as_slice(),
             issuer_trace_id: Some(sub_cfg.instance_scope.agent_instance_id.as_str()),
-            history: None,
+            // Nested spawns must persist their traces on the **issuer's own row**
+            // (this worker's scoped round), never the lead row: `message_id` is that
+            // round and `history` is this worker's local transcript.
+            history: Some(anchor_history),
             state_arc,
         };
         return super::super::super::run_subagent_delegation::run_subagent_delegation(&mut deleg)

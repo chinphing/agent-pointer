@@ -1,4 +1,31 @@
-/** Batch reactive UI writes for streamed text to reduce Vue re-render churn. */
+/**
+ * Batch reactive UI writes for streamed text to reduce Vue re-render churn.
+ *
+ * ## Two lanes
+ *
+ * Every channel buffers into two independent lanes:
+ *
+ * - **fast** — lead (top-level) content. Unchanged constants: reasoning 200 ms /
+ *   content 50 ms / tool args 80 ms / tool output 80 ms / web search 80 ms /
+ *   json partial 200 ms.
+ * - **slow** — sub-agent (scoped) streamed text, {@link SLOW_LANE_BATCH_MS}. A
+ *   worker's live line is not latency-sensitive: the user reads it inside a frame
+ *   that already ticks ~1/s, so stretching its batch removes ~20 Vue ticks per
+ *   second per worker.
+ *
+ * A key's lane is a **pure function of its identity** (`traceId || scopedMessageId`
+ * for the five identity channels, an injected `isScopedMessageId` predicate for
+ * `content`), so a key can never migrate between lanes: sub-agent traffic never
+ * falls back to the fast lane, by construction — not by a runtime check.
+ *
+ * ## Escape valves (the only two)
+ *
+ * 1. **Message end / turn end** — {@link flushStreamDeltaBuffers} flushes both lanes
+ *    of all six buffers (message_end, turn done, stream error, interrupt, switch).
+ * 2. **ask_user / approval** — the authoritative `tool_call_start` snapshot is applied
+ *    synchronously and {@link clearToolArgsDeltaBufferForTool} drops the leftovers in
+ *    both lanes, so the question / approval card never waits for the slow timer.
+ */
 
 export const REASONING_DELTA_BATCH_MS = 200
 export const CONTENT_DELTA_BATCH_MS = 50
@@ -7,13 +34,24 @@ export const TOOL_OUTPUT_DELTA_BATCH_MS = 80
 export const WEB_SEARCH_OUTPUT_DELTA_BATCH_MS = 80
 /** Latest-wins merge for `assistant_json_partial` (thoughts / toolName / responseText). */
 export const ASSISTANT_JSON_PARTIAL_BATCH_MS = 200
+
+/** Slow-lane batch for sub-agent (scoped) streamed text. */
+export const SLOW_LANE_BATCH_MS = 1000
+
 /**
- * When many stream keys are pending (fan-out sub-agents), stretch the shared flush
- * so concurrent workers do not each force a separate Vue tick. Collapsed sub-agent
- * live lines are not visually latency-sensitive — prefer fewer ticks under load.
+ * When many stream keys are pending **in one lane** (fan-out sub-agents), stretch
+ * that lane's flush so concurrent workers do not each force a separate Vue tick.
+ * Collapsed sub-agent live lines are not visually latency-sensitive — prefer fewer
+ * ticks under load.
+ *
+ * Per lane on purpose: the old global count let six sub-agent keys stretch the
+ * **lead's** fast lane to 500 ms, which is exactly the direction that hurts.
  */
 export const HIGH_PRESSURE_STREAM_KEYS = 6
 export const HIGH_PRESSURE_BATCH_MS = 500
+
+/** Which batch lane a delta belongs to (see the module doc above). */
+export type StreamLane = 'fast' | 'slow'
 
 export type StreamDeltaApply = (
   messageId: string,
@@ -51,36 +89,125 @@ export type AssistantJsonPartialApply = (
   patch: AssistantJsonPartialPatch
 ) => void
 
-type DeltaBuffer = {
-  pending: Map<string, string>
+type LaneState<T> = {
+  pending: Map<string, T>
   flushTimer: ReturnType<typeof setTimeout> | undefined
-  getApplyHandler: () => StreamDeltaApply | null
-  label: string
-  defaultBatchMs: number
 }
 
-type ToolDeltaBuffer = {
-  pending: Map<string, string>
-  flushTimer: ReturnType<typeof setTimeout> | undefined
-  getApplyHandler: () => ToolDeltaApply | null
+type LaneBuffers<T> = Record<StreamLane, LaneState<T>>
+
+type DeltaBuffer<T, A> = {
+  lanes: LaneBuffers<T>
+  getApplyHandler: () => A | null
   label: string
   defaultBatchMs: number
+  /** Apply one merged key (key encoding is channel specific). */
+  applyKey: (key: string, batch: T, applyHandler: A) => void
+  /** Merge a new delta into a pending entry (append / latest-wins). */
+  merge: (prev: T | undefined, next: T) => T
 }
 
-type JsonPartialBuffer = {
-  pending: Map<string, AssistantJsonPartialPatch>
-  flushTimer: ReturnType<typeof setTimeout> | undefined
-  getApplyHandler: () => AssistantJsonPartialApply | null
-  label: string
-  defaultBatchMs: number
+function createLaneBuffers<T>(): LaneBuffers<T> {
+  return {
+    fast: { pending: new Map(), flushTimer: undefined },
+    slow: { pending: new Map(), flushTimer: undefined }
+  }
 }
 
-const reasoningPending = new Map<string, string>()
-const contentPending = new Map<string, string>()
-const toolArgsPending = new Map<string, string>()
-const toolOutputPending = new Map<string, string>()
-const webSearchOutputPending = new Map<string, string>()
-const jsonPartialPending = new Map<string, AssistantJsonPartialPatch>()
+const LANES: readonly StreamLane[] = ['fast', 'slow']
+
+// --- lane routing -----------------------------------------------------------
+
+/**
+ * Injected by `stores/chat.ts`: `true` when `messageId` is a sub-agent (scoped) row.
+ *
+ * The `content` channel is the one channel whose event carries no identity
+ * (`types/chat.ts` `{ kind: 'delta'; messageId; text }`), so it cannot decide its
+ * lane from the event alone. **Default `false` (conservative)** — an unregistered or
+ * throwing predicate sends the text down the fast lane, so a mis-wired predicate can
+ * only ever cost perf, never add latency to the lead.
+ */
+let scopedMessageIdPredicate: ((messageId: string) => boolean) | null = null
+
+export function setScopedMessageIdPredicate(
+  predicate: ((messageId: string) => boolean) | null
+): void {
+  scopedMessageIdPredicate = predicate
+}
+
+function isScopedMessageId(messageId: string): boolean {
+  if (!scopedMessageIdPredicate) return false
+  try {
+    return scopedMessageIdPredicate(messageId) === true
+  } catch (error) {
+    console.warn('[contentDeltaBatch] scoped message predicate failed', error)
+    return false
+  }
+}
+
+/**
+ * Lane for the five identity channels: any sub-agent identity (`traceId` or
+ * `scopedMessageId`) means the delta belongs to a worker.
+ */
+export function streamLaneFor(traceId?: string, scopedMessageId?: string): StreamLane {
+  return traceId?.trim() || scopedMessageId?.trim() ? 'slow' : 'fast'
+}
+
+/** Lane for the `content` channel — the injected predicate, default fast. */
+export function contentLaneFor(messageId: string): StreamLane {
+  return isScopedMessageId(messageId) ? 'slow' : 'fast'
+}
+
+// --- buffers ----------------------------------------------------------------
+
+const reasoningBuffer: DeltaBuffer<string, StreamDeltaApply> = {
+  lanes: createLaneBuffers<string>(),
+  getApplyHandler: () => reasoningApplyHandler,
+  label: 'reasoningDeltaBatch',
+  defaultBatchMs: REASONING_DELTA_BATCH_MS,
+  applyKey: (key, text, handler) => applyStreamKey(key, text, handler, 'reasoningDeltaBatch'),
+  merge: (prev, next) => (prev ?? '') + next
+}
+const contentBuffer: DeltaBuffer<string, StreamDeltaApply> = {
+  lanes: createLaneBuffers<string>(),
+  getApplyHandler: () => contentApplyHandler,
+  label: 'contentDeltaBatch',
+  defaultBatchMs: CONTENT_DELTA_BATCH_MS,
+  applyKey: (key, text, handler) => applyStreamKey(key, text, handler, 'contentDeltaBatch'),
+  merge: (prev, next) => (prev ?? '') + next
+}
+const toolArgsBuffer: DeltaBuffer<string, ToolDeltaApply> = {
+  lanes: createLaneBuffers<string>(),
+  getApplyHandler: () => toolArgsApplyHandler,
+  label: 'toolArgsDeltaBatch',
+  defaultBatchMs: TOOL_ARGS_DELTA_BATCH_MS,
+  applyKey: (key, text, handler) => applyToolKey(key, text, handler, 'toolArgsDeltaBatch'),
+  merge: (prev, next) => (prev ?? '') + next
+}
+const toolOutputBuffer: DeltaBuffer<string, ToolDeltaApply> = {
+  lanes: createLaneBuffers<string>(),
+  getApplyHandler: () => toolOutputApplyHandler,
+  label: 'toolOutputDeltaBatch',
+  defaultBatchMs: TOOL_OUTPUT_DELTA_BATCH_MS,
+  applyKey: (key, text, handler) => applyToolKey(key, text, handler, 'toolOutputDeltaBatch'),
+  merge: (prev, next) => (prev ?? '') + next
+}
+const webSearchOutputBuffer: DeltaBuffer<string, ToolDeltaApply> = {
+  lanes: createLaneBuffers<string>(),
+  getApplyHandler: () => webSearchOutputApplyHandler,
+  label: 'webSearchOutputDeltaBatch',
+  defaultBatchMs: WEB_SEARCH_OUTPUT_DELTA_BATCH_MS,
+  applyKey: (key, text, handler) => applyToolKey(key, text, handler, 'webSearchOutputDeltaBatch'),
+  merge: (prev, next) => (prev ?? '') + next
+}
+const jsonPartialBuffer: DeltaBuffer<AssistantJsonPartialPatch, AssistantJsonPartialApply> = {
+  lanes: createLaneBuffers<AssistantJsonPartialPatch>(),
+  getApplyHandler: () => jsonPartialApplyHandler,
+  label: 'assistantJsonPartialBatch',
+  defaultBatchMs: ASSISTANT_JSON_PARTIAL_BATCH_MS,
+  applyKey: (key, patch, handler) => applyJsonPartialKey(key, patch, handler),
+  merge: mergeJsonPartial
+}
 
 let reasoningApplyHandler: ReasoningDeltaApply | null = null
 let contentApplyHandler: ContentDeltaApply | null = null
@@ -89,20 +216,25 @@ let toolOutputApplyHandler: ToolOutputDeltaApply | null = null
 let webSearchOutputApplyHandler: WebSearchOutputDeltaApply | null = null
 let jsonPartialApplyHandler: AssistantJsonPartialApply | null = null
 
+/** Pending entries in one lane, summed over the six buffers. */
+function lanePendingSize(lane: StreamLane): number {
+  return (
+    reasoningBuffer.lanes[lane].pending.size
+    + contentBuffer.lanes[lane].pending.size
+    + toolArgsBuffer.lanes[lane].pending.size
+    + toolOutputBuffer.lanes[lane].pending.size
+    + webSearchOutputBuffer.lanes[lane].pending.size
+    + jsonPartialBuffer.lanes[lane].pending.size
+  )
+}
+
 /**
- * Entries still buffered across all six pending maps. Read-only: these are
- * released per message (`delete`/`clear`), so a number that only ever grows
+ * Entries still buffered across **both lanes** of all six buffers. Read-only: these
+ * are released per message (`delete`/`clear`), so a number that only ever grows
  * between flushes means a message stopped being released (see `lib/residencyProbe.ts`).
  */
 export function pendingDeltaCount(): number {
-  return (
-    reasoningPending.size +
-    contentPending.size +
-    toolArgsPending.size +
-    toolOutputPending.size +
-    webSearchOutputPending.size +
-    jsonPartialPending.size
-  )
+  return lanePendingSize('fast') + lanePendingSize('slow')
 }
 
 function bufferKey(messageId: string, traceId?: string, scopedMessageId?: string): string {
@@ -126,22 +258,21 @@ function toolBufferKey(
   return `${messageId}\0${toolCallId}`
 }
 
-function pendingStreamKeyCount(): number {
-  return (
-    reasoningPending.size
-    + contentPending.size
-    + toolArgsPending.size
-    + toolOutputPending.size
-    + webSearchOutputPending.size
-    + jsonPartialPending.size
-  )
+/**
+ * Delay for one lane. The slow lane floors at {@link SLOW_LANE_BATCH_MS}; the fast
+ * lane keeps the caller's requested delay byte-for-byte.
+ */
+function laneBatchMs(lane: StreamLane, requested: number): number {
+  if (lane === 'slow') return Math.max(SLOW_LANE_BATCH_MS, requested)
+  return requested
 }
 
-function effectiveBatchMs(requested: number): number {
-  if (pendingStreamKeyCount() >= HIGH_PRESSURE_STREAM_KEYS) {
-    return Math.max(requested, HIGH_PRESSURE_BATCH_MS)
+function effectiveBatchMs(lane: StreamLane, requested: number): number {
+  const base = laneBatchMs(lane, requested)
+  if (lanePendingSize(lane) >= HIGH_PRESSURE_STREAM_KEYS) {
+    return Math.max(base, HIGH_PRESSURE_BATCH_MS)
   }
-  return requested
+  return base
 }
 
 export function setReasoningDeltaApplyHandler(handler: ReasoningDeltaApply | null): void {
@@ -168,17 +299,17 @@ export function setAssistantJsonPartialApplyHandler(handler: AssistantJsonPartia
   jsonPartialApplyHandler = handler
 }
 
-function scheduleSharedFlush(
-  getTimer: () => ReturnType<typeof setTimeout> | undefined,
-  setTimer: (t: ReturnType<typeof setTimeout> | undefined) => void,
-  flushAll: () => void,
+function scheduleLaneFlush<T, A>(
+  buffer: DeltaBuffer<T, A>,
+  lane: StreamLane,
   batchMs: number
 ): void {
-  if (getTimer() != null) return
-  setTimer(setTimeout(() => {
-    setTimer(undefined)
-    flushAll()
-  }, effectiveBatchMs(batchMs)))
+  const state = buffer.lanes[lane]
+  if (state.flushTimer != null) return
+  state.flushTimer = setTimeout(() => {
+    state.flushTimer = undefined
+    flushLane(buffer, lane)
+  }, effectiveBatchMs(lane, batchMs))
 }
 
 function applyStreamKey(
@@ -209,85 +340,75 @@ function applyToolKey(
   }
 }
 
-function flushAllDeltaKeys(buffer: DeltaBuffer, messageId?: string): void {
-  if (buffer.flushTimer != null) {
-    clearTimeout(buffer.flushTimer)
-    buffer.flushTimer = undefined
-  }
-  const applyHandler = buffer.getApplyHandler()
-  if (!applyHandler) {
-    if (buffer.pending.size > 0) {
-      console.warn(`[${buffer.label}] flush skipped: no apply handler registered`)
-    }
-    if (messageId == null) buffer.pending.clear()
-    else {
-      for (const key of [...buffer.pending.keys()]) {
-        if (key.split('\0')[0] === messageId) buffer.pending.delete(key)
-      }
-    }
-    return
-  }
-  const keys = [...buffer.pending.keys()]
-  for (const key of keys) {
-    if (messageId != null && key.split('\0')[0] !== messageId) continue
-    const batch = buffer.pending.get(key)
-    buffer.pending.delete(key)
-    if (!batch) continue
-    applyStreamKey(key, batch, applyHandler, buffer.label)
-  }
-  // Partial flush (one messageId) may leave siblings pending — reschedule.
-  if (buffer.pending.size > 0) {
-    scheduleSharedFlush(
-      () => buffer.flushTimer,
-      t => {
-        buffer.flushTimer = t
-      },
-      () => flushAllDeltaKeys(buffer),
-      buffer.defaultBatchMs
-    )
+function applyJsonPartialKey(
+  key: string,
+  patch: AssistantJsonPartialPatch,
+  applyHandler: AssistantJsonPartialApply
+): void {
+  const parts = key.split('\0')
+  try {
+    applyHandler(parts[0], parts[1] || undefined, parts[2] || undefined, patch)
+  } catch (error) {
+    console.warn('[assistantJsonPartialBatch] apply failed', error)
   }
 }
 
-function flushAllToolKeys(buffer: ToolDeltaBuffer, messageId?: string): void {
-  if (buffer.flushTimer != null) {
-    clearTimeout(buffer.flushTimer)
-    buffer.flushTimer = undefined
+function flushLane<T, A>(
+  buffer: DeltaBuffer<T, A>,
+  lane: StreamLane,
+  messageId?: string
+): void {
+  const state = buffer.lanes[lane]
+  if (state.flushTimer != null) {
+    clearTimeout(state.flushTimer)
+    state.flushTimer = undefined
   }
   const applyHandler = buffer.getApplyHandler()
   if (!applyHandler) {
-    if (buffer.pending.size > 0) {
+    if (state.pending.size > 0) {
       console.warn(`[${buffer.label}] flush skipped: no apply handler registered`)
     }
-    if (messageId == null) buffer.pending.clear()
+    if (messageId == null) state.pending.clear()
     else {
-      for (const key of [...buffer.pending.keys()]) {
-        if (key.split('\0')[0] === messageId) buffer.pending.delete(key)
+      for (const key of [...state.pending.keys()]) {
+        if (key.split('\0')[0] === messageId) state.pending.delete(key)
       }
     }
     return
   }
-  const keys = [...buffer.pending.keys()]
+  const keys = [...state.pending.keys()]
   for (const key of keys) {
     if (messageId != null && key.split('\0')[0] !== messageId) continue
-    const batch = buffer.pending.get(key)
-    buffer.pending.delete(key)
+    const batch = state.pending.get(key)
+    state.pending.delete(key)
     if (!batch) continue
-    applyToolKey(key, batch, applyHandler, buffer.label)
+    buffer.applyKey(key, batch, applyHandler)
   }
-  if (buffer.pending.size > 0) {
-    scheduleSharedFlush(
-      () => buffer.flushTimer,
-      t => {
-        buffer.flushTimer = t
-      },
-      () => flushAllToolKeys(buffer),
-      buffer.defaultBatchMs
-    )
+  // Partial flush (one messageId) may leave siblings pending — reschedule this lane.
+  if (state.pending.size > 0) {
+    scheduleLaneFlush(buffer, lane, buffer.defaultBatchMs)
   }
+}
+
+/** Flush one buffer in both lanes (all keys, or only `messageId`'s). */
+function flushBuffer<T, A>(buffer: DeltaBuffer<T, A>, messageId?: string): void {
+  for (const lane of LANES) flushLane(buffer, lane, messageId)
+}
+
+function enqueueInto<T, A>(
+  buffer: DeltaBuffer<T, A>,
+  lane: StreamLane,
+  key: string,
+  value: T,
+  batchMs: number
+): void {
+  const state = buffer.lanes[lane]
+  state.pending.set(key, buffer.merge(state.pending.get(key), value))
+  scheduleLaneFlush(buffer, lane, batchMs)
 }
 
 function enqueueDelta(
-  buffer: DeltaBuffer,
+  buffer: DeltaBuffer<string, StreamDeltaApply>,
   messageId: string,
   text: string,
   traceId: string | undefined,
@@ -295,20 +416,17 @@ function enqueueDelta(
   batchMs: number
 ): void {
   if (!text) return
-  const key = bufferKey(messageId, traceId, scopedMessageId)
-  buffer.pending.set(key, (buffer.pending.get(key) ?? '') + text)
-  scheduleSharedFlush(
-    () => buffer.flushTimer,
-    t => {
-      buffer.flushTimer = t
-    },
-    () => flushAllDeltaKeys(buffer),
+  enqueueInto(
+    buffer,
+    streamLaneFor(traceId, scopedMessageId),
+    bufferKey(messageId, traceId, scopedMessageId),
+    text,
     batchMs
   )
 }
 
 function enqueueToolDelta(
-  buffer: ToolDeltaBuffer,
+  buffer: DeltaBuffer<string, ToolDeltaApply>,
   messageId: string,
   toolCallId: string,
   text: string,
@@ -317,14 +435,11 @@ function enqueueToolDelta(
   batchMs: number
 ): void {
   if (!text) return
-  const key = toolBufferKey(messageId, toolCallId, traceId, scopedMessageId)
-  buffer.pending.set(key, (buffer.pending.get(key) ?? '') + text)
-  scheduleSharedFlush(
-    () => buffer.flushTimer,
-    t => {
-      buffer.flushTimer = t
-    },
-    () => flushAllToolKeys(buffer),
+  enqueueInto(
+    buffer,
+    streamLaneFor(traceId, scopedMessageId),
+    toolBufferKey(messageId, toolCallId, traceId, scopedMessageId),
+    text,
     batchMs
   )
 }
@@ -340,101 +455,12 @@ function mergeJsonPartial(
   }
 }
 
-function clearDeltaBuffer(buffer: DeltaBuffer): void {
-  if (buffer.flushTimer != null) clearTimeout(buffer.flushTimer)
-  buffer.flushTimer = undefined
-  buffer.pending.clear()
-}
-
-function clearToolDeltaBuffer(buffer: ToolDeltaBuffer): void {
-  if (buffer.flushTimer != null) clearTimeout(buffer.flushTimer)
-  buffer.flushTimer = undefined
-  buffer.pending.clear()
-}
-
-const reasoningBuffer: DeltaBuffer = {
-  pending: reasoningPending,
-  flushTimer: undefined,
-  getApplyHandler: () => reasoningApplyHandler,
-  label: 'reasoningDeltaBatch',
-  defaultBatchMs: REASONING_DELTA_BATCH_MS
-}
-const contentBuffer: DeltaBuffer = {
-  pending: contentPending,
-  flushTimer: undefined,
-  getApplyHandler: () => contentApplyHandler,
-  label: 'contentDeltaBatch',
-  defaultBatchMs: CONTENT_DELTA_BATCH_MS
-}
-const toolArgsBuffer: ToolDeltaBuffer = {
-  pending: toolArgsPending,
-  flushTimer: undefined,
-  getApplyHandler: () => toolArgsApplyHandler,
-  label: 'toolArgsDeltaBatch',
-  defaultBatchMs: TOOL_ARGS_DELTA_BATCH_MS
-}
-const toolOutputBuffer: ToolDeltaBuffer = {
-  pending: toolOutputPending,
-  flushTimer: undefined,
-  getApplyHandler: () => toolOutputApplyHandler,
-  label: 'toolOutputDeltaBatch',
-  defaultBatchMs: TOOL_OUTPUT_DELTA_BATCH_MS
-}
-const webSearchOutputBuffer: ToolDeltaBuffer = {
-  pending: webSearchOutputPending,
-  flushTimer: undefined,
-  getApplyHandler: () => webSearchOutputApplyHandler,
-  label: 'webSearchOutputDeltaBatch',
-  defaultBatchMs: WEB_SEARCH_OUTPUT_DELTA_BATCH_MS
-}
-const jsonPartialBuffer: JsonPartialBuffer = {
-  pending: jsonPartialPending,
-  flushTimer: undefined,
-  getApplyHandler: () => jsonPartialApplyHandler,
-  label: 'assistantJsonPartialBatch',
-  defaultBatchMs: ASSISTANT_JSON_PARTIAL_BATCH_MS
-}
-
-function flushAllJsonPartialKeys(messageId?: string): void {
-  if (jsonPartialBuffer.flushTimer != null) {
-    clearTimeout(jsonPartialBuffer.flushTimer)
-    jsonPartialBuffer.flushTimer = undefined
-  }
-  const applyHandler = jsonPartialBuffer.getApplyHandler()
-  if (!applyHandler) {
-    if (jsonPartialBuffer.pending.size > 0) {
-      console.warn(`[${jsonPartialBuffer.label}] flush skipped: no apply handler registered`)
-    }
-    if (messageId == null) jsonPartialBuffer.pending.clear()
-    else {
-      for (const key of [...jsonPartialBuffer.pending.keys()]) {
-        if (key.split('\0')[0] === messageId) jsonPartialBuffer.pending.delete(key)
-      }
-    }
-    return
-  }
-  const keys = [...jsonPartialBuffer.pending.keys()]
-  for (const key of keys) {
-    if (messageId != null && key.split('\0')[0] !== messageId) continue
-    const patch = jsonPartialBuffer.pending.get(key)
-    jsonPartialBuffer.pending.delete(key)
-    if (!patch) continue
-    const parts = key.split('\0')
-    try {
-      applyHandler(parts[0], parts[1] || undefined, parts[2] || undefined, patch)
-    } catch (error) {
-      console.warn(`[${jsonPartialBuffer.label}] apply failed`, error)
-    }
-  }
-  if (jsonPartialBuffer.pending.size > 0) {
-    scheduleSharedFlush(
-      () => jsonPartialBuffer.flushTimer,
-      t => {
-        jsonPartialBuffer.flushTimer = t
-      },
-      () => flushAllJsonPartialKeys(),
-      jsonPartialBuffer.defaultBatchMs
-    )
+function clearLaneBuffer<T, A>(buffer: DeltaBuffer<T, A>): void {
+  for (const lane of LANES) {
+    const state = buffer.lanes[lane]
+    if (state.flushTimer != null) clearTimeout(state.flushTimer)
+    state.flushTimer = undefined
+    state.pending.clear()
   }
 }
 
@@ -453,7 +479,7 @@ export function enqueueContentDelta(
   text: string,
   batchMs: number = CONTENT_DELTA_BATCH_MS
 ): void {
-  enqueueDelta(contentBuffer, messageId, text, undefined, undefined, batchMs)
+  enqueueInto(contentBuffer, contentLaneFor(messageId), bufferKey(messageId), text, batchMs)
 }
 
 export function enqueueToolArgsDelta(
@@ -511,48 +537,49 @@ export function enqueueAssistantJsonPartial(
   ) {
     return
   }
-  const key = bufferKey(messageId, traceId, scopedMessageId)
-  jsonPartialBuffer.pending.set(key, mergeJsonPartial(jsonPartialBuffer.pending.get(key), patch))
-  scheduleSharedFlush(
-    () => jsonPartialBuffer.flushTimer,
-    t => {
-      jsonPartialBuffer.flushTimer = t
-    },
-    () => flushAllJsonPartialKeys(),
+  enqueueInto(
+    jsonPartialBuffer,
+    streamLaneFor(traceId, scopedMessageId),
+    bufferKey(messageId, traceId, scopedMessageId),
+    patch,
     batchMs
   )
 }
 
 /** Flush pending reasoning for one message (all traces) or the entire buffer. */
 export function flushReasoningDeltaBuffer(messageId?: string): void {
-  flushAllDeltaKeys(reasoningBuffer, messageId)
+  flushBuffer(reasoningBuffer, messageId)
 }
 
 /** Flush pending assistant body text for one message or the entire buffer. */
 export function flushContentDeltaBuffer(messageId?: string): void {
-  flushAllDeltaKeys(contentBuffer, messageId)
+  flushBuffer(contentBuffer, messageId)
 }
 
 /** Flush pending tool call args for one message or the entire buffer. */
 export function flushToolArgsDeltaBuffer(messageId?: string): void {
-  flushAllToolKeys(toolArgsBuffer, messageId)
+  flushBuffer(toolArgsBuffer, messageId)
 }
 
 /** Flush pending terminal output for one message or the entire buffer. */
 export function flushToolOutputDeltaBuffer(messageId?: string): void {
-  flushAllToolKeys(toolOutputBuffer, messageId)
+  flushBuffer(toolOutputBuffer, messageId)
 }
 
 /** Flush pending web search output for one message or the entire buffer. */
 export function flushWebSearchOutputDeltaBuffer(messageId?: string): void {
-  flushAllToolKeys(webSearchOutputBuffer, messageId)
+  flushBuffer(webSearchOutputBuffer, messageId)
 }
 
 /** Flush pending assistant JSON partials for one message or the entire buffer. */
 export function flushAssistantJsonPartialBuffer(messageId?: string): void {
-  flushAllJsonPartialKeys(messageId)
+  flushBuffer(jsonPartialBuffer, messageId)
 }
 
+/**
+ * Escape valve 1 — message end / turn end. Flushes **both lanes** of every channel,
+ * so a slow-lane worker body can never outlive its message or turn.
+ */
 export function flushStreamDeltaBuffers(messageId?: string): void {
   flushReasoningDeltaBuffer(messageId)
   flushContentDeltaBuffer(messageId)
@@ -563,22 +590,25 @@ export function flushStreamDeltaBuffers(messageId?: string): void {
 }
 
 export function clearReasoningDeltaBuffer(): void {
-  clearDeltaBuffer(reasoningBuffer)
+  clearLaneBuffer(reasoningBuffer)
 }
 
 export function clearContentDeltaBuffer(): void {
-  clearDeltaBuffer(contentBuffer)
+  clearLaneBuffer(contentBuffer)
 }
 
 export function clearToolArgsDeltaBuffer(): void {
-  clearToolDeltaBuffer(toolArgsBuffer)
+  clearLaneBuffer(toolArgsBuffer)
 }
 
 /**
- * Drop pending batched args for one tool call without applying them.
- * Needed when a later `tool_call_start` carries the authoritative full
- * `arguments` string — otherwise a deferred flush would append chunks that
- * were already included in that snapshot (duplicate / trailing junk).
+ * Drop pending batched args for one tool call without applying them — **both lanes**.
+ *
+ * Needed when a later `tool_call_start` carries the authoritative full `arguments`
+ * string — otherwise a deferred flush would append chunks that were already included
+ * in that snapshot (duplicate / trailing junk). This is also escape valve 2's tool
+ * half: an `ask_user` question or an approval card always arrives as such a snapshot,
+ * so it never waits for the slow timer.
  */
 export function clearToolArgsDeltaBufferForTool(
   messageId: string,
@@ -587,21 +617,20 @@ export function clearToolArgsDeltaBufferForTool(
   scopedMessageId?: string
 ): void {
   const key = toolBufferKey(messageId, toolCallId, traceId, scopedMessageId)
-  toolArgsPending.delete(key)
+  toolArgsBuffer.lanes.fast.pending.delete(key)
+  toolArgsBuffer.lanes.slow.pending.delete(key)
 }
 
 export function clearToolOutputDeltaBuffer(): void {
-  clearToolDeltaBuffer(toolOutputBuffer)
+  clearLaneBuffer(toolOutputBuffer)
 }
 
 export function clearWebSearchOutputDeltaBuffer(): void {
-  clearToolDeltaBuffer(webSearchOutputBuffer)
+  clearLaneBuffer(webSearchOutputBuffer)
 }
 
 export function clearAssistantJsonPartialBuffer(): void {
-  if (jsonPartialBuffer.flushTimer != null) clearTimeout(jsonPartialBuffer.flushTimer)
-  jsonPartialBuffer.flushTimer = undefined
-  jsonPartialBuffer.pending.clear()
+  clearLaneBuffer(jsonPartialBuffer)
 }
 
 export function clearStreamDeltaBuffers(): void {

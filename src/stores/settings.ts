@@ -101,15 +101,57 @@ function normalizeContextBudgetTokens(raw?: number): number {
   return clampContextBudgetTokens(Math.floor(Number(raw)))
 }
 
-/** Per-agent live sub-agent children cap (`maxChildrenPerAgent`): 1–32, default 8. */
-export const DEFAULT_MAX_CHILDREN_PER_AGENT = 8
+/** Per-agent live sub-agent children cap (`maxChildrenPerAgent`). */
 export const MIN_MAX_CHILDREN_PER_AGENT = 1
-export const MAX_MAX_CHILDREN_PER_AGENT = 32
+/**
+ * Floor for the dynamic ceiling. Mirrors the Rust side
+ * (`MIN_CEILING_MAX_CHILDREN_PER_AGENT`): never drop below the previous fixed
+ * ceiling (32), or low-core hosts would silently downgrade existing configs.
+ */
+const CEILING_FLOOR = 32
+/** Multiplier applied to the reported logical CPU count (mirrors Rust). */
+const CORE_MULTIPLIER = 10
+/**
+ * Hard cap for the dynamic ceiling. Mirrors Rust
+ * (`MAX_CEILING_MAX_CHILDREN_PER_AGENT`): no host may exceed it, whatever core
+ * count it reports.
+ */
+const CEILING_HARD_CAP = 100
+
+/**
+ * Logical cores the runtime reports. `navigator.hardwareConcurrency` may be
+ * capped or absent (privacy settings, non-browser test env) → fall back to `1`,
+ * the same deterministic fallback the Rust side uses.
+ */
+function reportedLogicalCores(): number {
+  const cores = Number(globalThis.navigator?.hardwareConcurrency)
+  return Number.isFinite(cores) && cores >= 1 ? Math.floor(cores) : 1
+}
+
+/**
+ * Pure ceiling formula — mirrors Rust `ceiling_for_cores`:
+ * `clamp(cores × 10, 32, 100)`. Exported so tests can pin the derivation without
+ * depending on the host's core count.
+ */
+export function maxChildrenPerAgentCeilingForCores(cores: number): number {
+  const n = Number.isFinite(cores) && cores >= 1 ? Math.floor(cores) : 1
+  return Math.min(Math.max(n * CORE_MULTIPLIER, CEILING_FLOOR), CEILING_HARD_CAP)
+}
+
+/** Dynamic fan-out ceiling: logical CPU cores × 10, floored at 32, capped at 100. */
+export function maxChildrenPerAgentCeiling(): number {
+  return maxChildrenPerAgentCeilingForCores(reportedLogicalCores())
+}
+
+/** Default cap == the ceiling: new installs start at the maximum allowed value. */
+export function defaultMaxChildrenPerAgent(): number {
+  return maxChildrenPerAgentCeiling()
+}
 
 export function clampMaxChildrenPerAgent(raw?: number): number {
   const n = Math.floor(Number(raw))
-  if (!Number.isFinite(n)) return DEFAULT_MAX_CHILDREN_PER_AGENT
-  return Math.min(MAX_MAX_CHILDREN_PER_AGENT, Math.max(MIN_MAX_CHILDREN_PER_AGENT, n))
+  if (!Number.isFinite(n)) return defaultMaxChildrenPerAgent()
+  return Math.min(maxChildrenPerAgentCeiling(), Math.max(MIN_MAX_CHILDREN_PER_AGENT, n))
 }
 
 function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSettings {
@@ -312,7 +354,7 @@ export const useSettingsStore = defineStore('settings', () => {
     attachmentUploadMaxBytes: 100 * 1024 * 1024,
     maxSubAgentToolRounds: DEFAULT_SUB_AGENT_TOOL_ROUNDS,
     maxSubAgentSpawnDepth: 2,
-    maxChildrenPerAgent: DEFAULT_MAX_CHILDREN_PER_AGENT,
+    maxChildrenPerAgent: defaultMaxChildrenPerAgent(),
     rawContentViewEnabled: false,
     debugDumpLlmPrompts: false,
     terminalEnvOverrides: {},

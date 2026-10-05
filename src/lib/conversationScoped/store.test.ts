@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { effect, stop } from 'vue'
 import type { ChatMessage } from '../../types/chat'
 import { computeSubAgentLiveFingerprint } from './liveFingerprint'
 import { resolveSpawnId } from './spawnId'
@@ -217,6 +218,153 @@ describe('createConversationScopedStore', () => {
       createdAt: 0
     }])
     expect(store.getRows('c1', { agentInstanceId: 'inst-1' })).toEqual([])
+  })
+
+  it('isScopedMessageId answers globally, conservatively, and releases', () => {
+    const store = createConversationScopedStore()
+    // Conservative default: unknown / empty ids are lead rows (fast lane).
+    expect(store.isScopedMessageId('m1')).toBe(false)
+    expect(store.isScopedMessageId('')).toBe(false)
+    expect(store.isScopedMessageId(null)).toBe(false)
+    expect(store.isScopedMessageId(undefined)).toBe(false)
+
+    store.ensureInstance('c1', {
+      agentInstanceId: 'inst-1',
+      anchorMessageId: 'anchor-1'
+    }, scopedMsg({ id: 'm1', agentInstanceId: 'inst-1' }))
+    expect(store.isScopedMessageId('m1')).toBe(true)
+    expect(store.isScopedMessageId(' m1 ')).toBe(true)
+
+    // Global: another conversation's scoped row is just as visible.
+    store.ensureInstance('c2', {
+      agentInstanceId: 'inst-2',
+      anchorMessageId: 'anchor-2'
+    }, scopedMsg({ id: 'm2', agentInstanceId: 'inst-2', anchorMessageId: 'anchor-2' }))
+    expect(store.isScopedMessageId('m2')).toBe(true)
+
+    // A row without an anchor is not a scoped row — it must stay on the fast lane.
+    store.ensureInstance('c1', { agentInstanceId: 'inst-3' }, {
+      id: 'lead-row',
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+      createdAt: 0
+    })
+    expect(store.isScopedMessageId('lead-row')).toBe(false)
+
+    // Eviction releases the id (no only-grow leak).
+    store.evictInstance('c1', { agentInstanceId: 'inst-1' }, 'stub')
+    expect(store.isScopedMessageId('m1')).toBe(false)
+
+    // clearConversation releases that conversation's ids only.
+    store.clearConversation('c2')
+    expect(store.isScopedMessageId('m2')).toBe(false)
+
+    // clearAll wipes the index.
+    store.ensureInstance('c3', {
+      agentInstanceId: 'inst-4',
+      anchorMessageId: 'anchor-4'
+    }, scopedMsg({ id: 'm4', agentInstanceId: 'inst-4', anchorMessageId: 'anchor-4' }))
+    expect(store.isScopedMessageId('m4')).toBe(true)
+    store.clearAll()
+    expect(store.isScopedMessageId('m4')).toBe(false)
+  })
+
+  // --- Regression: publishLive writes the inner spawn slot only -------------
+
+  it('keeps a spawn write from invalidating readers of its siblings', () => {
+    const store = createConversationScopedStore()
+    const rowA = scopedMsg({ id: 'a1', agentInstanceId: 'inst-a', anchorMessageId: 'anchor-1', content: 'a' })
+    const rowB = scopedMsg({ id: 'b1', agentInstanceId: 'inst-b', anchorMessageId: 'anchor-1', content: 'b' })
+    store.ensureInstance('c1', { agentInstanceId: 'inst-a', anchorMessageId: 'anchor-1' }, rowA)
+    store.ensureInstance('c1', { agentInstanceId: 'inst-b', anchorMessageId: 'anchor-1' }, rowB)
+
+    let runsA = 0
+    let runsBlank = 0
+    const runnerA = effect(() => { store.getLiveSignal('c1', 'inst-a'); runsA += 1 })
+    const runnerBlank = effect(() => { store.getLiveSignal('c1', ''); runsBlank += 1 })
+    expect(runsA).toBe(1)
+    expect(runsBlank).toBe(1)
+
+    rowB.content = 'b grows'
+    store.touchRow('c1', 'b1')
+    expect(runsA).toBe(1) // sibling spawn write must not re-run A's reader
+    expect(runsBlank).toBe(1) // the blank key no longer doubles as "any spawn moved"
+
+    rowA.content = 'a grows'
+    store.touchRow('c1', 'a1')
+    expect(runsA).toBe(2) // A's own write still lands
+    stop(runnerA)
+    stop(runnerBlank)
+  })
+
+  it('releases the evicted spawn slot without leaking its subscriber', () => {
+    const store = createConversationScopedStore()
+    const rowA = scopedMsg({ id: 'a1', agentInstanceId: 'inst-a', anchorMessageId: 'anchor-1', content: 'a' })
+    const rowB = scopedMsg({ id: 'b1', agentInstanceId: 'inst-b', anchorMessageId: 'anchor-1', content: 'b' })
+    store.ensureInstance('c1', { agentInstanceId: 'inst-a', anchorMessageId: 'anchor-1' }, rowA)
+    store.ensureInstance('c1', { agentInstanceId: 'inst-b', anchorMessageId: 'anchor-1' }, rowB)
+
+    let runsA = 0
+    const runnerA = effect(() => { store.getLiveSignal('c1', 'inst-a'); runsA += 1 })
+    expect(runsA).toBe(1)
+    expect(store.getLiveSignal('c1', 'inst-a')).not.toBe('')
+
+    store.evictInstance('c1', { agentInstanceId: 'inst-a' }, 'stub')
+    expect(runsA).toBe(2) // eviction is a real change: the reader must be released
+    expect(store.getLiveSignal('c1', 'inst-a')).toBe('')
+
+    rowB.content = 'b grows'
+    store.touchRow('c1', 'b1')
+    expect(runsA).toBe(2) // no leak: a later sibling write must not reach it
+    stop(runnerA)
+  })
+
+  // --- Regression: the list still refreshes on shape changes ----------------
+
+  it('structure revision tracks shape changes but never text growth', () => {
+    const store = createConversationScopedStore()
+    const row = scopedMsg({
+      id: 'm1',
+      agentInstanceId: 'inst-1',
+      anchorMessageId: 'anchor-1',
+      status: 'streaming',
+      toolCalls: [{ id: 'tc-read', name: 'read', status: 'running', arguments: '{}' }]
+    })
+    store.ensureInstance('c1', { agentInstanceId: 'inst-1', anchorMessageId: 'anchor-1' }, row)
+    const afterSpawn = store.getStructureRevision('c1')
+    expect(afterSpawn).toBeGreaterThan(0)
+    expect(store.getStructureRevision('other')).toBe(0)
+
+    let runs = 0
+    const runner = effect(() => { store.getStructureRevision('c1'); runs += 1 })
+    expect(runs).toBe(1)
+
+    // Pure text / payload growth: the turn spawn plans must not rebuild.
+    row.content = 'streamed body '.repeat(20)
+    row.thoughts = 'reasoning text'
+    row.toolCalls![0]!.result = 'x'.repeat(500)
+    store.touchRow('c1', 'm1')
+    expect(store.getStructureRevision('c1')).toBe(afterSpawn)
+    expect(runs).toBe(1)
+
+    // Tool status change is a shape change: the list must refresh, never stay stale.
+    row.toolCalls![0]!.status = 'success'
+    store.touchRow('c1', 'm1')
+    expect(store.getStructureRevision('c1')).toBe(afterSpawn + 1)
+    expect(runs).toBe(2)
+
+    // A new spawn is a shape change even before any row lands.
+    const afterRowBump = store.getStructureRevision('c1')
+    store.ensureInstance('c1', { agentInstanceId: 'inst-2', anchorMessageId: 'anchor-1' },
+      scopedMsg({ id: 'm2', agentInstanceId: 'inst-2' }))
+    expect(store.getStructureRevision('c1')).toBeGreaterThan(afterRowBump)
+
+    // Eviction is a shape change too.
+    const beforeEvict = store.getStructureRevision('c1')
+    store.evictInstance('c1', { agentInstanceId: 'inst-2' }, 'stub')
+    expect(store.getStructureRevision('c1')).toBe(beforeEvict + 1)
+    stop(runner)
   })
 })
 

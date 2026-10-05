@@ -493,7 +493,7 @@ fn default_max_sub_agent_spawn_depth() -> u32 {
 }
 
 fn default_max_children_per_agent() -> u32 {
-    crate::models::DEFAULT_MAX_CHILDREN_PER_AGENT
+    crate::models::max_children_per_agent_ceiling()
 }
 
 fn default_raw_content_view_enabled() -> bool {

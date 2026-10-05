@@ -11,11 +11,14 @@ import {
   isSubAgentHostStubContent,
   mergeSubAgentToolCalls,
   rehydrateAgentTracesFromScopedMessages,
+  relocateNestedTracesToHostRows,
   scopedAssistantMessagesForTrace,
   scopedMessagesForTrace,
   subAgentFrameOwnsCompression
 } from './subAgentMessages'
 import { formatSubAgentSummaryLine } from './subAgentStats'
+import { buildSubAgentTraceTree } from './subAgentTraceTree'
+import { createConversationScopedStore } from './conversationScoped/store'
 
 describe('mergeSubAgentToolCalls', () => {
   function tc(over: Partial<ToolCall> & Pick<ToolCall, 'id'>): ToolCall {
@@ -662,6 +665,218 @@ describe('ensureHostLinkedSubTraces', () => {
     expect(lead.agentTrace![0]!.id).toBe('inst-hydrated')
     expect(lead.agentTrace![0]!.parentToolCallId).toBe('call-fg')
     expect(lead.agentTrace![0]!.agentInstanceId).toBe('inst-hydrated')
+  })
+})
+
+describe('relocateNestedTracesToHostRows', () => {
+  function conv(messages: ChatMessage[]): Conversation {
+    return { id: 'conv', title: 't', createdAt: 1, updatedAt: 1, skillIds: [], messages }
+  }
+
+  function scopedRound(over: Partial<ChatMessage> & Pick<ChatMessage, 'id'>): ChatMessage {
+    return {
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 2,
+      anchorMessageId: 'lead',
+      agentInstanceId: 'inst-worker',
+      traceId: 'sub_task_1:coder',
+      spawnDepth: 1,
+      ...over
+    }
+  }
+
+  it('把 lead 上、宿主行在 scoped 行的 depth-2 档案搬到父 worker 行', () => {
+    const lead: ChatMessage = {
+      id: 'lead',
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 1,
+      toolCalls: [
+        { id: 'call-lead', name: 'run_subagent', arguments: '{}', status: 'success' }
+      ],
+      agentTrace: [
+        { id: 'inst-worker', name: '', role: '', status: 'completed', depth: 1, parentToolCallId: 'call-lead' },
+        // 记账 bug 漏到 lead 的 depth-2 档案：宿主行 call-nested 其实在 worker 的 scoped 行里。
+        { id: 'inst-nested', name: '', role: '', status: 'completed', depth: 2, parentToolCallId: 'call-nested' }
+      ]
+    }
+    const workerRow = scopedRound({
+      id: 'row-worker',
+      toolCalls: [{ id: 'call-nested', name: 'run_subagent', arguments: '{}', status: 'success' }]
+    })
+
+    const moved = relocateNestedTracesToHostRows(conv([lead]), [workerRow])
+
+    expect(moved).toBe(1)
+    expect(lead.agentTrace!.map(t => t.id)).toEqual(['inst-worker'])
+    expect(workerRow.agentTrace!.map(t => t.id)).toEqual(['inst-nested'])
+  })
+
+  it('宿主行就在 lead 上时不搬（避免重复渲染）', () => {
+    const lead: ChatMessage = {
+      id: 'lead',
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 1,
+      toolCalls: [
+        { id: 'call-lead', name: 'run_subagent', arguments: '{}', status: 'success' }
+      ],
+      agentTrace: [
+        { id: 'inst-worker', name: '', role: '', status: 'completed', depth: 1, parentToolCallId: 'call-lead' }
+      ]
+    }
+    const moved = relocateNestedTracesToHostRows(conv([lead]), [
+      scopedRound({ id: 'row-worker' })
+    ])
+    expect(moved).toBe(0)
+    expect(lead.agentTrace!.map(t => t.id)).toEqual(['inst-worker'])
+  })
+
+  it('宿主行缺失时按档案自己的 anchorMessageId 退回归位（老数据）', () => {
+    const lead: ChatMessage = {
+      id: 'lead',
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 1,
+      agentTrace: [
+        {
+          id: 'inst-nested',
+          name: '',
+          role: '',
+          status: 'completed',
+          depth: 2,
+          // 宿主行 id 在 scoped 行里找不到（老数据把宿主行标成了非 scoped），
+          // 但档案锚点仍然指着那条 worker 行。
+          parentToolCallId: 'call-missing',
+          anchorMessageId: 'row-worker'
+        }
+      ]
+    }
+    const workerRow = scopedRound({ id: 'row-worker' })
+
+    const moved = relocateNestedTracesToHostRows(conv([lead]), [workerRow])
+
+    expect(moved).toBe(1)
+    expect(lead.agentTrace).toEqual([])
+    expect(workerRow.agentTrace!.map(t => t.id)).toEqual(['inst-nested'])
+  })
+
+  it('同一档案已在 scoped 行时不重复追加', () => {
+    const lead: ChatMessage = {
+      id: 'lead',
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 1,
+      agentTrace: [
+        { id: 'inst-nested', name: '', role: '', status: 'completed', depth: 2, parentToolCallId: 'call-nested' }
+      ]
+    }
+    const workerRow = scopedRound({
+      id: 'row-worker',
+      toolCalls: [{ id: 'call-nested', name: 'run_subagent', arguments: '{}', status: 'success' }],
+      agentTrace: [
+        { id: 'inst-nested', name: '', role: '', status: 'completed', depth: 2, parentToolCallId: 'call-nested' }
+      ]
+    })
+    relocateNestedTracesToHostRows(conv([lead]), [workerRow])
+    expect(workerRow.agentTrace).toHaveLength(1)
+    expect(lead.agentTrace).toEqual([])
+  })
+})
+
+describe('stub 驱逐后不丢子帧', () => {
+  function workerTrace(): ChatMessage {
+    return {
+      id: 'lead',
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 1,
+      agentTrace: [
+        { id: 'inst-worker', name: '', role: '', status: 'completed', depth: 1, parentToolCallId: 'call-lead' }
+      ]
+    }
+  }
+
+  function workerRound(): ChatMessage {
+    return {
+      id: 'row-worker',
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 2,
+      anchorMessageId: 'lead',
+      agentInstanceId: 'inst-worker',
+      traceId: 'sub_task_1:coder',
+      spawnDepth: 1,
+      toolCalls: [{ id: 'call-nested', name: 'run_subagent', arguments: '{}', status: 'success' }],
+      agentTrace: [
+        {
+          id: 'inst-nested',
+          name: '',
+          role: '',
+          status: 'completed',
+          depth: 2,
+          parentToolCallId: 'call-nested',
+          parentTraceId: 'inst-worker'
+        }
+      ]
+    }
+  }
+
+  function childIds(rows: readonly ChatMessage[]): string[] {
+    const lead = workerTrace()
+    return buildSubAgentTraceTree({
+      leadTraces: lead.agentTrace,
+      scopedRows: rows
+    })
+      .childrenOf('inst-worker')
+      .map(t => t.id)
+  }
+
+  it('depth-2 档案在父 worker 的 scoped 行上 → 驱逐是可逆的（按落库 payload 重新水合）', () => {
+    const store = createConversationScopedStore()
+    const persisted = JSON.parse(JSON.stringify(workerRound())) as ChatMessage
+
+    store.ingestRows('c1', [workerRound()])
+    expect(childIds(store.listRows('c1'))).toEqual(['inst-nested'])
+
+    // 父帧进 stub：scoped 行被内存驱逐（这正是「加重因素」）。
+    store.evictInstance(
+      'c1',
+      { agentInstanceId: 'inst-worker', anchorMessageId: 'lead' },
+      'stub'
+    )
+    expect(store.listRows('c1')).toEqual([])
+    expect(childIds(store.listRows('c1'))).toEqual([])
+
+    // 重新展开 → 按 DB payload 重新水合 → 子帧挂回来（不丢帧）。
+    store.ingestRows('c1', [persisted])
+    expect(childIds(store.listRows('c1'))).toEqual(['inst-nested'])
+  })
+
+  it('depth-2 档案只在 lead 上时，父行驱逐后子帧就彻底消失（反例：这正是 ① 要消灭的形态）', () => {
+    const lead = workerTrace()
+    lead.agentTrace!.push({
+      id: 'inst-nested',
+      name: '',
+      role: '',
+      status: 'completed',
+      depth: 2,
+      parentToolCallId: 'call-nested',
+      parentTraceId: 'inst-worker'
+    })
+    const rows: ChatMessage[] = []
+    expect(childIds(rows)).toEqual([])
+    expect(
+      buildSubAgentTraceTree({ leadTraces: lead.agentTrace, scopedRows: rows }).all.map(t => t.id)
+    ).toEqual(['inst-worker', 'inst-nested'])
   })
 })
 

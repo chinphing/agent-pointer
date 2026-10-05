@@ -9,11 +9,7 @@ const props = defineProps<{
 }>()
 
 const root = ref<HTMLElement | null>(null)
-const { duration, boxPx } = useToolLiveSweep(
-  root,
-  () => props.active === true,
-  () => props.text
-)
+const { duration, boxPx } = useToolLiveSweep(root, () => props.active === true)
 
 const sweepStyle = computed(() => {
   if (!props.active) return undefined

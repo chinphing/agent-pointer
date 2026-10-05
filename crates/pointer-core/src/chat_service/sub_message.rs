@@ -110,6 +110,28 @@ pub fn should_persist_anchor_agent_trace(status: &str) -> bool {
     )
 }
 
+/// Keep only the traces that belong to the anchor row's **own layer**.
+///
+/// A trace whose `parent_trace_id` resolves to another trace in the same buffer is a
+/// **descendant**: it was issued by one of the buffer's own children, so it belongs on a
+/// deeper row. Writing it here is exactly how depth-2 frames leaked onto the lead row —
+/// they had no host row there and the UI had to render them as orphans.
+fn own_layer_traces(agent_trace: &[AgentTrace]) -> Vec<AgentTrace> {
+    let ids: std::collections::HashSet<&str> = agent_trace
+        .iter()
+        .map(|t| t.id.trim())
+        .filter(|id| !id.is_empty())
+        .collect();
+    agent_trace
+        .iter()
+        .filter(|t| {
+            let parent = t.parent_trace_id.as_deref().map(str::trim).unwrap_or("");
+            parent.is_empty() || !ids.contains(parent)
+        })
+        .cloned()
+        .collect()
+}
+
 /// Write `agent_trace` onto the in-memory lead row and coalesce SQLite patches.
 /// Many parallel terminals share one lead message: debounce ~400ms, then
 /// `json_set` only `payload.agentTrace` (no full ChatMessage clone).
@@ -119,7 +141,8 @@ pub fn sync_anchor_agent_trace_index(
     anchor_message_id: &str,
     agent_trace: &[AgentTrace],
 ) {
-    if agent_trace.is_empty() {
+    let own = own_layer_traces(agent_trace);
+    if own.is_empty() {
         return;
     }
     let Some(msg) = history.iter_mut().find(|m| m.id == anchor_message_id) else {
@@ -128,8 +151,8 @@ pub fn sync_anchor_agent_trace_index(
         );
         return;
     };
-    msg.agent_trace = Some(agent_trace.to_vec());
-    let json = match serde_json::to_string(agent_trace) {
+    msg.agent_trace = Some(own.clone());
+    let json = match serde_json::to_string(&own) {
         Ok(s) => s,
         Err(e) => {
             log::warn!(
@@ -358,6 +381,91 @@ mod tests {
         assert_eq!(msg.agent_instance_id.as_deref(), Some("instance-a"));
         assert!(msg.context_state.is_none());
         assert!(crate::message_context::is_context_included(&msg));
+    }
+
+    fn trace(id: &str, depth: u32, parent: Option<&str>, anchor: Option<&str>) -> AgentTrace {
+        AgentTrace {
+            id: id.into(),
+            name: id.into(),
+            role: "worker".into(),
+            status: "completed".into(),
+            detail: None,
+            content: None,
+            depth: Some(depth),
+            session: None,
+            collapsed: true,
+            user_expanded: false,
+            agent_instance_id: Some(id.into()),
+            computer_target: None,
+            parent_tool_call_id: Some(format!("call-{id}")),
+            anchor_message_id: anchor.map(str::to_string),
+            summary_line: None,
+            task_id: Some(id.into()),
+            agent_id: Some("explore".into()),
+            search_tool_call_ids: None,
+            parent_trace_id: parent.map(str::to_string),
+            delegation: Some("registered".into()),
+        }
+    }
+
+    /// ① 记账层兜底：同一缓冲里「父也在缓冲里」的档案是后代，不得写到本层锚点。
+    /// 这正是 depth-2 帧错位到 lead 行的路径（lead 行没有它的宿主行 → 渲染成孤儿）。
+    #[test]
+    fn own_layer_traces_drops_descendants_but_keeps_children() {
+        let buf = vec![
+            trace("inst-lead-child", 1, None, Some("anchor")),
+            trace("inst-grandchild", 2, Some("inst-lead-child"), Some("anchor")),
+        ];
+        let own = own_layer_traces(&buf);
+        assert_eq!(
+            own.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            vec!["inst-lead-child"]
+        );
+
+        // 子层缓冲：父不在缓冲里（父在上一层的行上）→ 必须保留，才能写回父 worker 的 scoped 行。
+        let child_layer = vec![trace("inst-grandchild", 2, Some("inst-parent"), Some("row-1"))];
+        assert_eq!(own_layer_traces(&child_layer).len(), 1);
+
+        // 全是后代时不写盘，避免覆盖既有索引。
+        let only_descendants = vec![
+            trace("inst-parent", 1, None, Some("anchor")),
+            trace("inst-grandchild", 2, Some("inst-parent"), Some("anchor")),
+        ];
+        assert_eq!(own_layer_traces(&only_descendants).len(), 1);
+    }
+
+    /// 写盘入口只把本层档案落进锚点行；后代不会污染锚点行。
+    #[test]
+    fn sync_anchor_agent_trace_index_skips_descendants() {
+        let mut history = vec![sample_msg("anchor", None, None)];
+        let buf = vec![
+            trace("inst-lead-child", 1, None, Some("anchor")),
+            trace("inst-grandchild", 2, Some("inst-lead-child"), Some("scoped-row")),
+        ];
+        sync_anchor_agent_trace_index("conv", &mut history, "anchor", &buf);
+        let ids = history[0]
+            .agent_trace
+            .as_ref()
+            .expect("anchor index written")
+            .iter()
+            .map(|t| t.id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec!["inst-lead-child".to_string()]);
+    }
+
+    /// 子层缓冲（父不在缓冲里）必须照常写回，否则 depth-2 档案会彻底消失。
+    #[test]
+    fn sync_anchor_agent_trace_index_keeps_child_layer_traces() {
+        let mut history = vec![sample_msg("scoped-row", Some("anchor"), Some("t:explore"))];
+        let buf = vec![trace("inst-grandchild", 2, Some("inst-parent"), Some("scoped-row"))];
+        sync_anchor_agent_trace_index("conv", &mut history, "scoped-row", &buf);
+        assert_eq!(
+            history[0]
+                .agent_trace
+                .as_ref()
+                .map(|t| t.iter().map(|x| x.id.clone()).collect::<Vec<_>>()),
+            Some(vec!["inst-grandchild".to_string()])
+        );
     }
 
     #[test]

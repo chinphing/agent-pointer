@@ -1,6 +1,20 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  clearStreamDeltaBuffers,
+  enqueueContentDelta,
+  setContentDeltaApplyHandler,
+  setScopedMessageIdPredicate,
+  SLOW_LANE_BATCH_MS
+} from '../../../lib/reasoningDeltaBatch'
 import { handleToolCallStart, handleToolCallStatus } from './toolHandlers'
 import { createMockStreamHandlerContext, sampleAssistantMessage, sampleConversation } from './testUtils'
+
+afterEach(() => {
+  clearStreamDeltaBuffers()
+  setContentDeltaApplyHandler(null)
+  setScopedMessageIdPredicate(null)
+  vi.useRealTimers()
+})
 
 describe('toolHandlers', () => {
   it('handleToolCallStart upserts tool call on assistant message', () => {
@@ -118,5 +132,86 @@ describe('toolHandlers', () => {
       result: '{"jobId":"job_1","status":"completed","kind":"subagent"}'
     })
     expect(conv.messages[0].toolCalls?.[0].status).toBe('success')
+  })
+
+  // --- Escape valve 2: ask_user / approval --------------------------------
+
+  it('an ask_user start flushes that row\'s slow-lane text immediately', () => {
+    vi.useFakeTimers()
+    const apply = vi.fn()
+    setContentDeltaApplyHandler(apply)
+    setScopedMessageIdPredicate(id => id.startsWith('row-'))
+
+    const conv = sampleConversation()
+    conv.messages.push(sampleAssistantMessage('row-1'))
+    const ctx = createMockStreamHandlerContext([conv])
+
+    enqueueContentDelta('row-1', '等待确认前的正文')
+    expect(apply).not.toHaveBeenCalled()
+
+    handleToolCallStart(ctx, {
+      kind: 'tool_call_start',
+      messageId: 'row-1',
+      toolCall: {
+        id: 'tc-ask',
+        name: 'ask_user',
+        arguments: '{"question":"继续吗","options":[]}',
+        status: 'pending'
+      }
+    })
+
+    // The card is on screen — the text must already be there, not 1s later.
+    expect(apply).toHaveBeenCalledWith('row-1', undefined, undefined, '等待确认前的正文')
+    vi.advanceTimersByTime(SLOW_LANE_BATCH_MS)
+    expect(apply).toHaveBeenCalledTimes(1)
+  })
+
+  it('an approval start flushes that row\'s slow-lane text immediately', () => {
+    vi.useFakeTimers()
+    const apply = vi.fn()
+    setContentDeltaApplyHandler(apply)
+    setScopedMessageIdPredicate(id => id.startsWith('row-'))
+
+    const conv = sampleConversation()
+    conv.messages.push(sampleAssistantMessage('row-2'))
+    const ctx = createMockStreamHandlerContext([conv])
+
+    enqueueContentDelta('row-2', '即将请求授权')
+
+    handleToolCallStart(ctx, {
+      kind: 'tool_call_start',
+      messageId: 'row-2',
+      toolCall: {
+        id: 'tc-approve',
+        name: 'terminal',
+        arguments: '{"command":"rm -rf /tmp/x"}',
+        status: 'pending_approval'
+      }
+    })
+
+    expect(apply).toHaveBeenCalledWith('row-2', undefined, undefined, '即将请求授权')
+  })
+
+  it('a regular tool start leaves the slow lane batched', () => {
+    vi.useFakeTimers()
+    const apply = vi.fn()
+    setContentDeltaApplyHandler(apply)
+    setScopedMessageIdPredicate(id => id.startsWith('row-'))
+
+    const conv = sampleConversation()
+    conv.messages.push(sampleAssistantMessage('row-3'))
+    const ctx = createMockStreamHandlerContext([conv])
+
+    enqueueContentDelta('row-3', '普通工具前的正文')
+
+    handleToolCallStart(ctx, {
+      kind: 'tool_call_start',
+      messageId: 'row-3',
+      toolCall: { id: 'tc-read', name: 'file_read', arguments: '{}', status: 'running' }
+    })
+
+    expect(apply).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(SLOW_LANE_BATCH_MS)
+    expect(apply).toHaveBeenCalledTimes(1)
   })
 })

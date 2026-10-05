@@ -1471,17 +1471,56 @@ fn default_max_sub_agent_spawn_depth() -> u32 {
     2
 }
 
-pub const DEFAULT_MAX_CHILDREN_PER_AGENT: u32 = 8;
 pub const FLOOR_MAX_CHILDREN_PER_AGENT: u32 = 1;
-pub const CEILING_MAX_CHILDREN_PER_AGENT: u32 = 32;
+/// Floor for the dynamic ceiling: the ceiling must never drop below the value it
+/// was hard-coded to before it became CPU-derived (32). A low-core or
+/// cgroup-limited host would otherwise *silently downgrade* configs that were
+/// valid before this change.
+pub const MIN_CEILING_MAX_CHILDREN_PER_AGENT: u32 = 32;
+/// Multiplier applied to the reported logical CPU count.
+pub const MAX_CHILDREN_PER_AGENT_CORE_MULTIPLIER: u32 = 10;
+/// Hard cap for the dynamic ceiling: no host may exceed it, whatever core count
+/// it reports. Keeps the fan-out bounded so a large machine cannot open hundreds
+/// of concurrent workers.
+pub const MAX_CEILING_MAX_CHILDREN_PER_AGENT: u32 = 100;
 
-fn default_max_children_per_agent() -> u32 {
-    DEFAULT_MAX_CHILDREN_PER_AGENT
+/// Pure ceiling formula — `clamp(cores × 10, 32, 100)` — split out so the
+/// derivation is testable without mocking the host's core count.
+fn ceiling_for_cores(cores: u32) -> u32 {
+    cores
+        .saturating_mul(MAX_CHILDREN_PER_AGENT_CORE_MULTIPLIER)
+        .clamp(
+            MIN_CEILING_MAX_CHILDREN_PER_AGENT,
+            MAX_CEILING_MAX_CHILDREN_PER_AGENT,
+        )
 }
 
-/// Clamp the per-agent live-children fan-out cap to 1–32 (default 8).
+/// Logical cores the process may actually use. `available_parallelism()` reports
+/// the cgroup-limited count inside a container, and `1` is the deterministic
+/// fallback when the platform cannot tell us.
+fn reported_logical_cores() -> u32 {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1) as u32
+}
+
+/// Dynamic per-agent fan-out ceiling: **logical CPU cores × 10**, floored at
+/// [`MIN_CEILING_MAX_CHILDREN_PER_AGENT`] (32) and capped at
+/// [`MAX_CEILING_MAX_CHILDREN_PER_AGENT`] (100).
+pub fn max_children_per_agent_ceiling() -> u32 {
+    ceiling_for_cores(reported_logical_cores())
+}
+
+/// Default fan-out cap == the ceiling: a fresh install starts at the same value
+/// the settings UI allows as a maximum.
+fn default_max_children_per_agent() -> u32 {
+    max_children_per_agent_ceiling()
+}
+
+/// Clamp the per-agent live-children fan-out cap to
+/// `1..=max_children_per_agent_ceiling()`.
 pub fn clamp_max_children_per_agent(n: u32) -> u32 {
-    n.clamp(FLOOR_MAX_CHILDREN_PER_AGENT, CEILING_MAX_CHILDREN_PER_AGENT)
+    n.clamp(FLOOR_MAX_CHILDREN_PER_AGENT, max_children_per_agent_ceiling())
 }
 
 #[cfg(test)]
@@ -1489,20 +1528,65 @@ mod max_children_per_agent_limit_tests {
     use super::*;
 
     #[test]
-    fn clamps_max_children_per_agent_to_small_scope() {
-        assert_eq!(clamp_max_children_per_agent(0), FLOOR_MAX_CHILDREN_PER_AGENT);
-        assert_eq!(clamp_max_children_per_agent(1), 1);
-        assert_eq!(clamp_max_children_per_agent(8), 8);
-        assert_eq!(
-            clamp_max_children_per_agent(u32::MAX),
-            CEILING_MAX_CHILDREN_PER_AGENT
-        );
+    fn ceiling_formula_is_cores_times_ten_clamped_to_thirty_two_and_one_hundred() {
+        assert_eq!(ceiling_for_cores(1), MIN_CEILING_MAX_CHILDREN_PER_AGENT);
+        assert_eq!(ceiling_for_cores(2), MIN_CEILING_MAX_CHILDREN_PER_AGENT);
+        assert_eq!(ceiling_for_cores(3), MIN_CEILING_MAX_CHILDREN_PER_AGENT);
+        assert_eq!(ceiling_for_cores(4), 40);
+        assert_eq!(ceiling_for_cores(8), 80);
+        assert_eq!(ceiling_for_cores(10), MAX_CEILING_MAX_CHILDREN_PER_AGENT);
+        // Hard cap: more cores can never raise the ceiling above 100.
+        assert_eq!(ceiling_for_cores(16), MAX_CEILING_MAX_CHILDREN_PER_AGENT);
+        assert_eq!(ceiling_for_cores(64), MAX_CEILING_MAX_CHILDREN_PER_AGENT);
+        assert_eq!(ceiling_for_cores(1024), MAX_CEILING_MAX_CHILDREN_PER_AGENT);
+        // Saturating, never wraps.
+        assert_eq!(ceiling_for_cores(u32::MAX), MAX_CEILING_MAX_CHILDREN_PER_AGENT);
     }
 
     #[test]
-    fn default_max_children_per_agent_is_eight() {
-        assert_eq!(default_max_children_per_agent(), 8);
-        assert_eq!(platform_default_max_children_per_agent(), 8);
+    fn detected_ceiling_uses_the_reported_core_count() {
+        let cores = reported_logical_cores();
+        assert!(cores >= 1);
+        assert_eq!(max_children_per_agent_ceiling(), ceiling_for_cores(cores));
+        assert!(max_children_per_agent_ceiling() >= MIN_CEILING_MAX_CHILDREN_PER_AGENT);
+        assert!(max_children_per_agent_ceiling() <= MAX_CEILING_MAX_CHILDREN_PER_AGENT);
+    }
+
+    #[test]
+    fn clamps_max_children_per_agent_to_the_dynamic_ceiling() {
+        let ceiling = max_children_per_agent_ceiling();
+        assert_eq!(clamp_max_children_per_agent(0), FLOOR_MAX_CHILDREN_PER_AGENT);
+        assert_eq!(clamp_max_children_per_agent(1), 1);
+        assert_eq!(clamp_max_children_per_agent(8), 8);
+        assert_eq!(clamp_max_children_per_agent(u32::MAX), ceiling);
+        assert_eq!(clamp_max_children_per_agent(ceiling), ceiling);
+        // Regression for the reported bug: the old hard cap (32) is no longer the
+        // limit once the host reports enough cores — 50 must survive.
+        assert_eq!(clamp_max_children_per_agent(50), 50.min(ceiling));
+        if ceiling > MIN_CEILING_MAX_CHILDREN_PER_AGENT {
+            assert!(
+                clamp_max_children_per_agent(MIN_CEILING_MAX_CHILDREN_PER_AGENT + 1)
+                    > MIN_CEILING_MAX_CHILDREN_PER_AGENT
+            );
+        }
+        // A stored value above the hard cap is pulled down to the ceiling on the
+        // read path (e.g. 160 saved on a 16-core host before this cap existed).
+        assert_eq!(clamp_max_children_per_agent(160), ceiling);
+        assert!(clamp_max_children_per_agent(160) <= MAX_CEILING_MAX_CHILDREN_PER_AGENT);
+    }
+
+    #[test]
+    fn default_max_children_per_agent_equals_the_ceiling() {
+        assert_eq!(
+            default_max_children_per_agent(),
+            max_children_per_agent_ceiling()
+        );
+        assert_eq!(
+            platform_default_max_children_per_agent(),
+            max_children_per_agent_ceiling()
+        );
+        assert!(default_max_children_per_agent() >= MIN_CEILING_MAX_CHILDREN_PER_AGENT);
+        assert!(default_max_children_per_agent() <= MAX_CEILING_MAX_CHILDREN_PER_AGENT);
     }
 }
 
@@ -2449,7 +2533,7 @@ fn platform_default_max_sub_agent_spawn_depth() -> u32 {
 }
 
 fn platform_default_max_children_per_agent() -> u32 {
-    DEFAULT_MAX_CHILDREN_PER_AGENT
+    max_children_per_agent_ceiling()
 }
 
 fn platform_default_raw_content_view_enabled() -> bool {
@@ -2498,11 +2582,12 @@ pub struct EffectiveSettingsView {
 /// (including standalone local admin) receive these fields so settings UI save
 /// → reopen keeps debug toggles.
 ///
-/// Scene tier maps (`agentModeLlm` / `mediaModeLlm` / `computerTierLlm`) and
-/// tool-round caps (`maxToolRounds` / `maxSubAgentToolRounds`) are **user
-/// preferences**, not debug state: every user can edit them in Settings and
-/// they must round-trip on GET/PUT. Do not list them here or non-admin saves
-/// will drop the user's value.
+/// Scene tier maps (`agentModeLlm` / `mediaModeLlm` / `computerTierLlm`),
+/// tool-round caps (`maxToolRounds` / `maxSubAgentToolRounds`) and the
+/// sub-agent delegation caps (`maxSubAgentSpawnDepth` /
+/// `maxChildrenPerAgent`) are **user preferences**, not debug state: every user
+/// can edit them in Settings and they must round-trip on GET/PUT. Do not list
+/// them here or non-admin saves will drop the user's value.
 const DEBUG_WEB_SETTINGS_JSON_KEYS: &[&str] = &[
     "rawContentViewEnabled",
     "debugDumpLlmPrompts",
@@ -2513,8 +2598,6 @@ const DEBUG_WEB_SETTINGS_JSON_KEYS: &[&str] = &[
     "agentUiOverrides",
     "computerPipelineLlm",
     "agentTaskBoardHistoryTrim",
-    "maxSubAgentSpawnDepth",
-    "maxChildrenPerAgent",
 ];
 
 fn strip_debug_keys_from_settings_object(value: &mut serde_json::Value) {
@@ -2617,8 +2700,9 @@ pub fn preserve_platform_debug_settings_in_model(
     incoming.computer_annotated_screen_view_enabled = user.computer_annotated_screen_view_enabled;
     incoming.agent_ui_overrides = user.agent_ui_overrides.clone();
     incoming.agent_task_board_history_trim = user.agent_task_board_history_trim.clone();
-    incoming.max_sub_agent_spawn_depth = user.max_sub_agent_spawn_depth;
-    incoming.max_children_per_agent = clamp_max_children_per_agent(user.max_children_per_agent);
+    // `maxSubAgentSpawnDepth` / `maxChildrenPerAgent` are user preferences and are
+    // **not** stripped from non-admin GET (see DEBUG_WEB_SETTINGS_JSON_KEYS), so the
+    // incoming value is authoritative — do not force it back to the server value.
     incoming.computer_pipeline_llm = user.computer_pipeline_llm.clone();
 }
 
@@ -2638,8 +2722,8 @@ pub fn preserve_platform_debug_settings_in_user(
         existing.computer_annotated_screen_view_enabled;
     incoming.agent_ui_overrides = existing.agent_ui_overrides.clone();
     incoming.agent_task_board_history_trim = existing.agent_task_board_history_trim.clone();
-    incoming.max_sub_agent_spawn_depth = existing.max_sub_agent_spawn_depth;
-    incoming.max_children_per_agent = clamp_max_children_per_agent(existing.max_children_per_agent);
+    // See `preserve_platform_debug_settings_in_model`: the delegation caps are user
+    // preferences (not stripped on GET), so the incoming values must win.
     incoming.computer_pipeline_llm = existing.computer_pipeline_llm.clone();
 }
 
@@ -4057,6 +4141,71 @@ mod effective_extra_body_tests {
         preserve_platform_debug_settings_in_model(&mut incoming, &user);
         assert!(incoming.raw_content_view_enabled);
         assert!(incoming.debug_menus_enabled);
+    }
+
+    /// Regression: the delegation caps are user preferences, not debug state. The
+    /// preserve helpers must not revert an incoming save (the reported bug: a value
+    /// typed in the settings UI was silently replaced by the stored one).
+    #[test]
+    fn preserve_no_longer_reverts_the_delegation_caps() {
+        let above_old_fixed_ceiling = MIN_CEILING_MAX_CHILDREN_PER_AGENT + 1;
+
+        let mut user = UserSettings::default();
+        user.max_sub_agent_spawn_depth = 2;
+        user.max_children_per_agent = 8;
+
+        let mut incoming_model = ModelSettings::default();
+        incoming_model.max_sub_agent_spawn_depth = 4;
+        incoming_model.max_children_per_agent = above_old_fixed_ceiling;
+        preserve_platform_debug_settings_in_model(&mut incoming_model, &user);
+        assert_eq!(incoming_model.max_sub_agent_spawn_depth, 4);
+        assert_eq!(
+            incoming_model.max_children_per_agent,
+            above_old_fixed_ceiling
+        );
+
+        let mut incoming_user = UserSettings::default();
+        incoming_user.max_sub_agent_spawn_depth = 4;
+        incoming_user.max_children_per_agent = above_old_fixed_ceiling;
+        preserve_platform_debug_settings_in_user(&mut incoming_user, &user);
+        assert_eq!(incoming_user.max_sub_agent_spawn_depth, 4);
+        assert_eq!(incoming_user.max_children_per_agent, above_old_fixed_ceiling);
+    }
+
+    /// Regression: non-admin Web GET must not strip the delegation caps, otherwise
+    /// the settings UI falls back to the default and the PUT round-trip loses the
+    /// user's value.
+    #[test]
+    fn non_admin_web_get_keeps_the_delegation_caps() {
+        let platform = PlatformSettings::default();
+        let mut user = UserSettings::default();
+        user.max_sub_agent_spawn_depth = 3;
+        user.max_children_per_agent = MIN_CEILING_MAX_CHILDREN_PER_AGENT + 1;
+        let merged = merge_user_platform(&user, &platform);
+        let expected_children = clamp_max_children_per_agent(MIN_CEILING_MAX_CHILDREN_PER_AGENT + 1);
+        let view = EffectiveSettingsView {
+            user,
+            platform,
+            merged,
+            can_edit_platform: false,
+            is_platform_admin: false,
+        };
+        let json = serde_json::to_string(&WebEffectiveSettingsView(view)).unwrap();
+        assert!(json.contains("\"maxSubAgentSpawnDepth\":3"), "{json}");
+        assert!(
+            json.contains(&format!("\"maxChildrenPerAgent\":{expected_children}")),
+            "{json}"
+        );
+    }
+
+    /// The debug classification itself: these keys must not be in the strip list,
+    /// while the genuinely debug-only ones must stay there.
+    #[test]
+    fn delegation_caps_are_not_classified_as_debug_keys() {
+        assert!(!DEBUG_WEB_SETTINGS_JSON_KEYS.contains(&"maxSubAgentSpawnDepth"));
+        assert!(!DEBUG_WEB_SETTINGS_JSON_KEYS.contains(&"maxChildrenPerAgent"));
+        assert!(DEBUG_WEB_SETTINGS_JSON_KEYS.contains(&"debugMenusEnabled"));
+        assert!(DEBUG_WEB_SETTINGS_JSON_KEYS.contains(&"rawContentViewEnabled"));
     }
 
     #[test]

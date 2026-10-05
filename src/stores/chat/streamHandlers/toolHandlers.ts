@@ -2,8 +2,10 @@ import {
   clearToolArgsDeltaBufferForTool,
   enqueueToolArgsDelta,
   enqueueToolOutputDelta,
-  enqueueWebSearchOutputDelta
+  enqueueWebSearchOutputDelta,
+  flushStreamDeltaBuffers
 } from '../../../lib/reasoningDeltaBatch'
+import { isPendingApprovalToolCall, toolCallBaseName } from '../../../lib/messageTooling'
 import { resolveStreamWriteMessage } from '../../../lib/subAgentMessages'
 import { ensureSubTrace, ensureSubTraceSession, recordSubToolSuccess } from '../../../lib/subAgentSession'
 import { formatTerminalOutputContext } from '../../../lib/terminalOutputContext'
@@ -103,6 +105,13 @@ function syncTerminalInputOutputContext(
 export function handleToolCallStart(ctx: StreamHandlerContext, e: ToolCallStart) {
   const r = ctx.findMessage(e.messageId)
   if (!r) return
+  // Escape valve 2 — ask_user / approval: the user is about to be blocked on this
+  // card, so nothing of that message may stay behind the slow-lane timer. Flush both
+  // lanes, then apply the authoritative snapshot below.
+  const baseName = toolCallBaseName(e.toolCall.name)
+  if (baseName === 'ask_user' || isPendingApprovalToolCall(e.toolCall)) {
+    flushStreamDeltaBuffers(e.messageId)
+  }
   // Authoritative snapshot already includes prior deltas; discard batched leftovers.
   if (e.toolCall.arguments?.trim()) {
     clearToolArgsDeltaBufferForTool(e.messageId, e.toolCall.id, e.traceId, e.scopedMessageId)

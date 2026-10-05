@@ -585,6 +585,69 @@ export function rehydrateAgentTracesFromScopedMessages(
     }
     bindUnboundTracesToHosts(lead)
   }
+  relocateNestedTracesToHostRows(conv, scoped)
+}
+
+/**
+ * ③ 读取期归位（历史脏数据，**不改库**）。
+ *
+ * depth-2 档案曾被写进 **lead** 消息（记账层复用发起者缓冲的 bug），但它的宿主
+ * `run_subagent` 行其实挂在某个 worker 的 scoped 行里。渲染树按**数据归属**解析宿主行
+ * （见 `subAgentRenderTree` I1），lead 行上没有那张行 → 帧只能退化成「未关联」并贴在
+ * 消息末尾（用户看到的错位）。
+ *
+ * 这里把这类档案**搬到宿主行所在的 scoped 行**（`scopedRow.agentTrace`）：只改内存、
+ * 可回滚，同时覆盖未来漂移。宿主行仍在 lead 上的档案原样保留。
+ *
+ * @returns 被归位的档案条数（0 = 无需修复）。
+ */
+export function relocateNestedTracesToHostRows(
+  conv: Conversation,
+  scopedRows: readonly ChatMessage[]
+): number {
+  if (scopedRows.length === 0) return 0
+  const hostRowByToolCallId = new Map<string, ChatMessage>()
+  const rowById = new Map<string, ChatMessage>()
+  for (const row of scopedRows) {
+    const rowId = (row.id ?? '').trim()
+    if (rowId && !rowById.has(rowId)) rowById.set(rowId, row)
+    for (const tc of row.toolCalls ?? []) {
+      const id = (tc.id ?? '').trim()
+      if (!id || hostRowByToolCallId.has(id)) continue
+      hostRowByToolCallId.set(id, row)
+    }
+  }
+  if (hostRowByToolCallId.size === 0 && rowById.size === 0) return 0
+
+  let moved = 0
+  for (const lead of conv.messages) {
+    if (lead.role !== 'assistant' || isScopedSubMessage(lead)) continue
+    const traces = lead.agentTrace
+    if (!traces?.length) continue
+    const kept: AgentTrace[] = []
+    let movedHere = 0
+    for (const trace of traces) {
+      const hostId = (trace.parentToolCallId ?? '').trim()
+      // 宿主行优先（渲染判据）；宿主行缺失时退回档案自己的锚点 —— 老数据的宿主行
+      // 可能被标成非 scoped，但 `anchorMessageId` 仍指着那条 worker 行。
+      const anchor = (trace.anchorMessageId ?? '').trim()
+      const host =
+        (hostId ? hostRowByToolCallId.get(hostId) : undefined)
+        ?? (anchor ? rowById.get(anchor) : undefined)
+      if (!host) {
+        kept.push(trace)
+        continue
+      }
+      if (!host.agentTrace) host.agentTrace = []
+      if (!host.agentTrace.some(t => t.id === trace.id)) host.agentTrace.push(trace)
+      movedHere += 1
+    }
+    if (movedHere > 0) {
+      lead.agentTrace = kept
+      moved += movedHere
+    }
+  }
+  return moved
 }
 
 function runSubagentHostCalls(lead: ChatMessage): ToolCall[] {

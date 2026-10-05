@@ -56,6 +56,7 @@ const {
   patchMediaModeLlm,
   maxSubAgentSpawnDepth,
   maxChildrenPerAgent,
+  maxChildrenPerAgentCeiling,
   isLeadWorkerSelected,
   isLeadAgentSelectable,
   selectLeadWorker
@@ -342,7 +343,7 @@ function skillLabel(skillId: string): string {
                   v-model.number="maxChildrenPerAgent"
                   type="number"
                   min="1"
-                  max="32"
+                  :max="maxChildrenPerAgentCeiling"
                   step="1"
                   class="w-full max-w-xs h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
                 />

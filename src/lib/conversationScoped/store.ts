@@ -1,6 +1,6 @@
 import { ref, shallowRef } from 'vue'
 import type { AgentTrace, ChatMessage } from '../../types/chat'
-import { computeScopedAskUserSignature, computeSubAgentLiveFingerprint } from './liveFingerprint'
+import { computeScopedSignals } from './liveFingerprint'
 import { agentIdFromLookup, resolveSpawnId, taskIdFromLookup } from './spawnId'
 import type {
   ScopedEvictReason,
@@ -43,7 +43,8 @@ function emptyTranscript(lookup: SpawnLookup & { instanceId: SpawnId }): ScopedI
     rows: [],
     loadState: 'streaming',
     liveFingerprint: '',
-    askUserSignature: ''
+    askUserSignature: '',
+    structureSignature: ''
   }
 }
 
@@ -59,7 +60,24 @@ export function createConversationScopedStore() {
    * fingerprint, which is replaced on every streamed chunk.
    */
   const askUserRevisions = ref<Record<string, number>>({})
+  /**
+   * Bumps only when a spawn's **shape** changes (see `computeScopedStructureSignature`):
+   * rows added / removed, tool call ids / names / statuses, nested trace links. Row text
+   * growth and tool payload growth leave it untouched. The per-turn spawn plan reads this
+   * instead of the live fingerprint, which moves on every streamed chunk.
+   */
+  const structureRevisions = ref<Record<string, number>>({})
   const version = ref(0)
+  /**
+   * Every live scoped row id, across **all** conversations.
+   *
+   * Answering "is this messageId a sub-agent row?" has to be O(1) and global: the
+   * `content` delta channel carries only a messageId and is enqueued before any
+   * conversation lookup (see `lib/reasoningDeltaBatch.ts` lane routing). Maintained
+   * next to the exact add/remove points of `messageIdToInstance` (`indexRow` /
+   * `unindexTranscript`), so it cannot only grow.
+   */
+  const scopedRowIds = new Set<string>()
 
   function bumpMembership(convId: string) {
     const id = convId.trim()
@@ -71,6 +89,12 @@ export function createConversationScopedStore() {
     const id = convId.trim()
     if (!id) return
     askUserRevisions.value[id] = (askUserRevisions.value[id] ?? 0) + 1
+  }
+
+  function bumpStructureRevision(convId: string) {
+    const id = convId.trim()
+    if (!id) return
+    structureRevisions.value[id] = (structureRevisions.value[id] ?? 0) + 1
   }
 
   function getState(convId: string): ConvScopedState | undefined {
@@ -91,6 +115,7 @@ export function createConversationScopedStore() {
   function indexRow(state: ConvScopedState, spawnId: SpawnId, row: ChatMessage) {
     state.messageIdToInstance.set(row.id, spawnId)
     state.rowById.set(row.id, row)
+    if (isScopedRow(row)) scopedRowIds.add(row.id)
     const anchor = row.anchorMessageId?.trim()
     if (!anchor) return
     let set = state.instancesByAnchor.get(anchor)
@@ -106,6 +131,7 @@ export function createConversationScopedStore() {
       if (state.messageIdToInstance.get(row.id) === transcript.instanceId) {
         state.messageIdToInstance.delete(row.id)
         state.rowById.delete(row.id)
+        scopedRowIds.delete(row.id)
       }
     }
   }
@@ -113,11 +139,14 @@ export function createConversationScopedStore() {
   function publishLive(convId: string, transcript: ScopedInstanceTranscript) {
     const id = convId.trim()
     const fp = transcript.liveFingerprint
-    let convMap = liveSignals.value[id]
-    if (!convMap) {
-      convMap = {}
-      liveSignals.value[id] = convMap
+    if (!liveSignals.value[id]) {
+      // The conversation slot is written once, on first use: readers that started
+      // before it existed re-run here, then track the inner spawn keys.
+      liveSignals.value[id] = {}
     }
+    // Always re-read through the ref: assigning a plain object stores the raw value,
+    // and writing to that raw object would bypass reactivity.
+    const convMap = liveSignals.value[id]!
     const instanceId = transcript.instanceId
     const legacy = transcript.legacyTraceId
     if (
@@ -126,9 +155,10 @@ export function createConversationScopedStore() {
     ) {
       return
     }
-    const next = { ...convMap, [instanceId]: fp }
-    if (legacy && legacy !== instanceId) next[legacy] = fp
-    liveSignals.value[id] = next
+    // Precise inner writes — replacing the whole conversation slot would invalidate
+    // every reader of every spawn in this conversation on each streamed chunk.
+    convMap[instanceId] = fp
+    if (legacy && legacy !== instanceId) convMap[legacy] = fp
   }
 
   function refreshFingerprint(
@@ -136,14 +166,20 @@ export function createConversationScopedStore() {
     transcript: ScopedInstanceTranscript,
     legacySession?: AgentTrace['session']
   ) {
-    transcript.liveFingerprint = computeSubAgentLiveFingerprint(transcript.rows, legacySession)
+    // One pass over the rows for all three signatures (live / ask_user / structure).
+    const signals = computeScopedSignals(transcript.rows, legacySession)
+    transcript.liveFingerprint = signals.live
     publishLive(convId, transcript)
     // Narrow signal for the ask_user banner: row text growth and non-ask_user tool
     // traffic must not invalidate it (see computeScopedAskUserSignature).
-    const askUserSignature = computeScopedAskUserSignature(transcript.rows)
-    if (askUserSignature !== transcript.askUserSignature) {
-      transcript.askUserSignature = askUserSignature
+    if (signals.askUser !== transcript.askUserSignature) {
+      transcript.askUserSignature = signals.askUser
       bumpAskUserRevision(convId)
+    }
+    // Narrow signal for the per-turn spawn plans: shape changes only, never tokens.
+    if (signals.structure !== transcript.structureSignature) {
+      transcript.structureSignature = signals.structure
+      bumpStructureRevision(convId)
     }
   }
 
@@ -173,6 +209,9 @@ export function createConversationScopedStore() {
         set.add(spawnId)
       }
       bumpMembership(convId)
+      // A new spawn is a shape change for the turn spawn plans even before its
+      // first row lands (the transcript exists with an empty signature).
+      bumpStructureRevision(convId)
     } else {
       if (lookup.anchorMessageId?.trim()) transcript.anchorMessageId = lookup.anchorMessageId.trim()
       if (lookup.traceId?.trim()) transcript.legacyTraceId = lookup.traceId.trim()
@@ -267,6 +306,19 @@ export function createConversationScopedStore() {
     return undefined
   }
 
+  /**
+   * O(1), conversation-agnostic answer to "is this a sub-agent (scoped) row id?".
+   *
+   * Registered as the `content` delta lane predicate (see `lib/reasoningDeltaBatch.ts`).
+   * **Conservative by construction**: an unknown / empty id is `false`, i.e. a lead row
+   * that must keep the fast lane — a miss here costs perf, never latency.
+   */
+  function isScopedMessageId(messageId: string | null | undefined): boolean {
+    const id = messageId?.trim()
+    if (!id) return false
+    return scopedRowIds.has(id)
+  }
+
   function getTranscript(convId: string, lookup: SpawnLookup): ScopedInstanceTranscript | undefined {
     const spawnId = resolveSpawnId(lookup)
     if (!spawnId) return undefined
@@ -334,6 +386,17 @@ export function createConversationScopedStore() {
   /** Spawn transcripts retained for one conversation, evicted ones included. */
   function countSpawns(convId: string): number {
     return getState(convId)?.bySpawn.size ?? 0
+  }
+
+  /**
+   * Live spawn ids of one conversation, in insertion order. Read together with
+   * `getLiveSignal(id)` / `getMembershipSignal(id)` by consumers that need "any
+   * spawn moved" (conversation search) without depending on the outer slot.
+   */
+  function listSpawnIds(convId: string): SpawnId[] {
+    const state = getState(convId)
+    if (!state) return []
+    return [...state.bySpawn.keys()]
   }
 
   function listUnpersistedRows(
@@ -444,6 +507,8 @@ export function createConversationScopedStore() {
       if (legacy) delete prevLive[legacy]
     }
     bumpMembership(convId)
+    // Removing a spawn is a shape change for the turn spawn plans.
+    bumpStructureRevision(convId)
     console.info('[conversationScoped] evicted instance', convId, spawnId, reason)
     for (const rowId of childRowIds) {
       evictForAnchor(convId, rowId)
@@ -469,6 +534,11 @@ export function createConversationScopedStore() {
   function clearConversation(convId: string): void {
     const id = convId.trim()
     if (!states.value.has(id)) return
+    // Release this conversation's ids from the global scoped-row index too.
+    const dropped = states.value.get(id)
+    if (dropped) {
+      for (const rowId of dropped.messageIdToInstance.keys()) scopedRowIds.delete(rowId)
+    }
     const next = new Map(states.value)
     next.delete(id)
     states.value = next
@@ -481,6 +551,9 @@ export function createConversationScopedStore() {
     if (id in askUserRevisions.value) {
       delete askUserRevisions.value[id]
     }
+    if (id in structureRevisions.value) {
+      delete structureRevisions.value[id]
+    }
     version.value += 1
   }
 
@@ -489,6 +562,8 @@ export function createConversationScopedStore() {
     liveSignals.value = {}
     membership.value = {}
     askUserRevisions.value = {}
+    structureRevisions.value = {}
+    scopedRowIds.clear()
     version.value += 1
   }
 
@@ -514,6 +589,17 @@ export function createConversationScopedStore() {
     return askUserRevisions.value[id] ?? 0
   }
 
+  /**
+   * Narrow per-conversation revision for the per-turn spawn plans: changes only when
+   * some spawn's shape changes (rows / tool call ids / statuses / nested traces) or a
+   * spawn is added / removed — never on token writes.
+   */
+  function getStructureRevision(convId: string | null | undefined): number {
+    const id = convId?.trim()
+    if (!id) return 0
+    return structureRevisions.value[id] ?? 0
+  }
+
   return {
     liveSignals,
     version,
@@ -524,12 +610,14 @@ export function createConversationScopedStore() {
     takeScopedFromMessages,
     findRow,
     findRowInAny,
+    isScopedMessageId,
     getTranscript,
     getRows,
     hasLoadedRows,
     listRows,
     countRows,
     countSpawns,
+    listSpawnIds,
     listUnpersistedRows,
     listSpawnIdsForAnchors,
     collectRowsForAnchors,
@@ -542,7 +630,10 @@ export function createConversationScopedStore() {
     clearAll,
     getLiveSignal,
     getMembershipSignal,
-    getAskUserRevision
+    getAskUserRevision,
+    getStructureRevision,
+    /** Lead-layer trace shape changes also invalidate the turn spawn plans. */
+    bumpStructureRevision
   }
 }
 

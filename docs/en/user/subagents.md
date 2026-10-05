@@ -15,7 +15,7 @@ Adjustable in **Settings → System settings → Execution** (or `settings.json`
 | `maxParallelSubAgents` | Tool parallelism → Sub-agents | Cap on sub-agents running concurrently in this session, **shared by foreground and background**; background terminals consume this quota too. Foreground terminals count against "General tools" |
 | `maxParallelToolCalls` | Tool parallelism → General tools | Cap on read tools (including foreground terminals) executing concurrently in the same turn |
 | `maxSubAgentSpawnDepth` | (no UI yet) | Maximum nesting depth for delegation (default **2**: main agent + one level of sub-delegation). **Every spawn consumes one level** (`self` forks included); an agent at the cap can no longer delegate |
-| `maxChildrenPerAgent` | (no UI yet) | Cap on sub-agents alive at the same time for a single agent (default **8**, range **1–32**). A delegation past the limit returns an error immediately; it is not queued |
+| `maxChildrenPerAgent` | (no UI yet) | Cap on sub-agents alive at the same time for a single agent (default and ceiling are both **CPU logical cores × 10**, never below 32, never above 100). A delegation past the limit returns an error immediately; it is not queued |
 
 ## Built-in behaviour
 

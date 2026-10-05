@@ -175,11 +175,14 @@ const frameMemoDeps = computed(() => {
     .filter(isPendingApprovalToolCall)
     .map(tc => `${tc.id}:${tc.status}:${tc.arguments?.length ?? 0}:${tc.displaySummary?.length ?? 0}`)
     .join(';')
+  // No live-signal read here. `SubAgentFrame` owns its own subscription — every
+  // live-driven surface inside it (`scopedTraceMessages`, `showThinkingInSummary`,
+  // `collapsedView`) reads the spawn's fingerprint itself — so the frame keeps
+  // updating in real time while the **host** stops re-rendering on every streamed
+  // chunk of that spawn. Reading it here made `frameMemoDeps` a render dependency of
+  // the host, which is what put `render:SubAgentFrameHost` above `render:SubAgentFrame`.
   if (props.trace.status === 'running') {
-    const live = chatStore.getSubAgentLiveSignal(
-      props.trace.agentInstanceId?.trim() || props.trace.id
-    )
-    return [props.trace.status, expanded, boardKey, live, search, compressKey, approval]
+    return [props.trace.status, expanded, boardKey, search, compressKey, approval]
   }
   return [
     props.trace.status,

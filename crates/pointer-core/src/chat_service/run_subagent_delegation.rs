@@ -821,6 +821,25 @@ pub(crate) fn spawn_background_owned_subagent(spawn: BackgroundOwnedSpawn) -> St
         &spawn.run_id,
         spawn.issuer_chain.clone(),
     );
+    // Align with the foreground path: publish the running frame **now**, not once the job
+    // wins a slot. The host `run_subagent` row already exists, so the UI can nest the
+    // frame under it for the job's whole lifetime — queued runs included.
+    // Terminal state goes through the same index via `persist_background_subagent_trace`.
+    publish_agent_step(
+        &spawn.stream,
+        &spawn.message_id,
+        background_subagent_trace(
+            &spawn.source,
+            &spawn.task,
+            &spawn.instance_scope,
+            spawn.child_spawn_depth,
+            &spawn.tool_call_id,
+            &spawn.message_id,
+            spawn.issuer_trace_id.as_deref(),
+            "running",
+            Some(truncate_str(&spawn.task.title, 200)),
+        ),
+    );
     emit_background_jobs(&spawn.stream, &spawn.conversation_id, &spawn.state.jobs);
     log::info!(
         "run_subagent background spawn job_id={job_id} conversation_id={} tool_call_id={} task_id={}",
@@ -830,6 +849,39 @@ pub(crate) fn spawn_background_owned_subagent(spawn: BackgroundOwnedSpawn) -> St
     );
     tokio::spawn(run_background_owned_subagent(job_id.clone(), spawn));
     job_id
+}
+
+/// Trace shape for a background spawn, mirroring the foreground start
+/// (`execute_owned_subagent`) so both paths publish the very same frame.
+#[allow(clippy::too_many_arguments)]
+fn background_subagent_trace(
+    source: &OwnedSubagentSource,
+    task: &AgentTask,
+    instance_scope: &AgentInstanceScope,
+    child_spawn_depth: u32,
+    tool_call_id: &str,
+    anchor_message_id: &str,
+    issuer_trace_id: Option<&str>,
+    status: &str,
+    detail: Option<String>,
+) -> AgentTrace {
+    let def = match source {
+        OwnedSubagentSource::SelfFork(snapshot) => &snapshot.def,
+        OwnedSubagentSource::Registered(def) => def,
+    };
+    build_subagent_trace(
+        task,
+        def,
+        instance_scope,
+        child_spawn_depth,
+        None,
+        Some(tool_call_id),
+        Some(anchor_message_id),
+        status,
+        detail,
+        issuer_trace_id,
+        Some(source.delegation_kind()),
+    )
 }
 
 async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwnedSpawn) {
@@ -882,6 +934,11 @@ async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwne
                     spawn.host_trace_id.as_deref(),
                     spawn.host_scoped_message_id.as_deref(),
                     false,
+                );
+                persist_background_subagent_trace(
+                    &spawn.conversation_id,
+                    &spawn.message_id,
+                    &outcome.trace,
                 );
                 complete_background_host_tool(
                     &spawn.stream,
@@ -937,6 +994,11 @@ async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwne
                 spawn.host_scoped_message_id.as_deref(),
                 false,
             );
+            persist_background_subagent_trace(
+                &spawn.conversation_id,
+                &spawn.message_id,
+                &outcome.trace,
+            );
             complete_background_host_tool(
                 &spawn.stream,
                 &spawn.conversation_id,
@@ -987,6 +1049,13 @@ async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwne
     };
     let outcome = execute_owned_subagent(input).await;
     drop(_lease);
+    // The job outlives this turn's transcript, so the terminal trace written here is
+    // what makes the frame (and its stats line) survive a reload.
+    persist_background_subagent_trace(
+        &spawn.conversation_id,
+        &spawn.message_id,
+        &outcome.trace,
+    );
     let cancelled = spawn.cancel.is_cancelled();
     let (status, content, error) = match &outcome.exec {
         Ok((body, true, _)) => (
@@ -1075,6 +1144,65 @@ fn host_ui_status_for_job(status: super::job_supervisor::JobStatus) -> &'static 
         super::job_supervisor::JobStatus::Completed => "success",
         _ => "failed",
     }
+}
+
+/// Merge one trace into an anchor row's `agentTrace` index, by id.
+///
+/// Idempotent on purpose: a retry — or a sibling that already patched the same row —
+/// must not duplicate entries, and the merge keeps the traces other workers put there.
+fn merge_anchor_trace_index(anchor: &mut ChatMessage, trace: &AgentTrace) -> Vec<AgentTrace> {
+    let mut traces = anchor.agent_trace.take().unwrap_or_default();
+    merge_agent_trace(&mut traces, trace.clone());
+    anchor.agent_trace = Some(traces.clone());
+    traces
+}
+
+/// Terminal trace for a background spawn → the **same** write choke point the foreground
+/// path uses (`sync_anchor_agent_trace_index` → coalesced `patch_message_agent_trace`).
+///
+/// A background job outlives the turn that spawned it, so there is no in-memory
+/// transcript left to hand over: the anchor row is re-loaded and the terminal trace
+/// merged into its index. Running states stay SSE-only, exactly like the foreground.
+fn persist_background_subagent_trace(
+    conversation_id: &str,
+    anchor_message_id: &str,
+    trace: &AgentTrace,
+) {
+    if !super::sub_message::should_persist_anchor_agent_trace(&trace.status) {
+        return;
+    }
+    let store = match crate::conversation_store::global_store() {
+        Ok(store) => store,
+        Err(err) => {
+            log::warn!(
+                "run_subagent background trace persist skipped conversation_id={conversation_id}: {err:#}"
+            );
+            return;
+        }
+    };
+    let mut anchor = match store.load_message(conversation_id, anchor_message_id) {
+        Ok(Some(msg)) => msg,
+        Ok(None) => {
+            log::warn!(
+                "run_subagent background trace persist missed anchor conversation_id={conversation_id} anchor={anchor_message_id}"
+            );
+            return;
+        }
+        Err(err) => {
+            log::warn!(
+                "run_subagent background trace persist load failed conversation_id={conversation_id} anchor={anchor_message_id}: {err:#}"
+            );
+            return;
+        }
+    };
+    let traces = merge_anchor_trace_index(&mut anchor, trace);
+    let mut history = vec![anchor];
+    super::sub_message::sync_anchor_agent_trace_index(
+        conversation_id,
+        &mut history,
+        anchor_message_id,
+        &traces,
+    );
 }
 
 pub(crate) fn emit_and_persist_host_tool_finish(
@@ -1669,6 +1797,13 @@ pub(super) async fn run_subagent_delegation(
                         provider.settings.max_sub_agent_tool_rounds,
                     );
                     let mut sub_budget = SessionToolBudget::new(sub_cap, 0);
+                    // Nested spawns own their trace buffer. Reusing the issuer's
+                    // buffer (`ctx.agent_trace`) leaked depth-N traces onto the
+                    // issuer's row — the lead's buffer in particular — so the UI
+                    // rendered those frames as orphans at the end of the lead
+                    // message instead of inside their parent worker frame.
+                    // Owned path already mints its own buffer (`execute_owned_subagent`).
+                    let mut child_trace: Vec<AgentTrace> = Vec::new();
                     let mut sub_ctx = super::context::SubAgentLoopContext {
                         session: super::context::SessionRefs {
                             stream,
@@ -1679,7 +1814,7 @@ pub(super) async fn run_subagent_delegation(
                         provider: &sub_provider,
                         parent_task_board_store_key,
                         message_id,
-                        agent_trace: ctx.agent_trace,
+                        agent_trace: &mut child_trace,
                         enabled_skill_ids,
                         agent_skill_overrides: ctx.agent_skill_overrides,
                         task: &task,
@@ -1760,9 +1895,10 @@ pub(super) async fn run_subagent_delegation(
 #[cfg(test)]
 mod trace_tests {
     use super::{
-        background_job_handle_json, build_subagent_trace, commit_subagent_outcome,
-        complete_background_host_tool, execute_owned_subagent, failed_owned_subagent_outcome,
-        finalize_subagent_outcome, publish_owned_subagent_ui_finished,
+        background_job_handle_json, background_subagent_trace, build_subagent_trace,
+        commit_subagent_outcome, complete_background_host_tool, execute_owned_subagent,
+        failed_owned_subagent_outcome, finalize_subagent_outcome, merge_anchor_trace_index,
+        publish_agent_step, publish_owned_subagent_ui_finished,
         serialize_subagent_result_without_task_id, OwnedSubagentExecutionInput,
         OwnedSubagentSource, PreparedSubagentOutcome, SubagentCommitContext,
     };
@@ -2016,6 +2152,109 @@ mod trace_tests {
                 && duration_ms == Some(42)
         ));
         assert!(events.try_recv().is_err());
+    }
+
+    fn background_task() -> AgentTask {
+        AgentTask {
+            id: "task-bg".into(),
+            agent_id: "general".into(),
+            title: "调度组7~12单".into(),
+            goal: "派单".into(),
+            context: String::new(),
+            depends_on: vec![],
+        }
+    }
+
+    fn background_scope() -> AgentInstanceScope {
+        AgentInstanceScope::with_instance_id("run", "conversation", "general", "instance-bg")
+    }
+
+    /// A background spawn must own a frame on the host `run_subagent` row from the moment
+    /// the job is registered: the foreground path publishes `running` before the child
+    /// starts, and a job still queued for a slot must not look frameless in the meantime.
+    #[test]
+    fn background_spawn_publishes_running_trace_on_host_row() {
+        let (stream, mut events) = crate::models::ChatStreamSender::pair("conversation", "user");
+        let task = background_task();
+        let trace = background_subagent_trace(
+            &OwnedSubagentSource::Registered(completed_trace_def()),
+            &task,
+            &background_scope(),
+            1,
+            "call-bg",
+            "lead-row",
+            None,
+            "running",
+            Some(task.title.clone()),
+        );
+        publish_agent_step(&stream, "lead-row", trace);
+
+        let Ok(crate::models::StreamEvent::AgentStep { message_id, agent }) = events.try_recv()
+        else {
+            panic!("expected a running agent step");
+        };
+        // Nested under the host row: the UI needs the anchor + tool-call id to place it.
+        assert_eq!(message_id, "lead-row");
+        assert_eq!(agent.status, "running");
+        assert_eq!(agent.id, "instance-bg");
+        assert_eq!(agent.agent_instance_id.as_deref(), Some("instance-bg"));
+        assert_eq!(agent.parent_tool_call_id.as_deref(), Some("call-bg"));
+        assert_eq!(agent.anchor_message_id.as_deref(), Some("lead-row"));
+        assert_eq!(agent.parent_trace_id, None);
+        assert_eq!(agent.delegation.as_deref(), Some("registered"));
+        assert!(events.try_recv().is_err());
+    }
+
+    /// Background jobs finish after the turn is gone, so the terminal trace is merged into
+    /// the anchor row's `agentTrace` index — the very field the foreground write path
+    /// patches. Merging by id keeps siblings and makes a retry a no-op.
+    #[test]
+    fn background_terminal_trace_lands_on_anchor_index_once() {
+        let mut anchor = anchor_message();
+        let mut sibling = completed_trace();
+        sibling.id = "instance-sibling".into();
+        sibling.agent_instance_id = Some("instance-sibling".into());
+        merge_anchor_trace_index(&mut anchor, &sibling);
+
+        let terminal = completed_trace();
+        let first = merge_anchor_trace_index(&mut anchor, &terminal);
+        let second = merge_anchor_trace_index(&mut anchor, &terminal);
+
+        assert_eq!(first.len(), 2);
+        assert_eq!(second.len(), 2);
+        let stored = anchor.agent_trace.as_ref().expect("anchor index written");
+        assert_eq!(stored.len(), 2);
+        assert!(stored.iter().any(|t| t.id == "instance-sibling"));
+        assert!(stored
+            .iter()
+            .any(|t| t.id == "instance-1" && t.status == "completed"));
+    }
+
+    /// The nested-refusal path (`nested refused`) still ends in a terminal trace, so the
+    /// host row gets a frame with a status instead of staying empty forever.
+    #[test]
+    fn background_terminal_trace_of_a_refused_spawn_is_persistable() {
+        let mut anchor = anchor_message();
+        let task = background_task();
+        let trace = background_subagent_trace(
+            &OwnedSubagentSource::Registered(completed_trace_def()),
+            &task,
+            &background_scope(),
+            1,
+            "call-bg",
+            "lead-row",
+            None,
+            "failed",
+            Some("nested refused".into()),
+        );
+        assert!(super::super::sub_message::should_persist_anchor_agent_trace(
+            &trace.status
+        ));
+        merge_anchor_trace_index(&mut anchor, &trace);
+        let stored = anchor.agent_trace.as_ref().expect("anchor index written");
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].status, "failed");
+        assert_eq!(stored[0].anchor_message_id.as_deref(), Some("lead-row"));
     }
 
     #[test]

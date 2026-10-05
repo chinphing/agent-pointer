@@ -389,6 +389,7 @@
     "hideRawContent": "隐藏原始内容",
     "showRawContent": "查看原始内容",
     "subtaskProcess": "子任务过程",
+    "unlinkedSubAgents": "未关联的子 agent（{count}）· 宿主行不在本回合",
     "thinkingStillRunning": "思考中，仍在执行",
     "paused": "已暂停",
     "cancelled": "已取消",
@@ -867,7 +868,7 @@
       "maxNestDepth": "子 Agent 最大嵌套深度",
       "maxNestDepthHint": "1 = 仅主 agent 可委派；2 = 子 agent 可再委派一层（默认）。",
       "maxChildrenPerAgent": "单个 Agent 最大子任务数",
-      "maxChildrenPerAgentHint": "同一 agent 同时存活的子任务上限（含前台等待与后台任务），默认 8，范围 1–32；超出时直接报错，不排队。",
+      "maxChildrenPerAgentHint": "同一 agent 同时存活的子任务上限（含前台等待与后台任务）。默认值与上限均为 CPU 逻辑核数 × 10，不低于 32、不超过 100；超出时直接报错，不排队。",
       "generalAgentFallback": "通用智能体"
     },
     "models": {

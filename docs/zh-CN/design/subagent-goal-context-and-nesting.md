@@ -3,6 +3,8 @@
 > 设计稿。实现以仓库代码为准；落地后回更本文。
 >
 > **回更说明**：§1.2 / §2.2 / §2.3 / §1.3 的节点与深度语义、§9 的 `maxChildrenPerAgent` 已落地（批次 C / D，见 [`subagent-nesting-and-job-scope.md`](subagent-nesting-and-job-scope.md) §2.3、§2.4、§2.7、§5）。要点：`self` fork 在**还有深度预算时**可再委派（到 `maxSubAgentSpawnDepth` 才 leaf）；`general` / `coder` / `explore` 都是嵌套节点，`computer` 仍为 leaf。
+>
+> **回更说明（2026-10-05）**：`maxChildrenPerAgent` 的上限已由固定 32 改为动态 **`clamp(CPU 逻辑核数 × 10, 32, 100)`**（32 为下限、100 为硬顶），**默认值 = 上限**；该字段同时从「调试字段」名单移出，改为普通用户偏好（GET/PUT 正常 round-trip）。本文 §9 里「默认 8，clamp 1–32」是**当批次落地时**的口径，保留作历史对照，不再修改；当前实现以仓库代码为准（`models/settings.rs::ceiling_for_cores`）。
 
 ## 目标
 

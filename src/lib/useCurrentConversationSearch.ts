@@ -48,10 +48,14 @@ export function useCurrentConversationSearch(options: {
     const convId = options.conversationId().trim()
     if (!convId) return EMPTY_SCOPED_ROWS
     const store = useConversationScopedStore()
-    // Scoped rows sit behind a shallowRef map — spawn membership and the live
-    // fingerprint are what make row / tool status writes visible to this computed.
+    // Scoped rows sit behind a shallowRef map — spawn membership and each spawn's
+    // live fingerprint are what make row / tool status writes visible to this computed.
+    // Per-spawn reads (not a blank key): `publishLive` writes the inner spawn slot only,
+    // so the old `getLiveSignal(convId, '')` trick no longer sees anything move.
     void store.getMembershipSignal(convId)
-    void store.getLiveSignal(convId, '')
+    for (const spawnId of store.listSpawnIds(convId)) {
+      void store.getLiveSignal(convId, spawnId)
+    }
     return store.listRows(convId)
   })
 

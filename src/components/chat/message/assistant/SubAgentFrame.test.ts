@@ -397,6 +397,72 @@ describe('nested child frames', () => {
       .toContain('中间结论')
   })
 
+  it('真实数据形状：父帧的 3 个 run_subagent 行各自挂住自己的 depth-2 子帧（P3）', async () => {
+    // 夹具取自会话 c7b8306b（差旅费报销第 3 批测试）position 43756-43770 的 payload：
+    // 父行自己带 3 个 run_subagent 调用，3 条 depth-2 档案挂在它的 agentTrace 上
+    // （宿主行 = 那 3 个调用 id），子行锚在父行上、position 与父行交错。
+    const parentInstance = '8ea61fb4-71d6-4cc3-b3c6-ee3f15c921ec'
+    const parentRowId = 'agent_msg_49fe2b5d374f4f8e8c7ad4eeb62a4801'
+    const calls: ToolCall[] = [
+      { id: 'call_00_1wgTxRryGTHv8xilTSLB0605', name: 'run_subagent', status: 'success', arguments: '{}' },
+      { id: 'call_01_0f5TYB8pVii5kmuKz93f4234', name: 'run_subagent', status: 'success', arguments: '{}' },
+      { id: 'call_02_0xhcyQuJzaUxQELjhqBk2086', name: 'run_subagent', status: 'success', arguments: '{}' }
+    ]
+    const childIds = [
+      '04a1d107-81c2-4f31-9da4-d01c780bafc4',
+      '95f07c33-ad3d-41d1-8deb-fa93f9ca318a',
+      '773b5e29-ecb1-43e2-8846-408bbc81bf72'
+    ]
+    const children = childIds.map((id, index) =>
+      childTrace({
+        id,
+        name: '代码探索',
+        agentInstanceId: id,
+        parentTraceId: parentInstance,
+        parentToolCallId: calls[index].id,
+        anchorMessageId: parentRowId
+      })
+    )
+
+    useConversationScopedStore().ingestRows('c1', [
+      scopedRow(parentRowId, {
+        agentInstanceId: parentInstance,
+        traceId: 'sub_task_1e857c70a88f475e91dfac461aecbc3d:coder',
+        anchorMessageId: 'lead',
+        toolCalls: calls,
+        agentTrace: children
+      }),
+      ...children.map((child, index) =>
+        scopedRow(`child-row-${index}`, {
+          agentInstanceId: child.id,
+          traceId: `${calls[index].id}:${child.id}:explore`,
+          anchorMessageId: parentRowId,
+          content: `子层结论 ${index}`
+        })
+      )
+    ])
+
+    const host = mountFrame(
+      trace({
+        id: parentInstance,
+        name: 'coder',
+        agentInstanceId: parentInstance,
+        anchorMessageId: 'lead',
+        userExpanded: true
+      })
+    )
+    await flush()
+
+    // 每个子帧都紧跟在**自己的**工单行后面
+    for (const call of calls) {
+      const row = host.querySelector(`[data-tool-call-id="${call.id}"]`) as HTMLElement | null
+      expect(row).toBeTruthy()
+      expect(row?.nextElementSibling?.className ?? '').toContain('sub-agent-frame')
+    }
+    // 父帧 + 3 个子帧；兜底块没有再多画一份（重复渲染会变成 7）
+    expect(host.querySelectorAll('.sub-agent-frame, .sub-agent-frame-stub')).toHaveLength(4)
+  })
+
   it('paints the nested child under its own run_subagent row (P3)', async () => {
     const child = childTrace({ status: 'running', summaryLine: '' })
     const host = mountParentWithChild(child, [childRoundRow()])

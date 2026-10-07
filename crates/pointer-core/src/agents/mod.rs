@@ -1553,6 +1553,23 @@ mod builtin_agent_tests {
     }
 
     #[test]
+    fn communication_public_defines_delegated_task_language() {
+        let s = rendered_communication_public_inject().expect("public comm");
+        assert!(
+            s.contains("Delegated task (worker)"),
+            "COMMUNICATION_PUBLIC must say what stands in for the user's message for workers"
+        );
+        assert!(
+            s.contains("Assigned task"),
+            "the delegated branch must point at the Assigned task"
+        );
+        assert!(
+            s.contains("never overrides it"),
+            "a host-injected language hint must not override the Assigned task"
+        );
+    }
+
+    #[test]
     fn communication_public_expands_workspace_placeholder() {
         let vars = SessionInjectVars {
             workspace_root: "/tmp/example-workspace",

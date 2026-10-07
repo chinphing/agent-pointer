@@ -10,7 +10,7 @@ Read or set the **system clipboard** as **plain text**. Does **not** paste into 
 
 **UI copy button (mandatory when present)**
 
-When the UI shows a **Copy / 复制** control or clipboard icon for the value
+When the UI shows a **Copy** control (or its label in the user's language) or clipboard icon for the value
 you need, **click that control** — then **`clipboard_read`** on the next turn.
 
 **Forbidden:** retyping on-screen text via **`input_*`** or **`clipboard_write`**
@@ -20,7 +20,7 @@ action preserves the exact bytes.
 
 **Copy → read → use (mandatory chain)**
 
-1. Copy once (`hotkey` Copy or click Copy / 复制).
+1. Copy once (`hotkey` Copy, or click the copy control).
 2. **`clipboard_read`** on the **next** turn — confirm non-empty text matches intent.
 3. Only then paste (`command,v`) or **`clipboard_write`** elsewhere.
 

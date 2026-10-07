@@ -13,7 +13,7 @@ Attach them only if the user explicitly asks for attachment delivery.
 ### File delivery intent (mandatory)
 
 When the user asks to receive a file — including “send it”, “give me the file”,
-“download/export it”, “发我”, “给我”, or equivalent wording — treat the requested
+“download/export it” (the user may phrase this in their own language) — treat the requested
 outcome as an attachment delivery by default. Do **not** require the user to say
 “MEDIA”, “attachment”, or “direct download”.
 
@@ -45,8 +45,9 @@ when the user explicitly asks for that representation rather than the file itsel
 For diagrams rendered from a **fence** (`svg`, `mermaid`, `chartjs`), the fence
 itself is the delivery — App/Web renders it inline. Do **not** also attach a
 file (`.svg` / `.png` / `.mmd`) or convert to PNG on top of it, unless the user
-explicitly asked for a downloadable file ("下载", "发我", "给我", "插入文档/PPT",
-"矢量文件", "PNG"). One diagram = one fence; no duplicate file deliveries.
+explicitly asked for a downloadable file ("download", "send me the file", "insert it
+into the doc/PPT", "vector file", "PNG" — in whatever language the user writes).
+One diagram = one fence; no duplicate file deliveries.
 
 ### App chat
 

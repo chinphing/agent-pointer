@@ -36,7 +36,7 @@ Parameters (in `tool_args`):
 
 **Copy / Paste workflow**
 
-- After **Copy** (`command,c` / `ctrl,c`) or clicking a Copy / 复制 control: **next
+- After **Copy** (`command,c` / `ctrl,c`) or clicking a copy control: **next
   turn must be `clipboard_read`** — confirm clipboard text before paste or reuse.
   **Do not** send Copy again without reading first.
 - After **`clipboard_read`** confirms content: use **Paste** (`command,v` /

@@ -33,10 +33,10 @@ Generate short videos from text (and optional first-frame image). **Provider and
 
 | Provider | Example model | Notes |
 |----------|---------------|-------|
-| Qwen | `happyhorse-1.0-t2v` | 文生视频; with `image`, host auto-uses i2v variant |
-| Doubao | `doubao-seedance-2-0-fast-260128` | Seedance 2.0 极速/轻量（默认）；标准版 `doubao-seedance-2-0-260128` 可在设置中切换 |
+| Qwen | `happyhorse-1.0-t2v` | Text-to-video; with `image`, host auto-uses the i2v variant |
+| Doubao | `doubao-seedance-2-0-fast-260128` | Seedance 2.0 fast / light (default); the standard `doubao-seedance-2-0-260128` is switchable in settings |
 
-Change provider/model in **Settings → 视频生成**, not in tool args.
+Change provider/model in the app's video-generation settings, not in tool args.
 
 ## Parameters
 

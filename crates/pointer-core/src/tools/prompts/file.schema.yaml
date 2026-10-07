@@ -1,6 +1,6 @@
-# file.schema.yaml — 独立工具 schema（不含 method 枚举）
-# 从 file.md 的 YAML front matter 拆分出来，每个平铺工具一个 key。
-# 提示词正文仍留在 file.md 中共享。
+# file.schema.yaml — standalone tool schema (no method enum).
+# Split out of the YAML front matter of file.md; one key per flat tool.
+# The prompt body stays shared in file.md.
 
 file_read:
   type: object

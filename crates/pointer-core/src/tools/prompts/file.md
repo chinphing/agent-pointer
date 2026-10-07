@@ -161,7 +161,7 @@ Example:
 **`grep`**
 
 - **`pattern`** — Rust regex syntax (via the same matcher stack ripgrep uses for line search). Keep patterns reasonably short (≤ **512** characters). Matching is **line-oriented** (not multi-line across `\n` within one match). When **`fixedString`** is `true`, `pattern` is treated as a literal string, not a regex.
-- **`path`** — **Required**; same idea as **`grep -R pattern PATH`**: **`PATH`** must be an **existing** file or directory. Prefer **narrow** workspace-relative paths (e.g. `src/`, `crates/pointer-core/src/`). Use **`path: "."`** only when you **deliberately** need a whole-repo search. If the path does not exist, the error includes **可能的路径** — sibling directories under the nearest existing parent (or workspace root) to help correct typos like `ui` → `src`.
+- **`path`** — **Required**; same idea as **`grep -R pattern PATH`**: **`PATH`** must be an **existing** file or directory. Prefer **narrow** workspace-relative paths (e.g. `src/`, `crates/pointer-core/src/`). Use **`path: "."`** only when you **deliberately** need a whole-repo search. If the path does not exist, the error lists candidate paths — sibling directories under the nearest existing parent (or workspace root) to help correct typos like `ui` → `src`.
 - **`limit`** — Optional cap on hit rows (default from host settings, **50**).
   Raising it cannot exceed the host ceiling or the body-byte payload cap.
   Each **`matchLine`** / context line is clipped (default **1 KiB**).

@@ -46,7 +46,7 @@ schema:
       minimum: 1
       description: >
         Optional 1-based start (PDF page or image-dir index). Omit with pageEnd unless
-        the user gave a **numeric** range — never guess page count; "所有页/全文" → omit
+        the user gave a **numeric** range — never guess page count; "all pages" / "the whole document" (in whatever language) → omit
         (host defaults, clamped to file length).
     pageEnd:
       type: integer
@@ -128,8 +128,8 @@ as soon as the attachment has a local path; you do **not** need to wait for OSS 
 
 | User wants | mode | workflow |
 |------------|------|----------|
-| What was said / transcript / 说了什么 / 逐字稿 / 语音转文字 | **audio** | One call; **refs** with one video/audio ref; uses **local file**, not OSS |
-| Scenes / UI / demo steps / 画面 / 演示流程 | **video** | One call; wait for OSS **remoteUrl** when attached from Composer |
+| What was said / transcript (the user may phrase this in their own language) | **audio** | One call; **refs** with one video/audio ref; uses **local file**, not OSS |
+| Scenes / UI / demo steps (in any language) | **video** | One call; wait for OSS **remoteUrl** when attached from Composer |
 | Both speech and visuals | **audio** + **video** | **Two calls**, same ref in **refs**; merge in your reply |
 | On-screen text only (no speech needed) | **video** | Put OCR / UI focus in **goal** |
 

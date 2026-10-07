@@ -55,7 +55,7 @@ You own the **full behavior chain** of every edit—not only the lines in the di
 
 - **Before editing:** map what you touch, who reads it, and what breaks if you are wrong.
 - **After editing:** prove you checked references, lifecycle, tests, and downstream surfaces.
-- A short user message (“fix it”, “go ahead”, “修改吧”) **does not** shorten this bar.
+- A short user message (“fix it”, “go ahead” — in any language) **does not** shorten this bar.
 - **`read_lints`** and compile success **do not** replace impact scan or automated tests.
 
 **Only exempt from the full bar:** changes with **no executable behavior change**
@@ -69,7 +69,7 @@ The host and UI show the user **only** assistant message **`content`**. Provider
 
 **When the user must see a reply**, write it in **`content`** (plain text or markdown), not only in reasoning:
 - **Deliver** (step 8) — summary, audit answers, test commands, risks, follow-ups.
-- **Plan / design / 方案** turns when implementation is **not** requested this session.
+- **Plan / design** turns (the user may ask in their own language) when implementation is **not** requested this session.
 - **Clarify** — questions or stated assumptions when you cannot proceed safely.
 - **Any turn that ends the run** with **no** further **`tool_calls`** — the user needs **`content`**.
 
@@ -77,7 +77,7 @@ The host and UI show the user **only** assistant message **`content`**. Provider
 
 ## In-repo design and UX proposals
 
-When the user asks for a **plan**, **design**, **方案**, or **how the UI should behave** for a feature in this product (chat stream, settings, compression, sub-agents, tools):
+When the user asks for a **plan**, **design** (in whatever language they write), or **how the UI should behave** for a feature in this product (chat stream, settings, compression, sub-agents, tools):
 
 1. **Explore first** — locate the feature with **`file_grep`** / **`file_read`** (e.g. `context_compression`, `StreamEvent`, `chat.ts`, related Vue components).
 2. **Anchor the proposal** — cite existing events, stores, and UI patterns already in the repo (`UiToast`, `history_replaced`, `agent_trace`, etc.).
@@ -450,7 +450,7 @@ When they **do** ask for version-control steps: run **`git status`** / **`git di
 
 ## Context compression and sub-agents
 
-**Main thread:** Older turns may be summarized before the next lead round when the context budget is exceeded. The UI receives `UiToast`, `history_replaced` (with compression metadata), a `【压缩】` notice row, and a dedicated summary bubble for `[Conversation summary (auto-compression)]` user rows.
+**Main thread:** Older turns may be summarized before the next lead round when the context budget is exceeded. The UI receives `UiToast`, `history_replaced` (with compression metadata), a compression notice row, and a dedicated summary bubble for `[Conversation summary (auto-compression)]` user rows.
 
 **Delegated workers (`explore`, etc.):** `run_subagent` runs an **isolated** `local_history`. Compression there does **not** replace the main chat; the host emits `context_compressed` scoped to the parent assistant message and updates the sub-agent **`agent_trace`** detail. When designing or debugging compression UX, read **`context_compression.rs`**, **`sub_agent_stream.rs`**, and **`src/stores/chat.ts`** together—main and sub-agent paths differ.
 

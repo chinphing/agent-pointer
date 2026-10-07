@@ -33,7 +33,7 @@ Generate images from text (and optional reference image). **Provider and model c
 | Qwen (DashScope) | `wan2.7-image-pro` | Unified gen/edit; 2K/4K |
 | Doubao (Volcengine Ark) | `doubao-seedream-5-0-lite-260128` | Seedream 5.0 Lite |
 
-Change provider/model in **Settings → 图片生成**, not in tool args.
+Change provider/model in the app's image-generation settings, not in tool args.
 
 ## Parameters
 

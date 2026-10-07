@@ -278,7 +278,7 @@ fn escape_xml_attr(s: &str) -> String {
 
 fn build_available_skills_prompt(registry: &HashMap<String, SkillDef>, ids: &[String]) -> String {
     let mut lines = vec![
-        "可用 Skills（第一层：frontmatter 索引）。".to_string(),
+        "Available skills (layer 1: frontmatter index).".to_string(),
         "Before replying: scan <available_skills> entries.".to_string(),
         "If a skill matches, call **`skill_read`** with **`skill_id`** equal to `<name>` and **`path`** `SKILL.md` (do not guess).".to_string(),
         "When a skill references a relative path or `{baseDir}`, resolve it against the skill directory (parent of `<location>`) and use absolute paths in **`terminal`**.".to_string(),

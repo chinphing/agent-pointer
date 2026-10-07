@@ -1,5 +1,5 @@
-# skill.schema.yaml — 独立工具 schema（不含 method 枚举）
-# 提示词正文仍留在 skill.md 中共享。
+# skill.schema.yaml — standalone tool schema (no method enum).
+# The prompt body stays shared in skill.md.
 
 skill_read:
   type: object

@@ -172,7 +172,7 @@ When inject shows loop items under **All tasks** and **Current task plan**:
 2. When the **whole item** is verified, **`task_board_patch`** in that message or the next:
 
 ```json
-{ "milestones": [{ "id": "wi_3", "status": "done", "remark": "13812345678 - 用户不存在" }] }
+{ "milestones": [{ "id": "wi_3", "status": "done", "remark": "13812345678 - user not found" }] }
 ```
 
 3. Dynamic placeholder — optional before starting the item:
@@ -224,7 +224,7 @@ Confirm **`in_progress_id`** matches **Current task** before patching.
 ## Core rules
 
 - During execution, **`task_board_patch` every row transition** — do not rely on inject alone; finalize or prune when appropriate.
-- **Linear:** 3–8 milestones; **loop:** only when batch signals (N≥5 enumerated targets or goal asks 汇总/逐条/批量/每个).
+- **Linear:** 3–8 milestones; **loop:** only when batch signals (N≥5 enumerated targets, or the goal asks for a summary / per-item list / batch — in whatever language).
 - Revise the **same** scope (plan / milestones): **`task_board_replace`** or **`task_board_patch`** — do **not** call **`task_board_init`** again.
 - New multi-step scope (or user switched tasks): **`task_board_init`**. Prefer **`task_board_abandon`** then **`task_board_init`**; if you re-init while a board is still running, the host auto-abandons the previous board so only one active parent board remains.
 - Cancel obsolete rows with **`task_board_prune`**.

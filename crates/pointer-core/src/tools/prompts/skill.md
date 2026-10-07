@@ -26,7 +26,7 @@ Use it only for enabled Skills — not for arbitrary workspace or project files.
 #### When to use
 
 **Priority for attachment / capability gaps:** (1) enabled skill from the
-**可用 Skills** / `<available_skills>` index → (2) **`find-skills`** / install → (3) ad-hoc code last.
+**available skills** index (`<available_skills>`) → (2) **`find-skills`** / install → (3) ad-hoc code last.
 Never run `npx skills find` when an enabled skill already matches.
 
 Each enabled skill in `<available_skills>` includes **`<name>`** (use as **`skill_id`**

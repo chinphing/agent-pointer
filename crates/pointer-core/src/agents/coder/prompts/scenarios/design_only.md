@@ -1,6 +1,6 @@
 ### Scenario: design_only
 
-**Classify** when the user asks for plan / design / 方案 **without** implementation this session.
+**Classify** when the user asks for plan / design (in whatever language they write) **without** implementation this session.
 For explaining **existing** architecture / flow (not a new design), use
 **`Scenario: architecture_explain`** instead.
 

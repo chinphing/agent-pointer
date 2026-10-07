@@ -7,9 +7,9 @@ emit a fenced Chart.js JSON block (not HTML/`<script>`/CDN):
   **`type`**, **`data`**, optional **`options`**
   (JSON only — **no functions**, and no function-looking strings like
   `"ctx => …"` in `segment` / `ticks.callback`).
-- **Readable units:** scale values to 万 / 亿 / % / ‰ (or similar);
-  put the unit in each dataset `label` and axis title — never dump raw
-  millions as axis ticks.
+- **Readable units:** scale values to readable magnitudes (e.g. thousands /
+  millions) and keep rates as % / ‰; put the unit in each dataset `label` and
+  axis title — never dump raw millions as axis ticks.
 - **Same unit** → one axis; grouped `bar` / multi-`line` for comparison.
   **Level + rate** (count vs %/‰) → one chart with **dual y-axes**:
   bars for level, line for rate; mark the rate series `(right axis)` in its

@@ -29,7 +29,7 @@ transition** is clearer as a diagram than prose, emit a fenced Mermaid block:
   Unquoted `vouchers[]` is cut at the first `]` and fails.
 - Quote subgraph titles that contain punctuation
   (including fullwidth `（，）`):
-  `subgraph "明细路径（入账，正确）"`.
+  `subgraph "Detail path（actual，correct）"`.
   Unquoted `（` / `，` / `()` in a subgraph title fails to parse.
 - Use **`svg`** (never Mermaid) for: timeline / journey / mindmap / sankey /
   quadrant / xychart / pie / radar / gitGraph / C4 / block / treeView / venn /
@@ -46,8 +46,8 @@ Example:
 ````
 ```mermaid
 flowchart TD
-  A[开始] --> B{是否继续?}
-  B -- 是 --> C[继续]
-  B -- 否 --> D[结束]
+  A[Start] --> B{Continue?}
+  B -- Yes --> C[Continue]
+  B -- No --> D[End]
 ```
 ````

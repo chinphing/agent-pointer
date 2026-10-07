@@ -43,7 +43,7 @@ or must know a decision (see general rules). Do not restate.
 
 **When the user must see a reply**, write it in **`content`**:
 - **Deliver** — summary, test commands, risks, follow-ups.
-- **Plan / design / 方案** when implementation is **not** requested this session.
+- **Plan / design** (the user may ask in their own language) when implementation is **not** requested this session.
 - **G1 clarify** — questions or stated assumptions when you cannot proceed safely.
 - **Any turn that ends the run** with **no** **`tool_calls`**.
 
@@ -51,7 +51,7 @@ or must know a decision (see general rules). Do not restate.
 
 ## In-repo design and UX proposals
 
-When the user asks for a **plan**, **design**, **方案**, or **how the UI should behave**:
+When the user asks for a **plan**, **design** (in whatever language they write), or **how the UI should behave**:
 
 1. **Orient** — locate the feature with **`file_grep`** (scoped **`path`**) / **`file_read`** or **`explore`**.
 2. **Anchor** — cite existing events, stores, and UI patterns in the repo.

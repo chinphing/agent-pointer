@@ -133,6 +133,6 @@ Do not call `await` just to idle; if this turn can end, end it
 and leave jobs running.
 When you already ended the turn, the host later delivers unclaimed
 Completed/Failed bodies in the same conversation as one user message
-starting with the Chinese line for finished background work.
+starting with the host's notice line for finished background work.
 Do not `await` those ids again (already claimed).
 Cancelled jobs are not delivered this way.

@@ -164,5 +164,5 @@ A shell command, not a subagent. Same `job` table, different `kind`.
 | **`waitForInputMs`** | no | Max wait for in-app input after prompt detect |
 | **`envFiles`** | no | `.env` path or array |
 | **`elevated`** | no | Admin/root; see **Elevation** |
-| **`label`** | no | Human-readable short name shown in UI (e.g. "运行单元测试"); defaults to first line of `command` |
+| **`label`** | no | Human-readable short name shown in UI, in the user's language; defaults to first line of `command` |
 | **`blockUntilMs`** | no | See **Background**. Omit = wait. `0` = job handle now. `N` = wait up to N ms then detach |

@@ -12,10 +12,10 @@ emit a fenced Chart.js JSON block (not HTML/`<script>`/CDN):
   millions as axis ticks.
 - **Same unit** → one axis; grouped `bar` / multi-`line` for comparison.
   **Level + rate** (count vs %/‰) → one chart with **dual y-axes**:
-  bars for level, line for rate; mark the rate series `(right axis)` /
-  `(右轴)` in its label; set `y` + `y1` scales.
+  bars for level, line for rate; mark the rate series `(right axis)` in its
+  label, in the user's language; set `y` + `y1` scales.
 - Prefer ≤ **2** datasets; hard cap **4**. More → split charts or a table.
-- Long category labels (Chinese names, 口径名) → prefer **`indexAxis: "y"`**
+- Long category labels (multi-word or long names) → prefer **`indexAxis: "y"`**
   (horizontal bars). The host may auto-flip vertical bars when labels are long.
 - Long time series is OK: keep ≤2 series, thin bars / lines, and sparse
   category ticks (`maxTicksLimit` ~8–12). Short windows → show every label.

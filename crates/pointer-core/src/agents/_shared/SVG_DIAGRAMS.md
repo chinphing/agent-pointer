@@ -50,7 +50,7 @@ Not HTML pages, not CDN scripts:
   box edges (do not draw through labels).
 - Multi-stage flows: prefer a **vertical stack** (one stage per row) over a
   dense multi-column grid that collides.
-- Put footnotes / “来源 / 输出” on their own row with space under the stage —
+- Put footnotes / source-and-output notes on their own row with space under the stage —
   do not park a second mini-flow in the leftover corner if it crosses lines.
 - Keep `viewBox` tall/wide enough for **all** nodes, arrows, and footer text
   plus ~16px outer margin (content past the box is clipped).

@@ -286,7 +286,6 @@ pub(crate) async fn run_sub_agent(
                 def: &def,
                 workspace_root: sub_provider.settings.workspace_root.as_str(),
                 user_dynamic_inject_enabled: sub_provider.settings.user_dynamic_inject_enabled,
-                ui_locale: sub_provider.settings.ui_locale.as_str(),
                 spawn_depth,
             })
             .await?;

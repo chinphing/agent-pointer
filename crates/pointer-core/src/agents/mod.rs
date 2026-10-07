@@ -1564,8 +1564,8 @@ mod builtin_agent_tests {
             "the delegated branch must point at the Assigned task"
         );
         assert!(
-            s.contains("never overrides it"),
-            "a host-injected language hint must not override the Assigned task"
+            s.contains("No discernible language"),
+            "the language rule must cover messages with no discernible language"
         );
     }
 

@@ -68,28 +68,6 @@ pub fn resolve_ui_locale_with_host(pref: &str, host_language: Option<&str>) -> U
     }
 }
 
-/// English instruction telling the model which UI language to reply in.
-pub fn ui_locale_reply_rule(locale: UiLocale) -> &'static str {
-    match locale {
-        UiLocale::ZhCn => {
-            "Reply in Simplified Chinese (zh-CN) to match the user's UI language."
-        }
-        UiLocale::En => "Reply in English to match the user's UI language.",
-    }
-}
-
-/// Append the UI-language reply rule to cacheable system prompts.
-pub fn push_ui_locale_reply_rule_to_cacheable(cacheable: &mut Vec<String>, ui_locale_pref: &str) {
-    let resolved = resolve_ui_locale(ui_locale_pref);
-    let rule = ui_locale_reply_rule(resolved);
-    cacheable.push(format!("[UI Language]\n{rule}"));
-    log::info!(
-        "i18n: injected UI language reply rule pref={} resolved={}",
-        normalize_ui_locale_preference(ui_locale_pref),
-        resolved.as_str()
-    );
-}
-
 /// Load `UserSettings.ui_locale` and resolve (warns on settings load failure).
 pub fn current_ui_locale() -> UiLocale {
     match crate::storage::load_user_settings() {
@@ -287,37 +265,6 @@ mod tests {
                 "en missing {key}"
             );
         }
-    }
-
-    #[test]
-    fn reply_rule_texts() {
-        assert_eq!(
-            ui_locale_reply_rule(UiLocale::ZhCn),
-            "Reply in Simplified Chinese (zh-CN) to match the user's UI language."
-        );
-        assert_eq!(
-            ui_locale_reply_rule(UiLocale::En),
-            "Reply in English to match the user's UI language."
-        );
-    }
-
-    #[test]
-    fn push_injects_zh_cn_and_en_rules() {
-        let mut zh = Vec::new();
-        push_ui_locale_reply_rule_to_cacheable(&mut zh, "zh-CN");
-        assert_eq!(zh.len(), 1);
-        assert_eq!(
-            zh[0],
-            "[UI Language]\nReply in Simplified Chinese (zh-CN) to match the user's UI language."
-        );
-
-        let mut en = Vec::new();
-        push_ui_locale_reply_rule_to_cacheable(&mut en, "en");
-        assert_eq!(en.len(), 1);
-        assert_eq!(
-            en[0],
-            "[UI Language]\nReply in English to match the user's UI language."
-        );
     }
 
     #[test]

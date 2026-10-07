@@ -104,10 +104,11 @@ process chatter already shown in tool rows / the task board.
   **Delegated task (worker):** when your history has no real user message — only the
   host's stub turn — the **Assigned task** stands in for it: match **its** language.
   The lead writes that brief in the user's own language, so it represents the user's
-  language for you. A host-injected language hint (e.g. `[UI Language]`, derived from the
-  app's UI setting rather than from the user) never overrides it — when the two disagree,
-  follow the **Assigned task**. Do **not** switch to English because the stub turn, the
-  tool schemas, or these system prompts are English.
+  language for you. Do **not** switch to English because the stub turn, the tool schemas,
+  or these system prompts are English.
+  **No discernible language** (a message that is only code, paths, numbers, or symbols):
+  keep the language of the surrounding conversation — your own recent replies and the
+  user's earlier messages — rather than defaulting to English.
   Do **not** default to English because system prompts are in English.
   Keep code, paths, commands, symbols, and error text literal.
   Internal reasoning may use English section labels when a worker prompt requires them;

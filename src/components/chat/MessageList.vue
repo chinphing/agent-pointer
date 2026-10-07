@@ -71,6 +71,7 @@ import {
   turnElapsedHostIndex,
   turnScopedStructureStamp,
   turnSegmentFingerprint,
+  turnSpawnGuardMatches,
   turnSpawnPlanCacheKey,
   withTurnElapsedFollowingSpacing,
   type FlatEntry,
@@ -1475,13 +1476,33 @@ const layoutDeps: FlattenDeps = {
 }
 
 /**
- * Per-turn spawn plan cache (non-reactive on purpose — a ref write inside the
- * computed would retrigger itself). Keyed by `convId\0turnId`; the value's key is
- * the turn structure fingerprint plus the scoped structure revision, so a turn whose
- * shape did not move keeps handing out the **same** `TurnSpawnPlan` object and the
- * `:spawn-plan` prop chain stays referentially stable.
+ * Per-turn spawn plan pass state (non-reactive on purpose — a ref write inside the
+ * computed would retrigger itself).
+ *
+ * `spawnPlanPass` holds one entry per turn: the guard inputs it was computed from
+ * (turn object identity, expansion, per-anchor scoped structure revisions), the cache
+ * key and the plan object itself. A turn whose guard still matches is skipped
+ * **entirely** — no pending rebuild, no fingerprint, no plan build — so one spawn's
+ * shape event costs O(turns) integer reads instead of a fingerprint over every lead
+ * message and every scoped row.
+ *
+ * `spawnPlanPassOut` is the Map handed out last time. When no turn's plan moved the
+ * pass returns that *same* Map, so nothing reading `turnSpawnPlans.value` (the list
+ * render, every row's memo vector) is invalidated.
  */
-let spawnPlanCache = new Map<string, { key: string; plan: TurnSpawnPlan }>()
+type SpawnPlanPassEntry = {
+  turnRef: unknown
+  expanded: boolean
+  anchorIds: string[]
+  anchorRevs: number[]
+  anchorlessEpoch: number
+  key: string
+  plan: TurnSpawnPlan
+  messages: ChatMessage[]
+}
+let spawnPlanPass = new Map<string, SpawnPlanPassEntry>()
+let spawnPlanPassOut: Map<string, TurnSpawnPlan> | null = null
+let spawnPlanPassConv = ''
 
 const messageListLayout = computed(() => {
   void chat.taskBoards
@@ -1900,21 +1921,57 @@ const turnSpawnPlans = computed(() => {
   // `getSubAgentLiveSignal('')`（空 key 永远不会被写入）订阅，靠的是 publishLive 整体替换
   // 外层槽位 —— 结果任何 spawn 的任何一个 token 都会重建全部回合的 plan。
   const convId = chat.currentId ?? ''
-  // 失效触发器（**只**让本 computed 重跑，不参与 plan 缓存 key —— 见下面的
-  // `turnSpawnPlanCacheKey`）：scoped 存储的结构变化 + spawn 成员增删。用 `void` 读取：
-  // 未变的回合随后会命中缓存、复用原 plan 对象，不再整窗重渲染。
+  // 触发器：**只**让本 computed 重跑，不参与「这一回合要不要重算」。用 `void` 读取：本趟
+  // 是否真的做指纹，由下面每回合自己的 guard（回合对象身份 + 展开态 + 该回合锚点的结构修订）
+  // 决定 —— 所以 64 次/秒的结构事件里，只有真正动过的那个回合会重算指纹。
   void chat.getScopedStructureRevision(convId)
   void chat.getScopedMembershipSignal(convId)
+  const turns = conversationTurns.value
+  const anchorlessEpoch = chat.getScopedAnchorlessStructureEpoch()
 
-  const pending: {
+  if (convId !== spawnPlanPassConv) {
+    spawnPlanPass = new Map()
+    spawnPlanPassOut = null
+    spawnPlanPassConv = convId
+  }
+
+  const perf = renderPerfEnabled()
+  const plansStartedAt = perf ? performance.now() : 0
+  let fingerprintMs = 0
+  let buildMs = 0
+
+  const fresh: {
     id: string
+    turn: (typeof turns)[number]
+    expanded: boolean
     messages: ChatMessage[]
     extra: Map<string, ToolCall[]>
     drawn: Map<string, string[]>
   }[] = []
   const seedIds: string[] = []
+  const nextPass = new Map<string, SpawnPlanPassEntry>()
+  let reusedTurns = 0
 
-  for (const turn of conversationTurns.value) {
+  for (const turn of turns) {
+    const expanded = turnIsExpanded(turn.id)
+    const cached = spawnPlanPass.get(turn.id)
+    if (
+      cached
+      && cached.anchorlessEpoch === anchorlessEpoch
+      && turnSpawnGuardMatches(cached, {
+        turnRef: turn,
+        expanded,
+        anchorRevs: cached.anchorIds.map(id => chat.getScopedAnchorStructureRevision(convId, id))
+      })
+    ) {
+      // 这个回合的消息与它下面的 scoped 结构都没动：连指纹都不算，直接复用 plan 对象。
+      for (const message of cached.messages) seedIds.push(message.id)
+      nextPass.set(turn.id, cached)
+      reusedTurns += 1
+      bump('call:turnFingerprintSkipped')
+      continue
+    }
+
     const messages: ChatMessage[] = []
     const seen = new Set<string>()
     const extra = new Map<string, ToolCall[]>()
@@ -1976,67 +2033,95 @@ const turnSpawnPlans = computed(() => {
       }
     }
 
-    pending.push({ id: turn.id, messages, extra, drawn: drawnRowIdsByMessage })
+    fresh.push({ id: turn.id, turn, expanded, messages, extra, drawn: drawnRowIdsByMessage })
     for (const msg of messages) seedIds.push(msg.id)
   }
 
+  // 只有真的需要重算某个回合时，才去铺闭包 / 分组：整趟纯 guard 命中时这两步也省掉。
   // 嵌套层的行锚在**父级行 id** 上（父 worker 的 scoped 行），只取一层会漏掉第 2 层及更深。
-  const scopedRows = scopedRowClosure(seedIds, ids => chat.scopedRowsForAnchors(convId, ids))
+  const scopedRows = fresh.length > 0
+    ? scopedRowClosure(seedIds, ids => chat.scopedRowsForAnchors(convId, ids))
+    : []
+  const rowsByAnchor = fresh.length > 0 ? groupScopedRowsByAnchor(scopedRows) : new Map<string, ChatMessage[]>()
 
-  const perf = renderPerfEnabled()
-  const plansStartedAt = perf ? performance.now() : 0
-  let fingerprintMs = 0
-  let buildMs = 0
-  const rowsByAnchor = groupScopedRowsByAnchor(scopedRows)
-
-  const out = new Map<string, TurnSpawnPlan>()
-  const nextCache = new Map<string, { key: string; plan: TurnSpawnPlan }>()
-  for (const entry of pending) {
-    const cacheKey = `${convId}\u0000${entry.id}`
+  for (const entry of fresh) {
     // 回合结构指纹（消息 / 工具行状态 / 档案 / 任务板）+ **本回合自己**的 scoped 结构戳：
     // 二者都没动 → 复用同一个 plan 对象，子组件 prop 身份不变，不触发重渲染。
     // 旧实现把会话级 `structureRevision` 放进 key，于是任何一处子 agent 结构变化都会让
     // **每个**回合的 key 变化 → 每个回合重建 plan（新对象）→ 整个可见窗口重渲染，正好是
     // 「子 agent 启动那一刻卡死」。key 现在只含该回合真正读到的两样东西。
     const fingerprintStart = perf ? performance.now() : 0
+    const anchorIds = entry.messages.map(message => message.id)
     const fingerprint = turnSegmentFingerprint(
       entry.messages,
       0,
       entry.messages.length,
       layoutDeps
     )
-    const scopedStamp = turnScopedStructureStamp(
-      entry.messages.map(message => message.id),
-      rowsByAnchor,
-      layoutDeps
-    )
+    const scopedStamp = turnScopedStructureStamp(anchorIds, rowsByAnchor, layoutDeps)
     if (perf) fingerprintMs += performance.now() - fingerprintStart
     const key = turnSpawnPlanCacheKey(fingerprint, scopedStamp)
-    const cached = spawnPlanCache.get(cacheKey)
+    const cached = spawnPlanPass.get(entry.id)
+    let plan: TurnSpawnPlan
     if (cached && cached.key === key) {
-      out.set(entry.id, cached.plan)
-      nextCache.set(cacheKey, cached)
-      continue
+      plan = cached.plan
+    } else {
+      const buildStart = perf ? performance.now() : 0
+      plan = buildTurnSpawnPlan({
+        messages: entry.messages,
+        scopedRows,
+        extraToolCallsByMessageId: entry.extra,
+        drawnRowIdsByMessage: entry.drawn
+      })
+      if (perf) buildMs += performance.now() - buildStart
     }
-    const buildStart = perf ? performance.now() : 0
-    const plan = buildTurnSpawnPlan({
-      messages: entry.messages,
-      scopedRows,
-      extraToolCallsByMessageId: entry.extra,
-      drawnRowIdsByMessage: entry.drawn
+    nextPass.set(entry.id, {
+      turnRef: entry.turn,
+      expanded: entry.expanded,
+      anchorIds,
+      anchorRevs: anchorIds.map(id => chat.getScopedAnchorStructureRevision(convId, id)),
+      anchorlessEpoch,
+      key,
+      plan,
+      messages: entry.messages
     })
-    if (perf) buildMs += performance.now() - buildStart
-    out.set(entry.id, plan)
-    nextCache.set(cacheKey, { key, plan })
   }
+
   if (perf) {
     record('ms:turnFingerprint', fingerprintMs)
     record('ms:buildTurnSpawnPlan', buildMs)
     record('ms:turnSpawnPlans', performance.now() - plansStartedAt)
   }
   // Drop turns that left the window (conversation switch / compression trim).
-  spawnPlanCache = nextCache
-  return out
+  spawnPlanPass = nextPass
+
+  const out = new Map<string, TurnSpawnPlan>()
+  for (const turn of turns) {
+    const entry = nextPass.get(turn.id)
+    if (entry) out.set(turn.id, entry.plan)
+  }
+  if (out.size !== turns.length) {
+    console.warn('[messageList] spawn plan pass missed turns', convId, out.size, turns.length)
+  }
+  if (reusedTurns === 0) {
+    spawnPlanPassOut = out
+    return out
+  }
+  // 至少有一个回合被复用：若整张表逐项与上次**同一个 plan 对象**，就把**同一个 Map** 交回去，
+  // 这样 `turnSpawnPlans.value` 身份不变，列表渲染与每行的 memo 向量都不会被无谓失效。
+  const prev = spawnPlanPassOut
+  let unchanged = !!prev && prev.size === out.size
+  if (unchanged) {
+    for (const [id, plan] of out) {
+      if (prev!.get(id) !== plan) {
+        unchanged = false
+        break
+      }
+    }
+  }
+  const result = unchanged ? prev! : out
+  spawnPlanPassOut = result
+  return result
 })
 
 function turnElapsedLabel(turnId: string): string {

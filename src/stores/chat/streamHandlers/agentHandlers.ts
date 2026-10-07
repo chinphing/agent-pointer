@@ -22,8 +22,9 @@ export function handleAgentStep(ctx: StreamHandlerContext, e: AgentStep) {
     trace.content = undefined
     if (canMarkStreaming && r.msg.status !== 'streaming') r.msg.status = 'streaming'
     // Lead-layer trace shape changed (id / status / parent link): the per-turn spawn
-    // plans read the scoped structure revision, which only sees scoped rows.
-    useConversationScopedStore().bumpStructureRevision(r.conv.id)
+    // plans key on the anchor's structure revision, which only sees scoped rows — so
+    // anchor this bump on the message that carries the trace.
+    useConversationScopedStore().bumpStructureRevision(r.conv.id, r.msg.id)
     if (terminal) {
       finalizeSubSession(trace)
       persistTerminalTraceSummaryLine(trace, {

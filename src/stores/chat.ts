@@ -3063,9 +3063,16 @@ export const useChatStore = defineStore('chat', () => {
     conv: Conversation,
     anchorMsg: ChatMessage,
     target: ChatMessage | null,
-    traceId?: string
+    traceId?: string,
+    append?: { textDelta?: number; payloadDelta?: number; shapeChanged?: boolean }
   ) {
     if (target && isScopedSubMessage(target)) {
+      if (append && !append.shapeChanged) {
+        scopedStore.touchTextDelta(conv.id, target.id, append.textDelta ?? 0, {
+          payloadDelta: append.payloadDelta
+        })
+        return
+      }
       scopedStore.touchRow(conv.id, target.id)
       return
     }
@@ -3295,7 +3302,10 @@ export const useChatStore = defineStore('chat', () => {
       const tc = target.toolCalls?.find(t => t.id === toolCallId)
       if (tc) tc.arguments += text
       if (isScopedSubMessage(target)) {
-        scopedStore.touchRow(r.conv.id, target.id)
+        // Per-**token** path: a tool-call payload append only moves `live`'s payload
+        // accumulator — `structure` and `askUser` stay put — so it takes the O(1) lane
+        // instead of rescanning every row of the spawn.
+        scopedStore.touchTextDelta(r.conv.id, target.id, 0, { payloadDelta: text.length })
       }
       return
     }
@@ -3332,7 +3342,9 @@ export const useChatStore = defineStore('chat', () => {
       const tc = target.toolCalls?.find(t => t.id === toolCallId)
       if (tc) appendCappedTerminalOutput(tc, toolCallId, text)
       if (isScopedSubMessage(target)) {
-        scopedStore.touchRow(r.conv.id, target.id)
+        // Same O(1) lane as tool arguments: `result` feeds `live`'s payload
+        // accumulator only, never `structure` / `askUser`.
+        scopedStore.touchTextDelta(r.conv.id, target.id, 0, { payloadDelta: text.length })
       }
       return
     }
@@ -3368,7 +3380,12 @@ export const useChatStore = defineStore('chat', () => {
     if (target) {
       const tc = target.toolCalls?.find(t => t.id === toolCallId)
       if (tc) tc.webSearchOutput = (tc.webSearchOutput || '') + text
-      notifyScopedStreamWrite(r.conv, r.msg, target, traceId)
+      // `webSearchOutput` appears in **no** published signature (`live` / `askUser` /
+      // `structure` all ignore it), so the scan this used to run rebuilt ~32.7 KB of
+      // strings per chunk and published a fingerprint that had not moved — `publishLive`
+      // then early-returned. Skipping it is byte-for-byte equivalent, and the web-search
+      // card re-renders off the row object itself.
+      if (!isScopedSubMessage(target)) notifyScopedStreamWrite(r.conv, r.msg, target, traceId)
       return
     }
     if (traceId?.trim()) {
@@ -3977,6 +3994,8 @@ export const useChatStore = defineStore('chat', () => {
     scopedMessagesForTraceCached, getSubAgentLiveSignal, subAgentLiveSignals: scopedStore.liveSignals,
     getScopedMembershipSignal: scopedStore.getMembershipSignal,
     getScopedStructureRevision: scopedStore.getStructureRevision,
+    getScopedAnchorStructureRevision: scopedStore.getAnchorStructureRevision,
+    getScopedAnchorlessStructureEpoch: scopedStore.getAnchorlessStructureEpoch,
     ensureScopedMessagesForTrace, evictScopedInstance: scopedStore.evictInstance,
     ensureToolCallBody, releaseToolCallBody: releasePinnedToolBody,
     ensureMessageAside,

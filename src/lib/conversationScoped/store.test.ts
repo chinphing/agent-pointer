@@ -113,6 +113,45 @@ describe('createConversationScopedStore', () => {
     expect(store.getStructureRevision('c1')).not.toBe(structureBefore)
   })
 
+  /**
+   * The O(1) lane is only sound while its two accumulators agree with the scan they
+   * replace. This pins that: after a mixed run of text and tool-payload appends, the
+   * cached `live` must be byte-identical to a fresh `computeScopedSignals(...).live`.
+   * Drift here is a **frozen live line**, not a slow one.
+   */
+  it('O(1) deltas stay byte-identical to a full rescan', () => {
+    const store = createConversationScopedStore()
+    const row = scopedMsg({
+      id: 'm1',
+      agentInstanceId: 'inst-1',
+      status: 'streaming',
+      content: 'a',
+      toolCalls: [{ id: 'tc1', name: 'terminal', status: 'running', arguments: '{}', result: 'out' }]
+    })
+    store.ensureInstance('c1', {
+      agentInstanceId: 'inst-1',
+      traceId: 'task:explore',
+      anchorMessageId: 'anchor-1'
+    }, row)
+
+    const argsChunk = '{"cmd":"ls"}'
+    const outputChunk = 'more output'
+    const rawChunk = 'raw chunk'
+
+    row.content += 'bc'
+    store.touchTextDelta('c1', 'm1', 2)
+    row.toolCalls![0]!.arguments += argsChunk
+    store.touchTextDelta('c1', 'm1', 0, { payloadDelta: argsChunk.length })
+    row.toolCalls![0]!.result += outputChunk
+    store.touchTextDelta('c1', 'm1', 0, { payloadDelta: outputChunk.length })
+    row.rawContent = rawChunk
+    store.touchTextDelta('c1', 'm1', rawChunk.length)
+
+    expect(store.getLiveSignal('c1', 'inst-1')).toBe(
+      computeSubAgentLiveFingerprint(store.getRows('c1', { agentInstanceId: 'inst-1' }))
+    )
+  })
+
   it('touchRow publishes live signal under instance and legacy trace id', () => {
     const store = createConversationScopedStore()
     const row = scopedMsg({ id: 'm1', agentInstanceId: 'inst-1', content: 'a' })
@@ -182,6 +221,84 @@ describe('createConversationScopedStore', () => {
     row.toolCalls![0]!.status = 'success'
     store.touchRow('c1', 'm1')
     expect(store.getAskUserRevision('c1')).toBe(afterSpawn + 2)
+  })
+
+  /**
+   * The per-turn spawn-plan guard reads one revision per anchor. It must move for the
+   * anchor a shape event belongs to — and, for a **nested** spawn, for every ancestor
+   * anchor up to the turn message, because the turn's closure reaches those rows through
+   * its parent. A revision that only moved the leaf would leave the owning turn's plan
+   * frozen.
+   */
+  it('bumps the anchor structure revision for the changed spawn and its ancestors', () => {
+    const store = createConversationScopedStore()
+    // lead turn message `anchor-1` → worker `inst-1` (rows r1)
+    store.ensureInstance('c1', {
+      agentInstanceId: 'inst-1',
+      anchorMessageId: 'anchor-1',
+      traceId: 'task:explore'
+    }, scopedMsg({ id: 'r1', agentInstanceId: 'inst-1', createdAt: 0 }))
+    // nested spawn issued by that worker: its rows are anchored on the parent's own row `r1`
+    store.ensureInstance('c1', {
+      agentInstanceId: 'inst-2',
+      anchorMessageId: 'r1',
+      traceId: 'task:explore'
+    }, scopedMsg({ id: 'r2', agentInstanceId: 'inst-2', createdAt: 1, anchorMessageId: 'r1' }))
+    // an unrelated turn, so the "only the changed branch moves" half is testable
+    store.ensureInstance('c1', {
+      agentInstanceId: 'inst-3',
+      anchorMessageId: 'anchor-9',
+      traceId: 'task:explore'
+    }, scopedMsg({ id: 'r9', agentInstanceId: 'inst-3', anchorMessageId: 'anchor-9' }))
+
+    const turnBefore = store.getAnchorStructureRevision('c1', 'anchor-1')
+    const midBefore = store.getAnchorStructureRevision('c1', 'r1')
+    const otherBefore = store.getAnchorStructureRevision('c1', 'anchor-9')
+
+    // A shape change in the nested spawn must reach the turn anchor too: the turn's
+    // closure only gets to `r2` through `r1`, which only hangs off `anchor-1`.
+    const leafRow = store.findRow('c1', 'r2')!
+    leafRow.status = 'streaming'
+    store.touchRow('c1', 'r2')
+
+    expect(store.getAnchorStructureRevision('c1', 'r1')).toBeGreaterThan(midBefore)
+    expect(store.getAnchorStructureRevision('c1', 'anchor-1')).toBeGreaterThan(turnBefore)
+    // The sibling turn is untouched — this is the whole point of the per-anchor axis.
+    expect(store.getAnchorStructureRevision('c1', 'anchor-9')).toBe(otherBefore)
+
+    // A shape change on the first level moves the same turn anchor and no one else.
+    const rootRow = store.findRow('c1', 'r1')!
+    rootRow.status = 'streaming'
+    store.touchRow('c1', 'r1')
+    expect(store.getAnchorStructureRevision('c1', 'anchor-1')).toBeGreaterThan(turnBefore + 1)
+    expect(store.getAnchorStructureRevision('c1', 'anchor-9')).toBe(otherBefore)
+  })
+
+  it('a token write never moves the anchor structure revision', () => {
+    const store = createConversationScopedStore()
+    const row = scopedMsg({ id: 'm1', agentInstanceId: 'inst-1', content: 'a' })
+    store.ensureInstance('c1', {
+      agentInstanceId: 'inst-1',
+      traceId: 'task:explore',
+      anchorMessageId: 'anchor-1'
+    }, row)
+    const before = store.getAnchorStructureRevision('c1', 'anchor-1')
+    row.content = 'abcdef'
+    store.touchTextDelta('c1', 'm1', 5)
+    expect(store.getAnchorStructureRevision('c1', 'anchor-1')).toBe(before)
+  })
+
+  it('an anchor-less shape event falls back to the anchorless epoch', () => {
+    const store = createConversationScopedStore()
+    const before = store.getAnchorlessStructureEpoch()
+    store.bumpStructureRevision('c1')
+    expect(store.getAnchorlessStructureEpoch()).toBeGreaterThan(before)
+    // With an anchor, the epoch stays put and only that anchor moves.
+    const epochAfter = store.getAnchorlessStructureEpoch()
+    const anchorBefore = store.getAnchorStructureRevision('c1', 'anchor-1')
+    store.bumpStructureRevision('c1', 'anchor-1')
+    expect(store.getAnchorlessStructureEpoch()).toBe(epochAfter)
+    expect(store.getAnchorStructureRevision('c1', 'anchor-1')).toBeGreaterThan(anchorBefore)
   })
 
   it('ensureInstance with empty lookup warns and skips', () => {

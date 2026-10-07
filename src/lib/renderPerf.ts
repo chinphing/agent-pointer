@@ -119,7 +119,14 @@ export const PERF_CALL_KEYS = [
   /** Full `computeScopedSignals` scans per second (shape events only). */
   'call:scopedSignals',
   /** O(1) text-append chunks per second (no scan). */
-  'call:scopedTextDelta'
+  'call:scopedTextDelta',
+  /**
+   * Turns whose spawn-plan pass skipped the fingerprint entirely because the turn's
+   * guard matched (same turn object, same expansion, same anchor structure revisions).
+   * Read next to `ms:turnFingerprint`: while a sub-agent streams, this should carry
+   * almost every turn and `ms:turnFingerprint` should stay near zero.
+   */
+  'call:turnFingerprintSkipped'
 ] as const
 
 /** Rows the last full scoped-signature scan walked. */

@@ -336,6 +336,42 @@ export function turnSpawnPlanCacheKey(turnFingerprint: string, scopedStamp: stri
   return `${turnFingerprint}\u0001${scopedStamp}`
 }
 
+/**
+ * Cheap per-turn invalidation guard for the spawn-plan pass — the reason the pass stops
+ * costing O(every turn) on every scoped shape event.
+ *
+ * A plan for one turn reads exactly two things: that turn's messages (as laid out) and the
+ * scoped rows reachable from its message ids. So the pass can skip a turn outright when
+ * both are provably untouched:
+ *
+ * - `turnRef` — the turn object from `conversationTurns`. A layout rebuild hands out new
+ *   turn objects, so an identity match means the entries (and therefore the message set,
+ *   the tool-row set, the collapse projection and the board bindings) are the same ones.
+ * - `expanded` — the collapsed/expanded projection the drawn-row set is built from.
+ * - `anchorRevs` — one structure revision per message id of the turn, read from the
+ *   scoped store. The store bumps only the changed anchor's chain, so this is the exact
+ *   answer to "did anything under this turn move?", at O(messages) integer reads instead
+ *   of a re-fingerprint over every message and every scoped row.
+ *
+ * The guard is deliberately *conservative*: any mismatch re-runs the full fingerprint,
+ * which then decides (via {@link turnSpawnPlanCacheKey}) whether the plan object itself
+ * can still be reused. A false negative costs work; a false positive would freeze a frame.
+ */
+export function turnSpawnGuardMatches(
+  prev: { turnRef: unknown; expanded: boolean; anchorRevs: readonly number[] },
+  next: { turnRef: unknown; expanded: boolean; anchorRevs: readonly number[] }
+): boolean {
+  if (prev.turnRef !== next.turnRef) return false
+  if (prev.expanded !== next.expanded) return false
+  const a = prev.anchorRevs
+  const b = next.anchorRevs
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
 export function matchingCompletedPrefixCount(
   conversationId: string,
   fingerprints: readonly string[],

@@ -14,6 +14,7 @@ import {
   turnElapsedHostIndex,
   turnScopedStructureStamp,
   turnSegmentFingerprint,
+  turnSpawnGuardMatches,
   turnSpawnPlanCacheKey,
   withTurnElapsedFollowingSpacing,
   type FlattenDeps,
@@ -819,5 +820,34 @@ describe('turn elapsed following spacing', () => {
     expect(withTurnElapsedFollowingSpacing('mt-1.5', 1, 0)).toBe('mt-1.5')
     expect(withTurnElapsedFollowingSpacing('mt-7', 1, -1)).toBe('mt-7')
     expect(withTurnElapsedFollowingSpacing('mt-7', 2, 0)).toBe('mt-7')
+  })
+})
+
+/**
+ * The guard is what stops one spawn's shape event from re-fingerprinting every turn.
+ * Every input it reads must be able to invalidate on its own — a guard that misses one
+ * is a frozen frame, not a slow frame.
+ */
+describe('turnSpawnGuardMatches', () => {
+  const base = { turnRef: {}, expanded: false, anchorRevs: [1, 2, 3] }
+
+  it('matches when all three inputs are identical', () => {
+    expect(turnSpawnGuardMatches(base, { ...base })).toBe(true)
+    expect(turnSpawnGuardMatches(base, { ...base, anchorRevs: [1, 2, 3] })).toBe(true)
+  })
+
+  it('misses on a new turn object (layout rebuild)', () => {
+    expect(turnSpawnGuardMatches(base, { ...base, turnRef: {} })).toBe(false)
+  })
+
+  it('misses on an expansion flip (collapse projection changed)', () => {
+    expect(turnSpawnGuardMatches(base, { ...base, expanded: true })).toBe(false)
+  })
+
+  it('misses on any anchor revision move, including a length change', () => {
+    expect(turnSpawnGuardMatches(base, { ...base, anchorRevs: [1, 2, 4] })).toBe(false)
+    expect(turnSpawnGuardMatches(base, { ...base, anchorRevs: [1, 2, 3, 4] })).toBe(false)
+    expect(turnSpawnGuardMatches(base, { ...base, anchorRevs: [1, 2] })).toBe(false)
+    expect(turnSpawnGuardMatches(base, { ...base, anchorRevs: [2, 2, 3] })).toBe(false)
   })
 })

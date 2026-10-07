@@ -58,8 +58,14 @@ function applyAssistantJsonPartialToMessage(msg: ChatMessage, e: AssistantJsonPa
   }
 }
 
-function applyAssistantJsonPartialLegacySession(
-  session: NonNullable<ReturnType<typeof ensureSubTraceSession>>,
+/** Text fields the assistant-json partial patch owns (all part of the live text length). */
+function jsonPartialTextLen(msg: ChatMessage): number {
+  return (msg.thoughts?.length ?? 0)
+    + (msg.responseTextDraft?.length ?? 0)
+    + (msg.toolNamePreview?.length ?? 0)
+}
+
+function applyAssistantJsonPartialLegacySession(  session: NonNullable<ReturnType<typeof ensureSubTraceSession>>,
   e: AssistantJsonPartial
 ) {
   session.contentStreaming = true
@@ -129,8 +135,15 @@ export function handleRawContentDelta(ctx: StreamHandlerContext, e: RawContentDe
   if (target) {
     if (capture) {
       target.rawContent = (target.rawContent || '') + e.text
+      const shapeChanged = !alreadyAssistantStreaming(target)
       markAssistantStreaming(target)
-      ctx.notifyScopedStreamWrite(r.conv, r.msg, target, e.traceId)
+      // `rawContent` is part of the live text length, so this is an O(1) append — the
+      // only shape field a raw chunk can touch is the streaming-flag flip, passed through
+      // as `shapeChanged`.
+      ctx.notifyScopedStreamWrite(r.conv, r.msg, target, e.traceId, {
+        textDelta: e.text.length,
+        shapeChanged
+      })
     } else if (!alreadyAssistantStreaming(target)) {
       // Fan-out sub-agents emit raw deltas every token; avoid dirtying Vue when
       // already streaming and the debug panel is off.
@@ -189,8 +202,15 @@ export function applyAssistantJsonPartialEvent(
   }
   const target = resolveStreamWriteMessage(r.conv, r.msg, traceId, scopedMessageId)
   if (target) {
+    // `thoughts` / `responseTextDraft` / `toolNamePreview` all feed the live text length
+    // and the patch is latest-wins, so the append delta is the change across those three.
+    const textBefore = jsonPartialTextLen(target)
+    const shapeChanged = !alreadyAssistantStreaming(target)
     applyAssistantJsonPartialToMessage(target, synthetic)
-    ctx.notifyScopedStreamWrite(r.conv, r.msg, target, traceId)
+    ctx.notifyScopedStreamWrite(r.conv, r.msg, target, traceId, {
+      textDelta: jsonPartialTextLen(target) - textBefore,
+      shapeChanged
+    })
     return
   }
   if (traceId?.trim()) {

@@ -45,6 +45,7 @@ function emptyTranscript(lookup: SpawnLookup & { instanceId: SpawnId }): ScopedI
     loadState: 'streaming',
     liveFingerprint: '',
     textLen: 0,
+    payloadLen: 0,
     liveShape: '',
     askUserSignature: '',
     structureSignature: ''
@@ -70,6 +71,27 @@ export function createConversationScopedStore() {
    * instead of the live fingerprint, which moves on every streamed chunk.
    */
   const structureRevisions = ref<Record<string, number>>({})
+  /**
+   * Per-**anchor** structure revisions: `convId → anchorMessageId → n`.
+   *
+   * `structureRevisions` above is a single counter per conversation, so it can only
+   * answer "did *anything* move?". The per-turn spawn plans need "did anything **under
+   * this turn** move?" — otherwise every spawn's shape event re-fingerprints every turn
+   * (all lead messages + every scoped row). Each transcript already knows its anchor, so
+   * the store can bump exactly that anchor's chain in O(depth) instead.
+   *
+   * The chain matters: a nested spawn's rows are anchored on a **row id** of its parent
+   * worker, so a change two levels down must invalidate the turn that owns the root
+   * anchor. `bumpAnchorStructureRevision` walks up via `messageIdToInstance` for exactly
+   * that reason.
+   */
+  const anchorStructureRevisions = ref<Record<string, Record<string, number>>>({})
+  /**
+   * Bumped by shape events whose anchor cannot be resolved (a transcript created before
+   * its anchor is known, a removed spawn whose anchor is already gone). Readers treat it
+   * as "assume every turn changed" — conservative, and rare.
+   */
+  const anchorlessStructureEpoch = ref(0)
   const version = ref(0)
   /**
    * Every live scoped row id, across **all** conversations.
@@ -94,10 +116,63 @@ export function createConversationScopedStore() {
     askUserRevisions.value[id] = (askUserRevisions.value[id] ?? 0) + 1
   }
 
-  function bumpStructureRevision(convId: string) {
+  function bumpStructureRevision(convId: string, anchorMessageId?: string) {
     const id = convId.trim()
     if (!id) return
     structureRevisions.value[id] = (structureRevisions.value[id] ?? 0) + 1
+    // Per-anchor axis: what the per-turn spawn plans actually key on. Without an anchor
+    // (or with one that resolves to no live transcript) fall back to the anchor-less
+    // epoch, which every turn treats as a change.
+    const anchor = anchorMessageId?.trim()
+    if (!anchor) {
+      anchorlessStructureEpoch.value += 1
+      return
+    }
+    const chain = anchorChainOf(id, anchor)
+    if (chain.length === 0) {
+      anchorlessStructureEpoch.value += 1
+      return
+    }
+    const conv = { ...(anchorStructureRevisions.value[id] ?? {}) }
+    for (const key of chain) conv[key] = (conv[key] ?? 0) + 1
+    anchorStructureRevisions.value = { ...anchorStructureRevisions.value, [id]: conv }
+  }
+
+  /**
+   * `anchorId` and every ancestor anchor it hangs off — the root anchor is a turn message
+   * id, deeper ones are scoped row ids. Depth is bounded by the render tree's nesting
+   * (`scopedRowClosure` uses the same bound), and the `seen` guard keeps a corrupt
+   * `anchorMessageId` cycle from looping forever.
+   */
+  function anchorChainOf(convId: string, anchorId: string): string[] {
+    const state = getState(convId)
+    const chain: string[] = []
+    const seen = new Set<string>()
+    let cursor = anchorId.trim()
+    while (cursor && !seen.has(cursor)) {
+      seen.add(cursor)
+      chain.push(cursor)
+      const spawnId = state?.messageIdToInstance.get(cursor)
+      const transcript = spawnId ? state?.bySpawn.get(spawnId) : undefined
+      cursor = transcript?.anchorMessageId?.trim() ?? ''
+    }
+    return chain
+  }
+
+  /** Shape revision of one anchor (0 = never changed). */
+  function getAnchorStructureRevision(
+    convId: string | null | undefined,
+    anchorMessageId: string | null | undefined
+  ): number {
+    const id = convId?.trim()
+    const anchor = anchorMessageId?.trim()
+    if (!id || !anchor) return 0
+    return anchorStructureRevisions.value[id]?.[anchor] ?? 0
+  }
+
+  /** Revision for shape events with no resolvable anchor (see the ref above). */
+  function getAnchorlessStructureEpoch(): number {
+    return anchorlessStructureEpoch.value
   }
 
   function getState(convId: string): ConvScopedState | undefined {
@@ -175,6 +250,7 @@ export function createConversationScopedStore() {
     const signals = computeScopedSignals(transcript.rows, legacySession)
     transcript.liveFingerprint = signals.live
     transcript.textLen = signals.textLen
+    transcript.payloadLen = signals.payloadLen
     transcript.liveShape = signals.liveShape
     // Rate reading for the HUD: how many full scans this chain costs per second, and how
     // many rows each one walks. `bump` / `setGauge` are no-ops while the HUD is off, so
@@ -191,7 +267,7 @@ export function createConversationScopedStore() {
     // Narrow signal for the per-turn spawn plans: shape changes only, never tokens.
     if (signals.structure !== transcript.structureSignature) {
       transcript.structureSignature = signals.structure
-      bumpStructureRevision(convId)
+      bumpStructureRevision(convId, transcript.anchorMessageId)
     }
   }
 
@@ -223,7 +299,7 @@ export function createConversationScopedStore() {
       bumpMembership(convId)
       // A new spawn is a shape change for the turn spawn plans even before its
       // first row lands (the transcript exists with an empty signature).
-      bumpStructureRevision(convId)
+      bumpStructureRevision(convId, transcript.anchorMessageId)
     } else {
       if (lookup.anchorMessageId?.trim()) transcript.anchorMessageId = lookup.anchorMessageId.trim()
       if (lookup.traceId?.trim()) transcript.legacyTraceId = lookup.traceId.trim()
@@ -487,27 +563,29 @@ export function createConversationScopedStore() {
   }
 
   /**
-   * A streamed chunk that only **appended text** to one row (content / reasoning / raw).
+   * A streamed chunk that only **appended** to one row — text (content / reasoning / raw)
+   * or a tool-call payload (`arguments` / `result`).
    *
-   * `askUser` and `structure` never move on token writes, and `live` moves only through
-   * its length half — so this is O(1): bump `textLen`, reuse the cached shape, and skip
-   * the scan that used to rebuild several KB of strings on every chunk.
+   * `askUser` and `structure` never move on token writes; `live` moves only through its two
+   * length halves. So this is O(1): advance `textLen` / `payloadLen`, reuse the cached
+   * shape, and skip the scan that used to rebuild several KB of strings on every chunk.
    *
    * `shapeChanged` is the caller's note that this chunk also flipped the row's streaming
-   * flag: that is the one shape field a text append can touch, and `streaming → done`
-   * must still bump even when the text length is unchanged.
+   * flag: that is the one shape field a streamed append can touch, and `streaming → done`
+   * must still bump even when no length moved.
    *
-   * Callers that mutate anything else (tool call payloads, row add / remove, traces) must
-   * keep using `touchRow` / `touchLookup`, which always rescan.
+   * Callers that mutate anything else (tool call status / labels, row add / remove, traces)
+   * must keep using `touchRow` / `touchLookup`, which always rescan.
    *
    * Measured: **0.13 µs / 13 bytes** against the scan it replaces (97.3 µs / 32.7 KB).
-   * Guard: `store.test.ts` → `a text delta moves only the live length, never structure`.
+   * Guards: `store.test.ts` → `a text delta moves only the live length, never structure`,
+   * and → `O(1) deltas stay byte-identical to a full rescan`.
    */
   function touchTextDelta(
     convId: string,
     messageId: string,
     deltaChars: number,
-    opts?: { shapeChanged?: boolean; legacySession?: AgentTrace['session'] }
+    opts?: { shapeChanged?: boolean; payloadDelta?: number; legacySession?: AgentTrace['session'] }
   ): ChatMessage | undefined {
     const row = findRow(convId, messageId)
     if (!row) return undefined
@@ -519,7 +597,12 @@ export function createConversationScopedStore() {
       return row
     }
     transcript.textLen += deltaChars
-    transcript.liveFingerprint = composeLiveFingerprint(transcript.textLen, transcript.liveShape)
+    if (opts?.payloadDelta) transcript.payloadLen += opts.payloadDelta
+    transcript.liveFingerprint = composeLiveFingerprint(
+      transcript.textLen,
+      transcript.payloadLen,
+      transcript.liveShape
+    )
     bump('call:scopedTextDelta')
     publishLive(convId, transcript)
     return row
@@ -559,7 +642,7 @@ export function createConversationScopedStore() {
     }
     bumpMembership(convId)
     // Removing a spawn is a shape change for the turn spawn plans.
-    bumpStructureRevision(convId)
+    bumpStructureRevision(convId, anchor)
     console.info('[conversationScoped] evicted instance', convId, spawnId, reason)
     for (const rowId of childRowIds) {
       evictForAnchor(convId, rowId)
@@ -605,6 +688,11 @@ export function createConversationScopedStore() {
     if (id in structureRevisions.value) {
       delete structureRevisions.value[id]
     }
+    if (id in anchorStructureRevisions.value) {
+      const next = { ...anchorStructureRevisions.value }
+      delete next[id]
+      anchorStructureRevisions.value = next
+    }
     version.value += 1
   }
 
@@ -614,6 +702,8 @@ export function createConversationScopedStore() {
     membership.value = {}
     askUserRevisions.value = {}
     structureRevisions.value = {}
+    anchorStructureRevisions.value = {}
+    anchorlessStructureEpoch.value += 1
     scopedRowIds.clear()
     version.value += 1
   }
@@ -684,6 +774,8 @@ export function createConversationScopedStore() {
     getMembershipSignal,
     getAskUserRevision,
     getStructureRevision,
+    getAnchorStructureRevision,
+    getAnchorlessStructureEpoch,
     /** Lead-layer trace shape changes also invalidate the turn spawn plans. */
     bumpStructureRevision
   }

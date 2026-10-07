@@ -19,10 +19,13 @@ export interface ScopedInstanceTranscript {
   loadState: ScopedLoadState
   liveFingerprint: string
   /**
-   * Cached halves of `liveFingerprint` (`composeLiveFingerprint(textLen, liveShape)`),
-   * so a plain text append can advance it in O(1) instead of rescanning every row.
+   * Cached halves of `liveFingerprint`
+   * (`composeLiveFingerprint(textLen, payloadLen, liveShape)`), so a streamed append can
+   * advance it in O(1) instead of rescanning every row.
    */
   textLen: number
+  /** Σ streamed tool-payload lengths (`arguments` + `result`); see `ScopedSignals`. */
+  payloadLen: number
   liveShape: string
   /**
    * Ask_user-relevant signature of `rows` (see `computeScopedAskUserSignature`).

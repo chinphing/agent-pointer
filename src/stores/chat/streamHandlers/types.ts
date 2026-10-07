@@ -112,12 +112,20 @@ export interface StreamHandlerContext {
   /** Stamp a user message for in-memory history trim (load / send / viewport). */
   markUserMessageViewed(conversationId: string, messageId: string, at?: number): void
 
-  /** Bump incremental live fingerprint for one sub-agent trace (P0 perf). */
+  /**
+   * Bump the incremental live fingerprint for one sub-agent trace (P0 perf).
+   *
+   * `append` marks a chunk that only **grew** a row — pass the exact deltas and the store
+   * takes the O(1) lane (`touchTextDelta`) instead of rescanning every row of the spawn.
+   * Omit it for anything that can move a shape field (tool status / labels, row add /
+   * remove, traces); those must rescan.
+   */
   notifyScopedStreamWrite(
     conv: Conversation,
     anchorMsg: ChatMessage,
     target: ChatMessage | null,
-    traceId?: string
+    traceId?: string,
+    append?: { textDelta?: number; payloadDelta?: number; shapeChanged?: boolean }
   ): void
   rebuildScopedTraceCache(convId: string, messages: readonly ChatMessage[]): void
   /** Host row is on disk. Mark it persisted and drop finished tool bodies. */

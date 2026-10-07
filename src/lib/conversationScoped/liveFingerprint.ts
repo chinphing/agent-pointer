@@ -11,8 +11,20 @@ export type ScopedSignals = {
    */
   textLen: number
   /**
-   * The shape half of `live`: streaming flags + every tool call's id / status / payload
-   * lengths. Stays put on a plain text append; only a shape event rebuilds it.
+   * Σ of every tool call's streamed payload length (`arguments` + `result`) across the
+   * rows, plus the legacy session's tool calls.
+   *
+   * Split out of `liveShape` for the same reason `textLen` is: a tool-call payload
+   * streams chunk by chunk (terminal output, a `write` body, a web-search body), and
+   * that is a **length** move, not a shape move. Keeping it as its own accumulator lets
+   * those chunks take the O(1) path too, instead of rescanning every row just to
+   * rebuild a signature whose only difference is a number that grew.
+   */
+  payloadLen: number
+  /**
+   * The shape half of `live`: streaming flags + every tool call's id / status /
+   * display-label lengths. Stays put on a plain text append **and** on a tool-payload
+   * append; only a shape event rebuilds it.
    */
   liveShape: string
   /** ask_user-relevant signature (top-of-chat banner). Never moves on token writes. */
@@ -21,9 +33,19 @@ export type ScopedSignals = {
   structure: string
 }
 
-/** `live` = the O(1)-incrementable length half + the shape half. */
-export function composeLiveFingerprint(textLen: number, liveShape: string): string {
-  return `${textLen}|${liveShape}`
+/**
+ * `live` = the two O(1)-incrementable length halves + the shape half.
+ *
+ * Both numbers are plain sums that only ever grow with a streamed append, so a text
+ * chunk can advance `textLen` and a tool-payload chunk can advance `payloadLen` without
+ * touching `liveShape` — no rescan, no string rebuild.
+ */
+export function composeLiveFingerprint(
+  textLen: number,
+  payloadLen: number,
+  liveShape: string
+): string {
+  return `${textLen}|${payloadLen}|${liveShape}`
 }
 
 /**
@@ -60,8 +82,9 @@ export function computeScopedSignals(
   scoped: readonly ChatMessage[],
   legacySession?: AgentTrace['session']
 ): ScopedSignals {
-  let toolSig = ''
+  let liveShape = ''
   let textLen = 0
+  let payloadLen = 0
   let askUser = ''
   let structure = ''
   for (const msg of scoped) {
@@ -73,13 +96,16 @@ export function computeScopedSignals(
       + (msg.toolNamePreview?.length ?? 0)
     // status/contentStreaming flag: round-boundary transitions (streaming→done)
     // must bump even when text lengths are unchanged.
-    toolSig += msg.status === 'streaming' || msg.contentStreaming === true ? '~' : '.'
+    liveShape += msg.status === 'streaming' || msg.contentStreaming === true ? '~' : '.'
     structure += `${msg.id}:${msg.status}`
       + `:${(msg.anchorMessageId ?? '').trim()}`
       + `:${(msg.agentInstanceId ?? '').trim()}`
       + `:${(msg.traceId ?? '').trim()}|`
     for (const tc of msg.toolCalls ?? []) {
-      toolSig += `${tc.id}:${tc.status}:${tc.result?.length ?? 0}:${tc.displayLabel?.length ?? 0}:${tc.displaySummary?.length ?? 0}:${tc.arguments?.length ?? 0};`
+      // Payload lengths go to their own accumulator: they stream, so they must be
+      // O(1)-advanceable without rebuilding this shape string (see `ScopedSignals`).
+      payloadLen += (tc.result?.length ?? 0) + (tc.arguments?.length ?? 0)
+      liveShape += `${tc.id}:${tc.status}:${tc.displayLabel?.length ?? 0}:${tc.displaySummary?.length ?? 0};`
       structure += `${tc.id}:${toolCallBaseName(tc.name)}:${tc.status};`
       if (toolCallBaseName(tc.name) === 'ask_user') {
         askUser += `${msg.id}/${tc.id}:${tc.status}:${tc.arguments?.length ?? 0}:${tc.displaySummary?.length ?? 0};`
@@ -99,17 +125,19 @@ export function computeScopedSignals(
       + (legacy.responseTextDraft?.length ?? 0)
       + (legacy.reasoning?.length ?? 0)
       + (legacy.rawContent?.length ?? 0)
-    toolSig += legacy.contentStreaming === true ? '~' : '.'
+    liveShape += legacy.contentStreaming === true ? '~' : '.'
     for (const tc of legacy.toolCalls ?? []) {
-      toolSig += `${tc.id}:${tc.status}:${tc.result?.length ?? 0}:${tc.displayLabel?.length ?? 0}:${tc.displaySummary?.length ?? 0}:${tc.arguments?.length ?? 0};`
+      payloadLen += (tc.result?.length ?? 0) + (tc.arguments?.length ?? 0)
+      liveShape += `${tc.id}:${tc.status}:${tc.displayLabel?.length ?? 0}:${tc.displaySummary?.length ?? 0};`
       structure += `L${tc.id}:${toolCallBaseName(tc.name)}:${tc.status};`
     }
     structure += 'L|'
   }
   return {
-    live: composeLiveFingerprint(textLen, toolSig),
+    live: composeLiveFingerprint(textLen, payloadLen, liveShape),
     textLen,
-    liveShape: toolSig,
+    payloadLen,
+    liveShape,
     askUser,
     structure
   }

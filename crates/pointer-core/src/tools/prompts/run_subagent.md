@@ -148,8 +148,8 @@ Do not pack unrelated work; do not split a tight one-file edit.
 Host maps **`goal`** → worker **Assigned task**; **`context`** → **Lead context**.
 
 Write **both in the user's language**: the worker never sees the user's message, and its
-reply language follows the **Assigned task** brief — a brief written in English makes the
-worker answer in English even when the user writes Chinese.
+reply language follows the **Assigned task** brief — a brief written in another language
+makes the worker answer in that language.
 
 **`goal` — brief template (≤3 lines)**
 

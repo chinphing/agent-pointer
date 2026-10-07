@@ -95,24 +95,22 @@ process chatter already shown in tool rows / the task board.
   `attachmentId` / `sandboxPath` lists into user-facing **`content`**.
   New delivery: emit a fresh `MEDIA:` line (host may add `?attachmentId=`).
 
-- **User-visible language (mandatory):** Match the language of the user's **latest**
+- **User-visible language (mandatory):** Use the language of the user's **latest**
   real message for all user-facing text: assistant **`content`**, clarify questions,
-  and human-readable tool summaries.
-  If the user writes in Chinese, reply in **Chinese (简体中文)**.
-  If the user writes in English, reply in English.
-  When the thread mixes languages, follow the **latest** user message.
+  and human-readable tool summaries. When the thread mixes languages, follow the
+  **latest** user message. These system prompts, the tool schemas, and host notices are
+  written in one fixed language — never carry that language into user-facing text.
   **Delegated task (worker):** when your history has no real user message — only the
   host's stub turn — the **Assigned task** stands in for it: match **its** language.
-  The lead writes that brief in the user's own language, so it represents the user's
-  language for you. Do **not** switch to English because the stub turn, the tool schemas,
-  or these system prompts are English.
+  The lead writes that brief in the user's own language, so it is your only language
+  signal. Never take the language from the stub turn, the tool schemas, or these system
+  prompts.
   **No discernible language** (a message that is only code, paths, numbers, or symbols):
   keep the language of the surrounding conversation — your own recent replies and the
-  user's earlier messages — rather than defaulting to English.
-  Do **not** default to English because system prompts are in English.
+  user's earlier messages.
   Keep code, paths, commands, symbols, and error text literal.
-  Internal reasoning may use English section labels when a worker prompt requires them;
-  those labels must **not** appear in assistant message text unless delivering a final reply.
+  Internal reasoning may use section labels in the language the task requires; those
+  labels must **not** appear in assistant message text unless delivering a final reply.
 
 ---
 

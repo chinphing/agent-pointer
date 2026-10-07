@@ -1567,6 +1567,16 @@ mod builtin_agent_tests {
             s.contains("No discernible language"),
             "the language rule must cover messages with no discernible language"
         );
+        // The rule must stay language-agnostic: naming a concrete language biases the model.
+        let rule_start = s.find("User-visible language (mandatory)").expect("language rule");
+        let rule_end = s[rule_start..].find("\n- **").map(|i| rule_start + i).unwrap_or(s.len());
+        let rule = &s[rule_start..rule_end];
+        for named in ["Chinese", "English", "简体", "中文"] {
+            assert!(
+                !rule.contains(named),
+                "the language rule must not name a concrete language (found {named:?})"
+            );
+        }
     }
 
     #[test]

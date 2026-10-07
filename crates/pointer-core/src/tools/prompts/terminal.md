@@ -49,7 +49,7 @@ schema:
 
 Run a shell command. Returns stdout, stderr, exit code, and timing.
 
-Set **`label`** to a short Chinese description of what the command does (e.g. `运行单元测试`, `安装依赖`). When present the UI shows this label instead of the raw command.
+Set **`label`** to a short description of what the command does, in the user's language. When present the UI shows this label instead of the raw command.
 
 #### When to use
 

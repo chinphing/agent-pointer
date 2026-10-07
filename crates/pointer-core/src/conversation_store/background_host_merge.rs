@@ -10,6 +10,24 @@ pub(crate) fn merge_incoming_over_stored(
     let mut out = incoming.clone();
     match incoming.role {
         Role::Assistant => {
+            // `agentTrace` is written straight onto the row by the terminal-trace lanes
+            // (`sync_anchor_agent_trace_index` / `persist_anchor_agent_trace_without_history`).
+            // A spawn that outlived its turn wrote the trace **without** an in-memory copy to
+            // stamp, so the live transcript this sync sends still has `agent_trace: None` —
+            // and the upsert would erase the trace again on the very next sync. That is why
+            // background spawns lost their frames while in-turn (foreground) spawns kept them:
+            // the foreground lane also stamped the in-memory row.
+            //
+            // Keep the stored index whenever the incoming copy has none. A sync that does
+            // carry traces still wins, exactly as before.
+            if out.agent_trace.is_none() && stored.agent_trace.is_some() {
+                log::info!(
+                    "conversation_store: kept persisted agentTrace message_id={} traces={}",
+                    incoming.id,
+                    stored.agent_trace.as_ref().map(Vec::len).unwrap_or(0)
+                );
+                out.agent_trace = stored.agent_trace.clone();
+            }
             if let (Some(incoming_calls), Some(stored_calls)) =
                 (incoming.tool_calls.as_ref(), stored.tool_calls.as_ref())
             {
@@ -244,6 +262,54 @@ mod tests {
         let incoming = assistant(vec![incoming_tc], "streaming");
         let merged = merge_incoming_over_stored(&incoming, &stored);
         assert_eq!(merged.tool_calls.as_ref().unwrap()[0].status, "running");
+    }
+
+    fn trace(id: &str) -> crate::models::AgentTrace {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "name": "explore",
+            "role": "worker",
+            "status": "completed",
+        }))
+        .expect("AgentTrace fixture")
+    }
+
+    /// 后台 spawn 的终结档案只写在**行**上（写的那一刻没有内存 transcript 可以盖章），所以后续 sync
+    /// 送来的内存快照 `agent_trace` 仍然是 None。没有这条守卫，下一次 upsert 就会把档案重新擦掉 ——
+    /// 这正是「lead 行 agentTrace 缺失、帧退化成 job 状态」的成因，也解释了为什么回合内（前台）的
+    /// spawn 100% 留下档案而后台 spawn 只有个位数比例：前台那条路同时把内存行也盖了章。
+    #[test]
+    fn later_sync_without_trace_keeps_persisted_agent_trace() {
+        let mut stored = assistant(vec![], "done");
+        stored.agent_trace = Some(vec![trace("inst-bg")]);
+        let incoming = assistant(vec![], "done");
+        assert!(
+            incoming.agent_trace.is_none(),
+            "fixture: the in-memory copy has no trace"
+        );
+
+        let merged = merge_incoming_over_stored(&incoming, &stored);
+        let ids: Vec<&str> = merged
+            .agent_trace
+            .as_ref()
+            .expect("persisted trace kept")
+            .iter()
+            .map(|t| t.id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["inst-bg"]);
+
+        // A sync that does carry traces still wins — the guard only fills a gap.
+        let mut newer = assistant(vec![], "done");
+        newer.agent_trace = Some(vec![trace("inst-fg")]);
+        let merged = merge_incoming_over_stored(&newer, &stored);
+        assert_eq!(
+            merged.agent_trace.as_ref().map(|t| t[0].id.as_str()),
+            Some("inst-fg")
+        );
+
+        // Nothing stored → nothing to keep; the incoming row stays as it is.
+        let merged = merge_incoming_over_stored(&incoming, &assistant(vec![], "done"));
+        assert!(merged.agent_trace.is_none());
     }
 
     #[test]

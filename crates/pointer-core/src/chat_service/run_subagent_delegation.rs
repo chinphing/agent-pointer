@@ -366,10 +366,23 @@ pub(super) fn finalize_subagent_outcome(
     parent: &mut SubagentCommitContext<'_>,
     outcome: RecordedSubagentOutcome,
 ) {
-    if let Some(history) = parent.history.as_deref_mut() {
-        super::sub_message::sync_anchor_agent_trace_index(
+    // Same criterion as `emit_subagent_trace_step`: the terminal trace is written because
+    // it is terminal, not because this turn's transcript happens to still be attached and
+    // to still hold the anchor row. The in-memory row is tried first (it is the cheap,
+    // coalesced lane); when it cannot take the index the persisted row is re-loaded and
+    // merged, so a finished worker always leaves an `agentTrace` behind.
+    let wrote_in_memory = match parent.history.as_deref_mut() {
+        Some(history) => super::sub_message::sync_anchor_agent_trace_index(
             parent.conversation_id,
             history,
+            parent.message_id,
+            parent.agent_trace,
+        ),
+        None => false,
+    };
+    if !wrote_in_memory {
+        persist_anchor_agent_trace_without_history(
+            parent.conversation_id,
             parent.message_id,
             parent.agent_trace,
         );
@@ -824,7 +837,7 @@ pub(crate) fn spawn_background_owned_subagent(spawn: BackgroundOwnedSpawn) -> St
     // Align with the foreground path: publish the running frame **now**, not once the job
     // wins a slot. The host `run_subagent` row already exists, so the UI can nest the
     // frame under it for the job's whole lifetime — queued runs included.
-    // Terminal state goes through the same index via `persist_background_subagent_trace`.
+    // Terminal state goes through the same index via `persist_anchor_agent_trace_without_history`.
     publish_agent_step(
         &spawn.stream,
         &spawn.message_id,
@@ -935,10 +948,10 @@ async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwne
                     spawn.host_scoped_message_id.as_deref(),
                     false,
                 );
-                persist_background_subagent_trace(
+                persist_anchor_agent_trace_without_history(
                     &spawn.conversation_id,
                     &spawn.message_id,
-                    &outcome.trace,
+                    std::slice::from_ref(&outcome.trace),
                 );
                 complete_background_host_tool(
                     &spawn.stream,
@@ -994,10 +1007,10 @@ async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwne
                 spawn.host_scoped_message_id.as_deref(),
                 false,
             );
-            persist_background_subagent_trace(
+            persist_anchor_agent_trace_without_history(
                 &spawn.conversation_id,
                 &spawn.message_id,
-                &outcome.trace,
+                std::slice::from_ref(&outcome.trace),
             );
             complete_background_host_tool(
                 &spawn.stream,
@@ -1051,10 +1064,10 @@ async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwne
     drop(_lease);
     // The job outlives this turn's transcript, so the terminal trace written here is
     // what makes the frame (and its stats line) survive a reload.
-    persist_background_subagent_trace(
+    persist_anchor_agent_trace_without_history(
         &spawn.conversation_id,
         &spawn.message_id,
-        &outcome.trace,
+        std::slice::from_ref(&outcome.trace),
     );
     let cancelled = spawn.cancel.is_cancelled();
     let (status, content, error) = match &outcome.exec {
@@ -1157,52 +1170,103 @@ fn merge_anchor_trace_index(anchor: &mut ChatMessage, trace: &AgentTrace) -> Vec
     traces
 }
 
-/// Terminal trace for a background spawn → the **same** write choke point the foreground
-/// path uses (`sync_anchor_agent_trace_index` → coalesced `patch_message_agent_trace`).
+/// Terminal trace for a spawn whose turn is gone → the **same** write choke point the
+/// in-memory lane uses (`sync_anchor_agent_trace_index` → coalesced
+/// `patch_message_agent_trace`).
 ///
-/// A background job outlives the turn that spawned it, so there is no in-memory
-/// transcript left to hand over: the anchor row is re-loaded and the terminal trace
-/// merged into its index. Running states stay SSE-only, exactly like the foreground.
-fn persist_background_subagent_trace(
+/// ## Entry criterion: the in-memory transcript is missing
+///
+/// **Not** "the spawn came from a background job". A job is only one of the ways a spawn
+/// outlives its turn — a long task, a released/trimmed history, a turn that already
+/// ended, an app restart all do the same thing. Keying the fallback on the job shape left
+/// every one of those cases writing nothing at all, which is why the anchor row came back
+/// from a reload with no `agentTrace` and the frame degraded to a bare job status.
+///
+/// What is actually common to those cases is the only thing that matters here: **there is
+/// no `history` to hand the trace to**, so the anchor row is re-loaded and the terminal
+/// trace merged into its index. Both lanes therefore write the same field through the
+/// same function; this one just re-reads the row first.
+///
+/// ## Terminal states only
+///
+/// Same rule as the in-memory lane, for the same reason: `running` / `queued` stay in SSE
+/// plus the in-memory buffer. Writing the anchor row on every spawn step would serialize
+/// 100 workers onto one SQLite row.
+///
+/// Precondition: the anchor row is already on disk. It always is in practice — the lead
+/// row carrying the `run_subagent` call is persisted while it streams, long before any
+/// terminal step — and a miss is logged rather than silently ignored.
+fn persist_anchor_agent_trace_without_history(
     conversation_id: &str,
     anchor_message_id: &str,
-    trace: &AgentTrace,
+    traces: &[AgentTrace],
 ) {
-    if !super::sub_message::should_persist_anchor_agent_trace(&trace.status) {
+    if !traces
+        .iter()
+        .any(|trace| super::sub_message::should_persist_anchor_agent_trace(&trace.status))
+    {
         return;
     }
     let store = match crate::conversation_store::global_store() {
         Ok(store) => store,
         Err(err) => {
             log::warn!(
-                "run_subagent background trace persist skipped conversation_id={conversation_id}: {err:#}"
+                "run_subagent anchor trace persist skipped (no history) conversation_id={conversation_id}: {err:#}"
             );
             return;
         }
     };
-    let mut anchor = match store.load_message(conversation_id, anchor_message_id) {
-        Ok(Some(msg)) => msg,
-        Ok(None) => {
-            log::warn!(
-                "run_subagent background trace persist missed anchor conversation_id={conversation_id} anchor={anchor_message_id}"
-            );
-            return;
-        }
-        Err(err) => {
-            log::warn!(
-                "run_subagent background trace persist load failed conversation_id={conversation_id} anchor={anchor_message_id}: {err:#}"
-            );
-            return;
-        }
+    let Some((merged, anchor)) =
+        merge_terminal_traces_into_anchor_row(&store, conversation_id, anchor_message_id, traces)
+    else {
+        return;
     };
-    let traces = merge_anchor_trace_index(&mut anchor, trace);
     let mut history = vec![anchor];
     super::sub_message::sync_anchor_agent_trace_index(
         conversation_id,
         &mut history,
         anchor_message_id,
-        &traces,
+        &merged,
     );
+}
+
+/// Store-injected core of the no-history lane: load the anchor row, merge the terminal
+/// traces into its `agentTrace` index by id, and hand back both the merged index and the
+/// row object the shared writer consumes.
+///
+/// Merging (rather than replacing) is what keeps siblings alive: several workers can share
+/// one anchor row, and a retry — or a lane that already patched the same row — must be a
+/// no-op instead of a clobber.
+///
+/// Split out from the caller so a test can drive it against a temp DB: `global_store()`
+/// stays in `persist_anchor_agent_trace_without_history`, and nothing here touches the
+/// process-global store.
+fn merge_terminal_traces_into_anchor_row(
+    store: &crate::conversation_store::ConversationStore,
+    conversation_id: &str,
+    anchor_message_id: &str,
+    traces: &[AgentTrace],
+) -> Option<(Vec<AgentTrace>, ChatMessage)> {
+    let mut anchor = match store.load_message(conversation_id, anchor_message_id) {
+        Ok(Some(msg)) => msg,
+        Ok(None) => {
+            log::warn!(
+                "run_subagent anchor trace persist missed anchor conversation_id={conversation_id} anchor={anchor_message_id}"
+            );
+            return None;
+        }
+        Err(err) => {
+            log::warn!(
+                "run_subagent anchor trace persist load failed conversation_id={conversation_id} anchor={anchor_message_id}: {err:#}"
+            );
+            return None;
+        }
+    };
+    for trace in traces {
+        merge_anchor_trace_index(&mut anchor, trace);
+    }
+    let merged = anchor.agent_trace.clone().unwrap_or_default();
+    Some((merged, anchor))
 }
 
 pub(crate) fn emit_and_persist_host_tool_finish(
@@ -1384,23 +1448,85 @@ impl Drop for SubagentWorkspaceRestore {
     }
 }
 
+/// Where a terminal anchor trace is written.
+///
+/// The decision is deliberately **not** "did this spawn come from a background job". It is
+/// "is there an in-memory transcript to hand the trace to?" — the only thing that actually
+/// differs between the two write lanes. A spawn that outlives its turn has no transcript
+/// left, and that is exactly the case the reload lane exists for; a job is just the most
+/// common way to get there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AnchorTraceWriteLane {
+    /// Not a terminal state — SSE only (see `should_persist_anchor_agent_trace`).
+    Sse,
+    /// The turn's transcript is still attached: write the live row (coalesced patch).
+    InMemoryHistory,
+    /// No in-memory transcript: re-load the anchor row and merge the index there.
+    ReloadAnchorRow,
+}
+
+fn anchor_trace_write_lane(status: &str, has_history: bool) -> AnchorTraceWriteLane {
+    if !super::sub_message::should_persist_anchor_agent_trace(status) {
+        return AnchorTraceWriteLane::Sse;
+    }
+    if has_history {
+        AnchorTraceWriteLane::InMemoryHistory
+    } else {
+        AnchorTraceWriteLane::ReloadAnchorRow
+    }
+}
+
 fn emit_subagent_trace_step(
     stream: &super::StreamTx,
     ctx: &mut super::context::SubagentDelegationContext<'_>,
     agent: AgentTrace,
 ) {
-    let persist = super::sub_message::should_persist_anchor_agent_trace(&agent.status);
+    // Persisting a terminal trace is decided by **the trace being terminal** and by
+    // whether this turn still holds a transcript — never by whether the spawn happened to
+    // be a background job. Deciding it here (instead of inside the `if let Some(history)`)
+    // is the whole fix: a worker that outlives its turn used to fall out of that `if`,
+    // publish over SSE only, and leave the anchor row with no `agentTrace` — so a reload
+    // showed the frame as a bare job status instead of the agent's frame.
+    let lane = anchor_trace_write_lane(&agent.status, ctx.history.is_some());
     emit_agent_step(stream, ctx.message_id, ctx.agent_trace, agent);
-    if !persist {
-        return;
-    }
-    if let Some(history) = ctx.history.as_deref_mut() {
-        super::sub_message::sync_anchor_agent_trace_index(
+    match lane {
+        // `running` / `queued` detail stays in SSE + the in-memory buffer: writing the
+        // lead row on every spawn step serializes 100 workers onto one SQLite row.
+        AnchorTraceWriteLane::Sse => {}
+        AnchorTraceWriteLane::InMemoryHistory => {
+            let Some(history) = ctx.history.as_deref_mut() else {
+                // The lane was decided from `history.is_some()` a moment ago, so a `None`
+                // here means the transcript was released in between. Take the reload lane
+                // rather than dropping a terminal trace on the floor.
+                persist_anchor_agent_trace_without_history(
+                    ctx.session.conversation_id,
+                    ctx.message_id,
+                    ctx.agent_trace,
+                );
+                return;
+            };
+            if super::sub_message::sync_anchor_agent_trace_index(
+                ctx.session.conversation_id,
+                history,
+                ctx.message_id,
+                ctx.agent_trace,
+            ) {
+                return;
+            }
+            // The transcript is attached but could not take the index (the anchor row is
+            // not in this buffer — a trimmed page window, or a row that moved on). The
+            // terminal trace still has to land, so re-load the row and merge there.
+            persist_anchor_agent_trace_without_history(
+                ctx.session.conversation_id,
+                ctx.message_id,
+                ctx.agent_trace,
+            );
+        }
+        AnchorTraceWriteLane::ReloadAnchorRow => persist_anchor_agent_trace_without_history(
             ctx.session.conversation_id,
-            history,
             ctx.message_id,
             ctx.agent_trace,
-        );
+        ),
     }
 }
 
@@ -1895,12 +2021,13 @@ pub(super) async fn run_subagent_delegation(
 #[cfg(test)]
 mod trace_tests {
     use super::{
-        background_job_handle_json, background_subagent_trace, build_subagent_trace,
-        commit_subagent_outcome, complete_background_host_tool, execute_owned_subagent,
-        failed_owned_subagent_outcome, finalize_subagent_outcome, merge_anchor_trace_index,
-        publish_agent_step, publish_owned_subagent_ui_finished,
-        serialize_subagent_result_without_task_id, OwnedSubagentExecutionInput,
-        OwnedSubagentSource, PreparedSubagentOutcome, SubagentCommitContext,
+        anchor_trace_write_lane, background_job_handle_json, background_subagent_trace,
+        build_subagent_trace, commit_subagent_outcome, complete_background_host_tool,
+        execute_owned_subagent, failed_owned_subagent_outcome, finalize_subagent_outcome,
+        merge_anchor_trace_index, merge_terminal_traces_into_anchor_row, publish_agent_step,
+        publish_owned_subagent_ui_finished, serialize_subagent_result_without_task_id,
+        OwnedSubagentExecutionInput, OwnedSubagentSource, PreparedSubagentOutcome,
+        SubagentCommitContext,
     };
     use crate::agent_instance_scope::AgentInstanceScope;
     use crate::agents::{
@@ -2255,6 +2382,140 @@ mod trace_tests {
         assert_eq!(stored.len(), 1);
         assert_eq!(stored[0].status, "failed");
         assert_eq!(stored[0].anchor_message_id.as_deref(), Some("lead-row"));
+    }
+
+    /// 落库由「档案终结」+「这一回合还有没有内存 transcript」共同决定，**不是**由「是不是后台
+    /// spawn」决定。这一条把判据钉住：终结态 + history 缺失 → reload 落库；`running` / `queued`
+    /// 永远只走 SSE，history 在不在都一样。
+    #[test]
+    fn anchor_trace_write_lane_is_terminal_status_plus_missing_history() {
+        use super::AnchorTraceWriteLane::{InMemoryHistory, ReloadAnchorRow, Sse};
+
+        // The regression this fixes: terminal + no history used to write nothing at all.
+        for status in ["completed", "failed", "cancelled", "error"] {
+            assert_eq!(
+                anchor_trace_write_lane(status, false),
+                ReloadAnchorRow,
+                "terminal without history must still persist: {status}"
+            );
+            assert_eq!(
+                anchor_trace_write_lane(status, true),
+                InMemoryHistory,
+                "terminal with history keeps the live-row lane: {status}"
+            );
+        }
+        // Running detail never touches the row — with or without a transcript.
+        for status in ["running", "queued"] {
+            assert_eq!(anchor_trace_write_lane(status, false), Sse, "{status}");
+            assert_eq!(anchor_trace_write_lane(status, true), Sse, "{status}");
+        }
+    }
+
+    /// 「终结时 history 不在」这条路径必须真的把档案写回 anchor 行。没有内存 transcript 时，
+    /// 落库只能把 anchor 行从盘上读回来，再把终结档案并进它的 `agentTrace` 索引 —— 这里用临时
+    /// DB 跑完整条**读**路径（`global_store()` 留在调用方，核心函数不碰进程级 store），断言：
+    /// 新档案进去了、行上原有的兄弟档案没被冲掉、重复终结不会写重。
+    #[test]
+    fn no_history_lane_rebuilds_the_anchor_index_from_the_persisted_row() {
+        use crate::conversation_store::ConversationStore;
+        use crate::models::Conversation;
+        use tempfile::TempDir;
+
+        fn conversation(
+            conv_id: &str,
+            anchor_trace: Vec<crate::models::AgentTrace>,
+        ) -> Conversation {
+            let mut user = anchor_message();
+            user.id = "msg_u1".into();
+            user.role = Role::User;
+            user.content = "lead text".into();
+            user.status = "done".into();
+            user.created_at = 1_700_000_000_000;
+            let mut anchor = anchor_message();
+            anchor.id = "msg_a1".into();
+            anchor.content = "Acknowledged.".into();
+            anchor.status = "done".into();
+            anchor.created_at = 1_700_000_001_000;
+            anchor.agent_trace = Some(anchor_trace);
+            Conversation {
+                id: conv_id.to_string(),
+                title: "T".into(),
+                created_at: 1_700_000_000_000,
+                updated_at: 1_700_000_100_000,
+                is_pinned: false,
+                messages: vec![user, anchor],
+                skill_ids: vec![],
+                tool_rounds_used: 0,
+                computer_monitor_id: None,
+                project_id: None,
+                workspace_root: String::new(),
+                workspace_user_set: false,
+                workspace_inherit_disabled: false,
+                lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
+                performance_mode: None,
+                session_user_id: String::new(),
+            }
+        }
+
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+
+        let mut sibling = completed_trace();
+        sibling.id = "instance-sibling".into();
+        sibling.agent_instance_id = Some("instance-sibling".into());
+
+        store
+            .sync_conversations(&[conversation("conv-no-history", vec![sibling.clone()])])
+            .unwrap();
+
+        // The terminal step arrives after the turn is gone: there is no history to hand it.
+        let terminal = completed_trace();
+        let (merged, anchor) = merge_terminal_traces_into_anchor_row(
+            &store,
+            "conv-no-history",
+            "msg_a1",
+            std::slice::from_ref(&terminal),
+        )
+        .expect("anchor row must load from the store");
+
+        let ids: Vec<&str> = merged.iter().map(|t| t.id.as_str()).collect();
+        assert!(
+            ids.contains(&"instance-1"),
+            "terminal trace did not land on the reloaded index: {ids:?}"
+        );
+        assert!(
+            ids.contains(&"instance-sibling"),
+            "merge clobbered a sibling trace: {ids:?}"
+        );
+        assert_eq!(merged.len(), 2);
+        // The row object handed to the shared writer carries the same index.
+        assert_eq!(anchor.agent_trace.as_ref().map(Vec::len), Some(2));
+        assert_eq!(anchor.id, "msg_a1");
+
+        // Already-merged row: a retry (or a second lane on the same anchor) must be a no-op.
+        store
+            .sync_conversations(&[conversation(
+                "conv-already",
+                vec![sibling, terminal.clone()],
+            )])
+            .unwrap();
+        let (retry, _) = merge_terminal_traces_into_anchor_row(
+            &store,
+            "conv-already",
+            "msg_a1",
+            std::slice::from_ref(&terminal),
+        )
+        .expect("anchor row must load from the store");
+        assert_eq!(retry.len(), 2, "merge must be by id, never append");
+
+        // A missing anchor row is a logged miss, not a panic and not a silent write.
+        assert!(merge_terminal_traces_into_anchor_row(
+            &store,
+            "conv-no-history",
+            "msg-missing",
+            std::slice::from_ref(&terminal),
+        )
+        .is_none());
     }
 
     #[test]

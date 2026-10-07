@@ -135,21 +135,27 @@ fn own_layer_traces(agent_trace: &[AgentTrace]) -> Vec<AgentTrace> {
 /// Write `agent_trace` onto the in-memory lead row and coalesce SQLite patches.
 /// Many parallel terminals share one lead message: debounce ~400ms, then
 /// `json_set` only `payload.agentTrace` (no full ChatMessage clone).
+///
+/// Returns whether the **in-memory row actually took the index**. `false` means this
+/// buffer could not carry it — no own-layer traces to write, the anchor row is not in
+/// `history` (a trimmed page window, or a transcript that no longer holds that row), or
+/// the index failed to serialize. Callers must not treat `false` as "done": the terminal
+/// trace still has to land, and the persisted row can always take it.
 pub fn sync_anchor_agent_trace_index(
     conversation_id: &str,
     history: &mut Vec<ChatMessage>,
     anchor_message_id: &str,
     agent_trace: &[AgentTrace],
-) {
+) -> bool {
     let own = own_layer_traces(agent_trace);
     if own.is_empty() {
-        return;
+        return false;
     }
     let Some(msg) = history.iter_mut().find(|m| m.id == anchor_message_id) else {
         log::warn!(
             "sub_message: sync agent_trace anchor missing conversation_id={conversation_id} anchor={anchor_message_id}"
         );
-        return;
+        return false;
     };
     msg.agent_trace = Some(own.clone());
     let json = match serde_json::to_string(&own) {
@@ -158,10 +164,11 @@ pub fn sync_anchor_agent_trace_index(
             log::warn!(
                 "sub_message: serialize agent_trace failed conversation_id={conversation_id}: {e}"
             );
-            return;
+            return false;
         }
     };
     schedule_anchor_agent_trace_persist(conversation_id, anchor_message_id, json);
+    true
 }
 
 const ANCHOR_TRACE_PERSIST_COALESCE_MS: u64 = 400;
@@ -466,6 +473,47 @@ mod tests {
                 .map(|t| t.iter().map(|x| x.id.clone()).collect::<Vec<_>>()),
             Some(vec!["inst-grandchild".to_string()])
         );
+    }
+
+    /// 这条写入口必须**如实报告**它有没有落进内存行：调用方要靠它决定是否改走「重载 anchor 行」
+    /// 的落库通道。静默 return 会让终结档案彻底消失（这正是 lead 行 `agentTrace` 缺失的形态）。
+    #[test]
+    fn sync_anchor_agent_trace_index_reports_whether_the_in_memory_row_took_it() {
+        let buf = vec![trace("inst-1", 1, None, Some("anchor"))];
+
+        // Landed: the anchor row is in this buffer.
+        let mut landed = vec![sample_msg("anchor", None, None)];
+        assert!(sync_anchor_agent_trace_index(
+            "conv",
+            &mut landed,
+            "anchor",
+            &buf
+        ));
+        assert_eq!(
+            landed[0].agent_trace.as_ref().map(|t| t.len()),
+            Some(1),
+            "a true result must mean the index is really on the row"
+        );
+
+        // Not landed: the anchor row is not in this buffer (trimmed window / moved on).
+        let mut missing = vec![sample_msg("other-row", None, None)];
+        assert!(!sync_anchor_agent_trace_index(
+            "conv",
+            &mut missing,
+            "anchor",
+            &buf
+        ));
+        assert!(missing[0].agent_trace.is_none());
+
+        // Not landed: nothing on the anchor's own layer to write.
+        let mut empty = vec![sample_msg("anchor", None, None)];
+        assert!(!sync_anchor_agent_trace_index(
+            "conv",
+            &mut empty,
+            "anchor",
+            &[]
+        ));
+        assert!(empty[0].agent_trace.is_none());
     }
 
     #[test]

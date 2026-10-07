@@ -1599,7 +1599,7 @@ pub(super) async fn run_subagent_delegation(
     let cancel = ctx.session.cancel;
     let max_spawn_depth = provider.settings.max_sub_agent_spawn_depth.max(1);
     let max_children =
-        crate::models::clamp_max_children_per_agent(provider.settings.max_children_per_agent);
+        crate::models::effective_sub_agent_concurrency(provider.settings.max_parallel_sub_agents);
     let parsed = crate::tools::run_subagent::parse_run_subagent_args(&args_value);
     match parsed {
         Err(msg) => Ok((format!("ERROR: {msg}"), false, Some(msg))),

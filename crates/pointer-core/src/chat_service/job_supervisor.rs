@@ -474,7 +474,8 @@ pub struct JobSupervisor {
     followup_reserves: Arc<Mutex<HashSet<(String, String)>>>,
     /// In-flight **foreground** children per `(conversation, issuing instance)`
     /// (empty instance = lead). Background children are counted from the job
-    /// table; both together form the per-agent fan-out (`maxChildrenPerAgent`).
+    /// table; both together are the per-agent live count (logs/metrics only —
+    /// the unified `maxParallelSubAgents` cap is enforced by the pool queue).
     foreground_children: Arc<Mutex<HashMap<(String, String), usize>>>,
 }
 
@@ -533,22 +534,6 @@ fn live_background_children_in(inner: &Inner, conversation_id: &str, issuer: &st
             })
         })
         .count()
-}
-
-/// Deterministic fan-out refusal. Names the configured limit so the caller can
-/// act on it instead of retrying blindly.
-fn child_limit_error(
-    issuer_instance_id: Option<&str>,
-    max_children: usize,
-    live: usize,
-) -> String {
-    let who = match issuer_instance_id.map(str::trim).filter(|id| !id.is_empty()) {
-        Some(id) => format!("agent instance `{id}`"),
-        None => "the lead agent".to_string(),
-    };
-    format!(
-        "fan-out limit: {who} already has {live} live sub-agent children; maxChildrenPerAgent={max_children}"
-    )
 }
 
 /// Holds one sub-agent instance until the follow-up job is registered or the run ends.
@@ -827,59 +812,48 @@ impl JobSupervisor {
 
     /// Fan-out check for a spawn that will register a job immediately after
     /// (background spawns are counted from the job table).
+    ///
+    /// **Never refuses.** Per-agent fan-out is unified with the single
+    /// concurrency knob (`maxParallelSubAgents`): over-limit spawns **wait in
+    /// the worker-pool queue** instead of failing, so a legacy
+    /// `maxChildrenPerAgent` can never block a spawn. `live` is still reported
+    /// for logs/metrics.
     pub fn check_child_spawn(
         &self,
         conversation_id: &str,
         issuer_instance_id: Option<&str>,
         max_children: usize,
     ) -> Result<(), String> {
-        let max = max_children.max(1);
         let live = self.live_children_count(conversation_id, issuer_instance_id);
-        if live >= max {
-            let msg = child_limit_error(issuer_instance_id, max, live);
-            log::warn!(
-                "job_supervisor: fan-out refused conversation_id={conversation_id} issuer={} live={live} max={max}",
-                issuer_instance_id.unwrap_or("lead")
-            );
-            return Err(msg);
-        }
+        log::debug!(
+            "job_supervisor: fan-out check conversation_id={conversation_id} issuer={} live={live} cap={}",
+            issuer_instance_id.unwrap_or("lead"),
+            max_children.max(1)
+        );
         Ok(())
     }
 
-    /// Reserve one fan-out slot for a **foreground** child. Fails
-    /// deterministically when the issuer is already at `max_children`; it never
-    /// queues. The returned guard holds the slot until the child finishes.
+    /// Reserve one fan-out slot for a **foreground** child.
+    ///
+    /// **Never refuses** (see [`Self::check_child_spawn`]): the unified
+    /// concurrency knob is enforced by the worker-pool queue, so the guard is
+    /// always granted. It still holds the slot until the child finishes, which
+    /// keeps `live_children_count` meaningful for logs/metrics.
     pub fn try_begin_child_spawn(
         &self,
         conversation_id: &str,
         issuer_instance_id: Option<&str>,
         max_children: usize,
     ) -> Result<ChildSpawnGuard, String> {
-        let max = max_children.max(1);
+        let cap = max_children.max(1);
         let key = child_fanout_key(conversation_id, issuer_instance_id);
-        let background = {
-            let inner = self.inner.lock();
-            live_background_children_in(&inner, conversation_id, &key.1)
-        };
         let mut live = self.foreground_children.lock();
         let entry = live.entry(key.clone()).or_insert(0);
-        let total = background.saturating_add(*entry);
-        if total >= max {
-            if *entry == 0 {
-                live.remove(&key);
-            }
-            let msg = child_limit_error(issuer_instance_id, max, total);
-            log::warn!(
-                "job_supervisor: fan-out refused conversation_id={conversation_id} issuer={} live={total} max={max}",
-                issuer_instance_id.unwrap_or("lead")
-            );
-            return Err(msg);
-        }
         *entry += 1;
-        let total = total + 1;
+        let total = *entry;
         drop(live);
         log::info!(
-            "job_supervisor: fan-out slot reserved conversation_id={conversation_id} issuer={} live={total} max={max}",
+            "job_supervisor: fan-out slot reserved conversation_id={conversation_id} issuer={} live={total} cap={cap}",
             issuer_instance_id.unwrap_or("lead")
         );
         Ok(ChildSpawnGuard {
@@ -3195,7 +3169,7 @@ mod tests {
     }
 
     #[test]
-    fn fanout_limit_rejects_extra_spawn() {
+    fn fanout_over_limit_queues_instead_of_refusing() {
         let sup = JobSupervisor::new();
         let conv = "c-fanout";
         let max = 2;
@@ -3207,13 +3181,12 @@ mod tests {
         let second = sup
             .try_begin_child_spawn(conv, Some("inst-coder"), max)
             .expect("second child");
-        let err = sup
+        // 统一后：超过 per-agent 上限**不再拒绝**，照常发槽位（由全局池排队）
+        let over = sup
             .try_begin_child_spawn(conv, Some("inst-coder"), max)
-            .expect_err("over limit must fail");
-        assert!(
-            err.contains("maxChildrenPerAgent=2"),
-            "error names the limit: {err}"
-        );
+            .expect("over limit must not refuse — the pool queues instead");
+        assert_eq!(sup.live_children_count(conv, Some("inst-coder")), 3);
+        drop(over);
         assert_eq!(sup.live_children_count(conv, Some("inst-coder")), 2);
 
         // Other instances and the lead keep their own budget.
@@ -3242,7 +3215,8 @@ mod tests {
         );
         sup.mark_running(&job);
         assert_eq!(sup.live_children_count(conv, Some("inst-coder")), 1);
-        assert!(sup.check_child_spawn(conv, Some("inst-coder"), 1).is_err());
+        // 后台子任务超上限同样不拒绝（交给池排队）
+        assert!(sup.check_child_spawn(conv, Some("inst-coder"), 1).is_ok());
         sup.finish(&job, JobStatus::Completed, Some("done".into()), None);
         assert_eq!(sup.live_children_count(conv, Some("inst-coder")), 0);
         assert!(sup.check_child_spawn(conv, Some("inst-coder"), 1).is_ok());

@@ -55,8 +55,6 @@ const {
   selectMediaModeModel,
   patchMediaModeLlm,
   maxSubAgentSpawnDepth,
-  maxChildrenPerAgent,
-  maxChildrenPerAgentCeiling,
   isLeadWorkerSelected,
   isLeadAgentSelectable,
   selectLeadWorker
@@ -332,18 +330,6 @@ function skillLabel(skillId: string): string {
                   type="number"
                   min="1"
                   max="8"
-                  step="1"
-                  class="w-full max-w-xs h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
-                />
-              </div>
-              <div>
-                <label class="block text-[12px] text-muted mb-1.5">{{ t('settings.agentPanel.maxChildrenPerAgent') }}</label>
-                <p class="text-[11px] text-muted mb-1.5">{{ t('settings.agentPanel.maxChildrenPerAgentHint') }}</p>
-                <input
-                  v-model.number="maxChildrenPerAgent"
-                  type="number"
-                  min="1"
-                  :max="maxChildrenPerAgentCeiling"
                   step="1"
                   class="w-full max-w-xs h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
                 />

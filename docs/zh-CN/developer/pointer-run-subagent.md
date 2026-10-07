@@ -41,7 +41,7 @@ allowAgents:
 |----|------|------|
 | `maxSubAgentToolRounds` | `number` | **每一次** `run_sub_agent` 内部工具循环的轮次上限，与主会话的 `maxToolRounds` 独立（默认 **500**，最高 500）。 |
 | `maxSubAgentSpawnDepth` | `number` | 嵌套 `run_subagent` 最大深度（默认 **2**：主 agent + 一层子委派）。**每个 spawn（`self` fork 也算）都真实消耗一层**；到达上限的 agent 为 leaf，无 `run_subagent`。 |
-| `maxChildrenPerAgent` | `number` | 单个 agent 实例同时存活的子 Agent 上限（默认值与上限均为 **CPU 逻辑核数 × 10**，不低于 32、不超过 100）。超限的 spawn 返回确定性 `ERROR`（写明上限），不静默排队。 |
+| `maxChildrenPerAgent` | `number` | **已废弃**：不再参与判定（字段保留仅为兼容旧配置）。单个 agent 实例的扇出跟随 `maxParallelSubAgents`；超限的 spawn 在 worker 池**排队**，不报错。 |
 
 ## `run_subagent` 参数
 
@@ -84,7 +84,7 @@ general 无 Composer 工作区选择器。委派 **coder** 前应在对话中询
 - **并行 wave**：同一 assistant turn 内多个独立 **`self`** 和/或 **`explore`** 可共用 owned-outcome 并行 wave（受 `maxParallelSubAgents` 限制）；**`coder`** / **`computer`** 仍串行（`coder` 可后台，但不进 parallel wave）。前台 wave、串行委派与后台 job **共用**按会话工人池（拆的是等不等，不是两套闸）。依赖任务、重叠写、需用户交互或桌面控制的任务不得并行。
 - **后台**：`run_subagent` 对 **`self`** / **`explore`** / **`coder`** **省略 `background` 即后台**（与 `true` 相同），立刻返回 **`{ jobId, status: "running", kind: "subagent" }`**。这条 tool result **一直是句柄**：子任务结束后也不把工人终稿写回去（对齐 Cursor 后台 Task / Codex `spawn_agent`）。终稿只在 **`job.await`** 或（仅 lead 自己开的任务）父轮结束后的空闲合并 push 里交给**直接发起方**。子 Agent 自己开的后台任务不 push 给 lead，也不自动再开一轮，由该子 Agent `job.await`。**`job.list` / `job.status` 只有元数据和 `claimed`，不带 `content`**。显式 **`background: false`** 才前台 join。**`computer`** 始终 join。同回合多路 `coder` 写同一批文件时应用 **`background: false`** 或先 `job.await` 再开下一写。`job.await` `mode=any` 只在 **未认领终态** 醒来：终态进 `jobs[]` 并认领。子智能体内部工具过程不叫醒父模型。`mode=all` 等齐等待集后只返回**尚未 claimed** 的正文。回包里的 **`idleSlots` / `poolRunning`** 是共享工人池（前台 join 也占）；**`runningCount`** 只数后台占用。LLM 往返期间新完成的任务无法打断生成。父轮已 `done` 且 **lead 自己开的** 结果未被 `await` 认领时，宿主在**同一会话**再开一轮（空闲合并 push），把 Completed/Failed 正文交给 lead。终稿带 **`agentInstanceId`**。父模型发现结果不够时，用 **`followupInstanceId`** 再叫同一条已完成工人（新 `jobId`，恢复该 instance 的 scoped 对话）；仍在跑的工人不能 follow-up。取消的旧宿主行保持终态。`terminal` 传 **`blockUntilMs`**（`0` 立刻返回，`N>0` 最多等 N ms）走同一张 job 表，但 **`kind: "terminal"`**：句柄与 `job` 回包都是 shell 命令，不是工人；结束后把完整 stdout JSON 写回原来的 `terminal` 行。子任务 / 后台命令在 JobSupervisor 里跑，不占 `session:{conversation}`。父 `done` 不杀 job，用户停止会取消该会话全部后台 job。`job` 的 `list` / `status` / `await` / `cancel` 都按**调用者子树**过滤：lead 看整会话；子 agent 只看自己与自己子 agent 启动的后台任务（看不到父/兄弟任务，也看不到自己所在的那条 job，因此省略 `jobIds` 的 `await` 不会自等）；越权显式 `jobIds` 直接报错；**取消某个 worker 的 job 会级联取消它整棵子树**。**终端**省略 `blockUntilMs` 仍与现网相同（join）。
 - **委派 `computer`**：与 Computer lead 发送前相同，阻塞等待 macOS 权限向导（桌面端）与屏幕选择（`computer_monitor_pick_required` → `Composer.beginSubagentMonitorPickFlow`）；单屏自动选定、多屏弹窗、已选屏幕复用。
-- 嵌套委派：深度由 **`maxSubAgentSpawnDepth`** 控制（默认 2），扇出由 **`maxChildrenPerAgent`** 控制（默认值 = 上限 = CPU 逻辑核数 × 10，不低于 32、不超过 100）。**每个 spawn（`self` fork 也算）都消耗一层真实深度**；达最大深度的子 agent 为 leaf，无 `run_subagent` 工具。`computer` 始终 leaf 且始终前台。孙 agent 的 `content` 只回直接父层，lead 只拿到父层 handoff 与 `openBackgroundJobs` 元数据。
+- 嵌套委派：深度由 **`maxSubAgentSpawnDepth`** 控制（默认 2），扇出由 **`maxParallelSubAgents`**（界面「子 agent 并发」）控制，单个 agent 的子任务上限跟随同一值；超限排队。**每个 spawn（`self` fork 也算）都消耗一层真实深度**；达最大深度的子 agent 为 leaf，无 `run_subagent` 工具。`computer` 始终 leaf 且始终前台。孙 agent 的 `content` 只回直接父层，lead 只拿到父层 handoff 与 `openBackgroundJobs` 元数据。
 
 ## 内置 worker `explore`
 

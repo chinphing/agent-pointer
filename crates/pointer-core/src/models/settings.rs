@@ -1523,6 +1523,62 @@ pub fn clamp_max_children_per_agent(n: u32) -> u32 {
     n.clamp(FLOOR_MAX_CHILDREN_PER_AGENT, max_children_per_agent_ceiling())
 }
 
+/// **Unified** sub-agent concurrency cap — the single user-visible knob.
+///
+/// `maxChildrenPerAgent` is deprecated and **no longer read for enforcement**:
+/// the per-agent fan-out follows `maxParallelSubAgents` (`None` → min(logical
+/// cores, 8), the same fallback the worker pool uses). A legacy stored value
+/// (the old forced `8`) therefore cannot pin the fan-out below the concurrency
+/// the user actually picked. Clamped to `1..=max_children_per_agent_ceiling()`
+/// so the machine stays protected.
+pub fn effective_sub_agent_concurrency(max_parallel_sub_agents: Option<u32>) -> u32 {
+    let resolved = max_parallel_sub_agents
+        .map(|n| n.max(1))
+        .unwrap_or_else(|| reported_logical_cores().min(AUTO_PARALLEL_CORES_CAP).max(1));
+    resolved.clamp(1, max_children_per_agent_ceiling())
+}
+
+/// Auto concurrency when `maxParallelSubAgents` is unset: `min(logical cores, N)`
+/// — must stay equal to `tools::parallel::default_parallel_limit()`.
+const AUTO_PARALLEL_CORES_CAP: u32 = 8;
+
+#[cfg(test)]
+mod unified_sub_agent_concurrency_tests {
+    use super::*;
+
+    #[test]
+    fn follows_the_single_visible_knob() {
+        assert_eq!(effective_sub_agent_concurrency(Some(50)), 50);
+        assert_eq!(effective_sub_agent_concurrency(Some(0)), 1);
+        assert_eq!(
+            effective_sub_agent_concurrency(Some(u32::MAX)),
+            max_children_per_agent_ceiling()
+        );
+    }
+
+    #[test]
+    fn unset_falls_back_to_the_pool_default() {
+        assert_eq!(
+            effective_sub_agent_concurrency(None),
+            crate::tools::parallel::default_parallel_limit() as u32
+        );
+    }
+
+    #[test]
+    fn legacy_max_children_per_agent_is_ignored() {
+        // 旧文件：maxChildrenPerAgent=8（修复前强改的遗留值）+ maxParallelSubAgents=50
+        let mut legacy = ModelSettings::default();
+        legacy.max_children_per_agent = 8;
+        legacy.max_parallel_sub_agents = Some(50);
+        assert_eq!(legacy.max_children_per_agent, 8, "legacy value still readable");
+        assert_eq!(
+            effective_sub_agent_concurrency(legacy.max_parallel_sub_agents),
+            50,
+            "a legacy maxChildrenPerAgent=8 must not pin the fan-out"
+        );
+    }
+}
+
 #[cfg(test)]
 mod max_children_per_agent_limit_tests {
     use super::*;

@@ -1040,8 +1040,8 @@ async fn run_self_fork_wave(
                     "parallel subagent wave requires an active parent agent"
                 ));
             };
-        let max_children = crate::models::clamp_max_children_per_agent(
-            pass.ctx.provider.settings.max_children_per_agent,
+        let max_children = crate::models::effective_sub_agent_concurrency(
+            pass.ctx.provider.settings.max_parallel_sub_agents,
         ) as usize;
         let issuer_instance_id = pass
             .ctx

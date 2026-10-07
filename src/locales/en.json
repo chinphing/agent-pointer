@@ -673,7 +673,7 @@
       "generalTools": "General tools",
       "generalToolsHint": "How many file reads, foreground terminals, and searches can run together in one turn. Background terminals are separate.",
       "subAgent": "Sub-agents",
-      "subAgentHint": "Max concurrent sub-agents in this session (foreground and background). Background terminals count too.",
+      "subAgentHint": "Max concurrent sub-agents in this session (foreground and background; background terminals count too). A single agent's child fan-out follows the same value — over-limit spawns queue instead of failing.",
       "mediaTools": "Media tools",
       "mediaToolsHint": "How many image, video, and media-understanding jobs can run together in one turn.",
       "rounds": "Rounds",
@@ -867,8 +867,6 @@
       "delegationHintAfter": ".",
       "maxNestDepth": "Max sub-agent nest depth",
       "maxNestDepthHint": "1 = only the lead may delegate; 2 = a child may delegate one more level (default).",
-      "maxChildrenPerAgent": "Max children per agent",
-      "maxChildrenPerAgentHint": "Live sub-agent children one agent may have at once (foreground joins + background jobs). Default and ceiling are both CPU logical cores × 10 (never below 32, never above 100); going over returns an error instead of queueing.",
       "generalAgentFallback": "General agent"
     },
     "models": {

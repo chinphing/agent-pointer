@@ -15,7 +15,7 @@ Pointer 可通过 **run_subagent** 将子任务委派给专用 worker（如 **ex
 | `maxParallelSubAgents` | 工具并行 → 子 Agent | 本会话同时运行的子 Agent 上限，**前台与后台共用**；后台终端也占此额度。前台终端走「通用工具」 |
 | `maxParallelToolCalls` | 工具并行 → 通用工具 | 同一轮读工具（含前台终端）同时执行上限 |
 | `maxSubAgentSpawnDepth` | （当前无界面） | 嵌套委派最大深度（默认 **2**：主 Agent + 一层子委派）。**每次 spawn 都消耗一层**（`self` fork 也算）；到达上限的 agent 不能再委派 |
-| `maxChildrenPerAgent` | （当前无界面） | 单个 agent 同时存活的子 Agent 上限（默认值与上限均为 **CPU 逻辑核数 × 10**，不低于 32、不超过 100）。超限的委派直接返回报错，不排队 |
+| `maxChildrenPerAgent` | 已废弃（并入「子 agent 并发」） | **不再单独生效**：单个 agent 的子任务扇出跟随 `maxParallelSubAgents`；超出时**排队等待**，不再报错 |
 
 ## 内置行为
 

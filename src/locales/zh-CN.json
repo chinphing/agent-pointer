@@ -673,7 +673,7 @@
       "generalTools": "通用工具",
       "generalToolsHint": "同一轮里读文件、前台终端、搜索等可同时执行的数量。后台终端不走这里。",
       "subAgent": "子 Agent",
-      "subAgentHint": "本会话同时运行的子 Agent 上限，前台与后台共用；后台终端也占此额度。",
+      "subAgentHint": "本会话同时运行的子 Agent 上限（前台与后台共用，后台终端也占额度）。单个 Agent 的子任务扇出也跟随此值；超出时排队等待，不再报错。",
       "mediaTools": "媒体工具",
       "mediaToolsHint": "同一轮里同时进行的图片、视频、多媒体理解数量。",
       "rounds": "轮次",
@@ -867,8 +867,6 @@
       "delegationHintAfter": "配置。",
       "maxNestDepth": "子 Agent 最大嵌套深度",
       "maxNestDepthHint": "1 = 仅主 agent 可委派；2 = 子 agent 可再委派一层（默认）。",
-      "maxChildrenPerAgent": "单个 Agent 最大子任务数",
-      "maxChildrenPerAgentHint": "同一 agent 同时存活的子任务上限（含前台等待与后台任务）。默认值与上限均为 CPU 逻辑核数 × 10，不低于 32、不超过 100；超出时直接报错，不排队。",
       "generalAgentFallback": "通用智能体"
     },
     "models": {

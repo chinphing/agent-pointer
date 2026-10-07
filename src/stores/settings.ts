@@ -101,7 +101,7 @@ function normalizeContextBudgetTokens(raw?: number): number {
   return clampContextBudgetTokens(Math.floor(Number(raw)))
 }
 
-/** Per-agent live sub-agent children cap (`maxChildrenPerAgent`). */
+/** Deprecated: per-agent fan-out now follows `maxParallelSubAgents` (single knob). Kept for wire compatibility. */
 export const MIN_MAX_CHILDREN_PER_AGENT = 1
 /**
  * Floor for the dynamic ceiling. Mirrors the Rust side

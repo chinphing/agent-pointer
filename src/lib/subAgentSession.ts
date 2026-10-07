@@ -1,3 +1,4 @@
+import { ref } from 'vue'
 import type { AgentTrace, ChatMessage, SubAgentSessionUi, ToolCall } from '../types/chat'
 import {
   agentInstanceIdFromTraceId,
@@ -148,6 +149,23 @@ export function finalizeSubSession(trace: AgentTrace): void {
   }
 }
 
+/**
+ * 手动展开/收起改的是 `trace.userExpanded`，但**嵌套帧的 trace 存在 scoped store 里** ——
+ * 那个容器是 `shallowRef`（见 `conversationScoped/store.ts`），里面的行与档案都**不是响应式
+ * 对象**：改它们不会通知任何 computed。（lead 层的帧踩不到这个坑：它的 trace 挂在
+ * `conv.messages` 这个 reactive 数组上。）
+ *
+ * 所以凡是**读**这个标志来决定渲染的组件，都必须同时读一次本 revision，否则点击翻了
+ * `userExpanded` 也永远看不见 —— 症状就是「嵌套帧点击后不展开」。
+ * 复现与守护：`src/lib/subAgentFrameExpand.test.ts`。
+ */
+const traceUiRevision = ref(0)
+
+/** 读一次即建立响应式依赖（用法见 `traceUiRevision` 的说明）。 */
+export function subTraceUiSignal(): number {
+  return traceUiRevision.value
+}
+
 export function toggleSubTraceExpanded(trace: AgentTrace): void {
   if (isSubTraceUiCollapsed(trace)) {
     trace.userExpanded = true
@@ -156,6 +174,8 @@ export function toggleSubTraceExpanded(trace: AgentTrace): void {
     trace.userExpanded = false
     trace.collapsed = true
   }
+  // 通知上面那些「读标志但依赖不到它」的 computed。
+  traceUiRevision.value += 1
 }
 
 export function subTracesForMessage(msg: ChatMessage): AgentTrace[] {

@@ -19,6 +19,12 @@ export interface ScopedInstanceTranscript {
   loadState: ScopedLoadState
   liveFingerprint: string
   /**
+   * Cached halves of `liveFingerprint` (`composeLiveFingerprint(textLen, liveShape)`),
+   * so a plain text append can advance it in O(1) instead of rescanning every row.
+   */
+  textLen: number
+  liveShape: string
+  /**
    * Ask_user-relevant signature of `rows` (see `computeScopedAskUserSignature`).
    * Cached so the store only bumps its narrow revision when it actually changes.
    */

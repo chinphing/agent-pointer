@@ -1,17 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import type { ChatMessage } from '../types/chat'
+import type { AgentTrace, ChatMessage } from '../types/chat'
 import {
   buildMessageListLayout,
   coalesceToolRunItems,
   entryKey,
   flattenConversationMessages,
+  groupScopedRowsByAnchor,
   insertContextCompressingMarker,
   matchingCompletedPrefixCount,
   messageStructureFingerprint,
   splitMessageTurnSegments,
   toolRunHostMessage,
   turnElapsedHostIndex,
+  turnScopedStructureStamp,
   turnSegmentFingerprint,
+  turnSpawnPlanCacheKey,
   withTurnElapsedFollowingSpacing,
   type FlattenDeps,
   type MessageListLayoutCache,
@@ -167,6 +170,101 @@ describe('messageStructureFingerprint', () => {
     expect(messageStructureFingerprint(a, emptyDeps)).not.toBe(
       messageStructureFingerprint(b, emptyDeps)
     )
+  })
+})
+
+/**
+ * The spawn-plan cache key decides how much of the window re-renders when a sub-agent
+ * starts. Keying it on the conversation-wide scoped structure revision (the previous
+ * shape) invalidated **every** turn on every `agent_step`: each turn got a fresh plan
+ * object, every row's `v-memo` deps changed, and the whole visible window re-rendered
+ * (HUD: `mount:AssistantModelMessage pk 22`, `worst gap 597ms @ measureBatch`).
+ */
+describe('turn spawn plan cache key', () => {
+  function scopedRow(over: Partial<ChatMessage> & { id: string }): ChatMessage {
+    return {
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+      createdAt: 3,
+      anchorMessageId: 'a1',
+      traceId: 'inst-1',
+      agentInstanceId: 'inst-1',
+      ...over
+    } as ChatMessage
+  }
+
+  function leadWithSpawn(status: string): ChatMessage {
+    const lead = assistant('a1', '调度组7~12单', 'streaming')
+    lead.toolCalls = [
+      { id: 'tc-spawn', name: 'run_subagent', arguments: '{}', status: 'running' }
+    ]
+    const trace: AgentTrace = {
+      id: 'inst-9',
+      name: '通用助手',
+      role: 'worker',
+      status,
+      depth: 1,
+      agentInstanceId: 'inst-9',
+      parentToolCallId: 'tc-spawn',
+      anchorMessageId: 'a1'
+    }
+    lead.agentTrace = [trace]
+    return lead
+  }
+
+  function keyFor(message: ChatMessage, rows: ChatMessage[]): string {
+    return turnSpawnPlanCacheKey(
+      turnSegmentFingerprint([message], 0, 1, emptyDeps),
+      turnScopedStructureStamp([message.id], groupScopedRowsByAnchor(rows), emptyDeps)
+    )
+  }
+
+  it('leaves untouched turns alone when a spawn starts', () => {
+    const other = assistant('a2', '别的回合', 'done')
+    const before = {
+      lead: keyFor(assistant('a1', '调度组7~12单', 'streaming'), []),
+      other: keyFor(other, [])
+    }
+    // Spawn start: the lead row gains a running trace, and the scoped structure
+    // revision bumps as well — but only the lead turn's own inputs changed.
+    const after = { lead: keyFor(leadWithSpawn('running'), []), other: keyFor(other, []) }
+    expect(after.lead).not.toBe(before.lead)
+    expect(after.other).toBe(before.other)
+  })
+
+  it('moves only the owning turn when a scoped row changes', () => {
+    const lead = assistant('a1', 'lead', 'done')
+    const other = assistant('a2', 'other', 'done')
+    const before = {
+      lead: keyFor(lead, [scopedRow({ id: 'r1' })]),
+      other: keyFor(other, [scopedRow({ id: 'r1' })])
+    }
+    const after = {
+      lead: keyFor(lead, [scopedRow({ id: 'r1', status: 'done' })]),
+      other: keyFor(other, [scopedRow({ id: 'r1', status: 'done' })])
+    }
+    expect(after.lead).not.toBe(before.lead)
+    expect(after.other).toBe(before.other)
+  })
+
+  it('sees nested rows through the anchor closure', () => {
+    const rows = [
+      scopedRow({ id: 'r1', status: 'done' }),
+      scopedRow({
+        id: 'r2',
+        anchorMessageId: 'r1',
+        traceId: 'inst-2',
+        agentInstanceId: 'inst-2'
+      })
+    ]
+    const streaming = turnScopedStructureStamp(['a1'], groupScopedRowsByAnchor(rows), emptyDeps)
+    const finished = turnScopedStructureStamp(
+      ['a1'],
+      groupScopedRowsByAnchor(rows.map(r => (r.id === 'r2' ? { ...r, status: 'done' } : r))),
+      emptyDeps
+    )
+    expect(finished).not.toBe(streaming)
   })
 })
 

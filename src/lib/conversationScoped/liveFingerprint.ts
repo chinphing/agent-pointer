@@ -5,22 +5,56 @@ import { toolCallBaseName } from '../messageTooling'
 export type ScopedSignals = {
   /** Live-line fingerprint (v-memo on running SubAgentFrame rows). Moves per chunk. */
   live: string
+  /**
+   * Total text length across the rows. This is the **only** part of `live` a plain
+   * text append moves, so the store can advance it in O(1) and skip the scan.
+   */
+  textLen: number
+  /**
+   * The shape half of `live`: streaming flags + every tool call's id / status / payload
+   * lengths. Stays put on a plain text append; only a shape event rebuilds it.
+   */
+  liveShape: string
   /** ask_user-relevant signature (top-of-chat banner). Never moves on token writes. */
   askUser: string
   /** Shape of the spawn (rows / tool calls / nested traces). Never moves on token writes. */
   structure: string
 }
 
+/** `live` = the O(1)-incrementable length half + the shape half. */
+export function composeLiveFingerprint(textLen: number, liveShape: string): string {
+  return `${textLen}|${liveShape}`
+}
+
 /**
  * Single pass over one spawn's rows — plus the legacy trace session when present —
  * producing every signature the scoped store publishes.
  *
- * One loop on purpose: `refreshFingerprint` runs on every streamed chunk, so a
- * second (or third) scan over the same rows would multiply the per-token cost.
+ * **Two invalidation axes, not one.** `live` carries `textLen`, so it moves on every
+ * token; `askUser` / `structure` are documented above as *never moving on token writes*,
+ * so rebuilding them per chunk is work whose result is thrown away. Per-token refreshes
+ * therefore go through `touchTextDelta` (O(1)); only shape events land here.
+ *
+ * **The cost is bytes, not scan count.** This used to run per chunk on the text path and
+ * measured **97.3 µs and 32,697 bytes of strings per call** (`live` 11,157B + `askUser`
+ * 4,120B + `structure` 17,420B, at 140 rows / 290k chars). At 500–2000 chunks/s that is
+ * 15.6–62.4 MB/s of garbage — which is why a real-device `sample` puts it on JSC's
+ * *auxiliary* threads (`JSRopeString::resolveToBuffer`, `WTF::StringBuilder`, `bmalloc`,
+ * `pas_`) with nothing to blame on the main thread: neither `ms:` nor `render:` can see
+ * it, so "the HUD looks fine" is not evidence.
+ *
+ * One loop on purpose (below) is therefore **not** the fix, and was never sufficient: it
+ * was already one loop and it was still the hot path. Do not "optimise" it further by
+ * merging loops — stop calling it per chunk.
  *
  * `structure` deliberately omits text / payload lengths: it only changes when the
  * spawn's **shape** changes — rows added or removed, tool call ids / names / status,
  * nested trace ids / status / links — which is what the turn spawn plan depends on.
+ *
+ * **Check it**: HUD `call:scopedSignals` (scans/s) must stay ≈0 while a sub-agent streams;
+ * if it climbs with the chunks, someone routed a text path back here. `call:scopedTextDelta`
+ * carries the chunks and `scopedSignalRows` the rows per scan. Guard:
+ * `store.test.ts` → `a text delta moves only the live length, never structure`.
  */
 export function computeScopedSignals(
   scoped: readonly ChatMessage[],
@@ -72,7 +106,13 @@ export function computeScopedSignals(
     }
     structure += 'L|'
   }
-  return { live: `${textLen}|${toolSig}`, askUser, structure }
+  return {
+    live: composeLiveFingerprint(textLen, toolSig),
+    textLen,
+    liveShape: toolSig,
+    askUser,
+    structure
+  }
 }
 
 /** Cheap live-line fingerprint for v-memo on running SubAgentFrame rows. */

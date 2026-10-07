@@ -65,10 +65,13 @@ import {
   coalesceToolRunItems,
   entryContainsMessageId,
   entryKey,
+  groupScopedRowsByAnchor,
   insertContextCompressingMarker,
   toolRunHostMessage,
   turnElapsedHostIndex,
+  turnScopedStructureStamp,
   turnSegmentFingerprint,
+  turnSpawnPlanCacheKey,
   withTurnElapsedFollowingSpacing,
   type FlatEntry,
   type FlattenDeps,
@@ -1897,7 +1900,10 @@ const turnSpawnPlans = computed(() => {
   // `getSubAgentLiveSignal('')`（空 key 永远不会被写入）订阅，靠的是 publishLive 整体替换
   // 外层槽位 —— 结果任何 spawn 的任何一个 token 都会重建全部回合的 plan。
   const convId = chat.currentId ?? ''
-  const structureRevision = chat.getScopedStructureRevision(convId)
+  // 失效触发器（**只**让本 computed 重跑，不参与 plan 缓存 key —— 见下面的
+  // `turnSpawnPlanCacheKey`）：scoped 存储的结构变化 + spawn 成员增删。用 `void` 读取：
+  // 未变的回合随后会命中缓存、复用原 plan 对象，不再整窗重渲染。
+  void chat.getScopedStructureRevision(convId)
   void chat.getScopedMembershipSignal(convId)
 
   const pending: {
@@ -1977,32 +1983,56 @@ const turnSpawnPlans = computed(() => {
   // 嵌套层的行锚在**父级行 id** 上（父 worker 的 scoped 行），只取一层会漏掉第 2 层及更深。
   const scopedRows = scopedRowClosure(seedIds, ids => chat.scopedRowsForAnchors(convId, ids))
 
+  const perf = renderPerfEnabled()
+  const plansStartedAt = perf ? performance.now() : 0
+  let fingerprintMs = 0
+  let buildMs = 0
+  const rowsByAnchor = groupScopedRowsByAnchor(scopedRows)
+
   const out = new Map<string, TurnSpawnPlan>()
   const nextCache = new Map<string, { key: string; plan: TurnSpawnPlan }>()
   for (const entry of pending) {
     const cacheKey = `${convId}\u0000${entry.id}`
-    // 回合结构指纹（消息 / 工具行状态 / 档案 / 任务板）+ scoped 结构版本：
+    // 回合结构指纹（消息 / 工具行状态 / 档案 / 任务板）+ **本回合自己**的 scoped 结构戳：
     // 二者都没动 → 复用同一个 plan 对象，子组件 prop 身份不变，不触发重渲染。
-    const key = `${structureRevision}\u0001${turnSegmentFingerprint(
+    // 旧实现把会话级 `structureRevision` 放进 key，于是任何一处子 agent 结构变化都会让
+    // **每个**回合的 key 变化 → 每个回合重建 plan（新对象）→ 整个可见窗口重渲染，正好是
+    // 「子 agent 启动那一刻卡死」。key 现在只含该回合真正读到的两样东西。
+    const fingerprintStart = perf ? performance.now() : 0
+    const fingerprint = turnSegmentFingerprint(
       entry.messages,
       0,
       entry.messages.length,
       layoutDeps
-    )}`
+    )
+    const scopedStamp = turnScopedStructureStamp(
+      entry.messages.map(message => message.id),
+      rowsByAnchor,
+      layoutDeps
+    )
+    if (perf) fingerprintMs += performance.now() - fingerprintStart
+    const key = turnSpawnPlanCacheKey(fingerprint, scopedStamp)
     const cached = spawnPlanCache.get(cacheKey)
     if (cached && cached.key === key) {
       out.set(entry.id, cached.plan)
       nextCache.set(cacheKey, cached)
       continue
     }
+    const buildStart = perf ? performance.now() : 0
     const plan = buildTurnSpawnPlan({
       messages: entry.messages,
       scopedRows,
       extraToolCallsByMessageId: entry.extra,
       drawnRowIdsByMessage: entry.drawn
     })
+    if (perf) buildMs += performance.now() - buildStart
     out.set(entry.id, plan)
     nextCache.set(cacheKey, { key, plan })
+  }
+  if (perf) {
+    record('ms:turnFingerprint', fingerprintMs)
+    record('ms:buildTurnSpawnPlan', buildMs)
+    record('ms:turnSpawnPlans', performance.now() - plansStartedAt)
   }
   // Drop turns that left the window (conversation switch / compression trim).
   spawnPlanCache = nextCache

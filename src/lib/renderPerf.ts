@@ -99,13 +99,31 @@ export const PERF_MS_KEYS = [
   'ms:extraScopedForWindow',
   'ms:measureElement',
   'ms:toolRunAssistantMessage',
+  /**
+   * Whole `turnSpawnPlans` recomputation (sub-agent frame placement). Re-runs on every
+   * scoped **structure** change, i.e. on each `agent_step` — the moment a spawn starts.
+   */
+  'ms:turnSpawnPlans',
+  /** The fingerprint half of that pass: one per turn, per re-run. */
+  'ms:turnFingerprint',
+  /** The plan-build half: only for turns whose key changed. */
+  'ms:buildTurnSpawnPlan',
   PERF_MS_SCROLL_PASS,
   PERF_MS_SCROLL_PASS_READ,
   PERF_MS_SCROLL_PASS_WRITE
 ] as const
 
 /** Per-second call count of `toolRunAssistantMessage` (fresh object per render). */
-export const PERF_CALL_KEYS = ['call:toolRunAssistantMessage'] as const
+export const PERF_CALL_KEYS = [
+  'call:toolRunAssistantMessage',
+  /** Full `computeScopedSignals` scans per second (shape events only). */
+  'call:scopedSignals',
+  /** O(1) text-append chunks per second (no scan). */
+  'call:scopedTextDelta'
+] as const
+
+/** Rows the last full scoped-signature scan walked. */
+export const PERF_GAUGE_SCOPED_SIGNAL_ROWS = 'scopedSignalRows'
 
 export const PERF_GAUGE_VISIBLE_ROWS = 'visibleRows'
 export const PERF_GAUGE_SCOPED_ROWS = 'scopedRows'

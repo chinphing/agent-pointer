@@ -24,7 +24,7 @@ import {
   shouldRenderTerminalSubAgentStub
 } from '../../../../lib/subAgentFrameMount'
 import { isPendingApprovalToolCall } from '../../../../lib/messageTooling'
-import { isSubAgentTraceTerminal, toggleSubTraceExpanded } from '../../../../lib/subAgentSession'
+import { isSubAgentTraceTerminal, subTraceUiSignal, toggleSubTraceExpanded } from '../../../../lib/subAgentSession'
 import { SUB_AGENT_PROCESS_PLACEHOLDER } from '../../../../lib/subAgentStats'
 import { traceSubtreeContainsSearchTarget } from '../../../../lib/subAgentSearch'
 import SubAgentFrame, { type SubAgentTaskBoardBinding } from './SubAgentFrame.vue'
@@ -136,11 +136,14 @@ const approvalBlocksStub = computed(() => {
   return rows.some(msg => (msg.toolCalls ?? []).some(isPendingApprovalToolCall))
 })
 
-const showStub = computed(() =>
-  shouldRenderTerminalSubAgentStub(props.trace, stubIdleElapsed.value)
-  && !searchPinned.value
-  && !approvalBlocksStub.value
-)
+const showStub = computed(() => {
+  // 与 SubAgentFrame 同理：嵌套帧的 trace 在 scoped store（非响应式）里，
+  // 不读 UI revision 就看不见点击翻转的 userExpanded。
+  void subTraceUiSignal()
+  return shouldRenderTerminalSubAgentStub(props.trace, stubIdleElapsed.value)
+    && !searchPinned.value
+    && !approvalBlocksStub.value
+})
 
 const stubView = computed(() =>
   buildTerminalSubAgentStubView({
@@ -160,6 +163,9 @@ function onStubToggle() {
 }
 
 const frameMemoDeps = computed(() => {
+  // 嵌套帧的 trace 在 scoped store（非响应式）里：不读这一行，点击展开后 v-memo 的
+  // deps 不会变 → 帧不重渲染（见 subAgentSession.subTraceUiSignal）。
+  void subTraceUiSignal()
   const board = props.taskBoard
   const boardKey = board
     ? `${board.taskId}:${board.document.version}:${board.isActive ? 1 : 0}`

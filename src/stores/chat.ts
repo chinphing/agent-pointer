@@ -3181,12 +3181,19 @@ export const useChatStore = defineStore('chat', () => {
     if (target) {
       target.reasoning = (target.reasoning || '') + text
       // Late flush after Done must not revive executing UI.
+      let shapeChanged = false
       if (target.status !== 'cancelled' && target.status !== 'error' && target.status !== 'done') {
+        if (target.status !== 'streaming' || target.contentStreaming !== true) shapeChanged = true
         target.contentStreaming = true
         target.status = 'streaming'
       }
       if (isScopedSubMessage(target)) {
-        scopedStore.touchRow(r.conv.id, target.id)
+        // Per-**token** path: must stay O(1) — this call site is what used to rebuild
+        // ~32.7 KB of scoped signatures per chunk (97.3 µs; see `computeScopedSignals`).
+        // The only shape field a text append can carry is the streaming-flag flip, which
+        // happens once per row. Guard: `conversationScoped/store.test.ts` →
+        // `a text delta moves only the live length, never structure`.
+        scopedStore.touchTextDelta(r.conv.id, target.id, text.length, { shapeChanged })
       }
       return
     }

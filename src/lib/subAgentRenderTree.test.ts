@@ -3,6 +3,7 @@ import type { AgentTrace, ChatMessage, ToolCall } from '../types/chat'
 import {
   buildTurnSpawnPlan,
   buildTurnSpawnTree,
+  framesForLayer,
   framesForMessage,
   missingHostFetches,
   scopedRowClosure,
@@ -470,5 +471,120 @@ describe('scopedRowClosure · 嵌套行闭包', () => {
     const collect = (ids: readonly string[]) => ids.flatMap(id => byAnchor.get(id) ?? [])
     expect(scopedRowClosure(['a1'], collect, 1).map(row => row.id)).toEqual(['s1'])
     expect(scopedRowClosure(['a1'], collect, 4).map(row => row.id)).toEqual(['s1', 's2', 's3'])
+  })
+})
+
+describe('framesForLayer · 帧内挂载（P3）', () => {
+  const parentTrace = () => trace({ id: 'inst_parent', parentToolCallId: 'r_head' })
+  const childOf = (id: string, rowId: string) =>
+    trace({ id, depth: 2, parentTraceId: 'inst_parent', parentToolCallId: rowId })
+
+  it('子帧挂到它自己的工单行下，不画的行进兜底', () => {
+    const childA = childOf('inst_a', 'r_a')
+    const childB = childOf('inst_b', 'r_b')
+    const parent = scopedRow({
+      id: 'p1',
+      agentInstanceId: 'inst_parent',
+      toolCalls: [spawnRow('r_a'), spawnRow('r_b')],
+      agentTrace: [childA, childB]
+    })
+    const plan = buildTurnSpawnPlan({
+      messages: [parent],
+      scopedRows: [parent],
+      seedTraces: [parentTrace()],
+      drawnRowIdsByMessage: new Map([['p1', ['r_a']]])
+    })
+    const frames = framesForLayer(plan, [childA, childB])
+    expect(frames.byRow.get('r_a')?.map(t => t.id)).toEqual(['inst_a'])
+    expect(frames.byRow.has('r_b')).toBe(false)
+    expect(frames.detached.map(t => t.id)).toEqual(['inst_b'])
+  })
+
+  it('同一档案被重复投递到多条行上时只画一次', () => {
+    const childA = childOf('inst_a', 'r_a')
+    const first = scopedRow({
+      id: 'p1',
+      agentInstanceId: 'inst_parent',
+      toolCalls: [spawnRow('r_a')],
+      agentTrace: [childA]
+    })
+    const second = scopedRow({
+      id: 'p2',
+      agentInstanceId: 'inst_parent',
+      toolCalls: [spawnRow('r_c')],
+      agentTrace: [{ ...childA }]
+    })
+    const plan = buildTurnSpawnPlan({
+      messages: [first, second],
+      scopedRows: [first, second],
+      seedTraces: [parentTrace()],
+      drawnRowIdsByMessage: new Map([
+        ['p1', ['r_a']],
+        ['p2', ['r_c']]
+      ])
+    })
+    const frames = framesForLayer(plan, [childA, { ...childA }])
+    expect(frames.byRow.get('r_a')?.map(t => t.id)).toEqual(['inst_a'])
+    expect(frames.byRow.has('r_c')).toBe(false)
+    // 重复的那份不是「没画出来」，而是同一张行被认领两次 → 不再单独画
+    expect(frames.detached).toEqual([])
+  })
+
+  it('帧自己的 trace 即使被 seed 也不会被画在自己层里（防自引用）', () => {
+    const head = parentTrace()
+    const childA = childOf('inst_a', 'r_a')
+    const parent = scopedRow({
+      id: 'p1',
+      agentInstanceId: 'inst_parent',
+      // 数据异常时 head 的宿主行也可能出现在本层行里 —— 仍然不能画
+      toolCalls: [spawnRow('r_head'), spawnRow('r_a')],
+      agentTrace: [childA]
+    })
+    const plan = buildTurnSpawnPlan({
+      messages: [parent],
+      scopedRows: [parent],
+      seedTraces: [head],
+      drawnRowIdsByMessage: new Map([['p1', ['r_head', 'r_a']]])
+    })
+    const frames = framesForLayer(plan, [childA])
+    expect(frames.byRow.has('r_head')).toBe(false)
+    expect(frames.byRow.get('r_a')?.map(t => t.id)).toEqual(['inst_a'])
+    expect(frames.detached).toEqual([])
+  })
+
+  it('帧的行必须以 scopedRows 传进树（只传 messages 会整棵掉出树）', () => {
+    const childA = childOf('inst_a', 'r_a')
+    const parent = scopedRow({
+      id: 'p1',
+      agentInstanceId: 'inst_parent',
+      toolCalls: [spawnRow('r_a')],
+      agentTrace: [childA]
+    })
+    const plan = buildTurnSpawnPlan({
+      messages: [parent],
+      seedTraces: [parentTrace()],
+      drawnRowIdsByMessage: new Map([['p1', ['r_a']]])
+    })
+    const frames = framesForLayer(plan, [childA])
+    expect(frames.byRow.size).toBe(0)
+    expect(frames.detached.map(t => t.id)).toEqual(['inst_a'])
+  })
+
+  it('本层没有画出来的行时全部进兜底', () => {
+    const childA = childOf('inst_a', 'r_a')
+    const parent = scopedRow({
+      id: 'p1',
+      agentInstanceId: 'inst_parent',
+      toolCalls: [spawnRow('r_a')],
+      agentTrace: [childA]
+    })
+    const plan = buildTurnSpawnPlan({
+      messages: [parent],
+      scopedRows: [parent],
+      seedTraces: [parentTrace()]
+    })
+    const frames = framesForLayer(plan, [childA])
+    expect(frames.byRow.size).toBe(0)
+    expect(frames.detached.map(t => t.id)).toEqual(['inst_a'])
   })
 })

@@ -396,4 +396,17 @@ describe('nested child frames', () => {
     expect(host.querySelector('[data-sub-agent-content-id="c-round-1"]')?.textContent)
       .toContain('中间结论')
   })
+
+  it('paints the nested child under its own run_subagent row (P3)', async () => {
+    const child = childTrace({ status: 'running', summaryLine: '' })
+    const host = mountParentWithChild(child, [childRoundRow()])
+    await flush()
+
+    const row = host.querySelector('[data-tool-call-id="tc-child"]') as HTMLElement | null
+    expect(row).toBeTruthy()
+    // 父帧 + 子帧都画出来了
+    expect(host.querySelectorAll('.sub-agent-frame')).toHaveLength(2)
+    // 子帧紧跟在它的宿主工单行后面（而不是帧体末尾的平铺块）
+    expect(row?.nextElementSibling?.classList.contains('sub-agent-frame')).toBe(true)
+  })
 })

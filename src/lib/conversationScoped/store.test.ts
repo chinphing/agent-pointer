@@ -80,6 +80,39 @@ describe('createConversationScopedStore', () => {
     expect(store.hasLoadedRows('c1', { agentInstanceId: 'inst-1' })).toBe(true)
   })
 
+  /**
+   * Contract guard for the per-chunk path: `live` moves on tokens, `askUser` / `structure`
+   * never do. Behaviour stays green even if a text chunk is routed back through the full
+   * scan — the cost does not, and that cost is invisible to the HUD's `ms:` / `render:`
+   * counters (it lands on JSC's GC threads). So read `call:scopedSignals` next to this
+   * test: it must stay ≈0 while a sub-agent streams.
+   *   full scan = 97.3 µs and 32.7 KB of strings per call
+   *   delta     =  0.13 µs and 13 bytes
+   */
+  it('a text delta moves only the live length, never structure', () => {
+    const store = createConversationScopedStore()
+    const row = scopedMsg({ id: 'm1', agentInstanceId: 'inst-1', content: 'a' })
+    store.ensureInstance('c1', {
+      agentInstanceId: 'inst-1',
+      traceId: 'task:explore',
+      anchorMessageId: 'anchor-1'
+    }, row)
+    const liveBefore = store.getLiveSignal('c1', 'inst-1')
+    const structureBefore = store.getStructureRevision('c1')
+
+    // A streamed text append takes the O(1) path: no scan, no signature rebuild.
+    row.content = 'abc'
+    store.touchTextDelta('c1', 'm1', 2)
+    expect(store.getLiveSignal('c1', 'inst-1')).not.toBe(liveBefore)
+    // `structure` (and `askUser`, which shares this path) must not move on a token write.
+    expect(store.getStructureRevision('c1')).toBe(structureBefore)
+
+    // …but a real shape change still does: the O(1) path is not a stale cache.
+    row.status = 'streaming'
+    store.touchRow('c1', 'm1')
+    expect(store.getStructureRevision('c1')).not.toBe(structureBefore)
+  })
+
   it('touchRow publishes live signal under instance and legacy trace id', () => {
     const store = createConversationScopedStore()
     const row = scopedMsg({ id: 'm1', agentInstanceId: 'inst-1', content: 'a' })

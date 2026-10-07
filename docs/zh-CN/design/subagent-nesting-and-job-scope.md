@@ -415,7 +415,7 @@ depth 1 的 48 行 `general` 是 **lead 自己的 self fork**。
 ## 7. 归属渲染：从「按消息找」到「按数据找」（缺口 F）
 
 > 记录日期：2026-10-04
-> 状态：**P0 / P0.1 / P1 已落地**（P1 = 渲染单一权威 + 缺行补拉）；P2–P5 待排期。
+> 状态：**P0 / P0.1 / P1 / P3 已落地**；P2（折叠投影化）、P4、P5 待排期。
 > 触发案例：会话 `c18c15d2-97ae-4d4a-9984-2db2d58e3a06`（00:14–00:15）—— lead 分三轮派出 5 个后台 writer（第 1 轮 3 个、第 2/3 轮各 1 个），随后一轮 `job await mode=all`；界面上 5 个子 agent 的统计行**全部平铺**在「等待后台任务」那一行下面（其中 4 行没有名字）。
 
 ### 7.1 判定式（根因）
@@ -459,7 +459,7 @@ function tracesUnderTool(tc) { return subTracesForParentToolCall(subTraces.value
 | **P0.1** ✅ | 缺行显式补拉（重做版）：`missingHostFetches(plan, message, requested)` 用 `parentTraceId` 找到**父 trace** → 拉**父实例**的行（缺的宿主行写在父的行里，不在档案自己的行里）；同父合并、每父一次；父不在本回合则不请求。`MessageList` 用 `scopedRowClosure` 做嵌套行传递闭包（锚在父级行 id 上的行），并订阅 `getSubAgentLiveSignal` / `getScopedMembershipSignal` 保证补拉落地后重算 | ✅ 已落地（lib 单测 24 用例；vitest 8 文件 / 160 用例 + `vue-tsc` 全绿）；⚠️ 未做真实数据端到端验证 |
 | **P1** ✅ | 渲染单一权威：`MessageList` 每回合构建 `TurnSpawnPlan`（树用未投影 `turn.entries`；drawn 用投影后条目）并注入 `AssistantModelMessage`；`tracesUnderTool` 改为向树要（`nodeForRow(rowId).trace`）；兜底收窄为 `unplaced + unbound` | ✅ 已落地（`spawnPlan` prop 链：MessageList → MessageRow → AssistantMessage → AssistantModelMessage） |
 | P2 | 折叠＝投影：`projectCollapsedEntry` / `filterCollapsedSurfaceToolGroups` 由「删行」改为「标隐藏 + 容器键」 | 待做 |
-| P3 | 承载与身份：`ToolCallGroup` 折叠态承载成员帧；嵌套子帧改 `childrenOfRow` 挂到父帧内的工单行；每行带名字 | 待做 |
+| **P3** ✅ | 帧内挂载：`framesForLayer(plan, childTraces)` 把子帧按**它自己的工单行**分组，直接画在该行下面（`SubAgentFrame` 的 row 循环里 `frameChildrenForRow(tc)`）；宿主行没画出来的进 `detached` 兜底块。帧内 drawn 集复用已有 `roundsForRender`（不新增可见性过滤）；`buildTurnSpawnTree/Plan` 新增 `seedTraces`（帧自己的 head 在上一层，不 seed 则子档案整棵掉出树）；`framesForLayer` 只画本层给的档案（防 head 自引用递归）。同一档案被重复投递到多条���上时只画一次 | ✅ 已落地（lib 单测 + 组件用例 + perf/memo 回归共 179 用例全绿；`vue-tsc` exit 0） |
 | P4 | 释放与折叠解耦：`evict` 从渲染 watch 移出，交给独立内存策略 | 待确认 |
 | P5 | 本文件 §2.5 / §4.2 回更：「宿主行被隐藏 → 子帧上提到容器」 | 待做 |
 

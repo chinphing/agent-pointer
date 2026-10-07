@@ -40,6 +40,7 @@ import {
   isSubAgentTraceTerminal,
   isSubResponseToolName,
   isSubTraceUiCollapsed,
+  subTraceUiSignal,
   toggleSubTraceExpanded
 } from '../../../../lib/subAgentSession'
 import {
@@ -59,6 +60,7 @@ import {
   subAgentThinkingActive
 } from '../../../../lib/thinkingIndicator'
 import { isPendingApprovalToolCall, isPendingAskUserToolCall, visibleToolCalls } from '../../../../lib/messageTooling'
+import { buildTurnSpawnPlan, framesForLayer } from '../../../../lib/subAgentRenderTree'
 import { useSettingsStore } from '../../../../stores/settings'
 import { useAgentsCatalog } from '../../../../composables/useAgentUi'
 import type { AgentMessageBodyModel } from './AgentMessageBody.vue'
@@ -115,7 +117,12 @@ const legacySession = computed(() => props.trace.session)
 
 const isRunning = computed(() => props.trace.status === 'running')
 
-const collapsed = computed(() => isSubTraceUiCollapsed(props.trace))
+const collapsed = computed(() => {
+  // 嵌套帧的 trace 在 scoped store（非响应式）里：必须读一次 UI revision，
+  // 否则点击翻的 `userExpanded` 永远不会让这个 computed 重算 → 帧不展开。
+  void subTraceUiSignal()
+  return isSubTraceUiCollapsed(props.trace)
+})
 
 const scopedMessages = computed(() => {
   // Queued / not-yet-running collapsed frames have no scoped rows yet — skip O(n) scans.
@@ -366,6 +373,44 @@ const roundsForRender = computed(() => {
   ]
 })
 
+/**
+ * P3：帧内归属计划 —— 本帧的行 + 这些行上携带的下一层档案。
+ *
+ * 行来源用 `roundsForRender` 反推（它已经算过本帧实际会画哪些行），所以不额外做一遍可见性
+ * 过滤；折叠时直接不建计划。计划**只在本组件内使用**，不往 `SubAgentFrameHost` 传 —— host 的
+ * memo 依赖必须保持干净（见 SubAgentFrameHost.test.ts 的「流式 chunk 只重渲染 frame」用例）。
+ */
+const frameSpawnPlan = computed(() => {
+  if (collapsed.value) return null
+  const rows = scopedTraceMessages.value
+  if (rows.length === 0) return null
+  const drawnRowIdsByMessage = new Map<string, string[]>()
+  for (const round of roundsForRender.value) {
+    if (!round.messageId) continue
+    drawnRowIdsByMessage.set(
+      round.messageId,
+      round.tools.map(tc => (tc.id ?? '').trim())
+    )
+  }
+  return buildTurnSpawnPlan({
+    messages: rows,
+    // 帧自己的行是 scoped 行：档案要靠 `scopedRows` 才进树；
+    // head（帧自己的 trace）在上一层，必须 seed，否则子档案整棵掉出树。
+    scopedRows: rows,
+    seedTraces: [props.trace],
+    drawnRowIdsByMessage
+  })
+})
+
+const layerFrames = computed(() =>
+  frameSpawnPlan.value ? framesForLayer(frameSpawnPlan.value, childTraces.value) : null
+)
+
+/** 画在某张工单行下面的子帧（一行至多一个）。 */
+function frameChildrenForRow(toolCall: ToolCall): AgentTrace[] {
+  return layerFrames.value?.byRow.get((toolCall.id ?? '').trim()) ?? []
+}
+
 const collapsedView = computed(() => {
   // Read the live signal directly so this computed re-evaluates when the
   // fingerprint changes — getRows() returns the same array reference, so
@@ -615,14 +660,33 @@ watch(
           :is-search-match="!!round.messageId && searchContentIds.includes(round.messageId)"
           :is-active-search-match="!!round.messageId && activeSearchContentId === round.messageId"
         />
-        <ToolCallRow
+        <template
           v-for="tc in round.tools"
           :key="tc.id"
-          :tool-call="tc"
-          :show-tool-call-results="messageUi.showToolCallResults"
-          :is-search-match="searchToolCallIds.includes(tc.id)"
-          :is-active-search-match="activeSearchToolCallId === tc.id"
-        />
+        >
+          <ToolCallRow
+            :tool-call="tc"
+            :show-tool-call-results="messageUi.showToolCallResults"
+            :is-search-match="searchToolCallIds.includes(tc.id)"
+            :is-active-search-match="activeSearchToolCallId === tc.id"
+          />
+          <!-- P3：这个 worker 自己派出去的下一层，挂在自己的工单行下面 -->
+          <SubAgentFrameHost
+            v-for="child in frameChildrenForRow(tc)"
+            :key="child.id"
+            :trace="child"
+            :anchor-message-id="effectiveAnchorId"
+            :messages="messages"
+            :message-ui="messageUi"
+            :created-at="createdAt"
+            :thoughts-debug-enabled="thoughtsDebugEnabled"
+            :generating="generating"
+            :is-active-generation-message="isActiveGenerationMessage"
+            :show-message-actions="showMessageActions"
+            :task-board="null"
+            :host-tool="null"
+          />
+        </template>
       </template>
       <RawWirePanel
         v-if="showRawWire && hasRawWire"
@@ -631,11 +695,10 @@ watch(
         :tool-raw-args="toolRawArgs"
         @close="showRawWire = false"
       />
-      <!-- Nested spawns of this worker, rebuilt from this layer's own scoped rows.
-           Each child goes through the host so a terminal collapsed child degrades
-           to the same stub as a lead-level trace instead of keeping every round. -->
+      <!-- 兜底：本帧任何工单行都没画出来的子帧（宿主行缺失 / 没画出来）。
+           画得出宿主行的子帧已经挂在各自的工单行下面（见上面的 row 循环）。 -->
       <SubAgentFrameHost
-        v-for="child in childTraces"
+        v-for="child in layerFrames?.detached ?? []"
         :key="child.id"
         :trace="child"
         :anchor-message-id="effectiveAnchorId"

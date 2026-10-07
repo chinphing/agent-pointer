@@ -108,6 +108,11 @@ export function buildTurnSpawnTree(input: {
   messages?: readonly ChatMessage[] | null
   scopedRows?: readonly ChatMessage[] | null
   extraToolCallsByMessageId?: ReadonlyMap<string, readonly ToolCall[]> | null
+  /**
+   * 本层的 head（例如「帧自己的 trace」）。它的宿主行在**上一层**，不在本层的行里；
+   * 不 seed 的话它的子档案会因为「父找不到」整棵掉出树 —— 帧内挂载就会全部落进兜底。
+   */
+  seedTraces?: readonly AgentTrace[] | null
 }): TurnSpawnTree {
   const rows = new Map<string, SpawnRowRef>()
   const rowOrder: string[] = []
@@ -138,6 +143,7 @@ export function buildTurnSpawnTree(input: {
     if (isScopedSubMessage(message)) continue
     for (const trace of message.agentTrace ?? []) leadTraces.push(trace)
   }
+  for (const trace of input.seedTraces ?? []) leadTraces.push(trace)
   const traceTree = buildSubAgentTraceTree({
     leadTraces,
     scopedRows: (input.scopedRows ?? []).filter(isScopedSubMessage)
@@ -278,6 +284,8 @@ export function buildTurnSpawnPlan(input: {
   scopedRows?: readonly ChatMessage[] | null
   extraToolCallsByMessageId?: ReadonlyMap<string, readonly ToolCall[]> | null
   drawnRowIdsByMessage?: ReadonlyMap<string, readonly string[]> | null
+  /** 本层的 head trace（见 `buildTurnSpawnTree` 的同名字段）。 */
+  seedTraces?: readonly AgentTrace[] | null
 }): TurnSpawnPlan {
   const drawnRowIdsByMessage = new Map<string, ReadonlySet<string>>()
   const drawnRowIds = new Set<string>()
@@ -295,7 +303,8 @@ export function buildTurnSpawnPlan(input: {
     tree: buildTurnSpawnTree({
       messages: input.messages,
       scopedRows: input.scopedRows,
-      extraToolCallsByMessageId: input.extraToolCallsByMessageId
+      extraToolCallsByMessageId: input.extraToolCallsByMessageId,
+      seedTraces: input.seedTraces
     }),
     drawnRowIds,
     drawnRowIdsByMessage
@@ -312,9 +321,18 @@ export function buildTurnSpawnPlan(input: {
  */
 export function framesForMessage(plan: TurnSpawnPlan, message: ChatMessage): MessageSpawnFrames {
   const drawnHere = plan.drawnRowIdsByMessage.get(message.id) ?? EMPTY_ROW_IDS
+  const ownRows = isScopedSubMessage(message) ? ownToolRowIds(message) : EMPTY_ROW_IDS
   const byRow = new Map<string, AgentTrace[]>()
   for (const rowId of drawnHere) {
     // 一张宿主行至多一个子帧；重复认领的那份会进 unbound（见 buildTurnSpawnTree）。
+    const trace = plan.tree.nodeForRow(rowId)?.trace
+    if (trace) byRow.set(rowId, [trace])
+  }
+  // 帧内行：本消息**自己画**的工具行也要认领（见 `ownToolRowIds`）。回合级的
+  // `drawnRowIdsByMessage` 只覆盖回合消息画出来的行，而 scoped 行由帧内的
+  // `AssistantModelMessage` 自己画 —— 父 worker 的 `run_subagent` 行正是这一类。
+  for (const rowId of ownRows) {
+    if (byRow.has(rowId)) continue
     const trace = plan.tree.nodeForRow(rowId)?.trace
     if (trace) byRow.set(rowId, [trace])
   }
@@ -328,10 +346,36 @@ export function framesForMessage(plan: TurnSpawnPlan, message: ChatMessage): Mes
       unbound.push(trace)
       continue
     }
-    if (plan.drawnRowIds.has(rowId)) continue
+    if (plan.drawnRowIds.has(rowId) || ownRows.has(rowId)) continue
     unplaced.push(trace)
   }
   return { byRow, unplaced, unbound }
+}
+
+/**
+ * 本消息**自己会画**的工具行 id。
+ *
+ * 为什么需要它：`TurnSpawnPlan.drawnRowIdsByMessage` 由视图从 `displayedTurnEntries`
+ * 建出来，只覆盖**回合级消息**画的行。子 agent 的行（scoped 行）画在帧里面，由帧内的
+ * `AssistantModelMessage` 自己渲染，**不在**那份映射里。
+ *
+ * 缺了它，depth-2 的档案会同时错两次（真实 case：会话 `c7b8306b-3026-41d7-889d-c434dd74602f`
+ * 的 3 个 explore 子帧）：
+ * - `byRow` 空 → 子帧挂不到父 worker 的 `run_subagent` 行上（帧下无子行）；
+ * - 又被判成「本回合任何地方都没画出来」→ 掉进孤儿组（帧头平铺 + 底部孤儿块）。
+ *
+ * 判据与 P1 一致：**谁画宿主行，谁画子帧**。只对 **scoped 行**成立（调用点用
+ * `isScopedSubMessage` 收口）：帧内的消息必然画自己的工具行，而**回合消息**的工具行可能被
+ * 折叠隐藏 —— 那时宿主行没画出来，档案必须留在未关联组里（`subAgentRenderTree.test.ts`
+ * 的「宿主行被折叠隐藏时进未关联组」守着这条）。
+ */
+function ownToolRowIds(message: ChatMessage): ReadonlySet<string> {
+  const ids = new Set<string>()
+  for (const tc of message.toolCalls ?? []) {
+    const id = trimId(tc.id)
+    if (id) ids.add(id)
+  }
+  return ids
 }
 
 export type MissingHostFetch = {
@@ -427,4 +471,45 @@ export function scopedRowClosure(
     frontier = next
   }
   return out
+}
+
+export type LayerSpawnFrames = {
+  /** rowId → 挂在这张行下面的子帧（只含本层画出来的行；一行至多一个）。 */
+  byRow: Map<string, AgentTrace[]>
+  /** 本层任何行都没画出来的子帧（宿主行缺失 / 没画）→ 兜底块，不丢。 */
+  detached: AgentTrace[]
+}
+
+/**
+ * 一层（帧内）的子帧分组（P3）。
+ *
+ * 与 `framesForMessage` 同一套语义：谁画出行，谁就把子帧画在它下面；宿主行没画出来的进
+ * `detached`。区别在于档案来源 —— 这里来自该层的 trace 树（`childTraces`），不是某条消息的
+ * `agentTrace`。
+ */
+export function framesForLayer(
+  plan: TurnSpawnPlan,
+  traces: readonly AgentTrace[]
+): LayerSpawnFrames {
+  const allowed = new Set<string>()
+  for (const trace of traces) {
+    const id = trimId(trace.id)
+    if (id) allowed.add(id)
+  }
+  const byRow = new Map<string, AgentTrace[]>()
+  for (const rowId of plan.drawnRowIds) {
+    const trace = plan.tree.nodeForRow(rowId)?.trace
+    if (!trace) continue
+    // 只画本层给的档案：本层的 head（帧自己的 trace）被 seed 进树是为了接父子轴，
+    // 它的宿主行在**上一层** —— 在这里画它会让帧自引用（无限递归 → 栈溢出）。
+    if (!allowed.has(trimId(trace.id))) continue
+    byRow.set(rowId, [trace])
+  }
+  const detached: AgentTrace[] = []
+  for (const trace of traces) {
+    const rowId = trimId(trace.parentToolCallId)
+    if (rowId && plan.drawnRowIds.has(rowId) && plan.tree.nodeForRow(rowId)) continue
+    detached.push(trace)
+  }
+  return { byRow, detached }
 }

@@ -18,6 +18,7 @@ import {
   isPendingApprovalToolCall
 } from './messageTooling'
 import { isScopedSubMessage } from './subAgentMessages'
+import { scopedRowClosure } from './subAgentRenderTree'
 import { isRealUserTaskMessage, isToolRunContinuityGlue } from './threadLayoutGlue'
 
 export type ToolRunGroup = { id: string; toolCalls: ToolCall[]; message: ChatMessage }
@@ -263,6 +264,76 @@ export function turnSegmentFingerprint(
     if (fp) parts.push(fp)
   }
   return parts.join('||')
+}
+
+/**
+ * Structural stamp for one **scoped** row (a sub-agent transcript row).
+ *
+ * `messageStructureFingerprint` returns `null` for these (`layoutKind` → `'skip'`), yet
+ * `buildTurnSpawnPlan` reads them — so the spawn-plan cache needs its own signature for
+ * the rows, covering exactly the fields the plan reads.
+ */
+export function scopedRowStructureStamp(row: ChatMessage, deps: FlattenDeps): string {
+  const tools = deps
+    .visibleToolCallsFor(row)
+    .map(tc => `${tc.id}:${tc.status}`)
+    .join(',')
+  const traces = (row.agentTrace ?? [])
+    .map(t => `${t.id}:${t.status}:${(t.parentToolCallId ?? '').trim()}`)
+    .join(',')
+  return [
+    row.id,
+    row.status,
+    row.traceId ?? '',
+    row.agentInstanceId ?? '',
+    `tools:${tools}`,
+    `traces:${traces}`
+  ].join(':')
+}
+
+/** Scoped rows grouped by the anchor row that owns them. */
+export function groupScopedRowsByAnchor(
+  rows: readonly ChatMessage[]
+): Map<string, ChatMessage[]> {
+  const out = new Map<string, ChatMessage[]>()
+  for (const row of rows) {
+    const anchor = (row.anchorMessageId ?? '').trim()
+    if (!anchor) continue
+    const list = out.get(anchor)
+    if (list) list.push(row)
+    else out.set(anchor, [row])
+  }
+  return out
+}
+
+/**
+ * Scoped-structure stamp for **one turn**: the rows reachable from this turn's own
+ * message ids (the same closure `buildTurnSpawnPlan` walks).
+ *
+ * This is what replaces the conversation-wide `structureRevision` in the plan cache key.
+ * That counter moves on *any* sub-agent step anywhere in the conversation, so keying on
+ * it rebuilt every turn's plan — and a fresh plan object re-renders the whole visible
+ * window — on every spawn step, even for turns that had not changed.
+ */
+export function turnScopedStructureStamp(
+  messageIds: readonly string[],
+  rowsByAnchor: ReadonlyMap<string, readonly ChatMessage[]>,
+  deps: FlattenDeps
+): string {
+  const reachable = scopedRowClosure(messageIds, ids =>
+    ids.flatMap(id => rowsByAnchor.get(id) ?? [])
+  )
+  return reachable.map(row => scopedRowStructureStamp(row, deps)).join('~')
+}
+
+/**
+ * Cache key for one turn's spawn plan. Deliberately **not** keyed on the global scoped
+ * structure revision: the two inputs below are the only things a plan reads, so a turn
+ * whose own messages and rows did not change keeps its previous plan object (and with it
+ * its `v-memo` deps, i.e. no re-render).
+ */
+export function turnSpawnPlanCacheKey(turnFingerprint: string, scopedStamp: string): string {
+  return `${turnFingerprint}\u0001${scopedStamp}`
 }
 
 export function matchingCompletedPrefixCount(

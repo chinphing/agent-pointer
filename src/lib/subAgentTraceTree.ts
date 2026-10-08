@@ -45,6 +45,19 @@ function traceKey(trace: AgentTrace | undefined | null): string {
   return (trace?.id ?? '').trim()
 }
 
+/**
+ * 去重键 = **trace id + 宿主行 id**。
+ *
+ * 同一个逻辑子 agent 会被「恢复执行」再派一次：两次共享 `trace.id`（身份共享，设计如此），
+ * 但各有自己的 `run_subagent` 宿主行与锚点 —— 那是**两个执行段**，都必须留下。
+ * 而同一份档案被重复持久化到多行（宿主行**相同**）才是真正的重复，仍然只留一份。
+ */
+function dedupKey(trace: AgentTrace | undefined | null): string {
+  const id = traceKey(trace)
+  if (!id) return ''
+  return `${id}\u0000${(trace?.parentToolCallId ?? '').trim()}`
+}
+
 interface TraceEntry {
   trace: AgentTrace
   /** Instance id owning the scoped row this trace was found on ('' for lead-level). */
@@ -58,7 +71,7 @@ function collectEntries(input: {
   const seen = new Set<string>()
   const out: TraceEntry[] = []
   const push = (trace: AgentTrace | undefined, ownerInstanceId: string) => {
-    const key = traceKey(trace)
+    const key = dedupKey(trace)
     if (!trace || !key || seen.has(key)) return
     seen.add(key)
     out.push({ trace, ownerInstanceId })

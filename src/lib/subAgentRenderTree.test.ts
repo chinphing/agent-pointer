@@ -588,3 +588,62 @@ describe('framesForLayer · 帧内挂载（P3）', () => {
     expect(frames.detached.map(t => t.id)).toEqual(['inst_a'])
   })
 })
+
+describe('buildTurnSpawnTree · 恢复执行（同一 trace 被多段执行共享）', () => {
+  // 场景来自真实数据（会话 22989a20 回合 626..812）：同一个子 agent 先被派一次，
+  // 之后被「恢复执行」再派一次 —— trace.id / agentInstanceId 相同（身份共享），
+  // 但两次各有自己的 run_subagent 宿主行与锚点消息（执行分段）。
+  function twoSegments() {
+    const seg1 = leadMessage({
+      id: 'a1',
+      toolCalls: [spawnRow('r1')],
+      agentTrace: [trace({ id: 'inst_1', parentToolCallId: 'r1', detail: '第一段' })]
+    })
+    const seg2 = leadMessage({
+      id: 'a2',
+      toolCalls: [spawnRow('r2')],
+      agentTrace: [trace({ id: 'inst_1', parentToolCallId: 'r2', detail: '第二段（恢复执行）' })]
+    })
+    return { seg1, seg2 }
+  }
+
+  it('两段各自认领自己的宿主行，且没有未关联', () => {
+    const { seg1, seg2 } = twoSegments()
+    const tree = buildTurnSpawnTree({ messages: [seg1, seg2] })
+    expect(tree.nodeForRow('r1')?.trace?.detail).toBe('第一段')
+    expect(tree.nodeForRow('r2')?.trace?.detail).toBe('第二段（恢复执行）')
+    expect(tree.unbound).toHaveLength(0)
+  })
+
+  it('两段各在自己宿主行下画一个帧（plan 层）', () => {
+    const { seg1, seg2 } = twoSegments()
+    const plan = buildTurnSpawnPlan({
+      messages: [seg1, seg2],
+      drawnRowIdsByMessage: new Map([
+        ['a1', ['r1']],
+        ['a2', ['r2']]
+      ])
+    })
+    const first = framesForMessage(plan, seg1)
+    const second = framesForMessage(plan, seg2)
+    expect([...first.byRow.keys()]).toEqual(['r1'])
+    expect(first.unbound).toHaveLength(0)
+    expect([...second.byRow.keys()]).toEqual(['r2'])
+    expect(second.unbound).toHaveLength(0)
+  })
+
+  it('同一段被重复投递到多条行上时仍然只画一次', () => {
+    const seg = leadMessage({
+      id: 'a1',
+      toolCalls: [spawnRow('r1')],
+      agentTrace: [trace({ id: 'inst_1', parentToolCallId: 'r1' })]
+    })
+    const again = leadMessage({
+      id: 'a2',
+      toolCalls: [spawnRow('r1')],
+      agentTrace: [trace({ id: 'inst_1', parentToolCallId: 'r1' })]
+    })
+    const tree = buildTurnSpawnTree({ messages: [seg, again] })
+    expect(tree.nodes.filter(n => !n.unbound)).toHaveLength(1)
+  })
+})

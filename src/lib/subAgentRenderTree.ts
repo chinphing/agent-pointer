@@ -36,6 +36,11 @@ export type SpawnRowRef = {
   row: ToolCall
   /** Message whose `toolCalls` carry the row (lead message, or the issuer's scoped row). */
   messageId: string
+  /**
+   * 该行所在消息的**锚点**（scoped 行 = 它归属的那条 lead 消息；lead 消息 = 它自己）。
+   * 用于把嵌套子档案归到**同一执行段**的父节点上（见 `pickParentNode`）。
+   */
+  anchorMessageId: string
 }
 
 export type SpawnNode = {
@@ -97,6 +102,27 @@ function isSpawnRow(tc: ToolCall): boolean {
 }
 
 /**
+ * 同一 trace 有多个节点时（恢复执行 = 多段），把子档案挂到**它自己那一段**的父节点上：
+ * 子档案的宿主行写在父 worker 的某条 scoped 行里，那条行的锚点就是该段的 lead 消息。
+ * 匹配不到时退回最新一段（子任务由最近一次执行派生）。
+ */
+function pickParentNode(
+  candidates: SpawnNode[] | undefined,
+  child: SpawnNode,
+  rows: ReadonlyMap<string, SpawnRowRef>
+): SpawnNode | undefined {
+  if (!candidates || candidates.length === 0) return undefined
+  if (candidates.length === 1) return candidates[0]
+  const hostRowId = trimId(child.trace?.parentToolCallId)
+  const anchor = hostRowId ? rows.get(hostRowId)?.anchorMessageId ?? '' : ''
+  if (anchor) {
+    const match = candidates.find(node => node.rowMessageId === anchor)
+    if (match) return match
+  }
+  return candidates[candidates.length - 1]
+}
+
+/**
  * Build the ownership tree for **one turn**.
  *
  * Pass the turn's full, unprojected data: `messages` (lead rounds), `scopedRows` (child
@@ -117,22 +143,23 @@ export function buildTurnSpawnTree(input: {
   const rows = new Map<string, SpawnRowRef>()
   const rowOrder: string[] = []
 
-  function addRow(tc: ToolCall, messageId: string): void {
+  function addRow(tc: ToolCall, messageId: string, anchorMessageId: string): void {
     if (!isSpawnRow(tc)) return
     const rowId = trimId(tc.id)
     if (!rowId || rows.has(rowId)) return
-    rows.set(rowId, { rowId, row: tc, messageId })
+    rows.set(rowId, { rowId, row: tc, messageId, anchorMessageId: anchorMessageId || messageId })
     rowOrder.push(rowId)
   }
 
   function addRowsFrom(message: ChatMessage): void {
-    for (const tc of message.toolCalls ?? []) addRow(tc, message.id)
+    const anchor = trimId(message.anchorMessageId) || message.id
+    for (const tc of message.toolCalls ?? []) addRow(tc, message.id, anchor)
   }
 
   for (const message of input.messages ?? []) addRowsFrom(message)
   for (const row of input.scopedRows ?? []) addRowsFrom(row)
   for (const [messageId, calls] of input.extraToolCallsByMessageId ?? []) {
-    for (const tc of calls) addRow(tc, messageId)
+    for (const tc of calls) addRow(tc, messageId, messageId)
   }
 
   // Traces live on their own layer's row: depth 1 on a lead message, deeper on the
@@ -151,7 +178,7 @@ export function buildTurnSpawnTree(input: {
 
   const nodes: SpawnNode[] = []
   const nodeByRow = new Map<string, SpawnNode>()
-  const nodeByTrace = new Map<string, SpawnNode>()
+  const nodesByTrace = new Map<string, SpawnNode[]>()
   const claimedRowIds = new Set<string>()
   const duplicatedHostRowIds: string[] = []
 
@@ -186,21 +213,30 @@ export function buildTurnSpawnTree(input: {
       claimedRowIds.add(resolved.rowId)
       nodeByRow.set(resolved.rowId, node)
     }
-    nodeByTrace.set(traceId, node)
+    const siblings = nodesByTrace.get(traceId)
+    if (siblings) siblings.push(node)
+    else nodesByTrace.set(traceId, [node])
     nodes.push(node)
   }
 
   const childKeys = new Set<string>()
   for (const node of nodes) {
     const parentId = trimId(node.trace?.parentTraceId)
-    const parent = parentId ? nodeByTrace.get(parentId) : undefined
+    const parent = parentId ? pickParentNode(nodesByTrace.get(parentId), node, rows) : undefined
     if (!parent || parent === node) continue
     parent.children.push(node)
     childKeys.add(node.key)
   }
 
   const roots = nodes.filter(node => !childKeys.has(node.key))
-  const unbound = nodes.filter(node => node.unbound)
+  // 同一 trace 已有一处挂好（另一段）时，缺宿主行的那份是重复投递的残片，不再报未关联；
+  // 整条 trace 都挂不上的才是真异常（I3）。
+  const placedTraceIds = new Set(
+    nodes.filter(node => !node.unbound).map(node => trimId(node.trace?.id))
+  )
+  const unbound = nodes.filter(
+    node => node.unbound && !placedTraceIds.has(trimId(node.trace?.id))
+  )
   const pendingRows = rowOrder
     .map(rowId => rows.get(rowId)!)
     .filter(ref => !claimedRowIds.has(ref.rowId))
@@ -243,7 +279,10 @@ export function buildTurnSpawnTree(input: {
     nodes,
     roots,
     nodeForRow: (rowId: string) => nodeByRow.get(trimId(rowId)) ?? null,
-    nodeForTrace: (traceId: string) => nodeByTrace.get(trimId(traceId)) ?? null,
+    nodeForTrace: (traceId: string) => {
+      const list = nodesByTrace.get(trimId(traceId))
+      return list && list.length > 0 ? list[list.length - 1] : null
+    },
     childrenOfRow: (rowId: string) => nodeByRow.get(trimId(rowId))?.children ?? [],
     pendingRows,
     duplicatedHostRowIds,

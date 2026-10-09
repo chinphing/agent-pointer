@@ -8,12 +8,16 @@ import SubAgentOrphanGroup from './SubAgentOrphanGroup.vue'
 
 const mountedApps: App[] = []
 
-function mountGroup(count: number, slotText = ''): HTMLElement {
+function mountGroup(count: number, slotText = '', showLabel?: boolean): HTMLElement {
   const host = document.createElement('div')
   document.body.append(host)
   const app = createApp({
     render: () =>
-      h(SubAgentOrphanGroup, { count }, { default: () => h('span', slotText) })
+      h(
+        SubAgentOrphanGroup,
+        showLabel === undefined ? { count } : { count, showLabel },
+        { default: () => h('span', slotText) }
+      )
   })
   app.use(i18n)
   mountedApps.push(app)
@@ -47,5 +51,12 @@ describe('SubAgentOrphanGroup', () => {
   it('条数随入参变化（一条也要标注）', () => {
     const host = mountGroup(1)
     expect(labelText(host)).toContain('1')
+  })
+
+  it('showLabel: false 时只保留容器与帧，不报「未关联」', () => {
+    // 宿主行**存在**、只是被折叠投影隐藏（unplaced）：帧原地照常显示，但不该报警。
+    const host = mountGroup(0, 'frame-body', false)
+    expect(labelText(host)).toBe('')
+    expect(host.textContent).toContain('frame-body')
   })
 })

@@ -98,11 +98,19 @@ const knownToolCallIds = computed(() => {
  * 兜底：只放**本回合任何地方都没画出来**的档案（宿主行被折叠隐藏，或本回合根本没有宿主行）。
  * 宿主行已在别处画出来的档案不会进这里 —— 避免重复渲染。
  */
-const orphanTraces = computed(() => {
+/**
+ * 兜底渲染的两类（位置不变，仍原地渲染在消息末尾）：
+ * - `unplaced`：宿主行**存在**、只是被折叠投影隐藏 → 帧照常显示，但**不报**「未关联」
+ *   （折叠是我们自己的显示选择，不是数据异常）；
+ * - `unbound`：宿主行在本回合根本不存在 → 真异常，保留告警标题。
+ */
+const unplacedTraces = computed(() => spawnFrames.value?.unplaced ?? [])
+const unboundTraces = computed(() => {
   const planned = spawnFrames.value
-  if (planned) return [...planned.unplaced, ...planned.unbound]
+  if (planned) return planned.unbound
   return orphanSubTraces(subTraces.value, knownToolCallIds.value)
 })
+const orphanTraces = computed(() => [...unplacedTraces.value, ...unboundTraces.value])
 
 function tracesUnderTool(toolCall: ToolCall): AgentTrace[] {
   const planned = spawnFrames.value
@@ -264,7 +272,8 @@ const showSubAgentFrames = computed(() => {
     <SubAgentOrphanGroup
       v-if="orphanTraces.length > 0"
       v-show="showSubAgentFrames"
-      :count="orphanTraces.length"
+      :count="unboundTraces.length"
+      :show-label="unboundTraces.length > 0"
     >
       <SubAgentFrameHost
         v-for="trace in orphanTraces"

@@ -546,10 +546,13 @@ impl OpenAIProvider {
         max_tokens_override: Option<u32>,
         dump_label: Option<&str>,
     ) -> Result<ChatOnceOutput> {
-        self.chat_once_with_thinking_override(
+        self.chat_once_scoped(
             messages,
+            &[],
             system,
             native_tools,
+            crate::message_context::LlmHistoryScope::Lead,
+            None,
             cancel,
             max_tokens_override,
             dump_label,
@@ -571,10 +574,13 @@ impl OpenAIProvider {
         max_tokens_override: Option<u32>,
         dump_label: Option<&str>,
     ) -> Result<ChatOnceOutput> {
-        self.chat_once_with_thinking_override(
+        self.chat_once_scoped(
             messages,
+            &[],
             system,
             native_tools,
+            crate::message_context::LlmHistoryScope::Lead,
+            None,
             cancel,
             max_tokens_override,
             dump_label,
@@ -583,11 +589,47 @@ impl OpenAIProvider {
         .await
     }
 
-    async fn chat_once_with_thinking_override(
+    /// Compaction call that reuses the session round's own request assembly.
+    ///
+    /// Sends `[session system][session tools][messages]` exactly as that round
+    /// built them, with `injected_tail` (the compaction instruction) as the
+    /// trailing rows — so the provider prefix cache serves everything but that
+    /// trailing instruction. `tool_choice` is pinned to `none`: the session
+    /// persona must summarize, not keep working.
+    pub async fn chat_once_with_assembly(
         &self,
         messages: &[ChatMessage],
+        injected_tail: &[ChatMessage],
         system: &SystemPromptSections,
         native_tools: Vec<Value>,
+        history_scope: crate::message_context::LlmHistoryScope,
+        cancel: CancellationToken,
+        max_tokens_override: Option<u32>,
+        dump_label: Option<&str>,
+    ) -> Result<ChatOnceOutput> {
+        self.chat_once_scoped(
+            messages,
+            injected_tail,
+            system,
+            native_tools,
+            history_scope,
+            Some("none"),
+            cancel,
+            max_tokens_override,
+            dump_label,
+            true,
+        )
+        .await
+    }
+
+    async fn chat_once_scoped(
+        &self,
+        messages: &[ChatMessage],
+        injected_tail: &[ChatMessage],
+        system: &SystemPromptSections,
+        native_tools: Vec<Value>,
+        history_scope: crate::message_context::LlmHistoryScope,
+        tool_choice: Option<&'static str>,
         cancel: CancellationToken,
         max_tokens_override: Option<u32>,
         dump_label: Option<&str>,
@@ -595,10 +637,13 @@ impl OpenAIProvider {
     ) -> Result<ChatOnceOutput> {
         let mut guard = self.trace.as_ref().map(LlmSpanGuard::new);
         let result = self
-            .chat_once_with_thinking_override_inner(
+            .chat_once_scoped_inner(
                 messages,
+                injected_tail,
                 system,
                 native_tools,
+                history_scope,
+                tool_choice,
                 cancel,
                 max_tokens_override,
                 dump_label,
@@ -643,11 +688,14 @@ impl OpenAIProvider {
         result
     }
 
-    async fn chat_once_with_thinking_override_inner(
+    async fn chat_once_scoped_inner(
         &self,
         messages: &[ChatMessage],
+        injected_tail: &[ChatMessage],
         system: &SystemPromptSections,
         native_tools: Vec<Value>,
+        history_scope: crate::message_context::LlmHistoryScope,
+        tool_choice: Option<&'static str>,
         cancel: CancellationToken,
         max_tokens_override: Option<u32>,
         dump_label: Option<&str>,
@@ -672,7 +720,7 @@ impl OpenAIProvider {
             messages,
             "chat_once",
             dump_label,
-            crate::message_context::LlmHistoryScope::Lead,
+            history_scope,
         );
         let max_tok =
             max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
@@ -682,13 +730,14 @@ impl OpenAIProvider {
         }
         // Build wire in a scope so `openai_msgs` / ChatRequest drop before the HTTP round-trip.
         let (url, wire_body) = {
-            let openai_msgs = crate::models::make_openai_messages(
+            let openai_msgs = crate::models::make_openai_messages_with_inject(
                 messages,
+                injected_tail,
                 system,
                 crate::models::effective_reasoning_in_messages(&self.settings),
                 crate::models::qwen_explicit_system_cache_enabled(&self.settings),
                 crate::media::model_supports_vision(&self.settings),
-                crate::message_context::LlmHistoryScope::Lead,
+                history_scope,
             );
             self.dump_llm_round(dump_label, "chat_once", false, max_tok, &openai_msgs);
             let tools_empty = native_tools.is_empty();
@@ -705,7 +754,11 @@ impl OpenAIProvider {
                 } else {
                     Some(native_tools)
                 },
-                tool_choice: if tools_empty { None } else { Some("auto") },
+                tool_choice: if tools_empty {
+                    None
+                } else {
+                    tool_choice.or(Some("auto"))
+                },
                 extra_body,
             };
             let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));

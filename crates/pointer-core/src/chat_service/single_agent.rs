@@ -187,6 +187,21 @@ pub(super) async fn run_single_agent_loop(
             round_settings_t.elapsed().as_millis(),
         );
 
+        // Snapshot the assembly inputs so a later compression call can reuse this
+        // exact prefix (Codex-style compaction on the live prompt).
+        crate::context_compression::remember_session_prompt(
+            conversation_id,
+            None,
+            crate::context_compression::SessionPromptSnapshot {
+                system: round_prompts.system_prompts.clone(),
+                native_tools: native_tools.clone(),
+                history_scope: crate::message_context::LlmHistoryScope::Lead,
+                provider_id: round_settings.active_provider_id.clone(),
+                model: round_settings.model.clone(),
+                last_message_id: ctx.history.last().map(|m| m.id.clone()).unwrap_or_default(),
+            },
+        );
+
         let mut stream_ctx = super::context::LeadStreamRoundContext {
             session: super::context::SessionRefsArc {
                 stream: &stream,

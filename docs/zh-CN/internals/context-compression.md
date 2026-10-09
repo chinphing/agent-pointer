@@ -7,8 +7,8 @@
 
 - **发送路径不主动同步压缩**，也不 await 后台预压缩。
 - 工具轮次耗尽时可强制尝试压缩（同步）。
-- **子 Agent** 与主会话共用 80% / 硬预算 / in-run 门闩，作用在隔离的 `local_history`；
-  软阈值后台预压（独立队列），硬预算同步；不占用 lead 预压队列。
+- **子 Agent** 与主会话共用同一套单阈值 / in-run 门闩，作用在隔离的 `local_history`；
+  过阈值即后台预压（独立队列），不阻塞下一轮；不占用 lead 预压队列。
 - **保留区按 payload token**（约工作集的 20%，超限约 12%；至少留 1 条可压）。
   从最新消息往前累加，直到达到该占比；单条很大时尾部可以只有 1 条。
   上一轮即使极长，只要落在 token 尾部之外就可以被摘要。
@@ -30,7 +30,8 @@
 **上下文预算** `contextBudgetTokens` 与最大输出放在一起：
 **设置 → 模型配置** 的服务商默认，以及单模型「定制」覆盖。
 官网目录 `platformProviders` 同样可下发服务商级 / 模型级 `contextBudgetTokens`。
-硬阈值；软预压缩约 80%；**何时压**仍看 token。原文尾部按 token 约 20%，超限约 12%。
+单一触发阈值 `prompt_budget × 0.90`（对标 Codex `auto_compact_token_limit = window × 9/10`）；
+**何时压**仍看 token。原文尾部按 token 约 20%，超限约 12%。
 默认 **262144** token（256×1024）。
 旧全局项仍作回退，加载时写到尚未配置的服务商。
 自定义服务新增时上下文默认就是 262144，不沿用隐藏的全局旧值。
@@ -41,7 +42,7 @@
 设置里的数字按**模型窗口**理解。压缩真正用的 prompt 预算是
 `min(配置值, 窗口 − 本轮 max_tokens − 64)`：
 本地 163840 窗口、32000 输出预留时，160000 配置会压到约 127936，
-软预压约 102k，避免 prompt ≥ 131841 时先 400 再同步摘要。
+触发点约 115k（0.90），仍低于 vLLM 的 131841 prompt 上限，不会先 400 再摘要。
 窗口未知时把配置值当作窗口；若 400 报了
 `maximum context length is N`，进程内记住该窗口，之后即使用户把预算
 设得比模型更大也会按真实窗口扣输出预留。
@@ -67,28 +68,28 @@ Provider 在本轮工具循环中返回上下文过长时：
    若当前轮已占工作集 **token ≥ 70%**，overflow 也会走 run 内压缩（更紧的 12% token 尾）。
    仅当 run 内窗口为空且前缀切分点为 0 时，不能靠截断工具行腾空间。
 
-## 异步预压缩（软阈值 + 闲时落盘）
+## 异步预压缩（单阈值 + 闲时落盘）
 
-目标：接近硬预算时后台先压，**发送路径和下一次 LLM 调用都不等待**。
+目标：越过阈值就后台先压，**发送路径和下一次 LLM 调用都不等待**。
 
-- 软阈值：`gate > prompt_budget × 0.80`。
+- 触发阈值：`gate > prompt_budget × 0.90`（单一阈值，没有软/硬两层）。
   `prompt_budget` 已扣本轮 `max_tokens`（见上）。
   `gate` 取上一轮 `usage.prompt_tokens` 与当前 history payload 估算的较大值。
   前缀路径另要求可压占比 ≥ 0.30；当前轮已占 **≥ 70% token** 时改为 run 内压缩，不要求该占比。
 - 触发点：
   - **主会话**每一轮 LLM **之前**（同一用户回合的工具循环中间也可以）；
-  - **子 Agent** 每一轮 LLM **之前**（隔离 `local_history`，同一套 80% / 硬预算与 in-run 判定）；
+  - **子 Agent** 每一轮 LLM **之前**（隔离 `local_history`，同一套单阈值与 in-run 判定）；
   - 一轮 `run_chat` 成功结束之后（只压 **lead** 工作集）。
 - 主会话摘要可在后台完成：若该会话仍有活跃回合，结果 **入队**；
   下一轮 LLM 开始前 `try_apply_pending_compression_live` 接到当前工作集
   （切分点之后新追加的消息不判过期；run 内切分点是 token 尾起点）。
   **接入 splice 后本轮不再用上一轮 `usage.prompt_tokens`**，门闩按压完后的
-  history 本地估算；真的还超才同步再压。软预压 spawn 也用失效后的 token。
+  history 本地估算。预压 spawn 也用失效后的 token。
   丢弃窗口里没有可压消息（计入上下文且非合成用户行）时不发「压缩中」、
   不落第二条摘要。
-- 仅当已经超过 **硬预算** 时主会话才同步等待（先等正在跑的后台任务，不够再当场压缩）。
+- 轮间**不再同步等待**：越过阈值只投后台任务。真撞窗口时由下面的「上下文超限」溢出恢复兜底。
 - **子 Agent 预压队列与 lead 隔离**（`sub:{conversationId}:{agentInstanceId}`）。
-  过 80% 时后台摘要、下一轮 LLM 前接入；硬预算则等待 inflight 再同步。
+  过阈值即后台摘要、下一轮 LLM 前接入（已就绪时）；不再有硬预算同步分支。
   子循环结束丢弃未接入的 pending，避免误压父聊天。
   接入后把丢掉的子行落成 `included=false` + 压缩原因（保留 anchor 与 instance），
   摘要行写入同一子线程（anchor + 该 worker 的 instance），不替换父会话预览。
@@ -214,7 +215,7 @@ Open / Next 是还没做完的：跨轮待问用 Open，本轮未完成用 Next�
 
 ## 可压占比（仅本地兜底）
 
-有上一轮 `usage.prompt_tokens` 时：**只比较该值与软/硬阈值**，不再扫一遍消息估 token。
+有上一轮 `usage.prompt_tokens` 时：**只比较该值与触发阈值**，不再扫一遍消息估 token。
 此时只要存在可摘要前缀（最新真实用户消息不在第 0 条）即可触发。
 本轮已经接入 pending splice 后不再沿用该 usage，改为本地估算。
 
@@ -275,7 +276,7 @@ SQLite 是已有消息顺序和 `context_state` 的权威来源。
 
 | 文件 | 职责 |
 |------|------|
-| `budget.rs` | token 估算、prompt 预算（扣 max_tokens / 记住窗口）、80%/硬门闩、前缀 vs in-run 切分 |
+| `budget.rs` | token 估算、prompt 预算（扣 max_tokens / 记住窗口）、单阈值门闩（0.90）、前缀 vs in-run 切分 |
 | `summary.rs` | 摘要输入格式化、prompt、验收与落盘正文 |
 | `run.rs` | 同步压缩（预算/工具轮耗尽/超限恢复） |
 | `precompress.rs` | 后台预压、pending splice、轮间 prepare |
@@ -283,5 +284,6 @@ SQLite 是已有消息顺序和 `context_state` 的权威来源。
 
 ## 可观测性
 
-关键日志字段：`total` / `prefix` / `ratio` / `threshold` / `soft` / `budget_tokens`（已扣输出预留），
-以及 `prompt budget clamped`、`remember model window`、pending enqueue / apply / stale discard、overflow retry。
+关键日志字段：`total` / `prefix` / `ratio` / `threshold` / `budget_tokens`（已扣输出预留），
+以及 `between-round gate` / `sub_agent between-round gate`、`prompt budget clamped`、
+`remember model window`、pending enqueue / apply / stale discard、overflow retry。

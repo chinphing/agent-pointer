@@ -3,7 +3,7 @@
 use super::budget::*;
 use super::run::{
     clear_last_lead_prompt_tokens, compress_history_inner, fingerprint_window_start,
-    maybe_compress_history, splice_summary_into_drop_window,
+    splice_summary_into_drop_window,
 };
 use super::types::*;
 use crate::agent_instance_scope::AgentInstanceScope;
@@ -448,29 +448,6 @@ pub(crate) fn emit_pending_applied(
     }
 }
 
-pub(crate) async fn await_inflight_precompress(queue_key: &str) {
-    let rx = PrecompressCoordinator::global()
-        .inflight
-        .lock()
-        .get(queue_key)
-        .cloned();
-    let Some(mut rx) = rx else {
-        return;
-    };
-    if *rx.borrow() {
-        return;
-    }
-    match tokio::time::timeout(std::time::Duration::from_secs(120), rx.changed()).await {
-        Ok(Ok(())) => {}
-        Ok(Err(_)) => {
-            log::warn!("context_compress: inflight watch closed key={queue_key}");
-        }
-        Err(_) => {
-            log::warn!("context_compress: inflight wait timed out key={queue_key}");
-        }
-    }
-}
-
 pub(crate) fn spawn_sub_agent_precompress(
     history: &[ChatMessage],
     provider: &OpenAIProvider,
@@ -524,7 +501,6 @@ pub(crate) fn spawn_sub_agent_precompress(
                 false,
                 false,
                 true,
-                true,
                 &ui,
                 reported_prompt_tokens,
                 None,
@@ -547,8 +523,9 @@ pub(crate) fn spawn_sub_agent_precompress(
     });
 }
 
-/// Sub-agent tool loop: same 80% / 100% gates as lead. Soft gate spawns an
-/// isolated background job (queue key is not the lead conversation id).
+/// Sub-agent tool loop: same single threshold as the lead. Crossing it spawns an
+/// isolated background job (queue key is not the lead conversation id); the
+/// round itself is never held back.
 pub(crate) async fn prepare_sub_agent_history_between_llm_rounds(
     history: &mut Vec<ChatMessage>,
     settings: &ModelSettings,
@@ -582,58 +559,35 @@ pub(crate) async fn prepare_sub_agent_history_between_llm_rounds(
             conversation_id
         );
     }
+    // Same single threshold as the lead; the isolated worker runs its own
+    // background job and never holds back the next round.
     let budget = compress_budget_tokens(settings);
     let keep_users = settings.context_keep_recent_user_turns.max(1) as usize;
-    match sub_agent_between_round_compress_soft(history, tokens, budget, keep_users) {
-        None => {}
-        Some(false) => {
-            log::info!(
-                "context_compress: sub_agent between-round hard gate conversation_id={} share={:.3} messages={}",
-                conversation_id,
-                current_turn_token_share(history),
-                history.len()
-            );
-            await_inflight_precompress(lease.key()).await;
-            if try_apply_pending_keyed(lease.key(), history, stream, None) {
-                tokens = prompt_tokens_after_pending_apply(true, tokens);
-                log::info!(
-                    "context_compress: stale prompt_tokens discarded after pending splice conversation_id={} scope=sub_agent",
-                    conversation_id
-                );
-            }
-            let still = sub_agent_between_round_compress_soft(history, tokens, budget, keep_users);
-            if matches!(still, Some(false)) && !cancel.is_cancelled() {
-                let _ = maybe_compress_history(
-                    history,
-                    settings,
-                    provider,
-                    conversation_id,
-                    stream,
-                    cancel,
-                    ui,
-                    None,
-                    tokens,
-                )
-                .await;
-            }
-        }
-        Some(true) => {
-            spawn_sub_agent_precompress(
-                history,
-                provider,
-                conversation_id,
-                stream.clone(),
-                cancel,
-                ui,
-                tokens,
-                lease,
-            );
-        }
+    if !should_compress_history(history, tokens, budget, keep_users) || cancel.is_cancelled() {
+        return;
     }
+    log::info!(
+        "context_compress: sub_agent between-round gate conversation_id={} share={:.3} messages={} budget_tokens={}",
+        conversation_id,
+        current_turn_token_share(history),
+        history.len(),
+        budget
+    );
+    spawn_sub_agent_precompress(
+        history,
+        provider,
+        conversation_id,
+        stream.clone(),
+        cancel,
+        ui,
+        tokens,
+        lease,
+    );
 }
 
-/// Between LLM rounds: apply any ready async splice; spawn background
-/// compression when approaching the budget; only block when already over.
+/// Between LLM rounds: apply any ready async splice, then start background
+/// compression once the single gate is crossed. Never blocks — a genuine
+/// overflow is recovered by `recover_history_after_overflow` instead.
 pub async fn prepare_history_between_llm_rounds(
     state: Arc<crate::chat_service::AppState>,
     conversation_id: &str,
@@ -653,41 +607,22 @@ pub async fn prepare_history_between_llm_rounds(
             conversation_id
         );
     }
+    // Single threshold, background execution: crossing the gate starts a
+    // precompress job and the next request is never held back waiting for it.
+    // A genuine overflow is recovered by `recover_history_after_overflow`
+    // instead of a second, higher gate.
     let budget = compress_budget_tokens(settings);
     let keep_users = settings.context_keep_recent_user_turns.max(1) as usize;
-    let hard_plan = plan_compression(history, tokens, budget, keep_users, false, false, false);
-    if !matches!(hard_plan, CompressionPlan::Skip) {
-        log::info!(
-            "context_compress: between-round hard gate conversation_id={} plan={:?} share={:.3}",
-            conversation_id,
-            hard_plan,
-            current_turn_token_share(history)
-        );
-        await_inflight_precompress(conversation_id).await;
-        if try_apply_pending_compression_live(state.as_ref(), conversation_id, history, stream) {
-            tokens = prompt_tokens_after_pending_apply(true, tokens);
-            log::info!(
-                "context_compress: stale prompt_tokens discarded after pending splice conversation_id={} scope=main",
-                conversation_id
-            );
-        }
-        let still = plan_compression(history, tokens, budget, keep_users, false, false, false);
-        if !matches!(still, CompressionPlan::Skip) && !cancel.is_cancelled() {
-            let _ = maybe_compress_history(
-                history,
-                settings,
-                provider,
-                conversation_id,
-                stream,
-                cancel,
-                ui,
-                None,
-                tokens,
-            )
-            .await;
-        }
+    if !should_compress_history(history, tokens, budget, keep_users) || cancel.is_cancelled() {
         return;
     }
+    log::info!(
+        "context_compress: between-round gate conversation_id={} share={:.3} messages={} budget_tokens={}",
+        conversation_id,
+        current_turn_token_share(history),
+        history.len(),
+        budget
+    );
     maybe_spawn_precompress_from_history(
         state,
         conversation_id.to_string(),
@@ -763,7 +698,6 @@ pub(crate) fn spawn_precompress_if_soft_gate(
         reported_prompt_tokens,
         budget,
         keep_users,
-        true,
         false,
         false,
     );
@@ -842,7 +776,7 @@ pub(crate) async fn run_precompress_job(
         .get_last_lead_prompt_tokens(conversation_id)
         .ok()
         .flatten();
-    let plan = plan_compression(&history, last_api, budget, keep_users, true, false, false);
+    let plan = plan_compression(&history, last_api, budget, keep_users, false, false);
     if matches!(plan, CompressionPlan::Skip) {
         log::debug!(
             "context_compress: precompress not needed conversation_id={conversation_id} plan=Skip share={:.3}",
@@ -900,7 +834,6 @@ pub(crate) async fn run_precompress_job(
         cancel,
         false,
         false,
-        true, // soft_precompress
         true, // emit UI via global broadcast
         &ui,
         last_api,

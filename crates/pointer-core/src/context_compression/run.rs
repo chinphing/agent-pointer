@@ -1,5 +1,6 @@
 //! Apply a compression plan to live history (sync paths).
 
+use super::assembly::*;
 use super::budget::*;
 use super::precompress::{enqueue_pending_splice, PendingCompressionSplice};
 use super::summary::*;
@@ -145,6 +146,123 @@ fn plan_drop_splice(
     }
 }
 
+/// Decide whether this compression call may reuse the session round's assembly.
+///
+/// Reuse means sending `[session system][session tools][history[..drop_end]]`
+/// plus a trailing instruction, so the provider prefix cache serves everything
+/// except that instruction (Codex runs compaction on the live prompt the same
+/// way). Overflow recovery is excluded: there the session prompt itself was
+/// rejected for length, so it cannot be re-sent as-is.
+pub(crate) fn resolve_assembly_reuse(
+    history: &[ChatMessage],
+    settings: &ModelSettings,
+    conversation_id: &str,
+    ui: &CompressionUiContext,
+    overflow_recover: bool,
+) -> Option<SessionPromptSnapshot> {
+    if overflow_recover {
+        log::debug!(
+            "context_compress: assembly reuse skipped (overflow recovery) conversation_id={conversation_id}"
+        );
+        return None;
+    }
+    let agent_instance_id = scope_key_from_ui(ui);
+    let Some(snapshot) = session_prompt_for(conversation_id, agent_instance_id) else {
+        log::debug!(
+            "context_compress: assembly reuse skipped (no session snapshot) conversation_id={conversation_id} agent_instance_id={}",
+            agent_instance_id.unwrap_or("-")
+        );
+        return None;
+    };
+    if !snapshot.matches_settings(settings) {
+        log::info!(
+            "context_compress: assembly reuse skipped (provider/model changed) conversation_id={conversation_id} snapshot={}/{} current={}/{}",
+            snapshot.provider_id,
+            snapshot.model,
+            settings.active_provider_id,
+            settings.model
+        );
+        return None;
+    }
+    if !snapshot.covers_history(history) {
+        log::warn!(
+            "context_compress: assembly reuse skipped (stale snapshot) conversation_id={conversation_id} last_message_id={}",
+            snapshot.last_message_id
+        );
+        return None;
+    }
+    log::info!(
+        "context_compress: assembly reuse conversation_id={conversation_id} scope={:?} tools={} cacheable_slices={} dynamic_slices={}",
+        snapshot.history_scope,
+        snapshot.native_tools.len(),
+        snapshot.system.cacheable.len(),
+        snapshot.system.dynamic.len()
+    );
+    Some(snapshot)
+}
+
+/// Prompt-side tokens the session assembly adds on top of the summarized
+/// history (system slices + tool schemas), so the fitted window accounts for
+/// them instead of assuming the whole budget belongs to history.
+fn assembly_overhead_tokens(snapshot: &SessionPromptSnapshot) -> usize {
+    let system: usize = snapshot
+        .system
+        .cacheable
+        .iter()
+        .chain(snapshot.system.dynamic.iter())
+        .map(|s| estimate_text_tokens_heuristic(s))
+        .sum();
+    let tools = serde_json::to_string(&snapshot.native_tools)
+        .map(|json| estimate_text_tokens_heuristic(&json))
+        .unwrap_or(0);
+    system + tools
+}
+
+/// Largest `end` in `(drop_start, drop_end]` whose shared prefix still fits the
+/// prompt budget once the checkpoint output is reserved.
+///
+/// The walk goes backwards from the end of the summarized window, never from its
+/// start: everything we do send stays byte-identical to the session request, so
+/// the prefix cache still serves it, and the messages that fall out of the
+/// window stay verbatim in history instead of being dropped unsummarized.
+/// `None` when even the smallest window cannot fit — the legacy compact prompt
+/// then takes over.
+pub(crate) fn fit_assembly_drop_end(
+    history: &[ChatMessage],
+    drop_start: usize,
+    drop_end: usize,
+    settings: &ModelSettings,
+    overhead_tokens: usize,
+) -> Option<usize> {
+    let mut end = drop_end.min(history.len());
+    let mut tokens = estimate_message_payload_tokens(&history[..end]);
+    while end > drop_start {
+        // Provider-side cap of the summary call: the request declares `×1.5`
+        // over the prompt target, and that is what has to fit.
+        let summary_out =
+            summary_max_tokens_requested(compute_summary_max_tokens(tokens)) as usize;
+        if tokens + overhead_tokens <= assembly_window_limit(settings, summary_out) {
+            return Some(end);
+        }
+        end -= 1;
+        tokens = tokens.saturating_sub(estimate_one_message_payload_tokens(&history[end]));
+    }
+    None
+}
+
+/// Prompt-side limit for the compaction request itself: the model window minus
+/// this call's own output reservation.
+///
+/// Deliberately not [`compress_budget_tokens`]: that one reserves **this
+/// round's** `max_tokens` for the session answer, so reusing it here subtracted
+/// the session reserve a second time (64k of a 256k window) and trimmed the
+/// shared prefix long before the provider would have objected.
+pub(crate) fn assembly_window_limit(settings: &ModelSettings, summary_out: usize) -> usize {
+    let configured =
+        normalize_context_budget_tokens(crate::models::effective_context_budget_tokens(settings));
+    apply_completion_reserve(configured, remembered_model_context_window(settings), summary_out)
+}
+
 pub(crate) async fn compress_history_inner(
     history: &mut Vec<ChatMessage>,
     settings: &ModelSettings,
@@ -154,9 +272,6 @@ pub(crate) async fn compress_history_inner(
     cancel: CancellationToken,
     force_ignore_char_budget: bool,
     overflow_recover: bool,
-    // When true (background precompress), compress once soft gate + ratio pass
-    // even if still under the hard budget.
-    soft_precompress: bool,
     emit_compression_ui: bool,
     ui: &CompressionUiContext,
     reported_prompt_tokens: Option<u32>,
@@ -176,7 +291,6 @@ pub(crate) async fn compress_history_inner(
         reported_prompt_tokens,
         budget_tokens,
         keep_users as usize,
-        soft_precompress,
     );
     let (gate_tokens, payload_est, api_prompt, gate_source) = (
         gate.total,
@@ -189,16 +303,14 @@ pub(crate) async fn compress_history_inner(
         reported_prompt_tokens,
         budget_tokens,
         keep_users as usize,
-        soft_precompress,
         overflow_recover,
         force_ignore_char_budget,
     );
-    let (drop_start, drop_end, in_run) = match plan {
+    let (drop_start, mut drop_end, in_run) = match plan {
         CompressionPlan::Skip => {
             log::debug!(
-                "context_compress: skip_gate conversation_id={} soft={} total={} prefix={} ratio={:.3} threshold={} split={} share={:.3} budget_tokens={} wall_ms={}",
+                "context_compress: skip_gate conversation_id={} total={} prefix={} ratio={:.3} threshold={} split={} share={:.3} budget_tokens={} wall_ms={}",
                 conversation_id,
-                soft_precompress,
                 gate.total,
                 gate.prefix,
                 gate.ratio,
@@ -231,6 +343,42 @@ pub(crate) async fn compress_history_inner(
             wall.elapsed().as_millis()
         );
         return false;
+    }
+
+    // Compression reuses the session round's own assembly when it can (Codex
+    // runs compaction on the live prompt). If the shared prefix does not fit,
+    // walk the summarized window's end back toward its start until it does — no
+    // separate size gate: trimming the end keeps everything we send
+    // byte-identical to the session request, and messages that fall out of the
+    // window stay verbatim instead of being dropped unsummarized.
+    let mut assembly =
+        resolve_assembly_reuse(history, settings, conversation_id, ui, overflow_recover);
+    if assembly.is_some() {
+        let overhead_tokens = assembly
+            .as_ref()
+            .map(assembly_overhead_tokens)
+            .unwrap_or(0);
+        match fit_assembly_drop_end(history, drop_start, drop_end, settings, overhead_tokens) {
+            Some(fitted) => {
+                if fitted != drop_end {
+                    log::info!(
+                        "context_compress: assembly reuse window trimmed conversation_id={conversation_id} drop_end={drop_end} fitted={fitted} overhead_tokens={overhead_tokens} budget={}",
+                        compress_budget_tokens(settings)
+                    );
+                    drop_end = fitted;
+                }
+            }
+            None => {
+                log::info!(
+                    "context_compress: assembly reuse skipped (prefix does not fit after trimming) conversation_id={conversation_id} overhead_tokens={overhead_tokens} window_limit={}",
+                    assembly_window_limit(
+                        settings,
+                        summary_max_tokens_requested(SUMMARY_TOKENS_CEILING) as usize
+                    )
+                );
+                assembly = None;
+            }
+        }
     }
 
     let summary_source = &history[..drop_end];
@@ -272,9 +420,17 @@ pub(crate) async fn compress_history_inner(
     }
 
     let t_fmt = Instant::now();
-    let formatted = format_prefix_for_summary(summary_source);
+    let formatted = if assembly.is_none() {
+        format_prefix_for_summary(summary_source)
+    } else {
+        String::new()
+    };
     let format_prefix_ms = t_fmt.elapsed().as_millis();
-    let content_tokens = estimate_text_tokens_heuristic(&formatted);
+    let content_tokens = if assembly.is_some() {
+        estimate_message_payload_tokens(summary_source)
+    } else {
+        estimate_text_tokens_heuristic(&formatted)
+    };
     let max_tok = compute_summary_max_tokens(content_tokens);
     // Provider cap gets 1.5× headroom over the target budget so the model can
     // close out without `finish_reason=length`. The budget itself stays the
@@ -286,8 +442,22 @@ pub(crate) async fn compress_history_inner(
         conversation_id,
         body_language
     );
-    let summary_user_prompt =
-        build_summary_user_prompt_with_language(&formatted, max_tok, in_run, false, body_language);
+    let summary_user_prompt = match assembly.as_ref() {
+        Some(_) => build_compaction_instruction_message_with_language(
+            ui,
+            in_run,
+            false,
+            body_language,
+            max_tok,
+        ),
+        None => build_summary_user_prompt_with_language(
+            &formatted,
+            max_tok,
+            in_run,
+            false,
+            body_language,
+        ),
+    };
     let input = ChatMessage {
         id: format!("sum_in_{}", uuid::Uuid::new_v4().simple()),
         role: Role::User,
@@ -351,6 +521,10 @@ pub(crate) async fn compress_history_inner(
         SUMMARY_TOKENS_CEILING
     );
     let t_llm = Instant::now();
+    // Usage of the attempt that actually produced the summary, so the applied
+    // line can report prompt / cache-hit tokens for before-after comparisons.
+    let mut summary_prompt_tokens: u32 = 0;
+    let mut summary_cached_tokens: u32 = 0;
     let summary_system =
         build_summary_system_prompt_with_language(ui, in_run, false, body_language);
     let summary_sections =
@@ -359,16 +533,66 @@ pub(crate) async fn compress_history_inner(
     // Truncated output with required headings is accepted. Otherwise a
     // compact retry rebuilds the prompt from scratch (target 2N, API cap 3N).
     // If that retry is also truncated without headings, keep the retry text.
-    let summary_text = match provider
-        .chat_once_without_thinking(
-            std::slice::from_ref(&input),
-            &summary_sections,
-            Vec::new(),
-            cancel.clone(),
-            Some(requested_max_tok),
-            Some(dump_lbl.as_str()),
-        )
-        .await
+    let first_attempt = match assembly.clone().as_ref() {
+        Some(snapshot) => {
+            let reused = provider
+                .chat_once_with_assembly(
+                    summary_source,
+                    std::slice::from_ref(&input),
+                    &snapshot.system,
+                    snapshot.native_tools.clone(),
+                    snapshot.history_scope,
+                    cancel.clone(),
+                    Some(requested_max_tok),
+                    Some(dump_lbl.as_str()),
+                )
+                .await;
+            match reused {
+                Ok(out) => Ok(out),
+                Err(e) => {
+                    // A provider that rejects the assembly shape (for example a
+                    // gateway without `tool_choice: "none"`) must not lose
+                    // compression entirely: retry once with the curated
+                    // summarizer prompt, and keep the legacy path for the retry.
+                    log::warn!(
+                        "context_compress: assembly reuse call failed, falling back to the legacy summary prompt conversation_id={conversation_id} error={e:#}"
+                    );
+                    assembly = None;
+                    let mut legacy_input = input.clone();
+                    legacy_input.content = build_summary_user_prompt_with_language(
+                        &format_prefix_for_summary(summary_source),
+                        max_tok,
+                        in_run,
+                        false,
+                        body_language,
+                    );
+                    provider
+                        .chat_once_without_thinking(
+                            std::slice::from_ref(&legacy_input),
+                            &summary_sections,
+                            Vec::new(),
+                            cancel.clone(),
+                            Some(requested_max_tok),
+                            Some(dump_lbl.as_str()),
+                        )
+                        .await
+                }
+            }
+        }
+        None => {
+            provider
+                .chat_once_without_thinking(
+                    std::slice::from_ref(&input),
+                    &summary_sections,
+                    Vec::new(),
+                    cancel.clone(),
+                    Some(requested_max_tok),
+                    Some(dump_lbl.as_str()),
+                )
+                .await
+        }
+    };
+    let summary_text = match first_attempt
     {
         Ok(out) => {
             record_summary_usage(
@@ -379,6 +603,10 @@ pub(crate) async fn compress_history_inner(
             );
             match validate_summary_output(&out, in_run, false) {
                 Ok(text) => {
+                    if let Some(u) = out.usage.as_ref() {
+                        summary_prompt_tokens = u.prompt_tokens;
+                        summary_cached_tokens = u.cached_tokens;
+                    }
                     log_truncated_summary_accept(
                         conversation_id,
                         "no_thinking",
@@ -404,22 +632,34 @@ pub(crate) async fn compress_history_inner(
                     if should_retry_summary_on_reject(&reason) {
                         let retry_prompt_target = summary_max_tokens_retry_prompt(max_tok);
                         let retry_max = summary_max_tokens_retry(max_tok);
-                        let retry_system = build_summary_system_prompt_with_language(
-                            ui,
-                            in_run,
-                            true,
-                            body_language,
-                        );
-                        let retry_sections =
-                            crate::models::SystemPromptSections::all_cacheable(vec![retry_system]);
+                        let retry_sections = if assembly.is_some() {
+                            crate::models::SystemPromptSections::default()
+                        } else {
+                            let retry_system = build_summary_system_prompt_with_language(
+                                ui,
+                                in_run,
+                                true,
+                                body_language,
+                            );
+                            crate::models::SystemPromptSections::all_cacheable(vec![retry_system])
+                        };
                         let mut retry_input = input.clone();
-                        retry_input.content = build_summary_user_prompt_with_language(
-                            &formatted,
-                            retry_prompt_target,
-                            in_run,
-                            true,
-                            body_language,
-                        );
+                        retry_input.content = match assembly.as_ref() {
+                            Some(_) => build_compaction_instruction_message_with_language(
+                                ui,
+                                in_run,
+                                true,
+                                body_language,
+                                retry_prompt_target,
+                            ),
+                            None => build_summary_user_prompt_with_language(
+                                &formatted,
+                                retry_prompt_target,
+                                in_run,
+                                true,
+                                body_language,
+                            ),
+                        };
                         log::info!(
                             "context summary retrying conversation_id={} attempt=retry_length compact=true budget={} prompt_target={} requested={} summary_llm_ms={}",
                             conversation_id,
@@ -428,16 +668,35 @@ pub(crate) async fn compress_history_inner(
                             retry_max,
                             t_llm.elapsed().as_millis(),
                         );
-                        match provider
-                            .chat_once_without_thinking(
-                                std::slice::from_ref(&retry_input),
-                                &retry_sections,
-                                Vec::new(),
-                                cancel.clone(),
-                                Some(retry_max),
-                                Some(dump_lbl.as_str()),
-                            )
-                            .await
+                        let retry_attempt = match assembly.as_ref() {
+                            Some(snapshot) => {
+                                provider
+                                    .chat_once_with_assembly(
+                                        summary_source,
+                                        std::slice::from_ref(&retry_input),
+                                        &snapshot.system,
+                                        snapshot.native_tools.clone(),
+                                        snapshot.history_scope,
+                                        cancel.clone(),
+                                        Some(retry_max),
+                                        Some(dump_lbl.as_str()),
+                                    )
+                                    .await
+                            }
+                            None => {
+                                provider
+                                    .chat_once_without_thinking(
+                                        std::slice::from_ref(&retry_input),
+                                        &retry_sections,
+                                        Vec::new(),
+                                        cancel.clone(),
+                                        Some(retry_max),
+                                        Some(dump_lbl.as_str()),
+                                    )
+                                    .await
+                            }
+                        };
+                        match retry_attempt
                         {
                             Ok(out2) => {
                                 record_summary_usage(
@@ -450,6 +709,10 @@ pub(crate) async fn compress_history_inner(
                                 );
                                 match validate_summary_output(&out2, in_run, true) {
                                     Ok(text) => {
+                                        if let Some(u) = out2.usage.as_ref() {
+                                            summary_prompt_tokens = u.prompt_tokens;
+                                            summary_cached_tokens = u.cached_tokens;
+                                        }
                                         log_truncated_summary_accept(
                                             conversation_id,
                                             "retry_length",
@@ -699,7 +962,7 @@ pub(crate) async fn compress_history_inner(
     );
 
     log::info!(
-        "context_compress: applied conversation_id={} scope={:?} reason={} summary_failed={} messages_before={} messages_after={} in_run={} drop_start={} drop_end={} dropped={} kept_messages={} gate_tokens={} gate_source={} payload_est={} api_prompt={:?} budget_tokens={} summary_max_tokens={} format_prefix_ms={} summary_llm_ms={} wall_ms={}",
+        "context_compress: applied conversation_id={} scope={:?} reason={} summary_failed={} messages_before={} messages_after={} in_run={} drop_start={} drop_end={} dropped={} kept_messages={} gate_tokens={} gate_source={} payload_est={} api_prompt={:?} budget_tokens={} summary_max_tokens={} summary_path={} summary_prompt_tokens={} summary_cached_tokens={} format_prefix_ms={} summary_llm_ms={} wall_ms={}",
         conversation_id,
         ui.scope,
         apply_reason,
@@ -717,6 +980,9 @@ pub(crate) async fn compress_history_inner(
         api_prompt,
         budget_tokens,
         max_tok,
+        if assembly.is_some() { "assembly" } else { "legacy" },
+        summary_prompt_tokens,
+        summary_cached_tokens,
         format_prefix_ms,
         t_llm.elapsed().as_millis(),
         wall.elapsed().as_millis()
@@ -795,7 +1061,6 @@ pub async fn maybe_compress_history(
         cancel,
         false,
         false,
-        false,
         true,
         &ui,
         reported_prompt_tokens,
@@ -837,7 +1102,6 @@ pub async fn maybe_compress_after_tool_round_limit(
         cancel,
         true,
         false,
-        false,
         emit_compression_ui,
         &ui,
         reported_prompt_tokens,
@@ -873,7 +1137,6 @@ pub async fn recover_history_after_overflow(
         cancel,
         true,
         true,
-        false,
         true,
         &ui,
         reported_prompt_tokens,

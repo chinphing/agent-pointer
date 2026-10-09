@@ -116,8 +116,8 @@ fn summary_max_tokens_scales_with_content_and_caps_at_12k() {
 fn evaluate_compress_gate_uses_api_prompt_when_larger_than_payload() {
     let budget = 10_000;
     let prefix_heavy = vec![u(&"old ".repeat(20_000)), u(&"keep ".repeat(500))];
-    let d = evaluate_compress_gate(&prefix_heavy, Some(200_000), budget, 1, true);
-    assert!(d.total > precompress_gate_threshold(budget));
+    let d = evaluate_compress_gate(&prefix_heavy, Some(200_000), budget, 1);
+    assert!(d.total > compress_gate_threshold(budget));
     assert_eq!(d.gate_source, "api_prompt");
     assert!(d.payload_est > 0);
     assert!(d.payload_est < 200_000);
@@ -134,15 +134,15 @@ fn evaluate_compress_gate_requires_prefix_ratio() {
         u(&"old ".repeat(500)),     // compressible
         u(&"keep ".repeat(20_000)), // keep (newest)
     ];
-    let d = evaluate_compress_gate(&keep_heavy, None, budget, 1, true);
-    assert!(d.total > precompress_gate_threshold(budget));
+    let d = evaluate_compress_gate(&keep_heavy, None, budget, 1);
+    assert!(d.total > compress_gate_threshold(budget));
     assert!(d.ratio < COMPRESSIBLE_MIN_RATIO);
     assert!(!d.should_trigger);
 
     // Prefix carries most mass → trigger.
     let prefix_heavy = vec![u(&"old ".repeat(20_000)), u(&"keep ".repeat(500))];
-    let d2 = evaluate_compress_gate(&prefix_heavy, None, budget, 1, true);
-    assert!(d2.total > precompress_gate_threshold(budget));
+    let d2 = evaluate_compress_gate(&prefix_heavy, None, budget, 1);
+    assert!(d2.total > compress_gate_threshold(budget));
     assert!(d2.ratio >= COMPRESSIBLE_MIN_RATIO);
     assert!(d2.should_trigger);
 }
@@ -159,7 +159,7 @@ fn token_tail_split_compresses_older_turn_despite_keep_users() {
         split > 0,
         "oldest turn must be outside the token tail, split={split}"
     );
-    let d = evaluate_compress_gate(&msgs, None, budget, 3, true);
+    let d = evaluate_compress_gate(&msgs, None, budget, 3);
     assert!(d.should_trigger);
     assert!(d.ratio >= COMPRESSIBLE_MIN_RATIO);
 }
@@ -410,7 +410,7 @@ fn in_run_when_current_turn_is_most_tokens_even_if_under_count_ratio() {
     let count_share = (msgs.len() - 7) as f64 / msgs.len() as f64;
     assert!(count_share < IN_RUN_TURN_TOKEN_RATIO);
     assert!(current_turn_token_share(&msgs) >= IN_RUN_TURN_TOKEN_RATIO);
-    match plan_compression(&msgs, None, 8_000, 1, false, false, true) {
+    match plan_compression(&msgs, None, 8_000, 1, false, true) {
         CompressionPlan::InRun { drop_start, .. } => assert_eq!(drop_start, 8),
         other => panic!("expected InRun, got {other:?}"),
     }
@@ -431,7 +431,7 @@ fn prefix_when_current_turn_is_many_short_rows_but_few_tokens() {
     assert!(count_share > IN_RUN_TURN_TOKEN_RATIO);
     assert!(current_turn_token_share(&msgs) < IN_RUN_TURN_TOKEN_RATIO);
     assert!(!should_use_in_run_compression(&msgs));
-    match plan_compression(&msgs, None, 8_000, 1, false, false, true) {
+    match plan_compression(&msgs, None, 8_000, 1, false, true) {
         CompressionPlan::Prefix { split } => {
             assert!(split > 0);
             assert!(split <= last_user);
@@ -469,7 +469,7 @@ fn stamped_sub_prefix_without_reason_plans_prefix_not_thin_in_run() {
         .sum();
     assert!(prefix_tokens > 0, "legacy scope stamp must still count tokens");
     assert!(current_turn_token_share(&msgs) < IN_RUN_TURN_TOKEN_RATIO);
-    match plan_compression(&msgs, None, 8_000, 1, false, false, true) {
+    match plan_compression(&msgs, None, 8_000, 1, false, true) {
         CompressionPlan::Prefix { split } => {
             assert!(split > 0);
             assert!(split <= 8);
@@ -496,7 +496,7 @@ fn plan_compression_in_run_when_latest_turn_dominates_tokens() {
     for i in 0..12 {
         msgs.push(msg(&format!("a{i}"), Role::Assistant, &"x".repeat(8_000)));
     }
-    let plan = plan_compression(&msgs, None, 8_000, 1, true, false, false);
+    let plan = plan_compression(&msgs, None, 8_000, 1, false, false);
     match plan {
         CompressionPlan::InRun {
             drop_start,
@@ -522,24 +522,18 @@ fn sub_agent_queue_key_is_isolated_from_lead() {
 }
 
 #[test]
-fn sub_agent_between_round_uses_soft_then_hard_gate() {
+fn between_round_uses_single_gate() {
     let mut msgs = vec![msg("u0", Role::User, "task")];
     for i in 0..12 {
         msgs.push(msg(&format!("a{i}"), Role::Assistant, &"x".repeat(8_000)));
     }
     let budget = 100_000;
-    assert_eq!(
-        sub_agent_between_round_compress_soft(&msgs, Some(85_000), budget, 1),
-        Some(true)
-    );
-    assert_eq!(
-        sub_agent_between_round_compress_soft(&msgs, Some(110_000), budget, 1),
-        Some(false)
-    );
-    assert_eq!(
-        sub_agent_between_round_compress_soft(&msgs, Some(1_000), budget, 1),
-        None
-    );
+    // Over the single gate (0.90) → compress.
+    assert!(should_compress_history(&msgs, Some(95_000), budget, 1));
+    // Over the old 80% soft gate but under the single gate → no longer fires.
+    assert!(!should_compress_history(&msgs, Some(85_000), budget, 1));
+    // Well under → no compression.
+    assert!(!should_compress_history(&msgs, Some(1_000), budget, 1));
 }
 
 #[test]
@@ -602,12 +596,11 @@ fn should_recover_after_overflow_caps_consecutive_streak() {
 }
 
 #[test]
-fn should_precompress_history_uses_soft_gate_and_ratio() {
+fn should_compress_history_uses_single_gate_and_ratio() {
     let budget = 100_000;
-    let soft = precompress_gate_threshold(budget);
-    assert_eq!(soft, 80_000);
+    assert_eq!(compress_gate_threshold(budget), 90_000);
     let small = vec![u("hi"), u("there")];
-    assert!(!should_precompress_history(&small, None, budget, 1));
+    assert!(!should_compress_history(&small, None, budget, 1));
 }
 
 #[test]
@@ -633,14 +626,17 @@ fn apply_completion_reserve_subtracts_max_tokens_when_window_unknown() {
 }
 
 #[test]
-fn qwen_local_soft_gate_fires_before_vllm_prompt_cap() {
+fn qwen_local_gate_fires_before_vllm_prompt_cap() {
     let prompt = apply_completion_reserve(160_000, None, 32_000);
-    let soft = precompress_gate_threshold(prompt);
-    assert!(soft < 131_841);
-    // Last successful round (~62k) stays under the soft gate; a grown
-    // history (~110k) should precompress instead of waiting for 400.
-    assert!(62_489 < soft);
-    assert!(110_000 > soft);
+    let gate = compress_gate_threshold(prompt);
+    // 0.90 x 127936 (prompt budget) — still under vLLM's 131840 prompt line.
+    assert_eq!(gate, 115_143);
+    assert!(gate < 131_841);
+    assert!(gate < prompt);
+    // Last successful round (~62k) stays under the gate; a grown history
+    // (~120k) precompresses instead of waiting for a 400.
+    assert!(62_489 < gate);
+    assert!(120_000 > gate);
 }
 
 #[test]
@@ -1116,7 +1112,7 @@ fn pending_apply_invalidates_stale_api_tokens_and_gate_skips() {
     current.id = "cur_applied".into();
     let history = vec![summary, current];
     let budget = 10_000;
-    let stale = plan_compression(&history, Some(200_000), budget, 1, false, false, false);
+    let stale = plan_compression(&history, Some(200_000), budget, 1, false, false);
     assert!(
         !matches!(stale, CompressionPlan::Skip),
         "stale api tokens must still trip the gate: {stale:?}"
@@ -1124,7 +1120,7 @@ fn pending_apply_invalidates_stale_api_tokens_and_gate_skips() {
     let tokens = prompt_tokens_after_pending_apply(true, Some(200_000));
     assert_eq!(tokens, None);
     assert!(matches!(
-        plan_compression(&history, tokens, budget, 1, false, false, false),
+        plan_compression(&history, tokens, budget, 1, false, false),
         CompressionPlan::Skip
     ));
     assert_eq!(
@@ -1144,7 +1140,7 @@ fn second_compress_allowed_when_local_estimate_still_over() {
     let mut current = u("keep this question");
     current.id = "keep_q".into();
     history.push(current);
-    let plan = plan_compression(&history, None, 2_000, 1, false, false, false);
+    let plan = plan_compression(&history, None, 2_000, 1, false, false);
     assert!(
         !matches!(plan, CompressionPlan::Skip),
         "real leftover prefix must still compress: {plan:?}"
@@ -1184,7 +1180,6 @@ async fn empty_drop_window_does_not_emit_started_or_insert_summary() {
         &stream,
         tokio_util::sync::CancellationToken::new(),
         true,
-        false,
         false,
         true,
         &CompressionUiContext::default(),

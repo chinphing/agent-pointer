@@ -290,6 +290,24 @@ pub(crate) async fn run_sub_agent(
             })
             .await?;
 
+        // Snapshot the assembly inputs so a later compression call can reuse this
+        // exact prefix (Codex-style compaction on the live prompt).
+        crate::context_compression::remember_session_prompt(
+            conversation_id,
+            Some(instance_scope.agent_instance_id.as_str()),
+            crate::context_compression::SessionPromptSnapshot {
+                system: round_prompts.system_prompts.clone(),
+                native_tools: native_tools.clone(),
+                history_scope: crate::message_context::LlmHistoryScope::SubAgentLoop,
+                provider_id: sub_provider.settings.active_provider_id.clone(),
+                model: sub_provider.settings.model.clone(),
+                last_message_id: local_history
+                    .last()
+                    .map(|m| m.id.clone())
+                    .unwrap_or_default(),
+            },
+        );
+
         let mut stream_ctx = super::context::SubStreamRoundContext {
             session: super::context::SessionRefs {
                 stream,

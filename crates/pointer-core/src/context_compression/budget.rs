@@ -47,9 +47,15 @@ pub(crate) const SUMMARY_RETRY_TOKENS_RATIO: f64 = 3.0;
 /// concluding assistant) inside the drop window instead of discarding them.
 pub const DROP_FALLBACK_KEEP_USER_TURNS: usize = 3;
 
-/// Background precompress starts once gate tokens exceed this fraction of the
-/// hard context budget (still compresses when already over budget).
-pub const PRECOMPRESS_GATE_RATIO: f64 = 0.80;
+/// Single compression trigger: this fraction of the prompt budget.
+///
+/// Codex parity — `auto_compact_token_limit = context_window * 9 / 10`
+/// (`protocol/src/openai_models.rs`). The base is Pointer's `prompt_budget`
+/// (`window - max_tokens - margin`) rather than the raw window: Codex sends no
+/// `max_output_tokens`, so an OpenAI request may exceed the window and merely
+/// return a shorter answer, while vLLM / DashScope reject
+/// `prompt + max_tokens > window` with a 400.
+pub const COMPRESS_GATE_RATIO: f64 = 0.90;
 /// Compress only when the droppable prefix is at least this share of
 /// **payload** tokens. Used only on the local-estimate fallback path
 /// (no provider `prompt_tokens`) **and** when the current user turn is
@@ -102,9 +108,9 @@ pub fn summary_max_tokens_retry(budget: u32) -> u32 {
     ((budget as f64) * SUMMARY_RETRY_TOKENS_RATIO).ceil() as u32
 }
 
-/// Soft gate for background precompress: above this fraction of budget.
-pub fn precompress_gate_threshold(budget_tokens: usize) -> usize {
-    ((budget_tokens as f64) * PRECOMPRESS_GATE_RATIO)
+/// Compression trigger threshold for `budget_tokens` (see [`COMPRESS_GATE_RATIO`]).
+pub fn compress_gate_threshold(budget_tokens: usize) -> usize {
+    ((budget_tokens as f64) * COMPRESS_GATE_RATIO)
         .ceil()
         .max(1.0) as usize
 }
@@ -271,15 +277,10 @@ pub fn evaluate_compress_gate(
     reported_prompt_tokens: Option<u32>,
     budget_tokens: usize,
     keep_users: usize,
-    soft: bool,
 ) -> CompressGateDecision {
     let (total, payload_est, api_prompt, gate_source) =
         compression_gate_tokens(history, reported_prompt_tokens);
-    let threshold = if soft {
-        precompress_gate_threshold(budget_tokens)
-    } else {
-        budget_tokens
-    };
+    let threshold = compress_gate_threshold(budget_tokens);
     let using_api = api_prompt.is_some();
     let (split, prefix, ratio) = if using_api {
         // Skip the payload walk. A last real user after index 0 means there is
@@ -315,43 +316,12 @@ pub fn evaluate_compress_gate(
     }
 }
 
-/// Isolated sub-agent loops cannot use the lead precompress queue (`conversation_id`).
-/// Returns `Some(false)` at the hard budget, `Some(true)` at the 80% soft gate, `None` to skip.
-pub fn sub_agent_between_round_compress_soft(
-    history: &[ChatMessage],
-    reported_prompt_tokens: Option<u32>,
-    budget_tokens: usize,
-    keep_users: usize,
-) -> Option<bool> {
-    let hard = plan_compression(
-        history,
-        reported_prompt_tokens,
-        budget_tokens,
-        keep_users,
-        false,
-        false,
-        false,
-    );
-    if !matches!(hard, CompressionPlan::Skip) {
-        return Some(false);
-    }
-    let soft = plan_compression(
-        history,
-        reported_prompt_tokens,
-        budget_tokens,
-        keep_users,
-        true,
-        false,
-        false,
-    );
-    if !matches!(soft, CompressionPlan::Skip) {
-        return Some(true);
-    }
-    None
-}
-
-/// Soft-threshold helper for spawn checks (same rules as soft `plan_compression`).
-pub fn should_precompress_history(
+/// Whether a compression run should start for this history.
+///
+/// Single threshold: `gate > COMPRESS_GATE_RATIO * prompt_budget`. Used by the
+/// lead between-round spawn check and by isolated sub-agent loops (which cannot
+/// use the lead precompress queue, keyed by `conversation_id`).
+pub fn should_compress_history(
     history: &[ChatMessage],
     reported_prompt_tokens: Option<u32>,
     budget_tokens: usize,
@@ -363,7 +333,6 @@ pub fn should_precompress_history(
             reported_prompt_tokens,
             budget_tokens,
             keep_users,
-            true,
             false,
             false,
         ),
@@ -605,7 +574,6 @@ pub fn plan_compression(
     reported_prompt_tokens: Option<u32>,
     budget_tokens: usize,
     keep_users: usize,
-    soft: bool,
     overflow: bool,
     force: bool,
 ) -> CompressionPlan {
@@ -614,7 +582,6 @@ pub fn plan_compression(
         reported_prompt_tokens,
         budget_tokens,
         keep_users,
-        soft,
     );
     let over_budget = force || overflow || gate.total > gate.threshold;
     if !over_budget {

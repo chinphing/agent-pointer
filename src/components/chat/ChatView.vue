@@ -23,11 +23,10 @@ import WelcomeTipBanner from './WelcomeTipBanner.vue'
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-vue-next'
 import { showScrollbarWhileScrolling } from '../../lib/autoHideScrollbar'
 import ConversationNav from './ConversationNav.vue'
-import RenderPerfHud from '../dev/RenderPerfHud.vue'
 import { useRenderPerfEnabled } from '../../lib/renderPerf'
 import type { MemoryGaugeReading } from '../../lib/memoryProbe'
 import { measureChatRetention } from '../../lib/chatRetention'
-import { EMPTY_RESIDENCY_CHAT, type ResidencyChatReading } from '../../lib/residencyProbe'
+import { EMPTY_RESIDENCY_CHAT, type ResidencyChatReading } from '../../lib/residencyChatReading'
 
 const { t } = useI18n()
 
@@ -59,6 +58,13 @@ const MessageList = defineAsyncComponent({
   loadingComponent: MessageListSkeleton,
   delay: 0
 })
+
+/**
+ * Dev-only render-perf overlay. Kept async so the HUD chunk — and the residency
+ * probe behind it, which reads cache sizes through the markdown pipeline
+ * (`marked` + `dompurify`) — never loads for users who do not toggle it on.
+ */
+const RenderPerfHud = defineAsyncComponent(() => import('../dev/RenderPerfHud.vue'))
 
 const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()

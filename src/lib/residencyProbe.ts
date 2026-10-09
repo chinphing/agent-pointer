@@ -1,5 +1,5 @@
 import { composerAttachmentPayloadCount } from './attachmentPayloadStore'
-import { EMPTY_CHAT_RETENTION, type ChatRetention } from './chatRetention'
+import type { ResidencyChatReading } from './residencyChatReading'
 import { canvasRgbCacheSize } from './markdownChart'
 import { markdownParseCacheRetainedChars, markdownParseCacheSize } from './markdownConfig'
 import { pendingDeltaCount } from './reasoningDeltaBatch'
@@ -41,16 +41,13 @@ import { markdownSvgCacheSize } from '../composables/useMarkdownSvgs'
 /** Source read cadence — the chat walk is O(messages + tool calls), not a tick's work. */
 export const RESIDENCY_INTERVAL_MS = 3000
 
-/** Spawn transcripts retained for the open conversation, on top of `ChatRetention`. */
-export interface ResidencyChatReading extends ChatRetention {
-  scopedSpawns: number
-}
-
-/** Zero reading used when no chat source is available (tests, HUD without a host). */
-export const EMPTY_RESIDENCY_CHAT: ResidencyChatReading = Object.freeze({
-  ...EMPTY_CHAT_RETENTION,
-  scopedSpawns: 0
-})
+/**
+ * Reading shape + its zero value now live in `lib/residencyChatReading.ts` (a
+ * module with no cache imports), re-exported here so existing callers keep
+ * working. Importing them from this module pulls the markdown pipeline into the
+ * caller's chunk — `ChatView.vue` used to do exactly that on first paint.
+ */
+export { EMPTY_RESIDENCY_CHAT, type ResidencyChatReading } from './residencyChatReading'
 
 /** Everything the probe reads, injected so tests need neither Pinia nor the DOM. */
 export interface ResidencyProbeSources {

@@ -28,8 +28,8 @@ export function isInFlightSubagentHostToolCall(tc: ToolCall): boolean {
 
 /**
  * Collapsed-turn surface: direct approval tools, plus subagent hosts whose
- * child frame still needs a surface. A host can already be `success` while the
- * child is still running.
+ * child frame needs a surface — running **or** finished, because the frame stays
+ * visible either way and needs its host row as its anchor.
  * `Array.filter` / `some` pass the index as the second argument — ignore that.
  */
 type CollapsedHost = {
@@ -75,13 +75,19 @@ export function hostNeedsCollapsedSubAgentFrames(
   )
 }
 
-/** True when a lead message's agentTrace still needs a collapsed-frame surface. */
+/**
+ * True when a lead message's agentTrace still needs a collapsed-frame surface.
+ *
+ * A child frame stays visible **after** the child finishes, so its host
+ * `run_subagent` row has to stay visible too — otherwise the frame loses its
+ * anchor and lands in the 「未关联」 bucket. Pending `ask_user` still belongs to
+ * the top-of-chat banner (design doc §4); keeping the host row is about the
+ * frame, not about that banner.
+ */
 export function agentTraceNeedsCollapsedSurface(
   traces: readonly { status?: string; session?: { toolCalls?: ToolCall[] } }[] | undefined
 ): boolean {
-  // Running children keep their live frame. Pending `ask_user` no longer does —
-  // the top-of-chat banner owns that entry point (design doc §4).
-  return (traces ?? []).some(trace => trace.status === 'running')
+  return (traces ?? []).length > 0
 }
 
 /** Assistant row used the `response` tool (final user-visible reply), not an intermediate tool round. */

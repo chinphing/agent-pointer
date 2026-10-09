@@ -22,7 +22,7 @@ describe('messageTooling', () => {
     expect(toolCallBaseName('task_board_patch')).toBe('task_board_patch')
   })
 
-  it('keeps approval and in-flight hosts on the collapsed surface, never pending ask_user', () => {
+  it('keeps approval and sub-agent hosts on the collapsed surface; a pending ask_user never holds a row itself', () => {
     const host: ToolCall = {
       id: '1',
       name: 'run_subagent',
@@ -76,8 +76,8 @@ describe('messageTooling', () => {
           }]
         }
       }]
-    })).toBe(false)
-    // The banner owns pending ask_user: it never holds a collapsed row itself.
+    })).toBe(true)
+    // 子 agent 已完成也保留宿主行（帧的锚点）；「pending ask_user 自己不占行」由下面两条单独验证。
     expect(isPendingAskUserToolCall({
       id: 'ask',
       name: 'ask_user',
@@ -123,7 +123,19 @@ describe('messageTooling', () => {
           arguments: '{}'
         }]
       }
-    }])).toBe(false)
+    }])).toBe(true)
+  })
+
+  it('子 agent 完成后仍保留宿主行（否则已完成的帧会失去锚点 → 未关联）', () => {
+    const done = { status: 'done' }
+    expect(agentTraceNeedsCollapsedSurface([done])).toBe(true)
+    const host: ToolCall = {
+      id: 'host',
+      name: 'run_subagent',
+      status: 'success',
+      arguments: '{}'
+    }
+    expect(isCollapsedSurfaceToolCall(host, { agentTrace: [{ status: 'done', parentToolCallId: 'host' }] })).toBe(true)
   })
 
   it('keeps a finished run_subagent frame when the child lives on a trailing group', () => {

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
@@ -242,9 +242,24 @@ pub struct PlatformSessionView {
     pub token_quota_exhausted: bool,
 }
 
+/// In-memory balance snapshot for the chat-start gate. Never persisted: a fresh
+/// process starts with an empty cache and pays one live balance check.
+#[derive(Debug, Clone)]
+struct CachedBalance {
+    payload: PartnerBalanceResponse,
+    observed_at: Instant,
+}
+
+/// A cached balance younger than this serves the chat gate without any HTTP.
+/// Missing, older, or exhausted snapshots fall back to `GET /auth/partner/balance`.
+const BALANCE_CACHE_TTL: Duration = Duration::from_secs(30 * 60);
+
 #[derive(Debug)]
 pub struct PlatformAuthManager {
     inner: RwLock<Option<PlatformSession>>,
+    /// Balance snapshot fed by token-usage report responses (or by a live gate
+    /// check). Read by [`Self::ensure_llm_allowed_with_balance`].
+    balance_cache: RwLock<Option<CachedBalance>>,
     /// 串行化 refresh / 换票，避免并发使用同一 refresh token。
     refresh_lock: Mutex<()>,
     /// Set by `clear_session_async` so a concurrent refresh/login cannot
@@ -260,6 +275,7 @@ impl PlatformAuthManager {
     pub fn new() -> Self {
         Self {
             inner: RwLock::new(None),
+            balance_cache: RwLock::new(None),
             refresh_lock: Mutex::new(()),
             logging_out: AtomicBool::new(false),
             http: reqwest::Client::builder()
@@ -354,11 +370,15 @@ impl PlatformAuthManager {
                 log::warn!("platform_auth: save refresh to auth.dat failed: {e}");
             }
         }
+        // Session replaced (login / token refresh): the cached balance belongs to
+        // the previous session, so drop it and let the next gate re-fetch.
+        *self.balance_cache.write() = None;
         *self.inner.write() = Some(session);
     }
 
     /// Partner OAuth exchange on cloud agent instances (no refresh token, not persisted).
     pub fn set_partner_session(&self, session: PlatformSession) {
+        *self.balance_cache.write() = None;
         *self.inner.write() = Some(session);
         log::info!("platform_auth: partner session applied (cloud agent)");
     }
@@ -395,6 +415,7 @@ impl PlatformAuthManager {
     fn clear_session_inner(&self) {
         let refresh = self.inner.read().as_ref().map(|s| s.refresh_token.clone());
         *self.inner.write() = None;
+        *self.balance_cache.write() = None;
         if let Err(e) = storage::clear_platform_refresh_token() {
             log::warn!("platform_auth: clear auth.dat failed: {e}");
         }
@@ -877,11 +898,44 @@ impl PlatformAuthManager {
         }
     }
 
+    /// Record a balance payload observed from a token-usage report response.
+    ///
+    /// Report ingest charges the account before answering, so the piggybacked
+    /// snapshot is post-charge and can serve the next chat-start gate without an
+    /// extra `GET /auth/partner/balance`.
+    pub fn apply_balance_snapshot(&self, payload: PartnerBalanceResponse) {
+        self.set_token_quota_exhausted(payload.token_quota_exhausted);
+        self.store_balance_cache(&payload);
+    }
+
+    fn store_balance_cache(&self, payload: &PartnerBalanceResponse) {
+        *self.balance_cache.write() = Some(CachedBalance {
+            payload: payload.clone(),
+            observed_at: Instant::now(),
+        });
+    }
+
+    /// Gate cache lookup: `None` when the snapshot is missing, older than
+    /// [`BALANCE_CACHE_TTL`], or reports an exhausted quota.
+    ///
+    /// An exhausted snapshot is deliberately not trusted — the composer blocks
+    /// sends while the session is flagged exhausted, so serving it from cache
+    /// would keep a user who just topped up locked out for the whole TTL.
+    fn cached_balance_if_usable(&self) -> Option<(PartnerBalanceResponse, Duration)> {
+        let guard = self.balance_cache.read();
+        let entry = guard.as_ref()?;
+        let age = entry.observed_at.elapsed();
+        if age > BALANCE_CACHE_TTL || entry.payload.token_quota_exhausted {
+            return None;
+        }
+        Some((entry.payload.clone(), age))
+    }
+
     pub async fn report_token_usage_multipart(
         &self,
         metadata: &serde_json::Value,
         zip_path: Option<&std::path::Path>,
-    ) -> Result<()> {
+    ) -> Result<Option<PartnerBalanceResponse>> {
         let token = self.ensure_access_token().await?;
         let url = format!(
             "{}/auth/partner/token-usage",
@@ -918,10 +972,13 @@ impl PlatformAuthManager {
                 "token usage multipart report failed: HTTP {status}: {text}"
             ));
         }
-        Ok(())
+        Ok(Self::balance_from_report_response(resp).await)
     }
 
-    pub async fn report_token_usage(&self, body: serde_json::Value) -> Result<()> {
+    pub async fn report_token_usage(
+        &self,
+        body: serde_json::Value,
+    ) -> Result<Option<PartnerBalanceResponse>> {
         let token = self.ensure_access_token().await?;
         let url = format!(
             "{}/auth/partner/token-usage",
@@ -944,7 +1001,34 @@ impl PlatformAuthManager {
             let text = resp.text().await.unwrap_or_default();
             return Err(anyhow!("token usage report failed: HTTP {status}: {text}"));
         }
-        Ok(())
+        Ok(Self::balance_from_report_response(resp).await)
+    }
+
+    /// Balance piggybacked on a `POST /auth/partner/token-usage` response.
+    ///
+    /// Older servers answer `{id, received}` only; a response without
+    /// `balance_yuan` yields `None` so the cache keeps its previous value and
+    /// timestamp instead of being overwritten with a default.
+    async fn balance_from_report_response(
+        resp: reqwest::Response,
+    ) -> Option<PartnerBalanceResponse> {
+        let body: PartnerTokenUsageReportResponse = resp.json().await.ok()?;
+        Self::balance_snapshot_from_report_body(body)
+    }
+
+    /// Pure mapping from a report body to a cacheable snapshot. A body without
+    /// `balance_yuan` yields `None` so the caller keeps the previous cache entry
+    /// and its timestamp instead of storing a default.
+    fn balance_snapshot_from_report_body(
+        body: PartnerTokenUsageReportResponse,
+    ) -> Option<PartnerBalanceResponse> {
+        let balance_yuan = body.balance_yuan?;
+        Some(PartnerBalanceResponse {
+            balance_yuan,
+            token_quota_exhausted: body.token_quota_exhausted.unwrap_or(false),
+            message: body.message,
+            model_catalog_hash: body.model_catalog_hash,
+        })
     }
 
     pub async fn fetch_llm_credentials(&self) -> Result<Option<PlatformLoginCredentials>> {
@@ -1016,9 +1100,22 @@ impl PlatformAuthManager {
         if crate::deployment_mode::is_standalone() || !self.session_view().logged_in {
             return Ok(None);
         }
+        if let Some((mut cached, age)) = self.cached_balance_if_usable() {
+            // Cache-hit turns deliberately skip the model-catalog probe: the chat
+            // owner only compares this hash with the locally cached one, and a
+            // stale hash here would re-fetch llm-credentials on every turn.
+            // Catalog updates therefore ride on live checks (<= BALANCE_CACHE_TTL).
+            cached.model_catalog_hash = None;
+            log::info!(
+                "platform_auth: balance gate served from memory cache age_ms={}",
+                age.as_millis()
+            );
+            return Ok(Some(cached));
+        }
         match self.fetch_partner_balance().await {
             Ok(bal) => {
                 self.set_token_quota_exhausted(bal.token_quota_exhausted);
+                self.store_balance_cache(&bal);
                 if bal.token_quota_exhausted {
                     return Err(anyhow!("token_quota_exhausted"));
                 }
@@ -1242,6 +1339,24 @@ struct PartnerLlmCredentialResponse {
     consumed_tokens: Option<u64>,
     #[serde(default, rename = "mediaOss", alias = "media_oss")]
     media_oss: Option<PlatformMediaOssCredentials>,
+}
+
+/// `POST /auth/partner/token-usage` response. Every balance field is optional so
+/// an older server (or a build without billing) stays compatible.
+#[derive(Debug, Clone, Deserialize)]
+struct PartnerTokenUsageReportResponse {
+    #[serde(default)]
+    balance_yuan: Option<String>,
+    #[serde(
+        default,
+        rename = "token_quota_exhausted",
+        alias = "tokenQuotaExhausted"
+    )]
+    token_quota_exhausted: Option<bool>,
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(default, rename = "modelCatalogHash", alias = "model_catalog_hash")]
+    model_catalog_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1789,6 +1904,138 @@ mod tests {
             matches!(out, Ok(None)),
             "unbound refresh must be a silent no-op, got {out:?}"
         );
+    }
+
+    fn balance_fixture(balance_yuan: &str, exhausted: bool) -> PartnerBalanceResponse {
+        PartnerBalanceResponse {
+            balance_yuan: balance_yuan.to_string(),
+            token_quota_exhausted: exhausted,
+            message: None,
+            model_catalog_hash: Some("catalog-hash-1".to_string()),
+        }
+    }
+
+    fn session_fixture() -> PlatformSession {
+        PlatformSession {
+            access_token: "test-access-token".to_string(),
+            refresh_token: String::new(),
+            expires_at: Utc::now().timestamp() + 3600,
+            agent_id: String::new(),
+            user: PlatformUserSummary {
+                id: "test-user".to_string(),
+                nickname: None,
+                is_platform_admin: false,
+                included_tokens: 0,
+                consumed_tokens: 0,
+                token_quota_exhausted: false,
+            },
+        }
+    }
+
+    #[test]
+    fn balance_gate_cache_misses_until_a_report_or_live_check_fills_it() {
+        let auth = PlatformAuthManager::new();
+        assert!(auth.cached_balance_if_usable().is_none());
+    }
+
+    #[test]
+    fn balance_gate_cache_serves_fresh_snapshot() {
+        let auth = PlatformAuthManager::new();
+        auth.apply_balance_snapshot(balance_fixture("12.000", false));
+        let (payload, age) = auth
+            .cached_balance_if_usable()
+            .expect("fresh snapshot is served from memory");
+        assert_eq!(payload.balance_yuan, "12.000");
+        assert!(age < BALANCE_CACHE_TTL);
+    }
+
+    /// Exhausted snapshots must never satisfy the gate: the composer blocks sends
+    /// while the session is flagged exhausted, so a cached "0" would keep a user
+    /// who just topped up locked out for the whole TTL.
+    #[test]
+    fn balance_gate_cache_never_serves_exhausted_snapshot() {
+        let auth = PlatformAuthManager::new();
+        auth.set_partner_session(session_fixture());
+        auth.apply_balance_snapshot(balance_fixture("0.000", true));
+        assert!(auth.cached_balance_if_usable().is_none());
+        assert!(
+            auth.token_quota_exhausted(),
+            "session flag still mirrors the server"
+        );
+    }
+
+    #[test]
+    fn balance_gate_cache_expires_after_ttl() {
+        let auth = PlatformAuthManager::new();
+        auth.apply_balance_snapshot(balance_fixture("12.000", false));
+        {
+            let mut guard = auth.balance_cache.write();
+            let entry = guard.as_mut().expect("snapshot stored");
+            entry.observed_at = Instant::now() - (BALANCE_CACHE_TTL + Duration::from_secs(1));
+        }
+        assert!(auth.cached_balance_if_usable().is_none());
+    }
+
+    #[test]
+    fn balance_gate_cache_is_dropped_when_the_session_is_replaced() {
+        let _dir = crate::storage::test_app_data_dir_lock();
+        let tmp = std::env::temp_dir().join("pointer-balance-cache-test");
+        let _ = std::fs::create_dir_all(&tmp);
+        crate::storage::set_test_app_data_dir(tmp);
+
+        let auth = PlatformAuthManager::new();
+        auth.apply_balance_snapshot(balance_fixture("12.000", false));
+        assert!(auth.cached_balance_if_usable().is_some());
+
+        auth.clear_session_inner();
+        assert!(
+            auth.cached_balance_if_usable().is_none(),
+            "a replaced session must not inherit the previous account's balance"
+        );
+    }
+
+    /// Gate level: a fresh cache returns before `fetch_partner_balance`, which is
+    /// the only place the live `GET /auth/partner/balance` happens.
+    #[tokio::test]
+    async fn balance_gate_serves_fresh_cache_without_a_live_request() {
+        if crate::deployment_mode::is_standalone() {
+            return; // standalone builds skip the gate by design
+        }
+        let auth = PlatformAuthManager::new();
+        auth.set_partner_session(session_fixture());
+        auth.apply_balance_snapshot(balance_fixture("9.000", false));
+
+        let out = auth
+            .ensure_llm_allowed_with_balance()
+            .await
+            .expect("cached gate allows the turn");
+        let payload = out.expect("cached payload");
+        assert_eq!(payload.balance_yuan, "9.000");
+        assert!(
+            payload.model_catalog_hash.is_none(),
+            "cache hits skip the catalog probe to avoid re-fetching credentials"
+        );
+    }
+
+    #[test]
+    fn report_body_without_balance_keeps_the_cached_snapshot() {
+        let legacy: PartnerTokenUsageReportResponse = serde_json::from_str(
+            r#"{"id":"00000000-0000-0000-0000-000000000001","received":true}"#,
+        )
+        .expect("legacy body parses");
+        assert!(
+            PlatformAuthManager::balance_snapshot_from_report_body(legacy).is_none(),
+            "a body without balance_yuan must not overwrite the cache"
+        );
+
+        let current: PartnerTokenUsageReportResponse = serde_json::from_str(
+            r#"{"id":"00000000-0000-0000-0000-000000000002","received":true,"balance_yuan":"3.500","token_quota_exhausted":false}"#,
+        )
+        .expect("piggybacked body parses");
+        let snapshot = PlatformAuthManager::balance_snapshot_from_report_body(current)
+            .expect("balance snapshot");
+        assert_eq!(snapshot.balance_yuan, "3.500");
+        assert!(!snapshot.token_quota_exhausted);
     }
 
     #[test]

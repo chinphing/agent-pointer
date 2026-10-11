@@ -1152,21 +1152,25 @@ async fn send_pending_report(
     auth: &crate::platform_auth::PlatformAuthManager,
     metadata: &serde_json::Value,
     zip_path: Option<&std::path::Path>,
-) -> Result<ReportDelivery> {
+) -> Result<(
+    ReportDelivery,
+    Option<crate::platform_auth::PartnerBalanceResponse>,
+)> {
     let request_id = metadata
         .get("request_id")
         .and_then(|v| v.as_str())
         .unwrap_or("?");
     match auth.report_token_usage_multipart(metadata, zip_path).await {
-        Ok(()) => Ok(ReportDelivery::Multipart),
+        Ok(balance) => Ok((ReportDelivery::Multipart, balance)),
         Err(multipart_err) => {
             log::warn!(
                 "token_usage_store: multipart failed request_id={request_id}: {multipart_err}; retrying json-only"
             );
-            auth.report_token_usage(metadata.clone())
+            let balance = auth
+                .report_token_usage(metadata.clone())
                 .await
                 .map_err(|json_err| anyhow!("multipart: {multipart_err}; json-only: {json_err}"))?;
-            Ok(ReportDelivery::JsonOnlyFallback)
+            Ok((ReportDelivery::JsonOnlyFallback, balance))
         }
     }
 }
@@ -1255,7 +1259,10 @@ pub async fn flush_unsent_reports(
             .filter(|p| !p.is_empty())
             .map(PathBuf::from);
         match send_pending_report(auth, &metadata, zip_path.as_deref()).await {
-            Ok(delivery) => {
+            Ok((delivery, balance)) => {
+                if let Some(balance) = balance {
+                    auth.apply_balance_snapshot(balance);
+                }
                 let rid = row.request_id.as_str();
                 match delivery {
                     ReportDelivery::Multipart => {

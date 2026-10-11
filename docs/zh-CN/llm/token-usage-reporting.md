@@ -66,9 +66,10 @@ LLM usage is **post-paid soft overdraft** on the server (`charge_llm_yuan` alway
 
 | When | Check |
 |------|--------|
-| User sends a message (`run_chat` start) | Live `GET /auth/partner/balance` via `ensure_llm_allowed` |
+| User sends a message (`run_chat` start) | In-memory balance snapshot when it is younger than 30 min and not exhausted; otherwise a live `GET /auth/partner/balance` via `ensure_llm_allowed` |
+| Snapshot freshness | Filled for free by the `POST /auth/partner/token-usage` response (`balance_yuan` / `token_quota_exhausted`, post-charge) |
 | Mid-turn tool / multi-model rounds | No re-check (same turn may still soft-overdraft) |
-| Cloud agent open / oauth code | Same balance check |
+| Cloud agent open / oauth code | Same gate, shares the same snapshot |
 
 When exhausted, the official desktop UI shows a composer banner and error card with a **去充值** button that opens `{POINTER_WEB_BASE}/profile/billing` (the official build injects its web base at build time). Unbound (non-official) builds default to no usage upload and no billing URL unless you set the env vars.
 
@@ -79,3 +80,14 @@ Fail-closed: balance API failure blocks starting the turn (does **not** skip cha
 **Standalone deployment:** these gates are no-ops. Self-hosted servers use local API keys / license and do not call the official balance API.
 
 Quota: `token_quota_exhausted` (`balance <= 0`) blocks new turns.
+
+### Balance snapshot cache
+
+`PlatformAuthManager` keeps one in-memory snapshot (`CachedBalance`: payload + monotonic timestamp). It is never persisted, and is dropped on login, token refresh, and logout.
+
+- Filled by a `POST /auth/partner/token-usage` response (post-charge) or by a live gate check.
+- Served to the gate only when younger than `BALANCE_CACHE_TTL` (30 min) **and** not exhausted.
+- Missing, older, or exhausted snapshots fall back to a live check. An exhausted snapshot is never served from cache: the composer refuses to send while the session is flagged exhausted, so a cached `0` would keep a user who just topped up locked out for the whole TTL.
+- A report body without `balance_yuan` (older server) leaves the snapshot and its timestamp untouched.
+- Cache-hit turns skip the model-catalog probe, so catalog updates ride on live checks.
+- The live path keeps the existing retry/backoff and fail-closed behaviour.

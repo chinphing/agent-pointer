@@ -66,7 +66,7 @@ The following two places share one backoff policy (1 immediate attempt + 3 retri
 | Call site | Endpoint | Message when it still fails |
 |--------|----------------|----------------|
 | `refresh_if_needed` | `POST /auth/app/token` | Network error, cannot verify sign-in state right now, please try again later |
-| `fetch_partner_balance` (`ensure_llm_allowed`) | `GET /auth/partner/balance` (before every conversation turn) | Network error, please check whether your network connection is working, then retry. |
+| `fetch_partner_balance` (`ensure_llm_allowed`) | `GET /auth/partner/balance` (only when the cached balance is missing, older than 30 min, or exhausted) | Network error, please check whether your network connection is working, then retry. |
 
 Token exchange holds `refresh_lock`; an auth failure (401/403 / `platform_token_expired`) is **not retried** and is immediately treated as an invalid sign-in. Exhausted balance (`token_quota_exhausted`) is not retried.
 

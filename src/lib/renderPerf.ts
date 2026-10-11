@@ -100,6 +100,13 @@ export const PERF_MS_KEYS = [
   'ms:measureElement',
   'ms:toolRunAssistantMessage',
   /**
+   * Diagnostic only (HUD on): the layout forced by reading one metric right after a
+   * programmatic scroll write. The browser pays for that layout before paint anyway; the
+   * probe moves it inside the measurement so a frame gap can be attributed to layout
+   * instead of `idle`.
+   */
+  'ms:forcedLayout',
+  /**
    * Whole `turnSpawnPlans` recomputation (sub-agent frame placement). Re-runs on every
    * scoped **structure** change, i.e. on each `agent_step` — the moment a spawn starts.
    */
@@ -191,6 +198,12 @@ export const PERF_ACTIVITY_TRIM_HISTORY = 'trimHistory'
 export const PERF_ACTIVITY_LOAD_OLDER = 'loadOlder'
 export const PERF_ACTIVITY_LOAD_NEWER = 'loadNewer'
 export const PERF_ACTIVITY_MEASURE_BATCH = 'measureBatch'
+/**
+ * `stickScrollerToBottom`'s programmatic scroll writes. Marked because the frame that
+ * follows them is where the browser pays for the layout they dirtied — without a marker
+ * that cost lands in a frame gap blamed on `idle`, which is not actionable.
+ */
+export const PERF_ACTIVITY_STICK_BOTTOM = 'stickBottom'
 export const PERF_ACTIVITY_MARKDOWN_PARSE = 'markdownParse'
 /**
  * Phases of `parseMarkdown`, nested inside `PERF_ACTIVITY_MARKDOWN_PARSE` so a

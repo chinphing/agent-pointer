@@ -42,6 +42,7 @@ import {
   PERF_ACTIVITY_LOAD_NEWER,
   PERF_ACTIVITY_LOAD_OLDER,
   PERF_ACTIVITY_MEASURE_BATCH,
+  PERF_ACTIVITY_STICK_BOTTOM,
   PERF_ACTIVITY_TRIM_HISTORY,
   PERF_GAUGE_FROZEN_TURNS,
   PERF_GAUGE_SCOPED_ROWS,
@@ -373,20 +374,35 @@ function shouldFollowOutput(): boolean {
  */
 function stickScrollerToBottom() {
   if (conversationTurns.value.length === 0) return
-  rowVirtualizer.value.scrollToIndex(conversationTurns.value.length - 1, {
-    align: 'end',
-    behavior: 'auto'
-  })
-  const el = scroller.value
-  if (!el) return
-  el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight)
-  // Keep lastScrollTop in sync so the next user drag is detected as scrollingUp
-  // (otherwise lastScrollTop stays 0 after mount and scrollbar detach fails).
-  lastScrollTop = el.scrollTop
-  // The write above is a no-op when the scroller is already at the bottom, and a
-  // no-op fires no scroll event: state the offset so the rendered range cannot
-  // stay computed for the pre-stick position.
-  offsetObservation.sync()
+  const perf = renderPerfEnabled()
+  if (perf) beginPerfActivity(PERF_ACTIVITY_STICK_BOTTOM)
+  try {
+    rowVirtualizer.value.scrollToIndex(conversationTurns.value.length - 1, {
+      align: 'end',
+      behavior: 'auto'
+    })
+    const el = scroller.value
+    if (!el) return
+    el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight)
+    // Keep lastScrollTop in sync so the next user drag is detected as scrollingUp
+    // (otherwise lastScrollTop stays 0 after mount and scrollbar detach fails).
+    lastScrollTop = el.scrollTop
+    // The write above is a no-op when the scroller is already at the bottom, and a
+    // no-op fires no scroll event: state the offset so the rendered range cannot
+    // stay computed for the pre-stick position.
+    offsetObservation.sync()
+    if (perf) {
+      // Diagnostic (HUD on): the writes above dirtied layout, and the browser pays for it
+      // before paint either way. Reading one metric here moves that cost inside the
+      // measurement, so the frame gap that follows is blamed on this activity instead of
+      // `idle`. It is the same layout, just forced earlier.
+      const layoutStart = performance.now()
+      void el.offsetHeight
+      record('ms:forcedLayout', performance.now() - layoutStart)
+    }
+  } finally {
+    if (perf) endPerfActivity(PERF_ACTIVITY_STICK_BOTTOM)
+  }
 }
 
 function scheduleToBottom() {
@@ -1521,6 +1537,16 @@ type SpawnPlanPassEntry = {
 let spawnPlanPass = new Map<string, SpawnPlanPassEntry>()
 let spawnPlanPassOut: Map<string, TurnSpawnPlan> | null = null
 let spawnPlanPassConv = ''
+/**
+ * Scoped-structure signals the last pass observed. `bumpStructureRevision` moves the
+ * conversation counter **and** the anchor axis together (and the anchor-less events move
+ * the epoch), so an unchanged triple proves no anchor revision can have moved: the pass
+ * may then skip every per-anchor revision read and judge a turn by object identity plus
+ * its collapse projection alone.
+ */
+let spawnPlanPassScopedRevision = -1
+let spawnPlanPassScopedMembership = -1
+let spawnPlanPassAnchorlessEpoch = -1
 
 const messageListLayout = computed(() => {
   void chat.taskBoards
@@ -1939,11 +1965,12 @@ const turnSpawnPlans = computed(() => {
   // `getSubAgentLiveSignal('')`（空 key 永远不会被写入）订阅，靠的是 publishLive 整体替换
   // 外层槽位 —— 结果任何 spawn 的任何一个 token 都会重建全部回合的 plan。
   const convId = chat.currentId ?? ''
-  // 触发器：**只**让本 computed 重跑，不参与「这一回合要不要重算」。用 `void` 读取：本趟
-  // 是否真的做指纹，由下面每回合自己的 guard（回合对象身份 + 展开态 + 该回合锚点的结构修订）
-  // 决定 —— 所以 64 次/秒的结构事件里，只有真正动过的那个回合会重算指纹。
-  void chat.getScopedStructureRevision(convId)
-  void chat.getScopedMembershipSignal(convId)
+  // 触发器 + 快路径判据：这三个信号共同描述「scoped 结构有没有动」。store 的
+  // `bumpStructureRevision` 同时抬会话计数器与锚点轴（无锚点事件抬 epoch），所以三者都没变
+  // ⇒ 没有任何锚点版本号变过 ⇒ 这一趟不必逐回合去读 anchorRevs，只用回合对象身份 + 展开态
+  // 判断复用即可（见下面 guard 里的 `scopedUntouched`）。
+  const scopedRevision = chat.getScopedStructureRevision(convId)
+  const scopedMembership = chat.getScopedMembershipSignal(convId)
   const turns = conversationTurns.value
   const anchorlessEpoch = chat.getScopedAnchorlessStructureEpoch()
 
@@ -1951,7 +1978,14 @@ const turnSpawnPlans = computed(() => {
     spawnPlanPass = new Map()
     spawnPlanPassOut = null
     spawnPlanPassConv = convId
+    spawnPlanPassScopedRevision = -1
+    spawnPlanPassScopedMembership = -1
+    spawnPlanPassAnchorlessEpoch = -1
   }
+  const scopedUntouched =
+    scopedRevision === spawnPlanPassScopedRevision
+    && scopedMembership === spawnPlanPassScopedMembership
+    && anchorlessEpoch === spawnPlanPassAnchorlessEpoch
 
   const perf = renderPerfEnabled()
   const plansStartedAt = perf ? performance.now() : 0
@@ -1973,17 +2007,21 @@ const turnSpawnPlans = computed(() => {
   for (const turn of turns) {
     const expanded = turnIsExpanded(turn.id)
     const cached = spawnPlanPass.get(turn.id)
-    if (
-      cached
+    // 便宜检查在前：回合对象身份与展开态只是两次比较，而 `anchorRevs` 要按该回合的消息数
+    // 逐个读 store。scoped 三信号没动时后者整段跳过（见上面的 `scopedUntouched`）。
+    const guardHit = cached
       && cached.anchorlessEpoch === anchorlessEpoch
-      && turnSpawnGuardMatches(cached, {
-        turnRef: turn,
-        expanded,
-        anchorRevs: cached.anchorIds.map(id => chat.getScopedAnchorStructureRevision(convId, id))
-      })
-    ) {
+      && (scopedUntouched
+        ? cached.turnRef === turn && cached.expanded === expanded
+        : turnSpawnGuardMatches(cached, {
+            turnRef: turn,
+            expanded,
+            anchorRevs: cached.anchorIds.map(id =>
+              chat.getScopedAnchorStructureRevision(convId, id)
+            )
+          }))
+    if (guardHit) {
       // 这个回合的消息与它下面的 scoped 结构都没动：连指纹都不算，直接复用 plan 对象。
-      for (const message of cached.messages) seedIds.push(message.id)
       nextPass.set(turn.id, cached)
       reusedTurns += 1
       bump('call:turnFingerprintSkipped')
@@ -2052,10 +2090,15 @@ const turnSpawnPlans = computed(() => {
     }
 
     fresh.push({ id: turn.id, turn, expanded, messages, extra, drawn: drawnRowIdsByMessage })
-    for (const msg of messages) seedIds.push(msg.id)
   }
 
   // 只有真的需要重算某个回合时，才去铺闭包 / 分组：整趟纯 guard 命中时这两步也省掉。
+  // seedIds 一并延后 —— 复用回合的消息 id 只在「确实有回合要重算」时才有用。
+  if (fresh.length > 0) {
+    for (const entry of nextPass.values()) {
+      for (const message of entry.messages) seedIds.push(message.id)
+    }
+  }
   // 嵌套层的行锚在**父级行 id** 上（父 worker 的 scoped 行），只取一层会漏掉第 2 层及更深。
   const scopedRows = fresh.length > 0
     ? scopedRowClosure(seedIds, ids => chat.scopedRowsForAnchors(convId, ids))
@@ -2068,6 +2111,7 @@ const turnSpawnPlans = computed(() => {
     // 旧实现把会话级 `structureRevision` 放进 key，于是任何一处子 agent 结构变化都会让
     // **每个**回合的 key 变化 → 每个回合重建 plan（新对象）→ 整个可见窗口重渲染，正好是
     // 「子 agent 启动那一刻卡死」。key 现在只含该回合真正读到的两样东西。
+    if (perf) bump('call:turnFingerprinted')
     const fingerprintStart = perf ? performance.now() : 0
     const anchorIds = entry.messages.map(message => message.id)
     const fingerprint = turnSegmentFingerprint(
@@ -2110,6 +2154,10 @@ const turnSpawnPlans = computed(() => {
     record('ms:buildTurnSpawnPlan', buildMs)
     record('ms:turnSpawnPlans', performance.now() - plansStartedAt)
   }
+  // 记录本趟看到的 scoped 三信号：下一趟据此判断能不能走 O(1) 快路径。
+  spawnPlanPassScopedRevision = scopedRevision
+  spawnPlanPassScopedMembership = scopedMembership
+  spawnPlanPassAnchorlessEpoch = anchorlessEpoch
   // Drop turns that left the window (conversation switch / compression trim).
   spawnPlanPass = nextPass
 

@@ -301,6 +301,42 @@ describe('createConversationScopedStore', () => {
     expect(store.getAnchorStructureRevision('c1', 'anchor-1')).toBeGreaterThan(anchorBefore)
   })
 
+  /**
+   * The per-turn spawn-plan pass short-cuts to an O(1) check when the conversation-level
+   * scoped counter has not moved: it then judges a turn by object identity plus its
+   * collapse projection alone, skipping every per-anchor revision read. That is only sound
+   * while the anchor axis cannot move on its own — so every shape bump has to raise both,
+   * and a token write (the highest-frequency event of all) has to raise neither.
+   */
+  it('keeps the conversation counter and the anchor axis moving together', () => {
+    const store = createConversationScopedStore()
+    store.ensureInstance(
+      'c1',
+      { agentInstanceId: 'inst-1', traceId: 'task:explore', anchorMessageId: 'anchor-1' },
+      scopedMsg({ id: 'm1', agentInstanceId: 'inst-1', content: 'a' })
+    )
+
+    const convBefore = store.getStructureRevision('c1')
+    const anchorBefore = store.getAnchorStructureRevision('c1', 'anchor-1')
+    const epochBefore = store.getAnchorlessStructureEpoch()
+
+    // Token growth is not a shape change: neither axis may move, or the pass would lose
+    // its short cut on every streamed chunk.
+    const row = store.findRow('c1', 'm1')!
+    row.content = 'abcdef'
+    store.touchTextDelta('c1', 'm1', 5)
+    expect(store.getStructureRevision('c1')).toBe(convBefore)
+    expect(store.getAnchorStructureRevision('c1', 'anchor-1')).toBe(anchorBefore)
+
+    // A shape change moves the anchor axis and the conversation counter together, and
+    // leaves the anchor-less epoch alone because the anchor resolved.
+    row.status = 'streaming'
+    store.touchRow('c1', 'm1')
+    expect(store.getAnchorStructureRevision('c1', 'anchor-1')).toBeGreaterThan(anchorBefore)
+    expect(store.getStructureRevision('c1')).toBeGreaterThan(convBefore)
+    expect(store.getAnchorlessStructureEpoch()).toBe(epochBefore)
+  })
+
   it('ensureInstance with empty lookup warns and skips', () => {
     const store = createConversationScopedStore()
     expect(store.ensureInstance('c1', {}, scopedMsg({ id: 'm1' }))).toBeUndefined()

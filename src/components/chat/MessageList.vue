@@ -35,6 +35,7 @@ import { MESSAGE_VIRTUAL_ROW_CLASS, MESSAGE_VIRTUAL_ROW_ESTIMATE, messageRowSpac
 import { messageRowMemoDeps } from '../../lib/messageListRowMemo'
 import { createScrollPassScheduler, createViewedStampDedupe } from '../../lib/chatScrollPass'
 import { createVirtualRowMeasureBatch } from '../../lib/virtualRowMeasureBatch'
+import { createVirtualOffsetObservation } from '../../lib/virtualOffsetObservation'
 import { measureRenderedRowSlack } from '../../lib/virtualRowSlack'
 import {
   PERF_ACTIVITY_LAYOUT_REBUILD,
@@ -173,6 +174,16 @@ const chat = useChatStore()
 const settings = useSettingsStore()
 const agentsCatalog = useAgentsCatalog()
 const scroller = ref<HTMLDivElement | null>(null)
+/**
+ * The virtualizer's rendered range comes from its own `scrollOffset`, which only
+ * a scroll event or its internal correction bookkeeping ever writes. Our
+ * programmatic writes (`stickScrollerToBottom`, the viewport-shrink
+ * compensation) and the corrections that the DOM clamps away therefore leave it
+ * stale, and a stale offset renders a range for a position the user is not at
+ * (a blank transcript that a single drag repairs). See
+ * `lib/virtualOffsetObservation`.
+ */
+const offsetObservation = createVirtualOffsetObservation()
 const listRoot = ref<HTMLDivElement | null>(null)
 const showScrollButton = ref(false)
 const newConversationConfirmOpen = ref(false)
@@ -372,6 +383,10 @@ function stickScrollerToBottom() {
   // Keep lastScrollTop in sync so the next user drag is detected as scrollingUp
   // (otherwise lastScrollTop stays 0 after mount and scrollbar detach fails).
   lastScrollTop = el.scrollTop
+  // The write above is a no-op when the scroller is already at the bottom, and a
+  // no-op fires no scroll event: state the offset so the rendered range cannot
+  // stay computed for the pre-stick position.
+  offsetObservation.sync()
 }
 
 function scheduleToBottom() {
@@ -571,6 +586,9 @@ function applyScrollerViewportResize() {
   markProgrammaticScroll()
   scrollerEl.scrollTop += delta
   lastScrollTop = scrollerEl.scrollTop
+  // Same reason as `stickScrollerToBottom`: a clamped or no-op write fires no
+  // scroll event, so the virtualizer has to be told where the scroller landed.
+  offsetObservation.sync()
 }
 
 onMounted(() => {
@@ -2229,6 +2247,12 @@ const rowMeasureBatch = createVirtualRowMeasureBatch<HTMLDivElement>({
       rowVirtualizer.value.measureElement(measurement.element)
       if (perf) bump('call:measureElement')
     }
+    // Measured heights move every row below them, and the scroll corrections
+    // they trigger are clamped while the container still has its previous
+    // height — a clamped write fires no scroll event, so the virtualizer's
+    // offset would keep the pre-correction value and compute a range for a
+    // position the scroller is not at. Re-state the element's real offset.
+    offsetObservation.sync()
   },
   wrapFlush(flush) {
     if (!renderPerfEnabled()) {
@@ -2253,6 +2277,10 @@ const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>(computed((
     index => `turn-${conversationTurns.value[index]!.id}`
   ),
   getScrollElement: () => scroller.value,
+  // Adopts the element's current offset when the observers attach (the core
+  // pushes its own `initialOffset` into the element instead) and lets the app
+  // re-state it after programmatic writes.
+  observeElementOffset: offsetObservation.observeElementOffset,
   // Row heights come from the batch's read pass; reuse them here instead of
   // forcing a second layout inside the virtualizer.
   measureElement: rowMeasureBatch.measureElementOption

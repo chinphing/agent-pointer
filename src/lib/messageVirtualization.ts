@@ -1,5 +1,11 @@
 export const MESSAGE_VIRTUAL_ROW_ESTIMATE = 180
-export const MESSAGE_VIRTUAL_OVERSCAN = 8
+/**
+ * Rows kept mounted beyond the viewport on each side. Every overscan row is laid
+ * out and measured on each patch, so this trades per-frame layout cost against
+ * blank stripes during a fast fling — watch `v.blank*` / `v.slack` / `v.overlap`
+ * in the render HUD when changing it.
+ */
+export const MESSAGE_VIRTUAL_OVERSCAN = 4
 /**
  * Class on the virtual message row wrapper (MessageList.vue). Rows are placed by
  * an inline `translateY`, so each row's layout is self-contained; the rule in

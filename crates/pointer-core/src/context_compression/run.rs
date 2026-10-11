@@ -875,7 +875,7 @@ pub(crate) async fn compress_history_inner(
             summary_failed,
         });
         log::info!(
-            "context_compress: enqueued splice (turn busy) conversation_id={} in_run={} drop_start={} drop_end={} dropped={} kept_messages={} share={:.3} wall_ms={}",
+            "context_compress: enqueued splice (turn busy) conversation_id={} in_run={} drop_start={} drop_end={} dropped={} kept_messages={} share={:.3} summary_prompt_tokens={} summary_cached_tokens={} wall_ms={}",
             conversation_id,
             in_run,
             drop_start,
@@ -883,6 +883,8 @@ pub(crate) async fn compress_history_inner(
             dropped_count,
             splice.keep_ids.len(),
             current_turn_token_share(history),
+            summary_prompt_tokens,
+            summary_cached_tokens,
             wall.elapsed().as_millis()
         );
         return false;

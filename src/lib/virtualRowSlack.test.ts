@@ -41,6 +41,31 @@ describe('measureRenderedRowSlack', () => {
     expect(sums).toEqual({ slack: 120, overlap: 540 })
   })
 
+  /**
+   * Why a single unmeasured row is not a local error: rows are placed by the running sum
+   * of sizes, so a turn that really is ~4.9k px tall but still carries the 180 px estimate
+   * leaves every row below it placed ~4.7k px too high — stacked on top of it. The gauge
+   * number and the placement deficit are the same quantity, which is what makes this
+   * visible rather than merely reported.
+   */
+  it('places every row below an unmeasured tall row short by the overlap it reports', () => {
+    const REAL = 4856
+    // Placed as if the tall turn were one estimate: the sum, not the truth.
+    const rows = [
+      { index: 0, start: 0, end: ESTIMATE },
+      { index: 1, start: ESTIMATE, end: ESTIMATE * 2 }
+    ]
+
+    const sums = measureRenderedRowSlack(
+      containerOf([{ index: 0, height: REAL }, { index: 1, height: ESTIMATE }]),
+      rows
+    )
+
+    expect(sums.overlap).toBe(REAL - ESTIMATE)
+    // The row after it sits at `ESTIMATE`; its true position would be `REAL`.
+    expect(rows[1]!.start).toBe(REAL - sums.overlap)
+  })
+
   it('counts a row whose height was measured as neither slack nor overlap', () => {
     const sums = measureRenderedRowSlack(
       containerOf([{ index: 0, height: 240 }, { index: 1, height: 96 }]),

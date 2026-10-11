@@ -904,6 +904,11 @@ impl PlatformAuthManager {
     /// snapshot is post-charge and can serve the next chat-start gate without an
     /// extra `GET /auth/partner/balance`.
     pub fn apply_balance_snapshot(&self, payload: PartnerBalanceResponse) {
+        log::info!(
+            "platform_auth: balance snapshot from token-usage report balance_yuan={} exhausted={}",
+            payload.balance_yuan,
+            payload.token_quota_exhausted
+        );
         self.set_token_quota_exhausted(payload.token_quota_exhausted);
         self.store_balance_cache(&payload);
     }

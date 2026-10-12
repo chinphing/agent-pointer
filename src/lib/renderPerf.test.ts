@@ -15,9 +15,11 @@ import {
   PERF_GAUGE_VIRTUAL_LAST,
   PERF_GAUGE_VIRTUAL_MEASURED,
   PERF_GAUGE_VIRTUAL_OVERLAP,
+  PERF_GAUGE_VIRTUAL_OVERLAP_VISIBLE,
   PERF_GAUGE_VIRTUAL_PULL_SPACER,
   PERF_GAUGE_VIRTUAL_SCROLL_HEIGHT,
   PERF_GAUGE_VIRTUAL_SLACK,
+  PERF_GAUGE_VIRTUAL_SLACK_VISIBLE,
   PERF_GAUGE_VIRTUAL_TOTAL,
   PERF_GAUGE_VISIBLE_ROWS,
   PERF_HUD_SNAPSHOT_MS,
@@ -809,8 +811,32 @@ describe('renderPerf virtualizer geometry gauges', () => {
     publishVirtualRowSlackGauges(980, 60)
     expect(renderPerfSnapshot(2000).peakGauges).toEqual({
       [PERF_GAUGE_VIRTUAL_SLACK]: 980,
-      [PERF_GAUGE_VIRTUAL_OVERLAP]: 60
+      [PERF_GAUGE_VIRTUAL_OVERLAP]: 60,
+      // Without a viewport split the visible sums default to the totals.
+      [PERF_GAUGE_VIRTUAL_SLACK_VISIBLE]: 980,
+      [PERF_GAUGE_VIRTUAL_OVERLAP_VISIBLE]: 60
     })
+  })
+
+  /**
+   * The split is what tells a visible glitch from an overscan-band one, so it has to be
+   * published independently of the totals and keep its own peak.
+   */
+  it('publishes the in-viewport split separately from the totals', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    renderPerfSnapshot(1000)
+
+    // A tall turn off screen and a shorter one on screen: the totals keep both, the
+    // split keeps only what the user could actually see.
+    publishVirtualRowSlackGauges(980, 60, 120, 60)
+
+    const snapshot = renderPerfSnapshot(2000)
+    expect(snapshot.gauges[PERF_GAUGE_VIRTUAL_SLACK]).toBe(980)
+    expect(snapshot.gauges[PERF_GAUGE_VIRTUAL_OVERLAP]).toBe(60)
+    expect(snapshot.gauges[PERF_GAUGE_VIRTUAL_SLACK_VISIBLE]).toBe(120)
+    expect(snapshot.gauges[PERF_GAUGE_VIRTUAL_OVERLAP_VISIBLE]).toBe(60)
+    expect(snapshot.peakGauges[PERF_GAUGE_VIRTUAL_SLACK_VISIBLE]).toBe(120)
+    expect(snapshot.peakGauges[PERF_GAUGE_VIRTUAL_OVERLAP_VISIBLE]).toBe(60)
   })
 
   it('publishes the summed row slack and overlap', () => {

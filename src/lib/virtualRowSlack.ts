@@ -57,16 +57,40 @@ export interface RowSlackRowLike {
   end: number
 }
 
-/** Summed deviation of the rendered rows, in px. Both are `>= 0`. */
+/** Summed deviation of the rendered rows, in px. All four are `>= 0`. */
 export interface RowSlackSums {
   /** Σ max(0, assumed - actual): rows placed lower than their real height needs. */
   slack: number
   /** Σ max(0, actual - assumed): rows whose real height overruns their slot. */
   overlap: number
+  /**
+   * The same two sums restricted to the bands that fell inside the viewport at the moment
+   * of the read. A peak on the totals says the window was inconsistent; only these say
+   * whether the user could see it, or whether it happened in the overscan band off screen.
+   */
+  slackVisible: number
+  overlapVisible: number
+}
+
+/**
+ * The visible part of the scroller, so the sums can be split into "on screen" and "in the
+ * overscan band". Optional: without it every band counts as visible, which can only
+ * over-report and never hide a misplacement.
+ */
+export interface RowSlackViewportLike {
+  /** Current scroll offset of the container. */
+  scrollTop: number
+  /** Visible height of the container. */
+  height: number
 }
 
 /** Shared empty result — never mutated, so callers may return it directly. */
-const NO_ROW_SLACK: RowSlackSums = Object.freeze({ slack: 0, overlap: 0 })
+const NO_ROW_SLACK: RowSlackSums = Object.freeze({
+  slack: 0,
+  overlap: 0,
+  slackVisible: 0,
+  overlapVisible: 0
+})
 
 /**
  * Narrow one queried node to the two members this module reads. A node that is
@@ -97,7 +121,8 @@ function readRowIndex(element: RowSlackElementLike): number | null {
  */
 export function measureRenderedRowSlack(
   container: RowSlackContainerLike | null | undefined,
-  rows: readonly RowSlackRowLike[] | null | undefined
+  rows: readonly RowSlackRowLike[] | null | undefined,
+  viewport?: RowSlackViewportLike | null
 ): RowSlackSums {
   if (!container || !rows || rows.length === 0) return NO_ROW_SLACK
 
@@ -117,13 +142,33 @@ export function measureRenderedRowSlack(
 
   let slack = 0
   let overlap = 0
+  let slackVisible = 0
+  let overlapVisible = 0
+  const viewportTop = viewport ? viewport.scrollTop : 0
+  const viewportBottom = viewport ? viewport.scrollTop + viewport.height : 0
   for (const row of rows) {
     const element = elements.get(row.index)
     // Not rendered (or not yet in the DOM): nothing to compare against.
     if (!element) continue
-    const delta = row.end - row.start - element.offsetHeight
-    if (delta > 0) slack += delta
-    else overlap -= delta
+    const actual = element.offsetHeight
+    // Where the row's content really ends versus where the next row was placed. The band
+    // between the two is the error: a blank stripe when the slot was too tall, an overlap
+    // when it was too short.
+    const contentEnd = row.start + actual
+    const slotEnd = row.end
+    const delta = slotEnd - contentEnd
+    if (delta === 0) continue
+    // The affected band, whichever way the error goes, is `[contentEnd, slotEnd)`.
+    const bandLow = Math.min(contentEnd, slotEnd)
+    const bandHigh = Math.max(contentEnd, slotEnd)
+    const onScreen = !viewport || (bandLow < viewportBottom && bandHigh > viewportTop)
+    if (delta > 0) {
+      slack += delta
+      if (onScreen) slackVisible += delta
+    } else {
+      overlap -= delta
+      if (onScreen) overlapVisible -= delta
+    }
   }
-  return { slack, overlap }
+  return { slack, overlap, slackVisible, overlapVisible }
 }

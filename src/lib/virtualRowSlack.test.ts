@@ -21,6 +21,14 @@ function containerOf(rows: Array<{ index: number; height: number }>): RowSlackCo
 /** `estimateSize` for the message virtualizer — what an unmeasured row assumes. */
 const ESTIMATE = 180
 
+/**
+ * Expected sums when no viewport is handed in: the in-viewport split then counts every
+ * band, so it can only over-report and never hide a misplacement off screen.
+ */
+function sumsOf(slack: number, overlap: number) {
+  return { slack, overlap, slackVisible: slack, overlapVisible: overlap }
+}
+
 describe('measureRenderedRowSlack', () => {
   it('sums slack for rows placed lower than they need and overlap for taller ones', () => {
     const rows = [
@@ -38,7 +46,7 @@ describe('measureRenderedRowSlack', () => {
       rows
     )
 
-    expect(sums).toEqual({ slack: 120, overlap: 540 })
+    expect(sums).toEqual(sumsOf(120, 540))
   })
 
   /**
@@ -66,6 +74,36 @@ describe('measureRenderedRowSlack', () => {
     expect(rows[1]!.start).toBe(REAL - sums.overlap)
   })
 
+  /**
+   * The question a peak on the totals cannot answer: was the misplacement on screen, or
+   * did it happen in the overscan band? Both are measured against the same tick's
+   * viewport, so the split and `v.range` describe one instant.
+   */
+  it('splits the sums into the bands that were inside the viewport', () => {
+    const rows = [
+      { index: 0, start: 0, end: ESTIMATE },
+      { index: 1, start: ESTIMATE, end: ESTIMATE * 2 },
+      { index: 2, start: ESTIMATE * 2, end: ESTIMATE * 3 }
+    ]
+    const container = containerOf([
+      { index: 0, height: ESTIMATE }, // measured: contributes nothing
+      { index: 1, height: 400 }, // 180 assumed vs 400 real → 220 px band, content ends at 580
+      { index: 2, height: 60 } // 180 assumed vs 60 real → 120 px band, content ends at 420
+    ])
+
+    // Viewport [180, 580): both bands are inside it.
+    expect(measureRenderedRowSlack(container, rows, { scrollTop: 180, height: 400 }))
+      .toEqual({ slack: 120, overlap: 220, slackVisible: 120, overlapVisible: 220 })
+
+    // Viewport far below every band: the totals stay, the visible split is 0.
+    expect(measureRenderedRowSlack(container, rows, { scrollTop: 5000, height: 600 }))
+      .toEqual({ slack: 120, overlap: 220, slackVisible: 0, overlapVisible: 0 })
+
+    // Viewport [200, 400): row 1's overlap band reaches into it, row 2's slack band does not.
+    expect(measureRenderedRowSlack(container, rows, { scrollTop: 200, height: 200 }))
+      .toEqual({ slack: 120, overlap: 220, slackVisible: 0, overlapVisible: 220 })
+  })
+
   it('counts a row whose height was measured as neither slack nor overlap', () => {
     const sums = measureRenderedRowSlack(
       containerOf([{ index: 0, height: 240 }, { index: 1, height: 96 }]),
@@ -75,7 +113,7 @@ describe('measureRenderedRowSlack', () => {
       ]
     )
 
-    expect(sums).toEqual({ slack: 0, overlap: 0 })
+    expect(sums).toEqual(sumsOf(0, 0))
   })
 
   it('skips a row whose element is missing instead of reading it as zero-height', () => {
@@ -90,17 +128,17 @@ describe('measureRenderedRowSlack', () => {
     )
 
     // Only row 2 deviates; the missing row contributes nothing either way.
-    expect(sums).toEqual({ slack: 120, overlap: 0 })
+    expect(sums).toEqual(sumsOf(120, 0))
   })
 
   it('reports nothing for an empty window, an empty container or no container', () => {
-    expect(measureRenderedRowSlack(containerOf([]), [])).toEqual({ slack: 0, overlap: 0 })
+    expect(measureRenderedRowSlack(containerOf([]), [])).toEqual(sumsOf(0, 0))
     expect(measureRenderedRowSlack(containerOf([]), [{ index: 0, start: 0, end: ESTIMATE }]))
-      .toEqual({ slack: 0, overlap: 0 })
+      .toEqual(sumsOf(0, 0))
     expect(measureRenderedRowSlack(containerOf([{ index: 0, height: 60 }]), []))
-      .toEqual({ slack: 0, overlap: 0 })
+      .toEqual(sumsOf(0, 0))
     expect(() => measureRenderedRowSlack(null, null)).not.toThrow()
-    expect(measureRenderedRowSlack(null, null)).toEqual({ slack: 0, overlap: 0 })
+    expect(measureRenderedRowSlack(null, null)).toEqual(sumsOf(0, 0))
   })
 
   it('finds the rows through the data-index attribute the measure batch reads', () => {
@@ -123,6 +161,6 @@ describe('measureRenderedRowSlack', () => {
       { index: 5, start: ESTIMATE * 2, end: ESTIMATE * 3 }
     ])
 
-    expect(sums).toEqual({ slack: 120, overlap: 220 })
+    expect(sums).toEqual(sumsOf(120, 220))
   })
 })

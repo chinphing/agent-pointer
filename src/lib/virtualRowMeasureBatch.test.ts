@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Virtualizer, elementScroll } from '@tanstack/virtual-core'
 import { messageVirtualizerBaseOptions } from './messageVirtualization'
 import {
+  applyMeasuredRowSizes,
   createVirtualRowMeasureBatch,
   type VirtualRowMeasureFlushScheduler
 } from './virtualRowMeasureBatch'
@@ -326,5 +327,54 @@ describe('virtual row measure batch', () => {
       'write:2:140'
     ])
     expect(virtualizer.getVirtualItems().map(item => item.size)).toEqual([100, 220, 140])
+  })
+
+  /**
+   * The reason the apply step forces `resizeItem` instead of trusting `measureElement`:
+   * mid-scroll the core skips the resize behind it, so the row would keep its estimate
+   * until the ResizeObserver reported back a frame later — and every row below it would be
+   * placed short by `(real - estimate)` for that frame, which is the `v.overlap` the HUD
+   * shows.
+   */
+  it('applies a measured height in the same flush while the user is scrolling', () => {
+    const log: string[] = []
+    let virtualizer!: Virtualizer<HTMLElement, HTMLDivElement>
+    const batch = createVirtualRowMeasureBatch<HTMLDivElement>({
+      host: createFrameHost(),
+      applySizes(measurements) {
+        applyMeasuredRowSizes(virtualizer, measurements)
+      }
+    })
+
+    virtualizer = new Virtualizer<HTMLElement, HTMLDivElement>({
+      ...messageVirtualizerBaseOptions(3, index => `turn-${index}`),
+      getScrollElement: () => null,
+      scrollToFn: elementScroll,
+      observeElementRect: (_instance, callback) => {
+        callback({ width: 800, height: 600 })
+        return () => {}
+      },
+      observeElementOffset: (_instance, callback) => {
+        callback(0, false)
+        return () => {}
+      },
+      initialRect: { width: 800, height: 600 },
+      initialOffset: 0,
+      measureElement: batch.measureElementOption
+    })
+    virtualizer._didMount()
+    virtualizer._willUpdate()
+    virtualizer.getVirtualItems()
+
+    virtualizer.isScrolling = true
+    const row = asRowElement(new FakeRow(log, 0, 500))
+
+    // Registration only: the core's own path leaves the estimate in place.
+    virtualizer.measureElement(row)
+    expect(virtualizer.itemSizeCache.get('turn-0')).toBeUndefined()
+
+    applyMeasuredRowSizes(virtualizer, [{ index: 0, element: row, size: 500 }])
+    expect(virtualizer.itemSizeCache.get('turn-0')).toBe(500)
+    expect(virtualizer.getVirtualItems().map(item => item.size)).toEqual([500, 180, 180])
   })
 })

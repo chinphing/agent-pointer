@@ -34,7 +34,7 @@ import { rootTracesOf } from '../../lib/subAgentTraceTree'
 import { MESSAGE_VIRTUAL_ROW_CLASS, MESSAGE_VIRTUAL_ROW_ESTIMATE, messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
 import { messageRowMemoDeps } from '../../lib/messageListRowMemo'
 import { createScrollPassScheduler, createViewedStampDedupe } from '../../lib/chatScrollPass'
-import { createVirtualRowMeasureBatch } from '../../lib/virtualRowMeasureBatch'
+import { applyMeasuredRowSizes, createVirtualRowMeasureBatch } from '../../lib/virtualRowMeasureBatch'
 import { createVirtualOffsetObservation } from '../../lib/virtualOffsetObservation'
 import { measureRenderedRowSlack } from '../../lib/virtualRowSlack'
 import {
@@ -2290,10 +2290,13 @@ watch(
 const rowMeasureBatch = createVirtualRowMeasureBatch<HTMLDivElement>({
   applySizes(measurements) {
     const perf = renderPerfEnabled()
-    for (const measurement of measurements) {
-      // Registration plus the height the flush already read.
-      rowVirtualizer.value.measureElement(measurement.element)
-      if (perf) bump('call:measureElement')
+    // Registration plus the height the flush already read — applied inside this flush:
+    // mid-scroll the core's own `measureElement` skips the resize behind it, which left a
+    // freshly mounted row at its estimate until the ResizeObserver reported back a frame
+    // later (see `applyMeasuredRowSizes`).
+    applyMeasuredRowSizes(rowVirtualizer.value, measurements)
+    if (perf) {
+      for (let i = 0; i < measurements.length; i += 1) bump('call:measureElement')
     }
     // Measured heights move every row below them, and the scroll corrections
     // they trigger are clamped while the container still has its previous
@@ -2482,8 +2485,22 @@ const disposePerfGaugeSampler = installRenderPerfGaugeSampler(() => {
   )
   // `measureRenderedRowSlack` queries the rendered rows by their `data-index`,
   // the same attribute the measure batch reads.
-  const rowSlack = measureRenderedRowSlack(scroller.value, virtualRows.value)
-  publishVirtualRowSlackGauges(rowSlack.slack, rowSlack.overlap)
+  const scrollerEl = scroller.value
+  const rowSlack = measureRenderedRowSlack(
+    scrollerEl,
+    virtualRows.value,
+    // Same tick as the geometry above, so the in-viewport split describes the same
+    // instant as `v.range` / `v.total`.
+    scrollerEl
+      ? { scrollTop: scrollerEl.scrollTop, height: scrollerEl.clientHeight }
+      : undefined
+  )
+  publishVirtualRowSlackGauges(
+    rowSlack.slack,
+    rowSlack.overlap,
+    rowSlack.slackVisible,
+    rowSlack.overlapVisible
+  )
   // The height assumed for rows without a measured size — the fixed constant the
   // virtualizer is configured with (`messageVirtualizerBaseOptions`), published
   // next to `v.measured` so the HUD shows what places every unmeasured row.

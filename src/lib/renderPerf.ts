@@ -171,6 +171,13 @@ export const PERF_GAUGE_VIRTUAL_SLACK = 'virtualSlack'
  */
 export const PERF_GAUGE_VIRTUAL_OVERLAP = 'virtualOverlap'
 /**
+ * The same deviation restricted to the bands that were inside the viewport when the
+ * sample was taken. Read next to `virtualOverlap` / `virtualSlack`: a peak on the totals
+ * with these at zero means the window was inconsistent only in the overscan band.
+ */
+export const PERF_GAUGE_VIRTUAL_SLACK_VISIBLE = 'virtualSlackVisible'
+export const PERF_GAUGE_VIRTUAL_OVERLAP_VISIBLE = 'virtualOverlapVisible'
+/**
  * The height assumed for a row that has no measured size yet, in px: the fixed
  * `MESSAGE_VIRTUAL_ROW_ESTIMATE` the virtualizer is configured with. Read next to
  * `virtualMeasured` — it is the number that places every unmeasured row, and the
@@ -506,10 +513,17 @@ export function publishVirtualGeometryGauges(
  * Both sums are built from `max(0, …)`, so a negative here can only come from a
  * caller bug; it is clamped rather than published, the same way the pull spacer is.
  */
-export function publishVirtualRowSlackGauges(slackPx: number, overlapPx: number): void {
+export function publishVirtualRowSlackGauges(
+  slackPx: number,
+  overlapPx: number,
+  slackVisiblePx: number = slackPx,
+  overlapVisiblePx: number = overlapPx
+): void {
   if (!enabled) return
   setGauge(PERF_GAUGE_VIRTUAL_SLACK, slackPx > 0 ? slackPx : 0)
   setGauge(PERF_GAUGE_VIRTUAL_OVERLAP, overlapPx > 0 ? overlapPx : 0)
+  setGauge(PERF_GAUGE_VIRTUAL_SLACK_VISIBLE, slackVisiblePx > 0 ? slackVisiblePx : 0)
+  setGauge(PERF_GAUGE_VIRTUAL_OVERLAP_VISIBLE, overlapVisiblePx > 0 ? overlapVisiblePx : 0)
 }
 
 /**

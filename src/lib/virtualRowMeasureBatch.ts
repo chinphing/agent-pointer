@@ -190,3 +190,40 @@ export function createVirtualRowMeasureBatch<TElement extends HTMLElement = HTML
     }
   }
 }
+
+/**
+ * Minimal view of the virtualizer the apply step needs. Narrower than
+ * `Virtualizer` on purpose: a test double only has to answer these two calls.
+ */
+export interface RowMeasureVirtualizerLike<TElement extends HTMLElement = HTMLElement> {
+  /** Registers the element (element cache + ResizeObserver) and resizes when the core allows it. */
+  measureElement(node: TElement | null): void
+  /** Applies one row size directly. */
+  resizeItem(index: number, size: number): void
+}
+
+/**
+ * Hand one flush's heights to the virtualizer, with the height already read.
+ *
+ * `measureElement` is what keeps the element registered — the core's own
+ * `elementsCache` and the `ResizeObserver` that reports *later* growth both hang off it —
+ * but the core skips the `resizeItem` behind it while the user is scrolling
+ * (`virtual-core`: `if ((!this.isScrolling || this.scrollState) && …)`). That skip is
+ * exactly when a freshly mounted row keeps its `estimateSize`: rows are placed by the
+ * running sum of sizes, so an unmeasured tall row leaves every row below it short by
+ * `(real - estimate)` until the observer reports back a frame later — the `v.overlap` /
+ * `v.slack` the HUD shows.
+ *
+ * The batch has already read the height, so apply it here instead of waiting a frame.
+ * Calling both is idempotent: `resizeItem` early-returns when the size is unchanged, so
+ * the second call is a no-op whenever the first one already landed.
+ */
+export function applyMeasuredRowSizes<TElement extends HTMLElement>(
+  virtualizer: RowMeasureVirtualizerLike<TElement>,
+  measurements: readonly VirtualRowMeasurement<TElement>[]
+): void {
+  for (const measurement of measurements) {
+    virtualizer.measureElement(measurement.element)
+    virtualizer.resizeItem(measurement.index, measurement.size)
+  }
+}

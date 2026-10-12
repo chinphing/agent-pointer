@@ -11,6 +11,8 @@ import {
   PERF_GAUGE_VIRTUAL_LAST,
   PERF_GAUGE_VIRTUAL_MEASURED,
   PERF_GAUGE_VIRTUAL_OVERLAP,
+  PERF_GAUGE_VIRTUAL_OVERLAP_VISIBLE,
+  PERF_GAUGE_VIRTUAL_SLACK_VISIBLE,
   PERF_GAUGE_VIRTUAL_PULL_SPACER,
   PERF_GAUGE_VIRTUAL_SCROLL_HEIGHT,
   PERF_GAUGE_VIRTUAL_SLACK,
@@ -310,6 +312,8 @@ function virtualGeometryLines(
   const pullSpacer = gauges[PERF_GAUGE_VIRTUAL_PULL_SPACER] ?? 0
   const slack = gauges[PERF_GAUGE_VIRTUAL_SLACK] ?? 0
   const overlap = gauges[PERF_GAUGE_VIRTUAL_OVERLAP] ?? 0
+  const slackVisible = gauges[PERF_GAUGE_VIRTUAL_SLACK_VISIBLE] ?? 0
+  const overlapVisible = gauges[PERF_GAUGE_VIRTUAL_OVERLAP_VISIBLE] ?? 0
   const first = gauges[PERF_GAUGE_VIRTUAL_FIRST] ?? -1
   const last = gauges[PERF_GAUGE_VIRTUAL_LAST] ?? -1
   const measured = gauges[PERF_GAUGE_VIRTUAL_MEASURED] ?? 0
@@ -323,11 +327,16 @@ function virtualGeometryLines(
       + `  pk ${formatDistance(peaks[PERF_GAUGE_VIRTUAL_SLACK] ?? 0).padStart(8)}`
       + `  v.overlap ${formatDistance(overlap).padStart(7)}`
       + `  pk ${formatDistance(peaks[PERF_GAUGE_VIRTUAL_OVERLAP] ?? 0).padStart(7)}`,
+    `vis overlap ${formatDistance(overlapVisible).padStart(4)}`
+      + `  pk ${formatDistance(peaks[PERF_GAUGE_VIRTUAL_OVERLAP_VISIBLE] ?? 0).padStart(8)}`
+      + `  vis slack ${formatDistance(slackVisible).padStart(5)}`
+      + `  pk ${formatDistance(peaks[PERF_GAUGE_VIRTUAL_SLACK_VISIBLE] ?? 0).padStart(7)}`,
     `v.range ${(first < 0 ? 'none' : `${first}-${last}`).padStart(8)}`
       + `  v.measured ${String(measured).padStart(5)}`
       + `  v.est ${formatDistance(estimate).padStart(7)}`,
     '  * v.blank agrees by construction (container height := v.total);'
-      + ' v.slack / v.overlap are the per-row truth, pk is their session peak'
+      + ' v.slack / v.overlap are the per-row truth, pk is their session peak;'
+      + ' vis* counts only the bands that were inside the viewport'
   ]
 }
 

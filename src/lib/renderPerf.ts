@@ -107,6 +107,12 @@ export const PERF_MS_KEYS = [
    */
   'ms:forcedLayout',
   /**
+   * Whole markdown render funnel (`markdownConfig`): prep + `marked` + table wrap. It was
+   * only an activity before, so a heavy first render of streamed content showed up as an
+   * unattributed frame gap.
+   */
+  'ms:markdownParse',
+  /**
    * Whole `turnSpawnPlans` recomputation (sub-agent frame placement). Re-runs on every
    * scoped **structure** change, i.e. on each `agent_step` — the moment a spawn starts.
    */

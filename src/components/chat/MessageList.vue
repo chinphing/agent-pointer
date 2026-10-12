@@ -2304,6 +2304,17 @@ const rowMeasureBatch = createVirtualRowMeasureBatch<HTMLDivElement>({
     // offset would keep the pre-correction value and compute a range for a
     // position the scroller is not at. Re-state the element's real offset.
     offsetObservation.sync()
+    if (perf) {
+      // Diagnostic (HUD on): the read pass above forced one layout, and the writes after it
+      // (row offsets, scroll corrections) may have dirtied it again — the browser would pay
+      // for that before paint anyway. Reading one metric here moves the cost inside the
+      // measurement, so a frame gap blamed on this batch can be split into "the layout it
+      // still owed" and "everything else" (paint / composite).
+      const layoutStart = performance.now()
+      const scrollerEl = scroller.value
+      if (scrollerEl) void scrollerEl.offsetHeight
+      record('ms:forcedLayout', performance.now() - layoutStart)
+    }
   },
   wrapFlush(flush) {
     if (!renderPerfEnabled()) {

@@ -27,6 +27,7 @@ import {
   PERF_ACTIVITY_MARKDOWN_PARSE_WRAP,
   beginPerfActivity,
   endPerfActivity,
+  record,
   renderPerfEnabled
 } from './renderPerf'
 
@@ -662,6 +663,7 @@ export function parseMarkdown(src: string, options?: ParseMarkdownOptions): stri
   // rather than at each `parseMarkdown` call site. The three phases nest inside
   // it, so a gap is still blamed on `markdownParse` as a whole.
   const perf = renderPerfEnabled()
+  const parseStartedAt = perf ? performance.now() : 0
   if (perf) beginPerfActivity(PERF_ACTIVITY_MARKDOWN_PARSE)
   try {
     if (perf) beginPerfActivity(PERF_ACTIVITY_MARKDOWN_PARSE_PREP)
@@ -694,6 +696,12 @@ export function parseMarkdown(src: string, options?: ParseMarkdownOptions): stri
     rememberMarkdownParse(cacheKey, src.length, html)
     return html
   } finally {
-    if (perf) endPerfActivity(PERF_ACTIVITY_MARKDOWN_PARSE)
+    if (perf) {
+      endPerfActivity(PERF_ACTIVITY_MARKDOWN_PARSE)
+      // The activity attributes a frame gap to the parse; this also puts the cost in the
+      // `ms:` table, where a heavy first render of streamed content is visible next to the
+      // measure batch it precedes.
+      record('ms:markdownParse', performance.now() - parseStartedAt)
+    }
   }
 }

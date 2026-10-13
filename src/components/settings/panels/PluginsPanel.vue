@@ -5,7 +5,6 @@ const { t } = useI18n()
 
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RefreshCw, Plus, Power, Trash2, Upload, FolderOpen, Download, ChevronDown, FileArchive } from 'lucide-vue-next'
-import { open } from '@tauri-apps/plugin-dialog'
 import { isTauriRuntime } from '../../../lib/runtime'
 import { useSkillsStore } from '../../../stores/skills'
 import {
@@ -180,6 +179,7 @@ async function pickAndImport() {
     return
   }
   try {
+    const { open } = await import('@tauri-apps/plugin-dialog')
     const selected = await open({ directory: true, title: t('settings.plugins.pickDirTitle') })
     if (typeof selected === 'string' && selected) {
       await doImport(selected)
@@ -193,6 +193,7 @@ async function pickAndImport() {
 async function pickZipAndImport() {
   if (!isDesktop) return
   try {
+    const { open } = await import('@tauri-apps/plugin-dialog')
     const selected = await open({
       multiple: false,
       filters: [{ name: t('settings.plugins.zipFilter'), extensions: ['zip'] }],

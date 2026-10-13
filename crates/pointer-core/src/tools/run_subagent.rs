@@ -1,5 +1,6 @@
 //! `run_subagent` tool: executed in the chat runtime (`run_chat_inner`), not via [`ToolRegistry::invoke`].
 use crate::agents::{AgentDef, AgentRegistry};
+use crate::mode_llm::parse_performance_mode;
 use crate::models::ComputerOperationTarget;
 use crate::tools::{ToolEntry, ToolHandler, ToolRegistry};
 use anyhow::{anyhow, Result};
@@ -42,6 +43,9 @@ pub struct RunSubagentArgs {
     pub background: bool,
     /// Continue this finished worker thread (`agentInstanceId`), keeping its transcript.
     pub followup_instance_id: Option<String>,
+    /// Explicit performance tier (`fast` / `standard` / `expert`, aliases normalised).
+    /// `None` = resolve from the agent's local setting, then built-in `standard`.
+    pub performance_mode: Option<String>,
 }
 
 impl RunSubagentArgs {
@@ -59,11 +63,23 @@ impl RunSubagentArgs {
     pub fn allows_background(&self) -> bool {
         agent_id_allows_background(&self.agent_id)
     }
+
+    /// Explicit `workspaceRoot` for the delegated run.
+    ///
+    /// Honored for **every** target. This used to be gated to `coder`, which made
+    /// other targets (e.g. `general`, `explore`) silently fall back to the parent
+    /// workspace / session sandbox.
+    pub fn explicit_workspace_root(&self) -> Option<&str> {
+        self.workspace_root
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+    }
 }
 
-/// `self` / `explore` / `coder` may background; `computer` (and others) must join.
+/// `self` / `explore` / `coder` / `general` may background; `computer` (and others) must join.
 pub fn agent_id_allows_background(agent_id: &str) -> bool {
-    matches!(agent_id.trim(), "self" | "explore" | "coder")
+    matches!(agent_id.trim(), "self" | "explore" | "coder" | "general")
 }
 
 #[derive(Debug, Clone)]
@@ -94,7 +110,7 @@ pub fn validate_spawn_depth(parent_spawn_depth: u32, max_spawn_depth: u32) -> Re
     Ok(child)
 }
 
-/// Background spawn for `self` / `explore` / `coder`. Desktop (`computer`) must join.
+/// Background spawn for `self` / `explore` / `coder` / `general`. Desktop (`computer`) must join.
 pub fn validate_background_target(parsed: &RunSubagentArgs) -> Result<(), String> {
     if !parsed.background {
         return Ok(());
@@ -103,7 +119,7 @@ pub fn validate_background_target(parsed: &RunSubagentArgs) -> Result<(), String
         return Ok(());
     }
     Err(
-        "background is only supported for agentId self, explore, or coder; computer must join in the foreground"
+        "background is only supported for agentId self, explore, coder, or general; computer must join in the foreground"
             .into(),
     )
 }
@@ -160,6 +176,33 @@ fn parse_computer_target(args: &Value) -> Option<ComputerOperationTarget> {
     }
 }
 
+/// Parse the optional `performanceMode` argument.
+///
+/// An explicit but unknown value is a hard error: a tier request must never be
+/// silently downgraded. Aliases (`quick` / `primary` / `advanced` / `high`) are
+/// normalised to the canonical `fast` / `standard` / `expert`.
+fn parse_performance_mode_arg(args: &Value) -> Result<Option<String>, String> {
+    let Some(raw) = args.get("performanceMode") else {
+        return Ok(None);
+    };
+    if raw.is_null() {
+        return Ok(None);
+    }
+    let Some(text) = raw.as_str() else {
+        return Err("performanceMode must be a string".to_string());
+    };
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("performanceMode must not be empty".to_string());
+    }
+    match parse_performance_mode(text) {
+        Some(mode) => Ok(Some(mode.to_string())),
+        None => Err(format!(
+            "invalid performanceMode `{text}`: expected fast, standard, or expert (aliases: quick, primary, advanced, high)"
+        )),
+    }
+}
+
 /// Parse tool JSON for `run_subagent`.
 pub fn parse_run_subagent_args(args: &Value) -> Result<RunSubagentArgs, String> {
     let agent_id = args
@@ -199,8 +242,9 @@ pub fn parse_run_subagent_args(args: &Value) -> Result<RunSubagentArgs, String> 
         .filter(|s| !s.is_empty())
         .map(str::to_string);
     let computer_target = parse_computer_target(args);
+    let performance_mode = parse_performance_mode_arg(args)?;
     let agent_id = agent_id.to_string();
-    // self / explore / coder: omit = background (idle push closes the loop).
+    // self / explore / coder / general: omit = background (idle push closes the loop).
     // computer stays foreground unless the model sets true (then validate fails).
     let background = args
         .get("background")
@@ -222,6 +266,7 @@ pub fn parse_run_subagent_args(args: &Value) -> Result<RunSubagentArgs, String> 
         computer_target,
         background,
         followup_instance_id,
+        performance_mode,
     })
 }
 
@@ -383,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_background_defaults_true_for_self_explore_and_coder() {
+    fn parse_background_defaults_true_for_self_explore_coder_and_general() {
         let self_omit = parse_run_subagent_args(&json!({
             "agentId": "self",
             "goal": "What: inspect\nDone when: report"
@@ -402,6 +447,12 @@ mod tests {
         }))
         .unwrap();
         assert!(coder_omit.background);
+        let general_omit = parse_run_subagent_args(&json!({
+            "agentId": "general",
+            "goal": "What: summarise\nDone when: summary"
+        }))
+        .unwrap();
+        assert!(general_omit.background);
         let self_fg = parse_run_subagent_args(&json!({
             "agentId": "self",
             "goal": "What: inspect\nDone when: report",
@@ -453,6 +504,73 @@ mod tests {
         }))
         .unwrap();
         assert!(parsed.context.contains("grep done"));
+    }
+
+    #[test]
+    fn parse_performance_mode_normalizes_aliases_and_defaults_none() {
+        let omitted = parse_run_subagent_args(&json!({
+            "agentId": "explore",
+            "goal": "map"
+        }))
+        .unwrap();
+        assert!(omitted.performance_mode.is_none());
+
+        let explicit = parse_run_subagent_args(&json!({
+            "agentId": "explore",
+            "goal": "map",
+            "performanceMode": "expert"
+        }))
+        .unwrap();
+        assert_eq!(explicit.performance_mode.as_deref(), Some("expert"));
+
+        let alias = parse_run_subagent_args(&json!({
+            "agentId": "explore",
+            "goal": "map",
+            "performanceMode": " high "
+        }))
+        .unwrap();
+        assert_eq!(alias.performance_mode.as_deref(), Some("expert"));
+
+        let quick = parse_run_subagent_args(&json!({
+            "agentId": "self",
+            "goal": "map",
+            "performanceMode": "primary"
+        }))
+        .unwrap();
+        assert_eq!(quick.performance_mode.as_deref(), Some("fast"));
+
+        let standard = parse_run_subagent_args(&json!({
+            "agentId": "coder",
+            "goal": "map",
+            "performanceMode": "standard"
+        }))
+        .unwrap();
+        assert_eq!(standard.performance_mode.as_deref(), Some("standard"));
+    }
+
+    #[test]
+    fn parse_rejects_unknown_performance_mode_without_silent_downgrade() {
+        let err = parse_run_subagent_args(&json!({
+            "agentId": "explore",
+            "goal": "map",
+            "performanceMode": "turbo"
+        }))
+        .unwrap_err();
+        assert!(err.contains("invalid performanceMode"), "{err}");
+
+        assert!(parse_run_subagent_args(&json!({
+            "agentId": "explore",
+            "goal": "map",
+            "performanceMode": ""
+        }))
+        .is_err());
+
+        assert!(parse_run_subagent_args(&json!({
+            "agentId": "explore",
+            "goal": "map",
+            "performanceMode": 3
+        }))
+        .is_err());
     }
 
     #[test]
@@ -561,6 +679,30 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(parsed.workspace_root.as_deref(), Some("/tmp/my-project"));
+    }
+
+    #[test]
+    fn explicit_workspace_root_is_honored_for_every_target() {
+        for agent in ["coder", "general", "explore"] {
+            let parsed = parse_run_subagent_args(&json!({
+                "agentId": agent,
+                "goal": "What: work\nDone when: done",
+                "workspaceRoot": "/tmp/my-project"
+            }))
+            .unwrap();
+            assert_eq!(
+                parsed.explicit_workspace_root(),
+                Some("/tmp/my-project"),
+                "{agent} must honor workspaceRoot"
+            );
+        }
+        let blank = parse_run_subagent_args(&json!({
+            "agentId": "general",
+            "goal": "What: work\nDone when: done",
+            "workspaceRoot": "   "
+        }))
+        .unwrap();
+        assert_eq!(blank.explicit_workspace_root(), None);
     }
 
     #[test]

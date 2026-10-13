@@ -1778,7 +1778,7 @@ pub const WEB_SEARCH_SCENE_ID: &str = "web_search";
 ///
 /// Resolution order:
 /// 1. `POINTER_WEB_SEARCH_MODEL` env
-/// 2. `agentModeLlm.web_search[agentPerformanceModes.web_search]` (settings UI tiers)
+/// 2. `agentModeLlm.web_search[agentPerformanceModes.web_search ?? "fast"]` (settings UI tiers)
 /// 3. legacy `webSearchModel` string
 /// 4. first model on a DashScope-compatible provider
 /// 5. compile-time / `DEFAULT_WEB_SEARCH_MODEL`
@@ -1811,8 +1811,15 @@ pub fn effective_web_search_model(settings: &ModelSettings, _agent_id: Option<&s
 }
 
 /// Tier map entry for `web_search` (same shape as general/coder `agentModeLlm`).
+///
+/// The scene keeps the **`fast`** fallback: only the *agent* tier defaults to
+/// `standard`, so an unconfigured web-search scene must not be dragged along.
 fn resolve_web_search_mode_llm_config(settings: &ModelSettings) -> Option<&ComputerTierLlmConfig> {
-    let mode = crate::mode_llm::agent_performance_mode(settings, WEB_SEARCH_SCENE_ID);
+    let mode = crate::mode_llm::agent_performance_mode_with_default(
+        settings,
+        WEB_SEARCH_SCENE_ID,
+        crate::mode_llm::PERFORMANCE_MODE_FAST,
+    );
     let inner = settings.agent_mode_llm.get(WEB_SEARCH_SCENE_ID)?;
     let cfg = inner.get(mode)?;
     if cfg.model.trim().is_empty() {
@@ -3788,6 +3795,43 @@ mod effective_web_search_model_tests {
         let mut settings = ModelSettings::default();
         settings.web_search_model = "from-legacy".into();
         assert_eq!(effective_web_search_model(&settings, None), "from-legacy");
+    }
+
+    #[test]
+    fn unset_web_search_scene_prefers_fast_over_standard_tier() {
+        let mut settings = ModelSettings::default();
+        // Both tiers exist, but the scene mode is unset: the non-agent `web_search`
+        // scene keeps the `fast` fallback (only agent tiers default to `standard`).
+        let mut tiers = HashMap::new();
+        for (mode, model) in [
+            ("fast", "qwen3-fast-2026"),
+            ("standard", "qwen3-standard-2026"),
+        ] {
+            tiers.insert(
+                mode.into(),
+                ComputerTierLlmConfig {
+                    provider_id: "qwen".into(),
+                    model: model.into(),
+                    enable_thinking: true,
+                    thinking_budget: None,
+                    reasoning_effort: None,
+                    thinking_intensity: None,
+                },
+            );
+        }
+        settings
+            .agent_mode_llm
+            .insert(WEB_SEARCH_SCENE_ID.into(), tiers);
+        assert!(
+            !settings
+                .agent_performance_modes
+                .contains_key(WEB_SEARCH_SCENE_ID),
+            "precondition: scene mode unset"
+        );
+        assert_eq!(
+            effective_web_search_model(&settings, None),
+            "qwen3-fast-2026"
+        );
     }
 }
 

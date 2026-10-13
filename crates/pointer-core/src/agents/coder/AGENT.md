@@ -13,6 +13,7 @@ defaultSkillIds:
 skillsPolicy: userConfigurable
 allowAgents:
   - explore
+  - general
 accessPolicy:
   allowTools:
     - file_read

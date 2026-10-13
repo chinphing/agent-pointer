@@ -23,6 +23,12 @@ schema:
         - external
     background:
       type: boolean
+    performanceMode:
+      type: string
+      description: >-
+        Optional worker performance tier: fast | standard | expert.
+        Omit to use the agent's local setting, then the built-in standard
+        fallback.
   required:
     - agentId
     - goal
@@ -35,8 +41,10 @@ Hand off one **self-contained task** to a registered worker or a **self fork**.
 
 **What the parent receives**
 
-- Default for **`self`** / **`explore`** / **`coder`**: **`{ jobId, status: "running", kind: "subagent" }`**
+- Default for **`self`** / **`explore`** / **`coder`** / **`general`**: **`{ jobId, status: "running", kind: "subagent" }`**
   immediately (omit `background` or set `true`).
+  The handle also carries the worker's effective tier as **`performanceMode`**
+  (same value as the foreground handoff); a **`terminal`** handle never carries it.
   That handle stays this call's result; the worker body is **not** written back here.
   Use **`job.await`** when this turn needs results.
   If this turn can end, do not tell the user everything is finished.
@@ -76,7 +84,7 @@ Await only when the user's question cannot be answered without the result.
   leaf and has no **`run_subagent`**.
 - Registered delegation stops at **`maxSubAgentSpawnDepth`** (default 2).
 - Nesting nodes: **`general`** → `coder` / `computer` / `explore`;
-  **`coder`** → `explore`; **`explore`** → `explore` only (read-only, never
+  **`coder`** → `explore` / `general`; **`explore`** → `explore` only (read-only, never
   `coder`); **`computer`** stays a leaf and always foreground.
 - Concurrency: **`maxParallelSubAgents`** (the single user-visible knob, also
   shown as "sub-agents" in settings) caps how many sub-agents run at once. A
@@ -112,10 +120,10 @@ Do not pack unrelated work; do not split a tight one-file edit.
   - no user-interactive or desktop-control work
 - Otherwise: one call, or sequential turns.
 
-**Background (`self`, `explore`, and `coder`)**
+**Background (`self`, `explore`, `coder`, and `general`)**
 
 - Omit / `true` = return `jobId` now; the worker keeps running
-  (**default** for `self` / `explore` / `coder`).
+  (**default** for `self` / `explore` / `coder` / `general`).
 - `false` = wait until the worker finishes (foreground join).
 - Use **`background: false`** when the **next step in this turn**
   is blocked on that result and you will not call `job.await`.
@@ -274,6 +282,15 @@ Unverified assumptions (optional).
 - Follow **`coder` (general lead only)** above for **`workspaceRoot`**.
 - Do **not** send patch hunks or **`oldString`/`newString`** — put edit ideas in **Lead suggestion (non-binding)**.
 
+**`general` goals**
+
+- Leave **`workspaceRoot`** unset by default — the worker keeps the current
+  workspace / session sandbox.
+- Pass it only when the **user explicitly named a path**; otherwise, if the task
+  must write files, point it at a **subdirectory of the default working
+  directory** (e.g. `<workspace>/<task>/`), never at a repo root or a skill root,
+  so the run does not scatter junk files.
+
 **`self` fork goals**
 
 - **`What:`** + **`Done when:`** (research, skill procedure, attachments, or implementation slice).
@@ -328,12 +345,21 @@ User required a specific path — put it in **`context`**, not **`goal`**:
   Do not use this while that worker is still running.
   Do not use it for a shell job (no `agentInstanceId`).
 - **`workspaceRoot`** (**required** when **`agentId`** is **`coder`**) —
-  Absolute directory for the coder worker.
-  Optional for a self fork; when present, it overrides the current workspace.
+  Absolute directory for the delegated run. Honored for **every** target
+  (`coder` / `explore` / `general` / self forks); when present it overrides the
+  current workspace. An invalid path is rejected — never a silent fallback.
+  For **`general`**, prefer omitting it; pass it only when the user explicitly
+  named a path, otherwise use a subdirectory of the default working directory —
+  never a repo/skill root.
 - **`computerTarget`** (optional, **general → `computer`**) — `self` | `external`.
-- **`background`** (optional) — `self` / `explore` / `coder`.
+- **`background`** (optional) — `self` / `explore` / `coder` / `general`.
   Omit / `true` = job handle now (default).
   `false` = foreground join. **`computer`** ignores and always joins.
+- **`performanceMode`** (optional) — `fast` | `standard` | `expert`.
+  Overrides the worker's tier for this one call, self forks included. Omit to
+  use the agent's local `agentPerformanceModes` setting; when that is unset the
+  worker falls back to **`standard`**. An unknown value is rejected — it is
+  never silently downgraded.
 
 **Handoff flow**
 

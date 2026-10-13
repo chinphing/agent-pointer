@@ -381,7 +381,7 @@ export const useSettingsStore = defineStore('settings', () => {
     },
     agentModeLlm: defaultAgentModeLlm(),
     mediaModeLlm: defaultMediaModeLlm(),
-    agentPerformanceModes: { general: 'fast', coder: 'fast' },
+    agentPerformanceModes: { general: 'standard', coder: 'standard' },
     mediaUnderstandingModes: { image: 'fast', audio: 'fast', video: 'fast' },
     parallelToolExecutionEnabled: true,
     theme: 'system'
@@ -992,7 +992,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function getAgentPerformanceMode(agentId: string): PerformanceMode {
-    return settings.value.agentPerformanceModes?.[agentId] ?? 'fast'
+    return settings.value.agentPerformanceModes?.[agentId] ?? 'standard'
   }
 
   async function setMediaUnderstandingMode(

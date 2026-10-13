@@ -1087,6 +1087,7 @@ async fn run_self_fork_wave(
                         pass.ctx.provider.settings.clone(),
                         pass.ctx.provider.api_key.clone(),
                     ),
+                    performance_mode: invocation.performance_mode,
                     parent_task_board_store_key: prep.task_board_store_key.clone(),
                     message_id: pass.ctx.message_id.clone(),
                     tool_call_id: prep.tc.id.clone(),
@@ -1248,6 +1249,7 @@ async fn run_self_fork_wave(
                             cancel: CancellationToken::new(),
                             settings: pass.ctx.provider.settings.clone(),
                             api_key: pass.ctx.provider.api_key.clone(),
+                            performance_mode: input.performance_mode.clone(),
                             parent_task_board_store_key: input.parent_task_board_store_key.clone(),
                             message_id: input.message_id.clone(),
                             tool_call_id: input.tool_call_id.clone(),
@@ -1268,11 +1270,18 @@ async fn run_self_fork_wave(
                             followup_reserve: input.followup_reserve.take(),
                         },
                     );
+                    let handle_performance =
+                        super::run_subagent_delegation::owned_spawn_performance_mode(
+                            &pass.ctx.provider.settings,
+                            &input.source,
+                            input.performance_mode.as_deref(),
+                        );
                     record_background_spawn_result(
                         pass,
                         prep,
                         &job_id,
                         Some(child_scope.agent_instance_id.as_str()),
+                        Some(handle_performance),
                     );
                     *any_executed = true;
                     continue;
@@ -1446,12 +1455,14 @@ fn record_background_spawn_result(
     prep: &PreparedTool,
     job_id: &str,
     agent_instance_id: Option<&str>,
+    performance_mode: Option<&str>,
 ) {
     let body = super::run_subagent_delegation::background_job_handle_json(
         job_id,
         super::job_supervisor::JobStatus::Running,
         "subagent",
         agent_instance_id,
+        performance_mode,
     );
     log::info!(
         "run_subagent background tool result conversation_id={} tool_call_id={} job_id={job_id}",

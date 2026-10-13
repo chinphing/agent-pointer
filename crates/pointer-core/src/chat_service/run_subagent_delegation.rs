@@ -122,6 +122,20 @@ fn handoff_with_open_background_jobs(
     }
 }
 
+/// Attach the worker's effective performance tier to a foreground handoff, so the
+/// caller can see which tier actually ran. Additive: unknown/opaque bodies pass
+/// through unchanged.
+fn annotate_handoff_performance_mode(json: String, mode: &str) -> String {
+    let Ok(serde_json::Value::Object(mut obj)) = serde_json::from_str(&json) else {
+        return json;
+    };
+    obj.insert(
+        "performanceMode".to_string(),
+        serde_json::Value::String(mode.to_string()),
+    );
+    serde_json::Value::Object(obj).to_string()
+}
+
 pub(super) struct PreparedSubagentOutcome {
     pub tool_call_id: String,
     pub task_id: String,
@@ -153,6 +167,8 @@ pub(crate) struct OwnedSubagentExecutionInput<'a> {
     pub conversation_id: &'a str,
     pub cancel: CancellationToken,
     pub provider: OpenAIProvider,
+    /// Explicit `performanceMode` from the `run_subagent` args (canonical tier).
+    pub performance_mode: Option<String>,
     pub parent_task_board_store_key: String,
     pub message_id: String,
     pub tool_call_id: String,
@@ -493,6 +509,7 @@ pub(super) async fn execute_owned_subagent(
         conversation_id,
         cancel,
         provider,
+        performance_mode,
         parent_task_board_store_key,
         message_id,
         tool_call_id,
@@ -595,6 +612,7 @@ pub(super) async fn execute_owned_subagent(
         agent_skill_overrides: overrides,
         task: &task,
         definition_source,
+        performance_mode: performance_mode.as_deref(),
         instance_scope: instance_scope.clone(),
         sub_tool_budget: &mut sub_budget,
         llm_stats: &mut child_usage,
@@ -615,6 +633,12 @@ pub(super) async fn execute_owned_subagent(
                     &instance_scope.agent_instance_id,
                     json,
                 );
+                let mode = crate::mode_llm::resolve_sub_agent_performance_mode(
+                    &provider.settings,
+                    &def_for_trace.id,
+                    performance_mode.as_deref(),
+                );
+                let json = annotate_handoff_performance_mode(json, mode);
                 (
                     build_subagent_trace(
                         &task,
@@ -743,6 +767,8 @@ pub(crate) struct BackgroundOwnedSpawn {
     pub cancel: CancellationToken,
     pub settings: crate::models::ModelSettings,
     pub api_key: String,
+    /// Explicit `performanceMode` from the `run_subagent` args (canonical tier).
+    pub performance_mode: Option<String>,
     pub parent_task_board_store_key: String,
     pub message_id: String,
     pub tool_call_id: String,
@@ -901,6 +927,13 @@ async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwne
     // Held until this task returns so a second follow-up cannot start on the same instance.
     let _followup_reserve = spawn.followup_reserve.take();
     let started = Instant::now();
+    // The handle carries the worker's effective tier (same fields as the foreground
+    // handoff), resolved once through the shared chain.
+    let handle_performance = owned_spawn_performance_mode(
+        &spawn.settings,
+        &spawn.source,
+        spawn.performance_mode.as_deref(),
+    );
     let cap =
         crate::tools::parallel::ParallelLimits::from_settings(&spawn.state.effective_settings())
             .max_parallel_sub_agents;
@@ -965,6 +998,7 @@ async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwne
                     spawn.host_trace_id.as_deref(),
                     spawn.host_scoped_message_id.as_deref(),
                     Some(spawn.instance_scope.agent_instance_id.as_str()),
+                    Some(handle_performance),
                 );
                 emit_background_jobs(&spawn.stream, &spawn.conversation_id, &spawn.state.jobs);
                 return;
@@ -1024,6 +1058,7 @@ async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwne
                 spawn.host_trace_id.as_deref(),
                 spawn.host_scoped_message_id.as_deref(),
                 Some(spawn.instance_scope.agent_instance_id.as_str()),
+                Some(handle_performance),
             );
             emit_background_jobs(&spawn.stream, &spawn.conversation_id, &spawn.state.jobs);
             return;
@@ -1038,6 +1073,7 @@ async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwne
         conversation_id: &spawn.conversation_id,
         cancel: spawn.cancel.clone(),
         provider,
+        performance_mode: spawn.performance_mode.clone(),
         parent_task_board_store_key: spawn.parent_task_board_store_key.clone(),
         message_id: spawn.message_id.clone(),
         tool_call_id: spawn.tool_call_id.clone(),
@@ -1127,6 +1163,7 @@ async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwne
         spawn.host_trace_id.as_deref(),
         spawn.host_scoped_message_id.as_deref(),
         Some(spawn.instance_scope.agent_instance_id.as_str()),
+        Some(handle_performance),
     );
     emit_background_jobs(&spawn.stream, &spawn.conversation_id, &spawn.state.jobs);
 }
@@ -1135,11 +1172,16 @@ async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwne
 /// Aligns with Cursor (do not splice background answers into the original Task) and
 /// Codex (`spawn_agent` stays an id; content comes from wait/notification).
 /// `kind` is `subagent` or `terminal` so the parent can tell them apart.
+///
+/// `performance_mode` is the worker's effective tier — the same field name/value the
+/// foreground handoff carries. `None` omits it, so a non-subagent handle (`terminal`)
+/// keeps its exact shape.
 pub(crate) fn background_job_handle_json(
     job_id: &str,
     status: super::job_supervisor::JobStatus,
     kind: &'static str,
     agent_instance_id: Option<&str>,
+    performance_mode: Option<&str>,
 ) -> String {
     let mut obj = serde_json::json!({
         "jobId": job_id,
@@ -1149,7 +1191,27 @@ pub(crate) fn background_job_handle_json(
     if let Some(id) = agent_instance_id.filter(|s| !s.trim().is_empty()) {
         obj["agentInstanceId"] = serde_json::Value::String(id.to_string());
     }
+    if let Some(mode) = performance_mode {
+        obj["performanceMode"] = serde_json::Value::String(mode.to_string());
+    }
     obj.to_string()
+}
+
+/// Effective tier for a spawned worker, as the job handle carries it.
+///
+/// Resolved through the **same** chain the sub-agent provider uses
+/// (`performanceMode` > local `agentPerformanceModes[agentId]` > `standard`) — the
+/// handle must never re-derive it on its own.
+pub(crate) fn owned_spawn_performance_mode(
+    settings: &crate::models::ModelSettings,
+    source: &OwnedSubagentSource,
+    explicit: Option<&str>,
+) -> &'static str {
+    let agent_id = match source {
+        OwnedSubagentSource::SelfFork(snapshot) => snapshot.def.id.as_str(),
+        OwnedSubagentSource::Registered(def) => def.id.as_str(),
+    };
+    crate::mode_llm::resolve_sub_agent_performance_mode(settings, agent_id, explicit)
 }
 
 fn host_ui_status_for_job(status: super::job_supervisor::JobStatus) -> &'static str {
@@ -1319,8 +1381,15 @@ fn complete_background_host_tool(
     host_trace_id: Option<&str>,
     host_scoped_message_id: Option<&str>,
     agent_instance_id: Option<&str>,
+    performance_mode: Option<&str>,
 ) {
-    let handle = background_job_handle_json(job_id, job_status, "subagent", agent_instance_id);
+    let handle = background_job_handle_json(
+        job_id,
+        job_status,
+        "subagent",
+        agent_instance_id,
+        performance_mode,
+    );
     let ui_status = host_ui_status_for_job(job_status);
     emit_and_persist_host_tool_finish(
         stream,
@@ -1604,6 +1673,8 @@ pub(super) async fn run_subagent_delegation(
     match parsed {
         Err(msg) => Ok((format!("ERROR: {msg}"), false, Some(msg))),
         Ok(parsed) => {
+            // Explicit tier travels with the spawn so self forks can change tier.
+            let performance_mode = parsed.performance_mode.clone();
             let child_spawn_depth =
                 match validate_spawn_depth(ctx.parent_spawn_depth, max_spawn_depth) {
                     Ok(d) => d,
@@ -1615,6 +1686,7 @@ pub(super) async fn run_subagent_delegation(
             if let Err(msg) = validate_background_target(&parsed) {
                 return Ok((format!("ERROR: {msg}"), false, Some(msg)));
             }
+            let explicit_workspace_root = parsed.explicit_workspace_root().map(str::to_string);
             let agent_id = parsed.agent_id;
             match crate::tools::run_subagent::validate_run_subagent_target(
                 &state.agents,
@@ -1703,6 +1775,12 @@ pub(super) async fn run_subagent_delegation(
                                 conversation_id,
                             )
                         };
+                        // Resolve before `def` moves into the spawn; the handle carries it.
+                        let handle_mode = crate::mode_llm::resolve_sub_agent_performance_mode(
+                            &provider.settings,
+                            &def.id,
+                            performance_mode.as_deref(),
+                        );
                         let job_id = spawn_background_owned_subagent(BackgroundOwnedSpawn {
                             stream: stream.clone(),
                             state: ctx.state_arc.clone(),
@@ -1710,6 +1788,7 @@ pub(super) async fn run_subagent_delegation(
                             cancel: CancellationToken::new(),
                             settings: provider.settings.clone(),
                             api_key: provider.api_key.clone(),
+                            performance_mode: performance_mode.clone(),
                             parent_task_board_store_key: parent_task_board_store_key.to_string(),
                             message_id: message_id.to_string(),
                             tool_call_id: tool_call_id.to_string(),
@@ -1736,6 +1815,7 @@ pub(super) async fn run_subagent_delegation(
                             super::job_supervisor::JobStatus::Running,
                             "subagent",
                             Some(child_scope.agent_instance_id.as_str()),
+                            Some(handle_mode),
                         );
                         log::info!(
                             "run_subagent serial background spawn conversation_id={conversation_id} tool_call_id={tool_call_id} job_id={job_id}"
@@ -1804,11 +1884,7 @@ pub(super) async fn run_subagent_delegation(
                     }
                     let mut sub_settings = provider.settings.clone();
                     let prior_workspace = sub_settings.workspace_root.clone();
-                    let explicit_ws = if def.id == "coder" {
-                        parsed.workspace_root.as_deref()
-                    } else {
-                        None
-                    };
+                    let explicit_ws = explicit_workspace_root.as_deref();
                     let workspace_restore =
                         match crate::workspace_delegation::ensure_subagent_workspace(
                             conversation_id,
@@ -1945,6 +2021,7 @@ pub(super) async fn run_subagent_delegation(
                         agent_skill_overrides: ctx.agent_skill_overrides,
                         task: &task,
                         definition_source,
+                        performance_mode: performance_mode.as_deref(),
                         instance_scope: instance_scope.clone(),
                         sub_tool_budget: &mut sub_budget,
                         llm_stats: ctx.llm_stats,
@@ -1975,6 +2052,12 @@ pub(super) async fn run_subagent_delegation(
                                 &instance_scope.agent_instance_id,
                                 json,
                             );
+                            let mode = crate::mode_llm::resolve_sub_agent_performance_mode(
+                                &provider.settings,
+                                &def.id,
+                                performance_mode.as_deref(),
+                            );
+                            let json = annotate_handoff_performance_mode(json, mode);
                             emit_subagent_trace_step(
                                 stream,
                                 ctx,
@@ -2525,12 +2608,38 @@ mod trace_tests {
             crate::chat_service::job_supervisor::JobStatus::Completed,
             "subagent",
             None,
+            Some("standard"),
         );
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["jobId"], "job_1");
         assert_eq!(v["status"], "completed");
         assert_eq!(v["kind"], "subagent");
+        // A subagent handle reports the worker's effective tier — and only that:
+        // `performanceModeSource` is gone from the public shape.
+        assert_eq!(v["performanceMode"], "standard");
+        assert!(v.get("performanceModeSource").is_none());
         assert!(v.get("content").is_none());
+    }
+
+    #[test]
+    fn terminal_job_handle_has_no_performance_mode_fields() {
+        // `background_job_handle_json` is shared with terminal jobs: passing `None`
+        // must keep that handle's shape byte-for-byte identical to before.
+        let json = background_job_handle_json(
+            "job_t",
+            crate::chat_service::job_supervisor::JobStatus::Running,
+            "terminal",
+            None,
+            None,
+        );
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["jobId"], "job_t");
+        assert_eq!(v["status"], "running");
+        assert_eq!(v["kind"], "terminal");
+        assert!(v.get("performanceMode").is_none());
+        assert!(v.get("performanceModeSource").is_none());
+        assert!(v.get("agentInstanceId").is_none());
+        assert_eq!(v.as_object().unwrap().len(), 3);
     }
 
     #[test]
@@ -2567,6 +2676,7 @@ mod trace_tests {
             crate::chat_service::job_supervisor::JobStatus::Completed,
             None,
             Some(42),
+            None,
             None,
             None,
             None,
@@ -2837,6 +2947,7 @@ mod trace_tests {
             conversation_id: "conversation",
             cancel,
             provider,
+            performance_mode: None,
             parent_task_board_store_key: "parent-board".into(),
             message_id: "anchor".into(),
             tool_call_id: "call-cancel".into(),
@@ -2904,6 +3015,7 @@ mod trace_tests {
                     crate::models::ModelSettings::default(),
                     String::new(),
                 ),
+                performance_mode: None,
                 parent_task_board_store_key: "parent-board".into(),
                 message_id: "anchor".into(),
                 tool_call_id: tool_call_id.into(),

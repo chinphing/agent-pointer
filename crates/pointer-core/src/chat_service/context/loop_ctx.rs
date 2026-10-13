@@ -42,6 +42,8 @@ pub struct SubAgentLoopContext<'a> {
     pub agent_skill_overrides: &'a HashMap<String, Vec<String>>,
     pub task: &'a AgentTask,
     pub definition_source: SubAgentDefinitionSource<'a>,
+    /// Explicit `run_subagent` performance tier (`None` = resolve from local settings).
+    pub performance_mode: Option<&'a str>,
     pub instance_scope: AgentInstanceScope,
     pub sub_tool_budget: &'a mut SessionToolBudget,
     pub llm_stats: &'a mut ConversationLlmStats,

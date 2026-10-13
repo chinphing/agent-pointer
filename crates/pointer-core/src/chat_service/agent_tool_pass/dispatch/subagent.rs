@@ -27,6 +27,8 @@ pub(in crate::chat_service::agent_tool_pass) struct PreparedOwnedSubagentInvocat
     pub run_id: String,
     pub task: crate::agents::AgentTask,
     pub source: crate::chat_service::run_subagent_delegation::OwnedSubagentSource,
+    /// Explicit `performanceMode` (canonical tier); `None` = local setting / standard.
+    pub performance_mode: Option<String>,
     /// Real spawn depth of the child; every node (self fork included) consumes one level.
     pub child_spawn_depth: u32,
     pub max_spawn_depth: u32,
@@ -35,7 +37,7 @@ pub(in crate::chat_service::agent_tool_pass) struct PreparedOwnedSubagentInvocat
 fn prepare_owned_parallel_task(
     args_value: &serde_json::Value,
     tool_call_id: &str,
-) -> Result<(crate::agents::AgentTask, Option<String>), String> {
+) -> Result<(crate::agents::AgentTask, Option<String>, Option<String>), String> {
     let parsed = crate::tools::run_subagent::parse_run_subagent_args(args_value)?;
     if !parsed.is_parallel_wave_target() {
         return Err(format!(
@@ -64,6 +66,7 @@ fn prepare_owned_parallel_task(
             depends_on: vec![],
         },
         parsed.workspace_root,
+        parsed.performance_mode,
     ))
 }
 
@@ -79,7 +82,8 @@ pub(in crate::chat_service::agent_tool_pass) fn prepare_owned_subagent_invocatio
     args_value: &serde_json::Value,
     tool_call_id: &str,
 ) -> Result<PreparedOwnedSubagentInvocation, String> {
-    let (task, explicit_workspace_root) = prepare_owned_parallel_task(args_value, tool_call_id)?;
+    let (task, explicit_workspace_root, performance_mode) =
+        prepare_owned_parallel_task(args_value, tool_call_id)?;
     let max_spawn_depth = max_spawn_depth.max(1);
     if task.agent_id == "self" {
         let workspace_root = match explicit_workspace_root.as_deref() {
@@ -96,6 +100,7 @@ pub(in crate::chat_service::agent_tool_pass) fn prepare_owned_subagent_invocatio
             source: crate::chat_service::run_subagent_delegation::OwnedSubagentSource::SelfFork(
                 build_active_self_fork_snapshot(state, active, allow_agents, &workspace_root),
             ),
+            performance_mode,
             child_spawn_depth,
             max_spawn_depth,
         });
@@ -122,6 +127,7 @@ pub(in crate::chat_service::agent_tool_pass) fn prepare_owned_subagent_invocatio
         run_id: run_id.to_string(),
         task,
         source: crate::chat_service::run_subagent_delegation::OwnedSubagentSource::Registered(def),
+        performance_mode,
         child_spawn_depth,
         max_spawn_depth,
     })

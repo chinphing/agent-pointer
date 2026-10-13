@@ -1835,7 +1835,7 @@ mod builtin_agent_tests {
     }
 
     #[test]
-    fn coder_builtin_allow_agents_includes_explore() {
+    fn coder_builtin_allow_agents_includes_explore_and_general() {
         let raw = include_str!("coder/AGENT.md");
         let comm = include_str!("coder/COMMUNICATION.md");
         let agent = load_builtin_agent("coder", raw, comm).expect("load builtin coder");
@@ -1854,6 +1854,14 @@ mod builtin_agent_tests {
                 .binary_search(&"explore".to_string())
                 .is_ok(),
             "coder allowAgents should include explore"
+        );
+        assert!(
+            agent
+                .def
+                .allow_agents
+                .binary_search(&"general".to_string())
+                .is_ok(),
+            "coder allowAgents should include general"
         );
         assert!(
             agent

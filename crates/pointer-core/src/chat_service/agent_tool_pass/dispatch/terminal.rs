@@ -427,7 +427,7 @@ async fn run_terminal_background(
     };
     tokio::spawn(run_background_terminal(job_id.clone(), spawn));
 
-    let handle = background_job_handle_json(&job_id, JobStatus::Running, "terminal", None);
+    let handle = background_job_handle_json(&job_id, JobStatus::Running, "terminal", None, None);
     if block_until_ms == 0 {
         log::info!(
             "terminal background detached immediately job_id={job_id} conversation_id={conversation_id}"
@@ -474,6 +474,7 @@ async fn run_terminal_background(
                     status_from_wire(&item.status),
                     "terminal",
                     None,
+                    None,
                 )
             });
             let ok = item.status == "completed";
@@ -487,7 +488,13 @@ async fn run_terminal_background(
 
     if let Some(item) = state.jobs.claim_if_unclaimed(&job_id) {
         let body = item.content.unwrap_or_else(|| {
-            background_job_handle_json(&job_id, status_from_wire(item.status), "terminal", None)
+            background_job_handle_json(
+                &job_id,
+                status_from_wire(item.status),
+                "terminal",
+                None,
+                None,
+            )
         });
         let ok = item.status == "completed";
         log::info!(

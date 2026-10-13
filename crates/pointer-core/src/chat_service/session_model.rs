@@ -1,16 +1,25 @@
-use crate::mode_llm::resolve_agent_mode_llm_config;
+use crate::mode_llm::{
+    agent_performance_mode, parse_performance_mode, resolve_agent_mode_llm_config_for_mode,
+    resolve_sub_agent_performance_mode,
+};
 use crate::models::ModelSettings;
 use crate::provider::OpenAIProvider;
 use crate::thinking_strategy::apply_tier_thinking_to_round;
 
-/// Apply per-agent default model from `agent_default_models` when `agent_id` has an entry.
-/// Returns true when provider and/or model were overridden.
-pub(crate) fn apply_agent_model_defaults(settings: &mut ModelSettings, agent_id: &str) -> bool {
+/// Apply the per-agent model for an explicit performance `mode`.
+///
+/// Order: `agentModeLlm[agent_id][mode]` → `agentDefaultModels[agent_id]` →
+/// keep the current provider/model. Returns true when provider and/or model changed.
+pub(crate) fn apply_agent_model_defaults_for_mode(
+    settings: &mut ModelSettings,
+    agent_id: &str,
+    mode: &str,
+) -> bool {
     let key = agent_id.trim();
     if key.is_empty() {
         return false;
     }
-    if let Some(cfg) = resolve_agent_mode_llm_config(settings, key).cloned() {
+    if let Some(cfg) = resolve_agent_mode_llm_config_for_mode(settings, key, mode).cloned() {
         let provider_id = cfg.provider_id.trim().to_string();
         let model = cfg.model.trim().to_string();
         let mut applied = false;
@@ -40,6 +49,19 @@ pub(crate) fn apply_agent_model_defaults(settings: &mut ModelSettings, agent_id:
         return applied;
     }
     false
+}
+
+/// Apply per-agent default model from `agent_default_models` / `agentModeLlm` when
+/// `agent_id` has an entry. The mode comes from `agentPerformanceModes[agent_id]`
+/// (or the global `fast` default) — the lead / global entry point.
+/// Returns true when provider and/or model were overridden.
+pub(crate) fn apply_agent_model_defaults(settings: &mut ModelSettings, agent_id: &str) -> bool {
+    let key = agent_id.trim();
+    if key.is_empty() {
+        return false;
+    }
+    let mode = agent_performance_mode(settings, key);
+    apply_agent_model_defaults_for_mode(settings, key, mode)
 }
 
 fn provider_has_api_key(settings: &ModelSettings, provider_id: &str) -> bool {
@@ -162,15 +184,22 @@ pub(crate) fn apply_session_agent_model_defaults(
         fallback_to_active_if_unusable(settings, &prior_provider, &prior_model, "session");
         return;
     }
-    if let Some(mode) = performance_mode_override
+    // The session picker override applies to the lead only. It must **not** be
+    // written into `agentPerformanceModes`: that map is the local per-agent
+    // default and is also read by same-id sub-agents (self forks), so mutating it
+    // leaked the session tier onto children.
+    match performance_mode_override
         .map(str::trim)
         .filter(|s| !s.is_empty())
+        .and_then(parse_performance_mode)
     {
-        settings
-            .agent_performance_modes
-            .insert(key.clone(), mode.to_string());
+        Some(mode) => {
+            apply_agent_model_defaults_for_mode(settings, &key, mode);
+        }
+        None => {
+            apply_agent_model_defaults(settings, &key);
+        }
     }
-    let _ = apply_agent_model_defaults(settings, &key);
     fallback_to_active_if_unusable(settings, &prior_provider, &prior_model, "session");
 }
 
@@ -201,13 +230,41 @@ pub(crate) fn prepare_session_llm_settings(
     api_key
 }
 
-/// Build a provider for a sub-agent run, honoring per-agent `agentDefaultModels` when set.
-pub(crate) fn sub_agent_provider(parent: &OpenAIProvider, sub_agent_id: &str) -> OpenAIProvider {
+/// Build a provider for a sub-agent run, honoring the sub-agent performance-mode
+/// chain (`performanceMode` > local `agentPerformanceModes[agentId]` > `standard`)
+/// and per-agent `agentDefaultModels` when set.
+pub(crate) fn sub_agent_provider(
+    parent: &OpenAIProvider,
+    sub_agent_id: &str,
+    performance_mode: Option<&str>,
+) -> OpenAIProvider {
+    sub_agent_provider_with_workspace(parent, sub_agent_id, performance_mode, None)
+}
+
+/// [`sub_agent_provider`] variant that replaces the inherited workspace first
+/// (self fork: the snapshot's workspace wins).
+pub(crate) fn sub_agent_provider_with_workspace(
+    parent: &OpenAIProvider,
+    sub_agent_id: &str,
+    performance_mode: Option<&str>,
+    workspace_root_override: Option<&str>,
+) -> OpenAIProvider {
     let mut settings = parent.settings.clone();
+    if let Some(root) = workspace_root_override {
+        settings.workspace_root = root.trim().to_string();
+    }
     let prior_provider = settings.active_provider_id.clone();
     let prior_model = settings.model.clone();
-    let applied = apply_agent_model_defaults(&mut settings, sub_agent_id);
+    let mode = resolve_sub_agent_performance_mode(&settings, sub_agent_id, performance_mode);
+    let applied = apply_agent_model_defaults_for_mode(&mut settings, sub_agent_id, mode);
     if !applied {
+        log::info!(
+            "sub_agent model resolved agent_id={} mode={} provider={} model={} (no override; parent kept)",
+            sub_agent_id.trim(),
+            mode,
+            settings.active_provider_id,
+            settings.model
+        );
         return OpenAIProvider::new(settings, parent.api_key.clone());
     }
     fallback_to_active_if_unusable(
@@ -223,15 +280,14 @@ pub(crate) fn sub_agent_provider(parent: &OpenAIProvider, sub_agent_id: &str) ->
     } else {
         parent.api_key.clone()
     };
-    if crate::logging::internal_runtime_log_enabled() {
-        log::debug!(
-            "sub_agent model override agent_id={} provider={} model={} provider_switched={}",
-            sub_agent_id.trim(),
-            settings.active_provider_id,
-            settings.model,
-            provider_switched
-        );
-    }
+    log::info!(
+        "sub_agent model resolved agent_id={} mode={} provider={} model={} provider_switched={}",
+        sub_agent_id.trim(),
+        mode,
+        settings.active_provider_id,
+        settings.model,
+        provider_switched
+    );
     OpenAIProvider::new(settings, api_key)
 }
 
@@ -318,7 +374,10 @@ mod tests {
     #[test]
     fn apply_agent_model_defaults_applies_mode_llm_for_coder() {
         let mut settings = sample_settings();
-        // 平台下发档位默认后（agentModeLlm），coder fast → deepseek-v4-flash。
+        // coder 本地档位 = fast；平台下发 agentModeLlm 后 fast → deepseek-v4-flash。
+        settings
+            .agent_performance_modes
+            .insert("coder".into(), "fast".into());
         settings.agent_mode_llm.insert(
             "coder".into(),
             [(
@@ -341,6 +400,46 @@ mod tests {
         assert!(settings.round_thinking_locked);
         assert_eq!(settings.round_thinking_intensity, None);
         assert_eq!(settings.round_enable_thinking, None);
+    }
+
+    #[test]
+    fn lead_without_local_tier_falls_back_to_standard_tier() {
+        let mut settings = sample_settings();
+        settings.providers[0].models = vec!["qwen-fast".into(), "qwen-std".into()];
+        settings.agent_mode_llm.insert(
+            "general".into(),
+            [
+                (
+                    "fast".into(),
+                    ComputerTierLlmConfig {
+                        provider_id: "qwen".into(),
+                        model: "qwen-fast".into(),
+                        enable_thinking: true,
+                        thinking_budget: Some(1024),
+                        reasoning_effort: None,
+                        thinking_intensity: None,
+                    },
+                ),
+                (
+                    "standard".into(),
+                    ComputerTierLlmConfig {
+                        provider_id: "qwen".into(),
+                        model: "qwen-std".into(),
+                        enable_thinking: true,
+                        thinking_budget: Some(2048),
+                        reasoning_effort: None,
+                        thinking_intensity: None,
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        // No `agentPerformanceModes["general"]` entry → the agent fallback is
+        // `standard`, so the lead lands on the standard tier (was `fast`).
+        assert!(!settings.agent_performance_modes.contains_key("general"));
+        assert!(apply_agent_model_defaults(&mut settings, "general"));
+        assert_eq!(settings.model, "qwen-std");
     }
 
     #[test]
@@ -389,6 +488,10 @@ mod tests {
     #[test]
     fn prepare_session_keeps_mode_model_when_provider_has_key() {
         let mut settings = sample_settings();
+        // coder 本地档位 = fast，且 fast 档 provider 有 key，应保留档位模型。
+        settings
+            .agent_performance_modes
+            .insert("coder".into(), "fast".into());
         settings.agent_mode_llm.insert(
             "coder".into(),
             [(
@@ -439,7 +542,7 @@ mod tests {
         // explore → openai; clear openai key so fallback should restore qwen.
         settings.providers[1].api_key.clear();
         let parent = OpenAIProvider::new(settings, "qwen-key".into());
-        let sub = sub_agent_provider(&parent, "explore");
+        let sub = sub_agent_provider(&parent, "explore", None);
         assert_eq!(sub.settings.active_provider_id, "qwen");
         assert_eq!(sub.settings.model, "qwen-plus");
         assert_eq!(sub.api_key, "qwen-key");
@@ -448,7 +551,7 @@ mod tests {
     #[test]
     fn sub_agent_provider_uses_per_agent_defaults() {
         let parent = OpenAIProvider::new(sample_settings(), "parent-key".into());
-        let sub = sub_agent_provider(&parent, "explore");
+        let sub = sub_agent_provider(&parent, "explore", None);
         assert_eq!(sub.settings.active_provider_id, "openai");
         assert_eq!(sub.settings.model, "gpt-4o");
         assert_eq!(sub.api_key, "openai-key");
@@ -457,7 +560,7 @@ mod tests {
     #[test]
     fn sub_agent_provider_keeps_parent_when_no_override() {
         let parent = OpenAIProvider::new(sample_settings(), "parent-key".into());
-        let sub = sub_agent_provider(&parent, "computer");
+        let sub = sub_agent_provider(&parent, "computer", None);
         assert_eq!(sub.settings.active_provider_id, "qwen");
         assert_eq!(sub.settings.model, "qwen-plus");
         assert_eq!(sub.api_key, "parent-key");
@@ -534,14 +637,135 @@ mod tests {
             .collect(),
         );
         let key = prepare_session_llm_settings(&mut settings, None, Some("expert"));
+        // The session override drives the lead's model but must NOT be written into
+        // the local per-agent map (it would leak onto same-id sub-agents / self forks).
         assert_eq!(
             settings
                 .agent_performance_modes
                 .get("coder")
                 .map(String::as_str),
-            Some("expert")
+            Some("fast")
         );
         assert_eq!(settings.model, "qwen-expert");
         assert_eq!(key, "qwen-key");
+    }
+
+    #[test]
+    fn session_override_does_not_leak_onto_same_id_sub_agent() {
+        // coder session runs `standard`, but coder's *local* tier is `fast`:
+        // the lead follows the session override, a coder sub-agent follows local.
+        let mut settings = sample_settings();
+        settings.api_key = "qwen-key".into();
+        settings.lead_agent_id = "coder".into();
+        settings.providers[0].models = vec!["qwen-fast".into(), "qwen-std".into()];
+        settings
+            .agent_performance_modes
+            .insert("coder".into(), "fast".into());
+        settings.agent_mode_llm.insert(
+            "coder".into(),
+            [
+                (
+                    "fast".into(),
+                    ComputerTierLlmConfig {
+                        provider_id: "qwen".into(),
+                        model: "qwen-fast".into(),
+                        enable_thinking: true,
+                        thinking_budget: Some(1024),
+                        reasoning_effort: None,
+                        thinking_intensity: None,
+                    },
+                ),
+                (
+                    "standard".into(),
+                    ComputerTierLlmConfig {
+                        provider_id: "qwen".into(),
+                        model: "qwen-std".into(),
+                        enable_thinking: true,
+                        thinking_budget: Some(2048),
+                        reasoning_effort: None,
+                        thinking_intensity: None,
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        prepare_session_llm_settings(&mut settings, None, Some("standard"));
+        assert_eq!(settings.model, "qwen-std");
+        let parent = OpenAIProvider::new(settings, "qwen-key".into());
+        // Same-id sub-agent resolves the local `fast` tier, not the session `standard`.
+        let sub = sub_agent_provider(&parent, "coder", None);
+        assert_eq!(sub.settings.model, "qwen-fast");
+    }
+
+    #[test]
+    fn sub_agent_explicit_mode_beats_local_setting() {
+        let mut settings = sample_settings();
+        settings
+            .agent_performance_modes
+            .insert("explore".into(), "fast".into());
+        settings.providers[0].models = vec!["qwen-fast".into(), "qwen-expert".into()];
+        settings.agent_mode_llm.insert(
+            "explore".into(),
+            [
+                (
+                    "fast".into(),
+                    ComputerTierLlmConfig {
+                        provider_id: "qwen".into(),
+                        model: "qwen-fast".into(),
+                        enable_thinking: true,
+                        thinking_budget: Some(1024),
+                        reasoning_effort: None,
+                        thinking_intensity: None,
+                    },
+                ),
+                (
+                    "expert".into(),
+                    ComputerTierLlmConfig {
+                        provider_id: "qwen".into(),
+                        model: "qwen-expert".into(),
+                        enable_thinking: true,
+                        thinking_budget: Some(4096),
+                        reasoning_effort: None,
+                        thinking_intensity: None,
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let parent = OpenAIProvider::new(settings, "qwen-key".into());
+        let sub = sub_agent_provider(&parent, "explore", Some("expert"));
+        assert_eq!(sub.settings.model, "qwen-expert");
+        // Alias resolves the same tier.
+        let aliased = sub_agent_provider(&parent, "explore", Some("advanced"));
+        assert_eq!(aliased.settings.model, "qwen-expert");
+    }
+
+    #[test]
+    fn sub_agent_without_local_tier_falls_back_to_standard() {
+        let mut settings = sample_settings();
+        settings.providers[0].models = vec!["qwen-fast".into(), "qwen-std".into()];
+        settings.agent_mode_llm.insert(
+            "explore".into(),
+            [(
+                "standard".into(),
+                ComputerTierLlmConfig {
+                    provider_id: "qwen".into(),
+                    model: "qwen-std".into(),
+                    enable_thinking: true,
+                    thinking_budget: Some(2048),
+                    reasoning_effort: None,
+                    thinking_intensity: None,
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
+        // `explore` has no local `agentPerformanceModes` entry: built-in `standard`,
+        // not the global `fast` default.
+        let parent = OpenAIProvider::new(settings, "qwen-key".into());
+        let sub = sub_agent_provider(&parent, "explore", None);
+        assert_eq!(sub.settings.model, "qwen-std");
     }
 }

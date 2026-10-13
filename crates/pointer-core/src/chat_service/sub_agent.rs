@@ -21,7 +21,7 @@ use super::computer_pipeline_loop::{
 };
 use super::context::{PostAssistantContext, ToolBudgetExhaustionScope, TranscriptPersist};
 use super::emit::{emit, trace_id_opt};
-use super::session_model::sub_agent_provider;
+use super::session_model::{sub_agent_provider, sub_agent_provider_with_workspace};
 use super::sub_agent_prompt::{
     init_sub_agent_session, prepare_sub_agent_round_prompts, SubAgentDefinitionSource,
 };
@@ -67,13 +67,22 @@ fn sub_agent_handoff_content(local_history: &[ChatMessage], accumulated: &str) -
 fn sub_agent_execution_provider(
     parent: &crate::provider::OpenAIProvider,
     definition_source: &SubAgentDefinitionSource<'_>,
+    performance_mode: Option<&str>,
 ) -> crate::provider::OpenAIProvider {
     match definition_source {
-        SubAgentDefinitionSource::Registered(task) => sub_agent_provider(parent, &task.agent_id),
+        SubAgentDefinitionSource::Registered(task) => {
+            sub_agent_provider(parent, &task.agent_id, performance_mode)
+        }
         SubAgentDefinitionSource::Snapshot(snapshot) => {
-            let mut settings = parent.settings.clone();
-            settings.workspace_root = snapshot.workspace_root.trim().to_string();
-            crate::provider::OpenAIProvider::new(settings, parent.api_key.clone())
+            // A self fork *is* the caller (same agent id), so its tier comes from the
+            // same chain; the snapshot's workspace still wins. Without this the
+            // explicit `performanceMode` could never reach a coder→coder fork.
+            sub_agent_provider_with_workspace(
+                parent,
+                &snapshot.def.id,
+                performance_mode,
+                Some(snapshot.workspace_root.as_str()),
+            )
         }
     }
 }
@@ -90,7 +99,11 @@ pub(crate) async fn run_sub_agent(
     let message_id = ctx.message_id;
     let task = ctx.task;
     let cancel = ctx.session.cancel.clone();
-    let sub_provider = sub_agent_execution_provider(provider, &ctx.definition_source);
+    let sub_provider = sub_agent_execution_provider(
+        provider,
+        &ctx.definition_source,
+        ctx.performance_mode,
+    );
     let reasoning_in_messages = effective_reasoning_in_messages(&sub_provider.settings);
     let session = init_sub_agent_session(
         state,
@@ -865,7 +878,7 @@ mod execution_provider_tests {
     };
     use crate::chat_service::self_fork::SelfForkSnapshot;
     use crate::chat_service::sub_agent_prompt::SubAgentDefinitionSource;
-    use crate::models::{AgentModelRef, ModelSettings};
+    use crate::models::{AgentModelRef, ComputerTierLlmConfig, ModelSettings};
     use crate::provider::OpenAIProvider;
     use std::collections::HashMap;
 
@@ -933,12 +946,45 @@ mod execution_provider_tests {
         let snapshot = snapshot();
         let source = SubAgentDefinitionSource::Snapshot(&snapshot);
 
-        let provider = sub_agent_execution_provider(&parent_provider(), &source);
+        let provider = sub_agent_execution_provider(&parent_provider(), &source, None);
 
         assert_eq!(provider.settings.active_provider_id, "current-provider");
         assert_eq!(provider.settings.model, "current-model");
         assert_eq!(provider.settings.workspace_root, "/snapshot/workspace");
         assert_eq!(provider.api_key, "current-key");
+    }
+
+    #[test]
+    fn snapshot_fork_applies_explicit_performance_mode() {
+        let snapshot = snapshot();
+        let source = SubAgentDefinitionSource::Snapshot(&snapshot);
+        let mut settings = parent_provider().settings.clone();
+        settings.agent_mode_llm.insert(
+            "current-agent".into(),
+            [(
+                "expert".into(),
+                ComputerTierLlmConfig {
+                    provider_id: "current-provider".into(),
+                    model: "expert-model".into(),
+                    enable_thinking: true,
+                    thinking_budget: Some(4096),
+                    reasoning_effort: None,
+                    thinking_intensity: None,
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
+        let parent = OpenAIProvider::new(settings, "current-key".into());
+
+        // No explicit mode → no local tier for this agent → parent model kept.
+        let plain = sub_agent_execution_provider(&parent, &source, None);
+        assert_eq!(plain.settings.model, "current-model");
+
+        // Explicit mode penetrates the self fork (coder→coder can change tier).
+        let forced = sub_agent_execution_provider(&parent, &source, Some("expert"));
+        assert_eq!(forced.settings.model, "expert-model");
+        assert_eq!(forced.settings.workspace_root, "/snapshot/workspace");
     }
 
     #[test]
@@ -953,7 +999,7 @@ mod execution_provider_tests {
         };
         let source = SubAgentDefinitionSource::Registered(&task);
 
-        let provider = sub_agent_execution_provider(&parent_provider(), &source);
+        let provider = sub_agent_execution_provider(&parent_provider(), &source, None);
 
         assert_eq!(provider.settings.active_provider_id, "registered-provider");
         assert_eq!(provider.settings.model, "registered-model");

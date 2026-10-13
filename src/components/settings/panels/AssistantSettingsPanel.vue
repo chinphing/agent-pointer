@@ -109,7 +109,7 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS
                   v-for="opt in PERFORMANCE_MODE_UI"
                   :key="'scene-general-' + opt.value"
                   class="h-7 px-2.5 rounded-md text-[11px] cursor-pointer transition-colors flex items-center"
-                  :class="(agentPerformanceModesLocal.general ?? 'fast') === opt.value
+                  :class="(agentPerformanceModesLocal.general ?? 'standard') === opt.value
                     ? 'bg-hover text-foreground'
                     : 'text-muted hover:text-foreground'"
                 >
@@ -117,7 +117,7 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS
                     type="radio"
                     class="sr-only"
                     name="scene-general-mode"
-                    :checked="(agentPerformanceModesLocal.general ?? 'fast') === opt.value"
+                    :checked="(agentPerformanceModesLocal.general ?? 'standard') === opt.value"
                     @change="agentPerformanceModesLocal = { ...agentPerformanceModesLocal, general: opt.value }"
                   />
                   {{ opt.label }}
@@ -148,7 +148,7 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS
                   v-for="opt in PERFORMANCE_MODE_UI"
                   :key="'scene-coder-' + opt.value"
                   class="h-7 px-2.5 rounded-md text-[11px] cursor-pointer transition-colors flex items-center"
-                  :class="(agentPerformanceModesLocal.coder ?? 'fast') === opt.value
+                  :class="(agentPerformanceModesLocal.coder ?? 'standard') === opt.value
                     ? 'bg-hover text-foreground'
                     : 'text-muted hover:text-foreground'"
                 >
@@ -156,7 +156,7 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS
                     type="radio"
                     class="sr-only"
                     name="scene-coder-mode"
-                    :checked="(agentPerformanceModesLocal.coder ?? 'fast') === opt.value"
+                    :checked="(agentPerformanceModesLocal.coder ?? 'standard') === opt.value"
                     @change="agentPerformanceModesLocal = { ...agentPerformanceModesLocal, coder: opt.value }"
                   />
                   {{ opt.label }}
@@ -342,7 +342,7 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS
                     v-for="opt in PERFORMANCE_MODE_UI"
                     :key="'more-' + w.id + '-' + opt.value"
                     class="h-7 px-2.5 rounded-md text-[11px] cursor-pointer transition-colors flex items-center"
-                    :class="(agentPerformanceModesLocal[w.id] ?? 'fast') === opt.value
+                    :class="(agentPerformanceModesLocal[w.id] ?? 'standard') === opt.value
                       ? 'bg-hover text-foreground'
                       : 'text-muted hover:text-foreground'"
                   >
@@ -350,7 +350,7 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS
                       type="radio"
                       class="sr-only"
                       :name="'more-mode-' + w.id"
-                      :checked="(agentPerformanceModesLocal[w.id] ?? 'fast') === opt.value"
+                      :checked="(agentPerformanceModesLocal[w.id] ?? 'standard') === opt.value"
                       @change="agentPerformanceModesLocal = { ...agentPerformanceModesLocal, [w.id]: opt.value }"
                     />
                     {{ opt.label }}

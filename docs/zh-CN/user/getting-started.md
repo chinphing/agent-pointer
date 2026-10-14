@@ -2,21 +2,19 @@
 
 [English](../../en/user/getting-started.md) | 简体中文
 
-先确认你用的是 [官方包还是本地构建](which-build.md)。
+## 现在就用
 
-## 官方包
+1. 打开 [官网下载页](https://pointer.readflowai.com/download)，安装，打开 Pointer。
+2. 左下角 **账户** → **登录**。登录后平台会下发模型。
+3. 发一句「你好」。
 
-1. 从 [官网下载页](https://pointer.readflowai.com/download) 下载对应平台的安装包（Windows / macOS / Linux）
-2. **配置模型**，二选一：
-   - **登录平台账号**（左下角「**账户**」菜单 →「**登录**」）：登录后平台会下发模型服务，直接就能用
-   - **自己配**：在 **设置 → 模型配置 → 自定义服务** 填 Base URL 和 API Key，点 **测试连接**。详见 [配置模型服务](model-providers.md)
-3. 发送一条消息，例如「你好」
+还没有平台账号时，到 **设置 → 模型配置 → 自定义服务** 填 Base URL 和 API Key，点 **测试连接**。详见 [配置模型服务](model-providers.md)。
 
-登录平台账号后还能使用云主机和充值。桌面 OAuth 成功后可能跳转官网。
+登录之后还可以用云主机和充值。桌面登录成功后可能跳到官网，回到窗口即可。
 
-## 本地构建 / 自建 Web
+## 不是从官网安装时
 
-企业内部部署从 [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) 获取安装包。从源码运行见仓库 [DEVELOPMENT.md](../../../DEVELOPMENT.md)。部署 `pointer-server` 并用浏览器访问，见 [standalone-server.md](standalone-server.md)。
+[官方包和本地构建的差别](which-build.md) 可以之后再看。公司内部分发的安装包在 [GitHub Releases](https://github.com/chinphing/agent-pointer/releases)。在仓库里用脚本打开已有构建或已安装的桌面程序；两处都没有时加上 `--build` 才在本地编译，见 [本地启动](../deploy/quick-start.md)。自己改代码用 npm，见 [开发第一步](../../../DEVELOPMENT.md)。用浏览器访问一台已部署的服务端，见 [standalone-server.md](standalone-server.md)。
 
 本地构建没有内置官网域名。模型地址和 Key 都在设置里自己填。
 

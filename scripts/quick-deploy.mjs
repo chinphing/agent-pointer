@@ -4,18 +4,20 @@
  * four deployment cells (edition × client/server).
  *
  *   ./scripts/quick-deploy.sh start standalone-server
- *   ./scripts/quick-deploy.sh start standalone-server --runtime bin
+ *   ./scripts/quick-deploy.sh start standalone-client --runtime dev
  *   scripts\quick-deploy.bat start standalone-server
  *   ./scripts/quick-deploy.sh status
  *   ./scripts/quick-deploy.sh stop [mode]
  *   ./scripts/quick-deploy.sh plan <mode> [--runtime dev|bin]
  *
- * The shell and bat files are the entry points. They do not call npm.
- * `--runtime dev` (the default) uses cargo, the local Vite CLI, and the local
- * Tauri CLI. `--runtime bin` runs the release binaries from target/release and
- * does not compile. The server binary serves repo dist/ on port 8787; the
- * client binary is pointer-app. Build them first with
- * `node scripts/build-server.mjs` or `node scripts/tauri-build.mjs`.
+ * The shell and bat files are the user entry points. They do not call npm.
+ * Developers start the dev app with npm (`npm run tauri:dev`, `npm run server:dev`,
+ * `npm run web:dev`). `--runtime bin` (the default) starts an existing
+ * target/release binary, or an installed pointer-app for the desktop client.
+ * It does not compile and it does not download a package. `--build` is the
+ * only switch that compiles locally, and it never turns on by itself. The
+ * server serves repo dist/ on port 8787. `--runtime dev` uses cargo, the
+ * local Vite CLI, and the local Tauri CLI.
  *
  * State (pids, logs, generated standalone password) lives in `.quick-deploy/`
  * and is gitignored. Dev uses `.quick-deploy/<mode>/`. Release binaries use
@@ -73,6 +75,87 @@ export function releaseBinaryName(kind) {
 
 export function defaultReleaseBinary(root, kind) {
   return path.join(root, 'target', 'release', releaseBinaryName(kind))
+}
+
+/** Keys a standalone `--build` must leave unset so `pointer.local.env` cannot fill them. */
+export const STANDALONE_BUILD_KEEP_UNSET = [
+  'POINTER_EDITION',
+  'VITE_POINTER_EDITION',
+  'POINTER_API_BASE',
+  'POINTER_WEB_BASE',
+  'VITE_POINTER_WEB_BASE',
+  'COMPUTER_ANNOTATE_API_BASE',
+  'POINTER_DOWNLOAD_URL',
+  'VITE_POINTER_DOWNLOAD_URL',
+]
+
+const BUILD_RUNTIME_ONLY_KEYS = [
+  'POINTER_SERVER_ADMIN_USERNAME',
+  'POINTER_SERVER_ADMIN_PASSWORD_HMAC',
+  'POINTER_SERVER_AUTH_HMAC_SECRET',
+  'POINTER_SERVER_ADDR',
+  'POINTER_SERVER_STATIC_DIR',
+  'POINTER_APP_DATA_DIR',
+  'POINTER_DEPLOYMENT_MODE',
+]
+
+export function releaseBuildScript(mode) {
+  return modeKind(mode).server ? 'scripts/build-server.mjs' : 'scripts/tauri-build.mjs'
+}
+
+/**
+ * Child process for an explicit `--build`. Standalone deletes edition and
+ * domain keys and locks them so the build scripts cannot refill them from
+ * `pointer.local.env`. Managed keeps the domains already set on `env`.
+ */
+export function releaseBuildInvocation(mode, env, root = REPO_ROOT) {
+  const childEnv = { ...env }
+  for (const key of BUILD_RUNTIME_ONLY_KEYS) delete childEnv[key]
+  if (!modeKind(mode).managed) {
+    for (const key of STANDALONE_BUILD_KEEP_UNSET) delete childEnv[key]
+    childEnv.POINTER_LOCAL_ENV_KEEP_UNSET = STANDALONE_BUILD_KEEP_UNSET.join(',')
+  }
+  return {
+    command: process.execPath,
+    args: [path.join(root, releaseBuildScript(mode))],
+    cwd: root,
+    env: childEnv,
+  }
+}
+
+export function runReleaseBuild(mode, env, { spawnImpl = spawnSync, root = REPO_ROOT } = {}) {
+  const invocation = releaseBuildInvocation(mode, env, root)
+  const result = spawnImpl(invocation.command, invocation.args, {
+    cwd: invocation.cwd,
+    env: invocation.env,
+    stdio: 'inherit',
+  })
+  if (result?.error) throw result.error
+  const status = result?.status ?? 1
+  if (status !== 0) throw new Error(`${invocation.args[0]} exited ${status}`)
+}
+
+export function findOnPath(fileName, pathValue = '', exists = fs.existsSync) {
+  const separator = process.platform === 'win32' ? ';' : ':'
+  for (const dir of String(pathValue).split(separator)) {
+    if (!dir) continue
+    const candidate = path.join(dir, fileName)
+    if (exists(candidate)) return candidate
+  }
+  return null
+}
+
+/**
+ * Desktop client for `--runtime bin` when `--build` is absent.
+ * Local `target/release` wins. An installed `pointer-app` is next.
+ * Null means neither exists; the caller must stop unless `--build` was passed.
+ */
+export function selectBinClient(root, { exists = fs.existsSync, pathValue = process.env.PATH, binaries } = {}) {
+  const local = binaries?.client ?? defaultReleaseBinary(root, 'client')
+  if (exists(local)) return { command: local, args: [], source: 'build' }
+  const installed = findOnPath(releaseBinaryName('client'), pathValue, exists)
+  if (installed) return { command: installed, args: [], source: 'installed' }
+  return null
 }
 
 export function devViteArgs(root) {
@@ -135,7 +218,7 @@ function requireDomains(domains) {
  */
 export function buildPlan(input) {
   const mode = input.mode
-  const runtime = input.runtime ?? 'dev'
+  const runtime = input.runtime ?? 'bin'
   if (!RUNTIMES.includes(runtime)) {
     throw new Error(`unknown runtime ${runtime}; expected one of ${RUNTIMES.join(', ')}`)
   }
@@ -234,13 +317,15 @@ export function missingLaunchArtifact(plan) {
     for (const proc of plan.processes) {
       if (!fs.existsSync(proc.command)) {
         const hint = proc.name === 'server'
-          ? 'Build it with node scripts/build-server.mjs.'
-          : 'Build it with node scripts/tauri-build.mjs.'
+          ? 'Pass --build to compile it locally (node scripts/build-server.mjs).'
+          : proc.name === 'client'
+            ? 'An installed pointer-app on PATH is used when the local file is absent. Pass --build to compile a local release binary (node scripts/tauri-build.mjs).'
+            : 'Pass --build to compile it locally.'
         return `${proc.command} is missing. ${hint}`
       }
     }
     if (plan.authMode && !fs.existsSync(plan.staticDir)) {
-      return `Web bundle ${plan.staticDir} is missing. node scripts/build-server.mjs writes it.`
+      return `Web bundle ${plan.staticDir} is missing. Pass --build, or run node scripts/build-server.mjs which writes it.`
     }
     return null
   }
@@ -256,14 +341,15 @@ export function missingLaunchArtifact(plan) {
 
 function usage() {
   console.error(`Usage:
-  ./scripts/quick-deploy.sh start <${MODES.join('|')}> [--runtime dev|bin] [--api-base URL --web-base URL --annotate-base URL]
-  scripts\\quick-deploy.bat start <mode> [--runtime dev|bin] [domain flags]
-  ./scripts/quick-deploy.sh plan <mode> [--runtime dev|bin] [domain flags]
+  ./scripts/quick-deploy.sh start <${MODES.join('|')}> [--runtime dev|bin] [--build] [--api-base URL --web-base URL --annotate-base URL]
+  scripts\\quick-deploy.bat start <mode> [--runtime dev|bin] [--build] [domain flags]
+  ./scripts/quick-deploy.sh plan <mode> [--runtime dev|bin] [--build] [domain flags]
   ./scripts/quick-deploy.sh status
   ./scripts/quick-deploy.sh stop [mode] [--runtime dev|bin]
 
---runtime dev (default) compiles as it starts: cargo run, the local Vite CLI, or the local Tauri CLI.
---runtime bin runs target/release binaries and does not compile.
+--runtime bin (default) does not compile. A local target/release build is used when it already exists; otherwise the installed pointer-app. The server still needs an existing pointer-server binary and dist/.
+--build compiles that release binary locally, then starts target/release. It is never implied. It does not apply to --runtime dev.
+--runtime dev compiles as it starts: cargo run, the local Vite CLI, or the local Tauri CLI.
 Managed modes need the three control-plane domains (flags or POINTER_API_BASE / POINTER_WEB_BASE / COMPUTER_ANNOTATE_API_BASE).
 Dev server and dev client share Vite port ${WEB_PORT}. The release server serves dist/ on ${SERVER_ADDR}.`)
 }
@@ -284,9 +370,14 @@ export function parseArgs(argv) {
   }
   const domains = {}
   let stateDir = null
-  let runtime = 'dev'
+  let runtime = 'bin'
+  let build = false
   while (args.length) {
     const flag = args.shift()
+    if (flag === '--build') {
+      build = true
+      continue
+    }
     const value = args.shift()
     if (!value || value.startsWith('--')) {
       throw new Error(`missing value for ${flag}`)
@@ -301,10 +392,13 @@ export function parseArgs(argv) {
   if (!RUNTIMES.includes(runtime)) {
     throw new Error(`unknown runtime ${runtime}; expected one of ${RUNTIMES.join(', ')}`)
   }
+  if (build && runtime !== 'bin') {
+    throw new Error('--build applies to the release binary runtime. Omit it with --runtime dev.')
+  }
   domains.apiBase ||= process.env.POINTER_API_BASE
   domains.webBase ||= process.env.POINTER_WEB_BASE
   domains.annotateBase ||= process.env.COMPUTER_ANNOTATE_API_BASE
-  return { command, mode, domains, stateDir, runtime }
+  return { command, mode, domains, stateDir, runtime, build }
 }
 
 function defaultStateRoot() {
@@ -491,7 +585,26 @@ function tailFile(file, lines = 40) {
   return text.split('\n').slice(-lines).join('\n')
 }
 
-async function startMode(mode, runtime, domains, stateDirOverride) {
+function resolveBinClient(plan) {
+  const proc = plan.processes.find((item) => item.name === 'client')
+  if (!proc) return
+  const selected = selectBinClient(plan.root, {
+    binaries: { client: proc.command },
+    pathValue: proc.env.PATH,
+  })
+  if (!selected) {
+    const local = defaultReleaseBinary(plan.root, 'client')
+    throw new Error(
+      `No ${local} and no installed ${releaseBinaryName('client')} on PATH. Pass --build to compile locally.`,
+    )
+  }
+  proc.command = selected.command
+  proc.args = selected.args
+  plan.clientSource = selected.source
+  console.log(`[quick-deploy] client binary (${selected.source}): ${selected.command}`)
+}
+
+async function startMode(mode, runtime, domains, stateDirOverride, build = false) {
   const stateDir = modeStateDir(mode, runtime, stateDirOverride)
   fs.mkdirSync(stateDir, { recursive: true })
   const existing = readPids(stateDir)
@@ -526,6 +639,18 @@ async function startMode(mode, runtime, domains, stateDirOverride) {
     credentials,
     baseEnv: process.env,
   })
+  if (build) {
+    console.log(`[quick-deploy] --build: compiling ${releaseBuildScript(mode)}`)
+    runReleaseBuild(mode, plan.processes[0].env)
+    if (!server) {
+      const proc = plan.processes.find((item) => item.name === 'client')
+      proc.command = defaultReleaseBinary(plan.root, 'client')
+      proc.args = []
+      plan.clientSource = 'build'
+    }
+  } else if (!server && runtime === 'bin') {
+    resolveBinClient(plan)
+  }
   const missing = missingLaunchArtifact(plan)
   if (missing) throw new Error(missing)
   if (createdPassword) writeCredentials(stateDir, credentials)
@@ -623,7 +748,7 @@ async function status() {
 async function main() {
   const parsed = parseArgs(process.argv.slice(2))
   if (!parsed) process.exit(1)
-  const { command, mode, domains, stateDir, runtime } = parsed
+  const { command, mode, domains, stateDir, runtime, build } = parsed
   if (command === 'status') {
     await status()
     return
@@ -668,6 +793,8 @@ async function main() {
     const printable = {
       mode: plan.mode,
       runtime: plan.runtime,
+      build,
+      buildScript: build ? releaseBuildScript(mode) : '',
       authMode: plan.authMode,
       webUrl: plan.webUrl,
       dataDir: plan.dataDir,
@@ -684,7 +811,7 @@ async function main() {
     console.log(JSON.stringify(printable, null, 2))
     return
   }
-  await startMode(mode, runtime, domains, stateDir)
+  await startMode(mode, runtime, domains, stateDir, build)
 }
 
 const invokedDirectly = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)

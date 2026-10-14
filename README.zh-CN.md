@@ -140,15 +140,19 @@ Pointer 不只是一个跑 Skill 的运行时。它开发业务系统，把人�
 ```bash
 npm install
 npm run tauri:dev
-npm run server:dev
-npm run web:dev
 ```
 
-日常开发不用设 `POINTER_EDITION`。细节见 [DEVELOPMENT.md](DEVELOPMENT.md)。
+没有 `pointer.local.env` 时，桌面窗口会打开，并且不绑定控制面。第一次编译要几分钟。要在浏览器里看，执行 `npm run server:dev` 和 `npm run web:dev`，打开 `http://127.0.0.1:1420/`。细节见 [DEVELOPMENT.md](DEVELOPMENT.md)。
 
 ## 部署
 
-**打包口味**（`POINTER_EDITION`）与**运行形态**（客户端 / 服务端）正交。先定位你的格子，再照清单做：
+用户用脚本直接启动桌面客户端。脚本不调用 npm。已有的 `target/release/pointer-app` 或已安装的程序直接打开；加上 `--build` 才在本地重新编译：
+
+```bash
+./scripts/quick-deploy.sh start standalone-client --runtime bin
+```
+
+要打安装包时，再按口味（`POINTER_EDITION`）和运行形态（客户端 / 服务端）选格子：
 
 | 你要做的事 | 去哪 |
 | --- | --- |

@@ -4,6 +4,30 @@ English | [简体中文](../../DEVELOPMENT.md)
 
 This document describes the local development, debugging, checking and troubleshooting workflow for `Pointer`.
 
+## First step
+
+Developers start the dev app with npm. From the repository root:
+
+```bash
+npm install
+npm run tauri:dev
+```
+
+`npm run tauri:dev` opens the desktop window. It reads `pointer.local.env`; with no such file, no control plane is bound. The first compile can take a few minutes. Once the window is up, you can change the code.
+
+To work on the same UI in a browser, use two terminals:
+
+```bash
+npm run server:dev
+npm run web:dev
+```
+
+Then open `http://127.0.0.1:1420/`.
+
+Users start an already built program with the shell or bat script, not npm. See [Quick start](deploy/quick-start.md).
+
+The requirements below matter only when `npm run tauri:dev` fails. After the dependencies are installed, run `npm run tauri:dev` again.
+
 ## Requirements
 
 ### Common dependencies
@@ -61,7 +85,7 @@ sudo apt-get install -y \
 
 ## Installing dependencies
 
-Run this in the project root:
+The `npm install` in the first step already installs the frontend dependencies. Run it again in the project root when the install is broken or `node_modules` has been removed:
 
 ```bash
 npm install
@@ -69,7 +93,9 @@ npm install
 
 When `POINTER_EDITION` is not set, no control plane is bound (standalone, purely local). To integrate with a control plane, set `POINTER_EDITION=managed` and the three domains in `pointer.local.env` (see [deploy/editions.md](deploy/editions.md)); writing any other value (including the old `official`) makes the build fail outright.
 
-## Starting development mode
+## Debugging the pieces separately
+
+`npm run tauri:dev` from the first step starts Vite, the desktop window, and Rust together. The sections below are the data directory and the two-terminal browser setup. The desktop dev session and `npm run web:dev` both listen on `1420`, and the server API listens on `8787`. Keep one group running at a time.
 
 ### Desktop
 
@@ -112,9 +138,9 @@ Release builds (`tauri:build` output) always use **`PointerApp`** unless the env
 
 **Attachments and local media paths:** resolved uniformly through `pointer_core::media::resolve_local_media_path`. A persisted attachment's `storageRelPath` (of the form `{conv}/{id}_{fileName}`) is looked up only under `{app_data}/conversation-media/` and is **never** resolved relative to the process `cwd` (e.g. `src-tauri/`), avoiding a mismatch between dev and the data directory.
 
-### Web
+### Browser
 
-The web client reuses the same Vue UI and the backend reuses `crates/pointer-core`, with the `server` crate providing the HTTP/SSE API.
+The web client reuses the same Vue UI and the backend reuses `crates/pointer-core`, with the `server` crate providing the HTTP/SSE API. After both terminals are up, open `http://127.0.0.1:1420/`.
 
 Start the Rust web backend:
 
@@ -143,9 +169,9 @@ VITE_WEB_API_BASE=http://127.0.0.1:8787 npm run web:dev
 npm run dev
 ```
 
-Then open the local address printed by the terminal.
+Then open the local address printed by the terminal. The Vite dev server listens on `1420`. The desktop window from the first step listens on that same port, so only one of them can run.
 
-Note: when running in a browser alone, Tauri desktop capabilities such as `invoke`, event listeners and file storage are unavailable; for the full feature set use `npm run tauri:dev`.
+When running in a browser alone, Tauri desktop capabilities such as `invoke`, event listeners and file storage are unavailable. The desktop window from the first step has the full feature set.
 
 ## Opening developer tools
 

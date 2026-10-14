@@ -134,16 +134,16 @@ src-tauri/target/release/bundle/
 
 ### 3.6 本地快速启动
 
-不打包、只在本机拉起这一格时用 [`quick-start.md`](quick-start.md)。Linux / macOS 用 shell，Windows 把 `./scripts/quick-deploy.sh` 换成 `scripts\quick-deploy.bat`。
+用户用脚本启动这一格的桌面程序，不调用 npm。仓库里已经有的 `target/release/pointer-app`，或本机已经安装的程序，会直接打开。两处都没有时脚本退出。加上 `--build` 才按这次传入的域名在本地重新编译。Linux / macOS 用 shell，Windows 把 `./scripts/quick-deploy.sh` 换成 `scripts\quick-deploy.bat`。详见 [`quick-start.md`](quick-start.md)。
 
 ```bash
-./scripts/quick-deploy.sh start managed-client \
+./scripts/quick-deploy.sh start managed-client --runtime bin \
   --api-base https://pointer-api.example.com \
   --web-base https://pointer.example.com \
   --annotate-base https://pointer-som.example.com
 ```
 
-开发态走本机 Tauri CLI。源码、`POINTER_EDITION` 和三个域名都没变时，Cargo 不整包重编。`--runtime bin` 直接运行 `target/release/pointer-app`，启动时不编译。
+开发者改代码用 `npm run tauri:dev`。脚本里要对这一格做开发态拉起时，把 `--runtime bin` 换成 `--runtime dev`，那才会走 Tauri CLI，并在源码、`POINTER_EDITION` 或三个域名变化时重编。
 
 ---
 
@@ -230,16 +230,16 @@ curl -s http://127.0.0.1:8787/api/auth/mode      # → {"mode":"platform"}
 
 ### 4.6 本地快速启动
 
-不打包、只在本机拉起这一格时用 [`quick-start.md`](quick-start.md)。下面是开发态；发布版在同一命令后加 `--runtime bin`，启动时不编译，页面在 `http://127.0.0.1:8787/`。
+用户用脚本启动这一格已经编译好的服务端，不调用 npm。不写 `--build` 时不编译，页面在 `http://127.0.0.1:8787/`。缺二进制或 `dist/` 时加上 `--build` 才本地重新编译。详见 [`quick-start.md`](quick-start.md)。
 
 ```bash
-./scripts/quick-deploy.sh start managed-server \
+./scripts/quick-deploy.sh start managed-server --runtime bin \
   --api-base https://pointer-api.example.com \
   --web-base https://pointer.example.com \
   --annotate-base https://pointer-som.example.com
 ```
 
-开发态每次执行 `cargo run -p pointer-server` 和本机 Vite。源码、口味、三个域名都没变时，Cargo 复用已有 debug 产物。从 standalone 切到 managed，或域名变了，才会重编。
+开发者改代码用 `npm run server:dev`。脚本里的 `--runtime dev` 才会执行 `cargo run -p pointer-server` 和本机 Vite；源码、口味、三个域名都没变时，Cargo 复用已有 debug 产物。
 
 ---
 
@@ -278,13 +278,13 @@ npm run tauri:build          # 不设任何 POINTER_* 变量
 
 ### 5.6 本地快速启动
 
-不打包、只在本机拉起桌面窗口时用 [`quick-start.md`](quick-start.md)。不设置 `POINTER_EDITION`，数据目录在 `.quick-deploy/standalone-client/data`。
+用户用脚本启动桌面程序，不调用 npm。不设置 `POINTER_EDITION`。仓库里已经有的 `target/release/pointer-app` 会直接用；没有时用本机已安装的程序。两处都没有就退出。加上 `--build` 才在本地重新编译，并且不会把 `pointer.local.env` 里的口味和域名编进去。数据目录在 `.quick-deploy/bin/standalone-client/data`。详见 [`quick-start.md`](quick-start.md)。
 
 ```bash
-./scripts/quick-deploy.sh start standalone-client
+./scripts/quick-deploy.sh start standalone-client --runtime bin
 ```
 
-开发态走本机 Tauri CLI，和开发态服务端网页共用 Vite 端口 `1420`。`--runtime bin` 运行 `target/release/pointer-app`，不占用 `1420`，启动时不编译。
+开发者改代码用 `npm run tauri:dev`。脚本里的 `--runtime dev` 才走 Tauri CLI，并和开发态网页共用 Vite 端口 `1420`。发布版不占用 `1420`。
 
 ---
 
@@ -338,13 +338,13 @@ curl -s http://127.0.0.1:8787/api/license/status  # 自建 notConfigured；官�
 
 ### 6.6 本地快速启动
 
-不打包、只在本机拉起服务端和网页时用 [`quick-start.md`](quick-start.md)。第一次启动会在 `.quick-deploy/standalone-server/standalone-admin.env` 生成本地账密。
+用户用脚本启动已经编译好的服务端，不调用 npm。不写 `--build` 时不编译。第一次启动会在 `.quick-deploy/bin/standalone-server/standalone-admin.env` 生成本地账密。页面在 `http://127.0.0.1:8787/`。缺二进制或 `dist/` 时加上 `--build` 才本地重新编译。详见 [`quick-start.md`](quick-start.md)。
 
 ```bash
-./scripts/quick-deploy.sh start standalone-server
+./scripts/quick-deploy.sh start standalone-server --runtime bin
 ```
 
-开发态是 `cargo run -p pointer-server` 加本机 Vite，网页在 `http://127.0.0.1:1420/`。源码没变就不重编。`--runtime bin` 运行 `target/release/pointer-server`，由它自己托管 `dist/`，地址是 `http://127.0.0.1:8787/`，启动时不编译。
+开发者改代码用 `npm run server:dev` 和 `npm run web:dev`，页面在 `http://127.0.0.1:1420/`。脚本里的 `--runtime dev` 才是 `cargo run -p pointer-server` 加本机 Vite。
 
 ---
 
@@ -358,7 +358,7 @@ curl -s http://127.0.0.1:8787/api/license/status  # 自建 notConfigured；官�
 
 ## 8. 日常开发
 
-按某一格拉起本机进程（不读 `pointer.local.env`）见 [`quick-start.md`](quick-start.md)，入口是 `./scripts/quick-deploy.sh` 或 `scripts\quick-deploy.bat`。
+改代码用上面的 npm。用脚本启动某一格已经编译好的程序见 [`quick-start.md`](quick-start.md)，入口是 `./scripts/quick-deploy.sh` 或 `scripts\quick-deploy.bat`。
 
 ```bash
 cp pointer.local.env.example pointer.local.env    # 需要绑控制面时才建

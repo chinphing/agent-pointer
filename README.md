@@ -139,17 +139,20 @@ The desktop app is Tauri 2 and Vue 3. The web UI is the same interface served by
 
 ```bash
 npm install
-npm run tauri:dev          # desktop
-npm run server:dev         # then npm run web:dev for the browser UI
-npm test
-cargo test --workspace
+npm run tauri:dev
 ```
 
-Leave `POINTER_EDITION` unset for local work. Details: [docs/en/DEVELOPMENT.md](docs/en/DEVELOPMENT.md).
+The desktop window opens with no control plane bound when `pointer.local.env` is absent. The first compile can take a few minutes. For the browser UI, run `npm run server:dev` and `npm run web:dev`, then open `http://127.0.0.1:1420/`. Details: [docs/en/DEVELOPMENT.md](docs/en/DEVELOPMENT.md).
 
 ## Deploy
 
-Packaging flavour (`POINTER_EDITION`) and runtime form (client / server) are orthogonal. Pick your combination, then follow the checklist:
+Users start the desktop client with the script. It does not call npm. An existing `target/release/pointer-app` or an installed app opens directly; `--build` is what recompiles locally:
+
+```bash
+./scripts/quick-deploy.sh start standalone-client --runtime bin
+```
+
+Flavour (`POINTER_EDITION`) and runtime form (client / server) matter when you are building an installer:
 
 | What you are doing | Start here |
 | --- | --- |

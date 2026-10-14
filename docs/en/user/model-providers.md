@@ -2,6 +2,14 @@
 
 English | [简体中文](../../zh-CN/user/model-providers.md)
 
+## Configure it now
+
+Open **Settings → Models → Custom services → Add service**, fill in the Base URL and API Key, and click **Test connection**. The fields are under "Using your own models: add a custom service" below.
+
+If you installed from the website and signed in, the platform delivers a model and you can skip this.
+
+## Where the model comes from
+
 Pointer's code **bundles no model provider**. Where models come from depends on which package you use:
 
 | What you use | Where models come from | Configure it yourself? |

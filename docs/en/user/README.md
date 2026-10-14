@@ -1,15 +1,26 @@
 # User guide
 English | [简体中文](../../zh-CN/user/README.md)
 
-For **Pointer end users**: installation, day-to-day conversations, Skills, IM channels and more.
+For **Pointer end users**.
+
+## Use it now
+
+Open the [download page](https://pointer.readflowai.com/download), install, sign in, and send "Hello". The three steps are in [Getting started](getting-started.md).
+
+The tables below are for after it is already running.
 
 ## Tutorials
 
 | Document | Description |
 |------|------|
+| [getting-started.md](getting-started.md) | The three steps above, written out |
+| [model-providers.md](model-providers.md) | Your own model address and API Key |
+
+## Other ways in
+
+| Document | Description |
+|------|------|
 | [which-build.md](which-build.md) | The difference between an officially signed build and a local build |
-| [getting-started.md](getting-started.md) | Your first conversation |
-| [model-providers.md](model-providers.md) | Configuring model services: platform services and custom services, parameters and capabilities |
 | [standalone-server.md](standalone-server.md) | Self-hosting pointer-server |
 
 ## How-to guides

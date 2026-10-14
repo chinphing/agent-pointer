@@ -1,12 +1,13 @@
 # 贡献者指南
 [English](../../en/contributing/README.md) | 简体中文
 
-面向**本仓库贡献者与打包维护**：从源码构建、平台专项 UI、内部评测等。
+面向**本仓库贡献者与打包维护**。改代码时在仓库根目录执行 `npm install`，然后 `npm run tauri:dev`。窗口出现后再看下面的专题。已编译的程序用脚本启动，见 [快速启动](../deploy/quick-start.md)。
 
 | 文档 | 说明 |
 |------|------|
-| [**editions.md**](../deploy/editions.md) | **打包口味 × 运行形态四格**（managed / standalone × 客户端 / 服务端）：构建命令 / 变量 / 产物 / 验证 / 外部依赖（先看 [改造设计](../design/control-plane-and-editions.md)） |
+| [**DEVELOPMENT.md**](../../../DEVELOPMENT.md) | 第一步命令、失败时的环境、调试和测试 |
 | [**cross-platform-build.md**](cross-platform-build.md) | **Windows / macOS / Linux 开发与打包**（环境、命令、产物、CI） |
+| [**editions.md**](../deploy/editions.md) | 要打安装包时的四格清单：构建命令 / 变量 / 产物 / 验证 / 外部依赖。背景见 [改造设计](../design/control-plane-and-editions.md) |
 | [**versioning.md**](versioning.md) | **版本号单一来源**（`VERSION` + `npm run version:sync`） |
 | [**ci.md**](ci.md) | **CI 与发布流程**：四支 workflow、本地复现、PR 前自检、DCO 与 Dependabot |
 | [**docs-site.md**](docs-site.md) | **文档站规则**：三层分区、`SITE_EXCLUDES`、侧栏与路由、预览与链接校验 |

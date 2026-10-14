@@ -1,8 +1,16 @@
-# Packaging and deployment: the four-cell checklist entry
+# Packaging and deployment
 
 English | [简体中文](../../zh-CN/deploy/README.md)
 
-One source tree; three orthogonal axes decide what you need to do:
+Users start the desktop client with the script. It does not call npm. An existing `target/release/pointer-app` or an installed app opens directly; `--build` is what recompiles locally:
+
+```bash
+./scripts/quick-deploy.sh start standalone-client --runtime bin
+```
+
+On Windows, use `scripts\quick-deploy.bat start standalone-client --runtime bin`. Developers who are changing the code run `npm install` and then `npm run tauri:dev`. Details: [Quick start](quick-start.md).
+
+The three axes below matter when you are building an installer:
 
 | Axis | Values | Where |
 |---|---|---|
@@ -10,7 +18,7 @@ One source tree; three orthogonal axes decide what you need to do:
 | **Runtime form** | client (Tauri desktop app) / server (`pointer-server`) | §1–§4 (the four-cell checklist: managed/standalone × client/server) below |
 | **Target platform** | Windows / macOS / Linux | [§5 Platform packaging](#platforms) |
 
-**This page is the single entry point.** First locate your cell in §0 ("Locate yourself first") and work through its checklist; go to the detailed manuals only when you need the detail.
+When you are packaging a release, find your cell in §0 below.
 
 > **Terminology**: `official` is **not** a `POINTER_EDITION` value; it only refers to a Pointer official release.
 > Writing any other value (including `official`) makes the build **fail outright** — deliberately so, to avoid silently degrading into an unbound build.
@@ -105,7 +113,7 @@ Environment prerequisites, build commands, artifact locations and CI policy for 
 
 | Document | Content |
 |---|---|
-| [`quick-start.md`](quick-start.md) | Local quick start for the four cells, for the dev toolchain and for release binaries |
+| [`quick-start.md`](quick-start.md) | Users start binaries with the script; developers start dev with npm |
 | [`editions.md`](editions.md) | The four cells in detail (build command / variables / artifacts / verification / external dependencies) |
 | [`platforms.md`](platforms.md) | Windows / macOS / Linux platform packaging index (prerequisites / artifacts / CI policy) |
 | [`../contributing/cross-platform-build.md`](../contributing/cross-platform-build.md) | Windows / macOS / Linux environments and packaging commands |

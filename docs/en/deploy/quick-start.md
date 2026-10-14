@@ -1,132 +1,138 @@
-# Local quick start for the four deployment cells
+# Start locally
 
 [简体中文](../../zh-CN/deploy/quick-start.md) | English
 
-Packaging and rollout stay in [README.md](README.md). This page starts the same kind of local smoke processes used to check that one deployment cell actually comes up.
+Developers and users do not start Pointer the same way.
 
-The entry points are `scripts/quick-deploy.sh` and `scripts/quick-deploy.bat`. Neither script calls npm. Use the shell script on Linux and macOS, and the batch file on Windows; the arguments are the same. The launcher does not read `pointer.local.env`. Each mode sets its own environment, so a managed file on the machine cannot leak into a standalone run. State, logs, and the generated local password live in `.quick-deploy/` (gitignored).
+## Start now
 
-`--runtime` selects how the same four modes are launched:
+Users start the desktop app with the script. The script does not call npm. Omitting `--runtime` means `--runtime bin`.
+
+```bash
+./scripts/quick-deploy.sh start standalone-client --runtime bin
+```
+
+```bat
+scripts\quick-deploy.bat start standalone-client --runtime bin
+```
+
+An existing `target/release/pointer-app` in the repo opens directly. Without that file, the installed `pointer-app` is used. When neither exists, the script exits. A local recompile happens only when you pass `--build`:
+
+```bash
+./scripts/quick-deploy.sh start standalone-client --runtime bin --build
+```
+
+After `--build`, the process that starts is the new `target/release/pointer-app`, not the installed app. Data lives in `.quick-deploy/bin/standalone-client/data`, separate from an installed Pointer.
+
+To open an already built server in the browser:
+
+```bash
+./scripts/quick-deploy.sh start standalone-server --runtime bin
+```
+
+The page is at `http://127.0.0.1:8787/`. The first start writes the local account to `.quick-deploy/bin/standalone-server/standalone-admin.env` and prints the password once. Later starts reuse that file and do not print the password. A self-hosted server needs an existing `pointer-server` and `dist/`. If either is missing, the script exits. `--build` is what compiles locally (`node scripts/build-server.mjs`) and then starts that binary.
+
+## Changing the code
+
+Developers start the dev app with npm. That compiles as the code changes:
+
+```bash
+npm install
+npm run tauri:dev
+```
+
+`npm run tauri:dev` reads `pointer.local.env`. With no such file, no control plane is bound. The first compile can take a few minutes.
+
+To work on the same UI in a browser, use two terminals:
+
+```bash
+npm run server:dev
+npm run web:dev
+```
+
+Open `http://127.0.0.1:1420/`. Requirements, debugging, and the libraries to install when this fails are in [DEVELOPMENT.md](../DEVELOPMENT.md).
+
+## Other cells
+
+Packaging and rollout stay in [README.md](README.md). The rest of this page is the other cells of the same launcher. It does not read `pointer.local.env`. Each mode sets its own environment, so a managed file on the machine cannot leak into a standalone run. State, logs, and the generated local password live in `.quick-deploy/` (gitignored). Use `./scripts/quick-deploy.sh` on Linux and macOS, and `scripts\quick-deploy.bat` on Windows. Binary state is `.quick-deploy/bin/<mode>/`. Dev state is `.quick-deploy/<mode>/`. The two runtimes do not share a password or a pid file.
 
 | `--runtime` | Default | What it launches | Rebuilds? |
 | --- | --- | --- | --- |
-| `dev` | yes | `cargo run`, the local Vite CLI, or the local Tauri CLI | only when sources, `POINTER_EDITION`, or the three domains changed. Otherwise Cargo reuses the existing debug artifacts |
-| `bin` | no | `target/release/pointer-server` or `target/release/pointer-app` | no. A missing binary, or a missing `dist/` for the server, exits immediately |
+| `bin` | yes | Desktop client: an existing `target/release/pointer-app`, otherwise the installed `pointer-app`. Server: an existing `pointer-server` | no. If the client is missing in both places, or the server is missing its binary or `dist/`, it exits. Only `--build` compiles locally |
+| `dev` | no | `cargo run`, the local Vite CLI, or the local Tauri CLI | only when sources, `POINTER_EDITION`, or the three domains changed. Otherwise Cargo reuses the existing debug artifacts |
 
-Dev modes:
+Day-to-day code changes use the npm commands above, not `--runtime dev`. `--runtime dev` is only for launching one of the four cells as a dev process through this script.
 
-| Mode | What it starts | How to tell it worked |
+| Mode | After `--runtime bin` | After `--runtime dev` |
 | --- | --- | --- |
-| `standalone-server` | `cargo run -p pointer-server` plus the local Vite CLI, with a generated local account | `GET /api/auth/mode` is `standalone`; open `http://127.0.0.1:1420/` |
-| `standalone-client` | the local Tauri CLI `dev`, data under `.quick-deploy/standalone-client/data` | Vite listens on `127.0.0.1:1420` and the desktop window opens |
-| `managed-server` | The same server and web processes, with `POINTER_EDITION=managed` and `POINTER_DEPLOYMENT_MODE=platform` | `GET /api/auth/mode` is `platform` |
-| `managed-client` | `tauri dev` with the three control-plane domains present at compile and run time | The desktop process starts as the managed edition |
+| `standalone-server` | Page at `http://127.0.0.1:8787/`, `GET /api/auth/mode` is `standalone` | Vite page at `http://127.0.0.1:1420/`, API still on `8787` |
+| `standalone-client` | Desktop window is `pointer-app` and does not use `1420` | Vite listens on `127.0.0.1:1420` and the desktop window opens |
+| `managed-server` | Same as the standalone server, and `GET /api/auth/mode` is `platform` | Same, with `POINTER_EDITION=managed` |
+| `managed-client` | Desktop process receives the three control-plane domains and does not use `1420` | `tauri dev` with the three domains present at compile and run time |
 
-The dev server web UI and the dev desktop client both use Vite port `1420`, so only one of them can run. The server API stays on `127.0.0.1:8787`, which is what the Vite `/api` proxy expects. A release server serves `dist/` itself at `http://127.0.0.1:8787/` and does not use port `1420`. The release client does not use port `1420` either. Dev and release servers cannot listen on `8787` at the same time.
+The dev server web UI and the dev desktop client both use Vite port `1420`, so only one of them can run. The server API stays on `127.0.0.1:8787`. A release server serves `dist/` itself at `http://127.0.0.1:8787/`. Dev and release servers cannot listen on `8787` at the same time.
 
 ## Standalone server
 
 ```bash
-./scripts/quick-deploy.sh start standalone-server
+./scripts/quick-deploy.sh start standalone-server --runtime bin
 ```
 
 ```bat
-scripts\quick-deploy.bat start standalone-server
+scripts\quick-deploy.bat start standalone-server --runtime bin
 ```
 
-The first start writes username `admin`, a random password, and the HMAC to `.quick-deploy/standalone-server/standalone-admin.env`, and prints the password once. Later starts reuse that file and do not print it again.
+Sign in with the account, the password, and the captcha. The model key is still filled in from settings.
 
 ```bash
 ./scripts/quick-deploy.sh status
-./scripts/quick-deploy.sh stop standalone-server
+./scripts/quick-deploy.sh stop standalone-server --runtime bin
 ```
-
-Sign in with the username, password, and captcha. Model keys are still entered in Settings.
 
 ## Standalone client
 
 ```bash
-./scripts/quick-deploy.sh start standalone-client
+./scripts/quick-deploy.sh start standalone-client --runtime bin
 ```
 
-`POINTER_EDITION` is unset and no control plane is bound. The data directory is separate from an installed `PointerApp`.
+A local standalone build leaves `POINTER_EDITION` unset. A standalone `--build` locks the edition and the domains, so `pointer.local.env` cannot fill them. An installed official package still receives its model from the platform after sign-in.
 
 ## Managed server
 
-The three control-plane domains are required. Without a reachable control plane the process still starts in platform mode, but browser login waits on that control plane.
+The three control-plane domains are required. Without a reachable control plane the process still starts in platform mode, but browser sign-in waits until the control plane is reachable.
 
 ```bash
-./scripts/quick-deploy.sh start managed-server \
+./scripts/quick-deploy.sh start managed-server --runtime bin \
   --api-base https://pointer-api.example.com \
   --web-base https://pointer.example.com \
   --annotate-base https://pointer-som.example.com
 ```
 
 ```bat
-scripts\quick-deploy.bat start managed-server --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
 ```
 
-`POINTER_API_BASE`, `POINTER_WEB_BASE`, and `COMPUTER_ANNOTATE_API_BASE` work in place of the flags.
+You can export `POINTER_API_BASE`, `POINTER_WEB_BASE`, and `COMPUTER_ANNOTATE_API_BASE` instead of passing the three flags. Without `--build`, the script puts the domains into the process environment and starts the existing binary. `--build` recompiles locally with the domains from this command. A build that is missing one domain fails. Developers can also produce this package with `npm run server:build`.
 
-That dev command runs `cargo run -p pointer-server` plus the local Vite CLI on every start. Cargo rebuilds only when it has to: sources changed, or `POINTER_EDITION` and the three domains differ from the last compile (for example, switching over from standalone). When none of those changed, Cargo checks and then runs the existing debug binary. The first switch from standalone to managed usually takes several minutes.
-
-An already-built binary uses `--runtime bin`. That start does not invoke Cargo. The page is at `http://127.0.0.1:8787/`. To bake the domains into the binary, pass `POINTER_EDITION=managed` and the three domains when running `node scripts/build-server.mjs`. A managed build fails if any domain is missing.
-
-```bash
-./scripts/quick-deploy.sh start managed-server --runtime bin \
-  --api-base https://pointer-api.example.com \
-  --web-base https://pointer.example.com \
-  --annotate-base https://pointer-som.example.com
-```
+`--runtime dev` is what runs `cargo run -p pointer-server` and the local Vite CLI. Cargo rebuilds only when the sources, `POINTER_EDITION`, or the three domains change.
 
 ## Managed client
 
-Same domains. A `POINTER_EDITION=managed` cargo build fails if any domain is missing, because the domains are compiled into the binary.
-
 ```bash
-./scripts/quick-deploy.sh start managed-client \
-  --api-base https://pointer-api.example.com \
-  --web-base https://pointer.example.com \
-  --annotate-base https://pointer-som.example.com
-```
-
-## Compiled binaries
-
-Build the artifact first. The server build is `node scripts/build-server.mjs` (frontend `dist/` and `target/release/pointer-server`). The client build is `node scripts/tauri-build.mjs` (`target/release/pointer-app`). If either file is missing, the script exits and does not compile.
-
-```bash
-./scripts/quick-deploy.sh start standalone-server --runtime bin
-./scripts/quick-deploy.sh start standalone-client --runtime bin
-```
-
-The release standalone server writes its account to `.quick-deploy/bin/standalone-server/standalone-admin.env`, separate from the dev account. Open `http://127.0.0.1:8787/`. `GET /api/health` is `ok`, and `GET /api/auth/mode` is `standalone`.
-
-Managed modes take the same `--runtime bin` flag and the same three domains. The script puts those domains in the process environment and launches the binary that is already on disk. It does not rebuild. A binary produced with `POINTER_EDITION=managed` still needs the three domains at build time.
-
-```bash
-./scripts/quick-deploy.sh start managed-server --runtime bin \
-  --api-base https://pointer-api.example.com \
-  --web-base https://pointer.example.com \
-  --annotate-base https://pointer-som.example.com
-
 ./scripts/quick-deploy.sh start managed-client --runtime bin \
   --api-base https://pointer-api.example.com \
   --web-base https://pointer.example.com \
   --annotate-base https://pointer-som.example.com
 ```
 
-`stop standalone-server` stops both the dev and release copies of that mode. To stop only the release copy:
+Without `--build`, an existing `target/release/pointer-app` or the installed app is used. `--build` recompiles locally with the three domains from this command. Developers can also produce this client with `npm run tauri:build`.
 
-```bash
-./scripts/quick-deploy.sh stop standalone-server --runtime bin
-```
-
-## Print the plan without starting
+## Plan without starting
 
 ```bash
 ./scripts/quick-deploy.sh plan standalone-server
-./scripts/quick-deploy.sh plan standalone-server --runtime bin
+./scripts/quick-deploy.sh plan standalone-client --runtime dev
 ./scripts/quick-deploy.sh plan managed-client --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
 ```
 
-`stop` with no mode stops every mode and both runtimes recorded under `.quick-deploy/`. It signals the pids in the pid file and does not kill processes by name.
+`plan` without `--runtime` prints the binary plan. `stop` without a mode stops every recorded mode and both runtimes under `.quick-deploy/`. `stop <mode>` without `--runtime` stops that mode's binary and its dev runtime. Stop signals the pid file. It does not kill by process name.

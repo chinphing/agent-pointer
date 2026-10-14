@@ -105,6 +105,7 @@
 
 | 文档 | 内容 |
 |---|---|
+| [`quick-start.md`](quick-start.md) | 四格的本地快速启动（冒烟：服务端或桌面进程拉起来并核对模式） |
 | [`editions.md`](editions.md) | 四格详细步骤（构建命令 / 变量 / 产物 / 验证 / 外部依赖） |
 | [`platforms.md`](platforms.md) | Windows / macOS / Linux 平台打包索引（环境前置 / 产物 / CI 口径） |
 | [`../../contributing/cross-platform-build.md`](../contributing/cross-platform-build.md) | Windows / macOS / Linux 环境与打包命令 |

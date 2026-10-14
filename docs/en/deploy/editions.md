@@ -132,6 +132,19 @@ src-tauri/target/release/bundle/
 - The updater private key (the public key already lives in `src-tauri/tauri.conf.json` → `plugins.updater.pubkey`; **rotating the key means updating this too**).
 - Release: the installer + updater archive + `.sig` go through the console's client-release flow.
 
+### 3.6 Local quick start
+
+To bring this cell up locally without packaging, use [`quick-start.md`](quick-start.md). On Linux and macOS use the shell script. On Windows replace `./scripts/quick-deploy.sh` with `scripts\quick-deploy.bat`.
+
+```bash
+./scripts/quick-deploy.sh start managed-client \
+  --api-base https://pointer-api.example.com \
+  --web-base https://pointer.example.com \
+  --annotate-base https://pointer-som.example.com
+```
+
+The dev runtime uses the local Tauri CLI. Cargo does not rebuild the whole package when the sources, `POINTER_EDITION`, and the three domains are unchanged. `--runtime bin` runs `target/release/pointer-app` and does not compile at startup.
+
 ---
 
 <a id="managed-server"></a>
@@ -215,6 +228,19 @@ curl -s http://127.0.0.1:8787/api/auth/mode      # → {"mode":"platform"}
 - Control-plane-side organisation / billing / shop (not built by this repository).
 - No license issuance needed.
 
+### 4.6 Local quick start
+
+To bring this cell up locally without packaging, use [`quick-start.md`](quick-start.md). The command below is the dev runtime. Add `--runtime bin` for the release binary: that start does not compile, and the page is at `http://127.0.0.1:8787/`.
+
+```bash
+./scripts/quick-deploy.sh start managed-server \
+  --api-base https://pointer-api.example.com \
+  --web-base https://pointer.example.com \
+  --annotate-base https://pointer-som.example.com
+```
+
+The dev runtime runs `cargo run -p pointer-server` and the local Vite CLI. Cargo reuses the existing debug artifacts when the sources, flavour, and three domains are unchanged. Switching from standalone to managed, or changing a domain, rebuilds.
+
 ---
 
 <a id="standalone-client"></a>
@@ -249,6 +275,16 @@ No required variables. Optional: `POINTER_USAGE_REPORT_ENABLED=false` (already o
 ### 5.5 External dependencies
 
 None.
+
+### 5.6 Local quick start
+
+To open the desktop window locally without packaging, use [`quick-start.md`](quick-start.md). `POINTER_EDITION` stays unset. Data lives in `.quick-deploy/standalone-client/data`.
+
+```bash
+./scripts/quick-deploy.sh start standalone-client
+```
+
+The dev runtime uses the local Tauri CLI and shares Vite port `1420` with the dev server web UI. `--runtime bin` runs `target/release/pointer-app`, does not use port `1420`, and does not compile at startup.
 
 ---
 
@@ -300,6 +336,16 @@ Open `public_url` in a browser → sign in with account, password and captcha �
 
 None. An official signed package needs a license issued by Pointer (`npm run license-gen:build`).
 
+### 6.6 Local quick start
+
+To bring the server and web UI up locally without packaging, use [`quick-start.md`](quick-start.md). The first start writes a local account to `.quick-deploy/standalone-server/standalone-admin.env`.
+
+```bash
+./scripts/quick-deploy.sh start standalone-server
+```
+
+The dev runtime is `cargo run -p pointer-server` plus the local Vite CLI. The page is at `http://127.0.0.1:1420/`. Unchanged sources are not rebuilt. `--runtime bin` runs `target/release/pointer-server`, which serves `dist/` itself at `http://127.0.0.1:8787/`, and does not compile at startup.
+
 ---
 
 ## 7. CI and release policy
@@ -311,6 +357,8 @@ None. An official signed package needs a license issued by Pointer (`npm run lic
 ---
 
 ## 8. Everyday development
+
+To start one cell locally without reading `pointer.local.env`, see [`quick-start.md`](quick-start.md). The entry points are `./scripts/quick-deploy.sh` and `scripts\quick-deploy.bat`.
 
 ```bash
 cp pointer.local.env.example pointer.local.env    # create it only when you need to bind a control plane

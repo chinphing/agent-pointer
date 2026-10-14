@@ -8,10 +8,10 @@ The entry points are `scripts/quick-deploy.sh` and `scripts/quick-deploy.bat`. N
 
 `--runtime` selects how the same four modes are launched:
 
-| `--runtime` | Default | What it launches | Compiles? |
+| `--runtime` | Default | What it launches | Rebuilds? |
 | --- | --- | --- | --- |
-| `dev` | yes | `cargo run`, Vite, or `tauri dev` | yes; the first start can take several minutes |
-| `bin` | no | `target/release/pointer-server` or `target/release/pointer-app` | no; a missing binary exits immediately |
+| `dev` | yes | `cargo run`, the local Vite CLI, or the local Tauri CLI | only when sources, `POINTER_EDITION`, or the three domains changed. Otherwise Cargo reuses the existing debug artifacts |
+| `bin` | no | `target/release/pointer-server` or `target/release/pointer-app` | no. A missing binary, or a missing `dist/` for the server, exits immediately |
 
 Dev modes:
 
@@ -62,7 +62,22 @@ The three control-plane domains are required. Without a reachable control plane 
   --annotate-base https://pointer-som.example.com
 ```
 
+```bat
+scripts\quick-deploy.bat start managed-server --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+```
+
 `POINTER_API_BASE`, `POINTER_WEB_BASE`, and `COMPUTER_ANNOTATE_API_BASE` work in place of the flags.
+
+That dev command runs `cargo run -p pointer-server` plus the local Vite CLI on every start. Cargo rebuilds only when it has to: sources changed, or `POINTER_EDITION` and the three domains differ from the last compile (for example, switching over from standalone). When none of those changed, Cargo checks and then runs the existing debug binary. The first switch from standalone to managed usually takes several minutes.
+
+An already-built binary uses `--runtime bin`. That start does not invoke Cargo. The page is at `http://127.0.0.1:8787/`. To bake the domains into the binary, pass `POINTER_EDITION=managed` and the three domains when running `node scripts/build-server.mjs`. A managed build fails if any domain is missing.
+
+```bash
+./scripts/quick-deploy.sh start managed-server --runtime bin \
+  --api-base https://pointer-api.example.com \
+  --web-base https://pointer.example.com \
+  --annotate-base https://pointer-som.example.com
+```
 
 ## Managed client
 

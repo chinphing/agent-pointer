@@ -8,10 +8,10 @@
 
 两种启动方式用同一个入口，用 `--runtime` 区分：
 
-| `--runtime` | 默认 | 启动什么 | 会不会编译 |
+| `--runtime` | 默认 | 启动什么 | 会不会重新编译 |
 | --- | --- | --- | --- |
-| `dev` | 是 | `cargo run`、Vite、`tauri dev` | 会，第一次可能要几分钟 |
-| `bin` | 否 | `target/release/pointer-server` 或 `target/release/pointer-app` | 不会，缺二进制就直接退出 |
+| `dev` | 是 | `cargo run`、本机 Vite、本机 Tauri CLI | 源码、`POINTER_EDITION` 或三个域名变了才重编。都没变时 Cargo 复用已有 debug 产物 |
+| `bin` | 否 | `target/release/pointer-server` 或 `target/release/pointer-app` | 启动时不编译。缺二进制或服务端缺 `dist/` 就退出 |
 
 开发态的四种模式：
 
@@ -62,7 +62,22 @@ scripts\quick-deploy.bat start standalone-server
   --annotate-base https://pointer-som.example.com
 ```
 
+```bat
+scripts\quick-deploy.bat start managed-server --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+```
+
 也可以导出 `POINTER_API_BASE`、`POINTER_WEB_BASE`、`COMPUTER_ANNOTATE_API_BASE`，再省略这三项参数。
+
+这条开发态命令每次都会执行 `cargo run -p pointer-server`，再加上本机 Vite。Cargo 只在需要时重编：源码变了，或者 `POINTER_EDITION`、三个域名和上次编译时不同（例如刚从 standalone 切过来），才会重编 `pointer-core`。三项都没变时，它检查后直接运行已有的 debug 二进制。从 standalone 切到 managed 的第一次通常要几分钟。
+
+已经编译好的二进制用 `--runtime bin`。启动时不再调用 Cargo，页面在 `http://127.0.0.1:8787/`。若希望域名在编译期写进二进制，要在 `node scripts/build-server.mjs` 时就带上 `POINTER_EDITION=managed` 和这三个域名；缺一个，那次构建会失败。
+
+```bash
+./scripts/quick-deploy.sh start managed-server --runtime bin \
+  --api-base https://pointer-api.example.com \
+  --web-base https://pointer.example.com \
+  --annotate-base https://pointer-som.example.com
+```
 
 ## managed 客户端
 

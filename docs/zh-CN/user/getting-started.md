@@ -22,26 +22,117 @@
 
 ## 3. 自行编译安装
 
-在仓库根目录打当前系统的安装包：
+命令都在仓库根目录执行。个人版不要设置 `POINTER_EDITION`。企业版把示例域名换成自己的控制面。产物位置见 [平台打包](../deploy/platforms.md)。
+
+### 客户端编译安装
+
+#### 个人版
+
+1. 一行命令编译并启动
 
 ```bash
-npm install
-npm run build:linux
+# Linux / macOS
+npm install && ./scripts/quick-deploy.sh start standalone-client --runtime bin --build
+
+# Windows
+npm install && scripts\quick-deploy.bat start standalone-client --runtime bin --build
 ```
 
-Windows 把第二条换成 `npm run build:windows`，macOS 换成 `npm run build:macos`。装上打出来的安装包，再打开。产物在哪见 [平台打包](../deploy/platforms.md)。
+编完启动 `target/release/pointer-app`。模型在 **设置 → 模型配置 → 自定义服务** 里填写。
 
-打开后到 **设置 → 模型配置 → 自定义服务** 填地址和 Key。
-
-仓库里只想编完直接打开、不另装安装包：
+2. 编译生成安装包
 
 ```bash
-./scripts/quick-deploy.sh start standalone-client --runtime bin --build
+# Linux
+npm install && npm run build:linux
+
+# macOS
+npm install && npm run build:macos
+
+# Windows
+npm install && npm run build:windows
 ```
 
-Windows 把 `./scripts/quick-deploy.sh` 换成 `scripts\quick-deploy.bat`。编完启动的是 `target/release/pointer-app`。
+#### 企业版
 
-边改边看用 `npm run tauri:dev`，见 [开发第一步](../../../DEVELOPMENT.md)。
+1. 一行命令编译并启动
+
+updater 私钥放在 `pointer.local.env` 或当前环境的 `TAURI_SIGNING_PRIVATE_KEY_PATH`。
+
+```bash
+# Linux / macOS
+npm install && ./scripts/quick-deploy.sh start managed-client --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+
+# Windows
+npm install && scripts\quick-deploy.bat start managed-client --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+```
+
+2. 编译生成安装包
+
+```bash
+# Linux
+npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com POINTER_DOWNLOAD_URL=https://pointer.example.com/download TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key npm run build:linux
+
+# macOS
+npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com POINTER_DOWNLOAD_URL=https://pointer.example.com/download TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key npm run build:macos
+
+# Windows
+npm install && set POINTER_EDITION=managed&& set VITE_POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set POINTER_WEB_BASE=https://pointer.example.com&& set VITE_POINTER_WEB_BASE=https://pointer.example.com&& set COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com&& set POINTER_DOWNLOAD_URL=https://pointer.example.com/download&& set TAURI_SIGNING_PRIVATE_KEY_PATH=%USERPROFILE%\.tauri\pointer-updater.key&& npm run build:windows
+```
+
+### Web Server 编译安装
+
+#### 个人版
+
+1. 一行命令编译并启动
+
+```bash
+# Linux / macOS
+npm install && ./scripts/quick-deploy.sh start standalone-server --runtime bin --build
+
+# Windows
+npm install && scripts\quick-deploy.bat start standalone-server --runtime bin --build
+```
+
+页面在 `http://127.0.0.1:8787/`。第一次启动把本地账密写到 `.quick-deploy/bin/standalone-server/standalone-admin.env`。
+
+2. 编译生成安装包
+
+```bash
+# Linux
+npm install && npm run server:build
+
+# macOS
+npm install && npm run server:build
+
+# Windows
+npm install && npm run server:build
+```
+
+#### 企业版
+
+1. 一行命令编译并启动
+
+```bash
+# Linux / macOS
+npm install && ./scripts/quick-deploy.sh start managed-server --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+
+# Windows
+npm install && scripts\quick-deploy.bat start managed-server --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+```
+
+2. 编译生成安装包
+
+```bash
+# Linux
+npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com npm run server:build
+
+# macOS
+npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com npm run server:build
+
+# Windows
+npm install && set POINTER_EDITION=managed&& set VITE_POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set POINTER_WEB_BASE=https://pointer.example.com&& set VITE_POINTER_WEB_BASE=https://pointer.example.com&& set COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com&& npm run server:build
+```
 
 ## 接着看
 

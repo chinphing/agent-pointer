@@ -22,26 +22,117 @@ How this differs from the website package: [Official packages vs. local builds](
 
 ## 3. Compile and install it yourself
 
-From the repository root, build the installer for this system:
+Run every command from the repository root. A personal build leaves `POINTER_EDITION` unset. An enterprise build replaces the example domains with its own control plane. Artifact locations are in [Platform packaging](../deploy/platforms.md).
+
+### Client
+
+#### Personal
+
+1. One command to compile and start
 
 ```bash
-npm install
-npm run build:linux
+# Linux / macOS
+npm install && ./scripts/quick-deploy.sh start standalone-client --runtime bin --build
+
+# Windows
+npm install && scripts\quick-deploy.bat start standalone-client --runtime bin --build
 ```
 
-On Windows replace the second command with `npm run build:windows`. On macOS use `npm run build:macos`. Install the package that build produces, then open it. Artifact locations are in [Platform packaging](../deploy/platforms.md).
+This starts `target/release/pointer-app`. Fill in the model under **Settings → Models → Custom services**.
 
-After it opens, fill in the address and Key under **Settings → Models → Custom services**.
-
-To compile and open the app from the repository without making a separate installer:
+2. Build an installer
 
 ```bash
-./scripts/quick-deploy.sh start standalone-client --runtime bin --build
+# Linux
+npm install && npm run build:linux
+
+# macOS
+npm install && npm run build:macos
+
+# Windows
+npm install && npm run build:windows
 ```
 
-On Windows replace `./scripts/quick-deploy.sh` with `scripts\quick-deploy.bat`. The process that starts is `target/release/pointer-app`.
+#### Enterprise
 
-To edit while it runs, use `npm run tauri:dev`. See the [first development step](../DEVELOPMENT.md).
+1. One command to compile and start
+
+Put the updater private key in `pointer.local.env`, or in `TAURI_SIGNING_PRIVATE_KEY_PATH` in the current environment.
+
+```bash
+# Linux / macOS
+npm install && ./scripts/quick-deploy.sh start managed-client --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+
+# Windows
+npm install && scripts\quick-deploy.bat start managed-client --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+```
+
+2. Build an installer
+
+```bash
+# Linux
+npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com POINTER_DOWNLOAD_URL=https://pointer.example.com/download TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key npm run build:linux
+
+# macOS
+npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com POINTER_DOWNLOAD_URL=https://pointer.example.com/download TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key npm run build:macos
+
+# Windows
+npm install && set POINTER_EDITION=managed&& set VITE_POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set POINTER_WEB_BASE=https://pointer.example.com&& set VITE_POINTER_WEB_BASE=https://pointer.example.com&& set COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com&& set POINTER_DOWNLOAD_URL=https://pointer.example.com/download&& set TAURI_SIGNING_PRIVATE_KEY_PATH=%USERPROFILE%\.tauri\pointer-updater.key&& npm run build:windows
+```
+
+### Web Server
+
+#### Personal
+
+1. One command to compile and start
+
+```bash
+# Linux / macOS
+npm install && ./scripts/quick-deploy.sh start standalone-server --runtime bin --build
+
+# Windows
+npm install && scripts\quick-deploy.bat start standalone-server --runtime bin --build
+```
+
+The page is at `http://127.0.0.1:8787/`. The first start writes the local account to `.quick-deploy/bin/standalone-server/standalone-admin.env`.
+
+2. Build an installer
+
+```bash
+# Linux
+npm install && npm run server:build
+
+# macOS
+npm install && npm run server:build
+
+# Windows
+npm install && npm run server:build
+```
+
+#### Enterprise
+
+1. One command to compile and start
+
+```bash
+# Linux / macOS
+npm install && ./scripts/quick-deploy.sh start managed-server --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+
+# Windows
+npm install && scripts\quick-deploy.bat start managed-server --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+```
+
+2. Build an installer
+
+```bash
+# Linux
+npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com npm run server:build
+
+# macOS
+npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com npm run server:build
+
+# Windows
+npm install && set POINTER_EDITION=managed&& set VITE_POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set POINTER_WEB_BASE=https://pointer.example.com&& set VITE_POINTER_WEB_BASE=https://pointer.example.com&& set COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com&& npm run server:build
+```
 
 ## After that
 

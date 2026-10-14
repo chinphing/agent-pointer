@@ -134,7 +134,7 @@ src-tauri/target/release/bundle/
 
 ### 3.6 Local quick start
 
-Users start this cell's desktop app with the script. It does not call npm and does not compile. An installed app, the official no-install package, or an existing `target/release/pointer-app` all work. On Linux and macOS use the shell script. On Windows replace `./scripts/quick-deploy.sh` with `scripts\quick-deploy.bat`. Details: [`quick-start.md`](quick-start.md).
+Users start this cell's desktop app with the script. It does not call npm. An existing `target/release/pointer-app`, or an installed app, opens directly. When neither exists, the script exits. `--build` is what recompiles locally with the domains from this command. On Linux and macOS use the shell script. On Windows replace `./scripts/quick-deploy.sh` with `scripts\quick-deploy.bat`. Details: [`quick-start.md`](quick-start.md).
 
 ```bash
 ./scripts/quick-deploy.sh start managed-client --runtime bin \
@@ -230,7 +230,7 @@ curl -s http://127.0.0.1:8787/api/auth/mode      # → {"mode":"platform"}
 
 ### 4.6 Local quick start
 
-Users start this cell's already built server with the script. It does not call npm and does not compile. The page is at `http://127.0.0.1:8787/`. Details: [`quick-start.md`](quick-start.md).
+Users start this cell's already built server with the script. It does not call npm. Without `--build` it does not compile. The page is at `http://127.0.0.1:8787/`. When the binary or `dist/` is missing, `--build` is what recompiles locally. Details: [`quick-start.md`](quick-start.md).
 
 ```bash
 ./scripts/quick-deploy.sh start managed-server --runtime bin \
@@ -278,7 +278,7 @@ None.
 
 ### 5.6 Local quick start
 
-Users start the desktop app with the script. It does not call npm and does not compile. `POINTER_EDITION` stays unset. An installed app or the official no-install package can open it; an existing `target/release/pointer-app` is used as-is. Data lives in `.quick-deploy/bin/standalone-client/data`. Details: [`quick-start.md`](quick-start.md).
+Users start the desktop app with the script. It does not call npm. `POINTER_EDITION` stays unset. An existing `target/release/pointer-app` is used as-is; otherwise the installed app is used. When neither exists, the script exits. `--build` recompiles locally and does not let `pointer.local.env` fill the edition or the domains. Data lives in `.quick-deploy/bin/standalone-client/data`. Details: [`quick-start.md`](quick-start.md).
 
 ```bash
 ./scripts/quick-deploy.sh start standalone-client --runtime bin
@@ -338,7 +338,7 @@ None. An official signed package needs a license issued by Pointer (`npm run lic
 
 ### 6.6 Local quick start
 
-Users start the already built server with the script. It does not call npm and does not compile. The first start writes a local account to `.quick-deploy/bin/standalone-server/standalone-admin.env`. The page is at `http://127.0.0.1:8787/`. Details: [`quick-start.md`](quick-start.md).
+Users start the already built server with the script. It does not call npm. Without `--build` it does not compile. The first start writes a local account to `.quick-deploy/bin/standalone-server/standalone-admin.env`. The page is at `http://127.0.0.1:8787/`. When the binary or `dist/` is missing, `--build` is what recompiles locally. Details: [`quick-start.md`](quick-start.md).
 
 ```bash
 ./scripts/quick-deploy.sh start standalone-server --runtime bin

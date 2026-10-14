@@ -2,7 +2,7 @@
 
 [English](../../en/deploy/README.md) | 简体中文
 
-用户用脚本直接启动桌面客户端。脚本不调用 npm，也不编译：
+用户用脚本直接启动桌面客户端。脚本不调用 npm。已有的 `target/release/pointer-app` 或已安装的程序直接打开；加上 `--build` 才在本地重新编译：
 
 ```bash
 ./scripts/quick-deploy.sh start standalone-client --runtime bin

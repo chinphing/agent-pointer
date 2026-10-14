@@ -6,7 +6,7 @@
 
 ## 现在就启动
 
-用户用脚本直接启动桌面程序。脚本不调用 npm，也不编译。不写 `--runtime` 时就是 `--runtime bin`。
+用户用脚本直接启动桌面程序。脚本不调用 npm。不写 `--runtime` 时就是 `--runtime bin`。
 
 ```bash
 ./scripts/quick-deploy.sh start standalone-client --runtime bin
@@ -16,7 +16,13 @@
 scripts\quick-deploy.bat start standalone-client --runtime bin
 ```
 
-已经安装的 Pointer 会直接打开。还没安装时，脚本从 [官网下载页](https://pointer.readflowai.com/download) 取当前系统的免安装包再启动。仓库里如果已经有 `target/release/pointer-app`，就用那一份，不会重新编译。数据在 `.quick-deploy/bin/standalone-client/data`，和已经安装的 Pointer 分开。
+仓库里已经有的 `target/release/pointer-app` 会直接打开。没有这份文件时，用本机已经安装的 `pointer-app`。两处都没有时脚本退出。要在本地重新编译，自己加上 `--build`：
+
+```bash
+./scripts/quick-deploy.sh start standalone-client --runtime bin --build
+```
+
+`--build` 编完后启动的是刚生成的 `target/release/pointer-app`，不再改用已安装的程序。数据在 `.quick-deploy/bin/standalone-client/data`，和已经安装的 Pointer 分开。
 
 浏览器访问已编译的服务端：
 
@@ -24,7 +30,7 @@ scripts\quick-deploy.bat start standalone-client --runtime bin
 ./scripts/quick-deploy.sh start standalone-server --runtime bin
 ```
 
-页面在 `http://127.0.0.1:8787/`。第一次启动把账密写到 `.quick-deploy/bin/standalone-server/standalone-admin.env`，终端打印一次密码。再次启动复用这份文件，不再打印密码。自建服务端需要本机已经有 `pointer-server` 和 `dist/`；没有时脚本退出并提示 `node scripts/build-server.mjs`。上面的桌面客户端不需要这一步。
+页面在 `http://127.0.0.1:8787/`。第一次启动把账密写到 `.quick-deploy/bin/standalone-server/standalone-admin.env`，终端打印一次密码。再次启动复用这份文件，不再打印密码。自建服务端需要本机已经有 `pointer-server` 和 `dist/`。缺了就退出。加上 `--build` 才会本地编译（`node scripts/build-server.mjs`），然后再启动。
 
 ## 开发者改代码
 
@@ -52,7 +58,7 @@ npm run web:dev
 
 | `--runtime` | 默认 | 启动什么 | 会不会重新编译 |
 | --- | --- | --- | --- |
-| `bin` | 是 | 桌面客户端：已有本地构建、已安装的程序，或官网免安装包。服务端：已有的 `pointer-server` | 启动时不编译。服务端缺二进制或 `dist/` 才退出 |
+| `bin` | 是 | 桌面客户端：已有的 `target/release/pointer-app`，否则已安装的 `pointer-app`。服务端：已有的 `pointer-server` | 不编译。客户端两处都没有，或服务端缺二进制 / `dist/`，就退出。只有写了 `--build` 才本地重新编译 |
 | `dev` | 否 | `cargo run`、本机 Vite、本机 Tauri CLI | 源码、`POINTER_EDITION` 或三个域名变了才重编。都没变时 Cargo 复用已有 debug 产物 |
 
 开发者日常改代码用上面的 npm，不用脚本的 `--runtime dev`。`--runtime dev` 只在要用脚本把四种格子拉成开发态时使用。
@@ -89,7 +95,7 @@ scripts\quick-deploy.bat start standalone-server --runtime bin
 ./scripts/quick-deploy.sh start standalone-client --runtime bin
 ```
 
-本地 standalone 构建不设置 `POINTER_EDITION`。官网安装包和免安装包仍是官方签名包，登录后由平台下发模型。
+本地 standalone 构建不设置 `POINTER_EDITION`。`--build` 编 standalone 时会锁住口味和域名，`pointer.local.env` 填不进去。本机已安装的官网签名包仍由平台下发模型。
 
 ## managed 服务端
 
@@ -106,7 +112,7 @@ scripts\quick-deploy.bat start standalone-server --runtime bin
 scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
 ```
 
-也可以导出 `POINTER_API_BASE`、`POINTER_WEB_BASE`、`COMPUTER_ANNOTATE_API_BASE`，再省略这三项参数。脚本只把域名放进进程环境后启动已有二进制，不会重新编译。若二进制本身是用 `POINTER_EDITION=managed` 编出来的，构建那一步仍然需要这三个域名；缺一个，那次构建会失败。开发者打这个包用 `npm run server:build`。
+也可以导出 `POINTER_API_BASE`、`POINTER_WEB_BASE`、`COMPUTER_ANNOTATE_API_BASE`，再省略这三项参数。不写 `--build` 时，脚本只把域名放进进程环境后启动已有二进制。加上 `--build` 才按这次传入的域名本地重新编译。构建缺一个域名就会失败。开发者打这个包也可以用 `npm run server:build`。
 
 `--runtime dev` 才会执行 `cargo run -p pointer-server` 和本机 Vite。Cargo 只在源码、`POINTER_EDITION` 或三个域名变化时重编。
 
@@ -119,7 +125,7 @@ scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://p
   --annotate-base https://pointer-som.example.com
 ```
 
-开发者打这个客户端用 `npm run tauri:build`，构建时就要带上 `POINTER_EDITION=managed` 和这三个域名。
+不写 `--build` 时用已有的 `target/release/pointer-app` 或已安装的程序。加上 `--build` 才按这次传入的三个域名本地重新编译。开发者打这个客户端也可以用 `npm run tauri:build`。
 
 ## 只看计划、不启动
 

@@ -134,7 +134,7 @@ src-tauri/target/release/bundle/
 
 ### 3.6 本地快速启动
 
-用户用脚本启动这一格的桌面程序，不调用 npm，也不编译。已安装的程序、官网免安装包、或仓库里已经有的 `target/release/pointer-app` 都可以。Linux / macOS 用 shell，Windows 把 `./scripts/quick-deploy.sh` 换成 `scripts\quick-deploy.bat`。详见 [`quick-start.md`](quick-start.md)。
+用户用脚本启动这一格的桌面程序，不调用 npm。仓库里已经有的 `target/release/pointer-app`，或本机已经安装的程序，会直接打开。两处都没有时脚本退出。加上 `--build` 才按这次传入的域名在本地重新编译。Linux / macOS 用 shell，Windows 把 `./scripts/quick-deploy.sh` 换成 `scripts\quick-deploy.bat`。详见 [`quick-start.md`](quick-start.md)。
 
 ```bash
 ./scripts/quick-deploy.sh start managed-client --runtime bin \
@@ -230,7 +230,7 @@ curl -s http://127.0.0.1:8787/api/auth/mode      # → {"mode":"platform"}
 
 ### 4.6 本地快速启动
 
-用户用脚本启动这一格已经编译好的服务端，不调用 npm，启动时不编译，页面在 `http://127.0.0.1:8787/`。详见 [`quick-start.md`](quick-start.md)。
+用户用脚本启动这一格已经编译好的服务端，不调用 npm。不写 `--build` 时不编译，页面在 `http://127.0.0.1:8787/`。缺二进制或 `dist/` 时加上 `--build` 才本地重新编译。详见 [`quick-start.md`](quick-start.md)。
 
 ```bash
 ./scripts/quick-deploy.sh start managed-server --runtime bin \
@@ -278,7 +278,7 @@ npm run tauri:build          # 不设任何 POINTER_* 变量
 
 ### 5.6 本地快速启动
 
-用户用脚本启动桌面程序，不调用 npm，也不编译。不设置 `POINTER_EDITION`。已安装的程序或官网免安装包都能开；仓库里已经有的 `target/release/pointer-app` 也会被直接用。数据目录在 `.quick-deploy/bin/standalone-client/data`。详见 [`quick-start.md`](quick-start.md)。
+用户用脚本启动桌面程序，不调用 npm。不设置 `POINTER_EDITION`。仓库里已经有的 `target/release/pointer-app` 会直接用；没有时用本机已安装的程序。两处都没有就退出。加上 `--build` 才在本地重新编译，并且不会把 `pointer.local.env` 里的口味和域名编进去。数据目录在 `.quick-deploy/bin/standalone-client/data`。详见 [`quick-start.md`](quick-start.md)。
 
 ```bash
 ./scripts/quick-deploy.sh start standalone-client --runtime bin
@@ -338,7 +338,7 @@ curl -s http://127.0.0.1:8787/api/license/status  # 自建 notConfigured；官�
 
 ### 6.6 本地快速启动
 
-用户用脚本启动已经编译好的服务端，不调用 npm，启动时不编译。第一次启动会在 `.quick-deploy/bin/standalone-server/standalone-admin.env` 生成本地账密。页面在 `http://127.0.0.1:8787/`。详见 [`quick-start.md`](quick-start.md)。
+用户用脚本启动已经编译好的服务端，不调用 npm。不写 `--build` 时不编译。第一次启动会在 `.quick-deploy/bin/standalone-server/standalone-admin.env` 生成本地账密。页面在 `http://127.0.0.1:8787/`。缺二进制或 `dist/` 时加上 `--build` 才本地重新编译。详见 [`quick-start.md`](quick-start.md)。
 
 ```bash
 ./scripts/quick-deploy.sh start standalone-server --runtime bin

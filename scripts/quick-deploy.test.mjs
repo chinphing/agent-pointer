@@ -2,21 +2,23 @@ import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { applyPointerLocalEnv } from './lib/load-pointer-local-env.mjs'
 import {
   buildPlan,
   defaultReleaseBinary,
   devTauriArgs,
   devViteArgs,
-  downloadOfficialClient,
   findOnPath,
-  listDownloadAssets,
   localAdminCredentials,
   missingLaunchArtifact,
   modeKind,
   parseArgs,
-  preferredClientAsset,
+  releaseBuildInvocation,
+  releaseBuildScript,
   REPO_ROOT,
+  runReleaseBuild,
   selectBinClient,
+  STANDALONE_BUILD_KEEP_UNSET,
 } from './quick-deploy.mjs'
 
 const domains = {
@@ -113,6 +115,7 @@ describe('quick-deploy plans', () => {
     expect(parsed.mode).toBe('managed-server')
     expect(parsed.domains.annotateBase).toBe('https://som.example')
     expect(parsed.runtime).toBe('bin')
+    expect(parsed.build).toBe(false)
   })
 
   it('defaults an omitted runtime to the release binary', () => {
@@ -131,7 +134,16 @@ describe('quick-deploy plans', () => {
     const parsed = parseArgs(['start', 'standalone-client', '--runtime', 'bin'])
     expect(parsed.runtime).toBe('bin')
     expect(parsed.mode).toBe('standalone-client')
+    expect(parsed.build).toBe(false)
     expect(() => parseArgs(['plan', 'standalone-server', '--runtime', 'package'])).toThrow(/unknown runtime/)
+  })
+
+  it('accepts a valueless --build and refuses it on the dev runtime', () => {
+    const parsed = parseArgs(['start', 'standalone-client', '--build', '--runtime', 'bin'])
+    expect(parsed.build).toBe(true)
+    expect(parsed.runtime).toBe('bin')
+    expect(parsed.mode).toBe('standalone-client')
+    expect(() => parseArgs(['start', 'standalone-client', '--runtime', 'dev', '--build'])).toThrow(/--build/)
   })
 
   it('bin server runs the release binary and serves dist on the API port', () => {
@@ -197,16 +209,16 @@ describe('quick-deploy plans', () => {
       root,
       binaries: { server: serverBin },
     })
-    expect(missingLaunchArtifact(missingDist)).toMatch(/node scripts\/build-server\.mjs writes it/)
+    expect(missingLaunchArtifact(missingDist)).toMatch(/node scripts\/build-server\.mjs which writes it/)
 
     fs.mkdirSync(path.join(root, 'dist'))
     expect(missingLaunchArtifact(missingDist)).toBeNull()
 
     const missingClient = plan('standalone-client', { runtime: 'bin', root })
-    expect(missingLaunchArtifact(missingClient)).toBeNull()
+    expect(missingLaunchArtifact(missingClient)).toMatch(/--build/)
   })
 
-  it('starts a desktop client from an installed binary or the official package, without compiling', () => {
+  it('uses a local release binary, then an installed pointer-app, and does not download', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pointer-quick-deploy-client-'))
     const installed = path.join(root, 'bin', 'pointer-app')
     fs.mkdirSync(path.dirname(installed), { recursive: true })
@@ -219,50 +231,73 @@ describe('quick-deploy plans', () => {
     })
     expect(selectBinClient(root, { pathValue: '' })).toBeNull()
 
-    const html = [
-      'title="Pointer_0.1.1_amd64.deb"',
-      'href="/api/downloads/files/deb-id"',
-      'title="Pointer_0.1.1_amd64.AppImage"',
-      'href="/api/downloads/files/appimage-id"',
-    ].join('\n')
-    const asset = preferredClientAsset(listDownloadAssets(html), 'linux')
-    expect(asset).toEqual({ name: 'Pointer_0.1.1_amd64.AppImage', path: '/api/downloads/files/appimage-id' })
-
     const local = defaultReleaseBinary(root, 'client')
     fs.mkdirSync(path.dirname(local), { recursive: true })
     fs.writeFileSync(local, '')
     expect(selectBinClient(root, { pathValue: path.dirname(installed) }).source).toBe('build')
   })
 
-  it('downloads the official desktop package when no binary is installed', async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pointer-quick-deploy-download-'))
+  it('compiles only through an explicit --build, and keeps standalone unbound', () => {
+    expect(releaseBuildScript('standalone-client')).toBe('scripts/tauri-build.mjs')
+    expect(releaseBuildScript('managed-server')).toBe('scripts/build-server.mjs')
+
+    const standalone = releaseBuildInvocation('standalone-client', {
+      POINTER_EDITION: 'managed',
+      POINTER_API_BASE: 'https://leak.example',
+      POINTER_SERVER_ADMIN_PASSWORD_HMAC: 'secret',
+      PATH: '/usr/bin',
+    })
+    expect(standalone.args[0]).toBe(path.join(REPO_ROOT, 'scripts/tauri-build.mjs'))
+    expect(standalone.env.POINTER_EDITION).toBeUndefined()
+    expect(standalone.env.POINTER_API_BASE).toBeUndefined()
+    expect(standalone.env.POINTER_SERVER_ADMIN_PASSWORD_HMAC).toBeUndefined()
+    expect(standalone.env.PATH).toBe('/usr/bin')
+    expect(standalone.env.POINTER_LOCAL_ENV_KEEP_UNSET.split(',')).toEqual(STANDALONE_BUILD_KEEP_UNSET)
+
+    const managed = releaseBuildInvocation('managed-client', {
+      POINTER_EDITION: 'managed',
+      POINTER_API_BASE: domains.apiBase,
+      POINTER_WEB_BASE: domains.webBase,
+      COMPUTER_ANNOTATE_API_BASE: domains.annotateBase,
+    })
+    expect(managed.args[0]).toBe(path.join(REPO_ROOT, 'scripts/tauri-build.mjs'))
+    expect(managed.env.POINTER_EDITION).toBe('managed')
+    expect(managed.env.POINTER_API_BASE).toBe(domains.apiBase)
+    expect(managed.env.POINTER_LOCAL_ENV_KEEP_UNSET).toBeUndefined()
+
     const calls = []
-    const fetchImpl = async (url) => {
-      calls.push(url)
-      if (String(url).endsWith('/download')) {
-        return {
-          ok: true,
-          status: 200,
-          text: async () => 'title="Pointer_9_amd64.AppImage"\nhref="/api/downloads/files/pkg"',
-        }
-      }
-      return {
-        ok: true,
-        status: 200,
-        arrayBuffer: async () => {
-          const bytes = new Uint8Array(1024 * 1024 + 4)
-          bytes[0] = 0x7f
-          return bytes.buffer
-        },
-      }
+    runReleaseBuild('standalone-server', { PATH: '/usr/bin' }, {
+      spawnImpl: (command, args, options) => {
+        calls.push({ command, args, options })
+        return { status: 0 }
+      },
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0].command).toBe(process.execPath)
+    expect(calls[0].args[0]).toBe(path.join(REPO_ROOT, 'scripts/build-server.mjs'))
+    expect(calls[0].options.stdio).toBe('inherit')
+    expect(() => runReleaseBuild('standalone-client', {}, {
+      spawnImpl: () => ({ status: 2 }),
+    })).toThrow(/exited 2/)
+  })
+
+  it('leaves edition keys blank when a standalone build locks them', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pointer-local-env-'))
+    const file = path.join(dir, 'pointer.local.env')
+    fs.writeFileSync(file, [
+      'POINTER_EDITION=managed',
+      'POINTER_API_BASE=https://leak.example',
+      'VITE_POINTER_EDITION=managed',
+      'OTHER_KEY=kept',
+    ].join('\n'))
+    const env = {
+      POINTER_LOCAL_ENV_KEEP_UNSET: STANDALONE_BUILD_KEEP_UNSET.join(','),
     }
-    const resolved = await downloadOfficialClient(root, { fetchImpl, platform: 'linux' })
-    expect(calls[0]).toBe('https://pointer.readflowai.com/download')
-    expect(calls[1]).toBe('https://pointer.readflowai.com/api/downloads/files/pkg')
-    expect(resolved.source).toBe('download')
-    expect(resolved.command).toBe(path.join(root, 'Pointer_9_amd64.AppImage'))
-    expect(resolved.args).toEqual(['--appimage-extract-and-run'])
-    expect(fs.statSync(resolved.command).size).toBeGreaterThan(1024 * 1024)
+    applyPointerLocalEnv(env, { filePath: file, logPrefix: '[test]' })
+    expect(env.POINTER_EDITION).toBeUndefined()
+    expect(env.POINTER_API_BASE).toBeUndefined()
+    expect(env.VITE_POINTER_EDITION).toBeUndefined()
+    expect(env.OTHER_KEY).toBe('kept')
   })
 
   it('refuses a dev launch when the local vite or tauri cli is missing', () => {

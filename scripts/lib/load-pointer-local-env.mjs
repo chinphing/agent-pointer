@@ -19,31 +19,42 @@ function isBlank(value) {
   return value == null || String(value).trim() === '';
 }
 
+function keptUnset(env) {
+  return new Set(
+    String(env.POINTER_LOCAL_ENV_KEEP_UNSET ?? '')
+      .split(',')
+      .map((key) => key.trim())
+      .filter(Boolean),
+  );
+}
+
 /**
  * @param {NodeJS.ProcessEnv | Record<string, string | undefined>} env
- * @param {{ logPrefix?: string }} [opts]
+ * @param {{ logPrefix?: string, filePath?: string }} [opts]
  * @returns {{ loaded: boolean, path: string }}
  */
 export function applyPointerLocalEnv(env, opts = {}) {
   const logPrefix = opts.logPrefix || '[pointer.local.env]';
+  const filePath = opts.filePath || POINTER_LOCAL_ENV_PATH;
+  const locked = keptUnset(env);
   let loaded = false;
 
-  if (fs.existsSync(POINTER_LOCAL_ENV_PATH)) {
-    const parsed = parseEnvFile(fs.readFileSync(POINTER_LOCAL_ENV_PATH, 'utf8'));
+  if (fs.existsSync(filePath)) {
+    const parsed = parseEnvFile(fs.readFileSync(filePath, 'utf8'));
     let applied = 0;
     for (const [key, value] of Object.entries(parsed)) {
-      if (isBlank(env[key])) {
-        env[key] = value;
-        applied += 1;
-      }
+      if (locked.has(key) || !isBlank(env[key])) continue;
+      env[key] = value;
+      applied += 1;
     }
     loaded = true;
     console.log(
-      `${logPrefix} loaded ${path.relative(REPO_ROOT, POINTER_LOCAL_ENV_PATH)} (${applied} key(s) applied)`,
+      `${logPrefix} loaded ${path.relative(REPO_ROOT, filePath)} (${applied} key(s) applied)`,
     );
   }
 
   for (const [from, to] of MIRROR_PAIRS) {
+    if (locked.has(from) || locked.has(to)) continue;
     if (!isBlank(env[from]) && isBlank(env[to])) {
       env[to] = String(env[from]).trim();
     }

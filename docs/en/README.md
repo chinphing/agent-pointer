@@ -4,7 +4,7 @@ English | [简体中文](../zh-CN/README.md)
 
 | I am… | This one thing |
 |--------|------------|
-| **A user** | Open the [download page](https://pointer.readflowai.com/download), install, and send "Hello". From the repo, `./scripts/quick-deploy.sh start standalone-client --runtime bin` opens the desktop app without a compile step. Details: [`user/getting-started.md`](user/getting-started.md) |
+| **A user** | Open the [download page](https://pointer.readflowai.com/download), install, and send "Hello". From the repo, `./scripts/quick-deploy.sh start standalone-client --runtime bin` opens an existing or installed desktop app; pass `--build` only when neither is present and you want a local compile. Details: [`user/getting-started.md`](user/getting-started.md) |
 | **A developer** | From the repo root: `npm install`, then `npm run tauri:dev`. Notes: [`developer/`](developer/README.md) |
 
 ## After it is running

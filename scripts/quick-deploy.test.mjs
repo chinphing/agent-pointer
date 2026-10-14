@@ -5,6 +5,8 @@ import path from 'node:path'
 import {
   buildPlan,
   defaultReleaseBinary,
+  devTauriArgs,
+  devViteArgs,
   localAdminCredentials,
   missingLaunchArtifact,
   modeKind,
@@ -49,7 +51,9 @@ describe('quick-deploy plans', () => {
     expect(result.runtime).toBe('dev')
     expect(result.webUrl).toBe('http://127.0.0.1:1420/')
     expect(result.usesVite).toBe(true)
-    expect(result.processes[1].args).toEqual(['run', 'web:dev'])
+    expect(result.processes[1].command).toBe('node')
+    expect(result.processes[1].args).toEqual(devViteArgs(REPO_ROOT))
+    expect(result.processes.some((proc) => proc.command === 'npm' || proc.command === 'npx')).toBe(false)
     expect(missingLaunchArtifact(result)).toBeNull()
   })
 
@@ -57,7 +61,8 @@ describe('quick-deploy plans', () => {
     const result = plan('standalone-client')
     expect(result.authMode).toBeNull()
     expect(result.processes).toHaveLength(1)
-    expect(result.processes[0].args[0]).toBe('tauri')
+    expect(result.processes[0].command).toBe('node')
+    expect(result.processes[0].args).toEqual(devTauriArgs(REPO_ROOT))
     expect(result.processes[0].env.POINTER_EDITION).toBeUndefined()
     expect(result.processes[0].env.POINTER_DEPLOYMENT_MODE).toBeUndefined()
     expect(result.processes[0].env.POINTER_APP_DATA_DIR).toContain('standalone-client')
@@ -80,7 +85,8 @@ describe('quick-deploy plans', () => {
 
   it('managed-client passes the same domains to tauri dev', () => {
     const result = plan('managed-client')
-    expect(result.processes[0].command).toBe('npx')
+    expect(result.processes[0].command).toBe('node')
+    expect(result.processes[0].args).toEqual(devTauriArgs(REPO_ROOT))
     expect(result.processes[0].env.POINTER_EDITION).toBe('managed')
     expect(result.processes[0].env.POINTER_API_BASE).toBe(domains.apiBase)
     expect(result.webUrl).toBeNull()
@@ -165,7 +171,7 @@ describe('quick-deploy plans', () => {
       root,
       binaries: { server: serverBin },
     })
-    expect(missingLaunchArtifact(missingServer)).toMatch(/npm run server:build/)
+    expect(missingLaunchArtifact(missingServer)).toMatch(/node scripts\/build-server\.mjs/)
 
     fs.writeFileSync(serverBin, '')
     const missingDist = plan('standalone-server', {
@@ -173,12 +179,18 @@ describe('quick-deploy plans', () => {
       root,
       binaries: { server: serverBin },
     })
-    expect(missingLaunchArtifact(missingDist)).toMatch(/npm run server:build writes it/)
+    expect(missingLaunchArtifact(missingDist)).toMatch(/node scripts\/build-server\.mjs writes it/)
 
     fs.mkdirSync(path.join(root, 'dist'))
     expect(missingLaunchArtifact(missingDist)).toBeNull()
 
     const missingClient = plan('standalone-client', { runtime: 'bin', root })
-    expect(missingLaunchArtifact(missingClient)).toMatch(/npm run tauri:build/)
+    expect(missingLaunchArtifact(missingClient)).toMatch(/node scripts\/tauri-build\.mjs/)
+  })
+
+  it('refuses a dev launch when the local vite or tauri cli is missing', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pointer-quick-deploy-dev-'))
+    expect(missingLaunchArtifact(plan('standalone-server', { root }))).toMatch(/vite\.js/)
+    expect(missingLaunchArtifact(plan('standalone-client', { root }))).toMatch(/tauri\.js/)
   })
 })

@@ -3,20 +3,19 @@
  * Bring up a local Pointer test the same way a smoke run does, for one of the
  * four deployment cells (edition × client/server).
  *
- *   node scripts/quick-deploy.mjs start standalone-server
- *   node scripts/quick-deploy.mjs start standalone-server --runtime bin
- *   node scripts/quick-deploy.mjs start managed-server --api-base URL --web-base URL --annotate-base URL
- *   node scripts/quick-deploy.mjs start standalone-client
- *   node scripts/quick-deploy.mjs start standalone-client --runtime bin
- *   node scripts/quick-deploy.mjs start managed-client --api-base URL --web-base URL --annotate-base URL
- *   node scripts/quick-deploy.mjs status
- *   node scripts/quick-deploy.mjs stop [mode]
- *   node scripts/quick-deploy.mjs plan <mode> [--runtime dev|bin]
+ *   ./scripts/quick-deploy.sh start standalone-server
+ *   ./scripts/quick-deploy.sh start standalone-server --runtime bin
+ *   scripts\quick-deploy.bat start standalone-server
+ *   ./scripts/quick-deploy.sh status
+ *   ./scripts/quick-deploy.sh stop [mode]
+ *   ./scripts/quick-deploy.sh plan <mode> [--runtime dev|bin]
  *
- * `--runtime dev` (the default) uses cargo / Vite / tauri dev.
- * `--runtime bin` runs the release binaries from target/release and does not
- * compile. The server binary serves repo dist/ on port 8787; the client binary
- * is pointer-app. Build them first with npm run server:build or npm run tauri:build.
+ * The shell and bat files are the entry points. They do not call npm.
+ * `--runtime dev` (the default) uses cargo, the local Vite CLI, and the local
+ * Tauri CLI. `--runtime bin` runs the release binaries from target/release and
+ * does not compile. The server binary serves repo dist/ on port 8787; the
+ * client binary is pointer-app. Build them first with
+ * `node scripts/build-server.mjs` or `node scripts/tauri-build.mjs`.
  *
  * State (pids, logs, generated standalone password) lives in `.quick-deploy/`
  * and is gitignored. Dev uses `.quick-deploy/<mode>/`. Release binaries use
@@ -74,6 +73,19 @@ export function releaseBinaryName(kind) {
 
 export function defaultReleaseBinary(root, kind) {
   return path.join(root, 'target', 'release', releaseBinaryName(kind))
+}
+
+export function devViteArgs(root) {
+  return [path.join(root, 'node_modules', 'vite', 'bin', 'vite.js'), '--host', '0.0.0.0', '--port', String(WEB_PORT)]
+}
+
+export function devTauriArgs(root) {
+  return [
+    path.join(root, 'node_modules', '@tauri-apps', 'cli', 'tauri.js'),
+    'dev',
+    '--config',
+    'src-tauri/tauri.dev.conf.json',
+  ]
 }
 
 export function localAdminCredentials(randomBytes = (n) => crypto.randomBytes(n)) {
@@ -175,8 +187,8 @@ export function buildPlan(input) {
       })
       processes.push({
         name: 'web',
-        command: 'npm',
-        args: ['run', 'web:dev'],
+        command: 'node',
+        args: devViteArgs(root),
         log: path.join(stateDir, 'web.log'),
       })
     }
@@ -190,8 +202,8 @@ export function buildPlan(input) {
   } else {
     processes.push({
       name: 'client',
-      command: 'npx',
-      args: ['tauri', 'dev', '--config', 'src-tauri/tauri.dev.conf.json'],
+      command: 'node',
+      args: devTauriArgs(root),
       log: path.join(stateDir, 'client.log'),
     })
   }
@@ -216,31 +228,41 @@ export function buildPlan(input) {
   }
 }
 
-/** Why a bin plan cannot launch, or null when every artifact is present. */
+/** Why a plan cannot launch, or null when every artifact is present. */
 export function missingLaunchArtifact(plan) {
-  if (plan.runtime !== 'bin') return null
-  for (const proc of plan.processes) {
-    if (!fs.existsSync(proc.command)) {
-      const hint = proc.name === 'server'
-        ? 'Build it with npm run server:build.'
-        : 'Build it with npm run tauri:build.'
-      return `${proc.command} is missing. ${hint}`
+  if (plan.runtime === 'bin') {
+    for (const proc of plan.processes) {
+      if (!fs.existsSync(proc.command)) {
+        const hint = proc.name === 'server'
+          ? 'Build it with node scripts/build-server.mjs.'
+          : 'Build it with node scripts/tauri-build.mjs.'
+        return `${proc.command} is missing. ${hint}`
+      }
     }
+    if (plan.authMode && !fs.existsSync(plan.staticDir)) {
+      return `Web bundle ${plan.staticDir} is missing. node scripts/build-server.mjs writes it.`
+    }
+    return null
   }
-  if (plan.authMode && !fs.existsSync(plan.staticDir)) {
-    return `Web bundle ${plan.staticDir} is missing. npm run server:build writes it.`
+  for (const proc of plan.processes) {
+    if (proc.command !== 'node') continue
+    const script = proc.args[0]
+    if (script && !fs.existsSync(script)) {
+      return `${script} is missing. Install the repo dependencies before the dev runtime.`
+    }
   }
   return null
 }
 
 function usage() {
   console.error(`Usage:
-  node scripts/quick-deploy.mjs start <${MODES.join('|')}> [--runtime dev|bin] [--api-base URL --web-base URL --annotate-base URL]
-  node scripts/quick-deploy.mjs plan <mode> [--runtime dev|bin] [domain flags]
-  node scripts/quick-deploy.mjs status
-  node scripts/quick-deploy.mjs stop [mode] [--runtime dev|bin]
+  ./scripts/quick-deploy.sh start <${MODES.join('|')}> [--runtime dev|bin] [--api-base URL --web-base URL --annotate-base URL]
+  scripts\\quick-deploy.bat start <mode> [--runtime dev|bin] [domain flags]
+  ./scripts/quick-deploy.sh plan <mode> [--runtime dev|bin] [domain flags]
+  ./scripts/quick-deploy.sh status
+  ./scripts/quick-deploy.sh stop [mode] [--runtime dev|bin]
 
---runtime dev (default) compiles as it starts: cargo run, Vite, or tauri dev.
+--runtime dev (default) compiles as it starts: cargo run, the local Vite CLI, or the local Tauri CLI.
 --runtime bin runs target/release binaries and does not compile.
 Managed modes need the three control-plane domains (flags or POINTER_API_BASE / POINTER_WEB_BASE / COMPUTER_ANNOTATE_API_BASE).
 Dev server and dev client share Vite port ${WEB_PORT}. The release server serves dist/ on ${SERVER_ADDR}.`)

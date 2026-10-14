@@ -1,7 +1,7 @@
 # Contributor guide
 English | [简体中文](../../zh-CN/contributing/README.md)
 
-For **contributors to this repository and packaging maintainers**. To change the code, run `npm install` and then `npm run tauri:dev` from the repository root. Read the topics below after the window is up. Start an already built program with the script in [Quick start](../deploy/quick-start.md).
+For **contributors to this repository and packaging maintainers**. To change the client, run `npm install` and then `npm run tauri:dev` from the repository root. To change the Web Server, run `npm run server:dev` and `npm run web:dev` in two terminals. Read the topics below after it is up. Start an already built program with the script in [Quick start](../deploy/quick-start.md).
 
 | Document | Description |
 |------|------|

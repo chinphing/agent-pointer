@@ -8,7 +8,7 @@ Users start the desktop client with the script. It does not call npm. An existin
 ./scripts/quick-deploy.sh start standalone-client --runtime bin
 ```
 
-On Windows, use `scripts\quick-deploy.bat start standalone-client --runtime bin`. Developers who are changing the code run `npm install` and then `npm run tauri:dev`. Details: [Quick start](quick-start.md).
+On Windows, use `scripts\quick-deploy.bat start standalone-client --runtime bin`. Developers changing the client run `npm install` and then `npm run tauri:dev`. Developers changing the Web Server run `npm run server:dev` and `npm run web:dev`. Details: [Quick start](quick-start.md).
 
 The three axes below matter when you are building an installer:
 

@@ -34,23 +34,31 @@ scripts\quick-deploy.bat start standalone-client --runtime bin
 
 ## 开发者改代码
 
-开发者用 npm 启动开发态，会按改动编译：
+开发者用 npm 启动开发态，会按改动编译。命令都在仓库根目录执行。没有 `pointer.local.env` 时不绑定控制面。环境、调试和失败时要装的库见 [DEVELOPMENT.md](../../../DEVELOPMENT.md)。
+
+### 客户端
 
 ```bash
 npm install
 npm run tauri:dev
 ```
 
-`npm run tauri:dev` 读取 `pointer.local.env`。没有这个文件时不绑定控制面。第一次编译要几分钟。
+它拉起桌面开发窗口。第一次编译要几分钟。
 
-在浏览器里改同一套界面，开两个终端：
+### Web Server
+
+开两个终端：
 
 ```bash
+# 终端 1
+npm install
 npm run server:dev
+
+# 终端 2
 npm run web:dev
 ```
 
-打开 `http://127.0.0.1:1420/`。环境、调试和失败时要装的库见 [DEVELOPMENT.md](../../../DEVELOPMENT.md)。
+打开 `http://127.0.0.1:1420/`。
 
 ## 再选别的格子
 

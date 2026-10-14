@@ -8,7 +8,7 @@
 ./scripts/quick-deploy.sh start standalone-client --runtime bin
 ```
 
-Windows 用 `scripts\quick-deploy.bat start standalone-client --runtime bin`。改代码的开发者用 `npm install` 然后 `npm run tauri:dev`，见 [快速启动](quick-start.md)。
+Windows 用 `scripts\quick-deploy.bat start standalone-client --runtime bin`。改代码的开发者：客户端用 `npm install` 然后 `npm run tauri:dev`，Web Server 用 `npm run server:dev` 和 `npm run web:dev`，见 [快速启动](quick-start.md)。
 
 要打安装包时，再看下面三个轴：
 

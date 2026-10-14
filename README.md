@@ -137,12 +137,29 @@ Full index: [docs/README.md](docs/README.md).
 
 The desktop app is Tauri 2 and Vue 3. The web UI is the same interface served by `pointer-server`. Chat, tools, Skills, and agents live in `crates/pointer-core`.
 
+### Client
+
 ```bash
 npm install
 npm run tauri:dev
 ```
 
-The desktop window opens with no control plane bound when `pointer.local.env` is absent. The first compile can take a few minutes. For the browser UI, run `npm run server:dev` and `npm run web:dev`, then open `http://127.0.0.1:1420/`. Details: [docs/en/DEVELOPMENT.md](docs/en/DEVELOPMENT.md).
+The desktop window opens with no control plane bound when `pointer.local.env` is absent. The first compile can take a few minutes.
+
+### Web Server
+
+Use two terminals:
+
+```bash
+# terminal 1
+npm install
+npm run server:dev
+
+# terminal 2
+npm run web:dev
+```
+
+Then open `http://127.0.0.1:1420/`. Details: [docs/en/DEVELOPMENT.md](docs/en/DEVELOPMENT.md).
 
 ## Deploy
 

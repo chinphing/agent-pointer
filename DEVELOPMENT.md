@@ -6,27 +6,33 @@
 
 ## 第一步
 
-开发者用 npm 启动开发态。在仓库根目录执行：
+开发者用 npm 启动开发态。命令都在仓库根目录执行。没有 `pointer.local.env` 时不绑定控制面。第一次编译要几分钟，起来之后就可以改代码。
+
+### 客户端
 
 ```bash
 npm install
 npm run tauri:dev
 ```
 
-`npm run tauri:dev` 拉起桌面开发窗口。它会读取 `pointer.local.env`；没有这个文件时不绑定控制面。第一次编译要几分钟，窗口出现后就可以改代码。
+它拉起桌面开发窗口。这条失败时，再看下面的 Node、Rust 和系统库，装完后重新执行 `npm run tauri:dev`。
 
-在浏览器里改同一套界面，开两个终端：
+### Web Server
+
+开两个终端：
 
 ```bash
+# 终端 1
+npm install
 npm run server:dev
+
+# 终端 2
 npm run web:dev
 ```
 
-然后打开 `http://127.0.0.1:1420/`。
+然后打开 `http://127.0.0.1:1420/`。编不过时看下面清单里的 Node 和 Rust。
 
 用户启动已经编译好的程序时不走 npm，用脚本直接运行二进制，见 [快速启动](docs/zh-CN/deploy/quick-start.md)。
-
-下面的环境清单只在 `npm run tauri:dev` 失败时才需要。装完依赖后，还是执行 `npm run tauri:dev`。
 
 ## 环境要求
 
@@ -95,7 +101,7 @@ npm install
 
 ## 拆开调试
 
-第一步的 `npm run tauri:dev` 会同时拉起 Vite、桌面窗口和 Rust。下面是数据目录，以及浏览器两个终端的细节。桌面开发态和 `npm run web:dev` 都听 `1420`，服务端 API 听 `8787`，同一时刻只留一组。
+客户端的 `npm run tauri:dev` 会同时拉起 Vite、桌面窗口和 Rust。下面是数据目录，以及 Web Server 两个终端的细节。客户端开发态和 `npm run web:dev` 都听 `1420`，服务端 API 听 `8787`，同一时刻只留一组。
 
 ### 桌面端
 

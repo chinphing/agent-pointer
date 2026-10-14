@@ -1,7 +1,7 @@
 # 贡献者指南
 [English](../../en/contributing/README.md) | 简体中文
 
-面向**本仓库贡献者与打包维护**。改代码时在仓库根目录执行 `npm install`，然后 `npm run tauri:dev`。窗口出现后再看下面的专题。已编译的程序用脚本启动，见 [快速启动](../deploy/quick-start.md)。
+面向**本仓库贡献者与打包维护**。改客户端时在仓库根目录执行 `npm install`，然后 `npm run tauri:dev`。改 Web Server 时开两个终端，分别执行 `npm run server:dev` 和 `npm run web:dev`。起来后再看下面的专题。已编译的程序用脚本启动，见 [快速启动](../deploy/quick-start.md)。
 
 | 文档 | 说明 |
 |------|------|

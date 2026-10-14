@@ -5,16 +5,31 @@ For **external developers, integrators and Skill authors**. End users should sta
 
 ## Start now
 
-Developers start the dev app with npm. From the repository root:
+Developers start the dev app with npm. Run the commands from the repository root. With no `pointer.local.env`, no control plane is bound. The first compile can take a few minutes. Once it is up, you can change the code. Read [architecture.md](architecture.md) after it is running.
+
+### Client
 
 ```bash
 npm install
 npm run tauri:dev
 ```
 
-That opens the desktop window. With no `pointer.local.env`, no control plane is bound. The first compile can take a few minutes. Once the window is up, you can change the code.
+That opens the desktop window. If that fails, install Node, Rust, and the system libraries in [DEVELOPMENT.md](../DEVELOPMENT.md), then run `npm run tauri:dev` again.
 
-If that fails, install Node, Rust, and the system libraries in [DEVELOPMENT.md](../DEVELOPMENT.md), then run `npm run tauri:dev` again. To work in the browser, run `npm run server:dev` and `npm run web:dev` in two terminals and open `http://127.0.0.1:1420/`. Read [architecture.md](architecture.md) after it is running.
+### Web Server
+
+Use two terminals:
+
+```bash
+# terminal 1
+npm install
+npm run server:dev
+
+# terminal 2
+npm run web:dev
+```
+
+Then open `http://127.0.0.1:1420/`.
 
 Users start an already built program with the shell or bat script, not npm. See [Quick start](../deploy/quick-start.md).
 

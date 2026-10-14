@@ -5,7 +5,7 @@
 | 我是… | 这一件事 |
 |--------|------------|
 | **用户** | 打开 [官网下载](https://pointer.readflowai.com/download)，安装后发一句「你好」。在仓库里用 `./scripts/quick-deploy.sh start standalone-client --runtime bin` 打开已有或已安装的桌面程序；两处都没有时加上 `--build` 才本地编译。细节在 [`user/getting-started.md`](user/getting-started.md) |
-| **开发者** | 仓库根目录执行 `npm install`，然后 `npm run tauri:dev`。说明在 [`developer/`](developer/README.md) |
+| **开发者** | 客户端：`npm install` 然后 `npm run tauri:dev`。Web Server：两个终端分别执行 `npm run server:dev` 和 `npm run web:dev`。说明在 [`developer/`](developer/README.md) |
 
 ## 跑起来之后
 

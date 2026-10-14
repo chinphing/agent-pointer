@@ -34,23 +34,31 @@ The page is at `http://127.0.0.1:8787/`. The first start writes the local accoun
 
 ## Changing the code
 
-Developers start the dev app with npm. That compiles as the code changes:
+Developers start the dev app with npm. That compiles as the code changes. Run the commands from the repository root. With no `pointer.local.env`, no control plane is bound. Requirements, debugging, and the libraries to install when this fails are in [DEVELOPMENT.md](../DEVELOPMENT.md).
+
+### Client
 
 ```bash
 npm install
 npm run tauri:dev
 ```
 
-`npm run tauri:dev` reads `pointer.local.env`. With no such file, no control plane is bound. The first compile can take a few minutes.
+That opens the desktop window. The first compile can take a few minutes.
 
-To work on the same UI in a browser, use two terminals:
+### Web Server
+
+Use two terminals:
 
 ```bash
+# terminal 1
+npm install
 npm run server:dev
+
+# terminal 2
 npm run web:dev
 ```
 
-Open `http://127.0.0.1:1420/`. Requirements, debugging, and the libraries to install when this fails are in [DEVELOPMENT.md](../DEVELOPMENT.md).
+Open `http://127.0.0.1:1420/`.
 
 ## Other cells
 

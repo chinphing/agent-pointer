@@ -84,6 +84,19 @@ Messages sent while generating are not lost — they go into the **send queue** 
 
 While background jobs are still running, a "Still running in background" panel appears above the composer, where you can "Cancel all background jobs" or end just one.
 
+### Composer keys
+
+| Key | Behaviour |
+| --- | --- |
+| `Enter` | Send. While a response is generating, it is **queued** and sent after the current turn ends |
+| `Shift+Enter` | New line |
+| `⌘/Ctrl+Enter` | **Soft-cancel the current turn and send immediately** |
+| `Enter` (composer empty, with a queued message) | Send the head of the queue immediately |
+| `⌘/Ctrl+F` | In-page search. When focus is in the workspace panel, it goes to the file tree or the file preview first |
+| `Esc` | Close search / rename / dialogs / image preview |
+
+`⌘/Ctrl+Enter` stops the turn that is running (only the synchronous turn; background jobs keep going), then sends what you have typed.
+
 ## Workspace panel
 
 The right column has three tabs:
@@ -172,6 +185,6 @@ When the cursor is in the terminal, `Ctrl+F` belongs to the terminal; find in ch
 
 ## Related
 
-- [Getting started](getting-started.md) — your first chat and shortcuts
+- [Getting started](getting-started.md) — install and send the first message
 - [Settings overview](settings.md) — UI display, execution limits, terminal timeouts
 - [Using Skills](skills.md) — what to do once skills are in the workspace

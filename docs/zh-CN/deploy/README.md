@@ -10,7 +10,7 @@
 | **运行形态** | 客户端（Tauri 桌面 App）／ 服务端（`pointer-server`） | 本文 §1–§4 四格清单（managed/standalone × 客户端/服务端） |
 | **目标平台** | Windows / macOS / Linux | [§5 平台打包](#platforms) |
 
-**本页是唯一入口。** 先在 §0「先定位：你要做什么？」找到你的格子，照 checklist 做完；需要细节再进详细手册。
+先在本机跑起来，不必先选格子。仓库根目录执行 `./scripts/quick-deploy.sh start standalone-client`（Windows 用 `scripts\quick-deploy.bat`）。窗口出现就可以用、也可以改代码。要打包分发时，再在下面 §0 找到你的格子。细节见 [快速启动](quick-start.md)。
 
 > **术语**：`official` **不是** `POINTER_EDITION` 的取值，它只用来指 Pointer 官方发布。
 > 写成别的值（含 `official`）会让构建**直接失败** —— 这是刻意的，避免静默降级成未绑定。

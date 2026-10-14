@@ -69,10 +69,10 @@
 
 | 我是… | 从这里开始 |
 |--------|------------|
-| **用户** | [`user/`](user/README.md) — 安装、第一次对话、Skills、IM 通道 |
-| **开发者 / 集成方** | [`developer/`](developer/README.md) — 架构、工具、协议 |
-| **部署 / 打包者** | [`deploy/`](deploy/README.md) 四格清单入口 |
-| **仓库贡献者** | [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md)、[`../../DEVELOPMENT.md`](../../DEVELOPMENT.md)、[`contributing/`](contributing/README.md) |
+| **用户** | 打开 [官网下载](https://pointer.readflowai.com/download)，安装后发一句「你好」。细节在 [`user/getting-started.md`](user/getting-started.md) |
+| **开发者 / 集成方** | 仓库根目录执行 `npm install && ./scripts/quick-deploy.sh start standalone-client`。说明在 [`developer/`](developer/README.md) |
+| **部署 / 打包者** | 先用上面那条命令跑起来，要发安装包时再打开 [`deploy/`](deploy/README.md) |
+| **仓库贡献者** | 同一条启动命令。约定见 [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md)、[`../../DEVELOPMENT.md`](../../DEVELOPMENT.md) |
 | **核心维护者** | [`internals/`](internals/README.md) — 运行时机制、子代理提示词、LLM 接入、UI 笔记；设计记录见 [`design/`](design/README.md) |
 
 ---

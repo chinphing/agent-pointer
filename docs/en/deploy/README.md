@@ -10,7 +10,7 @@ One source tree; three orthogonal axes decide what you need to do:
 | **Runtime form** | client (Tauri desktop app) / server (`pointer-server`) | §1–§4 (the four-cell checklist: managed/standalone × client/server) below |
 | **Target platform** | Windows / macOS / Linux | [§5 Platform packaging](#platforms) |
 
-**This page is the single entry point.** First locate your cell in §0 ("Locate yourself first") and work through its checklist; go to the detailed manuals only when you need the detail.
+Get it running locally before you pick a cell. From the repository root, run `./scripts/quick-deploy.sh start standalone-client` (on Windows, `scripts\quick-deploy.bat`). When the window opens you can use it and change the code. Pick a cell in §0 below only when you are packaging a release. Details: [Quick start](quick-start.md).
 
 > **Terminology**: `official` is **not** a `POINTER_EDITION` value; it only refers to a Pointer official release.
 > Writing any other value (including `official`) makes the build **fail outright** — deliberately so, to avoid silently degrading into an unbound build.

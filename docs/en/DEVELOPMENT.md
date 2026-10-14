@@ -4,6 +4,20 @@ English | [简体中文](../../DEVELOPMENT.md)
 
 This document describes the local development, debugging, checking and troubleshooting workflow for `Pointer`.
 
+## First step
+
+Run this from the repository root. It opens the desktop app for development and does not bind a control plane. Once the window is up, you can change the code. The first compile can take a few minutes.
+
+```bash
+npm install && ./scripts/quick-deploy.sh start standalone-client
+```
+
+On Windows, replace `./scripts/quick-deploy.sh` with `scripts\quick-deploy.bat`.
+
+To work in the browser instead, replace `standalone-client` with `standalone-server` and open `http://127.0.0.1:1420/`. Connecting a control plane, building an installer, or switching client and server comes later: [Quick start](deploy/quick-start.md).
+
+The requirements below matter only when that command fails. After the dependencies are installed, run the same command again.
+
 ## Requirements
 
 ### Common dependencies

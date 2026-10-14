@@ -2,9 +2,25 @@
 
 [简体中文](../../zh-CN/deploy/quick-start.md) | English
 
-Packaging and rollout stay in [README.md](README.md). This page starts the same kind of local smoke processes used to check that one deployment cell actually comes up.
+## Start now
 
-The entry points are `scripts/quick-deploy.sh` and `scripts/quick-deploy.bat`. Neither script calls npm. Use the shell script on Linux and macOS, and the batch file on Windows; the arguments are the same. The launcher does not read `pointer.local.env`. Each mode sets its own environment, so a managed file on the machine cannot leak into a standalone run. State, logs, and the generated local password live in `.quick-deploy/` (gitignored).
+To develop the desktop app, run this from the repository root:
+
+```bash
+npm install && ./scripts/quick-deploy.sh start standalone-client
+```
+
+```bat
+npm install && scripts\quick-deploy.bat start standalone-client
+```
+
+Once the window is up, you can change the code. The first compile can take a few minutes. Data lives in `.quick-deploy/standalone-client/data`, separate from an installed Pointer.
+
+To use the same UI in a browser, switch the mode to `standalone-server` and open `http://127.0.0.1:1420/`. The first start writes a local account to `.quick-deploy/standalone-server/standalone-admin.env` and prints the password once.
+
+## Other ways to start
+
+Packaging and rollout stay in [README.md](README.md). The rest of this page is the other cells of the same launcher. It does not read `pointer.local.env`. Each mode sets its own environment, so a managed file on the machine cannot leak into a standalone run. State, logs, and the generated local password live in `.quick-deploy/` (gitignored). Use `./scripts/quick-deploy.sh` on Linux and macOS, and `scripts\quick-deploy.bat` on Windows.
 
 `--runtime` selects how the same four modes are launched:
 

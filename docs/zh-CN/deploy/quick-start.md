@@ -2,9 +2,25 @@
 
 [English](../../en/deploy/quick-start.md) | 简体中文
 
-打包与上线步骤见 [README.md](README.md)。这一页只做一件事：在本机拉起一套和冒烟测试相同的进程，用来确认某一格部署模式能起来。
+## 现在就启动
 
-入口是 `scripts/quick-deploy.sh` 和 `scripts/quick-deploy.bat`。两个脚本都不调用 npm。Linux 和 macOS 用 shell，Windows 用 bat，后面的参数一样。脚本不读取 `pointer.local.env`，每种模式自己设置环境变量，避免本机的 managed 配置漏进 standalone。状态、日志和生成的本地密码写在 `.quick-deploy/`（已 gitignore）。
+开发桌面端，在仓库根目录执行这一条：
+
+```bash
+npm install && ./scripts/quick-deploy.sh start standalone-client
+```
+
+```bat
+npm install && scripts\quick-deploy.bat start standalone-client
+```
+
+窗口出现就可以改代码。第一次编译要几分钟。数据在 `.quick-deploy/standalone-client/data`，和已经安装的 Pointer 分开。
+
+想在浏览器里看同一套界面，把模式换成 `standalone-server`，然后打开 `http://127.0.0.1:1420/`。第一次启动会在 `.quick-deploy/standalone-server/standalone-admin.env` 生成本地账密，终端打印一次密码。
+
+## 再选别的启动方式
+
+打包与上线步骤见 [README.md](README.md)。下面是同一套脚本的其余格子。脚本不读取 `pointer.local.env`，每种模式自己设置环境变量，避免本机的 managed 配置漏进 standalone。状态、日志和生成的本地密码写在 `.quick-deploy/`（已 gitignore）。Linux 和 macOS 用 `./scripts/quick-deploy.sh`，Windows 用 `scripts\quick-deploy.bat`。
 
 两种启动方式用同一个入口，用 `--runtime` 区分：
 

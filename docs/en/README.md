@@ -69,10 +69,10 @@ A digital employee should not compete with a person for the computer. The memory
 
 | I am… | Start here |
 |--------|------------|
-| **A user** | [`user/`](user/README.md) — installation, first chat, Skills, IM channels |
-| **A developer / integrator** | [`developer/`](developer/README.md) — architecture, tools, protocols |
-| **A deployer / packager** | [`deploy/`](deploy/README.md) — the four-cell checklist entry |
-| **A repository contributor** | [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md), [`DEVELOPMENT.md`](DEVELOPMENT.md), [`contributing/`](contributing/README.md) |
+| **A user** | Open the [download page](https://pointer.readflowai.com/download), install, and send "Hello". Details: [`user/getting-started.md`](user/getting-started.md) |
+| **A developer / integrator** | From the repo root: `npm install && ./scripts/quick-deploy.sh start standalone-client`. Notes: [`developer/`](developer/README.md) |
+| **A deployer / packager** | Run that same command first. Open [`deploy/`](deploy/README.md) when you are building an installer |
+| **A repository contributor** | The same start command. Conventions: [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md), [`DEVELOPMENT.md`](DEVELOPMENT.md) |
 | **A core maintainer** | [`internals/`](internals/README.md) — runtime mechanics, sub-agent prompts, LLM integration, UI notes; design records in [`design/`](design/README.md) |
 
 ---

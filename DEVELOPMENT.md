@@ -4,6 +4,20 @@
 
 本文档用于说明 `Pointer` 的本地开发、调试、检查与常见问题处理流程。
 
+## 第一步
+
+在仓库根目录执行这一条。它拉起桌面开发窗口，不绑定控制面。窗口出现后就可以改代码。第一次编译要几分钟。
+
+```bash
+npm install && ./scripts/quick-deploy.sh start standalone-client
+```
+
+Windows 把 `./scripts/quick-deploy.sh` 换成 `scripts\quick-deploy.bat`。
+
+想在浏览器里改同一套界面，把 `standalone-client` 换成 `standalone-server`，然后打开 `http://127.0.0.1:1420/`。要连控制面、打安装包，或换服务端 / 客户端，再看 [快速启动](docs/zh-CN/deploy/quick-start.md)。
+
+下面的环境清单只在这一条失败时才需要。装完依赖后，还是执行上面同一条命令。
+
 ## 环境要求
 
 ### 通用依赖

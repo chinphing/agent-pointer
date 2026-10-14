@@ -1,7 +1,13 @@
 # 用户使用指南
 [English](../../en/user/README.md) | 简体中文
 
-面向 **Pointer 终端用户**：安装、日常对话、Skills、IM 通道等。
+面向 **Pointer 终端用户**。
+
+## 现在就用
+
+打开 [官网下载页](https://pointer.readflowai.com/download)，安装，登录，发一句「你好」。三步的细节在 [快速上手](getting-started.md)。
+
+下面的表格是用起来之后才需要的。
 
 ## 教程
 

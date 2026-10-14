@@ -1,7 +1,7 @@
 # 贡献者指南
 [English](../../en/contributing/README.md) | 简体中文
 
-面向**本仓库贡献者与打包维护**：从源码构建、平台专项 UI、内部评测等。
+面向**本仓库贡献者与打包维护**。先在仓库根目录执行 `npm install && ./scripts/quick-deploy.sh start standalone-client`，窗口出现后再看下面的专题。
 
 | 文档 | 说明 |
 |------|------|

@@ -1,7 +1,7 @@
 # Contributor guide
 English | [简体中文](../../zh-CN/contributing/README.md)
 
-For **contributors to this repository and packaging maintainers**: building from source, platform-specific UI, internal evaluation and more.
+For **contributors to this repository and packaging maintainers**. First run `npm install && ./scripts/quick-deploy.sh start standalone-client` from the repository root. Read the topics below after the window is up.
 
 | Document | Description |
 |------|------|

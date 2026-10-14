@@ -12,11 +12,15 @@ Without a platform account, open **Settings → Models → Custom services**, fi
 
 After signing in you can also use the cloud host and top up. A successful desktop sign-in may open the website; come back to the window.
 
-## When you did not install from the website
+## Other ways to open it
 
-The [difference between an official build and a local build](which-build.md) can wait. Installers distributed inside a company are on [GitHub Releases](https://github.com/chinphing/agent-pointer/releases). From the repository, the script opens an existing build or an installed desktop app. When neither exists, `--build` is what compiles locally. See [Start locally](../deploy/quick-start.md). To change the code, use npm and follow the [first development step](../DEVELOPMENT.md). To open an already deployed server in a browser, see [standalone-server.md](standalone-server.md).
+After it opens, send "Hello" the same way. Fill in the model under **Settings → Models → Custom services**, then click **Test connection**.
 
-A local build has no built-in official website domain. The model address and Key are both filled in yourself in settings.
+- An installer from your company: [GitHub Releases](https://github.com/chinphing/agent-pointer/releases)
+- Open the app from this repository: [Start locally](../deploy/quick-start.md)
+- Open a server in the browser: [standalone-server.md](standalone-server.md)
+
+How the two installs differ: [Official packages vs. local builds](which-build.md).
 
 ## Desktop and web
 

@@ -12,11 +12,15 @@
 
 登录之后还可以用云主机和充值。桌面登录成功后可能跳到官网，回到窗口即可。
 
-## 不是从官网安装时
+## 其他方式打开
 
-[官方包和本地构建的差别](which-build.md) 可以之后再看。公司内部分发的安装包在 [GitHub Releases](https://github.com/chinphing/agent-pointer/releases)。在仓库里用脚本打开已有构建或已安装的桌面程序；两处都没有时加上 `--build` 才在本地编译，见 [本地启动](../deploy/quick-start.md)。自己改代码用 npm，见 [开发第一步](../../../DEVELOPMENT.md)。用浏览器访问一台已部署的服务端，见 [standalone-server.md](standalone-server.md)。
+打开之后同样发一句「你好」。模型在 **设置 → 模型配置 → 自定义服务** 里填写，点 **测试连接**。
 
-本地构建没有内置官网域名。模型地址和 Key 都在设置里自己填。
+- 公司发来的安装包：[GitHub Releases](https://github.com/chinphing/agent-pointer/releases)
+- 在这份仓库里打开程序：[本地启动](../deploy/quick-start.md)
+- 用浏览器打开一台服务：[standalone-server.md](standalone-server.md)
+
+两种安装差在哪里，见 [官方包与本地构建](which-build.md)。
 
 ## 桌面端与 Web 端
 

@@ -427,15 +427,15 @@ pub(crate) async fn run_sub_agent(
 
             let current_budget = length_output_override
                 .unwrap_or_else(|| crate::models::effective_max_tokens(&sub_provider.settings));
+            // Both truncation kinds get more headroom on retry: a reasoning-only
+            // stop burned the budget on thinking, and a visible truncation simply
+            // needs room for a larger payload. Never exceeds the provider ceiling.
+            let next_budget = super::json_tool_retries::escalated_length_output_budget(
+                current_budget,
+                crate::models::declared_max_tokens(&sub_provider.settings),
+                sub_provider.settings.max_tokens,
+            );
             let hint = if reasoning_only {
-                let ceiling = super::json_tool_retries::reasoning_output_ceiling(
-                    crate::models::declared_max_tokens(&sub_provider.settings),
-                    sub_provider.settings.max_tokens,
-                );
-                let next_budget = super::json_tool_retries::escalated_reasoning_output_budget(
-                    current_budget,
-                    ceiling,
-                );
                 length_output_override = Some(next_budget);
                 log::warn!(
                     "reasoning-only length stop sub_agent task_id={} agent={} reasoning_chars={} max_tokens={current_budget}->{next_budget} retry={}/{}",
@@ -450,8 +450,9 @@ pub(crate) async fn run_sub_agent(
                     next_budget,
                 )
             } else {
+                length_output_override = Some(next_budget);
                 log::warn!(
-                    "output truncated sub_agent task_id={} agent={} retry={}/{}",
+                    "output truncated sub_agent task_id={} agent={} max_tokens={current_budget}->{next_budget} retry={}/{}",
                     task.id,
                     def.id,
                     retry_count,

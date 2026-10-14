@@ -133,6 +133,13 @@ fn deepseek_model_supports_thinking(model: &str) -> bool {
     if m == "deepseek-reasoner" {
         return true;
     }
+    // Non-versioned aliases that accept `reasoning_effort` (current
+    // `deepseek-flash`, plus its dated snapshots). Keep this an explicit
+    // allowlist: classic non-thinking models such as `deepseek-chat` must stay
+    // out so the wire body never carries a field the API rejects.
+    if m == "deepseek-flash" || m.starts_with("deepseek-flash-") {
+        return true;
+    }
     if m.starts_with("deepseek-v") && !m.starts_with("deepseek-v3") {
         return true;
     }
@@ -763,6 +770,49 @@ mod tests {
         );
         assert!(m.get("thinking").is_none());
         assert!(m.get("output_config").is_none());
+    }
+
+    #[test]
+    fn deepseek_thinking_allowlist_covers_flash_and_excludes_chat() {
+        assert!(deepseek_model_supports_thinking("deepseek-flash"));
+        assert!(deepseek_model_supports_thinking("deepseek-flash-2026-01"));
+        assert!(deepseek_model_supports_thinking("deepseek-v4-pro"));
+        assert!(deepseek_model_supports_thinking("deepseek-reasoner"));
+        // Classic non-thinking models must stay out: the API rejects the field.
+        assert!(!deepseek_model_supports_thinking("deepseek-chat"));
+        assert!(!deepseek_model_supports_thinking("deepseek-v3"));
+        assert!(!deepseek_model_supports_thinking(""));
+    }
+
+    /// Regression: `api.deepseek.com` + `deepseek-flash` used to return early
+    /// from the effort strategy, so `--thinking-intensity max` never reached
+    /// the wire.
+    #[test]
+    fn deepseek_flash_emits_reasoning_effort_on_wire() {
+        let mut s = sample_settings();
+        s.active_provider_id = "deepseek".into();
+        s.model = "deepseek-flash".into();
+        s.providers[1].thinking_intensity = Some("max".into());
+        let p = &s.providers[1];
+        assert!(provider_uses_deepseek_api(p));
+        let mut m = Map::new();
+        apply_thinking_strategy(&s, p, "deepseek-flash", None, &mut m);
+        assert_eq!(
+            m.get("reasoning_effort").and_then(|v| v.as_str()),
+            Some("max")
+        );
+    }
+
+    #[test]
+    fn deepseek_chat_stays_out_of_the_wire_body() {
+        let mut s = sample_settings();
+        s.active_provider_id = "deepseek".into();
+        s.model = "deepseek-chat".into();
+        s.providers[1].thinking_intensity = Some("max".into());
+        let p = &s.providers[1];
+        let mut m = Map::new();
+        apply_thinking_strategy(&s, p, "deepseek-chat", None, &mut m);
+        assert!(m.get("reasoning_effort").is_none());
     }
 
     #[test]

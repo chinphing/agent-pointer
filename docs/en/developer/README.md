@@ -17,7 +17,7 @@ npm install && scripts\quick-deploy.bat start standalone-client
 
 If that fails, install Node, Rust, and the system libraries in [DEVELOPMENT.md](../DEVELOPMENT.md), then run the same command. To work in the browser instead, replace `standalone-client` with `standalone-server` and open `http://127.0.0.1:1420/`. Read [architecture.md](architecture.md) after it is running.
 
-After it is running, the rest of this page follows the sidebar groups: **Concepts / Tools and protocols / Integration / Troubleshooting**. `standalone-deployment.md` lives under Deployment.
+The rest of this page follows the sidebar groups: **Concepts / Tools and protocols / Integration / Troubleshooting**. `standalone-deployment.md` lives under Deployment.
 
 ## When you are packaging or changing how it is deployed
 

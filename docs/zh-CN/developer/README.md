@@ -17,7 +17,7 @@ npm install && scripts\quick-deploy.bat start standalone-client
 
 这条失败时，再看 [DEVELOPMENT.md](../../../DEVELOPMENT.md) 里的 Node、Rust 和系统库。想在浏览器里改同一套界面，把 `standalone-client` 换成 `standalone-server`，然后打开 `http://127.0.0.1:1420/`。跑起来之后再读 [architecture.md](architecture.md)。
 
-跑起来之后，本页其余部分按侧栏分组：**概念 / 工具与协议 / 集成 / 排障**。`standalone-deployment.md` 在侧栏「部署」分区。
+本页其余部分按侧栏分组：**概念 / 工具与协议 / 集成 / 排障**。`standalone-deployment.md` 在侧栏「部署」分区。
 
 ## 要打包或换部署方式时
 

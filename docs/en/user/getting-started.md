@@ -5,10 +5,10 @@ English | [简体中文](../../zh-CN/user/getting-started.md)
 ## 1. Install from the website
 
 1. Open the [download page](https://pointer.readflowai.com/download), download the installer for this system, install it, and open Pointer.
-2. Bottom-left **Account** → **Sign in**. After signing in, the platform delivers a model.
+2. Bottom-left **Account** → **Sign in**. Sign-in is required. After signing in, the platform delivers a model.
 3. Send "Hello".
 
-Without a platform account, open **Settings → Models → Custom services**, fill in the address and Key, and click **Test connection**. See [Configuring model services](model-providers.md).
+To use your own model, sign in first, then open **Settings → Models → Custom services** and fill in the address and Key. Until you are signed in, your own Key cannot send a message. See [Configuring model services](model-providers.md).
 
 After signing in, the browser may open the website. Come back to the window.
 

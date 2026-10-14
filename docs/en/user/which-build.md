@@ -8,7 +8,7 @@ The open-source repository is called **agent-pointer**. Pointer has one source t
 
 Installers downloaded from the [official download page](https://pointer.readflowai.com/download) and signed by the maintainers.
 
-- Optional: sign in to a readflowai.com account (**after signing in the platform delivers model services, so you do not need to configure a Key yourself**)
+- Sign-in to a readflowai.com account is required before you can send a message. After signing in, the platform delivers a model. To use your own model, fill in a custom-service Key after you are signed in
 - Automatic update checks
 - After signing in you can report usage, open the cloud host, and go to the top-up page
 - The official `pointer-server` package verifies a License when deployed standalone

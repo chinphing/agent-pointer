@@ -105,7 +105,7 @@ Environment prerequisites, build commands, artifact locations and CI policy for 
 
 | Document | Content |
 |---|---|
-| [`quick-start.md`](quick-start.md) | Local quick start for the four cells (smoke: bring up the server or desktop process and check the mode) |
+| [`quick-start.md`](quick-start.md) | Local quick start for the four cells, for the dev toolchain and for release binaries |
 | [`editions.md`](editions.md) | The four cells in detail (build command / variables / artifacts / verification / external dependencies) |
 | [`platforms.md`](platforms.md) | Windows / macOS / Linux platform packaging index (prerequisites / artifacts / CI policy) |
 | [`../contributing/cross-platform-build.md`](../contributing/cross-platform-build.md) | Windows / macOS / Linux environments and packaging commands |

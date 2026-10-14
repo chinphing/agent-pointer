@@ -132,6 +132,19 @@ src-tauri/target/release/bundle/
 - updater 私钥（公钥已在 `src-tauri/tauri.conf.json` → `plugins.updater.pubkey`，**换密钥需同步改这里**）。
 - 发版：安装包 + updater 压缩包 + `.sig` 走控制台「客户端发布」。
 
+### 3.6 本地快速启动
+
+不打包、只在本机拉起这一格时用 [`quick-start.md`](quick-start.md)。Linux / macOS 用 shell，Windows 把 `./scripts/quick-deploy.sh` 换成 `scripts\quick-deploy.bat`。
+
+```bash
+./scripts/quick-deploy.sh start managed-client \
+  --api-base https://pointer-api.example.com \
+  --web-base https://pointer.example.com \
+  --annotate-base https://pointer-som.example.com
+```
+
+开发态走本机 Tauri CLI。源码、`POINTER_EDITION` 和三个域名都没变时，Cargo 不整包重编。`--runtime bin` 直接运行 `target/release/pointer-app`，启动时不编译。
+
 ---
 
 <a id="managed-server"></a>
@@ -215,6 +228,19 @@ curl -s http://127.0.0.1:8787/api/auth/mode      # → {"mode":"platform"}
 - 控制面侧的组织 / 计费 / 店铺（本仓库不打）。
 - 不需要 License 签发。
 
+### 4.6 本地快速启动
+
+不打包、只在本机拉起这一格时用 [`quick-start.md`](quick-start.md)。下面是开发态；发布版在同一命令后加 `--runtime bin`，启动时不编译，页面在 `http://127.0.0.1:8787/`。
+
+```bash
+./scripts/quick-deploy.sh start managed-server \
+  --api-base https://pointer-api.example.com \
+  --web-base https://pointer.example.com \
+  --annotate-base https://pointer-som.example.com
+```
+
+开发态每次执行 `cargo run -p pointer-server` 和本机 Vite。源码、口味、三个域名都没变时，Cargo 复用已有 debug 产物。从 standalone 切到 managed，或域名变了，才会重编。
+
 ---
 
 <a id="standalone-client"></a>
@@ -249,6 +275,16 @@ npm run tauri:build          # 不设任何 POINTER_* 变量
 ### 5.5 外部依赖
 
 无。
+
+### 5.6 本地快速启动
+
+不打包、只在本机拉起桌面窗口时用 [`quick-start.md`](quick-start.md)。不设置 `POINTER_EDITION`，数据目录在 `.quick-deploy/standalone-client/data`。
+
+```bash
+./scripts/quick-deploy.sh start standalone-client
+```
+
+开发态走本机 Tauri CLI，和开发态服务端网页共用 Vite 端口 `1420`。`--runtime bin` 运行 `target/release/pointer-app`，不占用 `1420`，启动时不编译。
 
 ---
 
@@ -300,6 +336,16 @@ curl -s http://127.0.0.1:8787/api/license/status  # 自建 notConfigured；官�
 
 无。官方签名包需要 Pointer 签发方提供 License（`npm run license-gen:build`）。
 
+### 6.6 本地快速启动
+
+不打包、只在本机拉起服务端和网页时用 [`quick-start.md`](quick-start.md)。第一次启动会在 `.quick-deploy/standalone-server/standalone-admin.env` 生成本地账密。
+
+```bash
+./scripts/quick-deploy.sh start standalone-server
+```
+
+开发态是 `cargo run -p pointer-server` 加本机 Vite，网页在 `http://127.0.0.1:1420/`。源码没变就不重编。`--runtime bin` 运行 `target/release/pointer-server`，由它自己托管 `dist/`，地址是 `http://127.0.0.1:8787/`，启动时不编译。
+
 ---
 
 ## 7. CI 与发布口径
@@ -311,6 +357,8 @@ curl -s http://127.0.0.1:8787/api/license/status  # 自建 notConfigured；官�
 ---
 
 ## 8. 日常开发
+
+按某一格拉起本机进程（不读 `pointer.local.env`）见 [`quick-start.md`](quick-start.md)，入口是 `./scripts/quick-deploy.sh` 或 `scripts\quick-deploy.bat`。
 
 ```bash
 cp pointer.local.env.example pointer.local.env    # 需要绑控制面时才建

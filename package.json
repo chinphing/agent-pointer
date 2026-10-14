@@ -36,6 +36,7 @@
     "server:deb": "npm run server:build",
     "license-gen:package": "npm run license-gen:build",
     "web:dev": "vite --host 0.0.0.0 --port 1420",
+    "quick-deploy": "node scripts/quick-deploy.mjs",
     "icons": "node scripts/generate-app-icons.mjs",
     "build:windows": "npm run tauri:build",
     "build:macos": "npm run tauri:build",

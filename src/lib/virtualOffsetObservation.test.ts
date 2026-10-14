@@ -206,12 +206,43 @@ describe('offset corrections that the DOM clamps away', () => {
   })
 })
 
+describe('sync cannot re-enter itself', () => {
+  const keys = Array.from({ length: 13 }, (_, index) => `turn-${index + 1}`)
+
+  it('publishes once per sync even when the publish path calls sync back', () => {
+    const el = fakeScroller({ clientHeight: 600, contentHeight: 13 * 180 + 80 })
+    const observation = createVirtualOffsetObservation()
+    const v = mount(el, keys, observation.observeElementOffset, () => 180)
+
+    // The wiring the re-entrancy worry is about: the callback `publish` lands in writes
+    // the offset back onto the virtualizer (what the core's own listener does) and calls
+    // `sync()` again before returning. The equal-offset guard has to absorb that, so one
+    // `sync()` stays one publish instead of driving a loop.
+    let publishes = 0
+    observation.observeElementOffset(v, (offset: number) => {
+      publishes += 1
+      v.scrollOffset = offset
+      observation.sync()
+    })
+    publishes = 0
+
+    // The case the module exists for: the internal offset ran ahead of a write the DOM
+    // clamped away, and the write fired no scroll event.
+    el.scrollTop = el.scrollHeight - el.clientHeight
+    v.scrollOffset = (v.scrollOffset ?? 0) + 5000
+
+    observation.sync()
+
+    expect(publishes).toBe(1)
+    expect(v.scrollOffset).toBe(el.scrollTop)
+  })
+})
+
 // The virtualizer and the scroller only meet inside MessageList.vue (no
 // component fixture), so this guards the wiring itself: the observer must be
 // handed to `useVirtualizer`, and every programmatic scroll write must be
 // followed by a re-state of the element's offset.
-describe('MessageList wiring', () => {
-  const source = readFileSync(
+describe('MessageList wiring', () => {  const source = readFileSync(
     new URL('../components/chat/MessageList.vue', import.meta.url),
     'utf8'
   )

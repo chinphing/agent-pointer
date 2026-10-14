@@ -94,11 +94,22 @@ export const PERF_MS_SCROLL_PASS_READ = 'ms:scrollPass:read'
  */
 export const PERF_MS_SCROLL_PASS_WRITE = 'ms:scrollPass:write'
 
+/**
+ * The whole of `stickScrollerToBottom` — its `scrollToIndex`, its `scrollTop` write and
+ * the `sync()` that re-states the offset.
+ *
+ * Read next to a frame gap blamed on `stickBottom`: the gap is the *frame* that follows
+ * those writes (browser layout/paint, and the patch the publish triggered), so a blame
+ * with a sub-millisecond row here means the cost is not this call's own JS.
+ */
+export const PERF_MS_STICK_BOTTOM = 'ms:stickBottom'
+
 /** Accumulated milliseconds per second, keyed by `ms:<work>` (see `record`). */
 export const PERF_MS_KEYS = [
   'ms:extraScopedForWindow',
   'ms:measureElement',
   'ms:toolRunAssistantMessage',
+  PERF_MS_STICK_BOTTOM,
   /**
    * Diagnostic only (HUD on): the layout forced by reading one metric right after a
    * programmatic scroll write. The browser pays for that layout before paint anyway; the
@@ -246,8 +257,9 @@ export interface RenderPerfSnapshot {
   frameGapMaxMs: number
   /**
    * Operation that was running when `frameGapMaxMs` was recorded: the innermost
-   * open activity, else the last activity to close since the previous frame,
-   * else `''` — rendered as `idle` by the HUD. See `beginPerfActivity`.
+   * open activity, else the activity that held the most time inside that
+   * inter-frame window, else `''` — rendered as `idle` by the HUD. See
+   * `beginPerfActivity` / `attributeFrameGapActivity`.
    */
   frameGapMaxActivity: string
   /** Gaps above `PERF_FRAME_SUSPENSION_MS` skipped since the HUD was enabled. */
@@ -369,10 +381,17 @@ const activityStack: string[] = []
 const activityStartMs: number[] = []
 /** Open count per name, so an `end` without a `begin` stays a no-op. */
 const activityCounts = new Map<string, number>()
-/** Most recently closed activity — the one a frame gap is blamed on. */
-let lastActivityName = ''
-/** Set when an activity closes; cleared by the next frame callback. */
-let activityEndedSinceFrame = false
+/**
+ * Milliseconds each activity held **inside the current inter-frame window** — what a
+ * frame gap is blamed on. Cleared by every frame callback, so the blame only ever covers
+ * work done since the previous frame.
+ *
+ * Why a per-window total instead of "the last activity to close": one stall window
+ * routinely closes several markers (a layout rebuild, then a measure batch, then a
+ * stick), and remembering only the last one blamed the *smallest* of them — the reason a
+ * multi-second gap reported `@ stickBottom` while every `ms:` row for that stick read ~0.
+ */
+const frameActivityMs = new Map<string, number>()
 /** Milliseconds each activity held in the current second (pass-peak attribution). */
 const activityMsWindow = new Map<string, number>()
 let frameGapMaxActivity = ''
@@ -591,10 +610,12 @@ export function endPerfActivity(name: string): void {
   activityStack.pop()
   activityStartMs.pop()
 
-  lastActivityName = name
-  activityEndedSinceFrame = true
   const spent = endedAt - startedAt
-  if (spent > 0) activityMsWindow.set(name, (activityMsWindow.get(name) ?? 0) + spent)
+  // Recorded even at 0 ms: the window's totals are also what a gap is blamed on, and a
+  // marker that closed inside the window must stay eligible for the blame.
+  const held = spent > 0 ? spent : 0
+  activityMsWindow.set(name, (activityMsWindow.get(name) ?? 0) + held)
+  frameActivityMs.set(name, (frameActivityMs.get(name) ?? 0) + held)
 }
 
 /** Innermost open activity, or `''` when none is marked. */
@@ -627,14 +648,32 @@ function pruneStaleActivities(now: number): void {
 /**
  * Operation to blame for a frame gap detected now.
  *
- * A gap is noticed *after* the blocking work has finished — that is what frees
- * the frame callback — so a synchronous operation has already closed by then.
- * The "closed since the previous frame" flag is therefore what attributes it;
- * an activity still open covers the async paths (`loadOlder` / `loadNewer`).
+ * A gap is noticed *after* the blocking work has finished — that is what frees the frame
+ * callback — so a synchronous operation has already closed by then. What attributes it is
+ * therefore the work that ran **inside that inter-frame window**, taken from the
+ * per-window totals `endPerfActivity` folds: the activity that held the most time, not
+ * the last one to close.
+ *
+ * The distinction is the whole point: the window that produced a 3952 ms gap also closed
+ * a stick (a few hundred µs of JS) after the real work, and "the last one to close"
+ * blamed the stick — every `ms:` row for it reads ~0, so the stall looked unattributable.
+ * Ties keep the most recent name, so a window whose markers all measure 0 ms (or an
+ * unwinding of markers with no timing) still reports the last one, as before.
+ *
+ * An activity still open covers the async paths (`loadOlder` / `loadNewer`): its end has
+ * not been folded into the window yet.
  */
 function attributeFrameGapActivity(): string {
   if (activityStack.length > 0) return activityStack[activityStack.length - 1] ?? ''
-  return activityEndedSinceFrame ? lastActivityName : ''
+  let best = ''
+  let bestMs = -1
+  for (const [name, ms] of frameActivityMs) {
+    if (ms >= bestMs) {
+      bestMs = ms
+      best = name
+    }
+  }
+  return best
 }
 
 /** Activity holding the most time in the window that is closing. */
@@ -667,8 +706,7 @@ export function resetPerf(): void {
   activityStack.length = 0
   activityStartMs.length = 0
   activityCounts.clear()
-  lastActivityName = ''
-  activityEndedSinceFrame = false
+  frameActivityMs.clear()
   activityMsWindow.clear()
   frameGapMaxActivity = ''
   peakScrollPassActivity = ''
@@ -703,9 +741,9 @@ function onFrame(ts: number): void {
       frameGapMaxActivity = attributeFrameGapActivity()
     }
   }
-  // Every frame consumes the "an activity closed since the last frame" flag, so
-  // a gap is only ever blamed on work done inside that one inter-frame window.
-  activityEndedSinceFrame = false
+  // Every frame consumes the window's activity totals, so a gap is only ever blamed on
+  // work done inside that one inter-frame window.
+  frameActivityMs.clear()
   hasLastFrame = true
   lastFrameTs = ts
   frameTimes[frameWrite] = ts

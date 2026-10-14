@@ -51,6 +51,7 @@ import {
   PERF_MS_SCROLL_PASS,
   PERF_MS_SCROLL_PASS_READ,
   PERF_MS_SCROLL_PASS_WRITE,
+  PERF_MS_STICK_BOTTOM,
   beginPerfActivity,
   bump,
   endPerfActivity,
@@ -375,6 +376,7 @@ function shouldFollowOutput(): boolean {
 function stickScrollerToBottom() {
   if (conversationTurns.value.length === 0) return
   const perf = renderPerfEnabled()
+  const stickStartedAt = perf ? performance.now() : 0
   if (perf) beginPerfActivity(PERF_ACTIVITY_STICK_BOTTOM)
   try {
     rowVirtualizer.value.scrollToIndex(conversationTurns.value.length - 1, {
@@ -401,7 +403,14 @@ function stickScrollerToBottom() {
       record('ms:forcedLayout', performance.now() - layoutStart)
     }
   } finally {
-    if (perf) endPerfActivity(PERF_ACTIVITY_STICK_BOTTOM)
+    if (perf) {
+      endPerfActivity(PERF_ACTIVITY_STICK_BOTTOM)
+      // What this call itself cost, against a gap the HUD blames on `stickBottom`: the
+      // frame that follows is where the browser pays for the writes above and for the
+      // patch the publish queued, so a sub-millisecond row here with a multi-second gap
+      // says the time is that frame, not this function.
+      record(PERF_MS_STICK_BOTTOM, performance.now() - stickStartedAt)
+    }
   }
 }
 

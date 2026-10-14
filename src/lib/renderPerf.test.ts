@@ -8,6 +8,7 @@ import {
   PERF_ACTIVITY_LOAD_OLDER,
   PERF_ACTIVITY_MEASURE_BATCH,
   PERF_ACTIVITY_STALE_MS,
+  PERF_ACTIVITY_STICK_BOTTOM,
   PERF_FRAME_SUSPENSION_MS,
   PERF_GAUGE_VIRTUAL_BLANK,
   PERF_GAUGE_VIRTUAL_ESTIMATE,
@@ -28,6 +29,7 @@ import {
   PERF_MS_SCROLL_PASS,
   PERF_MS_SCROLL_PASS_READ,
   PERF_MS_SCROLL_PASS_WRITE,
+  PERF_MS_STICK_BOTTOM,
   beginPerfActivity,
   bump,
   currentPerfActivity,
@@ -576,6 +578,45 @@ describe('renderPerf activity attribution', () => {
     expect(smaller.frameGapMaxActivity).toBe(PERF_ACTIVITY_LAYOUT_REBUILD)
   })
 
+  it('blames the gap on the activity that held the window, not the last one to close', () => {
+    let clock = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    setRenderPerfEnabled(true, { persist: false })
+
+    rafCallback?.(0)
+    rafCallback?.(16)
+
+    // The shape that made a multi-second stall read as unattributable: the rebuild holds
+    // the window's time, then a stick closes a fraction of a millisecond after it. Under
+    // "the last activity to close" the gap was reported as `@ stickBottom`, whose own
+    // `ms:` rows are all ~0 — the blame has to follow the time instead.
+    beginPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+    clock = 900
+    endPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+    beginPerfActivity(PERF_ACTIVITY_STICK_BOTTOM)
+    clock = 900.4
+    endPerfActivity(PERF_ACTIVITY_STICK_BOTTOM)
+
+    rafCallback?.(16 + 3952)
+    const stalled = renderPerfSnapshot(16 + 3952)
+    expect(stalled.frameGapMaxMs).toBe(3952)
+    expect(stalled.frameGapMaxActivity).toBe(PERF_ACTIVITY_LAYOUT_REBUILD)
+
+    // Markers whose own time is zero (or an unwinding with no timing at all) keep the
+    // previous behaviour: the most recent one is reported.
+    clock = 1000
+    beginPerfActivity(PERF_ACTIVITY_MEASURE_BATCH)
+    endPerfActivity(PERF_ACTIVITY_MEASURE_BATCH)
+    beginPerfActivity(PERF_ACTIVITY_STICK_BOTTOM)
+    endPerfActivity(PERF_ACTIVITY_STICK_BOTTOM)
+
+    // A bigger gap, so the blame is re-evaluated (a smaller one never overwrites it).
+    rafCallback?.(16 + 3952 + 4500)
+    expect(renderPerfSnapshot(16 + 3952 + 4500).frameGapMaxActivity).toBe(
+      PERF_ACTIVITY_STICK_BOTTOM
+    )
+  })
+
   it('blames a gap on an activity still open when the frame fires', () => {
     setRenderPerfEnabled(true, { persist: false })
 
@@ -914,6 +955,9 @@ describe('renderPerf virtualizer geometry gauges', () => {
     expect(PERF_MS_KEYS).toContain(PERF_MS_SCROLL_PASS)
     expect(PERF_MS_KEYS).toContain(PERF_MS_SCROLL_PASS_READ)
     expect(PERF_MS_KEYS).toContain(PERF_MS_SCROLL_PASS_WRITE)
+    // The stick's own JS, so a gap blamed on `stickBottom` can be split into "this call"
+    // and "the frame after it".
+    expect(PERF_MS_KEYS).toContain(PERF_MS_STICK_BOTTOM)
   })
 
   it('publishes the assumed row height as a constant gauge', () => {

@@ -7,7 +7,8 @@ Build and run digital employees on the computer people already use, and keep the
 | You want | Get it here |
 | --- | --- |
 | Ready to use, out of the box | [Official download](https://pointer.readflowai.com/download) |
-| Deploy inside your company | [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) (official package) · [Deployment guide](docs/en/deploy/README.md) (self-hosted) |
+| Community installers | [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) |
+| Deploy inside your company | [Deployment guide](docs/en/deploy/README.md) |
 
 [简体中文](README.zh-CN.md)
 
@@ -122,6 +123,8 @@ The desktop app, web app, and IM channels share one `pointer-core`. The UI handl
 Layer notes: [docs/en/developer/architecture.md](docs/en/developer/architecture.md).
 
 ## Documentation
+
+From using it to changing it: [Getting started](docs/en/user/getting-started.md) → [User guide](docs/en/user/README.md) → [Architecture](docs/en/developer/architecture.md) → [Developer documentation](docs/en/developer/README.md).
 
 | Audience | Start here |
 | --- | --- |

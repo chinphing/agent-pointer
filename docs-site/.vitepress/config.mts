@@ -397,15 +397,15 @@ export default defineConfig({
         ],
       };
       pageData.frontmatter.features = [
-        { title: 'Guides', details: 'After it is installed: chat, Skills, IM channels, plugins', link: '/user/' },
+        { title: 'Guides', details: 'Learn the window, settings, Skills, and IM', link: '/user/' },
         {
           title: 'Development',
-          details: 'After the window is up: architecture, protocols, integrations',
+          details: 'Understand the architecture, then change the client or the Web Server',
           link: '/developer/',
         },
         { title: 'Deployment', details: 'When you are building an installer: flavour and runtime form', link: '/deploy/' },
         { title: 'Contributing', details: 'Version, CI, and packaging conventions for repository changes', link: '/DEVELOPMENT' },
-        { title: 'Internals', details: 'Runtime mechanics, sub-agent prompts, LLM integration, UI notes', link: '/internals/' },
+        { title: 'Internals', details: 'Further down: runtime mechanics, prompts, LLM, UI notes', link: '/internals/' },
       ];
     } else if (rel === 'zh-CN/index.md') {
       // Chinese — the complete tree, served under `/zh-CN/`.
@@ -421,11 +421,11 @@ export default defineConfig({
         ],
       };
       pageData.frontmatter.features = [
-        { title: '使用指南', details: '装好之后：对话、Skills、IM 通道、插件', link: '/zh-CN/user/' },
-        { title: '开发', details: '窗口起来之后：架构、协议、集成、排障', link: '/zh-CN/developer/' },
+        { title: '使用指南', details: '了解：界面、设置、Skills、IM', link: '/zh-CN/user/' },
+        { title: '开发', details: '懂架构，再改客户端或 Web Server', link: '/zh-CN/developer/' },
         { title: '部署', details: '要发安装包时再看口味和运行形态', link: '/zh-CN/deploy/' },
         { title: '参与贡献', details: '改仓库时的版本、CI 和打包约定', link: '/zh-CN/contributing/' },
-        { title: '维护者笔记', details: '运行时机制、子代理提示词、LLM 接入、UI 笔记', link: '/zh-CN/internals/' },
+        { title: '维护者笔记', details: '再往下：运行时机制、提示词、LLM、UI', link: '/zh-CN/internals/' },
       ];
     }
   },

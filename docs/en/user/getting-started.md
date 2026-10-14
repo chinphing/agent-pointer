@@ -136,7 +136,11 @@ npm install && set POINTER_EDITION=managed&& set VITE_POINTER_EDITION=managed&& 
 
 ## After that
 
+Once it is running, read these:
+
 - [The window and composer keys](workspace.md#composer-keys)
 - [Whether a tool asks you first](settings.md)
 - [Skills](skills.md)
 - [IM channels](im-channels.md)
+
+They are collected in the [user guide](README.md). To see how an official package differs from one you compile, read [Official packages vs. local builds](which-build.md). To see how the desktop and the web share one core, read [Architecture](../developer/architecture.md). To change the code, read the [developer documentation](../developer/README.md).

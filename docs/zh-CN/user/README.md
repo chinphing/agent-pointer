@@ -40,6 +40,10 @@
 | [project-lint.md](project-lint.md) | 工作区 `.pointer/lint.toml` |
 | [webhook.md](webhook.md) | Webhook 触发 Agent |
 
-集成与协议见 **[`../developer/`](../developer/README.md)**。
+## 再往下
+
+- 分清官方包和本地构建：[which-build.md](which-build.md)
+- 桌面和 Web 怎么共用一套核心：[架构说明](../developer/architecture.md)
+- 改客户端或 Web Server：[开发者文档](../developer/README.md)
 
 [返回文档总索引](../README.md)

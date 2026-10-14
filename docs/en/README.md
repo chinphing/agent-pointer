@@ -1,19 +1,15 @@
 English | [简体中文](../zh-CN/README.md)
 
-## Do this one thing
+## From using it to changing it
 
-| I am… | This one thing |
-|--------|------------|
-| **A user** | Open the [download page](https://pointer.readflowai.com/download), install, and send "Hello". From the repo, `./scripts/quick-deploy.sh start standalone-client --runtime bin` opens an existing or installed desktop app; pass `--build` only when neither is present and you want a local compile. Details: [`user/getting-started.md`](user/getting-started.md) |
-| **A developer** | Client: `npm install`, then `npm run tauri:dev`. Web Server: `npm run server:dev` and `npm run web:dev` in two terminals. Notes: [`developer/`](developer/README.md) |
+| Depth | This step | Go to |
+|------|--------|------|
+| **Use** | Open the [download page](https://pointer.readflowai.com/download), install, sign in, and send "Hello" | [Getting started](user/getting-started.md) |
+| **Learn** | The window, settings, Skills, IM | [User guide](user/README.md) |
+| **Understand** | How an official package differs from a local build, and how desktop and web share one core | [Official packages vs. local builds](user/which-build.md), [Architecture](developer/architecture.md) |
+| **Change** | Client: `npm run tauri:dev`. Web Server: `npm run server:dev` and `npm run web:dev` in two terminals | [Developer documentation](developer/README.md) |
 
-## After it is running
-
-| I am… | Read next |
-|--------|------------|
-| **A deployer / packager** | [`deploy/`](deploy/README.md) |
-| **A repository contributor** | [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md), [`DEVELOPMENT.md`](DEVELOPMENT.md) |
-| **A core maintainer** | [`internals/`](internals/README.md); design records in [`design/`](design/README.md) |
+To build an installer, read [Packaging and deployment](deploy/README.md). Repository conventions are in the [contributor guide](contributing/README.md) and [Development notes](DEVELOPMENT.md). Core implementation is in [Internals](internals/README.md).
 
 ## What is this
 

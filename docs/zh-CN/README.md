@@ -1,5 +1,20 @@
 [English](../en/README.md) | 简体中文
 
+## 现在做这一件事
+
+| 我是… | 这一件事 |
+|--------|------------|
+| **用户** | 打开 [官网下载](https://pointer.readflowai.com/download)，安装后发一句「你好」。细节在 [`user/getting-started.md`](user/getting-started.md) |
+| **开发者** | 仓库根目录执行 `npm install && ./scripts/quick-deploy.sh start standalone-client`。说明在 [`developer/`](developer/README.md) |
+
+## 跑起来之后
+
+| 我是… | 再看 |
+|--------|------------|
+| **部署 / 打包** | [`deploy/`](deploy/README.md) |
+| **仓库贡献者** | [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md)、[`../../DEVELOPMENT.md`](../../DEVELOPMENT.md) |
+| **核心维护者** | [`internals/`](internals/README.md)；设计记录见 [`design/`](design/README.md) |
+
 ## 这是什么
 
 把数字员工做出来，跑在员工日常用的电脑上，也能在服务器上长期跑。智能体和模型都可以留在你自己的环境里，也不按坐席收费。桌面端和 Web 端能力一致，支持 Windows、macOS、Linux。
@@ -64,16 +79,6 @@
 </table>
 
 数字员工不该跟真人抢电脑。上面这些内存和 CPU 数字，就是为了让它安心待在日常办公的机器上。Pointer 已经在真实业务里高强度跑了三个多月，每天差不多用掉 1000M Token。
-
-## 按读者找入口
-
-| 我是… | 从这里开始 |
-|--------|------------|
-| **用户** | 打开 [官网下载](https://pointer.readflowai.com/download)，安装后发一句「你好」。细节在 [`user/getting-started.md`](user/getting-started.md) |
-| **开发者 / 集成方** | 仓库根目录执行 `npm install && ./scripts/quick-deploy.sh start standalone-client`。说明在 [`developer/`](developer/README.md) |
-| **部署 / 打包者** | 先用上面那条命令跑起来，要发安装包时再打开 [`deploy/`](deploy/README.md) |
-| **仓库贡献者** | 同一条启动命令。约定见 [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md)、[`../../DEVELOPMENT.md`](../../DEVELOPMENT.md) |
-| **核心维护者** | [`internals/`](internals/README.md) — 运行时机制、子代理提示词、LLM 接入、UI 笔记；设计记录见 [`design/`](design/README.md) |
 
 ---
 

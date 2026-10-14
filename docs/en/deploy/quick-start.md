@@ -1,4 +1,4 @@
-# Local quick start for the four deployment cells
+# Start locally
 
 [简体中文](../../zh-CN/deploy/quick-start.md) | English
 

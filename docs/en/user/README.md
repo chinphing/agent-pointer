@@ -13,9 +13,14 @@ The tables below are for after it is already running.
 
 | Document | Description |
 |------|------|
+| [getting-started.md](getting-started.md) | The three steps above, written out |
+| [model-providers.md](model-providers.md) | Your own model address and API Key |
+
+## Other ways in
+
+| Document | Description |
+|------|------|
 | [which-build.md](which-build.md) | The difference between an officially signed build and a local build |
-| [getting-started.md](getting-started.md) | Your first conversation |
-| [model-providers.md](model-providers.md) | Configuring model services: platform services and custom services, parameters and capabilities |
 | [standalone-server.md](standalone-server.md) | Self-hosting pointer-server |
 
 ## How-to guides

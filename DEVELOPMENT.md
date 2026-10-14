@@ -75,7 +75,7 @@ sudo apt-get install -y \
 
 ## 安装依赖
 
-在项目根目录执行：
+第一步里的 `npm install` 会装好前端依赖。依赖装坏或 `node_modules` 被删掉时，在项目根目录再执行一次：
 
 ```bash
 npm install
@@ -83,7 +83,9 @@ npm install
 
 未设置 `POINTER_EDITION` 时即未绑定控制面（standalone，纯本地）。要联调控制面时在 `pointer.local.env` 里设 `POINTER_EDITION=managed` 和三个域名（见 [docs/zh-CN/deploy/editions.md](docs/zh-CN/deploy/editions.md)）；写成别的值（含旧值 `official`）会让构建直接失败。
 
-## 启动开发模式
+## 拆开调试
+
+第一步已经拉起桌面窗口，数据在 `.quick-deploy/standalone-client/data`。下面是同一套进程的手动形式，用来单独看日志，或只开前端。桌面开发态和这里的 Vite 都听 `1420`，服务端 API 都听 `8787`，同一时刻只留一组。
 
 ### 桌面端
 
@@ -126,9 +128,9 @@ Release 构建（`tauri:build` 产物）始终使用 **`PointerApp`**，除非�
 
 **附件与本地媒体路径：** 统一经 `pointer_core::media::resolve_local_media_path` 解析。持久化附件的 `storageRelPath`（形如 `{conv}/{id}_{fileName}`）只会在 `{app_data}/conversation-media/` 下查找，**不会**相对进程 `cwd`（如 `src-tauri/`）解析，避免 dev 与数据目录错位。
 
-### Web 端
+### 浏览器
 
-Web 端复用同一套 Vue 界面，后端复用 `crates/pointer-core`，由 `server` crate 提供 HTTP/SSE API。
+第一步把 `standalone-client` 换成 `standalone-server`，就会同时拉起 API 和页面，打开 `http://127.0.0.1:1420/`。要拆成两个终端时，Web 端复用同一套 Vue 界面，后端复用 `crates/pointer-core`，由 `server` crate 提供 HTTP/SSE API。
 
 启动 Rust Web 后端：
 
@@ -157,9 +159,9 @@ VITE_WEB_API_BASE=http://127.0.0.1:8787 npm run web:dev
 npm run dev
 ```
 
-然后打开终端输出的本地地址。
+然后打开终端输出的本地地址。Vite 开发服务听 `1420`。第一步的桌面窗口也听这个端口，同时只能留一个。
 
-注意：单独在浏览器中运行时，Tauri 的 `invoke`、事件监听、文件存储等桌面能力不可用，完整功能请使用 `npm run tauri:dev`。
+单独在浏览器中运行时，Tauri 的 `invoke`、事件监听、文件存储等桌面能力不可用。完整功能用第一步的桌面窗口。
 
 ## 打开开发者工具
 

@@ -56,7 +56,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| [`README.md`](README.md) | 打包与部署四格清单入口 |
+| [`README.md`](README.md) | 先在本机跑起来，再按四格打包 |
 | [`editions.md`](editions.md) | 口味 × 运行形态四格（构建命令 / 变量 / 产物 / 验证 / 外部依赖） |
 | [`../../contributing/cross-platform-build.md`](../contributing/cross-platform-build.md) | 平台环境、本地开发、编译打包与 CI 正文 |
 | [`../../internals/standalone-server-deployment.md`](../internals/standalone-server-deployment.md) | standalone 服务端完整交付流程 |

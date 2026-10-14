@@ -1,4 +1,4 @@
-# 四种部署模式的本地快速启动
+# 本地启动
 
 [English](../../en/deploy/quick-start.md) | 简体中文
 

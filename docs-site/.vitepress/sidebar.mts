@@ -44,10 +44,10 @@ export interface SectionSpec {
 /** Preferred order inside a directory; anything not listed follows alphabetically. */
 const PRIORITY: Record<string, string[]> = {
   'zh-CN/user': [
-    'README.md', 'getting-started.md', 'which-build.md', 'model-providers.md',
+    'README.md', 'getting-started.md', 'model-providers.md',
     'settings.md', 'rules.md', 'workspace.md', 'scheduled-tasks.md', 'cloud-host.md',
     'skills.md', 'im-channels.md', 'subagents.md', 'mcp.md', 'plugins.md',
-    'webhook.md', 'standalone-server.md', 'project-lint.md',
+    'webhook.md', 'standalone-server.md', 'which-build.md', 'project-lint.md',
   ],
   // The 开发 section's four groups are hand-picked in config.mts (`ZH_DEV_*`),
   // so this list now only orders the 其他 fallback group of `zh-CN/developer`.
@@ -59,10 +59,10 @@ const PRIORITY: Record<string, string[]> = {
   'zh-CN/internals': ['README.md', 'llm-prompt-assembly-order.md', 'agent-task-board-and-verification.md'],
   'zh-CN/ui': ['README.md'],
   'en/user': [
-    'README.md', 'getting-started.md', 'which-build.md', 'model-providers.md',
+    'README.md', 'getting-started.md', 'model-providers.md',
     'settings.md', 'rules.md', 'workspace.md', 'scheduled-tasks.md', 'cloud-host.md',
     'skills.md', 'im-channels.md', 'subagents.md', 'mcp.md', 'plugins.md',
-    'webhook.md', 'standalone-server.md', 'project-lint.md',
+    'webhook.md', 'standalone-server.md', 'which-build.md', 'project-lint.md',
   ],
   // The Development section's groups are hand-picked in config.mts (`EN_DEV_*`),
   // so this list only orders the Other fallback group of `en/developer`.

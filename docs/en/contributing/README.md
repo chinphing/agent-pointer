@@ -5,8 +5,9 @@ For **contributors to this repository and packaging maintainers**. First run `np
 
 | Document | Description |
 |------|------|
-| [**editions.md**](../deploy/editions.md) | **Packaging flavour × runtime form, the four cells** (managed / standalone × client / server): build commands / variables / artifacts / verification / external dependencies (start with the [rework design](../design/control-plane-and-editions.md)) |
+| [**DEVELOPMENT.md**](../DEVELOPMENT.md) | The first-step command, and the environment, debugging, and tests for when it fails |
 | [**cross-platform-build.md**](cross-platform-build.md) | **Windows / macOS / Linux development and packaging** (environment, commands, artifacts, CI) |
+| [**editions.md**](../deploy/editions.md) | The four-cell checklist for when you are building an installer: build commands / variables / artifacts / verification / external dependencies. Background: [rework design](../design/control-plane-and-editions.md) |
 | [**versioning.md**](versioning.md) | **Single source of truth for the version number** (`VERSION` + `npm run version:sync`) |
 | [**ci.md**](ci.md) | **CI and release flow**: the four workflows, reproducing them locally, the pre-PR checklist, DCO and Dependabot |
 | [**docs-site.md**](docs-site.md) | **Docs site rules**: tiers, `SITE_EXCLUDES`, sidebar and routes, preview and link checks |

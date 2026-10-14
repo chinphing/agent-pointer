@@ -13,9 +13,14 @@
 
 | 文档 | 说明 |
 |------|------|
+| [getting-started.md](getting-started.md) | 上面三步的展开 |
+| [model-providers.md](model-providers.md) | 自己的模型地址和 API Key |
+
+## 其他入口
+
+| 文档 | 说明 |
+|------|------|
 | [which-build.md](which-build.md) | 官方签名包与本地构建的差别 |
-| [getting-started.md](getting-started.md) | 第一次对话 |
-| [model-providers.md](model-providers.md) | 配置模型服务：平台服务与自定义服务、参数与能力 |
 | [standalone-server.md](standalone-server.md) | 自建 pointer-server |
 
 ## 操作指南

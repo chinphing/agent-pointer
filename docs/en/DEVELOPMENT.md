@@ -75,7 +75,7 @@ sudo apt-get install -y \
 
 ## Installing dependencies
 
-Run this in the project root:
+The `npm install` in the first step already installs the frontend dependencies. Run it again in the project root when the install is broken or `node_modules` has been removed:
 
 ```bash
 npm install
@@ -83,7 +83,9 @@ npm install
 
 When `POINTER_EDITION` is not set, no control plane is bound (standalone, purely local). To integrate with a control plane, set `POINTER_EDITION=managed` and the three domains in `pointer.local.env` (see [deploy/editions.md](deploy/editions.md)); writing any other value (including the old `official`) makes the build fail outright.
 
-## Starting development mode
+## Debugging the pieces separately
+
+The first step already opens the desktop window, with data in `.quick-deploy/standalone-client/data`. The commands below are the same processes started by hand, for reading one log at a time or opening only the frontend. The desktop dev session and the Vite server here both listen on `1420`, and the server API listens on `8787`. Keep one group running at a time.
 
 ### Desktop
 
@@ -126,9 +128,9 @@ Release builds (`tauri:build` output) always use **`PointerApp`** unless the env
 
 **Attachments and local media paths:** resolved uniformly through `pointer_core::media::resolve_local_media_path`. A persisted attachment's `storageRelPath` (of the form `{conv}/{id}_{fileName}`) is looked up only under `{app_data}/conversation-media/` and is **never** resolved relative to the process `cwd` (e.g. `src-tauri/`), avoiding a mismatch between dev and the data directory.
 
-### Web
+### Browser
 
-The web client reuses the same Vue UI and the backend reuses `crates/pointer-core`, with the `server` crate providing the HTTP/SSE API.
+In the first step, replace `standalone-client` with `standalone-server`. That starts the API and the page together; open `http://127.0.0.1:1420/`. To split them into two terminals, the web client reuses the same Vue UI and the backend reuses `crates/pointer-core`, with the `server` crate providing the HTTP/SSE API.
 
 Start the Rust web backend:
 
@@ -157,9 +159,9 @@ VITE_WEB_API_BASE=http://127.0.0.1:8787 npm run web:dev
 npm run dev
 ```
 
-Then open the local address printed by the terminal.
+Then open the local address printed by the terminal. The Vite dev server listens on `1420`. The desktop window from the first step listens on that same port, so only one of them can run.
 
-Note: when running in a browser alone, Tauri desktop capabilities such as `invoke`, event listeners and file storage are unavailable; for the full feature set use `npm run tauri:dev`.
+When running in a browser alone, Tauri desktop capabilities such as `invoke`, event listeners and file storage are unavailable. The desktop window from the first step has the full feature set.
 
 ## Opening developer tools
 

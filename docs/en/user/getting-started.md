@@ -5,8 +5,10 @@ English | [简体中文](../../zh-CN/user/getting-started.md)
 ## Use it now
 
 1. Open the [download page](https://pointer.readflowai.com/download), install, and open Pointer.
-2. Bottom-left **Account** → **Sign in**. After signing in, the platform delivers a model and you can chat. Without a platform account, open **Settings → Models → Custom services**, fill in the Base URL and API Key, and click **Test connection**. See [Configuring model services](model-providers.md).
+2. Bottom-left **Account** → **Sign in**. After signing in, the platform delivers a model.
 3. Send "Hello".
+
+Without a platform account, open **Settings → Models → Custom services**, fill in the Base URL and API Key, and click **Test connection**. See [Configuring model services](model-providers.md).
 
 After signing in you can also use the cloud host and top up. A successful desktop sign-in may open the website; come back to the window.
 

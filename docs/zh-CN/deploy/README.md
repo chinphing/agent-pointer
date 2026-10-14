@@ -1,8 +1,16 @@
-# 打包与部署：四格清单入口
+# 打包与部署
 
 [English](../../en/deploy/README.md) | 简体中文
 
-同一份源码，三个正交的轴决定你要做什么：
+先在仓库根目录跑起来：
+
+```bash
+npm install && ./scripts/quick-deploy.sh start standalone-client
+```
+
+Windows 用 `scripts\quick-deploy.bat start standalone-client`。窗口出现就可以用、也可以改代码。细节见 [快速启动](quick-start.md)。
+
+要打安装包时，再看下面三个轴：
 
 | 轴 | 取值 | 在哪 |
 |---|---|---|
@@ -10,7 +18,7 @@
 | **运行形态** | 客户端（Tauri 桌面 App）／ 服务端（`pointer-server`） | 本文 §1–§4 四格清单（managed/standalone × 客户端/服务端） |
 | **目标平台** | Windows / macOS / Linux | [§5 平台打包](#platforms) |
 
-先在本机跑起来，不必先选格子。仓库根目录执行 `./scripts/quick-deploy.sh start standalone-client`（Windows 用 `scripts\quick-deploy.bat`）。窗口出现就可以用、也可以改代码。要打包分发时，再在下面 §0 找到你的格子。细节见 [快速启动](quick-start.md)。
+要打包分发时，在下面 §0 找到你的格子。
 
 > **术语**：`official` **不是** `POINTER_EDITION` 的取值，它只用来指 Pointer 官方发布。
 > 写成别的值（含 `official`）会让构建**直接失败** —— 这是刻意的，避免静默降级成未绑定。
@@ -105,7 +113,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| [`quick-start.md`](quick-start.md) | 四格的本地快速启动：开发态，以及编译后的 release 二进制 |
+| [`quick-start.md`](quick-start.md) | 一条命令先跑起来；其余格子和 release 二进制在后面 |
 | [`editions.md`](editions.md) | 四格详细步骤（构建命令 / 变量 / 产物 / 验证 / 外部依赖） |
 | [`platforms.md`](platforms.md) | Windows / macOS / Linux 平台打包索引（环境前置 / 产物 / CI 口径） |
 | [`../../contributing/cross-platform-build.md`](../contributing/cross-platform-build.md) | Windows / macOS / Linux 环境与打包命令 |

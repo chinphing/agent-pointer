@@ -136,11 +136,7 @@ npm install && set POINTER_EDITION=managed&& set VITE_POINTER_EDITION=managed&& 
 
 ## 接着看
 
-用起来之后，先看这些：
-
 - [界面和输入框按键](workspace.md#输入区按键)
 - [工具要不要先问你](settings.md)
 - [Skills](skills.md)
 - [IM 通道](im-channels.md)
-
-它们都收在 [使用指南](README.md)。想分清官方包和自己编译的包，看 [官方包与本地构建](which-build.md)。想看桌面和 Web 怎么共用一套核心，看 [架构说明](../developer/architecture.md)。想改代码，看 [开发者文档](../developer/README.md)。

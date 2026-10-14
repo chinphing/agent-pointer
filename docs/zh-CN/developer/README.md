@@ -1,11 +1,11 @@
 # 开发者文档
 [English](../../en/developer/README.md) | 简体中文
 
-面向**外部开发者、集成方与 Skill 作者**。还没发出第一句「你好」，先看 [快速上手](../user/getting-started.md)。用熟了再看 [使用指南](../user/README.md)。想先看桌面和 Web 怎么共用一套核心，看 [架构说明](architecture.md)。
+面向**外部开发者、集成方与 Skill 作者**。终端用户请先看 **[`../user/`](../user/README.md)**。
 
 ## 现在就开始
 
-开发者用 npm 启动开发态。命令都在仓库根目录执行。没有 `pointer.local.env` 时不绑定控制面。第一次编译要几分钟，起来之后就可以改代码。
+开发者用 npm 启动开发态。命令都在仓库根目录执行。没有 `pointer.local.env` 时不绑定控制面。第一次编译要几分钟，起来之后就可以改代码。跑起来之后再读 [architecture.md](architecture.md)。
 
 ### 客户端
 

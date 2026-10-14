@@ -40,10 +40,6 @@ The tables below are for after it is already running.
 | [project-lint.md](project-lint.md) | Workspace `.pointer/lint.toml` |
 | [webhook.md](webhook.md) | Webhook-triggered agents |
 
-## Further down
-
-- Official package versus a local build: [which-build.md](which-build.md)
-- How the desktop and the web share one core: [Architecture](../developer/architecture.md)
-- Change the client or the Web Server: [Developer documentation](../developer/README.md)
+For integration and protocols see **[`../developer/`](../developer/README.md)**.
 
 [Back to the documentation index](../README.md)

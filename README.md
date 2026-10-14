@@ -124,8 +124,6 @@ Layer notes: [docs/en/developer/architecture.md](docs/en/developer/architecture.
 
 ## Documentation
 
-From using it to changing it: [Getting started](docs/en/user/getting-started.md) → [User guide](docs/en/user/README.md) → [Architecture](docs/en/developer/architecture.md) → [Developer documentation](docs/en/developer/README.md).
-
 | Audience | Start here |
 | --- | --- |
 | Users | [docs/user/](docs/en/user/README.md) |

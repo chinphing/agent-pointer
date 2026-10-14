@@ -124,8 +124,6 @@ Pointer 不只是一个跑 Skill 的运行时。它开发业务系统，把人�
 
 ## 文档
 
-从用到改：[快速上手](docs/zh-CN/user/getting-started.md) → [使用指南](docs/zh-CN/user/README.md) → [架构说明](docs/zh-CN/developer/architecture.md) → [开发者文档](docs/zh-CN/developer/README.md)。
-
 | 读者 | 入口 |
 | --- | --- |
 | 用户 | [docs/user/](docs/zh-CN/user/README.md) |

@@ -1,15 +1,19 @@
 [English](../en/README.md) | 简体中文
 
-## 从用到改
+## 现在做这一件事
 
-| 深度 | 这一步 | 去哪 |
-|------|--------|------|
-| **用** | 打开 [官网下载](https://pointer.readflowai.com/download)，安装，登录，发一句「你好」 | [快速上手](user/getting-started.md) |
-| **了解** | 界面、设置、Skills、IM | [使用指南](user/README.md) |
-| **懂** | 官方包和本地构建怎么分；桌面和 Web 怎么共用一套核心 | [官方包与本地构建](user/which-build.md)、[架构说明](developer/architecture.md) |
-| **改** | 客户端 `npm run tauri:dev`；Web Server 两个终端 `npm run server:dev` 和 `npm run web:dev` | [开发者文档](developer/README.md) |
+| 我是… | 这一件事 |
+|--------|------------|
+| **用户** | 打开 [官网下载](https://pointer.readflowai.com/download)，安装后发一句「你好」。在仓库里用 `./scripts/quick-deploy.sh start standalone-client --runtime bin` 打开已有或已安装的桌面程序；两处都没有时加上 `--build` 才本地编译。细节在 [`user/getting-started.md`](user/getting-started.md) |
+| **开发者** | 客户端：`npm install` 然后 `npm run tauri:dev`。Web Server：两个终端分别执行 `npm run server:dev` 和 `npm run web:dev`。说明在 [`developer/`](developer/README.md) |
 
-要打安装包，看 [打包与部署](deploy/README.md)。改仓库的约定看 [贡献者指南](contributing/README.md) 和 [开发调试说明](../../DEVELOPMENT.md)。维护核心实现看 [内部机制](internals/README.md)。
+## 跑起来之后
+
+| 我是… | 再看 |
+|--------|------------|
+| **部署 / 打包** | [`deploy/`](deploy/README.md) |
+| **仓库贡献者** | [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md)、[`../../DEVELOPMENT.md`](../../DEVELOPMENT.md) |
+| **核心维护者** | [`internals/`](internals/README.md)；设计记录见 [`design/`](design/README.md) |
 
 ## 这是什么
 

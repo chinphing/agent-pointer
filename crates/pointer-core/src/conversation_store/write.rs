@@ -186,12 +186,56 @@ pub fn patch_title_if_default_in_conn(
     Ok(())
 }
 
-fn existing_message_ids(conn: &Connection, conversation_id: &str) -> Result<Vec<String>> {
-    let mut stmt = conn.prepare(
-        "SELECT message_id FROM messages WHERE conversation_id = ?1 ORDER BY position ASC",
-    )?;
-    let rows = stmt.query_map(params![conversation_id], |row| row.get(0))?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+/// Max ids per existence probe. SQLite's default `SQLITE_MAX_VARIABLE_NUMBER`
+/// is 32766; staying far below it keeps one giant caller batch (a whole working
+/// history) from tripping the limit, and keeps every probe on the unique index.
+const EXISTING_ID_LOOKUP_CHUNK: usize = 500;
+
+/// Which of `message_ids` already exist for `conversation_id`.
+///
+/// Probes `UNIQUE(conversation_id, message_id)` with an `IN` list, so every
+/// lookup is answered from that covering index — no table row reads. Reading
+/// *every* id of the conversation instead costs one row read per message, which
+/// on multi-GB transcripts is seconds (and the old `ORDER BY position` pushed
+/// the plan onto the non-covering `idx_messages_conv_pos`).
+///
+/// The result is a set, so it never depends on row order: no `ORDER BY` needed.
+fn existing_message_ids_for(
+    conn: &Connection,
+    conversation_id: &str,
+    message_ids: &[&str],
+) -> Result<std::collections::HashSet<String>> {
+    let mut existing: std::collections::HashSet<String> = std::collections::HashSet::new();
+    if message_ids.is_empty() {
+        return Ok(existing);
+    }
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let unique: Vec<&str> = message_ids
+        .iter()
+        .copied()
+        .filter(|id| seen.insert(id))
+        .collect();
+    for chunk in unique.chunks(EXISTING_ID_LOOKUP_CHUNK) {
+        let placeholders = (0..chunk.len())
+            .map(|i| format!("?{}", i + 2))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT message_id FROM messages \
+             WHERE conversation_id = ?1 AND message_id IN ({placeholders})"
+        );
+        let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(chunk.len() + 1);
+        params.push(&conversation_id as &dyn rusqlite::ToSql);
+        for id in chunk {
+            params.push(id as &dyn rusqlite::ToSql);
+        }
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params.as_slice(), |row| row.get::<_, String>(0))?;
+        for row in rows {
+            existing.insert(row?);
+        }
+    }
+    Ok(existing)
 }
 
 fn max_message_position(conn: &Connection, conversation_id: &str) -> Result<i64> {
@@ -362,9 +406,12 @@ pub fn append_missing_messages_in_conn(
     messages: &[ChatMessage],
 ) -> Result<Vec<AppendedMessageRow>> {
     ensure_conversation_row(conn, conversation_id)?;
-    let existing: std::collections::HashSet<String> = existing_message_ids(conn, conversation_id)?
-        .into_iter()
-        .collect();
+    if messages.is_empty() {
+        // Zero id lookups and zero position reads when there is nothing to write.
+        return Ok(Vec::new());
+    }
+    let candidate_ids: Vec<&str> = messages.iter().map(|m| m.id.as_str()).collect();
+    let existing = existing_message_ids_for(conn, conversation_id, &candidate_ids)?;
     let mut pos = max_message_position(conn, conversation_id)?;
     let mut appended: Vec<AppendedMessageRow> = Vec::new();
     for msg in messages {
@@ -1045,6 +1092,123 @@ mod tests {
             first_position + 2,
             "position continues after last row"
         );
+    }
+
+    #[test]
+    fn append_missing_skips_existing_ids_and_appends_new_ones_in_order() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let conv = sample_conv("c1", "T", "hello");
+        let stored_msg = conv.messages[0].clone();
+        store.save_all(&[conv]).unwrap();
+
+        let fresh_a = super::super::persist::msg("m_a", Role::User, "a", 301);
+        let fresh_b = super::super::persist::msg("m_b", Role::Assistant, "b", 302);
+        // The stored id sits in the middle of the batch: only fresh ids are written.
+        let rows = store
+            .append_missing_messages("c1", &[fresh_a.clone(), stored_msg, fresh_b.clone()])
+            .unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|r| r.message_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["m_a", "m_b"],
+            "existing id is skipped; fresh ids keep batch order"
+        );
+        assert!(rows[1].position > rows[0].position);
+
+        // Idempotent: replaying the same batch writes nothing.
+        let again = store
+            .append_missing_messages("c1", &[fresh_a, fresh_b])
+            .unwrap();
+        assert!(again.is_empty(), "already-stored ids are not re-reported");
+    }
+
+    #[test]
+    fn append_missing_empty_input_writes_nothing() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let conv = sample_conv("c1", "T", "hello");
+        store.save_all(&[conv]).unwrap();
+        let before = store.message_count("c1").unwrap();
+
+        let rows = store.append_missing_messages("c1", &[]).unwrap();
+        assert!(rows.is_empty(), "empty input appends nothing");
+        assert_eq!(store.message_count("c1").unwrap(), before);
+
+        // Contract kept: the conversation row is still ensured for a fresh id.
+        let rows = store.append_missing_messages("fresh_conv", &[]).unwrap();
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn append_missing_duplicate_ids_in_one_batch_keep_todays_behavior() {
+        // Pinned: the existence set is built once before the loop, so a repeated
+        // id inside one batch is not treated as "already present". Both entries
+        // are reported, and the second write lands on the same physical row
+        // (ON CONFLICT DO UPDATE) — one row survives, keeping the later position.
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let conv = sample_conv("c1", "T", "hello");
+        store.save_all(&[conv]).unwrap();
+
+        let dup = super::super::persist::msg("m_dup", Role::User, "twice", 401);
+        let rows = store
+            .append_missing_messages("c1", &[dup.clone(), dup.clone()])
+            .unwrap();
+        assert_eq!(rows.len(), 2, "both batch entries are reported");
+        assert_eq!(rows[0].message_id, "m_dup");
+        assert_eq!(rows[1].message_id, "m_dup");
+        assert_eq!(rows[1].position, rows[0].position + 1);
+
+        let loaded = store.load_messages("c1").unwrap();
+        let stored = loaded.iter().filter(|m| m.id == "m_dup").count();
+        assert_eq!(stored, 1, "one physical row survives the conflict");
+    }
+
+    #[test]
+    fn append_missing_chunks_large_batches_without_changing_semantics() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("c1", "T", "hello");
+        conv.messages.clear();
+        let mut stored = Vec::new();
+        for i in 0..600 {
+            stored.push(super::super::persist::msg(
+                &format!("s{i:04}"),
+                Role::User,
+                "stored",
+                1000 + i,
+            ));
+        }
+        conv.messages.extend(stored.iter().cloned());
+        store.save_all(&[conv]).unwrap();
+
+        // 1:1 interleave so stored ids land in every probe chunk (500 + 500 + 200).
+        let mut batch = Vec::new();
+        let mut fresh_ids = Vec::new();
+        for (i, msg) in stored.iter().enumerate() {
+            batch.push(msg.clone());
+            let fresh = super::super::persist::msg(
+                &format!("f{i:04}"),
+                Role::Assistant,
+                "new",
+                2000 + i as i64,
+            );
+            fresh_ids.push(fresh.id.clone());
+            batch.push(fresh);
+        }
+        let rows = store.append_missing_messages("c1", &batch).unwrap();
+        assert_eq!(rows.len(), 600, "only fresh ids are written");
+        assert_eq!(
+            rows.iter()
+                .map(|r| r.message_id.as_str())
+                .collect::<Vec<_>>(),
+            fresh_ids.iter().map(String::as_str).collect::<Vec<_>>(),
+            "fresh ids are appended in batch order across chunks"
+        );
+        assert!(rows.windows(2).all(|w| w[1].position > w[0].position));
+        assert_eq!(store.message_count("c1").unwrap(), 1200);
     }
 
     #[test]

@@ -1008,11 +1008,30 @@ impl ConversationStore {
         if conversation_id.is_empty() {
             return Ok(Vec::new());
         }
+        // Read path shares the single write connection mutex: split the wait for
+        // that mutex from the SQL itself so `phase_timing` can tell "slow query"
+        // from "blocked behind an in-flight write".
+        let lock_t = std::time::Instant::now();
         let conn = self.db.conn.lock();
-        if !persist::conversation_in_scope(&conn, conversation_id, scope.filter_uid())? {
-            anyhow::bail!("conversation not found");
-        }
-        persist::load_conversation_outline(&conn, conversation_id)
+        let lock_wait_ms = lock_t.elapsed().as_millis();
+        let sql_t = std::time::Instant::now();
+        let result = (|| {
+            if !persist::conversation_in_scope(&conn, conversation_id, scope.filter_uid())? {
+                anyhow::bail!("conversation not found");
+            }
+            persist::load_conversation_outline(&conn, conversation_id)
+        })();
+        let sql_ms = sql_t.elapsed().as_millis();
+        crate::logging::log_phase_elapsed_extra(
+            "outline_store",
+            conversation_id,
+            lock_wait_ms + sql_ms,
+            &format!(
+                "lock_wait_ms={lock_wait_ms} sql_ms={sql_ms} rows={}",
+                result.as_ref().map(|v| v.len()).unwrap_or(0)
+            ),
+        );
+        result
     }
 
     /// Mark or clear a real lead user turn as a nav milestone.

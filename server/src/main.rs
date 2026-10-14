@@ -2116,12 +2116,19 @@ async fn list_conversation_outline_handler(
     Path(conversation_id): Path<String>,
 ) -> Result<Json<Vec<pointer_core::models::ConversationOutlineItem>>, ApiError> {
     require_platform_access(&state)?;
+    let outline_t = std::time::Instant::now();
     let scope = platform_list_scope(&state);
     let items = storage::list_conversation_outline(&scope, &conversation_id)?;
     log::info!(
         "server: list_conversation_outline conversation_id={} returned {} rows",
         conversation_id,
         items.len()
+    );
+    pointer_core::logging::log_phase_elapsed_extra(
+        "server_list_conversation_outline",
+        &conversation_id,
+        outline_t.elapsed().as_millis(),
+        &format!("rows={}", items.len()),
     );
     Ok(Json(items))
 }

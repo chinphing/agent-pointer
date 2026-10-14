@@ -95,10 +95,20 @@ impl DbHandle {
     }
 
     fn try_wal_checkpoint(&self) {
+        let checkpoint_t = std::time::Instant::now();
         let conn = self.conn.lock();
+        let lock_wait_ms = checkpoint_t.elapsed().as_millis();
         if let Ok(row) = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
             Ok((r.get::<_, i32>(1)?, r.get::<_, i32>(2)?))
         }) {
+            // Runs inline in `execute_write`, so a slow checkpoint would otherwise be
+            // charged to whichever write happened to be the 50th.
+            crate::logging::log_phase_elapsed_extra(
+                "db_wal_checkpoint",
+                "-",
+                checkpoint_t.elapsed().as_millis(),
+                &format!("lock_wait_ms={lock_wait_ms} busy={} log_pages={}", row.0, row.1),
+            );
             if row.0 > 0 {
                 log::debug!(
                     "conversation_store: WAL checkpoint {}/{} pages",

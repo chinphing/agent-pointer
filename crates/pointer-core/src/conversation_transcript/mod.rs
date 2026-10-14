@@ -62,6 +62,7 @@ impl ConversationTranscriptSession {
         conversation_id: &str,
         history: &mut Vec<ChatMessage>,
     ) -> Result<Arc<Mutex<Self>>> {
+        let begin_t = std::time::Instant::now();
         // Unified session facade: append deltas + working-set cache / DB reload.
         let db_message_count =
             crate::conversation_session::prepare_lead_history(conversation_id, history)?;
@@ -112,6 +113,15 @@ impl ConversationTranscriptSession {
         log::debug!(
             "conversation_transcript: begin conversation_id={conversation_id} db_messages={message_count} working_history={}",
             history.len()
+        );
+        crate::logging::log_phase_elapsed_extra(
+            "transcript_session_begin",
+            conversation_id,
+            begin_t.elapsed().as_millis(),
+            &format!(
+                "db_messages={message_count} working_history={} reconciled={reconciled}",
+                history.len()
+            ),
         );
         Ok(session)
     }

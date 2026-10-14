@@ -10,6 +10,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::OnceLock;
+use std::time::Instant;
 
 use anyhow::Result;
 use parking_lot::Mutex;
@@ -213,6 +214,7 @@ pub fn persist_compression_splice(
 
 /// Replace the cached lead working set after a successful in-memory drain/sync.
 pub fn publish_working_set(conversation_id: &str, working: &[ChatMessage], db_count: Option<u32>) {
+    let publish_t = Instant::now();
     let id = conversation_id.trim();
     if id.is_empty() {
         return;
@@ -231,11 +233,18 @@ pub fn publish_working_set(conversation_id: &str, working: &[ChatMessage], db_co
         "conversation_session: published working set conversation_id={id} generation={gen} working={} db_count={db_count}",
         working.len()
     );
+    crate::logging::log_phase_elapsed_extra(
+        "publish_working_set",
+        id,
+        publish_t.elapsed().as_millis(),
+        &format!("working={} db_count={db_count}", working.len()),
+    );
 }
 
 /// Canonicalize lead history for `run_chat`: append caller deltas, then serve
 /// from working-set cache when generation still matches, else reload from DB.
 pub fn prepare_lead_history(conversation_id: &str, history: &mut Vec<ChatMessage>) -> Result<u32> {
+    let total_t = Instant::now();
     let Ok(store) = conversation_store::global_store() else {
         *history = filter_lead_working_history(std::mem::take(history));
         log::warn!(
@@ -246,16 +255,49 @@ pub fn prepare_lead_history(conversation_id: &str, history: &mut Vec<ChatMessage
     };
 
     let gen_before = transcript_generation(conversation_id);
+    // `.cloned()` deep-copies the whole cached working set; time it separately.
+    let lookup_t = Instant::now();
     let cached = hub().lock().cache.get(conversation_id).cloned();
+    let cached_working = cached.as_ref().map(|e| e.working.len()).unwrap_or(0);
+    crate::logging::log_phase_elapsed_extra(
+        "lead_history_cache_lookup",
+        conversation_id,
+        lookup_t.elapsed().as_millis(),
+        &format!("cached={} cached_working={cached_working}", cached.is_some()),
+    );
 
+    let append_t = Instant::now();
     let appended = store.append_missing_messages(conversation_id, history)?;
+    crate::logging::log_phase_elapsed_extra(
+        "lead_history_append_missing_messages",
+        conversation_id,
+        append_t.elapsed().as_millis(),
+        &format!("written={} incoming={}", appended.len(), history.len()),
+    );
     let gen_after = transcript_generation(conversation_id);
 
     if appended.is_empty() {
         if let Some(entry) = cached {
             if entry.generation == gen_before && entry.generation == gen_after {
+                let path_t = Instant::now();
                 *history = entry.working;
                 hub().lock().touch_lru(conversation_id);
+                let working_history = history.len();
+                crate::logging::log_phase_elapsed_extra(
+                    "lead_history_path_hit",
+                    conversation_id,
+                    path_t.elapsed().as_millis(),
+                    &format!(
+                        "db_messages={} working_history={working_history}",
+                        entry.db_count
+                    ),
+                );
+                crate::logging::log_phase_elapsed_extra(
+                    "lead_history_branch",
+                    conversation_id,
+                    total_t.elapsed().as_millis(),
+                    "branch=hit",
+                );
                 log::info!(
                     "conversation_session: working-set cache hit conversation_id={conversation_id} db_messages={} working_history={} generation={}",
                     entry.db_count,
@@ -268,6 +310,7 @@ pub fn prepare_lead_history(conversation_id: &str, history: &mut Vec<ChatMessage
     } else if let Some(entry) = cached {
         // Incremental: reuse prior working set and append newly persisted lead rows.
         if entry.generation == gen_before {
+            let path_t = Instant::now();
             let mut working = entry.working;
             let known: HashSet<String> = working.iter().map(|m| m.id.clone()).collect();
             let mut added = 0u32;
@@ -284,11 +327,30 @@ pub fn prepare_lead_history(conversation_id: &str, history: &mut Vec<ChatMessage
                 working.push(msg.clone());
                 added += 1;
             }
+            let count_t = Instant::now();
             let db_count = store
                 .message_count(conversation_id)
                 .unwrap_or(entry.db_count.saturating_add(appended.len() as u32));
+            crate::logging::log_phase_elapsed_extra(
+                "lead_history_message_count",
+                conversation_id,
+                count_t.elapsed().as_millis(),
+                &format!("db_messages={db_count}"),
+            );
             *history = working;
             publish_working_set(conversation_id, history, Some(db_count));
+            crate::logging::log_phase_elapsed_extra(
+                "lead_history_path_incremental",
+                conversation_id,
+                path_t.elapsed().as_millis(),
+                &format!("written={} added_working={added}", appended.len()),
+            );
+            crate::logging::log_phase_elapsed_extra(
+                "lead_history_branch",
+                conversation_id,
+                total_t.elapsed().as_millis(),
+                "branch=incremental",
+            );
             log::info!(
                 "conversation_session: working-set cache incremental conversation_id={conversation_id} written={} added_working={added} db_messages={db_count} working_history={}",
                 appended.len(),
@@ -298,7 +360,9 @@ pub fn prepare_lead_history(conversation_id: &str, history: &mut Vec<ChatMessage
         }
     }
 
+    let reload_t = Instant::now();
     let (working, db_count) = store.load_lead_working_messages(conversation_id)?;
+    let reload_ms = reload_t.elapsed().as_millis();
     if working.is_empty() && db_count == 0 && !history.is_empty() {
         anyhow::bail!(
             "conversation session reload returned empty after appending {} message(s)",
@@ -306,7 +370,25 @@ pub fn prepare_lead_history(conversation_id: &str, history: &mut Vec<ChatMessage
         );
     }
     *history = working;
+    crate::logging::log_phase_elapsed_extra(
+        "lead_history_reload_load",
+        conversation_id,
+        reload_ms,
+        &format!("db_messages={db_count} working_history={}", history.len()),
+    );
     publish_working_set(conversation_id, history, Some(db_count));
+    crate::logging::log_phase_elapsed_extra(
+        "lead_history_path_reload",
+        conversation_id,
+        reload_t.elapsed().as_millis(),
+        &format!("written={}", appended.len()),
+    );
+    crate::logging::log_phase_elapsed_extra(
+        "lead_history_branch",
+        conversation_id,
+        total_t.elapsed().as_millis(),
+        "branch=reload",
+    );
     log::info!(
         "conversation_session: working-set cache miss reload conversation_id={conversation_id} db_messages={} working_history={} generation={} written={}",
         db_count,

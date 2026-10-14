@@ -15,7 +15,7 @@ Installers downloaded from the [official download page](https://pointer.readflow
 
 ## Local build
 
-Enterprise internal deployments use the installers published in [GitHub Releases](https://github.com/chinphing/agent-pointer/releases). You can also compile from this repository's source.
+The installers on [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) are the community build. Enterprise deployments use that same package. You can also compile from this repository's source.
 
 - Fill in the model Base URL and API Key yourself in Settings
 - Unbound to a control plane by default: no automatic updates and no usage reporting
@@ -27,7 +27,7 @@ Enterprise internal deployments use the installers published in [GitHub Releases
 | You want | Use this |
 | --- | --- |
 | Ready to use out of the box | [Official download](https://pointer.readflowai.com/download) |
-| Enterprise internal deployment | [GitHub Releases](https://github.com/chinphing/agent-pointer/releases); for the server see [standalone-server.md](../user/standalone-server.md) |
+| Community build | [GitHub Releases](https://github.com/chinphing/agent-pointer/releases); for the server see [standalone-server.md](../user/standalone-server.md) |
 
 ## Automatic updates
 

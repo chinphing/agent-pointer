@@ -13,7 +13,7 @@ The tables below are for after it is already running.
 
 | Document | Description |
 |------|------|
-| [getting-started.md](getting-started.md) | Install and send the first message; change the code with npm |
+| [getting-started.md](getting-started.md) | Website install, community install, or compile it yourself |
 | [model-providers.md](model-providers.md) | Your own model address and API Key |
 
 ## Other ways in

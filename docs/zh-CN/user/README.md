@@ -13,7 +13,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [getting-started.md](getting-started.md) | 安装并说出第一句；改代码用 npm |
+| [getting-started.md](getting-started.md) | 官网安装、社区版安装、自行编译安装 |
 | [model-providers.md](model-providers.md) | 自己的模型地址和 API Key |
 
 ## 其他入口

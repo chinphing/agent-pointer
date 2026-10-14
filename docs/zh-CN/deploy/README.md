@@ -2,13 +2,13 @@
 
 [English](../../en/deploy/README.md) | 简体中文
 
-先在仓库根目录跑起来：
+用户用脚本直接启动已经编译好的客户端。脚本不调用 npm，启动时不编译：
 
 ```bash
-npm install && ./scripts/quick-deploy.sh start standalone-client
+./scripts/quick-deploy.sh start standalone-client --runtime bin
 ```
 
-Windows 用 `scripts\quick-deploy.bat start standalone-client`。窗口出现就可以用、也可以改代码。细节见 [快速启动](quick-start.md)。
+Windows 用 `scripts\quick-deploy.bat start standalone-client --runtime bin`。改代码的开发者用 `npm install` 然后 `npm run tauri:dev`，见 [快速启动](quick-start.md)。
 
 要打安装包时，再看下面三个轴：
 
@@ -113,7 +113,7 @@ Windows 用 `scripts\quick-deploy.bat start standalone-client`。窗口出现就
 
 | 文档 | 内容 |
 |---|---|
-| [`quick-start.md`](quick-start.md) | 一条命令先跑起来；其余格子和 release 二进制在后面 |
+| [`quick-start.md`](quick-start.md) | 用户用脚本启动二进制；开发者用 npm 起 dev |
 | [`editions.md`](editions.md) | 四格详细步骤（构建命令 / 变量 / 产物 / 验证 / 外部依赖） |
 | [`platforms.md`](platforms.md) | Windows / macOS / Linux 平台打包索引（环境前置 / 产物 / CI 口径） |
 | [`../../contributing/cross-platform-build.md`](../contributing/cross-platform-build.md) | Windows / macOS / Linux 环境与打包命令 |

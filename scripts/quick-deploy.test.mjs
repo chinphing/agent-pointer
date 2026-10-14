@@ -23,6 +23,7 @@ const domains = {
 function plan(mode, extra = {}) {
   return buildPlan({
     mode,
+    runtime: 'dev',
     stateDir: path.join(os.tmpdir(), 'pointer-quick-deploy-test', mode),
     domains,
     credentials: localAdminCredentials(() => Buffer.from('0123456789abcdef0123456789abcdef')),
@@ -106,7 +107,19 @@ describe('quick-deploy plans', () => {
     expect(parsed.command).toBe('start')
     expect(parsed.mode).toBe('managed-server')
     expect(parsed.domains.annotateBase).toBe('https://som.example')
-    expect(parsed.runtime).toBe('dev')
+    expect(parsed.runtime).toBe('bin')
+  })
+
+  it('defaults an omitted runtime to the release binary', () => {
+    const result = buildPlan({
+      mode: 'standalone-client',
+      stateDir: path.join(os.tmpdir(), 'pointer-quick-deploy-test', 'default-bin'),
+      domains,
+    })
+    expect(result.runtime).toBe('bin')
+    expect(result.processes).toHaveLength(1)
+    expect(result.processes[0].command).toBe(defaultReleaseBinary(REPO_ROOT, 'client'))
+    expect(result.processes[0].args).toEqual([])
   })
 
   it('parses --runtime and rejects an unknown runtime', () => {

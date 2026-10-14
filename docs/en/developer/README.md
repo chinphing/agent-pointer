@@ -5,17 +5,18 @@ For **external developers, integrators and Skill authors**. End users should sta
 
 ## Start now
 
-Run this from the repository root. It opens the desktop app for development and does not bind a control plane. The first compile can take a few minutes. Once the window is up, you can change the code.
+Developers start the dev app with npm. From the repository root:
 
 ```bash
-npm install && ./scripts/quick-deploy.sh start standalone-client
+npm install
+npm run tauri:dev
 ```
 
-```bat
-npm install && scripts\quick-deploy.bat start standalone-client
-```
+That opens the desktop window. With no `pointer.local.env`, no control plane is bound. The first compile can take a few minutes. Once the window is up, you can change the code.
 
-If that fails, install Node, Rust, and the system libraries in [DEVELOPMENT.md](../DEVELOPMENT.md), then run the same command. To work in the browser instead, replace `standalone-client` with `standalone-server` and open `http://127.0.0.1:1420/`. Read [architecture.md](architecture.md) after it is running.
+If that fails, install Node, Rust, and the system libraries in [DEVELOPMENT.md](../DEVELOPMENT.md), then run `npm run tauri:dev` again. To work in the browser, run `npm run server:dev` and `npm run web:dev` in two terminals and open `http://127.0.0.1:1420/`. Read [architecture.md](architecture.md) after it is running.
+
+Users start an already built program with the shell or bat script, not npm. See [Quick start](../deploy/quick-start.md).
 
 The rest of this page follows the sidebar groups: **Concepts / Tools and protocols / Integration / Troubleshooting**. `standalone-deployment.md` lives under Deployment.
 

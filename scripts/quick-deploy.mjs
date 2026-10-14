@@ -4,18 +4,19 @@
  * four deployment cells (edition × client/server).
  *
  *   ./scripts/quick-deploy.sh start standalone-server
- *   ./scripts/quick-deploy.sh start standalone-server --runtime bin
+ *   ./scripts/quick-deploy.sh start standalone-client --runtime dev
  *   scripts\quick-deploy.bat start standalone-server
  *   ./scripts/quick-deploy.sh status
  *   ./scripts/quick-deploy.sh stop [mode]
  *   ./scripts/quick-deploy.sh plan <mode> [--runtime dev|bin]
  *
- * The shell and bat files are the entry points. They do not call npm.
- * `--runtime dev` (the default) uses cargo, the local Vite CLI, and the local
- * Tauri CLI. `--runtime bin` runs the release binaries from target/release and
- * does not compile. The server binary serves repo dist/ on port 8787; the
- * client binary is pointer-app. Build them first with
+ * The shell and bat files are the user entry points. They do not call npm.
+ * Developers start the dev app with npm (`npm run tauri:dev`, `npm run server:dev`,
+ * `npm run web:dev`). `--runtime bin` (the default) runs the release binaries
+ * from target/release and does not compile. The server binary serves repo
+ * dist/ on port 8787; the client binary is pointer-app. Build them first with
  * `node scripts/build-server.mjs` or `node scripts/tauri-build.mjs`.
+ * `--runtime dev` uses cargo, the local Vite CLI, and the local Tauri CLI.
  *
  * State (pids, logs, generated standalone password) lives in `.quick-deploy/`
  * and is gitignored. Dev uses `.quick-deploy/<mode>/`. Release binaries use
@@ -135,7 +136,7 @@ function requireDomains(domains) {
  */
 export function buildPlan(input) {
   const mode = input.mode
-  const runtime = input.runtime ?? 'dev'
+  const runtime = input.runtime ?? 'bin'
   if (!RUNTIMES.includes(runtime)) {
     throw new Error(`unknown runtime ${runtime}; expected one of ${RUNTIMES.join(', ')}`)
   }
@@ -262,8 +263,8 @@ function usage() {
   ./scripts/quick-deploy.sh status
   ./scripts/quick-deploy.sh stop [mode] [--runtime dev|bin]
 
---runtime dev (default) compiles as it starts: cargo run, the local Vite CLI, or the local Tauri CLI.
---runtime bin runs target/release binaries and does not compile.
+--runtime bin (default) runs target/release binaries and does not compile.
+--runtime dev compiles as it starts: cargo run, the local Vite CLI, or the local Tauri CLI.
 Managed modes need the three control-plane domains (flags or POINTER_API_BASE / POINTER_WEB_BASE / COMPUTER_ANNOTATE_API_BASE).
 Dev server and dev client share Vite port ${WEB_PORT}. The release server serves dist/ on ${SERVER_ADDR}.`)
 }
@@ -284,7 +285,7 @@ export function parseArgs(argv) {
   }
   const domains = {}
   let stateDir = null
-  let runtime = 'dev'
+  let runtime = 'bin'
   while (args.length) {
     const flag = args.shift()
     const value = args.shift()

@@ -2,13 +2,13 @@
 
 English | [简体中文](../../zh-CN/deploy/README.md)
 
-Get it running from the repository root first:
+Users start an already built client with the script. It does not call npm and does not compile:
 
 ```bash
-npm install && ./scripts/quick-deploy.sh start standalone-client
+./scripts/quick-deploy.sh start standalone-client --runtime bin
 ```
 
-On Windows, use `scripts\quick-deploy.bat start standalone-client`. When the window opens you can use it and change the code. Details: [Quick start](quick-start.md).
+On Windows, use `scripts\quick-deploy.bat start standalone-client --runtime bin`. Developers who are changing the code run `npm install` and then `npm run tauri:dev`. Details: [Quick start](quick-start.md).
 
 The three axes below matter when you are building an installer:
 
@@ -113,7 +113,7 @@ Environment prerequisites, build commands, artifact locations and CI policy for 
 
 | Document | Content |
 |---|---|
-| [`quick-start.md`](quick-start.md) | One command to start; the other cells and release binaries come after |
+| [`quick-start.md`](quick-start.md) | Users start binaries with the script; developers start dev with npm |
 | [`editions.md`](editions.md) | The four cells in detail (build command / variables / artifacts / verification / external dependencies) |
 | [`platforms.md`](platforms.md) | Windows / macOS / Linux platform packaging index (prerequisites / artifacts / CI policy) |
 | [`../contributing/cross-platform-build.md`](../contributing/cross-platform-build.md) | Windows / macOS / Linux environments and packaging commands |

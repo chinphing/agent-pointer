@@ -1,7 +1,7 @@
 # Contributor guide
 English | [简体中文](../../zh-CN/contributing/README.md)
 
-For **contributors to this repository and packaging maintainers**. First run `npm install && ./scripts/quick-deploy.sh start standalone-client` from the repository root. Read the topics below after the window is up.
+For **contributors to this repository and packaging maintainers**. To change the code, run `npm install` and then `npm run tauri:dev` from the repository root. Read the topics below after the window is up. Start an already built program with the script in [Quick start](../deploy/quick-start.md).
 
 | Document | Description |
 |------|------|

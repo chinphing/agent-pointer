@@ -22,10 +22,11 @@ is yours to submit under the Apache License 2.0.
 
 ## Local development
 
-One command from the repository root opens the desktop app:
+Developers start the dev app with npm:
 
 ```bash
-npm install && ./scripts/quick-deploy.sh start standalone-client
+npm install
+npm run tauri:dev
 ```
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) if that command fails, and for tests:

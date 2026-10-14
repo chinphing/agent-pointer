@@ -6,17 +6,27 @@ This document describes the local development, debugging, checking and troublesh
 
 ## First step
 
-Run this from the repository root. It opens the desktop app for development and does not bind a control plane. Once the window is up, you can change the code. The first compile can take a few minutes.
+Developers start the dev app with npm. From the repository root:
 
 ```bash
-npm install && ./scripts/quick-deploy.sh start standalone-client
+npm install
+npm run tauri:dev
 ```
 
-On Windows, replace `./scripts/quick-deploy.sh` with `scripts\quick-deploy.bat`.
+`npm run tauri:dev` opens the desktop window. It reads `pointer.local.env`; with no such file, no control plane is bound. The first compile can take a few minutes. Once the window is up, you can change the code.
 
-To work in the browser instead, replace `standalone-client` with `standalone-server` and open `http://127.0.0.1:1420/`. Connecting a control plane, building an installer, or switching client and server comes later: [Quick start](deploy/quick-start.md).
+To work on the same UI in a browser, use two terminals:
 
-The requirements below matter only when that command fails. After the dependencies are installed, run the same command again.
+```bash
+npm run server:dev
+npm run web:dev
+```
+
+Then open `http://127.0.0.1:1420/`.
+
+Users start an already built program with the shell or bat script, not npm. See [Quick start](deploy/quick-start.md).
+
+The requirements below matter only when `npm run tauri:dev` fails. After the dependencies are installed, run `npm run tauri:dev` again.
 
 ## Requirements
 
@@ -85,7 +95,7 @@ When `POINTER_EDITION` is not set, no control plane is bound (standalone, purely
 
 ## Debugging the pieces separately
 
-The first step already opens the desktop window, with data in `.quick-deploy/standalone-client/data`. The commands below are the same processes started by hand, for reading one log at a time or opening only the frontend. The desktop dev session and the Vite server here both listen on `1420`, and the server API listens on `8787`. Keep one group running at a time.
+`npm run tauri:dev` from the first step starts Vite, the desktop window, and Rust together. The sections below are the data directory and the two-terminal browser setup. The desktop dev session and `npm run web:dev` both listen on `1420`, and the server API listens on `8787`. Keep one group running at a time.
 
 ### Desktop
 
@@ -130,7 +140,7 @@ Release builds (`tauri:build` output) always use **`PointerApp`** unless the env
 
 ### Browser
 
-In the first step, replace `standalone-client` with `standalone-server`. That starts the API and the page together; open `http://127.0.0.1:1420/`. To split them into two terminals, the web client reuses the same Vue UI and the backend reuses `crates/pointer-core`, with the `server` crate providing the HTTP/SSE API.
+The web client reuses the same Vue UI and the backend reuses `crates/pointer-core`, with the `server` crate providing the HTTP/SSE API. After both terminals are up, open `http://127.0.0.1:1420/`.
 
 Start the Rust web backend:
 

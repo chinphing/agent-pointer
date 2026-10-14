@@ -134,16 +134,16 @@ src-tauri/target/release/bundle/
 
 ### 3.6 Local quick start
 
-To bring this cell up locally without packaging, use [`quick-start.md`](quick-start.md). On Linux and macOS use the shell script. On Windows replace `./scripts/quick-deploy.sh` with `scripts\quick-deploy.bat`.
+Users start this cell's already built client with the script. It does not call npm and does not compile. On Linux and macOS use the shell script. On Windows replace `./scripts/quick-deploy.sh` with `scripts\quick-deploy.bat`. Details: [`quick-start.md`](quick-start.md).
 
 ```bash
-./scripts/quick-deploy.sh start managed-client \
+./scripts/quick-deploy.sh start managed-client --runtime bin \
   --api-base https://pointer-api.example.com \
   --web-base https://pointer.example.com \
   --annotate-base https://pointer-som.example.com
 ```
 
-The dev runtime uses the local Tauri CLI. Cargo does not rebuild the whole package when the sources, `POINTER_EDITION`, and the three domains are unchanged. `--runtime bin` runs `target/release/pointer-app` and does not compile at startup.
+Developers change the code with `npm run tauri:dev`. Replace `--runtime bin` with `--runtime dev` only when this script should launch the dev runtime; that path uses the Tauri CLI and rebuilds when the sources, `POINTER_EDITION`, or the three domains change.
 
 ---
 
@@ -230,16 +230,16 @@ curl -s http://127.0.0.1:8787/api/auth/mode      # → {"mode":"platform"}
 
 ### 4.6 Local quick start
 
-To bring this cell up locally without packaging, use [`quick-start.md`](quick-start.md). The command below is the dev runtime. Add `--runtime bin` for the release binary: that start does not compile, and the page is at `http://127.0.0.1:8787/`.
+Users start this cell's already built server with the script. It does not call npm and does not compile. The page is at `http://127.0.0.1:8787/`. Details: [`quick-start.md`](quick-start.md).
 
 ```bash
-./scripts/quick-deploy.sh start managed-server \
+./scripts/quick-deploy.sh start managed-server --runtime bin \
   --api-base https://pointer-api.example.com \
   --web-base https://pointer.example.com \
   --annotate-base https://pointer-som.example.com
 ```
 
-The dev runtime runs `cargo run -p pointer-server` and the local Vite CLI. Cargo reuses the existing debug artifacts when the sources, flavour, and three domains are unchanged. Switching from standalone to managed, or changing a domain, rebuilds.
+Developers change the code with `npm run server:dev`. `--runtime dev` on the script is what runs `cargo run -p pointer-server` and the local Vite CLI. Cargo reuses the existing debug artifacts when the sources, flavour, and three domains are unchanged.
 
 ---
 
@@ -278,13 +278,13 @@ None.
 
 ### 5.6 Local quick start
 
-To open the desktop window locally without packaging, use [`quick-start.md`](quick-start.md). `POINTER_EDITION` stays unset. Data lives in `.quick-deploy/standalone-client/data`.
+Users start the already built desktop app with the script. It does not call npm and does not compile. `POINTER_EDITION` stays unset. Data lives in `.quick-deploy/bin/standalone-client/data`. Details: [`quick-start.md`](quick-start.md).
 
 ```bash
-./scripts/quick-deploy.sh start standalone-client
+./scripts/quick-deploy.sh start standalone-client --runtime bin
 ```
 
-The dev runtime uses the local Tauri CLI and shares Vite port `1420` with the dev server web UI. `--runtime bin` runs `target/release/pointer-app`, does not use port `1420`, and does not compile at startup.
+Developers change the code with `npm run tauri:dev`. `--runtime dev` on the script is what uses the Tauri CLI and shares Vite port `1420` with the dev server web UI. The release app does not use port `1420`.
 
 ---
 
@@ -338,13 +338,13 @@ None. An official signed package needs a license issued by Pointer (`npm run lic
 
 ### 6.6 Local quick start
 
-To bring the server and web UI up locally without packaging, use [`quick-start.md`](quick-start.md). The first start writes a local account to `.quick-deploy/standalone-server/standalone-admin.env`.
+Users start the already built server with the script. It does not call npm and does not compile. The first start writes a local account to `.quick-deploy/bin/standalone-server/standalone-admin.env`. The page is at `http://127.0.0.1:8787/`. Details: [`quick-start.md`](quick-start.md).
 
 ```bash
-./scripts/quick-deploy.sh start standalone-server
+./scripts/quick-deploy.sh start standalone-server --runtime bin
 ```
 
-The dev runtime is `cargo run -p pointer-server` plus the local Vite CLI. The page is at `http://127.0.0.1:1420/`. Unchanged sources are not rebuilt. `--runtime bin` runs `target/release/pointer-server`, which serves `dist/` itself at `http://127.0.0.1:8787/`, and does not compile at startup.
+Developers change the code with `npm run server:dev` and `npm run web:dev`. That page is at `http://127.0.0.1:1420/`. `--runtime dev` on the script is `cargo run -p pointer-server` plus the local Vite CLI.
 
 ---
 
@@ -358,7 +358,7 @@ The dev runtime is `cargo run -p pointer-server` plus the local Vite CLI. The pa
 
 ## 8. Everyday development
 
-To start one cell locally without reading `pointer.local.env`, see [`quick-start.md`](quick-start.md). The entry points are `./scripts/quick-deploy.sh` and `scripts\quick-deploy.bat`.
+Change the code with npm, as above. To start one cell's already built program with the script, see [`quick-start.md`](quick-start.md). The entry points are `./scripts/quick-deploy.sh` and `scripts\quick-deploy.bat`.
 
 ```bash
 cp pointer.local.env.example pointer.local.env    # create it only when you need to bind a control plane

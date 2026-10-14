@@ -4,8 +4,8 @@
 
 | 我是… | 这一件事 |
 |--------|------------|
-| **用户** | 打开 [官网下载](https://pointer.readflowai.com/download)，安装后发一句「你好」。细节在 [`user/getting-started.md`](user/getting-started.md) |
-| **开发者** | 仓库根目录执行 `npm install && ./scripts/quick-deploy.sh start standalone-client`。说明在 [`developer/`](developer/README.md) |
+| **用户** | 打开 [官网下载](https://pointer.readflowai.com/download)，安装后发一句「你好」。仓库里已有编译产物时，用 `./scripts/quick-deploy.sh start standalone-client --runtime bin` 直接启动二进制。细节在 [`user/getting-started.md`](user/getting-started.md) |
+| **开发者** | 仓库根目录执行 `npm install`，然后 `npm run tauri:dev`。说明在 [`developer/`](developer/README.md) |
 
 ## 跑起来之后
 

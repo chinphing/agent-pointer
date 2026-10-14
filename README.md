@@ -138,14 +138,21 @@ Full index: [docs/README.md](docs/README.md).
 The desktop app is Tauri 2 and Vue 3. The web UI is the same interface served by `pointer-server`. Chat, tools, Skills, and agents live in `crates/pointer-core`.
 
 ```bash
-npm install && ./scripts/quick-deploy.sh start standalone-client
+npm install
+npm run tauri:dev
 ```
 
-The desktop window opens with no control plane bound. The first compile can take a few minutes. For the browser UI, use `standalone-server` instead and open `http://127.0.0.1:1420/`. Details: [docs/en/DEVELOPMENT.md](docs/en/DEVELOPMENT.md).
+The desktop window opens with no control plane bound when `pointer.local.env` is absent. The first compile can take a few minutes. For the browser UI, run `npm run server:dev` and `npm run web:dev`, then open `http://127.0.0.1:1420/`. Details: [docs/en/DEVELOPMENT.md](docs/en/DEVELOPMENT.md).
 
 ## Deploy
 
-Run `./scripts/quick-deploy.sh start standalone-client` before you pick a packaging cell. Flavour (`POINTER_EDITION`) and runtime form (client / server) matter when you are building an installer:
+Users start an already built client with the script, which runs the release binary and does not call npm:
+
+```bash
+./scripts/quick-deploy.sh start standalone-client --runtime bin
+```
+
+Flavour (`POINTER_EDITION`) and runtime form (client / server) matter when you are building an installer:
 
 | What you are doing | Start here |
 | --- | --- |

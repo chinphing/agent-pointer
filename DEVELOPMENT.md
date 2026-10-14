@@ -6,17 +6,27 @@
 
 ## 第一步
 
-在仓库根目录执行这一条。它拉起桌面开发窗口，不绑定控制面。窗口出现后就可以改代码。第一次编译要几分钟。
+开发者用 npm 启动开发态。在仓库根目录执行：
 
 ```bash
-npm install && ./scripts/quick-deploy.sh start standalone-client
+npm install
+npm run tauri:dev
 ```
 
-Windows 把 `./scripts/quick-deploy.sh` 换成 `scripts\quick-deploy.bat`。
+`npm run tauri:dev` 拉起桌面开发窗口。它会读取 `pointer.local.env`；没有这个文件时不绑定控制面。第一次编译要几分钟，窗口出现后就可以改代码。
 
-想在浏览器里改同一套界面，把 `standalone-client` 换成 `standalone-server`，然后打开 `http://127.0.0.1:1420/`。要连控制面、打安装包，或换服务端 / 客户端，再看 [快速启动](docs/zh-CN/deploy/quick-start.md)。
+在浏览器里改同一套界面，开两个终端：
 
-下面的环境清单只在这一条失败时才需要。装完依赖后，还是执行上面同一条命令。
+```bash
+npm run server:dev
+npm run web:dev
+```
+
+然后打开 `http://127.0.0.1:1420/`。
+
+用户启动已经编译好的程序时不走 npm，用脚本直接运行二进制，见 [快速启动](docs/zh-CN/deploy/quick-start.md)。
+
+下面的环境清单只在 `npm run tauri:dev` 失败时才需要。装完依赖后，还是执行 `npm run tauri:dev`。
 
 ## 环境要求
 
@@ -85,7 +95,7 @@ npm install
 
 ## 拆开调试
 
-第一步已经拉起桌面窗口，数据在 `.quick-deploy/standalone-client/data`。下面是同一套进程的手动形式，用来单独看日志，或只开前端。桌面开发态和这里的 Vite 都听 `1420`，服务端 API 都听 `8787`，同一时刻只留一组。
+第一步的 `npm run tauri:dev` 会同时拉起 Vite、桌面窗口和 Rust。下面是数据目录，以及浏览器两个终端的细节。桌面开发态和 `npm run web:dev` 都听 `1420`，服务端 API 听 `8787`，同一时刻只留一组。
 
 ### 桌面端
 
@@ -130,7 +140,7 @@ Release 构建（`tauri:build` 产物）始终使用 **`PointerApp`**，除非�
 
 ### 浏览器
 
-第一步把 `standalone-client` 换成 `standalone-server`，就会同时拉起 API 和页面，打开 `http://127.0.0.1:1420/`。要拆成两个终端时，Web 端复用同一套 Vue 界面，后端复用 `crates/pointer-core`，由 `server` crate 提供 HTTP/SSE API。
+Web 端复用同一套 Vue 界面，后端复用 `crates/pointer-core`，由 `server` crate 提供 HTTP/SSE API。两个终端都起来后打开 `http://127.0.0.1:1420/`。
 
 启动 Rust Web 后端：
 

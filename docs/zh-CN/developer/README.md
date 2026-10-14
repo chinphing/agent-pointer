@@ -5,17 +5,18 @@
 
 ## 现在就开始
 
-在仓库根目录执行这一条。它拉起桌面开发窗口，不绑定控制面。第一次编译要几分钟，窗口出现后就可以改代码。
+开发者用 npm 启动开发态。在仓库根目录执行：
 
 ```bash
-npm install && ./scripts/quick-deploy.sh start standalone-client
+npm install
+npm run tauri:dev
 ```
 
-```bat
-npm install && scripts\quick-deploy.bat start standalone-client
-```
+它拉起桌面开发窗口。没有 `pointer.local.env` 时不绑定控制面。第一次编译要几分钟，窗口出现后就可以改代码。
 
-这条失败时，再看 [DEVELOPMENT.md](../../../DEVELOPMENT.md) 里的 Node、Rust 和系统库。想在浏览器里改同一套界面，把 `standalone-client` 换成 `standalone-server`，然后打开 `http://127.0.0.1:1420/`。跑起来之后再读 [architecture.md](architecture.md)。
+这条失败时，再看 [DEVELOPMENT.md](../../../DEVELOPMENT.md) 里的 Node、Rust 和系统库。想在浏览器里改同一套界面，开两个终端执行 `npm run server:dev` 和 `npm run web:dev`，然后打开 `http://127.0.0.1:1420/`。跑起来之后再读 [architecture.md](architecture.md)。
+
+用户启动已经编译好的程序时不走 npm，用脚本直接运行二进制，见 [快速启动](../deploy/quick-start.md)。
 
 本页其余部分按侧栏分组：**概念 / 工具与协议 / 集成 / 排障**。`standalone-deployment.md` 在侧栏「部署」分区。
 

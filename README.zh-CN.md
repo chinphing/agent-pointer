@@ -138,14 +138,21 @@ Pointer 不只是一个跑 Skill 的运行时。它开发业务系统，把人�
 桌面端是 Tauri 2 + Vue 3，Web 端由 `pointer-server` 提供同一套界面。对话、工具、Skills、Agent 都在 `crates/pointer-core`。
 
 ```bash
-npm install && ./scripts/quick-deploy.sh start standalone-client
+npm install
+npm run tauri:dev
 ```
 
-桌面窗口会打开，并且不绑定控制面。第一次编译要几分钟。要在浏览器里看，把模式换成 `standalone-server`，打开 `http://127.0.0.1:1420/`。细节见 [DEVELOPMENT.md](DEVELOPMENT.md)。
+没有 `pointer.local.env` 时，桌面窗口会打开，并且不绑定控制面。第一次编译要几分钟。要在浏览器里看，执行 `npm run server:dev` 和 `npm run web:dev`，打开 `http://127.0.0.1:1420/`。细节见 [DEVELOPMENT.md](DEVELOPMENT.md)。
 
 ## 部署
 
-先执行 `./scripts/quick-deploy.sh start standalone-client` 跑起来。要打安装包时，再按口味（`POINTER_EDITION`）和运行形态（客户端 / 服务端）选格子：
+用户用脚本直接启动已经编译好的客户端。脚本不调用 npm：
+
+```bash
+./scripts/quick-deploy.sh start standalone-client --runtime bin
+```
+
+要打安装包时，再按口味（`POINTER_EDITION`）和运行形态（客户端 / 服务端）选格子：
 
 | 你要做的事 | 去哪 |
 | --- | --- |

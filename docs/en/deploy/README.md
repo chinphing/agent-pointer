@@ -2,7 +2,7 @@
 
 English | [简体中文](../../zh-CN/deploy/README.md)
 
-Users start an already built client with the script. It does not call npm and does not compile:
+Users start the desktop client with the script. It does not call npm and does not compile:
 
 ```bash
 ./scripts/quick-deploy.sh start standalone-client --runtime bin

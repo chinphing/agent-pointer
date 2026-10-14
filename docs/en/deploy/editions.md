@@ -134,7 +134,7 @@ src-tauri/target/release/bundle/
 
 ### 3.6 Local quick start
 
-Users start this cell's already built client with the script. It does not call npm and does not compile. On Linux and macOS use the shell script. On Windows replace `./scripts/quick-deploy.sh` with `scripts\quick-deploy.bat`. Details: [`quick-start.md`](quick-start.md).
+Users start this cell's desktop app with the script. It does not call npm and does not compile. An installed app, the official no-install package, or an existing `target/release/pointer-app` all work. On Linux and macOS use the shell script. On Windows replace `./scripts/quick-deploy.sh` with `scripts\quick-deploy.bat`. Details: [`quick-start.md`](quick-start.md).
 
 ```bash
 ./scripts/quick-deploy.sh start managed-client --runtime bin \
@@ -278,7 +278,7 @@ None.
 
 ### 5.6 Local quick start
 
-Users start the already built desktop app with the script. It does not call npm and does not compile. `POINTER_EDITION` stays unset. Data lives in `.quick-deploy/bin/standalone-client/data`. Details: [`quick-start.md`](quick-start.md).
+Users start the desktop app with the script. It does not call npm and does not compile. `POINTER_EDITION` stays unset. An installed app or the official no-install package can open it; an existing `target/release/pointer-app` is used as-is. Data lives in `.quick-deploy/bin/standalone-client/data`. Details: [`quick-start.md`](quick-start.md).
 
 ```bash
 ./scripts/quick-deploy.sh start standalone-client --runtime bin

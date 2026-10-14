@@ -6,7 +6,7 @@
 
 ## 现在就启动
 
-用户用脚本直接启动已经编译好的程序。脚本不调用 npm。不写 `--runtime` 时就是 `--runtime bin`，启动时不编译。
+用户用脚本直接启动桌面程序。脚本不调用 npm，也不编译。不写 `--runtime` 时就是 `--runtime bin`。
 
 ```bash
 ./scripts/quick-deploy.sh start standalone-client --runtime bin
@@ -16,7 +16,7 @@
 scripts\quick-deploy.bat start standalone-client --runtime bin
 ```
 
-这会运行 `target/release/pointer-app`。没有这个文件时脚本退出，并提示 `node scripts/tauri-build.mjs`。数据在 `.quick-deploy/bin/standalone-client/data`，和已经安装的 Pointer 分开。
+已经安装的 Pointer 会直接打开。还没安装时，脚本从 [官网下载页](https://pointer.readflowai.com/download) 取当前系统的免安装包再启动。仓库里如果已经有 `target/release/pointer-app`，就用那一份，不会重新编译。数据在 `.quick-deploy/bin/standalone-client/data`，和已经安装的 Pointer 分开。
 
 浏览器访问已编译的服务端：
 
@@ -24,7 +24,7 @@ scripts\quick-deploy.bat start standalone-client --runtime bin
 ./scripts/quick-deploy.sh start standalone-server --runtime bin
 ```
 
-页面在 `http://127.0.0.1:8787/`。第一次启动把账密写到 `.quick-deploy/bin/standalone-server/standalone-admin.env`，终端打印一次密码。再次启动复用这份文件，不再打印密码。缺二进制或 `dist/` 时退出，并提示 `node scripts/build-server.mjs`。
+页面在 `http://127.0.0.1:8787/`。第一次启动把账密写到 `.quick-deploy/bin/standalone-server/standalone-admin.env`，终端打印一次密码。再次启动复用这份文件，不再打印密码。自建服务端需要本机已经有 `pointer-server` 和 `dist/`；没有时脚本退出并提示 `node scripts/build-server.mjs`。上面的桌面客户端不需要这一步。
 
 ## 开发者改代码
 
@@ -52,7 +52,7 @@ npm run web:dev
 
 | `--runtime` | 默认 | 启动什么 | 会不会重新编译 |
 | --- | --- | --- | --- |
-| `bin` | 是 | `target/release/pointer-server` 或 `target/release/pointer-app` | 启动时不编译。缺二进制或服务端缺 `dist/` 就退出 |
+| `bin` | 是 | 桌面客户端：已有本地构建、已安装的程序，或官网免安装包。服务端：已有的 `pointer-server` | 启动时不编译。服务端缺二进制或 `dist/` 才退出 |
 | `dev` | 否 | `cargo run`、本机 Vite、本机 Tauri CLI | 源码、`POINTER_EDITION` 或三个域名变了才重编。都没变时 Cargo 复用已有 debug 产物 |
 
 开发者日常改代码用上面的 npm，不用脚本的 `--runtime dev`。`--runtime dev` 只在要用脚本把四种格子拉成开发态时使用。
@@ -89,7 +89,7 @@ scripts\quick-deploy.bat start standalone-server --runtime bin
 ./scripts/quick-deploy.sh start standalone-client --runtime bin
 ```
 
-不设置 `POINTER_EDITION`，也不绑定控制面。
+本地 standalone 构建不设置 `POINTER_EDITION`。官网安装包和免安装包仍是官方签名包，登录后由平台下发模型。
 
 ## managed 服务端
 

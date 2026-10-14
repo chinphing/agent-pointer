@@ -2,7 +2,7 @@
 
 [English](../../en/deploy/README.md) | 简体中文
 
-用户用脚本直接启动已经编译好的客户端。脚本不调用 npm，启动时不编译：
+用户用脚本直接启动桌面客户端。脚本不调用 npm，也不编译：
 
 ```bash
 ./scripts/quick-deploy.sh start standalone-client --runtime bin

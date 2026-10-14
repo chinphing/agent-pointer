@@ -12,10 +12,11 @@
  *
  * The shell and bat files are the user entry points. They do not call npm.
  * Developers start the dev app with npm (`npm run tauri:dev`, `npm run server:dev`,
- * `npm run web:dev`). `--runtime bin` (the default) runs the release binaries
- * from target/release and does not compile. The server binary serves repo
- * dist/ on port 8787; the client binary is pointer-app. Build them first with
- * `node scripts/build-server.mjs` or `node scripts/tauri-build.mjs`.
+ * `npm run web:dev`). `--runtime bin` (the default) starts a desktop client
+ * without compiling: a local target/release build if one is already there,
+ * otherwise the installed pointer-app, otherwise the official package from
+ * https://pointer.readflowai.com/download. The server binary still has to
+ * exist (target/release or on PATH) and serves repo dist/ on port 8787.
  * `--runtime dev` uses cargo, the local Vite CLI, and the local Tauri CLI.
  *
  * State (pids, logs, generated standalone password) lives in `.quick-deploy/`
@@ -74,6 +75,90 @@ export function releaseBinaryName(kind) {
 
 export function defaultReleaseBinary(root, kind) {
   return path.join(root, 'target', 'release', releaseBinaryName(kind))
+}
+
+export const OFFICIAL_DOWNLOAD_PAGE = 'https://pointer.readflowai.com/download'
+export const OFFICIAL_DOWNLOAD_ORIGIN = 'https://pointer.readflowai.com'
+
+/** `title="Pointer_….AppImage"` followed by `href="/api/downloads/files/…"`. */
+export function listDownloadAssets(html) {
+  const assets = []
+  let title = null
+  const re = /title="([^"]+)"|href="(\/api\/downloads\/files\/[^"]+)"/g
+  for (let match = re.exec(html); match; match = re.exec(html)) {
+    if (match[1]) title = match[1]
+    else if (match[2] && title) {
+      assets.push({ name: title, path: match[2] })
+      title = null
+    }
+  }
+  return assets
+}
+
+/** Desktop package that can be started without a local compile. */
+export function preferredClientAsset(assets, platform = process.platform) {
+  const extensions = platform === 'linux'
+    ? ['.appimage']
+    : platform === 'darwin'
+      ? ['.dmg']
+      : platform === 'win32'
+        ? ['.msi', '.exe']
+        : []
+  for (const extension of extensions) {
+    const found = assets.find((asset) => asset.name.toLowerCase().endsWith(extension))
+    if (found) return found
+  }
+  return null
+}
+
+export function findOnPath(fileName, pathValue = '', exists = fs.existsSync) {
+  const separator = process.platform === 'win32' ? ';' : ':'
+  for (const dir of String(pathValue).split(separator)) {
+    if (!dir) continue
+    const candidate = path.join(dir, fileName)
+    if (exists(candidate)) return candidate
+  }
+  return null
+}
+
+/**
+ * Desktop client for `--runtime bin`. A missing local build is not a failure:
+ * the installed app is next, and the caller downloads the official package
+ * when this returns null.
+ */
+export function selectBinClient(root, { exists = fs.existsSync, pathValue = process.env.PATH, binaries } = {}) {
+  const local = binaries?.client ?? defaultReleaseBinary(root, 'client')
+  if (exists(local)) return { command: local, args: [], source: 'build' }
+  const installed = findOnPath(releaseBinaryName('client'), pathValue, exists)
+  if (installed) return { command: installed, args: [], source: 'installed' }
+  return null
+}
+
+export async function downloadOfficialClient(cacheDir, {
+  fetchImpl = globalThis.fetch,
+  pageUrl = OFFICIAL_DOWNLOAD_PAGE,
+  origin = OFFICIAL_DOWNLOAD_ORIGIN,
+  platform = process.platform,
+} = {}) {
+  const page = await fetchImpl(pageUrl)
+  if (!page.ok) throw new Error(`official download page returned ${page.status}`)
+  const asset = preferredClientAsset(listDownloadAssets(await page.text()), platform)
+  if (!asset) throw new Error(`no desktop package for ${platform} on ${pageUrl}`)
+  fs.mkdirSync(cacheDir, { recursive: true })
+  const dest = path.join(cacheDir, asset.name)
+  if (!fs.existsSync(dest) || fs.statSync(dest).size < 1024 * 1024) {
+    const file = await fetchImpl(`${origin}${asset.path}`)
+    if (!file.ok) throw new Error(`download ${asset.name} returned ${file.status}`)
+    fs.writeFileSync(dest, Buffer.from(await file.arrayBuffer()))
+  }
+  fs.chmodSync(dest, 0o755)
+  const lower = asset.name.toLowerCase()
+  if (lower.endsWith('.appimage')) {
+    return { command: dest, args: ['--appimage-extract-and-run'], source: 'download' }
+  }
+  if (lower.endsWith('.dmg')) return { command: 'open', args: [dest], source: 'installer' }
+  if (lower.endsWith('.msi')) return { command: 'msiexec', args: ['/i', dest], source: 'installer' }
+  return { command: dest, args: [], source: 'download' }
 }
 
 export function devViteArgs(root) {
@@ -233,9 +318,10 @@ export function buildPlan(input) {
 export function missingLaunchArtifact(plan) {
   if (plan.runtime === 'bin') {
     for (const proc of plan.processes) {
+      if (proc.name === 'client') continue
       if (!fs.existsSync(proc.command)) {
         const hint = proc.name === 'server'
-          ? 'Build it with node scripts/build-server.mjs.'
+          ? 'The desktop client does not need a compile. A self-hosted server needs this binary: node scripts/build-server.mjs.'
           : 'Build it with node scripts/tauri-build.mjs.'
         return `${proc.command} is missing. ${hint}`
       }
@@ -263,7 +349,7 @@ function usage() {
   ./scripts/quick-deploy.sh status
   ./scripts/quick-deploy.sh stop [mode] [--runtime dev|bin]
 
---runtime bin (default) runs target/release binaries and does not compile.
+--runtime bin (default) starts the desktop client without compiling. A local target/release build is used when it already exists; otherwise the installed pointer-app; otherwise the official package is downloaded. The server still needs an existing pointer-server binary.
 --runtime dev compiles as it starts: cargo run, the local Vite CLI, or the local Tauri CLI.
 Managed modes need the three control-plane domains (flags or POINTER_API_BASE / POINTER_WEB_BASE / COMPUTER_ANNOTATE_API_BASE).
 Dev server and dev client share Vite port ${WEB_PORT}. The release server serves dist/ on ${SERVER_ADDR}.`)
@@ -492,6 +578,20 @@ function tailFile(file, lines = 40) {
   return text.split('\n').slice(-lines).join('\n')
 }
 
+async function ensureBinClient(plan) {
+  const proc = plan.processes.find((item) => item.name === 'client')
+  if (!proc) return
+  const selected = selectBinClient(plan.root, {
+    binaries: { client: proc.command },
+    pathValue: proc.env.PATH,
+  })
+  const resolved = selected ?? await downloadOfficialClient(path.join(plan.root, '.quick-deploy', 'cache'))
+  proc.command = resolved.command
+  proc.args = resolved.args
+  plan.clientSource = resolved.source
+  console.log(`[quick-deploy] client binary (${resolved.source}): ${resolved.command}`)
+}
+
 async function startMode(mode, runtime, domains, stateDirOverride) {
   const stateDir = modeStateDir(mode, runtime, stateDirOverride)
   fs.mkdirSync(stateDir, { recursive: true })
@@ -527,6 +627,7 @@ async function startMode(mode, runtime, domains, stateDirOverride) {
     credentials,
     baseEnv: process.env,
   })
+  if (!server && runtime === 'bin') await ensureBinClient(plan)
   const missing = missingLaunchArtifact(plan)
   if (missing) throw new Error(missing)
   if (createdPassword) writeCredentials(stateDir, credentials)
@@ -574,9 +675,13 @@ async function startMode(mode, runtime, domains, stateDirOverride) {
     } else {
       if (runtime === 'bin') {
         const clientPid = pids.client
-        await new Promise((resolve) => setTimeout(resolve, 1500))
-        if (!isAlive(clientPid)) throw new Error('pointer-app exited during startup')
-        console.log(`[quick-deploy] ${runtime} ${mode} is running (pid ${clientPid})`)
+        if (plan.clientSource === 'installer') {
+          console.log(`[quick-deploy] ${runtime} ${mode} opened the official installer (pid ${clientPid})`)
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, 1500))
+          if (!isAlive(clientPid)) throw new Error('pointer-app exited during startup')
+          console.log(`[quick-deploy] ${runtime} ${mode} is running (pid ${clientPid})`)
+        }
       } else {
         console.log('[quick-deploy] waiting for the desktop dev server on port 1420')
         await waitFor('desktop vite', () => portOpen(WEB_PORT), 900_000)

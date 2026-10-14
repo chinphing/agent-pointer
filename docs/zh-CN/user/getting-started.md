@@ -14,7 +14,7 @@
 
 ## 不是从官网安装时
 
-[官方包和本地构建的差别](which-build.md) 可以之后再看。公司内部分发的安装包在 [GitHub Releases](https://github.com/chinphing/agent-pointer/releases)。仓库里已有编译产物时，用脚本直接启动二进制，见 [本地启动](../deploy/quick-start.md)。自己改代码用 npm，见 [开发第一步](../../../DEVELOPMENT.md)。用浏览器访问一台已部署的服务端，见 [standalone-server.md](standalone-server.md)。
+[官方包和本地构建的差别](which-build.md) 可以之后再看。公司内部分发的安装包在 [GitHub Releases](https://github.com/chinphing/agent-pointer/releases)。在仓库里用脚本打开桌面程序，不需要先编译，见 [本地启动](../deploy/quick-start.md)。自己改代码用 npm，见 [开发第一步](../../../DEVELOPMENT.md)。用浏览器访问一台已部署的服务端，见 [standalone-server.md](standalone-server.md)。
 
 本地构建没有内置官网域名。模型地址和 Key 都在设置里自己填。
 

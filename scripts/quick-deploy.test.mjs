@@ -7,11 +7,16 @@ import {
   defaultReleaseBinary,
   devTauriArgs,
   devViteArgs,
+  downloadOfficialClient,
+  findOnPath,
+  listDownloadAssets,
   localAdminCredentials,
   missingLaunchArtifact,
   modeKind,
   parseArgs,
+  preferredClientAsset,
   REPO_ROOT,
+  selectBinClient,
 } from './quick-deploy.mjs'
 
 const domains = {
@@ -198,7 +203,66 @@ describe('quick-deploy plans', () => {
     expect(missingLaunchArtifact(missingDist)).toBeNull()
 
     const missingClient = plan('standalone-client', { runtime: 'bin', root })
-    expect(missingLaunchArtifact(missingClient)).toMatch(/node scripts\/tauri-build\.mjs/)
+    expect(missingLaunchArtifact(missingClient)).toBeNull()
+  })
+
+  it('starts a desktop client from an installed binary or the official package, without compiling', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pointer-quick-deploy-client-'))
+    const installed = path.join(root, 'bin', 'pointer-app')
+    fs.mkdirSync(path.dirname(installed), { recursive: true })
+    fs.writeFileSync(installed, '')
+    expect(findOnPath('pointer-app', path.dirname(installed))).toBe(installed)
+    expect(selectBinClient(root, { pathValue: path.dirname(installed) })).toEqual({
+      command: installed,
+      args: [],
+      source: 'installed',
+    })
+    expect(selectBinClient(root, { pathValue: '' })).toBeNull()
+
+    const html = [
+      'title="Pointer_0.1.1_amd64.deb"',
+      'href="/api/downloads/files/deb-id"',
+      'title="Pointer_0.1.1_amd64.AppImage"',
+      'href="/api/downloads/files/appimage-id"',
+    ].join('\n')
+    const asset = preferredClientAsset(listDownloadAssets(html), 'linux')
+    expect(asset).toEqual({ name: 'Pointer_0.1.1_amd64.AppImage', path: '/api/downloads/files/appimage-id' })
+
+    const local = defaultReleaseBinary(root, 'client')
+    fs.mkdirSync(path.dirname(local), { recursive: true })
+    fs.writeFileSync(local, '')
+    expect(selectBinClient(root, { pathValue: path.dirname(installed) }).source).toBe('build')
+  })
+
+  it('downloads the official desktop package when no binary is installed', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pointer-quick-deploy-download-'))
+    const calls = []
+    const fetchImpl = async (url) => {
+      calls.push(url)
+      if (String(url).endsWith('/download')) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => 'title="Pointer_9_amd64.AppImage"\nhref="/api/downloads/files/pkg"',
+        }
+      }
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => {
+          const bytes = new Uint8Array(1024 * 1024 + 4)
+          bytes[0] = 0x7f
+          return bytes.buffer
+        },
+      }
+    }
+    const resolved = await downloadOfficialClient(root, { fetchImpl, platform: 'linux' })
+    expect(calls[0]).toBe('https://pointer.readflowai.com/download')
+    expect(calls[1]).toBe('https://pointer.readflowai.com/api/downloads/files/pkg')
+    expect(resolved.source).toBe('download')
+    expect(resolved.command).toBe(path.join(root, 'Pointer_9_amd64.AppImage'))
+    expect(resolved.args).toEqual(['--appimage-extract-and-run'])
+    expect(fs.statSync(resolved.command).size).toBeGreaterThan(1024 * 1024)
   })
 
   it('refuses a dev launch when the local vite or tauri cli is missing', () => {

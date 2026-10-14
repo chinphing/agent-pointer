@@ -146,7 +146,7 @@ The desktop window opens with no control plane bound when `pointer.local.env` is
 
 ## Deploy
 
-Users start an already built client with the script, which runs the release binary and does not call npm:
+Users start the desktop client with the script. It does not call npm and does not compile:
 
 ```bash
 ./scripts/quick-deploy.sh start standalone-client --runtime bin

@@ -6,7 +6,7 @@ Developers and users do not start Pointer the same way.
 
 ## Start now
 
-Users start an already built program with the script. The script does not call npm. Omitting `--runtime` means `--runtime bin`, and that start does not compile.
+Users start the desktop app with the script. The script does not call npm and does not compile. Omitting `--runtime` means `--runtime bin`.
 
 ```bash
 ./scripts/quick-deploy.sh start standalone-client --runtime bin
@@ -16,7 +16,7 @@ Users start an already built program with the script. The script does not call n
 scripts\quick-deploy.bat start standalone-client --runtime bin
 ```
 
-This runs `target/release/pointer-app`. When that file is missing, the script exits and tells you to run `node scripts/tauri-build.mjs`. Data lives in `.quick-deploy/bin/standalone-client/data`, separate from an installed Pointer.
+An installed Pointer opens directly. When nothing is installed, the script downloads the no-install package for this system from the [download page](https://pointer.readflowai.com/download) and starts it. An existing `target/release/pointer-app` in the repo is used as-is and is not rebuilt. Data lives in `.quick-deploy/bin/standalone-client/data`, separate from an installed Pointer.
 
 To open an already built server in the browser:
 
@@ -24,7 +24,7 @@ To open an already built server in the browser:
 ./scripts/quick-deploy.sh start standalone-server --runtime bin
 ```
 
-The page is at `http://127.0.0.1:8787/`. The first start writes the local account to `.quick-deploy/bin/standalone-server/standalone-admin.env` and prints the password once. Later starts reuse that file and do not print the password. A missing binary or a missing `dist/` exits and tells you to run `node scripts/build-server.mjs`.
+The page is at `http://127.0.0.1:8787/`. The first start writes the local account to `.quick-deploy/bin/standalone-server/standalone-admin.env` and prints the password once. Later starts reuse that file and do not print the password. A self-hosted server needs an existing `pointer-server` and `dist/`; without them the script exits and tells you to run `node scripts/build-server.mjs`. The desktop client above does not need that step.
 
 ## Changing the code
 
@@ -52,7 +52,7 @@ Packaging and rollout stay in [README.md](README.md). The rest of this page is t
 
 | `--runtime` | Default | What it launches | Rebuilds? |
 | --- | --- | --- | --- |
-| `bin` | yes | `target/release/pointer-server` or `target/release/pointer-app` | no. A missing binary, or a missing `dist/` for the server, exits immediately |
+| `bin` | yes | Desktop client: an existing local build, an installed app, or the official no-install package. Server: an existing `pointer-server` | no. Only a server missing its binary or `dist/` exits |
 | `dev` | no | `cargo run`, the local Vite CLI, or the local Tauri CLI | only when sources, `POINTER_EDITION`, or the three domains changed. Otherwise Cargo reuses the existing debug artifacts |
 
 Day-to-day code changes use the npm commands above, not `--runtime dev`. `--runtime dev` is only for launching one of the four cells as a dev process through this script.
@@ -89,7 +89,7 @@ Sign in with the account, the password, and the captcha. The model key is still 
 ./scripts/quick-deploy.sh start standalone-client --runtime bin
 ```
 
-`POINTER_EDITION` stays unset, and no control plane is bound.
+A local standalone build leaves `POINTER_EDITION` unset. The official installer and the no-install package stay official signed builds; after sign-in the platform delivers a model.
 
 ## Managed server
 

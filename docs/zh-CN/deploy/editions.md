@@ -134,7 +134,7 @@ src-tauri/target/release/bundle/
 
 ### 3.6 本地快速启动
 
-用户用脚本启动这一格已经编译好的客户端，不调用 npm，启动时不编译。Linux / macOS 用 shell，Windows 把 `./scripts/quick-deploy.sh` 换成 `scripts\quick-deploy.bat`。详见 [`quick-start.md`](quick-start.md)。
+用户用脚本启动这一格的桌面程序，不调用 npm，也不编译。已安装的程序、官网免安装包、或仓库里已经有的 `target/release/pointer-app` 都可以。Linux / macOS 用 shell，Windows 把 `./scripts/quick-deploy.sh` 换成 `scripts\quick-deploy.bat`。详见 [`quick-start.md`](quick-start.md)。
 
 ```bash
 ./scripts/quick-deploy.sh start managed-client --runtime bin \
@@ -278,7 +278,7 @@ npm run tauri:build          # 不设任何 POINTER_* 变量
 
 ### 5.6 本地快速启动
 
-用户用脚本启动已经编译好的桌面程序，不调用 npm，启动时不编译。不设置 `POINTER_EDITION`。数据目录在 `.quick-deploy/bin/standalone-client/data`。详见 [`quick-start.md`](quick-start.md)。
+用户用脚本启动桌面程序，不调用 npm，也不编译。不设置 `POINTER_EDITION`。已安装的程序或官网免安装包都能开；仓库里已经有的 `target/release/pointer-app` 也会被直接用。数据目录在 `.quick-deploy/bin/standalone-client/data`。详见 [`quick-start.md`](quick-start.md)。
 
 ```bash
 ./scripts/quick-deploy.sh start standalone-client --runtime bin

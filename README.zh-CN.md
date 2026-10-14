@@ -146,7 +146,7 @@ npm run tauri:dev
 
 ## 部署
 
-用户用脚本直接启动已经编译好的客户端。脚本不调用 npm：
+用户用脚本直接启动桌面客户端。脚本不调用 npm，也不编译：
 
 ```bash
 ./scripts/quick-deploy.sh start standalone-client --runtime bin

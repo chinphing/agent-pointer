@@ -14,7 +14,7 @@ After signing in you can also use the cloud host and top up. A successful deskto
 
 ## When you did not install from the website
 
-The [difference between an official build and a local build](which-build.md) can wait. Installers distributed inside a company are on [GitHub Releases](https://github.com/chinphing/agent-pointer/releases). When the repository already has a build, start the binary with the script in [Start locally](../deploy/quick-start.md). To change the code, use npm and follow the [first development step](../DEVELOPMENT.md). To open an already deployed server in a browser, see [standalone-server.md](standalone-server.md).
+The [difference between an official build and a local build](which-build.md) can wait. Installers distributed inside a company are on [GitHub Releases](https://github.com/chinphing/agent-pointer/releases). From the repository, the script opens the desktop app without a compile step. See [Start locally](../deploy/quick-start.md). To change the code, use npm and follow the [first development step](../DEVELOPMENT.md). To open an already deployed server in a browser, see [standalone-server.md](standalone-server.md).
 
 A local build has no built-in official website domain. The model address and Key are both filled in yourself in settings.
 

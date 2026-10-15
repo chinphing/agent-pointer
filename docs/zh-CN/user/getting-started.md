@@ -57,7 +57,26 @@ npm install && npm run build:windows
 
 1. 一行命令编译并启动
 
-updater 私钥放在 `pointer.local.env` 或当前环境的 `TAURI_SIGNING_PRIVATE_KEY_PATH`。
+企业版客户端会给更新包签名。私钥默认路径：
+
+- Linux / macOS：`~/.tauri/pointer-updater.key`
+- Windows：`%USERPROFILE%\.tauri\pointer-updater.key`
+
+这把密钥生成一次，以后每次编译都用同一份。换一把新密钥后，已经安装的客户端验不过更新。
+
+在终端里执行下面的命令时，文件还不存在会问一次。输入 `y` 就在默认路径生成私钥，并在旁边写下 `pointer-updater.key.pub`。这次编译把这把公钥打进安装包，不改仓库里的配置。输入其他内容就退出，不编译。
+
+不想等待确认时，在 `--build` 后面加上 `--generate-updater-key`。文件已经存在时不会覆盖。
+
+没有交互终端、也没有这个参数时，命令会退出，并打印下面这条生成命令：
+
+```bash
+npm run tauri signer generate -w ~/.tauri/pointer-updater.key
+```
+
+Windows 把路径换成 `%USERPROFILE%\.tauri\pointer-updater.key`。
+
+已经有私钥时，把绝对路径写到 `pointer.local.env` 的 `TAURI_SIGNING_PRIVATE_KEY_PATH`。开头的 `~` 会展开。私钥有密码时再写 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。脚本生成的密钥没有密码。旁边没有 `.pub` 时，安装包继续用仓库里的公钥，那把公钥必须和私钥配对。
 
 ```bash
 # Linux / macOS
@@ -79,6 +98,8 @@ npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_
 # Windows
 npm install && set POINTER_EDITION=managed&& set VITE_POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set POINTER_WEB_BASE=https://pointer.example.com&& set VITE_POINTER_WEB_BASE=https://pointer.example.com&& set COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com&& set POINTER_DOWNLOAD_URL=https://pointer.example.com/download&& set TAURI_SIGNING_PRIVATE_KEY_PATH=%USERPROFILE%\.tauri\pointer-updater.key&& npm run build:windows
 ```
+
+安装包命令也一样。终端里缺私钥会询问。不想等待确认时加上参数，例如 `npm run build:linux -- --generate-updater-key`。上面的 `TAURI_SIGNING_PRIVATE_KEY_PATH` 指向已有私钥时直接使用，不会重新生成。
 
 ### Web Server 编译安装
 

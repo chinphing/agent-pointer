@@ -57,7 +57,26 @@ npm install && npm run build:windows
 
 1. One command to compile and start
 
-Put the updater private key in `pointer.local.env`, or in `TAURI_SIGNING_PRIVATE_KEY_PATH` in the current environment.
+An enterprise client signs its update packages. The private key defaults to:
+
+- Linux / macOS: `~/.tauri/pointer-updater.key`
+- Windows: `%USERPROFILE%\.tauri\pointer-updater.key`
+
+Generate this key once and reuse it for every later build. After the key changes, an already installed client cannot verify updates.
+
+Running the command below in a terminal asks once when the file is missing. `y` writes the private key at the default path and `pointer-updater.key.pub` beside it. This build embeds that public key and leaves the repository config unchanged. Any other answer stops before compiling.
+
+To skip the question, add `--generate-updater-key` after `--build`. An existing file is kept.
+
+With no terminal and without that flag, the command stops and prints:
+
+```bash
+npm run tauri signer generate -w ~/.tauri/pointer-updater.key
+```
+
+On Windows, use `%USERPROFILE%\.tauri\pointer-updater.key`.
+
+When the private key already exists, put its absolute path in `TAURI_SIGNING_PRIVATE_KEY_PATH` in `pointer.local.env`. A leading `~` is expanded. If the key has a password, also set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. A key created by the script has no password. Without a sibling `.pub`, the installer keeps the public key from the repository, and that public key must match the private key.
 
 ```bash
 # Linux / macOS
@@ -79,6 +98,8 @@ npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_
 # Windows
 npm install && set POINTER_EDITION=managed&& set VITE_POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set POINTER_WEB_BASE=https://pointer.example.com&& set VITE_POINTER_WEB_BASE=https://pointer.example.com&& set COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com&& set POINTER_DOWNLOAD_URL=https://pointer.example.com/download&& set TAURI_SIGNING_PRIVATE_KEY_PATH=%USERPROFILE%\.tauri\pointer-updater.key&& npm run build:windows
 ```
+
+Installer commands follow the same rule. A terminal asks when the private key is missing. To skip the question, pass the flag, for example `npm run build:linux -- --generate-updater-key`. The `TAURI_SIGNING_PRIVATE_KEY_PATH` above is used as-is when that file already exists.
 
 ### Web Server
 

@@ -15,9 +15,11 @@
  * `npm run web:dev`). `--runtime bin` (the default) starts an existing
  * target/release binary, or an installed pointer-app for the desktop client.
  * It does not compile and it does not download a package. `--build` is the
- * only switch that compiles locally, and it never turns on by itself. The
- * server serves repo dist/ on port 8787. `--runtime dev` uses cargo, the
- * local Vite CLI, and the local Tauri CLI.
+ * only switch that compiles locally, and it never turns on by itself.
+ * `--generate-updater-key` applies to a managed client `--build`. It creates
+ * the updater private key only when that file is missing. The server serves
+ * repo dist/ on port 8787. `--runtime dev` uses cargo, the local Vite CLI,
+ * and the local Tauri CLI.
  *
  * State (pids, logs, generated standalone password) lives in `.quick-deploy/`
  * and is gitignored. Dev uses `.quick-deploy/<mode>/`. Release binaries use
@@ -26,6 +28,7 @@
  * own environment so a managed file cannot leak into a standalone run.
  */
 import { spawn, spawnSync } from 'node:child_process'
+import { GENERATE_UPDATER_KEY_FLAG } from './lib/updater-signing-key.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import net from 'node:net'
@@ -108,7 +111,7 @@ export function releaseBuildScript(mode) {
  * domain keys and locks them so the build scripts cannot refill them from
  * `pointer.local.env`. Managed keeps the domains already set on `env`.
  */
-export function releaseBuildInvocation(mode, env, root = REPO_ROOT) {
+export function releaseBuildInvocation(mode, env, root = REPO_ROOT, extraArgs = []) {
   const childEnv = { ...env }
   for (const key of BUILD_RUNTIME_ONLY_KEYS) delete childEnv[key]
   if (!modeKind(mode).managed) {
@@ -117,14 +120,14 @@ export function releaseBuildInvocation(mode, env, root = REPO_ROOT) {
   }
   return {
     command: process.execPath,
-    args: [path.join(root, releaseBuildScript(mode))],
+    args: [path.join(root, releaseBuildScript(mode)), ...extraArgs],
     cwd: root,
     env: childEnv,
   }
 }
 
-export function runReleaseBuild(mode, env, { spawnImpl = spawnSync, root = REPO_ROOT } = {}) {
-  const invocation = releaseBuildInvocation(mode, env, root)
+export function runReleaseBuild(mode, env, { spawnImpl = spawnSync, root = REPO_ROOT, extraArgs = [] } = {}) {
+  const invocation = releaseBuildInvocation(mode, env, root, extraArgs)
   const result = spawnImpl(invocation.command, invocation.args, {
     cwd: invocation.cwd,
     env: invocation.env,
@@ -341,14 +344,15 @@ export function missingLaunchArtifact(plan) {
 
 function usage() {
   console.error(`Usage:
-  ./scripts/quick-deploy.sh start <${MODES.join('|')}> [--runtime dev|bin] [--build] [--api-base URL --web-base URL --annotate-base URL]
-  scripts\\quick-deploy.bat start <mode> [--runtime dev|bin] [--build] [domain flags]
-  ./scripts/quick-deploy.sh plan <mode> [--runtime dev|bin] [--build] [domain flags]
+  ./scripts/quick-deploy.sh start <${MODES.join('|')}> [--runtime dev|bin] [--build] [--generate-updater-key] [--api-base URL --web-base URL --annotate-base URL]
+  scripts\\quick-deploy.bat start <mode> [--runtime dev|bin] [--build] [--generate-updater-key] [domain flags]
+  ./scripts/quick-deploy.sh plan <mode> [--runtime dev|bin] [--build] [--generate-updater-key] [domain flags]
   ./scripts/quick-deploy.sh status
   ./scripts/quick-deploy.sh stop [mode] [--runtime dev|bin]
 
 --runtime bin (default) does not compile. A local target/release build is used when it already exists; otherwise the installed pointer-app. The server still needs an existing pointer-server binary and dist/.
 --build compiles that release binary locally, then starts target/release. It is never implied. It does not apply to --runtime dev.
+--generate-updater-key applies to a managed client --build. It creates ~/.tauri/pointer-updater.key when that file is missing, and keeps an existing file. Without the flag, a terminal asks first.
 --runtime dev compiles as it starts: cargo run, the local Vite CLI, or the local Tauri CLI.
 Managed modes need the three control-plane domains (flags or POINTER_API_BASE / POINTER_WEB_BASE / COMPUTER_ANNOTATE_API_BASE).
 Dev server and dev client share Vite port ${WEB_PORT}. The release server serves dist/ on ${SERVER_ADDR}.`)
@@ -372,10 +376,15 @@ export function parseArgs(argv) {
   let stateDir = null
   let runtime = 'bin'
   let build = false
+  let generateUpdaterKey = false
   while (args.length) {
     const flag = args.shift()
     if (flag === '--build') {
       build = true
+      continue
+    }
+    if (flag === GENERATE_UPDATER_KEY_FLAG) {
+      generateUpdaterKey = true
       continue
     }
     const value = args.shift()
@@ -395,10 +404,21 @@ export function parseArgs(argv) {
   if (build && runtime !== 'bin') {
     throw new Error('--build applies to the release binary runtime. Omit it with --runtime dev.')
   }
+  if (generateUpdaterKey) {
+    if (command !== 'start' && command !== 'plan') {
+      throw new Error('--generate-updater-key applies to start or plan with --build on managed-client')
+    }
+    if (!build) {
+      throw new Error('--generate-updater-key applies to --build. It creates the updater key only when that file is missing.')
+    }
+    if (!mode || modeKind(mode).server || !modeKind(mode).managed) {
+      throw new Error('--generate-updater-key applies to a managed client build. Standalone builds do not sign updater artifacts.')
+    }
+  }
   domains.apiBase ||= process.env.POINTER_API_BASE
   domains.webBase ||= process.env.POINTER_WEB_BASE
   domains.annotateBase ||= process.env.COMPUTER_ANNOTATE_API_BASE
-  return { command, mode, domains, stateDir, runtime, build }
+  return { command, mode, domains, stateDir, runtime, build, generateUpdaterKey }
 }
 
 function defaultStateRoot() {
@@ -604,7 +624,7 @@ function resolveBinClient(plan) {
   console.log(`[quick-deploy] client binary (${selected.source}): ${selected.command}`)
 }
 
-async function startMode(mode, runtime, domains, stateDirOverride, build = false) {
+async function startMode(mode, runtime, domains, stateDirOverride, build = false, generateUpdaterKey = false) {
   const stateDir = modeStateDir(mode, runtime, stateDirOverride)
   fs.mkdirSync(stateDir, { recursive: true })
   const existing = readPids(stateDir)
@@ -640,8 +660,9 @@ async function startMode(mode, runtime, domains, stateDirOverride, build = false
     baseEnv: process.env,
   })
   if (build) {
-    console.log(`[quick-deploy] --build: compiling ${releaseBuildScript(mode)}`)
-    runReleaseBuild(mode, plan.processes[0].env)
+    const extraArgs = generateUpdaterKey ? [GENERATE_UPDATER_KEY_FLAG] : []
+    console.log(`[quick-deploy] --build: compiling ${releaseBuildScript(mode)}${extraArgs.length ? ` ${extraArgs.join(' ')}` : ''}`)
+    runReleaseBuild(mode, plan.processes[0].env, { extraArgs })
     if (!server) {
       const proc = plan.processes.find((item) => item.name === 'client')
       proc.command = defaultReleaseBinary(plan.root, 'client')
@@ -748,7 +769,7 @@ async function status() {
 async function main() {
   const parsed = parseArgs(process.argv.slice(2))
   if (!parsed) process.exit(1)
-  const { command, mode, domains, stateDir, runtime, build } = parsed
+  const { command, mode, domains, stateDir, runtime, build, generateUpdaterKey } = parsed
   if (command === 'status') {
     await status()
     return
@@ -794,6 +815,7 @@ async function main() {
       mode: plan.mode,
       runtime: plan.runtime,
       build,
+      generateUpdaterKey,
       buildScript: build ? releaseBuildScript(mode) : '',
       authMode: plan.authMode,
       webUrl: plan.webUrl,
@@ -811,7 +833,7 @@ async function main() {
     console.log(JSON.stringify(printable, null, 2))
     return
   }
-  await startMode(mode, runtime, domains, stateDir, build)
+  await startMode(mode, runtime, domains, stateDir, build, generateUpdaterKey)
 }
 
 const invokedDirectly = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)

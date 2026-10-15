@@ -591,7 +591,7 @@ src-tauri/target/release/bundle/
 |------|------|
 | `src-tauri/tauri.conf.json` | Window, bundle targets, Linux deb/AppImage, Windows NSIS |
 | `package.json` | `tauri:dev` / `tauri:build` / `build:*` / `icons` scripts |
-| `scripts/tauri-build.mjs` | Cross-platform `tauri build`; reads `TAURI_SIGNING_PRIVATE_KEY_PATH`; the `managed` flavour bakes in control-plane domains, standalone automatically adds `--config src-tauri/tauri.personal.conf.json`; **Linux only** sets `NO_STRIP=true` automatically (AppImage) |
+| `scripts/tauri-build.mjs` | Cross-platform `tauri build`; a managed client reads or creates the updater private key at `~/.tauri/pointer-updater.key` (`--generate-updater-key`, or a terminal confirmation; an existing file is kept) and embeds a sibling `.pub` for that build only; standalone automatically adds `--config src-tauri/tauri.personal.conf.json`; **Linux only** sets `NO_STRIP=true` automatically (AppImage) |
 | `.github/workflows/release.yml` | Three-platform CI packaging (**standalone packages only**) |
 
 ### Icons

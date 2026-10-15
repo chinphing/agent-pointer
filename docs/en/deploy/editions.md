@@ -87,13 +87,23 @@ POINTER_EDITION=managed VITE_POINTER_EDITION=managed \
 
 Platform shortcut scripts (all going through the same `scripts/tauri-build.mjs`): `build:windows` / `build:macos` (signed Universal build `build:macos:signed`) / `build:linux`.
 
-Generating the updater key for the first time (do it once, keep the private key offline):
+Generate the updater private key once and reuse that same file for every later build. After the key changes, an already installed client cannot verify updates.
+
+When `TAURI_SIGNING_PRIVATE_KEY_PATH` is unset, the default path is `~/.tauri/pointer-updater.key` (Windows: `%USERPROFILE%\.tauri\pointer-updater.key`). An existing file is used as-is and is not regenerated.
+
+When the file is missing:
+
+- `npm run tauri:build`, or `./scripts/quick-deploy.sh start managed-client --runtime bin --build`, asks once in a terminal. `y` generates the key. Any other answer stops.
+- `--generate-updater-key` creates the file without asking. With quick-deploy it must accompany `--build`, for example `--build --generate-updater-key`. For an installer: `npm run build:linux -- --generate-updater-key` (use `build:macos` or `build:windows` on those platforms).
+- Or generate it yourself first:
 
 ```bash
 npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 ```
 
-`bundle.createUpdaterArtifacts` in `src-tauri/tauri.conf.json` is `true` (only the standalone `tauri.personal.conf.json` turns it off), so the managed client **must** provide a signing private key, otherwise the updater artifact signing stage fails. `scripts/tauri-build.mjs` reads the contents of `TAURI_SIGNING_PRIVATE_KEY_PATH` into `TAURI_SIGNING_PRIVATE_KEY`.
+Generation also writes `pointer-updater.key.pub` beside the private key. This build embeds that public key and does not edit `src-tauri/tauri.conf.json`. An existing private key with no `.pub` keeps the public key from the repository, which must match the private key. A leading `~` in `pointer.local.env` is expanded. A key created by the script has no password. If you generate your own key with a password, also set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+
+`bundle.createUpdaterArtifacts` in `src-tauri/tauri.conf.json` is `true` (only the standalone `tauri.personal.conf.json` turns it off), so the managed client **must** provide a signing private key, otherwise the updater artifact signing stage fails. `scripts/tauri-build.mjs` reads the private key file into `TAURI_SIGNING_PRIVATE_KEY`.
 
 ### 3.2 Required variables
 
@@ -129,7 +139,7 @@ src-tauri/target/release/bundle/
 ### 3.5 External dependencies
 
 - The control-plane API / Web / SOM domains reachable (internal domains for enterprises).
-- The updater private key (the public key already lives in `src-tauri/tauri.conf.json` → `plugins.updater.pubkey`; **rotating the key means updating this too**).
+- The updater private key. When a `.pub` file sits beside it, this build embeds that public key and does not edit `src-tauri/tauri.conf.json`. Without a `.pub`, the build keeps `plugins.updater.pubkey` from the repository, which must match the private key.
 - Release: the installer + updater archive + `.sig` go through the console's client-release flow.
 
 ### 3.6 Local quick start

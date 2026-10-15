@@ -35,17 +35,6 @@ npm run web:dev
 
 本页其余部分按侧栏分组：**概念 / 工具与协议 / 集成 / 排障**。`standalone-deployment.md` 在侧栏「部署」分区。
 
-## 要打包或换部署方式时
-
-**打包口味**（`managed` 集中管理 / `standalone` 独立）× **运行形态**（客户端 / 服务端）四格，每格都有**构建命令 / 需要的变量 / 产物位置 / 怎么验证 / 外部依赖**，入口见 [`../zh-CN/deploy/README.md`](../deploy/README.md)（详细手册 [`editions.md`](../deploy/editions.md)）：
-
-| 口味 | 客户端（Tauri 桌面 App） | 服务端（`pointer-server`） |
-|------|--------------------------|-----------------------------|
-| **`managed`**（集中管理，构建期注入控制面域名） | [构建与部署](../deploy/README.md#managed-client) | [构建与部署](../deploy/README.md#managed-server) |
-| **standalone**（独立，默认：不设口味） | [构建与部署](../deploy/README.md#standalone-client) | [构建与部署](../deploy/README.md#standalone-server)<br>完整交付流程见 [../internals/standalone-server-deployment.md](../internals/standalone-server-deployment.md) |
-
-`official` 一词仅指 Pointer 官方发布，不是 `POINTER_EDITION` 的取值。跨平台环境准备见 [../contributing/cross-platform-build.md](../contributing/cross-platform-build.md)。
-
 ## 概念
 
 | 文档 | 说明 |
@@ -108,6 +97,17 @@ npm run web:dev
 | [cli.md](cli.md) | `pointer-server` 参数、npm scripts、部署脚本与哪些包有 bin |
 | [standalone-local-login.md](standalone-local-login.md) | Standalone 账号密码 + 第三方 `?sso=` 本地验签登录 |
 | [standalone-deployment.md](standalone-deployment.md) | pointer-server 配置参考：本地认证与 SSO、License（仅 managed 口味强制）、访问控制、`[server]` 品牌参数与 CORS、配置文件发现顺序（侧栏里在「部署」分区） |
+
+## 要打包或换部署方式时
+
+**打包口味**（`managed` 集中管理 / `standalone` 独立）× **运行形态**（客户端 / 服务端）四格，每格都有**构建命令 / 需要的变量 / 产物位置 / 怎么验证 / 外部依赖**，入口见 [`../deploy/README.md`](../deploy/README.md)（详细手册 [`editions.md`](../deploy/editions.md)）：
+
+| 口味 | 客户端（Tauri 桌面 App） | 服务端（`pointer-server`） |
+|------|--------------------------|-----------------------------|
+| **`managed`**（集中管理，构建期注入控制面域名） | [构建与部署](../deploy/README.md#managed-client) | [构建与部署](../deploy/README.md#managed-server) |
+| **standalone**（独立，默认：不设口味） | [构建与部署](../deploy/README.md#standalone-client) | [构建与部署](../deploy/README.md#standalone-server)<br>完整交付流程见 [../internals/standalone-server-deployment.md](../internals/standalone-server-deployment.md) |
+
+`official` 一词仅指 Pointer 官方发布，不是 `POINTER_EDITION` 的取值。跨平台环境准备见 [../contributing/cross-platform-build.md](../contributing/cross-platform-build.md)。
 
 ## 从源码构建 Pointer
 

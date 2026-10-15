@@ -35,17 +35,6 @@ Users start an already built program with the shell or bat script, not npm. See 
 
 The rest of this page follows the sidebar groups: **Concepts / Tools and protocols / Integration / Troubleshooting**. `standalone-deployment.md` lives under Deployment.
 
-## When you are packaging or changing how it is deployed
-
-**Packaging flavour** (`managed` centrally managed / `standalone` independent) × **runtime form** (client / server) makes four cells; each cell has its **build command / required variables / artifact location / how to verify / external dependencies**. Entry point: [`../deploy/README.md`](../deploy/README.md) (detailed manual [`editions.md`](../deploy/editions.md)):
-
-| Flavour | Client (Tauri desktop app) | Server (`pointer-server`) |
-|------|--------------------------|-----------------------------|
-| **`managed`** (centrally managed; control-plane domains injected at build time) | [Build and deploy](../deploy/README.md#managed-client) | [Build and deploy](../deploy/README.md#managed-server) |
-| **standalone** (independent, default: no flavour set) | [Build and deploy](../deploy/README.md#standalone-client) | [Build and deploy](../deploy/README.md#standalone-server)<br>The full delivery flow is in [../internals/standalone-server-deployment.md](../internals/standalone-server-deployment.md) |
-
-The word `official` refers only to an official Pointer release; it is not a value of `POINTER_EDITION`. For cross-platform environment setup see [../contributing/cross-platform-build.md](../contributing/cross-platform-build.md).
-
 ## Concepts
 
 | Document | Description |
@@ -108,6 +97,17 @@ For user-side IM summaries see [`../user/im-channels.md`](../user/im-channels.md
 | [cli.md](cli.md) | `pointer-server` arguments, npm scripts, deployment scripts and which packages have a bin |
 | [standalone-local-login.md](standalone-local-login.md) | Standalone username/password + third-party `?sso=` local signature-verified login |
 | [standalone-deployment.md](standalone-deployment.md) | pointer-server configuration reference: local auth and SSO, License (enforced only for managed builds), access control, `[server]` branding parameters and CORS, config discovery order (listed under Deployment in the sidebar) |
+
+## When you are packaging or changing how it is deployed
+
+**Packaging flavour** (`managed` centrally managed / `standalone` independent) × **runtime form** (client / server) makes four cells; each cell has its **build command / required variables / artifact location / how to verify / external dependencies**. Entry point: [`../deploy/README.md`](../deploy/README.md) (detailed manual [`editions.md`](../deploy/editions.md)):
+
+| Flavour | Client (Tauri desktop app) | Server (`pointer-server`) |
+|------|--------------------------|-----------------------------|
+| **`managed`** (centrally managed; control-plane domains injected at build time) | [Build and deploy](../deploy/README.md#managed-client) | [Build and deploy](../deploy/README.md#managed-server) |
+| **standalone** (independent, default: no flavour set) | [Build and deploy](../deploy/README.md#standalone-client) | [Build and deploy](../deploy/README.md#standalone-server)<br>The full delivery flow is in [../internals/standalone-server-deployment.md](../internals/standalone-server-deployment.md) |
+
+The word `official` refers only to an official Pointer release; it is not a value of `POINTER_EDITION`. For cross-platform environment setup see [../contributing/cross-platform-build.md](../contributing/cross-platform-build.md).
 
 ## Building Pointer from source
 

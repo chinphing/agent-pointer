@@ -4,16 +4,18 @@ English | [简体中文](../zh-CN/README.md)
 
 | I am… | This one thing |
 |--------|------------|
-| **A user** | Open the [download page](https://pointer.readflowai.com/download), install, and send "Hello". From the repo, `./scripts/quick-deploy.sh start standalone-client --runtime bin` opens an existing or installed desktop app; pass `--build` only when neither is present and you want a local compile. Details: [`user/getting-started.md`](user/getting-started.md) |
+| **A user** | Open the [download page](https://pointer.readflowai.com/download), install, sign in, and send "Hello". The community build and compiling it yourself are in [Getting started](user/getting-started.md) |
 | **A developer** | Client: `npm install`, then `npm run tauri:dev`. Web Server: `npm run server:dev` and `npm run web:dev` in two terminals. Notes: [`developer/`](developer/README.md) |
 
 ## After it is running
 
 | I am… | Read next |
 |--------|------------|
+| **After it is installed** | [User guide](user/README.md) |
+| **How the desktop and the web fit together** | [Architecture](developer/architecture.md) |
 | **A deployer / packager** | [`deploy/`](deploy/README.md) |
 | **A repository contributor** | [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md), [`DEVELOPMENT.md`](DEVELOPMENT.md) |
-| **A core maintainer** | [`internals/`](internals/README.md); design records in [`design/`](design/README.md) |
+| **A core maintainer** | [`internals/`](internals/README.md). Design records live in the repository at [`design/`](design/README.md) and are not on this site |
 
 ## What is this
 

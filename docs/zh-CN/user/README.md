@@ -3,11 +3,11 @@
 
 面向 **Pointer 终端用户**。
 
-## 现在就用
+## 安装
 
 打开 [官网下载页](https://pointer.readflowai.com/download)，安装，登录，发一句「你好」。三步的细节在 [快速上手](getting-started.md)。
 
-下面的表格是用起来之后才需要的。
+以下为操作说明。
 
 ## 教程
 

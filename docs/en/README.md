@@ -1,21 +1,21 @@
 English | [简体中文](../zh-CN/README.md)
 
-## Do this one thing
+## Entry
 
-| I am… | This one thing |
+| Reader | Start here |
 |--------|------------|
 | **A user** | Open the [download page](https://pointer.readflowai.com/download), install, sign in, and send "Hello". The community build and compiling it yourself are in [Getting started](user/getting-started.md) |
 | **A developer** | Client: `npm install`, then `npm run tauri:dev`. Web Server: `npm run server:dev` and `npm run web:dev` in two terminals. Notes: [`developer/`](developer/README.md) |
 
-## After it is running
+## Related documents
 
-| I am… | Read next |
+| Document | Where |
 |--------|------------|
-| **After it is installed** | [User guide](user/README.md) |
-| **How the desktop and the web fit together** | [Architecture](developer/architecture.md) |
-| **A deployer / packager** | [`deploy/`](deploy/README.md) |
-| **A repository contributor** | [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md), [`DEVELOPMENT.md`](DEVELOPMENT.md) |
-| **A core maintainer** | [`internals/`](internals/README.md). Design records live in the repository at [`design/`](design/README.md) and are not on this site |
+| **User guide** | [The window, settings, Skills, and IM](user/README.md) |
+| **Architecture** | [Desktop and web share one core](developer/architecture.md) |
+| **Deployment** | [Packaging and deployment](deploy/README.md) |
+| **Contributing** | [Contributor guide](contributing/README.md), [Development notes](DEVELOPMENT.md) |
+| **Internals** | [Internals](internals/README.md). Design records live in the repository at [design/](design/README.md) and are not on this site |
 
 ## What is this
 

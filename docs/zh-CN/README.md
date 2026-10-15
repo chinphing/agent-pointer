@@ -1,21 +1,21 @@
 [English](../en/README.md) | 简体中文
 
-## 现在做这一件事
+## 入口
 
-| 我是… | 这一件事 |
+| 读者 | 从这里开始 |
 |--------|------------|
 | **用户** | 打开 [官网下载](https://pointer.readflowai.com/download)，安装，登录，发一句「你好」。社区版和自行编译见 [快速上手](user/getting-started.md) |
 | **开发者** | 客户端：`npm install` 然后 `npm run tauri:dev`。Web Server：两个终端分别执行 `npm run server:dev` 和 `npm run web:dev`。说明在 [`developer/`](developer/README.md) |
 
-## 跑起来之后
+## 相关文档
 
-| 我是… | 再看 |
+| 文档 | 说明 |
 |--------|------------|
-| **装好之后怎么用** | [使用指南](user/README.md) |
-| **桌面和 Web 怎么拼在一起** | [架构说明](developer/architecture.md) |
-| **部署 / 打包** | [`deploy/`](deploy/README.md) |
-| **仓库贡献者** | [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md)、[`../../DEVELOPMENT.md`](../../DEVELOPMENT.md) |
-| **核心维护者** | [`internals/`](internals/README.md)。设计记录在仓库 [`design/`](design/README.md)，不上文档站 |
+| **使用指南** | [界面、设置、Skills、IM](user/README.md) |
+| **架构说明** | [桌面和 Web 共用一套核心](developer/architecture.md) |
+| **部署** | [打包与部署](deploy/README.md) |
+| **贡献** | [贡献者指南](contributing/README.md)、[开发调试说明](../../DEVELOPMENT.md) |
+| **内部机制** | [内部机制](internals/README.md)。设计记录在仓库 [design/](design/README.md)，不上文档站 |
 
 ## 这是什么
 

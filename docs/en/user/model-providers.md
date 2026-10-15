@@ -2,7 +2,7 @@
 
 English | [简体中文](../../zh-CN/user/model-providers.md)
 
-## Configure it now
+## Custom service
 
 Open **Settings → Models → Custom services → Add service**, fill in the Base URL and API Key, and click **Test connection**. The fields are under "Using your own models: add a custom service" below.
 

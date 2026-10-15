@@ -3,7 +3,7 @@ English | [简体中文](../../zh-CN/developer/README.md)
 
 For **external developers, integrators and Skill authors**. End users should start at **[`../user/`](../user/README.md)**.
 
-## Start now
+## Dev mode
 
 Developers start the dev app with npm. Run the commands from the repository root. With no `pointer.local.env`, no control plane is bound. The first compile can take a few minutes. Once it is up, you can change the code. Read [architecture.md](architecture.md) after it is running.
 

@@ -3,11 +3,11 @@ English | [简体中文](../../zh-CN/user/README.md)
 
 For **Pointer end users**.
 
-## Use it now
+## Install
 
 Open the [download page](https://pointer.readflowai.com/download), install, sign in, and send "Hello". The three steps are in [Getting started](getting-started.md).
 
-The tables below are for after it is already running.
+The tables below are the operating notes.
 
 ## Tutorials
 

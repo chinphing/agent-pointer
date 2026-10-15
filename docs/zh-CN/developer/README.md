@@ -3,7 +3,7 @@
 
 面向**外部开发者、集成方与 Skill 作者**。终端用户请先看 **[`../user/`](../user/README.md)**。
 
-## 现在就开始
+## 开发态
 
 开发者用 npm 启动开发态。命令都在仓库根目录执行。没有 `pointer.local.env` 时不绑定控制面。第一次编译要几分钟，起来之后就可以改代码。跑起来之后再读 [architecture.md](architecture.md)。
 

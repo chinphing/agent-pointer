@@ -6,7 +6,7 @@ Developers and users do not start Pointer the same way.
 
 ## Start now
 
-Users start the desktop app with the script. The script does not call npm. Omitting `--runtime` means `--runtime bin`.
+Users start the desktop app or the Web Server with the script. The script does not call npm. Omitting `--runtime` means `--runtime bin`.
 
 ```bash
 ./scripts/quick-deploy.sh start standalone-client --runtime bin

@@ -6,7 +6,7 @@
 
 ## 现在就启动
 
-用户用脚本直接启动桌面程序。脚本不调用 npm。不写 `--runtime` 时就是 `--runtime bin`。
+用户用脚本直接启动桌面程序或 Web Server。脚本不调用 npm。不写 `--runtime` 时就是 `--runtime bin`。
 
 ```bash
 ./scripts/quick-deploy.sh start standalone-client --runtime bin

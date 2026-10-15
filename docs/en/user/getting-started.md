@@ -2,50 +2,141 @@
 
 English | [简体中文](../../zh-CN/user/getting-started.md)
 
-## Use it now
+## 1. Install from the website
 
-1. Open the [download page](https://pointer.readflowai.com/download), install, and open Pointer.
-2. Bottom-left **Account** → **Sign in**. After signing in, the platform delivers a model.
+1. Open the [download page](https://pointer.readflowai.com/download), download the installer for this system, install it, and open Pointer.
+2. Bottom-left **Account** → **Sign in**. Sign-in is required. After signing in, the platform delivers a model.
 3. Send "Hello".
 
-Without a platform account, open **Settings → Models → Custom services**, fill in the Base URL and API Key, and click **Test connection**. See [Configuring model services](model-providers.md).
+To use your own model, sign in first, then open **Settings → Models → Custom services** and fill in the address and Key. Until you are signed in, your own Key cannot send a message. See [Configuring model services](model-providers.md).
 
-After signing in you can also use the cloud host and top up. A successful desktop sign-in may open the website; come back to the window.
+After signing in, the browser may open the website. Come back to the window.
 
-## When you did not install from the website
+## 2. Install the community build
 
-The [difference between an official build and a local build](which-build.md) can wait. Installers distributed inside a company are on [GitHub Releases](https://github.com/chinphing/agent-pointer/releases). From the repository, the script opens an existing build or an installed desktop app. When neither exists, `--build` is what compiles locally. See [Start locally](../deploy/quick-start.md). To change the code, use npm and follow the [first development step](../DEVELOPMENT.md). To open an already deployed server in a browser, see [standalone-server.md](standalone-server.md).
+The community build is the installer on [GitHub Releases](https://github.com/chinphing/agent-pointer/releases). Download the package for this system, install it, and open Pointer.
 
-A local build has no built-in official website domain. The model address and Key are both filled in yourself in settings.
+The platform does not deliver a model. Open **Settings → Models → Custom services**, fill in the address and Key, click **Test connection**, and send "Hello".
 
-## Desktop and web
+How this differs from the website package: [Official packages vs. local builds](which-build.md).
 
-| Entry point | Description |
-|------|------|
-| Desktop | Tauri client with local storage and the full capability set (including IM channels, computer control, …) |
-| Web | Access a deployed `pointer-server` in a browser; shares the same conversation logic as the desktop |
+## 3. Compile and install it yourself
 
-## Tools and confirmation
+Run every command from the repository root. A personal build leaves `POINTER_EDITION` unset. An enterprise build replaces the example domains with its own control plane. Artifact locations are in [Platform packaging](../deploy/platforms.md).
 
-- Tool calls are **allowed automatically** by default; you can change this in settings so that sensitive tools need a second confirmation
-- Web search (`web_search`) needs a valid search/model configuration and is billed by the provider
+### Client
 
-## Keyboard shortcuts
+#### Personal
 
-These keys in the composer are worth remembering:
+1. One command to compile and start
 
-| Key | Behaviour |
-| --- | --- |
-| `Enter` | Send. While a response is generating, it is **queued** and sent after the current turn ends |
-| `Shift+Enter` | New line |
-| `⌘/Ctrl+Enter` | **Soft-cancel the current turn and send immediately** |
-| `Enter` (composer empty, with a queued message) | Send the head of the queue immediately |
-| `⌘/Ctrl+F` | In-page search. When focus is in the workspace panel, it goes to the file tree or the file preview first |
-| `Esc` | Close search / rename / dialogs / image preview |
+```bash
+# Linux / macOS
+npm install && ./scripts/quick-deploy.sh start standalone-client --runtime bin --build
 
-`⌘/Ctrl+Enter` is the easiest one to get wrong: it is not "new line", and it is not an ordinary "send" either — it **first stops the turn that is running** (only the synchronous turn; background jobs keep going) and then sends what you have typed right away — in effect "interrupt + cut in", with the same feel as in Cursor.
+# Windows
+npm install && scripts\quick-deploy.bat start standalone-client --runtime bin --build
+```
 
-## Next steps
+This starts `target/release/pointer-app`. Fill in the model under **Settings → Models → Custom services**.
 
-- [Using Skills](skills.md)
+2. Build an installer
+
+```bash
+# Linux
+npm install && npm run build:linux
+
+# macOS
+npm install && npm run build:macos
+
+# Windows
+npm install && npm run build:windows
+```
+
+#### Enterprise
+
+1. One command to compile and start
+
+Put the updater private key in `pointer.local.env`, or in `TAURI_SIGNING_PRIVATE_KEY_PATH` in the current environment.
+
+```bash
+# Linux / macOS
+npm install && ./scripts/quick-deploy.sh start managed-client --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+
+# Windows
+npm install && scripts\quick-deploy.bat start managed-client --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+```
+
+2. Build an installer
+
+```bash
+# Linux
+npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com POINTER_DOWNLOAD_URL=https://pointer.example.com/download TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key npm run build:linux
+
+# macOS
+npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com POINTER_DOWNLOAD_URL=https://pointer.example.com/download TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key npm run build:macos
+
+# Windows
+npm install && set POINTER_EDITION=managed&& set VITE_POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set POINTER_WEB_BASE=https://pointer.example.com&& set VITE_POINTER_WEB_BASE=https://pointer.example.com&& set COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com&& set POINTER_DOWNLOAD_URL=https://pointer.example.com/download&& set TAURI_SIGNING_PRIVATE_KEY_PATH=%USERPROFILE%\.tauri\pointer-updater.key&& npm run build:windows
+```
+
+### Web Server
+
+#### Personal
+
+1. One command to compile and start
+
+```bash
+# Linux / macOS
+npm install && ./scripts/quick-deploy.sh start standalone-server --runtime bin --build
+
+# Windows
+npm install && scripts\quick-deploy.bat start standalone-server --runtime bin --build
+```
+
+The page is at `http://127.0.0.1:8787/`. The first start writes the local account to `.quick-deploy/bin/standalone-server/standalone-admin.env`.
+
+2. Build an installer
+
+```bash
+# Linux
+npm install && npm run server:build
+
+# macOS
+npm install && npm run server:build
+
+# Windows
+npm install && npm run server:build
+```
+
+#### Enterprise
+
+1. One command to compile and start
+
+```bash
+# Linux / macOS
+npm install && ./scripts/quick-deploy.sh start managed-server --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+
+# Windows
+npm install && scripts\quick-deploy.bat start managed-server --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+```
+
+2. Build an installer
+
+```bash
+# Linux
+npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com npm run server:build
+
+# macOS
+npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com npm run server:build
+
+# Windows
+npm install && set POINTER_EDITION=managed&& set VITE_POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set POINTER_WEB_BASE=https://pointer.example.com&& set VITE_POINTER_WEB_BASE=https://pointer.example.com&& set COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com&& npm run server:build
+```
+
+## After that
+
+- [The window and composer keys](workspace.md#composer-keys)
+- [Whether a tool asks you first](settings.md)
+- [Skills](skills.md)
 - [IM channels](im-channels.md)

@@ -2,11 +2,11 @@
 
 English | [简体中文](../../zh-CN/user/model-providers.md)
 
-## Configure it now
+## Custom service
 
 Open **Settings → Models → Custom services → Add service**, fill in the Base URL and API Key, and click **Test connection**. The fields are under "Using your own models: add a custom service" below.
 
-If you installed from the website and signed in, the platform delivers a model and you can skip this.
+An install from the website has to sign in first. After signing in, the platform delivers a model and you can skip this. Your own Key does not replace that sign-in.
 
 ## Where the model comes from
 

@@ -6,27 +6,33 @@ This document describes the local development, debugging, checking and troublesh
 
 ## First step
 
-Developers start the dev app with npm. From the repository root:
+Developers start the dev app with npm. Run the commands from the repository root. With no `pointer.local.env`, no control plane is bound. The first compile can take a few minutes. Once it is up, you can change the code.
+
+### Client
 
 ```bash
 npm install
 npm run tauri:dev
 ```
 
-`npm run tauri:dev` opens the desktop window. It reads `pointer.local.env`; with no such file, no control plane is bound. The first compile can take a few minutes. Once the window is up, you can change the code.
+That opens the desktop window. If that fails, install the Node, Rust, and system libraries below, then run `npm run tauri:dev` again.
 
-To work on the same UI in a browser, use two terminals:
+### Web Server
+
+Use two terminals:
 
 ```bash
+# terminal 1
+npm install
 npm run server:dev
+
+# terminal 2
 npm run web:dev
 ```
 
-Then open `http://127.0.0.1:1420/`.
+Then open `http://127.0.0.1:1420/`. If the compile fails, use the Node and Rust entries in the list below.
 
 Users start an already built program with the shell or bat script, not npm. See [Quick start](deploy/quick-start.md).
-
-The requirements below matter only when `npm run tauri:dev` fails. After the dependencies are installed, run `npm run tauri:dev` again.
 
 ## Requirements
 
@@ -95,7 +101,7 @@ When `POINTER_EDITION` is not set, no control plane is bound (standalone, purely
 
 ## Debugging the pieces separately
 
-`npm run tauri:dev` from the first step starts Vite, the desktop window, and Rust together. The sections below are the data directory and the two-terminal browser setup. The desktop dev session and `npm run web:dev` both listen on `1420`, and the server API listens on `8787`. Keep one group running at a time.
+`npm run tauri:dev` for the client starts Vite, the desktop window, and Rust together. The sections below are the data directory and the two-terminal Web Server setup. The client dev session and `npm run web:dev` both listen on `1420`, and the server API listens on `8787`. Keep one group running at a time.
 
 ### Desktop
 

@@ -2,13 +2,7 @@
 
 English | [简体中文](../../zh-CN/deploy/README.md)
 
-Users start the desktop client with the script. It does not call npm. An existing `target/release/pointer-app` or an installed app opens directly; `--build` is what recompiles locally:
-
-```bash
-./scripts/quick-deploy.sh start standalone-client --runtime bin
-```
-
-On Windows, use `scripts\quick-deploy.bat start standalone-client --runtime bin`. Developers who are changing the code run `npm install` and then `npm run tauri:dev`. Details: [Quick start](quick-start.md).
+If it is not installed yet, start at [Getting started](../user/getting-started.md). To change the code, read the [developer documentation](../developer/README.md). To run a program that is already compiled, read [Quick start](quick-start.md).
 
 The three axes below matter when you are building an installer:
 

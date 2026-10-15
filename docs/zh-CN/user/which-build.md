@@ -8,14 +8,14 @@
 
 从 [官网下载页](https://pointer.readflowai.com/download) 下载、由维护者签名的安装包。
 
-- 可选：登录 readflowai.com 账户（**登录后会下发平台模型服务，无需自己配 Key**）
+- 必须登录 readflowai.com 账户才能发消息。登录后平台下发模型。要接自己的模型，登录后再填自定义服务的 Key
 - 自动检查更新
 - 登录后可上报用量、打开云主机、前往充值页
 - 官方 `pointer-server` 安装包在独立部署时校验 License
 
 ## 本地构建
 
-企业内部部署使用 [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) 里发布的安装包。也可以从本仓库源码编译。
+[GitHub Releases](https://github.com/chinphing/agent-pointer/releases) 上的安装包是社区版，企业内部部署也用这一份。也可以从本仓库源码自行编译。
 
 - 自己在设置里填写模型 Base URL 和 API Key
 - 默认不绑定控制面，没有自动更新和用量上报
@@ -27,7 +27,7 @@
 | 你想要 | 用这个 |
 | --- | --- |
 | 开箱即用 | [官网下载](https://pointer.readflowai.com/download) |
-| 企业内部部署 | [GitHub Releases](https://github.com/chinphing/agent-pointer/releases)，服务端见 [standalone-server.md](standalone-server.md) |
+| 社区版 | [GitHub Releases](https://github.com/chinphing/agent-pointer/releases)，服务端见 [standalone-server.md](standalone-server.md) |
 
 ## 自动更新
 

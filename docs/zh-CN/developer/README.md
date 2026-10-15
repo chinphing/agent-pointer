@@ -3,18 +3,33 @@
 
 面向**外部开发者、集成方与 Skill 作者**。终端用户请先看 **[`../user/`](../user/README.md)**。
 
-## 现在就开始
+## 开发态
 
-开发者用 npm 启动开发态。在仓库根目录执行：
+开发者用 npm 启动开发态。命令都在仓库根目录执行。没有 `pointer.local.env` 时不绑定控制面。第一次编译要几分钟，起来之后就可以改代码。跑起来之后再读 [architecture.md](architecture.md)。
+
+### 客户端
 
 ```bash
 npm install
 npm run tauri:dev
 ```
 
-它拉起桌面开发窗口。没有 `pointer.local.env` 时不绑定控制面。第一次编译要几分钟，窗口出现后就可以改代码。
+它拉起桌面开发窗口。这条失败时，再看 [DEVELOPMENT.md](../../../DEVELOPMENT.md) 里的 Node、Rust 和系统库。
 
-这条失败时，再看 [DEVELOPMENT.md](../../../DEVELOPMENT.md) 里的 Node、Rust 和系统库。想在浏览器里改同一套界面，开两个终端执行 `npm run server:dev` 和 `npm run web:dev`，然后打开 `http://127.0.0.1:1420/`。跑起来之后再读 [architecture.md](architecture.md)。
+### Web Server
+
+开两个终端：
+
+```bash
+# 终端 1
+npm install
+npm run server:dev
+
+# 终端 2
+npm run web:dev
+```
+
+然后打开 `http://127.0.0.1:1420/`。
 
 用户启动已经编译好的程序时不走 npm，用脚本直接运行二进制，见 [快速启动](../deploy/quick-start.md)。
 

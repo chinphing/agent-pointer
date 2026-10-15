@@ -22,14 +22,27 @@ is yours to submit under the Apache License 2.0.
 
 ## Local development
 
-Developers start the dev app with npm:
+### Client
 
 ```bash
 npm install
 npm run tauri:dev
 ```
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) if that command fails, and for tests:
+### Web Server
+
+Use two terminals:
+
+```bash
+# terminal 1
+npm install
+npm run server:dev
+
+# terminal 2
+npm run web:dev
+```
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) if a command fails, and for tests:
 
 ```bash
 npm test

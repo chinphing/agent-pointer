@@ -2,13 +2,7 @@
 
 [English](../../en/deploy/README.md) | 简体中文
 
-用户用脚本直接启动桌面客户端。脚本不调用 npm。已有的 `target/release/pointer-app` 或已安装的程序直接打开；加上 `--build` 才在本地重新编译：
-
-```bash
-./scripts/quick-deploy.sh start standalone-client --runtime bin
-```
-
-Windows 用 `scripts\quick-deploy.bat start standalone-client --runtime bin`。改代码的开发者用 `npm install` 然后 `npm run tauri:dev`，见 [快速启动](quick-start.md)。
+还没装上的，看 [快速上手](../user/getting-started.md)。改代码看 [开发者文档](../developer/README.md)。把已经编译好的程序跑起来看 [快速启动](quick-start.md)。
 
 要打安装包时，再看下面三个轴：
 

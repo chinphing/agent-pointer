@@ -3,17 +3,17 @@ English | [简体中文](../../zh-CN/user/README.md)
 
 For **Pointer end users**.
 
-## Use it now
+## Install
 
 Open the [download page](https://pointer.readflowai.com/download), install, sign in, and send "Hello". The three steps are in [Getting started](getting-started.md).
 
-The tables below are for after it is already running.
+The tables below are the operating notes.
 
 ## Tutorials
 
 | Document | Description |
 |------|------|
-| [getting-started.md](getting-started.md) | The three steps above, written out |
+| [getting-started.md](getting-started.md) | Website install, community install, or compile it yourself |
 | [model-providers.md](model-providers.md) | Your own model address and API Key |
 
 ## Other ways in
@@ -40,6 +40,6 @@ The tables below are for after it is already running.
 | [project-lint.md](project-lint.md) | Workspace `.pointer/lint.toml` |
 | [webhook.md](webhook.md) | Webhook-triggered agents |
 
-For integration and protocols see **[`../developer/`](../developer/README.md)**.
+How the desktop and the web share one core: [Architecture](../developer/architecture.md). Integration and protocols: [Developer documentation](../developer/README.md).
 
 [Back to the documentation index](../README.md)

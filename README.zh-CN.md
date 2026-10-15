@@ -7,7 +7,8 @@
 | 你想要 | 怎么拿 |
 | --- | --- |
 | 装上就能用 | [官网下载](https://pointer.readflowai.com/download) |
-| 放进公司自己的环境 | [GitHub Releases](https://github.com/chinphing/agent-pointer/releases)（官方包）· [部署指南](docs/zh-CN/deploy/README.md)（自建） |
+| 社区版安装包 | [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) |
+| 放进公司自己的环境 | [部署指南](docs/zh-CN/deploy/README.md) |
 
 [English](README.md)
 
@@ -137,12 +138,29 @@ Pointer 不只是一个跑 Skill 的运行时。它开发业务系统，把人�
 
 桌面端是 Tauri 2 + Vue 3，Web 端由 `pointer-server` 提供同一套界面。对话、工具、Skills、Agent 都在 `crates/pointer-core`。
 
+### 客户端
+
 ```bash
 npm install
 npm run tauri:dev
 ```
 
-没有 `pointer.local.env` 时，桌面窗口会打开，并且不绑定控制面。第一次编译要几分钟。要在浏览器里看，执行 `npm run server:dev` 和 `npm run web:dev`，打开 `http://127.0.0.1:1420/`。细节见 [DEVELOPMENT.md](DEVELOPMENT.md)。
+没有 `pointer.local.env` 时，桌面窗口会打开，并且不绑定控制面。第一次编译要几分钟。
+
+### Web Server
+
+开两个终端：
+
+```bash
+# 终端 1
+npm install
+npm run server:dev
+
+# 终端 2
+npm run web:dev
+```
+
+然后打开 `http://127.0.0.1:1420/`。细节见 [DEVELOPMENT.md](DEVELOPMENT.md)。
 
 ## 部署
 

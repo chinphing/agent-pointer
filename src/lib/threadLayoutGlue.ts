@@ -1,6 +1,7 @@
 import type { ChatMessage } from '../types/chat'
 import {
   assistantDisplayKind,
+  assistantHasDeliverableContent,
   isEphemeralDesktopNoticeMessage,
   isToolOnlyAssistantMessage
 } from './assistantMessageKind'
@@ -46,12 +47,20 @@ export function isInternalRetryUserMessage(message: ChatMessage): boolean {
   )
 }
 
-/** Sidecar-only assistant round (task_board, …) — no user-visible tool card. */
+/**
+ * Sidecar-only assistant round (task_board, …) — no user-visible tool card.
+ *
+ * A round that also carries reply text is **not** wire: its body renders as a normal
+ * assistant row even though every tool call in it is sidecar. Dropping those rounds as
+ * glue silently swallowed narration like「先看提示词长什么样：」+ `task_board_init`,
+ * leaving the board row behind with no text above it.
+ */
 export function isSidecarOnlyAssistantMessage(message: ChatMessage): boolean {
   if (message.role !== 'assistant') return false
   const tcs = message.toolCalls ?? []
   if (tcs.length === 0) return false
-  return tcs.every(tc => isSidecarToolCall(tc.name, toolCallBaseName(tc.name)))
+  if (!tcs.every(tc => isSidecarToolCall(tc.name, toolCallBaseName(tc.name)))) return false
+  return !assistantHasDeliverableContent(message)
 }
 
 /**

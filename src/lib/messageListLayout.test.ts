@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentTrace, ChatMessage } from '../types/chat'
+import type { AgentTrace, ChatMessage, ToolCall } from '../types/chat'
+import { visibleToolCalls } from './messageTooling'
 import {
   buildMessageListLayout,
   coalesceToolRunItems,
@@ -849,5 +850,153 @@ describe('turnSpawnGuardMatches', () => {
     expect(turnSpawnGuardMatches(base, { ...base, anchorRevs: [1, 2, 3, 4] })).toBe(false)
     expect(turnSpawnGuardMatches(base, { ...base, anchorRevs: [1, 2] })).toBe(false)
     expect(turnSpawnGuardMatches(base, { ...base, anchorRevs: [2, 2, 3] })).toBe(false)
+  })
+})
+
+/**
+ * Production-shaped rows (a live conversation page): a narration round whose only
+ * tool call is a sidecar tool (`task_board_init`) still carries reply text, and the
+ * board document is bound to that same message id.
+ *
+ * These deps mirror `MessageList.layoutDeps`: `visibleToolCallsFor` drops sidecar
+ * cards and `shouldShowGlue` is false unless the screen-inject debug row is on.
+ */
+describe('assistant narration round with sidecar tool calls', () => {
+  const boardDoc = {
+    version: 1,
+    task_id: 'tb1',
+    meta: { goal: '验证 describe-first', status: 'running' },
+    global_milestones: [
+      { id: 'm1', title: '定位提示词', status: 'pending' as const },
+      { id: 'm2', title: '实现开关', status: 'pending' as const }
+    ]
+  }
+
+  function narrationDeps(): FlattenDeps {
+    return {
+      boardsForMessage: messageId =>
+        messageId === 'a4255'
+          ? [{ storeKey: 'main:a4255', document: boardDoc, isActive: true }]
+          : [],
+      visibleToolCallsFor: message => visibleToolCalls(message.toolCalls, [], false, true),
+      shouldShowGlue: () => false
+    }
+  }
+
+  function sidecarRound(): ChatMessage {
+    return {
+      id: 'a4255',
+      role: 'assistant',
+      content: '好思路——而且这次的证据正好支持它：成功样例的原话全都是「我的框在哪 vs 目标在哪」。\n\n先看提示词长什么样：',
+      status: 'done',
+      createdAt: 2,
+      toolCalls: [
+        { id: 'call_00_tb', name: 'task_board_init', status: 'success', arguments: '{}' }
+      ]
+    }
+  }
+
+  function toolRound(): ChatMessage {
+    return {
+      id: 'a4257',
+      role: 'assistant',
+      content: '',
+      status: 'streaming',
+      createdAt: 3,
+      toolCalls: [{ id: 'call_00_term', name: 'terminal', status: 'running', arguments: '{}' }]
+    }
+  }
+
+  function toolResult(id: string, _toolName: string): ChatMessage {
+    return {
+      id,
+      role: 'tool',
+      content: 'ok',
+      status: 'done',
+      createdAt: 4
+    }
+  }
+
+  it('keeps the reply body entry (and its board row) in the flat layout', () => {
+    const entries = flattenConversationMessages(
+      [
+        user('u4254', '强制“先描述再动作”…这个可以先小范围验证一下'),
+        sidecarRound(),
+        toolResult('t4256', 'task_board_init'),
+        toolRound(),
+        toolResult('t4258', 'terminal')
+      ],
+      narrationDeps()
+    )
+    expect(entries.map(e => (e.type === 'message' ? e.message.id : e.type))).toEqual([
+      'u4254',
+      'a4255',
+      'task_board',
+      'tool_run'
+    ])
+    const body = entries[1]
+    expect(body?.type).toBe('message')
+    if (body?.type !== 'message') return
+    expect(body.message.content).toContain('先看提示词长什么样')
+  })
+
+  it('keeps the body inside the turn entry list, not only the collapsed projection', () => {
+    const result = buildMessageListLayout({
+      conversationId: 'c1',
+      messages: [
+        user('u4254', '强制“先描述再动作”…这个可以先小范围验证一下'),
+        sidecarRound(),
+        toolResult('t4256', 'task_board_init'),
+        toolRound(),
+        toolResult('t4258', 'terminal')
+      ],
+      deps: narrationDeps(),
+      cache: null
+    })
+    const turn = result.turns[0]!
+    expect(turn.state).toBe('active')
+    expect(turn.entries.map(e => (e.type === 'message' ? e.message.id : e.type))).toEqual([
+      'u4254',
+      'a4255',
+      'task_board',
+      'tool_run'
+    ])
+  })
+
+  it('does not resurrect a sidecar-only round with no reply text', () => {
+    const silent: ChatMessage = {
+      id: 'a-silent',
+      role: 'assistant',
+      content: '',
+      status: 'done',
+      createdAt: 2,
+      toolCalls: [
+        { id: 'call_00_tb', name: 'task_board_init', status: 'success', arguments: '{}' }
+      ]
+    }
+    const entries = flattenConversationMessages(
+      [user('u1'), silent, toolResult('t1', 'task_board_init')],
+      narrationDeps()
+    )
+    expect(entries.map(e => (e.type === 'message' ? e.message.id : e.type))).toEqual(['u1'])
+  })
+
+  it('still renders tool cards for a narration round that mixes sidecar and real tools', () => {
+    const mixed: ChatMessage = {
+      id: 'a-mixed',
+      role: 'assistant',
+      content: '先读一下文件：',
+      status: 'done',
+      createdAt: 2,
+      toolCalls: [
+        { id: 'tc-read', name: 'file_read', status: 'success', arguments: '{}' } as ToolCall,
+        { id: 'tc-tb', name: 'task_board_patch', status: 'success', arguments: '{}' } as ToolCall
+      ]
+    }
+    const entries = flattenConversationMessages([user('u1'), mixed], emptyDeps)
+    expect(entries.map(e => (e.type === 'message' ? e.message.id : e.type))).toEqual(['u1', 'a-mixed'])
+    const row = entries[1]
+    if (row?.type !== 'message') return
+    expect(row.message.toolCalls?.map(tc => tc.name)).toEqual(['file_read', 'task_board_patch'])
   })
 })

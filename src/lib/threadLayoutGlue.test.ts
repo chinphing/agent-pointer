@@ -5,11 +5,20 @@ import {
   isInternalRetryUserMessage,
   isRealUserTaskMessage,
   isSilentToolRunGlue,
-  isSyntheticThreadUserMessage
+  isSyntheticThreadUserMessage,
+  isToolRunContinuityGlue
 } from './threadLayoutGlue'
 
 function user(id: string, content: string): ChatMessage {
   return { id, role: 'user', content, status: 'done', createdAt: 1 }
+}
+
+function assistant(
+  id: string,
+  content: string,
+  toolCalls: ChatMessage['toolCalls'] = []
+): ChatMessage {
+  return { id, role: 'assistant', content, status: 'done', createdAt: 2, toolCalls }
 }
 
 describe('isInternalRetryUserMessage', () => {
@@ -57,5 +66,28 @@ describe('synthetic thread user rows', () => {
   it('does not treat compression chips as user-task turns', () => {
     const chip = user('ctx_1', '[Conversation summary (auto-compression)]\nbody')
     expect(isRealUserTaskMessage(chip)).toBe(false)
+  })
+})
+
+describe('sidecar-only assistant rounds', () => {
+  const sidecarCalls: ChatMessage['toolCalls'] = [
+    { id: 'tc-tb', name: 'task_board_init', status: 'success', arguments: '{}' }
+  ]
+
+  it('keeps a round that carries reply text visible', () => {
+    const round = assistant('a1', '好思路——先看提示词长什么样：', sidecarCalls)
+    expect(isSilentToolRunGlue(round)).toBe(false)
+    expect(isToolRunContinuityGlue(round)).toBe(false)
+  })
+
+  it('still hides a sidecar round with no reply text', () => {
+    const round = assistant('a2', '', sidecarCalls)
+    expect(isSilentToolRunGlue(round)).toBe(true)
+    expect(isToolRunContinuityGlue(round)).toBe(true)
+  })
+
+  it('still hides verify-hint rounds even with text', () => {
+    const round = assistant('a3', 'Attempted click at coordinates (10, 20)')
+    expect(isSilentToolRunGlue(round)).toBe(true)
   })
 })

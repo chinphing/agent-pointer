@@ -133,7 +133,7 @@ You can export `POINTER_API_BASE`, `POINTER_WEB_BASE`, and `COMPUTER_ANNOTATE_AP
   --annotate-base https://pointer-som.example.com
 ```
 
-Without `--build`, an existing `target/release/pointer-app` or the installed app is used. `--build` recompiles locally with the three domains from this command. Developers can also produce this client with `npm run tauri:build`.
+Without `--build`, an existing `target/release/pointer-app` or the installed app is used. `--build` recompiles locally with the three domains from this command. An enterprise client also needs an updater private key, defaulting to `~/.tauri/pointer-updater.key` (Windows: `%USERPROFILE%\.tauri\pointer-updater.key`). When the file is missing, a terminal asks once and generates it only after `y`. `--generate-updater-key` generates it without asking. An existing file is kept. Developers can also produce this client with `npm run tauri:build`.
 
 ## Plan without starting
 

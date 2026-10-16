@@ -87,13 +87,13 @@ POINTER_EDITION=managed VITE_POINTER_EDITION=managed \
 
 平台快捷脚本（都走同一个 `scripts/tauri-build.mjs`）：`build:windows` / `build:macos`（Universal 签名版 `build:macos:signed`）/ `build:linux`。
 
-首次生成 updater 密钥（只做一次，私钥离线保管）：
+还没有 updater 私钥时，终端会问一次，输入 `y` 生成到 `~/.tauri/pointer-updater.key`（Windows：`%USERPROFILE%\.tauri\pointer-updater.key`）。已有文件会一直复用。不想确认时加上 `--generate-updater-key`。自己生成：
 
 ```bash
 npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 ```
 
-`src-tauri/tauri.conf.json` 的 `bundle.createUpdaterArtifacts` 为 `true`（只有 standalone 用的 `tauri.personal.conf.json` 关掉），因此 managed 客户端**必须**提供签名私钥，否则 updater 产物签名阶段失败。`scripts/tauri-build.mjs` 会把 `TAURI_SIGNING_PRIVATE_KEY_PATH` 的内容读进 `TAURI_SIGNING_PRIVATE_KEY`。
+`src-tauri/tauri.conf.json` 的 `bundle.createUpdaterArtifacts` 为 `true`（只有 standalone 用的 `tauri.personal.conf.json` 关掉），因此 managed 客户端**必须**提供签名私钥，否则 updater 产物签名阶段失败。脚本把私钥读进 `TAURI_SIGNING_PRIVATE_KEY`，并把旁边的 `.pub` 嵌进这次安装包，不改仓库配置。
 
 ### 3.2 需要的变量
 
@@ -129,7 +129,7 @@ src-tauri/target/release/bundle/
 ### 3.5 外部依赖
 
 - 控制面 API / Web / SOM 三个域名可达（企业用内网域名）。
-- updater 私钥（公钥已在 `src-tauri/tauri.conf.json` → `plugins.updater.pubkey`，**换密钥需同步改这里**）。
+- updater 私钥。私钥旁边有 `.pub` 时，这次构建嵌这把公钥，不改 `src-tauri/tauri.conf.json`。没有 `.pub` 时用仓库里的 `plugins.updater.pubkey`，必须和私钥配对。
 - 发版：安装包 + updater 压缩包 + `.sig` 走控制台「客户端发布」。
 
 ### 3.6 本地快速启动

@@ -57,14 +57,24 @@ npm install && npm run build:windows
 
 1. 一行命令编译并启动
 
-updater 私钥放在 `pointer.local.env` 或当前环境的 `TAURI_SIGNING_PRIVATE_KEY_PATH`。
-
 ```bash
 # Linux / macOS
 npm install && ./scripts/quick-deploy.sh start managed-client --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
 
 # Windows
 npm install && scripts\quick-deploy.bat start managed-client --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+```
+
+编完启动 `target/release/pointer-app`。还没有 updater 私钥时，终端会问一次，输入 `y` 就生成。默认路径是 `~/.tauri/pointer-updater.key`（Windows 是 `%USERPROFILE%\.tauri\pointer-updater.key`），之后一直用这一份。不想确认时，在 `--build` 后面加 `--generate-updater-key`。
+
+手动生成：
+
+```bash
+# Linux / macOS
+npm run tauri signer generate -w ~/.tauri/pointer-updater.key
+
+# Windows
+npm run tauri signer generate -w %USERPROFILE%\.tauri\pointer-updater.key
 ```
 
 2. 编译生成安装包
@@ -79,6 +89,8 @@ npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_
 # Windows
 npm install && set POINTER_EDITION=managed&& set VITE_POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set POINTER_WEB_BASE=https://pointer.example.com&& set VITE_POINTER_WEB_BASE=https://pointer.example.com&& set COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com&& set POINTER_DOWNLOAD_URL=https://pointer.example.com/download&& set TAURI_SIGNING_PRIVATE_KEY_PATH=%USERPROFILE%\.tauri\pointer-updater.key&& npm run build:windows
 ```
+
+缺私钥时的处理和上面一样。
 
 ### Web Server 编译安装
 

@@ -146,6 +146,24 @@ describe('quick-deploy plans', () => {
     expect(() => parseArgs(['start', 'standalone-client', '--runtime', 'dev', '--build'])).toThrow(/--build/)
   })
 
+  it('accepts --generate-updater-key only on a managed client build', () => {
+    const parsed = parseArgs([
+      'start',
+      'managed-client',
+      '--build',
+      '--generate-updater-key',
+      '--runtime',
+      'bin',
+    ])
+    expect(parsed.generateUpdaterKey).toBe(true)
+    expect(parsed.build).toBe(true)
+    expect(parseArgs(['plan', 'managed-client', '--runtime', 'bin']).generateUpdaterKey).toBe(false)
+    expect(() => parseArgs(['start', 'managed-client', '--generate-updater-key'])).toThrow(/--build/)
+    expect(() => parseArgs(['start', 'standalone-client', '--build', '--generate-updater-key'])).toThrow(/managed client/)
+    expect(() => parseArgs(['start', 'managed-server', '--build', '--generate-updater-key'])).toThrow(/managed client/)
+    expect(() => parseArgs(['start', 'managed-client', '--runtime', 'dev', '--build', '--generate-updater-key'])).toThrow(/--build/)
+  })
+
   it('bin server runs the release binary and serves dist on the API port', () => {
     const result = plan('standalone-server', {
       runtime: 'bin',
@@ -264,6 +282,15 @@ describe('quick-deploy plans', () => {
     expect(managed.env.POINTER_EDITION).toBe('managed')
     expect(managed.env.POINTER_API_BASE).toBe(domains.apiBase)
     expect(managed.env.POINTER_LOCAL_ENV_KEEP_UNSET).toBeUndefined()
+    expect(managed.args).toEqual([path.join(REPO_ROOT, 'scripts/tauri-build.mjs')])
+
+    const withKey = releaseBuildInvocation('managed-client', {
+      POINTER_EDITION: 'managed',
+    }, REPO_ROOT, ['--generate-updater-key'])
+    expect(withKey.args).toEqual([
+      path.join(REPO_ROOT, 'scripts/tauri-build.mjs'),
+      '--generate-updater-key',
+    ])
 
     const calls = []
     runReleaseBuild('standalone-server', { PATH: '/usr/bin' }, {

@@ -87,13 +87,13 @@ POINTER_EDITION=managed VITE_POINTER_EDITION=managed \
 
 Platform shortcut scripts (all going through the same `scripts/tauri-build.mjs`): `build:windows` / `build:macos` (signed Universal build `build:macos:signed`) / `build:linux`.
 
-Generating the updater key for the first time (do it once, keep the private key offline):
+If the updater private key is missing, the terminal asks once; `y` creates it at `~/.tauri/pointer-updater.key` (Windows: `%USERPROFILE%\.tauri\pointer-updater.key`). An existing file is kept. Add `--generate-updater-key` to create it without asking. Generate it yourself:
 
 ```bash
 npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 ```
 
-`bundle.createUpdaterArtifacts` in `src-tauri/tauri.conf.json` is `true` (only the standalone `tauri.personal.conf.json` turns it off), so the managed client **must** provide a signing private key, otherwise the updater artifact signing stage fails. `scripts/tauri-build.mjs` reads the contents of `TAURI_SIGNING_PRIVATE_KEY_PATH` into `TAURI_SIGNING_PRIVATE_KEY`.
+`bundle.createUpdaterArtifacts` in `src-tauri/tauri.conf.json` is `true` (only the standalone `tauri.personal.conf.json` turns it off), so the managed client **must** provide a signing private key, otherwise the updater artifact signing stage fails. The script reads the private key into `TAURI_SIGNING_PRIVATE_KEY` and embeds the sibling `.pub` for this build, leaving the repository config unchanged.
 
 ### 3.2 Required variables
 
@@ -129,7 +129,7 @@ src-tauri/target/release/bundle/
 ### 3.5 External dependencies
 
 - The control-plane API / Web / SOM domains reachable (internal domains for enterprises).
-- The updater private key (the public key already lives in `src-tauri/tauri.conf.json` → `plugins.updater.pubkey`; **rotating the key means updating this too**).
+- The updater private key. When a `.pub` file sits beside it, this build embeds that public key and does not edit `src-tauri/tauri.conf.json`. Without a `.pub`, the build keeps `plugins.updater.pubkey` from the repository, which must match the private key.
 - Release: the installer + updater archive + `.sig` go through the console's client-release flow.
 
 ### 3.6 Local quick start

@@ -133,7 +133,7 @@ scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://p
   --annotate-base https://pointer-som.example.com
 ```
 
-不写 `--build` 时用已有的 `target/release/pointer-app` 或已安装的程序。加上 `--build` 才按这次传入的三个域名本地重新编译。开发者打这个客户端也可以用 `npm run tauri:build`。
+不写 `--build` 时用已有的 `target/release/pointer-app` 或已安装的程序。加上 `--build` 才按这次传入的三个域名本地重新编译。企业版客户端还要一把 updater 私钥，默认 `~/.tauri/pointer-updater.key`（Windows 是 `%USERPROFILE%\.tauri\pointer-updater.key`）。文件不存在时，终端里会问一次，输入 `y` 才生成；加上 `--generate-updater-key` 则直接生成。已有文件不会被覆盖。开发者打这个客户端也可以用 `npm run tauri:build`。
 
 ## 只看计划、不启动
 

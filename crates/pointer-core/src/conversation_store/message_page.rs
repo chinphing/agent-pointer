@@ -7,12 +7,13 @@
 use std::collections::HashMap;
 
 use anyhow::{anyhow, Result};
-use rusqlite::{params, Connection};
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use crate::models::{is_scoped_sub_message, ChatMessage};
 
 use super::persist::{self, AnchorProbeRow};
+use super::write::stored_message_count_in_conn;
 
 /// Default user-turn window for first paint / load-more / around.
 pub const DEFAULT_MESSAGE_PAGE_TURNS: u32 = 8;
@@ -411,12 +412,10 @@ pub fn load_messages_page(
         };
 
     // Total transcript size is a separate scalar (anchors alone don't count
-    // assistant/tool rows; frontend uses it for hydration checks).
-    let message_count: u32 = conn.query_row(
-        "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
-        params![conversation_id],
-        |row| row.get(0),
-    )?;
+    // assistant/tool rows; frontend uses it for hydration checks). Read from the
+    // trigger-maintained column — same value, primary-key lookup instead of a
+    // `COUNT(*)` over the conversation's whole index range.
+    let message_count = stored_message_count_in_conn(conn, conversation_id)?;
 
     let page = MessagePage {
         messages,

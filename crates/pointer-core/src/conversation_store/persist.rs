@@ -1234,14 +1234,9 @@ pub(crate) fn load_lead_working_messages(
     conn: &Connection,
     conversation_id: &str,
 ) -> Result<(Vec<ChatMessage>, u32)> {
-    let db_count: u32 = conn.query_row(
-        "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
-        params![conversation_id],
-        |row| {
-            let n: i64 = row.get(0)?;
-            Ok(n as u32)
-        },
-    )?;
+    // Trigger-maintained column, primary-key lookup — no `COUNT(*)` over the
+    // conversation's index range on the reload path.
+    let db_count = super::write::stored_message_count_in_conn(conn, conversation_id)?;
     let lead_instance: Option<String> = conn
         .query_row(
             "SELECT lead_agent_instance_id FROM conversations WHERE id = ?1",
@@ -2253,7 +2248,6 @@ pub fn upsert_conversation(
            title = excluded.title,
            created_at_ms = excluded.created_at_ms,
            updated_at_ms = excluded.updated_at_ms,
-           message_count = excluded.message_count,
            preview = excluded.preview,
            skill_ids_json = excluded.skill_ids_json,
            tool_rounds_used = excluded.tool_rounds_used,
@@ -2274,7 +2268,9 @@ pub fn upsert_conversation(
             conv.title,
             conv.created_at,
             conv.updated_at,
-            conv.messages.len() as i64,
+            // `message_count` is trigger-maintained (`messages_count_ai/ad`);
+            // the row starts empty and the INSERT loop below counts itself in.
+            0i64,
             preview,
             skill_ids_json,
             conv.tool_rounds_used,

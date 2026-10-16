@@ -100,7 +100,7 @@ impl ConversationTranscriptSession {
             if let Ok(store) = conversation_store::global_store() {
                 let s = session.lock();
                 if let Err(e) =
-                    store.flush_conversation_meta(conversation_id, s.message_count, &s.preview)
+                    store.flush_conversation_meta(conversation_id, &s.preview)
                 {
                     log::warn!(
                         "conversation_transcript: flush_meta after bootstrap failed conversation_id={conversation_id}: {e:#}"

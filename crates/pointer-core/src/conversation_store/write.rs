@@ -347,6 +347,75 @@ pub fn message_count_in_conn(conn: &Connection, conversation_id: &str) -> Result
     Ok(count as u32)
 }
 
+/// O(1) read of the trigger-maintained `conversations.message_count`
+/// (primary-key lookup instead of a `COUNT(*)` over the conversation's index
+/// range). Missing conversation reads as 0, same as the `COUNT(*)` it replaces.
+///
+/// [`message_count_in_conn`] stays as the verification/repair channel: it is
+/// the ground truth the triggers are asserted against.
+pub fn stored_message_count_in_conn(conn: &Connection, conversation_id: &str) -> Result<u32> {
+    let count: Option<i64> = conn
+        .query_row(
+            "SELECT message_count FROM conversations WHERE id = ?1",
+            params![conversation_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(count.unwrap_or(0).max(0) as u32)
+}
+
+/// `store_meta` flag: the one-shot `message_count` backfill has completed.
+pub const MESSAGE_COUNT_BACKFILL_META: &str = "message_count_backfill_v1";
+
+/// Idempotent single-conversation repair: the `WHERE` guard means an
+/// already-consistent row is not rewritten.
+const REPAIR_MESSAGE_COUNT_SQL: &str = "UPDATE conversations
+        SET message_count = (SELECT COUNT(*) FROM messages WHERE conversation_id = ?1)
+      WHERE id = ?1
+        AND message_count != (SELECT COUNT(*) FROM messages WHERE conversation_id = ?1)";
+
+/// Recompute one conversation's `message_count` from `COUNT(*)`.
+///
+/// The verification/repair channel for drift (dropped trigger, out-of-band
+/// writer). Safe to call repeatedly. Returns the value now stored.
+pub fn repair_message_count_in_conn(conn: &Connection, conversation_id: &str) -> Result<u32> {
+    conn.execute(REPAIR_MESSAGE_COUNT_SQL, params![conversation_id])?;
+    stored_message_count_in_conn(conn, conversation_id)
+}
+
+/// [`repair_message_count_in_conn`] for a batch, returning how many rows changed.
+///
+/// Used by the chunked one-shot backfill, which needs the changed count (a
+/// second run over an already-consistent DB must report 0 and write nothing).
+pub fn repair_message_counts_in_conn(conn: &Connection, ids: &[String]) -> Result<u32> {
+    let mut changed = 0u32;
+    for id in ids {
+        changed += conn.execute(REPAIR_MESSAGE_COUNT_SQL, params![id])? as u32;
+    }
+    Ok(changed)
+}
+
+/// Has the one-shot `message_count` backfill already run for this database?
+pub fn message_count_backfill_done_in_conn(conn: &Connection) -> Result<bool> {
+    let value: Option<String> = conn
+        .query_row(
+            "SELECT value FROM store_meta WHERE key = ?1",
+            params![MESSAGE_COUNT_BACKFILL_META],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(value.as_deref() == Some("1"))
+}
+
+pub fn mark_message_count_backfill_done_in_conn(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "INSERT INTO store_meta(key, value) VALUES (?1, '1')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![MESSAGE_COUNT_BACKFILL_META],
+    )?;
+    Ok(())
+}
+
 pub fn count_duplicate_positions_in_conn(conn: &Connection, conversation_id: &str) -> Result<u32> {
     let count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM (
@@ -371,15 +440,19 @@ pub fn stored_preview_in_conn(conn: &Connection, conversation_id: &str) -> Resul
     Ok(preview.unwrap_or_default())
 }
 
+/// Refresh the conversation preview (and the default title derived from it).
+///
+/// Deliberately does **not** touch `message_count`: that column is maintained by
+/// the `messages_count_ai/ad` triggers, and writing a recomputed value here
+/// would undo the whole point of the triggers.
 pub fn flush_conversation_meta_in_conn(
     conn: &Connection,
     conversation_id: &str,
-    message_count: u32,
     preview: &str,
 ) -> Result<()> {
     conn.execute(
-        "UPDATE conversations SET message_count = ?2, preview = ?3 WHERE id = ?1",
-        params![conversation_id, message_count as i64, preview],
+        "UPDATE conversations SET preview = ?2 WHERE id = ?1",
+        params![conversation_id, preview],
     )?;
     let trimmed = preview.trim();
     if !trimmed.is_empty() {
@@ -466,7 +539,6 @@ pub fn sync_messages_ordered_with_meta_in_conn(
     conn: &Connection,
     conversation_id: &str,
     messages: &[ChatMessage],
-    message_count: u32,
     preview: &str,
 ) -> Result<()> {
     ensure_conversation_row(conn, conversation_id)?;
@@ -485,9 +557,10 @@ pub fn sync_messages_ordered_with_meta_in_conn(
         }
     }
 
-    // Prefer live DB count when the caller passed a drained/short length.
-    let count = message_count_in_conn(conn, conversation_id)?.max(message_count);
-    flush_conversation_meta_in_conn(conn, conversation_id, count, preview)?;
+    // Trigger-maintained column; no `COUNT(*)` here. Logged for parity with the
+    // old diagnostic line.
+    let count = stored_message_count_in_conn(conn, conversation_id)?;
+    flush_conversation_meta_in_conn(conn, conversation_id, preview)?;
     log::info!(
         "conversation_store: sync_messages_ordered conversation_id={conversation_id} list={} db_count={} preserve={}",
         messages.len(),
@@ -639,8 +712,8 @@ pub fn persist_context_compression_in_conn(
     };
 
     insert_message_at(conn, conversation_id, summary, insert_pos)?;
-    let count = message_count_in_conn(conn, conversation_id)?;
-    flush_conversation_meta_in_conn(conn, conversation_id, count, preview)?;
+    let count = stored_message_count_in_conn(conn, conversation_id)?;
+    flush_conversation_meta_in_conn(conn, conversation_id, preview)?;
     log::info!(
         "conversation_store: persist_context_compression conversation_id={conversation_id} excluded={} insert_pos={insert_pos} db_count={count}",
         excluded_messages.len()
@@ -714,13 +787,13 @@ pub fn persist_sub_agent_compression_in_conn(
         insert_pos_after_excluded(&positions, &persisted_excluded, conn, conversation_id)?
     };
     insert_message_at(conn, conversation_id, &summary, insert_pos)?;
-    let count = message_count_in_conn(conn, conversation_id)?;
+    let count = stored_message_count_in_conn(conn, conversation_id)?;
     let preview: String = conn.query_row(
         "SELECT preview FROM conversations WHERE id = ?1",
         params![conversation_id],
         |row| row.get(0),
     )?;
-    flush_conversation_meta_in_conn(conn, conversation_id, count, &preview)?;
+    flush_conversation_meta_in_conn(conn, conversation_id, &preview)?;
     log::info!(
         "conversation_store: persist_sub_agent_compression conversation_id={conversation_id} excluded={} insert_pos={insert_pos} db_count={count} agent_instance_id={instance}",
         persisted_excluded.len()
@@ -744,9 +817,9 @@ pub fn replace_messages_in_conn(
         insert_message_at(conn, conversation_id, msg, pos as i64)?;
     }
     super::persist::restore_message_milestones(conn, conversation_id, &milestones)?;
-    let count = messages.len() as u32;
+    // Row count is trigger-maintained: the DELETE zeroed it, the INSERTs re-added it.
     let preview = conversation_preview(messages);
-    flush_conversation_meta_in_conn(conn, conversation_id, count, &preview)?;
+    flush_conversation_meta_in_conn(conn, conversation_id, &preview)?;
     log::info!(
         "conversation_store: replace_messages conversation_id={conversation_id} count={}",
         messages.len()
@@ -813,12 +886,7 @@ mod tests {
         conv.messages.insert(1, summary);
         let preview = conversation_preview(&conv.messages);
         store
-            .sync_messages_ordered_with_meta(
-                "c1",
-                &conv.messages,
-                conv.messages.len() as u32,
-                &preview,
-            )
+            .sync_messages_ordered_with_meta("c1", &conv.messages, &preview)
             .unwrap();
         let loaded = store.load_all().unwrap();
         assert_eq!(loaded[0].messages.len(), 3);
@@ -956,7 +1024,7 @@ mod tests {
             conv.messages[2].clone(),
         ];
         store
-            .sync_messages_ordered_with_meta("c1", &short, short.len() as u32, "p")
+            .sync_messages_ordered_with_meta("c1", &short, "p")
             .unwrap();
 
         assert_eq!(store.count_duplicate_positions("c1").unwrap(), 0);
@@ -1020,7 +1088,7 @@ mod tests {
         );
 
         store
-            .sync_messages_ordered_with_meta("c1", &working, working.len() as u32, "p")
+            .sync_messages_ordered_with_meta("c1", &working, "p")
             .unwrap();
         assert_eq!(store.message_count("c1").unwrap(), 4);
         assert_eq!(store.count_duplicate_positions("c1").unwrap(), 0);
@@ -1040,7 +1108,7 @@ mod tests {
         conv.title = "新会话".into();
         store.save_all(&[conv.clone()]).unwrap();
         store
-            .flush_conversation_meta("c1", 2, "hello from user")
+            .flush_conversation_meta("c1", "hello from user")
             .unwrap();
         let loaded = store.load_all().unwrap();
         assert_eq!(loaded[0].title, "hello from user");
@@ -1241,7 +1309,7 @@ mod tests {
             Some(r#"{"jobId":"job_1","status":"running","kind":"subagent"}"#.into());
         let short = vec![conv.messages[0].clone(), stale];
         store
-            .sync_messages_ordered_with_meta("c1", &short, short.len() as u32, "p")
+            .sync_messages_ordered_with_meta("c1", &short, "p")
             .unwrap();
 
         let loaded = store.load_messages("c1").unwrap();

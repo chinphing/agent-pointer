@@ -139,9 +139,10 @@ pub fn append_missing(
     let store = conversation_store::global_store()?;
     let appended = store.append_missing_messages(conversation_id, messages)?;
     if !appended.is_empty() {
-        let count = store.message_count(conversation_id)?;
         let preview = conversation_preview(messages);
-        store.flush_conversation_meta(conversation_id, count, &preview)?;
+        store.flush_conversation_meta(conversation_id, &preview)?;
+        // O(1) primary-key read; the column is trigger-maintained.
+        let count = store.message_count(conversation_id)?;
         log::info!(
             "conversation_session: append_missing conversation_id={conversation_id} written={} db_count={count}",
             appended.len()
@@ -164,12 +165,11 @@ pub fn upsert_message_in_store(
     msg: &ChatMessage,
 ) -> Result<()> {
     store.upsert_message_no_refresh(conversation_id, msg)?;
-    let count = store.message_count(conversation_id)?;
     let preview = match store.stored_conversation_preview(conversation_id) {
         Ok(p) if !p.is_empty() => p,
         _ => conversation_preview(std::slice::from_ref(msg)),
     };
-    store.flush_conversation_meta(conversation_id, count, &preview)?;
+    store.flush_conversation_meta(conversation_id, &preview)?;
     Ok(())
 }
 
@@ -177,10 +177,11 @@ pub fn upsert_message_in_store(
 pub fn sync_ordered(conversation_id: &str, history: &[ChatMessage]) -> Result<()> {
     let store = conversation_store::global_store()?;
     let preview = conversation_preview(history);
-    let count = meta_message_count(conversation_id, history.len() as u32);
-    store.sync_messages_ordered_with_meta(conversation_id, history, count, &preview)?;
+    store.sync_messages_ordered_with_meta(conversation_id, history, &preview)?;
     let gen = transcript_generation(conversation_id);
-    let db_count = store.message_count(conversation_id).unwrap_or(count);
+    let db_count = store
+        .message_count(conversation_id)
+        .unwrap_or(history.len() as u32);
     hub().lock().put_cache(
         conversation_id,
         WorkingSetEntry {

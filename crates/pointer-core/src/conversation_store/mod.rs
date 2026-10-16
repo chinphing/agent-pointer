@@ -52,7 +52,11 @@ pub struct ConversationStore {
 impl ConversationStore {
     pub fn open_default() -> Result<Arc<Self>> {
         let path = app_data_dir()?.join(DB_FILE);
-        Self::open(path).map(Arc::new)
+        let store = Self::open(path).map(Arc::new)?;
+        // Detached: startup only pays one `store_meta` primary-key read. The
+        // repair itself runs chunked in the background (no-op once flagged).
+        store.spawn_message_count_backfill();
+        Ok(store)
     }
 
     pub fn open(path: PathBuf) -> Result<Self> {
@@ -758,20 +762,107 @@ impl ConversationStore {
         Ok(())
     }
 
-    pub fn flush_conversation_meta(
-        &self,
-        conversation_id: &str,
-        message_count: u32,
-        preview: &str,
-    ) -> Result<()> {
+    pub fn flush_conversation_meta(&self, conversation_id: &str, preview: &str) -> Result<()> {
         self.db.execute_write(|conn| {
-            write::flush_conversation_meta_in_conn(conn, conversation_id, message_count, preview)
+            write::flush_conversation_meta_in_conn(conn, conversation_id, preview)
         })
     }
 
     pub fn message_count(&self, conversation_id: &str) -> Result<u32> {
+        let conn = self.db.conn.lock();
+        write::stored_message_count_in_conn(&conn, conversation_id)
+    }
+
+    /// `COUNT(*)` ground truth for one conversation.
+    ///
+    /// Verification channel only — the hot paths use [`Self::message_count`].
+    pub fn verify_message_count(&self, conversation_id: &str) -> Result<u32> {
+        let conn = self.db.conn.lock();
+        write::message_count_in_conn(&conn, conversation_id)
+    }
+
+    /// Recompute `conversations.message_count` from `COUNT(*)` for one
+    /// conversation and return the repaired value.
+    ///
+    /// Repair channel for drift (dropped trigger, out-of-band writer). Idempotent.
+    pub fn repair_message_count(&self, conversation_id: &str) -> Result<u32> {
+        self.db.execute_write(|conn| {
+            write::repair_message_count_in_conn(conn, conversation_id)
+        })
+    }
+
+    /// One-shot, idempotent repair of `conversations.message_count` for the whole
+    /// database. Returns how many rows actually changed.
+    ///
+    /// Non-blocking by construction: a few conversations per write transaction
+    /// with a pause in between, so a multi-GB store never sees one long
+    /// `UPDATE … SELECT COUNT(*)` pass and startup never waits for it (see
+    /// [`Self::spawn_message_count_backfill`]). Re-running is cheap and safe: the
+    /// `store_meta` flag short-circuits it and an already-consistent row is not
+    /// rewritten.
+    pub fn backfill_message_counts_once(&self) -> Result<u32> {
+        /// Conversations repaired per write transaction.
+        const CHUNK: usize = 8;
+        /// Pause between chunks so the single write connection stays responsive.
+        const YIELD_MS: u64 = 20;
+        let ids: Vec<String> = {
+            let conn = self.db.conn.lock();
+            if write::message_count_backfill_done_in_conn(&conn)? {
+                return Ok(0);
+            }
+            let mut stmt = conn.prepare("SELECT id FROM conversations")?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            rows.collect::<rusqlite::Result<Vec<String>>>()?
+        };
+        let total = ids.len();
+        let mut repaired = 0u32;
+        let mut chunks = ids.chunks(CHUNK).peekable();
+        while let Some(chunk) = chunks.next() {
+            repaired += self
+                .db
+                .execute_write(|conn| write::repair_message_counts_in_conn(conn, chunk))?;
+            if chunks.peek().is_some() {
+                std::thread::sleep(std::time::Duration::from_millis(YIELD_MS));
+            }
+        }
         self.db
-            .execute_write(|conn| write::message_count_in_conn(conn, conversation_id))
+            .execute_write(write::mark_message_count_backfill_done_in_conn)?;
+        log::info!(
+            "conversation_store: message_count backfill conversations={total} repaired={repaired}"
+        );
+        Ok(repaired)
+    }
+
+    /// Detached kick-off for [`Self::backfill_message_counts_once`].
+    ///
+    /// Startup pays only a `store_meta` primary-key read plus a thread spawn; the
+    /// repair runs in the background, chunked. No-op once the flag is set.
+    ///
+    /// Skipped under `cfg(test)` so unit tests never race a detached writer
+    /// against their own assertions — they call the synchronous version instead.
+    pub fn spawn_message_count_backfill(self: &Arc<Self>) {
+        if cfg!(test) {
+            return;
+        }
+        let done = {
+            let conn = self.db.conn.lock();
+            write::message_count_backfill_done_in_conn(&conn).unwrap_or(true)
+        };
+        if done {
+            return;
+        }
+        let store = self.clone();
+        if let Err(e) = std::thread::Builder::new()
+            .name("message-count-backfill".to_string())
+            .spawn(move || match store.backfill_message_counts_once() {
+                Ok(n) => log::info!(
+                    "conversation_store: message_count backfill finished repaired={n}"
+                ),
+                Err(e) => log::warn!("conversation_store: message_count backfill failed: {e:#}"),
+            })
+        {
+            log::warn!("conversation_store: message_count backfill thread spawn failed: {e}");
+        }
     }
 
     pub fn count_duplicate_positions(&self, conversation_id: &str) -> Result<u32> {
@@ -793,7 +884,6 @@ impl ConversationStore {
         &self,
         conversation_id: &str,
         messages: &[ChatMessage],
-        message_count: u32,
         preview: &str,
     ) -> Result<()> {
         self.db.execute_write(|conn| {
@@ -801,7 +891,6 @@ impl ConversationStore {
                 conn,
                 conversation_id,
                 messages,
-                message_count,
                 preview,
             )
         })?;
@@ -1382,6 +1471,9 @@ fn init_schema(conn: &Connection) -> Result<()> {
     )?;
     // After column migrations, create indexes that depend on newer columns.
     ensure_conversations_user_updated_index(conn)?;
+    // `conversations.message_count` is trigger-maintained from here on; the
+    // column read replaces the per-call `COUNT(*)` on the send/turn paths.
+    ensure_message_count_triggers(conn)?;
     ensure_projects_schema(conn)?;
     // project_id is added in ensure_projects_schema; pin indexes need it.
     ensure_conversations_pinned_updated_index(conn)?;
@@ -2002,6 +2094,73 @@ fn fts_table_exists(conn: &Connection) -> Result<bool> {
         |row| row.get(0),
     )?;
     Ok(n > 0)
+}
+
+/// `store_meta` key holding the applied revision of the `message_count` triggers.
+const MESSAGE_COUNT_TRIGGER_META: &str = "message_count_triggers";
+/// Bump when the trigger bodies below change, so existing DBs pick up the new ones.
+const MESSAGE_COUNT_TRIGGER_REV: &str = "1";
+
+/// Keep `conversations.message_count` in step with the transcript row count via
+/// triggers, so the hot read path is a primary-key lookup instead of a
+/// `COUNT(*)` over the conversation's whole index range.
+///
+/// Same shape as the FTS `messages_ai/ad/au` triggers above: `AFTER INSERT`
+/// bumps the parent row, `AFTER DELETE` drops it.
+///
+/// * `INSERT … ON CONFLICT DO UPDATE` fires the UPDATE trigger only, so
+///   re-writing an existing row never double counts (and we add no UPDATE
+///   trigger at all).
+/// * `UPDATE messages SET position = position + 1` and the other in-place
+///   payload updates are count-neutral by construction.
+/// * Scope is the full transcript — scoped sub-agent rows included — exactly
+///   like the `COUNT(*)` this replaces.
+///
+/// Versioned through `store_meta` (like `fts_tokenizer`) so the DDL runs once
+/// per revision instead of on every open.
+fn ensure_message_count_triggers(conn: &Connection) -> Result<()> {
+    let rev: Option<String> = conn
+        .query_row(
+            "SELECT value FROM store_meta WHERE key = ?1",
+            params![MESSAGE_COUNT_TRIGGER_META],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if rev.as_deref() == Some(MESSAGE_COUNT_TRIGGER_REV) && message_count_triggers_exist(conn)? {
+        return Ok(());
+    }
+    conn.execute_batch(
+        "DROP TRIGGER IF EXISTS messages_count_ai;
+         DROP TRIGGER IF EXISTS messages_count_ad;
+         CREATE TRIGGER messages_count_ai AFTER INSERT ON messages BEGIN
+           UPDATE conversations SET message_count = message_count + 1
+           WHERE id = new.conversation_id;
+         END;
+         CREATE TRIGGER messages_count_ad AFTER DELETE ON messages BEGIN
+           UPDATE conversations SET message_count = MAX(message_count - 1, 0)
+           WHERE id = old.conversation_id;
+         END;",
+    )?;
+    conn.execute(
+        "INSERT INTO store_meta(key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![MESSAGE_COUNT_TRIGGER_META, MESSAGE_COUNT_TRIGGER_REV],
+    )?;
+    log::info!(
+        "conversation_store: message_count triggers installed rev={MESSAGE_COUNT_TRIGGER_REV}"
+    );
+    Ok(())
+}
+
+fn message_count_triggers_exist(conn: &Connection) -> Result<bool> {
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master
+          WHERE type = 'trigger'
+            AND name IN ('messages_count_ai', 'messages_count_ad')",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(n == 2)
 }
 
 fn create_fts_table(conn: &Connection) -> Result<()> {

@@ -2863,4 +2863,243 @@ mod tests {
             );
         }
     }
+
+    // ---- `conversations.message_count`: trigger-maintained column ----------
+
+    fn stored_count(store: &ConversationStore, conversation_id: &str) -> i64 {
+        let conn = store.db.conn.lock();
+        conn.query_row(
+            "SELECT message_count FROM conversations WHERE id = ?1",
+            params![conversation_id],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    fn real_count(store: &ConversationStore, conversation_id: &str) -> i64 {
+        let conn = store.db.conn.lock();
+        conn.query_row(
+            "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
+            params![conversation_id],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    /// The whole point of the change: the column and `COUNT(*)` never disagree.
+    fn assert_count_invariant(store: &ConversationStore, conversation_id: &str, expected: i64) {
+        assert_eq!(
+            real_count(store, conversation_id),
+            expected,
+            "COUNT(*) for {conversation_id}"
+        );
+        assert_eq!(
+            stored_count(store, conversation_id),
+            expected,
+            "message_count column for {conversation_id}"
+        );
+    }
+
+    fn delete_message(store: &ConversationStore, conversation_id: &str, message_id: &str) {
+        let conn = store.db.conn.lock();
+        conn.execute(
+            "DELETE FROM messages WHERE conversation_id = ?1 AND message_id = ?2",
+            params![conversation_id, message_id],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn message_count_column_tracks_insert_upsert_and_delete() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let conv = sample_conv("c-count", "T", "hello");
+        store.save_all(&[conv]).unwrap();
+        assert_count_invariant(&store, "c-count", 2);
+
+        // ① a genuinely new row counts once.
+        let extra = msg("m3", Role::User, "third", 4);
+        store
+            .append_missing_messages("c-count", &[extra.clone()])
+            .unwrap();
+        assert_count_invariant(&store, "c-count", 3);
+
+        // ② upserting an existing id (ON CONFLICT DO UPDATE) must not count again.
+        let mut edited = extra.clone();
+        edited.content = "third (edited)".into();
+        store
+            .upsert_message_no_refresh("c-count", &edited)
+            .unwrap();
+        assert_count_invariant(&store, "c-count", 3);
+        store
+            .append_missing_messages("c-count", &[edited])
+            .unwrap();
+        assert_count_invariant(&store, "c-count", 3);
+
+        // In-place updates (position / flags) never move the row count.
+        {
+            let conn = store.db.conn.lock();
+            conn.execute(
+                "UPDATE messages SET position = position + 10, context_included = 0
+                  WHERE conversation_id = ?1",
+                params!["c-count"],
+            )
+            .unwrap();
+        }
+        assert_count_invariant(&store, "c-count", 3);
+
+        // ③ deleting one row decrements exactly once.
+        delete_message(&store, "c-count", "m3");
+        assert_count_invariant(&store, "c-count", 2);
+
+        // ④ deleting the whole transcript lands back on zero, never negative.
+        {
+            let conn = store.db.conn.lock();
+            conn.execute(
+                "DELETE FROM messages WHERE conversation_id = ?1",
+                params!["c-count"],
+            )
+            .unwrap();
+        }
+        assert_count_invariant(&store, "c-count", 0);
+    }
+
+    #[test]
+    fn message_count_column_counts_scoped_sub_agent_rows() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let conv = sample_conv("c-scope", "T", "hello");
+        store.save_all(&[conv]).unwrap();
+        assert_count_invariant(&store, "c-scope", 2);
+
+        // Scoped sub-agent rows are part of the transcript, so they must be in
+        // the count (the old COUNT(*) counted them too).
+        let scoped = msg("scoped-1", Role::Assistant, "sub agent work", 5);
+        let payload = scoped.to_store_payload_json().unwrap();
+        {
+            let conn = store.db.conn.lock();
+            conn.execute(
+                "INSERT INTO messages (
+                   conversation_id, message_id, role, content, payload, created_at_ms, position,
+                   is_system_generated, context_included, is_scoped
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0, 1)",
+                params!["c-scope", "scoped-1", "assistant", "sub agent work", payload, 5i64, 99i64],
+            )
+            .unwrap();
+        }
+        assert_count_invariant(&store, "c-scope", 3);
+        assert_eq!(store.verify_message_count("c-scope").unwrap(), 3);
+    }
+
+    #[test]
+    fn message_count_column_survives_full_replace() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let conv = sample_conv("c-repl", "T", "hello");
+        store.save_all(&[conv.clone()]).unwrap();
+        assert_count_invariant(&store, "c-repl", 2);
+
+        // P2 full replace: DELETE all rows + INSERT the shorter list. The manual
+        // `message_count` write that used to sit in `upsert_conversation` is gone,
+        // so the triggers have to land on the new length.
+        let mut shrunk = conv.clone();
+        shrunk.messages.truncate(1);
+        shrunk.updated_at += 1;
+        store.save_all(&[shrunk]).unwrap();
+        assert_count_invariant(&store, "c-repl", 1);
+
+        // And back up again.
+        let mut grown = conv.clone();
+        grown.updated_at += 2;
+        store.save_all(&[grown]).unwrap();
+        assert_count_invariant(&store, "c-repl", 2);
+    }
+
+    #[test]
+    fn message_count_backfill_repairs_drift_and_is_idempotent() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let a = sample_conv("c-bf", "T", "hello");
+        let b = sample_conv("c-bf2", "T2", "hi");
+        store.save_all(&[a, b]).unwrap();
+        assert_count_invariant(&store, "c-bf", 2);
+
+        // Simulate a database upgraded from the old build: column stale.
+        {
+            let conn = store.db.conn.lock();
+            conn.execute("UPDATE conversations SET message_count = 0", [])
+                .unwrap();
+        }
+        assert_eq!(stored_count(&store, "c-bf"), 0);
+        assert_eq!(real_count(&store, "c-bf"), 2);
+
+        assert_eq!(store.backfill_message_counts_once().unwrap(), 2);
+        assert_count_invariant(&store, "c-bf", 2);
+        assert_count_invariant(&store, "c-bf2", 2);
+
+        // Idempotent: flagged, so the second run writes nothing.
+        assert_eq!(store.backfill_message_counts_once().unwrap(), 0);
+        assert_count_invariant(&store, "c-bf", 2);
+
+        // The single-conversation repair channel still works after the flag.
+        {
+            let conn = store.db.conn.lock();
+            conn.execute(
+                "UPDATE conversations SET message_count = 99 WHERE id = 'c-bf'",
+                [],
+            )
+            .unwrap();
+        }
+        assert_eq!(store.repair_message_count("c-bf").unwrap(), 2);
+        assert_count_invariant(&store, "c-bf", 2);
+    }
+
+    #[test]
+    fn message_count_drift_without_triggers_is_detected_and_recovered() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("conversations.db");
+        let store = ConversationStore::open(path.clone()).unwrap();
+        let conv = sample_conv("c-noT", "T", "hello");
+        store.save_all(&[conv]).unwrap();
+        assert_count_invariant(&store, "c-noT", 2);
+
+        // Out-of-band surgery: the triggers disappear, so a new row drifts.
+        {
+            let conn = store.db.conn.lock();
+            conn.execute_batch("DROP TRIGGER messages_count_ai; DROP TRIGGER messages_count_ad;")
+                .unwrap();
+        }
+        store
+            .append_missing_messages("c-noT", &[msg("m3", Role::User, "third", 4)])
+            .unwrap();
+        assert_eq!(real_count(&store, "c-noT"), 3);
+        assert_eq!(stored_count(&store, "c-noT"), 2);
+
+        // Not silently wrong: the COUNT(*) channel still reports the truth, and
+        // the repair path converges the column back.
+        assert_eq!(store.verify_message_count("c-noT").unwrap(), 3);
+        assert_eq!(store.repair_message_count("c-noT").unwrap(), 3);
+        assert_count_invariant(&store, "c-noT", 3);
+
+        // Reopening reinstalls the missing triggers, so the drift cannot persist
+        // across a restart.
+        drop(store);
+        let reopened = ConversationStore::open(path).unwrap();
+        let triggers: i64 = {
+            let conn = reopened.db.conn.lock();
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                  WHERE type = 'trigger'
+                    AND name IN ('messages_count_ai', 'messages_count_ad')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(triggers, 2, "reopen must reinstall the count triggers");
+        reopened
+            .append_missing_messages("c-noT", &[msg("m4", Role::User, "fourth", 5)])
+            .unwrap();
+        assert_count_invariant(&reopened, "c-noT", 4);
+    }
 }

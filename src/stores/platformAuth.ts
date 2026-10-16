@@ -6,6 +6,7 @@ import type { AuthMode } from '../lib/api'
 import {
   loginRequiredMessage,
   mapLoginGateError,
+  needsSignInBeforeChat,
   type LoginRequiredPurpose
 } from '../lib/platformAuthMessages'
 import { setTurnExpandStorageScope } from '../lib/turnExpandState'
@@ -13,7 +14,7 @@ import { isTauriRuntime } from '../lib/runtime'
 import { useSettingsStore } from './settings'
 
 export type { LoginRequiredPurpose }
-export { loginRequiredMessage, mapLoginGateError }
+export { loginRequiredMessage, mapLoginGateError, needsSignInBeforeChat }
 
 export interface PlatformSessionView {
   logged_in: boolean
@@ -197,6 +198,14 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
 
   const isPlatformAdmin = computed(() => session.value.isPlatformAdmin === true)
   const isStandalone = computed(() => authMode.value === 'standalone')
+  /** Browser standalone must sign in before settings load. Desktop standalone does not. */
+  const needsSignIn = computed(() =>
+    needsSignInBeforeChat({
+      loggedIn: session.value.logged_in,
+      isStandalone: isStandalone.value,
+      isTauri: isTauriRuntime()
+    })
+  )
   const tokenQuotaExhausted = computed(
     () => session.value.logged_in && session.value.tokenQuotaExhausted === true
   )
@@ -431,6 +440,7 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     authMode,
     isStandalone,
     isPlatformAdmin,
+    needsSignIn,
     tokenQuotaExhausted,
     load,
     loadAuthMode,

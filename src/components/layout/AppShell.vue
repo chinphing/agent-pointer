@@ -95,7 +95,10 @@ const isAppAdmin = computed(
 )
 
 provide(OpenSettingsKey, (section?: string) => {
-  if (!isAppAdmin.value) return
+  if (!isAppAdmin.value) {
+    console.warn('[shell] settings stayed closed: sign in before the settings view can load')
+    return
+  }
   emit('open-settings', section)
 })
 

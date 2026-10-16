@@ -106,7 +106,7 @@ npm install && ./scripts/quick-deploy.sh start standalone-server --runtime bin -
 npm install && scripts\quick-deploy.bat start standalone-server --runtime bin --build
 ```
 
-页面在 `http://127.0.0.1:8787/`。第一次启动把本地账密写到 `.quick-deploy/bin/standalone-server/standalone-admin.env`。
+页面在 `http://127.0.0.1:8787/`。第一次启动把本地账密写到 `.quick-deploy/bin/standalone-server/standalone-admin.env`。用这份账密登录后，到 **设置 → 模型配置** 填写 API Key。
 
 2. 编译生成安装包
 

@@ -117,9 +117,7 @@ const showFooterComposer = computed(() =>
   )
 )
 // Standalone installs (no control plane) chat with local model keys — no login.
-const needsPlatformLogin = computed(
-  () => !platformAuth.isStandalone && !platformAuth.session.logged_in
-)
+const needsPlatformLogin = computed(() => platformAuth.needsSignIn)
 const experienceSectionExpanded = ref(false)
 /** Dev-only render perf overlay — off unless toggled (see `lib/renderPerf.ts`). */
 const perfHudOn = useRenderPerfEnabled()

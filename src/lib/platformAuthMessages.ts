@@ -1,5 +1,17 @@
 import { t } from '../i18n'
 
+/**
+ * Chat needs a sign-in before settings and API keys are available.
+ * Desktop standalone has no account. Browser standalone still uses the local account.
+ */
+export function needsSignInBeforeChat(input: {
+  loggedIn: boolean
+  isStandalone: boolean
+  isTauri: boolean
+}): boolean {
+  return !input.loggedIn && !(input.isStandalone && input.isTauri)
+}
+
 /** User-facing login gate copy (Composer / send / cloud). */
 export type LoginRequiredPurpose = 'default' | 'attachment' | 'cloud'
 

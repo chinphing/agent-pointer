@@ -106,7 +106,7 @@ npm install && ./scripts/quick-deploy.sh start standalone-server --runtime bin -
 npm install && scripts\quick-deploy.bat start standalone-server --runtime bin --build
 ```
 
-The page is at `http://127.0.0.1:8787/`. The first start writes the local account to `.quick-deploy/bin/standalone-server/standalone-admin.env`.
+The page is at `http://127.0.0.1:8787/`. The first start writes the local account to `.quick-deploy/bin/standalone-server/standalone-admin.env`. Sign in with that account, then fill in the API key under **Settings → Models**.
 
 2. Build an installer
 

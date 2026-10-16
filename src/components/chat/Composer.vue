@@ -95,9 +95,7 @@ const { composerPrefill, composerText, composerAttachments, generating, currentO
 
 const tokenQuotaBlocked = computed(() => platformAuth.tokenQuotaExhausted)
 // Standalone installs (no control plane) chat with local model keys — no login.
-const needsPlatformLogin = computed(
-  () => !platformAuth.isStandalone && !platformAuth.session.logged_in
-)
+const needsPlatformLogin = computed(() => platformAuth.needsSignIn)
 // A turn resolves its provider from the selected agent + tier, so a missing key on
 // the merged default provider must not block the composer: any configured key will do.
 const hasAnyKey = computed(() => hasAnyProviderKey(settings.settings))

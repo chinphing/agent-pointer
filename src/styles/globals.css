@@ -969,6 +969,24 @@ html.light .token-keyword {
   word-break: break-word;
 }
 
+/* KaTeX formulas from `$…$` / `$$…$$` (see lib/markdownMath.ts).
+   KaTeX paints with currentColor, so the formula follows --foreground. */
+.md-body .md-math {
+  font-size: 1em;
+  color: inherit;
+}
+.md-body .md-math--block {
+  display: block;
+  margin: 0.75em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.md-body .md-math--block .katex-display {
+  margin: 0;
+}
+/* KaTeX keeps `white-space: nowrap` inside formulas; the block wrapper above
+   scrolls, so a wide formula never stretches the bubble. */
+
 /* SVG / Mermaid diagram hosts from ```svg / ```mermaid fences */
 .md-body .md-svg,
 .md-body .md-mermaid {

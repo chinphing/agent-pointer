@@ -14,6 +14,7 @@ import {
   STREAMING_MERMAID_HOST_HTML,
   STREAMING_MERMAID_STUB,
 } from './markdownMermaid'
+import { mathExtensions } from './markdownMath'
 import {
   encodeSvgConfigAttr,
   isSvgFenceLang,
@@ -536,6 +537,9 @@ marked.use({
     },
   },
 })
+
+// KaTeX math: inline `$…$` and display `$$…$$` (see `lib/markdownMath.ts`).
+marked.use({ extensions: mathExtensions })
 
 export type ParseMarkdownOptions = {
   /**

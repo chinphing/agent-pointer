@@ -53,4 +53,5 @@
 ## 实现
 
 - `src/components/chat/MessageList.vue`
+  - **布局契约（勿改）**：scroller 是 flex column，transcript wrapper 用 `flex: 0 0 auto`（即 `flex-none`）吃自由空间；**不要**给 wrapper 加百分比 `min-height`（如 `min-h-full`）——百分比高度是「scroller 尺寸变化 → transcript 子树失效 → 每次按键重排整棵子树」的唯一机制（`MessageList.transcriptFlexSpace.test.ts` 锁住这条）。也**不要**加 `margin-top:auto`，那会把短对话顶到输入框上方（见 §5）。
 - `src/lib/messageListScrollFollow.ts` — `nextFollowOutputAfterScroll`、视口变矮补偿与 totalSize 贴底抑制、程序化滚动 suppress 窗口

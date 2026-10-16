@@ -42,7 +42,7 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
     defaultId: 'deepseek',
     defaultName: 'DeepSeek',
     defaultBaseUrl: 'https://api.deepseek.com/v1',
-    defaultModels: ['deepseek-v4-flash', 'deepseek-v4-pro']
+    defaultModels: ['deepseek-v4-pro', 'deepseek-flash']
   },
   {
     id: 'qwen',
@@ -51,7 +51,7 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
     defaultId: 'qwen',
     defaultName: 'Qwen',
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    defaultModels: ['qwen3.5-plus', 'qwen3.5-flash']
+    defaultModels: ['qwen3.8-max', 'qwen3.8-omni-flash', 'qwen3.8-flash', 'qwen3.8-27b']
   },
   {
     id: 'mimo',
@@ -60,7 +60,7 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
     defaultId: 'mimo',
     defaultName: 'MiMo',
     defaultBaseUrl: 'https://api.xiaomimimo.com/v1',
-    defaultModels: ['mimo-v2.6-pro']
+    defaultModels: ['mimo-v2.6-pro', 'mimo-v2.6-flash', 'mimo-v2.6-pro-ultraspeed']
   },
   {
     id: 'kimi',
@@ -69,7 +69,7 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
     defaultId: 'kimi',
     defaultName: 'Kimi',
     defaultBaseUrl: 'https://api.moonshot.cn/v1',
-    defaultModels: ['kimi-k3']
+    defaultModels: ['kimi-k3', 'kimi-k2.7-code', 'kimi-k2.7-code-highspeed', 'kimi-k2.6']
   },
   {
     id: 'zhipu',
@@ -78,7 +78,7 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
     defaultId: 'zhipu',
     defaultName: 'GLM',
     defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    defaultModels: ['glm-5.2']
+    defaultModels: ['glm-5.3', 'glm-5.3-flash', 'glm-5.3-flashx', 'glm-5.2']
   },
   {
     id: 'openrouter',

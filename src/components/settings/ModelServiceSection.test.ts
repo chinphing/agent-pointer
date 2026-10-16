@@ -222,7 +222,7 @@ describe('ModelServiceSection', () => {
     expect(dialog.textContent).toContain('其他')
     expect(dialog.textContent).not.toContain('Qwen')
     expect(dialog.textContent).toContain('https://api.deepseek.com/v1')
-    expect(dialog.textContent).toContain('deepseek-v4-flash')
+    expect(dialog.textContent).toContain('deepseek-flash')
     expect(dialog.textContent).not.toContain('模型参数')
     expect(dialog.querySelector('#provider-api-key')).toBeTruthy()
 

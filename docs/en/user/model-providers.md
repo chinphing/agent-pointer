@@ -4,7 +4,7 @@ English | [简体中文](../../zh-CN/user/model-providers.md)
 
 ## Custom service
 
-Open **Settings → Models → Custom services → Add service**, fill in the Base URL and API Key, and click **Test connection**. The fields are under "Using your own models: add a custom service" below.
+Open **Settings → Models → Custom services → Add**. Pick DeepSeek, Qwen, MiMo, Kimi, or GLM, then enter the API key. The URL and models are already filled in.
 
 An install from the website has to sign in first. After signing in, the platform delivers a model and you can skip this. Your own Key does not replace that sign-in.
 
@@ -32,20 +32,17 @@ Entries marked **Platform default** are the providers currently in effect.
 
 ## Using your own models: add a custom service
 
-**Settings → Models → Custom services → Add service**
+**Settings → Models → Custom services → Add**
 
-| Field | Description |
+| What you fill in | Description |
 | --- | --- |
-| **Service type** | Determines the default parameters and protocol details (the same family as the built-in Qwen / DeepSeek) |
-| **Service ID** | Unique on this machine. A duplicate shows "Service ID already exists; choose another" |
-| **Service name** | The name shown in the list; anything you like |
-| **API URL** | The OpenAI-compatible base URL. Requests go to `{API URL}/chat/completions` |
-| **API Key** | The key the provider gave you |
-| **Models** | The model names you can use under this service |
+| **Service** | DeepSeek, Qwen, MiMo, Kimi, or GLM. OpenRouter and Other cover any other endpoint |
+| **API Key** | The key from the provider. This is the field you normally change |
+| **Advanced** | Service ID, name, API URL, model list, and parameters. Leave these as they are |
 
-**Service ID, name and API URL are required**; you cannot save if one of them is missing.
+The URL is an OpenAI-compatible base URL. Requests go to `{API URL}/chat/completions`. Choosing a service fills in the URL and the model list.
 
-After filling them in, click **Test connection** to confirm it works, then save.
+**Service ID, name, and API URL are required.** A preset fills them in. Other leaves them blank, and Advanced opens so you can fill them in. Saving stays disabled until they are set.
 
 ## Two layers of parameters: provider defaults + per-model
 
@@ -56,7 +53,7 @@ Provider default parameters      ← this layer is the fallback
   └─ Per-model parameters        ← optional; overrides the layer above
 ```
 
-- **Provider level**: the default parameters and capabilities set while editing the service
+- **Provider level**: edit the service, open Advanced, and set the default parameters and capabilities
 - **Model level**: in the model list, click **Configure** on a **single model** to set its parameters and capabilities separately; **Restore default** goes back to "follow provider default"
 
 **Configuring one layer is enough.** Use the model level only when a particular model needs different parameters.
@@ -106,7 +103,7 @@ Web search tier models are configured separately (**Agents → More tools**).
 
 There is no usable model service. Add a custom service as described above, or sign in to a platform account.
 
-**Test connection fails**
+**A request fails**
 
 - Check the API URL: it must be the **base URL**, without `/chat/completions` (the app appends that itself)
 - Check the Key for stray spaces

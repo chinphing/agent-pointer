@@ -115,10 +115,11 @@
 
 ## 新增自定义服务
 
-- 添加服务只列出自定义协议模板（OpenAI 兼容 / OpenRouter / Kimi / 智谱）。若某模板的默认 id 已出现在当前 `source=platform` 列表中，添加列表不再给出该项（避免自建一份平台目录已有的服务）。
-- 编辑已有服务时，服务类型可由 `id` / `baseUrl` 自动识别（如填 DashScope 地址会切到千问协议面板）；连官网时平台注入服务（`source=platform`）只读，不可编辑删除。**Standalone** 下全部按自定义服务编辑、删除，保存写入用户层。
-- 配置流程与自定义服务相同：服务商级 `RuntimeParamsForm` → 模型列表 → 各模型「同上 / 定制」→ 定制弹窗内同一套 `RuntimeParamsForm`。
-- 预设与识别逻辑在 `src/lib/providerParams.ts`（`PROVIDER_TEMPLATE_OPTIONS`、`detectProviderTemplateId`）。
+- 添加列表按这个顺序给出预设：DeepSeek、Qwen、MiMo、Kimi、GLM、OpenRouter、「其他」。默认 ID 已被占用（含平台注入）的预设不再出现，避免和已有服务撞 ID。
+- 弹窗主界面是服务选择和 API Key。预设填上地址和模型列表，并显示在 Key 下面。服务 ID、名称、地址、模型列表和 `RuntimeParamsForm` 放在「高级」里，默认收起。「其他」没有预设 ID，打开时展开「高级」。
+- 编辑已有服务时，服务类型可由 `id` / `baseUrl` 自动识别（如填 DashScope 地址会切到千问）；连官网时平台注入服务（`source=platform`）只读，不可编辑删除。**Standalone** 下全部按自定义服务编辑、删除，保存写入用户层。
+- 高级里的配置流程：服务商级 `RuntimeParamsForm` → 模型列表 → 各模型「配置」→ 弹窗内同一套 `RuntimeParamsForm`。
+- 预设与识别逻辑在 `src/lib/providerParams.ts`（`PROVIDER_TEMPLATE_OPTIONS`、`detectProviderTemplateId`、`firstPresetTemplate`）。界面层次见 [`../ui/model-service-form.md`](../ui/model-service-form.md)。
 
 ## 模型「同上」与 `modelConfigs`
 

@@ -61,7 +61,21 @@ vi.mock('../../composables/useRuntimeParams', () => ({
   useRuntimeParams: () => ({
     params: ref({}),
     patch: vi.fn(),
-    reset: vi.fn()
+    reset: vi.fn(),
+    extraBodyJson: () => '',
+    setExtraBodyJson: () => ({ ok: true as const }),
+    maxTokens: () => 64_000,
+    setMaxTokens: vi.fn(),
+    contextBudgetTokens: () => 262_144,
+    setContextBudgetTokens: vi.fn(),
+    thinkingIntensity: () => '',
+    setThinkingIntensity: vi.fn(),
+    temperature: () => 0.3,
+    setTemperature: vi.fn(),
+    topP: () => 1,
+    setTopP: vi.fn(),
+    reasoningOn: () => false,
+    setReasoningOn: vi.fn()
   })
 }))
 
@@ -188,5 +202,49 @@ describe('ModelServiceSection', () => {
     expect(host.querySelector('[aria-label="删除 千问"]')).toBeTruthy()
     expect(host.querySelector('[aria-label="编辑 千问"]')).toBeTruthy()
     expect(host.querySelector('[aria-label="编辑 本地模型"]')).toBeTruthy()
+  })
+
+  it('leads with the API key and keeps preset URL and models out of the advanced fields', async () => {
+    const host = mountSection()
+    await settle()
+
+    ;[...host.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent?.includes('添加服务'))!
+      .click()
+    await settle()
+
+    const dialog = document.body
+    expect(dialog.textContent).toContain('填入 API Key。地址和模型已预设。')
+    expect(dialog.textContent).toContain('DeepSeek')
+    expect(dialog.textContent).toContain('MiMo')
+    expect(dialog.textContent).toContain('Kimi')
+    expect(dialog.textContent).toContain('GLM')
+    expect(dialog.textContent).toContain('其他')
+    expect(dialog.textContent).not.toContain('Qwen')
+    expect(dialog.textContent).toContain('https://api.deepseek.com/v1')
+    expect(dialog.textContent).toContain('deepseek-v4-flash')
+    expect(dialog.textContent).not.toContain('模型参数')
+    expect(dialog.querySelector('#provider-api-key')).toBeTruthy()
+
+    ;[...dialog.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent?.trim() === 'MiMo')!
+      .click()
+    await settle()
+
+    expect(dialog.textContent).toContain('https://api.xiaomimimo.com/v1')
+    expect(dialog.textContent).toContain('mimo-v2.6-pro')
+    expect(dialog.textContent).not.toContain('服务 ID')
+
+    ;[...dialog.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent?.includes('高级'))!
+      .click()
+    await settle()
+
+    expect(dialog.textContent).toContain('服务 ID')
+    expect(dialog.textContent).toContain('模型参数')
+    const idInput = [...dialog.querySelectorAll('input')].find(
+      input => (input as HTMLInputElement).value === 'mimo'
+    ) as HTMLInputElement
+    expect(idInput.value).toBe('mimo')
   })
 })

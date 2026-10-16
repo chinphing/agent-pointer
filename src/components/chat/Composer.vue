@@ -74,10 +74,22 @@ import MacosComputerPermissionsModal from './MacosComputerPermissionsModal.vue'
 import { OpenSettingsKey } from '../../lib/settingsDialogKey'
 import { resolveComposerPlaceholder } from '../../lib/webBranding'
 import { randomUuid } from '../../lib/randomUuid'
-
-const COMPOSER_TEXTAREA_MAX_HEIGHT_PX = 250
-/** ≈ one line with py-2 + leading-5; must not stay on :style during measure. */
-const COMPOSER_TEXTAREA_MIN_HEIGHT_PX = 36
+import {
+  COMPOSER_TEXTAREA_MAX_HEIGHT_PX,
+  COMPOSER_TEXTAREA_MIN_HEIGHT_PX,
+  createComposerTextareaResizeState,
+  resizeComposerTextarea
+} from '../../lib/composerTextareaResize'
+import {
+  PERF_ACTIVITY_COMPOSER_INPUT,
+  PERF_ACTIVITY_COMPOSER_RESIZE,
+  PERF_MS_COMPOSER_INPUT,
+  PERF_MS_COMPOSER_RESIZE,
+  beginPerfActivity,
+  endPerfActivity,
+  record,
+  renderPerfEnabled
+} from '../../lib/renderPerf'
 
 const props = withDefaults(
   defineProps<{
@@ -1376,8 +1388,30 @@ function selectWorkerAgent(agent: AgentDef) {
 
 let composerResizeRaf: number | null = null
 let textareaResizeObserver: ResizeObserver | null = null
-/** Last height we wrote on the textarea in the non-field-sizing fallback. */
-let composerTextareaHeight = COMPOSER_TEXTAREA_MIN_HEIGHT_PX
+/** Inline style values the fallback auto-grow has written on the textarea. */
+let composerTextareaResize = createComposerTextareaResizeState()
+
+/**
+ * Textarea `@input` handler. It is a named function rather than an inline
+ * `autoResize()` call so the render-perf HUD can mark the whole keystroke pass:
+ * `composerInput` covers the synchronous part of the handler (up to and including
+ * the `autoResize()` call), and the frame it schedules is marked `composerResize`
+ * inside `autoResize` itself. Both markers are dev-only; while the HUD is off this
+ * is one boolean read and the call.
+ */
+function onComposerInput() {
+  const perf = renderPerfEnabled()
+  const startedAt = perf ? performance.now() : 0
+  if (perf) beginPerfActivity(PERF_ACTIVITY_COMPOSER_INPUT)
+  try {
+    autoResize()
+  } finally {
+    if (perf) {
+      endPerfActivity(PERF_ACTIVITY_COMPOSER_INPUT)
+      record(PERF_MS_COMPOSER_INPUT, performance.now() - startedAt)
+    }
+  }
+}
 
 /**
  * Grow/shrink the textarea with content up to COMPOSER_TEXTAREA_MAX_HEIGHT_PX.
@@ -1388,6 +1422,15 @@ let composerTextareaHeight = COMPOSER_TEXTAREA_MIN_HEIGHT_PX
  *
  * `force` bypasses the single-line fast path (used when the textarea width
  * changes and soft-wraps may have appeared).
+ *
+ * The measure/write decisions live in `lib/composerTextareaResize` (unit-tested);
+ * every style write there is guarded so a keystroke that leaves the height
+ * unchanged never marks the textarea style-dirty.
+ *
+ * The frame body is wrapped in the `composerResize` marker (dev-only, a no-op
+ * while the HUD is off) — the pass that measures the textarea is the one that can
+ * force layout mid-stream, so a frame gap it causes must name it instead of
+ * reading `@ idle`.
  */
 function autoResize(force = false) {
   if (composerResizeRaf != null) cancelAnimationFrame(composerResizeRaf)
@@ -1395,50 +1438,51 @@ function autoResize(force = false) {
     composerResizeRaf = null
     const el = textareaRef.value
     if (!el) return
-
-    const max = COMPOSER_TEXTAREA_MAX_HEIGHT_PX
-    const min = COMPOSER_TEXTAREA_MIN_HEIGHT_PX
-
-    // Native path (Chromium / recent WebKit): let the engine size to content.
-    // CSS already declares field-sizing: content (globals.css), so only apply
-    // the inline styles once. Rewriting identical styles on EVERY keystroke
-    // marks the textarea style-dirty and forces a layout pass, which can flush
-    // pending virtualizer row measurements mid-stream → visible list jump.
-    if (typeof CSS !== 'undefined' && CSS.supports?.('field-sizing', 'content')) {
-      if (el.dataset.fieldSizingApplied !== '1') {
-        el.style.setProperty('field-sizing', 'content')
-        el.style.height = 'auto'
-        el.style.minHeight = `${min}px`
-        el.style.maxHeight = `${max}px`
-        el.style.overflowY = 'auto'
-        el.dataset.fieldSizingApplied = '1'
+    const perf = renderPerfEnabled()
+    const startedAt = perf ? performance.now() : 0
+    if (perf) beginPerfActivity(PERF_ACTIVITY_COMPOSER_RESIZE)
+    try {
+      resizeTextareaForContent(el, force)
+    } finally {
+      if (perf) {
+        endPerfActivity(PERF_ACTIVITY_COMPOSER_RESIZE)
+        record(PERF_MS_COMPOSER_RESIZE, performance.now() - startedAt)
       }
-      return
     }
+  })
+}
 
-    el.style.setProperty('field-sizing', '')
-    // Fast path: single-line text that never left the min height does NOT need a
-    // layout read. Reading scrollHeight/offsetHeight while the streaming list is
-    // mid-measure forces a synchronous reflow in the keystroke frame and flushes
-    // pending virtualizer row measurements. MessageList skips totalSize stick
-    // briefly after the composer shrinks the viewport, but the reflow still costs.
-    if (!force && !el.value.includes('\n') && composerTextareaHeight === min) {
-      return
+/** The measure/write pass of one `autoResize` frame (see `autoResize`). */
+function resizeTextareaForContent(el: HTMLTextAreaElement, force: boolean) {
+  const max = COMPOSER_TEXTAREA_MAX_HEIGHT_PX
+  const min = COMPOSER_TEXTAREA_MIN_HEIGHT_PX
+
+  // Native path (Chromium / recent WebKit): let the engine size to content.
+  // CSS already declares field-sizing: content (globals.css), so only apply
+  // the inline styles once. Rewriting identical styles on EVERY keystroke
+  // marks the textarea style-dirty and forces a layout pass, which can flush
+  // pending virtualizer row measurements mid-stream → visible list jump.
+  if (typeof CSS !== 'undefined' && CSS.supports?.('field-sizing', 'content')) {
+    if (el.dataset.fieldSizingApplied !== '1') {
+      el.style.setProperty('field-sizing', 'content')
+      el.style.height = 'auto'
+      el.style.minHeight = `${min}px`
+      el.style.maxHeight = `${max}px`
+      el.style.overflowY = 'auto'
+      el.dataset.fieldSizingApplied = '1'
     }
-    el.style.overflowY = 'hidden'
-    // Classic height:0 measurement is the only reliable way to read the real
-    // content height (scrollHeight is clamped to clientHeight when the box is
-    // taller than the content, so direct reads cannot shrink). We only pay the
-    // reflow when the height actually needs to change.
-    el.style.minHeight = '0'
-    el.style.height = '0'
-    void el.offsetHeight
-    const content = el.scrollHeight
-    const nextHeight = Math.min(Math.max(content, min), max)
-    el.style.minHeight = `${min}px`
-    el.style.height = `${nextHeight}px`
-    el.style.overflowY = content > max ? 'auto' : 'hidden'
-    composerTextareaHeight = nextHeight
+    return
+  }
+
+  // Only clear the native inline styles if this element ever got them — the
+  // fallback path runs on every keystroke and must not write styles it does
+  // not need to change.
+  if (el.dataset.fieldSizingApplied === '1') {
+    el.style.setProperty('field-sizing', '')
+    delete el.dataset.fieldSizingApplied
+  }
+  composerTextareaResize = resizeComposerTextarea(el, composerTextareaResize, {
+    force
   })
 }
 
@@ -1652,7 +1696,7 @@ onUnmounted(() => {
             :placeholder="composerPlaceholder"
             :disabled="needsPlatformLogin || tokenQuotaBlocked"
             @keydown="onKeydown"
-            @input="autoResize()"
+            @input="onComposerInput()"
             @paste="onPasteAttachments"
             @compositionstart="composing = true"
             @compositionend="onCompositionEnd"

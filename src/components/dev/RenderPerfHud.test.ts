@@ -423,6 +423,36 @@ describe('RenderPerfHud copy to clipboard', () => {
   })
 })
 
+describe('RenderPerfHud JSON.parse meter rows', () => {
+  it('says so while nothing slow has been parsed yet', async () => {
+    setRenderPerfEnabled(true, { persist: false })
+    mountHud()
+
+    expect(hudText()).toContain('parse calls 0  total 0.0ms  max 0.0ms  chars 0  slow 0')
+    expect(hudText()).toContain('parse  (no JSON.parse call since the HUD opened)')
+  })
+
+  it('names the parse call site that stalled, as file:line', async () => {
+    // Every clock read advances 200 ms, so the parse measured here reads as slow
+    // and gets its stack captured. Called before the HUD mounts, so this call is
+    // the first slow sample the meter keeps.
+    let clock = 0
+    vi.mocked(performance.now).mockImplementation(() => (clock += 200))
+    setRenderPerfEnabled(true, { persist: false })
+    JSON.parse('{"a":1}')
+
+    mountHud()
+    await advanceTicks(1)
+
+    const text = hudText()
+    expect(text).toMatch(/parse calls \d+  total [\d.]+ms  max [\d.]+ms  chars [\d.km]+  slow \d+/)
+    // The row that answers "which JS path parsed this": this very test file.
+    expect(text).toMatch(/parse #\d+ [\d.]+ms 7 ch\s+\S*RenderPerfHud\.test\.ts:\d+/)
+    // The meter's own wrapper is never the interesting frame.
+    expect(text).not.toContain('jsonParseProbe')
+  })
+})
+
 describe('RenderPerfHud residency panel', () => {
   it('reports every cache, the retained text and the growth since open', async () => {
     setRenderPerfEnabled(true, { persist: false })

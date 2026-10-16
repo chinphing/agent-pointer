@@ -37,6 +37,7 @@ import {
   type MemoryStats
 } from '../../lib/memoryProbe'
 import { writeClipboardText, CLIPBOARD_FEEDBACK_MS } from '../../lib/clipboardText'
+import { formatJsonParseLines } from '../../lib/jsonParseProbe'
 import {
   EMPTY_RESIDENCY_CHAT,
   RESIDENCY_CACHES,
@@ -358,6 +359,11 @@ const bodyLines = computed<string[]>(() => {
       `${(s.peakMsPerSecond[PERF_MS_SCROLL_PASS] ?? 0).toFixed(1)}ms`,
       s.peakScrollPassActivity
     ),
+    // The `JSON.parse` meter (`lib/jsonParseProbe.ts`): a summary row plus one row
+    // per kept slow call, each ending in the `file:line` chain of the parse. These
+    // sit directly under the two attribution rows they explain — a stall that
+    // `sample` could only describe as `JSC::jsonProtoFuncParse` is named here.
+    ...formatJsonParseLines(s.jsonParse),
     `renders/s ${String(s.totalRendersPerSecond).padStart(4)}`
       + ` pk ${String(s.totalRendersPerSecondPeak).padStart(4)}  `
       + `vis rows ${String(s.gauges[PERF_GAUGE_VISIBLE_ROWS] ?? 0).padStart(3)}  `

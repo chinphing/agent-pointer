@@ -9,6 +9,14 @@ import {
 } from './subAgentStats'
 
 import { useConversationScopedStore } from './conversationScoped'
+import {
+  PERF_ACTIVITY_TOOL_ARG_FORMAT,
+  PERF_MS_TOOL_ARG_FORMAT,
+  beginPerfActivity,
+  endPerfActivity,
+  record,
+  renderPerfEnabled
+} from './renderPerf'
 
 export function isScopedSubMessage(msg: ChatMessage): boolean {
   return !!msg.anchorMessageId?.trim()
@@ -449,6 +457,26 @@ export function resolveStreamWriteMessage(
 }
 
 export function buildToolRawArgsFromMessages(messages: ChatMessage[]): string {
+  // Dev-only render-perf marker: this pass re-formats every tool call's arguments
+  // with `JSON.stringify(JSON.parse(args), null, 2)`, which is the heaviest
+  // `JSON.parse` call site on a long transcript. The marker names it in the HUD's
+  // frame-gap blame; `lib/jsonParseProbe.ts` names it from the parse side. While
+  // the HUD is off this is one boolean read and the body runs unchanged.
+  const perf = renderPerfEnabled()
+  const startedAt = perf ? performance.now() : 0
+  if (perf) beginPerfActivity(PERF_ACTIVITY_TOOL_ARG_FORMAT)
+  try {
+    return collectToolRawArgs(messages)
+  } finally {
+    if (perf) {
+      endPerfActivity(PERF_ACTIVITY_TOOL_ARG_FORMAT)
+      record(PERF_MS_TOOL_ARG_FORMAT, performance.now() - startedAt)
+    }
+  }
+}
+
+/** The body of `buildToolRawArgsFromMessages`, unmarked (see the marker there). */
+function collectToolRawArgs(messages: ChatMessage[]): string {
   const chunks: string[] = []
   for (const msg of messages.filter(m => m.role === 'assistant')) {
     for (const tc of msg.toolCalls ?? []) {

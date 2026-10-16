@@ -4,11 +4,14 @@ import { effectScope, type Ref } from 'vue'
 import { measureRenderedRowSlack } from './virtualRowSlack'
 import { MESSAGE_VIRTUAL_ROW_ESTIMATE } from './messageVirtualization'
 import {
+  PERF_ACTIVITY_COMPOSER_DRAFT_FLUSH,
+  PERF_ACTIVITY_COMPOSER_INPUT,
   PERF_ACTIVITY_LAYOUT_REBUILD,
   PERF_ACTIVITY_LOAD_OLDER,
   PERF_ACTIVITY_MEASURE_BATCH,
   PERF_ACTIVITY_STALE_MS,
   PERF_ACTIVITY_STICK_BOTTOM,
+  PERF_ACTIVITY_TOOL_ARG_FORMAT,
   PERF_FRAME_SUSPENSION_MS,
   PERF_GAUGE_VIRTUAL_BLANK,
   PERF_GAUGE_VIRTUAL_ESTIMATE,
@@ -25,11 +28,15 @@ import {
   PERF_GAUGE_VISIBLE_ROWS,
   PERF_HUD_SNAPSHOT_MS,
   PERF_HUD_STORAGE_KEY,
+  PERF_MS_COMPOSER_DRAFT_FLUSH,
+  PERF_MS_COMPOSER_INPUT,
+  PERF_MS_COMPOSER_RESIZE,
   PERF_MS_KEYS,
   PERF_MS_SCROLL_PASS,
   PERF_MS_SCROLL_PASS_READ,
   PERF_MS_SCROLL_PASS_WRITE,
   PERF_MS_STICK_BOTTOM,
+  PERF_MS_TOOL_ARG_FORMAT,
   beginPerfActivity,
   bump,
   currentPerfActivity,
@@ -1064,5 +1071,114 @@ describe('renderPerf virtualizer geometry gauges', () => {
     expect(renderPerfSnapshot(1000).gauges[PERF_GAUGE_VIRTUAL_TOTAL]).toBe(2)
     // Disposed means gone, not merely outvoted by the newer writer.
     expect(olderCalls).not.toHaveBeenCalled()
+  })
+})
+
+describe('renderPerf JSON.parse meter', () => {
+  /** Read before any test can enable the HUD — the untouched native function. */
+  const nativeParse = JSON.parse
+
+  it('leaves JSON.parse alone while the HUD is off', () => {
+    expect(JSON.parse).toBe(nativeParse)
+    JSON.parse('{"a":1}')
+    const snapshot = renderPerfSnapshot(1000)
+    expect(snapshot.jsonParse.calls).toBe(0)
+    expect(snapshot.jsonParse.totalChars).toBe(0)
+  })
+
+  it('installs the meter on enable and restores the native parse on disable', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    expect(JSON.parse).not.toBe(nativeParse)
+    expect(JSON.parse('{"a":1}')).toEqual({ a: 1 })
+    const enabled = renderPerfSnapshot(1000).jsonParse
+    expect(enabled.calls).toBe(1)
+    expect(enabled.totalChars).toBe(7)
+
+    setRenderPerfEnabled(false, { persist: false })
+    expect(JSON.parse).toBe(nativeParse)
+    // The toggle clears the meter with everything else, and the wrapper is gone.
+    expect(renderPerfSnapshot(1000).jsonParse.calls).toBe(0)
+  })
+
+  it('names the file:line of a slow parse in the snapshot the HUD prints', () => {
+    // Every clock read advances 200 ms, so each measured parse reads as slow: the
+    // assertion is on the *location*, not on a duration this test would have to
+    // fight the ambient clock (and the test runner's own `JSON.parse` calls) for.
+    let ticks = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => (ticks += 200))
+    setRenderPerfEnabled(true, { persist: false })
+
+    JSON.parse('{"a":1}')
+
+    const stats = renderPerfSnapshot(1000).jsonParse
+    expect(stats.calls).toBeGreaterThanOrEqual(1)
+    expect(stats.slowTotal).toBeGreaterThanOrEqual(1)
+    // The whole point: the HUD row carries a readable call site, not just a
+    // duration — and this parse is made from this very test file.
+    const ownCall = stats.slow.find(sample => /renderPerf\.test\.ts:\d+/.test(sample.frames[0] ?? ''))
+    expect(ownCall).toBeDefined()
+    expect(ownCall?.chars).toBe(7)
+    expect(ownCall?.frames.join(' ')).not.toContain('jsonParseProbe')
+  })
+
+  it('forwards the reviver and rethrows, exactly like the native call', () => {
+    setRenderPerfEnabled(true, { persist: false })
+    const reviver = (key: string, value: unknown) => (key === 'a' ? 2 : value)
+    expect(JSON.parse('{"a":1}', reviver)).toEqual({ a: 2 })
+    expect(() => JSON.parse('not json')).toThrow(SyntaxError)
+    const stats = renderPerfSnapshot(1000).jsonParse
+    expect(stats.calls).toBe(2)
+    expect(stats.failed).toBe(1)
+    expect(stats.slowTotal).toBe(0)
+  })
+
+  it('lists the composer key path keys for the HUD rows', () => {
+    for (const key of [
+      PERF_MS_COMPOSER_INPUT,
+      PERF_MS_COMPOSER_RESIZE,
+      PERF_MS_COMPOSER_DRAFT_FLUSH,
+      PERF_MS_TOOL_ARG_FORMAT
+    ]) {
+      expect(PERF_MS_KEYS).toContain(key)
+    }
+  })
+
+  it('blames a keystroke frame gap on the composer input activity', () => {
+    let clock = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    setRenderPerfEnabled(true, { persist: false })
+    expect(requestFrame).toHaveBeenCalledTimes(1)
+
+    rafCallback?.(0)
+    // A keystroke whose synchronous pass runs inside the stalled frame window.
+    clock = 100
+    beginPerfActivity(PERF_ACTIVITY_COMPOSER_INPUT)
+    clock = 130
+    endPerfActivity(PERF_ACTIVITY_COMPOSER_INPUT)
+    rafCallback?.(996)
+
+    const snapshot = renderPerfSnapshot(1000)
+    expect(snapshot.frameGapMaxMs).toBe(996)
+    expect(snapshot.frameGapMaxActivity).toBe(PERF_ACTIVITY_COMPOSER_INPUT)
+  })
+
+  it('blames the draft flush and the tool-arg formatting the same way', () => {
+    let clock = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    setRenderPerfEnabled(true, { persist: false })
+
+    rafCallback?.(0)
+    clock = 10
+    beginPerfActivity(PERF_ACTIVITY_COMPOSER_DRAFT_FLUSH)
+    clock = 20
+    endPerfActivity(PERF_ACTIVITY_COMPOSER_DRAFT_FLUSH)
+    clock = 20
+    beginPerfActivity(PERF_ACTIVITY_TOOL_ARG_FORMAT)
+    clock = 45
+    endPerfActivity(PERF_ACTIVITY_TOOL_ARG_FORMAT)
+    rafCallback?.(500)
+
+    // The window holds both markers; the one that held the most time wins.
+    expect(renderPerfSnapshot(1000).frameGapMaxActivity).toBe(PERF_ACTIVITY_TOOL_ARG_FORMAT)
   })
 })

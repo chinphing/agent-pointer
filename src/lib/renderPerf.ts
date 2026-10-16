@@ -1,5 +1,11 @@
 import { getCurrentScope, onScopeDispose, ref, type Ref } from 'vue'
 import type { MemoryStats } from './memoryProbe'
+import {
+  createJsonParseStats,
+  installJsonParseProbe,
+  resetJsonParseStats,
+  type JsonParseStats
+} from './jsonParseProbe'
 
 /**
  * Dev-only render performance instrumentation, surfaced by
@@ -104,6 +110,38 @@ export const PERF_MS_SCROLL_PASS_WRITE = 'ms:scrollPass:write'
  */
 export const PERF_MS_STICK_BOTTOM = 'ms:stickBottom'
 
+// --- composer keystroke path -------------------------------------------------
+
+/**
+ * The three synchronous passes one keystroke (or one backspace) runs through,
+ * each with an activity name (frame-gap blame) and an `ms:` key (per-second
+ * total, with its session peak):
+ *
+ * - `composerInput` — `Composer.vue`'s textarea `@input` handler, up to and
+ *   including the `autoResize()` call it makes;
+ * - `composerResize` — the deferred `requestAnimationFrame` body of
+ *   `autoResize`, where the textarea is measured and re-sized (the pass that
+ *   touches layout);
+ * - `composerDraftFlush` — the store's `flushActiveComposerDraft`, i.e. the
+ *   `setComposerDraft` write the keystroke ends in.
+ *
+ * They exist because the worst frame gap on a long transcript read `@ idle` with
+ * every `ms:` row at zero: the keystroke path carried no marker at all, so a
+ * stall it caused could not be blamed on it. `PERF_ACTIVITY_IDLE` is the absence
+ * of an answer, and these are the answer.
+ */
+export const PERF_MS_COMPOSER_INPUT = 'ms:composerInput'
+export const PERF_MS_COMPOSER_RESIZE = 'ms:composerResize'
+export const PERF_MS_COMPOSER_DRAFT_FLUSH = 'ms:composerDraftFlush'
+/**
+ * `subAgentMessages.buildToolRawArgsFromMessages` — the tool-argument
+ * re-formatting (`JSON.stringify(JSON.parse(args), null, 2)`) that runs once per
+ * tool call and per render of a sub-agent frame. It is the heaviest `JSON.parse`
+ * call site on a long transcript, so it gets a marker beside the parse meter
+ * (`lib/jsonParseProbe.ts`), which names the call site from the other side.
+ */
+export const PERF_MS_TOOL_ARG_FORMAT = 'ms:toolArgFormat'
+
 /** Accumulated milliseconds per second, keyed by `ms:<work>` (see `record`). */
 export const PERF_MS_KEYS = [
   'ms:extraScopedForWindow',
@@ -134,7 +172,11 @@ export const PERF_MS_KEYS = [
   'ms:buildTurnSpawnPlan',
   PERF_MS_SCROLL_PASS,
   PERF_MS_SCROLL_PASS_READ,
-  PERF_MS_SCROLL_PASS_WRITE
+  PERF_MS_SCROLL_PASS_WRITE,
+  PERF_MS_COMPOSER_INPUT,
+  PERF_MS_COMPOSER_RESIZE,
+  PERF_MS_COMPOSER_DRAFT_FLUSH,
+  PERF_MS_TOOL_ARG_FORMAT
 ] as const
 
 /** Per-second call count of `toolRunAssistantMessage` (fresh object per render). */
@@ -237,6 +279,16 @@ export const PERF_ACTIVITY_MARKDOWN_PARSE = 'markdownParse'
 export const PERF_ACTIVITY_MARKDOWN_PARSE_PREP = 'markdownParse:prep'
 export const PERF_ACTIVITY_MARKDOWN_PARSE_MARKED = 'markdownParse:marked'
 export const PERF_ACTIVITY_MARKDOWN_PARSE_WRAP = 'markdownParse:wrap'
+/**
+ * Composer keystroke path (see the `ms:` twins above). Marked as activities, not
+ * only as `ms:` totals, so the *next* frame gap on a keystroke reads
+ * `worst gap 996ms @ composerInput` instead of `@ idle`.
+ */
+export const PERF_ACTIVITY_COMPOSER_INPUT = 'composerInput'
+export const PERF_ACTIVITY_COMPOSER_RESIZE = 'composerResize'
+export const PERF_ACTIVITY_COMPOSER_DRAFT_FLUSH = 'composerDraftFlush'
+/** Tool-argument re-formatting in `subAgentMessages` (see `PERF_MS_TOOL_ARG_FORMAT`). */
+export const PERF_ACTIVITY_TOOL_ARG_FORMAT = 'toolArgFormat'
 /** Shown instead of an activity name when no marker covers the moment. */
 export const PERF_ACTIVITY_IDLE = 'idle'
 /**
@@ -323,6 +375,14 @@ export interface RenderPerfSnapshot {
    * HUD is off, or before the HUD installs its sampler.
    */
   memory: MemoryStats | null
+  /**
+   * `JSON.parse` meter (see `lib/jsonParseProbe.ts`): call count, summed and
+   * maximum duration, summed input characters, and the `file:line` stacks of the
+   * slowest calls. **Live object, mutated in place** by the installed wrapper —
+   * read it, do not hold it. All zero while the HUD is off, because the probe is
+   * disposed with the HUD and the native `JSON.parse` is restored.
+   */
+  jsonParse: JsonParseStats
 }
 
 /** Session cost per 1000 px of accumulated scroll distance (see `per1000Px`). */
@@ -371,6 +431,16 @@ let peakRendersPerVisibleRow = 0
 let sessionTotals = new Map<string, number>()
 /** Sum of `|ΔscrollTop|` reported by `recordScrollDistance` (see `per1000Px`). */
 let scrollDistancePx = 0
+
+/**
+ * `JSON.parse` meter state (`lib/jsonParseProbe.ts`) and the disposer of the
+ * installed wrapper. The object is created once and mutated in place, so the HUD
+ * can hold the very instance the snapshot hands it; the wrapper exists only
+ * between `startJsonParseProbe` and `stopJsonParseProbe`, i.e. only while the HUD
+ * is on.
+ */
+let jsonParseStats: JsonParseStats = createJsonParseStats()
+let jsonParseProbeDispose: (() => void) | null = null
 
 /**
  * Innermost-first stack of open activities, with parallel start times used only
@@ -703,6 +773,7 @@ export function resetPerf(): void {
   peakRendersPerVisibleRow = 0
   sessionTotals = new Map()
   scrollDistancePx = 0
+  resetJsonParseStats(jsonParseStats)
   activityStack.length = 0
   activityStartMs.length = 0
   activityCounts.clear()
@@ -986,7 +1057,11 @@ export function renderPerfSnapshot(nowOverride?: number): RenderPerfSnapshot {
     rendersPerVisibleRowPeak: peakRendersPerVisibleRow,
     scrollDistancePx,
     per1000Px,
-    memory: enabled && memorySampler ? memorySampler(t) : null
+    memory: enabled && memorySampler ? memorySampler(t) : null,
+    // Live object, not a copy: the wrapper mutates it and the HUD re-reads it on
+    // every snapshot (4 Hz). Copying it here would add an allocation per tick for
+    // a block that is printed at most a few rows deep.
+    jsonParse: jsonParseStats
   }
 }
 
@@ -1046,6 +1121,28 @@ export function onRenderPerfEnabledChange(listener: (next: boolean) => void): ()
 }
 
 /**
+ * Install the `JSON.parse` meter (`lib/jsonParseProbe.ts`). Called on every
+ * enable, disposed on every disable — that pairing is what keeps the off state
+ * the untouched native function instead of a passthrough wrapper.
+ */
+function startJsonParseProbe(): void {
+  if (jsonParseProbeDispose) return
+  resetJsonParseStats(jsonParseStats)
+  jsonParseProbeDispose = installJsonParseProbe({ stats: jsonParseStats, now: nowMs })
+}
+
+/** Restore the native `JSON.parse` and clear what the meter collected. */
+function stopJsonParseProbe(): void {
+  const dispose = jsonParseProbeDispose
+  if (!dispose) return
+  // Cleared first: a re-entrant enable from the disposer must not be mistaken
+  // for an already-installed probe.
+  jsonParseProbeDispose = null
+  dispose()
+  resetJsonParseStats(jsonParseStats)
+}
+
+/**
  * Turn the HUD on/off. Persists to localStorage by default (the keyboard and
  * console toggles are user intent; boot-time resolution is not).
  */
@@ -1057,8 +1154,10 @@ export function setRenderPerfEnabled(next: boolean, options?: { persist?: boolea
   if (value) {
     resetPerf()
     startFrameLoop()
+    startJsonParseProbe()
   } else {
     stopFrameLoop()
+    stopJsonParseProbe()
     resetPerf()
   }
   for (const listener of [...enabledListeners]) listener(value)

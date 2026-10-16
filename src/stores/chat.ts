@@ -122,6 +122,14 @@ import { isBackgroundJobHost, isJobAwaitCall, isToolCallInProgress } from '../li
 import { useSettingsStore } from './settings'
 import { usePlatformAuthStore } from './platformAuth'
 import { isTauriRuntime } from '../lib/runtime'
+import {
+  PERF_ACTIVITY_COMPOSER_DRAFT_FLUSH,
+  PERF_MS_COMPOSER_DRAFT_FLUSH,
+  beginPerfActivity,
+  endPerfActivity,
+  record,
+  renderPerfEnabled
+} from '../lib/renderPerf'
 import { disarmTaskCompleteAudio, primeTaskCompleteAudio } from '../lib/taskCompleteSound'
 import { dispatchStreamEvent, type StreamHandlerContext } from './chat/streamHandlers/dispatch'
 import { applyAssistantJsonPartialEvent } from './chat/streamHandlers/messageHandlers'
@@ -3489,10 +3497,23 @@ export const useChatStore = defineStore('chat', () => {
     }
     const id = currentId.value
     if (!id) return
-    setComposerDraft(id, {
-      text: composerText.value,
-      attachments: composerAttachments.value.map(a => ({ ...a }))
-    })
+    // Dev-only render-perf marker: the draft write is the tail of a keystroke, so
+    // a frame gap it causes must be blamed on it instead of reading `@ idle`. The
+    // guard is one boolean read while the HUD is off; the write itself is untouched.
+    const perf = renderPerfEnabled()
+    const startedAt = perf ? performance.now() : 0
+    if (perf) beginPerfActivity(PERF_ACTIVITY_COMPOSER_DRAFT_FLUSH)
+    try {
+      setComposerDraft(id, {
+        text: composerText.value,
+        attachments: composerAttachments.value.map(a => ({ ...a }))
+      })
+    } finally {
+      if (perf) {
+        endPerfActivity(PERF_ACTIVITY_COMPOSER_DRAFT_FLUSH)
+        record(PERF_MS_COMPOSER_DRAFT_FLUSH, performance.now() - startedAt)
+      }
+    }
   }
 
   function scheduleComposerDraftFlush() {

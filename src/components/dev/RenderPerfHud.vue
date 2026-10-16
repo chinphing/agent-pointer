@@ -342,6 +342,44 @@ function virtualGeometryLines(
 }
 
 /**
+ * Whether this engine claims `field-sizing: content` — the same probe
+ * `Composer.vue` makes before picking its grow path. `null` (not `false`) when the
+ * host has no `CSS.supports`, so the row can say `n/a` instead of claiming the
+ * engine refused the feature.
+ */
+function fieldSizingSupported(): boolean | null {
+  if (typeof CSS === 'undefined' || typeof CSS.supports !== 'function') return null
+  return CSS.supports('field-sizing', 'content')
+}
+
+/**
+ * The composer's grow path, one row: `Composer.vue` writes
+ * `data-field-sizing-applied="1"` on the textarea only in its native branch, so the
+ * attribute names the path that actually owns the height. Its absence while the
+ * engine supports the feature means the one-time native write has not run yet (the
+ * first `autoResize` rides a frame scheduled from `onMounted`), not that the JS
+ * fallback took over. Read from the live DOM because the composer owns the ref and
+ * this overlay must not reach into the chat store; the welcome and footer composers
+ * are never mounted together and share this resize path.
+ *
+ * One `querySelector` per snapshot tick (4 Hz), and only while the HUD is mounted —
+ * which is itself gated on `renderPerfEnabled()`, so a closed HUD pays nothing.
+ */
+function composerGrowLine(): string {
+  const supported = fieldSizingSupported()
+  const supportText = supported === null ? 'n/a' : supported ? 'yes' : 'no '
+  const el = document.querySelector<HTMLTextAreaElement>('textarea.composer-textarea')
+  const path = !el
+    ? 'n/a (no composer)'
+    : el.dataset.fieldSizingApplied === '1'
+      ? 'native'
+      : supported
+        ? 'native pending'
+        : 'js fallback'
+  return `grow  field-sizing ${supportText}  composer ${path}`
+}
+
+/**
  * Body rows, without the title line — the overlay's own content, in order.
  */
 const bodyLines = computed<string[]>(() => {
@@ -373,6 +411,7 @@ const bodyLines = computed<string[]>(() => {
       + ` pk ${s.rendersPerVisibleRowPeak.toFixed(2)}`,
     ...virtualGeometryLines(s.gauges, s.peakGauges),
     ...scrollCostLines(s.scrollDistancePx, s.per1000Px),
+    composerGrowLine(),
     ...memoryLines(s.memory),
     ...residencyLines(s.gauges),
     ...group(PERF_RENDER_KEYS, s.renders, s.peakRenders),

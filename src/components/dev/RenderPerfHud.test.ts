@@ -510,3 +510,63 @@ describe('RenderPerfHud residency panel', () => {
     expect(readResidency).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('RenderPerfHud composer grow path', () => {
+  /** `null` = a host with no `CSS.supports` at all. */
+  function stubFieldSizingSupport(supported: boolean | null): void {
+    vi.stubGlobal('CSS', supported === null ? {} : { supports: () => supported })
+  }
+
+  function mountComposerTextarea(marked: boolean): HTMLTextAreaElement {
+    const textarea = document.createElement('textarea')
+    textarea.className = 'composer-textarea'
+    if (marked) textarea.dataset.fieldSizingApplied = '1'
+    document.body.appendChild(textarea)
+    return textarea
+  }
+
+  afterEach(() => {
+    for (const el of document.querySelectorAll('textarea.composer-textarea')) el.remove()
+  })
+
+  it('names the native path once the composer has written its marker', async () => {
+    setRenderPerfEnabled(true, { persist: false })
+    stubFieldSizingSupport(true)
+    const textarea = mountComposerTextarea(false)
+    mountHud()
+
+    // Mounted, engine supports it, but the one-time native write has not run yet:
+    // reporting `js fallback` here would name the wrong branch.
+    expect(hudText()).toContain('grow  field-sizing yes  composer native pending')
+
+    textarea.dataset.fieldSizingApplied = '1'
+    await advanceTicks(1)
+    expect(hudText()).toContain('grow  field-sizing yes  composer native')
+  })
+
+  it('names the js fallback when the engine refuses field-sizing', async () => {
+    setRenderPerfEnabled(true, { persist: false })
+    stubFieldSizingSupport(false)
+    mountComposerTextarea(false)
+    mountHud()
+
+    expect(hudText()).toContain('grow  field-sizing no   composer js fallback')
+  })
+
+  it('treats a missing CSS.supports as the fallback, like the composer does', async () => {
+    setRenderPerfEnabled(true, { persist: false })
+    stubFieldSizingSupport(null)
+    mountComposerTextarea(false)
+    mountHud()
+
+    expect(hudText()).toContain('grow  field-sizing n/a  composer js fallback')
+  })
+
+  it('says there is no composer instead of guessing a path', async () => {
+    setRenderPerfEnabled(true, { persist: false })
+    stubFieldSizingSupport(true)
+    mountHud()
+
+    expect(hudText()).toContain('grow  field-sizing yes  composer n/a (no composer)')
+  })
+})

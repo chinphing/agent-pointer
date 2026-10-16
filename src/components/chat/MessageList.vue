@@ -2626,7 +2626,7 @@ function entrySpacing(
     <div
       ref="scroller"
       class="chat-scroll-area scrollbar-hide h-full overflow-y-auto chat-shell pb-6"
-      style="overflow-anchor: none"
+      style="overflow-anchor: none; display: flex; flex-direction: column"
       @scroll="onScroll"
       @wheel="onWheel"
       @touchstart.passive="onTouchStart"
@@ -2634,7 +2634,19 @@ function entrySpacing(
       @touchend="onTouchEnd"
       @touchcancel="onTouchEnd"
     >
-    <div class="flex min-h-full w-full flex-col">
+    <!--
+      Transcript wrapper. Sized by its own content (`flex: 0 0 auto`), never by a
+      percentage of the scroller height: `min-h-full` made every scroller resize
+      (composer growth, window resize) invalidate this whole subtree, because a
+      percentage min-height depends on the containing block's height. As a
+      non-shrinking flex item of the flex-column scroller its size is independent
+      of the scroller, so a resize only moves the box.
+      Top-aligned on purpose: short conversations start at the top and leave the
+      blank between the last turn and the composer (see
+      docs/zh-CN/ui/message-list-scroll-follow.md §5) — do not add `margin-top:
+      auto` or a flexible spacer back here.
+    -->
+    <div class="flex w-full flex-none flex-col">
     <div
       class="flex shrink-0 items-center justify-center overflow-hidden"
       :style="{ height: `${noOlderPullPx}px` }"

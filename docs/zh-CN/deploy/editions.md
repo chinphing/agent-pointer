@@ -87,23 +87,13 @@ POINTER_EDITION=managed VITE_POINTER_EDITION=managed \
 
 平台快捷脚本（都走同一个 `scripts/tauri-build.mjs`）：`build:windows` / `build:macos`（Universal 签名版 `build:macos:signed`）/ `build:linux`。
 
-updater 私钥只生成一次，之后每次编译复用同一份。换密钥后，已安装的客户端验不过更新。
-
-没写 `TAURI_SIGNING_PRIVATE_KEY_PATH` 时，默认路径是 `~/.tauri/pointer-updater.key`（Windows：`%USERPROFILE%\.tauri\pointer-updater.key`）。文件已存在就直接用，不会重新生成。
-
-还没有文件时：
-
-- 在终端里执行 `npm run tauri:build` 或 `./scripts/quick-deploy.sh start managed-client --runtime bin --build`，会问一次。输入 `y` 生成，其他输入退出。
-- 加上 `--generate-updater-key` 则缺文件时直接生成。quick-deploy 要和 `--build` 一起用，例如 `--build --generate-updater-key`。安装包命令是 `npm run build:linux -- --generate-updater-key`（macOS / Windows 换成 `build:macos` / `build:windows`）。
-- 也可以自己先生成：
+还没有 updater 私钥时，终端会问一次，输入 `y` 生成到 `~/.tauri/pointer-updater.key`（Windows：`%USERPROFILE%\.tauri\pointer-updater.key`）。已有文件会一直复用。不想确认时加上 `--generate-updater-key`。自己生成：
 
 ```bash
 npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 ```
 
-生成时会在私钥旁边写下 `pointer-updater.key.pub`。这次构建把这把公钥嵌进安装包，不改 `src-tauri/tauri.conf.json`。已有私钥但没有 `.pub` 时，继续用仓库里的公钥，必须和私钥配对。`pointer.local.env` 里的路径可以写开头的 `~`，构建脚本会展开。脚本生成的密钥没有密码；自己生成并设了密码时，再写 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。
-
-`src-tauri/tauri.conf.json` 的 `bundle.createUpdaterArtifacts` 为 `true`（只有 standalone 用的 `tauri.personal.conf.json` 关掉），因此 managed 客户端**必须**提供签名私钥，否则 updater 产物签名阶段失败。`scripts/tauri-build.mjs` 会把私钥文件读进 `TAURI_SIGNING_PRIVATE_KEY`。
+`src-tauri/tauri.conf.json` 的 `bundle.createUpdaterArtifacts` 为 `true`（只有 standalone 用的 `tauri.personal.conf.json` 关掉），因此 managed 客户端**必须**提供签名私钥，否则 updater 产物签名阶段失败。脚本把私钥读进 `TAURI_SIGNING_PRIVATE_KEY`，并把旁边的 `.pub` 嵌进这次安装包，不改仓库配置。
 
 ### 3.2 需要的变量
 

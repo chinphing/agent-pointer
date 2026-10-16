@@ -5,6 +5,7 @@ English | [简体中文](../../zh-CN/ui/README.md)
 |------|------|
 | [i18n.md](../../zh-CN/ui/i18n.md) | UI Chinese/English internationalisation: `uiLocale`, vue-i18n, locale file conventions and phased progress |
 | [visual-theme.md](../../zh-CN/ui/visual-theme.md) | Flat theme tokens, light/dark switching; the conversation column width follows the middle column (including Workspace dragging) adaptively |
+| [model-service-form.md](model-service-form.md) | Custom model services: key first, common providers preset the URL, the rest stays under Advanced |
 | [markdown-typography.md](../../zh-CN/ui/markdown-typography.md) | Chat / workspace Markdown body font size, heading levels, bold-as-heading |
 | [external-links.md](../../zh-CN/ui/external-links.md) | In-app http(s) links open in the system default browser (desktop) / a new tab (web) |
 | [markdown-charts.md](../../zh-CN/ui/markdown-charts.md) | Markdown `chartjs` fence → local interactive Chart.js charts |

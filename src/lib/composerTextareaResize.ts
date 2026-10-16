@@ -77,6 +77,30 @@ export function resizeComposerTextarea(
   // timers, repeated `nextTick` calls). Nothing can have changed.
   if (!force && state.measuredValue === value) return state
 
+  // Fast path 3: an empty draft. An empty textarea is one line, so its content
+  // height is bounded by the minimum box — the shrink probe below could only
+  // ever report `min`, whatever the box happens to be. Skip the whole measure
+  // pass: the probe writes `height` *before* it reads `scrollHeight`, and that
+  // write is what dirties the layout in the very frame the draft flush patches
+  // the DOM.
+  if (value === '') {
+    // `state.height !== min` means this module wrote a taller height, so the
+    // element is genuinely taller than an empty draft needs. A forced pass
+    // (width change) still has to look, because the element can be riding a
+    // taller CSS `rows` height this module never wrote.
+    if (state.height !== min || (force && el.clientHeight > min)) {
+      writeComposerTextareaMinHeight(el, state, min)
+      // Bypass the height guard: it can be stale when the element mounted at
+      // its rows height, and this branch only runs when the box is taller than
+      // an empty draft needs — so writing `min` is always a real change.
+      el.style.setProperty('height', `${min}px`)
+      state.height = min
+      writeComposerTextareaOverflowY(el, state, 'hidden')
+    }
+    state.measuredValue = value
+    return state
+  }
+
   // Both reads below share a single layout flush.
   const box = el.clientHeight
   const probe = el.scrollHeight

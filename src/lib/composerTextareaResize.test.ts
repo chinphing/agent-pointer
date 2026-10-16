@@ -257,3 +257,116 @@ describe('composer textarea resize — matches the previous behaviour', () => {
     }
   })
 })
+
+describe('composer textarea resize — clearing the draft', () => {
+  const NO_READS = { scrollHeight: 0, clientHeight: 0, offsetHeight: 0 }
+
+  it('clears a multi-line draft without measuring the box', () => {
+    const el = new FakeTextarea()
+    const state = createComposerTextareaResizeState()
+
+    el.setContent('a\nb\nc', 3)
+    resizeComposerTextarea(el, state)
+    expect(el.usedHeight).toBe(3 * LINE + PADDING)
+
+    const mark = el.writes.length
+    el.reads = { ...NO_READS }
+    el.setContent('', 1)
+    resizeComposerTextarea(el, state)
+
+    // An empty textarea is one line, so the content height is bounded by the
+    // minimum box — the shrink probe could only report `min`. It writes `height`
+    // *before* it reads `scrollHeight`, so skipping it also skips the
+    // write-then-read cycle that dirties the layout.
+    expect(el.reads).toEqual(NO_READS)
+    expect(el.usedHeight).toBe(MIN)
+    expect(el.overflowY).toBe('hidden')
+    // The one style an empty draft still needs: the height it occupies.
+    expect(el.writesSince(mark)).toEqual([
+      { property: 'height', from: `${3 * LINE + PADDING}px`, to: `${MIN}px` }
+    ])
+  })
+
+  it('clears a capped draft without measuring the box', () => {
+    const el = new FakeTextarea()
+    const state = createComposerTextareaResizeState()
+
+    el.setContent(`a\nb\n${'x'.repeat(500)}`, 14)
+    resizeComposerTextarea(el, state)
+    expect(el.usedHeight).toBe(MAX)
+    expect(el.overflowY).toBe('auto')
+
+    const mark = el.writes.length
+    el.reads = { ...NO_READS }
+    el.setContent('', 1)
+    resizeComposerTextarea(el, state)
+
+    expect(el.reads).toEqual(NO_READS)
+    expect(el.usedHeight).toBe(MIN)
+    expect(el.overflowY).toBe('hidden')
+    const writes = el.writesSince(mark)
+    expect(writes.map((write) => write.property).sort()).toEqual(['height', 'overflow-y'])
+    for (const write of writes) expect(write.from).not.toBe(write.to)
+  })
+
+  it('clears a single-line draft without touching the element', () => {
+    const el = new FakeTextarea()
+    const state = createComposerTextareaResizeState()
+
+    el.setContent('hi', 1)
+    resizeComposerTextarea(el, state)
+    const mark = el.writes.length
+    el.reads = { ...NO_READS }
+
+    el.setContent('', 1)
+    resizeComposerTextarea(el, state)
+
+    expect(el.reads).toEqual(NO_READS)
+    expect(el.writesSince(mark)).toEqual([])
+    expect(el.usedHeight).toBe(MIN)
+  })
+
+  it('leaves an already-empty draft alone on a repeated resize', () => {
+    const el = new FakeTextarea()
+    const state = createComposerTextareaResizeState()
+
+    el.setContent('', 1)
+    resizeComposerTextarea(el, state)
+    const mark = el.writes.length
+    el.reads = { ...NO_READS }
+
+    resizeComposerTextarea(el, state)
+
+    expect(el.reads).toEqual(NO_READS)
+    expect(el.writesSince(mark)).toEqual([])
+  })
+
+  it('leaves an already-empty draft alone on a forced pass', () => {
+    const el = new FakeTextarea()
+    const state = createComposerTextareaResizeState()
+
+    el.setContent('', 1)
+    resizeComposerTextarea(el, state)
+    const mark = el.writes.length
+    el.reads = { ...NO_READS }
+
+    resizeComposerTextarea(el, state, { force: true })
+
+    // A forced pass skips the fast paths, but an empty draft still has nothing
+    // to measure — the shrink probe (this module's only `scrollHeight` read).
+    expect(el.reads.scrollHeight).toBe(0)
+    expect(el.writesSince(mark)).toEqual([])
+    expect(el.usedHeight).toBe(MIN)
+  })
+
+  it('normalises a forced pass when the element rides a taller height', () => {
+    const el = new FakeTextarea(2 * LINE + PADDING)
+    const state = createComposerTextareaResizeState()
+
+    el.setContent('', 1)
+    resizeComposerTextarea(el, state, { force: true })
+
+    expect(el.usedHeight).toBe(MIN)
+    expect(el.overflowY).toBe('hidden')
+  })
+})

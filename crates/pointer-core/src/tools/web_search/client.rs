@@ -876,7 +876,8 @@ fn parse_sources(items: &[Value]) -> Vec<WebSearchSource> {
         .collect()
 }
 
-/// Generic tool: Generation API blocking search.
+/// Generic tool search. DeepSeek chats use the Responses `web_search` tool;
+/// Qwen chats keep the DashScope generation API.
 pub async fn execute_web_search_stream(
     settings: &ModelSettings,
     agent_id: Option<&str>,
@@ -884,7 +885,16 @@ pub async fn execute_web_search_stream(
     cancel: tokio_util::sync::CancellationToken,
     ui: Option<super::stream_ui::WebSearchStreamUi>,
 ) -> Result<WebSearchResult> {
-    super::generation::execute_generation_web_search(settings, agent_id, req, cancel, ui).await
+    let env_model = std::env::var("POINTER_WEB_SEARCH_MODEL").ok();
+    super::deepseek::execute_routed_web_search(
+        settings,
+        agent_id,
+        req,
+        cancel,
+        ui,
+        env_model.as_deref(),
+    )
+    .await
 }
 
 pub async fn execute_web_search(
@@ -892,7 +902,7 @@ pub async fn execute_web_search(
     agent_id: Option<&str>,
     req: WebSearchRequest,
 ) -> Result<WebSearchResult> {
-    super::generation::execute_generation_web_search(
+    execute_web_search_stream(
         settings,
         agent_id,
         req,

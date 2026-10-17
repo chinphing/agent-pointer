@@ -803,7 +803,7 @@
       "hint": "Models and reasoning per tier; Overridden means a non-default model",
       "liveHint": "Changes apply immediately and sync with Agents → Scene tiers",
       "title": "{scene} · Tier models",
-      "webSearchHint": "DashScope search models per tier; Overridden means a non-default model",
+      "webSearchHint": "Qwen uses DashScope; DeepSeek uses web search. Overridden means a non-default model",
       "sceneFallback": "Scene"
     },
     "assistant": {

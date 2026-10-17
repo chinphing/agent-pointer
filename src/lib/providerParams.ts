@@ -133,6 +133,17 @@ export function isDeepSeekProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): b
   return /api\.deepseek\.com/i.test(p.baseUrl || '')
 }
 
+/** Qwen uses DashScope search. DeepSeek web search is `deepseek-v4-pro` only. */
+export function modelSupportsHostedWebSearch(
+  provider: Pick<ProviderConfig, 'id' | 'baseUrl'>,
+  model: string
+): boolean {
+  if (isQwenProvider(provider)) return true
+  if (!isDeepSeekProvider(provider)) return false
+  const id = model.trim().toLowerCase()
+  return id === 'deepseek-v4-pro' || id.startsWith('deepseek-v4-pro-')
+}
+
 export function isDoubaoProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
   if (providerIdLower(p) === 'doubao') return true
   return /ark\.cn-[a-z-]+\.volces\.com/i.test(p.baseUrl || '')

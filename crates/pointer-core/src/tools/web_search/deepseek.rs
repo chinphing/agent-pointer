@@ -1351,6 +1351,44 @@ mod tests {
         );
     }
 
+    /// A DeepSeek key alone, plus the web-search fast tier, must not fall
+    /// through to the DashScope "provider not configured" error.
+    #[test]
+    fn deepseek_key_and_tier_never_routes_to_dashscope() {
+        let mut s = settings(
+            vec![provider(
+                "deepseek",
+                "https://api.deepseek.com/v1",
+                "sk-ds",
+                &["deepseek-v4-pro", "deepseek-flash"],
+            )],
+            "deepseek",
+            "deepseek-v4-pro",
+        );
+        s.web_search_model.clear();
+        let mut fast = HashMap::new();
+        fast.insert(
+            "fast".into(),
+            ComputerTierLlmConfig {
+                provider_id: "deepseek".into(),
+                model: "deepseek-v4-pro".into(),
+                enable_thinking: true,
+                thinking_budget: None,
+                reasoning_effort: None,
+                thinking_intensity: None,
+            },
+        );
+        s.agent_mode_llm.insert(WEB_SEARCH_SCENE_ID.into(), fast);
+        let route = resolve_web_search_route_with_env(&s, None).unwrap();
+        assert_eq!(
+            route,
+            WebSearchRoute::DeepSeek {
+                provider_id: "deepseek".into(),
+                requested_model: "deepseek-v4-pro".into(),
+            }
+        );
+    }
+
     #[tokio::test]
     async fn http_json_response_parses_sources() {
         use wiremock::matchers::{body_partial_json, method, path};

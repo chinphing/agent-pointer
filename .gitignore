@@ -31,3 +31,7 @@ react-check/
 
 # vite / vitest writes a compiled config next to vite.config.ts
 vite.config.ts.timestamp-*.mjs
+
+# Nested benchmark repo with its own remote (chinphing/screenspot-pro-bench).
+# Keep it as a separate clone, never as files or a gitlink in this repo.
+benchmarks/screenspot_grid/

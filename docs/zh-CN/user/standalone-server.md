@@ -2,9 +2,7 @@
 
 [English](../../en/user/standalone-server.md) | 简体中文
 
-pointer-server 可脱离官方平台独立部署。本地构建（未绑定控制面）从源码或本地包安装即可，**不必**向签发方申请 License。官方 standalone 安装包仍要 License，见文末。
-
-先读 [which-build.md](which-build.md) 确认你用的是哪一种。
+pointer-server 可脱离官方平台独立部署。下面从安装包开始。本地构建（未绑定控制面）**不必**向签发方申请 License。官方 standalone 安装包仍要 License，见文末。两种包的差别在 [which-build.md](which-build.md)，装好后再看。
 
 ---
 

@@ -1,15 +1,26 @@
 # 用户使用指南
 [English](../../en/user/README.md) | 简体中文
 
-面向 **Pointer 终端用户**：安装、日常对话、Skills、IM 通道等。
+面向 **Pointer 终端用户**。
+
+## 安装
+
+打开 [官网下载页](https://pointer.readflowai.com/download)，安装，登录，发一句「你好」。三步的细节在 [快速上手](getting-started.md)。
+
+以下为操作说明。
 
 ## 教程
 
 | 文档 | 说明 |
 |------|------|
+| [getting-started.md](getting-started.md) | 官网安装、社区版安装、自行编译安装 |
+| [model-providers.md](model-providers.md) | 自己的模型地址和 API Key |
+
+## 其他入口
+
+| 文档 | 说明 |
+|------|------|
 | [which-build.md](which-build.md) | 官方签名包与本地构建的差别 |
-| [getting-started.md](getting-started.md) | 第一次对话 |
-| [model-providers.md](model-providers.md) | 配置模型服务：平台服务与自定义服务、参数与能力 |
 | [standalone-server.md](standalone-server.md) | 自建 pointer-server |
 
 ## 操作指南
@@ -29,6 +40,6 @@
 | [project-lint.md](project-lint.md) | 工作区 `.pointer/lint.toml` |
 | [webhook.md](webhook.md) | Webhook 触发 Agent |
 
-集成与协议见 **[`../developer/`](../developer/README.md)**。
+桌面和 Web 怎么共用一套核心见 [架构说明](../developer/architecture.md)。集成与协议见 [开发者文档](../developer/README.md)。
 
 [返回文档总索引](../README.md)

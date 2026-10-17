@@ -105,7 +105,10 @@ onMounted(() => {
 })
 
 function openSettings(section = 'assistant') {
-  if (!isAppAdmin.value) return
+  if (!isAppAdmin.value) {
+    console.warn('[app] settings stayed closed: sign in before the settings view can load')
+    return
+  }
   settingsInitialSection.value = section
   showSettings.value = true
 }

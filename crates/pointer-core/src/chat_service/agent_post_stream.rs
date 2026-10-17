@@ -469,6 +469,7 @@ mod tests {
             resolved_skill_prompts: vec![],
             allowed_tool_names: vec![],
             allow_agents: vec![],
+            prompt_profile: crate::agents::PromptProfile::Default,
         };
         let msg = build_lead_assistant_message_after_stream(
             "asst_1",
@@ -521,6 +522,7 @@ mod tests {
             resolved_skill_prompts: vec![],
             allowed_tool_names: vec![],
             allow_agents: vec![],
+            prompt_profile: crate::agents::PromptProfile::Default,
         };
         let msg = build_lead_assistant_message_after_stream(
             "asst_2",

@@ -8,6 +8,7 @@ import type { SettingsDialogForm } from '../../composables/useSettingsDialogForm
 import type { ModelRuntimeOverrides, ProviderConfig } from '../../types/chat'
 import {
   detectProviderTemplateId,
+  firstPresetTemplate,
   PROVIDER_TEMPLATE_OPTIONS,
   providerDraftForTemplate,
   providerTemplateMeta,
@@ -57,7 +58,10 @@ const editableTemplateOptions = computed(() => {
   }
   // 编辑已有服务：类型锁定为当前服务的类型，只显示一个按钮，
   // 避免把所有模板（看起来像所有 provider）都列出来。
-  return PROVIDER_TEMPLATE_OPTIONS.filter(option => option.id === providerTemplate.value)
+  const matched = PROVIDER_TEMPLATE_OPTIONS.filter(option => option.id === providerTemplate.value)
+  if (matched.length) return matched
+  const meta = providerTemplateMeta(providerTemplate.value)
+  return [{ ...meta, id: providerTemplate.value, label: providerTemplate.value }]
 })
 
 const copiedKey = ref(false)
@@ -72,7 +76,8 @@ const modelConfigModalId = ref<string | null>(null)
 const modelConfigModalError = ref('')
 const providerSaveError = ref('')
 const providerScopeModelId = ref<string | null>(null)
-const providerTemplate = ref<ProviderTemplateId>('openai_compatible')
+const providerTemplate = ref<ProviderTemplateId>('deepseek')
+const showAdvanced = ref(false)
 
 const globalGenFallback = {
   temperature: () => s.settings.temperature,
@@ -83,9 +88,14 @@ const globalGenFallback = {
 const providerRuntimeApi = useRuntimeParams(editingProvider, providerScopeModelId, globalGenFallback)
 const modelRuntimeApi = useRuntimeParams(editingProvider, modelConfigModalId, globalGenFallback)
 
-const providerTemplateHint = computed(
-  () => providerTemplateMeta(providerTemplate.value).hint
-)
+function templateLabel(opt: { id: ProviderTemplateId; label: string }): string {
+  if (opt.id === 'openai_compatible') return t('settings.models.otherService')
+  return opt.label
+}
+
+function presetNeedsAdvanced(template: ProviderTemplateId): boolean {
+  return !providerTemplateMeta(template).defaultId
+}
 
 watch(
   () =>
@@ -230,6 +240,10 @@ function globalGenDefaults() {
 
 function setProviderTemplate(template: ProviderTemplateId) {
   providerTemplate.value = template
+  if (presetNeedsAdvanced(template)) {
+    showAdvanced.value = true
+    console.info('[settings] custom endpoint has no preset id; showing advanced fields')
+  }
   const ep = editingProvider.value
   if (!ep) return
   const g = globalGenDefaults()
@@ -279,21 +293,29 @@ function startEditProvider(provider: ProviderConfig) {
   editingApiKey.value = ''
   editingModelsText.value = (provider.models ?? []).join(', ')
   showAddProvider.value = false
+  showAdvanced.value = false
 }
 
 function startAddProvider() {
-  providerTemplate.value = 'openai_compatible'
-  const draft = providerDraftForTemplate('openai_compatible', globalGenDefaults())
+  const occupied = new Set(s.settings.providers.map(p => p.id))
+  const template = firstPresetTemplate(occupied)
+  if (template === 'openai_compatible') {
+    console.info('[settings] every preset provider id is in use; opening a blank custom endpoint')
+  }
+  providerTemplate.value = template
+  const draft = providerDraftForTemplate(template, globalGenDefaults())
   editingProvider.value = draft
   originalApiKey.value = ''
   editingApiKey.value = ''
   editingModelsText.value = (draft.models ?? []).join(', ')
   showAddProvider.value = true
+  showAdvanced.value = presetNeedsAdvanced(template)
 }
 
 function cancelEditProvider() {
   editingProvider.value = null
   showAddProvider.value = false
+  showAdvanced.value = false
   modelConfigModalId.value = null
   modelConfigModalError.value = ''
   providerSaveError.value = ''
@@ -398,6 +420,8 @@ async function saveProvider() {
   const snapshot = buildProviderSnapshotFromEditor()
   if (!snapshot) {
     providerSaveError.value = t('settings.msg_1d1c79')
+    showAdvanced.value = true
+    console.warn('[settings] provider save missing id, name, or url')
     return
   }
 
@@ -664,82 +688,91 @@ defineExpose({
 
       <div class="space-y-2">
         <label class="block text-[12px] text-muted">{{ t('settings.models.serviceType') }}</label>
-        <div class="inline-flex flex-wrap gap-1 rounded-lg bg-card border border-border p-0.5">
+        <div class="flex flex-wrap gap-1.5">
           <button
             v-for="opt in editableTemplateOptions"
             :key="opt.id"
             type="button"
-            class="h-8 px-3 rounded-md text-[12px] cursor-pointer transition-colors"
-            :class="providerTemplate === opt.id ? 'bg-hover text-foreground' : 'text-muted hover:text-foreground'"
+            class="h-8 px-3 rounded-lg border text-[12px] cursor-pointer transition-colors"
+            :class="providerTemplate === opt.id ? 'border-accent/50 bg-accent/10 text-foreground' : 'border-border bg-card text-muted hover:text-foreground'"
             :disabled="!showAddProvider"
             @click="setProviderTemplate(opt.id)"
           >
-            {{ opt.label }}
+            {{ templateLabel(opt) }}
           </button>
         </div>
-        <p class="text-[11px] text-muted">
-          {{ t('settings.models.serviceTypeHint') }}
-          <span class="text-muted">（{{ providerTemplateHint }}）</span>
-        </p>
       </div>
 
-      <div class="grid grid-cols-2 gap-3">
-        <div>
-          <label class="block text-[12px] text-muted mb-1.5">{{ t('settings.models.serviceId') }}</label>
-          <input v-model="editingProvider.id" :disabled="!showAddProvider" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 disabled:opacity-50 transition-colors" :placeholder="t('settings.qwenOpenai_2a5d5b')" />
+      <div>
+        <label class="block text-[12px] font-medium text-foreground mb-1.5" for="provider-api-key">{{ t('settings.models.apiKey') }}</label>
+        <div class="flex items-center gap-2 h-10 px-3 rounded-lg bg-card border border-border transition-colors focus-within:border-accent/50">
+          <input id="provider-api-key" :value="displayKey" :type="editingApiKey || showAddProvider ? 'password' : 'text'" class="flex-1 bg-transparent border-0 outline-none text-sm text-foreground placeholder:text-muted font-mono" :placeholder="inputPlaceholder" autofocus @focus="clearMaskedInput" @input="e => { editingApiKey = (e.target as HTMLInputElement).value }" />
+          <button v-if="!showAddProvider && originalApiKey" type="button" class="p-1 rounded hover:bg-hover cursor-pointer transition" :class="copiedKey ? 'text-success' : 'text-muted hover:text-foreground'" :title="copiedKey ? t('common.copied') : t('settings.models.copyRawKey')" @click="copyOriginalKey">
+            <Check v-if="copiedKey" class="w-4 h-4" />
+            <Copy v-else class="w-4 h-4" />
+          </button>
         </div>
-        <div>
-          <label class="block text-[12px] text-muted mb-1.5">{{ t('settings.mcp.name') }}</label>
-          <input v-model="editingProvider.name" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" :placeholder="t('settings.s_fc0574')" />
-        </div>
-        <div class="col-span-2">
-          <label class="block text-[12px] text-muted mb-1.5">{{ t('settings.models.apiUrl') }}</label>
-          <input v-model="editingProvider.baseUrl" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" placeholder="https://api.example.com/v1" />
-        </div>
-        <div class="col-span-2">
-          <label class="block text-[12px] text-muted mb-1.5">{{ t('settings.models.apiKey') }}</label>
-          <div class="flex items-center gap-2 h-9 px-3 rounded-lg bg-card border border-border transition-colors focus-within:border-primary/50">
-            <input :value="displayKey" :type="editingApiKey || showAddProvider ? 'password' : 'text'" class="flex-1 bg-transparent border-0 outline-none text-sm text-foreground placeholder:text-muted font-mono" :placeholder="inputPlaceholder" @focus="clearMaskedInput" @input="e => { editingApiKey = (e.target as HTMLInputElement).value }" />
-            <button v-if="!showAddProvider && originalApiKey" type="button" class="p-1 rounded hover:bg-hover cursor-pointer transition" :class="copiedKey ? 'text-success' : 'text-muted hover:text-foreground'" :title="copiedKey ? t('common.copied') : t('settings.models.copyRawKey')" @click="copyOriginalKey">
-              <Check v-if="copiedKey" class="w-4 h-4" />
-              <Copy v-else class="w-4 h-4" />
-            </button>
+        <p class="mt-1.5 text-[11px] text-muted font-mono break-all">{{ editingProvider.baseUrl }}<template v-if="editingModelsText.trim()"> · {{ editingModelsText }}</template></p>
+      </div>
+
+      <div>
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 h-8 px-2 -ml-2 rounded-lg text-[12px] text-muted hover:text-foreground hover:bg-hover cursor-pointer transition-colors"
+          :aria-expanded="showAdvanced"
+          @click="showAdvanced = !showAdvanced"
+        >
+          <ChevronRight class="w-3.5 h-3.5 transition-transform" :class="showAdvanced ? 'rotate-90' : ''" />
+          {{ t('settings.models.advanced') }}
+        </button>
+        <div v-if="showAdvanced" class="mt-3 grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-[12px] text-muted mb-1.5">{{ t('settings.models.serviceId') }}</label>
+            <input v-model="editingProvider.id" :disabled="!showAddProvider" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 disabled:opacity-50 transition-colors" :placeholder="t('settings.qwenOpenai_2a5d5b')" />
           </div>
-        </div>
-        <div class="col-span-2">
-          <label class="block text-[12px] text-muted mb-1.5">{{ t('settings.models.modelList') }}</label>
-          <input v-model="editingModelsText" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" placeholder="model-1, model-2, model-3" />
-        </div>
-        <div class="col-span-2 rounded-lg border border-border bg-[hsl(var(--card-elevated))] p-4 space-y-3">
-          <h5 class="text-[12px] font-medium text-foreground">{{ t('settings.models.modelParams') }}</h5>
-          <p class="text-[11px] text-muted">{{ t('settings.models.modelParamsHint') }}</p>
-          <RuntimeParamsForm :api="providerRuntimeApi" />
-          <div v-if="editingParsedModelIds.length" class="pt-2 border-t border-border space-y-1.5">
-            <div class="text-[11px] text-muted">{{ t('settings.models.perModel') }}</div>
-            <ul class="rounded-lg border border-border bg-hover divide-y divide-border overflow-hidden">
-              <li
-                v-for="mid in editingParsedModelIds"
-                :key="mid"
-                class="flex items-center gap-2 px-3 py-2 min-h-10"
-              >
-                <div class="flex-1 min-w-0">
-                  <span class="block font-mono text-[12px] text-foreground truncate" :title="mid">{{ mid }}</span>
-                  <span
-                    v-if="modelConfigMode(mid) === 'custom'"
-                    class="block text-[10px] text-accent truncate mt-0.5"
-                  >{{ t('settings.models.customized') }}<template v-if="modelCapabilitySummary(mid)"> · {{ modelCapabilitySummary(mid) }}</template></span>
-                  <span v-else class="block text-[10px] text-muted truncate mt-0.5">{{ t('settings.models.followProvider') }}</span>
-                </div>
-                <button
-                  type="button"
-                  class="shrink-0 h-7 px-3 rounded-lg text-[11px] cursor-pointer transition-colors"
-                  :class="modelConfigMode(mid) === 'custom' ? 'bg-hover text-foreground' : 'bg-hover/60 text-muted hover:bg-hover hover:text-foreground'"
-                  @click="openModelConfigModal(mid)"
+          <div>
+            <label class="block text-[12px] text-muted mb-1.5">{{ t('settings.mcp.name') }}</label>
+            <input v-model="editingProvider.name" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" :placeholder="t('settings.s_fc0574')" />
+          </div>
+          <div class="col-span-2">
+            <label class="block text-[12px] text-muted mb-1.5">{{ t('settings.models.apiUrl') }}</label>
+            <input v-model="editingProvider.baseUrl" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" placeholder="https://api.example.com/v1" />
+          </div>
+          <div class="col-span-2">
+            <label class="block text-[12px] text-muted mb-1.5">{{ t('settings.models.modelList') }}</label>
+            <input v-model="editingModelsText" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" placeholder="model-1, model-2, model-3" />
+          </div>
+          <div class="col-span-2 rounded-lg border border-border bg-[hsl(var(--card-elevated))] p-4 space-y-3">
+            <h5 class="text-[12px] font-medium text-foreground">{{ t('settings.models.modelParams') }}</h5>
+            <p class="text-[11px] text-muted">{{ t('settings.models.modelParamsHint') }}</p>
+            <RuntimeParamsForm :api="providerRuntimeApi" />
+            <div v-if="editingParsedModelIds.length" class="pt-2 border-t border-border space-y-1.5">
+              <div class="text-[11px] text-muted">{{ t('settings.models.perModel') }}</div>
+              <ul class="rounded-lg border border-border bg-hover divide-y divide-border overflow-hidden">
+                <li
+                  v-for="mid in editingParsedModelIds"
+                  :key="mid"
+                  class="flex items-center gap-2 px-3 py-2 min-h-10"
                 >
-                  {{ modelConfigMode(mid) === 'custom' ? t('settings.models.edit') : t('settings.models.configure') }}
-                </button>
-              </li>
-            </ul>
+                  <div class="flex-1 min-w-0">
+                    <span class="block font-mono text-[12px] text-foreground truncate" :title="mid">{{ mid }}</span>
+                    <span
+                      v-if="modelConfigMode(mid) === 'custom'"
+                      class="block text-[10px] text-accent truncate mt-0.5"
+                    >{{ t('settings.models.customized') }}<template v-if="modelCapabilitySummary(mid)"> · {{ modelCapabilitySummary(mid) }}</template></span>
+                    <span v-else class="block text-[10px] text-muted truncate mt-0.5">{{ t('settings.models.followProvider') }}</span>
+                  </div>
+                  <button
+                    type="button"
+                    class="shrink-0 h-7 px-3 rounded-lg text-[11px] cursor-pointer transition-colors"
+                    :class="modelConfigMode(mid) === 'custom' ? 'bg-hover text-foreground' : 'bg-hover/60 text-muted hover:bg-hover hover:text-foreground'"
+                    @click="openModelConfigModal(mid)"
+                  >
+                    {{ modelConfigMode(mid) === 'custom' ? t('settings.models.edit') : t('settings.models.configure') }}
+                  </button>
+                </li>
+              </ul>
+            </div>
           </div>
         </div>
       </div>

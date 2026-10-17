@@ -1,5 +1,22 @@
 [English](../en/README.md) | 简体中文
 
+## 入口
+
+| 读者 | 从这里开始 |
+|--------|------------|
+| **用户** | 打开 [官网下载](https://pointer.readflowai.com/download)，安装，登录，发一句「你好」。社区版和自行编译见 [快速上手](user/getting-started.md) |
+| **开发者** | 客户端：`npm install` 然后 `npm run tauri:dev`。Web Server：两个终端分别执行 `npm run server:dev` 和 `npm run web:dev`。说明在 [`developer/`](developer/README.md) |
+
+## 相关文档
+
+| 文档 | 说明 |
+|--------|------------|
+| **使用指南** | [界面、设置、Skills、IM](user/README.md) |
+| **架构说明** | [桌面和 Web 共用一套核心](developer/architecture.md) |
+| **部署** | [打包与部署](deploy/README.md) |
+| **贡献** | [贡献者指南](contributing/README.md)、[开发调试说明](../../DEVELOPMENT.md) |
+| **内部机制** | [内部机制](internals/README.md)。设计记录在仓库 [design/](design/README.md)，不上文档站 |
+
 ## 这是什么
 
 把数字员工做出来，跑在员工日常用的电脑上，也能在服务器上长期跑。智能体和模型都可以留在你自己的环境里，也不按坐席收费。桌面端和 Web 端能力一致，支持 Windows、macOS、Linux。
@@ -64,16 +81,6 @@
 </table>
 
 数字员工不该跟真人抢电脑。上面这些内存和 CPU 数字，就是为了让它安心待在日常办公的机器上。Pointer 已经在真实业务里高强度跑了三个多月，每天差不多用掉 1000M Token。
-
-## 按读者找入口
-
-| 我是… | 从这里开始 |
-|--------|------------|
-| **用户** | [`user/`](user/README.md) — 安装、第一次对话、Skills、IM 通道 |
-| **开发者 / 集成方** | [`developer/`](developer/README.md) — 架构、工具、协议 |
-| **部署 / 打包者** | [`deploy/`](deploy/README.md) 四格清单入口 |
-| **仓库贡献者** | [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md)、[`../../DEVELOPMENT.md`](../../DEVELOPMENT.md)、[`contributing/`](contributing/README.md) |
-| **核心维护者** | [`internals/`](internals/README.md) — 运行时机制、子代理提示词、LLM 接入、UI 笔记；设计记录见 [`design/`](design/README.md) |
 
 ---
 

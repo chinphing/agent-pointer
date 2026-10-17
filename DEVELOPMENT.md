@@ -4,6 +4,36 @@
 
 本文档用于说明 `Pointer` 的本地开发、调试、检查与常见问题处理流程。
 
+## 第一步
+
+开发者用 npm 启动开发态。命令都在仓库根目录执行。没有 `pointer.local.env` 时不绑定控制面。第一次编译要几分钟，起来之后就可以改代码。
+
+### 客户端
+
+```bash
+npm install
+npm run tauri:dev
+```
+
+它拉起桌面开发窗口。这条失败时，再看下面的 Node、Rust 和系统库，装完后重新执行 `npm run tauri:dev`。
+
+### Web Server
+
+开两个终端：
+
+```bash
+# 终端 1
+npm install
+npm run server:dev
+
+# 终端 2
+npm run web:dev
+```
+
+然后打开 `http://127.0.0.1:1420/`。编不过时看下面清单里的 Node 和 Rust。
+
+用户启动已经编译好的程序时不走 npm，用脚本直接运行二进制，见 [快速启动](docs/zh-CN/deploy/quick-start.md)。
+
 ## 环境要求
 
 ### 通用依赖
@@ -61,7 +91,7 @@ sudo apt-get install -y \
 
 ## 安装依赖
 
-在项目根目录执行：
+第一步里的 `npm install` 会装好前端依赖。依赖装坏或 `node_modules` 被删掉时，在项目根目录再执行一次：
 
 ```bash
 npm install
@@ -69,7 +99,9 @@ npm install
 
 未设置 `POINTER_EDITION` 时即未绑定控制面（standalone，纯本地）。要联调控制面时在 `pointer.local.env` 里设 `POINTER_EDITION=managed` 和三个域名（见 [docs/zh-CN/deploy/editions.md](docs/zh-CN/deploy/editions.md)）；写成别的值（含旧值 `official`）会让构建直接失败。
 
-## 启动开发模式
+## 拆开调试
+
+客户端的 `npm run tauri:dev` 会同时拉起 Vite、桌面窗口和 Rust。下面是数据目录，以及 Web Server 两个终端的细节。客户端开发态和 `npm run web:dev` 都听 `1420`，服务端 API 听 `8787`，同一时刻只留一组。
 
 ### 桌面端
 
@@ -112,9 +144,9 @@ Release 构建（`tauri:build` 产物）始终使用 **`PointerApp`**，除非�
 
 **附件与本地媒体路径：** 统一经 `pointer_core::media::resolve_local_media_path` 解析。持久化附件的 `storageRelPath`（形如 `{conv}/{id}_{fileName}`）只会在 `{app_data}/conversation-media/` 下查找，**不会**相对进程 `cwd`（如 `src-tauri/`）解析，避免 dev 与数据目录错位。
 
-### Web 端
+### 浏览器
 
-Web 端复用同一套 Vue 界面，后端复用 `crates/pointer-core`，由 `server` crate 提供 HTTP/SSE API。
+Web 端复用同一套 Vue 界面，后端复用 `crates/pointer-core`，由 `server` crate 提供 HTTP/SSE API。两个终端都起来后打开 `http://127.0.0.1:1420/`。
 
 启动 Rust Web 后端：
 
@@ -143,9 +175,9 @@ VITE_WEB_API_BASE=http://127.0.0.1:8787 npm run web:dev
 npm run dev
 ```
 
-然后打开终端输出的本地地址。
+然后打开终端输出的本地地址。Vite 开发服务听 `1420`。第一步的桌面窗口也听这个端口，同时只能留一个。
 
-注意：单独在浏览器中运行时，Tauri 的 `invoke`、事件监听、文件存储等桌面能力不可用，完整功能请使用 `npm run tauri:dev`。
+单独在浏览器中运行时，Tauri 的 `invoke`、事件监听、文件存储等桌面能力不可用。完整功能用第一步的桌面窗口。
 
 ## 打开开发者工具
 

@@ -64,6 +64,23 @@ pub(crate) fn escalated_reasoning_output_budget(current: u32, ceiling: u32) -> u
         .min(ceiling)
 }
 
+/// Next output budget for a `finish_reason == "length"` retry, for **both**
+/// truncation kinds: a reasoning-only stop that burned the budget on thinking,
+/// and a visible truncation where content / tool arguments were cut off.
+///
+/// Composes [`reasoning_output_ceiling`] with
+/// [`escalated_reasoning_output_budget`] so both call sites share one ladder and
+/// cannot forget the provider cap. Returns `current` unchanged when it is already
+/// at the ceiling.
+pub(crate) fn escalated_length_output_budget(
+    current: u32,
+    declared_max_tokens: Option<u32>,
+    user_max_tokens: u32,
+) -> u32 {
+    let ceiling = reasoning_output_ceiling(declared_max_tokens, user_max_tokens);
+    escalated_reasoning_output_budget(current, ceiling)
+}
+
 /// Retry hint for a reasoning-only length stop: the budget was raised, so the
 /// model should converge on the answer instead of "shrinking the payload".
 pub(crate) fn reasoning_length_retry_supplement(
@@ -156,6 +173,25 @@ mod tests {
         // Then doubles.
         assert_eq!(escalated_reasoning_output_budget(16_384, 65_536), 32_768);
         assert_eq!(escalated_reasoning_output_budget(32_768, 65_536), 65_536);
+    }
+
+    #[test]
+    fn length_retry_budget_escalates_for_any_truncation_kind() {
+        // New product default (16384) still has headroom: 16384 → 32768 → 65536.
+        assert_eq!(escalated_length_output_budget(16_384, None, 16_384), 32_768);
+        assert_eq!(escalated_length_output_budget(32_768, None, 16_384), 65_536);
+        // Bounded: at the ceiling it stays put (caller can detect a no-op).
+        assert_eq!(escalated_length_output_budget(65_536, None, 16_384), 65_536);
+        // A real provider cap distinct from the user setting is respected.
+        assert_eq!(
+            escalated_length_output_budget(16_384, Some(20_000), 16_384),
+            20_000
+        );
+        // A migrated copy of the user setting is soft → the hard ceiling applies.
+        assert_eq!(
+            escalated_length_output_budget(16_384, Some(16_384), 16_384),
+            32_768
+        );
     }
 
     #[test]

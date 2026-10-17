@@ -13,7 +13,15 @@ export const DEFAULT_THINKING_BUDGET = 2048
 export type ReasoningEffort = 'high' | 'max'
 
 /** UI / preset kind; drives the same RuntimeParamsForm variant as built-in Qwen & DeepSeek. */
-export type ProviderTemplateId = 'qwen' | 'deepseek' | 'doubao' | 'openai_compatible' | 'openrouter' | 'kimi' | 'zhipu'
+export type ProviderTemplateId =
+  | 'qwen'
+  | 'deepseek'
+  | 'doubao'
+  | 'openai_compatible'
+  | 'openrouter'
+  | 'kimi'
+  | 'zhipu'
+  | 'mimo'
 
 export interface ProviderTemplateMeta {
   id: ProviderTemplateId
@@ -28,18 +36,54 @@ export interface ProviderTemplateMeta {
 
 export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
   {
-    id: 'openai_compatible',
-    label: 'OpenAI 兼容',
-    hint: '其它 OpenAI 格式端点；可配 extra_body（如 repetition_penalty）',
-    defaultId: '',
-    defaultName: '',
-    defaultBaseUrl: 'https://api.openai.com/v1',
-    defaultModels: []
+    id: 'deepseek',
+    label: 'DeepSeek',
+    hint: '深度求索',
+    defaultId: 'deepseek',
+    defaultName: 'DeepSeek',
+    defaultBaseUrl: 'https://api.deepseek.com/v1',
+    defaultModels: ['deepseek-v4-pro', 'deepseek-flash']
+  },
+  {
+    id: 'qwen',
+    label: 'Qwen',
+    hint: '通义千问',
+    defaultId: 'qwen',
+    defaultName: 'Qwen',
+    defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    defaultModels: ['qwen3.8-max', 'qwen3.8-omni-flash', 'qwen3.8-flash', 'qwen3.8-27b']
+  },
+  {
+    id: 'mimo',
+    label: 'MiMo',
+    hint: '小米 MiMo',
+    defaultId: 'mimo',
+    defaultName: 'MiMo',
+    defaultBaseUrl: 'https://api.xiaomimimo.com/v1',
+    defaultModels: ['mimo-v2.6-pro', 'mimo-v2.6-flash', 'mimo-v2.6-pro-ultraspeed']
+  },
+  {
+    id: 'kimi',
+    label: 'Kimi',
+    hint: '月之暗面',
+    defaultId: 'kimi',
+    defaultName: 'Kimi',
+    defaultBaseUrl: 'https://api.moonshot.cn/v1',
+    defaultModels: ['kimi-k3', 'kimi-k2.7-code', 'kimi-k2.7-code-highspeed', 'kimi-k2.6']
+  },
+  {
+    id: 'zhipu',
+    label: 'GLM',
+    hint: '智谱 GLM',
+    defaultId: 'zhipu',
+    defaultName: 'GLM',
+    defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    defaultModels: ['glm-5.3', 'glm-5.3-flash', 'glm-5.3-flashx', 'glm-5.2']
   },
   {
     id: 'openrouter',
     label: 'OpenRouter',
-    hint: '聚合入口；可调用 GPT-5.6 / Claude / Gemini 等',
+    hint: '聚合入口',
     defaultId: 'openrouter',
     defaultName: 'OpenRouter',
     defaultBaseUrl: 'https://openrouter.ai/api/v1',
@@ -57,24 +101,23 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
     ]
   },
   {
-    id: 'kimi',
-    label: 'Kimi',
-    hint: '月之暗面 API；长文档处理突出',
-    defaultId: 'kimi',
-    defaultName: 'Kimi（月之暗面）',
-    defaultBaseUrl: 'https://api.moonshot.cn/v1',
-    defaultModels: ['kimi-k3']
-  },
-  {
-    id: 'zhipu',
-    label: '智谱 GLM',
-    hint: '智谱 API；代码生成突出',
-    defaultId: 'zhipu',
-    defaultName: '智谱 GLM',
-    defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    defaultModels: ['glm-5.2']
+    id: 'openai_compatible',
+    label: 'Other',
+    hint: '自定义 OpenAI 兼容地址',
+    defaultId: '',
+    defaultName: '',
+    defaultBaseUrl: 'https://api.openai.com/v1',
+    defaultModels: []
   }
 ]
+
+/** First preset whose default id is free. Falls back to a blank custom endpoint. */
+export function firstPresetTemplate(occupiedIds: ReadonlySet<string>): ProviderTemplateId {
+  const preset = PROVIDER_TEMPLATE_OPTIONS.find(
+    option => option.defaultId && !occupiedIds.has(option.defaultId)
+  )
+  return preset?.id ?? 'openai_compatible'
+}
 
 function providerIdLower(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): string {
   return typeof p?.id === 'string' ? p.id.toLowerCase() : ''
@@ -102,12 +145,18 @@ export function isOpenRouterProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>):
 
 export function isKimiProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
   if (providerIdLower(p) === 'kimi') return true
-  return /moonshot\.cn/i.test(p.baseUrl || '')
+  return /moonshot\.(cn|ai)|api\.kimi\.com/i.test(p.baseUrl || '')
 }
 
 export function isZhipuProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
-  if (providerIdLower(p) === 'zhipu') return true
+  const id = providerIdLower(p)
+  if (id === 'zhipu' || id === 'glm') return true
   return /bigmodel\.cn/i.test(p.baseUrl || '')
+}
+
+export function isMimoProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
+  if (providerIdLower(p) === 'mimo') return true
+  return /xiaomimimo\.com/i.test(p.baseUrl || '')
 }
 
 export function detectProviderTemplateId(
@@ -119,6 +168,7 @@ export function detectProviderTemplateId(
   if (isOpenRouterProvider(p)) return 'openrouter'
   if (isKimiProvider(p)) return 'kimi'
   if (isZhipuProvider(p)) return 'zhipu'
+  if (isMimoProvider(p)) return 'mimo'
   return 'openai_compatible'
 }
 

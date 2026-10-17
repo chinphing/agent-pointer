@@ -87,13 +87,13 @@ POINTER_EDITION=managed VITE_POINTER_EDITION=managed \
 
 Platform shortcut scripts (all going through the same `scripts/tauri-build.mjs`): `build:windows` / `build:macos` (signed Universal build `build:macos:signed`) / `build:linux`.
 
-Generating the updater key for the first time (do it once, keep the private key offline):
+If the updater private key is missing, the terminal asks once; `y` creates it at `~/.tauri/pointer-updater.key` (Windows: `%USERPROFILE%\.tauri\pointer-updater.key`). An existing file is kept. Add `--generate-updater-key` to create it without asking. Generate it yourself:
 
 ```bash
 npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 ```
 
-`bundle.createUpdaterArtifacts` in `src-tauri/tauri.conf.json` is `true` (only the standalone `tauri.personal.conf.json` turns it off), so the managed client **must** provide a signing private key, otherwise the updater artifact signing stage fails. `scripts/tauri-build.mjs` reads the contents of `TAURI_SIGNING_PRIVATE_KEY_PATH` into `TAURI_SIGNING_PRIVATE_KEY`.
+`bundle.createUpdaterArtifacts` in `src-tauri/tauri.conf.json` is `true` (only the standalone `tauri.personal.conf.json` turns it off), so the managed client **must** provide a signing private key, otherwise the updater artifact signing stage fails. The script reads the private key into `TAURI_SIGNING_PRIVATE_KEY` and embeds the sibling `.pub` for this build, leaving the repository config unchanged.
 
 ### 3.2 Required variables
 
@@ -129,8 +129,21 @@ src-tauri/target/release/bundle/
 ### 3.5 External dependencies
 
 - The control-plane API / Web / SOM domains reachable (internal domains for enterprises).
-- The updater private key (the public key already lives in `src-tauri/tauri.conf.json` → `plugins.updater.pubkey`; **rotating the key means updating this too**).
+- The updater private key. When a `.pub` file sits beside it, this build embeds that public key and does not edit `src-tauri/tauri.conf.json`. Without a `.pub`, the build keeps `plugins.updater.pubkey` from the repository, which must match the private key.
 - Release: the installer + updater archive + `.sig` go through the console's client-release flow.
+
+### 3.6 Local quick start
+
+Users start this cell's desktop app with the script. It does not call npm. An existing `target/release/pointer-app`, or an installed app, opens directly. When neither exists, the script exits. `--build` is what recompiles locally with the domains from this command. On Linux and macOS use the shell script. On Windows replace `./scripts/quick-deploy.sh` with `scripts\quick-deploy.bat`. Details: [`quick-start.md`](quick-start.md).
+
+```bash
+./scripts/quick-deploy.sh start managed-client --runtime bin \
+  --api-base https://pointer-api.example.com \
+  --web-base https://pointer.example.com \
+  --annotate-base https://pointer-som.example.com
+```
+
+Developers change the code with `npm run tauri:dev`. Replace `--runtime bin` with `--runtime dev` only when this script should launch the dev runtime; that path uses the Tauri CLI and rebuilds when the sources, `POINTER_EDITION`, or the three domains change.
 
 ---
 
@@ -215,6 +228,19 @@ curl -s http://127.0.0.1:8787/api/auth/mode      # → {"mode":"platform"}
 - Control-plane-side organisation / billing / shop (not built by this repository).
 - No license issuance needed.
 
+### 4.6 Local quick start
+
+Users start this cell's already built server with the script. It does not call npm. Without `--build` it does not compile. The page is at `http://127.0.0.1:8787/`. When the binary or `dist/` is missing, `--build` is what recompiles locally. Details: [`quick-start.md`](quick-start.md).
+
+```bash
+./scripts/quick-deploy.sh start managed-server --runtime bin \
+  --api-base https://pointer-api.example.com \
+  --web-base https://pointer.example.com \
+  --annotate-base https://pointer-som.example.com
+```
+
+Developers change the code with `npm run server:dev`. `--runtime dev` on the script is what runs `cargo run -p pointer-server` and the local Vite CLI. Cargo reuses the existing debug artifacts when the sources, flavour, and three domains are unchanged.
+
 ---
 
 <a id="standalone-client"></a>
@@ -249,6 +275,16 @@ No required variables. Optional: `POINTER_USAGE_REPORT_ENABLED=false` (already o
 ### 5.5 External dependencies
 
 None.
+
+### 5.6 Local quick start
+
+Users start the desktop app with the script. It does not call npm. `POINTER_EDITION` stays unset. An existing `target/release/pointer-app` is used as-is; otherwise the installed app is used. When neither exists, the script exits. `--build` recompiles locally and does not let `pointer.local.env` fill the edition or the domains. Data lives in `.quick-deploy/bin/standalone-client/data`. Details: [`quick-start.md`](quick-start.md).
+
+```bash
+./scripts/quick-deploy.sh start standalone-client --runtime bin
+```
+
+Developers change the code with `npm run tauri:dev`. `--runtime dev` on the script is what uses the Tauri CLI and shares Vite port `1420` with the dev server web UI. The release app does not use port `1420`.
 
 ---
 
@@ -300,6 +336,16 @@ Open `public_url` in a browser → sign in with account, password and captcha �
 
 None. An official signed package needs a license issued by Pointer (`npm run license-gen:build`).
 
+### 6.6 Local quick start
+
+Users start the already built server with the script. It does not call npm. Without `--build` it does not compile. The first start writes a local account to `.quick-deploy/bin/standalone-server/standalone-admin.env`. The page is at `http://127.0.0.1:8787/`. When the binary or `dist/` is missing, `--build` is what recompiles locally. Details: [`quick-start.md`](quick-start.md).
+
+```bash
+./scripts/quick-deploy.sh start standalone-server --runtime bin
+```
+
+Developers change the code with `npm run server:dev` and `npm run web:dev`. That page is at `http://127.0.0.1:1420/`. `--runtime dev` on the script is `cargo run -p pointer-server` plus the local Vite CLI.
+
 ---
 
 ## 7. CI and release policy
@@ -311,6 +357,8 @@ None. An official signed package needs a license issued by Pointer (`npm run lic
 ---
 
 ## 8. Everyday development
+
+Change the code with npm, as above. To start one cell's already built program with the script, see [`quick-start.md`](quick-start.md). The entry points are `./scripts/quick-deploy.sh` and `scripts\quick-deploy.bat`.
 
 ```bash
 cp pointer.local.env.example pointer.local.env    # create it only when you need to bind a control plane

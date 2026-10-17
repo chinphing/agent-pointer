@@ -327,7 +327,7 @@ onBeforeUnmount(() => {
           <span class="flex-1">{{ platformLogoutBusy ? t('shell.signingOut') : t('shell.signOut') }}</span>
         </button>
         <button
-          v-else-if="!platformAuth.isStandalone"
+          v-else-if="platformAuth.needsSignIn"
           type="button"
           role="menuitem"
           class="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] text-foreground hover:bg-hover transition-colors cursor-pointer"

@@ -154,7 +154,15 @@ export function patchFromThinkingIntensity(intensity: '' | ThinkingIntensity): {
 }
 
 export function defaultProtocolForTemplate(
-  template: 'qwen' | 'deepseek' | 'doubao' | 'openai_compatible' | 'openrouter' | 'kimi' | 'zhipu'
+  template:
+    | 'qwen'
+    | 'deepseek'
+    | 'doubao'
+    | 'openai_compatible'
+    | 'openrouter'
+    | 'kimi'
+    | 'zhipu'
+    | 'mimo'
 ): ThinkingProtocol {
   switch (template) {
     case 'qwen':
@@ -169,6 +177,8 @@ export function defaultProtocolForTemplate(
       return 'openai_effort'
     case 'doubao':
       return 'off'
+    case 'mimo':
+      return 'auto'
     default:
       return 'auto'
   }

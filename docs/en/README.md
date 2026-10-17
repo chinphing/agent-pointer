@@ -1,5 +1,22 @@
 English | [简体中文](../zh-CN/README.md)
 
+## Entry
+
+| Reader | Start here |
+|--------|------------|
+| **A user** | Open the [download page](https://pointer.readflowai.com/download), install, sign in, and send "Hello". The community build and compiling it yourself are in [Getting started](user/getting-started.md) |
+| **A developer** | Client: `npm install`, then `npm run tauri:dev`. Web Server: `npm run server:dev` and `npm run web:dev` in two terminals. Notes: [`developer/`](developer/README.md) |
+
+## Related documents
+
+| Document | Where |
+|--------|------------|
+| **User guide** | [The window, settings, Skills, and IM](user/README.md) |
+| **Architecture** | [Desktop and web share one core](developer/architecture.md) |
+| **Deployment** | [Packaging and deployment](deploy/README.md) |
+| **Contributing** | [Contributor guide](contributing/README.md), [Development notes](DEVELOPMENT.md) |
+| **Internals** | [Internals](internals/README.md). Design records live in the repository at [design/](design/README.md) and are not on this site |
+
 ## What is this
 
 Build and run digital employees on the computer people already use, and keep them running stably on a server. Both the agent and the model can stay inside your own environment, with no per-seat fees. The desktop app and the web app share the same capabilities, on Windows, macOS, and Linux.
@@ -64,16 +81,6 @@ A digital employee has to work inside a real office setup. It needs a license th
 </table>
 
 A digital employee should not compete with a person for the computer. The memory and CPU figures above are there so it can stay on an everyday work machine. Pointer has already seen more than 3 months of high-intensity use in real business work, nearly 1000M tokens a day.
-
-## By audience
-
-| I am… | Start here |
-|--------|------------|
-| **A user** | [`user/`](user/README.md) — installation, first chat, Skills, IM channels |
-| **A developer / integrator** | [`developer/`](developer/README.md) — architecture, tools, protocols |
-| **A deployer / packager** | [`deploy/`](deploy/README.md) — the four-cell checklist entry |
-| **A repository contributor** | [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md), [`DEVELOPMENT.md`](DEVELOPMENT.md), [`contributing/`](contributing/README.md) |
-| **A core maintainer** | [`internals/`](internals/README.md) — runtime mechanics, sub-agent prompts, LLM integration, UI notes; design records in [`design/`](design/README.md) |
 
 ---
 

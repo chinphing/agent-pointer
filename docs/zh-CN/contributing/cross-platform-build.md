@@ -591,7 +591,7 @@ src-tauri/target/release/bundle/
 |------|------|
 | `src-tauri/tauri.conf.json` | 窗口、bundle 目标、Linux deb/AppImage、Windows NSIS |
 | `package.json` | `tauri:dev` / `tauri:build` / `build:*` / `icons` 脚本 |
-| `scripts/tauri-build.mjs` | 跨平台 `tauri build`；读 `TAURI_SIGNING_PRIVATE_KEY_PATH`；`managed` 口味烧入控制面域名，standalone 自动加 `--config src-tauri/tauri.personal.conf.json`；**仅 Linux** 自动 `NO_STRIP=true`（AppImage） |
+| `scripts/tauri-build.mjs` | 跨平台 `tauri build`；managed 客户端在缺省路径 `~/.tauri/pointer-updater.key` 读取或生成 updater 私钥（`--generate-updater-key` 或终端确认，已有文件不覆盖），有 `.pub` 时只给这次构建嵌公钥；standalone 自动加 `--config src-tauri/tauri.personal.conf.json`；**仅 Linux** 自动 `NO_STRIP=true`（AppImage） |
 | `.github/workflows/release.yml` | 三端 CI 自动打包（**仅 standalone 包**） |
 
 ### 图标

@@ -7,7 +7,8 @@ Build and run digital employees on the computer people already use, and keep the
 | You want | Get it here |
 | --- | --- |
 | Ready to use, out of the box | [Official download](https://pointer.readflowai.com/download) |
-| Deploy inside your company | [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) (official package) · [Deployment guide](docs/en/deploy/README.md) (self-hosted) |
+| Community installers | [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) |
+| Deploy inside your company | [Deployment guide](docs/en/deploy/README.md) |
 
 [简体中文](README.zh-CN.md)
 
@@ -137,19 +138,39 @@ Full index: [docs/README.md](docs/README.md).
 
 The desktop app is Tauri 2 and Vue 3. The web UI is the same interface served by `pointer-server`. Chat, tools, Skills, and agents live in `crates/pointer-core`.
 
+### Client
+
 ```bash
 npm install
-npm run tauri:dev          # desktop
-npm run server:dev         # then npm run web:dev for the browser UI
-npm test
-cargo test --workspace
+npm run tauri:dev
 ```
 
-Leave `POINTER_EDITION` unset for local work. Details: [docs/en/DEVELOPMENT.md](docs/en/DEVELOPMENT.md).
+The desktop window opens with no control plane bound when `pointer.local.env` is absent. The first compile can take a few minutes.
+
+### Web Server
+
+Use two terminals:
+
+```bash
+# terminal 1
+npm install
+npm run server:dev
+
+# terminal 2
+npm run web:dev
+```
+
+Then open `http://127.0.0.1:1420/`. Details: [docs/en/DEVELOPMENT.md](docs/en/DEVELOPMENT.md).
 
 ## Deploy
 
-Packaging flavour (`POINTER_EDITION`) and runtime form (client / server) are orthogonal. Pick your combination, then follow the checklist:
+Users start the desktop client with the script. It does not call npm. An existing `target/release/pointer-app` or an installed app opens directly; `--build` is what recompiles locally:
+
+```bash
+./scripts/quick-deploy.sh start standalone-client --runtime bin
+```
+
+Flavour (`POINTER_EDITION`) and runtime form (client / server) matter when you are building an installer:
 
 | What you are doing | Start here |
 | --- | --- |

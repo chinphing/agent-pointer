@@ -22,11 +22,29 @@ is yours to submit under the Apache License 2.0.
 
 ## Local development
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for environment setup and
-`tauri:dev` / `server:dev` / `web:dev`.
+### Client
 
 ```bash
 npm install
+npm run tauri:dev
+```
+
+### Web Server
+
+Use two terminals:
+
+```bash
+# terminal 1
+npm install
+npm run server:dev
+
+# terminal 2
+npm run web:dev
+```
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) if a command fails, and for tests:
+
+```bash
 npm test
 cargo test --workspace
 ```

@@ -56,7 +56,7 @@ Detailed steps (how to trigger, Linux system dependencies, Draft Release) are in
 
 | Document | Content |
 |---|---|
-| [`README.md`](README.md) | Packaging and deployment four-cell checklist entry |
+| [`README.md`](README.md) | Run it locally, then package by the four cells |
 | [`editions.md`](editions.md) | Flavour × runtime-form four cells (build command / variables / artifacts / verification / external dependencies) |
 | [`../contributing/cross-platform-build.md`](../contributing/cross-platform-build.md) | Platform environments, local development, build/packaging and CI full text |
 | [`../internals/standalone-server-deployment.md`](../internals/standalone-server-deployment.md) | Full standalone server delivery flow |

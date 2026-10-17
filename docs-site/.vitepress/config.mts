@@ -192,7 +192,7 @@ const EN_DEV_PLACED = [
 const zhSections: SectionSpec[] = [
   {
     text: '快速开始',
-    files: ['zh-CN/user/getting-started.md', 'zh-CN/user/which-build.md'],
+    files: ['zh-CN/user/getting-started.md'],
   },
   {
     text: '使用指南',
@@ -200,7 +200,7 @@ const zhSections: SectionSpec[] = [
     dirs: [
       {
         dir: 'zh-CN/user',
-        exclude: ['zh-CN/user/README.md', 'zh-CN/user/getting-started.md', 'zh-CN/user/which-build.md'],
+        exclude: ['zh-CN/user/README.md', 'zh-CN/user/getting-started.md'],
       },
     ],
   },
@@ -264,7 +264,7 @@ const zhSections: SectionSpec[] = [
 const enSections: SectionSpec[] = [
   {
     text: 'Getting Started',
-    files: ['en/user/getting-started.md', 'en/user/which-build.md'],
+    files: ['en/user/getting-started.md'],
   },
   {
     text: 'Guides',
@@ -272,7 +272,7 @@ const enSections: SectionSpec[] = [
     dirs: [
       {
         dir: 'en/user',
-        exclude: ['en/user/README.md', 'en/user/getting-started.md', 'en/user/which-build.md'],
+        exclude: ['en/user/README.md', 'en/user/getting-started.md'],
       },
     ],
   },
@@ -397,14 +397,14 @@ export default defineConfig({
         ],
       };
       pageData.frontmatter.features = [
-        { title: 'Guides', details: 'Chat, Skills, IM channels, MCP, plugins, sub-agents', link: '/user/' },
+        { title: 'Guides', details: 'After it is installed: chat, Skills, IM channels, plugins', link: '/user/' },
         {
           title: 'Development',
-          details: 'Architecture, tool-calling protocol, integrations, troubleshooting',
+          details: 'After the window is up: architecture, protocols, integrations',
           link: '/developer/',
         },
-        { title: 'Deployment', details: 'Packaging flavours × runtime shapes, platform matrix', link: '/deploy/' },
-        { title: 'Contributing', details: 'Cross-platform builds, versioning, packaging, dev setup', link: '/DEVELOPMENT' },
+        { title: 'Deployment', details: 'When you are building an installer: flavour and runtime form', link: '/deploy/' },
+        { title: 'Contributing', details: 'Version, CI, and packaging conventions for repository changes', link: '/DEVELOPMENT' },
         { title: 'Internals', details: 'Runtime mechanics, sub-agent prompts, LLM integration, UI notes', link: '/internals/' },
       ];
     } else if (rel === 'zh-CN/index.md') {
@@ -421,10 +421,10 @@ export default defineConfig({
         ],
       };
       pageData.frontmatter.features = [
-        { title: '使用指南', details: '对话、Skills、IM 通道、MCP、插件、子代理', link: '/zh-CN/user/' },
-        { title: '开发', details: '架构与概念、工具与协议、集成、排障', link: '/zh-CN/developer/' },
-        { title: '部署', details: '打包口味 × 运行形态、平台矩阵', link: '/zh-CN/deploy/' },
-        { title: '参与贡献', details: '跨平台构建、版本规范、打包、开发环境', link: '/zh-CN/contributing/' },
+        { title: '使用指南', details: '装好之后：对话、Skills、IM 通道、插件', link: '/zh-CN/user/' },
+        { title: '开发', details: '窗口起来之后：架构、协议、集成、排障', link: '/zh-CN/developer/' },
+        { title: '部署', details: '要发安装包时再看口味和运行形态', link: '/zh-CN/deploy/' },
+        { title: '参与贡献', details: '改仓库时的版本、CI 和打包约定', link: '/zh-CN/contributing/' },
         { title: '维护者笔记', details: '运行时机制、子代理提示词、LLM 接入、UI 笔记', link: '/zh-CN/internals/' },
       ];
     }

@@ -1,15 +1,41 @@
 # Developer documentation
 English | [简体中文](../../zh-CN/developer/README.md)
 
-For **external developers, integrators and Skill authors**: connecting IM, writing Skills, extending agents, self-hosting.
+For **external developers, integrators and Skill authors**. End users should start at **[`../user/`](../user/README.md)**.
 
-**End-user tutorials** are in **[`../user/`](../user/README.md)**.
+## Dev mode
 
-Read [architecture.md](architecture.md) first, then get it running with [DEVELOPMENT.md](../DEVELOPMENT.md).
+Developers start the dev app with npm. Run the commands from the repository root. With no `pointer.local.env`, no control plane is bound. The first compile can take a few minutes. Once it is up, you can change the code. Read [architecture.md](architecture.md) after it is running.
 
-> This page follows the four groups of the 开发 (Development) sidebar section: **Concepts / Tools and protocols / Integration / Troubleshooting** (plus Other). `standalone-deployment.md` lives under Deployment.
+### Client
 
-## Packaging and deployment: the four-cell entry
+```bash
+npm install
+npm run tauri:dev
+```
+
+That opens the desktop window. If that fails, install Node, Rust, and the system libraries in [DEVELOPMENT.md](../DEVELOPMENT.md), then run `npm run tauri:dev` again.
+
+### Web Server
+
+Use two terminals:
+
+```bash
+# terminal 1
+npm install
+npm run server:dev
+
+# terminal 2
+npm run web:dev
+```
+
+Then open `http://127.0.0.1:1420/`.
+
+Users start an already built program with the shell or bat script, not npm. See [Quick start](../deploy/quick-start.md).
+
+The rest of this page follows the sidebar groups: **Concepts / Tools and protocols / Integration / Troubleshooting**. `standalone-deployment.md` lives under Deployment.
+
+## When you are packaging or changing how it is deployed
 
 **Packaging flavour** (`managed` centrally managed / `standalone` independent) × **runtime form** (client / server) makes four cells; each cell has its **build command / required variables / artifact location / how to verify / external dependencies**. Entry point: [`../deploy/README.md`](../deploy/README.md) (detailed manual [`editions.md`](../deploy/editions.md)):
 

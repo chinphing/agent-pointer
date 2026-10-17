@@ -25,6 +25,10 @@ pub use agent_ui::{
     AgentUiConfig, ResolvedAgentUi,
 };
 
+/// Lead system-prompt override (`default` / `minimal` profile) for headless runs.
+pub mod prompt_profile;
+pub use prompt_profile::{LeadPromptOverride, PromptProfile, MINIMAL_SYSTEM_PROMPT};
+
 pub const DEFAULT_AGENT_ID: &str = "general";
 /// Default worker used as the lead when `leadAgentId` is unset.
 pub const DEFAULT_LEAD_AGENT_ID: &str = "general";
@@ -367,6 +371,9 @@ pub struct AgentPlan {
     pub allowed_tool_names: Vec<String>,
     /// Sorted, deduped worker ids from the lead agent manifest `allowAgents`.
     pub allow_agents: Vec<String>,
+    /// Lead system-prompt layer set. `Default` unless a headless caller applies
+    /// a [`LeadPromptOverride`]; `Minimal` drops the desktop scaffolding layers.
+    pub prompt_profile: PromptProfile,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -651,6 +658,7 @@ impl AgentOrchestrator {
             resolved_skill_prompts: skill_prompts,
             allowed_tool_names,
             allow_agents: normalize_allow_agents(&agent.allow_agents),
+            prompt_profile: PromptProfile::Default,
         }
     }
 

@@ -2,52 +2,153 @@
 
 [English](../../en/user/getting-started.md) | 简体中文
 
-先确认你用的是 [官方包还是本地构建](which-build.md)。
+## 1. 官网安装
 
-## 官方包
+1. 打开 [官网下载页](https://pointer.readflowai.com/download)，下载当前系统的安装包，安装，打开 Pointer。
+2. 左下角 **账户** → **登录**。必须登录。登录后平台会下发模型。
+3. 发一句「你好」。
 
-1. 从 [官网下载页](https://pointer.readflowai.com/download) 下载对应平台的安装包（Windows / macOS / Linux）
-2. **配置模型**，二选一：
-   - **登录平台账号**（左下角「**账户**」菜单 →「**登录**」）：登录后平台会下发模型服务，直接就能用
-   - **自己配**：在 **设置 → 模型配置 → 自定义服务** 填 Base URL 和 API Key，点 **测试连接**。详见 [配置模型服务](model-providers.md)
-3. 发送一条消息，例如「你好」
+要接自己的模型，登录后再到 **设置 → 模型配置 → 自定义服务** 填地址和 Key。未登录时，自己的 Key 不能用来发消息。详见 [配置模型服务](model-providers.md)。
 
-登录平台账号后还能使用云主机和充值。桌面 OAuth 成功后可能跳转官网。
+登录后浏览器可能打开官网，回到窗口即可。
 
-## 本地构建 / 自建 Web
+## 2. 社区版安装
 
-企业内部部署从 [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) 获取安装包。从源码运行见仓库 [DEVELOPMENT.md](../../../DEVELOPMENT.md)。部署 `pointer-server` 并用浏览器访问，见 [standalone-server.md](standalone-server.md)。
+社区版是 [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) 上的安装包。下载当前系统的包，安装，打开 Pointer。
 
-本地构建没有内置官网域名。模型地址和 Key 都在设置里自己填。
+模型不会从平台下来。到 **设置 → 模型配置 → 自定义服务** 填地址和 Key，点 **测试连接**，再发一句「你好」。
 
-## 桌面端与 Web 端
+和官网包的差别见 [官方包与本地构建](which-build.md)。
 
-| 入口 | 说明 |
-|------|------|
-| 桌面端 | Tauri 客户端，本地存储与完整能力（含 IM 通道、电脑操控等） |
-| Web 端 | 浏览器访问已部署的 `pointer-server`，与桌面共用同一套对话逻辑 |
+## 3. 自行编译安装
 
-## 工具与确认
+命令都在仓库根目录执行。个人版不要设置 `POINTER_EDITION`。企业版把示例域名换成自己的控制面。产物位置见 [平台打包](../deploy/platforms.md)。
 
-- 默认 **自动允许** 工具调用；可在设置中改为敏感工具需二次确认
-- 联网搜索（`web_search`）需要有效的搜索/模型配置，按提供方计费
+### 客户端编译安装
 
-## 键盘快捷键
+#### 个人版
 
-输入框里这几个键值得记住：
+1. 一行命令编译并启动
 
-| 按键 | 行为 |
-| --- | --- |
-| `Enter` | 发送。正在生成时**入队**，等这一轮结束再发 |
-| `Shift+Enter` | 换行 |
-| `⌘/Ctrl+Enter` | **软取消当前回合并立即发送** |
-| `Enter`（输入框为空、且有排队消息） | 立即发送队首 |
-| `⌘/Ctrl+F` | 页内搜索。焦点在工作区面板时，优先给文件树或文件预览 |
-| `Esc` | 关闭搜索 / 重命名 / 弹窗 / 图片预览 |
+```bash
+# Linux / macOS
+npm install && ./scripts/quick-deploy.sh start standalone-client --runtime bin --build
 
-`⌘/Ctrl+Enter` 是最容易记错的一个：它不是「换行」，也不是普通的「发送」，而是**先停掉正在跑的这一轮**（只停同步的这一轮，后台任务继续），再把你当前输入的内容立刻发出去 —— 相当于「打断 + 抢话」，和 Cursor 里手感一致。
+# Windows
+npm install && scripts\quick-deploy.bat start standalone-client --runtime bin --build
+```
 
-## 下一步
+编完启动 `target/release/pointer-app`。模型在 **设置 → 模型配置 → 自定义服务** 里填写。
 
-- [Skills 使用](skills.md)
+2. 编译生成安装包
+
+```bash
+# Linux
+npm install && npm run build:linux
+
+# macOS
+npm install && npm run build:macos
+
+# Windows
+npm install && npm run build:windows
+```
+
+#### 企业版
+
+1. 一行命令编译并启动
+
+```bash
+# Linux / macOS
+npm install && ./scripts/quick-deploy.sh start managed-client --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+
+# Windows
+npm install && scripts\quick-deploy.bat start managed-client --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+```
+
+编完启动 `target/release/pointer-app`。还没有 updater 私钥时，终端会问一次，输入 `y` 就生成。默认路径是 `~/.tauri/pointer-updater.key`（Windows 是 `%USERPROFILE%\.tauri\pointer-updater.key`），之后一直用这一份。不想确认时，在 `--build` 后面加 `--generate-updater-key`。
+
+手动生成：
+
+```bash
+# Linux / macOS
+npm run tauri signer generate -w ~/.tauri/pointer-updater.key
+
+# Windows
+npm run tauri signer generate -w %USERPROFILE%\.tauri\pointer-updater.key
+```
+
+2. 编译生成安装包
+
+```bash
+# Linux
+npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com POINTER_DOWNLOAD_URL=https://pointer.example.com/download TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key npm run build:linux
+
+# macOS
+npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com POINTER_DOWNLOAD_URL=https://pointer.example.com/download TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key npm run build:macos
+
+# Windows
+npm install && set POINTER_EDITION=managed&& set VITE_POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set POINTER_WEB_BASE=https://pointer.example.com&& set VITE_POINTER_WEB_BASE=https://pointer.example.com&& set COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com&& set POINTER_DOWNLOAD_URL=https://pointer.example.com/download&& set TAURI_SIGNING_PRIVATE_KEY_PATH=%USERPROFILE%\.tauri\pointer-updater.key&& npm run build:windows
+```
+
+缺私钥时的处理和上面一样。
+
+### Web Server 编译安装
+
+#### 个人版
+
+1. 一行命令编译并启动
+
+```bash
+# Linux / macOS
+npm install && ./scripts/quick-deploy.sh start standalone-server --runtime bin --build
+
+# Windows
+npm install && scripts\quick-deploy.bat start standalone-server --runtime bin --build
+```
+
+页面在 `http://127.0.0.1:8787/`。第一次启动把本地账密写到 `.quick-deploy/bin/standalone-server/standalone-admin.env`。用这份账密登录后，到 **设置 → 模型配置** 填写 API Key。
+
+2. 编译生成安装包
+
+```bash
+# Linux
+npm install && npm run server:build
+
+# macOS
+npm install && npm run server:build
+
+# Windows
+npm install && npm run server:build
+```
+
+#### 企业版
+
+1. 一行命令编译并启动
+
+```bash
+# Linux / macOS
+npm install && ./scripts/quick-deploy.sh start managed-server --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+
+# Windows
+npm install && scripts\quick-deploy.bat start managed-server --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+```
+
+2. 编译生成安装包
+
+```bash
+# Linux
+npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com npm run server:build
+
+# macOS
+npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com npm run server:build
+
+# Windows
+npm install && set POINTER_EDITION=managed&& set VITE_POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set POINTER_WEB_BASE=https://pointer.example.com&& set VITE_POINTER_WEB_BASE=https://pointer.example.com&& set COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com&& npm run server:build
+```
+
+## 接着看
+
+- [界面和输入框按键](workspace.md#输入区按键)
+- [工具要不要先问你](settings.md)
+- [Skills](skills.md)
 - [IM 通道](im-channels.md)

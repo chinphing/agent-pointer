@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { t } from '../i18n'
 import { applyUiLocale } from '../lib/uiLocale'
-import { loginRequiredMessage, mapLoginGateError } from '../lib/platformAuthMessages'
+import { loginRequiredMessage, mapLoginGateError, needsSignInBeforeChat } from '../lib/platformAuthMessages'
 import {
   extractPlatformAuthHttpStatus,
   isPlatformAuthTransientError
@@ -78,6 +78,21 @@ describe('loginRequiredMessage / mapLoginGateError', () => {
     expect(loginRequiredMessage(false, 'attachment')).toBe(t('auth.loginRequiredPointerAttach'))
     expect(loginRequiredMessage(true, 'attachment')).toBe(t('auth.loginRequiredAttach'))
     expect(loginRequiredMessage(false, 'cloud')).toBe(t('auth.loginRequiredPointer'))
+  })
+
+  it('asks the browser standalone page to sign in, and leaves the desktop app alone', () => {
+    expect(
+      needsSignInBeforeChat({ loggedIn: false, isStandalone: true, isTauri: false })
+    ).toBe(true)
+    expect(
+      needsSignInBeforeChat({ loggedIn: true, isStandalone: true, isTauri: false })
+    ).toBe(false)
+    expect(
+      needsSignInBeforeChat({ loggedIn: false, isStandalone: true, isTauri: true })
+    ).toBe(false)
+    expect(
+      needsSignInBeforeChat({ loggedIn: false, isStandalone: false, isTauri: false })
+    ).toBe(true)
   })
 
   it('maps backend login-gate errors to the standard hint', () => {

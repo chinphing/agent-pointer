@@ -2,9 +2,7 @@
 
 English | [简体中文](../../zh-CN/user/standalone-server.md)
 
-pointer-server can be deployed independently of the official platform. A local build (unbound to a control plane) can be installed from source or from a local package, and you **do not** need to request a License from the issuer. Official standalone packages still need a License — see the end of this document.
-
-Read [which-build.md](../user/which-build.md) first to confirm which one you have.
+pointer-server can be deployed independently of the official platform. Start with the package install below. A local build (unbound to a control plane) does **not** need a License from the issuer. Official standalone packages still need a License — see the end of this document. The difference between the two packages is in [which-build.md](which-build.md); read it after the service is installed.
 
 ---
 

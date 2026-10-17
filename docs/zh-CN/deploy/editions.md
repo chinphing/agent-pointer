@@ -87,13 +87,13 @@ POINTER_EDITION=managed VITE_POINTER_EDITION=managed \
 
 平台快捷脚本（都走同一个 `scripts/tauri-build.mjs`）：`build:windows` / `build:macos`（Universal 签名版 `build:macos:signed`）/ `build:linux`。
 
-首次生成 updater 密钥（只做一次，私钥离线保管）：
+还没有 updater 私钥时，终端会问一次，输入 `y` 生成到 `~/.tauri/pointer-updater.key`（Windows：`%USERPROFILE%\.tauri\pointer-updater.key`）。已有文件会一直复用。不想确认时加上 `--generate-updater-key`。自己生成：
 
 ```bash
 npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 ```
 
-`src-tauri/tauri.conf.json` 的 `bundle.createUpdaterArtifacts` 为 `true`（只有 standalone 用的 `tauri.personal.conf.json` 关掉），因此 managed 客户端**必须**提供签名私钥，否则 updater 产物签名阶段失败。`scripts/tauri-build.mjs` 会把 `TAURI_SIGNING_PRIVATE_KEY_PATH` 的内容读进 `TAURI_SIGNING_PRIVATE_KEY`。
+`src-tauri/tauri.conf.json` 的 `bundle.createUpdaterArtifacts` 为 `true`（只有 standalone 用的 `tauri.personal.conf.json` 关掉），因此 managed 客户端**必须**提供签名私钥，否则 updater 产物签名阶段失败。脚本把私钥读进 `TAURI_SIGNING_PRIVATE_KEY`，并把旁边的 `.pub` 嵌进这次安装包，不改仓库配置。
 
 ### 3.2 需要的变量
 
@@ -129,8 +129,21 @@ src-tauri/target/release/bundle/
 ### 3.5 外部依赖
 
 - 控制面 API / Web / SOM 三个域名可达（企业用内网域名）。
-- updater 私钥（公钥已在 `src-tauri/tauri.conf.json` → `plugins.updater.pubkey`，**换密钥需同步改这里**）。
+- updater 私钥。私钥旁边有 `.pub` 时，这次构建嵌这把公钥，不改 `src-tauri/tauri.conf.json`。没有 `.pub` 时用仓库里的 `plugins.updater.pubkey`，必须和私钥配对。
 - 发版：安装包 + updater 压缩包 + `.sig` 走控制台「客户端发布」。
+
+### 3.6 本地快速启动
+
+用户用脚本启动这一格的桌面程序，不调用 npm。仓库里已经有的 `target/release/pointer-app`，或本机已经安装的程序，会直接打开。两处都没有时脚本退出。加上 `--build` 才按这次传入的域名在本地重新编译。Linux / macOS 用 shell，Windows 把 `./scripts/quick-deploy.sh` 换成 `scripts\quick-deploy.bat`。详见 [`quick-start.md`](quick-start.md)。
+
+```bash
+./scripts/quick-deploy.sh start managed-client --runtime bin \
+  --api-base https://pointer-api.example.com \
+  --web-base https://pointer.example.com \
+  --annotate-base https://pointer-som.example.com
+```
+
+开发者改代码用 `npm run tauri:dev`。脚本里要对这一格做开发态拉起时，把 `--runtime bin` 换成 `--runtime dev`，那才会走 Tauri CLI，并在源码、`POINTER_EDITION` 或三个域名变化时重编。
 
 ---
 
@@ -215,6 +228,19 @@ curl -s http://127.0.0.1:8787/api/auth/mode      # → {"mode":"platform"}
 - 控制面侧的组织 / 计费 / 店铺（本仓库不打）。
 - 不需要 License 签发。
 
+### 4.6 本地快速启动
+
+用户用脚本启动这一格已经编译好的服务端，不调用 npm。不写 `--build` 时不编译，页面在 `http://127.0.0.1:8787/`。缺二进制或 `dist/` 时加上 `--build` 才本地重新编译。详见 [`quick-start.md`](quick-start.md)。
+
+```bash
+./scripts/quick-deploy.sh start managed-server --runtime bin \
+  --api-base https://pointer-api.example.com \
+  --web-base https://pointer.example.com \
+  --annotate-base https://pointer-som.example.com
+```
+
+开发者改代码用 `npm run server:dev`。脚本里的 `--runtime dev` 才会执行 `cargo run -p pointer-server` 和本机 Vite；源码、口味、三个域名都没变时，Cargo 复用已有 debug 产物。
+
 ---
 
 <a id="standalone-client"></a>
@@ -249,6 +275,16 @@ npm run tauri:build          # 不设任何 POINTER_* 变量
 ### 5.5 外部依赖
 
 无。
+
+### 5.6 本地快速启动
+
+用户用脚本启动桌面程序，不调用 npm。不设置 `POINTER_EDITION`。仓库里已经有的 `target/release/pointer-app` 会直接用；没有时用本机已安装的程序。两处都没有就退出。加上 `--build` 才在本地重新编译，并且不会把 `pointer.local.env` 里的口味和域名编进去。数据目录在 `.quick-deploy/bin/standalone-client/data`。详见 [`quick-start.md`](quick-start.md)。
+
+```bash
+./scripts/quick-deploy.sh start standalone-client --runtime bin
+```
+
+开发者改代码用 `npm run tauri:dev`。脚本里的 `--runtime dev` 才走 Tauri CLI，并和开发态网页共用 Vite 端口 `1420`。发布版不占用 `1420`。
 
 ---
 
@@ -300,6 +336,16 @@ curl -s http://127.0.0.1:8787/api/license/status  # 自建 notConfigured；官�
 
 无。官方签名包需要 Pointer 签发方提供 License（`npm run license-gen:build`）。
 
+### 6.6 本地快速启动
+
+用户用脚本启动已经编译好的服务端，不调用 npm。不写 `--build` 时不编译。第一次启动会在 `.quick-deploy/bin/standalone-server/standalone-admin.env` 生成本地账密。页面在 `http://127.0.0.1:8787/`。缺二进制或 `dist/` 时加上 `--build` 才本地重新编译。详见 [`quick-start.md`](quick-start.md)。
+
+```bash
+./scripts/quick-deploy.sh start standalone-server --runtime bin
+```
+
+开发者改代码用 `npm run server:dev` 和 `npm run web:dev`，页面在 `http://127.0.0.1:1420/`。脚本里的 `--runtime dev` 才是 `cargo run -p pointer-server` 加本机 Vite。
+
 ---
 
 ## 7. CI 与发布口径
@@ -311,6 +357,8 @@ curl -s http://127.0.0.1:8787/api/license/status  # 自建 notConfigured；官�
 ---
 
 ## 8. 日常开发
+
+改代码用上面的 npm。用脚本启动某一格已经编译好的程序见 [`quick-start.md`](quick-start.md)，入口是 `./scripts/quick-deploy.sh` 或 `scripts\quick-deploy.bat`。
 
 ```bash
 cp pointer.local.env.example pointer.local.env    # 需要绑控制面时才建

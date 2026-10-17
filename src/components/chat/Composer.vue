@@ -81,6 +81,10 @@ import {
   resizeComposerTextarea
 } from '../../lib/composerTextareaResize'
 import {
+  createComposerTextareaMirror,
+  type ComposerTextareaMirror
+} from '../../lib/composerTextareaMirror'
+import {
   PERF_ACTIVITY_COMPOSER_INPUT,
   PERF_ACTIVITY_COMPOSER_RESIZE,
   PERF_MS_COMPOSER_INPUT,
@@ -1390,6 +1394,12 @@ let composerResizeRaf: number | null = null
 let textareaResizeObserver: ResizeObserver | null = null
 /** Inline style values the fallback auto-grow has written on the textarea. */
 let composerTextareaResize = createComposerTextareaResizeState()
+/**
+ * Hidden mirror that measures content height without touching the textarea
+ * (see `composerTextareaMirror`). Created on the first fallback pass, so
+ * engines with native `field-sizing` never pay for it.
+ */
+let composerTextareaMirror: ComposerTextareaMirror | null = null
 
 /**
  * Textarea `@input` handler. It is a named function rather than an inline
@@ -1482,7 +1492,15 @@ function resizeTextareaForContent(el: HTMLTextAreaElement, force: boolean) {
     delete el.dataset.fieldSizingApplied
   }
   composerTextareaResize = resizeComposerTextarea(el, composerTextareaResize, {
-    force
+    force,
+    // Measure the content in the hidden mirror instead of the destructive
+    // shrink probe: a delete that leaves the height unchanged then writes no
+    // style at all (and no style write means no style recalc + no second layout
+    // of the composer → pane → transcript chain).
+    measureContentHeight: (value) => {
+      composerTextareaMirror ??= createComposerTextareaMirror(el)
+      return composerTextareaMirror.measure(value, force)
+    }
   })
 }
 
@@ -1559,6 +1577,8 @@ onUnmounted(() => {
   if (composerResizeRaf != null) cancelAnimationFrame(composerResizeRaf)
   textareaResizeObserver?.disconnect()
   textareaResizeObserver = null
+  composerTextareaMirror?.dispose()
+  composerTextareaMirror = null
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleDocumentKeydown)
   releaseTauriDragDrop?.()

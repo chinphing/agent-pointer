@@ -4,6 +4,8 @@ import {
   COMPOSER_TEXTAREA_MIN_HEIGHT_PX as MIN,
   createComposerTextareaResizeState,
   resizeComposerTextarea,
+  type ComposerTextareaResizeOptions,
+  type ComposerTextareaResizeState,
   type ComposerTextareaResizeTarget
 } from './composerTextareaResize'
 
@@ -21,6 +23,8 @@ class FakeTextarea implements ComposerTextareaResizeTarget {
   contentHeight = MIN
   reads = { scrollHeight: 0, clientHeight: 0, offsetHeight: 0 }
   writes: Array<{ property: string; from: string; to: string }> = []
+  /** How many times the non-destructive (mirror) measurement ran. */
+  mirrorCalls = 0
 
   private inline = new Map<string, string>()
 
@@ -74,6 +78,11 @@ class FakeTextarea implements ComposerTextareaResizeTarget {
 
   writesSince(mark: number) {
     return this.writes.slice(mark)
+  }
+
+  /** Final inline style map — what the element actually carries. */
+  inlineStyles(): Record<string, string> {
+    return Object.fromEntries(this.inline)
   }
 }
 
@@ -368,5 +377,189 @@ describe('composer textarea resize — clearing the draft', () => {
 
     expect(el.usedHeight).toBe(MIN)
     expect(el.overflowY).toBe('hidden')
+  })
+})
+
+/**
+ * The hidden mirror (`composerTextareaMirror`) measures the content height
+ * without touching the textarea. These cases pin the write counts on the delete
+ * path: a delete that leaves the height alone must write nothing, and one that
+ * changes it must write only the properties that changed.
+ */
+describe('composer textarea resize — non-destructive measurement', () => {
+  const NO_READS = { scrollHeight: 0, clientHeight: 0, offsetHeight: 0 }
+
+  /** Mirror model: content height only — independent of the current box. */
+  function mirror(el: FakeTextarea) {
+    return (value: string) => {
+      el.mirrorCalls += 1
+      expect(value).toBe(el.value)
+      return el.contentHeight
+    }
+  }
+
+  it('deletes without writing a style when the wrapped height is unchanged', () => {
+    const el = new FakeTextarea()
+    const state = createComposerTextareaResizeState()
+
+    el.setContent('aX\nb', 2)
+    resizeComposerTextarea(el, state, { measureContentHeight: mirror(el) })
+    expect(el.usedHeight).toBe(2 * LINE + PADDING)
+
+    const mark = el.writes.length
+    el.reads = { ...NO_READS }
+
+    // Remove the `X`: the visual height is unchanged, but the text is not a
+    // prefix extension of the previous one, so the old code ran the destructive
+    // shrink probe (write `height: min` → read → write the height back).
+    el.setContent('a\nb', 2)
+    resizeComposerTextarea(el, state, { measureContentHeight: mirror(el) })
+
+    expect(el.writesSince(mark)).toEqual([])
+    expect(el.usedHeight).toBe(2 * LINE + PADDING)
+    expect(el.mirrorCalls).toBe(1)
+    // One `clientHeight` + one `scrollHeight` read — the probe's extra
+    // write-then-read cycle never runs.
+    expect(el.reads).toEqual({ scrollHeight: 1, clientHeight: 1, offsetHeight: 0 })
+  })
+
+  it('writes only the new height when a delete removes a line', () => {
+    const el = new FakeTextarea()
+    const state = createComposerTextareaResizeState()
+
+    el.setContent('a\nb\nc', 3)
+    resizeComposerTextarea(el, state, { measureContentHeight: mirror(el) })
+    expect(el.usedHeight).toBe(3 * LINE + PADDING)
+
+    const mark = el.writes.length
+    // Delete `b\n` from the middle: 3 visual lines → 2.
+    el.setContent('a\nc', 2)
+    resizeComposerTextarea(el, state, { measureContentHeight: mirror(el) })
+
+    expect(el.writesSince(mark)).toEqual([
+      {
+        property: 'height',
+        from: `${3 * LINE + PADDING}px`,
+        to: `${2 * LINE + PADDING}px`
+      }
+    ])
+    expect(el.usedHeight).toBe(2 * LINE + PADDING)
+    expect(el.overflowY).toBe('hidden')
+  })
+
+  it('un-caps with two writes instead of three', () => {
+    const el = new FakeTextarea()
+    const state = createComposerTextareaResizeState()
+
+    el.setContent(`a\n${'x'.repeat(500)}`, 14)
+    resizeComposerTextarea(el, state, { measureContentHeight: mirror(el) })
+    expect(el.usedHeight).toBe(MAX)
+    expect(el.overflowY).toBe('auto')
+
+    const mark = el.writes.length
+    el.setContent(`a\n${'x'.repeat(200)}`, 8)
+    resizeComposerTextarea(el, state, { measureContentHeight: mirror(el) })
+
+    const writes = el.writesSince(mark)
+    expect(writes.map((write) => write.property).sort()).toEqual(['height', 'overflow-y'])
+    expect(el.usedHeight).toBe(PADDING + 8 * LINE)
+    expect(el.overflowY).toBe('hidden')
+  })
+
+  it('falls back to the destructive probe when no measurement is available', () => {
+    const mirrored = new FakeTextarea()
+    const mirroredState = createComposerTextareaResizeState()
+    const probed = new FakeTextarea()
+    const probedState = createComposerTextareaResizeState()
+
+    // `null` is what `createComposerTextareaMirror` returns when the mirror
+    // cannot be laid out (detached node, no document).
+    for (const [el, state, options] of [
+      [mirrored, mirroredState, { measureContentHeight: mirror(mirrored) }],
+      [probed, probedState, { measureContentHeight: () => null }]
+    ] as Array<
+      [FakeTextarea, ComposerTextareaResizeState, ComposerTextareaResizeOptions]
+    >) {
+      el.setContent('aX\nb', 2)
+      resizeComposerTextarea(el, state, options)
+      el.setContent('a\nb', 2)
+      resizeComposerTextarea(el, state, options)
+    }
+
+    expect(probed.usedHeight).toBe(mirrored.usedHeight)
+    expect(probed.overflowY).toBe(mirrored.overflowY)
+    expect(probed.inlineStyles()).toEqual(mirrored.inlineStyles())
+    expect(probedState).toEqual(mirroredState)
+    // Same end state — but the probe pays two writes for it.
+    expect(probed.writes.length).toBeGreaterThan(mirrored.writes.length)
+  })
+})
+
+describe('composer textarea resize — the mirror path is step-for-step equivalent', () => {
+  it('matches the probe path and the oracle over a randomized script, with fewer writes', () => {
+    const seed = 0x85ebca6b
+    let s = seed
+    const rand = () => {
+      s = (s + 0x6d2b79f5) | 0
+      let t = Math.imul(s ^ (s >>> 15), 1 | s)
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+
+    let mirrorWrites = 0
+    let probeWrites = 0
+
+    for (const rowsHeight of [MIN, 2 * LINE + PADDING]) {
+      const mirrored = new FakeTextarea(rowsHeight)
+      const probed = new FakeTextarea(rowsHeight)
+      const oracle = new FakeTextarea(rowsHeight)
+      const mirroredState = createComposerTextareaResizeState()
+      const probedState = createComposerTextareaResizeState()
+      let oracleHeight = MIN
+      let text = ''
+
+      for (let step = 0; step < 600; step += 1) {
+        const roll = rand()
+        if (roll < 0.4) text += 'x'
+        else if (roll < 0.6) text += '\n'
+        else if (roll < 0.8) text = text.slice(0, -1)
+        else if (roll < 0.9) text += 'word '.repeat(1 + Math.floor(rand() * 6))
+        else if (roll < 0.95) {
+          // Edit in the middle: never a prefix extension, so the shrink branch
+          // (the one the mirror replaces) is exercised often.
+          const at = Math.floor(rand() * (text.length + 1))
+          text = `${text.slice(0, at)}${text.slice(at + 1)}`
+        } else text = ''
+
+        const visualLines = text
+          .split('\n')
+          .reduce((total, line) => total + 1 + Math.floor(line.length / 30), 0)
+        const force = rand() < 0.04
+
+        for (const el of [mirrored, probed, oracle]) el.setContent(text, visualLines)
+
+        resizeComposerTextarea(mirrored, mirroredState, {
+          force,
+          measureContentHeight: (value) => (value === mirrored.value ? mirrored.contentHeight : null)
+        })
+        resizeComposerTextarea(probed, probedState, {
+          force,
+          measureContentHeight: () => null
+        })
+        oracleHeight = referenceResize(oracle, oracleHeight, force)
+
+        expect(mirrored.usedHeight).toBe(probed.usedHeight)
+        expect(mirrored.usedHeight).toBe(oracle.usedHeight)
+        expect(mirrored.overflowY).toBe(probed.overflowY)
+        expect(mirrored.overflowY).toBe(oracle.overflowY)
+        expect(mirrored.inlineStyles()).toEqual(probed.inlineStyles())
+        expect(mirroredState).toEqual(probedState)
+      }
+
+      mirrorWrites += mirrored.writes.length
+      probeWrites += probed.writes.length
+    }
+
+    expect(mirrorWrites).toBeLessThan(probeWrites)
   })
 })

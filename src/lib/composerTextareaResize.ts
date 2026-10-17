@@ -8,8 +8,13 @@
  * Rewriting an identical inline style on every keystroke marks the textarea
  * style-dirty and forces a layout pass, which can flush pending virtualizer row
  * measurements mid-stream → visible list jump. So every write here is guarded:
- * a property is only written when its value actually changes, and the
- * destructive shrink probe only runs when the content may have shrunk.
+ * a property is only written when its value actually changes.
+ *
+ * "How tall is the content?" is answered by a non-destructive measurement
+ * (`measureContentHeight`, see `composerTextareaMirror`) whenever the caller
+ * provides one, so a delete that leaves the height unchanged writes nothing at
+ * all. The old destructive probe (shrink the box to `min`, read `scrollHeight`,
+ * write back) remains only as the fallback for callers with no mirror.
  */
 
 export const COMPOSER_TEXTAREA_MIN_HEIGHT_PX = 36
@@ -54,6 +59,15 @@ export interface ComposerTextareaResizeOptions {
   force?: boolean
   min?: number
   max?: number
+  /**
+   * Non-destructive content-height measurement (see `composerTextareaMirror`).
+   *
+   * Returns the height the text would occupy at the textarea's current inline
+   * size, or `null` when no such measurement is available — then the destructive
+   * shrink probe runs instead. Providing it removes the two style writes that
+   * probe owes on every pass that might have shrunk.
+   */
+  measureContentHeight?: (value: string) => number | null
 }
 
 export function resizeComposerTextarea(
@@ -64,6 +78,7 @@ export function resizeComposerTextarea(
   const min = options.min ?? COMPOSER_TEXTAREA_MIN_HEIGHT_PX
   const max = options.max ?? COMPOSER_TEXTAREA_MAX_HEIGHT_PX
   const force = options.force === true
+  const measureContentHeight = options.measureContentHeight
 
   const value = el.value
 
@@ -131,16 +146,27 @@ export function resizeComposerTextarea(
     return state
   } else {
     // The content may have shrunk below the current box, and `scrollHeight`
-    // clamps to `clientHeight`. Shrink the box to the minimum to read the real
-    // content height — one write, one read — then write back only what changed.
-    writeComposerTextareaOverflowY(el, state, 'hidden')
-    // `box > min` here, so this is always a real change; bypass the state guard
-    // (it can be stale when the element mounted at its rows height).
-    el.style.setProperty('height', `${min}px`)
-    state.height = min
-    const measured = el.scrollHeight
-    nextHeight = Math.min(Math.max(measured, min), max)
-    overflowY = measured > max ? 'auto' : 'hidden'
+    // clamps to `clientHeight`, so it cannot answer "how tall is the content?".
+    // Ask the non-destructive measurement first: it leaves this element alone,
+    // so a delete that keeps the height ends the pass with zero writes.
+    const measured = measureContentHeight ? measureContentHeight(value) : null
+    if (measured != null && Number.isFinite(measured)) {
+      nextHeight = Math.min(Math.max(measured, min), max)
+      overflowY = measured > max ? 'auto' : 'hidden'
+    } else {
+      // Fallback (no mirror available): the destructive probe. Shrink the box to
+      // the minimum to read the real content height — one write, one read — then
+      // write back only what changed. Each write dirties layout, so this only
+      // runs when the caller cannot measure without touching the element.
+      writeComposerTextareaOverflowY(el, state, 'hidden')
+      // `box > min` here, so this is always a real change; bypass the state guard
+      // (it can be stale when the element mounted at its rows height).
+      el.style.setProperty('height', `${min}px`)
+      state.height = min
+      const probe = el.scrollHeight
+      nextHeight = Math.min(Math.max(probe, min), max)
+      overflowY = probe > max ? 'auto' : 'hidden'
+    }
   }
 
   writeComposerTextareaMinHeight(el, state, min)

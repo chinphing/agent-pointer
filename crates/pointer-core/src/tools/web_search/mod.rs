@@ -1,4 +1,5 @@
 mod client;
+mod deepseek;
 mod dispatch;
 mod generation;
 mod sse_drain;

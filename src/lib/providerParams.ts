@@ -42,7 +42,7 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
     defaultId: 'deepseek',
     defaultName: 'DeepSeek',
     defaultBaseUrl: 'https://api.deepseek.com/v1',
-    defaultModels: ['deepseek-v4-pro', 'deepseek-flash']
+    defaultModels: ['deepseek-flash', 'deepseek-v4-pro']
   },
   {
     id: 'qwen',
@@ -131,6 +131,16 @@ export function isQwenProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boole
 export function isDeepSeekProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
   if (providerIdLower(p) === 'deepseek') return true
   return /api\.deepseek\.com/i.test(p.baseUrl || '')
+}
+
+/** Qwen uses DashScope search. Any configured DeepSeek model can select the Search API route. */
+export function modelSupportsHostedWebSearch(
+  provider: Pick<ProviderConfig, 'id' | 'baseUrl'>,
+  model: string
+): boolean {
+  if (isQwenProvider(provider)) return true
+  if (!isDeepSeekProvider(provider)) return false
+  return model.trim().length > 0
 }
 
 export function isDoubaoProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {

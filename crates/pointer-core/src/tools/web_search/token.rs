@@ -1,4 +1,5 @@
-//! Token accounting for DashScope web-search LLM rounds.
+//! Token accounting for web-search rounds.
+//! DashScope records LLM usage. DeepSeek Search has no token usage.
 
 use crate::agent_instance_scope::AgentInstanceScope;
 use crate::llm_token_stats::LlmUsageSnapshot;
@@ -22,11 +23,19 @@ impl WebSearchTokenRecorder {
 
     pub fn record(&self, result: &WebSearchResult) {
         if result.usage.total_tokens == 0 {
-            log::warn!(
-                "web_search token usage missing usage payload {} model={}",
-                self.scope.log_suffix(),
-                result.model
-            );
+            if result.model == super::deepseek::DEEPSEEK_SEARCH_MODEL {
+                log::info!(
+                    "web_search DeepSeek search has no token usage {} model={}",
+                    self.scope.log_suffix(),
+                    result.model
+                );
+            } else {
+                log::warn!(
+                    "web_search token usage missing usage payload {} model={}",
+                    self.scope.log_suffix(),
+                    result.model
+                );
+            }
             return;
         }
         let snapshot = LlmUsageSnapshot::from_dashscope_web_search(

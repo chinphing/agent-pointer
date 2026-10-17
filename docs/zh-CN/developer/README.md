@@ -67,7 +67,7 @@ npm run web:dev
 | [pointer-run-subagent.md](pointer-run-subagent.md) | `run_subagent`、`allowAgents`、内置 explore、后台 `background` / `terminal.blockUntilMs` / `job` |
 | [file-tool-write-scope.md](file-tool-write-scope.md) | `file_write` / `file_edit` 允许的写入目录 |
 | [file-tool-output-limits.md](file-tool-output-limits.md) | 读文件 / glob / 列举 / 搜索 / 终端回包上限与终端超时（设置 → 内容上限 / 终端超时；`file_read` 行数、`file_glob` / `file_list` 条数为实现常量） |
-| [web-search-tool.md](web-search-tool.md) | `web_search` 工具行为与 DashScope API |
+| [web-search-tool.md](web-search-tool.md) | `web_search`：DashScope 与 DeepSeek 网页搜索 |
 | [web-fetch-tool.md](web-fetch-tool.md) | `web_fetch` 抓取公开 URL（Hermes `web_extract` 对齐） |
 | [terminal-environment-variables.md](terminal-environment-variables.md) | **`terminal`** 子进程环境变量（`WORKING_DIR`、`SESSION_USER_ID`、`DATA_DIR`、`SKILL_DIR`） |
 | [terminal-interactive-input.md](terminal-interactive-input.md) | SSH / sudo 等交互输入：应用内密码弹窗、ASKPASS、提示词约定 |

@@ -67,7 +67,7 @@ For user import and enabling see [`../user/skills.md`](../user/skills.md).
 | [pointer-run-subagent.md](pointer-run-subagent.md) | `run_subagent`, `allowAgents`, built-in explore, background `background` / `terminal.blockUntilMs` / `job` |
 | [file-tool-write-scope.md](file-tool-write-scope.md) | Directories `file_write` / `file_edit` are allowed to write to |
 | [file-tool-output-limits.md](file-tool-output-limits.md) | Read file / glob / list / search / terminal response caps and terminal timeouts (Settings → Content limits / Terminal timeouts) |
-| [web-search-tool.md](web-search-tool.md) | `web_search` tool behaviour and the DashScope API |
+| [web-search-tool.md](web-search-tool.md) | `web_search` tool: DashScope and DeepSeek web search |
 | [web-fetch-tool.md](web-fetch-tool.md) | `web_fetch` fetching public URLs (aligned with Hermes `web_extract`) |
 | [terminal-environment-variables.md](terminal-environment-variables.md) | **`terminal`** subprocess environment variables (`WORKING_DIR`, `SESSION_USER_ID`, `DATA_DIR`, `SKILL_DIR`) |
 | [terminal-interactive-input.md](terminal-interactive-input.md) | Interactive input for SSH / sudo etc.: in-app password modal, ASKPASS, prompt conventions |

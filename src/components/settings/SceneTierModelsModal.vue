@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { X } from 'lucide-vue-next'
 import type { SettingsDialogForm } from '../../composables/useSettingsDialogForm'
 import { composerAgentLabel } from '../../lib/agentUi'
-import { isQwenProvider } from '../../lib/providerParams'
+import { modelSupportsHostedWebSearch } from '../../lib/providerParams'
 import { useSettingsStore } from '../../stores/settings'
 import {
   isSameTierRef,
@@ -53,11 +53,11 @@ const sceneLabel = computed(() => {
   return t('settings.sceneModal.sceneFallback')
 })
 
-/** DashScope-compatible models only — web_search calls native DashScope search APIs. */
+/** Qwen models, plus any configured DeepSeek model (Search API route). */
 const webSearchModels = computed(() =>
   s.allModels.filter(item => {
     const provider = s.settings.providers.find(p => p.id === item.providerId)
-    return provider ? isQwenProvider(provider) : false
+    return provider ? modelSupportsHostedWebSearch(provider, item.model) : false
   })
 )
 

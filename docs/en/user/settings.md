@@ -63,7 +63,7 @@ The web build is missing one more thing: **webhook triggers** only appear on the
 | Tier radio buttons | One row per scene; the selection takes effect immediately |
 | **Models** button | Opens "Tier models": give the Fast / Standard / Expert tiers of that scene a model and reasoning parameters each. A tier marked **Overridden** means its model was changed by hand |
 | **Media understanding** | Image understanding / speech transcription / video understanding, one tier each |
-| **More tools → Web search** | The model behind each web search tier (compatible search models only) |
+| **More tools → Web search** | The model behind each web search tier (Qwen, and any configured DeepSeek model) |
 | **More** | Tiers and models for the other workers |
 | **Personalization** | A block of rules written into every chat's system prompt (`[USER RULES]`), **up to 4000 characters**; leave it empty to use only the product default rules |
 

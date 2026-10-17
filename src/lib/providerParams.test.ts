@@ -3,6 +3,7 @@ import {
   detectProviderTemplateId,
   firstPresetTemplate,
   isDoubaoProvider,
+  modelSupportsHostedWebSearch,
   PROVIDER_TEMPLATE_OPTIONS,
   providerDraftForTemplate
 } from './providerParams'
@@ -28,7 +29,7 @@ describe('platform provider detection', () => {
   it('presets DeepSeek, Qwen, MiMo, Kimi, and GLM with a base URL and models', () => {
     const byId = Object.fromEntries(PROVIDER_TEMPLATE_OPTIONS.map(option => [option.id, option]))
     expect(byId.deepseek.defaultBaseUrl).toBe('https://api.deepseek.com/v1')
-    expect(byId.deepseek.defaultModels).toEqual(['deepseek-v4-pro', 'deepseek-flash'])
+    expect(byId.deepseek.defaultModels).toEqual(['deepseek-flash', 'deepseek-v4-pro'])
     expect(byId.qwen.defaultBaseUrl).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1')
     expect(byId.qwen.defaultModels).toEqual([
       'qwen3.8-max',
@@ -59,6 +60,19 @@ describe('platform provider detection', () => {
       'kimi',
       'zhipu'
     ])
+  })
+
+  it('offers Qwen and any DeepSeek model for hosted web search', () => {
+    const qwen = { id: 'qwen', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' }
+    const deepseek = { id: 'deepseek', baseUrl: 'https://api.deepseek.com/v1' }
+    expect(modelSupportsHostedWebSearch(qwen, 'qwen3.8-max')).toBe(true)
+    expect(modelSupportsHostedWebSearch(deepseek, 'deepseek-v4-pro')).toBe(true)
+    expect(modelSupportsHostedWebSearch(deepseek, 'deepseek-v4-pro-2026-08-01')).toBe(true)
+    expect(modelSupportsHostedWebSearch(deepseek, 'deepseek-flash')).toBe(true)
+    expect(modelSupportsHostedWebSearch(deepseek, '  ')).toBe(false)
+    expect(modelSupportsHostedWebSearch({ id: 'kimi', baseUrl: 'https://api.moonshot.cn/v1' }, 'kimi-k3')).toBe(
+      false
+    )
   })
 
   it('detects MiMo, GLM, and Kimi from id or host', () => {

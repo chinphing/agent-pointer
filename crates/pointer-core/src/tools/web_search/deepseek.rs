@@ -1,8 +1,7 @@
-//! DeepSeek Responses API web search (`tools: [{type: web_search}]`).
+//! DeepSeek Search API (`POST /v1/tools/search`).
 //!
-//! Official behavior: `web_search` runs server-side on `deepseek-v4-pro` only.
-//! `deepseek-flash` ignores the tool, so this path always calls `deepseek-v4-pro`
-//! unless the configured id is already a `deepseek-v4-pro` snapshot.
+//! Official docs: https://api-docs.deepseek.com/zh-cn/guides/search
+//! The call returns structured pages. It does not run a chat model.
 
 use crate::models::{
     provider_uses_dashscope_compatible_api, provider_uses_deepseek_api, ModelSettings,
@@ -11,43 +10,33 @@ use crate::models::{
 use anyhow::{anyhow, Context, Result};
 use log::{info, warn};
 use serde_json::{json, Value};
-use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 use super::client::{
     log_web_search_http_request, truncate_for_log, WebSearchRequest, WebSearchResult,
-    WebSearchSource, WebSearchUsage, DEFAULT_WEB_SEARCH_TIMEOUT_SECS,
+    WebSearchSource, WebSearchUsage,
 };
 use super::stream_ui::WebSearchStreamUi;
 
-/// Model that actually runs DeepSeek server-side web search.
-pub const DEEPSEEK_WEB_SEARCH_MODEL: &str = "deepseek-v4-pro";
+/// Label stored on the tool result. The Search API has no model id.
+pub const DEEPSEEK_SEARCH_MODEL: &str = "deepseek-search";
 
-const SEARCH_INSTRUCTIONS: &str = "\
-Search the public web with the web_search tool before answering. \
-Answer from the search results and keep the cited pages.";
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum WebSearchRoute {
-    DashScope,
-    DeepSeek {
-        provider_id: String,
-        requested_model: String,
-    },
-}
+const DEEPSEEK_SEARCH_COUNT: u64 = 10;
+const DEEPSEEK_SEARCH_QUERY_MAX_CHARS: usize = 128;
+const DEEPSEEK_SEARCH_TIMEOUT_SECS: u64 = 60;
 
 /// `deepseek` preset id, or any provider whose base URL is the official host.
 pub fn provider_is_deepseek_search(provider: &ProviderConfig) -> bool {
     provider.id.eq_ignore_ascii_case("deepseek") || provider_uses_deepseek_api(provider)
 }
 
-/// Responses endpoint. Strips a trailing `/v1` so `https://api.deepseek.com/v1`
-/// becomes `https://api.deepseek.com/responses`.
-pub fn deepseek_responses_url(base_url: &str) -> String {
+/// `https://api.deepseek.com/v1` and `https://api.deepseek.com` both become
+/// `https://api.deepseek.com/v1/tools/search`.
+pub fn deepseek_search_url(base_url: &str) -> String {
     let trimmed = base_url.trim().trim_end_matches('/');
     if trimmed.is_empty() {
-        return "https://api.deepseek.com/responses".to_string();
+        return "https://api.deepseek.com/v1/tools/search".to_string();
     }
     let lower = trimmed.to_ascii_lowercase();
     let origin = if let Some(stripped) = strip_suffix_ci(trimmed, &lower, "/compatible-mode/v1") {
@@ -59,9 +48,9 @@ pub fn deepseek_responses_url(base_url: &str) -> String {
     };
     let origin = origin.trim_end_matches('/');
     if origin.is_empty() {
-        return "https://api.deepseek.com/responses".to_string();
+        return "https://api.deepseek.com/v1/tools/search".to_string();
     }
-    format!("{origin}/responses")
+    format!("{origin}/v1/tools/search")
 }
 
 fn strip_suffix_ci<'a>(original: &'a str, lower: &str, suffix: &str) -> Option<&'a str> {
@@ -72,589 +61,130 @@ fn strip_suffix_ci<'a>(original: &'a str, lower: &str, suffix: &str) -> Option<&
     }
 }
 
-/// Returns `(model_on_the_wire, substituted)`.
-/// Empty input uses `deepseek-v4-pro` without counting as a substitution.
-pub fn resolve_deepseek_web_search_model(requested: &str) -> (String, bool) {
-    let trimmed = requested.trim();
-    let lower = trimmed.to_ascii_lowercase();
-    let pro = DEEPSEEK_WEB_SEARCH_MODEL;
-    let pro_snapshot = lower
-        .strip_prefix(pro)
-        .is_some_and(|rest| rest.is_empty() || rest.starts_with('-'));
-    if pro_snapshot {
-        return (trimmed.to_string(), false);
+fn prepare_search_query(query: &str) -> Result<String> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Err(anyhow!("DeepSeek search query is empty"));
     }
-    (pro.to_string(), !trimmed.is_empty())
+    let chars = trimmed.chars().count();
+    if chars > DEEPSEEK_SEARCH_QUERY_MAX_CHARS {
+        return Err(anyhow!(
+            "DeepSeek search query is {chars} characters; the search API accepts at most {DEEPSEEK_SEARCH_QUERY_MAX_CHARS}. Shorten the query."
+        ));
+    }
+    Ok(trimmed.to_string())
 }
 
-pub fn build_deepseek_web_search_body(model: &str, req: &WebSearchRequest) -> Value {
-    let input = if req.messages.len() <= 1 {
-        json!(req.query)
-    } else {
-        Value::Array(
-            req.messages
-                .iter()
-                .map(|m| json!({ "role": m.role, "content": m.content }))
-                .collect(),
-        )
-    };
-    let mut body = json!({
-        "model": model,
-        "input": input,
-        "instructions": SEARCH_INSTRUCTIONS,
-        "tools": [{ "type": "web_search" }],
-        "stream": true,
-    });
-    if req.enable_thinking {
-        body["reasoning"] = json!({ "effort": "high" });
-    }
-    body
-}
-
-#[derive(Debug, Clone, Default)]
-struct DeepSeekAccum {
-    answer: String,
-    saw_text: bool,
-    sources: Vec<WebSearchSource>,
-    usage: WebSearchUsage,
-    usage_search_count: Option<u32>,
-    request_id: Option<String>,
-    call_ids: HashSet<String>,
-    anonymous_calls: u32,
-}
-
-impl DeepSeekAccum {
-    fn into_result(self, query: &str, model: &str, search_strategy: &str) -> WebSearchResult {
-        let calls = self.call_ids.len() as u32 + self.anonymous_calls;
-        let search_count = self
-            .usage_search_count
-            .filter(|n| *n > 0)
-            .unwrap_or(if calls > 0 {
-                calls
-            } else if self.sources.is_empty() {
-                0
-            } else {
-                1
-            });
-        WebSearchResult {
-            ok: true,
-            query: query.to_string(),
-            answer: self.answer,
-            sources: self.sources,
-            search_count,
-            usage: self.usage,
-            model: model.to_string(),
-            search_strategy: search_strategy.to_string(),
-            request_id: self.request_id,
-            citation_base_index: None,
-        }
-    }
-}
-
-fn normalize_url_key(url: &str) -> String {
-    url.trim().trim_end_matches('/').to_ascii_lowercase()
-}
-
-fn title_or_host(title: &str, url: &str) -> String {
-    let title = title.trim();
-    if !title.is_empty() {
-        return title.to_string();
-    }
-    reqwest::Url::parse(url)
-        .ok()
-        .and_then(|u| u.host_str().map(str::to_string))
-        .filter(|h| !h.is_empty())
-        .unwrap_or_default()
-}
-
-fn add_source(sources: &mut Vec<WebSearchSource>, url: &str, title: &str, index: Option<u32>) {
-    let url = url.trim();
-    if url.is_empty() || !(url.starts_with("http://") || url.starts_with("https://")) {
-        if !url.is_empty() {
-            warn!(
-                "web_search DeepSeek source ignored non-http url={}",
-                truncate_for_log(url, 120)
-            );
-        }
-        return;
-    }
-    let key = normalize_url_key(url);
-    if let Some(existing) = sources
-        .iter_mut()
-        .find(|s| normalize_url_key(&s.url) == key)
-    {
-        let incoming = title.trim();
-        let host = reqwest::Url::parse(url)
-            .ok()
-            .and_then(|u| u.host_str().map(str::to_string));
-        let host_only = existing.title.trim().is_empty()
-            || host.is_some_and(|host| host.eq_ignore_ascii_case(existing.title.trim()));
-        if !incoming.is_empty() && host_only {
-            existing.title = incoming.to_string();
-        }
-        return;
-    }
-    let index = index.filter(|n| *n > 0).unwrap_or_else(|| {
-        sources
-            .iter()
-            .map(|s| s.index)
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1)
-    });
-    sources.push(WebSearchSource {
-        index,
-        title: title_or_host(title, url),
-        url: url.to_string(),
-        site_name: None,
-    });
-}
-
-fn push_source_value(sources: &mut Vec<WebSearchSource>, src: &Value) {
-    let url = src
-        .get("url")
-        .and_then(|v| v.as_str())
-        .or_else(|| src.get("source_website_url").and_then(|v| v.as_str()))
-        .unwrap_or("");
-    let title = src
-        .get("title")
-        .and_then(|v| v.as_str())
-        .or_else(|| src.get("name").and_then(|v| v.as_str()))
-        .unwrap_or("");
-    let index = src.get("index").and_then(|v| v.as_u64()).map(|n| n as u32);
-    add_source(sources, url, title, index);
-}
-
-fn collect_annotations(sources: &mut Vec<WebSearchSource>, part: &Value) {
-    let Some(items) = part.get("annotations").and_then(|a| a.as_array()) else {
-        return;
-    };
-    for ann in items {
-        let ty = ann.get("type").and_then(|t| t.as_str()).unwrap_or("");
-        if ty != "url_citation" {
-            if ann.get("url").is_some() {
-                warn!("web_search DeepSeek skipped annotation type={ty}");
-            }
-            continue;
-        }
-        push_source_value(sources, ann);
-    }
-}
-
-fn collect_item_sources(sources: &mut Vec<WebSearchSource>, item: &Value) {
-    let ty = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
-    if ty == "web_search_call" {
-        for key in ["sources", "results"] {
-            if let Some(items) = item.get(key).and_then(|s| s.as_array()) {
-                for src in items {
-                    push_source_value(sources, src);
-                }
-            }
-        }
-        if let Some(action) = item.get("action") {
-            if let Some(items) = action.get("sources").and_then(|s| s.as_array()) {
-                for src in items {
-                    push_source_value(sources, src);
-                }
-            }
-            if let Some(items) = action.get("results").and_then(|s| s.as_array()) {
-                for src in items {
-                    push_source_value(sources, src);
-                }
-            }
-        }
-    }
-    if ty == "message" {
-        match item.get("content") {
-            Some(Value::Array(parts)) => {
-                for part in parts {
-                    collect_annotations(sources, part);
-                }
-            }
-            Some(other) => collect_annotations(sources, other),
-            None => {}
-        }
-    }
-}
-
-fn output_items(body: &Value) -> Option<&Vec<Value>> {
-    body.get("output").and_then(|o| o.as_array())
-}
-
-fn message_text(body: &Value) -> String {
-    let mut text = String::new();
-    if let Some(items) = output_items(body) {
-        for item in items {
-            if item.get("type").and_then(|t| t.as_str()) != Some("message") {
-                continue;
-            }
-            match item.get("content") {
-                Some(Value::String(s)) => text.push_str(s),
-                Some(Value::Array(parts)) => {
-                    for part in parts {
-                        let ty = part.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                        if ty == "output_text" || ty.is_empty() {
-                            if let Some(s) = part.get("text").and_then(|t| t.as_str()) {
-                                text.push_str(s);
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    if text.is_empty() {
-        if let Some(s) = body.get("output_text").and_then(|v| v.as_str()) {
-            text.push_str(s);
-        }
-    }
-    text
-}
-
-fn read_usage(body: &Value) -> (WebSearchUsage, Option<u32>) {
-    let Some(usage) = body.get("usage") else {
-        return (WebSearchUsage::default(), None);
-    };
-    let input_tokens = usage
-        .get("input_tokens")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as u32;
-    let output_tokens = usage
-        .get("output_tokens")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as u32;
-    let mut total_tokens = usage
-        .get("total_tokens")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as u32;
-    if total_tokens == 0 && (input_tokens > 0 || output_tokens > 0) {
-        total_tokens = input_tokens.saturating_add(output_tokens);
-        info!("web_search DeepSeek usage total_tokens missing; summed input and output");
-    }
-    let search_count = usage
-        .pointer("/x_tools/web_search/count")
-        .and_then(|c| c.as_u64())
-        .map(|c| c as u32);
-    (
-        WebSearchUsage {
-            input_tokens,
-            output_tokens,
-            total_tokens,
-        },
-        search_count,
-    )
-}
-
-fn failure_message(body: &Value) -> Option<String> {
-    let status = body.get("status").and_then(|s| s.as_str()).unwrap_or("");
-    let err = body.get("error").filter(|e| !e.is_null());
-    if status != "failed" && err.is_none() {
-        return None;
-    }
-    let detail = err
-        .and_then(|e| {
-            e.get("message")
-                .and_then(|m| m.as_str())
-                .map(str::to_string)
-                .or_else(|| e.as_str().map(str::to_string))
-        })
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "DeepSeek web search failed".to_string());
-    let code = err
-        .and_then(|e| e.get("code"))
-        .and_then(|c| c.as_str())
-        .filter(|s| !s.is_empty());
-    Some(match code {
-        Some(code) => format!("{code}: {detail}"),
-        None => detail,
+pub fn build_deepseek_search_body(query: &str) -> Value {
+    json!({
+        "query": query,
+        "count": DEEPSEEK_SEARCH_COUNT,
+        "need_content": false,
     })
 }
 
-fn note_call(acc: &mut DeepSeekAccum, item_id: Option<&str>) {
-    match item_id.map(str::trim).filter(|s| !s.is_empty()) {
-        Some(id) => {
-            acc.call_ids.insert(id.to_string());
-        }
-        None => {
-            acc.anonymous_calls = acc.anonymous_calls.saturating_add(1);
-        }
+pub fn parse_deepseek_search_response(
+    query: &str,
+    search_strategy: &str,
+    body: &Value,
+) -> Result<WebSearchResult> {
+    if let Some(msg) = body
+        .pointer("/error/message")
+        .and_then(|m| m.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        return Err(anyhow!("DeepSeek search failed: {msg}"));
     }
-}
-
-fn merge_response(acc: &mut DeepSeekAccum, body: &Value, replace_text: bool) -> Result<bool> {
-    if let Some(msg) = failure_message(body) {
-        return Err(anyhow!("DeepSeek web search failed: {msg}"));
-    }
-    let status = body.get("status").and_then(|s| s.as_str()).unwrap_or("");
-    if status == "incomplete" {
-        warn!(
-            "web_search DeepSeek response incomplete id={}",
-            body.get("id").and_then(|v| v.as_str()).unwrap_or("-")
-        );
-    }
-    let text = message_text(body);
-    if replace_text && !text.is_empty() && !acc.saw_text {
-        acc.answer = text;
-        acc.saw_text = true;
-    }
+    let Some(items) = body.get("results").and_then(|v| v.as_array()) else {
+        return Err(anyhow!(
+            "DeepSeek search response did not include a results array"
+        ));
+    };
     let mut sources = Vec::new();
-    if let Some(items) = output_items(body) {
-        for item in items {
-            if item.get("type").and_then(|t| t.as_str()) == Some("web_search_call") {
-                note_call(acc, item.get("id").and_then(|v| v.as_str()));
-            }
-            collect_item_sources(&mut sources, item);
-        }
-    }
-    let sources_changed = !sources.is_empty() && sources != acc.sources;
-    if !sources.is_empty() {
-        acc.sources = sources;
-    }
-    let (usage, search_count) = read_usage(body);
-    if usage.total_tokens > 0 || usage.input_tokens > 0 || usage.output_tokens > 0 {
-        acc.usage = usage;
-    }
-    if search_count.is_some() {
-        acc.usage_search_count = search_count;
-    }
-    if let Some(id) = body
-        .get("id")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-    {
-        acc.request_id = Some(id.to_string());
-    }
-    Ok(sources_changed)
-}
-
-fn emit_sources(ui: Option<&WebSearchStreamUi>, acc: &DeepSeekAccum) {
-    let Some(ui) = ui else {
-        return;
-    };
-    if acc.sources.is_empty() {
-        return;
-    }
-    let count = acc
-        .usage_search_count
-        .unwrap_or(if acc.sources.is_empty() { 0 } else { 1 });
-    ui.emit_sources_ready(&acc.sources, count.max(1));
-}
-
-fn apply_event(
-    acc: &mut DeepSeekAccum,
-    event_name: &str,
-    data: &Value,
-    ui: Option<&WebSearchStreamUi>,
-) -> Result<()> {
-    let ty = data
-        .get("type")
-        .and_then(|t| t.as_str())
-        .filter(|s| !s.is_empty())
-        .unwrap_or(event_name);
-
-    if ty == "response.failed" || event_name == "response.failed" {
-        let body = data.get("response").unwrap_or(data);
-        if let Some(msg) = failure_message(body) {
-            return Err(anyhow!("DeepSeek web search failed: {msg}"));
-        }
-        return Err(anyhow!("DeepSeek web search failed"));
-    }
-
-    if ty == "response.output_text.delta" {
-        let delta = data.get("delta").and_then(|d| d.as_str()).unwrap_or("");
-        if !delta.is_empty() {
-            acc.answer.push_str(delta);
-            acc.saw_text = true;
-            if let Some(ui) = ui {
-                ui.emit_output_delta(delta);
-            }
-        } else {
-            warn!("web_search DeepSeek output_text.delta had no delta text");
-        }
-        return Ok(());
-    }
-
-    if ty == "response.output_text.done" {
-        let text = data.get("text").and_then(|t| t.as_str()).unwrap_or("");
-        if !acc.saw_text && !text.is_empty() {
-            acc.answer = text.to_string();
-            acc.saw_text = true;
-            if let Some(ui) = ui {
-                ui.emit_output_delta(text);
-            }
-        }
-        return Ok(());
-    }
-
-    if ty == "response.web_search_call.in_progress"
-        || ty == "response.web_search_call.searching"
-        || ty == "response.web_search_call.completed"
-    {
-        info!("web_search DeepSeek call event={ty}");
-        if ty == "response.web_search_call.completed" {
-            if let Some(item_id) = data
-                .get("item_id")
-                .and_then(|v| v.as_str())
-                .or_else(|| data.get("id").and_then(|v| v.as_str()))
-            {
-                note_call(acc, Some(item_id));
-            }
-        }
-        if let Some(item) = data.get("item") {
-            let mut sources = acc.sources.clone();
-            collect_item_sources(&mut sources, item);
-            if sources != acc.sources {
-                acc.sources = sources;
-                emit_sources(ui, acc);
-            }
-        }
-        return Ok(());
-    }
-
-    if ty == "response.output_item.done" || ty == "response.output_item.added" {
-        let Some(item) = data.get("item") else {
-            warn!("web_search DeepSeek {ty} missing item");
-            return Ok(());
-        };
-        if item.get("type").and_then(|t| t.as_str()) == Some("web_search_call") {
-            if ty.ends_with("done") {
-                if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
-                    note_call(acc, Some(id));
-                }
-            }
-            let mut sources = acc.sources.clone();
-            collect_item_sources(&mut sources, item);
-            if sources != acc.sources {
-                acc.sources = sources;
-                emit_sources(ui, acc);
-            }
-        }
-        return Ok(());
-    }
-
-    if ty == "response.completed" || ty == "response.incomplete" || data.get("output").is_some() {
-        let body = data.get("response").unwrap_or(data);
-        let had_text = acc.saw_text;
-        let changed = merge_response(acc, body, true)?;
-        if changed {
-            emit_sources(ui, acc);
-        }
-        if !had_text && !acc.answer.is_empty() {
-            if let Some(ui) = ui {
-                ui.emit_output_delta(&acc.answer);
-            }
-        }
-        return Ok(());
-    }
-
-    if ty.starts_with("response.reasoning")
-        || ty.starts_with("response.content_part")
-        || ty == "response.created"
-        || ty == "response.in_progress"
-        || ty.starts_with("response.function_call")
-    {
-        return Ok(());
-    }
-    if !ty.is_empty() {
-        warn!("web_search DeepSeek unhandled event={ty}");
-    }
-    Ok(())
-}
-
-fn apply_sse_block(
-    acc: &mut DeepSeekAccum,
-    block: &str,
-    ui: Option<&WebSearchStreamUi>,
-) -> Result<()> {
-    let mut event_name = String::new();
-    let mut data = String::new();
-    for line in block.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("event:") {
-            event_name = rest.trim().to_string();
-        } else if let Some(rest) = line.strip_prefix("data:") {
-            if !data.is_empty() {
-                data.push('\n');
-            }
-            data.push_str(rest.trim());
-        }
-    }
-    if data.is_empty() || data == "[DONE]" {
-        return Ok(());
-    }
-    let parsed: Value = match serde_json::from_str(&data) {
-        Ok(v) => v,
-        Err(e) => {
-            warn!("web_search DeepSeek SSE JSON parse failed: {e}");
-            return Ok(());
-        }
-    };
-    apply_event(acc, &event_name, &parsed, ui)
-}
-
-fn parse_deepseek_responses_sse(
-    body: &str,
-    ui: Option<&WebSearchStreamUi>,
-) -> Result<DeepSeekAccum> {
-    let mut acc = DeepSeekAccum::default();
-    let mut block = String::new();
-    for line in body.split_inclusive('\n') {
-        if line.trim().is_empty() {
-            if !block.trim().is_empty() {
-                apply_sse_block(&mut acc, &block, ui)?;
-                block.clear();
+    let mut answer = String::new();
+    let mut seen_urls = std::collections::HashSet::new();
+    for item in items {
+        let url = item
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if url.is_empty() || !(url.starts_with("http://") || url.starts_with("https://")) {
+            if !url.is_empty() {
+                warn!(
+                    "web_search DeepSeek source ignored non-http url={}",
+                    truncate_for_log(url, 120)
+                );
             }
             continue;
         }
-        block.push_str(line);
-    }
-    if !block.trim().is_empty() {
-        apply_sse_block(&mut acc, &block, ui)?;
-    }
-    Ok(acc)
-}
-
-pub fn parse_deepseek_response(
-    query: &str,
-    model: &str,
-    search_strategy: &str,
-    body: &Value,
-    ui: Option<&WebSearchStreamUi>,
-) -> Result<WebSearchResult> {
-    if body.get("output").is_none()
-        && body.get("status").is_none()
-        && body.get("output_text").is_none()
-        && body.get("error").is_none()
-    {
-        return Err(anyhow!(
-            "DeepSeek web search returned an unrecognized response"
-        ));
-    }
-    let mut acc = DeepSeekAccum::default();
-    let changed = merge_response(&mut acc, body, true)?;
-    if !acc.saw_text {
-        let text = message_text(body);
-        if !text.is_empty() {
-            acc.answer = text;
-            acc.saw_text = true;
+        let url_key = url.trim_end_matches('/').to_ascii_lowercase();
+        if !seen_urls.insert(url_key) {
+            warn!(
+                "web_search DeepSeek source ignored duplicate url={}",
+                truncate_for_log(url, 120)
+            );
+            continue;
         }
-    }
-    if acc.answer.is_empty() && acc.sources.is_empty() {
-        warn!(
-            "web_search DeepSeek response had no answer and no sources id={}",
-            acc.request_id.as_deref().unwrap_or("-")
-        );
-    }
-    if changed || !acc.sources.is_empty() {
-        emit_sources(ui, &acc);
-    }
-    if !acc.answer.is_empty() {
-        if let Some(ui) = ui {
-            ui.emit_output_delta(&acc.answer);
+        let title = item
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        let summary = item
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| {
+                item.get("snippet")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.trim().is_empty())
+            })
+            .unwrap_or("")
+            .trim();
+        let site_name = item
+            .get("site_name")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let index = (sources.len() as u32).saturating_add(1);
+        let title = if title.is_empty() {
+            site_name.clone().unwrap_or_else(|| url.to_string())
+        } else {
+            title.to_string()
+        };
+        if !answer.is_empty() {
+            answer.push_str("\n\n");
         }
+        answer.push_str(&format!("{index}. {title}\n{url}"));
+        if !summary.is_empty() {
+            answer.push('\n');
+            answer.push_str(summary);
+        }
+        sources.push(WebSearchSource {
+            index,
+            title,
+            url: url.to_string(),
+            site_name,
+        });
     }
-    Ok(acc.into_result(query, model, search_strategy))
+    let search_count = sources.len() as u32;
+    if search_count == 0 {
+        info!("web_search DeepSeek search returned no http results");
+    }
+    Ok(WebSearchResult {
+        ok: true,
+        query: query.to_string(),
+        answer,
+        sources,
+        search_count,
+        usage: WebSearchUsage::default(),
+        model: DEEPSEEK_SEARCH_MODEL.to_string(),
+        search_strategy: search_strategy.to_string(),
+        request_id: None,
+        citation_base_index: None,
+    })
 }
 
 fn provider_has_key(provider: &ProviderConfig) -> bool {
@@ -778,11 +308,7 @@ fn route_deepseek(
         if dashscope_with_key(settings) {
             warn!(
                 "web_search DeepSeek API key missing for model={}; falling back to DashScope",
-                if model.is_empty() {
-                    DEEPSEEK_WEB_SEARCH_MODEL
-                } else {
-                    model
-                }
+                if model.is_empty() { "(none)" } else { model }
             );
             return Ok(WebSearchRoute::DashScope);
         }
@@ -864,6 +390,15 @@ pub(crate) fn resolve_web_search_route_with_env(
     Ok(WebSearchRoute::DashScope)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum WebSearchRoute {
+    DashScope,
+    DeepSeek {
+        provider_id: String,
+        requested_model: String,
+    },
+}
+
 pub(crate) async fn execute_routed_web_search(
     settings: &ModelSettings,
     agent_id: Option<&str>,
@@ -906,141 +441,87 @@ pub(crate) async fn execute_deepseek_web_search(
             "DeepSeek API key is missing. Configure the DeepSeek provider API key in settings."
         ));
     }
-    let (model, substituted) = resolve_deepseek_web_search_model(requested_model);
-    if substituted {
-        warn!(
-            "web_search DeepSeek model {} ignores web_search; calling {}",
-            requested_model.trim(),
-            model
-        );
-    }
-    let url = deepseek_responses_url(&provider.base_url);
-    let body = build_deepseek_web_search_body(&model, &req);
+    let query = prepare_search_query(&req.query)?;
+    let url = deepseek_search_url(&provider.base_url);
+    let body = build_deepseek_search_body(&query);
     info!(
-        "web_search DeepSeek start model={model} url={url} query={} thinking={} strategy_ignored={}",
-        truncate_for_log(&req.query, 80),
-        req.enable_thinking,
-        req.search_strategy
+        "web_search DeepSeek search start url={url} query={} count={DEEPSEEK_SEARCH_COUNT} chat_model={}",
+        truncate_for_log(&query, 80),
+        if requested_model.trim().is_empty() {
+            "-"
+        } else {
+            requested_model.trim()
+        }
     );
-    log_web_search_http_request(&url, &body, true);
+    log_web_search_http_request(&url, &body, false);
     let started = Instant::now();
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(DEFAULT_WEB_SEARCH_TIMEOUT_SECS))
+        .timeout(Duration::from_secs(DEEPSEEK_SEARCH_TIMEOUT_SECS))
         .build()
-        .context("failed to build HTTP client for DeepSeek web search")?;
+        .context("failed to build HTTP client for DeepSeek search")?;
 
     let send = client
         .post(&url)
         .header("Authorization", format!("Bearer {api_key}"))
         .header("Content-Type", "application/json")
-        .header("Accept", "text/event-stream")
+        .header("Accept", "application/json")
         .json(&body);
 
     let resp = tokio::select! {
         _ = cancel.cancelled() => return Err(anyhow!(crate::i18n::generation_stopped_msg())),
-        r = send.send() => r.context("DeepSeek web search HTTP request failed")?,
+        r = send.send() => r.context("DeepSeek search HTTP request failed")?,
     };
 
     let status = resp.status();
+    let text = resp
+        .text()
+        .await
+        .context("failed to read DeepSeek search response body")?;
     if !status.is_success() {
-        let text = resp
-            .text()
-            .await
-            .context("failed to read DeepSeek web search error body")?;
+        let detail = search_error_detail(&text);
         warn!(
-            "web_search DeepSeek error status={} url={url} query={} response={}",
+            "web_search DeepSeek search error status={} url={url} query={} response={}",
             status,
-            truncate_for_log(&req.query, 80),
-            truncate_for_log(&text, 400)
+            truncate_for_log(&query, 80),
+            truncate_for_log(&detail, 400)
         );
         return Err(anyhow!(
-            "DeepSeek web search failed (HTTP {}): {}",
+            "DeepSeek search failed (HTTP {}): {}",
             status.as_u16(),
-            truncate_for_log(&text, 400)
+            truncate_for_log(&detail, 400)
         ));
     }
-
-    let content_type = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-
-    let result = if content_type.contains("text/event-stream") {
-        let acc = read_deepseek_sse(resp.bytes_stream(), &cancel, ui.as_ref()).await?;
-        if acc.answer.is_empty() && acc.sources.is_empty() {
-            warn!("web_search DeepSeek SSE ended with no answer and no sources");
+    let parsed: Value =
+        serde_json::from_str(&text).context("DeepSeek search returned invalid JSON")?;
+    let result = parse_deepseek_search_response(&query, &req.search_strategy, &parsed)?;
+    if let Some(ui) = ui.as_ref() {
+        if !result.sources.is_empty() {
+            ui.emit_sources_ready(&result.sources, result.search_count);
         }
-        acc.into_result(&req.query, &model, &req.search_strategy)
-    } else {
-        let text = resp
-            .text()
-            .await
-            .context("failed to read DeepSeek web search response body")?;
-        let trimmed = text.trim_start();
-        if trimmed.starts_with("event:") || trimmed.starts_with("data:") {
-            let acc = parse_deepseek_responses_sse(&text, ui.as_ref())?;
-            acc.into_result(&req.query, &model, &req.search_strategy)
-        } else {
-            let parsed: Value =
-                serde_json::from_str(&text).context("DeepSeek web search returned invalid JSON")?;
-            parse_deepseek_response(
-                &req.query,
-                &model,
-                &req.search_strategy,
-                &parsed,
-                ui.as_ref(),
-            )?
+        if !result.answer.is_empty() {
+            ui.emit_output_delta(&result.answer);
         }
-    };
-
+    }
     info!(
-        "web_search DeepSeek ok model={model} url={url} query={} sources={} search_count={} latency_ms={} request_id={:?}",
-        truncate_for_log(&req.query, 80),
+        "web_search DeepSeek search ok url={url} query={} sources={} latency_ms={}",
+        truncate_for_log(&query, 80),
         result.sources.len(),
-        result.search_count,
-        started.elapsed().as_millis(),
-        result.request_id
+        started.elapsed().as_millis()
     );
     Ok(result)
 }
 
-async fn read_deepseek_sse<S, E>(
-    mut byte_stream: S,
-    cancel: &CancellationToken,
-    ui: Option<&WebSearchStreamUi>,
-) -> Result<DeepSeekAccum>
-where
-    S: futures_util::Stream<Item = Result<bytes::Bytes, E>> + Unpin,
-    E: std::error::Error + Send + Sync + 'static,
-{
-    use futures_util::StreamExt;
-
-    let mut acc = DeepSeekAccum::default();
-    let mut buf = String::new();
-    loop {
-        let item = tokio::select! {
-            _ = cancel.cancelled() => return Err(anyhow!(crate::i18n::generation_stopped_msg())),
-            v = byte_stream.next() => v,
-        };
-        let chunk = match item {
-            Some(Ok(c)) => c,
-            Some(Err(e)) => return Err(anyhow!("DeepSeek web search SSE read failed: {e}")),
-            None => break,
-        };
-        buf.push_str(&String::from_utf8_lossy(&chunk));
-        while let Some(pos) = buf.find("\n\n") {
-            let block = buf[..pos].to_string();
-            buf.drain(..pos + 2);
-            apply_sse_block(&mut acc, &block, ui)?;
-        }
-    }
-    if !buf.trim().is_empty() {
-        apply_sse_block(&mut acc, &buf, ui)?;
-    }
-    Ok(acc)
+fn search_error_detail(body: &str) -> String {
+    serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|v| {
+            v.pointer("/error/message")
+                .and_then(|m| m.as_str())
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| body.trim().to_string())
 }
 
 #[cfg(test)]
@@ -1082,158 +563,80 @@ mod tests {
     }
 
     #[test]
-    fn responses_url_strips_v1() {
+    fn search_url_strips_v1() {
         assert_eq!(
-            deepseek_responses_url("https://api.deepseek.com/v1"),
-            "https://api.deepseek.com/responses"
+            deepseek_search_url("https://api.deepseek.com/v1"),
+            "https://api.deepseek.com/v1/tools/search"
         );
         assert_eq!(
-            deepseek_responses_url("https://api.deepseek.com"),
-            "https://api.deepseek.com/responses"
+            deepseek_search_url("https://api.deepseek.com"),
+            "https://api.deepseek.com/v1/tools/search"
         );
         assert_eq!(
-            deepseek_responses_url("http://127.0.0.1:9/v1/"),
-            "http://127.0.0.1:9/responses"
+            deepseek_search_url("http://127.0.0.1:9/v1/"),
+            "http://127.0.0.1:9/v1/tools/search"
         );
     }
 
     #[test]
-    fn flash_is_rewritten_to_v4_pro() {
-        let (model, substituted) = resolve_deepseek_web_search_model("deepseek-flash");
-        assert_eq!(model, "deepseek-v4-pro");
-        assert!(substituted);
-        let (model, substituted) = resolve_deepseek_web_search_model("deepseek-v4-pro");
-        assert_eq!(model, "deepseek-v4-pro");
-        assert!(!substituted);
-        let (model, substituted) = resolve_deepseek_web_search_model("deepseek-v4-pro-2026-08-01");
-        assert_eq!(model, "deepseek-v4-pro-2026-08-01");
-        assert!(!substituted);
-        let (model, substituted) = resolve_deepseek_web_search_model("");
-        assert_eq!(model, "deepseek-v4-pro");
-        assert!(!substituted);
-    }
-
-    #[test]
-    fn request_body_uses_web_search_tool_and_omits_dashscope_fields() {
-        let body = build_deepseek_web_search_body("deepseek-v4-pro", &sample_req());
-        assert_eq!(body["model"], "deepseek-v4-pro");
-        assert_eq!(body["input"], "latest stable Rust edition");
-        assert_eq!(body["tools"][0]["type"], "web_search");
-        assert_eq!(body["stream"], true);
+    fn request_body_is_search_api() {
+        let body = build_deepseek_search_body("DeepSeek site:github.com");
+        assert_eq!(body["query"], "DeepSeek site:github.com");
+        assert_eq!(body["count"], 10);
+        assert_eq!(body["need_content"], false);
+        assert!(body.get("model").is_none());
+        assert!(body.get("tools").is_none());
+        assert!(body.get("stream").is_none());
         assert!(body.get("search_strategy").is_none());
-        assert!(body.get("reasoning").is_none());
-        assert!(body.get("tool_choice").is_none());
-
-        let mut thinking = sample_req();
-        thinking.enable_thinking = true;
-        let body = build_deepseek_web_search_body("deepseek-v4-pro", &thinking);
-        assert_eq!(body["reasoning"]["effort"], "high");
     }
 
     #[test]
-    fn parses_citations_and_search_call_sources() {
-        let body = json!({
-            "id": "resp_test",
-            "status": "completed",
-            "output": [
-                {
-                    "type": "web_search_call",
-                    "id": "ws_1",
-                    "status": "completed",
-                    "action": {
-                        "type": "search",
-                        "sources": [
-                            { "type": "url", "url": "https://doc.rust-lang.org/edition-guide/" }
-                        ]
-                    }
-                },
-                {
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [{
-                        "type": "output_text",
-                        "text": "The 2024 edition is stable.",
-                        "annotations": [{
-                            "type": "url_citation",
-                            "url": "https://doc.rust-lang.org/edition-guide/",
-                            "title": "Rust Edition Guide"
-                        }, {
-                            "type": "url_citation",
-                            "url": "https://blog.rust-lang.org/2024/02/08/Rust-1.76.0.html",
-                            "title": "Announcing Rust 1.76.0"
-                        }]
-                    }]
-                }
-            ],
-            "usage": {
-                "input_tokens": 20,
-                "output_tokens": 8,
-                "total_tokens": 28,
-                "x_tools": { "web_search": { "count": 1 } }
-            }
-        });
-        let result =
-            parse_deepseek_response("rust", "deepseek-v4-pro", "pro_max", &body, None).unwrap();
-        assert!(result.ok);
-        assert_eq!(result.answer, "The 2024 edition is stable.");
-        assert_eq!(result.sources.len(), 2);
-        assert_eq!(result.sources[0].title, "Rust Edition Guide");
-        assert_eq!(
-            result.sources[0].url,
-            "https://doc.rust-lang.org/edition-guide/"
-        );
-        assert_eq!(result.search_count, 1);
-        assert_eq!(result.usage.total_tokens, 28);
-        assert_eq!(result.request_id.as_deref(), Some("resp_test"));
-    }
-
-    #[test]
-    fn failed_response_is_an_error() {
-        let body = json!({
-            "id": "resp_bad",
-            "status": "failed",
-            "error": { "code": "server_error", "message": "search backend down" }
-        });
-        let err =
-            parse_deepseek_response("q", "deepseek-v4-pro", "pro_max", &body, None).unwrap_err();
+    fn query_over_128_chars_is_rejected() {
+        let err = prepare_search_query(&"a".repeat(129)).unwrap_err();
         let msg = format!("{err:#}");
-        assert!(msg.contains("search backend down"));
-        assert!(msg.contains("server_error"));
+        assert!(msg.contains("128"), "{msg}");
     }
 
     #[test]
-    fn sse_deltas_then_completed_sources() {
-        let completed = json!({
-            "type": "response.completed",
-            "response": {
-                "id": "resp_sse",
-                "status": "completed",
-                "output": [
-                    {
-                        "type": "web_search_call",
-                        "id": "ws_9",
-                        "action": { "sources": [{ "url": "https://example.com/a", "title": "A" }] }
-                    },
-                    {
-                        "type": "message",
-                        "content": [{ "type": "output_text", "text": "Hello world" }]
-                    }
-                ],
-                "usage": { "input_tokens": 3, "output_tokens": 2, "total_tokens": 5 }
-            }
+    fn parses_results_into_sources_and_answer() {
+        let body = json!({
+            "results": [
+                {
+                    "rerank_score": 2.4,
+                    "title": "DeepSeek V4",
+                    "url": "https://example.com/deepseek-v4",
+                    "snippet": "short",
+                    "summary": "DeepSeek released V4.",
+                    "content": "",
+                    "site_name": "Example News",
+                    "date": "2026-06-01T00:00:00+00:00",
+                    "authority": 3
+                },
+                { "title": "Skip", "url": "ftp://example.com/nope" },
+                { "title": "Dup", "url": "https://example.com/deepseek-v4/" }
+            ]
         });
-        let sse = format!(
-            "event: response.output_text.delta\ndata: {{\"type\":\"response.output_text.delta\",\"delta\":\"Hello \"}}\n\n\
-             event: response.output_text.delta\ndata: {{\"type\":\"response.output_text.delta\",\"delta\":\"world\"}}\n\n\
-             event: response.completed\ndata: {completed}\n\n"
-        );
-        let acc = parse_deepseek_responses_sse(&sse, None).unwrap();
-        let result = acc.into_result("q", "deepseek-v4-pro", "pro_max");
-        assert_eq!(result.answer, "Hello world");
+        let result = parse_deepseek_search_response("q", "pro_max", &body).unwrap();
+        assert!(result.ok);
+        assert_eq!(result.model, "deepseek-search");
         assert_eq!(result.sources.len(), 1);
-        assert_eq!(result.sources[0].title, "A");
-        assert_eq!(result.request_id.as_deref(), Some("resp_sse"));
-        assert_eq!(result.usage.total_tokens, 5);
+        assert_eq!(result.sources[0].title, "DeepSeek V4");
+        assert_eq!(result.sources[0].url, "https://example.com/deepseek-v4");
+        assert_eq!(result.sources[0].site_name.as_deref(), Some("Example News"));
+        assert!(result.answer.contains("https://example.com/deepseek-v4"));
+        assert!(result.answer.contains("DeepSeek released V4."));
+        assert_eq!(result.search_count, 1);
+        assert_eq!(result.usage.total_tokens, 0);
+    }
+
+    #[test]
+    fn empty_results_are_ok() {
+        let result =
+            parse_deepseek_search_response("q", "pro_max", &json!({ "results": [] })).unwrap();
+        assert!(result.ok);
+        assert!(result.sources.is_empty());
+        assert!(result.answer.is_empty());
+        assert_eq!(result.search_count, 0);
     }
 
     #[test]
@@ -1396,30 +799,19 @@ mod tests {
 
         let server = MockServer::start().await;
         Mock::given(method("POST"))
-            .and(path("/responses"))
+            .and(path("/v1/tools/search"))
             .and(body_partial_json(json!({
-                "model": "deepseek-v4-pro",
-                "tools": [{ "type": "web_search" }],
-                "stream": true
+                "query": "latest stable Rust edition",
+                "count": 10,
+                "need_content": false
             })))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "id": "resp_http",
-                "status": "completed",
-                "output": [
-                    {
-                        "type": "message",
-                        "content": [{
-                            "type": "output_text",
-                            "text": "Rust 2024 is stable.",
-                            "annotations": [{
-                                "type": "url_citation",
-                                "url": "https://doc.rust-lang.org/edition-guide/",
-                                "title": "Edition Guide"
-                            }]
-                        }]
-                    }
-                ],
-                "usage": { "input_tokens": 4, "output_tokens": 4, "total_tokens": 8 }
+                "results": [{
+                    "title": "Edition Guide",
+                    "url": "https://doc.rust-lang.org/edition-guide/",
+                    "summary": "The 2024 edition is stable.",
+                    "site_name": "Rust"
+                }]
             })))
             .mount(&server)
             .await;
@@ -1438,11 +830,14 @@ mod tests {
             execute_routed_web_search(&s, None, sample_req(), CancellationToken::new(), None, None)
                 .await
                 .unwrap();
-        assert_eq!(result.model, "deepseek-v4-pro");
-        assert_eq!(result.answer, "Rust 2024 is stable.");
+        assert_eq!(result.model, "deepseek-search");
+        assert!(result.answer.contains("The 2024 edition is stable."));
         assert_eq!(result.sources.len(), 1);
         assert_eq!(result.sources[0].title, "Edition Guide");
-        assert_eq!(result.request_id.as_deref(), Some("resp_http"));
+        assert_eq!(
+            result.sources[0].url,
+            "https://doc.rust-lang.org/edition-guide/"
+        );
     }
 
     #[tokio::test]
@@ -1452,8 +847,15 @@ mod tests {
 
         let server = MockServer::start().await;
         Mock::given(method("POST"))
-            .and(path("/responses"))
-            .respond_with(ResponseTemplate::new(401).set_body_string("bad key"))
+            .and(path("/v1/tools/search"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+                "error": {
+                    "message": "invalid api key",
+                    "type": "invalid_request_error",
+                    "param": null,
+                    "code": "invalid_request_error"
+                }
+            })))
             .mount(&server)
             .await;
 
@@ -1473,5 +875,6 @@ mod tests {
                 .unwrap_err();
         let msg = format!("{err:#}");
         assert!(msg.contains("401"), "{msg}");
+        assert!(msg.contains("invalid api key"), "{msg}");
     }
 }

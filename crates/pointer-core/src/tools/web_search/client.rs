@@ -876,7 +876,7 @@ fn parse_sources(items: &[Value]) -> Vec<WebSearchSource> {
         .collect()
 }
 
-/// Generic tool search. DeepSeek chats use the Responses `web_search` tool;
+/// Generic tool search. DeepSeek chats call `POST /v1/tools/search`.
 /// Qwen chats keep the DashScope generation API.
 pub async fn execute_web_search_stream(
     settings: &ModelSettings,

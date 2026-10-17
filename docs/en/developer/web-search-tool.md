@@ -8,31 +8,31 @@ Hosted web search for **external** facts. Implemented in `pointer-core` as a fir
 
 | Backend | When | API | Model |
 |---------|------|-----|-------|
-| **DeepSeek** | The active chat provider is DeepSeek, or the web-search tier / `POINTER_WEB_SEARCH_MODEL` / `webSearchModel` names a `deepseek*` model | `POST {origin}/responses` with `tools: [{ "type": "web_search" }]`. A trailing `/v1` on the provider base URL is removed | `deepseek-v4-pro`. `deepseek-flash` ignores the tool, so a flash id is rewritten and logged |
+| **DeepSeek** | The active chat provider is DeepSeek, or the web-search tier / `POINTER_WEB_SEARCH_MODEL` / `webSearchModel` names a `deepseek*` model | `POST {origin}/v1/tools/search`. A trailing `/v1` is stripped, then `/v1/tools/search` is appended. Body: `query`, `count: 10`, `need_content: false` | The Search API has no model. The chat model only chooses the route. The result label is `deepseek-search` |
 | **DashScope** | The active chat provider is Qwen, or the tier names a Qwen model and that key exists | Native generation + `enable_search` + SSE. Text models use `text-generation`; Qwen 3.5+ multimodal ids use `multimodal-generation` | Tier map → legacy `webSearchModel` → first DashScope catalog model. Tool default `pro_max` maps to `max`; multimodal ids force `agent` |
 
 If the chosen backend has no API key, the other configured key is used and a warning is logged. With neither key, the call fails.
 
-The model searches the public web and returns:
+The tool searches the public web and returns:
 
-- A synthesized **answer**
-- **Sources** — DashScope `search_results`, or DeepSeek `url_citation` annotations and `web_search_call` sources
+- **Answer** — DashScope synthesized text, or a numbered DeepSeek list of title, URL, and summary (summary, otherwise snippet)
+- **Sources** — DashScope `search_results`, or DeepSeek `results[]` (`title`, `url`, `site_name`)
 
-This is **not** a free keyword/SERP API. DashScope bills LLM tokens plus search usage ([Alibaba Cloud web search billing](https://help.aliyun.com/zh/model-studio/web-search)). DeepSeek bills the Responses call on `deepseek-v4-pro` ([Responses API](https://api-docs.deepseek.com/guides/responses_api)).
+This is **not** a free keyword/SERP API. DashScope bills LLM tokens plus search usage ([Alibaba Cloud web search billing](https://help.aliyun.com/zh/model-studio/web-search)). DeepSeek Search bills per successful request: HTTP 200 with a non-empty `results` array ([Search and fetch](https://api-docs.deepseek.com/guides/search)). Pointer records DeepSeek Search token usage as 0.
 
 The chat runtime exposes in-flight UI events (APP + Web):
 
 | Stream event | Purpose |
 |--------------|---------|
-| `web_search_output_delta` | Incremental answer text while the search round runs |
-| `web_search_sources_ready` | First non-empty source list (often from the first SSE chunk) |
+| `web_search_output_delta` | Answer text. DashScope streams it; DeepSeek emits the full answer once the JSON body returns |
+| `web_search_sources_ready` | First non-empty source list |
 
 History still receives the final **`WebSearchResult` JSON** on the tool message when the round completes (same contract as before).
 
 ## Architecture
 
 - **`agent_tool_pass`** delegates to **`web_search::dispatch`** (single entry). The route is chosen before the HTTP call.
-- **DeepSeek** sends `stream: true` and reads Responses SSE (`response.output_text.delta`, `response.web_search_call.*`, `response.completed`). `searchStrategy`, `forcedSearch`, and `enableVerticalSearch` are not sent. `enableThinking` maps to `reasoning.effort = high`.
+- **DeepSeek** posts JSON to `/v1/tools/search` and waits up to 60 seconds. `searchStrategy`, `forcedSearch`, `enableVerticalSearch`, and `enableThinking` are not sent. Query operators (`site:`, `-site:`, `-`, `-"..."`, `"..."`, `lang:`, `after:`, `before:`) are forwarded as written. A query longer than 128 characters fails so the model can shorten it. `need_content` stays false; the model reads `summary` and can call `web_fetch` for a full page.
 - **DashScope** uses native generation SSE (`X-DashScope-SSE: enable`, `incremental_output`). Text models send string `content` and `prepend_search_result`. Multimodal models (`qwen3.5-plus`, `qwen3.6-plus`, …) send `content: [{ "text": query }]` and `search_strategy: agent`.
 - Implementation lives under `tools/web_search/*` (does not modify `provider.rs` / `agent_stream_round.rs`).
 
@@ -41,8 +41,8 @@ History still receives the final **`WebSearchResult` JSON** on the tool message 
 1. Configure **DeepSeek** (`https://api.deepseek.com/v1`) or **Qwen** (`https://dashscope.aliyuncs.com/compatible-mode/v1`). The search call reuses that provider's API key.
 2. **Settings UI**: Agents → Scene tiers → Media understanding → **More** → Web search.
    - Choose Fast / Standard / Expert (writes `agentPerformanceModes.web_search`)
-   - Click **Models** to set the three tiers (writes `agentModeLlm.web_search`). The list includes Qwen models and DeepSeek `deepseek-v4-pro`
-3. With no tier and no legacy `webSearchModel`, the **active chat provider** decides. DeepSeek uses Responses search. Otherwise DashScope is used when that key exists.
+   - Click **Models** to set the three tiers (writes `agentModeLlm.web_search`). The list includes Qwen models and any configured DeepSeek model
+3. With no tier and no legacy `webSearchModel`, the **active chat provider** decides. DeepSeek uses the Search API. Otherwise DashScope is used when that key exists.
 4. `POINTER_WEB_SEARCH_MODEL` overrides the tier. A `deepseek*` id selects DeepSeek; any other id selects DashScope.
 5. DashScope fallback when the tier is empty: legacy **`webSearchModel`**, then the first DashScope catalog model, then `DEFAULT_WEB_SEARCH_MODEL`.
 
@@ -70,7 +70,7 @@ Token accounting follows the same path as normal chat LLM rounds:
 | Path | What is metered | How it is recorded |
 |------|-----------------|-------------------|
 | **Main agent** LLM turns | Chat/completions `usage` on each stream round | `record_llm_round` → SQLite `usage_accum` → `finalize_run` → platform `token-usage` upload |
-| **`web_search` tool** | DashScope or DeepSeek `usage` (`input_tokens` / `output_tokens` / `total_tokens`) | Direct `token_usage_store::record_round` on the **lead** `agent_instance_id` |
+| **`web_search` tool** | DashScope `usage` (`input_tokens` / `output_tokens` / `total_tokens`). DeepSeek Search has no token usage and is recorded as 0 | Direct `token_usage_store::record_round` on the **lead** `agent_instance_id` when tokens are non-zero |
 
 At end of `run_chat`, `token_usage_store::finalize_run` enqueues one platform report per agent instance (with optional conversation archive zip). Tool results still include **`usage`** / **`searchCount`** in JSON for the model; platform reporting uses the accum path above.
 
@@ -84,8 +84,8 @@ Serial and parallel searches use the same owned `AgentInstanceScope` accounting 
 |-------|-------------|
 | `query` | Required search brief — self-contained goal, scope, format, and citation rules |
 | `searchStrategy` | DashScope only. Tool default `pro_max`; also `max`, `turbo`, `agent`, `agent_max`. DeepSeek ignores it |
-| `enableThinking` | Tool default `false`. DeepSeek sends `reasoning.effort = high` when true |
-| `forcedSearch` | DashScope: force web search instead of a model skip. DeepSeek always sends the `web_search` tool |
+| `enableThinking` | Tool default `false`. DashScope thinking flag. DeepSeek Search does not send it |
+| `forcedSearch` | DashScope: force web search instead of a model skip. DeepSeek Search always queries |
 | `enableVerticalSearch` | DashScope only (weather, stocks, and similar). DeepSeek ignores it |
 
 Callers send **`query` only** (no SearchAgent system injection). Tool risk: **medium**, **requires approval** (external API cost).
@@ -100,6 +100,6 @@ Callers send **`query` only** (no SearchAgent system injection). Tool risk: **me
 ## Tests
 
 - Unit: `parse_search_sse_chunk`, `SearchSseAccumulator`, stream request body — `cargo test -p pointer-core web_search`
-- DeepSeek route, request body, citation parse, and wiremock Responses call — `cargo test -p pointer-core deepseek`
+- DeepSeek route, search body, result parse, and wiremock `POST /v1/tools/search` — `cargo test -p pointer-core deepseek`
 - Integration: wiremock SSE fixture — `crates/pointer-core/tests/web_search_integration.rs`
 - Tier resolve: `cargo test -p pointer-core effective_web_search_model_tests`

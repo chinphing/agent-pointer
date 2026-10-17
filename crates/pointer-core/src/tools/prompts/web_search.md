@@ -56,6 +56,13 @@ Add the current year from **`[Environment]`** → **`Local date`** **only** when
 freshness matters and the user did not specify a year.
 **Do not** append a year to every query by default.
 
+Keep the query to **128 characters or fewer**. A longer DeepSeek query fails;
+shorten it and call again.
+
+These operators are forwarded as written and honored by DeepSeek search:
+`site:`, `-site:`, `-`, `-"..."`, `"..."`, `lang:`, `after:`, `before:`.
+Other backends receive the same string and may treat the operators as words.
+
 #### Citations in user-facing replies
 
 When you **did** search and cite external facts:

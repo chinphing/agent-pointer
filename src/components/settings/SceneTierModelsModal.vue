@@ -53,7 +53,7 @@ const sceneLabel = computed(() => {
   return t('settings.sceneModal.sceneFallback')
 })
 
-/** Qwen models, plus DeepSeek `deepseek-v4-pro` (Responses web_search). */
+/** Qwen models, plus any configured DeepSeek model (Search API route). */
 const webSearchModels = computed(() =>
   s.allModels.filter(item => {
     const provider = s.settings.providers.find(p => p.id === item.providerId)

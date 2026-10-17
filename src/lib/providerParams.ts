@@ -42,7 +42,7 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
     defaultId: 'deepseek',
     defaultName: 'DeepSeek',
     defaultBaseUrl: 'https://api.deepseek.com/v1',
-    defaultModels: ['deepseek-v4-pro', 'deepseek-flash']
+    defaultModels: ['deepseek-flash', 'deepseek-v4-pro']
   },
   {
     id: 'qwen',

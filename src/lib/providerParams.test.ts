@@ -29,7 +29,7 @@ describe('platform provider detection', () => {
   it('presets DeepSeek, Qwen, MiMo, Kimi, and GLM with a base URL and models', () => {
     const byId = Object.fromEntries(PROVIDER_TEMPLATE_OPTIONS.map(option => [option.id, option]))
     expect(byId.deepseek.defaultBaseUrl).toBe('https://api.deepseek.com/v1')
-    expect(byId.deepseek.defaultModels).toEqual(['deepseek-v4-pro', 'deepseek-flash'])
+    expect(byId.deepseek.defaultModels).toEqual(['deepseek-flash', 'deepseek-v4-pro'])
     expect(byId.qwen.defaultBaseUrl).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1')
     expect(byId.qwen.defaultModels).toEqual([
       'qwen3.8-max',

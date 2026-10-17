@@ -6,6 +6,8 @@ import {
   setScopedMessageIdPredicate,
   SLOW_LANE_BATCH_MS
 } from '../../../lib/reasoningDeltaBatch'
+import { lastTurnFileChanges } from '../../../lib/lastTurnFileChanges'
+import { slimToolCallBody } from '../../../lib/toolCallBody'
 import { handleToolCallStart, handleToolCallStatus } from './toolHandlers'
 import { createMockStreamHandlerContext, sampleAssistantMessage, sampleConversation } from './testUtils'
 
@@ -213,5 +215,90 @@ describe('toolHandlers', () => {
     expect(apply).not.toHaveBeenCalled()
     vi.advanceTimersByTime(SLOW_LANE_BATCH_MS)
     expect(apply).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * Scoped (sub-agent / background) row: the body group can be cleared before the
+   * result payload lands (oversized `arguments`, terminal status, no result yet).
+   * The turn footer must still show +/- after that — it may not depend on the body.
+   */
+  it('keeps scoped file-change stats after the body group was evicted', () => {
+    const conv = sampleConversation('conv-scoped')
+    const path = '/ws/src/App.vue'
+    const result = JSON.stringify({
+      path,
+      success: true,
+      replaced: 1,
+      stats: { adds: 12, dels: 8 }
+    })
+    conv.messages.push(
+      {
+        id: 'u1',
+        role: 'user',
+        content: '改一下 App.vue',
+        status: 'done',
+        createdAt: 0
+      },
+      sampleAssistantMessage('a1'),
+      {
+        id: 'scoped-a1',
+        role: 'assistant',
+        content: '',
+        status: 'streaming',
+        createdAt: 2,
+        anchorMessageId: 'a1',
+        agentInstanceId: 'inst-1',
+        toolCalls: [
+          {
+            id: 'tc1',
+            name: 'file_edit',
+            // Over TOOL_BODY_CHAR_LIMIT: this call is an eviction candidate.
+            arguments: JSON.stringify({
+              path,
+              oldString: 'x'.repeat(5000),
+              newString: 'y'
+            }),
+            status: 'running'
+          }
+        ]
+      }
+    )
+
+    // The scoped slim: resolve the row, then run the shared body budget on it.
+    const slimDurableToolCall = (
+      _convId: string,
+      messageId: string,
+      toolCallId: string,
+      _traceId?: string,
+      scopedMessageId?: string
+    ) => {
+      const host = conv.messages.find(m => m.id === (scopedMessageId ?? messageId))
+      const call = host?.toolCalls?.find(t => t.id === toolCallId)
+      if (call) slimToolCallBody(call)
+    }
+    const ctx = createMockStreamHandlerContext([conv], { slimDurableToolCall })
+
+    // Status lands first; the result payload follows in its own event.
+    handleToolCallStatus(ctx, {
+      kind: 'tool_call_status',
+      messageId: 'scoped-a1',
+      toolCallId: 'tc1',
+      status: 'success',
+      scopedMessageId: 'scoped-a1'
+    })
+    expect(conv.messages[2].toolCalls?.[0].bodyEvicted).toBe(true)
+
+    handleToolCallStatus(ctx, {
+      kind: 'tool_call_status',
+      messageId: 'scoped-a1',
+      toolCallId: 'tc1',
+      status: 'success',
+      result,
+      scopedMessageId: 'scoped-a1'
+    })
+
+    const files = lastTurnFileChanges(conv.messages)?.files ?? []
+    expect(files).toHaveLength(1)
+    expect(files[0]).toMatchObject({ path, adds: 12, dels: 8 })
   })
 })

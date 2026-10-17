@@ -535,11 +535,22 @@ function summaryFromRetainedFileChange(tc: ToolCall): FileChangeSummary | null {
   }
 }
 
-/** Snapshot path and +/- before the body group is cleared. */
+/**
+ * Snapshot path and +/- from the body that is in memory **now**.
+ *
+ * Called when the result lands (lead transcript and scoped / background rows share
+ * this one call site) and again right before a body group is cleared. Once kept, the
+ * numbers no longer depend on `arguments` / `result` still being here, so any eviction
+ * budget — including the scoped store's — can drop the body without losing the card.
+ *
+ * An all-zero snapshot is replaced when a later sighting can read real stats (a result
+ * that arrived without them, then was re-read). Never rewinds a non-zero snapshot.
+ */
 export function rememberFileChange(tc: ToolCall): void {
-  if (tc.fileChange?.path?.trim()) return
-  const parsed = parseFileChangeResult(tc)
+  const parsed = parseFileChangeFromBody(tc)
   if (!parsed) return
+  const prev = tc.fileChange
+  if (prev?.path?.trim() === parsed.path && (prev.adds > 0 || prev.dels > 0)) return
   tc.fileChange = {
     path: parsed.path,
     kind: parsed.kind,
@@ -548,8 +559,26 @@ export function rememberFileChange(tc: ToolCall): void {
   }
 }
 
+/**
+ * Body kept the result but lost `arguments` (partial clear) or the result never carried
+ * `stats` (`file_write`): the snapshot taken at result arrival is authoritative.
+ */
+function withRetainedStats(tc: ToolCall, parsed: FileChangeSummary): FileChangeSummary {
+  const kept = tc.fileChange
+  if (!kept?.path?.trim() || kept.path.trim() !== parsed.path) return parsed
+  if (parsed.diffs.length || parsed.adds > 0 || parsed.dels > 0) return parsed
+  if (kept.adds === 0 && kept.dels === 0) return parsed
+  return { ...parsed, adds: kept.adds, dels: kept.dels }
+}
+
 function parseFileChangeResult(tc: ToolCall): FileChangeSummary | null {
   if (tc.bodyEvicted) return summaryFromRetainedFileChange(tc)
+  const parsed = parseFileChangeFromBody(tc)
+  return parsed ? withRetainedStats(tc, parsed) : null
+}
+
+/** Parse the in-memory body, ignoring `bodyEvicted` (a stale flag can hide a fresh result). */
+function parseFileChangeFromBody(tc: ToolCall): FileChangeSummary | null {
   const base = toolCallBaseName(tc.name)
   const method = resolveMethod(tc.name, tc.arguments)
   if (!isFileTool(base) || (method !== 'edit' && method !== 'write')) return null

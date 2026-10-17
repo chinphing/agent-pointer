@@ -575,6 +575,24 @@ describe('buildFileChangeSummaries', () => {
 
     expect(summaries).toEqual([])
   })
+
+  it('keeps the snapshot when the body lost the write args', () => {
+    const call = tc({
+      id: 'write-1',
+      name: 'file_write',
+      status: 'success',
+      // `arguments` already cleared (partial body group), so line counting yields 0.
+      arguments: '',
+      result: writeResult('src/New.vue')
+    })
+    call.fileChange = { path: 'src/New.vue', kind: 'write', adds: 4, dels: 0 }
+
+    expect(buildFileChangeSummaries([call])[0]).toMatchObject({
+      path: 'src/New.vue',
+      adds: 4,
+      dels: 0
+    })
+  })
 })
 
 describe('partitionCollapsedToolCalls', () => {

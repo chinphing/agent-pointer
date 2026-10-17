@@ -7,6 +7,7 @@ import {
 } from '../../../lib/reasoningDeltaBatch'
 import { isPendingApprovalToolCall, toolCallBaseName } from '../../../lib/messageTooling'
 import { resolveStreamWriteMessage } from '../../../lib/subAgentMessages'
+import { rememberFileChange } from '../../../lib/toolCallDisplay'
 import { ensureSubTrace, ensureSubTraceSession, recordSubToolSuccess } from '../../../lib/subAgentSession'
 import { formatTerminalOutputContext } from '../../../lib/terminalOutputContext'
 import type { StreamEvent, TaskBoardDocument, ToolCall } from '../../../types/chat'
@@ -221,6 +222,16 @@ export function handleToolCallStatus(ctx: StreamHandlerContext, e: ToolCallStatu
   )
   ctx.notifyScopedStreamWrite(r.conv, r.msg, target, e.traceId)
   if (e.status !== 'running') {
+    // Snapshot +/- while the body is still here — before any eviction budget
+    // (lead transcript or scoped / background store) can clear it.
+    const finished = resolveToolCallForStream(
+      ctx,
+      e.messageId,
+      e.toolCallId,
+      e.traceId,
+      e.scopedMessageId
+    )
+    if (finished) rememberFileChange(finished)
     ctx.slimDurableToolCall(
       r.conv.id,
       e.messageId,

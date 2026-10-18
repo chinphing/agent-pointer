@@ -18,20 +18,32 @@ pub(crate) struct AnchorProbeRow {
     pub position: i64,
 }
 
-/// Whether a message row is a system-generated/special user message that must
-/// NOT count as a turn anchor: injected or synthetic user content (screenshots,
-/// compression summaries, trim placeholders, provider retry glue) or a scoped
-/// sub-message.
+/// Whether a message row must NOT count as a turn anchor.
+///
+/// Derived from [`crate::conversation_store::origin::classify_origin`]: a row a
+/// human authored is an anchor; anything the host injected (cron prompt, idle
+/// job push, webhook event, synthetic glue, sub-agent scoped row) is not.
+/// Provenance that cannot be proven (`origin = NULL`) keeps the legacy
+/// behaviour and stays an anchor, so old transcripts page exactly as before.
 pub fn is_system_generated_user_message(msg: &ChatMessage) -> bool {
-    matches!(msg.role, Role::User)
-        && (content_marks_system_generated_user(&msg.content)
-            || msg.id.starts_with("fmt_retry_")
-            || crate::models::is_scoped_sub_message(msg))
+    match crate::conversation_store::origin::classify_origin(msg) {
+        Some(origin) => !origin.is_human(),
+        None => false,
+    }
 }
 
+/// Content-only fast path for the one-time backfill: skips payload
+/// deserialization when the synthetic marker is already visible in `content`.
 fn content_marks_system_generated_user(content: &str) -> bool {
     crate::task_board::history_trim::is_injected_or_synthetic_user_content(content)
         || crate::message_context::is_synthetic_user_content(content)
+}
+
+/// `messages.origin` column: who authored this row, or `NULL` when it cannot be
+/// proven. This column is the source of truth — `is_system_generated` is
+/// derived from it, so provenance is decided once and never inferred twice.
+pub fn origin_column_value(msg: &ChatMessage) -> Option<&'static str> {
+    crate::conversation_store::origin::classify_origin(msg).map(|o| o.as_str())
 }
 
 const SYSTEM_GENERATED_BACKFILL_META: &str = "is_system_generated_backfilled_v2";
@@ -2306,8 +2318,9 @@ pub fn upsert_conversation(
             conn.execute(
                 "INSERT INTO messages (
                    conversation_id, message_id, role, content, payload, created_at_ms, position,
-                   is_system_generated, context_included, tool_name, agent_instance_id, is_scoped
-                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                   is_system_generated, context_included, tool_name, agent_instance_id, is_scoped,
+                   origin
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
                 params![
                     conv.id,
                     msg.id,
@@ -2321,6 +2334,7 @@ pub fn upsert_conversation(
                     persist_tool_name(msg),
                     persist_agent_instance_id(msg),
                     is_scoped_column_value(msg),
+                    origin_column_value(msg),
                 ],
             )?;
         }

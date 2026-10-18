@@ -91,6 +91,24 @@ gated by `store_meta.is_system_generated_backfilled_v2`,
 inside one transaction. Do not UPDATE every message row — that bloated the WAL and
 blocked desktop launch on large local DBs.
 
+### `messages.origin`（v27，消息出处）
+
+`is_system_generated` 只回答「这一行是不是回合锚点」。**谁写的**由 `messages.origin` 单独记，两者互不替代：
+
+| 值 | 含义 | 算人工 |
+|---|---|---|
+| `human` | 桌面 / Web 输入 | 是 |
+| `im` | IM 入站（飞书 / 钉钉 / 企微 / 微信） | 是 |
+| `webhook` | webhook / CI 事件 | 否 |
+| `host_cron` / `host_job_push` / `host_worker` / `host_internal` | 宿主注入 | 否 |
+| `agent_scoped` | 子 Agent 转录行 | 否 |
+| `synthetic` | 截图注入 / 压缩摘要 / trim 占位 / 重试胶 | 否 |
+| `NULL` | 未判定（历史行，或写入点没给出处） | 不算 |
+
+出处由写入点决定，不靠猜内容：`RunDispatcher::dispatch` 按 `trigger_source` 给本轮触发消息打 `uiBindings.hostKind`，落库时 `conversation_store::origin::classify_origin` 转成 `origin`；写入点自带的 marker 优先。**判不出就留 `NULL` + warn，绝不兜底成 `human`**；历史行不回填。
+
+`is_system_generated` 由 `origin` 派生：`human` / `im` → 0（回合锚点），其余 → 1。所以**统计人工消息直接用 `is_system_generated = 0`**；要排除未回填的历史行再加 `origin IS NOT NULL`。老行 `origin = NULL` 时保持旧行为（flag 0），分页窗口与升级前一致。
+
 ## 非目标
 
 - 对话内搜索服务端 FTS

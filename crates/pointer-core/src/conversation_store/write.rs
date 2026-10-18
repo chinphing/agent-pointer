@@ -307,8 +307,9 @@ fn insert_message_at(
     conn.execute(
         "INSERT INTO messages (
            conversation_id, message_id, role, content, payload, created_at_ms, position,
-           is_system_generated, context_included, tool_name, agent_instance_id, is_scoped
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
+           is_system_generated, context_included, tool_name, agent_instance_id, is_scoped,
+           origin
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)
          ON CONFLICT(conversation_id, message_id) DO UPDATE SET
            role = excluded.role,
            content = excluded.content,
@@ -319,7 +320,8 @@ fn insert_message_at(
            context_included = excluded.context_included,
            tool_name = excluded.tool_name,
            agent_instance_id = excluded.agent_instance_id,
-           is_scoped = excluded.is_scoped",
+           is_scoped = excluded.is_scoped,
+           origin = excluded.origin",
         params![
             conversation_id,
             msg.id,
@@ -333,6 +335,7 @@ fn insert_message_at(
             super::persist::persist_tool_name(msg),
             super::persist::persist_agent_instance_id(msg),
             super::persist::is_scoped_column_value(msg),
+            super::persist::origin_column_value(msg),
         ],
     )?;
     Ok(())

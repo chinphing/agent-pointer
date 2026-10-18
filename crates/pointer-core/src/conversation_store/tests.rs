@@ -3,7 +3,7 @@ mod tests {
     use crate::conversation_store::persist::{msg, sample_conv};
     use crate::conversation_store::{ConversationStore, ListScope, LoadMessagesPageOpts};
     use crate::message_context::mark_excluded;
-    use crate::models::{ExcludedReason, Role, ToolCall};
+    use crate::models::{ExcludedReason, MessageUiBindings, Role, ToolCall};
     use rusqlite::{params, Connection};
     use serde_json::{json, Value};
     use tempfile::TempDir;
@@ -1938,7 +1938,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 26);
+        assert_eq!(version, 27);
         let has_session_user_id: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('conversations') WHERE name = 'session_user_id'",
@@ -2034,7 +2034,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 26);
+        assert_eq!(version, 27);
         let has_kind: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('cron_jobs') WHERE name = 'schedule_kind'",
@@ -2558,7 +2558,7 @@ mod tests {
     }
 
     #[test]
-    fn conversation_outline_preview_uses_bubble_text() {
+    fn idle_push_row_leaves_the_nav_but_keeps_its_bubble_text() {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();
         let mut conv = sample_conv("nav-bubble", "Nav", "real user");
@@ -2574,14 +2574,116 @@ mod tests {
         conv.messages.push(pushed);
         store.sync_conversations(&[conv]).unwrap();
 
+        // v27: an idle background-job push is host-generated, so it is not a
+        // user turn anchor and no longer shows up in the nav fish-eye.
         let items = store
             .list_conversation_outline(&ListScope::All, "nav-bubble")
             .unwrap();
-        let preview = items
-            .iter()
-            .find(|item| item.message_id == "u-push")
-            .map(|item| item.preview.as_str());
-        assert_eq!(preview, Some("后台任务已完成：逐项详细解读B组漏报"));
+        assert!(
+            items.iter().all(|item| item.message_id != "u-push"),
+            "idle push must not be a nav entry: {items:?}"
+        );
+        assert!(items.iter().any(|item| item.message_id == "msg_u1"));
+
+        // The short bubble text is still stored, so the chat bubble keeps
+        // showing「后台任务已完成：…」instead of the full body.
+        let db = dir.path().join("conversations.db");
+        let conn = Connection::open(&db).unwrap();
+        let payload: String = conn
+            .query_row(
+                "SELECT payload FROM messages
+                 WHERE conversation_id = 'nav-bubble' AND message_id = 'u-push'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let value: Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(
+            value["uiBindings"]["bubbleText"].as_str(),
+            Some("后台任务已完成：逐项详细解读B组漏报")
+        );
+        assert_eq!(
+            value["uiBindings"]["hostKind"].as_str(),
+            Some("idle_job_push")
+        );
+    }
+
+    #[test]
+    fn messages_origin_records_provenance_without_touching_anchor_flag() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("origin-1", "Origin", "real user");
+
+        // Human input stamped by the dispatcher.
+        let mut human = msg("u-human", Role::User, "帮我报销", 1_700_000_002_000);
+        human.ui_bindings = Some(MessageUiBindings {
+            host_kind: Some("user_input".into()),
+            ..Default::default()
+        });
+        conv.messages.push(human);
+
+        // Idle background-job push: host-generated AND a turn anchor.
+        let mut push = msg(
+            "u-push",
+            Role::User,
+            "后台任务已完成：搜索登录\n\nThese finished background results are in this turn.\n",
+            1_700_000_003_000,
+        );
+        push.ui_bindings = Some(MessageUiBindings::idle_job_push_bubble(
+            "后台任务已完成：搜索登录",
+        ));
+        conv.messages.push(push);
+
+        // Synthetic screen inject.
+        conv.messages
+            .push(msg("u-syn", Role::User, "[CUR_SCREEN] shot", 1_700_000_004_000));
+        // Legacy / unstamped row: unknown provenance stays NULL.
+        conv.messages.push(msg(
+            "u-legacy",
+            Role::User,
+            "没有标记的老消息",
+            1_700_000_005_000,
+        ));
+
+        store.sync_conversations(&[conv]).unwrap();
+
+        let db = dir.path().join("conversations.db");
+        let conn = Connection::open(&db).unwrap();
+        let row = |id: &str| -> (Option<String>, i64) {
+            conn.query_row(
+                "SELECT origin, is_system_generated FROM messages
+                 WHERE conversation_id = 'origin-1' AND message_id = ?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap()
+        };
+
+        assert_eq!(row("u-human").0.as_deref(), Some("human"));
+        // The whole point of v27: a background-job push is no longer a user
+        // turn — same row, now flagged 1 and recorded as host-generated.
+        assert_eq!(row("u-push"), (Some("host_job_push".to_string()), 1));
+        assert_eq!(row("u-syn"), (Some("synthetic".to_string()), 1));
+        // Unclassified legacy row keeps the old behaviour: anchor (flag 0).
+        assert_eq!(row("u-legacy"), (None, 0));
+        assert_eq!(row("msg_u1").0, None);
+        assert_eq!(row("msg_u1").1, 0);
+
+        // Nav / paging no longer treat the push row as a turn anchor.
+        let mut stmt = conn
+            .prepare(
+                "SELECT message_id FROM messages
+                 WHERE conversation_id = 'origin-1' AND role = 'user' AND is_system_generated = 0
+                 ORDER BY position ASC",
+            )
+            .unwrap();
+        let anchors: Vec<String> = stmt
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(!anchors.iter().any(|id| id == "u-push"));
+        assert!(anchors.iter().any(|id| id == "u-human"));
     }
 
     #[test]

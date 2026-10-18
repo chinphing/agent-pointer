@@ -252,7 +252,7 @@ pub fn auto_deliver_system_prompt() -> String {
 
 /// Mirrors hermes `cron/scheduler.py` `_build_job_prompt` `cron_hint`
 /// (`im_send` instead of `send_message`). Always prepended on every tick.
-const CRON_USER_HINT: &str = "\
+pub(crate) const CRON_USER_HINT: &str = "\
 [IMPORTANT: You are running as a scheduled cron job. \
 DELIVERY: Your final response will be automatically delivered \
 to the user — do NOT use im_send or try to deliver \

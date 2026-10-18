@@ -233,6 +233,55 @@ impl RunDispatcher {
     ///
     /// [`events`]: RunDispatcher::events
     /// [`wait`]: RunDispatcher::wait
+    /// `uiBindings.hostKind` for a run's trigger messages, derived from its
+    /// trigger source. Stamped before dispatch so the store can record
+    /// `messages.origin` without guessing from content.
+    fn trigger_origin_host_kind(req: &TriggerRequest) -> &'static str {
+        use crate::conversation_store::origin::{
+            HOST_KIND_CRON, HOST_KIND_IDLE_JOB_PUSH, HOST_KIND_IM_INBOUND, HOST_KIND_INTERNAL,
+            HOST_KIND_USER_INPUT, HOST_KIND_WEBHOOK_INBOUND,
+        };
+        match req.trigger_source {
+            TriggerSource::Ipc | TriggerSource::HttpRuns => HOST_KIND_USER_INPUT,
+            TriggerSource::Im => HOST_KIND_IM_INBOUND,
+            TriggerSource::Webhook => HOST_KIND_WEBHOOK_INBOUND,
+            TriggerSource::Cron => HOST_KIND_CRON,
+            TriggerSource::Internal => {
+                let label = req.trigger_meta.internal_label.as_deref().map(str::trim);
+                if label == Some(HOST_KIND_IDLE_JOB_PUSH) {
+                    HOST_KIND_IDLE_JOB_PUSH
+                } else {
+                    HOST_KIND_INTERNAL
+                }
+            }
+        }
+    }
+
+    /// Stamp provenance on trigger user messages that carry no marker yet. An
+    /// existing marker always wins (the idle job push sets `idle_job_push`
+    /// before dispatch). Unstamped rows are stored as `origin = NULL`, never
+    /// as `human`.
+    fn stamp_trigger_origin(req: &mut TriggerRequest) {
+        let kind = Self::trigger_origin_host_kind(req);
+        for msg in req.messages.iter_mut() {
+            if !matches!(msg.role, crate::models::Role::User) {
+                continue;
+            }
+            let already = msg
+                .ui_bindings
+                .as_ref()
+                .and_then(|b| b.host_kind.as_deref())
+                .map(str::trim)
+                .is_some_and(|s| !s.is_empty());
+            if already {
+                continue;
+            }
+            msg.ui_bindings
+                .get_or_insert_with(crate::models::MessageUiBindings::default)
+                .host_kind = Some(kind.to_string());
+        }
+    }
+
     pub async fn dispatch(&self, mut req: TriggerRequest) -> anyhow::Result<RunHandle> {
         // 0. on_trigger_received: hooks may rewrite or reject before any state
         // mutation. A rewrite replaces `req` for the rest of dispatch.
@@ -250,6 +299,11 @@ impl RunDispatcher {
                 }
             }
         }
+
+        // Provenance: stamp this run's trigger messages with who authored them
+        // before anything is persisted. `messages.origin` is derived from this
+        // marker at write time; unstamped rows store NULL, never "human".
+        Self::stamp_trigger_origin(&mut req);
 
         // 1. Resolve conversation id (Phase 1: caller must supply one).
         let conversation_id = match req.conversation_id.clone() {
@@ -977,5 +1031,109 @@ fn record_to_outcome(rec: &crate::conversation_store::runs::RunRecord) -> RunOut
             conversation_id: rec.conversation_id.clone(),
             error: format!("unexpected runs table status: {other}"),
         },
+    }
+}
+
+#[cfg(test)]
+mod origin_stamp_tests {
+    use super::*;
+    use crate::conversation_store::origin::{
+        HOST_KIND_CRON, HOST_KIND_IDLE_JOB_PUSH, HOST_KIND_IM_INBOUND, HOST_KIND_INTERNAL,
+        HOST_KIND_USER_INPUT, HOST_KIND_WEBHOOK_INBOUND,
+    };
+    use crate::models::{ChatMessage, MessageUiBindings, Role};
+
+    fn req(
+        source: TriggerSource,
+        label: Option<&str>,
+        messages: Vec<ChatMessage>,
+    ) -> TriggerRequest {
+        let mut trigger_meta = TriggerMeta::empty();
+        trigger_meta.internal_label = label.map(str::to_string);
+        TriggerRequest {
+            run_id: None,
+            idempotency_key: None,
+            conversation_id: Some("c1".into()),
+            trigger_source: source,
+            trigger_meta,
+            lane: None,
+            messages,
+            enabled_skill_ids: vec![],
+            agent_skill_overrides: std::collections::HashMap::new(),
+            lead_agent_id: None,
+            performance_mode: None,
+            tool_rounds_used_single_start: 0,
+            workspace_root: String::new(),
+            workspace_inherit_disabled: None,
+            deliver: DeliverTarget::None,
+            web_session_auth: None,
+        }
+    }
+
+    fn kind_of(req: &TriggerRequest, idx: usize) -> Option<String> {
+        req.messages[idx]
+            .ui_bindings
+            .as_ref()
+            .and_then(|b| b.host_kind.clone())
+    }
+
+    #[test]
+    fn interactive_sources_stamp_human() {
+        for source in [TriggerSource::Ipc, TriggerSource::HttpRuns] {
+            let mut r = req(source, None, vec![ChatMessage::user_text("hi")]);
+            RunDispatcher::stamp_trigger_origin(&mut r);
+            assert_eq!(kind_of(&r, 0).as_deref(), Some(HOST_KIND_USER_INPUT));
+        }
+    }
+
+    #[test]
+    fn channel_sources_stamp_their_own_kind() {
+        let mut r = req(TriggerSource::Im, None, vec![ChatMessage::user_text("hi")]);
+        RunDispatcher::stamp_trigger_origin(&mut r);
+        assert_eq!(kind_of(&r, 0).as_deref(), Some(HOST_KIND_IM_INBOUND));
+
+        let mut r = req(
+            TriggerSource::Webhook,
+            None,
+            vec![ChatMessage::user_text("ci event")],
+        );
+        RunDispatcher::stamp_trigger_origin(&mut r);
+        assert_eq!(kind_of(&r, 0).as_deref(), Some(HOST_KIND_WEBHOOK_INBOUND));
+
+        let mut r = req(TriggerSource::Cron, None, vec![ChatMessage::user_text("tick")]);
+        RunDispatcher::stamp_trigger_origin(&mut r);
+        assert_eq!(kind_of(&r, 0).as_deref(), Some(HOST_KIND_CRON));
+    }
+
+    #[test]
+    fn internal_label_selects_idle_job_push() {
+        let mut r = req(
+            TriggerSource::Internal,
+            Some("idle_job_push"),
+            vec![ChatMessage::user_text("done")],
+        );
+        RunDispatcher::stamp_trigger_origin(&mut r);
+        assert_eq!(kind_of(&r, 0).as_deref(), Some(HOST_KIND_IDLE_JOB_PUSH));
+
+        let mut r = req(
+            TriggerSource::Internal,
+            Some("boot_checklist"),
+            vec![ChatMessage::user_text("boot")],
+        );
+        RunDispatcher::stamp_trigger_origin(&mut r);
+        assert_eq!(kind_of(&r, 0).as_deref(), Some(HOST_KIND_INTERNAL));
+    }
+
+    #[test]
+    fn existing_marker_wins_and_non_user_rows_stay_unstamped() {
+        let mut push = ChatMessage::user_text("后台任务已完成。");
+        push.ui_bindings = Some(MessageUiBindings::idle_job_push_bubble("后台任务已完成。"));
+        let mut assistant = ChatMessage::user_text("answer");
+        assistant.role = Role::Assistant;
+        let mut r = req(TriggerSource::Ipc, None, vec![push, assistant]);
+        RunDispatcher::stamp_trigger_origin(&mut r);
+        // A marker set by the write site is never overwritten by the run source.
+        assert_eq!(kind_of(&r, 0).as_deref(), Some(HOST_KIND_IDLE_JOB_PUSH));
+        assert!(kind_of(&r, 1).is_none());
     }
 }

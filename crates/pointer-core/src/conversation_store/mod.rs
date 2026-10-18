@@ -9,6 +9,7 @@ mod db;
 pub mod im_session;
 mod message_page;
 mod migrate;
+pub mod origin;
 mod persist;
 pub mod runs;
 mod search;
@@ -37,7 +38,7 @@ use crate::models::{
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 26;
+const SCHEMA_VERSION: i32 = 27;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -1461,6 +1462,13 @@ fn init_schema(conn: &Connection) -> Result<()> {
     ensure_messages_agent_instance_id(conn)?;
     ensure_messages_is_scoped(conn)?;
     crate::conversation_store::persist::backfill_thread_context_identity(conn)?;
+    // v27: message provenance (`messages.origin`). Records who authored a user
+    // row — `human` / `im` / `webhook` / `host_*` / `agent_scoped` /
+    // `synthetic`. NULL = not classified: legacy rows stay NULL (no backfill by
+    // design) and a write that cannot prove provenance stays NULL instead of
+    // guessing "human". `is_system_generated` is derived from this column (a
+    // human-authored row is a turn anchor, everything else is not).
+    add_column_if_missing(conn, "messages", "origin", "TEXT")?;
     // User-set nav milestone. Kept off the message payload so ordinary
     // transcript upserts do not clear it. Full replaces snapshot/restore it.
     add_column_if_missing(
@@ -1914,6 +1922,11 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
     ensure_messages_agent_instance_id(conn)?;
     ensure_messages_is_scoped(conn)?;
     crate::conversation_store::persist::backfill_thread_context_identity(conn)?;
+    // v27: message provenance (`messages.origin`). `is_system_generated` is
+    // derived from it — a human-authored row is a turn anchor, everything the
+    // host injected is not. NULL = unclassified (legacy rows are NOT
+    // backfilled; an unprovable write stays NULL rather than guessing human).
+    add_column_if_missing(conn, "messages", "origin", "TEXT")?;
     conn.execute(
         "UPDATE conversations SET session_user_id = trim(session_user_id)
          WHERE session_user_id != trim(session_user_id)",

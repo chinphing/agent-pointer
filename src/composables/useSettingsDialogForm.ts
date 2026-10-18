@@ -46,6 +46,7 @@ import {
   platformMediaModeDefault,
   withInheritedThinking
 } from '../lib/platformTierDefaults'
+import { preferredWebSearchTier } from '../lib/providerParams'
 import { mergeTierLlmPatch, thinkingPatchFromProviderModel } from '../lib/thinkingIntensity'
 import { t } from '../i18n'
 
@@ -162,6 +163,10 @@ function createSettingsDialogForm(deps: {
   function agentModeLlm(agentId: string, mode: PerformanceModeKey): ComputerTierLlmConfig {
   const m = s.settings.agentModeLlm?.[agentId]?.[mode]
   if (m?.providerId && m.model) return m
+  if (agentId === 'web_search') {
+    const preferred = preferredWebSearchTier(s.settings.providers)
+    if (preferred) return withInheritedThinking(preferred, s.settings.providers)
+  }
   const fallback = platformAgentModeDefault(s.platformSettings.tierDefaults, agentId, mode)
   return fallback ? withInheritedThinking(fallback, s.settings.providers) : emptyTierConfig()
   }

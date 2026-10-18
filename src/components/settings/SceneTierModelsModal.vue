@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { X } from 'lucide-vue-next'
 import type { SettingsDialogForm } from '../../composables/useSettingsDialogForm'
 import { composerAgentLabel } from '../../lib/agentUi'
-import { modelSupportsHostedWebSearch } from '../../lib/providerParams'
+import { modelSupportsHostedWebSearch, preferredWebSearchTier } from '../../lib/providerParams'
 import { useSettingsStore } from '../../stores/settings'
 import {
   isSameTierRef,
@@ -99,12 +99,15 @@ function variantValue(config: {
 
 function modeOverridden(config: { providerId: string; model: string }, mode: string, group: 'agent' | 'media' | 'computer', id?: string) {
   const tierDefaults = s.platformSettings.tierDefaults
+  const preferred =
+    group === 'agent' && id === 'web_search' ? preferredWebSearchTier(s.settings.providers) : undefined
   const fallback =
-    group === 'computer'
+    preferred ??
+    (group === 'computer'
       ? platformComputerTierDefault(tierDefaults, mode)
       : group === 'agent'
         ? platformAgentModeDefault(tierDefaults, id ?? '', mode)
-        : platformMediaModeDefault(tierDefaults, id ?? '', mode)
+        : platformMediaModeDefault(tierDefaults, id ?? '', mode))
   if (!fallback) return Boolean(config.providerId && config.model)
   return !isSameTierRef(config, fallback)
 }

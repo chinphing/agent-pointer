@@ -1520,7 +1520,10 @@ fn default_max_children_per_agent() -> u32 {
 /// Clamp the per-agent live-children fan-out cap to
 /// `1..=max_children_per_agent_ceiling()`.
 pub fn clamp_max_children_per_agent(n: u32) -> u32 {
-    n.clamp(FLOOR_MAX_CHILDREN_PER_AGENT, max_children_per_agent_ceiling())
+    n.clamp(
+        FLOOR_MAX_CHILDREN_PER_AGENT,
+        max_children_per_agent_ceiling(),
+    )
 }
 
 /// **Unified** sub-agent concurrency cap — the single user-visible knob.
@@ -1570,7 +1573,10 @@ mod unified_sub_agent_concurrency_tests {
         let mut legacy = ModelSettings::default();
         legacy.max_children_per_agent = 8;
         legacy.max_parallel_sub_agents = Some(50);
-        assert_eq!(legacy.max_children_per_agent, 8, "legacy value still readable");
+        assert_eq!(
+            legacy.max_children_per_agent, 8,
+            "legacy value still readable"
+        );
         assert_eq!(
             effective_sub_agent_concurrency(legacy.max_parallel_sub_agents),
             50,
@@ -1596,7 +1602,10 @@ mod max_children_per_agent_limit_tests {
         assert_eq!(ceiling_for_cores(64), MAX_CEILING_MAX_CHILDREN_PER_AGENT);
         assert_eq!(ceiling_for_cores(1024), MAX_CEILING_MAX_CHILDREN_PER_AGENT);
         // Saturating, never wraps.
-        assert_eq!(ceiling_for_cores(u32::MAX), MAX_CEILING_MAX_CHILDREN_PER_AGENT);
+        assert_eq!(
+            ceiling_for_cores(u32::MAX),
+            MAX_CEILING_MAX_CHILDREN_PER_AGENT
+        );
     }
 
     #[test]
@@ -1611,7 +1620,10 @@ mod max_children_per_agent_limit_tests {
     #[test]
     fn clamps_max_children_per_agent_to_the_dynamic_ceiling() {
         let ceiling = max_children_per_agent_ceiling();
-        assert_eq!(clamp_max_children_per_agent(0), FLOOR_MAX_CHILDREN_PER_AGENT);
+        assert_eq!(
+            clamp_max_children_per_agent(0),
+            FLOOR_MAX_CHILDREN_PER_AGENT
+        );
         assert_eq!(clamp_max_children_per_agent(1), 1);
         assert_eq!(clamp_max_children_per_agent(8), 8);
         assert_eq!(clamp_max_children_per_agent(u32::MAX), ceiling);
@@ -2927,8 +2939,28 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
     settings
 }
 
+/// First configured DeepSeek model. Web search prefers this over a platform Qwen default.
+fn deepseek_web_search_tier(providers: &[ProviderConfig]) -> Option<ComputerTierLlmConfig> {
+    let provider = providers
+        .iter()
+        .find(|p| p.id.eq_ignore_ascii_case("deepseek") || provider_uses_deepseek_api(p))?;
+    let model = provider
+        .models
+        .iter()
+        .find(|m| !m.trim().is_empty())?
+        .trim();
+    tier_cfg_from_json(
+        &serde_json::json!({
+            "providerId": provider.id,
+            "model": model,
+        }),
+        providers,
+    )
+}
+
 /// 将平台下发的档位默认（tierDefaults）补齐到运行时设置：用户已显式配置的
 /// 档位保持不变，仅补缺失项。JSON 按已知形状容错读取。
+/// 联网搜索在目录里有 DeepSeek 时，未由用户写过的档位使用 DeepSeek 的第一个模型。
 /// tierDefaults 条目只填 providerId+model；maxTokens/enableThinking/thinkingBudget
 /// 从 providers 的模型级参数（model_configs，优先）或服务商级默认继承。
 pub fn apply_platform_tier_defaults(
@@ -2965,10 +2997,27 @@ pub fn apply_platform_tier_defaults(
                 if inner_map.contains_key(mode) {
                     continue;
                 }
+                if outer_key == WEB_SEARCH_SCENE_ID {
+                    if let Some(cfg) = deepseek_web_search_tier(providers) {
+                        inner_map.insert(mode.clone(), cfg);
+                        continue;
+                    }
+                }
                 if let Some(cfg) = tier_cfg_from_json(cfg_val, providers) {
                     inner_map.insert(mode.clone(), cfg);
                 }
             }
+        }
+    }
+    if let Some(cfg) = deepseek_web_search_tier(providers) {
+        let inner_map = settings
+            .agent_mode_llm
+            .entry(WEB_SEARCH_SCENE_ID.to_string())
+            .or_default();
+        for mode in ["fast", "standard", "expert"] {
+            inner_map
+                .entry(mode.to_string())
+                .or_insert_with(|| cfg.clone());
         }
     }
     if let Some(computer_tier) = obj.get("computerTierLlm").and_then(|v| v.as_object()) {
@@ -3895,7 +3944,10 @@ mod effective_generation_tests {
     fn default_output_budget_is_16384() {
         assert_eq!(DEFAULT_MODEL_MAX_TOKENS, 16_384);
         assert_eq!(default_model_max_tokens(), DEFAULT_MODEL_MAX_TOKENS);
-        assert_eq!(ModelSettings::default().max_tokens, DEFAULT_MODEL_MAX_TOKENS);
+        assert_eq!(
+            ModelSettings::default().max_tokens,
+            DEFAULT_MODEL_MAX_TOKENS
+        );
     }
 
     /// The CLI seeds `user_settings.json` without `maxTokens`; the serde default
@@ -4285,7 +4337,10 @@ mod effective_extra_body_tests {
         incoming_user.max_children_per_agent = above_old_fixed_ceiling;
         preserve_platform_debug_settings_in_user(&mut incoming_user, &user);
         assert_eq!(incoming_user.max_sub_agent_spawn_depth, 4);
-        assert_eq!(incoming_user.max_children_per_agent, above_old_fixed_ceiling);
+        assert_eq!(
+            incoming_user.max_children_per_agent,
+            above_old_fixed_ceiling
+        );
     }
 
     /// Regression: non-admin Web GET must not strip the delegation caps, otherwise
@@ -4298,7 +4353,8 @@ mod effective_extra_body_tests {
         user.max_sub_agent_spawn_depth = 3;
         user.max_children_per_agent = MIN_CEILING_MAX_CHILDREN_PER_AGENT + 1;
         let merged = merge_user_platform(&user, &platform);
-        let expected_children = clamp_max_children_per_agent(MIN_CEILING_MAX_CHILDREN_PER_AGENT + 1);
+        let expected_children =
+            clamp_max_children_per_agent(MIN_CEILING_MAX_CHILDREN_PER_AGENT + 1);
         let view = EffectiveSettingsView {
             user,
             platform,
@@ -4553,5 +4609,118 @@ mod effective_extra_body_tests {
             debug.agent_mode_llm["general"]["fast"].model,
             "session-model"
         );
+    }
+}
+
+#[cfg(test)]
+mod web_search_tier_default_tests {
+    use super::*;
+
+    fn provider(id: &str, base: &str, models: &[&str]) -> ProviderConfig {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "name": id,
+            "baseUrl": base,
+            "apiKey": "sk",
+            "models": models,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn platform_web_search_default_uses_deepseek_when_present() {
+        let providers = vec![
+            provider(
+                "qwen",
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                &["qwen3.8-max"],
+            ),
+            provider(
+                "deepseek",
+                "https://api.deepseek.com/v1",
+                &["deepseek-flash", "deepseek-v4-pro"],
+            ),
+        ];
+        let defaults = serde_json::json!({
+            "agentModeLlm": {
+                "web_search": {
+                    "fast": { "providerId": "qwen", "model": "qwen3.8-max" }
+                }
+            }
+        });
+        let mut settings = ModelSettings::default();
+        apply_platform_tier_defaults(&mut settings, &defaults, &providers);
+        assert_eq!(
+            settings.agent_mode_llm["web_search"]["fast"].provider_id,
+            "deepseek"
+        );
+        assert_eq!(
+            settings.agent_mode_llm["web_search"]["fast"].model,
+            "deepseek-flash"
+        );
+        assert_eq!(
+            settings.agent_mode_llm["web_search"]["expert"].model,
+            "deepseek-flash"
+        );
+    }
+
+    #[test]
+    fn user_web_search_tier_is_kept() {
+        let providers = vec![provider(
+            "deepseek",
+            "https://api.deepseek.com/v1",
+            &["deepseek-flash"],
+        )];
+        let mut settings = ModelSettings::default();
+        settings.agent_mode_llm.insert(
+            "web_search".into(),
+            [(
+                "fast".into(),
+                ComputerTierLlmConfig {
+                    provider_id: "qwen".into(),
+                    model: "qwen3.8-max".into(),
+                    enable_thinking: false,
+                    thinking_budget: None,
+                    reasoning_effort: None,
+                    thinking_intensity: None,
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
+        apply_platform_tier_defaults(&mut settings, &serde_json::json!({}), &providers);
+        assert_eq!(
+            settings.agent_mode_llm["web_search"]["fast"].provider_id,
+            "qwen"
+        );
+        assert_eq!(
+            settings.agent_mode_llm["web_search"]["standard"].provider_id,
+            "deepseek"
+        );
+    }
+
+    #[test]
+    fn qwen_platform_default_stays_without_deepseek() {
+        let providers = vec![provider(
+            "qwen",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            &["qwen3.8-max"],
+        )];
+        let defaults = serde_json::json!({
+            "agentModeLlm": {
+                "web_search": {
+                    "fast": { "providerId": "qwen", "model": "qwen3.8-max" }
+                }
+            }
+        });
+        let mut settings = ModelSettings::default();
+        apply_platform_tier_defaults(&mut settings, &defaults, &providers);
+        assert_eq!(
+            settings.agent_mode_llm["web_search"]["fast"].provider_id,
+            "qwen"
+        );
+        assert!(settings.agent_mode_llm["web_search"]
+            .get("expert")
+            .is_none());
     }
 }

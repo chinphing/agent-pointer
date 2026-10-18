@@ -378,13 +378,26 @@ pub(crate) fn resolve_web_search_route_with_env(
         }
     }
 
+    if let Some(provider) = deepseek_with_key(settings, None) {
+        let model = provider
+            .models
+            .iter()
+            .find(|m| !m.trim().is_empty())
+            .map(|m| m.trim().to_string())
+            .unwrap_or_default();
+        info!(
+            "web_search backend=deepseek reason=configured_key provider={} model={model}",
+            provider.id
+        );
+        return Ok(WebSearchRoute::DeepSeek {
+            provider_id: provider.id.clone(),
+            requested_model: model,
+        });
+    }
+
     if dashscope_with_key(settings) {
         info!("web_search backend=dashscope reason=provider_key");
         return Ok(WebSearchRoute::DashScope);
-    }
-    if deepseek_with_key(settings, None).is_some() {
-        info!("web_search backend=deepseek reason=only_configured_key");
-        return route_deepseek(settings, "", "");
     }
     info!("web_search backend=dashscope reason=no_search_key");
     Ok(WebSearchRoute::DashScope)
@@ -662,7 +675,7 @@ mod tests {
     }
 
     #[test]
-    fn active_qwen_keeps_dashscope() {
+    fn active_qwen_with_deepseek_key_prefers_deepseek() {
         let s = settings(
             vec![
                 provider(
@@ -678,6 +691,28 @@ mod tests {
                     &["deepseek-v4-pro"],
                 ),
             ],
+            "qwen",
+            "qwen3.8-max",
+        );
+        let route = resolve_web_search_route_with_env(&s, None).unwrap();
+        assert_eq!(
+            route,
+            WebSearchRoute::DeepSeek {
+                provider_id: "deepseek".into(),
+                requested_model: "deepseek-v4-pro".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn active_qwen_without_deepseek_key_keeps_dashscope() {
+        let s = settings(
+            vec![provider(
+                "qwen",
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "sk-qwen",
+                &["qwen3.8-max"],
+            )],
             "qwen",
             "qwen3.8-max",
         );
@@ -705,9 +740,9 @@ mod tests {
             "deepseek",
             "deepseek-v4-pro",
         );
-        let mut fast = HashMap::new();
-        fast.insert(
-            "fast".into(),
+        let mut tiers = HashMap::new();
+        tiers.insert(
+            "standard".into(),
             ComputerTierLlmConfig {
                 provider_id: "qwen".into(),
                 model: "qwen3.8-max".into(),
@@ -717,7 +752,7 @@ mod tests {
                 thinking_intensity: None,
             },
         );
-        s.agent_mode_llm.insert(WEB_SEARCH_SCENE_ID.into(), fast);
+        s.agent_mode_llm.insert(WEB_SEARCH_SCENE_ID.into(), tiers);
         let route = resolve_web_search_route_with_env(&s, None).unwrap();
         assert_eq!(route, WebSearchRoute::DashScope);
 

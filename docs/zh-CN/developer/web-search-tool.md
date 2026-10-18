@@ -8,8 +8,8 @@ Hosted web search for **external** facts. Implemented in `pointer-core` as a fir
 
 | Backend | When | API | Model |
 |---------|------|-----|-------|
-| **DeepSeek** | Active chat provider is DeepSeek, or the web-search tier / `POINTER_WEB_SEARCH_MODEL` / `webSearchModel` names a `deepseek*` model | `POST {origin}/v1/tools/search`. A trailing `/v1` is stripped, then `/v1/tools/search` is appended. Body: `query`, `count: 10`, `need_content: false` | The Search API has no model. The chat model only chooses the route. The result label is `deepseek-search` |
-| **DashScope** | Active chat provider is Qwen, or the tier names a Qwen model and that key exists | Native generation + `enable_search` + SSE. Text models use `text-generation`; Qwen 3.5+ multimodal ids use `multimodal-generation` | Tier map → legacy `webSearchModel` → first DashScope catalog model. Tool default `pro_max` maps to `max`; multimodal ids force `agent` |
+| **DeepSeek** | A DeepSeek key is configured, unless the web-search tier / `POINTER_WEB_SEARCH_MODEL` / `webSearchModel` names a non-DeepSeek model whose key exists | `POST {origin}/v1/tools/search`. A trailing `/v1` is stripped, then `/v1/tools/search` is appended. Body: `query`, `count: 10`, `need_content: false` | The Search API has no model. The chat model only chooses the route. The result label is `deepseek-search` |
+| **DashScope** | No DeepSeek key, or the web-search tier / env / `webSearchModel` names a Qwen model and that key exists | Native generation + `enable_search` + SSE. Text models use `text-generation`; Qwen 3.5+ multimodal ids use `multimodal-generation` | Tier map → legacy `webSearchModel` → first DashScope catalog model. Tool default `pro_max` maps to `max`; multimodal ids force `agent` |
 
 If the chosen backend has no API key, the other configured key is used and a warning is logged. With neither key, the call fails.
 
@@ -42,7 +42,7 @@ History still receives the final **`WebSearchResult` JSON** on the tool message 
 2. **Settings UI**：智能体 → 场景档位 → 媒体理解 → **更多** → 联网搜索。
    - 选快速 / 标准 / 高级（写入 `agentPerformanceModes.web_search`）
    - 点「模型」配置三档模型（写入 `agentModeLlm.web_search`）。列表含千问模型，以及已配置的 DeepSeek 模型
-3. No tier and no legacy `webSearchModel`: the **active chat provider** decides. DeepSeek → Search API. Otherwise DashScope when that key exists.
+3. A configured DeepSeek key is the default route. Platform `tierDefaults` for `web_search` are filled with that provider's first model when the user has not set the tier. An explicit Qwen tier still uses DashScope. With no DeepSeek key, the active Qwen provider or a DashScope key is used.
 4. `POINTER_WEB_SEARCH_MODEL` overrides the tier. A `deepseek*` id selects DeepSeek; any other id selects DashScope.
 5. DashScope fallback when the tier is empty: legacy **`webSearchModel`**, then the first DashScope catalog model, then `DEFAULT_WEB_SEARCH_MODEL`.
 

@@ -133,6 +133,16 @@ export function isDeepSeekProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): b
   return /api\.deepseek\.com/i.test(p.baseUrl || '')
 }
 
+/** Default web-search tier when a DeepSeek provider is configured. The first model is the catalog default. */
+export function preferredWebSearchTier(
+  providers: Array<Pick<ProviderConfig, 'id' | 'baseUrl' | 'models'>>
+): { providerId: string; model: string } | undefined {
+  const provider = providers.find(p => isDeepSeekProvider(p))
+  const model = provider?.models?.map(item => item.trim()).find(item => item.length > 0)
+  if (!provider || !model) return undefined
+  return { providerId: provider.id, model }
+}
+
 /** Qwen uses DashScope search. Any configured DeepSeek model can select the Search API route. */
 export function modelSupportsHostedWebSearch(
   provider: Pick<ProviderConfig, 'id' | 'baseUrl'>,

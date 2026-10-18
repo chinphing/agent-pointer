@@ -4,6 +4,7 @@ import {
   firstPresetTemplate,
   isDoubaoProvider,
   modelSupportsHostedWebSearch,
+  preferredWebSearchTier,
   PROVIDER_TEMPLATE_OPTIONS,
   providerDraftForTemplate
 } from './providerParams'
@@ -73,6 +74,20 @@ describe('platform provider detection', () => {
     expect(modelSupportsHostedWebSearch({ id: 'kimi', baseUrl: 'https://api.moonshot.cn/v1' }, 'kimi-k3')).toBe(
       false
     )
+  })
+
+  it('prefers the first DeepSeek model for the web search tier', () => {
+    expect(
+      preferredWebSearchTier([
+        { id: 'qwen', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: ['qwen3.8-max'] },
+        { id: 'deepseek', baseUrl: 'https://api.deepseek.com/v1', models: ['deepseek-flash', 'deepseek-v4-pro'] }
+      ])
+    ).toEqual({ providerId: 'deepseek', model: 'deepseek-flash' })
+    expect(
+      preferredWebSearchTier([
+        { id: 'qwen', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: ['qwen3.8-max'] }
+      ])
+    ).toBeUndefined()
   })
 
   it('detects MiMo, GLM, and Kimi from id or host', () => {

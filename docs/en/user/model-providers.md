@@ -95,7 +95,7 @@ Click **Set as default** in the list; new chats use it by default from then on.
 
 A tier marked **Overridden** in the dialog means its model was changed by hand and is not the default. **Changes apply immediately** and sync with **Agents → Scene tiers**.
 
-Web search tier models are configured separately (**Agents → More tools**). A DeepSeek chat uses DeepSeek web search; a Qwen chat still uses DashScope.
+Web search tier models are configured separately (**Agents → More tools**). A configured DeepSeek provider is the default search route. Setting that tier to Qwen uses DashScope.
 
 ## FAQ
 

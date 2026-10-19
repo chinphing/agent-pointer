@@ -71,17 +71,25 @@ export const PERF_HUD_WINDOW_MS = 1000
 export const PERF_FRAME_SUSPENSION_MS = 5000
 /**
  * A frame gap above this is written to the runtime log as one `perf_gap:` line
- * (HUD on only). 300 ms is ~18 dropped frames at 60 Hz — far above ordinary
- * jank, far below the ~1 s stalls this probe exists to catch. Suspended loops
- * (`PERF_FRAME_SUSPENSION_MS`) are excluded: a hidden window is not a stall.
+ * (HUD on only). 100 ms is ~6 dropped frames at 60 Hz — well above ordinary
+ * jank, so the log stays quiet in normal use, yet low enough to catch the
+ * residual hitches that are still visible on real hardware: the worst one
+ * measured after the first round of fixes was 191 ms, which a 300 ms bar
+ * silently swallowed. Suspended loops (`PERF_FRAME_SUSPENSION_MS`) are
+ * excluded: a hidden window is not a stall.
+ *
+ * The two log lines are a local troubleshooting aid, not product telemetry:
+ * nothing is uploaded and nothing is shown to the user. Retune the bar as the
+ * remaining hitches get smaller.
  */
-export const PERF_GAP_LOG_THRESHOLD_MS = 300
+export const PERF_GAP_LOG_THRESHOLD_MS = 100
 /**
  * A keystroke whose next frame starts more than this later is written as one
- * `perf_input:` line (HUD on only). Same 300 ms bar as the frame-gap line, so a
- * freeze shows up on both sides and the two timestamps can be matched.
+ * `perf_input:` line (HUD on only). Same 100 ms bar as the frame-gap line, so a
+ * freeze shows up on both sides and the two timestamps can be matched. Keep
+ * the two values in step (see above); both are retunable.
  */
-export const PERF_INPUT_LOG_THRESHOLD_MS = 300
+export const PERF_INPUT_LOG_THRESHOLD_MS = 100
 /** Fixed prefixes of the two runtime-log lines — the grep anchors. */
 export const PERF_GAP_LOG_PREFIX = 'perf_gap:'
 export const PERF_INPUT_LOG_PREFIX = 'perf_input:'

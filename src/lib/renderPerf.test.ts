@@ -1206,20 +1206,21 @@ describe('renderPerf runtime log', () => {
   it('writes one perf_gap line for a gap above the threshold, and none at it', () => {
     setRenderPerfEnabled(true, { persist: false })
 
+    // The bar is a named constant; pin it so the 100/101 boundary below is real.
+    expect(PERF_GAP_LOG_THRESHOLD_MS).toBe(100)
+
     rafCallback?.(0)
     rafCallback?.(16)
-    // Exactly at the threshold: the bar is strict (`>`), like the suspension one.
-    const atThreshold = 16 + PERF_GAP_LOG_THRESHOLD_MS
-    rafCallback?.(atThreshold)
+    // Exactly 100 ms: the bar is strict (`>`), like the suspension one.
+    rafCallback?.(116)
     expect(gapLines()).toEqual([])
 
-    // The previous frame is `atThreshold`; this one is `threshold + 1` later.
-    const stalledAt = atThreshold + PERF_GAP_LOG_THRESHOLD_MS + 1
-    rafCallback?.(stalledAt)
+    // 101 ms after the previous frame — one ms past the bar — is the first logged gap.
+    rafCallback?.(217)
     const lines = gapLines()
     expect(lines).toHaveLength(1)
-    expect(lines[0]).toContain(`gap_ms=${(PERF_GAP_LOG_THRESHOLD_MS + 1).toFixed(1)}`)
-    expect(lines[0]).toContain(`at_ms=${stalledAt.toFixed(1)}`)
+    expect(lines[0]).toContain('gap_ms=101.0')
+    expect(lines[0]).toContain('at_ms=217.0')
     // Nothing was marked inside that window: the blame is the HUD's `idle`.
     expect(lines[0]).toContain('activity=idle')
     expect(lines[0]).toContain('acts=-')
@@ -1269,20 +1270,33 @@ describe('renderPerf runtime log', () => {
       composing: false
     }))
 
+    // The bar is a named constant; pin it so the 100/101 boundary below is real.
+    expect(PERF_INPUT_LOG_THRESHOLD_MS).toBe(100)
+
     markPerfInput('keydown', read)
     rafCallback?.(1016)
     // A normal 16 ms settle writes nothing and never reads the DOM.
     expect(inputLines()).toEqual([])
     expect(read).not.toHaveBeenCalled()
 
+    // Exactly 100 ms: strict `>`, so still nothing, and still no DOM read.
+    clock = 1100
+    markPerfInput('keydown', read)
+    clock = 1200
+    rafCallback?.(1200)
+    expect(inputLines()).toEqual([])
+    expect(read).not.toHaveBeenCalled()
+
+    // 101 ms is the first settle that is logged.
     clock = 2000
     markPerfInput('keydown', read)
-    rafCallback?.(3100)
+    clock = 2101
+    rafCallback?.(2101)
     const lines = inputLines()
     expect(lines).toHaveLength(1)
     expect(lines[0]).toContain('types=keydown')
-    expect(lines[0]).toContain(`delay_ms=${(PERF_INPUT_LOG_THRESHOLD_MS + 800).toFixed(1)}`)
-    expect(lines[0]).toContain('at_ms=3100.0')
+    expect(lines[0]).toContain('delay_ms=101.0')
+    expect(lines[0]).toContain('at_ms=2101.0')
     expect(lines[0]).toContain('text_len=0')
     expect(lines[0]).toContain('scroll_h=40')
     expect(lines[0]).toContain('client_h=40')

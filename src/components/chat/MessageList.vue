@@ -83,11 +83,8 @@ import {
   type ToolRunGroup
 } from '../../lib/messageListLayout'
 import { shouldAutoExpandTurn, turnContains } from '../../lib/conversationTurns'
-import {
-  loadTurnExpandUiState,
-  saveTurnExpandUiState,
-  type TurnExpandUiState
-} from '../../lib/turnExpandState'
+import { type TurnExpandUiState } from '../../lib/turnExpandState'
+import { createTurnExpandSession } from '../../lib/turnExpandSession'
 import {
   activeTurnStartedAt,
   formatTurnElapsed,
@@ -173,6 +170,14 @@ const props = withDefaults(defineProps<{
 
 const { t } = useI18n()
 const chat = useChatStore()
+/**
+ * `ChatView` renders this component with `:key="chat.currentId"`, so an instance
+ * serves exactly one conversation for its whole lifetime. Capture that id now
+ * and persist only under it: on unmount the store already points at the next
+ * conversation, so reading `chat.currentId` there wrote the outgoing snapshot
+ * into the incoming bucket (see `lib/turnExpandSession.ts`).
+ */
+const turnExpandSession = createTurnExpandSession(chat.currentId)
 const settings = useSettingsStore()
 const agentsCatalog = useAgentsCatalog()
 const scroller = ref<HTMLDivElement | null>(null)
@@ -661,8 +666,9 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  const id = chat.currentId?.trim()
-  if (id) saveTurnExpandUiState(id, snapshotTurnExpandUiState())
+  // The store already points at the conversation being opened, so this must not
+  // read `chat.currentId`: persist under the id this instance was mounted for.
+  turnExpandSession.save(snapshotTurnExpandUiState())
   stopElapsedTicker()
   releaseNoOlderPull()
   document.removeEventListener('keydown', onNewConversationConfirmationKeydown)
@@ -1618,9 +1624,7 @@ function applyTurnExpandUiState(state: TurnExpandUiState): void {
 
 /** Write-through so refresh keeps overrides without needing a conversation switch. */
 function persistTurnExpandUiState(): void {
-  const id = chat.currentId?.trim()
-  if (!id) return
-  saveTurnExpandUiState(id, snapshotTurnExpandUiState())
+  turnExpandSession.save(snapshotTurnExpandUiState())
 }
 const leadTurnStarts = computed(() => {
   const list = pageWindowMessages.value
@@ -2263,22 +2267,14 @@ function expandTurnContainingMessage(messageId: string): number {
   return idx
 }
 
-watch(
-  () => chat.currentId,
-  (id, prev) => {
-    layoutCacheHold = null
-    // Preserve expand / collapse across conversation switches (session memory).
-    if (prev?.trim()) saveTurnExpandUiState(prev, snapshotTurnExpandUiState())
-    applyTurnExpandUiState(loadTurnExpandUiState(id))
-    frozenFileChangesCache = null
-    activeFileChangesCache = { turnId: '', settleKey: '', files: [], mergedToolIds: new Set() }
-    mergedTurnFileChangesCache = null
-    clearTurnFileHydrateState()
-    activeBoardInlineScrollTop.value = null
-    activeBoardIsSticky.value = false
-  },
-  { immediate: true }
-)
+/**
+ * Load once, at mount. There is deliberately no `chat.currentId` watcher here:
+ * `ChatView`'s `:key` remounts this component on every conversation switch, so a
+ * switch never reaches an existing instance. The old watcher's `prev` branch was
+ * dead code — and its write of the live id was what leaked one conversation's
+ * snapshot into the next (see `lib/turnExpandSession.ts`).
+ */
+applyTurnExpandUiState(turnExpandSession.load())
 
 watch(
   () => activeBoard.value?.storeKey ?? null,

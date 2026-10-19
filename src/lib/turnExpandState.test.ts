@@ -91,7 +91,7 @@ describe('turnExpandState', () => {
     localStorage.setItem(
       turnExpandStorageKey('user-a'),
       JSON.stringify({
-        v: 1,
+        v: 2,
         byConversation: {
           'conv-a': {
             expandedTurnIds: [],
@@ -162,7 +162,7 @@ describe('turnExpandState', () => {
     expect(loadTurnExpandUiState('conv-1').manuallyCollapsedTurnIds.has('turn-alice')).toBe(true)
   })
 
-  it('migrates legacy unscoped blob into the active user scope once', () => {
+  it('drops the legacy unscoped v1 blob instead of migrating it', () => {
     localStorage.setItem(
       TURN_EXPAND_LEGACY_STORAGE_KEY,
       JSON.stringify({
@@ -180,7 +180,31 @@ describe('turnExpandState', () => {
     )
     setTurnExpandStorageScope('user-z')
     expect(localStorage.getItem(TURN_EXPAND_LEGACY_STORAGE_KEY)).toBeNull()
-    expect(loadTurnExpandUiState('conv-legacy').manuallyCollapsedTurnIds.has('old')).toBe(true)
+    expect(loadTurnExpandUiState('conv-legacy').manuallyCollapsedTurnIds.has('old')).toBe(false)
+  })
+
+  it('discards a v1 scoped blob and removes its key', () => {
+    setTurnExpandStorageScope('user-a')
+    const key = turnExpandStorageKey('user-a')
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        v: 1,
+        byConversation: {
+          'conv-a': {
+            expandedTurnIds: ['foreign-turn'],
+            manuallyCollapsedTurnIds: [],
+            expandedChangeTurnIds: [],
+            collapsedChangeTurnIds: [],
+            updatedAt: 1
+          }
+        }
+      })
+    )
+
+    const loaded = loadTurnExpandUiState('conv-a')
+    expect(isEmptyTurnExpandUiState(loaded)).toBe(true)
+    expect(localStorage.getItem(key)).toBeNull()
   })
 
   it('normalizes unsafe user id characters for storage keys', () => {

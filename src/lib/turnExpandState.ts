@@ -37,12 +37,23 @@ type StoredConversation = {
   updatedAt: number
 }
 
+/**
+ * Blob schema version. Bump whenever the stored shape cannot be trusted:
+ * `readBlobForKey` drops (not migrates) any other version.
+ *
+ * v1 buckets were cross-pollinated: an outgoing `MessageList` instance saved its
+ * snapshot under the conversation the chat store had already switched to, so
+ * almost every entry held other conversations' turn ids. There is nothing worth
+ * migrating, so v1 is discarded wholesale.
+ */
+const STORAGE_VERSION = 2
+
 type StoredBlob = {
-  v: 1
+  v: typeof STORAGE_VERSION
   byConversation: Record<string, StoredConversation>
 }
 
-/** Unscoped legacy key (pre user-isolation); migrated once into the active scope. */
+/** Unscoped legacy key (pre user-isolation); its `v: 1` payload is dropped, not migrated. */
 export const TURN_EXPAND_LEGACY_STORAGE_KEY = 'pointer.chat.turn-expand.v1'
 
 const STORAGE_KEY_PREFIX = 'pointer.chat.turn-expand.v1'
@@ -132,12 +143,12 @@ export function getTurnExpandStorageScope(): string {
 export function setTurnExpandStorageScope(userId: string | null | undefined): void {
   const next = normalizeTurnExpandStorageScope(userId)
   if (next === activeScope) {
-    migrateLegacyBlobIfNeeded(next)
+    dropLegacyBlobIfNeeded()
     return
   }
   byConversation.clear()
   activeScope = next
-  migrateLegacyBlobIfNeeded(next)
+  dropLegacyBlobIfNeeded()
 }
 
 function toStored(state: TurnExpandUiState, updatedAt: number): StoredConversation {
@@ -165,16 +176,30 @@ function fromStored(raw: StoredConversation | undefined): MutableTurnExpandUiSta
   })
 }
 
+function emptyBlob(): StoredBlob {
+  return { v: STORAGE_VERSION, byConversation: {} }
+}
+
 function readBlobForKey(storageKey: string): StoredBlob {
-  if (typeof localStorage === 'undefined') return { v: 1, byConversation: {} }
+  if (typeof localStorage === 'undefined') return emptyBlob()
+  let raw: string | null
   try {
-    const parsed = JSON.parse(localStorage.getItem(storageKey) ?? '') as Partial<StoredBlob>
-    if (parsed?.v !== 1 || !parsed.byConversation || typeof parsed.byConversation !== 'object') {
-      return { v: 1, byConversation: {} }
-    }
-    return { v: 1, byConversation: parsed.byConversation }
+    raw = localStorage.getItem(storageKey)
   } catch {
-    return { v: 1, byConversation: {} }
+    return emptyBlob()
+  }
+  if (!raw) return emptyBlob()
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredBlob>
+    if (parsed?.v !== STORAGE_VERSION || !parsed.byConversation || typeof parsed.byConversation !== 'object') {
+      // Older schema (or corrupt): its entries cannot be trusted, so drop the
+      // whole bucket. `writeBlobForKey` deletes the key once nothing is left.
+      localStorage.removeItem(storageKey)
+      return emptyBlob()
+    }
+    return { v: STORAGE_VERSION, byConversation: parsed.byConversation }
+  } catch {
+    return emptyBlob()
   }
 }
 
@@ -199,30 +224,19 @@ function writeBlob(blob: StoredBlob): void {
   writeBlobForKey(turnExpandStorageKey(), blob)
 }
 
-/** One-shot: move pre-isolation blob into the active user scope. */
-function migrateLegacyBlobIfNeeded(scope: string): void {
+/**
+ * One-shot cleanup of the pre-isolation unscoped key. Its payload is `v: 1`,
+ * which `readBlobForKey` now refuses, so there is nothing to migrate: drop it.
+ */
+function dropLegacyBlobIfNeeded(): void {
   if (typeof localStorage === 'undefined') return
-  let legacyRaw: string | null
   try {
-    legacyRaw = localStorage.getItem(TURN_EXPAND_LEGACY_STORAGE_KEY)
-  } catch {
-    return
-  }
-  if (!legacyRaw) return
-
-  const scopedKey = turnExpandStorageKey(scope)
-  try {
-    const existing = localStorage.getItem(scopedKey)
-    if (!existing) {
-      const legacy = readBlobForKey(TURN_EXPAND_LEGACY_STORAGE_KEY)
-      if (Object.keys(legacy.byConversation).length > 0) {
-        writeBlobForKey(scopedKey, legacy)
-        console.info('[turnExpandState] migrated legacy expand prefs into scope', scope)
-      }
+    if (localStorage.getItem(TURN_EXPAND_LEGACY_STORAGE_KEY) != null) {
+      localStorage.removeItem(TURN_EXPAND_LEGACY_STORAGE_KEY)
+      console.info('[turnExpandState] dropped legacy v1 expand prefs')
     }
-    localStorage.removeItem(TURN_EXPAND_LEGACY_STORAGE_KEY)
   } catch (err) {
-    console.warn('[turnExpandState] legacy migrate failed', err)
+    console.warn('[turnExpandState] legacy cleanup failed', err)
   }
 }
 

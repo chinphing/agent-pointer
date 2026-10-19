@@ -3204,4 +3204,267 @@ mod tests {
             .unwrap();
         assert_count_invariant(&reopened, "c-noT", 4);
     }
+
+    // ---- hot per-conversation read paths: 导航大纲 / lead working set --------
+
+    /// The preview width the expression was originally written with. Kept as a
+    /// literal on purpose: the fixture fails loudly if the shared expression
+    /// changes without the covering index being rebuilt to match.
+    const LEGACY_OUTLINE_PREFIX_CHARS: usize = 240;
+
+    fn legacy_outline_sql() -> String {
+        format!(
+            "SELECT message_id,
+                    COALESCE(
+                      NULLIF(TRIM(json_extract(payload, '$.uiBindings.bubbleText')), ''),
+                      substr(content, 1, {LEGACY_OUTLINE_PREFIX_CHARS})
+                    ),
+                    is_milestone
+             FROM messages
+             WHERE conversation_id = ?1 AND role = 'user' AND is_system_generated = 0
+               AND is_scoped = 0
+             ORDER BY position ASC"
+        )
+    }
+
+    /// Unchanged pre-index SQL of `load_lead_working_messages`.
+    fn legacy_working_set_sql() -> &'static str {
+        "SELECT message_id, position, payload FROM messages
+         WHERE conversation_id = ?1
+           AND is_scoped = 0
+           AND context_included = 1
+           AND (
+             agent_instance_id IS NULL
+             OR trim(agent_instance_id) = ''
+             OR agent_instance_id = (
+               SELECT lead_agent_instance_id FROM conversations WHERE id = ?1
+             )
+           )
+         ORDER BY position ASC"
+    }
+
+    fn explain(conn: &Connection, sql: &str, conversation_id: &str) -> String {
+        let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+        let rows = stmt
+            .query_map(params![conversation_id], |row| row.get::<_, String>(3))
+            .unwrap();
+        rows.map(|row| row.unwrap())
+            .collect::<Vec<_>>()
+            .join(" | ")
+    }
+
+    /// Production-shaped fixture: `total` rows in one conversation with the same
+    /// role / `is_system_generated` / `is_scoped` mix the real 153k-message
+    /// transcript has, plus the preview edge cases (bubble text, blank bubble
+    /// text, blank content, content at and past the prefix width).
+    fn seed_big_transcript(store: &ConversationStore, conversation_id: &str, total: usize) {
+        let conn = store.db.conn.lock();
+        // FTS sync triggers would index every fixture row; not under test.
+        conn.execute_batch(
+            "DROP TRIGGER IF EXISTS messages_ai;
+             DROP TRIGGER IF EXISTS messages_ad;
+             DROP TRIGGER IF EXISTS messages_au;",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO conversations (id, title, created_at_ms, updated_at_ms)
+             VALUES (?1, 'big', 1, 1)",
+            params![conversation_id],
+        )
+        .unwrap();
+        conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+        {
+            let mut insert = conn
+                .prepare(
+                    "INSERT INTO messages (
+                       conversation_id, message_id, role, content, payload, created_at_ms,
+                       position, is_system_generated, context_included, agent_instance_id,
+                       is_scoped, is_milestone
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                )
+                .unwrap();
+            for i in 0..total {
+                let slot = i % 50;
+                let (role, role_str, sysgen, scoped, ctx, instance, milestone) = match slot {
+                    0 => (Role::User, "user", 0, 0, 1, None, i64::from(i % 7 == 0)),
+                    1 => (Role::User, "user", 0, 1, 1, Some("sub"), 0),
+                    2 => (Role::User, "user", 1, 0, 1, None, 0),
+                    3 => (Role::Assistant, "assistant", 0, 0, 1, None, 0),
+                    _ => (Role::Assistant, "assistant", 0, 1, 0, Some("sub"), 0),
+                };
+                let content = if slot == 0 {
+                    match i % 5 {
+                        0 => format!("第{i}条：正文带空白\n\n第二段 {}", "填充".repeat(80)),
+                        1 => "   ".to_string(),
+                        2 => "x".repeat(LEGACY_OUTLINE_PREFIX_CHARS),
+                        3 => format!("气泡消息 {i}"),
+                        _ => format!("普通内容 {i}"),
+                    }
+                } else {
+                    format!("正文 {i}")
+                };
+                let mut message = msg(&format!("m{i}"), role, &content, i as i64);
+                message.ui_bindings = if slot == 0 {
+                    match i % 5 {
+                        3 => Some(MessageUiBindings {
+                            bubble_text: Some(format!("气泡 {i}")),
+                            ..Default::default()
+                        }),
+                        4 => Some(MessageUiBindings {
+                            bubble_text: Some("   ".into()),
+                            ..Default::default()
+                        }),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                let payload = message.to_store_payload_json().unwrap();
+                insert
+                    .execute(params![
+                        conversation_id,
+                        format!("m{i}"),
+                        role_str,
+                        content,
+                        payload,
+                        i as i64,
+                        i as i64,
+                        sysgen,
+                        ctx,
+                        instance,
+                        scoped,
+                        milestone,
+                    ])
+                    .unwrap();
+            }
+        }
+        conn.execute_batch("COMMIT").unwrap();
+    }
+
+    /// Regression for the conversation-switch freeze: at 150k messages the
+    /// outline and the lead working set must be served from their own indexes
+    /// instead of walking every row of the conversation, and the outline must
+    /// still return exactly what the pre-index SQL returned.
+    #[test]
+    fn big_transcript_read_paths_are_index_backed_and_unchanged() {
+        use crate::conversation_store::persist;
+
+        const TOTAL: usize = 150_000;
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        seed_big_transcript(&store, "big", TOTAL);
+
+        // ---- 导航大纲: byte-identical to the legacy expression -----------------
+        let expected: Vec<(String, String, bool)> = {
+            let conn = store.db.conn.lock();
+            let mut stmt = conn.prepare(&legacy_outline_sql()).unwrap();
+            let rows = stmt
+                .query_map(params!["big"], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                })
+                .unwrap();
+            rows.map(|row| {
+                let (message_id, raw, milestone) = row.unwrap();
+                (
+                    message_id,
+                    persist::conversation_nav_preview(&raw),
+                    milestone != 0,
+                )
+            })
+            .collect()
+        };
+        assert!(
+            expected.len() > 2_500,
+            "fixture must produce thousands of nav rows, got {}",
+            expected.len()
+        );
+
+        let actual = store
+            .list_conversation_outline(&ListScope::All, "big")
+            .unwrap();
+        assert_eq!(actual.len(), expected.len());
+        for (item, (message_id, preview, milestone)) in actual.iter().zip(expected.iter()) {
+            assert_eq!(&item.message_id, message_id);
+            assert_eq!(&item.preview, preview);
+            assert_eq!(item.milestone, *milestone);
+        }
+
+        // ---- lead working set: same rows, same order --------------------------
+        let expected_working: Vec<String> = {
+            let conn = store.db.conn.lock();
+            let mut stmt = conn.prepare(legacy_working_set_sql()).unwrap();
+            let rows = stmt
+                .query_map(params!["big"], |row| row.get::<_, String>(0))
+                .unwrap();
+            rows.map(|row| row.unwrap()).collect()
+        };
+        let (working, db_count) = store.load_lead_working_messages("big").unwrap();
+        assert_eq!(
+            working.iter().map(|m| m.id.clone()).collect::<Vec<_>>(),
+            expected_working
+        );
+        assert_eq!(db_count as usize, TOTAL, "count comes from the column");
+
+        // ---- plans: bounded index ranges, never a table scan ------------------
+        let conn = store.db.conn.lock();
+        let outline_plan = explain(&conn, &persist::outline_query_sql(), "big");
+        assert!(
+            outline_plan.contains("idx_messages_conv_outline"),
+            "outline must use its covering index: {outline_plan}"
+        );
+        assert!(
+            !outline_plan.contains("SCAN messages"),
+            "outline must not scan the transcript: {outline_plan}"
+        );
+        let working_plan = explain(&conn, legacy_working_set_sql(), "big");
+        assert!(
+            working_plan.contains("idx_messages_conv_working_pos"),
+            "working set must use its index: {working_plan}"
+        );
+        assert!(
+            !working_plan.contains("SCAN messages"),
+            "working set must not scan the transcript: {working_plan}"
+        );
+    }
+
+    #[test]
+    fn read_path_indexes_are_installed_on_open_and_reinstalled() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let index_count = |store: &ConversationStore| -> i64 {
+            let conn = store.db.conn.lock();
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                  WHERE type = 'index'
+                    AND name IN ('idx_messages_conv_outline', 'idx_messages_conv_working_pos')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(index_count(&store), 2);
+
+        // A store written by an older build lacks both indexes.
+        {
+            let conn = store.db.conn.lock();
+            conn.execute_batch(
+                "DROP INDEX idx_messages_conv_outline;
+                 DROP INDEX idx_messages_conv_working_pos;",
+            )
+            .unwrap();
+        }
+        assert_eq!(index_count(&store), 0);
+        drop(store);
+
+        let reopened = ConversationStore::open_in_dir(dir.path()).unwrap();
+        assert_eq!(
+            index_count(&reopened),
+            2,
+            "opening the store must install the read-path indexes"
+        );
+    }
 }

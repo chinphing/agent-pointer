@@ -1479,6 +1479,9 @@ fn init_schema(conn: &Connection) -> Result<()> {
     )?;
     // After column migrations, create indexes that depend on newer columns.
     ensure_conversations_user_updated_index(conn)?;
+    // Per-conversation read paths (导航大纲 / lead working set) — same reason:
+    // they filter on columns added by the migrations above.
+    ensure_message_read_path_indexes(conn)?;
     // `conversations.message_count` is trigger-maintained from here on; the
     // column read replaces the per-call `COUNT(*)` on the send/turn paths.
     ensure_message_count_triggers(conn)?;
@@ -1951,6 +1954,35 @@ fn ensure_conversations_user_updated_index(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_conversations_user_updated
          ON conversations(session_user_id, updated_at_ms DESC);",
     )?;
+    Ok(())
+}
+
+/// Indexes for the two per-conversation reads that run on every transcript
+/// open: the in-chat 导航 outline and the lead working set.
+///
+/// Both queries filter on `conversation_id` plus materialized flags and then
+/// need a handful of columns. Without an index that starts with those flags the
+/// planner walks every row of the conversation and reads each payload to test
+/// them — at 150k messages that is several seconds per conversation switch.
+///
+/// * `idx_messages_conv_outline` also carries the preview expression itself
+///   ([`persist::outline_preview_expr`]), so the outline query is served from
+///   the index alone and never touches `messages` table pages. The expression
+///   must stay byte-identical to the one in `load_conversation_outline`; if it
+///   ever changes, drop this index (rename it) so it is rebuilt.
+/// * `idx_messages_conv_working_pos` narrows the working-set scan to the rows
+///   admitted to the lead context; their payloads are still read because the
+///   working set needs the bodies.
+fn ensure_message_read_path_indexes(conn: &Connection) -> Result<()> {
+    conn.execute_batch(&format!(
+        "CREATE INDEX IF NOT EXISTS idx_messages_conv_outline
+           ON messages(conversation_id, position, is_milestone, message_id,
+                       {})
+           WHERE role = 'user' AND is_system_generated = 0 AND is_scoped = 0;
+         CREATE INDEX IF NOT EXISTS idx_messages_conv_working_pos
+           ON messages(conversation_id, is_scoped, context_included, position);",
+        crate::conversation_store::persist::outline_preview_expr()
+    ))?;
     Ok(())
 }
 

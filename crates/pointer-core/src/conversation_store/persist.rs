@@ -1385,6 +1385,21 @@ pub(crate) fn load_anchor_probe(
 
 /// SQLite `substr` budget before whitespace collapse (characters, UTF-8 DB).
 const OUTLINE_CONTENT_PREFIX_CHARS: i64 = 240;
+
+/// The one definition of "outline preview source": the bubble text when the row
+/// carries one, otherwise a content prefix. Shared verbatim by the read query
+/// and by `idx_messages_conv_outline`, because SQLite only serves an expression
+/// index when the query expression matches it — so the two sides must stay
+/// byte-identical (see `ensure_message_read_path_indexes`).
+///
+/// Changing [`OUTLINE_CONTENT_PREFIX_CHARS`] or this expression therefore needs
+/// a schema step that drops/recreates the index; otherwise the query silently
+/// falls back to reading `content`/`payload` from the table.
+pub(crate) fn outline_preview_expr() -> String {
+    format!(
+        "COALESCE(NULLIF(TRIM(json_extract(payload, '$.uiBindings.bubbleText')), ''), substr(content, 1, {OUTLINE_CONTENT_PREFIX_CHARS}))"
+    )
+}
 /// In-chat 导航 one-line label (including `…` when truncated).
 const OUTLINE_PREVIEW_CHARS: usize = 36;
 
@@ -1408,12 +1423,33 @@ pub(crate) fn conversation_in_scope(
     Ok(n > 0)
 }
 
-fn conversation_nav_preview(content: &str) -> String {
+pub(crate) fn conversation_nav_preview(content: &str) -> String {
     let collapsed = crate::text_util::collapse_whitespace(content);
     if collapsed.is_empty() {
         return "（无文字）".to_string();
     }
     crate::text_util::truncate_chars_fit(&collapsed, OUTLINE_PREVIEW_CHARS)
+}
+
+/// The in-chat 导航 read, pinned to `idx_messages_conv_outline`.
+///
+/// Index-only: that partial index keys on the conversation id, the `position`
+/// order, and the preview expression itself, so the scan reads only rows that
+/// actually become nav entries. `INDEXED BY` pins the plan on purpose — the
+/// planner otherwise prefers the narrower `idx_messages_conv_lead_pos`, which
+/// walks every lead row of the conversation and reads each payload just to test
+/// the flags (seconds of I/O once a transcript reaches 150k rows).
+pub(crate) fn outline_query_sql() -> String {
+    format!(
+        "SELECT message_id,
+                {},
+                is_milestone
+         FROM messages INDEXED BY idx_messages_conv_outline
+         WHERE conversation_id = ?1 AND role = 'user' AND is_system_generated = 0
+         {SQL_LEAD_ROW_NOT_SCOPED}
+         ORDER BY position ASC",
+        outline_preview_expr()
+    )
 }
 
 /// Full-session user-turn list for in-chat 导航. Same anchor filter as turn
@@ -1424,28 +1460,14 @@ pub(crate) fn load_conversation_outline(
     conn: &Connection,
     conversation_id: &str,
 ) -> Result<Vec<ConversationOutlineItem>> {
-    let mut stmt = conn.prepare(&format!(
-        "SELECT message_id,
-                COALESCE(
-                  NULLIF(TRIM(json_extract(payload, '$.uiBindings.bubbleText')), ''),
-                  substr(content, 1, ?2)
-                ),
-                is_milestone
-         FROM messages
-         WHERE conversation_id = ?1 AND role = 'user' AND is_system_generated = 0
-         {SQL_LEAD_ROW_NOT_SCOPED}
-         ORDER BY position ASC"
-    ))?;
-    let rows = stmt.query_map(
-        params![conversation_id, OUTLINE_CONTENT_PREFIX_CHARS],
-        |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-            ))
-        },
-    )?;
+    let mut stmt = conn.prepare(&outline_query_sql())?;
+    let rows = stmt.query_map(params![conversation_id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?,
+        ))
+    })?;
     let mut out = Vec::new();
     for row in rows {
         let (message_id, content, milestone) = row?;

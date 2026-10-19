@@ -1,5 +1,7 @@
+import { invoke } from '@tauri-apps/api/core'
 import { getCurrentScope, onScopeDispose, ref, type Ref } from 'vue'
 import type { MemoryStats } from './memoryProbe'
+import { isTauriRuntime } from './runtime'
 import {
   createJsonParseStats,
   installJsonParseProbe,
@@ -67,6 +69,22 @@ export const PERF_HUD_WINDOW_MS = 1000
  * breakpoint — produces gaps of many seconds to minutes.
  */
 export const PERF_FRAME_SUSPENSION_MS = 5000
+/**
+ * A frame gap above this is written to the runtime log as one `perf_gap:` line
+ * (HUD on only). 300 ms is ~18 dropped frames at 60 Hz — far above ordinary
+ * jank, far below the ~1 s stalls this probe exists to catch. Suspended loops
+ * (`PERF_FRAME_SUSPENSION_MS`) are excluded: a hidden window is not a stall.
+ */
+export const PERF_GAP_LOG_THRESHOLD_MS = 300
+/**
+ * A keystroke whose next frame starts more than this later is written as one
+ * `perf_input:` line (HUD on only). Same 300 ms bar as the frame-gap line, so a
+ * freeze shows up on both sides and the two timestamps can be matched.
+ */
+export const PERF_INPUT_LOG_THRESHOLD_MS = 300
+/** Fixed prefixes of the two runtime-log lines — the grep anchors. */
+export const PERF_GAP_LOG_PREFIX = 'perf_gap:'
+export const PERF_INPUT_LOG_PREFIX = 'perf_input:'
 /** Human-readable shortcut, shown in the HUD header. */
 export const PERF_HUD_SHORTCUT_LABEL = 'Cmd/Ctrl+Shift+Alt+P'
 
@@ -478,11 +496,114 @@ let frameGapMaxMs = 0
 let frameSuspensions = 0
 let rafHandle: number | null = null
 
+/**
+ * The input burst waiting for its settling frame: the **first** event's start
+ * time (so the delay reads keydown → frame, not input → frame) and every type
+ * that joined it. At most one probe is in flight — a burst is one frame away.
+ */
+let pendingPerfInput: { types: string[]; startedAt: number; read: PerfInputSampleReader } | null =
+  null
+let perfInputRaf: number | null = null
+
 function nowMs(): number {
   if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
     return performance.now()
   }
   return Date.now()
+}
+
+// --- runtime log ------------------------------------------------------------
+
+/**
+ * Where a `perf_*` line goes. The desktop app hands it to Rust (`perf_log`
+ * command → the normal `pointer_*.log` channel, no log file of its own); the
+ * web build and tests get `console.warn`. Replacing it is a test hook, not a
+ * feature switch — every call site is already gated on `renderPerfEnabled()`.
+ */
+export type RenderPerfLogSink = (line: string) => void
+
+function defaultRenderPerfLogSink(line: string): void {
+  if (isTauriRuntime()) {
+    // Fire-and-forget: logging must never block a frame or surface an error.
+    void invoke('perf_log', { msg: line }).catch(() => {})
+    return
+  }
+  console.warn(line)
+}
+
+let logSink: RenderPerfLogSink = defaultRenderPerfLogSink
+
+/** Replace the sink (tests). `null` restores the default. */
+export function setRenderPerfLogSink(sink: RenderPerfLogSink | null): void {
+  logSink = sink ?? defaultRenderPerfLogSink
+}
+
+/** One decimal is enough to order two lines; the snapshot keeps the raw value. */
+function formatPerfMs(value: number): string {
+  return (Math.round(value * 10) / 10).toFixed(1)
+}
+
+/**
+ * `perf_gap: gap_ms=1036.0 at_ms=41234.5 activity=composerDraftFlush acts=layoutRebuild:900.0,composerResize:1.2`
+ *
+ * - `gap_ms` — the inter-frame gap itself;
+ * - `at_ms` — the rAF timestamp of the frame that closed it (the
+ *   `performance.now()` clock, so it sorts against every other log line);
+ * - `activity` — the same blame the HUD shows (`idle` when nothing was marked);
+ * - `acts` — every activity that closed inside that window with its ms, so a
+ *   gap blamed on a 0.0 ms marker still shows which marker held the time.
+ */
+export function buildPerfGapLogLine(
+  gapMs: number,
+  atMs: number,
+  activity: string,
+  activities: ReadonlyMap<string, number>
+): string {
+  const parts: string[] = []
+  for (const [name, ms] of activities) parts.push(`${name}:${formatPerfMs(ms)}`)
+  return (
+    `${PERF_GAP_LOG_PREFIX} gap_ms=${formatPerfMs(gapMs)} at_ms=${formatPerfMs(atMs)}` +
+    ` activity=${activity || PERF_ACTIVITY_IDLE} acts=${parts.length > 0 ? parts.join(',') : '-'}`
+  )
+}
+
+/** What the input probe reads at settle time — never at the event itself. */
+export interface PerfInputSample {
+  /** `composerText.length` — the draft's length, never its content. */
+  textLength: number
+  /** Textarea `scrollHeight` — the height the content needs. */
+  scrollHeight: number
+  /** Textarea `clientHeight` — the height the box currently has. */
+  clientHeight: number
+  /** Whether the draft contains a newline (the multi-line path). */
+  hasNewline: boolean
+  /** True between `compositionstart` and `compositionend`. */
+  composing: boolean
+}
+
+export type PerfInputSampleReader = () => PerfInputSample | null
+
+/**
+ * `perf_input: types=keydown,input delay_ms=1036.0 at_ms=... text_len=0 scroll_h=40 client_h=40 newline=0 composing=0`
+ *
+ * `types` is the coalesced burst: every event that landed before the settling
+ * frame, in arrival order. No key characters and no draft text — length only.
+ */
+export function buildPerfInputLogLine(
+  types: string,
+  delayMs: number,
+  atMs: number,
+  sample: PerfInputSample | null
+): string {
+  const head =
+    `${PERF_INPUT_LOG_PREFIX} types=${types} delay_ms=${formatPerfMs(delayMs)}` +
+    ` at_ms=${formatPerfMs(atMs)}`
+  if (!sample) return `${head} sample=none`
+  return (
+    `${head} text_len=${sample.textLength} scroll_h=${Math.round(sample.scrollHeight)}` +
+    ` client_h=${Math.round(sample.clientHeight)} newline=${sample.hasNewline ? 1 : 0}` +
+    ` composing=${sample.composing ? 1 : 0}`
+  )
 }
 
 // --- counters ---------------------------------------------------------------
@@ -787,7 +908,51 @@ export function resetPerf(): void {
   lastFrameTs = 0
   frameGapMaxMs = 0
   frameSuspensions = 0
+  // A probe still waiting for its frame belongs to the session being dropped.
+  pendingPerfInput = null
+  if (perfInputRaf !== null) {
+    if (frameLoopAvailable()) cancelAnimationFrame(perfInputRaf)
+    perfInputRaf = null
+  }
   windowStartMs = -1
+}
+
+// --- input latency probe ----------------------------------------------------
+
+/**
+ * Start (or join) an input-latency measurement for the keystroke / composition
+ * event that just fired. The delay is settled by the **next frame callback**:
+ * if the main thread is blocked, that callback is late by exactly the stall.
+ *
+ * Contract:
+ *
+ * - **One boolean read while the HUD is off** — call sites guard with
+ *   `renderPerfEnabled()` and pass a module-level reader, so no closure is
+ *   allocated per event.
+ * - **Coalesced per frame** — a keydown + beforeinput + input burst is one
+ *   measurement starting at the first event; later events only add their type.
+ * - **DOM reads only on the slow path** — the sample (`scrollHeight`, which
+ *   forces layout) is read after the threshold has already been crossed.
+ * - **No line below the threshold** — a 16 ms settle writes nothing.
+ */
+export function markPerfInput(type: string, read: PerfInputSampleReader): void {
+  if (!enabled || !type) return
+  if (pendingPerfInput) {
+    if (!pendingPerfInput.types.includes(type)) pendingPerfInput.types.push(type)
+    return
+  }
+  if (!frameLoopAvailable()) return
+  pendingPerfInput = { types: [type], startedAt: nowMs(), read }
+  perfInputRaf = requestAnimationFrame(ts => {
+    perfInputRaf = null
+    const pending = pendingPerfInput
+    pendingPerfInput = null
+    // A HUD turned off between the event and its frame must not log.
+    if (!pending || !enabled) return
+    const delay = ts - pending.startedAt
+    if (!(delay > PERF_INPUT_LOG_THRESHOLD_MS)) return
+    logSink(buildPerfInputLogLine(pending.types.join(','), delay, ts, pending.read()))
+  })
 }
 
 // --- frame probe ------------------------------------------------------------
@@ -807,9 +972,16 @@ function onFrame(ts: number): void {
       // The loop was stopped (hidden page / sleeping display / paused debugger).
       // Keep it out of the maximum so a suspension never reads as a frame stall.
       frameSuspensions++
-    } else if (gap > frameGapMaxMs) {
-      frameGapMaxMs = gap
-      frameGapMaxActivity = attributeFrameGapActivity()
+    } else {
+      if (gap > frameGapMaxMs) {
+        frameGapMaxMs = gap
+        frameGapMaxActivity = attributeFrameGapActivity()
+      }
+      if (gap > PERF_GAP_LOG_THRESHOLD_MS) {
+        // The window's totals are still intact here (cleared just below), so the
+        // line carries the same blame the HUD would show for this gap.
+        logSink(buildPerfGapLogLine(gap, ts, attributeFrameGapActivity(), frameActivityMs))
+      }
     }
   }
   // Every frame consumes the window's activity totals, so a gap is only ever blamed on

@@ -91,8 +91,10 @@ import {
   PERF_MS_COMPOSER_RESIZE,
   beginPerfActivity,
   endPerfActivity,
+  markPerfInput,
   record,
-  renderPerfEnabled
+  renderPerfEnabled,
+  type PerfInputSample
 } from '../../lib/renderPerf'
 
 const props = withDefaults(
@@ -340,6 +342,9 @@ async function stopAndSendNow() {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  // Dev-only input-latency probe (see `markPerfInput`): one boolean read while
+  // the HUD is off, and the reader is a module-level function — no closure.
+  if (renderPerfEnabled()) markPerfInput('keydown', readComposerInputPerfSample)
   if (e.isComposing || composing.value) return
   if (e.key !== 'Enter' || e.shiftKey) return
 
@@ -1377,6 +1382,7 @@ async function onPickScreen(monitorId: string) {
 }
 
 function onCompositionEnd() {
+  if (renderPerfEnabled()) markPerfInput('compositionend', readComposerInputPerfSample)
   setTimeout(() => {
     composing.value = false
     autoResize()
@@ -1400,6 +1406,34 @@ let composerTextareaResize = createComposerTextareaResizeState()
 let composerTextareaMirror: ComposerTextareaMirror | null = null
 
 /**
+ * Input-latency sample for the render-perf probe, read by `markPerfInput` at
+ * settle time (the next frame), never at the event: `scrollHeight` forces
+ * layout and the HUD is the only consumer. Length only — never the draft text.
+ */
+function readComposerInputPerfSample(): PerfInputSample | null {
+  const el = textareaRef.value
+  if (!el) return null
+  const text = composerText.value
+  return {
+    textLength: text.length,
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+    hasNewline: text.includes('\n'),
+    composing: composing.value
+  }
+}
+
+/** `beforeinput` has no behavior of its own here — only the latency probe. */
+function onComposerBeforeInput() {
+  if (renderPerfEnabled()) markPerfInput('beforeinput', readComposerInputPerfSample)
+}
+
+function onCompositionStart() {
+  composing.value = true
+  if (renderPerfEnabled()) markPerfInput('compositionstart', readComposerInputPerfSample)
+}
+
+/**
  * Textarea `@input` handler. It is a named function rather than an inline
  * `autoResize()` call so the render-perf HUD can mark the whole keystroke pass:
  * `composerInput` covers the synchronous part of the handler (up to and including
@@ -1410,7 +1444,10 @@ let composerTextareaMirror: ComposerTextareaMirror | null = null
 function onComposerInput() {
   const perf = renderPerfEnabled()
   const startedAt = perf ? performance.now() : 0
-  if (perf) beginPerfActivity(PERF_ACTIVITY_COMPOSER_INPUT)
+  if (perf) {
+    markPerfInput('input', readComposerInputPerfSample)
+    beginPerfActivity(PERF_ACTIVITY_COMPOSER_INPUT)
+  }
   try {
     autoResize()
   } finally {
@@ -1714,9 +1751,10 @@ onUnmounted(() => {
             :placeholder="composerPlaceholder"
             :disabled="needsPlatformLogin || tokenQuotaBlocked"
             @keydown="onKeydown"
+            @beforeinput="onComposerBeforeInput"
             @input="onComposerInput()"
             @paste="onPasteAttachments"
-            @compositionstart="composing = true"
+            @compositionstart="onCompositionStart"
             @compositionend="onCompositionEnd"
           />
           <div class="flex shrink-0 items-end gap-2 self-end md:w-full md:items-center md:self-auto">

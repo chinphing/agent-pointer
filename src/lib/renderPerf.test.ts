@@ -13,6 +13,10 @@ import {
   PERF_ACTIVITY_STICK_BOTTOM,
   PERF_ACTIVITY_TOOL_ARG_FORMAT,
   PERF_FRAME_SUSPENSION_MS,
+  PERF_GAP_LOG_PREFIX,
+  PERF_GAP_LOG_THRESHOLD_MS,
+  PERF_INPUT_LOG_PREFIX,
+  PERF_INPUT_LOG_THRESHOLD_MS,
   PERF_GAUGE_VIRTUAL_BLANK,
   PERF_GAUGE_VIRTUAL_ESTIMATE,
   PERF_GAUGE_VIRTUAL_FIRST,
@@ -44,6 +48,7 @@ import {
   initRenderPerf,
   installRenderPerfGaugeSampler,
   isPerfHudShortcut,
+  markPerfInput,
   parsePerfHudUrlFlag,
   publishVirtualGeometryGauges,
   publishVirtualRowSlackGauges,
@@ -56,6 +61,7 @@ import {
   setGauge,
   setRenderPerfEnabled,
   setRenderPerfGaugeSampler,
+  setRenderPerfLogSink,
   toggleRenderPerf,
   useRenderPerfEnabled,
   useRenderPerfSnapshot,
@@ -75,6 +81,9 @@ const cancelFrame = vi.fn(() => {
 /** Disposer of the geometry sampler a test installed (cleared in `afterEach`). */
 let disposeGaugeSampler: (() => void) | null = null
 
+/** Every runtime-log line the module wrote during the current test. */
+const logLines: string[] = []
+
 beforeAll(() => {
   localStorage.clear()
   initRenderPerf()
@@ -82,6 +91,12 @@ beforeAll(() => {
 
 beforeEach(() => {
   localStorage.clear()
+  logLines.length = 0
+  // Capture the runtime-log lines instead of writing them: the assertions are on
+  // the field contract, and a default sink would print every 968 ms test gap.
+  setRenderPerfLogSink(line => {
+    logLines.push(line)
+  })
   setRenderPerfEnabled(false, { persist: false })
   resetPerf()
   rafCallback = null
@@ -93,6 +108,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setRenderPerfEnabled(false, { persist: false })
+  setRenderPerfLogSink(null)
   disposeGaugeSampler?.()
   disposeGaugeSampler = null
   setRenderPerfGaugeSampler(null)
@@ -1180,5 +1196,164 @@ describe('renderPerf JSON.parse meter', () => {
 
     // The window holds both markers; the one that held the most time wins.
     expect(renderPerfSnapshot(1000).frameGapMaxActivity).toBe(PERF_ACTIVITY_TOOL_ARG_FORMAT)
+  })
+})
+
+describe('renderPerf runtime log', () => {
+  const gapLines = () => logLines.filter(line => line.startsWith(PERF_GAP_LOG_PREFIX))
+  const inputLines = () => logLines.filter(line => line.startsWith(PERF_INPUT_LOG_PREFIX))
+
+  it('writes one perf_gap line for a gap above the threshold, and none at it', () => {
+    setRenderPerfEnabled(true, { persist: false })
+
+    rafCallback?.(0)
+    rafCallback?.(16)
+    // Exactly at the threshold: the bar is strict (`>`), like the suspension one.
+    const atThreshold = 16 + PERF_GAP_LOG_THRESHOLD_MS
+    rafCallback?.(atThreshold)
+    expect(gapLines()).toEqual([])
+
+    // The previous frame is `atThreshold`; this one is `threshold + 1` later.
+    const stalledAt = atThreshold + PERF_GAP_LOG_THRESHOLD_MS + 1
+    rafCallback?.(stalledAt)
+    const lines = gapLines()
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain(`gap_ms=${(PERF_GAP_LOG_THRESHOLD_MS + 1).toFixed(1)}`)
+    expect(lines[0]).toContain(`at_ms=${stalledAt.toFixed(1)}`)
+    // Nothing was marked inside that window: the blame is the HUD's `idle`.
+    expect(lines[0]).toContain('activity=idle')
+    expect(lines[0]).toContain('acts=-')
+  })
+
+  it('names the activity that held the window and its per-window total', () => {
+    let clock = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    setRenderPerfEnabled(true, { persist: false })
+
+    rafCallback?.(0)
+    rafCallback?.(16)
+
+    // A synchronous rebuild that opens and closes inside the stall it causes.
+    beginPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+    clock = 900
+    endPerfActivity(PERF_ACTIVITY_LAYOUT_REBUILD)
+
+    rafCallback?.(1016)
+    const [line] = gapLines()
+    expect(line).toBeDefined()
+    expect(line).toContain('gap_ms=1000.0')
+    expect(line).toContain('activity=layoutRebuild')
+    expect(line).toContain('acts=layoutRebuild:900.0')
+  })
+
+  it('does not log a suspended frame loop as a gap', () => {
+    setRenderPerfEnabled(true, { persist: false })
+
+    rafCallback?.(0)
+    rafCallback?.(16)
+    // Hidden page / sleeping display: a suspension, not a stalled frame.
+    rafCallback?.(16 + PERF_FRAME_SUSPENSION_MS + 1)
+    expect(gapLines()).toEqual([])
+    expect(renderPerfSnapshot(16 + PERF_FRAME_SUSPENSION_MS + 1).frameSuspensions).toBe(1)
+  })
+
+  it('settles an input mark on the next frame and logs only the slow settle', () => {
+    let clock = 1000
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    setRenderPerfEnabled(true, { persist: false })
+    const read = vi.fn(() => ({
+      textLength: 0,
+      scrollHeight: 40,
+      clientHeight: 40,
+      hasNewline: false,
+      composing: false
+    }))
+
+    markPerfInput('keydown', read)
+    rafCallback?.(1016)
+    // A normal 16 ms settle writes nothing and never reads the DOM.
+    expect(inputLines()).toEqual([])
+    expect(read).not.toHaveBeenCalled()
+
+    clock = 2000
+    markPerfInput('keydown', read)
+    rafCallback?.(3100)
+    const lines = inputLines()
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('types=keydown')
+    expect(lines[0]).toContain(`delay_ms=${(PERF_INPUT_LOG_THRESHOLD_MS + 800).toFixed(1)}`)
+    expect(lines[0]).toContain('at_ms=3100.0')
+    expect(lines[0]).toContain('text_len=0')
+    expect(lines[0]).toContain('scroll_h=40')
+    expect(lines[0]).toContain('client_h=40')
+    expect(lines[0]).toContain('newline=0')
+    expect(lines[0]).toContain('composing=0')
+    expect(read).toHaveBeenCalledTimes(1)
+  })
+
+  it('coalesces a keydown + input burst into one line starting at the first event', () => {
+    let clock = 1000
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    setRenderPerfEnabled(true, { persist: false })
+    const read = vi.fn(() => ({
+      textLength: 3,
+      scrollHeight: 40,
+      clientHeight: 40,
+      hasNewline: true,
+      composing: false
+    }))
+
+    markPerfInput('keydown', read)
+    clock = 1005
+    markPerfInput('input', read)
+    // Only one probe is in flight for the burst.
+    expect(requestFrame).toHaveBeenCalledTimes(2) // frame loop + this probe
+    rafCallback?.(1400)
+
+    const lines = inputLines()
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('types=keydown,input')
+    // Delay is measured from the first event, not from the last one.
+    expect(lines[0]).toContain('delay_ms=400.0')
+    expect(lines[0]).toContain('newline=1')
+  })
+
+  it('records nothing while the HUD is off', () => {
+    setRenderPerfEnabled(false, { persist: false })
+    const read = vi.fn(() => ({
+      textLength: 0,
+      scrollHeight: 0,
+      clientHeight: 0,
+      hasNewline: false,
+      composing: false
+    }))
+
+    markPerfInput('keydown', read)
+    // One boolean read and an early return: no frame, no line, no DOM read.
+    expect(requestFrame).not.toHaveBeenCalled()
+    expect(logLines).toEqual([])
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it('drops a pending input probe when the HUD is turned off before the frame', () => {
+    let clock = 1000
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    setRenderPerfEnabled(true, { persist: false })
+    const read = vi.fn(() => ({
+      textLength: 0,
+      scrollHeight: 0,
+      clientHeight: 0,
+      hasNewline: false,
+      composing: false
+    }))
+
+    markPerfInput('keydown', read)
+    const probe = rafCallback
+    setRenderPerfEnabled(false, { persist: false })
+    clock = 5000
+    probe?.(5000)
+
+    expect(inputLines()).toEqual([])
+    expect(read).not.toHaveBeenCalled()
   })
 })

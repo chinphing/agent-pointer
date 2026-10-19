@@ -10,6 +10,7 @@ mod macos_computer_permissions;
 mod macos_permission_commands;
 #[cfg(target_os = "macos")]
 mod macos_traffic_lights;
+mod perf_commands;
 mod platform_commands;
 mod popup_windows;
 mod task_complete_sound;
@@ -634,6 +635,7 @@ pub fn run() {
             updater_commands::install_and_restart,
             updater_commands::restart_app,
             updater_commands::updater_log,
+            perf_commands::perf_log,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

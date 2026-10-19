@@ -85,6 +85,7 @@ mod tests {
 
     fn retry_message() -> ChatMessage {
         ChatMessage {
+            turn_elapsed_ms: None,
             id: "retry".into(),
             role: Role::User,
             content: RATE_LIMIT_RETRY_MARKER.into(),

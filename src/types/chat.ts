@@ -367,6 +367,14 @@ export interface ChatMessage {
   traceId?: string
   taskId?: string
   spawnDepth?: number
+  /**
+   * Authoritative AI work span of the turn this row anchors, in ms.
+   *
+   * Written by the backend when `run_chat` finishes and read from the
+   * `messages.turn_elapsed_ms` column on hydrate — never stored in the message
+   * payload. Only lead user turn anchors carry it.
+   */
+  turnElapsedMs?: number
 }
 
 export interface Conversation {

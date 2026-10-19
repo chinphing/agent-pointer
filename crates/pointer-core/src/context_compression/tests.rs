@@ -8,6 +8,7 @@ use crate::models::{ChatMessage, Role};
 
 fn u(s: &str) -> ChatMessage {
     ChatMessage {
+        turn_elapsed_ms: None,
         id: "u".into(),
         role: Role::User,
         content: s.into(),

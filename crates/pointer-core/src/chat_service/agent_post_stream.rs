@@ -122,6 +122,7 @@ pub(super) fn build_final_reply_delivery_message(
 ) -> ChatMessage {
     let (content, attachments) = persist_assistant_content_and_attachments(tool_output);
     ChatMessage {
+        turn_elapsed_ms: None,
         id: assistant_id.to_string(),
         role: Role::Assistant,
         content,
@@ -168,6 +169,7 @@ pub(super) fn build_lead_assistant_message_after_stream(
 ) -> ChatMessage {
     let (content, attachments) = persist_assistant_content_and_attachments(raw_content_buf);
     ChatMessage {
+        turn_elapsed_ms: None,
         id: assistant_id.to_string(),
         role: Role::Assistant,
         content,
@@ -228,6 +230,7 @@ pub(super) fn build_sub_assistant_message_after_stream(
     state: &AppState,
 ) -> ChatMessage {
     ChatMessage {
+        turn_elapsed_ms: None,
         id: round_message_id.to_string(),
         role: Role::Assistant,
         content: round_content,

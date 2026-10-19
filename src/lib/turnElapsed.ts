@@ -4,8 +4,6 @@ import { isScopedSubMessage } from './subAgentMessages'
 import { isRealUserTaskMessage } from './threadLayoutGlue'
 import { resolveTurnElapsedPrefix, type TurnElapsedPhase } from './webBranding'
 
-const STORAGE_KEY = 'pointer.chat.turn-elapsed.v1'
-
 /** Recorded spans below 1s are usually a cancelled-run Error landing on the next turn. */
 const MIN_TRUSTED_RECORDED_MS = 1000
 
@@ -19,82 +17,42 @@ interface TurnElapsedState {
   completed: Record<string, number>
 }
 
-const memoryState: TurnElapsedState = { active: {}, completed: {} }
-
 /**
- * Raw blob last folded into `memoryState`; `undefined` means "unknown, read the
- * storage again".
+ * In-memory only, by design.
  *
- * Why the cache: this blob holds one entry per finished turn and is never
- * pruned, so on a long-lived install it reaches ~877k characters (1.75 MB in
- * WebKit's UTF-16 storage). `MessageList` renders `turnElapsedLabel()` per
- * visible turn per frame, and every call used to `JSON.parse` that whole blob —
- * a real-device HUD window measured 955 parses / 745.7M characters / 2.0s of
- * main thread in 24s of streaming, i.e. the parse of *unchanged* data was the
- * stall. Parsing is now keyed by the raw string: an unchanged blob costs one
- * `getItem` + a string compare, and a write (or another window's write) still
- * invalidates the cache exactly as a fresh read would.
+ * Finished spans are persisted by the backend on the turn's anchor user message
+ * (`messages.turn_elapsed_ms`) and read back from the message after a reload, so
+ * this module no longer owns a storage blob. That blob kept one entry per
+ * finished turn with no pruning — a long-lived install measured 19k turns /
+ * 1.75 MB — and `MessageList` asked for a turn's elapsed time per visible turn
+ * per frame, so it was re-read and re-parsed constantly. Dropping it removes the
+ * unbounded growth instead of caching around it.
+ *
+ * `active` stays memory-only too: an in-flight turn only means something to the
+ * window that dispatched it, and a stale `active` entry must never survive a
+ * reload and render as a ticking label.
  */
-let cachedRaw: string | undefined
+const memoryState: TurnElapsedState = { active: {}, completed: {} }
 
 function completedKey(conversationId: string, turnId: string): string {
   return `${conversationId}\u0000${turnId}`
 }
 
-/**
- * Current state. Returns the shared `memoryState` (not a copy): callers that
- * mutate it are the recorders, and they always `writeState` right after, so the
- * cache never drifts from what is on disk. A copy would re-allocate every turn
- * entry on every render — the cost this cache exists to remove.
- */
-function readState(): TurnElapsedState {
-  if (typeof localStorage === 'undefined') return memoryState
-  let raw: string | undefined
-  try {
-    raw = localStorage.getItem(STORAGE_KEY) ?? ''
-    if (raw === cachedRaw) return memoryState
-    const parsed = JSON.parse(raw) as Partial<TurnElapsedState>
-    cachedRaw = raw
-    memoryState.active = parsed.active && typeof parsed.active === 'object' ? parsed.active : {}
-    memoryState.completed =
-      parsed.completed && typeof parsed.completed === 'object' ? parsed.completed : {}
-    return memoryState
-  } catch {
-    // Unreadable / corrupt storage: same empty state as before. Remember the
-    // exact raw we failed on so the next render does not parse it again; a
-    // `getItem` failure leaves `raw` undefined and is retried.
-    cachedRaw = raw
-    memoryState.active = {}
-    memoryState.completed = {}
-    return memoryState
-  }
-}
-
-function writeState(state: TurnElapsedState) {
-  memoryState.active = state.active
-  memoryState.completed = state.completed
-  if (typeof localStorage === 'undefined') return
-  try {
-    const raw = JSON.stringify(state)
-    localStorage.setItem(STORAGE_KEY, raw)
-    cachedRaw = raw
-  } catch {
-    // Timing is supplementary UI metadata; storage failure must not block chat.
-    // Memory may not match disk, so the next read must go back to storage.
-    cachedRaw = undefined
-  }
+/** Test hook: drop every in-memory span (no production caller). */
+export function resetTurnElapsedStateForTests(): void {
+  memoryState.active = {}
+  memoryState.completed = {}
 }
 
 export function peekActiveTurn(conversationId: string): ActiveTurnTiming | null {
   const id = conversationId.trim()
   if (!id) return null
-  const active = readState().active[id]
+  const active = memoryState.active[id]
   return active ?? null
 }
 
 export function recordTurnStart(conversationId: string, turnId: string, startedAt = Date.now()) {
-  const state = readState()
-  const prev = state.active[conversationId]
+  const prev = memoryState.active[conversationId]
   // Force-send / interrupt starts the next turn before the previous Done arrives.
   // Finalize the interrupted turn so its elapsed is not lost or attributed later.
   if (
@@ -103,10 +61,10 @@ export function recordTurnStart(conversationId: string, turnId: string, startedA
     Number.isFinite(prev.startedAt) &&
     startedAt >= prev.startedAt
   ) {
-    state.completed[completedKey(conversationId, prev.turnId)] = startedAt - prev.startedAt
+    memoryState.completed[completedKey(conversationId, prev.turnId)] =
+      startedAt - prev.startedAt
   }
-  state.active[conversationId] = { turnId, startedAt }
-  writeState(state)
+  memoryState.active[conversationId] = { turnId, startedAt }
 }
 
 /** True while a turn is open for this conversation (survives UI generating being cleared early). */
@@ -115,13 +73,11 @@ export function hasActiveTurn(conversationId: string): boolean {
 }
 
 export function recordTurnDone(conversationId: string, finishedAt = Date.now()): number | null {
-  const state = readState()
-  const active = state.active[conversationId]
+  const active = memoryState.active[conversationId]
   if (!active || !Number.isFinite(active.startedAt) || finishedAt < active.startedAt) return null
   const elapsedMs = finishedAt - active.startedAt
-  state.completed[completedKey(conversationId, active.turnId)] = elapsedMs
-  delete state.active[conversationId]
-  writeState(state)
+  memoryState.completed[completedKey(conversationId, active.turnId)] = elapsedMs
+  delete memoryState.active[conversationId]
   return elapsedMs
 }
 
@@ -136,8 +92,7 @@ export function recordTurnDoneWithSpan(
   startedAt: number,
   finishedAt: number
 ): number | null {
-  const state = readState()
-  const active = state.active[conversationId]
+  const active = memoryState.active[conversationId]
   if (!active || active.turnId !== turnId) return null
   if (
     !Number.isFinite(startedAt) ||
@@ -147,14 +102,14 @@ export function recordTurnDoneWithSpan(
     return null
   }
   const elapsedMs = finishedAt - startedAt
-  state.completed[completedKey(conversationId, turnId)] = elapsedMs
-  delete state.active[conversationId]
-  writeState(state)
+  memoryState.completed[completedKey(conversationId, turnId)] = elapsedMs
+  delete memoryState.active[conversationId]
   return elapsedMs
 }
 
+/** Span recorded in this session (Done handler); `null` after a reload. */
 export function turnElapsedMs(conversationId: string, turnId: string): number | null {
-  const elapsed = readState().completed[completedKey(conversationId, turnId)]
+  const elapsed = memoryState.completed[completedKey(conversationId, turnId)]
   return Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : null
 }
 
@@ -166,7 +121,7 @@ export function turnElapsedMs(conversationId: string, turnId: string): number | 
 export function activeTurnStartedAt(conversationId: string, turnId: string): number | null {
   const id = conversationId.trim()
   if (!id) return null
-  const active = readState().active[id]
+  const active = memoryState.active[id]
   if (active && active.turnId === turnId && Number.isFinite(active.startedAt)) {
     return active.startedAt
   }
@@ -191,11 +146,18 @@ export function isTurnElapsedAnchorUser(message: ChatMessage): boolean {
 export function turnMessageCreatedAtSpan(
   messages: readonly ChatMessage[],
   turnId: string
-): { userCreatedAt: number | null; lastMessageCreatedAt: number | null } {
+): {
+  userCreatedAt: number | null
+  lastMessageCreatedAt: number | null
+  /** `messages.turn_elapsed_ms` persisted by the backend on the anchor row. */
+  recordedTurnElapsedMs: number | null
+} {
   const userIndex = messages.findIndex(
     message => message.id === turnId && isTurnElapsedAnchorUser(message)
   )
-  if (userIndex < 0) return { userCreatedAt: null, lastMessageCreatedAt: null }
+  if (userIndex < 0) {
+    return { userCreatedAt: null, lastMessageCreatedAt: null, recordedTurnElapsedMs: null }
+  }
   const nextUserOffset = messages
     .slice(userIndex + 1)
     .findIndex(message => isTurnElapsedAnchorUser(message))
@@ -203,20 +165,33 @@ export function turnMessageCreatedAtSpan(
   const lastMessage = messages[turnEnd - 1]
   return {
     userCreatedAt: messages[userIndex]!.createdAt,
-    lastMessageCreatedAt: lastMessage?.createdAt ?? null
+    lastMessageCreatedAt: lastMessage?.createdAt ?? null,
+    recordedTurnElapsedMs: messages[userIndex]!.turnElapsedMs ?? null
   }
 }
 
 /**
- * Prefer dispatch→Done timing when present.
- * Message `createdAt` span is only a fallback (e.g. history without local timing);
- * outbound-queue items must use dispatch-time `createdAt` or this fallback includes queue wait.
- * Sub-second recorded values lose to a longer createdAt span (cancelled-run Error
- * often finalizes the next turn at ~0ms before the real Done arrives).
+ * Priority (highest first):
+ *
+ * 1. **In-session Done span** — `recordTurnDoneWithSpan` from the backend's
+ *    `run_chat` timestamps, kept in memory. This is the turn that just finished
+ *    in *this* window; it is exact and needs no round trip.
+ * 2. **`messages.turn_elapsed_ms`** on the anchor user message — the same span,
+ *    persisted by the backend. This is what survives a reload, a restart, or
+ *    opening the conversation on another device.
+ * 3. **`createdAt` span** — anchor user message → last message of the turn.
+ *    Only a derivation: it includes frontend queue / network wait, and it is
+ *    all that legacy rows have.
+ *
+ * A recorded value below 1s loses to a longer `createdAt` span (a cancelled-run
+ * Error often finalizes the *next* turn at ~0ms before the real Done arrives),
+ * and then the next candidate in the chain is tried.
  */
 export function resolveTurnElapsedMs(options: {
   conversationId: string | null | undefined
   turnId: string
+  /** `turnElapsedMs` of the turn's anchor message (persisted column). */
+  messageTurnElapsedMs?: number | null
   userCreatedAt: number | null | undefined
   lastMessageCreatedAt: number | null | undefined
 }): number | null {
@@ -225,18 +200,17 @@ export function resolveTurnElapsedMs(options: {
       ? null
       : elapsedBetweenTimestamps(options.userCreatedAt, options.lastMessageCreatedAt)
   const conversationId = options.conversationId?.trim()
-  if (conversationId) {
-    const recorded = turnElapsedMs(conversationId, options.turnId)
-    if (recorded != null) {
-      if (
-        recorded < MIN_TRUSTED_RECORDED_MS
-        && fallback != null
-        && fallback > recorded
-      ) {
-        return fallback
-      }
-      return recorded
+  const candidates = [
+    conversationId ? turnElapsedMs(conversationId, options.turnId) : null,
+    options.messageTurnElapsedMs ?? null
+  ]
+  for (const candidate of candidates) {
+    if (candidate == null || !Number.isFinite(candidate) || candidate < 0) continue
+    if (candidate < MIN_TRUSTED_RECORDED_MS && fallback != null && fallback > candidate) {
+      // Mis-attributed settle: fall through to the next, more trustworthy source.
+      continue
     }
+    return candidate
   }
   return fallback
 }

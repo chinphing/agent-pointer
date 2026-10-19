@@ -55,6 +55,7 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
         let user_block_len = content.len();
 
         ctx.injected_tail.push(ChatMessage {
+            turn_elapsed_ms: None,
             id: new_extension_message_id("user_dynamic_inject"),
             role: Role::User,
             content,

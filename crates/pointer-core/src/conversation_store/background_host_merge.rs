@@ -198,6 +198,7 @@ mod tests {
 
     fn assistant(calls: Vec<ToolCall>, status: &str) -> ChatMessage {
         ChatMessage {
+            turn_elapsed_ms: None,
             id: "msg_host".into(),
             role: Role::Assistant,
             content: "go".into(),

@@ -146,6 +146,7 @@ pub(super) struct SubAgentRoundPrompts {
 
 fn fresh_sub_agent_local_history() -> Vec<ChatMessage> {
     vec![ChatMessage {
+        turn_elapsed_ms: None,
         id: new_id("sub_task"),
         role: Role::User,
         content: build_subagent_initial_user_message(),

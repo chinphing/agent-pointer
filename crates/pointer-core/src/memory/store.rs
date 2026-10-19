@@ -742,6 +742,7 @@ mod tests {
     fn count_skips_synthetic_users() {
         let history = vec![
             ChatMessage {
+                turn_elapsed_ms: None,
                 id: "1".into(),
                 role: Role::User,
                 content: "hello".into(),
@@ -773,6 +774,7 @@ mod tests {
                 agent_chain: None,
             },
             ChatMessage {
+                turn_elapsed_ms: None,
                 id: "2".into(),
                 role: Role::User,
                 content: "[Conversation summary (auto-compression)] foo".into(),

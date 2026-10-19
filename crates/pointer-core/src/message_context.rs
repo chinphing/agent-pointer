@@ -280,6 +280,7 @@ mod tests {
 
     fn u(content: &str) -> ChatMessage {
         ChatMessage {
+            turn_elapsed_ms: None,
             id: format!("u_{}", uuid::Uuid::new_v4().simple()),
             role: Role::User,
             content: content.into(),

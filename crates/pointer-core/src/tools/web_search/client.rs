@@ -1207,6 +1207,7 @@ mod tests {
     fn history_to_messages_includes_roles_and_query() {
         use crate::models::{ChatMessage, Role};
         let mk = |id: &str, role: Role, content: &str| ChatMessage {
+            turn_elapsed_ms: None,
             id: id.into(),
             role,
             content: content.into(),
@@ -1365,6 +1366,7 @@ mod tests {
         });
         let history = vec![
             ChatMessage {
+                turn_elapsed_ms: None,
                 id: "u1".into(),
                 role: Role::User,
                 content: "question".into(),
@@ -1396,6 +1398,7 @@ mod tests {
                 tool_raw_output: None,
             },
             ChatMessage {
+                turn_elapsed_ms: None,
                 id: "a1".into(),
                 role: Role::Assistant,
                 content: String::new(),
@@ -1427,6 +1430,7 @@ mod tests {
                 tool_raw_output: None,
             },
             ChatMessage {
+                turn_elapsed_ms: None,
                 id: "t1".into(),
                 role: Role::Tool,
                 content: prior.to_string(),

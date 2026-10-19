@@ -117,6 +117,7 @@ impl MediaUnderstandPrompt<'_> {
     /// `note` carries the previous attempt's truncation notice on a retry.
     fn user_message(&self, note: Option<&str>) -> ChatMessage {
         ChatMessage {
+            turn_elapsed_ms: None,
             id: self.message_id.into(),
             role: Role::User,
             content: user_content_with_retry_note(&self.base, self.goal, note).into(),

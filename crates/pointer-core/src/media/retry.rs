@@ -223,6 +223,7 @@ mod tests {
     #[test]
     fn detect_video_retry_phrase() {
         let history = vec![ChatMessage {
+            turn_elapsed_ms: None,
             id: "1".into(),
             role: Role::User,
             content: "重试上一条视频".into(),

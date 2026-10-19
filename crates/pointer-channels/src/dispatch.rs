@@ -87,6 +87,7 @@ fn channel_message_with_id(
         task_id: None,
         spawn_depth: None,
         agent_chain: None,
+        turn_elapsed_ms: None,
     }
 }
 

@@ -2245,6 +2245,7 @@ mod trace_tests {
 
     fn anchor_message() -> ChatMessage {
         ChatMessage {
+            turn_elapsed_ms: None,
             id: "anchor".into(),
             role: Role::Assistant,
             content: String::new(),

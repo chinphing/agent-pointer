@@ -247,6 +247,7 @@ impl MessageLoopPromptsAfterHook for PluginRulesHook {
             self.plugin_name, self.plugin_id, body
         );
         ctx.injected_tail.push(ChatMessage {
+            turn_elapsed_ms: None,
             id: new_extension_message_id("plugin_rules"),
             role: Role::User,
             content,

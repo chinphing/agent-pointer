@@ -131,8 +131,14 @@ pub async fn run_chat(
             }
         };
 
-    if let Some(turn_id) = crate::task_board::latest_real_user_message_id(&history) {
-        crate::turn_file_baseline::remember_active_turn_id(&conversation_id, &turn_id);
+    // Anchor of this turn, resolved once from the incoming history and kept for
+    // the whole run: the finished span must land on the message that *started*
+    // this run. Resolving it again at the end would let a force-send (the next
+    // turn's user message is already in `history`) charge this run's span to the
+    // following turn.
+    let turn_anchor_id = crate::task_board::latest_real_user_message_id(&history);
+    if let Some(turn_id) = turn_anchor_id.as_deref() {
+        crate::turn_file_baseline::remember_active_turn_id(&conversation_id, turn_id);
     } else {
         log::warn!(
             "run_chat: no real lead user message to pin turn id conversation_id={conversation_id}"
@@ -396,6 +402,26 @@ pub async fn run_chat(
         );
     }
     let run_finished_at_ms = super::util::now_ms();
+    // Persist the turn's authoritative span on its anchor message. The
+    // transcript is already written above, so the row exists; the frontend's
+    // Done handler keeps the same span in memory for the current session and
+    // falls back to this column after a reload.
+    if let Some(anchor_id) = turn_anchor_id.as_deref() {
+        let elapsed_ms = run_finished_at_ms.saturating_sub(run_started_at_ms);
+        match crate::conversation_store::global_store()
+            .and_then(|store| store.set_turn_elapsed_ms(&conversation_id, anchor_id, elapsed_ms))
+        {
+            Ok(true) => log::info!(
+                "run_chat: recorded turn_elapsed_ms={elapsed_ms} conversation_id={conversation_id} message_id={anchor_id}"
+            ),
+            Ok(false) => log::warn!(
+                "run_chat: turn_elapsed_ms not recorded (missing row or already set) conversation_id={conversation_id} message_id={anchor_id} elapsed_ms={elapsed_ms}"
+            ),
+            Err(e) => log::warn!(
+                "run_chat: turn_elapsed_ms write failed conversation_id={conversation_id} message_id={anchor_id}: {e:#}"
+            ),
+        }
+    }
     log::info!(
         "run_chat conversation end: emitting StreamEvent::Done conversation_id={} run_outcome={} history_messages_final={} consumed_this_run_single={} max_tool_rounds_attached={} started_at_ms={} finished_at_ms={} elapsed_ms={}",
         conversation_id,

@@ -49,12 +49,19 @@
 
 ## 计时口径
 
-| 来源 | 含义 |
-|------|------|
-| **主路径** | `recordTurnStart`（`dispatchChatTurn`）→ `recordTurnDone`（`Done` / 中断结算） |
-| **回退** | 同 turn 内首条 user 与末条消息的 `createdAt` 差（无本地计时记录时） |
+`resolveTurnElapsedMs` 三级优先（高 → 低）：
 
-展示优先用主路径（`resolveTurnElapsedMs`）。开启默认收缩且回合进行中时，用 `activeTurnStartedAt` + 1s ticker 实时刷新。
+| 优先级 | 来源 | 存活范围 |
+|------|------|------|
+| 1 | 本次会话内存里的 Done 区间（`recordTurnDoneWithSpan`，取后端 `run_chat` 的 `startedAtMs` / `finishedAtMs`） | 仅当前窗口 |
+| 2 | 锚点用户消息上的 `messages.turn_elapsed_ms`（后端 run 结束时写入） | 落库，重载 / 重启后仍可用 |
+| 3 | 同 turn 内首条 user 与末条消息的 `createdAt` 差 | 兜底（含排队 / 网络等待） |
+
+- `src/lib/turnElapsed.ts` **不再使用 localStorage**。旧的 `pointer.chat.turn-elapsed.v1` 每个完成回合一条、无上限增长（实测 1.75 MB / 19k 回合），且 `MessageList` 每帧按回合读取解析。`active`（进行中回合）只放内存，刷新后自然消失。
+- 写入：`run_chat` **开始时**解析锚点（`latest_real_user_message_id`）并保留到 run 结束，结束时把 `finished - started` 写进该消息的列 —— 结束时再取"最后一个用户消息"会把 force-send 的下一回合算进来。首写优先，后到的重复结算不覆盖已写入值。
+- 该列不进 `payload`（`to_store_payload_json` 始终剥离 `turnElapsedMs`）；普通 transcript upsert 不写这一列，因此不会被内存副本清空。
+
+开启默认收缩且回合进行中时，用 `activeTurnStartedAt` + 1s ticker 实时刷新。
 
 ## 出站队列 /「立即发送」
 

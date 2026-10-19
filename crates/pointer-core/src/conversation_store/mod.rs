@@ -38,7 +38,7 @@ use crate::models::{
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 27;
+const SCHEMA_VERSION: i32 = 28;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -1157,6 +1157,38 @@ impl ConversationStore {
         })
     }
 
+    /// Record the finished turn's AI work span on its anchor user message.
+    ///
+    /// Called once per `run_chat` (after the transcript is persisted, before
+    /// `StreamEvent::Done`). First write wins — see
+    /// [`write::set_turn_elapsed_ms_in_conn`]. Timing is supplementary UI
+    /// metadata, so a missing row is a warning, not an error.
+    pub fn set_turn_elapsed_ms(
+        &self,
+        conversation_id: &str,
+        message_id: &str,
+        elapsed_ms: i64,
+    ) -> Result<bool> {
+        let conversation_id = conversation_id.trim();
+        let message_id = message_id.trim();
+        if conversation_id.is_empty() || message_id.is_empty() {
+            log::warn!(
+                "conversation_store: set_turn_elapsed_ms skipped; empty id conversation_id={conversation_id:?} message_id={message_id:?}"
+            );
+            return Ok(false);
+        }
+        let conversation_id = conversation_id.to_string();
+        let message_id = message_id.to_string();
+        self.db.execute_write(move |conn| {
+            write::set_turn_elapsed_ms_in_conn(
+                conn,
+                &conversation_id,
+                &message_id,
+                elapsed_ms,
+            )
+        })
+    }
+
     /// Alias for tool registration / tests.
     pub fn dispatch_tool(&self, args: &serde_json::Value) -> Result<String> {
         self.dispatch_search_tool(args)
@@ -1472,6 +1504,12 @@ fn init_schema(conn: &Connection) -> Result<()> {
     // guessing "human". `is_system_generated` is derived from this column (a
     // human-authored row is a turn anchor, everything else is not).
     add_column_if_missing(conn, "messages", "origin", "TEXT")?;
+    // v28: authoritative AI work span of a turn, in ms. Written once by
+    // `run_chat` on the turn's anchor user message; column-only (never in
+    // `payload`) so transcript upserts and full replaces cannot resurrect a
+    // stale value from a client-held copy. NULL = unknown (legacy rows, turns
+    // that never finished, non-anchor rows).
+    add_column_if_missing(conn, "messages", "turn_elapsed_ms", "INTEGER")?;
     // User-set nav milestone. Kept off the message payload so ordinary
     // transcript upserts do not clear it. Full replaces snapshot/restore it.
     add_column_if_missing(
@@ -1933,6 +1971,8 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
     // host injected is not. NULL = unclassified (legacy rows are NOT
     // backfilled; an unprovable write stays NULL rather than guessing human).
     add_column_if_missing(conn, "messages", "origin", "TEXT")?;
+    // v28: turn work span on the anchor user message (see `init_schema`).
+    add_column_if_missing(conn, "messages", "turn_elapsed_ms", "INTEGER")?;
     conn.execute(
         "UPDATE conversations SET session_user_id = trim(session_user_id)
          WHERE session_user_id != trim(session_user_id)",

@@ -47,6 +47,7 @@ mod tests {
 
     fn assistant_with_tools(names: &[&str]) -> ChatMessage {
         ChatMessage {
+            turn_elapsed_ms: None,
             id: "a1".into(),
             role: Role::Assistant,
             content: String::new(),

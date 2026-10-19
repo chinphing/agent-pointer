@@ -376,19 +376,34 @@ pub struct ChatMessage {
     /// original chain. `None` on legacy rows = treat as "self only".
     #[serde(default, rename = "agentChain", skip_serializing_if = "Option::is_none")]
     pub agent_chain: Option<Vec<String>>,
+    /// Authoritative AI work span of the turn this row anchors, in milliseconds.
+    ///
+    /// Written by the backend when `run_chat` finishes, into the
+    /// `messages.turn_elapsed_ms` column — **not** into `payload`. The column is
+    /// materialized back onto the row on load, so this field is wire-only for
+    /// the UI: `to_store_payload_json` always strips it. Only lead user turn
+    /// anchors carry a value.
+    #[serde(
+        default,
+        rename = "turnElapsedMs",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub turn_elapsed_ms: Option<i64>,
 }
 
 impl ChatMessage {
     /// JSON payload for SQLite `messages.payload`. Always omits `toolRawOutput`
-    /// so skill/terminal dumps never bloat the conversation store.
+    /// so skill/terminal dumps never bloat the conversation store, and
+    /// `turnElapsedMs` because that lives in its own `messages` column.
     pub fn to_store_payload_json(&self) -> Result<String, serde_json::Error> {
-        if self.tool_raw_output.is_none() {
+        if self.tool_raw_output.is_none() && self.turn_elapsed_ms.is_none() {
             return serde_json::to_string(self);
         }
         // Avoid cloning the (possibly multi‑MB) dump: take via Value and drop the key.
         let mut value = serde_json::to_value(self)?;
         if let Some(obj) = value.as_object_mut() {
             obj.remove("toolRawOutput");
+            obj.remove("turnElapsedMs");
         }
         serde_json::to_string(&value)
     }
@@ -433,6 +448,7 @@ impl ChatMessage {
             task_id: None,
             spawn_depth: None,
             agent_chain: None,
+            turn_elapsed_ms: None,
         }
     }
 }

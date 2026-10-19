@@ -202,6 +202,7 @@ mod tests {
     #[test]
     fn latest_real_user_skips_scoped_sub_agent_stub() {
         let lead = ChatMessage {
+            turn_elapsed_ms: None,
             id: "user-lead".into(),
             role: Role::User,
             content: "please edit".into(),

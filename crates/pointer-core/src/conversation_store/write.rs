@@ -804,6 +804,34 @@ pub fn persist_sub_agent_compression_in_conn(
     Ok(())
 }
 
+/// Record the authoritative AI work span of a finished turn on its anchor row.
+///
+/// `turn_elapsed_ms` is a column, not payload: ordinary transcript upserts
+/// (`insert_message_at`) never list it, so a later sync of a client-held copy
+/// cannot clear or overwrite it. This is the only writer.
+///
+/// First write wins (`turn_elapsed_ms IS NULL`): a re-settlement — duplicate
+/// Done, retried emit, another run that resolved the same anchor — must not
+/// replace a value already measured for that turn. The frontend's "recorded
+/// span below 1s loses to the createdAt span" rule covers the one case where
+/// the first value is not trustworthy (a cancelled run settling instantly).
+///
+/// Returns whether the row was written (false = missing row or already set).
+pub(crate) fn set_turn_elapsed_ms_in_conn(
+    conn: &Connection,
+    conversation_id: &str,
+    message_id: &str,
+    elapsed_ms: i64,
+) -> Result<bool> {
+    let elapsed_ms = elapsed_ms.max(0);
+    let updated = conn.execute(
+        "UPDATE messages SET turn_elapsed_ms = ?3
+         WHERE conversation_id = ?1 AND message_id = ?2 AND turn_elapsed_ms IS NULL",
+        params![conversation_id, message_id, elapsed_ms],
+    )?;
+    Ok(updated > 0)
+}
+
 /// P2b: replace the full transcript for one conversation.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn replace_messages_in_conn(

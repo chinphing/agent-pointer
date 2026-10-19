@@ -206,6 +206,7 @@ async fn run_background_review(
 
         let assistant_id = format!("bg_rev_a_{iter}");
         messages.push(ChatMessage {
+            turn_elapsed_ms: None,
             id: assistant_id.clone(),
             role: Role::Assistant,
             content: out.text.clone(),
@@ -271,6 +272,7 @@ async fn run_background_review(
             }
 
             messages.push(ChatMessage {
+                turn_elapsed_ms: None,
                 id: format!("bg_rev_t_{iter}_{}", tc.id),
                 role: Role::Tool,
                 content: result,
@@ -374,6 +376,7 @@ fn review_user_message(kind: ReviewKind, enabled_skill_ids: &[String]) -> ChatMe
         }
     }
     ChatMessage {
+        turn_elapsed_ms: None,
         id: format!("bg_rev_{}", uuid::Uuid::new_v4().simple()),
         role: Role::User,
         content,
@@ -444,6 +447,7 @@ mod tests {
 
     fn user_msg(content: &str) -> ChatMessage {
         ChatMessage {
+            turn_elapsed_ms: None,
             id: uuid::Uuid::new_v4().to_string(),
             role: Role::User,
             content: content.into(),

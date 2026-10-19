@@ -159,6 +159,7 @@ mod tests {
         let other = "22222222-2222-2222-2222-222222222222";
         let history = vec![
             ChatMessage {
+                turn_elapsed_ms: None,
                 id: "sys".into(),
                 role: Role::System,
                 content: "secret system".into(),
@@ -190,6 +191,7 @@ mod tests {
                 tool_raw_output: None,
             },
             ChatMessage {
+                turn_elapsed_ms: None,
                 id: "u1".into(),
                 role: Role::User,
                 content: "hello".into(),
@@ -221,6 +223,7 @@ mod tests {
                 tool_raw_output: None,
             },
             ChatMessage {
+                turn_elapsed_ms: None,
                 id: "a1".into(),
                 role: Role::Assistant,
                 content: "hi".into(),
@@ -252,6 +255,7 @@ mod tests {
                 tool_raw_output: None,
             },
             ChatMessage {
+                turn_elapsed_ms: None,
                 id: "a2".into(),
                 role: Role::Assistant,
                 content: "other".into(),

@@ -55,6 +55,7 @@ fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMess
                             .cloned()
                             .unwrap_or_else(|| synthetic_tool_content_for_replay(tc));
                         out.push(ChatMessage {
+                            turn_elapsed_ms: None,
                             id: format!("tool_{}", uuid::Uuid::new_v4().simple()),
                             role: Role::Tool,
                             content,
@@ -455,6 +456,7 @@ mod make_openai_messages_tests {
 
     fn msg(role: Role) -> ChatMessage {
         ChatMessage {
+            turn_elapsed_ms: None,
             id: "m".into(),
             role,
             content: String::new(),

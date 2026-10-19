@@ -38,6 +38,7 @@ pub fn tool_name_for_call(history: &[ChatMessage], tool_call_id: &str) -> Option
 
 pub fn tool_result_message(tool_call_id: &str, content: &str) -> ChatMessage {
     ChatMessage {
+        turn_elapsed_ms: None,
         id: tool_message_id(tool_call_id),
         role: Role::Tool,
         content: content.to_string(),

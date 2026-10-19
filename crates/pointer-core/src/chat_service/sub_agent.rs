@@ -236,6 +236,7 @@ pub(crate) async fn run_sub_agent(
 
         let round_message_id = new_id("agent_msg");
         let round_placeholder = ChatMessage {
+            turn_elapsed_ms: None,
             id: round_message_id.clone(),
             role: Role::Assistant,
             content: String::new(),
@@ -820,6 +821,7 @@ mod handoff_tests {
 
     fn assistant(content: &str) -> ChatMessage {
         ChatMessage {
+            turn_elapsed_ms: None,
             id: "a".into(),
             role: Role::Assistant,
             content: content.into(),

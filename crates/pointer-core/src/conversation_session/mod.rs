@@ -417,6 +417,7 @@ mod tests {
             messages: vec![
                 ChatMessage::user_text("hello"),
                 ChatMessage {
+                    turn_elapsed_ms: None,
                     id: "a1".into(),
                     role: Role::Assistant,
                     content: "ok".into(),

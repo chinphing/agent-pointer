@@ -898,6 +898,7 @@ pub(crate) fn mark_compressed_prefix_excluded(history: &mut [ChatMessage]) -> Ve
 
 pub(crate) fn new_summary_message(body: String, in_run: bool) -> ChatMessage {
     ChatMessage {
+        turn_elapsed_ms: None,
         id: format!("ctx_{}", uuid::Uuid::new_v4().simple()),
         // Prefix compression stays a user row (turn header before the keep
         // question). In-run stays assistant so it does not start a new user turn.

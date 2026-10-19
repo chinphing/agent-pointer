@@ -459,6 +459,7 @@ pub(crate) async fn compress_history_inner(
         ),
     };
     let input = ChatMessage {
+        turn_elapsed_ms: None,
         id: format!("sum_in_{}", uuid::Uuid::new_v4().simple()),
         role: Role::User,
         content: summary_user_prompt,

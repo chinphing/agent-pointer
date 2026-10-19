@@ -330,6 +330,7 @@ mod tests {
 
     fn sample_msg(id: &str, anchor: Option<&str>, trace: Option<&str>) -> ChatMessage {
         ChatMessage {
+            turn_elapsed_ms: None,
             id: id.into(),
             role: Role::User,
             content: "hi".into(),
@@ -618,6 +619,7 @@ mod tests {
     fn sync_anchor_agent_trace_updates_lead_row() {
         use crate::models::Role;
         let mut history = vec![ChatMessage {
+            turn_elapsed_ms: None,
             id: "lead".into(),
             role: Role::Assistant,
             content: "ok".into(),

@@ -372,6 +372,7 @@ mod tests {
 
     fn assistant_with_call(id: &str, call_id: &str) -> ChatMessage {
         ChatMessage {
+            turn_elapsed_ms: None,
             id: id.into(),
             role: Role::Assistant,
             content: String::new(),
@@ -419,6 +420,7 @@ mod tests {
     fn tool_inserts_after_anchor_assistant() {
         let mut history = vec![
             ChatMessage {
+                turn_elapsed_ms: None,
                 id: "u1".into(),
                 role: Role::User,
                 content: "hi".into(),
@@ -461,6 +463,7 @@ mod tests {
     fn reconcile_removes_orphan_after_user() {
         let mut history = vec![
             ChatMessage {
+                turn_elapsed_ms: None,
                 id: "u1".into(),
                 role: Role::User,
                 content: "q".into(),
@@ -500,6 +503,7 @@ mod tests {
 
     fn plain_user(id: &str, content: &str) -> ChatMessage {
         ChatMessage {
+            turn_elapsed_ms: None,
             id: id.into(),
             role: Role::User,
             content: content.into(),

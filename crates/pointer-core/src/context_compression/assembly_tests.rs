@@ -10,6 +10,7 @@ use crate::models::{ChatMessage, ModelSettings, Role, SystemPromptSections};
 
 fn msg(id: &str, role: Role, content: &str) -> ChatMessage {
     ChatMessage {
+        turn_elapsed_ms: None,
         id: id.into(),
         role,
         content: content.into(),

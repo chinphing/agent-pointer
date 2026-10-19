@@ -661,6 +661,18 @@ pub(crate) fn load_messages(conn: &Connection, conversation_id: &str) -> Result<
         .collect())
 }
 
+/// Materialize `messages.turn_elapsed_ms` onto the decoded row.
+///
+/// The span lives in a column (never in `payload`), so every read path that
+/// feeds the UI has to fold it back onto the message. A `NULL` column leaves
+/// the decoded value untouched — a payload written by an older build cannot
+/// carry this field, so this only ever fills it in.
+fn apply_turn_elapsed_column(msg: &mut ChatMessage, turn_elapsed_ms: Option<i64>) {
+    if let Some(elapsed_ms) = turn_elapsed_ms {
+        msg.turn_elapsed_ms = Some(elapsed_ms);
+    }
+}
+
 fn decode_stored_payload(
     conversation_id: &str,
     message_id: &str,
@@ -1330,7 +1342,7 @@ pub(crate) fn load_messages_with_positions(
     conversation_id: &str,
 ) -> Result<Vec<(i64, ChatMessage)>> {
     let mut stmt = conn.prepare(
-        "SELECT message_id, position, payload FROM messages
+        "SELECT message_id, position, payload, turn_elapsed_ms FROM messages
          WHERE conversation_id = ?1
          ORDER BY position ASC",
     )?;
@@ -1339,14 +1351,16 @@ pub(crate) fn load_messages_with_positions(
             row.get::<_, String>(0)?,
             row.get::<_, i64>(1)?,
             row.get::<_, String>(2)?,
+            row.get::<_, Option<i64>>(3)?,
         ))
     })?;
     let mut out = Vec::new();
     let mut scrub: Vec<(String, i64, ChatMessage)> = Vec::new();
     for row in rows {
-        let (message_id, position, payload) = row?;
+        let (message_id, position, payload, turn_elapsed_ms) = row?;
         match serde_json::from_str::<ChatMessage>(&payload) {
             Ok(mut msg) => {
+                apply_turn_elapsed_column(&mut msg, turn_elapsed_ms);
                 if msg.strip_tool_raw_output() {
                     scrub.push((message_id, position, msg.clone()));
                 }
@@ -1640,13 +1654,13 @@ pub(crate) fn load_messages_in_position_range(
     include_scoped_sub_messages: bool,
 ) -> Result<Vec<(i64, ChatMessage)>> {
     let sql = if include_scoped_sub_messages {
-        "SELECT message_id, position, payload FROM messages
+        "SELECT message_id, position, payload, turn_elapsed_ms FROM messages
          WHERE conversation_id = ?1 AND position >= ?2 AND position < ?3
          ORDER BY position ASC"
             .to_string()
     } else {
         format!(
-            "SELECT message_id, position, payload FROM messages
+            "SELECT message_id, position, payload, turn_elapsed_ms FROM messages
          WHERE conversation_id = ?1 AND position >= ?2 AND position < ?3
          {SQL_LEAD_ROW_NOT_SCOPED}
          ORDER BY position ASC"
@@ -1660,15 +1674,17 @@ pub(crate) fn load_messages_in_position_range(
                 row.get::<_, String>(0)?,
                 row.get::<_, i64>(1)?,
                 row.get::<_, String>(2)?,
+                row.get::<_, Option<i64>>(3)?,
             ))
         },
     )?;
     let mut out = Vec::new();
     let mut scrub: Vec<(String, i64, ChatMessage)> = Vec::new();
     for row in rows {
-        let (message_id, position, payload) = row?;
+        let (message_id, position, payload, turn_elapsed_ms) = row?;
         match serde_json::from_str::<ChatMessage>(&payload) {
             Ok(mut msg) => {
+                apply_turn_elapsed_column(&mut msg, turn_elapsed_ms);
                 if msg.strip_tool_raw_output() {
                     scrub.push((message_id, position, msg.clone()));
                 }
@@ -2570,6 +2586,7 @@ pub fn sample_conv(id: &str, title: &str, user_text: &str) -> Conversation {
 #[cfg(test)]
 pub fn msg(id: &str, role: Role, content: &str, created_at: i64) -> ChatMessage {
     ChatMessage {
+        turn_elapsed_ms: None,
         id: id.into(),
         role,
         content: content.into(),

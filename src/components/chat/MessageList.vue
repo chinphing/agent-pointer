@@ -2213,14 +2213,13 @@ function turnElapsedLabel(turnId: string): string {
   }
   const turn = conversationTurns.value.find(item => item.id === turnId)
   const phase = turn?.state === 'active' ? 'active' : 'done'
-  const { userCreatedAt, lastMessageCreatedAt } = turnMessageCreatedAtSpan(
-    pageWindowMessages.value,
-    turnId
-  )
+  const { userCreatedAt, lastMessageCreatedAt, recordedTurnElapsedMs } =
+    turnMessageCreatedAtSpan(pageWindowMessages.value, turnId)
   return formatTurnElapsed(
     resolveTurnElapsedMs({
       conversationId,
       turnId,
+      messageTurnElapsedMs: recordedTurnElapsedMs,
       userCreatedAt,
       lastMessageCreatedAt
     }),

@@ -1938,7 +1938,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 27);
+        assert_eq!(version, 28);
         let has_session_user_id: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('conversations') WHERE name = 'session_user_id'",
@@ -2034,7 +2034,7 @@ mod tests {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(version, 27);
+        assert_eq!(version, 28);
         let has_kind: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('cron_jobs') WHERE name = 'schedule_kind'",
@@ -3742,5 +3742,154 @@ mod tests {
             2,
             "opening the store must install the read-path indexes"
         );
+    }
+
+    // ---- turn_elapsed_ms: DB-backed turn duration -------------------------
+
+    fn turn_elapsed_column_count(store: &ConversationStore) -> i64 {
+        let conn = store.db.conn.lock();
+        conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name = 'turn_elapsed_ms'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn turn_elapsed_column_exists_and_is_not_added_twice() {
+        let dir = TempDir::new().unwrap();
+        {
+            let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+            assert_eq!(turn_elapsed_column_count(&store), 1);
+        }
+        // Re-open: the always-run guard must see the column and skip ALTER.
+        let reopened = ConversationStore::open_in_dir(dir.path()).unwrap();
+        assert_eq!(turn_elapsed_column_count(&reopened), 1);
+        let conn = reopened.db.conn.lock();
+        let version: i64 = conn
+            .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 28, "turn_elapsed_ms ships with schema v28");
+    }
+
+    #[test]
+    fn turn_elapsed_column_is_added_to_a_pre_v28_database() {
+        let dir = TempDir::new().unwrap();
+        {
+            let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+            let conn = store.db.conn.lock();
+            // Simulate a database written by the previous build: no column,
+            // schema_version pinned one below. Both migration paths must fix it.
+            conn.execute_batch(
+                "ALTER TABLE messages DROP COLUMN turn_elapsed_ms;
+                 UPDATE schema_version SET version = 27;",
+            )
+            .unwrap();
+        }
+        let reopened = ConversationStore::open_in_dir(dir.path()).unwrap();
+        assert_eq!(turn_elapsed_column_count(&reopened), 1);
+        let conn = reopened.db.conn.lock();
+        let version: i64 = conn
+            .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 28);
+    }
+
+    #[test]
+    fn turn_elapsed_lands_on_the_run_start_anchor_only() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("conv-elapsed", "Elapsed", "first question");
+        store.save_all(&[conv.clone()]).unwrap();
+
+        // Resolved at run start — the last real lead user message of the
+        // history the run was handed.
+        let anchor = crate::task_board::latest_real_user_message_id(&conv.messages)
+            .expect("sample conversation has a real user turn");
+        assert_eq!(anchor, "msg_u1");
+
+        // Force-send: the next turn's user message is already in the history
+        // by the time this run finishes. The end-of-run write must still use
+        // the anchor captured above, never "the last user message now".
+        let u2 = msg("msg_u2", Role::User, "second question", 1_700_000_200_000);
+        conv.messages.push(u2);
+        conv.updated_at += 1_000;
+        store.save_all(&[conv.clone()]).unwrap();
+        assert_eq!(
+            crate::task_board::latest_real_user_message_id(&conv.messages).as_deref(),
+            Some("msg_u2"),
+            "the live history tail moved on to the next turn"
+        );
+
+        assert!(store
+            .set_turn_elapsed_ms("conv-elapsed", &anchor, 42_500)
+            .unwrap());
+
+        // Idempotent: a second settlement must not replace a measured value.
+        assert!(!store
+            .set_turn_elapsed_ms("conv-elapsed", &anchor, 1)
+            .unwrap());
+
+        let page = store
+            .load_messages_page("conv-elapsed", &LoadMessagesPageOpts::default())
+            .unwrap();
+        let elapsed_for = |id: &str| {
+            page.messages
+                .iter()
+                .find(|m| m.id == id)
+                .and_then(|m| m.turn_elapsed_ms)
+        };
+        assert_eq!(elapsed_for("msg_u1"), Some(42_500));
+        assert_eq!(elapsed_for("msg_u2"), None, "next turn must not inherit");
+        assert_eq!(elapsed_for("msg_a1"), None, "assistant rows carry none");
+    }
+
+    #[test]
+    fn turn_elapsed_survives_transcript_sync_and_never_enters_payload() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let conv = sample_conv("conv-payload", "Payload", "question");
+        store.save_all(&[conv.clone()]).unwrap();
+        assert!(store
+            .set_turn_elapsed_ms("conv-payload", "msg_u1", 12_345)
+            .unwrap());
+
+        // A normal incremental sync re-sends the same rows. It must neither
+        // clear the column nor move the value into the payload.
+        store
+            .append_missing_messages("conv-payload", &conv.messages)
+            .unwrap();
+
+        let conn = store.db.conn.lock();
+        let (elapsed, payload): (Option<i64>, String) = conn
+            .query_row(
+                "SELECT turn_elapsed_ms, payload FROM messages
+                 WHERE conversation_id = 'conv-payload' AND message_id = 'msg_u1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(elapsed, Some(12_345));
+        assert!(
+            !payload.contains("turnElapsedMs"),
+            "the span is column-only: {payload}"
+        );
+
+        // Even a row that already carries the field must serialize without it.
+        let mut carried = crate::conversation_store::persist::msg(
+            "msg-carried",
+            Role::User,
+            "with span",
+            1,
+        );
+        carried.turn_elapsed_ms = Some(9_000);
+        let json = carried.to_store_payload_json().unwrap();
+        assert!(!json.contains("turnElapsedMs"), "{json}");
+        assert!(json.contains("msg-carried"));
     }
 }

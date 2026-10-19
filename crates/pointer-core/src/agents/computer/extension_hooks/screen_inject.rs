@@ -244,6 +244,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     text.push_str(anchor);
                 }
                 ctx.injected_tail.push(ChatMessage {
+                    turn_elapsed_ms: None,
                     id: new_extension_message_id("screen_inject"),
                     role: Role::User,
                     content: text,
@@ -280,6 +281,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                 emit_screen_notice_update(ctx, notice_id, DESKTOP_NOTICE_FAILED.to_string());
                 strip_images_from_prior_messages(ctx.injected_tail.as_mut_slice());
                 ctx.injected_tail.push(ChatMessage {
+                    turn_elapsed_ms: None,
                     id: new_extension_message_id("screen_inject"),
                     role: Role::User,
                     content: format!(
@@ -328,6 +330,7 @@ mod tests {
 
     fn msg_with_images(images: Option<Vec<&str>>) -> ChatMessage {
         ChatMessage {
+            turn_elapsed_ms: None,
             id: "m1".into(),
             role: Role::User,
             content: "[CUR_SCREEN] test".into(),

@@ -230,6 +230,7 @@ pub(super) async fn run_sub_agent_stream_round(
                     rate_limit_delay,
                 );
                 sub.local_history.push(ChatMessage {
+                    turn_elapsed_ms: None,
                     id: new_id("fmt_retry"),
                     role: Role::User,
                     content: hint,

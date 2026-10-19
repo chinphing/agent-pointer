@@ -255,6 +255,7 @@ mod tests {
 
     fn user_with_attachment(id: &str, file: &str, local: &str) -> ChatMessage {
         ChatMessage {
+            turn_elapsed_ms: None,
             id: "u1".into(),
             role: Role::User,
             content: "see file".into(),

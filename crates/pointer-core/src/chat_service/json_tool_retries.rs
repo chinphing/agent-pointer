@@ -112,6 +112,7 @@ pub(crate) fn push_injected_format_retry_turn(
         },
     );
     history.push(ChatMessage {
+        turn_elapsed_ms: None,
         id: retry_id.clone(),
         role: Role::User,
         content: hint.clone(),

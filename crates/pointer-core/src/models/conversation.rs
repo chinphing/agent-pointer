@@ -402,6 +402,7 @@ mod agent_trace_persistence_tests {
             updated_at: 1,
             is_pinned: false,
             messages: vec![ChatMessage {
+                turn_elapsed_ms: None,
                 id: "m1".into(),
                 role: Role::Assistant,
                 content: String::new(),

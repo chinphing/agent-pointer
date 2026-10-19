@@ -1402,6 +1402,29 @@ pub fn set_message_milestone(
     Ok(())
 }
 
+/// One-shot migration of the legacy frontend `pointer.chat.turn-elapsed.v1`
+/// blob into `messages.turn_elapsed_ms`.
+///
+/// The frontend parses the blob and passes `(conversationId, messageId,
+/// elapsedMs)` pairs. The store dedupes/validates them, writes in one
+/// transaction with "first write wins", and flips the `store_meta` flag so a
+/// replay is a no-op. Logging stays count-only: no ids.
+#[tauri::command]
+pub fn backfill_turn_elapsed(
+    entries: Vec<pointer_core::conversation_store::TurnElapsedBackfillEntry>,
+) -> Result<pointer_core::conversation_store::TurnElapsedBackfillReport, String> {
+    let report = storage::backfill_turn_elapsed_ms(entries).map_err(|e| e.to_string())?;
+    log::info!(
+        "tauri::backfill_turn_elapsed: received={} updated={} skipped={} already_done={} duration_ms={}",
+        report.received,
+        report.updated,
+        report.skipped,
+        report.already_done,
+        report.duration_ms
+    );
+    Ok(report)
+}
+
 #[tauri::command]
 pub fn load_conversation_message(
     conversation_id: String,

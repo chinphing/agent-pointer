@@ -46,6 +46,54 @@ pub fn conversation_preview(messages: &[ChatMessage]) -> String {
     persist::conversation_preview(messages)
 }
 
+/// One finished turn from the legacy frontend `pointer.chat.turn-elapsed.v1`
+/// blob: the anchor user message plus the span measured for it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnElapsedBackfillEntry {
+    pub conversation_id: String,
+    pub message_id: String,
+    pub elapsed_ms: i64,
+}
+
+/// Outcome of [`ConversationStore::backfill_turn_elapsed_ms`].
+///
+/// `skipped` counts rows that were missing or already had a span — the two are
+/// not distinguished, because a second lookup per entry would double the cost
+/// of a one-shot migration for no product decision.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnElapsedBackfillReport {
+    pub received: usize,
+    pub updated: usize,
+    pub skipped: usize,
+    pub already_done: bool,
+    pub duration_ms: u64,
+}
+
+fn normalize_turn_elapsed_entries(
+    entries: Vec<TurnElapsedBackfillEntry>,
+) -> Vec<TurnElapsedBackfillEntry> {
+    let mut seen = std::collections::HashSet::new();
+    let mut normalized = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let conversation_id = entry.conversation_id.trim();
+        let message_id = entry.message_id.trim();
+        if conversation_id.is_empty() || message_id.is_empty() {
+            continue;
+        }
+        if !seen.insert((conversation_id.to_string(), message_id.to_string())) {
+            continue;
+        }
+        normalized.push(TurnElapsedBackfillEntry {
+            conversation_id: conversation_id.to_string(),
+            message_id: message_id.to_string(),
+            elapsed_ms: entry.elapsed_ms.max(0),
+        });
+    }
+    normalized
+}
+
 pub struct ConversationStore {
     db: db::DbHandle,
 }
@@ -1187,6 +1235,44 @@ impl ConversationStore {
                 elapsed_ms,
             )
         })
+    }
+
+    /// One-shot migration of the legacy frontend turn-elapsed blob into
+    /// `messages.turn_elapsed_ms`.
+    ///
+    /// Idempotent: `store_meta` key [`write::TURN_ELAPSED_BACKFILL_META`]
+    /// short-circuits a replay (`already_done = true`), and every row write is
+    /// still "first write wins" (`turn_elapsed_ms IS NULL`), so a batch can
+    /// never replace a span the backend already measured. Empty ids and
+    /// duplicate pairs are dropped; negative spans clamp to 0. The whole batch
+    /// runs in one write transaction — rows and flag land together or not at
+    /// all, so a failure leaves the flag unset for the next launch.
+    pub fn backfill_turn_elapsed_ms(
+        &self,
+        entries: Vec<TurnElapsedBackfillEntry>,
+    ) -> Result<TurnElapsedBackfillReport> {
+        let started = std::time::Instant::now();
+        let entries = normalize_turn_elapsed_entries(entries);
+        let received = entries.len();
+        let (updated, already_done) = self
+            .db
+            .execute_write(move |conn| write::backfill_turn_elapsed_ms_in_conn(conn, &entries))?;
+        let report = TurnElapsedBackfillReport {
+            received,
+            updated: updated as usize,
+            skipped: received.saturating_sub(updated as usize),
+            already_done,
+            duration_ms: started.elapsed().as_millis() as u64,
+        };
+        log::info!(
+            "conversation_store: turn_elapsed backfill received={} updated={} skipped={} already_done={} duration_ms={}",
+            report.received,
+            report.updated,
+            report.skipped,
+            report.already_done,
+            report.duration_ms
+        );
+        Ok(report)
     }
 
     /// Alias for tool registration / tests.

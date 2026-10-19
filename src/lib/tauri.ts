@@ -632,6 +632,32 @@ export async function loadScopedSubMessagesForTrace(
   })
 }
 
+/** One finished turn from the legacy localStorage blob. */
+export interface TurnElapsedBackfillEntry {
+  conversationId: string
+  messageId: string
+  elapsedMs: number
+}
+
+/** Counts only — the backend never echoes message ids. */
+export interface TurnElapsedBackfillReport {
+  received: number
+  updated: number
+  skipped: number
+  alreadyDone: boolean
+  durationMs: number
+}
+
+/**
+ * One-shot migration of `pointer.chat.turn-elapsed.v1` into the
+ * `messages.turn_elapsed_ms` column. Idempotent on the backend.
+ */
+export async function backfillTurnElapsed(
+  entries: TurnElapsedBackfillEntry[]
+): Promise<TurnElapsedBackfillReport> {
+  return await invoke<TurnElapsedBackfillReport>('backfill_turn_elapsed', { entries })
+}
+
 export async function saveConversationMeta(metas: ConversationMeta[]): Promise<void> {
   await invoke('save_conversation_meta', { metas })
 }

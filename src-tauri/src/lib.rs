@@ -555,6 +555,7 @@ pub fn run() {
             commands::list_conversation_search_matches,
             commands::list_conversation_outline,
             commands::set_message_milestone,
+            commands::backfill_turn_elapsed,
             commands::load_conversation_message,
             commands::load_conversation_messages,
             commands::load_conversation_messages_page,

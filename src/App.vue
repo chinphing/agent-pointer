@@ -14,6 +14,7 @@ import { usePlatformAuthStore } from './stores/platformAuth'
 import { useSettingsStore } from './stores/settings'
 import { useSkillsStore } from './stores/skills'
 import { isTauriRuntime } from './lib/runtime'
+import { migrateLegacyTurnElapsedOnce } from './lib/turnElapsedMigration'
 
 const isDesktopApp = isTauriRuntime()
 
@@ -85,6 +86,12 @@ onMounted(() => {
       await skills.load()
       await checkExternalSkillsOnBoot()
       await chat.init()
+      // One-shot, failure-safe: fold the legacy localStorage turn-elapsed blob
+      // into `messages.turn_elapsed_ms`, then drop the key. Runs after the
+      // first conversation load so the batch never competes with it for the
+      // store's write connection; fire-and-forget so a slow batch (19k legacy
+      // turns) never delays chat boot.
+      void migrateLegacyTurnElapsedOnce()
       if (chat.currentId) {
         void chat.refreshTaskBoard(chat.currentId)
         void chat.refreshSubAgentTaskBoards(chat.currentId)

@@ -1,10 +1,12 @@
 #[cfg(test)]
 mod tests {
     use crate::conversation_store::persist::{msg, sample_conv};
-    use crate::conversation_store::{ConversationStore, ListScope, LoadMessagesPageOpts};
+    use crate::conversation_store::{
+        ConversationStore, ListScope, LoadMessagesPageOpts, TurnElapsedBackfillEntry,
+    };
     use crate::message_context::mark_excluded;
     use crate::models::{ExcludedReason, MessageUiBindings, Role, ToolCall};
-    use rusqlite::{params, Connection};
+    use rusqlite::{params, Connection, OptionalExtension};
     use serde_json::{json, Value};
     use tempfile::TempDir;
 
@@ -3891,5 +3893,172 @@ mod tests {
         let json = carried.to_store_payload_json().unwrap();
         assert!(!json.contains("turnElapsedMs"), "{json}");
         assert!(json.contains("msg-carried"));
+    }
+
+    // ---- turn_elapsed_ms: one-shot legacy blob backfill -------------------
+
+    fn legacy_entry(conversation_id: &str, message_id: &str, elapsed_ms: i64) -> TurnElapsedBackfillEntry {
+        TurnElapsedBackfillEntry {
+            conversation_id: conversation_id.to_string(),
+            message_id: message_id.to_string(),
+            elapsed_ms,
+        }
+    }
+
+    fn stored_span(store: &ConversationStore, conversation_id: &str, message_id: &str) -> Option<i64> {
+        store
+            .load_messages(conversation_id)
+            .unwrap()
+            .into_iter()
+            .find(|message| message.id == message_id)
+            .and_then(|message| message.turn_elapsed_ms)
+    }
+
+    fn backfill_flag(store: &ConversationStore) -> Option<String> {
+        let conn = store.db.conn.lock();
+        conn.query_row(
+            "SELECT value FROM store_meta WHERE key = 'turn_elapsed_backfill_v1'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap()
+    }
+
+    #[test]
+    fn turn_elapsed_backfill_writes_legacy_spans_once() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        store
+            .save_all(&[
+                sample_conv("conv-legacy-a", "A", "first question"),
+                sample_conv("conv-legacy-b", "B", "second question"),
+                sample_conv("conv-legacy-c", "C", "third question"),
+            ])
+            .unwrap();
+
+        let report = store
+            .backfill_turn_elapsed_ms(vec![
+                legacy_entry("conv-legacy-a", "msg_u1", 12_000),
+                legacy_entry("conv-legacy-b", "msg_u1", 7_500),
+                // Missing row: counted as skipped, never an error.
+                legacy_entry("conv-legacy-a", "msg_missing", 1_000),
+                // Empty ids are dropped before the batch.
+                legacy_entry("   ", "msg_u1", 1_000),
+                legacy_entry("conv-legacy-a", "   ", 1_000),
+                // Duplicate pair: first occurrence wins.
+                legacy_entry("conv-legacy-a", "msg_u1", 99_999),
+                // Negative span clamps to 0 instead of failing the batch.
+                legacy_entry("conv-legacy-c", "msg_u1", -5),
+            ])
+            .unwrap();
+
+        assert_eq!(report.received, 4, "duplicates and empty ids are dropped");
+        assert_eq!(report.updated, 3);
+        assert_eq!(report.skipped, 1, "the missing message id is skipped");
+        assert!(!report.already_done);
+        assert_eq!(
+            backfill_flag(&store).as_deref(),
+            Some("1"),
+            "a completed batch must leave the one-shot flag behind"
+        );
+
+        assert_eq!(stored_span(&store, "conv-legacy-a", "msg_u1"), Some(12_000));
+        assert_eq!(stored_span(&store, "conv-legacy-b", "msg_u1"), Some(7_500));
+        assert_eq!(stored_span(&store, "conv-legacy-c", "msg_u1"), Some(0));
+        assert_eq!(
+            stored_span(&store, "conv-legacy-a", "msg_a1"),
+            None,
+            "rows absent from the blob stay untouched"
+        );
+    }
+
+    #[test]
+    fn turn_elapsed_backfill_replay_never_rewrites() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        store
+            .save_all(&[sample_conv("conv-replay", "Replay", "question")])
+            .unwrap();
+
+        let first = store
+            .backfill_turn_elapsed_ms(vec![legacy_entry("conv-replay", "msg_u1", 30_000)])
+            .unwrap();
+        assert_eq!(first.updated, 1);
+
+        // Same pair, different span, plus a pair the first batch never saw:
+        // the flag makes the whole replay a no-op.
+        let second = store
+            .backfill_turn_elapsed_ms(vec![
+                legacy_entry("conv-replay", "msg_u1", 1),
+                legacy_entry("conv-replay", "msg_a1", 2),
+            ])
+            .unwrap();
+        assert!(second.already_done);
+        assert_eq!(second.updated, 0);
+        assert_eq!(second.received, 2);
+
+        assert_eq!(stored_span(&store, "conv-replay", "msg_u1"), Some(30_000));
+        assert_eq!(stored_span(&store, "conv-replay", "msg_a1"), None);
+    }
+
+    #[test]
+    fn turn_elapsed_backfill_never_overwrites_a_measured_span() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        store
+            .save_all(&[sample_conv("conv-measured", "Measured", "question")])
+            .unwrap();
+        assert!(store
+            .set_turn_elapsed_ms("conv-measured", "msg_u1", 42_500)
+            .unwrap());
+
+        let report = store
+            .backfill_turn_elapsed_ms(vec![
+                legacy_entry("conv-measured", "msg_u1", 1),
+                // The same batch still writes rows that have no span yet.
+                legacy_entry("conv-measured", "msg_a1", 9_000),
+            ])
+            .unwrap();
+
+        assert!(!report.already_done, "the batch itself still runs once");
+        assert_eq!(report.updated, 1);
+        assert_eq!(report.skipped, 1);
+        assert_eq!(
+            stored_span(&store, "conv-measured", "msg_u1"),
+            Some(42_500),
+            "a measured span wins over the legacy blob"
+        );
+        assert_eq!(stored_span(&store, "conv-measured", "msg_a1"), Some(9_000));
+    }
+
+    #[test]
+    fn turn_elapsed_backfill_skips_when_the_flag_is_already_set() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        store
+            .save_all(&[sample_conv("conv-flagged", "Flagged", "question")])
+            .unwrap();
+        {
+            let conn = store.db.conn.lock();
+            conn.execute(
+                "INSERT INTO store_meta(key, value) VALUES ('turn_elapsed_backfill_v1', '1')",
+                [],
+            )
+            .unwrap();
+        }
+
+        let report = store
+            .backfill_turn_elapsed_ms(vec![legacy_entry("conv-flagged", "msg_u1", 5_000)])
+            .unwrap();
+
+        assert!(report.already_done);
+        assert_eq!(report.updated, 0);
+        assert_eq!(report.skipped, 1);
+        assert_eq!(
+            stored_span(&store, "conv-flagged", "msg_u1"),
+            None,
+            "a flagged database must not accept a replay"
+        );
     }
 }

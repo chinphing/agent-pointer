@@ -825,11 +825,79 @@ pub(crate) fn set_turn_elapsed_ms_in_conn(
 ) -> Result<bool> {
     let elapsed_ms = elapsed_ms.max(0);
     let updated = conn.execute(
-        "UPDATE messages SET turn_elapsed_ms = ?3
-         WHERE conversation_id = ?1 AND message_id = ?2 AND turn_elapsed_ms IS NULL",
+        SET_TURN_ELAPSED_MS_SQL,
         params![conversation_id, message_id, elapsed_ms],
     )?;
     Ok(updated > 0)
+}
+
+/// First write wins: an existing span is never replaced.
+const SET_TURN_ELAPSED_MS_SQL: &str = "UPDATE messages SET turn_elapsed_ms = ?3
+     WHERE conversation_id = ?1 AND message_id = ?2 AND turn_elapsed_ms IS NULL";
+
+/// `store_meta` flag: the one-shot legacy turn-elapsed backfill has completed.
+pub const TURN_ELAPSED_BACKFILL_META: &str = "turn_elapsed_backfill_v1";
+
+/// Entries handled per inner loop pass. 19k legacy turns stay one transaction,
+/// but every `UPDATE` still targets a single row by its unique
+/// `(conversation_id, message_id)` key, so no statement scans or rewrites the
+/// table.
+const TURN_ELAPSED_BACKFILL_CHUNK: usize = 500;
+
+pub(crate) fn turn_elapsed_backfill_done_in_conn(conn: &Connection) -> Result<bool> {
+    let value: Option<String> = conn
+        .query_row(
+            "SELECT value FROM store_meta WHERE key = ?1",
+            params![TURN_ELAPSED_BACKFILL_META],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(value.as_deref() == Some("1"))
+}
+
+fn mark_turn_elapsed_backfill_done_in_conn(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "INSERT INTO store_meta(key, value) VALUES (?1, '1')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![TURN_ELAPSED_BACKFILL_META],
+    )?;
+    Ok(())
+}
+
+/// One-shot backfill of the legacy frontend `pointer.chat.turn-elapsed.v1`
+/// blob into `messages.turn_elapsed_ms`.
+///
+/// Returns `(updated, already_done)`. Idempotent twice over: the
+/// `store_meta` flag short-circuits a replay, and each row still goes through
+/// [`set_turn_elapsed_ms_in_conn`] (`turn_elapsed_ms IS NULL`), so a batch can
+/// never overwrite a span the backend measured. The caller runs this inside
+/// one write transaction, so the batch and the flag land together or not at
+/// all — a failed run leaves the flag unset for the next launch.
+pub(crate) fn backfill_turn_elapsed_ms_in_conn(
+    conn: &Connection,
+    entries: &[super::TurnElapsedBackfillEntry],
+) -> Result<(u32, bool)> {
+    if turn_elapsed_backfill_done_in_conn(conn)? {
+        return Ok((0, true));
+    }
+    if entries.is_empty() {
+        return Ok((0, false));
+    }
+    let mut updated = 0u32;
+    {
+        let mut stmt = conn.prepare_cached(SET_TURN_ELAPSED_MS_SQL)?;
+        for chunk in entries.chunks(TURN_ELAPSED_BACKFILL_CHUNK) {
+            for entry in chunk {
+                updated += stmt.execute(params![
+                    entry.conversation_id,
+                    entry.message_id,
+                    entry.elapsed_ms.max(0)
+                ])? as u32;
+            }
+        }
+    }
+    mark_turn_elapsed_backfill_done_in_conn(conn)?;
+    Ok((updated, false))
 }
 
 /// P2b: replace the full transcript for one conversation.

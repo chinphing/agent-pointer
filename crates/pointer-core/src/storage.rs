@@ -1170,6 +1170,15 @@ pub fn load_scoped_sub_messages_for_trace(
     )
 }
 
+/// One-shot migration of the legacy frontend turn-elapsed blob into
+/// `messages.turn_elapsed_ms`. Idempotent and first-write-wins — see
+/// [`crate::conversation_store::ConversationStore::backfill_turn_elapsed_ms`].
+pub fn backfill_turn_elapsed_ms(
+    entries: Vec<crate::conversation_store::TurnElapsedBackfillEntry>,
+) -> Result<crate::conversation_store::TurnElapsedBackfillReport> {
+    crate::conversation_store::global_store()?.backfill_turn_elapsed_ms(entries)
+}
+
 pub fn save_conversation_meta(metas: &[ConversationMeta]) -> Result<()> {
     save_conversation_meta_with_platform_user(metas, None)
 }

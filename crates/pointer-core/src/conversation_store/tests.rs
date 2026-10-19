@@ -3205,6 +3205,282 @@ mod tests {
         assert_count_invariant(&reopened, "c-noT", 4);
     }
 
+    // ---- FTS `messages_au`: only FTS columns may retrigger the index ---------
+
+    fn messages_au_sql(conn: &Connection) -> String {
+        conn.query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'messages_au'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    fn squeeze_ws(sql: &str) -> String {
+        sql.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    /// Byte-level fingerprint of the FTS5 segment tables, read in a fixed order.
+    ///
+    /// A `'delete'` + re-insert of identical content still appends a segment, so
+    /// "digest unchanged" is a deterministic proof the index was not rewritten —
+    /// unlike `messages_fts_docsize`, whose value lands back on the same number.
+    fn fts_index_digest(conn: &Connection) -> String {
+        let data: String = conn
+            .query_row(
+                "SELECT COALESCE(group_concat(hex(block), ''), '')
+                 FROM (SELECT block FROM messages_fts_data ORDER BY id)",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let segments: String = conn
+            .query_row(
+                "SELECT COALESCE(group_concat(segid || ':' || hex(term) || ':' || pgno, '|'), '')
+                 FROM (SELECT segid, term, pgno FROM messages_fts_idx ORDER BY segid, term)",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let docsize: String = conn
+            .query_row(
+                "SELECT COALESCE(group_concat(id || ':' || sz, '|'), '')
+                 FROM (SELECT id, sz FROM messages_fts_docsize ORDER BY id)",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        format!("{data}|{segments}|{docsize}")
+    }
+
+    fn fts_hits(conn: &Connection, term: &str) -> i64 {
+        conn.query_row(
+            "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH ?1",
+            params![term],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    fn indexed_rowids(conn: &Connection, message_id: &str) -> i64 {
+        conn.query_row(
+            "SELECT COUNT(*) FROM messages_fts
+              WHERE rowid = (SELECT id FROM messages WHERE message_id = ?1)",
+            params![message_id],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    /// Evidence 1: the installed trigger filters on the FTS-backed columns and
+    /// keeps the delete + insert body intact.
+    #[test]
+    fn messages_au_is_narrowed_to_fts_columns() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let conn = store.db.conn.lock();
+
+        let sql = squeeze_ws(&messages_au_sql(&conn));
+        assert!(
+            sql.contains("AFTER UPDATE OF content, conversation_id, message_id, role ON messages"),
+            "messages_au must stay narrowed to FTS columns: {sql}"
+        );
+        assert!(
+            sql.contains(
+                "'delete', old.id, old.content, old.conversation_id, old.message_id, old.role"
+            ),
+            "old index row must still be deleted: {sql}"
+        );
+        assert!(
+            sql.contains(
+                "VALUES (new.id, new.content, new.conversation_id, new.message_id, new.role)"
+            ),
+            "new index row must still be inserted: {sql}"
+        );
+
+        let rev: String = conn
+            .query_row(
+                "SELECT value FROM store_meta WHERE key = ?1",
+                params![crate::conversation_store::MESSAGES_AU_TRIGGER_META],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(rev, crate::conversation_store::MESSAGES_AU_TRIGGER_REV);
+    }
+
+    /// Evidence 2: writes the app performs constantly (`is_milestone`,
+    /// `context_included`, `origin`) leave the index bytes untouched.
+    #[test]
+    fn messages_au_does_not_rewrite_the_index_for_non_fts_columns() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        store
+            .save_all(&[sample_conv("c-au", "T", "alpha legacygamma")])
+            .unwrap();
+
+        let conn = store.db.conn.lock();
+        let digest = fts_index_digest(&conn);
+        let changes = conn.total_changes();
+        conn.execute(
+            "UPDATE messages SET is_milestone = 1 WHERE message_id = 'msg_u1'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE messages SET context_included = 0 WHERE message_id = 'msg_a1'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE messages SET origin = 'system' WHERE message_id = 'msg_a1'",
+            [],
+        )
+        .unwrap();
+
+        assert_eq!(
+            fts_index_digest(&conn),
+            digest,
+            "non-FTS column writes must not rewrite the FTS index"
+        );
+        assert_eq!(
+            conn.total_changes() - changes,
+            3,
+            "only the three messages rows may change; the triggers must not fire"
+        );
+        assert_eq!(fts_hits(&conn, "legacygamma"), 1);
+    }
+
+    /// Evidence 3: a `content` write still re-indexes — new text found, stale
+    /// text gone, other rows untouched.
+    #[test]
+    fn messages_au_reindexes_when_content_changes() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        store
+            .save_all(&[sample_conv("c-au2", "T", "alpha legacygamma")])
+            .unwrap();
+
+        let conn = store.db.conn.lock();
+        let digest = fts_index_digest(&conn);
+        conn.execute(
+            "UPDATE messages SET content = 'zebra replacement' WHERE message_id = 'msg_u1'",
+            [],
+        )
+        .unwrap();
+
+        assert_ne!(
+            fts_index_digest(&conn),
+            digest,
+            "a content write must re-index"
+        );
+        assert_eq!(fts_hits(&conn, "zebra"), 1);
+        assert_eq!(
+            fts_hits(&conn, "legacygamma"),
+            0,
+            "stale content must be gone from the index"
+        );
+        assert_eq!(indexed_rowids(&conn, "msg_a1"), 1);
+    }
+
+    /// Locked-in expectation: `UPDATE OF` keys off the `SET` column list, not on
+    /// whether the value changed, so rewriting `content` with itself re-indexes.
+    /// Nothing here may be "optimized" into skipping that write.
+    #[test]
+    fn messages_au_still_fires_when_content_is_rewritten_with_the_same_value() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        store
+            .save_all(&[sample_conv("c-au3", "T", "alpha legacygamma")])
+            .unwrap();
+
+        let conn = store.db.conn.lock();
+        let digest = fts_index_digest(&conn);
+        conn.execute(
+            "UPDATE messages SET content = content WHERE message_id = 'msg_u1'",
+            [],
+        )
+        .unwrap();
+
+        assert_ne!(
+            fts_index_digest(&conn),
+            digest,
+            "same-value content write must still re-index"
+        );
+        assert_eq!(
+            fts_hits(&conn, "legacygamma"),
+            1,
+            "delete + insert must leave exactly one index row"
+        );
+    }
+
+    /// Evidence 4: a database created before the narrowing — wide trigger, and a
+    /// `store_meta` key that already claims the current revision — is upgraded on
+    /// the next open, without rebuilding the index.
+    #[test]
+    fn messages_au_legacy_wide_trigger_is_upgraded_on_open() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("conversations.db");
+        let store = ConversationStore::open(path.clone()).unwrap();
+        store
+            .save_all(&[sample_conv("c-up", "T", "alpha legacygamma")])
+            .unwrap();
+
+        let digest_before;
+        {
+            let conn = store.db.conn.lock();
+            conn.execute_batch(
+                "DROP TRIGGER messages_au;
+                 CREATE TRIGGER messages_au AFTER UPDATE ON messages BEGIN
+                   INSERT INTO messages_fts(messages_fts, rowid, content, conversation_id, message_id, role)
+                   VALUES ('delete', old.id, old.content, old.conversation_id, old.message_id, old.role);
+                   INSERT INTO messages_fts(rowid, content, conversation_id, message_id, role)
+                   VALUES (new.id, new.content, new.conversation_id, new.message_id, new.role);
+                 END;",
+            )
+            .unwrap();
+            // Name present, revision key current, body stale: only the stored SQL
+            // can tell the difference.
+            conn.execute(
+                "INSERT INTO store_meta(key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![crate::conversation_store::MESSAGES_AU_TRIGGER_META, crate::conversation_store::MESSAGES_AU_TRIGGER_REV],
+            )
+            .unwrap();
+            digest_before = fts_index_digest(&conn);
+        }
+        drop(store);
+
+        let reopened = ConversationStore::open(path).unwrap();
+        let conn = reopened.db.conn.lock();
+        let sql = squeeze_ws(&messages_au_sql(&conn));
+        assert!(
+            sql.contains("AFTER UPDATE OF content, conversation_id, message_id, role ON messages"),
+            "reopen must replace the wide trigger: {sql}"
+        );
+        assert_eq!(
+            fts_index_digest(&conn),
+            digest_before,
+            "upgrading the trigger definition must not rebuild the index"
+        );
+
+        // The upgraded trigger is live: non-FTS writes skip the index, content
+        // writes still re-index.
+        let digest = fts_index_digest(&conn);
+        conn.execute(
+            "UPDATE messages SET is_milestone = 1 WHERE message_id = 'msg_u1'",
+            [],
+        )
+        .unwrap();
+        assert_eq!(fts_index_digest(&conn), digest);
+        conn.execute(
+            "UPDATE messages SET content = 'zebra after upgrade' WHERE message_id = 'msg_u1'",
+            [],
+        )
+        .unwrap();
+        assert_eq!(fts_hits(&conn, "zebra"), 1);
+        assert_eq!(fts_hits(&conn, "legacygamma"), 0);
+    }
+
     // ---- hot per-conversation read paths: 导航大纲 / lead working set --------
 
     /// The preview width the expression was originally written with. Kept as a

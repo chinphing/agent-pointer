@@ -67,6 +67,9 @@ impl ConversationStore {
             let conn = db.conn.lock();
             init_schema(&conn)?;
             ensure_fts_schema(&conn)?;
+            // Runs after the FTS schema so a rebuild/creation above is already
+            // in place; on an existing DB this only upgrades the trigger DDL.
+            ensure_messages_au_trigger(&conn)?;
         }
         let store = Self { db };
         let canonical = app_data_dir()?.join(DB_FILE);
@@ -2208,6 +2211,94 @@ fn message_count_triggers_exist(conn: &Connection) -> Result<bool> {
     Ok(n == 2)
 }
 
+/// Canonical `messages_au` body, shared by table creation and the upgrade path
+/// in [`ensure_messages_au_trigger`].
+///
+/// `UPDATE OF` matches the `SET` column list, not whether the value changed, so
+/// `UPDATE messages SET content = content` still re-indexes (see the test that
+/// locks that in). The three `UNINDEXED` columns stay listed: they are stored in
+/// the FTS row, so they must not drift either.
+const MESSAGES_AU_TRIGGER_SQL: &str = "CREATE TRIGGER IF NOT EXISTS messages_au
+   AFTER UPDATE OF content, conversation_id, message_id, role ON messages
+ BEGIN
+   INSERT INTO messages_fts(messages_fts, rowid, content, conversation_id, message_id, role)
+   VALUES ('delete', old.id, old.content, old.conversation_id, old.message_id, old.role);
+   INSERT INTO messages_fts(rowid, content, conversation_id, message_id, role)
+   VALUES (new.id, new.content, new.conversation_id, new.message_id, new.role);
+ END;";
+
+/// Whitespace-normalized fragment that identifies the narrow form inside
+/// `sqlite_master.sql` (a stale wide trigger is `AFTER UPDATE ON messages`).
+const MESSAGES_AU_TRIGGER_NARROW: &str =
+    "AFTER UPDATE OF content, conversation_id, message_id, role ON messages";
+
+/// `store_meta` key holding the applied revision of the `messages_au` trigger.
+const MESSAGES_AU_TRIGGER_META: &str = "messages_au_trigger";
+/// Bump when [`MESSAGES_AU_TRIGGER_SQL`] changes, so existing DBs pick it up.
+const MESSAGES_AU_TRIGGER_REV: &str = "2";
+
+/// Narrow `messages_au` to the columns that actually feed the FTS row, and
+/// upgrade databases created before the narrowing on their first open.
+///
+/// The trigger used to be `AFTER UPDATE ON messages`, so every in-place column
+/// write (`is_milestone`, `context_included`, `is_scoped`, `origin`,
+/// `turn_elapsed_ms`, …) paid a `'delete'` + re-insert of the row's whole
+/// `content` through the `cjk_bigram` tokenizer.
+///
+/// Versioned through `store_meta` like the `message_count` triggers, but the
+/// stored SQL is verified too: a DB whose trigger still has the wide body is
+/// upgraded even when the revision key already claims the current revision.
+///
+/// Only the definition changes — the index contents stay valid, so nothing is
+/// rebuilt here.
+fn ensure_messages_au_trigger(conn: &Connection) -> Result<()> {
+    if !fts_table_exists(conn)? {
+        return Ok(());
+    }
+    let rev: Option<String> = conn
+        .query_row(
+            "SELECT value FROM store_meta WHERE key = ?1",
+            params![MESSAGES_AU_TRIGGER_META],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if rev.as_deref() == Some(MESSAGES_AU_TRIGGER_REV) && messages_au_trigger_is_narrow(conn)? {
+        return Ok(());
+    }
+    conn.execute_batch(&format!(
+        "DROP TRIGGER IF EXISTS messages_au;\n{MESSAGES_AU_TRIGGER_SQL}"
+    ))?;
+    conn.execute(
+        "INSERT INTO store_meta(key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![MESSAGES_AU_TRIGGER_META, MESSAGES_AU_TRIGGER_REV],
+    )?;
+    log::info!(
+        "conversation_store: messages_au narrowed to UPDATE OF rev={MESSAGES_AU_TRIGGER_REV}"
+    );
+    Ok(())
+}
+
+/// True when `messages_au` is the narrow `UPDATE OF` form (a missing trigger
+/// reads as `false`, so the caller reinstalls it).
+fn messages_au_trigger_is_narrow(conn: &Connection) -> Result<bool> {
+    let sql: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'messages_au'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(sql
+        .map(|sql| {
+            sql.split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .contains(MESSAGES_AU_TRIGGER_NARROW)
+        })
+        .unwrap_or(false))
+}
+
 fn create_fts_table(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
@@ -2226,13 +2317,8 @@ fn create_fts_table(conn: &Connection) -> Result<()> {
          CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
            INSERT INTO messages_fts(messages_fts, rowid, content, conversation_id, message_id, role)
            VALUES ('delete', old.id, old.content, old.conversation_id, old.message_id, old.role);
-         END;
-         CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
-           INSERT INTO messages_fts(messages_fts, rowid, content, conversation_id, message_id, role)
-           VALUES ('delete', old.id, old.content, old.conversation_id, old.message_id, old.role);
-           INSERT INTO messages_fts(rowid, content, conversation_id, message_id, role)
-           VALUES (new.id, new.content, new.conversation_id, new.message_id, new.role);
          END;",
     )?;
+    conn.execute_batch(MESSAGES_AU_TRIGGER_SQL)?;
     Ok(())
 }

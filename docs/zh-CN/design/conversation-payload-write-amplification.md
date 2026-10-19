@@ -24,8 +24,8 @@
 
 - `messages` 表：`(id, conversation_id, message_id, role, content, payload, created_at_ms, position, is_system_generated, context_included, tool_name, agent_instance_id, is_scoped, is_milestone)`；`payload` 是**整条 `ChatMessage` 的 JSON**（TEXT 列）。
 - 索引：`idx_messages_conv_pos(conversation_id, position)`、`idx_messages_conv_anchor`、`idx_messages_conv_included_pos`。
-- **FTS 触发器三个**：`messages_ai`（AFTER INSERT）、`messages_ad`（AFTER DELETE）、**`messages_au`（AFTER UPDATE）**。
-- 因此：**任何 `UPDATE messages` 都会重写该行的 FTS 条目**（含 `content` 全文），哪怕只改一个整数列。
+- **FTS 触发器三个**：`messages_ai`（AFTER INSERT）、`messages_ad`（AFTER DELETE）、**`messages_au`（AFTER UPDATE OF content, conversation_id, message_id, role）**。
+- 因此：**只有改动这四个 FTS 列时才会重写该行的 FTS 条目**（含 `content` 全文）。改整数列（`is_milestone` / `context_included` / `is_scoped` / `origin`）或 `payload` **不再**触发重写。老库在 `open` 时自动升级（`store_meta.messages_au_trigger = "2"` + 校验 `sqlite_master.sql`，只 DROP/CREATE 触发器、不 rebuild 索引）。
 
 ### 1.1 `agentTrace` 的写入路径
 
@@ -102,10 +102,10 @@
 | # | 机制 | 说明 |
 |---|---|---|
 | 1 | **整行重写** | `payload` 是单个 TEXT 列；`json_set` 需解析整个 JSON 再写回整行。SQLite 层面没有"只改一个字段"的能力 |
-| 2 | **FTS 连带重写** | `messages_au AFTER UPDATE` 存在 → 每次 patch 都重写该行 FTS 条目（含 `content` 全文） |
+| 2 | ~~**FTS 连带重写**~~ **已消除（2026-10-19）** | `messages_au` 已收窄为 `AFTER UPDATE OF content, conversation_id, message_id, role` → 只改 `payload` 或整数列的 patch **不再**重写该行 FTS 条目 |
 | 3 | **数组全量替换 + 内存深拷贝** | 每次 flush 传整个 `agentTrace` 数组（非增量）；`sync_anchor_agent_trace_index` 每个终态事件都 `to_vec()` 整个数组 |
 
-补注：机制 3 的 O(T²) 在当前 T=1–3 时无感；**真正吃代价的是机制 1、2**（与 T 无关，恒定 17×）。
+补注：机制 3 的 O(T²) 在当前 T=1–3 时无感；机制 2 消除后，**真正吃代价的只剩机制 1**（与 T 无关，恒定 17×）。
 
 ---
 

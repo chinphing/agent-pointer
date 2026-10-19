@@ -21,20 +21,52 @@ interface TurnElapsedState {
 
 const memoryState: TurnElapsedState = { active: {}, completed: {} }
 
+/**
+ * Raw blob last folded into `memoryState`; `undefined` means "unknown, read the
+ * storage again".
+ *
+ * Why the cache: this blob holds one entry per finished turn and is never
+ * pruned, so on a long-lived install it reaches ~877k characters (1.75 MB in
+ * WebKit's UTF-16 storage). `MessageList` renders `turnElapsedLabel()` per
+ * visible turn per frame, and every call used to `JSON.parse` that whole blob —
+ * a real-device HUD window measured 955 parses / 745.7M characters / 2.0s of
+ * main thread in 24s of streaming, i.e. the parse of *unchanged* data was the
+ * stall. Parsing is now keyed by the raw string: an unchanged blob costs one
+ * `getItem` + a string compare, and a write (or another window's write) still
+ * invalidates the cache exactly as a fresh read would.
+ */
+let cachedRaw: string | undefined
+
 function completedKey(conversationId: string, turnId: string): string {
   return `${conversationId}\u0000${turnId}`
 }
 
+/**
+ * Current state. Returns the shared `memoryState` (not a copy): callers that
+ * mutate it are the recorders, and they always `writeState` right after, so the
+ * cache never drifts from what is on disk. A copy would re-allocate every turn
+ * entry on every render — the cost this cache exists to remove.
+ */
 function readState(): TurnElapsedState {
   if (typeof localStorage === 'undefined') return memoryState
+  let raw: string | undefined
   try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '') as Partial<TurnElapsedState>
-    return {
-      active: parsed.active && typeof parsed.active === 'object' ? parsed.active : {},
-      completed: parsed.completed && typeof parsed.completed === 'object' ? parsed.completed : {}
-    }
+    raw = localStorage.getItem(STORAGE_KEY) ?? ''
+    if (raw === cachedRaw) return memoryState
+    const parsed = JSON.parse(raw) as Partial<TurnElapsedState>
+    cachedRaw = raw
+    memoryState.active = parsed.active && typeof parsed.active === 'object' ? parsed.active : {}
+    memoryState.completed =
+      parsed.completed && typeof parsed.completed === 'object' ? parsed.completed : {}
+    return memoryState
   } catch {
-    return { active: {}, completed: {} }
+    // Unreadable / corrupt storage: same empty state as before. Remember the
+    // exact raw we failed on so the next render does not parse it again; a
+    // `getItem` failure leaves `raw` undefined and is retried.
+    cachedRaw = raw
+    memoryState.active = {}
+    memoryState.completed = {}
+    return memoryState
   }
 }
 
@@ -43,9 +75,13 @@ function writeState(state: TurnElapsedState) {
   memoryState.completed = state.completed
   if (typeof localStorage === 'undefined') return
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+    const raw = JSON.stringify(state)
+    localStorage.setItem(STORAGE_KEY, raw)
+    cachedRaw = raw
   } catch {
     // Timing is supplementary UI metadata; storage failure must not block chat.
+    // Memory may not match disk, so the next read must go back to storage.
+    cachedRaw = undefined
   }
 }
 

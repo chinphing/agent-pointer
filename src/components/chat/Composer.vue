@@ -85,6 +85,12 @@ import {
   type ComposerTextareaMirror
 } from '../../lib/composerTextareaMirror'
 import {
+  COMPOSER_TEXTAREA_FRAME_CLASS,
+  applyComposerTextareaFramePaint,
+  composerTextareaFrameHtml,
+  readComposerTextareaFramePaint
+} from '../../lib/composerTextareaFrame'
+import {
   PERF_ACTIVITY_COMPOSER_INPUT,
   PERF_ACTIVITY_COMPOSER_RESIZE,
   PERF_MS_COMPOSER_INPUT,
@@ -132,6 +138,7 @@ const composerPlaceholder = computed(() => {
 
 const composing = ref(false)
 const showAgentPicker = ref(false)
+const textareaFrameRef = ref<HTMLIFrameElement | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const agentBtnRef = ref<HTMLButtonElement | null>(null)
 const agentPickerRef = ref<HTMLDivElement | null>(null)
@@ -1396,6 +1403,40 @@ function selectWorkerAgent(agent: AgentDef) {
 
 let composerResizeRaf: number | null = null
 let textareaResizeObserver: ResizeObserver | null = null
+let textareaBoxObserver: ResizeObserver | null = null
+/**
+ * In-flow height of `.composer-textarea-slot`. The textarea is out of flow, so
+ * this is the only number that can change the composer’s box and therefore the
+ * transcript viewport. It stays at the minimum until a measurement says the
+ * text actually needs more.
+ */
+const composerSlotHeightPx = ref(COMPOSER_TEXTAREA_MIN_HEIGHT_PX)
+let warnedIgnoredSlotHeight = false
+
+function publishComposerSlotHeight(height: number): void {
+  const next = Math.round(height)
+  // 0 is the box before the first layout, not a bad measurement.
+  if (!Number.isFinite(next) || next <= 0) return
+  if (next < COMPOSER_TEXTAREA_MIN_HEIGHT_PX) {
+    if (!warnedIgnoredSlotHeight) {
+      warnedIgnoredSlotHeight = true
+      console.warn('[composer] textarea slot height ignored', height)
+    }
+    return
+  }
+  if (next === composerSlotHeightPx.value) return
+  composerSlotHeightPx.value = next
+}
+
+/** Border-box height from a resize observation, without a second layout read when the entry already has it. */
+function observedTextareaBlockSize(entry: ResizeObserverEntry): number {
+  const block = entry.borderBoxSize?.[0]?.blockSize
+  if (typeof block === 'number' && Number.isFinite(block) && block > 0) return block
+  // The textarea lives in the frame document, so it is not this window's HTMLElement.
+  const target = entry.target as HTMLElement
+  if (typeof target.offsetHeight === 'number' && target.offsetHeight > 0) return target.offsetHeight
+  return 0
+}
 /** Inline style values the fallback auto-grow has written on the textarea. */
 let composerTextareaResize = createComposerTextareaResizeState()
 /**
@@ -1414,10 +1455,13 @@ function readComposerInputPerfSample(): PerfInputSample | null {
   const el = textareaRef.value
   if (!el) return null
   const text = composerText.value
+  // Length only. `scrollHeight` / `clientHeight` force layout of the transcript
+  // on the frame that is already late (~1s on a long conversation), so the
+  // probe would add a second stall and blame it on `composerResize`.
   return {
     textLength: text.length,
-    scrollHeight: el.scrollHeight,
-    clientHeight: el.clientHeight,
+    scrollHeight: 0,
+    clientHeight: 0,
     hasNewline: text.includes('\n'),
     composing: composing.value
   }
@@ -1442,6 +1486,8 @@ function onCompositionStart() {
  * is one boolean read and the call.
  */
 function onComposerInput() {
+  const el = textareaRef.value
+  if (el && composerText.value !== el.value) composerText.value = el.value
   const perf = renderPerfEnabled()
   const startedAt = perf ? performance.now() : 0
   if (perf) {
@@ -1537,15 +1583,24 @@ function resizeTextareaForContent(el: HTMLTextAreaElement, force: boolean) {
       return composerTextareaMirror.measure(value, force)
     }
   })
+  // The textarea is out of flow. Only this write can resize the composer, and
+  // only when the measured height changed — an empty draft that stays at the
+  // minimum must not touch it.
+  publishComposerSlotHeight(composerTextareaResize.height)
 }
 
 function setupTextareaResizeObserver() {
   textareaResizeObserver?.disconnect()
   textareaResizeObserver = null
   const el = textareaRef.value
-  if (!el || typeof ResizeObserver === 'undefined') return
+  if (!el) return
+  const view = el.ownerDocument?.defaultView
+  if (!view || typeof view.ResizeObserver !== 'function') {
+    console.warn('[composer] ResizeObserver missing; textarea width will not remeasure')
+    return
+  }
   let lastWidth = el.clientWidth
-  textareaResizeObserver = new ResizeObserver(() => {
+  textareaResizeObserver = new view.ResizeObserver(() => {
     const node = textareaRef.value
     if (!node) return
     if (node.clientWidth === lastWidth) return
@@ -1556,6 +1611,34 @@ function setupTextareaResizeObserver() {
     autoResize(true)
   })
   textareaResizeObserver.observe(el)
+}
+
+/**
+ * Engines with `field-sizing: content` size the textarea themselves and never
+ * go through `publishComposerSlotHeight`. Mirror that used height onto the
+ * slot so the in-flow box still grows. A keystroke that does not change the
+ * border box does not write.
+ */
+function setupTextareaBoxObserver() {
+  textareaBoxObserver?.disconnect()
+  textareaBoxObserver = null
+  const el = textareaRef.value
+  if (!el) {
+    console.warn('[composer] textarea missing; slot height observer not attached')
+    return
+  }
+  const view = el.ownerDocument?.defaultView
+  if (!view || typeof view.ResizeObserver !== 'function') {
+    console.warn('[composer] ResizeObserver missing; textarea slot will not track native field-sizing')
+    return
+  }
+  textareaBoxObserver = new view.ResizeObserver(entries => {
+    const entry = entries[0]
+    if (!entry) return
+    publishComposerSlotHeight(observedTextareaBlockSize(entry))
+  })
+  textareaBoxObserver.observe(el)
+  console.info('[composer] textarea slot tracks control height')
 }
 
 function handleClickOutside(e: MouseEvent) {
@@ -1581,6 +1664,141 @@ function handleDocumentKeydown(e: KeyboardEvent) {
   modePickerOpen.value = false
 }
 
+let textareaFrameReady = false
+let textareaFrameWriting = false
+let textareaFramePaint: { disconnect(): void } | null = null
+const textareaFrameListeners: Array<{ target: EventTarget; type: string; handler: EventListener }> = []
+let loggedTextareaFrame = false
+
+function listenOnTextareaFrame(target: EventTarget, type: string, handler: EventListener) {
+  target.addEventListener(type, handler)
+  textareaFrameListeners.push({ target, type, handler })
+}
+
+function clearTextareaFrameListeners() {
+  for (const row of textareaFrameListeners) {
+    row.target.removeEventListener(row.type, row.handler)
+  }
+  textareaFrameListeners.length = 0
+}
+
+/** Placeholder, disabled, and store-owned text. Does not emit input. */
+function syncTextareaFrameChrome() {
+  const el = textareaRef.value
+  if (!el) return
+  el.placeholder = composerPlaceholder.value
+  el.disabled = needsPlatformLogin.value || tokenQuotaBlocked.value
+  if (el.value !== composerText.value) el.value = composerText.value
+}
+
+function onFramePaste(event: Event) {
+  void onPasteAttachments(event as ClipboardEvent)
+}
+
+function onFrameDragEnter(event: Event) {
+  onComposerDragEnter(event as DragEvent)
+}
+
+function onFrameDragOver(event: Event) {
+  onComposerDragOver(event as DragEvent)
+}
+
+function onFrameDrop(event: Event) {
+  void onComposerDrop(event as DragEvent)
+}
+
+function onFramePointerDown() {
+  showAgentPicker.value = false
+  modePickerOpen.value = false
+}
+
+/** Leaving the frame document clears the web drop highlight. Desktop drops do not use this path. */
+function onFrameDragLeave(event: Event) {
+  if (isTauriRuntime()) return
+  if ((event as DragEvent).relatedTarget) return
+  composerDragDepth.value = Math.max(0, composerDragDepth.value - 1)
+}
+
+function watchTextareaFramePaint() {
+  textareaFramePaint?.disconnect()
+  const apply = () => {
+    const live = textareaFrameRef.value?.contentDocument
+    if (!live) {
+      console.warn('[composer] textarea frame document gone before paint')
+      return
+    }
+    applyComposerTextareaFramePaint(live, readComposerTextareaFramePaint())
+  }
+  apply()
+  const classObserver = new MutationObserver(apply)
+  classObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class']
+  })
+  const media = window.matchMedia('(min-width: 768px)')
+  media.addEventListener('change', apply)
+  textareaFramePaint = {
+    disconnect() {
+      classObserver.disconnect()
+      media.removeEventListener('change', apply)
+    }
+  }
+}
+
+/**
+ * Write the textarea into the frame and attach the parent handlers.
+ *
+ * `document.close()` fires `load` again. `textareaFrameWriting` ignores that
+ * re-entry so the document is not rewritten out from under the caret.
+ */
+function openComposerTextareaFrame() {
+  if (textareaFrameWriting || textareaFrameReady) return
+  const frame = textareaFrameRef.value
+  const doc = frame?.contentDocument
+  if (!frame || !doc) {
+    console.warn('[composer] textarea frame has no document')
+    return
+  }
+  textareaFrameWriting = true
+  try {
+    doc.open()
+    doc.write(composerTextareaFrameHtml())
+    doc.close()
+  } finally {
+    textareaFrameWriting = false
+  }
+  const live = frame.contentDocument
+  const textarea = live?.querySelector('textarea.composer-textarea')
+  if (!live || !textarea || textarea.tagName !== 'TEXTAREA') {
+    console.warn('[composer] textarea frame did not create a textarea')
+    return
+  }
+  textareaFrameReady = true
+  textareaRef.value = textarea as HTMLTextAreaElement
+  const el = textareaRef.value
+  syncTextareaFrameChrome()
+  listenOnTextareaFrame(el, 'keydown', onKeydown as EventListener)
+  listenOnTextareaFrame(el, 'beforeinput', onComposerBeforeInput as EventListener)
+  listenOnTextareaFrame(el, 'input', onComposerInput as EventListener)
+  listenOnTextareaFrame(el, 'paste', onFramePaste)
+  listenOnTextareaFrame(el, 'compositionstart', onCompositionStart as EventListener)
+  listenOnTextareaFrame(el, 'compositionend', onCompositionEnd as EventListener)
+  listenOnTextareaFrame(el, 'pointerdown', onFramePointerDown)
+  const frameDoc = el.ownerDocument
+  listenOnTextareaFrame(frameDoc, 'dragenter', onFrameDragEnter)
+  listenOnTextareaFrame(frameDoc, 'dragover', onFrameDragOver)
+  listenOnTextareaFrame(frameDoc, 'dragleave', onFrameDragLeave)
+  listenOnTextareaFrame(frameDoc, 'drop', onFrameDrop)
+  watchTextareaFramePaint()
+  autoResize()
+  setupTextareaResizeObserver()
+  setupTextareaBoxObserver()
+  if (!loggedTextareaFrame) {
+    loggedTextareaFrame = true
+    console.info('[composer] textarea lives in its own document')
+  }
+}
+
 watch(composerPrefill, (draft) => {
   if (!draft?.trim()) return
   composerText.value = draft
@@ -1591,16 +1809,21 @@ watch(composerPrefill, (draft) => {
   })
 })
 
-// Draft restore / clear from the store does not always emit textarea @input.
-watch(composerText, () => {
+// Draft restore / clear from the store does not always emit textarea input.
+watch(composerText, (value) => {
+  const el = textareaRef.value
+  if (el && el.value !== value) el.value = value
   nextTick(autoResize)
+})
+
+watch([composerPlaceholder, needsPlatformLogin, tokenQuotaBlocked], () => {
+  syncTextareaFrameChrome()
 })
 
 onMounted(() => {
   composerDragDropMounted = true
   nextTick(() => {
-    autoResize()
-    setupTextareaResizeObserver()
+    openComposerTextareaFrame()
   })
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleDocumentKeydown)
@@ -1610,8 +1833,15 @@ onMounted(() => {
 onUnmounted(() => {
   composerDragDropMounted = false
   if (composerResizeRaf != null) cancelAnimationFrame(composerResizeRaf)
+  clearTextareaFrameListeners()
+  textareaFramePaint?.disconnect()
+  textareaFramePaint = null
+  textareaFrameReady = false
+  textareaRef.value = null
   textareaResizeObserver?.disconnect()
   textareaResizeObserver = null
+  textareaBoxObserver?.disconnect()
+  textareaBoxObserver = null
   composerTextareaMirror?.dispose()
   composerTextareaMirror = null
   document.removeEventListener('click', handleClickOutside)
@@ -1638,8 +1868,8 @@ onUnmounted(() => {
 
   <div
     :class="props.placement === 'inline'
-      ? 'w-full'
-      : 'chat-shell shell-chat shrink-0 pt-2 pb-5'"
+      ? 'composer-dock w-full'
+      : 'composer-dock chat-shell shell-chat shrink-0 pt-2 pb-5'"
   >
     <div :class="props.placement === 'inline' ? 'w-full' : 'chat-column'">
       <div v-if="showLoginBanner" class="mb-2 flex w-fit max-w-full flex-col gap-1.5">
@@ -1740,23 +1970,18 @@ onUnmounted(() => {
           >
             <Paperclip class="w-3.5 h-3.5 shrink-0 text-muted" />
           </button>
-          <textarea
-            ref="textareaRef"
-            v-model="composerText"
-            rows="1"
-            class="composer-textarea block min-w-0 flex-1 resize-none overflow-x-hidden overflow-y-auto bg-transparent border-0 outline-none px-2 py-2 text-[15px] leading-5 text-foreground placeholder:text-muted md:w-full md:flex-none md:px-3 md:pt-[3px] md:pb-2 md:leading-normal"
-            :style="{
-              maxHeight: `${COMPOSER_TEXTAREA_MAX_HEIGHT_PX}px`
-            }"
-            :placeholder="composerPlaceholder"
-            :disabled="needsPlatformLogin || tokenQuotaBlocked"
-            @keydown="onKeydown"
-            @beforeinput="onComposerBeforeInput"
-            @input="onComposerInput()"
-            @paste="onPasteAttachments"
-            @compositionstart="onCompositionStart"
-            @compositionend="onCompositionEnd"
-          />
+          <div
+            class="composer-textarea-slot min-w-0 flex-1 md:w-full md:flex-none"
+            :style="{ height: `${composerSlotHeightPx}px` }"
+          >
+            <iframe
+              ref="textareaFrameRef"
+              :class="COMPOSER_TEXTAREA_FRAME_CLASS"
+              src="about:blank"
+              :title="composerPlaceholder"
+              @load="openComposerTextareaFrame"
+            />
+          </div>
           <div class="flex shrink-0 items-end gap-2 self-end md:w-full md:items-center md:self-auto">
             <div class="relative hidden min-w-0 flex-1 items-center gap-x-3 px-1 md:flex md:flex-wrap md:gap-y-0">
               <button

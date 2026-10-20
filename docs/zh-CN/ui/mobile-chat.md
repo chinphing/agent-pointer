@@ -14,7 +14,9 @@
 - 窄屏为**单行控件布局**：`[附件] [输入框] [发送]`（控件横排，不是固定单行高度）；宽屏仍为「输入在上、工具栏在下」。
 - 输入框默认一行高，多行时**仅输入区向上增高**（上限约 250px）；附件 / 发送按钮底对齐，贴在输入区底部，不悬在中间。
 - 宽屏 `md:flex-col` 下输入框必须 `md:flex-none`：若保留 `flex-1`（`flex-basis: 0%`），纵向主轴会**忽略** JS/`height`，表现为完全不撑高。窄屏横排仍用 `flex-1` 占满宽度。
-- 优先 CSS `field-sizing: content`（`.composer-textarea`）；不支持时再 JS 测高。超过上限用 `overflow-y: auto`，勿用 `overflow-hidden` 以免超限内容无法滚动。
+- 输入框在**自己的文档**里（同域 frame，不是沙箱）。macOS 删掉最后一个字时，输入法会从光标往前找词界；输入框空了就没有文本节点，这次查找会走出控件、把整篇消息走一遍。独立文档在输入框处结束，查找到不了消息列表。App 与 Web 同一套。
+- 这个 frame 填满 `.composer-textarea-slot`（`contain: layout` + 明确高度）。槽的高度只有在测到的行高变化时才写。发送按钮的禁用切换在底栏 `.composer-dock`（同样 `contain: layout`）里面。没有 `field-sizing` 的引擎用 frame 文档里的 `height: 36px`，避免空内容被 placeholder 撑高。
+- 优先 CSS `field-sizing: content`；不支持时再 JS 测高。超过上限用 `overflow-y: auto`，勿用 `overflow-hidden` 以免超限内容无法滚动。
 - 侧栏折叠 / 窗口变宽会改变换行：对 textarea 做 `ResizeObserver`，宽度变化时重测。
 - MessageList 对 scroller **和列表根节点**高度变化 `ResizeObserver`：记下高度，视口变矮时按差值补 `scrollTop`（不跟随时也补，避免输入框盖住正文）。无需 Composer 额外接线。输入框撑高后不要再按 `getTotalSize` 贴底，直到输入框变矮或失焦。
 - footer / welcome `inline` 共用同一 Composer；草稿清空、发送后、IME 结束、prefill 都会触发 `autoResize`。
@@ -25,7 +27,8 @@
 
 ## 实现位置
 
-- `src/styles/globals.css` — 头像 / 页脚可见性、`.composer-shell` 内边距
+- `src/styles/globals.css` — 头像 / 页脚可见性、`.composer-shell` 内边距、输入框 frame 槽
+- `src/lib/composerTextareaFrame.ts` — 输入框独立文档
 - `src/components/chat/Composer.vue` — 窄屏单行布局
 - `src/components/chat/ChatView.vue` — 窄屏欢迎页 footer Composer、隐藏 slogan
 - `src/lib/mobileChat.ts` — `MOBILE_VIEWPORT_MEDIA_QUERY`、`shouldShowFooterComposer`

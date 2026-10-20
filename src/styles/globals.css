@@ -223,11 +223,40 @@
   .composer-shell {
     @apply py-1.5 md:pb-2 md:pt-[18px] border border-border bg-[hsl(var(--composer-bg))];
   }
-  /* Prefer native grow; JS autoResize is fallback when unsupported. */
-  .composer-textarea {
-    field-sizing: content;
+  /*
+   * Footer (and the inline welcome composer) as a layout boundary. The send
+   * button’s disabled state flips on the same keystroke that clears the
+   * draft, and that node sits outside the textarea slot. Without a boundary
+   * on the dock itself, the dirty button still marks the column and WebKit
+   * lays out the transcript. Size changes of this box (the slot growing)
+   * still propagate; internal layout does not.
+   */
+  .composer-dock {
+    contain: layout;
+  }
+  /*
+   * In-flow box for the composer. The textarea itself is a same-origin frame
+   * (see composerTextareaFrame): macOS asks the input method for the word
+   * before the caret when the control becomes empty, and that walk leaves an
+   * in-page textarea and reads the transcript. The frame document ends at the
+   * textarea. The frame fills this slot; the slot height changes only when
+   * the measured control height changes.
+   */
+  .composer-textarea-slot {
+    contain: layout;
+    position: relative;
     min-height: 36px;
-    max-height: 250px;
+  }
+  .composer-textarea-slot > .composer-textarea-frame {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    margin: 0;
+    background: transparent;
+    color-scheme: inherit;
   }
   .composer-dropdown {
     @apply absolute z-50 overflow-hidden rounded-xl

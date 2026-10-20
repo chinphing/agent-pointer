@@ -55,6 +55,7 @@ import {
   beginPerfActivity,
   bump,
   endPerfActivity,
+  createLayoutSampleGate,
   installRenderPerfGaugeSampler,
   publishVirtualGeometryGauges,
   publishVirtualRowSlackGauges,
@@ -2477,45 +2478,51 @@ onUpdated(() => {
 })
 
 /**
- * Virtualizer geometry is published on the HUD's own snapshot tick rather than
- * from `onUpdated` above: the reads include `scrollHeight` and the row heights,
- * which force layout, and this component updates once per scroll frame — reading
- * there would both cost more than the 4 Hz HUD can show and perturb the very
- * measurement the HUD is taking.
+ * Virtualizer geometry is published on the HUD's snapshot tick, not from
+ * `onUpdated`: this component updates once per scroll frame, and reading there
+ * would cost more than the HUD can show.
  *
- * Two things come out of this one pass: the box-level geometry (content height,
- * scroller height, rendered range, measured rows, pull spacer) and the per-row
- * assumed-vs-actual deviation, which is what shows a blank stripe *between* rows
- * — the box-level `v.blank` agrees with the virtualizer by construction.
- *
- * Registered for the component's lifetime; the sampler is only invoked while the
- * HUD is enabled, so nothing is read while it is off.
+ * `scrollHeight` and per-row `offsetHeight` force layout of the transcript.
+ * On a long conversation that is ~1s, and the 4 Hz snapshot would repeat it
+ * forever — idle frame gaps of that size, with a keystroke blamed only because
+ * its marker closed inside the window. `layoutSampleGate` allows one slow read,
+ * then stops. Virtualizer totals stay on every tick; they do not touch the DOM.
+ * The sampler is only invoked while the HUD is enabled.
  */
+const layoutSampleGate = createLayoutSampleGate()
+let lastLayoutScrollHeight = 0
 const disposePerfGaugeSampler = installRenderPerfGaugeSampler(() => {
+  const now = performance.now()
+  const readLayout = layoutSampleGate.allow(now)
+  const scrollerEl = readLayout ? scroller.value : null
+  const started = performance.now()
+  if (readLayout && scrollerEl) lastLayoutScrollHeight = scrollerEl.scrollHeight
   publishVirtualGeometryGauges(
     rowVirtualizer.value,
-    scroller.value,
+    { scrollHeight: lastLayoutScrollHeight },
     virtualRows.value,
     noOlderPullPx.value
   )
-  // `measureRenderedRowSlack` queries the rendered rows by their `data-index`,
-  // the same attribute the measure batch reads.
-  const scrollerEl = scroller.value
-  const rowSlack = measureRenderedRowSlack(
-    scrollerEl,
-    virtualRows.value,
-    // Same tick as the geometry above, so the in-viewport split describes the same
-    // instant as `v.range` / `v.total`.
-    scrollerEl
-      ? { scrollTop: scrollerEl.scrollTop, height: scrollerEl.clientHeight }
-      : undefined
-  )
-  publishVirtualRowSlackGauges(
-    rowSlack.slack,
-    rowSlack.overlap,
-    rowSlack.slackVisible,
-    rowSlack.overlapVisible
-  )
+  if (readLayout) {
+    // `measureRenderedRowSlack` queries the rendered rows by their `data-index`,
+    // the same attribute the measure batch reads.
+    const rowSlack = measureRenderedRowSlack(
+      scrollerEl,
+      virtualRows.value,
+      // Same tick as the geometry above, so the in-viewport split describes the same
+      // instant as `v.range` / `v.total`.
+      scrollerEl
+        ? { scrollTop: scrollerEl.scrollTop, height: scrollerEl.clientHeight }
+        : undefined
+    )
+    publishVirtualRowSlackGauges(
+      rowSlack.slack,
+      rowSlack.overlap,
+      rowSlack.slackVisible,
+      rowSlack.overlapVisible
+    )
+    layoutSampleGate.finish(now, performance.now() - started)
+  }
   // The height assumed for rows without a measured size — the fixed constant the
   // virtualizer is configured with (`messageVirtualizerBaseOptions`), published
   // next to `v.measured` so the HUD shows what places every unmeasured row.

@@ -26,6 +26,7 @@ import {
   useRenderPerfSnapshot,
   type RenderPerfCostPer1000Px
 } from '../../lib/renderPerf'
+import { findComposerTextarea } from '../../lib/composerTextareaFrame'
 import {
   formatBytes,
   formatCount,
@@ -368,7 +369,7 @@ function fieldSizingSupported(): boolean | null {
 function composerGrowLine(): string {
   const supported = fieldSizingSupported()
   const supportText = supported === null ? 'n/a' : supported ? 'yes' : 'no '
-  const el = document.querySelector<HTMLTextAreaElement>('textarea.composer-textarea')
+  const el = findComposerTextarea(document)
   const path = !el
     ? 'n/a (no composer)'
     : el.dataset.fieldSizingApplied === '1'

@@ -225,7 +225,10 @@ export function createComposerTextareaMirror(
       applyWidth(target, geometry.width)
       return geometry.width
     }
-    const computed = typeof getComputedStyle === 'function' ? getComputedStyle(el) : null
+    // The textarea may live in the composer frame. Read styles from that
+    // document; the parent's getComputedStyle does not resolve them.
+    const view = el.ownerDocument?.defaultView
+    const computed = view && typeof view.getComputedStyle === 'function' ? view.getComputedStyle(el) : null
     if (!computed) {
       const width = Math.max(0, paddingBoxWidth)
       applyWidth(target, width)

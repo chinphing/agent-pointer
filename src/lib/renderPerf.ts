@@ -1047,6 +1047,62 @@ export function setRenderPerfMemorySampler(
   memorySampler = sampler
 }
 
+// --- layout-sample gate -----------------------------------------------------
+
+/**
+ * How often a *fast* layout-forcing HUD read may run. A read that comes back
+ * under `PERF_LAYOUT_SAMPLE_GIVE_UP_MS` stays on this interval.
+ */
+export const PERF_LAYOUT_SAMPLE_MIN_INTERVAL_MS = 5000
+/**
+ * A geometry read slower than this is treated as a full transcript layout.
+ * Further reads are refused for the rest of the HUD session: repeating one
+ * ~1s `scrollHeight` / per-row `offsetHeight` pass at the 4 Hz snapshot rate
+ * is the stall, and the keystroke that happens to close inside it gets blamed.
+ */
+export const PERF_LAYOUT_SAMPLE_GIVE_UP_MS = 32
+
+export interface LayoutSampleGate {
+  /** Whether this tick may touch layout (`scrollHeight`, `offsetHeight`). */
+  allow(nowMs: number): boolean
+  /** Record the read. A slow one disables every later read. */
+  finish(nowMs: number, costMs: number): void
+}
+
+/**
+ * Gate for the HUD's layout-forcing geometry read.
+ *
+ * The snapshot tick is 4 Hz. On a long transcript one `scrollHeight` plus the
+ * rendered rows' `offsetHeight` lays the whole scroller out (~1s on WebKit),
+ * so the next tick starts another pass and the main thread never paints.
+ * Fast reads stay on `minIntervalMs`. One slow read ends sampling.
+ */
+export function createLayoutSampleGate(options?: {
+  minIntervalMs?: number
+  giveUpMs?: number
+}): LayoutSampleGate {
+  const minIntervalMs = options?.minIntervalMs ?? PERF_LAYOUT_SAMPLE_MIN_INTERVAL_MS
+  const giveUpMs = options?.giveUpMs ?? PERF_LAYOUT_SAMPLE_GIVE_UP_MS
+  let lastAt = Number.NEGATIVE_INFINITY
+  let refused = false
+  return {
+    allow(nowMs: number): boolean {
+      if (refused) return false
+      return nowMs - lastAt >= minIntervalMs
+    },
+    finish(nowMs: number, costMs: number): void {
+      lastAt = nowMs
+      if (!(costMs > giveUpMs) || refused) return
+      refused = true
+      console.warn(
+        '[render-perf] layout sample took',
+        Math.round(costMs),
+        'ms; further transcript geometry reads skipped'
+      )
+    }
+  }
+}
+
 // --- gauge sampler ----------------------------------------------------------
 
 /**

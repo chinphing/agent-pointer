@@ -4,6 +4,7 @@ import { effectScope, type Ref } from 'vue'
 import { measureRenderedRowSlack } from './virtualRowSlack'
 import { MESSAGE_VIRTUAL_ROW_ESTIMATE } from './messageVirtualization'
 import {
+  createLayoutSampleGate,
   PERF_ACTIVITY_COMPOSER_DRAFT_FLUSH,
   PERF_ACTIVITY_COMPOSER_INPUT,
   PERF_ACTIVITY_LAYOUT_REBUILD,
@@ -1369,5 +1370,29 @@ describe('renderPerf runtime log', () => {
 
     expect(inputLines()).toEqual([])
     expect(read).not.toHaveBeenCalled()
+  })
+})
+
+describe('layout sample gate', () => {
+  it('stops sampling after one slow transcript layout read', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const gate = createLayoutSampleGate()
+    expect(gate.allow(0)).toBe(true)
+    gate.finish(0, 1100)
+    expect(gate.allow(5000)).toBe(false)
+    expect(gate.allow(60_000)).toBe(false)
+    expect(warn).toHaveBeenCalledOnce()
+    warn.mockRestore()
+  })
+
+  it('spaces fast layout reads and does not warn', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const gate = createLayoutSampleGate({ minIntervalMs: 5000, giveUpMs: 32 })
+    expect(gate.allow(0)).toBe(true)
+    gate.finish(0, 4)
+    expect(gate.allow(1000)).toBe(false)
+    expect(gate.allow(5000)).toBe(true)
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 })

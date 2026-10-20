@@ -89,13 +89,17 @@ class FakeTextarea implements ComposerTextareaResizeTarget {
 /**
  * The pre-refactor algorithm, kept as an oracle: same behaviour contract
  * (grow/shrink/`force`/cap) with none of the write guards.
+ *
+ * Its fast path is the corrected one — only an empty draft may skip the
+ * measure. The original `!value.includes('\n')` shortcut is the bug this file
+ * pins: it left a wrapped, newline-free draft stuck at `min`.
  */
 function referenceResize(
   el: FakeTextarea,
   previousHeight: number,
   force = false
 ): number {
-  if (!force && !el.value.includes('\n') && previousHeight === MIN) {
+  if (!force && el.value === '' && previousHeight === MIN) {
     return previousHeight
   }
   el.style.setProperty('overflow-y', 'hidden')
@@ -108,6 +112,18 @@ function referenceResize(
   el.style.setProperty('height', `${nextHeight}px`)
   el.style.setProperty('overflow-y', content > MAX ? 'auto' : 'hidden')
   return nextHeight
+}
+
+/**
+ * Mirror model: content height only — independent of the current box. Counts
+ * calls so a test can pin whether the pass measured at all.
+ */
+function mirror(el: FakeTextarea) {
+  return (value: string) => {
+    el.mirrorCalls += 1
+    expect(value).toBe(el.value)
+    return el.contentHeight
+  }
 }
 
 describe('composer textarea resize — style writes', () => {
@@ -162,15 +178,32 @@ describe('composer textarea resize — style writes', () => {
     expect(el.writesSince(mark)).toHaveLength(1)
   })
 
-  it('keeps the single-line fast path free of layout reads and writes', () => {
+  it('keeps the empty-draft fast path free of layout reads and writes', () => {
+    const el = new FakeTextarea()
+    const state = createComposerTextareaResizeState()
+
+    el.setContent('', 1)
+    resizeComposerTextarea(el, state)
+
+    // An empty textarea is one line, so its content height is bounded by the
+    // minimum box — the only value that can be proven without measuring.
+    expect(el.reads).toEqual({ scrollHeight: 0, clientHeight: 0, offsetHeight: 0 })
+    expect(el.writes).toEqual([])
+  })
+
+  it('measures a non-empty value even when it has no newline', () => {
     const el = new FakeTextarea()
     const state = createComposerTextareaResizeState()
 
     el.setContent('hi', 1)
     resizeComposerTextarea(el, state)
 
-    expect(el.reads).toEqual({ scrollHeight: 0, clientHeight: 0, offsetHeight: 0 })
+    // A missing newline does not prove a single visual line: an unbroken run
+    // soft-wraps. The box has to be read — but a one-line value still fits the
+    // minimum box, so nothing is written.
+    expect(el.reads).toEqual({ scrollHeight: 1, clientHeight: 1, offsetHeight: 0 })
     expect(el.writes).toEqual([])
+    expect(el.usedHeight).toBe(MIN)
   })
 
   it('grows on a newline and caps at max with a scrollbar', () => {
@@ -218,6 +251,52 @@ describe('composer textarea resize — style writes', () => {
   })
 })
 
+describe('composer textarea resize — a pasted run with no newline', () => {
+  it('grows an empty draft when the pasted run wraps', () => {
+    const el = new FakeTextarea()
+    const state = createComposerTextareaResizeState()
+
+    el.setContent('', 1)
+    resizeComposerTextarea(el, state, { measureContentHeight: mirror(el) })
+    expect(el.usedHeight).toBe(MIN)
+
+    const pasted = `https://example.com/${'a'.repeat(120)}`
+    el.setContent(pasted, 3)
+    resizeComposerTextarea(el, state, { measureContentHeight: mirror(el) })
+
+    expect(el.value).not.toContain('\n')
+    expect(el.usedHeight).toBe(PADDING + 3 * LINE)
+    expect(el.overflowY).toBe('hidden')
+  })
+
+  it('grows the same way with no mirror to measure with', () => {
+    const el = new FakeTextarea()
+    const state = createComposerTextareaResizeState()
+
+    el.setContent('', 1)
+    resizeComposerTextarea(el, state, { measureContentHeight: () => null })
+
+    el.setContent('字'.repeat(80), 3)
+    resizeComposerTextarea(el, state, { measureContentHeight: () => null })
+
+    expect(el.usedHeight).toBe(PADDING + 3 * LINE)
+  })
+
+  it('caps a pasted run at max with a scrollbar', () => {
+    const el = new FakeTextarea()
+    const state = createComposerTextareaResizeState()
+
+    el.setContent('', 1)
+    resizeComposerTextarea(el, state, { measureContentHeight: mirror(el) })
+
+    el.setContent('x'.repeat(500), 14)
+    resizeComposerTextarea(el, state, { measureContentHeight: mirror(el) })
+
+    expect(el.usedHeight).toBe(MAX)
+    expect(el.overflowY).toBe('auto')
+  })
+})
+
 describe('composer textarea resize — matches the previous behaviour', () => {
   it('agrees with the oracle over a randomized typing script', () => {
     const seed = 0x9e3779b9
@@ -257,7 +336,11 @@ describe('composer textarea resize — matches the previous behaviour', () => {
         oracleHeight = referenceResize(oracle, oracleHeight, force)
 
         expect(el.usedHeight).toBe(oracle.usedHeight)
-        expect(el.overflowY).toBe(oracle.overflowY)
+        // `overflow-y` is compared as the observable it exists for — "a box
+        // whose content overflows must scroll" — not as a literal string: a
+        // pass that changes nothing leaves the class value (`auto`) in place,
+        // and `auto` on a box that fits renders exactly like `hidden`.
+        if (el.contentHeight > el.usedHeight) expect(el.overflowY).toBe('auto')
         if (el.usedHeight === MAX && el.contentHeight > MAX) {
           // Capped box with overflowing content must scroll.
           expect(el.overflowY).toBe('auto')
@@ -389,15 +472,6 @@ describe('composer textarea resize — clearing the draft', () => {
 describe('composer textarea resize — non-destructive measurement', () => {
   const NO_READS = { scrollHeight: 0, clientHeight: 0, offsetHeight: 0 }
 
-  /** Mirror model: content height only — independent of the current box. */
-  function mirror(el: FakeTextarea) {
-    return (value: string) => {
-      el.mirrorCalls += 1
-      expect(value).toBe(el.value)
-      return el.contentHeight
-    }
-  }
-
   it('deletes without writing a style when the wrapped height is unchanged', () => {
     const el = new FakeTextarea()
     const state = createComposerTextareaResizeState()
@@ -464,6 +538,18 @@ describe('composer textarea resize — non-destructive measurement', () => {
     expect(writes.map((write) => write.property).sort()).toEqual(['height', 'overflow-y'])
     expect(el.usedHeight).toBe(PADDING + 8 * LINE)
     expect(el.overflowY).toBe('hidden')
+  })
+
+  it('applies the measured height when the element mounted taller than the minimum', () => {
+    const el = new FakeTextarea(2 * LINE + PADDING)
+    const state = createComposerTextareaResizeState()
+
+    el.setContent('hi', 1)
+    resizeComposerTextarea(el, state, { measureContentHeight: mirror(el) })
+
+    expect(el.mirrorCalls).toBe(1)
+    expect(el.usedHeight).toBe(MIN)
+    expect(state.height).toBe(MIN)
   })
 
   it('falls back to the destructive probe when no measurement is available', () => {
@@ -551,7 +637,9 @@ describe('composer textarea resize — the mirror path is step-for-step equivale
         expect(mirrored.usedHeight).toBe(probed.usedHeight)
         expect(mirrored.usedHeight).toBe(oracle.usedHeight)
         expect(mirrored.overflowY).toBe(probed.overflowY)
-        expect(mirrored.overflowY).toBe(oracle.overflowY)
+        if (mirrored.contentHeight > mirrored.usedHeight) {
+          expect(mirrored.overflowY).toBe('auto')
+        }
         expect(mirrored.inlineStyles()).toEqual(probed.inlineStyles())
         expect(mirroredState).toEqual(probedState)
       }

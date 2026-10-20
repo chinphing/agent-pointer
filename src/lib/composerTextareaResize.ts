@@ -82,22 +82,29 @@ export function resizeComposerTextarea(
 
   const value = el.value
 
-  // Fast path 1: single-line text that never left the min height needs neither
-  // a layout read nor a write. Reading scrollHeight/offsetHeight while the
-  // streaming list is mid-measure forces a synchronous reflow in the keystroke
-  // frame and flushes pending virtualizer row measurements.
-  if (!force && !value.includes('\n') && state.height === min) return state
+  // Fast path 1: an empty draft that never left the min height needs neither a
+  // layout read nor a write. An empty textarea is one line, so its content
+  // height is bounded by the minimum box — that is the one case where "how
+  // tall?" is answerable without measuring. The read is the textarea's own
+  // scrollHeight (it lives in the composer frame), not the transcript's.
+  //
+  // A newline-free value is *not* enough to conclude "one line": a pasted URL
+  // or a run of CJK wraps at the padding edge without any newline, so the
+  // single-line assumption silently kept such a draft at `min` and the text was
+  // clipped from the next line down. Only the empty string is provably one
+  // line; every other value is measured below.
+  if (!force && value === '' && state.height === min) return state
 
   // Fast path 2: the text is untouched since the last evaluation (composition
   // timers, repeated `nextTick` calls). Nothing can have changed.
   if (!force && state.measuredValue === value) return state
 
-  // Fast path 3: an empty draft. An empty textarea is one line, so its content
-  // height is bounded by the minimum box — the shrink probe below could only
-  // ever report `min`, whatever the box happens to be. Skip the whole measure
-  // pass: the probe writes `height` *before* it reads `scrollHeight`, and that
-  // write is what dirties the layout in the very frame the draft flush patches
-  // the DOM.
+  // Fast path 3: an empty draft that still needs normalising (a forced pass, or
+  // a box this module left taller than `min`). Its content height is bounded by
+  // the minimum box, so the shrink probe below could only ever report `min`,
+  // whatever the box happens to be. Skip the whole measure pass: the probe
+  // writes `height` *before* it reads `scrollHeight`, and that write is what
+  // dirties the layout in the very frame the draft flush patches the DOM.
   if (value === '') {
     // `state.height !== min` means this module wrote a taller height, so the
     // element is genuinely taller than an empty draft needs. A forced pass
@@ -153,6 +160,13 @@ export function resizeComposerTextarea(
     if (measured != null && Number.isFinite(measured)) {
       nextHeight = Math.min(Math.max(measured, min), max)
       overflowY = measured > max ? 'auto' : 'hidden'
+      // The guarded write below compares against the tracked height, and that
+      // record can be stale: an element that mounted taller than anything this
+      // module wrote (same hazard the empty-draft branch above bypasses).
+      // Nothing has been written this pass, so `box` is the element's real
+      // height — resync, or a measured shrink would be swallowed and the box
+      // would never come back down.
+      if (box !== state.height) state.height = box
     } else {
       // Fallback (no mirror available): the destructive probe. Shrink the box to
       // the minimum to read the real content height — one write, one read — then

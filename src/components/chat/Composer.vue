@@ -1511,8 +1511,9 @@ function onComposerInput() {
  * makes the flex algorithm ignore the JS `height` on the main axis, so the box
  * never appears to grow. Use `md:flex-none` (see template).
  *
- * `force` bypasses the single-line fast path (used when the textarea width
- * changes and soft-wraps may have appeared).
+ * `force` bypasses the unchanged-text fast path (used when the textarea width
+ * changes and soft-wraps may have appeared). A newline-free value is still
+ * measured: a long run wraps without a newline.
  *
  * The measure/write decisions live in `lib/composerTextareaResize` (unit-tested);
  * every style write there is guarded so a keystroke that leaves the height
@@ -1606,8 +1607,8 @@ function setupTextareaResizeObserver() {
     if (node.clientWidth === lastWidth) return
     lastWidth = node.clientWidth
     // Sidebar collapse / window resize changes wrap → re-measure height.
-    // force: width change can introduce soft wraps even for single-line text,
-    // which the fast path would otherwise skip.
+    // force: the text is unchanged, so the "already measured" path would skip
+    // a width change that introduces soft wraps.
     autoResize(true)
   })
   textareaResizeObserver.observe(el)

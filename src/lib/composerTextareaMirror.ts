@@ -22,8 +22,24 @@
  * contents, i.e. always 0 — the one number being measured.
  *
  * Measurement semantics match the probe it replaces: `scrollHeight` (and this
- * mirror) include padding and exclude the border, and the probe measured with
- * `overflow-y: hidden`, so no scrollbar gutter is part of the inline size.
+ * mirror) include padding and exclude the border.
+ *
+ * Two things decide where the text wraps, and both have to be right or the
+ * mirror under-counts lines (the box stops short and the last line is clipped
+ * at the bottom edge):
+ *
+ * 1. **Inline size.** The text lays out in the *padding box minus the scrollbar
+ *    gutter* — that is exactly `clientWidth`. `offsetWidth` is the border box
+ *    and still contains the gutter, so once `overflow-y: auto` shows a classic
+ *    (space-taking) scrollbar the mirror was a scrollbar wider than the
+ *    textarea, wrapped later, and reported one line too few.
+ * 2. **Break opportunity inside a run with no spaces.** A textarea soft-wraps a
+ *    pasted URL or a long CJK run at the padding edge as an engine default,
+ *    while `getComputedStyle` reports `overflow-wrap: normal` for it. Copying
+ *    that `normal` let the mirror lay the whole run out on one line. The mirror
+ *    therefore forces `overflow-wrap: break-word` (see
+ *    `composerMirrorStyleDeclarations`); wrapping *more* eagerly than the
+ *    textarea can cost one extra line, wrapping less loses a visible one.
  */
 
 /** Text-layout inputs copied from the textarea onto the mirror. */
@@ -61,6 +77,17 @@ export const COMPOSER_MIRROR_TEXT_PROPERTIES = [
 /** Zero-width space: forces a line box without contributing any width. */
 const MIRROR_LINE_SENTINEL = '\u200b'
 
+/**
+ * `overflow-wrap` the mirror always uses.
+ *
+ * `break-word` matches how a textarea breaks a run that has no break
+ * opportunity of its own (pasted URL, unspaced CJK) at the padding edge. It is
+ * forced rather than copied because the computed value of a textarea that does
+ * soft-wrap such runs is `normal` — the wrapping lives in engine behaviour, not
+ * in the cascaded value.
+ */
+const MIRROR_OVERFLOW_WRAP = 'break-word'
+
 /** The slice of a computed style the mirror needs. */
 export interface ComposerMirrorStyleSource {
   getPropertyValue(property: string): string
@@ -78,7 +105,13 @@ export function composerMirrorText(value: string): string {
   return value === '' || value.endsWith('\n') ? `${value}${MIRROR_LINE_SENTINEL}` : value
 }
 
-/** The inline size the text gets, in px (`clientWidth` is the padding box). */
+/**
+ * The inline size the text gets, in px.
+ *
+ * `paddingBoxWidth` must be the textarea's `clientWidth`: the padding box with
+ * any scrollbar gutter already removed. `offsetWidth` would include the gutter
+ * and make the mirror wrap too late (see the module comment).
+ */
 export function composerMirrorContentWidth(
   paddingBoxWidth: number,
   paddingLeft: number,
@@ -97,6 +130,13 @@ export function composerMirrorStyleDeclarations(
     const value = source.getPropertyValue(property)
     if (value) declarations[property] = value
   }
+  // Always explicit, never `normal`: a textarea breaks an unspaced run at the
+  // padding edge even though its computed `overflow-wrap` says `normal`.
+  // `anywhere` is at least as eager as `break-word`, so keep it when the CSS
+  // asks for it; anything else (including `normal`) becomes `break-word`.
+  const declaredWrap = declarations['overflow-wrap']
+  declarations['overflow-wrap'] =
+    declaredWrap === 'anywhere' ? declaredWrap : MIRROR_OVERFLOW_WRAP
   return declarations
 }
 
@@ -170,29 +210,30 @@ export function createComposerTextareaMirror(
     target.style.width = next
   }
 
-  function syncGeometry(target: HTMLDivElement, force: boolean): void {
-    // `offsetWidth` is the border box; the mirror's inline size is the content
-    // box, i.e. border box minus border minus padding. The probe measured with
-    // `overflow-y: hidden`, so no scrollbar gutter is part of it — `offsetWidth`
-    // already includes that gutter, which is what we want here. Re-reading the
+  function syncGeometry(target: HTMLDivElement, force: boolean): number {
+    // `clientWidth` is the padding box minus the scrollbar gutter — the inline
+    // size the text actually lays out in. `offsetWidth` (border box) still
+    // counts the gutter, which made the mirror wrap later than the textarea
+    // once `overflow-y: auto` showed a classic scrollbar. Re-reading the
     // computed style on every keystroke would flush style for the textarea, so
-    // it is cached per border-box width.
-    const borderBoxWidth = el.offsetWidth
-    const key = `${borderBoxWidth}`
+    // it is cached — keyed on `clientWidth`, because a scrollbar appearing or
+    // disappearing changes the width the text gets without changing the border
+    // box, and a stale key would hand back geometry for the wrong wrap width.
+    const paddingBoxWidth = el.clientWidth
+    const key = `${paddingBoxWidth}`
     if (!force && geometry && geometry.key === key) {
       applyWidth(target, geometry.width)
-      return
+      return geometry.width
     }
     const computed = typeof getComputedStyle === 'function' ? getComputedStyle(el) : null
     if (!computed) {
-      applyWidth(target, Math.max(0, borderBoxWidth))
-      return
+      const width = Math.max(0, paddingBoxWidth)
+      applyWidth(target, width)
+      return width
     }
     const declarations = composerMirrorStyleDeclarations(computed)
-    const borderWidth =
-      readPx(computed, 'border-left-width') + readPx(computed, 'border-right-width')
     const width = composerMirrorContentWidth(
-      borderBoxWidth - borderWidth,
+      paddingBoxWidth,
       readPx(computed, 'padding-left'),
       readPx(computed, 'padding-right')
     )
@@ -201,6 +242,7 @@ export function createComposerTextareaMirror(
     for (const [property, value] of Object.entries(declarations)) {
       target.style.setProperty(property, value)
     }
+    return width
   }
 
   return {
@@ -214,7 +256,11 @@ export function createComposerTextareaMirror(
         }
         return null
       }
-      syncGeometry(target, force)
+      const width = syncGeometry(target, force)
+      // A zero-width mirror does not lay text out the way the textarea does —
+      // it would report one line per character. Report "no measurement" so the
+      // caller falls back instead of growing the box to the cap.
+      if (!(width > 0)) return null
       target.textContent = composerMirrorText(value)
       const height = target.getBoundingClientRect().height
       if (!Number.isFinite(height) || height <= 0) return null

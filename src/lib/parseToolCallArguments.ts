@@ -4,7 +4,7 @@
  * complete value (common stream pollution like an extra `}`).
  */
 
-function stripOptionalCodeFence(raw: string): string {
+export function stripOptionalCodeFence(raw: string): string {
   const s = raw.trim()
   if (!s.startsWith('```')) return s
   const lines = s.split('\n')
@@ -132,4 +132,48 @@ export function parseToolCallArgumentsObject(
   } catch {
     return null
   }
+}
+
+export function isCompleteToolCallArguments(raw: string | undefined): boolean {
+  const cleaned = stripOptionalCodeFence(raw ?? '')
+  if (!cleaned) return false
+  return endOfFirstJsonValue(cleaned) != null
+}
+
+/**
+ * Stream-safe parse: **never** hands an incomplete payload to `JSON.parse`.
+ *
+ * `parseToolCallArguments` above is lenient about *trailing junk*, not about a
+ * value that is still arriving: `endOfFirstJsonValue` returns `null` for a half
+ * written object and the lenient path then re-parses the whole text only to
+ * throw. That throw is the `failed` counter in the render-perf HUD, and during a
+ * streamed tool call it fires on every render of a growing `arguments` string.
+ *
+ * So: pre-check completeness first. No complete value → `null`, no parse, no
+ * throw, no probe sample. A complete value → parse exactly the value (head only
+ * when junk follows), so a polluted payload also costs one successful parse
+ * instead of a failing one plus a retry.
+ */
+export function parseCompleteToolCallArgumentsValue(raw: string | undefined): unknown {
+  const cleaned = stripOptionalCodeFence(raw ?? '')
+  if (!cleaned) return null
+
+  const end = endOfFirstJsonValue(cleaned)
+  if (end == null) return null
+
+  const head = end < cleaned.length ? cleaned.slice(0, end).trimEnd() : cleaned
+  const parsed = tryJsonParse(head)
+  if (parsed === undefined) return null
+  return unwrapArgumentsLayers(parsed)
+}
+
+/** Object form of {@link parseCompleteToolCallArgumentsValue}; `null` when incomplete. */
+export function parseCompleteToolCallArgumentsObject(
+  raw: string | undefined
+): Record<string, unknown> | null {
+  const parsed = parseCompleteToolCallArgumentsValue(raw)
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    return parsed as Record<string, unknown>
+  }
+  return null
 }

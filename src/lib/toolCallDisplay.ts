@@ -1,7 +1,8 @@
 import type { ToolCall } from '../types/chat'
 import { t } from '../i18n'
-import { taskBoardPatchSummaryFromArgs, toolCallBaseName } from './messageTooling'
+import { taskBoardPatchSummaryFromParsedArgs, toolCallBaseName } from './messageTooling'
 import { toolCallShowsKindLabel } from './toolCallKindIcon'
+import { toolCallArguments } from './toolCallArguments'
 
 function strField(args: Record<string, unknown>, keys: string[]): string {
   for (const k of keys) {
@@ -11,16 +12,13 @@ function strField(args: Record<string, unknown>, keys: string[]): string {
   return ''
 }
 
-function parseToolArgs(argumentsJson: string | undefined): Record<string, unknown> {
-  if (!argumentsJson?.trim()) return {}
-  try {
-    const parsed = JSON.parse(argumentsJson)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {}
-  } catch {
-    return {}
-  }
+/**
+ * Args for display, parsed at most once per `(call, arguments)` — see
+ * `lib/toolCallArguments.ts`. `{}` while the payload is still streaming, which
+ * keeps every caller's "no args yet" branch working without a parse attempt.
+ */
+function parseToolArgs(tc: ToolCall): Record<string, unknown> {
+  return toolCallArguments(tc) ?? {}
 }
 
 function normalizeDisplayPath(path: string): string {
@@ -86,7 +84,7 @@ export function workspaceRelativeDisplayPathWithFallbacks(
 /** Extract the primary path shown beside a file-family tool call. */
 export function fileToolDisplayPath(tc: ToolCall, workspaceRoot?: string): string {
   if (!isFileTool(toolCallBaseName(tc.name))) return ''
-  const args = parseToolArgs(tc.arguments)
+  const args = parseToolArgs(tc)
   const path = strField(args, ['path', 'file', 'base'])
   return path ? workspaceRelativeDisplayPath(path, workspaceRoot) : ''
 }
@@ -100,7 +98,7 @@ function isSlugToolDisplayLabel(tc: ToolCall, backendLabel: string): boolean {
 /** Client fallback when backend display fields are missing (e.g. reloaded history). */
 export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summary: string } {
   const base = toolCallBaseName(tc.name)
-  const args = parseToolArgs(tc.arguments)
+  const args = parseToolArgs(tc)
 
   if (base === 'ask_user') {
     // Question is rendered once in AskUserOptions; keep the tool header label-only.
@@ -193,7 +191,7 @@ export function effectiveToolDisplaySummary(tc: ToolCall): string {
     }
   }
   if (resolved.summary) return truncateToolSummary(resolved.summary)
-  const fromArgs = taskBoardPatchSummaryFromArgs(tc.arguments)?.trim()
+  const fromArgs = taskBoardPatchSummaryFromParsedArgs(toolCallArguments(tc))?.trim()
   return fromArgs ? truncateToolSummary(fromArgs) : ''
 }
 
@@ -258,7 +256,8 @@ function looksLikeCronJobId(text: string): boolean {
 
 export type ToolSummaryIcon = 'explore' | 'search' | 'terminal' | 'edit'
 
-function resolveMethod(name: string, argumentsJson?: string): string {
+function resolveMethod(tc: ToolCall): string {
+  const name = tc.name
   const i = name.indexOf(':')
   if (i !== -1) {
     const m = name.slice(i + 1).trim()
@@ -271,15 +270,8 @@ function resolveMethod(name: string, argumentsJson?: string): string {
       if (m) return m
     }
   }
-  if (!argumentsJson?.trim()) return ''
-  try {
-    const args = JSON.parse(argumentsJson) as Record<string, unknown>
-    const method = args.method
-    if (typeof method === 'string' && method.trim()) return method.trim()
-  } catch {
-    /* ignore */
-  }
-  return ''
+  const method = toolCallArguments(tc)?.method
+  return typeof method === 'string' && method.trim() ? method.trim() : ''
 }
 
 /** Whether the raw tool name (or base) is a file-family tool. */
@@ -294,7 +286,7 @@ export function isToolCallInProgress(status: ToolCall['status']): boolean {
 export function isBackgroundSubagentCall(tc: ToolCall): boolean {
   if (toolCallBaseName(tc.name) !== 'run_subagent') return false
   if (isBackgroundJobHandleResult(tc.result)) return true
-  const args = parseToolArgs(tc.arguments)
+  const args = parseToolArgs(tc)
   if (args.background === true) return true
   if (args.background === false) return false
   const agentId = typeof args.agentId === 'string' ? args.agentId.trim().toLowerCase() : ''
@@ -303,7 +295,7 @@ export function isBackgroundSubagentCall(tc: ToolCall): boolean {
 
 export function isBackgroundTerminalCall(tc: ToolCall): boolean {
   if (toolCallBaseName(tc.name) !== 'terminal') return false
-  const args = parseToolArgs(tc.arguments)
+  const args = parseToolArgs(tc)
   const n = args.blockUntilMs
   return typeof n === 'number' && Number.isFinite(n) && n >= 0
 }
@@ -391,7 +383,7 @@ export function resolveBackgroundHostDisplayStatus(tc: ToolCall): ToolCall['stat
 /** Running `job` tool with action await (parent blocked on wait). */
 export function isJobAwaitCall(tc: ToolCall): boolean {
   if (toolCallBaseName(tc.name) !== 'job') return false
-  const args = parseToolArgs(tc.arguments)
+  const args = parseToolArgs(tc)
   const action = typeof args.action === 'string' ? args.action.trim() : ''
   return action === 'await'
 }
@@ -416,59 +408,53 @@ function addPathBasename(raw: string, into: Set<string>): void {
   if (base) into.add(base)
 }
 
-function collectEditFileBasenames(argumentsJson: string, into: Set<string>): void {
-  try {
-    const args = JSON.parse(argumentsJson) as Record<string, unknown>
-    const edits = args.edits
-    if (Array.isArray(edits)) {
-      for (const entry of edits) {
-        if (!entry || typeof entry !== 'object') continue
-        const row = entry as Record<string, unknown>
-        for (const key of ['path', 'file']) {
-          const v = row[key]
-          if (typeof v === 'string' && v.trim()) {
-            addPathBasename(v, into)
-            break
-          }
+function collectEditFileBasenames(tc: ToolCall, into: Set<string>): void {
+  const args = parseToolArgs(tc)
+  if (!Object.keys(args).length) return
+  const edits = args.edits
+  if (Array.isArray(edits)) {
+    for (const entry of edits) {
+      if (!entry || typeof entry !== 'object') continue
+      const row = entry as Record<string, unknown>
+      for (const key of ['path', 'file']) {
+        const v = row[key]
+        if (typeof v === 'string' && v.trim()) {
+          addPathBasename(v, into)
+          break
         }
       }
-      return
     }
-    if (typeof args.path === 'string' && args.path.trim()) {
-      addPathBasename(args.path, into)
-    }
-  } catch {
-    /* ignore */
+    return
+  }
+  if (typeof args.path === 'string' && args.path.trim()) {
+    addPathBasename(args.path, into)
   }
 }
 
-function collectReadFileBasenames(argumentsJson: string, into: Set<string>): void {
-  try {
-    const args = JSON.parse(argumentsJson) as Record<string, unknown>
-    const paths = args.paths
-    if (Array.isArray(paths)) {
-      for (const item of paths) {
-        if (typeof item === 'string' && item.trim()) {
-          addPathBasename(item, into)
-          continue
-        }
-        if (!item || typeof item !== 'object') continue
-        const row = item as Record<string, unknown>
-        for (const key of ['path', 'file']) {
-          const v = row[key]
-          if (typeof v === 'string' && v.trim()) {
-            addPathBasename(v, into)
-            break
-          }
+function collectReadFileBasenames(tc: ToolCall, into: Set<string>): void {
+  const args = parseToolArgs(tc)
+  if (!Object.keys(args).length) return
+  const paths = args.paths
+  if (Array.isArray(paths)) {
+    for (const item of paths) {
+      if (typeof item === 'string' && item.trim()) {
+        addPathBasename(item, into)
+        continue
+      }
+      if (!item || typeof item !== 'object') continue
+      const row = item as Record<string, unknown>
+      for (const key of ['path', 'file']) {
+        const v = row[key]
+        if (typeof v === 'string' && v.trim()) {
+          addPathBasename(v, into)
+          break
         }
       }
-      return
     }
-    if (typeof args.path === 'string' && args.path.trim()) addPathBasename(args.path, into)
-    if (typeof args.file === 'string' && args.file.trim()) addPathBasename(args.file, into)
-  } catch {
-    /* ignore */
+    return
   }
+  if (typeof args.path === 'string' && args.path.trim()) addPathBasename(args.path, into)
+  if (typeof args.file === 'string' && args.file.trim()) addPathBasename(args.file, into)
 }
 
 export interface FileChangeDiff {
@@ -516,8 +502,8 @@ function countContentLines(text: string): number {
   return parts[parts.length - 1] === '' ? Math.max(0, parts.length - 1) : parts.length
 }
 
-function writeAddsFromArgs(argumentsJson: string | undefined): number {
-  const args = parseToolArgs(argumentsJson ?? '')
+function writeAddsFromArgs(tc: ToolCall): number {
+  const args = parseToolArgs(tc)
   return typeof args.content === 'string' ? countContentLines(args.content) : 0
 }
 
@@ -580,7 +566,7 @@ function parseFileChangeResult(tc: ToolCall): FileChangeSummary | null {
 /** Parse the in-memory body, ignoring `bodyEvicted` (a stale flag can hide a fresh result). */
 function parseFileChangeFromBody(tc: ToolCall): FileChangeSummary | null {
   const base = toolCallBaseName(tc.name)
-  const method = resolveMethod(tc.name, tc.arguments)
+  const method = resolveMethod(tc)
   if (!isFileTool(base) || (method !== 'edit' && method !== 'write')) return null
   if (tc.status !== 'success' || !tc.result) return null
 
@@ -591,7 +577,7 @@ function parseFileChangeFromBody(tc: ToolCall): FileChangeSummary | null {
     const hasStats = result.stats != null || result.diff_stats != null
     let stats = parseStats(result.stats ?? result.diff_stats)
     if (!hasStats && method === 'write') {
-      stats = { adds: writeAddsFromArgs(tc.arguments), dels: 0 }
+      stats = { adds: writeAddsFromArgs(tc), dels: 0 }
     }
 
     const diffLines = Array.isArray(result.diff_lines)
@@ -676,7 +662,7 @@ export function buildToolGroupStats(tools: ToolCall[]): ToolGroupStats {
 
   for (const tc of tools) {
     const base = toolCallBaseName(tc.name)
-    const method = resolveMethod(tc.name, tc.arguments)
+    const method = resolveMethod(tc)
     if (base === 'terminal') {
       stats.terminal += 1
       continue
@@ -687,33 +673,25 @@ export function buildToolGroupStats(tools: ToolCall[]): ToolGroupStats {
     }
     if (isFileTool(base)) {
       if (isInProgress(tc.status) && method === 'edit') {
-        collectEditFileBasenames(tc.arguments, editingFileSet)
+        collectEditFileBasenames(tc, editingFileSet)
         continue
       }
       if (isInProgress(tc.status) && method === 'write') {
-        try {
-          const args = JSON.parse(tc.arguments || '{}') as Record<string, unknown>
-          const p = args.path ?? args.file
-          if (typeof p === 'string' && p.trim()) addPathBasename(p, editingFileSet)
-          else editingFileSet.add(`__write:${tc.id}`)
-        } catch {
-          editingFileSet.add(`__write:${tc.id}`)
-        }
+        const args = parseToolArgs(tc)
+        const p = args.path ?? args.file
+        if (typeof p === 'string' && p.trim()) addPathBasename(p, editingFileSet)
+        else editingFileSet.add(`__write:${tc.id}`)
         continue
       }
       if (method === 'write') {
-        try {
-          const args = JSON.parse(tc.arguments || '{}') as Record<string, unknown>
-          const p = args.path ?? args.file
-          if (typeof p === 'string' && p.trim()) addPathBasename(p, createdFileSet)
-          else createdFileSet.add(`__write:${tc.id}`)
-        } catch {
-          createdFileSet.add(`__write:${tc.id}`)
-        }
+        const args = parseToolArgs(tc)
+        const p = args.path ?? args.file
+        if (typeof p === 'string' && p.trim()) addPathBasename(p, createdFileSet)
+        else createdFileSet.add(`__write:${tc.id}`)
         continue
       }
       if (method === 'edit') {
-        collectEditFileBasenames(tc.arguments, editedFileSet)
+        collectEditFileBasenames(tc, editedFileSet)
         continue
       }
       if (method === 'glob' || method === 'grep') {
@@ -725,7 +703,7 @@ export function buildToolGroupStats(tools: ToolCall[]): ToolGroupStats {
         continue
       }
       if (method === 'read') {
-        collectReadFileBasenames(tc.arguments, readFileSet)
+        collectReadFileBasenames(tc, readFileSet)
         continue
       }
     }
@@ -784,7 +762,7 @@ export function toolGroupSummaryIcon(stats: ToolGroupStats): ToolSummaryIcon {
 
 export function toolRowMuted(tc: ToolCall): boolean {
   const base = toolCallBaseName(tc.name)
-  const method = resolveMethod(tc.name, tc.arguments)
+  const method = resolveMethod(tc)
   return isFileTool(base) && method === 'read' && !isInProgress(tc.status)
 }
 
@@ -1056,7 +1034,7 @@ function compactToolCallSummary(
   let summary = filePath
   if (!summary) summary = effectiveToolDisplaySummary(tc)
   if (!summary) {
-    summary = taskBoardPatchSummaryFromArgs(tc.arguments)?.trim() ?? ''
+    summary = taskBoardPatchSummaryFromParsedArgs(toolCallArguments(tc))?.trim() ?? ''
   }
   if (summary) {
     summary = filePath ? truncatePathKeepEnd(summary) : truncateToolSummary(summary)

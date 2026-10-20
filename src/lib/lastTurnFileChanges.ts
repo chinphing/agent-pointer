@@ -1,6 +1,7 @@
 import type { ChatMessage, ToolCall } from '../types/chat'
 import { buildFileChangeSummaries, type FileChangeSummary } from './toolCallDisplay'
 import { toolCallBaseName } from './messageTooling'
+import { toolCallArguments } from './toolCallArguments'
 import { isScopedSubMessage } from './subAgentMessages'
 import { isRealUserTaskMessage } from './threadLayoutGlue'
 
@@ -36,12 +37,10 @@ function pathFromToolCall(tc: ToolCall): string {
       }
     }
   }
-  try {
-    const args = JSON.parse(tc.arguments || '{}') as Record<string, unknown>
+  const args = toolCallArguments(tc)
+  if (args) {
     const path = pathFromUnknownRecord(args)
     if (path) return path
-  } catch {
-    /* ignore */
   }
   return ''
 }

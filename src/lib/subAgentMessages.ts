@@ -2,6 +2,7 @@ import type { AgentMessageBodyModel } from '../components/chat/message/assistant
 import type { AgentTrace, ChatMessage, Conversation, SubAgentToolStats, ToolCall } from '../types/chat'
 import { parseAskUserArgs } from './askUser'
 import { toolCallBaseName } from './messageTooling'
+import { toolCallArguments } from './toolCallArguments'
 import {
   emptySubAgentToolStats,
   incrementSubAgentToolStats,
@@ -483,11 +484,10 @@ function collectToolRawArgs(messages: ChatMessage[]): string {
       if (toolCallBaseName(tc.name) === 'response') continue
       let args = (tc.arguments ?? '').trim()
       if (args) {
-        try {
-          args = JSON.stringify(JSON.parse(args), null, 2)
-        } catch {
-          /* keep raw */
-        }
+        // Cached + completeness-checked: a streaming payload keeps its raw text
+        // instead of being parsed (and thrown away) on every render.
+        const parsed = toolCallArguments(tc)
+        if (parsed) args = JSON.stringify(parsed, null, 2)
       } else {
         args = '(empty)'
       }

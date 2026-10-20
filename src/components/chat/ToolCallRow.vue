@@ -25,7 +25,11 @@ import { openExternalUrl } from '../../lib/openExternalUrl'
 import { useMarkdownExternalLinks } from '../../composables/useMarkdownExternalLinks'
 import DiffView from './DiffView.vue'
 import AskUserOptions from './AskUserOptions.vue'
-import { parseToolCallArguments } from '../../lib/parseToolCallArguments'
+import {
+  isCompleteToolCallArguments,
+  parseCompleteToolCallArgumentsValue
+} from '../../lib/parseToolCallArguments'
+import { toolCallArguments } from '../../lib/toolCallArguments'
 import { computeDiffLines, fileEditSnippetFromArgs } from '../../lib/textDiff'
 
 
@@ -88,11 +92,9 @@ const isVideoGenerate = computed(() => props.toolCall.name === 'video_generate')
 
 const videoGenerateDuration = computed(() => {
   if (!isVideoGenerate.value) return null
-  try {
-    const args = JSON.parse(props.toolCall.arguments || '{}')
-    const dur = args.durationSeconds ?? args.duration_seconds
-    if (typeof dur === 'number' && dur > 0) return dur
-  } catch { /* ignore */ }
+  const args = toolCallArguments(props.toolCall)
+  const dur = args?.durationSeconds ?? args?.duration_seconds
+  if (typeof dur === 'number' && dur > 0) return dur
   return null
 })
 const boardSummary = computed(() => {
@@ -139,13 +141,7 @@ const showResults = computed(() => props.showToolCallResults === true)
 
 const terminalArgs = computed(() => {
   if (!isTerminal.value) return null
-  const text = props.toolCall.arguments?.trim()
-  if (!text) return null
-  try {
-    return JSON.parse(text) as { command?: string; elevated?: boolean }
-  } catch {
-    return null
-  }
+  return toolCallArguments(props.toolCall) as { command?: string; elevated?: boolean } | null
 })
 
 const terminalElevated = computed(
@@ -160,25 +156,24 @@ const terminalCommand = computed(() => {
   return text || ''
 })
 
+/**
+ * Raw args are shown while a call streams; a half written payload is **not** an
+ * error. Only a payload that already closes but still yields nothing is.
+ */
 const argsParseError = computed(() => {
   if (isTerminal.value) return ''
   const text = props.toolCall.arguments?.trim()
   if (!text) return ''
-  try {
-    parseToolCallArguments(text)
-    return ''
-  } catch (error) {
-    return error instanceof Error ? error.message : t('chat.json_a7e546')
-  }
+  if (!isCompleteToolCallArguments(text)) return ''
+  return parseCompleteToolCallArgumentsValue(text) === null ? t('chat.json_a7e546') : ''
 })
 
 const prettyArgs = computed(() => {
   if (isTerminal.value) return ''
   const text = props.toolCall.arguments?.trim()
   if (!text) return ''
-  try {
-    return JSON.stringify(parseToolCallArguments(text), null, 2)
-  } catch { return text }
+  const args = toolCallArguments(props.toolCall)
+  return args ? JSON.stringify(args, null, 2) : text
 })
 
 type TerminalResult = {
@@ -228,10 +223,9 @@ const webSearchQuery = computed(() => {
   if (!isWebSearch.value) return ''
   const text = props.toolCall.arguments?.trim()
   if (!text) return ''
-  try {
-    const parsed = JSON.parse(text)
-    return parsed.query || ''
-  } catch { return text }
+  const parsed = toolCallArguments(props.toolCall)
+  if (parsed) return typeof parsed.query === 'string' ? parsed.query : ''
+  return text
 })
 
 const webSearchOutput = computed(() => {

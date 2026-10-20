@@ -1,4 +1,8 @@
 import type { ChatMessage, ToolCall } from '../types/chat'
+import {
+  parseCompleteToolCallArgumentsObject,
+  parseCompleteToolCallArgumentsValue
+} from './parseToolCallArguments'
 
 export function toolCallBaseName(name: string): string {
   const i = name.indexOf(':')
@@ -146,34 +150,43 @@ export function isSidecarToolCall(fullName: string, baseName?: string): boolean 
   return name.startsWith('task_board') || base.startsWith('task_board')
 }
 
+/**
+ * `task_board` patch summary from **already parsed** args.
+ *
+ * Split from {@link taskBoardPatchSummaryFromArgs} so display call sites that
+ * already hold a `ToolCall` can reuse the cached parse instead of parsing the
+ * same `arguments` string again (see `lib/toolCallArguments.ts`).
+ */
+export function taskBoardPatchSummaryFromParsedArgs(
+  args: Record<string, unknown> | null
+): string | null {
+  if (!args) return null
+  const flatId = typeof args.item_id === 'string' ? args.item_id.trim() : typeof args.id === 'string' ? args.id.trim() : ''
+  const flatStatus = typeof args.status === 'string' ? args.status.trim() : ''
+  if (flatId && flatStatus) return `#${flatId} → ${flatStatus}`
+  if (flatId) return `#${flatId}`
+  const rawItems = args.items
+  let items: unknown[] | null = null
+  if (Array.isArray(rawItems)) items = rawItems
+  else if (typeof rawItems === 'string') {
+    const parsed = parseCompleteToolCallArgumentsValue(rawItems)
+    if (Array.isArray(parsed)) items = parsed
+  }
+  if (!items?.length) return null
+  if (items.length === 1) {
+    const row = items[0] as Record<string, unknown>
+    const id = String(row.id ?? row.item_id ?? '?').trim()
+    const status = typeof row.status === 'string' ? row.status.trim() : ''
+    return status ? `#${id} → ${status}` : `#${id}`
+  }
+  return `更新 · ${items.length} 行`
+}
+
 export function taskBoardPatchSummaryFromArgs(argumentsJson: string | undefined): string | null {
   if (!argumentsJson?.trim()) return null
-  try {
-    const args = JSON.parse(argumentsJson) as Record<string, unknown>
-    const flatId = typeof args.item_id === 'string' ? args.item_id.trim() : typeof args.id === 'string' ? args.id.trim() : ''
-    const flatStatus = typeof args.status === 'string' ? args.status.trim() : ''
-    if (flatId && flatStatus) return `#${flatId} → ${flatStatus}`
-    if (flatId) return `#${flatId}`
-    const rawItems = args.items
-    let items: unknown[] | null = null
-    if (Array.isArray(rawItems)) items = rawItems
-    else if (typeof rawItems === 'string') {
-      try {
-        const parsed = JSON.parse(rawItems)
-        if (Array.isArray(parsed)) items = parsed
-      } catch { /* ignore */ }
-    }
-    if (!items?.length) return null
-    if (items.length === 1) {
-      const row = items[0] as Record<string, unknown>
-      const id = String(row.id ?? row.item_id ?? '?').trim()
-      const status = typeof row.status === 'string' ? row.status.trim() : ''
-      return status ? `#${id} → ${status}` : `#${id}`
-    }
-    return `更新 · ${items.length} 行`
-  } catch {
-    return null
-  }
+  return taskBoardPatchSummaryFromParsedArgs(
+    parseCompleteToolCallArgumentsObject(argumentsJson)
+  )
 }
 
 export function taskBoardToolSummary(result: string | undefined): string | null {

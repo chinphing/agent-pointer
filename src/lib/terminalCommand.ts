@@ -1,12 +1,21 @@
-/** Parse `command` from terminal tool `arguments` JSON (or raw fallback). */
+import {
+  isCompleteToolCallArguments,
+  parseCompleteToolCallArgumentsObject
+} from './parseToolCallArguments'
+
+/**
+ * Parse `command` from terminal tool `arguments` JSON (or raw fallback).
+ *
+ * The raw fallback is what keeps a half streamed payload readable: an incomplete
+ * `arguments` string is shown as-is instead of being parsed (and thrown away).
+ */
 export function parseTerminalCommandFromArgs(argumentsJson: string): string {
   const text = argumentsJson?.trim()
   if (!text) return ''
-  try {
-    const parsed = JSON.parse(text) as { command?: unknown }
-    if (typeof parsed.command === 'string') return parsed.command.trim()
-  } catch {
-    return text
+  const args = parseCompleteToolCallArgumentsObject(text)
+  if (!args) {
+    // Half written (or not an object): keep the old "parse failed → raw" path.
+    return isCompleteToolCallArguments(text) ? '' : text
   }
-  return ''
+  return typeof args.command === 'string' ? args.command.trim() : ''
 }

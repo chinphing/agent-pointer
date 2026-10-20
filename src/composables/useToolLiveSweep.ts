@@ -1,8 +1,11 @@
 import { nextTick, onBeforeUnmount, ref, watch, type Ref } from 'vue'
-import { toolLiveSweepDuration } from '../lib/toolLiveSweep'
+import { TOOL_LIVE_SWEEP_MAX_SEC, toolLiveSweepDuration } from '../lib/toolLiveSweep'
+
+/** Unmeasured / inactive fallback — the slowest the sweep is allowed to run. */
+const FALLBACK_DURATION = `${TOOL_LIVE_SWEEP_MAX_SEC}s`
 
 /**
- * Bind `--tool-live-sweep` from the visible text box width (cap 6s).
+ * Bind `--tool-live-sweep` from the visible text box width (cap `TOOL_LIVE_SWEEP_MAX_SEC`).
  *
  * The watcher keys on the element and the active flag only — **not** on the text.
  * Streaming text used to re-key it, so every chunk tore down the `ResizeObserver`,
@@ -13,14 +16,14 @@ export function useToolLiveSweep(
   el: Ref<HTMLElement | null | undefined>,
   active: () => boolean
 ) {
-  const duration = ref('6s')
+  const duration = ref(FALLBACK_DURATION)
   const boxPx = ref(0)
   let ro: ResizeObserver | null = null
 
   function measure() {
     const node = el.value
     if (!node || !active()) {
-      duration.value = '6s'
+      duration.value = FALLBACK_DURATION
       boxPx.value = 0
       return
     }
@@ -39,7 +42,7 @@ export function useToolLiveSweep(
     async ([node, on]) => {
       disconnect()
       if (!on || !node) {
-        duration.value = '6s'
+        duration.value = FALLBACK_DURATION
         boxPx.value = 0
         return
       }

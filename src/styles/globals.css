@@ -31,8 +31,11 @@
     --mermaid-node: 0 0% 100%;
     --mermaid-node-border: 240 8% 82%;
     --mermaid-edge: 240 6% 68%;
-    /* Light: stronger lift above --muted; keep a bit of ink so it does not vanish. */
-    --tool-live-shimmer: 240 5% 80%;
+    /* Peak = --foreground in both themes; the sweep highlights by contrast,
+       never by hue (grayscale only). Light has no headroom above --muted (42%)
+       to lift the glyph — silver 80% was only 1.6:1 on the white canvas — so the
+       peak pushes down to body ink: 3.2:1 against --muted, 17.7:1 on white. */
+    --tool-live-shimmer: 240 6% 10%;
   }
 
   html.dark {
@@ -535,7 +538,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* Moving window over a brighter glyph copy (same look as clip-to-text,
+  /* Moving window over a peak-contrast glyph copy (same look as clip-to-text,
      but only transform — no background-clip animation). */
   .tool-live-pulse {
     position: relative;
@@ -547,18 +550,22 @@
     white-space: nowrap;
     vertical-align: bottom;
   }
+  /* Window is 3.6em wide and travels the measured text box plus its own width,
+     so the sweep is on screen for the whole cycle (was a fixed 51em run: short
+     labels sat dark for ~3/4 of every loop). 4.4em was tried first and swallowed
+     a short label whole, so the band read as a recolor rather than a sweep. */
   .tool-live-pulse-clip {
     position: absolute;
     top: 0;
     bottom: 0;
     left: 0;
-    width: 2.6em;
+    width: 3.6em;
     overflow: hidden;
     pointer-events: none;
-    mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
-    -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
-    transform: translate3d(-3em, 0, 0) skewX(-22deg);
-    animation: tool-live-shimmer-clip var(--tool-live-sweep, 6s) linear infinite;
+    mask-image: linear-gradient(90deg, transparent, #000 20%, #000 80%, transparent);
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 20%, #000 80%, transparent);
+    transform: translate3d(-3.6em, 0, 0) skewX(-22deg);
+    animation: tool-live-shimmer-clip var(--tool-live-sweep, 3.4s) linear infinite;
   }
   .tool-live-pulse-sheen {
     position: absolute;
@@ -570,16 +577,18 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     direction: inherit;
-    transform: skewX(22deg) translate3d(3em, 0, 0);
-    animation: tool-live-shimmer-sheen var(--tool-live-sweep, 6s) linear infinite;
+    transform: skewX(22deg) translate3d(3.6em, 0, 0);
+    animation: tool-live-shimmer-sheen var(--tool-live-sweep, 3.4s) linear infinite;
   }
+  /* Sheen offset mirrors the clip offset at every instant (same magnitude,
+     opposite sign) so the glyph copy stays pinned to the base text. */
   @keyframes tool-live-shimmer-clip {
-    from { transform: translate3d(-3em, 0, 0) skewX(-22deg); }
-    to { transform: translate3d(48em, 0, 0) skewX(-22deg); }
+    from { transform: translate3d(-3.6em, 0, 0) skewX(-22deg); }
+    to { transform: translate3d(var(--tool-live-box, 24em), 0, 0) skewX(-22deg); }
   }
   @keyframes tool-live-shimmer-sheen {
-    from { transform: skewX(22deg) translate3d(3em, 0, 0); }
-    to { transform: skewX(22deg) translate3d(-48em, 0, 0); }
+    from { transform: skewX(22deg) translate3d(3.6em, 0, 0); }
+    to { transform: skewX(22deg) translate3d(calc(-1 * var(--tool-live-box, 24em)), 0, 0); }
   }
   .collapsed-run-live-departing {
     animation: collapsed-run-push-out 500ms ease forwards;

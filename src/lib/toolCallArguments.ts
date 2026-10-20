@@ -21,21 +21,28 @@
  * parseCompleteToolCallArgumentsObject} pre-checks with
  * `endOfFirstJsonValue` and returns `null`, which is what removes the throws
  * (and the `failed` counter) from the streaming window.
+ *
+ * The cache itself is the shared `(call object, field, raw string)` store in
+ * `lib/toolCallFieldCache.ts` — the same primitive backs `result` reads in
+ * `lib/toolCallResult.ts`, so the invalidation rules only exist once.
  */
 
 import type { ToolCall } from '../types/chat'
 import { parseCompleteToolCallArgumentsObject } from './parseToolCallArguments'
+import { readCachedField, resetToolCallFieldCache, type FieldParse } from './toolCallFieldCache'
 
-interface ArgsCacheEntry {
-  raw: string
-  parsed: Record<string, unknown> | null
+/** Stable parser reference — `readCachedField` must not allocate a closure per read. */
+function parseArguments(raw: string): FieldParse<Record<string, unknown> | null> {
+  const value = parseCompleteToolCallArgumentsObject(raw)
+  return { ok: value !== null, value }
 }
 
-let cache = new WeakMap<object, ArgsCacheEntry>()
-
-/** Test-only: drop every cached entry (a `WeakMap` cannot be cleared in place). */
+/**
+ * Test-only: drop every cached entry — `arguments` here and `result` in
+ * `lib/toolCallResult.ts`, since both live in one store.
+ */
 export function resetToolCallArgumentsCache(): void {
-  cache = new WeakMap()
+  resetToolCallFieldCache()
 }
 
 /**
@@ -50,11 +57,5 @@ export function toolCallArguments(
 ): Record<string, unknown> | null {
   if (!tc || typeof tc !== 'object') return null
   const raw = typeof tc.arguments === 'string' ? tc.arguments : ''
-
-  const hit = cache.get(tc as object)
-  if (hit && hit.raw === raw) return hit.parsed
-
-  const parsed = parseCompleteToolCallArgumentsObject(raw)
-  cache.set(tc as object, { raw, parsed })
-  return parsed
+  return readCachedField(tc, 'arguments', raw, parseArguments).value
 }

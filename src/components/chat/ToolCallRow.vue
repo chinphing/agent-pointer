@@ -30,6 +30,7 @@ import {
   parseCompleteToolCallArgumentsValue
 } from '../../lib/parseToolCallArguments'
 import { toolCallArguments } from '../../lib/toolCallArguments'
+import { toolCallResultJson, toolCallResultObject } from '../../lib/toolCallResult'
 import { computeDiffLines, fileEditSnippetFromArgs } from '../../lib/textDiff'
 
 
@@ -102,7 +103,7 @@ const boardSummary = computed(() => {
   const name = props.toolCall.name
   const base = name.indexOf(':') === -1 ? name : name.slice(0, name.indexOf(':'))
   if (!base.startsWith('task_board')) return null
-  return taskBoardToolSummary(props.toolCall.result)
+  return taskBoardToolSummary(props.toolCall)
 })
 
 const displayLabel = computed(() => effectiveToolDisplayLabel(props.toolCall))
@@ -188,12 +189,11 @@ type TerminalResult = {
 
 const terminalResult = computed<TerminalResult | null>(() => {
   if (!isTerminal.value || !props.toolCall.result) return null
-  if (isBackgroundJobHandleResult(props.toolCall.result)) return null
-  try {
-    return JSON.parse(props.toolCall.result) as TerminalResult
-  } catch {
-    return { stdout: props.toolCall.result }
-  }
+  if (isBackgroundJobHandleResult(props.toolCall)) return null
+  const parsed = toolCallResultJson(props.toolCall)
+  // Not JSON at all: show the raw text as stdout, as the old `catch` did.
+  if (!parsed.ok) return { stdout: props.toolCall.result }
+  return parsed.value as TerminalResult | null
 })
 
 const terminalOutput = computed(() => {
@@ -231,19 +231,13 @@ const webSearchQuery = computed(() => {
 const webSearchOutput = computed(() => {
   if (!isWebSearch.value) return ''
   if (props.toolCall.result && effectiveStatus.value === 'success') {
-    try {
-      const parsed = JSON.parse(props.toolCall.result)
-      if (typeof parsed.answer === 'string' && parsed.answer.trim()) return parsed.answer
-    } catch { /* fall through */ }
+    const parsed = toolCallResultObject(props.toolCall)
+    if (typeof parsed?.answer === 'string' && parsed.answer.trim()) return parsed.answer
   }
   if (props.toolCall.webSearchOutput) return props.toolCall.webSearchOutput
   if (!props.toolCall.result) return ''
-  try {
-    const parsed = JSON.parse(props.toolCall.result)
-    return typeof parsed.answer === 'string' ? parsed.answer : ''
-  } catch {
-    return ''
-  }
+  const parsed = toolCallResultObject(props.toolCall)
+  return typeof parsed?.answer === 'string' ? parsed.answer : ''
 })
 
 const webSearchAnswerRef = ref<HTMLElement | null>(null)
@@ -268,19 +262,15 @@ function sourceSiteLabel(source: WebSearchSourceEntry): string {
 const webSearchSources = computed((): WebSearchSourceEntry[] => {
   if (props.toolCall.webSearchSources?.length) return props.toolCall.webSearchSources
   if (!isWebSearch.value || !props.toolCall.result) return []
-  try {
-    const parsed = JSON.parse(props.toolCall.result) as { sources?: unknown }
-    if (!Array.isArray(parsed.sources)) return []
-    return parsed.sources.filter(
-      (item): item is WebSearchSourceEntry =>
-        !!item
-        && typeof item === 'object'
-        && typeof (item as WebSearchSourceEntry).index === 'number'
-        && typeof (item as WebSearchSourceEntry).url === 'string'
-    )
-  } catch {
-    return []
-  }
+  const parsed = toolCallResultObject(props.toolCall) as { sources?: unknown } | null
+  if (!Array.isArray(parsed?.sources)) return []
+  return parsed.sources.filter(
+    (item): item is WebSearchSourceEntry =>
+      !!item
+      && typeof item === 'object'
+      && typeof (item as WebSearchSourceEntry).index === 'number'
+      && typeof (item as WebSearchSourceEntry).url === 'string'
+  )
 })
 
 const webSearchSourcesView = computed(() =>
@@ -300,11 +290,7 @@ type FileMutateResult = {
 const fileMutateResult = computed<FileMutateResult | null>(() => {
   if (!isFileEdit.value && !isFileWrite.value) return null
   if (!props.toolCall.result) return null
-  try {
-    return JSON.parse(props.toolCall.result) as FileMutateResult
-  } catch {
-    return null
-  }
+  return toolCallResultObject(props.toolCall) as FileMutateResult | null
 })
 
 const fileEditSnippetDiff = computed(() => {
@@ -335,13 +321,9 @@ const statusInfo = computed(() => {
     case 'running': return { label: isBackgroundJobHost(props.toolCall) ? t('tools.backgroundRunning') : t('tools.running'), color: 'text-accent' }
     case 'success': {
       if (isJobAwaitCall(props.toolCall)) {
-        try {
-          const parsed = JSON.parse(props.toolCall.result || '') as { reason?: string }
-          if (parsed.reason === 'wait_ended') {
-            return { label: t('chat.s_d5c0ce'), color: 'text-muted' }
-          }
-        } catch {
-          /* ignore */
+        const parsed = toolCallResultObject(props.toolCall) as { reason?: string } | null
+        if (parsed?.reason === 'wait_ended') {
+          return { label: t('chat.s_d5c0ce'), color: 'text-muted' }
         }
       }
       return { label: isBackgroundSubagentCall(props.toolCall) ? t('chat.s_fad522') : t('common.success'), color: 'text-success' }
@@ -555,7 +537,7 @@ function openSourceUrl(url: string) {
           </div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground font-mono max-h-64">{{ terminalCommand || '—' }}</pre>
         </div>
-        <div v-if="showResults && (toolCall.terminalOutput || (toolCall.result && !isBackgroundJobHandleResult(toolCall.result)))">
+        <div v-if="showResults && (toolCall.terminalOutput || (toolCall.result && !isBackgroundJobHandleResult(toolCall)))">
           <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-muted mb-1">
             <span>{{ t('chat.s_c308cb') }}</span>
             <span v-if="terminalMeta" class="normal-case tracking-normal">{{ terminalMeta }}</span>
@@ -622,7 +604,7 @@ function openSourceUrl(url: string) {
           <div v-if="argsParseError" class="text-[11px] text-danger mb-1 break-words">{{ argsParseError }}</div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground">{{ prettyArgs || '—' }}</pre>
         </div>
-        <div v-if="showResults && toolCall.result && !isBackgroundSubagentCall(toolCall) && !isBackgroundJobHandleResult(toolCall.result)">
+        <div v-if="showResults && toolCall.result && !isBackgroundSubagentCall(toolCall) && !isBackgroundJobHandleResult(toolCall)">
           <div class="text-[10px] uppercase tracking-wider text-muted mb-1">{{ t('chat.s_5ad7f5') }}</div>
           <pre class="text-[12px] bg-[hsl(var(--code-bg))] rounded-lg p-2.5 border border-border overflow-x-auto text-foreground max-h-48">{{ toolCall.result }}</pre>
         </div>

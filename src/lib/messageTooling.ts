@@ -3,6 +3,11 @@ import {
   parseCompleteToolCallArgumentsObject,
   parseCompleteToolCallArgumentsValue
 } from './parseToolCallArguments'
+import {
+  toolCallResultJson,
+  toolCallResultRaw,
+  type ToolCallResultSource
+} from './toolCallResult'
 
 export function toolCallBaseName(name: string): string {
   const i = name.indexOf(':')
@@ -189,17 +194,19 @@ export function taskBoardPatchSummaryFromArgs(argumentsJson: string | undefined)
   )
 }
 
-export function taskBoardToolSummary(result: string | undefined): string | null {
-  if (!result?.trim()) return null
+export function taskBoardToolSummary(source: ToolCallResultSource): string | null {
+  if (!toolCallResultRaw(source).trim()) return null
   try {
-    const parsed = JSON.parse(result) as {
+    const parsed = toolCallResultJson(source)
+    if (!parsed.ok) return '任务板已更新'
+    const result = parsed.value as {
       method?: string
       board_len?: number
       patched?: Array<{ id?: string; status?: string }>
       summary?: { method?: string; count?: number }
       document?: { board?: unknown[]; global_milestones?: unknown[] }
     }
-    const patched = parsed.patched
+    const patched = result.patched
     if (Array.isArray(patched) && patched.length === 1) {
       const row = patched[0]
       const id = row?.id ?? '?'
@@ -211,18 +218,18 @@ export function taskBoardToolSummary(result: string | undefined): string | null 
       return `patch · ${patched.length} 行`
     }
     const boardLen =
-      parsed.board_len
-      ?? parsed.document?.global_milestones?.length
-      ?? parsed.document?.board?.length
-      ?? parsed.summary?.count
+      result.board_len
+      ?? result.document?.global_milestones?.length
+      ?? result.document?.board?.length
+      ?? result.summary?.count
     if (typeof boardLen === 'number') return `共 ${boardLen} 里程碑`
     // 只有 JSON 里确实出现任务板相关字段才生成摘要；否则（如 ask_user 的
     // {"selected": ...}）返回 null，避免把任意工具 result 误显示成"任务板 · …"。
     const hasBoardShape =
-      typeof parsed.method === 'string'
-      || typeof parsed.summary?.method === 'string'
+      typeof result.method === 'string'
+      || typeof result.summary?.method === 'string'
     if (!hasBoardShape) return null
-    const method = parsed.method ?? parsed.summary?.method ?? 'update'
+    const method = result.method ?? result.summary?.method ?? 'update'
     return `任务板 · ${method}`
   } catch {
     return '任务板已更新'

@@ -3,6 +3,7 @@ import { t } from '../i18n'
 import { taskBoardPatchSummaryFromParsedArgs, toolCallBaseName } from './messageTooling'
 import { toolCallShowsKindLabel } from './toolCallKindIcon'
 import { toolCallArguments } from './toolCallArguments'
+import { toolCallResultJson, toolCallResultObject, type ToolCallResultSource } from './toolCallResult'
 
 function strField(args: Record<string, unknown>, keys: string[]): string {
   for (const k of keys) {
@@ -285,7 +286,7 @@ export function isToolCallInProgress(status: ToolCall['status']): boolean {
 
 export function isBackgroundSubagentCall(tc: ToolCall): boolean {
   if (toolCallBaseName(tc.name) !== 'run_subagent') return false
-  if (isBackgroundJobHandleResult(tc.result)) return true
+  if (isBackgroundJobHandleResult(tc)) return true
   const args = parseToolArgs(tc)
   if (args.background === true) return true
   if (args.background === false) return false
@@ -304,55 +305,54 @@ export function isBackgroundJobHost(tc: ToolCall): boolean {
   return isBackgroundSubagentCall(tc) || isBackgroundTerminalCall(tc)
 }
 
-/** Job handle JSON — not worker Markdown, terminal stdout, or `job.status` snapshots.
+/**
+ * Job handle JSON — not worker Markdown, terminal stdout, or `job.status` snapshots.
  *  List/status items always include `claimed`; spawn receipts do not.
+ *
+ *  Accepts the tool call (cached, preferred) or a bare result string (parsed per
+ *  call — see `lib/toolCallResult.ts` for why strings are not cached).
  */
-export function isBackgroundJobHandleResult(result?: string | null): boolean {
-  if (!result?.trim()) return false
-  try {
-    const v = JSON.parse(result) as Record<string, unknown>
-    const jobId = typeof v.jobId === 'string' ? v.jobId.trim() : ''
-    const kind = typeof v.kind === 'string' ? v.kind.trim() : ''
-    return (
-      jobId.length > 0
-      && (kind === 'subagent' || kind === 'terminal')
-      && v.claimed === undefined
-      && v.stdout === undefined
-      && v.exitCode === undefined
-      && v.content === undefined
-    )
-  } catch {
-    return false
-  }
+export function isBackgroundJobHandleResult(source?: ToolCallResultSource): boolean {
+  return backgroundHandleResultRow(source) !== null
+}
+
+/** The handle row itself, so the helpers below share one parse. */
+function backgroundHandleResultRow(
+  source: ToolCallResultSource
+): Record<string, unknown> | null {
+  const v = toolCallResultObject(source)
+  if (!v) return null
+  const jobId = typeof v.jobId === 'string' ? v.jobId.trim() : ''
+  const kind = typeof v.kind === 'string' ? v.kind.trim() : ''
+  const isHandle =
+    jobId.length > 0
+    && (kind === 'subagent' || kind === 'terminal')
+    && v.claimed === undefined
+    && v.stdout === undefined
+    && v.exitCode === undefined
+    && v.content === undefined
+  return isHandle ? v : null
 }
 
 /** Job id from a background host handle result, if present. */
 export function backgroundJobIdFromToolCall(tc: ToolCall): string | null {
-  if (!tc.result?.trim()) return null
-  try {
-    const v = JSON.parse(tc.result) as Record<string, unknown>
-    const jobId = typeof v.jobId === 'string' ? v.jobId.trim() : ''
-    return jobId.length > 0 ? jobId : null
-  } catch {
-    return null
-  }
+  const v = toolCallResultObject(tc)
+  if (!v) return null
+  const jobId = typeof v.jobId === 'string' ? v.jobId.trim() : ''
+  return jobId.length > 0 ? jobId : null
 }
 
 /** Handle JSON `status` field (`running` / `completed` / …), if present. */
-export function backgroundHandleStatus(result?: string | null): string | null {
-  if (!isBackgroundJobHandleResult(result)) return null
-  try {
-    const v = JSON.parse(result!) as Record<string, unknown>
-    const status = typeof v.status === 'string' ? v.status.trim().toLowerCase() : ''
-    return status || null
-  } catch {
-    return null
-  }
+export function backgroundHandleStatus(source?: ToolCallResultSource): string | null {
+  const row = backgroundHandleResultRow(source)
+  if (!row) return null
+  const status = typeof row.status === 'string' ? row.status.trim().toLowerCase() : ''
+  return status || null
 }
 
 /** True while the handle still claims the job is active (not terminal). */
-export function isBackgroundHandleInProgress(result?: string | null): boolean {
-  const status = backgroundHandleStatus(result)
+export function isBackgroundHandleInProgress(source?: ToolCallResultSource): boolean {
+  const status = backgroundHandleStatus(source)
   return status === 'running' || status === 'queued'
 }
 
@@ -361,7 +361,7 @@ export function isLiveBackgroundHostTool(tc: ToolCall): boolean {
   if (!isBackgroundJobHost(tc)) return false
   if (tc.status === 'failed' || tc.status === 'rejected') return false
   if (isToolCallInProgress(tc.status)) return true
-  if (tc.status === 'success' && isBackgroundHandleInProgress(tc.result)) return true
+  if (tc.status === 'success' && isBackgroundHandleInProgress(tc)) return true
   return false
 }
 
@@ -372,7 +372,7 @@ export function isLiveBackgroundHostTool(tc: ToolCall): boolean {
 export function resolveBackgroundHostDisplayStatus(tc: ToolCall): ToolCall['status'] {
   if (!isBackgroundJobHost(tc)) return tc.status
   if (isLiveBackgroundHostTool(tc)) return 'running'
-  const handleStatus = backgroundHandleStatus(tc.result)
+  const handleStatus = backgroundHandleStatus(tc)
   if (handleStatus === 'completed') return 'success'
   if (handleStatus === 'failed' || handleStatus === 'cancelled' || handleStatus === 'canceled') {
     return 'failed'
@@ -571,7 +571,9 @@ function parseFileChangeFromBody(tc: ToolCall): FileChangeSummary | null {
   if (tc.status !== 'success' || !tc.result) return null
 
   try {
-    const result = JSON.parse(tc.result) as RawFileChangeResult
+    const parsed = toolCallResultJson(tc)
+    if (!parsed.ok) return null
+    const result = parsed.value as RawFileChangeResult
     if (result.success !== true || typeof result.path !== 'string' || !result.path.trim()) return null
     const path = result.path.trim()
     const hasStats = result.stats != null || result.diff_stats != null

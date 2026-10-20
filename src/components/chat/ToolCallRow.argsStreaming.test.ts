@@ -30,12 +30,12 @@ vi.mock('../../stores/chat', () => ({
 const mountedApps: Array<ReturnType<typeof createApp>> = []
 
 /** Reactive props, so a streamed `arguments` update re-renders the row like the store does. */
-function mountRow(toolCall: ToolCall) {
+function mountRow(toolCall: ToolCall, showResults = false) {
   const host = document.createElement('div')
   document.body.append(host)
   const app = createApp(ToolCallRow, {
     toolCall: reactive(toolCall),
-    showToolCallResults: false
+    showToolCallResults: showResults
   })
   app.use(i18n)
   mountedApps.push(app)
@@ -132,5 +132,67 @@ describe('ToolCallRow while arguments stream', () => {
     // The row is bound to a live store object, so the path chip appears on the
     // next render — that is the "闭合瞬间出现" behavior.
     expect(host.textContent).toContain('src/lib/big.ts')
+  })
+})
+
+describe('ToolCallRow result reads', () => {
+  /** The exact result string, so other parses on the page never count. */
+  function countParses(spy: { mock: { calls: unknown[][] } }, result: string): number {
+    return parsedInputs(spy).filter(text => text === result).length
+  }
+
+  it('parses a finished terminal result once and never again on re-render', async () => {
+    const result = JSON.stringify({ stdout: 'RESULT-CACHE-MARKER', stderr: '', exitCode: 0 })
+    const finished: ToolCall = {
+      id: 'tc-result',
+      name: 'terminal',
+      status: 'success',
+      arguments: '{"command":"echo hi"}',
+      result
+    }
+
+    const parseSpy = vi.spyOn(JSON, 'parse')
+    const host = mountRow(finished, true)
+    await flush()
+
+    // Header status + result block + terminal meta all read the same result.
+    expect(countParses(parseSpy, result)).toBe(1)
+
+    header(host).click()
+    await flush()
+
+    expect(host.textContent).toContain('exit 0')
+    expect(host.textContent).toContain('RESULT-CACHE-MARKER')
+
+    header(host).click()
+    await flush()
+
+    // Expanding/collapsing re-renders the row: the cached value is reused.
+    expect(countParses(parseSpy, result)).toBe(1)
+  })
+
+  it('parses a finished background handle once across header, job id and status', async () => {
+    const result = JSON.stringify({
+      jobId: 'job_row',
+      kind: 'terminal',
+      status: 'running',
+      blockUntilMs: 0
+    })
+    const hostRow: ToolCall = {
+      id: 'tc-handle',
+      name: 'terminal',
+      status: 'success',
+      arguments: '{"command":"find /","blockUntilMs":0}',
+      result
+    }
+
+    const parseSpy = vi.spyOn(JSON, 'parse')
+    const host = mountRow(hostRow, true)
+    await flush()
+
+    expect(countParses(parseSpy, result)).toBe(1)
+    // Still a live handle: the row shows 「后台执行中」 and keeps the cancel action.
+    expect(host.textContent).toContain('后台执行中')
+    expect(host.querySelector('.tool-call-trigger')).not.toBeNull()
   })
 })

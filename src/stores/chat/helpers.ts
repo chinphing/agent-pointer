@@ -470,7 +470,7 @@ export function repairBackgroundHostsFromChildOutcomes(conv: Conversation): numb
     bindUnboundTracesToHosts(msg)
     for (const tc of msg.toolCalls ?? []) {
       if (!isLiveBackgroundHost(tc)) continue
-      if (isBackgroundHandleInProgress(tc.result)) continue
+      if (isBackgroundHandleInProgress(tc)) continue
       const kids = tracesForHost(msg, tc.id)
       if (kids.length === 0) continue
       if (!kids.every(t => isSubAgentTraceTerminal(t.status))) continue
@@ -540,7 +540,7 @@ function finalizeStuckToolCallsList(toolCalls: ToolCall[] | undefined): void {
       continue
     }
     if (isLiveBackgroundHost(tc)) continue
-    if (isBackgroundJobHost(tc) && isBackgroundHandleInProgress(tc.result)) continue
+    if (isBackgroundJobHost(tc) && isBackgroundHandleInProgress(tc)) continue
     if (tc.status === 'pending_approval') {
       tc.status = 'rejected'
       continue
@@ -684,7 +684,7 @@ export function finalizeOrphanBackgroundHosts(conv: Conversation): number {
     let changed = 0
     for (const tc of msg.toolCalls ?? []) {
       if (!isLiveBackgroundHost(tc)) continue
-      const handleStatus = backgroundHandleStatus(tc.result)
+      const handleStatus = backgroundHandleStatus(tc)
       if (handleStatus === 'completed') {
         tc.status = 'success'
         tc.error = undefined

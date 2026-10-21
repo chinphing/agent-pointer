@@ -366,7 +366,7 @@ const {
               <div class="flex items-center gap-2">
                 <select
                   :value="computerPipelineLocateValue()"
-                  class="h-8 flex-1 min-w-0 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                  class="h-8 w-[8.5rem] px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                   @change="selectComputerPipelineLocate(($event.target as HTMLSelectElement).value)"
                 >
                   <option value="">{{ t('settings.agentPanel.locateInherit') }}</option>
@@ -390,7 +390,7 @@ const {
               <div class="flex items-center gap-2">
                 <select
                   :value="computerPipelineVerifyValue()"
-                  class="h-8 flex-1 min-w-0 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                  class="h-8 w-[8.5rem] px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                   @change="selectComputerPipelineVerify(($event.target as HTMLSelectElement).value)"
                 >
                   <option v-for="item in s.allModels" :key="'verify-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>

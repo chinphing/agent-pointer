@@ -50,6 +50,10 @@ const {
   PERFORMANCE_MODE_HELP,
   MEDIA_MODE_USER_ROWS,
   PERFORMANCE_MODE_UI,
+  computerPipelineLocateValue,
+  computerPipelineVerifyValue,
+  selectComputerPipelineLocate,
+  selectComputerPipelineVerify,
   enabledWorkers,
   agentPerformanceModesLocal,
   mediaUnderstandingModesLocal,
@@ -207,6 +211,31 @@ const {
                   <SlidersHorizontal class="w-3 h-3" />
                   {{ t('settings.assistant.models') }}
                 </button>
+            </div>
+            <div class="space-y-1.5 pt-1">
+              <div class="grid grid-cols-[3.5rem_1fr] gap-2 items-center">
+                <span class="text-[11px] text-muted">{{ t('settings.agentPanel.locateDebug') }}</span>
+                <select
+                  :value="computerPipelineLocateValue()"
+                  class="h-7 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
+                  :title="t('settings.agentPanel.locateHint')"
+                  @change="selectComputerPipelineLocate(($event.target as HTMLSelectElement).value)"
+                >
+                  <option value="">{{ t('settings.agentPanel.locateInherit') }}</option>
+                  <option v-for="item in s.allModels" :key="'locate-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
+                </select>
+              </div>
+              <div class="grid grid-cols-[3.5rem_1fr] gap-2 items-center">
+                <span class="text-[11px] text-muted">{{ t('settings.agentPanel.verifyDebug') }}</span>
+                <select
+                  :value="computerPipelineVerifyValue()"
+                  class="h-7 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
+                  :title="t('settings.agentPanel.verifyHint')"
+                  @change="selectComputerPipelineVerify(($event.target as HTMLSelectElement).value)"
+                >
+                  <option v-for="item in s.allModels" :key="'verify-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
+                </select>
+              </div>
             </div>
           </div>
             </div>

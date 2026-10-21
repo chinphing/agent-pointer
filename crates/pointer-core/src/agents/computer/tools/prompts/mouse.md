@@ -1,24 +1,11 @@
 ### mouse_click_at / mouse_double_click_at / mouse_right_click_at / mouse_hover_at / mouse_scroll_current / mouse_drag_from_to_at / mouse_down / mouse_up / mouse_drag_to
 
-Flat mouse tools — each tool name is the complete operation. No `method` parameter.
+Each tool name is the complete operation — no `method` parameter.
 
-**Where coordinates come from (hard rule).** For any visible target — button,
-icon, menu item, tab, link — you MUST call **`locate_element`** first and pass
-its returned `x` / `y` unchanged. Your own estimate of screen pixels is
-unreliable; do not read coordinates off the screenshot. Pass `x` / `y` directly
-only when the user gave the numbers, or they came from a `locate_element`
-result and the screen has not changed since.
-
-Every call requires **`goal`** (outcome) and **`action`** (human-readable target description for the UI).
-
-Optional: `wait` (1–5 s).
-
-**Call priority:** Use **`input_at`** / **`input_focused`**
-when the goal is to type or replace text in a field — they focus, clear, type,
-and submit in one call. Use **`mouse_click_*`** only for pure clicks with **no**
-typing on that target this turn (buttons, toggles, icons, links, menus).
-**Forbidden:** **`mouse_click_*`** to focus an input box when you will type on
-the next turn — use **`input_*`** with **`text`** instead.
+**Call priority:** when the goal is to type or replace text in a field, use
+**`input_at`** / **`input_focused`** instead — they focus, clear, type, and
+submit in one call. Reserve **`mouse_click_*`** for pure clicks with no typing
+on that target this turn (buttons, toggles, icons, links, menus).
 
 **Coordinate-based** (screen pixels, origin at the screenshot's top-left):
 - **`mouse_click_at`** — Requires **`x`**, **`y`**. Optional **`button`**

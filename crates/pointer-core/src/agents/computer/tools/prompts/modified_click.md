@@ -1,9 +1,6 @@
 ### modified_click_select_at / modified_click_range_select_at
 
-Flat modified-click tools — each tool name is the complete operation. No `method` parameter.
-
-Every call requires **`goal`** (outcome) and **`action`** (human-readable description for UI).
-Optional: `wait` (1–5 s).
+Each tool name is the complete operation — no `method` parameter.
 
 **Coordinate-based** (screen pixels, origin at the screenshot's top-left):
 - **`modified_click_select_at`** — Cmd/Ctrl+click each position. Requires **`positions`** (`{x,y}` / `[x,y]`, one or more).

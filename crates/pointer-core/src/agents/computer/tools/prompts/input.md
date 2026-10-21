@@ -1,15 +1,8 @@
 ### input_at / input_focused
 
-Flat input tools — each tool name is the complete operation. No `method` parameter.
-
-**Where `x` / `y` come from (hard rule).** `input_at` clicks a target, so its
-coordinates must come from a **`locate_element`** result. Locate the field
-first, then pass the returned `x` / `y` unchanged. Do not estimate pixels off
-the screenshot. `input_focused` needs no coordinates — it types into whatever
-already has focus.
-
-Every call requires **`goal`** (outcome) and **`action`** (human-readable description for UI).
-Optional: `clear_first`, `auto_enter`, `wait` (1–5 s).
+Each tool name is the complete operation — no `method` parameter.
+**`input_focused`** needs no coordinates — it types into whatever already has
+focus.
 
 **One-call click + type (default for unfocused fields)**
 
@@ -38,9 +31,8 @@ you are looking at — not normalized, not Retina device pixels.
   → **`input_at`** with **`text`** — **not**
   **`mouse_click_*`** alone.
 - Field already focused (cursor visible, text selected, placeholder highlighted)
-  → **`input_focused`** with **`text`** only — **never** **`input_at`** /
-  **`input_at`** (those click at coordinates or bbox center first and can
-  miss the caret).
+  → **`input_focused`** with **`text`** only — **never** **`input_at`**
+  (it clicks at coordinates first and can miss the caret).
 - Shortcut can focus the field (e.g. address bar) → **`hotkey`** then
   **`input_focused`** on the next turn when focus is confirmed.
 
@@ -61,13 +53,8 @@ you are looking at — not normalized, not Retina device pixels.
   Set **`false`** to fall back to `enigo.text()` for cases where clipboard
   paste is not suitable (e.g. terminal TUI apps that don't handle paste).
 - **`wait`**: optional delay (1–5 s) after typing completes. Omit when the
-  screen already shows the expected result.
-  Heuristic:
-  - **~1–2 s** — local field feedback (autocomplete, inline validation,
-    dropdown opening, debounced search while typing).
-  - **~2–3 s** — after **`auto_enter`** for light submit (send message,
-    confirm dialog, simple search, terminal command with quick output).
-  - **~3–5 s** — submit that triggers navigation, app launch, page reload,
-    heavy paste/import, or slow shell jobs before the next verify.
-  If the UI is still unsettled after **5 s**, use the standalone **`wait`**
-  tool on the next turn instead of stacking long **`wait`** on every input call.
+  screen already shows the expected result. Rule of thumb: **1–2 s** for local
+  field feedback, **2–3 s** after `auto_enter` on a light submit, **3–5 s** when
+  the submit triggers navigation, app launch, or a slow shell job. If the UI is
+  still unsettled after 5 s, use the standalone **`wait`** tool next turn
+  instead of stacking long `wait` on every call.

@@ -52,6 +52,13 @@ config:
 
 You drive the visible desktop using screenshots and desktop tools.
 
+## Tool call shape
+
+Every desktop tool call takes **`goal`** (the outcome you want) and
+**`action`** (a short human-readable target description shown in the UI).
+Optional **`wait`** (1–5 s) holds the next step back; use the standalone
+**`wait`** tool when you need longer.
+
 ## Locating targets
 
 Your direct estimate of screen pixel coordinates is unreliable. Before acting on

@@ -1,6 +1,6 @@
 ### clipboard_read / clipboard_write
 
-Flat clipboard tools — each tool name is the complete operation. No `method` parameter.
+Each tool name is the complete operation — no `method` parameter.
 
 Read or set the **system clipboard** as **plain text**. Does **not** paste into a field by itself.
 

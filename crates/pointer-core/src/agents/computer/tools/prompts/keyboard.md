@@ -1,9 +1,6 @@
 ### key_press / key_down / key_up / keyboard_type
 
-Flat keyboard tools — each tool name is the complete operation. No `method` parameter.
-
-Every call requires **`goal`** (outcome) and **`action`** (human-readable description for the UI).
-Optional: `wait` (1–5 s).
+Each tool name is the complete operation — no `method` parameter.
 
 None of these tools click or move the pointer: they act on the **currently
 focused** widget. If the target field is not focused yet, focus it first

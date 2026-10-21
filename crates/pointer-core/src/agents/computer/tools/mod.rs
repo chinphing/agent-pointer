@@ -94,7 +94,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 if let Some((backend, method)) = backend_method {
                     let vision = ms.vision_state_for_conversation(&cid);
                     let hl_default = effective_human_like_default();
-                    let tool = MouseTool::new(ms.executor.clone(), vision, hl_default);
+                    let tool = MouseTool::new(ms.executor.clone(), ms.control.clone(), vision, hl_default);
                     run_synthetic_computer_tool(move || {
                         tool.execute_with(backend, method, &args)
                     })
@@ -209,7 +209,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             let method = name.to_string();
 
             let handler: ToolHandler = Arc::new(move |args| {
-                let tool = tool_keyboard::KeyboardTool::new(st.executor.clone());
+                let tool = tool_keyboard::KeyboardTool::new(st.control.clone());
                 let method = method.clone();
                 run_synthetic_computer_tool(move || tool.execute(&method, &args))
             });

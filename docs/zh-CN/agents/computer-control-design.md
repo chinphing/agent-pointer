@@ -443,6 +443,34 @@ modified_click_range_select_index
 B5 只回答后者。且**从未比较过 B5 与 SoM 谁更好**——ScreenSpot-Pro 测的是
 "给定描述找元素"，不是"从一堆标记里挑"。这是本方案最大的未验证假设。
 
+### 8.1.1 抽象层接通进度
+
+`ComputerState` 现在同时持有 `executor`（本地复合操作）和 `control`
+（`Arc<dyn ComputerControl>`，13 动作抽象）。已迁到 trait 的动作：
+
+| 工具 | trait 方法 |
+|---|---|
+| `key_press` | `press` |
+| `key_down` | `key_down` |
+| `key_up` | `key_up` |
+| `keyboard_type` | `typing` |
+| `mouse_down` | `mouse_down` |
+| `mouse_up` | `mouse_up` |
+| （全部） | `release_stranded_input` |
+
+**尚未迁移**：`mouse_hover_at` / `mouse_click_at` / `mouse_double_click_at` /
+`mouse_right_click_at` / `mouse_scroll_current` / `mouse_drag_to` /
+`mouse_drag_from_to_at` / `input_at` / `input_focused` / `hotkey` /
+`modified_click_*`（共 11 处 `executor` 调用）。
+
+原因是参数不齐：这些工具带每次调用的 `human_like` 覆盖、settle 延迟、
+以及 `drag_from_to`、`modified_click` 这类 trait 不表达的复合语义。
+直接切会丢掉这些参数，改变行为。迁移它们需要先扩 trait 或给
+`LocalControl` 加带参数的入口。
+
+**当前收益**：切到 `RemoteControl` 只需改 `ComputerState::new` 里的一行构造，
+已迁移的 7 个动作自动跟随；剩余工具仍需逐个处理。
+
 ### 8.2 `MOUSE_DOWN` 后进程崩溃会导致按键卡住
 
 OSWorld 专门实现了 `release_stranded_input()`（Xlib 释放全部按键与 1–5 号鼠标按钮）。

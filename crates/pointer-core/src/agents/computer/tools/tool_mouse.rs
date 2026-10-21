@@ -3,6 +3,7 @@ use super::args_util::{
     required_f32_arg, scroll_pixels_from_args, zoom_flag_from_args,
 };
 use super::method_route::MouseBackend;
+use crate::agents::computer::control::ComputerControl;
 use crate::agents::computer::actions::{ActionExecutor, KeyPhase, MouseButton};
 use crate::agents::computer::verify::VerifyHintGenerator;
 use crate::agents::computer::vision_state::VisionState;
@@ -15,6 +16,10 @@ use std::sync::{Arc, Mutex};
 /// Mouse actions using logical screen pixel coordinates.
 pub struct MouseAtTool {
     executor: Arc<Mutex<ActionExecutor>>,
+    /// L1 abstraction for the stateless actions. `drag_to` keeps using the
+    /// executor because it honours a per-call `human_like` override that the
+    /// trait does not carry.
+    control: Arc<dyn ComputerControl>,
     vision_state: Arc<Mutex<VisionState>>,
     verify: VerifyHintGenerator,
     human_like_default: bool,
@@ -23,11 +28,13 @@ pub struct MouseAtTool {
 impl MouseAtTool {
     pub fn new(
         executor: Arc<Mutex<ActionExecutor>>,
+        control: Arc<dyn ComputerControl>,
         vision_state: Arc<Mutex<VisionState>>,
         human_like_default: bool,
     ) -> Self {
         Self {
             executor,
+            control,
             vision_state,
             verify: VerifyHintGenerator::new(),
             human_like_default,
@@ -162,8 +169,7 @@ impl MouseAtTool {
     /// `MOUSE_DOWN` — hold `button` at the current pointer.
     fn mouse_down(&self, args: &Value) -> Result<String> {
         let button = mouse_button_from_args(args)?;
-        let executor = self.executor.lock().unwrap();
-        executor.mouse_phase(button, KeyPhase::Press)?;
+        self.control.mouse_down(button)?;
         Ok(format!(
             "Held {} button down. Release with mouse_up before the next click.",
             button.as_str()
@@ -173,8 +179,7 @@ impl MouseAtTool {
     /// `MOUSE_UP` — release `button` at the current pointer.
     fn mouse_up(&self, args: &Value) -> Result<String> {
         let button = mouse_button_from_args(args)?;
-        let executor = self.executor.lock().unwrap();
-        executor.mouse_phase(button, KeyPhase::Release)?;
+        self.control.mouse_up(button)?;
         Ok(format!("Released {} button.", button.as_str()))
     }
 }
@@ -202,11 +207,12 @@ pub struct MouseTool {
 impl MouseTool {
     pub fn new(
         executor: Arc<Mutex<ActionExecutor>>,
+        control: Arc<dyn ComputerControl>,
         vision_state: Arc<Mutex<VisionState>>,
         human_like_default: bool,
     ) -> Self {
         Self {
-            at: MouseAtTool::new(executor.clone(), vision_state, human_like_default),
+            at: MouseAtTool::new(executor, control, vision_state, human_like_default),
         }
     }
 
@@ -328,10 +334,9 @@ mod tests {
         vision.set_coordinate_system(CoordinateSystem::Pixel);
         vision.set_screen_bbox(MonitorInfo::new(0, 0, 1280, 800));
         let vision = Arc::new(Mutex::new(vision));
-        (
-            MouseTool::new(executor, vision, false),
-            calls,
-        )
+        let control: Arc<dyn ComputerControl> =
+            Arc::new(crate::agents::computer::control::LocalControl::new(executor.clone(), false));
+        (MouseTool::new(executor, control, vision, false), calls)
     }
 
     fn recorded(calls: &Arc<Mutex<Vec<String>>>) -> Vec<String> {

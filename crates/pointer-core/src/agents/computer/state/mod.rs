@@ -1,5 +1,6 @@
 //! Per-conversation session, screen capture pipeline, and tier-aware desktop logging.
 
+use crate::agents::computer::control::{ComputerControl, LocalControl};
 use crate::agents::computer::input::actions::{self, ActionExecutor};
 #[cfg(feature = "computer")]
 use crate::agents::computer::input::enigo::EnigoBackend;
@@ -126,6 +127,10 @@ impl ComputerSession {
 pub struct ComputerState {
     /// The action executor.
     pub executor: Arc<Mutex<ActionExecutor>>,
+    /// L1 abstraction over the same executor. Tools that map onto the OSWorld
+    /// 13 actions go through this, so a remote backend can be swapped in by
+    /// changing one constructor instead of every tool.
+    pub control: Arc<dyn ComputerControl>,
     /// The annotation service client.
     /// Default for `human_like` when omitted from tool args (Python `computer_human_like`).
     pub human_like_default: bool,
@@ -240,8 +245,11 @@ impl ComputerState {
             log::debug!("computer feature disabled: desktop input backend unavailable");
             Arc::new(Mutex::new(ActionExecutor::new(Box::new(FallbackBackend))))
         };
+        let control: Arc<dyn ComputerControl> =
+            Arc::new(LocalControl::new(executor.clone(), human_like_default));
         Self {
             executor,
+            control,
             human_like_default,
             tier_config,
             platform_config,

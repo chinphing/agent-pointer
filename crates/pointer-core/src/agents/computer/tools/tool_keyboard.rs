@@ -5,7 +5,7 @@
 //! widget — none of them clicks or moves the pointer.
 
 use super::args_util::{require_non_empty_str, text_from_args};
-use crate::agents::computer::actions::{ActionExecutor, KeyPhase};
+use crate::agents::computer::control::ComputerControl;
 use crate::agents::computer::verify::VerifyHintGenerator;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
@@ -13,14 +13,14 @@ use std::sync::{Arc, Mutex};
 
 /// Keyboard action tool (`PRESS` / `KEY_DOWN` / `KEY_UP` / `TYPING`).
 pub struct KeyboardTool {
-    executor: Arc<Mutex<ActionExecutor>>,
+    control: Arc<dyn ComputerControl>,
     verify: VerifyHintGenerator,
 }
 
 impl KeyboardTool {
-    pub fn new(executor: Arc<Mutex<ActionExecutor>>) -> Self {
+    pub fn new(control: Arc<dyn ComputerControl>) -> Self {
         Self {
-            executor,
+            control,
             verify: VerifyHintGenerator::new(),
         }
     }
@@ -45,17 +45,14 @@ impl KeyboardTool {
     /// `PRESS` — press and release one key.
     fn press(&self, args: &Value) -> Result<String> {
         let key = Self::key_arg(args)?;
-        self.executor.lock().unwrap().press_key(&key)?;
+        self.control.press(&key)?;
         Ok(self.verify.hotkey_hint(&[key.as_str()]))
     }
 
     /// `KEY_DOWN` — hold one key until a later `key_up`.
     fn down(&self, args: &Value) -> Result<String> {
         let key = Self::key_arg(args)?;
-        self.executor
-            .lock()
-            .unwrap()
-            .key_phase(&key, KeyPhase::Press)?;
+        self.control.key_down(&key)?;
         Ok(format!(
             "Held {key} down. It stays held until key_up — release it on a later turn."
         ))
@@ -64,10 +61,7 @@ impl KeyboardTool {
     /// `KEY_UP` — release one key.
     fn up(&self, args: &Value) -> Result<String> {
         let key = Self::key_arg(args)?;
-        self.executor
-            .lock()
-            .unwrap()
-            .key_phase(&key, KeyPhase::Release)?;
+        self.control.key_up(&key)?;
         Ok(format!("Released {key}."))
     }
 
@@ -77,7 +71,7 @@ impl KeyboardTool {
         if text.is_empty() {
             return Err(anyhow!("text cannot be empty"));
         }
-        self.executor.lock().unwrap().type_text(&text)?;
+        self.control.typing(&text)?;
         Ok(self.verify.type_hint(&text))
     }
 }
@@ -85,7 +79,8 @@ impl KeyboardTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::computer::actions::{ActionBackend, ActionResult, MouseButton};
+    use crate::agents::computer::actions::{ActionBackend, ActionExecutor, ActionResult, MouseButton};
+    use crate::agents::computer::input::actions::KeyPhase;
     use crate::agents::computer::input::mouse_move::MouseMoveProfile;
     use serde_json::json;
 
@@ -155,7 +150,9 @@ mod tests {
         let backend = RecordingBackend::default();
         let calls = backend.calls.clone();
         let executor = Arc::new(Mutex::new(ActionExecutor::new(Box::new(backend))));
-        (KeyboardTool::new(executor), calls)
+        let control: Arc<dyn ComputerControl> =
+            Arc::new(crate::agents::computer::control::LocalControl::new(executor, false));
+        (KeyboardTool::new(control), calls)
     }
 
     fn recorded(calls: &Arc<Mutex<Vec<String>>>) -> Vec<String> {

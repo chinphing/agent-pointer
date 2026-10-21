@@ -1,449 +1,104 @@
-# Computer Agent Tier Runtime
+# Computer Agent 模型配置与运行时
 
-> 本文档记录 Computer Agent 的 Primary / Intermediate / Advanced 运行时：会话档位、模型配置链、提示词加载链、放弃与锁定机制。会话档位在 `computerInitialTier` 选定后保持不变，Verify 失败不会自动升档。
-
----
-
-## 一、三层 Tier 架构
-
-| Tier | 定位模式 | 默认模型 | thinking budget | 索引工具 | 截图 |
-|------|---------|---------|-----------------|---------|------|
-| Primary | index + coordinate | `qwen3.5-flash` | 2048 | ✅ 允许 | 3–4 张 |
-| Intermediate | index + coordinate | `qwen3.5-plus` | 2048 | ✅ 允许 | 3–4 张 |
-| Advanced | index + coordinate | `qwen3.6-plus` | 8192 | ✅ 允许 | 3–4 张 |
-
-**提示词**：三档共用 Primary 的 `communication.md` + `loop.md`（`agents/mod.rs`）；仅 LLM 模型与 thinking budget 按 tier 切换。
-
-代码：`crates/pointer-core/src/agents/computer/tier/mod.rs:50-54`
+> Computer Agent **不再有自己的模型档位**。模型与思考强度跟 general / coder / web_search
+> 完全共用同一套配置：`agentModeLlm[agentId][mode]` + `agentDefaultModels[agentId]`。
+> 旧的 Primary / Intermediate / Advanced 三档、以及过渡期的 `computerModel` /
+> `computerProvider` / `computerThinkingBudget` 三个专属键均已删除。
 
 ---
 
-## 二、核心常量
+## 一、配置位置
 
-代码：`crates/pointer-core/src/agents/computer/tier/mod.rs:29-46`
+| 键 | 作用 |
+|---|---|
+| `agentModeLlm["computer"][mode]` | 每个性能模式（`fast` / `standard` / `expert`）一条：provider + model + 思考强度 |
+| `agentDefaultModels["computer"]` | 单一默认模型（`agentModeLlm` 缺失时兜底） |
+| `agentPerformanceModes["computer"]` | 默认用哪一档（`fast` / `standard` / `expert`） |
+
+每条 `agentModeLlm` 记录是 `ComputerTierLlmConfig`：
+
+| 字段 | 说明 |
+|---|---|
+| `providerId` / `model` | 这一档用哪个模型 |
+| `thinkingIntensity` | 思考强度档：`off` / `low` / `medium` / `high` / `max` |
+| `enableThinking` / `thinkingBudget` / `reasoningEffort` | 内部兜底字段，UI 不暴露数字 budget |
+
+解析顺序（`chat_service/session_model.rs`）：
+
+1. `agentModeLlm[agentId][mode]` — 当前性能模式有配置就用它；
+2. `agentDefaultModels[agentId]` — 否则用该 agent 的默认模型；
+3. 都没有 → 保持会话当前的 provider / model。
+
+解析完成后 `apply_tier_thinking_to_round()` 把该档的思考强度写进本轮 settings。
+
+---
+
+## 二、代码结构
+
+| 位置 | 作用 |
+|---|---|
+| `agents/computer/tier/mod.rs` | `ComputerModelConfig`（只剩 `verify_host_enabled` + `pipeline_llm`） |
+| `agents/computer/state/mod.rs` | `effective_tier_config()` 只合并 pipeline 配置；`apply_pipeline_phase_settings()` 处理 Position / Verify 阶段 |
+| `chat_service/session_model.rs` | 通用的模型 + 思考强度解析（所有 agent 共用） |
+| `models/settings.rs` | `agentModeLlm` / `agentDefaultModels` / `agentPerformanceModes` |
+
+`ComputerModelConfig` 不再持有模型或 thinking 预算：
 
 ```rust
-GOAL_LOCK_THRESHOLD: u32 = 3;      // [LOCKED GOAL] 锁定阈值（同一 goal fail > 3 次）
-GIVE_UP_THRESHOLD: u32 = 5;        // 放弃阈值（repetition >= 5）
-```
-
----
-
-## 三、轮次决策 — `on_round_complete()`
-
-档位不在这里改变。`current_tier` 只在会话创建和用户新指导重置时写成 `computerInitialTier`。
-
-### 3.1 触发路径
-
-```
-Agent 循环完成一轮
-  → ComputerState::on_assistant_round_complete()    (state/mod.rs:654)
-    → parse_tier_signal_from_sidecar_tool_calls()   解析 verify:report 的 sidecar 信号
-    → backfill_newest_open_verify()                 回填到最末条 open 行（pending 不回填）
-    → same_goal_repetition_count_in_history()       计算 host 端重复计数
-    → on_round_complete() 仅 backfill 成功时调用    ★ 核心决策 (tier/mod.rs)
-  → 检查 should_give_up                            放弃检查 (single_agent.rs:186 / sub_agent.rs:182)
-```
-
-### 3.2 决策逻辑（伪代码）
-
-```
-on_round_complete(config, parsed_verify, last_tool_goal, sidecar_rep, host_rep):
-    
-    if parsed_verify 为 None:
-        return  // 没有 verify 信号，不做任何改变
-    
-    if step_result == "fail":
-        goal_fail_streak += 1                        // 同 goal fail 计数
-        
-        if goal_fail_streak > GOAL_LOCK_THRESHOLD (3):
-            locked_goal = Some(当前 goal)             // ★ 锁定当前 goal
-            task_error_streak = goal_fail_streak
-    
-    if step_result == "pass":
-        should_give_up = false
-        locked_goal = None
-        goal_fail_streak = 0
-        // current_tier 不变
-    
-    if step_result != "pass":
-        effective_rep = max(sidecar_rep, host_rep)
-        
-        // ★ 放弃判定
-        if effective_rep >= GIVE_UP_THRESHOLD:
-            should_give_up = true
-```
-
-会话期间没有 Primary → Intermediate → Advanced 的自动切换。旧配置键 `computerAutoUpgrade` 会被忽略并打警告日志。
-
----
-
-## 四、信号来源
-
-Tier 系统的输入有两个信号源，取两者最大值：
-
-### 4.1 Sidecar 信号（优先）
-
-模型通过 `verify:report` sidecar 工具报告。解析器：`parse_tier_signal_from_sidecar_tool_calls()` (`tier/mod.rs:593`)
-
-```json
-{
-  "action_result": "pass|fail|pending|n/a",
-  "repetition_count": 3,
-  "failure_cause": "precision_miss|wrong_operation"  // 仅 fail 时需要
+pub struct ComputerModelConfig {
+    pub verify_host_enabled: bool,
+    pub pipeline_llm: ComputerPipelineLlmConfig,
 }
 ```
 
-### 4.2 Host 端计数
-
-`same_goal_repetition_count_in_history()` 遍历 tier 历史记录，统计同一 goal 的 verify fail 次数。此计数独立于模型自报的 sidecar 信号——当模型未正确报告时作为兜底。
-
-### 4.3 Effective repetition
-
-取两者 max：`max(sidecar_rep, host_rep)`
-
-### 4.4 History 行 verify 后缀（简化状态机）
-
-`[Recent desktop tool calls]` 每行末尾由 Host 维护 `verify:` 后缀：
-
-| 展示 | 含义 |
-|------|------|
-| `verify: verifying` | 最末 open 行，待本回合 Verify + `verify_report` |
-| `verify: verified - pass` / `verified - wrong_operation` / `verified - precision_miss` / `verified - n/a` | 已验过关账 |
-| `verify: skipped` | **从未验过**，被新 desktop action 越过或 inject 清理；不计 fail streak |
-
-**Host 规则（`tier/mod.rs`）：**
-
-- **Verify / backfill 目标**：恒为最末条 `verify_result = None` 的行（`rposition`）。
-- **`push_action` 前**：所有 open 行 → `skipped`，再 push 新行（`verifying`）。
-- **`[CUR_SCREEN]` inject / `recent_actions_prompt_block` 前**：`auto_close_stale_open_rows` — 多行 open 时保留**最末 open**，更旧行 → `skipped`。
-- **`action_result=pending`**：sidecar 接受但不 backfill；`on_round_complete` 不触发。
-- **重复 `verify_report`**（最末行已终态）：忽略 + warn。
-
-提示词要求模型：最末行 `verified - *` 或 `skipped` 时跳过 Verify，不再调用 `verify_report`。
+> 结构体名 `ComputerModelConfig` / `ComputerTierRuntime` 保留未改；后者现在只装
+> 「工具历史 + 放弃/锁定状态」，与档位无关。
 
 ---
 
-## 五、状态机关键字段
+## 三、会话运行时
 
-代码：`tier/mod.rs:205-218`，`ComputerTierRuntime` 结构体
+`ComputerTierRuntime` 每会话一份，纯内存、不落盘：
 
-```
-current_tier          : ComputerTier    会话档位，运行中不自动切换
-task_error_streak     : u32             锁定 goal 后的 fail 计数
-locked_goal           : Option<LockedGoal> 当前锁定的 goal
-goal_fail_fingerprint : String          当前 goal 的指纹（大小写+空白规范化）
-goal_fail_streak      : u32             当前 goal 的连续 fail 计数
-should_give_up        : bool            是否应当放弃
-histories             : HashMap<ComputerTier, Vec<TierActionRecord>> 每个 tier 独立历史（最多 10 条）
-```
+| 字段 | 作用 |
+|---|---|
+| `histories: Vec<TierActionRecord>` | 最近桌面工具调用（上限 `MAX_TIER_HISTORY`），用于 `[Recent desktop tool calls]` |
+| `task_error_streak` / `goal_fail_streak` / `locked_goal` | 同一目标连续失败计数与锁定 |
+| `should_give_up` / `give_up_reference` | 达到 `GIVE_UP_THRESHOLD` 后请求用户指导；重置时归档失败摘要 |
 
-状态隔离：历史按档位分开存放。会话中途不换档，实际只用起始档那一份。
+这些机制与模型档位无关。
 
 ---
 
-## 六、模型配置：三条数据源逐层合并
+## 四、Pipeline 阶段模型（与主模型独立）
 
-### 6.1 硬编码默认值
+`computerPipelineLlm` 仍单独配置 Decision / Position / Verify 三个阶段：
 
-代码：`tier/mod.rs:17-24`
+| 阶段 | 模型来源 | 思考 |
+|---|---|---|
+| Decision | `computerPipelineModelDecision` | 跟随本轮主模型（`agentModeLlm` 已注入） |
+| Position | `computerPipelineModelPosition` | `computerPipelineThinkingBudgetPosition`（默认 1024） |
+| Verify | `computerPipelineModelVerify` | `computerPipelineThinkingBudgetVerify`（默认 256） |
 
-```rust
-DEFAULT_MODEL_PRIMARY       = ""   // 平台模型配置全部由平台下发（tierDefaults.computerTierLlm）
-DEFAULT_MODEL_INTERMEDIATE  = ""
-DEFAULT_MODEL_ADVANCED      = ""
-PRIMARY_INTERMEDIATE_THINKING_BUDGET = 2048
-ADVANCED_THINKING_BUDGET            = 8192
-```
-
-### 6.2 from_agent_registry() — AGENT.md config 表
-
-代码：`tier/mod.rs:107-129`
-
-```yaml
-# AGENT.md frontmatter
-config:
-  computerInitialTier: "intermediate"
-  computerModelPrimary: "qwen3.5-flash"
-  computerModelIntermediate: "qwen3.5-plus"
-  computerModelAdvanced: "qwen3.6-plus"
-```
-
-支持的 key: `computerInitialTier`, `computerModelPrimary/Intermediate/Advanced`。`computerAutoUpgrade` 已废弃，读到时警告并忽略。
-
-### 6.3 apply_app_settings() — 用户设置覆盖
-
-代码：`tier/mod.rs:140-146`
-
-仅**初始 tier** 可被用户设置覆盖（`computerInitialTier` 非空时生效）。
-
-### 6.4 apply_platform_tier_llm() — 平台端覆盖（最灵活）
-
-代码：`tier/mod.rs:149-168`
-
-平台下发 `computerTierLlm` map:
-
-```json
-{
-  "primary":      { "providerId": "qwen", "model": "qwen3.5-flash", "enableThinking": true,  "thinkingBudget": 2048 },
-  "intermediate": { "providerId": "qwen", "model": "qwen3.5-plus",  "enableThinking": true,  "thinkingBudget": 2048 },
-  "advanced":     { "providerId": "deepseek", "model": "deepseek-v4-pro", "enableThinking": true,  "thinkingBudget": 8192 }
-}
-```
-
-平台配置覆盖默认 **provider + 模型名**；`enableThinking` / `thinkingBudget` 用于运行时动态选择。调试 UI 从全部已配置服务商的模型列表选择（`providerId:model`）。
-
-### 6.5 合并链路
-
-```
-① Agent 清单 (AGENT.md config)
-    ↓ from_agent_registry()
-② ComputerTierConfig::default()   ← 硬编码默认值
-    ↓ apply_app_settings()         ← 用户设置覆盖 (computerInitialTier)
-    ↓ apply_platform_tier_llm()    ← 平台 tier LLM 配置覆盖 (computerTierLlm)
-③ effective_tier_config()          ★ 最终生效配置 (state/mod.rs:137)
-```
+`computerPipelineVerifyHost` 控制宿主 post-execute verify。
 
 ---
 
-## 七、每轮模型选择：`ComputerRoundLlmOverrides`
+## 五、已删除内容
 
-### 7.1 入口
+| 旧 | 现状 |
+|---|---|
+| `ComputerTier::{Primary,Intermediate,Advanced}` | 已删除 |
+| `computerInitialTier` | 已删除 |
+| `computerModelPrimary/Intermediate/Advanced` | 已删除 |
+| `computerTierLlm`（三键 map） | 已删除 |
+| `computerModel` / `computerProvider` / `computerThinkingBudget` | 已删除（过渡期键，并入 `agentModeLlm`） |
+| `ComputerTierGuard` / `current_computer_tier()` / `tier_allows_index_tools()` | 已删除 |
+| `tier_runtime_prompt_block` / `includes_cause_in_history` | 已删除 |
+| `computerAdvancedPipeline` | 已删除（只写不读） |
+| `ComputerRoundLlmOverrides` / `apply_round_settings` | 已删除（computer 走通用路径） |
+| `*_for_tier` 系列函数 | 去掉 tier 参数 |
 
-`single_agent.rs:107` 每轮循环开始时：
-
-```rust
-let round_settings = if lead_profile == AgentProfile::Computer {
-    state.computer_state.apply_round_settings(conversation_id, settings)
-} else {
-    settings.clone()
-};
-```
-
-### 7.2 apply_round_settings()
-
-代码：`state/mod.rs`（`apply_round_settings`）
-
-```rust
-pub fn apply_round_settings(&self, conversation_id: &str, settings: &ModelSettings) -> ModelSettings {
-    let o = self.round_llm_overrides(conversation_id);    // 从会话取当前 tier → 生成 overrides
-    let mut s = settings.clone();
-    s.active_provider_id = o.provider_id;                  // ★ 覆盖服务商
-    s.model = o.model;                                     // ★ 覆盖模型名
-    s.round_enable_thinking = Some(o.enable_thinking);     // ★ 覆盖 thinking 开关
-    s.round_thinking_budget = o.thinking_budget;           // ★ 覆盖 thinking budget
-    s
-}
-```
-
-### 7.3 for_tier() — 按 tier 生成 overrides
-
-代码：`tier/mod.rs`（`ComputerRoundLlmOverrides::for_tier`）
-
-```rust
-pub fn for_tier(tier: ComputerTier, config: &ComputerTierConfig) -> Self {
-    // 1. 优先查平台端 tier_llm map (providerId + model + thinking)
-    if let Some(t) = config.tier_llm.get(tier.label()) {
-        return Self {
-            provider_id: t.provider_id.clone(),
-            model: t.model.clone(),
-            enable_thinking: t.enable_thinking,
-            thinking_budget: t.thinking_budget,
-        };
-    }
-    // 2. 无平台覆盖时，fallback 到硬编码默认（provider = qwen）
-    match tier {
-        Primary     → model_primary      + thinking_budget=2048
-        Intermediate→ model_intermediate + thinking_budget=2048
-        Advanced    → model_advanced     + thinking_budget=8192
-    }
-}
-```
-
-**关键点**：每一轮循环都通过 `round_llm_overrides()` 动态读取当前会话的 tier，所以 tier 自动升级后下一轮立即生效新模型（含服务商切换）。
-
----
-
-## 八、提示词加载
-
-### 8.1 内建 agent：compile-time `include_str!`
-
-代码：`agents/mod.rs`，编译时嵌入 Primary 提示词（**所有 tier 共用**）：
-
-```rust
-const COMPUTER_COMMUNICATION_PRIMARY  = include_str!("computer/prompts/tiers/primary/communication.md");
-const COMPUTER_AGENT_PRIMARY          = include_str!("computer/prompts/tiers/primary/loop.md");
-const COMPUTER_OS_PROMPT_MACOS        = include_str!("computer/prompts/os/macos.md");
-```
-
-`tiers/primary/` 为全 tier 运行时 prompt 唯一来源。
-
-### 8.2 外部 agent 目录：文件系统加载
-
-`load_external_computer_communication()` (`agents/mod.rs`)，优先级：
-
-1. `prompts/tiers/primary/communication.md`
-2. `COMMUNICATION.md`（兜底）
-
-### 8.3 按 tier 选择
-
-代码：`agents/mod.rs`
-
-| 函数 | Primary | Intermediate | Advanced |
-|------|---------|-------------|----------|
-| `computer_communication_for_tier()` | `primary/communication.md` + OS + disabled controls | 同 Primary | 同 Primary |
-| `computer_agent_body_for_tier()` | `primary/loop.md` | 同 Primary | 同 Primary |
-
-**Tier 仅影响模型**：`ComputerRoundLlmOverrides::for_tier()` 选择 `computerModelPrimary/Intermediate/Advanced` 与 thinking budget；提示词与 `[CUR_SCREEN]` 截图布局（3–4 张：可选复用的上一帧、当前屏、标注屏、指针放大图）三档一致。上一帧直接复用上一轮已画指针的图，不再截一次，也不重画指针。坐标工具的 `zoom: true` 表示 `x`/`y` 是放大图 0–1000，宿主按本轮裁切窗口映射回全屏。
-
-### 8.4 每轮 System Prompt 组装
-
-代码：`chat_service/prompts.rs`（`push_agent_role_cacheable_prompts`）
-
-```rust
-if profile == AgentProfile::Computer {
-    let tier = computer_state.tier_for_conversation(conversation_id);  // ★ 读当前 tier（仅用于模型）
-    let comm = computer_communication_for_tier(tier);   // ★ 恒为 Primary communication
-    let body = computer_agent_body_for_tier(tier);      // ★ 恒为 Primary loop
-    let merged = format!("{comm}\n\n---\n\n{body}");
-    cacheable.push(expand_agent_prompt_placeholders(&merged, &session_vars));
-}
-```
-
-最终 system prompt 完整结构：
-
-```
-┌─────────────────────────────────────────────┐
-│ 1. COMMUNICATION_PUBLIC.md（共享规则）        │
-├─────────────────────────────────────────────┤
-│ 2. computer_communication_for_tier(tier)     │
-│    ├── communication.md（Primary，全 tier）   │
-│    ├── ui_disabled_controls.md               │
-│    └── OS prompt (macOS/Windows/Linux)       │
-├─────────────────────────────────────────────┤
-│ 3. computer_agent_body_for_tier(tier)        │
-│    └── loop.md（Primary，全 tier）             │
-├─────────────────────────────────────────────┤
-│ 4. tools_system_appendix                     │
-├─────────────────────────────────────────────┤
-│ 5. [Environment] (OS + 日期 + 工具列表)       │
-├─────────────────────────────────────────────┤
-│ 6. 动态注入 (dynamic block)                   │
-│    ├── tier_runtime_prompt_block             │
-│    ├── locked_goal_dynamic_block             │
-│    ├── recent_actions_prompt_block            │
-│    └── 扩展钩子                               │
-└─────────────────────────────────────────────┘
-```
-
----
-
-## 九、`[LOCKED GOAL]` 机制
-
-当同一个 goal 连续 fail **超过 3 次** (`GOAL_LOCK_THRESHOLD`)：
-
-1. Goal 被锁定，指纹存入 `locked_goal` 字段
-2. 通过 `tier_dynamic` 扩展 hook 注入 `[LOCKED GOAL]` 动态提示到 system prompt（`extension_hooks/tier_dynamic.rs:27-36`）
-3. 模型被告知：在 Verify 确认当前 goal 完成前，不得切换目标
-4. 仅当该 goal 的 verify pass 后才解锁
-
----
-
-## 十、放弃机制 (`GIVE_UP_THRESHOLD = 5`)
-
-当 `effective_repetition >= 5`：
-- `should_give_up` 设为 `true`
-- `effective_repetition = max(sidecar, host)`，但当 `sidecar > host` 时以 **host** 为准（sidecar 可能误计 `[Prior attempt — give up reference]` 段）
-- 外层循环检测到该标志后抛出错误：
-
-> "当前任务已尽力但仍无法完成（重复操作达到 5 次），请提供进一步指导。"
-
-检测位置：
-- `single_agent.rs:186` — 单 agent 循环
-- `sub_agent.rs:182` — 子 agent 循环
-
-### 用户新消息时的指导重置
-
-用户发送新消息后、进入 agent 循环前，调用 `reset_for_new_user_guidance(initial_tier)`（`single_agent.rs` / `sub_agent.rs`）：
-
-| 字段 | 重置行为 |
-|------|----------|
-| `should_give_up` | `false` |
-| `task_error_streak` | `0` |
-| `goal_fail_streak` / `goal_fail_fingerprint` | 清零 |
-| `locked_goal` | `None` |
-| `last_executed_goal` | `None` |
-| `current_tier` | 恢复为 `initial_tier` |
-| 各 tier `histories` | 清空 |
-
-清空前，将失败操作摘要写入 `give_up_reference`，并在 `[Recent desktop tool calls]` 中以 **`[Prior attempt — give up reference]`** 段展示。该段：
-
-- 供 **Next** 参考，避免重复相同 tool+target 组合
-- **不参与** `same_goal_repetition_count_in_history` 计数
-- **不可** 再次 verify / verify_report
-
----
-
-## 十一、运行时全链路时序
-
-```
-用户发送消息
-    ↓
-run_single_agent_loop()  [每一轮]
-    ↓
-┌─ 1. tier_for_conversation(conv_id)              ← 读取 current_tier
-├─ 2. positioning_mode_for_tier(tier)             ← 工具文档（全 tier 相同）
-├─ 3. prepare_single_agent_round_prompts()        ← Primary prompt + 动态注入
-├─ 4. apply_round_settings(conv_id, settings)     ← 按 tier 选模型 + thinking budget
-├─ 5. run_provider_stream_round(...)              ← 发送 LLM 请求
-│      ↓ LLM 返回 assistant message + tool_calls
-├─ 6. 执行 tool_calls（如 mouse / hotkey / verify:report）
-├─ 7. on_assistant_round_complete()
-│      ├── parse_tier_signal_from_sidecar_tool_calls()
-│      ├── same_goal_repetition_count_in_history()
-│      ├── tier_runtime.on_round_complete()
-│      │    ├── fail → goal_fail_streak++
-│      │    ├── fail>3 → locked_goal = Some(...)
-│      │    ├── repetition>=5 → should_give_up = true
-│      │    └── pass → 清除锁定与放弃标记；current_tier 不变
-│      └── if should_give_up → 退出循环
-└─ 回到步骤 1（下一轮仍用同一档的模型；提示词不变）
-```
-
----
-
-## 十二、关键文件索引
-
-| 文件 | 职责 | 
-|------|------|
-| `crates/pointer-core/src/agents/computer/tier/mod.rs` | **核心**：tier 枚举、配置 merge、升级决策、ComputerRoundLlmOverrides、ComputerTierRuntime 状态机、unit tests（1158 行） |
-| `crates/pointer-core/src/agents/computer/state/mod.rs` | ComputerState：apply_round_settings()、tier_for_conversation()、effective_tier_config()、on_assistant_round_complete()、tier_runtime_prompt_block()（839 行） |
-| `crates/pointer-core/src/agents/mod.rs` | Agent 加载：computer_communication_for_tier()、computer_agent_body_for_tier()、include_str! 编译期嵌入（1189 行） |
-| `crates/pointer-core/src/chat_service/single_agent.rs` | Agent 循环：每轮调用 tier_for_conversation + apply_round_settings，give_up 检测（272 行） |
-| `crates/pointer-core/src/chat_service/single_agent_prompt.rs` | 每轮 prompt 组装：按 tier 选择 communication + loop body 并拼接（136 行） |
-| `crates/pointer-core/src/agents/computer/tools/tool_prompts.rs` | 工具文档按 tier 的 positioning mode 选择 index 版或 coordinate 版 |
-| `crates/pointer-core/src/agents/computer/tools/tool_tier_signal.rs` | Sidecar 工具：验证 verify:report 信号参数 |
-| `crates/pointer-core/src/agents/computer/extension_hooks/tier_dynamic.rs` | 扩展钩子：注入 [LOCKED GOAL] 到 system prompt |
-| `crates/pointer-core/src/chat_service/sub_agent.rs` | 子 agent 循环：give_up 检测 |
-| `crates/pointer-core/src/agents/computer/prompts/tiers/primary/` | **全 tier 运行时 prompt**（communication.md + loop.md） |
-| `crates/pointer-core/src/agents/computer/prompts/os/` | OS 特定 prompt（macOS/Windows/Linux） |
-
----
-
-## 十三、测试覆盖
-
-`tier/mod.rs` 包含完整的单元测试（`#[cfg(test)]` 块），覆盖：
-- Fingerprint 大小写和空格规范化
-- `parse_verify_from_thoughts` 提取 step/cause
-- 历史行格式化（含/不含 cause）
-- 连续 4 次 fail 后档位保持不变
-- Primary tier 历史隐藏 cause
-- `same_goal_repetition_count` 仅计数 fail
-- Runtime block 展示策略提示
-- `on_round_complete` give_up 设置（sidecar 和 host 两个路径）
-- Verify pass 清除 give_up
-- `reset_for_new_user_guidance`（含 give_up_reference 归档）
-- Thinking budget 配置
-- `apply_app_settings` 覆盖初始 tier
-- Locked goal label 隔离
-- Sidecar 信号解析（取最后一个 signal）
+旧设置文件兼容性：`StoredSettings` 没有 `deny_unknown_fields`，旧 JSON 里的
+`computerInitialTier` / `computerTierLlm` / `computerModel` 等键会被 serde 静默忽略，
+不会导致加载失败；但这些键会永久留在文件里，需要显式清理。

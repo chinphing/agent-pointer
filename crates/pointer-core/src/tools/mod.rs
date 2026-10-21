@@ -1081,8 +1081,8 @@ mod openai_tools_schema_tests {
     fn registry_tool_in_allow_list_accepts_modified_click_family_for_flat_ids() {
         use super::registry_tool_in_allow_list;
         let allow = vec!["modified_click".into()];
-        assert!(registry_tool_in_allow_list(&allow, "modified_click_select_index"));
-        assert!(!registry_tool_in_allow_list(&allow, "mouse_click_index"));
+        assert!(registry_tool_in_allow_list(&allow, "modified_click_select_at"));
+        assert!(!registry_tool_in_allow_list(&allow, "mouse_click_at"));
     }
 
     #[test]
@@ -1091,7 +1091,7 @@ mod openai_tools_schema_tests {
         let allow = vec!["input".into()];
         assert!(registry_tool_in_allow_list(&allow, "input_at"));
         assert!(registry_tool_in_allow_list(&allow, "input_focused"));
-        assert!(!registry_tool_in_allow_list(&allow, "mouse_click_index"));
+        assert!(!registry_tool_in_allow_list(&allow, "mouse_click_at"));
     }
 
     #[test]
@@ -1139,10 +1139,8 @@ mod openai_tools_schema_tests {
             "mouse_click_index",
             "mouse_click_at",
             "mouse_scroll_current",
-            "input_index",
             "input_at",
             "input_focused",
-            "modified_click_select_index",
             "modified_click_select_at",
             "clipboard_read",
             "clipboard_write",
@@ -1170,8 +1168,6 @@ mod openai_tools_schema_tests {
             "mouse_click_index",
             "input_at",
             "input_focused",
-            "input_index",
-            "modified_click_select_index",
             "clipboard_read",
             "hotkey",
             "wait",
@@ -1201,8 +1197,8 @@ mod openai_tools_schema_tests {
         let doc = include_str!("../agents/computer/tools/prompts/modified_click.md");
         let reg = ToolRegistry::new();
         for name in [
-            "modified_click_select_index",
             "modified_click_select_at",
+            "modified_click_range_select_at",
         ] {
             let schema = schemas.get(name).cloned().unwrap();
             reg.register(
@@ -1224,10 +1220,10 @@ mod openai_tools_schema_tests {
             .iter()
             .filter_map(|t| t["function"]["name"].as_str())
             .collect();
-        assert!(names.contains("modified_click_select_index"));
+        assert!(names.contains("modified_click_select_at"));
         let click = tools
             .iter()
-            .find(|t| t["function"]["name"] == "modified_click_select_index")
+            .find(|t| t["function"]["name"] == "modified_click_select_at")
             .unwrap();
         assert!(click["function"]["parameters"]["required"]
             .as_array()

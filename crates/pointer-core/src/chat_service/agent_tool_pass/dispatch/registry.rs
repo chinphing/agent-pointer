@@ -1,6 +1,5 @@
 //! Default registry invoke with file/computer profile guards.
 
-use crate::agents::computer::ComputerTierGuard;
 use crate::agents::{AgentProfile, FileToolLeadProfileGuard};
 use crate::tools::file::{resolve_writable_path, ConversationWorkspaceGuard};
 use std::path::Path;
@@ -158,14 +157,6 @@ pub(super) async fn dispatch_registry_invoke_with_profile(
     } else {
         None
     };
-    let _tier_guard = if file_profile == AgentProfile::Computer {
-        Some(ComputerTierGuard::enter(
-            state.computer_state.tier_for_conversation(conversation_id),
-        ))
-    } else {
-        None
-    };
-
     // P2④：MCP 工具调用生成 McpRequest Span（ToolCall span 的子节点；
     // input/output 只存摘要，不存原文——见计划 §7.4）。
     let mcp_meta = state.tools.mcp_tool_meta(tool_id);

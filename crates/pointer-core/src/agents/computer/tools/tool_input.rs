@@ -1,6 +1,6 @@
 use super::args_util::{
     human_like_from_args, json_bool_loose, require_non_empty_str, required_f32_arg,
-    required_u32_arg, resolve_index_pixels, text_from_args, zoom_flag_from_args,
+    text_from_args, zoom_flag_from_args,
 };
 use super::method_route::InputBackend;
 use crate::agents::computer::actions::ActionExecutor;
@@ -10,68 +10,9 @@ use anyhow::Result;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 
-// ── InputIndexTool (`input_index`) ───────────────────────────────────────────
-
-/// Type text at an overlay-indexed element.
-pub struct InputIndexTool {
-    executor: Arc<Mutex<ActionExecutor>>,
-    vision_state: Arc<Mutex<VisionState>>,
-    verify: VerifyHintGenerator,
-    human_like_default: bool,
-}
-
-impl InputIndexTool {
-    pub fn new(
-        executor: Arc<Mutex<ActionExecutor>>,
-        vision_state: Arc<Mutex<VisionState>>,
-        human_like_default: bool,
-    ) -> Self {
-        Self {
-            executor,
-            vision_state,
-            verify: VerifyHintGenerator::new(),
-            human_like_default,
-        }
-    }
-
-    fn human_like(&self, args: &Value) -> bool {
-        human_like_from_args(args, self.human_like_default)
-    }
-
-    pub fn execute(&self, args: &Value) -> Result<String> {
-        require_non_empty_str(args, "goal")?;
-        let index = required_u32_arg(args, "index")?;
-        let text = text_from_args(args.get("text"))?;
-        let clear_first = json_bool_loose(args.get("clear_first"));
-        let auto_enter = json_bool_loose(args.get("auto_enter"));
-        let use_clipboard = args
-            .get("use_clipboard")
-            .map_or(true, |v| json_bool_loose(Some(v)));
-        let vision = self.vision_state.lock().unwrap();
-        let (x, y) = resolve_index_pixels(&vision, index)?;
-        drop(vision);
-        let hl = self.human_like(args);
-        let executor = self.executor.lock().unwrap();
-        executor.type_text_at_with_options(
-            x,
-            y,
-            &text,
-            clear_first,
-            auto_enter,
-            hl,
-            use_clipboard,
-        )?;
-        let mut hint = self.verify.type_hint(&text);
-        if auto_enter {
-            hint.push_str(" Enter key event was dispatched because auto_enter=true; do not press Enter again unless the UI clearly needs it.");
-        }
-        Ok(hint)
-    }
-}
-
 // ── InputAtTool (`input_at`) ─────────────────────────────────────────────────
 
-/// Type text at session-normalized coordinates (0-1000).
+/// Type text at logical screen pixel coordinates.
 pub struct InputAtTool {
     executor: Arc<Mutex<ActionExecutor>>,
     vision_state: Arc<Mutex<VisionState>>,
@@ -168,7 +109,6 @@ impl InputFocusedTool {
 // ── InputTool ────────────────────────────────────────────────────────────────
 
 pub struct InputTool {
-    index: InputIndexTool,
     at: InputAtTool,
     focused: InputFocusedTool,
 }
@@ -180,7 +120,6 @@ impl InputTool {
         human_like_default: bool,
     ) -> Self {
         Self {
-            index: InputIndexTool::new(executor.clone(), vision_state.clone(), human_like_default),
             at: InputAtTool::new(executor.clone(), vision_state, human_like_default),
             focused: InputFocusedTool::new(executor),
         }
@@ -188,7 +127,6 @@ impl InputTool {
 
     pub fn execute_with(&self, backend: InputBackend, args: &Value) -> Result<String> {
         match backend {
-            InputBackend::Index => self.index.execute(args),
             InputBackend::At => self.at.execute(args),
             InputBackend::Focused => self.focused.execute(args),
         }

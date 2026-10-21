@@ -1,4 +1,4 @@
-### input_index / input_at / input_focused
+### input_at / input_focused
 
 Flat input tools — each tool name is the complete operation. No `method` parameter.
 
@@ -7,7 +7,7 @@ Optional: `clear_first`, `auto_enter`, `wait` (1–5 s).
 
 **One-call click + type (default for unfocused fields)**
 
-**`input_index`** and **`input_at`** run in **one** tool call:
+**`input_at`** runs in **one** tool call:
 
 1. Click the target to focus
 2. Optionally select-all when **`clear_first=true`**
@@ -16,26 +16,26 @@ Optional: `clear_first`, `auto_enter`, `wait` (1–5 s).
 
 **Forbidden:** **`mouse_click_*`** this turn to focus, then **`input_*`** next
 turn to type the same field. Put **`text`**, **`clear_first`**, and
-**`auto_enter`** on the **same** **`input_index`** / **`input_at`** call.
+**`auto_enter`** on the **same** **`input_at`** call.
 
-**Index-based** (overlay digit — clicks bbox **center**):
-- **`input_index`** — Click index, then type. Requires **`index`**, **`text`**.
-
-**Coordinate-based** (session 0–1000):
+**Coordinate-based** (screen pixels, origin at the screenshot's top-left):
 - **`input_at`** — Click at **(x,y)**, then type. Requires **`x`**, **`y`**, **`text`**.
   Optional **`zoom`**: true only when **`x`**, **`y`** are 0–1000 of
   **`[Zoom pointer after action]`**. The host maps them onto the full screen.
+
+Coordinates are **logical pixels**, the same width and height as the screenshot
+you are looking at — not normalized, not Retina device pixels.
 
 **Focused field:**
 - **`input_focused`** — Type into focused input (no click). Requires **`text`** only.
 
 **Tool choice (prefer fewer steps):**
 - Need to type/replace in a field **this turn** and it is **not** focused
-  → **`input_index`** or **`input_at`** with **`text`** — **not**
+  → **`input_at`** with **`text`** — **not**
   **`mouse_click_*`** alone.
 - Field already focused (cursor visible, text selected, placeholder highlighted)
   → **`input_focused`** with **`text`** only — **never** **`input_at`** /
-  **`input_index`** (those click at coordinates or bbox center first and can
+  **`input_at`** (those click at coordinates or bbox center first and can
   miss the caret).
 - Shortcut can focus the field (e.g. address bar) → **`hotkey`** then
   **`input_focused`** on the next turn when focus is confirmed.

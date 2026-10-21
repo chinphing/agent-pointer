@@ -31,15 +31,13 @@ computer/
 
 ## 运行时合并
 
-`computer_communication_for_tier(tier)` + `computer_agent_body_for_tier(tier)`，段间 `\n\n---\n\n`。
+`computer_communication()` + `computer_agent_body()`，段间 `\n\n---\n\n`。
 
-| 档位 | Communication | Loop |
-|------|---------------|------|
-| Primary / Intermediate / Advanced | `tiers/primary/communication.md` | `tiers/primary/loop.md` |
+| Communication | Loop |
+|---------------|------|
+| `tiers/primary/communication.md` | `tiers/primary/loop.md` |
 
-`tier` 参数保留用于 API 兼容；实现上忽略档位，恒返回 Primary 切片。
-
-OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
+OS 片段：`prompts/os/{macos,windows,linux}.md`。
 
 共享 UI 片段：`prompts/ui_disabled_controls.md`（各类灰色/不可操作控件类型、常见原因与 agent 规则），三档共用。
 
@@ -55,24 +53,21 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 
 详见 [`../internals/llm-prompt-assembly-order.md`](../internals/llm-prompt-assembly-order.md)、[`computer-verify-host.md`](computer-verify-host.md)。
 
-## 三档差异（摘要）
+## 模型与截图（摘要）
 
-| 档位 | 图像 | 提示词 | 模型 / 思考 |
-|------|------|--------|-------------|
-| Primary | 3–4 图：可选复用的上一帧 + after + annotated + pointer zoom | Primary | `computerModelPrimary`，预算 2048 |
-| Intermediate | 同上 | Primary | `computerModelIntermediate`，预算 2048 |
-| Advanced | 同上 | Primary | `computerModelAdvanced`，预算 8192 |
+| 图像 | 提示词 | 模型 / 思考 |
+|------|--------|-------------|
+| 3–4 图：可选复用的上一帧 + after + annotated + pointer zoom | `tiers/primary/*` | `computerModel` + `computerProvider`，预算 `computerThinkingBudget`（默认 2048） |
 
 ## 操作历史
 
-- 每档独立 `[Recent desktop tool calls]` 列表，最多 10 条。
+- 单个 `[Recent desktop tool calls]` 列表，最多 10 条。
 - 每行末尾由宿主维护 **`verify:`** 后缀（`verifying` / `verified - pass|fail|…` / `skipped`）。
-- 会话档位固定为 `computerInitialTier`，Verify 失败不会升档，通过也不会改档。
 
 ## 配置（`AGENT.md` config）
 
-- `computerInitialTier` — `primary` | `intermediate` | `advanced`
-- `computerModelPrimary` / `computerModelIntermediate` / `computerModelAdvanced`
+- `computerModel` / `computerProvider` — 模型 id 与 provider
+- `computerThinkingBudget` — thinking 预算（默认 2048）
 - `computerPipelineVerifyHost` — 宿主 post-execute verify（默认 true）
 - `computerPipelineModelVerify` / `computerPipelineThinkingBudgetVerify` — verify LLM
 

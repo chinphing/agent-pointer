@@ -1,17 +1,10 @@
 //! Computer agent tier runtime: Primary / Intermediate / Advanced profiles.
 
-use crate::agents::computer::vision::coord::{screen_to_normalized, CoordinateSystem};
+use crate::agents::computer::vision::coord::screen_to_normalized;
 use crate::agents::computer::vision::vision_state::VisionState;
 use crate::agents::AgentRegistry;
-use crate::models::ComputerTierLlmConfig;
 use serde_json::Value;
-use std::collections::HashMap;
 
-pub const CONFIG_KEY_INITIAL_TIER: &str = "computerInitialTier";
-pub const CONFIG_KEY_MODEL_PRIMARY: &str = "computerModelPrimary";
-pub const CONFIG_KEY_MODEL_INTERMEDIATE: &str = "computerModelIntermediate";
-pub const CONFIG_KEY_MODEL_ADVANCED: &str = "computerModelAdvanced";
-pub const CONFIG_KEY_ADVANCED_PIPELINE: &str = "computerAdvancedPipeline";
 pub const CONFIG_KEY_PIPELINE_MODEL_DECISION: &str = "computerPipelineModelDecision";
 pub const CONFIG_KEY_PIPELINE_MODEL_POSITION: &str = "computerPipelineModelPosition";
 pub const CONFIG_KEY_PIPELINE_MODEL_VERIFY: &str = "computerPipelineModelVerify";
@@ -20,11 +13,7 @@ pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_POSITION: &str =
 pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_VERIFY: &str = "computerPipelineThinkingBudgetVerify";
 pub const CONFIG_KEY_PIPELINE_VERIFY_HOST: &str = "computerPipelineVerifyHost";
 
-// 平台模型配置全部由平台下发；本地不内置 computer tier 默认模型（登录后由
-// tierDefaults.computerTierLlm / computerPipelineLlm 注入，未配置时为空）。
-pub const DEFAULT_MODEL_PRIMARY: &str = "";
-pub const DEFAULT_MODEL_INTERMEDIATE: &str = "";
-pub const DEFAULT_MODEL_ADVANCED: &str = "";
+// 平台模型配置全部由平台下发；本地不内置 pipeline 默认模型（未配置时为空）。
 pub const DEFAULT_MODEL_PIPELINE_DECISION: &str = "";
 pub const DEFAULT_MODEL_PIPELINE_POSITION: &str = "";
 pub const DEFAULT_MODEL_PIPELINE_VERIFY: &str = "";
@@ -34,9 +23,9 @@ pub const DEFAULT_COMPUTER_LLM_PROVIDER: &str = "";
 pub const DEFAULT_PIPELINE_POSITION_THINKING_BUDGET: u32 = 1024;
 /// `thinking_budget` for Advanced pipeline Verify phase.
 pub const DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET: u32 = 256;
-/// `thinking_budget` for Primary / Intermediate.
-pub const PRIMARY_INTERMEDIATE_THINKING_BUDGET: u32 = 2048;
-pub const ADVANCED_THINKING_BUDGET: u32 = 8192;
+/// Fallback `thinking_budget` for the pipeline Decision phase. The main model's
+/// thinking comes from `agentModeLlm[agentId][mode]` via the shared session-model path.
+pub const DEFAULT_PIPELINE_DECISION_THINKING_BUDGET: u32 = 2048;
 
 const MAX_TIER_HISTORY: usize = 10;
 
@@ -73,10 +62,6 @@ impl ComputerTier {
             Self::Intermediate => "intermediate",
             Self::Advanced => "advanced",
         }
-    }
-
-    pub fn includes_cause_in_history(self) -> bool {
-        !matches!(self, ComputerTier::Primary)
     }
 }
 
@@ -145,42 +130,34 @@ impl ComputerPipelineLlmConfig {
 
     pub fn thinking_for_phase(&self, phase: PipelineLlmPhase) -> (bool, u32) {
         match phase {
-            PipelineLlmPhase::Decision => (true, PRIMARY_INTERMEDIATE_THINKING_BUDGET),
+            PipelineLlmPhase::Decision => (true, DEFAULT_PIPELINE_DECISION_THINKING_BUDGET),
             PipelineLlmPhase::Position => (true, self.thinking_budget_position),
             PipelineLlmPhase::Verify => (true, self.thinking_budget_verify),
         }
     }
 }
 
-/// Static tier options from agent manifest + platform overrides.
+/// Static computer-agent runtime config from the agent manifest + settings.
+///
+/// Model and thinking intensity are **not** here: the computer agent uses the same
+/// `agentModeLlm[agentId][mode]` / `agentDefaultModels[agentId]` path as every
+/// other agent, resolved by `chat_service::session_model`.
 #[derive(Debug, Clone)]
-pub struct ComputerTierConfig {
-    pub initial_tier: ComputerTier,
-    pub model_primary: String,
-    pub model_intermediate: String,
-    pub model_advanced: String,
-    pub advanced_pipeline: bool,
+pub struct ComputerModelConfig {
     pub verify_host_enabled: bool,
     pub pipeline_llm: ComputerPipelineLlmConfig,
-    pub tier_llm: HashMap<String, ComputerTierLlmConfig>,
 }
 
-impl Default for ComputerTierConfig {
+impl Default for ComputerModelConfig {
     fn default() -> Self {
         Self {
-            initial_tier: ComputerTier::Intermediate,
-            model_primary: DEFAULT_MODEL_PRIMARY.into(),
-            model_intermediate: DEFAULT_MODEL_INTERMEDIATE.into(),
-            model_advanced: DEFAULT_MODEL_ADVANCED.into(),
-            advanced_pipeline: true,
             verify_host_enabled: true,
             pipeline_llm: ComputerPipelineLlmConfig::default(),
-            tier_llm: HashMap::new(),
         }
     }
 }
 
-impl ComputerTierConfig {
+impl ComputerModelConfig {
     pub fn from_agent_registry(agents: &AgentRegistry) -> Self {
         let mut cfg = Self::default();
         let Some(def) = agents.get("computer").map(|a| a.def()) else {
@@ -188,26 +165,6 @@ impl ComputerTierConfig {
         };
         for (k, v) in &def.config {
             match k.as_str() {
-                "computerAutoUpgrade" => {
-                    log::warn!(
-                        "computer tier: computerAutoUpgrade is ignored; tier stays at computerInitialTier"
-                    );
-                }
-                CONFIG_KEY_INITIAL_TIER => {
-                    cfg.initial_tier = ComputerTier::parse(v);
-                }
-                CONFIG_KEY_MODEL_PRIMARY if !v.trim().is_empty() => {
-                    cfg.model_primary = v.trim().to_string();
-                }
-                CONFIG_KEY_MODEL_INTERMEDIATE if !v.trim().is_empty() => {
-                    cfg.model_intermediate = v.trim().to_string();
-                }
-                CONFIG_KEY_MODEL_ADVANCED if !v.trim().is_empty() => {
-                    cfg.model_advanced = v.trim().to_string();
-                }
-                CONFIG_KEY_ADVANCED_PIPELINE => {
-                    cfg.advanced_pipeline = v.eq_ignore_ascii_case("true") || v == "1";
-                }
                 CONFIG_KEY_PIPELINE_VERIFY_HOST => {
                     cfg.verify_host_enabled = v.eq_ignore_ascii_case("true") || v == "1";
                 }
@@ -238,40 +195,6 @@ impl ComputerTierConfig {
             }
         }
         cfg
-    }
-
-    /// App settings override agent manifest when `computerInitialTier` is non-empty.
-    pub fn apply_app_settings(&mut self, settings: &crate::models::ModelSettings) {
-        let tier = settings.computer_initial_tier.trim();
-        if !tier.is_empty() {
-            self.initial_tier = ComputerTier::parse(tier);
-        }
-        if settings.computer_human_like {
-            // human_like is read from platform settings at tool layer; no field here.
-        }
-    }
-
-    /// Override tier LLM profiles from platform `computerTierLlm`.
-    pub fn apply_platform_tier_llm(&mut self, m: &HashMap<String, ComputerTierLlmConfig>) {
-        if m.is_empty() {
-            return;
-        }
-        self.tier_llm = m.clone();
-        if let Some(p) = m.get("primary") {
-            if !p.model.trim().is_empty() {
-                self.model_primary = p.model.clone();
-            }
-        }
-        if let Some(i) = m.get("intermediate") {
-            if !i.model.trim().is_empty() {
-                self.model_intermediate = i.model.clone();
-            }
-        }
-        if let Some(a) = m.get("advanced") {
-            if !a.model.trim().is_empty() {
-                self.model_advanced = a.model.clone();
-            }
-        }
     }
 
     /// Override Advanced pipeline phase models from platform `computerPipelineLlm`.
@@ -331,13 +254,12 @@ pub struct LockedGoal {
     pub label: String,
 }
 
-/// Per-conversation tier state (histories isolated per tier).
+/// Per-conversation computer-agent runtime state (tool history + give-up state).
 #[derive(Debug, Clone)]
 pub struct ComputerTierRuntime {
-    pub current_tier: ComputerTier,
     pub task_error_streak: u32,
     pub locked_goal: Option<LockedGoal>,
-    histories: HashMap<ComputerTier, Vec<TierActionRecord>>,
+    histories: Vec<TierActionRecord>,
     /// Goal of the last desktop tool executed (for lock counting).
     pub last_executed_goal: Option<String>,
     /// Fail streak for the current goal before lock engages.
@@ -352,12 +274,11 @@ pub struct ComputerTierRuntime {
 }
 
 impl ComputerTierRuntime {
-    pub fn new(initial: ComputerTier) -> Self {
+    pub fn new() -> Self {
         Self {
-            current_tier: initial,
             task_error_streak: 0,
             locked_goal: None,
-            histories: HashMap::new(),
+            histories: Vec::new(),
             last_executed_goal: None,
             goal_fail_fingerprint: None,
             goal_fail_streak: 0,
@@ -370,16 +291,13 @@ impl ComputerTierRuntime {
         self.give_up_reference.as_deref()
     }
 
-    pub fn history_for(&self, tier: ComputerTier) -> &[TierActionRecord] {
-        self.histories
-            .get(&tier)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[])
+    pub fn history(&self) -> &[TierActionRecord] {
+        &self.histories
     }
 
-    pub fn push_action(&mut self, tier: ComputerTier, record: TierActionRecord) {
-        self.auto_close_all_open_rows_before_push(tier);
-        let v = self.histories.entry(tier).or_default();
+    pub fn push_action(&mut self, record: TierActionRecord) {
+        self.auto_close_all_open_rows_before_push();
+        let v = &mut self.histories;
         v.push(record);
         if v.len() > MAX_TIER_HISTORY {
             v.remove(0);
@@ -387,45 +305,33 @@ impl ComputerTierRuntime {
     }
 
     /// Close every open row before a new desktop action (never verified — `skipped`).
-    pub fn auto_close_all_open_rows_before_push(&mut self, tier: ComputerTier) {
-        let Some(v) = self.histories.get_mut(&tier) else {
-            return;
-        };
-        let n = auto_close_all_open_rows_slice(v);
+    pub fn auto_close_all_open_rows_before_push(&mut self) {
+        let n = auto_close_all_open_rows_slice(&mut self.histories);
         if n > 0 {
             log::warn!(
-                "computer tier: auto-closed {n} open history row(s) as verify skipped before new desktop action"
+                "computer: auto-closed {n} open history row(s) as verify skipped before new desktop action"
             );
         }
     }
 
     /// Close stale open rows, keeping the newest open row for verify this turn.
-    pub fn auto_close_stale_open_rows(&mut self, tier: ComputerTier) {
-        let Some(v) = self.histories.get_mut(&tier) else {
-            return;
-        };
-        let n = auto_close_stale_open_rows_slice(v);
+    pub fn auto_close_stale_open_rows(&mut self) {
+        let n = auto_close_stale_open_rows_slice(&mut self.histories);
         if n > 0 {
             log::warn!(
-                "computer tier: auto-closed {n} stale open history row(s) as verify skipped (kept newest open)"
+                "computer: auto-closed {n} stale open history row(s) as verify skipped (kept newest open)"
             );
         }
     }
 
     /// Backfill verify outcome into the newest open history row. Returns true when stored.
-    pub fn backfill_newest_open_verify(
-        &mut self,
-        tier: ComputerTier,
-        outcome: VerifyOutcome,
-    ) -> bool {
+    pub fn backfill_newest_open_verify(&mut self, outcome: VerifyOutcome) -> bool {
         if outcome.step_result == "pending" {
             return false;
         }
-        let Some(v) = self.histories.get_mut(&tier) else {
-            return false;
-        };
+        let v = &mut self.histories;
         let Some(idx) = v.iter().rposition(|r| r.verify_result.is_none()) else {
-            log::warn!("computer tier: host verify ignored — no open verifying row to close");
+            log::warn!("computer: host verify ignored — no open verifying row to close");
             return false;
         };
         if v[idx].verify_result.is_some() {
@@ -436,8 +342,8 @@ impl ComputerTierRuntime {
     }
 
     /// Back-compat alias — prefer [`backfill_newest_open_verify`].
-    pub fn backfill_last_verify(&mut self, tier: ComputerTier, outcome: VerifyOutcome) {
-        let _ = self.backfill_newest_open_verify(tier, outcome);
+    pub fn backfill_last_verify(&mut self, outcome: VerifyOutcome) {
+        let _ = self.backfill_newest_open_verify(outcome);
     }
 
     /// Normalize `tool_args.goal` for fingerprinting.
@@ -472,7 +378,7 @@ impl ComputerTierRuntime {
 
     pub fn on_round_complete(
         &mut self,
-        _config: &ComputerTierConfig,
+        _config: &ComputerModelConfig,
         parsed: Option<&ParsedVerify>,
         last_tool_goal: Option<&str>,
         sidecar_repetition_count: Option<u32>,
@@ -520,10 +426,7 @@ impl ComputerTierRuntime {
                 self.task_error_streak = 0;
                 self.goal_fail_fingerprint = None;
                 self.goal_fail_streak = 0;
-                log::info!(
-                    "computer tier: goal verify pass — cleared lock (tier stays {:?})",
-                    self.current_tier
-                );
+                log::info!("computer: goal verify pass — cleared goal lock");
             }
         }
 
@@ -542,10 +445,9 @@ impl ComputerTierRuntime {
 
     /// Full runtime reset when the user sends new guidance after give-up or a stuck loop.
     /// Clears streaks and tier history; archives prior failed ops into `give_up_reference`.
-    pub fn reset_for_new_user_guidance(&mut self, initial_tier: ComputerTier) {
+    pub fn reset_for_new_user_guidance(&mut self) {
         let reference = self.build_give_up_reference_block();
         self.histories.clear();
-        self.current_tier = initial_tier;
         self.task_error_streak = 0;
         self.locked_goal = None;
         self.goal_fail_fingerprint = None;
@@ -554,25 +456,13 @@ impl ComputerTierRuntime {
         self.last_executed_goal = None;
         self.give_up_reference = reference;
         log::info!(
-            "computer tier: reset for new user guidance (tier={}, give_up_reference={})",
-            initial_tier.label(),
+            "computer: reset for new user guidance (give_up_reference={})",
             self.give_up_reference.is_some()
         );
     }
 
     fn build_give_up_reference_block(&self) -> Option<String> {
-        let mut all_rows: Vec<(ComputerTier, &TierActionRecord)> = Vec::new();
-        for tier in [
-            ComputerTier::Primary,
-            ComputerTier::Intermediate,
-            ComputerTier::Advanced,
-        ] {
-            if let Some(records) = self.histories.get(&tier) {
-                for r in records {
-                    all_rows.push((tier, r));
-                }
-            }
-        }
+        let all_rows: Vec<&TierActionRecord> = self.histories.iter().collect();
         if all_rows.is_empty() {
             return None;
         }
@@ -590,7 +480,7 @@ impl ComputerTierRuntime {
 
         let fail_rows: Vec<_> = all_rows
             .iter()
-            .filter(|(_, r)| {
+            .filter(|r| {
                 r.verify_result
                     .as_ref()
                     .is_some_and(|v| verify_counts_toward_repetition_count(v.step_result.as_str()))
@@ -599,16 +489,16 @@ impl ComputerTierRuntime {
 
         if fail_rows.is_empty() {
             lines.push("Recent operations before reset (reference only):".to_string());
-            for (tier, r) in &all_rows {
-                lines.push(format!("  - {}", format_history_line(*tier, r)));
+            for r in &all_rows {
+                lines.push(format!("  - {}", format_history_line(r)));
             }
         } else {
             lines.push(
                 "Failed operations (do not repeat — change tool or target element in Next):"
                     .to_string(),
             );
-            for (tier, r) in fail_rows {
-                lines.push(format!("  - {}", format_history_line(*tier, r)));
+            for r in fail_rows {
+                lines.push(format!("  - {}", format_history_line(r)));
             }
         }
         Some(lines.join("\n"))
@@ -616,9 +506,8 @@ impl ComputerTierRuntime {
 
     /// Test helper: append a history row without auto-closing open rows.
     #[cfg(test)]
-    pub fn test_push_open_row(&mut self, tier: ComputerTier, record: TierActionRecord) {
-        let v = self.histories.entry(tier).or_default();
-        v.push(record);
+    pub fn test_push_open_row(&mut self, record: TierActionRecord) {
+        self.histories.push(record);
     }
 }
 
@@ -727,7 +616,7 @@ pub fn same_goal_fail_count_in_history(records: &[TierActionRecord]) -> u32 {
 /// Host-maintained counters for internal runtime diagnostics.
 pub fn format_tier_runtime_block(
     rt: &ComputerTierRuntime,
-    _config: &ComputerTierConfig,
+    _config: &ComputerModelConfig,
     tier: ComputerTier,
     records: &[TierActionRecord],
 ) -> String {
@@ -773,9 +662,8 @@ pub fn format_tier_runtime_block(
     lines.join("\n")
 }
 
-/// Build a tier history block for `[CUR_SCREEN]`.
-pub fn format_tier_history_block(
-    tier: ComputerTier,
+/// Build the desktop tool history block for `[CUR_SCREEN]`.
+pub fn format_history_block(
     records: &[TierActionRecord],
     give_up_reference: Option<&str>,
 ) -> Option<String> {
@@ -783,7 +671,7 @@ pub fn format_tier_history_block(
         return None;
     }
     let mut lines = vec![
-        "[Recent desktop tool calls — ordered oldest to newest; repetition uses goal; coordinates are session 0-1000; overlay indices are not comparable across turns.]".to_string(),
+        "[Recent desktop tool calls — ordered oldest to newest; repetition uses goal; coordinates are logical screen pixels; overlay indices are not comparable across turns.]".to_string(),
         "Verify suffix: only the newest row may show verify: verifying; verify: skipped = never verified; verify: verified - * = closed — do not re-verify or re-report.".to_string(),
     ];
     if let Some(ref_block) = give_up_reference {
@@ -810,13 +698,13 @@ pub fn format_tier_history_block(
             );
         }
         for (i, r) in records.iter().enumerate() {
-            lines.push(format!("  {}: {}", i + 1, format_history_line(tier, r)));
+            lines.push(format!("  {}: {}", i + 1, format_history_line(r)));
         }
     }
     Some(lines.join("\n"))
 }
 
-fn format_history_line(tier: ComputerTier, r: &TierActionRecord) -> String {
+fn format_history_line(r: &TierActionRecord) -> String {
     let mut base = format!("{} goal=\"{}\"", r.tool_name, escape_goal(&r.goal));
     if let Some(ref a) = r.action {
         if !a.is_empty() {
@@ -831,7 +719,7 @@ fn format_history_line(tier: ComputerTier, r: &TierActionRecord) -> String {
         }
     }
     base.push_str(" | ");
-    base.push_str(&format_verify_suffix(tier, r.verify_result.as_ref()));
+    base.push_str(&format_verify_suffix(r.verify_result.as_ref()));
     base
 }
 
@@ -839,7 +727,7 @@ fn escape_goal(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-fn format_verify_suffix(_tier: ComputerTier, v: Option<&VerifyOutcome>) -> String {
+fn format_verify_suffix(v: Option<&VerifyOutcome>) -> String {
     let Some(v) = v else {
         return "verify: verifying".into();
     };
@@ -938,14 +826,7 @@ fn extract_normalized_coords(args: &Value, vision: &VisionState) -> Option<(i32,
     ) {
         return normalized_pair(vision, x as f32, y as f32);
     }
-    let index = args
-        .get("index")
-        .and_then(|v| v.as_u64())
-        .map(|n| n as u32)?;
-    let (px, py) = vision.resolve_index(index)?;
-    let monitor = vision.screen_bbox()?;
-    let (nx, ny) = screen_to_normalized((px, py), &monitor, CoordinateSystem::Qwen);
-    Some((nx.round() as i32, ny.round() as i32))
+    None
 }
 
 fn normalized_pair(_vision: &VisionState, x: f32, y: f32) -> Option<(i32, i32)> {
@@ -989,101 +870,6 @@ fn compact_non_coord_args(args: &Value) -> String {
     parts.join(" ")
 }
 
-/// Per-round LLM overrides for computer tier.
-#[derive(Debug, Clone)]
-pub struct ComputerRoundLlmOverrides {
-    pub provider_id: String,
-    pub model: String,
-    pub enable_thinking: bool,
-    pub thinking_budget: Option<u32>,
-    pub reasoning_effort: Option<String>,
-    pub thinking_intensity: Option<String>,
-}
-
-impl ComputerRoundLlmOverrides {
-    pub fn for_tier(tier: ComputerTier, config: &ComputerTierConfig) -> Self {
-        let key = tier.label();
-        if let Some(t) = config.tier_llm.get(key) {
-            let provider_id = if t.provider_id.trim().is_empty() {
-                DEFAULT_COMPUTER_LLM_PROVIDER.to_string()
-            } else {
-                t.provider_id.clone()
-            };
-            return Self {
-                provider_id,
-                model: t.model.clone(),
-                enable_thinking: t.enable_thinking,
-                thinking_budget: t.thinking_budget,
-                reasoning_effort: t.reasoning_effort.clone(),
-                thinking_intensity: t.thinking_intensity.clone(),
-            };
-        }
-        match tier {
-            ComputerTier::Primary => Self {
-                provider_id: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
-                model: config.model_primary.clone(),
-                enable_thinking: true,
-                thinking_budget: Some(PRIMARY_INTERMEDIATE_THINKING_BUDGET),
-                reasoning_effort: None,
-                thinking_intensity: None,
-            },
-            ComputerTier::Intermediate => Self {
-                provider_id: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
-                model: config.model_intermediate.clone(),
-                enable_thinking: true,
-                thinking_budget: Some(PRIMARY_INTERMEDIATE_THINKING_BUDGET),
-                reasoning_effort: None,
-                thinking_intensity: None,
-            },
-            ComputerTier::Advanced => Self {
-                provider_id: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
-                model: config.model_advanced.clone(),
-                enable_thinking: true,
-                thinking_budget: Some(ADVANCED_THINKING_BUDGET),
-                reasoning_effort: None,
-                thinking_intensity: None,
-            },
-        }
-    }
-}
-
-// Thread-local active tier for tool handlers.
-std::thread_local! {
-    static ACTIVE_COMPUTER_TIER: std::cell::RefCell<Option<ComputerTier>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-pub struct ComputerTierGuard {
-    previous: Option<ComputerTier>,
-}
-
-impl ComputerTierGuard {
-    pub fn enter(tier: ComputerTier) -> Self {
-        let previous = ACTIVE_COMPUTER_TIER.with(|c| {
-            let mut g = c.borrow_mut();
-            std::mem::replace(&mut *g, Some(tier))
-        });
-        Self { previous }
-    }
-}
-
-impl Drop for ComputerTierGuard {
-    fn drop(&mut self) {
-        ACTIVE_COMPUTER_TIER.with(|c| {
-            *c.borrow_mut() = self.previous;
-        });
-    }
-}
-
-pub fn current_computer_tier() -> Option<ComputerTier> {
-    ACTIVE_COMPUTER_TIER.with(|c| *c.borrow())
-}
-
-/// Index-targeting mouse/composite/modified_click methods are allowed on every tier (including Advanced).
-pub fn tier_allows_index_tools(_tier: ComputerTier) -> bool {
-    true
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1116,7 +902,7 @@ mod tests {
             }),
             extra_args_hint: None,
         };
-        let line = format_history_line(ComputerTier::Intermediate, &r);
+        let line = format_history_line(&r);
         assert!(line.contains("goal=\"Open Settings\""));
         assert!(line.contains("at (412, 680)"));
         assert!(line.contains("verify: verified - precision_miss"));
@@ -1124,11 +910,8 @@ mod tests {
 
     #[test]
     fn tier_stays_after_four_fails() {
-        let config = ComputerTierConfig {
-            initial_tier: ComputerTier::Intermediate,
-            ..ComputerTierConfig::default()
-        };
-        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
+        let config = ComputerModelConfig::default();
+        let mut rt = ComputerTierRuntime::new();
         for _ in 0..4 {
             rt.on_round_complete(
                 &config,
@@ -1141,7 +924,6 @@ mod tests {
                 0,
             );
         }
-        assert_eq!(rt.current_tier, ComputerTier::Primary);
     }
 
     #[test]
@@ -1157,7 +939,7 @@ mod tests {
             }),
             extra_args_hint: None,
         };
-        let line = format_history_line(ComputerTier::Primary, &r);
+        let line = format_history_line(&r);
         assert!(line.contains("verify: verified - precision_miss"));
     }
 
@@ -1198,7 +980,7 @@ mod tests {
             verify_result: None,
             extra_args_hint: None,
         };
-        let line = format_history_line(ComputerTier::Primary, &r);
+        let line = format_history_line(&r);
         assert!(line.contains("verify: verifying"));
     }
 
@@ -1215,17 +997,15 @@ mod tests {
             }),
             extra_args_hint: None,
         };
-        let line = format_history_line(ComputerTier::Primary, &r);
+        let line = format_history_line(&r);
         assert!(line.contains("verify: skipped"));
         assert!(!line.contains("verified"));
     }
 
     #[test]
     fn push_action_closes_open_rows_as_skipped() {
-        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
-        let tier = ComputerTier::Primary;
+        let mut rt = ComputerTierRuntime::new();
         rt.push_action(
-            tier,
             TierActionRecord {
                 tool_name: "a".into(),
                 goal: "g1".into(),
@@ -1236,7 +1016,6 @@ mod tests {
             },
         );
         rt.push_action(
-            tier,
             TierActionRecord {
                 tool_name: "b".into(),
                 goal: "g2".into(),
@@ -1246,7 +1025,7 @@ mod tests {
                 extra_args_hint: None,
             },
         );
-        let records = rt.history_for(tier);
+        let records = rt.history();
         assert_eq!(records.len(), 2);
         assert_eq!(
             records[0].verify_result.as_ref().unwrap().step_result,
@@ -1257,10 +1036,8 @@ mod tests {
 
     #[test]
     fn backfill_newest_open_targets_newest_not_oldest() {
-        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
-        let tier = ComputerTier::Primary;
+        let mut rt = ComputerTierRuntime::new();
         rt.test_push_open_row(
-            tier,
             TierActionRecord {
                 tool_name: "a".into(),
                 goal: "g".into(),
@@ -1271,7 +1048,6 @@ mod tests {
             },
         );
         rt.test_push_open_row(
-            tier,
             TierActionRecord {
                 tool_name: "b".into(),
                 goal: "g".into(),
@@ -1282,14 +1058,13 @@ mod tests {
             },
         );
         let applied = rt.backfill_newest_open_verify(
-            tier,
             VerifyOutcome {
                 step_result: "pass".into(),
                 cause: None,
             },
         );
         assert!(applied);
-        let records = rt.history_for(tier);
+        let records = rt.history();
         assert!(records[0].verify_result.is_none());
         assert_eq!(
             records[1].verify_result.as_ref().unwrap().step_result,
@@ -1299,10 +1074,8 @@ mod tests {
 
     #[test]
     fn backfill_pending_does_not_close_row() {
-        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
-        let tier = ComputerTier::Primary;
+        let mut rt = ComputerTierRuntime::new();
         rt.push_action(
-            tier,
             TierActionRecord {
                 tool_name: "a".into(),
                 goal: "g".into(),
@@ -1313,14 +1086,13 @@ mod tests {
             },
         );
         let applied = rt.backfill_newest_open_verify(
-            tier,
             VerifyOutcome {
                 step_result: "pending".into(),
                 cause: None,
             },
         );
         assert!(!applied);
-        assert!(rt.history_for(tier)[0].verify_result.is_none());
+        assert!(rt.history()[0].verify_result.is_none());
     }
 
     #[test]
@@ -1383,8 +1155,8 @@ mod tests {
 
     #[test]
     fn tier_runtime_block_shows_repetition_policy() {
-        let config = ComputerTierConfig::default();
-        let rt = ComputerTierRuntime::new(ComputerTier::Primary);
+        let config = ComputerModelConfig::default();
+        let rt = ComputerTierRuntime::new();
         let records = vec![TierActionRecord {
             tool_name: "t".into(),
             goal: "g".into(),
@@ -1413,15 +1185,15 @@ mod tests {
             }),
             extra_args_hint: None,
         }];
-        let block = format_tier_history_block(ComputerTier::Intermediate, &records, None).unwrap();
+        let block = format_history_block(&records, None).unwrap();
         assert!(block.contains("verify: verified - unexpected_change"));
         assert!(!block.contains("Last verify result (previous round):"));
     }
 
     #[test]
     fn tier_runtime_block_escalates_policy_when_four_same_goal_fails() {
-        let config = ComputerTierConfig::default();
-        let rt = ComputerTierRuntime::new(ComputerTier::Primary);
+        let config = ComputerModelConfig::default();
+        let rt = ComputerTierRuntime::new();
         let records: Vec<_> = (0..4)
             .map(|_| TierActionRecord {
                 tool_name: "t".into(),
@@ -1442,8 +1214,8 @@ mod tests {
 
     #[test]
     fn on_round_complete_sets_give_up_when_effective_repetition_reaches_threshold() {
-        let config = ComputerTierConfig::default();
-        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
+        let config = ComputerModelConfig::default();
+        let mut rt = ComputerTierRuntime::new();
         rt.on_round_complete(
             &config,
             Some(&ParsedVerify {
@@ -1459,8 +1231,8 @@ mod tests {
 
     #[test]
     fn on_round_complete_ignores_inflated_sidecar_repetition_count() {
-        let config = ComputerTierConfig::default();
-        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
+        let config = ComputerModelConfig::default();
+        let mut rt = ComputerTierRuntime::new();
         rt.on_round_complete(
             &config,
             Some(&ParsedVerify {
@@ -1479,8 +1251,8 @@ mod tests {
 
     #[test]
     fn on_round_complete_give_up_uses_host_count_when_sidecar_missing() {
-        let config = ComputerTierConfig::default();
-        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
+        let config = ComputerModelConfig::default();
+        let mut rt = ComputerTierRuntime::new();
         rt.on_round_complete(
             &config,
             Some(&ParsedVerify {
@@ -1496,8 +1268,8 @@ mod tests {
 
     #[test]
     fn on_round_complete_clears_give_up_on_verify_pass() {
-        let config = ComputerTierConfig::default();
-        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
+        let config = ComputerModelConfig::default();
+        let mut rt = ComputerTierRuntime::new();
         rt.should_give_up = true;
         rt.on_round_complete(
             &config,
@@ -1514,7 +1286,7 @@ mod tests {
 
     #[test]
     fn reset_for_new_user_guidance_clears_streaks_and_archives_reference() {
-        let mut rt = ComputerTierRuntime::new(ComputerTier::Advanced);
+        let mut rt = ComputerTierRuntime::new();
         rt.task_error_streak = 2;
         rt.goal_fail_streak = 2;
         rt.goal_fail_fingerprint = Some("fp".into());
@@ -1524,7 +1296,6 @@ mod tests {
             label: "Open app".into(),
         });
         rt.push_action(
-            ComputerTier::Advanced,
             TierActionRecord {
                 tool_name: "mouse_click_index".into(),
                 goal: "Open app".into(),
@@ -1537,13 +1308,12 @@ mod tests {
                 extra_args_hint: None,
             },
         );
-        rt.reset_for_new_user_guidance(ComputerTier::Primary);
+        rt.reset_for_new_user_guidance();
         assert!(!rt.should_give_up);
         assert_eq!(rt.task_error_streak, 0);
         assert_eq!(rt.goal_fail_streak, 0);
         assert!(rt.locked_goal.is_none());
-        assert_eq!(rt.current_tier, ComputerTier::Primary);
-        assert!(rt.history_for(ComputerTier::Advanced).is_empty());
+        assert!(rt.history().is_empty());
         let reference = rt.give_up_reference().expect("reference");
         assert!(reference.contains("wrong_operation"));
         assert!(reference.contains("Stop reason"));
@@ -1552,7 +1322,7 @@ mod tests {
     #[test]
     fn history_block_includes_give_up_reference_without_live_rows() {
         let reference = "Failed operations (do not repeat):\n  - mouse_click_index goal=\"g\" | verify: verified - wrong_operation";
-        let block = format_tier_history_block(ComputerTier::Primary, &[], Some(reference)).unwrap();
+        let block = format_history_block(&[], Some(reference)).unwrap();
         assert!(block.contains("[Prior attempt — give up reference"));
         assert!(block.contains("wrong_operation"));
         assert!(block.contains("[Current session — no desktop tool calls yet"));
@@ -1560,11 +1330,10 @@ mod tests {
 
     #[test]
     fn reset_for_new_user_guidance_fresh_repetition_count() {
-        let config = ComputerTierConfig::default();
-        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
+        let config = ComputerModelConfig::default();
+        let mut rt = ComputerTierRuntime::new();
         for _ in 0..5 {
             rt.push_action(
-                ComputerTier::Primary,
                 TierActionRecord {
                     tool_name: "mouse_click_index".into(),
                     goal: "same goal".into(),
@@ -1579,13 +1348,13 @@ mod tests {
             );
         }
         assert_eq!(
-            same_goal_repetition_count_in_history(rt.history_for(ComputerTier::Primary)),
+            same_goal_repetition_count_in_history(rt.history()),
             5
         );
         rt.should_give_up = true;
-        rt.reset_for_new_user_guidance(ComputerTier::Primary);
+        rt.reset_for_new_user_guidance();
         assert_eq!(
-            same_goal_repetition_count_in_history(rt.history_for(ComputerTier::Primary)),
+            same_goal_repetition_count_in_history(rt.history()),
             0
         );
         rt.on_round_complete(
@@ -1605,33 +1374,8 @@ mod tests {
     }
 
     #[test]
-    fn primary_intermediate_thinking_budget() {
-        let cfg = ComputerTierConfig::default();
-        let o = ComputerRoundLlmOverrides::for_tier(ComputerTier::Primary, &cfg);
-        assert!(o.enable_thinking);
-        assert_eq!(
-            o.thinking_budget,
-            Some(PRIMARY_INTERMEDIATE_THINKING_BUDGET)
-        );
-        let o2 = ComputerRoundLlmOverrides::for_tier(ComputerTier::Intermediate, &cfg);
-        assert_eq!(o2.thinking_budget, Some(2048));
-    }
-
-    #[test]
-    fn apply_app_settings_overrides_initial_tier() {
-        let mut cfg = ComputerTierConfig::default();
-        assert_eq!(cfg.initial_tier, ComputerTier::Intermediate);
-        let settings = crate::models::ModelSettings {
-            computer_initial_tier: "advanced".into(),
-            ..crate::models::ModelSettings::default()
-        };
-        cfg.apply_app_settings(&settings);
-        assert_eq!(cfg.initial_tier, ComputerTier::Advanced);
-    }
-
-    #[test]
     fn pipeline_llm_default_models() {
-        let cfg = ComputerTierConfig::default();
+        let cfg = ComputerModelConfig::default();
         assert_eq!(
             cfg.pipeline_llm.model_decision,
             DEFAULT_MODEL_PIPELINE_DECISION
@@ -1653,7 +1397,7 @@ mod tests {
 
     #[test]
     fn pipeline_llm_thinking_for_phase() {
-        let cfg = ComputerTierConfig::default();
+        let cfg = ComputerModelConfig::default();
         assert_eq!(
             cfg.pipeline_llm
                 .thinking_for_phase(PipelineLlmPhase::Position),
@@ -1668,7 +1412,7 @@ mod tests {
 
     #[test]
     fn locked_goal_label_returns_goal_text_not_footer() {
-        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
+        let mut rt = ComputerTierRuntime::new();
         rt.locked_goal = Some(LockedGoal {
             fingerprint: "abc".into(),
             label: "Open WeChat".into(),
@@ -1679,10 +1423,4 @@ mod tests {
         assert_ne!(rt.locked_goal_label(), block.lines().nth(3));
     }
 
-    #[test]
-    fn advanced_tier_disallows_index_tools() {
-        assert!(tier_allows_index_tools(ComputerTier::Primary));
-        assert!(tier_allows_index_tools(ComputerTier::Intermediate));
-        assert!(tier_allows_index_tools(ComputerTier::Advanced));
-    }
 }

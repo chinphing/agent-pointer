@@ -13,7 +13,7 @@ Advanced 档在 `computerAdvancedPipeline=true`（默认）时启用四阶段宿
 
 任务完成轮次仅跑 **决策**（无 root desktop tool 时结束）。
 
-决策阶段**不传**坐标 / overlay index（由 Position 补全或宿主跳过 Position）。Advanced 下**不调用** `action_verify` sidecar，校验由 Verify LLM 或 AppAccess Host verify 写入 tier history。
+决策阶段**不传**坐标 / overlay index（由 Position 补全或宿主跳过 Position）。**不调用** `action_verify` sidecar，校验由 Verify LLM 或 AppAccess Host verify 写入工具历史。
 
 ## 代码位置
 
@@ -35,7 +35,7 @@ Advanced 档在 `computerAdvancedPipeline=true`（默认）时启用四阶段宿
 | **Position** | 见下表「需定位 = 是」 | `[POSITION_CONTEXT]` + 原图 + 数字标注图 + bbox 列表 | 虚拟 tool call（`submit_position_*`）；thinking 开启 |
 | **Execute** | Position merge 后（或跳过 Position 时） | 完整 tool args | **纯文本** tool result |
 | **Verify LLM** | 非 AppAccess root desktop tool 执行后 | `[VERIFY_CONTEXT]` + 操作前/后截图 + 操作摘要 | 虚拟 tool call（`submit_verify`）→ `VerifyConclusion` |
-| **Host verify（AppAccess）** | `launch_app` / `list_apps` 执行后 | OS API / tool 文本解析（非 LLM） | `pass` / `fail` / `n/a` 写入 tier history |
+| **Host verify（AppAccess）** | `launch_app` / `list_apps` 执行后 | OS API / tool 文本解析（非 LLM） | `pass` / `fail` / `n/a` 写入工具历史 |
 
 ### 定位跳过规则（`needs_positioning_for_tool`）
 
@@ -89,7 +89,7 @@ Advanced 档在 `computerAdvancedPipeline=true`（默认）时启用四阶段宿
 
 ### `launch_app` / `list_apps` Host verify
 
-执行后轮询 2–4s（`launch_app`），要求目标 app `running && frontmost`（macOS 还需可见窗口 ≥50×50）。结果写入 tool 文本：`Goal: … OK — … Verified: …` 或 `FAILED — …`。宿主解析后写入 tier history（`verify: verified - pass` / `fail`），**不**调用 Verify LLM。
+执行后轮询 2–4s（`launch_app`），要求目标 app `running && frontmost`（macOS 还需可见窗口 ≥50×50）。结果写入 tool 文本：`Goal: … OK — … Verified: …` 或 `FAILED — …`。宿主解析后写入工具历史（`verify: verified - pass` / `fail`），**不**调用 Verify LLM。
 
 应用 list/launch 行为见 [computer-app-access.md](./computer-app-access.md)。
 
@@ -235,11 +235,11 @@ computerPipelineThinkingBudgetVerify: "1024"
 
 | 阶段 | 配置键 | 默认模型 | 思考预算 |
 |------|--------|----------|----------|
-| Decision | `computerPipelineModelDecision` | `qwen3.5-flash` | 跟随当前 tier |
+| Decision | `computerPipelineModelDecision` | `qwen3.5-flash` | 跟随 `computerThinkingBudget` |
 | Position | `computerPipelineModelPosition` | `qwen3.5-plus` | `computerPipelineThinkingBudgetPosition`（默认 **1024**） |
 | Verify | `computerPipelineModelVerify` | `qwen3.5-flash` | `computerPipelineThinkingBudgetVerify`（默认 **1024**） |
 
-Decision 沿用当前 tier 的 thinking 开关与预算。Position / Verify **开启** thinking，使用 `computerPipelineThinkingBudgetPosition` / `verifyThinkingBudget`。
+Decision 沿用主模型的 thinking 开关与预算。Position / Verify **开启** thinking，使用 `computerPipelineThinkingBudgetPosition` / `verifyThinkingBudget`。
 
 **结构化输出：** 流式 `stream_pipeline_module_with_tools` + 虚拟 `submit_position_*` / `submit_verify` 工具（`tool_choice: auto`）。`reasoning_content` → 调试卡「思考内容」；`tool_calls[0].arguments` → 「输出内容」。不传 `response_format`。
 
@@ -247,8 +247,8 @@ Decision 沿用当前 tier 的 thinking 开关与预算。Position / Verify **�
 
 ## 模块间通信
 
-- **决策输入**：`last_operation_summary` + `last_verify` + tier history + 下轮 `[Current screen]`
-- **校验输出**：Verify LLM 或 AppAccess Host verify 写入 tier history；`loading_detected` 时宿主重跑 Verify
+- **决策输入**：`last_operation_summary` + `last_verify` + 工具历史 + 下轮 `[Current screen]`
+- **校验输出**：Verify LLM 或 AppAccess Host verify 写入工具历史；`loading_detected` 时宿主重跑 Verify
 - **截图缓存**：post-execute 后 `store_pipeline_after_capture`；下轮 Decision 复用
 
 ## 与旧架构对比

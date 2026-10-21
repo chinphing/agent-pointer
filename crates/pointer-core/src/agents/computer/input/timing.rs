@@ -85,6 +85,7 @@ pub const MOUSE_MOVE_TOTAL_DURATION_SECS: f64 = MOUSE_MOVE_TOTAL_DURATION_MIN_SE
 pub const DESKTOP_VISION_LOG_TOOL_IDS: &[&str] = &[
     "mouse",
     "hotkey",
+    "keyboard",
     "input",
     "modified_click",
     "wait",
@@ -98,6 +99,7 @@ pub const DESKTOP_VISION_LOG_TOOL_IDS: &[&str] = &[
 pub const DESKTOP_POST_DELAY_TOOL_IDS: &[&str] = &[
     "mouse",
     "hotkey",
+    "keyboard",
     "input",
     "modified_click",
     "launch_app",
@@ -113,6 +115,9 @@ pub fn desktop_tool_family_id(tool_id: &str) -> Option<&'static str> {
     }
     if id.starts_with("mouse_") {
         return Some("mouse");
+    }
+    if id.starts_with("key_") || id.starts_with("keyboard_") {
+        return Some("keyboard");
     }
     if id.starts_with("input_") {
         return Some("input");
@@ -164,6 +169,19 @@ mod tests {
         assert!(!is_desktop_post_delay_tool("clipboard_read"));
         assert!(is_desktop_vision_log_tool("wait"));
         assert!(!is_desktop_post_delay_tool("wait"));
+    }
+
+    #[test]
+    fn keyboard_tools_join_the_keyboard_family() {
+        for id in ["key_press", "key_down", "key_up", "keyboard_type"] {
+            assert_eq!(desktop_tool_family_id(id), Some("keyboard"), "{id}");
+            // Serial + post-action delay: a held key must not interleave with
+            // the next screenshot round.
+            assert!(is_desktop_vision_log_tool(id), "{id}");
+            assert!(is_desktop_post_delay_tool(id), "{id}");
+        }
+        // `hotkey` stays its own family and must not be swallowed by `key_`.
+        assert_eq!(desktop_tool_family_id("hotkey"), Some("hotkey"));
     }
 
     #[test]

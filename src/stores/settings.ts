@@ -11,7 +11,6 @@ import {
 import type {
   AgentModelRef,
   AgentUiConfig,
-  ComputerInitialTier,
   ComputerPipelineLlmSettings,
   ComputerTierLlmConfig,
   DebugSessionSettings,
@@ -192,7 +191,6 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId),
     agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) },
     computerHumanLike: s.computerHumanLike === true,
-    computerInitialTier: normalizeComputerInitialTier(s.computerInitialTier),
     computerAutoSwitchMonitor: s.computerAutoSwitchMonitor !== false,
     computerAnnotatedScreenViewEnabled: s.computerAnnotatedScreenViewEnabled === true,
     theme: (s.theme as ThemePreference) ?? 'system',
@@ -284,13 +282,6 @@ function normalizeProvider(
   }
 }
 
-function normalizeComputerInitialTier(v: unknown): ComputerInitialTier {
-  const t = typeof v === 'string' ? v.trim().toLowerCase() : ''
-  if (t === 'intermediate' || t === 'mid' || t === 'medium') return 'intermediate'
-  if (t === 'advanced' || t === 'high') return 'advanced'
-  return 'primary'
-}
-
 function normalizeProviders(
   list: ProviderConfig[] | undefined,
   legacyReasoning?: boolean,
@@ -363,12 +354,10 @@ export const useSettingsStore = defineStore('settings', () => {
     agentDefaultModels: {},
     agentTaskBoardHistoryTrim: {},
     computerHumanLike: true,
-    computerInitialTier: 'intermediate',
     computerAutoSwitchMonitor: true,
     computerAnnotatedScreenViewEnabled: false,
     agentUiOverrides: {},
     mediaModelOverrides: {},
-    computerTierLlm: {},
     computerPipelineLlm: {
       decision: '',
       position: '',
@@ -476,7 +465,6 @@ export const useSettingsStore = defineStore('settings', () => {
         mergedIn.agentUiOverrides ?? prevMerged.agentUiOverrides,
       agentModeLlm: mergedIn.agentModeLlm ?? prevMerged.agentModeLlm ?? {},
       mediaModeLlm: mergedIn.mediaModeLlm ?? prevMerged.mediaModeLlm ?? {},
-      computerTierLlm: mergedIn.computerTierLlm ?? prevMerged.computerTierLlm ?? {},
       computerPipelineLlm:
         mergedIn.computerPipelineLlm ?? prevMerged.computerPipelineLlm ?? {}
     }
@@ -604,7 +592,6 @@ export const useSettingsStore = defineStore('settings', () => {
       ...userSettings.value,
       agentModeLlm: settings.value.agentModeLlm ?? userSettings.value.agentModeLlm,
       mediaModeLlm: settings.value.mediaModeLlm ?? userSettings.value.mediaModeLlm,
-      computerTierLlm: settings.value.computerTierLlm ?? userSettings.value.computerTierLlm,
       ...patch
     })
   }
@@ -722,10 +709,7 @@ export const useSettingsStore = defineStore('settings', () => {
         mergedIn.maxConcurrentRuns ?? user.maxConcurrentRuns ?? settings.value.maxConcurrentRuns ?? 4,
       hasKey: mergedIn.hasKey ?? settings.value.hasKey,
       theme: user.theme,
-      // 场景档位是用户层配置，必须写回 merged，否则输入框/下一轮仍读旧值。
-      computerInitialTier: normalizeComputerInitialTier(
-        mergedIn.computerInitialTier ?? user.computerInitialTier ?? settings.value.computerInitialTier
-      ),
+      // 电脑模型是用户层配置，必须写回 merged，否则输入框/下一轮仍读旧值。
       agentPerformanceModes: {
         ...(settings.value.agentPerformanceModes ?? {}),
         ...(user.agentPerformanceModes ?? {}),
@@ -738,7 +722,6 @@ export const useSettingsStore = defineStore('settings', () => {
       },
       agentModeLlm: mergedIn.agentModeLlm ?? user.agentModeLlm ?? settings.value.agentModeLlm,
       mediaModeLlm: mergedIn.mediaModeLlm ?? user.mediaModeLlm ?? settings.value.mediaModeLlm,
-      computerTierLlm: mergedIn.computerTierLlm ?? user.computerTierLlm ?? settings.value.computerTierLlm,
       computerPipelineLlm:
         mergedIn.computerPipelineLlm ?? user.computerPipelineLlm ?? settings.value.computerPipelineLlm
     }
@@ -764,7 +747,6 @@ export const useSettingsStore = defineStore('settings', () => {
       model: settings.value.model,
       temperature: settings.value.temperature,
       maxTokens: settings.value.maxTokens,
-      computerTierLlm: settings.value.computerTierLlm ?? {},
       computerPipelineLlm: settings.value.computerPipelineLlm ?? {},
       agentModeLlm: settings.value.agentModeLlm ?? {},
       mediaModeLlm: settings.value.mediaModeLlm ?? {},
@@ -965,10 +947,6 @@ export const useSettingsStore = defineStore('settings', () => {
     await save({ computerHumanLike: enabled })
   }
 
-  async function setComputerInitialTier(tier: ComputerInitialTier) {
-    await save({ computerInitialTier: tier })
-  }
-
   async function setAgentDefaultModel(agentId: string, ref: AgentModelRef | null) {
     const next = { ...settings.value.agentDefaultModels }
     if (!ref || !ref.model?.trim()) {
@@ -1082,7 +1060,6 @@ export const useSettingsStore = defineStore('settings', () => {
     defaultTaskBoardHistoryTrim,
     isComputerHumanLikeEnabled,
     setComputerHumanLike,
-    setComputerInitialTier,
     patchAgentUiOverride
   }
 })

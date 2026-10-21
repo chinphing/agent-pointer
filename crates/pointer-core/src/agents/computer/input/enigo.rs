@@ -135,6 +135,18 @@ impl ActionBackend for EnigoBackend {
         )))
     }
 
+    fn scroll_horizontal(&self, lines: i32) -> Result<ActionResult> {
+        let mut enigo = self.enigo.borrow_mut();
+        // Pointer/pyautogui: positive lines = scroll right; enigo mirrors the
+        // vertical sign convention (positive = down/right).
+        enigo
+            .scroll(lines, enigo::Axis::Horizontal)
+            .map_err(|e| anyhow!("Horizontal scroll failed: {:?}", e))?;
+        Ok(ActionResult::success(format!(
+            "Scrolled {lines} lines horizontally"
+        )))
+    }
+
     fn type_text(&self, text: &str) -> Result<ActionResult> {
         let mut enigo = self.enigo.borrow_mut();
         enigo
@@ -240,6 +252,7 @@ impl ActionBackend for EnigoBackend {
         let mut enigo = self.enigo.borrow_mut();
         let b = match button {
             MouseButton::Left => enigo::Button::Left,
+            MouseButton::Middle => enigo::Button::Middle,
             MouseButton::Right => enigo::Button::Right,
         };
         let dir = match phase {

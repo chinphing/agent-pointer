@@ -9,7 +9,6 @@ import { useSettingsStore } from '../../stores/settings'
 import {
   isSameTierRef,
   platformAgentModeDefault,
-  platformComputerTierDefault,
   platformMediaModeDefault
 } from '../../lib/platformTierDefaults'
 import {
@@ -38,8 +37,28 @@ const scene = computed(() => props.scene)
 const isComputer = computed(() => scene.value === 'computer')
 const isMedia = computed(() => (form.MEDIA_DEBUG_KINDS as readonly string[]).includes(scene.value))
 const isWebSearch = computed(() => scene.value === 'web_search')
-const isAgent = computed(() => !isComputer.value && !isMedia.value)
+// `computer` is a mode agent now: it shares the fast/standard/expert rows with
+// general / coder / web_search instead of having its own single-model branch.
+const isAgent = computed(() => !isMedia.value)
 const mediaKind = computed(() => scene.value as MediaKind)
+
+type AgentMode = Parameters<typeof form.agentModeLlm>[1]
+
+/** `provider:model` for one agent mode row (provider may be empty for built-ins). */
+function agentModeValue(agentId: string, mode: string) {
+  const c = form.agentModeLlm(agentId, mode as AgentMode)
+  return `${c.providerId}:${c.model}`
+}
+
+/**
+ * True when the resolved row is not in the picker list. Built-in defaults may name
+ * a model the current provider does not expose; without this the select renders blank.
+ */
+function agentModeValueMissing(agentId: string, mode: string) {
+  const value = agentModeValue(agentId, mode)
+  if (!value || value === ':') return false
+  return !s.allModels.some(item => `${item.providerId}:${item.model}` === value)
+}
 
 const sceneLabel = computed(() => {
   if (scene.value === 'computer') return t('agents.computer')
@@ -65,12 +84,9 @@ const agentModelOptions = computed(() =>
   isWebSearch.value ? webSearchModels.value : s.allModels
 )
 
-// 统一档位结构：key（档位 id）+ label。agent/media 用 PerformanceMode，computer 用 ComputerTierKey
+// 统一档位结构：key（档位 id）+ label。agent/media 用 PerformanceMode。
 const modeTiers = computed(() =>
   form.PERFORMANCE_MODE_UI.value.map(m => ({ key: m.value, label: m.label }))
-)
-const computerTiers = computed(() =>
-  form.COMPUTER_TIER_UI.value.map(tier => ({ key: tier.key, label: tier.label }))
 )
 
 function mediaOptions(kind: MediaKind) {
@@ -97,17 +113,15 @@ function variantValue(config: {
   return tierThinkingIntensityValue(config)
 }
 
-function modeOverridden(config: { providerId: string; model: string }, mode: string, group: 'agent' | 'media' | 'computer', id?: string) {
+function modeOverridden(config: { providerId: string; model: string }, mode: string, group: 'agent' | 'media', id?: string) {
   const tierDefaults = s.platformSettings.tierDefaults
   const preferred =
     group === 'agent' && id === 'web_search' ? preferredWebSearchTier(s.settings.providers) : undefined
   const fallback =
     preferred ??
-    (group === 'computer'
-      ? platformComputerTierDefault(tierDefaults, mode)
-      : group === 'agent'
-        ? platformAgentModeDefault(tierDefaults, id ?? '', mode)
-        : platformMediaModeDefault(tierDefaults, id ?? '', mode))
+    (group === 'agent'
+      ? platformAgentModeDefault(tierDefaults, id ?? '', mode)
+      : platformMediaModeDefault(tierDefaults, id ?? '', mode))
   if (!fallback) return Boolean(config.providerId && config.model)
   return !isSameTierRef(config, fallback)
 }
@@ -155,6 +169,10 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
                   @change="form.selectAgentModeModel(scene, tier.key, ($event.target as HTMLSelectElement).value)"
                 >
                   <option v-for="item in agentModelOptions" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
+                  <option
+                    v-if="agentModeValueMissing(scene, tier.key)"
+                    :value="agentModeValue(scene, tier.key)"
+                  >{{ form.agentModeLlm(scene, tier.key).model }}</option>
                 </select>
                 <select
                   :value="variantValue(form.agentModeLlm(scene, tier.key))"
@@ -171,7 +189,7 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
             </div>
           </template>
 
-          <template v-else-if="isMedia">
+          <template v-else>
             <div v-for="tier in modeTiers" :key="'media-' + scene + '-' + tier.key" class="space-y-1">
               <div class="flex items-center gap-1.5">
                 <span class="text-[11px] font-medium text-foreground">{{ tier.label }}</span>
@@ -200,34 +218,6 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
             </div>
           </template>
 
-          <template v-else>
-            <div v-for="tier in computerTiers" :key="'computer-' + tier.key" class="space-y-1">
-              <div class="flex items-center gap-1.5">
-                <span class="text-[11px] font-medium text-foreground">{{ tier.label }}</span>
-                <span v-if="modeOverridden(form.computerTierLlm(tier.key), tier.key, 'computer')" class="rounded bg-warning/15 px-1 text-[9px] text-warning">{{ t('settings.overridden') }}</span>
-              </div>
-              <div class="grid grid-cols-[minmax(0,1fr)_9.5rem] gap-2 items-center">
-                <select
-                  :value="form.computerTierModelValue(tier.key)"
-                  class="h-8 min-w-0 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
-                  @change="form.selectComputerTierModel(tier.key, ($event.target as HTMLSelectElement).value)"
-                >
-                  <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
-                </select>
-                <select
-                  :value="variantValue(form.computerTierLlm(tier.key))"
-                  class="h-8 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
-                  @change="patchVariant(patch => form.patchComputerTierLlm(tier.key, patch), ($event.target as HTMLSelectElement).value)"
-                >
-                  <option
-                    v-for="opt in THINKING_INTENSITY_OPTIONS"
-                    :key="opt.value || 'unset'"
-                    :value="opt.value"
-                  >{{ opt.label }}</option>
-                </select>
-              </div>
-            </div>
-          </template>
         </div>
 
         <div class="border-t border-border px-5 py-3 shrink-0">

@@ -14,7 +14,6 @@ const snapshot = {
   model: 'session-model',
   temperature: 0.4,
   maxTokens: 4096,
-  computerTierLlm: {},
   computerPipelineLlm: {},
   agentModeLlm: {},
   mediaModeLlm: {}

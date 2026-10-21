@@ -38,3 +38,6 @@ vite.config.ts.timestamp-*.mjs
 # Nested benchmark repo with its own remote (chinphing/screenspot-pro-bench).
 # Keep it as a separate clone, never as files or a gitlink in this repo.
 benchmarks/screenspot_grid/
+
+# P0 harness output (screenshots, crops, results.json) — regenerate, do not commit.
+cases/

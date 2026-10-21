@@ -1,6 +1,5 @@
 use super::args_util::{
-    human_like_from_args, parse_indices, require_non_empty_str, value_to_f32_loose,
-    zoom_flag_from_args,
+    human_like_from_args, require_non_empty_str, value_to_f32_loose, zoom_flag_from_args,
 };
 use super::method_route::ModifiedClickBackend;
 use crate::agents::computer::actions::ActionExecutor;
@@ -30,89 +29,6 @@ fn parse_click_position(item: &Value) -> Result<(f32, f32)> {
         return Ok((x, y));
     }
     Err(anyhow!("each position must be object or [x,y] array"))
-}
-
-// ── ModifiedClickIndexTool ───────────────────────────────────────────────────
-
-/// Multi-select clicks using overlay index numbers.
-pub struct ModifiedClickIndexTool {
-    executor: Arc<Mutex<ActionExecutor>>,
-    vision_state: Arc<Mutex<VisionState>>,
-    human_like_default: bool,
-}
-
-impl ModifiedClickIndexTool {
-    pub fn new(
-        executor: Arc<Mutex<ActionExecutor>>,
-        vision_state: Arc<Mutex<VisionState>>,
-        human_like_default: bool,
-    ) -> Self {
-        Self {
-            executor,
-            vision_state,
-            human_like_default,
-        }
-    }
-
-    fn human_like(&self, args: &Value) -> bool {
-        human_like_from_args(args, self.human_like_default)
-    }
-
-    pub fn execute(&self, method: &str, args: &Value) -> Result<String> {
-        require_non_empty_str(args, "goal")?;
-        match method {
-            "select" => self.select(args),
-            "range_select" => self.range_select(args),
-            _ => Err(anyhow!(
-                "Unknown modified_click_index method: {method}. Use select, range_select."
-            )),
-        }
-    }
-
-    fn select(&self, args: &Value) -> Result<String> {
-        let indices = parse_indices(args.get("indices"))?;
-        let vision = self.vision_state.lock().unwrap();
-        let mut positions: Vec<(i32, i32)> = Vec::new();
-        for idx in indices {
-            if let Some(p) = vision.resolve_index(idx) {
-                positions.push(p);
-            }
-        }
-        drop(vision);
-        if positions.is_empty() {
-            return Err(anyhow!("No valid indices resolved to positions."));
-        }
-        let hl = self.human_like(args);
-        let executor = self.executor.lock().unwrap();
-        executor.click_add_to_selection_batch(&positions, hl)?;
-        Ok(format!(
-            "Cmd/Ctrl+click multi-select on {} item(s). Verify on next screenshot.",
-            positions.len()
-        ))
-    }
-
-    fn range_select(&self, args: &Value) -> Result<String> {
-        let indices = parse_indices(args.get("indices"))?;
-        let vision = self.vision_state.lock().unwrap();
-        let mut positions: Vec<(i32, i32)> = Vec::new();
-        for idx in indices {
-            if let Some(p) = vision.resolve_index(idx) {
-                positions.push(p);
-            }
-        }
-        drop(vision);
-        if positions.len() != 2 {
-            return Err(anyhow!(
-                "For range_select, indices must resolve to exactly two positions [first, last]."
-            ));
-        }
-        let first = positions[0];
-        let last = positions[1];
-        let hl = self.human_like(args);
-        let executor = self.executor.lock().unwrap();
-        executor.click_range_shift(first, last, hl)?;
-        Ok("Shift+click range selection applied. Verify result on next screenshot.".into())
-    }
 }
 
 // ── ModifiedClickAtTool ──────────────────────────────────────────────────────
@@ -217,7 +133,6 @@ impl ModifiedClickAtTool {
 // ── ModifiedClickTool (unified registry entry) ─────────────────────────────
 
 pub struct ModifiedClickTool {
-    index: ModifiedClickIndexTool,
     at: ModifiedClickAtTool,
 }
 
@@ -228,11 +143,6 @@ impl ModifiedClickTool {
         human_like_default: bool,
     ) -> Self {
         Self {
-            index: ModifiedClickIndexTool::new(
-                executor.clone(),
-                vision_state.clone(),
-                human_like_default,
-            ),
             at: ModifiedClickAtTool::new(executor, vision_state, human_like_default),
         }
     }
@@ -247,7 +157,6 @@ impl ModifiedClickTool {
             routed.backend
         );
         match routed.backend {
-            ModifiedClickBackend::Index => self.index.execute(&routed.method, args),
             ModifiedClickBackend::At => self.at.execute(&routed.method, args),
         }
     }
@@ -260,7 +169,6 @@ impl ModifiedClickTool {
         args: &Value,
     ) -> Result<String> {
         match backend {
-            ModifiedClickBackend::Index => self.index.execute(method, args),
             ModifiedClickBackend::At => self.at.execute(method, args),
         }
     }

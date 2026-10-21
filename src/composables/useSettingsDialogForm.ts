@@ -18,16 +18,14 @@ import {
 import type {
   AgentDef,
   AgentUiConfig,
-  ComputerInitialTier,
   ComputerPipelineLlmSettings,
-  ComputerTierKey,
   ComputerTierLlmConfig,
   MediaModelOverrides,
   PerformanceMode,
   PerformanceModeKey,
   ThemePreference
 } from '../types/chat'
-import { COMPUTER_INITIAL_TIER_OPTIONS, PERFORMANCE_MODE_OPTIONS } from '../types/chat'
+import { PERFORMANCE_MODE_OPTIONS } from '../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { applyTheme } from '../lib/theme'
 import { randomUuid } from '../lib/randomUuid'
@@ -42,7 +40,6 @@ import {
   emptyTierConfig,
   platformAgentModeDefault,
   platformComputerPipelineDefault,
-  platformComputerTierDefault,
   platformMediaModeDefault,
   withInheritedThinking
 } from '../lib/platformTierDefaults'
@@ -95,12 +92,6 @@ function createSettingsDialogForm(deps: {
 
   const platformReadOnly = computed(() => !s.canEditPlatform)
 
-  const COMPUTER_TIER_UI = computed(() => [
-  { key: 'primary' as ComputerTierKey, label: t('settings.tiers.fast') },
-  { key: 'intermediate' as ComputerTierKey, label: t('settings.tiers.standard') },
-  { key: 'advanced' as ComputerTierKey, label: t('settings.tiers.expert') }
-  ])
-
   const PERFORMANCE_MODE_UI = computed(() =>
     PERFORMANCE_MODE_OPTIONS.map(o => ({
       value: o.value,
@@ -113,11 +104,14 @@ function createSettingsDialogForm(deps: {
   const MEDIA_DEBUG_KINDS = ['image', 'audio', 'video'] as const
   type MediaDebugKind = (typeof MEDIA_DEBUG_KINDS)[number]
 
-  const MODE_AGENT_IDS = new Set(['general', 'coder'])
+  // Agents whose model is picked per performance mode (fast / standard / expert)
+  // through `agentModeLlm[agentId][mode]`, each with its own thinking intensity.
+  const MODE_AGENT_IDS = new Set(['general', 'coder', 'computer'])
 
   const AGENT_MODE_USER_ROWS = computed(() => [
   { id: 'general', label: t('agents.general') },
-  { id: 'coder', label: t('agents.coder') }
+  { id: 'coder', label: t('agents.coder') },
+  { id: 'computer', label: t('agents.computer') }
   ])
 
   const MEDIA_MODE_USER_ROWS = computed(() => [
@@ -139,7 +133,6 @@ function createSettingsDialogForm(deps: {
     // 档位/管道模型映射统一走 agent-settings 持久化，重启保留。
     void s
       .saveAgentPreferences({
-        computerTierLlm: s.settings.computerTierLlm,
         computerPipelineLlm: s.settings.computerPipelineLlm,
         agentModeLlm: s.settings.agentModeLlm,
         mediaModeLlm: s.settings.mediaModeLlm
@@ -162,7 +155,12 @@ function createSettingsDialogForm(deps: {
 
   function agentModeLlm(agentId: string, mode: PerformanceModeKey): ComputerTierLlmConfig {
   const m = s.settings.agentModeLlm?.[agentId]?.[mode]
-  if (m?.providerId && m.model) return m
+  if (m?.model) {
+    // Built-in defaults carry a model but no provider: they run on whatever
+    // provider the session is currently using.
+    const providerId = m.providerId?.trim() || s.settings.activeProviderId || ''
+    return providerId ? { ...m, providerId } : m
+  }
   if (agentId === 'web_search') {
     const preferred = preferredWebSearchTier(s.settings.providers)
     if (preferred) return withInheritedThinking(preferred, s.settings.providers)
@@ -186,41 +184,6 @@ function createSettingsDialogForm(deps: {
   if (m?.providerId && m.model) return m
   const fallback = platformMediaModeDefault(s.platformSettings.tierDefaults, kind, mode)
   return fallback ? withInheritedThinking(fallback, s.settings.providers) : emptyTierConfig()
-  }
-
-  function computerTierLlm(key: ComputerTierKey): ComputerTierLlmConfig {
-  const m = s.settings.computerTierLlm?.[key]
-  if (m?.providerId && m.model) return m
-  const fallback = platformComputerTierDefault(s.platformSettings.tierDefaults, key)
-  return fallback ? withInheritedThinking(fallback, s.settings.providers) : emptyTierConfig()
-  }
-
-  function patchComputerTierLlm(key: ComputerTierKey, patch: Partial<ComputerTierLlmConfig>) {
-  const next = { ...(s.settings.computerTierLlm ?? {}) }
-  next[key] = mergeTierLlmPatch(computerTierLlm(key), patch)
-  s.settings.computerTierLlm = next
-  scheduleDebugModelSave()
-  }
-
-  function computerTierModelValue(key: ComputerTierKey): string {
-  const c = computerTierLlm(key)
-  return `${c.providerId}:${c.model}`
-  }
-
-  function selectComputerTierModel(key: ComputerTierKey, value: string) {
-    const parsed = splitProviderModelValue(value)
-    if (parsed) {
-      const next = { ...(s.settings.computerTierLlm ?? {}) }
-      next[key] = {
-        providerId: parsed.providerId,
-        model: parsed.model,
-        ...thinkingPatchFromProviderModel(s.settings.providers, parsed.providerId, parsed.model)
-      }
-      s.settings.computerTierLlm = next
-      scheduleDebugModelSave()
-      return
-    }
-    console.warn('[settings] selectComputerTierModel: invalid value', value)
   }
 
   function computerPipelineLlm(): ComputerPipelineLlmSettings {
@@ -318,7 +281,6 @@ function createSettingsDialogForm(deps: {
   const computerAutoCompact = ref(true)
   const collapseProcessByDefault = ref(false)
   const userCodingRules = ref('')
-  const computerInitialTier = ref<ComputerInitialTier>('intermediate')
   const computerAnnotatedScreenViewEnabled = ref(false)
   const theme = ref<ThemePreference>('system')
   const debugMenusEnabled = ref(false)
@@ -530,7 +492,6 @@ function createSettingsDialogForm(deps: {
   computerAutoCompact.value = s.userSettings.computerAutoCompact !== false
   collapseProcessByDefault.value = s.userSettings.collapseProcessByDefault === true
   userCodingRules.value = s.userSettings.userCodingRules ?? ''
-  computerInitialTier.value = s.settings.computerInitialTier ?? 'intermediate'
   computerAnnotatedScreenViewEnabled.value = s.settings.computerAnnotatedScreenViewEnabled === true
   theme.value = (s.settings.theme as ThemePreference) || 'system'
   debugMenusEnabled.value = s.canEditPlatform && s.settings.debugMenusEnabled === true
@@ -818,7 +779,6 @@ function createSettingsDialogForm(deps: {
     toolApprovalMode: toolApprovalMode.value,
     computerHumanLike: computerHumanLike.value,
     computerAutoSwitchMonitor: computerAutoSwitchMonitor.value,
-    computerInitialTier: computerInitialTier.value,
     parallelToolExecutionEnabled: parallelToolExecutionEnabled.value,
     maxParallelToolCalls: parallelToolExecutionEnabled.value
       ? optionalParallelLimit(maxParallelToolCalls.value)
@@ -872,7 +832,6 @@ function createSettingsDialogForm(deps: {
     // 弹窗关闭再打开从 settings / userSettings 回填。payload 里的项必须两边都写，
     // 否则后续只带部分字段的 saveUser 会用旧 userSettings 把刚改的值盖掉。
     s.settings.toolApprovalMode = payload.toolApprovalMode
-    s.settings.computerInitialTier = payload.computerInitialTier
     s.settings.agentPerformanceModes = { ...payload.agentPerformanceModes }
     s.settings.mediaUnderstandingModes = { ...payload.mediaUnderstandingModes }
     s.settings.computerHumanLike = payload.computerHumanLike
@@ -901,7 +860,6 @@ function createSettingsDialogForm(deps: {
     s.userSettings.collapseProcessByDefault = payload.collapseProcessByDefault
     s.userSettings.userCodingRules = payload.userCodingRules
     s.userSettings.toolApprovalMode = payload.toolApprovalMode
-    s.userSettings.computerInitialTier = payload.computerInitialTier
     s.userSettings.agentPerformanceModes = { ...payload.agentPerformanceModes }
     s.userSettings.mediaUnderstandingModes = { ...payload.mediaUnderstandingModes }
     s.userSettings.computerHumanLike = payload.computerHumanLike
@@ -1013,7 +971,6 @@ function createSettingsDialogForm(deps: {
       computerAutoCompact,
       collapseProcessByDefault,
       userCodingRules,
-      computerInitialTier,
       rawContentViewEnabled,
       computerAnnotatedScreenViewEnabled,
       taskBoardShowChildBoards,
@@ -1043,13 +1000,6 @@ function createSettingsDialogForm(deps: {
     chat,
     activeSection,
     platformReadOnly,
-    COMPUTER_TIER_UI,
-    COMPUTER_INITIAL_TIER_OPTIONS: computed(() =>
-      COMPUTER_INITIAL_TIER_OPTIONS.map(o => ({
-        value: o.value,
-        label: t(o.labelKey)
-      }))
-    ),
     composerAgentLabel,
     PERFORMANCE_MODE_UI,
     PERFORMANCE_MODE_HELP,
@@ -1092,7 +1042,6 @@ function createSettingsDialogForm(deps: {
     computerAutoCompact,
     collapseProcessByDefault,
     userCodingRules,
-    computerInitialTier,
     computerAnnotatedScreenViewEnabled,
     theme,
     debugMenusEnabled,
@@ -1134,10 +1083,6 @@ function createSettingsDialogForm(deps: {
     patchAgentModeLlm,
     mediaModeLlm,
     patchMediaModeLlm,
-    computerTierLlm,
-    patchComputerTierLlm,
-    computerTierModelValue,
-    selectComputerTierModel,
     computerPipelineLlm,
     patchComputerPipelineLlm,
     computerPipelineVerifyValue,

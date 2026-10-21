@@ -34,10 +34,14 @@ impl CoordinateSystem {
 /// # Returns
 /// Screen pixel coordinates (x, y).
 ///
+/// Session coordinates are **monitor-relative**: the origin is the top-left of
+/// the monitor's capture, which is what the model sees in the screenshot.
+///
 /// # Notes
 /// - For Qwen/Kimi: maps 0-1000 to monitor width/height.
-/// - For Pixel: returns the input directly.
-/// - Result is offset by monitor's left/top position.
+/// - For Pixel: treats the input as monitor-relative logical pixels.
+/// - Both branches offset by the monitor's left/top position, so the result is
+///   correct on secondary monitors too.
 pub fn normalized_to_screen(
     normalized: (f32, f32),
     monitor: &MonitorInfo,
@@ -49,19 +53,26 @@ pub fn normalized_to_screen(
             let y = (normalized.1 / 1000.0) * monitor.height as f32;
             (monitor.left + x as i32, monitor.top + y as i32)
         }
-        CoordinateSystem::Pixel => (normalized.0 as i32, normalized.1 as i32),
+        CoordinateSystem::Pixel => (
+            monitor.left + normalized.0.round() as i32,
+            monitor.top + normalized.1.round() as i32,
+        ),
     }
 }
 
 /// Convert screen pixel coordinates to normalized coordinates.
 ///
+/// This is the inverse of [`normalized_to_screen`]: the result is
+/// monitor-relative, not absolute.
+///
 /// # Arguments
-/// * `screen` - Screen pixel coordinates (x, y).
+/// * `screen` - Absolute screen pixel coordinates (x, y).
 /// * `monitor` - The monitor info defining the screen bounds.
 /// * `system` - The coordinate system to use.
 ///
 /// # Returns
-/// Normalized coordinates (x, y) in the range [0, 1000] for Qwen/Kimi.
+/// Session coordinates: 0-1000 for Qwen/Kimi, monitor-relative logical pixels
+/// for Pixel.
 pub fn screen_to_normalized(
     screen: (i32, i32),
     monitor: &MonitorInfo,
@@ -73,7 +84,10 @@ pub fn screen_to_normalized(
             let y = ((screen.1 - monitor.top) as f32 / monitor.height as f32) * 1000.0;
             (x, y)
         }
-        CoordinateSystem::Pixel => (screen.0 as f32, screen.1 as f32),
+        CoordinateSystem::Pixel => (
+            (screen.0 - monitor.left) as f32,
+            (screen.1 - monitor.top) as f32,
+        ),
     }
 }
 
@@ -137,6 +151,40 @@ mod tests {
         let (x, y) = normalized_to_screen((100.0, 200.0), &monitor, CoordinateSystem::Pixel);
         assert_eq!(x, 100);
         assert_eq!(y, 200);
+    }
+
+    #[test]
+    fn test_pixel_with_offset() {
+        // Secondary monitor to the right: session (100, 200) is monitor-relative.
+        let monitor = MonitorInfo::new(1920, 0, 1920, 1080);
+        let (x, y) = normalized_to_screen((100.0, 200.0), &monitor, CoordinateSystem::Pixel);
+        assert_eq!(x, 2020);
+        assert_eq!(y, 200);
+    }
+
+    #[test]
+    fn test_pixel_roundtrip_on_secondary_monitor() {
+        let monitor = MonitorInfo::new(1920, 0, 1920, 1080);
+        for (sx, sy) in [(0, 0), (100, 200), (1919, 1079), (960, 540)] {
+            let (nx, ny) = screen_to_normalized((sx, sy), &monitor, CoordinateSystem::Pixel);
+            let (bx, by) = normalized_to_screen((nx, ny), &monitor, CoordinateSystem::Pixel);
+            assert!(
+                (bx - sx).abs() <= 1 && (by - sy).abs() <= 1,
+                "roundtrip {sx},{sy} -> {nx},{ny} -> {bx},{by}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_pixel_negative_monitor_origin() {
+        // Monitor to the left of the primary one: origin is negative.
+        let monitor = MonitorInfo::new(-1920, 0, 1920, 1080);
+        let (x, y) = normalized_to_screen((100.0, 200.0), &monitor, CoordinateSystem::Pixel);
+        assert_eq!(x, -1820);
+        assert_eq!(y, 200);
+        let (nx, ny) = screen_to_normalized((-1820, 200), &monitor, CoordinateSystem::Pixel);
+        assert!((nx - 100.0).abs() < 0.01);
+        assert!((ny - 200.0).abs() < 0.01);
     }
 
     #[test]

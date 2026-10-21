@@ -1,7 +1,6 @@
 //! One sub-agent `stream_chat` round: spawn provider task, drain events, await join outcome.
 
 use crate::agents::agent_ui::agent_display_label;
-use crate::agents::AgentProfile;
 use crate::models::{effective_max_tokens, ChatMessage, Role, StreamEvent};
 use anyhow::{anyhow, Result};
 use tokio::sync::mpsc;
@@ -45,13 +44,7 @@ pub(super) async fn run_sub_agent_stream_round(
     let trace_bus = ctx.session.state.trace_bus.clone();
 
     let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
-    let round_settings = if sub.def.profile == AgentProfile::Computer {
-        state
-            .computer_state
-            .apply_round_settings(conversation_id, &provider.settings)
-    } else {
-        provider.settings.clone()
-    };
+    let round_settings = provider.settings.clone();
     let source = crate::llm_token_stats::active_provider_source(&round_settings);
     let prov = crate::provider::OpenAIProvider::new(round_settings, provider.api_key.clone())
         .with_trace(crate::provider::LlmTraceScope {

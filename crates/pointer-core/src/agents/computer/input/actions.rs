@@ -25,10 +25,56 @@ fn composite_step_gap() {
 }
 
 /// Mouse button for low-level press/release.
-#[derive(Debug, Clone, Copy)]
+///
+/// Mirrors OSWorld's `button` parameter (`left` / `middle` / `right`); the
+/// three-value set is required by the `MOUSE_DOWN` / `MOUSE_UP` / `CLICK`
+/// actions (design §4.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MouseButton {
     Left,
+    Middle,
     Right,
+}
+
+impl MouseButton {
+    /// Parse an OSWorld-style button name (`left` / `middle` / `right`).
+    pub fn parse(name: &str) -> Option<Self> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "left" => Some(Self::Left),
+            "middle" => Some(Self::Middle),
+            "right" => Some(Self::Right),
+            _ => None,
+        }
+    }
+
+    /// OSWorld / pyautogui button name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Middle => "middle",
+            Self::Right => "right",
+        }
+    }
+}
+
+/// Pixels per wheel line for the pixel-based `SCROLL` contract.
+///
+/// `ComputerControl::scroll` takes **pixels** (design §7.3 / §10 #2); the local
+/// backend's only primitive is wheel lines, so it divides by this factor. The
+/// remote backend forwards pixels unchanged to `pyautogui.hscroll/vscroll`.
+pub const SCROLL_PIXELS_PER_LINE: i32 = 100;
+
+/// Convert a pixel scroll delta into whole wheel lines.
+///
+/// Sign is preserved and a non-zero pixel delta never collapses to zero lines,
+/// so a small scroll still moves the viewport by one notch.
+pub fn scroll_lines_for_pixels(pixels: i32) -> i32 {
+    if pixels == 0 {
+        return 0;
+    }
+    let magnitude =
+        (pixels.unsigned_abs() as f64 / SCROLL_PIXELS_PER_LINE as f64).round() as i32;
+    magnitude.max(1) * pixels.signum()
 }
 
 /// Key or mouse button press vs release (maps to enigo Press/Release).
@@ -98,6 +144,19 @@ pub trait ActionBackend: Send + Sync {
     /// # Arguments
     /// * `lines` - Number of lines to scroll (positive = up, negative = down).
     fn scroll(&self, lines: i32) -> Result<ActionResult>;
+
+    /// Scroll the mouse wheel horizontally.
+    ///
+    /// # Arguments
+    /// * `lines` - Number of lines to scroll (positive = right, negative = left).
+    ///
+    /// Backends that cannot express horizontal scrolling keep the default
+    /// error rather than silently dropping the axis.
+    fn scroll_horizontal(&self, lines: i32) -> Result<ActionResult> {
+        Err(anyhow!(
+            "horizontal scroll is not supported by this backend (requested {lines} lines)"
+        ))
+    }
 
     /// Type the given text.
     ///
@@ -203,6 +262,20 @@ impl ActionExecutor {
         Ok(ActionResult::success("drag completed"))
     }
 
+    /// Drag with left button from the **current** pointer to (x, y) (`DRAG_TO`).
+    ///
+    /// OSWorld's `dragTo` presses at the current position; the pointer is not
+    /// re-targeted to a separate start point.
+    pub fn drag_left_from_current_to(
+        &self,
+        x: i32,
+        y: i32,
+        human_like: bool,
+    ) -> Result<ActionResult> {
+        let (x0, y0) = self.backend.get_position()?;
+        self.drag_left_from_to(x0, y0, x, y, human_like)
+    }
+
     /// Drag with left button through multiple already-resolved screen-pixel waypoints.
     pub fn drag_left_through_points(
         &self,
@@ -298,7 +371,7 @@ impl ActionExecutor {
 
     /// Click at an annotated element index.
     ///
-    /// The caller must resolve index → (x, y) via `vision_state.resolve_index()` first.
+    /// Caller passes resolved screen coordinates.
     /// Used by the **index-based** positioning path.
     ///
     /// # Arguments
@@ -346,6 +419,65 @@ impl ActionExecutor {
         self.right_click_at(x, y, human_like)
     }
 
+    /// Click `button` at `(x, y)` with `clicks` press/release pairs (`CLICK`).
+    ///
+    /// Counts the backend cannot express are rejected instead of collapsed to
+    /// one click: the caller must know the gesture did not happen as asked.
+    pub fn click_button_at(
+        &self,
+        button: MouseButton,
+        x: i32,
+        y: i32,
+        clicks: u32,
+        human_like: bool,
+    ) -> Result<ActionResult> {
+        match (button, clicks) {
+            (MouseButton::Left, 1) => self.click_at(x, y, human_like),
+            (MouseButton::Left, 2) => self.double_click_at(x, y, human_like),
+            (MouseButton::Right, 1) => self.right_click_at(x, y, human_like),
+            (MouseButton::Middle, 1) => {
+                self.backend
+                    .move_to_with_profile(x, y, move_profile_for_human_like(human_like))?;
+                settle_after_absolute_move();
+                self.backend
+                    .mouse_phase(MouseButton::Middle, KeyPhase::Press)?;
+                self.backend
+                    .mouse_phase(MouseButton::Middle, KeyPhase::Release)?;
+                settle_after_mouse_button();
+                Ok(ActionResult::success("middle-click"))
+            }
+            (button, clicks) => Err(anyhow!(
+                "{} click with {clicks} clicks is not supported",
+                button.as_str()
+            )),
+        }
+    }
+
+    /// Click `button` at the **current** pointer with `clicks` press/release pairs.
+    pub fn click_button_here(
+        &self,
+        button: MouseButton,
+        clicks: u32,
+    ) -> Result<ActionResult> {
+        match (button, clicks) {
+            (MouseButton::Left, 1) => self.click_here(),
+            (MouseButton::Left, 2) => self.double_click_here(),
+            (MouseButton::Right, 1) => self.right_click_here(),
+            (MouseButton::Middle, 1) => {
+                self.backend
+                    .mouse_phase(MouseButton::Middle, KeyPhase::Press)?;
+                self.backend
+                    .mouse_phase(MouseButton::Middle, KeyPhase::Release)?;
+                settle_after_mouse_button();
+                Ok(ActionResult::success("middle-click"))
+            }
+            (button, clicks) => Err(anyhow!(
+                "{} click with {clicks} clicks is not supported",
+                button.as_str()
+            )),
+        }
+    }
+
     /// Move the cursor to the given screen coordinates without clicking.
     ///
     /// Used by the **coordinate-based** positioning path.
@@ -381,6 +513,31 @@ impl ActionExecutor {
     /// * `lines` - Number of lines to scroll.
     pub fn scroll_at_current(&self, lines: i32) -> Result<ActionResult> {
         self.backend.scroll(lines)
+    }
+
+    /// Scroll at the current cursor position by **pixel** deltas (`SCROLL`).
+    ///
+    /// Positive `dy` scrolls up, positive `dx` scrolls right — the same sign
+    /// convention as `pyautogui.vscroll` / `hscroll`, which the remote backend
+    /// forwards verbatim. The local backend converts pixels to wheel lines
+    /// (design §10 #2).
+    pub fn scroll_at_current_pixels(&self, dx: i32, dy: i32) -> Result<ActionResult> {
+        let vertical = scroll_lines_for_pixels(dy);
+        if vertical != 0 {
+            self.backend.scroll(vertical)?;
+        }
+        let horizontal = scroll_lines_for_pixels(dx);
+        if horizontal != 0 {
+            self.backend.scroll_horizontal(horizontal)?;
+        }
+        Ok(ActionResult::success(format!(
+            "scrolled ({dx}, {dy}) px -> ({horizontal}, {vertical}) lines"
+        )))
+    }
+
+    /// Scroll horizontally at the current cursor position (wheel lines).
+    pub fn scroll_horizontal_at_current(&self, lines: i32) -> Result<ActionResult> {
+        self.backend.scroll_horizontal(lines)
     }
 
     /// Type text at the current cursor position.
@@ -487,6 +644,28 @@ impl ActionExecutor {
         self.backend
             .move_to_with_profile(x, y, move_profile_for_human_like(human_like))
     }
+
+    /// Press or release a mouse button at the **current** cursor position.
+    ///
+    /// Pass-through for the `MOUSE_DOWN` / `MOUSE_UP` control actions; the
+    /// existing `click_*` helpers keep their own composite behaviour.
+    pub fn mouse_phase(&self, button: MouseButton, phase: KeyPhase) -> Result<ActionResult> {
+        let out = self.backend.mouse_phase(button, phase)?;
+        settle_after_mouse_button();
+        Ok(out)
+    }
+
+    /// Press or release a named key.
+    pub fn key_phase(&self, name: &str, phase: KeyPhase) -> Result<ActionResult> {
+        self.backend.key_phase(name, phase)
+    }
+
+    /// Press then release a named key (`PRESS`).
+    pub fn press_key(&self, name: &str) -> Result<ActionResult> {
+        self.backend.key_phase(name, KeyPhase::Press)?;
+        composite_step_gap();
+        self.backend.key_phase(name, KeyPhase::Release)
+    }
 }
 
 #[inline]
@@ -551,6 +730,11 @@ mod tests {
             Ok(ActionResult::success("scrolled"))
         }
 
+        fn scroll_horizontal(&self, lines: i32) -> Result<ActionResult> {
+            self.record(format!("scroll_horizontal({})", lines));
+            Ok(ActionResult::success("scrolled horizontally"))
+        }
+
         fn type_text(&self, text: &str) -> Result<ActionResult> {
             self.record(format!("type_text({})", text));
             Ok(ActionResult::success("typed"))
@@ -613,5 +797,81 @@ mod tests {
         let executor = ActionExecutor::new(backend);
         let result = executor.type_text_at(100, 200, "hello").unwrap();
         assert!(result.success);
+    }
+
+    #[test]
+    fn mouse_button_parses_osworld_names() {
+        assert_eq!(MouseButton::parse("left"), Some(MouseButton::Left));
+        assert_eq!(MouseButton::parse(" MIDDLE "), Some(MouseButton::Middle));
+        assert_eq!(MouseButton::parse("right"), Some(MouseButton::Right));
+        assert_eq!(MouseButton::parse("scroll"), None);
+        assert_eq!(MouseButton::Middle.as_str(), "middle");
+    }
+
+    #[test]
+    fn pixel_scroll_converts_to_whole_lines() {
+        assert_eq!(scroll_lines_for_pixels(0), 0);
+        assert_eq!(scroll_lines_for_pixels(100), 1);
+        assert_eq!(scroll_lines_for_pixels(-100), -1);
+        assert_eq!(scroll_lines_for_pixels(350), 4);
+        assert_eq!(scroll_lines_for_pixels(-249), -2);
+        // A non-zero pixel delta must never collapse to a no-op scroll.
+        assert_eq!(scroll_lines_for_pixels(1), 1);
+        assert_eq!(scroll_lines_for_pixels(-1), -1);
+    }
+
+    #[test]
+    fn click_button_at_covers_all_three_buttons() {
+        let backend = Box::new(MockBackend::default());
+        let executor = ActionExecutor::new(backend);
+        executor
+            .click_button_at(MouseButton::Left, 10, 20, 1, false)
+            .unwrap();
+        executor
+            .click_button_at(MouseButton::Left, 10, 20, 2, false)
+            .unwrap();
+        executor
+            .click_button_at(MouseButton::Right, 10, 20, 1, false)
+            .unwrap();
+        executor
+            .click_button_at(MouseButton::Middle, 10, 20, 1, false)
+            .unwrap();
+        // Unsupported counts are rejected, never collapsed to one click.
+        assert!(executor
+            .click_button_at(MouseButton::Middle, 10, 20, 2, false)
+            .is_err());
+        assert!(executor
+            .click_button_at(MouseButton::Left, 10, 20, 3, false)
+            .is_err());
+    }
+
+    #[test]
+    fn click_button_here_covers_all_three_buttons() {
+        let backend = Box::new(MockBackend::default());
+        let executor = ActionExecutor::new(backend);
+        executor.click_button_here(MouseButton::Left, 1).unwrap();
+        executor.click_button_here(MouseButton::Left, 2).unwrap();
+        executor.click_button_here(MouseButton::Right, 1).unwrap();
+        executor.click_button_here(MouseButton::Middle, 1).unwrap();
+        assert!(executor.click_button_here(MouseButton::Right, 2).is_err());
+    }
+
+    #[test]
+    fn scroll_at_current_pixels_drives_both_axes() {
+        let backend = Box::new(MockBackend::default());
+        let executor = ActionExecutor::new(backend);
+        executor.scroll_at_current_pixels(200, -300).unwrap();
+        executor.scroll_at_current_pixels(0, 0).unwrap();
+    }
+
+    #[test]
+    fn drag_from_current_uses_the_live_pointer_as_start() {
+        let backend = Box::new(MockBackend::default());
+        let executor = ActionExecutor::new(backend);
+        executor.move_to(5, 6, false).unwrap();
+        executor.drag_left_from_current_to(50, 60, false).unwrap();
+        assert_eq!(executor.get_position().unwrap(), (50, 60));
+        // Same start and end is still an error: nothing to drag.
+        assert!(executor.drag_left_from_current_to(50, 60, false).is_err());
     }
 }

@@ -6,7 +6,6 @@
 //! (`[Screen before action]`, `[Screen after action]`, `[Annotated after action]`, `[Zoom top after action]`, …).
 
 use super::screen::{self, MonitorInfo};
-use crate::agents::computer::tier::ComputerTier;
 use anyhow::{anyhow, Result};
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
 use imageproc::drawing::{draw_line_segment_mut, draw_polygon_mut};
@@ -80,7 +79,7 @@ impl VisionOverlayWork {
         pointer_zoom: true,
     };
 
-    pub fn for_tier(_tier: ComputerTier) -> Self {
+    pub fn standard() -> Self {
         Self {
             raw_marked_jpeg: true,
             zoom_crops: false,
@@ -768,7 +767,7 @@ mod tests {
 
     #[test]
     fn primary_work_keeps_raw_marked_and_pointer_zoom_only() {
-        let work = VisionOverlayWork::for_tier(ComputerTier::Primary);
+        let work = VisionOverlayWork::standard();
         assert!(work.raw_marked_jpeg);
         assert!(!work.zoom_crops);
         assert!(work.pointer_zoom);

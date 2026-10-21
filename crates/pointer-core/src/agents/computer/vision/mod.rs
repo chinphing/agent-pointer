@@ -1,8 +1,6 @@
 //! Screen capture, annotation, coordinates, overlays, and per-session vision state.
 
-pub mod annotate;
 pub mod coord;
-pub mod reference_anchors;
 #[cfg(feature = "computer")]
 pub mod screen;
 #[cfg(not(feature = "computer"))]

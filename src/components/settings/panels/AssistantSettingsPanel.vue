@@ -51,14 +51,10 @@ const {
   MEDIA_MODE_USER_ROWS,
   PERFORMANCE_MODE_UI,
   enabledWorkers,
-  computerInitialTier,
   agentPerformanceModesLocal,
   mediaUnderstandingModesLocal,
-  userCodingRules,
-  COMPUTER_INITIAL_TIER_OPTIONS
+  userCodingRules
 } = props.form
-
-const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS
 
 </script>
 
@@ -184,19 +180,19 @@ const COMPUTER_TIER_CARDS = COMPUTER_INITIAL_TIER_OPTIONS
             <div class="flex flex-wrap items-center gap-2">
               <div class="inline-flex rounded-lg border border-border bg-card p-0.5">
                 <label
-                  v-for="opt in COMPUTER_TIER_CARDS"
-                  :key="'scene-desktop-' + opt.value"
+                  v-for="opt in PERFORMANCE_MODE_UI"
+                  :key="'scene-computer-' + opt.value"
                   class="h-7 px-2.5 rounded-md text-[11px] cursor-pointer transition-colors flex items-center"
-                  :class="computerInitialTier === opt.value
+                  :class="(agentPerformanceModesLocal.computer ?? 'standard') === opt.value
                     ? 'bg-hover text-foreground'
                     : 'text-muted hover:text-foreground'"
                 >
                   <input
-                    v-model="computerInitialTier"
                     type="radio"
                     class="sr-only"
-                    name="scene-desktop-tier"
-                    :value="opt.value"
+                    name="scene-computer-mode"
+                    :checked="(agentPerformanceModesLocal.computer ?? 'standard') === opt.value"
+                    @change="agentPerformanceModesLocal = { ...agentPerformanceModesLocal, computer: opt.value }"
                   />
                   {{ opt.label }}
                 </label>

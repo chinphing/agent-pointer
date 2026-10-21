@@ -9,20 +9,17 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MouseBackend {
-    Index,
     At,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputBackend {
-    Index,
     At,
     Focused,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModifiedClickBackend {
-    Index,
     At,
 }
 
@@ -223,19 +220,6 @@ pub fn route_mouse(args: &Value) -> Result<RoutedMouse> {
     let legacy = resolve_mouse_operation_label(args)?;
     let lower = legacy.to_ascii_lowercase();
 
-    if lower.ends_with("_index") || has_index_targeting(args) {
-        let method = match lower.as_str() {
-            "drag_from_to_index" => "drag_from_to".to_string(),
-            s if s.ends_with("_index") => strip_suffix(s, "_index"),
-            "drag_from_to" => "drag_from_to".to_string(),
-            other => other.to_string(),
-        };
-        return Ok(RoutedMouse {
-            backend: MouseBackend::Index,
-            method,
-        });
-    }
-
     if lower.ends_with("_at") || has_xy(args) {
         let method = match lower.as_str() {
             "drag_from_to_at" => "drag_from_to".to_string(),
@@ -256,13 +240,6 @@ pub fn route_mouse(args: &Value) -> Result<RoutedMouse> {
 pub fn route_input(args: &Value) -> Result<RoutedInput> {
     let label = resolve_input_operation_label(args)?;
     let lower = label.to_ascii_lowercase();
-
-    if lower == "input_index" || lower.ends_with("_index") || args.get("index").is_some() {
-        return Ok(RoutedInput {
-            backend: InputBackend::Index,
-            method: "input_index".to_string(),
-        });
-    }
 
     if lower == "input_focused"
         || lower.contains("focused")
@@ -289,18 +266,6 @@ pub fn route_input(args: &Value) -> Result<RoutedInput> {
 pub fn route_modified_click(args: &Value) -> Result<RoutedModifiedClick> {
     let legacy = resolve_modified_click_operation_label(args)?;
     let lower = legacy.to_ascii_lowercase();
-
-    if has_index_targeting(args) || lower.ends_with("_index") {
-        let method = match lower.as_str() {
-            "range_select_index" | "range_select" => "range_select".to_string(),
-            "select_index" | "select" => "select".to_string(),
-            other => other.to_string(),
-        };
-        return Ok(RoutedModifiedClick {
-            backend: ModifiedClickBackend::Index,
-            method,
-        });
-    }
 
     if args.get("positions").is_some() || lower.ends_with("_at") || has_xy(args) {
         let method = match lower.as_str() {
@@ -337,25 +302,7 @@ mod tests {
         assert_eq!(r.method, "click");
     }
 
-    #[test]
-    fn routes_mouse_click_index() {
-        let args = json!({ "method": "click_index", "goal": "g", "index": 2 });
-        let r = route_mouse(&args).unwrap();
-        assert_eq!(r.backend, MouseBackend::Index);
-        assert_eq!(r.method, "click");
-    }
 
-    #[test]
-    fn routes_mouse_click_index_when_action_is_human_description() {
-        let args = json!({
-            "goal": "打开微信应用",
-            "action": "点击 Dock 栏中的微信图标",
-            "index": 133
-        });
-        let r = route_mouse(&args).unwrap();
-        assert_eq!(r.backend, MouseBackend::Index);
-        assert_eq!(r.method, "click");
-    }
 
     #[test]
     fn display_infers_click_index_from_index_only() {
@@ -370,18 +317,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn routes_input_index_from_index_and_text() {
-        let args = json!({
-            "goal": "type username",
-            "action": "focus login field",
-            "index": 5,
-            "text": "alice"
-        });
-        let r = route_input(&args).unwrap();
-        assert_eq!(r.backend, InputBackend::Index);
-        assert_eq!(r.method, "input_index");
-    }
 
     #[test]
     fn display_infers_input_index_from_index_only() {

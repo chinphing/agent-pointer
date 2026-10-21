@@ -442,11 +442,6 @@ struct StoredSettings {
     #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     computer_human_like: bool,
     #[serde(
-        default = "default_computer_initial_tier",
-        rename = "computerInitialTier"
-    )]
-    computer_initial_tier: String,
-    #[serde(
         default = "default_computer_annotated_screen_view_enabled",
         rename = "computerAnnotatedScreenViewEnabled"
     )]
@@ -502,10 +497,6 @@ fn default_raw_content_view_enabled() -> bool {
 
 fn default_theme() -> String {
     "system".into()
-}
-
-fn default_computer_initial_tier() -> String {
-    "intermediate".into()
 }
 
 fn default_computer_human_like() -> bool {
@@ -833,7 +824,6 @@ fn stored_settings_to_user(stored: &StoredSettings) -> UserSettings {
         agent_default_models: normalize_disk_agent_defaults(&stored.agent_default_models, &active),
         agent_task_board_history_trim: stored.agent_task_board_history_trim.clone(),
         computer_human_like: stored.computer_human_like,
-        computer_initial_tier: stored.computer_initial_tier.clone(),
         computer_annotated_screen_view_enabled: stored.computer_annotated_screen_view_enabled,
         theme: stored.theme.clone(),
         agent_ui_overrides: stored.agent_ui_overrides.clone(),
@@ -979,7 +969,6 @@ impl Default for StoredSettings {
                 .collect(),
             agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
             computer_human_like: s.computer_human_like,
-            computer_initial_tier: s.computer_initial_tier.clone(),
             computer_annotated_screen_view_enabled: s.computer_annotated_screen_view_enabled,
             theme: s.theme.clone(),
             agent_ui_overrides: s.agent_ui_overrides.clone(),

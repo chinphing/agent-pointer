@@ -2291,10 +2291,6 @@ mod active_main_task_board_tests {
         debug.model = "session-chat".into();
         debug.temperature = 0.42;
         debug.max_tokens = 4321;
-        for config in debug.computer_tier_llm.values_mut() {
-            config.provider_id = "session-provider".into();
-            config.model = "session-worker".into();
-        }
         for modes in debug.agent_mode_llm.values_mut() {
             for config in modes.values_mut() {
                 config.provider_id = "session-provider".into();

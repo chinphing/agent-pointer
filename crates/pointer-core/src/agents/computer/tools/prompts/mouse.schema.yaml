@@ -1,21 +1,3 @@
-mouse_click_index:
-  type: object
-  properties:
-    goal:
-      type: string
-    action:
-      type: string
-    index:
-      type: integer
-    wait:
-      type: number
-      minimum: 1
-      maximum: 5
-  required:
-    - index
-    - goal
-  additionalProperties: true
-
 mouse_click_at:
   type: object
   properties:
@@ -27,6 +9,18 @@ mouse_click_at:
       type: number
     y:
       type: number
+    button:
+      type: string
+      enum:
+        - left
+        - middle
+        - right
+      description: Mouse button. Default left.
+    clicks:
+      type: integer
+      minimum: 1
+      maximum: 2
+      description: Number of clicks (1 or 2). Default 1.
     zoom:
       type: boolean
       description: >
@@ -41,24 +35,6 @@ mouse_click_at:
   required:
     - x
     - y
-    - goal
-  additionalProperties: true
-
-mouse_double_click_index:
-  type: object
-  properties:
-    goal:
-      type: string
-    action:
-      type: string
-    index:
-      type: integer
-    wait:
-      type: number
-      minimum: 1
-      maximum: 5
-  required:
-    - index
     - goal
   additionalProperties: true
 
@@ -90,24 +66,6 @@ mouse_double_click_at:
     - goal
   additionalProperties: true
 
-mouse_right_click_index:
-  type: object
-  properties:
-    goal:
-      type: string
-    action:
-      type: string
-    index:
-      type: integer
-    wait:
-      type: number
-      minimum: 1
-      maximum: 5
-  required:
-    - index
-    - goal
-  additionalProperties: true
-
 mouse_right_click_at:
   type: object
   properties:
@@ -133,24 +91,6 @@ mouse_right_click_at:
   required:
     - x
     - y
-    - goal
-  additionalProperties: true
-
-mouse_hover_index:
-  type: object
-  properties:
-    goal:
-      type: string
-    action:
-      type: string
-    index:
-      type: integer
-    wait:
-      type: number
-      minimum: 1
-      maximum: 5
-  required:
-    - index
     - goal
   additionalProperties: true
 
@@ -189,56 +129,93 @@ mouse_scroll_current:
       type: string
     action:
       type: string
-    lines:
+    dx:
       type: integer
+      description: >
+        Horizontal scroll in screen pixels. Positive scrolls right,
+        negative left. Omit when only vertical movement is needed.
+    dy:
+      type: integer
+      description: >
+        Vertical scroll in screen pixels. Positive scrolls up,
+        negative down. Omit when only horizontal movement is needed.
     wait:
       type: number
       minimum: 1
       maximum: 5
   required:
-    - lines
     - goal
   additionalProperties: true
 
-mouse_scroll_index:
+mouse_down:
   type: object
   properties:
     goal:
       type: string
     action:
       type: string
-    index:
-      type: integer
-    lines:
-      type: integer
+    button:
+      type: string
+      enum:
+        - left
+        - middle
+        - right
+      description: Mouse button to hold. Default left.
     wait:
       type: number
       minimum: 1
       maximum: 5
   required:
-    - index
-    - lines
     - goal
   additionalProperties: true
 
-mouse_drag_from_to_index:
+mouse_up:
   type: object
   properties:
     goal:
       type: string
     action:
       type: string
-    from_index:
-      type: integer
-    to_index:
-      type: integer
+    button:
+      type: string
+      enum:
+        - left
+        - middle
+        - right
+      description: Mouse button to release. Default left.
     wait:
       type: number
       minimum: 1
       maximum: 5
   required:
-    - from_index
-    - to_index
+    - goal
+  additionalProperties: true
+
+mouse_drag_to:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    x:
+      type: number
+    y:
+      type: number
+    zoom:
+      type: boolean
+      description: >
+        Set true only when x and y are 0–1000 on
+        [Zoom pointer after action]. The host maps them
+        onto the full screen. Omit or false for full-screen
+        coordinates.
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - x
+    - y
     - goal
   additionalProperties: true
 

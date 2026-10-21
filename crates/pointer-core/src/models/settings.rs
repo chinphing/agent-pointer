@@ -929,12 +929,6 @@ pub struct ModelSettings {
     /// When true, computer agent uses Bézier / jitter mouse paths by default (`human_like` preset).
     #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     pub computer_human_like: bool,
-    /// Starting vision tier for new computer conversations (`primary` | `intermediate` | `advanced`).
-    #[serde(
-        default = "default_computer_initial_tier",
-        rename = "computerInitialTier"
-    )]
-    pub computer_initial_tier: String,
     /// When true, Computer Use assistant messages show the annotated screenshot preview action.
     #[serde(
         default = "default_computer_annotated_screen_view_enabled",
@@ -1022,8 +1016,6 @@ pub struct ModelSettings {
     #[serde(default, rename = "mediaModeLlm")]
     pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
     /// Debug: computer tier → LLM profile.
-    #[serde(default = "default_computer_tier_llm", rename = "computerTierLlm")]
-    pub computer_tier_llm: HashMap<String, ComputerTierLlmConfig>,
     /// Debug: per-phase LLM for computer host verify pipeline.
     #[serde(default, rename = "computerPipelineLlm")]
     pub computer_pipeline_llm: ComputerPipelineLlmSettings,
@@ -1106,10 +1098,6 @@ pub(crate) fn default_lead_agent_id() -> String {
     "general".to_string()
 }
 
-fn default_computer_initial_tier() -> String {
-    "intermediate".to_string()
-}
-
 fn default_computer_human_like() -> bool {
     true
 }
@@ -1123,6 +1111,11 @@ fn default_computer_human_like() -> bool {
 ///    Tier maps that **reference** a platform provider id are user overrides
 ///    and are kept.
 pub fn ensure_user_settings_defaults(user: &mut UserSettings) {
+    // Older settings files predate the built-in computer tiers: seed them so the
+    // settings UI never shows an empty fast/standard/expert row.
+    user.agent_mode_llm
+        .entry("computer".to_string())
+        .or_insert_with(default_computer_mode_llm);
     strip_session_placeholder_model_configs(user);
     strip_platform_source_providers(user);
     user.file_read_max_bytes = clamp_file_read_max_bytes(user.file_read_max_bytes);
@@ -1162,8 +1155,6 @@ fn strip_session_placeholder_model_configs(user: &mut UserSettings) {
     for (_, modes) in user.media_mode_llm.iter_mut() {
         modes.retain(|_, cfg| !is_session_placeholder(cfg));
     }
-    user.computer_tier_llm
-        .retain(|_, cfg| !is_session_placeholder(cfg));
 
     let pipeline = &mut user.computer_pipeline_llm;
     if pipeline
@@ -1739,7 +1730,6 @@ impl Default for ModelSettings {
             agent_default_models: HashMap::new(),
             agent_task_board_history_trim: HashMap::new(),
             computer_human_like: true,
-            computer_initial_tier: default_computer_initial_tier(),
             computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(
             ),
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
@@ -1762,7 +1752,6 @@ impl Default for ModelSettings {
             media_model_overrides: default_media_generation_overrides(),
             agent_performance_modes: HashMap::new(),
             media_understanding_modes: MediaUnderstandingModes::default(),
-            computer_tier_llm: default_computer_tier_llm(),
             computer_pipeline_llm: ComputerPipelineLlmSettings::default(),
             agent_mode_llm: default_agent_mode_llm(),
             media_mode_llm: default_media_mode_llm(),
@@ -2172,11 +2161,6 @@ pub struct UserSettings {
     #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     pub computer_human_like: bool,
     #[serde(
-        default = "default_computer_initial_tier",
-        rename = "computerInitialTier"
-    )]
-    pub computer_initial_tier: String,
-    #[serde(
         default = "default_computer_annotated_screen_view_enabled",
         rename = "computerAnnotatedScreenViewEnabled"
     )]
@@ -2204,8 +2188,6 @@ pub struct UserSettings {
     pub agent_performance_modes: HashMap<String, String>,
     #[serde(default, rename = "mediaUnderstandingModes")]
     pub media_understanding_modes: MediaUnderstandingModes,
-    #[serde(default = "default_computer_tier_llm", rename = "computerTierLlm")]
-    pub computer_tier_llm: HashMap<String, ComputerTierLlmConfig>,
     #[serde(default, rename = "computerPipelineLlm")]
     pub computer_pipeline_llm: ComputerPipelineLlmSettings,
     #[serde(default = "default_agent_mode_llm", rename = "agentModeLlm")]
@@ -2295,7 +2277,6 @@ impl Default for UserSettings {
             agent_default_models: default_platform_agent_models(),
             agent_task_board_history_trim: HashMap::new(),
             computer_human_like: true,
-            computer_initial_tier: default_computer_initial_tier(),
             computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(
             ),
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
@@ -2305,7 +2286,6 @@ impl Default for UserSettings {
             media_model_overrides: default_media_generation_overrides(),
             agent_performance_modes: HashMap::new(),
             media_understanding_modes: MediaUnderstandingModes::default(),
-            computer_tier_llm: default_computer_tier_llm(),
             computer_pipeline_llm: ComputerPipelineLlmSettings::default(),
             agent_mode_llm: default_agent_mode_llm(),
             media_mode_llm: default_media_mode_llm(),
@@ -2451,8 +2431,6 @@ pub struct DebugSessionSettings {
     pub temperature: f32,
     #[serde(rename = "maxTokens")]
     pub max_tokens: u32,
-    #[serde(rename = "computerTierLlm")]
-    pub computer_tier_llm: HashMap<String, ComputerTierLlmConfig>,
     #[serde(rename = "computerPipelineLlm")]
     pub computer_pipeline_llm: ComputerPipelineLlmSettings,
     #[serde(rename = "agentModeLlm")]
@@ -2469,7 +2447,6 @@ impl From<&ModelSettings> for DebugSessionSettings {
             model: merged.model.clone(),
             temperature: merged.temperature,
             max_tokens: merged.max_tokens,
-            computer_tier_llm: merged.computer_tier_llm.clone(),
             computer_pipeline_llm: merged.computer_pipeline_llm.clone(),
             agent_mode_llm: merged.agent_mode_llm.clone(),
             media_mode_llm: merged.media_mode_llm.clone(),
@@ -2562,13 +2539,40 @@ pub(crate) fn sample_settings() -> ModelSettings {
     s
 }
 
-fn default_computer_tier_llm() -> HashMap<String, ComputerTierLlmConfig> {
-    // 档位默认由平台目录下发；本地不再内置 computer tier 默认模型。
-    HashMap::new()
+/// Built-in per-mode defaults for the computer agent. Provider ids match the
+/// official catalog (`qwen` / `deepseek`); the platform
+/// (`tierDefaults.agentModeLlm.computer`) overrides these when it sends its own.
+///
+/// The provider must be explicit: an empty id falls back to the session's active
+/// provider, which produces a `provider:model` pair that is not in the model list
+/// and renders as a blank row in settings.
+pub fn default_computer_mode_llm() -> HashMap<String, ComputerTierLlmConfig> {
+    [
+        ("fast", "qwen", "qwen3.7-flash"),
+        ("standard", "qwen", "qwen3.8-flash"),
+        ("expert", "deepseek", "deepseek-flash"),
+    ]
+    .into_iter()
+    .map(|(mode, provider, model)| {
+        (
+            mode.to_string(),
+            ComputerTierLlmConfig {
+                provider_id: provider.to_string(),
+                model: model.to_string(),
+                enable_thinking: true,
+                thinking_budget: None,
+                reasoning_effort: None,
+                thinking_intensity: None,
+            },
+        )
+    })
+    .collect()
 }
 
 fn default_agent_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmConfig>> {
-    HashMap::new()
+    let mut map = HashMap::new();
+    map.insert("computer".to_string(), default_computer_mode_llm());
+    map
 }
 
 fn default_media_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmConfig>> {
@@ -2897,7 +2901,6 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         agent_default_models: user.agent_default_models.clone(),
         agent_task_board_history_trim: user.agent_task_board_history_trim.clone(),
         computer_human_like: user.computer_human_like,
-        computer_initial_tier: user.computer_initial_tier.clone(),
         computer_annotated_screen_view_enabled: user.computer_annotated_screen_view_enabled,
         computer_show_monitor_picker: user.computer_show_monitor_picker,
         computer_auto_switch_monitor: user.computer_auto_switch_monitor,
@@ -2921,7 +2924,6 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         media_understanding_modes: user.media_understanding_modes.clone(),
         agent_mode_llm: user.agent_mode_llm.clone(),
         media_mode_llm: user.media_mode_llm.clone(),
-        computer_tier_llm: user.computer_tier_llm.clone(),
         computer_pipeline_llm: user.computer_pipeline_llm.clone(),
         media_oss: platform.media_oss.clone(),
         max_parallel_tool_calls: user.max_parallel_tool_calls,
@@ -3018,16 +3020,6 @@ pub fn apply_platform_tier_defaults(
             inner_map
                 .entry(mode.to_string())
                 .or_insert_with(|| cfg.clone());
-        }
-    }
-    if let Some(computer_tier) = obj.get("computerTierLlm").and_then(|v| v.as_object()) {
-        for (tier, cfg_val) in computer_tier {
-            if settings.computer_tier_llm.contains_key(tier) {
-                continue;
-            }
-            if let Some(cfg) = tier_cfg_from_json(cfg_val, providers) {
-                settings.computer_tier_llm.insert(tier.clone(), cfg);
-            }
         }
     }
     if let Some(pipeline) = obj.get("computerPipelineLlm").and_then(|v| v.as_object()) {
@@ -3596,17 +3588,6 @@ mod user_settings_defaults_tests {
             .into_iter()
             .collect(),
         );
-        user.computer_tier_llm.insert(
-            "primary".into(),
-            ComputerTierLlmConfig {
-                provider_id: "session-provider".into(),
-                model: "session-worker".into(),
-                enable_thinking: true,
-                thinking_budget: Some(2048),
-                reasoning_effort: None,
-                thinking_intensity: None,
-            },
-        );
         user.computer_pipeline_llm = ComputerPipelineLlmSettings {
             decision: "session-worker".into(),
             position: "session-worker".into(),
@@ -3633,10 +3614,6 @@ mod user_settings_defaults_tests {
                 .map(|m| m.is_empty())
                 .unwrap_or(true),
             "media_mode_llm session placeholder should be removed"
-        );
-        assert!(
-            !user.computer_tier_llm.contains_key("primary"),
-            "computer_tier_llm session placeholder should be removed"
         );
         assert_ne!(user.computer_pipeline_llm.decision, "session-worker");
         assert_ne!(
@@ -3694,17 +3671,6 @@ mod user_settings_defaults_tests {
             .into_iter()
             .collect(),
         );
-        user.computer_tier_llm.insert(
-            "advanced".into(),
-            ComputerTierLlmConfig {
-                provider_id: "qwen".into(),
-                model: "qwen3.7-max".into(),
-                enable_thinking: true,
-                thinking_budget: Some(8192),
-                reasoning_effort: None,
-                thinking_intensity: None,
-            },
-        );
 
         ensure_user_settings_defaults(&mut user);
 
@@ -3729,12 +3695,46 @@ mod user_settings_defaults_tests {
                 .map(|c| c.model.as_str()),
             Some("qwen3.6-plus")
         );
+    }
+
+    #[test]
+    fn computer_mode_llm_defaults_are_seeded() {
+        let s = ModelSettings::default();
+        let computer = s.agent_mode_llm.get("computer").expect("computer tiers");
         assert_eq!(
-            user.computer_tier_llm
-                .get("advanced")
-                .map(|c| (c.provider_id.as_str(), c.model.as_str())),
-            Some(("qwen", "qwen3.7-max"))
+            computer.get("fast").map(|c| c.model.as_str()),
+            Some("qwen3.7-flash")
         );
+        assert_eq!(
+            computer.get("standard").map(|c| c.model.as_str()),
+            Some("qwen3.8-flash")
+        );
+        assert_eq!(
+            computer.get("expert").map(|c| c.model.as_str()),
+            Some("deepseek-flash")
+        );
+        // Provider must be explicit, otherwise the row resolves against the
+        // session's active provider and renders blank in settings.
+        assert_eq!(
+            computer.get("fast").map(|c| c.provider_id.as_str()),
+            Some("qwen")
+        );
+        assert_eq!(
+            computer.get("expert").map(|c| c.provider_id.as_str()),
+            Some("deepseek")
+        );
+    }
+
+    #[test]
+    fn ensure_user_settings_defaults_seeds_computer_tiers() {
+        let mut user = UserSettings::default();
+        user.agent_mode_llm.clear();
+        ensure_user_settings_defaults(&mut user);
+        let computer = user
+            .agent_mode_llm
+            .get("computer")
+            .expect("computer tiers seeded");
+        assert_eq!(computer.len(), 3);
     }
 
     #[test]

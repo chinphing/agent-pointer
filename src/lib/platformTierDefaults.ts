@@ -181,14 +181,6 @@ export function platformMediaModeDefault(
   return readTierModelRef(modes?.[mode])
 }
 
-export function platformComputerTierDefault(
-  tierDefaults: unknown,
-  tier: string
-): PlatformTierRef | undefined {
-  const tiers = nestedMap(tierDefaultsObject(tierDefaults), 'computerTierLlm')
-  return readTierModelRef(tiers?.[tier])
-}
-
 export function platformMediaGenerationDefault(
   tierDefaults: unknown,
   kind: 'image' | 'video'

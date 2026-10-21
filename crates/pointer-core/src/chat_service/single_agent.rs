@@ -167,11 +167,7 @@ pub(super) async fn run_single_agent_loop(
         .await?;
 
         let round_settings_t = Instant::now();
-        let round_settings = if lead_profile == AgentProfile::Computer {
-            state
-                .computer_state
-                .apply_round_settings(conversation_id, settings)
-        } else {
+        let round_settings = {
             let s = settings.clone();
             if crate::logging::internal_runtime_log_enabled() {
                 log::debug!(

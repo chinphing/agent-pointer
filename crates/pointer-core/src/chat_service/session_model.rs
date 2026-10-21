@@ -366,9 +366,31 @@ mod tests {
     #[test]
     fn apply_agent_model_defaults_noop_for_unknown_agent() {
         let mut settings = sample_settings();
-        assert!(!apply_agent_model_defaults(&mut settings, "computer"));
+        assert!(!apply_agent_model_defaults(&mut settings, "unknown-agent"));
         assert_eq!(settings.active_provider_id, "qwen");
         assert_eq!(settings.model, "qwen-plus");
+    }
+
+    #[test]
+    fn apply_agent_model_defaults_applies_computer_builtin_tiers() {
+        // `computer` ships built-in fast/standard/expert models; with no
+        // `agentPerformanceModes.computer` entry the default mode is `standard`.
+        let mut settings = sample_settings();
+        assert!(apply_agent_model_defaults(&mut settings, "computer"));
+        assert_eq!(settings.model, "qwen3.8-flash");
+        // The built-in tier carries its own provider id.
+        assert_eq!(settings.active_provider_id, "qwen");
+    }
+
+    #[test]
+    fn apply_agent_model_defaults_computer_expert_tier() {
+        let mut settings = sample_settings();
+        settings
+            .agent_performance_modes
+            .insert("computer".into(), "expert".into());
+        assert!(apply_agent_model_defaults(&mut settings, "computer"));
+        assert_eq!(settings.model, "deepseek-flash");
+        assert_eq!(settings.active_provider_id, "deepseek");
     }
 
     #[test]

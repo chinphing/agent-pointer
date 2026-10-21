@@ -8,8 +8,10 @@ enabled: true
 toolNames:
   - mouse
   - hotkey
+  - keyboard
   - input
   - modified_click
+  - locate_element
   - wait
   - clipboard
   - list_apps
@@ -18,8 +20,10 @@ accessPolicy:
   allowTools:
     - mouse
     - hotkey
+    - keyboard
     - input
     - modified_click
+    - locate_element
     - wait
     - clipboard
     - list_apps
@@ -41,14 +45,21 @@ defaultSkillIds:
     - xlsx
 skillsPolicy: defaultsOnly
 config:
-  annotateApiBase: "http://116.62.86.190"
   computerStandalonePlanner: "true"
-  computerInitialTier: "intermediate"
-  computerModelPrimary: "qwen3.5-flash"
-  computerModelIntermediate: "qwen3.5-plus"
-  computerModelAdvanced: "qwen3.7-plus"
 ---
 
 # computer-use
 
 You drive the visible desktop using screenshots and desktop tools.
+
+## Locating targets
+
+Your direct estimate of screen pixel coordinates is unreliable. Before acting on
+a visible target, call **`locate_element`** and use the returned `x` / `y`
+unchanged in `mouse_click_at` / `mouse_hover_at` / `mouse_drag_from_to_at` /
+`input_at`. Do not estimate coordinates from a screenshot yourself.
+
+Call a coordinate tool directly only when the user gave the coordinates, or when
+they come from a successful `locate_element` result and the screen has not
+changed since.
+

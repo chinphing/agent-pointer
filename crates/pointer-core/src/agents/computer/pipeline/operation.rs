@@ -412,7 +412,7 @@ mod tests {
         };
         assert_eq!(
             resolve_execution_tool("mouse_move", &pos),
-            "mouse_hover_index"
+            "mouse_hover_at"
         );
     }
 
@@ -439,7 +439,6 @@ mod tests {
 
     #[test]
     fn execution_tool_infers_index_route_from_name() {
-        assert_eq!(positioning_route("mouse_click_index", &json!({})), "index");
         assert_eq!(positioning_route("mouse_click_at", &json!({})), "at");
     }
 
@@ -449,7 +448,7 @@ mod tests {
             index: Some(5),
             ..Default::default()
         };
-        assert_eq!(resolve_execution_tool("click", &pos), "mouse_click_index");
+        assert_eq!(resolve_execution_tool("click", &pos), "mouse_click_at");
     }
 
     #[test]
@@ -472,7 +471,7 @@ mod tests {
         };
         assert_eq!(
             resolve_execution_tool("drag", &pos),
-            "mouse_drag_from_to_index"
+            "mouse_drag_from_to_at"
         );
     }
 

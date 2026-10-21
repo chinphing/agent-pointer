@@ -1,0 +1,77 @@
+# keyboard.schema.yaml — flat keyboard tool schemas (PRESS / KEY_DOWN / KEY_UP / TYPING)
+
+key_press:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    key:
+      type: string
+      description: Key name, e.g. enter, tab, escape, up, space, a.
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - key
+    - goal
+  additionalProperties: true
+
+key_down:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    key:
+      type: string
+      description: Key name to hold down until a later key_up.
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - key
+    - goal
+  additionalProperties: true
+
+key_up:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    key:
+      type: string
+      description: Key name to release.
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - key
+    - goal
+  additionalProperties: true
+
+keyboard_type:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    text:
+      type: string
+      description: Text to type into the focused widget with raw key events.
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - text
+    - goal
+  additionalProperties: true

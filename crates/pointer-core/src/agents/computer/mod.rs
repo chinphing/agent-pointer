@@ -1,9 +1,11 @@
 //! Computer agent: desktop input, vision pipeline, tier runtime, session state, and tools.
 
 pub mod capture_debug;
+pub mod control;
 pub mod decision_tools;
 pub mod extension_hooks;
 pub mod input;
+pub mod locate;
 pub mod pipeline;
 pub mod state;
 pub mod tier;
@@ -21,9 +23,7 @@ pub use state::{
     ComputerSession, ComputerState, DesktopToolEntry, ScreenCaptureResult, SessionStatus,
 };
 pub use tier::{
-    current_computer_tier, tier_allows_index_tools, ComputerRoundLlmOverrides, ComputerTier,
-    ComputerTierConfig, ComputerTierGuard, ComputerTierRuntime, CONFIG_KEY_INITIAL_TIER,
-    CONFIG_KEY_MODEL_ADVANCED, CONFIG_KEY_MODEL_PRIMARY,
+    ComputerModelConfig, ComputerTier, ComputerTierRuntime,
 };
 pub use timing::{
     is_desktop_post_delay_tool, is_desktop_vision_log_tool,
@@ -31,4 +31,4 @@ pub use timing::{
     POST_DESKTOP_ACTION_DELAY_MS, POST_DESKTOP_ACTION_WAIT_SEC_MAX,
     POST_DESKTOP_ACTION_WAIT_SEC_MIN,
 };
-pub use vision::{annotate, coord, reference_anchors, screen, screen_overlay, vision_state};
+pub use vision::{coord, screen, screen_overlay, vision_state};

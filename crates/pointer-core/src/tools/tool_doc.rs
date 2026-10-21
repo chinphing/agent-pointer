@@ -266,7 +266,7 @@ file_write:
         let yaml_str = include_str!("../agents/computer/tools/prompts/input.schema.yaml");
         let tools = load_tools_from_schema_yaml(yaml_str).unwrap();
         let names: Vec<&str> = tools.iter().map(|(n, _)| n.as_str()).collect();
-        assert_eq!(names, vec!["input_index", "input_at", "input_focused"]);
+        assert_eq!(names, vec!["input_at", "input_focused"]);
     }
 
     #[test]
@@ -274,8 +274,6 @@ file_write:
         let yaml_str = include_str!("../agents/computer/tools/prompts/mouse.schema.yaml");
         let tools = load_tools_from_schema_yaml(yaml_str).unwrap();
         let names: Vec<&str> = tools.iter().map(|(n, _)| n.as_str()).collect();
-        assert!(names.contains(&"mouse_double_click_index"));
         assert!(names.contains(&"mouse_scroll_current"));
-        assert!(names.contains(&"mouse_scroll_index"));
     }
 }

@@ -8,13 +8,11 @@ use crate::agents::computer::input::timing::is_desktop_vision_log_tool;
 use crate::agents::computer::pipeline::types::{AdvancedPipelineSession, VerifyConclusion};
 use crate::agents::computer::pipeline::{verify_outcome_for_tier, verify_outcome_struct};
 use crate::agents::computer::tier::{
-    format_tier_history_block, format_tier_runtime_block, normalize_tool_record,
-    ComputerRoundLlmOverrides, ComputerTier, ComputerTierConfig, ComputerTierRuntime,
+    format_history_block, normalize_tool_record,
+    ComputerModelConfig, ComputerTierRuntime,
     PipelineLlmPhase,
 };
-use crate::agents::computer::vision::annotate::AnnotateClient;
 use crate::agents::computer::vision::coord::CoordinateSystem;
-use crate::agents::computer::vision::reference_anchors;
 use crate::agents::computer::vision::screen;
 use crate::agents::computer::vision::screen_overlay::{
     self, build_vision_overlay_pack, BeforeActionInject, VisionOverlayWork,
@@ -24,7 +22,6 @@ use crate::agents::AgentRegistry;
 use crate::models::ToolCall;
 use crate::platform_auth::SharedPlatformAuth;
 use crate::platform_config::SharedPlatformConfig;
-use crate::thinking_strategy::apply_tier_thinking_to_round;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -32,7 +29,6 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 /// Default annotation service URL.
 use crate::platform_endpoints;
 /// Config key for the annotation service URL in Computer Agent's config.
-const CONFIG_KEY_ANNOTATE_API_BASE: &str = "annotateApiBase";
 /// Config key for default human-like mouse movement in Computer Agent's config.
 const CONFIG_KEY_COMPUTER_HUMAN_LIKE: &str = "computerHumanLike";
 /// Maximum number of concurrent sessions to retain before evicting the least recently used.
@@ -53,7 +49,7 @@ pub struct ScreenCaptureResult {
     pub zoom_task_bar_png: Vec<u8>,
     /// Zoom: 200×200 crop, 4× magnified (800×800) around pointer on marked annotated.
     pub zoom_pointer_png: Vec<u8>,
-    /// Optional prose under **`[CUR_SCREEN]`**: **Pointer position** + overlay bbox rows (`reference_anchors`; 10 nearest pointer).
+    /// Optional prose under **`[CUR_SCREEN]`**: **Pointer position**.
     pub mouse_neighbor_reference_text: Option<String>,
     /// Logical monitor bounds for this capture.
     pub monitor: screen::MonitorInfo,
@@ -102,7 +98,7 @@ pub struct ComputerSession {
 }
 
 impl ComputerSession {
-    fn new(initial_tier: ComputerTier) -> Self {
+    fn new() -> Self {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -119,7 +115,7 @@ impl ComputerSession {
             last_active_at: now,
             status: SessionStatus::Active,
             desktop_log: Vec::new(),
-            tier_runtime: ComputerTierRuntime::new(initial_tier),
+            tier_runtime: ComputerTierRuntime::new(),
             pipeline: AdvancedPipelineSession::default(),
         }
     }
@@ -131,33 +127,27 @@ pub struct ComputerState {
     /// The action executor.
     pub executor: Arc<Mutex<ActionExecutor>>,
     /// The annotation service client.
-    pub annotate_client: AnnotateClient,
     /// Default for `human_like` when omitted from tool args (Python `computer_human_like`).
     pub human_like_default: bool,
     /// Base tier options from agent manifest (overridden by app settings when loaded).
-    pub tier_config: ComputerTierConfig,
+    pub tier_config: ComputerModelConfig,
     platform_config: Option<SharedPlatformConfig>,
     sessions: Arc<RwLock<HashMap<String, Arc<Mutex<ComputerSession>>>>>,
 }
 
 impl ComputerState {
     /// Merge agent manifest tier config with persisted user settings.
-    fn effective_tier_config(&self) -> ComputerTierConfig {
+    fn effective_tier_config(&self) -> ComputerModelConfig {
         let mut cfg = self.tier_config.clone();
         if let Some(pc) = &self.platform_config {
             let platform = pc.read();
             let user = crate::storage::load_user_settings().unwrap_or_default();
             let settings = crate::models::merge_user_platform(&user, &platform);
-            cfg.apply_app_settings(&settings);
-            cfg.apply_platform_tier_llm(&settings.computer_tier_llm);
             cfg.apply_platform_pipeline_llm(&settings.computer_pipeline_llm);
         }
         cfg
     }
 
-    fn initial_tier_for_new_session(&self) -> ComputerTier {
-        self.effective_tier_config().initial_tier
-    }
 }
 
 impl std::fmt::Debug for ComputerState {
@@ -183,18 +173,14 @@ impl ComputerState {
         platform_config: SharedPlatformConfig,
     ) -> Self {
         let def = agents.get("computer").map(|agent| agent.def());
-        let annotate_api_base = def
-            .as_ref()
-            .and_then(|d| d.config.get(CONFIG_KEY_ANNOTATE_API_BASE).cloned())
-            .unwrap_or_else(|| platform_endpoints::annotate_api_base());
         let human_like_default = def
             .as_ref()
             .and_then(|d| d.config.get(CONFIG_KEY_COMPUTER_HUMAN_LIKE))
             .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
             .unwrap_or(false);
-        let tier_config = ComputerTierConfig::from_agent_registry(agents);
+        let tier_config = ComputerModelConfig::from_agent_registry(agents);
         Self::with_annotate_url_human_like_and_tier(
-            &annotate_api_base,
+            "",
             human_like_default,
             tier_config,
             Some(platform_auth),
@@ -210,7 +196,7 @@ impl ComputerState {
         Self::with_annotate_url_human_like_and_tier(
             annotate_api_base,
             false,
-            ComputerTierConfig::default(),
+            ComputerModelConfig::default(),
             None,
             None,
         )
@@ -225,7 +211,7 @@ impl ComputerState {
         Self::with_annotate_url_human_like_and_tier(
             annotate_api_base,
             human_like_default,
-            ComputerTierConfig::default(),
+            ComputerModelConfig::default(),
             platform_auth,
             None,
         )
@@ -234,7 +220,7 @@ impl ComputerState {
     pub fn with_annotate_url_human_like_and_tier(
         annotate_api_base: &str,
         human_like_default: bool,
-        tier_config: ComputerTierConfig,
+        tier_config: ComputerModelConfig,
         platform_auth: Option<SharedPlatformAuth>,
         platform_config: Option<SharedPlatformConfig>,
     ) -> Self {
@@ -254,33 +240,13 @@ impl ComputerState {
             log::debug!("computer feature disabled: desktop input backend unavailable");
             Arc::new(Mutex::new(ActionExecutor::new(Box::new(FallbackBackend))))
         };
-        let base_url = if annotate_api_base.is_empty() {
-            platform_endpoints::annotate_api_base()
-        } else {
-            annotate_api_base.to_string()
-        };
-        let annotate_client = AnnotateClient::with_base_url_and_auth(&base_url, platform_auth)
-            .unwrap_or_else(|_| {
-                AnnotateClient::with_base_url_and_auth(
-                    &platform_endpoints::annotate_api_base(),
-                    None,
-                )
-                .expect("default annotate client should not fail")
-            });
         Self {
             executor,
-            annotate_client,
             human_like_default,
             tier_config,
             platform_config,
             sessions: Arc::new(RwLock::new(HashMap::new())),
         }
-    }
-
-    pub fn tier_for_conversation(&self, conversation_id: &str) -> ComputerTier {
-        let session = self.get_or_create_session(conversation_id);
-        let tier = session.lock().unwrap().tier_runtime.current_tier;
-        tier
     }
 
     /// Returns true when the tier runtime has flagged that the task is exhausted
@@ -294,53 +260,11 @@ impl ComputerState {
     /// Clears give-up and stuck-loop state when the user sends new guidance.
     pub fn reset_for_new_user_guidance(&self, conversation_id: &str) {
         let session = self.get_or_create_session(conversation_id);
-        let initial_tier = self.initial_tier_for_new_session();
         session
             .lock()
             .unwrap()
             .tier_runtime
-            .reset_for_new_user_guidance(initial_tier);
-    }
-
-    pub fn round_llm_overrides(&self, conversation_id: &str) -> ComputerRoundLlmOverrides {
-        let tier = self.tier_for_conversation(conversation_id);
-        ComputerRoundLlmOverrides::for_tier(tier, &self.effective_tier_config())
-    }
-
-    pub fn apply_round_settings(
-        &self,
-        conversation_id: &str,
-        settings: &crate::models::ModelSettings,
-    ) -> crate::models::ModelSettings {
-        let tier = self.tier_for_conversation(conversation_id);
-        let o = ComputerRoundLlmOverrides::for_tier(tier, &self.effective_tier_config());
-        if crate::logging::internal_runtime_log_enabled() {
-            log::debug!(
-                "computer_llm_round: conversation_id={conversation_id} tier={} provider={} model={} enable_thinking={} thinking_budget={:?}",
-                tier.label(),
-                o.provider_id,
-                o.model,
-                o.enable_thinking,
-                o.thinking_budget
-            );
-        }
-        let mut s = settings.clone();
-        if !o.provider_id.trim().is_empty() {
-            s.active_provider_id = o.provider_id.trim().to_string();
-        }
-        apply_tier_thinking_to_round(
-            &mut s,
-            &crate::models::ComputerTierLlmConfig {
-                provider_id: o.provider_id.clone(),
-                model: o.model.clone(),
-                enable_thinking: o.enable_thinking,
-                thinking_budget: o.thinking_budget,
-                reasoning_effort: o.reasoning_effort.clone(),
-                thinking_intensity: o.thinking_intensity.clone(),
-            },
-        );
-        s.model = o.model;
-        s
+            .reset_for_new_user_guidance();
     }
 
     /// Per-phase model for host verify pipeline (Verify phase).
@@ -350,7 +274,6 @@ impl ComputerState {
         phase: PipelineLlmPhase,
         settings: &crate::models::ModelSettings,
     ) -> crate::models::ModelSettings {
-        let tier = self.tier_for_conversation(conversation_id);
         let cfg = self.effective_tier_config();
         let model = cfg.pipeline_llm.model_for_phase(phase).to_string();
         let provider = cfg.pipeline_llm.provider_for_phase(phase).to_string();
@@ -359,29 +282,19 @@ impl ComputerState {
             s.active_provider_id = provider.trim().to_string();
         }
         s.model = model;
-        match phase {
-            PipelineLlmPhase::Decision => {
-                let o = ComputerRoundLlmOverrides::for_tier(tier, &cfg);
-                apply_tier_thinking_to_round(
-                    &mut s,
-                    &crate::models::ComputerTierLlmConfig {
-                        provider_id: o.provider_id.clone(),
-                        model: o.model.clone(),
-                        enable_thinking: o.enable_thinking,
-                        thinking_budget: o.thinking_budget,
-                        reasoning_effort: o.reasoning_effort.clone(),
-                        thinking_intensity: o.thinking_intensity.clone(),
-                    },
-                );
-            }
-            PipelineLlmPhase::Position | PipelineLlmPhase::Verify => {
-                let (enable, budget) = cfg.pipeline_llm.thinking_for_phase(phase);
-                s.round_thinking_locked = true;
-                s.round_enable_thinking = Some(enable);
-                s.round_thinking_budget = Some(budget);
-                s.round_reasoning_effort = None;
-                s.round_thinking_intensity = None;
-            }
+        // Decision keeps the round thinking that the shared session-model path
+        // already applied from `agentModeLlm[agentId][mode]`; only the explicit
+        // Position / Verify phases override it with their own budget.
+        if matches!(
+            phase,
+            PipelineLlmPhase::Position | PipelineLlmPhase::Verify
+        ) {
+            let (enable, budget) = cfg.pipeline_llm.thinking_for_phase(phase);
+            s.round_thinking_locked = true;
+            s.round_enable_thinking = Some(enable);
+            s.round_thinking_budget = Some(budget);
+            s.round_reasoning_effort = None;
+            s.round_thinking_intensity = None;
         }
         if crate::logging::internal_runtime_log_enabled() {
             log::debug!(
@@ -456,9 +369,7 @@ impl ComputerState {
             }
         }
 
-        let session = Arc::new(Mutex::new(ComputerSession::new(
-            self.initial_tier_for_new_session(),
-        )));
+        let session = Arc::new(Mutex::new(ComputerSession::new()));
         sessions.insert(conversation_id.to_string(), Arc::clone(&session));
         session
     }
@@ -525,8 +436,7 @@ impl ComputerState {
         let t_total = Instant::now();
 
         let session = self.get_or_create_session(conversation_id);
-        let tier = session.lock().unwrap().tier_runtime.current_tier;
-        let work = VisionOverlayWork::for_tier(tier);
+        let work = VisionOverlayWork::standard();
 
         let inject_before_action = {
             let s = session.lock().unwrap();
@@ -542,38 +452,24 @@ impl ComputerState {
             })
         };
 
-        let t = Instant::now();
-        let ann = self
-            .annotate_client
-            .annotate_image(screen_capture)
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
-        let annotate_ms = t.elapsed().as_secs_f64() * 1000.0;
-        let annotated_png = ann.image;
-        let boxes = ann.boxes;
+        // Annotation service removed (P5): there is no SoM pass any more, so the
+        // coordinate baseline below is the only thing this block still owns.
+        let annotate_ms = 0.0_f64;
 
         let t = Instant::now();
         {
             let session_guard = session.lock().unwrap();
             let mut vs = session_guard.vision_state.lock().unwrap();
             vs.set_screen_bbox(monitor);
-            vs.set_index_map_from_boxes(&boxes, &monitor, capture_px);
-            vs.set_coordinate_system(CoordinateSystem::Qwen);
+            vs.set_coordinate_system(CoordinateSystem::Pixel);
         }
         let vision_ms = t.elapsed().as_secs_f64() * 1000.0;
 
-        let mouse_neighbor_reference_text = reference_anchors::format_mouse_nearby_reference_bboxes(
-            &boxes,
-            &monitor,
-            capture_px,
-            global_pointer,
-            CoordinateSystem::Qwen,
-        );
 
         let t = Instant::now();
         let pack = build_vision_overlay_pack(
             screen_capture,
-            &annotated_png,
+            screen_capture,
             &monitor,
             global_pointer,
             global_caret,
@@ -612,16 +508,15 @@ impl ComputerState {
 
         let total_ms = t_total.elapsed().as_secs_f64() * 1000.0;
         log::info!(
-            "apply_screen_capture: tier={} input={} annotate_png={} annotated_out={} | annotate_http {:.1}ms, vision_state {:.1}ms, overlay {:.1}ms, total {:.1}ms ({} boxes, {}x{} px)",
-            tier.label(),
+            "apply_screen_capture: input={} annotate_png={} annotated_out={} | annotate_http {:.1}ms, vision_state {:.1}ms, overlay {:.1}ms, total {:.1}ms ({} boxes, {}x{} px)",
             screen::format_data_size_bytes(screen_capture.len()),
-            screen::format_data_size_bytes(annotated_png.len()),
+            screen::format_data_size_bytes(screen_capture.len()),
             screen::format_data_size_bytes(pack.annotated_marked_jpeg.len()),
             annotate_ms,
             vision_ms,
             overlay_ms,
             total_ms,
-            boxes.len(),
+            0,
             capture_px.0,
             capture_px.1
         );
@@ -633,7 +528,7 @@ impl ComputerState {
             zoom_menu_bar_png: pack.zoom_menu_bar_png,
             zoom_task_bar_png: pack.zoom_task_bar_png,
             zoom_pointer_png: pack.zoom_pointer_png,
-            mouse_neighbor_reference_text,
+            mouse_neighbor_reference_text: None,
             monitor,
             inject_before_action,
         })
@@ -722,7 +617,6 @@ impl ComputerState {
         }
         let session = self.get_or_create_session(conversation_id);
         let mut s = session.lock().unwrap();
-        let tier = s.tier_runtime.current_tier;
         let entry = DesktopToolEntry {
             tool_name: tool_name.to_string(),
             arguments: args.clone(),
@@ -739,33 +633,18 @@ impl ComputerState {
                 record.extra_args_hint = Some(format!("FAILED: {note}"));
             }
             s.tier_runtime.last_executed_goal = Some(record.goal.clone());
-            s.tier_runtime.push_action(tier, record);
+            s.tier_runtime.push_action(record);
         }
     }
 
-    /// Build tier-isolated [Recent desktop tool calls] for `[CUR_SCREEN]`.
+    /// Build [Recent desktop tool calls] for `[CUR_SCREEN]`.
     pub fn recent_actions_prompt_block(&self, conversation_id: &str) -> Option<String> {
         let session = self.get_or_create_session(conversation_id);
         let mut s = session.lock().unwrap();
-        let tier = s.tier_runtime.current_tier;
-        s.tier_runtime.auto_close_stale_open_rows(tier);
-        format_tier_history_block(
-            tier,
-            s.tier_runtime.history_for(tier),
+        s.tier_runtime.auto_close_stale_open_rows();
+        format_history_block(
+            s.tier_runtime.history(),
             s.tier_runtime.give_up_reference(),
-        )
-    }
-
-    /// Host counters for repetition (not injected; tier does not auto-upgrade).
-    pub fn tier_runtime_prompt_block(&self, conversation_id: &str) -> String {
-        let session = self.get_or_create_session(conversation_id);
-        let s = session.lock().unwrap();
-        let tier = s.tier_runtime.current_tier;
-        format_tier_runtime_block(
-            &s.tier_runtime,
-            &self.effective_tier_config(),
-            tier,
-            s.tier_runtime.history_for(tier),
         )
     }
 
@@ -835,11 +714,10 @@ impl ComputerState {
         let mut s = session.lock().unwrap();
         s.pipeline.last_verify = Some(conclusion.clone());
         let last_goal = s.tier_runtime.last_executed_goal.clone();
-        let tier = s.tier_runtime.current_tier;
-        let backfilled = s.tier_runtime.backfill_newest_open_verify(tier, outcome);
+        let backfilled = s.tier_runtime.backfill_newest_open_verify(outcome);
         let host_repetition_count =
             crate::agents::computer::tier::same_goal_repetition_count_in_history(
-                s.tier_runtime.history_for(tier),
+                s.tier_runtime.history(),
             );
         let config = self.effective_tier_config();
         if backfilled {
@@ -884,8 +762,7 @@ impl ComputerState {
     pub fn tier_history_has_verify_pass(&self, conversation_id: &str) -> bool {
         let session = self.get_or_create_session(conversation_id);
         let s = session.lock().unwrap();
-        let tier = s.tier_runtime.current_tier;
-        s.tier_runtime.history_for(tier).iter().rev().any(|r| {
+        s.tier_runtime.history().iter().rev().any(|r| {
             r.verify_result
                 .as_ref()
                 .is_some_and(|v| v.step_result.eq_ignore_ascii_case("pass"))
@@ -895,8 +772,7 @@ impl ComputerState {
     pub fn tier_history_has_verify_report(&self, conversation_id: &str) -> bool {
         let session = self.get_or_create_session(conversation_id);
         let s = session.lock().unwrap();
-        let tier = s.tier_runtime.current_tier;
-        s.tier_runtime.history_for(tier).iter().rev().any(|r| {
+        s.tier_runtime.history().iter().rev().any(|r| {
             r.verify_result.as_ref().is_some_and(|v| {
                 let step = v.step_result.as_str();
                 step != "skipped" && step != "pending"

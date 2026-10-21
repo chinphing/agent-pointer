@@ -1,0 +1,36 @@
+locate_element:
+  type: object
+  properties:
+    elements:
+      type: array
+      minItems: 1
+      maxItems: 3
+      description: >
+        要定位的元素，按顺序返回结果。单次最多 3 个；
+        超过 3 个会被参数校验直接拒绝（不会静默截断）。
+      items:
+        type: object
+        properties:
+          description:
+            type: string
+            description: >
+              目标元素是什么。写清可见特征与周边锚点
+              （例如「地址栏右侧的刷新按钮」「『文件』菜单里的『另存为』」），
+              不要只写「按钮」这类无区分度的描述。
+          hint_box:
+            type: array
+            items:
+              type: number
+            minItems: 4
+            maxItems: 4
+            description: >
+              可选。你估计的目标框 [x1, y1, x2, y2]，4 个逻辑像素值。
+              有 hint 时跳过整屏定位，直接从裁剪校验开始，省一次视觉调用；
+              但 hint 不能绕过校验，也不会降低判定标准。
+              不确定就不要传，留空即可。
+        required:
+          - description
+        additionalProperties: false
+  required:
+    - elements
+  additionalProperties: false

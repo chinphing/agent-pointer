@@ -6,7 +6,6 @@ use image::{DynamicImage, RgbImage};
 use pointer_core::agents::computer::actions::{
     ActionBackend, ActionExecutor, ActionResult, KeyPhase, MouseButton, MouseMoveProfile,
 };
-use pointer_core::agents::computer::annotate::AnnotateClient;
 use pointer_core::agents::computer::screen::MonitorInfo;
 use pointer_core::agents::computer::vision_state::VisionState;
 use pointer_core::agents::computer::ComputerState;
@@ -80,52 +79,8 @@ impl ActionBackend for SharedRecordingBackend {
 }
 
 #[tokio::test]
-async fn mock_annotate_then_resolve_index_and_fake_click() {
-    let server = MockServer::start().await;
-    let png_b64 = STANDARD.encode(tiny_png_bytes());
-    Mock::given(method("POST"))
-        .and(path("/api/v1/annotate/all"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "boxes": [[0.0, 0.0, 100.0, 100.0]],
-            "image_base64": png_b64,
-        })))
-        .mount(&server)
-        .await;
-
-    let client = AnnotateClient::with_base_url(&server.uri()).unwrap();
-    let jpeg = solid_jpeg(100, 100, [40, 80, 120]);
-    let resp = client.annotate_image(&jpeg).await.expect("annotate");
-    assert_eq!(resp.boxes.len(), 1);
-
-    let monitor = MonitorInfo::new(0, 0, 100, 100);
-    let mut vision = VisionState::new();
-    vision.set_screen_bbox(monitor);
-    vision.set_index_map_from_boxes(&resp.boxes, &monitor, (100, 100));
-    let (x, y) = vision.resolve_index(1).expect("index 1");
-    assert_eq!((x, y), (50, 50));
-
-    let moves = Arc::new(Mutex::new(Vec::<(i32, i32)>::new()));
-    let executor = ActionExecutor::new(Box::new(SharedRecordingBackend {
-        moves: moves.clone(),
-    }));
-    executor.click_index(x, y, false).expect("click");
-    assert_eq!(*moves.lock().unwrap(), vec![(50, 50)]);
-}
-
-#[tokio::test]
 async fn computer_state_apply_screen_capture_reuses_prior_jpeg() {
-    let server = MockServer::start().await;
-    let png_b64 = STANDARD.encode(tiny_png_bytes());
-    Mock::given(method("POST"))
-        .and(path("/api/v1/annotate/all"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "boxes": [[10.0, 10.0, 20.0, 20.0]],
-            "image_base64": png_b64,
-        })))
-        .mount(&server)
-        .await;
-
-    let state = ComputerState::with_annotate_url(&server.uri());
+    let state = ComputerState::with_annotate_url("");
     let jpeg_a = solid_jpeg(64, 64, [40, 80, 120]);
     let jpeg_b = solid_jpeg(64, 64, [200, 10, 90]);
     let monitor = MonitorInfo::new(0, 0, 64, 64);
@@ -146,8 +101,4 @@ async fn computer_state_apply_screen_capture_reuses_prior_jpeg() {
         .expect("prior jpeg reused as before frame");
     assert_eq!(before.screen_jpeg.as_slice(), first.raw_marked_jpeg.as_slice());
     assert!(before.zoom_pointer_png.is_empty());
-
-    let vs = state.vision_state_for_conversation("test");
-    let p = vs.lock().unwrap().resolve_index(1).expect("mapped");
-    assert_eq!(p, (15, 15));
 }

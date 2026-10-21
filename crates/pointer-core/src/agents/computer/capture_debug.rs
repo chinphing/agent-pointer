@@ -2,7 +2,6 @@
 //! Only writes assets the active tier uses — no extra JPEG/PNG generation on disk.
 
 use crate::agents::computer::state::ScreenCaptureResult;
-use crate::agents::computer::tier::ComputerTier;
 use crate::agents::computer::vision::{screen, screen_overlay};
 use crate::media::jpeg_vision;
 use crate::models::ComputerAnnotatedPreview;
@@ -229,7 +228,6 @@ pub fn save_computer_capture_debug(
     conversation_id: &str,
     file_prefix: &str,
     cap: &ScreenCaptureResult,
-    tier: ComputerTier,
 ) -> Option<String> {
     if !computer_capture_dump_enabled() {
         return None;
@@ -284,8 +282,7 @@ pub fn save_computer_capture_debug(
     let annotated_name = format!("{pfx}_{ts}_annotated.jpg");
     let rel = format!("{date}/{conv_seg}/{annotated_name}");
     log::info!(
-        "computer capture dump: tier={} wrote under {:?}, annotated rel={rel}",
-        tier.label(),
+        "computer capture dump: wrote under {:?}, annotated rel={rel}",
         dir
     );
     Some(rel)

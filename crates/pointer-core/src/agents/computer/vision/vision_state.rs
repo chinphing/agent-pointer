@@ -1,11 +1,9 @@
-//! Screen-resolved overlay state. Bitmap-space boxes ([`super::annotate::BoxInfo`], [`super::annotate::IndexMap`]) are converted to [`ElementInfo`] via [`VisionState::set_index_map_from_boxes`].
+//! Screen-resolved overlay state: monitor bbox, coordinate system, and action history.
 
-use super::annotate::BoxInfo;
 use super::coord::CoordinateSystem;
 use super::screen::MonitorInfo;
 use super::screen_overlay::{zoom_norm_to_session, PointerZoomFrame};
 use serde_json::Value;
-use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Information about a recently executed action.
@@ -44,7 +42,6 @@ impl RecentAction {
 #[derive(Debug, Clone, Default)]
 pub struct VisionState {
     /// Mapping from annotated index to element info.
-    index_map: HashMap<u32, ElementInfo>,
     /// Current monitor info.
     screen_bbox: Option<MonitorInfo>,
     /// Current coordinate system.
@@ -55,26 +52,6 @@ pub struct VisionState {
     action_history: Vec<RecentAction>,
     /// Maximum number of actions to keep in history.
     max_history_size: usize,
-}
-
-/// Information about a UI element extracted from annotation.
-#[derive(Debug, Clone)]
-pub struct ElementInfo {
-    /// The annotated index.
-    pub index: u32,
-    /// Center X coordinate in screen pixels.
-    pub center_x: i32,
-    /// Center Y coordinate in screen pixels.
-    pub center_y: i32,
-    /// Width of the element.
-    pub width: f32,
-    /// Height of the element.
-    pub height: f32,
-    /// Session-normalized bbox (0–1000).
-    pub norm_left: i32,
-    pub norm_top: i32,
-    pub norm_right: i32,
-    pub norm_bottom: i32,
 }
 
 impl VisionState {
@@ -94,69 +71,6 @@ impl VisionState {
             coordinate_system: CoordinateSystem::Qwen,
             ..Default::default()
         }
-    }
-
-    /// Set the index map from annotated boxes.
-    ///
-    /// `boxes` are in **bitmap pixel** space (same as the screenshot sent to annotate). `monitor`
-    /// uses **logical** bounds (e.g. macOS `CGDisplayBounds`). When the capture bitmap is larger
-    /// than the logical size (Retina), pass its pixel size as `capture_px` so centers match
-    /// enigo / OS global pointer coordinates.
-    ///
-    /// # Arguments
-    /// * `boxes` - Detected bounding boxes from the annotation service.
-    /// * `monitor` - Logical monitor bounds (global `left`/`top` plus `width`/`height`).
-    /// * `capture_px` - Width and height of the captured bitmap in pixels.
-    pub fn set_index_map_from_boxes(
-        &mut self,
-        boxes: &[BoxInfo],
-        monitor: &MonitorInfo,
-        capture_px: (u32, u32),
-    ) {
-        let mw = monitor.width.max(1) as f32;
-        let mh = monitor.height.max(1) as f32;
-        let sx = capture_px.0 as f32 / mw;
-        let sy = capture_px.1 as f32 / mh;
-
-        self.index_map = boxes
-            .iter()
-            .map(|b| {
-                let (cx, cy) = b.center();
-                let lx = (cx / sx).round() as i32;
-                let ly = (cy / sy).round() as i32;
-                let px_left = monitor.left + (b.x / sx).round() as i32;
-                let px_top = monitor.top + (b.y / sy).round() as i32;
-                let px_right = monitor.left + ((b.x + b.width) / sx).round() as i32;
-                let px_bottom = monitor.top + ((b.y + b.height) / sy).round() as i32;
-                let (nl, nt) = Self::screen_to_session_pair(px_left, px_top, monitor);
-                let (nr, nb) = Self::screen_to_session_pair(px_right, px_bottom, monitor);
-                (
-                    b.index,
-                    ElementInfo {
-                        index: b.index,
-                        center_x: monitor.left + lx,
-                        center_y: monitor.top + ly,
-                        width: b.width / sx,
-                        height: b.height / sy,
-                        norm_left: nl,
-                        norm_top: nt,
-                        norm_right: nr,
-                        norm_bottom: nb,
-                    },
-                )
-            })
-            .collect();
-    }
-
-    fn screen_to_session_pair(px: i32, py: i32, monitor: &MonitorInfo) -> (i32, i32) {
-        let (nx, ny) =
-            super::coord::screen_to_normalized((px, py), monitor, CoordinateSystem::Qwen);
-        (nx.round() as i32, ny.round() as i32)
-    }
-
-    /// Set the index map directly.
-    pub fn set_index_map(&mut self, index_map: HashMap<u32, ElementInfo>) {
-        self.index_map = index_map;
     }
 
     /// Set the screen bounding box.
@@ -187,14 +101,6 @@ impl VisionState {
         self.screen_bbox
     }
 
-    pub fn resolve_index(&self, index: u32) -> Option<(i32, i32)> {
-        self.index_map.get(&index).map(|e| (e.center_x, e.center_y))
-    }
-
-    pub fn element(&self, index: u32) -> Option<&ElementInfo> {
-        self.index_map.get(&index)
-    }
-
     /// Resolve normalized coordinates to screen pixel coordinates.
     ///
     /// This is the **coordinate-based** positioning path.
@@ -219,13 +125,27 @@ impl VisionState {
             log::warn!("pointer zoom map: zoom flag set but crop frame is missing");
             return None;
         };
+        // `zoom_norm_to_session` maps a 0-1000 point on the zoom crop onto
+        // 0-1000 of the **full frame**, independent of the coordinate system.
+        // From there each system derives its own session space:
+        // - Qwen/Kimi: the 0-1000 frame value is already the session point.
+        // - Pixel: convert the frame ratio to monitor-relative **logical**
+        //   pixels. The frame is in capture-bitmap pixels, which differ from
+        //   logical pixels on Retina; `resolve_coordinate` then adds the
+        //   monitor origin, so returning capture pixels here would offset.
+        let (fx, fy) = zoom_norm_to_session(&frame, x, y);
         let (sx, sy) = match self.coordinate_system {
+            CoordinateSystem::Qwen | CoordinateSystem::Kimi => (fx, fy),
             CoordinateSystem::Pixel => {
-                let px = frame.origin_x as f32 + (x / 1000.0) * frame.side_w as f32;
-                let py = frame.origin_y as f32 + (y / 1000.0) * frame.side_h as f32;
-                (px, py)
+                let Some(monitor) = self.screen_bbox else {
+                    log::warn!("pointer zoom map: pixel mode needs screen bounds");
+                    return None;
+                };
+                (
+                    fx / 1000.0 * monitor.width as f32,
+                    fy / 1000.0 * monitor.height as f32,
+                )
             }
-            CoordinateSystem::Qwen | CoordinateSystem::Kimi => zoom_norm_to_session(&frame, x, y),
         };
         log::info!(
             "pointer zoom map: zoom=({x:.1},{y:.1}) session=({sx:.1},{sy:.1}) origin=({},{}) side={}x{} frame={}x{}",
@@ -261,14 +181,8 @@ impl VisionState {
         &self.action_history
     }
 
-    /// Get the index map.
-    pub fn index_map(&self) -> &HashMap<u32, ElementInfo> {
-        &self.index_map
-    }
-
     /// Clear all state.
     pub fn clear(&mut self) {
-        self.index_map.clear();
         self.screen_bbox = None;
         self.action_history.clear();
     }
@@ -375,30 +289,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_resolve_index() {
-        let mut state = VisionState::new();
-        let mut index_map = HashMap::new();
-        index_map.insert(
-            1,
-            ElementInfo {
-                index: 1,
-                center_x: 100,
-                center_y: 200,
-                width: 50.0,
-                height: 30.0,
-                norm_left: 0,
-                norm_top: 0,
-                norm_right: 100,
-                norm_bottom: 100,
-            },
-        );
-        state.set_index_map(index_map);
-
-        assert_eq!(state.resolve_index(1), Some((100, 200)));
-        assert_eq!(state.resolve_index(99), None);
-    }
-
-    #[test]
     fn test_resolve_coordinate() {
         let mut state = VisionState::new();
         state.set_screen_bbox(MonitorInfo::new(0, 0, 1920, 1080));
@@ -429,6 +319,111 @@ mod tests {
             .expect("mapped");
         assert!((x - 100.0).abs() < 0.01, "{x}");
         assert!((y - 100.0).abs() < 0.01, "{y}");
+    }
+
+    #[test]
+    fn zoom_pixel_mode_returns_logical_pixels() {
+        let mut state = VisionState::new();
+        state.set_screen_bbox(MonitorInfo::new(0, 0, 1920, 1080));
+        state.set_coordinate_system(CoordinateSystem::Pixel);
+        state.set_pointer_zoom_frame(Some(PointerZoomFrame {
+            origin_x: 100,
+            origin_y: 50,
+            side_w: 200,
+            side_h: 200,
+            frame_w: 1920,
+            frame_h: 1080,
+        }));
+        let (x, y) = state
+            .model_point_to_session(0.0, 0.0, true)
+            .expect("mapped");
+        assert!((x - 100.0).abs() < 0.01, "{x}");
+        assert!((y - 50.0).abs() < 0.01, "{y}");
+    }
+
+    #[test]
+    fn zoom_pixel_mode_converts_retina_capture_pixels() {
+        let mut state = VisionState::new();
+        // Logical 1920x1080 monitor captured at 2x.
+        state.set_screen_bbox(MonitorInfo::new(0, 0, 1920, 1080));
+        state.set_coordinate_system(CoordinateSystem::Pixel);
+        state.set_pointer_zoom_frame(Some(PointerZoomFrame {
+            origin_x: 200,
+            origin_y: 100,
+            side_w: 400,
+            side_h: 400,
+            frame_w: 3840,
+            frame_h: 2160,
+        }));
+        let (x, y) = state
+            .model_point_to_session(0.0, 0.0, true)
+            .expect("mapped");
+        // Capture pixel (200, 100) is logical (100, 50).
+        assert!((x - 100.0).abs() < 0.01, "{x}");
+        assert!((y - 50.0).abs() < 0.01, "{y}");
+    }
+
+    #[test]
+    fn zoom_pixel_mode_then_resolve_lands_on_screen() {
+        let mut state = VisionState::new();
+        state.set_screen_bbox(MonitorInfo::new(1920, 0, 1920, 1080));
+        state.set_coordinate_system(CoordinateSystem::Pixel);
+        state.set_pointer_zoom_frame(Some(PointerZoomFrame {
+            origin_x: 100,
+            origin_y: 50,
+            side_w: 200,
+            side_h: 200,
+            frame_w: 1920,
+            frame_h: 1080,
+        }));
+        let (sx, sy) = state
+            .model_point_to_session(0.0, 0.0, true)
+            .expect("mapped");
+        let (px, py) = state.resolve_coordinate(sx, sy).expect("resolved");
+        // monitor origin 1920 + logical 100 / 50
+        assert_eq!((px, py), (2020, 50));
+    }
+
+    /// The `mouse_click_at` chain: model point -> session -> screen.
+    /// A pixel value the model supplies must land on that same pixel.
+    #[test]
+    fn pixel_point_flows_to_screen_without_drift() {
+        let mut state = VisionState::new();
+        state.set_screen_bbox(MonitorInfo::new(0, 0, 1920, 1080));
+        state.set_coordinate_system(CoordinateSystem::Pixel);
+        for (x, y) in [(0.0, 0.0), (820.0, 45.0), (1919.0, 1079.0)] {
+            let (sx, sy) = state.model_point_to_session(x, y, false).expect("session");
+            let (px, py) = state.resolve_coordinate(sx, sy).expect("resolved");
+            assert_eq!((px, py), (x as i32, y as i32), "point {x},{y}");
+        }
+    }
+
+    /// Same chain on a secondary monitor: the monitor origin is added once.
+    #[test]
+    fn pixel_point_flows_to_screen_on_secondary_monitor() {
+        let mut state = VisionState::new();
+        state.set_screen_bbox(MonitorInfo::new(1920, 0, 1920, 1080));
+        state.set_coordinate_system(CoordinateSystem::Pixel);
+        let (sx, sy) = state
+            .model_point_to_session(820.0, 45.0, false)
+            .expect("session");
+        let (px, py) = state.resolve_coordinate(sx, sy).expect("resolved");
+        assert_eq!((px, py), (2740, 45));
+    }
+
+    #[test]
+    fn zoom_pixel_mode_without_screen_bbox_returns_none() {
+        let mut state = VisionState::new();
+        state.set_coordinate_system(CoordinateSystem::Pixel);
+        state.set_pointer_zoom_frame(Some(PointerZoomFrame {
+            origin_x: 0,
+            origin_y: 0,
+            side_w: 10,
+            side_h: 10,
+            frame_w: 100,
+            frame_h: 100,
+        }));
+        assert!(state.model_point_to_session(0.0, 0.0, true).is_none());
     }
 
     #[test]
@@ -491,73 +486,12 @@ mod tests {
     #[test]
     fn test_clear() {
         let mut state = VisionState::new();
-        let mut index_map = HashMap::new();
-        index_map.insert(
-            1,
-            ElementInfo {
-                index: 1,
-                center_x: 100,
-                center_y: 200,
-                width: 50.0,
-                height: 30.0,
-                norm_left: 0,
-                norm_top: 0,
-                norm_right: 100,
-                norm_bottom: 100,
-            },
-        );
-        state.set_index_map(index_map);
         state.set_screen_bbox(MonitorInfo::new(0, 0, 1920, 1080));
         state.record_action(RecentAction::new("mouse", "click", "{}"));
 
         state.clear();
-        assert!(state.index_map().is_empty());
         assert!(state.action_history().is_empty());
         assert_eq!(state.resolve_coordinate(500.0, 500.0), None);
     }
 
-    #[test]
-    fn test_set_index_map_from_boxes() {
-        let mut state = VisionState::new();
-        let boxes = vec![
-            BoxInfo {
-                index: 1,
-                x: 100.0,
-                y: 200.0,
-                width: 50.0,
-                height: 30.0,
-                confidence: 0.95,
-            },
-            BoxInfo {
-                index: 2,
-                x: 300.0,
-                y: 400.0,
-                width: 60.0,
-                height: 40.0,
-                confidence: 0.90,
-            },
-        ];
-        let monitor = MonitorInfo::new(0, 0, 1920, 1080);
-        state.set_index_map_from_boxes(&boxes, &monitor, (1920, 1080));
-
-        assert_eq!(state.resolve_index(1), Some((125, 215)));
-        assert_eq!(state.resolve_index(2), Some((330, 420)));
-    }
-
-    #[test]
-    fn test_set_index_map_from_boxes_retina_scale() {
-        let mut state = VisionState::new();
-        let boxes = vec![BoxInfo {
-            index: 1,
-            x: 200.0,
-            y: 400.0,
-            width: 100.0,
-            height: 80.0,
-            confidence: 1.0,
-        }];
-        let monitor = MonitorInfo::new(0, 0, 1000, 800);
-        state.set_index_map_from_boxes(&boxes, &monitor, (2000, 1600));
-
-        assert_eq!(state.resolve_index(1), Some((125, 220)));
-    }
 }

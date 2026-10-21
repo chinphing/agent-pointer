@@ -690,6 +690,7 @@ async fn main() -> anyhow::Result<()> {
             "/api/computer/manual-snapshot",
             post(manual_computer_snapshot),
         )
+        .route("/api/computer/locate", post(locate_element_endpoint))
         .route("/api/computer/monitors", get(list_computer_monitors))
         .route(
             "/api/computer/monitor",
@@ -1292,6 +1293,75 @@ async fn preview_computer_annotated_screen(
                 "暂无桌面截图：请先完成一次截图处理（发送 Computer 消息），或确认会话 ID 正确。"
             ))
         })
+}
+
+#[derive(Deserialize)]
+struct LocateElementRequest {
+    #[serde(rename = "conversationId", default)]
+    conversation_id: String,
+    elements: serde_json::Value,
+    /// Optional path: dump the screenshot `locate_element` would see, so the
+    /// evaluation harness can compare against the exact same pixels.
+    #[serde(rename = "saveCapture", default)]
+    save_capture: Option<String>,
+    /// Optional monitor id (`xcap:N`). Without it the capture follows the cursor,
+    /// which may sit on a different display than the one being evaluated.
+    #[serde(rename = "monitorId", default)]
+    monitor_id: Option<String>,
+}
+
+/// Run `locate_element` directly for the P0 evaluation harness.
+///
+/// This does not create a chat turn and does not touch conversation history; it
+/// exists so `scripts/p0_locate_eval.mjs` can measure grounding accuracy without
+/// driving the whole computer agent loop.
+async fn locate_element_endpoint(
+    State(state): State<ServerState>,
+    Json(req): Json<LocateElementRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    // Gated: this endpoint spends real model tokens and skips the platform login
+    // check, so it only exists when the operator explicitly opts in.
+    if std::env::var("POINTER_P0_ENDPOINT").ok().as_deref() != Some("1") {
+        return Err(ApiError(anyhow::anyhow!(
+            "P0 endpoint disabled; start the server with POINTER_P0_ENDPOINT=1"
+        )));
+    }
+    let settings = state.core.effective_settings();
+    let api_key = settings.api_key.clone();
+    if api_key.is_empty() {
+        return Err(ApiError(anyhow::anyhow!("尚未配置 API Key")));
+    }
+    let provider = OpenAIProvider::new(settings, api_key);
+    if let Some(mid) = req.monitor_id.clone() {
+        state
+            .core
+            .computer_state
+            .set_conversation_monitor(&req.conversation_id, Some(mid));
+    }
+    if let Some(path) = req.save_capture.clone() {
+        let jpeg = tokio::task::spawn_blocking(|| {
+            pointer_core::agents::computer::screen::screenshot_for_selection(None)
+        })
+        .await
+        .map_err(|e| ApiError(anyhow::anyhow!(e)))?
+        .map_err(ApiError::from)?
+        .packet
+        .jpeg;
+        std::fs::write(&path, jpeg).map_err(|e| ApiError(anyhow::anyhow!(e)))?;
+    }
+    let args = serde_json::json!({ "elements": req.elements });
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let out = pointer_core::agents::computer::locate::run_locate_element(
+        &state.core.computer_state,
+        &req.conversation_id,
+        &provider,
+        &args,
+        &cancel,
+    )
+    .await?;
+    let value: serde_json::Value =
+        serde_json::from_str(&out).map_err(|e| ApiError(anyhow::anyhow!(e)))?;
+    Ok(Json(value))
 }
 
 #[derive(Deserialize)]

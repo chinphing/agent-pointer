@@ -134,7 +134,6 @@ describe('settings debug-session save', () => {
 
   it('has no local Computer Primary default (platform tier defaults)', () => {
     const store = useSettingsStore()
-    expect(store.settings.computerTierLlm?.primary).toBeUndefined()
   })
 
   it('selects a valid model when removing the active provider', () => {

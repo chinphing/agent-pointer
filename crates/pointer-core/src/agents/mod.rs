@@ -183,13 +183,11 @@ fn computer_os_prompt_md_for_platform() -> &'static str {
 }
 
 fn builtin_computer_communication() -> String {
-    computer_communication_for_tier(computer::tier::ComputerTier::Primary)
+    computer_communication()
 }
 
-/// Merged communication + OS slice for a computer tier (cacheable system prefix).
-/// All tiers share Primary prompts; only per-tier LLM model differs at runtime.
-pub fn computer_communication_for_tier(tier: computer::tier::ComputerTier) -> String {
-    let _ = tier;
+/// Merged communication + OS slice for the computer agent (cacheable system prefix).
+pub fn computer_communication() -> String {
     let mut parts: Vec<&str> = Vec::new();
     push_trimmed(&mut parts, COMPUTER_COMMUNICATION_PRIMARY);
     push_trimmed(&mut parts, COMPUTER_UI_DISABLED_CONTROLS);
@@ -197,9 +195,8 @@ pub fn computer_communication_for_tier(tier: computer::tier::ComputerTier) -> St
     parts.join("\n\n---\n\n")
 }
 
-/// Agent loop body for a computer tier (merged into system prompt with communication).
-pub fn computer_agent_body_for_tier(tier: computer::tier::ComputerTier) -> String {
-    let _ = tier;
+/// Agent loop body for the computer agent (merged into system prompt with communication).
+pub fn computer_agent_body() -> String {
     COMPUTER_AGENT_PRIMARY.trim().to_string()
 }
 
@@ -1746,6 +1743,27 @@ mod builtin_agent_tests {
                 .allow_tools
                 .contains(&"run_subagent".to_string()),
             "computer must not hold run_subagent"
+        );
+    }
+
+    #[test]
+    fn computer_builtin_allows_locate_element() {
+        let raw = include_str!("computer/AGENT.md");
+        let agent = load_builtin_agent("computer", raw, "").expect("load builtin computer");
+        assert!(
+            agent
+                .def
+                .access_policy
+                .allow_tools
+                .contains(&"locate_element".to_string()),
+            "computer allowTools must include locate_element (B5 grounding)"
+        );
+        assert!(
+            agent
+                .def
+                .tool_names
+                .contains(&"locate_element".to_string()),
+            "computer toolNames must declare locate_element"
         );
     }
 

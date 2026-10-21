@@ -63,16 +63,6 @@ export type ThemePreference = 'light' | 'dark' | 'system'
 /** UI language: follow OS, Chinese, or English. Persisted in user_settings.json. */
 export type UiLocalePreference = 'system' | 'zh-CN' | 'en'
 
-/** Computer agent vision tier (matches backend `ComputerTier`). */
-export type ComputerInitialTier = 'primary' | 'intermediate' | 'advanced'
-
-/** Value-only tier options; UI labels via `settings.tiers.*` / `chat.mode*`. */
-export const COMPUTER_INITIAL_TIER_OPTIONS: { value: ComputerInitialTier; labelKey: string }[] = [
-  { value: 'primary', labelKey: 'settings.tiers.fast' },
-  { value: 'intermediate', labelKey: 'settings.tiers.standard' },
-  { value: 'advanced', labelKey: 'settings.tiers.expert' }
-]
-
 /** Per-agent chat UI visibility (from AGENT.md `ui` block). */
 export interface AgentUiConfig {
   showInComposer?: boolean
@@ -705,7 +695,6 @@ export interface UserSettings {
   agentDefaultModels?: Record<string, AgentModelRef>
   agentTaskBoardHistoryTrim?: Record<string, boolean>
   computerHumanLike?: boolean
-  computerInitialTier?: ComputerInitialTier
   computerAutoSwitchMonitor?: boolean
   computerAnnotatedScreenViewEnabled?: boolean
   agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
@@ -713,7 +702,6 @@ export interface UserSettings {
   mediaModelOverrides?: MediaModelOverrides
   agentPerformanceModes?: AgentPerformanceModes
   mediaUnderstandingModes?: MediaUnderstandingModes
-  computerTierLlm?: Partial<Record<ComputerTierKey, ComputerTierLlmConfig>>
   computerPipelineLlm?: ComputerPipelineLlmSettings
   agentModeLlm?: AgentModeLlmMap
   mediaModeLlm?: MediaModeLlmMap
@@ -762,7 +750,6 @@ export interface ComputerPipelineLlmSettings {
   verifyThinkingBudget?: number
 }
 
-export type ComputerTierKey = 'primary' | 'intermediate' | 'advanced'
 
 /** Process-local debug model configuration. Never persist this object. */
 export interface DebugSessionSettings {
@@ -771,7 +758,6 @@ export interface DebugSessionSettings {
   model: string
   temperature: number
   maxTokens: number
-  computerTierLlm: Partial<Record<ComputerTierKey, ComputerTierLlmConfig>>
   computerPipelineLlm: ComputerPipelineLlmSettings
   agentModeLlm: AgentModeLlmMap
   mediaModeLlm: MediaModeLlmMap
@@ -895,7 +881,6 @@ export interface ModelSettings {
   /** Computer agent: default human-like mouse movement (Bézier path + jitter) */
   computerHumanLike?: boolean
   /** Computer agent: starting tier for new conversations */
-  computerInitialTier?: ComputerInitialTier
   /** Auto-select primary monitor and follow launch_app window */
   computerAutoSwitchMonitor?: boolean
   /** Show annotated screenshot preview on Computer Use assistant messages */
@@ -909,7 +894,6 @@ export interface ModelSettings {
   mediaUnderstandingModes?: MediaUnderstandingModes
   agentModeLlm?: AgentModeLlmMap
   mediaModeLlm?: MediaModeLlmMap
-  computerTierLlm?: Partial<Record<ComputerTierKey, ComputerTierLlmConfig>>
   computerPipelineLlm?: ComputerPipelineLlmSettings
   mediaOss?: MediaOssConfig
   parallelToolExecutionEnabled?: boolean

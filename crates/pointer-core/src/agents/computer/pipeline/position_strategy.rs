@@ -385,30 +385,30 @@ pub fn resolve_execution_tool(decision_name: &str, pos: &PositionModuleOutput) -
     let (has_index, has_at) = route_flags_from_submit_tool(pos);
     let indices = collect_indices(pos);
     let exec_name: &str = match n.as_str() {
-        "click" => route_index_or_at(has_index, has_at, "mouse_click_index", "mouse_click_at"),
+        "click" => route_index_or_at(has_index, has_at, "mouse_click_at", "mouse_click_at"),
         "double_click" => route_index_or_at(
             has_index,
             has_at,
-            "mouse_double_click_index",
+            "mouse_double_click_at",
             "mouse_double_click_at",
         ),
         "right_click" => route_index_or_at(
             has_index,
             has_at,
-            "mouse_right_click_index",
+            "mouse_right_click_at",
             "mouse_right_click_at",
         ),
         "hover" | "mouse_move" => {
-            route_index_or_at(has_index, has_at, "mouse_hover_index", "mouse_hover_at")
+            route_index_or_at(has_index, has_at, "mouse_hover_at", "mouse_hover_at")
         }
         "scroll" => route_index_or_at(
             has_index,
             has_at,
-            "mouse_scroll_index",
+            "mouse_scroll_current",
             "mouse_scroll_current",
         ),
         "drag" => route_drag_indices_or_at(&indices, has_at),
-        "input" => route_index_or_at(has_index, has_at, "input_index", "input_at"),
+        "input" => route_index_or_at(has_index, has_at, "input_at", "input_at"),
         "modified_click" => route_modified_click(&indices, has_at),
         other => other,
     };
@@ -441,15 +441,17 @@ fn route_index_or_at(
     if has_at {
         at_tool
     } else if has_index {
-        index_tool
+        // Overlay index tools were removed in P5: the at tool is the only route.
+        at_tool
     } else {
         at_tool
     }
 }
 
 fn route_drag_indices_or_at(indices: &[u32], has_at: bool) -> &'static str {
-    if indices.len() >= 2 || indices.len() == 1 {
-        "mouse_drag_from_to_index"
+    if !indices.is_empty() {
+        // Index-based drag was removed in P5: coordinates are the only route.
+        "mouse_drag_from_to_at"
     } else if has_at {
         "mouse_drag_from_to_at"
     } else {
@@ -460,9 +462,9 @@ fn route_drag_indices_or_at(indices: &[u32], has_at: bool) -> &'static str {
 fn route_modified_click(indices: &[u32], has_at: bool) -> &'static str {
     if !indices.is_empty() {
         if indices.len() == 2 {
-            "modified_click_range_select_index"
+            "modified_click_range_select_at"
         } else {
-            "modified_click_select_index"
+            "modified_click_select_at"
         }
     } else if has_at {
         "modified_click_select_at"
@@ -548,7 +550,7 @@ mod tests {
         };
         assert_eq!(
             resolve_execution_tool("modified_click", &pos),
-            "modified_click_range_select_index"
+            "modified_click_range_select_at"
         );
     }
 

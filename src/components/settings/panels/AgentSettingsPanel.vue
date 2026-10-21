@@ -39,11 +39,6 @@ const {
   agentModeLlm,
   selectAgentModeModel,
   patchAgentModeLlm,
-  COMPUTER_TIER_UI,
-  computerTierLlm,
-  patchComputerTierLlm,
-  computerTierModelValue,
-  selectComputerTierModel,
   computerPipelineLlm,
   patchComputerPipelineLlm,
   computerPipelineVerifyValue,
@@ -207,31 +202,6 @@ function skillLabel(skillId: string): string {
                       <div class="flex items-center justify-between gap-2">
                         <h4 class="text-xs font-medium text-foreground">{{ t('settings.agentPanel.computerModeModelsDebug') }}</h4>
                         <span class="text-[10px] text-muted">{{ t('settings.agentPanel.computerModeModelsHint') }}</span>
-                      </div>
-                      <div
-                        v-for="tier in COMPUTER_TIER_UI"
-                        :key="tier.key"
-                        class="grid grid-cols-[4.5rem_1fr_auto_6rem] gap-2 items-center px-2 py-1.5"
-                      >
-                        <span class="text-[11px] text-muted font-medium">{{ tier.label }}</span>
-                        <select
-                          :value="computerTierModelValue(tier.key)"
-                          class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
-                          @change="selectComputerTierModel(tier.key, ($event.target as HTMLSelectElement).value)"
-                        >
-                          <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
-                        </select>
-                        <select
-                          class="h-8 col-span-2 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
-                          :value="tierThinkingIntensityValue(computerTierLlm(tier.key))"
-                          @change="patchComputerTierLlm(tier.key, patchTierThinkingIntensity(($event.target as HTMLSelectElement).value as '' | 'off' | 'low' | 'medium' | 'high' | 'max'))"
-                        >
-                          <option
-                            v-for="opt in THINKING_INTENSITY_OPTIONS"
-                            :key="opt.value || 'unset'"
-                            :value="opt.value"
-                          >{{ opt.label }}</option>
-                        </select>
                       </div>
                       <div class="border-t border-border pt-3 space-y-2">
                         <div class="flex items-center justify-between gap-2 px-2">

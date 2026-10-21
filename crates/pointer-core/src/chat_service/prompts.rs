@@ -1,6 +1,6 @@
 use crate::agents::computer::ComputerState;
 use crate::agents::{
-    computer_agent_body_for_tier, computer_communication_for_tier,
+    computer_agent_body, computer_communication,
     expand_agent_prompt_placeholders, rendered_charts_inject, rendered_communication_public_inject,
     rendered_html_tables_inject, rendered_media_delivery_inject, rendered_mermaid_diagrams_inject,
     rendered_svg_diagrams_inject, AgentProfile, SessionInjectVars,
@@ -24,8 +24,8 @@ fn wants_diagram_prompts(profile: &AgentProfile) -> bool {
 pub(crate) fn push_agent_role_cacheable_prompts(
     cacheable: &mut Vec<String>,
     profile: &AgentProfile,
-    computer_state: &ComputerState,
-    conversation_id: &str,
+    _computer_state: &ComputerState,
+    _conversation_id: &str,
     session_vars: &SessionInjectVars,
     non_computer_system_prompts: &[String],
 ) {
@@ -52,9 +52,8 @@ pub(crate) fn push_agent_role_cacheable_prompts(
         }
     }
     if *profile == AgentProfile::Computer {
-        let tier = computer_state.tier_for_conversation(conversation_id);
-        let comm = computer_communication_for_tier(tier);
-        let body = computer_agent_body_for_tier(tier);
+        let comm = computer_communication();
+        let body = computer_agent_body();
         let merged = if comm.is_empty() {
             body
         } else if body.is_empty() {

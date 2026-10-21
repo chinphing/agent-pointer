@@ -2,6 +2,7 @@
 
 mod ask_user;
 mod job;
+mod locate;
 mod media;
 pub(super) mod registry;
 mod skill_import;
@@ -115,6 +116,17 @@ pub(super) async fn execute_tool_invocation(
                 cancel,
                 lead.as_ref().map(|l| l.run_id),
                 sub.as_ref().map(|s| s.instance_scope.run_id.as_str()),
+            )
+            .await
+        }
+        "locate_element" => {
+            locate::dispatch_locate_element(
+                state,
+                conversation_id,
+                provider,
+                tc,
+                args_value,
+                cancel,
             )
             .await
         }
@@ -282,6 +294,19 @@ pub(super) async fn invoke_prepared_parallel(
         "run_subagent" => Err(anyhow::anyhow!(
             "run_subagent must not run in parallel wave"
         )),
+        // Registered as `ToolConflictClass::Computer`, so the batch planner
+        // runs it serially; this arm exists for completeness/symmetry.
+        "locate_element" => {
+            locate::dispatch_locate_element(
+                state,
+                conversation_id,
+                provider,
+                tc,
+                args_value,
+                cancel,
+            )
+            .await
+        }
         _ => {
             registry::dispatch_registry_invoke_with_profile(
                 state,

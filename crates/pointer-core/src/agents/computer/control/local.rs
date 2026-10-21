@@ -70,6 +70,14 @@ impl ComputerControl for LocalControl {
         Ok(())
     }
 
+    fn release_stranded_input(&self) -> Result<()> {
+        let exec = self
+            .executor
+            .lock()
+            .map_err(|e| anyhow!("executor lock poisoned: {e}"))?;
+        exec.release_stranded_input()
+    }
+
     fn right_click(&self, x: i32, y: i32) -> Result<()> {
         self.exec().right_click_at(x, y, self.human_like)?;
         Ok(())
@@ -368,5 +376,14 @@ mod tests {
         let (c, _) = control();
         c.move_to(42, 24).unwrap();
         assert_eq!(c.cursor_position().unwrap(), (42, 24));
+    }
+}
+
+impl Drop for LocalControl {
+    fn drop(&mut self) {
+        // Best effort: a dropped control must never leave keys or buttons held.
+        if let Ok(exec) = self.executor.lock() {
+            let _ = exec.release_stranded_input();
+        }
     }
 }

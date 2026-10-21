@@ -384,6 +384,11 @@ impl ComputerState {
     pub fn mark_cancelled(&self, conversation_id: &str) {
         let session = self.get_or_create_session(conversation_id);
         session.lock().unwrap().status = SessionStatus::Cancelled;
+        // A cancelled run may have left MOUSE_DOWN / KEY_DOWN unpaired; release
+        // them now or every later click becomes a modified click.
+        if let Ok(exec) = self.executor.lock() {
+            let _ = exec.release_stranded_input();
+        }
     }
 
     /// Set the selected monitor id for a conversation (Computer agent).

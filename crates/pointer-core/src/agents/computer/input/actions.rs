@@ -209,6 +209,25 @@ impl ActionExecutor {
         Self { backend }
     }
 
+    /// Release every modifier key and all three mouse buttons.
+    ///
+    /// `MOUSE_DOWN` / `KEY_DOWN` are stateful: an unpaired press leaves the host
+    /// holding a button or modifier. OSWorld calls the equivalent
+    /// `release_stranded_input()`; without it the next click silently becomes
+    /// "Ctrl+click" and the user's keyboard stays stuck.
+    ///
+    /// Individual failures are ignored — a platform that cannot address the
+    /// middle button must still get its modifiers released.
+    pub fn release_stranded_input(&self) -> Result<()> {
+        for key in ["control", "alt", "shift", "meta"] {
+            let _ = self.backend.key_phase(key, KeyPhase::Release);
+        }
+        for button in [MouseButton::Left, MouseButton::Middle, MouseButton::Right] {
+            let _ = self.backend.mouse_phase(button, KeyPhase::Release);
+        }
+        Ok(())
+    }
+
     /// Left-click at the **current** cursor without moving (Pointer `click_current`).
     pub fn click_here(&self) -> Result<ActionResult> {
         self.backend.click()?;
@@ -763,6 +782,109 @@ mod tests {
             self.record(format!("mouse_phase({button:?},{phase:?})"));
             Ok(ActionResult::success("mouse phase"))
         }
+    }
+
+    #[test]
+    fn release_stranded_input_releases_every_modifier_and_button() {
+        let backend = MockBackend::default();
+        let calls = backend.actions.clone();
+        let executor = ActionExecutor::new(Box::new(backend));
+
+        executor.release_stranded_input().unwrap();
+
+        let calls = calls.lock().unwrap();
+        let joined = calls.join(" | ");
+        for key in ["control", "alt", "shift", "meta"] {
+            assert!(
+                joined.contains(&format!("key_phase({key},Release)")),
+                "modifier {key} was not released: {joined}"
+            );
+        }
+        for button in ["Left", "Middle", "Right"] {
+            assert!(
+                joined.contains(&format!("mouse_phase({button},Release)")),
+                "button {button} was not released: {joined}"
+            );
+        }
+    }
+
+    /// A backend that cannot release one of the keys must not stop the rest.
+    struct FailingModifierBackend {
+        actions: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl ActionBackend for FailingModifierBackend {
+        fn click(&self) -> Result<ActionResult> {
+            Ok(ActionResult::success("click"))
+        }
+        fn double_click(&self) -> Result<ActionResult> {
+            Ok(ActionResult::success("double"))
+        }
+        fn right_click(&self) -> Result<ActionResult> {
+            Ok(ActionResult::success("right"))
+        }
+        fn move_to_with_profile(
+            &self,
+            _x: i32,
+            _y: i32,
+            _p: MouseMoveProfile,
+        ) -> Result<ActionResult> {
+            Ok(ActionResult::success("move"))
+        }
+        fn scroll(&self, _lines: i32) -> Result<ActionResult> {
+            Ok(ActionResult::success("scroll"))
+        }
+        fn scroll_horizontal(&self, _lines: i32) -> Result<ActionResult> {
+            Ok(ActionResult::success("hscroll"))
+        }
+        fn type_text(&self, _text: &str) -> Result<ActionResult> {
+            Ok(ActionResult::success("type"))
+        }
+        fn type_text_via_clipboard(&self, _text: &str) -> Result<ActionResult> {
+            Ok(ActionResult::success("paste"))
+        }
+        fn hotkey(&self, _keys: &[&str]) -> Result<ActionResult> {
+            Ok(ActionResult::success("hotkey"))
+        }
+        fn get_position(&self) -> Result<(i32, i32)> {
+            Ok((0, 0))
+        }
+        fn key_phase(&self, name: &str, phase: KeyPhase) -> Result<ActionResult> {
+            self.actions
+                .lock()
+                .unwrap()
+                .push(format!("key_phase({name},{phase:?})"));
+            if name == "alt" {
+                anyhow::bail!("alt is not addressable here");
+            }
+            Ok(ActionResult::success("key"))
+        }
+        fn mouse_phase(&self, button: MouseButton, phase: KeyPhase) -> Result<ActionResult> {
+            self.actions
+                .lock()
+                .unwrap()
+                .push(format!("mouse_phase({button:?},{phase:?})"));
+            Ok(ActionResult::success("mouse phase"))
+        }
+    }
+
+    #[test]
+    fn release_stranded_input_ignores_individual_failures() {
+        let actions = Arc::new(Mutex::new(Vec::new()));
+        let backend = FailingModifierBackend {
+            actions: actions.clone(),
+        };
+        let executor = ActionExecutor::new(Box::new(backend));
+
+        // `alt` fails inside the backend; the call must still succeed and the
+        // remaining modifiers and buttons must still be released.
+        executor.release_stranded_input().unwrap();
+
+        let joined = actions.lock().unwrap().join(" | ");
+        assert!(joined.contains("key_phase(control,Release)"), "{joined}");
+        assert!(joined.contains("key_phase(shift,Release)"), "{joined}");
+        assert!(joined.contains("key_phase(meta,Release)"), "{joined}");
+        assert!(joined.contains("mouse_phase(Right,Release)"), "{joined}");
     }
 
     #[test]

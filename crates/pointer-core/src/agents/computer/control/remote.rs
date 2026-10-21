@@ -174,6 +174,24 @@ impl ComputerControl for RemoteControl {
         self.run(format!("pyautogui.keyUp({})", python_str(key)))
     }
 
+    fn release_stranded_input(&self) -> Result<()> {
+        let script = [
+            "import pyautogui as _pg",
+            "for _k in ('ctrl', 'alt', 'shift', 'cmd'):",
+            "    try:",
+            "        _pg.keyUp(_k)",
+            "    except Exception:",
+            "        pass",
+            "for _b in ('left', 'middle', 'right'):",
+            "    try:",
+            "        _pg.mouseUp(button=_b)",
+            "    except Exception:",
+            "        pass",
+        ]
+        .join("\n");
+        self.run(script)
+    }
+
     fn hotkey(&self, keys: &[String]) -> Result<()> {
         if keys.is_empty() {
             anyhow::bail!("hotkey needs at least one key");

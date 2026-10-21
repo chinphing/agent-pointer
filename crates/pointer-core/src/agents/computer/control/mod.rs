@@ -49,6 +49,13 @@ pub trait ComputerControl: Send + Sync {
     /// `MOUSE_UP` — release a button at the current pointer.
     fn mouse_up(&self, button: MouseButton) -> Result<()>;
 
+    /// Release every modifier key and mouse button this backend may be holding.
+    ///
+    /// `MOUSE_DOWN` / `KEY_DOWN` are stateful. Call this when a run ends, is
+    /// cancelled, or the process is about to exit — an unpaired press turns
+    /// every later click into a modified click and leaves the keyboard stuck.
+    fn release_stranded_input(&self) -> Result<()>;
+
     /// `RIGHT_CLICK` at `(x, y)`.
     fn right_click(&self, x: i32, y: i32) -> Result<()>;
 

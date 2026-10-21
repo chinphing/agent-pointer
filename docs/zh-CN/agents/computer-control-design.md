@@ -448,6 +448,21 @@ B5 只回答后者。且**从未比较过 B5 与 SoM 谁更好**——ScreenSpot
 OSWorld 专门实现了 `release_stranded_input()`（Xlib 释放全部按键与 1–5 号鼠标按钮）。
 本地实现需要同等兜底，否则后续每次点击都会变成"按住 Ctrl 点击"。
 
+**已实现**。`ActionExecutor::release_stranded_input()` 释放 4 个修饰键
+（control / alt / shift / meta）和 3 个鼠标键，单个失败被忽略——
+某个平台不认中间键，也不能连累修饰键的释放。
+
+调用点：
+
+| 位置 | 时机 |
+|---|---|
+| `ComputerState::mark_cancelled()` | 会话取消时 |
+| `LocalControl::drop()` | 控件销毁时（兜底） |
+| `RemoteControl::release_stranded_input()` | 远程 VM 侧等价 pyautogui 脚本 |
+
+单测：`release_stranded_input_releases_every_modifier_and_button`（覆盖全部 7 个键）、
+`release_stranded_input_ignores_individual_failures`（一个键失败不影响其余）。
+
 ### 8.3 B5 尚无全量成绩
 
 ab100 为 79.0%，M3 全量（1261 条）未跑。ab100 → M3 的换算浮动很大

@@ -108,6 +108,14 @@ mod tests {
     use super::*;
     use std::path::Path;
 
+    /// These tests create real sandboxes under the process-global app-data dir.
+    /// Other tests swap that dir via `set_test_app_data_dir`, so we must hold the
+    /// same lock they do — otherwise a concurrent swap makes `sandboxes_base()`
+    /// point somewhere else mid-test and `ensure_default` fails.
+    fn sandbox_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        crate::storage::test_app_data_dir_lock()
+    }
+
     fn settings_with_workspace(ws: &str) -> ModelSettings {
         let mut s = ModelSettings::default();
         s.workspace_root = ws.to_string();
@@ -149,26 +157,34 @@ mod tests {
 
     #[test]
     fn ensure_falls_back_to_session_sandbox() {
+        let _guard = sandbox_test_guard();
         let mut settings = settings_with_workspace("");
-        let ephemeral =
-            ensure_subagent_workspace("conv_fallback_test", None, &mut settings).unwrap();
+        let conv_id = format!("conv_fallback_test_{}", uuid::Uuid::new_v4());
+        let ephemeral = ensure_subagent_workspace(&conv_id, None, &mut settings).unwrap();
         assert!(settings.workspace_root.contains("session-sandboxes"));
         assert!(settings.workspace_root.contains("_anonymous"));
-        assert!(settings.workspace_root.contains("conv_fallback_test"));
+        assert!(settings.workspace_root.contains(&conv_id));
         assert!(Path::new(&settings.workspace_root).is_dir());
         assert!(ephemeral);
     }
 
     #[test]
     fn ensure_recreates_missing_user_session_sandbox() {
+        let _guard = sandbox_test_guard();
         let user_id = format!("test-user-{}", uuid::Uuid::new_v4());
-        let stale = SessionSandbox::default_path("conv_new_chat", &user_id)
+        let conv_id = format!("conv_new_chat_{}", uuid::Uuid::new_v4());
+        let stale = SessionSandbox::default_path(&conv_id, &user_id)
             .unwrap()
             .display()
             .to_string();
         assert!(!Path::new(&stale).exists());
         let mut settings = settings_with_workspace(&stale);
-        let ephemeral = ensure_subagent_workspace("conv_new_chat", None, &mut settings).unwrap();
+        let ephemeral = ensure_subagent_workspace(&conv_id, None, &mut settings).unwrap();
+        assert!(
+            Path::new(&stale).is_dir(),
+            "sandbox was not created at {stale}; got workspace_root={}",
+            settings.workspace_root
+        );
         assert!(Path::new(&settings.workspace_root).is_dir());
         assert_eq!(
             settings.workspace_root,
@@ -183,6 +199,7 @@ mod tests {
 
     #[test]
     fn ensure_recreates_missing_legacy_session_sandbox() {
+        let _guard = sandbox_test_guard();
         let conv_id = format!("conv_stale_{}", uuid::Uuid::new_v4());
         let stale = SessionSandbox::legacy_conversation_path(&conv_id)
             .unwrap()
@@ -191,6 +208,11 @@ mod tests {
         assert!(!Path::new(&stale).exists());
         let mut settings = settings_with_workspace(&stale);
         let ephemeral = ensure_subagent_workspace(&conv_id, None, &mut settings).unwrap();
+        assert!(
+            Path::new(&stale).is_dir(),
+            "sandbox was not created at {stale}; got workspace_root={}",
+            settings.workspace_root
+        );
         assert!(Path::new(&settings.workspace_root).is_dir());
         assert_eq!(
             settings.workspace_root,

@@ -41,3 +41,6 @@ benchmarks/screenspot_grid/
 
 # P0 harness output (screenshots, crops, results.json) — regenerate, do not commit.
 cases/
+
+# Scratch UI crops from debugging sessions.
+.tmp-ui/

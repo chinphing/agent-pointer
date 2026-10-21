@@ -42,6 +42,8 @@ const {
   computerPipelineLlm,
   patchComputerPipelineLlm,
   computerPipelineVerifyValue,
+  computerPipelineLocateValue,
+  selectComputerPipelineLocate,
   selectComputerPipelineVerify,
   MEDIA_DEBUG_KINDS,
   mediaModeLlm,
@@ -207,6 +209,19 @@ function skillLabel(skillId: string): string {
                         <div class="flex items-center justify-between gap-2 px-2">
                           <h5 class="text-[11px] font-medium text-foreground">{{ t('settings.agentPanel.verifyDebug') }}</h5>
                           <span class="text-[10px] text-muted">{{ t('settings.agentPanel.verifyHint') }}</span>
+                        </div>
+                        <div class="grid grid-cols-[4.5rem_1fr_auto_6rem] gap-2 items-center px-2 py-1.5">
+                          <span class="text-[11px] text-muted font-medium">Locate</span>
+                          <select
+                            :value="computerPipelineLocateValue()"
+                            class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                            @change="selectComputerPipelineLocate(($event.target as HTMLSelectElement).value)"
+                          >
+                            <option value="">{{ t('settings.agentPanel.locateInherit') }}</option>
+                            <option v-for="item in s.allModels" :key="'locate-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
+                          </select>
+                          <span class="text-[11px] text-muted whitespace-nowrap"></span>
+                          <span class="text-[10px] text-muted">{{ t('settings.agentPanel.locateThinkingOff') }}</span>
                         </div>
                         <div class="grid grid-cols-[4.5rem_1fr_auto_6rem] gap-2 items-center px-2 py-1.5">
                           <span class="text-[11px] text-muted font-medium">Verify</span>

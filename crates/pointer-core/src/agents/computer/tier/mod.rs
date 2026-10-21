@@ -7,6 +7,8 @@ use serde_json::Value;
 pub const CONFIG_KEY_PIPELINE_MODEL_DECISION: &str = "computerPipelineModelDecision";
 pub const CONFIG_KEY_PIPELINE_MODEL_POSITION: &str = "computerPipelineModelPosition";
 pub const CONFIG_KEY_PIPELINE_MODEL_VERIFY: &str = "computerPipelineModelVerify";
+pub const CONFIG_KEY_PIPELINE_MODEL_LOCATE: &str = "computerPipelineModelLocate";
+pub const CONFIG_KEY_PIPELINE_PROVIDER_LOCATE: &str = "computerPipelineProviderLocate";
 pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_POSITION: &str =
     "computerPipelineThinkingBudgetPosition";
 pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_VERIFY: &str = "computerPipelineThinkingBudgetVerify";
@@ -16,6 +18,7 @@ pub const CONFIG_KEY_PIPELINE_VERIFY_HOST: &str = "computerPipelineVerifyHost";
 pub const DEFAULT_MODEL_PIPELINE_DECISION: &str = "";
 pub const DEFAULT_MODEL_PIPELINE_POSITION: &str = "";
 pub const DEFAULT_MODEL_PIPELINE_VERIFY: &str = "";
+pub const DEFAULT_MODEL_PIPELINE_LOCATE: &str = "";
 /// Default LLM provider id for computer tier / pipeline overrides (empty = none local).
 pub const DEFAULT_COMPUTER_LLM_PROVIDER: &str = "";
 /// `thinking_budget` for Advanced pipeline Position phase.
@@ -70,9 +73,13 @@ pub struct ComputerPipelineLlmConfig {
     pub model_decision: String,
     pub model_position: String,
     pub model_verify: String,
+    /// Model for the `locate_element` grounding tool. Falls back to the agent's
+    /// own model when empty.
+    pub model_locate: String,
     pub provider_decision: String,
     pub provider_position: String,
     pub provider_verify: String,
+    pub provider_locate: String,
     pub thinking_budget_position: u32,
     pub thinking_budget_verify: u32,
 }
@@ -83,9 +90,11 @@ impl Default for ComputerPipelineLlmConfig {
             model_decision: DEFAULT_MODEL_PIPELINE_DECISION.into(),
             model_position: DEFAULT_MODEL_PIPELINE_POSITION.into(),
             model_verify: DEFAULT_MODEL_PIPELINE_VERIFY.into(),
+            model_locate: DEFAULT_MODEL_PIPELINE_LOCATE.into(),
             provider_decision: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
             provider_position: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
             provider_verify: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
+            provider_locate: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
             thinking_budget_position: DEFAULT_PIPELINE_POSITION_THINKING_BUDGET,
             thinking_budget_verify: DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET,
         }
@@ -98,6 +107,9 @@ pub enum PipelineLlmPhase {
     Decision,
     Position,
     Verify,
+    /// `locate_element` grounding. Thinking is always off here — P0 measured
+    /// 18/20 with thinking on vs 20/20 with it off, plus 2 stalls.
+    Locate,
 }
 
 impl PipelineLlmPhase {
@@ -106,6 +118,7 @@ impl PipelineLlmPhase {
             Self::Decision => "decision",
             Self::Position => "position",
             Self::Verify => "verify",
+            Self::Locate => "locate",
         }
     }
 }
@@ -116,6 +129,7 @@ impl ComputerPipelineLlmConfig {
             PipelineLlmPhase::Decision => &self.model_decision,
             PipelineLlmPhase::Position => &self.model_position,
             PipelineLlmPhase::Verify => &self.model_verify,
+            PipelineLlmPhase::Locate => &self.model_locate,
         }
     }
 
@@ -124,6 +138,7 @@ impl ComputerPipelineLlmConfig {
             PipelineLlmPhase::Decision => &self.provider_decision,
             PipelineLlmPhase::Position => &self.provider_position,
             PipelineLlmPhase::Verify => &self.provider_verify,
+            PipelineLlmPhase::Locate => &self.provider_locate,
         }
     }
 
@@ -132,6 +147,7 @@ impl ComputerPipelineLlmConfig {
             PipelineLlmPhase::Decision => (true, DEFAULT_PIPELINE_DECISION_THINKING_BUDGET),
             PipelineLlmPhase::Position => (true, self.thinking_budget_position),
             PipelineLlmPhase::Verify => (true, self.thinking_budget_verify),
+            PipelineLlmPhase::Locate => (false, 0),
         }
     }
 }
@@ -172,6 +188,12 @@ impl ComputerModelConfig {
                 }
                 CONFIG_KEY_PIPELINE_MODEL_POSITION if !v.trim().is_empty() => {
                     cfg.pipeline_llm.model_position = v.trim().to_string();
+                }
+                CONFIG_KEY_PIPELINE_MODEL_LOCATE if !v.trim().is_empty() => {
+                    cfg.pipeline_llm.model_locate = v.trim().to_string();
+                }
+                CONFIG_KEY_PIPELINE_PROVIDER_LOCATE if !v.trim().is_empty() => {
+                    cfg.pipeline_llm.provider_locate = v.trim().to_string();
                 }
                 CONFIG_KEY_PIPELINE_MODEL_VERIFY if !v.trim().is_empty() => {
                     cfg.pipeline_llm.model_verify = v.trim().to_string();

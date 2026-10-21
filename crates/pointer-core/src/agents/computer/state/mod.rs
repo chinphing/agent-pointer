@@ -124,7 +124,7 @@ pub struct ComputerState {
 
 impl ComputerState {
     /// Merge agent manifest tier config with persisted user settings.
-    fn effective_tier_config(&self) -> ComputerModelConfig {
+    pub fn effective_tier_config(&self) -> ComputerModelConfig {
         let mut cfg = self.tier_config.clone();
         if let Some(pc) = &self.platform_config {
             let platform = pc.read();

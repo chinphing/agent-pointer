@@ -193,9 +193,11 @@ function createSettingsDialogForm(deps: {
     decision: current.decision || platformPipe.decision || '',
     position: current.position || platformPipe.position || '',
     verify: current.verify || platformPipe.verify || '',
+    locate: current.locate || platformPipe.locate || '',
     decisionProviderId: current.decisionProviderId || platformPipe.decisionProviderId || '',
     positionProviderId: current.positionProviderId || platformPipe.positionProviderId || '',
     verifyProviderId: current.verifyProviderId || platformPipe.verifyProviderId || '',
+    locateProviderId: current.locateProviderId || platformPipe.locateProviderId || '',
     positionThinkingBudget: current.positionThinkingBudget ?? 1024,
     verifyThinkingBudget: current.verifyThinkingBudget ?? 256
   }
@@ -209,6 +211,24 @@ function createSettingsDialogForm(deps: {
   function computerPipelineVerifyValue(): string {
   const p = computerPipelineLlm()
   return p.verifyProviderId && p.verify ? `${p.verifyProviderId}:${p.verify}` : ''
+  }
+
+  function computerPipelineLocateValue(): string {
+  const p = computerPipelineLlm()
+  return p.locateProviderId && p.locate ? `${p.locateProviderId}:${p.locate}` : ''
+  }
+
+  function selectComputerPipelineLocate(value: string) {
+  const i = value.indexOf(':')
+  if (i > 0 && i < value.length - 1) {
+    const locateProviderId = value.slice(0, i).trim()
+    const locate = value.slice(i + 1).trim()
+    if (locateProviderId && locate) {
+      patchComputerPipelineLlm({ locateProviderId, locate })
+      return
+    }
+  }
+  console.warn('[settings] selectComputerPipelineLocate: invalid value', value)
   }
 
   function selectComputerPipelineVerify(value: string) {
@@ -1086,6 +1106,8 @@ function createSettingsDialogForm(deps: {
     computerPipelineLlm,
     patchComputerPipelineLlm,
     computerPipelineVerifyValue,
+    computerPipelineLocateValue,
+    selectComputerPipelineLocate,
     selectComputerPipelineVerify,
     isModeAgent,
     toggleDebugMenus,

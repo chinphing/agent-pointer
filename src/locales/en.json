@@ -855,6 +855,8 @@
       "reset": "Reset",
       "modeModelsDebug": "Mode models (debug)",
       "modeModelsHint": "Models for Fast / Standard / Expert",
+      "computerAdvancedTitle": "Computer · advanced models",
+      "computerAdvancedHint": "Locate grounding and Verify checks use their own models and thinking intensity",
       "computerModeModelsDebug": "Computer mode models (debug)",
       "computerModeModelsHint": "Models and thinking for Fast / Standard / Expert",
       "locateDebug": "Locate module (debug)",

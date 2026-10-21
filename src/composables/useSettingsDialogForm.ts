@@ -199,7 +199,8 @@ function createSettingsDialogForm(deps: {
     verifyProviderId: current.verifyProviderId || platformPipe.verifyProviderId || '',
     locateProviderId: current.locateProviderId || platformPipe.locateProviderId || '',
     positionThinkingBudget: current.positionThinkingBudget ?? 1024,
-    verifyThinkingBudget: current.verifyThinkingBudget ?? 256
+    verifyThinkingBudget: current.verifyThinkingBudget ?? 256,
+    locateThinkingBudget: current.locateThinkingBudget ?? 0
   }
   }
 

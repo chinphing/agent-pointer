@@ -9,6 +9,8 @@ pub const CONFIG_KEY_PIPELINE_MODEL_POSITION: &str = "computerPipelineModelPosit
 pub const CONFIG_KEY_PIPELINE_MODEL_VERIFY: &str = "computerPipelineModelVerify";
 pub const CONFIG_KEY_PIPELINE_MODEL_LOCATE: &str = "computerPipelineModelLocate";
 pub const CONFIG_KEY_PIPELINE_PROVIDER_LOCATE: &str = "computerPipelineProviderLocate";
+pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_LOCATE: &str =
+    "computerPipelineThinkingBudgetLocate";
 pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_POSITION: &str =
     "computerPipelineThinkingBudgetPosition";
 pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_VERIFY: &str = "computerPipelineThinkingBudgetVerify";
@@ -82,6 +84,8 @@ pub struct ComputerPipelineLlmConfig {
     pub provider_locate: String,
     pub thinking_budget_position: u32,
     pub thinking_budget_verify: u32,
+    /// 0 = thinking off (the P0 default for grounding).
+    pub thinking_budget_locate: u32,
 }
 
 impl Default for ComputerPipelineLlmConfig {
@@ -97,6 +101,7 @@ impl Default for ComputerPipelineLlmConfig {
             provider_locate: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
             thinking_budget_position: DEFAULT_PIPELINE_POSITION_THINKING_BUDGET,
             thinking_budget_verify: DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET,
+            thinking_budget_locate: 0,
         }
     }
 }
@@ -147,7 +152,13 @@ impl ComputerPipelineLlmConfig {
             PipelineLlmPhase::Decision => (true, DEFAULT_PIPELINE_DECISION_THINKING_BUDGET),
             PipelineLlmPhase::Position => (true, self.thinking_budget_position),
             PipelineLlmPhase::Verify => (true, self.thinking_budget_verify),
-            PipelineLlmPhase::Locate => (false, 0),
+            PipelineLlmPhase::Locate => {
+                if self.thinking_budget_locate == 0 {
+                    (false, 0)
+                } else {
+                    (true, self.thinking_budget_locate)
+                }
+            }
         }
     }
 }
@@ -194,6 +205,11 @@ impl ComputerModelConfig {
                 }
                 CONFIG_KEY_PIPELINE_PROVIDER_LOCATE if !v.trim().is_empty() => {
                     cfg.pipeline_llm.provider_locate = v.trim().to_string();
+                }
+                CONFIG_KEY_PIPELINE_THINKING_BUDGET_LOCATE => {
+                    if let Ok(n) = v.trim().parse::<u32>() {
+                        cfg.pipeline_llm.thinking_budget_locate = n;
+                    }
                 }
                 CONFIG_KEY_PIPELINE_MODEL_VERIFY if !v.trim().is_empty() => {
                     cfg.pipeline_llm.model_verify = v.trim().to_string();

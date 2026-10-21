@@ -750,6 +750,8 @@ export interface ComputerPipelineLlmSettings {
   locateProviderId?: string
   positionThinkingBudget?: number
   verifyThinkingBudget?: number
+  /** 0 = thinking off. Grounding defaults to off — P0 measured 20/20 with it off. */
+  locateThinkingBudget?: number
 }
 
 

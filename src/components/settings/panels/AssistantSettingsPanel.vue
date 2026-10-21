@@ -5,9 +5,11 @@ const { t } = useI18n()
 import { computed, ref } from 'vue'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import { useSettingsStore } from '../../../stores/settings'
-import { CircleHelp, Code, Film, Gauge, Monitor, SlidersHorizontal, UserRound, Bot, X } from 'lucide-vue-next'
+import { ChevronDown, CircleHelp, Code, Film, Gauge, Monitor, SlidersHorizontal, UserRound, Bot, X } from 'lucide-vue-next'
 import { composerAgentLabel } from '../../../lib/agentUi'
 import SceneTierModelsModal from '../SceneTierModelsModal.vue'
+import { budgetForIntensity, intensityFromLegacy, thinkingIntensityOptions } from '../../../lib/thinkingIntensity'
+import type { ThinkingIntensity } from '../../../lib/thinkingIntensity'
 
 const props = defineProps<{
   form: SettingsDialogForm
@@ -19,6 +21,24 @@ const s = useSettingsStore()
 const sceneModal = ref<string | null>(null)
 // 「更多」弹窗：其他执行智能体（explorer 等）的档位与模型设置
 const moreModal = ref(false)
+// 电脑操控「更多」：pipeline 内部的 Locate / Verify 模型与思考强度
+const computerAdvancedOpen = ref(false)
+const THINKING_OPTIONS = computed(() => thinkingIntensityOptions())
+
+function intensityOf(budget: number | undefined): string {
+  if (!budget) return 'off'
+  return intensityFromLegacy({ thinkingBudget: budget }) || ''
+}
+
+function setIntensity(phase: 'locate' | 'verify', value: string) {
+  const budget = value === 'off' || !value ? 0 : (budgetForIntensity(value as ThinkingIntensity) ?? 0)
+  if (phase === 'locate') {
+    props.form.patchComputerPipelineLlm({ locateThinkingBudget: budget })
+  } else {
+    props.form.patchComputerPipelineLlm({ verifyThinkingBudget: budget })
+  }
+}
+
 // 媒体列「更多」：联网搜索等工具档位（非子智能体，与左侧 explore 入口对称）
 const moreMediaModal = ref(false)
 const WEB_SEARCH_SCENE_ID = 'web_search'
@@ -52,6 +72,7 @@ const {
   PERFORMANCE_MODE_UI,
   computerPipelineLocateValue,
   computerPipelineVerifyValue,
+  computerPipelineLlm,
   selectComputerPipelineLocate,
   selectComputerPipelineVerify,
   enabledWorkers,
@@ -211,10 +232,25 @@ const {
                   <SlidersHorizontal class="w-3 h-3" />
                   {{ t('settings.assistant.models') }}
                 </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 h-7 px-2 rounded-lg text-[11px] text-muted hover:text-foreground hover:bg-hover cursor-pointer transition-colors shrink-0"
+                  :aria-expanded="computerAdvancedOpen"
+                  @click="computerAdvancedOpen = !computerAdvancedOpen"
+                >
+                  {{ t('settings.assistant.more') }}
+                  <ChevronDown
+                    class="w-3 h-3 transition-transform"
+                    :class="{ 'rotate-180': computerAdvancedOpen }"
+                  />
+                </button>
             </div>
-            <div class="space-y-1.5 pt-1">
-              <div class="grid grid-cols-[3.5rem_1fr] gap-2 items-center">
-                <span class="text-[11px] text-muted">{{ t('settings.agentPanel.locateDebug') }}</span>
+            <div
+              v-if="computerAdvancedOpen"
+              class="mt-1 ml-1 pl-3 border-l-2 border-border/60 space-y-1.5"
+            >
+              <div class="grid grid-cols-[3.25rem_1fr_5.5rem] gap-2 items-center">
+                <span class="text-[11px] text-muted">Locate</span>
                 <select
                   :value="computerPipelineLocateValue()"
                   class="h-7 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
@@ -224,9 +260,17 @@ const {
                   <option value="">{{ t('settings.agentPanel.locateInherit') }}</option>
                   <option v-for="item in s.allModels" :key="'locate-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                 </select>
+                <select
+                  :value="intensityOf(computerPipelineLlm().locateThinkingBudget)"
+                  class="h-7 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
+                  :title="t('settings.agentPanel.locateThinkingOff')"
+                  @change="setIntensity('locate', ($event.target as HTMLSelectElement).value)"
+                >
+                  <option v-for="opt in THINKING_OPTIONS" :key="'locate-t-' + opt.value" :value="opt.value">{{ opt.label }}</option>
+                </select>
               </div>
-              <div class="grid grid-cols-[3.5rem_1fr] gap-2 items-center">
-                <span class="text-[11px] text-muted">{{ t('settings.agentPanel.verifyDebug') }}</span>
+              <div class="grid grid-cols-[3.25rem_1fr_5.5rem] gap-2 items-center">
+                <span class="text-[11px] text-muted">Verify</span>
                 <select
                   :value="computerPipelineVerifyValue()"
                   class="h-7 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
@@ -234,6 +278,13 @@ const {
                   @change="selectComputerPipelineVerify(($event.target as HTMLSelectElement).value)"
                 >
                   <option v-for="item in s.allModels" :key="'verify-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
+                </select>
+                <select
+                  :value="intensityOf(computerPipelineLlm().verifyThinkingBudget)"
+                  class="h-7 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
+                  @change="setIntensity('verify', ($event.target as HTMLSelectElement).value)"
+                >
+                  <option v-for="opt in THINKING_OPTIONS" :key="'verify-t-' + opt.value" :value="opt.value">{{ opt.label }}</option>
                 </select>
               </div>
             </div>

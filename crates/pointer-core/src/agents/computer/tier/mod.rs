@@ -260,6 +260,17 @@ impl ComputerModelConfig {
         if p.verify_thinking_budget > 0 {
             self.pipeline_llm.thinking_budget_verify = p.verify_thinking_budget;
         }
+        // Locate: an empty model means "inherit the agent model", which is the
+        // default — so we only override when the user actually picked one.
+        if !p.locate.trim().is_empty() {
+            self.pipeline_llm.model_locate = p.locate.trim().to_string();
+        }
+        if !p.locate_provider_id.trim().is_empty() {
+            self.pipeline_llm.provider_locate = p.locate_provider_id.trim().to_string();
+        }
+        // Thinking budget 0 is a meaningful value here (off), unlike the other
+        // phases where 0 means "unset".
+        self.pipeline_llm.thinking_budget_locate = p.locate_thinking_budget;
     }
 }
 

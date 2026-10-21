@@ -2357,6 +2357,14 @@ pub struct ComputerPipelineLlmSettings {
         rename = "verifyThinkingBudget"
     )]
     pub verify_thinking_budget: u32,
+    /// Model for the `locate_element` grounding tool. Empty = inherit the agent model.
+    #[serde(default, rename = "locate")]
+    pub locate: String,
+    #[serde(default, rename = "locateProviderId")]
+    pub locate_provider_id: String,
+    /// 0 = thinking off (the P0 default for grounding).
+    #[serde(default, rename = "locateThinkingBudget")]
+    pub locate_thinking_budget: u32,
 }
 
 impl Default for ComputerPipelineLlmSettings {
@@ -2370,6 +2378,9 @@ impl Default for ComputerPipelineLlmSettings {
             verify_provider_id: default_computer_llm_provider(),
             position_thinking_budget: default_pipeline_thinking_budget_position(),
             verify_thinking_budget: default_pipeline_thinking_budget_verify(),
+            locate: String::new(),
+            locate_provider_id: String::new(),
+            locate_thinking_budget: 0,
         }
     }
 }
@@ -3597,6 +3608,9 @@ mod user_settings_defaults_tests {
             verify_provider_id: "session-provider".into(),
             position_thinking_budget: 1024,
             verify_thinking_budget: 256,
+            locate: String::new(),
+            locate_provider_id: String::new(),
+            locate_thinking_budget: 0,
         };
 
         ensure_user_settings_defaults(&mut user);

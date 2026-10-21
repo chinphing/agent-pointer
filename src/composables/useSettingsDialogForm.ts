@@ -220,6 +220,11 @@ function createSettingsDialogForm(deps: {
   }
 
   function selectComputerPipelineLocate(value: string) {
+  // 空值 = 「跟随主模型」，必须能清回空配置，否则选了具体模型就改不回去。
+  if (!value) {
+    patchComputerPipelineLlm({ locateProviderId: '', locate: '' })
+    return
+  }
   const i = value.indexOf(':')
   if (i > 0 && i < value.length - 1) {
     const locateProviderId = value.slice(0, i).trim()

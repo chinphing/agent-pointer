@@ -445,31 +445,47 @@ B5 只回答后者。且**从未比较过 B5 与 SoM 谁更好**——ScreenSpot
 
 ### 8.1.1 抽象层接通进度
 
-`ComputerState` 现在同时持有 `executor`（本地复合操作）和 `control`
-（`Arc<dyn ComputerControl>`，13 动作抽象）。已迁到 trait 的动作：
+`ComputerState` 同时持有 `executor`（本地复合操作）和 `control`
+（`Arc<dyn ComputerControl>`，13 动作抽象）。
+
+**已迁到 trait 的动作（12 个）**：
 
 | 工具 | trait 方法 |
 |---|---|
+| `mouse_hover_at` | `move_to` |
+| `mouse_click_at` | `click` |
+| `mouse_double_click_at` | `double_click` |
+| `mouse_right_click_at` | `right_click` |
+| `mouse_drag_to` | `drag_to` |
+| `mouse_down` | `mouse_down` |
+| `mouse_up` | `mouse_up` |
 | `key_press` | `press` |
 | `key_down` | `key_down` |
 | `key_up` | `key_up` |
 | `keyboard_type` | `typing` |
-| `mouse_down` | `mouse_down` |
-| `mouse_up` | `mouse_up` |
-| （全部） | `release_stranded_input` |
+| `hotkey` | `hotkey` |
 
-**尚未迁移**：`mouse_hover_at` / `mouse_click_at` / `mouse_double_click_at` /
-`mouse_right_click_at` / `mouse_scroll_current` / `mouse_drag_to` /
-`mouse_drag_from_to_at` / `input_at` / `input_focused` / `hotkey` /
-`modified_click_*`（共 11 处 `executor` 调用）。
+**`human_like` 归属**：它是本地执行器的渲染细节（模拟人类轨迹），
+**不属于 control 抽象**，也不在 trait 签名里。`LocalControl` 在构造时接收一次
+（来自 `effective_human_like_default()`），所有动作统一使用。
+OSWorld 远程路径天然不需要这一步——`RemoteControl` 直接发 pyautogui 脚本。
 
-原因是参数不齐：这些工具带每次调用的 `human_like` 覆盖、settle 延迟、
-以及 `drag_from_to`、`modified_click` 这类 trait 不表达的复合语义。
-直接切会丢掉这些参数，改变行为。迁移它们需要先扩 trait 或给
-`LocalControl` 加带参数的入口。
+**尚未迁移（5 处）**：
+
+| 工具 | 原因 |
+|---|---|
+| `mouse_drag_from_to_at` | trait 只有 `drag_to`（从当前位置拖），没有起终点双坐标的 `drag_from_to` |
+| `input_at` | `type_text_at_with_options` 带 `clear_first` / `auto_enter`，trait 的 `typing` 不表达 |
+| `input_focused` | 同上，还多一个 `use_clipboard` |
+| `modified_click_select_at` | 复合语义（按住修饰键点选），trait 无对应动作 |
+| `modified_click_range_select_at` | 同上 |
+
+这 5 个要么扩 trait（但 OSWorld 的 13 动作里没有它们），要么给 `LocalControl`
+开一条旁路。**当前选择保留 executor 直连**——它们是本地专属能力，
+远程执行时本来就没有对应实现。
 
 **当前收益**：切到 `RemoteControl` 只需改 `ComputerState::new` 里的一行构造，
-已迁移的 7 个动作自动跟随；剩余工具仍需逐个处理。
+12 个动作自动跟随。
 
 ### 8.2 `MOUSE_DOWN` 后进程崩溃会导致按键卡住
 

@@ -81,9 +81,7 @@ impl MouseAtTool {
         let (px, py) = self.resolve_coord(args, x, y)?;
         let button = mouse_button_from_args(args)?;
         let clicks = click_count_from_args(args)?;
-        let hl = self.human_like(args);
-        let executor = self.executor.lock().unwrap();
-        executor.click_button_at(button, px, py, clicks, hl)?;
+        self.control.click(button, Some(px), Some(py), clicks)?;
         Ok(self.verify.click_hint(None, Some((px, py))))
     }
 
@@ -91,9 +89,7 @@ impl MouseAtTool {
         let x = required_f32_arg(args, "x")?;
         let y = required_f32_arg(args, "y")?;
         let (px, py) = self.resolve_coord(args, x, y)?;
-        let hl = self.human_like(args);
-        let executor = self.executor.lock().unwrap();
-        executor.double_click_at(px, py, hl)?;
+        self.control.double_click(px, py)?;
         Ok(self.verify.click_hint(None, Some((px, py))))
     }
 
@@ -101,10 +97,8 @@ impl MouseAtTool {
         let x = required_f32_arg(args, "x")?;
         let y = required_f32_arg(args, "y")?;
         let (px, py) = self.resolve_coord(args, x, y)?;
-        let hl = self.human_like(args);
-        let executor = self.executor.lock().unwrap();
         // Compatibility alias for `mouse_click_at` with `button: right`.
-        executor.click_button_at(MouseButton::Right, px, py, 1, hl)?;
+        self.control.right_click(px, py)?;
         Ok(self.verify.click_hint(None, Some((px, py))))
     }
 
@@ -112,9 +106,7 @@ impl MouseAtTool {
         let x = required_f32_arg(args, "x")?;
         let y = required_f32_arg(args, "y")?;
         let (px, py) = self.resolve_coord(args, x, y)?;
-        let hl = self.human_like(args);
-        let executor = self.executor.lock().unwrap();
-        executor.hover_at(px, py, hl)?;
+        self.control.move_to(px, py)?;
         Ok(format!("Hovered at ({}, {}) px", px, py))
     }
 
@@ -157,9 +149,7 @@ impl MouseAtTool {
         let x = required_f32_arg(args, "x")?;
         let y = required_f32_arg(args, "y")?;
         let (px, py) = self.resolve_coord(args, x, y)?;
-        let hl = self.human_like(args);
-        let executor = self.executor.lock().unwrap();
-        executor.drag_left_from_current_to(px, py, hl)?;
+        self.control.drag_to(px, py)?;
         Ok(format!(
             "Dragged from the current pointer to ({}, {}). Verify on next screenshot.",
             px, py

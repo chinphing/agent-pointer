@@ -1,20 +1,21 @@
 use super::args_util::require_non_empty_str;
 use crate::agents::computer::actions::ActionExecutor;
 use crate::agents::computer::verify::VerifyHintGenerator;
+use crate::agents::computer::control::ComputerControl;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 
 /// Hotkey tool (PyProjects/pointer `hotkey.py`).
 pub struct HotkeyTool {
-    executor: Arc<Mutex<ActionExecutor>>,
+    control: Arc<dyn ComputerControl>,
     verify: VerifyHintGenerator,
 }
 
 impl HotkeyTool {
-    pub fn new(executor: Arc<Mutex<ActionExecutor>>) -> Self {
+    pub fn new(control: Arc<dyn ComputerControl>) -> Self {
         Self {
-            executor,
+            control,
             verify: VerifyHintGenerator::new(),
         }
     }
@@ -26,8 +27,8 @@ impl HotkeyTool {
             .ok_or_else(|| anyhow!("Missing 'keys' in tool_args"))?;
         let key_strings = parse_keys_arg(keys_val)?;
         let key_refs: Vec<&str> = key_strings.iter().map(|s| s.as_str()).collect();
-        let executor = self.executor.lock().unwrap();
-        executor.hotkey(&key_refs)?;
+        let keys: Vec<String> = key_strings.clone();
+        self.control.hotkey(&keys)?;
         Ok(self.verify.hotkey_hint(&key_refs))
     }
 }

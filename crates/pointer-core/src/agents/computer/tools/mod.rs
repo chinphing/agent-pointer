@@ -135,7 +135,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 Arc::new(move |args| {
                     let hotkey_state = hotkey_state.clone();
                     run_synthetic_input(move || {
-                        let tool = tool_hotkey::HotkeyTool::new(hotkey_state.executor.clone());
+                        let tool = tool_hotkey::HotkeyTool::new(hotkey_state.control.clone());
                         tool.execute("hotkey", &args)
                     })
                 }),

@@ -43,7 +43,6 @@ const {
   TOOL_CALL_UI_FIELDS,
   displayUiChecked,
   setDisplayUi,
-  computerAutoCompact,
   collapseProcessByDefault,
   taskBoardShowChildBoards,
   computerHumanLike,
@@ -318,13 +317,6 @@ async function onPlaySoundToggle(checked: boolean) {
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
         <h4 class="text-sm font-medium text-foreground">{{ t('settings.display.execution') }}</h4>
         <div class="grid grid-cols-2 gap-y-3 gap-x-32">
-          <div class="flex items-center justify-between gap-3">
-            <h4 class="text-[12px] font-medium text-foreground">{{ t('settings.display.autoCompact') }}</h4>
-            <label class="relative inline-flex items-center cursor-pointer shrink-0">
-              <input v-model="computerAutoCompact" type="checkbox" class="sr-only peer" />
-              <div class="settings-toggle-track" />
-            </label>
-          </div>
           <div class="flex items-center justify-between gap-3">
             <h4 class="text-[12px] font-medium text-foreground">{{ t('settings.display.collapseProcess') }}</h4>
             <label class="relative inline-flex items-center cursor-pointer shrink-0">

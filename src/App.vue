@@ -3,8 +3,6 @@ import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import AppShell from './components/layout/AppShell.vue'
 import ChatView from './components/chat/ChatView.vue'
-import ComputerCompactBar from './components/chat/ComputerCompactBar.vue'
-import { useComputerCompactMode } from './composables/useComputerCompactMode'
 import { useChannelPairingPrompt } from './composables/useChannelPairingPrompt'
 import { useExternalSkillsImportPrompt } from './composables/useExternalSkillsImportPrompt'
 import { useAppUpdater } from './composables/useAppUpdater'
@@ -60,15 +58,6 @@ const {
   importSelected: importExternalSkillsSelected
 } = useExternalSkillsImportPrompt()
 
-const {
-  isCompact,
-  planSummary,
-  planLine,
-  statusLine,
-  twoLines,
-  expand: expandComputerCompact,
-  stop: stopComputerCompact
-} = useComputerCompactMode()
 
 const {
   updateReady,
@@ -124,26 +113,10 @@ function openAutomation() {
   openSettings('automation')
 }
 
-watch(showSettings, open => {
-  if (open && isCompact.value) expandComputerCompact()
-})
 </script>
 
 <template>
   <div class="h-full w-full min-h-0 flex flex-col">
-  <ComputerCompactBar
-    v-if="isCompact"
-    :class="isDesktopApp
-      ? 'h-full w-full min-h-0'
-      : 'fixed bottom-4 right-4 z-[500] w-[min(400px,calc(100vw-32px))] shadow-lg'"
-    :plan-summary="planSummary"
-    :plan-line="planLine"
-    :status-line="statusLine"
-    :two-lines="twoLines"
-    @expand="expandComputerCompact"
-    @stop="stopComputerCompact"
-  />
-    <template v-else>
       <SettingsView
         v-if="showSettings"
         class="min-h-0 flex-1 overflow-hidden"
@@ -158,7 +131,6 @@ watch(showSettings, open => {
       >
         <ChatView />
       </AppShell>
-    </template>
   </div>
 
   <ChannelPairingModal

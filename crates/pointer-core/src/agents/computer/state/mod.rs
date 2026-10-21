@@ -31,7 +31,6 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use crate::platform_endpoints;
 /// Config key for the annotation service URL in Computer Agent's config.
 /// Config key for default human-like mouse movement in Computer Agent's config.
-const CONFIG_KEY_COMPUTER_HUMAN_LIKE: &str = "computerHumanLike";
 /// Maximum number of concurrent sessions to retain before evicting the least recently used.
 const MAX_SESSIONS: usize = 10;
 

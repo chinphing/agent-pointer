@@ -177,12 +177,12 @@ impl ComputerState {
         platform_auth: SharedPlatformAuth,
         platform_config: SharedPlatformConfig,
     ) -> Self {
-        let def = agents.get("computer").map(|agent| agent.def());
-        let human_like_default = def
-            .as_ref()
-            .and_then(|d| d.config.get(CONFIG_KEY_COMPUTER_HUMAN_LIKE))
-            .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
-            .unwrap_or(false);
+        // The user-facing switch lives in settings (`computerHumanLike`,
+        // default true). AGENT.md does not carry it, so reading the agent
+        // config here always yielded `false` and silently disabled human-like
+        // mouse movement no matter what the UI showed.
+        let human_like_default =
+            crate::platform_config::effective_settings_global().computer_human_like;
         let tier_config = ComputerModelConfig::from_agent_registry(agents);
         Self::with_annotate_url_human_like_and_tier(
             "",

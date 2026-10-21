@@ -194,9 +194,10 @@ mod tests {
             &self,
             x: i32,
             y: i32,
-            _profile: MouseMoveProfile,
+            profile: MouseMoveProfile,
         ) -> Result<ActionResult> {
             self.record(format!("move_to({x},{y})"));
+            self.record(format!("profile({:?})", profile.path.strategy));
             *self.position.lock().unwrap() = (x, y);
             Ok(ActionResult::success("move_to"))
         }
@@ -250,10 +251,14 @@ mod tests {
     }
 
     fn control() -> (LocalControl, Arc<Mutex<Vec<String>>>) {
+        control_with(false)
+    }
+
+    fn control_with(human_like: bool) -> (LocalControl, Arc<Mutex<Vec<String>>>) {
         let backend = RecordingBackend::default();
         let calls = backend.calls.clone();
         let executor = Arc::new(Mutex::new(ActionExecutor::new(Box::new(backend))));
-        (LocalControl::new(executor, false), calls)
+        (LocalControl::new(executor, human_like), calls)
     }
 
     fn recorded(calls: &Arc<Mutex<Vec<String>>>) -> Vec<String> {
@@ -377,6 +382,31 @@ mod tests {
         c.move_to(42, 24).unwrap();
         assert_eq!(c.cursor_position().unwrap(), (42, 24));
     }
+    /// `human_like` is the only thing that decides the move profile. When it is
+    /// on, the backend receives a Bézier path; when off, a straight line. This
+    /// is what makes the mouse actually curve instead of sliding in a line.
+    #[test]
+    fn human_like_selects_the_bezier_profile() {
+        let (c, calls) = control_with(true);
+        c.move_to(10, 20).unwrap();
+        let recorded = recorded(&calls);
+        assert!(
+            recorded.iter().any(|c| c.contains("Bezier")),
+            "human_like should plan a Bezier path, got: {recorded:?}"
+        );
+    }
+
+    #[test]
+    fn standard_selects_the_linear_profile() {
+        let (c, calls) = control_with(false);
+        c.move_to(10, 20).unwrap();
+        let recorded = recorded(&calls);
+        assert!(
+            recorded.iter().any(|c| c.contains("LinearByPointCount")),
+            "human_like off should plan a straight line, got: {recorded:?}"
+        );
+    }
+
 }
 
 impl Drop for LocalControl {

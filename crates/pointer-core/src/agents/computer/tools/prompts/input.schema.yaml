@@ -9,16 +9,10 @@ input_at:
       type: string
     x:
       type: number
-      description: >
-        Logical screen pixel X. For a visible target this MUST come
-        from a successful `locate_element` result; do not estimate
-        coordinates off a screenshot.
+      description: Logical screen pixel X. For a visible target, take it from `locate_element`; never estimate.
     y:
       type: number
-      description: >
-        Logical screen pixel Y. For a visible target this MUST come
-        from a successful `locate_element` result; do not estimate
-        coordinates off a screenshot.
+      description: Logical screen pixel Y. For a visible target, take it from `locate_element`; never estimate.
     text:
       type: string
     clear_first:

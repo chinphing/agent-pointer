@@ -7,16 +7,10 @@ mouse_click_at:
       type: string
     x:
       type: number
-      description: >
-        Logical screen pixel X. For a visible target this MUST come
-        from a successful `locate_element` result; do not estimate
-        coordinates off a screenshot.
+      description: Logical screen pixel X. For a visible target, take it from `locate_element`; never estimate.
     y:
       type: number
-      description: >
-        Logical screen pixel Y. For a visible target this MUST come
-        from a successful `locate_element` result; do not estimate
-        coordinates off a screenshot.
+      description: Logical screen pixel Y. For a visible target, take it from `locate_element`; never estimate.
     button:
       type: string
       enum:
@@ -48,16 +42,10 @@ mouse_double_click_at:
       type: string
     x:
       type: number
-      description: >
-        Logical screen pixel X. For a visible target this MUST come
-        from a successful `locate_element` result; do not estimate
-        coordinates off a screenshot.
+      description: Logical screen pixel X. For a visible target, take it from `locate_element`; never estimate.
     y:
       type: number
-      description: >
-        Logical screen pixel Y. For a visible target this MUST come
-        from a successful `locate_element` result; do not estimate
-        coordinates off a screenshot.
+      description: Logical screen pixel Y. For a visible target, take it from `locate_element`; never estimate.
     wait:
       type: number
       minimum: 1
@@ -77,16 +65,10 @@ mouse_right_click_at:
       type: string
     x:
       type: number
-      description: >
-        Logical screen pixel X. For a visible target this MUST come
-        from a successful `locate_element` result; do not estimate
-        coordinates off a screenshot.
+      description: Logical screen pixel X. For a visible target, take it from `locate_element`; never estimate.
     y:
       type: number
-      description: >
-        Logical screen pixel Y. For a visible target this MUST come
-        from a successful `locate_element` result; do not estimate
-        coordinates off a screenshot.
+      description: Logical screen pixel Y. For a visible target, take it from `locate_element`; never estimate.
     wait:
       type: number
       minimum: 1
@@ -106,16 +88,10 @@ mouse_hover_at:
       type: string
     x:
       type: number
-      description: >
-        Logical screen pixel X. For a visible target this MUST come
-        from a successful `locate_element` result; do not estimate
-        coordinates off a screenshot.
+      description: Logical screen pixel X. For a visible target, take it from `locate_element`; never estimate.
     y:
       type: number
-      description: >
-        Logical screen pixel Y. For a visible target this MUST come
-        from a successful `locate_element` result; do not estimate
-        coordinates off a screenshot.
+      description: Logical screen pixel Y. For a visible target, take it from `locate_element`; never estimate.
     wait:
       type: number
       minimum: 1
@@ -204,16 +180,10 @@ mouse_drag_to:
       type: string
     x:
       type: number
-      description: >
-        Logical screen pixel X. For a visible target this MUST come
-        from a successful `locate_element` result; do not estimate
-        coordinates off a screenshot.
+      description: Logical screen pixel X. For a visible target, take it from `locate_element`; never estimate.
     y:
       type: number
-      description: >
-        Logical screen pixel Y. For a visible target this MUST come
-        from a successful `locate_element` result; do not estimate
-        coordinates off a screenshot.
+      description: Logical screen pixel Y. For a visible target, take it from `locate_element`; never estimate.
     wait:
       type: number
       minimum: 1

@@ -8,8 +8,7 @@
 use crate::agents::computer::capture_debug;
 use crate::agents::computer::screen;
 use crate::agents::computer::screen_overlay::{
-    SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_BEFORE_ACTION,
-    SLOT_SCREEN_ZOOMED_POINTER,
+    SLOT_SCREEN_CURRENT, SLOT_SCREEN_ZOOMED_POINTER,
 };
 use crate::agents::computer::ScreenCaptureResult;
 use crate::agents::AgentProfile;
@@ -66,13 +65,13 @@ pub(crate) fn strip_images_from_prior_messages(messages: &mut [ChatMessage]) {
 }
 
 /// Labels in wire order — must match `assemble_cur_screen_base64` image sequence.
-/// Optional before frame is the previous capture's JPEG, not a new screenshot.
-fn slot_labels(has_previous_raw: bool, has_pointer_zoom: bool) -> Vec<&'static str> {
-    let mut labels = Vec::with_capacity(4);
-    if has_previous_raw {
-        labels.push(SLOT_SCREEN_BEFORE_ACTION);
-    }
-    labels.push(SLOT_SCREEN_AFTER_ACTION);
+///
+/// Only the current screen: the before/after comparison is the verify stage's
+/// job, and its verdict reaches the model as the `verify:` suffix on
+/// `[Recent desktop tool calls]`.
+fn slot_labels(has_pointer_zoom: bool) -> Vec<&'static str> {
+    let mut labels = Vec::with_capacity(2);
+    labels.push(SLOT_SCREEN_CURRENT);
     if has_pointer_zoom {
         labels.push(SLOT_SCREEN_ZOOMED_POINTER);
     }
@@ -82,7 +81,7 @@ fn slot_labels(has_previous_raw: bool, has_pointer_zoom: bool) -> Vec<&'static s
 fn build_cur_screen_preamble() -> String {
     let cite = "Each screenshot below is preceded by its slot label on its own line. Treat only what you see in that labeled image as ground truth. Do not invent UI from task text or prior turns. Do not write internal checklists in assistant message text. When the user must see a reply (question, blockage, completion), write plain text in **content** in the same turn — reasoning alone is invisible to the user.";
     format!(
-        "{CUR_SCREEN_TAG} Labeled images this turn: optional {SLOT_SCREEN_BEFORE_ACTION} (the previous capture, reused, not a new screenshot), then {SLOT_SCREEN_AFTER_ACTION}, then {SLOT_SCREEN_ZOOMED_POINTER} when present. {cite} \
+        "{CUR_SCREEN_TAG} Labeled images this turn: {SLOT_SCREEN_CURRENT}, then {SLOT_SCREEN_ZOOMED_POINTER} when present. {cite} \
          Text below includes **Pointer position** and **Nearby overlay reference bboxes** (10 nearest the pointer; logical-pixel rects). \
          **Verify:** host records outcomes on history rows — read the `verify:` suffix on `[Recent desktop tool calls]`. \
          **Position:** prefer a label number on the target control itself. A large target shows a visible interior on the full screen; use coordinates and omit zoom. A small target is a mark with no interior to aim at; move beside it first. Next turn, if the target is inside {SLOT_SCREEN_ZOOMED_POINTER}, set zoom true and give 0–1000 of that crop. The host maps those coordinates onto the full screen.\n"
@@ -90,10 +89,7 @@ fn build_cur_screen_preamble() -> String {
 }
 
 fn assemble_cur_screen_base64(cap: &ScreenCaptureResult) -> Vec<String> {
-    let mut out = Vec::with_capacity(4);
-    if let Some(before) = &cap.inject_before_action {
-        out.push(screen::encode_image_to_base64(&before.screen_jpeg));
-    }
+    let mut out = Vec::with_capacity(2);
     out.push(screen::encode_image_to_base64(&cap.screenshot_jpeg));
     if !cap.zoom_pointer_png.is_empty() {
         out.push(screen::encode_image_to_base64(&cap.zoom_pointer_png));
@@ -104,9 +100,8 @@ fn assemble_cur_screen_base64(cap: &ScreenCaptureResult) -> Vec<String> {
 }
 
 fn assemble_cur_screen_payload(cap: &ScreenCaptureResult) -> (Vec<String>, Vec<String>) {
-    let has_previous_raw = cap.inject_before_action.is_some();
     let has_pointer_zoom = !cap.zoom_pointer_png.is_empty();
-    let labels: Vec<String> = slot_labels(has_previous_raw, has_pointer_zoom)
+    let labels: Vec<String> = slot_labels(has_pointer_zoom)
         .into_iter()
         .map(str::to_string)
         .collect();
@@ -351,7 +346,6 @@ mod tests {
 
     fn dummy_cap(has_before: bool) -> ScreenCaptureResult {
         use crate::agents::computer::screen::MonitorInfo;
-        use crate::agents::computer::screen_overlay::BeforeActionInject;
         ScreenCaptureResult {
             raw_unmarked_jpeg: vec![1, 2],
             screenshot_jpeg: vec![3, 4],
@@ -360,10 +354,6 @@ mod tests {
             zoom_pointer_png: vec![9],
             mouse_neighbor_reference_text: None,
             monitor: MonitorInfo::new(0, 0, 100, 100),
-            inject_before_action: has_before.then(|| BeforeActionInject {
-                screen_jpeg: vec![10],
-                zoom_pointer_png: vec![11],
-            }),
         }
     }
 
@@ -407,14 +397,10 @@ mod tests {
     fn slot_labels_match_image_count_primary() {
         let cap = dummy_cap(true);
         let (labels, images) = assemble_cur_screen_payload(&cap);
-        assert_eq!(labels.len(), 3);
+        assert_eq!(labels.len(), 2);
         assert_eq!(
             labels,
-            vec![
-                SLOT_SCREEN_BEFORE_ACTION,
-                SLOT_SCREEN_AFTER_ACTION,
-                SLOT_SCREEN_ZOOMED_POINTER
-            ]
+            vec![SLOT_SCREEN_CURRENT, SLOT_SCREEN_ZOOMED_POINTER]
         );
         assert_eq!(labels.len(), images.len());
     }
@@ -424,23 +410,19 @@ mod tests {
         let cap = dummy_cap(false);
         let (labels, images) = assemble_cur_screen_payload(&cap);
         assert_eq!(labels.len(), 2);
-        assert_eq!(
-            labels,
-            vec![
-                SLOT_SCREEN_AFTER_ACTION,
-                SLOT_SCREEN_ZOOMED_POINTER
-            ]
-        );
+        assert_eq!(labels, vec![SLOT_SCREEN_CURRENT, SLOT_SCREEN_ZOOMED_POINTER]);
         assert_eq!(labels.len(), images.len());
     }
 
+    /// Only the current screen is injected. Before/after comparison belongs to
+    /// the verify stage, whose verdict reaches the model as `verify:` text.
     #[test]
-    fn planning_reuses_prior_frame_without_a_new_slot_gap() {
+    fn cur_screen_has_no_before_frame() {
         let cap = dummy_cap(true);
         let (labels, images) = assemble_cur_screen_payload(&cap);
         assert_eq!(
             labels.first().map(String::as_str),
-            Some(SLOT_SCREEN_BEFORE_ACTION)
+            Some(SLOT_SCREEN_CURRENT)
         );
         assert_eq!(labels.len(), images.len());
     }
@@ -452,8 +434,9 @@ mod tests {
         assert!(t.contains("label number on the target"));
         assert!(t.contains(SLOT_SCREEN_ZOOMED_POINTER));
         assert!(t.contains("verify:"));
-        assert!(t.contains("[Screen before action]"));
-        assert!(t.contains("reused"));
+        assert!(t.contains(SLOT_SCREEN_CURRENT));
+        // The before frame is gone: verify owns before/after comparison.
+        assert!(!t.contains("before action"));
         assert!(!t.contains("N–target relation"));
     }
 }

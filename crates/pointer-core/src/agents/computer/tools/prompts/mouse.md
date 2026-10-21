@@ -67,4 +67,6 @@ wheel notches locally, so small values still move one notch — use a few hundre
 pixels for a visible jump, and roughly one screen height for a full page.
 At least one axis must be non-zero.
 
-**After scroll:** Judge movement from the next screenshot — no visible change means scroll failed; change anchor or route before retrying.
+**After scroll:** the `verify:` suffix on `[Recent desktop tool calls]` already
+reports whether the content moved. If it says the scroll had no effect, change
+the anchor point or route before retrying — do not re-scroll the same spot.

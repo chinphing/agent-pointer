@@ -252,27 +252,16 @@ pub fn save_computer_capture_debug(
 
     let pfx = sanitize_path_segment(file_prefix);
 
-    if let Some(prev) = &cap.inject_before_action {
-        write_bytes(
-            &dir,
-            &pfx,
-            "screen_before_action",
-            "jpg",
-            ts,
-            &prev.screen_jpeg,
-        );
-    }
     write_bytes(
         &dir,
         &pfx,
-        "screen_after_action",
+        "screen",
         "jpg",
         ts,
         &cap.screenshot_jpeg,
     );
-    write_bytes(&dir, &pfx, "annotated", "jpg", ts, &cap.screenshot_jpeg);
 
-    let annotated_name = format!("{pfx}_{ts}_annotated.jpg");
+    let annotated_name = format!("{pfx}_{ts}_screen.jpg");
     let rel = format!("{date}/{conv_seg}/{annotated_name}");
     log::info!(
         "computer capture dump: wrote under {:?}, annotated rel={rel}",

@@ -15,7 +15,7 @@ use crate::agents::computer::tier::{
 use crate::agents::computer::vision::coord::CoordinateSystem;
 use crate::agents::computer::vision::screen;
 use crate::agents::computer::vision::screen_overlay::{
-    self, build_vision_overlay_pack, BeforeActionInject, VisionOverlayWork,
+    self, build_vision_overlay_pack, VisionOverlayWork,
 };
 use crate::agents::computer::vision::vision_state::VisionState;
 use crate::agents::AgentRegistry;
@@ -52,9 +52,6 @@ pub struct ScreenCaptureResult {
     pub mouse_neighbor_reference_text: Option<String>,
     /// Logical monitor bounds for this capture.
     pub monitor: screen::MonitorInfo,
-    /// Previous capture's marked JPEG, reused as `[Screen before action]`.
-    /// Same bytes as that capture; the pointer is not redrawn.
-    pub inject_before_action: Option<screen_overlay::BeforeActionInject>,
 }
 
 /// Per-conversation state for computer use tools.
@@ -445,20 +442,6 @@ impl ComputerState {
         let session = self.get_or_create_session(conversation_id);
         let work = VisionOverlayWork::standard();
 
-        let inject_before_action = {
-            let s = session.lock().unwrap();
-            s.last_turn_marked_jpeg.as_ref().map(|jpeg| {
-                log::info!(
-                    "apply_screen_capture: reuse prior marked frame bytes={}",
-                    jpeg.len()
-                );
-                BeforeActionInject {
-                    screen_jpeg: jpeg.clone(),
-                    zoom_pointer_png: Vec::new(),
-                }
-            })
-        };
-
         // Annotation service removed (P5): there is no SoM pass any more, so the
         // coordinate baseline below is the only thing this block still owns.
         let annotate_ms = 0.0_f64;
@@ -529,7 +512,6 @@ impl ComputerState {
             zoom_pointer_png: pack.zoom_pointer_png,
             mouse_neighbor_reference_text: None,
             monitor,
-            inject_before_action,
         })
     }
 
@@ -815,7 +797,6 @@ mod tests {
             zoom_pointer_png: vec![1],
             mouse_neighbor_reference_text: None,
             monitor: screen::MonitorInfo::new(0, 0, 100, 100),
-            inject_before_action: None,
         };
         state.store_pipeline_after_capture("reuse", cap);
         let rt = tokio::runtime::Builder::new_current_thread()

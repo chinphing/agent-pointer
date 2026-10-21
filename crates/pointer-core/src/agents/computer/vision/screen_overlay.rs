@@ -590,15 +590,6 @@ pub fn build_vision_overlay_pack(
     })
 }
 
-/// Assets for **`[Screen before action]`** + **`[Zoom pointer before action]`** inject slots.
-#[derive(Debug, Clone)]
-pub struct BeforeActionInject {
-    /// Full-frame marked JPEG (`[Screen before action]`).
-    pub screen_jpeg: Vec<u8>,
-    /// **4×** magnified pointer crop PNG (`[Zoom pointer before action]`).
-    pub zoom_pointer_png: Vec<u8>,
-}
-
 fn magnify_nearest(img: &RgbaImage, factor: u32) -> RgbaImage {
     if factor <= 1 {
         return img.clone();
@@ -611,37 +602,6 @@ fn magnify_nearest(img: &RgbaImage, factor: u32) -> RgbaImage {
 /// Build before-action inject: prior turn’s **unmarked** JPEG + **current** pointer, plus a **±50 px** crop magnified **4×** for geometry.
 ///
 /// `prior_monitor` must be the monitor bounds from when `prior_raw_jpeg_unmarked` was captured.
-pub fn build_before_action_inject(
-    prior_raw_jpeg_unmarked: &[u8],
-    prior_monitor: &MonitorInfo,
-    current_global_pointer: (i32, i32),
-) -> Result<BeforeActionInject> {
-    let mut raw_rgba = decode_jpeg_to_rgba(prior_raw_jpeg_unmarked)?;
-    let (w, h) = (raw_rgba.width(), raw_rgba.height());
-    let (mx, my) = local_on_monitor(
-        current_global_pointer.0,
-        current_global_pointer.1,
-        prior_monitor,
-    );
-    let mouse = overlay_position_if_inside(mx, my, w, h);
-    apply_pointer_and_caret_overlays(&mut raw_rgba, None, mouse);
-
-    let zmx = mx.clamp(0, w.saturating_sub(1) as i32);
-    let zmy = my.clamp(0, h.saturating_sub(1) as i32);
-    let mut zoom_crop = crop_square_around(&raw_rgba, zmx, zmy, BEFORE_POINTER_ZOOM_CROP_SIDE);
-    zoom_crop = magnify_nearest(&zoom_crop, BEFORE_POINTER_ZOOM_FACTOR);
-    tint_zoom_border(
-        &mut zoom_crop,
-        ACCENT_POINTER_BEFORE,
-        ZoomBorderMode::LeftAccent,
-    );
-
-    Ok(BeforeActionInject {
-        screen_jpeg: screen::rgba_to_jpeg_bytes(raw_rgba, screen::SCREENSHOT_JPEG_QUALITY)?,
-        zoom_pointer_png: rgba_to_png_bytes(&zoom_crop)?,
-    })
-}
-
 /// Mark an unmarked capture JPEG with synthetic pointer and focus caret (no SOM annotation).
 pub fn mark_raw_jpeg_with_pointer_and_caret(
     raw_jpeg_unmarked: &[u8],
@@ -659,20 +619,6 @@ pub fn mark_raw_jpeg_with_pointer_and_caret(
     });
     apply_pointer_and_caret_overlays(&mut raw_rgba, caret, mouse);
     screen::rgba_to_jpeg_bytes(raw_rgba, screen::SCREENSHOT_JPEG_QUALITY)
-}
-
-/// Back-compat helper: full-frame only (tests).
-pub fn build_before_action_raw_jpeg(
-    prior_raw_jpeg_unmarked: &[u8],
-    prior_monitor: &MonitorInfo,
-    current_global_pointer: (i32, i32),
-) -> Result<Vec<u8>> {
-    Ok(build_before_action_inject(
-        prior_raw_jpeg_unmarked,
-        prior_monitor,
-        current_global_pointer,
-    )?
-    .screen_jpeg)
 }
 
 #[cfg(test)]
@@ -717,21 +663,6 @@ mod tests {
     }
 
     #[test]
-    fn before_action_synthetic_pointer_toggle() {
-        let monitor = MonitorInfo::new(0, 0, 32, 32);
-        let prior = RgbaImage::from_pixel(32, 32, Rgba([40, 80, 120, 255]));
-        let jpeg_prior =
-            screen::rgba_to_jpeg_bytes(prior.clone(), screen::SCREENSHOT_JPEG_QUALITY).unwrap();
-        let out = build_before_action_raw_jpeg(&jpeg_prior, &monitor, (16, 16)).unwrap();
-        let marked = decode_jpeg_to_rgba(&out).unwrap();
-        let unmarked = decode_jpeg_to_rgba(&jpeg_prior).unwrap();
-        if DRAW_SYNTHETIC_POINTER_OVERLAY {
-            assert_ne!(marked.get_pixel(16, 16), unmarked.get_pixel(16, 16));
-        } else {
-            assert_eq!(marked.get_pixel(16, 16), unmarked.get_pixel(16, 16));
-        }
-    }
-
     #[test]
     fn after_action_pointer_zoom_is_4x_200_crop() {
         let monitor = MonitorInfo::new(0, 0, 400, 400);
@@ -759,24 +690,6 @@ mod tests {
         assert!(work.screenshot_jpeg);
         assert!(!work.zoom_crops);
         assert!(work.pointer_zoom);
-    }
-
-    #[test]
-    fn before_action_zoom_is_4x_crop_side() {
-        let monitor = MonitorInfo::new(0, 0, 200, 200);
-        let prior = RgbaImage::from_pixel(200, 200, Rgba([40, 80, 120, 255]));
-        let jpeg_prior =
-            screen::rgba_to_jpeg_bytes(prior, screen::SCREENSHOT_JPEG_QUALITY).unwrap();
-        let pack = build_before_action_inject(&jpeg_prior, &monitor, (100, 100)).unwrap();
-        let zoom = decode_png_to_rgba(&pack.zoom_pointer_png).unwrap();
-        assert_eq!(
-            zoom.width(),
-            BEFORE_POINTER_ZOOM_CROP_SIDE * BEFORE_POINTER_ZOOM_FACTOR
-        );
-        assert_eq!(
-            zoom.height(),
-            BEFORE_POINTER_ZOOM_CROP_SIDE * BEFORE_POINTER_ZOOM_FACTOR
-        );
     }
 
     #[test]

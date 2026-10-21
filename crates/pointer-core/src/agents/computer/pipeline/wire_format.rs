@@ -232,7 +232,6 @@ mod tests {
             zoom_pointer_png: Vec::new(),
             mouse_neighbor_reference_text: None,
             monitor: MonitorInfo::new(0, 0, 1920, 1080),
-            inject_before_action: None,
         }
     }
 

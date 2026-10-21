@@ -21,7 +21,6 @@ use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::agents::computer::state::ComputerState;
-use crate::agents::computer::vision::screen;
 use crate::provider::OpenAIProvider;
 
 pub use engine::{locate_elements, locate_one, LocateVision};
@@ -59,19 +58,19 @@ pub async fn run_locate_element(
     Ok(render_results(&outcomes))
 }
 
-/// Fresh screenshot in **logical pixels** for the conversation's monitor.
+/// The frame the model is already looking at.
+///
+/// Reuses the pipeline capture rather than taking a new OS screenshot: the main
+/// LLM decided to call `locate_element` based on the `[Screen current]` image,
+/// so grounding has to run on that same frame. A second capture costs time and,
+/// worse, can land on a different moment (animation, loading) and return
+/// coordinates for a screen the caller never saw.
+///
+/// The unmarked JPEG is used on purpose — the synthetic pointer overlay can sit
+/// on top of the very target being located.
 async fn capture_frame(state: &ComputerState, conversation_id: &str) -> Result<LocateFrame> {
-    let monitor_id = state.conversation_monitor_id(conversation_id);
-    let plan = tokio::task::spawn_blocking(move || {
-        screen::screenshot_for_selection(monitor_id.as_deref())
-    })
-    .await
-    .map_err(|e| anyhow!("screenshot task join: {e}"))??;
-    if let Some(new_id) = plan.refreshed_monitor_id {
-        log::info!("locate_element: monitor id refreshed -> {new_id}");
-        state.set_conversation_monitor(conversation_id, Some(new_id));
-    }
-    LocateFrame::from_jpeg(&plan.packet.jpeg)
+    let cap = state.ensure_pipeline_capture(conversation_id).await?;
+    LocateFrame::from_jpeg(&cap.raw_unmarked_jpeg)
 }
 
 fn parse_requests(args: &Value) -> Result<Vec<LocateRequest>> {

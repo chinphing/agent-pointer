@@ -341,7 +341,7 @@ const {
         role="presentation"
         @click.self="computerAdvancedModal = false"
       >
-        <div class="max-w-sm max-h-[80vh] flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" @click.stop>
+        <div class="w-[20rem] max-w-[90vw] max-h-[80vh] flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" @click.stop>
           <div class="flex items-start justify-between gap-2 border-b border-border px-4 py-3 shrink-0">
             <div class="min-w-0">
               <h4 class="text-sm font-semibold text-foreground">{{ t('settings.assistant.computerAdvancedTitle') }}</h4>
@@ -366,7 +366,7 @@ const {
               <div class="flex items-center gap-2">
                 <select
                   :value="computerPipelineLocateValue()"
-                  class="h-8 flex-1 min-w-0 max-w-[9.5rem] px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                  class="h-8 flex-1 min-w-0 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                   @change="selectComputerPipelineLocate(($event.target as HTMLSelectElement).value)"
                 >
                   <option value="">{{ t('settings.agentPanel.locateInherit') }}</option>
@@ -390,7 +390,7 @@ const {
               <div class="flex items-center gap-2">
                 <select
                   :value="computerPipelineVerifyValue()"
-                  class="h-8 flex-1 min-w-0 max-w-[9.5rem] px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                  class="h-8 flex-1 min-w-0 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                   @change="selectComputerPipelineVerify(($event.target as HTMLSelectElement).value)"
                 >
                   <option v-for="item in s.allModels" :key="'verify-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>

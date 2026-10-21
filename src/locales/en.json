@@ -595,6 +595,7 @@
       "showSubAgentTrace": "Show sub-agent frames",
       "showChildBoards": "Show child task boards",
       "execution": "Execution",
+      "autoCompact": "Collapse to status bar while running",
       "collapseProcess": "Collapse process by default"
     },
     "notify": {

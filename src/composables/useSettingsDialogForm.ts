@@ -278,6 +278,7 @@ function createSettingsDialogForm(deps: {
   const taskBoardShowChildBoards = ref(false)
   const computerHumanLike = ref(false)
   const computerAutoSwitchMonitor = ref(true)
+  const computerAutoCompact = ref(true)
   const collapseProcessByDefault = ref(false)
   const userCodingRules = ref('')
   const computerAnnotatedScreenViewEnabled = ref(false)
@@ -488,6 +489,7 @@ function createSettingsDialogForm(deps: {
   taskBoardShowChildBoards.value = s.settings.taskBoardShowChildBoards === true
   computerHumanLike.value = s.settings.computerHumanLike === true
   computerAutoSwitchMonitor.value = s.settings.computerAutoSwitchMonitor !== false
+  computerAutoCompact.value = s.userSettings.computerAutoCompact !== false
   collapseProcessByDefault.value = s.userSettings.collapseProcessByDefault === true
   userCodingRules.value = s.userSettings.userCodingRules ?? ''
   computerAnnotatedScreenViewEnabled.value = s.settings.computerAnnotatedScreenViewEnabled === true
@@ -771,6 +773,7 @@ function createSettingsDialogForm(deps: {
 
   function assistantPreferencesPayload() {
   return {
+    computerAutoCompact: computerAutoCompact.value,
     collapseProcessByDefault: collapseProcessByDefault.value,
     userCodingRules: userCodingRules.value.trim(),
     toolApprovalMode: toolApprovalMode.value,
@@ -853,6 +856,7 @@ function createSettingsDialogForm(deps: {
     s.settings.computerAnnotatedScreenViewEnabled = payload.computerAnnotatedScreenViewEnabled
     s.settings.taskBoardShowChildBoards = payload.taskBoardShowChildBoards
     s.settings.agentUiOverrides = { ...payload.agentUiOverrides }
+    s.userSettings.computerAutoCompact = payload.computerAutoCompact
     s.userSettings.collapseProcessByDefault = payload.collapseProcessByDefault
     s.userSettings.userCodingRules = payload.userCodingRules
     s.userSettings.toolApprovalMode = payload.toolApprovalMode
@@ -964,6 +968,7 @@ function createSettingsDialogForm(deps: {
       maxConcurrentRuns,
       computerHumanLike,
       computerAutoSwitchMonitor,
+      computerAutoCompact,
       collapseProcessByDefault,
       userCodingRules,
       rawContentViewEnabled,
@@ -1034,6 +1039,7 @@ function createSettingsDialogForm(deps: {
     taskBoardShowChildBoards,
     computerHumanLike,
     computerAutoSwitchMonitor,
+    computerAutoCompact,
     collapseProcessByDefault,
     userCodingRules,
     computerAnnotatedScreenViewEnabled,

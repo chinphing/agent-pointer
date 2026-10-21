@@ -1886,6 +1886,10 @@ fn default_curator_interval_days() -> u32 {
     7
 }
 
+fn default_computer_auto_compact() -> bool {
+    true
+}
+
 fn default_play_sound_on_finish() -> bool {
     true
 }
@@ -2020,6 +2024,11 @@ pub struct UserSettings {
         rename = "curatorIntervalDays"
     )]
     pub curator_interval_days: u32,
+    #[serde(
+        default = "default_computer_auto_compact",
+        rename = "computerAutoCompact"
+    )]
+    pub computer_auto_compact: bool,
     /// Play a short chime when a chat turn finishes (UI preference).
     #[serde(default = "default_play_sound_on_finish", rename = "playSoundOnFinish")]
     pub play_sound_on_finish: bool,
@@ -2232,6 +2241,7 @@ impl Default for UserSettings {
             curator_enabled: default_curator_enabled(),
             curator_idle_hours: default_curator_idle_hours(),
             curator_interval_days: default_curator_interval_days(),
+            computer_auto_compact: default_computer_auto_compact(),
             play_sound_on_finish: default_play_sound_on_finish(),
             collapse_process_by_default: default_collapse_process_by_default(),
             media_oss: MediaOssConfig::default(),

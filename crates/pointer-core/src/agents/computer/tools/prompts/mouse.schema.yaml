@@ -29,13 +29,6 @@ mouse_click_at:
       minimum: 1
       maximum: 2
       description: Number of clicks (1 or 2). Default 1.
-    zoom:
-      type: boolean
-      description: >
-        Set true only when x and y are 0–1000 on
-        [Zoom pointer after action]. The host maps them
-        onto the full screen. Omit or false for full-screen
-        coordinates.
     wait:
       type: number
       minimum: 1
@@ -65,13 +58,6 @@ mouse_double_click_at:
         Logical screen pixel Y. For a visible target this MUST come
         from a successful `locate_element` result; do not estimate
         coordinates off a screenshot.
-    zoom:
-      type: boolean
-      description: >
-        Set true only when x and y are 0–1000 on
-        [Zoom pointer after action]. The host maps them
-        onto the full screen. Omit or false for full-screen
-        coordinates.
     wait:
       type: number
       minimum: 1
@@ -101,13 +87,6 @@ mouse_right_click_at:
         Logical screen pixel Y. For a visible target this MUST come
         from a successful `locate_element` result; do not estimate
         coordinates off a screenshot.
-    zoom:
-      type: boolean
-      description: >
-        Set true only when x and y are 0–1000 on
-        [Zoom pointer after action]. The host maps them
-        onto the full screen. Omit or false for full-screen
-        coordinates.
     wait:
       type: number
       minimum: 1
@@ -137,13 +116,6 @@ mouse_hover_at:
         Logical screen pixel Y. For a visible target this MUST come
         from a successful `locate_element` result; do not estimate
         coordinates off a screenshot.
-    zoom:
-      type: boolean
-      description: >
-        Set true only when x and y are 0–1000 on
-        [Zoom pointer after action]. The host maps them
-        onto the full screen. Omit or false for full-screen
-        coordinates.
     wait:
       type: number
       minimum: 1
@@ -242,13 +214,6 @@ mouse_drag_to:
         Logical screen pixel Y. For a visible target this MUST come
         from a successful `locate_element` result; do not estimate
         coordinates off a screenshot.
-    zoom:
-      type: boolean
-      description: >
-        Set true only when x and y are 0–1000 on
-        [Zoom pointer after action]. The host maps them
-        onto the full screen. Omit or false for full-screen
-        coordinates.
     wait:
       type: number
       minimum: 1
@@ -274,13 +239,6 @@ mouse_drag_from_to_at:
       type: number
     y2:
       type: number
-    zoom:
-      type: boolean
-      description: >
-        Set true only when x1, y1, x2, and y2 are 0–1000 on
-        [Zoom pointer after action]. The host maps them
-        onto the full screen. Omit or false for full-screen
-        coordinates.
     wait:
       type: number
       minimum: 1

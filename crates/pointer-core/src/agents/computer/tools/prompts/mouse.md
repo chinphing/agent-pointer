@@ -33,10 +33,6 @@ the next turn — use **`input_*`** with **`text`** instead.
 - **`mouse_drag_to`** — Requires **`x`**, **`y`**. Drags with the left button
   **from wherever the pointer already is** — no start point. Use it only when
   the pointer is already on the item to grab.
-- Optional **`zoom`** (boolean). Set true only when the point is read on
-  **`[Zoom pointer after action]`**. Then every coordinate on that call
-  is 0–1000 of that crop image. The host maps them onto the full screen.
-  Omit it for full-screen coordinates (pixels).
 
 Coordinates are **logical pixels**, the same width and height as the screenshot
 you are looking at — not normalized, not Retina device pixels.

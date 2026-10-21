@@ -2,7 +2,6 @@
 
 use super::coord::CoordinateSystem;
 use super::screen::MonitorInfo;
-use super::screen_overlay::{zoom_norm_to_session, PointerZoomFrame};
 use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -47,7 +46,6 @@ pub struct VisionState {
     /// Current coordinate system.
     coordinate_system: CoordinateSystem,
     /// Crop window for the current `[Zoom pointer after action]`, if injected.
-    pointer_zoom_frame: Option<PointerZoomFrame>,
     /// History of recent actions.
     action_history: Vec<RecentAction>,
     /// Maximum number of actions to keep in history.
@@ -111,54 +109,6 @@ impl VisionState {
     ///
     /// # Returns
     /// Some((x, y)) if screen bbox is set, None otherwise.
-    pub fn set_pointer_zoom_frame(&mut self, frame: Option<PointerZoomFrame>) {
-        self.pointer_zoom_frame = frame;
-    }
-
-    /// Session point for `resolve_coordinate`.
-    /// When `use_zoom` is set, `x`/`y` are 0–1000 on the zoom crop.
-    pub fn model_point_to_session(&self, x: f32, y: f32, use_zoom: bool) -> Option<(f32, f32)> {
-        if !use_zoom {
-            return Some((x, y));
-        }
-        let Some(frame) = self.pointer_zoom_frame else {
-            log::warn!("pointer zoom map: zoom flag set but crop frame is missing");
-            return None;
-        };
-        // `zoom_norm_to_session` maps a 0-1000 point on the zoom crop onto
-        // 0-1000 of the **full frame**, independent of the coordinate system.
-        // From there each system derives its own session space:
-        // - Qwen/Kimi: the 0-1000 frame value is already the session point.
-        // - Pixel: convert the frame ratio to monitor-relative **logical**
-        //   pixels. The frame is in capture-bitmap pixels, which differ from
-        //   logical pixels on Retina; `resolve_coordinate` then adds the
-        //   monitor origin, so returning capture pixels here would offset.
-        let (fx, fy) = zoom_norm_to_session(&frame, x, y);
-        let (sx, sy) = match self.coordinate_system {
-            CoordinateSystem::Qwen | CoordinateSystem::Kimi => (fx, fy),
-            CoordinateSystem::Pixel => {
-                let Some(monitor) = self.screen_bbox else {
-                    log::warn!("pointer zoom map: pixel mode needs screen bounds");
-                    return None;
-                };
-                (
-                    fx / 1000.0 * monitor.width as f32,
-                    fy / 1000.0 * monitor.height as f32,
-                )
-            }
-        };
-        log::info!(
-            "pointer zoom map: zoom=({x:.1},{y:.1}) session=({sx:.1},{sy:.1}) origin=({},{}) side={}x{} frame={}x{}",
-            frame.origin_x,
-            frame.origin_y,
-            frame.side_w,
-            frame.side_h,
-            frame.frame_w,
-            frame.frame_h
-        );
-        Some((sx, sy))
-    }
-
     pub fn resolve_coordinate(&self, x: f32, y: f32) -> Option<(i32, i32)> {
         let monitor = self.screen_bbox?;
         Some(super::coord::normalized_to_screen(
@@ -298,92 +248,6 @@ mod tests {
         assert_eq!(pos, Some((960, 540)));
     }
 
-    #[test]
-    fn zoom_flag_maps_crop_or_fails_without_frame() {
-        let mut state = VisionState::new();
-        assert_eq!(
-            state.model_point_to_session(10.0, 20.0, false),
-            Some((10.0, 20.0))
-        );
-        assert!(state.model_point_to_session(10.0, 20.0, true).is_none());
-        state.set_pointer_zoom_frame(Some(PointerZoomFrame {
-            origin_x: 100,
-            origin_y: 50,
-            side_w: 200,
-            side_h: 200,
-            frame_w: 1000,
-            frame_h: 500,
-        }));
-        let (x, y) = state
-            .model_point_to_session(0.0, 0.0, true)
-            .expect("mapped");
-        assert!((x - 100.0).abs() < 0.01, "{x}");
-        assert!((y - 100.0).abs() < 0.01, "{y}");
-    }
-
-    #[test]
-    fn zoom_pixel_mode_returns_logical_pixels() {
-        let mut state = VisionState::new();
-        state.set_screen_bbox(MonitorInfo::new(0, 0, 1920, 1080));
-        state.set_coordinate_system(CoordinateSystem::Pixel);
-        state.set_pointer_zoom_frame(Some(PointerZoomFrame {
-            origin_x: 100,
-            origin_y: 50,
-            side_w: 200,
-            side_h: 200,
-            frame_w: 1920,
-            frame_h: 1080,
-        }));
-        let (x, y) = state
-            .model_point_to_session(0.0, 0.0, true)
-            .expect("mapped");
-        assert!((x - 100.0).abs() < 0.01, "{x}");
-        assert!((y - 50.0).abs() < 0.01, "{y}");
-    }
-
-    #[test]
-    fn zoom_pixel_mode_converts_retina_capture_pixels() {
-        let mut state = VisionState::new();
-        // Logical 1920x1080 monitor captured at 2x.
-        state.set_screen_bbox(MonitorInfo::new(0, 0, 1920, 1080));
-        state.set_coordinate_system(CoordinateSystem::Pixel);
-        state.set_pointer_zoom_frame(Some(PointerZoomFrame {
-            origin_x: 200,
-            origin_y: 100,
-            side_w: 400,
-            side_h: 400,
-            frame_w: 3840,
-            frame_h: 2160,
-        }));
-        let (x, y) = state
-            .model_point_to_session(0.0, 0.0, true)
-            .expect("mapped");
-        // Capture pixel (200, 100) is logical (100, 50).
-        assert!((x - 100.0).abs() < 0.01, "{x}");
-        assert!((y - 50.0).abs() < 0.01, "{y}");
-    }
-
-    #[test]
-    fn zoom_pixel_mode_then_resolve_lands_on_screen() {
-        let mut state = VisionState::new();
-        state.set_screen_bbox(MonitorInfo::new(1920, 0, 1920, 1080));
-        state.set_coordinate_system(CoordinateSystem::Pixel);
-        state.set_pointer_zoom_frame(Some(PointerZoomFrame {
-            origin_x: 100,
-            origin_y: 50,
-            side_w: 200,
-            side_h: 200,
-            frame_w: 1920,
-            frame_h: 1080,
-        }));
-        let (sx, sy) = state
-            .model_point_to_session(0.0, 0.0, true)
-            .expect("mapped");
-        let (px, py) = state.resolve_coordinate(sx, sy).expect("resolved");
-        // monitor origin 1920 + logical 100 / 50
-        assert_eq!((px, py), (2020, 50));
-    }
-
     /// The `mouse_click_at` chain: model point -> session -> screen.
     /// A pixel value the model supplies must land on that same pixel.
     #[test]
@@ -392,8 +256,7 @@ mod tests {
         state.set_screen_bbox(MonitorInfo::new(0, 0, 1920, 1080));
         state.set_coordinate_system(CoordinateSystem::Pixel);
         for (x, y) in [(0.0, 0.0), (820.0, 45.0), (1919.0, 1079.0)] {
-            let (sx, sy) = state.model_point_to_session(x, y, false).expect("session");
-            let (px, py) = state.resolve_coordinate(sx, sy).expect("resolved");
+            let (px, py) = state.resolve_coordinate(x, y).expect("resolved");
             assert_eq!((px, py), (x as i32, y as i32), "point {x},{y}");
         }
     }
@@ -404,26 +267,8 @@ mod tests {
         let mut state = VisionState::new();
         state.set_screen_bbox(MonitorInfo::new(1920, 0, 1920, 1080));
         state.set_coordinate_system(CoordinateSystem::Pixel);
-        let (sx, sy) = state
-            .model_point_to_session(820.0, 45.0, false)
-            .expect("session");
-        let (px, py) = state.resolve_coordinate(sx, sy).expect("resolved");
+        let (px, py) = state.resolve_coordinate(820.0, 45.0).expect("resolved");
         assert_eq!((px, py), (2740, 45));
-    }
-
-    #[test]
-    fn zoom_pixel_mode_without_screen_bbox_returns_none() {
-        let mut state = VisionState::new();
-        state.set_coordinate_system(CoordinateSystem::Pixel);
-        state.set_pointer_zoom_frame(Some(PointerZoomFrame {
-            origin_x: 0,
-            origin_y: 0,
-            side_w: 10,
-            side_h: 10,
-            frame_w: 100,
-            frame_h: 100,
-        }));
-        assert!(state.model_point_to_session(0.0, 0.0, true).is_none());
     }
 
     #[test]

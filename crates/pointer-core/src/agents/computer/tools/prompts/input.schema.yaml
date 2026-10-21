@@ -19,13 +19,6 @@ input_at:
         Logical screen pixel Y. For a visible target this MUST come
         from a successful `locate_element` result; do not estimate
         coordinates off a screenshot.
-    zoom:
-      type: boolean
-      description: >
-        Set true only when x and y are 0–1000 on
-        [Zoom pointer after action]. The host maps them
-        onto the full screen. Omit or false for full-screen
-        coordinates.
     text:
       type: string
     clear_first:

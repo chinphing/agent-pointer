@@ -15,7 +15,7 @@ use crate::agents::computer::tier::{
 use crate::agents::computer::vision::coord::CoordinateSystem;
 use crate::agents::computer::vision::screen;
 use crate::agents::computer::vision::screen_overlay::{
-    self, build_vision_overlay_pack, VisionOverlayWork,
+    self, build_vision_overlay_pack,
 };
 use crate::agents::computer::vision::vision_state::VisionState;
 use crate::agents::AgentRegistry;
@@ -42,12 +42,6 @@ pub struct ScreenCaptureResult {
     /// caret drawn on top. There used to be a second, annotated copy; it became
     /// identical once the annotation service was removed.
     pub screenshot_jpeg: Vec<u8>,
-    /// Zoom: top 100px of marked annotated (menu bar).
-    pub zoom_menu_bar_png: Vec<u8>,
-    /// Zoom: bottom 100px of marked annotated (task bar).
-    pub zoom_task_bar_png: Vec<u8>,
-    /// Zoom: 200×200 crop, 4× magnified (800×800) around pointer on marked annotated.
-    pub zoom_pointer_png: Vec<u8>,
     /// Optional prose under **`[CUR_SCREEN]`**: **Pointer position**.
     pub mouse_neighbor_reference_text: Option<String>,
     /// Logical monitor bounds for this capture.
@@ -437,7 +431,6 @@ impl ComputerState {
         let t_total = Instant::now();
 
         let session = self.get_or_create_session(conversation_id);
-        let work = VisionOverlayWork::standard();
 
         // Annotation service removed (P5): there is no SoM pass any more, so the
         // coordinate baseline below is the only thing this block still owns.
@@ -454,7 +447,7 @@ impl ComputerState {
 
         let t = Instant::now();
         let pack =
-            build_vision_overlay_pack(screen_capture, &monitor, global_pointer, global_caret, work)
+            build_vision_overlay_pack(screen_capture, &monitor, global_pointer, global_caret)
                 .map_err(|e| anyhow::anyhow!(e))?;
         let overlay_ms = t.elapsed().as_secs_f64() * 1000.0;
 
@@ -463,26 +456,6 @@ impl ComputerState {
             session.current_turn_raw_jpeg_unmarked = Some(screen_capture.to_vec());
             session.current_turn_capture_px = Some(capture_px);
             session.last_annotated = Some((pack.screenshot_jpeg.clone(), monitor));
-            if let Some(frame) = pack.pointer_zoom_frame {
-                log::info!(
-                    "apply_screen_capture: pointer zoom frame origin=({},{}) side={}x{} frame={}x{}",
-                    frame.origin_x,
-                    frame.origin_y,
-                    frame.side_w,
-                    frame.side_h,
-                    frame.frame_w,
-                    frame.frame_h
-                );
-            } else if !pack.zoom_pointer_png.is_empty() {
-                log::warn!(
-                    "apply_screen_capture: pointer zoom image present but crop frame missing"
-                );
-            }
-            session
-                .vision_state
-                .lock()
-                .unwrap()
-                .set_pointer_zoom_frame(pack.pointer_zoom_frame);
         }
 
         let total_ms = t_total.elapsed().as_secs_f64() * 1000.0;
@@ -503,9 +476,6 @@ impl ComputerState {
         Ok(ScreenCaptureResult {
             raw_unmarked_jpeg: screen_capture.to_vec(),
             screenshot_jpeg: pack.screenshot_jpeg,
-            zoom_menu_bar_png: pack.zoom_menu_bar_png,
-            zoom_task_bar_png: pack.zoom_task_bar_png,
-            zoom_pointer_png: pack.zoom_pointer_png,
             mouse_neighbor_reference_text: None,
             monitor,
         })
@@ -788,9 +758,6 @@ mod tests {
         let cap = ScreenCaptureResult {
             raw_unmarked_jpeg: vec![7],
             screenshot_jpeg: vec![9, 9, 9],
-            zoom_menu_bar_png: Vec::new(),
-            zoom_task_bar_png: Vec::new(),
-            zoom_pointer_png: vec![1],
             mouse_neighbor_reference_text: None,
             monitor: screen::MonitorInfo::new(0, 0, 100, 100),
         };

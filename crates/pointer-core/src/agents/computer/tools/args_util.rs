@@ -150,20 +150,6 @@ pub fn move_offset_pixels(args: &Value) -> Result<(i32, i32)> {
     Ok((ox, oy))
 }
 
-/// `zoom: true` means `x`/`y` are 0–1000 on `[Zoom pointer after action]`.
-pub fn zoom_flag_from_args(args: &Value) -> Result<bool> {
-    match args.get("zoom") {
-        None => Ok(false),
-        Some(Value::Bool(v)) => Ok(*v),
-        Some(Value::String(s)) if s.eq_ignore_ascii_case("true") => Ok(true),
-        Some(Value::String(s)) if s.eq_ignore_ascii_case("false") => Ok(false),
-        Some(other) => {
-            log::warn!("zoom flag invalid: {other}");
-            Err(anyhow!("zoom must be a boolean"))
-        }
-    }
-}
-
 pub fn require_non_empty_str(args: &Value, key: &str) -> Result<String> {
     let Some(v) = args.get(key) else {
         return Err(anyhow!("Missing or invalid '{}' parameter", key));

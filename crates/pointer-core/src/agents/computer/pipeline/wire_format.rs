@@ -227,9 +227,6 @@ mod tests {
         ScreenCaptureResult {
             raw_unmarked_jpeg: Vec::new(),
             screenshot_jpeg: vec![1, 2, 3],
-            zoom_menu_bar_png: Vec::new(),
-            zoom_task_bar_png: Vec::new(),
-            zoom_pointer_png: Vec::new(),
             mouse_neighbor_reference_text: None,
             monitor: MonitorInfo::new(0, 0, 1920, 1080),
         }

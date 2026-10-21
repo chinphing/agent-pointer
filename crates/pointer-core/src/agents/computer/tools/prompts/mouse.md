@@ -2,6 +2,13 @@
 
 Flat mouse tools — each tool name is the complete operation. No `method` parameter.
 
+**Where coordinates come from (hard rule).** For any visible target — button,
+icon, menu item, tab, link — you MUST call **`locate_element`** first and pass
+its returned `x` / `y` unchanged. Your own estimate of screen pixels is
+unreliable; do not read coordinates off the screenshot. Pass `x` / `y` directly
+only when the user gave the numbers, or they came from a `locate_element`
+result and the screen has not changed since.
+
 Every call requires **`goal`** (outcome) and **`action`** (human-readable target description for the UI).
 
 Optional: `wait` (1–5 s).

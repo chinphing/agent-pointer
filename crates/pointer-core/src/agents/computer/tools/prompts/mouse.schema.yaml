@@ -7,8 +7,16 @@ mouse_click_at:
       type: string
     x:
       type: number
+      description: >
+        Logical screen pixel X. For a visible target this MUST come
+        from a successful `locate_element` result; do not estimate
+        coordinates off a screenshot.
     y:
       type: number
+      description: >
+        Logical screen pixel Y. For a visible target this MUST come
+        from a successful `locate_element` result; do not estimate
+        coordinates off a screenshot.
     button:
       type: string
       enum:
@@ -47,8 +55,16 @@ mouse_double_click_at:
       type: string
     x:
       type: number
+      description: >
+        Logical screen pixel X. For a visible target this MUST come
+        from a successful `locate_element` result; do not estimate
+        coordinates off a screenshot.
     y:
       type: number
+      description: >
+        Logical screen pixel Y. For a visible target this MUST come
+        from a successful `locate_element` result; do not estimate
+        coordinates off a screenshot.
     zoom:
       type: boolean
       description: >
@@ -75,8 +91,16 @@ mouse_right_click_at:
       type: string
     x:
       type: number
+      description: >
+        Logical screen pixel X. For a visible target this MUST come
+        from a successful `locate_element` result; do not estimate
+        coordinates off a screenshot.
     y:
       type: number
+      description: >
+        Logical screen pixel Y. For a visible target this MUST come
+        from a successful `locate_element` result; do not estimate
+        coordinates off a screenshot.
     zoom:
       type: boolean
       description: >
@@ -103,8 +127,16 @@ mouse_hover_at:
       type: string
     x:
       type: number
+      description: >
+        Logical screen pixel X. For a visible target this MUST come
+        from a successful `locate_element` result; do not estimate
+        coordinates off a screenshot.
     y:
       type: number
+      description: >
+        Logical screen pixel Y. For a visible target this MUST come
+        from a successful `locate_element` result; do not estimate
+        coordinates off a screenshot.
     zoom:
       type: boolean
       description: >
@@ -200,8 +232,16 @@ mouse_drag_to:
       type: string
     x:
       type: number
+      description: >
+        Logical screen pixel X. For a visible target this MUST come
+        from a successful `locate_element` result; do not estimate
+        coordinates off a screenshot.
     y:
       type: number
+      description: >
+        Logical screen pixel Y. For a visible target this MUST come
+        from a successful `locate_element` result; do not estimate
+        coordinates off a screenshot.
     zoom:
       type: boolean
       description: >

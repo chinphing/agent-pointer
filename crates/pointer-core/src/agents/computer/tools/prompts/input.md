@@ -2,6 +2,12 @@
 
 Flat input tools — each tool name is the complete operation. No `method` parameter.
 
+**Where `x` / `y` come from (hard rule).** `input_at` clicks a target, so its
+coordinates must come from a **`locate_element`** result. Locate the field
+first, then pass the returned `x` / `y` unchanged. Do not estimate pixels off
+the screenshot. `input_focused` needs no coordinates — it types into whatever
+already has focus.
+
 Every call requires **`goal`** (outcome) and **`action`** (human-readable description for UI).
 Optional: `clear_first`, `auto_enter`, `wait` (1–5 s).
 

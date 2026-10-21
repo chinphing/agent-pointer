@@ -93,16 +93,15 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
 
                 if let Some((backend, method)) = backend_method {
                     let vision = ms.vision_state_for_conversation(&cid);
-                    let hl_default = effective_human_like_default();
-                    let tool = MouseTool::new(ms.executor.clone(), ms.control.clone(), vision, hl_default);
+                    let tool = MouseTool::new(ms.control.clone(), vision);
                     run_synthetic_computer_tool(move || {
                         tool.execute_with(backend, method, &args)
                     })
                 } else {
                     // mouse_scroll_current — pixel dx/dy at the current pointer.
-                    let executor = ms.executor.clone();
+                    let control = ms.control.clone();
                     run_synthetic_computer_tool(move || {
-                        tool_mouse::scroll_current(&executor, &args)
+                        tool_mouse::scroll_current(&control, &args)
                     })
                 }
             });
@@ -175,8 +174,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     .unwrap_or_default()
                     .to_string();
                 let vision = st.vision_state_for_conversation(&cid);
-                let hl_default = effective_human_like_default();
-                let tool = InputTool::new(st.executor.clone(), vision, hl_default);
+                let tool = InputTool::new(st.control.clone(), vision);
                 run_synthetic_computer_tool(move || tool.execute_with(backend, &args))
             });
 

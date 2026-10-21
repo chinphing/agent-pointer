@@ -1,10 +1,10 @@
 use super::args_util::{
-    click_count_from_args, human_like_from_args, mouse_button_from_args, require_non_empty_str,
-    required_f32_arg, scroll_pixels_from_args,
+    click_count_from_args, mouse_button_from_args, require_non_empty_str, required_f32_arg,
+    scroll_pixels_from_args,
 };
 use super::method_route::MouseBackend;
 use crate::agents::computer::control::ComputerControl;
-use crate::agents::computer::actions::ActionExecutor;
+use crate::agents::computer::input::actions::MouseButton;
 use crate::agents::computer::verify::VerifyHintGenerator;
 use crate::agents::computer::vision_state::VisionState;
 use anyhow::{anyhow, Result};
@@ -15,34 +15,21 @@ use std::sync::{Arc, Mutex};
 
 /// Mouse actions using logical screen pixel coordinates.
 pub struct MouseAtTool {
-    executor: Arc<Mutex<ActionExecutor>>,
-    /// L1 abstraction for the stateless actions. `drag_to` keeps using the
-    /// executor because it honours a per-call `human_like` override that the
-    /// trait does not carry.
+    /// Every action goes through the L1 abstraction, so the same code path runs
+    /// locally and over a remote control channel. `human_like` is a property of
+    /// the control implementation, not a per-call override.
     control: Arc<dyn ComputerControl>,
     vision_state: Arc<Mutex<VisionState>>,
     verify: VerifyHintGenerator,
-    human_like_default: bool,
 }
 
 impl MouseAtTool {
-    pub fn new(
-        executor: Arc<Mutex<ActionExecutor>>,
-        control: Arc<dyn ComputerControl>,
-        vision_state: Arc<Mutex<VisionState>>,
-        human_like_default: bool,
-    ) -> Self {
+    pub fn new(control: Arc<dyn ComputerControl>, vision_state: Arc<Mutex<VisionState>>) -> Self {
         Self {
-            executor,
             control,
             vision_state,
             verify: VerifyHintGenerator::new(),
-            human_like_default,
         }
-    }
-
-    fn human_like(&self, args: &Value) -> bool {
-        human_like_from_args(args, self.human_like_default)
     }
 
     pub fn execute(&self, method: &str, args: &Value) -> Result<String> {
@@ -118,9 +105,18 @@ impl MouseAtTool {
             .resolve_coordinate(x2, y2)
             .ok_or_else(|| anyhow!("Screen bounds not set"))?;
         drop(vision);
-        let hl = self.human_like(args);
-        let executor = self.executor.lock().unwrap();
-        executor.drag_left_from_to(px1, py1, px2, py2, hl)?;
+        // Composed from the trait's primitive moves so the same code path runs
+        // locally and remotely. The 50 ms gaps mirror what the old
+        // `drag_left_from_to` executor call did — OS drag targets need a beat
+        // between press, move, and release or they read it as a click.
+        let gap = std::time::Duration::from_millis(50);
+        self.control.move_to(px1, py1)?;
+        std::thread::sleep(gap);
+        self.control.mouse_down(MouseButton::Left)?;
+        std::thread::sleep(gap);
+        self.control.move_to(px2, py2)?;
+        std::thread::sleep(gap);
+        self.control.mouse_up(MouseButton::Left)?;
         Ok(format!(
             "Dragged ({}, {}) -> ({}, {}). Verify on next screenshot.",
             px1, py1, px2, py2
@@ -162,11 +158,10 @@ impl MouseAtTool {
 /// Positive `dy` scrolls up, positive `dx` scrolls right. The local backend
 /// converts pixels to wheel lines; the remote backend forwards them to
 /// `pyautogui.hscroll` / `vscroll` unchanged.
-pub fn scroll_current(executor: &Arc<Mutex<ActionExecutor>>, args: &Value) -> Result<String> {
+pub fn scroll_current(control: &Arc<dyn ComputerControl>, args: &Value) -> Result<String> {
     require_non_empty_str(args, "goal")?;
     let (dx, dy) = scroll_pixels_from_args(args)?;
-    let executor = executor.lock().unwrap();
-    executor.scroll_at_current_pixels(dx, dy)?;
+    control.scroll(dx, dy)?;
     Ok(format!("Scrolled ({dx}, {dy}) px at the current pointer."))
 }
 
@@ -178,14 +173,9 @@ pub struct MouseTool {
 }
 
 impl MouseTool {
-    pub fn new(
-        executor: Arc<Mutex<ActionExecutor>>,
-        control: Arc<dyn ComputerControl>,
-        vision_state: Arc<Mutex<VisionState>>,
-        human_like_default: bool,
-    ) -> Self {
+    pub fn new(control: Arc<dyn ComputerControl>, vision_state: Arc<Mutex<VisionState>>) -> Self {
         Self {
-            at: MouseAtTool::new(executor, control, vision_state, human_like_default),
+            at: MouseAtTool::new(control, vision_state),
         }
     }
 
@@ -219,6 +209,7 @@ impl MouseTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::computer::actions::ActionExecutor;
     use crate::agents::computer::actions::{ActionBackend, ActionResult, MouseButton};
     use crate::agents::computer::input::actions::KeyPhase;
     use crate::agents::computer::input::mouse_move::MouseMoveProfile;
@@ -310,7 +301,7 @@ mod tests {
         let vision = Arc::new(Mutex::new(vision));
         let control: Arc<dyn ComputerControl> =
             Arc::new(crate::agents::computer::control::LocalControl::new(executor.clone(), false));
-        (MouseTool::new(executor, control, vision, false), calls)
+        (MouseTool::new(control, vision), calls)
     }
 
     fn recorded(calls: &Arc<Mutex<Vec<String>>>) -> Vec<String> {
@@ -436,12 +427,19 @@ mod tests {
             .is_err());
     }
 
-    #[test]
-    fn scroll_current_takes_pixels_on_both_axes() {
+    fn scroll_control() -> (Arc<dyn ComputerControl>, Arc<Mutex<Vec<String>>>) {
         let backend = RecordingBackend::default();
         let calls = backend.calls.clone();
         let executor = Arc::new(Mutex::new(ActionExecutor::new(Box::new(backend))));
-        scroll_current(&executor, &json!({"goal": "page", "dx": 200, "dy": -300})).unwrap();
+        let control: Arc<dyn ComputerControl> =
+            Arc::new(crate::agents::computer::control::LocalControl::new(executor, false));
+        (control, calls)
+    }
+
+    #[test]
+    fn scroll_current_takes_pixels_on_both_axes() {
+        let (control, calls) = scroll_control();
+        scroll_current(&control, &json!({"goal": "page", "dx": 200, "dy": -300})).unwrap();
         let log = recorded(&calls);
         assert!(log.contains(&"scroll(-3)".to_string()), "{log:?}");
         assert!(log.contains(&"scroll_horizontal(2)".to_string()), "{log:?}");
@@ -449,9 +447,8 @@ mod tests {
 
     #[test]
     fn scroll_current_rejects_a_noop_or_missing_delta() {
-        let backend = RecordingBackend::default();
-        let executor = Arc::new(Mutex::new(ActionExecutor::new(Box::new(backend))));
-        assert!(scroll_current(&executor, &json!({"goal": "page"})).is_err());
-        assert!(scroll_current(&executor, &json!({"goal": "page", "dx": 0, "dy": 0})).is_err());
+        let (control, _calls) = scroll_control();
+        assert!(scroll_current(&control, &json!({"goal": "page"})).is_err());
+        assert!(scroll_current(&control, &json!({"goal": "page", "dx": 0, "dy": 0})).is_err());
     }
 }

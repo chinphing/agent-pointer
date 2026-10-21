@@ -9,8 +9,7 @@ use crate::agents::computer::input::timing::is_desktop_vision_log_tool;
 use crate::agents::computer::pipeline::types::{AdvancedPipelineSession, VerifyConclusion};
 use crate::agents::computer::pipeline::{verify_outcome_for_tier, verify_outcome_struct};
 use crate::agents::computer::tier::{
-    format_history_block, normalize_tool_record,
-    ComputerModelConfig, ComputerTierRuntime,
+    format_history_block, normalize_tool_record, ComputerModelConfig, ComputerTierRuntime,
     PipelineLlmPhase,
 };
 use crate::agents::computer::vision::coord::CoordinateSystem;
@@ -39,10 +38,10 @@ const MAX_SESSIONS: usize = 10;
 pub struct ScreenCaptureResult {
     /// OS capture JPEG **before** synthetic pointer/caret overlay (debug / inspection only).
     pub raw_unmarked_jpeg: Vec<u8>,
-    /// Marked raw JPEG for this turn (pointer/caret drawn after annotate step).
-    pub raw_marked_jpeg: Vec<u8>,
-    /// Marked annotated JPEG (indices from service + pointer/caret).
-    pub annotated_marked_jpeg: Vec<u8>,
+    /// The one screenshot the model sees: raw capture with the pointer and
+    /// caret drawn on top. There used to be a second, annotated copy; it became
+    /// identical once the annotation service was removed.
+    pub screenshot_jpeg: Vec<u8>,
     /// Zoom: top 100px of marked annotated (menu bar).
     pub zoom_menu_bar_png: Vec<u8>,
     /// Zoom: bottom 100px of marked annotated (task bar).
@@ -151,7 +150,6 @@ impl ComputerState {
         }
         cfg
     }
-
 }
 
 impl std::fmt::Debug for ComputerState {
@@ -292,10 +290,7 @@ impl ComputerState {
         // Decision keeps the round thinking that the shared session-model path
         // already applied from `agentModeLlm[agentId][mode]`; only the explicit
         // Position / Verify phases override it with their own budget.
-        if matches!(
-            phase,
-            PipelineLlmPhase::Position | PipelineLlmPhase::Verify
-        ) {
+        if matches!(phase, PipelineLlmPhase::Position | PipelineLlmPhase::Verify) {
             let (enable, budget) = cfg.pipeline_llm.thinking_for_phase(phase);
             s.round_thinking_locked = true;
             s.round_enable_thinking = Some(enable);
@@ -477,25 +472,18 @@ impl ComputerState {
         }
         let vision_ms = t.elapsed().as_secs_f64() * 1000.0;
 
-
         let t = Instant::now();
-        let pack = build_vision_overlay_pack(
-            screen_capture,
-            screen_capture,
-            &monitor,
-            global_pointer,
-            global_caret,
-            work,
-        )
-        .map_err(|e| anyhow::anyhow!(e))?;
+        let pack =
+            build_vision_overlay_pack(screen_capture, &monitor, global_pointer, global_caret, work)
+                .map_err(|e| anyhow::anyhow!(e))?;
         let overlay_ms = t.elapsed().as_secs_f64() * 1000.0;
 
         {
             let mut session = session.lock().unwrap();
             session.current_turn_raw_jpeg_unmarked = Some(screen_capture.to_vec());
             session.current_turn_capture_px = Some(capture_px);
-            session.last_turn_marked_jpeg = Some(pack.raw_marked_jpeg.clone());
-            session.last_annotated = Some((pack.annotated_marked_jpeg.clone(), monitor));
+            session.last_turn_marked_jpeg = Some(pack.screenshot_jpeg.clone());
+            session.last_annotated = Some((pack.screenshot_jpeg.clone(), monitor));
             if let Some(frame) = pack.pointer_zoom_frame {
                 log::info!(
                     "apply_screen_capture: pointer zoom frame origin=({},{}) side={}x{} frame={}x{}",
@@ -523,7 +511,7 @@ impl ComputerState {
             "apply_screen_capture: input={} annotate_png={} annotated_out={} | annotate_http {:.1}ms, vision_state {:.1}ms, overlay {:.1}ms, total {:.1}ms ({} boxes, {}x{} px)",
             screen::format_data_size_bytes(screen_capture.len()),
             screen::format_data_size_bytes(screen_capture.len()),
-            screen::format_data_size_bytes(pack.annotated_marked_jpeg.len()),
+            screen::format_data_size_bytes(pack.screenshot_jpeg.len()),
             annotate_ms,
             vision_ms,
             overlay_ms,
@@ -535,8 +523,7 @@ impl ComputerState {
 
         Ok(ScreenCaptureResult {
             raw_unmarked_jpeg: screen_capture.to_vec(),
-            raw_marked_jpeg: pack.raw_marked_jpeg,
-            annotated_marked_jpeg: pack.annotated_marked_jpeg,
+            screenshot_jpeg: pack.screenshot_jpeg,
             zoom_menu_bar_png: pack.zoom_menu_bar_png,
             zoom_task_bar_png: pack.zoom_task_bar_png,
             zoom_pointer_png: pack.zoom_pointer_png,
@@ -654,10 +641,7 @@ impl ComputerState {
         let session = self.get_or_create_session(conversation_id);
         let mut s = session.lock().unwrap();
         s.tier_runtime.auto_close_stale_open_rows();
-        format_history_block(
-            s.tier_runtime.history(),
-            s.tier_runtime.give_up_reference(),
-        )
+        format_history_block(s.tier_runtime.history(), s.tier_runtime.give_up_reference())
     }
 
     /// Legacy hook after assistant round — verify is applied by host pipeline post-execute.
@@ -682,7 +666,7 @@ impl ComputerState {
             if let Some(cap) = s.pipeline.cached_capture.clone() {
                 log::info!(
                     "pipeline capture: reuse cached frame conversation_id={conversation_id} bytes={}",
-                    cap.raw_marked_jpeg.len()
+                    cap.screenshot_jpeg.len()
                 );
                 return Ok(cap);
             }
@@ -825,8 +809,7 @@ mod tests {
         let state = make_state();
         let cap = ScreenCaptureResult {
             raw_unmarked_jpeg: vec![7],
-            raw_marked_jpeg: vec![9, 9, 9],
-            annotated_marked_jpeg: vec![8],
+            screenshot_jpeg: vec![9, 9, 9],
             zoom_menu_bar_png: Vec::new(),
             zoom_task_bar_png: Vec::new(),
             zoom_pointer_png: vec![1],
@@ -842,7 +825,7 @@ mod tests {
         let got = rt
             .block_on(state.ensure_pipeline_capture("reuse"))
             .expect("reuse");
-        assert_eq!(got.raw_marked_jpeg, vec![9, 9, 9]);
+        assert_eq!(got.screenshot_jpeg, vec![9, 9, 9]);
     }
 
     #[test]

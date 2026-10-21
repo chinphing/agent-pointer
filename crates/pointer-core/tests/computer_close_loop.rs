@@ -99,6 +99,9 @@ async fn computer_state_apply_screen_capture_reuses_prior_jpeg() {
         .inject_before_action
         .as_ref()
         .expect("prior jpeg reused as before frame");
-    assert_eq!(before.screen_jpeg.as_slice(), first.raw_marked_jpeg.as_slice());
+    assert_eq!(
+        before.screen_jpeg.as_slice(),
+        first.screenshot_jpeg.as_slice()
+    );
     assert!(before.zoom_pointer_png.is_empty());
 }

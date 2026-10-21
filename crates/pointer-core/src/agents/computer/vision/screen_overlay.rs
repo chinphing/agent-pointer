@@ -16,7 +16,6 @@ use std::sync::OnceLock;
 /// Position-phase: full desktop at capture time (pipeline verify-host before-action slot).
 pub const SLOT_SCREEN_CURRENT: &str = "[Current screen]";
 /// Position-phase: numbered overlay on the current desktop (pipeline).
-pub const SLOT_SCREEN_ANNOTATED_CURRENT: &str = "[Annotated current screen]";
 /// Prior capture's marked JPEG, reused as-is for `[Screen before action]`. The pointer is not redrawn.
 pub const SLOT_SCREEN_BEFORE_ACTION: &str = "[Screen before action]";
 /// Full screenshot from **this** observation (unmarked capture; no synthetic pointer overlay).
@@ -24,7 +23,6 @@ pub const SLOT_SCREEN_AFTER_ACTION: &str = "[Screen after action]";
 /// Same moment as `[Screen after action]` with synthetic pointer (and caret if focused) drawn.
 pub const SLOT_SCREEN_MARKED_AFTER_ACTION: &str = "[Marked screen after action]";
 /// Numbered overlay on the **after action** desktop (same moment as `[Screen after action]`).
-pub const SLOT_SCREEN_ANNOTATED: &str = "[Annotated after action]";
 /// Top bar / chrome strip (after-action annotated frame).
 pub const SLOT_SCREEN_ZOOMED_TOP: &str = "[Zoom top after action]";
 /// Bottom bar / dock strip (after-action annotated frame).
@@ -65,7 +63,7 @@ const ACCENT_POINTER: Rgba<u8> = Rgba([60, 120, 220, 255]);
 /// Which overlay assets to build for a tier (skip unused work).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VisionOverlayWork {
-    pub raw_marked_jpeg: bool,
+    pub screenshot_jpeg: bool,
     /// Menu-bar and task-bar strips, plus the pointer zoom.
     pub zoom_crops: bool,
     /// Pointer-neighborhood zoom only. Already covered when `zoom_crops` is set.
@@ -74,14 +72,14 @@ pub struct VisionOverlayWork {
 
 impl VisionOverlayWork {
     pub const FULL: Self = Self {
-        raw_marked_jpeg: true,
+        screenshot_jpeg: true,
         zoom_crops: true,
         pointer_zoom: true,
     };
 
     pub fn standard() -> Self {
         Self {
-            raw_marked_jpeg: true,
+            screenshot_jpeg: true,
             zoom_crops: false,
             pointer_zoom: true,
         }
@@ -111,8 +109,7 @@ pub fn zoom_norm_to_session(frame: &PointerZoomFrame, x: f32, y: f32) -> (f32, f
 /// All extra vision assets for one `[CUR_SCREEN]` turn.
 #[derive(Debug, Clone)]
 pub struct VisionOverlayPack {
-    pub raw_marked_jpeg: Vec<u8>,
-    pub annotated_marked_jpeg: Vec<u8>,
+    pub screenshot_jpeg: Vec<u8>,
     pub zoom_menu_bar_png: Vec<u8>,
     pub zoom_task_bar_png: Vec<u8>,
     pub zoom_pointer_png: Vec<u8>,
@@ -482,7 +479,6 @@ fn decode_png_to_rgba(bytes: &[u8]) -> Result<RgbaImage> {
 /// `global_caret` is **global screen** coordinates when known (Python `focus_position.get_focus_position()`), else `None`.
 pub fn build_vision_overlay_pack(
     raw_jpeg_unmarked: &[u8],
-    annotated_png_unmarked: &[u8],
     monitor: &MonitorInfo,
     global_pointer: (i32, i32),
     global_caret: Option<(i32, i32)>,
@@ -492,8 +488,8 @@ pub fn build_vision_overlay_pack(
     let (mx, my) = local_on_monitor(global_pointer.0, global_pointer.1, monitor);
 
     // Lightweight path for tiers that only need annotated with no raw/zoom assets.
-    if !work.raw_marked_jpeg && !work.zoom_crops && !work.pointer_zoom {
-        let mut ann_rgba = decode_png_to_rgba(annotated_png_unmarked)?;
+    if !work.screenshot_jpeg && !work.zoom_crops && !work.pointer_zoom {
+        let mut ann_rgba = decode_jpeg_to_rgba(raw_jpeg_unmarked)?;
         let (gw, gh) = (ann_rgba.width(), ann_rgba.height());
         let mouse_ann = overlay_position_if_inside(mx, my, gw, gh);
         let caret_ann = global_caret.and_then(|(gx, gy)| {
@@ -502,11 +498,7 @@ pub fn build_vision_overlay_pack(
         });
         apply_pointer_and_caret_overlays(&mut ann_rgba, caret_ann, mouse_ann);
         return Ok(VisionOverlayPack {
-            raw_marked_jpeg: Vec::new(),
-            annotated_marked_jpeg: screen::rgba_to_jpeg_bytes(
-                ann_rgba,
-                screen::SCREENSHOT_JPEG_QUALITY,
-            )?,
+            screenshot_jpeg: screen::rgba_to_jpeg_bytes(ann_rgba, screen::SCREENSHOT_JPEG_QUALITY)?,
             zoom_menu_bar_png: Vec::new(),
             zoom_task_bar_png: Vec::new(),
             zoom_pointer_png: Vec::new(),
@@ -515,7 +507,7 @@ pub fn build_vision_overlay_pack(
     }
 
     let mut raw_rgba = decode_jpeg_to_rgba(raw_jpeg_unmarked)?;
-    let mut ann_rgba = decode_png_to_rgba(annotated_png_unmarked)?;
+    let mut ann_rgba = decode_jpeg_to_rgba(raw_jpeg_unmarked)?;
 
     let (w, h) = (raw_rgba.width(), raw_rgba.height());
     let (gw, gh) = (ann_rgba.width(), ann_rgba.height());
@@ -541,12 +533,12 @@ pub fn build_vision_overlay_pack(
         overlay_position_if_inside(lx, ly, gw, gh)
     });
 
-    if work.raw_marked_jpeg {
+    if work.screenshot_jpeg {
         apply_pointer_and_caret_overlays(&mut raw_rgba, caret_raw, mouse_raw);
     }
     apply_pointer_and_caret_overlays(&mut ann_rgba, caret_ann, mouse_ann);
 
-    let raw_marked_jpeg = if work.raw_marked_jpeg {
+    let screenshot_jpeg = if work.screenshot_jpeg {
         screen::rgba_to_jpeg_bytes(raw_rgba, screen::SCREENSHOT_JPEG_QUALITY)?
     } else {
         empty.clone()
@@ -557,43 +549,40 @@ pub fn build_vision_overlay_pack(
     } else {
         None
     };
-    let (zoom_menu_bar_png, zoom_task_bar_png, zoom_pointer_png) = if work.zoom_crops
-        || work.pointer_zoom
-    {
-        let frame = pointer_zoom_frame.expect("pointer zoom frame");
-        let mut zoom_ptr = copy_subimage(
-            &ann_rgba,
-            frame.origin_x,
-            frame.origin_y,
-            frame.side_w,
-            frame.side_h,
-        );
-        zoom_ptr = magnify_nearest(&zoom_ptr, ZOOM_POINTER_MAGNIFY_FACTOR);
-        tint_zoom_border(&mut zoom_ptr, ACCENT_POINTER, ZoomBorderMode::LeftAccent);
-        let zoom_pointer_png = rgba_to_png_bytes(&zoom_ptr)?;
-        if work.zoom_crops {
-            let mut zoom_menu = crop_top_strip(&ann_rgba, ZOOM_MENU_H);
-            tint_zoom_border(&mut zoom_menu, ACCENT_MENU, ZoomBorderMode::TopAccent);
-            let mut zoom_task = crop_bottom_strip(&ann_rgba, ZOOM_TASK_H);
-            tint_zoom_border(&mut zoom_task, ACCENT_TASK, ZoomBorderMode::BottomAccent);
-            (
-                rgba_to_png_bytes(&zoom_menu)?,
-                rgba_to_png_bytes(&zoom_task)?,
-                zoom_pointer_png,
-            )
+    let (zoom_menu_bar_png, zoom_task_bar_png, zoom_pointer_png) =
+        if work.zoom_crops || work.pointer_zoom {
+            let frame = pointer_zoom_frame.expect("pointer zoom frame");
+            let mut zoom_ptr = copy_subimage(
+                &ann_rgba,
+                frame.origin_x,
+                frame.origin_y,
+                frame.side_w,
+                frame.side_h,
+            );
+            zoom_ptr = magnify_nearest(&zoom_ptr, ZOOM_POINTER_MAGNIFY_FACTOR);
+            tint_zoom_border(&mut zoom_ptr, ACCENT_POINTER, ZoomBorderMode::LeftAccent);
+            let zoom_pointer_png = rgba_to_png_bytes(&zoom_ptr)?;
+            if work.zoom_crops {
+                let mut zoom_menu = crop_top_strip(&ann_rgba, ZOOM_MENU_H);
+                tint_zoom_border(&mut zoom_menu, ACCENT_MENU, ZoomBorderMode::TopAccent);
+                let mut zoom_task = crop_bottom_strip(&ann_rgba, ZOOM_TASK_H);
+                tint_zoom_border(&mut zoom_task, ACCENT_TASK, ZoomBorderMode::BottomAccent);
+                (
+                    rgba_to_png_bytes(&zoom_menu)?,
+                    rgba_to_png_bytes(&zoom_task)?,
+                    zoom_pointer_png,
+                )
+            } else {
+                (empty.clone(), empty.clone(), zoom_pointer_png)
+            }
         } else {
-            (empty.clone(), empty.clone(), zoom_pointer_png)
-        }
-    } else {
-        (empty.clone(), empty.clone(), empty)
-    };
+            (empty.clone(), empty.clone(), empty)
+        };
 
-    let annotated_marked_jpeg =
-        screen::rgba_to_jpeg_bytes(ann_rgba, screen::SCREENSHOT_JPEG_QUALITY)?;
+    let screenshot_jpeg = screen::rgba_to_jpeg_bytes(ann_rgba, screen::SCREENSHOT_JPEG_QUALITY)?;
 
     Ok(VisionOverlayPack {
-        raw_marked_jpeg,
-        annotated_marked_jpeg,
+        screenshot_jpeg,
         zoom_menu_bar_png,
         zoom_task_bar_png,
         zoom_pointer_png,
@@ -752,7 +741,6 @@ mod tests {
             screen::rgba_to_jpeg_bytes(ann.clone(), screen::SCREENSHOT_JPEG_QUALITY).unwrap();
         let pack = build_vision_overlay_pack(
             &raw_jpeg,
-            &ann_png,
             &monitor,
             (200, 200),
             None,
@@ -768,7 +756,7 @@ mod tests {
     #[test]
     fn primary_work_keeps_raw_marked_and_pointer_zoom_only() {
         let work = VisionOverlayWork::standard();
-        assert!(work.raw_marked_jpeg);
+        assert!(work.screenshot_jpeg);
         assert!(!work.zoom_crops);
         assert!(work.pointer_zoom);
     }

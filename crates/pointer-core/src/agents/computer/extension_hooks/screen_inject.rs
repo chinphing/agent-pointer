@@ -8,7 +8,7 @@
 use crate::agents::computer::capture_debug;
 use crate::agents::computer::screen;
 use crate::agents::computer::screen_overlay::{
-    SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED, SLOT_SCREEN_BEFORE_ACTION,
+    SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_BEFORE_ACTION,
     SLOT_SCREEN_ZOOMED_POINTER,
 };
 use crate::agents::computer::ScreenCaptureResult;
@@ -67,16 +67,12 @@ pub(crate) fn strip_images_from_prior_messages(messages: &mut [ChatMessage]) {
 
 /// Labels in wire order — must match `assemble_cur_screen_base64` image sequence.
 /// Optional before frame is the previous capture's JPEG, not a new screenshot.
-fn slot_labels(
-    has_previous_raw: bool,
-    has_pointer_zoom: bool,
-) -> Vec<&'static str> {
+fn slot_labels(has_previous_raw: bool, has_pointer_zoom: bool) -> Vec<&'static str> {
     let mut labels = Vec::with_capacity(4);
     if has_previous_raw {
         labels.push(SLOT_SCREEN_BEFORE_ACTION);
     }
     labels.push(SLOT_SCREEN_AFTER_ACTION);
-    labels.push(SLOT_SCREEN_ANNOTATED);
     if has_pointer_zoom {
         labels.push(SLOT_SCREEN_ZOOMED_POINTER);
     }
@@ -86,7 +82,7 @@ fn slot_labels(
 fn build_cur_screen_preamble() -> String {
     let cite = "Each screenshot below is preceded by its slot label on its own line. Treat only what you see in that labeled image as ground truth. Do not invent UI from task text or prior turns. Do not write internal checklists in assistant message text. When the user must see a reply (question, blockage, completion), write plain text in **content** in the same turn — reasoning alone is invisible to the user.";
     format!(
-        "{CUR_SCREEN_TAG} Labeled images this turn: optional {SLOT_SCREEN_BEFORE_ACTION} (the previous capture, reused, not a new screenshot), then {SLOT_SCREEN_AFTER_ACTION}, then {SLOT_SCREEN_ANNOTATED}, then {SLOT_SCREEN_ZOOMED_POINTER} when present. {cite} \
+        "{CUR_SCREEN_TAG} Labeled images this turn: optional {SLOT_SCREEN_BEFORE_ACTION} (the previous capture, reused, not a new screenshot), then {SLOT_SCREEN_AFTER_ACTION}, then {SLOT_SCREEN_ZOOMED_POINTER} when present. {cite} \
          Text below includes **Pointer position** and **Nearby overlay reference bboxes** (10 nearest the pointer; logical-pixel rects). \
          **Verify:** host records outcomes on history rows — read the `verify:` suffix on `[Recent desktop tool calls]`. \
          **Position:** prefer a label number on the target control itself. A large target shows a visible interior on the full screen; use coordinates and omit zoom. A small target is a mark with no interior to aim at; move beside it first. Next turn, if the target is inside {SLOT_SCREEN_ZOOMED_POINTER}, set zoom true and give 0–1000 of that crop. The host maps those coordinates onto the full screen.\n"
@@ -98,8 +94,7 @@ fn assemble_cur_screen_base64(cap: &ScreenCaptureResult) -> Vec<String> {
     if let Some(before) = &cap.inject_before_action {
         out.push(screen::encode_image_to_base64(&before.screen_jpeg));
     }
-    out.push(screen::encode_image_to_base64(&cap.raw_marked_jpeg));
-    out.push(screen::encode_image_to_base64(&cap.annotated_marked_jpeg));
+    out.push(screen::encode_image_to_base64(&cap.screenshot_jpeg));
     if !cap.zoom_pointer_png.is_empty() {
         out.push(screen::encode_image_to_base64(&cap.zoom_pointer_png));
     } else {
@@ -108,9 +103,7 @@ fn assemble_cur_screen_base64(cap: &ScreenCaptureResult) -> Vec<String> {
     out
 }
 
-fn assemble_cur_screen_payload(
-    cap: &ScreenCaptureResult,
-) -> (Vec<String>, Vec<String>) {
+fn assemble_cur_screen_payload(cap: &ScreenCaptureResult) -> (Vec<String>, Vec<String>) {
     let has_previous_raw = cap.inject_before_action.is_some();
     let has_pointer_zoom = !cap.zoom_pointer_png.is_empty();
     let labels: Vec<String> = slot_labels(has_previous_raw, has_pointer_zoom)
@@ -361,8 +354,7 @@ mod tests {
         use crate::agents::computer::screen_overlay::BeforeActionInject;
         ScreenCaptureResult {
             raw_unmarked_jpeg: vec![1, 2],
-            raw_marked_jpeg: vec![3, 4],
-            annotated_marked_jpeg: vec![5, 6],
+            screenshot_jpeg: vec![3, 4],
             zoom_menu_bar_png: vec![7],
             zoom_task_bar_png: vec![8],
             zoom_pointer_png: vec![9],
@@ -415,13 +407,12 @@ mod tests {
     fn slot_labels_match_image_count_primary() {
         let cap = dummy_cap(true);
         let (labels, images) = assemble_cur_screen_payload(&cap);
-        assert_eq!(labels.len(), 4);
+        assert_eq!(labels.len(), 3);
         assert_eq!(
             labels,
             vec![
                 SLOT_SCREEN_BEFORE_ACTION,
                 SLOT_SCREEN_AFTER_ACTION,
-                SLOT_SCREEN_ANNOTATED,
                 SLOT_SCREEN_ZOOMED_POINTER
             ]
         );
@@ -432,12 +423,11 @@ mod tests {
     fn slot_layout_without_before() {
         let cap = dummy_cap(false);
         let (labels, images) = assemble_cur_screen_payload(&cap);
-        assert_eq!(labels.len(), 3);
+        assert_eq!(labels.len(), 2);
         assert_eq!(
             labels,
             vec![
                 SLOT_SCREEN_AFTER_ACTION,
-                SLOT_SCREEN_ANNOTATED,
                 SLOT_SCREEN_ZOOMED_POINTER
             ]
         );

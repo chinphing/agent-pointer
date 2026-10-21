@@ -232,7 +232,7 @@ pub fn save_computer_capture_debug(
     if !computer_capture_dump_enabled() {
         return None;
     }
-    if cap.annotated_marked_jpeg.is_empty() {
+    if cap.screenshot_jpeg.is_empty() {
         log::warn!("computer capture dump: skip — empty annotated frame");
         return None;
     }
@@ -268,16 +268,9 @@ pub fn save_computer_capture_debug(
         "screen_after_action",
         "jpg",
         ts,
-        &cap.raw_marked_jpeg,
+        &cap.screenshot_jpeg,
     );
-    write_bytes(
-        &dir,
-        &pfx,
-        "annotated",
-        "jpg",
-        ts,
-        &cap.annotated_marked_jpeg,
-    );
+    write_bytes(&dir, &pfx, "annotated", "jpg", ts, &cap.screenshot_jpeg);
 
     let annotated_name = format!("{pfx}_{ts}_annotated.jpg");
     let rel = format!("{date}/{conv_seg}/{annotated_name}");

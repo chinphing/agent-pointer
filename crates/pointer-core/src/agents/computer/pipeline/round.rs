@@ -105,12 +105,12 @@ pub async fn run_verify_phase(
             (
                 SLOT_SCREEN_BEFORE_ACTION,
                 "jpg",
-                before_cap.raw_marked_jpeg.as_slice(),
+                before_cap.screenshot_jpeg.as_slice(),
             ),
             (
                 SLOT_SCREEN_AFTER_ACTION,
                 "jpg",
-                after_for_cache.raw_marked_jpeg.as_slice(),
+                after_for_cache.screenshot_jpeg.as_slice(),
             ),
         ],
     );
@@ -176,7 +176,7 @@ pub async fn run_verify_phase(
             phase_label,
             SLOT_SCREEN_AFTER_ACTION,
             "jpg",
-            &after_for_cache.annotated_marked_jpeg,
+            &after_for_cache.screenshot_jpeg,
         );
         verify_wire = build_verify_wire_messages(&VerifyWireInput {
             family,

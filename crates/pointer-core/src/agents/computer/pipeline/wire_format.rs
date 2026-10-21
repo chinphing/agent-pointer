@@ -5,8 +5,7 @@
 
 use crate::agents::computer::screen;
 use crate::agents::computer::vision::screen_overlay::{
-    SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED_CURRENT, SLOT_SCREEN_BEFORE_ACTION,
-    SLOT_SCREEN_CURRENT,
+    SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_BEFORE_ACTION, SLOT_SCREEN_CURRENT,
 };
 use crate::agents::computer::ScreenCaptureResult;
 use serde_json::{json, Value};
@@ -91,9 +90,7 @@ fn build_position_annotated_dual_screen(input: &PositionWireInput<'_>) -> Vec<Va
     wire_user_multimodal(vec![
         wire_text_part(&user_text),
         wire_text_part(&format!("{SLOT_SCREEN_CURRENT}\n")),
-        wire_jpeg_part(&input.cap.raw_marked_jpeg),
-        wire_text_part(&format!("{SLOT_SCREEN_ANNOTATED_CURRENT}\n")),
-        wire_jpeg_part(&input.cap.annotated_marked_jpeg),
+        wire_jpeg_part(&input.cap.screenshot_jpeg),
     ])
 }
 
@@ -138,13 +135,13 @@ Run judgment in reasoning_content only; then call `submit_verify`.\n\
 Leave message content empty.\n";
 
 fn build_verify_before_after_screenshots(input: &VerifyWireInput<'_>) -> Vec<Value> {
-    let before_jpeg = input.before.raw_marked_jpeg.as_slice();
+    let before_jpeg = input.before.screenshot_jpeg.as_slice();
     log::info!(
-        "pipeline vision: verify slots before=T0 raw_marked_jpeg ({} bytes, label {}) \
+        "pipeline vision: verify slots before=T0 screenshot_jpeg ({} bytes, label {}) \
          after=fresh capture ({} bytes, label {})",
         before_jpeg.len(),
         SLOT_SCREEN_BEFORE_ACTION,
-        input.after.raw_marked_jpeg.len(),
+        input.after.screenshot_jpeg.len(),
         SLOT_SCREEN_AFTER_ACTION,
     );
     let user_text = tagged_operation_block(
@@ -157,22 +154,22 @@ fn build_verify_before_after_screenshots(input: &VerifyWireInput<'_>) -> Vec<Val
         wire_text_part(&format!("{SLOT_SCREEN_BEFORE_ACTION}\n")),
         wire_jpeg_part(before_jpeg),
         wire_text_part(&format!("{SLOT_SCREEN_AFTER_ACTION}\n")),
-        wire_jpeg_part(&input.after.raw_marked_jpeg),
+        wire_jpeg_part(&input.after.screenshot_jpeg),
     ])
 }
 
 fn build_verify_clipboard_with_screenshots(input: &VerifyWireInput<'_>) -> Vec<Value> {
-    let before_jpeg = input.before.raw_marked_jpeg.as_slice();
+    let before_jpeg = input.before.screenshot_jpeg.as_slice();
     let tool_block = input
         .tool_result
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .unwrap_or("(tool result not available)");
     log::info!(
-        "pipeline vision: verify clipboard slots before=T0 raw_marked_jpeg ({} bytes) \
+        "pipeline vision: verify clipboard slots before=T0 screenshot_jpeg ({} bytes) \
          after=fresh capture ({} bytes) tool_result_chars={}",
         before_jpeg.len(),
-        input.after.raw_marked_jpeg.len(),
+        input.after.screenshot_jpeg.len(),
         tool_block.len(),
     );
     let user_text = format!(
@@ -185,7 +182,7 @@ fn build_verify_clipboard_with_screenshots(input: &VerifyWireInput<'_>) -> Vec<V
         wire_text_part(&format!("{SLOT_SCREEN_BEFORE_ACTION}\n")),
         wire_jpeg_part(before_jpeg),
         wire_text_part(&format!("{SLOT_SCREEN_AFTER_ACTION}\n")),
-        wire_jpeg_part(&input.after.raw_marked_jpeg),
+        wire_jpeg_part(&input.after.screenshot_jpeg),
     ])
 }
 
@@ -229,8 +226,7 @@ mod tests {
     fn empty_cap() -> ScreenCaptureResult {
         ScreenCaptureResult {
             raw_unmarked_jpeg: Vec::new(),
-            raw_marked_jpeg: vec![1, 2, 3],
-            annotated_marked_jpeg: vec![4, 5, 6],
+            screenshot_jpeg: vec![1, 2, 3],
             zoom_menu_bar_png: Vec::new(),
             zoom_task_bar_png: Vec::new(),
             zoom_pointer_png: Vec::new(),
@@ -241,7 +237,7 @@ mod tests {
     }
 
     #[test]
-    fn position_default_format_includes_dual_images() {
+    fn position_default_format_includes_one_screenshot() {
         let cap = empty_cap();
         let wire = build_position_wire_messages(&PositionWireInput {
             family: OperationFamily::PointerClick,
@@ -250,7 +246,9 @@ mod tests {
             bbox_text: Some("Overlay reference bboxes: R=1 ..."),
         });
         let content = wire[0].get("content").unwrap().as_array().unwrap();
-        assert_eq!(content.len(), 5);
+        // user text + slot label + one JPEG. The second (annotated) copy is gone:
+        // it became byte-identical once the annotation service was removed.
+        assert_eq!(content.len(), 3);
         assert!(content[0]
             .get("text")
             .unwrap()

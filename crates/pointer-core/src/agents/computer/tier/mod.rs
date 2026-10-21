@@ -1,6 +1,5 @@
 //! Computer agent tier runtime: Primary / Intermediate / Advanced profiles.
 
-use crate::agents::computer::vision::coord::screen_to_normalized;
 use crate::agents::computer::vision::vision_state::VisionState;
 use crate::agents::AgentRegistry;
 use serde_json::Value;

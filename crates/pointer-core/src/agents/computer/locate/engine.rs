@@ -8,7 +8,7 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 
-use super::geometry::{crop_side_px, nearly_same, rel_to_norm, CropBounds, NormBox, PxBox};
+use super::geometry::{crop_side_px, nearly_same, rel_to_norm, CropBounds, NormBox};
 use super::prompt::{locate_prompt, refine_hint, verify_prompt};
 use super::render::{render_crop, render_full, LocateFrame, LocateImage};
 use super::types::{
@@ -271,7 +271,7 @@ async fn locate_in<V: LocateVision>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::computer::locate::geometry::NormBox;
+    use crate::agents::computer::locate::geometry::{NormBox, PxBox};
     use crate::agents::computer::locate::types::{ElsewhereDir, MatchVerdict};
     use image::{Rgb, RgbImage};
     use std::collections::VecDeque;

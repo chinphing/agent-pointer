@@ -435,7 +435,7 @@ fn route_flags_from_submit_tool(pos: &PositionModuleOutput) -> (bool, bool) {
 fn route_index_or_at(
     has_index: bool,
     has_at: bool,
-    index_tool: &'static str,
+    _index_tool: &'static str,
     at_tool: &'static str,
 ) -> &'static str {
     if has_at {

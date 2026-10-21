@@ -1,10 +1,9 @@
 use super::args_util::require_non_empty_str;
-use crate::agents::computer::actions::ActionExecutor;
 use crate::agents::computer::verify::VerifyHintGenerator;
 use crate::agents::computer::control::ComputerControl;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Hotkey tool (PyProjects/pointer `hotkey.py`).
 pub struct HotkeyTool {

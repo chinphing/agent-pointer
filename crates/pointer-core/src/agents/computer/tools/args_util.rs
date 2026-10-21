@@ -1,7 +1,6 @@
 //! Shared argument parsing / validation aligned with PyProjects/pointer `vision_common` helpers.
 
 use crate::agents::computer::input::actions::MouseButton;
-use crate::agents::computer::vision::vision_state::VisionState;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 

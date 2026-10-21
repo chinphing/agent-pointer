@@ -9,7 +9,7 @@ use crate::agents::computer::control::ComputerControl;
 use crate::agents::computer::verify::VerifyHintGenerator;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Keyboard action tool (`PRESS` / `KEY_DOWN` / `KEY_UP` / `TYPING`).
 pub struct KeyboardTool {
@@ -79,6 +79,7 @@ impl KeyboardTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use crate::agents::computer::actions::{ActionBackend, ActionExecutor, ActionResult, MouseButton};
     use crate::agents::computer::input::actions::KeyPhase;
     use crate::agents::computer::input::mouse_move::MouseMoveProfile;

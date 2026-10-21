@@ -14,9 +14,7 @@ use crate::agents::computer::tier::{
 };
 use crate::agents::computer::vision::coord::CoordinateSystem;
 use crate::agents::computer::vision::screen;
-use crate::agents::computer::vision::screen_overlay::{
-    self, build_vision_overlay_pack,
-};
+use crate::agents::computer::vision::screen_overlay::build_vision_overlay_pack;
 use crate::agents::computer::vision::vision_state::VisionState;
 use crate::agents::AgentRegistry;
 use crate::models::ToolCall;
@@ -26,8 +24,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-/// Default annotation service URL.
-use crate::platform_endpoints;
 /// Config key for the annotation service URL in Computer Agent's config.
 /// Config key for default human-like mouse movement in Computer Agent's config.
 /// Maximum number of concurrent sessions to retain before evicting the least recently used.
@@ -208,10 +204,10 @@ impl ComputerState {
     }
 
     pub fn with_annotate_url_human_like_and_tier(
-        annotate_api_base: &str,
+        _annotate_api_base: &str,
         human_like_default: bool,
         tier_config: ComputerModelConfig,
-        platform_auth: Option<SharedPlatformAuth>,
+        _platform_auth: Option<SharedPlatformAuth>,
         platform_config: Option<SharedPlatformConfig>,
     ) -> Self {
         #[cfg(feature = "computer")]

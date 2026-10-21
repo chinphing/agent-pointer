@@ -4,7 +4,7 @@ use super::args_util::{
 };
 use super::method_route::MouseBackend;
 use crate::agents::computer::control::ComputerControl;
-use crate::agents::computer::actions::{ActionExecutor, KeyPhase, MouseButton};
+use crate::agents::computer::actions::ActionExecutor;
 use crate::agents::computer::verify::VerifyHintGenerator;
 use crate::agents::computer::vision_state::VisionState;
 use anyhow::{anyhow, Result};
@@ -62,7 +62,7 @@ impl MouseAtTool {
         }
     }
 
-    fn resolve_coord(&self, args: &Value, x: f32, y: f32) -> Result<(i32, i32)> {
+    fn resolve_coord(&self, _args: &Value, x: f32, y: f32) -> Result<(i32, i32)> {
         let vision = self.vision_state.lock().unwrap();
         vision
             .resolve_coordinate(x, y)
@@ -219,7 +219,8 @@ impl MouseTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::computer::actions::{ActionBackend, ActionResult};
+    use crate::agents::computer::actions::{ActionBackend, ActionResult, MouseButton};
+    use crate::agents::computer::input::actions::KeyPhase;
     use crate::agents::computer::input::mouse_move::MouseMoveProfile;
     use crate::agents::computer::vision::coord::CoordinateSystem;
     use crate::agents::computer::vision::screen::MonitorInfo;

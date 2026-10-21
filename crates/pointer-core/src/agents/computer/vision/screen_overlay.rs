@@ -7,10 +7,9 @@
 
 use super::screen::{self, MonitorInfo};
 use anyhow::{anyhow, Result};
-use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
+use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_line_segment_mut, draw_polygon_mut};
 use imageproc::point::Point;
-use std::io::Cursor;
 use std::sync::OnceLock;
 
 /// Position-phase: full desktop at capture time (pipeline verify-host before-action slot).
@@ -31,8 +30,6 @@ pub const SLOT_SCREEN_MARKED_AFTER_ACTION: &str = "[Marked screen after action]"
 /// When false, skip drawing the synthetic pointer bitmap (for A/B against OS cursor in capture).
 pub const DRAW_SYNTHETIC_POINTER_OVERLAY: bool = true;
 
-const ZOOM_MENU_H: u32 = 100;
-const ZOOM_TASK_H: u32 = 100;
 
 /// Pointer vicinity crop side (before 4× magnification) for after- and before-action zoom slots.
 pub const ZOOM_POINTER_CROP_SIDE: u32 = 200;
@@ -46,15 +43,11 @@ pub const BEFORE_POINTER_ZOOM_CROP_SIDE: u32 = ZOOM_POINTER_CROP_SIDE;
 /// Nearest-neighbor upscale applied to the before-action pointer crop.
 pub const BEFORE_POINTER_ZOOM_FACTOR: u32 = ZOOM_POINTER_MAGNIFY_FACTOR;
 
-const ACCENT_POINTER_BEFORE: Rgba<u8> = Rgba([160, 80, 220, 255]);
 
 /// Raster size / hotspot — matches Python `screen_overlay.py` (`_CURSOR_SIZE`, `_CURSOR_HOTSPOT`).
 const POINTER_CURSOR_SIZE: u32 = 32;
 const POINTER_HOTSPOT: (i32, i32) = (3, 2);
 
-const ACCENT_MENU: Rgba<u8> = Rgba([220, 60, 60, 255]);
-const ACCENT_TASK: Rgba<u8> = Rgba([60, 200, 80, 255]);
-const ACCENT_POINTER: Rgba<u8> = Rgba([60, 120, 220, 255]);
 
 /// The one screenshot the model sees for this turn.
 #[derive(Debug, Clone)]
@@ -243,129 +236,9 @@ fn apply_pointer_and_caret_overlays(
     }
 }
 
-fn rgba_to_png_bytes(img: &RgbaImage) -> Result<Vec<u8>> {
-    let mut buf = Vec::new();
-    let mut w = Cursor::new(&mut buf);
-    DynamicImage::ImageRgba8(img.clone())
-        .write_to(&mut w, ImageFormat::Png)
-        .map_err(|e| anyhow!("PNG encode: {}", e))?;
-    Ok(buf)
-}
-
-fn copy_subimage(src: &RgbaImage, x0: u32, y0: u32, cw: u32, ch: u32) -> RgbaImage {
-    let mut out = RgbaImage::new(cw, ch);
-    for yy in 0..ch {
-        for xx in 0..cw {
-            let p = src.get_pixel(x0 + xx, y0 + yy);
-            out.put_pixel(xx, yy, *p);
-        }
-    }
-    out
-}
-
-/// Top `take_h` rows (or full height if shorter).
-fn crop_top_strip(src: &RgbaImage, take_h: u32) -> RgbaImage {
-    let w = src.width();
-    let h = src.height();
-    let ch = take_h.min(h);
-    copy_subimage(src, 0, 0, w, ch)
-}
-
-/// Bottom `take_h` rows (or full height if shorter).
-fn crop_bottom_strip(src: &RgbaImage, take_h: u32) -> RgbaImage {
-    let w = src.width();
-    let h = src.height();
-    let ch = take_h.min(h);
-    let y0 = h.saturating_sub(ch);
-    copy_subimage(src, 0, y0, w, ch)
-}
-
-
-/// `side`×`side` centered on `(lx, ly)`, clamped so the window stays inside the image.
-fn crop_square_around(src: &RgbaImage, lx: i32, ly: i32, side: u32) -> RgbaImage {
-    let w = src.width();
-    let h = src.height();
-    if w == 0 || h == 0 {
-        return RgbaImage::new(1, 1);
-    }
-    let sw = side.min(w);
-    let sh = side.min(h);
-    let half_x = (sw / 2) as i32;
-    let half_y = (sh / 2) as i32;
-    let mut x0 = lx - half_x;
-    let mut y0 = ly - half_y;
-    let wm = w as i32;
-    let hm = h as i32;
-    if x0 < 0 {
-        x0 = 0;
-    }
-    if y0 < 0 {
-        y0 = 0;
-    }
-    if x0 + sw as i32 > wm {
-        x0 = wm - sw as i32;
-    }
-    if y0 + sh as i32 > hm {
-        y0 = hm - sh as i32;
-    }
-    if x0 < 0 {
-        x0 = 0;
-    }
-    if y0 < 0 {
-        y0 = 0;
-    }
-    let x0 = x0 as u32;
-    let y0 = y0 as u32;
-    copy_subimage(src, x0, y0, sw, sh)
-}
-
-fn tint_zoom_border(img: &mut RgbaImage, accent: Rgba<u8>, mode: ZoomBorderMode) {
-    let w = img.width();
-    let h = img.height();
-    if w == 0 || h == 0 {
-        return;
-    }
-    let t = 2_u32;
-    match mode {
-        ZoomBorderMode::TopAccent => {
-            for yy in 0..t.min(h) {
-                for xx in 0..w {
-                    img.put_pixel(xx, yy, accent);
-                }
-            }
-        }
-        ZoomBorderMode::BottomAccent => {
-            for yy in 0..t.min(h) {
-                let row = h.saturating_sub(1 + yy);
-                for xx in 0..w {
-                    img.put_pixel(xx, row, accent);
-                }
-            }
-        }
-        ZoomBorderMode::LeftAccent => {
-            for xx in 0..t.min(w) {
-                for yy in 0..h {
-                    img.put_pixel(xx, yy, accent);
-                }
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-enum ZoomBorderMode {
-    TopAccent,
-    BottomAccent,
-    LeftAccent,
-}
 
 fn decode_jpeg_to_rgba(bytes: &[u8]) -> Result<RgbaImage> {
     let img = image::load_from_memory(bytes).map_err(|e| anyhow!("decode jpeg: {}", e))?;
-    Ok(img.to_rgba8())
-}
-
-fn decode_png_to_rgba(bytes: &[u8]) -> Result<RgbaImage> {
-    let img = image::load_from_memory(bytes).map_err(|e| anyhow!("decode png: {}", e))?;
     Ok(img.to_rgba8())
 }
 
@@ -390,15 +263,6 @@ pub fn build_vision_overlay_pack(
     Ok(VisionOverlayPack {
         screenshot_jpeg: screen::rgba_to_jpeg_bytes(rgba, screen::SCREENSHOT_JPEG_QUALITY)?,
     })
-}
-
-fn magnify_nearest(img: &RgbaImage, factor: u32) -> RgbaImage {
-    if factor <= 1 {
-        return img.clone();
-    }
-    let nw = img.width().saturating_mul(factor);
-    let nh = img.height().saturating_mul(factor);
-    image::imageops::resize(img, nw, nh, image::imageops::FilterType::Nearest)
 }
 
 /// Build before-action inject: prior turn’s **unmarked** JPEG + **current** pointer, plus a **±50 px** crop magnified **4×** for geometry.
@@ -426,15 +290,6 @@ pub fn mark_raw_jpeg_with_pointer_and_caret(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn crop_square_clamps_inside() {
-        let mut img = RgbaImage::new(50, 50);
-        img.put_pixel(10, 10, Rgba([1, 2, 3, 255]));
-        let sub = crop_square_around(&img, 5, 5, ZOOM_POINTER_CROP_SIDE);
-        assert_eq!(sub.width(), 50);
-        assert_eq!(sub.height(), 50);
-    }
 
     #[test]
     fn global_to_local() {

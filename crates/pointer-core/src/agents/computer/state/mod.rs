@@ -155,7 +155,7 @@ impl ComputerState {
     /// If enigo fails to initialize, tools will return errors at runtime.
     pub fn new(
         agents: &AgentRegistry,
-        platform_auth: SharedPlatformAuth,
+        _platform_auth: SharedPlatformAuth,
         platform_config: SharedPlatformConfig,
     ) -> Self {
         // The user-facing switch lives in settings (`computerHumanLike`,
@@ -166,48 +166,35 @@ impl ComputerState {
             crate::platform_config::effective_settings_global().computer_human_like;
         let tier_config = ComputerModelConfig::from_agent_registry(agents);
         Self::with_annotate_url_human_like_and_tier(
-            "",
             human_like_default,
             tier_config,
-            Some(platform_auth),
             Some(platform_config),
         )
     }
 
-    /// Create a new ComputerState with an explicit annotation service URL.
+    /// Test convenience constructor.
     ///
-    /// # Arguments
-    /// * `annotate_api_base` - Base URL for the annotation service. If empty, uses the default.
-    pub fn with_annotate_url(annotate_api_base: &str) -> Self {
-        Self::with_annotate_url_human_like_and_tier(
-            annotate_api_base,
-            false,
-            ComputerModelConfig::default(),
-            None,
-            None,
-        )
+    /// The argument is kept only so existing call sites compile; the annotation
+    /// service it used to point at was removed, and nothing reads it now.
+    pub fn with_annotate_url(_annotate_api_base: &str) -> Self {
+        Self::with_annotate_url_human_like_and_tier(false, ComputerModelConfig::default(), None)
     }
 
-    /// Create state with explicit annotation URL and human-like default.
+    /// Test convenience constructor with an explicit human-like default.
     pub fn with_annotate_url_and_human_like(
-        annotate_api_base: &str,
+        _annotate_api_base: &str,
         human_like_default: bool,
-        platform_auth: Option<SharedPlatformAuth>,
     ) -> Self {
         Self::with_annotate_url_human_like_and_tier(
-            annotate_api_base,
             human_like_default,
             ComputerModelConfig::default(),
-            platform_auth,
             None,
         )
     }
 
     pub fn with_annotate_url_human_like_and_tier(
-        _annotate_api_base: &str,
         human_like_default: bool,
         tier_config: ComputerModelConfig,
-        _platform_auth: Option<SharedPlatformAuth>,
         platform_config: Option<SharedPlatformConfig>,
     ) -> Self {
         #[cfg(feature = "computer")]

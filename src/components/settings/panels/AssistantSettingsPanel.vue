@@ -23,7 +23,8 @@ const sceneModal = ref<string | null>(null)
 const moreModal = ref(false)
 // 电脑操控「更多」：pipeline 内部的 Locate / Verify 模型与思考强度
 const computerAdvancedModal = ref(false)
-const THINKING_OPTIONS = computed(() => thinkingIntensityOptions())
+// 只保留 off/low/medium/high/max；'' (不设置) 和 off 写的是同一个 0，重复了
+const THINKING_OPTIONS = computed(() => thinkingIntensityOptions().filter(o => o.value !== ''))
 
 function intensityOf(budget: number | undefined): string {
   if (!budget) return 'off'
@@ -359,7 +360,7 @@ const {
             <div class="px-3.5 py-3 space-y-2">
               <div class="flex items-center gap-x-2 min-w-0">
                 <Monitor class="w-4 h-4 text-accent shrink-0" />
-                <span class="text-[12px] font-medium text-foreground shrink-0">Locate</span>
+                <span class="text-[12px] font-medium text-foreground shrink-0">{{ t('settings.agentPanel.locateName') }}</span>
                 <span class="text-[10px] text-muted truncate min-w-0">{{ t('settings.agentPanel.locateHint') }}</span>
               </div>
               <div class="grid grid-cols-[1fr_5.5rem] gap-2 items-center">
@@ -383,7 +384,7 @@ const {
             <div class="px-3.5 py-3 space-y-2">
               <div class="flex items-center gap-x-2 min-w-0">
                 <Monitor class="w-4 h-4 text-accent shrink-0" />
-                <span class="text-[12px] font-medium text-foreground shrink-0">Verify</span>
+                <span class="text-[12px] font-medium text-foreground shrink-0">{{ t('settings.agentPanel.verifyName') }}</span>
                 <span class="text-[10px] text-muted truncate min-w-0">{{ t('settings.agentPanel.verifyHint') }}</span>
               </div>
               <div class="grid grid-cols-[1fr_5.5rem] gap-2 items-center">

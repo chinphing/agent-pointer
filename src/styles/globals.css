@@ -236,6 +236,17 @@
    */
   .composer-dock {
     contain: layout;
+    /*
+     * `contain: layout` also establishes a stacking context, which traps the
+     * composer's popovers (agent / mode / project pickers, `z-50`) inside this
+     * box. Anything positioned later in the tree then paints over an open
+     * dropdown — on the welcome screen the experience chips are
+     * `position: relative` spans, so they cut the menu in half. An explicit
+     * positive z-index lifts the whole dock above those siblings; the
+     * containment above still keeps internal layout from marking the column.
+     */
+    position: relative;
+    z-index: 1;
   }
   /*
    * In-flow box for the composer. The textarea itself is a same-origin frame

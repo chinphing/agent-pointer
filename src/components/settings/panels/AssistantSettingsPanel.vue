@@ -341,8 +341,8 @@ const {
         role="presentation"
         @click.self="computerAdvancedModal = false"
       >
-        <div class="w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" @click.stop>
-          <div class="flex items-start justify-between gap-2 border-b border-border px-5 py-4 shrink-0">
+        <div class="w-full max-w-sm max-h-[80vh] flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" @click.stop>
+          <div class="flex items-start justify-between gap-2 border-b border-border px-4 py-3 shrink-0">
             <div class="min-w-0">
               <h4 class="text-sm font-semibold text-foreground">{{ t('settings.assistant.computerAdvancedTitle') }}</h4>
               <p class="mt-0.5 text-[11px] text-muted">{{ t('settings.assistant.computerAdvancedHint') }}</p>
@@ -357,16 +357,16 @@ const {
             </button>
           </div>
           <div class="divide-y divide-border overflow-y-auto">
-            <div class="px-3.5 py-3 space-y-2">
-              <div class="flex items-center gap-x-2 min-w-0">
-                <Monitor class="w-4 h-4 text-accent shrink-0" />
-                <span class="text-[12px] font-medium text-foreground shrink-0">{{ t('settings.agentPanel.locateName') }}</span>
-                <span class="text-[10px] text-muted truncate min-w-0">{{ t('settings.agentPanel.locateHint') }}</span>
+            <div class="px-3 py-2.5 space-y-1.5">
+              <div class="flex items-center gap-x-1.5">
+                <Monitor class="w-3.5 h-3.5 text-accent shrink-0" />
+                <span class="text-[12px] font-medium text-foreground">{{ t('settings.agentPanel.locateName') }}</span>
               </div>
-              <div class="grid grid-cols-[1fr_5.5rem] gap-2 items-center">
+              <p class="text-[10px] text-muted leading-snug">{{ t('settings.agentPanel.locateHint') }}</p>
+              <div class="grid grid-cols-[1fr_4.5rem] gap-2 items-center">
                 <select
                   :value="computerPipelineLocateValue()"
-                  class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                  class="h-8 min-w-0 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                   @change="selectComputerPipelineLocate(($event.target as HTMLSelectElement).value)"
                 >
                   <option value="">{{ t('settings.agentPanel.locateInherit') }}</option>
@@ -374,30 +374,30 @@ const {
                 </select>
                 <select
                   :value="intensityOf(computerPipelineLlm().locateThinkingBudget)"
-                  class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                  class="h-8 px-1.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                   @change="setIntensity('locate', ($event.target as HTMLSelectElement).value)"
                 >
                   <option v-for="opt in THINKING_OPTIONS" :key="'locate-t-' + opt.value" :value="opt.value">{{ opt.label }}</option>
                 </select>
               </div>
             </div>
-            <div class="px-3.5 py-3 space-y-2">
-              <div class="flex items-center gap-x-2 min-w-0">
-                <Monitor class="w-4 h-4 text-accent shrink-0" />
-                <span class="text-[12px] font-medium text-foreground shrink-0">{{ t('settings.agentPanel.verifyName') }}</span>
-                <span class="text-[10px] text-muted truncate min-w-0">{{ t('settings.agentPanel.verifyHint') }}</span>
+            <div class="px-3 py-2.5 space-y-1.5">
+              <div class="flex items-center gap-x-1.5">
+                <Monitor class="w-3.5 h-3.5 text-accent shrink-0" />
+                <span class="text-[12px] font-medium text-foreground">{{ t('settings.agentPanel.verifyName') }}</span>
               </div>
-              <div class="grid grid-cols-[1fr_5.5rem] gap-2 items-center">
+              <p class="text-[10px] text-muted leading-snug">{{ t('settings.agentPanel.verifyHint') }}</p>
+              <div class="grid grid-cols-[1fr_4.5rem] gap-2 items-center">
                 <select
                   :value="computerPipelineVerifyValue()"
-                  class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                  class="h-8 min-w-0 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                   @change="selectComputerPipelineVerify(($event.target as HTMLSelectElement).value)"
                 >
                   <option v-for="item in s.allModels" :key="'verify-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                 </select>
                 <select
                   :value="intensityOf(computerPipelineLlm().verifyThinkingBudget)"
-                  class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                  class="h-8 px-1.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                   @change="setIntensity('verify', ($event.target as HTMLSelectElement).value)"
                 >
                   <option v-for="opt in THINKING_OPTIONS" :key="'verify-t-' + opt.value" :value="opt.value">{{ opt.label }}</option>

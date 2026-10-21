@@ -244,8 +244,6 @@ const {
           </div>
             </div>
           </div>
-            </div>
-          </div>
 
           <div class="rounded-lg border border-border bg-card/50 overflow-hidden">
             <div class="px-3.5 pt-3 pb-2 border-b border-border flex items-center justify-between gap-2">

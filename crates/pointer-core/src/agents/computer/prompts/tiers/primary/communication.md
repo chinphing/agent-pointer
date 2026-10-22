@@ -21,6 +21,7 @@ Each row in **`[Recent desktop tool calls]`** ends with **`verify:`**:
 | Suffix | Plan from this |
 |--------|----------------|
 | **`verify: verifying`** | Host still running — **no** new root desktop tool; wait for next inject |
+| **`verify: pending`** | Verify could not run (LLM error) — **do not** assume success; re-read the screen and decide |
 | **`verify: verified - pass`** | Last action succeeded — proceed to **Next** |
 | **`verify: verified - wrong_operation`** | Wrong target/action — run **Repetition**, then pivot in **Next** |
 | **`verify: verified - precision_miss`** | Aim miss — run **Repetition**, re-derive route in **Next** |

@@ -308,13 +308,53 @@ pub async fn run_pipeline_post_execute_verify(
                 log::warn!(
                     "computer pipeline: verify phase failed conversation_id={conversation_id} tool={root_name}: {err:#}"
                 );
-                apply_na_verify_fallback(state, conversation_id, &root_name, &root_args).await?;
+                // A failed verify is NOT "no verify needed". Reporting `n/a` here
+                // makes the main LLM treat the action as verified and move on —
+                // which is how a broken API key silently turns into wrong
+                // coordinates surviving to the next step. `pending` keeps the
+                // row open so the model knows the outcome is unknown.
+                apply_failed_verify_fallback(state, conversation_id, &root_name, &root_args, &err)
+                    .await?;
             }
         }
         return Ok(());
     }
 
     apply_na_verify_fallback(state, conversation_id, &root_name, &root_args).await
+}
+
+/// Verify ran but the LLM call itself failed (bad key, timeout, 5xx).
+/// Record `pending` so the main LLM sees "outcome unknown" instead of "verified".
+async fn apply_failed_verify_fallback(
+    state: &AppState,
+    conversation_id: &str,
+    root_name: &str,
+    root_args: &Value,
+    err: &anyhow::Error,
+) -> Result<()> {
+    let conclusion = VerifyConclusion {
+        action_result: ActionResult::Pending,
+        failure_cause: None,
+        step_summary: Some(format!("verify unavailable: {err}")),
+    };
+    let (after_cap, _) = state
+        .computer_state
+        .capture_and_annotate(conversation_id)
+        .await?;
+    state
+        .computer_state
+        .store_pipeline_after_capture(conversation_id, after_cap);
+    state
+        .computer_state
+        .apply_pipeline_verify_result(conversation_id, &conclusion);
+    state.computer_state.set_pipeline_last_operation(
+        conversation_id,
+        format_operation_summary(root_name, root_args),
+    );
+    log::warn!(
+        "computer pipeline: verify pending (LLM call failed) conversation_id={conversation_id} tool={root_name}"
+    );
+    Ok(())
 }
 
 async fn apply_na_verify_fallback(

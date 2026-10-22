@@ -145,6 +145,13 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                 let b = o.box_px;
                 json!({
                     "ok": true,
+                    "status": "located",
+                    "summary": format!(
+                        "已找到「{}」并确认位置，坐标 ({}, {}) 是元素中心，可直接用于点击。",
+                        o.description,
+                        x.round() as i64,
+                        y.round() as i64
+                    ),
                     "description": o.description,
                     "x": x.round() as i64,
                     "y": y.round() as i64,
@@ -155,15 +162,17 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                         b.y2.round() as i64,
                     ]),
                     "confidence": o.confidence.map(|c| c.as_str()),
-                    "what_i_saw": clean_saw(&o.what_i_saw),
+                    "what_i_saw": o.what_i_saw,
                     "rounds": o.rounds,
                 })
             } else {
                 json!({
                     "ok": false,
+                    "status": "failed",
+                    "summary": failure_summary(&o.description, o.reason),
                     "description": o.description,
                     "reason": o.reason.map(|r| r.as_str()),
-                    "what_i_saw": clean_saw(&o.what_i_saw),
+                    "what_i_saw": o.what_i_saw,
                 })
             }
         })
@@ -171,33 +180,20 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
     json!({ "results": results }).to_string()
 }
 
-/// `in_box` 是校验模型对「框里有什么」的描述，它有时会顺带评论框准不准
-/// （「蓝框只覆盖了右侧文字部分」「左侧被截断在框外」）。这类话是内部实现
-/// 细节，主模型读到会以为定位不可靠，于是重复调用 locate。这里把带这些词
-/// 的括注 / 句子去掉，只留对元素本身的描述。
-fn clean_saw(raw: &str) -> String {
-    const NOISE: [&str; 6] = ["蓝框", "截断", "框外", "覆盖", "框内只", "只框住"];
-    // 去掉括号里的评论（中英文括号都处理）。
-    let mut out = String::with_capacity(raw.len());
-    let mut depth = 0usize;
-    for ch in raw.chars() {
-        match ch {
-            '（' | '(' => depth += 1,
-            '）' | ')' => depth = depth.saturating_sub(1),
-            _ if depth == 0 => out.push(ch),
-            _ => {}
-        }
+/// 失败时给主模型一句明确的话，而不是让它自己从 `ok: false` 猜下一步。
+fn failure_summary(description: &str, reason: Option<FailureReason>) -> String {
+    match reason {
+        Some(FailureReason::NotFound) => format!(
+            "没有在当前画面找到「{description}」。不要用猜测的坐标点击；先滚动、切换页面或等待加载，再重新定位。"
+        ),
+        Some(FailureReason::NotVerified) => format!(
+            "候选位置未能确认是「{description}」。换一个更有区分度的描述（加上周边锚点或可见文字）再试。"
+        ),
+        Some(FailureReason::Unclear) => format!(
+            "画面太模糊或被遮挡，无法确认「{description}」。先让界面稳定（等加载、关闭弹窗）再试。"
+        ),
+        None => format!("未能定位「{description}」。不要用猜测的坐标点击。"),
     }
-    // 按句切，丢掉含噪声词的句子。
-    let kept: Vec<&str> = out
-        .split(['。', '；', ';'])
-        .map(str::trim)
-        .filter(|s| !s.is_empty() && !NOISE.iter().any(|n| s.contains(n)))
-        .collect();
-    if kept.is_empty() {
-        return raw.trim().to_string();
-    }
-    kept.join("。")
 }
 
 #[cfg(test)]
@@ -205,18 +201,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn clean_saw_drops_box_commentary() {
-        let raw = "搜索框内的提示文字「输入股票代码、名称、简拼或关键词」（蓝色边框仅覆盖了搜索框中右侧的文字部分，左侧的放大镜图标和「输入股票代」等字被蓝框截断在框外）";
-        let out = clean_saw(raw);
-        assert!(out.contains("搜索框内的提示文字"));
-        assert!(!out.contains("蓝框"), "{out}");
-        assert!(!out.contains("截断"), "{out}");
-        assert!(!out.contains("框外"), "{out}");
+    fn located_result_carries_an_explicit_verdict() {
+        let out = LocateOutcome {
+            ok: true,
+            description: "地址栏右侧的刷新按钮".into(),
+            point_px: Some((820.0, 45.0)),
+            box_px: None,
+            confidence: Some(Confidence::High),
+            what_i_saw: "圆形箭头图标".into(),
+            rounds: 1,
+            reason: None,
+        };
+        let json: Value = serde_json::from_str(&render_results(&[out])).unwrap();
+        let r = &json["results"][0];
+        assert_eq!(r["status"], "located");
+        let summary = r["summary"].as_str().unwrap();
+        assert!(summary.contains("已找到"), "{summary}");
+        assert!(summary.contains("(820, 45)"), "{summary}");
+        assert!(summary.contains("可直接用于点击"), "{summary}");
+        // what_i_saw 原样返回，不做清洗
+        assert_eq!(r["what_i_saw"], "圆形箭头图标");
     }
 
     #[test]
-    fn clean_saw_keeps_clean_text_untouched() {
-        assert_eq!(clean_saw("圆形箭头刷新图标"), "圆形箭头刷新图标");
+    fn failed_result_explains_what_to_do_next() {
+        let out = LocateOutcome::failure(
+            "『文件』菜单里的『另存为』",
+            FailureReason::NotFound,
+            "当前截图中未能可靠确认目标".into(),
+            1,
+        );
+        let json: Value = serde_json::from_str(&render_results(&[out])).unwrap();
+        let r = &json["results"][0];
+        assert_eq!(r["status"], "failed");
+        let summary = r["summary"].as_str().unwrap();
+        assert!(summary.contains("没有在当前画面找到"), "{summary}");
+        assert!(summary.contains("不要用猜测的坐标点击"), "{summary}");
+        assert_eq!(r["what_i_saw"], "当前截图中未能可靠确认目标");
     }
 
     fn el(desc: &str) -> Value {

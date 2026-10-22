@@ -50,7 +50,7 @@ pub fn report_tool() -> Value {
                 "properties": {
                     "in_box": {
                         "type": "string",
-                        "description": "框内的目标元素是什么？写看到的文字、图标、控件类型。只描述元素本身——不要评价框准不准，不要提「蓝框」「截断」「框外」「覆盖」这类词"
+                        "description": "蓝框里实际是什么？只描述看到的文字/图标/控件"
                     },
                     "anchor_seen": {
                         "type": "string",

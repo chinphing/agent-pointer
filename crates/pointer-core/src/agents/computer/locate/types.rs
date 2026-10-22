@@ -122,6 +122,10 @@ pub struct VerifyVerdict {
     /// `high` = all four; `medium` = text and position matched but icon or
     /// colour did not. Only meaningful when `match_` is `Yes`.
     pub confidence: Confidence,
+    /// The model's thinking channel, when the provider returned one. Empty when
+    /// thinking is off. Kept for diagnosis: a wrong verdict is much easier to
+    /// explain when you can read what the model reasoned before answering.
+    pub reasoning: String,
 }
 
 impl Default for VerifyVerdict {
@@ -135,6 +139,7 @@ impl Default for VerifyVerdict {
             elsewhere_dir: None,
             elsewhere_desc: String::new(),
             confidence: Confidence::High,
+            reasoning: String::new(),
         }
     }
 }
@@ -227,6 +232,9 @@ pub struct LocateOutcome {
     /// Number of crop/verify rounds spent (B5 `locate_rounds`).
     pub rounds: usize,
     pub reason: Option<FailureReason>,
+    /// The verifier's thinking channel from the final round. Diagnostic only —
+    /// never shown to the main model. Empty when thinking is off.
+    pub reasoning: String,
 }
 
 impl LocateOutcome {
@@ -241,6 +249,7 @@ impl LocateOutcome {
             why: String::new(),
             rounds,
             reason: Some(reason),
+            reasoning: String::new(),
         }
     }
 }

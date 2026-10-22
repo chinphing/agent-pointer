@@ -226,6 +226,7 @@ mod tests {
             why: String::new(),
             rounds: 1,
             reason: None,
+            reasoning: String::new(),
         };
         let json: Value = serde_json::from_str(&render_results(&[out])).unwrap();
         let r = &json["results"][0];
@@ -388,6 +389,7 @@ mod tests {
             why: String::new(),
             rounds: 2,
             reason: None,
+            reasoning: String::new(),
         };
         let bad = LocateOutcome::failure(
             "地址栏",

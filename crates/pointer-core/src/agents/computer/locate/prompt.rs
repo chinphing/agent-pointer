@@ -273,6 +273,7 @@ pub fn parse_verify_arguments(raw: &str) -> Option<VerifyVerdict> {
             .take(150)
             .collect(),
         confidence: Confidence::parse(&text_field(&v, "confidence")),
+        reasoning: String::new(),
     })
 }
 

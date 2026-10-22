@@ -128,7 +128,8 @@ impl LocateVision for ChatLocateVision<'_> {
                             .then(|| parse_verify_arguments(&tc.arguments))
                             .flatten()
                     });
-                    if let Some(v) = parsed {
+                    if let Some(mut v) = parsed {
+                        v.reasoning = out.reasoning_content.clone().unwrap_or_default();
                         return Ok(v);
                     }
                     log::debug!(

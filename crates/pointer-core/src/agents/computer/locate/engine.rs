@@ -78,6 +78,7 @@ pub async fn locate_one<V: LocateVision>(
     let mut box_norm = req.hint_norm(w, h);
     let mut last_saw = String::new();
     let mut last_why = String::new();
+    let mut last_reasoning = String::new();
     let mut final_confidence = Confidence::High;
     let mut rounds = 0usize;
     let mut stop = Stop::RoundsExhausted;
@@ -128,6 +129,7 @@ pub async fn locate_one<V: LocateVision>(
             }
             if !v.why.trim().is_empty() {
                 last_why = v.why.clone();
+                last_reasoning = v.reasoning.clone();
             }
             let crop = Some((image, bounds));
 
@@ -252,6 +254,7 @@ pub async fn locate_one<V: LocateVision>(
         confidence: Some(final_confidence),
         what_i_saw,
         why: last_why,
+        reasoning: last_reasoning,
         rounds,
         reason: None,
     })

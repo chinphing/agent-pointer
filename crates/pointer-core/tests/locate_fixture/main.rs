@@ -945,15 +945,24 @@ async fn eastmoney_partial_hint_is_rejected() -> Result<()> {
                 case.description, o.point_px
             ));
         }
+        let hint_c = ((hint[0] + hint[2]) / 2.0, (hint[1] + hint[3]) / 2.0);
+        let hint_c_inside = inside(hint_c, bbox);
         println!(
-            "{} {:<40} ok={:<5} pt={:?} {:.1}s  why={}",
+            "{} {:<40} ok={:<5} pt={:?} rounds={} hint_center_inside={} {:.1}s  why={}",
             if good { "PASS" } else { "LEAK" },
             case.description,
             o.ok,
             o.point_px.map(|(x, y)| (x.round() as i64, y.round() as i64)),
+            o.rounds,
+            hint_c_inside,
             secs,
             o.why
         );
+        if !o.reasoning.trim().is_empty() {
+            println!("  [thinking] {}", o.reasoning.trim().replace('\n', " ⏎ "));
+        } else {
+            println!("  [thinking] <empty — POINTER_LOCATE_THINKING not set?>");
+        }
     }
 
     println!(

@@ -459,6 +459,29 @@ fn parse_chat_once_tool_calls(raw: Option<&[ChatApiToolCall]>) -> Vec<ToolCall> 
         .collect()
 }
 
+/// Look up the API key that belongs to `settings.active_provider_id`.
+///
+/// Pipeline phases (decision / position / verify / locate) can each point at a
+/// different provider than the agent's own. Building the provider with the
+/// agent's key would then send the wrong key to the wrong endpoint and come
+/// back 401 — which is exactly how a mis-route shows up in the field.
+pub fn api_key_for_settings(settings: &ModelSettings) -> anyhow::Result<String> {
+    let pid = settings.active_provider_id.trim();
+    if pid.is_empty() {
+        anyhow::bail!("no active provider selected");
+    }
+    let key = settings
+        .providers
+        .iter()
+        .find(|p| p.id == pid)
+        .map(|p| p.api_key.trim())
+        .unwrap_or("");
+    if key.is_empty() {
+        anyhow::bail!("no API key configured for provider `{pid}`");
+    }
+    Ok(key.to_string())
+}
+
 impl OpenAIProvider {
     pub fn new(settings: ModelSettings, api_key: String) -> Self {
         Self {

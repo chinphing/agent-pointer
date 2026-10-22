@@ -632,7 +632,6 @@ pub(super) async fn run_single_agent_loop(
                 state.as_ref(),
                 &stream,
                 conversation_id,
-                provider,
                 settings,
                 pipeline_before_capture.as_ref(),
                 &assistant_id,

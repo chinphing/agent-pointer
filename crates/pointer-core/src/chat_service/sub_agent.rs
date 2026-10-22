@@ -765,7 +765,6 @@ pub(crate) async fn run_sub_agent(
                 state,
                 stream,
                 conversation_id,
-                &sub_provider,
                 &sub_provider.settings,
                 pipeline_before_capture.as_ref(),
                 &round_message_id,

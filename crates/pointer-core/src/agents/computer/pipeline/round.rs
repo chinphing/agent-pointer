@@ -42,7 +42,6 @@ pub async fn run_verify_phase(
     computer_state: &ComputerState,
     conversation_id: &str,
     assistant_message_id: &str,
-    provider: &OpenAIProvider,
     settings: &ModelSettings,
     root_tool_name: &str,
     root_args: &Value,
@@ -72,7 +71,11 @@ pub async fn run_verify_phase(
         PipelineLlmPhase::Verify,
         settings,
     );
-    let prov = OpenAIProvider::new(verify_settings.clone(), provider.api_key.clone());
+    // Verify may point at a different provider than the agent — resolve the key
+    // for that provider instead of reusing the agent's (a mismatch here shows up
+    // as 401 from the wrong endpoint).
+    let verify_key = crate::provider::api_key_for_settings(&verify_settings)?;
+    let prov = OpenAIProvider::new(verify_settings.clone(), verify_key);
     let mut after_for_cache = after_cap;
     let verify_wire = build_verify_wire_messages(&VerifyWireInput {
         family,

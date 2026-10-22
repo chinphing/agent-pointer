@@ -37,7 +37,10 @@ pub(super) async fn dispatch_locate_element(
             )
         }
     };
-    let locate_provider = OpenAIProvider::new(phase_settings, provider.api_key.clone());
+    // Same as verify: locate can point at its own provider, so the key has to be
+    // resolved from that provider rather than inherited from the agent.
+    let locate_key = crate::provider::api_key_for_settings(&phase_settings)?;
+    let locate_provider = OpenAIProvider::new(phase_settings, locate_key);
     let payload = crate::agents::computer::locate::run_locate_element(
         state.computer_state.as_ref(),
         conversation_id,

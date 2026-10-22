@@ -12,7 +12,6 @@ use crate::chat_service::app_state::AppState;
 use crate::chat_service::emit::emit;
 use crate::chat_service::StreamTx;
 use crate::models::{ChatMessage, ModelSettings, Role, StreamEvent, ToolCall};
-use crate::provider::OpenAIProvider;
 use crate::tools::ToolRegistry;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
@@ -200,7 +199,6 @@ pub async fn run_pipeline_post_execute_verify(
     state: &AppState,
     stream: &StreamTx,
     conversation_id: &str,
-    provider: &OpenAIProvider,
     settings: &ModelSettings,
     before_cap: Option<&ScreenCaptureResult>,
     message_id: &str,
@@ -283,7 +281,6 @@ pub async fn run_pipeline_post_execute_verify(
             state.computer_state.as_ref(),
             conversation_id,
             message_id,
-            provider,
             settings,
             &root_name,
             &root_args,

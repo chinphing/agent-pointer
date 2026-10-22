@@ -483,6 +483,29 @@ pub fn api_key_for_settings(settings: &ModelSettings) -> anyhow::Result<String> 
 }
 
 impl OpenAIProvider {
+    /// Base URL of the provider this instance is currently pointed at.
+    ///
+    /// Deliberately does **not** fall back to `providers.first()`: silently
+    /// posting to an unrelated endpoint turns a config mistake into a confusing
+    /// auth failure. Same contract as [`api_key_for_settings`].
+    pub fn base_url(&self) -> anyhow::Result<String> {
+        let pid = self.settings.active_provider_id.trim();
+        if pid.is_empty() {
+            anyhow::bail!("no active provider selected");
+        }
+        let url = self
+            .settings
+            .providers
+            .iter()
+            .find(|p| p.id == pid)
+            .map(|p| p.base_url.trim())
+            .unwrap_or("");
+        if url.is_empty() {
+            anyhow::bail!("no base URL configured for provider `{pid}`");
+        }
+        Ok(url.to_string())
+    }
+
     pub fn new(settings: ModelSettings, api_key: String) -> Self {
         Self {
             settings,
@@ -524,19 +547,7 @@ impl OpenAIProvider {
     pub async fn test(&self) -> Result<u128> {
         let start = std::time::Instant::now();
         // 用一次最小化 chat 请求测试连通性
-        let base_url = self
-            .settings
-            .providers
-            .iter()
-            .find(|p| p.id == self.settings.active_provider_id)
-            .map(|p| p.base_url.clone())
-            .unwrap_or_else(|| {
-                self.settings
-                    .providers
-                    .first()
-                    .map(|p| p.base_url.clone())
-                    .unwrap_or_default()
-            });
+        let base_url = self.base_url()?;
 
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
         let body = json!({
@@ -724,19 +735,7 @@ impl OpenAIProvider {
         dump_label: Option<&str>,
         disable_thinking: bool,
     ) -> Result<ChatOnceOutput> {
-        let base_url = self
-            .settings
-            .providers
-            .iter()
-            .find(|p| p.id == self.settings.active_provider_id)
-            .map(|p| p.base_url.clone())
-            .unwrap_or_else(|| {
-                self.settings
-                    .providers
-                    .first()
-                    .map(|p| p.base_url.clone())
-                    .unwrap_or_default()
-            });
+        let base_url = self.base_url()?;
 
         crate::message_context::try_log_context_excluded_messages(
             &self.settings,
@@ -845,19 +844,7 @@ impl OpenAIProvider {
         max_tokens_override: Option<u32>,
         dump_label: Option<&str>,
     ) -> Result<ChatOnceOutput> {
-        let base_url = self
-            .settings
-            .providers
-            .iter()
-            .find(|p| p.id == self.settings.active_provider_id)
-            .map(|p| p.base_url.clone())
-            .unwrap_or_else(|| {
-                self.settings
-                    .providers
-                    .first()
-                    .map(|p| p.base_url.clone())
-                    .unwrap_or_default()
-            });
+        let base_url = self.base_url()?;
         let max_tok =
             max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
         let extra_body = crate::models::effective_chat_extra_body(&self.settings);
@@ -968,19 +955,7 @@ impl OpenAIProvider {
         max_tokens_override: Option<u32>,
         dump_label: Option<&str>,
     ) -> Result<ChatOnceOutput> {
-        let base_url = self
-            .settings
-            .providers
-            .iter()
-            .find(|p| p.id == self.settings.active_provider_id)
-            .map(|p| p.base_url.clone())
-            .unwrap_or_else(|| {
-                self.settings
-                    .providers
-                    .first()
-                    .map(|p| p.base_url.clone())
-                    .unwrap_or_default()
-            });
+        let base_url = self.base_url()?;
         let max_tok =
             max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
         let mut extra_body =
@@ -1107,19 +1082,7 @@ impl OpenAIProvider {
         // When true, use `content` or fall back to `reasoning` for `text` (legacy non-pipeline).
         allow_reasoning_text_fallback: bool,
     ) -> Result<ChatOnceOutput> {
-        let base_url = self
-            .settings
-            .providers
-            .iter()
-            .find(|p| p.id == self.settings.active_provider_id)
-            .map(|p| p.base_url.clone())
-            .unwrap_or_else(|| {
-                self.settings
-                    .providers
-                    .first()
-                    .map(|p| p.base_url.clone())
-                    .unwrap_or_default()
-            });
+        let base_url = self.base_url()?;
         self.dump_llm_round(dump_label, dump_phase, true, max_tok, &wire_messages);
         let stream_options = if stream_include_usage_enabled() {
             Some(json!({"include_usage": true}))
@@ -1268,19 +1231,7 @@ impl OpenAIProvider {
         dump_label: Option<&str>,
         dump_phase: &str,
     ) -> Result<ChatOnceOutput> {
-        let base_url = self
-            .settings
-            .providers
-            .iter()
-            .find(|p| p.id == self.settings.active_provider_id)
-            .map(|p| p.base_url.clone())
-            .unwrap_or_else(|| {
-                self.settings
-                    .providers
-                    .first()
-                    .map(|p| p.base_url.clone())
-                    .unwrap_or_default()
-            });
+        let base_url = self.base_url()?;
         self.dump_llm_round(dump_label, dump_phase, true, max_tok, &wire_messages);
         let stream_options = if stream_include_usage_enabled() {
             Some(json!({"include_usage": true}))
@@ -1453,19 +1404,7 @@ impl OpenAIProvider {
         dump_label: Option<&str>,
         history_scope: crate::message_context::LlmHistoryScope,
     ) -> Result<StreamChatWire> {
-        let base_url = self
-            .settings
-            .providers
-            .iter()
-            .find(|p| p.id == self.settings.active_provider_id)
-            .map(|p| p.base_url.clone())
-            .unwrap_or_else(|| {
-                self.settings
-                    .providers
-                    .first()
-                    .map(|p| p.base_url.clone())
-                    .unwrap_or_default()
-            });
+        let base_url = self.base_url()?;
 
         let t_build = Instant::now();
         crate::message_context::try_log_context_excluded_messages(

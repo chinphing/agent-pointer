@@ -800,7 +800,8 @@ async fn absent_targets_fail_honestly() -> Result<()> {
 // 目标」，会判 yes 并把偏心的坐标返回，下游点空。期望是判 no。
 
 async fn eastmoney_frame() -> Result<(TruthFile, LocateFrame)> {
-    let truth = load_truth_file(&truth_path_named("truth_eastmoney.json"))?;
+    let name = std::env::var("POINTER_LOCATE_TRUTH").unwrap_or_else(|_| "truth_eastmoney.json".into());
+    let truth = load_truth_file(&truth_path_named(&name))?;
     let path = dir().join(&truth.fixture);
     anyhow::ensure!(path.exists(), "missing fixture: {}", path.display());
     let img = image::open(&path)?.to_rgb8();

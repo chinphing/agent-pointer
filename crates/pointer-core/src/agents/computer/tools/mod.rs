@@ -10,7 +10,7 @@ mod tool_hotkey;
 mod tool_input;
 mod tool_keyboard;
 mod tool_modified_click;
-mod tool_mouse;
+pub(crate) mod tool_mouse;
 mod tool_wait;
 
 pub use tool_app_access::{
@@ -23,7 +23,7 @@ use crate::platform::run_synthetic_input;
 use crate::tools::tool_doc::load_tools_from_schema_yaml;
 use crate::tools::{ToolEntry, ToolHandler, ToolRegistry};
 use args_util::effective_human_like_default;
-use method_route::{InputBackend, ModifiedClickBackend, MouseBackend};
+pub(crate) use method_route::{InputBackend, ModifiedClickBackend, MouseBackend};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tool_input::InputTool;
@@ -86,17 +86,22 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             let tool_name = name.to_string();
             let backend_method = *backend_method;
 
+            let err_name = tool_name.clone();
             let handler: ToolHandler = Arc::new(move |args| {
                 let cid = conversation_id_from_args(&args)
                     .unwrap_or_default()
                     .to_string();
 
-                if let Some((backend, method)) = backend_method {
-                    let vision = ms.vision_state_for_conversation(&cid);
-                    let tool = MouseTool::new(ms.control.clone(), vision);
-                    run_synthetic_computer_tool(move || {
-                        tool.execute_with(backend, method, &args)
-                    })
+                if let Some((_backend, _method)) = backend_method {
+                    // These run on the chat runtime async path: they accept a
+                    // `description` and may have to ground first, and grounding
+                    // needs the agent's provider — which this closure does not
+                    // carry. See dispatch/mouse.rs.
+                    let _ = (&ms, &cid);
+                    Err(anyhow::anyhow!(
+                        "{} is executed by the chat runtime async path, not synchronous invoke",
+                        err_name
+                    ))
                 } else {
                     // mouse_scroll_current — pixel dx/dy at the current pointer.
                     let control = ms.control.clone();

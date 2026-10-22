@@ -4,6 +4,7 @@ mod ask_user;
 mod job;
 mod locate;
 mod media;
+mod mouse;
 pub(super) mod registry;
 mod skill_import;
 pub(super) mod subagent;
@@ -118,6 +119,13 @@ pub(super) async fn execute_tool_invocation(
                 sub.as_ref().map(|s| s.instance_scope.run_id.as_str()),
             )
             .await
+        }
+        // Mouse tools accept either x/y or a description. With a description the
+        // tool grounds first, and grounding needs the provider — which the sync
+        // ToolHandler closure does not carry. Hence the async path.
+        "mouse_click_at" | "mouse_double_click_at" | "mouse_right_click_at"
+        | "mouse_hover_at" | "mouse_drag_to" | "mouse_down" | "mouse_up" => {
+            mouse::dispatch_mouse(state, conversation_id, provider, tc, args_value, cancel).await
         }
         "locate_element" => {
             locate::dispatch_locate_element(
@@ -296,6 +304,13 @@ pub(super) async fn invoke_prepared_parallel(
         )),
         // Registered as `ToolConflictClass::Computer`, so the batch planner
         // runs it serially; this arm exists for completeness/symmetry.
+        // Mouse tools accept either x/y or a description. With a description the
+        // tool grounds first, and grounding needs the provider — which the sync
+        // ToolHandler closure does not carry. Hence the async path.
+        "mouse_click_at" | "mouse_double_click_at" | "mouse_right_click_at"
+        | "mouse_hover_at" | "mouse_drag_to" | "mouse_down" | "mouse_up" => {
+            mouse::dispatch_mouse(state, conversation_id, provider, tc, args_value, cancel).await
+        }
         "locate_element" => {
             locate::dispatch_locate_element(
                 state,

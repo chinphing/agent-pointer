@@ -21,6 +21,29 @@ on that target this turn (buttons, toggles, icons, links, menus).
   **from wherever the pointer already is** — no start point. Use it only when
   the pointer is already on the item to grab.
 
+**Or describe the target instead of giving coordinates:**
+
+Every tool above except **`mouse_scroll_current`** and
+**`mouse_drag_from_to_at`** also accepts **`description`** in place of `x`/`y`:
+
+```json
+{"description": "搜索框", "goal": "在搜索框里查行情"}
+```
+
+The tool grounds the description against a fresh screenshot and clicks the
+returned centre — **one call instead of `locate_element` + `mouse_click_at`**.
+Prefer this when you can name the target but do not know its coordinates.
+
+- **Grounding can fail.** If nothing matches, the call returns an error that
+  says what was actually there; it will **not** click a guessed position.
+  React by re-describing the target (add a distinguishing detail) or by
+  scrolling/re-navigating first — do not retry the same description.
+- **Grounding costs a few seconds.** When you already have coordinates from a
+  `locate_element` call in this same turn, pass `x`/`y` instead — it is
+  instant.
+- **Do not pass both.** `x`/`y` win; `description` is ignored when coordinates
+  are present.
+
 Coordinates are **logical pixels**, the same width and height as the screenshot
 you are looking at — not normalized, not Retina device pixels.
 

@@ -1,6 +1,9 @@
 mouse_click_at:
   type: object
   properties:
+    description:
+      type: string
+      description: "要点的东西，用自然语言描述（例：搜索框 / 右上角的关闭按钮 / 数据标签页）。给了它就不用给 x/y——工具会先定位再点。定位失败会直接报错，不会瞎点。"
     goal:
       type: string
     action:
@@ -28,14 +31,15 @@ mouse_click_at:
       minimum: 1
       maximum: 5
   required:
-    - x
-    - y
     - goal
   additionalProperties: true
 
 mouse_double_click_at:
   type: object
   properties:
+    description:
+      type: string
+      description: "要点的东西，用自然语言描述（例：搜索框 / 右上角的关闭按钮 / 数据标签页）。给了它就不用给 x/y——工具会先定位再点。定位失败会直接报错，不会瞎点。"
     goal:
       type: string
     action:
@@ -51,14 +55,15 @@ mouse_double_click_at:
       minimum: 1
       maximum: 5
   required:
-    - x
-    - y
     - goal
   additionalProperties: true
 
 mouse_right_click_at:
   type: object
   properties:
+    description:
+      type: string
+      description: "要点的东西，用自然语言描述（例：搜索框 / 右上角的关闭按钮 / 数据标签页）。给了它就不用给 x/y——工具会先定位再点。定位失败会直接报错，不会瞎点。"
     goal:
       type: string
     action:
@@ -74,14 +79,15 @@ mouse_right_click_at:
       minimum: 1
       maximum: 5
   required:
-    - x
-    - y
     - goal
   additionalProperties: true
 
 mouse_hover_at:
   type: object
   properties:
+    description:
+      type: string
+      description: "要点的东西，用自然语言描述（例：搜索框 / 右上角的关闭按钮 / 数据标签页）。给了它就不用给 x/y——工具会先定位再点。定位失败会直接报错，不会瞎点。"
     goal:
       type: string
     action:
@@ -97,8 +103,6 @@ mouse_hover_at:
       minimum: 1
       maximum: 5
   required:
-    - x
-    - y
     - goal
   additionalProperties: true
 
@@ -130,6 +134,9 @@ mouse_scroll_current:
 mouse_down:
   type: object
   properties:
+    description:
+      type: string
+      description: "要点的东西，用自然语言描述（例：搜索框 / 右上角的关闭按钮 / 数据标签页）。给了它就不用给 x/y——工具会先定位再点。定位失败会直接报错，不会瞎点。"
     goal:
       type: string
     action:
@@ -152,6 +159,9 @@ mouse_down:
 mouse_up:
   type: object
   properties:
+    description:
+      type: string
+      description: "要点的东西，用自然语言描述（例：搜索框 / 右上角的关闭按钮 / 数据标签页）。给了它就不用给 x/y——工具会先定位再点。定位失败会直接报错，不会瞎点。"
     goal:
       type: string
     action:
@@ -174,6 +184,9 @@ mouse_up:
 mouse_drag_to:
   type: object
   properties:
+    description:
+      type: string
+      description: "要点的东西，用自然语言描述（例：搜索框 / 右上角的关闭按钮 / 数据标签页）。给了它就不用给 x/y——工具会先定位再点。定位失败会直接报错，不会瞎点。"
     goal:
       type: string
     action:
@@ -189,8 +202,6 @@ mouse_drag_to:
       minimum: 1
       maximum: 5
   required:
-    - x
-    - y
     - goal
   additionalProperties: true
 

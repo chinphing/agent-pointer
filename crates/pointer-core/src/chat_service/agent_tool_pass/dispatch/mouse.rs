@@ -24,6 +24,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::super::super::app_state::AppState;
 use super::super::types::ToolExecResult;
+use super::grounding::resolve_point;
 
 /// `mouse_*` tools that point at a described target.
 ///
@@ -60,104 +61,6 @@ fn method_for(tool_id: &str) -> Option<&'static str> {
         "mouse_up" => "mouse_up",
         _ => return None,
     })
-}
-
-/// `[x1, y1, x2, y2]` → `PxBox`, rejecting degenerate boxes.
-pub(super) fn parse_bbox(v: &Value) -> anyhow::Result<crate::agents::computer::locate::PxBox> {
-    let arr = v
-        .as_array()
-        .ok_or_else(|| anyhow::anyhow!("bbox 必须是 [x1, y1, x2, y2]"))?;
-    if arr.len() != 4 {
-        anyhow::bail!("bbox 必须是 4 个数，收到 {}", arr.len());
-    }
-    let mut n = [0f64; 4];
-    for (i, item) in arr.iter().enumerate() {
-        n[i] = item
-            .as_f64()
-            .ok_or_else(|| anyhow::anyhow!("bbox[{i}] 不是数字"))?;
-    }
-    let b = crate::agents::computer::locate::PxBox {
-        x1: n[0],
-        y1: n[1],
-        x2: n[2],
-        y2: n[3],
-    };
-    if b.x2 <= b.x1 || b.y2 <= b.y1 {
-        anyhow::bail!(
-            "bbox 宽高必须为正：收到 [{}, {}, {}, {}]",
-            n[0],
-            n[1],
-            n[2],
-            n[3]
-        );
-    }
-    Ok(b)
-}
-
-/// Ground `{target_desc, bbox}` and return the confirmed centre point.
-pub(super) async fn resolve_point(
-    state: &AppState,
-    conversation_id: &str,
-    provider: &OpenAIProvider,
-    args: &Value,
-    prefix: &str,
-    cancel: &CancellationToken,
-) -> anyhow::Result<(f64, f64)> {
-    let desc_key = format!("{prefix}target_desc");
-    let bbox_key = format!("{prefix}bbox");
-    let target_desc = args
-        .get(&desc_key)
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("缺少 {desc_key}——目标是什么"))?;
-    let bbox_value = args
-        .get(&bbox_key)
-        .ok_or_else(|| anyhow::anyhow!("缺少 {bbox_key}——目标大概在哪个范围"))?;
-    let hint = parse_bbox(bbox_value)?;
-
-    let locate_provider = super::grounding::locate_provider(state, conversation_id, provider)?;
-
-    let locate_args = serde_json::json!({
-        "goal": format!("点击{target_desc}"),
-        "elements": [{
-            "description": target_desc,
-            "hint_box": [hint.x1, hint.y1, hint.x2, hint.y2],
-        }]
-    });
-    let payload = crate::agents::computer::locate::run_locate_element(
-        state.computer_state.as_ref(),
-        conversation_id,
-        &locate_provider,
-        &locate_args,
-        cancel,
-    )
-    .await?;
-
-    let parsed: Value = serde_json::from_str(&payload)
-        .map_err(|e| anyhow::anyhow!("locate 返回的不是合法 JSON: {e}"))?;
-    let first = parsed
-        .get("results")
-        .and_then(|r| r.as_array())
-        .and_then(|a| a.first())
-        .ok_or_else(|| anyhow::anyhow!("locate 没有返回结果"))?;
-
-    let status = first.get("status").and_then(|v| v.as_str()).unwrap_or("");
-    if status != "located" {
-        // Surface the locate failure verbatim — its `summary` already explains
-        // what went wrong in user terms.
-        let summary = first
-            .get("summary")
-            .and_then(|v| v.as_str())
-            .unwrap_or("定位失败");
-        anyhow::bail!("没找到「{target_desc}」：{summary}");
-    }
-    let confirmed = first
-        .get("bbox")
-        .ok_or_else(|| anyhow::anyhow!("locate 结果缺少 bbox"))
-        .and_then(parse_bbox)?;
-    let (cx, cy) = confirmed.center();
-    Ok((cx, cy))
 }
 
 pub(super) async fn dispatch_mouse(
@@ -235,20 +138,4 @@ mod tests {
         assert_eq!(method_for("mouse_drag_from_to_at"), Some("drag_from_to"));
     }
 
-    #[test]
-    fn parse_bbox_rejects_bad_shapes() {
-        assert!(parse_bbox(&json!([10, 20, 30, 40])).is_ok());
-        assert!(parse_bbox(&json!([10, 20, 30])).is_err(), "3 个数");
-        assert!(parse_bbox(&json!([10, 20, 30, 40, 50])).is_err(), "5 个数");
-        assert!(parse_bbox(&json!("10,20,30,40")).is_err(), "字符串");
-        assert!(parse_bbox(&json!([30, 20, 10, 40])).is_err(), "x2 < x1");
-        assert!(parse_bbox(&json!([10, 40, 30, 20])).is_err(), "y2 < y1");
-        assert!(parse_bbox(&json!([10, 20, 10, 40])).is_err(), "零宽");
-    }
-
-    #[test]
-    fn parse_bbox_keeps_the_centre() {
-        let b = parse_bbox(&json!([100, 200, 300, 260])).unwrap();
-        assert_eq!(b.center(), (200.0, 230.0));
-    }
 }

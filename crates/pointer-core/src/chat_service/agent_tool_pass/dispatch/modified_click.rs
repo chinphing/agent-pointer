@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::super::super::app_state::AppState;
 use super::super::types::ToolExecResult;
-use super::mouse::resolve_point;
+use super::grounding::resolve_point;
 
 fn method_for(tool_id: &str) -> Option<&'static str> {
     Some(match tool_id {

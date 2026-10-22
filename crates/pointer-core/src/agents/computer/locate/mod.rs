@@ -155,7 +155,7 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                         b.y2.round() as i64,
                     ]),
                     "confidence": o.confidence.map(|c| c.as_str()),
-                    "what_i_saw": o.what_i_saw,
+                    "what_i_saw": clean_saw(&o.what_i_saw),
                     "rounds": o.rounds,
                 })
             } else {
@@ -163,7 +163,7 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                     "ok": false,
                     "description": o.description,
                     "reason": o.reason.map(|r| r.as_str()),
-                    "what_i_saw": o.what_i_saw,
+                    "what_i_saw": clean_saw(&o.what_i_saw),
                 })
             }
         })
@@ -171,9 +171,53 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
     json!({ "results": results }).to_string()
 }
 
+/// `in_box` 是校验模型对「框里有什么」的描述，它有时会顺带评论框准不准
+/// （「蓝框只覆盖了右侧文字部分」「左侧被截断在框外」）。这类话是内部实现
+/// 细节，主模型读到会以为定位不可靠，于是重复调用 locate。这里把带这些词
+/// 的括注 / 句子去掉，只留对元素本身的描述。
+fn clean_saw(raw: &str) -> String {
+    const NOISE: [&str; 6] = ["蓝框", "截断", "框外", "覆盖", "框内只", "只框住"];
+    // 去掉括号里的评论（中英文括号都处理）。
+    let mut out = String::with_capacity(raw.len());
+    let mut depth = 0usize;
+    for ch in raw.chars() {
+        match ch {
+            '（' | '(' => depth += 1,
+            '）' | ')' => depth = depth.saturating_sub(1),
+            _ if depth == 0 => out.push(ch),
+            _ => {}
+        }
+    }
+    // 按句切，丢掉含噪声词的句子。
+    let kept: Vec<&str> = out
+        .split(['。', '；', ';'])
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !NOISE.iter().any(|n| s.contains(n)))
+        .collect();
+    if kept.is_empty() {
+        return raw.trim().to_string();
+    }
+    kept.join("。")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clean_saw_drops_box_commentary() {
+        let raw = "搜索框内的提示文字「输入股票代码、名称、简拼或关键词」（蓝色边框仅覆盖了搜索框中右侧的文字部分，左侧的放大镜图标和「输入股票代」等字被蓝框截断在框外）";
+        let out = clean_saw(raw);
+        assert!(out.contains("搜索框内的提示文字"));
+        assert!(!out.contains("蓝框"), "{out}");
+        assert!(!out.contains("截断"), "{out}");
+        assert!(!out.contains("框外"), "{out}");
+    }
+
+    #[test]
+    fn clean_saw_keeps_clean_text_untouched() {
+        assert_eq!(clean_saw("圆形箭头刷新图标"), "圆形箭头刷新图标");
+    }
 
     fn el(desc: &str) -> Value {
         json!({ "description": desc })

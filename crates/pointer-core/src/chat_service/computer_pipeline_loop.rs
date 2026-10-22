@@ -270,7 +270,14 @@ pub async fn run_pipeline_post_execute_verify(
         return Ok(());
     }
 
-    if needs_verify_for_tool(&root_name, &root_args) {
+    // Tools that cannot change the desktop (locate_element, clipboard, app
+    // access) have nothing to verify. Writing an `n/a` result for them put a
+    // meaningless "Verify: n/a" line on every locate card.
+    if !needs_verify_for_tool(&root_name, &root_args) {
+        return Ok(());
+    }
+
+    {
         let Some(before) = before_cap else {
             log::warn!(
                 "computer pipeline: verify skipped — missing before capture conversation_id={conversation_id} tool={root_name}"
@@ -314,10 +321,8 @@ pub async fn run_pipeline_post_execute_verify(
                     .await?;
             }
         }
-        return Ok(());
     }
-
-    apply_na_verify_fallback(state, conversation_id, &root_name, &root_args).await
+    Ok(())
 }
 
 /// Verify ran but the LLM call itself failed (bad key, timeout, 5xx).

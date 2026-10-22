@@ -44,6 +44,22 @@ pub async fn run_locate_element(
     cancel: &CancellationToken,
 ) -> Result<String> {
     let requests = parse_requests(args)?;
+    // Same description + same frame -> same answer. Returning the cached result
+    // makes a repeat call visibly useless: the model sees an identical box, so
+    // "call again to get a more precise one" stops working as a strategy.
+    if let Some(first) = requests.first() {
+        if requests.len() == 1 {
+            if let Some(hit) =
+                computer_state.pipeline_locate_cached(conversation_id, &first.description)
+            {
+                log::info!(
+                    "locate_element: cached answer conversation_id={conversation_id} description={}",
+                    first.description
+                );
+                return Ok(hit);
+            }
+        }
+    }
     let frame = capture_frame(computer_state, conversation_id).await?;
     // B5 runs with `reasoning_effort=none`. Grounding is a visual task, and
     // leaving thinking on lets the verifier spiral into self-doubt when a retry
@@ -55,7 +71,17 @@ pub async fn run_locate_element(
     let vision = ChatLocateVision::new(&locate_provider, cancel.clone());
     let outcomes =
         locate_elements(&vision, &frame, &requests, &LocateConfig::default(), cancel).await?;
-    Ok(render_results(&outcomes))
+    let rendered = render_results(&outcomes);
+    if let Some(first) = requests.first() {
+        if requests.len() == 1 {
+            computer_state.store_pipeline_locate(
+                conversation_id,
+                &first.description,
+                rendered.clone(),
+            );
+        }
+    }
+    Ok(rendered)
 }
 
 /// The frame the model is already looking at.

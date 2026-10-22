@@ -28,7 +28,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tool_input::InputTool;
 use tool_modified_click::ModifiedClickTool;
-use tool_mouse::MouseTool;
 
 /// Run synthetic input on the platform main thread when required.
 fn run_synthetic_computer_tool<R, F>(f: F) -> R

@@ -20,27 +20,7 @@ pub(super) async fn dispatch_locate_element(
     cancel: &CancellationToken,
 ) -> ToolExecResult {
     let _ = tc;
-    // Grounding can run on its own model — a cheap vision model is usually
-    // enough and keeps the agent's primary model free. Empty config falls back
-    // to the agent's model (apply_pipeline_phase_settings leaves `model` alone
-    // only when the override is non-empty... it always sets it, so we gate).
-    let phase_settings = {
-        let cfg = state.computer_state.effective_tier_config();
-        let model = cfg.pipeline_llm.model_locate.trim();
-        if model.is_empty() {
-            provider.settings.clone()
-        } else {
-            state.computer_state.apply_pipeline_phase_settings(
-                conversation_id,
-                crate::agents::computer::tier::PipelineLlmPhase::Locate,
-                &provider.settings,
-            )
-        }
-    };
-    // Same as verify: locate can point at its own provider, so the key has to be
-    // resolved from that provider rather than inherited from the agent.
-    let locate_key = crate::provider::api_key_for_settings(&phase_settings)?;
-    let locate_provider = OpenAIProvider::new(phase_settings, locate_key);
+    let locate_provider = super::grounding::locate_provider(state, conversation_id, provider)?;
     let payload = crate::agents::computer::locate::run_locate_element(
         state.computer_state.as_ref(),
         conversation_id,

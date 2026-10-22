@@ -33,6 +33,9 @@ use super::super::types::ToolExecResult;
 /// `mouse_drag_from_to_at` is the odd one out: it needs two points (grab, drop),
 /// so it takes `from_target_desc`/`from_bbox` and `to_target_desc`/`to_bbox`
 /// instead of the single pair. Both ends are grounded independently.
+/// Kept as documentation of the set, and asserted in tests; the dispatch
+/// itself goes through `method_for`.
+#[cfg(test)]
 pub(super) const TARGETED: &[&str] = &[
     "mouse_click_at",
     "mouse_double_click_at",
@@ -113,23 +116,7 @@ pub(super) async fn resolve_point(
         .ok_or_else(|| anyhow::anyhow!("缺少 {bbox_key}——目标大概在哪个范围"))?;
     let hint = parse_bbox(bbox_value)?;
 
-    // Same provider resolution as `dispatch_locate_element`: grounding may be
-    // pinned to its own model, and the key has to come from that provider.
-    let phase_settings = {
-        let cfg = state.computer_state.effective_tier_config();
-        let model = cfg.pipeline_llm.model_locate.trim();
-        if model.is_empty() {
-            provider.settings.clone()
-        } else {
-            state.computer_state.apply_pipeline_phase_settings(
-                conversation_id,
-                crate::agents::computer::tier::PipelineLlmPhase::Locate,
-                &provider.settings,
-            )
-        }
-    };
-    let locate_key = crate::provider::api_key_for_settings(&phase_settings)?;
-    let locate_provider = OpenAIProvider::new(phase_settings, locate_key);
+    let locate_provider = super::grounding::locate_provider(state, conversation_id, provider)?;
 
     let locate_args = serde_json::json!({
         "goal": format!("点击{target_desc}"),

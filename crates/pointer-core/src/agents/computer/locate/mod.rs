@@ -142,9 +142,7 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
         .map(|o| {
             if o.ok {
                 let (x, y) = o.point_px.unwrap_or((0.0, 0.0));
-                let b = o.box_px;
                 json!({
-                    "ok": true,
                     "status": "located",
                     "summary": format!(
                         "已找到「{}」并确认位置，坐标 ({}, {}) 是元素中心，可直接用于点击。",
@@ -155,23 +153,15 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                     "description": o.description,
                     "x": x.round() as i64,
                     "y": y.round() as i64,
-                    "box": b.map(|b| [
-                        b.x1.round() as i64,
-                        b.y1.round() as i64,
-                        b.x2.round() as i64,
-                        b.y2.round() as i64,
-                    ]),
                     "confidence": o.confidence.map(|c| c.as_str()),
                     "what_i_saw": o.what_i_saw,
-                    "rounds": o.rounds,
                 })
             } else {
+                let status = o.reason.map(|r| r.as_str()).unwrap_or("failed");
                 json!({
-                    "ok": false,
-                    "status": "failed",
+                    "status": status,
                     "summary": failure_summary(&o.description, o.reason),
                     "description": o.description,
-                    "reason": o.reason.map(|r| r.as_str()),
                     "what_i_saw": o.what_i_saw,
                 })
             }
@@ -221,6 +211,10 @@ mod tests {
         assert!(summary.contains("可直接用于点击"), "{summary}");
         // what_i_saw 原样返回，不做清洗
         assert_eq!(r["what_i_saw"], "圆形箭头图标");
+        // 冗余字段已经删掉
+        assert!(r.get("ok").is_none(), "{r}");
+        assert!(r.get("box").is_none(), "{r}");
+        assert!(r.get("rounds").is_none(), "{r}");
     }
 
     #[test]
@@ -233,7 +227,10 @@ mod tests {
         );
         let json: Value = serde_json::from_str(&render_results(&[out])).unwrap();
         let r = &json["results"][0];
-        assert_eq!(r["status"], "failed");
+        // reason 已经合进 status，不再单独有 reason 字段
+        assert_eq!(r["status"], "not_found");
+        assert!(r.get("reason").is_none(), "{r}");
+        assert!(r.get("ok").is_none(), "{r}");
         let summary = r["summary"].as_str().unwrap();
         assert!(summary.contains("没有在当前画面找到"), "{summary}");
         assert!(summary.contains("不要用猜测的坐标点击"), "{summary}");
@@ -335,16 +332,20 @@ mod tests {
         let v: Value = serde_json::from_str(&render_results(&[ok, bad])).unwrap();
         let results = v["results"].as_array().unwrap();
         assert_eq!(results.len(), 2);
-        assert_eq!(results[0]["ok"], true);
+        assert_eq!(results[0]["status"], "located");
         assert_eq!(results[0]["x"], 820);
         assert_eq!(results[0]["y"], 45);
-        assert_eq!(results[0]["box"], json!([800, 35, 840, 55]));
         assert_eq!(results[0]["confidence"], "high");
-        assert_eq!(results[0]["rounds"], 2);
-        assert_eq!(results[1]["ok"], false);
-        assert_eq!(results[1]["reason"], "not_found");
+        assert_eq!(results[1]["status"], "not_found");
         // Failure items must not carry coordinates at all.
         assert!(results[1].get("x").is_none());
         assert!(results[1].get("box").is_none());
+        // 冗余字段已删：ok / box / rounds / reason
+        for i in 0..2 {
+            assert!(results[i].get("ok").is_none(), "{}", results[i]);
+            assert!(results[i].get("box").is_none(), "{}", results[i]);
+            assert!(results[i].get("rounds").is_none(), "{}", results[i]);
+            assert!(results[i].get("reason").is_none(), "{}", results[i]);
+        }
     }
 }

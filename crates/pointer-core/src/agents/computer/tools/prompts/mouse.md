@@ -35,9 +35,16 @@ and same-named elements confuse it).
   rows away.
 - **`mouse_scroll_current`** takes `dx`/`dy` — it scrolls at the current
   pointer, nothing to ground.
-- **`mouse_drag_from_to_at`** takes `x1`/`y1`/`x2`/`y2` — two points cannot be
-  described by one `target_desc`/`bbox` pair. Locate each end separately with
-  `locate_element` first.
+- **`mouse_drag_from_to_at`** takes **two** pairs, because a drag has two ends:
+  `from_target_desc` + `from_bbox` (what to grab) and `to_target_desc` +
+  `to_bbox` (where to drop). Both ends are grounded separately, so both must be
+  described — a bare point is not enough.
+
+  ```json
+  {"from_target_desc": "桌面上的报告.pdf", "from_bbox": [120, 300, 190, 360],
+   "to_target_desc": "回收站", "to_bbox": [1180, 700, 1240, 760],
+   "goal": "把报告拖进回收站"}
+  ```
 
 Coordinates are **logical pixels**, the same width and height as the screenshot
 you are looking at — not normalized, not Retina device pixels.

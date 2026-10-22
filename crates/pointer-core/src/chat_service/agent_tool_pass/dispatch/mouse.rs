@@ -30,8 +30,9 @@ use super::super::types::ToolExecResult;
 /// `mouse_scroll_current` is absent: it scrolls at the current pointer, so
 /// there is nothing to ground.
 ///
-/// `mouse_drag_from_to_at` is absent: it needs two points (grab, drop), and one
-/// `{target_desc, bbox}` pair cannot describe both.
+/// `mouse_drag_from_to_at` is the odd one out: it needs two points (grab, drop),
+/// so it takes `from_target_desc`/`from_bbox` and `to_target_desc`/`to_bbox`
+/// instead of the single pair. Both ends are grounded independently.
 pub(super) const TARGETED: &[&str] = &[
     "mouse_click_at",
     "mouse_double_click_at",
@@ -40,6 +41,7 @@ pub(super) const TARGETED: &[&str] = &[
     "mouse_drag_to",
     "mouse_down",
     "mouse_up",
+    "mouse_drag_from_to_at",
 ];
 
 /// Map a tool name to the `MouseBackend::At` method name.
@@ -50,6 +52,7 @@ fn method_for(tool_id: &str) -> Option<&'static str> {
         "mouse_right_click_at" => "right_click",
         "mouse_hover_at" => "hover",
         "mouse_drag_to" => "drag_to",
+        "mouse_drag_from_to_at" => "drag_from_to",
         "mouse_down" => "mouse_down",
         "mouse_up" => "mouse_up",
         _ => return None,
@@ -94,17 +97,20 @@ async fn resolve_point(
     conversation_id: &str,
     provider: &OpenAIProvider,
     args: &Value,
+    prefix: &str,
     cancel: &CancellationToken,
 ) -> anyhow::Result<(f64, f64)> {
+    let desc_key = format!("{prefix}target_desc");
+    let bbox_key = format!("{prefix}bbox");
     let target_desc = args
-        .get("target_desc")
+        .get(&desc_key)
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("缺少 target_desc——要点的东西是什么"))?;
+        .ok_or_else(|| anyhow::anyhow!("缺少 {desc_key}——目标是什么"))?;
     let bbox_value = args
-        .get("bbox")
-        .ok_or_else(|| anyhow::anyhow!("缺少 bbox——目标大概在哪个范围"))?;
+        .get(&bbox_key)
+        .ok_or_else(|| anyhow::anyhow!("缺少 {bbox_key}——目标大概在哪个范围"))?;
     let hint = parse_bbox(bbox_value)?;
 
     // Same provider resolution as `dispatch_locate_element`: grounding may be
@@ -180,10 +186,24 @@ pub(super) async fn dispatch_mouse(
         return Err(anyhow::anyhow!("dispatch_mouse: 未知工具 {tool_id}"));
     };
 
-    let (x, y) = resolve_point(state, conversation_id, provider, &args_value, cancel).await?;
-
     let mut args = args_value;
-    {
+    if tool_id == "mouse_drag_from_to_at" {
+        // Two ends, grounded separately: the grab point and the drop point can
+        // be far apart and are often different kinds of thing.
+        let (fx, fy) = resolve_point(state, conversation_id, provider, &args, "from_", cancel).await?;
+        let (tx, ty) = resolve_point(state, conversation_id, provider, &args, "to_", cancel).await?;
+        let obj = args
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("mouse 参数必须是对象"))?;
+        obj.insert("x1".to_string(), serde_json::json!(fx));
+        obj.insert("y1".to_string(), serde_json::json!(fy));
+        obj.insert("x2".to_string(), serde_json::json!(tx));
+        obj.insert("y2".to_string(), serde_json::json!(ty));
+        for k in ["from_target_desc", "from_bbox", "to_target_desc", "to_bbox"] {
+            obj.remove(k);
+        }
+    } else {
+        let (x, y) = resolve_point(state, conversation_id, provider, &args, "", cancel).await?;
         let obj = args
             .as_object_mut()
             .ok_or_else(|| anyhow::anyhow!("mouse 参数必须是对象"))?;
@@ -216,11 +236,16 @@ mod tests {
     }
 
     #[test]
-    fn scroll_and_drag_from_to_are_not_targeted() {
+    fn scroll_is_not_targeted() {
         assert!(!TARGETED.contains(&"mouse_scroll_current"));
-        assert!(!TARGETED.contains(&"mouse_drag_from_to_at"));
         assert!(method_for("mouse_scroll_current").is_none());
-        assert!(method_for("mouse_drag_from_to_at").is_none());
+    }
+
+    #[test]
+    fn drag_from_to_uses_two_ends() {
+        // 两对参数：from_* 和 to_*，不是一个 target_desc 能描述的
+        assert!(TARGETED.contains(&"mouse_drag_from_to_at"));
+        assert_eq!(method_for("mouse_drag_from_to_at"), Some("drag_from_to"));
     }
 
     #[test]

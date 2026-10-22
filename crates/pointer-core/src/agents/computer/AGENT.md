@@ -72,6 +72,7 @@ what counts as a match. A loose box around the right area works; a precise box
 around the wrong element does not.
 
 Do not estimate coordinates from a screenshot yourself — there is no
-coordinate-taking form of these tools any more. `mouse_drag_from_to_at` still
-takes `x1`/`y1`/`x2`/`y2`: locate each end separately first.
+coordinate-taking form of these tools any more. `mouse_drag_from_to_at` takes
+**two** described pairs (`from_target_desc`/`from_bbox`, `to_target_desc`/
+`to_bbox`) because a drag has a grab point and a drop point.
 

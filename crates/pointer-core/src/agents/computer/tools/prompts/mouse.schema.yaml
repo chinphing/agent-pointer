@@ -241,26 +241,38 @@ mouse_drag_to:
 mouse_drag_from_to_at:
   type: object
   properties:
+    from_target_desc:
+      type: string
+      description: "拖拽的起点是什么（例：桌面上的文件图标）。必须和 from_bbox 一起给。"
+    from_bbox:
+      type: array
+      items:
+        type: number
+      minItems: 4
+      maxItems: 4
+      description: "起点大概在 [x1, y1, x2, y2]，逻辑像素。通常用 locate_element 返回的 bbox。"
+    to_target_desc:
+      type: string
+      description: "拖到哪里（例：回收站图标）。必须和 to_bbox 一起给。"
+    to_bbox:
+      type: array
+      items:
+        type: number
+      minItems: 4
+      maxItems: 4
+      description: "终点大概在 [x1, y1, x2, y2]，逻辑像素。通常用 locate_element 返回的 bbox。"
     goal:
       type: string
     action:
       type: string
-    x1:
-      type: number
-    y1:
-      type: number
-    x2:
-      type: number
-    y2:
-      type: number
     wait:
       type: number
       minimum: 1
       maximum: 5
   required:
-    - x1
-    - y1
-    - x2
-    - y2
+    - from_target_desc
+    - from_bbox
+    - to_target_desc
+    - to_bbox
     - goal
   additionalProperties: true

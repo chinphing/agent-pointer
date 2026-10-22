@@ -2,6 +2,7 @@ import {
   AppWindow,
   Clipboard,
   Clock,
+  Crosshair,
   FilePen,
   FilePlus,
   FileSearch,
@@ -53,6 +54,7 @@ export function toolCallKindIcon(name: string): LucideIcon {
   if (base === 'ask_user') return MessageCircleQuestion
   if (base === 'cron_job') return Clock
   if (base === 'job') return Hourglass
+  if (base === 'locate_element') return Crosshair
   if (base === 'mouse' || base.startsWith('mouse_') || base.startsWith('modified_click_')) {
     return MousePointer2
   }

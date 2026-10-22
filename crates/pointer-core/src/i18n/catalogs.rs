@@ -45,6 +45,7 @@ entries! {
     "tools.mouse" => "鼠标 · {action}", "Mouse · {action}",
     "tools.textInput" => "文本输入 · {action}", "Type · {action}",
     "tools.modClick" => "修饰点击 · {action}", "Mod-click · {action}",
+    "tools.locateElement" => "定位元素", "Locate element",
     "tools.clipboard" => "剪贴板 · {action}", "Clipboard · {action}",
     "tools.read" => "读取", "Read",
     "tools.write" => "写入", "Write",

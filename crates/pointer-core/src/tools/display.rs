@@ -203,6 +203,23 @@ fn computer_action_summary(locale: UiLocale, args: &Value) -> String {
     String::new()
 }
 
+/// `locate_element` 的 description 在 elements[] 里，不是顶层字段。
+fn locate_element_summary(args: &Value) -> String {
+    let Some(items) = args.get("elements").and_then(|v| v.as_array()) else {
+        return String::new();
+    };
+    let first = items
+        .iter()
+        .find_map(|el| str_field(el, &["description"]))
+        .map(|d| truncate(&d, SUMMARY_MAX))
+        .unwrap_or_default();
+    if items.len() > 1 {
+        format!("{first} +{}", items.len() - 1)
+    } else {
+        first
+    }
+}
+
 fn path_basename(p: &str) -> String {
     let p = p.trim();
     if p.is_empty() {
@@ -380,6 +397,10 @@ pub fn default_display_for(raw_name: &str, args: &Value, locale: UiLocale) -> To
                 computer_action_summary(locale, args),
             )
         }
+        "locate_element" => (
+            t(locale, "tools.locateElement"),
+            locate_element_summary(args),
+        ),
         n if n.starts_with("modified_click_") => {
             let ml =
                 mouse_method_label(locale, if method.is_empty() { "click" } else { &method });
@@ -730,6 +751,27 @@ mod tests {
         let out = truncate(s, 56);
         assert!(out.ends_with('…'));
         assert!(out.is_char_boundary(out.len()));
+    }
+
+    #[test]
+    fn locate_element_reads_description_from_elements() {
+        let d = zh(
+            "locate_element",
+            &json!({"elements": [{"description": "地址栏右侧的刷新按钮"}]}),
+        );
+        assert_eq!(d.label, "定位元素");
+        assert_eq!(d.summary, "地址栏右侧的刷新按钮");
+    }
+
+    #[test]
+    fn locate_element_marks_extra_elements() {
+        let d = zh(
+            "locate_element",
+            &json!({"elements": [
+                {"description": "A"}, {"description": "B"}, {"description": "C"}
+            ]}),
+        );
+        assert_eq!(d.summary, "A +2");
     }
 
     #[test]

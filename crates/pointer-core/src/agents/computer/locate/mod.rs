@@ -144,22 +144,27 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                 let (x, y) = o.point_px.unwrap_or((0.0, 0.0));
                 json!({
                     "status": "located",
+                    "target_desc": o.description,
                     "summary": format!(
-                        "坐标 ({}, {}) 是元素中心，可直接点击。",
+                        "坐标 ({}, {}) 是元素中心，可直接点击。框内是：{}",
                         x.round() as i64,
-                        y.round() as i64
+                        y.round() as i64,
+                        o.what_i_saw.trim()
                     ),
                     "x": x.round() as i64,
                     "y": y.round() as i64,
                     "confidence": o.confidence.map(|c| c.as_str()),
-                    "what_i_saw": o.what_i_saw,
                 })
             } else {
                 let status = o.reason.map(|r| r.as_str()).unwrap_or("failed");
                 json!({
                     "status": status,
-                    "summary": failure_summary(o.reason),
-                    "what_i_saw": o.what_i_saw,
+                    "target_desc": o.description,
+                    "summary": format!(
+                        "{} 画面里看到：{}",
+                        failure_summary(o.reason),
+                        o.what_i_saw.trim()
+                    ),
                 })
             }
         })
@@ -200,11 +205,13 @@ mod tests {
         let json: Value = serde_json::from_str(&render_results(&[out])).unwrap();
         let r = &json["results"][0];
         assert_eq!(r["status"], "located");
+        assert_eq!(r["target_desc"], "地址栏右侧的刷新按钮");
         let summary = r["summary"].as_str().unwrap();
         assert!(summary.contains("(820, 45)"), "{summary}");
         assert!(summary.contains("可直接点击"), "{summary}");
-        // what_i_saw 原样返回，不做清洗
-        assert_eq!(r["what_i_saw"], "圆形箭头图标");
+        // what_i_saw 并进 summary，不再单独成字段
+        assert!(summary.contains("圆形箭头图标"), "{summary}");
+        assert!(r.get("what_i_saw").is_none(), "{r}");
         // 冗余字段已经删掉
         assert!(r.get("ok").is_none(), "{r}");
         assert!(r.get("box").is_none(), "{r}");
@@ -224,12 +231,14 @@ mod tests {
         let r = &json["results"][0];
         // reason 已经合进 status，不再单独有 reason 字段
         assert_eq!(r["status"], "not_found");
+        assert_eq!(r["target_desc"], "『文件』菜单里的『另存为』");
         assert!(r.get("reason").is_none(), "{r}");
         assert!(r.get("ok").is_none(), "{r}");
         assert!(r.get("description").is_none(), "{r}");
+        assert!(r.get("what_i_saw").is_none(), "{r}");
         let summary = r["summary"].as_str().unwrap();
         assert!(summary.contains("不要用猜测的坐标点击"), "{summary}");
-        assert_eq!(r["what_i_saw"], "当前截图中未能可靠确认目标");
+        assert!(summary.contains("当前截图中未能可靠确认目标"), "{summary}");
     }
 
     fn el(desc: &str) -> Value {
@@ -328,19 +337,20 @@ mod tests {
         let results = v["results"].as_array().unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0]["status"], "located");
+        assert_eq!(results[0]["target_desc"], "保存按钮");
         assert_eq!(results[0]["x"], 820);
         assert_eq!(results[0]["y"], 45);
         assert_eq!(results[0]["confidence"], "high");
         assert_eq!(results[1]["status"], "not_found");
+        assert_eq!(results[1]["target_desc"], "地址栏");
         // Failure items must not carry coordinates at all.
         assert!(results[1].get("x").is_none());
         assert!(results[1].get("box").is_none());
-        // 冗余字段已删：ok / box / rounds / reason
+        // 冗余字段已删：ok / box / rounds / reason / what_i_saw / description
         for i in 0..2 {
-            assert!(results[i].get("ok").is_none(), "{}", results[i]);
-            assert!(results[i].get("box").is_none(), "{}", results[i]);
-            assert!(results[i].get("rounds").is_none(), "{}", results[i]);
-            assert!(results[i].get("reason").is_none(), "{}", results[i]);
+            for gone in ["ok", "box", "rounds", "reason", "what_i_saw", "description"] {
+                assert!(results[i].get(gone).is_none(), "{gone} in {}", results[i]);
+            }
         }
     }
 }

@@ -616,23 +616,6 @@ impl ComputerState {
         let session = self.get_or_create_session(conversation_id);
         let mut s = session.lock().unwrap();
         s.pipeline.cached_capture = Some(cap);
-        // New frame means the screen moved — previous locate answers are stale.
-        s.pipeline.locate_cache.clear();
-    }
-
-    /// Cached `locate_element` answer for this description on the current frame.
-    pub fn pipeline_locate_cached(&self, conversation_id: &str, description: &str) -> Option<String> {
-        let session = self.get_or_create_session(conversation_id);
-        let s = session.lock().unwrap();
-        s.pipeline.locate_cache.get(description).cloned()
-    }
-
-    pub fn store_pipeline_locate(&self, conversation_id: &str, description: &str, result: String) {
-        let session = self.get_or_create_session(conversation_id);
-        let mut s = session.lock().unwrap();
-        s.pipeline
-            .locate_cache
-            .insert(description.to_string(), result);
     }
 
     pub fn pipeline_context_fields(

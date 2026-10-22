@@ -175,12 +175,6 @@ pub struct AdvancedPipelineSession {
     pub last_operation_summary: Option<String>,
     /// Sequential round number for this pipeline session (file naming / tracing).
     pub pipeline_round_seq: u32,
-    /// `locate_element` results keyed by the requested description, valid for
-    /// the current frame. Repeated calls on an unchanged screen return the same
-    /// answer instead of re-running the vision model — otherwise the box drifts
-    /// slightly between calls, which reads as "this one is more accurate" and
-    /// trains the model to keep retrying instead of acting.
-    pub locate_cache: std::collections::HashMap<String, String>,
 }
 
 /// Which virtual position submit tool the Position LLM called.

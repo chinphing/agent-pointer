@@ -145,12 +145,10 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                 json!({
                     "status": "located",
                     "summary": format!(
-                        "已找到「{}」并确认位置，坐标 ({}, {}) 是元素中心，可直接用于点击。",
-                        o.description,
+                        "坐标 ({}, {}) 是元素中心，可直接点击。",
                         x.round() as i64,
                         y.round() as i64
                     ),
-                    "description": o.description,
                     "x": x.round() as i64,
                     "y": y.round() as i64,
                     "confidence": o.confidence.map(|c| c.as_str()),
@@ -160,8 +158,7 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                 let status = o.reason.map(|r| r.as_str()).unwrap_or("failed");
                 json!({
                     "status": status,
-                    "summary": failure_summary(&o.description, o.reason),
-                    "description": o.description,
+                    "summary": failure_summary(o.reason),
                     "what_i_saw": o.what_i_saw,
                 })
             }
@@ -170,19 +167,17 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
     json!({ "results": results }).to_string()
 }
 
-/// 失败时给主模型一句明确的话，而不是让它自己从 `ok: false` 猜下一步。
-fn failure_summary(description: &str, reason: Option<FailureReason>) -> String {
+/// 失败时只给「下一步」，状态和原因已经在 `status` 里了。
+fn failure_summary(reason: Option<FailureReason>) -> String {
     match reason {
-        Some(FailureReason::NotFound) => format!(
-            "没有在当前画面找到「{description}」。不要用猜测的坐标点击；先滚动、切换页面或等待加载，再重新定位。"
-        ),
-        Some(FailureReason::NotVerified) => format!(
-            "候选位置未能确认是「{description}」。换一个更有区分度的描述（加上周边锚点或可见文字）再试。"
-        ),
-        Some(FailureReason::Unclear) => format!(
-            "画面太模糊或被遮挡，无法确认「{description}」。先让界面稳定（等加载、关闭弹窗）再试。"
-        ),
-        None => format!("未能定位「{description}」。不要用猜测的坐标点击。"),
+        Some(FailureReason::NotFound) => {
+            "先滚动、切换页面或等待加载，再重新定位；不要用猜测的坐标点击。".to_string()
+        }
+        Some(FailureReason::NotVerified) => {
+            "换一个更有区分度的描述（加上周边锚点或可见文字）再试。".to_string()
+        }
+        Some(FailureReason::Unclear) => "先让界面稳定（等加载、关闭弹窗）再试。".to_string(),
+        None => "不要用猜测的坐标点击。".to_string(),
     }
 }
 
@@ -206,15 +201,15 @@ mod tests {
         let r = &json["results"][0];
         assert_eq!(r["status"], "located");
         let summary = r["summary"].as_str().unwrap();
-        assert!(summary.contains("已找到"), "{summary}");
         assert!(summary.contains("(820, 45)"), "{summary}");
-        assert!(summary.contains("可直接用于点击"), "{summary}");
+        assert!(summary.contains("可直接点击"), "{summary}");
         // what_i_saw 原样返回，不做清洗
         assert_eq!(r["what_i_saw"], "圆形箭头图标");
         // 冗余字段已经删掉
         assert!(r.get("ok").is_none(), "{r}");
         assert!(r.get("box").is_none(), "{r}");
         assert!(r.get("rounds").is_none(), "{r}");
+        assert!(r.get("description").is_none(), "{r}");
     }
 
     #[test]
@@ -231,8 +226,8 @@ mod tests {
         assert_eq!(r["status"], "not_found");
         assert!(r.get("reason").is_none(), "{r}");
         assert!(r.get("ok").is_none(), "{r}");
+        assert!(r.get("description").is_none(), "{r}");
         let summary = r["summary"].as_str().unwrap();
-        assert!(summary.contains("没有在当前画面找到"), "{summary}");
         assert!(summary.contains("不要用猜测的坐标点击"), "{summary}");
         assert_eq!(r["what_i_saw"], "当前截图中未能可靠确认目标");
     }

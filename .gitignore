@@ -44,3 +44,6 @@ cases/
 
 # Scratch UI crops from debugging sessions.
 .tmp-ui/
+
+# locate_fixture 的本地 API key（模板是 env.example，见 README）
+crates/pointer-core/tests/locate_fixture/.env

@@ -42,6 +42,31 @@ fn dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/locate_fixture")
 }
 
+/// Load `tests/locate_fixture/.env` if present, so a real API key survives
+/// between runs. `env.example` is the template and is committed; `.env` is
+/// git-ignored. Real environment variables always win over the file.
+fn load_dotenv() {
+    let path = dir().join(".env");
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    for line in raw.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((k, v)) = line.split_once('=') else {
+            continue;
+        };
+        let k = k.trim();
+        let v = v.trim().trim_matches('"').trim_matches('\'');
+        if k.is_empty() || std::env::var_os(k).is_some() {
+            continue;
+        }
+        std::env::set_var(k, v);
+    }
+}
+
 fn truth_path() -> PathBuf {
     dir().join("truth.json")
 }
@@ -132,6 +157,7 @@ fn thinking_setting() -> Option<bool> {
 /// The settings file is what the running app uses, so the fallback keeps this
 /// test honest: same provider, same model, same thinking configuration.
 fn build_provider() -> Result<OpenAIProvider> {
+    load_dotenv();
     if let Ok(base_url) = std::env::var("POINTER_LOCATE_BASE_URL") {
         let api_key = std::env::var("POINTER_LOCATE_API_KEY").unwrap_or_default();
         let model = std::env::var("POINTER_LOCATE_MODEL")
@@ -192,11 +218,26 @@ fn build_provider() -> Result<OpenAIProvider> {
         .and_then(|x| x.as_str())
         .unwrap_or("")
         .to_string();
-    let api_key = prov
+    let mut api_key = prov
         .get("apiKey")
         .and_then(|x| x.as_str())
         .unwrap_or("")
         .to_string();
+    // user_settings.json stores provider keys as `enc:v1:<base64>`, encrypted
+    // with a key held in the macOS keychain. Decrypt the same way storage.rs
+    // does, otherwise the fallback path would hand an opaque blob to the
+    // provider and every call would come back empty.
+    if let Some(rest) = api_key.strip_prefix("enc:v1:") {
+        use base64::Engine as _;
+        let blob = base64::engine::general_purpose::STANDARD
+            .decode(rest)
+            .context("decode enc:v1 provider key")?;
+        api_key = pointer_core::local_secret::decrypt_local_secret_with_info(
+            &blob,
+            b"provider-api-keys-v1",
+        )
+        .context("decrypt provider key from user_settings.json")?;
+    }
     anyhow::ensure!(
         !api_key.is_empty(),
         "provider `{active}` has no apiKey in {}",

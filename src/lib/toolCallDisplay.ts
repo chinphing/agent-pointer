@@ -121,9 +121,16 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
     }
   }
   if (base === 'locate_element') {
+    // `description` lives inside `elements[]`, not at the top level.
+    const elements = Array.isArray(args.elements) ? args.elements : []
+    const first = elements.find(
+      (el): el is Record<string, unknown> => !!el && typeof el === 'object'
+    )
+    const firstDesc = first ? strField(first, ['description']) : ''
+    const extra = elements.length > 1 ? ` +${elements.length - 1}` : ''
     return {
       label: t('tools.locateElement'),
-      summary: truncateToolSummary(strField(args, ['description', 'goal']))
+      summary: truncateToolSummary(firstDesc) + extra
     }
   }
   if (base === 'cron_job') {

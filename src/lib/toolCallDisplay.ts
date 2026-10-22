@@ -120,6 +120,12 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
       summary: truncateToolSummary(strField(args, ['goal']))
     }
   }
+  if (base === 'locate_element') {
+    return {
+      label: t('tools.locateElement'),
+      summary: truncateToolSummary(strField(args, ['description', 'goal']))
+    }
+  }
   if (base === 'cron_job') {
     const action = inferCronJobAction(args)
     return {

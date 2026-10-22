@@ -562,9 +562,8 @@ pub fn load_user_settings() -> Result<UserSettings> {
     let raw = fs::read_to_string(&path)?;
     let mut user: UserSettings = serde_json::from_str(&raw).unwrap_or_default();
     user.media_oss = Default::default();
-    // Backfill platform defaults that may be missing from older user_settings.json
-    // (built-in provider model lists and per-agent default models). User-owned
-    // customizations are preserved; only missing defaults are added.
+    // Normalize older user_settings.json: drop legacy placeholders and the
+    // compiled-in computer tier seed. User-owned customizations are preserved.
     crate::models::ensure_user_settings_defaults(&mut user);
     // Decrypt provider keys that were persisted inside user_settings.json
     // (enc:v1:<base64>). Older data stored plaintext — keep it as-is.

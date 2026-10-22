@@ -1111,11 +1111,10 @@ fn default_computer_human_like() -> bool {
 ///    Tier maps that **reference** a platform provider id are user overrides
 ///    and are kept.
 pub fn ensure_user_settings_defaults(user: &mut UserSettings) {
-    // Older settings files predate the built-in computer tiers: seed them so the
-    // settings UI never shows an empty fast/standard/expert row.
-    user.agent_mode_llm
-        .entry("computer".to_string())
-        .or_insert_with(default_computer_mode_llm);
+    // Computer tiers follow the same rule as every other agent: empty until the
+    // user sets them, or platform `tierDefaults` fills a missing mode. Drop the
+    // old local seed so it neither shows up with no key nor blocks that fill.
+    strip_legacy_builtin_computer_tiers(user);
     strip_session_placeholder_model_configs(user);
     strip_platform_source_providers(user);
     user.file_read_max_bytes = clamp_file_read_max_bytes(user.file_read_max_bytes);
@@ -1129,6 +1128,24 @@ pub fn ensure_user_settings_defaults(user: &mut UserSettings) {
         clamp_attachment_upload_max_bytes(user.attachment_upload_max_bytes);
     user.max_sub_agent_tool_rounds =
         normalize_max_sub_agent_tool_rounds(user.max_sub_agent_tool_rounds);
+}
+
+/// Older clients wrote a fixed qwen/deepseek triple into `agentModeLlm.computer`.
+/// A mode is removed only when it still equals that row, so a user edit stays
+/// and an untouched seed no longer blocks platform `tierDefaults`.
+fn strip_legacy_builtin_computer_tiers(user: &mut UserSettings) {
+    let Some(modes) = user.agent_mode_llm.get_mut("computer") else {
+        return;
+    };
+    let legacy = legacy_builtin_computer_mode_llm();
+    modes.retain(|mode, cfg| match legacy.get(mode) {
+        Some(builtin) => cfg != builtin,
+        None => true,
+    });
+    let empty = modes.is_empty();
+    if empty {
+        user.agent_mode_llm.remove("computer");
+    }
 }
 
 /// User-layer provider rows are tagged `source=user` or omitted; `source=platform`
@@ -2550,14 +2567,9 @@ pub(crate) fn sample_settings() -> ModelSettings {
     s
 }
 
-/// Built-in per-mode defaults for the computer agent. Provider ids match the
-/// official catalog (`qwen` / `deepseek`); the platform
-/// (`tierDefaults.agentModeLlm.computer`) overrides these when it sends its own.
-///
-/// The provider must be explicit: an empty id falls back to the session's active
-/// provider, which produces a `provider:model` pair that is not in the model list
-/// and renders as a blank row in settings.
-pub fn default_computer_mode_llm() -> HashMap<String, ComputerTierLlmConfig> {
+/// The computer triple written by older clients. Used only to recognize that
+/// seed on load; new settings start empty, same as general / coder.
+fn legacy_builtin_computer_mode_llm() -> HashMap<String, ComputerTierLlmConfig> {
     [
         ("fast", "qwen", "qwen3.7-flash"),
         ("standard", "qwen", "qwen3.8-flash"),
@@ -2581,9 +2593,7 @@ pub fn default_computer_mode_llm() -> HashMap<String, ComputerTierLlmConfig> {
 }
 
 fn default_agent_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmConfig>> {
-    let mut map = HashMap::new();
-    map.insert("computer".to_string(), default_computer_mode_llm());
-    map
+    HashMap::new()
 }
 
 fn default_media_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmConfig>> {
@@ -3712,43 +3722,122 @@ mod user_settings_defaults_tests {
     }
 
     #[test]
-    fn computer_mode_llm_defaults_are_seeded() {
-        let s = ModelSettings::default();
-        let computer = s.agent_mode_llm.get("computer").expect("computer tiers");
-        assert_eq!(
-            computer.get("fast").map(|c| c.model.as_str()),
-            Some("qwen3.7-flash")
-        );
-        assert_eq!(
-            computer.get("standard").map(|c| c.model.as_str()),
-            Some("qwen3.8-flash")
-        );
-        assert_eq!(
-            computer.get("expert").map(|c| c.model.as_str()),
-            Some("deepseek-flash")
-        );
-        // Provider must be explicit, otherwise the row resolves against the
-        // session's active provider and renders blank in settings.
-        assert_eq!(
-            computer.get("fast").map(|c| c.provider_id.as_str()),
-            Some("qwen")
-        );
-        assert_eq!(
-            computer.get("expert").map(|c| c.provider_id.as_str()),
-            Some("deepseek")
-        );
+    fn computer_mode_llm_is_not_locally_seeded() {
+        assert!(ModelSettings::default()
+            .agent_mode_llm
+            .get("computer")
+            .is_none());
+        assert!(UserSettings::default()
+            .agent_mode_llm
+            .get("computer")
+            .is_none());
+        let mut user = UserSettings::default();
+        user.agent_mode_llm.clear();
+        ensure_user_settings_defaults(&mut user);
+        assert!(user.agent_mode_llm.get("computer").is_none());
     }
 
     #[test]
-    fn ensure_user_settings_defaults_seeds_computer_tiers() {
+    fn ensure_user_settings_defaults_strips_legacy_computer_tiers() {
+        let mut exact = UserSettings::default();
+        exact
+            .agent_mode_llm
+            .insert("computer".into(), legacy_builtin_computer_mode_llm());
+        ensure_user_settings_defaults(&mut exact);
+        assert!(
+            exact.agent_mode_llm.get("computer").is_none(),
+            "untouched builtin triple is removed so platform tierDefaults can fill it"
+        );
+
         let mut user = UserSettings::default();
-        user.agent_mode_llm.clear();
+        user.agent_mode_llm
+            .insert("computer".into(), legacy_builtin_computer_mode_llm());
+        user.agent_mode_llm
+            .get_mut("computer")
+            .unwrap()
+            .get_mut("expert")
+            .unwrap()
+            .thinking_intensity = Some("high".into());
+        user.agent_mode_llm.get_mut("computer").unwrap().insert(
+            "custom".into(),
+            ComputerTierLlmConfig {
+                provider_id: "openrouter".into(),
+                model: "inclusionai/ling-3.0-flash".into(),
+                enable_thinking: true,
+                thinking_budget: None,
+                reasoning_effort: None,
+                thinking_intensity: None,
+            },
+        );
         ensure_user_settings_defaults(&mut user);
         let computer = user
             .agent_mode_llm
             .get("computer")
-            .expect("computer tiers seeded");
-        assert_eq!(computer.len(), 3);
+            .expect("edited computer modes stay");
+        assert!(computer.get("fast").is_none());
+        assert!(computer.get("standard").is_none());
+        assert_eq!(
+            computer
+                .get("expert")
+                .and_then(|c| c.thinking_intensity.as_deref()),
+            Some("high")
+        );
+        assert_eq!(
+            computer.get("custom").map(|c| c.model.as_str()),
+            Some("inclusionai/ling-3.0-flash")
+        );
+    }
+
+    #[test]
+    fn platform_tier_defaults_fill_empty_computer_like_other_agents() {
+        let defaults = serde_json::json!({
+            "agentModeLlm": {
+                "computer": {
+                    "fast": { "providerId": "qwen", "model": "qwen3.8-flash" },
+                    "standard": { "providerId": "qwen", "model": "qwen3.8-max" }
+                },
+                "general": {
+                    "fast": { "providerId": "deepseek", "model": "deepseek-flash" }
+                }
+            }
+        });
+        let mut settings = ModelSettings::default();
+        apply_platform_tier_defaults(&mut settings, &defaults, &[]);
+        assert_eq!(
+            settings.agent_mode_llm["computer"]["fast"].model,
+            "qwen3.8-flash"
+        );
+        assert_eq!(
+            settings.agent_mode_llm["general"]["fast"].model,
+            "deepseek-flash"
+        );
+
+        let mut chosen = ModelSettings::default();
+        chosen.agent_mode_llm.insert(
+            "computer".into(),
+            [(
+                "fast".into(),
+                ComputerTierLlmConfig {
+                    provider_id: "openrouter".into(),
+                    model: "inclusionai/ling-3.0-flash".into(),
+                    enable_thinking: true,
+                    thinking_budget: None,
+                    reasoning_effort: None,
+                    thinking_intensity: None,
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
+        apply_platform_tier_defaults(&mut chosen, &defaults, &[]);
+        assert_eq!(
+            chosen.agent_mode_llm["computer"]["fast"].model,
+            "inclusionai/ling-3.0-flash"
+        );
+        assert_eq!(
+            chosen.agent_mode_llm["computer"]["standard"].model,
+            "qwen3.8-max"
+        );
     }
 
     #[test]

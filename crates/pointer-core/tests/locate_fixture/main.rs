@@ -46,6 +46,18 @@ fn truth_path() -> PathBuf {
     dir().join("truth.json")
 }
 
+fn truth_path_named(name: &str) -> PathBuf {
+    dir().join(name)
+}
+
+fn load_truth_file(path: &PathBuf) -> Result<TruthFile> {
+    let raw = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let file: TruthFile =
+        serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))?;
+    anyhow::ensure!(!file.cases.is_empty(), "{} has no cases", path.display());
+    Ok(file)
+}
+
 #[derive(serde::Deserialize)]
 struct TruthFile {
     /// Fixture file name, relative to this directory.
@@ -65,6 +77,14 @@ struct TruthCase {
     /// `[x1, y1, x2, y2]` in logical pixels; `null` = not measured yet.
     #[serde(default)]
     bbox: Option<[f64; 4]>,
+    /// `plain` (default) or `partial_hint` — the latter supplies a `hint_box`
+    /// that overlaps the target but whose centre falls outside it.
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    hint_box: Option<[f64; 4]>,
+    #[serde(default)]
+    note: String,
 }
 
 /// `truth.json` is the single source of truth: fixture name, size, and cases.
@@ -262,7 +282,7 @@ async fn frozen_desktop_grounding() -> Result<()> {
         let desc = case.description.as_str();
         // Per-case timeout: a single stubborn target can retry for minutes, and
         // one of those must not swallow the whole run.
-        let requests = vec![LocateRequest::new(desc)];
+        let requests = vec![LocateRequest::new(desc, "点击它")];
         let started = std::time::Instant::now();
         let call = tokio::time::timeout(
             per_case,
@@ -426,7 +446,7 @@ async fn frozen_desktop_hint_grounding() -> Result<()> {
     for case in truth.cases.iter() {
         let Some(bbox) = case.bbox else { continue };
         let hint = offset_hint(bbox, fw, fh);
-        let requests = vec![LocateRequest::new(case.description.as_str()).with_hint_px(hint)];
+        let requests = vec![LocateRequest::new(case.description.as_str(), "点击它").with_hint_px(hint)];
         let started = std::time::Instant::now();
         let call = tokio::time::timeout(
             per_case,
@@ -551,7 +571,7 @@ async fn frozen_desktop_far_hint_stays_honest() -> Result<()> {
         let ty = (bbox[1] + bbox[3]) / 2.0;
         let dist = ((hx - tx).powi(2) + (hy - ty).powi(2)).sqrt();
 
-        let requests = vec![LocateRequest::new(case.description.as_str()).with_hint_px(hint)];
+        let requests = vec![LocateRequest::new(case.description.as_str(), "点击它").with_hint_px(hint)];
         let started = std::time::Instant::now();
         let call = tokio::time::timeout(
             per_case,
@@ -660,7 +680,7 @@ async fn absent_targets_fail_honestly() -> Result<()> {
 
     for (desc, h) in ABSENT_CASES {
         let hint = PxBox { x1: h[0], y1: h[1], x2: h[2], y2: h[3] };
-        let requests = vec![LocateRequest::new(*desc).with_hint_px(hint)];
+        let requests = vec![LocateRequest::new(*desc, "点击它").with_hint_px(hint)];
         let started = std::time::Instant::now();
         let call = tokio::time::timeout(
             per_case,
@@ -721,6 +741,192 @@ async fn absent_targets_fail_honestly() -> Result<()> {
         boxed_on_failure.is_empty(),
         "failed results carried coordinates for: {}",
         boxed_on_failure.join(", ")
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------- 东方财富首页
+//
+// 与 frozen_desktop_* 分开：那张是通用桌面，这张是真实网页，标签密集、
+// 存在同名/相邻元素。truth_eastmoney.json 的 bbox 全部来自 macOS Vision
+// OCR 的字符框，不是人工估算。
+//
+// 两组用例：
+//   kind=plain        普通定位，无 hint
+//   kind=partial_hint hint 框住了目标的一部分，但框中心落在目标外
+//
+// partial_hint 组是这次新增的边缘测试：旧行为下 verify 只判「框里有没有
+// 目标」，会判 yes 并把偏心的坐标返回，下游点空。期望是判 no。
+
+async fn eastmoney_frame() -> Result<(TruthFile, LocateFrame)> {
+    let truth = load_truth_file(&truth_path_named("truth_eastmoney.json"))?;
+    let path = dir().join(&truth.fixture);
+    anyhow::ensure!(path.exists(), "missing fixture: {}", path.display());
+    let img = image::open(&path)?.to_rgb8();
+    let frame = LocateFrame::new(img);
+    if let Some([w, h]) = truth.size {
+        anyhow::ensure!(
+            (frame.width(), frame.height()) == (w, h),
+            "fixture size {}x{} != truth {}x{}",
+            frame.width(),
+            frame.height(),
+            w,
+            h
+        );
+    }
+    Ok((truth, frame))
+}
+
+fn inside(pt: (f64, f64), b: [f64; 4]) -> bool {
+    pt.0 >= b[0] && pt.0 <= b[2] && pt.1 >= b[1] && pt.1 <= b[3]
+}
+
+#[tokio::test]
+#[ignore = "calls a real vision model; run with --ignored"]
+async fn eastmoney_home_grounding() -> Result<()> {
+    let (truth, frame) = eastmoney_frame().await?;
+    let provider = build_provider()?;
+    let vision = ChatLocateVision::new(&provider, CancellationToken::new());
+    let cancel = CancellationToken::new();
+
+    let cases: Vec<&TruthCase> = truth
+        .cases
+        .iter()
+        .filter(|c| c.kind.is_empty() || c.kind == "plain")
+        .collect();
+    println!("\n=== eastmoney plain: {} cases ===", cases.len());
+
+    let mut hits = 0usize;
+    let mut misses: Vec<String> = Vec::new();
+    let mut total_secs = 0.0f64;
+
+    for case in &cases {
+        let Some(bbox) = case.bbox else { continue };
+        let req = LocateRequest::new(case.description.as_str(), "点击它");
+        let started = std::time::Instant::now();
+        let out = locate_elements(&vision, &frame, &[req], &LocateConfig::default(), &cancel).await?;
+        let secs = started.elapsed().as_secs_f64();
+        total_secs += secs;
+
+        let Some(o) = out.into_iter().next() else {
+            misses.push(case.description.clone());
+            continue;
+        };
+        let hit = o.ok
+            && o.point_px
+                .map(|p| inside(p, bbox))
+                .unwrap_or(false);
+        if hit {
+            hits += 1;
+        } else {
+            misses.push(case.description.clone());
+        }
+        println!(
+            "{} {:<40} ok={:<5} pt={:?} conf={:?} reason={:?} rounds={} {:.1}s saw={} why={}",
+            if hit { "PASS" } else { "FAIL" },
+            case.description,
+            o.ok,
+            o.point_px.map(|(x, y)| (x.round() as i64, y.round() as i64)),
+            o.confidence.map(|c| c.as_str()),
+            o.reason,
+            o.rounds,
+            secs,
+            o.what_i_saw,
+            o.why
+        );
+    }
+
+    let rate = hits as f64 / cases.len() as f64;
+    println!(
+        "\nplain: {}/{} hit ({:.1}%)  avg {:.1}s/case",
+        hits,
+        cases.len(),
+        rate * 100.0,
+        total_secs / cases.len() as f64
+    );
+    if !misses.is_empty() {
+        println!("missed: {}", misses.join(" | "));
+    }
+    assert!(rate >= 0.7, "eastmoney plain hit rate {:.1}% below 70%", rate * 100.0);
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "calls a real vision model; run with --ignored"]
+async fn eastmoney_partial_hint_is_rejected() -> Result<()> {
+    let (truth, frame) = eastmoney_frame().await?;
+    let provider = build_provider()?;
+    let vision = ChatLocateVision::new(&provider, CancellationToken::new());
+    let cancel = CancellationToken::new();
+
+    let cases: Vec<&TruthCase> = truth
+        .cases
+        .iter()
+        .filter(|c| c.kind == "partial_hint")
+        .collect();
+    println!("\n=== eastmoney partial_hint: {} cases ===", cases.len());
+    println!("期望：hint 框住了一部分但中心在目标外 → verify 判 no，不返回点不中的坐标\n");
+
+    let mut rejected = 0usize;
+    let mut leaked: Vec<String> = Vec::new();
+
+    for case in &cases {
+        let (Some(bbox), Some(hint)) = (case.bbox, case.hint_box) else {
+            continue;
+        };
+        let hint_px = PxBox {
+            x1: hint[0],
+            y1: hint[1],
+            x2: hint[2],
+            y2: hint[3],
+        };
+        let req = LocateRequest::new(case.description.as_str(), "点击它").with_hint_px(hint_px);
+        let started = std::time::Instant::now();
+        let out = locate_elements(&vision, &frame, &[req], &LocateConfig::default(), &cancel).await?;
+        let secs = started.elapsed().as_secs_f64();
+
+        let Some(o) = out.into_iter().next() else {
+            continue;
+        };
+        // 两种可接受结果：
+        //   a) ok=false                    → 明确拒绝
+        //   b) ok=true 但点落在目标内      → refine 纠回来了，也算对
+        let good = match (o.ok, o.point_px) {
+            (false, _) => true,
+            (true, Some(p)) => inside(p, bbox),
+            (true, None) => false,
+        };
+        if good {
+            rejected += 1;
+        } else {
+            leaked.push(format!(
+                "{} -> 返回 {:?}，中心落在目标外",
+                case.description, o.point_px
+            ));
+        }
+        println!(
+            "{} {:<40} ok={:<5} pt={:?} {:.1}s  why={}",
+            if good { "PASS" } else { "LEAK" },
+            case.description,
+            o.ok,
+            o.point_px.map(|(x, y)| (x.round() as i64, y.round() as i64)),
+            secs,
+            o.why
+        );
+    }
+
+    println!(
+        "\npartial_hint: {}/{} 正确处理",
+        rejected,
+        cases.len()
+    );
+    if !leaked.is_empty() {
+        println!("leaked: {}", leaked.join(" | "));
+    }
+    assert!(
+        leaked.is_empty(),
+        "{} 个用例返回了点不中的坐标（框中心在目标外仍判 ok）",
+        leaked.len()
     );
     Ok(())
 }

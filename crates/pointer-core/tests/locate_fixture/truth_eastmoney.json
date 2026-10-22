@@ -1,0 +1,331 @@
+{
+  "fixture": "eastmoney_1512x982.png",
+  "size": [
+    1512,
+    982
+  ],
+  "note": "东方财富网首页（www.eastmoney.com）。bbox 全部来自 macOS Vision OCR 的字符框，未做人工估算。kind=plain 是普通用例；kind=partial_hint 的 hint_box 框住了元素一部分但中心在元素外。",
+  "cases": [
+    {
+      "scene": "导航",
+      "description": "顶部导航栏的「移动客户端」",
+      "bbox": [
+        254,
+        140,
+        318,
+        153
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "导航",
+      "description": "顶部导航栏右侧的「股吧」",
+      "bbox": [
+        870,
+        140,
+        907,
+        153
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "导航",
+      "description": "开户横幅里的「立即开户」按钮",
+      "bbox": [
+        1151,
+        188,
+        1226,
+        206
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "搜索",
+      "description": "搜索框右侧的「查行情」按钮",
+      "bbox": [
+        775,
+        265,
+        819,
+        283
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "搜索",
+      "description": "搜索框右侧的「进股吧」按钮",
+      "bbox": [
+        854,
+        265,
+        898,
+        283
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "搜索",
+      "description": "搜索框右侧的「搜资讯」按钮",
+      "bbox": [
+        934,
+        265,
+        977,
+        283
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "标签栏",
+      "description": "标签栏第一行的「国内」",
+      "bbox": [
+        391,
+        375,
+        419,
+        388
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "标签栏",
+      "description": "标签栏第一行的「基金吧」",
+      "bbox": [
+        1065,
+        375,
+        1107,
+        388
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "标签栏",
+      "description": "标签栏第二行的「研报」",
+      "bbox": [
+        1015,
+        399,
+        1046,
+        417
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "标签栏",
+      "description": "标签栏第三行的「直播」",
+      "bbox": [
+        1017,
+        423,
+        1046,
+        441
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "标签栏",
+      "description": "标签栏第三行的「财富号」",
+      "bbox": [
+        1063,
+        423,
+        1107,
+        441
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "横幅",
+      "description": "天天基金横幅的标题「天天基金网」",
+      "bbox": [
+        265,
+        458,
+        391,
+        488
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "横幅",
+      "description": "天天基金横幅的「立即开户」按钮",
+      "bbox": [
+        1116,
+        472,
+        1206,
+        499
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "行情数据",
+      "description": "行情数据区的「沪深港通」",
+      "bbox": [
+        283,
+        680,
+        356,
+        698
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "行情数据",
+      "description": "行情数据区的「东方财富期货」",
+      "bbox": [
+        296,
+        733,
+        393,
+        753
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "横幅",
+      "description": "期货横幅的「立即体验」按钮",
+      "bbox": [
+        1123,
+        744,
+        1213,
+        768
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "右侧悬浮栏",
+      "description": "右侧悬浮栏的「动态」",
+      "bbox": [
+        1474,
+        217,
+        1503,
+        231
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "右侧悬浮栏",
+      "description": "右侧悬浮栏的「个人」",
+      "bbox": [
+        1476,
+        287,
+        1503,
+        303
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "右侧悬浮栏",
+      "description": "右侧悬浮栏的「自选」",
+      "bbox": [
+        1479,
+        357,
+        1503,
+        371
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "右侧悬浮栏",
+      "description": "右侧悬浮栏的「消息」",
+      "bbox": [
+        1474,
+        430,
+        1503,
+        445
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "右侧悬浮栏",
+      "description": "右侧悬浮栏的「搜索」",
+      "bbox": [
+        1476,
+        507,
+        1505,
+        521
+      ],
+      "kind": "plain"
+    },
+    {
+      "scene": "搜索",
+      "description": "搜索框右侧的「查行情」按钮",
+      "bbox": [
+        775,
+        265,
+        819,
+        283
+      ],
+      "kind": "partial_hint",
+      "hint_box": [
+        804,
+        277,
+        848,
+        295
+      ],
+      "note": "hint 框住元素右下角，框中心落在元素外——verify 应判 no 并给出距离"
+    },
+    {
+      "scene": "导航",
+      "description": "顶部导航栏的「移动客户端」",
+      "bbox": [
+        254,
+        140,
+        318,
+        153
+      ],
+      "kind": "partial_hint",
+      "hint_box": [
+        296,
+        148,
+        360,
+        161
+      ],
+      "note": "hint 框住元素右下角，框中心落在元素外——verify 应判 no 并给出距离"
+    },
+    {
+      "scene": "标签栏",
+      "description": "标签栏第二行的「研报」",
+      "bbox": [
+        1015,
+        399,
+        1046,
+        417
+      ],
+      "kind": "partial_hint",
+      "hint_box": [
+        1035,
+        411,
+        1066,
+        429
+      ],
+      "note": "hint 框住元素右下角，框中心落在元素外——verify 应判 no 并给出距离"
+    },
+    {
+      "scene": "横幅",
+      "description": "期货横幅的「立即体验」按钮",
+      "bbox": [
+        1123,
+        744,
+        1213,
+        768
+      ],
+      "kind": "partial_hint",
+      "hint_box": [
+        1182,
+        760,
+        1272,
+        784
+      ],
+      "note": "hint 框住元素右下角，框中心落在元素外——verify 应判 no 并给出距离"
+    },
+    {
+      "scene": "右侧悬浮栏",
+      "description": "右侧悬浮栏的「自选」",
+      "bbox": [
+        1479,
+        357,
+        1503,
+        371
+      ],
+      "kind": "partial_hint",
+      "hint_box": [
+        1495,
+        366,
+        1519,
+        380
+      ],
+      "note": "hint 框住元素右下角，框中心落在元素外——verify 应判 no 并给出距离"
+    }
+  ]
+}

@@ -66,7 +66,10 @@ pub fn report_tool() -> Value {
                         "enum": ["high", "medium"],
                         "description": "match=yes 时填。文字+方位+图标+颜色四项全中填 high；文字和方位对上、图标或颜色不符填 medium（这仍然算找到了，颜色在 hover/disabled 态会变）"
                     },
-                    "why": {"type": "string", "description": "判定依据，一句话"},
+                    "why": {
+                        "type": "string",
+                        "description": "判定依据，一句话。判 no 时**必须用距离描述**，不要提「框」——下游拿不到框，只拿得到坐标。例：「预估点和目标差了大约 80 像素，目标在预估点右侧偏下，点下去会点空」"
+                    },
                     "unclear_kind": {
                         "type": "string",
                         "enum": ["", "anchor_out_of_view", "too_small", "too_blurry", "ambiguous"],
@@ -129,27 +132,34 @@ pub fn verify_prompt(description: &str) -> String {
 【任务】\n\
 ① 先看蓝框里实际是什么（文字/图标/控件），填 in_box。\n\
 ② 再判断蓝框里的这个东西，是不是上面描述的目标元素。\n\n\
-【判定优先级】按这个顺序比对，**不要跳级**：\n\
-1. **文字** —— 文字内容是否一致（最重要，几乎决定成败）\n\
-2. **方位** —— 与周边锚点的相对位置是否一致（左/右/上/下/第几行）\n\
-3. **图标** —— 图标形状/类型是否一致\n\
-4. **颜色** —— 颜色是否一致（**最弱**，按钮在 hover / disabled / 选中态下\n\
-   颜色本来就会变，不要因为它判 no）\n\n\
+【必须单独核对的一件事：预估点和目标的距离】\n\
+「蓝框里有目标」和「蓝框中心就在目标上」是两件事，**都要满足才算找到**。\n\
+- 蓝框中心落在目标主体上 → 才算真正找到。\n\
+- 目标在蓝框里，但**蓝框中心落在目标外面**（只压到一角、目标大部分在框外）\n\
+  → 判 **no**，并在 why 里**用距离描述**，不要提框：\n\
+    例如「预估点和目标差了大约 80 像素，目标在预估点右侧偏下，点下去会点空」。\n\
+  **写清方向和大致距离**（十几像素 / 几十像素 / 上百像素），\n\
+  下游拿这句话决定是重新找还是微调。\n\n\
+【周边锚点怎么用】\n\
+锚点是用来**区分同名/相似干扰元素**的辅助线索，不是硬约束。\n\
+- 锚点和图中有出入，**不单独构成判 no 的理由**。\n\
+- 只有当「外观完全符合、但锚点指向另一个明显不同的元素」时才判 no。\n\
+- 判断顺序：先看框里是不是目标 → 再看中心点落没落在目标上 → 最后才考虑锚点矛盾。\n\n\
 【判定规则】\n\
-- **4 项全中** → pass，confidence=high。\n\
-- **文字 + 方位都对，图标或颜色不符** → **仍然 pass**，confidence=medium，\n\
-  在 reason 里写清哪项不符（例如「颜色是灰色不是蓝色」）。\n\
-- **文字对、方位对不上**（比如目标说「第二行」实际在第一行）→ 判 **no**，\n\
-  这是选错了元素，不是外观差异。\n\
-- **文字对不上** → 判 **no**，不管其他项多像。\n\n\
-【其他约束】\n\
-- **必须核对周边锚点**：先回答 anchor_seen——目标描述里提到的锚点在这张图里能看到吗？\n\
-  - 看得到：写出它是什么，并核对它和目标的相对位置是否一致。\n\
-  - 看不到：填「看不到」，并判 unclear + anchor_out_of_view，**不能假定它匹配**。\n\
-  - 锚点对不上（比如目标说\"X 正下方\"，实际不在 X 下方）→ 判 **no**。\n\
-- **注意：蓝框在这张图里居中，是裁剪方式决定的，不能作为位置证据。**\n\
-- 外观像 A、锚点却指向 B（互相矛盾）时，填 unclear + ambiguous。\n\
-- 目标太小看不清 → unclear + too_small；图像模糊或被遮挡 → unclear + too_blurry。\n\n\
+1. 文字内容对不上 → 判 **no**，不管其他项多像。\n\
+2. 文字对得上，但中心点落在目标外 → 判 **no**，why 用距离描述（见上）。\n\
+3. 文字对得上、中心点也在目标上 → 判 **yes**。\n\
+4. 外观、锚点有出入但文字和位置都对 → 仍然判 **yes**，把出入写进 why。\n\n\
+【外观怎么比】按这个顺序，**不要跳级**：\n\
+1. **文字** —— 文字内容是否一致（最重要，几乎决定成败）\n\
+2. **图标** —— 图标形状/类型是否一致\n\
+3. **颜色** —— 颜色是否一致（**最弱**，按钮在 hover / disabled / 选中态下\n\
+   颜色本来就会变，**不要因为颜色判 no**）\n\n\
+【注意：蓝框在这张图里居中，是裁剪方式决定的，不能作为位置证据。】\n\
+位置关系只能看「目标相对蓝框在画面里的位置」，不能靠蓝框在图中居中这一点推断。\n\n\
+【看不清的情况】\n\
+- 目标太小看不清 → unclear + too_small\n\
+- 图像模糊或被遮挡 → unclear + too_blurry\n\n\
 【如果判 no】\n\
 - 如果目标就在这张图里、只是蓝框没框住它，填 elsewhere_dir（left/right/up/down/inside）和 elsewhere_desc。\n\
 - 如果这张图里根本看不到目标，elsewhere_dir 留空。\n\n\
@@ -315,14 +325,27 @@ mod tests {
     #[test]
     fn verify_prompt_ranks_text_over_colour() {
         let p = verify_prompt("数据按钮");
-        assert!(p.contains("判定优先级"), "{p}");
+        assert!(p.contains("外观怎么比"), "{p}");
         assert!(p.contains("**文字**"), "{p}");
         assert!(p.contains("**颜色**"), "{p}");
-        // 文字+方位对上、颜色不符仍然 pass，只是 medium
-        assert!(p.contains("仍然 pass"), "{p}");
-        assert!(p.contains("confidence=medium"), "{p}");
-        // 方位不对是选错元素，必须 no
-        assert!(p.contains("这是选错了元素"), "{p}");
+        // 颜色弱到不该判 no
+        assert!(p.contains("不要因为颜色判 no"), "{p}");
+    }
+
+    #[test]
+    fn verify_prompt_asks_for_a_distance_not_a_box() {
+        let p = verify_prompt("资讯公告");
+        // 判 no 时要用距离描述，因为下游只有坐标、没有框
+        assert!(p.contains("用距离描述"), "{p}");
+        assert!(p.contains("不要提框"), "{p}");
+        assert!(p.contains("点下去会点空"), "{p}");
+    }
+
+    #[test]
+    fn verify_prompt_treats_anchors_as_a_hint_not_a_hard_rule() {
+        let p = verify_prompt("资讯公告");
+        assert!(p.contains("不是硬约束"), "{p}");
+        assert!(p.contains("不单独构成判 no 的理由"), "{p}");
     }
 
     #[test]
@@ -344,9 +367,9 @@ mod tests {
     #[test]
     fn verify_prompt_never_mentions_the_hint_box() {
         let p = verify_prompt("地址栏");
-        assert!(p.contains("anchor_seen"));
         assert!(p.contains("地址栏"));
-        assert!(!p.to_ascii_lowercase().contains("hint_box"));
+        // 校验器看不到 hint_box，prompt 里也不能出现这个词
+        assert!(!p.to_ascii_lowercase().contains("hint_box"), "{p}");
     }
 
     #[test]

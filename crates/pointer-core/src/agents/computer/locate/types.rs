@@ -221,6 +221,9 @@ pub struct LocateOutcome {
     pub confidence: Option<Confidence>,
     /// What the verifier actually saw in the candidate box.
     pub what_i_saw: String,
+    /// The verifier's one-line reason. On failure this is the "how far off"
+    /// sentence — the main model never sees a box, so it has to be a distance.
+    pub why: String,
     /// Number of crop/verify rounds spent (B5 `locate_rounds`).
     pub rounds: usize,
     pub reason: Option<FailureReason>,
@@ -235,6 +238,7 @@ impl LocateOutcome {
             box_px: None,
             confidence: None,
             what_i_saw,
+            why: String::new(),
             rounds,
             reason: Some(reason),
         }

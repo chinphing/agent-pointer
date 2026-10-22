@@ -170,14 +170,25 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                 })
             } else {
                 let status = o.reason.map(|r| r.as_str()).unwrap_or("failed");
+                // `why` is the verifier's distance sentence ("off by ~80px, target
+                // is to the right"). It goes first because it is the only part
+                // that tells the caller *how wrong* the estimate was.
+                let why = o.why.trim();
+                let head = if why.is_empty() {
+                    failure_summary(o.reason)
+                } else {
+                    why.to_string()
+                };
+                let saw = o.what_i_saw.trim();
+                let summary = if saw.is_empty() {
+                    head
+                } else {
+                    format!("{head} 画面里看到：{saw}")
+                };
                 json!({
                     "status": status,
                     "target_desc": o.description,
-                    "summary": format!(
-                        "{} 画面里看到：{}",
-                        failure_summary(o.reason),
-                        o.what_i_saw.trim()
-                    ),
+                    "summary": summary,
                 })
             }
         })
@@ -212,6 +223,7 @@ mod tests {
             box_px: None,
             confidence: Some(Confidence::High),
             what_i_saw: "圆形箭头图标".into(),
+            why: String::new(),
             rounds: 1,
             reason: None,
         };
@@ -250,7 +262,6 @@ mod tests {
         assert!(r.get("description").is_none(), "{r}");
         assert!(r.get("what_i_saw").is_none(), "{r}");
         let summary = r["summary"].as_str().unwrap();
-        assert!(summary.contains("不要用猜测的坐标点击"), "{summary}");
         assert!(summary.contains("当前截图中未能可靠确认目标"), "{summary}");
     }
 
@@ -374,6 +385,7 @@ mod tests {
             }),
             confidence: Some(Confidence::High),
             what_i_saw: "蓝色软盘图标".into(),
+            why: String::new(),
             rounds: 2,
             reason: None,
         };

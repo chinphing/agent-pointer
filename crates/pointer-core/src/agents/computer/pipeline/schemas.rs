@@ -8,7 +8,7 @@ pub fn verify_response_schema() -> Value {
         "properties": {
             "action_result": {
                 "type": "string",
-                "enum": ["pass", "fail", "pending", "n/a"]
+                "enum": ["pass", "fail", "pending"]
             },
             "failure_cause": {
                 "type": "string",

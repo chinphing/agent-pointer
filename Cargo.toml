@@ -14,3 +14,18 @@ version = "0.1.2"
 license = "Apache-2.0"
 authors = ["刘新星 <https://pointer.readflowai.com>"]
 repository = "https://github.com/chinphing/agent-pointer"
+
+# 截图链路（image::imageops::resize / JPEG 编解码）在 debug 下慢一个数量级：
+# 3024x1964 -> 1512x982 的 resample 从 ~1.5s 涨到 ~13s，直接把 locate_element
+# 拖到 20-50s。这些 crate 不参与断点调试，单独开优化。
+[profile.dev.package.image]
+opt-level = 3
+
+[profile.dev.package.imageproc]
+opt-level = 3
+
+[profile.dev.package.png]
+opt-level = 3
+
+[profile.dev.package.jpeg-decoder]
+opt-level = 3

@@ -101,6 +101,12 @@ pub async fn begin_computer_compact_window(window: WebviewWindow) -> Result<(), 
     window
         .set_min_size(Some(Size::Logical(LogicalSize::new(280.0, 48.0))))
         .map_err(|e| format!("set_min_size: {e}"))?;
+    // The compact bar reports progress while the agent drives other apps, so it
+    // has to survive those apps taking focus. Restored in the matching restore
+    // command.
+    window
+        .set_always_on_top(true)
+        .map_err(|e| format!("set_always_on_top(true): {e}"))?;
     apply_compact_chrome(&window)?;
     Ok(())
 }
@@ -124,6 +130,10 @@ pub async fn restore_computer_compact_window(window: WebviewWindow) -> Result<()
     );
 
     COMPUTER_COMPACT_CHROME.store(false, Ordering::Relaxed);
+
+    if let Err(e) = window.set_always_on_top(false) {
+        log::warn!("restore_computer_compact_window: set_always_on_top(false): {e}");
+    }
 
     #[cfg(target_os = "macos")]
     restore_compact_window_macos(&window, &saved).await?;

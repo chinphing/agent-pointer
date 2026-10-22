@@ -73,7 +73,7 @@ pub async fn locate_one<V: LocateVision>(
 ) -> Result<LocateOutcome> {
     let (w, h) = (frame.width().max(1), frame.height().max(1));
     let full = CropBounds::full(w, h);
-    let verify_text = verify_prompt(&req.description, req.goal.as_deref());
+    let verify_text = verify_prompt(&req.description, &req.goal);
 
     let mut box_norm = req.hint_norm(w, h);
     let mut last_saw = String::new();
@@ -83,7 +83,7 @@ pub async fn locate_one<V: LocateVision>(
     // ① First locate — skipped entirely when the caller supplied a hint box.
     if box_norm.is_none() {
         let image = render_full(frame, None)?;
-        box_norm = locate_in(vision, &image, full, w, h, &req.description, req.goal.as_deref(), None).await;
+        box_norm = locate_in(vision, &image, full, w, h, &req.description, &req.goal, None).await;
         if box_norm.is_none() {
             stop = Stop::LocateFailed;
         }
@@ -177,7 +177,7 @@ pub async fn locate_one<V: LocateVision>(
                     w,
                     h,
                     &req.description,
-                    req.goal.as_deref(),
+                    &req.goal,
                     Some(&hint),
                 )
                 .await;
@@ -185,7 +185,7 @@ pub async fn locate_one<V: LocateVision>(
         }
         if !from_crop {
             let image = render_full(frame, Some(current))?;
-            next_box = locate_in(vision, &image, full, w, h, &req.description, req.goal.as_deref(), Some(&hint)).await;
+            next_box = locate_in(vision, &image, full, w, h, &req.description, &req.goal, Some(&hint)).await;
         }
 
         // No-progress guard: a crop-local re-locate that barely moved is
@@ -199,7 +199,7 @@ pub async fn locate_one<V: LocateVision>(
         };
         if from_crop && nearly_same(next_box, current) {
             let image = render_full(frame, Some(current))?;
-            next_box = match locate_in(vision, &image, full, w, h, &req.description, req.goal.as_deref(), Some(&hint)).await
+            next_box = match locate_in(vision, &image, full, w, h, &req.description, &req.goal, Some(&hint)).await
             {
                 Some(b) => b,
                 None => {
@@ -256,7 +256,7 @@ async fn locate_in<V: LocateVision>(
     w: u32,
     h: u32,
     description: &str,
-    goal: Option<&str>,
+    goal: &str,
     previous_hint: Option<&str>,
 ) -> Option<NormBox> {
     let prompt = locate_prompt(description, goal, previous_hint);
@@ -382,7 +382,7 @@ mod tests {
         let out = locate_one(
             &vision,
             &frame(),
-            &LocateRequest::new("保存按钮"),
+            &LocateRequest::new("保存按钮", "点击它"),
             &cfg(),
             &cancel_token(),
         )
@@ -425,7 +425,7 @@ mod tests {
         let out = locate_one(
             &vision,
             &frame(),
-            &LocateRequest::new("保存按钮").with_hint_px(hint),
+            &LocateRequest::new("保存按钮", "点击它").with_hint_px(hint),
             &cfg(),
             &cancel_token(),
         )
@@ -465,7 +465,7 @@ mod tests {
         let out = locate_one(
             &vision,
             &frame(),
-            &LocateRequest::new("某元素").with_hint_px(hint),
+            &LocateRequest::new("某元素", "点击它").with_hint_px(hint),
             &cfg(),
             &cancel_token(),
         )
@@ -495,7 +495,7 @@ mod tests {
         let out = locate_one(
             &vision,
             &frame(),
-            &LocateRequest::new("保存按钮").with_hint_px(hint),
+            &LocateRequest::new("保存按钮", "点击它").with_hint_px(hint),
             &cfg(),
             &cancel_token(),
         )
@@ -543,7 +543,7 @@ mod tests {
         let out = locate_one(
             &vision,
             &frame(),
-            &LocateRequest::new("保存按钮").with_hint_px(hint),
+            &LocateRequest::new("保存按钮", "点击它").with_hint_px(hint),
             &cfg(),
             &cancel_token(),
         )
@@ -594,7 +594,7 @@ mod tests {
         let out = locate_one(
             &vision,
             &frame(),
-            &LocateRequest::new("地址栏").with_hint_px(hint),
+            &LocateRequest::new("地址栏", "点击它").with_hint_px(hint),
             &cfg(),
             &cancel_token(),
         )
@@ -624,7 +624,7 @@ mod tests {
         let out = locate_one(
             &vision,
             &frame(),
-            &LocateRequest::new("地址栏").with_hint_px(hint),
+            &LocateRequest::new("地址栏", "点击它").with_hint_px(hint),
             &cfg(),
             &cancel_token(),
         )
@@ -654,7 +654,7 @@ mod tests {
         let out = locate_one(
             &vision,
             &frame(),
-            &LocateRequest::new("保存按钮").with_hint_px(hint),
+            &LocateRequest::new("保存按钮", "点击它").with_hint_px(hint),
             &cfg(),
             &cancel_token(),
         )
@@ -688,7 +688,7 @@ mod tests {
         let out = locate_elements(
             &vision,
             &frame(),
-            &[LocateRequest::new("地址栏"), LocateRequest::new("保存按钮")],
+            &[LocateRequest::new("地址栏", "点击它"), LocateRequest::new("保存按钮", "点击它")],
             &cfg(),
             &cancel_token(),
         )

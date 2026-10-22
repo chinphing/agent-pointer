@@ -20,9 +20,9 @@ locate_element:
           goal:
             type: string
             description: >
-              可选。你要拿这个元素做什么（例如「输入股票代码查询行情」）。
+              **必填**。你要拿这个元素做什么（例如「输入股票代码查询行情」）。
               两处生效：多个长得像的元素里挑能完成用途的那个；校验时用途能
-              达成、外观有局部偏差（框没框全）也算对。能说清就传。
+              达成、外观有局部偏差（框没框全）也算对。
           hint_box:
             type: array
             items:
@@ -36,6 +36,7 @@ locate_element:
               不确定就不要传，留空即可。
         required:
           - description
+          - goal
         additionalProperties: false
   required:
     - elements

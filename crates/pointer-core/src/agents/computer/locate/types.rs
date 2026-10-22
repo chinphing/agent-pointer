@@ -17,20 +17,21 @@ pub const MAX_VERIFY_RETRY: usize = 2;
 pub struct LocateRequest {
     /// Natural-language description of the target element.
     pub description: String,
-    /// What the caller intends to do with it. Used to disambiguate when several
-    /// elements match `description` — the grounder picks the one that can serve
-    /// this purpose, and the verifier rejects a candidate that looks right but
-    /// cannot fulfil it.
-    pub goal: Option<String>,
+    /// What the caller intends to do with it. Required: the grounder picks the
+    /// element that can serve this purpose when several look alike, and the
+    /// verifier treats "can this fulfil the purpose" as the primary judgement —
+    /// a box that only covers part of the element still passes when clicking it
+    /// would achieve the purpose.
+    pub goal: String,
     /// Optional pre-given first-round box, in logical pixels.
     pub hint_px: Option<PxBox>,
 }
 
 impl LocateRequest {
-    pub fn new(description: impl Into<String>) -> Self {
+    pub fn new(description: impl Into<String>, goal: impl Into<String>) -> Self {
         Self {
             description: description.into(),
-            goal: None,
+            goal: goal.into(),
             hint_px: None,
         }
     }
@@ -225,7 +226,7 @@ mod tests {
 
     #[test]
     fn degenerate_hint_is_ignored() {
-        let req = LocateRequest::new("保存按钮").with_hint_px(PxBox {
+        let req = LocateRequest::new("保存按钮", "点击它").with_hint_px(PxBox {
             x1: 10.0,
             y1: 10.0,
             x2: 10.0,
@@ -236,7 +237,7 @@ mod tests {
 
     #[test]
     fn valid_hint_is_normalized() {
-        let req = LocateRequest::new("保存按钮").with_hint_px(PxBox {
+        let req = LocateRequest::new("保存按钮", "点击它").with_hint_px(PxBox {
             x1: 800.0,
             y1: 35.0,
             x2: 840.0,

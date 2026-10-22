@@ -80,43 +80,29 @@ pub fn report_tool() -> Value {
     })
 }
 
-fn description_block(description: &str) -> String {
-    format!("· 目标：{}\n", description.trim())
-}
-
 /// 目标 + 用途。`goal` 用来在多个相似元素里挑对那个——比如页面里有聊天
 /// 搜索框和股票搜索框，`description` 都是「搜索框」，只有 `goal` 能区分。
-fn target_block(description: &str, goal: Option<&str>) -> String {
-    let mut out = description_block(description);
-    if let Some(g) = goal.map(str::trim).filter(|s| !s.is_empty()) {
-        out.push_str(&format!("· 用途：{g}\n"));
-    }
-    out
+fn target_block(description: &str, goal: &str) -> String {
+    format!(
+        "· 目标：{}\n· 用途：{}\n",
+        description.trim(),
+        goal.trim()
+    )
 }
 
 /// Locate prompt. Coordinates are always **image-local** (B5 `coord-mode=rel`),
 /// so there is no screen-size arithmetic for the model to do.
-pub fn locate_prompt(description: &str, goal: Option<&str>, previous_hint: Option<&str>) -> String {
+pub fn locate_prompt(description: &str, goal: &str, previous_hint: Option<&str>) -> String {
     let head = format!(
         "请找出界面中符合以下描述的元素，给出它的位置。\n\n【目标元素】\n{}",
         target_block(description, goal)
     );
-    let pick = if goal.map(str::trim).filter(|s| !s.is_empty()).is_some() {
-        "画面里有多个外观相似的元素时，选**能完成上面「用途」的那个**，不要选长得像但用不上的。\n"
-    } else {
-        ""
-    };
+    let pick = "画面里有多个外观相似的元素时，选**能完成上面「用途」的那个**，不要选长得像但用不上的。\n";
     let coord = "【坐标要求】只按【这张图】给坐标：横向 0 = 这张图左边缘，1000 = 右边缘；纵向 0 = 上边缘，1000 = 下边缘。\n不需要知道整张屏幕有多大。";
-    let tail = if goal.map(str::trim).filter(|s| !s.is_empty()).is_some() {
-        "框住**点上去能完成用途**的那块区域就够，不必框全整个元素。\n\
+    let tail = "框住**点上去能完成用途**的那块区域就够，不必框全整个元素。\n\
          比如用途是输入文字，框住输入框的可编辑区域即可，边框、标签不用框进来。\n\
          框比元素略大、带进一点周边也可以：中心落在目标上就算合格。\n\n\
-         请调用 locate(bbox=[x1, y1, x2, y2])。"
-    } else {
-        "框要刚好框住该元素本身（不要外扩、不要缩小）。\n\
-         不需要像素级精确：框的中心落在元素上、四条边没有明显超出轮廓，就算合格。\n\n\
-         请调用 locate(bbox=[x1, y1, x2, y2])��"
-    };
+         请调用 locate(bbox=[x1, y1, x2, y2])。";
     let tail = match previous_hint.map(str::trim).filter(|s| !s.is_empty()) {
         Some(hint) => format!("【上一轮的情况】{hint}\n\n{tail}"),
         None => tail.to_string(),
@@ -126,18 +112,8 @@ pub fn locate_prompt(description: &str, goal: Option<&str>, previous_hint: Optio
 
 /// Verifier prompt. It sees only the crop and the description — **never** the
 /// hint box (§6.3.1), otherwise it would rubber-stamp a wrong candidate.
-pub fn verify_prompt(description: &str, goal: Option<&str>) -> String {
+pub fn verify_prompt(description: &str, goal: &str) -> String {
     let desc = target_block(description, goal);
-    let goal_rule = if goal.map(str::trim).filter(|s| !s.is_empty()).is_some() {
-        "\n7. **用途优先于外观**：用途能达成，外观有局部偏差也算对。\n\
-         - 框没框全（只框住输入区、只框住图标）→ 点上去能完成用途就 **pass**。\n\
-         - 框比元素略大、带进一点周边 → 中心仍落在目标上就 **pass**。\n\
-         - 反过来，外观完全符合但明显完不成用途（要输入股票代码，框里却是\n\
-         聊天搜索框）→ 判 **no**。\n\
-         判断顺序：先问「点这里能不能完成用途」，再看外观对不对得上。\n"
-    } else {
-        ""
-    };
     format!(
         "这张图是从屏幕上裁下来的一块（不是整屏），蓝框是候选位置。\n\n\
 【目标元素】\n{desc}\
@@ -154,7 +130,12 @@ pub fn verify_prompt(description: &str, goal: Option<&str>) -> String {
 4. 外观像 A、锚点却指向 B（互相矛盾）时，填 unclear + ambiguous。\n\
 5. 屏幕位置只作粗筛参考，精判以这张图为准。\n\
 6. 目标太小看不清 → unclear + too_small；图像模糊或被遮挡 → unclear + too_blurry。\n\
-{goal_rule}\n\
+7. **用途优先于外观**：用途能达成，外观有局部偏差也算对。\n\
+   - 框没框全（只框住输入区、只框住图标）→ 点上去能完成用途就 **pass**。\n\
+   - 框比元素略大、带进一点周边 → 中心仍落在目标上就 **pass**。\n\
+   - 反过来，外观完全符合但明显完不成用途（要输入股票代码，框里却是\n\
+     聊天搜索框）→ 判 **no**。\n\
+   判断顺序：先问「点这里能不能完成用途」，再看外观对不对得上。\n\n\
 【如果判 no】\n\
 - 如果目标就在这张图里、只是蓝框没框住它，填 elsewhere_dir（left/right/up/down/inside）和 elsewhere_desc。\n\
 - 如果这张图里根本看不到目标，elsewhere_dir 留空。\n\n\
@@ -294,7 +275,7 @@ mod tests {
     fn locate_prompt_is_image_local_and_carries_hint() {
         let p = locate_prompt(
             "保存按钮",
-            None,
+            "保存当前文档",
             Some("你上次给的框里实际是【取消】，不是目标。"),
         );
         assert!(p.contains("只按【这张图】给坐标"));
@@ -305,40 +286,28 @@ mod tests {
 
     #[test]
     fn locate_prompt_uses_goal_to_disambiguate() {
-        let p = locate_prompt("搜索框", Some("输入股票代码查询行情"), None);
+        let p = locate_prompt("搜索框", "输入股票代码查询行情", None);
         assert!(p.contains("用途：输入股票代码查询行情"), "{p}");
         assert!(p.contains("能完成上面「用途」的那个"), "{p}");
-        // 有 goal 时框的要求放宽到「点上去能完成用途」
+        // 框的要求是「点上去能完成用途」，不必框全
         assert!(p.contains("框住**点上去能完成用途**的那块区域就够"), "{p}");
         assert!(!p.contains("框要刚好框住该元素本身"), "{p}");
     }
 
     #[test]
-    fn locate_prompt_without_goal_has_no_pick_rule() {
-        let p = locate_prompt("搜索框", None, None);
-        assert!(!p.contains("用途："), "{p}");
-        assert!(!p.contains("能完成上面「用途」的那个"), "{p}");
-        // 没 goal 时仍然要求框住元素本身
-        assert!(p.contains("框要刚好框住该元素本身"), "{p}");
-    }
-
-    #[test]
     fn verify_prompt_lets_goal_override_partial_box() {
-        let p = verify_prompt("搜索框", Some("输入股票代码查询行情"));
+        let p = verify_prompt("搜索框", "输入股票代码查询行情");
         assert!(p.contains("用途：输入股票代码查询行情"), "{p}");
         assert!(p.contains("用途优先于外观"), "{p}");
         // 局部偏差但仍能完成用途 → pass
         assert!(p.contains("点上去能完成用途就 **pass**"), "{p}");
         // 外观符合但完不成用途 → no
         assert!(p.contains("明显完不成用途"), "{p}");
-
-        let p = verify_prompt("搜索框", None);
-        assert!(!p.contains("用途优先于外观"), "{p}");
     }
 
     #[test]
     fn verify_prompt_never_mentions_the_hint_box() {
-        let p = verify_prompt("地址栏", None);
+        let p = verify_prompt("地址栏", "读取当前网址");
         assert!(p.contains("anchor_seen"));
         assert!(p.contains("地址栏"));
         assert!(!p.to_ascii_lowercase().contains("hint_box"));

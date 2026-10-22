@@ -507,6 +507,14 @@ impl OpenAIProvider {
     }
 
     pub fn new(settings: ModelSettings, api_key: String) -> Self {
+        // `settings.providers[i].api_key` is the authoritative source. The
+        // passed-in key is only a fallback for callers that resolve credentials
+        // outside `providers` (tests, CLI, login tokens before injection).
+        //
+        // Without this, copying a provider and switching `active_provider_id`
+        // keeps the old key while `base_url()` follows the new provider — the
+        // request then goes to endpoint A with provider B's key and 401s.
+        let api_key = api_key_for_settings(&settings).unwrap_or(api_key);
         Self {
             settings,
             api_key,

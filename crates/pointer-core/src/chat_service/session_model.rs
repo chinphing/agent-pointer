@@ -585,7 +585,10 @@ mod tests {
         let sub = sub_agent_provider(&parent, "computer", None);
         assert_eq!(sub.settings.active_provider_id, "qwen");
         assert_eq!(sub.settings.model, "qwen-plus");
-        assert_eq!(sub.api_key, "parent-key");
+        // Provider config wins over the passed-in key. That is what keeps the
+        // key in sync with `active_provider_id`; a stale key here is exactly
+        // how a pipeline phase ends up 401ing against the wrong endpoint.
+        assert_eq!(sub.api_key, "qwen-key");
     }
 
     #[test]

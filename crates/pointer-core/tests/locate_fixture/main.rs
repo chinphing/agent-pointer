@@ -981,3 +981,92 @@ async fn eastmoney_partial_hint_is_rejected() -> Result<()> {
     );
     Ok(())
 }
+
+// ------------------------------------------------- 同名干扰 + hint 消歧
+//
+// 页面上同一个名字出现多处（两个「东方财富期货」、两个「立即开户」、
+// 两个「研报」）。prompt 里有一条规则：
+//   【位置偏好】画面里如果有多个符合条件的元素，选离 (x, y) 最近的那个。
+// 这组用例给一个指向正确目标的 hint，看规则是否真的生效。
+//
+// 对照组：hint 指向 A 就该选 A，指向 B 就该选 B。两次都选同一个位置，
+// 说明模型没在看 hint。
+
+#[tokio::test]
+#[ignore = "calls a real vision model; run with --ignored"]
+async fn eastmoney_hint_disambiguates_same_name() -> Result<()> {
+    let (truth, frame) = eastmoney_frame().await?;
+    let provider = build_provider()?;
+    let vision = ChatLocateVision::new(&provider, CancellationToken::new());
+    let cancel = CancellationToken::new();
+
+    let cases: Vec<&TruthCase> = truth
+        .cases
+        .iter()
+        .filter(|c| c.kind == "hint_disambig")
+        .collect();
+    println!("\n=== hint_disambig: {} cases ===", cases.len());
+    println!("每组同名元素测两次：hint 指 A 该选 A，指 B 该选 B\n");
+
+    let mut hits = 0usize;
+    let mut misses: Vec<String> = Vec::new();
+
+    for case in &cases {
+        let (Some(bbox), Some(hint)) = (case.bbox, case.hint_box) else {
+            continue;
+        };
+        let hint_px = PxBox {
+            x1: hint[0],
+            y1: hint[1],
+            x2: hint[2],
+            y2: hint[3],
+        };
+        let req =
+            LocateRequest::new(case.description.as_str(), "点击它").with_hint_px(hint_px);
+        let started = std::time::Instant::now();
+        let out =
+            locate_elements(&vision, &frame, &[req], &LocateConfig::default(), &cancel).await?;
+        let secs = started.elapsed().as_secs_f64();
+
+        let Some(o) = out.into_iter().next() else {
+            continue;
+        };
+        let hit = o.ok && o.point_px.map(|p| inside(p, bbox)).unwrap_or(false);
+        if hit {
+            hits += 1;
+        } else {
+            misses.push(format!(
+                "{} -> {:?}",
+                case.description,
+                o.point_px.map(|(x, y)| (x.round() as i64, y.round() as i64))
+            ));
+        }
+        println!(
+            "{} {:<46} ok={:<5} pt={:?} rounds={} {:.1}s  hint=({},{})",
+            if hit { "PASS" } else { "FAIL" },
+            case.description,
+            o.ok,
+            o.point_px.map(|(x, y)| (x.round() as i64, y.round() as i64)),
+            o.rounds,
+            secs,
+            hint[0],
+            hint[1]
+        );
+        if !o.reasoning.trim().is_empty() {
+            println!("  [thinking] {}", o.reasoning.trim().replace('\n', " ⏎ "));
+        }
+    }
+
+    let rate = hits as f64 / cases.len() as f64;
+    println!(
+        "\nhint_disambig: {}/{} 选对 ({:.1}%)",
+        hits,
+        cases.len(),
+        rate * 100.0
+    );
+    if !misses.is_empty() {
+        println!("missed:\n  {}", misses.join("\n  "));
+    }
+    assert!(rate >= 0.8, "hint 消歧命中率 {:.1}% 低于 80%", rate * 100.0);
+    Ok(())
+}

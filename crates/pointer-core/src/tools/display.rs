@@ -203,7 +203,7 @@ fn computer_action_summary(locale: UiLocale, args: &Value) -> String {
     String::new()
 }
 
-/// `locate_element` 的 description 在 elements[] 里，不是顶层字段。
+/// `locate_element` 的 description 在 elements[] 里，goal 在顶层。
 fn locate_element_summary(args: &Value) -> String {
     let Some(items) = args.get("elements").and_then(|v| v.as_array()) else {
         return String::new();
@@ -213,11 +213,16 @@ fn locate_element_summary(args: &Value) -> String {
         .find_map(|el| str_field(el, &["description"]))
         .map(|d| truncate(&d, SUMMARY_MAX))
         .unwrap_or_default();
+    let mut out = first;
     if items.len() > 1 {
-        format!("{first} +{}", items.len() - 1)
-    } else {
-        first
+        out.push_str(&format!(" +{}", items.len() - 1));
     }
+    if let Some(goal) = str_field(args, &["goal"]).map(|g| truncate(&g, SUMMARY_MAX)) {
+        if !goal.is_empty() {
+            out.push_str(&format!(" · {goal}"));
+        }
+    }
+    out
 }
 
 fn path_basename(p: &str) -> String {
@@ -761,6 +766,30 @@ mod tests {
         );
         assert_eq!(d.label, "定位元素");
         assert_eq!(d.summary, "地址栏右侧的刷新按钮");
+    }
+
+    #[test]
+    fn locate_element_shows_goal_after_the_description() {
+        let d = zh(
+            "locate_element",
+            &json!({
+                "goal": "输入股票代码查询行情",
+                "elements": [{"description": "搜索框"}]
+            }),
+        );
+        assert_eq!(d.summary, "搜索框 · 输入股票代码查询行情");
+    }
+
+    #[test]
+    fn locate_element_goal_comes_after_the_extra_count() {
+        let d = zh(
+            "locate_element",
+            &json!({
+                "goal": "查询行情",
+                "elements": [{"description": "搜索框"}, {"description": "搜索按钮"}]
+            }),
+        );
+        assert_eq!(d.summary, "搜索框 +1 · 查询行情");
     }
 
     #[test]

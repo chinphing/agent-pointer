@@ -904,3 +904,31 @@ describe('resolveCollapsedGroupLiveTool', () => {
     expect(resolveCollapsedGroupLiveTool(tools, null)?.id).toBe('2')
   })
 })
+
+describe('locate_element summary', () => {
+  it('appends the goal after the description', () => {
+    const call = tc({
+      id: '1',
+      name: 'locate_element',
+      status: 'success',
+      arguments: JSON.stringify({
+        goal: '输入股票代码查询行情',
+        elements: [{ description: '搜索框' }]
+      })
+    })
+    expect(resolveToolDisplayForCall(call).summary).toBe('搜索框 · 输入股票代码查询行情')
+  })
+
+  it('puts the goal after the extra count', () => {
+    const call = tc({
+      id: '2',
+      name: 'locate_element',
+      status: 'success',
+      arguments: JSON.stringify({
+        goal: '查询行情',
+        elements: [{ description: '搜索框' }, { description: '搜索按钮' }]
+      })
+    })
+    expect(resolveToolDisplayForCall(call).summary).toBe('搜索框 +1 · 查询行情')
+  })
+})

@@ -7,42 +7,37 @@ Each tool name is the complete operation — no `method` parameter.
 submit in one call. Reserve **`mouse_click_*`** for pure clicks with no typing
 on that target this turn (buttons, toggles, icons, links, menus).
 
-**Coordinate-based** (screen pixels, origin at the screenshot's top-left):
-- **`mouse_click_at`** — Requires **`x`**, **`y`**. Optional **`button`**
-  (`left` / `middle` / `right`, default **`left`**) and **`clicks`** (1 or 2,
-  default **1**).
-- **`mouse_double_click_at`** — Requires **`x`**, **`y`**.
-- **`mouse_right_click_at`** — Requires **`x`**, **`y`**. Compatibility alias
-  for **`mouse_click_at`** with `button: right`.
-- **`mouse_hover_at`** — Requires **`x`**, **`y`** (move cursor without clicking).
-- **`mouse_drag_from_to_at`** — Requires **`x1`**, **`y1`**, **`x2`**, **`y2`**
-  (press at the start point).
-- **`mouse_drag_to`** — Requires **`x`**, **`y`**. Drags with the left button
-  **from wherever the pointer already is** — no start point. Use it only when
-  the pointer is already on the item to grab.
-
-**Or describe the target instead of giving coordinates:**
-
-Every tool above except **`mouse_scroll_current`** and
-**`mouse_drag_from_to_at`** also accepts **`description`** in place of `x`/`y`:
+**Every pointing tool takes `target_desc` + `bbox` — both, always:**
 
 ```json
-{"description": "搜索框", "goal": "在搜索框里查行情"}
+{"target_desc": "搜索框", "bbox": [775, 265, 819, 283], "goal": "在搜索框里查行情"}
 ```
 
-The tool grounds the description against a fresh screenshot and clicks the
-returned centre — **one call instead of `locate_element` + `mouse_click_at`**.
-Prefer this when you can name the target but do not know its coordinates.
+- **`target_desc`** — what you want to act on, in words.
+- **`bbox`** — roughly where it is, `[x1, y1, x2, y2]` in logical pixels.
+  **Take it from the `locate_element` result** — that is exactly what its
+  `bbox` field is for. If you are estimating it yourself, a loose box is fine:
+  the tool re-grounds inside it and clicks the **confirmed** centre, not the
+  centre of your box.
 
-- **Grounding can fail.** If nothing matches, the call returns an error that
-  says what was actually there; it will **not** click a guessed position.
-  React by re-describing the target (add a distinguishing detail) or by
-  scrolling/re-navigating first — do not retry the same description.
-- **Grounding costs a few seconds.** When you already have coordinates from a
-  `locate_element` call in this same turn, pass `x`/`y` instead — it is
-  instant.
-- **Do not pass both.** `x`/`y` win; `description` is ignored when coordinates
-  are present.
+The pair is required together because they answer different questions:
+`bbox` narrows the search, `target_desc` decides what counts as a match.
+Neither alone is enough — a box with no description cannot tell a button from
+its label, and a description with no box has to scan the whole screen (slow,
+and same-named elements confuse it).
+
+- **Grounding can fail.** If nothing matching `target_desc` is inside the box,
+  the call returns an error describing what *was* there; it will **not** click
+  a guess. Re-describe with a distinguishing detail, or widen the box, or
+  scroll first — do not repeat the same call.
+- **No raw-coordinate form exists.** `x`/`y` are gone on purpose: an
+  unverified coordinate click is how you end up on the same-named element two
+  rows away.
+- **`mouse_scroll_current`** takes `dx`/`dy` — it scrolls at the current
+  pointer, nothing to ground.
+- **`mouse_drag_from_to_at`** takes `x1`/`y1`/`x2`/`y2` — two points cannot be
+  described by one `target_desc`/`bbox` pair. Locate each end separately with
+  `locate_element` first.
 
 Coordinates are **logical pixels**, the same width and height as the screenshot
 you are looking at — not normalized, not Retina device pixels.

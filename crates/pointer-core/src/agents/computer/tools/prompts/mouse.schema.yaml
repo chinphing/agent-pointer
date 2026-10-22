@@ -1,19 +1,20 @@
 mouse_click_at:
   type: object
   properties:
-    description:
+    target_desc:
       type: string
-      description: "要点的东西，用自然语言描述（例：搜索框 / 右上角的关闭按钮 / 数据标签页）。给了它就不用给 x/y——工具会先定位再点。定位失败会直接报错，不会瞎点。"
+      description: "要点的东西是什么，自然语言描述（例：搜索框 / 右上角关闭按钮 / 数据标签页）。必须和 bbox 一起给。"
+    bbox:
+      type: array
+      items:
+        type: number
+      minItems: 4
+      maxItems: 4
+      description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常直接用上一步 locate_element 返回的 bbox。工具会以此为搜索种子重新定位确认，再点确认后的中心——所以框粗一点没关系，但必须和 target_desc 一起给。"
     goal:
       type: string
     action:
       type: string
-    x:
-      type: number
-      description: Logical screen pixel X. For a visible target, take it from `locate_element`; never estimate.
-    y:
-      type: number
-      description: Logical screen pixel Y. For a visible target, take it from `locate_element`; never estimate.
     button:
       type: string
       enum:
@@ -31,78 +32,89 @@ mouse_click_at:
       minimum: 1
       maximum: 5
   required:
+    - target_desc
+    - bbox
     - goal
   additionalProperties: true
 
 mouse_double_click_at:
   type: object
   properties:
-    description:
+    target_desc:
       type: string
-      description: "要点的东西，用自然语言描述（例：搜索框 / 右上角的关闭按钮 / 数据标签页）。给了它就不用给 x/y——工具会先定位再点。定位失败会直接报错，不会瞎点。"
+      description: "要点的东西是什么，自然语言描述（例：搜索框 / 右上角关闭按钮 / 数据标签页）。必须和 bbox 一起给。"
+    bbox:
+      type: array
+      items:
+        type: number
+      minItems: 4
+      maxItems: 4
+      description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常直接用上一步 locate_element 返回的 bbox。工具会以此为搜索种子重新定位确认，再点确认后的中心——所以框粗一点没关系，但必须和 target_desc 一起给。"
     goal:
       type: string
     action:
       type: string
-    x:
-      type: number
-      description: Logical screen pixel X. For a visible target, take it from `locate_element`; never estimate.
-    y:
-      type: number
-      description: Logical screen pixel Y. For a visible target, take it from `locate_element`; never estimate.
     wait:
       type: number
       minimum: 1
       maximum: 5
   required:
+    - target_desc
+    - bbox
     - goal
   additionalProperties: true
 
 mouse_right_click_at:
   type: object
   properties:
-    description:
+    target_desc:
       type: string
-      description: "要点的东西，用自然语言描述（例：搜索框 / 右上角的关闭按钮 / 数据标签页）。给了它就不用给 x/y——工具会先定位再点。定位失败会直接报错，不会瞎点。"
+      description: "要点的东西是什么，自然语言描述（例：搜索框 / 右上角关闭按钮 / 数据标签页）。必须和 bbox 一起给。"
+    bbox:
+      type: array
+      items:
+        type: number
+      minItems: 4
+      maxItems: 4
+      description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常直接用上一步 locate_element 返回的 bbox。工具会以此为搜索种子重新定位确认，再点确认后的中心——所以框粗一点没关系，但必须和 target_desc 一起给。"
     goal:
       type: string
     action:
       type: string
-    x:
-      type: number
-      description: Logical screen pixel X. For a visible target, take it from `locate_element`; never estimate.
-    y:
-      type: number
-      description: Logical screen pixel Y. For a visible target, take it from `locate_element`; never estimate.
     wait:
       type: number
       minimum: 1
       maximum: 5
   required:
+    - target_desc
+    - bbox
     - goal
   additionalProperties: true
 
 mouse_hover_at:
   type: object
   properties:
-    description:
+    target_desc:
       type: string
-      description: "要点的东西，用自然语言描述（例：搜索框 / 右上角的关闭按钮 / 数据标签页）。给了它就不用给 x/y——工具会先定位再点。定位失败会直接报错，不会瞎点。"
+      description: "要点的东西是什么，自然语言描述（例：搜索框 / 右上角关闭按钮 / 数据标签页）。必须和 bbox 一起给。"
+    bbox:
+      type: array
+      items:
+        type: number
+      minItems: 4
+      maxItems: 4
+      description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常直接用上一步 locate_element 返回的 bbox。工具会以此为搜索种子重新定位确认，再点确认后的中心——所以框粗一点没关系，但必须和 target_desc 一起给。"
     goal:
       type: string
     action:
       type: string
-    x:
-      type: number
-      description: Logical screen pixel X. For a visible target, take it from `locate_element`; never estimate.
-    y:
-      type: number
-      description: Logical screen pixel Y. For a visible target, take it from `locate_element`; never estimate.
     wait:
       type: number
       minimum: 1
       maximum: 5
   required:
+    - target_desc
+    - bbox
     - goal
   additionalProperties: true
 
@@ -134,9 +146,16 @@ mouse_scroll_current:
 mouse_down:
   type: object
   properties:
-    description:
+    target_desc:
       type: string
-      description: "要点的东西，用自然语言描述（例：搜索框 / 右上角的关闭按钮 / 数据标签页）。给了它就不用给 x/y——工具会先定位再点。定位失败会直接报错，不会瞎点。"
+      description: "要点的东西是什么，自然语言描述（例：搜索框 / 右上角关闭按钮 / 数据标签页）。必须和 bbox 一起给。"
+    bbox:
+      type: array
+      items:
+        type: number
+      minItems: 4
+      maxItems: 4
+      description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常直接用上一步 locate_element 返回的 bbox。工具会以此为搜索种子重新定位确认，再点确认后的中心——所以框粗一点没关系，但必须和 target_desc 一起给。"
     goal:
       type: string
     action:
@@ -153,15 +172,24 @@ mouse_down:
       minimum: 1
       maximum: 5
   required:
+    - target_desc
+    - bbox
     - goal
   additionalProperties: true
 
 mouse_up:
   type: object
   properties:
-    description:
+    target_desc:
       type: string
-      description: "要点的东西，用自然语言描述（例：搜索框 / 右上角的关闭按钮 / 数据标签页）。给了它就不用给 x/y——工具会先定位再点。定位失败会直接报错，不会瞎点。"
+      description: "要点的东西是什么，自然语言描述（例：搜索框 / 右上角关闭按钮 / 数据标签页）。必须和 bbox 一起给。"
+    bbox:
+      type: array
+      items:
+        type: number
+      minItems: 4
+      maxItems: 4
+      description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常直接用上一步 locate_element 返回的 bbox。工具会以此为搜索种子重新定位确认，再点确认后的中心——所以框粗一点没关系，但必须和 target_desc 一起给。"
     goal:
       type: string
     action:
@@ -178,30 +206,35 @@ mouse_up:
       minimum: 1
       maximum: 5
   required:
+    - target_desc
+    - bbox
     - goal
   additionalProperties: true
 
 mouse_drag_to:
   type: object
   properties:
-    description:
+    target_desc:
       type: string
-      description: "要点的东西，用自然语言描述（例：搜索框 / 右上角的关闭按钮 / 数据标签页）。给了它就不用给 x/y——工具会先定位再点。定位失败会直接报错，不会瞎点。"
+      description: "要点的东西是什么，自然语言描述（例：搜索框 / 右上角关闭按钮 / 数据标签页）。必须和 bbox 一起给。"
+    bbox:
+      type: array
+      items:
+        type: number
+      minItems: 4
+      maxItems: 4
+      description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常直接用上一步 locate_element 返回的 bbox。工具会以此为搜索种子重新定位确认，再点确认后的中心——所以框粗一点没关系，但必须和 target_desc 一起给。"
     goal:
       type: string
     action:
       type: string
-    x:
-      type: number
-      description: Logical screen pixel X. For a visible target, take it from `locate_element`; never estimate.
-    y:
-      type: number
-      description: Logical screen pixel Y. For a visible target, take it from `locate_element`; never estimate.
     wait:
       type: number
       minimum: 1
       maximum: 5
   required:
+    - target_desc
+    - bbox
     - goal
   additionalProperties: true
 

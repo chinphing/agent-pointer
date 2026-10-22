@@ -154,18 +154,25 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
         .iter()
         .map(|o| {
             if o.ok {
-                let (x, y) = o.point_px.unwrap_or((0.0, 0.0));
+                // Only the box is exposed. The main model passes it straight to
+                // `mouse_click_at` as the grounding hint, so a centre point would
+                // throw away the extent it needs.
+                let b = o.box_px.unwrap_or(PxBox {
+                    x1: 0.0,
+                    y1: 0.0,
+                    x2: 0.0,
+                    y2: 0.0,
+                });
                 json!({
                     "status": "located",
                     "target_desc": o.description,
-                    "summary": format!(
-                        "坐标 ({}, {}) 是元素中心，可直接点击。框内是：{}",
-                        x.round() as i64,
-                        y.round() as i64,
-                        o.what_i_saw.trim()
-                    ),
-                    "x": x.round() as i64,
-                    "y": y.round() as i64,
+                    "summary": format!("框内是：{}", o.what_i_saw.trim()),
+                    "bbox": [
+                        b.x1.round() as i64,
+                        b.y1.round() as i64,
+                        b.x2.round() as i64,
+                        b.y2.round() as i64,
+                    ],
                     "confidence": o.confidence.map(|c| c.as_str()),
                 })
             } else {
@@ -220,7 +227,12 @@ mod tests {
             ok: true,
             description: "地址栏右侧的刷新按钮".into(),
             point_px: Some((820.0, 45.0)),
-            box_px: None,
+            box_px: Some(PxBox {
+                x1: 800.0,
+                y1: 35.0,
+                x2: 840.0,
+                y2: 55.0,
+            }),
             confidence: Some(Confidence::High),
             what_i_saw: "圆形箭头图标".into(),
             why: String::new(),
@@ -232,9 +244,11 @@ mod tests {
         let r = &json["results"][0];
         assert_eq!(r["status"], "located");
         assert_eq!(r["target_desc"], "地址栏右侧的刷新按钮");
+        // 只给 bbox，不给中心点——主模型把它原样传给 mouse_click_at 当定位种子
+        assert_eq!(r["bbox"], serde_json::json!([800, 35, 840, 55]));
+        assert!(r.get("x").is_none(), "x 已废弃: {r}");
+        assert!(r.get("y").is_none(), "y 已废弃: {r}");
         let summary = r["summary"].as_str().unwrap();
-        assert!(summary.contains("(820, 45)"), "{summary}");
-        assert!(summary.contains("可直接点击"), "{summary}");
         // what_i_saw 并进 summary，不再单独成字段
         assert!(summary.contains("圆形箭头图标"), "{summary}");
         assert!(r.get("what_i_saw").is_none(), "{r}");
@@ -402,12 +416,12 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0]["status"], "located");
         assert_eq!(results[0]["target_desc"], "保存按钮");
-        assert_eq!(results[0]["x"], 820);
-        assert_eq!(results[0]["y"], 45);
+        assert_eq!(results[0]["bbox"], serde_json::json!([800, 35, 840, 55]));
         assert_eq!(results[0]["confidence"], "high");
         assert_eq!(results[1]["status"], "not_found");
         assert_eq!(results[1]["target_desc"], "地址栏");
-        // Failure items must not carry coordinates at all.
+        // Failure items must not carry a box at all.
+        assert!(results[1].get("bbox").is_none(), "{}", results[1]);
         assert!(results[1].get("x").is_none());
         assert!(results[1].get("box").is_none());
         // 冗余字段已删：ok / box / rounds / reason / what_i_saw / description

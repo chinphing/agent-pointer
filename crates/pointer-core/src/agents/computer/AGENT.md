@@ -62,11 +62,16 @@ Optional **`wait`** (1–5 s) holds the next step back; use the standalone
 ## Locating targets
 
 Your direct estimate of screen pixel coordinates is unreliable. Before acting on
-a visible target, call **`locate_element`** and use the returned `x` / `y`
-unchanged in `mouse_click_at` / `mouse_hover_at` / `mouse_drag_from_to_at` /
-`input_at`. Do not estimate coordinates from a screenshot yourself.
+a visible target, call **`locate_element`** and pass its returned `bbox` — along
+with the same `target_desc` — to `mouse_click_at` / `mouse_hover_at` /
+`mouse_down` / `mouse_up` / `mouse_drag_to`.
 
-Call a coordinate tool directly only when the user gave the coordinates, or when
-they come from a successful `locate_element` result and the screen has not
-changed since.
+The pointing tools re-ground inside that box before clicking, so the box does
+not have to be pixel-perfect: it narrows the search, and the description decides
+what counts as a match. A loose box around the right area works; a precise box
+around the wrong element does not.
+
+Do not estimate coordinates from a screenshot yourself — there is no
+coordinate-taking form of these tools any more. `mouse_drag_from_to_at` still
+takes `x1`/`y1`/`x2`/`y2`: locate each end separately first.
 

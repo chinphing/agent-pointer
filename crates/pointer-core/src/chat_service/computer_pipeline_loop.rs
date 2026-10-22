@@ -230,6 +230,12 @@ pub async fn run_pipeline_post_execute_verify(
 
     if family == OperationFamily::AppAccess {
         let conclusion = host_verify_conclusion(family, &root_name, tool_text);
+        // No parseable outcome -> nothing worth showing on the card. Writing
+        // `n/a` here put a meaningless "Verify: n/a" line under launch_app /
+        // list_apps rows.
+        if conclusion.action_result == ActionResult::Na {
+            return Ok(());
+        }
         apply_host_verify_shortcut(
             state,
             conversation_id,
@@ -282,7 +288,17 @@ pub async fn run_pipeline_post_execute_verify(
             log::warn!(
                 "computer pipeline: verify skipped — missing before capture conversation_id={conversation_id} tool={root_name}"
             );
-            return apply_na_verify_fallback(state, conversation_id, &root_name, &root_args).await;
+            // No "before" frame means we cannot judge — that is `pending`, not
+            // "no verification needed".
+            let err = anyhow::anyhow!("missing before capture");
+            return apply_failed_verify_fallback(
+                state,
+                conversation_id,
+                &root_name,
+                &root_args,
+                &err,
+            )
+            .await;
         };
         match run_verify_phase(
             state.computer_state.as_ref(),
@@ -355,37 +371,6 @@ async fn apply_failed_verify_fallback(
     );
     log::warn!(
         "computer pipeline: verify pending (LLM call failed) conversation_id={conversation_id} tool={root_name}"
-    );
-    Ok(())
-}
-
-async fn apply_na_verify_fallback(
-    state: &AppState,
-    conversation_id: &str,
-    root_name: &str,
-    root_args: &Value,
-) -> Result<()> {
-    let conclusion = VerifyConclusion {
-        action_result: ActionResult::Na,
-        failure_cause: None,
-        step_summary: None,
-    };
-    let (after_cap, _) = state
-        .computer_state
-        .capture_and_annotate(conversation_id)
-        .await?;
-    state
-        .computer_state
-        .store_pipeline_after_capture(conversation_id, after_cap);
-    state
-        .computer_state
-        .apply_pipeline_verify_result(conversation_id, &conclusion);
-    state.computer_state.set_pipeline_last_operation(
-        conversation_id,
-        format_operation_summary(root_name, root_args),
-    );
-    log::info!(
-        "computer pipeline: verify n/a applied conversation_id={conversation_id} tool={root_name}"
     );
     Ok(())
 }

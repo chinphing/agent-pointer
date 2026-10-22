@@ -77,13 +77,14 @@ pub async fn locate_one<V: LocateVision>(
 
     let mut box_norm = req.hint_norm(w, h);
     let mut last_saw = String::new();
+    let mut final_confidence = Confidence::High;
     let mut rounds = 0usize;
     let mut stop = Stop::RoundsExhausted;
 
     // ① First locate — skipped entirely when the caller supplied a hint box.
     if box_norm.is_none() {
         let image = render_full(frame, None)?;
-        box_norm = locate_in(vision, &image, full, w, h, &req.description, None).await;
+        box_norm = locate_in(vision, &image, full, w, h, &req.description, req.hint_center(), None).await;
         if box_norm.is_none() {
             stop = Stop::LocateFailed;
         }
@@ -128,6 +129,7 @@ pub async fn locate_one<V: LocateVision>(
 
             match v.match_ {
                 MatchVerdict::Yes => {
+                    final_confidence = v.confidence;
                     stop = Stop::Verified;
                     break (v, crop);
                 }
@@ -177,6 +179,7 @@ pub async fn locate_one<V: LocateVision>(
                     w,
                     h,
                     &req.description,
+                    req.hint_center(),
                     Some(&hint),
                 )
                 .await;
@@ -184,7 +187,7 @@ pub async fn locate_one<V: LocateVision>(
         }
         if !from_crop {
             let image = render_full(frame, Some(current))?;
-            next_box = locate_in(vision, &image, full, w, h, &req.description, Some(&hint)).await;
+            next_box = locate_in(vision, &image, full, w, h, &req.description, req.hint_center(), Some(&hint)).await;
         }
 
         // No-progress guard: a crop-local re-locate that barely moved is
@@ -198,7 +201,7 @@ pub async fn locate_one<V: LocateVision>(
         };
         if from_crop && nearly_same(next_box, current) {
             let image = render_full(frame, Some(current))?;
-            next_box = match locate_in(vision, &image, full, w, h, &req.description, Some(&hint)).await
+            next_box = match locate_in(vision, &image, full, w, h, &req.description, req.hint_center(), Some(&hint)).await
             {
                 Some(b) => b,
                 None => {
@@ -240,7 +243,7 @@ pub async fn locate_one<V: LocateVision>(
         ok: true,
         point_px: Some(point),
         box_px: Some(b.to_px(w, h)),
-        confidence: Some(Confidence::High),
+        confidence: Some(final_confidence),
         what_i_saw,
         rounds,
         reason: None,
@@ -255,9 +258,10 @@ async fn locate_in<V: LocateVision>(
     w: u32,
     h: u32,
     description: &str,
+    hint_px: Option<(f64, f64)>,
     previous_hint: Option<&str>,
 ) -> Option<NormBox> {
-    let prompt = locate_prompt(description, previous_hint);
+    let prompt = locate_prompt(description, hint_px, previous_hint);
     match vision.locate(image, &prompt).await {
         Ok(Some(raw)) => Some(rel_to_norm(raw, bounds, w, h)),
         Ok(None) => None,

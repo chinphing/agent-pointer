@@ -9,7 +9,7 @@
 use serde_json::{json, Value};
 
 use super::geometry::NormBox;
-use super::types::{ElsewhereDir, MatchVerdict, UnclearKind, VerifyVerdict};
+use super::types::{Confidence, ElsewhereDir, MatchVerdict, UnclearKind, VerifyVerdict};
 
 /// Max characters kept from each verifier free-text field (B5 truncation).
 const FIELD_CHARS: usize = 200;
@@ -61,6 +61,11 @@ pub fn report_tool() -> Value {
                         "enum": ["yes", "no", "unclear"],
                         "description": "蓝框里的东西是不是目标描述的元素"
                     },
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["high", "medium"],
+                        "description": "match=yes 时填。文字+方位+图标+颜色四项全中填 high；文字和方位对上、图标或颜色不符填 medium（这仍然算找到了，颜色在 hover/disabled 态会变）"
+                    },
                     "why": {"type": "string", "description": "判定依据，一句话"},
                     "unclear_kind": {
                         "type": "string",
@@ -86,18 +91,32 @@ pub fn report_tool() -> Value {
 /// `goal` is deliberately not passed in: it is caller-facing metadata used for
 /// the tool card title. Feeding it to the grounder made it pick a same-named
 /// element on a different row, because "enter the news page" fits both.
-pub fn locate_prompt(description: &str, previous_hint: Option<&str>) -> String {
+pub fn locate_prompt(
+    description: &str,
+    hint_px: Option<(f64, f64)>,
+    previous_hint: Option<&str>,
+) -> String {
     let head = format!(
         "请找出界面中符合以下描述的元素，给出它的位置。\n\n【目标元素描述】\n· 目标：{}\n",
         description.trim()
     );
-    let coord = "【坐标要求】只按【这张图】给坐标：横向 0 = 这张图左边缘，1000 = 右边缘；纵向 0 = 上边缘，1000 = 下边缘���\n不需要知道整张屏幕有多大。";
+    let near = match hint_px {
+        Some((x, y)) => format!(
+            "【位置偏好】画面里如果有多个符合条件的元素，选**离 ({}, {}) 最近的那个**。\n\
+             那是调用方估计的位置，通常八九不离十；远处即使长得一模一样，\n\
+             也很可能是另一行或另一栏的同名元素。\n",
+            x.round() as i64,
+            y.round() as i64
+        ),
+        None => String::new(),
+    };
+    let coord = "【坐标要求】只按【这张图】给坐标：横向 0 = 这张图左边缘，1000 = 右边缘；纵向 0 = 上边缘，1000 = 下边缘。\n不需要知道整张屏幕有多大。";
     let tail = "框要刚好框住该元素本身（不要外扩、不要缩小）。\n不需要像素级精确：框的中心落在元素上、四条边没有明显超出轮廓，就算合格。\n\n请调用 locate(bbox=[x1, y1, x2, y2])。";
     let tail = match previous_hint.map(str::trim).filter(|s| !s.is_empty()) {
         Some(hint) => format!("【上一轮的情况】{hint}\n\n{tail}"),
         None => tail.to_string(),
     };
-    format!("{head}\n{coord}\n{tail}")
+    format!("{head}{near}\n{coord}\n{tail}")
 }
 
 /// Verifier prompt. It sees only the crop and the description — **never** the
@@ -110,16 +129,27 @@ pub fn verify_prompt(description: &str) -> String {
 【任务】\n\
 ① 先看蓝框里实际是什么（文字/图标/控件），填 in_box。\n\
 ② 再判断蓝框里的这个东西，是不是上面描述的目标元素。\n\n\
+【判定优先级】按这个顺序比对，**不要跳级**：\n\
+1. **文字** —— 文字内容是否一致（最重要，几乎决定成败）\n\
+2. **方位** —— 与周边锚点的相对位置是否一致（左/右/上/下/第几行）\n\
+3. **图标** —— 图标形状/类型是否一致\n\
+4. **颜色** —— 颜色是否一致（**最弱**，按钮在 hover / disabled / 选中态下\n\
+   颜色本来就会变，不要因为它判 no）\n\n\
 【判定规则】\n\
-1. 外观特征要对上。\n\
-2. **必须核对周边锚点**：先回答 anchor_seen——目标描述里提到的锚点在这张图里能看到吗？\n\
-   - 看得到：写出它是什么，并核对它和目标的相对位置是否一致。\n\
-   - 看不到：填「看不到」，并判 unclear + anchor_out_of_view，**不能假定它匹配**。\n\
-   - 锚点对不上（比如目标说\"X 正下方\"，实际不在 X 下方）→ 判 **no**。\n\
-3. **注意：蓝框在这张图里居中，是裁剪方式决定的，不能作为位置证据。**\n\
-4. 外观像 A、锚点却指向 B（互相矛盾）时，填 unclear + ambiguous。\n\
-5. 屏幕位置只作粗筛参考，精判以这张图为准。\n\
-6. 目标太小看不清 → unclear + too_small；图像模糊或被遮挡 → unclear + too_blurry。\n\n\
+- **4 项全中** → pass，confidence=high。\n\
+- **文字 + 方位都对，图标或颜色不符** → **仍然 pass**，confidence=medium，\n\
+  在 reason 里写清哪项不符（例如「颜色是灰色不是蓝色」）。\n\
+- **文字对、方位对不上**（比如目标说「第二行」实际在第一行）→ 判 **no**，\n\
+  这是选错了元素，不是外观差异。\n\
+- **文字对不上** → 判 **no**，不管其他项多像。\n\n\
+【其他约束】\n\
+- **必须核对周边锚点**：先回答 anchor_seen——目标描述里提到的锚点在这张图里能看到吗？\n\
+  - 看得到：写出它是什么，并核对它和目标的相对位置是否一致。\n\
+  - 看不到：填「看不到」，并判 unclear + anchor_out_of_view，**不能假定它匹配**。\n\
+  - 锚点对不上（比如目标说\"X 正下方\"，实际不在 X 下方）→ 判 **no**。\n\
+- **注意：蓝框在这张图里居中，是裁剪方式决定的，不能作为位置证据。**\n\
+- 外观像 A、锚点却指向 B（互相矛盾）时，填 unclear + ambiguous。\n\
+- 目标太小看不清 → unclear + too_small；图像模糊或被遮挡 → unclear + too_blurry。\n\n\
 【如果判 no】\n\
 - 如果目标就在这张图里、只是蓝框没框住它，填 elsewhere_dir（left/right/up/down/inside）和 elsewhere_desc。\n\
 - 如果这张图里根本看不到目标，elsewhere_dir 留空。\n\n\
@@ -232,6 +262,7 @@ pub fn parse_verify_arguments(raw: &str) -> Option<VerifyVerdict> {
             .chars()
             .take(150)
             .collect(),
+        confidence: Confidence::parse(&text_field(&v, "confidence")),
     })
 }
 
@@ -257,7 +288,11 @@ mod tests {
 
     #[test]
     fn locate_prompt_is_image_local_and_carries_hint() {
-        let p = locate_prompt("保存按钮", Some("你上次给的框里实际是【取消】，不是目标。"));
+        let p = locate_prompt(
+            "保存按钮",
+            None,
+            Some("你上次给的框里实际是【取消】，不是目标。"),
+        );
         assert!(p.contains("只按【这张图】给坐标"));
         assert!(p.contains("保存按钮"));
         assert!(p.contains("上一轮的情况"));
@@ -265,10 +300,36 @@ mod tests {
     }
 
     #[test]
+    fn locate_prompt_prefers_the_candidate_near_the_hint() {
+        let p = locate_prompt("资讯公告", Some((975.0, 675.0)), None);
+        assert!(p.contains("离 (975, 675) 最近的那个"), "{p}");
+        assert!(p.contains("另一行或另一栏的同名元素"), "{p}");
+    }
+
+    #[test]
+    fn locate_prompt_without_hint_has_no_position_preference() {
+        let p = locate_prompt("资讯公告", None, None);
+        assert!(!p.contains("位置偏好"), "{p}");
+    }
+
+    #[test]
+    fn verify_prompt_ranks_text_over_colour() {
+        let p = verify_prompt("数据按钮");
+        assert!(p.contains("判定优先级"), "{p}");
+        assert!(p.contains("**文字**"), "{p}");
+        assert!(p.contains("**颜色**"), "{p}");
+        // 文字+方位对上、颜色不符仍然 pass，只是 medium
+        assert!(p.contains("仍然 pass"), "{p}");
+        assert!(p.contains("confidence=medium"), "{p}");
+        // 方位不对是选错元素，必须 no
+        assert!(p.contains("这是选错了元素"), "{p}");
+    }
+
+    #[test]
     fn locate_prompt_does_not_leak_the_goal() {
         // goal 只用于卡片标题，不进定位 prompt——它会让模型在多个同名
         // 元素里挑错行（「进入资讯公告页」两行都成立）。
-        let p = locate_prompt("搜索框", None);
+        let p = locate_prompt("搜索框", None, None);
         assert!(!p.contains("用途"), "{p}");
         assert!(p.contains("框要刚好框住该元素本身"), "{p}");
     }

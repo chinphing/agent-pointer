@@ -41,6 +41,13 @@ impl LocateRequest {
         self
     }
 
+    /// Centre of the caller's hint box, for the "prefer the nearest candidate"
+    /// rule. Same-named elements on different rows are common, and a full-screen
+    /// re-locate otherwise has no reason to stay near where the caller pointed.
+    pub fn hint_center(&self) -> Option<(f64, f64)> {
+        self.hint_px.map(|b| ((b.x1 + b.x2) / 2.0, (b.y1 + b.y2) / 2.0))
+    }
+
     /// Normalized hint, or `None` when absent / zero-area (§6.3.1).
     pub fn hint_norm(&self, w: u32, h: u32) -> Option<NormBox> {
         self.hint_px
@@ -111,6 +118,10 @@ pub struct VerifyVerdict {
     pub unclear_kind: UnclearKind,
     pub elsewhere_dir: Option<ElsewhereDir>,
     pub elsewhere_desc: String,
+    /// How many of the four signals (text / position / icon / colour) lined up.
+    /// `high` = all four; `medium` = text and position matched but icon or
+    /// colour did not. Only meaningful when `match_` is `Yes`.
+    pub confidence: Confidence,
 }
 
 impl Default for VerifyVerdict {
@@ -123,6 +134,7 @@ impl Default for VerifyVerdict {
             unclear_kind: UnclearKind::TooBlurry,
             elsewhere_dir: None,
             elsewhere_desc: String::new(),
+            confidence: Confidence::High,
         }
     }
 }
@@ -157,12 +169,21 @@ impl Default for LocateConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Confidence {
     High,
+    Medium,
 }
 
 impl Confidence {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::High => "high",
+            Self::Medium => "medium",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "medium" | "mid" | "中" => Self::Medium,
+            _ => Self::High,
         }
     }
 }

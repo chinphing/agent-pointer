@@ -151,14 +151,17 @@ impl ComputerPipelineLlmConfig {
         match phase {
             PipelineLlmPhase::Decision => (true, DEFAULT_PIPELINE_DECISION_THINKING_BUDGET),
             PipelineLlmPhase::Position => (true, self.thinking_budget_position),
-            PipelineLlmPhase::Verify => (true, self.thinking_budget_verify),
-            PipelineLlmPhase::Locate => {
-                if self.thinking_budget_locate == 0 {
-                    (false, 0)
-                } else {
-                    (true, self.thinking_budget_locate)
-                }
-            }
+            // A zero budget means "thinking off", not "use the default". Verify
+            // runs on every action, so leaving it on costs ~10s of reasoning per
+            // step for a yes/no judgement that does not need it.
+            PipelineLlmPhase::Verify => match self.thinking_budget_verify {
+                0 => (false, 0),
+                n => (true, n),
+            },
+            PipelineLlmPhase::Locate => match self.thinking_budget_locate {
+                0 => (false, 0),
+                n => (true, n),
+            },
         }
     }
 }
@@ -1455,6 +1458,35 @@ mod tests {
             cfg.pipeline_llm
                 .thinking_for_phase(PipelineLlmPhase::Verify),
             (true, DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET)
+        );
+    }
+
+    #[test]
+    fn zero_thinking_budget_turns_thinking_off() {
+        let mut cfg = ComputerModelConfig::default();
+        // Verify runs on every action; a zero budget must mean off, not default.
+        cfg.pipeline_llm.thinking_budget_verify = 0;
+        assert_eq!(
+            cfg.pipeline_llm
+                .thinking_for_phase(PipelineLlmPhase::Verify),
+            (false, 0)
+        );
+        cfg.pipeline_llm.thinking_budget_locate = 0;
+        assert_eq!(
+            cfg.pipeline_llm
+                .thinking_for_phase(PipelineLlmPhase::Locate),
+            (false, 0)
+        );
+    }
+
+    #[test]
+    fn non_zero_thinking_budget_is_honoured() {
+        let mut cfg = ComputerModelConfig::default();
+        cfg.pipeline_llm.thinking_budget_verify = 256;
+        assert_eq!(
+            cfg.pipeline_llm
+                .thinking_for_phase(PipelineLlmPhase::Verify),
+            (true, 256)
         );
     }
 

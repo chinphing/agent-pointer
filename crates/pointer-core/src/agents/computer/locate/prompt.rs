@@ -107,7 +107,16 @@ pub fn locate_prompt(description: &str, goal: Option<&str>, previous_hint: Optio
         ""
     };
     let coord = "【坐标要求】只按【这张图】给坐标：横向 0 = 这张图左边缘，1000 = 右边缘；纵向 0 = 上边缘，1000 = 下边缘。\n不需要知道整张屏幕有多大。";
-    let tail = "框要刚好框住该元素本身（不要外扩、不要缩小）。\n不需要像素级精确：框的中心落在元素上、四条边没有明显超出轮廓，就算合格。\n\n请调用 locate(bbox=[x1, y1, x2, y2])。";
+    let tail = if goal.map(str::trim).filter(|s| !s.is_empty()).is_some() {
+        "框住**点上去能完成用途**的那块区域就够，不必框全整个元素。\n\
+         比如用途是输入文字，框住输入框的可编辑区域即可，边框、标签不用框进来。\n\
+         框比元素略大、带进一点周边也可以：中心落在目标上就算合格。\n\n\
+         请调用 locate(bbox=[x1, y1, x2, y2])。"
+    } else {
+        "框要刚好框住该元素本身（不要外扩、不要缩小）。\n\
+         不需要像素级精确：框的中心落在元素上、四条边没有明显超出轮廓，就算合格。\n\n\
+         请调用 locate(bbox=[x1, y1, x2, y2])��"
+    };
     let tail = match previous_hint.map(str::trim).filter(|s| !s.is_empty()) {
         Some(hint) => format!("【上一轮的情况】{hint}\n\n{tail}"),
         None => tail.to_string(),
@@ -120,8 +129,12 @@ pub fn locate_prompt(description: &str, goal: Option<&str>, previous_hint: Optio
 pub fn verify_prompt(description: &str, goal: Option<&str>) -> String {
     let desc = target_block(description, goal);
     let goal_rule = if goal.map(str::trim).filter(|s| !s.is_empty()).is_some() {
-        "\n7. **必须核对用途**：外观对上了，但这个东西明显完成不了上面写的「用途」\n\
-         （比如要输入股票代码，蓝框里却是聊天搜索框）→ 判 **no**。\n"
+        "\n7. **用途优先于外观**：用途能达成，外观有局部偏差也算对。\n\
+         - 框没框全（只框住输入区、只框住图标）→ 点上去能完成用途就 **pass**。\n\
+         - 框比元素略大、带进一点周边 → 中心仍落在目标上就 **pass**。\n\
+         - 反过来，外观完全符合但明显完不成用途（要输入股票代码，框里却是\n\
+         聊天搜索框）→ 判 **no**。\n\
+         判断顺序：先问「点这里能不能完成用途」，再看外观对不对得上。\n"
     } else {
         ""
     };
@@ -295,6 +308,9 @@ mod tests {
         let p = locate_prompt("搜索框", Some("输入股票代码查询行情"), None);
         assert!(p.contains("用途：输入股票代码查询行情"), "{p}");
         assert!(p.contains("能完成上面「用途」的那个"), "{p}");
+        // 有 goal 时框的要求放宽到「点上去能完成用途」
+        assert!(p.contains("框住**点上去能完成用途**的那块区域就够"), "{p}");
+        assert!(!p.contains("框要刚好框住该元素本身"), "{p}");
     }
 
     #[test]
@@ -302,16 +318,22 @@ mod tests {
         let p = locate_prompt("搜索框", None, None);
         assert!(!p.contains("用途："), "{p}");
         assert!(!p.contains("能完成上面「用途」的那个"), "{p}");
+        // 没 goal 时仍然要求框住元素本身
+        assert!(p.contains("框要刚好框住该元素本身"), "{p}");
     }
 
     #[test]
-    fn verify_prompt_checks_goal_when_given() {
+    fn verify_prompt_lets_goal_override_partial_box() {
         let p = verify_prompt("搜索框", Some("输入股票代码查询行情"));
         assert!(p.contains("用途：输入股票代码查询行情"), "{p}");
-        assert!(p.contains("必须核对用途"), "{p}");
+        assert!(p.contains("用途优先于外观"), "{p}");
+        // 局部偏差但仍能完成用途 → pass
+        assert!(p.contains("点上去能完成用途就 **pass**"), "{p}");
+        // 外观符合但完不成用途 → no
+        assert!(p.contains("明显完不成用途"), "{p}");
 
         let p = verify_prompt("搜索框", None);
-        assert!(!p.contains("必须核对用途"), "{p}");
+        assert!(!p.contains("用途优先于外观"), "{p}");
     }
 
     #[test]

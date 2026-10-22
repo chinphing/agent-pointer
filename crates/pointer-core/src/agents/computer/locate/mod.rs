@@ -94,7 +94,9 @@ fn parse_requests(args: &Value) -> Result<Vec<LocateRequest>> {
         .unwrap_or("");
     if goal.is_empty() {
         return Err(anyhow!(
-            "goal 不能为空：说明这次定位要完成什么（例如「输入股票代码查询行情」）"
+            "goal 不能为空。goal 是**顶层**字段，不在 elements[] 里。正确格式：\
+             {{\"goal\": \"这次定位要完成什么\", \"elements\": [{{\"description\": \"目标元素\"}}]}}。\
+             例如 {{\"goal\": \"查看腾讯控股的财务数据\", \"elements\": [{{\"description\": \"「财务分析」标签\"}}]}}"
         ));
     }
 

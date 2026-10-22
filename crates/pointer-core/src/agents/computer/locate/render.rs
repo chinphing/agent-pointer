@@ -18,6 +18,11 @@ use super::geometry::{fit_scale, CropBounds, NormBox, PxBox, FULL_MAX_PX};
 const BOX_COLOR: Rgb<u8> = Rgb([0, 90, 200]);
 /// B5 candidate-box line width.
 const BOX_WIDTH: i32 = 3;
+
+/// Brightness factor applied outside the candidate box in verify crops.
+/// Low enough to make the boundary obvious, high enough that a target
+/// straddling the edge is still recognisable.
+const OUTSIDE_KEEP: f64 = 0.45;
 /// JPEG quality for images handed to the locator / verifier.
 const LOCATE_JPEG_QUALITY: u8 = 85;
 
@@ -109,17 +114,36 @@ pub fn render_crop(
     let sx = out_px as f64 / bounds.width().max(f64::EPSILON);
     let sy = out_px as f64 / bounds.height().max(f64::EPSILON);
     let px = target;
-    draw_px_box(
-        &mut magnified,
-        PxBox {
-            x1: (px.x1 - bounds.x0) * sx,
-            y1: (px.y1 - bounds.y0) * sy,
-            x2: (px.x2 - bounds.x0) * sx,
-            y2: (px.y2 - bounds.y0) * sy,
-        },
-    );
+    let drawn = PxBox {
+        x1: (px.x1 - bounds.x0) * sx,
+        y1: (px.y1 - bounds.y0) * sy,
+        x2: (px.x2 - bounds.x0) * sx,
+        y2: (px.y2 - bounds.y0) * sy,
+    };
+    // Dim everything outside the candidate box. Without this the verifier
+    // ignores the box outline and answers from what it expects to be inside
+    // it: on a hint that clips the target's corner it still reports "the box
+    // frames the button completely". A clear brightness step at the boundary
+    // forces it to look at where the box actually is.
+    dim_outside(&mut magnified, drawn);
+    draw_px_box(&mut magnified, drawn);
 
     Ok((encode(&magnified)?, bounds))
+}
+
+/// Darken pixels outside `keep` so the box interior stands out.
+fn dim_outside(img: &mut RgbImage, keep: PxBox) {
+    let (x1, y1) = (keep.x1.min(keep.x2), keep.y1.min(keep.y2));
+    let (x2, y2) = (keep.x1.max(keep.x2), keep.y1.max(keep.y2));
+    for (x, y, p) in img.enumerate_pixels_mut() {
+        let (fx, fy) = (x as f64, y as f64);
+        if fx >= x1 && fx <= x2 && fy >= y1 && fy <= y2 {
+            continue;
+        }
+        for c in p.0.iter_mut() {
+            *c = (*c as f64 * OUTSIDE_KEEP) as u8;
+        }
+    }
 }
 
 /// Draw a normalized box onto an image of the same aspect (B5 `draw_box`).
@@ -213,10 +237,28 @@ mod tests {
         let (img, bounds) = render_crop(&f, candidate, 40.0, 40).unwrap();
         assert_eq!((bounds.x0, bounds.y0), (30.0, 30.0));
         let decoded = LocateFrame::from_jpeg(&img.jpeg).unwrap();
-        let px = decoded.image().get_pixel(2, 2);
+        // Sample inside the box (px 20,20 = screen 50,50). Outside the box the
+        // crop is deliberately dimmed, so sampling (2,2) would read the dim
+        // colour instead of the screen's.
+        let px = decoded.image().get_pixel(20, 20);
         assert!(
             px[0] > 150 && px[1] < 80,
-            "expected screen pixels in the crop, got {px:?}"
+            "expected screen pixels inside the box, got {px:?}"
+        );
+    }
+
+    #[test]
+    fn crop_dims_everything_outside_the_box() {
+        let f = LocateFrame::new(RgbImage::from_pixel(100, 100, Rgb([200, 10, 10])));
+        let candidate = NormBox::new(450.0, 450.0, 550.0, 550.0);
+        let (img, _) = render_crop(&f, candidate, 40.0, 40).unwrap();
+        let decoded = LocateFrame::from_jpeg(&img.jpeg).unwrap();
+        let inside = decoded.image().get_pixel(20, 20);
+        let outside = decoded.image().get_pixel(3, 3);
+        assert!(
+            inside[0] > outside[0] + 50,
+            "box interior should be brighter than the dimmed exterior: \
+             inside={inside:?} outside={outside:?}"
         );
     }
 

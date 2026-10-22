@@ -84,29 +84,50 @@ fn description_block(description: &str) -> String {
     format!("· 目标：{}\n", description.trim())
 }
 
+/// 目标 + 用途。`goal` 用来在多个相似元素里挑对那个——比如页面里有聊天
+/// 搜索框和股票搜索框，`description` 都是「搜索框」，只有 `goal` 能区分。
+fn target_block(description: &str, goal: Option<&str>) -> String {
+    let mut out = description_block(description);
+    if let Some(g) = goal.map(str::trim).filter(|s| !s.is_empty()) {
+        out.push_str(&format!("· 用途：{g}\n"));
+    }
+    out
+}
+
 /// Locate prompt. Coordinates are always **image-local** (B5 `coord-mode=rel`),
 /// so there is no screen-size arithmetic for the model to do.
-pub fn locate_prompt(description: &str, previous_hint: Option<&str>) -> String {
+pub fn locate_prompt(description: &str, goal: Option<&str>, previous_hint: Option<&str>) -> String {
     let head = format!(
-        "请找出界面中符合以下描述的元素，给出它的位置。\n\n【目标元素描述】\n{}",
-        description_block(description)
+        "请找出界面中符合以下描述的元素，给出它的位置。\n\n【目标元素】\n{}",
+        target_block(description, goal)
     );
+    let pick = if goal.map(str::trim).filter(|s| !s.is_empty()).is_some() {
+        "画面里有多个外观相似的元素时，选**能完成上面「用途」的那个**，不要选长得像但用不上的。\n"
+    } else {
+        ""
+    };
     let coord = "【坐标要求】只按【这张图】给坐标：横向 0 = 这张图左边缘，1000 = 右边缘；纵向 0 = 上边缘，1000 = 下边缘。\n不需要知道整张屏幕有多大。";
     let tail = "框要刚好框住该元素本身（不要外扩、不要缩小）。\n不需要像素级精确：框的中心落在元素上、四条边没有明显超出轮廓，就算合格。\n\n请调用 locate(bbox=[x1, y1, x2, y2])。";
     let tail = match previous_hint.map(str::trim).filter(|s| !s.is_empty()) {
         Some(hint) => format!("【上一轮的情况】{hint}\n\n{tail}"),
         None => tail.to_string(),
     };
-    format!("{head}\n{coord}\n{tail}")
+    format!("{head}\n{pick}{coord}\n{tail}")
 }
 
 /// Verifier prompt. It sees only the crop and the description — **never** the
 /// hint box (§6.3.1), otherwise it would rubber-stamp a wrong candidate.
-pub fn verify_prompt(description: &str) -> String {
-    let desc = description_block(description);
+pub fn verify_prompt(description: &str, goal: Option<&str>) -> String {
+    let desc = target_block(description, goal);
+    let goal_rule = if goal.map(str::trim).filter(|s| !s.is_empty()).is_some() {
+        "\n7. **必须核对用途**：外观对上了，但这个东西明显完成不了上面写的「用途」\n\
+         （比如要输入股票代码，蓝框里却是聊天搜索框）→ 判 **no**。\n"
+    } else {
+        ""
+    };
     format!(
         "这张图是从屏幕上裁下来的一块（不是整屏），蓝框是候选位置。\n\n\
-【目标元素描述】\n{desc}\
+【目标元素】\n{desc}\
 【任务】\n\
 ① 先看蓝框里实际是什么（文字/图标/控件），填 in_box。\n\
 ② 再判断蓝框里的这个东西，是不是上面描述的目标元素。\n\n\
@@ -119,7 +140,8 @@ pub fn verify_prompt(description: &str) -> String {
 3. **注意：蓝框在这张图里居中，是裁剪方式决定的，不能作为位置证据。**\n\
 4. 外观像 A、锚点却指向 B（互相矛盾）时，填 unclear + ambiguous。\n\
 5. 屏幕位置只作粗筛参考，精判以这张图为准。\n\
-6. 目标太小看不清 → unclear + too_small；图像模糊或被遮挡 → unclear + too_blurry。\n\n\
+6. 目标太小看不清 → unclear + too_small；图像模糊或被遮挡 → unclear + too_blurry。\n\
+{goal_rule}\n\
 【如果判 no】\n\
 - 如果目标就在这张图里、只是蓝框没框住它，填 elsewhere_dir（left/right/up/down/inside）和 elsewhere_desc。\n\
 - 如果这张图里根本看不到目标，elsewhere_dir 留空。\n\n\
@@ -257,7 +279,11 @@ mod tests {
 
     #[test]
     fn locate_prompt_is_image_local_and_carries_hint() {
-        let p = locate_prompt("保存按钮", Some("你上次给的框里实际是【取消】，不是目标。"));
+        let p = locate_prompt(
+            "保存按钮",
+            None,
+            Some("你上次给的框里实际是【取消】，不是目标。"),
+        );
         assert!(p.contains("只按【这张图】给坐标"));
         assert!(p.contains("保存按钮"));
         assert!(p.contains("上一轮的情况"));
@@ -265,8 +291,32 @@ mod tests {
     }
 
     #[test]
+    fn locate_prompt_uses_goal_to_disambiguate() {
+        let p = locate_prompt("搜索框", Some("输入股票代码查询行情"), None);
+        assert!(p.contains("用途：输入股票代码查询行情"), "{p}");
+        assert!(p.contains("能完成上面「用途」的那个"), "{p}");
+    }
+
+    #[test]
+    fn locate_prompt_without_goal_has_no_pick_rule() {
+        let p = locate_prompt("搜索框", None, None);
+        assert!(!p.contains("用途："), "{p}");
+        assert!(!p.contains("能完成上面「用途」的那个"), "{p}");
+    }
+
+    #[test]
+    fn verify_prompt_checks_goal_when_given() {
+        let p = verify_prompt("搜索框", Some("输入股票代码查询行情"));
+        assert!(p.contains("用途：输入股票代码查询行情"), "{p}");
+        assert!(p.contains("必须核对用途"), "{p}");
+
+        let p = verify_prompt("搜索框", None);
+        assert!(!p.contains("必须核对用途"), "{p}");
+    }
+
+    #[test]
     fn verify_prompt_never_mentions_the_hint_box() {
-        let p = verify_prompt("地址栏");
+        let p = verify_prompt("地址栏", None);
         assert!(p.contains("anchor_seen"));
         assert!(p.contains("地址栏"));
         assert!(!p.to_ascii_lowercase().contains("hint_box"));

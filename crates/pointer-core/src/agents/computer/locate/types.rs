@@ -17,6 +17,11 @@ pub const MAX_VERIFY_RETRY: usize = 2;
 pub struct LocateRequest {
     /// Natural-language description of the target element.
     pub description: String,
+    /// What the caller intends to do with it. Used to disambiguate when several
+    /// elements match `description` — the grounder picks the one that can serve
+    /// this purpose, and the verifier rejects a candidate that looks right but
+    /// cannot fulfil it.
+    pub goal: Option<String>,
     /// Optional pre-given first-round box, in logical pixels.
     pub hint_px: Option<PxBox>,
 }
@@ -25,6 +30,7 @@ impl LocateRequest {
     pub fn new(description: impl Into<String>) -> Self {
         Self {
             description: description.into(),
+            goal: None,
             hint_px: None,
         }
     }

@@ -100,6 +100,12 @@ fn parse_requests(args: &Value) -> Result<Vec<LocateRequest>> {
         }
         out.push(LocateRequest {
             description: description.to_string(),
+            goal: el
+                .get("goal")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
             hint_px: parse_hint(el.get("hint_box"), idx)?,
         });
     }
@@ -239,6 +245,24 @@ mod tests {
         let summary = r["summary"].as_str().unwrap();
         assert!(summary.contains("不要用猜测的坐标点击"), "{summary}");
         assert!(summary.contains("当前截图中未能可靠确认目标"), "{summary}");
+    }
+
+    #[test]
+    fn parses_goal_and_keeps_it_optional() {
+        let args = json!({"elements": [
+            {"description": "搜索框", "goal": "输入股票代码查询行情"},
+            {"description": "刷新按钮"}
+        ]});
+        let reqs = parse_requests(&args).unwrap();
+        assert_eq!(reqs[0].goal.as_deref(), Some("输入股票代码查询行情"));
+        assert!(reqs[1].goal.is_none());
+    }
+
+    #[test]
+    fn blank_goal_is_treated_as_absent() {
+        let args = json!({"elements": [{"description": "搜索框", "goal": "   "}]});
+        let reqs = parse_requests(&args).unwrap();
+        assert!(reqs[0].goal.is_none());
     }
 
     fn el(desc: &str) -> Value {

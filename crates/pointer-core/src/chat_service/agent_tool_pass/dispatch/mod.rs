@@ -3,6 +3,7 @@
 mod ask_user;
 mod job;
 mod locate;
+mod input;
 mod media;
 mod mouse;
 pub(super) mod registry;
@@ -126,6 +127,11 @@ pub(super) async fn execute_tool_invocation(
         "mouse_click_at" | "mouse_double_click_at" | "mouse_right_click_at"
         | "mouse_hover_at" | "mouse_drag_to" | "mouse_down" | "mouse_up" => {
             mouse::dispatch_mouse(state, conversation_id, provider, tc, args_value, cancel).await
+        }
+        // input_at takes {target_desc, bbox} like the pointing tools: ground
+        // first, then focus/clear/type. Same provider requirement.
+        "input_at" => {
+            input::dispatch_input_at(state, conversation_id, provider, tc, args_value, cancel).await
         }
         "locate_element" => {
             locate::dispatch_locate_element(
@@ -310,6 +316,11 @@ pub(super) async fn invoke_prepared_parallel(
         "mouse_click_at" | "mouse_double_click_at" | "mouse_right_click_at"
         | "mouse_hover_at" | "mouse_drag_to" | "mouse_down" | "mouse_up" => {
             mouse::dispatch_mouse(state, conversation_id, provider, tc, args_value, cancel).await
+        }
+        // input_at takes {target_desc, bbox} like the pointing tools: ground
+        // first, then focus/clear/type. Same provider requirement.
+        "input_at" => {
+            input::dispatch_input_at(state, conversation_id, provider, tc, args_value, cancel).await
         }
         "locate_element" => {
             locate::dispatch_locate_element(

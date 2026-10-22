@@ -17,8 +17,12 @@ focus.
 turn to type the same field. Put **`text`**, **`clear_first`**, and
 **`auto_enter`** on the **same** **`input_at`** call.
 
-**Coordinate-based** (screen pixels, origin at the screenshot's top-left):
-- **`input_at`** — Click at **(x,y)**, then type. Requires **`x`**, **`y`**, **`text`**.
+**Grounded** (logical pixels, origin at the screenshot's top-left):
+- **`input_at`** — Ground **`target_desc`** inside **`bbox`**, click the confirmed
+  centre, then type. Requires **`target_desc`**, **`bbox`**, **`text`**.
+  Both parts are required: `bbox` narrows the search, `target_desc` says which
+  control it is. Take `bbox` from `locate_element` — it is exactly what that
+  field is for. There is no raw-coordinate form.
 
 Coordinates are **logical pixels**, the same width and height as the screenshot
 you are looking at — not normalized, not Retina device pixels.

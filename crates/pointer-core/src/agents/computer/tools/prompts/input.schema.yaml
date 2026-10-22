@@ -7,12 +7,16 @@ input_at:
       type: string
     action:
       type: string
-    x:
-      type: number
-      description: Logical screen pixel X. For a visible target, take it from `locate_element`; never estimate.
-    y:
-      type: number
-      description: Logical screen pixel Y. For a visible target, take it from `locate_element`; never estimate.
+    target_desc:
+      type: string
+      description: "要输入到哪个控件，自然语言描述（例：搜索框 / 用户名输入框）。必须和 bbox 一起给。"
+    bbox:
+      type: array
+      items:
+        type: number
+      minItems: 4
+      maxItems: 4
+      description: "控件大概在 [x1, y1, x2, y2]，逻辑像素。通常直接用 locate_element 返回的 bbox。工具会以此为搜索种子重新定位确认，再点进去输入。"
     text:
       type: string
     clear_first:
@@ -27,8 +31,8 @@ input_at:
       minimum: 1
       maximum: 5
   required:
-    - x
-    - y
+    - target_desc
+    - bbox
     - text
     - goal
   additionalProperties: true

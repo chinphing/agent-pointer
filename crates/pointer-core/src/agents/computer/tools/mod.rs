@@ -7,7 +7,7 @@ pub mod method_route;
 pub(crate) mod tool_app_access;
 mod tool_clipboard;
 mod tool_hotkey;
-mod tool_input;
+pub(crate) mod tool_input;
 mod tool_keyboard;
 mod tool_modified_click;
 pub(crate) mod tool_mouse;
@@ -174,13 +174,27 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 .cloned()
                 .unwrap_or_else(|| panic!("input.schema.yaml missing entry for {name}"));
 
+            let err_name = tool_name.clone();
             let handler: ToolHandler = Arc::new(move |args| {
                 let cid = conversation_id_from_args(&args)
                     .unwrap_or_default()
                     .to_string();
-                let vision = st.vision_state_for_conversation(&cid);
-                let tool = InputTool::new(st.control.clone(), vision);
-                run_synthetic_computer_tool(move || tool.execute_with(backend, &args))
+                match backend {
+                    // input_at takes {target_desc, bbox} and grounds first, which
+                    // needs the agent's provider — see dispatch/input.rs.
+                    InputBackend::At => {
+                        let _ = (&st, &cid);
+                        Err(anyhow::anyhow!(
+                            "{} is executed by the chat runtime async path, not synchronous invoke",
+                            err_name
+                        ))
+                    }
+                    InputBackend::Focused => {
+                        let vision = st.vision_state_for_conversation(&cid);
+                        let tool = InputTool::new(st.control.clone(), vision);
+                        run_synthetic_computer_tool(move || tool.execute_with(backend, &args))
+                    }
+                }
             });
 
             reg.register(

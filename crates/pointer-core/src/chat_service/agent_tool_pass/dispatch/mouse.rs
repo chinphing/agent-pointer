@@ -60,7 +60,7 @@ fn method_for(tool_id: &str) -> Option<&'static str> {
 }
 
 /// `[x1, y1, x2, y2]` → `PxBox`, rejecting degenerate boxes.
-fn parse_bbox(v: &Value) -> anyhow::Result<crate::agents::computer::locate::PxBox> {
+pub(super) fn parse_bbox(v: &Value) -> anyhow::Result<crate::agents::computer::locate::PxBox> {
     let arr = v
         .as_array()
         .ok_or_else(|| anyhow::anyhow!("bbox 必须是 [x1, y1, x2, y2]"))?;
@@ -92,7 +92,7 @@ fn parse_bbox(v: &Value) -> anyhow::Result<crate::agents::computer::locate::PxBo
 }
 
 /// Ground `{target_desc, bbox}` and return the confirmed centre point.
-async fn resolve_point(
+pub(super) async fn resolve_point(
     state: &AppState,
     conversation_id: &str,
     provider: &OpenAIProvider,

@@ -64,7 +64,7 @@ Optional **`wait`** (1–5 s) holds the next step back; use the standalone
 Your direct estimate of screen pixel coordinates is unreliable. Before acting on
 a visible target, call **`locate_element`** and pass its returned `bbox` — along
 with the same `target_desc` — to `mouse_click_at` / `mouse_hover_at` /
-`mouse_down` / `mouse_up` / `mouse_drag_to`.
+`mouse_down` / `mouse_up` / `mouse_drag_to` / `input_at`.
 
 The pointing tools re-ground inside that box before clicking, so the box does
 not have to be pixel-perfect: it narrows the search, and the description decides

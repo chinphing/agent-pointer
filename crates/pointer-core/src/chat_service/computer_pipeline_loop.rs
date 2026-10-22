@@ -22,7 +22,40 @@ pub fn verify_host_active(state: &AppState, profile: &AgentProfile) -> bool {
 }
 
 pub fn batch_has_desktop_root_tool(tool_calls: &[ToolCall], tools: &ToolRegistry) -> bool {
-    find_root_tool_name(tool_calls, tools).is_some()
+    let Some(name) = find_root_tool_name(tool_calls, tools) else {
+        return false;
+    };
+    // locate_element / app access 不会产生 verify 结果，为它们抓 before 截图
+    // 是白费：缓存命中时只是 clone，缓存空时要多花两秒截图。
+    crate::agents::computer::pipeline::operation::needs_verify_for_tool(&name, &Value::Null)
+}
+
+#[cfg(test)]
+mod batch_gate_tests {
+    use super::*;
+    use crate::agents::computer::pipeline::operation::needs_verify_for_tool;
+
+    // locate_element 只读、不改桌面状态，抓 before 截图没有意义。
+    #[test]
+    fn locate_does_not_need_verify() {
+        assert!(!needs_verify_for_tool("locate_element", &Value::Null));
+    }
+
+    // clipboard 的成功/失败要看内容变化，仍然需要 verify。
+    #[test]
+    fn clipboard_needs_verify() {
+        assert!(needs_verify_for_tool("clipboard_write", &Value::Null));
+    }
+
+    #[test]
+    fn click_needs_verify() {
+        assert!(needs_verify_for_tool("mouse_click_at", &Value::Null));
+    }
+
+    #[test]
+    fn input_needs_verify() {
+        assert!(needs_verify_for_tool("input_at", &Value::Null));
+    }
 }
 
 pub async fn ensure_verify_before_capture(

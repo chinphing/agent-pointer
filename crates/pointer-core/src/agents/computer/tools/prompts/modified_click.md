@@ -2,9 +2,25 @@
 
 Each tool name is the complete operation — no `method` parameter.
 
-**Coordinate-based** (screen pixels, origin at the screenshot's top-left):
-- **`modified_click_select_at`** — Cmd/Ctrl+click each position. Requires **`positions`** (`{x,y}` / `[x,y]`, one or more).
-- **`modified_click_range_select_at`** — Shift+click range between two positions. Requires **`positions`** `[first, last]`.
+**Grounded** (logical pixels, origin at the screenshot's top-left):
+- **`modified_click_select_at`** — Cmd/Ctrl+click each target. Requires
+  **`positions`**: one `{target_desc, bbox}` per target, one or more.
+- **`modified_click_range_select_at`** — Shift+click the range between two
+  targets. Requires **`positions`** `[first, last]`, each
+  `{target_desc, bbox}`.
+
+```json
+{"positions": [
+   {"target_desc": "报表第一行", "bbox": [100, 200, 400, 240]},
+   {"target_desc": "报表第三行", "bbox": [100, 300, 400, 340]}
+ ],
+ "goal": "选中这两行做对比"}
+```
+
+Each position is grounded **before** any click happens, and the whole batch
+aborts if one of them cannot be found — a half-applied selection is worse than
+none, because the next step would build on a state you did not actually create.
+Take `bbox` from `locate_element`; there is no raw-coordinate form.
 
 Coordinates are **logical pixels**, the same width and height as the screenshot
 you are looking at — not normalized, not Retina device pixels.

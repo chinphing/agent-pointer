@@ -6,6 +6,7 @@ mod locate;
 mod grounding;
 mod input;
 mod media;
+mod modified_click;
 mod mouse;
 pub(super) mod registry;
 mod skill_import;
@@ -133,6 +134,19 @@ pub(super) async fn execute_tool_invocation(
         // first, then focus/clear/type. Same provider requirement.
         "input_at" => {
             input::dispatch_input_at(state, conversation_id, provider, tc, args_value, cancel).await
+        }
+        // Multi-select by described targets — grounds each position before
+        // touching the mouse, so a partial selection cannot happen.
+        "modified_click_select_at" | "modified_click_range_select_at" => {
+            modified_click::dispatch_modified_click(
+                state,
+                conversation_id,
+                provider,
+                tc,
+                args_value,
+                cancel,
+            )
+            .await
         }
         "locate_element" => {
             locate::dispatch_locate_element(
@@ -322,6 +336,19 @@ pub(super) async fn invoke_prepared_parallel(
         // first, then focus/clear/type. Same provider requirement.
         "input_at" => {
             input::dispatch_input_at(state, conversation_id, provider, tc, args_value, cancel).await
+        }
+        // Multi-select by described targets — grounds each position before
+        // touching the mouse, so a partial selection cannot happen.
+        "modified_click_select_at" | "modified_click_range_select_at" => {
+            modified_click::dispatch_modified_click(
+                state,
+                conversation_id,
+                provider,
+                tc,
+                args_value,
+                cancel,
+            )
+            .await
         }
         "locate_element" => {
             locate::dispatch_locate_element(

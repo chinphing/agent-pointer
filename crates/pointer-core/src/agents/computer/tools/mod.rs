@@ -9,7 +9,7 @@ mod tool_clipboard;
 mod tool_hotkey;
 pub(crate) mod tool_input;
 mod tool_keyboard;
-mod tool_modified_click;
+pub(crate) mod tool_modified_click;
 pub(crate) mod tool_mouse;
 mod tool_wait;
 
@@ -22,12 +22,10 @@ use crate::agents::computer::ComputerState;
 use crate::platform::run_synthetic_input;
 use crate::tools::tool_doc::load_tools_from_schema_yaml;
 use crate::tools::{ToolEntry, ToolHandler, ToolRegistry};
-use args_util::effective_human_like_default;
 pub(crate) use method_route::{InputBackend, ModifiedClickBackend, MouseBackend};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tool_input::InputTool;
-use tool_modified_click::ModifiedClickTool;
 
 /// Run synthetic input on the platform main thread when required.
 fn run_synthetic_computer_tool<R, F>(f: F) -> R
@@ -281,17 +279,18 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             let backend = *backend;
             let method = method.to_string();
 
+            let err_name = tool_name.clone();
             let handler: ToolHandler = Arc::new(move |args| {
                 let cid = conversation_id_from_args(&args)
                     .unwrap_or_default()
                     .to_string();
-                let vision = st.vision_state_for_conversation(&cid);
-                let hl_default = effective_human_like_default();
-                let tool = ModifiedClickTool::new(st.executor.clone(), vision, hl_default);
-                run_synthetic_computer_tool({
-                    let method = method.clone();
-                    move || tool.execute_with(backend, &method, &args)
-                })
+                // positions are {target_desc, bbox} now and each one has to be
+                // grounded first — see dispatch/modified_click.rs.
+                let _ = (&st, &cid, &method, &backend);
+                Err(anyhow::anyhow!(
+                    "{} is executed by the chat runtime async path, not synchronous invoke",
+                    err_name
+                ))
             });
 
             let schema = modified_click_schemas

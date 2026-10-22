@@ -7,6 +7,23 @@ modified_click_select_at:
       type: string
     positions:
       type: array
+      description: "要选中的每个目标，一项一个。工具会逐个定位确认后点击。"
+      items:
+        type: object
+        properties:
+          target_desc:
+            type: string
+            description: "这个目标是什么（例：第一封邮件 / 报表行 A）。必须和 bbox 一起给。"
+          bbox:
+            type: array
+            items:
+              type: number
+            minItems: 4
+            maxItems: 4
+            description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常用 locate_element 返回的 bbox。"
+        required:
+          - target_desc
+          - bbox
     wait:
       type: number
       minimum: 1
@@ -25,6 +42,23 @@ modified_click_range_select_at:
       type: string
     positions:
       type: array
+      description: "要选中的每个目标，一项一个。工具会逐个定位确认后点击。"
+      items:
+        type: object
+        properties:
+          target_desc:
+            type: string
+            description: "这个目标是什么（例：第一封邮件 / 报表行 A）。必须和 bbox 一起给。"
+          bbox:
+            type: array
+            items:
+              type: number
+            minItems: 4
+            maxItems: 4
+            description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常用 locate_element 返回的 bbox。"
+        required:
+          - target_desc
+          - bbox
     wait:
       type: number
       minimum: 1

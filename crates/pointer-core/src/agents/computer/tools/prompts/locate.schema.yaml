@@ -1,6 +1,12 @@
 locate_element:
   type: object
   properties:
+    goal:
+      type: string
+      description: >
+        **必填**。这次定位要完成什么（例如「输入股票代码查询行情」）。
+        两处生效：多个长得像的元素里挑能完成用途的那个；校验时用途能达成、
+        外观有局部偏差（框没框全）也算对。整个调用共享这一个 goal。
     elements:
       type: array
       minItems: 1
@@ -17,12 +23,6 @@ locate_element:
               目标元素是什么。写清可见特征与周边锚点
               （例如「地址栏右侧的刷新按钮」「『文件』菜单里的『另存为』」），
               不要只写「按钮」这类无区分度的描述。
-          goal:
-            type: string
-            description: >
-              **必填**。你要拿这个元素做什么（例如「输入股票代码查询行情」）。
-              两处生效：多个长得像的元素里挑能完成用途的那个；校验时用途能
-              达成、外观有局部偏差（框没框全）也算对。
           hint_box:
             type: array
             items:
@@ -36,8 +36,8 @@ locate_element:
               不确定就不要传，留空即可。
         required:
           - description
-          - goal
         additionalProperties: false
   required:
+    - goal
     - elements
   additionalProperties: false

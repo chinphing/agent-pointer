@@ -87,6 +87,16 @@ fn parse_requests(args: &Value) -> Result<Vec<LocateRequest>> {
             elements.len()
         ));
     }
+    let goal = args
+        .get("goal")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+    if goal.is_empty() {
+        return Err(anyhow!(
+            "goal 不能为空：说明这次定位要完成什么（例如「输入股票代码查询行情」）"
+        ));
+    }
 
     let mut out = Vec::with_capacity(elements.len());
     for (idx, el) in elements.iter().enumerate() {
@@ -97,16 +107,6 @@ fn parse_requests(args: &Value) -> Result<Vec<LocateRequest>> {
             .unwrap_or("");
         if description.is_empty() {
             return Err(anyhow!("elements[{idx}].description 不能为空"));
-        }
-        let goal = el
-            .get("goal")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .unwrap_or("");
-        if goal.is_empty() {
-            return Err(anyhow!(
-                "elements[{idx}].goal 不能为空：说明你要拿这个元素做什么（例如「输入股票代码查询行情」）"
-            ));
         }
         out.push(LocateRequest {
             description: description.to_string(),
@@ -253,13 +253,17 @@ mod tests {
     }
 
     #[test]
-    fn goal_is_required_and_reported_in_the_error() {
-        let args = json!({"elements": [
-            {"description": "搜索框", "goal": "输入股票代码查询行情"},
-            {"description": "刷新按钮"}
-        ]});
+    fn goal_is_required_at_top_level() {
+        let args = json!({"elements": [{"description": "搜索框"}]});
         let err = parse_requests(&args).unwrap_err().to_string();
-        assert!(err.contains("elements[1].goal 不能为空"), "{err}");
+        assert!(err.contains("goal 不能为空"), "{err}");
+    }
+
+    #[test]
+    fn blank_top_level_goal_is_rejected() {
+        let args = json!({"goal": "   ", "elements": [{"description": "搜索框"}]});
+        let err = parse_requests(&args).unwrap_err().to_string();
+        assert!(err.contains("goal 不能为空"), "{err}");
     }
 
     #[test]
@@ -268,14 +272,17 @@ mod tests {
         let err = parse_requests(&args).unwrap_err().to_string();
         assert!(err.contains("goal 不能为空"), "{err}");
     }
-
-    #[test]
-    fn goal_is_carried_through() {
-        let args = json!({"elements": [
-            {"description": "搜索框", "goal": "输入股票代码查询行情"}
-        ]});
+    fn goal_is_shared_by_every_element() {
+        let args = json!({
+            "goal": "在股票页面查询行情",
+            "elements": [
+                {"description": "搜索框"},
+                {"description": "搜索按钮"}
+            ]
+        });
         let reqs = parse_requests(&args).unwrap();
-        assert_eq!(reqs[0].goal, "输入股票代码查询行情");
+        assert_eq!(reqs[0].goal, "在股票页面查询行情");
+        assert_eq!(reqs[1].goal, "在股票页面查询行情");
     }
 
     fn el(desc: &str) -> Value {
@@ -284,7 +291,7 @@ mod tests {
 
     #[test]
     fn parses_one_to_three_elements() {
-        let reqs = parse_requests(&json!({"elements":[el("保存按钮"), el("地址栏")]})).unwrap();
+        let reqs = parse_requests(&json!({"goal":"点击它","elements":[el("保存按钮"), el("地址栏")]})).unwrap();
         assert_eq!(reqs.len(), 2);
         assert_eq!(reqs[0].description, "保存按钮");
         assert!(reqs[0].hint_px.is_none());
@@ -292,7 +299,7 @@ mod tests {
 
     #[test]
     fn rejects_more_than_three_elements_without_truncating() {
-        let err = parse_requests(&json!({"elements":[el("a"), el("b"), el("c"), el("d")]}))
+        let err = parse_requests(&json!({"goal":"点击它","elements":[el("a"), el("b"), el("c"), el("d")]}))
             .expect_err("four elements must fail");
         let msg = err.to_string();
         assert!(msg.contains("最多 3 项"), "{msg}");
@@ -301,19 +308,20 @@ mod tests {
 
     #[test]
     fn rejects_empty_and_missing_elements() {
-        assert!(parse_requests(&json!({"elements":[]})).is_err());
+        assert!(parse_requests(&json!({"goal":"点击它","elements":[]})).is_err());
         assert!(parse_requests(&json!({})).is_err());
     }
 
     #[test]
     fn rejects_blank_description() {
-        assert!(parse_requests(&json!({"elements":[{"description":"   "}]})).is_err());
+        assert!(parse_requests(&json!({"goal":"点击它","elements":[{"description":"   "}]})).is_err());
     }
 
     #[test]
     fn parses_hint_box_pixels() {
         let reqs = parse_requests(&json!({
-            "elements":[{"description":"保存按钮","goal":"点击它","hint_box":[800,35,840,55]}]
+            "goal":"点击它",
+            "elements":[{"description":"保存按钮","hint_box":[800,35,840,55]}]
         }))
         .unwrap();
         let hint = reqs[0].hint_px.unwrap();
@@ -331,16 +339,19 @@ mod tests {
     #[test]
     fn rejects_malformed_hint_box() {
         assert!(parse_requests(&json!({
-            "elements":[{"description":"a","goal":"点击它","hint_box":[1,2,3]}]
+            "goal":"点击它",
+            "elements":[{"description":"a","hint_box":[1,2,3]}]
         }))
         .is_err());
         assert!(parse_requests(&json!({
-            "elements":[{"description":"a","goal":"点击它","hint_box":"800,35,840,55"}]
+            "goal":"点击它",
+            "elements":[{"description":"a","hint_box":"800,35,840,55"}]
         }))
         .is_err());
         // Explicit null means "no hint" rather than an error.
         assert!(parse_requests(&json!({
-            "elements":[{"description":"a","goal":"点击它","hint_box":null}]
+            "goal":"点击它",
+            "elements":[{"description":"a","hint_box":null}]
         }))
         .unwrap()[0]
             .hint_px

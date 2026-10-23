@@ -3,7 +3,7 @@ mouse_click_at:
   properties:
     target_desc:
       type: string
-      description: "要点的东西是什么，自然语言描述（例：搜索框 / 右上角关闭按钮 / 数据标签页）。必须和 bbox 一起给。"
+      description: "要点的东西是什么。写全四要素：外观特征 + 控件类型 + 屏幕位置 + 周边锚点。例：搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮。必须和 bbox 一起给。"
     bbox:
       type: array
       items:
@@ -42,7 +42,7 @@ mouse_double_click_at:
   properties:
     target_desc:
       type: string
-      description: "要点的东西是什么，自然语言描述（例：搜索框 / 右上角关闭按钮 / 数据标签页）。必须和 bbox 一起给。"
+      description: "要点的东西是什么。写全四要素：外观特征 + 控件类型 + 屏幕位置 + 周边锚点。例：搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮。必须和 bbox 一起给。"
     bbox:
       type: array
       items:
@@ -69,7 +69,7 @@ mouse_right_click_at:
   properties:
     target_desc:
       type: string
-      description: "要点的东西是什么，自然语言描述（例：搜索框 / 右上角关闭按钮 / 数据标签页）。必须和 bbox 一起给。"
+      description: "要点的东西是什么。写全四要素：外观特征 + 控件类型 + 屏幕位置 + 周边锚点。例：搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮。必须和 bbox 一起给。"
     bbox:
       type: array
       items:
@@ -96,7 +96,7 @@ mouse_hover_at:
   properties:
     target_desc:
       type: string
-      description: "要点的东西是什么，自然语言描述（例：搜索框 / 右上角关闭按钮 / 数据标签页）。必须和 bbox 一起给。"
+      description: "要点的东西是什么。写全四要素：外观特征 + 控件类型 + 屏幕位置 + 周边锚点。例：搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮。必须和 bbox 一起给。"
     bbox:
       type: array
       items:
@@ -148,7 +148,7 @@ mouse_down:
   properties:
     target_desc:
       type: string
-      description: "要点的东西是什么，自然语言描述（例：搜索框 / 右上角关闭按钮 / 数据标签页）。必须和 bbox 一起给。"
+      description: "要点的东西是什么。写全四要素：外观特征 + 控件类型 + 屏幕位置 + 周边锚点。例：搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮。必须和 bbox 一起给。"
     bbox:
       type: array
       items:
@@ -182,7 +182,7 @@ mouse_up:
   properties:
     target_desc:
       type: string
-      description: "要点的东西是什么，自然语言描述（例：搜索框 / 右上角关闭按钮 / 数据标签页）。必须和 bbox 一起给。"
+      description: "要点的东西是什么。写全四要素：外观特征 + 控件类型 + 屏幕位置 + 周边锚点。例：搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮。必须和 bbox 一起给。"
     bbox:
       type: array
       items:
@@ -216,7 +216,7 @@ mouse_drag_to:
   properties:
     target_desc:
       type: string
-      description: "要点的东西是什么，自然语言描述（例：搜索框 / 右上角关闭按钮 / 数据标签页）。必须和 bbox 一起给。"
+      description: "要点的东西是什么。写全四要素：外观特征 + 控件类型 + 屏幕位置 + 周边锚点。例：搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮。必须和 bbox 一起给。"
     bbox:
       type: array
       items:

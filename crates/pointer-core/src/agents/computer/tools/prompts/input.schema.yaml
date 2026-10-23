@@ -9,7 +9,7 @@ input_at:
       type: string
     target_desc:
       type: string
-      description: "要输入到哪个控件，自然语言描述（例：搜索框 / 用户名输入框）。必须和 bbox 一起给。"
+      description: "要输入到哪个控件。写全四要素：外观特征 + 控件类型 + 屏幕位置 + 周边锚点。例：顶部导航栏左侧的搜索输入框，橙色边框，占位文字「输入股票代码」。必须和 bbox 一起给。"
     bbox:
       type: array
       items:

@@ -20,6 +20,17 @@ on that target this turn (buttons, toggles, icons, links, menus).
   the tool re-grounds inside it and clicks the **confirmed** centre, not the
   centre of your box.
 
+**`target_desc` uses the same four parts as `locate_element` descriptions**:
+外观特征 + 控件类型 + 屏幕位置 + 周边锚点, in one sentence.
+
+```
+搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮
+```
+
+Name alone (`查行情`) matches more than one place on a real page — grounding
+will pick whichever it finds and validate it as correct, because it really is a
+「查行情」, just not yours. The position and the anchor are what separate them.
+
 The pair is required together because they answer different questions:
 `bbox` narrows the search, `target_desc` decides what counts as a match.
 Neither alone is enough — a box with no description cannot tell a button from

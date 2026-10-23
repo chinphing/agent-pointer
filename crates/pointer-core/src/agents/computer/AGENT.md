@@ -81,7 +81,7 @@ in one sentence:
 | **Appearance** | Shape, colour, the text or symbol inside it | `blue rounded button, white text "Save"` |
 | **Control type** | button / icon / menu item / text label / input field / folder | `button` |
 | **Screen position** | A **named region you can see**: toolbar / nav bar / tab row / side rail / banner / footer / dialog | `in the top nav bar` |
-| **Anchor** | An adjacent element true **only for this target** | `next to the "Undo" button` |
+| **Anchor** | An element **within 100px** of the target that is true **only for it**. Omit this part when nothing sits that close | `next to the "Undo" button` |
 
 ```
 the blue rounded button in the top nav bar, white text "Save", next to the "Undo" button
@@ -90,6 +90,13 @@ the blue rounded button in the top nav bar, white text "Save", next to the "Undo
 **Name a region, not a fraction.** Write the band you can see — `top nav bar`,
 `below the banner`, `above the footer`. The anchor follows the same rule: a
 neighbour that is true only for this target, such as `right of the search box`.
+
+**Keep the anchor within 100px of the target.** The locator does not search the
+whole screen — it renders a small crop centred on the target, about 120px in
+each direction. A landmark further away is outside that crop, so naming it does
+not narrow anything down; it only makes the check fail. When no element sits
+within 100px, leave the anchor out. A shorter description that is true beats a
+longer one that points somewhere off-image.
 
 **Write it in the language of the UI.** If the screen shows Chinese labels,
 describe them in Chinese — never translate an element's name. The grounder

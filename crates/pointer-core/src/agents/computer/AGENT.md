@@ -57,6 +57,20 @@ Every desktop tool call takes **`goal`** (the outcome you want) and
 Optional **`wait`** (1–5 s) holds the next step back; use the standalone
 **`wait`** tool when you need longer.
 
+**`goal` and `action` are read by the user — write them in the user's language**,
+the same language their request came in. Do not fall back to English when the
+request was not in English.
+
+This is a different rule from `target_desc`, which must match the language **on
+screen**. A Chinese user driving an English app gets a Chinese `goal` and an
+English `target_desc` in the same call:
+
+| Field | Language | Why |
+| --- | --- | --- |
+| `goal` | the user's | read in the chat transcript |
+| `action` | the user's | shown in the UI |
+| `target_desc` | the screen's | compared against on-screen text |
+
 ## Locating targets
 
 Your direct estimate of screen pixel coordinates is unreliable. The pointing

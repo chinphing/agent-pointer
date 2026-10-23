@@ -14,7 +14,7 @@ Each tool name is the complete operation — no `method` parameter.
    {"target_desc": "first row of the report table", "bbox": [100, 200, 400, 240]},
    {"target_desc": "third row of the report table", "bbox": [100, 300, 400, 340]}
  ],
- "goal": "select these two rows for comparison"}
+ "goal": "<what this selection achieves, in the user's language>"}
 ```
 
 Each position is grounded **before** any click happens, and the whole batch

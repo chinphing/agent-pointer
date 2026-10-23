@@ -10,7 +10,7 @@ on that target this turn (buttons, toggles, icons, links, menus).
 **Every pointing tool takes `target_desc` + `bbox` — both, always:**
 
 ```json
-{"target_desc": "Save button on the right of the toolbar", "bbox": [775, 265, 819, 283], "goal": "save the document"}
+{"target_desc": "Save button on the right of the toolbar", "bbox": [775, 265, 819, 283], "goal": "<what this step achieves, in the user's language>"}
 ```
 
 - **`target_desc`** — what you want to act on, in words.
@@ -50,7 +50,7 @@ and same-named elements confuse it).
   ```json
   {"from_target_desc": "report.pdf on the desktop", "from_bbox": [120, 300, 190, 360],
    "to_target_desc": "Trash", "to_bbox": [1180, 700, 1240, 760],
-   "goal": "drag the report into the Trash"}
+   "goal": "<what this drag achieves, in the user's language>"}
   ```
 
 Coordinates are **logical pixels**, the same width and height as the screenshot

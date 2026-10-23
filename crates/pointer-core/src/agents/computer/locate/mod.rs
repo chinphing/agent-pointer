@@ -177,20 +177,19 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                 })
             } else {
                 let status = o.reason.map(|r| r.as_str()).unwrap_or("failed");
-                // `why` is the verifier's distance sentence ("off by ~80px, target
-                // is to the right"). It goes first because it is the only part
-                // that tells the caller *how wrong* the estimate was.
+                // `why` is the verifier's full sentence: what the box actually
+                // contained, plus which side the target was on and by how much.
+                // `what_i_saw` is the same string (engine.rs assigns both from
+                // the verifier's `why`), so appending it again would repeat the
+                // sentence verbatim. Only fall back to it when `why` is empty.
                 let why = o.why.trim();
-                let head = if why.is_empty() {
+                let saw = o.what_i_saw.trim();
+                let summary = if !why.is_empty() {
+                    why.to_string()
+                } else if saw.is_empty() {
                     failure_summary(o.reason)
                 } else {
-                    why.to_string()
-                };
-                let saw = o.what_i_saw.trim();
-                let summary = if saw.is_empty() {
-                    head
-                } else {
-                    format!("{head} 画面里看到：{saw}")
+                    format!("{} 画面里看到：{saw}", failure_summary(o.reason))
                 };
                 json!({
                     "status": status,

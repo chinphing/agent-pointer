@@ -124,6 +124,20 @@ pub async fn locate_one<V: LocateVision>(
                     VerifyVerdict::default()
                 }
             };
+            // Every verdict, not just failures: without this line a locate run
+            // is a black box — you cannot tell whether the box was too tight,
+            // the crop too small, or the target genuinely absent.
+            log::info!(
+                "locate: round={rounds} retry={verify_retries} side={side:.0} box=[{:.0},{:.0},{:.0},{:.0}] match={:?} kind={:?} dir={:?} why={}",
+                current.to_px(w, h).x1,
+                current.to_px(w, h).y1,
+                current.to_px(w, h).x2,
+                current.to_px(w, h).y2,
+                v.match_,
+                v.unclear_kind,
+                v.elsewhere_dir,
+                v.why.trim()
+            );
             // `why` now opens with what is actually in the box, so it doubles as
             // the "what I saw" line shown to the user on failure.
             if !v.why.trim().is_empty() {
@@ -170,6 +184,32 @@ pub async fn locate_one<V: LocateVision>(
 
         if matches!(stop, Stop::Verified | Stop::TooBlurry) {
             break;
+        }
+
+        // The verifier saw part of the target inside the box. Re-locating from
+        // `refine_hint` would tell the model "you looked in the wrong place" and
+        // send it hunting for a different element — but the element is already
+        // here, the box is just too small. Grow it around the same centre and
+        // verify again.
+        if verdict.unclear_kind == UnclearKind::BoxTooTight {
+            let grown = current.grown(1.5);
+            if grown == current {
+                stop = Stop::LocateFailed;
+                break;
+            }
+            log::info!(
+                "locate: box_too_tight — growing box from [{:.0},{:.0},{:.0},{:.0}] to [{:.0},{:.0},{:.0},{:.0}]",
+                current.to_px(w, h).x1,
+                current.to_px(w, h).y1,
+                current.to_px(w, h).x2,
+                current.to_px(w, h).y2,
+                grown.to_px(w, h).x1,
+                grown.to_px(w, h).y1,
+                grown.to_px(w, h).x2,
+                grown.to_px(w, h).y2
+            );
+            box_norm = Some(grown);
+            continue;
         }
 
         // —— Judged `no`: decide where to look next ——

@@ -72,6 +72,11 @@ pub enum UnclearKind {
     TooSmall,
     TooBlurry,
     Ambiguous,
+    /// The box holds part of the target — the rest spills outside. Distinct from
+    /// `AnchorOutOfView` (target is somewhere else entirely) and from `TooSmall`
+    /// (target is inside the box but too tiny to read). The fix here is a wider
+    /// box, not a different place to look.
+    BoxTooTight,
 }
 
 /// Direction the target was seen relative to the candidate box.

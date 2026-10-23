@@ -64,8 +64,8 @@ pub fn report_tool() -> Value {
                     },
                     "unclear_kind": {
                         "type": "string",
-                        "enum": ["", "anchor_out_of_view", "too_small", "too_blurry", "ambiguous"],
-                        "description": "match=unclear 时必填。anchor_out_of_view=锚点不在图内无法核对；too_small=目标太小看不清；too_blurry=图像模糊/被遮挡；ambiguous=描述自相矛盾"
+                        "enum": ["", "anchor_out_of_view", "too_small", "too_blurry", "ambiguous", "box_too_tight"],
+                        "description": "match=unclear 时必填。anchor_out_of_view=锚点不在图内无法核对；too_small=目标太小看不清；too_blurry=图像模糊/被遮挡；ambiguous=描述自相矛盾；box_too_tight=蓝框只框住了目标的一部分，另一部分在框外"
                     },
                     "elsewhere_dir": {
                         "type": "string",
@@ -145,7 +145,7 @@ pub fn verify_prompt(description: &str) -> String {
 - 判断顺序：先看框里是不是目标 → 再看框有没有把目标完整框住 → 最后才考虑锚点矛盾。\n\n\
 【判定规则】\n\
 1. 文字内容对不上 → 判 **no**，不管其他项多像。\n\
-2. 文字对得上，但蓝框没把目标完整框住 → 判 **no**，why 说清框住了哪部分、\n\
+2. 文字对得上，但蓝框没把目标完整框住 —— 蓝框里已是目标的一部分（文字/边框只露出一截）→ 判 **unclear** + `unclear_kind=box_too_tight`；蓝框里完全是别的东西 → 判 **no** + `elsewhere_dir`。why 说清框住了哪部分、\n\
    目标哪一侧在框外、还差多少（见上）。\n\
 3. 文字对得上、蓝框也完整框住了目标、且框没有大太多 → 判 **yes**。\n\
 4. 外观、锚点有出入但文字和位置都对 → 仍然判 **yes**，把出入写进 why。\n\n\
@@ -257,6 +257,7 @@ pub fn parse_verify_arguments(raw: &str) -> Option<VerifyVerdict> {
         "too_small" => UnclearKind::TooSmall,
         "too_blurry" => UnclearKind::TooBlurry,
         "ambiguous" => UnclearKind::Ambiguous,
+        "box_too_tight" => UnclearKind::BoxTooTight,
         _ => UnclearKind::None,
     };
     Some(VerifyVerdict {
@@ -279,6 +280,15 @@ pub fn parse_verify_arguments(raw: &str) -> Option<VerifyVerdict> {
 
 /// Retry hint fed into the next locate round (B5 `hint` construction).
 pub fn refine_hint(verdict: &VerifyVerdict) -> String {
+    // A box that holds only part of the target is not a wrong place — it is a
+    // box that is too small. Telling the locator "look elsewhere" sends it
+    // hunting for a different element when all it has to do is widen.
+    if verdict.unclear_kind == UnclearKind::BoxTooTight {
+        return format!(
+            "上次的框太窄：框里只有目标的一部分（{}）。这次要把目标的完整轮廓框进来，位置就在原处附近，不要换地方找。",
+            verdict.why.trim()
+        );
+    }
     let mut hint = format!("你上次给的框里实际是【{}】，不是目标。", verdict.why.trim());
     match verdict.elsewhere_dir {
         Some(dir) => {
@@ -432,6 +442,34 @@ mod tests {
         assert!(hint.contains("【框里是取消按钮】"));
         assert!(hint.contains("left"));
         assert!(hint.contains("左边有个地址栏"));
+    }
+
+    #[test]
+    fn parses_box_too_tight() {
+        let v = parse_verify_arguments(
+            r#"{"match":"unclear","why":"框里只有文件名前半段，后半在框外","unclear_kind":"box_too_tight"}"#,
+        )
+        .unwrap();
+        assert_eq!(v.match_, MatchVerdict::Unclear);
+        assert_eq!(v.unclear_kind, UnclearKind::BoxTooTight);
+    }
+
+    #[test]
+    fn refine_hint_for_box_too_tight_says_widen_not_relocate() {
+        // The verifier saw part of the target. Telling the locator "you looked
+        // in the wrong place" sends it hunting elsewhere; it must be told to
+        // widen instead.
+        let v = parse_verify_arguments(
+            r#"{"match":"unclear","why":"框里只有文件名前半段，后半在框外","unclear_kind":"box_too_tight"}"#,
+        )
+        .unwrap();
+        let hint = refine_hint(&v);
+        assert!(hint.contains("太窄"), "{hint}");
+        assert!(hint.contains("不要换地方找"), "{hint}");
+        assert!(
+            !hint.contains("不是目标"),
+            "must not read as 'wrong place': {hint}"
+        );
     }
 
     #[test]

@@ -106,12 +106,15 @@ pub fn locate_prompt(
         None => String::new(),
     };
     let coord = "【坐标要求】只按【这张图】给坐标：横向 0 = 这张图左边缘，1000 = 右边缘；纵向 0 = 上边缘，1000 = 下边缘。\n不需要知道整张屏幕有多大。";
-    let tail = "框要刚好框住该元素本身（不要外扩、不要缩小）。\n不需要像素级精确：框的中心落在元素上、四条边没有明显超出轮廓，就算合格。\n\n请调用 locate(bbox=[x1, y1, x2, y2])。";
-    let tail = match previous_hint.map(str::trim).filter(|s| !s.is_empty()) {
-        Some(hint) => format!("【上一轮的情况】{hint}\n\n{tail}"),
-        None => tail.to_string(),
+    let tail = "先**完整包住**目标：目标的每段文字、每条轮廓边都要落在框内。只框住一部分不合格——这时要把框放大到装得下整个目标，不要怕松。包住之后再**收住**：框边贴着目标轮廓即可，四条边明显超出轮廓会把返回的坐标带偏。\n不需要像素级精确：框的中心落在元素上、四条边没有明显超出轮廓，就算合格。\n\n请调用 locate(bbox=[x1, y1, x2, y2])。";
+    // `【上一轮的情况】` goes after everything else on purpose: it is the
+    // correction for this round, and a correction placed mid-prompt loses to
+    // the generic box rule that follows it.
+    let hint_block = match previous_hint.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(hint) => format!("\n\n【上一轮的情况】{hint}"),
+        None => String::new(),
     };
-    format!("{head}{near}\n{coord}\n{tail}")
+    format!("{head}{near}\n{coord}\n{tail}{hint_block}")
 }
 
 /// Verifier prompt. It sees only the crop and the description — **never** the
@@ -365,7 +368,27 @@ mod tests {
         // 元素里挑错行（「进入资讯公告页」两行都成立）。
         let p = locate_prompt("搜索框", None, None);
         assert!(!p.contains("用途"), "{p}");
-        assert!(p.contains("框要刚好框住该元素本身"), "{p}");
+        assert!(p.contains("完整包住"), "{p}");
+        assert!(p.contains("包住之后再"), "{p}");
+    }
+
+    #[test]
+    fn previous_hint_comes_after_the_box_rule() {
+        // The correction must be the last thing the model reads. Mid-prompt it
+        // loses to the generic box rule that follows it.
+        let p = locate_prompt("搜索框", None, Some("上次的框太窄，这次要框完整"));
+        let hint_at = p.find("上一轮的情况").expect("hint block missing");
+        let rule_at = p.find("完整包住").expect("box rule missing");
+        assert!(
+            hint_at > rule_at,
+            "hint must sit after the box rule, not before it:\n{p}"
+        );
+        // And nothing may follow it.
+        let after = &p[hint_at..];
+        assert!(
+            !after.contains("请调用 locate"),
+            "the call instruction must not come after the hint:\n{p}"
+        );
     }
 
     #[test]

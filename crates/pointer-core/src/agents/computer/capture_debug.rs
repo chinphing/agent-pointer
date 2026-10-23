@@ -12,9 +12,9 @@ use std::path::PathBuf;
 /// Day-level folders older than this are removed on app startup (desktop).
 pub const CAPTURE_RETENTION_DAYS: i64 = 7;
 
-/// On-disk capture dumps are debug-only (title-bar bug icon → 调试模式).
+/// On-disk capture dumps are opt-in: settings → 调试 → 「保存截图到本地」.
 pub fn computer_capture_dump_enabled() -> bool {
-    crate::platform_config::effective_settings_global().debug_menus_enabled
+    crate::platform_config::effective_settings_global().debug_save_computer_captures
 }
 
 fn sanitize_path_segment(s: &str) -> String {
@@ -263,10 +263,9 @@ pub fn save_computer_capture_debug(
 
     let annotated_name = format!("{pfx}_{ts}_screen.jpg");
     let rel = format!("{date}/{conv_seg}/{annotated_name}");
-    log::info!(
-        "computer capture dump: wrote under {:?}, annotated rel={rel}",
-        dir
-    );
+    // One line per saved frame, with the id first so it is greppable:
+    //   computer capture: id=2026-10-23/<conv>/round_1_1729.._screen.jpg
+    log::info!("computer capture: id={rel} bytes={} dir={:?}", cap.screenshot_jpeg.len(), dir);
     Some(rel)
 }
 

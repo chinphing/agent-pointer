@@ -308,6 +308,7 @@ function createSettingsDialogForm(deps: {
   const collapseProcessByDefault = ref(false)
   const userCodingRules = ref('')
   const computerAnnotatedScreenViewEnabled = ref(false)
+  const debugSaveComputerCaptures = ref(false)
   const theme = ref<ThemePreference>('system')
   const debugMenusEnabled = ref(false)
   const agentUiLocal = ref<Partial<AgentUiConfig>>({})
@@ -519,6 +520,7 @@ function createSettingsDialogForm(deps: {
   collapseProcessByDefault.value = s.userSettings.collapseProcessByDefault === true
   userCodingRules.value = s.userSettings.userCodingRules ?? ''
   computerAnnotatedScreenViewEnabled.value = s.settings.computerAnnotatedScreenViewEnabled === true
+  debugSaveComputerCaptures.value = s.settings.debugSaveComputerCaptures === true
   theme.value = (s.settings.theme as ThemePreference) || 'system'
   debugMenusEnabled.value = s.canEditPlatform && s.settings.debugMenusEnabled === true
   agentUiLocal.value = { ...(s.settings.agentUiOverrides?.[activeUiAgentId.value] ?? {}) }
@@ -843,6 +845,7 @@ function createSettingsDialogForm(deps: {
     mediaUnderstandingModes: { ...mediaUnderstandingModesLocal.value },
     rawContentViewEnabled: rawContentViewEnabled.value,
     computerAnnotatedScreenViewEnabled: computerAnnotatedScreenViewEnabled.value,
+    debugSaveComputerCaptures: debugSaveComputerCaptures.value,
     taskBoardShowChildBoards: taskBoardShowChildBoards.value,
     agentUiOverrides: { ...(s.settings.agentUiOverrides ?? {}) },
   }
@@ -880,6 +883,7 @@ function createSettingsDialogForm(deps: {
     s.settings.maxConcurrentRuns = payload.maxConcurrentRuns
     s.settings.rawContentViewEnabled = payload.rawContentViewEnabled
     s.settings.computerAnnotatedScreenViewEnabled = payload.computerAnnotatedScreenViewEnabled
+    s.settings.debugSaveComputerCaptures = payload.debugSaveComputerCaptures
     s.settings.taskBoardShowChildBoards = payload.taskBoardShowChildBoards
     s.settings.agentUiOverrides = { ...payload.agentUiOverrides }
     s.userSettings.computerAutoCompact = payload.computerAutoCompact
@@ -908,6 +912,7 @@ function createSettingsDialogForm(deps: {
     s.userSettings.maxConcurrentRuns = payload.maxConcurrentRuns
     s.userSettings.rawContentViewEnabled = payload.rawContentViewEnabled
     s.userSettings.computerAnnotatedScreenViewEnabled = payload.computerAnnotatedScreenViewEnabled
+    s.userSettings.debugSaveComputerCaptures = payload.debugSaveComputerCaptures
     s.userSettings.taskBoardShowChildBoards = payload.taskBoardShowChildBoards
     s.userSettings.agentUiOverrides = { ...payload.agentUiOverrides }
     const conv = chat.current
@@ -1007,6 +1012,7 @@ function createSettingsDialogForm(deps: {
     { deep: true }
   )
   watch(debugDumpLlmPrompts, scheduleDebugSave)
+  watch(debugSaveComputerCaptures, scheduleDebugSave)
 
   onScopeDispose(() => {
     if (assistantSaveTimer) {
@@ -1071,6 +1077,7 @@ function createSettingsDialogForm(deps: {
     computerAnnotatedScreenViewEnabled,
     theme,
     debugMenusEnabled,
+    debugSaveComputerCaptures,
     agentUiLocal,
     mediaImageGenerationModel,
     mediaVideoGenerationModel,

@@ -748,7 +748,9 @@
       "rawContent": "Raw content view",
       "rawContentHint": "Show a Raw output debug entry on assistant messages (raw body and API reasoning)",
       "annotatedScreen": "Annotated screenshots",
-      "annotatedScreenHint": "Show annotated screenshot previews from Computer use"
+      "annotatedScreenHint": "Show annotated screenshot previews from Computer use",
+      "saveCaptures": "Save screenshots to disk",
+      "saveCapturesHint": "Write every desktop screenshot under app data computer-captures/; each save logs its id"
     },
     "usage": {
       "today": "Today",

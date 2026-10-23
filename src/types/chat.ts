@@ -690,6 +690,8 @@ export interface UserSettings {
   debugDumpLlmPrompts?: boolean
   terminalEnvOverrides?: Record<string, string>
   debugMenusEnabled?: boolean
+  /** Write every desktop screenshot bundle to app data `computer-captures/` (debug). */
+  debugSaveComputerCaptures?: boolean
   taskBoardShowChildBoards?: boolean
   userDynamicInjectEnabled?: boolean
   agentDefaultModels?: Record<string, AgentModelRef>
@@ -876,6 +878,8 @@ export interface ModelSettings {
   terminalEnvOverrides?: Record<string, string>
   /** Settings dialog debug sections toggle (independent of rawContentView / dump prompts) */
   debugMenusEnabled?: boolean
+  /** Write every desktop screenshot bundle to app data `computer-captures/` (debug). */
+  debugSaveComputerCaptures?: boolean
   /** Debug: show child task boards under parent board panel. */
   taskBoardShowChildBoards?: boolean
   /** agentId → 该 agent 的默认「服务商 + 模型」（显式存储，不从模型名反推服务商） */

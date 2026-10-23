@@ -903,6 +903,14 @@ pub struct ModelSettings {
     /// When true, settings UI exposes debug sections (independent of raw wire / prompt dump toggles).
     #[serde(default = "default_debug_menus_enabled", rename = "debugMenusEnabled")]
     pub debug_menus_enabled: bool,
+    /// Write every desktop screenshot bundle under `<app data>/computer-captures/`.
+    ///
+    /// Independent of `debug_menus_enabled`: the debug menu gate hides UI sections,
+    /// while this one decides whether pixels hit disk. Kept separate because
+    /// captures are large (hundreds of KB each, once per round) and are only
+    /// wanted while diagnosing a specific run.
+    #[serde(default, rename = "debugSaveComputerCaptures")]
+    pub debug_save_computer_captures: bool,
     /// Debug UI switch: show child task boards under parent board panel.
     #[serde(
         default = "default_task_board_show_child_boards",
@@ -1742,6 +1750,7 @@ impl Default for ModelSettings {
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             terminal_env_overrides: HashMap::new(),
             debug_menus_enabled: default_debug_menus_enabled(),
+            debug_save_computer_captures: false,
             task_board_show_child_boards: default_task_board_show_child_boards(),
             user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
             agent_default_models: HashMap::new(),
@@ -2156,6 +2165,13 @@ pub struct UserSettings {
     pub terminal_env_overrides: HashMap<String, String>,
     #[serde(default = "default_debug_menus_enabled", rename = "debugMenusEnabled")]
     pub debug_menus_enabled: bool,
+    /// Write every desktop screenshot bundle under `<app data>/computer-captures/`.
+    ///
+    /// Independent of `debug_menus_enabled`: that one gates UI sections, this one
+    /// decides whether pixels hit disk. Separate because captures are large
+    /// (hundreds of KB per round) and only wanted while diagnosing one run.
+    #[serde(default, rename = "debugSaveComputerCaptures")]
+    pub debug_save_computer_captures: bool,
     #[serde(
         default = "default_task_board_show_child_boards",
         rename = "taskBoardShowChildBoards"
@@ -2289,6 +2305,7 @@ impl Default for UserSettings {
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             terminal_env_overrides: HashMap::new(),
             debug_menus_enabled: default_debug_menus_enabled(),
+            debug_save_computer_captures: false,
             task_board_show_child_boards: default_task_board_show_child_boards(),
             user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
             agent_default_models: default_platform_agent_models(),
@@ -2891,6 +2908,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         temperature: user.temperature,
         max_tokens: user.max_tokens,
         has_key: platform.providers.iter().any(|p| !p.api_key.is_empty()),
+        debug_save_computer_captures: user.debug_save_computer_captures,
         tool_approval_mode: user.tool_approval_mode.clone(),
         workspace_root: user.workspace_root.clone(),
         lead_agent_id: user.lead_agent_id.clone(),

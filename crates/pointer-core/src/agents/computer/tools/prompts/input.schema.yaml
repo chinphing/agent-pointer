@@ -9,7 +9,7 @@ input_at:
       type: string
     target_desc:
       type: string
-      description: "Which control to type into. Four parts: appearance + control type + screen position + anchor. Example: 顶部导航栏左侧的搜索输入框，橙色边框，占位文字「输入股票代码」. Required together with bbox."
+      description: "Which control to type into. Four parts: appearance + control type + screen position + anchor. Example: 对话框顶部的搜索输入框，灰色边框，占位文字「搜索文件名」. Required together with bbox."
     bbox:
       type: array
       items:

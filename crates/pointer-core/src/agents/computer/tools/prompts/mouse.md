@@ -10,7 +10,7 @@ on that target this turn (buttons, toggles, icons, links, menus).
 **Every pointing tool takes `target_desc` + `bbox` — both, always:**
 
 ```json
-{"target_desc": "搜索框", "bbox": [775, 265, 819, 283], "goal": "在搜索框里查行情"}
+{"target_desc": "工具栏右侧的「保存」按钮", "bbox": [775, 265, 819, 283], "goal": "保存文档"}
 ```
 
 - **`target_desc`** — what you want to act on, in words.
@@ -24,12 +24,12 @@ on that target this turn (buttons, toggles, icons, links, menus).
 appearance + control type + screen position + anchor, in one sentence.
 
 ```
-搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮
+工具栏右侧的蓝色圆角按钮，白色文字「保存」，紧邻「撤销」按钮
 ```
 
-Name alone (`查行情`) matches more than one place on a real page — grounding
+Name alone (`保存`) matches more than one place on a real page — grounding
 will pick whichever it finds and validate it as correct, because it really is a
-「查行情」, just not yours. The position and the anchor are what separate them.
+「保存」, just not yours. The position and the anchor are what separate them.
 
 The pair is required together because they answer different questions:
 `bbox` narrows the search, `target_desc` decides what counts as a match.

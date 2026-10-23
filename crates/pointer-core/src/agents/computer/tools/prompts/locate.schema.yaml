@@ -4,7 +4,7 @@ locate_element:
     goal:
       type: string
       description: >
-        **Required.** What this locate call is for (e.g. 输入股票代码查询行情).
+        **Required.** What this locate call is for (e.g. 保存当前文档).
         Used twice: to pick the element that actually serves the purpose when
         several look alike, and at verify time — if the purpose is served, a
         small visual discrepancy (box not fully covering the target) still counts

@@ -6,7 +6,7 @@ desktop** — it only answers where the target is on the current screenshot.
 **Input**
 
 ```json
-{"goal": "输入股票代码查询行情",
+{"goal": "保存当前文档",
  "elements": [
    {"description": "搜索框"},
    {"description": "搜索按钮", "hint_box": [800, 35, 840, 55]}
@@ -35,22 +35,22 @@ Four parts. Missing one costs an extra grounding round.
 
 | Part | What to write | Example |
 | --- | --- | --- |
-| **Appearance** | Shape, colour, the text or symbol inside it | `orange rounded button, white text 「查行情」` |
+| **Appearance** | Shape, colour, the text or symbol inside it | `blue rounded button, white text 「保存」` |
 | **Control type** | button / icon / menu item / text label / input field / folder | `button` |
 | **Screen position** | Which region of the page (top nav bar / second tab row / right side rail / lower banner) | `to the right of the search box` |
-| **Anchor** | An adjacent element that is true **only for this target** | `next to the 「进股吧」 button` |
+| **Anchor** | An adjacent element that is true **only for this target** | `next to the 「撤销」 button` |
 
 One sentence:
 
 ```
-搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮
+工具栏右侧的蓝色圆角按钮，白色文字「保存」，紧邻「撤销」按钮
 ```
 
 **Why all four**:
 
-- Name only (`查行情`) → picks the wrong one when the label appears twice
-- Name + position (`搜索框右侧的「查行情」`) → usually enough
-- Plus anchor (`紧邻「进股吧」`) → separates two same-named elements sitting side by side
+- Name only (`保存`) → picks the wrong one when the label appears twice
+- Name + position (`工具栏右侧的「保存」`) → usually enough
+- Plus anchor (`紧邻「撤销」`) → separates two same-named elements sitting side by side
 
 **The anchor must hold only for the target.** `搜索框右侧` works (only the search
 box is to its left). `页面上方` does not (everything is up there).

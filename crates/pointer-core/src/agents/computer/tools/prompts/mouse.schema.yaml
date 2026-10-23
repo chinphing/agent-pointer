@@ -3,7 +3,7 @@ mouse_click_at:
   properties:
     target_desc:
       type: string
-      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: 工具栏右侧的蓝色圆角按钮，白色文字「保存」，紧邻「撤销」按钮. Required together with bbox."
+      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: the blue rounded button on the right of the toolbar, white text 'Save', next to the 'Undo' button. Required together with bbox."
     bbox:
       type: array
       items:
@@ -42,7 +42,7 @@ mouse_double_click_at:
   properties:
     target_desc:
       type: string
-      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: 工具栏右侧的蓝色圆角按钮，白色文字「保存」，紧邻「撤销」按钮. Required together with bbox."
+      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: the blue rounded button on the right of the toolbar, white text 'Save', next to the 'Undo' button. Required together with bbox."
     bbox:
       type: array
       items:
@@ -69,7 +69,7 @@ mouse_right_click_at:
   properties:
     target_desc:
       type: string
-      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: 工具栏右侧的蓝色圆角按钮，白色文字「保存」，紧邻「撤销」按钮. Required together with bbox."
+      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: the blue rounded button on the right of the toolbar, white text 'Save', next to the 'Undo' button. Required together with bbox."
     bbox:
       type: array
       items:
@@ -96,7 +96,7 @@ mouse_hover_at:
   properties:
     target_desc:
       type: string
-      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: 工具栏右侧的蓝色圆角按钮，白色文字「保存」，紧邻「撤销」按钮. Required together with bbox."
+      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: the blue rounded button on the right of the toolbar, white text 'Save', next to the 'Undo' button. Required together with bbox."
     bbox:
       type: array
       items:
@@ -148,7 +148,7 @@ mouse_down:
   properties:
     target_desc:
       type: string
-      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: 工具栏右侧的蓝色圆角按钮，白色文字「保存」，紧邻「撤销」按钮. Required together with bbox."
+      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: the blue rounded button on the right of the toolbar, white text 'Save', next to the 'Undo' button. Required together with bbox."
     bbox:
       type: array
       items:
@@ -182,7 +182,7 @@ mouse_up:
   properties:
     target_desc:
       type: string
-      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: 工具栏右侧的蓝色圆角按钮，白色文字「保存」，紧邻「撤销」按钮. Required together with bbox."
+      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: the blue rounded button on the right of the toolbar, white text 'Save', next to the 'Undo' button. Required together with bbox."
     bbox:
       type: array
       items:
@@ -216,7 +216,7 @@ mouse_drag_to:
   properties:
     target_desc:
       type: string
-      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: 工具栏右侧的蓝色圆角按钮，白色文字「保存」，紧邻「撤销」按钮. Required together with bbox."
+      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: the blue rounded button on the right of the toolbar, white text 'Save', next to the 'Undo' button. Required together with bbox."
     bbox:
       type: array
       items:

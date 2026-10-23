@@ -4,7 +4,7 @@ locate_element:
     goal:
       type: string
       description: >
-        **Required.** What this locate call is for (e.g. 保存当前文档).
+        **Required.** What this locate call is for (e.g. save the current document).
         Used twice: to pick the element that actually serves the purpose when
         several look alike, and at verify time — if the purpose is served, a
         small visual discrepancy (box not fully covering the target) still counts
@@ -30,7 +30,7 @@ locate_element:
               control type (button/icon/menu item/text label/input field),
               screen position (which region), and an anchor (what sits next to it,
               true only for this target).
-              Example: 地址栏右侧的圆形按钮，蓝色箭头图标，紧邻刷新按钮.
+              Example: round button on the right of the address bar, blue arrow icon, next to the refresh button.
           hint_box:
             type: array
             items:

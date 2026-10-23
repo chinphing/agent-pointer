@@ -11,10 +11,10 @@ Each tool name is the complete operation — no `method` parameter.
 
 ```json
 {"positions": [
-   {"target_desc": "报表第一行", "bbox": [100, 200, 400, 240]},
-   {"target_desc": "报表第三行", "bbox": [100, 300, 400, 340]}
+   {"target_desc": "first row of the report table", "bbox": [100, 200, 400, 240]},
+   {"target_desc": "third row of the report table", "bbox": [100, 300, 400, 340]}
  ],
- "goal": "选中这两行做对比"}
+ "goal": "select these two rows for comparison"}
 ```
 
 Each position is grounded **before** any click happens, and the whole batch

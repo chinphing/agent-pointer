@@ -20,7 +20,7 @@ modified_click_select_at:
               type: number
             minItems: 4
             maxItems: 4
-            description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常用 locate_element 返回的 bbox。"
+            description: "Roughly where the target is, [x1, y1, x2, y2] in logical pixels. Usually the bbox from locate_element."
         required:
           - target_desc
           - bbox
@@ -55,7 +55,7 @@ modified_click_range_select_at:
               type: number
             minItems: 4
             maxItems: 4
-            description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常用 locate_element 返回的 bbox。"
+            description: "Roughly where the target is, [x1, y1, x2, y2] in logical pixels. Usually the bbox from locate_element."
         required:
           - target_desc
           - bbox

@@ -6,10 +6,10 @@ desktop** — it only answers where the target is on the current screenshot.
 **Input**
 
 ```json
-{"goal": "保存当前文档",
+{"goal": "save the current document",
  "elements": [
-   {"description": "搜索框"},
-   {"description": "搜索按钮", "hint_box": [800, 35, 840, 55]}
+   {"description": "search box"},
+   {"description": "search button", "hint_box": [800, 35, 840, 55]}
 ]}
 ```
 - **`goal` is required and sits at the top level** (not inside `elements[]`). One
@@ -35,25 +35,26 @@ Four parts. Missing one costs an extra grounding round.
 
 | Part | What to write | Example |
 | --- | --- | --- |
-| **Appearance** | Shape, colour, the text or symbol inside it | `blue rounded button, white text 「保存」` |
+| **Appearance** | Shape, colour, the text or symbol inside it | `blue rounded button, white text "Save"` |
 | **Control type** | button / icon / menu item / text label / input field / folder | `button` |
 | **Screen position** | Which region of the page (top nav bar / second tab row / right side rail / lower banner) | `to the right of the search box` |
-| **Anchor** | An adjacent element that is true **only for this target** | `next to the 「撤销」 button` |
+| **Anchor** | An adjacent element that is true **only for this target** | `next to the "Undo" button` |
 
 One sentence:
 
 ```
-工具栏右侧的蓝色圆角按钮，白色文字「保存」，紧邻「撤销」按钮
+the blue rounded button on the right of the toolbar, white text "Save", next to the "Undo" button
 ```
 
 **Why all four**:
 
-- Name only (`保存`) → picks the wrong one when the label appears twice
-- Name + position (`工具栏右侧的「保存」`) → usually enough
-- Plus anchor (`紧邻「撤销」`) → separates two same-named elements sitting side by side
+- Name only (`Save`) → picks the wrong one when the label appears twice
+- Name + position (`"Save" on the right of the toolbar`) → usually enough
+- Plus anchor (`next to "Undo"`) → separates two same-named elements sitting side by side
 
-**The anchor must hold only for the target.** `搜索框右侧` works (only the search
-box is to its left). `页面上方` does not (everything is up there).
+**The anchor must hold only for the target.** `right of the search box` works
+(only the search box is to its left). `near the top` does not (everything is up
+there).
 
 **Use region names, not coordinates.** The grounder computes coordinates itself.
 
@@ -62,12 +63,12 @@ box is to its left). `页面上方` does not (everything is up there).
 ```json
 {"results": [
   {"status": "located",
-   "target_desc": "地址栏右侧的刷新按钮",
-   "summary": "框内是：圆形箭头刷新图标",
+   "target_desc": "refresh button on the right of the address bar",
+   "summary": "in box: circular arrow refresh icon",
    "bbox": [800, 35, 840, 55], "confidence": "high"},
   {"status": "not_found",
-   "target_desc": "『文件』菜单里的『另存为』",
-   "summary": "先滚动、切换页面或等待加载，再重新定位；不要用猜测的坐标点击。画面里看到：当前截图中未能可靠确认目标"}
+   "target_desc": "Save As in the File menu",
+   "summary": "scroll, switch page or wait for load, then locate again; do not click a guessed coordinate. Seen: target could not be reliably confirmed in the current screenshot"}
 ]}
 ```
 
@@ -99,7 +100,7 @@ box, on failure it says what to do next plus what was actually visible.
 
 **Use the `summary` sentence to cross-check**
 
-If you asked for 「搜索框」 and it says 「圆形箭头刷新图标」, that is not it — change
+If you asked for "search box" and it says "circular arrow refresh icon", that is not it — change
 the description.
 
 **When you get `located`, act on it**

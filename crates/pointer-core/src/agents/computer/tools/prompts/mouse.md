@@ -31,6 +31,9 @@ Name alone (`Save`) matches more than one place on a real page — grounding
 will pick whichever it finds and validate it as correct, because it really is a
 "Save", just not yours. The position and the anchor are what separate them.
 
+**Write `target_desc` in the language of the UI.** If the screen shows Chinese
+labels, describe them in Chinese — never translate an element's name.
+
 The pair is required together because they answer different questions:
 `bbox` narrows the search, `target_desc` decides what counts as a match.
 Neither alone is enough — a box with no description cannot tell a button from

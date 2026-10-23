@@ -31,6 +31,7 @@ locate_element:
               screen position (which region), and an anchor (what sits next to it,
               true only for this target).
               Example: round button on the right of the address bar, blue arrow icon, next to the refresh button.
+              Write it in the language of the UI — never translate an element's name.
           hint_box:
             type: array
             items:

@@ -58,6 +58,11 @@ there).
 
 **Use region names, not coordinates.** The grounder computes coordinates itself.
 
+**Write `description` in the language of the UI you are looking at.** If the
+screen shows Chinese labels, write the description in Chinese — never translate
+an element's name. The grounder compares your words against what it reads on
+screen; `Save` does not match a button labelled 「保存」.
+
 **Output**
 
 ```json

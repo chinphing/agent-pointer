@@ -6,11 +6,15 @@
 /// them from Tokio worker threads commonly crashes the host (SIGTRAP / immediate exit in Tauri).
 #[inline]
 pub fn run_synthetic_input<R: Send, F: FnOnce() -> R + Send>(f: F) -> R {
-    #[cfg(target_os = "macos")]
+    // `cargo test` runs each case on its own thread and never drains the GCD
+    // main queue, so `exec_sync` blocks forever there — the whole `state` module
+    // hung on exactly that. Tests drive the backend without real key delivery,
+    // so run inline; only the shipping binary needs the hop.
+    #[cfg(all(target_os = "macos", not(test)))]
     {
         macos::run_on_main_thread_sync(f)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(any(not(target_os = "macos"), test))]
     {
         f()
     }

@@ -170,22 +170,30 @@ impl ActionBackend for EnigoBackend {
         } else {
             "ctrl"
         };
-        let mut enigo = self.enigo.borrow_mut();
-        enigo
-            .key(parse_key_name(modifier)?, Press)
-            .map_err(|e| anyhow!("Paste hotkey press failed: {e}"))?;
-        enigo
-            .key(Key::Unicode('v'), Press)
-            .map_err(|e| anyhow!("Paste key 'v' press failed: {e}"))?;
-        // No inter-key delay: measured against TextEdit with 0 / 5 / 10 / 20 ms
-        // between key-down and key-up, all four gaps pasted 30/30. The gap only
-        // ever bought latency.
-        enigo
-            .key(Key::Unicode('v'), Release)
-            .map_err(|e| anyhow!("Paste key 'v' release failed: {e}"))?;
-        enigo
-            .key(parse_key_name(modifier)?, Release)
-            .map_err(|e| anyhow!("Paste hotkey release failed: {e}"))?;
+        // All four key events go through a single main-thread hop. enigo's macOS
+        // backend resolves `Key::Unicode` through Carbon Text Input Source APIs
+        // (`TISCopyCurrentKeyboardInputSource` / `TISGetInputSourceProperty`),
+        // which carry an internal `dispatch_assert_queue(main)`. Calling them
+        // from a Tokio worker aborts the process — a native abort that
+        // `catch_unwind` cannot intercept and that logs nothing.
+        crate::platform::run_synthetic_input(|| -> Result<()> {
+            let mut enigo = self.enigo.borrow_mut();
+            enigo
+                .key(parse_key_name(modifier)?, Press)
+                .map_err(|e| anyhow!("Paste hotkey press failed: {e}"))?;
+            enigo
+                .key(Key::Unicode('v'), Press)
+                .map_err(|e| anyhow!("Paste key 'v' press failed: {e}"))?;
+            // No inter-key delay: measured against TextEdit with 0 / 5 / 10 / 20 ms
+            // between key-down and key-up, all four gaps pasted 30/30.
+            enigo
+                .key(Key::Unicode('v'), Release)
+                .map_err(|e| anyhow!("Paste key 'v' release failed: {e}"))?;
+            enigo
+                .key(parse_key_name(modifier)?, Release)
+                .map_err(|e| anyhow!("Paste hotkey release failed: {e}"))?;
+            Ok(())
+        })?;
         // Wait before restoring the clipboard: the target app reads the
         // pasteboard asynchronously, and nothing reports when it is done.
         // Measured on TextEdit — 0/5/10 ms pasted the *old* clipboard text
@@ -208,23 +216,29 @@ impl ActionBackend for EnigoBackend {
     }
 
     fn hotkey(&self, keys: &[&str]) -> Result<ActionResult> {
-        let mut enigo = self.enigo.borrow_mut();
-        let enigo_keys: Vec<Key> = keys
-            .iter()
-            .map(|&k| parse_key_name(k))
-            .collect::<Result<Vec<_>>>()?;
+        // Same reason as `type_text_via_clipboard`: any single-character key
+        // name resolves to `Key::Unicode`, which reaches Carbon Text Input
+        // Source APIs that assert main-thread execution.
+        crate::platform::run_synthetic_input(|| -> Result<()> {
+            let mut enigo = self.enigo.borrow_mut();
+            let enigo_keys: Vec<Key> = keys
+                .iter()
+                .map(|&k| parse_key_name(k))
+                .collect::<Result<Vec<_>>>()?;
 
-        for key in &enigo_keys {
-            enigo
-                .key(key.clone(), Press)
-                .map_err(|e| anyhow!("Hotkey press failed: {:?}", e))?;
-        }
+            for key in &enigo_keys {
+                enigo
+                    .key(key.clone(), Press)
+                    .map_err(|e| anyhow!("Hotkey press failed: {:?}", e))?;
+            }
 
-        for key in enigo_keys.iter().rev() {
-            enigo
-                .key(key.clone(), Release)
-                .map_err(|e| anyhow!("Hotkey release failed: {:?}", e))?;
-        }
+            for key in enigo_keys.iter().rev() {
+                enigo
+                    .key(key.clone(), Release)
+                    .map_err(|e| anyhow!("Hotkey release failed: {:?}", e))?;
+            }
+            Ok(())
+        })?;
 
         Ok(ActionResult::success(format!(
             "Pressed hotkey: {}",
@@ -241,15 +255,21 @@ impl ActionBackend for EnigoBackend {
     }
 
     fn key_phase(&self, name: &str, phase: KeyPhase) -> Result<ActionResult> {
-        let mut enigo = self.enigo.borrow_mut();
-        let key = parse_key_name(name)?;
         let dir = match phase {
             KeyPhase::Press => Press,
             KeyPhase::Release => Release,
         };
-        enigo
-            .key(key, dir)
-            .map_err(|e| anyhow!("Key {:?} failed: {:?}", phase, e))?;
+        // Same main-thread requirement as `hotkey`: `parse_key_name` yields
+        // `Key::Unicode` for single characters, and enigo resolves that through
+        // Carbon Text Input Source APIs that assert main-thread execution.
+        crate::platform::run_synthetic_input(|| -> Result<()> {
+            let mut enigo = self.enigo.borrow_mut();
+            let key = parse_key_name(name)?;
+            enigo
+                .key(key, dir)
+                .map_err(|e| anyhow!("Key {:?} failed: {:?}", phase, e))?;
+            Ok(())
+        })?;
         Ok(ActionResult::success(format!("key {name} {phase:?}")))
     }
 

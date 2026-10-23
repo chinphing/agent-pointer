@@ -22,5 +22,9 @@ aborts if one of them cannot be found — a half-applied selection is worse than
 none, because the next step would build on a state you did not actually create.
 Take `bbox` from `locate_element`; there is no raw-coordinate form.
 
+**Each `target_desc`** follows **Writing `target_desc`** in your system prompt —
+four parts, in one sentence. Two rows of the same table look alike; the position
+and the anchor are what separate them.
+
 Coordinates are **logical pixels**, the same width and height as the screenshot
 you are looking at — not normalized, not Retina device pixels.

@@ -9,7 +9,7 @@ input_at:
       type: string
     target_desc:
       type: string
-      description: "Which control to type into. Four parts: appearance + control type + screen position + anchor. Example: search field at the top of the dialog, grey border, placeholder 'Search files'. Write it in the UI's language — never translate element names. Required together with bbox."
+      description: "Which control to type into. Four parts: appearance + control type + screen position + anchor. Example: search field at the top of the dialog, grey border, placeholder 'Search files'. Required together with bbox."
     bbox:
       type: array
       items:

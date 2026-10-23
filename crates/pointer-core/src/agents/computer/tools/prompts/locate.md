@@ -31,37 +31,9 @@ desktop** — it only answers where the target is on the current screenshot.
 
 **What `description` should contain**
 
-Four parts. Missing one costs an extra grounding round.
-
-| Part | What to write | Example |
-| --- | --- | --- |
-| **Appearance** | Shape, colour, the text or symbol inside it | `blue rounded button, white text "Save"` |
-| **Control type** | button / icon / menu item / text label / input field / folder | `button` |
-| **Screen position** | Which region of the page (top nav bar / second tab row / right side rail / lower banner) | `to the right of the search box` |
-| **Anchor** | An adjacent element that is true **only for this target** | `next to the "Undo" button` |
-
-One sentence:
-
-```
-the blue rounded button on the right of the toolbar, white text "Save", next to the "Undo" button
-```
-
-**Why all four**:
-
-- Name only (`Save`) → picks the wrong one when the label appears twice
-- Name + position (`"Save" on the right of the toolbar`) → usually enough
-- Plus anchor (`next to "Undo"`) → separates two same-named elements sitting side by side
-
-**The anchor must hold only for the target.** `right of the search box` works
-(only the search box is to its left). `near the top` does not (everything is up
-there).
-
-**Use region names, not coordinates.** The grounder computes coordinates itself.
-
-**Write `description` in the language of the UI you are looking at.** If the
-screen shows Chinese labels, write the description in Chinese — never translate
-an element's name. The grounder compares your words against what it reads on
-screen; `Save` does not match a button labelled 「保存」.
+The same four parts described under **Writing `target_desc`** in your system
+prompt — appearance + control type + screen position + anchor, in one sentence.
+Use region names, not coordinates: the grounder computes coordinates itself.
 
 **Output**
 

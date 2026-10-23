@@ -24,6 +24,10 @@ turn to type the same field. Put **`text`**, **`clear_first`**, and
   control it is. Take `bbox` from `locate_element` — it is exactly what that
   field is for. There is no raw-coordinate form.
 
+**`target_desc`** follows **Writing `target_desc`** in your system prompt —
+four parts, in one sentence. Several inputs can share a placeholder; the
+position is what tells them apart.
+
 Coordinates are **logical pixels**, the same width and height as the screenshot
 you are looking at — not normalized, not Retina device pixels.
 

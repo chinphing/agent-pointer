@@ -76,3 +76,28 @@ coordinate-taking form of these tools any more. `mouse_drag_from_to_at` takes
 **two** described pairs (`from_target_desc`/`from_bbox`, `to_target_desc`/
 `to_bbox`) because a drag has a grab point and a drop point.
 
+### Writing `target_desc`
+
+Every pointing tool — `locate_element`'s `elements[].description`, `mouse_*`'s
+`target_desc`, `input_at`'s `target_desc`, and each `modified_click_*`
+`positions[].target_desc` — uses the **same four parts**, in one sentence:
+
+| Part | What to write | Example |
+| --- | --- | --- |
+| **Appearance** | Shape, colour, the text or symbol inside it | `blue rounded button, white text "Save"` |
+| **Control type** | button / icon / menu item / text label / input field / folder | `button` |
+| **Screen position** | A **named region you can see**: toolbar / nav bar / tab row / side rail / banner / footer / dialog | `in the top nav bar` |
+| **Anchor** | An adjacent element true **only for this target** | `next to the "Undo" button` |
+
+```
+the blue rounded button in the top nav bar, white text "Save", next to the "Undo" button
+```
+
+**Name a region, not a fraction.** Write the band you can see — `top nav bar`,
+`below the banner`, `above the footer`. The anchor follows the same rule: a
+neighbour that is true only for this target, such as `right of the search box`.
+
+**Write it in the language of the UI.** If the screen shows Chinese labels,
+describe them in Chinese — never translate an element's name. The grounder
+compares your words against what it reads on screen.
+

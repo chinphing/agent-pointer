@@ -20,19 +20,9 @@ on that target this turn (buttons, toggles, icons, links, menus).
   the tool re-grounds inside it and clicks the **confirmed** centre, not the
   centre of your box.
 
-**`target_desc` uses the same four parts as `locate_element` descriptions**:
-appearance + control type + screen position + anchor, in one sentence.
-
-```
-the blue rounded button on the right of the toolbar, white text "Save", next to the "Undo" button
-```
-
-Name alone (`Save`) matches more than one place on a real page — grounding
-will pick whichever it finds and validate it as correct, because it really is a
-"Save", just not yours. The position and the anchor are what separate them.
-
-**Write `target_desc` in the language of the UI.** If the screen shows Chinese
-labels, describe them in Chinese — never translate an element's name.
+**`target_desc`** follows **Writing `target_desc`** in your system prompt —
+four parts, in one sentence. The position and the anchor are what separate two
+same-named elements on a real page.
 
 The pair is required together because they answer different questions:
 `bbox` narrows the search, `target_desc` decides what counts as a match.

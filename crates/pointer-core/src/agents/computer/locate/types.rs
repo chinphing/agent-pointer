@@ -112,8 +112,6 @@ impl ElsewhereDir {
 #[derive(Debug, Clone, PartialEq)]
 pub struct VerifyVerdict {
     pub match_: MatchVerdict,
-    pub in_box: String,
-    pub anchor_seen: String,
     pub why: String,
     pub unclear_kind: UnclearKind,
     pub elsewhere_dir: Option<ElsewhereDir>,
@@ -132,8 +130,6 @@ impl Default for VerifyVerdict {
     fn default() -> Self {
         Self {
             match_: MatchVerdict::Unclear,
-            in_box: String::new(),
-            anchor_seen: String::new(),
             why: "校验器无有效输出".to_string(),
             unclear_kind: UnclearKind::TooBlurry,
             elsewhere_dir: None,

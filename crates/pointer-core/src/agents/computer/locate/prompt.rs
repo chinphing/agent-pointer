@@ -48,14 +48,6 @@ pub fn report_tool() -> Value {
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "in_box": {
-                        "type": "string",
-                        "description": "蓝框里实际是什么？只描述看到的文字/图标/控件"
-                    },
-                    "anchor_seen": {
-                        "type": "string",
-                        "description": "目标描述里提到的「周边锚点」，在这张图里能看到吗？看到就写它是什么；看不到就写「看不到」。必填"
-                    },
                     "match": {
                         "type": "string",
                         "enum": ["yes", "no", "unclear"],
@@ -68,7 +60,7 @@ pub fn report_tool() -> Value {
                     },
                     "why": {
                         "type": "string",
-                        "description": "判定依据，一句话。判 no 时**说清蓝框漏掉了目标的哪一部分**——框住了哪块、目标哪一侧伸在框外、大概还差多少。例：「蓝框只框住了「行情」两个字，「查」字整个在框外，框的左边差 30 像素」"
+                        "description": "一句话，先说蓝框里实际是什么（文字/图标/控件），再说判定依据。**不超过 40 字**。判 no 时要说清框里缺了目标的哪一部分。例：「框里是空白，目标在框左上约 60 像素」"
                     },
                     "unclear_kind": {
                         "type": "string",
@@ -82,7 +74,7 @@ pub fn report_tool() -> Value {
                     },
                     "elsewhere_desc": {"type": "string", "description": "那个位置看起来是什么"}
                 },
-                "required": ["in_box", "anchor_seen", "match", "why"]
+                "required": ["match", "why"]
             }
         }
     })
@@ -132,7 +124,7 @@ pub fn verify_prompt(description: &str) -> String {
 不用去估算框的像素坐标，也不要猜，直接看框里和框外各有什么。\n\n\
 【目标元素描述】\n{desc}\
 【任务】\n\
-① 先看蓝框里实际是什么（文字/图标/控件），填 in_box。\n\
+① 先看蓝框里实际是什么（文字/图标/控件），写进 why 的开头。\n\
 ② 再判断蓝框里的这个东西，是不是上面描述的目标元素。\n\n\
 【必须单独核对的一件事：蓝框有没有把目标完整框住】\n\
 「蓝框里能看到目标」和「蓝框把目标整个框住了」是两件事，**都要满足才算找到**。\n\
@@ -253,8 +245,11 @@ pub fn parse_verify_arguments(raw: &str) -> Option<VerifyVerdict> {
         "unclear" => MatchVerdict::Unclear,
         _ => return None,
     };
-    let in_box = text_field(&v, "in_box");
-    if in_box.is_empty() {
+    // `why` now carries both "what is in the box" and the verdict reason, so a
+    // blank one means the model did not actually look — treat it as unusable
+    // rather than accepting a verdict with no observation behind it.
+    let why = text_field(&v, "why");
+    if why.is_empty() {
         return None;
     }
     let unclear_kind = match text_field(&v, "unclear_kind").to_ascii_lowercase().as_str() {
@@ -266,9 +261,7 @@ pub fn parse_verify_arguments(raw: &str) -> Option<VerifyVerdict> {
     };
     Some(VerifyVerdict {
         match_,
-        in_box,
-        anchor_seen: text_field(&v, "anchor_seen"),
-        why: text_field(&v, "why"),
+        why,
         unclear_kind,
         elsewhere_dir: ElsewhereDir::parse(&text_field(&v, "elsewhere_dir")),
         elsewhere_desc: v
@@ -286,7 +279,7 @@ pub fn parse_verify_arguments(raw: &str) -> Option<VerifyVerdict> {
 
 /// Retry hint fed into the next locate round (B5 `hint` construction).
 pub fn refine_hint(verdict: &VerifyVerdict) -> String {
-    let mut hint = format!("你上次给的框里实际是【{}】，不是目标。", verdict.in_box.trim());
+    let mut hint = format!("你上次给的框里实际是【{}】，不是目标。", verdict.why.trim());
     match verdict.elsewhere_dir {
         Some(dir) => {
             hint.push_str(&format!(
@@ -416,26 +409,27 @@ mod tests {
         )
         .unwrap();
         assert_eq!(v.match_, MatchVerdict::Yes);
-        assert_eq!(v.in_box, "蓝色软盘图标");
+        assert_eq!(v.why, "图标一致");
         assert_eq!(v.unclear_kind, UnclearKind::None);
         assert!(v.elsewhere_dir.is_none());
     }
 
     #[test]
     fn rejects_verify_without_observation_or_unknown_match() {
-        assert!(parse_verify_arguments(r#"{"in_box":"","match":"yes","why":"x","anchor_seen":"y"}"#).is_none());
-        assert!(parse_verify_arguments(r#"{"in_box":"a","match":"maybe","why":"x","anchor_seen":"y"}"#).is_none());
+        // `why` carries the observation now — blank means the model did not look.
+        assert!(parse_verify_arguments(r#"{"match":"yes","why":""}"#).is_none());
+        assert!(parse_verify_arguments(r#"{"match":"maybe","why":"x"}"#).is_none());
     }
 
     #[test]
     fn parses_direction_and_unclear_kind() {
         let v = parse_verify_arguments(
-            r#"{"in_box":"取消","anchor_seen":"看不到","match":"no","why":"不是","elsewhere_dir":"left","elsewhere_desc":"左边有个地址栏"}"#,
+            r#"{"match":"no","why":"框里是取消按钮","elsewhere_dir":"left","elsewhere_desc":"左边有个地址栏"}"#,
         )
         .unwrap();
         assert_eq!(v.elsewhere_dir, Some(ElsewhereDir::Left));
         let hint = refine_hint(&v);
-        assert!(hint.contains("【取消】"));
+        assert!(hint.contains("【框里是取消按钮】"));
         assert!(hint.contains("left"));
         assert!(hint.contains("左边有个地址栏"));
     }
@@ -443,7 +437,7 @@ mod tests {
     #[test]
     fn refine_hint_without_direction_says_not_seen() {
         let v = parse_verify_arguments(
-            r#"{"in_box":"空白","anchor_seen":"看不到","match":"no","why":"不是"}"#,
+            r#"{"match":"no","why":"框里是空白"}"#,
         )
         .unwrap();
         assert!(refine_hint(&v).contains("那一带也看不到目标"));

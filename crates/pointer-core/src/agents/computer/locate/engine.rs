@@ -124,8 +124,10 @@ pub async fn locate_one<V: LocateVision>(
                     VerifyVerdict::default()
                 }
             };
-            if !v.in_box.trim().is_empty() {
-                last_saw = v.in_box.clone();
+            // `why` now opens with what is actually in the box, so it doubles as
+            // the "what I saw" line shown to the user on failure.
+            if !v.why.trim().is_empty() {
+                last_saw = v.why.clone();
             }
             if !v.why.trim().is_empty() {
                 last_why = v.why.clone();
@@ -361,12 +363,10 @@ mod tests {
         }
     }
 
-    fn verdict(match_: MatchVerdict, in_box: &str) -> VerifyVerdict {
+    fn verdict(match_: MatchVerdict, why: &str) -> VerifyVerdict {
         VerifyVerdict {
             match_,
-            in_box: in_box.to_string(),
-            anchor_seen: "看不到".into(),
-            why: "test".into(),
+            why: why.to_string(),
             ..VerifyVerdict::default()
         }
     }

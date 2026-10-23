@@ -16,7 +16,30 @@ pub fn run_synthetic_input<R: Send, F: FnOnce() -> R + Send>(f: F) -> R {
     }
 }
 
+/// Run `f` on the process main thread and return its value.
+///
+/// macOS AppKit objects (`NSPasteboard`, `NSWorkspace`, Text Input Source) may only be touched from
+/// the main thread; the alternatives are a native abort or a silently wrong result. Off macOS the
+/// closure runs inline — see [`clipboard`] for the crash this exists to prevent.
+///
+/// Runs inline when the caller is already on the main thread, so nesting is free.
+pub fn run_on_main_thread<T, F>(f: F) -> anyhow::Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    #[cfg(target_os = "macos")]
+    {
+        macos::run_on_main_thread(f)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(f())
+    }
+}
+
 pub mod app_access;
+pub mod clipboard;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]

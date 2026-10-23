@@ -7,7 +7,6 @@ use crate::agents::computer::input::actions::MouseButton;
 use crate::agents::computer::verify::VerifyHintGenerator;
 use crate::agents::computer::vision_state::VisionState;
 use anyhow::Result;
-use arboard::Clipboard;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -30,12 +29,10 @@ fn select_all(control: &Arc<dyn ComputerControl>) -> Result<()> {
 /// Paste through the clipboard, restoring the user's previous content.
 ///
 /// Character-by-character typing goes through the IME and mangles CJK input, so
-/// the clipboard is the default path.
+/// the clipboard is the default path. The pasteboard itself is touched only via
+/// [`crate::platform::clipboard`], which keeps it on the main thread.
 fn paste_via_clipboard(control: &Arc<dyn ComputerControl>, text: &str) -> Result<()> {
-    let mut cb = Clipboard::new().map_err(|e| anyhow::anyhow!("Clipboard unavailable: {e}"))?;
-    let saved = cb.get_text().ok();
-    cb.set_text(text)
-        .map_err(|e| anyhow::anyhow!("Clipboard write failed: {e}"))?;
+    let saved = crate::platform::clipboard::replace_text(text)?;
     // The OS publishes the new clipboard asynchronously; pasting too early gets
     // the previous content.
     std::thread::sleep(Duration::from_millis(50));
@@ -46,7 +43,7 @@ fn paste_via_clipboard(control: &Arc<dyn ComputerControl>, text: &str) -> Result
     };
     let out = control.hotkey(&[modifier.to_string(), "v".to_string()]);
     if let Some(prev) = saved {
-        let _ = cb.set_text(prev);
+        let _ = crate::platform::clipboard::write_text(&prev);
     }
     out
 }

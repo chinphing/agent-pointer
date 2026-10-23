@@ -2,7 +2,6 @@ use super::actions::{ActionBackend, ActionResult, KeyPhase, MouseButton};
 use super::mouse_move::{execute_move_plan, MouseMovePlanner, MouseMoveProfile};
 use super::timing::DOUBLE_CLICK_INTERVAL_MS;
 use anyhow::{anyhow, Result};
-use arboard::Clipboard;
 use enigo::{
     Direction::{Click, Press, Release},
     Enigo, Key, Keyboard, Mouse, Settings,
@@ -156,18 +155,12 @@ impl ActionBackend for EnigoBackend {
     }
 
     fn type_text_via_clipboard(&self, text: &str) -> Result<ActionResult> {
-        // 1. Save old clipboard content
-        let old = Clipboard::new().ok().and_then(|mut cb| cb.get_text().ok());
-
-        // 2. Write target text to clipboard
-        {
-            let mut cb = Clipboard::new().map_err(|e| anyhow!("Clipboard unavailable: {e}"))?;
-            cb.set_text(text)
-                .map_err(|e| anyhow!("Clipboard write failed: {e}"))?;
-        }
+        // 1+2. Save the old clipboard content and write the target text in a
+        // single main-thread hop — NSPasteboard may only be touched there.
+        let saved = crate::platform::clipboard::replace_text(text)?;
         std::thread::sleep(Duration::from_millis(50));
 
-        // 3. Paste via Cmd+V / Ctrl+V
+        // 3. Paste via Cmd+V / Ctrl+V (synthetic key events need no main thread).
         let modifier = if cfg!(target_os = "macos") {
             "command"
         } else {
@@ -190,10 +183,8 @@ impl ActionBackend for EnigoBackend {
         std::thread::sleep(Duration::from_millis(30));
 
         // 4. Restore old clipboard
-        if let Some(old_text) = old {
-            if let Ok(mut cb) = Clipboard::new() {
-                let _ = cb.set_text(&old_text);
-            }
+        if let Some(prev) = saved {
+            let _ = crate::platform::clipboard::write_text(&prev);
         }
 
         Ok(ActionResult::success(format!(

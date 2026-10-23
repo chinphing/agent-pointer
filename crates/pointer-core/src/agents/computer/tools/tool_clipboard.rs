@@ -2,8 +2,6 @@
 
 use super::args_util::require_non_empty_str;
 use anyhow::{anyhow, Result};
-#[cfg(feature = "computer")]
-use arboard::Clipboard;
 use log::{info, warn};
 use serde_json::Value;
 
@@ -78,35 +76,15 @@ impl ClipboardTool {
 }
 
 /// Read the system clipboard as plain text.
-#[cfg(feature = "computer")]
+///
+/// Goes through [`crate::platform::clipboard`], which owns the main-thread dispatch.
 fn clipboard_read_text() -> Result<String> {
-    let mut cb = Clipboard::new().map_err(|e| anyhow!("Clipboard unavailable: {e}"))?;
-    cb.get_text()
-        .map_err(|e| anyhow!("read_clipboard failed: {e}"))
-}
-
-/// Read the system clipboard as plain text (headless builds return an error).
-#[cfg(not(feature = "computer"))]
-fn clipboard_read_text() -> Result<String> {
-    Err(anyhow!(
-        "computer feature disabled: clipboard backend unavailable"
-    ))
+    crate::platform::clipboard::read_text()
 }
 
 /// Write plain text to the system clipboard.
-#[cfg(feature = "computer")]
 fn clipboard_write_text(text: &str) -> Result<()> {
-    let mut cb = Clipboard::new().map_err(|e| anyhow!("Clipboard unavailable: {e}"))?;
-    cb.set_text(text)
-        .map_err(|e| anyhow!("write_clipboard failed: {e}"))
-}
-
-/// Write plain text to the system clipboard (headless builds return an error).
-#[cfg(not(feature = "computer"))]
-fn clipboard_write_text(_text: &str) -> Result<()> {
-    Err(anyhow!(
-        "computer feature disabled: clipboard backend unavailable"
-    ))
+    crate::platform::clipboard::write_text(text)
 }
 
 /// Host verify shortcut — skip Verify LLM when the outcome is unambiguous.

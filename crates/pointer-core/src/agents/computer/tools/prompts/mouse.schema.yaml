@@ -243,7 +243,7 @@ mouse_drag_from_to_at:
   properties:
     from_target_desc:
       type: string
-      description: "What the drag grabs (e.g. a file icon on the desktop). Required together with from_bbox."
+      description: "What the drag grabs. Four parts: appearance + control type + screen position + anchor. Example: report.pdf icon on the desktop, right of the Trash. Write it in the UI's language — never translate element names. Required together with from_bbox."
     from_bbox:
       type: array
       items:
@@ -253,7 +253,7 @@ mouse_drag_from_to_at:
       description: "Roughly where the grab point is, [x1, y1, x2, y2] in logical pixels. Usually the bbox from locate_element."
     to_target_desc:
       type: string
-      description: "Where the drag drops it (e.g. the Trash icon). Required together with to_bbox."
+      description: "Where the drag drops it. Four parts: appearance + control type + screen position + anchor. Example: Trash icon at the bottom right of the Dock. Write it in the UI's language — never translate element names. Required together with to_bbox."
     to_bbox:
       type: array
       items:

@@ -13,7 +13,7 @@ modified_click_select_at:
         properties:
           target_desc:
             type: string
-            description: "What this target is (e.g. the first email / row A of the report). Required together with bbox."
+            description: "What this target is. Four parts: appearance + control type + screen position + anchor. Example: first row of the report table, below the header row. Write it in the UI's language — never translate element names. Required together with bbox."
           bbox:
             type: array
             items:
@@ -48,7 +48,7 @@ modified_click_range_select_at:
         properties:
           target_desc:
             type: string
-            description: "What this target is (e.g. the first email / row A of the report). Required together with bbox."
+            description: "What this target is. Four parts: appearance + control type + screen position + anchor. Example: first row of the report table, below the header row. Write it in the UI's language — never translate element names. Required together with bbox."
           bbox:
             type: array
             items:

@@ -616,6 +616,36 @@ impl ComputerState {
         let session = self.get_or_create_session(conversation_id);
         let mut s = session.lock().unwrap();
         s.pipeline.cached_capture = Some(cap);
+        s.pipeline.cached_capture_at = Some(std::time::Instant::now());
+    }
+
+    /// Latest pipeline capture when it is still younger than `max_age`.
+    ///
+    /// `[CUR_SCREEN]` calls this before capturing: the verify step of the previous
+    /// round already shot exactly this frame, so re-shooting costs a full
+    /// `xcap` + resample + jpeg pass for identical pixels. Returns `None` when the
+    /// frame is missing or older than `max_age`, in which case the caller captures.
+    pub fn fresh_pipeline_capture(
+        &self,
+        conversation_id: &str,
+        max_age: std::time::Duration,
+    ) -> Option<ScreenCaptureResult> {
+        let session = self.get_or_create_session(conversation_id);
+        let s = session.lock().unwrap();
+        let stored_at = s.pipeline.cached_capture_at?;
+        let age = stored_at.elapsed();
+        let cap = s.pipeline.cached_capture.clone()?;
+        if age > max_age {
+            log::info!(
+                "pipeline capture: cached frame too old ({age:?} > {max_age:?}) — recapture"
+            );
+            return None;
+        }
+        log::info!(
+            "pipeline capture: reuse verify frame for [CUR_SCREEN] bytes={} age={age:?}",
+            cap.screenshot_jpeg.len()
+        );
+        Some(cap)
     }
 
     pub fn pipeline_context_fields(
@@ -752,6 +782,80 @@ mod tests {
         let got = rt
             .block_on(state.ensure_pipeline_capture("reuse"))
             .expect("reuse");
+        assert_eq!(got.screenshot_jpeg, vec![9, 9, 9]);
+    }
+
+    #[test]
+    fn fresh_pipeline_capture_returns_stored_frame_within_age() {
+        let state = make_state();
+        let cap = ScreenCaptureResult {
+            raw_unmarked_jpeg: vec![1],
+            screenshot_jpeg: vec![9, 9, 9],
+            mouse_neighbor_reference_text: None,
+            monitor: screen::MonitorInfo::new(0, 0, 100, 100),
+        };
+        state.store_pipeline_after_capture("fresh", cap);
+
+        let got = state
+            .fresh_pipeline_capture("fresh", Duration::from_secs(120))
+            .expect("frame is young enough");
+        assert_eq!(got.screenshot_jpeg, vec![9, 9, 9]);
+    }
+
+    #[test]
+    fn fresh_pipeline_capture_rejects_stale_frame() {
+        let state = make_state();
+        let cap = ScreenCaptureResult {
+            raw_unmarked_jpeg: vec![1],
+            screenshot_jpeg: vec![9, 9, 9],
+            mouse_neighbor_reference_text: None,
+            monitor: screen::MonitorInfo::new(0, 0, 100, 100),
+        };
+        state.store_pipeline_after_capture("stale", cap);
+
+        // Zero max age: any elapsed time is already too old.
+        assert!(
+            state
+                .fresh_pipeline_capture("stale", Duration::from_millis(0))
+                .is_none(),
+            "a frame past its max age must not be reused"
+        );
+    }
+
+    #[test]
+    fn fresh_pipeline_capture_none_without_store() {
+        let state = make_state();
+        assert!(
+            state
+                .fresh_pipeline_capture("empty", Duration::from_secs(120))
+                .is_none(),
+            "no stored frame means the caller must capture"
+        );
+    }
+
+    #[test]
+    fn fresh_pipeline_capture_does_not_consume_cache() {
+        let state = make_state();
+        let cap = ScreenCaptureResult {
+            raw_unmarked_jpeg: vec![1],
+            screenshot_jpeg: vec![9, 9, 9],
+            mouse_neighbor_reference_text: None,
+            monitor: screen::MonitorInfo::new(0, 0, 100, 100),
+        };
+        state.store_pipeline_after_capture("keep", cap);
+
+        // [CUR_SCREEN] reads it, then verify's `ensure_pipeline_capture` needs the
+        // same frame as its before image — so reading must not clear the slot.
+        assert!(state
+            .fresh_pipeline_capture("keep", Duration::from_secs(120))
+            .is_some());
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let got = rt
+            .block_on(state.ensure_pipeline_capture("keep"))
+            .expect("verify before frame");
         assert_eq!(got.screenshot_jpeg, vec![9, 9, 9]);
     }
 

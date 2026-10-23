@@ -171,6 +171,10 @@ impl VerifyConclusion {
 #[derive(Debug, Clone, Default)]
 pub struct AdvancedPipelineSession {
     pub cached_capture: Option<ScreenCaptureResult>,
+    /// When `cached_capture` was stored. Lets `[CUR_SCREEN]` reuse a frame the
+    /// verify step just captured instead of shooting the same screen twice, while
+    /// still refusing a frame that has gone stale (idle turn, long user pause).
+    pub cached_capture_at: Option<std::time::Instant>,
     pub last_verify: Option<VerifyConclusion>,
     pub last_operation_summary: Option<String>,
     /// Sequential round number for this pipeline session (file naming / tracing).

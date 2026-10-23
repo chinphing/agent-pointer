@@ -23,6 +23,15 @@ use std::sync::Arc;
 
 const CUR_SCREEN_TAG: &str = "[CUR_SCREEN]";
 
+/// How old a pipeline capture may be before `[CUR_SCREEN]` refuses to reuse it.
+///
+/// The verify step of the previous round leaves its after-frame in the cache, and
+/// `[CUR_SCREEN]` wants exactly that frame. Measured gap on a normal round is ~5s
+/// (capture + verify); under CPU contention it reached ~27s, so the bound has to
+/// be generous. Anything older means the turn sat idle and the screen may have
+/// moved — capture fresh instead of showing the model a stale picture.
+const CUR_SCREEN_CACHE_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(120);
+
 /// Thread notice while capture + processing runs (user-visible).
 const DESKTOP_NOTICE_PROCESSING: &str = "【桌面】截图处理中";
 const DESKTOP_NOTICE_READY: &str = "【桌面】已更新当前画面。";
@@ -161,12 +170,24 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
             DESKTOP_NOTICE_PROCESSING.to_string(),
         );
 
-        match ctx
-            .computer_state
-            .capture_and_annotate(ctx.conversation_id)
-            .await
-        {
+        let capture = match ctx.computer_state.fresh_pipeline_capture(
+            ctx.conversation_id,
+            CUR_SCREEN_CACHE_MAX_AGE,
+        ) {
+            Some(cap) => Ok((cap, None)),
+            None => {
+                ctx.computer_state
+                    .capture_and_annotate(ctx.conversation_id)
+                    .await
+            }
+        };
+
+        match capture {
             Ok((cap, refreshed_monitor_id)) => {
+                // Hand this frame to the tool pass / verify so they do not shoot the
+                // same screen again. Bounded by `CUR_SCREEN_CACHE_MAX_AGE` above.
+                ctx.computer_state
+                    .store_pipeline_after_capture(ctx.conversation_id, cap.clone());
                 if let (Some(tx), Some(new_id)) = (ctx.stream, refreshed_monitor_id.as_ref()) {
                     let _ = tx.send(StreamEvent::ComputerMonitorUpdated {
                         conversation_id: ctx.conversation_id.to_string(),

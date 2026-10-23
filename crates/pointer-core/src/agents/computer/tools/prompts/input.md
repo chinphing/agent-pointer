@@ -28,6 +28,10 @@ turn to type the same field. Put **`text`**, **`clear_first`**, and
 four parts, in one sentence. Several inputs can share a placeholder; the
 position is what tells them apart.
 
+**Write `target_desc` in the language of the UI.** Chinese labels get a Chinese
+description — a translated element name does not match what the grounder reads
+on screen.
+
 Coordinates are **logical pixels**, the same width and height as the screenshot
 you are looking at — not normalized, not Retina device pixels.
 

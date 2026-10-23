@@ -200,8 +200,27 @@ pub async fn locate_one<V: LocateVision>(
 
         // No-progress guard: a crop-local re-locate that barely moved is
         // escalated to the full screen (B5).
+        //
+        // A crop-local miss gets the same escalation. The crop only covers the
+        // neighbourhood of the previous box, so a verifier that says "it is
+        // 70px below the box" can point outside the crop entirely — and
+        // `locate_in` then returns nothing, not because the target is absent
+        // but because it was never in frame. Giving up there throws away a
+        // usable direction; re-running on the full screen with the same hint
+        // costs one call and usually lands.
         let mut next_box = match next_box {
             Some(b) => b,
+            None if from_crop => {
+                let image = render_full(frame, Some(current))?;
+                match locate_in(vision, &image, full, w, h, &req.description, req.hint_center(), Some(&hint)).await
+                {
+                    Some(b) => b,
+                    None => {
+                        stop = Stop::LocateFailed;
+                        break;
+                    }
+                }
+            }
             None => {
                 stop = Stop::LocateFailed;
                 break;

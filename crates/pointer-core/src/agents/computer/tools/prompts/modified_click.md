@@ -26,5 +26,9 @@ A loose box per target is fine; there is no raw-coordinate form.
 four parts, in one sentence. Two rows of the same table look alike; the position
 and the anchor are what separate them.
 
+**Write each `target_desc` in the language of the UI.** Chinese labels get a
+Chinese description — a translated element name does not match what the grounder
+reads on screen.
+
 Coordinates are **logical pixels**, the same width and height as the screenshot
 you are looking at — not normalized, not Retina device pixels.

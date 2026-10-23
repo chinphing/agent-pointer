@@ -23,6 +23,10 @@ on that target this turn (buttons, toggles, icons, links, menus).
 four parts, in one sentence. The position and the anchor are what separate two
 same-named elements on a real page.
 
+**Write `target_desc` in the language of the UI.** Chinese labels get a Chinese
+description — a translated element name does not match what the grounder reads
+on screen.
+
 The pair is required together because they answer different questions:
 `bbox` narrows the search, `target_desc` decides what counts as a match.
 Neither alone is enough — a box with no description cannot tell a button from

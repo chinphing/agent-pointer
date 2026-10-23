@@ -747,8 +747,6 @@
       "saveRequestsHint": "将每轮发送给模型的请求保存到本地调试日志",
       "rawContent": "原始内容查看",
       "rawContentHint": "助手消息上显示「原始输出」调试入口（正文通道原始字串与 API reasoning）",
-      "annotatedScreen": "标记截图查看",
-      "annotatedScreenHint": "显示 Computer 使用的标注截图预览",
       "saveCaptures": "保存截图到本地",
       "saveCapturesHint": "把每次桌面截图写到应用数据目录 computer-captures/，每次保存都会在日志里打出图片 id"
     },

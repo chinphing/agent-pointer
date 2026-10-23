@@ -8,7 +8,7 @@ const props = defineProps<{
   form: SettingsDialogForm
 }>()
 
-const { debugDumpLlmPrompts, rawContentViewEnabled, computerAnnotatedScreenViewEnabled, debugSaveComputerCaptures } = props.form
+const { debugDumpLlmPrompts, rawContentViewEnabled, debugSaveComputerCaptures } = props.form
 </script>
 
 <template>
@@ -34,19 +34,6 @@ const { debugDumpLlmPrompts, rawContentViewEnabled, computerAnnotatedScreenViewE
         </div>
         <label class="relative inline-flex items-center cursor-pointer shrink-0">
           <input v-model="rawContentViewEnabled" type="checkbox" class="sr-only peer" />
-          <div class="settings-toggle-track" />
-        </label>
-      </div>
-    </div>
-
-    <div class="rounded-xl border border-border panel p-5">
-      <div class="flex items-center justify-between gap-4">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-foreground">{{ t('settings.debug.annotatedScreen') }}</p>
-          <p class="mt-1 text-xs text-muted">{{ t('settings.debug.annotatedScreenHint') }}</p>
-        </div>
-        <label class="relative inline-flex items-center cursor-pointer shrink-0">
-          <input v-model="computerAnnotatedScreenViewEnabled" type="checkbox" class="sr-only peer" />
           <div class="settings-toggle-track" />
         </label>
       </div>

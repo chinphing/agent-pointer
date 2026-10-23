@@ -5,7 +5,6 @@ import { useSettingsStore } from '../stores/settings'
 import { useChatStore } from '../stores/chat'
 import { previewComputerAnnotatedScreen, previewComputerRoundScreen } from '../lib/api'
 import { isMessageStreaming } from '../lib/assistantMessageKind'
-import { showAnnotatedScreenAction } from '../lib/computerMessageContext'
 import { toolCallBaseName } from '../lib/messageTooling'
 import { t } from '../i18n'
 
@@ -76,15 +75,11 @@ export function useAssistantMessageDebug(
    *  Users must be able to inspect raw LLM output during active execution. */
   const showRawWireFooter = computed(() => hasRawWire.value)
 
-  const showCamera = computed(() => {
-    const msg = message.value
-    if (!msg) return false
-    if (settingsStore.settings.computerAnnotatedScreenViewEnabled !== true) return false
-    return showAnnotatedScreenAction(msg, {
-      leadAgentId: settingsStore.settings.leadAgentId ?? '',
-      annotatedScreenViewEnabled: true
-    })
-  })
+  // Annotated-screen previews are gone: the annotation service was removed in
+  // 7933705a and captures are raw screenshots written to disk only. Keeping the
+  // camera button would open a modal with nothing to show, so the entry point
+  // is retired here rather than left to a settings toggle nobody can find.
+  const showCamera = computed(() => false)
 
   const isStreaming = computed(() => isMessageStreaming(message.value?.status ?? 'done'))
 

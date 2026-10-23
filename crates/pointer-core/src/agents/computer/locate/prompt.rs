@@ -106,7 +106,7 @@ pub fn locate_prompt(
         None => String::new(),
     };
     let coord = "【坐标要求】只按【这张图】给坐标：横向 0 = 这张图左边缘，1000 = 右边缘；纵向 0 = 上边缘，1000 = 下边缘。\n不需要知道整张屏幕有多大。";
-    let tail = "先**完整包住**目标：目标的每段文字、每条轮廓边都要落在框内。只框住一部分不合格——这时要把框放大到装得下整个目标，不要怕松。包住之后再**收住**：框边贴着目标轮廓即可，四条边明显超出轮廓会把返回的坐标带偏。\n不需要像素级精确：框的中心落在元素上、四条边没有明显超出轮廓，就算合格。\n\n请调用 locate(bbox=[x1, y1, x2, y2])。";
+    let tail = "先**完整包住**目标：目标的每段文字、每条轮廓边都要落在框内。只框住一部分不合格——这时要把框放大到装得下整个目标，不要怕松。包住之后可以比目标略大一圈，留点余量没关系；关键是**中心点要落在目标上**——框明显偏向一侧、或者中心跑到目标外面，返回的坐标才会偏。\n不需要像素级精确：框的中心落在元素上、四条边没有明显超出轮廓，就算合格。\n\n请调用 locate(bbox=[x1, y1, x2, y2])。";
     // `【上一轮的情况】` goes after everything else on purpose: it is the
     // correction for this round, and a correction placed mid-prompt loses to
     // the generic box rule that follows it.
@@ -369,7 +369,7 @@ mod tests {
         let p = locate_prompt("搜索框", None, None);
         assert!(!p.contains("用途"), "{p}");
         assert!(p.contains("完整包住"), "{p}");
-        assert!(p.contains("包住之后再"), "{p}");
+        assert!(p.contains("中心点要落在目标上"), "{p}");
     }
 
     #[test]

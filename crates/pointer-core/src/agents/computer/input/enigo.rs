@@ -157,8 +157,12 @@ impl ActionBackend for EnigoBackend {
     fn type_text_via_clipboard(&self, text: &str) -> Result<ActionResult> {
         // 1+2. Save the old clipboard content and write the target text in a
         // single main-thread hop — NSPasteboard may only be touched there.
+        //
+        // No settle delay: `replace_text` returns only after `NSPasteboard
+        // setString:forType:` has completed, and the pasteboard is readable
+        // immediately afterwards (`pbcopy` then `pbpaste` in the next process
+        // reads the new value back). A sleep here bought nothing.
         let saved = crate::platform::clipboard::replace_text(text)?;
-        std::thread::sleep(Duration::from_millis(50));
 
         // 3. Paste via Cmd+V / Ctrl+V (synthetic key events need no main thread).
         let modifier = if cfg!(target_os = "macos") {
@@ -173,14 +177,24 @@ impl ActionBackend for EnigoBackend {
         enigo
             .key(Key::Unicode('v'), Press)
             .map_err(|e| anyhow!("Paste key 'v' press failed: {e}"))?;
-        std::thread::sleep(Duration::from_millis(20));
+        // No inter-key delay: measured against TextEdit with 0 / 5 / 10 / 20 ms
+        // between key-down and key-up, all four gaps pasted 30/30. The gap only
+        // ever bought latency.
         enigo
             .key(Key::Unicode('v'), Release)
             .map_err(|e| anyhow!("Paste key 'v' release failed: {e}"))?;
         enigo
             .key(parse_key_name(modifier)?, Release)
             .map_err(|e| anyhow!("Paste hotkey release failed: {e}"))?;
-        std::thread::sleep(Duration::from_millis(30));
+        // Wait before restoring the clipboard: the target app reads the
+        // pasteboard asynchronously, and nothing reports when it is done.
+        // Measured on TextEdit — 0/5/10 ms pasted the *old* clipboard text
+        // every time, 30 ms still lost 10/30, 50 ms was 30/30. The value is a
+        // setting because slow targets (Electron editors, remote desktops) may
+        // need longer than the measured floor.
+        let restore_delay_ms =
+            crate::platform_config::effective_settings_global().computer_paste_restore_delay_ms;
+        std::thread::sleep(Duration::from_millis(u64::from(restore_delay_ms)));
 
         // 4. Restore old clipboard
         if let Some(prev) = saved {

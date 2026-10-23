@@ -955,6 +955,15 @@ pub struct ModelSettings {
         rename = "computerAutoSwitchMonitor"
     )]
     pub computer_auto_switch_monitor: bool,
+    /// Delay before `type_text_via_clipboard` restores the previous clipboard
+    /// content after Cmd+V. Measured on TextEdit: 30 ms lost 10/30 pastes
+    /// (5 of them pasted the *old* clipboard), 50 ms was 30/30. Raise it for
+    /// slow targets such as Electron editors or remote desktops.
+    #[serde(
+        default = "default_computer_paste_restore_delay_ms",
+        rename = "computerPasteRestoreDelayMs"
+    )]
+    pub computer_paste_restore_delay_ms: u32,
     #[serde(default = "default_memory_enabled", rename = "memoryEnabled")]
     pub memory_enabled: bool,
     #[serde(
@@ -1274,6 +1283,17 @@ pub fn normalize_max_sub_agent_tool_rounds(n: u32) -> u32 {
 }
 
 pub const DEFAULT_FILE_READ_MAX_BYTES: u32 = 64 * 1024;
+/// How long `type_text_via_clipboard` waits after Cmd+V before restoring the
+/// previous clipboard content.
+///
+/// Measured against TextEdit: at 30 ms only 20/30 pastes landed and 5 restored
+/// the *previous* clipboard text into the document; from 50 ms up every run was
+/// 30/30. 50 ms is the floor that measured clean, and the ceiling exists for
+/// slower targets (Electron editors, remote desktops) where the app may not have
+/// read the pasteboard yet.
+pub const DEFAULT_COMPUTER_PASTE_RESTORE_DELAY_MS: u32 = 50;
+pub const FLOOR_COMPUTER_PASTE_RESTORE_DELAY_MS: u32 = 50;
+pub const CEILING_COMPUTER_PASTE_RESTORE_DELAY_MS: u32 = 2000;
 pub const DEFAULT_FILE_LINE_MAX_BYTES: u32 = 1024;
 pub const DEFAULT_FILE_GREP_MAX_RESULTS: u32 = 50;
 /// Default `file_read` line window when `limit` is omitted.
@@ -1299,6 +1319,54 @@ pub const TERMINAL_MS_PER_HOUR: u64 = 3_600_000;
 
 fn default_file_read_max_bytes() -> u32 {
     DEFAULT_FILE_READ_MAX_BYTES
+}
+
+fn default_computer_paste_restore_delay_ms() -> u32 {
+    DEFAULT_COMPUTER_PASTE_RESTORE_DELAY_MS
+}
+
+pub fn clamp_computer_paste_restore_delay_ms(n: u32) -> u32 {
+    n.clamp(
+        FLOOR_COMPUTER_PASTE_RESTORE_DELAY_MS,
+        CEILING_COMPUTER_PASTE_RESTORE_DELAY_MS,
+    )
+}
+
+#[cfg(test)]
+mod paste_restore_delay_tests {
+    use super::*;
+
+    #[test]
+    fn default_matches_measured_floor() {
+        // 50 ms is the smallest gap that pasted 30/30 against TextEdit.
+        assert_eq!(default_computer_paste_restore_delay_ms(), 50);
+        assert_eq!(
+            FLOOR_COMPUTER_PASTE_RESTORE_DELAY_MS,
+            DEFAULT_COMPUTER_PASTE_RESTORE_DELAY_MS
+        );
+    }
+
+    #[test]
+    fn clamps_below_measured_floor() {
+        // 30 ms lost 10/30 pastes, so a configured value under 50 must not
+        // survive: clamp up, never down.
+        assert_eq!(clamp_computer_paste_restore_delay_ms(0), 50);
+        assert_eq!(clamp_computer_paste_restore_delay_ms(30), 50);
+        assert_eq!(clamp_computer_paste_restore_delay_ms(49), 50);
+    }
+
+    #[test]
+    fn keeps_values_inside_range() {
+        assert_eq!(clamp_computer_paste_restore_delay_ms(50), 50);
+        assert_eq!(clamp_computer_paste_restore_delay_ms(200), 200);
+        assert_eq!(clamp_computer_paste_restore_delay_ms(2000), 2000);
+    }
+
+    #[test]
+    fn clamps_above_ceiling() {
+        assert_eq!(clamp_computer_paste_restore_delay_ms(2001), 2000);
+        assert_eq!(clamp_computer_paste_restore_delay_ms(u32::MAX), 2000);
+    }
 }
 
 fn default_file_line_max_bytes() -> u32 {
@@ -1760,6 +1828,7 @@ impl Default for ModelSettings {
             ),
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
             computer_auto_switch_monitor: default_computer_auto_switch_monitor(),
+            computer_paste_restore_delay_ms: default_computer_paste_restore_delay_ms(),
             memory_enabled: default_memory_enabled(),
             user_profile_enabled: default_user_profile_enabled(),
             user_coding_rules: String::new(),
@@ -2208,6 +2277,14 @@ pub struct UserSettings {
         rename = "computerAutoSwitchMonitor"
     )]
     pub computer_auto_switch_monitor: bool,
+    /// Delay before `type_text_via_clipboard` restores the previous clipboard
+    /// content after Cmd+V. Measured on TextEdit: 30 ms lost 10/30 pastes,
+    /// 50 ms was 30/30. See `DEFAULT_COMPUTER_PASTE_RESTORE_DELAY_MS`.
+    #[serde(
+        default = "default_computer_paste_restore_delay_ms",
+        rename = "computerPasteRestoreDelayMs"
+    )]
+    pub computer_paste_restore_delay_ms: u32,
     #[serde(default, rename = "agentUiOverrides")]
     pub agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
     #[serde(
@@ -2264,6 +2341,7 @@ impl Default for UserSettings {
             enabled_skill_ids: default_enabled_skill_ids(),
             agent_skill_overrides: HashMap::new(),
             memory_enabled: default_memory_enabled(),
+            computer_paste_restore_delay_ms: default_computer_paste_restore_delay_ms(),
             user_profile_enabled: default_user_profile_enabled(),
             user_coding_rules: String::new(),
             memory_char_limit: default_memory_char_limit(),
@@ -2918,6 +2996,9 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         context_summary_max_tokens: user.context_summary_max_tokens,
         max_tool_rounds: user.max_tool_rounds,
         file_read_max_bytes: clamp_file_read_max_bytes(user.file_read_max_bytes),
+        computer_paste_restore_delay_ms: clamp_computer_paste_restore_delay_ms(
+            user.computer_paste_restore_delay_ms,
+        ),
         file_line_max_bytes: clamp_file_line_max_bytes(user.file_line_max_bytes),
         file_grep_max_results: clamp_file_grep_max_results(user.file_grep_max_results),
         terminal_output_max_bytes: clamp_terminal_output_max_bytes(user.terminal_output_max_bytes),

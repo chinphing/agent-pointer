@@ -9,14 +9,14 @@ input_at:
       type: string
     target_desc:
       type: string
-      description: "要输入到哪个控件。写全四要素：外观特征 + 控件类型 + 屏幕位置 + 周边锚点。例：顶部导航栏左侧的搜索输入框，橙色边框，占位文字「输入股票代码」。必须和 bbox 一起给。"
+      description: "Which control to type into. Four parts: appearance + control type + screen position + anchor. Example: 顶部导航栏左侧的搜索输入框，橙色边框，占位文字「输入股票代码」. Required together with bbox."
     bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "控件大概在 [x1, y1, x2, y2]，逻辑像素。通常直接用 locate_element 返回的 bbox。工具会以此为搜索种子重新定位确认，再点进去输入。"
+      description: "Roughly where the control is, [x1, y1, x2, y2] in logical pixels. Usually the bbox from locate_element. The tool re-grounds inside it before clicking into the field."
     text:
       type: string
     clear_first:

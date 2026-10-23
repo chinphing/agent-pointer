@@ -7,13 +7,13 @@ modified_click_select_at:
       type: string
     positions:
       type: array
-      description: "要选中的每个目标，一项一个。工具会逐个定位确认后点击。"
+      description: "One entry per target to select. Each is grounded and confirmed before any click happens."
       items:
         type: object
         properties:
           target_desc:
             type: string
-            description: "这个目标是什么（例：第一封邮件 / 报表行 A）。必须和 bbox 一起给。"
+            description: "What this target is (e.g. the first email / row A of the report). Required together with bbox."
           bbox:
             type: array
             items:
@@ -42,13 +42,13 @@ modified_click_range_select_at:
       type: string
     positions:
       type: array
-      description: "要选中的每个目标，一项一个。工具会逐个定位确认后点击。"
+      description: "One entry per target to select. Each is grounded and confirmed before any click happens."
       items:
         type: object
         properties:
           target_desc:
             type: string
-            description: "这个目标是什么（例：第一封邮件 / 报表行 A）。必须和 bbox 一起给。"
+            description: "What this target is (e.g. the first email / row A of the report). Required together with bbox."
           bbox:
             type: array
             items:

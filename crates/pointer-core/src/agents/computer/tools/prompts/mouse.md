@@ -21,7 +21,7 @@ on that target this turn (buttons, toggles, icons, links, menus).
   centre of your box.
 
 **`target_desc` uses the same four parts as `locate_element` descriptions**:
-外观特征 + 控件类型 + 屏幕位置 + 周边锚点, in one sentence.
+appearance + control type + screen position + anchor, in one sentence.
 
 ```
 搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮

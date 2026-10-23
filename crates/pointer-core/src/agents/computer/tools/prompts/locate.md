@@ -1,9 +1,9 @@
 ### locate_element
 
-把「描述」变成「坐标」。**不点击、不输入、不改变桌面状态** —— 它只回答
-目标在当前截图里的位置。
+Turns a description into coordinates. **It does not click, type, or change the
+desktop** — it only answers where the target is on the current screenshot.
 
-**输入**
+**Input**
 
 ```json
 {"goal": "输入股票代码查询行情",
@@ -12,46 +12,52 @@
    {"description": "搜索按钮", "hint_box": [800, 35, 840, 55]}
 ]}
 ```
-- **`goal` 必填，且是顶层字段**（不在 `elements[]` 里）。一句话说明这次要做什么，
-  用于卡片标题显示。它**不参与定位**——要把区分信息写进 `description`。
-- 单个 `elements` 数组，每项一个 `description`，可选 `hint_box`。
-- **每项都必须在当前画面里已经存在**。不要提前定位「点了某个东西之后才出现」
-  的元素——那一刻画面还没变，它不在图上，必然返回失败。
-  有先后顺序的，就分多次调用：先定位并点击第一个，等界面变了再定位第二个。
-- **最多 3 项**。超过 3 项直接报参数错误；请拆成多次调用。
-- 输出里对应项的 `target_desc` 就是这里传的 `description`，原样带回，方便对位。
-- `hint_box` 是 4 个**逻辑像素**值 `[x1, y1, x2, y2]`，是你对目标的初步估计，
-  **不是最终点击坐标**。只有当你确实看到目标大致在哪时才传。
+- **`goal` is required and sits at the top level** (not inside `elements[]`). One
+  sentence saying what this call is for; it is shown as the card title. It does
+  **not** take part in grounding — put every distinguishing detail into
+  `description`.
+- One `elements` array, each entry a `description`, optionally a `hint_box`.
+- **Every entry must already exist on the current screen.** Do not pre-locate an
+  element that only appears after clicking something — the screen has not
+  changed yet, so it is not in the image and the call will fail. When order
+  matters, split it: locate and click the first, wait for the UI to change, then
+  locate the second.
+- **Three entries maximum.** More than three is an argument error; split the call.
+- The `target_desc` in the output is the `description` you passed, echoed back so
+  you can match results to inputs.
+- `hint_box` is four **logical pixel** values `[x1, y1, x2, y2]` — your rough
+  guess at where the target is, **not** the final click coordinate. Pass it only
+  when you can actually see roughly where the target sits.
 
-**`description` 写什么**
+**What `description` should contain**
 
-按四要素写，缺一个就多一次失败的定位：
+Four parts. Missing one costs an extra grounding round.
 
-| 要素 | 写什么 | 例 |
+| Part | What to write | Example |
 | --- | --- | --- |
-| **外观特征** | 形状、颜色、里面的文字/符号 | `橙色圆角按钮，白色文字「查行情」` |
-| **控件类型** | 按钮 / 图标 / 菜单项 / 文字标签 / 输入框 / 文件夹 | `按钮` |
-| **屏幕位置** | 在页面哪一区（顶部导航栏 / 标签栏第几行 / 右侧悬浮栏 / 页面中下部） | `搜索框右侧` |
-| **周边锚点** | 紧邻的另一个元素，**只在目标身上成立**的那种 | `紧邻「进股吧」按钮` |
+| **Appearance** | Shape, colour, the text or symbol inside it | `orange rounded button, white text 「查行情」` |
+| **Control type** | button / icon / menu item / text label / input field / folder | `button` |
+| **Screen position** | Which region of the page (top nav bar / second tab row / right side rail / lower banner) | `to the right of the search box` |
+| **Anchor** | An adjacent element that is true **only for this target** | `next to the 「进股吧」 button` |
 
-拼成一句：
+One sentence:
 
 ```
 搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮
 ```
 
-**为什么四要素都要**：
+**Why all four**:
 
-- 只有名称（`查行情`）→ 同名多处时选错
-- 有名称 + 位置（`搜索框右侧的「查行情」`）→ 够用
-- 再加锚点（`紧邻「进股吧」`）→ 位置相邻的两个同名元素也能分开
+- Name only (`查行情`) → picks the wrong one when the label appears twice
+- Name + position (`搜索框右侧的「查行情」`) → usually enough
+- Plus anchor (`紧邻「进股吧」`) → separates two same-named elements sitting side by side
 
-**锚点要「只在目标身上成立」**：写 `搜索框右侧` 有用（左边确实只有搜索框），
-写 `页面上方` 没用（上方什么都有）。
+**The anchor must hold only for the target.** `搜索框右侧` works (only the search
+box is to its left). `页面上方` does not (everything is up there).
 
-**位置用区域名，不要用坐标**。定位器自己会算坐标。
+**Use region names, not coordinates.** The grounder computes coordinates itself.
 
-**输出**
+**Output**
 
 ```json
 {"results": [
@@ -65,39 +71,46 @@
 ]}
 ```
 
-结果**按输入顺序**返回，一项失败不影响其他项。`target_desc` 是你传进来的描述，原样带回，方便对位。
+Results come back **in input order**; one failure does not affect the others.
+`target_desc` is the description you sent, echoed back.
 
-**`status` 一个字段说清结果**：
+**`status` alone tells you what happened**:
 
-| `status` | 含义 | 下一步 |
+| `status` | Meaning | Next step |
 | --- | --- | --- |
-| `located` | 找到了，`bbox` 是目标框 | 把 `bbox` 和同样的 `target_desc` 传给 `mouse_click_at` 等 |
-| `not_found` | 当前画面里没有 | 先滚动 / 切换页面 / 等加载，再重新定位 |
-| `not_verified` | 候选框没通过校验 | 换更有区分度的描述（加锚点、加文字） |
-| `unclear` | 画面太糊或被遮挡 | 先让界面稳定（等加载、关弹窗） |
+| `located` | Found; `bbox` is the target box | Pass `bbox` with the same `target_desc` to `mouse_click_at` etc. |
+| `not_found` | Not on the current screen | Scroll / switch page / wait for load, then locate again |
+| `not_verified` | A candidate box failed verification | Use a more distinguishing description (add an anchor, add the text) |
+| `unclear` | Image too blurry or occluded | Let the UI settle first (wait for load, dismiss dialogs) |
 
-`summary` 是给你读的一句话：成功时给坐标说明 + 框里实际是什么，失败时给下一步 + 画面里看到了什么。
+`summary` is a sentence for you to read: on success it says what is inside the
+box, on failure it says what to do next plus what was actually visible.
 
-**`bbox` 是唯一要用的位置**
+**`bbox` is the only position you need**
 
-- `bbox` 是目标在屏幕上的框 `[x1, y1, x2, y2]`，逻辑像素。
-- **原样传给 `mouse_click_at` / `mouse_hover_at` / `mouse_down` / `mouse_up` / `mouse_drag_to`**，这些工具会以它为种子再确认一次再点。不要自己算中心点，也不要缩框。
-- `confidence` 是可信度：
-  - `high` — 已确认是目标，直接用
-  - `medium` — 大概率对，周边可能有干扰
-  - `low` — 建议换个描述重试
+- `bbox` is the target's box on screen `[x1, y1, x2, y2]` in logical pixels.
+- **Pass it unchanged to `mouse_click_at` / `mouse_hover_at` / `mouse_down` /
+  `mouse_up` / `mouse_drag_to`** — those tools re-confirm inside it before
+  clicking. Do not compute the centre yourself, do not shrink the box.
+- `confidence` is how sure the grounder is:
+  - `high` — confirmed, use it
+  - `medium` — probably right, neighbours may interfere
+  - `low` — retry with a different description
 
-**`summary` 里「框内是 / 画面里看到」那半句用来核对**
+**Use the `summary` sentence to cross-check**
 
-比如你要「搜索框」，它说「圆形箭头刷新图标」，那就对不上，该换描述。
+If you asked for 「搜索框」 and it says 「圆形箭头刷新图标」, that is not it — change
+the description.
 
-**看到 `located` 就直接执行**
+**When you get `located`, act on it**
 
-`located` 加上 `confidence: high` 已经足够：目标确认、坐标可点。
-重复定位会拿到略微不同的坐标（视觉模型有随机性），那不是「更准」，
-只是抖动。**除非界面明显变了，否则不要再调。**
+`located` with `confidence: high` is enough: the target is confirmed and the
+coordinate is clickable. Locating again returns slightly different coordinates
+(the vision model is stochastic) — that is jitter, not extra accuracy. **Do not
+call it again unless the screen visibly changed.**
 
-**什么时候不用它**
+**When not to use it**
 
-- 上一轮已经拿到过同一个目标的 `bbox`，且界面没有变化——直接把那个
-  `bbox` 传给 `mouse_click_at`，它会确认后点，不必再全屏找一遍。
+- You already have this target's `bbox` from an earlier round and the screen has
+  not changed — pass that `bbox` straight to `mouse_click_at`; it re-confirms
+  before clicking, so there is no need to search the whole screen again.

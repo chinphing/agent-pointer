@@ -4,28 +4,33 @@ locate_element:
     goal:
       type: string
       description: >
-        **必填**。这次定位要完成什么（例如「输入股票代码查询行情」）。
-        两处生效：多个长得像的元素里挑能完成用途的那个；校验时用途能达成、
-        外观有局部偏差（框没框全）也算对。整个调用共享这一个 goal。
+        **Required.** What this locate call is for (e.g. 输入股票代码查询行情).
+        Used twice: to pick the element that actually serves the purpose when
+        several look alike, and at verify time — if the purpose is served, a
+        small visual discrepancy (box not fully covering the target) still counts
+        as correct. One goal is shared by the whole call.
     elements:
       type: array
       minItems: 1
       maxItems: 3
       description: >
-        要定位的元素，按顺序返回结果。每项都必须在当前画面里已经存在；
-        不要提前定位「点了某个东西之后才出现」的元素，那时它不在图上，
-        必然失败。有先后顺序的分多次调用。
-        单次最多 3 个；超过 3 个会被参数校验直接拒绝（不会静默截断）。
+        The elements to locate, returned in order. Every entry must already exist
+        on the current screen; do not pre-locate something that only appears after
+        a click — it is not in the image yet and the call will fail. When order
+        matters, split into several calls.
+        Three per call maximum; more is rejected by argument validation (never
+        silently truncated).
       items:
         type: object
         properties:
           description:
             type: string
             description: >
-              目标元素是什么。写全四要素：外观特征（形状/颜色/文字）+
-              控件类型（按钮/图标/菜单项/文字标签/输入框）+ 屏幕位置（哪个区域）+
-              周边锚点（紧邻什么，只在目标身上成立）。
-              例：地址栏右侧的圆形按钮，蓝色箭头图标，紧邻刷新按钮。
+              What the target element is. Four parts: appearance (shape/colour/text),
+              control type (button/icon/menu item/text label/input field),
+              screen position (which region), and an anchor (what sits next to it,
+              true only for this target).
+              Example: 地址栏右侧的圆形按钮，蓝色箭头图标，紧邻刷新按钮.
           hint_box:
             type: array
             items:
@@ -33,10 +38,11 @@ locate_element:
             minItems: 4
             maxItems: 4
             description: >
-              可选。你估计的目标框 [x1, y1, x2, y2]，4 个逻辑像素值。
-              有 hint 时跳过整屏定位，直接从裁剪校验开始，省一次视觉调用；
-              但 hint 不能绕过校验，也不会降低判定标准。
-              不确定就不要传，留空即可。
+              Optional. Your estimated target box [x1, y1, x2, y2], four logical
+              pixel values. With a hint, full-screen grounding is skipped and the
+              call starts from crop verification, saving one vision call. A hint
+              cannot bypass verification or lower the bar for a match. Omit it if
+              you are unsure.
         required:
           - description
         additionalProperties: false

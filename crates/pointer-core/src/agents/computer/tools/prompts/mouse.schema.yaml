@@ -3,14 +3,14 @@ mouse_click_at:
   properties:
     target_desc:
       type: string
-      description: "要点的东西是什么。写全四要素：外观特征 + 控件类型 + 屏幕位置 + 周边锚点。例：搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮。必须和 bbox 一起给。"
+      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: 搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮. Required together with bbox."
     bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常直接用上一步 locate_element 返回的 bbox。工具会以此为搜索种子重新定位确认，再点确认后的中心——所以框粗一点没关系，但必须和 target_desc 一起给。"
+      description: "Roughly where the target is, [x1, y1, x2, y2] in logical pixels. Usually the bbox returned by locate_element. The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
     goal:
       type: string
     action:
@@ -42,14 +42,14 @@ mouse_double_click_at:
   properties:
     target_desc:
       type: string
-      description: "要点的东西是什么。写全四要素：外观特征 + 控件类型 + 屏幕位置 + 周边锚点。例：搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮。必须和 bbox 一起给。"
+      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: 搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮. Required together with bbox."
     bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常直接用上一步 locate_element 返回的 bbox。工具会以此为搜索种子重新定位确认，再点确认后的中心——所以框粗一点没关系，但必须和 target_desc 一起给。"
+      description: "Roughly where the target is, [x1, y1, x2, y2] in logical pixels. Usually the bbox returned by locate_element. The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
     goal:
       type: string
     action:
@@ -69,14 +69,14 @@ mouse_right_click_at:
   properties:
     target_desc:
       type: string
-      description: "要点的东西是什么。写全四要素：外观特征 + 控件类型 + 屏幕位置 + 周边锚点。例：搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮。必须和 bbox 一起给。"
+      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: 搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮. Required together with bbox."
     bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常直接用上一步 locate_element 返回的 bbox。工具会以此为搜索种子重新定位确认，再点确认后的中心——所以框粗一点没关系，但必须和 target_desc 一起给。"
+      description: "Roughly where the target is, [x1, y1, x2, y2] in logical pixels. Usually the bbox returned by locate_element. The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
     goal:
       type: string
     action:
@@ -96,14 +96,14 @@ mouse_hover_at:
   properties:
     target_desc:
       type: string
-      description: "要点的东西是什么。写全四要素：外观特征 + 控件类型 + 屏幕位置 + 周边锚点。例：搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮。必须和 bbox 一起给。"
+      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: 搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮. Required together with bbox."
     bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常直接用上一步 locate_element 返回的 bbox。工具会以此为搜索种子重新定位确认，再点确认后的中心——所以框粗一点没关系，但必须和 target_desc 一起给。"
+      description: "Roughly where the target is, [x1, y1, x2, y2] in logical pixels. Usually the bbox returned by locate_element. The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
     goal:
       type: string
     action:
@@ -148,14 +148,14 @@ mouse_down:
   properties:
     target_desc:
       type: string
-      description: "要点的东西是什么。写全四要素：外观特征 + 控件类型 + 屏幕位置 + 周边锚点。例：搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮。必须和 bbox 一起给。"
+      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: 搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮. Required together with bbox."
     bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常直接用上一步 locate_element 返回的 bbox。工具会以此为搜索种子重新定位确认，再点确认后的中心——所以框粗一点没关系，但必须和 target_desc 一起给。"
+      description: "Roughly where the target is, [x1, y1, x2, y2] in logical pixels. Usually the bbox returned by locate_element. The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
     goal:
       type: string
     action:
@@ -182,14 +182,14 @@ mouse_up:
   properties:
     target_desc:
       type: string
-      description: "要点的东西是什么。写全四要素：外观特征 + 控件类型 + 屏幕位置 + 周边锚点。例：搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮。必须和 bbox 一起给。"
+      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: 搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮. Required together with bbox."
     bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常直接用上一步 locate_element 返回的 bbox。工具会以此为搜索种子重新定位确认，再点确认后的中心——所以框粗一点没关系，但必须和 target_desc 一起给。"
+      description: "Roughly where the target is, [x1, y1, x2, y2] in logical pixels. Usually the bbox returned by locate_element. The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
     goal:
       type: string
     action:
@@ -216,14 +216,14 @@ mouse_drag_to:
   properties:
     target_desc:
       type: string
-      description: "要点的东西是什么。写全四要素：外观特征 + 控件类型 + 屏幕位置 + 周边锚点。例：搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮。必须和 bbox 一起给。"
+      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: 搜索框右侧的橙色圆角按钮，白色文字「查行情」，紧邻「进股吧」按钮. Required together with bbox."
     bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "目标大概在 [x1, y1, x2, y2]，逻辑像素。通常直接用上一步 locate_element 返回的 bbox。工具会以此为搜索种子重新定位确认，再点确认后的中心——所以框粗一点没关系，但必须和 target_desc 一起给。"
+      description: "Roughly where the target is, [x1, y1, x2, y2] in logical pixels. Usually the bbox returned by locate_element. The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
     goal:
       type: string
     action:
@@ -243,24 +243,24 @@ mouse_drag_from_to_at:
   properties:
     from_target_desc:
       type: string
-      description: "拖拽的起点是什么（例：桌面上的文件图标）。必须和 from_bbox 一起给。"
+      description: "What the drag grabs (e.g. a file icon on the desktop). Required together with from_bbox."
     from_bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "起点大概在 [x1, y1, x2, y2]，逻辑像素。通常用 locate_element 返回的 bbox。"
+      description: "Roughly where the grab point is, [x1, y1, x2, y2] in logical pixels. Usually the bbox from locate_element."
     to_target_desc:
       type: string
-      description: "拖到哪里（例：回收站图标）。必须和 to_bbox 一起给。"
+      description: "Where the drag drops it (e.g. the Trash icon). Required together with to_bbox."
     to_bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "终点大概在 [x1, y1, x2, y2]，逻辑像素。通常用 locate_element 返回的 bbox。"
+      description: "Roughly where the drop point is, [x1, y1, x2, y2] in logical pixels. Usually the bbox from locate_element."
     goal:
       type: string
     action:

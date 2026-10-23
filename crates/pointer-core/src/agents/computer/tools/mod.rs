@@ -511,10 +511,10 @@ mod tests {
             &["locate_element".to_string()],
         );
         assert!(appendix.contains("### locate_element"), "{appendix}");
-        assert!(appendix.contains("最多 3 项"), "usage rules must reach the model");
+        assert!(appendix.contains("Three entries maximum"), "usage rules must reach the model");
         // goal 在顶层，模型最容易搞错的就是这一点
         assert!(appendix.contains("\"goal\""), "{appendix}");
-        assert!(appendix.contains("顶层"), "{appendix}");
+        assert!(appendix.contains("top level"), "{appendix}");
     }
 
     #[test]

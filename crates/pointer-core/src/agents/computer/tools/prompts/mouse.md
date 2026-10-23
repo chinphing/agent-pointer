@@ -14,11 +14,10 @@ on that target this turn (buttons, toggles, icons, links, menus).
 ```
 
 - **`target_desc`** — what you want to act on, in words.
-- **`bbox`** — roughly where it is, `[x1, y1, x2, y2]` in logical pixels.
-  **Take it from the `locate_element` result** — that is exactly what its
-  `bbox` field is for. If you are estimating it yourself, a loose box is fine:
-  the tool re-grounds inside it and clicks the **confirmed** centre, not the
-  centre of your box.
+- **`bbox`** — roughly where it is, `[x1, y1, x2, y2]` in logical pixels. A
+  loose box is fine: the tool re-grounds inside it and clicks the **confirmed**
+  centre, not the centre of your box. A box around the wrong area is not fine —
+  grounding cannot find the target outside it.
 
 **`target_desc`** follows **Writing `target_desc`** in your system prompt —
 four parts, in one sentence. The position and the anchor are what separate two

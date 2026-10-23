@@ -20,7 +20,7 @@ Each tool name is the complete operation — no `method` parameter.
 Each position is grounded **before** any click happens, and the whole batch
 aborts if one of them cannot be found — a half-applied selection is worse than
 none, because the next step would build on a state you did not actually create.
-Take `bbox` from `locate_element`; there is no raw-coordinate form.
+A loose box per target is fine; there is no raw-coordinate form.
 
 **Each `target_desc`** follows **Writing `target_desc`** in your system prompt —
 four parts, in one sentence. Two rows of the same table look alike; the position

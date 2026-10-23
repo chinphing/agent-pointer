@@ -11,7 +11,6 @@ toolNames:
   - keyboard
   - input
   - modified_click
-  - locate_element
   - wait
   - clipboard
   - list_apps
@@ -23,7 +22,6 @@ accessPolicy:
     - keyboard
     - input
     - modified_click
-    - locate_element
     - wait
     - clipboard
     - list_apps
@@ -61,13 +59,9 @@ Optional **`wait`** (1–5 s) holds the next step back; use the standalone
 
 ## Locating targets
 
-Your direct estimate of screen pixel coordinates is unreliable. Before acting on
-a visible target, call **`locate_element`** and pass its returned `bbox` — along
-with the same `target_desc` — to `mouse_click_at` / `mouse_hover_at` /
-`mouse_down` / `mouse_up` / `mouse_drag_to` / `input_at`.
-
-The pointing tools re-ground inside that box before clicking, so the box does
-not have to be pixel-perfect: it narrows the search, and the description decides
+Your direct estimate of screen pixel coordinates is unreliable. The pointing
+tools re-ground inside the box you pass before clicking, so the box does not
+have to be pixel-perfect: it narrows the search, and the description decides
 what counts as a match. A loose box around the right area works; a precise box
 around the wrong element does not.
 
@@ -78,9 +72,9 @@ coordinate-taking form of these tools any more. `mouse_drag_from_to_at` takes
 
 ### Writing `target_desc`
 
-Every pointing tool — `locate_element`'s `elements[].description`, `mouse_*`'s
-`target_desc`, `input_at`'s `target_desc`, and each `modified_click_*`
-`positions[].target_desc` — uses the **same four parts**, in one sentence:
+Every pointing tool — `mouse_*`'s `target_desc`, `input_at`'s `target_desc`, and
+each `modified_click_*` `positions[].target_desc` — uses the **same four parts**,
+in one sentence:
 
 | Part | What to write | Example |
 | --- | --- | --- |

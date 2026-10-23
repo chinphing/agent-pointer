@@ -21,8 +21,8 @@ turn to type the same field. Put **`text`**, **`clear_first`**, and
 - **`input_at`** — Ground **`target_desc`** inside **`bbox`**, click the confirmed
   centre, then type. Requires **`target_desc`**, **`bbox`**, **`text`**.
   Both parts are required: `bbox` narrows the search, `target_desc` says which
-  control it is. Take `bbox` from `locate_element` — it is exactly what that
-  field is for. There is no raw-coordinate form.
+  control it is. A loose box is fine — grounding re-finds the field inside it.
+  There is no raw-coordinate form.
 
 **`target_desc`** follows **Writing `target_desc`** in your system prompt —
 four parts, in one sentence. Several inputs can share a placeholder; the

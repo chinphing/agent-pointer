@@ -313,39 +313,6 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         }
     }
 
-    // ── locate_element (async-only: B5 visual grounding) ──────────────────
-    {
-        const LOCATE_DOC_SOURCE: &str = "agents/computer/tools/prompts/locate.md";
-        const LOCATE_SCHEMA_YAML: &str = include_str!("prompts/locate.schema.yaml");
-        let schema = load_tools_from_schema_yaml(LOCATE_SCHEMA_YAML)
-            .expect("locate.schema.yaml must be valid")
-            .into_iter()
-            .next()
-            .expect("locate.schema.yaml missing locate_element entry")
-            .1;
-        let doc = include_str!("prompts/locate.md").trim();
-        reg.register(
-            ToolEntry::new(
-                "locate_element",
-                LOCATE_DOC_SOURCE,
-                "low",
-                false,
-                doc,
-                Arc::new(|_args| {
-                    Err(anyhow::anyhow!(
-                        "locate_element is executed by the chat runtime async path, not synchronous invoke"
-                    ))
-                }),
-            )
-            .with_schema(schema)
-            // GUI tools must never run concurrently: locate captures a fresh
-            // screenshot, and the coordinates it returns are consumed by the
-            // very next desktop action (design §6.3.1).
-            .with_parallel_metadata(false, crate::tools::parallel::ToolConflictClass::Computer)
-            .with_subagent_inheritance(false),
-        );
-    }
-
     // ── wait ─────────────────────────────────────────────────────────────
     {
         const WAIT_DOC_SOURCE: &str = "agents/computer/tools/prompts/wait.md";
@@ -478,55 +445,12 @@ mod tests {
     }
 
     #[test]
-    fn registers_locate_element_as_serial_computer_tool() {
+    fn locate_element_is_not_registered() {
+        // Grounding is internal now: pointing tools locate the target themselves,
+        // so there is no standalone tool for the model to call first.
         let reg = registry_with_computer_tools();
-        assert!(reg.list_defs().iter().any(|d| d.name == "locate_element"));
-        // GUI tools must be serial: a stale screenshot would poison the next action.
-        assert!(!reg.is_parallel_eligible("locate_element"));
-        assert_eq!(
-            reg.tool_conflict_class("locate_element"),
-            ToolConflictClass::Computer
-        );
-    }
-
-    #[test]
-    fn locate_element_schema_caps_batch_at_three() {
-        let reg = registry_with_computer_tools();
-        let tools = reg.openai_tools(&["locate_element".to_string()]);
-        assert_eq!(tools.len(), 1, "locate_element must be exposed to the LLM");
-        let params = &tools[0]["function"]["parameters"];
-        assert_eq!(params["properties"]["elements"]["maxItems"], 3);
-        assert_eq!(params["properties"]["elements"]["minItems"], 1);
-        assert_eq!(
-            params["properties"]["elements"]["items"]["required"][0],
-            "description"
-        );
-    }
-
-    #[test]
-    fn locate_element_doc_reaches_the_system_tools_appendix() {
-        let reg = registry_with_computer_tools();
-        let appendix = crate::tools_system_appendix::generate_tools_system_appendix(
-            &reg,
-            &["locate_element".to_string()],
-        );
-        assert!(appendix.contains("### locate_element"), "{appendix}");
-        assert!(appendix.contains("Three entries maximum"), "usage rules must reach the model");
-        // goal 在顶层，模型最容易搞错的就是这一点
-        assert!(appendix.contains("\"goal\""), "{appendix}");
-        assert!(appendix.contains("top level"), "{appendix}");
-    }
-
-    #[test]
-    fn locate_element_sync_handler_redirects_to_async_path() {
-        let reg = registry_with_computer_tools();
-        let err = reg
-            .invoke("locate_element", serde_json::json!({"elements": []}))
-            .expect_err("sync invoke must not execute locate_element");
-        assert!(
-            err.to_string().contains("async path"),
-            "unexpected error: {err}"
-        );
+        assert!(!reg.list_defs().iter().any(|d| d.name == "locate_element"));
+        assert!(reg.openai_tools(&["locate_element".to_string()]).is_empty());
     }
 
     /// The seven tools P4 adds on top of the existing surface (design §7.4).

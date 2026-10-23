@@ -1747,23 +1747,25 @@ mod builtin_agent_tests {
     }
 
     #[test]
-    fn computer_builtin_allows_locate_element() {
+    fn computer_builtin_does_not_expose_locate_element() {
+        // Grounding is internal: the pointing tools locate their own target, so
+        // the model has no standalone locate tool to call first.
         let raw = include_str!("computer/AGENT.md");
         let agent = load_builtin_agent("computer", raw, "").expect("load builtin computer");
         assert!(
-            agent
+            !agent
                 .def
                 .access_policy
                 .allow_tools
                 .contains(&"locate_element".to_string()),
-            "computer allowTools must include locate_element (B5 grounding)"
+            "computer allowTools must not list the removed locate_element tool"
         );
         assert!(
-            agent
+            !agent
                 .def
                 .tool_names
                 .contains(&"locate_element".to_string()),
-            "computer toolNames must declare locate_element"
+            "computer toolNames must not declare locate_element"
         );
     }
 

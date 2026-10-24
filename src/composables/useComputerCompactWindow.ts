@@ -51,9 +51,13 @@ export async function shrinkComputerCompactWindow(
   resizeOnly = false
 ): Promise<boolean> {
   if (!isTauriRuntime()) return false
-  if (!resizeOnly && compactActive) return true
+  // 不要在这里短路成 `if (compactActive) return true`：`compactActive` 是模块级
+  // 标志，窗口被外部还原（用户拖拽、系统恢复）时它不会知道。一旦短路，再次
+  // 进入收缩态就只切 UI 不缩窗口——界面是收缩态的样子，却铺满全屏。
+  // `placeComputerCompactWindow` 在 Rust 侧无条件 set_size，本身就是幂等的，
+  // 每次调一遍没有副作用。
   try {
-    if (!resizeOnly) {
+    if (!resizeOnly && !compactActive) {
       await beginComputerCompactWindow()
       await setCompactWindowBackground(true)
       compactActive = true

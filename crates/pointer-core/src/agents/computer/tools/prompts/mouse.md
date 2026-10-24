@@ -90,14 +90,16 @@ negative = left. A notch is one detent of a physical wheel — how far that move
 depends on the app and its font size, so there is no pixel equivalent to aim at.
 Start around **30** for a meaningful jump. The previous scroll's tool result
 reports how far it actually went — `Verify: pass — moved ~0.3 target-heights`
-means 30 notches covered about a third of the panel, so scale from there. At
-least one axis must be non-zero. Values beyond ±100 are clamped, and the result
-says so (`Requested 0×-900, clamped to ±100 notches`) — read that line, it means
-your request was larger than one call can deliver.
+for vertical, `moved ~0.3 target-widths` for horizontal, both listed when both
+axes moved — so scale from there. At least one axis must be non-zero. Values
+beyond ±100 are clamped, and the result says so (`Requested 0×-900, clamped to
+±100 notches`) — read that line, it means your request was larger than one call
+can deliver.
 
 **After scroll:** read the `Verify:` line in that tool's result. `pass` with
-`moved ~N target-heights` tells you how far the last notch count went — scale
-the next one from it. `fail (at_edge)` means the content cannot move further in
-that direction: stop scrolling and continue with the next step. `fail
-(wrong_operation)` with `moved 0` means the pointer was not over a scrollable
-area — pass `target_desc` + `bbox` to name the panel instead of adding notches.
+`moved ~N target-heights` (or `target-widths` for a horizontal scroll) tells you
+how far the last notch count went — scale the next one from it. `fail (at_edge)`
+means the content cannot move further in that direction: stop scrolling and
+continue with the next step. `fail (wrong_operation)` with `moved 0` means the
+pointer was not over a scrollable area — pass `target_desc` + `bbox` to name the
+panel instead of adding notches.

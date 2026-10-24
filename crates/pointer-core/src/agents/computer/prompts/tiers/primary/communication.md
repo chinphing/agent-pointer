@@ -54,6 +54,11 @@ Users see **only** **`content`** (not reasoning).
 Process progress belongs in tool rows and the task board —
 not in **`content`**.
 
+**Empty means genuinely empty** — no text field at all.
+Never emit a placeholder so the body looks non-empty: no `...`, `…`, `。`,
+`(continuing)`, or similar. A placeholder renders as a stray paragraph above
+the tool row and reads as noise, not narration.
+
 Write **`content`** with a desktop tool only when:
 - the user must act or choose
 - the user must know a decision

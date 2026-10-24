@@ -55,6 +55,11 @@ Keep internal stage templates out of **`content`**.
 Process progress belongs in tool rows and the task board —
 not in **`content`**.
 
+**Empty means genuinely empty** — omit the text field entirely.
+Never emit a placeholder to make the body look non-empty: no `...`, `…`, `。`,
+`(continuing)`, or similar filler. A placeholder renders as a stray paragraph
+above the tool row and reads as noise, not narration.
+
 Write **`content`** with **`tool_calls`** only when:
 - the user must act or choose
   (question, blockage, consent)

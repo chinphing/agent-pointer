@@ -163,10 +163,23 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                     x2: 0.0,
                     y2: 0.0,
                 });
+                // `what_i_saw` is the verifier's `why`, which already opens with
+                // "框内是…". Wrapping it in another "框内是：" produced
+                // "框内是：框内是…", so use it verbatim.
+                let saw = o.what_i_saw.trim();
+                // `rounds > 1` means the first box was rejected and re-located.
+                // The main model needs that: a 3-round locate that ended right is
+                // less trustworthy than a first-try hit, and it tells the model
+                // its description was misleading.
+                let summary = if o.rounds > 1 {
+                    format!("{saw}（纠正 {} 轮后确认）", o.rounds)
+                } else {
+                    saw.to_string()
+                };
                 json!({
                     "status": "located",
                     "target_desc": o.description,
-                    "summary": format!("框内是：{}", o.what_i_saw.trim()),
+                    "summary": summary,
                     "bbox": [
                         b.x1.round() as i64,
                         b.y1.round() as i64,
@@ -174,6 +187,7 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                         b.y2.round() as i64,
                     ],
                     "confidence": o.confidence.map(|c| c.as_str()),
+                    "rounds": o.rounds,
                 })
             } else {
                 let status = o.reason.map(|r| r.as_str()).unwrap_or("failed");
@@ -195,6 +209,7 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                     "status": status,
                     "target_desc": o.description,
                     "summary": summary,
+                    "rounds": o.rounds,
                 })
             }
         })
@@ -250,11 +265,14 @@ mod tests {
         let summary = r["summary"].as_str().unwrap();
         // what_i_saw 并进 summary，不再单独成字段
         assert!(summary.contains("圆形箭头图标"), "{summary}");
+        // 一次就中，不要画蛇添足说「纠正 1 轮」
+        assert!(!summary.contains("纠正"), "{summary}");
         assert!(r.get("what_i_saw").is_none(), "{r}");
         // 冗余字段已经删掉
         assert!(r.get("ok").is_none(), "{r}");
         assert!(r.get("box").is_none(), "{r}");
-        assert!(r.get("rounds").is_none(), "{r}");
+        // rounds 现在是有效信息：主模型据此判断这次定位可不可信
+        assert_eq!(r["rounds"], 1, "{r}");
         assert!(r.get("description").is_none(), "{r}");
     }
 
@@ -423,11 +441,18 @@ mod tests {
         assert!(results[1].get("bbox").is_none(), "{}", results[1]);
         assert!(results[1].get("x").is_none());
         assert!(results[1].get("box").is_none());
-        // 冗余字段已删：ok / box / rounds / reason / what_i_saw / description
+        // 冗余字段已删：ok / box / reason / what_i_saw / description
+        // （rounds 保留，主模型用它判断定位可信度）
         for i in 0..2 {
-            for gone in ["ok", "box", "rounds", "reason", "what_i_saw", "description"] {
+            for gone in ["ok", "box", "reason", "what_i_saw", "description"] {
                 assert!(results[i].get(gone).is_none(), "{gone} in {}", results[i]);
             }
         }
+        // rounds 两档都要给：成功 2 轮、失败 1 轮
+        assert_eq!(results[0]["rounds"], 2, "{}", results[0]);
+        assert_eq!(results[1]["rounds"], 1, "{}", results[1]);
+        // 纠正过不止一轮时，summary 要说出来
+        let s0 = results[0]["summary"].as_str().unwrap();
+        assert!(s0.contains("纠正 2 轮后确认"), "{s0}");
     }
 }

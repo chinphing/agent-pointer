@@ -130,7 +130,7 @@ mouse_scroll_current:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where that panel is, [x1, y1, x2, y2] in logical pixels. Required together with target_desc; the tool re-grounds inside it."
+      description: "Roughly where that panel is, [x1, y1, x2, y2] in logical pixels. Usually the bbox returned by locate_element. The tool re-grounds inside it and moves the pointer to the confirmed centre, so a loose box is fine — and the point it settles on may differ from the box you passed, because the locator re-finds the panel from target_desc. Required together with target_desc."
     goal:
       type: string
     action:

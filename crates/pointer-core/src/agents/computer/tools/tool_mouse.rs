@@ -181,7 +181,9 @@ pub fn scroll_current(control: &Arc<dyn ComputerControl>, args: &Value) -> Resul
 fn scroll_report(n: ScrollNotches, moved: Option<(i32, i32)>) -> String {
     let mut s = match moved {
         Some((px, py)) => format!(
-            "Moved to ({px}, {py}), then scrolled {}×{} notches there.",
+            "Grounded the panel at ({px}, {py}) — the locator re-finds it from \
+             target_desc, so this may differ from the bbox you passed — then \
+             scrolled {}×{} notches there.",
             n.x, n.y
         ),
         None => format!("Scrolled {}×{} notches at the current pointer.", n.x, n.y),

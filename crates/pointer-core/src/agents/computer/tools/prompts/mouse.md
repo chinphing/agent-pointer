@@ -41,10 +41,12 @@ and same-named elements confuse it).
   unverified coordinate click is how you end up on the same-named element two
   rows away.
 - **`mouse_scroll_current`** takes `notches_x`/`notches_y` in **wheel notches**,
-  plus optional `target_desc` + `bbox`. With the pair, it grounds the panel and
-  moves the pointer there before scrolling — do that whenever the pointer is not
-  already inside the panel. Without them it scrolls whatever sits under the
-  pointer right now.
+  plus optional `target_desc` + `bbox`. With the pair, it re-grounds the panel
+  from `target_desc` inside that box and moves the pointer to the **confirmed**
+  centre — which may sit nowhere near the centre of the box you passed, the same
+  way every other pointing tool works. Do that whenever the pointer is not
+  already inside the panel; the result line names the point it settled on. With
+  no pair it scrolls whatever sits under the pointer right now.
 - **`mouse_drag_from_to_at`** takes **two** pairs, because a drag has two ends:
   `from_target_desc` + `from_bbox` (what to grab) and `to_target_desc` +
   `to_bbox` (where to drop). Both ends are grounded separately, so both must be

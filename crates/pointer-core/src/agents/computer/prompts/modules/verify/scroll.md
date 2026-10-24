@@ -38,20 +38,27 @@ content scrolled**. Everything else follows from that.
 ### Telling `at_edge` from `wrong_operation`
 
 This check runs **only when nothing moved at all** — `moved 0 screen`. Look for
-evidence the content is already at the edge in the direction the scroll was
-going. Any one row is enough:
+evidence the content is already at the edge **in the direction the scroll was
+going**: scrolling down can only stop at the bottom, scrolling up can only stop
+at the top. Any one row is enough.
 
 | Evidence | at the edge? |
 | --- | --- |
-| A footer, pagination bar, "load more", "no more results", "已显示全部", or an end-of-list marker is visible and stays put | yes |
-| The same rows are visible before and after, and nothing below them changed | yes |
-| A scrollbar is visible and its thumb sits at the far end | yes |
-| Content clearly continues past the viewport — a cut-off row at the bottom, more cards below | no |
+| A footer, pagination bar, "load more", "no more results", "已显示全部", or an end-of-list marker is visible and stays put | yes — bottom |
+| The first item of the list is visible at the top and the rows below it are unchanged | yes — top |
+| A page header, site nav, or title block sits at the viewport top with nothing above it, and did not move | yes — top |
+| The same rows are visible before and after, and nothing above or below them changed | yes — either direction |
+| A scrollbar is visible and its thumb sits at the far end the scroll was heading toward | yes — either direction |
+| Content clearly continues past the viewport in the scroll direction — a cut-off row at the bottom when scrolling down, a cut-off row at the top when scrolling up | no |
 | A spinner, skeleton, or progress bar is visible | no — report `loading_detected` instead |
 | No movement and no way to tell | no |
 
 Do **not** rely on the scrollbar alone: macOS hides it when idle, so its absence
 proves nothing.
+
+A scroll that moved 10% of a screen and then stopped at the top is a `pass`, not
+`at_edge`: content moved, and `moved ~0.1 screen` already tells the planner the
+rest. `at_edge` is reserved for a scroll that produced **no** displacement.
 
 ### Reasoning (hard rule)
 

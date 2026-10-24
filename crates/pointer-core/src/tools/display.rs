@@ -436,7 +436,7 @@ pub fn default_display_for(raw_name: &str, args: &Value, locale: UiLocale) -> To
                 String::new(),
             )
         }
-        "clipboard" => {
+        n if n.starts_with("clipboard") => {
             let ml = match method.as_str() {
                 "read" => t(locale, "tools.read"),
                 "write" => t(locale, "tools.write"),
@@ -828,6 +828,19 @@ mod tests {
         let d = zh("list_apps", &json!({"goal": "查找微信"}));
         assert_eq!(d.label, "列出应用");
         assert_eq!(d.summary, "查找微信");
+    }
+
+    #[test]
+    fn clipboard_read_write_get_localized_labels() {
+        // Regression: the arm used to match `"clipboard"` exactly, so the real
+        // tool names (`clipboard_read` / `clipboard_write`) fell through to the
+        // raw-name fallback and rendered untranslated.
+        let read = zh("clipboard_read", &json!({}));
+        assert_eq!(read.label, "剪贴板 · 读取");
+
+        let write = zh("clipboard_write", &json!({"text": "粘贴内容"}));
+        assert_eq!(write.label, "剪贴板 · 写入");
+        assert_eq!(write.summary, "粘贴内容");
     }
 
     #[test]

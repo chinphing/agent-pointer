@@ -8,8 +8,8 @@ use crate::agents::computer::input::mouse_move::MouseMoveProfile;
 use crate::agents::computer::input::timing::is_desktop_vision_log_tool;
 use crate::agents::computer::pipeline::types::{AdvancedPipelineSession, VerifyConclusion};
 use crate::agents::computer::pipeline::{verify_outcome_for_tier, verify_outcome_struct};
-use crate::agents::computer::tier::{
-    format_history_block, normalize_tool_record, ComputerModelConfig, ComputerTierRuntime,
+use crate::agents::computer::runtime::{
+    format_history_block, normalize_tool_record, ComputerModelConfig, ComputerRuntime,
     PipelineLlmPhase,
 };
 use crate::agents::computer::vision::coord::CoordinateSystem;
@@ -76,7 +76,7 @@ pub struct ComputerSession {
     pub last_active_at: u64,
     pub status: SessionStatus,
     pub desktop_log: Vec<DesktopToolEntry>,
-    pub tier_runtime: ComputerTierRuntime,
+    pub runtime: ComputerRuntime,
     pub pipeline: AdvancedPipelineSession,
 }
 
@@ -96,7 +96,7 @@ impl ComputerSession {
             last_active_at: now,
             status: SessionStatus::Active,
             desktop_log: Vec::new(),
-            tier_runtime: ComputerTierRuntime::new(),
+            runtime: ComputerRuntime::new(),
             pipeline: AdvancedPipelineSession::default(),
         }
     }
@@ -115,15 +115,15 @@ pub struct ComputerState {
     /// Default for `human_like` when omitted from tool args (Python `computer_human_like`).
     pub human_like_default: bool,
     /// Base tier options from agent manifest (overridden by app settings when loaded).
-    pub tier_config: ComputerModelConfig,
+    pub pipeline_config: ComputerModelConfig,
     platform_config: Option<SharedPlatformConfig>,
     sessions: Arc<RwLock<HashMap<String, Arc<Mutex<ComputerSession>>>>>,
 }
 
 impl ComputerState {
     /// Merge agent manifest tier config with persisted user settings.
-    pub fn effective_tier_config(&self) -> ComputerModelConfig {
-        let mut cfg = self.tier_config.clone();
+    pub fn effective_pipeline_config(&self) -> ComputerModelConfig {
+        let mut cfg = self.pipeline_config.clone();
         if let Some(pc) = &self.platform_config {
             let platform = pc.read();
             let user = crate::storage::load_user_settings().unwrap_or_default();
@@ -162,10 +162,10 @@ impl ComputerState {
         // mouse movement no matter what the UI showed.
         let human_like_default =
             crate::platform_config::effective_settings_global().computer_human_like;
-        let tier_config = ComputerModelConfig::from_agent_registry(agents);
+        let pipeline_config = ComputerModelConfig::from_agent_registry(agents);
         Self::with_annotate_url_human_like_and_tier(
             human_like_default,
-            tier_config,
+            pipeline_config,
             Some(platform_config),
         )
     }
@@ -192,7 +192,7 @@ impl ComputerState {
 
     pub fn with_annotate_url_human_like_and_tier(
         human_like_default: bool,
-        tier_config: ComputerModelConfig,
+        pipeline_config: ComputerModelConfig,
         platform_config: Option<SharedPlatformConfig>,
     ) -> Self {
         #[cfg(feature = "computer")]
@@ -217,7 +217,7 @@ impl ComputerState {
             executor,
             control,
             human_like_default,
-            tier_config,
+            pipeline_config,
             platform_config,
             sessions: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -227,7 +227,7 @@ impl ComputerState {
     /// (repetition_count reached GIVE_UP_THRESHOLD) and the outer loop should exit.
     pub fn should_give_up(&self, conversation_id: &str) -> bool {
         let session = self.get_or_create_session(conversation_id);
-        let g = session.lock().unwrap().tier_runtime.should_give_up;
+        let g = session.lock().unwrap().runtime.should_give_up;
         g
     }
 
@@ -237,7 +237,7 @@ impl ComputerState {
         session
             .lock()
             .unwrap()
-            .tier_runtime
+            .runtime
             .reset_for_new_user_guidance();
     }
 
@@ -248,7 +248,7 @@ impl ComputerState {
         phase: PipelineLlmPhase,
         settings: &crate::models::ModelSettings,
     ) -> crate::models::ModelSettings {
-        let cfg = self.effective_tier_config();
+        let cfg = self.effective_pipeline_config();
         let model = cfg.pipeline_llm.model_for_phase(phase).to_string();
         let provider = cfg.pipeline_llm.provider_for_phase(phase).to_string();
         let mut s = settings.clone();
@@ -283,7 +283,7 @@ impl ComputerState {
 
     /// Whether host post-execute verify is enabled (all tiers when true).
     pub fn verify_host_enabled(&self) -> bool {
-        self.effective_tier_config().verify_host_enabled
+        self.effective_pipeline_config().verify_host_enabled
     }
 
     /// Retrieve or create the session for a conversation, updating last_active_at and evicting if needed.
@@ -559,8 +559,8 @@ impl ComputerState {
             if let Some(note) = failure_note.map(str::trim).filter(|n| !n.is_empty()) {
                 record.extra_args_hint = Some(format!("FAILED: {note}"));
             }
-            s.tier_runtime.last_executed_goal = Some(record.goal.clone());
-            s.tier_runtime.push_action(record);
+            s.runtime.last_executed_goal = Some(record.goal.clone());
+            s.runtime.push_action(record);
         }
     }
 
@@ -568,8 +568,8 @@ impl ComputerState {
     pub fn recent_actions_prompt_block(&self, conversation_id: &str) -> Option<String> {
         let session = self.get_or_create_session(conversation_id);
         let mut s = session.lock().unwrap();
-        s.tier_runtime.auto_close_stale_open_rows();
-        format_history_block(s.tier_runtime.history(), s.tier_runtime.give_up_reference())
+        s.runtime.auto_close_stale_open_rows();
+        format_history_block(s.runtime.history(), s.runtime.give_up_reference())
     }
 
     /// Legacy hook after assistant round — verify is applied by host pipeline post-execute.
@@ -667,15 +667,15 @@ impl ComputerState {
         let session = self.get_or_create_session(conversation_id);
         let mut s = session.lock().unwrap();
         s.pipeline.last_verify = Some(conclusion.clone());
-        let last_goal = s.tier_runtime.last_executed_goal.clone();
-        let backfilled = s.tier_runtime.backfill_newest_open_verify(outcome);
+        let last_goal = s.runtime.last_executed_goal.clone();
+        let backfilled = s.runtime.backfill_newest_open_verify(outcome);
         let host_repetition_count =
-            crate::agents::computer::tier::same_goal_repetition_count_in_history(
-                s.tier_runtime.history(),
+            crate::agents::computer::runtime::same_goal_repetition_count_in_history(
+                s.runtime.history(),
             );
-        let config = self.effective_tier_config();
+        let config = self.effective_pipeline_config();
         if backfilled {
-            s.tier_runtime.on_round_complete(
+            s.runtime.on_round_complete(
                 &config,
                 Some(&parsed),
                 last_goal.as_deref(),
@@ -716,7 +716,7 @@ impl ComputerState {
     pub fn tier_history_has_verify_pass(&self, conversation_id: &str) -> bool {
         let session = self.get_or_create_session(conversation_id);
         let s = session.lock().unwrap();
-        s.tier_runtime.history().iter().rev().any(|r| {
+        s.runtime.history().iter().rev().any(|r| {
             r.verify_result
                 .as_ref()
                 .is_some_and(|v| v.step_result.eq_ignore_ascii_case("pass"))
@@ -726,7 +726,7 @@ impl ComputerState {
     pub fn tier_history_has_verify_report(&self, conversation_id: &str) -> bool {
         let session = self.get_or_create_session(conversation_id);
         let s = session.lock().unwrap();
-        s.tier_runtime.history().iter().rev().any(|r| {
+        s.runtime.history().iter().rev().any(|r| {
             r.verify_result.as_ref().is_some_and(|v| {
                 let step = v.step_result.as_str();
                 step != "skipped" && step != "pending"
@@ -739,7 +739,7 @@ impl ComputerState {
         let block = session
             .lock()
             .unwrap()
-            .tier_runtime
+            .runtime
             .locked_goal_dynamic_block();
         block
     }
@@ -747,7 +747,7 @@ impl ComputerState {
     pub fn locked_goal_label(&self, conversation_id: &str) -> Option<String> {
         let session = self.get_or_create_session(conversation_id);
         let guard = session.lock().unwrap();
-        guard.tier_runtime.locked_goal_label().map(str::to_string)
+        guard.runtime.locked_goal_label().map(str::to_string)
     }
 }
 

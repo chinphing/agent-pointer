@@ -9,7 +9,7 @@
 //! Nothing in this module knows about mice or keyboards — it answers "where is
 //! this thing", and the caller decides what to do with the answer.
 
-use crate::agents::computer::tier::PipelineLlmPhase;
+use crate::agents::computer::runtime::PipelineLlmPhase;
 use crate::provider::OpenAIProvider;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
@@ -28,7 +28,7 @@ pub(super) fn locate_provider(
     provider: &OpenAIProvider,
 ) -> anyhow::Result<OpenAIProvider> {
     let phase_settings = {
-        let cfg = state.computer_state.effective_tier_config();
+        let cfg = state.computer_state.effective_pipeline_config();
         let model = cfg.pipeline_llm.model_locate.trim();
         if model.is_empty() {
             provider.settings.clone()

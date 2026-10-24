@@ -1,4 +1,4 @@
-import type { ComputerTierLlmConfig } from '../types/chat'
+import type { PerformanceModeLlmConfig } from '../types/chat'
 import { t } from '../i18n'
 
 /** Unified product thinking intensity ladder. */
@@ -190,7 +190,7 @@ export function strategyShowsIntensity(protocol: ThinkingProtocol | ''): boolean
 }
 
 /** Scene-tier / debug UI intensity for effort-protocol providers (DeepSeek). */
-export function patchEffortThinking(value: EffortThinkingIntensity): Partial<ComputerTierLlmConfig> {
+export function patchEffortThinking(value: EffortThinkingIntensity): Partial<PerformanceModeLlmConfig> {
   if (value === 'off') {
     return {
       thinkingIntensity: 'off',
@@ -234,7 +234,7 @@ export function effortThinkingValue(config: {
 /** Full intensity ladder for scene / custom providers. */
 export function patchTierThinkingIntensity(
   value: '' | ThinkingIntensity
-): Partial<ComputerTierLlmConfig> {
+): Partial<PerformanceModeLlmConfig> {
   const patch = patchFromThinkingIntensity(value)
   return {
     thinkingIntensity: patch.thinkingIntensity as ThinkingIntensity | undefined,
@@ -254,7 +254,7 @@ export function thinkingPatchFromProviderModel(
   }> }[],
   providerId: string,
   model: string
-): Partial<ComputerTierLlmConfig> {
+): Partial<PerformanceModeLlmConfig> {
   const provider = providers.find(item => item.id === providerId)
   const over = provider?.modelConfigs?.[model]
   return patchTierThinkingIntensity(
@@ -276,10 +276,10 @@ const TIER_THINKING_KEYS = [
 
 /** Merge a tier patch; `undefined` thinking fields mean 「不设置」 and drop prior values. */
 export function mergeTierLlmPatch(
-  prev: ComputerTierLlmConfig,
-  patch: Partial<ComputerTierLlmConfig>
-): ComputerTierLlmConfig {
-  const next: ComputerTierLlmConfig = { ...prev, ...patch }
+  prev: PerformanceModeLlmConfig,
+  patch: Partial<PerformanceModeLlmConfig>
+): PerformanceModeLlmConfig {
+  const next: PerformanceModeLlmConfig = { ...prev, ...patch }
   for (const key of TIER_THINKING_KEYS) {
     if (Object.prototype.hasOwnProperty.call(patch, key) && patch[key] === undefined) {
       delete next[key]

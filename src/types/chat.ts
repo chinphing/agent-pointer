@@ -566,12 +566,12 @@ export type AgentPerformanceModes = Partial<Record<string, PerformanceMode>>
 
 /** Debug: agentId → mode → LLM profile (like computer tier models). */
 export type AgentModeLlmMap = Partial<
-  Record<string, Partial<Record<PerformanceModeKey, ComputerTierLlmConfig>>>
+  Record<string, Partial<Record<PerformanceModeKey, PerformanceModeLlmConfig>>>
 >
 
 /** Debug: media kind → mode → LLM profile. */
 export type MediaModeLlmMap = Partial<
-  Record<'image' | 'audio' | 'video', Partial<Record<PerformanceModeKey, ComputerTierLlmConfig>>>
+  Record<'image' | 'audio' | 'video', Partial<Record<PerformanceModeKey, PerformanceModeLlmConfig>>>
 >
 
 export interface ProviderConfig {
@@ -728,7 +728,7 @@ export interface MediaOssConfig {
   deleteAfterUse?: boolean
 }
 
-export interface ComputerTierLlmConfig {
+export interface PerformanceModeLlmConfig {
   providerId: string
   model: string
   enableThinking?: boolean

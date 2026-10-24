@@ -7,8 +7,8 @@ pub mod extension_hooks;
 pub mod input;
 pub mod locate;
 pub mod pipeline;
+pub mod runtime;
 pub mod state;
-pub mod tier;
 pub mod tool_names;
 pub mod tools;
 pub mod verify;
@@ -22,8 +22,8 @@ pub use input::{mouse_move, mouse_path, timing};
 pub use state::{
     ComputerSession, ComputerState, DesktopToolEntry, ScreenCaptureResult, SessionStatus,
 };
-pub use tier::{
-    ComputerModelConfig, ComputerTier, ComputerTierRuntime,
+pub use runtime::{
+    ComputerModelConfig, ComputerRuntime,
 };
 pub use timing::{
     is_desktop_post_delay_tool, is_desktop_vision_log_tool,

@@ -3,7 +3,7 @@ import {
   mergeTierLlmPatch,
   thinkingPatchFromProviderModel
 } from './thinkingIntensity'
-import type { ComputerTierLlmConfig } from '../types/chat'
+import type { PerformanceModeLlmConfig } from '../types/chat'
 
 describe('thinkingPatchFromProviderModel', () => {
   const providers = [
@@ -48,7 +48,7 @@ describe('thinkingPatchFromProviderModel', () => {
 
 describe('mergeTierLlmPatch', () => {
   it('drops prior intensity when the user picks 不设置', () => {
-    const prev: ComputerTierLlmConfig = {
+    const prev: PerformanceModeLlmConfig = {
       providerId: 'qwen',
       model: 'qwen-plus',
       thinkingIntensity: 'high',

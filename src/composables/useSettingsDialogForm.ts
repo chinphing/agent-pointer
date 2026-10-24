@@ -19,7 +19,7 @@ import type {
   AgentDef,
   AgentUiConfig,
   ComputerPipelineLlmSettings,
-  ComputerTierLlmConfig,
+  PerformanceModeLlmConfig,
   MediaModelOverrides,
   PerformanceMode,
   PerformanceModeKey,
@@ -143,7 +143,7 @@ function createSettingsDialogForm(deps: {
   }, 250)
   }
 
-  function patchAgentModeLlm(agentId: string, mode: PerformanceModeKey, patch: Partial<ComputerTierLlmConfig>) {
+  function patchAgentModeLlm(agentId: string, mode: PerformanceModeKey, patch: Partial<PerformanceModeLlmConfig>) {
   const next = { ...(s.settings.agentModeLlm ?? {}) }
   const agentMap = { ...(next[agentId] ?? {}) }
   const prev = agentMap[mode] ?? agentModeLlm(agentId, mode)
@@ -153,7 +153,7 @@ function createSettingsDialogForm(deps: {
   scheduleDebugModelSave()
   }
 
-  function agentModeLlm(agentId: string, mode: PerformanceModeKey): ComputerTierLlmConfig {
+  function agentModeLlm(agentId: string, mode: PerformanceModeKey): PerformanceModeLlmConfig {
   const m = s.settings.agentModeLlm?.[agentId]?.[mode]
   if (m?.model) {
     // Built-in defaults carry a model but no provider: they run on whatever
@@ -169,7 +169,7 @@ function createSettingsDialogForm(deps: {
   return fallback ? withInheritedThinking(fallback, s.settings.providers) : emptyTierConfig()
   }
 
-  function patchMediaModeLlm(kind: MediaDebugKind, mode: PerformanceModeKey, patch: Partial<ComputerTierLlmConfig>) {
+  function patchMediaModeLlm(kind: MediaDebugKind, mode: PerformanceModeKey, patch: Partial<PerformanceModeLlmConfig>) {
   const next = { ...(s.settings.mediaModeLlm ?? {}) }
   const kindMap = { ...(next[kind] ?? {}) }
   const prev = kindMap[mode] ?? mediaModeLlm(kind, mode)
@@ -179,7 +179,7 @@ function createSettingsDialogForm(deps: {
   scheduleDebugModelSave()
   }
 
-  function mediaModeLlm(kind: MediaDebugKind, mode: PerformanceModeKey): ComputerTierLlmConfig {
+  function mediaModeLlm(kind: MediaDebugKind, mode: PerformanceModeKey): PerformanceModeLlmConfig {
   const m = s.settings.mediaModeLlm?.[kind]?.[mode]
   if (m?.providerId && m.model) return m
   const fallback = platformMediaModeDefault(s.platformSettings.tierDefaults, kind, mode)

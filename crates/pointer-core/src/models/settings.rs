@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
-use crate::agents::computer::tier::{
+use crate::agents::computer::runtime::{
     DEFAULT_PIPELINE_POSITION_THINKING_BUDGET, DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET,
 };
 

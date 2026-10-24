@@ -1,6 +1,6 @@
 import type {
   ComputerPipelineLlmSettings,
-  ComputerTierLlmConfig,
+  PerformanceModeLlmConfig,
   ModelRuntimeOverrides,
   PlatformProviderModelTemplate,
   PlatformProviderTemplate,
@@ -11,7 +11,7 @@ import { parseThinkingIntensity, thinkingPatchFromProviderModel } from './thinki
 
 export type PlatformTierRef = { providerId: string; model: string }
 
-export function emptyTierConfig(): ComputerTierLlmConfig {
+export function emptyTierConfig(): PerformanceModeLlmConfig {
   return { providerId: '', model: '' }
 }
 
@@ -155,7 +155,7 @@ function nestedMap(
 export function withInheritedThinking(
   ref: PlatformTierRef,
   providers: ProviderConfig[]
-): ComputerTierLlmConfig {
+): PerformanceModeLlmConfig {
   return {
     providerId: ref.providerId,
     model: ref.model,

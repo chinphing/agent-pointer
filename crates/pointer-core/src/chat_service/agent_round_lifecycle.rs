@@ -64,7 +64,7 @@ pub(super) fn computer_round_complete_or_give_up(
     }
     Err(anyhow!(
         "当前任务已尽力但仍无法完成（重复操作达到 {} 次），请提供进一步指导。",
-        crate::agents::computer::tier::GIVE_UP_THRESHOLD
+        crate::agents::computer::runtime::GIVE_UP_THRESHOLD
     ))
 }
 

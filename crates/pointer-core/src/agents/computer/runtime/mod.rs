@@ -43,33 +43,7 @@ pub const TASK_ERROR_THRESHOLD: u32 = GOAL_LOCK_THRESHOLD;
 /// requesting user guidance.
 pub const GIVE_UP_THRESHOLD: u32 = 5;
 
-/// Vision / reasoning profile for one conversation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ComputerTier {
-    Primary,
-    Intermediate,
-    Advanced,
-}
-
-impl ComputerTier {
-    pub fn parse(s: &str) -> Self {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "intermediate" | "mid" | "medium" => Self::Intermediate,
-            "advanced" | "high" => Self::Advanced,
-            _ => Self::Primary,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Primary => "primary",
-            Self::Intermediate => "intermediate",
-            Self::Advanced => "advanced",
-        }
-    }
-}
-
-/// Per-phase LLM model ids and thinking budgets for Advanced modular pipeline.
+/// Per-phase LLM model ids and thinking budgets for the modular pipeline.
 #[derive(Debug, Clone)]
 pub struct ComputerPipelineLlmConfig {
     pub model_decision: String,
@@ -290,7 +264,7 @@ pub struct ParsedVerify {
 }
 
 #[derive(Debug, Clone)]
-pub struct TierActionRecord {
+pub struct ActionRecord {
     pub tool_name: String,
     pub goal: String,
     pub action: Option<String>,
@@ -307,10 +281,10 @@ pub struct LockedGoal {
 
 /// Per-conversation computer-agent runtime state (tool history + give-up state).
 #[derive(Debug, Clone)]
-pub struct ComputerTierRuntime {
+pub struct ComputerRuntime {
     pub task_error_streak: u32,
     pub locked_goal: Option<LockedGoal>,
-    histories: Vec<TierActionRecord>,
+    histories: Vec<ActionRecord>,
     /// Goal of the last desktop tool executed (for lock counting).
     pub last_executed_goal: Option<String>,
     /// Fail streak for the current goal before lock engages.
@@ -324,7 +298,13 @@ pub struct ComputerTierRuntime {
     give_up_reference: Option<String>,
 }
 
-impl ComputerTierRuntime {
+impl Default for ComputerRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ComputerRuntime {
     pub fn new() -> Self {
         Self {
             task_error_streak: 0,
@@ -342,11 +322,11 @@ impl ComputerTierRuntime {
         self.give_up_reference.as_deref()
     }
 
-    pub fn history(&self) -> &[TierActionRecord] {
+    pub fn history(&self) -> &[ActionRecord] {
         &self.histories
     }
 
-    pub fn push_action(&mut self, record: TierActionRecord) {
+    pub fn push_action(&mut self, record: ActionRecord) {
         self.auto_close_all_open_rows_before_push();
         let v = &mut self.histories;
         v.push(record);
@@ -513,7 +493,7 @@ impl ComputerTierRuntime {
     }
 
     fn build_give_up_reference_block(&self) -> Option<String> {
-        let all_rows: Vec<&TierActionRecord> = self.histories.iter().collect();
+        let all_rows: Vec<&ActionRecord> = self.histories.iter().collect();
         if all_rows.is_empty() {
             return None;
         }
@@ -557,7 +537,7 @@ impl ComputerTierRuntime {
 
     /// Test helper: append a history row without auto-closing open rows.
     #[cfg(test)]
-    pub fn test_push_open_row(&mut self, record: TierActionRecord) {
+    pub fn test_push_open_row(&mut self, record: ActionRecord) {
         self.histories.push(record);
     }
 }
@@ -569,7 +549,7 @@ pub fn goal_matches_lock(goal: Option<&str>, lock: Option<&LockedGoal>) -> bool 
     let Some(lock) = lock else {
         return false;
     };
-    ComputerTierRuntime::fingerprint_goal(g) == lock.fingerprint
+    ComputerRuntime::fingerprint_goal(g) == lock.fingerprint
 }
 
 fn normalize_goal_text(s: &str) -> String {
@@ -609,7 +589,7 @@ fn verify_outcome_skipped() -> VerifyOutcome {
 }
 
 /// Mark every open row as skipped (before pushing a new desktop action).
-fn auto_close_all_open_rows_slice(records: &mut [TierActionRecord]) -> u32 {
+fn auto_close_all_open_rows_slice(records: &mut [ActionRecord]) -> u32 {
     let mut n = 0u32;
     for r in records.iter_mut() {
         if r.verify_result.is_none() {
@@ -621,7 +601,7 @@ fn auto_close_all_open_rows_slice(records: &mut [TierActionRecord]) -> u32 {
 }
 
 /// Mark older open rows as skipped; keep the newest open row for verify this turn.
-fn auto_close_stale_open_rows_slice(records: &mut [TierActionRecord]) -> u32 {
+fn auto_close_stale_open_rows_slice(records: &mut [ActionRecord]) -> u32 {
     let open_indices: Vec<usize> = records
         .iter()
         .enumerate()
@@ -643,7 +623,7 @@ fn auto_close_stale_open_rows_slice(records: &mut [TierActionRecord]) -> u32 {
 }
 
 /// Count verify-fail rows for the same goal as the newest history row.
-pub fn same_goal_repetition_count_in_history(records: &[TierActionRecord]) -> u32 {
+pub fn same_goal_repetition_count_in_history(records: &[ActionRecord]) -> u32 {
     let Some(last) = records.last() else {
         return 0;
     };
@@ -660,62 +640,13 @@ pub fn same_goal_repetition_count_in_history(records: &[TierActionRecord]) -> u3
 }
 
 /// Back-compat alias for [`same_goal_repetition_count_in_history`].
-pub fn same_goal_fail_count_in_history(records: &[TierActionRecord]) -> u32 {
+pub fn same_goal_fail_count_in_history(records: &[ActionRecord]) -> u32 {
     same_goal_repetition_count_in_history(records)
-}
-
-/// Host-maintained counters for internal runtime diagnostics.
-pub fn format_tier_runtime_block(
-    rt: &ComputerTierRuntime,
-    _config: &ComputerModelConfig,
-    tier: ComputerTier,
-    records: &[TierActionRecord],
-) -> String {
-    let mut lines = vec![
-        "[Computer tier runtime — host-maintained; not screenshots.]".to_string(),
-        format!("Current tier: {}", tier.label()),
-    ];
-    let rep_count = same_goal_repetition_count_in_history(records);
-    if records.is_empty() {
-        lines.push(
-            "Repetition count: none — no prior desktop tool rows in this tier history.".to_string(),
-        );
-    } else if let Some(last) = records.last() {
-        lines.push(format!(
-            "Repetition count: {rep_count} verify fail for goal=\"{}\"",
-            escape_goal(&last.goal)
-        ));
-        let rep_policy = if rep_count == 0 {
-            "repeat-policy: count=0 continue current tactic"
-        } else if rep_count < GIVE_UP_THRESHOLD {
-            "repeat-policy: count=1..4 switch tactic"
-        } else {
-            "repeat-policy: count>=5 exhausted — request user guidance"
-        };
-        lines.push(rep_policy.to_string());
-    }
-    if let Some(lock) = rt.locked_goal.as_ref() {
-        lines.push(format!(
-            "Locked goal active: \"{}\" (task-fail streak {} on this goal)",
-            lock.label.replace('"', "\\\""),
-            rt.task_error_streak
-        ));
-    } else if rt.goal_fail_streak > 0 {
-        lines.push(format!(
-            "Goal-fail streak: {} (>{} locks goal before other goals)",
-            rt.goal_fail_streak, GOAL_LOCK_THRESHOLD
-        ));
-    }
-    lines.push(
-        "On verify pass for the active goal: lock and streaks clear. Tier stays at the session tier."
-            .to_string(),
-    );
-    lines.join("\n")
 }
 
 /// Build the desktop tool history block for `[CUR_SCREEN]`.
 pub fn format_history_block(
-    records: &[TierActionRecord],
+    records: &[ActionRecord],
     give_up_reference: Option<&str>,
 ) -> Option<String> {
     if records.is_empty() && give_up_reference.is_none() {
@@ -755,7 +686,7 @@ pub fn format_history_block(
     Some(lines.join("\n"))
 }
 
-fn format_history_line(r: &TierActionRecord) -> String {
+fn format_history_line(r: &ActionRecord) -> String {
     let mut base = format!("{} goal=\"{}\"", r.tool_name, escape_goal(&r.goal));
     if let Some(ref a) = r.action {
         if !a.is_empty() {
@@ -833,12 +764,12 @@ fn extract_field_line(text: &str, key: &str) -> Option<String> {
     None
 }
 
-/// Build a [`TierActionRecord`] from tool invocation (session-normalized coords).
+/// Build a [`ActionRecord`] from tool invocation (session-normalized coords).
 pub fn normalize_tool_record(
     tool_name: &str,
     args: &Value,
     vision: &VisionState,
-) -> Option<TierActionRecord> {
+) -> Option<ActionRecord> {
     let goal = args
         .get("goal")
         .and_then(|v| v.as_str())
@@ -860,7 +791,7 @@ pub fn normalize_tool_record(
     } else {
         None
     };
-    Some(TierActionRecord {
+    Some(ActionRecord {
         tool_name: tool_name.to_string(),
         goal: goal.to_string(),
         action,
@@ -927,8 +858,8 @@ mod tests {
 
     #[test]
     fn fingerprint_normalizes_case_and_space() {
-        let a = ComputerTierRuntime::fingerprint_goal("Open  Settings");
-        let b = ComputerTierRuntime::fingerprint_goal("open settings");
+        let a = ComputerRuntime::fingerprint_goal("Open  Settings");
+        let b = ComputerRuntime::fingerprint_goal("open settings");
         assert_eq!(a, b);
     }
 
@@ -942,7 +873,7 @@ mod tests {
 
     #[test]
     fn format_history_includes_goal_and_coords() {
-        let r = TierActionRecord {
+        let r = ActionRecord {
             tool_name: "mouse_click_at".into(),
             goal: "Open Settings".into(),
             action: Some("click".into()),
@@ -962,7 +893,7 @@ mod tests {
     #[test]
     fn tier_stays_after_four_fails() {
         let config = ComputerModelConfig::default();
-        let mut rt = ComputerTierRuntime::new();
+        let mut rt = ComputerRuntime::new();
         for _ in 0..4 {
             rt.on_round_complete(
                 &config,
@@ -979,7 +910,7 @@ mod tests {
 
     #[test]
     fn primary_history_shows_fail_cause_in_verify_suffix() {
-        let r = TierActionRecord {
+        let r = ActionRecord {
             tool_name: "mouse_click_at".into(),
             goal: "g".into(),
             action: None,
@@ -996,7 +927,7 @@ mod tests {
 
     #[test]
     fn same_goal_repetition_count_sums_only_fail_rows() {
-        let mk = |goal: &str, step: &str| TierActionRecord {
+        let mk = |goal: &str, step: &str| ActionRecord {
             tool_name: "mouse_click_index".into(),
             goal: goal.into(),
             action: Some("click".into()),
@@ -1023,7 +954,7 @@ mod tests {
 
     #[test]
     fn open_row_shows_verifying_suffix() {
-        let r = TierActionRecord {
+        let r = ActionRecord {
             tool_name: "mouse_click_index".into(),
             goal: "g".into(),
             action: None,
@@ -1037,7 +968,7 @@ mod tests {
 
     #[test]
     fn skipped_row_shows_skipped_not_verified() {
-        let r = TierActionRecord {
+        let r = ActionRecord {
             tool_name: "mouse_click_index".into(),
             goal: "g".into(),
             action: None,
@@ -1055,9 +986,9 @@ mod tests {
 
     #[test]
     fn push_action_closes_open_rows_as_skipped() {
-        let mut rt = ComputerTierRuntime::new();
+        let mut rt = ComputerRuntime::new();
         rt.push_action(
-            TierActionRecord {
+            ActionRecord {
                 tool_name: "a".into(),
                 goal: "g1".into(),
                 action: None,
@@ -1067,7 +998,7 @@ mod tests {
             },
         );
         rt.push_action(
-            TierActionRecord {
+            ActionRecord {
                 tool_name: "b".into(),
                 goal: "g2".into(),
                 action: None,
@@ -1087,9 +1018,9 @@ mod tests {
 
     #[test]
     fn backfill_newest_open_targets_newest_not_oldest() {
-        let mut rt = ComputerTierRuntime::new();
+        let mut rt = ComputerRuntime::new();
         rt.test_push_open_row(
-            TierActionRecord {
+            ActionRecord {
                 tool_name: "a".into(),
                 goal: "g".into(),
                 action: None,
@@ -1099,7 +1030,7 @@ mod tests {
             },
         );
         rt.test_push_open_row(
-            TierActionRecord {
+            ActionRecord {
                 tool_name: "b".into(),
                 goal: "g".into(),
                 action: None,
@@ -1125,9 +1056,9 @@ mod tests {
 
     #[test]
     fn backfill_pending_does_not_close_row() {
-        let mut rt = ComputerTierRuntime::new();
+        let mut rt = ComputerRuntime::new();
         rt.push_action(
-            TierActionRecord {
+            ActionRecord {
                 tool_name: "a".into(),
                 goal: "g".into(),
                 action: None,
@@ -1149,7 +1080,7 @@ mod tests {
     #[test]
     fn skipped_does_not_count_toward_repetition() {
         let records = vec![
-            TierActionRecord {
+            ActionRecord {
                 tool_name: "t".into(),
                 goal: "same".into(),
                 action: None,
@@ -1160,7 +1091,7 @@ mod tests {
                 }),
                 extra_args_hint: None,
             },
-            TierActionRecord {
+            ActionRecord {
                 tool_name: "t".into(),
                 goal: "same".into(),
                 action: None,
@@ -1178,7 +1109,7 @@ mod tests {
     #[test]
     fn stale_auto_close_keeps_newest_open() {
         let mut records = vec![
-            TierActionRecord {
+            ActionRecord {
                 tool_name: "a".into(),
                 goal: "g".into(),
                 action: None,
@@ -1186,7 +1117,7 @@ mod tests {
                 verify_result: None,
                 extra_args_hint: None,
             },
-            TierActionRecord {
+            ActionRecord {
                 tool_name: "b".into(),
                 goal: "g".into(),
                 action: None,
@@ -1205,27 +1136,8 @@ mod tests {
     }
 
     #[test]
-    fn tier_runtime_block_shows_repetition_policy() {
-        let config = ComputerModelConfig::default();
-        let rt = ComputerTierRuntime::new();
-        let records = vec![TierActionRecord {
-            tool_name: "t".into(),
-            goal: "g".into(),
-            action: Some("a".into()),
-            coords: None,
-            verify_result: None,
-            extra_args_hint: None,
-        }];
-        let block = format_tier_runtime_block(&rt, &config, ComputerTier::Primary, &records);
-        assert!(block.contains("Current tier: primary"));
-        assert!(block.contains("Repetition count: 0"));
-        assert!(block.contains("repeat-policy: count=0"));
-        assert!(!block.contains("auto-upgrade"));
-    }
-
-    #[test]
     fn history_block_keeps_verify_only_in_history_rows() {
-        let records = vec![TierActionRecord {
+        let records = vec![ActionRecord {
             tool_name: "mouse_click_index".into(),
             goal: "Open Settings".into(),
             action: Some("click settings icon".into()),
@@ -1242,31 +1154,9 @@ mod tests {
     }
 
     #[test]
-    fn tier_runtime_block_escalates_policy_when_four_same_goal_fails() {
-        let config = ComputerModelConfig::default();
-        let rt = ComputerTierRuntime::new();
-        let records: Vec<_> = (0..4)
-            .map(|_| TierActionRecord {
-                tool_name: "t".into(),
-                goal: "same".into(),
-                action: Some("click".into()),
-                coords: None,
-                verify_result: Some(VerifyOutcome {
-                    step_result: "fail".into(),
-                    cause: None,
-                }),
-                extra_args_hint: None,
-            })
-            .collect();
-        let block = format_tier_runtime_block(&rt, &config, ComputerTier::Primary, &records);
-        assert!(block.contains("Repetition count: 4"));
-        assert!(block.contains("repeat-policy: count=1..4 switch tactic"));
-    }
-
-    #[test]
     fn on_round_complete_sets_give_up_when_effective_repetition_reaches_threshold() {
         let config = ComputerModelConfig::default();
-        let mut rt = ComputerTierRuntime::new();
+        let mut rt = ComputerRuntime::new();
         rt.on_round_complete(
             &config,
             Some(&ParsedVerify {
@@ -1283,7 +1173,7 @@ mod tests {
     #[test]
     fn on_round_complete_ignores_inflated_sidecar_repetition_count() {
         let config = ComputerModelConfig::default();
-        let mut rt = ComputerTierRuntime::new();
+        let mut rt = ComputerRuntime::new();
         rt.on_round_complete(
             &config,
             Some(&ParsedVerify {
@@ -1303,7 +1193,7 @@ mod tests {
     #[test]
     fn on_round_complete_give_up_uses_host_count_when_sidecar_missing() {
         let config = ComputerModelConfig::default();
-        let mut rt = ComputerTierRuntime::new();
+        let mut rt = ComputerRuntime::new();
         rt.on_round_complete(
             &config,
             Some(&ParsedVerify {
@@ -1320,7 +1210,7 @@ mod tests {
     #[test]
     fn on_round_complete_clears_give_up_on_verify_pass() {
         let config = ComputerModelConfig::default();
-        let mut rt = ComputerTierRuntime::new();
+        let mut rt = ComputerRuntime::new();
         rt.should_give_up = true;
         rt.on_round_complete(
             &config,
@@ -1337,7 +1227,7 @@ mod tests {
 
     #[test]
     fn reset_for_new_user_guidance_clears_streaks_and_archives_reference() {
-        let mut rt = ComputerTierRuntime::new();
+        let mut rt = ComputerRuntime::new();
         rt.task_error_streak = 2;
         rt.goal_fail_streak = 2;
         rt.goal_fail_fingerprint = Some("fp".into());
@@ -1347,7 +1237,7 @@ mod tests {
             label: "Open app".into(),
         });
         rt.push_action(
-            TierActionRecord {
+            ActionRecord {
                 tool_name: "mouse_click_index".into(),
                 goal: "Open app".into(),
                 action: Some("click wrong icon".into()),
@@ -1382,10 +1272,10 @@ mod tests {
     #[test]
     fn reset_for_new_user_guidance_fresh_repetition_count() {
         let config = ComputerModelConfig::default();
-        let mut rt = ComputerTierRuntime::new();
+        let mut rt = ComputerRuntime::new();
         for _ in 0..5 {
             rt.push_action(
-                TierActionRecord {
+                ActionRecord {
                     tool_name: "mouse_click_index".into(),
                     goal: "same goal".into(),
                     action: Some("click".into()),
@@ -1492,7 +1382,7 @@ mod tests {
 
     #[test]
     fn locked_goal_label_returns_goal_text_not_footer() {
-        let mut rt = ComputerTierRuntime::new();
+        let mut rt = ComputerRuntime::new();
         rt.locked_goal = Some(LockedGoal {
             fingerprint: "abc".into(),
             label: "Open WeChat".into(),

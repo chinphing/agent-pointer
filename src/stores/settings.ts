@@ -12,7 +12,7 @@ import type {
   AgentModelRef,
   AgentUiConfig,
   ComputerPipelineLlmSettings,
-  ComputerTierLlmConfig,
+  PerformanceModeLlmConfig,
   DebugSessionSettings,
   EffectiveSettingsView,
   MediaModelOverrides,

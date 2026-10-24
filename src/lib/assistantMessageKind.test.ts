@@ -4,7 +4,6 @@ import {
   isDiscardableEmptyAssistant,
   isDiscardableEmptyAssistantOnCancel,
   isGenerationCancelledMessage,
-  isPlaceholderOnlyContent,
   isProcessThinkingShell
 } from './assistantMessageKind'
 import type { ChatMessage } from '../types/chat'
@@ -116,30 +115,5 @@ describe('isProcessThinkingShell', () => {
     expect(
       isProcessThinkingShell(msg({ status: 'streaming', contentStreaming: false, content: '' }))
     ).toBe(false)
-  })
-})
-
-describe('isPlaceholderOnlyContent', () => {
-  it('treats punctuation-only bodies as empty', () => {
-    // Models answer a tool-only turn with one of these so the body is non-empty.
-    for (const s of ['...', '…', '。', '.', '、、', '——', ' ']) {
-      expect(isPlaceholderOnlyContent(s), JSON.stringify(s)).toBe(true)
-    }
-    expect(isPlaceholderOnlyContent('')).toBe(true)
-    expect(isPlaceholderOnlyContent(null)).toBe(true)
-    expect(isPlaceholderOnlyContent(undefined)).toBe(true)
-  })
-
-  it('keeps real text', () => {
-    for (const s of ['好的', 'ok', '3 个文件', '已完成。', '😀']) {
-      expect(isPlaceholderOnlyContent(s), JSON.stringify(s)).toBe(false)
-    }
-  })
-
-  it('keeps markdown block markers even without letters', () => {
-    // Never hide a reply just because it is punctuation-shaped markup.
-    for (const s of ['---', '***', '>', '|', '-']) {
-      expect(isPlaceholderOnlyContent(s), JSON.stringify(s)).toBe(false)
-    }
   })
 })

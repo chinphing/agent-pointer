@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUpdated, ref } from 'vue'
 import { bump, renderPerfEnabled } from '../../../../lib/renderPerf'
-import { isPlaceholderOnlyContent } from '../../../../lib/assistantMessageKind'
 
 // Dev-only render perf counters — one boolean check, no-op unless the HUD is on.
 onMounted(() => {
@@ -40,7 +39,7 @@ const props = defineProps<{
 const root = ref<HTMLElement | null>(null)
 
 const html = useThrottledMarkdown(
-  () => (props.streaming === true ? props.content : isPlaceholderOnlyContent(props.content) ? '' : props.content),
+  () => props.content,
   () => props.streaming === true,
   src =>
     parseMarkdown(src, {

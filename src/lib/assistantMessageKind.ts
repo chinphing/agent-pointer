@@ -10,25 +10,6 @@ export function assistantHasDeliverableContent(message: ChatMessage): boolean {
   return false
 }
 
-/**
- * Content that carries no information — only punctuation used as a placeholder.
- *
- * Models routinely answer a tool-only turn with `...`, `…`, or `。` so the
- * assistant message has a non-empty body. Those bodies render as a stray
- * `<p>...</p>` paragraph above the tool card, which reads as UI noise rather
- * than narration. Treat them as empty when deciding whether to paint a body.
- */
-export function isPlaceholderOnlyContent(content: string | null | undefined): boolean {
-  const t = (content ?? '').trim()
-  if (!t) return true
-  // Any letter, digit, CJK ideograph, emoji, or markdown block marker makes it real.
-  if (/[\p{L}\p{N}\p{Extended_Pictographic}]/u.test(t)) return false
-  // Punctuation-only, but keep runs that are clearly meaningful markup
-  // (tables, lists, headings, fences) so we never hide a real reply.
-  if (/^[|#>`\-*+]/.test(t)) return false
-  return true
-}
-
 /** How we render an assistant row in the thread (layout + emphasis). */
 export type AssistantDisplayKind = 'model' | 'injected_notice' | 'error' | 'cancelled'
 

@@ -373,7 +373,7 @@ pub enum MouseButton { Left, Middle, Right }
 | 分组 | 工具 | 用途 |
 |---|---|---|
 | 定位 | `locate_element` | 把 `elements[]`（最多 3 项，每项 `description` + 可选 `hint_box`）转换为逐项结果；不执行 GUI 动作 |
-| 坐标鼠标 | `mouse_hover_at` / `mouse_click_at` / `mouse_double_click_at` / `mouse_right_click_at` / `mouse_scroll_current` / `mouse_drag_from_to_at` / `mouse_down` / `mouse_up` / `mouse_drag_to` | 像素坐标或当前指针操作；涉及可见目标时先 `locate_element` |
+| 坐标鼠标 | `mouse_hover_at` / `mouse_click_at` / `mouse_double_click_at` / `mouse_right_click_at` / `mouse_scroll_current` / `mouse_drag_from_to_at` / `mouse_down` / `mouse_up` | 像素坐标或当前指针操作；涉及可见目标时先 `locate_element` |
 | 键盘 | `input_at` / `input_focused` / `hotkey` / `key_press` / `key_down` / `key_up` / `keyboard_type` | 输入或按键；涉及屏幕目标时先定位，焦点操作仍须基于当前状态 |
 | 既有系统能力 | `wait` / `clipboard_read` / `clipboard_write` / `list_apps` / `launch_app` | 等待、剪贴板与应用管理 |
 | 既有复合操作 | `modified_click_select_at` / `modified_click_range_select_at` | 保留既有修饰键选择能力 |
@@ -406,9 +406,13 @@ pub enum MouseButton { Left, Middle, Right }
 | `key_press` | `PRESS` | 需新增 |
 | `key_down` | `KEY_DOWN` | 需新增 |
 | `key_up` | `KEY_UP` | 需新增 |
-| `mouse_drag_to` | `DRAG_TO` | 需新增（从当前位置拖） |
 | `keyboard_type` | `TYPING` | 需新增（当前焦点直接输入） |
 | `locate_element` | L2 | 接入 B5；批量 `elements[]`，最多 3 项 |
+
+> **`mouse_drag_to`（`DRAG_TO`）已删除。** 它的起点是当前指针，模型看不见也
+> 控制不了，重试时起点还会漂到上一次的落点。拖拽统一走 `mouse_drag_from_to_at`
+> ——两端各有 `desc` + `bbox`，两端独立 grounding，底层复用 trait 的 `drag_to`
+> （先 `move_to` 到抓取点，再 `drag_to` 到落点）。
 
 ### 7.5 删除
 
@@ -456,7 +460,6 @@ B5 只回答后者。且**从未比较过 B5 与 SoM 谁更好**——ScreenSpot
 | `mouse_click_at` | `click` |
 | `mouse_double_click_at` | `double_click` |
 | `mouse_right_click_at` | `right_click` |
-| `mouse_drag_to` | `drag_to` |
 | `mouse_down` | `mouse_down` |
 | `mouse_up` | `mouse_up` |
 | `key_press` | `press` |
@@ -470,17 +473,21 @@ B5 只回答后者。且**从未比较过 B5 与 SoM 谁更好**——ScreenSpot
 （来自 `effective_human_like_default()`），所有动作统一使用。
 OSWorld 远程路径天然不需要这一步——`RemoteControl` 直接发 pyautogui 脚本。
 
-**尚未迁移（5 处）**：
+**尚未迁移（4 处）**：
 
 | 工具 | 原因 |
 |---|---|
-| `mouse_drag_from_to_at` | trait 只有 `drag_to`（从当前位置拖），没有起终点双坐标的 `drag_from_to` |
 | `input_at` | `type_text_at_with_options` 带 `clear_first` / `auto_enter`，trait 的 `typing` 不表达 |
 | `input_focused` | 同上，还多一个 `use_clipboard` |
 | `modified_click_select_at` | 复合语义（按住修饰键点选），trait 无对应动作 |
 | `modified_click_range_select_at` | 同上 |
 
-这 5 个要么扩 trait（但 OSWorld 的 13 动作里没有它们），要么给 `LocalControl`
+> `mouse_drag_from_to_at` 已经不在这个表里了：它现在**复用 trait 的 `drag_to`**
+> ——先 `move_to` 把指针停到抓取点，再 `drag_to` 到落点（`drag_to` 按当前位置
+> 按下）。节拍和 move profile 都在 `drag_left_from_to` 那一层，工具层不再自己
+> 拼 down/move/up。
+
+这 4 个要么扩 trait（但 OSWorld 的 13 动作里没有它们），要么给 `LocalControl`
 开一条旁路。**当前选择保留 executor 直连**——它们是本地专属能力，
 远程执行时本来就没有对应实现。
 
@@ -542,7 +549,7 @@ ab100 为 79.0%，M3 全量（1261 条）未跑。ab100 → M3 的换算浮动�
 |---|---|---|---|
 | 1 | 第 17 个动作是什么？ | **不存在**。按 **13** 个动作实施 | `control/remote.rs` 的 `all_thirteen_actions_match_the_osworld_table`；OSWorld 源码只有 13 个动作 |
 | 2 | `SCROLL` 改为像素 `dx`/`dy`？ | **已改**。`SCROLL_PIXELS_PER_LINE = 100`，本地实现把像素换算成行数，远端发 `hscroll`+`vscroll` | `input/actions.rs:65` |
-| 3 | `DRAG_TO` 与现有 `drag_from_to` 并存？ | **并存**。`drag_from_to` 保留（拖拽已有元素），`mouse_drag_to` 新增（拖到绝对坐标），语义不同 | `tools/mod.rs:75` |
+| 3 | `DRAG_TO` 与现有 `drag_from_to` 并存？ | **已改：不并存，删 `mouse_drag_to`**。原结论是并存（`drag_from_to` 拖拽已有元素，`mouse_drag_to` 拖到绝对坐标），但 `DRAG_TO` 的起点是当前指针，模型看不见也控制不了，重试时起点会漂到上一次落点。拖拽统一走 `mouse_drag_from_to_at`，两端各自 grounding | `tools/mod.rs`；`dispatch/mod.rs` 的 mouse arm |
 | 4 | `TYPING` 与现有 `input_focused` 并存？ | **并存**。`input_focused` 保留，`keyboard_type` 新增 | `tools/mod.rs:160` |
 | 5 | OSWorld 评测时 Pointer 的身份 | **A：Pointer 当 agent**，`locate_element` 可作为组合工具。另跑一组 B 模式（只用 13 动作）作为可比基线 | 产品形态是「定位 + 动作组合」，砍掉定位等于不测核心能力 |
 | 6 | P0 使用哪 20 张真实截图 | **已定**：一张冻结桌面（1512×982）上的 20 个目标，四组测试见附录 | `tests/locate_fixture/` |

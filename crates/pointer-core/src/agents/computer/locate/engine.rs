@@ -186,33 +186,17 @@ pub async fn locate_one<V: LocateVision>(
             break;
         }
 
-        // The verifier saw part of the target inside the box. Re-locating from
-        // `refine_hint` would tell the model "you looked in the wrong place" and
-        // send it hunting for a different element — but the element is already
-        // here, the box is just too small. Grow it around the same centre and
-        // verify again.
-        if verdict.unclear_kind == UnclearKind::BoxTooTight {
-            let grown = current.grown(1.5);
-            if grown == current {
-                stop = Stop::LocateFailed;
-                break;
-            }
-            log::info!(
-                "locate: box_too_tight — growing box from [{:.0},{:.0},{:.0},{:.0}] to [{:.0},{:.0},{:.0},{:.0}]",
-                current.to_px(w, h).x1,
-                current.to_px(w, h).y1,
-                current.to_px(w, h).x2,
-                current.to_px(w, h).y2,
-                grown.to_px(w, h).x1,
-                grown.to_px(w, h).y1,
-                grown.to_px(w, h).x2,
-                grown.to_px(w, h).y2
-            );
-            box_norm = Some(grown);
-            continue;
-        }
-
-        // —— Judged `no`: decide where to look next ——
+        // —— Not verified: ask the locator again ——
+        //
+        // `BoxTooTight` lands here too, on purpose. It used to grow the box in
+        // code (`grown(1.5)`) and re-verify around the same centre, which fixed
+        // nothing: a box holding one letter of a 75px label needs six times the
+        // width, not 1.5, and that grow happened on the round that was already
+        // the last one, so the widened box was never verified at all. A fixed
+        // factor can only cover one size of miss, and this miss has no fixed
+        // size. `refine_hint` says what the verifier actually saw and asks for
+        // the full outline in the same place, so the locator — which knows the
+        // label from `target_desc` — can hand back a box that covers all of it.
         let hint = refine_hint(&verdict);
 
         let mut from_crop = false;
@@ -753,5 +737,45 @@ mod tests {
         assert_eq!(out[0].target_desc, "地址栏");
         assert!(out[1].ok);
         assert_eq!(out[1].target_desc, "保存按钮");
+    }
+
+    #[tokio::test]
+    async fn box_too_tight_asks_the_locator_again_instead_of_growing_in_code() {
+        // A box holding one letter of a label is not fixed by scaling it 1.5x —
+        // that covers one size of miss, and this miss has no fixed size. The
+        // verifier's observation goes back to the locator, which knows the label
+        // from `target_desc` and can return a box covering all of it.
+        let vision = FakeVision::new()
+            .with_locate(vec![
+                Some(NormBox::new(696.0, 596.0, 708.0, 615.0)), // "A" only
+                Some(NormBox::new(467.0, 596.0, 542.0, 612.0)), // full label
+            ])
+            .with_verify(vec![
+                VerifyVerdict {
+                    unclear_kind: UnclearKind::BoxTooTight,
+                    ..verdict(MatchVerdict::Unclear, "蓝框内只有首字母 A")
+                },
+                yes("完整的 About DagsHub 链接"),
+            ]);
+        let out = locate_one(
+            &vision,
+            &frame(),
+            &LocateRequest::new("About DagsHub 链接", "点击它"),
+            &cfg(),
+            &cancel_token(),
+        )
+        .await
+        .unwrap();
+
+        assert!(out.ok, "the re-locate result should verify: {out:?}");
+        // Two locate calls: the hinted box, then the re-locate after the
+        // verifier said the box was too tight. A code-side grow would never
+        // reach the vision model, so it would show up as one locate call.
+        let locates = vision
+            .calls()
+            .iter()
+            .filter(|c| matches!(c, Call::Locate { .. }))
+            .count();
+        assert_eq!(locates, 2, "expected a re-locate, got {locates}");
     }
 }

@@ -67,16 +67,6 @@ impl NormBox {
         ((self.x1 + self.x2) / 2.0, (self.y1 + self.y2) / 2.0)
     }
 
-    /// Grow around the same centre. Used when the verifier says the box holds
-    /// only part of the target (`BoxTooTight`): the fix is a wider box in the
-    /// same place, not a search somewhere else.
-    pub fn grown(self, factor: f64) -> Self {
-        let (cx, cy) = self.center();
-        let hw = (self.x2 - self.x1) / 2.0 * factor;
-        let hh = (self.y2 - self.y1) / 2.0 * factor;
-        Self::new(cx - hw, cy - hh, cx + hw, cy + hh)
-    }
-
     /// A zero-area box is not usable as a hint (§6.3.1) and has no center.
     pub fn is_degenerate(self) -> bool {
         (self.x2 - self.x1) < 0.5 || (self.y2 - self.y1) < 0.5
@@ -212,24 +202,6 @@ pub fn nearly_same(a: NormBox, b: NormBox) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn grown_keeps_centre_and_scales_about_it() {
-        let b = NormBox::new(400.0, 400.0, 500.0, 420.0);
-        let g = b.grown(1.5);
-        assert_eq!(b.center(), g.center(), "centre must not move");
-        assert!((g.x2 - g.x1) - (b.x2 - b.x1) * 1.5 < 1e-9);
-        assert!((g.y2 - g.y1) - (b.y2 - b.y1) * 1.5 < 1e-9);
-    }
-
-    #[test]
-    fn grown_clamps_at_screen_edges() {
-        // Growing a box that already touches the edge must stay inside 0–1000.
-        let b = NormBox::new(0.0, 0.0, 40.0, 40.0);
-        let g = b.grown(4.0);
-        assert!(g.x1 >= 0.0 && g.y1 >= 0.0);
-        assert!(g.x2 <= 1000.0 && g.y2 <= 1000.0);
-    }
 
     #[test]
     fn clamps_and_reorders_corners() {

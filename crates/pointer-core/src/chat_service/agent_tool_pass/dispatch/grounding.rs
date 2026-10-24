@@ -107,9 +107,13 @@ pub(super) async fn resolve_point(
     let locate_provider = locate_provider(state, conversation_id, provider)?;
 
     let locate_args = serde_json::json!({
-        "goal": format!("点击{target_desc}"),
+        // `goal` is context for the locate model, not user-visible text. Keep it
+        // language-neutral: `target_desc` already carries the screen's language,
+        // and prefixing a hardcoded verb produced mixed strings like
+        // 「点击Save button」 for English UIs.
+        "goal": target_desc,
         "elements": [{
-            "description": target_desc,
+            "target_desc": target_desc,
             "hint_box": [hint.x1, hint.y1, hint.x2, hint.y2],
         }]
     });

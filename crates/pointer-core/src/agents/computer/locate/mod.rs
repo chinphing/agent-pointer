@@ -95,23 +95,23 @@ fn parse_requests(args: &Value) -> Result<Vec<LocateRequest>> {
     if goal.is_empty() {
         return Err(anyhow!(
             "goal 不能为空。goal 是**顶层**字段，不在 elements[] 里。正确格式：\
-             {{\"goal\": \"这次定位要完成什么\", \"elements\": [{{\"description\": \"目标元素\"}}]}}。\
-             例如 {{\"goal\": \"查看腾讯控股的财务数据\", \"elements\": [{{\"description\": \"「财务分析」标签\"}}]}}"
+             {{\"goal\": \"这次定位要完成什么\", \"elements\": [{{\"target_desc\": \"目标元素\"}}]}}。\
+             例如 {{\"goal\": \"查看腾讯控股的财务数据\", \"elements\": [{{\"target_desc\": \"「财务分析」标签\"}}]}}"
         ));
     }
 
     let mut out = Vec::with_capacity(elements.len());
     for (idx, el) in elements.iter().enumerate() {
-        let description = el
-            .get("description")
+        let target_desc = el
+            .get("target_desc")
             .and_then(Value::as_str)
             .map(str::trim)
             .unwrap_or("");
-        if description.is_empty() {
-            return Err(anyhow!("elements[{idx}].description 不能为空"));
+        if target_desc.is_empty() {
+            return Err(anyhow!("elements[{idx}].target_desc 不能为空"));
         }
         out.push(LocateRequest {
-            description: description.to_string(),
+            target_desc: target_desc.to_string(),
             goal: goal.to_string(),
             hint_px: parse_hint(el.get("hint_box"), idx)?,
         });
@@ -178,7 +178,7 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                 };
                 json!({
                     "status": "located",
-                    "target_desc": o.description,
+                    "target_desc": o.target_desc,
                     "summary": summary,
                     "bbox": [
                         b.x1.round() as i64,
@@ -207,7 +207,7 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                 };
                 json!({
                     "status": status,
-                    "target_desc": o.description,
+                    "target_desc": o.target_desc,
                     "summary": summary,
                     "rounds": o.rounds,
                 })
@@ -239,7 +239,7 @@ mod tests {
     fn located_result_carries_an_explicit_verdict() {
         let out = LocateOutcome {
             ok: true,
-            description: "地址栏右侧的刷新按钮".into(),
+            target_desc: "地址栏右侧的刷新按钮".into(),
             point_px: Some((820.0, 45.0)),
             box_px: Some(PxBox {
                 x1: 800.0,
@@ -299,21 +299,21 @@ mod tests {
 
     #[test]
     fn goal_is_required_at_top_level() {
-        let args = json!({"elements": [{"description": "搜索框"}]});
+        let args = json!({"elements": [{"target_desc": "搜索框"}]});
         let err = parse_requests(&args).unwrap_err().to_string();
         assert!(err.contains("goal 不能为空"), "{err}");
     }
 
     #[test]
     fn blank_top_level_goal_is_rejected() {
-        let args = json!({"goal": "   ", "elements": [{"description": "搜索框"}]});
+        let args = json!({"goal": "   ", "elements": [{"target_desc": "搜索框"}]});
         let err = parse_requests(&args).unwrap_err().to_string();
         assert!(err.contains("goal 不能为空"), "{err}");
     }
 
     #[test]
     fn blank_goal_is_rejected() {
-        let args = json!({"elements": [{"description": "搜索框", "goal": "   "}]});
+        let args = json!({"elements": [{"target_desc": "搜索框", "goal": "   "}]});
         let err = parse_requests(&args).unwrap_err().to_string();
         assert!(err.contains("goal 不能为空"), "{err}");
     }
@@ -321,8 +321,8 @@ mod tests {
         let args = json!({
             "goal": "在股票页面查询行情",
             "elements": [
-                {"description": "搜索框"},
-                {"description": "搜索按钮"}
+                {"target_desc": "搜索框"},
+                {"target_desc": "搜索按钮"}
             ]
         });
         let reqs = parse_requests(&args).unwrap();
@@ -331,14 +331,14 @@ mod tests {
     }
 
     fn el(desc: &str) -> Value {
-        json!({ "description": desc, "goal": "点击它" })
+        json!({ "target_desc": desc, "goal": "点击它" })
     }
 
     #[test]
     fn parses_one_to_three_elements() {
         let reqs = parse_requests(&json!({"goal":"点击它","elements":[el("保存按钮"), el("地址栏")]})).unwrap();
         assert_eq!(reqs.len(), 2);
-        assert_eq!(reqs[0].description, "保存按钮");
+        assert_eq!(reqs[0].target_desc, "保存按钮");
         assert!(reqs[0].hint_px.is_none());
     }
 
@@ -359,14 +359,14 @@ mod tests {
 
     #[test]
     fn rejects_blank_description() {
-        assert!(parse_requests(&json!({"goal":"点击它","elements":[{"description":"   "}]})).is_err());
+        assert!(parse_requests(&json!({"goal":"点击它","elements":[{"target_desc":"   "}]})).is_err());
     }
 
     #[test]
     fn parses_hint_box_pixels() {
         let reqs = parse_requests(&json!({
             "goal":"点击它",
-            "elements":[{"description":"保存按钮","hint_box":[800,35,840,55]}]
+            "elements":[{"target_desc":"保存按钮","hint_box":[800,35,840,55]}]
         }))
         .unwrap();
         let hint = reqs[0].hint_px.unwrap();
@@ -385,18 +385,18 @@ mod tests {
     fn rejects_malformed_hint_box() {
         assert!(parse_requests(&json!({
             "goal":"点击它",
-            "elements":[{"description":"a","hint_box":[1,2,3]}]
+            "elements":[{"target_desc":"a","hint_box":[1,2,3]}]
         }))
         .is_err());
         assert!(parse_requests(&json!({
             "goal":"点击它",
-            "elements":[{"description":"a","hint_box":"800,35,840,55"}]
+            "elements":[{"target_desc":"a","hint_box":"800,35,840,55"}]
         }))
         .is_err());
         // Explicit null means "no hint" rather than an error.
         assert!(parse_requests(&json!({
             "goal":"点击它",
-            "elements":[{"description":"a","hint_box":null}]
+            "elements":[{"target_desc":"a","hint_box":null}]
         }))
         .unwrap()[0]
             .hint_px
@@ -406,7 +406,7 @@ mod tests {
     #[test]
     fn serializes_success_and_failure_shapes() {
         let ok = LocateOutcome {
-            description: "保存按钮".into(),
+            target_desc: "保存按钮".into(),
             ok: true,
             point_px: Some((820.4, 45.2)),
             box_px: Some(PxBox {

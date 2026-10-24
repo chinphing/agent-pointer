@@ -16,7 +16,7 @@ pub const MAX_VERIFY_RETRY: usize = 2;
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocateRequest {
     /// Natural-language description of the target element.
-    pub description: String,
+    pub target_desc: String,
     /// What the caller intends to do with it. Required: the grounder picks the
     /// element that can serve this purpose when several look alike, and the
     /// verifier treats "can this fulfil the purpose" as the primary judgement —
@@ -28,9 +28,9 @@ pub struct LocateRequest {
 }
 
 impl LocateRequest {
-    pub fn new(description: impl Into<String>, goal: impl Into<String>) -> Self {
+    pub fn new(target_desc: impl Into<String>, goal: impl Into<String>) -> Self {
         Self {
-            description: description.into(),
+            target_desc: target_desc.into(),
             goal: goal.into(),
             hint_px: None,
         }
@@ -218,7 +218,7 @@ impl FailureReason {
 /// Result for one requested element, in input order.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocateOutcome {
-    pub description: String,
+    pub target_desc: String,
     pub ok: bool,
     /// Logical-pixel click point (`None` unless `ok`).
     pub point_px: Option<(f64, f64)>,
@@ -239,9 +239,9 @@ pub struct LocateOutcome {
 }
 
 impl LocateOutcome {
-    pub fn failure(description: impl Into<String>, reason: FailureReason, what_i_saw: String, rounds: usize) -> Self {
+    pub fn failure(target_desc: impl Into<String>, reason: FailureReason, what_i_saw: String, rounds: usize) -> Self {
         Self {
-            description: description.into(),
+            target_desc: target_desc.into(),
             ok: false,
             point_px: None,
             box_px: None,

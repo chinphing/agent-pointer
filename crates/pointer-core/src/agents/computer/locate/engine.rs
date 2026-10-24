@@ -73,7 +73,7 @@ pub async fn locate_one<V: LocateVision>(
 ) -> Result<LocateOutcome> {
     let (w, h) = (frame.width().max(1), frame.height().max(1));
     let full = CropBounds::full(w, h);
-    let verify_text = verify_prompt(&req.description);
+    let verify_text = verify_prompt(&req.target_desc);
 
     let mut box_norm = req.hint_norm(w, h);
     let mut last_saw = String::new();
@@ -86,7 +86,7 @@ pub async fn locate_one<V: LocateVision>(
     // ① First locate — skipped entirely when the caller supplied a hint box.
     if box_norm.is_none() {
         let image = render_full(frame, None)?;
-        box_norm = locate_in(vision, &image, full, w, h, &req.description, req.hint_center(), None).await;
+        box_norm = locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), None).await;
         if box_norm.is_none() {
             stop = Stop::LocateFailed;
         }
@@ -226,7 +226,7 @@ pub async fn locate_one<V: LocateVision>(
                     *bounds,
                     w,
                     h,
-                    &req.description,
+                    &req.target_desc,
                     req.hint_center(),
                     Some(&hint),
                 )
@@ -235,7 +235,7 @@ pub async fn locate_one<V: LocateVision>(
         }
         if !from_crop {
             let image = render_full(frame, Some(current))?;
-            next_box = locate_in(vision, &image, full, w, h, &req.description, req.hint_center(), Some(&hint)).await;
+            next_box = locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), Some(&hint)).await;
         }
 
         // No-progress guard: a crop-local re-locate that barely moved is
@@ -249,7 +249,7 @@ pub async fn locate_one<V: LocateVision>(
         };
         if from_crop && nearly_same(next_box, current) {
             let image = render_full(frame, Some(current))?;
-            next_box = match locate_in(vision, &image, full, w, h, &req.description, req.hint_center(), Some(&hint)).await
+            next_box = match locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), Some(&hint)).await
             {
                 Some(b) => b,
                 None => {
@@ -269,7 +269,7 @@ pub async fn locate_one<V: LocateVision>(
 
     if stop != Stop::Verified {
         let mut out = LocateOutcome::failure(
-            req.description.clone(),
+            req.target_desc.clone(),
             stop.failure_reason(),
             what_i_saw,
             rounds,
@@ -280,7 +280,7 @@ pub async fn locate_one<V: LocateVision>(
 
     let Some(b) = box_norm else {
         return Ok(LocateOutcome::failure(
-            req.description.clone(),
+            req.target_desc.clone(),
             FailureReason::NotFound,
             what_i_saw,
             rounds,
@@ -289,7 +289,7 @@ pub async fn locate_one<V: LocateVision>(
     let (cx, cy) = b.center();
     let point = (cx / 1000.0 * w as f64, cy / 1000.0 * h as f64);
     Ok(LocateOutcome {
-        description: req.description.clone(),
+        target_desc: req.target_desc.clone(),
         ok: true,
         point_px: Some(point),
         box_px: Some(b.to_px(w, h)),
@@ -750,8 +750,8 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert!(!out[0].ok);
         assert_eq!(out[0].reason, Some(FailureReason::NotFound));
-        assert_eq!(out[0].description, "地址栏");
+        assert_eq!(out[0].target_desc, "地址栏");
         assert!(out[1].ok);
-        assert_eq!(out[1].description, "保存按钮");
+        assert_eq!(out[1].target_desc, "保存按钮");
     }
 }

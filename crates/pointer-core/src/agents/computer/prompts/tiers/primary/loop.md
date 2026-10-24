@@ -27,17 +27,6 @@
    **`task_board_patch`** that row.
    Do not patch on every GUI micro-step.
 
-## Tool call prose
-
-**`goal`** is the card title the user reads. Write it in **the user's language** —
-the language their request came in — as the outcome this step achieves.
-Do not fall back to English when the request was not in English.
-Do not write a bare verb (`click`, `read`) or restate the tool name.
-
-**`target_desc`** is compared against **on-screen text**, so it must match the
-language **on screen**. A Chinese user driving an English app gets a Chinese
-`goal` and an English `target_desc` in the same call.
-
 Do not write checklists, Route, BBox, or ratio math
 in assistant message text.
 Native tool calls only.

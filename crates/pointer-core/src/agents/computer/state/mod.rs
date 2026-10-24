@@ -67,8 +67,7 @@ pub enum SessionStatus {
 pub struct ComputerSession {
     pub vision_state: Arc<Mutex<VisionState>>,
     pub last_annotated: Option<(Vec<u8>, screen::MonitorInfo)>,
-    /// Current turn **unmarked** capture (annotate input); used by `captcha_verify` crop.
-    pub current_turn_raw_jpeg_unmarked: Option<Vec<u8>>,
+    /// Current turn capture size in pixels.
     pub current_turn_capture_px: Option<(u32, u32)>,
     pub selected_monitor: Option<String>,
     /// Set when monitor is configured via API or sub-agent pick gate (incl. single-monitor auto).
@@ -90,7 +89,6 @@ impl ComputerSession {
         Self {
             vision_state: Arc::new(Mutex::new(VisionState::new())),
             last_annotated: None,
-            current_turn_raw_jpeg_unmarked: None,
             current_turn_capture_px: None,
             selected_monitor: None,
             monitor_selection_done: false,
@@ -436,7 +434,6 @@ impl ComputerState {
 
         {
             let mut session = session.lock().unwrap();
-            session.current_turn_raw_jpeg_unmarked = Some(screen_capture.to_vec());
             session.current_turn_capture_px = Some(capture_px);
             session.last_annotated = Some((pack.screenshot_jpeg.clone(), monitor));
         }

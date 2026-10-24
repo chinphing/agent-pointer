@@ -48,9 +48,12 @@ For app-local shortcuts, follow the visible in-app hint when present.
 
 **Default — open, switch, or bring an installed app to the foreground**
 
-1. **`launch_app`** when the app name or desktop entry id is known (from the user, task, or prior **`list_apps`**).
-2. **`list_apps`** first only when the identifier is uncertain — then **`launch_app`** with the name from a line.
+1. **`list_apps`** when the name came from the user — copy a name or desktop entry id from a line.
+2. **`launch_app`** with that identifier.
 3. **`wait`** if the window is still loading.
+
+Skip **`list_apps`** only when you already hold an exact identifier from a
+previous **`list_apps`** line or the task itself.
 
 Use these app tools even when the user names the app and it is not on screen.
 Do **not** use the application search overlay, menu, or panel for that case while **`launch_app`** can target the app.

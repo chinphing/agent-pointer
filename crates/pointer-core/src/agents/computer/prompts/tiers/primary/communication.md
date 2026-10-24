@@ -135,16 +135,13 @@ Continue a tactic that just passed.
 Do not repeat a failed **tool name + same target**.
 
 - **Open or switch an installed app:** **`launch_app`**.
-  Skip **`list_apps`** when the name or bundle / exe is known.
+  Call **`list_apps`** first when the name came from the user; then **`launch_app`**
+  with an identifier copied from it.
   Do not use Spotlight, Start search, or launcher hotkeys for that case.
 - **Type into a field:** one **`input_*`** call.
   Do not click to focus, then type on the next turn.
 - **Hotkey:** only when the target window is already frontmost.
   If it is not, focus that window first.
 - **Loading or transfer:** prefer **`wait`** while the UI is settling.
-- **New unsolved CAPTCHA:** **`captcha_verify`**.
-  After it ran on the same puzzle, use a mouse tool for a separate
-  Confirm / Verify / Submit.
-  Do not run captcha twice on the same puzzle.
 - **Disabled control:** do not repeat-click a control that stays gray.
   Fix the cause, or ask the user.

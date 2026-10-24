@@ -474,28 +474,54 @@ fn activate_running(app: &str) -> Result<bool> {
     let workspace = NSWorkspace::sharedWorkspace();
     let apps = workspace.runningApplications();
     let count = apps.count();
-    for i in 0..count {
-        let running = apps.objectAtIndex(i);
-        if running.isTerminated() {
-            continue;
-        }
-        if running.activationPolicy() != NSApplicationActivationPolicy::Regular {
-            continue;
-        }
-        let localized = running.localizedName().map(|s| s.to_string());
-        let bundle = running.bundleIdentifier().map(|s| s.to_string());
-        if !app_identifier_matches(app, localized.as_deref(), bundle.as_deref()) {
-            continue;
-        }
-        let ok = running.activateWithOptions(NSApplicationActivationOptions(0));
-        if ok {
-            thread::sleep(Duration::from_millis(ACTIVATE_SETTLE_MS));
-            if running_app_state(app).is_some_and(|o| o.frontmost) {
+    // Two passes. Regular apps first — they own a window and are what the user
+    // means by "it's already open". Then Accessory (menu-bar) apps: they have
+    // no window to raise, but seeing one running is still enough to stop us
+    // from launching a second copy. A single pass that skipped Accessory is why
+    // a running tray app looked absent and got opened again.
+    for regular_pass in [true, false] {
+        for i in 0..count {
+            let running = apps.objectAtIndex(i);
+            if running.isTerminated() {
+                continue;
+            }
+            let is_regular =
+                running.activationPolicy() == NSApplicationActivationPolicy::Regular;
+            if is_regular != regular_pass {
+                continue;
+            }
+            let localized = running.localizedName().map(|s| s.to_string());
+            let bundle = running.bundleIdentifier().map(|s| s.to_string());
+            if !app_identifier_matches(app, localized.as_deref(), bundle.as_deref()) {
+                continue;
+            }
+            // `ActivateAllWindows` raises every window, not just the main one.
+            // `ActivateIgnoringOtherApps` lets the activation win even when a
+            // different app holds focus — without it `activateWithOptions`
+            // routinely returns false and we fall through to `open -a`, which
+            // is where a second copy can appear. The flag is deprecated on
+            // macOS 14+ (where `activate` ignores other apps by default) but
+            // still accepted, and older systems need it.
+            #[allow(deprecated)]
+            let opts = NSApplicationActivationOptions::ActivateAllWindows
+                | NSApplicationActivationOptions::ActivateIgnoringOtherApps;
+            let ok = running.activateWithOptions(opts);
+            if ok {
+                thread::sleep(Duration::from_millis(ACTIVATE_SETTLE_MS));
+                if running_app_state(app).is_some_and(|o| o.frontmost) {
+                    return Ok(true);
+                }
+                log::info!(
+                    "launch_app macOS activate: NSWorkspace activate did not frontmost app={app} regular={is_regular}"
+                );
+            } else if !is_regular {
+                // An Accessory app cannot be raised, but it is running. Treat
+                // that as "already open" so the caller does not launch again.
+                log::info!(
+                    "launch_app macOS activate: accessory app is running but not raisable app={app}"
+                );
                 return Ok(true);
             }
-            log::info!(
-                "launch_app macOS activate: NSWorkspace activate did not frontmost app={app}"
-            );
         }
     }
 
@@ -556,8 +582,12 @@ fn app_identifier_matches(app: &str, localized: Option<&str>, bundle: Option<&st
 }
 
 /// Localized app name for messages when a running instance matches `app`.
+///
+/// Accessory (menu-bar) apps are included: they still have a localized name,
+/// and `activate_running` now treats them as running, so the message needs to
+/// be able to name them too.
 fn localized_display_name(app: &str) -> Option<String> {
-    use objc2_app_kit::{NSApplicationActivationPolicy, NSWorkspace};
+    use objc2_app_kit::NSWorkspace;
 
     let workspace = NSWorkspace::sharedWorkspace();
     let apps = workspace.runningApplications();
@@ -565,9 +595,6 @@ fn localized_display_name(app: &str) -> Option<String> {
     for i in 0..count {
         let running = apps.objectAtIndex(i);
         if running.isTerminated() {
-            continue;
-        }
-        if running.activationPolicy() != NSApplicationActivationPolicy::Regular {
             continue;
         }
         let localized = running.localizedName().map(|s| s.to_string());

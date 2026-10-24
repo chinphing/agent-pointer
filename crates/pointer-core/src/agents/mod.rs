@@ -1426,6 +1426,14 @@ mod builtin_agent_tests {
             "COMMUNICATION_PUBLIC should define workspace purpose"
         );
         assert!(
+            s.contains("Mid-run `content`"),
+            "COMMUNICATION_PUBLIC should constrain mid-run assistant content"
+        );
+        assert!(
+            s.contains("tool rows and the task board"),
+            "COMMUNICATION_PUBLIC should send process progress to tools and the board"
+        );
+        assert!(
             s.contains("User-visible delivery"),
             "COMMUNICATION_PUBLIC should state that only content is user-visible delivery"
         );

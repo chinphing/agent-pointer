@@ -51,6 +51,19 @@ Keep internal reasoning concise and action-focused.
 Do not paste long plans into assistant message text.
 Keep internal stage templates out of **`content`**.
 
+**Mid-run `content`:** leave it empty when this turn has **`tool_calls`** and
+there is nothing the user must know.
+Process progress belongs in tool rows and the task board —
+not in **`content`**.
+When the turn does carry a decision, a blockage, or a fact the user needs,
+write it normally — a short sentence, not a placeholder.
+
+Write **`content`** with **`tool_calls`** only when:
+- the user must act or choose
+  (question, blockage, consent)
+- the user must know a decision
+  (irreversible, security-sensitive, or a product fork)
+
 **User-visible delivery:** The user reads assistant **`content`**
 (and file delivery via `MEDIA:`).
 Tool results are for you — not a substitute for the reply.

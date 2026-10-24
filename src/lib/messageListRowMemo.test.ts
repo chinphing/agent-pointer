@@ -24,8 +24,7 @@ const baseline: MessageRowMemoInput = {
   activeBoard: null,
   activeBoardSticky: false,
   conversationId: 'c1',
-  taskBoards: {},
-  glueEnabled: false
+  taskBoards: {}
 }
 
 /** A different value per field — the "input moved" half of the checklist. */
@@ -54,9 +53,7 @@ const moved: Record<keyof MessageRowMemoInput, unknown> = {
   activeBoard: { storeKey: 'b1' },
   activeBoardSticky: true,
   conversationId: 'c2',
-  taskBoards: { b1: {} },
-  // glue visibility
-  glueEnabled: true
+  taskBoards: { b1: {} }
 }
 
 const FIELDS = Object.keys(baseline) as Array<keyof MessageRowMemoInput>
@@ -74,7 +71,6 @@ describe('messageRowMemoDeps', () => {
       'expanded',
       'files',
       'focusHighlightMessageId',
-      'glueEnabled',
       'index',
       'searchMatchIds',
       'showElapsed',

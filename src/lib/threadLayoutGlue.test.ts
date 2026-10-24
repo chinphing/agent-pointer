@@ -2,7 +2,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage } from '../types/chat'
 import {
-  glueMessagePreview,
   isInternalRetryUserMessage,
   isRealUserTaskMessage,
   isSilentToolRunGlue,
@@ -90,32 +89,5 @@ describe('sidecar-only assistant rounds', () => {
   it('still hides verify-hint rounds even with text', () => {
     const round = assistant('a3', 'Attempted click at coordinates (10, 20)')
     expect(isSilentToolRunGlue(round)).toBe(true)
-  })
-})
-
-describe('glueMessagePreview', () => {
-  it('renders nothing for an empty glue row', () => {
-    // Glue rows exist to keep consecutive tool cards in one block. An empty one
-    // has no text of its own — returning `…` made it look like truncated
-    // content and painted a stray ellipsis between every tool row.
-    expect(glueMessagePreview(assistant('a1', ''))).toBe('')
-    expect(glueMessagePreview(user('u1', ''))).toBe('')
-  })
-
-  it('keeps the tool-result placeholder for tool rows', () => {
-    const row: ChatMessage = { id: 't1', role: 'tool', content: '', status: 'done', createdAt: 1 }
-    expect(glueMessagePreview(row)).toBe('工具结果')
-  })
-
-  it('uses the first non-empty line and truncates long previews', () => {
-    expect(glueMessagePreview(assistant('a2', '\n\n第一行\n第二行'))).toBe('第一行')
-    const long = 'x'.repeat(200)
-    const out = glueMessagePreview(assistant('a3', long))
-    expect(out.endsWith('…')).toBe(true)
-    expect(out.length).toBe(118)
-  })
-
-  it('labels screen inject rows as 桌面截图', () => {
-    expect(glueMessagePreview(user('u2', '[CUR_SCREEN] whatever'))).toBe('桌面截图')
   })
 })

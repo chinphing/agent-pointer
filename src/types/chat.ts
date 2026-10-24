@@ -698,7 +698,6 @@ export interface UserSettings {
   agentTaskBoardHistoryTrim?: Record<string, boolean>
   computerHumanLike?: boolean
   computerAutoSwitchMonitor?: boolean
-  computerAnnotatedScreenViewEnabled?: boolean
   agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
   webSearchModel?: string
   mediaModelOverrides?: MediaModelOverrides
@@ -891,8 +890,6 @@ export interface ModelSettings {
   /** Computer agent: starting tier for new conversations */
   /** Auto-select primary monitor and follow launch_app window */
   computerAutoSwitchMonitor?: boolean
-  /** Show annotated screenshot preview on Computer Use assistant messages */
-  computerAnnotatedScreenViewEnabled?: boolean
   /** UI color scheme */
   theme?: ThemePreference
   /** Per-agent UI overrides (merged over manifest `ui`) */

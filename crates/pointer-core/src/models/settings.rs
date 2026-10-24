@@ -937,12 +937,6 @@ pub struct ModelSettings {
     /// When true, computer agent uses Bézier / jitter mouse paths by default (`human_like` preset).
     #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     pub computer_human_like: bool,
-    /// When true, Computer Use assistant messages show the annotated screenshot preview action.
-    #[serde(
-        default = "default_computer_annotated_screen_view_enabled",
-        rename = "computerAnnotatedScreenViewEnabled"
-    )]
-    pub computer_annotated_screen_view_enabled: bool,
     /// When true, Composer shows the monitor picker for the computer agent.
     #[serde(
         default = "default_computer_show_monitor_picker",
@@ -1762,10 +1756,6 @@ fn default_user_dynamic_inject_enabled() -> bool {
     true
 }
 
-fn default_computer_annotated_screen_view_enabled() -> bool {
-    false
-}
-
 fn default_computer_show_monitor_picker() -> bool {
     true
 }
@@ -1824,8 +1814,6 @@ impl Default for ModelSettings {
             agent_default_models: HashMap::new(),
             agent_task_board_history_trim: HashMap::new(),
             computer_human_like: true,
-            computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(
-            ),
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
             computer_auto_switch_monitor: default_computer_auto_switch_monitor(),
             computer_paste_restore_delay_ms: default_computer_paste_restore_delay_ms(),
@@ -2263,11 +2251,6 @@ pub struct UserSettings {
     #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     pub computer_human_like: bool,
     #[serde(
-        default = "default_computer_annotated_screen_view_enabled",
-        rename = "computerAnnotatedScreenViewEnabled"
-    )]
-    pub computer_annotated_screen_view_enabled: bool,
-    #[serde(
         default = "default_computer_show_monitor_picker",
         rename = "computerShowMonitorPicker"
     )]
@@ -2389,8 +2372,6 @@ impl Default for UserSettings {
             agent_default_models: default_platform_agent_models(),
             agent_task_board_history_trim: HashMap::new(),
             computer_human_like: true,
-            computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(
-            ),
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
             computer_auto_switch_monitor: default_computer_auto_switch_monitor(),
             agent_ui_overrides: HashMap::new(),
@@ -2789,7 +2770,6 @@ const DEBUG_WEB_SETTINGS_JSON_KEYS: &[&str] = &[
     "terminalEnvOverrides",
     "debugMenusEnabled",
     "taskBoardShowChildBoards",
-    "computerAnnotatedScreenViewEnabled",
     "agentUiOverrides",
     "computerPipelineLlm",
     "agentTaskBoardHistoryTrim",
@@ -2892,7 +2872,6 @@ pub fn preserve_platform_debug_settings_in_model(
     incoming.terminal_env_overrides = user.terminal_env_overrides.clone();
     incoming.debug_menus_enabled = user.debug_menus_enabled;
     incoming.task_board_show_child_boards = user.task_board_show_child_boards;
-    incoming.computer_annotated_screen_view_enabled = user.computer_annotated_screen_view_enabled;
     incoming.agent_ui_overrides = user.agent_ui_overrides.clone();
     incoming.agent_task_board_history_trim = user.agent_task_board_history_trim.clone();
     // `maxSubAgentSpawnDepth` / `maxChildrenPerAgent` are user preferences and are
@@ -2913,8 +2892,6 @@ pub fn preserve_platform_debug_settings_in_user(
     incoming.terminal_env_overrides = existing.terminal_env_overrides.clone();
     incoming.debug_menus_enabled = existing.debug_menus_enabled;
     incoming.task_board_show_child_boards = existing.task_board_show_child_boards;
-    incoming.computer_annotated_screen_view_enabled =
-        existing.computer_annotated_screen_view_enabled;
     incoming.agent_ui_overrides = existing.agent_ui_overrides.clone();
     incoming.agent_task_board_history_trim = existing.agent_task_board_history_trim.clone();
     // See `preserve_platform_debug_settings_in_model`: the delegation caps are user
@@ -3021,7 +2998,6 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         agent_default_models: user.agent_default_models.clone(),
         agent_task_board_history_trim: user.agent_task_board_history_trim.clone(),
         computer_human_like: user.computer_human_like,
-        computer_annotated_screen_view_enabled: user.computer_annotated_screen_view_enabled,
         computer_show_monitor_picker: user.computer_show_monitor_picker,
         computer_auto_switch_monitor: user.computer_auto_switch_monitor,
         memory_enabled: user.memory_enabled,
@@ -4453,7 +4429,6 @@ mod effective_extra_body_tests {
         user.raw_content_view_enabled = true;
         user.debug_dump_llm_prompts = true;
         user.debug_menus_enabled = true;
-        user.computer_annotated_screen_view_enabled = true;
         let merged = merge_user_platform(&user, &platform);
         let view = EffectiveSettingsView {
             user,
@@ -4469,7 +4444,6 @@ mod effective_extra_body_tests {
         assert!(!json.contains("rawContentViewEnabled"));
         assert!(!json.contains("debugDumpLlmPrompts"));
         assert!(!json.contains("debugMenusEnabled"));
-        assert!(!json.contains("computerAnnotatedScreenViewEnabled"));
         assert!(json.contains("\"apiKey\":\"****\""));
     }
 

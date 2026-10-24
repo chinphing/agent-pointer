@@ -192,7 +192,6 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) },
     computerHumanLike: s.computerHumanLike === true,
     computerAutoSwitchMonitor: s.computerAutoSwitchMonitor !== false,
-    computerAnnotatedScreenViewEnabled: s.computerAnnotatedScreenViewEnabled === true,
     theme: (s.theme as ThemePreference) ?? 'system',
     agentUiOverrides: { ...(s.agentUiOverrides ?? {}) },
     mediaModelOverrides: { ...(s.mediaModelOverrides ?? {}) },
@@ -355,7 +354,6 @@ export const useSettingsStore = defineStore('settings', () => {
     agentTaskBoardHistoryTrim: {},
     computerHumanLike: true,
     computerAutoSwitchMonitor: true,
-    computerAnnotatedScreenViewEnabled: false,
     agentUiOverrides: {},
     mediaModelOverrides: {},
     computerPipelineLlm: {
@@ -458,9 +456,6 @@ export const useSettingsStore = defineStore('settings', () => {
       terminalEnvOverrides: { ...retainedTerminalEnv },
       taskBoardShowChildBoards:
         mergedIn.taskBoardShowChildBoards ?? prevMerged.taskBoardShowChildBoards,
-      computerAnnotatedScreenViewEnabled:
-        mergedIn.computerAnnotatedScreenViewEnabled ??
-        prevMerged.computerAnnotatedScreenViewEnabled,
       agentUiOverrides:
         mergedIn.agentUiOverrides ?? prevMerged.agentUiOverrides,
       agentModeLlm: mergedIn.agentModeLlm ?? prevMerged.agentModeLlm ?? {},
@@ -683,10 +678,6 @@ export const useSettingsStore = defineStore('settings', () => {
         mergedIn.rawContentViewEnabled
         ?? user.rawContentViewEnabled
         ?? settings.value.rawContentViewEnabled,
-      computerAnnotatedScreenViewEnabled:
-        mergedIn.computerAnnotatedScreenViewEnabled
-        ?? user.computerAnnotatedScreenViewEnabled
-        ?? settings.value.computerAnnotatedScreenViewEnabled,
       agentUiOverrides:
         mergedIn.agentUiOverrides
         ?? user.agentUiOverrides

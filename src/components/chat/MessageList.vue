@@ -6,7 +6,6 @@ import { useVirtualizer } from '@tanstack/vue-virtual'
 import { ArrowDown, ChevronDown, ChevronRight, Plus, X } from 'lucide-vue-next'
 import MessageRow from './message/MessageRow.vue'
 import AssistantModelMessage from './message/assistant/AssistantModelMessage.vue'
-import ToolRunGlueRow from './message/ToolRunGlueRow.vue'
 import ContextCompressingMarker from './message/ContextCompressingMarker.vue'
 import TaskBoardPanel from './TaskBoardPanel.vue'
 import ChangeSummary from './ChangeSummary.vue'
@@ -29,7 +28,6 @@ import {
   isEphemeralDesktopNoticeMessage,
   isToolOnlyAssistantMessage
 } from '../../lib/assistantMessageKind'
-import { shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
 import { rootTracesOf } from '../../lib/subAgentTraceTree'
 import { MESSAGE_VIRTUAL_ROW_CLASS, MESSAGE_VIRTUAL_ROW_ESTIMATE, messageRowSpacingPixels, messageTurnSpacingPixels, messageVirtualizerBaseOptions } from '../../lib/messageVirtualization'
 import { messageRowMemoDeps } from '../../lib/messageListRowMemo'
@@ -1504,10 +1502,6 @@ function groupsHighlightClass(groups: ToolRunGroup[]): string {
   return ''
 }
 
-function shouldShowThreadGlue(message: ChatMessage): boolean {
-  return shouldShowGlueMessage(message, settings.settings)
-}
-
 /**
  * Completed-turn structure cache (non-reactive on purpose).
  * Updating a ref inside this computed would retrigger itself.
@@ -1522,7 +1516,9 @@ let layoutCacheHold: MessageListLayoutCache | null = null
 const layoutDeps: FlattenDeps = {
   boardsForMessage: messageId => chat.parentBoardsBoundToMessage(chat.currentId, messageId),
   visibleToolCallsFor: message => visibleToolsForMessage(message, message.toolCalls ?? []),
-  shouldShowGlue: shouldShowThreadGlue
+  // Glue rows used to render a text preview gated on a removed debug setting.
+  // They now only keep consecutive tool cards in one block, so nothing to show.
+  shouldShowGlue: () => false
 }
 
 /**
@@ -2457,7 +2453,6 @@ function rowMemoDeps(row: {
     activeBoardSticky: activeBoardIsSticky.value,
     conversationId: chat.currentId,
     taskBoards: chat.taskBoards,
-    glueEnabled: settings.settings.computerAnnotatedScreenViewEnabled === true
   })
 }
 
@@ -2732,9 +2727,7 @@ function entrySpacing(
                       : ''
               ]"
             >
-              <ToolRunGlueRow v-if="entry.compact && shouldShowThreadGlue(entry.message)" :message="entry.message" />
               <MessageRow
-                v-else
                 :message="entry.message"
                 :trailing-tool-groups="entry.trailingToolGroups"
                 :content-only="entry.contentOnly"
@@ -2759,10 +2752,9 @@ function entrySpacing(
                           : ''
                   ]"
                 >
-                  <ToolRunGlueRow
-                    v-if="shouldShowThreadGlue(block.message)"
-                    :message="block.message"
-                  />
+                  <!-- Glue block: keeps consecutive tool cards in one block and
+                       carries the anchor for search highlighting. Renders no
+                       text of its own. -->
                 </div>
                 <div
                   v-else

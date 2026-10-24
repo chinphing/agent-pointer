@@ -57,8 +57,6 @@ export type MessageRowMemoInput = {
   activeBoardSticky: boolean
   conversationId: unknown
   taskBoards: unknown
-  /** `computerAnnotatedScreenViewEnabled` — the only setting `shouldShowGlueMessage` reads. */
-  glueEnabled: boolean
 }
 
 export function messageRowMemoDeps(input: MessageRowMemoInput): unknown[] {
@@ -79,7 +77,6 @@ export function messageRowMemoDeps(input: MessageRowMemoInput): unknown[] {
     input.activeBoard,
     input.activeBoardSticky,
     input.conversationId,
-    input.taskBoards,
-    input.glueEnabled
+    input.taskBoards
   ]
 }

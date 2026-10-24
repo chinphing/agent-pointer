@@ -441,11 +441,6 @@ struct StoredSettings {
     agent_task_board_history_trim: HashMap<String, bool>,
     #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     computer_human_like: bool,
-    #[serde(
-        default = "default_computer_annotated_screen_view_enabled",
-        rename = "computerAnnotatedScreenViewEnabled"
-    )]
-    computer_annotated_screen_view_enabled: bool,
     #[serde(default = "default_theme")]
     theme: String,
     #[serde(default, rename = "agentUiOverrides")]
@@ -508,10 +503,6 @@ fn default_debug_dump_llm_prompts() -> bool {
 }
 
 fn default_debug_menus_enabled() -> bool {
-    false
-}
-
-fn default_computer_annotated_screen_view_enabled() -> bool {
     false
 }
 
@@ -823,7 +814,6 @@ fn stored_settings_to_user(stored: &StoredSettings) -> UserSettings {
         agent_default_models: normalize_disk_agent_defaults(&stored.agent_default_models, &active),
         agent_task_board_history_trim: stored.agent_task_board_history_trim.clone(),
         computer_human_like: stored.computer_human_like,
-        computer_annotated_screen_view_enabled: stored.computer_annotated_screen_view_enabled,
         theme: stored.theme.clone(),
         agent_ui_overrides: stored.agent_ui_overrides.clone(),
         ..UserSettings::default()
@@ -968,7 +958,6 @@ impl Default for StoredSettings {
                 .collect(),
             agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
             computer_human_like: s.computer_human_like,
-            computer_annotated_screen_view_enabled: s.computer_annotated_screen_view_enabled,
             theme: s.theme.clone(),
             agent_ui_overrides: s.agent_ui_overrides.clone(),
             legacy_reasoning_in_messages: None,

@@ -307,7 +307,6 @@ function createSettingsDialogForm(deps: {
   const computerAutoCompact = ref(true)
   const collapseProcessByDefault = ref(false)
   const userCodingRules = ref('')
-  const computerAnnotatedScreenViewEnabled = ref(false)
   const debugSaveComputerCaptures = ref(false)
   const theme = ref<ThemePreference>('system')
   const debugMenusEnabled = ref(false)
@@ -519,7 +518,6 @@ function createSettingsDialogForm(deps: {
   computerAutoCompact.value = s.userSettings.computerAutoCompact !== false
   collapseProcessByDefault.value = s.userSettings.collapseProcessByDefault === true
   userCodingRules.value = s.userSettings.userCodingRules ?? ''
-  computerAnnotatedScreenViewEnabled.value = s.settings.computerAnnotatedScreenViewEnabled === true
   debugSaveComputerCaptures.value = s.settings.debugSaveComputerCaptures === true
   theme.value = (s.settings.theme as ThemePreference) || 'system'
   debugMenusEnabled.value = s.canEditPlatform && s.settings.debugMenusEnabled === true
@@ -844,7 +842,6 @@ function createSettingsDialogForm(deps: {
     agentPerformanceModes: { ...agentPerformanceModesLocal.value },
     mediaUnderstandingModes: { ...mediaUnderstandingModesLocal.value },
     rawContentViewEnabled: rawContentViewEnabled.value,
-    computerAnnotatedScreenViewEnabled: computerAnnotatedScreenViewEnabled.value,
     debugSaveComputerCaptures: debugSaveComputerCaptures.value,
     taskBoardShowChildBoards: taskBoardShowChildBoards.value,
     agentUiOverrides: { ...(s.settings.agentUiOverrides ?? {}) },
@@ -882,7 +879,6 @@ function createSettingsDialogForm(deps: {
     s.settings.maxParallelMediaJobs = payload.maxParallelMediaJobs
     s.settings.maxConcurrentRuns = payload.maxConcurrentRuns
     s.settings.rawContentViewEnabled = payload.rawContentViewEnabled
-    s.settings.computerAnnotatedScreenViewEnabled = payload.computerAnnotatedScreenViewEnabled
     s.settings.debugSaveComputerCaptures = payload.debugSaveComputerCaptures
     s.settings.taskBoardShowChildBoards = payload.taskBoardShowChildBoards
     s.settings.agentUiOverrides = { ...payload.agentUiOverrides }
@@ -911,7 +907,6 @@ function createSettingsDialogForm(deps: {
     s.userSettings.maxParallelMediaJobs = payload.maxParallelMediaJobs
     s.userSettings.maxConcurrentRuns = payload.maxConcurrentRuns
     s.userSettings.rawContentViewEnabled = payload.rawContentViewEnabled
-    s.userSettings.computerAnnotatedScreenViewEnabled = payload.computerAnnotatedScreenViewEnabled
     s.userSettings.debugSaveComputerCaptures = payload.debugSaveComputerCaptures
     s.userSettings.taskBoardShowChildBoards = payload.taskBoardShowChildBoards
     s.userSettings.agentUiOverrides = { ...payload.agentUiOverrides }
@@ -1003,7 +998,6 @@ function createSettingsDialogForm(deps: {
       collapseProcessByDefault,
       userCodingRules,
       rawContentViewEnabled,
-      computerAnnotatedScreenViewEnabled,
       taskBoardShowChildBoards,
       agentPerformanceModesLocal,
       mediaUnderstandingModesLocal
@@ -1074,7 +1068,6 @@ function createSettingsDialogForm(deps: {
     computerAutoCompact,
     collapseProcessByDefault,
     userCodingRules,
-    computerAnnotatedScreenViewEnabled,
     theme,
     debugMenusEnabled,
     debugSaveComputerCaptures,

@@ -4,7 +4,6 @@ use super::args_util::{
 };
 use super::method_route::MouseBackend;
 use crate::agents::computer::control::ComputerControl;
-use crate::agents::computer::input::actions::MouseButton;
 use crate::agents::computer::verify::VerifyHintGenerator;
 use crate::agents::computer::vision_state::VisionState;
 use anyhow::{anyhow, Result};
@@ -105,18 +104,20 @@ impl MouseAtTool {
             .resolve_coordinate(x2, y2)
             .ok_or_else(|| anyhow!("Screen bounds not set"))?;
         drop(vision);
-        // Composed from the trait's primitive moves so the same code path runs
-        // locally and remotely. The 50 ms gaps mirror what the old
-        // `drag_left_from_to` executor call did — OS drag targets need a beat
-        // between press, move, and release or they read it as a click.
-        let gap = std::time::Duration::from_millis(50);
+        if px1 == px2 && py1 == py2 {
+            return Err(anyhow!("drag start and end must differ"));
+        }
+        // Park the pointer on the grab point, then hand off to the trait's
+        // `drag_to` — the same primitive `mouse_drag_to` uses. `drag_to` presses
+        // at the *current* pointer, so the move above is what makes the start
+        // deterministic; doing the down/move/up sequence by hand here would
+        // duplicate `drag_left_from_to` and drift from it over time.
+        //
+        // `move_to` is idempotent on the backend (enigo skips the move when the
+        // pointer is already there), so the `drag_to` that follows re-entering
+        // the same coordinate costs nothing.
         self.control.move_to(px1, py1)?;
-        std::thread::sleep(gap);
-        self.control.mouse_down(MouseButton::Left)?;
-        std::thread::sleep(gap);
-        self.control.move_to(px2, py2)?;
-        std::thread::sleep(gap);
-        self.control.mouse_up(MouseButton::Left)?;
+        self.control.drag_to(px2, py2)?;
         Ok(format!(
             "Dragged ({}, {}) -> ({}, {}). Verify on next screenshot.",
             px1, py1, px2, py2
@@ -425,6 +426,45 @@ mod tests {
                 &json!({"goal": "nothing", "x": 0, "y": 0}),
             )
             .is_err());
+    }
+
+    #[test]
+    fn drag_from_to_parks_on_the_grab_point_then_defers_to_drag_to() {
+        // 起点由参数给出：先 move_to 把指针停到抓取点，再交给 drag_to
+        // （它按当前位置按下）。不再自己拼 down/move/up，那条序列在
+        // `drag_left_from_to` 里已经有了，两份实现迟早会漂移。
+        let (t, calls) = tool();
+        t.execute_with(
+            MouseBackend::At,
+            "drag_from_to",
+            &json!({"goal": "file to trash", "x1": 10, "y1": 20, "x2": 300, "y2": 400}),
+        )
+        .unwrap();
+        let log = recorded(&calls);
+        // 抓取点必须先被设定，否则 drag_to 会从上一个残留位置开始拖
+        assert_eq!(log[0], "move_to(10,20)", "{log:?}");
+        assert!(log.contains(&"mouse_down(left)".to_string()), "{log:?}");
+        assert!(log.contains(&"move_to(300,400)".to_string()), "{log:?}");
+        assert!(log.contains(&"mouse_up(left)".to_string()), "{log:?}");
+        // 按下必��发生在抓取点之后、拖到终点之前
+        let down = log.iter().position(|c| c == "mouse_down(left)").unwrap();
+        let to_end = log.iter().position(|c| c == "move_to(300,400)").unwrap();
+        let up = log.iter().position(|c| c == "mouse_up(left)").unwrap();
+        assert!(down < to_end && to_end < up, "{log:?}");
+    }
+
+    #[test]
+    fn drag_from_to_rejects_identical_endpoints() {
+        // grounding 若把两端解析到同一点，发出去就是「原地按下松开」的空动作
+        let (t, calls) = tool();
+        assert!(t
+            .execute_with(
+                MouseBackend::At,
+                "drag_from_to",
+                &json!({"goal": "nothing", "x1": 50, "y1": 60, "x2": 50, "y2": 60}),
+            )
+            .is_err());
+        assert!(recorded(&calls).is_empty(), "{:?}", recorded(&calls));
     }
 
     fn scroll_control() -> (Arc<dyn ComputerControl>, Arc<Mutex<Vec<String>>>) {

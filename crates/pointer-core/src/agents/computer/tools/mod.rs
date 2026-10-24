@@ -524,17 +524,21 @@ mod tests {
     }
 
     #[test]
-    fn mouse_scroll_current_schema_is_pixel_based() {
+    fn mouse_scroll_current_schema_is_notch_based() {
         let reg = registry_with_computer_tools();
         let tools = reg.openai_tools(&["mouse_scroll_current".to_string()]);
         assert_eq!(tools.len(), 1);
         let params = &tools[0]["function"]["parameters"];
         let props = &params["properties"];
-        assert!(props.get("dx").is_some(), "{props}");
-        assert!(props.get("dy").is_some(), "{props}");
+        assert!(props.get("notches_x").is_some(), "{props}");
+        assert!(props.get("notches_y").is_some(), "{props}");
+        // The pixel-era names are gone on purpose: keeping them as aliases would
+        // let the model keep sending `-900` forever.
+        assert!(props.get("dx").is_none(), "{props}");
+        assert!(props.get("dy").is_none(), "{props}");
         assert!(
             props.get("lines").is_none(),
-            "line units were replaced by pixels: {props}"
+            "line units were replaced by notches: {props}"
         );
         assert_eq!(params["required"], serde_json::json!(["goal"]));
     }

@@ -244,17 +244,31 @@ pub fn click_count_from_args(args: &Value) -> Result<u32> {
 
 /// Wheel-notch scroll limit for one call.
 ///
-/// `dx` / `dy` are **notch counts**, not pixels: the value goes straight to
-/// `ComputerControl::scroll` / `scroll_horizontal`, which hands it to the OS
-/// wheel primitive. One notch is whatever the platform and the app decide —
-/// there is no pixel equivalent to promise, and none is claimed.
+/// `notches_x` / `notches_y` are **notch counts**, not pixels: the value goes
+/// straight to `ComputerControl::scroll` / `scroll_horizontal`, which hands it
+/// to the OS wheel primitive. One notch is whatever the platform and the app
+/// decide — there is no pixel equivalent to promise, and none is claimed.
 pub const SCROLL_NOTCHES_MAX: i32 = 100;
 
-/// `dx` / `dy` for `SCROLL` in **wheel notches** (positive `dy` = up, `dx` = right).
+/// Parsed scroll delta: clamped notches plus what the caller originally asked
+/// for when clamping happened.
+pub struct ScrollNotches {
+    pub x: i32,
+    pub y: i32,
+    /// `Some((raw_x, raw_y))` when the request exceeded ±[`SCROLL_NOTCHES_MAX`].
+    /// The tool reports this back so the model learns the real ceiling instead
+    /// of believing it scrolled nine times further than it did.
+    pub clamped_from: Option<(i32, i32)>,
+}
+
+/// `notches_x` / `notches_y` for `SCROLL` (positive `notches_y` = up,
+/// `notches_x` = right).
 ///
 /// At least one axis must be non-zero: there is no default direction to fall
-/// back on, and guessing one would be worse than an error.
-pub fn scroll_notches_from_args(args: &Value) -> Result<(i32, i32)> {
+/// back on, and guessing one would be worse than an error. Over-limit values
+/// are clamped to ±[`SCROLL_NOTCHES_MAX`] and reported through
+/// [`ScrollNotches::clamped_from`].
+pub fn scroll_notches_from_args(args: &Value) -> Result<ScrollNotches> {
     fn axis(args: &Value, key: &str) -> Result<i32> {
         match args.get(key) {
             None => Ok(0),
@@ -265,17 +279,24 @@ pub fn scroll_notches_from_args(args: &Value) -> Result<(i32, i32)> {
             }
         }
     }
-    let dx = axis(args, "dx")?;
-    let dy = axis(args, "dy")?;
+    let dx = axis(args, "notches_x")?;
+    let dy = axis(args, "notches_y")?;
     if dx == 0 && dy == 0 {
         return Err(anyhow!(
-            "scroll needs a non-zero dx or dy (wheel notches; positive dy = up, dx = right)"
+            "scroll needs a non-zero notches_x or notches_y (wheel notches; \
+             positive notches_y = up, notches_x = right)"
         ));
     }
-    Ok((
+    let (cx, cy) = (
         dx.clamp(-SCROLL_NOTCHES_MAX, SCROLL_NOTCHES_MAX),
         dy.clamp(-SCROLL_NOTCHES_MAX, SCROLL_NOTCHES_MAX),
-    ))
+    );
+    let clamped_from = (cx != dx || cy != dy).then_some((dx, dy));
+    Ok(ScrollNotches {
+        x: cx,
+        y: cy,
+        clamped_from,
+    })
 }
 
 #[cfg(test)]
@@ -388,29 +409,49 @@ mod tests {
     #[test]
     fn scroll_notches_reads_both_axes_and_rejects_noop() {
         use serde_json::json;
-        assert_eq!(
-            scroll_notches_from_args(&json!({"dx": 12, "dy": -34})).unwrap(),
-            (12, -34)
-        );
-        assert_eq!(
-            scroll_notches_from_args(&json!({"dy": "30"})).unwrap(),
-            (0, 30)
-        );
+        let n = scroll_notches_from_args(&json!({"notches_x": 12, "notches_y": -34})).unwrap();
+        assert_eq!((n.x, n.y), (12, -34));
+        assert!(n.clamped_from.is_none());
+        let n = scroll_notches_from_args(&json!({"notches_y": "30"})).unwrap();
+        assert_eq!((n.x, n.y), (0, 30));
         assert!(scroll_notches_from_args(&json!({})).is_err());
-        assert!(scroll_notches_from_args(&json!({"dx": 0, "dy": 0})).is_err());
-        assert_eq!(
-            scroll_notches_from_args(&json!({"dy": 999_999})).unwrap(),
-            (0, SCROLL_NOTCHES_MAX)
-        );
+        assert!(scroll_notches_from_args(&json!({"notches_x": 0, "notches_y": 0})).is_err());
     }
 
     #[test]
     fn scroll_notches_are_not_rescaled() {
         use serde_json::json;
         // A notch is a notch: no divide-by-100, no rounding, no minimum of one.
-        // Only the ±SCROLL_NOTCHES_MAX clamp touches the value.
-        assert_eq!(scroll_notches_from_args(&json!({"dy": 1})).unwrap(), (0, 1));
-        assert_eq!(scroll_notches_from_args(&json!({"dy": 7})).unwrap(), (0, 7));
-        assert_eq!(scroll_notches_from_args(&json!({"dy": 100})).unwrap(), (0, 100));
+        for v in [1, 7, 100] {
+            let n = scroll_notches_from_args(&json!({"notches_y": v})).unwrap();
+            assert_eq!((n.x, n.y), (0, v));
+        }
+    }
+
+    #[test]
+    fn scroll_notches_over_the_limit_clamp_and_report_the_raw_value() {
+        use serde_json::json;
+        // The bug this guards: `-900` used to be clamped silently, so the caller
+        // believed it scrolled nine times further than it did.
+        let n = scroll_notches_from_args(&json!({"notches_y": -900})).unwrap();
+        assert_eq!((n.x, n.y), (0, -100));
+        assert_eq!(n.clamped_from, Some((0, -900)));
+
+        let n = scroll_notches_from_args(&json!({"notches_x": 101, "notches_y": -5})).unwrap();
+        assert_eq!((n.x, n.y), (100, -5));
+        assert_eq!(n.clamped_from, Some((101, -5)));
+
+        // The boundary itself is not a clamp.
+        let n = scroll_notches_from_args(&json!({"notches_y": -100})).unwrap();
+        assert_eq!((n.x, n.y), (0, -100));
+        assert!(n.clamped_from.is_none());
+    }
+
+    #[test]
+    fn scroll_ignores_the_old_pixel_style_keys() {
+        use serde_json::json;
+        // `dx` / `dy` were pixel deltas. Keeping them as aliases would let the
+        // model keep sending `-900` forever, so they are gone on purpose.
+        assert!(scroll_notches_from_args(&json!({"dx": 0, "dy": -30})).is_err());
     }
 }

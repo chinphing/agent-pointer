@@ -8,17 +8,36 @@ for tuning the next notch count.
 
 ### How far did it move
 
-Estimate the content shift as a fraction of the viewport height, and put it
-**first** in `step_summary`:
+Report the shift along **whichever axis moved**, as a fraction of the target
+area's extent on that axis. The target area is the panel or list the scroll was
+meant to move, as named in the operation text.
+
+Vertical movement:
 
 ```
-moved ~0.35 screen
+moved ~0.4 target-heights
 ```
 
-Pick the number however it is easiest to judge — how many rows went past, or
-what fraction of the height the content slid. One decimal place is plenty; the
-planner only needs the magnitude to scale the next notch count. Use `moved 0
-screen` when the content did not shift at all.
+Horizontal movement:
+
+```
+moved ~0.4 target-widths
+```
+
+Both axes moved:
+
+```
+moved ~0.4 target-heights, ~0.2 target-widths
+```
+
+When the operation names no target panel (the scroll ran at the current pointer),
+use the viewport extent instead and write `moved ~0.4 screen` for vertical,
+`moved ~0.4 screen-widths` for horizontal.
+
+Judge the number however it is easiest — how many rows or columns went past, or
+what fraction of that area the content slid. One decimal place is plenty; the
+planner only needs the magnitude to scale the next notch count. Use `moved 0`
+when the content did not shift at all.
 
 Do not try to count pixels — the estimate is for scaling, not for measurement.
 
@@ -37,28 +56,31 @@ content scrolled**. Everything else follows from that.
 
 ### Telling `at_edge` from `wrong_operation`
 
-This check runs **only when nothing moved at all** — `moved 0 screen`. Look for
+This check runs **only when nothing moved at all** — `moved 0`. Look for
 evidence the content is already at the edge **in the direction the scroll was
-going**: scrolling down can only stop at the bottom, scrolling up can only stop
-at the top. Any one row is enough.
+going**: scrolling down can only stop at the bottom, up at the top, right at the
+right-hand end, left at the left-hand end. Any one row is enough.
 
 | Evidence | at the edge? |
 | --- | --- |
 | A footer, pagination bar, "load more", "no more results", "已显示全部", or an end-of-list marker is visible and stays put | yes — bottom |
 | The first item of the list is visible at the top and the rows below it are unchanged | yes — top |
 | A page header, site nav, or title block sits at the viewport top with nothing above it, and did not move | yes — top |
-| The same rows are visible before and after, and nothing above or below them changed | yes — either direction |
-| A scrollbar is visible and its thumb sits at the far end the scroll was heading toward | yes — either direction |
-| Content clearly continues past the viewport in the scroll direction — a cut-off row at the bottom when scrolling down, a cut-off row at the top when scrolling up | no |
+| The first column is visible at the left edge with nothing cut off to its left | yes — left |
+| The last column is visible at the right edge with nothing cut off to its right | yes — right |
+| The same rows (or columns) are visible before and after, and nothing beyond them on that axis changed | yes — either direction |
+| A scrollbar is visible and its thumb sits at the far end the scroll was heading toward | yes — either axis |
+| Content clearly continues past the viewport in the scroll direction — a cut-off row at the bottom when scrolling down, a cut-off column at the right when scrolling right, and the mirror for the opposite directions | no |
 | A spinner, skeleton, or progress bar is visible | no — report `loading_detected` instead |
 | No movement and no way to tell | no |
 
 Do **not** rely on the scrollbar alone: macOS hides it when idle, so its absence
 proves nothing.
 
-A scroll that moved 10% of a screen and then stopped at the top is a `pass`, not
-`at_edge`: content moved, and `moved ~0.1 screen` already tells the planner the
-rest. `at_edge` is reserved for a scroll that produced **no** displacement.
+A scroll that moved 10% of the target area and then stopped at the top is a
+`pass`, not `at_edge`: content moved, and `moved ~0.1 target-heights` already
+tells the planner the rest. `at_edge` is reserved for a scroll that produced
+**no** displacement.
 
 ### Reasoning (hard rule)
 

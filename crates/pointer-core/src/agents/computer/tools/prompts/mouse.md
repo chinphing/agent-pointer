@@ -40,11 +40,11 @@ and same-named elements confuse it).
 - **No raw-coordinate form exists.** `x`/`y` are gone on purpose: an
   unverified coordinate click is how you end up on the same-named element two
   rows away.
-- **`mouse_scroll_current`** takes `dx`/`dy` in **wheel notches**, plus optional
-  `target_desc` + `bbox`. With the pair, it grounds the panel and moves the
-  pointer there before scrolling — do that whenever the pointer is not already
-  inside the panel. Without them it scrolls whatever sits under the pointer
-  right now.
+- **`mouse_scroll_current`** takes `notches_x`/`notches_y` in **wheel notches**,
+  plus optional `target_desc` + `bbox`. With the pair, it grounds the panel and
+  moves the pointer there before scrolling — do that whenever the pointer is not
+  already inside the panel. Without them it scrolls whatever sits under the
+  pointer right now.
 - **`mouse_drag_from_to_at`** takes **two** pairs, because a drag has two ends:
   `from_target_desc` + `from_bbox` (what to grab) and `to_target_desc` +
   `to_bbox` (where to drop). Both ends are grounded separately, so both must be
@@ -78,22 +78,24 @@ grounds the panel, moves the pointer there, then scrolls. Wheel events only
 reach the window under the pointer, so scrolling "at the current pointer" from
 outside the panel does nothing.
 
-- **`mouse_scroll_current`** — Requires **`dx`** and/or **`dy`**, in **wheel
-  notches** (1–100). Add **`target_desc`** + **`bbox`** to scroll a named panel;
-  omit them only when the pointer already sits inside it.
+- **`mouse_scroll_current`** — Requires **`notches_x`** and/or **`notches_y`**,
+  in **wheel notches** (1–100). Add **`target_desc`** + **`bbox`** to scroll a
+  named panel; omit them only when the pointer already sits inside it.
 
-**Choosing `dx` / `dy`:** Wheel notches, **not pixels**. **`dy` positive = up**,
-negative = down; **`dx` positive = right**, negative = left. A notch is one
-detent of a physical wheel — how far that moves depends on the app and its font
-size, so there is no pixel equivalent to aim at. Start around **30** for a
-meaningful jump. The previous scroll's tool result reports how far it actually
-went — `Verify: pass — moved ~0.3 screen` means 30 notches covered about a third
-of the viewport, so scale from there. At least one axis must be non-zero.
+**Choosing `notches_x` / `notches_y`:** Wheel notches, **not pixels**.
+**`notches_y` positive = up**, negative = down; **`notches_x` positive = right**,
+negative = left. A notch is one detent of a physical wheel — how far that moves
+depends on the app and its font size, so there is no pixel equivalent to aim at.
+Start around **30** for a meaningful jump. The previous scroll's tool result
+reports how far it actually went — `Verify: pass — moved ~0.3 target-heights`
+means 30 notches covered about a third of the panel, so scale from there. At
+least one axis must be non-zero. Values beyond ±100 are clamped, and the result
+says so (`Requested 0×-900, clamped to ±100 notches`) — read that line, it means
+your request was larger than one call can deliver.
 
 **After scroll:** read the `Verify:` line in that tool's result. `pass` with
-`moved ~N screen` tells you how far the last notch count went — scale the next
-one from it. `fail (at_edge)` means the content cannot move further in that
-direction: stop scrolling and continue with the next step. `fail
-(wrong_operation)` with `moved 0 screen` means the pointer was not over a
-scrollable area — pass `target_desc` + `bbox` to name the panel instead of
-adding notches.
+`moved ~N target-heights` tells you how far the last notch count went — scale
+the next one from it. `fail (at_edge)` means the content cannot move further in
+that direction: stop scrolling and continue with the next step. `fail
+(wrong_operation)` with `moved 0` means the pointer was not over a scrollable
+area — pass `target_desc` + `bbox` to name the panel instead of adding notches.

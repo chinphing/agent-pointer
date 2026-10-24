@@ -1,6 +1,6 @@
 use super::args_util::{
     click_count_from_args, mouse_button_from_args, require_non_empty_str, required_f32_arg,
-    scroll_notches_from_args,
+    scroll_notches_from_args, ScrollNotches, SCROLL_NOTCHES_MAX,
 };
 use super::method_route::MouseBackend;
 use crate::agents::computer::control::ComputerControl;
@@ -54,7 +54,7 @@ impl MouseAtTool {
     /// "scroll that list" needs a pointer move before the scroll. `x`/`y` are
     /// optional: without them this is the at-current-pointer behaviour.
     fn scroll_current(&self, args: &Value) -> Result<String> {
-        let (dx, dy) = scroll_notches_from_args(args)?;
+        let n = scroll_notches_from_args(args)?;
         let moved = match (args.get("x"), args.get("y")) {
             (Some(_), Some(_)) => {
                 let x = required_f32_arg(args, "x")?;
@@ -65,13 +65,8 @@ impl MouseAtTool {
             }
             _ => None,
         };
-        self.control.scroll(dx, dy)?;
-        Ok(match moved {
-            Some((px, py)) => format!(
-                "Moved to ({px}, {py}), then scrolled {dx}×{dy} notches there."
-            ),
-            None => format!("Scrolled {dx}×{dy} notches at the current pointer."),
-        })
+        self.control.scroll(n.x, n.y)?;
+        Ok(scroll_report(n, moved))
     }
 
     fn resolve_coord(&self, _args: &Value, x: f32, y: f32) -> Result<(i32, i32)> {
@@ -170,14 +165,33 @@ impl MouseAtTool {
 
 /// `mouse_scroll_current` — scroll at the current pointer by **wheel notches**.
 ///
-/// Positive `dy` scrolls up, positive `dx` scrolls right. Notches reach the OS
-/// wheel primitive unchanged: one notch is whatever the platform and the app
-/// decide, so there is no pixel distance to report or promise.
+/// Positive `notches_y` scrolls up, positive `notches_x` scrolls right. Notches
+/// reach the OS wheel primitive unchanged: one notch is whatever the platform
+/// and the app decide, so there is no pixel distance to report or promise.
 pub fn scroll_current(control: &Arc<dyn ComputerControl>, args: &Value) -> Result<String> {
     require_non_empty_str(args, "goal")?;
-    let (dx, dy) = scroll_notches_from_args(args)?;
-    control.scroll(dx, dy)?;
-    Ok(format!("Scrolled {dx}×{dy} notches at the current pointer."))
+    let n = scroll_notches_from_args(args)?;
+    control.scroll(n.x, n.y)?;
+    Ok(scroll_report(n, None))
+}
+
+/// Build the tool result line, including the clamp notice when the request
+/// exceeded ±[`SCROLL_NOTCHES_MAX`]. Without that notice the model keeps
+/// believing its `-900` was honoured.
+fn scroll_report(n: ScrollNotches, moved: Option<(i32, i32)>) -> String {
+    let mut s = match moved {
+        Some((px, py)) => format!(
+            "Moved to ({px}, {py}), then scrolled {}×{} notches there.",
+            n.x, n.y
+        ),
+        None => format!("Scrolled {}×{} notches at the current pointer.", n.x, n.y),
+    };
+    if let Some((raw_x, raw_y)) = n.clamped_from {
+        s.push_str(&format!(
+            " Requested {raw_x}×{raw_y}, clamped to ±{SCROLL_NOTCHES_MAX} notches."
+        ));
+    }
+    s
 }
 
 // ── MouseTool (unified registry entry) ───────────────────────────────────────
@@ -459,7 +473,11 @@ mod tests {
     #[test]
     fn scroll_current_passes_notches_on_both_axes() {
         let (control, calls) = scroll_control();
-        scroll_current(&control, &json!({"goal": "page", "dx": 20, "dy": -30})).unwrap();
+        scroll_current(
+            &control,
+            &json!({"goal": "page", "notches_x": 20, "notches_y": -30}),
+        )
+        .unwrap();
         let log = recorded(&calls);
         assert!(log.contains(&"scroll(-30)".to_string()), "{log:?}");
         assert!(log.contains(&"scroll_horizontal(20)".to_string()), "{log:?}");
@@ -469,7 +487,24 @@ mod tests {
     fn scroll_current_rejects_a_noop_or_missing_delta() {
         let (control, _calls) = scroll_control();
         assert!(scroll_current(&control, &json!({"goal": "page"})).is_err());
-        assert!(scroll_current(&control, &json!({"goal": "page", "dx": 0, "dy": 0})).is_err());
+        assert!(scroll_current(
+            &control,
+            &json!({"goal": "page", "notches_x": 0, "notches_y": 0})
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn scroll_current_reports_the_clamp_instead_of_failing() {
+        let (control, calls) = scroll_control();
+        // -900 was the pixel-era value. It must not fail — but the result has to
+        // say it was clamped, or the model keeps believing it scrolled 900.
+        let out = scroll_current(&control, &json!({"goal": "page", "notches_y": -900})).unwrap();
+        assert!(out.contains("-100"), "{out}");
+        assert!(out.contains("-900"), "{out}");
+        assert!(out.contains("clamped"), "{out}");
+        let log = recorded(&calls);
+        assert!(log.contains(&"scroll(-100)".to_string()), "{log:?}");
     }
 
     #[test]
@@ -481,7 +516,7 @@ mod tests {
         t.execute_with(
             MouseBackend::At,
             "scroll_current",
-            &json!({"goal": "page", "dy": -500, "x": 640, "y": 400}),
+            &json!({"goal": "page", "notches_y": -50, "x": 640, "y": 400}),
         )
         .unwrap();
         let log = recorded(&calls);
@@ -501,7 +536,7 @@ mod tests {
         t.execute_with(
             MouseBackend::At,
             "scroll_current",
-            &json!({"goal": "page", "dy": -500}),
+            &json!({"goal": "page", "notches_y": -50}),
         )
         .unwrap();
         let log = recorded(&calls);

@@ -3,7 +3,7 @@
 use crate::agent_instance_scope::AgentInstanceScope;
 use crate::agents::{
     delegatable_sub_agents_system_block, expand_agent_prompt_placeholders, normalize_allow_agents,
-    AgentDef, AgentProfile, AgentTask, SessionInjectVars, DEFAULT_AGENT_ID,
+    AgentDef, AgentTask, SessionInjectVars, DEFAULT_AGENT_ID,
 };
 use crate::extensions::{BeforeMainLlmCallContext, MessageLoopPromptsAfterContext};
 use crate::models::{ChatMessage, Role, SystemPromptSections};
@@ -283,33 +283,19 @@ pub(super) fn init_sub_agent_session(
     let handoff_footer = "Finish by writing your full handoff directly in assistant Markdown content \
         (conclusions, evidence, traces, open questions). When no further tool calls are required, \
         the run ends and the parent reads the final assistant content from **`run_subagent`** result field **`content`**.";
-    let sub_agent_header = if def.profile == AgentProfile::Computer {
-        format!(
-            "Sub-agent: {} ({})\nprofile: {:?}\ndescription: {}\n\n\
-             Your assigned task is in the system prompt under **Assigned task** (not main chat history). \
-             {}\nAllowed tools: {}",
-            def.name,
-            def.id,
-            def.profile,
-            def.description,
-            handoff_footer,
-            allowed_tools_line,
-        )
-    } else {
-        let expanded_role = expand_agent_prompt_placeholders(&system_prompt, &session_vars);
-        format!(
-            "Sub-agent: {} ({})\nprofile: {:?}\ndescription: {}\n\n{}\n\n\
-             Your assigned task is in the system prompt under **Assigned task** (not main chat history). \
-             {}\nAllowed tools: {}",
-            def.name,
-            def.id,
-            def.profile,
-            def.description,
-            expanded_role,
-            handoff_footer,
-            allowed_tools_line,
-        )
-    };
+    let expanded_role = expand_agent_prompt_placeholders(&system_prompt, &session_vars);
+    let sub_agent_header = format!(
+        "Sub-agent: {} ({})\nprofile: {:?}\ndescription: {}\n\n{}\n\n\
+         Your assigned task is in the system prompt under **Assigned task** (not main chat history). \
+         {}\nAllowed tools: {}",
+        def.name,
+        def.id,
+        def.profile,
+        def.description,
+        expanded_role,
+        handoff_footer,
+        allowed_tools_line,
+    );
     let mut session_extras = vec![sub_agent_header];
     session_extras.push(crate::agent_instance_scope::agent_instance_id_system_line(
         &instance_scope.agent_instance_id,

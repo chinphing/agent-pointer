@@ -90,9 +90,10 @@ meaningful jump. The previous scroll's tool result reports how far it actually
 went — `Verify: pass — moved ~0.3 screen` means 30 notches covered about a third
 of the viewport, so scale from there. At least one axis must be non-zero.
 
-**After scroll:** the previous scroll's tool result reports how far the content
-moved, as a fraction of the viewport, and — when nothing moved — whether the
-content is already at the edge. `moved 0 screen` with an edge verdict means you
-are done; `moved 0 screen` without one means the pointer is not over a
+**After scroll:** read the `Verify:` line in that tool's result. `pass` with
+`moved ~N screen` tells you how far the last notch count went — scale the next
+one from it. `fail (at_edge)` means the content cannot move further in that
+direction: stop scrolling and continue with the next step. `fail
+(wrong_operation)` with `moved 0 screen` means the pointer was not over a
 scrollable area — pass `target_desc` + `bbox` to name the panel instead of
 adding notches.

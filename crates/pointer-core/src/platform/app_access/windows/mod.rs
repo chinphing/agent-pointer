@@ -63,9 +63,7 @@ pub fn launch_app(app: &str, options: AppOpenOptions) -> Result<AppOpenResult> {
             .and_then(windows_recent::process_image_path_for_pid)
     });
     let Some(path) = target else {
-        return Err(anyhow!(
-            "Could not resolve launch target for \"{app_trim}\". Call list_apps and pass an executable name such as notepad.exe."
-        ));
+        return Err(anyhow!("{}", super::launch_miss_message(app_trim)));
     };
     launch_path(&path, app_trim, options.new_instance)
 }

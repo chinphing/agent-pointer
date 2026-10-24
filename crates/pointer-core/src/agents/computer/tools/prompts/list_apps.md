@@ -27,8 +27,7 @@ Pass the app **name** or **bundle / executable identifier** from a line into
 That retry returns the **full installed catalog** on macOS and Linux; on Windows
 the Start Menu is already in the default list, so the retry rarely helps.
 
-**Use `list_apps`** when the app identifier came from the user's own words
-(macOS bundle names are often longer or localized — see `launch_app`), or to
+**Use `list_apps`** when the identifier came from the user's own words, or to
 check whether an app is already running. **Do not** call it again when you
 already have an exact identifier from a previous `list_apps` line — pass that
 straight to **`launch_app`**.

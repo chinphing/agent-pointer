@@ -208,9 +208,7 @@ fn launch_linux(app: &str, new_instance: bool) -> Result<AppOpenResult> {
         return Ok(result);
     }
 
-    Err(anyhow!(
-        "Could not launch \"{app}\". Call list_apps and pass a running app name or .desktop id."
-    ))
+    Err(anyhow!("{}", super::launch_miss_message(app)))
 }
 
 fn try_gtk_launch(desktop_id: &str) -> Result<bool> {

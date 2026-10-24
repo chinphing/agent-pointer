@@ -67,7 +67,13 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 Some((MouseBackend::At, "right_click")),
             ),
             ("mouse_hover_at", Some((MouseBackend::At, "hover"))),
-            ("mouse_scroll_current", None),
+            // `target_desc` is optional here, but the sync handler cannot ground
+            // and cannot move the pointer — so this must go through the async
+            // dispatch path even when the caller omits a target.
+            (
+                "mouse_scroll_current",
+                Some((MouseBackend::At, "scroll_current")),
+            ),
             (
                 "mouse_drag_from_to_at",
                 Some((MouseBackend::At, "drag_from_to")),

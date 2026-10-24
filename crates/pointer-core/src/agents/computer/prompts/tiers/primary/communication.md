@@ -50,14 +50,12 @@ Deliver every user-visible message in assistant **`content`** only.
 
 Users see **only** **`content`** (not reasoning).
 
-**Mid-run `content`:** default **empty** when this turn has a desktop tool.
+**Mid-run `content`:** leave it empty when this turn has a desktop tool and
+there is nothing the user must know.
 Process progress belongs in tool rows and the task board —
 not in **`content`**.
-
-**Empty means genuinely empty** — no text field at all.
-Never emit a placeholder so the body looks non-empty: no `...`, `…`, `。`,
-`(continuing)`, or similar. A placeholder renders as a stray paragraph above
-the tool row and reads as noise, not narration.
+When the turn does carry a decision, a blockage, or a fact the user needs,
+write it normally — a short sentence, not a placeholder.
 
 Write **`content`** with a desktop tool only when:
 - the user must act or choose

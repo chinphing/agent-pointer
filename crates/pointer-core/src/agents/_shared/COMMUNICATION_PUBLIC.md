@@ -51,14 +51,12 @@ Keep internal reasoning concise and action-focused.
 Do not paste long plans into assistant message text.
 Keep internal stage templates out of **`content`**.
 
-**Mid-run `content`:** default **empty** when this turn has **`tool_calls`**.
+**Mid-run `content`:** leave it empty when this turn has **`tool_calls`** and
+there is nothing the user must know.
 Process progress belongs in tool rows and the task board —
 not in **`content`**.
-
-**Empty means genuinely empty** — omit the text field entirely.
-Never emit a placeholder to make the body look non-empty: no `...`, `…`, `。`,
-`(continuing)`, or similar filler. A placeholder renders as a stray paragraph
-above the tool row and reads as noise, not narration.
+When the turn does carry a decision, a blockage, or a fact the user needs,
+write it normally — a short sentence, not a placeholder.
 
 Write **`content`** with **`tool_calls`** only when:
 - the user must act or choose

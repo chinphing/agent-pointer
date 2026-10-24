@@ -26,10 +26,12 @@ use super::super::super::app_state::AppState;
 use super::super::types::ToolExecResult;
 use super::grounding::resolve_point;
 
-/// `mouse_*` tools that point at a described target.
+/// `mouse_*` tools that **always** require `target_desc` + `bbox`.
 ///
-/// `mouse_scroll_current` is absent: it scrolls at the current pointer, so
-/// there is nothing to ground.
+/// `mouse_scroll_current` is absent because its target is optional: without
+/// `target_desc` it scrolls at the current pointer. With one, `dispatch_mouse`
+/// grounds it and the pointer moves before the scroll — but that is a per-call
+/// choice, so it cannot join this set.
 ///
 /// `mouse_drag_from_to_at` is the odd one out: it needs two points (grab, drop),
 /// so it takes `from_target_desc`/`from_bbox` and `to_target_desc`/`to_bbox`
@@ -57,6 +59,7 @@ fn method_for(tool_id: &str) -> Option<&'static str> {
         "mouse_drag_from_to_at" => "drag_from_to",
         "mouse_down" => "mouse_down",
         "mouse_up" => "mouse_up",
+        "mouse_scroll_current" => "scroll_current",
         _ => return None,
     })
 }
@@ -89,6 +92,25 @@ pub(super) async fn dispatch_mouse(
         obj.insert("y2".to_string(), serde_json::json!(ty));
         for k in ["from_target_desc", "from_bbox", "to_target_desc", "to_bbox"] {
             obj.remove(k);
+        }
+    } else if tool_id == "mouse_scroll_current" {
+        // `target_desc` / `bbox` are optional here: without them this keeps the
+        // old "scroll at the current pointer" behaviour. With them, ground the
+        // panel and hand `x`/`y` to `MouseTool`, which moves the pointer before
+        // scrolling — wheel events only reach the window under the pointer.
+        let has_target = args
+            .get("target_desc")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.trim().is_empty());
+        if has_target {
+            let (x, y) = resolve_point(state, conversation_id, provider, &args, "", cancel).await?;
+            let obj = args
+                .as_object_mut()
+                .ok_or_else(|| anyhow::anyhow!("mouse 参数必须是对象"))?;
+            obj.insert("x".to_string(), serde_json::json!(x));
+            obj.insert("y".to_string(), serde_json::json!(y));
+            obj.remove("target_desc");
+            obj.remove("bbox");
         }
     } else {
         let (x, y) = resolve_point(state, conversation_id, provider, &args, "", cancel).await?;
@@ -124,9 +146,12 @@ mod tests {
     }
 
     #[test]
-    fn scroll_is_not_targeted() {
+    fn scroll_is_dispatched_but_not_in_the_always_targeted_set() {
+        // `mouse_scroll_current` now grounds an optional panel, so it must reach
+        // a method — but `target_desc`/`bbox` stay optional, so it is not part of
+        // the always-targeted set that requires them.
         assert!(!TARGETED.contains(&"mouse_scroll_current"));
-        assert!(method_for("mouse_scroll_current").is_none());
+        assert_eq!(method_for("mouse_scroll_current"), Some("scroll_current"));
     }
 
     #[test]

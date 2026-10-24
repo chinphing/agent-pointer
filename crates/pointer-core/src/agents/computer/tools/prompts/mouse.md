@@ -40,10 +40,10 @@ and same-named elements confuse it).
 - **No raw-coordinate form exists.** `x`/`y` are gone on purpose: an
   unverified coordinate click is how you end up on the same-named element two
   rows away.
-- **`mouse_scroll_current`** takes `dx`/`dy` only — no `target_desc`, no
-  `bbox`, so **it cannot move the pointer for you**. It scrolls whatever sits
-  under the pointer right now. Move the pointer into the panel first — see
-  **Scroll** below.
+- **`mouse_scroll_current`** takes `dx`/`dy`, plus optional `target_desc` +
+  `bbox`. With the pair, it grounds the panel and moves the pointer there
+  before scrolling — do that whenever the pointer is not already inside the
+  panel. Without them it scrolls whatever sits under the pointer right now.
 - **`mouse_drag_from_to_at`** takes **two** pairs, because a drag has two ends:
   `from_target_desc` + `from_bbox` (what to grab) and `to_target_desc` +
   `to_bbox` (where to drop). Both ends are grounded separately, so both must be
@@ -71,12 +71,15 @@ released — always release it on a later turn.
 
 **Scroll**
 
-If the pointer is already inside the panel that must move, use **`mouse_scroll_current`**.
-Otherwise move the pointer inside that panel first (a list row or the panel body,
-not chrome outside it), then scroll.
+`mouse_scroll_current` takes an optional **`target_desc`** + **`bbox`**. Pass them
+when the pointer is not already inside the panel that must move — the tool
+grounds the panel, moves the pointer there, then scrolls. Wheel events only
+reach the window under the pointer, so scrolling "at the current pointer" from
+outside the panel does nothing.
 
 - **`mouse_scroll_current`** — Requires **`dx`** and/or **`dy`**, in **pixels**.
-  Scrolls at the current pointer position.
+  Add **`target_desc`** + **`bbox`** to scroll a named panel; omit them only
+  when the pointer already sits inside it.
 
 **Choosing `dx` / `dy`:** Signed pixel deltas. **`dy` positive = up**, negative =
 down; **`dx` positive = right**, negative = left. Runtime converts pixels to

@@ -41,10 +41,37 @@ impl MouseAtTool {
             "drag_from_to" => self.drag_from_to(args),
             "mouse_down" => self.mouse_down(args),
             "mouse_up" => self.mouse_up(args),
+            "scroll_current" => self.scroll_current(args),
             _ => Err(anyhow!(
-                "Unknown mouse_at method: {method}. Use click, double_click, right_click, hover, drag_from_to, mouse_down, mouse_up."
+                "Unknown mouse_at method: {method}. Use click, double_click, right_click, hover, drag_from_to, mouse_down, mouse_up, scroll_current."
             )),
         }
+    }
+
+    /// Scroll by pixels, optionally moving the pointer onto the panel first.
+    ///
+    /// Wheel events land on whatever window sits under the pointer, so
+    /// "scroll that list" needs a pointer move before the scroll. `x`/`y` are
+    /// optional: without them this is the old at-current-pointer behaviour.
+    fn scroll_current(&self, args: &Value) -> Result<String> {
+        let (dx, dy) = scroll_pixels_from_args(args)?;
+        let moved = match (args.get("x"), args.get("y")) {
+            (Some(_), Some(_)) => {
+                let x = required_f32_arg(args, "x")?;
+                let y = required_f32_arg(args, "y")?;
+                let (px, py) = self.resolve_coord(args, x, y)?;
+                self.control.move_to(px, py)?;
+                Some((px, py))
+            }
+            _ => None,
+        };
+        self.control.scroll(dx, dy)?;
+        Ok(match moved {
+            Some((px, py)) => format!(
+                "Moved to ({px}, {py}), then scrolled ({dx}, {dy}) px at that point."
+            ),
+            None => format!("Scrolled ({dx}, {dy}) px at the current pointer."),
+        })
     }
 
     fn resolve_coord(&self, _args: &Value, x: f32, y: f32) -> Result<(i32, i32)> {
@@ -443,5 +470,45 @@ mod tests {
         let (control, _calls) = scroll_control();
         assert!(scroll_current(&control, &json!({"goal": "page"})).is_err());
         assert!(scroll_current(&control, &json!({"goal": "page", "dx": 0, "dy": 0})).is_err());
+    }
+
+    #[test]
+    fn scroll_current_moves_the_pointer_first_when_given_a_point() {
+        // Wheel events reach the window under the pointer, so a grounded target
+        // must move the pointer before scrolling. Without x/y the old
+        // at-current-pointer behaviour stays.
+        let (t, calls) = tool();
+        t.execute_with(
+            MouseBackend::At,
+            "scroll_current",
+            &json!({"goal": "page", "dy": -500, "x": 640, "y": 400}),
+        )
+        .unwrap();
+        let log = recorded(&calls);
+        let move_at = log.iter().position(|c| c.starts_with("move_to("));
+        let scroll_at = log.iter().position(|c| c.starts_with("scroll("));
+        assert!(move_at.is_some(), "expected a move_to, got {log:?}");
+        assert!(scroll_at.is_some(), "expected a scroll, got {log:?}");
+        assert!(
+            move_at.unwrap() < scroll_at.unwrap(),
+            "move must come before scroll, got {log:?}"
+        );
+    }
+
+    #[test]
+    fn scroll_current_without_a_point_does_not_move_the_pointer() {
+        let (t, calls) = tool();
+        t.execute_with(
+            MouseBackend::At,
+            "scroll_current",
+            &json!({"goal": "page", "dy": -500}),
+        )
+        .unwrap();
+        let log = recorded(&calls);
+        assert!(
+            !log.iter().any(|c| c.starts_with("move_to(")),
+            "must not move without x/y, got {log:?}"
+        );
+        assert!(log.iter().any(|c| c.starts_with("scroll(")), "{log:?}");
     }
 }

@@ -121,6 +121,16 @@ mouse_hover_at:
 mouse_scroll_current:
   type: object
   properties:
+    target_desc:
+      type: string
+      description: "Optional. What to scroll — the panel or list body that must move. When given, the tool grounds it and moves the pointer there before scrolling, because wheel events only reach the window under the pointer. Four parts: appearance + control type + screen position + anchor. Omit only when the pointer is already inside the panel."
+    bbox:
+      type: array
+      items:
+        type: number
+      minItems: 4
+      maxItems: 4
+      description: "Roughly where that panel is, [x1, y1, x2, y2] in logical pixels. Required together with target_desc; the tool re-grounds inside it."
     goal:
       type: string
     action:
@@ -130,15 +140,11 @@ mouse_scroll_current:
       description: >
         Horizontal scroll in screen pixels. Positive scrolls right,
         negative left. Omit when only vertical movement is needed.
-        Note: this tool moves nothing else — it scrolls the window under the
-        pointer right now. Move the pointer into the target panel first.
     dy:
       type: integer
       description: >
         Vertical scroll in screen pixels. Positive scrolls up,
         negative down. Omit when only horizontal movement is needed.
-        Note: this tool moves nothing else — it scrolls the window under the
-        pointer right now. Move the pointer into the target panel first.
     wait:
       type: number
       minimum: 1

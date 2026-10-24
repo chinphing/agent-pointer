@@ -50,18 +50,6 @@ Deliver every user-visible message in assistant **`content`** only.
 
 Users see **only** **`content`** (not reasoning).
 
-**Mid-run `content`:** leave it empty when this turn has a desktop tool and
-there is nothing the user must know.
-Process progress belongs in tool rows and the task board —
-not in **`content`**.
-When the turn does carry a decision, a blockage, or a fact the user needs,
-write it normally — a short sentence, not a placeholder.
-
-Write **`content`** with a desktop tool only when:
-- the user must act or choose
-- the user must know a decision
-  (irreversible, security-sensitive, or a product fork)
-
 **Blocked** or **need user input:** **`content` required**;
 no root desktop tool.
 **Task complete:** final summary in **`content`**;

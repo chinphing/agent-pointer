@@ -37,10 +37,6 @@ Re-grep or re-read anchors before risky edits if prior evidence may have dropped
 
 The host shows the user **only** assistant message **`content`**. Reasoning is internal.
 
-**Mid-run tool turns:** default empty **`content`** — native **`tool_calls`** only.
-Write **`content`** with tools only when the user must act
-or must know a decision (see general rules). Do not restate.
-
 **When the user must see a reply**, write it in **`content`**:
 - **Deliver** — summary, test commands, risks, follow-ups.
 - **Plan / design** (the user may ask in their own language) when implementation is **not** requested this session.

@@ -40,8 +40,10 @@ and same-named elements confuse it).
 - **No raw-coordinate form exists.** `x`/`y` are gone on purpose: an
   unverified coordinate click is how you end up on the same-named element two
   rows away.
-- **`mouse_scroll_current`** takes `dx`/`dy` — it scrolls at the current
-  pointer, nothing to ground.
+- **`mouse_scroll_current`** takes `dx`/`dy` only — no `target_desc`, no
+  `bbox`, so **it cannot move the pointer for you**. It scrolls whatever sits
+  under the pointer right now. Move the pointer into the panel first — see
+  **Scroll** below.
 - **`mouse_drag_from_to_at`** takes **two** pairs, because a drag has two ends:
   `from_target_desc` + `from_bbox` (what to grab) and `to_target_desc` +
   `to_bbox` (where to drop). Both ends are grounded separately, so both must be

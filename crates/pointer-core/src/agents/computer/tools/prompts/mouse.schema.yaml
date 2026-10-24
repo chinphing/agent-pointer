@@ -130,11 +130,15 @@ mouse_scroll_current:
       description: >
         Horizontal scroll in screen pixels. Positive scrolls right,
         negative left. Omit when only vertical movement is needed.
+        Note: this tool moves nothing else — it scrolls the window under the
+        pointer right now. Move the pointer into the target panel first.
     dy:
       type: integer
       description: >
         Vertical scroll in screen pixels. Positive scrolls up,
         negative down. Omit when only horizontal movement is needed.
+        Note: this tool moves nothing else — it scrolls the window under the
+        pointer right now. Move the pointer into the target panel first.
     wait:
       type: number
       minimum: 1

@@ -11,20 +11,20 @@ estimate matters as much as the pass/fail.
 
 ### 1. How far did it move
 
-Estimate the content shift as a fraction of the viewport height, to the nearest
-0.1. Put it **first** in `step_summary`:
+Estimate the content shift as a fraction of the viewport height, and put it
+**first** in `step_summary`:
 
-| What you see | `step_summary` starts with |
-| --- | --- |
-| Almost nothing moved but the offset did change | `moved ~0.1 screen` |
-| About a third | `moved ~0.3 screen` |
-| About half | `moved ~0.5 screen` |
-| Most of a screen | `moved ~0.8 screen` |
-| A full screen or more | `moved >=1.0 screen` |
-| Nothing moved at all | `moved 0 screen` |
+```
+moved ~0.35 screen
+```
 
-Compare a fixed feature — the first visible row, a header, a scrollbar thumb —
-against the viewport edges. Do not try to count pixels.
+Pick the number however it is easiest to judge — how many rows went past, or
+what fraction of the height the content slid. One decimal place is plenty; the
+planner only needs the magnitude to scale the next notch count. Use `moved 0
+screen` when the content did not shift at all, since that value decides the
+edge check below.
+
+Do not try to count pixels — the estimate is for scaling, not for measurement.
 
 ### 2. If nothing moved, why
 

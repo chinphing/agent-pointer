@@ -87,8 +87,8 @@ negative = down; **`dx` positive = right**, negative = left. A notch is one
 detent of a physical wheel — how far that moves depends on the app and its font
 size, so there is no pixel equivalent to aim at. Start around **30** for a
 meaningful jump. The previous scroll's tool result reports how far it actually
-went — `Verify: pass — moved ~0.3 screen` means 30 notches covered a third of
-the viewport, so scale from there. At least one axis must be non-zero.
+went — `Verify: pass — moved ~0.3 screen` means 30 notches covered about a third
+of the viewport, so scale from there. At least one axis must be non-zero.
 
 **After scroll:** the previous scroll's tool result reports how far the content
 moved, as a fraction of the viewport, and — when nothing moved — whether the

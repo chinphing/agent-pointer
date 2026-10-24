@@ -48,6 +48,10 @@ impl ActionResult {
 pub enum FailureCause {
     WrongOperation,
     PrecisionMiss,
+    /// Scroll was attempted but the viewport could not move: the content is
+    /// already at the edge in that direction. A failure of the content, not of
+    /// the action — but still a `fail`, so repetition counting keeps working.
+    AtEdge,
 }
 
 impl FailureCause {
@@ -55,6 +59,7 @@ impl FailureCause {
         match self {
             Self::WrongOperation => "wrong_operation",
             Self::PrecisionMiss => "precision_miss",
+            Self::AtEdge => "at_edge",
         }
     }
 
@@ -62,6 +67,7 @@ impl FailureCause {
         match s.trim().to_ascii_lowercase().as_str() {
             "wrong_operation" => Some(Self::WrongOperation),
             "precision_miss" => Some(Self::PrecisionMiss),
+            "at_edge" => Some(Self::AtEdge),
             _ => None,
         }
     }
@@ -276,5 +282,47 @@ mod tests {
             step_summary: None,
         };
         assert_eq!(c.verify_line_for_tool_card(), "Verify: n/a");
+    }
+
+    #[test]
+    fn at_edge_parses_and_shows_as_its_own_cause() {
+        // `at_edge` is a fail, so repetition counting keeps working — but the
+        // suffix must name the cause, not fall back to a bare "fail".
+        let out = VerifyModuleOutput {
+            action_result: "fail".into(),
+            failure_cause: Some("at_edge".into()),
+            step_summary: Some("moved 0 screen; footer 已显示全部 is visible".into()),
+            loading_detected: false,
+        };
+        let c = VerifyConclusion::from_module_output(&out).unwrap();
+        assert_eq!(c.failure_cause.as_ref().map(|x| x.as_str()), Some("at_edge"));
+        assert_eq!(c.verify_line_for_tool_card(), "Verify: fail (at_edge)");
+    }
+
+    #[test]
+    fn at_edge_rows_count_toward_repetition() {
+        // The whole point of modelling the edge as a cause rather than a pass
+        // variant: the give-up counter still sees it, so a planner that keeps
+        // scrolling a finished list gets stopped.
+        use crate::agents::computer::runtime::{
+            same_goal_repetition_count_in_history, ActionRecord, VerifyOutcome,
+        };
+        let row = |step: &str| ActionRecord {
+            tool_name: "mouse_scroll_current".into(),
+            goal: "scroll to the bottom".into(),
+            action: None,
+            coords: None,
+            extra_args_hint: None,
+            verify_result: Some(VerifyOutcome {
+                step_result: step.into(),
+                cause: if step == "fail" {
+                    Some("at_edge".into())
+                } else {
+                    None
+                },
+            }),
+        };
+        assert_eq!(same_goal_repetition_count_in_history(&[row("fail")]), 1);
+        assert_eq!(same_goal_repetition_count_in_history(&[row("pass")]), 0);
     }
 }

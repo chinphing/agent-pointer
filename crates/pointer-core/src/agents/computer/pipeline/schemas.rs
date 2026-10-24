@@ -12,7 +12,7 @@ pub fn verify_response_schema() -> Value {
             },
             "failure_cause": {
                 "type": "string",
-                "enum": ["wrong_operation", "precision_miss"]
+                "enum": ["wrong_operation", "precision_miss", "at_edge"]
             },
             "step_summary": { "type": "string" },
             "loading_detected": { "type": "boolean" }

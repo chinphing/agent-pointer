@@ -28,8 +28,13 @@ Do not try to count pixels — the estimate is for scaling, not for measurement.
 
 ### 2. If nothing moved, why
 
-Look for evidence that the content has reached the edge **in the direction the
-scroll was going**. Any one of these is enough:
+Only reach this section when the content did **not** shift at all — no row moved,
+no offset changed, `moved 0 screen`. If anything moved, the scroll succeeded and
+you are done with this section; report `pass` and the fraction from step 1, even
+when the movement was small because the content hit an edge mid-scroll.
+
+When nothing moved, look for evidence that the content is already at the edge
+**in the direction the scroll was going**. Any one of these is enough:
 
 | Evidence | Verdict |
 | --- | --- |
@@ -45,22 +50,27 @@ proves nothing.
 
 ### Outcome table
 
+The single test for success is **whether the two screenshots differ because the
+content scrolled**. Everything else follows from that.
+
 | Situation | `action_result` | `failure_cause` |
 | --- | --- | --- |
-| Content offset changed | `pass` | — |
-| Unchanged, loading visible | `pass` with `loading_detected: true` | — |
-| **Unchanged, at the edge** | **`pass`** | — |
-| Unchanged, not at the edge | `fail` | `wrong_operation` |
-| Wrong area scrolled — content moved in an unrelated panel | `fail` | `wrong_operation` |
+| Content offset changed — by any amount, including a short move that ran into an edge | `pass` | — |
+| No movement, loading visible | `pass` with `loading_detected: true` | — |
+| **No movement at all, at the edge** | **`fail`** | **`at_edge`** |
+| No movement at all, not at the edge | `fail` | `wrong_operation` |
+| No movement in the target panel, but an unrelated panel moved | `fail` | `wrong_operation` |
 
-A scroll that reaches the edge is a **success**, not a failure: the planner asked
-to move the viewport and the viewport is as far as it goes. Reporting `fail`
-here sends the planner off to change anchors and notch counts for no reason.
+`at_edge` describes a scroll that **produced no displacement because the
+viewport cannot move further** — not a scroll that reached the end while moving.
+A scroll that moved 10% of a screen and then stopped at the top is a `pass`:
+content moved, the goal was met as far as the content allows, and `moved ~0.1
+screen` already tells the planner the rest.
 
-Because `at_edge` counts as `pass`, nothing else will stop the planner from
-scrolling again. Make the conclusion explicit — `moved 0 screen; footer
-已显示全部 is visible, list is exhausted` — so the next round reads it and
-moves on instead of repeating the same scroll.
+Reporting `wrong_operation` for a no-movement-at-edge sends the planner off to
+change anchors and notch counts for no reason; it will read `at_edge` and stop
+instead. Because `at_edge` is still a `fail`, repeated scrolls at an exhausted
+edge keep counting toward the give-up threshold — that is intended.
 
 ### Reasoning (hard rule)
 

@@ -87,7 +87,20 @@ tells the planner the rest. `at_edge` is reserved for a scroll that produced
 Max **3 sentences**, plain prose.
 
 1. Estimated shift as a viewport fraction, then what changed.
-2. Pass or fail + `failure_cause`; when nothing moved, name the edge evidence you used.
-3. Optional: `loading_detected` when nothing moved but a spinner is visible.
+2. Pass or fail + `failure_cause`.
+3. **On `fail`, `step_summary` carries the one observation that decides the
+   case** — the edge evidence you used, or where the pointer landed. Keep it to
+   a short clause, not a description of the whole screen: the planner needs the
+   fact that changes its next move, nothing else.
+
+Optional: `loading_detected` when nothing moved but a spinner is visible.
 
 **Forbidden:** pointer-position analysis; numbered CoT templates; JSON.
+
+Failure summaries name the decisive fact and stop:
+
+```
+moved 0; footer 「已显示全部」 visible
+moved 0; pointer on the page header, list still cut off below
+moved 0; sidebar scrolled, panel did not move
+```

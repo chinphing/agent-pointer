@@ -111,7 +111,7 @@ impl VerifyConclusion {
                 None
             }
         };
-        if matches!(action_result, ActionResult::Pass) {
+        if matches!(action_result, ActionResult::Pass | ActionResult::Fail) {
             if out
                 .step_summary
                 .as_ref()
@@ -119,7 +119,10 @@ impl VerifyConclusion {
                 .filter(|s| !s.is_empty())
                 .is_none()
             {
-                return Err(anyhow::anyhow!("step_summary required on pass"));
+                return Err(anyhow::anyhow!(
+                    "step_summary required on {}",
+                    action_result.as_history_str()
+                ));
             }
         }
         Ok(Self {
@@ -151,6 +154,11 @@ impl VerifyConclusion {
     }
 
     /// User-visible verify line on the tool card (after host post-execute).
+    ///
+    /// On failure the summary is appended too: the cause alone says which bucket
+    /// the failure fell into, while the summary says what was actually on screen
+    /// and why it was read that way. Without it the planner knows *that* it
+    /// failed but not *what it was looking at*.
     pub fn verify_line_for_tool_card(&self) -> String {
         match &self.action_result {
             ActionResult::Pass => format!(
@@ -160,13 +168,22 @@ impl VerifyConclusion {
                     .map(|s| format!(" — {s}"))
                     .unwrap_or_default()
             ),
-            ActionResult::Fail => format!(
-                "Verify: fail ({})",
-                self.failure_cause
+            ActionResult::Fail => {
+                let cause = self
+                    .failure_cause
                     .as_ref()
                     .map(FailureCause::as_str)
-                    .unwrap_or("unknown")
-            ),
+                    .unwrap_or("unknown");
+                match self
+                    .step_summary
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
+                    Some(s) => format!("Verify: fail ({cause}) — {s}"),
+                    None => format!("Verify: fail ({cause})"),
+                }
+            }
             ActionResult::Pending => "Verify: pending".to_string(),
             ActionResult::Na => "Verify: n/a".to_string(),
         }
@@ -267,11 +284,20 @@ mod tests {
         let out = VerifyModuleOutput {
             action_result: "fail".into(),
             failure_cause: Some("precision_miss".into()),
-            step_summary: None,
+            step_summary: Some("click landed on the row above".into()),
             loading_detected: false,
         };
         let c = VerifyConclusion::from_module_output(&out).unwrap();
         assert_eq!(c.failure_cause.map(|x| x.as_str()), Some("precision_miss"));
+
+        // Cause is still mandatory on fail.
+        let missing_cause = VerifyModuleOutput {
+            action_result: "fail".into(),
+            failure_cause: None,
+            step_summary: Some("nothing changed".into()),
+            loading_detected: false,
+        };
+        assert!(VerifyConclusion::from_module_output(&missing_cause).is_err());
     }
 
     #[test]
@@ -285,18 +311,45 @@ mod tests {
     }
 
     #[test]
-    fn at_edge_parses_and_shows_as_its_own_cause() {
-        // `at_edge` is a fail, so repetition counting keeps working — but the
-        // suffix must name the cause, not fall back to a bare "fail".
+    fn at_edge_parses_and_shows_cause_plus_observation() {
+        // `at_edge` is a fail, so repetition counting keeps working. The suffix
+        // must name the cause *and* carry the observation — the planner cannot
+        // act on "it failed" alone.
         let out = VerifyModuleOutput {
             action_result: "fail".into(),
             failure_cause: Some("at_edge".into()),
-            step_summary: Some("moved 0 screen; footer 已显示全部 is visible".into()),
+            step_summary: Some("moved 0; footer 已显示全部 visible and static".into()),
             loading_detected: false,
         };
         let c = VerifyConclusion::from_module_output(&out).unwrap();
         assert_eq!(c.failure_cause.as_ref().map(|x| x.as_str()), Some("at_edge"));
-        assert_eq!(c.verify_line_for_tool_card(), "Verify: fail (at_edge)");
+        assert_eq!(
+            c.verify_line_for_tool_card(),
+            "Verify: fail (at_edge) — moved 0; footer 已显示全部 visible and static"
+        );
+    }
+
+    #[test]
+    fn fail_without_a_summary_is_rejected() {
+        // The observation is the part the planner acts on, so a fail that only
+        // names a cause is not accepted.
+        let out = VerifyModuleOutput {
+            action_result: "fail".into(),
+            failure_cause: Some("wrong_operation".into()),
+            step_summary: None,
+            loading_detected: false,
+        };
+        let err = VerifyConclusion::from_module_output(&out).unwrap_err();
+        assert!(err.to_string().contains("step_summary"), "{err}");
+
+        // Whitespace-only counts as missing too.
+        let blank = VerifyModuleOutput {
+            action_result: "fail".into(),
+            failure_cause: Some("wrong_operation".into()),
+            step_summary: Some("   ".into()),
+            loading_detected: false,
+        };
+        assert!(VerifyConclusion::from_module_output(&blank).is_err());
     }
 
     #[test]

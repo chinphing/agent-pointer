@@ -24,8 +24,13 @@ Max **4 sentences**, plain prose — no numbered lists or section headers.
 
 1. Goal check on before/after → supporting / contradicting / no_clear_evidence.
 2. Supporting → `pass`; stop — **do not** analyze pointer.
-3. Fail → center-hit vs center-miss for `failure_cause`.
+3. Fail → center-hit vs center-miss for `failure_cause`, and say what you saw:
+   which element took the click, or what the screen showed instead.
 4. Optional: note loading if applicable.
+
+On `fail`, `step_summary` carries the one observation that decides the case —
+which element took the click, or what the screen showed instead. Keep it to a
+short clause; the planner needs the fact that changes its next move.
 
 **Forbidden:** "Analyze the Request"; JSON/`{`/`}`; repeating `submit_verify` args.
 

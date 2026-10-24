@@ -23,4 +23,7 @@ Max **4 sentences**, plain prose.
 3. On fail only: brief pointer/drop-zone note if needed.
 4. Optional: loading.
 
+On `fail`, `step_summary` carries the one observation that decides the case —
+what was dragged, where it landed, or what stayed put. Keep it to a short clause.
+
 **Forbidden:** numbered CoT templates; JSON; repeating tool args.

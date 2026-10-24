@@ -22,4 +22,7 @@ Max **4 sentences**, plain prose — same structure as pointer click.
 2. Pass → stop; fail → center-hit vs center-miss.
 3. Optional: loading.
 
+On `fail`, `step_summary` carries the one observation that decides the case —
+what got selected or opened instead. Keep it to a short clause.
+
 **Forbidden:** numbered CoT templates; JSON; repeating tool args.

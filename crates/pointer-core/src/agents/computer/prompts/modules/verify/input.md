@@ -22,4 +22,7 @@ Max **3 sentences**, plain prose — no numbered lists or section headers.
 2. Pass or fail + `failure_cause` when fail — **do not** analyze pointer.
 3. Optional: loading after auto-submit.
 
+On `fail`, `step_summary` carries the one observation that decides the case —
+what the field actually holds, or where focus went. Keep it to a short clause.
+
 **Forbidden:** pointer-position analysis; numbered CoT templates; JSON; repeating tool args.

@@ -5,6 +5,7 @@ const { t } = useI18n()
 
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { parseMarkdown } from '../../../../lib/markdownConfig'
+import { isPlaceholderOnlyContent } from '../../../../lib/assistantMessageKind'
 import { useThrottledMarkdown } from '../../../../composables/useThrottledMarkdown'
 import type { MessageStatus, ToolCall, ChatMessage } from '../../../../types/chat'
 import { useMarkdownCodeCopy } from '../../../../composables/useMarkdownCodeCopy'
@@ -126,6 +127,9 @@ const markdownSource = computed(() => {
   else if (hideStreamingJsonEnvelopeMarkdown.value || isStreamingResponseDraft.value)
     raw = props.body.responseTextDraft ?? ''
   else raw = props.body.content ?? ''
+  // Models answer a tool-only turn with `...` / `…` so the body is non-empty.
+  // Painting that produces a stray paragraph above the tool card; drop it.
+  if (!isContentStreaming.value && isPlaceholderOnlyContent(raw)) return ''
   return raw
 })
 

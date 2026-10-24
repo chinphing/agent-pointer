@@ -720,7 +720,9 @@ fn format_verify_suffix(v: Option<&VerifyOutcome>) -> String {
         "fail" => {
             if let Some(ref c) = v.cause {
                 if !c.is_empty() {
-                    return format!("verify: verified - {c}");
+                    // Keep `fail` in the text: `verified - at_edge` reads like a
+                    // success, and the planner skips past it.
+                    return format!("verify: verified - fail ({c})");
                 }
             }
             "verify: verified - fail".into()
@@ -887,7 +889,7 @@ mod tests {
         let line = format_history_line(&r);
         assert!(line.contains("goal=\"Open Settings\""));
         assert!(line.contains("at (412, 680)"));
-        assert!(line.contains("verify: verified - precision_miss"));
+        assert!(line.contains("verify: verified - fail (precision_miss)"));
     }
 
     #[test]
@@ -922,7 +924,7 @@ mod tests {
             extra_args_hint: None,
         };
         let line = format_history_line(&r);
-        assert!(line.contains("verify: verified - precision_miss"));
+        assert!(line.contains("verify: verified - fail (precision_miss)"));
     }
 
     #[test]
@@ -1149,7 +1151,9 @@ mod tests {
             extra_args_hint: None,
         }];
         let block = format_history_block(&records, None).unwrap();
-        assert!(block.contains("verify: verified - unexpected_change"));
+        // Unknown causes keep the `fail (...)` shape so the suffix still reads
+        // as a failure rather than a success.
+        assert!(block.contains("verify: verified - fail (unexpected_change)"));
         assert!(!block.contains("Last verify result (previous round):"));
     }
 

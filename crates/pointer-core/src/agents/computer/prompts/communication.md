@@ -23,9 +23,10 @@ Each row in **`[Recent desktop tool calls]`** ends with **`verify:`**:
 | **`verify: verifying`** | Host still running — **no** new root desktop tool; wait for next inject |
 | **`verify: pending`** | Verify could not run (LLM error) — **do not** assume success; re-read the screen and decide |
 | **`verify: verified - pass`** | Last action succeeded — proceed to **Next** |
-| **`verify: verified - wrong_operation`** | Wrong target/action — run **Repetition**, then pivot in **Next** |
-| **`verify: verified - precision_miss`** | Aim miss — run **Repetition**, re-derive route in **Next** |
-| **`verify: verified - fail`** (other) | Failure — run **Repetition**, change tactic in **Next** |
+| **`verify: verified - fail (wrong_operation)`** | Wrong target/action — run **Repetition**, then pivot in **Next** |
+| **`verify: verified - fail (precision_miss)`** | Aim miss — run **Repetition**, re-derive route in **Next** |
+| **`verify: verified - fail (at_edge)`** | Content already at that edge — **do not** scroll again or add notches; take the next step |
+| **`verify: verified - fail`** (no cause) | Failure — run **Repetition**, change tactic in **Next** |
 | **`verify: verified - n/a`** | No verify signal — proceed to **Next** |
 | **`verify: skipped`** | Superseded — no verify signal for that row |
 | **No history row** | First action turn — no prior verify |

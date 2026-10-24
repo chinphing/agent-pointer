@@ -10,6 +10,7 @@ const preview = computed(() => glueMessagePreview(props.message))
 
 <template>
   <div
+    v-if="preview"
     class="tool-run-glue-row px-3 py-0 text-[10px] leading-snug text-muted/75"
     :title="message.content?.trim() || undefined"
   >

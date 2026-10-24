@@ -137,8 +137,12 @@ export function glueMessagePreview(message: ChatMessage): string {
   if (isScreenInjectUserMessage(message)) return '桌面截图'
   const text = message.content?.trim() ?? ''
   if (!text) {
+    // Glue rows exist to keep consecutive tool cards in one block — they carry
+    // no text of their own. Returning `…` here read as "content was truncated"
+    // and showed up as a stray ellipsis between every tool row. Empty means
+    // empty; the caller skips rendering.
     if (message.role === 'tool') return '工具结果'
-    return '…'
+    return ''
   }
   const oneLine = text.split('\n').find(l => l.trim())?.trim() ?? text
   if (oneLine.length <= 120) return oneLine

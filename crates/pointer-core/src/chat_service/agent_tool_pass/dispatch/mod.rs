@@ -126,8 +126,13 @@ pub(super) async fn execute_tool_invocation(
         // Mouse tools accept either x/y or a description. With a description the
         // tool grounds first, and grounding needs the provider — which the sync
         // ToolHandler closure does not carry. Hence the async path.
+        //
+        // `mouse_drag_from_to_at` must be here too: it grounds **two** points
+        // (grab and drop) and rewrites them into x1/y1/x2/y2 before the tool
+        // runs. Falling through to `dispatch_registry_invoke` skips that rewrite
+        // and the tool sees `from_bbox`/`to_bbox` with no coordinates.
         "mouse_click_at" | "mouse_double_click_at" | "mouse_right_click_at"
-        | "mouse_hover_at" | "mouse_drag_to" | "mouse_down" | "mouse_up" => {
+        | "mouse_hover_at" | "mouse_drag_from_to_at" | "mouse_down" | "mouse_up" => {
             mouse::dispatch_mouse(state, conversation_id, provider, tc, args_value, cancel).await
         }
         // input_at takes {target_desc, bbox} like the pointing tools: ground
@@ -329,7 +334,7 @@ pub(super) async fn invoke_prepared_parallel(
         // tool grounds first, and grounding needs the provider — which the sync
         // ToolHandler closure does not carry. Hence the async path.
         "mouse_click_at" | "mouse_double_click_at" | "mouse_right_click_at"
-        | "mouse_hover_at" | "mouse_drag_to" | "mouse_down" | "mouse_up" => {
+        | "mouse_hover_at" | "mouse_drag_from_to_at" | "mouse_down" | "mouse_up" => {
             mouse::dispatch_mouse(state, conversation_id, provider, tc, args_value, cancel).await
         }
         // input_at takes {target_desc, bbox} like the pointing tools: ground

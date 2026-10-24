@@ -41,9 +41,8 @@ impl MouseAtTool {
             "drag_from_to" => self.drag_from_to(args),
             "mouse_down" => self.mouse_down(args),
             "mouse_up" => self.mouse_up(args),
-            "drag_to" => self.drag_to(args),
             _ => Err(anyhow!(
-                "Unknown mouse_at method: {method}. Use click, double_click, right_click, hover, drag_from_to, mouse_down, mouse_up, drag_to."
+                "Unknown mouse_at method: {method}. Use click, double_click, right_click, hover, drag_from_to, mouse_down, mouse_up."
             )),
         }
     }
@@ -108,8 +107,8 @@ impl MouseAtTool {
             return Err(anyhow!("drag start and end must differ"));
         }
         // Park the pointer on the grab point, then hand off to the trait's
-        // `drag_to` — the same primitive `mouse_drag_to` uses. `drag_to` presses
-        // at the *current* pointer, so the move above is what makes the start
+        // `drag_to` — the OSWorld `DRAG_TO` primitive (press at the current
+        // pointer, move, release). The move above is what makes the grab point
         // deterministic; doing the down/move/up sequence by hand here would
         // duplicate `drag_left_from_to` and drift from it over time.
         //
@@ -121,18 +120,6 @@ impl MouseAtTool {
         Ok(format!(
             "Dragged ({}, {}) -> ({}, {}). Verify on next screenshot.",
             px1, py1, px2, py2
-        ))
-    }
-
-    /// `DRAG_TO` — drag from the **current** pointer to `(x, y)`.
-    fn drag_to(&self, args: &Value) -> Result<String> {
-        let x = required_f32_arg(args, "x")?;
-        let y = required_f32_arg(args, "y")?;
-        let (px, py) = self.resolve_coord(args, x, y)?;
-        self.control.drag_to(px, py)?;
-        Ok(format!(
-            "Dragged from the current pointer to ({}, {}). Verify on next screenshot.",
-            px, py
         ))
     }
 
@@ -392,40 +379,6 @@ mod tests {
         let log = recorded(&calls);
         assert!(log.contains(&"mouse_down(left)".to_string()), "{log:?}");
         assert!(log.contains(&"mouse_up(right)".to_string()), "{log:?}");
-    }
-
-    #[test]
-    fn drag_to_starts_from_the_current_pointer() {
-        let (t, calls) = tool();
-        t.execute_with(
-            MouseBackend::At,
-            "hover",
-            &json!({"goal": "position", "x": 10, "y": 20}),
-        )
-        .unwrap();
-        t.execute_with(
-            MouseBackend::At,
-            "drag_to",
-            &json!({"goal": "move item", "x": 300, "y": 400}),
-        )
-        .unwrap();
-        let log = recorded(&calls);
-        assert!(log.contains(&"move_to(10,20)".to_string()), "{log:?}");
-        assert!(log.contains(&"mouse_down(left)".to_string()), "{log:?}");
-        assert!(log.contains(&"move_to(300,400)".to_string()), "{log:?}");
-        assert!(log.contains(&"mouse_up(left)".to_string()), "{log:?}");
-    }
-
-    #[test]
-    fn drag_to_rejects_a_zero_length_drag() {
-        let (t, _) = tool();
-        assert!(t
-            .execute_with(
-                MouseBackend::At,
-                "drag_to",
-                &json!({"goal": "nothing", "x": 0, "y": 0}),
-            )
-            .is_err());
     }
 
     #[test]

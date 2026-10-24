@@ -211,33 +211,6 @@ mouse_up:
     - goal
   additionalProperties: true
 
-mouse_drag_to:
-  type: object
-  properties:
-    target_desc:
-      type: string
-      description: "What you want to act on. Four parts: appearance + control type + screen position + anchor. Example: the blue rounded button on the right of the toolbar, white text 'Save', next to the 'Undo' button. Required together with bbox."
-    bbox:
-      type: array
-      items:
-        type: number
-      minItems: 4
-      maxItems: 4
-      description: "Roughly where the target is, [x1, y1, x2, y2] in logical pixels. Usually the bbox returned by locate_element. The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
-    goal:
-      type: string
-    action:
-      type: string
-    wait:
-      type: number
-      minimum: 1
-      maximum: 5
-  required:
-    - target_desc
-    - bbox
-    - goal
-  additionalProperties: true
-
 mouse_drag_from_to_at:
   type: object
   properties:

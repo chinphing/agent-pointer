@@ -74,7 +74,6 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             ),
             ("mouse_down", Some((MouseBackend::At, "mouse_down"))),
             ("mouse_up", Some((MouseBackend::At, "mouse_up"))),
-            ("mouse_drag_to", Some((MouseBackend::At, "drag_to"))),
         ];
 
         for (name, backend_method) in mouse_handlers {
@@ -453,19 +452,22 @@ mod tests {
         assert!(reg.openai_tools(&["locate_element".to_string()]).is_empty());
     }
 
-    /// The seven tools P4 adds on top of the existing surface (design §7.4).
+    /// The six tools P4 adds on top of the existing surface (design §7.4).
+    ///
+    /// `mouse_drag_to` (OSWorld `DRAG_TO`) was dropped: its grab point is the
+    /// current pointer, which the model cannot set. `mouse_drag_from_to_at`
+    /// covers the same gesture with both ends grounded.
     const NEW_ACTION_TOOLS: &[&str] = &[
         "mouse_down",
         "mouse_up",
         "key_press",
         "key_down",
         "key_up",
-        "mouse_drag_to",
         "keyboard_type",
     ];
 
     #[test]
-    fn registers_the_seven_new_action_tools_with_schemas() {
+    fn registers_the_new_action_tools_with_schemas() {
         let reg = registry_with_computer_tools();
         let names: Vec<String> = reg.list_defs().iter().map(|d| d.name.clone()).collect();
         for tool in NEW_ACTION_TOOLS {

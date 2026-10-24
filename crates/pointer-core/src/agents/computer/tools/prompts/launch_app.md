@@ -25,11 +25,11 @@ running. Activate also requires the app to become **frontmost**. Failed verifica
 2. **`launch_app`** with a name or bundle / exe id copied verbatim from a `list_apps` line
 3. **`wait`** if the window is still loading
 
-**Bundle names are not what the user says**
+**Spoken names are not identifiers**
 
-Installed names are often longer, localized, or vendor-prefixed than the spoken
-name. `launch_app` resolves by exact match, so a spoken name usually misses and
-costs a launch attempt plus the ~4 s verification poll.
+What the user says is rarely the exact identifier the OS stores. Launch resolves
+by exact match, so a spoken name usually misses and costs an attempt plus the
+~4 s verification poll.
 
 On every platform, when the name came from the user rather than a previous
 `list_apps` line, call `list_apps` first and copy an identifier from it. Skip

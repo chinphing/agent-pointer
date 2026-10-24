@@ -40,10 +40,11 @@ and same-named elements confuse it).
 - **No raw-coordinate form exists.** `x`/`y` are gone on purpose: an
   unverified coordinate click is how you end up on the same-named element two
   rows away.
-- **`mouse_scroll_current`** takes `dx`/`dy`, plus optional `target_desc` +
-  `bbox`. With the pair, it grounds the panel and moves the pointer there
-  before scrolling — do that whenever the pointer is not already inside the
-  panel. Without them it scrolls whatever sits under the pointer right now.
+- **`mouse_scroll_current`** takes `dx`/`dy` in **wheel notches**, plus optional
+  `target_desc` + `bbox`. With the pair, it grounds the panel and moves the
+  pointer there before scrolling — do that whenever the pointer is not already
+  inside the panel. Without them it scrolls whatever sits under the pointer
+  right now.
 - **`mouse_drag_from_to_at`** takes **two** pairs, because a drag has two ends:
   `from_target_desc` + `from_bbox` (what to grab) and `to_target_desc` +
   `to_bbox` (where to drop). Both ends are grounded separately, so both must be
@@ -77,16 +78,21 @@ grounds the panel, moves the pointer there, then scrolls. Wheel events only
 reach the window under the pointer, so scrolling "at the current pointer" from
 outside the panel does nothing.
 
-- **`mouse_scroll_current`** — Requires **`dx`** and/or **`dy`**, in **pixels**.
-  Add **`target_desc`** + **`bbox`** to scroll a named panel; omit them only
-  when the pointer already sits inside it.
+- **`mouse_scroll_current`** — Requires **`dx`** and/or **`dy`**, in **wheel
+  notches** (1–100). Add **`target_desc`** + **`bbox`** to scroll a named panel;
+  omit them only when the pointer already sits inside it.
 
-**Choosing `dx` / `dy`:** Signed pixel deltas. **`dy` positive = up**, negative =
-down; **`dx` positive = right**, negative = left. Runtime converts pixels to
-wheel notches locally, so small values still move one notch — use a few hundred
-pixels for a visible jump, and roughly one screen height for a full page.
-At least one axis must be non-zero.
+**Choosing `dx` / `dy`:** Wheel notches, **not pixels**. **`dy` positive = up**,
+negative = down; **`dx` positive = right**, negative = left. A notch is one
+detent of a physical wheel — how far that moves depends on the app and its font
+size, so there is no pixel equivalent to aim at. Start around **30** for a
+meaningful jump. The previous scroll's tool result reports how far it actually
+went — `Verify: pass — moved ~0.3 screen` means 30 notches covered a third of
+the viewport, so scale from there. At least one axis must be non-zero.
 
-**After scroll:** the `verify:` suffix on `[Recent desktop tool calls]` already
-reports whether the content moved. If it says the scroll had no effect, change
-the anchor point or route before retrying — do not re-scroll the same spot.
+**After scroll:** the previous scroll's tool result reports how far the content
+moved, as a fraction of the viewport, and — when nothing moved — whether the
+content is already at the edge. `moved 0 screen` with an edge verdict means you
+are done; `moved 0 screen` without one means the pointer is not over a
+scrollable area — pass `target_desc` + `bbox` to name the panel instead of
+adding notches.

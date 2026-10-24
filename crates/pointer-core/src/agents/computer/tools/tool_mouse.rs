@@ -1,6 +1,6 @@
 use super::args_util::{
     click_count_from_args, mouse_button_from_args, require_non_empty_str, required_f32_arg,
-    scroll_pixels_from_args,
+    scroll_notches_from_args,
 };
 use super::method_route::MouseBackend;
 use crate::agents::computer::control::ComputerControl;
@@ -48,13 +48,13 @@ impl MouseAtTool {
         }
     }
 
-    /// Scroll by pixels, optionally moving the pointer onto the panel first.
+    /// Scroll by wheel notches, optionally moving the pointer onto the panel first.
     ///
     /// Wheel events land on whatever window sits under the pointer, so
     /// "scroll that list" needs a pointer move before the scroll. `x`/`y` are
-    /// optional: without them this is the old at-current-pointer behaviour.
+    /// optional: without them this is the at-current-pointer behaviour.
     fn scroll_current(&self, args: &Value) -> Result<String> {
-        let (dx, dy) = scroll_pixels_from_args(args)?;
+        let (dx, dy) = scroll_notches_from_args(args)?;
         let moved = match (args.get("x"), args.get("y")) {
             (Some(_), Some(_)) => {
                 let x = required_f32_arg(args, "x")?;
@@ -68,9 +68,9 @@ impl MouseAtTool {
         self.control.scroll(dx, dy)?;
         Ok(match moved {
             Some((px, py)) => format!(
-                "Moved to ({px}, {py}), then scrolled ({dx}, {dy}) px at that point."
+                "Moved to ({px}, {py}), then scrolled {dx}×{dy} notches there."
             ),
-            None => format!("Scrolled ({dx}, {dy}) px at the current pointer."),
+            None => format!("Scrolled {dx}×{dy} notches at the current pointer."),
         })
     }
 
@@ -168,16 +168,16 @@ impl MouseAtTool {
     }
 }
 
-/// `mouse_scroll_current` — scroll at the current pointer by **pixels**.
+/// `mouse_scroll_current` — scroll at the current pointer by **wheel notches**.
 ///
-/// Positive `dy` scrolls up, positive `dx` scrolls right. The local backend
-/// converts pixels to wheel lines; the remote backend forwards them to
-/// `pyautogui.hscroll` / `vscroll` unchanged.
+/// Positive `dy` scrolls up, positive `dx` scrolls right. Notches reach the OS
+/// wheel primitive unchanged: one notch is whatever the platform and the app
+/// decide, so there is no pixel distance to report or promise.
 pub fn scroll_current(control: &Arc<dyn ComputerControl>, args: &Value) -> Result<String> {
     require_non_empty_str(args, "goal")?;
-    let (dx, dy) = scroll_pixels_from_args(args)?;
+    let (dx, dy) = scroll_notches_from_args(args)?;
     control.scroll(dx, dy)?;
-    Ok(format!("Scrolled ({dx}, {dy}) px at the current pointer."))
+    Ok(format!("Scrolled {dx}×{dy} notches at the current pointer."))
 }
 
 // ── MouseTool (unified registry entry) ───────────────────────────────────────
@@ -457,12 +457,12 @@ mod tests {
     }
 
     #[test]
-    fn scroll_current_takes_pixels_on_both_axes() {
+    fn scroll_current_passes_notches_on_both_axes() {
         let (control, calls) = scroll_control();
-        scroll_current(&control, &json!({"goal": "page", "dx": 200, "dy": -300})).unwrap();
+        scroll_current(&control, &json!({"goal": "page", "dx": 20, "dy": -30})).unwrap();
         let log = recorded(&calls);
-        assert!(log.contains(&"scroll(-3)".to_string()), "{log:?}");
-        assert!(log.contains(&"scroll_horizontal(2)".to_string()), "{log:?}");
+        assert!(log.contains(&"scroll(-30)".to_string()), "{log:?}");
+        assert!(log.contains(&"scroll_horizontal(20)".to_string()), "{log:?}");
     }
 
     #[test]

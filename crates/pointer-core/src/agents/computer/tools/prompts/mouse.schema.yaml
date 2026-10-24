@@ -137,14 +137,20 @@ mouse_scroll_current:
       type: string
     dx:
       type: integer
+      minimum: -100
+      maximum: 100
       description: >
-        Horizontal scroll in screen pixels. Positive scrolls right,
-        negative left. Omit when only vertical movement is needed.
+        Horizontal scroll in wheel notches. Positive = right, negative = left.
+        Omit when only vertical movement is needed.
     dy:
       type: integer
+      minimum: -100
+      maximum: 100
       description: >
-        Vertical scroll in screen pixels. Positive scrolls up,
-        negative down. Omit when only horizontal movement is needed.
+        Vertical scroll in wheel notches. Positive = up, negative = down.
+        Omit when only horizontal movement is needed. Most page scrolls need
+        10-40; 100 jumps far. The distance one notch covers depends on the app —
+        read the verify suffix to learn how far your last scroll actually went.
     wait:
       type: number
       minimum: 1

@@ -57,26 +57,6 @@ impl MouseButton {
     }
 }
 
-/// Pixels per wheel line for the pixel-based `SCROLL` contract.
-///
-/// `ComputerControl::scroll` takes **pixels** (design §7.3 / §10 #2); the local
-/// backend's only primitive is wheel lines, so it divides by this factor. The
-/// remote backend forwards pixels unchanged to `pyautogui.hscroll/vscroll`.
-pub const SCROLL_PIXELS_PER_LINE: i32 = 100;
-
-/// Convert a pixel scroll delta into whole wheel lines.
-///
-/// Sign is preserved and a non-zero pixel delta never collapses to zero lines,
-/// so a small scroll still moves the viewport by one notch.
-pub fn scroll_lines_for_pixels(pixels: i32) -> i32 {
-    if pixels == 0 {
-        return 0;
-    }
-    let magnitude =
-        (pixels.unsigned_abs() as f64 / SCROLL_PIXELS_PER_LINE as f64).round() as i32;
-    magnitude.max(1) * pixels.signum()
-}
-
 /// Key or mouse button press vs release (maps to enigo Press/Release).
 #[derive(Debug, Clone, Copy)]
 pub enum KeyPhase {
@@ -534,23 +514,22 @@ impl ActionExecutor {
         self.backend.scroll(lines)
     }
 
-    /// Scroll at the current cursor position by **pixel** deltas (`SCROLL`).
+    /// Scroll at the current cursor position by **wheel notches** (`SCROLL`).
     ///
     /// Positive `dy` scrolls up, positive `dx` scrolls right — the same sign
     /// convention as `pyautogui.vscroll` / `hscroll`, which the remote backend
-    /// forwards verbatim. The local backend converts pixels to wheel lines
-    /// (design §10 #2).
-    pub fn scroll_at_current_pixels(&self, dx: i32, dy: i32) -> Result<ActionResult> {
-        let vertical = scroll_lines_for_pixels(dy);
-        if vertical != 0 {
-            self.backend.scroll(vertical)?;
+    /// forwards verbatim. Notches go to the backend unchanged: one notch is
+    /// whatever the OS and the app decide, so there is no pixel equivalent to
+    /// convert to.
+    pub fn scroll_at_current_notches(&self, dx: i32, dy: i32) -> Result<ActionResult> {
+        if dy != 0 {
+            self.backend.scroll(dy)?;
         }
-        let horizontal = scroll_lines_for_pixels(dx);
-        if horizontal != 0 {
-            self.backend.scroll_horizontal(horizontal)?;
+        if dx != 0 {
+            self.backend.scroll_horizontal(dx)?;
         }
         Ok(ActionResult::success(format!(
-            "scrolled ({dx}, {dy}) px -> ({horizontal}, {vertical}) lines"
+            "scrolled ({dx}, {dy}) notches"
         )))
     }
 
@@ -931,15 +910,22 @@ mod tests {
     }
 
     #[test]
-    fn pixel_scroll_converts_to_whole_lines() {
-        assert_eq!(scroll_lines_for_pixels(0), 0);
-        assert_eq!(scroll_lines_for_pixels(100), 1);
-        assert_eq!(scroll_lines_for_pixels(-100), -1);
-        assert_eq!(scroll_lines_for_pixels(350), 4);
-        assert_eq!(scroll_lines_for_pixels(-249), -2);
-        // A non-zero pixel delta must never collapse to a no-op scroll.
-        assert_eq!(scroll_lines_for_pixels(1), 1);
-        assert_eq!(scroll_lines_for_pixels(-1), -1);
+    fn scroll_notches_pass_through_unchanged() {
+        // Notches are the wire format: no conversion, no rounding, no minimum.
+        // One notch is whatever the OS and the app decide.
+        let backend = Box::new(MockBackend::default());
+        let executor = ActionExecutor::new(backend);
+        let out = executor.scroll_at_current_notches(0, -30).unwrap();
+        assert!(out.message.contains("-30"), "{}", out.message);
+    }
+
+    #[test]
+    fn scroll_zero_notches_is_a_noop_not_an_error() {
+        // The arg layer rejects `dx == 0 && dy == 0`; by the time we reach the
+        // executor an all-zero call is simply nothing to do.
+        let backend = Box::new(MockBackend::default());
+        let executor = ActionExecutor::new(backend);
+        assert!(executor.scroll_at_current_notches(0, 0).is_ok());
     }
 
     #[test]
@@ -979,11 +965,11 @@ mod tests {
     }
 
     #[test]
-    fn scroll_at_current_pixels_drives_both_axes() {
+    fn scroll_at_current_notches_drives_both_axes() {
         let backend = Box::new(MockBackend::default());
         let executor = ActionExecutor::new(backend);
-        executor.scroll_at_current_pixels(200, -300).unwrap();
-        executor.scroll_at_current_pixels(0, 0).unwrap();
+        executor.scroll_at_current_notches(20, -30).unwrap();
+        executor.scroll_at_current_notches(0, 0).unwrap();
     }
 
     #[test]

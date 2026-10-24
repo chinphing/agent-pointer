@@ -93,7 +93,7 @@ impl ComputerControl for LocalControl {
         Ok(())
     }
 
-    /// `SCROLL` — pixel deltas, converted to wheel lines for this backend.
+    /// `SCROLL` — wheel notches, passed straight to the backend.
     ///
     /// Positive `dy` scrolls up, positive `dx` scrolls right (pyautogui sign
     /// convention, which the remote backend forwards verbatim).
@@ -101,7 +101,7 @@ impl ComputerControl for LocalControl {
         if dx == 0 && dy == 0 {
             return Err(anyhow!("scroll needs a non-zero dx or dy"));
         }
-        self.exec().scroll_at_current_pixels(dx, dy)?;
+        self.exec().scroll_at_current_notches(dx, dy)?;
         Ok(())
     }
 
@@ -340,18 +340,18 @@ mod tests {
     }
 
     #[test]
-    fn scroll_converts_pixels_to_lines_on_both_axes() {
+    fn scroll_passes_notches_through_on_both_axes() {
         let (c, calls) = control();
-        // 300 px up -> 3 lines up; 200 px right -> 2 lines right.
-        c.scroll(200, 300).unwrap();
+        // Notches are the wire format — no conversion happens here.
+        c.scroll(20, 30).unwrap();
         let log = recorded(&calls);
-        assert!(log.contains(&"scroll(3)".to_string()), "{log:?}");
-        assert!(log.contains(&"scroll_horizontal(2)".to_string()), "{log:?}");
+        assert!(log.contains(&"scroll(30)".to_string()), "{log:?}");
+        assert!(log.contains(&"scroll_horizontal(20)".to_string()), "{log:?}");
 
         let (c, calls) = control();
         c.scroll(0, -30).unwrap();
         let log = recorded(&calls);
-        assert!(log.contains(&"scroll(-1)".to_string()), "{log:?}");
+        assert!(log.contains(&"scroll(-30)".to_string()), "{log:?}");
         assert!(!log.iter().any(|c| c.starts_with("scroll_horizontal")));
 
         let (c, _) = control();

@@ -242,14 +242,19 @@ pub fn click_count_from_args(args: &Value) -> Result<u32> {
     Ok(clicks)
 }
 
-/// Pixel scroll delta limits: 300 wheel lines (see [`SCROLL_LINES_MAX`]).
-pub const SCROLL_PIXELS_MAX: i32 =
-    SCROLL_LINES_MAX * crate::agents::computer::input::actions::SCROLL_PIXELS_PER_LINE;
-
-/// `dx` / `dy` for `SCROLL` in **pixels** (positive `dy` = up, `dx` = right).
+/// Wheel-notch scroll limit for one call.
 ///
-/// At least one axis must be non-zero, otherwise the call would be a no-op.
-pub fn scroll_pixels_from_args(args: &Value) -> Result<(i32, i32)> {
+/// `dx` / `dy` are **notch counts**, not pixels: the value goes straight to
+/// `ComputerControl::scroll` / `scroll_horizontal`, which hands it to the OS
+/// wheel primitive. One notch is whatever the platform and the app decide —
+/// there is no pixel equivalent to promise, and none is claimed.
+pub const SCROLL_NOTCHES_MAX: i32 = 100;
+
+/// `dx` / `dy` for `SCROLL` in **wheel notches** (positive `dy` = up, `dx` = right).
+///
+/// At least one axis must be non-zero: there is no default direction to fall
+/// back on, and guessing one would be worse than an error.
+pub fn scroll_notches_from_args(args: &Value) -> Result<(i32, i32)> {
     fn axis(args: &Value, key: &str) -> Result<i32> {
         match args.get(key) {
             None => Ok(0),
@@ -264,12 +269,12 @@ pub fn scroll_pixels_from_args(args: &Value) -> Result<(i32, i32)> {
     let dy = axis(args, "dy")?;
     if dx == 0 && dy == 0 {
         return Err(anyhow!(
-            "scroll needs a non-zero dx or dy (pixels; positive dy = up, dx = right)"
+            "scroll needs a non-zero dx or dy (wheel notches; positive dy = up, dx = right)"
         ));
     }
     Ok((
-        dx.clamp(-SCROLL_PIXELS_MAX, SCROLL_PIXELS_MAX),
-        dy.clamp(-SCROLL_PIXELS_MAX, SCROLL_PIXELS_MAX),
+        dx.clamp(-SCROLL_NOTCHES_MAX, SCROLL_NOTCHES_MAX),
+        dy.clamp(-SCROLL_NOTCHES_MAX, SCROLL_NOTCHES_MAX),
     ))
 }
 
@@ -381,21 +386,31 @@ mod tests {
     }
 
     #[test]
-    fn scroll_pixels_reads_both_axes_and_rejects_noop() {
+    fn scroll_notches_reads_both_axes_and_rejects_noop() {
         use serde_json::json;
         assert_eq!(
-            scroll_pixels_from_args(&json!({"dx": 120, "dy": -340})).unwrap(),
-            (120, -340)
+            scroll_notches_from_args(&json!({"dx": 12, "dy": -34})).unwrap(),
+            (12, -34)
         );
         assert_eq!(
-            scroll_pixels_from_args(&json!({"dy": "50"})).unwrap(),
-            (0, 50)
+            scroll_notches_from_args(&json!({"dy": "30"})).unwrap(),
+            (0, 30)
         );
-        assert!(scroll_pixels_from_args(&json!({})).is_err());
-        assert!(scroll_pixels_from_args(&json!({"dx": 0, "dy": 0})).is_err());
+        assert!(scroll_notches_from_args(&json!({})).is_err());
+        assert!(scroll_notches_from_args(&json!({"dx": 0, "dy": 0})).is_err());
         assert_eq!(
-            scroll_pixels_from_args(&json!({"dy": 999_999})).unwrap(),
-            (0, SCROLL_PIXELS_MAX)
+            scroll_notches_from_args(&json!({"dy": 999_999})).unwrap(),
+            (0, SCROLL_NOTCHES_MAX)
         );
+    }
+
+    #[test]
+    fn scroll_notches_are_not_rescaled() {
+        use serde_json::json;
+        // A notch is a notch: no divide-by-100, no rounding, no minimum of one.
+        // Only the ±SCROLL_NOTCHES_MAX clamp touches the value.
+        assert_eq!(scroll_notches_from_args(&json!({"dy": 1})).unwrap(), (0, 1));
+        assert_eq!(scroll_notches_from_args(&json!({"dy": 7})).unwrap(), (0, 7));
+        assert_eq!(scroll_notches_from_args(&json!({"dy": 100})).unwrap(), (0, 100));
     }
 }

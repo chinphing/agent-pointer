@@ -28,27 +28,16 @@ use super::grounding::resolve_point;
 
 /// `mouse_*` tools that **always** require `target_desc` + `bbox`.
 ///
-/// `mouse_scroll_current` is absent because its target is optional: without
-/// `target_desc` it scrolls at the current pointer. With one, `dispatch_mouse`
-/// grounds it and the pointer moves before the scroll — but that is a per-call
-/// choice, so it cannot join this set.
+/// `mouse_scroll_current` takes an **optional** target: without `target_desc` it
+/// scrolls at the current pointer; with one, `dispatch_mouse` grounds it and the
+/// pointer moves before the scroll.
 ///
 /// `mouse_drag_from_to_at` is the odd one out: it needs two points (grab, drop),
 /// so it takes `from_target_desc`/`from_bbox` and `to_target_desc`/`to_bbox`
 /// instead of the single pair. Both ends are grounded independently.
-/// Kept as documentation of the set, and asserted in tests; the dispatch
-/// itself goes through `method_for`.
-#[cfg(test)]
-pub(super) const TARGETED: &[&str] = &[
-    "mouse_click_at",
-    "mouse_double_click_at",
-    "mouse_right_click_at",
-    "mouse_hover_at",
-    "mouse_down",
-    "mouse_up",
-    "mouse_drag_from_to_at",
-];
-
+///
+/// The set itself lives in `method_for` below — this comment is the map, the
+/// match arms are the truth.
 /// Map a tool name to the `MouseBackend::At` method name.
 fn method_for(tool_id: &str) -> Option<&'static str> {
     Some(match tool_id {
@@ -139,25 +128,32 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn every_targeted_tool_has_a_method() {
-        for name in TARGETED {
+    fn every_mouse_tool_name_reaches_a_method() {
+        // `method_for` is the dispatch table; anything the tool registry exposes
+        // under `mouse_*` must land on an arm or dispatch fails at runtime.
+        for name in [
+            "mouse_click_at",
+            "mouse_double_click_at",
+            "mouse_right_click_at",
+            "mouse_hover_at",
+            "mouse_down",
+            "mouse_up",
+            "mouse_drag_from_to_at",
+            "mouse_scroll_current",
+        ] {
             assert!(method_for(name).is_some(), "{name} 没有对应的 method");
         }
     }
 
     #[test]
-    fn scroll_is_dispatched_but_not_in_the_always_targeted_set() {
-        // `mouse_scroll_current` now grounds an optional panel, so it must reach
-        // a method — but `target_desc`/`bbox` stay optional, so it is not part of
-        // the always-targeted set that requires them.
-        assert!(!TARGETED.contains(&"mouse_scroll_current"));
+    fn scroll_is_dispatched_with_its_own_method() {
+        // Target is optional, so it does not share the always-grounded path.
         assert_eq!(method_for("mouse_scroll_current"), Some("scroll_current"));
     }
 
     #[test]
     fn drag_from_to_uses_two_ends() {
         // 两对参数：from_* 和 to_*，不是一个 target_desc 能描述的
-        assert!(TARGETED.contains(&"mouse_drag_from_to_at"));
         assert_eq!(method_for("mouse_drag_from_to_at"), Some("drag_from_to"));
     }
 

@@ -1,7 +1,7 @@
 //! Per-round prompt assembly for the single-agent loop (extensions + system env).
 
 use crate::agents::expand_agent_prompt_placeholders;
-use crate::agents::{AgentProfile, SessionInjectVars};
+use crate::agents::SessionInjectVars;
 use crate::extensions::{BeforeMainLlmCallContext, MessageLoopPromptsAfterContext};
 use crate::models::{ChatMessage, SystemPromptSections};
 use anyhow::Result;
@@ -57,11 +57,7 @@ pub(super) async fn prepare_single_agent_round_prompts(
     let session_vars = SessionInjectVars {
         workspace_root: settings.workspace_root.trim(),
     };
-    let non_computer_prompts = if lead_profile == AgentProfile::Computer {
-        &[][..]
-    } else {
-        agent_plan.system_prompts.as_slice()
-    };
+    let non_computer_prompts = agent_plan.system_prompts.as_slice();
     // Minimal profile (headless / benchmark): one short role prompt + the
     // environment slice. Every desktop scaffolding layer below is skipped so a
     // caller can measure the agent with a mini-swe-agent-style system prompt.

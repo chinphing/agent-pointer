@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Computer agent: `state` / `input` / `vision` / `tier`, tools, prompts (`AGENT.md` + `prompts/tiers/*`).
+/// Computer agent: `state` / `input` / `vision` / `tier`, tools, prompts (`AGENT.md` + `prompts/*`).
 pub mod computer;
 
 /// Coder agent: embedded policy (`AGENT.md`); tools used only by the coder lead (e.g. `read_lints`).
@@ -51,10 +51,9 @@ const SVG_DIAGRAMS: &str = include_str!("_shared/SVG_DIAGRAMS.md");
 /// HTML table fence guidance for fixed column widths (assembled separately).
 const HTML_TABLES: &str = include_str!("_shared/HTML_TABLES.md");
 const COMPUTER_COMMUNICATION_PRIMARY: &str =
-    include_str!("computer/prompts/tiers/primary/communication.md");
+    include_str!("computer/prompts/communication.md");
 const COMPUTER_UI_DISABLED_CONTROLS: &str =
     include_str!("computer/prompts/ui_disabled_controls.md");
-const COMPUTER_AGENT_PRIMARY: &str = include_str!("computer/prompts/tiers/primary/loop.md");
 const COMPUTER_OS_PROMPT_MACOS: &str = include_str!("computer/prompts/os/macos.md");
 const COMPUTER_OS_PROMPT_WINDOWS: &str = include_str!("computer/prompts/os/windows.md");
 const COMPUTER_OS_PROMPT_LINUX: &str = include_str!("computer/prompts/os/linux.md");
@@ -195,9 +194,16 @@ pub fn computer_communication() -> String {
     parts.join("\n\n---\n\n")
 }
 
-/// Agent loop body for the computer agent (merged into system prompt with communication).
+/// `AGENT.md` body — per-turn flow plus the tool-call field rules.
+///
+/// Single source for the computer agent's role prompt, same as general / coder /
+/// explore. Previously this returned `prompts/tiers/primary/loop.md`, which held
+/// only the per-turn flow; the field rules lived in `AGENT.md` and were never
+/// injected on the lead path.
 pub fn computer_agent_body() -> String {
-    COMPUTER_AGENT_PRIMARY.trim().to_string()
+    parse_agent_md(include_str!("computer/AGENT.md"))
+        .map(|m| m.body.trim().to_string())
+        .unwrap_or_default()
 }
 
 /// Verify module prompt for an operation family (host post-execute pipeline).
@@ -804,10 +810,10 @@ pub(crate) fn load_agent_from_dir(dir: &Path) -> Result<BaseAgent> {
     manifest_to_agent(manifest, Some(dir), &communication)
 }
 
-/// External `computer` agent dir: prefer `prompts/tiers/primary/`, fall back to legacy root filenames.
+/// External `computer` agent dir: `prompts/communication.md`, then legacy root filenames.
 fn load_external_computer_communication(dir: &Path) -> Result<String> {
     let comm_candidates = [
-        dir.join("prompts/tiers/primary/communication.md"),
+        dir.join("prompts/communication.md"),
         dir.join("COMMUNICATION.md"),
         dir.join(AGENT_COMMUNICATION),
     ];
@@ -1403,6 +1409,32 @@ mod builtin_agent_tests {
         assert!(
             prompt.contains("Surfaces"),
             "explore cross-module playbook should mention Surfaces"
+        );
+    }
+
+    #[test]
+    fn computer_agent_body_carries_every_turn_and_field_rules() {
+        // Regression: `computer_agent_body()` used to return `loop.md` while the
+        // per-turn flow and the field rules lived in two separate files. The
+        // field rules (`## Tool call shape`, `### Writing target_desc`) were then
+        // never injected on the lead path, so `goal` language and the 100px
+        // anchor limit were invisible to the model.
+        let body = computer_agent_body();
+        assert!(
+            body.contains("## Each turn"),
+            "computer body should keep the per-turn flow"
+        );
+        assert!(
+            body.contains("## Tool call shape"),
+            "computer body should define goal / action / target_desc"
+        );
+        assert!(
+            body.contains("### Writing `target_desc`"),
+            "computer body should define how to write target_desc"
+        );
+        assert!(
+            body.contains("100px"),
+            "target_desc rules should state the anchor distance limit"
         );
     }
 

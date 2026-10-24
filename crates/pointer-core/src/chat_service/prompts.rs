@@ -1,6 +1,5 @@
 use crate::agents::computer::ComputerState;
 use crate::agents::{
-    computer_agent_body, computer_communication,
     expand_agent_prompt_placeholders, rendered_charts_inject, rendered_communication_public_inject,
     rendered_html_tables_inject, rendered_media_delivery_inject, rendered_mermaid_diagrams_inject,
     rendered_svg_diagrams_inject, AgentProfile, SessionInjectVars,
@@ -51,26 +50,11 @@ pub(crate) fn push_agent_role_cacheable_prompts(
             cacheable.push(block);
         }
     }
-    if *profile == AgentProfile::Computer {
-        let comm = computer_communication();
-        let body = computer_agent_body();
-        let merged = if comm.is_empty() {
-            body
-        } else if body.is_empty() {
-            comm
-        } else {
-            format!("{comm}\n\n---\n\n{body}")
-        };
-        if !merged.is_empty() {
-            cacheable.push(expand_agent_prompt_placeholders(&merged, session_vars));
-        }
-    } else {
-        cacheable.extend(
-            non_computer_system_prompts
-                .iter()
-                .map(|p| expand_agent_prompt_placeholders(p, session_vars)),
-        );
-    }
+    cacheable.extend(
+        non_computer_system_prompts
+            .iter()
+            .map(|p| expand_agent_prompt_placeholders(p, session_vars)),
+    );
 }
 
 /// Appends `[Environment]` + **calendar date only** to cacheable system slices.

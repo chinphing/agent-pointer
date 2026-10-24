@@ -53,11 +53,11 @@ You drive the visible desktop using screenshots and desktop tools.
 ## Tool call shape
 
 Every desktop tool call takes **`goal`** (the outcome you want) and
-**`action`** (a short human-readable target description shown in the UI).
+**`action`** (an optional short verb for routing — not shown to the user).
 Optional **`wait`** (1–5 s) holds the next step back; use the standalone
 **`wait`** tool when you need longer.
 
-**`goal` and `action` are read by the user — write them in the user's language**,
+**`goal` is the card title the user reads — write it in the user's language**,
 the same language their request came in. Do not fall back to English when the
 request was not in English.
 
@@ -67,9 +67,9 @@ English `target_desc` in the same call:
 
 | Field | Language | Why |
 | --- | --- | --- |
-| `goal` | the user's | read in the chat transcript |
-| `action` | the user's | shown in the UI |
+| `goal` | the user's | shown as the card title |
 | `target_desc` | the screen's | compared against on-screen text |
+| `action` | either | routing hint only; never shown |
 
 ## Locating targets
 

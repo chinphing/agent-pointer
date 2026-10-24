@@ -184,14 +184,18 @@ fn computer_action_summary(locale: UiLocale, args: &Value) -> String {
         lower.contains("工作目录") || lower.contains("workspace")
     }
 
-    if let Some(a) = str_field(args, &["action"]) {
-        if !has_workspace_noise(&a) {
-            return truncate(&a, SUMMARY_MAX);
-        }
-    }
+    // `goal` is the only required prose field, so it owns the card title.
+    // `action` is optional and doubles as a routing hint (`read` / `write`), so it
+    // must never win the title — otherwise the same tool shows a sentence on one
+    // call and a bare verb on the next.
     if let Some(g) = str_field(args, &["goal"]) {
         if !has_workspace_noise(&g) {
             return truncate(&g, SUMMARY_MAX);
+        }
+    }
+    if let Some(a) = str_field(args, &["action"]) {
+        if !has_workspace_noise(&a) {
+            return truncate(&a, SUMMARY_MAX);
         }
     }
     if let (Some(x), Some(y)) = (args.get("x"), args.get("y")) {
@@ -804,7 +808,25 @@ mod tests {
     }
 
     #[test]
-    fn mouse_prefers_action() {
+    fn mouse_prefers_goal_over_action() {
+        // `goal` is required; `action` is an optional routing hint. The card title
+        // must come from the required field, or the same tool shows a sentence on
+        // one call and a bare verb on the next.
+        let d = zh(
+            "mouse_click_at",
+            &json!({
+                "goal": "点击文件列表空白区域",
+                "action": "click Finder file list empty row",
+                "x": 1,
+                "y": 2
+            }),
+        );
+        assert!(d.label.contains("鼠标"));
+        assert_eq!(d.summary, "点击文件列表空白区域");
+    }
+
+    #[test]
+    fn mouse_falls_back_to_action_without_goal() {
         let d = zh(
             "mouse_click_at",
             &json!({"action": "Click Save", "x": 1, "y": 2}),

@@ -21,9 +21,26 @@ running. Activate also requires the app to become **frontmost**. Failed verifica
 **FAILED** even when the launch command exited successfully.
 
 **Flow**
-1. **`launch_app`** directly when the app name or bundle / exe id is known
-2. **`list_apps`** only when the identifier is uncertain — then **`launch_app`** with the chosen line
+1. **`list_apps`** first when the identifier came from the user's own words — see below
+2. **`launch_app`** with a name or bundle / exe id **copied verbatim** from a `list_apps` line
 3. **`wait`** if the window is still loading
+
+**Bundle names are not what the user says**
+
+Users name apps the way they talk ("Excel", "WPS", "微信", "VS Code", "Chrome").
+On macOS the bundle on disk is often longer, localized, or vendor-prefixed —
+`Microsoft Excel.app`, `WPS Office.app`, `WeChat.app`, `Visual Studio Code.app`,
+`Google Chrome.app`. `launch_app` resolves names by exact bundle match, so a
+spoken name usually misses on the first try and costs a launch attempt plus the
+~4 s verification poll.
+
+**So: on macOS, when the name came from the user rather than from a previous
+`list_apps` line, call `list_apps` first and copy an identifier from it.** Skip
+that step only when you already hold an exact bundle id (`com.microsoft.Excel`)
+or an exact `.app` name from an earlier `list_apps`.
+
+If `launch_app` still fails, its error lists the bundle names that look similar —
+pass one of those verbatim instead of guessing again.
 
 **Hard rule — before UI fallbacks**
 

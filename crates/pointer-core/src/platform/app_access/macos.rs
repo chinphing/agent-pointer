@@ -160,8 +160,17 @@ fn launch_macos(app: &str, new_instance: bool) -> Result<AppOpenResult> {
         return Ok(result);
     }
 
+    // Nothing matched. Answer with the real bundle names instead of asking the
+    // model for another guess — see `suggest_app_candidates`.
+    let candidates = suggest_app_candidates(app, 5);
+    if candidates.is_empty() {
+        return Err(anyhow!(
+            "Could not launch \"{app}\". No installed app bundle matches that name. Call list_apps to see what is available."
+        ));
+    }
     Err(anyhow!(
-        "Could not launch \"{app}\". Call list_apps and pass an exact app name or bundle identifier."
+        "Could not launch \"{app}\" — no app bundle is named exactly that. Did you mean: {}? Pass one of those names to launch_app as-is.",
+        candidates.join(", ")
     ))
 }
 
@@ -738,8 +747,7 @@ fn application_url_for_bundle(bundle: &str) -> Option<PathBuf> {
     Some(PathBuf::from(url.path()?.to_string()))
 }
 
-fn application_url_named(name: &str) -> Option<PathBuf> {
-    let target = strip_app_suffix(name);
+fn app_roots() -> Vec<PathBuf> {
     let mut roots = vec![
         PathBuf::from("/Applications"),
         PathBuf::from("/System/Applications"),
@@ -747,13 +755,61 @@ fn application_url_named(name: &str) -> Option<PathBuf> {
     if let Some(home) = dirs::home_dir() {
         roots.push(home.join("Applications"));
     }
-    for root in roots {
+    roots
+}
+
+fn application_url_named(name: &str) -> Option<PathBuf> {
+    let target = strip_app_suffix(name);
+    for root in app_roots() {
         let candidate = root.join(format!("{target}.app"));
         if candidate.is_dir() {
             return Some(candidate);
         }
     }
     None
+}
+
+/// App bundle names that look like `app`, for the "could not launch" reply.
+///
+/// The model only knows what the user said ("Excel", "WPS", "微信"); macOS
+/// bundle names are frequently longer or localized ("Microsoft Excel",
+/// "WPS Office", "WeChat"). Guessing wastes a launch attempt plus the ~4 s
+/// verification poll, so a failed launch answers with the real names instead of
+/// asking for another blind guess.
+///
+/// Matching is a case-insensitive substring test in both directions, so
+/// `Excel` finds `Microsoft Excel` and `Microsoft Excel` finds `Excel`.
+/// Shortest name first — it is the likeliest exact intent.
+fn suggest_app_candidates(app: &str, limit: usize) -> Vec<String> {
+    suggest_app_candidates_in(&app_roots(), app, limit)
+}
+
+fn suggest_app_candidates_in(roots: &[PathBuf], app: &str, limit: usize) -> Vec<String> {
+    let needle = strip_app_suffix(app.trim()).to_lowercase();
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let mut found: Vec<String> = Vec::new();
+    for root in roots {
+        let Ok(entries) = std::fs::read_dir(root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let file_name = entry.file_name();
+            let Some(stem) = file_name.to_string_lossy().strip_suffix(".app").map(str::to_string)
+            else {
+                continue;
+            };
+            let hay = stem.to_lowercase();
+            if hay == needle || hay.contains(&needle) || needle.contains(&hay) {
+                found.push(stem);
+            }
+        }
+    }
+    found.sort_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
+    found.dedup();
+    found.truncate(limit);
+    found
 }
 
 fn open_application_url(url: &Path, app: &str, new_instance: bool) -> Result<AppOpenResult> {
@@ -854,5 +910,72 @@ mod tests {
             "BaiduNetdisk",
             "com.baidu.netdisk"
         ));
+    }
+
+    /// Build a throwaway "Applications" tree so the suggestion scan can be
+    /// exercised without touching the real one.
+    fn fake_root(names: &[&str]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for name in names {
+            std::fs::create_dir(dir.path().join(format!("{name}.app"))).expect("mkdir");
+        }
+        dir
+    }
+
+    #[test]
+    fn suggest_matches_a_shorter_name_inside_the_bundle_name() {
+        // The user says "Excel"; the bundle is "Microsoft Excel".
+        let root = fake_root(&["Microsoft Excel", "Microsoft Word", "Calculator"]);
+        let roots = vec![root.path().to_path_buf()];
+        assert_eq!(
+            suggest_app_candidates_in(&roots, "Excel", 5),
+            vec!["Microsoft Excel"]
+        );
+        assert_eq!(
+            suggest_app_candidates_in(&roots, "excel", 5),
+            vec!["Microsoft Excel"],
+            "matching must be case-insensitive"
+        );
+    }
+
+    #[test]
+    fn suggest_matches_when_the_input_is_longer_than_the_bundle_name() {
+        // The user says "WeChat.app" or "WeChat Desktop"; the bundle is "WeChat".
+        let root = fake_root(&["WeChat", "Finder"]);
+        let roots = vec![root.path().to_path_buf()];
+        assert_eq!(
+            suggest_app_candidates_in(&roots, "WeChat.app", 5),
+            vec!["WeChat"]
+        );
+    }
+
+    #[test]
+    fn suggest_prefers_the_shortest_match() {
+        // Substring matching is deliberately loose — "Word" also appears inside
+        // "WordPad" and "Password Manager". The exact-intent candidate must sort
+        // first; the extras are harmless because the model picks from the list.
+        let root = fake_root(&["Word", "WordPad", "Password Manager"]);
+        let roots = vec![root.path().to_path_buf()];
+        let out = suggest_app_candidates_in(&roots, "Word", 5);
+        assert_eq!(out.first().map(String::as_str), Some("Word"), "{out:?}");
+        assert!(out.contains(&"WordPad".to_string()), "{out:?}");
+    }
+
+    #[test]
+    fn suggest_is_empty_when_nothing_matches() {
+        let root = fake_root(&["Calculator", "Finder"]);
+        let roots = vec![root.path().to_path_buf()];
+        assert!(suggest_app_candidates_in(&roots, "Excel", 5).is_empty());
+        assert!(
+            suggest_app_candidates_in(&roots, "   ", 5).is_empty(),
+            "blank input must not match everything"
+        );
+    }
+
+    #[test]
+    fn suggest_honours_the_limit() {
+        let root = fake_root(&["A1", "A2", "A3", "A4"]);
+        let roots = vec![root.path().to_path_buf()];
+        assert_eq!(suggest_app_candidates_in(&roots, "A", 2).len(), 2);
     }
 }

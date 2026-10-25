@@ -128,7 +128,7 @@ pub async fn locate_one<V: LocateVision>(
             // is a black box — you cannot tell whether the box was too tight,
             // the crop too small, or the target genuinely absent.
             log::info!(
-                "locate: round={rounds} retry={verify_retries} side={side:.0} box=[{:.0},{:.0},{:.0},{:.0}] match={:?} kind={:?} dir={:?} why={}",
+                "locate: round={rounds} retry={verify_retries} side={side:.0} box=[{:.0},{:.0},{:.0},{:.0}] match={:?} kind={:?} dir={:?} target={:?} box_px={:?} why={}",
                 current.to_px(w, h).x1,
                 current.to_px(w, h).y1,
                 current.to_px(w, h).x2,
@@ -136,6 +136,8 @@ pub async fn locate_one<V: LocateVision>(
                 v.match_,
                 v.unclear_kind,
                 v.elsewhere_dir,
+                v.target_px,
+                v.box_px,
                 v.why.trim()
             );
             // `why` now opens with what is actually in the box, so it doubles as

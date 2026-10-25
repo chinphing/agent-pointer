@@ -67,6 +67,20 @@ pub fn report_tool() -> Value {
                         "enum": ["", "anchor_out_of_view", "too_small", "too_blurry", "ambiguous", "box_too_tight", "box_too_loose"],
                         "description": "match=unclear 时必填。anchor_out_of_view=锚点不在图内无法核对；too_small=目标太小看不清；too_blurry=图像模糊/被遮挡；ambiguous=描述自相矛盾；box_too_tight=蓝框只框住了目标的一部分，另一部分在框外；box_too_loose=目标完整在框内但框比目标大太多（超过 1.5 倍，紧邻编号格子超过 1.2 倍）"
                     },
+                    "target_px": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "description": "目标在【这张图】里的实际宽和高，单位像素。先看目标自己的轮廓再填，不要用蓝框的尺寸代替。"
+                    },
+                    "box_px": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "description": "蓝框在【这张图】里的宽和高，单位像素。看框的四条边量出来，不要照抄目标尺寸。"
+                    },
                     "elsewhere_dir": {
                         "type": "string",
                         "enum": ["", "left", "right", "up", "down", "inside"],
@@ -74,7 +88,7 @@ pub fn report_tool() -> Value {
                     },
                     "elsewhere_desc": {"type": "string", "description": "那个位置看起来是什么"}
                 },
-                "required": ["match", "why"]
+                "required": ["match", "why", "target_px", "box_px"]
             }
         }
     })
@@ -128,7 +142,8 @@ pub fn verify_prompt(description: &str) -> String {
 【目标元素描述】\n{desc}\
 【任务】\n\
 ① 先看蓝框里实际是什么（文字/图标/控件），写进 why 的开头。\n\
-② 再判断蓝框里的这个东西，是不是上面描述的目标元素。\n\n\
+② 再判断蓝框里的这个东西，是不是上面描述的目标元素。\\n\\
+③ 最后量两个数：目标的实际宽高填 `target_px`，蓝框的宽高填 `box_px`（都按这张图的像素）。why 里写这两者的倍数。\n\n\
 【必须单独核对的一件事：蓝框有没有把目标完整框住】\n\
 「蓝框里能看到目标」和「蓝框把目标整个框住了」是两件事，**都要满足才算找到**。\n\
 - 目标的**整个轮廓**（文字的全部笔画、按钮的全部边缘、图标的完整形状）\n\
@@ -151,7 +166,11 @@ pub fn verify_prompt(description: &str) -> String {
 1. 文字内容对不上 → 判 **no**，不管其他项多像。\n\
 2. 文字对得上，但蓝框没把目标完整框住 —— 蓝框里已是目标的一部分（文字/边框只露出一截）→ 判 **unclear** + `unclear_kind=box_too_tight`；蓝框里完全是别的东西 → 判 **no** + `elsewhere_dir`。why 说清框住了哪部分、\n\
    目标哪一侧在框外、目标大约是框的几倍（见上）。\n\
-3. 文字对得上、蓝框完整框住了目标、且框没有超过上面说的倍数 → 判 **yes**。\n\
+3. 判 yes 前逐条确认，缺一条都不算：\\n\\
+   · 文字对得上；\\n\\
+   · 框包住了目标的整个轮廓（空格子 = 四条边线）；\\n\\
+   · 框的宽高都没超过目标的 1.5 倍（紧邻排列的编号格子 1.2 倍）。\\n\\
+   三条都过才判 **yes**。\n\
 4. 外观、锚点有出入但文字和位置都对 → 仍然判 **yes**，把出入写进 why。\n\n\
 【外观怎么比】按这个顺序，**不要跳级**：\n\
 1. **文字** —— 文字内容是否一致（最重要，几乎决定成败）\n\
@@ -163,6 +182,10 @@ pub fn verify_prompt(description: &str) -> String {
 【看不清的情况】\n\
 - 目标太小看不清 → unclear + too_small\n\
 - 图像模糊或被遮挡 → unclear + too_blurry\n\n\
+【如果判 unclear】\\n\\
+- `box_too_tight`：why 里必须写「目标大约是框的几倍宽几倍高」。\\n\\
+- `box_too_loose`：why 里必须写「框大约是目标的几倍宽几倍高」。\\n\\
+- 写不出这个数，说明你没量——那就重新量一遍再答。\\n\\n\\
 【如果判 no】\n\
 - 如果目标就在这张图里、只是蓝框没框住它，填 elsewhere_dir（left/right/up/down/inside）和 elsewhere_desc。\n\
 - 如果这张图里根本看不到目标，elsewhere_dir 留空。\n\n\
@@ -237,6 +260,19 @@ fn text_field(v: &Value, key: &str) -> String {
         .collect()
 }
 
+/// `[w, h]` from the report arguments. Zero and negative entries are dropped:
+/// a measured size is never 0, and a 0 would make any ratio meaningless.
+fn pair_field(v: &Value, key: &str) -> Option<(u32, u32)> {
+    let arr = v.get(key)?.as_array()?;
+    let mut it = arr.iter().filter_map(|x| {
+        x.as_u64()
+            .or_else(|| x.as_f64().map(|f| f.round() as u64))
+            .filter(|n| *n > 0)
+            .map(|n| n.min(u32::MAX as u64) as u32)
+    });
+    Some((it.next()?, it.next()?))
+}
+
 /// Parse the `report` tool arguments. Returns `None` when the answer is not
 /// trustworthy (unknown `match`, or no `in_box` observation) so the caller
 /// retries — exactly like B5's `verifier`.
@@ -280,6 +316,8 @@ pub fn parse_verify_arguments(raw: &str) -> Option<VerifyVerdict> {
             .collect(),
         confidence: Confidence::parse(&text_field(&v, "confidence")),
         reasoning: String::new(),
+        target_px: pair_field(&v, "target_px"),
+        box_px: pair_field(&v, "box_px"),
     })
 }
 

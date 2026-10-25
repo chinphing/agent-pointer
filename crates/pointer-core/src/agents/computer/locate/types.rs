@@ -137,6 +137,16 @@ pub struct VerifyVerdict {
     /// thinking is off. Kept for diagnosis: a wrong verdict is much easier to
     /// explain when you can read what the model reasoned before answering.
     pub reasoning: String,
+    /// Target width/height as the model measured it, in crop-image pixels.
+    /// `None` when the answer did not include a usable pair.
+    ///
+    /// Recorded, not yet enforced. With `target_px` and `box_px` side by side a
+    /// caller can compute the slack ratio itself instead of trusting the number
+    /// the model writes in `why` — which it invents when it did not measure
+    /// (observed: 「框约120px…倍数约1.0」 for a 24x24 box around a 41x41 cell).
+    pub target_px: Option<(u32, u32)>,
+    /// Blue box width/height as the model measured it, in crop-image pixels.
+    pub box_px: Option<(u32, u32)>,
 }
 
 impl Default for VerifyVerdict {
@@ -149,6 +159,8 @@ impl Default for VerifyVerdict {
             elsewhere_desc: String::new(),
             confidence: Confidence::High,
             reasoning: String::new(),
+            target_px: None,
+            box_px: None,
         }
     }
 }

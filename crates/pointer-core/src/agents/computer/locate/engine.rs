@@ -199,9 +199,21 @@ pub async fn locate_one<V: LocateVision>(
         // label from `target_desc` — can hand back a box that covers all of it.
         let hint = refine_hint(&verdict);
 
+        // Re-locate inside the current crop whenever the target is known to be
+        // near where we already looked:
+        //  · `elsewhere_dir` — the verifier saw it just outside the box;
+        //  · `BoxTooLoose` — the verifier saw it *inside* the box and only
+        //    complained about slack.
+        // Falling through to a full-screen search for `BoxTooLoose` was both
+        // wrong and slow: the target never moved, so re-scanning 1920x1080
+        // re-derived the same answer from a harder image, and rendering plus
+        // uploading the full frame pushed a single case past the 180 s cap.
+        let stay_local = verdict.elsewhere_dir.is_some()
+            || verdict.unclear_kind == UnclearKind::BoxTooLoose;
+
         let mut from_crop = false;
         let mut next_box = None;
-        if verdict.elsewhere_dir.is_some() {
+        if stay_local {
             if let Some((image, bounds)) = last_crop.as_ref() {
                 from_crop = true;
                 next_box = locate_in(
@@ -299,7 +311,26 @@ async fn locate_in<V: LocateVision>(
 ) -> Option<NormBox> {
     let prompt = locate_prompt(description, hint_px, previous_hint);
     match vision.locate(image, &prompt).await {
-        Ok(Some(raw)) => Some(rel_to_norm(raw, bounds, w, h)),
+        Ok(Some(raw)) => {
+            // The prompt asks for 0-1000 coordinates relative to this image. Log
+            // the raw answer next to the mapped one: a model that reasons in
+            // pixels and answers in pixels looks identical to a correct one
+            // until the two are compared.
+            log::info!(
+                "locate: raw=[{:.0},{:.0},{:.0},{:.0}] bounds=[{:.0},{:.0},{:.0},{:.0}] image={}x{}",
+                raw.x1,
+                raw.y1,
+                raw.x2,
+                raw.y2,
+                bounds.x0,
+                bounds.y0,
+                bounds.x1,
+                bounds.y1,
+                image.width,
+                image.height
+            );
+            Some(rel_to_norm(raw, bounds, w, h))
+        }
         Ok(None) => None,
         Err(e) => {
             log::warn!("locate_element: locate call failed: {e}");
@@ -515,6 +546,49 @@ mod tests {
                 height: 800
             })
         ));
+    }
+
+    #[tokio::test]
+    async fn box_too_loose_relocates_inside_the_crop_not_on_the_full_frame() {
+        // The target is in the box; only the box is slack. Re-scanning the whole
+        // screen re-derives the same answer from a harder image, and rendering
+        // plus uploading the full frame pushed one real case past its timeout.
+        // The re-locate must reuse the crop the verifier just looked at.
+        let hint = PxBox {
+            x1: 400.0,
+            y1: 300.0,
+            x2: 500.0,
+            y2: 400.0,
+        };
+        let mut loose = no_left("B1 有数字9的格子");
+        loose.unclear_kind = UnclearKind::BoxTooLoose;
+        loose.elsewhere_dir = None;
+        let vision = FakeVision::new()
+            .with_verify(vec![loose, yes("B1 有数字9的格子")])
+            .with_locate(vec![Some(NormBox::new(100.0, 100.0, 300.0, 300.0))]);
+        let out = locate_one(
+            &vision,
+            &frame(),
+            &LocateRequest::new("B1 有数字9的格子", "选中这一格").with_hint_px(hint),
+            &cfg(),
+            &cancel_token(),
+        )
+        .await
+        .unwrap();
+
+        assert!(out.ok, "{out:?}");
+        assert_eq!(out.rounds, 2);
+        // Every image the locator saw is the 64x64 crop, never a full-frame
+        // render — a full-screen re-locate would show up as a larger image.
+        for call in vision.calls() {
+            if let Call::Locate { width, height } = call {
+                assert_eq!(
+                    (width, height),
+                    (64, 64),
+                    "locator ran on the full frame instead of the crop"
+                );
+            }
+        }
     }
 
     #[tokio::test]

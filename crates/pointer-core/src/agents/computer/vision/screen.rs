@@ -290,13 +290,21 @@ fn screenshot_from_monitor(
 }
 
 fn global_pointer_for_capture() -> Result<(i32, i32)> {
-    cursor_position().or_else(|e| {
+    current_pointer().or_else(|e| {
         log::debug!(
             "cursor position unavailable ({}), using primary monitor center",
             e
         );
         primary_monitor_center()
     })
+}
+
+/// The pointer's current position in global screen coordinates, or an error when
+/// the platform cannot report it. Callers that only want a hint should fall back
+/// rather than fail — a missing pointer costs the verify frame its marker, not
+/// the whole round.
+pub fn current_pointer() -> Result<(i32, i32)> {
+    cursor_position()
 }
 
 /// Capture using a stored monitor id, with stale-id recovery.

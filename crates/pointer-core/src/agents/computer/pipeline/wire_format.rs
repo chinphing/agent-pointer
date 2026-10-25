@@ -30,6 +30,10 @@ pub struct VerifyWireInput<'a> {
     pub after: &'a ScreenCaptureResult,
     pub operation_text: &'a str,
     pub tool_result: Option<&'a str>,
+    /// Pointer position **now**, in global screen coordinates. The before frame is
+    /// redrawn with it so the click point is visible on the frame where the
+    /// target is still intact — the after frame may have replaced or hidden it.
+    pub current_pointer: Option<(i32, i32)>,
 }
 
 /// Build position-phase wire messages (system prompt is handled separately).
@@ -122,7 +126,8 @@ impl VerifyWireFormat {
 
 const VERIFY_SCREENSHOT_INSTRUCTION: &str = "\
 Judge whether the last operation succeeded using evidence described in the Scenario section.\n\
-Both images include synthetic pointer overlay at capture time.\n\
+Both images carry a synthetic pointer overlay. The before frame is redrawn with the pointer\n\
+at its current position, so the click point sits on a frame where the target is still intact.\n\
 Run judgment in reasoning_content only; then call `submit_verify`.\n\
 Leave message content empty.\n";
 
@@ -135,10 +140,25 @@ Run judgment in reasoning_content only; then call `submit_verify`.\n\
 Leave message content empty.\n";
 
 fn build_verify_before_after_screenshots(input: &VerifyWireInput<'_>) -> Vec<Value> {
-    let before_jpeg = input.before.screenshot_jpeg.as_slice();
+    let redrawn = input.current_pointer.and_then(|pt| {
+        crate::agents::computer::vision::screen_overlay::redraw_with_current_pointer(
+            &input.before.raw_unmarked_jpeg,
+            &input.before.monitor,
+            pt,
+        )
+        .ok()
+    });
+    let before_jpeg = redrawn
+        .as_deref()
+        .unwrap_or(input.before.screenshot_jpeg.as_slice());
     log::info!(
-        "pipeline vision: verify slots before=T0 screenshot_jpeg ({} bytes, label {}) \
+        "pipeline vision: verify slots before={} ({} bytes, label {}) \
          after=fresh capture ({} bytes, label {})",
+        if redrawn.is_some() {
+            "T0 redrawn with current pointer"
+        } else {
+            "T0 screenshot_jpeg"
+        },
         before_jpeg.len(),
         SLOT_SCREEN_BEFORE_ACTION,
         input.after.screenshot_jpeg.len(),
@@ -268,6 +288,7 @@ mod tests {
             after: &cap,
             operation_text: r#"tool=clipboard_read goal="Read API key" action="""#,
             tool_result: Some("Goal: Read API key. Clipboard text:\n\nsk-test123"),
+            current_pointer: None,
         });
         let content = wire[0].get("content").unwrap().as_array().unwrap();
         assert_eq!(content.len(), 5);
@@ -298,6 +319,7 @@ mod tests {
             after: &cap,
             operation_text: r#"tool=mouse_click_index goal="Save" action="""#,
             tool_result: None,
+            current_pointer: None,
         });
         let content = wire[0].get("content").unwrap().as_array().unwrap();
         assert_eq!(content.len(), 5);
@@ -306,6 +328,6 @@ mod tests {
             .unwrap()
             .as_str()
             .unwrap()
-            .contains("Both images include synthetic pointer overlay"));
+            .contains("Both images carry a synthetic pointer overlay"));
     }
 }

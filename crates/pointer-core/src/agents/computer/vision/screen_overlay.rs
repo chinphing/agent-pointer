@@ -220,6 +220,26 @@ fn draw_focus_caret_overlay(img: &mut RgbaImage, focus_ix: i32, focus_iy: i32) {
     }
 }
 
+/// Redraw a capture with the pointer at its **current** position.
+///
+/// The before-action capture was taken before the pointer moved, so its overlay
+/// shows where the pointer used to be — a spot that has nothing to do with this
+/// click. Verify needs the click point on the frame where the target is still
+/// intact, so it can tell "hit the target" from "hit the neighbour".
+pub fn redraw_with_current_pointer(
+    raw_jpeg_unmarked: &[u8],
+    monitor: &MonitorInfo,
+    global_pointer: (i32, i32),
+) -> Result<Vec<u8>> {
+    let (mx, my) = local_on_monitor(global_pointer.0, global_pointer.1, monitor);
+    let mut rgba = decode_jpeg_to_rgba(raw_jpeg_unmarked)?;
+    let (w, h) = (rgba.width(), rgba.height());
+    if let Some((px, py)) = overlay_position_if_inside(mx, my, w, h) {
+        composite_pointer_cursor(&mut rgba, px, py);
+    }
+    screen::rgba_to_jpeg_bytes(rgba, screen::SCREENSHOT_JPEG_QUALITY)
+}
+
 /// Caret first, then pointer — matches Python `_apply_focus_mouse_overlays`.
 fn apply_pointer_and_caret_overlays(
     img: &mut RgbaImage,

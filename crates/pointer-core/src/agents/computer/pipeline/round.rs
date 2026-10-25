@@ -58,6 +58,10 @@ pub async fn run_verify_phase(
         .capture_and_annotate(conversation_id)
         .await?
         .0;
+    // Read the pointer once, right after the after-frame capture: it sits on the
+    // click point, and both frames then show the same spot. A pointer that moved
+    // later (user interference) is not something this marker can fix anyway.
+    let current_pointer = crate::agents::computer::vision::screen::current_pointer().ok();
     let family = operation_family_for_tool(root_tool_name);
     let op_text = format!(
         "{} args={}",
@@ -83,6 +87,7 @@ pub async fn run_verify_phase(
         after: &after_for_cache,
         operation_text: &op_text,
         tool_result,
+        current_pointer,
     });
     let wire_debug_text = wire_messages_debug_text(&verify_wire);
     let debug_ui = crate::llm_prompt_dump::pipeline_debug_ui_enabled(&verify_settings)
@@ -187,6 +192,7 @@ pub async fn run_verify_phase(
             after: &after_for_cache,
             operation_text: &op_text,
             tool_result,
+            current_pointer,
         });
         match run_verify_once(
             &prov,

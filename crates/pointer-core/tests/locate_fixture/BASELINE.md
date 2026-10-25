@@ -298,6 +298,92 @@ Spot samples so far disagree: four readings of a true ratio of 1.78 gave
 1.33 / 1.48 / 1.25 / 2.50, but r7c5 gave 1.33 against a true 1.32. Too few
 samples to call it either way.
 
+## v5 — the verifier must check its own boundary against the box
+
+`verify_prompt` gained a fourth task step:
+
+```
+④ 写完这个边界，立刻拿它和蓝框比一次：蓝框的左右边缘是不是落在这个边界里？
+   框比边界偏左或偏右就是框错了，判 unclear——不要因为「框子里确实是空格子」就判 yes。
+```
+
+The motivating failure was r4c3, whose `why` read 「蓝框偏右压住第5列边」 — it saw
+the mismatch, wrote it down, and still answered `match=yes`.
+
+| | v4 | **v5** |
+|---|---|---|
+| hit (all 81, after serial re-runs) | 75/81 = 92.6 % | **76/81 = 93.8 %** |
+| median centre offset | 1.7 px | 2.3 px |
+| mean centre offset | 5.9 px | **4.4 px** |
+| filled cells | 100 % | 100 % |
+| empty cells | 86.0 % | **88.4 %** |
+| hint < 1× | 100 % | 100 % |
+| hint 1–2× | 85.7 % | **88.9 %** |
+| hint ≥ 2× | 94.9 % | 95.1 % |
+| `ok=false` (refused) | 2 | 3 |
+| `ok=true` but box on the wrong cell | 4 | **2** |
+| mean per case | 31.8 s | 35.4 s |
+
+The number that matters most is the last one but one: **cases that claimed success
+with the box on the wrong cell dropped from 4 to 2.** Those are the silent failures
+— a caller would click the wrong place and never know.
+
+Nine cases timed out under 10-way concurrency; re-running them serially finished
+all nine in ≤ 29.3 s with 7 hits.
+
+## The five remaining misses, with the verifier's own words
+
+**Two are `ok=true` with the box slightly off:**
+
+```
+r2c6  hint=2.37x  d=(+1,-34)   one row up
+      框内是一个高亮的空白数独格。目标 C7 空格子位于第 3 行（含 8、4 的那一行）第 7 列，
+      该列横跨 x≈415 到 580，正是蓝框所在列；其左边是第 6 列空格、右边是数字…
+
+r3c7  hint=1.21x  d=(-14,-22)  half a cell left and up
+      蓝框内是数独盘面的空白格子（无数字）。盘面列边界：第4列x≈310-468、
+      第5列x≈468-642、第6列x≈642-810；行边界：第4行y≈497-670。目标"第四行第八列…
+```
+
+r2c6 got the column right and the row wrong by exactly one cell. r3c7's boundary
+table is internally consistent but shifted — its 「第4列」 starts at x≈310, which
+in the crop's own pixels is not where column 4 is.
+
+**Three are `ok=false` — the verifier refused, correctly, and three rounds were
+not enough to converge:**
+
+```
+r7c7  hint=2.94x
+      蓝框里是含数字6的格子（高亮白底），非空格。目标空格在6左上方：
+      第2列横跨x≈185-360、第4行y≈250-420，即7下方、8右方；框偏右下约两格。
+
+r5c4  hint=1.89x
+      框内是空白格（第4列，x≈455-625）。目标锚点：数字2在第3列(x≈300-455)，
+      隔一格右即第5列；上方数字3在第5列(x≈625-790)。故目标应在第5列横跨x≈62…
+
+r7c5  hint=1.33x
+      框里是白色高亮空格。目标H6应是普通灰底空格，被「3」和「5」夹住：
+      第4列横跨x≈410到585、行y≈415到585，该列正是框所在列。
+      但框把整格涂白、四条边线全部不可见，无法核…
+```
+
+**r5c4 is the most telling.** Its reasoning is correct end to end: it identifies
+column 3 from the 「2」, steps one cell right to column 5, cross-checks against
+the 「3」 above — and still fails, because the locator could not produce a box
+matching that conclusion within three rounds. **The verifier knew where the target
+was and could not make the locator go there.**
+
+r7c5 is a different shape: the highlight fill makes the cell's own border
+invisible, so the verifier cannot confirm 「四条边线」 and refuses forever.
+
+## What changed in the failure mix
+
+v4's four silent failures were mostly 「column counted wrong, box one cell left」.
+v5's two silent failures are one row off and one half-cell off — **the left-neighbour
+class is gone from the silent failures, and now shows up as explicit refusals instead.**
+
+That is the intended trade: refusing is visible to the caller, a wrong box is not.
+
 ## What this baseline measures
 
 81 near-identical targets, descriptions built only from coordinates and

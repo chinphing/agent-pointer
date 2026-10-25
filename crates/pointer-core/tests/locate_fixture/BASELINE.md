@@ -35,6 +35,11 @@ POINTER_LOCATE_TRUTH=truth_sudoku.json POINTER_LOCATE_CONCURRENCY=10 \
 | hit among completed | 84.8 % | **91.2 %** |
 | wall clock | 297.8 s | 292.2 s |
 | mean per completed case | 27.0 s | 32.2 s |
+
+Both columns cover only the cases that finished under concurrency — the 10 and 1
+timeouts are excluded. Comparing a partial set against a full set is how an
+earlier revision of this file ended up claiming a 2.6× latency regression that
+did not exist; from v3 onward the tables use all 81 cases after serial re-runs.
 | median centre offset | — | **2.9 px** (cell is 41 px) |
 | mean centre offset | — | 9.9 px |
 
@@ -190,16 +195,33 @@ answering, and to have the numbers on record for a later code-side check.
 | hint < 1× | 100 % | 100 % |
 | hint 1–2× | 96.0 % | 85.7 % |
 | hint ≥ 2× | 86.1 % | **94.9 %** |
-| mean per case | 12.4 s | **31.8 s** |
-| cases needing >1 round | — | 66/81 |
+| mean per case (all 81, after serial re-runs) | 29.2 s | **31.8 s** |
+| mean per round | 16.8 s | **16.6 s** |
+| total rounds | 141 | **155** |
 
 **Median offset halved.** Half the cases that still miss land on an adjacent
 cell, so the centre is either right or a full cell off — nothing in between.
 
-**Cost: latency roughly tripled.** Requiring two extra measured fields makes
-every verify call emit more tokens. Twelve cases timed out under 10-way
-concurrency versus 8 in v3; re-running them serially finished all twelve in
-≤ 41.5 s with 9 hits.
+**Latency rose 8.9 %, and none of it comes from slower calls.** Mean time per
+round is flat (16.8 s → 16.6 s). What changed is the round count: 11 cases that
+used to pass in one round now take two.
+
+That is the intended effect, not a regression. Previously the verifier saw "the
+target is in the box" and stopped; now it has to measure the box's edges to fill
+`box_px`, notices the box is wrong, and reports `unclear` — so the correction
+that was always needed finally happens. v3 had 7 cases with `ok=true` and the box
+on the wrong cell; v4 has 4, and the median offset halved.
+
+Round distribution:
+
+| rounds | v3 | v4 |
+|---|---|---|
+| 1 | 26 | **15** |
+| 2 | 50 | **58** |
+| 3 | 5 | **8** |
+
+Twelve cases timed out under 10-way concurrency (v3: 8); re-running them
+serially finished all twelve in ≤ 41.5 s with 9 hits.
 
 ## Remaining misses (6 of 81, all empty cells)
 

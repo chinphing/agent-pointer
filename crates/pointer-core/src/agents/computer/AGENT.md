@@ -100,6 +100,12 @@ English `target_desc` in the same call:
 | `target_desc` | the screen's | compared against on-screen text |
 | `action` | either | routing hint only; never shown |
 
+**When the target is one of several identical elements**, `goal` must say which
+one — `第7行第3格`, `the third row from the top`, `the left panel`. A cell in a
+grid, a row in a list, a field in a form, a tab in a tab bar, a panel in a split
+view: the verifier reads `goal` to decide whether the change landed in the right
+place, and `点那个空格` gives it nothing to check against.
+
 ## Locating targets
 
 Your direct estimate of screen pixel coordinates is unreliable. The pointing

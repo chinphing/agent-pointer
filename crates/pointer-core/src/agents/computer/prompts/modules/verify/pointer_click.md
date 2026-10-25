@@ -5,30 +5,32 @@ Two questions in order. Stop at the first one that decides it.
 **Evidence:** **[Screen before action]** vs **[Screen after action]**. Both carry
 the pointer overlay, so where the click landed is visible.
 
-### Step 1 — did the element `goal` names change?
+### Step 1 — where did the click land?
 
-Find that element in both screenshots — a cell, a button, a row, a menu item.
+Find the element `goal` names — a cell, a button, a row, a menu item — and look
+at the landing point.
 
-- **It changed** → go to step 2.
-- **It did not change, but something else did** → `fail`, `wrong_operation`.
-  The click reached a different element.
-- **Nothing changed anywhere, and the click landed on that element** → `fail`,
-  `wrong_operation`. The element ignored the click.
-- **Nothing changed anywhere, and the click landed elsewhere** → `fail`,
-  `precision_miss`. The click missed.
+- **On that element** → go to step 2.
+- **On a different element or empty space** → `fail`, `precision_miss`. The
+  click missed.
 
-### Step 2 — is that change the one `goal` asked for?
+### Step 2 — did the expected change happen?
 
-- **Yes** — value entered, page opened, menu expanded, row selected → `pass`.
-- **Opposite** — the state `goal` wanted was already there and the click removed
-  it → `fail`, `wrong_operation`.
-- **Partial or different** — highlighted but not entered, focused but not opened
-  → `fail`, `wrong_operation`.
+The change does not have to be on the element itself. A save button looks the
+same before and after; the toast, the dialog, the new page, the row that
+disappeared — that is the change. Look at the whole screen.
+
+- **Yes, the change `goal` expects** → `pass`.
+- **Some change, but not the expected one** — highlighted instead of entered,
+  focused instead of opened, the wrong menu expanded → `fail`, `wrong_operation`.
+- **No change anywhere** → `fail`, `wrong_operation`. The click reached the
+  element and nothing happened.
 
 **`loading_detected`:** spinner, progress bar, or partial load in after.
 
-**`step_summary`:** on `pass`, name where the change landed and what it was —
-`row 7 col 3 now shows 1`. On `fail`, name the one fact that decided it.
+**`step_summary`:** on `pass`, name the landing point and the change —
+`row 7 col 3 now shows 1`, `clicked Save, toast 已保存 appeared`.
+On `fail`, name the one fact that decided it.
 
 ### Reasoning (hard rule)
 

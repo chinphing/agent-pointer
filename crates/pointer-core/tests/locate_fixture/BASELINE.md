@@ -167,6 +167,55 @@ r5c8  第六行第九列的空格子，位于数字6的右边隔一格、数字9
 in between" — the same off-by-one as `隔二格`, just smaller. `r5c8` the model
 refused outright: 「锚点自相矛盾，图中无符合的空格」.
 
+## v4 — the verifier reports target and box sizes
+
+`report` now requires two measured pairs alongside the verdict:
+
+```
+target_px  目标在裁剪图里的宽高
+box_px     蓝框在裁剪图里的宽高
+```
+
+They are **recorded, not enforced** — `engine` still decides from `match` /
+`unclear_kind`. The point is to make the model look at the box's edges before
+answering, and to have the numbers on record for a later code-side check.
+
+| | v3 | **v4** |
+|---|---|---|
+| hit (all 81, after serially re-running timeouts) | 73/81 = 90.1 % | **75/81 = 92.6 %** |
+| **median centre offset** | 3.1 px | **1.7 px** |
+| mean centre offset | 13.1 px | **5.9 px** |
+| filled cells | 91.4 % | **100 %** |
+| empty cells | 92.1 % | 86.0 % |
+| hint < 1× | 100 % | 100 % |
+| hint 1–2× | 96.0 % | 85.7 % |
+| hint ≥ 2× | 86.1 % | **94.9 %** |
+| mean per case | 12.4 s | **31.8 s** |
+| cases needing >1 round | — | 66/81 |
+
+**Median offset halved.** Half the cases that still miss land on an adjacent
+cell, so the centre is either right or a full cell off — nothing in between.
+
+**Cost: latency roughly tripled.** Requiring two extra measured fields makes
+every verify call emit more tokens. Twelve cases timed out under 10-way
+concurrency versus 8 in v3; re-running them serially finished all twelve in
+≤ 41.5 s with 9 hits.
+
+## Remaining misses (6 of 81, all empty cells)
+
+```
+r3c2  hint=1.85x  d=(-41,+0)    one cell left
+r5c0  hint=2.01x  d=(-1,-41)    one cell up
+r7c5  hint=1.33x  d=(-41,+0)    one cell left
+r3c7  hint=1.21x  ok=false, 3 rounds
+r4c3  hint=1.61x  ok=false, 3 rounds
+r5c8  hint=2.44x  d=(-42,-0)    one cell left
+```
+
+Four are exactly one cell off; two exhausted their rounds refusing
+(`ok=false`). **Filled cells are now perfect — every remaining failure is an
+empty cell**, where the only distinguishing feature is the anchor text.
+
 ## What this baseline measures
 
 81 near-identical targets, descriptions built only from coordinates and

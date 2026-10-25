@@ -297,6 +297,14 @@ fn build_provider() -> Result<OpenAIProvider> {
 #[tokio::test]
 #[ignore = "calls a real vision model; run with --ignored"]
 async fn frozen_desktop_grounding() -> Result<()> {
+    // `engine.rs` logs every verdict (`locate: round=N ... why=...`). Without a
+    // logger those lines vanish and the only visible trace of a round is the
+    // final `what_i_saw` — which loses everything the earlier rounds decided.
+    // Run with `RUST_LOG=info` to see them.
+    let _ = env_logger::builder()
+        .format_timestamp_millis()
+        .is_test(false)
+        .try_init();
     let truth = load_truth()?;
     let path = dir().join(&truth.fixture);
     assert!(path.exists(), "missing fixture: {}", path.display());

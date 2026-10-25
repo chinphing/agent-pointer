@@ -762,6 +762,16 @@ mod tests {
         ComputerState::with_annotate_url("http://127.0.0.1:9999")
     }
 
+    /// The pipeline cache holds exactly one frame: a round stores its after-frame
+    /// and the next round reads it back as the before frame.
+    ///
+    /// This is the only test for that round-trip. An integration-test copy in
+    /// `tests/computer_close_loop.rs` used to exist; it went stale when the
+    /// before frame moved off `ScreenCaptureResult`, and when rewritten against
+    /// the cache API it hung on macOS (`fresh_pipeline_capture` returned once,
+    /// then blocked on the second call inside an integration-test binary). This
+    /// unit test exercises the same functions and finishes in a fraction of a
+    /// second, so the integration copy was removed rather than kept as a hang.
     #[test]
     fn ensure_pipeline_capture_reuses_stored_frame() {
         let state = make_state();

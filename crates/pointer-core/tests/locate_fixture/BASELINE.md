@@ -262,6 +262,30 @@ One case (r7c5) timed out at >180 s when six ran together but finished in 70 s
 alone — that was queueing, not difficulty, same as the timeout caveat for the
 main run.
 
+### Deferred: blank-region targets
+
+`truth_desktop.json` gained five 「点击空白处」 cases. All five fail, and the
+cause is structural rather than a prompt bug:
+
+- **「正上方」 has no unique solution.** Told 「App Store 图标正上方那片空地」 the
+  verifier frames the strip hugging the icon (y≈870) while the ground truth is
+  170 px higher (y=700). Its x was exact (375.7 vs 400).
+- **A blank region has no single correct centre.** One case returned a 741×736
+  box centred on the screen — correct per the description 「左右无图标」, wrong per
+  the ground truth's 200×200 window on the left third.
+- **The anchor can fall outside the crop.** `side = 框长边 × 3`, clamped to
+  ≥240. A 2 px-wide box gives side=240, so the 访达 icon at y=910 is outside a
+  crop covering y≈660–900. The verifier correctly refused with
+  `anchor_out_of_view` — but the second-round `locate_in` reuses that same crop,
+  so it cannot see the anchor either.
+
+Scoring blank regions by 「centre inside a fixed bbox」 measures whether the model
+guessed which patch the annotator picked, not whether it found a safe place to
+click. Either the harness needs a 「centre lands in any icon-free area」 check, or
+these targets are out of scope for a design that assumes a frameable element.
+
+Not fixed. The five cases stay in the dataset as a marker.
+
 ### Deferred: are `target_px` / `box_px` usable for code-side judgement?
 
 Not yet measured. Need the per-case values written into the `--nocapture` output

@@ -19,19 +19,24 @@ Judge whether the last desktop action succeeded. You do not retry or fix — onl
 ### `step_summary`
 
 Always filled. State what the target was in the **before** frame, what it is in
-the **after** frame, and what differs — one line:
+the **after** frame, and what differs — one line, `<subject>: <before> → <after>`:
 
 ```
 col 3: empty → 5
 col 3: empty → col 2 shows 5
 Save: no toast → "已保存" toast
+rows 2–5: unselected → selected
+first row: "Item 3" → "Item 7", moved ~0.4 target-heights
 no change — Save button and the area around it are identical
 ```
 
 Name the subject once when it is the same on both sides; name both when the
-change landed somewhere else. Leave out anything that does not decide the
-verdict — colours, fonts, how an element looks when it did not change. If a
-detail would not change `action_result`, it does not belong here.
+change landed somewhere else. Append the quantity a Scenario says it needs —
+`moved ~0.4 target-heights` for scroll — after the comparison.
+
+Leave out anything that does not decide the verdict — colours, fonts, how an
+element looks when it did not change. If a detail would not change
+`action_result`, it does not belong here.
 
 ### Channels
 

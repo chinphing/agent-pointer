@@ -1992,4 +1992,62 @@ mod builtin_agent_tests {
         assert_eq!(ids.len(), 4);
         assert!(ids.iter().any(|id| id == "skill-manager"));
     }
+
+    /// `step_summary` has one definition, in `core.md`. A Scenario module that
+    /// restates the format gives the model two versions to reconcile — and the
+    /// prompt is plain concatenated text, so nothing else would catch it.
+    #[test]
+    fn verify_scenarios_do_not_redefine_step_summary() {
+        let families = [
+            ("pointer_click", COMPUTER_VERIFY_POINTER_CLICK),
+            ("pointer_hover", COMPUTER_VERIFY_POINTER_HOVER),
+            ("scroll", COMPUTER_VERIFY_SCROLL),
+            ("drag", COMPUTER_VERIFY_DRAG),
+            ("input", COMPUTER_VERIFY_INPUT),
+            ("modified_click", COMPUTER_VERIFY_MODIFIED_CLICK),
+            ("hotkey", COMPUTER_VERIFY_HOTKEY),
+            ("wait", COMPUTER_VERIFY_WAIT),
+            ("clipboard", COMPUTER_VERIFY_CLIPBOARD),
+            ("app_access", COMPUTER_VERIFY_APP_ACCESS),
+            ("generic", COMPUTER_VERIFY_GENERIC),
+        ];
+        for (name, body) in families {
+            assert!(
+                !body.contains("### `step_summary`"),
+                "{name}.md redefines the step_summary format; keep it in core.md"
+            );
+        }
+    }
+
+    /// Every Scenario module must be assembled with `core.md`, and the assembled
+    /// prompt must carry exactly one `step_summary` section.
+    #[test]
+    fn verify_prompt_carries_one_step_summary_section() {
+        use computer::pipeline::operation::OperationFamily;
+        let families = [
+            OperationFamily::PointerClick,
+            OperationFamily::PointerHover,
+            OperationFamily::Scroll,
+            OperationFamily::Drag,
+            OperationFamily::Input,
+            OperationFamily::ModifiedClick,
+            OperationFamily::Hotkey,
+            OperationFamily::Wait,
+            OperationFamily::Clipboard,
+            OperationFamily::AppAccess,
+            OperationFamily::Other,
+        ];
+        for family in families {
+            let prompt = computer_verify_prompt(family);
+            assert_eq!(
+                prompt.matches("### `step_summary`").count(),
+                1,
+                "{family:?} prompt must carry exactly one step_summary section"
+            );
+            assert!(
+                prompt.contains("`wrong_operation`"),
+                "{family:?} prompt is missing the failure_cause vocabulary from core.md"
+            );
+        }
+    }
 }

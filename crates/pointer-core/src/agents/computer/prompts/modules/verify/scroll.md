@@ -96,13 +96,7 @@ Max **3 sentences**, plain prose.
 
 Optional: `loading_detected` when nothing moved but a spinner is visible.
 
+`step_summary` always appends the shift — the planner scales the next notch count
+from that number, so it goes in even when nothing moved (`moved 0`).
+
 **Forbidden:** numbered CoT templates; JSON.
-
-Append the shift to `step_summary`, after the before → after comparison — the
-planner scales the next notch count from that number, so it always goes in:
-
-```
-first row: "Item 3" → "Item 3", moved 0; footer 「已显示全部」 visible
-first row: "Item 3" → "Item 3", moved 0; page header on screen, list still cut off below
-first row: "Item 3" → "Item 3", moved 0; sidebar scrolled, panel did not move
-```

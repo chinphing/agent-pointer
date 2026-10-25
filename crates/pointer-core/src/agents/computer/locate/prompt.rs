@@ -72,7 +72,7 @@ pub fn report_tool() -> Value {
                         "items": {"type": "integer"},
                         "minItems": 2,
                         "maxItems": 2,
-                        "description": "目标在【这张图】里的实际宽和高，单位像素。先看目标自己的轮廓再填，不要用蓝框的尺寸代替。"
+                        "description": "目标在【这张图】里的实际宽和高，单位像素。先看目标自己的轮廓再填，不要用蓝框的尺寸代替。目标本身是一片空白区域（点空白处关闭、遮罩、画布背景），没有轮廓可量时填 [0, 0]。"
                     },
                     "box_px": {
                         "type": "array",
@@ -143,7 +143,7 @@ pub fn verify_prompt(description: &str) -> String {
 【任务】\n\
 ① 先看蓝框里实际是什么（文字/图标/控件），写进 why 的开头。\n\
 ② 再判断蓝框里的这个东西，是不是上面描述的目标元素。\\n\\
-③ 最后量两个数：目标的实际宽高填 `target_px`，蓝框的宽高填 `box_px`（都按这张图的像素）。why 里写这两者的倍数。\n\n\
+③ 最后量两个数：目标的实际宽高填 `target_px`，蓝框的宽高填 `box_px`（都按这张图的像素）。why 里写这两者的倍数。目标本身是一片空白区域（点空白处关闭弹窗、遮罩、画布背景），没有轮廓可量时 `target_px` 填 [0, 0]，why 里说明它是空白区域，不用写倍数。\n\n\
 【必须单独核对的一件事：蓝框有没有把目标完整框住】\n\
 「蓝框里能看到目标」和「蓝框把目标整个框住了」是两件事，**都要满足才算找到**。\n\
 - 目标的**整个轮廓**（文字的全部笔画、按钮的全部边缘、图标的完整形状）\n\
@@ -155,6 +155,8 @@ pub fn verify_prompt(description: &str) -> String {
   或者蓝框只压住了目标的一个角）→ 判 **unclear** + `unclear_kind=box_too_tight`，并在 why 里写清：\n\
   框住了目标的哪一部分、目标的哪一侧在框外、**目标大约是框的几倍宽几倍高**。\n\
   倍数比像素可靠——这张图是缩放过的，你说的像素数换算回屏幕会差很远。\n\
+- 目标本身是**一片空白区域**（点空白处关闭、遮罩、画布背景），没有轮廓可量时，
+  「框太大」「框太小」都不适用：只要框整个落在那片空白里、框住的位置就是要的位置，就算框住了。
 - 反过来，**框比目标大太多**也算不合格。太大是算出来的：先看目标在框里的实际长宽，再和框的长宽比——通常框的宽和高都不超过目标的 1.5 倍算合格；目标是紧邻排列的编号格子（表格单元格、数独格、棋盘格、日历格）时降到 1.2 倍，相邻格只隔一个格宽，框松一点就框进隔壁，坐标会整个偏到另一格。超过倍数判 unclear + unclear_kind=box_too_loose，why 里写清框大约是目标的几倍宽几倍高、框里除了目标还有什么。\n\
   下游拿这句话决定是重新找还是把框收小。\n\n\
 【周边锚点怎么用】\n\
@@ -260,17 +262,28 @@ fn text_field(v: &Value, key: &str) -> String {
         .collect()
 }
 
-/// `[w, h]` from the report arguments. Zero and negative entries are dropped:
-/// a measured size is never 0, and a 0 would make any ratio meaningless.
+/// `[w, h]` from the report arguments. A `[0, 0]` pair is kept on purpose: the
+/// target may be a blank region (click-the-backdrop, a canvas background) with
+/// no outline to measure, and dropping it would look identical to a missing
+/// field. Negative entries are still rejected.
 fn pair_field(v: &Value, key: &str) -> Option<(u32, u32)> {
     let arr = v.get(key)?.as_array()?;
-    let mut it = arr.iter().filter_map(|x| {
-        x.as_u64()
-            .or_else(|| x.as_f64().map(|f| f.round() as u64))
-            .filter(|n| *n > 0)
-            .map(|n| n.min(u32::MAX as u64) as u32)
-    });
-    Some((it.next()?, it.next()?))
+    let mut out = [0u32; 2];
+    let mut n = 0;
+    for x in arr {
+        // `as f64` rather than `as_u64` so negatives are visible: casting -5
+        // straight to an integer saturates at 0 and would read as a legitimate
+        // 「no outline」 pair.
+        let f = x.as_f64()?;
+        if !f.is_finite() || f < 0.0 {
+            return None;
+        }
+        if n < 2 {
+            out[n] = f.round().min(u32::MAX as f64) as u32;
+            n += 1;
+        }
+    }
+    (n == 2).then_some((out[0], out[1]))
 }
 
 /// Parse the `report` tool arguments. Returns `None` when the answer is not
@@ -430,6 +443,28 @@ mod tests {
         assert!(hint.contains("2 倍"), "{hint}");
         assert!(hint.contains("不要换地方找"), "{hint}");
         assert!(!hint.contains("不是目标"), "{hint}");
+    }
+
+    #[test]
+    fn verify_prompt_handles_a_target_with_no_outline() {
+        let p = verify_prompt("弹窗外的空白区域");
+        // 「点击空白处关闭」 has no measurable target size. Without an explicit
+        // escape the verifier has to invent one, or the schema rejects the call
+        // for a missing field.
+        assert!(p.contains("没有轮廓可量时 `target_px` 填 [0, 0]"), "{p}");
+        assert!(p.contains("「框太大」「框太小」都不适用"), "{p}");
+    }
+
+    #[test]
+    fn pair_field_keeps_a_zero_pair_but_rejects_negatives() {
+        // [0, 0] means 「the target has no outline」 — dropping it would look
+        // the same as the model omitting the field.
+        let v: Value = serde_json::from_str(r#"{"target_px":[0,0],"box_px":[10,20]}"#).unwrap();
+        assert_eq!(pair_field(&v, "target_px"), Some((0, 0)));
+        assert_eq!(pair_field(&v, "box_px"), Some((10, 20)));
+
+        let neg: Value = serde_json::from_str(r#"{"target_px":[-5,3]}"#).unwrap();
+        assert_eq!(pair_field(&neg, "target_px"), None);
     }
 
     #[test]

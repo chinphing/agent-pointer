@@ -809,6 +809,65 @@ mod tests {
         assert_eq!(got.screenshot_jpeg, vec![9, 9, 9]);
     }
 
+    /// Full round-trip on a real screenshot, with no OS capture anywhere.
+    ///
+    /// `apply_screen_capture` takes the pixels as an argument, so the whole
+    /// pipeline — JPEG decode, pointer overlay, cache store — runs on a fixture
+    /// image. That is the shape every pipeline test should have: the only thing
+    /// that must never happen under `cargo test` is a live `xcap` grab, and
+    /// nothing here can reach one.
+    #[test]
+    fn real_screenshot_round_trips_through_the_pipeline_cache() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/locate_fixture/fixtures/sudoku.jpg");
+        let jpeg = std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let (w, h) = image::ImageReader::new(std::io::Cursor::new(&jpeg))
+            .with_guessed_format()
+            .expect("probe")
+            .into_dimensions()
+            .expect("dimensions");
+
+        let state = make_state();
+        let monitor = screen::MonitorInfo::new(0, 0, w as i32, h as i32);
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+
+        let cap = rt
+            .block_on(state.apply_screen_capture(
+                "real",
+                &jpeg,
+                monitor,
+                (w, h),
+                (100, 100),
+                None,
+            ))
+            .expect("pipeline ran on the fixture image");
+
+        // The unmarked copy is the raw input, untouched.
+        assert_eq!(
+            cap.raw_unmarked_jpeg.as_slice(),
+            jpeg.as_slice(),
+            "raw_unmarked_jpeg must be the input bytes, not a re-encode"
+        );
+        assert!(
+            !cap.screenshot_jpeg.is_empty(),
+            "the overlay pass produced no image"
+        );
+
+        state.store_pipeline_after_capture("real", cap.clone());
+        let reused = state
+            .fresh_pipeline_capture("real", Duration::from_secs(120))
+            .expect("cached frame is fresh");
+        assert_eq!(
+            reused.screenshot_jpeg.as_slice(),
+            cap.screenshot_jpeg.as_slice(),
+            "the next round must read back exactly what this round produced"
+        );
+    }
+
     #[test]
     fn fresh_pipeline_capture_rejects_stale_frame() {
         let state = make_state();

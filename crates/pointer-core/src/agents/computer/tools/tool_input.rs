@@ -49,22 +49,23 @@ fn paste_via_clipboard(control: &Arc<dyn ComputerControl>, text: &str) -> Result
 }
 
 /// Type into whatever has focus: optional select-all, then text, then Enter.
+///
+/// Text always goes through the clipboard. `enigo.text()` — the character-by-
+/// character path — is intercepted by an active IME: with a Chinese input
+/// method focused, letters land in the composition buffer instead of the field.
+/// That is what `use_clipboard` used to switch back to, and the model reached
+/// for it often enough to bring the bug back; the option is gone.
 fn type_text(
     control: &Arc<dyn ComputerControl>,
     text: &str,
     clear_first: bool,
     auto_enter: bool,
-    use_clipboard: bool,
 ) -> Result<()> {
     if clear_first {
         select_all(control)?;
         std::thread::sleep(COMPOSITE_STEP_GAP);
     }
-    if use_clipboard {
-        paste_via_clipboard(control, text)?;
-    } else {
-        control.typing(text)?;
-    }
+    paste_via_clipboard(control, text)?;
     if auto_enter {
         control.press("return")?;
     }
@@ -96,9 +97,6 @@ impl InputAtTool {
         let text = text_from_args(args.get("text"))?;
         let clear_first = json_bool_loose(args.get("clear_first"));
         let auto_enter = json_bool_loose(args.get("auto_enter"));
-        let use_clipboard = args
-            .get("use_clipboard")
-            .map_or(true, |v| json_bool_loose(Some(v)));
         let vision = self.vision_state.lock().unwrap();
         let (px, py) = vision
             .resolve_coordinate(x, y)
@@ -107,13 +105,7 @@ impl InputAtTool {
         self.control
             .click(MouseButton::Left, Some(px), Some(py), 1)?;
         std::thread::sleep(COMPOSITE_STEP_GAP);
-        type_text(
-            &self.control,
-            &text,
-            clear_first,
-            auto_enter,
-            use_clipboard,
-        )?;
+        type_text(&self.control, &text, clear_first, auto_enter)?;
         Ok(self.verify.type_hint(&text))
     }
 }
@@ -139,16 +131,7 @@ impl InputFocusedTool {
         let text = text_from_args(args.get("text"))?;
         let clear_first = json_bool_loose(args.get("clear_first"));
         let auto_enter = json_bool_loose(args.get("auto_enter"));
-        let use_clipboard = args
-            .get("use_clipboard")
-            .map_or(true, |v| json_bool_loose(Some(v)));
-        type_text(
-            &self.control,
-            &text,
-            clear_first,
-            auto_enter,
-            use_clipboard,
-        )?;
+        type_text(&self.control, &text, clear_first, auto_enter)?;
         Ok(self.verify.type_hint(&text))
     }
 }

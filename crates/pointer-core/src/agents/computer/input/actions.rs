@@ -563,7 +563,7 @@ impl ActionExecutor {
     ///
     /// Sequence: move → click → type.
     pub fn type_text_at(&self, x: i32, y: i32, text: &str) -> Result<ActionResult> {
-        self.type_text_at_with_options(x, y, text, false, false, false, false)
+        self.type_text_at_with_options(x, y, text, false, false, false)
     }
 
     /// Select-all hotkey for the current OS (Cmd+A / Ctrl+A).
@@ -576,6 +576,9 @@ impl ActionExecutor {
     }
 
     /// Type at (x,y): optional select-all before typing, optional Enter after (Pointer composite).
+    ///
+    /// Text always goes through the clipboard — `type_text` (character-by-
+    /// character) is intercepted by an active IME.
     pub fn type_text_at_with_options(
         &self,
         x: i32,
@@ -584,7 +587,6 @@ impl ActionExecutor {
         clear_first: bool,
         auto_enter: bool,
         human_like: bool,
-        use_clipboard: bool,
     ) -> Result<ActionResult> {
         self.click_at(x, y, human_like)?;
         composite_step_gap();
@@ -592,11 +594,7 @@ impl ActionExecutor {
             self.hotkey_select_all()?;
             composite_step_gap();
         }
-        if use_clipboard {
-            self.backend.type_text_via_clipboard(text)?;
-        } else {
-            self.backend.type_text(text)?;
-        }
+        self.backend.type_text_via_clipboard(text)?;
         if auto_enter {
             self.hotkey(&["return"])?;
         }
@@ -604,22 +602,20 @@ impl ActionExecutor {
     }
 
     /// Type into focused field (no click): optional select-all, optional Enter.
+    ///
+    /// Text always goes through the clipboard, same reason as
+    /// [`Self::type_text_at_with_options`].
     pub fn type_text_focused_with_options(
         &self,
         text: &str,
         clear_first: bool,
         auto_enter: bool,
-        use_clipboard: bool,
     ) -> Result<ActionResult> {
         if clear_first {
             self.hotkey_select_all()?;
             composite_step_gap();
         }
-        if use_clipboard {
-            self.backend.type_text_via_clipboard(text)?;
-        } else {
-            self.backend.type_text(text)?;
-        }
+        self.backend.type_text_via_clipboard(text)?;
         if auto_enter {
             self.hotkey(&["return"])?;
         }

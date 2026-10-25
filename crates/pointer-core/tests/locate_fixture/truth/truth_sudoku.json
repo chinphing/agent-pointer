@@ -1,0 +1,827 @@
+{
+  "fixture": "fixtures/sudoku.png",
+  "size": [
+    1920,
+    1080
+  ],
+  "grid": {
+    "left": 99,
+    "top": 237,
+    "right": 469,
+    "bottom": 608,
+    "cols": 9,
+    "rows": 9
+  },
+  "cases": [
+    {
+      "scene": "r0c0",
+      "description": "row 0 column 0 centre",
+      "bbox": [
+        99,
+        237,
+        140,
+        278
+      ]
+    },
+    {
+      "scene": "r0c1",
+      "description": "row 0 column 1 centre",
+      "bbox": [
+        140,
+        237,
+        181,
+        278
+      ]
+    },
+    {
+      "scene": "r0c2",
+      "description": "row 0 column 2 centre",
+      "bbox": [
+        181,
+        237,
+        222,
+        278
+      ]
+    },
+    {
+      "scene": "r0c3",
+      "description": "row 0 column 3 centre",
+      "bbox": [
+        222,
+        237,
+        263,
+        278
+      ]
+    },
+    {
+      "scene": "r0c4",
+      "description": "row 0 column 4 centre",
+      "bbox": [
+        263,
+        237,
+        305,
+        278
+      ]
+    },
+    {
+      "scene": "r0c5",
+      "description": "row 0 column 5 centre",
+      "bbox": [
+        305,
+        237,
+        346,
+        278
+      ]
+    },
+    {
+      "scene": "r0c6",
+      "description": "row 0 column 6 centre",
+      "bbox": [
+        346,
+        237,
+        387,
+        278
+      ]
+    },
+    {
+      "scene": "r0c7",
+      "description": "row 0 column 7 centre",
+      "bbox": [
+        387,
+        237,
+        428,
+        278
+      ]
+    },
+    {
+      "scene": "r0c8",
+      "description": "row 0 column 8 centre",
+      "bbox": [
+        428,
+        237,
+        469,
+        278
+      ]
+    },
+    {
+      "scene": "r1c0",
+      "description": "row 1 column 0 centre",
+      "bbox": [
+        99,
+        278,
+        140,
+        319
+      ]
+    },
+    {
+      "scene": "r1c1",
+      "description": "row 1 column 1 centre",
+      "bbox": [
+        140,
+        278,
+        181,
+        319
+      ]
+    },
+    {
+      "scene": "r1c2",
+      "description": "row 1 column 2 centre",
+      "bbox": [
+        181,
+        278,
+        222,
+        319
+      ]
+    },
+    {
+      "scene": "r1c3",
+      "description": "row 1 column 3 centre",
+      "bbox": [
+        222,
+        278,
+        263,
+        319
+      ]
+    },
+    {
+      "scene": "r1c4",
+      "description": "row 1 column 4 centre",
+      "bbox": [
+        263,
+        278,
+        305,
+        319
+      ]
+    },
+    {
+      "scene": "r1c5",
+      "description": "row 1 column 5 centre",
+      "bbox": [
+        305,
+        278,
+        346,
+        319
+      ]
+    },
+    {
+      "scene": "r1c6",
+      "description": "row 1 column 6 centre",
+      "bbox": [
+        346,
+        278,
+        387,
+        319
+      ]
+    },
+    {
+      "scene": "r1c7",
+      "description": "row 1 column 7 centre",
+      "bbox": [
+        387,
+        278,
+        428,
+        319
+      ]
+    },
+    {
+      "scene": "r1c8",
+      "description": "row 1 column 8 centre",
+      "bbox": [
+        428,
+        278,
+        469,
+        319
+      ]
+    },
+    {
+      "scene": "r2c0",
+      "description": "row 2 column 0 centre",
+      "bbox": [
+        99,
+        319,
+        140,
+        361
+      ]
+    },
+    {
+      "scene": "r2c1",
+      "description": "row 2 column 1 centre",
+      "bbox": [
+        140,
+        319,
+        181,
+        361
+      ]
+    },
+    {
+      "scene": "r2c2",
+      "description": "row 2 column 2 centre",
+      "bbox": [
+        181,
+        319,
+        222,
+        361
+      ]
+    },
+    {
+      "scene": "r2c3",
+      "description": "row 2 column 3 centre",
+      "bbox": [
+        222,
+        319,
+        263,
+        361
+      ]
+    },
+    {
+      "scene": "r2c4",
+      "description": "row 2 column 4 centre",
+      "bbox": [
+        263,
+        319,
+        305,
+        361
+      ]
+    },
+    {
+      "scene": "r2c5",
+      "description": "row 2 column 5 centre",
+      "bbox": [
+        305,
+        319,
+        346,
+        361
+      ]
+    },
+    {
+      "scene": "r2c6",
+      "description": "row 2 column 6 centre",
+      "bbox": [
+        346,
+        319,
+        387,
+        361
+      ]
+    },
+    {
+      "scene": "r2c7",
+      "description": "row 2 column 7 centre",
+      "bbox": [
+        387,
+        319,
+        428,
+        361
+      ]
+    },
+    {
+      "scene": "r2c8",
+      "description": "row 2 column 8 centre",
+      "bbox": [
+        428,
+        319,
+        469,
+        361
+      ]
+    },
+    {
+      "scene": "r3c0",
+      "description": "row 3 column 0 centre",
+      "bbox": [
+        99,
+        361,
+        140,
+        402
+      ]
+    },
+    {
+      "scene": "r3c1",
+      "description": "row 3 column 1 centre",
+      "bbox": [
+        140,
+        361,
+        181,
+        402
+      ]
+    },
+    {
+      "scene": "r3c2",
+      "description": "row 3 column 2 centre",
+      "bbox": [
+        181,
+        361,
+        222,
+        402
+      ]
+    },
+    {
+      "scene": "r3c3",
+      "description": "row 3 column 3 centre",
+      "bbox": [
+        222,
+        361,
+        263,
+        402
+      ]
+    },
+    {
+      "scene": "r3c4",
+      "description": "row 3 column 4 centre",
+      "bbox": [
+        263,
+        361,
+        305,
+        402
+      ]
+    },
+    {
+      "scene": "r3c5",
+      "description": "row 3 column 5 centre",
+      "bbox": [
+        305,
+        361,
+        346,
+        402
+      ]
+    },
+    {
+      "scene": "r3c6",
+      "description": "row 3 column 6 centre",
+      "bbox": [
+        346,
+        361,
+        387,
+        402
+      ]
+    },
+    {
+      "scene": "r3c7",
+      "description": "row 3 column 7 centre",
+      "bbox": [
+        387,
+        361,
+        428,
+        402
+      ]
+    },
+    {
+      "scene": "r3c8",
+      "description": "row 3 column 8 centre",
+      "bbox": [
+        428,
+        361,
+        469,
+        402
+      ]
+    },
+    {
+      "scene": "r4c0",
+      "description": "row 4 column 0 centre",
+      "bbox": [
+        99,
+        402,
+        140,
+        443
+      ]
+    },
+    {
+      "scene": "r4c1",
+      "description": "row 4 column 1 centre",
+      "bbox": [
+        140,
+        402,
+        181,
+        443
+      ]
+    },
+    {
+      "scene": "r4c2",
+      "description": "row 4 column 2 centre",
+      "bbox": [
+        181,
+        402,
+        222,
+        443
+      ]
+    },
+    {
+      "scene": "r4c3",
+      "description": "row 4 column 3 centre",
+      "bbox": [
+        222,
+        402,
+        263,
+        443
+      ]
+    },
+    {
+      "scene": "r4c4",
+      "description": "row 4 column 4 centre",
+      "bbox": [
+        263,
+        402,
+        305,
+        443
+      ]
+    },
+    {
+      "scene": "r4c5",
+      "description": "row 4 column 5 centre",
+      "bbox": [
+        305,
+        402,
+        346,
+        443
+      ]
+    },
+    {
+      "scene": "r4c6",
+      "description": "row 4 column 6 centre",
+      "bbox": [
+        346,
+        402,
+        387,
+        443
+      ]
+    },
+    {
+      "scene": "r4c7",
+      "description": "row 4 column 7 centre",
+      "bbox": [
+        387,
+        402,
+        428,
+        443
+      ]
+    },
+    {
+      "scene": "r4c8",
+      "description": "row 4 column 8 centre",
+      "bbox": [
+        428,
+        402,
+        469,
+        443
+      ]
+    },
+    {
+      "scene": "r5c0",
+      "description": "row 5 column 0 centre",
+      "bbox": [
+        99,
+        443,
+        140,
+        484
+      ]
+    },
+    {
+      "scene": "r5c1",
+      "description": "row 5 column 1 centre",
+      "bbox": [
+        140,
+        443,
+        181,
+        484
+      ]
+    },
+    {
+      "scene": "r5c2",
+      "description": "row 5 column 2 centre",
+      "bbox": [
+        181,
+        443,
+        222,
+        484
+      ]
+    },
+    {
+      "scene": "r5c3",
+      "description": "row 5 column 3 centre",
+      "bbox": [
+        222,
+        443,
+        263,
+        484
+      ]
+    },
+    {
+      "scene": "r5c4",
+      "description": "row 5 column 4 centre",
+      "bbox": [
+        263,
+        443,
+        305,
+        484
+      ]
+    },
+    {
+      "scene": "r5c5",
+      "description": "row 5 column 5 centre",
+      "bbox": [
+        305,
+        443,
+        346,
+        484
+      ]
+    },
+    {
+      "scene": "r5c6",
+      "description": "row 5 column 6 centre",
+      "bbox": [
+        346,
+        443,
+        387,
+        484
+      ]
+    },
+    {
+      "scene": "r5c7",
+      "description": "row 5 column 7 centre",
+      "bbox": [
+        387,
+        443,
+        428,
+        484
+      ]
+    },
+    {
+      "scene": "r5c8",
+      "description": "row 5 column 8 centre",
+      "bbox": [
+        428,
+        443,
+        469,
+        484
+      ]
+    },
+    {
+      "scene": "r6c0",
+      "description": "row 6 column 0 centre",
+      "bbox": [
+        99,
+        484,
+        140,
+        526
+      ]
+    },
+    {
+      "scene": "r6c1",
+      "description": "row 6 column 1 centre",
+      "bbox": [
+        140,
+        484,
+        181,
+        526
+      ]
+    },
+    {
+      "scene": "r6c2",
+      "description": "row 6 column 2 centre",
+      "bbox": [
+        181,
+        484,
+        222,
+        526
+      ]
+    },
+    {
+      "scene": "r6c3",
+      "description": "row 6 column 3 centre",
+      "bbox": [
+        222,
+        484,
+        263,
+        526
+      ]
+    },
+    {
+      "scene": "r6c4",
+      "description": "row 6 column 4 centre",
+      "bbox": [
+        263,
+        484,
+        305,
+        526
+      ]
+    },
+    {
+      "scene": "r6c5",
+      "description": "row 6 column 5 centre",
+      "bbox": [
+        305,
+        484,
+        346,
+        526
+      ]
+    },
+    {
+      "scene": "r6c6",
+      "description": "row 6 column 6 centre",
+      "bbox": [
+        346,
+        484,
+        387,
+        526
+      ]
+    },
+    {
+      "scene": "r6c7",
+      "description": "row 6 column 7 centre",
+      "bbox": [
+        387,
+        484,
+        428,
+        526
+      ]
+    },
+    {
+      "scene": "r6c8",
+      "description": "row 6 column 8 centre",
+      "bbox": [
+        428,
+        484,
+        469,
+        526
+      ]
+    },
+    {
+      "scene": "r7c0",
+      "description": "row 7 column 0 centre",
+      "bbox": [
+        99,
+        526,
+        140,
+        567
+      ]
+    },
+    {
+      "scene": "r7c1",
+      "description": "row 7 column 1 centre",
+      "bbox": [
+        140,
+        526,
+        181,
+        567
+      ]
+    },
+    {
+      "scene": "r7c2",
+      "description": "row 7 column 2 centre",
+      "bbox": [
+        181,
+        526,
+        222,
+        567
+      ]
+    },
+    {
+      "scene": "r7c3",
+      "description": "row 7 column 3 centre",
+      "bbox": [
+        222,
+        526,
+        263,
+        567
+      ]
+    },
+    {
+      "scene": "r7c4",
+      "description": "row 7 column 4 centre",
+      "bbox": [
+        263,
+        526,
+        305,
+        567
+      ]
+    },
+    {
+      "scene": "r7c5",
+      "description": "row 7 column 5 centre",
+      "bbox": [
+        305,
+        526,
+        346,
+        567
+      ]
+    },
+    {
+      "scene": "r7c6",
+      "description": "row 7 column 6 centre",
+      "bbox": [
+        346,
+        526,
+        387,
+        567
+      ]
+    },
+    {
+      "scene": "r7c7",
+      "description": "row 7 column 7 centre",
+      "bbox": [
+        387,
+        526,
+        428,
+        567
+      ]
+    },
+    {
+      "scene": "r7c8",
+      "description": "row 7 column 8 centre",
+      "bbox": [
+        428,
+        526,
+        469,
+        567
+      ]
+    },
+    {
+      "scene": "r8c0",
+      "description": "row 8 column 0 centre",
+      "bbox": [
+        99,
+        567,
+        140,
+        608
+      ]
+    },
+    {
+      "scene": "r8c1",
+      "description": "row 8 column 1 centre",
+      "bbox": [
+        140,
+        567,
+        181,
+        608
+      ]
+    },
+    {
+      "scene": "r8c2",
+      "description": "row 8 column 2 centre",
+      "bbox": [
+        181,
+        567,
+        222,
+        608
+      ]
+    },
+    {
+      "scene": "r8c3",
+      "description": "row 8 column 3 centre",
+      "bbox": [
+        222,
+        567,
+        263,
+        608
+      ]
+    },
+    {
+      "scene": "r8c4",
+      "description": "row 8 column 4 centre",
+      "bbox": [
+        263,
+        567,
+        305,
+        608
+      ]
+    },
+    {
+      "scene": "r8c5",
+      "description": "row 8 column 5 centre",
+      "bbox": [
+        305,
+        567,
+        346,
+        608
+      ]
+    },
+    {
+      "scene": "r8c6",
+      "description": "row 8 column 6 centre",
+      "bbox": [
+        346,
+        567,
+        387,
+        608
+      ]
+    },
+    {
+      "scene": "r8c7",
+      "description": "row 8 column 7 centre",
+      "bbox": [
+        387,
+        567,
+        428,
+        608
+      ]
+    },
+    {
+      "scene": "r8c8",
+      "description": "row 8 column 8 centre",
+      "bbox": [
+        428,
+        567,
+        469,
+        608
+      ]
+    }
+  ]
+}

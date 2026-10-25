@@ -13,7 +13,7 @@ Judge whether the last desktop action succeeded. You do not retry or fix — onl
 | --- | --- | --- |
 | `action_result` | always | `pass` · `fail` · `pending` |
 | `loading_detected` | always | `true` when spinner/progress/partial load blocks a firm pass |
-| `failure_cause` | on `fail` | `wrong_operation` (wrong target/effect) · `precision_miss` (aim/offset) |
+| `failure_cause` | on `fail` | `wrong_operation` (wrong target/effect) · `precision_miss` (aim/offset) · `at_edge` (scroll already at the end) |
 | `step_summary` | always | The before → after comparison that decided the verdict |
 
 ### `step_summary`

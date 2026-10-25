@@ -12,12 +12,12 @@
     "cols": 9,
     "rows": 9
   },
-  "note": "Row labels are the A-I letters printed on the board; column labels are 1-9. `coord_style` records whether the description names the cell as `C3` (letter) or `第三行第三列` (ordinal) — 40 vs 41, so the two forms can be compared. Descriptions state the cell's actual contents: 空格子 for empty, 有数字N的格子 for filled. Anchors carry their distance (隔一格 / 隔两格). Hint boxes are deliberately off: anchor inside the cell, side 0.5-3x the cell.",
+  "note": "Row labels are the A-I letters printed on the board; column labels are 1-9. `coord_style` records whether the description names the cell as `C3` (letter) or `第三行第三列` (ordinal) — 40 vs 41, so the two forms can be compared. Descriptions state the cell's actual contents: 空格子 for empty, 有数字N的格子 for filled. Anchors state where the target sits relative to a filled cell and carry their distance (隔一格 / 隔二格). Hint boxes are deliberately off: anchor inside the cell, side 0.5-3x the cell.",
   "cases": [
     {
       "scene": "r0c0",
       "coord_style": "letter",
-      "description": "数独盘面A1的空格子，位于数字3的右边隔一格",
+      "description": "数独盘面A1的空格子，位于数字3的左边隔一格",
       "goal": "选中这一格准备填数",
       "bbox": [
         99,
@@ -35,7 +35,7 @@
     {
       "scene": "r0c1",
       "coord_style": "ordinal",
-      "description": "数独盘面第一行第二列的空格子，位于数字3的右边",
+      "description": "数独盘面第一行第二列的空格子，位于数字3的左边",
       "goal": "选中这一格准备填数",
       "bbox": [
         140,
@@ -53,7 +53,7 @@
     {
       "scene": "r0c2",
       "coord_style": "letter",
-      "description": "数独盘面A3有数字3的格子，位于数字1的右边隔三格",
+      "description": "数独盘面A3有数字3的格子，位于数字1的左边隔三格",
       "goal": "选中这一格",
       "bbox": [
         181,
@@ -71,7 +71,7 @@
     {
       "scene": "r0c3",
       "coord_style": "ordinal",
-      "description": "数独盘面第一行第四列的空格子，位于数字3的左边",
+      "description": "数独盘面第一行第四列的空格子，位于数字3的右边",
       "goal": "选中这一格准备填数",
       "bbox": [
         222,
@@ -89,7 +89,7 @@
     {
       "scene": "r0c4",
       "coord_style": "letter",
-      "description": "数独盘面A5的空格子，位于数字3的左边隔一格",
+      "description": "数独盘面A5的空格子，位于数字3的右边隔一格",
       "goal": "选中这一格准备填数",
       "bbox": [
         263,
@@ -107,7 +107,7 @@
     {
       "scene": "r0c5",
       "coord_style": "ordinal",
-      "description": "数独盘面第一行第六列的空格子，位于数字3的左边隔二格",
+      "description": "数独盘面第一行第六列的空格子，位于数字3的右边隔二格",
       "goal": "选中这一格准备填数",
       "bbox": [
         305,
@@ -125,7 +125,7 @@
     {
       "scene": "r0c6",
       "coord_style": "letter",
-      "description": "数独盘面A7有数字1的格子，位于数字3的左边隔三格",
+      "description": "数独盘面A7有数字1的格子，位于数字3的右边隔三格",
       "goal": "选中这一格",
       "bbox": [
         346,
@@ -161,7 +161,7 @@
     {
       "scene": "r0c8",
       "coord_style": "letter",
-      "description": "数独盘面A9有数字7的格子，位于数字1的左边隔一格",
+      "description": "数独盘面A9有数字7的格子，位于数字1的右边隔一格",
       "goal": "选中这一格",
       "bbox": [
         428,
@@ -179,7 +179,7 @@
     {
       "scene": "r1c0",
       "coord_style": "letter",
-      "description": "数独盘面B1有数字9的格子，位于数字8的右边隔三格",
+      "description": "数独盘面B1有数字9的格子，位于数字8的左边隔三格",
       "goal": "选中这一格",
       "bbox": [
         99,
@@ -197,7 +197,7 @@
     {
       "scene": "r1c1",
       "coord_style": "letter",
-      "description": "数独盘面B2的空格子，位于数字9的左边",
+      "description": "数独盘面B2的空格子，位于数字9的右边",
       "goal": "选中这一格准备填数",
       "bbox": [
         140,
@@ -215,7 +215,7 @@
     {
       "scene": "r1c2",
       "coord_style": "ordinal",
-      "description": "数独盘面第二行第三列的空格子，位于数字9的左边隔一格，上方是数字3",
+      "description": "数独盘面第二行第三列的空格子，位于数字9的右边隔一格、数字3的下方",
       "goal": "选中这一格准备填数",
       "bbox": [
         181,
@@ -233,7 +233,7 @@
     {
       "scene": "r1c3",
       "coord_style": "letter",
-      "description": "数独盘面B4的空格子，位于数字9的左边隔二格",
+      "description": "数独盘面B4的空格子，位于数字9的右边隔二格",
       "goal": "选中这一格准备填数",
       "bbox": [
         222,
@@ -251,7 +251,7 @@
     {
       "scene": "r1c4",
       "coord_style": "ordinal",
-      "description": "数独盘面第二行第五列有数字8的格子，位于数字9的左边隔三格",
+      "description": "数独盘面第二行第五列有数字8的格子，位于数字9的右边隔三格",
       "goal": "选中这一格",
       "bbox": [
         263,
@@ -269,7 +269,7 @@
     {
       "scene": "r1c5",
       "coord_style": "letter",
-      "description": "数独盘面B6的空格子，位于数字8的左边",
+      "description": "数独盘面B6的空格子，位于数字8的右边",
       "goal": "选中这一格准备填数",
       "bbox": [
         305,
@@ -287,7 +287,7 @@
     {
       "scene": "r1c6",
       "coord_style": "ordinal",
-      "description": "数独盘面第二行第七列的空格子，位于数字8的左边隔一格",
+      "description": "数独盘面第二行第七列的空格子，位于数字8的右边隔一格",
       "goal": "选中这一格准备填数",
       "bbox": [
         346,
@@ -305,7 +305,7 @@
     {
       "scene": "r1c7",
       "coord_style": "ordinal",
-      "description": "数独盘面第二行第八列有数字4的格子，位于数字8的左边隔二格",
+      "description": "数独盘面第二行第八列有数字4的格子，位于数字8的右边隔二格",
       "goal": "选中这一格",
       "bbox": [
         387,
@@ -323,7 +323,7 @@
     {
       "scene": "r1c8",
       "coord_style": "letter",
-      "description": "数独盘面B9的空格子，位于数字4的左边，上方是数字7",
+      "description": "数独盘面B9的空格子，位于数字4的右边、数字7的下方",
       "goal": "选中这一格准备填数",
       "bbox": [
         428,
@@ -341,7 +341,7 @@
     {
       "scene": "r2c0",
       "coord_style": "ordinal",
-      "description": "数独盘面第三行第一列的空格子，位于数字7的右边隔一格",
+      "description": "数独盘面第三行第一列的空格子，位于数字7的左边隔一格",
       "goal": "选中这一格准备填数",
       "bbox": [
         99,
@@ -359,7 +359,7 @@
     {
       "scene": "r2c1",
       "coord_style": "ordinal",
-      "description": "数独盘面第三行第二列的空格子，位于数字7的右边",
+      "description": "数独盘面第三行第二列的空格子，位于数字7的左边",
       "goal": "选中这一格准备填数",
       "bbox": [
         140,
@@ -377,7 +377,7 @@
     {
       "scene": "r2c2",
       "coord_style": "letter",
-      "description": "数独盘面C3有数字7的格子，位于数字9的右边，上方是数字3隔一格",
+      "description": "数独盘面C3有数字7的格子，位于数字9的左边、数字3的下方隔一格",
       "goal": "选中这一格",
       "bbox": [
         181,
@@ -413,7 +413,7 @@
     {
       "scene": "r2c4",
       "coord_style": "letter",
-      "description": "数独盘面C5有数字1的格子，上方是数字8",
+      "description": "数独盘面C5有数字1的格子，位于数字8的下方",
       "goal": "选中这一格",
       "bbox": [
         263,
@@ -431,7 +431,7 @@
     {
       "scene": "r2c5",
       "coord_style": "letter",
-      "description": "数独盘面C6有数字3的格子，位于数字1的左边",
+      "description": "数独盘面C6有数字3的格子，位于数字1的右边",
       "goal": "选中这一格",
       "bbox": [
         305,
@@ -449,7 +449,7 @@
     {
       "scene": "r2c6",
       "coord_style": "letter",
-      "description": "数独盘面C7的空格子，上方是数字1隔一格",
+      "description": "数独盘面C7的空格子，位于数字1的下方隔一格",
       "goal": "选中这一格准备填数",
       "bbox": [
         346,
@@ -467,7 +467,7 @@
     {
       "scene": "r2c7",
       "coord_style": "ordinal",
-      "description": "数独盘面第三行第八列的空格子，位于数字3的左边隔一格，上方是数字4",
+      "description": "数独盘面第三行第八列的空格子，位于数字3的右边隔一格、数字4的下方",
       "goal": "选中这一格准备填数",
       "bbox": [
         387,
@@ -485,7 +485,7 @@
     {
       "scene": "r2c8",
       "coord_style": "ordinal",
-      "description": "数独盘面第三行第九列有数字8的格子，位于数字3的左边隔二格，上方是数字7隔一格",
+      "description": "数独盘面第三行第九列有数字8的格子，位于数字3的右边隔二格、数字7的下方隔一格",
       "goal": "选中这一格",
       "bbox": [
         428,
@@ -503,7 +503,7 @@
     {
       "scene": "r3c0",
       "coord_style": "ordinal",
-      "description": "数独盘面第四行第一列有数字5的格子，上方是数字9隔一格",
+      "description": "数独盘面第四行第一列有数字5的格子，位于数字9的下方隔一格",
       "goal": "选中这一格",
       "bbox": [
         99,
@@ -521,7 +521,7 @@
     {
       "scene": "r3c1",
       "coord_style": "ordinal",
-      "description": "数独盘面第四行第二列的空格子，位于数字5的左边",
+      "description": "数独盘面第四行第二列的空格子，位于数字5的右边",
       "goal": "选中这一格准备填数",
       "bbox": [
         140,
@@ -539,7 +539,7 @@
     {
       "scene": "r3c2",
       "coord_style": "ordinal",
-      "description": "数独盘面第四行第三列的空格子，上方是数字7",
+      "description": "数独盘面第四行第三列的空格子，位于数字7的下方",
       "goal": "选中这一格准备填数",
       "bbox": [
         181,
@@ -557,7 +557,7 @@
     {
       "scene": "r3c3",
       "coord_style": "ordinal",
-      "description": "数独盘面第四行第四列有数字1的格子，上方是数字9",
+      "description": "数独盘面第四行第四列有数字1的格子，位于数字9的下方",
       "goal": "选中这一格",
       "bbox": [
         222,
@@ -575,7 +575,7 @@
     {
       "scene": "r3c4",
       "coord_style": "letter",
-      "description": "数独盘面D5的空格子，上方是数字1",
+      "description": "数独盘面D5的空格子，位于数字1的下方",
       "goal": "选中这一格准备填数",
       "bbox": [
         263,
@@ -593,7 +593,7 @@
     {
       "scene": "r3c5",
       "coord_style": "ordinal",
-      "description": "数独盘面第四行第六列有数字2的格子，上方是数字3",
+      "description": "数独盘面第四行第六列有数字2的格子，位于数字3的下方",
       "goal": "选中这一格",
       "bbox": [
         305,
@@ -611,7 +611,7 @@
     {
       "scene": "r3c6",
       "coord_style": "ordinal",
-      "description": "数独盘面第四行第七列的空格子，位于数字2的左边",
+      "description": "数独盘面第四行第七列的空格子，位于数字2的右边",
       "goal": "选中这一格准备填数",
       "bbox": [
         346,
@@ -629,7 +629,7 @@
     {
       "scene": "r3c7",
       "coord_style": "ordinal",
-      "description": "数独盘面第四行第八列的空格子，位于数字2的左边隔一格，上方是数字4隔一格",
+      "description": "数独盘面第四行第八列的空格子，位于数字2的右边隔一格、数字4的下方隔一格",
       "goal": "选中这一格准备填数",
       "bbox": [
         387,
@@ -647,7 +647,7 @@
     {
       "scene": "r3c8",
       "coord_style": "letter",
-      "description": "数独盘面D9有数字4的格子，位于数字2的左边隔二格，上方是数字8",
+      "description": "数独盘面D9有数字4的格子，位于数字2的右边隔二格、数字8的下方",
       "goal": "选中这一格",
       "bbox": [
         428,
@@ -665,7 +665,7 @@
     {
       "scene": "r4c0",
       "coord_style": "ordinal",
-      "description": "数独盘面第五行第一列的空格子，位于数字3的右边隔三格，上方是数字5",
+      "description": "数独盘面第五行第一列的空格子，位于数字3的左边隔三格、数字5的下方",
       "goal": "选中这一格准备填数",
       "bbox": [
         99,
@@ -683,7 +683,7 @@
     {
       "scene": "r4c1",
       "coord_style": "ordinal",
-      "description": "数独盘面第五行第二列的空格子，位于数字3的右边隔二格",
+      "description": "数独盘面第五行第二列的空格子，位于数字3的左边隔二格",
       "goal": "选中这一格准备填数",
       "bbox": [
         140,
@@ -701,7 +701,7 @@
     {
       "scene": "r4c2",
       "coord_style": "ordinal",
-      "description": "数独盘面第五行第三列的空格子，位于数字3的右边隔一格",
+      "description": "数独盘面第五行第三列的空格子，位于数字3的左边隔一格",
       "goal": "选中这一格准备填数",
       "bbox": [
         181,
@@ -719,7 +719,7 @@
     {
       "scene": "r4c3",
       "coord_style": "letter",
-      "description": "数独盘面E4的空格子，位于数字3的右边",
+      "description": "数独盘面E4的空格子，位于数字3的左边",
       "goal": "选中这一格准备填数",
       "bbox": [
         222,
@@ -737,7 +737,7 @@
     {
       "scene": "r4c4",
       "coord_style": "ordinal",
-      "description": "数独盘面第五行第五列有数字3的格子，位于数字8的右边，上方是数字1隔一格",
+      "description": "数独盘面第五行第五列有数字3的格子，位于数字8的左边、数字1的下方隔一格",
       "goal": "选中这一格",
       "bbox": [
         263,
@@ -755,7 +755,7 @@
     {
       "scene": "r4c5",
       "coord_style": "letter",
-      "description": "数独盘面E6有数字8的格子，上方是数字2",
+      "description": "数独盘面E6有数字8的格子，位于数字2的下方",
       "goal": "选中这一格",
       "bbox": [
         305,
@@ -773,7 +773,7 @@
     {
       "scene": "r4c6",
       "coord_style": "letter",
-      "description": "数独盘面E7的空格子，上方是数字1隔三格",
+      "description": "数独盘面E7的空格子，位于数字1的下方隔三格",
       "goal": "选中这一格准备填数",
       "bbox": [
         346,
@@ -791,7 +791,7 @@
     {
       "scene": "r4c7",
       "coord_style": "letter",
-      "description": "数独盘面E8有数字1的格子，位于数字8的左边隔一格",
+      "description": "数独盘面E8有数字1的格子，位于数字8的右边隔一格",
       "goal": "选中这一格",
       "bbox": [
         387,
@@ -809,7 +809,7 @@
     {
       "scene": "r4c8",
       "coord_style": "letter",
-      "description": "数独盘面E9有数字9的格子，位于数字1的左边，上方是数字4",
+      "description": "数独盘面E9有数字9的格子，位于数字1的右边、数字4的下方",
       "goal": "选中这一格",
       "bbox": [
         428,
@@ -827,7 +827,7 @@
     {
       "scene": "r5c0",
       "coord_style": "letter",
-      "description": "数独盘面F1的空格子，位于数字3的右边，上方是数字5隔一格",
+      "description": "数独盘面F1的空格子，位于数字3的左边、数字5的下方隔一格",
       "goal": "选中这一格准备填数",
       "bbox": [
         99,
@@ -845,7 +845,7 @@
     {
       "scene": "r5c1",
       "coord_style": "letter",
-      "description": "数独盘面F2有数字3的格子，位于数字2的右边",
+      "description": "数独盘面F2有数字3的格子，位于数字2的左边",
       "goal": "选中这一格",
       "bbox": [
         140,
@@ -863,7 +863,7 @@
     {
       "scene": "r5c2",
       "coord_style": "letter",
-      "description": "数独盘面F3有数字2的格子，位于数字3的左边",
+      "description": "数独盘面F3有数字2的格子，位于数字3的右边",
       "goal": "选中这一格",
       "bbox": [
         181,
@@ -881,7 +881,7 @@
     {
       "scene": "r5c3",
       "coord_style": "ordinal",
-      "description": "数独盘面第六行第四列的空格子，位于数字2的左边",
+      "description": "数独盘面第六行第四列的空格子，位于数字2的右边",
       "goal": "选中这一格准备填数",
       "bbox": [
         222,
@@ -899,7 +899,7 @@
     {
       "scene": "r5c4",
       "coord_style": "ordinal",
-      "description": "数独盘面第六行第五列的空格子，位于数字2的左边隔一格",
+      "description": "数独盘面第六行第五列的空格子，位于数字2的右边隔一格",
       "goal": "选中这一格准备填数",
       "bbox": [
         263,
@@ -917,7 +917,7 @@
     {
       "scene": "r5c5",
       "coord_style": "letter",
-      "description": "数独盘面F6有数字9的格子，位于数字2的左边隔二格",
+      "description": "数独盘面F6有数字9的格子，位于数字2的右边隔二格",
       "goal": "选中这一格",
       "bbox": [
         305,
@@ -935,7 +935,7 @@
     {
       "scene": "r5c6",
       "coord_style": "ordinal",
-      "description": "数独盘面第六行第七列有数字6的格子，位于数字9的左边，上方是数字1隔四格",
+      "description": "数独盘面第六行第七列有数字6的格子，位于数字9的右边、数字1的下方隔四格",
       "goal": "选中这一格",
       "bbox": [
         346,
@@ -953,7 +953,7 @@
     {
       "scene": "r5c7",
       "coord_style": "letter",
-      "description": "数独盘面F8的空格子，位于数字6的左边，上方是数字1",
+      "description": "数独盘面F8的空格子，位于数字6的右边、数字1的下方",
       "goal": "选中这一格准备填数",
       "bbox": [
         387,
@@ -971,7 +971,7 @@
     {
       "scene": "r5c8",
       "coord_style": "ordinal",
-      "description": "数独盘面第六行第九列的空格子，位于数字6的左边隔一格，上方是数字9",
+      "description": "数独盘面第六行第九列的空格子，位于数字6的右边隔一格、数字9的下方",
       "goal": "选中这一格准备填数",
       "bbox": [
         428,
@@ -989,7 +989,7 @@
     {
       "scene": "r6c0",
       "coord_style": "ordinal",
-      "description": "数独盘面第七行第一列有数字2的格子，位于数字6的右边隔一格，上方是数字5隔二格",
+      "description": "数独盘面第七行第一列有数字2的格子，位于数字6的左边隔一格、数字5的下方隔二格",
       "goal": "选中这一格",
       "bbox": [
         99,
@@ -1007,7 +1007,7 @@
     {
       "scene": "r6c1",
       "coord_style": "letter",
-      "description": "数独盘面G2的空格子，上方是数字3",
+      "description": "数独盘面G2的空格子，位于数字3的下方",
       "goal": "选中这一格准备填数",
       "bbox": [
         140,
@@ -1025,7 +1025,7 @@
     {
       "scene": "r6c2",
       "coord_style": "ordinal",
-      "description": "数独盘面第七行第三列有数字6的格子，位于数字2的左边隔一格",
+      "description": "数独盘面第七行第三列有数字6的格子，位于数字2的右边隔一格",
       "goal": "选中这一格",
       "bbox": [
         181,
@@ -1043,7 +1043,7 @@
     {
       "scene": "r6c3",
       "coord_style": "ordinal",
-      "description": "数独盘面第七行第四列的空格子，上方是数字1隔二格",
+      "description": "数独盘面第七行第四列的空格子，位于数字1的下方隔二格",
       "goal": "选中这一格准备填数",
       "bbox": [
         222,
@@ -1061,7 +1061,7 @@
     {
       "scene": "r6c4",
       "coord_style": "letter",
-      "description": "数独盘面G5有数字9的格子，位于数字6的左边隔一格，上方是数字3隔一格",
+      "description": "数独盘面G5有数字9的格子，位于数字6的右边隔一格、数字3的下方隔一格",
       "goal": "选中这一格",
       "bbox": [
         263,
@@ -1079,7 +1079,7 @@
     {
       "scene": "r6c5",
       "coord_style": "letter",
-      "description": "数独盘面G6有数字1的格子，位于数字9的左边",
+      "description": "数独盘面G6有数字1的格子，位于数字9的右边",
       "goal": "选中这一格",
       "bbox": [
         305,
@@ -1115,7 +1115,7 @@
     {
       "scene": "r6c7",
       "coord_style": "letter",
-      "description": "数独盘面G8有数字7的格子，上方是数字1隔一格",
+      "description": "数独盘面G8有数字7的格子，位于数字1的下方隔一格",
       "goal": "选中这一格",
       "bbox": [
         387,
@@ -1133,7 +1133,7 @@
     {
       "scene": "r6c8",
       "coord_style": "ordinal",
-      "description": "数独盘面第七行第九列有数字3的格子，位于数字7的左边",
+      "description": "数独盘面第七行第九列有数字3的格子，位于数字7的右边",
       "goal": "选中这一格",
       "bbox": [
         428,
@@ -1151,7 +1151,7 @@
     {
       "scene": "r7c0",
       "coord_style": "letter",
-      "description": "数独盘面H1有数字3的格子，位于数字4的右边，上方是数字2",
+      "description": "数独盘面H1有数字3的格子，位于数字4的左边、数字2的下方",
       "goal": "选中这一格",
       "bbox": [
         99,
@@ -1187,7 +1187,7 @@
     {
       "scene": "r7c2",
       "coord_style": "ordinal",
-      "description": "数独盘面第八行第三列有数字9的格子，位于数字4的左边",
+      "description": "数独盘面第八行第三列有数字9的格子，位于数字4的右边",
       "goal": "选中这一格",
       "bbox": [
         181,
@@ -1205,7 +1205,7 @@
     {
       "scene": "r7c3",
       "coord_style": "ordinal",
-      "description": "数独盘面第八行第四列有数字7的格子，位于数字9的左边，上方是数字1隔三格",
+      "description": "数独盘面第八行第四列有数字7的格子，位于数字9的右边、数字1的下方隔三格",
       "goal": "选中这一格",
       "bbox": [
         222,
@@ -1223,7 +1223,7 @@
     {
       "scene": "r7c4",
       "coord_style": "letter",
-      "description": "数独盘面H5的空格子，位于数字7的左边",
+      "description": "数独盘面H5的空格子，位于数字7的右边",
       "goal": "选中这一格准备填数",
       "bbox": [
         263,
@@ -1241,7 +1241,7 @@
     {
       "scene": "r7c5",
       "coord_style": "letter",
-      "description": "数独盘面H6的空格子，位于数字7的左边隔一格，上方是数字1",
+      "description": "数独盘面H6的空格子，位于数字7的右边隔一格、数字1的下方",
       "goal": "选中这一格准备填数",
       "bbox": [
         305,
@@ -1259,7 +1259,7 @@
     {
       "scene": "r7c6",
       "coord_style": "ordinal",
-      "description": "数独盘面第八行第七列有数字8的格子，位于数字7的左边隔二格",
+      "description": "数独盘面第八行第七列有数字8的格子，位于数字7的右边隔二格",
       "goal": "选中这一格",
       "bbox": [
         346,
@@ -1277,7 +1277,7 @@
     {
       "scene": "r7c7",
       "coord_style": "ordinal",
-      "description": "数独盘面第八行第八列的空格子，位于数字8的左边，上方是数字7",
+      "description": "数独盘面第八行第八列的空格子，位于数字8的右边、数字7的下方",
       "goal": "选中这一格准备填数",
       "bbox": [
         387,
@@ -1295,7 +1295,7 @@
     {
       "scene": "r7c8",
       "coord_style": "ordinal",
-      "description": "数独盘面第八行第九列的空格子，上方是数字3",
+      "description": "数独盘面第八行第九列的空格子，位于数字3的下方",
       "goal": "选中这一格准备填数",
       "bbox": [
         428,
@@ -1313,7 +1313,7 @@
     {
       "scene": "r8c0",
       "coord_style": "ordinal",
-      "description": "数独盘面第九行第一列的空格子，上方是数字3",
+      "description": "数独盘面第九行第一列的空格子，位于数字3的下方",
       "goal": "选中这一格准备填数",
       "bbox": [
         99,
@@ -1331,7 +1331,7 @@
     {
       "scene": "r8c1",
       "coord_style": "letter",
-      "description": "数独盘面I2有数字7的格子，上方是数字4",
+      "description": "数独盘面I2有数字7的格子，位于数字4的下方",
       "goal": "选中这一格",
       "bbox": [
         140,
@@ -1349,7 +1349,7 @@
     {
       "scene": "r8c2",
       "coord_style": "letter",
-      "description": "数独盘面I3的空格子，位于数字7的左边，上方是数字9",
+      "description": "数独盘面I3的空格子，位于数字7的右边、数字9的下方",
       "goal": "选中这一格准备填数",
       "bbox": [
         181,
@@ -1367,7 +1367,7 @@
     {
       "scene": "r8c3",
       "coord_style": "ordinal",
-      "description": "数独盘面第九行第四列有数字3的格子，位于数字7的左边隔一格，上方是数字7",
+      "description": "数独盘面第九行第四列有数字3的格子，位于数字7的右边隔一格、数字7的下方",
       "goal": "选中这一格",
       "bbox": [
         222,
@@ -1385,7 +1385,7 @@
     {
       "scene": "r8c4",
       "coord_style": "ordinal",
-      "description": "数独盘面第九行第五列的空格子，位于数字3的左边，上方是数字9隔一格",
+      "description": "数独盘面第九行第五列的空格子，位于数字3的右边、数字9的下方隔一格",
       "goal": "选中这一格准备填数",
       "bbox": [
         263,
@@ -1403,7 +1403,7 @@
     {
       "scene": "r8c5",
       "coord_style": "ordinal",
-      "description": "数独盘面第九行第六列有数字5的格子，位于数字3的左边隔一格，上方是数字1隔一格",
+      "description": "数独盘面第九行第六列有数字5的格子，位于数字3的右边隔一格、数字1的下方隔一格",
       "goal": "选中这一格",
       "bbox": [
         305,
@@ -1421,7 +1421,7 @@
     {
       "scene": "r8c6",
       "coord_style": "letter",
-      "description": "数独盘面I7的空格子，位于数字5的左边，上方是数字8",
+      "description": "数独盘面I7的空格子，位于数字5的右边、数字8的下方",
       "goal": "选中这一格准备填数",
       "bbox": [
         346,
@@ -1439,7 +1439,7 @@
     {
       "scene": "r8c7",
       "coord_style": "letter",
-      "description": "数独盘面I8的空格子，位于数字5的左边隔一格，上方是数字7隔一格",
+      "description": "数独盘面I8的空格子，位于数字5的右边隔一格、数字7的下方隔一格",
       "goal": "选中这一格准备填数",
       "bbox": [
         387,
@@ -1457,7 +1457,7 @@
     {
       "scene": "r8c8",
       "coord_style": "letter",
-      "description": "数独盘面I9有数字6的格子，位于数字5的左边隔二格，上方是数字3隔一格",
+      "description": "数独盘面I9有数字6的格子，位于数字5的右边隔二格、数字3的下方隔一格",
       "goal": "选中这一格",
       "bbox": [
         428,

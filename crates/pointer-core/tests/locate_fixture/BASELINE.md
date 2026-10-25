@@ -99,3 +99,53 @@ neighbouring numbers".
 The useful signals here are the *relative* ones: hint size hurts above 2×,
 relative-anchor descriptions underperform, and retries are counterproductive.
 Those hold regardless of absolute level.
+
+## A/B: row label written as A–I instead of 第一行…第九行
+
+The board prints its row labels as `A`–`I` (verified against a 4× crop of the
+left edge). `truth_sudoku_letters.json` is the same 81 cases with the same hint
+boxes — only the row wording changes, so the comparison isolates that one
+variable.
+
+```bash
+POINTER_LOCATE_TRUTH=truth_sudoku_letters.json POINTER_LOCATE_CONCURRENCY=10 \
+  cargo test -p pointer-core --test locate_fixture frozen_desktop_grounding \
+  -- --ignored --nocapture
+```
+
+| | 第一行…第九行 | A行…I行 |
+|---|---|---|
+| hit | 38/81 = 46.9 % | **44/81 = 54.3 %** |
+| completed | 71 | 70 |
+| timed out | 10 | 11 |
+| mean per case | 27.0 s | 26.0 s |
+
+On the 66 cases both runs completed:
+
+| | count |
+|---|---|
+| both hit | 34 |
+| miss → hit | **9** (`r2c5 r3c2 r3c6 r4c5 r4c7 r5c0 r5c1 r6c2 r6c3`) |
+| hit → miss | **3** (`r0c5 r5c4 r8c5`) |
+
+Net +6 of 66. **McNemar on 9 vs 3 gives χ² = 2.08, p ≈ 0.15 — not significant
+at this sample size.** One run cannot separate the label change from model
+variance.
+
+What is more suggestive than the hit count: the offset to the true centre shrank.
+
+| | median offset | mean offset |
+|---|---|---|
+| 第一行…第九行 | 21.2 px | 23.5 px |
+| A行…I行 | **15.7 px** | **20.8 px** |
+
+A cell is 41 px, so the median miss went from half a cell to a third of one.
+The boxes are landing closer even where they still land on the wrong cell.
+
+Round 1 hit rate also moved: 77 % → 81 %.
+
+**Treat the direction as a hypothesis, not a result.** Re-run both sides before
+changing any prompt. If the effect survives a second run, the conclusion would
+be that describing a cell by a label printed on screen beats describing it by an
+ordinal the model has to count to.
+

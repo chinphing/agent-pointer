@@ -5,28 +5,27 @@ highlight).
 
 **Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-### Step 1 — where is the pointer, and what did the hover reveal?
-
-The after frame carries the pointer at its current position. Compare it against
-the element `goal` names.
-
-- **Pointer on that element** → go to step 2.
-- **Pointer on the neighbouring element** — the adjacent icon, the item above or
-  below → `fail`, `precision_miss`. The hover landed one element over.
-- **Pointer somewhere unrelated** → `fail`, `wrong_operation`.
-- **No pointer visible** → judge from where the hover UI appeared, below.
-
-### Step 2 — is that the UI `goal` asked for?
+### Step 1 — did the hover achieve `goal`?
 
 Read the area around the pointer in both frames. Only a **difference between the
 two** counts as a reveal — a tooltip already open in the before frame did not
 appear because of this hover.
 
-| Difference | `action_result` | `failure_cause` |
-| --- | --- | --- |
-| The expected tooltip / popup / highlight, on the element `goal` names | `pass` | — |
-| A different UI appeared than the one `goal` describes | `fail` | `wrong_operation` |
-| Nothing changed anywhere | `fail` | `wrong_operation` |
+**Which element revealed the UI is part of `goal`.** The expected tooltip on the
+neighbouring icon did not achieve `goal`.
+
+- **Yes, the UI `goal` describes, on the element `goal` says** → `pass`. Done.
+- **No** → go to step 2 and find out why.
+
+### Step 2 — why not?
+
+Read the pointer in the after frame — it sits where the hover was aimed.
+
+- **The pointer is on the neighbouring element, or that element reacted** —
+  the adjacent icon, the item above or below → `fail`, `precision_miss`.
+- **The pointer is on an unrelated element, or a different UI appeared** →
+  `fail`, `wrong_operation`.
+- **Nothing changed anywhere** → `wrong_operation`.
 
 ### Reasoning (hard rule)
 

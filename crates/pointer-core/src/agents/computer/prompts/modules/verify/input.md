@@ -5,30 +5,30 @@ Judge whether text was entered into the target field.
 **Evidence:** **[Screen before action]** vs **[Screen after action]** — field
 content and focus.
 
-### Step 1 — which field got the text?
+### Step 1 — did the text land where `goal` asked?
 
-The before frame carries the pointer at the click point. Compare it against the
-field `goal` names.
+Read the field `goal` names in both frames. Only a **difference between the two**
+counts as entered text — characters already present in the before frame were not
+typed by this action. `clear_first` means the before content should be gone.
 
-- **Pointer inside that field** → go to step 2.
-- **Pointer in the neighbouring field** → `fail`, `precision_miss`. The click
-  landed one field over; the planner re-aims from this.
-- **Pointer somewhere unrelated** → `fail`, `wrong_operation`.
+**Which field got the text is part of `goal`.** The expected text in the
+neighbouring field did not achieve `goal`.
 
-### Step 2 — what did the field hold before, and what does it hold now?
+- **Yes, the text `goal` describes, in the field `goal` says** → `pass`. Done.
+- **No** → go to step 2 and find out why.
 
-Read the target field in both frames. Only a **difference between the two**
-counts as entered text — characters already present in the before frame were
-not typed by this action. `clear_first` means the before content should be gone.
+### Step 2 — why not?
 
-| Difference | `action_result` | `failure_cause` |
-| --- | --- | --- |
-| The expected text, in the field `goal` names | `pass` | — |
-| Text went into a different field, or replaced the wrong content | `fail` | `wrong_operation` |
-| Nothing changed anywhere | `fail` | `wrong_operation` |
+Read the pointer in the before frame — it sits where the input was aimed.
 
-If `auto_enter`: form may have submitted — pass when navigation, results, or
-dialog close is a **difference between the two frames**.
+- **The pointer is on the neighbouring field, or the text went there** →
+  `fail`, `precision_miss`. The aim was off by one field.
+- **The pointer is on an unrelated element, or the text went elsewhere** →
+  `fail`, `wrong_operation`.
+- **Nothing changed anywhere** → `wrong_operation`.
+
+If `auto_enter`: form may have submitted — a navigation, results, or dialog close
+that is a **difference between the two frames** counts as achieving `goal`.
 
 **`loading_detected`:** post-submit spinner or page load in progress.
 

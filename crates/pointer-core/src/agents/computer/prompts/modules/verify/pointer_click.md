@@ -4,36 +4,34 @@ Two questions in order. Stop at the first one that decides it.
 
 **Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-### Step 1 — where did the click land?
+### Step 1 — did the click achieve `goal`?
 
-The before frame carries the pointer at the click point, and the target `goal`
-names is intact in that frame. Compare the pointer against the target's bounds.
+Compare the two frames. The change does not have to be on the element itself —
+a save button looks the same before and after; the toast, the dialog, the new
+page, the row that disappeared is the change. But it must be a **difference
+between the two frames**, not a state you notice in the after frame alone.
 
-- **Pointer inside the target** → go to step 2.
-- **Pointer outside it** — the neighbouring cell, the row above or below, the
-  adjacent button → `fail`, `precision_miss`. The click missed; the planner
-  re-aims from this.
-- **Somewhere unrelated** — a different panel, a different part of the screen →
-  `fail`, `wrong_operation`. The click reached the wrong element.
-- **No pointer visible in the before frame** → judge from where the change
-  appeared, below.
+**Where the change landed is part of `goal`.** When `goal` names a position — a
+row and column, an ordinal, a named panel — the change must appear there. The
+right kind of change in the wrong cell, the wrong row, or the wrong panel did
+not achieve `goal`.
 
-### Step 2 — did the expected change happen?
+- **Yes, the change `goal` describes, where `goal` says** → `pass`. Done.
+- **No** → go to step 2 and find out why.
 
-Work through the target in order: what it is in the before frame, what it is in
-the after frame, what differs. Only a difference counts as a change — a value
-already present in the before frame did not appear because of this click.
+### Step 2 — why not?
 
-The change does not have to be on the element itself. A save button looks the
-same before and after; the toast, the dialog, the new page, the row that
-disappeared — that is the change. But it must be a **difference between the two
-frames**, not a state you notice in the after frame alone.
+Read the pointer in the before frame — it sits at the click point, and the target
+is intact there. That tells you which kind of miss this was.
 
-- **The change `goal` expects** → `pass`.
-- **Some change, but not the expected one** — highlighted instead of entered,
-  focused instead of opened, the wrong menu expanded → `fail`, `wrong_operation`.
-- **No change anywhere** → `fail`, `wrong_operation`. The pointer was on the
-  target and nothing happened.
+- **The change landed on a neighbouring element, or the pointer is on one** —
+  the adjacent cell, the row above or below, the button next door →
+  `fail`, `precision_miss`. The aim was off by one; the planner re-aims.
+- **The change landed somewhere unrelated, or the pointer is on an unrelated
+  element** → `fail`, `wrong_operation`. The click reached the wrong thing.
+- **Nothing changed anywhere** → pointer on the target means the element ignored
+  the click (`wrong_operation`); pointer off it means the click missed
+  (`precision_miss`).
 
 **`loading_detected`:** spinner, progress bar, or partial load in after.
 

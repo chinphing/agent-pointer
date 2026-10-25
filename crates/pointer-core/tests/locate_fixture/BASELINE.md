@@ -1,4 +1,4 @@
-# locate baseline v1 — sudoku, 81 cells
+# locate baseline — sudoku, 81 cells
 
 Recorded 2026-10-25. Re-run and compare before changing the locate prompt,
 `LocateConfig`, or the hint pipeline.
@@ -7,18 +7,15 @@ Recorded 2026-10-25. Re-run and compare before changing the locate prompt,
 
 `truth/truth_sudoku.json`, 81 cases over `fixtures/sudoku.jpg` (1920×1080).
 
-- **Contents are stated honestly**: 43 cases are empty cells (`空格子`), 38 hold
-  a digit (`有数字N的格子`). An earlier revision called all 81 empty and produced
-  meaningless failures — the grounder correctly refused cells that were not empty.
+- **Contents are stated honestly**: 43 empty cells (`空格子`), 38 holding a digit
+  (`有数字N的格子`).
 - **Two coordinate forms, split at random**: 40 `C3`-style (`coord_style:
   letter`), 41 `第三行第三列`-style (`coord_style: ordinal`). The board prints
-  `A`–`I` down the side and `1`–`9` across the top, so both are readable; the
-  split exists to compare them.
-- **Anchors carry distance**: `位于数字9的左边`, `…隔一格`, `…隔二格`.
+  `A`–`I` down the side and `1`–`9` across the top, so both are readable.
+- **Anchors carry distance and the right side**: `位于数字9的左边`, `…隔一格`.
 - **Hint boxes are deliberately off**: anchor inside the cell, side 0.5–3× the
   cell side.
-- **`goal`** is `选中这一格准备填数` for empty cells, `选中这一格` for filled ones,
-  mirroring what the model actually writes.
+- **`goal`** is `选中这一格准备填数` for empty cells, `选中这一格` for filled ones.
 
 ## Command
 
@@ -30,75 +27,103 @@ POINTER_LOCATE_TRUTH=truth_sudoku.json POINTER_LOCATE_CONCURRENCY=10 \
 
 ## Result
 
-| | |
+| | v1 (before the locate fixes) | **v2 (current)** |
+|---|---|---|
+| hit | 56/81 = 69.1 % | **73/81 = 90.1 %** |
+| completed | 66 | **80** |
+| timed out | 15 | **1** |
+| hit among completed | 84.8 % | **91.2 %** |
+| wall clock | 297.8 s | 292.2 s |
+| mean per completed case | 27.0 s | 32.2 s |
+| median centre offset | — | **2.9 px** (cell is 41 px) |
+| mean centre offset | — | 9.9 px |
+
+The 70 % bar now passes. Offsets are measured as `|dx| + |dy|` from the true
+cell centre.
+
+## What changed between v1 and v2
+
+Four defects in the locate retry path, each fixed separately:
+
+1. **「框大得离谱」had no threshold.** The verifier spent whole rounds arguing
+   with itself. Now: 1.5× the target's width and height, or 1.2× for tightly
+   packed labelled cells (table cells, sudoku, chessboard, calendar).
+2. **`box_too_loose` was missing from the `report` tool schema.** The model
+   reasoned its way to the right verdict and then wrote 「unclear_kind 选项里没有
+   box_too_loose」, falling back to `yes`. Fixed the enum.
+3. **`refine_hint` had no loose-box branch**, so `no` + `elsewhere_dir=inside`
+   produced 「不是目标」+「目标在框内部」. Added a symmetric branch that passes
+   the measured ratio through.
+4. **`BoxTooLoose` fell through to a full-screen re-locate** because the branch
+   tested only `elsewhere_dir.is_some()`. The target never moved, so re-scanning
+   1920×1080 re-derived the same answer from a harder image and blew the timeout.
+   Now it stays in the crop.
+
+Effect on the retry path — **retries no longer hurt**:
+
+| rounds | v1 | v2 |
+|---|---|---|
+| 1 | 97.2 % | 95.7 % |
+| 2 | 72.0 % | **89.1 %** |
+| 3 | 60.0 % | 100 % (2 cases) |
+
+## Breakdown (80 completed)
+
+**By coordinate form** — the v1 gap is gone:
+
+| `coord_style` | v1 | v2 |
+|---|---|---|
+| `letter` (`C3`) | 75.8 % | 90.0 % |
+| `ordinal` (`第三行第三列`) | 93.9 % | 92.5 % |
+
+The v1 split was an artefact: that dataset described 37 filled cells as empty,
+and the two halves happened to draw different shares of those. Both forms are
+equally readable when the description is truthful.
+
+**By cell content** — the remaining weakness:
+
+| | v2 |
 |---|---|
-| hit | **56 / 81 = 69.1 %** |
-| wall clock | **297.8 s** (10 concurrent) |
-| completed | 66 |
-| timed out (>60 s per case) | 15 |
-| hit among completed | **56 / 66 = 84.8 %** |
-
-The 70 % bar is barely missed, and the miss is entirely the timeouts: among the
-cases that returned, 84.8 % were correct.
-
-## Breakdown (66 completed)
-
-**By coordinate form** — the opposite of what the previous, flawed dataset
-suggested:
-
-| `coord_style` | hit |
-|---|---|
-| `ordinal` (`第三行第三列`) | **31/33 = 93.9 %** |
-| `letter` (`C3`) | **25/33 = 75.8 %** |
-
-Fisher's exact test on 25/33 vs 31/33 gives p ≈ 0.045. Suggestive, not settled —
-and directly contradicts the earlier run, which is why the earlier numbers are
-discarded rather than reconciled. Re-run before acting on this.
-
-**By cell content**:
-
-| | hit |
-|---|---|
-| filled (`有数字7的格子`) | **29/29 = 100 %** |
-| empty (`空格子`) | **27/37 = 73.0 %** |
+| filled (`有数字7的格子`) | **37/37 = 100 %** |
+| empty (`空格子`) | **36/43 = 83.7 %** |
 
 A filled cell has a visual feature to key on. Empty cells are identical to each
 other, so the anchor text is all the model has.
 
-**By hint size**:
+**By hint size** — improved but still the dominant factor:
 
-| hint / cell | hit |
-|---|---|
-| < 1× | **13/13 = 100 %** |
-| 1–2× | 23/26 = 88.5 % |
-| ≥ 2× | **20/27 = 74.1 %** |
+| hint / cell | v1 | v2 |
+|---|---|---|
+| < 1× | 100 % | 100 % |
+| 1–2× | 88.5 % | 93.5 % |
+| ≥ 2× | 74.1 % | **85.7 %** |
 
-Consistent with the previous run: a box that swallows neighbours hurts.
+## Remaining misses (7 of 80)
 
-**By rounds** — retries stay counterproductive:
-
-| rounds | hit |
-|---|---|
-| 1 | **35/36 = 97.2 %** |
-| 2 | 18/25 = 72.0 % |
-| 3 | 3/5 = 60.0 % |
-
-**Failure shape**: `ok=false` (the grounder refused) happened **0 times**. All 10
-misses were `ok=true` with the box on a different cell. The grounder's own
-acceptance check still cannot tell neighbouring empty cells apart.
-
-## Timeouts
-
-15 cases hit the 60 s per-case cap under 10-way concurrency:
+All seven are **empty cells**, and six carry a hint ≥ 1.55×:
 
 ```
-r1c0 r1c8 r2c2 r2c4 r3c3 r3c4 r3c5 r3c8 r4c8 r6c0 r6c5 r6c7 r6c8 r7c1 r7c2
+r1c3  hint=1.55x  d=(+41,-41)
+r2c6  hint=2.23x  d=(-41,-34)
+r4c0  hint=2.66x  d=(+4,+22)
+r4c1  hint=1.79x  d=(-13,-44)
+r4c3  hint=2.83x  d=(-68,-2)
+r4c6  hint=2.35x  d=(-1,-33)
+r5c4  hint=2.61x  d=(-40,+1)
 ```
 
-**Not yet diagnosed.** An earlier serial run of 15 timeout cases from a different
-dataset completed every one in ≤ 24.3 s, which suggests queueing rather than
-genuine difficulty — but that has to be repeated on this dataset before it can be
-claimed.
+Three offsets are exactly ±41 px — **one full cell**. Those are
+neighbour-confusion, not sloppiness: the box is centred on the adjacent cell.
+
+`ok=false` (the grounder refused) happened **0 times**; all seven are `ok=true`
+with the box on the wrong cell. The acceptance check still cannot tell
+neighbouring empty cells apart when the anchor text does not disambiguate them.
+
+## Timeout
+
+One case exceeded 60 s under 10-way concurrency. Concurrency queues requests, so
+part of that is scheduling rather than the model looping — re-run serially before
+treating it as hard.
 
 ## What this baseline measures
 
@@ -106,18 +131,15 @@ claimed.
 neighbouring digits, hints from 0.5× to 3× the cell. It is a floor for
 "look-alikes everywhere", not a general accuracy figure.
 
-The signals that held across both datasets, and are therefore worth trusting:
+Signals that held across every dataset so far:
 
 - hints above 2× the target hurt;
-- retries reduce accuracy rather than improving it;
-- filled cells are found perfectly, empty cells are not.
-
-The `letter` vs `ordinal` split is the one open question, and the earlier data
-said the opposite. Treat it as unresolved.
+- filled cells are found perfectly, empty cells are not;
+- after the v2 fixes, retrying helps instead of hurting.
 
 ## Superseded
 
-An earlier revision of this file reported 46.9 % (then 54.3 % with letter row
-labels) on a dataset whose descriptions claimed 37 filled cells were empty. Those
-numbers measured the dataset's errors, not the grounder's. Kept here only so the
-change is traceable.
+- **v1** (69.1 %) ran on the same dataset before the four locate fixes above.
+- **Pre-v1** (46.9 %, then 54.3 % with letter row labels) ran on a dataset whose
+  descriptions claimed 37 filled cells were empty, and whose anchor directions
+  were inverted. Those numbers measured the dataset's errors, not the grounder's.

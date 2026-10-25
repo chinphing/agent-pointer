@@ -64,8 +64,8 @@ pub fn report_tool() -> Value {
                     },
                     "unclear_kind": {
                         "type": "string",
-                        "enum": ["", "anchor_out_of_view", "too_small", "too_blurry", "ambiguous", "box_too_tight"],
-                        "description": "match=unclear 时必填。anchor_out_of_view=锚点不在图内无法核对；too_small=目标太小看不清；too_blurry=图像模糊/被遮挡；ambiguous=描述自相矛盾；box_too_tight=蓝框只框住了目标的一部分，另一部分在框外"
+                        "enum": ["", "anchor_out_of_view", "too_small", "too_blurry", "ambiguous", "box_too_tight", "box_too_loose"],
+                        "description": "match=unclear 时必填。anchor_out_of_view=锚点不在图内无法核对；too_small=目标太小看不清；too_blurry=图像模糊/被遮挡；ambiguous=描述自相矛盾；box_too_tight=蓝框只框住了目标的一部分，另一部分在框外；box_too_loose=目标完整在框内但框比目标大太多（超过 1.5 倍，紧邻编号格子超过 1.2 倍）"
                     },
                     "elsewhere_dir": {
                         "type": "string",
@@ -517,6 +517,25 @@ mod tests {
             !hint.contains("不是目标"),
             "must not read as 'wrong place': {hint}"
         );
+    }
+
+    #[test]
+    fn report_tool_offers_every_unclear_kind_the_parser_accepts() {
+        // The parser and the prompt can both know about `box_too_loose`, but the
+        // model can only answer with what the tool schema lists. r1c0 reasoned
+        // its way to the right verdict and then wrote: 「unclear_kind 选项里没有
+        // box_too_loose，只有 box_too_tight」, and fell back to `yes`.
+        let schema = report_tool().to_string();
+        for kind in [
+            "anchor_out_of_view",
+            "too_small",
+            "too_blurry",
+            "ambiguous",
+            "box_too_tight",
+            "box_too_loose",
+        ] {
+            assert!(schema.contains(kind), "schema is missing {kind}: {schema}");
+        }
     }
 
     #[test]

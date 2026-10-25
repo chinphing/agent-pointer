@@ -131,7 +131,13 @@ struct TruthCase {
 
 /// The truth file is the single source of truth: fixture name, size, and cases.
 fn load_truth() -> Result<TruthFile> {
-    let path = truth_path();
+    // `POINTER_LOCATE_TRUTH` switches datasets the same way it does for the
+    // eastmoney tests, so `truth_sudoku.json` can drive `frozen_desktop_grounding`
+    // without a second copy of the runner.
+    let path = match std::env::var("POINTER_LOCATE_TRUTH") {
+        Ok(name) if !name.trim().is_empty() => truth_path_named(name.trim()),
+        _ => truth_path(),
+    };
     let raw =
         std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
     let file: TruthFile =
@@ -340,7 +346,22 @@ async fn frozen_desktop_grounding() -> Result<()> {
         let desc = case.description.as_str();
         // Per-case timeout: a single stubborn target can retry for minutes, and
         // one of those must not swallow the whole run.
-        let requests = vec![LocateRequest::new(desc, "点击它")];
+        //
+        // `goal` and `hint_px` mirror production: `resolve_point` always passes
+        // the caller's estimated box, and the grounder uses `goal` to pick
+        // between look-alike elements. Running without them measured a different
+        // problem — full-screen search with no intent — which is why sudoku
+        // cases carry a hint box that is deliberately off.
+        let mut request = LocateRequest::new(desc, "选中这一格准备填数");
+        if let Some(h) = case.hint_box {
+            request = request.with_hint_px(PxBox {
+                x1: h[0],
+                y1: h[1],
+                x2: h[2],
+                y2: h[3],
+            });
+        }
+        let requests = vec![request];
         let started = std::time::Instant::now();
         let call = tokio::time::timeout(
             per_case,

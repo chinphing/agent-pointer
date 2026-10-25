@@ -1,5 +1,5 @@
 {
-  "fixture": "fixtures/sudoku.png",
+  "fixture": "fixtures/sudoku.jpg",
   "size": [
     1920,
     1080
@@ -15,812 +15,1298 @@
   "cases": [
     {
       "scene": "r0c0",
-      "description": "row 0 column 0 centre",
+      "description": "数独盘面左上角的格子",
       "bbox": [
         99,
         237,
         140,
         278
+      ],
+      "hint_box": [
+        73,
+        201,
+        163,
+        292
       ]
     },
     {
       "scene": "r0c1",
-      "description": "row 0 column 1 centre",
+      "description": "数独盘面第一行第二列的空格子，位于数字3的左边",
       "bbox": [
         140,
         237,
         181,
         278
+      ],
+      "hint_box": [
+        97,
+        194,
+        188,
+        286
       ]
     },
     {
       "scene": "r0c2",
-      "description": "row 0 column 2 centre",
+      "description": "数独盘面第一行第三列的空格子，位于数字1的左边",
       "bbox": [
         181,
         237,
         222,
         278
+      ],
+      "hint_box": [
+        180,
+        219,
+        237,
+        277
       ]
     },
     {
       "scene": "r0c3",
-      "description": "row 0 column 3 centre",
+      "description": "数独盘面第一行第四列的空格子，左边是数字3、右边是数字1",
       "bbox": [
         222,
         237,
         263,
         278
+      ],
+      "hint_box": [
+        247,
+        255,
+        272,
+        280
       ]
     },
     {
       "scene": "r0c4",
-      "description": "row 0 column 4 centre",
+      "description": "数独盘面第一行第五列的空格子，位于数字3和数字1之间",
       "bbox": [
         263,
         237,
         305,
         278
+      ],
+      "hint_box": [
+        246,
+        238,
+        289,
+        281
       ]
     },
     {
       "scene": "r0c5",
-      "description": "row 0 column 5 centre",
+      "description": "数独盘面第一行第六列的空格子，位于数字3和数字1之间",
       "bbox": [
         305,
         237,
         346,
         278
+      ],
+      "hint_box": [
+        272,
+        215,
+        353,
+        296
       ]
     },
     {
       "scene": "r0c6",
-      "description": "row 0 column 6 centre",
+      "description": "数独盘面第一行第七列的空格子，位于数字3的右边",
       "bbox": [
         346,
         237,
         387,
         278
+      ],
+      "hint_box": [
+        363,
+        238,
+        407,
+        282
       ]
     },
     {
       "scene": "r0c7",
-      "description": "row 0 column 7 centre",
+      "description": "数独盘面第一行第八列的空格子，位于数字1和数字7之间",
       "bbox": [
         387,
         237,
         428,
         278
+      ],
+      "hint_box": [
+        383,
+        216,
+        456,
+        290
       ]
     },
     {
       "scene": "r0c8",
-      "description": "row 0 column 8 centre",
+      "description": "数独盘面右上角的格子",
       "bbox": [
         428,
         237,
         469,
         278
+      ],
+      "hint_box": [
+        398,
+        195,
+        489,
+        286
       ]
     },
     {
       "scene": "r1c0",
-      "description": "row 1 column 0 centre",
+      "description": "数独盘面第二行第一列的空格子，位于数字8的左边",
       "bbox": [
         99,
         278,
         140,
         319
+      ],
+      "hint_box": [
+        78,
+        243,
+        154,
+        318
       ]
     },
     {
       "scene": "r1c1",
-      "description": "row 1 column 1 centre",
+      "description": "数独盘面第二行第二列的空格子，位于数字9和数字8之间",
       "bbox": [
         140,
         278,
         181,
         319
+      ],
+      "hint_box": [
+        110,
+        267,
+        170,
+        328
       ]
     },
     {
       "scene": "r1c2",
-      "description": "row 1 column 2 centre",
+      "description": "数独盘面第二行第三列的空格子，位于数字9和数字8之间",
       "bbox": [
         181,
         278,
         222,
         319
+      ],
+      "hint_box": [
+        174,
+        259,
+        237,
+        323
       ]
     },
     {
       "scene": "r1c3",
-      "description": "row 1 column 3 centre",
+      "description": "数独盘面第二行第四列的空格子，位于数字9的右边",
       "bbox": [
         222,
         278,
         263,
+        319
+      ],
+      "hint_box": [
+        193,
+        236,
+        277,
         319
       ]
     },
     {
       "scene": "r1c4",
-      "description": "row 1 column 4 centre",
+      "description": "数独盘面第二行第五列的空格子，位于数字9的右边",
       "bbox": [
         263,
         278,
         305,
         319
+      ],
+      "hint_box": [
+        285,
+        280,
+        327,
+        322
       ]
     },
     {
       "scene": "r1c5",
-      "description": "row 1 column 5 centre",
+      "description": "数独盘面第二行第六列的空格子，位于数字8的右边",
       "bbox": [
         305,
         278,
         346,
         319
+      ],
+      "hint_box": [
+        284,
+        268,
+        357,
+        341
       ]
     },
     {
       "scene": "r1c6",
-      "description": "row 1 column 6 centre",
+      "description": "数独盘面第二行第七列的空格子，位于数字8的右边，上方是数字1",
       "bbox": [
         346,
         278,
         387,
         319
+      ],
+      "hint_box": [
+        341,
+        265,
+        415,
+        340
       ]
     },
     {
       "scene": "r1c7",
-      "description": "row 1 column 7 centre",
+      "description": "数独盘面第二行第八列的空格子，位于数字8的右边",
       "bbox": [
         387,
         278,
         428,
         319
+      ],
+      "hint_box": [
+        323,
+        279,
+        436,
+        392
       ]
     },
     {
       "scene": "r1c8",
-      "description": "row 1 column 8 centre",
+      "description": "数独盘面第二行最右边的空格子，位于数字7下方、数字8上方",
       "bbox": [
         428,
         278,
         469,
         319
+      ],
+      "hint_box": [
+        403,
+        247,
+        485,
+        329
       ]
     },
     {
       "scene": "r2c0",
-      "description": "row 2 column 0 centre",
+      "description": "数独盘面第三行最左边的空格子，位于数字9下方、数字5上方",
       "bbox": [
         99,
         319,
         140,
         361
+      ],
+      "hint_box": [
+        92,
+        302,
+        172,
+        382
       ]
     },
     {
       "scene": "r2c1",
-      "description": "row 2 column 1 centre",
+      "description": "数独盘面第三行第二列的空格子，位于数字7的左边",
       "bbox": [
         140,
         319,
         181,
         361
+      ],
+      "hint_box": [
+        140,
+        310,
+        188,
+        358
       ]
     },
     {
       "scene": "r2c2",
-      "description": "row 2 column 2 centre",
+      "description": "数独盘面第三行第三列的空格子，位于数字9的左边，上方是数字3",
       "bbox": [
         181,
         319,
         222,
         361
+      ],
+      "hint_box": [
+        155,
+        318,
+        220,
+        383
       ]
     },
     {
       "scene": "r2c3",
-      "description": "row 2 column 3 centre",
+      "description": "数独盘面第三行第四列的空格子，位于数字7和数字1之间",
       "bbox": [
         222,
         319,
         263,
         361
+      ],
+      "hint_box": [
+        208,
+        285,
+        310,
+        387
       ]
     },
     {
       "scene": "r2c4",
-      "description": "row 2 column 4 centre",
+      "description": "数独盘面第三行第五列的空格子，位于数字9和数字3之间",
       "bbox": [
         263,
         319,
         305,
         361
+      ],
+      "hint_box": [
+        243,
+        279,
+        349,
+        385
       ]
     },
     {
       "scene": "r2c5",
-      "description": "row 2 column 5 centre",
+      "description": "数独盘面第三行第六列的空格子，位于数字1的右边",
       "bbox": [
         305,
         319,
         346,
         361
+      ],
+      "hint_box": [
+        302,
+        339,
+        330,
+        366
       ]
     },
     {
       "scene": "r2c6",
-      "description": "row 2 column 6 centre",
+      "description": "数独盘面第三行第七列的空格子，位于数字3的右边，上方是数字1",
       "bbox": [
         346,
         319,
         387,
         361
+      ],
+      "hint_box": [
+        313,
+        272,
+        401,
+        360
       ]
     },
     {
       "scene": "r2c7",
-      "description": "row 2 column 7 centre",
+      "description": "数独盘面第三行第八列的空格子，位于数字3的右边，上方是数字4",
       "bbox": [
         387,
         319,
         428,
         361
+      ],
+      "hint_box": [
+        400,
+        304,
+        430,
+        334
       ]
     },
     {
       "scene": "r2c8",
-      "description": "row 2 column 8 centre",
+      "description": "数独盘面第三行第九列的空格子，位于数字3的右边，上方是数字7",
       "bbox": [
         428,
         319,
         469,
         361
+      ],
+      "hint_box": [
+        436,
+        326,
+        475,
+        365
       ]
     },
     {
       "scene": "r3c0",
-      "description": "row 3 column 0 centre",
+      "description": "数独盘面第四行第一列的空格子，位于数字1的左边，上方是数字9",
       "bbox": [
         99,
         361,
         140,
         402
+      ],
+      "hint_box": [
+        95,
+        363,
+        171,
+        440
       ]
     },
     {
       "scene": "r3c1",
-      "description": "row 3 column 1 centre",
+      "description": "数独盘面第四行第二列的空格子，位于数字5的右边",
       "bbox": [
         140,
         361,
         181,
         402
+      ],
+      "hint_box": [
+        155,
+        371,
+        192,
+        408
       ]
     },
     {
       "scene": "r3c2",
-      "description": "row 3 column 2 centre",
+      "description": "数独盘面第四行第三列的空格子，位于数字5的右边，上方是数字7",
       "bbox": [
         181,
         361,
         222,
         402
+      ],
+      "hint_box": [
+        149,
+        349,
+        228,
+        428
       ]
     },
     {
       "scene": "r3c3",
-      "description": "row 3 column 3 centre",
+      "description": "数独盘面第四行第四列的空格子，位于数字5的右边，上方是数字9",
       "bbox": [
         222,
         361,
         263,
         402
+      ],
+      "hint_box": [
+        241,
+        375,
+        291,
+        426
       ]
     },
     {
       "scene": "r3c4",
-      "description": "row 3 column 4 centre",
+      "description": "数独盘面第四行第五列的空格子，位于数字1的右边，上方是数字1",
       "bbox": [
         263,
         361,
         305,
         402
+      ],
+      "hint_box": [
+        215,
+        315,
+        336,
+        436
       ]
     },
     {
       "scene": "r3c5",
-      "description": "row 3 column 5 centre",
+      "description": "数独盘面第四行第六列的空格子，位于数字1的右边，上方是数字3",
       "bbox": [
         305,
         361,
         346,
         402
+      ],
+      "hint_box": [
+        267,
+        332,
+        368,
+        433
       ]
     },
     {
       "scene": "r3c6",
-      "description": "row 3 column 6 centre",
+      "description": "数独盘面第四行第七列的空格子，位于数字2和数字4之间",
       "bbox": [
         346,
         361,
         387,
         402
+      ],
+      "hint_box": [
+        316,
+        339,
+        402,
+        426
       ]
     },
     {
       "scene": "r3c7",
-      "description": "row 3 column 7 centre",
+      "description": "数独盘面第四行第八列的空格子，位于数字2的右边，上方是数字4",
       "bbox": [
         387,
         361,
         428,
         402
+      ],
+      "hint_box": [
+        351,
+        320,
+        452,
+        420
       ]
     },
     {
       "scene": "r3c8",
-      "description": "row 3 column 8 centre",
+      "description": "数独盘面第四行最右边的空格子，位于数字8下方、数字9上方",
       "bbox": [
         428,
         361,
         469,
         402
+      ],
+      "hint_box": [
+        404,
+        345,
+        494,
+        436
       ]
     },
     {
       "scene": "r4c0",
-      "description": "row 4 column 0 centre",
+      "description": "数独盘面第五行第一列的空格子，位于数字3的左边，上方是数字5",
       "bbox": [
         99,
         402,
         140,
         443
+      ],
+      "hint_box": [
+        81,
+        381,
+        160,
+        460
       ]
     },
     {
       "scene": "r4c1",
-      "description": "row 4 column 1 centre",
+      "description": "数独盘面第五行第二列的空格子，位于数字3的左边",
       "bbox": [
         140,
         402,
         181,
         443
+      ],
+      "hint_box": [
+        112,
+        389,
+        168,
+        445
       ]
     },
     {
       "scene": "r4c2",
-      "description": "row 4 column 2 centre",
+      "description": "数独盘面第五行第三列的空格子，位于数字3的左边，上方是数字7",
       "bbox": [
         181,
         402,
         222,
         443
+      ],
+      "hint_box": [
+        191,
+        410,
+        216,
+        435
       ]
     },
     {
       "scene": "r4c3",
-      "description": "row 4 column 3 centre",
+      "description": "数独盘面第五行第四列的空格子，位于数字3的左边，上方是数字1",
       "bbox": [
         222,
         402,
         263,
         443
+      ],
+      "hint_box": [
+        225,
+        394,
+        256,
+        425
       ]
     },
     {
       "scene": "r4c4",
-      "description": "row 4 column 4 centre",
+      "description": "数独盘面第五行第五列的空格子，位于数字8的左边，上方是数字1",
       "bbox": [
         263,
         402,
         305,
         443
+      ],
+      "hint_box": [
+        217,
+        349,
+        336,
+        469
       ]
     },
     {
       "scene": "r4c5",
-      "description": "row 4 column 5 centre",
+      "description": "数独盘面第五行第六列的空格子，位于数字3和数字1之间",
       "bbox": [
         305,
         402,
         346,
         443
+      ],
+      "hint_box": [
+        284,
+        378,
+        375,
+        469
       ]
     },
     {
       "scene": "r4c6",
-      "description": "row 4 column 6 centre",
+      "description": "数独盘面第五行第七列的空格子，位于数字8的右边，上方是数字1",
       "bbox": [
         346,
         402,
         387,
         443
+      ],
+      "hint_box": [
+        344,
+        387,
+        394,
+        437
       ]
     },
     {
       "scene": "r4c7",
-      "description": "row 4 column 7 centre",
+      "description": "数独盘面第五行第八列的空格子，位于数字8和数字9之间",
       "bbox": [
         387,
         402,
         428,
         443
+      ],
+      "hint_box": [
+        344,
+        387,
+        445,
+        488
       ]
     },
     {
       "scene": "r4c8",
-      "description": "row 4 column 8 centre",
+      "description": "数独盘面第五行第九列的空格子，位于数字1的右边，上方是数字4",
       "bbox": [
         428,
         402,
         469,
         443
+      ],
+      "hint_box": [
+        411,
+        403,
+        460,
+        451
       ]
     },
     {
       "scene": "r5c0",
-      "description": "row 5 column 0 centre",
+      "description": "数独盘面第六行最左边的空格子，位于数字5下方、数字2上方",
       "bbox": [
         99,
         443,
         140,
         484
+      ],
+      "hint_box": [
+        35,
+        397,
+        145,
+        507
       ]
     },
     {
       "scene": "r5c1",
-      "description": "row 5 column 1 centre",
+      "description": "数独盘面第六行第二列的空格子，位于数字2的左边",
       "bbox": [
         140,
         443,
         181,
         484
+      ],
+      "hint_box": [
+        116,
+        428,
+        223,
+        536
       ]
     },
     {
       "scene": "r5c2",
-      "description": "row 5 column 2 centre",
+      "description": "数独盘面第六行第三列的空格子，位于数字3的右边，上方是数字7",
       "bbox": [
         181,
         443,
         222,
         484
+      ],
+      "hint_box": [
+        132,
+        398,
+        244,
+        511
       ]
     },
     {
       "scene": "r5c3",
-      "description": "row 5 column 3 centre",
+      "description": "数独盘面第六行第四列的空格子，位于数字2和数字9之间",
       "bbox": [
         222,
         443,
         263,
         484
+      ],
+      "hint_box": [
+        231,
+        457,
+        262,
+        487
       ]
     },
     {
       "scene": "r5c4",
-      "description": "row 5 column 4 centre",
+      "description": "数独盘面第六行第五列的空格子，位于数字2的右边，上方是数字3",
       "bbox": [
         263,
         443,
         305,
         484
+      ],
+      "hint_box": [
+        212,
+        389,
+        315,
+        492
       ]
     },
     {
       "scene": "r5c5",
-      "description": "row 5 column 5 centre",
+      "description": "数独盘面第六行第六列的空格子，位于数字2和数字6之间",
       "bbox": [
         305,
         443,
         346,
         484
+      ],
+      "hint_box": [
+        287,
+        423,
+        344,
+        480
       ]
     },
     {
       "scene": "r5c6",
-      "description": "row 5 column 6 centre",
+      "description": "数独盘面第六行第七列的空格子，位于数字9的右边，上方是数字1",
       "bbox": [
         346,
         443,
         387,
         484
+      ],
+      "hint_box": [
+        336,
+        418,
+        397,
+        480
       ]
     },
     {
       "scene": "r5c7",
-      "description": "row 5 column 7 centre",
+      "description": "数独盘面第六行第八列的空格子，位于数字6的右边，上方是数字1",
       "bbox": [
         387,
         443,
         428,
         484
+      ],
+      "hint_box": [
+        377,
+        438,
+        456,
+        518
       ]
     },
     {
       "scene": "r5c8",
-      "description": "row 5 column 8 centre",
+      "description": "数独盘面第六行最右边的空格子，位于数字9下方、数字3上方",
       "bbox": [
         428,
         443,
         469,
         484
+      ],
+      "hint_box": [
+        363,
+        386,
+        485,
+        508
       ]
     },
     {
       "scene": "r6c0",
-      "description": "row 6 column 0 centre",
+      "description": "数独盘面第七行最左边的空格子，位于数字5下方、数字3上方",
       "bbox": [
         99,
         484,
         140,
         526
+      ],
+      "hint_box": [
+        75,
+        454,
+        170,
+        548
       ]
     },
     {
       "scene": "r6c1",
-      "description": "row 6 column 1 centre",
+      "description": "数独盘面第七行第二列的空格子，位于数字2和数字6之间",
       "bbox": [
         140,
         484,
         181,
         526
+      ],
+      "hint_box": [
+        135,
+        475,
+        201,
+        541
       ]
     },
     {
       "scene": "r6c2",
-      "description": "row 6 column 2 centre",
+      "description": "数独盘面第七行第三列的空格子，位于数字2的右边，上方是数字2",
       "bbox": [
         181,
         484,
         222,
         526
+      ],
+      "hint_box": [
+        156,
+        444,
+        245,
+        534
       ]
     },
     {
       "scene": "r6c3",
-      "description": "row 6 column 3 centre",
+      "description": "数独盘面第七行第四列的空格子，位于数字6和数字9之间",
       "bbox": [
         222,
         484,
         263,
         526
+      ],
+      "hint_box": [
+        205,
+        445,
+        307,
+        546
       ]
     },
     {
       "scene": "r6c4",
-      "description": "row 6 column 4 centre",
+      "description": "数独盘面第七行第五列的空格子，位于数字6和数字1之间",
       "bbox": [
         263,
         484,
         305,
         526
+      ],
+      "hint_box": [
+        236,
+        445,
+        309,
+        519
       ]
     },
     {
       "scene": "r6c5",
-      "description": "row 6 column 5 centre",
+      "description": "数独盘面第七行第六列的空格子，位于数字9和数字7之间",
       "bbox": [
         305,
         484,
         346,
         526
+      ],
+      "hint_box": [
+        297,
+        494,
+        336,
+        533
       ]
     },
     {
       "scene": "r6c6",
-      "description": "row 6 column 6 centre",
+      "description": "数独盘面第七行第七列的空格子，位于数字1和数字7之间",
       "bbox": [
         346,
         484,
         387,
         526
+      ],
+      "hint_box": [
+        342,
+        469,
+        413,
+        541
       ]
     },
     {
       "scene": "r6c7",
-      "description": "row 6 column 7 centre",
+      "description": "数独盘面第七行第八列的空格子，位于数字1的右边，上方是数字1",
       "bbox": [
         387,
         484,
         428,
         526
+      ],
+      "hint_box": [
+        350,
+        445,
+        440,
+        536
       ]
     },
     {
       "scene": "r6c8",
-      "description": "row 6 column 8 centre",
+      "description": "数独盘面第七行第九列的空格子，位于数字7的右边，上方是数字9",
       "bbox": [
         428,
         484,
         469,
         526
+      ],
+      "hint_box": [
+        396,
+        478,
+        499,
+        581
       ]
     },
     {
       "scene": "r7c0",
-      "description": "row 7 column 0 centre",
+      "description": "数独盘面第八行第一列的空格子，位于数字4的左边，上方是数字2",
       "bbox": [
         99,
         526,
         140,
         567
+      ],
+      "hint_box": [
+        91,
+        515,
+        183,
+        608
       ]
     },
     {
       "scene": "r7c1",
-      "description": "row 7 column 1 centre",
+      "description": "数独盘面第八行第二列的空格子，位于数字3和数字9之间",
       "bbox": [
         140,
         526,
         181,
         567
+      ],
+      "hint_box": [
+        148,
+        509,
+        205,
+        566
       ]
     },
     {
       "scene": "r7c2",
-      "description": "row 7 column 2 centre",
+      "description": "数独盘面第八行第三列的空格子，位于数字4和数字7之间",
       "bbox": [
         181,
         526,
         222,
         567
+      ],
+      "hint_box": [
+        187,
+        523,
+        217,
+        554
       ]
     },
     {
       "scene": "r7c3",
-      "description": "row 7 column 3 centre",
+      "description": "数独盘面第八行第四列的空格子，位于数字9和数字8之间",
       "bbox": [
         222,
         526,
         263,
         567
+      ],
+      "hint_box": [
+        175,
+        499,
+        258,
+        581
       ]
     },
     {
       "scene": "r7c4",
-      "description": "row 7 column 4 centre",
+      "description": "数独盘面第八行第五列的空格子，位于数字7和数字8之间",
       "bbox": [
         263,
         526,
         305,
         567
+      ],
+      "hint_box": [
+        240,
+        506,
+        317,
+        583
       ]
     },
     {
       "scene": "r7c5",
-      "description": "row 7 column 5 centre",
+      "description": "数独盘面第八行第六列的空格子，位于数字7的右边，上方是数字1",
       "bbox": [
         305,
         526,
         346,
         567
+      ],
+      "hint_box": [
+        292,
+        525,
+        343,
+        576
       ]
     },
     {
       "scene": "r7c6",
-      "description": "row 7 column 6 centre",
+      "description": "数独盘面第八行第七列的空格子，位于数字7的右边，上方是数字6",
       "bbox": [
         346,
         526,
         387,
         567
+      ],
+      "hint_box": [
+        354,
+        525,
+        392,
+        563
       ]
     },
     {
       "scene": "r7c7",
-      "description": "row 7 column 7 centre",
+      "description": "数独盘面第八行第八列的空格子，位于数字8的右边，上方是数字7",
       "bbox": [
         387,
         526,
         428,
         567
+      ],
+      "hint_box": [
+        387,
+        524,
+        440,
+        578
       ]
     },
     {
       "scene": "r7c8",
-      "description": "row 7 column 8 centre",
+      "description": "数独盘面第八行第九列的空格子，位于数字8的右边，上方是数字3",
       "bbox": [
         428,
         526,
         469,
         567
+      ],
+      "hint_box": [
+        419,
+        520,
+        495,
+        596
       ]
     },
     {
       "scene": "r8c0",
-      "description": "row 8 column 0 centre",
+      "description": "数独盘面左下角的格子",
       "bbox": [
         99,
         567,
         140,
         608
+      ],
+      "hint_box": [
+        94,
+        578,
+        118,
+        602
       ]
     },
     {
       "scene": "r8c1",
-      "description": "row 8 column 1 centre",
+      "description": "数独盘面第九行第二列的空格子，位于数字3的左边，上方是数字4",
       "bbox": [
         140,
         567,
         181,
         608
+      ],
+      "hint_box": [
+        116,
+        505,
+        217,
+        606
       ]
     },
     {
       "scene": "r8c2",
-      "description": "row 8 column 2 centre",
+      "description": "数独盘面第九行第三列的空格子，位于数字7的右边，上方是数字9",
       "bbox": [
         181,
         567,
         222,
         608
+      ],
+      "hint_box": [
+        127,
+        548,
+        232,
+        648
       ]
     },
     {
       "scene": "r8c3",
-      "description": "row 8 column 3 centre",
+      "description": "数独盘面第九行第四列的空格子，位于数字7和数字5之间",
       "bbox": [
         222,
         567,
         263,
         608
+      ],
+      "hint_box": [
+        213,
+        564,
+        256,
+        607
       ]
     },
     {
       "scene": "r8c4",
-      "description": "row 8 column 4 centre",
+      "description": "数独盘面第九行第五列的空格子，位于数字3的右边，上方是数字9",
       "bbox": [
         263,
         567,
         305,
         608
+      ],
+      "hint_box": [
+        275,
+        544,
+        326,
+        596
       ]
     },
     {
       "scene": "r8c5",
-      "description": "row 8 column 5 centre",
+      "description": "数独盘面最后一行第六列的空格子，左边是数字3、右边是数字6",
       "bbox": [
         305,
         567,
         346,
         608
+      ],
+      "hint_box": [
+        254,
+        545,
+        366,
+        648
       ]
     },
     {
       "scene": "r8c6",
-      "description": "row 8 column 6 centre",
+      "description": "数独盘面最后一行第七列的空格子，左边是数字5、右边是数字6",
       "bbox": [
         346,
         567,
         387,
         608
+      ],
+      "hint_box": [
+        355,
+        552,
+        445,
+        642
       ]
     },
     {
       "scene": "r8c7",
-      "description": "row 8 column 7 centre",
+      "description": "数独盘面第九行第八列的空格子，位于数字5和数字6之间",
       "bbox": [
         387,
         567,
         428,
         608
+      ],
+      "hint_box": [
+        366,
+        550,
+        448,
+        633
       ]
     },
     {
       "scene": "r8c8",
-      "description": "row 8 column 8 centre",
+      "description": "数独盘面第九行第九列的空格子，位于数字5的右边，上方是数字3",
       "bbox": [
         428,
         567,
         469,
         608
+      ],
+      "hint_box": [
+        378,
+        539,
+        475,
+        636
       ]
     }
   ]

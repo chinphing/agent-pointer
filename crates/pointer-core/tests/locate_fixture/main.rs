@@ -7,10 +7,10 @@
 //! ├── main.rs                    this test
 //! ├── env.example                POINTER_LOCATE_* variables
 //! ├── fixtures/
-//! │   ├── truth.png              frozen capture for truth.json, logical resolution
+//! │   ├── truth_desktop.png      frozen capture for truth_desktop.json
 //! │   └── truth_eastmoney.png    frozen capture for the eastmoney truth files
 //! └── truth/
-//!     ├── truth.json             desktop, 20 cases
+//!     ├── truth_desktop.json     desktop, 20 cases
 //!     ├── truth_eastmoney.json   eastmoney page, 29 cases
 //!     └── truth_fourpart.json    same page, four-part descriptions vs old ones
 //! ```
@@ -78,7 +78,7 @@ fn load_dotenv() {
 }
 
 fn truth_path() -> PathBuf {
-    dir().join("truth").join("truth.json")
+    dir().join("truth").join("truth_desktop.json")
 }
 
 fn truth_path_named(name: &str) -> PathBuf {
@@ -122,7 +122,7 @@ struct TruthCase {
     note: String,
 }
 
-/// `truth.json` is the single source of truth: fixture name, size, and cases.
+/// The truth file is the single source of truth: fixture name, size, and cases.
 fn load_truth() -> Result<TruthFile> {
     let path = truth_path();
     let raw =
@@ -287,7 +287,7 @@ async fn frozen_desktop_grounding() -> Result<()> {
         assert_eq!(
             (frame.width(), frame.height()),
             (w, h),
-            "fixture size does not match truth.json; a Retina 2x capture would \
+            "fixture size does not match the truth file; a Retina 2x capture would \
              shift every returned coordinate by 2x"
         );
     }
@@ -380,7 +380,7 @@ async fn frozen_desktop_grounding() -> Result<()> {
         let bbox = case.bbox;
         let Some(bbox) = bbox else {
             unscored.push(desc);
-            println!("SKIP  {scene:<6} {desc:<34} (no bbox in truth.json)");
+            println!("SKIP  {scene:<6} {desc:<34} (no bbox in the truth file)");
             continue;
         };
 
@@ -426,7 +426,7 @@ async fn frozen_desktop_grounding() -> Result<()> {
     if only.is_empty() {
         assert!(
             scored >= 15,
-            "only {scored} case(s) have a bbox in truth.json; expected at least 15"
+            "only {scored} case(s) have a bbox in the truth file; expected at least 15"
         );
     }
     let rate = hits as f64 / scored as f64;
@@ -470,7 +470,7 @@ async fn frozen_desktop_hint_grounding() -> Result<()> {
         assert_eq!(
             (frame.width(), frame.height()),
             (w, h),
-            "fixture size does not match truth.json"
+            "fixture size does not match the truth file"
         );
     }
 
@@ -588,7 +588,7 @@ async fn frozen_desktop_far_hint_stays_honest() -> Result<()> {
         assert_eq!(
             (frame.width(), frame.height()),
             (w, h),
-            "fixture size does not match truth.json"
+            "fixture size does not match the truth file"
         );
     }
 

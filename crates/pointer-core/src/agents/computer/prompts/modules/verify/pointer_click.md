@@ -1,37 +1,40 @@
 ### Scenario: pointer click
 
-Judge whether a click produced the UI change implied by `goal` and `action`.
+Two questions in order. Stop at the first one that decides it.
 
-**Evidence:** **[Screen before action]** vs **[Screen after action]**.
+**Evidence:** **[Screen before action]** vs **[Screen after action]**. Both carry
+the pointer overlay, so where the click landed is visible.
 
-**Order:** goal first → pointer **only on fail**.
+### Step 1 — did the element `goal` names change?
 
-| Goal evidence | `action_result` | Pointer (fail only) | `failure_cause` |
-| --- | --- | --- | --- |
-| Supporting UI change | `pass` | skip | — |
-| Contradicting change | `fail` | center-hit | `wrong_operation` |
-| Contradicting change | `fail` | center-miss | `precision_miss` |
-| No clear change | `fail` | center-hit | `wrong_operation` |
-| No clear change | `fail` | center-miss | `precision_miss` |
+Find that element in both screenshots — a cell, a button, a row, a menu item.
+
+- **It changed** → go to step 2.
+- **It did not change, but something else did** → `fail`, `wrong_operation`.
+  The click reached a different element.
+- **Nothing changed anywhere, and the click landed on that element** → `fail`,
+  `wrong_operation`. The element ignored the click.
+- **Nothing changed anywhere, and the click landed elsewhere** → `fail`,
+  `precision_miss`. The click missed.
+
+### Step 2 — is that change the one `goal` asked for?
+
+- **Yes** — value entered, page opened, menu expanded, row selected → `pass`.
+- **Opposite** — the state `goal` wanted was already there and the click removed
+  it → `fail`, `wrong_operation`.
+- **Partial or different** — highlighted but not entered, focused but not opened
+  → `fail`, `wrong_operation`.
 
 **`loading_detected`:** spinner, progress bar, or partial load in after.
 
-**`step_summary` (pass):** one sentence on the visible outcome.
+**`step_summary`:** on `pass`, name where the change landed and what it was —
+`row 7 col 3 now shows 1`. On `fail`, name the one fact that decided it.
 
 ### Reasoning (hard rule)
 
-Max **4 sentences**, plain prose — no numbered lists or section headers.
-
-1. Goal check on before/after → supporting / contradicting / no_clear_evidence.
-2. Supporting → `pass`; stop — **do not** analyze pointer.
-3. Fail → center-hit vs center-miss for `failure_cause`, and say what you saw:
-   which element took the click, or what the screen showed instead.
-4. Optional: note loading if applicable.
-
-On `fail`, `step_summary` carries the one observation that decides the case —
-which element took the click, or what the screen showed instead. Keep it to a
-short clause; the planner needs the fact that changes its next move.
+Max **3 sentences**, plain prose.
 
 **Forbidden:** "Analyze the Request"; JSON/`{`/`}`; repeating `submit_verify` args.
 
-**Pointer rule:** cursor on target alone ≠ pass; visible UI outcome required. Exception: `mouse_move` — cursor at target = pass.
+**Pointer rule:** cursor on target alone ≠ pass; visible UI outcome required.
+Exception: `mouse_move` — cursor at target = pass.

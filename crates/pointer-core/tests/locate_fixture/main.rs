@@ -49,8 +49,10 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use pointer_core::agents::computer::locate::{
-    locate_elements, ChatLocateVision, LocateConfig, LocateFrame, LocateRequest, PxBox,
+    locate_elements, ChatLocateVision, LocateConfig, LocateFrame, LocateOutcome, LocateRequest,
+    PxBox,
 };
+use futures_util::StreamExt;
 use pointer_core::models::ModelSettings;
 use pointer_core::provider::OpenAIProvider;
 use tokio_util::sync::CancellationToken;
@@ -313,8 +315,10 @@ async fn frozen_desktop_grounding() -> Result<()> {
 
     let mut scored = 0usize;
     let mut hits = 0usize;
-    let mut unscored: Vec<&str> = Vec::new();
-    let mut failures: Vec<&str> = Vec::new();
+    // Owned strings: the case rows are moved out of the concurrent batch, so a
+    // `&str` into them would not outlive the loop.
+    let mut unscored: Vec<String> = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
 
     let timeout_secs: u64 = std::env::var("POINTER_LOCATE_TIMEOUT_SECS")
         .ok()
@@ -338,59 +342,121 @@ async fn frozen_desktop_grounding() -> Result<()> {
         })
         .unwrap_or_default();
 
-    for (idx, case) in truth.cases.iter().enumerate() {
-        if !only.is_empty() && !only.contains(&(idx + 1)) {
-            continue;
-        }
-        let scene = case.scene.as_str();
-        let desc = case.description.as_str();
-        // Per-case timeout: a single stubborn target can retry for minutes, and
-        // one of those must not swallow the whole run.
-        //
-        // `goal` and `hint_px` mirror production: `resolve_point` always passes
-        // the caller's estimated box, and the grounder uses `goal` to pick
-        // between look-alike elements. Running without them measured a different
-        // problem — full-screen search with no intent — which is why sudoku
-        // cases carry a hint box that is deliberately off.
-        let mut request = LocateRequest::new(desc, "选中这一格准备填数");
-        if let Some(h) = case.hint_box {
-            request = request.with_hint_px(PxBox {
-                x1: h[0],
-                y1: h[1],
-                x2: h[2],
-                y2: h[3],
-            });
-        }
-        let requests = vec![request];
-        let started = std::time::Instant::now();
-        let call = tokio::time::timeout(
-            per_case,
-            locate_elements(&vision, &frame, &requests, &LocateConfig::default(), &cancel),
-        )
-        .await;
-        let elapsed = started.elapsed().as_secs_f64();
-        let outcome = match call {
-            Ok(Ok(mut outcomes)) => match outcomes.pop() {
-                Some(o) => o,
-                None => {
-                    println!("ERROR {scene:<6} {desc:<34} empty outcome");
-                    continue;
+    // Concurrency: each case is an independent API call, so they can overlap.
+    // `buffer_unordered` caps how many are in flight at once — the API rejects
+    // bursts, and 81 simultaneous 1920x1080 uploads would also cost more memory
+    // than the run is worth. Default 1 keeps the old serial behaviour.
+    let concurrency: usize = std::env::var("POINTER_LOCATE_CONCURRENCY")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1)
+        .max(1);
+    if concurrency > 1 {
+        println!("concurrency: {concurrency}");
+    }
+
+    struct CaseRun {
+        idx: usize,
+        scene: String,
+        desc: String,
+        bbox: Option<[f64; 4]>,
+        /// `Err` carries the reason, already formatted for printing.
+        result: Result<LocateOutcome, String>,
+        elapsed: f64,
+    }
+
+    let runs: Vec<CaseRun> = futures_util::stream::iter(
+        truth
+            .cases
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| only.is_empty() || only.contains(&(idx + 1)))
+            .map(|(idx, case)| {
+                let scene = case.scene.clone();
+                let desc = case.description.clone();
+                let bbox = case.bbox;
+                // `goal` and `hint_px` mirror production: `resolve_point` always
+                // passes the caller's estimated box, and the grounder uses `goal`
+                // to pick between look-alike elements. Running without them
+                // measured a different problem — full-screen search with no
+                // intent — which is why sudoku cases carry a deliberately off
+                // hint box.
+                let mut request = LocateRequest::new(desc.as_str(), "选中这一格准备填数");
+                if let Some(h) = case.hint_box {
+                    request = request.with_hint_px(PxBox {
+                        x1: h[0],
+                        y1: h[1],
+                        x2: h[2],
+                        y2: h[3],
+                    });
                 }
-            },
-            Ok(Err(e)) => {
-                println!("ERROR {scene:<6} {desc:<34} {e:#}");
+                let requests = vec![request];
+                let vision = &vision;
+                let frame = &frame;
+                let cancel = &cancel;
+                async move {
+                    let started = std::time::Instant::now();
+                    // Per-case timeout: a single stubborn target can retry for
+                    // minutes, and one of those must not swallow the whole run.
+                    let call = tokio::time::timeout(
+                        per_case,
+                        locate_elements(vision, frame, &requests, &LocateConfig::default(), cancel),
+                    )
+                    .await;
+                    let elapsed = started.elapsed().as_secs_f64();
+                    let result = match call {
+                        Ok(Ok(mut outcomes)) => match outcomes.pop() {
+                            Some(o) => Ok(o),
+                            None => Err("empty outcome".to_string()),
+                        },
+                        Ok(Err(e)) => Err(format!("{e:#}")),
+                        Err(_) => Err(format!(">{timeout_secs}s")),
+                    };
+                    CaseRun {
+                        idx,
+                        scene,
+                        desc,
+                        bbox,
+                        result,
+                        elapsed,
+                    }
+                }
+            }),
+    )
+    .buffer_unordered(concurrency)
+    .collect()
+    .await;
+
+    // Concurrent calls finish out of order; report in file order so a diff
+    // between two runs lines up.
+    let mut runs = runs;
+    runs.sort_by_key(|r| r.idx);
+
+    for run in runs {
+        let CaseRun {
+            scene,
+            desc,
+            bbox,
+            result,
+            elapsed,
+            ..
+        } = &run;
+        let scene = scene.as_str();
+        let desc = desc.as_str();
+
+        let outcome = match result {
+            Ok(o) => o,
+            Err(reason) => {
+                let label = if reason.starts_with('>') {
+                    "TIMEOUT"
+                } else {
+                    "ERROR"
+                };
+                println!("{label} {scene:<6} {desc:<34} {reason}");
                 // A case with ground truth that errors is a miss, not a skip.
-                if case.bbox.is_some() {
+                if bbox.is_some() {
                     scored += 1;
-                    failures.push(desc);
-                }
-                continue;
-            }
-            Err(_) => {
-                println!("TIMEOUT {scene:<6} {desc:<34} >{timeout_secs}s");
-                if case.bbox.is_some() {
-                    scored += 1;
-                    failures.push(desc);
+                    failures.push(desc.to_string());
                 }
                 continue;
             }
@@ -405,9 +471,8 @@ async fn frozen_desktop_grounding() -> Result<()> {
             continue;
         }
 
-        let bbox = case.bbox;
         let Some(bbox) = bbox else {
-            unscored.push(desc);
+            unscored.push(desc.to_string());
             println!("SKIP  {scene:<6} {desc:<34} (no bbox in the truth file)");
             continue;
         };
@@ -423,7 +488,7 @@ async fn frozen_desktop_grounding() -> Result<()> {
         if hit {
             hits += 1;
         } else {
-            failures.push(desc);
+            failures.push(desc.to_string());
         }
         println!(
             "{} {scene:<6} {desc:<34} ok={:<5} box={:?} rounds={} {:.1}s | {}",

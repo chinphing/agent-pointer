@@ -77,6 +77,14 @@ pub enum UnclearKind {
     /// (target is inside the box but too tiny to read). The fix here is a wider
     /// box, not a different place to look.
     BoxTooTight,
+    /// The box holds the whole target and a lot of its surroundings. Distinct
+    /// from `BoxTooTight` in the opposite direction, and from `No`: the target
+    /// *is* here, the box is just slack. Reported as `unclear` rather than `no`
+    /// so the retry says "shrink around the same place" instead of "look
+    /// elsewhere" — a `no` carries the wrong instruction and, with
+    /// `elsewhere_dir=inside`, produces the self-contradictory hint
+    /// 「不是目标」+「目标在框内部」.
+    BoxTooLoose,
 }
 
 /// Direction the target was seen relative to the candidate box.

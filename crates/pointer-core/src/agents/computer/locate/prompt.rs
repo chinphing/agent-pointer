@@ -137,7 +137,7 @@ pub fn verify_prompt(description: &str) -> String {
   或者蓝框只压住了目标的一个角）→ **判 no**，并在 why 里说明：\n\
   框住了目标的哪一部分、目标的哪一侧在框外、大概还差多少。\n\
   例如「蓝框只框住了「保存」两个字，「取消」整个在框外，框的左边差 30 像素」。\n\
-- 反过来，**框比目标大太多**也算不合格。太大是算出来的：先看目标在框里的实际长宽，再和框的长宽比——通常框的宽和高都不超过目标的 1.5 倍算合格；目标是紧邻排列的编号格子（表格单元格、数独格、棋盘格、日历格）时降到 1.2 倍，相邻格只隔一个格宽，框松一点就框进隔壁，坐标会整个偏到另一格。超过倍数判 no，why 里写清框里除了目标还有什么、框大约是目标的几倍宽几倍高。框太松会让返回的坐标偏出去。\n\
+- 反过来，**框比目标大太多**也算不合格。太大是算出来的：先看目标在框里的实际长宽，再和框的长宽比——通常框的宽和高都不超过目标的 1.5 倍算合格；目标是紧邻排列的编号格子（表格单元格、数独格、棋盘格、日历格）时降到 1.2 倍，相邻格只隔一个格宽，框松一点就框进隔壁，坐标会整个偏到另一格。超过倍数判 unclear + unclear_kind=box_too_loose，why 里写清框大约是目标的几倍宽几倍高、框里除了目标还有什么。\n\
   下游拿这句话决定是重新找还是把框收小。\n\n\
 【周边锚点怎么用】\n\
 锚点是用来**区分同名/相似干扰元素**的辅助线索，不是硬约束。\n\
@@ -259,6 +259,7 @@ pub fn parse_verify_arguments(raw: &str) -> Option<VerifyVerdict> {
         "too_blurry" => UnclearKind::TooBlurry,
         "ambiguous" => UnclearKind::Ambiguous,
         "box_too_tight" => UnclearKind::BoxTooTight,
+        "box_too_loose" => UnclearKind::BoxTooLoose,
         _ => UnclearKind::None,
     };
     Some(VerifyVerdict {
@@ -287,6 +288,17 @@ pub fn refine_hint(verdict: &VerifyVerdict) -> String {
     if verdict.unclear_kind == UnclearKind::BoxTooTight {
         return format!(
             "上次的框太窄：框里只有目标的一部分（{}）。这次要把目标的完整轮廓框进来，位置就在原处附近，不要换地方找。",
+            verdict.why.trim()
+        );
+    }
+    // Mirror case: the target is right there, the box is slack around it. The
+    // verifier already measured how slack (it is what decided the box failed);
+    // pass that number through so the locator shrinks by the right amount
+    // instead of guessing. Without it the locator re-frames "somewhere around
+    // here" and lands at 2x again — which is exactly what r1c0 did.
+    if verdict.unclear_kind == UnclearKind::BoxTooLoose {
+        return format!(
+            "上次的框太松：目标就在框里，但框比目标大太多（{}）。这次只框住目标本身，不要带进周围的格子或标签，中心位置不变。",
             verdict.why.trim()
         );
     }
@@ -505,6 +517,26 @@ mod tests {
             !hint.contains("不是目标"),
             "must not read as 'wrong place': {hint}"
         );
+    }
+
+    #[test]
+    fn refine_hint_for_box_too_loose_says_shrink_not_relocate() {
+        // The mirror of the box_too_tight case: the target is in the box, the
+        // box is just slack. The locator must shrink around the same place —
+        // 「不是目标」 would send it hunting elsewhere.
+        let v = parse_verify_arguments(
+            r#"{"match":"unclear","why":"框宽约 2.4 倍格宽、高约 2.4 倍格高，含 B1 和 B2 两格","unclear_kind":"box_too_loose"}"#,
+        )
+        .unwrap();
+        assert_eq!(v.unclear_kind, UnclearKind::BoxTooLoose);
+        let hint = refine_hint(&v);
+        assert!(hint.contains("太松"), "{hint}");
+        assert!(hint.contains("只框住目标本身"), "{hint}");
+        assert!(hint.contains("中心位置不变"), "{hint}");
+        // The measured ratio has to survive into the hint — that is the whole
+        // point of reporting box_too_loose instead of no.
+        assert!(hint.contains("2.4 倍"), "{hint}");
+        assert!(!hint.contains("不是目标"), "{hint}");
     }
 
     #[test]

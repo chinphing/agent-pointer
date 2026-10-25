@@ -5,13 +5,21 @@ Judge whether text was entered into the target field.
 **Evidence:** **[Screen before action]** vs **[Screen after action]** — field
 content and focus.
 
-### Step 1 — what did the field hold before, and what does it hold now?
+### Step 1 — which field got the text?
+
+The before frame carries the pointer at the click point. Compare it against the
+field `goal` names.
+
+- **Pointer inside that field** → go to step 2.
+- **Pointer in the neighbouring field** → `fail`, `precision_miss`. The click
+  landed one field over; the planner re-aims from this.
+- **Pointer somewhere unrelated** → `fail`, `wrong_operation`.
+
+### Step 2 — what did the field hold before, and what does it hold now?
 
 Read the target field in both frames. Only a **difference between the two**
 counts as entered text — characters already present in the before frame were
 not typed by this action. `clear_first` means the before content should be gone.
-
-### Step 2 — does the difference match what `goal` asked for?
 
 | Difference | `action_result` | `failure_cause` |
 | --- | --- | --- |

@@ -6,14 +6,18 @@ extend the selection), not a single state change.
 
 **Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-### Step 1 — where did the change happen?
+### Step 1 — where did the click land?
 
-Compare the two frames and find the region that differs.
+The before frame carries the pointer at the click point, and the target `goal`
+names is intact in that frame.
 
-- **At the element `goal` names** → go to step 2.
-- **At a different element, while the one `goal` names is unchanged** → `fail`,
-  `wrong_operation`. The click reached something else.
-- **Nothing differs anywhere** → `fail`, `wrong_operation`.
+- **Pointer inside the target** → go to step 2.
+- **Pointer outside it** — the neighbouring row, the adjacent item → `fail`,
+  `precision_miss`. The click missed; the planner re-aims from this.
+- **Somewhere unrelated** → `fail`, `wrong_operation`. The click reached the
+  wrong element.
+- **No pointer visible in the before frame** → judge from where the change
+  appeared, below.
 
 ### Step 2 — did the expected change happen?
 

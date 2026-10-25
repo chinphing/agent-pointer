@@ -203,13 +203,16 @@ pub async fn locate_one<V: LocateVision>(
         // near where we already looked:
         //  · `elsewhere_dir` — the verifier saw it just outside the box;
         //  · `BoxTooLoose` — the verifier saw it *inside* the box and only
-        //    complained about slack.
-        // Falling through to a full-screen search for `BoxTooLoose` was both
-        // wrong and slow: the target never moved, so re-scanning 1920x1080
-        // re-derived the same answer from a harder image, and rendering plus
-        // uploading the full frame pushed a single case past the 180 s cap.
+        //    complained about slack;
+        //  · `BoxTooTight` — the verifier saw part of it inside the box.
+        // Falling through to a full-screen search was wrong for all three: the
+        // target never moved, so re-scanning 1920x1080 re-derived the same answer
+        // from a harder image (and for `BoxTooLoose` it also blew the timeout).
+        // A `BoxTooTight` case did exactly that — the retry jumped from the
+        // button at x≈934 to x≈532, then needed a third round to come back.
         let stay_local = verdict.elsewhere_dir.is_some()
-            || verdict.unclear_kind == UnclearKind::BoxTooLoose;
+            || verdict.unclear_kind == UnclearKind::BoxTooLoose
+            || verdict.unclear_kind == UnclearKind::BoxTooTight;
 
         let mut from_crop = false;
         let mut next_box = None;
@@ -546,6 +549,47 @@ mod tests {
                 height: 800
             })
         ));
+    }
+
+    #[tokio::test]
+    async fn box_too_tight_relocates_inside_the_crop_not_on_the_full_frame() {
+        // Same reasoning as the loose case: part of the target is inside the box,
+        // so the answer is nearby. A full-screen re-locate once jumped from the
+        // button at x≈934 to x≈532 and needed a third round to come back.
+        let hint = PxBox {
+            x1: 400.0,
+            y1: 300.0,
+            x2: 500.0,
+            y2: 400.0,
+        };
+        let mut tight = no_left("保存按钮");
+        tight.match_ = MatchVerdict::Unclear;
+        tight.unclear_kind = UnclearKind::BoxTooTight;
+        tight.elsewhere_dir = None;
+        let vision = FakeVision::new()
+            .with_verify(vec![tight, yes("保存按钮")])
+            .with_locate(vec![Some(NormBox::new(100.0, 100.0, 300.0, 300.0))]);
+        let out = locate_one(
+            &vision,
+            &frame(),
+            &LocateRequest::new("保存按钮", "点击它").with_hint_px(hint),
+            &cfg(),
+            &cancel_token(),
+        )
+        .await
+        .unwrap();
+
+        assert!(out.ok, "{out:?}");
+        assert_eq!(out.rounds, 2);
+        for call in vision.calls() {
+            if let Call::Locate { width, height } = call {
+                assert_eq!(
+                    (width, height),
+                    (64, 64),
+                    "locator ran on the full frame instead of the crop"
+                );
+            }
+        }
     }
 
     #[tokio::test]

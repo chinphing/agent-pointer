@@ -134,9 +134,9 @@ pub fn verify_prompt(description: &str) -> String {
 - 目标的**整个轮廓**（文字的全部笔画、按钮的全部边缘、图标的完整形状）\n\
   都落在蓝框里面，**而且框没有超过下面的倍数** → 才算真正找到。\n\
 - 目标只有一部分在蓝框里，另一部分伸到蓝框外面（哪怕只露出一半，\n\
-  或者蓝框只压住了目标的一个角）→ **判 no**，并在 why 里说明：\n\
-  框住了目标的哪一部分、目标的哪一侧在框外、大概还差多少。\n\
-  例如「蓝框只框住了「保存」两个字，「取消」整个在框外，框的左边差 30 像素」。\n\
+  或者蓝框只压住了目标的一个角）→ 判 **unclear** + `unclear_kind=box_too_tight`，并在 why 里写清：\n\
+  框住了目标的哪一部分、目标的哪一侧在框外、**目标大约是框的几倍宽几倍高**。\n\
+  倍数比像素可靠——这张图是缩放过的，你说的像素数换算回屏幕会差很远。\n\
 - 反过来，**框比目标大太多**也算不合格。太大是算出来的：先看目标在框里的实际长宽，再和框的长宽比——通常框的宽和高都不超过目标的 1.5 倍算合格；目标是紧邻排列的编号格子（表格单元格、数独格、棋盘格、日历格）时降到 1.2 倍，相邻格只隔一个格宽，框松一点就框进隔壁，坐标会整个偏到另一格。超过倍数判 unclear + unclear_kind=box_too_loose，why 里写清框大约是目标的几倍宽几倍高、框里除了目标还有什么。\n\
   下游拿这句话决定是重新找还是把框收小。\n\n\
 【周边锚点怎么用】\n\
@@ -147,7 +147,7 @@ pub fn verify_prompt(description: &str) -> String {
 【判定规则】\n\
 1. 文字内容对不上 → 判 **no**，不管其他项多像。\n\
 2. 文字对得上，但蓝框没把目标完整框住 —— 蓝框里已是目标的一部分（文字/边框只露出一截）→ 判 **unclear** + `unclear_kind=box_too_tight`；蓝框里完全是别的东西 → 判 **no** + `elsewhere_dir`。why 说清框住了哪部分、\n\
-   目标哪一侧在框外、还差多少（见上）。\n\
+   目标哪一侧在框外、目标大约是框的几倍（见上）。\n\
 3. 文字对得上、蓝框完整框住了目标、且框没有超过上面说的倍数 → 判 **yes**。\n\
 4. 外观、锚点有出入但文字和位置都对 → 仍然判 **yes**，把出入写进 why。\n\n\
 【外观怎么比】按这个顺序，**不要跳级**：\n\
@@ -285,9 +285,13 @@ pub fn refine_hint(verdict: &VerifyVerdict) -> String {
     // A box that holds only part of the target is not a wrong place — it is a
     // box that is too small. Telling the locator "look elsewhere" sends it
     // hunting for a different element when all it has to do is widen.
+    //
+    // The measured ratio is passed through for the same reason as the loose
+    // case below: 「框里只有目标的一部分」 alone leaves the locator guessing how
+    // much to widen, and it tends to widen by a token amount and fail again.
     if verdict.unclear_kind == UnclearKind::BoxTooTight {
         return format!(
-            "上次的框太窄：框里只有目标的一部分（{}）。这次要把目标的完整轮廓框进来，位置就在原处附近，不要换地方找。",
+            "上次的框太窄：框里只有目标的一部分（{}）。这次按上面的倍数把框放大到装得下整个目标，位置就在原处附近，不要换地方找。",
             verdict.why.trim()
         );
     }
@@ -358,6 +362,33 @@ mod tests {
         assert!(!p.contains("没有大太多"), "{p}");
         // The tighter ratio exists because neighbouring cells are one cell apart.
         assert!(p.contains("紧邻排列的编号格子"), "{p}");
+    }
+
+    #[test]
+    fn verify_prompt_asks_for_a_ratio_on_both_sides_of_the_slack_axis() {
+        let p = verify_prompt("数独盘面C3的空格子");
+        // Too tight used to ask for 「大概还差多少」 with an example in pixels —
+        // the crop is rescaled, so a pixel count from the model does not survive
+        // the trip back to screen coordinates. Both directions now report a
+        // ratio, and both hints pass it through.
+        assert!(p.contains("目标大约是框的几倍宽几倍高"), "{p}");
+        assert!(p.contains("框大约是目标的几倍宽几倍高"), "{p}");
+        assert!(!p.contains("差 30 像素"), "{p}");
+        assert!(!p.contains("大概还差多少"), "{p}");
+    }
+
+    #[test]
+    fn refine_hint_for_box_too_tight_asks_to_widen_by_the_measured_ratio() {
+        let v = parse_verify_arguments(
+            r#"{"match":"unclear","why":"只框住文件名前半段，目标宽约框的 2 倍","unclear_kind":"box_too_tight"}"#,
+        )
+        .unwrap();
+        let hint = refine_hint(&v);
+        assert!(hint.contains("太窄"), "{hint}");
+        assert!(hint.contains("按上面的倍数"), "{hint}");
+        assert!(hint.contains("2 倍"), "{hint}");
+        assert!(hint.contains("不要换地方找"), "{hint}");
+        assert!(!hint.contains("不是目标"), "{hint}");
     }
 
     #[test]

@@ -132,14 +132,12 @@ pub fn verify_prompt(description: &str) -> String {
 【必须单独核对的一件事：蓝框有没有把目标完整框住】\n\
 「蓝框里能看到目标」和「蓝框把目标整个框住了」是两件事，**都要满足才算找到**。\n\
 - 目标的**整个轮廓**（文字的全部笔画、按钮的全部边缘、图标的完整形状）\n\
-  都落在蓝框里面，**而且框没有大太多** → 才算真正找到。\n\
+  都落在蓝框里面，**而且框没有超过下面的倍数** → 才算真正找到。\n\
 - 目标只有一部分在蓝框里，另一部分伸到蓝框外面（哪怕只露出一半，\n\
   或者蓝框只压住了目标的一个角）→ **判 no**，并在 why 里说明：\n\
   框住了目标的哪一部分、目标的哪一侧在框外、大概还差多少。\n\
   例如「蓝框只框住了「保存」两个字，「取消」整个在框外，框的左边差 30 像素」。\n\
-- 反过来，**框大得离谱**也算不合格：框里大部分是别的东西，目标只占\n\
-  一小块，或者框边离目标轮廓隔了一大截 → **判 no**，why 里说清框里\n\
-  除了目标还有什么、框比目标大出多少。框太松会让返回的坐标偏出去。\n\
+- 反过来，**框比目标大太多**也算不合格。太大是算出来的：先看目标在框里的实际长宽，再和框的长宽比——通常框的宽和高都不超过目标的 1.5 倍算合格；目标是紧邻排列的编号格子（表格单元格、数独格、棋盘格、日历格）时降到 1.2 倍，相邻格只隔一个格宽，框松一点就框进隔壁，坐标会整个偏到另一格。超过倍数判 no，why 里写清框里除了目标还有什么、框大约是目标的几倍宽几倍高。框太松会让返回的坐标偏出去。\n\
   下游拿这句话决定是重新找还是把框收小。\n\n\
 【周边锚点怎么用】\n\
 锚点是用来**区分同名/相似干扰元素**的辅助线索，不是硬约束。\n\
@@ -150,7 +148,7 @@ pub fn verify_prompt(description: &str) -> String {
 1. 文字内容对不上 → 判 **no**，不管其他项多像。\n\
 2. 文字对得上，但蓝框没把目标完整框住 —— 蓝框里已是目标的一部分（文字/边框只露出一截）→ 判 **unclear** + `unclear_kind=box_too_tight`；蓝框里完全是别的东西 → 判 **no** + `elsewhere_dir`。why 说清框住了哪部分、\n\
    目标哪一侧在框外、还差多少（见上）。\n\
-3. 文字对得上、蓝框也完整框住了目标、且框没有大太多 → 判 **yes**。\n\
+3. 文字对得上、蓝框完整框住了目标、且框没有超过上面说的倍数 → 判 **yes**。\n\
 4. 外观、锚点有出入但文字和位置都对 → 仍然判 **yes**，把出入写进 why。\n\n\
 【外观怎么比】按这个顺序，**不要跳级**：\n\
 1. **文字** —— 文字内容是否一致（最重要，几乎决定成败）\n\
@@ -334,6 +332,20 @@ mod tests {
     fn locate_prompt_without_hint_has_no_position_preference() {
         let p = locate_prompt("资讯公告", None, None);
         assert!(!p.contains("位置偏好"), "{p}");
+    }
+
+    #[test]
+    fn verify_prompt_gives_a_number_for_how_much_slack_is_acceptable() {
+        let p = verify_prompt("数独盘面C3的空格子");
+        // 「大得离谱」「没有大太多」were unmeasurable — the model spent its whole
+        // first round arguing with itself about whether a 3x box counted. The
+        // threshold has to be a number it can compare against.
+        assert!(p.contains("1.5 倍"), "{p}");
+        assert!(p.contains("1.2 倍"), "{p}");
+        assert!(!p.contains("大得离谱"), "{p}");
+        assert!(!p.contains("没有大太多"), "{p}");
+        // The tighter ratio exists because neighbouring cells are one cell apart.
+        assert!(p.contains("紧邻排列的编号格子"), "{p}");
     }
 
     #[test]

@@ -1,0 +1,210 @@
+{
+  "fixture": "fixtures/truth.png",
+  "size": [
+    1512,
+    982
+  ],
+  "note": "bbox = [x1, y1, x2, y2] in logical pixels. Every non-null box was confirmed by cropping it out of the fixture and checking that the target is really inside. null = not measured yet; run with POINTER_LOCATE_CAPTURE=1 (optionally POINTER_LOCATE_ONLY=<n>) and fill it in.",
+  "cases": [
+    {
+      "scene": "菜单栏",
+      "description": "Apple 菜单图标",
+      "bbox": [
+        17,
+        10,
+        39,
+        27
+      ]
+    },
+    {
+      "scene": "菜单栏",
+      "description": "菜单栏里的应用名「访达」",
+      "bbox": [
+        53,
+        10,
+        86,
+        27
+      ]
+    },
+    {
+      "scene": "菜单栏",
+      "description": "菜单栏里的「文件」菜单项",
+      "bbox": [
+        94,
+        8,
+        130,
+        29
+      ]
+    },
+    {
+      "scene": "菜单栏",
+      "description": "菜单栏里的「编辑」菜单项",
+      "bbox": [
+        147,
+        8,
+        174,
+        29
+      ]
+    },
+    {
+      "scene": "菜单栏",
+      "description": "菜单栏里的「显示」菜单项",
+      "bbox": [
+        191,
+        8,
+        218,
+        29
+      ]
+    },
+    {
+      "scene": "状态栏",
+      "description": "菜单栏右上角的 Wi-Fi 图标",
+      "bbox": [
+        1252,
+        8,
+        1282,
+        31
+      ]
+    },
+    {
+      "scene": "状态栏",
+      "description": "菜单栏右上角的控制中心图标",
+      "bbox": [
+        1318,
+        8,
+        1347,
+        29
+      ]
+    },
+    {
+      "scene": "状态栏",
+      "description": "菜单栏右上角的搜索图标",
+      "bbox": [
+        1294,
+        9,
+        1314,
+        27
+      ]
+    },
+    {
+      "scene": "状态栏",
+      "description": "菜单栏最右侧的日期时间",
+      "bbox": [
+        1353,
+        8,
+        1494,
+        27
+      ]
+    },
+    {
+      "scene": "状态栏",
+      "description": "菜单栏右上角的电池图标",
+      "bbox": [
+        1214,
+        8,
+        1247,
+        27
+      ]
+    },
+    {
+      "scene": "Dock",
+      "description": "底部 Dock 最左边的访达图标",
+      "bbox": [
+        94,
+        910,
+        144,
+        964
+      ]
+    },
+    {
+      "scene": "Dock",
+      "description": "底部 Dock 里的启动台图标",
+      "bbox": [
+        159,
+        911,
+        212,
+        962
+      ]
+    },
+    {
+      "scene": "Dock",
+      "description": "底部 Dock 里的 Google Chrome 图标",
+      "bbox": [
+        224,
+        913,
+        269,
+        961
+      ]
+    },
+    {
+      "scene": "Dock",
+      "description": "底部 Dock 里的备忘录图标",
+      "bbox": [
+        284,
+        911,
+        331,
+        960
+      ]
+    },
+    {
+      "scene": "Dock",
+      "description": "底部 Dock 里的 App Store 图标",
+      "bbox": [
+        354,
+        912,
+        401,
+        961
+      ]
+    },
+    {
+      "scene": "桌面",
+      "description": "桌面上的 Pointer素材 文件夹图标",
+      "bbox": [
+        1418,
+        47,
+        1479,
+        120
+      ]
+    },
+    {
+      "scene": "桌面",
+      "description": "桌面上的 智能填报.svg 文件图标",
+      "bbox": [
+        1182,
+        51,
+        1222,
+        88
+      ]
+    },
+    {
+      "scene": "桌面",
+      "description": "桌面上的 鹅娜.svg 文件图标",
+      "bbox": [
+        1303,
+        49,
+        1347,
+        91
+      ]
+    },
+    {
+      "scene": "桌面",
+      "description": "桌面上的 新疆差旅 文件夹图标",
+      "bbox": [
+        1302,
+        237,
+        1346,
+        268
+      ]
+    },
+    {
+      "scene": "桌面",
+      "description": "桌面上的 参考代码 文件夹图标",
+      "bbox": [
+        1426,
+        248,
+        1471,
+        283
+      ]
+    }
+  ]
+}

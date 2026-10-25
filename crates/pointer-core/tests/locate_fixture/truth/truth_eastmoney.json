@@ -1,5 +1,5 @@
 {
-  "fixture": "eastmoney_1512x982.png",
+  "fixture": "fixtures/truth_eastmoney.png",
   "size": [
     1512,
     982
@@ -238,78 +238,6 @@
       "kind": "plain"
     },
     {
-      "scene": "搜索",
-      "description": "搜索框右侧的「查行情」按钮",
-      "bbox": [
-        775,
-        265,
-        819,
-        283
-      ],
-      "kind": "partial_hint",
-      "hint_box": [
-        812,
-        280,
-        856,
-        298
-      ],
-      "note": "hint 框住元素右下角，框中心落在元素外——verify 应判 no 并给出距离"
-    },
-    {
-      "scene": "导航",
-      "description": "网页顶部导航栏的「移动客户端」",
-      "bbox": [
-        254,
-        140,
-        318,
-        153
-      ],
-      "kind": "partial_hint",
-      "hint_box": [
-        308,
-        151,
-        372,
-        164
-      ],
-      "note": "hint 框住元素右下角，框中心落在元素外——verify 应判 no 并给出距离"
-    },
-    {
-      "scene": "标签栏",
-      "description": "标签栏第二行右侧、『公告』右边的「研报」（不是底部特色服务区那个）",
-      "bbox": [
-        1015,
-        399,
-        1046,
-        417
-      ],
-      "kind": "partial_hint",
-      "hint_box": [
-        1041,
-        414,
-        1072,
-        432
-      ],
-      "note": "hint 框住元素右下角，框中心落在元素外——verify 应判 no 并给出距离"
-    },
-    {
-      "scene": "横幅",
-      "description": "期货横幅的「立即体验」按钮",
-      "bbox": [
-        1123,
-        744,
-        1213,
-        768
-      ],
-      "kind": "partial_hint",
-      "hint_box": [
-        1200,
-        764,
-        1290,
-        788
-      ],
-      "note": "hint 框住元素右下角，框中心落在元素外——verify 应判 no 并给出距离"
-    },
-    {
       "scene": "右侧悬浮栏",
       "description": "搜索框右侧的「搜资讯」按钮",
       "bbox": [
@@ -434,6 +362,17 @@
         895
       ],
       "note": "hint 指向正确那个；验证「离初始坐标最近优先」规则是否生效"
+    },
+    {
+      "scene": "行情数据",
+      "description": "行情数据区的「东方财富期货」",
+      "bbox": [
+        296,
+        733,
+        393,
+        753
+      ],
+      "kind": "plain"
     }
   ]
 }

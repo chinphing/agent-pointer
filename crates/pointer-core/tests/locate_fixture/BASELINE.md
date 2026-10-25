@@ -125,6 +125,48 @@ One case exceeded 60 s under 10-way concurrency. Concurrency queues requests, so
 part of that is scheduling rather than the model looping — re-run serially before
 treating it as hard.
 
+## v3 — anchors limited to adjacent or one gap
+
+`「隔二格」` is ambiguous. r1c3 was anchored on the 9 in B1, three columns away,
+written as 「位于数字9的右边隔二格」; the model read "two cells apart" as
+distance 2 and went to column 6:
+
+```
+Target: "数独盘面B4的空格子，位于数字9的右边隔二格"...
+Digit 9 is at column 4. Two columns right = column 6.
+```
+
+Only adjacent (「右边」) and one-gap (「右边隔一格」) anchors are generated now.
+Distribution: 49 adjacent, 31 one-gap, 1 coordinate-only.
+
+| | v2 | **v3** |
+|---|---|---|
+| hit (all 81, after serially re-running the timeouts) | 73/81 = 90.1 % | **73/81 = 90.1 %** |
+| hit among completed | 91.2 % | **91.8 %** |
+| empty cells | 83.7 % | **92.1 %** |
+| filled cells | 100 % | 91.4 % |
+| hint ≥ 2× | 85.7 % | 86.1 % |
+| median centre offset | 2.9 px | 3.1 px |
+
+**The two datasets are tied overall.** Empty cells improved by 8.4 points, which
+was the target; filled cells lost 8.6 points. Small samples (38–43 per bucket),
+so treat both movements as noise until a repeat run says otherwise.
+
+Eight cases timed out under 10-way concurrency; re-running them serially finished
+all eight in ≤ 18.4 s with 6 hits. **Timeouts in this harness are queueing, not
+difficulty** — always re-run them serially before comparing runs.
+
+The two genuine misses after the serial re-run:
+
+```
+r3c7  第四行第八列的空格子，位于数字2的右边隔一格   box landed one cell left
+r5c8  第六行第九列的空格子，位于数字6的右边隔一格、数字9的下方   ok=false
+```
+
+`r3c7` shows `隔一格` still reads as "the next cell over" rather than "one cell
+in between" — the same off-by-one as `隔二格`, just smaller. `r5c8` the model
+refused outright: 「锚点自相矛盾，图中无符合的空格」.
+
 ## What this baseline measures
 
 81 near-identical targets, descriptions built only from coordinates and

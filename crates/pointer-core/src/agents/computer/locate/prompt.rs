@@ -395,6 +395,17 @@ mod tests {
     }
 
     #[test]
+    fn verify_prompt_defines_the_outline_of_an_empty_cell() {
+        let p = verify_prompt("数独盘面第三行第二列的空格子");
+        // Without this the verifier argued with itself over whether an empty
+        // cell even has an outline: 「目标是一个空格子，整个轮廓包括边框线…
+        // 嗯，但"一部分"对空格子而言意味着什么？」. A box holding only the blank
+        // centre was then passed as complete.
+        assert!(p.contains("四条边线"), "{p}");
+        assert!(p.contains("只框住格子中央的空白区域不算框住"), "{p}");
+    }
+
+    #[test]
     fn verify_prompt_ranks_text_over_colour() {
         let p = verify_prompt("数据按钮");
         assert!(p.contains("外观怎么比"), "{p}");

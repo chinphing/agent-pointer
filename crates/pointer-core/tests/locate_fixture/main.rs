@@ -118,6 +118,11 @@ struct TruthCase {
     #[serde(default)]
     scene: String,
     description: String,
+    /// What the caller intends to do with the element. Mirrors production, where
+    /// `resolve_point` passes the model's own goal and the grounder uses it to
+    /// choose between look-alike targets. Falls back to the fill-in wording.
+    #[serde(default)]
+    goal: Option<String>,
     /// `[x1, y1, x2, y2]` in logical pixels; `null` = not measured yet.
     #[serde(default)]
     bbox: Option<[f64; 4]>,
@@ -381,7 +386,11 @@ async fn frozen_desktop_grounding() -> Result<()> {
                 // measured a different problem — full-screen search with no
                 // intent — which is why sudoku cases carry a deliberately off
                 // hint box.
-                let mut request = LocateRequest::new(desc.as_str(), "选中这一格准备填数");
+                let goal = case
+                    .goal
+                    .clone()
+                    .unwrap_or_else(|| "选中这一格准备填数".to_string());
+                let mut request = LocateRequest::new(desc.as_str(), goal);
                 if let Some(h) = case.hint_box {
                     request = request.with_hint_px(PxBox {
                         x1: h[0],

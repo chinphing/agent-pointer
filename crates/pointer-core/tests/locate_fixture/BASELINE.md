@@ -1,7 +1,24 @@
-# locate baseline — sudoku, 81 cells
+# locate baseline v1 — sudoku, 81 cells
 
 Recorded 2026-10-25. Re-run and compare before changing the locate prompt,
 `LocateConfig`, or the hint pipeline.
+
+## Dataset
+
+`truth/truth_sudoku.json`, 81 cases over `fixtures/sudoku.jpg` (1920×1080).
+
+- **Contents are stated honestly**: 43 cases are empty cells (`空格子`), 38 hold
+  a digit (`有数字N的格子`). An earlier revision called all 81 empty and produced
+  meaningless failures — the grounder correctly refused cells that were not empty.
+- **Two coordinate forms, split at random**: 40 `C3`-style (`coord_style:
+  letter`), 41 `第三行第三列`-style (`coord_style: ordinal`). The board prints
+  `A`–`I` down the side and `1`–`9` across the top, so both are readable; the
+  split exists to compare them.
+- **Anchors carry distance**: `位于数字9的左边`, `…隔一格`, `…隔二格`.
+- **Hint boxes are deliberately off**: anchor inside the cell, side 0.5–3× the
+  cell side.
+- **`goal`** is `选中这一格准备填数` for empty cells, `选中这一格` for filled ones,
+  mirroring what the model actually writes.
 
 ## Command
 
@@ -15,137 +32,92 @@ POINTER_LOCATE_TRUTH=truth_sudoku.json POINTER_LOCATE_CONCURRENCY=10 \
 
 | | |
 |---|---|
-| hit | **38 / 81 = 46.9 %** |
-| wall clock | **270.5 s** (10 concurrent) |
-| completed | 71 |
-| timed out (>60 s per case) | 10 |
-| mean per completed case | 27.0 s |
-| rounds | 1: 39 cases, 2: 30 cases, 3: 2 cases |
+| hit | **56 / 81 = 69.1 %** |
+| wall clock | **297.8 s** (10 concurrent) |
+| completed | 66 |
+| timed out (>60 s per case) | 15 |
+| hit among completed | **56 / 66 = 84.8 %** |
 
-The 70 % bar in the test asserts a full run; this baseline sits well below it.
+The 70 % bar is barely missed, and the miss is entirely the timeouts: among the
+cases that returned, 84.8 % were correct.
 
-## Where it fails
+## Breakdown (66 completed)
 
-**Every completed case returned `ok=true`.** Of the 71 that finished, 33 (46 %)
-put the box on a *different* cell while the grounder reported success. The
-grounder's own acceptance check does not distinguish neighbouring empty cells on
-a sudoku board — it sees "an empty cell matching the description" and stops.
+**By coordinate form** — the opposite of what the previous, flawed dataset
+suggested:
 
-Misses by hint size (hint box side / cell side):
-
-| hint ratio | hit |
+| `coord_style` | hit |
 |---|---|
-| 0.5–1.0× | 7/11 = 63.6 % |
-| 1.0–1.5× | 8/14 = 57.1 % |
-| 1.5–2.0× | 12/17 = 70.6 % |
-| 2.0–3.0× | 11/29 = 37.9 % |
+| `ordinal` (`第三行第三列`) | **31/33 = 93.9 %** |
+| `letter` (`C3`) | **25/33 = 75.8 %** |
 
-A hint three times the target is worse than one half its size. When the box
-swallows neighbours, the model has several valid-looking answers inside it and
-picks one.
+Fisher's exact test on 25/33 vs 31/33 gives p ≈ 0.045. Suggestive, not settled —
+and directly contradicts the earlier run, which is why the earlier numbers are
+discarded rather than reconciled. Re-run before acting on this.
 
-Misses by description shape:
+**By cell content**:
 
-| shape | hit |
+| | hit |
 |---|---|
-| D plain (`左上角的格子`) | 3/3 = 100 % |
-| B edge (`最左边的空格子，位于…`) | 5/7 = 71.4 % |
-| A between (`位于数字9和数字6之间`) | 11/20 = 55.0 % |
-| C direction (`位于数字5的右边，上方是数字7`) | 19/41 = 46.3 % |
+| filled (`有数字7的格子`) | **29/29 = 100 %** |
+| empty (`空格子`) | **27/37 = 73.0 %** |
 
-Relative-anchor descriptions are the weakest. `C direction` is the most common
-shape and the worst performer — "right of the 5" is ambiguous when the 5 sits
-two cells away.
+A filled cell has a visual feature to key on. Empty cells are identical to each
+other, so the anchor text is all the model has.
 
-Misses by rounds — **retries make it worse, not better**:
+**By hint size**:
+
+| hint / cell | hit |
+|---|---|
+| < 1× | **13/13 = 100 %** |
+| 1–2× | 23/26 = 88.5 % |
+| ≥ 2× | **20/27 = 74.1 %** |
+
+Consistent with the previous run: a box that swallows neighbours hurts.
+
+**By rounds** — retries stay counterproductive:
 
 | rounds | hit |
 |---|---|
-| 1 | 30/39 = 76.9 % |
-| 2 | 8/30 = 26.7 % |
-| 3 | 0/2 = 0 % |
+| 1 | **35/36 = 97.2 %** |
+| 2 | 18/25 = 72.0 % |
+| 3 | 3/5 = 60.0 % |
 
-The retry path gives the model its previous (wrong) box plus a complaint. On a
-board of identical cells it relocates to another equally plausible cell rather
-than correcting.
-
-Miss offsets cluster at **22–36 px** — half a cell to a full cell. These are not
-near-misses from imprecise edges; the box is centred on the wrong cell.
+**Failure shape**: `ok=false` (the grounder refused) happened **0 times**. All 10
+misses were `ok=true` with the box on a different cell. The grounder's own
+acceptance check still cannot tell neighbouring empty cells apart.
 
 ## Timeouts
 
-Ten cases hit the 60 s per-case cap:
+15 cases hit the 60 s per-case cap under 10-way concurrency:
 
 ```
-r2c2 r2c4 r3c4 r3c5 r3c8 r4c8 r6c0 r6c7 r7c1 r7c2
+r1c0 r1c8 r2c2 r2c4 r3c3 r3c4 r3c5 r3c8 r4c8 r6c0 r6c5 r6c7 r6c8 r7c1 r7c2
 ```
 
-Nine of the ten carry a hint of 1.18–2.92×; one (`r7c2`, 0.74×) is below the
-cell. Concurrency of 10 keeps requests queued behind each other, so part of the
-timeout is scheduling rather than the model looping. Re-run serially before
-concluding these cases are genuinely hard.
+**Not yet diagnosed.** An earlier serial run of 15 timeout cases from a different
+dataset completed every one in ≤ 24.3 s, which suggests queueing rather than
+genuine difficulty — but that has to be repeated on this dataset before it can be
+claimed.
 
-## What this baseline does and does not measure
+## What this baseline measures
 
-It measures the grounder under **deliberately hostile** conditions: 81
-near-identical targets, descriptions built only from relative position, and hint
-boxes from 0.5× to 3× the cell.
+81 near-identical targets, descriptions built only from coordinates and
+neighbouring digits, hints from 0.5× to 3× the cell. It is a floor for
+"look-alikes everywhere", not a general accuracy figure.
 
-Production `target_desc` carries more distinguishing detail, and the caller's
-hint is usually closer. So 46.9 % is not a general accuracy figure — it is the
-floor for "the board is full of look-alikes and the description relies on
-neighbouring numbers".
+The signals that held across both datasets, and are therefore worth trusting:
 
-The useful signals here are the *relative* ones: hint size hurts above 2×,
-relative-anchor descriptions underperform, and retries are counterproductive.
-Those hold regardless of absolute level.
+- hints above 2× the target hurt;
+- retries reduce accuracy rather than improving it;
+- filled cells are found perfectly, empty cells are not.
 
-## A/B: row label written as A–I instead of 第一行…第九行
+The `letter` vs `ordinal` split is the one open question, and the earlier data
+said the opposite. Treat it as unresolved.
 
-The board prints its row labels as `A`–`I` (verified against a 4× crop of the
-left edge). `truth_sudoku_letters.json` is the same 81 cases with the same hint
-boxes — only the row wording changes, so the comparison isolates that one
-variable.
+## Superseded
 
-```bash
-POINTER_LOCATE_TRUTH=truth_sudoku_letters.json POINTER_LOCATE_CONCURRENCY=10 \
-  cargo test -p pointer-core --test locate_fixture frozen_desktop_grounding \
-  -- --ignored --nocapture
-```
-
-| | 第一行…第九行 | A行…I行 |
-|---|---|---|
-| hit | 38/81 = 46.9 % | **44/81 = 54.3 %** |
-| completed | 71 | 70 |
-| timed out | 10 | 11 |
-| mean per case | 27.0 s | 26.0 s |
-
-On the 66 cases both runs completed:
-
-| | count |
-|---|---|
-| both hit | 34 |
-| miss → hit | **9** (`r2c5 r3c2 r3c6 r4c5 r4c7 r5c0 r5c1 r6c2 r6c3`) |
-| hit → miss | **3** (`r0c5 r5c4 r8c5`) |
-
-Net +6 of 66. **McNemar on 9 vs 3 gives χ² = 2.08, p ≈ 0.15 — not significant
-at this sample size.** One run cannot separate the label change from model
-variance.
-
-What is more suggestive than the hit count: the offset to the true centre shrank.
-
-| | median offset | mean offset |
-|---|---|---|
-| 第一行…第九行 | 21.2 px | 23.5 px |
-| A行…I行 | **15.7 px** | **20.8 px** |
-
-A cell is 41 px, so the median miss went from half a cell to a third of one.
-The boxes are landing closer even where they still land on the wrong cell.
-
-Round 1 hit rate also moved: 77 % → 81 %.
-
-**Treat the direction as a hypothesis, not a result.** Re-run both sides before
-changing any prompt. If the effect survives a second run, the conclusion would
-be that describing a cell by a label printed on screen beats describing it by an
-ordinal the model has to count to.
-
+An earlier revision of this file reported 46.9 % (then 54.3 % with letter row
+labels) on a dataset whose descriptions claimed 37 filled cells were empty. Those
+numbers measured the dataset's errors, not the grounder's. Kept here only so the
+change is traceable.

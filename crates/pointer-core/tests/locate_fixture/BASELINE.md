@@ -238,6 +238,42 @@ Four are exactly one cell off; two exhausted their rounds refusing
 (`ok=false`). **Filled cells are now perfect — every remaining failure is an
 empty cell**, where the only distinguishing feature is the anchor text.
 
+### All six pass with thinking on
+
+Re-running those six with `POINTER_LOCATE_THINKING=1`:
+
+| case | hit | rounds | secs | offset |
+|---|---|---|---|---|
+| r3c2 | ✅ | 2 | 38.5 | (0, 0) |
+| r3c7 | ✅ | 2 | 99.9 | (0, −1) |
+| r4c3 | ✅ | 2 | 72.2 | (+1, −2) |
+| r5c0 | ✅ | 2 | 33.9 | (0, 0) |
+| r5c8 | ✅ | 2 | 51.3 | (0, 0) |
+| r7c5 | ✅ | 2 | 70.2 | (0, −1) |
+
+6/6, every one in two rounds, offsets 0–2 px. Mean 61 s.
+
+So the remaining misses are not a difficulty ceiling — they are the same
+measurement failure as the small-hint cases, just surfacing on empty cells where
+the anchor text is the only cue. With thinking off the verifier reads 「框里有
+空白格」 and stops; with it on, it counts columns and rows and gets there.
+
+One case (r7c5) timed out at >180 s when six ran together but finished in 70 s
+alone — that was queueing, not difficulty, same as the timeout caveat for the
+main run.
+
+### Deferred: are `target_px` / `box_px` usable for code-side judgement?
+
+Not yet measured. Need the per-case values written into the `--nocapture` output
+so they can be paired with ground truth; `RUST_LOG` at 10-way concurrency
+interleaves them. Open question is whether the **ratio** is stable — the two
+numbers can both be off while their quotient is fine, and it is the quotient a
+code-side check would use.
+
+Spot samples so far disagree: four readings of a true ratio of 1.78 gave
+1.33 / 1.48 / 1.25 / 2.50, but r7c5 gave 1.33 against a true 1.32. Too few
+samples to call it either way.
+
 ## What this baseline measures
 
 81 near-identical targets, descriptions built only from coordinates and

@@ -44,6 +44,3 @@ On `fail`, name the one fact that decided it.
 Max **3 sentences**, plain prose.
 
 **Forbidden:** "Analyze the Request"; JSON/`{`/`}`; repeating `submit_verify` args.
-
-**Pointer rule:** cursor on target alone ≠ pass; visible UI outcome required.
-Exception: `mouse_move` — cursor at target = pass.

@@ -37,6 +37,9 @@ Two kinds — do not mix them up:
 - **`kind: "terminal"`** — a shell command from `terminal` `blockUntilMs`.
   `content` is command JSON (`stdout`, `stderr`, `exitCode`).
   No `agentId`. This is not a subagent.
+  Only `blockUntilMs: 0` is a true background job (turn released at once).
+  `blockUntilMs: N>0` holds the parent turn up to N ms (capped at 60000)
+  before detaching, so it shows up here while the turn is still blocked.
 
 Jobs keep running after this turn ends.
 Do not tell the user everything is finished while jobs are still running.

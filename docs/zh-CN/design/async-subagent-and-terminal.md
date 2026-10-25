@@ -93,7 +93,7 @@ P0 起仅 `self` / `explore` 可后台，后放开 `coder`；其它 agentId 传 
 |----|------|------|
 | 省略 | 等到命令结束（现网） | Codex 前台 exec |
 | `0` | 立刻返回 `{ jobId, status: "running", kind: "terminal" }` | Codex 后台 session |
-| `N>0` | 最多等 N ms，未结束则 detach 成 job；结束则本轮返回完整 stdout JSON | Codex yield / 超时后转后台 |
+| `N>0` | 最多等 N ms（**硬上限 60000**，超出按 60000 计），未结束则 detach 成 job；结束则本轮返回完整 stdout JSON。等待期间**父回合被占住** | Codex yield / 超时后转后台 |
 
 P0 不含 elevated、需交互 stdin 的命令。Workspace 用户终端仍独立。
 

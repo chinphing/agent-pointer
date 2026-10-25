@@ -101,6 +101,26 @@ pub fn parse_block_until_ms(args: &serde_json::Value) -> Result<Option<u64>, Str
     }
 }
 
+/// Hard cap on how long one `terminal` call may hold the parent turn while
+/// waiting for a background command (`blockUntilMs: N`).
+///
+/// `N` above this is clamped: the command keeps running as a job and the call
+/// returns the job handle after at most this many ms. Only `blockUntilMs: 0`
+/// detaches immediately.
+pub const MAX_BLOCK_UNTIL_MS: u64 = 60_000;
+
+/// Effective in-call wait for a background `terminal` call.
+///
+/// `0` stays `0` (detach now, parent turn is not held); any positive value is
+/// clamped to [`MAX_BLOCK_UNTIL_MS`] so a large `N` cannot park the turn.
+pub fn effective_block_until_ms(requested: u64) -> u64 {
+    if requested == 0 {
+        0
+    } else {
+        requested.min(MAX_BLOCK_UNTIL_MS)
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalNeedsInputPrompt {
@@ -1312,6 +1332,17 @@ mod cwd_tests {
         );
         assert!(parse_block_until_ms(&serde_json::json!({ "blockUntilMs": -1 })).is_err());
         assert!(parse_block_until_ms(&serde_json::json!({ "blockUntilMs": "soon" })).is_err());
+    }
+
+    #[test]
+    fn effective_block_until_ms_keeps_zero_and_clamps_long_waits() {
+        assert_eq!(effective_block_until_ms(0), 0);
+        assert_eq!(effective_block_until_ms(1), 1);
+        assert_eq!(effective_block_until_ms(5_000), 5_000);
+        assert_eq!(effective_block_until_ms(MAX_BLOCK_UNTIL_MS), MAX_BLOCK_UNTIL_MS);
+        // 15 minutes must not park the parent turn for 15 minutes.
+        assert_eq!(effective_block_until_ms(900_000), MAX_BLOCK_UNTIL_MS);
+        assert_eq!(effective_block_until_ms(u64::MAX), MAX_BLOCK_UNTIL_MS);
     }
 
     #[test]

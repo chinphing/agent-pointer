@@ -40,6 +40,11 @@ schema:
     blockUntilMs:
       type: integer
       minimum: 0
+      maximum: 60000
+      description: >
+        Omit = foreground (the turn waits). `0` = detach now, returns a job
+        handle — default for long commands. `N>0` = hold the call up to N ms
+        (capped at 60000) then detach; only for commands finishing in seconds.
   required:
     - command
   additionalProperties: true
@@ -140,11 +145,13 @@ Passwords and yes/no prompts use an **in-app modal** — never put secrets in
 
 A shell command, not a subagent. Same `job` table, different `kind`.
 
-- Omit: wait until the command ends (default).
-- **`0`**: return `{ jobId, status: "running", kind: "terminal" }` now.
-  The command keeps running. Use **`job.await`** for stdout/stderr/exit.
-- **`N>0`**: wait up to N ms. If it finishes, this call returns the usual
-  command JSON. If still running, return the same handle as **`0`**.
+- Omit: foreground join — the turn waits for the command. Short commands only.
+- **`0`**: return the `{ jobId, status: "running", kind: "terminal" }` handle
+  now; the turn is not held. Use **`job.await`** for stdout/stderr/exit.
+  **Default for anything long** — builds, tests, installs, servers, downloads.
+- **`N>0`**: hold this call (and the turn) up to N ms, then detach to the same
+  handle as `0`. Only for commands that finish in seconds. **`N` is capped at
+  60000**; a bigger number does not wait longer.
 - Do not set **`elevated: true`** with **`blockUntilMs`**.
   Background commands have no password/stdin modal.
 - Do not tell the user the command finished while it is still running.
@@ -165,4 +172,4 @@ A shell command, not a subagent. Same `job` table, different `kind`.
 | **`envFiles`** | no | `.env` path or array |
 | **`elevated`** | no | Admin/root; see **Elevation** |
 | **`label`** | no | Human-readable short name shown in UI, in the user's language; defaults to first line of `command` |
-| **`blockUntilMs`** | no | See **Background**. Omit = wait. `0` = job handle now. `N` = wait up to N ms then detach |
+| **`blockUntilMs`** | no | See **Background**. Omit = foreground join. `0` = job handle now (preferred for long commands). `N` = hold this call up to N ms (capped at **60000**) then detach |

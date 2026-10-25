@@ -12,9 +12,9 @@ use crate::tools::file::ConversationWorkspaceGuard;
 use crate::tools::parallel::ParallelLimits;
 use crate::tools::terminal::InputClass;
 use crate::tools::terminal::{
-    parse_block_until_ms, run_terminal_command_streaming, terminal_requests_elevation,
-    terminal_stream_tool_status, terminal_streaming_result_json, TerminalInputHooks,
-    TerminalInputResolution, TerminalNeedsInputPrompt, TerminalStreamingResult,
+    effective_block_until_ms, parse_block_until_ms, run_terminal_command_streaming,
+    terminal_requests_elevation, terminal_stream_tool_status, terminal_streaming_result_json,
+    TerminalInputHooks, TerminalInputResolution, TerminalNeedsInputPrompt, TerminalStreamingResult,
 };
 use anyhow::anyhow;
 use std::sync::atomic::AtomicBool;
@@ -428,18 +428,26 @@ async fn run_terminal_background(
     tokio::spawn(run_background_terminal(job_id.clone(), spawn));
 
     let handle = background_job_handle_json(&job_id, JobStatus::Running, "terminal", None, None);
-    if block_until_ms == 0 {
+    // A large `blockUntilMs` must never park the parent turn: the job keeps
+    // running either way, so cap the in-call wait and hand back the handle.
+    let wait_ms = effective_block_until_ms(block_until_ms);
+    if wait_ms == 0 {
         log::info!(
             "terminal background detached immediately job_id={job_id} conversation_id={conversation_id}"
         );
         return Ok((handle, true, None));
+    }
+    if wait_ms != block_until_ms {
+        log::warn!(
+            "terminal background wait clamped job_id={job_id} conversation_id={conversation_id} requested_ms={block_until_ms} clamped_ms={wait_ms}"
+        );
     }
 
     let slot_cap = JobSupervisor::slot_cap_from(
         ParallelLimits::from_settings(&state.effective_settings()).max_parallel_sub_agents,
     );
     log::info!(
-        "terminal background waiting job_id={job_id} conversation_id={conversation_id} block_until_ms={block_until_ms}"
+        "terminal background waiting job_id={job_id} conversation_id={conversation_id} block_until_ms={block_until_ms} wait_ms={wait_ms}"
     );
     let result = match state
         .jobs
@@ -448,7 +456,7 @@ async fn run_terminal_background(
             terminal_self_caller(owner_chain),
             Some(vec![job_id.clone()]),
             AwaitMode::All,
-            Some(Duration::from_millis(block_until_ms)),
+            Some(Duration::from_millis(wait_ms)),
             parent_cancel,
             slot_cap,
         )

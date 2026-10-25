@@ -16,7 +16,7 @@ position did not move because of this drag.
 | --- | --- | --- |
 | The item moved, reordered, or a transfer started at the drop zone | `pass` | — |
 | A different item moved, or the right item landed outside the drop zone | `fail` | `wrong_operation` |
-| Nothing changed anywhere | `fail` | `precision_miss` |
+| Nothing changed anywhere | `fail` | `wrong_operation` |
 
 **`loading_detected`:** file transfer progress or spinner visible.
 

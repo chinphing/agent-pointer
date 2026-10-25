@@ -17,7 +17,7 @@ appear because of this hover.
 | --- | --- | --- |
 | The expected tooltip / popup / highlight, on the element `goal` names | `pass` | — |
 | A different element reacted, or a different UI appeared | `fail` | `wrong_operation` |
-| Nothing changed anywhere | `fail` | `precision_miss` |
+| Nothing changed anywhere | `fail` | `wrong_operation` |
 
 ### Reasoning (hard rule)
 

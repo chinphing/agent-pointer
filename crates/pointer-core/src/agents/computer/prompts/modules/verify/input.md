@@ -17,8 +17,7 @@ not typed by this action. `clear_first` means the before content should be gone.
 | --- | --- | --- |
 | The expected text, in the field `goal` names | `pass` | — |
 | Text went into a different field, or replaced the wrong content | `fail` | `wrong_operation` |
-| Nothing changed, field still unfocused | `fail` | `wrong_operation` |
-| Nothing changed, cursor was off the field | `fail` | `precision_miss` |
+| Nothing changed anywhere | `fail` | `wrong_operation` |
 
 If `auto_enter`: form may have submitted — pass when navigation, results, or
 dialog close is a **difference between the two frames**.

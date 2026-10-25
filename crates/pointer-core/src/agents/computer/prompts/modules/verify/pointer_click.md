@@ -2,17 +2,21 @@
 
 Two questions in order. Stop at the first one that decides it.
 
-**Evidence:** **[Screen before action]** vs **[Screen after action]**. Both carry
-the pointer overlay, so where the click landed is visible.
+**Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-### Step 1 — where did the click land?
+### Step 1 — where did the change happen?
 
-Find the element `goal` names — a cell, a button, a row, a menu item — and look
-at the landing point.
+Compare the two frames and find the region that differs.
 
-- **On that element** → go to step 2.
-- **On a different element or empty space** → `fail`, `precision_miss`. The
-  click missed.
+**When `goal` names a position** — a row and column, an ordinal, a named panel —
+that region must be **at that position**. A change of the right kind in the wrong
+cell, the wrong row, or the wrong panel belongs in the second case below.
+
+- **At the element `goal` names** → go to step 2.
+- **At a different element, while the one `goal` names is unchanged** → `fail`,
+  `wrong_operation`. The click reached something else.
+- **Nothing differs anywhere** → `fail`, `wrong_operation`. The click reached the
+  element and nothing happened.
 
 ### Step 2 — did the expected change happen?
 
@@ -25,17 +29,9 @@ same before and after; the toast, the dialog, the new page, the row that
 disappeared — that is the change. But it must be a **difference between the two
 frames**, not a state you notice in the after frame alone.
 
-**When `goal` names a position** — a row and column, an ordinal, a named panel —
-the difference must appear **at that position**. The right kind of change in the
-wrong cell, the wrong row, or the wrong panel is a `fail`.
-
-- **The change `goal` expects, in the right place** → `pass`.
-- **The right change in the wrong place** — the value landed one cell over, the
-  wrong row got selected, the wrong tab opened → `fail`, `wrong_operation`.
+- **The change `goal` expects** → `pass`.
 - **Some change, but not the expected one** — highlighted instead of entered,
   focused instead of opened, the wrong menu expanded → `fail`, `wrong_operation`.
-- **No change anywhere** → `fail`, `wrong_operation`. The click reached the
-  element and nothing happened.
 
 **`loading_detected`:** spinner, progress bar, or partial load in after.
 

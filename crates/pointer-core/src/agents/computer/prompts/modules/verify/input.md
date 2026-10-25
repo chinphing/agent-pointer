@@ -2,15 +2,26 @@
 
 Judge whether text was entered into the target field.
 
-**Evidence:** **[Screen before action]** vs **[Screen after action]** — field content and focus.
+**Evidence:** **[Screen before action]** vs **[Screen after action]** — field
+content and focus.
 
-| Outcome | `action_result` | `failure_cause` |
+### Step 1 — what did the field hold before, and what does it hold now?
+
+Read the target field in both frames. Only a **difference between the two**
+counts as entered text — characters already present in the before frame were
+not typed by this action. `clear_first` means the before content should be gone.
+
+### Step 2 — does the difference match what `goal` asked for?
+
+| Difference | `action_result` | `failure_cause` |
 | --- | --- | --- |
-| Expected text visible in field | `pass` | — |
-| Empty or wrong text | `fail` | `wrong_operation` or `precision_miss` |
-| Field not focused, no text | `fail` | `wrong_operation` |
+| The expected text, in the field `goal` names | `pass` | — |
+| Text went into a different field, or replaced the wrong content | `fail` | `wrong_operation` |
+| Nothing changed, field still unfocused | `fail` | `wrong_operation` |
+| Nothing changed, cursor was off the field | `fail` | `precision_miss` |
 
-If `auto_enter`: form may have submitted — pass when navigation, results, or dialog close matches goal.
+If `auto_enter`: form may have submitted — pass when navigation, results, or
+dialog close is a **difference between the two frames**.
 
 **`loading_detected`:** post-submit spinner or page load in progress.
 
@@ -18,11 +29,8 @@ If `auto_enter`: form may have submitted — pass when navigation, results, or d
 
 Max **3 sentences**, plain prose — no numbered lists or section headers.
 
-1. Before/after field text and focus vs expected input from `goal`.
-2. Pass or fail + `failure_cause` when fail — **do not** analyze pointer.
+1. Field content in before, then in after — what differs.
+2. Pass or fail + `failure_cause` when fail.
 3. Optional: loading after auto-submit.
 
-On `fail`, `step_summary` carries the one observation that decides the case —
-what the field actually holds, or where focus went. Keep it to a short clause.
-
-**Forbidden:** pointer-position analysis; numbered CoT templates; JSON; repeating tool args.
+**Forbidden:** numbered CoT templates; JSON; repeating tool args.

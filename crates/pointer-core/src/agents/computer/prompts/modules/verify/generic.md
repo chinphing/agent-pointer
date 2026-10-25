@@ -6,14 +6,14 @@ selection model, so do not assume any of them.
 
 **Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-| Goal evidence | `action_result` | `failure_cause` |
+Read the area `goal` names in both frames. Only a **difference between the two**
+counts as a change.
+
+| Difference | `action_result` | `failure_cause` |
 | --- | --- | --- |
 | The change `goal` describes | `pass` | — |
 | A change, but not the one `goal` describes | `fail` | `wrong_operation` |
 | No change anywhere | `fail` | `wrong_operation` |
-
-**`step_summary`:** on `pass`, name the change — `panel expanded, three rows
-visible`. On `fail`, name the one fact that decided it.
 
 ### Reasoning (hard rule)
 

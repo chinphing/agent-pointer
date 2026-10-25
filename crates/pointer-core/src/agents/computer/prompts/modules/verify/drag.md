@@ -4,26 +4,28 @@ Judge whether drag-and-drop produced the expected outcome.
 
 **Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-**Order:** goal first → pointer/end position **only on fail**.
+### Step 1 — what moved, and where did it land?
 
-| Outcome | `action_result` | Fail detail | `failure_cause` |
-| --- | --- | --- | --- |
-| Item moved, reordered, or transfer started | `pass` | — | — |
-| No move | `fail` | miss drop zone | `precision_miss` |
-| Wrong item affected | `fail` | wrong target | `wrong_operation` |
+Read the dragged item and the drop area in both frames. Only a **difference
+between the two** counts as a drop — an item that was already in the target
+position did not move because of this drag.
+
+### Step 2 — is that the outcome `goal` asked for?
+
+| Difference | `action_result` | `failure_cause` |
+| --- | --- | --- |
+| The item moved, reordered, or a transfer started at the drop zone | `pass` | — |
+| A different item moved, or the right item landed outside the drop zone | `fail` | `wrong_operation` |
+| Nothing changed anywhere | `fail` | `precision_miss` |
 
 **`loading_detected`:** file transfer progress or spinner visible.
 
 ### Reasoning (hard rule)
 
-Max **4 sentences**, plain prose.
+Max **3 sentences**, plain prose.
 
-1. Before/after — item moved/reordered/transfer started or not.
-2. Pass → stop; fail → wrong item vs miss drop zone for `failure_cause`.
-3. On fail only: brief pointer/drop-zone note if needed.
-4. Optional: loading.
-
-On `fail`, `step_summary` carries the one observation that decides the case —
-what was dragged, where it landed, or what stayed put. Keep it to a short clause.
+1. The item and the drop area in before, then in after — what differs.
+2. Pass or fail + `failure_cause`.
+3. Optional: loading.
 
 **Forbidden:** numbered CoT templates; JSON; repeating tool args.

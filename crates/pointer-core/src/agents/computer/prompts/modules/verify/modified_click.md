@@ -16,6 +16,9 @@ Find the element `goal` names and look at the landing point.
 
 ### Step 2 — did the expected change happen?
 
+Read the selection in both frames. Only a **difference between the two** counts —
+the rows already selected in the before frame were not selected by this click.
+
 - **The selection grew, or the special action ran** — another row joined the
   selected set, a new tab opened, the range extended → `pass`.
 - **The expected effect is missing** — only that row got selected and the
@@ -24,10 +27,6 @@ Find the element `goal` names and look at the landing point.
 - **No change anywhere** → `fail`, `wrong_operation`.
 
 **`loading_detected`:** UI still settling.
-
-**`step_summary`:** on `pass`, name the landing point and the change —
-`row 5 joined the selection, 3 rows now selected`. On `fail`, name the one fact
-that decided it.
 
 ### Reasoning (hard rule)
 

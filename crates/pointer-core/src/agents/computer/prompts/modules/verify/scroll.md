@@ -46,6 +46,10 @@ Do not try to count pixels — the estimate is for scaling, not for measurement.
 The single test for success is **whether the two screenshots differ because the
 content scrolled**. Everything else follows from that.
 
+Read the first visible row (or column) in both frames: the shift is the
+**difference between the two**, and an unchanged first row with unchanged rows
+below it means nothing moved.
+
 | Situation | `action_result` | `failure_cause` |
 | --- | --- | --- |
 | Content offset changed — by any amount, including a short move that ran into an edge | `pass` | — |
@@ -86,21 +90,18 @@ tells the planner the rest. `at_edge` is reserved for a scroll that produced
 
 Max **3 sentences**, plain prose.
 
-1. Estimated shift as a viewport fraction, then what changed.
+1. First visible row in before, then in after — the shift as a viewport fraction.
 2. Pass or fail + `failure_cause`.
-3. **On `fail`, `step_summary` carries the one observation that decides the
-   case** — the edge evidence you used, or where the pointer landed. Keep it to
-   a short clause, not a description of the whole screen: the planner needs the
-   fact that changes its next move, nothing else.
+3. On `fail`, the edge evidence you used.
 
 Optional: `loading_detected` when nothing moved but a spinner is visible.
 
-**Forbidden:** pointer-position analysis; numbered CoT templates; JSON.
+**Forbidden:** numbered CoT templates; JSON.
 
 Failure summaries name the decisive fact and stop:
 
 ```
-moved 0; footer 「已显示全部」 visible
-moved 0; pointer on the page header, list still cut off below
-moved 0; sidebar scrolled, panel did not move
+first row "Item 3" → "Item 3", moved 0; footer 「已显示全部」 visible
+first row "Item 3" → "Item 3", moved 0; pointer on the page header, list still cut off below
+first row "Item 3" → "Item 3", moved 0; sidebar scrolled, panel did not move
 ```

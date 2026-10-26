@@ -112,8 +112,7 @@ describe('platformTierDefaults', () => {
     })).toBe(true)
   })
 
-  it('inherits thinking flags from platform model configs', () => {
-    const cfg = withInheritedThinking(
+  it('inherits thinking flags from platform model configs', () => {    const cfg = withInheritedThinking(
       { providerId: 'qwen', model: 'qwen-next' },
       [
         {
@@ -136,5 +135,57 @@ describe('platformTierDefaults', () => {
       thinkingBudget: 8192,
       reasoningEffort: 'max'
     })
+  })
+
+  it('uses tier thinking intensity dispatched by the platform', () => {
+    const ref = platformAgentModeDefault(
+      {
+        agentModeLlm: {
+          general: {
+            fast: {
+              providerId: 'qwen',
+              model: 'qwen-next',
+              thinkingIntensity: 'max'
+            }
+          }
+        }
+      },
+      'general',
+      'fast'
+    )
+    expect(ref).toEqual({ providerId: 'qwen', model: 'qwen-next', thinkingIntensity: 'max' })
+    const cfg = withInheritedThinking(ref!, [
+      {
+        id: 'qwen',
+        name: '千问',
+        baseUrl: 'https://example',
+        apiKey: '',
+        models: ['qwen-next'],
+        modelConfigs: { 'qwen-next': { thinkingIntensity: 'low' } }
+      }
+    ])
+    // 档位下发值覆盖模型级继承。
+    expect(cfg.thinkingIntensity).toBe('max')
+    expect(cfg.thinkingBudget).toBe(8192)
+  })
+
+  it('keeps inheriting model thinking when the tier omits intensity', () => {
+    const ref = platformAgentModeDefault(
+      { agentModeLlm: { general: { fast: { providerId: 'qwen', model: 'qwen-next' } } } },
+      'general',
+      'fast'
+    )
+    expect(ref).toEqual({ providerId: 'qwen', model: 'qwen-next' })
+    const cfg = withInheritedThinking(ref!, [
+      {
+        id: 'qwen',
+        name: '千问',
+        baseUrl: 'https://example',
+        apiKey: '',
+        models: ['qwen-next'],
+        thinkingIntensity: 'high'
+      }
+    ])
+    expect(cfg.thinkingIntensity).toBe('high')
   })
 })

@@ -7,9 +7,15 @@ import type {
   PlatformSettings,
   ProviderConfig
 } from '../types/chat'
-import { parseThinkingIntensity, thinkingPatchFromProviderModel } from './thinkingIntensity'
+import { parseThinkingIntensity, patchTierThinkingIntensity, thinkingPatchFromProviderModel } from './thinkingIntensity'
+import type { ThinkingIntensity } from './thinkingIntensity'
 
-export type PlatformTierRef = { providerId: string; model: string }
+export type PlatformTierRef = {
+  providerId: string
+  model: string
+  /** 平台档位显式下发的思考强度；缺省表示跟随服务商/模型参数。 */
+  thinkingIntensity?: ThinkingIntensity
+}
 
 export function emptyTierConfig(): PerformanceModeLlmConfig {
   return { providerId: '', model: '' }
@@ -133,7 +139,8 @@ export function readTierModelRef(raw: unknown): PlatformTierRef | undefined {
   const providerId = String(obj.providerId ?? obj.provider_id ?? '').trim()
   const model = String(obj.model ?? '').trim()
   if (!providerId || !model) return undefined
-  return { providerId, model }
+  const thinkingIntensity = parseThinkingIntensity(obj.thinkingIntensity)
+  return thinkingIntensity ? { providerId, model, thinkingIntensity } : { providerId, model }
 }
 
 function tierDefaultsObject(tierDefaults: unknown): Record<string, unknown> | undefined {
@@ -156,10 +163,13 @@ export function withInheritedThinking(
   ref: PlatformTierRef,
   providers: ProviderConfig[]
 ): PerformanceModeLlmConfig {
+  const inherited = thinkingPatchFromProviderModel(providers, ref.providerId, ref.model)
+  // 平台档位显式下发思考强度时以档位为准；未下发才跟随服务商/模型参数。
   return {
     providerId: ref.providerId,
     model: ref.model,
-    ...thinkingPatchFromProviderModel(providers, ref.providerId, ref.model)
+    ...inherited,
+    ...(ref.thinkingIntensity ? patchTierThinkingIntensity(ref.thinkingIntensity) : {})
   }
 }
 

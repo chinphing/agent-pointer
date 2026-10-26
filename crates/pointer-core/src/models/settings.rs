@@ -3189,8 +3189,9 @@ fn agent_ref_from_json(v: &serde_json::Value) -> Option<AgentModelRef> {
     }
 }
 
-/// 解析档位条目（只含 providerId+model）；enableThinking/thinkingBudget 从
-/// providers 的模型级参数（model_configs，优先）或服务商级默认继承，缺省 true/None。
+/// 解析档位条目（providerId+model，可选 thinkingIntensity）；enableThinking/
+/// thinkingBudget 从 providers 的模型级参数（model_configs，优先）或服务商级默认继承，
+/// 缺省 true/None。档位自带思考强度时优先于模型级继承（平台下发档位口径）。
 fn tier_cfg_from_json(
     v: &serde_json::Value,
     providers: &[ProviderConfig],
@@ -3200,12 +3201,17 @@ fn tier_cfg_from_json(
     let mut thinking_budget: Option<u32> = None;
     let mut reasoning_effort: Option<String> = None;
     let mut thinking_intensity: Option<String> = None;
+    if let Some(raw) = v.get("thinkingIntensity").and_then(|x| x.as_str()) {
+        thinking_intensity =
+            crate::thinking_strategy::ThinkingIntensity::parse(raw).map(|level| level.as_str().to_string());
+    }
     if let Some(p) = providers.iter().find(|p| p.id == ref_val.provider_id) {
         if let Some(m) = p.model_configs.get(&ref_val.model) {
             enable_thinking = m.enable_thinking.or(enable_thinking);
             thinking_budget = m.thinking_budget.or(thinking_budget);
             reasoning_effort = m.reasoning_effort.clone().or(reasoning_effort);
-            thinking_intensity = m.thinking_intensity.clone().or(thinking_intensity);
+            // 档位下发的强度优先于模型级继承。
+            thinking_intensity = thinking_intensity.or(m.thinking_intensity.clone());
         }
         enable_thinking = enable_thinking.or(p.enable_thinking);
         thinking_budget = thinking_budget.or(p.thinking_budget);
@@ -3912,6 +3918,65 @@ mod user_settings_defaults_tests {
         assert_eq!(
             chosen.agent_mode_llm["computer"]["standard"].model,
             "qwen3.8-max"
+        );
+    }
+
+    #[test]
+    fn platform_tier_thinking_intensity_overrides_model_default() {
+        let mut model_configs = HashMap::new();
+        model_configs.insert(
+            "qwen3.5-plus".to_string(),
+            ModelRuntimeOverrides {
+                thinking_intensity: Some("medium".into()),
+                ..Default::default()
+            },
+        );
+        let providers = vec![ProviderConfig {
+            id: "qwen".into(),
+            name: "千问".into(),
+            base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+            api_key: String::new(),
+            models: vec!["qwen3.5-plus".into()],
+            reasoning_in_messages: None,
+            temperature: None,
+            top_p: None,
+            max_tokens: None,
+            context_budget_tokens: None,
+            model_configs,
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+            thinking_protocol: None,
+            thinking_intensity: Some("medium".into()),
+            extra_body: None,
+            source: Some("platform".into()),
+        }];
+        let defaults = serde_json::json!({
+            "agentModeLlm": {
+                "general": {
+                    "fast": {
+                        "providerId": "qwen",
+                        "model": "qwen3.5-plus",
+                        "thinkingIntensity": "max"
+                    },
+                    "standard": { "providerId": "qwen", "model": "qwen3.5-plus" }
+                }
+            }
+        });
+        let mut settings = ModelSettings::default();
+        apply_platform_tier_defaults(&mut settings, &defaults, &providers);
+        // 档位自带强度优先；未下发时仍从模型/服务商参数继承。
+        assert_eq!(
+            settings.agent_mode_llm["general"]["fast"]
+                .thinking_intensity
+                .as_deref(),
+            Some("max")
+        );
+        assert_eq!(
+            settings.agent_mode_llm["general"]["standard"]
+                .thinking_intensity
+                .as_deref(),
+            Some("medium")
         );
     }
 

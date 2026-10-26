@@ -7,7 +7,7 @@ import type {
   PlatformSettings,
   ProviderConfig
 } from '../types/chat'
-import { parseThinkingIntensity, patchTierThinkingIntensity, thinkingPatchFromProviderModel } from './thinkingIntensity'
+import { parseThinkingIntensity, patchTierThinkingIntensity, thinkingPatchFromProviderModel, budgetForIntensity } from './thinkingIntensity'
 import type { ThinkingIntensity } from './thinkingIntensity'
 
 export type PlatformTierRef = {
@@ -199,6 +199,14 @@ export function platformMediaGenerationDefault(
   return readTierModelRef(generation?.[kind])
 }
 
+/** Pipeline 阶段的 `thinkingIntensity` → 预算（off = 0）；未下发返回 undefined。 */
+function phaseThinkingBudget(raw: unknown): number | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const intensity = parseThinkingIntensity((raw as Record<string, unknown>).thinkingIntensity)
+  if (!intensity) return undefined
+  return intensity === 'off' ? 0 : budgetForIntensity(intensity)
+}
+
 export function platformComputerPipelineDefault(
   tierDefaults: unknown
 ): ComputerPipelineLlmSettings {
@@ -219,6 +227,16 @@ export function platformComputerPipelineDefault(
     out.verify = verify.model
     out.verifyProviderId = verify.providerId
   }
+  const verifyBudget = phaseThinkingBudget(pipeline?.verify)
+  if (verifyBudget !== undefined) out.verifyThinkingBudget = verifyBudget
+  // 定位模型可留空（跟随主模型），思考强度仍独立生效。
+  const locate = readTierModelRef(pipeline?.locate)
+  if (locate) {
+    out.locate = locate.model
+    out.locateProviderId = locate.providerId
+  }
+  const locateBudget = phaseThinkingBudget(pipeline?.locate)
+  if (locateBudget !== undefined) out.locateThinkingBudget = locateBudget
   return out
 }
 

@@ -257,15 +257,10 @@ impl ComputerState {
         }
         s.model = model;
         // Decision keeps the round thinking that the shared session-model path
-        // already applied from `agentModeLlm[agentId][mode]`; only the explicit
-        // Position / Verify phases override it with their own budget.
-        if matches!(phase, PipelineLlmPhase::Position | PipelineLlmPhase::Verify) {
-            let (enable, budget) = cfg.pipeline_llm.thinking_for_phase(phase);
-            s.round_thinking_locked = true;
-            s.round_enable_thinking = Some(enable);
-            s.round_thinking_budget = Some(budget);
-            s.round_reasoning_effort = None;
-            s.round_thinking_intensity = None;
+        // already applied from `agentModeLlm[agentId][mode]`; Position / Verify /
+        // Locate override it with their own budget (0 = thinking off).
+        if !matches!(phase, PipelineLlmPhase::Decision) {
+            self.apply_pipeline_thinking(phase, &mut s);
         }
         if crate::logging::internal_runtime_log_enabled() {
             log::debug!(
@@ -279,6 +274,23 @@ impl ComputerState {
             );
         }
         s
+    }
+
+    /// Apply one phase's thinking budget onto this round's settings.
+    ///
+    /// Verify / Locate treat `0` as thinking off; Position uses its budget.
+    pub fn apply_pipeline_thinking(
+        &self,
+        phase: PipelineLlmPhase,
+        s: &mut crate::models::ModelSettings,
+    ) {
+        let cfg = self.effective_pipeline_config();
+        let (enable, budget) = cfg.pipeline_llm.thinking_for_phase(phase);
+        s.round_thinking_locked = true;
+        s.round_enable_thinking = Some(enable);
+        s.round_thinking_budget = Some(budget);
+        s.round_reasoning_effort = None;
+        s.round_thinking_intensity = None;
     }
 
     /// Whether host post-execute verify is enabled (all tiers when true).
@@ -772,6 +784,25 @@ mod tests {
     /// then blocked on the second call inside an integration-test binary). This
     /// unit test exercises the same functions and finishes in a fraction of a
     /// second, so the integration copy was removed rather than kept as a hang.
+    /// 定位阶段：配置了预算就用，默认 0 仍表示关闭（B5 原行为）。
+    #[test]
+    fn locate_phase_applies_configured_thinking_budget() {
+        let mut state = make_state();
+        state.pipeline_config.pipeline_llm.thinking_budget_locate = 1024;
+        let mut s = crate::models::ModelSettings::default();
+        state.apply_pipeline_thinking(PipelineLlmPhase::Locate, &mut s);
+        assert!(s.round_thinking_locked);
+        assert_eq!(s.round_enable_thinking, Some(true));
+        assert_eq!(s.round_thinking_budget, Some(1024));
+        assert!(s.round_thinking_intensity.is_none());
+
+        let state = make_state();
+        let mut s = crate::models::ModelSettings::default();
+        state.apply_pipeline_thinking(PipelineLlmPhase::Locate, &mut s);
+        assert_eq!(s.round_enable_thinking, Some(false));
+        assert_eq!(s.round_thinking_budget, Some(0));
+    }
+
     #[test]
     fn ensure_pipeline_capture_reuses_stored_frame() {
         let state = make_state();

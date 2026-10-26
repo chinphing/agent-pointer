@@ -177,7 +177,7 @@ pub fn resolve_thinking_strategy_id(
     }
 }
 
-fn budget_for_intensity(intensity: ThinkingIntensity) -> u32 {
+pub(crate) fn budget_for_intensity(intensity: ThinkingIntensity) -> u32 {
     match intensity {
         ThinkingIntensity::Off => 0,
         ThinkingIntensity::Low => 1024,

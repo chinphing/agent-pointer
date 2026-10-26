@@ -45,13 +45,12 @@ pub async fn run_locate_element(
 ) -> Result<String> {
     let requests = parse_requests(args)?;
     let frame = capture_frame(computer_state, conversation_id).await?;
-    // B5 runs with `reasoning_effort=none`. Grounding is a visual task, and
-    // leaving thinking on lets the verifier spiral into self-doubt when a retry
-    // hint says the previous box was wrong (observed: 20-40s per call, and
-    // thousands of tokens of "maybe the user is wrong" reasoning).
-    let mut locate_settings = provider.settings.clone();
-    locate_settings.round_enable_thinking = Some(false);
-    let locate_provider = OpenAIProvider::new(locate_settings, provider.api_key.clone());
+    // Thinking comes from the caller: `locate_provider` applies the locate phase
+    // budget (0 = off, the default). Leaving thinking on lets the verifier spiral
+    // into self-doubt when a retry hint says the previous box was wrong
+    // (observed: 20-40s per call, thousands of tokens of "maybe the user is
+    // wrong" reasoning), so the default stays off.
+    let locate_provider = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
     let vision = ChatLocateVision::new(&locate_provider, cancel.clone());
     let outcomes =
         locate_elements(&vision, &frame, &requests, &LocateConfig::default(), cancel).await?;

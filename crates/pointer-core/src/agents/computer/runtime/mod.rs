@@ -1382,6 +1382,13 @@ mod tests {
                 .thinking_for_phase(PipelineLlmPhase::Verify),
             (true, 256)
         );
+        // 定位强度可配：非 0 用预算，0 仍表示关闭。
+        cfg.pipeline_llm.thinking_budget_locate = 1024;
+        assert_eq!(
+            cfg.pipeline_llm
+                .thinking_for_phase(PipelineLlmPhase::Locate),
+            (true, 1024)
+        );
     }
 
     #[test]

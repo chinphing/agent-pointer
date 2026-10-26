@@ -31,7 +31,12 @@ pub(super) fn locate_provider(
         let cfg = state.computer_state.effective_pipeline_config();
         let model = cfg.pipeline_llm.model_locate.trim();
         if model.is_empty() {
-            provider.settings.clone()
+            // 模型跟随主模型，但定位的思考强度仍按定位配置（0 = 关）。
+            let mut s = provider.settings.clone();
+            state
+                .computer_state
+                .apply_pipeline_thinking(PipelineLlmPhase::Locate, &mut s);
+            s
         } else {
             state.computer_state.apply_pipeline_phase_settings(
                 conversation_id,

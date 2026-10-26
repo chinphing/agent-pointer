@@ -188,4 +188,38 @@ describe('platformTierDefaults', () => {
     ])
     expect(cfg.thinkingIntensity).toBe('high')
   })
+
+  it('reads pipeline locate and thinking intensity from platform tierDefaults', () => {
+    const out = platformComputerPipelineDefault({
+      computerPipelineLlm: {
+        verify: {
+          providerId: 'qwen',
+          model: 'qwen3.5-flash',
+          thinkingIntensity: 'high'
+        },
+        locate: { providerId: '', model: '', thinkingIntensity: 'off' }
+      }
+    })
+    expect(out.verify).toBe('qwen3.5-flash')
+    expect(out.verifyProviderId).toBe('qwen')
+    expect(out.verifyThinkingBudget).toBe(4096)
+    // 定位模型留空 = 跟随主模型，思考强度仍独立生效。
+    expect(out.locate).toBeUndefined()
+    expect(out.locateThinkingBudget).toBe(0)
+  })
+
+  it('reads a platform locate model when one is set', () => {
+    const out = platformComputerPipelineDefault({
+      computerPipelineLlm: {
+        locate: {
+          providerId: 'qwen',
+          model: 'qwen3.5-plus',
+          thinkingIntensity: 'low'
+        }
+      }
+    })
+    expect(out.locate).toBe('qwen3.5-plus')
+    expect(out.locateProviderId).toBe('qwen')
+    expect(out.locateThinkingBudget).toBe(1024)
+  })
 })

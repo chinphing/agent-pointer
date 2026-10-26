@@ -3130,27 +3130,47 @@ pub fn apply_platform_tier_defaults(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .trim();
-            if pid.is_empty() || model.is_empty() {
-                continue;
-            }
+            // 平台条目可带思考强度；只在用户仍是内置默认预算时补，避免覆盖用户选择。
+            let intensity_budget = cfg_val
+                .get("thinkingIntensity")
+                .and_then(|v| v.as_str())
+                .and_then(crate::thinking_strategy::ThinkingIntensity::parse)
+                .map(crate::thinking_strategy::budget_for_intensity);
             let p = &mut settings.computer_pipeline_llm;
             match phase.as_str() {
                 "decision" => {
-                    if p.decision.trim().is_empty() {
+                    if !pid.is_empty() && !model.is_empty() && p.decision.trim().is_empty() {
                         p.decision = model.into();
                         p.decision_provider_id = pid.into();
                     }
                 }
                 "position" => {
-                    if p.position.trim().is_empty() {
+                    if !pid.is_empty() && !model.is_empty() && p.position.trim().is_empty() {
                         p.position = model.into();
                         p.position_provider_id = pid.into();
                     }
                 }
                 "verify" => {
-                    if p.verify.trim().is_empty() {
+                    if !pid.is_empty() && !model.is_empty() && p.verify.trim().is_empty() {
                         p.verify = model.into();
                         p.verify_provider_id = pid.into();
+                    }
+                    if let Some(b) = intensity_budget {
+                        if p.verify_thinking_budget == DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET {
+                            p.verify_thinking_budget = b;
+                        }
+                    }
+                }
+                "locate" => {
+                    if !pid.is_empty() && !model.is_empty() && p.locate.trim().is_empty() {
+                        p.locate = model.into();
+                        p.locate_provider_id = pid.into();
+                    }
+                    // 定位模型可留空跟随主模型；思考强度独立生效（0 = 关）。
+                    if let Some(b) = intensity_budget {
+                        if p.locate_thinking_budget == 0 {
+                            p.locate_thinking_budget = b;
+                        }
                     }
                 }
                 _ => {}
@@ -3978,6 +3998,62 @@ mod user_settings_defaults_tests {
                 .as_deref(),
             Some("medium")
         );
+    }
+
+    #[test]
+    fn platform_pipeline_reads_locate_and_thinking_intensity() {
+        let defaults = serde_json::json!({
+            "computerPipelineLlm": {
+                "verify": {
+                    "providerId": "qwen",
+                    "model": "qwen3.5-flash",
+                    "thinkingIntensity": "high"
+                },
+                "locate": {
+                    "providerId": "",
+                    "model": "",
+                    "thinkingIntensity": "low"
+                }
+            }
+        });
+        let mut settings = ModelSettings::default();
+        apply_platform_tier_defaults(&mut settings, &defaults, &[]);
+        let p = &settings.computer_pipeline_llm;
+        assert_eq!(p.verify, "qwen3.5-flash");
+        assert_eq!(p.verify_provider_id, "qwen");
+        assert_eq!(p.verify_thinking_budget, 4096);
+        // 定位模型留空 = 跟随主模型，思考强度仍独立生效。
+        assert!(p.locate.is_empty());
+        assert!(p.locate_provider_id.is_empty());
+        assert_eq!(p.locate_thinking_budget, 1024);
+    }
+
+    #[test]
+    fn platform_pipeline_thinking_keeps_user_budget() {
+        let defaults = serde_json::json!({
+            "computerPipelineLlm": {
+                "verify": {
+                    "providerId": "qwen",
+                    "model": "qwen3.5-flash",
+                    "thinkingIntensity": "max"
+                },
+                "locate": {
+                    "providerId": "qwen",
+                    "model": "qwen3.5-plus",
+                    "thinkingIntensity": "max"
+                }
+            }
+        });
+        let mut settings = ModelSettings::default();
+        settings.computer_pipeline_llm.verify_thinking_budget = 1024;
+        settings.computer_pipeline_llm.locate_thinking_budget = 2048;
+        apply_platform_tier_defaults(&mut settings, &defaults, &[]);
+        let p = &settings.computer_pipeline_llm;
+        // 用户改过的预算不被平台默认覆盖；模型仍按缺失补齐。
+        assert_eq!(p.verify_thinking_budget, 1024);
+        assert_eq!(p.locate_thinking_budget, 2048);
+        assert_eq!(p.verify, "qwen3.5-flash");
+        assert_eq!(p.locate, "qwen3.5-plus");
     }
 
     #[test]

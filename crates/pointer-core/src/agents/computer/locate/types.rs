@@ -3,7 +3,9 @@
 //! Inputs and outputs are **logical pixels**. The 0–1000 normalized space is
 //! internal to the locator and never leaves this module tree.
 
-use super::geometry::{NormBox, PxBox, CROP_MAX, CROP_MIN, CROP_MULT, CROP_OUT_PX};
+use super::geometry::{
+    NormBox, PxBox, CROP_MAX, CROP_MIN, CROP_MULT, CROP_OUT_PX, VERIFY_MULT, VERIFY_OUT_PX,
+};
 
 /// Hard cap on one `locate_element` call (§6.2: no silent truncation).
 pub const MAX_ELEMENTS: usize = 3;
@@ -120,47 +122,159 @@ impl ElsewhereDir {
     }
 }
 
+/// Whether the centre mark landed on the target.
+///
+/// Split out from `MatchVerdict` on purpose. The old single verdict asked 「is the
+/// target in the box」, which a generous box always answers `yes` to — and then
+/// the coordinate returned is the box's centre, which can be nowhere near the
+/// target. This asks the question that actually decides the answer: **is the
+/// point we are about to return sitting on the target**.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CenterOnTarget {
+    /// The mark is on the target.
+    Yes,
+    /// The mark is off the target; `center_offset` says which side.
+    No,
+    /// Cannot tell (blur, occlusion, too small).
+    Unclear,
+}
+
+impl CenterOnTarget {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "yes" => Some(Self::Yes),
+            "no" => Some(Self::No),
+            "unclear" => Some(Self::Unclear),
+            _ => None,
+        }
+    }
+}
+
+/// Does the position the description names match the position in the image?
+///
+/// Separate from `CenterOnTarget` because they fail differently and need
+/// different fixes. The mark can sit on *a* cell while that cell is the wrong one
+/// — 「第四行第八列」 vs a box on row 3 — and no amount of looking at the mark
+/// alone will catch it. This is the check that compares what the description
+/// says with what the image shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PositionMatches {
+    /// The description named a position and the image agrees.
+    Yes,
+    /// The description named a position and the image disagrees.
+    No,
+    /// The description names a position but the image does not show enough
+    /// (labels cropped away, no absolute reference) to confirm or deny it.
+    ///
+    /// Distinct from `Ignore`: here the description *does* demand a position, so
+    /// the answer is unverified rather than unnecessary. Treating this as a pass
+    /// is what let r3c7 through — the verifier wrote 「绝对行号无法确证」 in `why`
+    /// and still returned a hit.
+    Unknown,
+    /// The description asks for no position at all (「提交按钮」, 「关闭图标」) —
+    /// there is nothing to check.
+    Ignore,
+}
+
+impl PositionMatches {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "yes" => Some(Self::Yes),
+            "no" => Some(Self::No),
+            "unknown" => Some(Self::Unknown),
+            "ignore" => Some(Self::Ignore),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Yes => "yes",
+            Self::No => "no",
+            Self::Unknown => "unknown",
+            Self::Ignore => "ignore",
+        }
+    }
+}
+
 /// Structured verifier output. Defaults mirror B5's "verifier produced nothing"
 /// fallback: `unclear` + `too_blurry` (i.e. never silently pass).
 #[derive(Debug, Clone, PartialEq)]
 pub struct VerifyVerdict {
-    pub match_: MatchVerdict,
-    pub why: String,
-    pub unclear_kind: UnclearKind,
-    pub elsewhere_dir: Option<ElsewhereDir>,
-    pub elsewhere_desc: String,
-    /// How many of the four signals (text / position / icon / colour) lined up.
-    /// `high` = all four; `medium` = text and position matched but icon or
-    /// colour did not. Only meaningful when `match_` is `Yes`.
+    /// 中心定位 —— is the centre mark on the target? The mark sits at the box
+    /// centre, which is the coordinate the engine returns, so this is the
+    /// question that decides whether the answer is right.
+    pub center_on_target: CenterOnTarget,
+    /// 大小合适 —— does the box frame the target properly (fully containing it,
+    /// not more than 1.5x its size)? Judged by the verifier, not by a threshold
+    /// in code.
+    pub size_ok: MatchVerdict,
+    /// 位置匹配 —— does the position the description names match what the image
+    /// shows? Orthogonal to the two above: the mark can be on *a* cell while that
+    /// cell is the wrong one.
+    pub position_matches: PositionMatches,
+    /// 备注 —— the diagnosis, four fixed sections (图像 / 中心 / 大小 / 位置).
+    ///
+    /// Semi-structured on purpose: the three verdicts above say *whether* each
+    /// check passed, this says *what was seen*. It is passed through to the
+    /// locator verbatim as its hint, so the model that has to fix the box reads
+    /// the verifier's own words instead of a translation of them.
+    pub notes: String,
+    /// How many of the four appearance signals (text / position / icon / colour)
+    /// lined up. Diagnostic only; never gates a hit.
     pub confidence: Confidence,
     /// The model's thinking channel, when the provider returned one. Empty when
     /// thinking is off. Kept for diagnosis: a wrong verdict is much easier to
     /// explain when you can read what the model reasoned before answering.
     pub reasoning: String,
-    /// Target width/height as the model measured it, in crop-image pixels.
-    /// `None` when the answer did not include a usable pair.
+}
+
+impl VerifyVerdict {
+    /// Did all three independent checks pass?
     ///
-    /// Recorded, not yet enforced. With `target_px` and `box_px` side by side a
-    /// caller can compute the slack ratio itself instead of trusting the number
-    /// the model writes in `why` — which it invents when it did not measure
-    /// (observed: 「框约120px…倍数约1.0」 for a 24x24 box around a 41x41 cell).
-    pub target_px: Option<(u32, u32)>,
-    /// Blue box width/height as the model measured it, in crop-image pixels.
-    pub box_px: Option<(u32, u32)>,
+    /// `unknown` for the position blocks: it means the description demanded a
+    /// position the image could not confirm, and returning a box on that basis is
+    /// a guess. `ignore` passes — there was nothing to check.
+    pub fn is_hit(&self) -> bool {
+        self.center_on_target == CenterOnTarget::Yes
+            && self.size_ok == MatchVerdict::Yes
+            && !matches!(
+                self.position_matches,
+                PositionMatches::No | PositionMatches::Unknown
+            )
+    }
+
+    /// Which checks failed, for the hint. Empty when `is_hit()`.
+    pub fn failed_checks(&self) -> Vec<&'static str> {
+        let mut out = Vec::new();
+        if self.center_on_target != CenterOnTarget::Yes {
+            out.push("中心定位");
+        }
+        if self.size_ok != MatchVerdict::Yes {
+            out.push("大小合适");
+        }
+        if matches!(
+            self.position_matches,
+            PositionMatches::No | PositionMatches::Unknown
+        ) {
+            out.push("位置匹配");
+        }
+        out
+    }
 }
 
 impl Default for VerifyVerdict {
     fn default() -> Self {
         Self {
-            match_: MatchVerdict::Unclear,
-            why: "校验器无有效输出".to_string(),
-            unclear_kind: UnclearKind::TooBlurry,
-            elsewhere_dir: None,
-            elsewhere_desc: String::new(),
+            center_on_target: CenterOnTarget::Unclear,
+            size_ok: MatchVerdict::Unclear,
+            // `unknown`, not `ignore`: a verdict that never arrived cannot claim
+            // the description asked for no position. This is the "verifier
+            // produced nothing" fallback and must never read as a pass.
+            position_matches: PositionMatches::Unknown,
+            notes: "校验器无有效输出".to_string(),
             confidence: Confidence::High,
             reasoning: String::new(),
-            target_px: None,
-            box_px: None,
         }
     }
 }
@@ -174,6 +288,25 @@ pub struct LocateConfig {
     pub crop_min: f64,
     pub crop_max: f64,
     pub out_px: u32,
+    /// How much larger the verifier's crop is than the locator's, on both axes.
+    ///
+    /// The two want opposite things from a crop. Locating wants it small: the
+    /// model answers in percent of the crop, so the crop's own size is the error
+    /// budget (`~1.5 % × side`). Verifying wants context: to say 「is this the
+    /// right cell」 it has to see the neighbours, and a crop tight enough to read
+    /// an edge has none.
+    ///
+    /// Both the covered area and the rendered size scale by this factor, so the
+    /// verifier sees more *and* sees it at the same or higher resolution. 1.0
+    /// reuses the locator's crop.
+    pub verify_mult: f64,
+    /// Render size for the wider verify crop. `0` reuses `out_px`.
+    ///
+    /// Separate from `out_px` because the two crops are asked different
+    /// questions: the locator's crop needs resolution on the target alone, the
+    /// verifier's needs context *and* resolution. Sharing one number forced a
+    /// trade that satisfied neither.
+    pub verify_out_px: u32,
 }
 
 impl Default for LocateConfig {
@@ -185,6 +318,8 @@ impl Default for LocateConfig {
             crop_min: CROP_MIN,
             crop_max: CROP_MAX,
             out_px: CROP_OUT_PX,
+            verify_mult: VERIFY_MULT,
+            verify_out_px: VERIFY_OUT_PX,
         }
     }
 }
@@ -306,8 +441,12 @@ mod tests {
     #[test]
     fn verifier_default_never_passes() {
         let v = VerifyVerdict::default();
-        assert_eq!(v.match_, MatchVerdict::Unclear);
-        assert_eq!(v.unclear_kind, UnclearKind::TooBlurry);
+        assert!(!v.is_hit());
+        assert_eq!(v.center_on_target, CenterOnTarget::Unclear);
+        assert_eq!(v.size_ok, MatchVerdict::Unclear);
+        // `unknown`, not `ignore`: a verdict that never arrived cannot claim the
+        // description asked for no position.
+        assert_eq!(v.position_matches, PositionMatches::Unknown);
     }
 
     #[test]

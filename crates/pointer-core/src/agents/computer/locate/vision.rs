@@ -16,8 +16,8 @@ use crate::provider::{ChatOnceOutput, OpenAIProvider};
 use super::engine::LocateVision;
 use super::geometry::NormBox;
 use super::prompt::{
-    locate_tool, parse_box_from_text, parse_locate_arguments, parse_verify_arguments, report_tool,
-    LOCATE_TEXT_FALLBACK,
+    locate_tool, parse_box_from_text, parse_locate_arguments, parse_verify_arguments,
+    report_tool_views, LOCATE_TEXT_FALLBACK,
 };
 use super::render::LocateImage;
 use super::types::VerifyVerdict;
@@ -37,19 +37,43 @@ impl<'a> ChatLocateVision<'a> {
     }
 
     fn wire_messages(image: &LocateImage, prompt: &str, suffix: Option<&str>) -> Vec<Value> {
-        let mut content = vec![
-            json!({"type": "text", "text": "【图】"}),
-            json!({
+        Self::wire_messages_pair(image, None, prompt, suffix)
+    }
+
+    /// Same, with an optional second image labelled 【图二】.
+    ///
+    /// The label matters: the prompt refers to 「图一」/「图二」, and a model that
+    /// cannot tell which picture is which will happily judge the box from the
+    /// wide one — which is exactly the image that is too coarse for it.
+    fn wire_messages_pair(
+        close: &LocateImage,
+        wide: Option<&LocateImage>,
+        prompt: &str,
+        suffix: Option<&str>,
+    ) -> Vec<Value> {
+        let mut content = vec![json!({"type": "text", "text": "【图一】"})];
+        content.push(json!({
+            "type": "image_url",
+            "image_url": {
+                "url": format!(
+                    "data:image/jpeg;base64,{}",
+                    screen::encode_image_to_base64(&close.jpeg)
+                )
+            }
+        }));
+        if let Some(wide) = wide {
+            content.push(json!({"type": "text", "text": "【图二】"}));
+            content.push(json!({
                 "type": "image_url",
                 "image_url": {
                     "url": format!(
                         "data:image/jpeg;base64,{}",
-                        screen::encode_image_to_base64(&image.jpeg)
+                        screen::encode_image_to_base64(&wide.jpeg)
                     )
                 }
-            }),
-            json!({"type": "text", "text": prompt}),
-        ];
+            }));
+        }
+        content.push(json!({"type": "text", "text": prompt}));
         if let Some(suffix) = suffix {
             content.push(json!({"type": "text", "text": suffix}));
         }
@@ -118,8 +142,29 @@ impl LocateVision for ChatLocateVision<'_> {
     }
 
     async fn verify(&self, image: &LocateImage, prompt: &str) -> Result<VerifyVerdict> {
+        self.verify_pair(image, None, prompt).await
+    }
+
+    async fn verify_pair(
+        &self,
+        close: &LocateImage,
+        wide: Option<&LocateImage>,
+        prompt: &str,
+    ) -> Result<VerifyVerdict> {
         for attempt in 0..MAX_CALL_ATTEMPTS {
-            match self.chat(image, prompt, vec![report_tool()], None).await {
+            let messages = Self::wire_messages_pair(close, wide, prompt, None);
+            let call = self
+                .provider
+                .stream_pipeline_module_with_tools(
+                    messages,
+                    None,
+                    vec![report_tool_views(wide.is_some())],
+                    self.cancel.clone(),
+                    None,
+                    Some("locate_element"),
+                )
+                .await;
+            match call {
                 Ok(out) => {
                     let parsed = out.tool_calls.iter().find_map(|tc| {
                         tc.name

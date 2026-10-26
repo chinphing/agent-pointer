@@ -478,7 +478,11 @@ async fn frozen_desktop_grounding() -> Result<()> {
                 continue;
             }
         };
-        let saw: String = outcome.what_i_saw.chars().take(90).collect();
+        // 600, not 90: the verdict now carries three things (what the wide image
+        // showed, what the mark landed on, and the size measurement) and the
+        // interesting part is always the last one. At 90 every line ended
+        // mid-sentence, which made a wrong verdict impossible to diagnose.
+        let saw: String = outcome.what_i_saw.chars().take(600).collect();
 
         if capture {
             println!(
@@ -516,6 +520,15 @@ async fn frozen_desktop_grounding() -> Result<()> {
             elapsed,
             saw
         );
+        // The thinking channel, when the provider returned one. A wrong verdict is
+        // otherwise just a number — you cannot tell whether the model misread the
+        // boundary, counted the wrong row, or never saw the target at all.
+        if !outcome.reasoning.trim().is_empty() {
+            println!(
+                "  [thinking] {}",
+                outcome.reasoning.trim().replace('\n', " ⏎ ")
+            );
+        }
     }
 
     if capture {

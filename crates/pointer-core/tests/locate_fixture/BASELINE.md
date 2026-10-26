@@ -396,6 +396,100 @@ Signals that held across every dataset so far:
 - filled cells are found perfectly, empty cells are not;
 - after the v2 fixes, retrying helps instead of hurting.
 
+## v6 — three independent checks, plus a centre mark
+
+**Result: 76/81 (93.8 %) · median 2.6 px · mean 5.0 px · 0 wrong cells · 86.7 s/case**
+(concurrency 8, per-case timeout 400 s, 81/81 completed with no timeouts)
+
+Three runs on the same configuration gave 95.1 %, 96.3 % and 93.8 %; the run
+reported above is the only one where all 81 cases finished, so it is the one to
+compare against.
+
+### The problem with one verdict
+
+v5 asked a single question: 「is the target in the box」. A box generous enough to
+contain the target answers *yes* — and then the engine returns the box's **centre**,
+which can be a whole cell away. Two distinct failures hid behind that:
+
+| failure | what the verifier said | what was actually wrong |
+| --- | --- | --- |
+| box one cell off, target still inside it | `match = yes` | the **centre** was not on the target |
+| box tight around a neighbouring empty cell | `match = yes` | the **cell** was the wrong one |
+
+Neither is visible from inside the box. Both need a check that looks *outside* it.
+
+### The three checks
+
+| field | question | fails as |
+| --- | --- | --- |
+| **`center_on_target`** | is the centre mark on the target? | coordinate wrong |
+| **`size_ok`** | does the box frame the target (≤1.5×, fully containing it)? | coordinate drifts |
+| **`position_matches`** | is this the cell the description names? | coordinate off by a cell |
+
+A hit needs all three. They are orthogonal: a box can be perfectly sized and
+centred on the wrong cell, or correctly placed on the right cell and twice its
+size — and each combination needs a different repair.
+
+### The centre mark
+
+The engine now draws a two-ring mark (red core, white ring) at the box's
+geometric centre — **which is exactly the coordinate it returns**. That turns
+「is the coordinate right」 from a four-edge alignment judgement into 「is this
+point on the target」, which is both easier and the question that matters.
+
+Two colours rather than one because a single-colour dot disappears on a
+background of the same colour. The pair is deliberately generic — it has no
+relationship to any particular application's palette.
+
+### `notes` — four fixed sections, passed through as the retry hint
+
+```
+图像：清晰 / 模糊 / 目标太小 / 被遮挡
+中心：标记落在目标的哪个位置（正中 / 偏左半格 / 落在格子外）
+大小：框大约是目标的几倍（约 1.0 倍 / 约 1.8 倍，框进左右两个邻格）
+位置：描述说的位置 vs 图里读到的位置（描述第四行第八列，图里 C 行第三行，差一行）
+```
+
+「不涉及」 means **the check did not happen** — the description names no position,
+or the target has no outline to measure. It is not a synonym for 「passed」; a
+check that passed may carry a short description instead.
+
+The three verdicts say *whether* each check passed. `notes` says *what was seen*,
+and it reaches the locator verbatim — the model that has to fix the box reads the
+verifier's own words rather than a translation of them.
+
+### The verifier's crop had to grow
+
+`VERIFY_MULT` went 2.0 → 4.0. The locator's side bottoms out at `CROP_MIN`
+(240 px), so 2.0 gave the verifier only 480 px — while the sudoku board spans
+370 px plus ~30 px of row labels. A window that follows a slightly-off box crops
+the labels away, the verifier correctly reports 「no row labels in view」, and
+`position_matches` can never be answered.
+
+At 4.0 the window is 960 px and the labels are in frame with room for the box to
+drift a cell. `VERIFY_OUT_PX` (1920) was added at the same time and kept separate
+from `out_px`: the two crops are asked different questions, and sharing one
+number forced a trade that satisfied neither.
+
+### What this fixed
+
+- **All five v5 stable failures now pass** (`r2c6`, `r3c7`, `r5c4`, `r7c5`, `r7c7`).
+- **Wrong cells went to zero** in the complete run (v5: 2, single 480 crop: 5).
+- All five failures are now `ok = false` after three rounds — a visible refusal,
+  not a wrong coordinate.
+
+### What is still open
+
+- Five cases exhaust three rounds without converging (`r0c2`, `r2c2`, `r3c3`,
+  `r5c5`, `r5c8`). At least one of them (`r2c2`) shows the model writing only the
+  first line of `notes`, so the hint carries no diagnosis.
+- Round distribution: 13 cases need one round, 57 need two, 11 need three. The
+  two-round majority is the cost of the position check — the first round often
+  lands a cell off and only the second reads the labels.
+- `POINTER_LOCATE_TIMEOUT_SECS` must be ≥ 400 at concurrency 8. At 180 s nine
+  cases were reported as timeouts that actually finish in 18–91 s; they were
+  queueing, not stuck.
+
 ## Superseded
 
 - **v1** (69.1 %) ran on the same dataset before the four locate fixes above.

@@ -92,6 +92,54 @@ pub fn inspect_workspace(workspace_root: &str) -> Result<Option<WorktreeInfo>> {
     super::inspect(&PathBuf::from(path))
 }
 
+/// Remove the managed worktree that belongs to a conversation that is going away.
+///
+/// Returns the removed root when a tree was actually deleted. Deliberately quiet
+/// about non-worktree workspaces (projects, sandboxes, already-deleted trees).
+/// A tree owned by a different conversation is never touched; a tree with
+/// uncommitted or ignored content is refused by [`WorktreeManager::remove`] and
+/// the error is returned so the caller can keep the conversation deletion and log.
+pub fn remove_for_conversation(
+    conversation_id: &str,
+    workspace_root: &str,
+) -> Result<Option<PathBuf>> {
+    let manager = WorktreeManager::for_app()?;
+    remove_for_conversation_with_manager(&manager, conversation_id, workspace_root)
+}
+
+/// Same as [`remove_for_conversation`] with an explicit manager (tests).
+pub fn remove_for_conversation_with_manager(
+    manager: &WorktreeManager,
+    conversation_id: &str,
+    workspace_root: &str,
+) -> Result<Option<PathBuf>> {
+    let conversation_id = conversation_id.trim();
+    let path = workspace_root.trim();
+    if conversation_id.is_empty() || path.is_empty() {
+        return Ok(None);
+    }
+    let root = PathBuf::from(path);
+    if !manager.is_managed_path(&root) {
+        return Ok(None);
+    }
+    // Never delete a checkout another conversation owns.
+    if let Some(owner) = manager.owner(&root)? {
+        if owner != conversation_id {
+            log::info!(
+                "worktree: {} belongs to {owner}, not {conversation_id}; leaving it",
+                root.display()
+            );
+            return Ok(None);
+        }
+    }
+    let Some(info) = super::inspect(&root)? else {
+        // The checkout is already gone from disk.
+        return Ok(None);
+    };
+    manager.remove(&info.source_root, &root)?;
+    Ok(Some(info.root))
+}
+
 /// Fail-safe: an unreadable store keeps the checkout instead of deleting it.
 fn conversation_still_exists(conversation_id: &str) -> bool {
     crate::conversation_store::global_store()
@@ -157,5 +205,70 @@ mod tests {
         assert!(oldest.root.exists(), "live conversation keeps its checkout");
         assert!(!middle.root.exists(), "unowned old checkout is pruned");
         assert!(newest.root.exists(), "newest checkout is kept by count");
+    }
+
+    #[test]
+    fn remove_for_conversation_deletes_the_owned_checkout() {
+        let (temp, repo) = init_repo();
+        let manager = manager_keeping(&temp, 15);
+        let created =
+            create_with_manager(&manager, "conv-a", repo.to_str().unwrap(), None, |_| false)
+                .unwrap();
+
+        let removed = remove_for_conversation_with_manager(
+            &manager,
+            "conv-a",
+            created.cwd.to_str().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(removed.as_deref(), Some(created.root.as_path()));
+        assert!(!created.root.exists());
+    }
+
+    #[test]
+    fn remove_for_conversation_skips_other_owners_and_plain_directories() {
+        let (temp, repo) = init_repo();
+        let manager = manager_keeping(&temp, 15);
+        let created =
+            create_with_manager(&manager, "conv-a", repo.to_str().unwrap(), None, |_| false)
+                .unwrap();
+
+        // Another conversation must not be able to delete this checkout.
+        assert!(remove_for_conversation_with_manager(
+            &manager,
+            "conv-b",
+            created.cwd.to_str().unwrap()
+        )
+        .unwrap()
+        .is_none());
+        assert!(created.root.exists());
+
+        // A plain project directory is never touched.
+        assert!(remove_for_conversation_with_manager(
+            &manager,
+            "conv-a",
+            repo.to_str().unwrap()
+        )
+        .unwrap()
+        .is_none());
+        assert!(repo.exists());
+    }
+
+    #[test]
+    fn remove_for_conversation_refuses_uncommitted_changes() {
+        let (temp, repo) = init_repo();
+        let manager = manager_keeping(&temp, 15);
+        let created =
+            create_with_manager(&manager, "conv-a", repo.to_str().unwrap(), None, |_| false)
+                .unwrap();
+        std::fs::write(created.root.join("README.md"), "dirty").unwrap();
+
+        assert!(remove_for_conversation_with_manager(
+            &manager,
+            "conv-a",
+            created.cwd.to_str().unwrap()
+        )
+        .is_err());
+        assert!(created.root.exists(), "dirty checkout must survive");
     }
 }

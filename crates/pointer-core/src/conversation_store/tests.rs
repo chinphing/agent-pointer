@@ -1855,6 +1855,71 @@ mod tests {
     }
 
     #[test]
+    fn delete_conversation_removes_its_managed_worktree() {
+        // Managed worktrees live under app data; point it at a temp dir.
+        let _app_data_guard = crate::storage::test_app_data_dir_lock();
+        let app_data = TempDir::new().unwrap();
+        crate::storage::set_test_app_data_dir(app_data.path().to_path_buf());
+
+        let (repo_temp, repo) = crate::worktree::test_support::init_repo();
+        let manager = crate::worktree::WorktreeManager::for_app().unwrap();
+        let created = crate::worktree::session::create_with_manager(
+            &manager,
+            "c1",
+            repo.to_str().unwrap(),
+            None,
+            |_| false,
+        )
+        .unwrap();
+
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        store
+            .save_all(&[conv_with("c1", "T1", 1_000, created.cwd.to_str().unwrap())])
+            .unwrap();
+
+        store.delete_conversation("c1").unwrap();
+        assert!(
+            !created.root.exists(),
+            "managed worktree must be deleted together with its conversation"
+        );
+        drop(repo_temp);
+    }
+
+    #[test]
+    fn delete_conversation_keeps_a_worktree_with_uncommitted_changes() {
+        let _app_data_guard = crate::storage::test_app_data_dir_lock();
+        let app_data = TempDir::new().unwrap();
+        crate::storage::set_test_app_data_dir(app_data.path().to_path_buf());
+
+        let (repo_temp, repo) = crate::worktree::test_support::init_repo();
+        let manager = crate::worktree::WorktreeManager::for_app().unwrap();
+        let created = crate::worktree::session::create_with_manager(
+            &manager,
+            "c1",
+            repo.to_str().unwrap(),
+            None,
+            |_| false,
+        )
+        .unwrap();
+        std::fs::write(created.root.join("README.md"), "dirty").unwrap();
+
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        store
+            .save_all(&[conv_with("c1", "T1", 1_000, created.cwd.to_str().unwrap())])
+            .unwrap();
+
+        // Deleting the conversation must succeed even though the tree stays.
+        store.delete_conversation("c1").unwrap();
+        assert!(
+            created.root.exists(),
+            "a dirty checkout must never be deleted implicitly"
+        );
+        drop(repo_temp);
+    }
+
+    #[test]
     fn load_meta_returns_single_row_without_messages() {
         // Regression: the chat-send persist hooks (patch_tool_rounds /
         // patch_ephemeral_workspace) use load_meta(id) instead of load_all() so

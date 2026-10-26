@@ -63,7 +63,7 @@ crate `codex-rs/worktree` 只有 5 个源文件（`lib` / `git` / `paths` / `set
 | 核心 | `crates/pointer-core/src/worktree/settings.rs` | 根目录 / 自动清理 / keep 数；`has_managed_layout` |
 | 核心 | `crates/pointer-core/src/worktree/session.rs` | 会话级编排：create + bind + prune；`create_with_manager` 是测试用的可注入版本；`conversation_still_exists` 保护 |
 | 核心 | `crates/pointer-core/src/workspace_resolve.rs` | `WorkspaceKind` 分类 + **唯一**的工具工作区兜底链（`registry` 与 `terminal` 改为调用它） |
-| 核心 | `crates/pointer-core/src/conversation_store/mod.rs` | 新增 `conversation_exists(id)`（prune 用） |
+| 核心 | `crates/pointer-core/src/conversation_store/mod.rs` | `conversation_exists(id)`（prune 用）；`delete_conversation` / `delete_project` 释放对应 worktree |
 | 桌面 | `src-tauri/src/commands.rs` + `lib.rs` | `worktree_create` / `worktree_inspect` 命令并注册 |
 | Web | `server/src/main.rs` | `POST /api/worktrees`、`GET /api/worktrees/inspect?workspaceRoot=` |
 | 前端 | `src/lib/{api,tauri,web}.ts`、`src/types/chat.ts` | `createWorktree` / `inspectWorktree` + `ManagedWorktree` / `WorktreeInfo` 类型 |
@@ -124,14 +124,20 @@ flowchart TD
 
 清理失败只记日志，绝不让 `create` 失败。
 
+**会话 / 项目删除时**：`delete_conversation` 先读出 `workspace_root`，删行后再调 `worktree::session::remove_for_conversation`；`delete_project` 在删行前先收集该项目所有会话的 workspace。两道保护：
+
+1. 树不属于这个会话 → 不动（只记日志）；
+2. 树有未提交改动或被忽略文件 → 拒绝删除，warn 并打出路径（**绝不隐式丢弃未提交的工作**）；此时树成为孤儿，之后由 prune 在它干净时回收。
+
+删除会话本身永远成功：删树是 best-effort，失败只影响磁盘占用。
+
 ## 六、分期与待办
 
 ### P2（下一步，产品可用性）
 
 | 待办 | 落点 | 验收 |
 |------|------|------|
-| 删除会话时删除其 worktree | `conversation_store` 删除路径 + `worktree::session::remove_for_workspace` | 删会话后 `git worktree list` 不再有该项；有改动时拒绝并提示 |
-| worktree 列表面板（浏览 / 恢复 / 删除） | 新面板 + `GET /api/worktrees`（`list_for_workspace` 已实现） | 能看到路径、HEAD、归属会话；可从列表恢复会话 |
+| worktree 列表面板（浏览 / 恢复 / 删除） | 新面板 + `GET /api/worktrees`（`list_for_workspace` 已实现） | 能看到路径、HEAD、归属会话、占用；可从列表恢复会话 |
 | 目录缺失修复 | `session_inner::ensure_workspace_at_run_start` | worktree 被手删后，run 开始给出明确提示而不是报「工作区不存在」 |
 | `.git` 回指校验 | `worktree::list` | 与 Codex 对齐，防旧注册路径被别的检出占用 |
 | 设置项：worktree 根目录 / keep 数 / 关闭自动清理 | 设置页 + `WorktreeSettings` | 改动持久化并生效 |
@@ -169,7 +175,7 @@ flowchart TD
 ## 八、验证
 
 ```bash
-# 核心模块（19 个用例，真仓库 tempdir）
+# 核心模块（24 个用例，真仓库 tempdir）
 cargo test -p pointer-core --lib worktree
 
 # 工作区分类与兜底链

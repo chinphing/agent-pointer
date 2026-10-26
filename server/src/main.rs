@@ -719,6 +719,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/projects/sidebar", get(load_sidebar_projects))
         .route("/api/projects", get(load_projects).post(create_project))
+        .route("/api/worktrees", post(create_worktree))
+        .route("/api/worktrees/inspect", get(inspect_worktree))
         .route(
             "/api/projects/:project_id",
             get(load_project)
@@ -2052,6 +2054,52 @@ async fn load_projects(
         cursor,
         q.limit.unwrap_or(20),
     )?))
+}
+
+#[derive(Deserialize)]
+struct CreateWorktreeRequest {
+    conversation_id: String,
+    source_workspace_root: String,
+    #[serde(default)]
+    base: Option<String>,
+}
+
+async fn create_worktree(
+    State(state): State<ServerState>,
+    Json(input): Json<CreateWorktreeRequest>,
+) -> Result<Json<pointer_core::worktree::ManagedWorktree>, ApiError> {
+    require_platform_access(&state)?;
+    let created = tokio::task::spawn_blocking(move || {
+        pointer_core::worktree::session::create_for_conversation(
+            &input.conversation_id,
+            &input.source_workspace_root,
+            input.base.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| ApiError(anyhow::anyhow!(e)))?
+    .map_err(ApiError::from)?;
+    Ok(Json(created))
+}
+
+#[derive(Deserialize)]
+struct WorktreeInspectQuery {
+    #[serde(rename = "workspaceRoot")]
+    workspace_root: String,
+}
+
+async fn inspect_worktree(
+    State(state): State<ServerState>,
+    Query(q): Query<WorktreeInspectQuery>,
+) -> Result<Json<Option<pointer_core::worktree::WorktreeInfo>>, ApiError> {
+    require_platform_access(&state)?;
+    let info = tokio::task::spawn_blocking(move || {
+        pointer_core::worktree::session::inspect_workspace(&q.workspace_root)
+    })
+    .await
+    .map_err(|e| ApiError(anyhow::anyhow!(e)))?
+    .map_err(ApiError::from)?;
+    Ok(Json(info))
 }
 
 #[derive(Deserialize)]

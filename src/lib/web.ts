@@ -13,6 +13,7 @@ import type {
   ConversationMetaPage,
   PerformanceMode,
   Project,
+  ManagedWorktree,
   ProjectCreationResult,
   ProjectCursor,
   ProjectPage,
@@ -26,7 +27,8 @@ import type {
   ExternalSkillsProbeResult,
   StreamEvent,
   ToolDef,
-  UserSettings
+  UserSettings,
+  WorktreeInfo
 } from '../types/chat'
 import type {
   CronJob,
@@ -844,6 +846,29 @@ export async function createProject(name: string, workspaceRoot: string): Promis
   return await request<ProjectCreationResult>('/api/projects', {
     method: 'POST', body: JSON.stringify({ name, workspace_root: workspaceRoot })
   })
+}
+
+/** Create a managed git worktree for a conversation (base defaults to HEAD). */
+export async function createWorktree(
+  conversationId: string,
+  sourceWorkspaceRoot: string,
+  base?: string
+): Promise<ManagedWorktree> {
+  return await request<ManagedWorktree>('/api/worktrees', {
+    method: 'POST',
+    body: JSON.stringify({
+      conversation_id: conversationId,
+      source_workspace_root: sourceWorkspaceRoot,
+      base: base ?? null
+    })
+  })
+}
+
+/** Describe a workspace when it is a linked worktree; null for a main checkout. */
+export async function inspectWorktree(workspaceRoot: string): Promise<WorktreeInfo | null> {
+  return await request<WorktreeInfo | null>(
+    `/api/worktrees/inspect?workspaceRoot=${encodeURIComponent(workspaceRoot)}`
+  )
 }
 
 export async function createDirectory(_parentPath: string, _name: string): Promise<string> {

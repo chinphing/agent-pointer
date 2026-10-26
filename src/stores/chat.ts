@@ -17,7 +17,9 @@ import {
   loadProjects,
   loadProject as loadProjectApi,
   loadProjectConversationMetas,
-  deleteProject as deleteProjectApi
+  deleteProject as deleteProjectApi,
+  createWorktree,
+  inspectWorktree
 } from '../lib/api'
 import type {
   BackgroundJobView,
@@ -33,7 +35,9 @@ import type {
   StreamEvent,
   TerminalInputRequest,
   ToolCall,
-  TaskBoardDocument
+  TaskBoardDocument,
+  ManagedWorktree,
+  WorktreeInfo
 } from '../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import type { RunQueueSnapshot } from '../types/automation'
@@ -2593,13 +2597,17 @@ export const useChatStore = defineStore('chat', () => {
     return Math.max(now, latestActivityAt + 1)
   }
 
-  function newConversation(projectId?: string, workspaceRoot?: string): Conversation {
+  function newConversation(
+    projectId?: string,
+    workspaceRoot?: string,
+    options?: { forceNew?: boolean }
+  ): Conversation {
     // Global creation starts unowned. Project-menu creation passes an explicit
     // id and therefore remains directly bound to that project.
     const resolvedProjectId = projectId
     const project = resolvedProjectId ? projects.value.find(p => p.id === resolvedProjectId) : undefined
     const resolvedWorkspaceRoot = workspaceRoot ?? project?.workspaceRoot ?? ''
-    const existingBlank = resolvedProjectId
+    const existingBlank = resolvedProjectId && !options?.forceNew
       ? conversations.value.find(c => isBlankDesktopConversation(c) && c.projectId === resolvedProjectId)
       : undefined
     if (existingBlank) {
@@ -3924,6 +3932,82 @@ export const useChatStore = defineStore('chat', () => {
     markMetaDirty(current.value.id)
   }
 
+  /**
+   * Linked-worktree descriptions by conversation id. Not persisted: `inspectWorktree`
+   * re-reads the truth from git, so a stale entry can only be cosmetic.
+   */
+  const worktreeInfoById = ref<Record<string, WorktreeInfo | null>>({})
+
+  function worktreeInfoForConversation(conversationId: string | null | undefined): WorktreeInfo | null {
+    if (!conversationId) return null
+    return worktreeInfoById.value[conversationId] ?? null
+  }
+
+  /** Ask git whether this conversation's workspace is a linked worktree. */
+  async function refreshWorktreeInfo(conversationId?: string): Promise<void> {
+    const conv = conversationId
+      ? conversations.value.find(candidate => candidate.id === conversationId)
+      : current.value
+    if (!conv) return
+    const root = conv.workspaceRoot?.trim() ?? ''
+    if (!root) {
+      if (conv.id in worktreeInfoById.value) {
+        const next = { ...worktreeInfoById.value }
+        delete next[conv.id]
+        worktreeInfoById.value = next
+      }
+      return
+    }
+    try {
+      const info = await inspectWorktree(root)
+      worktreeInfoById.value = { ...worktreeInfoById.value, [conv.id]: info }
+    } catch (error) {
+      // A non-repository workspace is the normal case, not an error worth surfacing.
+      console.warn('[chat] inspect worktree failed', { conversationId: conv.id, root, error })
+      worktreeInfoById.value = { ...worktreeInfoById.value, [conv.id]: null }
+    }
+  }
+
+  /**
+   * Create a managed worktree from `sourceWorkspaceRoot` and point the current
+   * (still blank) conversation at it. Throws so the caller can toast.
+   */
+  async function startWorktreeConversation(sourceWorkspaceRoot: string): Promise<ManagedWorktree | null> {
+    const source = sourceWorkspaceRoot.trim()
+    if (!source) throw new Error('worktree source workspace is empty')
+    if (!current.value) newConversation()
+    const conv = current.value
+    if (!conv) throw new Error('no conversation to bind the worktree to')
+    if (conv.messages.length > 0) {
+      throw new Error('worktree must be created before the first message')
+    }
+    // Reuse: a second tree for the same conversation would leak (the old one keeps
+    // this conversation as owner and therefore never gets pruned).
+    if (worktreeInfoById.value[conv.id]?.managed) return null
+    const created = await createWorktree(conv.id, source)
+    conv.workspaceRoot = created.cwd
+    conv.workspaceUserSet = true
+    conv.workspaceInheritDisabled = false
+    if (conv.pendingProjectId && !conv.projectId) {
+      conv.projectId = conv.pendingProjectId
+      conv.pendingProjectId = undefined
+    }
+    worktreeInfoById.value = {
+      ...worktreeInfoById.value,
+      [conv.id]: {
+        root: created.root,
+        cwd: created.cwd,
+        sourceRoot: created.sourceRoot,
+        headSha: created.headSha,
+        branch: created.branch,
+        detached: !created.branch,
+        managed: true
+      }
+    }
+    markMetaDirty(conv.id)
+    return created
+  }
+
   function clearComputerMonitorPickRequest() {
     computerMonitorPickRequest.value = null
   }
@@ -4002,6 +4086,7 @@ export const useChatStore = defineStore('chat', () => {
     refreshTaskBoard, refreshSubAgentTaskBoards, taskBoardForConversation, activeParentBoardDocument, activeParentBoardBinding, compactTaskBoardDocument, parentBoardsBoundToMessage,
     childBoardBindingForTrace, childBoardsForParent, lookupChildTaskBoard,
     setConversationWorkspace, setConversationProject, setConversationAgent,
+    startWorktreeConversation, refreshWorktreeInfo, worktreeInfoForConversation,
     setConversationPerformanceMode,
     effectiveConversationLeadAgentId,
     showUiToast,

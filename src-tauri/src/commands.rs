@@ -80,6 +80,35 @@ pub fn delete_workspace_path(workspace_root: String, relative_path: String) -> R
 }
 
 #[tauri::command]
+pub async fn worktree_create(
+    conversation_id: String,
+    source_workspace_root: String,
+    base: Option<String>,
+) -> Result<pointer_core::worktree::ManagedWorktree, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        pointer_core::worktree::session::create_for_conversation(
+            &conversation_id,
+            &source_workspace_root,
+            base.as_deref(),
+        )
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?
+}
+
+#[tauri::command]
+pub async fn worktree_inspect(
+    workspace_root: String,
+) -> Result<Option<pointer_core::worktree::WorktreeInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        pointer_core::worktree::session::inspect_workspace(&workspace_root).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?
+}
+
+#[tauri::command]
 pub async fn get_workspace_git_status(
     workspace_root: String,
 ) -> Result<pointer_core::workspace_read::GitStatusResponse, String> {

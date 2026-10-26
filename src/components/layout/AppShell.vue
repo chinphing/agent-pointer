@@ -13,6 +13,7 @@ import {
   PanelRightOpen,
   FolderGit2,
   FolderOpen,
+  GitBranch,
   Clock3,
   Sparkles,
   Link2,
@@ -392,6 +393,24 @@ function newTask(project?: Project) {
   searchQuery.value = ''
   nextTick(() => listScroller.value?.scrollTo({ top: 0, behavior: 'smooth' }))
   return conversation
+}
+
+/**
+ * Project row → "new worktree task": fresh conversation bound to the project,
+ * then a managed checkout for it. One click instead of opening the top-bar menu.
+ */
+async function newWorktreeTask(project: Project) {
+  projectMenuId.value = null
+  const conversation = chat.newConversation(project.id, project.workspaceRoot, { forceNew: true })
+  searchQuery.value = ''
+  nextTick(() => listScroller.value?.scrollTo({ top: 0, behavior: 'smooth' }))
+  if (!conversation) return
+  try {
+    await chat.startWorktreeConversation(project.workspaceRoot)
+  } catch (error) {
+    console.error('[app-shell] create worktree task failed', { projectId: project.id, error })
+    chat.showUiToast(t('chat.worktreeCreateFailed'), 'error')
+  }
 }
 
 function projectConversations(project: Project) {
@@ -1137,6 +1156,7 @@ watch(searchQuery, q => {
                     :style="{ left: `${projectMenuPosition.left}px`, top: `${projectMenuPosition.top}px` }"
                   >
                     <button type="button" @click="newTask(project); projectMenuId = null"><Plus />{{ t('shell.newLocalTask') }}</button>
+                    <button type="button" @click="newWorktreeTask(project)"><GitBranch />{{ t('shell.newWorktreeTask') }}</button>
                     <button type="button" @click="toggleProjectPin(project)"><Pin />{{ project.isPinned ? t('shell.unpinProject') : t('shell.pinProject') }}</button>
                     <button type="button" @click="openProjectSettings(project)"><Settings2 />{{ t('shell.projectSettings') }}</button>
                     <button

@@ -1035,6 +1035,19 @@ impl ConversationStore {
         Ok(root.unwrap_or_default())
     }
 
+    /// Whether the conversation row still exists (used to keep live worktrees).
+    pub fn conversation_exists(&self, conversation_id: &str) -> Result<bool> {
+        let conn = self.db.conn.lock();
+        let found: Option<i64> = conn
+            .query_row(
+                "SELECT 1 FROM conversations WHERE id = ?1",
+                rusqlite::params![conversation_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(found.is_some())
+    }
+
     pub fn workspace_user_set(&self, conversation_id: &str) -> Result<bool> {
         let conn = self.db.conn.lock();
         let flag: Option<i64> = conn

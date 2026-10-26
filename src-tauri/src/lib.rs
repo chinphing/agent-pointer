@@ -477,6 +477,8 @@ pub fn run() {
             commands::search_workspace_entries,
             commands::read_workspace_file,
             commands::delete_workspace_path,
+            commands::worktree_create,
+            commands::worktree_inspect,
             commands::get_workspace_git_status,
             commands::get_workspace_git_diff,
             commands::get_turn_file_diff,

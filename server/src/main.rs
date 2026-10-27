@@ -1357,6 +1357,9 @@ async fn locate_element_endpoint(
         &state.core.computer_state,
         &req.conversation_id,
         &provider,
+        // The server has one provider: locate and its verifier share it, which is
+        // the same default the desktop app uses when 定位校验 is left empty.
+        &provider,
         &args,
         &cancel,
     )

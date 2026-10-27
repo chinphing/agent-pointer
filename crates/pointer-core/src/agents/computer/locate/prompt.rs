@@ -294,6 +294,24 @@ pub fn parse_verify_arguments(raw: &str) -> Option<VerifyVerdict> {
         }
     }
 
+    // The four-section template, enforced on **every** verdict including `yes`.
+    //
+    // A pass is where the expensive mistake lives: the verifier says yes, the box
+    // is one cell off, and nothing downstream can tell. The template makes it read
+    // the two images separately and report what it saw in each *before* concluding
+    // — 「从图二看到：列标 6」 can be compared against the description, 「位置一致」
+    // cannot. Missing sections mean it skipped a step, so the answer is not
+    // trustworthy either way and the call is retried.
+    if position_matches != PositionMatches::Ignore
+        && !position_remark_covers_template(&position_remark)
+    {
+        log::warn!(
+            "verify: position remark is missing template sections — retrying; remark={:?}",
+            truncate_for_log(&position_remark)
+        );
+        return None;
+    }
+
     // Reassembled for the log and for `refine_hint`, which still speaks the
     // four-section language. The fields are the source of truth; this is a view.
     let notes = format!(
@@ -328,8 +346,33 @@ fn nested(v: &Value, key: &str) -> Value {
     v.get(key).cloned().unwrap_or_else(|| json!({}))
 }
 
-fn or_dash(s: &str) -> &str {
-    if s.trim().is_empty() {
+/// Does a `position.remark` follow the four-section template?
+///
+/// The sections are the point, not the prose: 「从图二看到：列标 6」 can be checked
+/// against a description that says 「第 6 列」, while 「位置一致」 cannot be checked
+/// against anything. Requiring all four means the verifier has to look at both
+/// images and restate the expectation before it is allowed to conclude.
+///
+/// The single-image case keeps the same shape — `verify_intro_close.md` tells it to
+/// write 「从图二看到：本图没有第二张」 — so this check does not need to know which
+/// prompt was used.
+fn position_remark_covers_template(remark: &str) -> bool {
+    const SECTIONS: [&str; 4] = ["从图一看到", "从图二看到", "预期的目标是", "结论"];
+    SECTIONS.iter().all(|s| remark.contains(s))
+}
+
+/// Enough of a remark to recognise it in a log line.
+fn truncate_for_log(s: &str) -> String {
+    const MAX: usize = 120;
+    let t = s.trim();
+    if t.chars().count() <= MAX {
+        return t.to_string();
+    }
+    let head: String = t.chars().take(MAX).collect();
+    format!("{head}…")
+}
+
+fn or_dash(s: &str) -> &str {    if s.trim().is_empty() {
         "—"
     } else {
         s.trim()
@@ -427,7 +470,17 @@ mod tests {
         let close = verify_prompt_views("数独盘面C3的空格子", false);
 
         assert!(wide.contains("图二"), "wide intro missing 图二");
-        assert!(!close.contains("图二"), "close intro must not mention 图二");
+        // The close intro may only mention 图二 in the template instruction that
+        // tells it what to write in that section — it must not describe a second
+        // image as if one exists.
+        assert!(
+            !close.contains("范围更大的那张是"),
+            "close intro must not describe a second image"
+        );
+        assert!(
+            close.contains("本图没有第二张"),
+            "close intro must say what the 图二 section should contain"
+        );
         assert!(!wide.contains("{"), "unsubstituted placeholder in wide");
         assert!(!close.contains("{"), "unsubstituted placeholder in close");
         // Both must carry the same body. Anchor on the body's own first heading —
@@ -686,7 +739,7 @@ mod tests {
     #[test]
     fn a_wrong_position_blocks_the_hit_even_when_centre_and_size_pass() {
         let v = parse_verify_arguments(
-            r#"{"center":{"ok":"yes"},"size":{"ok":"yes"},"position":{"ok":"no","remark":"描述第四行，图里第三行，差一行"}}"#,
+            r#"{"center":{"ok":"yes"},"size":{"ok":"yes"},"position":{"ok":"no","remark":"从图一看到：框住第三行第八列的格子 / 从图二看到：行标读到 C，列标读到 8 / 预期的目标是：第四行第八列 / 结论：差一行，目标在下方"}}"#,
         )
         .unwrap();
         assert!(!v.is_hit());
@@ -699,11 +752,22 @@ mod tests {
     #[test]
     fn an_unreadable_position_also_blocks_the_hit() {
         let v = parse_verify_arguments(
-            r#"{"center":{"ok":"yes"},"size":{"ok":"yes"},"position":{"ok":"unknown","remark":"图里读不出绝对行号"}}"#,
+            r#"{"center":{"ok":"yes"},"size":{"ok":"yes"},"position":{"ok":"unknown","remark":"从图一看到：框住空白格 / 从图二看到：列标被裁掉，读不出列号 / 预期的目标是：第 6 列 / 结论：读不出绝对位置"}}"#,
         )
         .unwrap();
         assert!(!v.is_hit());
         assert_eq!(v.failed_checks(), vec!["位置匹配"]);
+    }
+
+    #[test]
+    fn a_hand_wavy_position_remark_is_retried_not_accepted() {
+        // The failure this guards: `ok: yes` with a remark that never reports what
+        // it read. Nothing downstream can compare 「位置一致」 against 「第 6 列」,
+        // so the call is retried rather than counted as a pass.
+        let out = parse_verify_arguments(
+            r#"{"center":{"ok":"yes"},"size":{"ok":"yes"},"position":{"ok":"yes","remark":"位置一致，锚点成立"}}"#,
+        );
+        assert!(out.is_none(), "expected a retry, got {out:?}");
     }
 
     #[test]
@@ -740,6 +804,30 @@ mod tests {
         let hint = refine_hint(&v);
         assert!(hint.contains("大小合适"), "{hint}");
         assert!(hint.contains("2.4 倍"), "{hint}");
+    }
+
+    #[test]
+    fn position_remark_needs_all_four_sections() {
+        let full = "从图一看到：框住的是空白格 / 从图二看到：列标读到 6 / \
+                    预期的目标是：第 6 列、在蓝色 5 右边 / 结论：yes";
+        assert!(position_remark_covers_template(full));
+
+        // The real failure this catches: a `yes` whose remark never reports what it
+        // read, so nothing downstream can compare it against the description.
+        let hand_wavy = "从图一看到：框住一个空格 / 预期的目标是：如描述 / 结论：yes";
+        assert!(!position_remark_covers_template(hand_wavy));
+
+        // 「位置一致」 style conclusions have no numbers to check.
+        assert!(!position_remark_covers_template("位置一致，锚点成立"));
+    }
+
+    #[test]
+    fn single_image_remark_still_fills_the_wide_section() {
+        // `verify_intro_close.md` tells the model to write 「本图没有第二张」 there, so
+        // the same four-section check applies without knowing which prompt ran.
+        let single = "从图一看到：框住空白格 / 从图二看到：本图没有第二张，行列标不可见 / \
+                      预期的目标是：第 6 列 / 结论：no";
+        assert!(position_remark_covers_template(single));
     }
 
 }

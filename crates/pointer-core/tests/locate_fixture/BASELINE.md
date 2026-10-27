@@ -760,6 +760,108 @@ the same ratio is 2 of 243 (0.8 %); here it is 10.7 %, an order of magnitude
 worse. ScreenSpot-Pro targets are 15–30 px on a 4K canvas, and the verifier is
 easier to fool with a look-alike neighbour. That is the next thing to work on.
 
+### Where the loss is — M2 by metadata
+
+The annotations carry `group` (application domain), `ui_type`, `platform` and
+`application`. Accuracy is not spread evenly across them; almost all of the
+loss sits in one dimension.
+
+**By `ui_type` — the only dimension that matters**
+
+| ui_type | hit | total | accuracy |
+|---|---|---|---|
+| **text** | 174 | 189 | **92.1 %** |
+| **icon** | 82 | 111 | **73.9 %** |
+
+**By `group`**
+
+| group | hit | total | accuracy |
+|---|---|---|---|
+| Dev | 52 | 57 | **91.2 %** |
+| OS | 32 | 36 | 88.9 % |
+| CAD | 42 | 49 | 85.7 % |
+| Office | 37 | 44 | 84.1 % |
+| Creative | 55 | 66 | 83.3 % |
+| Scientific | 38 | 48 | **79.2 %** |
+
+**By `platform`** — flat, so not a variable
+
+| platform | hit | total | accuracy |
+|---|---|---|---|
+| windows | 151 | 178 | 84.8 % |
+| macos | 97 | 113 | 85.8 % |
+| linux | 8 | 9 | 88.9 % |
+
+**`group` × `ui_type`** — text is stable everywhere, icon is not
+
+| group | text | icon |
+|---|---|---|
+| Dev | 28/31 90 % | **24/26 92 %** |
+| OS | 20/21 95 % | 12/15 80 % |
+| CAD | 34/38 89 % | 8/11 73 % |
+| Office | 31/34 91 % | **6/10 60 %** |
+| Creative | 35/37 95 % | 20/29 69 % |
+| Scientific | 26/28 93 % | **12/20 60 %** |
+
+Text sits in a 89–95 % band across all six domains. Icon ranges 60–92 %. The
+two worst cells are Office icon (6/10) and Scientific icon (12/20); the best is
+Dev icon (92 %), where toolbar glyphs are standardised.
+
+**By `application`**
+
+| app | hit | total | acc | app | hit | total | acc |
+|---|---|---|---|---|---|---|---|
+| pycharm | 15 | 15 | **100 %** | macos_common | 10 | 12 | 83.3 % |
+| quartus | 9 | 9 | **100 %** | fruitloops | 9 | 11 | 81.8 % |
+| illustrator | 6 | 6 | **100 %** | photoshop | 8 | 10 | 80.0 % |
+| word | 15 | 16 | 93.8 % | vscode | 8 | 10 | 80.0 % |
+| vivado | 14 | 15 | 93.3 % | davinci | 6 | 8 | 75.0 % |
+| windows_common | 14 | 15 | 93.3 % | premiere | 7 | 10 | 70.0 % |
+| blender | 13 | 14 | 92.9 % | **excel** | 8 | 12 | **66.7 %** |
+| eviews | 9 | 10 | 90.0 % | **origin** | 8 | 12 | **66.7 %** |
+| linux_common | 8 | 9 | 88.9 % | **stata** | 6 | 9 | **66.7 %** |
+| matlab | 15 | 17 | 88.2 % | **autocad** | 4 | 6 | **66.7 %** |
+| powerpoint | 14 | 16 | 87.5 % | | | | |
+| vmware | 7 | 8 | 87.5 % | | | | |
+| android_studio | 13 | 15 | 86.7 % | | | | |
+| solidworks | 13 | 15 | 86.7 % | | | | |
+| unreal_engine | 6 | 7 | 85.7 % | | | | |
+| inventor | 11 | 13 | 84.6 % | | | | |
+
+**What this says about where to spend effort.** If icon accuracy matched text
+(92.1 %), the total would be 276/300 = 92.0 % instead of 85.3 % — a 6.7-point
+gain from one dimension. Fixing the nine 「almost hit」 cases (offset < half a
+target) would be worth 3 points by comparison, and three of those nine are
+description errors that no engine change can fix.
+
+### Failure taxonomy
+
+44 failures on M2: 12 honest (`ok=false`) and 32 silent (`ok=true`, point
+outside the box).
+
+| bucket | n | shape |
+|---|---|---|
+| offset < 0.5 × target | 9 | 7 are flat text rows (18–30 px tall); **vertical** overshoot 3–113 px, horizontal exact |
+| offset 0.5–1.5 × target | 13 | mostly **horizontal** overshoot |
+| offset 1.5–4 × target | 2 | |
+| offset > 4 × target | 8 | all small icons (18–33 px), **horizontal** overshoot 67–365 px |
+
+Direction: horizontal only 17, vertical only 9, both 4. Shape: flat (width ≥
+3× height) 7, tall 0, near-square 25.
+
+The 12 honest failures are mostly 3 rounds exhausted on 12–35 px targets — the
+model looked and gave up, which is the behaviour we want.
+
+**One benchmark defect to exclude before optimising.** At least three of the
+nine 「almost hit」 cases are the description pointing at the neighbour of the
+answer: `vscode_macos_19` asks for *3.9.13* but its description reads
+「3.9.13 文字行下边缘紧邻的条目」 → 3.9.6; `unreal_engine_windows_15` and
+`matlab_macos_49` have the same 「X 下方紧邻的那一项」 shape. The model follows
+the description, the verifier confirms the anchor relation, and both are right —
+the question is wrong. Verified by drawing truth and predicted boxes on
+`vscode_macos_19`: green (truth) on `Python 3.9.13`, red (model) on the list
+region but shifted right past the image edge.
+
 ### Two traps this benchmark sets
 
 - **Thinking must be off.** Leaving the provider default (`on` for

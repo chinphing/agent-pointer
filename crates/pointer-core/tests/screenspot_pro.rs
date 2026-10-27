@@ -220,6 +220,35 @@ fn load_descriptions(split: &str) -> Result<HashMap<String, Description>> {
     serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))
 }
 
+/// Every description across M1/M2/M3, keyed by id.
+///
+/// `POINTER_SP_IDS` may name an id from any split, but a single split's file
+/// only holds its own ids — asking for `vscode_macos_19` (M2) while
+/// `POINTER_SP_SPLIT` defaults to M1 finds nothing and aborts with "no runnable
+/// cases". Merging is safe: an id belongs to one split, and the content is the
+/// same object.
+fn load_all_descriptions() -> Result<HashMap<String, Description>> {
+    let mut out = HashMap::new();
+    let dir = bench_dir().join("descriptions/v2");
+    let mut found = 0;
+    for split in ["M1", "M2", "M3"] {
+        let path = dir.join(format!("{split}.json"));
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let map: HashMap<String, Description> =
+            serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))?;
+        out.extend(map);
+        found += 1;
+    }
+    anyhow::ensure!(
+        found > 0,
+        "no description files under {} — the benchmark cannot run without them",
+        dir.display()
+    );
+    Ok(out)
+}
+
 fn env_usize(key: &str, default: usize) -> usize {
     std::env::var(key)
         .ok()
@@ -279,6 +308,10 @@ struct CaseOutcome {
     id: String,
     /// Returned point in original screenshot pixels, when the engine produced one.
     point: Option<(f64, f64)>,
+    /// Returned box in original screenshot pixels. Recorded so failures can be
+    /// split into 「found the right element, aimed badly」 and 「found the wrong
+    /// element」 — the point alone cannot tell those apart.
+    box_px: Option<[f64; 4]>,
     ok: bool,
     rounds: usize,
     secs: f64,
@@ -298,15 +331,23 @@ async fn screenspot_pro() -> Result<()> {
         .try_init();
 
     let split = std::env::var("POINTER_SP_SPLIT").unwrap_or_else(|_| "M1".to_string());
-    let ids: Vec<String> = match std::env::var("POINTER_SP_IDS") {
-        Ok(raw) if !raw.trim().is_empty() => raw
+    let explicit_ids = std::env::var("POINTER_SP_IDS")
+        .ok()
+        .filter(|raw| !raw.trim().is_empty());
+    let ids: Vec<String> = match &explicit_ids {
+        Some(raw) => raw
             .split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect(),
-        _ => load_split_ids(&split)?,
+        None => load_split_ids(&split)?,
     };
-    let descriptions = load_descriptions(&split)?;
+    // Explicit ids may come from any split, so look across all three.
+    let descriptions = if explicit_ids.is_some() {
+        load_all_descriptions()?
+    } else {
+        load_descriptions(&split)?
+    };
     let by_id: HashMap<String, ScreenSpotCase> =
         load_cases()?.into_iter().map(|c| (c.id.clone(), c)).collect();
 
@@ -391,6 +432,7 @@ async fn screenspot_pro() -> Result<()> {
                         CaseOutcome {
                             id: case.id.clone(),
                             point: out.point_px,
+                            box_px: out.box_px.map(|b| [b.x1, b.y1, b.x2, b.y2]),
                             ok: out.ok,
                             rounds: out.rounds,
                             secs: t0.elapsed().as_secs_f64(),
@@ -404,6 +446,7 @@ async fn screenspot_pro() -> Result<()> {
                     _ => CaseOutcome {
                         id: case.id.clone(),
                         point: None,
+                        box_px: None,
                         ok: false,
                         rounds: 0,
                         secs: t0.elapsed().as_secs_f64(),

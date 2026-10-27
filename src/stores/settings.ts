@@ -453,6 +453,11 @@ export const useSettingsStore = defineStore('settings', () => {
         mergedIn.rawContentViewEnabled ?? prevMerged.rawContentViewEnabled,
       debugDumpLlmPrompts:
         mergedIn.debugDumpLlmPrompts ?? prevMerged.debugDumpLlmPrompts,
+      // Same treatment as its neighbours: this switch decides whether captures
+      // reach disk, and a response that omits it would otherwise leave the
+      // dialog reading `undefined`, i.e. unticked, no matter what the file says.
+      debugSaveComputerCaptures:
+        mergedIn.debugSaveComputerCaptures ?? prevMerged.debugSaveComputerCaptures,
       terminalEnvOverrides: { ...retainedTerminalEnv },
       taskBoardShowChildBoards:
         mergedIn.taskBoardShowChildBoards ?? prevMerged.taskBoardShowChildBoards,

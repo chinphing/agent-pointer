@@ -202,10 +202,10 @@ describe('platformTierDefaults', () => {
     })
     expect(out.verify).toBe('qwen3.5-flash')
     expect(out.verifyProviderId).toBe('qwen')
-    expect(out.verifyThinkingBudget).toBe(4096)
+    expect(out.verifyThinkingIntensity).toBe('high')
     // 定位模型留空 = 跟随主模型，思考强度仍独立生效。
     expect(out.locate).toBeUndefined()
-    expect(out.locateThinkingBudget).toBe(0)
+    expect(out.locateThinkingIntensity).toBe('off')
   })
 
   it('reads a platform locate model when one is set', () => {
@@ -220,7 +220,7 @@ describe('platformTierDefaults', () => {
     })
     expect(out.locate).toBe('qwen3.5-plus')
     expect(out.locateProviderId).toBe('qwen')
-    expect(out.locateThinkingBudget).toBe(1024)
+    expect(out.locateThinkingIntensity).toBe('low')
   })
 
   it('reads locate verify model and thinking from platform tierDefaults', () => {
@@ -235,7 +235,7 @@ describe('platformTierDefaults', () => {
     })
     expect(out.locateVerify).toBe('qwen3.5-plus')
     expect(out.locateVerifyProviderId).toBe('qwen')
-    expect(out.locateVerifyThinkingBudget).toBe(8192)
+    expect(out.locateVerifyThinkingIntensity).toBe('max')
   })
 
   it('keeps locate verify following locate when the platform omits it', () => {
@@ -243,6 +243,6 @@ describe('platformTierDefaults', () => {
       computerPipelineLlm: { locate: { providerId: 'qwen', model: 'qwen3.5-flash' } }
     })
     expect(out.locateVerify).toBeUndefined()
-    expect(out.locateVerifyThinkingBudget).toBeUndefined()
+    expect(out.locateVerifyThinkingIntensity).toBeUndefined()
   })
 })

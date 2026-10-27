@@ -198,14 +198,17 @@ function createSettingsDialogForm(deps: {
     positionProviderId: current.positionProviderId || platformPipe.positionProviderId || '',
     verifyProviderId: current.verifyProviderId || platformPipe.verifyProviderId || '',
     locateProviderId: current.locateProviderId || platformPipe.locateProviderId || '',
-    positionThinkingBudget: current.positionThinkingBudget ?? 1024,
-    verifyThinkingBudget: current.verifyThinkingBudget ?? platformPipe.verifyThinkingBudget ?? 256,
-    locateThinkingBudget: current.locateThinkingBudget ?? platformPipe.locateThinkingBudget ?? 0,
+    positionThinkingIntensity:
+      current.positionThinkingIntensity ?? platformPipe.positionThinkingIntensity ?? 'medium',
+    verifyThinkingIntensity:
+      current.verifyThinkingIntensity ?? platformPipe.verifyThinkingIntensity ?? 'off',
+    locateThinkingIntensity:
+      current.locateThinkingIntensity ?? platformPipe.locateThinkingIntensity ?? 'off',
     locateVerify: current.locateVerify || platformPipe.locateVerify || '',
     locateVerifyProviderId:
       current.locateVerifyProviderId || platformPipe.locateVerifyProviderId || '',
-    locateVerifyThinkingBudget:
-      current.locateVerifyThinkingBudget ?? platformPipe.locateVerifyThinkingBudget
+    locateVerifyThinkingIntensity:
+      current.locateVerifyThinkingIntensity ?? platformPipe.locateVerifyThinkingIntensity
   }
   }
 

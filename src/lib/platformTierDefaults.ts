@@ -199,12 +199,10 @@ export function platformMediaGenerationDefault(
   return readTierModelRef(generation?.[kind])
 }
 
-/** Pipeline 阶段的 `thinkingIntensity` → 预算（off = 0）；未下发返回 undefined。 */
-function phaseThinkingBudget(raw: unknown): number | undefined {
+/** Pipeline 阶段的 `thinkingIntensity` → 强度名；未下发返回 undefined。 */
+function phaseThinkingIntensity(raw: unknown): ThinkingIntensity | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
-  const intensity = parseThinkingIntensity((raw as Record<string, unknown>).thinkingIntensity)
-  if (!intensity) return undefined
-  return intensity === 'off' ? 0 : budgetForIntensity(intensity)
+  return parseThinkingIntensity((raw as Record<string, unknown>).thinkingIntensity) || undefined
 }
 
 export function platformComputerPipelineDefault(
@@ -227,24 +225,26 @@ export function platformComputerPipelineDefault(
     out.verify = verify.model
     out.verifyProviderId = verify.providerId
   }
-  const verifyBudget = phaseThinkingBudget(pipeline?.verify)
-  if (verifyBudget !== undefined) out.verifyThinkingBudget = verifyBudget
+  const verifyIntensity = phaseThinkingIntensity(pipeline?.verify)
+  if (verifyIntensity !== undefined) out.verifyThinkingIntensity = verifyIntensity
   // 定位模型可留空（跟随主模型），思考强度仍独立生效。
   const locate = readTierModelRef(pipeline?.locate)
   if (locate) {
     out.locate = locate.model
     out.locateProviderId = locate.providerId
   }
-  const locateBudget = phaseThinkingBudget(pipeline?.locate)
-  if (locateBudget !== undefined) out.locateThinkingBudget = locateBudget
+  const locateIntensity = phaseThinkingIntensity(pipeline?.locate)
+  if (locateIntensity !== undefined) out.locateThinkingIntensity = locateIntensity
   // 定位校验：模型/强度都可独立，留空跟随定位。
   const locateVerify = readTierModelRef(pipeline?.locateVerify)
   if (locateVerify) {
     out.locateVerify = locateVerify.model
     out.locateVerifyProviderId = locateVerify.providerId
   }
-  const locateVerifyBudget = phaseThinkingBudget(pipeline?.locateVerify)
-  if (locateVerifyBudget !== undefined) out.locateVerifyThinkingBudget = locateVerifyBudget
+  const locateVerifyIntensity = phaseThinkingIntensity(pipeline?.locateVerify)
+  if (locateVerifyIntensity !== undefined) {
+    out.locateVerifyThinkingIntensity = locateVerifyIntensity
+  }
   return out
 }
 

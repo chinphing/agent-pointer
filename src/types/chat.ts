@@ -1,5 +1,12 @@
 export type Role = 'system' | 'user' | 'assistant' | 'tool'
 
+/** Unified product thinking intensity ladder (`off | low | medium | high | max`).
+ *
+ *  Defined here rather than in `lib/thinkingIntensity` so the shared types module
+ *  stays dependency-free; the lib re-exports it for callers that also want the
+ *  helpers. */
+export type ThinkingIntensity = 'off' | 'low' | 'medium' | 'high' | 'max'
+
 export interface WebSearchSourceEntry {
   index: number
   title: string
@@ -767,7 +774,7 @@ export interface PerformanceModeLlmConfig {
   thinkingIntensity?: 'off' | 'low' | 'medium' | 'high' | 'max'
 }
 
-/** Per-phase model ids and thinking budgets for host verify pipeline (debug). */
+/** Per-phase model ids and thinking intensity for the host verify pipeline. */
 export interface ComputerPipelineLlmSettings {
   decision?: string
   position?: string
@@ -777,15 +784,17 @@ export interface ComputerPipelineLlmSettings {
   positionProviderId?: string
   verifyProviderId?: string
   locateProviderId?: string
-  positionThinkingBudget?: number
-  verifyThinkingBudget?: number
-  /** 0 = thinking off. Grounding defaults to off — P0 measured 20/20 with it off. */
-  locateThinkingBudget?: number
+  /** Unset = inherit. `off` = explicitly no thinking. */
+  positionThinkingIntensity?: ThinkingIntensity
+  /** Unset = inherit. `off` = explicitly no thinking. Defaults to `off`. */
+  verifyThinkingIntensity?: ThinkingIntensity
+  /** Grounding defaults to off — P0 measured 20/20 with it off. */
+  locateThinkingIntensity?: ThinkingIntensity
   /** Locate verifier model; empty = follow `locate`. */
   locateVerify?: string
   locateVerifyProviderId?: string
-  /** Unset = follow the locate phase's thinking. */
-  locateVerifyThinkingBudget?: number
+  /** Unset = follow the locate phase's thinking intensity. */
+  locateVerifyThinkingIntensity?: ThinkingIntensity
 }
 
 

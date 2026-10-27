@@ -363,8 +363,8 @@ export const useSettingsStore = defineStore('settings', () => {
       decisionProviderId: '',
       positionProviderId: '',
       verifyProviderId: '',
-      positionThinkingBudget: 1024,
-      verifyThinkingBudget: 256
+      positionThinkingIntensity: 'medium',
+      verifyThinkingIntensity: 'off'
     },
     agentModeLlm: defaultAgentModeLlm(),
     mediaModeLlm: defaultMediaModeLlm(),

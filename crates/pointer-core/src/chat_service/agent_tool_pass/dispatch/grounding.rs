@@ -39,12 +39,10 @@ fn apply_locate_verify_overrides(
             settings.active_provider_id = provider_id.to_string();
         }
     }
-    if let Some(budget) = cfg.thinking_budget_locate_verify {
-        settings.round_thinking_locked = true;
-        settings.round_enable_thinking = Some(budget > 0);
-        settings.round_thinking_budget = Some(budget);
-        settings.round_reasoning_effort = None;
-        settings.round_thinking_intensity = None;
+    // `None` = follow the locator, so an unconfigured verifier stays
+    // byte-identical to it; `Some("off")` is an explicit 「no thinking」.
+    if let Some(intensity) = cfg.thinking_intensity_locate_verify.as_deref() {
+        crate::thinking_strategy::apply_thinking_intensity_to_round(settings, Some(intensity));
     }
 }
 
@@ -246,19 +244,19 @@ mod tests {
         let mut cfg = crate::agents::computer::runtime::ComputerPipelineLlmConfig::default();
         cfg.model_locate_verify = "verify-model".into();
         cfg.provider_locate_verify = "deepseek".into();
-        cfg.thinking_budget_locate_verify = Some(4096);
+        cfg.thinking_intensity_locate_verify = Some("high".into());
         apply_locate_verify_overrides(&mut settings, &cfg);
         assert_eq!(settings.model, "verify-model");
         assert_eq!(settings.active_provider_id, "deepseek");
         assert_eq!(settings.round_enable_thinking, Some(true));
         assert_eq!(settings.round_thinking_budget, Some(4096));
 
-        // 0 = 显式关闭。
+        // `off` = 显式关闭。
         let mut cfg = crate::agents::computer::runtime::ComputerPipelineLlmConfig::default();
-        cfg.thinking_budget_locate_verify = Some(0);
+        cfg.thinking_intensity_locate_verify = Some("off".into());
         apply_locate_verify_overrides(&mut settings, &cfg);
         assert_eq!(settings.round_enable_thinking, Some(false));
-        assert_eq!(settings.round_thinking_budget, Some(0));
+        assert_eq!(settings.round_thinking_budget, None);
     }
 
     #[test]

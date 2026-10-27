@@ -2,6 +2,10 @@
 
 use crate::agents::computer::vision::vision_state::VisionState;
 use crate::agents::AgentRegistry;
+use crate::models::{
+    PIPELINE_THINKING_INTENSITY_LOCATE, PIPELINE_THINKING_INTENSITY_POSITION,
+    PIPELINE_THINKING_INTENSITY_VERIFY,
+};
 use serde_json::Value;
 
 pub const CONFIG_KEY_PIPELINE_MODEL_DECISION: &str = "computerPipelineModelDecision";
@@ -23,13 +27,6 @@ pub const DEFAULT_MODEL_PIPELINE_VERIFY: &str = "";
 pub const DEFAULT_MODEL_PIPELINE_LOCATE: &str = "";
 /// Default LLM provider id for computer tier / pipeline overrides (empty = none local).
 pub const DEFAULT_COMPUTER_LLM_PROVIDER: &str = "";
-/// `thinking_budget` for Advanced pipeline Position phase.
-pub const DEFAULT_PIPELINE_POSITION_THINKING_BUDGET: u32 = 1024;
-/// `thinking_budget` for Advanced pipeline Verify phase.
-pub const DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET: u32 = 256;
-/// Fallback `thinking_budget` for the pipeline Decision phase. The main model's
-/// thinking comes from `agentModeLlm[agentId][mode]` via the shared session-model path.
-pub const DEFAULT_PIPELINE_DECISION_THINKING_BUDGET: u32 = 2048;
 
 const MAX_TIER_HISTORY: usize = 10;
 
@@ -56,15 +53,15 @@ pub struct ComputerPipelineLlmConfig {
     pub provider_position: String,
     pub provider_verify: String,
     pub provider_locate: String,
-    pub thinking_budget_position: u32,
-    pub thinking_budget_verify: u32,
-    /// 0 = thinking off (the P0 default for grounding).
-    pub thinking_budget_locate: u32,
+    pub thinking_intensity_position: Option<String>,
+    pub thinking_intensity_verify: Option<String>,
+    /// `off` = thinking off (the P0 default for grounding).
+    pub thinking_intensity_locate: Option<String>,
     /// Model for the locate verifier. Empty = follow `model_locate`.
     pub model_locate_verify: String,
     pub provider_locate_verify: String,
-    /// None = follow the locate phase's thinking budget.
-    pub thinking_budget_locate_verify: Option<u32>,
+    /// `None` = follow the locate phase's intensity.
+    pub thinking_intensity_locate_verify: Option<String>,
 }
 
 impl Default for ComputerPipelineLlmConfig {
@@ -78,12 +75,12 @@ impl Default for ComputerPipelineLlmConfig {
             provider_position: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
             provider_verify: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
             provider_locate: DEFAULT_COMPUTER_LLM_PROVIDER.into(),
-            thinking_budget_position: DEFAULT_PIPELINE_POSITION_THINKING_BUDGET,
-            thinking_budget_verify: DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET,
-            thinking_budget_locate: 0,
+            thinking_intensity_position: Some(PIPELINE_THINKING_INTENSITY_POSITION.into()),
+            thinking_intensity_verify: Some(PIPELINE_THINKING_INTENSITY_VERIFY.into()),
+            thinking_intensity_locate: Some(PIPELINE_THINKING_INTENSITY_LOCATE.into()),
             model_locate_verify: String::new(),
             provider_locate_verify: String::new(),
-            thinking_budget_locate_verify: None,
+            thinking_intensity_locate_verify: None,
         }
     }
 }
@@ -129,23 +126,39 @@ impl ComputerPipelineLlmConfig {
         }
     }
 
-    pub fn thinking_for_phase(&self, phase: PipelineLlmPhase) -> (bool, u32) {
+    /// The phase's thinking intensity, or `None` when it should inherit.
+    ///
+    /// Decision has no pipeline override of its own — it keeps whatever the
+    /// shared session-model path applied from `agentModeLlm[agentId][mode]`.
+    pub fn thinking_intensity_for_phase(&self, phase: PipelineLlmPhase) -> Option<String> {
         match phase {
-            PipelineLlmPhase::Decision => (true, DEFAULT_PIPELINE_DECISION_THINKING_BUDGET),
-            PipelineLlmPhase::Position => (true, self.thinking_budget_position),
-            // A zero budget means "thinking off", not "use the default". Verify
-            // runs on every action, so leaving it on costs ~10s of reasoning per
-            // step for a yes/no judgement that does not need it.
-            PipelineLlmPhase::Verify => match self.thinking_budget_verify {
-                0 => (false, 0),
-                n => (true, n),
-            },
-            PipelineLlmPhase::Locate => match self.thinking_budget_locate {
-                0 => (false, 0),
-                n => (true, n),
-            },
+            PipelineLlmPhase::Decision => None,
+            PipelineLlmPhase::Position => self.thinking_intensity_position.clone(),
+            // Verify runs on every action, so leaving thinking on costs a
+            // reasoning pass per step for a yes/no judgement that does not need
+            // it. The default is `off`; the old budget default of 256 was
+            // `low`, and a stored `0` was silently ignored as 「unset」.
+            PipelineLlmPhase::Verify => self.thinking_intensity_verify.clone(),
+            PipelineLlmPhase::Locate => self.thinking_intensity_locate.clone(),
         }
     }
+}
+
+/// Read a config override that may be either a rung name or a legacy budget.
+///
+/// Config keys kept their old names (`computerPipelineThinkingBudgetVerify`) so
+/// an existing deployment override keeps working; the value is now a rung, and a
+/// bare number is translated through `intensity_from_budget`.
+fn parse_intensity_value(raw: &str) -> Option<String> {
+    let t = raw.trim();
+    if let Ok(n) = t.parse::<u32>() {
+        return Some(
+            crate::thinking_strategy::intensity_from_budget(n)
+                .as_str()
+                .to_string(),
+        );
+    }
+    crate::thinking_strategy::ThinkingIntensity::parse(t).map(|i| i.as_str().to_string())
 }
 
 /// Static computer-agent runtime config from the agent manifest + settings.
@@ -192,25 +205,21 @@ impl ComputerModelConfig {
                     cfg.pipeline_llm.provider_locate = v.trim().to_string();
                 }
                 CONFIG_KEY_PIPELINE_THINKING_BUDGET_LOCATE => {
-                    if let Ok(n) = v.trim().parse::<u32>() {
-                        cfg.pipeline_llm.thinking_budget_locate = n;
+                    if let Some(i) = parse_intensity_value(v) {
+                        cfg.pipeline_llm.thinking_intensity_locate = Some(i);
                     }
                 }
                 CONFIG_KEY_PIPELINE_MODEL_VERIFY if !v.trim().is_empty() => {
                     cfg.pipeline_llm.model_verify = v.trim().to_string();
                 }
                 CONFIG_KEY_PIPELINE_THINKING_BUDGET_POSITION => {
-                    if let Ok(n) = v.trim().parse::<u32>() {
-                        if n > 0 {
-                            cfg.pipeline_llm.thinking_budget_position = n;
-                        }
+                    if let Some(i) = parse_intensity_value(v) {
+                        cfg.pipeline_llm.thinking_intensity_position = Some(i);
                     }
                 }
                 CONFIG_KEY_PIPELINE_THINKING_BUDGET_VERIFY => {
-                    if let Ok(n) = v.trim().parse::<u32>() {
-                        if n > 0 {
-                            cfg.pipeline_llm.thinking_budget_verify = n;
-                        }
+                    if let Some(i) = parse_intensity_value(v) {
+                        cfg.pipeline_llm.thinking_intensity_verify = Some(i);
                     }
                 }
                 _ => {}
@@ -239,11 +248,11 @@ impl ComputerModelConfig {
         if !p.verify_provider_id.trim().is_empty() {
             self.pipeline_llm.provider_verify = p.verify_provider_id.trim().to_string();
         }
-        if p.position_thinking_budget > 0 {
-            self.pipeline_llm.thinking_budget_position = p.position_thinking_budget;
+        if p.position_thinking_intensity.is_some() {
+            self.pipeline_llm.thinking_intensity_position = p.position_thinking_intensity.clone();
         }
-        if p.verify_thinking_budget > 0 {
-            self.pipeline_llm.thinking_budget_verify = p.verify_thinking_budget;
+        if p.verify_thinking_intensity.is_some() {
+            self.pipeline_llm.thinking_intensity_verify = p.verify_thinking_intensity.clone();
         }
         // Locate: an empty model means "inherit the agent model", which is the
         // default — so we only override when the user actually picked one.
@@ -253,9 +262,11 @@ impl ComputerModelConfig {
         if !p.locate_provider_id.trim().is_empty() {
             self.pipeline_llm.provider_locate = p.locate_provider_id.trim().to_string();
         }
-        // Thinking budget 0 is a meaningful value here (off), unlike the other
-        // phases where 0 means "unset".
-        self.pipeline_llm.thinking_budget_locate = p.locate_thinking_budget;
+        // `Some("off")` means 「explicitly off」 and must survive; only an absent
+        // value falls through to the built-in default.
+        if p.locate_thinking_intensity.is_some() {
+            self.pipeline_llm.thinking_intensity_locate = p.locate_thinking_intensity.clone();
+        }
         // Locate verifier: empty model/provider follow the locate phase.
         if !p.locate_verify.trim().is_empty() {
             self.pipeline_llm.model_locate_verify = p.locate_verify.trim().to_string();
@@ -264,8 +275,9 @@ impl ComputerModelConfig {
             self.pipeline_llm.provider_locate_verify =
                 p.locate_verify_provider_id.trim().to_string();
         }
-        if let Some(budget) = p.locate_verify_thinking_budget {
-            self.pipeline_llm.thinking_budget_locate_verify = Some(budget);
+        if p.locate_verify_thinking_intensity.is_some() {
+            self.pipeline_llm.thinking_intensity_locate_verify =
+                p.locate_verify_thinking_intensity.clone();
         }
     }
 }
@@ -1350,12 +1362,16 @@ mod tests {
         );
         assert_eq!(cfg.pipeline_llm.model_verify, DEFAULT_MODEL_PIPELINE_VERIFY);
         assert_eq!(
-            cfg.pipeline_llm.thinking_budget_position,
-            DEFAULT_PIPELINE_POSITION_THINKING_BUDGET
+            cfg.pipeline_llm.thinking_intensity_position.as_deref(),
+            Some(PIPELINE_THINKING_INTENSITY_POSITION)
         );
         assert_eq!(
-            cfg.pipeline_llm.thinking_budget_verify,
-            DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET
+            cfg.pipeline_llm.thinking_intensity_verify.as_deref(),
+            Some(PIPELINE_THINKING_INTENSITY_VERIFY)
+        );
+        assert_eq!(
+            cfg.pipeline_llm.thinking_intensity_locate.as_deref(),
+            Some(PIPELINE_THINKING_INTENSITY_LOCATE)
         );
     }
 
@@ -1364,50 +1380,78 @@ mod tests {
         let cfg = ComputerModelConfig::default();
         assert_eq!(
             cfg.pipeline_llm
-                .thinking_for_phase(PipelineLlmPhase::Position),
-            (true, DEFAULT_PIPELINE_POSITION_THINKING_BUDGET)
+                .thinking_intensity_for_phase(PipelineLlmPhase::Position)
+                .as_deref(),
+            Some(PIPELINE_THINKING_INTENSITY_POSITION)
         );
+        // Verify only answers yes/no on an image it is already looking at, so the
+        // default is off — the old budget default of 256 was 「low」 and cost a
+        // reasoning pass on every action.
         assert_eq!(
             cfg.pipeline_llm
-                .thinking_for_phase(PipelineLlmPhase::Verify),
-            (true, DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET)
+                .thinking_intensity_for_phase(PipelineLlmPhase::Verify)
+                .as_deref(),
+            Some("off")
+        );
+        // Decision has no pipeline override; it keeps the session-model value.
+        assert_eq!(
+            cfg.pipeline_llm
+                .thinking_intensity_for_phase(PipelineLlmPhase::Decision),
+            None
         );
     }
 
     #[test]
-    fn zero_thinking_budget_turns_thinking_off() {
+    fn explicit_off_is_not_the_same_as_inherit() {
+        // The bug this locks: `0` used to mean 「off」 for locate and 「unset」 for
+        // verify, so picking 「off」 on verify kept the default budget. `Some("off")`
+        // and `None` must stay distinguishable end to end.
         let mut cfg = ComputerModelConfig::default();
-        // Verify runs on every action; a zero budget must mean off, not default.
-        cfg.pipeline_llm.thinking_budget_verify = 0;
+        cfg.pipeline_llm.thinking_intensity_verify = Some("off".into());
         assert_eq!(
             cfg.pipeline_llm
-                .thinking_for_phase(PipelineLlmPhase::Verify),
-            (false, 0)
+                .thinking_intensity_for_phase(PipelineLlmPhase::Verify)
+                .as_deref(),
+            Some("off")
         );
-        cfg.pipeline_llm.thinking_budget_locate = 0;
+        cfg.pipeline_llm.thinking_intensity_verify = None;
         assert_eq!(
             cfg.pipeline_llm
-                .thinking_for_phase(PipelineLlmPhase::Locate),
-            (false, 0)
+                .thinking_intensity_for_phase(PipelineLlmPhase::Verify),
+            None
         );
     }
 
     #[test]
-    fn non_zero_thinking_budget_is_honoured() {
+    fn non_off_intensity_is_honoured() {
         let mut cfg = ComputerModelConfig::default();
-        cfg.pipeline_llm.thinking_budget_verify = 256;
+        cfg.pipeline_llm.thinking_intensity_verify = Some("low".into());
         assert_eq!(
             cfg.pipeline_llm
-                .thinking_for_phase(PipelineLlmPhase::Verify),
-            (true, 256)
+                .thinking_intensity_for_phase(PipelineLlmPhase::Verify)
+                .as_deref(),
+            Some("low")
         );
-        // 定位强度可配：非 0 用预算，0 仍表示关闭。
-        cfg.pipeline_llm.thinking_budget_locate = 1024;
+        cfg.pipeline_llm.thinking_intensity_locate = Some("high".into());
         assert_eq!(
             cfg.pipeline_llm
-                .thinking_for_phase(PipelineLlmPhase::Locate),
-            (true, 1024)
+                .thinking_intensity_for_phase(PipelineLlmPhase::Locate)
+                .as_deref(),
+            Some("high")
         );
+    }
+
+    #[test]
+    fn config_override_accepts_rung_names_and_legacy_numbers() {
+        // Deployment overrides kept their `...ThinkingBudget...` key names; the
+        // value may now be a rung, and a bare number still maps through
+        // `intensity_from_budget`.
+        assert_eq!(parse_intensity_value("off").as_deref(), Some("off"));
+        assert_eq!(parse_intensity_value("high").as_deref(), Some("high"));
+        assert_eq!(parse_intensity_value("0").as_deref(), Some("off"));
+        assert_eq!(parse_intensity_value("256").as_deref(), Some("low"));
+        assert_eq!(parse_intensity_value("8192").as_deref(), Some("max"));
+        assert_eq!(parse_intensity_value("nonsense"), None);
     }
 
     #[test]

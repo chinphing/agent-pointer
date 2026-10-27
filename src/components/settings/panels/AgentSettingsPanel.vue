@@ -16,6 +16,7 @@ import {
   patchTierThinkingIntensity,
   tierThinkingIntensityValue
 } from '../../../lib/thinkingIntensity'
+import type { ThinkingIntensity } from '../../../lib/thinkingIntensity'
 
 const props = defineProps<{
   form: SettingsDialogForm
@@ -232,15 +233,14 @@ function skillLabel(skillId: string): string {
                           >
                             <option v-for="item in s.allModels" :key="'verify-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                           </select>
-                          <span class="text-[11px] text-muted whitespace-nowrap">{{ t('settings.agentPanel.thinkingBudget') }}</span>
-                          <input
-                            type="number"
-                            min="256"
-                            step="256"
+                          <span class="text-[11px] text-muted whitespace-nowrap">{{ t('settings.agentPanel.thinkingIntensity') }}</span>
+                          <select
                             class="h-8 w-full px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
-                            :value="computerPipelineLlm().verifyThinkingBudget ?? 256"
-                            @change="patchComputerPipelineLlm({ verifyThinkingBudget: Number(($event.target as HTMLInputElement).value) })"
-                          />
+                            :value="computerPipelineLlm().verifyThinkingIntensity ?? 'off'"
+                            @change="patchComputerPipelineLlm({ verifyThinkingIntensity: (($event.target as HTMLSelectElement).value || undefined) as ThinkingIntensity | undefined })"
+                          >
+                            <option v-for="opt in THINKING_INTENSITY_OPTIONS" :key="'pipe-verify-t-' + opt.value" :value="opt.value">{{ opt.label }}</option>
+                          </select>
                         </div>
                       </div>
                     </div>

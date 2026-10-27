@@ -8,7 +8,7 @@ import { useSettingsStore } from '../../../stores/settings'
 import { CircleHelp, Code, Film, Gauge, Monitor, SlidersHorizontal, UserRound, Bot, X } from 'lucide-vue-next'
 import { composerAgentLabel } from '../../../lib/agentUi'
 import SceneTierModelsModal from '../SceneTierModelsModal.vue'
-import { budgetForIntensity, intensityFromLegacy, thinkingIntensityOptions } from '../../../lib/thinkingIntensity'
+import { thinkingIntensityOptions } from '../../../lib/thinkingIntensity'
 import type { ThinkingIntensity } from '../../../lib/thinkingIntensity'
 
 const props = defineProps<{
@@ -26,33 +26,22 @@ const computerAdvancedModal = ref(false)
 // 只保留 off/low/medium/high/max；'' (不设置) 和 off 写的是同一个 0，重复了
 const THINKING_OPTIONS = computed(() => thinkingIntensityOptions().filter(o => o.value !== ''))
 
-function intensityOf(budget: number | undefined): string {
-  if (!budget) return 'off'
-  return intensityFromLegacy({ thinkingBudget: budget }) || ''
-}
-
 function setIntensity(phase: 'locate' | 'verify' | 'locateVerify', value: string) {
+  // 空值 = 跟随（不写字段）；具体强度直接存字符串，不再折成预算数字。
+  const intensity = (value || undefined) as ThinkingIntensity | undefined
   if (phase === 'locateVerify') {
-    // 空值 = 跟随定位（不写字段）。
-    if (!value) {
-      props.form.patchComputerPipelineLlm({ locateVerifyThinkingBudget: undefined })
-      return
-    }
-    const budget = value === 'off' ? 0 : (budgetForIntensity(value as ThinkingIntensity) ?? 0)
-    props.form.patchComputerPipelineLlm({ locateVerifyThinkingBudget: budget })
+    props.form.patchComputerPipelineLlm({ locateVerifyThinkingIntensity: intensity })
     return
   }
-  const budget = value === 'off' || !value ? 0 : (budgetForIntensity(value as ThinkingIntensity) ?? 0)
   if (phase === 'locate') {
-    props.form.patchComputerPipelineLlm({ locateThinkingBudget: budget })
+    props.form.patchComputerPipelineLlm({ locateThinkingIntensity: intensity })
   } else {
-    props.form.patchComputerPipelineLlm({ verifyThinkingBudget: budget })
+    props.form.patchComputerPipelineLlm({ verifyThinkingIntensity: intensity })
   }
 }
 
 function locateVerifyIntensity(): string {
-  const budget = props.form.computerPipelineLlm().locateVerifyThinkingBudget
-  return budget === undefined ? '' : intensityOf(budget)
+  return props.form.computerPipelineLlm().locateVerifyThinkingIntensity ?? ''
 }
 
 // 媒体列「更多」：联网搜索等工具档位（非子智能体，与左侧 explore 入口对称）
@@ -390,7 +379,7 @@ const {
                   <option v-for="item in s.allModels" :key="'locate-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                 </select>
                 <select
-                  :value="intensityOf(computerPipelineLlm().locateThinkingBudget)"
+                  :value="computerPipelineLlm().locateThinkingIntensity ?? 'off'"
                   class="h-8 w-[4.5rem] shrink-0 px-1.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                   @change="setIntensity('locate', ($event.target as HTMLSelectElement).value)"
                 >
@@ -413,7 +402,7 @@ const {
                   <option v-for="item in s.allModels" :key="'verify-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                 </select>
                 <select
-                  :value="intensityOf(computerPipelineLlm().verifyThinkingBudget)"
+                  :value="computerPipelineLlm().verifyThinkingIntensity ?? 'off'"
                   class="h-8 w-[4.5rem] shrink-0 px-1.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                   @change="setIntensity('verify', ($event.target as HTMLSelectElement).value)"
                 >

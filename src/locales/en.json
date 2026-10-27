@@ -880,7 +880,7 @@
       "locateVerifyName": "Grounding check",
       "locateVerifyHint": "Model and thinking for the post-grounding check; empty inherits grounding",
       "locateVerifyInherit": "Inherit grounding",
-      "thinkingBudget": "Thinking budget",
+      "thinkingIntensity": "Thinking intensity",
       "mediaModeModelsDebug": "Media understanding modes (debug)",
       "mediaModeModelsHint": "Models for image / audio / video modes",
       "delegation": "Subtask delegation",

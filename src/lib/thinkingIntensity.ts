@@ -1,8 +1,12 @@
 import type { PerformanceModeLlmConfig } from '../types/chat'
 import { t } from '../i18n'
 
-/** Unified product thinking intensity ladder. */
-export type ThinkingIntensity = 'off' | 'low' | 'medium' | 'high' | 'max'
+/** Unified product thinking intensity ladder (`off | low | medium | high | max`).
+ *
+ *  Defined in `types/chat` so the shared types module stays dependency-free;
+ *  re-exported here for callers that also want the helpers below. */
+export type { ThinkingIntensity } from '../types/chat'
+import type { ThinkingIntensity } from '../types/chat'
 
 /** Wire strategy id stored as `thinkingProtocol`. */
 export type ThinkingProtocol =

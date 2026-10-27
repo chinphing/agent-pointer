@@ -2,10 +2,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
-use crate::agents::computer::runtime::{
-    DEFAULT_PIPELINE_POSITION_THINKING_BUDGET, DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET,
-};
-
 /// Per-model overrides for runtime/API behavior. Unset fields inherit from the parent provider.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ModelRuntimeOverrides {
@@ -2441,35 +2437,46 @@ pub struct ComputerPipelineLlmSettings {
     #[serde(default = "default_computer_llm_provider", rename = "verifyProviderId")]
     pub verify_provider_id: String,
     #[serde(
-        default = "default_pipeline_thinking_budget_position",
-        rename = "positionThinkingBudget"
+        default = "default_pipeline_thinking_intensity_position",
+        rename = "positionThinkingIntensity",
+        alias = "positionThinkingBudget",
+        deserialize_with = "deserialize_thinking_intensity"
     )]
-    pub position_thinking_budget: u32,
+    pub position_thinking_intensity: Option<String>,
     #[serde(
-        default = "default_pipeline_thinking_budget_verify",
-        rename = "verifyThinkingBudget"
+        default = "default_pipeline_thinking_intensity_verify",
+        rename = "verifyThinkingIntensity",
+        alias = "verifyThinkingBudget",
+        deserialize_with = "deserialize_thinking_intensity"
     )]
-    pub verify_thinking_budget: u32,
+    pub verify_thinking_intensity: Option<String>,
     /// Model for the `locate_element` grounding tool. Empty = inherit the agent model.
     #[serde(default, rename = "locate")]
     pub locate: String,
     #[serde(default, rename = "locateProviderId")]
     pub locate_provider_id: String,
-    /// 0 = thinking off (the P0 default for grounding).
-    #[serde(default, rename = "locateThinkingBudget")]
-    pub locate_thinking_budget: u32,
+    /// `off` = thinking off (the P0 default for grounding).
+    #[serde(
+        default = "default_pipeline_thinking_intensity_locate",
+        rename = "locateThinkingIntensity",
+        alias = "locateThinkingBudget",
+        deserialize_with = "deserialize_thinking_intensity"
+    )]
+    pub locate_thinking_intensity: Option<String>,
     /// Model for the locate verifier. Empty = follow `locate`.
     #[serde(default, rename = "locateVerify")]
     pub locate_verify: String,
     #[serde(default, rename = "locateVerifyProviderId")]
     pub locate_verify_provider_id: String,
-    /// None = follow the locate phase's thinking budget.
+    /// `None` = follow the locate phase's intensity.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        rename = "locateVerifyThinkingBudget"
+        rename = "locateVerifyThinkingIntensity",
+        alias = "locateVerifyThinkingBudget",
+        deserialize_with = "deserialize_thinking_intensity"
     )]
-    pub locate_verify_thinking_budget: Option<u32>,
+    pub locate_verify_thinking_intensity: Option<String>,
 }
 
 impl Default for ComputerPipelineLlmSettings {
@@ -2481,14 +2488,14 @@ impl Default for ComputerPipelineLlmSettings {
             decision_provider_id: default_computer_llm_provider(),
             position_provider_id: default_computer_llm_provider(),
             verify_provider_id: default_computer_llm_provider(),
-            position_thinking_budget: default_pipeline_thinking_budget_position(),
-            verify_thinking_budget: default_pipeline_thinking_budget_verify(),
+            position_thinking_intensity: default_pipeline_thinking_intensity_position(),
+            verify_thinking_intensity: default_pipeline_thinking_intensity_verify(),
             locate: String::new(),
             locate_provider_id: String::new(),
-            locate_thinking_budget: 0,
+            locate_thinking_intensity: default_pipeline_thinking_intensity_locate(),
             locate_verify: String::new(),
             locate_verify_provider_id: String::new(),
-            locate_verify_thinking_budget: None,
+            locate_verify_thinking_intensity: None,
         }
     }
 }
@@ -2509,12 +2516,53 @@ fn default_computer_llm_provider() -> String {
     String::new()
 }
 
-fn default_pipeline_thinking_budget_position() -> u32 {
-    DEFAULT_PIPELINE_POSITION_THINKING_BUDGET
+fn default_pipeline_thinking_intensity_position() -> Option<String> {
+    Some(PIPELINE_THINKING_INTENSITY_POSITION.into())
 }
 
-fn default_pipeline_thinking_budget_verify() -> u32 {
-    DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET
+fn default_pipeline_thinking_intensity_verify() -> Option<String> {
+    Some(PIPELINE_THINKING_INTENSITY_VERIFY.into())
+}
+
+fn default_pipeline_thinking_intensity_locate() -> Option<String> {
+    Some(PIPELINE_THINKING_INTENSITY_LOCATE.into())
+}
+
+/// Position tweaks the coordinate after a locate, so it keeps some reasoning.
+pub const PIPELINE_THINKING_INTENSITY_POSITION: &str = "medium";
+
+/// Verify only answers yes/no on an image it is already looking at. Thinking
+/// here costs a reasoning pass on every action and changes nothing — the old
+/// budget default of 256 was 「low」, which is why a user who picked 「off」 and
+/// stored `0` silently kept thinking on: `0` meant 「unset」 in this field.
+pub const PIPELINE_THINKING_INTENSITY_VERIFY: &str = "off";
+
+/// Grounding is a pure coordinate task; the P0 default has always been off.
+pub const PIPELINE_THINKING_INTENSITY_LOCATE: &str = "off";
+
+/// Read a phase's thinking intensity, accepting the legacy budget number.
+///
+/// `0` becomes `"off"`, not `None`: picking zero was the user asking for no
+/// thinking, and the old code dropped that request for every phase except
+/// locate. Unknown strings become `None` so a typo falls back to 「inherit」
+/// rather than silently disabling a phase.
+fn deserialize_thinking_intensity<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    let raw = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(raw.and_then(|v| match v {
+        serde_json::Value::String(s) => {
+            crate::thinking_strategy::ThinkingIntensity::parse(&s).map(|i| i.as_str().to_string())
+        }
+        serde_json::Value::Number(n) => n.as_u64().map(|b| {
+            crate::thinking_strategy::intensity_from_budget(b.min(u32::MAX as u64) as u32)
+                .as_str()
+                .to_string()
+        }),
+        _ => None,
+    }))
 }
 
 /// In-memory platform configuration. Only session-scoped / sensitive fields
@@ -3145,12 +3193,12 @@ pub fn apply_platform_tier_defaults(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .trim();
-            // 平台条目可带思考强度；只在用户仍是内置默认预算时补，避免覆盖用户选择。
-            let intensity_budget = cfg_val
+            // 平台条目可带思考强度；只在用户仍是内置默认时补，避免覆盖用户选择。
+            let intensity = cfg_val
                 .get("thinkingIntensity")
                 .and_then(|v| v.as_str())
                 .and_then(crate::thinking_strategy::ThinkingIntensity::parse)
-                .map(crate::thinking_strategy::budget_for_intensity);
+                .map(|i| i.as_str().to_string());
             let p = &mut settings.computer_pipeline_llm;
             match phase.as_str() {
                 "decision" => {
@@ -3164,15 +3212,24 @@ pub fn apply_platform_tier_defaults(
                         p.position = model.into();
                         p.position_provider_id = pid.into();
                     }
+                    if let Some(i) = intensity {
+                        if p.position_thinking_intensity.as_deref()
+                            == Some(PIPELINE_THINKING_INTENSITY_POSITION)
+                        {
+                            p.position_thinking_intensity = Some(i);
+                        }
+                    }
                 }
                 "verify" => {
                     if !pid.is_empty() && !model.is_empty() && p.verify.trim().is_empty() {
                         p.verify = model.into();
                         p.verify_provider_id = pid.into();
                     }
-                    if let Some(b) = intensity_budget {
-                        if p.verify_thinking_budget == DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET {
-                            p.verify_thinking_budget = b;
+                    if let Some(i) = intensity {
+                        if p.verify_thinking_intensity.as_deref()
+                            == Some(PIPELINE_THINKING_INTENSITY_VERIFY)
+                        {
+                            p.verify_thinking_intensity = Some(i);
                         }
                     }
                 }
@@ -3181,10 +3238,12 @@ pub fn apply_platform_tier_defaults(
                         p.locate = model.into();
                         p.locate_provider_id = pid.into();
                     }
-                    // 定位模型可留空跟随主模型；思考强度独立生效（0 = 关）。
-                    if let Some(b) = intensity_budget {
-                        if p.locate_thinking_budget == 0 {
-                            p.locate_thinking_budget = b;
+                    // 定位模型可留空跟随主模型；思考强度独立生效。
+                    if let Some(i) = intensity {
+                        if p.locate_thinking_intensity.as_deref()
+                            == Some(PIPELINE_THINKING_INTENSITY_LOCATE)
+                        {
+                            p.locate_thinking_intensity = Some(i);
                         }
                     }
                 }
@@ -3194,9 +3253,9 @@ pub fn apply_platform_tier_defaults(
                         p.locate_verify_provider_id = pid.into();
                     }
                     // 留空 = 跟随定位；用户已设置的强度不被平台覆盖。
-                    if let Some(b) = intensity_budget {
-                        if p.locate_verify_thinking_budget.is_none() {
-                            p.locate_verify_thinking_budget = Some(b);
+                    if let Some(i) = intensity {
+                        if p.locate_verify_thinking_intensity.is_none() {
+                            p.locate_verify_thinking_intensity = Some(i);
                         }
                     }
                 }
@@ -3744,14 +3803,14 @@ mod user_settings_defaults_tests {
             decision_provider_id: "session-provider".into(),
             position_provider_id: "session-provider".into(),
             verify_provider_id: "session-provider".into(),
-            position_thinking_budget: 1024,
-            verify_thinking_budget: 256,
+            position_thinking_intensity: Some("medium".into()),
+            verify_thinking_intensity: Some("off".into()),
             locate: String::new(),
             locate_provider_id: String::new(),
-            locate_thinking_budget: 0,
+            locate_thinking_intensity: Some("off".into()),
             locate_verify: String::new(),
             locate_verify_provider_id: String::new(),
-            locate_verify_thinking_budget: None,
+            locate_verify_thinking_intensity: None,
         };
 
         ensure_user_settings_defaults(&mut user);
@@ -4051,11 +4110,70 @@ mod user_settings_defaults_tests {
         let p = &settings.computer_pipeline_llm;
         assert_eq!(p.verify, "qwen3.5-flash");
         assert_eq!(p.verify_provider_id, "qwen");
-        assert_eq!(p.verify_thinking_budget, 4096);
+        assert_eq!(p.verify_thinking_intensity.as_deref(), Some("high"));
         // 定位模型留空 = 跟随主模型，思考强度仍独立生效。
         assert!(p.locate.is_empty());
         assert!(p.locate_provider_id.is_empty());
-        assert_eq!(p.locate_thinking_budget, 1024);
+        assert_eq!(p.locate_thinking_intensity.as_deref(), Some("low"));
+    }
+
+    #[test]
+    fn pipeline_thinking_reads_legacy_budget_numbers() {
+        // Old JSON stored a budget. `0` was the user asking for 「off」, and the
+        // old code honoured that only for locate — verify kept its default.
+        let p: ComputerPipelineLlmSettings = serde_json::from_value(serde_json::json!({
+            "positionThinkingBudget": 1024,
+            "verifyThinkingBudget": 0,
+            "locateThinkingBudget": 4096,
+            "locateVerifyThinkingBudget": 8192
+        }))
+        .expect("legacy json");
+        assert_eq!(p.position_thinking_intensity.as_deref(), Some("low"));
+        assert_eq!(p.verify_thinking_intensity.as_deref(), Some("off"));
+        assert_eq!(p.locate_thinking_intensity.as_deref(), Some("high"));
+        assert_eq!(p.locate_verify_thinking_intensity.as_deref(), Some("max"));
+    }
+
+    #[test]
+    fn pipeline_thinking_reads_new_rung_names() {
+        let p: ComputerPipelineLlmSettings = serde_json::from_value(serde_json::json!({
+            "verifyThinkingIntensity": "high",
+            "locateVerifyThinkingIntensity": "off"
+        }))
+        .expect("new json");
+        assert_eq!(p.verify_thinking_intensity.as_deref(), Some("high"));
+        assert_eq!(p.locate_verify_thinking_intensity.as_deref(), Some("off"));
+    }
+
+    #[test]
+    fn pipeline_thinking_defaults_are_off_for_verify_and_locate() {
+        let p: ComputerPipelineLlmSettings =
+            serde_json::from_value(serde_json::json!({})).expect("empty json");
+        assert_eq!(p.position_thinking_intensity.as_deref(), Some("medium"));
+        // Verify runs on every action for a yes/no judgement; the old default of
+        // 256 was 「low」 and cost a reasoning pass per step.
+        assert_eq!(p.verify_thinking_intensity.as_deref(), Some("off"));
+        assert_eq!(p.locate_thinking_intensity.as_deref(), Some("off"));
+        // `None` still means 「follow the locator」.
+        assert_eq!(p.locate_verify_thinking_intensity, None);
+    }
+
+    #[test]
+    fn pipeline_thinking_serializes_as_rungs_not_numbers() {
+        let p = ComputerPipelineLlmSettings::default();
+        let json = serde_json::to_value(&p).expect("serialize");
+        assert_eq!(json["verifyThinkingIntensity"], serde_json::json!("off"));
+        assert_eq!(json["positionThinkingIntensity"], serde_json::json!("medium"));
+        assert!(json.get("verifyThinkingBudget").is_none());
+    }
+
+    #[test]
+    fn pipeline_thinking_ignores_unknown_rung() {
+        // A typo falls back to 「inherit」 rather than silently disabling a phase.
+        let p: ComputerPipelineLlmSettings =
+            serde_json::from_value(serde_json::json!({ "verifyThinkingIntensity": "extreme" }))
+                .expect("json");
+        assert_eq!(p.verify_thinking_intensity, None);
     }
 
     #[test]
@@ -4074,7 +4192,7 @@ mod user_settings_defaults_tests {
         let p = &settings.computer_pipeline_llm;
         assert_eq!(p.locate_verify, "qwen3.5-plus");
         assert_eq!(p.locate_verify_provider_id, "qwen");
-        assert_eq!(p.locate_verify_thinking_budget, Some(8192));
+        assert_eq!(p.locate_verify_thinking_intensity.as_deref(), Some("max"));
     }
 
     #[test]
@@ -4090,13 +4208,16 @@ mod user_settings_defaults_tests {
         });
         let mut settings = ModelSettings::default();
         settings.computer_pipeline_llm.locate_verify = "user-model".into();
-        settings.computer_pipeline_llm.locate_verify_thinking_budget = Some(0);
+        settings.computer_pipeline_llm.locate_verify_thinking_intensity = Some("off".into());
         apply_platform_tier_defaults(&mut settings, &defaults, &[]);
         // 用户已配的模型/强度不被平台默认覆盖。
         assert_eq!(settings.computer_pipeline_llm.locate_verify, "user-model");
         assert_eq!(
-            settings.computer_pipeline_llm.locate_verify_thinking_budget,
-            Some(0)
+            settings
+                .computer_pipeline_llm
+                .locate_verify_thinking_intensity
+                .as_deref(),
+            Some("off")
         );
     }
 
@@ -4117,13 +4238,13 @@ mod user_settings_defaults_tests {
             }
         });
         let mut settings = ModelSettings::default();
-        settings.computer_pipeline_llm.verify_thinking_budget = 1024;
-        settings.computer_pipeline_llm.locate_thinking_budget = 2048;
+        settings.computer_pipeline_llm.verify_thinking_intensity = Some("low".into());
+        settings.computer_pipeline_llm.locate_thinking_intensity = Some("medium".into());
         apply_platform_tier_defaults(&mut settings, &defaults, &[]);
         let p = &settings.computer_pipeline_llm;
-        // 用户改过的预算不被平台默认覆盖；模型仍按缺失补齐。
-        assert_eq!(p.verify_thinking_budget, 1024);
-        assert_eq!(p.locate_thinking_budget, 2048);
+        // 用户改过的强度不被平台默认覆盖；模型仍按缺失补齐。
+        assert_eq!(p.verify_thinking_intensity.as_deref(), Some("low"));
+        assert_eq!(p.locate_thinking_intensity.as_deref(), Some("medium"));
         assert_eq!(p.verify, "qwen3.5-flash");
         assert_eq!(p.locate, "qwen3.5-plus");
     }

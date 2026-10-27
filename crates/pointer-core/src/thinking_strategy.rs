@@ -187,8 +187,7 @@ pub(crate) fn budget_for_intensity(intensity: ThinkingIntensity) -> u32 {
     }
 }
 
-fn intensity_from_budget(budget: u32) -> ThinkingIntensity {
-    if budget == 0 {
+pub fn intensity_from_budget(budget: u32) -> ThinkingIntensity {    if budget == 0 {
         ThinkingIntensity::Off
     } else if budget < 1536 {
         ThinkingIntensity::Low
@@ -198,6 +197,49 @@ fn intensity_from_budget(budget: u32) -> ThinkingIntensity {
         ThinkingIntensity::High
     } else {
         ThinkingIntensity::Max
+    }
+}
+
+/// Vendors that only understand `reasoning_effort` get the two rungs they have.
+fn effort_for_intensity(intensity: ThinkingIntensity) -> Option<String> {
+    match intensity {
+        ThinkingIntensity::High => Some("high".into()),
+        ThinkingIntensity::Max => Some("max".into()),
+        _ => None,
+    }
+}
+
+/// Stamp a product intensity onto this round's settings.
+///
+/// `None` means 「inherit」 and leaves the round unlocked so provider / model
+/// defaults apply; `Some("off")` means 「explicitly off」 and locks thinking off.
+/// Keeping those two apart is the whole reason the pipeline config is a string
+/// ladder rather than a budget number: a stored `0` used to mean 「off」 for
+/// locate and 「unset」 for verify, so picking 「off」 on verify silently kept the
+/// default budget.
+pub fn apply_thinking_intensity_to_round(settings: &mut ModelSettings, intensity: Option<&str>) {
+    match intensity.and_then(ThinkingIntensity::parse) {
+        Some(ThinkingIntensity::Off) => {
+            settings.round_thinking_locked = true;
+            settings.round_thinking_intensity = Some(ThinkingIntensity::Off.as_str().into());
+            settings.round_enable_thinking = Some(false);
+            settings.round_thinking_budget = None;
+            settings.round_reasoning_effort = None;
+        }
+        Some(level) => {
+            settings.round_thinking_locked = true;
+            settings.round_thinking_intensity = Some(level.as_str().into());
+            settings.round_enable_thinking = Some(true);
+            settings.round_thinking_budget = Some(budget_for_intensity(level));
+            settings.round_reasoning_effort = effort_for_intensity(level);
+        }
+        None => {
+            settings.round_thinking_locked = false;
+            settings.round_thinking_intensity = None;
+            settings.round_enable_thinking = None;
+            settings.round_thinking_budget = None;
+            settings.round_reasoning_effort = None;
+        }
     }
 }
 

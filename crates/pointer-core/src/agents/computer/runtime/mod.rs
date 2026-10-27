@@ -60,6 +60,11 @@ pub struct ComputerPipelineLlmConfig {
     pub thinking_budget_verify: u32,
     /// 0 = thinking off (the P0 default for grounding).
     pub thinking_budget_locate: u32,
+    /// Model for the locate verifier. Empty = follow `model_locate`.
+    pub model_locate_verify: String,
+    pub provider_locate_verify: String,
+    /// None = follow the locate phase's thinking budget.
+    pub thinking_budget_locate_verify: Option<u32>,
 }
 
 impl Default for ComputerPipelineLlmConfig {
@@ -76,6 +81,9 @@ impl Default for ComputerPipelineLlmConfig {
             thinking_budget_position: DEFAULT_PIPELINE_POSITION_THINKING_BUDGET,
             thinking_budget_verify: DEFAULT_PIPELINE_VERIFY_THINKING_BUDGET,
             thinking_budget_locate: 0,
+            model_locate_verify: String::new(),
+            provider_locate_verify: String::new(),
+            thinking_budget_locate_verify: None,
         }
     }
 }
@@ -248,6 +256,17 @@ impl ComputerModelConfig {
         // Thinking budget 0 is a meaningful value here (off), unlike the other
         // phases where 0 means "unset".
         self.pipeline_llm.thinking_budget_locate = p.locate_thinking_budget;
+        // Locate verifier: empty model/provider follow the locate phase.
+        if !p.locate_verify.trim().is_empty() {
+            self.pipeline_llm.model_locate_verify = p.locate_verify.trim().to_string();
+        }
+        if !p.locate_verify_provider_id.trim().is_empty() {
+            self.pipeline_llm.provider_locate_verify =
+                p.locate_verify_provider_id.trim().to_string();
+        }
+        if let Some(budget) = p.locate_verify_thinking_budget {
+            self.pipeline_llm.thinking_budget_locate_verify = Some(budget);
+        }
     }
 }
 

@@ -222,4 +222,27 @@ describe('platformTierDefaults', () => {
     expect(out.locateProviderId).toBe('qwen')
     expect(out.locateThinkingBudget).toBe(1024)
   })
+
+  it('reads locate verify model and thinking from platform tierDefaults', () => {
+    const out = platformComputerPipelineDefault({
+      computerPipelineLlm: {
+        locateVerify: {
+          providerId: 'qwen',
+          model: 'qwen3.5-plus',
+          thinkingIntensity: 'max'
+        }
+      }
+    })
+    expect(out.locateVerify).toBe('qwen3.5-plus')
+    expect(out.locateVerifyProviderId).toBe('qwen')
+    expect(out.locateVerifyThinkingBudget).toBe(8192)
+  })
+
+  it('keeps locate verify following locate when the platform omits it', () => {
+    const out = platformComputerPipelineDefault({
+      computerPipelineLlm: { locate: { providerId: 'qwen', model: 'qwen3.5-flash' } }
+    })
+    expect(out.locateVerify).toBeUndefined()
+    expect(out.locateVerifyThinkingBudget).toBeUndefined()
+  })
 })

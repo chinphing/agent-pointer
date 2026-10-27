@@ -27,12 +27,32 @@ const MAX_CALL_ATTEMPTS: usize = 3;
 /// Locator backed by the chat provider (B5 `locator` / `verifier`).
 pub struct ChatLocateVision<'a> {
     provider: &'a OpenAIProvider,
+    /// Verifier provider; equals `provider` unless locate verify is configured.
+    verify_provider: &'a OpenAIProvider,
     cancel: CancellationToken,
 }
 
 impl<'a> ChatLocateVision<'a> {
+    /// Locate and verify share one provider (fixtures / default config).
     pub fn new(provider: &'a OpenAIProvider, cancel: CancellationToken) -> Self {
-        Self { provider, cancel }
+        Self {
+            provider,
+            verify_provider: provider,
+            cancel,
+        }
+    }
+
+    /// Independent verifier provider (locate verify model configured).
+    pub fn with_verify_provider(
+        provider: &'a OpenAIProvider,
+        verify_provider: &'a OpenAIProvider,
+        cancel: CancellationToken,
+    ) -> Self {
+        Self {
+            provider,
+            verify_provider,
+            cancel,
+        }
     }
 
     fn wire_messages(image: &LocateImage, prompt: &str, suffix: Option<&str>) -> Vec<Value> {
@@ -162,7 +182,7 @@ impl LocateVision for ChatLocateVision<'_> {
         for attempt in 0..MAX_CALL_ATTEMPTS {
             let messages = Self::wire_messages_pair(close, wide, prompt, None);
             let call = self
-                .provider
+                .verify_provider
                 .stream_pipeline_module_with_tools(
                     messages,
                     None,

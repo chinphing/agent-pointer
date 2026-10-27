@@ -237,6 +237,14 @@ export function platformComputerPipelineDefault(
   }
   const locateBudget = phaseThinkingBudget(pipeline?.locate)
   if (locateBudget !== undefined) out.locateThinkingBudget = locateBudget
+  // 定位校验：模型/强度都可独立，留空跟随定位。
+  const locateVerify = readTierModelRef(pipeline?.locateVerify)
+  if (locateVerify) {
+    out.locateVerify = locateVerify.model
+    out.locateVerifyProviderId = locateVerify.providerId
+  }
+  const locateVerifyBudget = phaseThinkingBudget(pipeline?.locateVerify)
+  if (locateVerifyBudget !== undefined) out.locateVerifyThinkingBudget = locateVerifyBudget
   return out
 }
 

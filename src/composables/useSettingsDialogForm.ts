@@ -200,7 +200,12 @@ function createSettingsDialogForm(deps: {
     locateProviderId: current.locateProviderId || platformPipe.locateProviderId || '',
     positionThinkingBudget: current.positionThinkingBudget ?? 1024,
     verifyThinkingBudget: current.verifyThinkingBudget ?? platformPipe.verifyThinkingBudget ?? 256,
-    locateThinkingBudget: current.locateThinkingBudget ?? platformPipe.locateThinkingBudget ?? 0
+    locateThinkingBudget: current.locateThinkingBudget ?? platformPipe.locateThinkingBudget ?? 0,
+    locateVerify: current.locateVerify || platformPipe.locateVerify || '',
+    locateVerifyProviderId:
+      current.locateVerifyProviderId || platformPipe.locateVerifyProviderId || '',
+    locateVerifyThinkingBudget:
+      current.locateVerifyThinkingBudget ?? platformPipe.locateVerifyThinkingBudget
   }
   }
 
@@ -248,6 +253,31 @@ function createSettingsDialogForm(deps: {
     }
   }
   console.warn('[settings] selectComputerPipelineVerify: invalid value', value)
+  }
+
+  function computerPipelineLocateVerifyValue(): string {
+  const p = computerPipelineLlm()
+  return p.locateVerifyProviderId && p.locateVerify
+    ? `${p.locateVerifyProviderId}:${p.locateVerify}`
+    : ''
+  }
+
+  function selectComputerPipelineLocateVerify(value: string) {
+  // 空值 = 「跟随定位」，必须能清回空配置。
+  if (!value) {
+    patchComputerPipelineLlm({ locateVerifyProviderId: '', locateVerify: '' })
+    return
+  }
+  const i = value.indexOf(':')
+  if (i > 0 && i < value.length - 1) {
+    const locateVerifyProviderId = value.slice(0, i).trim()
+    const locateVerify = value.slice(i + 1).trim()
+    if (locateVerifyProviderId && locateVerify) {
+      patchComputerPipelineLlm({ locateVerifyProviderId, locateVerify })
+      return
+    }
+  }
+  console.warn('[settings] selectComputerPipelineLocateVerify: invalid value', value)
   }
 
   const toolApprovalMode = ref<'auto' | 'manual'>('auto')
@@ -1115,6 +1145,8 @@ function createSettingsDialogForm(deps: {
     computerPipelineLocateValue,
     selectComputerPipelineLocate,
     selectComputerPipelineVerify,
+    computerPipelineLocateVerifyValue,
+    selectComputerPipelineLocateVerify,
     isModeAgent,
     toggleDebugMenus,
     logoutPlatformAccount,

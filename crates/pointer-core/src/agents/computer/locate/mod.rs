@@ -42,18 +42,18 @@ pub async fn run_locate_element(
     computer_state: &ComputerState,
     conversation_id: &str,
     provider: &OpenAIProvider,
+    verify_provider: &OpenAIProvider,
     args: &Value,
     cancel: &CancellationToken,
 ) -> Result<String> {
     let requests = parse_requests(args)?;
     let frame = capture_frame(computer_state, conversation_id).await?;
-    // Thinking comes from the caller: `locate_provider` applies the locate phase
-    // budget (0 = off, the default). Leaving thinking on lets the verifier spiral
-    // into self-doubt when a retry hint says the previous box was wrong
-    // (observed: 20-40s per call, thousands of tokens of "maybe the user is
-    // wrong" reasoning), so the default stays off.
-    let locate_provider = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
-    let vision = ChatLocateVision::new(&locate_provider, cancel.clone());
+    // Thinking comes from the callers: `locate_providers` applies the locate /
+    // locate-verify phase budgets (0 = off, the default). Leaving thinking on
+    // lets the verifier spiral into self-doubt when a retry hint says the
+    // previous box was wrong (observed: 20-40s per call, thousands of tokens of
+    // "maybe the user is wrong" reasoning), so the default stays off.
+    let vision = ChatLocateVision::with_verify_provider(provider, verify_provider, cancel.clone());
     let outcomes =
         locate_elements(&vision, &frame, &requests, &LocateConfig::default(), cancel).await?;
     Ok(render_results(&outcomes))

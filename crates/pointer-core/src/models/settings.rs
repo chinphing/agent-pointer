@@ -2458,6 +2458,18 @@ pub struct ComputerPipelineLlmSettings {
     /// 0 = thinking off (the P0 default for grounding).
     #[serde(default, rename = "locateThinkingBudget")]
     pub locate_thinking_budget: u32,
+    /// Model for the locate verifier. Empty = follow `locate`.
+    #[serde(default, rename = "locateVerify")]
+    pub locate_verify: String,
+    #[serde(default, rename = "locateVerifyProviderId")]
+    pub locate_verify_provider_id: String,
+    /// None = follow the locate phase's thinking budget.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "locateVerifyThinkingBudget"
+    )]
+    pub locate_verify_thinking_budget: Option<u32>,
 }
 
 impl Default for ComputerPipelineLlmSettings {
@@ -2474,6 +2486,9 @@ impl Default for ComputerPipelineLlmSettings {
             locate: String::new(),
             locate_provider_id: String::new(),
             locate_thinking_budget: 0,
+            locate_verify: String::new(),
+            locate_verify_provider_id: String::new(),
+            locate_verify_thinking_budget: None,
         }
     }
 }
@@ -3173,6 +3188,18 @@ pub fn apply_platform_tier_defaults(
                         }
                     }
                 }
+                "locateVerify" => {
+                    if !pid.is_empty() && !model.is_empty() && p.locate_verify.trim().is_empty() {
+                        p.locate_verify = model.into();
+                        p.locate_verify_provider_id = pid.into();
+                    }
+                    // 留空 = 跟随定位；用户已设置的强度不被平台覆盖。
+                    if let Some(b) = intensity_budget {
+                        if p.locate_verify_thinking_budget.is_none() {
+                            p.locate_verify_thinking_budget = Some(b);
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -3722,6 +3749,9 @@ mod user_settings_defaults_tests {
             locate: String::new(),
             locate_provider_id: String::new(),
             locate_thinking_budget: 0,
+            locate_verify: String::new(),
+            locate_verify_provider_id: String::new(),
+            locate_verify_thinking_budget: None,
         };
 
         ensure_user_settings_defaults(&mut user);
@@ -4026,6 +4056,48 @@ mod user_settings_defaults_tests {
         assert!(p.locate.is_empty());
         assert!(p.locate_provider_id.is_empty());
         assert_eq!(p.locate_thinking_budget, 1024);
+    }
+
+    #[test]
+    fn platform_pipeline_reads_locate_verify() {
+        let defaults = serde_json::json!({
+            "computerPipelineLlm": {
+                "locateVerify": {
+                    "providerId": "qwen",
+                    "model": "qwen3.5-plus",
+                    "thinkingIntensity": "max"
+                }
+            }
+        });
+        let mut settings = ModelSettings::default();
+        apply_platform_tier_defaults(&mut settings, &defaults, &[]);
+        let p = &settings.computer_pipeline_llm;
+        assert_eq!(p.locate_verify, "qwen3.5-plus");
+        assert_eq!(p.locate_verify_provider_id, "qwen");
+        assert_eq!(p.locate_verify_thinking_budget, Some(8192));
+    }
+
+    #[test]
+    fn platform_pipeline_keeps_user_locate_verify() {
+        let defaults = serde_json::json!({
+            "computerPipelineLlm": {
+                "locateVerify": {
+                    "providerId": "qwen",
+                    "model": "platform-model",
+                    "thinkingIntensity": "max"
+                }
+            }
+        });
+        let mut settings = ModelSettings::default();
+        settings.computer_pipeline_llm.locate_verify = "user-model".into();
+        settings.computer_pipeline_llm.locate_verify_thinking_budget = Some(0);
+        apply_platform_tier_defaults(&mut settings, &defaults, &[]);
+        // 用户已配的模型/强度不被平台默认覆盖。
+        assert_eq!(settings.computer_pipeline_llm.locate_verify, "user-model");
+        assert_eq!(
+            settings.computer_pipeline_llm.locate_verify_thinking_budget,
+            Some(0)
+        );
     }
 
     #[test]

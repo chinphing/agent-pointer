@@ -16,37 +16,85 @@ use tokio_util::sync::CancellationToken;
 
 use super::super::super::app_state::AppState;
 
-/// Build the provider used for grounding calls.
+/// Providers for one grounding call: the locator and its verifier.
+pub(super) struct LocateProviders {
+    pub locate: OpenAIProvider,
+    /// Equals `locate` unless locate-verify model/provider/thinking is set.
+    pub verify: OpenAIProvider,
+}
+
+/// Apply locate-verify overrides on top of the locator's settings.
+///
+/// Empty model / provider and `None` thinking all follow the locator, so an
+/// unconfigured verifier is byte-identical to the locator's settings.
+fn apply_locate_verify_overrides(
+    settings: &mut crate::models::ModelSettings,
+    cfg: &crate::agents::computer::runtime::ComputerPipelineLlmConfig,
+) {
+    let model = cfg.model_locate_verify.trim();
+    if !model.is_empty() {
+        settings.model = model.to_string();
+        let provider_id = cfg.provider_locate_verify.trim();
+        if !provider_id.is_empty() {
+            settings.active_provider_id = provider_id.to_string();
+        }
+    }
+    if let Some(budget) = cfg.thinking_budget_locate_verify {
+        settings.round_thinking_locked = true;
+        settings.round_enable_thinking = Some(budget > 0);
+        settings.round_thinking_budget = Some(budget);
+        settings.round_reasoning_effort = None;
+        settings.round_thinking_intensity = None;
+    }
+}
+
+/// Build the providers used for grounding calls.
 ///
 /// Grounding runs on its own model by default (`pipeline_llm.model_locate`) so
 /// the agent's primary model stays free, and the key has to come from whichever
 /// provider that resolves to — reusing the agent's key shows up as a 401 from
 /// the wrong endpoint.
-pub(super) fn locate_provider(
+///
+/// The locate verifier can override model / provider / thinking; anything left
+/// empty follows the locator, so the default is a single provider.
+pub(super) fn locate_providers(
     state: &AppState,
     conversation_id: &str,
     provider: &OpenAIProvider,
-) -> anyhow::Result<OpenAIProvider> {
-    let phase_settings = {
-        let cfg = state.computer_state.effective_pipeline_config();
-        let model = cfg.pipeline_llm.model_locate.trim();
-        if model.is_empty() {
-            // 模型跟随主模型，但定位的思考强度仍按定位配置（0 = 关）。
-            let mut s = provider.settings.clone();
-            state
-                .computer_state
-                .apply_pipeline_thinking(PipelineLlmPhase::Locate, &mut s);
-            s
-        } else {
-            state.computer_state.apply_pipeline_phase_settings(
-                conversation_id,
-                PipelineLlmPhase::Locate,
-                &provider.settings,
-            )
-        }
+) -> anyhow::Result<LocateProviders> {
+    let cfg = state.computer_state.effective_pipeline_config();
+    let locate_model = cfg.pipeline_llm.model_locate.trim();
+    let locate_settings = if locate_model.is_empty() {
+        // 模型跟随主模型，但定位的思考强度仍按定位配置（0 = 关）。
+        let mut s = provider.settings.clone();
+        state
+            .computer_state
+            .apply_pipeline_thinking(PipelineLlmPhase::Locate, &mut s);
+        s
+    } else {
+        state.computer_state.apply_pipeline_phase_settings(
+            conversation_id,
+            PipelineLlmPhase::Locate,
+            &provider.settings,
+        )
     };
-    let key = crate::provider::api_key_for_settings(&phase_settings)?;
-    Ok(OpenAIProvider::new(phase_settings, key))
+    let locate_key = crate::provider::api_key_for_settings(&locate_settings)?;
+    let locate = OpenAIProvider::new(locate_settings.clone(), locate_key.clone());
+
+    // 定位校验：模型 / 服务商 / 思考强度都可独立配置，留空跟随定位。
+    let mut verify_settings = locate_settings;
+    apply_locate_verify_overrides(&mut verify_settings, &cfg.pipeline_llm);
+    let verify_key = if verify_settings.active_provider_id.trim()
+        == locate.settings.active_provider_id.trim()
+    {
+        locate_key
+    } else {
+        crate::provider::api_key_for_settings(&verify_settings)?
+    };
+    Ok(LocateProviders {
+        locate,
+        verify: OpenAIProvider::new(verify_settings, verify_key),
+    })
 }
 
 /// `[x1, y1, x2, y2]` → `PxBox`, rejecting degenerate boxes.
@@ -109,7 +157,7 @@ pub(super) async fn resolve_point(
         .ok_or_else(|| anyhow::anyhow!("缺少 {bbox_key}——目标大概在哪个范围"))?;
     let hint = parse_bbox(bbox_value)?;
 
-    let locate_provider = locate_provider(state, conversation_id, provider)?;
+    let providers = locate_providers(state, conversation_id, provider)?;
 
     let locate_args = serde_json::json!({
         // `goal` is context for the locate model, not user-visible text. Keep it
@@ -125,7 +173,8 @@ pub(super) async fn resolve_point(
     let payload = crate::agents::computer::locate::run_locate_element(
         state.computer_state.as_ref(),
         conversation_id,
-        &locate_provider,
+        &providers.locate,
+        &providers.verify,
         &locate_args,
         cancel,
     )
@@ -180,9 +229,42 @@ mod tests {
     }
 
     #[test]
+    fn locate_verify_overrides_follow_locate_when_unset() {
+        let mut settings = crate::models::ModelSettings::default();
+        settings.model = "locate-model".into();
+        settings.active_provider_id = "qwen".into();
+        settings.round_enable_thinking = Some(false);
+        settings.round_thinking_budget = Some(0);
+
+        let cfg = crate::agents::computer::runtime::ComputerPipelineLlmConfig::default();
+        apply_locate_verify_overrides(&mut settings, &cfg);
+        assert_eq!(settings.model, "locate-model");
+        assert_eq!(settings.active_provider_id, "qwen");
+        assert_eq!(settings.round_enable_thinking, Some(false));
+        assert_eq!(settings.round_thinking_budget, Some(0));
+
+        let mut cfg = crate::agents::computer::runtime::ComputerPipelineLlmConfig::default();
+        cfg.model_locate_verify = "verify-model".into();
+        cfg.provider_locate_verify = "deepseek".into();
+        cfg.thinking_budget_locate_verify = Some(4096);
+        apply_locate_verify_overrides(&mut settings, &cfg);
+        assert_eq!(settings.model, "verify-model");
+        assert_eq!(settings.active_provider_id, "deepseek");
+        assert_eq!(settings.round_enable_thinking, Some(true));
+        assert_eq!(settings.round_thinking_budget, Some(4096));
+
+        // 0 = 显式关闭。
+        let mut cfg = crate::agents::computer::runtime::ComputerPipelineLlmConfig::default();
+        cfg.thinking_budget_locate_verify = Some(0);
+        apply_locate_verify_overrides(&mut settings, &cfg);
+        assert_eq!(settings.round_enable_thinking, Some(false));
+        assert_eq!(settings.round_thinking_budget, Some(0));
+    }
+
+    #[test]
     fn module_is_wired() {
         // Compilation is the assertion: the signatures must stay callable from
         // locate.rs, mouse.rs, input.rs and modified_click.rs.
-        let _ = (locate_provider, resolve_point);
+        let _ = (locate_providers, resolve_point);
     }
 }

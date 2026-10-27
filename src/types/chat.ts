@@ -781,6 +781,11 @@ export interface ComputerPipelineLlmSettings {
   verifyThinkingBudget?: number
   /** 0 = thinking off. Grounding defaults to off — P0 measured 20/20 with it off. */
   locateThinkingBudget?: number
+  /** Locate verifier model; empty = follow `locate`. */
+  locateVerify?: string
+  locateVerifyProviderId?: string
+  /** Unset = follow the locate phase's thinking. */
+  locateVerifyThinkingBudget?: number
 }
 
 

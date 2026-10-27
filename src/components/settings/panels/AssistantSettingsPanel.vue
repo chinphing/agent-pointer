@@ -31,13 +31,28 @@ function intensityOf(budget: number | undefined): string {
   return intensityFromLegacy({ thinkingBudget: budget }) || ''
 }
 
-function setIntensity(phase: 'locate' | 'verify', value: string) {
+function setIntensity(phase: 'locate' | 'verify' | 'locateVerify', value: string) {
+  if (phase === 'locateVerify') {
+    // 空值 = 跟随定位（不写字段）。
+    if (!value) {
+      props.form.patchComputerPipelineLlm({ locateVerifyThinkingBudget: undefined })
+      return
+    }
+    const budget = value === 'off' ? 0 : (budgetForIntensity(value as ThinkingIntensity) ?? 0)
+    props.form.patchComputerPipelineLlm({ locateVerifyThinkingBudget: budget })
+    return
+  }
   const budget = value === 'off' || !value ? 0 : (budgetForIntensity(value as ThinkingIntensity) ?? 0)
   if (phase === 'locate') {
     props.form.patchComputerPipelineLlm({ locateThinkingBudget: budget })
   } else {
     props.form.patchComputerPipelineLlm({ verifyThinkingBudget: budget })
   }
+}
+
+function locateVerifyIntensity(): string {
+  const budget = props.form.computerPipelineLlm().locateVerifyThinkingBudget
+  return budget === undefined ? '' : intensityOf(budget)
 }
 
 // 媒体列「更多」：联网搜索等工具档位（非子智能体，与左侧 explore 入口对称）
@@ -73,9 +88,11 @@ const {
   PERFORMANCE_MODE_UI,
   computerPipelineLocateValue,
   computerPipelineVerifyValue,
+  computerPipelineLocateVerifyValue,
   computerPipelineLlm,
   selectComputerPipelineLocate,
   selectComputerPipelineVerify,
+  selectComputerPipelineLocateVerify,
   enabledWorkers,
   agentPerformanceModesLocal,
   mediaUnderstandingModesLocal,
@@ -401,6 +418,31 @@ const {
                   @change="setIntensity('verify', ($event.target as HTMLSelectElement).value)"
                 >
                   <option v-for="opt in THINKING_OPTIONS" :key="'verify-t-' + opt.value" :value="opt.value">{{ opt.label }}</option>
+                </select>
+              </div>
+            </div>
+            <div class="px-3 py-2.5 space-y-1.5">
+              <div class="flex items-center gap-x-1.5">
+                <Monitor class="w-3.5 h-3.5 text-accent shrink-0" />
+                <span class="text-[12px] font-medium text-foreground">{{ t('settings.agentPanel.locateVerifyName') }}</span>
+              </div>
+              <p class="text-[10px] text-muted leading-snug">{{ t('settings.agentPanel.locateVerifyHint') }}</p>
+              <div class="flex items-center gap-2">
+                <select
+                  :value="computerPipelineLocateVerifyValue()"
+                  class="h-8 flex-1 min-w-0 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                  @change="selectComputerPipelineLocateVerify(($event.target as HTMLSelectElement).value)"
+                >
+                  <option value="">{{ t('settings.agentPanel.locateVerifyInherit') }}</option>
+                  <option v-for="item in s.allModels" :key="'locate-verify-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
+                </select>
+                <select
+                  :value="locateVerifyIntensity()"
+                  class="h-8 w-[4.5rem] shrink-0 px-1.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                  @change="setIntensity('locateVerify', ($event.target as HTMLSelectElement).value)"
+                >
+                  <option value="">{{ t('settings.agentPanel.locateVerifyInherit') }}</option>
+                  <option v-for="opt in THINKING_OPTIONS" :key="'locate-verify-t-' + opt.value" :value="opt.value">{{ opt.label }}</option>
                 </select>
               </div>
             </div>

@@ -20,11 +20,12 @@ pub(super) async fn dispatch_locate_element(
     cancel: &CancellationToken,
 ) -> ToolExecResult {
     let _ = tc;
-    let locate_provider = super::grounding::locate_provider(state, conversation_id, provider)?;
+    let providers = super::grounding::locate_providers(state, conversation_id, provider)?;
     let payload = crate::agents::computer::locate::run_locate_element(
         state.computer_state.as_ref(),
         conversation_id,
-        &locate_provider,
+        &providers.locate,
+        &providers.verify,
         &args_value,
         cancel,
     )

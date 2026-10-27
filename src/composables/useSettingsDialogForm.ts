@@ -1000,10 +1000,18 @@ function createSettingsDialogForm(deps: {
     if (debugSaveTimer) window.clearTimeout(debugSaveTimer)
     debugSaveTimer = window.setTimeout(() => {
       debugSaveTimer = undefined
-      const debugDump = debugDumpLlmPrompts.value
-      void s.save({ debugDumpLlmPrompts: debugDump }).catch(error => {
-        console.error('[settings] failed to save debug preferences', error)
-      })
+      // Both switches share this watcher, so both must be in the payload. Sending
+      // only `debugDumpLlmPrompts` is how 「保存截图到本地」 stayed off on disk no
+      // matter how many times it was ticked: the watcher fired, the save ran, and
+      // the value it was watching was not in it.
+      void s
+        .save({
+          debugDumpLlmPrompts: debugDumpLlmPrompts.value,
+          debugSaveComputerCaptures: debugSaveComputerCaptures.value,
+        })
+        .catch(error => {
+          console.error('[settings] failed to save debug preferences', error)
+        })
     }, 250)
   }
 

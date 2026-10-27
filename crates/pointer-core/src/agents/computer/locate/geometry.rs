@@ -204,6 +204,20 @@ pub fn rel_to_norm(rel: NormBox, bounds: CropBounds, w: u32, h: u32) -> NormBox 
     )
 }
 
+/// Screen pixels → this crop's 0–1000 scale. The inverse of `rel_to_norm`'s
+/// first half, needed when a prompt has to quote a box position back to the
+/// model in the same units the model answers in.
+pub fn px_to_rel(b: PxBox, bounds: CropBounds) -> (f64, f64, f64, f64) {
+    let bw = bounds.width().max(f64::EPSILON);
+    let bh = bounds.height().max(f64::EPSILON);
+    (
+        (b.x1 - bounds.x0) / bw * NORM_MAX,
+        (b.y1 - bounds.y0) / bh * NORM_MAX,
+        (b.x2 - bounds.x0) / bw * NORM_MAX,
+        (b.y2 - bounds.y0) / bh * NORM_MAX,
+    )
+}
+
 /// Downscale factor for the full-screen image (`1.0` = no resize).
 pub fn fit_scale(w: u32, h: u32, max_px: f64) -> f64 {
     let area = (w.max(1) as f64) * (h.max(1) as f64);

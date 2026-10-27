@@ -14,10 +14,9 @@ use crate::agents::computer::vision::screen;
 use crate::provider::{ChatOnceOutput, OpenAIProvider};
 
 use super::engine::LocateVision;
-use super::geometry::NormBox;
 use super::prompt::{
     locate_tool, parse_box_from_text, parse_locate_arguments, parse_verify_arguments,
-    report_tool_views, LOCATE_TEXT_FALLBACK,
+    report_tool_views, LocateAnswer, LOCATE_TEXT_FALLBACK,
 };
 use super::render::LocateImage;
 use super::types::VerifyVerdict;
@@ -102,10 +101,16 @@ impl<'a> ChatLocateVision<'a> {
 
 #[async_trait]
 impl LocateVision for ChatLocateVision<'_> {
-    async fn locate(&self, image: &LocateImage, prompt: &str) -> Result<Option<NormBox>> {
+    async fn locate(&self, image: &LocateImage, prompt: &str) -> Result<Option<LocateAnswer>> {
         for attempt in 0..MAX_CALL_ATTEMPTS {
             match self.chat(image, prompt, vec![locate_tool()], None).await {
                 Ok(out) => {
+                    // Raw arguments, every call. Without this a box that never
+                    // shrinks is indistinguishable from a hint that never
+                    // arrived — both look like 「locate ignored the correction」.
+                    for tc in &out.tool_calls {
+                        log::info!("locate raw args: {}", tc.arguments);
+                    }
                     let parsed = out.tool_calls.iter().find_map(|tc| {
                         tc.name
                             .trim()
@@ -113,11 +118,14 @@ impl LocateVision for ChatLocateVision<'_> {
                             .then(|| parse_locate_arguments(&tc.arguments))
                             .flatten()
                     });
-                    if let Some(b) = parsed {
-                        return Ok(Some(b));
+                    if let Some(answer) = parsed {
+                        // `NotFound` is a complete answer — do not retry it.
+                        // Retrying would ask the same question of the same
+                        // image and invite the model to invent a box.
+                        return Ok(Some(answer));
                     }
                     log::debug!(
-                        "locate_element: locate attempt {} returned no usable bbox",
+                        "locate_element: locate attempt {} returned no usable answer",
                         attempt + 1
                     );
                 }
@@ -133,7 +141,7 @@ impl LocateVision for ChatLocateVision<'_> {
             .chat(image, prompt, Vec::new(), Some(LOCATE_TEXT_FALLBACK))
             .await
         {
-            Ok(out) => Ok(parse_box_from_text(&out.text)),
+            Ok(out) => Ok(parse_box_from_text(&out.text).map(LocateAnswer::Found)),
             Err(e) => {
                 log::warn!("locate_element: locate text fallback failed: {e}");
                 Ok(None)

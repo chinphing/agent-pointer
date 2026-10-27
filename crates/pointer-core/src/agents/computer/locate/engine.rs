@@ -8,19 +8,20 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 
-use super::geometry::{crop_side_px, nearly_same, rel_to_norm, CropBounds, NormBox};
-use super::prompt::{locate_prompt, refine_hint, verify_prompt_views};
+use super::geometry::{crop_side_px, nearly_same, px_to_rel, rel_to_norm, CropBounds, NormBox, PxBox};
+use super::prompt::{locate_prompt, refine_hint, verify_prompt_views, LocateAnswer};
 use super::render::{render_crop, render_full, LocateFrame, LocateImage};
 use super::types::{
     CenterOnTarget, Confidence, FailureReason, LocateConfig, LocateOutcome, LocateRequest,
-    MatchVerdict, PositionMatches, UnclearKind, VerifyVerdict,
+    VerifyVerdict,
 };
 
 /// The two model calls the controller is allowed to make.
 #[async_trait]
 pub trait LocateVision: Send + Sync {
-    /// Return the target box in **image-local 0–1000** coordinates.
-    async fn locate(&self, image: &LocateImage, prompt: &str) -> Result<Option<NormBox>>;
+    /// Return the target box in **image-local 0–1000** coordinates, or `NotFound`
+    /// when the target is not in this image at all.
+    async fn locate(&self, image: &LocateImage, prompt: &str) -> Result<Option<LocateAnswer>>;
     /// Judge the candidate box shown on the crop.
     async fn verify(&self, image: &LocateImage, prompt: &str) -> Result<VerifyVerdict>;
     /// Judge the candidate box, with an optional **wider** second image.
@@ -55,7 +56,6 @@ pub trait LocateVision: Send + Sync {
 enum Stop {
     Verified,
     LocateFailed,
-    TooBlurry,
     RoundsExhausted,
 }
 
@@ -64,7 +64,6 @@ impl Stop {
         match self {
             Self::Verified => FailureReason::NotFound, // unreachable; kept total
             Self::LocateFailed => FailureReason::NotFound,
-            Self::TooBlurry => FailureReason::Unclear,
             Self::RoundsExhausted => FailureReason::NotVerified,
         }
     }
@@ -114,7 +113,11 @@ pub async fn locate_one<V: LocateVision>(
     // ① First locate — skipped entirely when the caller supplied a hint box.
     if box_norm.is_none() {
         let image = render_full(frame, None)?;
-        box_norm = locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), None).await;
+        box_norm = match locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), None, None).await {
+            LocateAttempt::Found(b) => Some(b),
+            // On the full screen there is nowhere wider to look.
+            LocateAttempt::NotFound | LocateAttempt::Failed => None,
+        };
         if box_norm.is_none() {
             stop = Stop::LocateFailed;
         }
@@ -133,13 +136,15 @@ pub async fn locate_one<V: LocateVision>(
         }
         rounds += 1;
 
-        let mut side = crop_side_px(
+        let side = crop_side_px(
             current.to_px(w, h),
             cfg.crop_mult,
             cfg.crop_min,
             cfg.crop_max,
         );
-        let mut verify_retries = 0usize;
+        // The verifier no longer offers `unclear`, so the crop is rendered once
+        // per round: `retry` is kept only so the log line stays parseable.
+        let verify_retries = 0usize;
 
         // Inner loop: one crop, retried with a different `side` while the
         // verifier reports `unclear` for a fixable reason.
@@ -178,7 +183,7 @@ pub async fn locate_one<V: LocateVision>(
             } else {
                 None
             };
-            let mut v = match vision
+            let v = match vision
                 .verify_pair(&image, wide_image.as_ref(), &verify_text)
                 .await
             {
@@ -229,7 +234,7 @@ pub async fn locate_one<V: LocateVision>(
             break (v, crop);
         };
 
-        if matches!(stop, Stop::Verified | Stop::TooBlurry) {
+        if matches!(stop, Stop::Verified) {
             break;
         }
 
@@ -257,19 +262,25 @@ pub async fn locate_one<V: LocateVision>(
         // from a harder image (and for `BoxTooLoose` it also blew the timeout).
         // A `BoxTooTight` case did exactly that — the retry jumped from the
         // button at x≈934 to x≈532, then needed a third round to come back.
-        // Stay inside the previous crop when the verifier saw the target there
-        // and only complained about the box — a full-screen re-scan would
-        // re-derive the same answer from a harder image. `center_on_target = yes`
-        // is exactly that signal: the mark was on the target, so the target is in
-        // the crop.
-        let stay_local = verdict.center_on_target == CenterOnTarget::Yes;
+        // Stay inside the previous crop unless the verifier failed to produce a
+        // usable verdict at all (`Unclear` is the parse-failure fallback, never a
+        // value the model is offered). A `center = no` means the mark is off the
+        // target — the target is right there, the box is just misplaced — so the
+        // crop is exactly where it should be re-located: at 8x the cell's borders
+        // are legible, on the full screen they are not.
+        let stay_local = verdict.center_on_target != CenterOnTarget::Unclear;
 
         let mut from_crop = false;
         let mut next_box = None;
+        // Set when the crop-local locator answered 「not in this image」. The
+        // crop is 240–294 px around a candidate that may be several hundred px
+        // off, so this is the normal answer when the hint is far away — the fix
+        // is a wider view, not a retry on the same crop.
+        let mut widen_needed = false;
         if stay_local {
             if let Some((image, bounds)) = last_crop.as_ref() {
                 from_crop = true;
-                next_box = locate_in(
+                next_box = match locate_in(
                     vision,
                     image,
                     *bounds,
@@ -278,13 +289,25 @@ pub async fn locate_one<V: LocateVision>(
                     &req.target_desc,
                     req.hint_center(),
                     Some(&hint),
+                    Some(current.to_px(w, h)),
                 )
-                .await;
+                .await
+                {
+                    LocateAttempt::Found(b) => Some(b),
+                    LocateAttempt::NotFound => {
+                        widen_needed = true;
+                        None
+                    }
+                    LocateAttempt::Failed => None,
+                };
             }
         }
-        if !from_crop {
+        if !from_crop || widen_needed {
             let image = render_full(frame, Some(current))?;
-            next_box = locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), Some(&hint)).await;
+            next_box = match locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), Some(&hint), Some(current.to_px(w, h))).await {
+                LocateAttempt::Found(b) => Some(b),
+                LocateAttempt::NotFound | LocateAttempt::Failed => None,
+            };
         }
 
         // No-progress guard: a crop-local re-locate that barely moved is
@@ -296,12 +319,12 @@ pub async fn locate_one<V: LocateVision>(
                 break;
             }
         };
-        if from_crop && nearly_same(next_box, current) {
+        if from_crop && !widen_needed && nearly_same(next_box, current) {
             let image = render_full(frame, Some(current))?;
-            next_box = match locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), Some(&hint)).await
+            next_box = match locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), Some(&hint), Some(current.to_px(w, h))).await
             {
-                Some(b) => b,
-                None => {
+                LocateAttempt::Found(b) => b,
+                LocateAttempt::NotFound | LocateAttempt::Failed => {
                     stop = Stop::LocateFailed;
                     break;
                 }
@@ -351,7 +374,26 @@ pub async fn locate_one<V: LocateVision>(
     })
 }
 
+/// One `locate` call's outcome.
+///
+/// `NotFound` is kept apart from `Failed` on purpose: the locator saying 「not in
+/// this image」 is actionable (render wider and look again), while a parse
+/// failure or a call error is not. Collapsing them into `Option::None` made the
+/// far-hint fixture abort instead of escalating.
+enum LocateAttempt {
+    Found(NormBox),
+    NotFound,
+    Failed,
+}
+
 /// One locate call, mapped from image-local 0–1000 back to screen 0–1000.
+///
+/// `prev_box` is the previous round's box in **screen pixels**; it is converted
+/// to this image's 0–1000 scale here, because that is the only scale the prompt
+/// and the answer share. `hint_px` gets the same treatment for the same reason:
+/// it used to be passed through as raw screen pixels even when the image was a
+/// crop, so the point the prompt named and the picture the model saw disagreed
+/// by the crop offset.
 async fn locate_in<V: LocateVision>(
     vision: &V,
     image: &LocateImage,
@@ -361,10 +403,24 @@ async fn locate_in<V: LocateVision>(
     description: &str,
     hint_px: Option<(f64, f64)>,
     previous_hint: Option<&str>,
-) -> Option<NormBox> {
-    let prompt = locate_prompt(description, hint_px, previous_hint);
+    prev_box: Option<PxBox>,
+) -> LocateAttempt {
+    let hint_rel = hint_px.map(|(x, y)| {
+        let r = px_to_rel(
+            PxBox {
+                x1: x,
+                y1: y,
+                x2: x,
+                y2: y,
+            },
+            bounds,
+        );
+        (r.0, r.1)
+    });
+    let prev_rel = prev_box.map(|b| px_to_rel(b, bounds));
+    let prompt = locate_prompt(description, hint_rel, previous_hint, prev_rel);
     match vision.locate(image, &prompt).await {
-        Ok(Some(raw)) => {
+        Ok(Some(LocateAnswer::Found(raw))) => {
             // The prompt asks for 0-1000 coordinates relative to this image. Log
             // the raw answer next to the mapped one: a model that reasons in
             // pixels and answers in pixels looks identical to a correct one
@@ -382,12 +438,19 @@ async fn locate_in<V: LocateVision>(
                 image.width,
                 image.height
             );
-            Some(rel_to_norm(raw, bounds, w, h))
+            LocateAttempt::Found(rel_to_norm(raw, bounds, w, h))
         }
-        Ok(None) => None,
+        Ok(Some(LocateAnswer::NotFound)) => {
+            // Distinct from a parse failure: the locator looked and said the
+            // target is not in this image. The caller can widen the view; a
+            // bare `None` would read the same as 「the model broke」.
+            log::info!("locate: not found in this image");
+            LocateAttempt::NotFound
+        }
+        Ok(None) => LocateAttempt::Failed,
         Err(e) => {
             log::warn!("locate_element: locate call failed: {e}");
-            None
+            LocateAttempt::Failed
         }
     }
 }
@@ -396,7 +459,7 @@ async fn locate_in<V: LocateVision>(
 mod tests {
     use super::*;
     use crate::agents::computer::locate::geometry::{NormBox, PxBox};
-    use crate::agents::computer::locate::types::{ElsewhereDir, MatchVerdict};
+    use crate::agents::computer::locate::types::{MatchVerdict, PositionMatches};
     use image::{Rgb, RgbImage};
     use std::collections::VecDeque;
     use std::sync::Mutex;
@@ -436,12 +499,18 @@ mod tests {
 
     #[async_trait]
     impl LocateVision for FakeVision {
-        async fn locate(&self, image: &LocateImage, _prompt: &str) -> Result<Option<NormBox>> {
+        async fn locate(&self, image: &LocateImage, _prompt: &str) -> Result<Option<LocateAnswer>> {
             self.calls.lock().unwrap().push(Call::Locate {
                 width: image.width,
                 height: image.height,
             });
-            Ok(self.locate_script.lock().unwrap().pop_front().flatten())
+            Ok(self
+                .locate_script
+                .lock()
+                .unwrap()
+                .pop_front()
+                .flatten()
+                .map(LocateAnswer::Found))
         }
 
         async fn verify(&self, image: &LocateImage, _prompt: &str) -> Result<VerifyVerdict> {

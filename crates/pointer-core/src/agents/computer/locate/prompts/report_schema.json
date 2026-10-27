@@ -1,0 +1,66 @@
+{
+  "type": "function",
+  "function": {
+    "name": "report",
+    "description": "报告校验结论。三项各自独立判断，每项都要给出结论和看到的事实。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "center": {
+          "type": "object",
+          "description": "【中心定位】图里画着参考框（一个矩形，框线是一圈细实线），参考框的正中画着一个红点（一个实心红圆，边缘带一圈很细的白边）。整个红点是不是完整落在目标元素内部？红点的位置就是最终交付的坐标，所以这一项决定坐标对不对。红点有大小，边缘也是它的一部分——只要一部分越出目标边界（压线也算越界）就填 no。不要因为「参考框里能看到目标」就说 yes：参考框很大、目标在它的角落里时，红点仍然可能落在目标外面。反过来，参考框太大但整个红点仍在目标内部时，这一项照样判 yes：参考框大不大由 size 管。",
+          "properties": {
+            "ok": {
+              "type": "string",
+              "enum": ["yes", "no"],
+              "description": "整个标记完整落在目标内部填 yes；标记的任何一部分越出目标边界（压线也算）、整个落在目标外、或目标看不清填 no。"
+            },
+            "remark": {
+              "type": "string",
+              "description": "标记实际落在哪。ok 不是 yes 时必填，且必须具体——「标记落在 C3 与 C4 之间的竖线上，偏在 C3 右侧边缘外」。ok=yes 时可以写简述或不写。"
+            }
+          },
+          "required": ["ok"]
+        },
+        "size": {
+          "type": "object",
+          "description": "【大小合适】参考框的大小合格吗？这一项和红点无关，独立回答。只判两件事：①参考框有没有大到离谱（比目标大出一圈以上，把周围无关的东西也框了进来）；②参考框有没有小到切掉目标（宽或高小于目标的 0.8 倍，必然盖不住整个目标，中心也跟着偏）。参考框比目标大一圈以内算合格；小到 0.8 倍以下不合格。",
+          "properties": {
+            "ok": {
+              "type": "string",
+              "enum": ["yes", "no"],
+              "description": "大到离谱、或小到 0.8 倍以下、或看不清轮廓填 no；其余填 yes。"
+            },
+            "remark": {
+              "type": "string",
+              "description": "参考框的宽和高各是目标的几倍、框进了什么。ok=no 时必填，**且必须写出倍数**（「宽约 2.0 倍、高约 1.0 倍」）——只写「框太大」不合格，下一轮要靠这个数字决定收多少。ok=yes 时可以写简述或不写。"
+            }
+          },
+          "required": ["ok"]
+        },
+        "position": {
+          "type": "object",
+          "description": "【位置匹配】描述里说的位置，和图里读到的一致吗？",
+          "properties": {
+            "ok": {
+              "type": "string",
+              "enum": ["yes", "no", "unknown", "ignore"],
+              "description": "描述里带行号、列号、序号、序数（「第四行第八列」「C7」「第 3 项」「最后一个」）时必须回答：一致填 yes，对不上填 no，图里读不出绝对位置填 unknown。描述里完全没提位置（「提交按钮」「关闭图标」）填 ignore。"
+            },
+            "remark": {
+              "type": "string",
+              "description": "描述说的位置 vs 图里读到的位置。ok 是 no 时必填，且必须写清三件事：参考框实际落在哪、描述要的是哪、差几格往哪个方向（「描述要第四行第八列，框在第三行第八列，差一行，目标在下方」）。只写「对不上」不合格——下一轮要靠这句话决定往哪挪。ok 是 unknown 时写缺什么。ok=ignore 时写「描述没提位置」。"
+            }
+          },
+          "required": ["ok"]
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["high", "medium"],
+          "description": "三项都通过时填。文字+方位+图标+颜色四项全中填 high；文字和方位对上、图标或颜色不符填 medium"
+        }
+      },
+      "required": ["center", "size", "position"]
+    }
+  }
+}

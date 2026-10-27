@@ -1,0 +1,24 @@
+{
+  "type": "function",
+  "function": {
+    "name": "locate",
+    "description": "给出目标在这张图中的位置。如果目标完全不在这张图里，返回 found=false 且不要给 bbox —— 瞎框一个比说找不到更糟，调用方会据此判断要不要换一张范围更大的图。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "found": {
+          "type": "boolean",
+          "description": "目标在不在这张图里。在就填 true 并给出 bbox；完全不在这张图里就填 false，不给 bbox。只有「图里确实没有」才填 false —— 目标在、只是位置不确定时仍然填 true，给一个大致位置。"
+        },
+        "bbox": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "目标框 [x1, y1, x2, y2]，4 个 0-1000 的整数（相对这张图，不是整屏）。found=true 时必填。"
+        }
+      },
+      "required": ["found"]
+    }
+  }
+}

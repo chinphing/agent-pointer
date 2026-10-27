@@ -150,9 +150,22 @@ const MARK_CORE: Rgb<u8> = Rgb([220, 20, 20]);
 const MARK_RING: Rgb<u8> = Rgb([255, 255, 255]);
 
 /// Mark radius as a fraction of the image's short side.
-const MARK_RADIUS_RATIO: f64 = 0.010;
-/// Share of the radius taken by the white ring.
-const MARK_RING_SHARE: f64 = 0.35;
+///
+/// Small on purpose. The mark sits at the box centre, and the thing the verifier
+/// has to judge is whether **the whole mark** stays inside the target — which it
+/// cannot do if the mark covers the target's own boundary line. At 0.010 the mark
+/// was 16 px in a 1600 px close crop, i.e. 2.4 px on screen: wide enough to sit
+/// on a 1–2 px grid line and hide it, and then r7c2 reads 「the mark is in the
+/// middle of the cell」 while the cell's lower edge runs straight through the
+/// mark. At 0.004 it is 6.4 px in the image (0.96 px on screen) — still clearly
+/// visible, no longer able to swallow the edge it is being measured against.
+const MARK_RADIUS_RATIO: f64 = 0.004;
+/// Share of the radius taken by the white rim.
+///
+/// 0.25 rather than 0.35: on a white cell the rim is invisible, so what the model
+/// actually sees is the red disc. A thinner rim keeps the visible disc closer to
+/// the radius the prompt describes.
+const MARK_RING_SHARE: f64 = 0.25;
 
 /// Draw a two-ring mark at the box's centre.
 ///

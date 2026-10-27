@@ -14,10 +14,27 @@ use std::io::Cursor;
 
 use super::geometry::{fit_scale, CropBounds, NormBox, PxBox, FULL_MAX_PX};
 
-/// B5 candidate-box colour (`draw_box` in `b3_crop_ladder.py`).
-const BOX_COLOR: Rgb<u8> = Rgb([0, 90, 200]);
-/// B5 candidate-box line width.
-const BOX_WIDTH: i32 = 3;
+/// Candidate-box inner ring: magenta, on the candidate edge itself.
+///
+/// Not black/white. Those contrast with the *background* but not with the
+/// interface: a white-on-black document, a black-on-white toolbar, grey chrome —
+/// a monochrome outline reads as another piece of UI, and the verifier has to
+/// tell 「the box」 from 「a border that was already there」. Magenta does not
+/// occur in any normal desktop palette, so the ring can only be the annotation.
+const BOX_COLOR: Rgb<u8> = Rgb([255, 0, 200]);
+/// Candidate-box outer ring: cyan, the complement of the inner ring.
+///
+/// The pair is chosen so that at least one ring contrasts with any background:
+/// magenta stands out on white and light grey, cyan on black and dark chrome.
+/// They also contrast with each other, so the boundary is legible even where the
+/// background matches one of them.
+const BOX_OUTER_COLOR: Rgb<u8> = Rgb([0, 225, 255]);
+/// Candidate-box line width, per ring.
+///
+/// 4 rather than 3 because JPEG chroma subsampling smears saturated colour on
+/// thin lines: at 3 px the magenta/cyan pair survives but reads muddy, and the
+/// whole point of the pair is being unmistakable.
+const BOX_WIDTH: i32 = 4;
 
 /// JPEG quality for images handed to the locator / verifier.
 const LOCATE_JPEG_QUALITY: u8 = 85;
@@ -297,7 +314,17 @@ fn draw_px_box(img: &mut RgbImage, b: PxBox) {
 
 /// Same outline in an arbitrary colour, for drawing a search path where only the
 /// last box should be the normal blue.
-fn draw_px_box_colour(img: &mut RgbImage, b: PxBox, colour: Rgb<u8>) {    let (w, h) = (img.width() as f64, img.height() as f64);
+/// Draw a box outline that stays visible on any background.
+///
+/// One colour can never be universally visible: a dark outline vanishes on a
+/// dark wallpaper, a light one on a white document, and the target is whatever
+/// the user happened to be looking at. So the outline is two rings — black
+/// inside, white outside — and at least one of them always contrasts with
+/// whatever is behind it. The black ring sits exactly on the candidate edge, so
+/// the boundary a verifier judges against is still the real one; the white ring
+/// only extends outward.
+fn draw_px_box_colour(img: &mut RgbImage, b: PxBox, colour: Rgb<u8>) {
+    let (w, h) = (img.width() as f64, img.height() as f64);
     let x1 = b.x1.clamp(0.0, w);
     let y1 = b.y1.clamp(0.0, h);
     let x2 = b.x2.clamp(0.0, w);
@@ -305,13 +332,29 @@ fn draw_px_box_colour(img: &mut RgbImage, b: PxBox, colour: Rgb<u8>) {    let (w
     let (x0, y0) = (x1.min(x2).round() as i32, y1.min(y2).round() as i32);
     let rw = (x1.max(x2).round() as i32 - x0).max(BOX_WIDTH);
     let rh = (y1.max(y2).round() as i32 - y0).max(BOX_WIDTH);
+
+    // Outer white ring first, so the black ring can be drawn over its inner
+    // edge without either being lost.
+    for offset in 1..=BOX_WIDTH {
+        let outer = Rect::at(x0 - offset, y0 - offset).of_size(
+            (rw as u32).saturating_add(offset as u32 * 2),
+            (rh as u32).saturating_add(offset as u32 * 2),
+        );
+        draw_hollow_rect_mut(img, outer, BOX_OUTER_COLOR);
+    }
+    // Inner magenta ring, on the candidate edge itself.
     let rect = Rect::at(x0, y0).of_size(rw as u32, rh as u32);
     draw_hollow_rect_mut(img, rect, colour);
-    // `draw_hollow_rect_mut` draws a 1px outline; thicken it like B5 (width 3).
     for offset in 1..BOX_WIDTH {
-        let outer = Rect::at(x0 - offset, y0 - offset)
-            .of_size((rw as u32).saturating_add(offset as u32 * 2), (rh as u32).saturating_add(offset as u32 * 2));
-        draw_hollow_rect_mut(img, outer, BOX_COLOR);
+        // A box can be smaller than 2 × BOX_WIDTH (a 4 px candidate on a tiny
+        // icon). Thickening inward then has no room: `saturating_sub` yields 0
+        // and `imageproc::Rect` panics on an empty rect. The inner ring is the
+        // boundary marker, so it is the one that must survive — the outer ring
+        // can carry the visibility, and it has unlimited room to grow.
+        let iw = (rw - offset * 2).max(1) as u32;
+        let ih = (rh - offset * 2).max(1) as u32;
+        let inner = Rect::at(x0 + offset, y0 + offset).of_size(iw, ih);
+        draw_hollow_rect_mut(img, inner, colour);
     }
 }
 

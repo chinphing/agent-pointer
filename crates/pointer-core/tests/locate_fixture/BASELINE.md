@@ -717,6 +717,88 @@ with no visual signature, where any blank patch satisfies the description.
   The remaining ones are blank-wallpaper targets; `found: false` does not help
   because the model genuinely believes a blank patch is the element.
 
+## v15 — the locator no longer sees the candidate box
+
+The locator and the verifier were handed the same image: the crop with the
+candidate rectangle drawn on it. That rectangle is the most target-shaped thing
+in the picture — saturated, hard-edged, dead centre — and a locator asked
+「where is the target」 returned it unchanged.
+
+The trace makes this unambiguous. `r5c6` (第六行第七列有数字6的格子), concurrent
+run:
+
+```
+r1 verify   box=[334,416,409,491]   center=Yes size=Yes position=no   (F6, wanted F7)
+r1 locate   raw=[344,344,656,656] -> px=[334,416,409,491]
+```
+
+`raw=[344,344,656,656]` is the crop centre in 0–1000 space — the box it was
+shown, echoed back with zero movement. The verifier said 「横向差一列，目标应在右方
+一格」 and the locator answered 「it is exactly where you drew it」.
+
+The same case run alone instead moved correctly:
+
+```
+r1 locate   raw=[385,500,546,655] -> px=[305,445,346,484]   (346 is the truth x1)
+```
+
+So the locator now gets `Mark::DotOnly` — the centre dot, no outline. It still
+sees where the previous round thought the target was, which is the useful part,
+without a rectangle to mistake for the answer. The candidate's real position was
+never only visual: `locate_prev_box.md` gives the four edges as numbers.
+
+The verifier keeps `Mark::BoxAndDot`. Judging that outline is its entire job.
+
+| | before (box on both) | **after (box on verify only)** |
+|---|---|---|
+| hit rate, 81 × 3 | 93.0 % | **97.1 %** |
+| silent misses | 12 | **5** |
+| per-run | 95.1 / 90.1 / 93.8 | **97.5 / 96.3 / 97.5** |
+
+The remaining misses barely overlap between the three runs (`r4c6`, `r6c4`,
+`r2c5`, `r5c8`, `r6c7`, `r3c7`, `r8c6`), which is the same run-to-run spread as
+before — what went away is the systematic 「echo the box」 failure. `r8c6` went
+from failing 3/3 to 1/3.
+
+### This also explains the two open questions from v14
+
+**Concurrency is not a code race.** `OpenAIProvider` holds only immutable fields
+(`settings`, `api_key`, `trace`), `new_run_id()` uses an atomic counter, and the
+provider is shared read-only across cases. What concurrency changes is latency:
+`verify_call` median 7 440 ms at concurrency 8 (P90 11 295, max 19 441) versus
+~5 300 ms serially, with **zero timeouts** against a 400 s budget. The slower
+call is where the model takes the shortcut of returning the most obvious
+rectangle.
+
+**`dim` could never have been measured.** It was tested on and off, 93.8 % vs
+94.7 % — inside the spread, so 「no effect」. But the box was on the image in
+both arms, so the dominant failure mode was identical either way. It has since
+been removed on other grounds (it hid the neighbour the target sits on), and
+`found=false` was separately ruled out: it fires **0 times** across ~120 locate
+calls on sudoku, because the target is always somewhere in the frame.
+
+### The box colours, for the record
+
+The outline went blue → black/white → magenta-inner/cyan-outer. Blue vanished
+into blue buttons; black/white read as ordinary UI chrome rather than an
+annotation. Magenta and cyan occur in no normal desktop palette and contrast
+with each other as well as with the background, so at least one ring is always
+visible. This matters only for the verifier now — the locator sees no outline at
+all. `locate_prev_box.md` names the magenta ring explicitly, so the four numeric
+bounds and the thing on screen are tied together.
+
+### Still open
+
+- **Adjacent identical candidates.** `r8c6` (I7, an empty cell) and I8 are
+  visually identical. When the box spans both, its geometric centre lands
+  between them. The locator is not being given the anchors it needs to pick one.
+- **`VERIFY_OUT_PX` 1920 → 960** still untried: the wide image exists only to
+  read row and column labels, and at 960 the cell is still 68 px.
+- **ScreenSpot-Pro M2 not re-run** since v14. Icon accuracy (73.9 %) is the
+  largest remaining lever — at text parity it would be +6.7 points overall.
+- **`frozen_desktop_far_hint_stays_honest`** still fails on `dangerous` boxes:
+  blank-wallpaper targets, where any blank patch satisfies the description.
+
 ## Superseded
 
 - **v1** (69.1 %) ran on the same dataset before the four locate fixes above.

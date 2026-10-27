@@ -20,10 +20,33 @@ Recorded 2026-10-25. Re-run and compare before changing the locate prompt,
 ## Command
 
 ```bash
-POINTER_LOCATE_TRUTH=truth_sudoku.json POINTER_LOCATE_CONCURRENCY=10 \
-  cargo test -p pointer-core --test locate_fixture frozen_desktop_grounding \
+POINTER_LOCATE_TRUTH=truth_sudoku.json POINTER_LOCATE_CONCURRENCY=8 \
+  cargo test --release -p pointer-core --test locate_fixture frozen_desktop_grounding \
   -- --ignored --nocapture
 ```
+
+### Always `--release`
+
+**Every timing number in this file before v9 was measured on a debug build, and
+debug inflates the local rendering cost by ~30×.**
+
+Measured on the same 5 cases, same machine, same model:
+
+| stage | debug | release | ratio |
+| --- | --- | --- | --- |
+| LLM call (median) | 5.31 s | 4.20 s | 1.26× |
+| **render (median)** | **5.082 s** | **0.172 s** | **29.5×** |
+| case total (r2c2, 3 rounds) | 36.8 s | 17.6 s | 2.1× |
+| case total (r8c8, 2 rounds) | 34.7 s | 12.4 s | 2.8× |
+
+The render step (`render_crop`) is `Lanczos3` resize to 1600²/1920², a
+per-pixel `dim_outside` pass, and a JPEG encode at quality 85. In debug that is
+5 s per round; in release 0.17 s. **On a debug build rendering looks like 25 % of
+the wall clock — in release it is ~4 %, and the LLM call is ~96 %.**
+
+So: benchmark with `--release`, and do not optimise the renderer based on a debug
+measurement. Run-to-run stability is also much better in release (render spread
+0.001–0.211 s vs 0.002–5.546 s in debug).
 
 ## Result
 
@@ -396,9 +419,369 @@ Signals that held across every dataset so far:
 - filled cells are found perfectly, empty cells are not;
 - after the v2 fixes, retrying helps instead of hurting.
 
+## v6 — three independent checks, plus a centre mark
+
+**Result: 76/81 (93.8 %) · median 2.6 px · mean 5.0 px · 0 wrong cells · 86.7 s/case**
+(concurrency 8, per-case timeout 400 s, 81/81 completed with no timeouts)
+
+Three runs on the same configuration gave 95.1 %, 96.3 % and 93.8 %; the run
+reported above is the only one where all 81 cases finished, so it is the one to
+compare against.
+
+### The problem with one verdict
+
+v5 asked a single question: 「is the target in the box」. A box generous enough to
+contain the target answers *yes* — and then the engine returns the box's **centre**,
+which can be a whole cell away. Two distinct failures hid behind that:
+
+| failure | what the verifier said | what was actually wrong |
+| --- | --- | --- |
+| box one cell off, target still inside it | `match = yes` | the **centre** was not on the target |
+| box tight around a neighbouring empty cell | `match = yes` | the **cell** was the wrong one |
+
+Neither is visible from inside the box. Both need a check that looks *outside* it.
+
+### The three checks
+
+| field | question | fails as |
+| --- | --- | --- |
+| **`center_on_target`** | is the centre mark on the target? | coordinate wrong |
+| **`size_ok`** | does the box frame the target (≤1.5×, fully containing it)? | coordinate drifts |
+| **`position_matches`** | is this the cell the description names? | coordinate off by a cell |
+
+A hit needs all three. They are orthogonal: a box can be perfectly sized and
+centred on the wrong cell, or correctly placed on the right cell and twice its
+size — and each combination needs a different repair.
+
+### The centre mark
+
+The engine now draws a two-ring mark (red core, white ring) at the box's
+geometric centre — **which is exactly the coordinate it returns**. That turns
+「is the coordinate right」 from a four-edge alignment judgement into 「is this
+point on the target」, which is both easier and the question that matters.
+
+Two colours rather than one because a single-colour dot disappears on a
+background of the same colour. The pair is deliberately generic — it has no
+relationship to any particular application's palette.
+
+### `notes` — four fixed sections, passed through as the retry hint
+
+```
+图像：清晰 / 模糊 / 目标太小 / 被遮挡
+中心：标记落在目标的哪个位置（正中 / 偏左半格 / 落在格子外）
+大小：框大约是目标的几倍（约 1.0 倍 / 约 1.8 倍，框进左右两个邻格）
+位置：描述说的位置 vs 图里读到的位置（描述第四行第八列，图里 C 行第三行，差一行）
+```
+
+「不涉及」 means **the check did not happen** — the description names no position,
+or the target has no outline to measure. It is not a synonym for 「passed」; a
+check that passed may carry a short description instead.
+
+The three verdicts say *whether* each check passed. `notes` says *what was seen*,
+and it reaches the locator verbatim — the model that has to fix the box reads the
+verifier's own words rather than a translation of them.
+
+### The verifier's crop had to grow
+
+`VERIFY_MULT` went 2.0 → 4.0. The locator's side bottoms out at `CROP_MIN`
+(240 px), so 2.0 gave the verifier only 480 px — while the sudoku board spans
+370 px plus ~30 px of row labels. A window that follows a slightly-off box crops
+the labels away, the verifier correctly reports 「no row labels in view」, and
+`position_matches` can never be answered.
+
+At 4.0 the window is 960 px and the labels are in frame with room for the box to
+drift a cell. `VERIFY_OUT_PX` (1920) was added at the same time and kept separate
+from `out_px`: the two crops are asked different questions, and sharing one
+number forced a trade that satisfied neither.
+
+### What this fixed
+
+- **All five v5 stable failures now pass** (`r2c6`, `r3c7`, `r5c4`, `r7c5`, `r7c7`).
+- **Wrong cells went to zero** in the complete run (v5: 2, single 480 crop: 5).
+- All five failures are now `ok = false` after three rounds — a visible refusal,
+  not a wrong coordinate.
+
+### What is still open
+
+- Five cases exhaust three rounds without converging (`r0c2`, `r2c2`, `r3c3`,
+  `r5c5`, `r5c8`). At least one of them (`r2c2`) shows the model writing only the
+  first line of `notes`, so the hint carries no diagnosis.
+- Round distribution: 13 cases need one round, 57 need two, 11 need three. The
+  two-round majority is the cost of the position check — the first round often
+  lands a cell off and only the second reads the labels.
+- `POINTER_LOCATE_TIMEOUT_SECS` must be ≥ 400 at concurrency 8. At 180 s nine
+  cases were reported as timeouts that actually finish in 18–91 s; they were
+  queueing, not stuck.
+
+## v9 — the verifier judges edges, and the locator goes back to the crop
+
+**Result: 78/81 (96.3 %) · median 1.4 px · mean 2.1 px · 0 wrong cells · 91.2 s/case (debug build)**
+(concurrency 8, per-case timeout 400 s, 81/81 completed with no timeouts)
+
+> **The 91.2 s is a debug-build number.** Measured on 5 cases, release is 2.1–3.7×
+> faster per case because the renderer alone drops from 5.08 s to 0.17 s per round.
+> The hit rate and offsets are unaffected by the build profile; only the timings are.
+
+| | v5 | v6 | **v9** |
+|---|---|---|---|
+| hit | 76/81 = 93.8 % | 76/81 = 93.8 % | **78/81 = 96.3 %** |
+| median centre offset | 2.3 px | 2.6 px | **1.4 px** |
+| mean centre offset | 4.4 px | 5.0 px | **2.1 px** |
+| `ok=true` but wrong cell | 2 | 0 | **0** |
+| rounds 1 / 2 / 3 | — | 13 / 57 / 11 | **2 / 65 / 14** |
+| mean per case | 35.4 s | 86.7 s | **91.2 s** |
+
+The median dropped 39 % and the mean 57 % against v6, with no silent failures.
+
+### What changed
+
+**Prompts moved out of Rust into `locate/prompts/`** — eight files
+(`locate.md`, `locate_near.md`, `locate_hint.md`, `locate_schema.json`,
+`verify_body.md`, `verify_intro_wide.md`, `verify_intro_close.md`,
+`report_schema.json`). `prompt.rs` went from 806 to ~620 lines and now only loads,
+substitutes and parses.
+
+**Every judge is a boundary comparison, never an estimate.** v6 asked the model
+to estimate ratios (`≤ 1.5×`); it answered 1.32× for a box that was 1.32× and
+1.0× for one that was 0.76×. v9 asks what can be seen directly:
+
+| check | v6 asked | v9 asks |
+|---|---|---|
+| `center` | is the mark on the target? | how far is the mark from **the element's own four edges** — explicitly not the box's |
+| `size` | is the box ≤ 1.5× the target? | are **each of the four box edges** on the same line as the matching element edge |
+| `position` | does the named position match? | do **both** the position id and the anchor point at the box |
+
+**`unclear` removed from the schema.** Across 160 verifier calls in the v6 run it
+appeared once, and that once was the parse-failure fallback, not a model answer.
+The model now has `yes` / `no` and must commit.
+
+**`stay_local` judged on `center`, not on the verdict as a whole.** The engine
+used to re-locate on the full screen whenever `center_on_target != Yes`. A
+`center = no` means the mark is off the target — the target is right there, the
+box is merely misplaced — so the crop is exactly where to look again. At 240 px
+a 41 px cell lands at 328 px in the image; on the full screen it is 41 px, and
+41 vs 56 cannot be told apart. `r2c2` spent three rounds on the full screen
+producing 56 → 60 → 62 px boxes for a 41 px cell.
+
+**The size remark now reports all four edges, then the fix.** It used to report
+only the worst edge, so each round repaired one edge: `r2c2` fixed its right edge
+in round 1, its bottom edge in round 2, and ran out of rounds before the left
+edge. Reporting all four lets one round repair all of them — `r2c2` now converges
+in two rounds to within 1 px on every edge.
+
+### Where the time goes
+
+Single case (`r2c2`), 3 rounds, 45.9 s total, from provider-level timestamps:
+
+| stage | time |
+|---|---|
+| verify round 1 | 14.66 s |
+| locate round 2 | 1.47 s |
+| render (crop + JPEG encode) | 5.02 s |
+| verify round 2 | 8.82 s |
+| locate round 3 | 1.67 s |
+| render (crop + JPEG encode) | 5.01 s |
+| verify round 3 | 4.19 s |
+
+`verify` is 60 % of the wall clock, rendering 22 %, `locate` 7 %. Rendering
+produces **two** images per round (close 1600×1600 + wide 1920×1920) since v6;
+v5 rendered one. The 2.4× pixel increase is a candidate for the v5 → v9 slowdown
+(35.4 s → 91.2 s), but the two numbers were measured under different conditions
+(v5's figure mixes 10-way concurrency with serial re-runs) and **this has not
+been verified by a controlled experiment**.
+
+### What is still open
+
+- Three cases exhaust three rounds: `r2c4`, `r3c7`, `r8c4`. All three pass when
+  run alone at concurrency 1 — the failures are concurrency artefacts, not
+  prompt defects. The same pattern held for v8 (9 failures in the full run,
+  6 of them passing alone).
+- `out_of_view` was proposed as a fourth `center` value (the target is not in
+  either image) and then dropped: no case in any fixture can trigger it, because
+  every `hint_box` sits within 40 px of its target while the wide crop reaches
+  480 px. It would be untestable dead code.
+- The first round never calls `locate` when the caller supplies a `hint_box` —
+  the hint becomes the round-1 box verbatim. A 1.37× hint therefore guarantees a
+  `size = no` first round. Whether spending a locate call to clean the hint up
+  front pays for itself is unmeasured.
+
+## v13 — the verifier stops rewriting the description, and the locator gets nine cells
+
+**Result: 239/243 = 98.4 % over three full runs · median 1.3 px · 0 wrong cells
+in run 1 (81/81) · 2 silent failures total · mean 1.80 rounds · 12–15 s/case
+(release, concurrency 8)**
+
+| run | landed inside target | silent failures | median | mean | max | rounds | per case |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | **81/81 = 100.0 %** | **0** | 1.5 px | 4.1 | 22.4 | 24/56/1 | 12 s |
+| 2 | 78/81 = 96.3 % | 1 (r6c6) | 1.3 px | 3.9 | 44.0 | 17/58/6 | 15 s |
+| 3 | 80/81 = 98.8 % | 1 (r5c4) | 1.2 px | 3.8 | 29.2 | 18/60/3 | 15 s |
+| **all** | **239/243 = 98.4 %** | **2** | — | — | — | 1.80 | — |
+
+Accuracy is decided by **where the box centre lands** — the truth `bbox` contains
+it or it does not. `ok` is not consulted: a run that reports success with the
+centre outside the truth box is a silent failure, and one that refuses while its
+box landed on the target still counts.
+
+### The eight changes, in order of measured effect
+
+| # | change | evidence |
+| --- | --- | --- |
+| 1 | **The verifier may not rewrite the description.** `remark` must quote the description verbatim; when evidence and conclusion disagree, `ok` changes, not the evidence. | Broke the self-justification chain. r6c4 went 5/10 → 9/10 on its own. |
+| 2 | **Nine-cell wording for "which cell is the target inside the box"** — 左上 / 正上 / 右上 / 正左 / 正中 / 正右 / 左下 / 正下 / 右下, replacing 「框的左邻格」. | 4-case suite 32/40 → 35/40. r8c6 median 21 px → 1 px. |
+| 3 | **`position = no` means re-locate absolutely, never slide the reference box.** | r8c6 4/10 → 7/10. Sliding inherited the verifier's own reading error. |
+| 4 | **Anchors confirm the position id; they never overrule it.** "描述写错了 / 按锚点判定为同一目标" is forbidden. | r8c6 4/10 → 6/10. |
+| 5 | **Horizontal and vertical must be reported separately**, each with its own ratio and offending edge. | r4c3 4/5 → 5/5. |
+| 6 | **The previous box's four edges are passed to the locator** (`prev_box`, converted to the crop's 0–1000). Previously only the centre point was passed. | r8c6 0/3 → 2/3. |
+| 7 | **Counting range is the target region's interior** — the header row and index column are labels, not row 1. | Killed the 「C 行 = 第 4 行」 error on r3c7. |
+| 8 | **Centre mark radius 0.010 → 0.004, white rim 0.35 → 0.25.** At 0.010 the mark was 2.4 px on screen and sat on the very grid line it was being judged against, hiding the evidence. | r7c2 went from 3/3 failures to passing. |
+
+### What the failures actually were
+
+Every silent failure in this round was **the box one cell off with correct size**
+(0.92–1.12×), never a size error and never a blank region. The chain was always
+the same:
+
+1. The verifier read the reference box as cell *X* while it was cell *X±1*.
+2. To keep `ok = yes` consistent with `remark`, it rewrote the description to
+   match — or invented 「按锚点判定为同一目标」 to dissolve the contradiction.
+3. The locator, told 「差一格往左」, slid the box one cell further.
+
+Change 1 cuts step 2, change 3 cuts step 3, change 2 removes the ambiguous
+wording that fed step 1.
+
+### Two changes that made it worse and were reverted
+
+- **Direction hints in `position.remark`** ("差一格，目标在下方") *plus* an
+  instruction to verify them first: 4-case suite 30/40 → 27/40, and every
+  failure became a one-cell slide. The locator has no independent way to check
+  the verifier — they share the same label-reading ability — so "confirm before
+  acting" was unenforceable, while the direction itself was acted on.
+- **Asking the locator to confirm corrections** was removed for the same reason:
+  an unenforceable instruction only adds prompt weight.
+
+### Still open
+
+- **r6c6 and r5c4** — first appearance as silent failures (44 px and 29 px).
+  Not yet diagnosed.
+- **Concurrency depresses quality.** r7c4 passes 10/10 serially but failed in a
+  full concurrent run. The cause is still unidentified; WARN count is low and
+  there are no timeouts, so it is not call failure.
+- **`VERIFY_OUT_PX` 1920 → 960** untried: the wide image exists only to read row
+  and column labels, and at 960 the cell is still 68 px.
+- **Full 81 × 3 has not been re-run since the `found` field landed.** v13's
+  98.4 % predates it.
+
+## v14 — the locator can say "not in this image"
+
+`locate` used to be unable to express absence: `bbox` was required, so a crop
+that did not contain the target forced the model to invent one. That is how
+`frozen_desktop_far_hint_stays_honest` produced confidently wrong boxes — the
+crop held only wallpaper and the model had to answer anyway.
+
+The tool now takes `found` (boolean, the only required field) with `bbox`
+required only when `found=true`. `LocateAnswer::{Found, NotFound}` replaces the
+bare box; an explicit `found: false` wins even when a stray `bbox` is present,
+and it is returned without retry — retrying a "not found" only invites
+invention. The engine turns a crop-local `NotFound` into `widen_needed`, which
+forces the full-screen re-render.
+
+Effect on the two tests that were never passing:
+
+| test | V6 | v13 | **v14** |
+|---|---|---|---|
+| `absent_targets_fail_honestly` | 1 hallucination | 2 | **0–1** |
+| `frozen_desktop_far_hint_stays_honest` | rescued 17, honest 5, **dangerous 3** | rescued 6, honest 15, dangerous 4 | **rescued 19, honest 1–2, dangerous 4–5** |
+
+`absent` reached 0 hallucinations once and 1 on a rerun; `far_hint` rescued 19
+both times. Single-run variance on 25 cases is ±1–2, so these are not yet
+distinguishable from noise — but `far_hint` recovered from 6 to 19, above the
+V6 figure, and `found: false` fires 20 times per run (it looked like zero until
+the test was given a logger; it never had one).
+
+`dangerous` did not improve. Three of the four are 「空白壁纸」 targets — regions
+with no visual signature, where any blank patch satisfies the description.
+
+### Still open
+
+- **r6c6 and r5c4** — first appearance as silent failures (44 px and 29 px).
+  Not yet diagnosed.
+- **Concurrency depresses quality.** r7c4 passes 10/10 serially but failed in a
+  full concurrent run. The cause is still unidentified; WARN count is low and
+  there are no timeouts, so it is not call failure.
+- **`VERIFY_OUT_PX` 1920 → 960** untried: the wide image exists only to read row
+  and column labels, and at 960 the cell is still 68 px.
+- **Full 81 × 3 has not been re-run since the `found` field landed.** v13's
+  98.4 % predates it.
+- **`frozen_desktop_far_hint_stays_honest` still fails** on `dangerous` boxes.
+  The remaining ones are blank-wallpaper targets; `found: false` does not help
+  because the model genuinely believes a blank patch is the element.
+
 ## Superseded
 
 - **v1** (69.1 %) ran on the same dataset before the four locate fixes above.
 - **Pre-v1** (46.9 %, then 54.3 % with letter row labels) ran on a dataset whose
   descriptions claimed 37 filled cells were empty, and whose anchor directions
   were inverted. Those numbers measured the dataset's errors, not the grounder's.
+
+## ScreenSpot-Pro — the external benchmark
+
+The sudoku fixture is one screen with 81 near-identical cells: it measures
+position precision but says nothing about real interfaces. `tests/screenspot_pro.rs`
+runs the same engine on ScreenSpot-Pro (1581 GUI-grounding cases across 26
+professional applications, 4K screenshots), reusing the split definitions,
+descriptions and scoring rule that `benchmarks/screenspot_grid/` established for
+the Python baselines.
+
+### Result
+
+| split | cases | hit (point in gt box) | silent failures | offset median | rounds | per case |
+|---|---|---|---|---|---|---|
+| M1 | 20 | 16 (80.0 %) | 2 | 4.5 px | 1.55 | 13.3 s |
+| **M2** | **300** | **256 (85.3 %)** | **32 (10.7 %)** | **4.3 px** | **1.37** | **11.7 s** |
+
+Against the Python baselines on the same M2 split and the same v2 descriptions:
+
+| baseline | hit | per case | model calls |
+|---|---|---|---|
+| **Rust engine** | **85.3 %** (256/300) | 11.7 s | **1.37 rounds** |
+| `b3_crop_ladder` | 86 % (258/300) | 10.3 s | 2.62 |
+| `b2_agent_marker` | 84 % (253/300) | 12.1 s | 2.66 |
+
+The engine matches the best Python baseline while making roughly half the model
+calls — each round is one locate plus one verify, so 1.37 rounds ≈ 2.7 calls
+against their 2.6 *plus* their own locate pass.
+
+### The gap is silent failure, not precision
+
+When it hits, it hits accurately: median offset 4.3 px. The loss is elsewhere —
+32 of 44 failures claimed `ok=true` and put the point outside the box. On sudoku
+the same ratio is 2 of 243 (0.8 %); here it is 10.7 %, an order of magnitude
+worse. ScreenSpot-Pro targets are 15–30 px on a 4K canvas, and the verifier is
+easier to fool with a look-alike neighbour. That is the next thing to work on.
+
+### Two traps this benchmark sets
+
+- **Thinking must be off.** Leaving the provider default (`on` for
+  qwen3.8-flash) makes every call emit ~3000 reasoning tokens first: measured
+  25–53 s per call instead of 3–5 s, a 12× slowdown with no accuracy gain.
+  `thinking_setting()` in the test forces it off, matching the sudoku runs.
+  With it on, three cases took 122.8 s each; with it off, 10.0 s.
+- **`splits/M2.json` is stale.** It holds 100 ids that do not intersect
+  `descriptions/v2/M2.json` at all, so scoring from the split file alone yields
+  zero runnable cases. `descriptions/v2/M2.json` has 300 keys — all in the
+  annotations, and that is what `META.json` records as M2 and what the Python
+  harness effectively scores (`ids ∩ descriptions`). The description file
+  defines the split; see `load_split_ids`.
+
+### Command
+
+```bash
+# M2 (300 cases, ~6 min at concurrency 8)
+POINTER_SP_SPLIT=M2 POINTER_LOCATE_CONCURRENCY=8 RUST_LOG=info \
+cargo test --release -p pointer-core --test screenspot_pro screenspot_pro \
+  -- --ignored --nocapture
+```
+
+`POINTER_SP_IDS` overrides the split, `POINTER_SP_LIMIT` truncates,
+`POINTER_SP_THINKING=1` turns thinking back on.

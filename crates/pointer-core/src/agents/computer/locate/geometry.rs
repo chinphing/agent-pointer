@@ -13,6 +13,31 @@ pub const CROP_MIN: f64 = 240.0;
 pub const CROP_MAX: f64 = 1600.0;
 /// Side length the crop is resized to before the verifier sees it (B5 `OUT_PX`).
 pub const CROP_OUT_PX: u32 = 1600;
+
+/// How much larger the verifier's crop is than the locator's, on both axes.
+///
+/// 2x covers four times the area and renders at 3200x3200 (10.2 Mpx, ~10k prompt
+/// tokens). The verifier gets the neighbouring cells it needs to say whether the
+/// box is on the right one; the locator keeps its 1600 px crop and its
+/// `~1.5 % × side` error budget.
+/// How much larger the verifier's crop is than the locator's, on both axes.
+///
+/// 4.0, measured rather than guessed. The locator's side bottoms out at
+/// `CROP_MIN` (240 px), so 2.0 gave the verifier only 480 px — and the sudoku
+/// fixture showed exactly what that costs: the board spans 370 px, the row
+/// labels another ~30, so a 480 px window that follows a slightly-off box crops
+/// the labels away entirely. The verifier then correctly reports 「no row labels
+/// in view」 and the position check can never be answered. 240 × 4 = 960 px
+/// covers the board plus its labels with room for the box to drift a cell.
+pub const VERIFY_MULT: f64 = 4.0;
+/// Render size for the verifier's wider crop, independent of `CROP_OUT_PX`.
+///
+/// The wider crop has to carry two jobs at once: show enough context to read the
+/// labels around the target, and still resolve the target finely enough to say
+/// whether the centre mark is on it. Area scales with `VERIFY_MULT²`, so at the
+/// locator's 1600 px the target lands at 68 px — coarse. 1920 brings it to 82 px
+/// for ~44 % more prompt tokens (area, not side, is what the provider bills).
+pub const VERIFY_OUT_PX: u32 = 1920;
 /// Full-screen images above this pixel count are downscaled (B5 `FULL_MAX_PX`).
 pub const FULL_MAX_PX: f64 = 2_500_000.0;
 
@@ -176,6 +201,20 @@ pub fn rel_to_norm(rel: NormBox, bounds: CropBounds, w: u32, h: u32) -> NormBox 
         (bounds.y0 + rel.y1 / NORM_MAX * bh) / h * NORM_MAX,
         (bounds.x0 + rel.x2 / NORM_MAX * bw) / w * NORM_MAX,
         (bounds.y0 + rel.y2 / NORM_MAX * bh) / h * NORM_MAX,
+    )
+}
+
+/// Screen pixels → this crop's 0–1000 scale. The inverse of `rel_to_norm`'s
+/// first half, needed when a prompt has to quote a box position back to the
+/// model in the same units the model answers in.
+pub fn px_to_rel(b: PxBox, bounds: CropBounds) -> (f64, f64, f64, f64) {
+    let bw = bounds.width().max(f64::EPSILON);
+    let bh = bounds.height().max(f64::EPSILON);
+    (
+        (b.x1 - bounds.x0) / bw * NORM_MAX,
+        (b.y1 - bounds.y0) / bh * NORM_MAX,
+        (b.x2 - bounds.x0) / bw * NORM_MAX,
+        (b.y2 - bounds.y0) / bh * NORM_MAX,
     )
 }
 

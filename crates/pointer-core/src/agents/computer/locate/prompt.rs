@@ -9,89 +9,69 @@
 use serde_json::{json, Value};
 
 use super::geometry::NormBox;
-use super::types::{Confidence, ElsewhereDir, MatchVerdict, UnclearKind, VerifyVerdict};
+use super::types::{CenterOnTarget, Confidence, MatchVerdict, PositionMatches, VerifyVerdict};
 
 /// Max characters kept from each verifier free-text field (B5 truncation).
-const FIELD_CHARS: usize = 200;
+/// Hard cap on any free-text field from the report tool.
+///
+/// 800: the band-mode `why` is a three-part answer and the model routinely runs
+/// past the 150 characters it is asked for. At 200 the comparison sentence was
+/// cut off entirely — the log could not show whether it had been made — and at
+/// 400 it still was. The cap exists to keep a runaway answer out of the
+/// transcript, not to police length; the prompt already does that.
+const FIELD_CHARS: usize = 800;
+
+// ---- Prompt text lives in `prompts/*.md`, not here -------------------------
+//
+// Prompts are read by a model, reviewed by a human, and revised far more often
+// than the surrounding Rust. Keeping them in `.md` means a wording change is a
+// one-line diff in a file that renders as prose — not a change inside a Rust
+// string literal where every `\n` and quote is escaped, and where a stray
+// backslash silently changes the prompt the model sees.
+//
+// `{name}` placeholders are substituted at call time. Braces that must reach the
+// model literally do not appear in these files, so a plain `str::replace` is
+// enough and no template engine is needed.
+const LOCATE_PROMPT: &str = include_str!("prompts/locate.md");
+const LOCATE_NEAR: &str = include_str!("prompts/locate_near.md");
+const LOCATE_HINT: &str = include_str!("prompts/locate_hint.md");
+const LOCATE_PREV_BOX: &str = include_str!("prompts/locate_prev_box.md");
+const VERIFY_INTRO_WIDE: &str = include_str!("prompts/verify_intro_wide.md");
+const VERIFY_INTRO_CLOSE: &str = include_str!("prompts/verify_intro_close.md");
+const VERIFY_BODY: &str = include_str!("prompts/verify_body.md");
+const REPORT_SCHEMA: &str = include_str!("prompts/report_schema.json");
+const LOCATE_SCHEMA: &str = include_str!("prompts/locate_schema.json");
+
+/// How much larger than the target a box may be before `size.ok` fails.
+///
+/// One number, one place. It appears in the locator's prompt (how tight to draw),
+/// the verifier's prompt (when to reject), and the report schema (the field's
+/// meaning) — three surfaces that must never disagree, because a locator told
+/// 1.5× and a verifier told 2.0× produces a loop that can never converge. The
+/// `.md` and `.json` files carry `{size_max}`; the substitution happens at load.
+const BOX_SIZE_MAX: &str = "1.5";
 
 /// B5 `TOOL_LOCATE`, made explicit that coordinates are image-local.
 pub fn locate_tool() -> Value {
-    json!({
-        "type": "function",
-        "function": {
-            "name": "locate",
-            "description": "给出目标在这张图中的位置，bbox 为 4 个 0-1000 的整数（相对这张图，不是整屏）。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "bbox": {
-                        "type": "array",
-                        "items": {"type": "integer"},
-                        "minItems": 4,
-                        "maxItems": 4,
-                        "description": "目标框 [x1, y1, x2, y2]"
-                    }
-                },
-                "required": ["bbox"]
-            }
-        }
-    })
+    serde_json::from_str(LOCATE_SCHEMA).expect("locate_schema.json is embedded and valid")
 }
 
 /// B5 `TOOL_REPORT`.
 pub fn report_tool() -> Value {
-    json!({
-        "type": "function",
-        "function": {
-            "name": "report",
-            "description": "报告校验结论。先描述蓝框里是什么，再判断它是不是目标。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "match": {
-                        "type": "string",
-                        "enum": ["yes", "no", "unclear"],
-                        "description": "蓝框里的东西是不是目标描述的元素"
-                    },
-                    "confidence": {
-                        "type": "string",
-                        "enum": ["high", "medium"],
-                        "description": "match=yes 时填。文字+方位+图标+颜色四项全中填 high；文字和方位对上、图标或颜色不符填 medium（这仍然算找到了，颜色在 hover/disabled 态会变）"
-                    },
-                    "why": {
-                        "type": "string",
-                        "description": "一句话，先说蓝框里实际是什么（文字/图标/控件），再说判定依据。**不超过 80 字**。目标位置要说绝对坐标（「第 3 列横跨 x≈455 到 625」），不要只写「在 X 右边」。判 no 时要说清框里缺了目标的哪一部分。例：「框里是空白，目标在框左上约 60 像素」"
-                    },
-                    "unclear_kind": {
-                        "type": "string",
-                        "enum": ["", "anchor_out_of_view", "too_small", "too_blurry", "ambiguous", "box_too_tight", "box_too_loose"],
-                        "description": "match=unclear 时必填。anchor_out_of_view=锚点不在图内无法核对；too_small=目标太小看不清；too_blurry=图像模糊/被遮挡；ambiguous=描述自相矛盾；box_too_tight=蓝框只框住了目标的一部分，另一部分在框外；box_too_loose=目标完整在框内但框比目标大太多（超过 1.5 倍，紧邻编号格子超过 1.2 倍）"
-                    },
-                    "target_px": {
-                        "type": "array",
-                        "items": {"type": "integer"},
-                        "minItems": 2,
-                        "maxItems": 2,
-                        "description": "目标在【这张图】里的实际宽和高，单位像素。先看目标自己的轮廓再填，不要用蓝框的尺寸代替。目标本身是一片空白区域（点空白处关闭、遮罩、画布背景），没有轮廓可量时填 [0, 0]。"
-                    },
-                    "box_px": {
-                        "type": "array",
-                        "items": {"type": "integer"},
-                        "minItems": 2,
-                        "maxItems": 2,
-                        "description": "蓝框在【这张图】里的宽和高，单位像素。看框的四条边量出来，不要照抄目标尺寸。"
-                    },
-                    "elsewhere_dir": {
-                        "type": "string",
-                        "enum": ["", "left", "right", "up", "down", "inside"],
-                        "description": "match=no 且目标在这张图内别处时，填相对蓝框的方向"
-                    },
-                    "elsewhere_desc": {"type": "string", "description": "那个位置看起来是什么"}
-                },
-                "required": ["match", "why", "target_px", "box_px"]
-            }
-        }
-    })
+    report_tool_views(false)
+}
+
+/// `wide` = the call carries a second image, so `why` must open with the 图二
+/// verdict.
+///
+/// Structured rather than prose: 「先看图二再回图一」as an instruction gets
+/// skipped when the model answers without reasoning — measured, the same prompt
+/// scored 1/3 without thinking and 2/2 with it. A fixed opening makes the step
+/// visible in the output itself, so a skipped check reads as `无需看` rather than
+/// silently disappearing.
+pub fn report_tool_views(_wide: bool) -> Value {
+    let raw = REPORT_SCHEMA.replace("{size_max}", BOX_SIZE_MAX);
+    serde_json::from_str(&raw).expect("report_schema.json is embedded and valid")
 }
 
 /// Locate prompt. Coordinates are always **image-local** (B5 `coord-mode=rel`),
@@ -100,101 +80,76 @@ pub fn report_tool() -> Value {
 /// `goal` is deliberately not passed in: it is caller-facing metadata used for
 /// the tool card title. Feeding it to the grounder made it pick a same-named
 /// element on a different row, because "enter the news page" fits both.
+///
+/// `prev_box` is the **previous round's box, already converted to this image's
+/// 0–1000 scale**. Without it the locator only ever received the box centre as a
+/// bare point, so when the verifier said 「收小到只覆盖 I7 一格」 it had to guess
+/// where inside the reference box that cell was — and on r8c6 it guessed the
+/// neighbouring cell, producing a box exactly one column off while the verifier
+/// then read that box back as the right column.
 pub fn locate_prompt(
     description: &str,
     hint_px: Option<(f64, f64)>,
     previous_hint: Option<&str>,
+    prev_box: Option<(f64, f64, f64, f64)>,
 ) -> String {
-    let head = format!(
-        "请找出界面中符合以下描述的元素，给出它的位置。\n\n【目标元素描述】\n· 目标：{}\n",
-        description.trim()
-    );
     let near = match hint_px {
-        Some((x, y)) => format!(
-            "【位置偏好】画面里如果有多个符合条件的元素，选**离 ({}, {}) 最近的那个**。\n\
-             那是调用方估计的位置，通常八九不离十；远处即使长得一模一样，\n\
-             也很可能是另一行或另一栏的同名元素。\n",
-            x.round() as i64,
-            y.round() as i64
-        ),
+        Some((x, y)) => LOCATE_NEAR
+            .replace("{x}", &(x.round() as i64).to_string())
+            .replace("{y}", &(y.round() as i64).to_string()),
         None => String::new(),
     };
-    let coord = "【坐标要求】只按【这张图】给坐标：横向 0 = 这张图左边缘，1000 = 右边缘；纵向 0 = 上边缘，1000 = 下边缘。\n不需要知道整张屏幕有多大。";
-    let tail = "先**完整包住**目标：目标的每段文字、每条轮廓边都要落在框内。只框住一部分不合格——这时要把框放大到装得下整个目标，不要怕松。包住之后可以比目标略大一圈，留点余量没关系；关键是**中心点要落在目标上**——框明显偏向一侧、或者中心跑到目标外面，返回的坐标才会偏。\n不需要像素级精确：框的中心落在元素上、四条边没有明显超出轮廓，就算合格。\n\n请调用 locate(bbox=[x1, y1, x2, y2])。";
+    let prev_box_block = match prev_box {
+        Some((x1, y1, x2, y2)) => LOCATE_PREV_BOX
+            .replace("{x1}", &(x1.round() as i64).to_string())
+            .replace("{y1}", &(y1.round() as i64).to_string())
+            .replace("{x2}", &(x2.round() as i64).to_string())
+            .replace("{y2}", &(y2.round() as i64).to_string()),
+        None => String::new(),
+    };
     // `【上一轮的情况】` goes after everything else on purpose: it is the
     // correction for this round, and a correction placed mid-prompt loses to
     // the generic box rule that follows it.
     let hint_block = match previous_hint.map(str::trim).filter(|s| !s.is_empty()) {
-        Some(hint) => format!("\n\n【上一轮的情况】{hint}"),
+        Some(hint) => LOCATE_HINT.replace("{hint}", hint),
         None => String::new(),
     };
-    format!("{head}{near}\n{coord}\n{tail}{hint_block}")
+    LOCATE_PROMPT
+        .replace("{size_max}", BOX_SIZE_MAX)
+        .replace("{desc}", description.trim())
+        .replace("{near}", &near)
+        .replace("{prev_box}", &prev_box_block)
+        .replace("{hint_block}", &hint_block)
 }
 
 /// Verifier prompt. It sees only the crop and the description — **never** the
 /// hint box (§6.3.1), otherwise it would rubber-stamp a wrong candidate.
 pub fn verify_prompt(description: &str) -> String {
-    let desc = format!("· 目标：{}\n", description.trim());
-    format!(
-        "这张图是从屏幕上裁下来的一块（不是整屏），蓝框是候选位置。\n\
-**蓝框始终在这张图的正中央**——裁剪时就是以它为中心截的，四周留了余量。\n\
-不用去估算框的像素坐标，也不要猜，直接看框里和框外各有什么。\n\n\
-【目标元素描述】\n{desc}\
-【任务】\n\
-① 先看蓝框里实际是什么（文字/图标/控件），写进 why 的开头。\n\
-② 再判断蓝框里的这个东西，是不是上面描述的目标元素。\\n\\
-③ 定位目标时不要只说「在 X 的右边」「隔一格」——要说清目标所在**那一格的边界在多少像素**，例如「第 3 列横跨 x≈455 到 625，目标格在这一列」。描述里有「隔一格」「上方」「右边」这类相对关系时，必须这样写出绝对位置再判断：相对关系最容易数错，数错一格整条结论就偏了。\\n\
-④ 写完这个边界，立刻拿它和蓝框比一次：**蓝框的左右边缘是不是落在这个边界里？** 框比边界偏左或偏右就是框错了，判 unclear——不要因为「框里确实是空格子」就判 yes。目标在哪一列和框在哪一列，必须是同一列。\n\
-⑤ 最后量两个数：目标的实际宽高填 `target_px`，蓝框的宽高填 `box_px`（都按这张图的像素）。why 里写这两者的倍数。目标本身是一片空白区域（点空白处关闭弹窗、遮罩、画布背景），没有轮廓可量时 `target_px` 填 [0, 0]，why 里说明它是空白区域，不用写倍数。\n\n\
-【必须单独核对的一件事：蓝框有没有把目标完整框住】\n\
-「蓝框里能看到目标」和「蓝框把目标整个框住了」是两件事，**都要满足才算找到**。\n\
-- 目标的**整个轮廓**（文字的全部笔画、按钮的全部边缘、图标的完整形状）\n\
-  都落在蓝框里面，**而且框没有超过下面的倍数** → 才算真正找到。\n\
-- 目标是**空格子**时，它的轮廓就是**分隔它的四条边线**。框必须包住这四条边线；\\n\\
-  只框住格子中央的空白区域不算框住——框里空无一物，没有任何东西能证明\\n\\
-  这是这一格而不是隔壁那一格。\\n\\
-- 目标只有一部分在蓝框里，另一部分伸到蓝框外面（哪怕只露出一半，\n\
-  或者蓝框只压住了目标的一个角）→ 判 **unclear** + `unclear_kind=box_too_tight`，并在 why 里写清：\n\
-  框住了目标的哪一部分、目标的哪一侧在框外、**目标大约是框的几倍宽几倍高**。\n\
-  倍数比像素可靠——这张图是缩放过的，你说的像素数换算回屏幕会差很远。\n\
-- 目标本身是**一片空白区域**（点空白处关闭、遮罩、画布背景），没有轮廓可量时，
-  「框太大」「框太小」都不适用：只要框整个落在那片空白里、框住的位置就是要的位置，就算框住了。
-- 反过来，**框比目标大太多**也算不合格。太大是算出来的：先看目标在框里的实际长宽，再和框的长宽比——通常框的宽和高都不超过目标的 1.5 倍算合格；目标是紧邻排列的编号格子（表格单元格、数独格、棋盘格、日历格）时降到 1.2 倍，相邻格只隔一个格宽，框松一点就框进隔壁，坐标会整个偏到另一格。超过倍数判 unclear + unclear_kind=box_too_loose，why 里写清框大约是目标的几倍宽几倍高、框里除了目标还有什么。\n\
-  下游拿这句话决定是重新找还是把框收小。\n\n\
-【周边锚点怎么用】\n\
-锚点是用来**区分同名/相似干扰元素**的辅助线索，不是硬约束。\n\
-- 锚点和图中有出入，**不单独构成判 no 的理由**。\n\
-- 只有当「外观完全符合、但锚点指向另一个明显不同的元素」时才判 no。\n\
-- 判断顺序：先看框里是不是目标 → 再看框有没有把目标完整框住 → 最后才考虑锚点矛盾。\n\n\
-【判定规则】\n\
-1. 文字内容对不上 → 判 **no**，不管其他项多像。\n\
-2. 文字对得上，但蓝框没把目标完整框住 —— 蓝框里已是目标的一部分（文字/边框只露出一截）→ 判 **unclear** + `unclear_kind=box_too_tight`；蓝框里完全是别的东西 → 判 **no** + `elsewhere_dir`。why 说清框住了哪部分、\n\
-   目标哪一侧在框外、目标大约是框的几倍（见上）。\n\
-3. 判 yes 前逐条确认，缺一条都不算：\\n\\
-   · 文字对得上；\\n\\
-   · 框包住了目标的整个轮廓（空格子 = 四条边线）；\\n\\
-   · 框的宽高都没超过目标的 1.5 倍（紧邻排列的编号格子 1.2 倍）。\\n\\
-   三条都过才判 **yes**。\n\
-4. 外观、锚点有出入但文字和位置都对 → 仍然判 **yes**，把出入写进 why。\n\n\
-【外观怎么比】按这个顺序，**不要跳级**：\n\
-1. **文字** —— 文字内容是否一致（最重要，几乎决定成败）\n\
-2. **图标** —— 图标形状/类型是否一致\n\
-3. **颜色** —— 颜色是否一致（**最弱**，按钮在 hover / disabled / 选中态下\n\
-   颜色本来就会变，**不要因为颜色判 no**）\n\n\
-【注意：蓝框在这张图里居中，是裁剪方式决定的，不能作为位置证据。】\n\
-位置关系只能看「目标相对蓝框在画面里的位置」，不能靠蓝框在图中居中这一点推断。\n\n\
-【看不清的情况】\n\
-- 目标太小看不清 → unclear + too_small\n\
-- 图像模糊或被遮挡 → unclear + too_blurry\n\n\
-【如果判 unclear】\\n\\
-- `box_too_tight`：why 里必须写「目标大约是框的几倍宽几倍高」。\\n\\
-- `box_too_loose`：why 里必须写「框大约是目标的几倍宽几倍高」。\\n\\
-- 写不出这个数，说明你没量——那就重新量一遍再答。\\n\\n\\
-【如果判 no】\n\
-- 如果目标就在这张图里、只是蓝框没框住它，填 elsewhere_dir（left/right/up/down/inside）和 elsewhere_desc。\n\
-- 如果这张图里根本看不到目标，elsewhere_dir 留空。\n\n\
-请调用 report。\n"
-    )
+    verify_prompt_views(description, false)
+}
+
+/// `wide` = a second, wider image is attached as 【图二】.
+///
+/// The two images have different jobs, and the split is stated up front because
+/// getting it wrong is silent: a model that judges the box from the wide image
+/// will call a 137 px cell's borders aligned to within a few pixels — which is
+/// how 「正好压住」 got said about a box 26 px off.
+pub fn verify_prompt_views(description: &str, wide: bool) -> String {
+    // `{view_ref}` is the one word that differs between the two layouts: with a
+    // wide second image the labels live in 图二, without it the model only has
+    // 图一. Everything else in `VERIFY_BODY` is shared verbatim, so a run with
+    // `verify_mult = 1.0` and a run with `verify_mult = 4.0` differ in exactly
+    // one word of prompt plus the second image.
+    let (intro, view_ref) = if wide {
+        (VERIFY_INTRO_WIDE, "图二")
+    } else {
+        (VERIFY_INTRO_CLOSE, "这张图")
+    };
+    VERIFY_BODY
+        .replace("{size_max}", BOX_SIZE_MAX)
+        .replace("{intro}", intro)
+        .replace("{view_ref}", view_ref)
+        .replace("{desc}", &format!("· 目标：{}\n", description.trim()))
 }
 
 /// Fallback instruction when the model returns no `locate` tool call (B5).
@@ -226,11 +181,33 @@ fn box_from_json(v: &Value) -> Option<NormBox> {
     }
 }
 
+/// What the `locate` tool answered.
+///
+/// `NotFound` exists because the schema used to require `bbox`, so a locator
+/// looking at a crop that does not contain the target had only two options:
+/// invent a box, or fail to parse. On the far-hint fixture the first produced
+/// confident wrong boxes and the second aborted the run — both worse than saying
+/// 「not in this image」, which the engine can act on by re-rendering wider.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LocateAnswer {
+    Found(NormBox),
+    NotFound,
+}
+
 /// Parse the `locate` tool arguments, tolerating the malformed shapes B5 accepts.
-pub fn parse_locate_arguments(raw: &str) -> Option<NormBox> {
+///
+/// Returns `None` only when the arguments are unusable — a `found: false` answer
+/// is a valid answer, not a parse failure.
+pub fn parse_locate_arguments(raw: &str) -> Option<LocateAnswer> {
     let v: Value = serde_json::from_str(raw.trim()).ok()?;
+    // An explicit `found: false` wins even if a stray bbox is also present:
+    // a model that says 「not here」 and still emits numbers is answering the
+    // question, not contradicting itself.
+    if matches!(v.get("found").and_then(Value::as_bool), Some(false)) {
+        return Some(LocateAnswer::NotFound);
+    }
     let bbox = v.get("bbox").or_else(|| v.get("box"))?;
-    box_from_json(bbox)
+    box_from_json(bbox).map(LocateAnswer::Found)
 }
 
 /// Pull the first 4-number bracketed list out of free text (B5 `_box_from_text`).
@@ -264,117 +241,120 @@ fn text_field(v: &Value, key: &str) -> String {
         .collect()
 }
 
-/// `[w, h]` from the report arguments. A `[0, 0]` pair is kept on purpose: the
-/// target may be a blank region (click-the-backdrop, a canvas background) with
-/// no outline to measure, and dropping it would look identical to a missing
-/// field. Negative entries are still rejected.
-fn pair_field(v: &Value, key: &str) -> Option<(u32, u32)> {
-    let arr = v.get(key)?.as_array()?;
-    let mut out = [0u32; 2];
-    let mut n = 0;
-    for x in arr {
-        // `as f64` rather than `as_u64` so negatives are visible: casting -5
-        // straight to an integer saturates at 0 and would read as a legitimate
-        // 「no outline」 pair.
-        let f = x.as_f64()?;
-        if !f.is_finite() || f < 0.0 {
-            return None;
-        }
-        if n < 2 {
-            out[n] = f.round().min(u32::MAX as f64) as u32;
-            n += 1;
-        }
-    }
-    (n == 2).then_some((out[0], out[1]))
-}
-
 /// Parse the `report` tool arguments. Returns `None` when the answer is not
 /// trustworthy (unknown `match`, or no `in_box` observation) so the caller
 /// retries — exactly like B5's `verifier`.
 pub fn parse_verify_arguments(raw: &str) -> Option<VerifyVerdict> {
     let v: Value = serde_json::from_str(raw.trim()).ok()?;
-    let match_raw = v.get("match").and_then(Value::as_str)?.trim().to_ascii_lowercase();
-    let match_ = match match_raw.as_str() {
+
+    // Raw arguments, every call: the nested shape is new, and a silent mismatch
+    // between schema and parser looks exactly like a model that cannot answer.
+    log::info!("verify raw args: {raw}");
+
+    // Three nested objects. Each carries its own verdict and, when the verdict is
+    // not a pass, the fact behind it — the two travel together so a `no` cannot
+    // arrive without saying what it saw.
+    let center_on_target = CenterOnTarget::parse(&text_field(&nested(&v, "center"), "ok"))
+        .unwrap_or(CenterOnTarget::Unclear);
+    let size_ok = match text_field(&nested(&v, "size"), "ok").to_ascii_lowercase().as_str() {
         "yes" => MatchVerdict::Yes,
         "no" => MatchVerdict::No,
-        "unclear" => MatchVerdict::Unclear,
-        _ => return None,
+        _ => MatchVerdict::Unclear,
     };
-    // `why` now carries both "what is in the box" and the verdict reason, so a
-    // blank one means the model did not actually look — treat it as unusable
-    // rather than accepting a verdict with no observation behind it.
-    let why = text_field(&v, "why");
-    if why.is_empty() {
+    let position_matches = PositionMatches::parse(&text_field(&nested(&v, "position"), "ok"))
+        .unwrap_or(PositionMatches::Unknown);
+
+    let center_remark = text_field(&nested(&v, "center"), "remark");
+    let size_remark = text_field(&nested(&v, "size"), "remark");
+    let position_remark = text_field(&nested(&v, "position"), "remark");
+
+    // `size = no` without a direction is a dead end: the hint becomes 「框太大」
+    // with nothing to act on, and the locator returns the same box next round.
+    // Size is loose now (only 「absurdly large」 / 「cut the target」 fail), so a
+    // number is no longer required — but *something* has to say which way it is
+    // off. Returning `None` retries the verify call; it does not burn a locate
+    // round.
+    if size_ok == MatchVerdict::No && size_remark.trim().is_empty() {
+        log::warn!("verify: size=no but empty remark — retrying");
         return None;
     }
-    let unclear_kind = match text_field(&v, "unclear_kind").to_ascii_lowercase().as_str() {
-        "anchor_out_of_view" => UnclearKind::AnchorOutOfView,
-        "too_small" => UnclearKind::TooSmall,
-        "too_blurry" => UnclearKind::TooBlurry,
-        "ambiguous" => UnclearKind::Ambiguous,
-        "box_too_tight" => UnclearKind::BoxTooTight,
-        "box_too_loose" => UnclearKind::BoxTooLoose,
-        _ => UnclearKind::None,
-    };
+
+    // A `no` with no fact behind it is equally useless to the next round.
+    for (label, verdict, remark) in [
+        ("center", center_on_target != CenterOnTarget::Yes, &center_remark),
+        (
+            "position",
+            matches!(position_matches, PositionMatches::No | PositionMatches::Unknown),
+            &position_remark,
+        ),
+    ] {
+        if verdict && remark.trim().is_empty() {
+            log::warn!("verify: {label} not a pass but remark is empty — retrying");
+            return None;
+        }
+    }
+
+    // Reassembled for the log and for `refine_hint`, which still speaks the
+    // four-section language. The fields are the source of truth; this is a view.
+    let notes = format!(
+        "中心：{} / 大小：{} / 位置：{}",
+        or_dash(&center_remark),
+        or_dash(&size_remark),
+        or_dash(&position_remark)
+    );
+
+    log::info!(
+        "verify center={center_on_target:?} size={size_ok:?} position={} notes={}",
+        position_matches.as_str(),
+        notes
+    );
+
     Some(VerifyVerdict {
-        match_,
-        why,
-        unclear_kind,
-        elsewhere_dir: ElsewhereDir::parse(&text_field(&v, "elsewhere_dir")),
-        elsewhere_desc: v
-            .get("elsewhere_desc")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .trim()
-            .chars()
-            .take(150)
-            .collect(),
+        center_on_target,
+        size_ok,
+        position_matches,
+        notes,
         confidence: Confidence::parse(&text_field(&v, "confidence")),
         reasoning: String::new(),
-        target_px: pair_field(&v, "target_px"),
-        box_px: pair_field(&v, "box_px"),
     })
 }
 
-/// Retry hint fed into the next locate round (B5 `hint` construction).
-pub fn refine_hint(verdict: &VerifyVerdict) -> String {
-    // A box that holds only part of the target is not a wrong place — it is a
-    // box that is too small. Telling the locator "look elsewhere" sends it
-    // hunting for a different element when all it has to do is widen.
-    //
-    // The measured ratio is passed through for the same reason as the loose
-    // case below: 「框里只有目标的一部分」 alone leaves the locator guessing how
-    // much to widen, and it tends to widen by a token amount and fail again.
-    if verdict.unclear_kind == UnclearKind::BoxTooTight {
-        return format!(
-            "上次的框太窄：框里只有目标的一部分（{}）。这次按上面的倍数把框放大到装得下整个目标，位置就在原处附近，不要换地方找。",
-            verdict.why.trim()
-        );
-    }
-    // Mirror case: the target is right there, the box is slack around it. The
-    // verifier already measured how slack (it is what decided the box failed);
-    // pass that number through so the locator shrinks by the right amount
-    // instead of guessing. Without it the locator re-frames "somewhere around
-    // here" and lands at 2x again — which is exactly what r1c0 did.
-    if verdict.unclear_kind == UnclearKind::BoxTooLoose {
-        return format!(
-            "上次的框太松：目标就在框里，但框比目标大太多（{}）。这次只框住目标本身，不要带进周围的格子或标签，中心位置不变。",
-            verdict.why.trim()
-        );
-    }
-    let mut hint = format!("你上次给的框里实际是【{}】，不是目标。", verdict.why.trim());
-    match verdict.elsewhere_dir {
-        Some(dir) => {
-            hint.push_str(&format!(
-                "目标可能在框的 {} 方向，{}。",
-                dir.as_str(),
-                verdict.elsewhere_desc.trim()
-            ));
-        }
-        None => hint.push_str("那一带也看不到目标。"),
-    }
-    hint
+/// Read a nested object, or an empty object when it is absent.
+///
+/// Absent and empty have to behave the same: both mean 「this question was not
+/// answered」, and the `unwrap_or` defaults downstream already treat them that
+/// way. Distinguishing them here would only move the same decision twice.
+fn nested(v: &Value, key: &str) -> Value {
+    v.get(key).cloned().unwrap_or_else(|| json!({}))
 }
+
+fn or_dash(s: &str) -> &str {
+    if s.trim().is_empty() {
+        "—"
+    } else {
+        s.trim()
+    }
+}
+
+/// Retry hint fed into the next locate round (B5 `hint` construction).
+///
+/// The verifier's own words are the bulk of it: `notes` is four labelled lines
+/// that already say what was seen and what was wrong. Code adds only the list of
+/// failed dimensions, because that is the one thing prose does not state
+/// unambiguously — and it tells the locator what to change and what to leave
+/// alone.
+pub fn refine_hint(verdict: &VerifyVerdict) -> String {
+    let failed = verdict.failed_checks();
+    if failed.is_empty() {
+        return verdict.notes.trim().to_string();
+    }
+    let list = failed.join("、");
+    format!(
+        "上一轮不合格的维度：{list}。\n{}\n这次只改{list}，其他维度保持不变。",
+        verdict.notes.trim()
+    )
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -386,8 +366,9 @@ mod tests {
             "保存按钮",
             None,
             Some("你上次给的框里实际是【取消】，不是目标。"),
+            None,
         );
-        assert!(p.contains("只按【这张图】给坐标"));
+        assert!(p.contains("只按「这张图」给坐标"));
         assert!(p.contains("保存按钮"));
         assert!(p.contains("上一轮的情况"));
         assert!(!p.contains("整屏左边缘"));
@@ -395,56 +376,84 @@ mod tests {
 
     #[test]
     fn locate_prompt_prefers_the_candidate_near_the_hint() {
-        let p = locate_prompt("资讯公告", Some((975.0, 675.0)), None);
+        let p = locate_prompt("资讯公告", Some((975.0, 675.0)), None, None);
         assert!(p.contains("离 (975, 675) 最近的那个"), "{p}");
         assert!(p.contains("另一行或另一栏的同名元素"), "{p}");
     }
 
     #[test]
     fn locate_prompt_without_hint_has_no_position_preference() {
-        let p = locate_prompt("资讯公告", None, None);
+        let p = locate_prompt("资讯公告", None, None, None);
         assert!(!p.contains("位置偏好"), "{p}");
     }
 
     #[test]
-    fn verify_prompt_gives_a_number_for_how_much_slack_is_acceptable() {
+    fn locate_prompt_carries_the_previous_box_edges() {
+        // The locator used to receive only the box *centre*. Told to shrink onto
+        // one cell of a 2×2 reference box it had to guess which cell, and on r8c6
+        // it guessed the neighbour — then the verifier read that box back as the
+        // right column. The four edges are what make the instruction checkable.
+        let p = locate_prompt("数独 I7", None, Some("收小到只覆盖 I7 一格"), Some((100.0, 100.0, 300.0, 300.0)));
+        assert!(p.contains("参考框的边界"), "{p}");
+        assert!(p.contains("左 100"), "{p}");
+        assert!(p.contains("上 100"), "{p}");
+        assert!(p.contains("右 300"), "{p}");
+        assert!(p.contains("下 300"), "{p}");
+    }
+
+    #[test]
+    fn locate_prompt_without_a_previous_box_has_no_edge_block() {
+        let p = locate_prompt("资讯公告", None, None, None);
+        assert!(!p.contains("参考框的边界"), "{p}");
+    }
+
+    #[test]
+    fn locate_prompt_puts_the_box_edges_before_the_correction() {
+        // The correction is the last thing read, so the geometry it refers to
+        // has to be established earlier — otherwise 「收小到某一格」 arrives with
+        // no frame of reference at all.
+        let p = locate_prompt("数独 I7", None, Some("收小到只覆盖 I7 一格"), Some((100.0, 100.0, 300.0, 300.0)));
+        let edges = p.find("# 参考框的边界").expect("edge block");
+        let correction = p.find("# 上一轮的情况").expect("correction block");
+        assert!(edges < correction, "edge block must precede the correction");
+    }
+
+    #[test]
+    fn verify_prompt_views_differ_only_in_the_intro() {
+        // The two layouts share `VERIFY_BODY` verbatim; only the intro block that
+        // describes what the images are may differ. That keeps a single-image run
+        // and a wide run comparable.
+        let wide = verify_prompt_views("数独盘面C3的空格子", true);
+        let close = verify_prompt_views("数独盘面C3的空格子", false);
+
+        assert!(wide.contains("图二"), "wide intro missing 图二");
+        assert!(!close.contains("图二"), "close intro must not mention 图二");
+        assert!(!wide.contains("{"), "unsubstituted placeholder in wide");
+        assert!(!close.contains("{"), "unsubstituted placeholder in close");
+        // Both must carry the same body. Anchor on the body's own first heading —
+        // the wide intro has its own `## 1.` section, so a bare `## 1.` would
+        // match the intro instead of the body.
+        let body = |s: &str| s[s.find("## 1. 目标元素描述").expect("body")..].to_string();
+        assert_eq!(body(&wide), body(&close));
+    }
+
+    #[test]
+    fn verify_prompt_keeps_size_loose() {
         let p = verify_prompt("数独盘面C3的空格子");
-        // 「大得离谱」「没有大太多」were unmeasurable — the model spent its whole
-        // first round arguing with itself about whether a 3x box counted. The
-        // threshold has to be a number it can compare against.
-        assert!(p.contains("1.5 倍"), "{p}");
-        assert!(p.contains("1.2 倍"), "{p}");
+        // Size is deliberately loose now: the returned coordinate is the box
+        // centre, so a box that is a bit large or a bit small changes nothing as
+        // long as the centre sits on the target. Only 「absurdly large」 and
+        // 「cut the target」 are failures.
+        assert!(p.contains("大到离谱"), "{p}");
+        assert!(p.contains("小到切掉目标"), "{p}");
         assert!(!p.contains("大得离谱"), "{p}");
-        assert!(!p.contains("没有大太多"), "{p}");
-        // The tighter ratio exists because neighbouring cells are one cell apart.
-        assert!(p.contains("紧邻排列的编号格子"), "{p}");
     }
 
     #[test]
-    fn verify_prompt_asks_for_a_ratio_on_both_sides_of_the_slack_axis() {
+    fn verify_prompt_asks_for_a_direction_when_size_fails() {
         let p = verify_prompt("数独盘面C3的空格子");
-        // Too tight used to ask for 「大概还差多少」 with an example in pixels —
-        // the crop is rescaled, so a pixel count from the model does not survive
-        // the trip back to screen coordinates. Both directions now report a
-        // ratio, and both hints pass it through.
-        assert!(p.contains("目标大约是框的几倍宽几倍高"), "{p}");
-        assert!(p.contains("框大约是目标的几倍宽几倍高"), "{p}");
-        assert!(!p.contains("差 30 像素"), "{p}");
-        assert!(!p.contains("大概还差多少"), "{p}");
-    }
-
-    #[test]
-    fn refine_hint_for_box_too_tight_asks_to_widen_by_the_measured_ratio() {
-        let v = parse_verify_arguments(
-            r#"{"match":"unclear","why":"只框住文件名前半段，目标宽约框的 2 倍","unclear_kind":"box_too_tight"}"#,
-        )
-        .unwrap();
-        let hint = refine_hint(&v);
-        assert!(hint.contains("太窄"), "{hint}");
-        assert!(hint.contains("按上面的倍数"), "{hint}");
-        assert!(hint.contains("2 倍"), "{hint}");
-        assert!(hint.contains("不要换地方找"), "{hint}");
-        assert!(!hint.contains("不是目标"), "{hint}");
+        assert!(p.contains("size.remark"), "{p}");
+        assert!(p.contains("往哪个方向差多少"), "{p}");
     }
 
     #[test]
@@ -453,31 +462,30 @@ mod tests {
         // 「点击空白处关闭」 has no measurable target size. Without an explicit
         // escape the verifier has to invent one, or the schema rejects the call
         // for a missing field.
-        assert!(p.contains("没有轮廓可量时 `target_px` 填 [0, 0]"), "{p}");
-        assert!(p.contains("「框太大」「框太小」都不适用"), "{p}");
+        assert!(p.contains("没有轮廓可量时 `size.ok` 填 `yes`"), "{p}");
+        assert!(p.contains("空白区域"), "{p}");
     }
 
     #[test]
-    fn pair_field_keeps_a_zero_pair_but_rejects_negatives() {
-        // [0, 0] means 「the target has no outline」 — dropping it would look
-        // the same as the model omitting the field.
-        let v: Value = serde_json::from_str(r#"{"target_px":[0,0],"box_px":[10,20]}"#).unwrap();
-        assert_eq!(pair_field(&v, "target_px"), Some((0, 0)));
-        assert_eq!(pair_field(&v, "box_px"), Some((10, 20)));
-
-        let neg: Value = serde_json::from_str(r#"{"target_px":[-5,3]}"#).unwrap();
-        assert_eq!(pair_field(&neg, "target_px"), None);
-    }
-
-    #[test]
-    fn verify_prompt_defines_the_outline_of_an_empty_cell() {
+    fn verify_prompt_defines_the_centre_mark_as_the_answer() {
         let p = verify_prompt("数独盘面第三行第二列的空格子");
-        // Without this the verifier argued with itself over whether an empty
-        // cell even has an outline: 「目标是一个空格子，整个轮廓包括边框线…
-        // 嗯，但"一部分"对空格子而言意味着什么？」. A box holding only the blank
-        // centre was then passed as complete.
-        assert!(p.contains("四条边线"), "{p}");
-        assert!(p.contains("只框住格子中央的空白区域不算框住"), "{p}");
+        // The coordinate question is now "is the mark on the target", not "do the
+        // four edges line up". The latter is what a generous box always passes.
+        assert!(p.contains("红点"), "{p}");
+        assert!(p.contains("center.ok"), "{p}");
+        assert!(p.contains("目标元素"), "{p}");
+    }
+
+    #[test]
+    fn verify_prompt_separates_position_from_size() {
+        let p = verify_prompt("数独盘面第三行第二列的空格子");
+        assert!(p.contains("2.1"), "{p}");
+        assert!(p.contains("2.2"), "{p}");
+        assert!(p.contains("2.3"), "{p}");
+        // Size is judged by the verifier, not measured-and-passed-through — but
+        // loosely: only 「absurdly large」 and 「cut the target」 fail it.
+        assert!(p.contains("只判两件事"), "{p}");
+        assert!(p.contains("size.remark"), "{p}");
     }
 
     #[test]
@@ -493,36 +501,43 @@ mod tests {
     #[test]
     fn verify_prompt_asks_for_a_distance_not_a_box() {
         let p = verify_prompt("资讯公告");
-        // 判 no 时要说明框漏掉了哪部分，因为模型判断不了「中心」这种几何量
-        assert!(p.contains("完整框住"), "{p}");
-        assert!(p.contains("哪一部分在框外") || p.contains("哪一侧在框外"), "{p}");
-        assert!(p.contains("伸到蓝框外面"), "{p}");
+        // 判 no 时要说明标记实际落在哪，代码据此生成提示
+        assert!(p.contains("center.remark"), "{p}");
+        assert!(p.contains("越出哪一侧") || p.contains("落在哪"), "{p}");
+        assert!(p.contains("红点整个落在目标外面"), "{p}");
     }
 
     #[test]
-    fn verify_prompt_treats_anchors_as_a_hint_not_a_hard_rule() {
+    fn anchors_and_position_ids_must_agree() {
+        // 锚点从「辅助线索」升为「第二道验证」：只对上一条、另一条对不上
+        // 时判 no。读行列标会错（一排长得一样的元素最容易数错），而锚点
+        // 往往有独特外观，是独立证据。
         let p = verify_prompt("资讯公告");
-        assert!(p.contains("不是硬约束"), "{p}");
-        assert!(p.contains("不单独构成判 no 的理由"), "{p}");
+        assert!(p.contains("两条都要对上"), "{p}");
+        assert!(p.contains("矛盾本身就是「参考框错了」的信号"), "{p}");
+        assert!(p.contains("只有锚点时"), "{p}");
     }
 
     #[test]
     fn locate_prompt_does_not_leak_the_goal() {
         // goal 只用于卡片标题，不进定位 prompt——它会让模型在多个同名
         // 元素里挑错行（「进入资讯公告页」两行都成立）。
-        let p = locate_prompt("搜索框", None, None);
+        let p = locate_prompt("搜索框", None, None, None);
         assert!(!p.contains("用途"), "{p}");
-        assert!(p.contains("完整包住"), "{p}");
-        assert!(p.contains("中心点要落在目标上"), "{p}");
+        assert!(p.contains("四条边"), "{p}");
+        assert!(p.contains("目标框的中心点要落在目标元素上"), "{p}");
     }
 
     #[test]
     fn previous_hint_comes_after_the_box_rule() {
         // The correction must be the last thing the model reads. Mid-prompt it
         // loses to the generic box rule that follows it.
-        let p = locate_prompt("搜索框", None, Some("上次的框太窄，这次要框完整"));
-        let hint_at = p.find("上一轮的情况").expect("hint block missing");
-        let rule_at = p.find("完整包住").expect("box rule missing");
+        let p = locate_prompt("搜索框", None, Some("上次的框太窄，这次要框完整"), None);
+        // Locate by the hint's own text, not by `【上一轮的情况】`: the standing
+        // `【上一轮的情况怎么用】` section quotes that marker, so a `find` on the
+        // marker lands in the middle of the prompt instead of at the hint.
+        let hint_at = p.find("上次的框太窄").expect("hint block missing");
+        let rule_at = p.find("四条边").expect("box rule missing");
         assert!(
             hint_at > rule_at,
             "hint must sit after the box rule, not before it:\n{p}"
@@ -553,23 +568,45 @@ mod tests {
     #[test]
     fn parses_bbox_array() {
         let b = parse_locate_arguments(r#"{"bbox":[10,20,30,40]}"#).unwrap();
-        assert_eq!(b, NormBox::new(10.0, 20.0, 30.0, 40.0));
+        assert_eq!(b, LocateAnswer::Found(NormBox::new(10.0, 20.0, 30.0, 40.0)));
     }
 
     #[test]
     fn parses_malformed_bbox_shapes() {
         // String payload with a JSON array inside.
         let b = parse_locate_arguments(r#"{"bbox":"[100, 200, 300, 400]"}"#).unwrap();
-        assert_eq!(b.x2, 300.0);
+        match b {
+            LocateAnswer::Found(b) => assert_eq!(b.x2, 300.0),
+            LocateAnswer::NotFound => panic!("expected a box"),
+        }
         // Object payload.
         let b = parse_locate_arguments(r#"{"box":{"x1":1,"y1":2,"x2":3,"y2":4}}"#).unwrap();
-        assert_eq!(b, NormBox::new(1.0, 2.0, 3.0, 4.0));
+        assert_eq!(b, LocateAnswer::Found(NormBox::new(1.0, 2.0, 3.0, 4.0)));
         // Out-of-range values are clamped, not rejected.
         let b = parse_locate_arguments(r#"{"bbox":[-50,10,1200,900]}"#).unwrap();
-        assert_eq!(b, NormBox::new(0.0, 10.0, 1000.0, 900.0));
+        assert_eq!(b, LocateAnswer::Found(NormBox::new(0.0, 10.0, 1000.0, 900.0)));
         // Garbage.
         assert!(parse_locate_arguments(r#"{"bbox":"nope"}"#).is_none());
         assert!(parse_locate_arguments(r#"{"bbox":[1,2]}"#).is_none());
+    }
+
+    #[test]
+    fn an_explicit_not_found_is_an_answer_not_a_parse_failure() {
+        // The far-hint fixture needs this: on a crop that does not contain the
+        // target, 「not here」 is the correct answer and the engine escalates to
+        // a wider render. Treating it as a parse failure aborted the run.
+        assert_eq!(
+            parse_locate_arguments(r#"{"found":false}"#),
+            Some(LocateAnswer::NotFound)
+        );
+        // `found: false` wins even when stray numbers are present — the model
+        // answered the question; it is not contradicting itself.
+        assert_eq!(
+            parse_locate_arguments(r#"{"found":false,"bbox":[10,20,30,40]}"#),
+            Some(LocateAnswer::NotFound)
+        );
+        // `found: true` still needs a box.
+        assert!(parse_locate_arguments(r#"{"found":true}"#).is_none());
     }
 
     #[test]
@@ -582,108 +619,127 @@ mod tests {
     #[test]
     fn parses_verify_report() {
         let v = parse_verify_arguments(
-            r#"{"in_box":"蓝色软盘图标","anchor_seen":"看不到","match":"YES","why":"图标一致","unclear_kind":"","elsewhere_dir":""}"#,
+            r#"{"center":{"ok":"YES","remark":"标记落在图标正中"},"size":{"ok":"yes"},"position":{"ok":"ignore"}}"#,
         )
         .unwrap();
-        assert_eq!(v.match_, MatchVerdict::Yes);
-        assert_eq!(v.why, "图标一致");
-        assert_eq!(v.unclear_kind, UnclearKind::None);
-        assert!(v.elsewhere_dir.is_none());
+        assert_eq!(v.center_on_target, CenterOnTarget::Yes);
+        assert_eq!(v.size_ok, MatchVerdict::Yes);
+        assert_eq!(v.position_matches, PositionMatches::Ignore);
+        assert!(v.notes.contains("标记落在图标正中"));
+        assert!(v.is_hit());
     }
 
     #[test]
-    fn rejects_verify_without_observation_or_unknown_match() {
-        // `why` carries the observation now — blank means the model did not look.
-        assert!(parse_verify_arguments(r#"{"match":"yes","why":""}"#).is_none());
-        assert!(parse_verify_arguments(r#"{"match":"maybe","why":"x"}"#).is_none());
+    fn rejects_a_size_verdict_without_a_remark() {
+        // 「框太大」 with nothing else cannot steer the next round: the locator
+        // has nothing to act on. Rejecting the verdict retries the verify call
+        // instead of burning a locate round on a blind guess. A number is no
+        // longer required — size is loose now — but the remark must say which
+        // way the box is off.
+        assert!(parse_verify_arguments(
+            r#"{"center":{"ok":"yes"},"size":{"ok":"no","remark":""},"position":{"ok":"ignore"}}"#
+        )
+        .is_none());
+        assert!(parse_verify_arguments(
+            r#"{"center":{"ok":"yes"},"size":{"ok":"no","remark":"约为目标的 3 倍，把相邻两个元素也框了进来"},"position":{"ok":"ignore"}}"#
+        )
+        .is_some());
+        // A direction without a number is enough now.
+        assert!(parse_verify_arguments(
+            r#"{"center":{"ok":"yes"},"size":{"ok":"no","remark":"右边切掉了目标的三分之一"},"position":{"ok":"ignore"}}"#
+        )
+        .is_some());
     }
 
     #[test]
-    fn parses_direction_and_unclear_kind() {
+    fn an_omitted_verdict_is_never_yes() {
+        // A verifier that did not answer has not answered in the affirmative —
+        // and an unanswered check with no remark is rejected outright, because
+        // the retry hint would have nothing to say.
+        assert!(parse_verify_arguments(r#"{"center":{},"size":{},"position":{}}"#).is_none());
+        // Answering with enums but no remarks is still a verdict: `yes` needs no
+        // explanation, and `ignore` means the description named no position.
         let v = parse_verify_arguments(
-            r#"{"match":"no","why":"框里是取消按钮","elsewhere_dir":"left","elsewhere_desc":"左边有个地址栏"}"#,
+            r#"{"center":{"ok":"yes"},"size":{"ok":"yes"},"position":{"ok":"ignore"}}"#,
         )
         .unwrap();
-        assert_eq!(v.elsewhere_dir, Some(ElsewhereDir::Left));
+        assert_eq!(v.center_on_target, CenterOnTarget::Yes);
+        assert_eq!(v.size_ok, MatchVerdict::Yes);
+        assert_eq!(v.position_matches, PositionMatches::Ignore);
+        assert!(v.is_hit());
+    }
+
+    #[test]
+    fn an_off_centre_mark_is_not_a_hit_and_the_hint_names_the_dimension() {
+        let v = parse_verify_arguments(
+            r#"{"center":{"ok":"no","remark":"标记在地址栏上"},"size":{"ok":"yes"},"position":{"ok":"ignore"}}"#,
+        )
+        .unwrap();
+        assert!(!v.is_hit());
+        assert_eq!(v.failed_checks(), vec!["中心定位"]);
         let hint = refine_hint(&v);
-        assert!(hint.contains("【框里是取消按钮】"));
-        assert!(hint.contains("left"));
-        assert!(hint.contains("左边有个地址栏"));
+        assert!(hint.contains("中心定位"), "{hint}");
+        assert!(hint.contains("标记在地址栏上"), "{hint}");
+        assert!(hint.contains("这次只改中心定位"), "{hint}");
     }
 
     #[test]
-    fn parses_box_too_tight() {
+    fn a_wrong_position_blocks_the_hit_even_when_centre_and_size_pass() {
         let v = parse_verify_arguments(
-            r#"{"match":"unclear","why":"框里只有文件名前半段，后半在框外","unclear_kind":"box_too_tight"}"#,
+            r#"{"center":{"ok":"yes"},"size":{"ok":"yes"},"position":{"ok":"no","remark":"描述第四行，图里第三行，差一行"}}"#,
         )
         .unwrap();
-        assert_eq!(v.match_, MatchVerdict::Unclear);
-        assert_eq!(v.unclear_kind, UnclearKind::BoxTooTight);
-    }
-
-    #[test]
-    fn refine_hint_for_box_too_tight_says_widen_not_relocate() {
-        // The verifier saw part of the target. Telling the locator "you looked
-        // in the wrong place" sends it hunting elsewhere; it must be told to
-        // widen instead.
-        let v = parse_verify_arguments(
-            r#"{"match":"unclear","why":"框里只有文件名前半段，后半在框外","unclear_kind":"box_too_tight"}"#,
-        )
-        .unwrap();
+        assert!(!v.is_hit());
+        assert_eq!(v.failed_checks(), vec!["位置匹配"]);
         let hint = refine_hint(&v);
-        assert!(hint.contains("太窄"), "{hint}");
-        assert!(hint.contains("不要换地方找"), "{hint}");
-        assert!(
-            !hint.contains("不是目标"),
-            "must not read as 'wrong place': {hint}"
-        );
+        assert!(hint.contains("位置匹配"), "{hint}");
+        assert!(hint.contains("差一行"), "{hint}");
     }
 
     #[test]
-    fn report_tool_offers_every_unclear_kind_the_parser_accepts() {
-        // The parser and the prompt can both know about `box_too_loose`, but the
-        // model can only answer with what the tool schema lists. r1c0 reasoned
-        // its way to the right verdict and then wrote: 「unclear_kind 选项里没有
-        // box_too_loose，只有 box_too_tight」, and fell back to `yes`.
-        let schema = report_tool().to_string();
-        for kind in [
-            "anchor_out_of_view",
-            "too_small",
-            "too_blurry",
-            "ambiguous",
-            "box_too_tight",
-            "box_too_loose",
-        ] {
-            assert!(schema.contains(kind), "schema is missing {kind}: {schema}");
-        }
-    }
-
-    #[test]
-    fn refine_hint_for_box_too_loose_says_shrink_not_relocate() {
-        // The mirror of the box_too_tight case: the target is in the box, the
-        // box is just slack. The locator must shrink around the same place —
-        // 「不是目标」 would send it hunting elsewhere.
+    fn an_unreadable_position_also_blocks_the_hit() {
         let v = parse_verify_arguments(
-            r#"{"match":"unclear","why":"框宽约 2.4 倍格宽、高约 2.4 倍格高，含 B1 和 B2 两格","unclear_kind":"box_too_loose"}"#,
+            r#"{"center":{"ok":"yes"},"size":{"ok":"yes"},"position":{"ok":"unknown","remark":"图里读不出绝对行号"}}"#,
         )
         .unwrap();
-        assert_eq!(v.unclear_kind, UnclearKind::BoxTooLoose);
+        assert!(!v.is_hit());
+        assert_eq!(v.failed_checks(), vec!["位置匹配"]);
+    }
+
+    #[test]
+    fn a_box_of_the_wrong_size_blocks_the_hit_without_moving_the_centre() {
+        let v = parse_verify_arguments(
+            r#"{"center":{"ok":"yes"},"size":{"ok":"no","remark":"约1.8倍，框进左右两个邻格"},"position":{"ok":"ignore"}}"#,
+        )
+        .unwrap();
+        assert!(!v.is_hit());
+        assert_eq!(v.failed_checks(), vec!["大小合适"]);
         let hint = refine_hint(&v);
-        assert!(hint.contains("太松"), "{hint}");
-        assert!(hint.contains("只框住目标本身"), "{hint}");
-        assert!(hint.contains("中心位置不变"), "{hint}");
-        // The measured ratio has to survive into the hint — that is the whole
-        // point of reporting box_too_loose instead of no.
+        assert!(hint.contains("大小合适"), "{hint}");
+        assert!(hint.contains("这次只改大小合适"), "{hint}");
+    }
+
+    #[test]
+    fn two_failing_dimensions_are_both_named() {
+        let v = parse_verify_arguments(
+            r#"{"center":{"ok":"no","remark":"偏左半格"},"size":{"ok":"no","remark":"约2倍"},"position":{"ok":"ignore"}}"#,
+        )
+        .unwrap();
+        assert_eq!(v.failed_checks(), vec!["中心定位", "大小合适"]);
+        let hint = refine_hint(&v);
+        assert!(hint.contains("中心定位、大小合适"), "{hint}");
+    }
+
+    #[test]
+    fn a_slack_box_is_named_as_a_size_problem() {
+        let v = parse_verify_arguments(
+            r#"{"center":{"ok":"yes"},"size":{"ok":"no","remark":"约 2.4 倍，含 B1 和 B2 两格"},"position":{"ok":"ignore"}}"#,
+        )
+        .unwrap();
+        assert_eq!(v.failed_checks(), vec!["大小合适"]);
+        let hint = refine_hint(&v);
+        assert!(hint.contains("大小合适"), "{hint}");
         assert!(hint.contains("2.4 倍"), "{hint}");
-        assert!(!hint.contains("不是目标"), "{hint}");
     }
 
-    #[test]
-    fn refine_hint_without_direction_says_not_seen() {
-        let v = parse_verify_arguments(
-            r#"{"match":"no","why":"框里是空白"}"#,
-        )
-        .unwrap();
-        assert!(refine_hint(&v).contains("那一带也看不到目标"));
-    }
 }

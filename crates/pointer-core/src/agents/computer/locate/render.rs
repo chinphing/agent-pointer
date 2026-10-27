@@ -127,8 +127,79 @@ pub fn render_crop(
     // forces it to look at where the box actually is.
     dim_outside(&mut magnified, drawn);
     draw_px_box(&mut magnified, drawn);
+    // Centre mark last, so neither the dimming nor the box outline touches it.
+    //
+    // This is the whole "is the coordinate right" question, made visual: the mark
+    // sits at the box's geometric centre, which is exactly the coordinate the
+    // engine will return. Asking "does the mark sit on the target" is a far
+    // easier judgement than "do all four edges line up", and it is the question
+    // that actually matters — a box can be generous enough to contain the target
+    // and still be centred somewhere else entirely.
+    draw_center_mark(&mut magnified, drawn);
 
     Ok((encode(&magnified)?, bounds))
+}
+
+/// Colours for the centre mark: a red core inside a white ring.
+///
+/// Two colours rather than one because a single-colour dot disappears on a
+/// background of the same colour — a red dot on a red button, a white dot on a
+/// white page. The ring guarantees one of the two always contrasts. The pair is
+/// deliberately generic: it has nothing to do with any particular app's palette.
+const MARK_CORE: Rgb<u8> = Rgb([220, 20, 20]);
+const MARK_RING: Rgb<u8> = Rgb([255, 255, 255]);
+
+/// Mark radius as a fraction of the image's short side.
+///
+/// Small on purpose. The mark sits at the box centre, and the thing the verifier
+/// has to judge is whether **the whole mark** stays inside the target — which it
+/// cannot do if the mark covers the target's own boundary line. At 0.010 the mark
+/// was 16 px in a 1600 px close crop, i.e. 2.4 px on screen: wide enough to sit
+/// on a 1–2 px grid line and hide it, and then r7c2 reads 「the mark is in the
+/// middle of the cell」 while the cell's lower edge runs straight through the
+/// mark. At 0.004 it is 6.4 px in the image (0.96 px on screen) — still clearly
+/// visible, no longer able to swallow the edge it is being measured against.
+const MARK_RADIUS_RATIO: f64 = 0.004;
+/// Share of the radius taken by the white rim.
+///
+/// 0.25 rather than 0.35: on a white cell the rim is invisible, so what the model
+/// actually sees is the red disc. A thinner rim keeps the visible disc closer to
+/// the radius the prompt describes.
+const MARK_RING_SHARE: f64 = 0.25;
+
+/// Draw a two-ring mark at the box's centre.
+///
+/// Size is capped against the box too, so the mark never hides the thing it is
+/// supposed to be pointing at: at most 10% of the box's short side, and never
+/// below 3 px (a mark too small to see is worse than none).
+fn draw_center_mark(img: &mut RgbImage, b: PxBox) {
+    let (w, h) = (img.width() as f64, img.height() as f64);
+    if w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let cx = (b.x1 + b.x2) / 2.0;
+    let cy = (b.y1 + b.y2) / 2.0;
+    let short = w.min(h);
+    let box_side = (b.x2 - b.x1).min(b.y2 - b.y1).max(1.0);
+    let r = (short * MARK_RADIUS_RATIO).min(box_side * 0.10).max(3.0);
+    let core = r * (1.0 - MARK_RING_SHARE);
+
+    let ri = r.ceil() as i32;
+    for dy in -ri..=ri {
+        for dx in -ri..=ri {
+            let d = ((dx * dx + dy * dy) as f64).sqrt();
+            if d > r {
+                continue;
+            }
+            let x = cx.round() as i32 + dx;
+            let y = cy.round() as i32 + dy;
+            if x < 0 || y < 0 || x >= w as i32 || y >= h as i32 {
+                continue;
+            }
+            let colour = if d <= core { MARK_CORE } else { MARK_RING };
+            img.put_pixel(x as u32, y as u32, colour);
+        }
+    }
 }
 
 /// Darken pixels outside `keep` so the box interior stands out.

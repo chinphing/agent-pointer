@@ -8,21 +8,47 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 
-use super::geometry::{crop_side_px, nearly_same, rel_to_norm, CropBounds, NormBox};
-use super::prompt::{locate_prompt, refine_hint, verify_prompt};
+use super::geometry::{crop_side_px, nearly_same, px_to_rel, rel_to_norm, CropBounds, NormBox, PxBox};
+use super::prompt::{locate_prompt, refine_hint, verify_prompt_views, LocateAnswer};
 use super::render::{render_crop, render_full, LocateFrame, LocateImage};
 use super::types::{
-    Confidence, FailureReason, LocateConfig, LocateOutcome, LocateRequest, MatchVerdict,
-    UnclearKind, VerifyVerdict,
+    CenterOnTarget, Confidence, FailureReason, LocateConfig, LocateOutcome, LocateRequest,
+    VerifyVerdict,
 };
 
 /// The two model calls the controller is allowed to make.
 #[async_trait]
 pub trait LocateVision: Send + Sync {
-    /// Return the target box in **image-local 0–1000** coordinates.
-    async fn locate(&self, image: &LocateImage, prompt: &str) -> Result<Option<NormBox>>;
+    /// Return the target box in **image-local 0–1000** coordinates, or `NotFound`
+    /// when the target is not in this image at all.
+    async fn locate(&self, image: &LocateImage, prompt: &str) -> Result<Option<LocateAnswer>>;
     /// Judge the candidate box shown on the crop.
     async fn verify(&self, image: &LocateImage, prompt: &str) -> Result<VerifyVerdict>;
+    /// Judge the candidate box, with an optional **wider** second image.
+    ///
+    /// The two images answer different questions, and the prompt says so:
+    ///
+    /// · the **close** crop is the original one — everything precise (does the
+    ///   box sit on the cell's four borders, what is inside it) is judged from
+    ///   it, because at 240 px a 41 px cell lands at 273 px in the image;
+    /// · the **wide** crop covers four times the area at the same output size, so
+    ///   the cell is only 137 px — too small to judge an edge, but big enough to
+    ///   read the row/column labels around it.
+    ///
+    /// The wide image exists for one job only: confirming 「this is row 8, column
+    /// 8」 from the labels. When a scene has no labels in reach the model is told
+    /// to ignore it, which is why the close image stays authoritative.
+    ///
+    /// Default implementation ignores the wide image — strategies that have
+    /// nothing extra to show keep working unchanged.
+    async fn verify_pair(
+        &self,
+        close: &LocateImage,
+        _wide: Option<&LocateImage>,
+        prompt: &str,
+    ) -> Result<VerifyVerdict> {
+        self.verify(close, prompt).await
+    }
 }
 
 /// Why the loop stopped. Mirrors B5 `stop_reason`.
@@ -30,7 +56,6 @@ pub trait LocateVision: Send + Sync {
 enum Stop {
     Verified,
     LocateFailed,
-    TooBlurry,
     RoundsExhausted,
 }
 
@@ -39,7 +64,6 @@ impl Stop {
         match self {
             Self::Verified => FailureReason::NotFound, // unreachable; kept total
             Self::LocateFailed => FailureReason::NotFound,
-            Self::TooBlurry => FailureReason::Unclear,
             Self::RoundsExhausted => FailureReason::NotVerified,
         }
     }
@@ -73,7 +97,10 @@ pub async fn locate_one<V: LocateVision>(
 ) -> Result<LocateOutcome> {
     let (w, h) = (frame.width().max(1), frame.height().max(1));
     let full = CropBounds::full(w, h);
-    let verify_text = verify_prompt(&req.target_desc);
+    // The prompt has to know whether a second image is coming: 图二 exists only
+    // to read row/column labels, and a prompt that does not say so gets the box
+    // judged from the coarse image.
+    let verify_text = verify_prompt_views(&req.target_desc, cfg.verify_mult > 1.0);
 
     let mut box_norm = req.hint_norm(w, h);
     let mut last_saw = String::new();
@@ -86,7 +113,11 @@ pub async fn locate_one<V: LocateVision>(
     // ① First locate — skipped entirely when the caller supplied a hint box.
     if box_norm.is_none() {
         let image = render_full(frame, None)?;
-        box_norm = locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), None).await;
+        box_norm = match locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), None, None).await {
+            LocateAttempt::Found(b) => Some(b),
+            // On the full screen there is nowhere wider to look.
+            LocateAttempt::NotFound | LocateAttempt::Failed => None,
+        };
         if box_norm.is_none() {
             stop = Stop::LocateFailed;
         }
@@ -105,19 +136,57 @@ pub async fn locate_one<V: LocateVision>(
         }
         rounds += 1;
 
-        let mut side = crop_side_px(
+        let side = crop_side_px(
             current.to_px(w, h),
             cfg.crop_mult,
             cfg.crop_min,
             cfg.crop_max,
         );
-        let mut verify_retries = 0usize;
+        // The verifier no longer offers `unclear`, so the crop is rendered once
+        // per round: `retry` is kept only so the log line stays parseable.
+        let verify_retries = 0usize;
 
         // Inner loop: one crop, retried with a different `side` while the
         // verifier reports `unclear` for a fixable reason.
         let (verdict, last_crop) = loop {
             let (image, bounds) = render_crop(frame, current, side, cfg.out_px)?;
-            let v = match vision.verify(&image, &verify_text).await {
+            // 图一 — the original close crop. Everything precise is judged from
+            // it: at 240 px a 41 px cell lands at 273 px in the image, which is
+            // enough to see whether the box sits on the four borders.
+            //
+            // 图二 — same centre, `verify_mult` times the area, **same output
+            // size**. One job only: reading the row/column labels around the
+            // target to confirm 「this is row 8, column 8」. At 480 px the same
+            // cell lands at 137 px — too coarse to judge an edge, which is exactly
+            // why the prompt tells the model to use 图一 for that and to ignore
+            // 图二 when no labels are in reach.
+            let wide_image = if cfg.verify_mult > 1.0 {
+                let wide_px = if cfg.verify_out_px == 0 {
+                    cfg.out_px
+                } else {
+                    cfg.verify_out_px
+                };
+                let img = render_crop(frame, current, side * cfg.verify_mult, wide_px)?.0;
+                // `POINTER_LOCATE_DUMP_WIDE=/tmp/wide` writes each verifier crop to
+                // disk. A verdict that says 「no row labels」 is otherwise
+                // unfalsifiable — you cannot tell whether the labels were outside
+                // the crop or the model simply did not look.
+                if let Ok(prefix) = std::env::var("POINTER_LOCATE_DUMP_WIDE") {
+                    if !prefix.is_empty() {
+                        let _ = std::fs::write(
+                            format!("{prefix}_{}_r{}.jpg", req.target_desc.chars().take(12).collect::<String>().replace(['/', ' '], "_"), rounds),
+                            &img.jpeg,
+                        );
+                    }
+                }
+                Some(img)
+            } else {
+                None
+            };
+            let v = match vision
+                .verify_pair(&image, wide_image.as_ref(), &verify_text)
+                .await
+            {
                 Ok(v) => v,
                 Err(e) => {
                     log::warn!("locate_element: verify call failed: {e}");
@@ -128,63 +197,44 @@ pub async fn locate_one<V: LocateVision>(
             // is a black box — you cannot tell whether the box was too tight,
             // the crop too small, or the target genuinely absent.
             log::info!(
-                "locate: round={rounds} retry={verify_retries} side={side:.0} box=[{:.0},{:.0},{:.0},{:.0}] match={:?} kind={:?} dir={:?} target={:?} box_px={:?} why={}",
+                "locate: round={rounds} retry={verify_retries} side={side:.0} box=[{:.0},{:.0},{:.0},{:.0}] center={:?} size={:?} position={} notes={}",
                 current.to_px(w, h).x1,
                 current.to_px(w, h).y1,
                 current.to_px(w, h).x2,
                 current.to_px(w, h).y2,
-                v.match_,
-                v.unclear_kind,
-                v.elsewhere_dir,
-                v.target_px,
-                v.box_px,
-                v.why.trim()
+                v.center_on_target,
+                v.size_ok,
+                v.position_matches.as_str(),
+                v.notes.trim()
             );
-            // `why` now opens with what is actually in the box, so it doubles as
+            // `notes` opens with what is actually in the box, so it doubles as
             // the "what I saw" line shown to the user on failure.
-            if !v.why.trim().is_empty() {
-                last_saw = v.why.clone();
-            }
-            if !v.why.trim().is_empty() {
-                last_why = v.why.clone();
+            if !v.notes.trim().is_empty() {
+                last_saw = v.notes.clone();
+                last_why = v.notes.clone();
                 last_reasoning = v.reasoning.clone();
             }
             let crop = Some((image, bounds));
 
-            match v.match_ {
-                MatchVerdict::Yes => {
-                    final_confidence = v.confidence;
-                    stop = Stop::Verified;
-                    break (v, crop);
-                }
-                MatchVerdict::Unclear
-                    if v.unclear_kind == UnclearKind::AnchorOutOfView
-                        && verify_retries < cfg.max_verify_retry
-                        && side < cfg.crop_max * 2.0 =>
-                {
-                    side = (side * 2.0).min(w.max(h) as f64 * 1.5);
-                    verify_retries += 1;
-                    continue;
-                }
-                MatchVerdict::Unclear
-                    if v.unclear_kind == UnclearKind::TooSmall
-                        && verify_retries < cfg.max_verify_retry
-                        && side > cfg.crop_min / 2.0 =>
-                {
-                    side = (side / 2.0).max(120.0);
-                    verify_retries += 1;
-                    continue;
-                }
-                MatchVerdict::Unclear if v.unclear_kind == UnclearKind::TooBlurry => {
-                    stop = Stop::TooBlurry;
-                    break (v, crop);
-                }
-                // `ambiguous` or retries exhausted → treated as `no`.
-                _ => break (v, crop),
+            // Three independent checks, all made by the verifier:
+            //   ① `center_on_target` — is the mark on the target? The mark sits at
+            //      the box centre, so this decides the returned coordinate.
+            //   ② `size_ok` — does the box frame the target properly?
+            //   ③ `position_matches` — is this the cell the description names?
+            // Code reads the three verdicts; it never re-derives them from
+            // numbers or prose.
+            if v.is_hit() {
+                final_confidence = v.confidence;
+                stop = Stop::Verified;
+                break (v, crop);
             }
+            // Anything else is a retry: `refine_hint` turns the verifier's own
+            // `notes` into the next round's hint, so the locator is told exactly
+            // which dimension failed and what was seen.
+            break (v, crop);
         };
 
-        if matches!(stop, Stop::Verified | Stop::TooBlurry) {
+        if matches!(stop, Stop::Verified) {
             break;
         }
 
@@ -212,16 +262,25 @@ pub async fn locate_one<V: LocateVision>(
         // from a harder image (and for `BoxTooLoose` it also blew the timeout).
         // A `BoxTooTight` case did exactly that — the retry jumped from the
         // button at x≈934 to x≈532, then needed a third round to come back.
-        let stay_local = verdict.elsewhere_dir.is_some()
-            || verdict.unclear_kind == UnclearKind::BoxTooLoose
-            || verdict.unclear_kind == UnclearKind::BoxTooTight;
+        // Stay inside the previous crop unless the verifier failed to produce a
+        // usable verdict at all (`Unclear` is the parse-failure fallback, never a
+        // value the model is offered). A `center = no` means the mark is off the
+        // target — the target is right there, the box is just misplaced — so the
+        // crop is exactly where it should be re-located: at 8x the cell's borders
+        // are legible, on the full screen they are not.
+        let stay_local = verdict.center_on_target != CenterOnTarget::Unclear;
 
         let mut from_crop = false;
         let mut next_box = None;
+        // Set when the crop-local locator answered 「not in this image」. The
+        // crop is 240–294 px around a candidate that may be several hundred px
+        // off, so this is the normal answer when the hint is far away — the fix
+        // is a wider view, not a retry on the same crop.
+        let mut widen_needed = false;
         if stay_local {
             if let Some((image, bounds)) = last_crop.as_ref() {
                 from_crop = true;
-                next_box = locate_in(
+                next_box = match locate_in(
                     vision,
                     image,
                     *bounds,
@@ -230,13 +289,25 @@ pub async fn locate_one<V: LocateVision>(
                     &req.target_desc,
                     req.hint_center(),
                     Some(&hint),
+                    Some(current.to_px(w, h)),
                 )
-                .await;
+                .await
+                {
+                    LocateAttempt::Found(b) => Some(b),
+                    LocateAttempt::NotFound => {
+                        widen_needed = true;
+                        None
+                    }
+                    LocateAttempt::Failed => None,
+                };
             }
         }
-        if !from_crop {
+        if !from_crop || widen_needed {
             let image = render_full(frame, Some(current))?;
-            next_box = locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), Some(&hint)).await;
+            next_box = match locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), Some(&hint), Some(current.to_px(w, h))).await {
+                LocateAttempt::Found(b) => Some(b),
+                LocateAttempt::NotFound | LocateAttempt::Failed => None,
+            };
         }
 
         // No-progress guard: a crop-local re-locate that barely moved is
@@ -248,12 +319,12 @@ pub async fn locate_one<V: LocateVision>(
                 break;
             }
         };
-        if from_crop && nearly_same(next_box, current) {
+        if from_crop && !widen_needed && nearly_same(next_box, current) {
             let image = render_full(frame, Some(current))?;
-            next_box = match locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), Some(&hint)).await
+            next_box = match locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), Some(&hint), Some(current.to_px(w, h))).await
             {
-                Some(b) => b,
-                None => {
+                LocateAttempt::Found(b) => b,
+                LocateAttempt::NotFound | LocateAttempt::Failed => {
                     stop = Stop::LocateFailed;
                     break;
                 }
@@ -303,7 +374,26 @@ pub async fn locate_one<V: LocateVision>(
     })
 }
 
+/// One `locate` call's outcome.
+///
+/// `NotFound` is kept apart from `Failed` on purpose: the locator saying 「not in
+/// this image」 is actionable (render wider and look again), while a parse
+/// failure or a call error is not. Collapsing them into `Option::None` made the
+/// far-hint fixture abort instead of escalating.
+enum LocateAttempt {
+    Found(NormBox),
+    NotFound,
+    Failed,
+}
+
 /// One locate call, mapped from image-local 0–1000 back to screen 0–1000.
+///
+/// `prev_box` is the previous round's box in **screen pixels**; it is converted
+/// to this image's 0–1000 scale here, because that is the only scale the prompt
+/// and the answer share. `hint_px` gets the same treatment for the same reason:
+/// it used to be passed through as raw screen pixels even when the image was a
+/// crop, so the point the prompt named and the picture the model saw disagreed
+/// by the crop offset.
 async fn locate_in<V: LocateVision>(
     vision: &V,
     image: &LocateImage,
@@ -313,10 +403,24 @@ async fn locate_in<V: LocateVision>(
     description: &str,
     hint_px: Option<(f64, f64)>,
     previous_hint: Option<&str>,
-) -> Option<NormBox> {
-    let prompt = locate_prompt(description, hint_px, previous_hint);
+    prev_box: Option<PxBox>,
+) -> LocateAttempt {
+    let hint_rel = hint_px.map(|(x, y)| {
+        let r = px_to_rel(
+            PxBox {
+                x1: x,
+                y1: y,
+                x2: x,
+                y2: y,
+            },
+            bounds,
+        );
+        (r.0, r.1)
+    });
+    let prev_rel = prev_box.map(|b| px_to_rel(b, bounds));
+    let prompt = locate_prompt(description, hint_rel, previous_hint, prev_rel);
     match vision.locate(image, &prompt).await {
-        Ok(Some(raw)) => {
+        Ok(Some(LocateAnswer::Found(raw))) => {
             // The prompt asks for 0-1000 coordinates relative to this image. Log
             // the raw answer next to the mapped one: a model that reasons in
             // pixels and answers in pixels looks identical to a correct one
@@ -334,12 +438,19 @@ async fn locate_in<V: LocateVision>(
                 image.width,
                 image.height
             );
-            Some(rel_to_norm(raw, bounds, w, h))
+            LocateAttempt::Found(rel_to_norm(raw, bounds, w, h))
         }
-        Ok(None) => None,
+        Ok(Some(LocateAnswer::NotFound)) => {
+            // Distinct from a parse failure: the locator looked and said the
+            // target is not in this image. The caller can widen the view; a
+            // bare `None` would read the same as 「the model broke」.
+            log::info!("locate: not found in this image");
+            LocateAttempt::NotFound
+        }
+        Ok(None) => LocateAttempt::Failed,
         Err(e) => {
             log::warn!("locate_element: locate call failed: {e}");
-            None
+            LocateAttempt::Failed
         }
     }
 }
@@ -348,7 +459,7 @@ async fn locate_in<V: LocateVision>(
 mod tests {
     use super::*;
     use crate::agents::computer::locate::geometry::{NormBox, PxBox};
-    use crate::agents::computer::locate::types::{ElsewhereDir, MatchVerdict};
+    use crate::agents::computer::locate::types::{MatchVerdict, PositionMatches};
     use image::{Rgb, RgbImage};
     use std::collections::VecDeque;
     use std::sync::Mutex;
@@ -388,12 +499,18 @@ mod tests {
 
     #[async_trait]
     impl LocateVision for FakeVision {
-        async fn locate(&self, image: &LocateImage, _prompt: &str) -> Result<Option<NormBox>> {
+        async fn locate(&self, image: &LocateImage, _prompt: &str) -> Result<Option<LocateAnswer>> {
             self.calls.lock().unwrap().push(Call::Locate {
                 width: image.width,
                 height: image.height,
             });
-            Ok(self.locate_script.lock().unwrap().pop_front().flatten())
+            Ok(self
+                .locate_script
+                .lock()
+                .unwrap()
+                .pop_front()
+                .flatten()
+                .map(LocateAnswer::Found))
         }
 
         async fn verify(&self, image: &LocateImage, _prompt: &str) -> Result<VerifyVerdict> {
@@ -423,22 +540,26 @@ mod tests {
         }
     }
 
-    fn verdict(match_: MatchVerdict, why: &str) -> VerifyVerdict {
+    /// A verdict whose three checks are all satisfied unless the caller overrides
+    /// them — tests then say only what they care about.
+    fn verdict(notes: &str) -> VerifyVerdict {
         VerifyVerdict {
-            match_,
-            why: why.to_string(),
+            center_on_target: CenterOnTarget::Yes,
+            size_ok: MatchVerdict::Yes,
+            position_matches: PositionMatches::Ignore,
+            notes: notes.to_string(),
             ..VerifyVerdict::default()
         }
     }
 
     fn yes(in_box: &str) -> VerifyVerdict {
-        verdict(MatchVerdict::Yes, in_box)
+        verdict(in_box)
     }
 
     fn no_left(in_box: &str) -> VerifyVerdict {
         VerifyVerdict {
-            elsewhere_dir: Some(ElsewhereDir::Left),
-            ..verdict(MatchVerdict::No, in_box)
+            center_on_target: CenterOnTarget::No,
+            ..verdict(in_box)
         }
     }
 
@@ -564,10 +685,12 @@ mod tests {
             x2: 500.0,
             y2: 400.0,
         };
-        let mut tight = no_left("保存按钮");
-        tight.match_ = MatchVerdict::Unclear;
-        tight.unclear_kind = UnclearKind::BoxTooTight;
-        tight.elsewhere_dir = None;
+        // Centre on the target, but the box only holds part of it — a size
+        // problem, not a position one.
+        let tight = VerifyVerdict {
+            size_ok: MatchVerdict::No,
+            ..verdict("保存按钮")
+        };
         let vision = FakeVision::new()
             .with_verify(vec![tight, yes("保存按钮")])
             .with_locate(vec![Some(NormBox::new(100.0, 100.0, 300.0, 300.0))]);
@@ -606,9 +729,11 @@ mod tests {
             x2: 500.0,
             y2: 400.0,
         };
-        let mut loose = no_left("B1 有数字9的格子");
-        loose.unclear_kind = UnclearKind::BoxTooLoose;
-        loose.elsewhere_dir = None;
+        // Centre on the target, box slack around it — again a size problem.
+        let loose = VerifyVerdict {
+            size_ok: MatchVerdict::No,
+            ..verdict("B1 有数字9的格子")
+        };
         let vision = FakeVision::new()
             .with_verify(vec![loose, yes("B1 有数字9的格子")])
             .with_locate(vec![Some(NormBox::new(100.0, 100.0, 300.0, 300.0))]);
@@ -638,100 +763,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn direction_verdict_relocates_inside_the_crop() {
-        let hint = PxBox {
-            x1: 400.0,
-            y1: 300.0,
-            x2: 500.0,
-            y2: 400.0,
-        };
-        let vision = FakeVision::new()
-            .with_verify(vec![no_left("取消按钮"), yes("保存按钮")])
-            .with_locate(vec![Some(NormBox::new(100.0, 100.0, 300.0, 300.0))]);
-        let out = locate_one(
-            &vision,
-            &frame(),
-            &LocateRequest::new("保存按钮", "点击它").with_hint_px(hint),
-            &cfg(),
-            &cancel_token(),
-        )
-        .await
-        .unwrap();
-
-        assert!(out.ok);
-        assert_eq!(out.rounds, 2);
-        assert_eq!(
-            vision.calls(),
-            vec![
-                Call::Verify {
-                    width: 64,
-                    height: 64
-                },
-                Call::Locate {
-                    width: 64,
-                    height: 64
-                },
-                Call::Verify {
-                    width: 64,
-                    height: 64
-                }
-            ]
-        );
-    }
-
-    #[tokio::test]
-    async fn no_progress_in_crop_escalates_to_full_screen() {
-        let hint = PxBox {
-            x1: 400.0,
-            y1: 300.0,
-            x2: 500.0,
-            y2: 400.0,
-        };
-        // Crop-local 0–1000 that maps back onto `hint` exactly: the engine's
-        // crop is side 300 centred on (450, 350), i.e. bounds (300,200)-(600,500).
-        let same = NormBox::new(333.333, 333.333, 666.667, 666.667);
-        let vision = FakeVision::new()
-            .with_verify(vec![no_left("取消按钮"), yes("保存按钮")])
-            .with_locate(vec![
-                Some(same),
-                Some(NormBox::new(700.0, 100.0, 800.0, 200.0)),
-            ]);
-        let out = locate_one(
-            &vision,
-            &frame(),
-            &LocateRequest::new("保存按钮", "点击它").with_hint_px(hint),
-            &cfg(),
-            &cancel_token(),
-        )
-        .await
-        .unwrap();
-
-        assert!(out.ok);
-        assert_eq!(
-            vision.calls(),
-            vec![
-                Call::Verify {
-                    width: 64,
-                    height: 64
-                },
-                Call::Locate {
-                    width: 64,
-                    height: 64
-                },
-                // Escalated because the crop-local box did not move.
-                Call::Locate {
-                    width: 1000,
-                    height: 800
-                },
-                Call::Verify {
-                    width: 64,
-                    height: 64
-                }
-            ]
-        );
-    }
-
-    #[tokio::test]
     async fn unverified_target_fails_without_coordinates() {
         let hint = PxBox {
             x1: 400.0,
@@ -742,9 +773,9 @@ mod tests {
         let box_ = NormBox::new(400.0, 300.0, 500.0, 400.0);
         let vision = FakeVision::new()
             .with_verify(vec![
-                verdict(MatchVerdict::No, "空白"),
-                verdict(MatchVerdict::No, "空白"),
-                verdict(MatchVerdict::No, "空白"),
+                no_left("空白"),
+                no_left("空白"),
+                no_left("空白"),
             ])
             .with_locate(vec![Some(box_), Some(box_), None]);
         let out = locate_one(
@@ -763,74 +794,6 @@ mod tests {
         assert_eq!(out.reason, Some(FailureReason::NotFound));
         assert_eq!(out.rounds, 3);
         assert_eq!(out.what_i_saw, "空白");
-    }
-
-    #[tokio::test]
-    async fn blurry_crop_stops_early_with_unclear() {
-        let vision = FakeVision::new().with_verify(vec![VerifyVerdict {
-            unclear_kind: UnclearKind::TooBlurry,
-            ..verdict(MatchVerdict::Unclear, "一片模糊")
-        }]);
-        let hint = PxBox {
-            x1: 400.0,
-            y1: 300.0,
-            x2: 500.0,
-            y2: 400.0,
-        };
-        let out = locate_one(
-            &vision,
-            &frame(),
-            &LocateRequest::new("地址栏", "点击它").with_hint_px(hint),
-            &cfg(),
-            &cancel_token(),
-        )
-        .await
-        .unwrap();
-        assert!(!out.ok);
-        assert_eq!(out.reason, Some(FailureReason::Unclear));
-        assert_eq!(out.rounds, 1);
-        assert!(out.point_px.is_none());
-    }
-
-    #[tokio::test]
-    async fn too_small_zooms_in_then_gives_up() {
-        let hint = PxBox {
-            x1: 400.0,
-            y1: 300.0,
-            x2: 500.0,
-            y2: 400.0,
-        };
-        let vision = FakeVision::new().with_verify(vec![
-            VerifyVerdict {
-                unclear_kind: UnclearKind::TooSmall,
-                ..verdict(MatchVerdict::Unclear, "看不清")
-            },
-            yes("保存按钮"),
-        ]);
-        let out = locate_one(
-            &vision,
-            &frame(),
-            &LocateRequest::new("保存按钮", "点击它").with_hint_px(hint),
-            &cfg(),
-            &cancel_token(),
-        )
-        .await
-        .unwrap();
-        assert!(out.ok);
-        assert_eq!(out.rounds, 1, "zoom retries stay inside the same round");
-        assert_eq!(
-            vision.calls(),
-            vec![
-                Call::Verify {
-                    width: 64,
-                    height: 64
-                },
-                Call::Verify {
-                    width: 64,
-                    height: 64
-                }
-            ]
-        );
     }
 
     #[tokio::test]
@@ -872,8 +835,8 @@ mod tests {
             ])
             .with_verify(vec![
                 VerifyVerdict {
-                    unclear_kind: UnclearKind::BoxTooTight,
-                    ..verdict(MatchVerdict::Unclear, "蓝框内只有首字母 A")
+                    size_ok: MatchVerdict::No,
+                    ..verdict("蓝框内只有首字母 A")
                 },
                 yes("完整的 About DagsHub 链接"),
             ]);

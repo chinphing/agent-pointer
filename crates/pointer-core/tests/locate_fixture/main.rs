@@ -328,6 +328,12 @@ async fn frozen_desktop_grounding() -> Result<()> {
 
     let mut scored = 0usize;
     let mut hits = 0usize;
+    // Two ways the verifier's self-report and the truth box can disagree. Neither
+    // changes `hits` — accuracy is the landing point — but both are worth printing:
+    // a rising `claimed_but_missed` means the verifier is passing boxes it should
+    // reject, and a rising `refused_but_landed` means it is rejecting good boxes.
+    let mut refused_but_landed = 0usize;
+    let mut claimed_but_missed = 0usize;
     // Owned strings: the case rows are moved out of the concurrent batch, so a
     // `&str` into them would not outlive the loop.
     let mut unscored: Vec<String> = Vec::new();
@@ -478,7 +484,11 @@ async fn frozen_desktop_grounding() -> Result<()> {
                 continue;
             }
         };
-        let saw: String = outcome.what_i_saw.chars().take(90).collect();
+        // 600, not 90: the verdict now carries three things (what the wide image
+        // showed, what the mark landed on, and the size measurement) and the
+        // interesting part is always the last one. At 90 every line ended
+        // mid-sentence, which made a wrong verdict impossible to diagnose.
+        let saw: String = outcome.what_i_saw.chars().take(600).collect();
 
         if capture {
             println!(
@@ -498,10 +508,21 @@ async fn frozen_desktop_grounding() -> Result<()> {
         let center = outcome
             .box_px
             .map(|b| ((b.x1 + b.x2) / 2.0, (b.y1 + b.y2) / 2.0));
-        let hit = outcome.ok
-            && center.is_some_and(|(cx, cy)| {
-                cx >= bbox[0] && cx <= bbox[2] && cy >= bbox[1] && cy <= bbox[3]
-            });
+        // Accuracy is decided by **where the box centre lands**, not by what the
+        // verifier said about itself. `outcome.ok` is the model's own verdict; a
+        // run that reports `ok = true` with the centre outside the truth box is
+        // wrong, and a run that refuses while its last box happened to land on
+        // the target is right. Counting `ok` here would measure the verifier's
+        // self-confidence, not the grounder's accuracy.
+        let landed = center
+            .is_some_and(|(cx, cy)| cx >= bbox[0] && cx <= bbox[2] && cy >= bbox[1] && cy <= bbox[3]);
+        let hit = landed;
+        if landed && !outcome.ok {
+            refused_but_landed += 1;
+        }
+        if !landed && outcome.ok {
+            claimed_but_missed += 1;
+        }
         if hit {
             hits += 1;
         } else {
@@ -516,6 +537,15 @@ async fn frozen_desktop_grounding() -> Result<()> {
             elapsed,
             saw
         );
+        // The thinking channel, when the provider returned one. A wrong verdict is
+        // otherwise just a number — you cannot tell whether the model misread the
+        // boundary, counted the wrong row, or never saw the target at all.
+        if !outcome.reasoning.trim().is_empty() {
+            println!(
+                "  [thinking] {}",
+                outcome.reasoning.trim().replace('\n', " ⏎ ")
+            );
+        }
     }
 
     if capture {
@@ -523,7 +553,12 @@ async fn frozen_desktop_grounding() -> Result<()> {
         return Ok(());
     }
 
-    println!("\n{hits}/{scored} hit");
+    println!("\n{hits}/{scored} landed inside the target box");
+    if claimed_but_missed > 0 || refused_but_landed > 0 {
+        println!(
+            "  verifier vs truth: claimed_but_missed={claimed_but_missed}  refused_but_landed={refused_but_landed}"
+        );
+    }
     if !unscored.is_empty() {
         println!("{} case(s) not scored: {}", unscored.len(), unscored.join(", "));
     }
@@ -690,6 +725,13 @@ fn far_hint(b: [f64; 4], max_w: f64, max_h: f64) -> PxBox {
 #[tokio::test]
 #[ignore = "calls a real vision model; run with --ignored"]
 async fn frozen_desktop_far_hint_stays_honest() -> Result<()> {
+    // Same logger as `frozen_desktop_grounding`. Without it the engine's
+    // `locate: not found in this image` line — the whole point of this test —
+    // never reaches the log.
+    let _ = env_logger::builder()
+        .format_timestamp_millis()
+        .is_test(false)
+        .try_init();
     let truth = load_truth()?;
     let path = dir().join(&truth.fixture);
     let img = image::open(&path)?.to_rgb8();
@@ -815,6 +857,13 @@ const ABSENT_CASES: &[(&str, [f64; 4])] = &[
 #[tokio::test]
 #[ignore = "calls a real vision model; run with --ignored"]
 async fn absent_targets_fail_honestly() -> Result<()> {
+    // Same logger as the other model-backed tests; without it the
+    // `locate: not found in this image` line is invisible and there is no way
+    // to tell 「said not found」 from 「guessed and happened to fail」.
+    let _ = env_logger::builder()
+        .format_timestamp_millis()
+        .is_test(false)
+        .try_init();
     let truth = load_truth()?;
     let path = dir().join(&truth.fixture);
     let img = image::open(&path)?.to_rgb8();

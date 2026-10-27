@@ -506,13 +506,63 @@ fn default_debug_menus_enabled() -> bool {
     false
 }
 
-/// Run once per process: migrate legacy `settings.json` theme → `user_settings.json`.
+/// Run once per process: migrate legacy `settings.json` theme → `user_settings.json`,
+/// then lift a legacy `contextBudgetTokens` on disk.
 pub fn ensure_legacy_settings_migrated() {
     LEGACY_MIGRATION_ONCE.call_once(|| {
         if let Err(e) = migrate_legacy_settings_if_needed() {
             log::warn!("storage: legacy settings migration failed: {e}");
         }
+        if let Err(e) = migrate_legacy_context_budget_on_disk() {
+            log::warn!("storage: legacy context budget migration failed: {e}");
+        }
     });
+}
+
+/// Rewrite a legacy `contextBudgetTokens` on disk, once per process.
+///
+/// `contextBudgetTokens` used to default to 100k–120k. `migrate_legacy_context_budget_tokens`
+/// lifts those to 256k, but it only ever ran on the merged **in-memory** copy:
+/// `effective_settings()` calls `finalize_merged_settings` on every LLM round, so a legacy value
+/// on disk was re-migrated — and re-logged at `info` — once per round, hundreds of times per
+/// session, while the file never changed. One real 11-minute session logged it 897 times.
+///
+/// This edits the JSON in place instead of round-tripping through `UserSettings`:
+/// `load_user_settings` decrypts `enc:v1:` provider keys, so writing that struct back would put
+/// plaintext keys on disk, and `save_user_settings` calls this function's own `Once` cell
+/// (`ensure_legacy_settings_migrated`) and would deadlock. Only one number changes here.
+fn migrate_legacy_context_budget_on_disk() -> Result<()> {
+    let path = user_settings_path()?;
+    if !path.exists() {
+        return Ok(());
+    }
+    let raw = fs::read_to_string(&path)?;
+    let Ok(mut doc) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        // Unparseable file: `load_user_settings` already falls back to defaults, and
+        // rewriting it here would destroy whatever the user has.
+        return Ok(());
+    };
+    let Some((from, to)) = migrate_context_budget_field(&mut doc) else {
+        return Ok(());
+    };
+    log::info!("storage: migrate legacy context_budget_tokens on disk {from} -> {to}");
+    fs::write(&path, serde_json::to_vec_pretty(&doc)?)?;
+    Ok(())
+}
+
+/// Lift `contextBudgetTokens` in a raw `user_settings.json` document.
+///
+/// Returns the `(from, to)` pair when a change was made, `None` when the field is
+/// absent, not a number, or already current. Split out from the file IO so the
+/// rewrite can be tested without touching the real settings path.
+fn migrate_context_budget_field(doc: &mut serde_json::Value) -> Option<(u32, u32)> {
+    let current = doc.get("contextBudgetTokens")?.as_u64()? as u32;
+    let migrated = crate::models::migrate_legacy_context_budget_tokens(current);
+    if migrated == current {
+        return None;
+    }
+    doc["contextBudgetTokens"] = serde_json::json!(migrated);
+    Some((current, migrated))
 }
 
 fn migrate_legacy_settings_if_needed() -> Result<()> {
@@ -1242,5 +1292,123 @@ mod platform_model_catalog_cache_tests {
         assert!(load_platform_model_catalog_cache()
             .expect("malformed cache is recoverable")
             .is_empty());
+    }
+}
+
+#[cfg(test)]
+mod legacy_context_budget_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn lifts_a_legacy_value_and_reports_the_change() {
+        let mut doc = json!({ "contextBudgetTokens": 122_880, "theme": "dark" });
+        assert_eq!(
+            migrate_context_budget_field(&mut doc),
+            Some((122_880, 256 * 1024))
+        );
+        assert_eq!(doc["contextBudgetTokens"], json!(256 * 1024));
+        // Only the one number changes.
+        assert_eq!(doc["theme"], json!("dark"));
+    }
+
+    #[test]
+    fn leaves_an_already_migrated_value_alone() {
+        // The whole point: a second run must be a no-op, so the load path stops
+        // re-migrating (and re-logging) on every LLM round.
+        let mut doc = json!({ "contextBudgetTokens": 256 * 1024 });
+        assert_eq!(migrate_context_budget_field(&mut doc), None);
+    }
+
+    #[test]
+    fn a_deliberate_non_legacy_value_is_preserved() {
+        let mut doc = json!({ "contextBudgetTokens": 200_000 });
+        assert_eq!(migrate_context_budget_field(&mut doc), None);
+        assert_eq!(doc["contextBudgetTokens"], json!(200_000));
+    }
+
+    #[test]
+    fn missing_or_non_numeric_field_is_ignored() {
+        let mut absent = json!({ "theme": "dark" });
+        assert_eq!(migrate_context_budget_field(&mut absent), None);
+
+        let mut text = json!({ "contextBudgetTokens": "262144" });
+        assert_eq!(migrate_context_budget_field(&mut text), None);
+        assert_eq!(text["contextBudgetTokens"], json!("262144"));
+    }
+
+    /// The end-to-end shape: a legacy file on disk becomes a current one, and the
+    /// encrypted provider key survives untouched.
+    ///
+    /// That second half is the reason this rewrites the raw JSON instead of loading
+    /// `UserSettings` and saving it back — `load_user_settings` decrypts `enc:v1:`
+    /// keys, so a struct round-trip would put plaintext on disk.
+    #[test]
+    fn rewrites_the_file_and_leaves_encrypted_keys_alone() {
+        let _guard = test_app_data_dir_lock();
+        let dir = std::env::temp_dir().join(format!(
+            "pointer-legacy-ctx-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("user_settings.json");
+        std::fs::write(
+            &path,
+            serde_json::to_vec_pretty(&json!({
+                "contextBudgetTokens": 122_880,
+                "providers": [{ "id": "qwen", "apiKey": "enc:v1:ZmFrZQ==" }]
+            }))
+            .unwrap(),
+        )
+        .expect("write");
+        set_test_app_data_dir(dir.clone());
+
+        migrate_legacy_context_budget_on_disk().expect("migrate");
+
+        let after: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read")).expect("parse");
+        assert_eq!(after["contextBudgetTokens"], json!(256 * 1024));
+        assert_eq!(after["providers"][0]["apiKey"], json!("enc:v1:ZmFrZQ=="));
+
+        // Idempotent: a second call must not rewrite the file.
+        let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        migrate_legacy_context_budget_on_disk().expect("second migrate");
+        let mtime_after = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        assert_eq!(mtime, mtime_after, "second run must be a no-op");
+
+        let _ = std::fs::remove_dir_all(&dir);
+        set_test_app_data_dir(PathBuf::new());
+    }
+
+    /// Manual verification against the real `user_settings.json`.
+    ///
+    /// Ignored by default because it touches the developer's own settings file;
+    /// run with `cargo test --release -p pointer-core --lib -- --ignored
+    /// migrate_the_real_user_settings_file`. It only ever lifts a legacy
+    /// `contextBudgetTokens` to the current default, which is what app startup
+    /// does anyway — but it is a real file, so it stays opt-in.
+    #[test]
+    #[ignore]
+    fn migrate_the_real_user_settings_file() {
+        let path = user_settings_path().expect("settings path");
+        let before: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read")).expect("parse");
+        let before_value = before["contextBudgetTokens"].clone();
+        migrate_legacy_context_budget_on_disk().expect("migrate");
+        let after: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read")).expect("parse");
+        println!(
+            "contextBudgetTokens: {} -> {}",
+            before_value, after["contextBudgetTokens"]
+        );
+        assert!(
+            after["contextBudgetTokens"].as_u64().unwrap() != 122_880,
+            "legacy value must be gone"
+        );
     }
 }

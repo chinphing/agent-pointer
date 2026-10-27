@@ -13,6 +13,7 @@ pub mod engine;
 pub mod geometry;
 pub mod prompt;
 pub mod render;
+pub mod trace;
 pub mod types;
 mod vision;
 

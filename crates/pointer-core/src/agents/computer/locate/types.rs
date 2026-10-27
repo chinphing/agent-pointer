@@ -318,10 +318,31 @@ impl Default for LocateConfig {
             crop_min: CROP_MIN,
             crop_max: CROP_MAX,
             out_px: CROP_OUT_PX,
-            verify_mult: VERIFY_MULT,
-            verify_out_px: VERIFY_OUT_PX,
+            verify_mult: env_f64("POINTER_LOCATE_VERIFY_MULT", VERIFY_MULT),
+            verify_out_px: env_u32("POINTER_LOCATE_VERIFY_OUT_PX", VERIFY_OUT_PX),
         }
     }
+}
+
+/// Diagnostic override for the verifier's second crop.
+///
+/// The wide crop costs a second image upload on **every** verify call. Whether
+/// that cost is worth it is a question about the model's latency curve, not
+/// about the code, so it has to be measurable without editing constants and
+/// rebuilding: `POINTER_LOCATE_VERIFY_MULT=1` disables the second image,
+/// `POINTER_LOCATE_VERIFY_OUT_PX=960` halves it. Absent → the compiled default.
+fn env_f64(key: &str, default: f64) -> f64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(default)
+}
+
+fn env_u32(key: &str, default: u32) -> u32 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(default)
 }
 
 /// Confidence of a located element. Only verified targets are returned, so the

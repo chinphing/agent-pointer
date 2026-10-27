@@ -887,3 +887,64 @@ cargo test --release -p pointer-core --test screenspot_pro screenspot_pro \
 
 `POINTER_SP_IDS` overrides the split, `POINTER_SP_LIMIT` truncates,
 `POINTER_SP_THINKING=1` turns thinking back on.
+
+## Collecting failure samples from a real run
+
+A miss on the user's machine is worth more than a hundred synthetic ones, but
+only if the run can be reconstructed. Two environment variables make every
+`locate_one` self-describing:
+
+```bash
+POINTER_LOCATE_DEBUG_DIR=/tmp/locate_debug RUST_LOG=info
+```
+
+One directory per session, one `<run_id>.json` per locate run, next to the
+JPEGs it references:
+
+| file | what it is |
+|---|---|
+| `<run>_frame.jpg` | the full frame the run worked on |
+| `<run>_locate_<where>.jpg` | every image the locator was shown |
+| `<run>_verify_r<N>_close.jpg` | 图一 for round N — authoritative for edges |
+| `<run>_verify_r<N>_wide.jpg` | 图二 for round N — row/column labels only |
+| `<run>.json` | the whole run, images referenced by relative name |
+
+**Log lines and files share one id.** `close_id=e45e4900_verify_r1_close` in the
+log is `e45e4900_verify_r1_close.jpg` on disk — no guessing which crop a verdict
+belongs to when two runs interleave.
+
+Every round is a pair of records, in execution order:
+
+```json
+{"round": 1, "locate": null,
+ "verify": {"box": [338,532,429,623], "center": "Yes", "size": "No", "position": "yes",
+            "close_image": "…_verify_r1_close.jpg", "wide_image": "…_verify_r1_wide.jpg",
+            "render_ms": 179, "call_ms": 8302, "notes": "…"}}
+{"round": 1,
+ "locate": {"where": "crop_r1", "bounds": [247,441,520,714],
+            "prev_box": [338,532,429,623], "raw": [513,462,667,608],
+            "box": [387,567,429,607], "image": "…_locate_crop_r1.jpg"},
+ "verify": null}
+```
+
+`locate.box` equals the next round's `verify.box` — if those two ever disagree,
+the coordinate mapping is broken, which is exactly the bug this caught during
+development (`rel_to_norm` returns 0–1000, not pixels; the trace stored the
+normalised value and every locate box looked 5× smaller than the verify box it
+fed).
+
+**`truth_bbox` and `note` are left empty on purpose.** They are where a human
+writes the right answer, which is what turns a production failure into a
+regression fixture:
+
+```bash
+jq '.truth_bbox = [346,567,387,608] | .note = "偏右一格，I7 认成 I8"' \
+  /tmp/locate_debug/ed50b100.json > /tmp/case.json
+```
+
+Copy the directory off the machine, label it, and the description, hint and
+per-round crops are already recorded — no re-typing, no re-running to reproduce.
+
+Without `POINTER_LOCATE_DEBUG_DIR` the log still carries every id; only the
+files are skipped, so a suspicious run can be spotted first and dumped on the
+next reproduction.

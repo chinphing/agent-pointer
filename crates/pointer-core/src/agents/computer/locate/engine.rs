@@ -11,10 +11,87 @@ use tokio_util::sync::CancellationToken;
 use super::geometry::{crop_side_px, nearly_same, px_to_rel, rel_to_norm, CropBounds, NormBox, PxBox};
 use super::prompt::{locate_prompt, refine_hint, verify_prompt_views, LocateAnswer};
 use super::render::{render_crop, render_full, LocateFrame, LocateImage};
+use super::trace::{
+    FrameTrace, LocateStep, LocateTrace, OutcomeTrace, RequestTrace, RoundTrace, VerifyStep,
+};
 use super::types::{
     CenterOnTarget, Confidence, FailureReason, LocateConfig, LocateOutcome, LocateRequest,
     VerifyVerdict,
 };
+
+/// A short id that ties one `locate_one` run's log lines and dumped images
+/// together.
+///
+/// Diagnosing a miss from the log alone is hopeless once two runs interleave:
+/// `round=2` appears dozens of times per screen and there is no way to tell
+/// whose `verify` verdict belongs to whose `locate` box. Every line and every
+/// dumped file carries `run=<id>`, so a failure can be replayed from disk.
+///
+/// `POINTER_LOCATE_DEBUG_DIR` decides whether images are written at all. Absent
+/// → nothing is dumped and only the ids appear in the log.
+fn new_run_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, Ordering::Relaxed);
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    // 6 hex chars of time + 2 of sequence: unique within a session, short enough
+    // to read in a log line.
+    format!("{:06x}{:02x}", ms & 0xff_ffff, n & 0xff)
+}
+
+/// Write `image` to `POINTER_LOCATE_DEBUG_DIR/<name>.jpg` when debugging is on.
+///
+/// Returns the **id** that was logged, so the log line and the file on disk are
+/// the same string. Without a directory it still returns an id — the log then
+/// says what *would* have been saved, which is enough to ask for a re-run with
+/// dumping enabled.
+fn dump_image(run: &str, name: &str, image: &LocateImage) -> String {
+    let id = format!("{run}_{name}");
+    let Ok(dir) = std::env::var("POINTER_LOCATE_DEBUG_DIR") else {
+        return id;
+    };
+    if dir.trim().is_empty() {
+        return id;
+    }
+    let path = std::path::Path::new(&dir);
+    if let Err(e) = std::fs::create_dir_all(path) {
+        log::warn!("locate: debug dir {dir} unusable: {e}");
+        return id;
+    }
+    let file = path.join(format!("{id}.jpg"));
+    match std::fs::write(&file, &image.jpeg) {
+        Ok(()) => log::info!("locate: dumped {} ({} bytes)", file.display(), image.jpeg.len()),
+        Err(e) => log::warn!("locate: dump {} failed: {e}", file.display()),
+    }
+    id
+}
+
+/// Write `<run_id>.json` next to the JPEGs.
+///
+/// This is the artifact a person collects: one file per run, every image
+/// referenced by relative name, `truth_bbox` empty and waiting. Copy the
+/// directory off a user's machine, open the JSON, fill in the right box, and the
+/// case is ready to be turned into a fixture — no re-typing the description, the
+/// hint, or which round failed.
+fn write_trace(trace: &LocateTrace) {
+    let Ok(dir) = std::env::var("POINTER_LOCATE_DEBUG_DIR") else {
+        return;
+    };
+    if dir.trim().is_empty() {
+        return;
+    }
+    let path = std::path::Path::new(&dir).join(format!("{}.json", trace.run_id));
+    match serde_json::to_string_pretty(trace) {
+        Ok(json) => match std::fs::write(&path, json) {
+            Ok(()) => log::info!("locate: trace -> {}", path.display()),
+            Err(e) => log::warn!("locate: trace {} failed: {e}", path.display()),
+        },
+        Err(e) => log::warn!("locate: trace serialise failed: {e}"),
+    }
+}
 
 /// The two model calls the controller is allowed to make.
 #[async_trait]
@@ -97,6 +174,46 @@ pub async fn locate_one<V: LocateVision>(
 ) -> Result<LocateOutcome> {
     let (w, h) = (frame.width().max(1), frame.height().max(1));
     let full = CropBounds::full(w, h);
+    // One id per run: every log line and every dumped image carries it, so a
+    // failure can be traced from `round=2` back to the exact crop the model saw.
+    let run = new_run_id();
+    let started_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    log::info!(
+        "locate: start run={run} frame={}x{} desc={:?} hint={:?} max_locate={}",
+        w,
+        h,
+        req.target_desc.chars().take(40).collect::<String>(),
+        req.hint_center().map(|(x, y)| [x.round(), y.round()]),
+        cfg.max_locate,
+    );
+    // The full frame is dumped once per run, not once per round: it is what the
+    // whole trace is measured against, and a labelled `truth_bbox` is only
+    // meaningful in its coordinate space.
+    let frame_path = dump_image(&run, "frame", &render_full(frame, None)?);
+    let mut trace = LocateTrace {
+        run_id: run.clone(),
+        started_at,
+        frame: FrameTrace {
+            path: format!("{frame_path}.jpg"),
+            width: w,
+            height: h,
+        },
+        request: RequestTrace {
+            target_desc: req.target_desc.clone(),
+            goal: req.goal.clone(),
+            hint: req.hint_center().map(|(x, y)| [x, y]),
+        },
+        rounds: Vec::new(),
+        outcome: OutcomeTrace {
+            ok: false,
+            point: None,
+            box_px: None,
+            rounds: 0,
+            stop: String::new(),
+        },
+        truth_bbox: None,
+        note: String::new(),
+    };
     // The prompt has to know whether a second image is coming: 图二 exists only
     // to read row/column labels, and a prompt that does not say so gets the box
     // judged from the coarse image.
@@ -113,7 +230,13 @@ pub async fn locate_one<V: LocateVision>(
     // ① First locate — skipped entirely when the caller supplied a hint box.
     if box_norm.is_none() {
         let image = render_full(frame, None)?;
-        box_norm = match locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), None, None).await {
+        let (attempt, step) = locate_in(vision, &run, "full_init", &image, full, w, h, &req.target_desc, req.hint_center(), None, None).await;
+        trace.rounds.push(RoundTrace {
+            round: 0,
+            locate: Some(step),
+            verify: None,
+        });
+        box_norm = match attempt {
             LocateAttempt::Found(b) => Some(b),
             // On the full screen there is nowhere wider to look.
             LocateAttempt::NotFound | LocateAttempt::Failed => None,
@@ -143,12 +266,14 @@ pub async fn locate_one<V: LocateVision>(
             cfg.crop_max,
         );
         // The verifier no longer offers `unclear`, so the crop is rendered once
-        // per round: `retry` is kept only so the log line stays parseable.
+        // per round. `retry` survives only as a field on the outcome.
         let verify_retries = 0usize;
+        let _ = verify_retries;
 
         // Inner loop: one crop, retried with a different `side` while the
         // verifier reports `unclear` for a fixable reason.
         let (verdict, last_crop) = loop {
+            let t_render = std::time::Instant::now();
             let (image, bounds) = render_crop(frame, current, side, cfg.out_px)?;
             // 图一 — the original close crop. Everything precise is judged from
             // it: at 240 px a 41 px cell lands at 273 px in the image, which is
@@ -167,22 +292,30 @@ pub async fn locate_one<V: LocateVision>(
                     cfg.verify_out_px
                 };
                 let img = render_crop(frame, current, side * cfg.verify_mult, wide_px)?.0;
-                // `POINTER_LOCATE_DUMP_WIDE=/tmp/wide` writes each verifier crop to
-                // disk. A verdict that says 「no row labels」 is otherwise
-                // unfalsifiable — you cannot tell whether the labels were outside
-                // the crop or the model simply did not look.
-                if let Ok(prefix) = std::env::var("POINTER_LOCATE_DUMP_WIDE") {
-                    if !prefix.is_empty() {
-                        let _ = std::fs::write(
-                            format!("{prefix}_{}_r{}.jpg", req.target_desc.chars().take(12).collect::<String>().replace(['/', ' '], "_"), rounds),
-                            &img.jpeg,
-                        );
-                    }
-                }
                 Some(img)
             } else {
                 None
             };
+            // Both crops get an id and, when `POINTER_LOCATE_DEBUG_DIR` is set,
+            // a file. A verdict saying 「no row labels」 is otherwise
+            // unfalsifiable — you cannot tell whether the labels were outside
+            // the crop or the model simply did not look.
+            let close_id = dump_image(&run, &format!("verify_r{rounds}_close"), &image);
+            let wide_id = wide_image
+                .as_ref()
+                .map(|w| dump_image(&run, &format!("verify_r{rounds}_wide"), w));
+            log::info!(
+                "locate: verify_input run={run} round={rounds} side={side:.0} box=[{:.0},{:.0},{:.0},{:.0}] close_id={close_id} close={}x{} wide_id={:?} wide={:?}",
+                current.to_px(w, h).x1,
+                current.to_px(w, h).y1,
+                current.to_px(w, h).x2,
+                current.to_px(w, h).y2,
+                image.width,
+                image.height,
+                wide_id,
+                wide_image.as_ref().map(|w| format!("{}x{}", w.width, w.height)),
+            );
+            let t_call = std::time::Instant::now();
             let v = match vision
                 .verify_pair(&image, wide_image.as_ref(), &verify_text)
                 .await
@@ -193,20 +326,53 @@ pub async fn locate_one<V: LocateVision>(
                     VerifyVerdict::default()
                 }
             };
+            let call_ms = t_call.elapsed().as_secs_f64() * 1000.0;
+            // Split the round's wall clock into its two halves. Without this the
+            // only visible number is the whole case, and 「verify got slower」 is
+            // indistinguishable from 「the model got slower」 — rendering two
+            // crops at 1600² and 1920² is a real cost that never shows up in a
+            // per-case timing.
+            log::info!(
+                "locate: timing run={run} round={rounds} render={:.0}ms verify_call={:.0}ms close={}x{} wide={}",
+                (t_call - t_render).as_secs_f64() * 1000.0,
+                call_ms,
+                image.width,
+                image.height,
+                wide_image
+                    .as_ref()
+                    .map(|w| format!("{}x{}", w.width, w.height))
+                    .unwrap_or_else(|| "-".to_string()),
+            );
             // Every verdict, not just failures: without this line a locate run
             // is a black box — you cannot tell whether the box was too tight,
             // the crop too small, or the target genuinely absent.
             log::info!(
-                "locate: round={rounds} retry={verify_retries} side={side:.0} box=[{:.0},{:.0},{:.0},{:.0}] center={:?} size={:?} position={} notes={}",
-                current.to_px(w, h).x1,
-                current.to_px(w, h).y1,
-                current.to_px(w, h).x2,
-                current.to_px(w, h).y2,
+                "locate: verify_output run={run} round={rounds} center={:?} size={:?} position={} close_id={close_id} notes={}",
                 v.center_on_target,
                 v.size_ok,
                 v.position_matches.as_str(),
                 v.notes.trim()
             );
+            trace.rounds.push(RoundTrace {
+                round: rounds,
+                locate: None,
+                verify: Some(VerifyStep {
+                    close_image: format!("{close_id}.jpg"),
+                    wide_image: wide_id.as_ref().map(|id| format!("{id}.jpg")),
+                    box_px: [
+                        current.to_px(w, h).x1,
+                        current.to_px(w, h).y1,
+                        current.to_px(w, h).x2,
+                        current.to_px(w, h).y2,
+                    ],
+                    center: format!("{:?}", v.center_on_target),
+                    size: format!("{:?}", v.size_ok),
+                    position: v.position_matches.as_str().to_string(),
+                    notes: v.notes.trim().to_string(),
+                    render_ms: (t_call - t_render).as_millis() as u64,
+                    call_ms: call_ms as u64,
+                }),
+            });
             // `notes` opens with what is actually in the box, so it doubles as
             // the "what I saw" line shown to the user on failure.
             if !v.notes.trim().is_empty() {
@@ -280,8 +446,10 @@ pub async fn locate_one<V: LocateVision>(
         if stay_local {
             if let Some((image, bounds)) = last_crop.as_ref() {
                 from_crop = true;
-                next_box = match locate_in(
+                let (attempt, step) = locate_in(
                     vision,
+                    &run,
+                    &format!("crop_r{rounds}"),
                     image,
                     *bounds,
                     w,
@@ -291,8 +459,13 @@ pub async fn locate_one<V: LocateVision>(
                     Some(&hint),
                     Some(current.to_px(w, h)),
                 )
-                .await
-                {
+                .await;
+                trace.rounds.push(RoundTrace {
+                    round: rounds,
+                    locate: Some(step),
+                    verify: None,
+                });
+                next_box = match attempt {
                     LocateAttempt::Found(b) => Some(b),
                     LocateAttempt::NotFound => {
                         widen_needed = true;
@@ -304,7 +477,13 @@ pub async fn locate_one<V: LocateVision>(
         }
         if !from_crop || widen_needed {
             let image = render_full(frame, Some(current))?;
-            next_box = match locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), Some(&hint), Some(current.to_px(w, h))).await {
+            let (attempt, step) = locate_in(vision, &run, &format!("full_widen_r{rounds}"), &image, full, w, h, &req.target_desc, req.hint_center(), Some(&hint), Some(current.to_px(w, h))).await;
+            trace.rounds.push(RoundTrace {
+                round: rounds,
+                locate: Some(step),
+                verify: None,
+            });
+            next_box = match attempt {
                 LocateAttempt::Found(b) => Some(b),
                 LocateAttempt::NotFound | LocateAttempt::Failed => None,
             };
@@ -321,8 +500,13 @@ pub async fn locate_one<V: LocateVision>(
         };
         if from_crop && !widen_needed && nearly_same(next_box, current) {
             let image = render_full(frame, Some(current))?;
-            next_box = match locate_in(vision, &image, full, w, h, &req.target_desc, req.hint_center(), Some(&hint), Some(current.to_px(w, h))).await
-            {
+            let (attempt, step) = locate_in(vision, &run, &format!("full_escalate_r{rounds}"), &image, full, w, h, &req.target_desc, req.hint_center(), Some(&hint), Some(current.to_px(w, h))).await;
+            trace.rounds.push(RoundTrace {
+                round: rounds,
+                locate: Some(step),
+                verify: None,
+            });
+            next_box = match attempt {
                 LocateAttempt::Found(b) => b,
                 LocateAttempt::NotFound | LocateAttempt::Failed => {
                     stop = Stop::LocateFailed;
@@ -338,6 +522,17 @@ pub async fn locate_one<V: LocateVision>(
     } else {
         last_saw
     };
+
+    trace.outcome.rounds = rounds;
+    trace.outcome.stop = format!("{stop:?}");
+    trace.outcome.ok = stop == Stop::Verified;
+    if let Some(b) = box_norm {
+        let px = b.to_px(w, h);
+        trace.outcome.box_px = Some([px.x1, px.y1, px.x2, px.y2]);
+        let (cx, cy) = b.center();
+        trace.outcome.point = Some([cx / 1000.0 * w as f64, cy / 1000.0 * h as f64]);
+    }
+    write_trace(&trace);
 
     if stop != Stop::Verified {
         let mut out = LocateOutcome::failure(
@@ -396,6 +591,8 @@ enum LocateAttempt {
 /// by the crop offset.
 async fn locate_in<V: LocateVision>(
     vision: &V,
+    run: &str,
+    where_: &str,
     image: &LocateImage,
     bounds: CropBounds,
     w: u32,
@@ -404,7 +601,7 @@ async fn locate_in<V: LocateVision>(
     hint_px: Option<(f64, f64)>,
     previous_hint: Option<&str>,
     prev_box: Option<PxBox>,
-) -> LocateAttempt {
+) -> (LocateAttempt, LocateStep) {
     let hint_rel = hint_px.map(|(x, y)| {
         let r = px_to_rel(
             PxBox {
@@ -419,39 +616,67 @@ async fn locate_in<V: LocateVision>(
     });
     let prev_rel = prev_box.map(|b| px_to_rel(b, bounds));
     let prompt = locate_prompt(description, hint_rel, previous_hint, prev_rel);
+    let image_id = dump_image(run, &format!("locate_{where_}"), image);
+    // The inputs matter as much as the answer: a box that is wrong because the
+    // crop was wrong looks identical to a box that is wrong because the model
+    // misread it. `bounds` is what the model actually saw, `prev` is what it was
+    // told to fix, `hint` is where the caller thought the target was.
+    log::info!(
+        "locate: call run={run} where={where_} image_id={image_id} size={}x{} bounds=[{:.0},{:.0},{:.0},{:.0}] prev={:?} hint={:?} desc={:?}",
+        image.width,
+        image.height,
+        bounds.x0,
+        bounds.y0,
+        bounds.x1,
+        bounds.y1,
+        prev_box.map(|b| [b.x1.round(), b.y1.round(), b.x2.round(), b.y2.round()]),
+        hint_px.map(|(x, y)| [x.round(), y.round()]),
+        description.chars().take(40).collect::<String>(),
+    );
+    let mut step = LocateStep {
+        where_: where_.to_string(),
+        image: format!("{image_id}.jpg"),
+        bounds: [bounds.x0, bounds.y0, bounds.x1, bounds.y1],
+        prev_box: prev_box.map(|b| [b.x1, b.y1, b.x2, b.y2]),
+        raw: None,
+        box_px: None,
+        not_found: false,
+    };
     match vision.locate(image, &prompt).await {
         Ok(Some(LocateAnswer::Found(raw))) => {
             // The prompt asks for 0-1000 coordinates relative to this image. Log
             // the raw answer next to the mapped one: a model that reasons in
             // pixels and answers in pixels looks identical to a correct one
             // until the two are compared.
+            let mapped = rel_to_norm(raw, bounds, w, h);
             log::info!(
-                "locate: raw=[{:.0},{:.0},{:.0},{:.0}] bounds=[{:.0},{:.0},{:.0},{:.0}] image={}x{}",
+                "locate: answer run={run} where={where_} raw=[{:.0},{:.0},{:.0},{:.0}] -> px=[{:.0},{:.0},{:.0},{:.0}] (rel=[{:.0},{:.0},{:.0},{:.0}])",
                 raw.x1,
                 raw.y1,
                 raw.x2,
                 raw.y2,
-                bounds.x0,
-                bounds.y0,
-                bounds.x1,
-                bounds.y1,
-                image.width,
-                image.height
+                mapped.to_px(w, h).x1,
+                mapped.to_px(w, h).y1,
+                mapped.to_px(w, h).x2,
+                mapped.to_px(w, h).y2,
+                mapped.x1,
+                mapped.y1,
+                mapped.x2,
+                mapped.y2,
             );
-            LocateAttempt::Found(rel_to_norm(raw, bounds, w, h))
+            step.raw = Some([raw.x1, raw.y1, raw.x2, raw.y2]);
+            // `mapped` is still in the image's 0–1000 space; `to_px` is what the
+            // rest of the trace speaks. Storing the normalised value here made
+            // every locate box look ~5x smaller than the verify box it fed.
+            let px = mapped.to_px(w, h);
+            step.box_px = Some([px.x1, px.y1, px.x2, px.y2]);
+            (LocateAttempt::Found(mapped), step)
         }
         Ok(Some(LocateAnswer::NotFound)) => {
-            // Distinct from a parse failure: the locator looked and said the
-            // target is not in this image. The caller can widen the view; a
-            // bare `None` would read the same as 「the model broke」.
-            log::info!("locate: not found in this image");
-            LocateAttempt::NotFound
+            step.not_found = true;
+            (LocateAttempt::NotFound, step)
         }
-        Ok(None) => LocateAttempt::Failed,
-        Err(e) => {
-            log::warn!("locate_element: locate call failed: {e}");
-            LocateAttempt::Failed
-        }
+        Ok(None) | Err(_) => (LocateAttempt::Failed, step),
     }
 }
 

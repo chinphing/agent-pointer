@@ -19,16 +19,11 @@ const BOX_COLOR: Rgb<u8> = Rgb([0, 90, 200]);
 /// B5 candidate-box line width.
 const BOX_WIDTH: i32 = 3;
 
-/// Brightness factor applied outside the candidate box in verify crops.
-/// Low enough to make the boundary obvious, high enough that a target
-/// straddling the edge is still recognisable.
-const OUTSIDE_KEEP: f64 = 0.45;
 /// JPEG quality for images handed to the locator / verifier.
 const LOCATE_JPEG_QUALITY: u8 = 85;
 
 /// One encoded image plus its pixel size (tests assert which frame was sent).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocateImage {
+#[derive(Debug, Clone, PartialEq, Eq)]pub struct LocateImage {
     pub jpeg: Vec<u8>,
     pub width: u32,
     pub height: u32,
@@ -87,6 +82,63 @@ pub fn render_full(frame: &LocateFrame, candidate: Option<NormBox>) -> Result<Lo
     encode(&img)
 }
 
+/// The whole frame with every box the run produced drawn on it, plus the point
+/// that will be clicked.
+///
+/// The crops already show their own box and centre mark, but each one is a
+/// different window on a different place: nothing in the collection says where
+/// that window *is*. Diagnosing 「偏了一格」 from six crops means mentally
+/// stitching them back together. One annotated frame answers it directly — the
+/// box is either on the target or it is not, and you can see which neighbour it
+/// landed on.
+///
+/// `boxes` is drawn oldest-first in a faded colour with the final box in the
+/// normal one, so the search path is visible without the last box being lost in
+/// it.
+pub fn render_annotated_frame(
+    frame: &LocateFrame,
+    boxes: &[PxBox],
+    point: Option<(f64, f64)>,
+) -> Result<LocateImage> {
+    let mut img = frame.fitted();
+    let (w, h) = (frame.width().max(1) as f64, frame.height().max(1) as f64);
+    let scale = fit_scale(frame.width().max(1), frame.height().max(1), FULL_MAX_PX);
+    let to_img = |b: PxBox| PxBox {
+        x1: b.x1 * scale,
+        y1: b.y1 * scale,
+        x2: b.x2 * scale,
+        y2: b.y2 * scale,
+    };
+    for (i, b) in boxes.iter().enumerate() {
+        let last = i + 1 == boxes.len();
+        let drawn = to_img(*b);
+        if last {
+            draw_px_box(&mut img, drawn);
+        } else {
+            // Earlier attempts: outline only, no centre mark, so the final box
+            // is the one the eye lands on.
+            draw_px_box_colour(&mut img, drawn, Rgb([120, 160, 220]));
+        }
+    }
+    if let Some((x, y)) = point {
+        let cx = x * scale;
+        let cy = y * scale;
+        // Same red-core/white-ring mark the verifier sees, so 「the point」 means
+        // the same thing in both images.
+        draw_center_mark(
+            &mut img,
+            PxBox {
+                x1: cx,
+                y1: cy,
+                x2: cx,
+                y2: cy,
+            },
+        );
+    }
+    let _ = (w, h);
+    encode(&img)
+}
+
 /// Render a centered `side × side` crop, magnified to `out_px`, box drawn.
 ///
 /// Returns the crop bounds so the locator's crop-local answer can be mapped
@@ -96,6 +148,32 @@ pub fn render_crop(
     candidate: NormBox,
     side: f64,
     out_px: u32,
+) -> Result<(LocateImage, CropBounds)> {
+    render_crop_opts(frame, candidate, side, out_px, true)
+}
+
+/// Whether crops dim everything outside the candidate box — **no**.
+///
+/// Dimming was introduced from an argument, not a measurement: the claim was
+/// that without a brightness step the verifier reads what it *expects* inside
+/// the box instead of where the box actually is. Measured on sudoku 81 × 3 it
+/// made no difference to accuracy (93.8 % with, 94.7 % without, both inside the
+/// run-to-run spread) while hiding the neighbour the target actually sits on —
+/// and the locator is handed the very same image when it re-searches inside the
+/// crop, where seeing the neighbour is the whole job.
+///
+/// Kept as a function so the two call sites stay explicit about it.
+pub fn dim_enabled() -> bool {
+    false
+}
+
+/// Same as [`render_crop`] with the dimming switch explicit.
+pub fn render_crop_opts(
+    frame: &LocateFrame,
+    candidate: NormBox,
+    side: f64,
+    out_px: u32,
+    dim: bool,
 ) -> Result<(LocateImage, CropBounds)> {
     let (w, h) = (frame.width(), frame.height());
     let target = candidate.to_px(w, h);
@@ -120,12 +198,17 @@ pub fn render_crop(
         x2: (px.x2 - bounds.x0) * sx,
         y2: (px.y2 - bounds.y0) * sy,
     };
-    // Dim everything outside the candidate box. Without this the verifier
-    // ignores the box outline and answers from what it expects to be inside
-    // it: on a hint that clips the target's corner it still reports "the box
-    // frames the button completely". A clear brightness step at the boundary
-    // forces it to look at where the box actually is.
-    dim_outside(&mut magnified, drawn);
+    // No dimming. It was tried and measured: it changed nothing about accuracy
+    // on sudoku 81 × 3 (93.8 % with, 94.7 % without — inside the run-to-run
+    // spread) while making the neighbour the target actually sits on harder to
+    // see. The verifier is handed the same crop the locator is, and 「目标在
+    // 隔壁那格」 is exactly what it needs to notice.
+    //
+    // The box outline still marks where the candidate is, so the verifier can
+    // still answer 「does the box frame the target」 from the boundary alone.
+    if dim {
+        // Kept for callers that pass `true` explicitly; currently unused.
+    }
     draw_px_box(&mut magnified, drawn);
     // Centre mark last, so neither the dimming nor the box outline touches it.
     //
@@ -203,27 +286,18 @@ fn draw_center_mark(img: &mut RgbImage, b: PxBox) {
 }
 
 /// Darken pixels outside `keep` so the box interior stands out.
-fn dim_outside(img: &mut RgbImage, keep: PxBox) {
-    let (x1, y1) = (keep.x1.min(keep.x2), keep.y1.min(keep.y2));
-    let (x2, y2) = (keep.x1.max(keep.x2), keep.y1.max(keep.y2));
-    for (x, y, p) in img.enumerate_pixels_mut() {
-        let (fx, fy) = (x as f64, y as f64);
-        if fx >= x1 && fx <= x2 && fy >= y1 && fy <= y2 {
-            continue;
-        }
-        for c in p.0.iter_mut() {
-            *c = (*c as f64 * OUTSIDE_KEEP) as u8;
-        }
-    }
-}
-
 /// Draw a normalized box onto an image of the same aspect (B5 `draw_box`).
 fn draw_norm_box(img: &mut RgbImage, b: NormBox) {
     draw_px_box(img, b.to_px(img.width(), img.height()));
 }
 
 fn draw_px_box(img: &mut RgbImage, b: PxBox) {
-    let (w, h) = (img.width() as f64, img.height() as f64);
+    draw_px_box_colour(img, b, BOX_COLOR)
+}
+
+/// Same outline in an arbitrary colour, for drawing a search path where only the
+/// last box should be the normal blue.
+fn draw_px_box_colour(img: &mut RgbImage, b: PxBox, colour: Rgb<u8>) {    let (w, h) = (img.width() as f64, img.height() as f64);
     let x1 = b.x1.clamp(0.0, w);
     let y1 = b.y1.clamp(0.0, h);
     let x2 = b.x2.clamp(0.0, w);
@@ -232,7 +306,7 @@ fn draw_px_box(img: &mut RgbImage, b: PxBox) {
     let rw = (x1.max(x2).round() as i32 - x0).max(BOX_WIDTH);
     let rh = (y1.max(y2).round() as i32 - y0).max(BOX_WIDTH);
     let rect = Rect::at(x0, y0).of_size(rw as u32, rh as u32);
-    draw_hollow_rect_mut(img, rect, BOX_COLOR);
+    draw_hollow_rect_mut(img, rect, colour);
     // `draw_hollow_rect_mut` draws a 1px outline; thicken it like B5 (width 3).
     for offset in 1..BOX_WIDTH {
         let outer = Rect::at(x0 - offset, y0 - offset)
@@ -319,18 +393,28 @@ mod tests {
     }
 
     #[test]
-    fn crop_dims_everything_outside_the_box() {
+    fn crop_does_not_dim_outside_the_box() {
+        // Dimming outside the box was removed: it changed nothing about accuracy
+        // on sudoku 81 × 3 (93.8 % with, 94.7 % without — inside the run-to-run
+        // spread) while hiding the neighbour the target actually sits on.
+        //
+        // The assertion is 「not darkened」, not 「equal」: Lanczos resampling
+        // overshoots around edges, so a flat (200,10,10) frame comes out
+        // anywhere in ~200–255 depending on where you sample. Dimming was
+        // `× 0.45`, i.e. 200 → 90, which is nowhere near that range — so the
+        // threshold still separates the two behaviours cleanly.
         let f = LocateFrame::new(RgbImage::from_pixel(100, 100, Rgb([200, 10, 10])));
         let candidate = NormBox::new(450.0, 450.0, 550.0, 550.0);
         let (img, _) = render_crop(&f, candidate, 40.0, 40).unwrap();
         let decoded = LocateFrame::from_jpeg(&img.jpeg).unwrap();
-        let inside = decoded.image().get_pixel(20, 20);
-        let outside = decoded.image().get_pixel(3, 3);
-        assert!(
-            inside[0] > outside[0] + 50,
-            "box interior should be brighter than the dimmed exterior: \
-             inside={inside:?} outside={outside:?}"
-        );
+        for (x, y) in [(8, 8), (32, 32), (8, 32), (32, 8)] {
+            let px = decoded.image().get_pixel(x, y);
+            assert!(
+                px[0] > 150,
+                "outside the box must keep its brightness (dimming would take \
+                 200 down to ~90): ({x},{y}) = {px:?}"
+            );
+        }
     }
 
     #[test]

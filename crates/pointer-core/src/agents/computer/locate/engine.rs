@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::geometry::{crop_side_px, nearly_same, px_to_rel, rel_to_norm, CropBounds, NormBox, PxBox};
 use super::prompt::{locate_prompt, refine_hint, verify_prompt_views, LocateAnswer};
-use super::render::{render_crop, render_full, LocateFrame, LocateImage};
+use super::render::{render_crop_opts, render_full, LocateFrame, LocateImage};
 use super::trace::{
     FrameTrace, LocateStep, LocateTrace, OutcomeTrace, RequestTrace, RoundTrace, VerifyStep,
 };
@@ -249,8 +249,59 @@ pub async fn locate_one<V: LocateVision>(
     cancel: &CancellationToken,
 ) -> Result<LocateOutcome> {
     let (outcome, trace) = locate_one_traced(vision, frame, req, cfg, cancel).await?;
+    dump_annotated_frame(frame, &trace);
     write_trace(&trace);
     Ok(outcome)
+}
+
+/// Draw every box the run produced onto one copy of the frame, plus the point
+/// that will be clicked.
+///
+/// The crops each show their own box in their own window; nothing says where
+/// that window is on the screen. 「偏了一格」 is a question about the whole
+/// screen — this image answers it at a glance.
+fn dump_annotated_frame(frame: &LocateFrame, trace: &LocateTrace) {
+    if debug_dir().is_none() {
+        return;
+    }
+    let mut boxes: Vec<PxBox> = Vec::new();
+    for round in &trace.rounds {
+        if let Some(step) = round.locate.as_ref() {
+            if let Some(b) = step.box_px {
+                boxes.push(PxBox {
+                    x1: b[0],
+                    y1: b[1],
+                    x2: b[2],
+                    y2: b[3],
+                });
+            }
+        }
+        if let Some(v) = round.verify.as_ref() {
+            let b = v.box_px;
+            let last = boxes.last().copied();
+            let same = last.is_some_and(|l| {
+                (l.x1 - b[0]).abs() < 1.0
+                    && (l.y1 - b[1]).abs() < 1.0
+                    && (l.x2 - b[2]).abs() < 1.0
+                    && (l.y2 - b[3]).abs() < 1.0
+            });
+            if !same {
+                boxes.push(PxBox {
+                    x1: b[0],
+                    y1: b[1],
+                    x2: b[2],
+                    y2: b[3],
+                });
+            }
+        }
+    }
+    let point = trace.outcome.point.map(|p| (p[0], p[1]));
+    match super::render::render_annotated_frame(frame, &boxes, point) {
+        Ok(img) => {
+            dump_image(&trace.run_id, "annotated", &img);
+        }
+        Err(e) => log::warn!("locate: annotated frame failed: {e}"),
+    }
 }
 
 /// The loop itself, returning the trace **without** writing it.
@@ -382,9 +433,17 @@ async fn locate_one_traced<V: LocateVision>(
 
         // Inner loop: one crop, retried with a different `side` while the
         // verifier reports `unclear` for a fixable reason.
+        // `loop` with only `break`s: clippy is right that it never loops, but it
+        // cannot be a plain block because the body uses `break` to leave the
+        // outer round loop (`if matches!(stop, Stop::Verified) { break; }`), and
+        // `break` is only legal inside a loop. Rewriting it to a block would mean
+        // turning that into a labelled break out of the round loop, which is a
+        // larger change than this file's job.
+        #[allow(clippy::never_loop)]
         let (verdict, last_crop) = loop {
             let t_render = std::time::Instant::now();
-            let (image, bounds) = render_crop(frame, current, side, cfg.out_px)?;
+            let (image, bounds) =
+                render_crop_opts(frame, current, side, cfg.out_px, super::render::dim_enabled())?;
             // 图一 — the original close crop. Everything precise is judged from
             // it: at 240 px a 41 px cell lands at 273 px in the image, which is
             // enough to see whether the box sits on the four borders.
@@ -401,7 +460,14 @@ async fn locate_one_traced<V: LocateVision>(
                 } else {
                     cfg.verify_out_px
                 };
-                let img = render_crop(frame, current, side * cfg.verify_mult, wide_px)?.0;
+                let img = render_crop_opts(
+                    frame,
+                    current,
+                    side * cfg.verify_mult,
+                    wide_px,
+                    super::render::dim_enabled(),
+                )?
+                .0;
                 Some(img)
             } else {
                 None
@@ -795,6 +861,19 @@ async fn locate_in<V: LocateVision>(
         }
         Ok(Some(LocateAnswer::NotFound)) => {
             step.not_found = true;
+            // Distinct from a parse failure, and distinct from 「found a box but
+            // it was wrong」: the locator looked and said the target is not in
+            // this image. Recorded because the two have opposite fixes — this
+            // one needs a wider view, the other needs a better box — and from
+            // the final outcome alone they are indistinguishable (both end as
+            // `rounds_exhausted` or a silent miss).
+            debug_log!(
+                "locate: not_found run={run} where={where_} image_id={image_id} bounds=[{:.0},{:.0},{:.0},{:.0}]",
+                bounds.x0,
+                bounds.y0,
+                bounds.x1,
+                bounds.y1,
+            );
             (LocateAttempt::NotFound, step)
         }
         Ok(None) | Err(_) => (LocateAttempt::Failed, step),

@@ -192,6 +192,33 @@ pub fn render_crop_opts(
     out_px: u32,
     dim: bool,
 ) -> Result<(LocateImage, CropBounds)> {
+    render_crop_marked(frame, candidate, side, out_px, dim, Mark::BoxAndDot)
+}
+
+/// What the crop draws on top of the screenshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mark {
+    /// Candidate outline plus the centre dot — what the verifier needs, because
+    /// its whole job is judging that outline.
+    BoxAndDot,
+    /// Only the centre dot. The locator gets this: the outline is the single most
+    /// target-shaped thing in the crop (high saturation, hard edges, dead centre),
+    /// and a locator asked 「where is the target」 will hand it straight back. It
+    /// did exactly that — `raw=[344,344,656,656]` is the crop centre, i.e. the
+    /// box it was shown, returned unchanged. The candidate's real position is
+    /// already in the prompt as four numbers, so the picture does not need it.
+    DotOnly,
+}
+
+/// [`render_crop`] with both the dimming and the mark style explicit.
+pub fn render_crop_marked(
+    frame: &LocateFrame,
+    candidate: NormBox,
+    side: f64,
+    out_px: u32,
+    dim: bool,
+    mark: Mark,
+) -> Result<(LocateImage, CropBounds)> {
     let (w, h) = (frame.width(), frame.height());
     let target = candidate.to_px(w, h);
     let bounds = CropBounds::around(target, side);
@@ -226,7 +253,9 @@ pub fn render_crop_opts(
     if dim {
         // Kept for callers that pass `true` explicitly; currently unused.
     }
-    draw_px_box(&mut magnified, drawn);
+    if mark == Mark::BoxAndDot {
+        draw_px_box(&mut magnified, drawn);
+    }
     // Centre mark last, so neither the dimming nor the box outline touches it.
     //
     // This is the whole "is the coordinate right" question, made visual: the mark

@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::geometry::{crop_side_px, nearly_same, px_to_rel, rel_to_norm, CropBounds, NormBox, PxBox};
 use super::prompt::{locate_prompt, refine_hint, verify_prompt_views, LocateAnswer};
-use super::render::{render_crop_opts, render_full, LocateFrame, LocateImage};
+use super::render::{render_crop_marked, render_crop_opts, render_full, LocateFrame, LocateImage};
 use super::trace::{
     FrameTrace, LocateStep, LocateTrace, OutcomeTrace, RequestTrace, RoundTrace, VerifyStep,
 };
@@ -444,6 +444,23 @@ async fn locate_one_traced<V: LocateVision>(
             let t_render = std::time::Instant::now();
             let (image, bounds) =
                 render_crop_opts(frame, current, side, cfg.out_px, super::render::dim_enabled())?;
+            // The locator gets the same window without the candidate outline —
+            // only the centre dot. See `Mark::DotOnly`: the outline is the most
+            // target-shaped thing in the crop and the locator returns it
+            // unchanged instead of looking for the target.
+            //
+            // Rendered from the same `bounds`, so both images are the same window
+            // and the same scale: a box the locator reports in one maps straight
+            // into the other.
+            let locate_image = render_crop_marked(
+                frame,
+                current,
+                side,
+                cfg.out_px,
+                super::render::dim_enabled(),
+                super::render::Mark::DotOnly,
+            )?
+            .0;
             // 图一 — the original close crop. Everything precise is judged from
             // it: at 240 px a 41 px cell lands at 273 px in the image, which is
             // enough to see whether the box sits on the four borders.
@@ -560,7 +577,7 @@ async fn locate_one_traced<V: LocateVision>(
                 last_why = v.notes.clone();
                 last_reasoning = v.reasoning.clone();
             }
-            let crop = Some((image, bounds));
+            let crop = Some((locate_image, bounds));
 
             // Three independent checks, all made by the verifier:
             //   ① `center_on_target` — is the mark on the target? The mark sits at

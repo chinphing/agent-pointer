@@ -891,15 +891,27 @@ cargo test --release -p pointer-core --test screenspot_pro screenspot_pro \
 ## Collecting failure samples from a real run
 
 A miss on the user's machine is worth more than a hundred synthetic ones, but
-only if the run can be reconstructed. Two environment variables make every
-`locate_one` self-describing:
+only if the run can be reconstructed. **One switch does it**, and it is the one
+already in the UI:
 
-```bash
-POINTER_LOCATE_DEBUG_DIR=/tmp/locate_debug RUST_LOG=info
-```
+> 设置 → 调试 → **保存截图到本地** (`debugSaveComputerCaptures`)
 
-One directory per session, one `<run_id>.json` per locate run, next to the
-JPEGs it references:
+That checkbox already means 「write what the computer agent saw to disk」, so
+locate honours it rather than adding a second place to look when nothing appears.
+Turning it on writes both halves of the record, because they are useless apart —
+a log with no crops cannot show what the model saw, and a directory of JPEGs with
+no log cannot say which round produced them:
+
+| output | where |
+|---|---|
+| trace log | stderr, `[locate] …` prefix, **no `RUST_LOG` needed** |
+| images + JSON | `<app data>/computer-captures/locate/` |
+
+`POINTER_LOCATE_DEBUG=1` / `POINTER_LOCATE_DEBUG_DIR` remain as a back door for
+tests and CLIs, which have no settings UI to tick. They are not the documented
+path.
+
+### What lands on disk
 
 | file | what it is |
 |---|---|
@@ -929,22 +941,115 @@ Every round is a pair of records, in execution order:
 
 `locate.box` equals the next round's `verify.box` — if those two ever disagree,
 the coordinate mapping is broken, which is exactly the bug this caught during
-development (`rel_to_norm` returns 0–1000, not pixels; the trace stored the
-normalised value and every locate box looked 5× smaller than the verify box it
-fed).
+development (`rel_to_norm` returns 0–1000, not pixels). The `locate: answer` log
+line prints all three spaces (`raw` / `px` / `rel`) for the same reason.
 
-**`truth_bbox` and `note` are left empty on purpose.** They are where a human
-writes the right answer, which is what turns a production failure into a
-regression fixture:
+### From a labelled trace to a fixture
+
+`truth_bbox` and `note` are left empty on purpose — they are where a human writes
+the right answer, which is what turns a production failure into a regression case:
 
 ```bash
-jq '.truth_bbox = [346,567,387,608] | .note = "偏右一格，I7 认成 I8"' \
-  /tmp/locate_debug/ed50b100.json > /tmp/case.json
+# 1. collect, with 设置 → 调试 → 保存截图到本地 turned on
+# 2. open <run>_frame.jpg, measure the right box, write it into <run>.json
+# 3. convert (see locate/truth.rs for the contract)
+cargo run -p pointer-core --example locate_trace_to_truth -- <capture dir>
+# 4. score it like any other dataset
+POINTER_LOCATE_TRUTH=truth_incidents.json \
+  cargo test --release -p pointer-core --test locate_fixture \
+  frozen_desktop_grounding -- --ignored --nocapture
 ```
 
-Copy the directory off the machine, label it, and the description, hint and
-per-round crops are already recorded — no re-typing, no re-running to reproduce.
+The conversion refuses rather than guesses: no `truth_bbox` → error (a `null`
+would be scored as *unscored* and skipped silently), a box outside the JPEG →
+error (it was measured in the wrong coordinate space, which produces a fixture
+where every case fails for a reason that looks like a model regression), and
+`frame.dumped` must match the JPEG on disk.
 
-Without `POINTER_LOCATE_DEBUG_DIR` the log still carries every id; only the
-files are skipped, so a suspicious run can be spotted first and dumped on the
-next reproduction.
+## From a labelled trace to an incidents dataset
+
+A trace with `truth_bbox` filled in is a regression case. `truth_incidents.json`
+is where those cases go — a **separate** dataset from every frozen baseline, for
+the reason in the last section.
+
+### What the trace records
+
+Three things had to be added before a trace could be replayed, because without
+them the file described the run but could not reproduce it:
+
+| field | why it exists |
+|---|---|
+| `request.hint_box` | `hint` keeps only the centre, and the first verify round runs on the **box**. A fixture rebuilt from a centre point verifies a different box than production did. |
+| `frame.dumped` | `render_full` downscales a frame above `FULL_MAX_PX` (2.5 MP), so a 2560×1440 screen is dumped as a 2108×1186 JPEG. Without this, a box measured on the JPEG looks wrong by the scale factor and nothing says so. |
+| `rounds[].locate.prompt` / `rounds[].verify.prompt` | The full prompt text each call was given. A wrong box caused by a wrong prompt is indistinguishable from one caused by a misread image until the prompt is on disk. |
+
+`desc=` in the log line is still cut (at 120 chars, up from 40) and now says
+`desc_truncated=true` when it is — the trace always keeps the whole description.
+
+### Two coordinate spaces
+
+Every box the engine writes — `bounds`, `prev_box`, `box`, `outcome.box`,
+`request.hint_box` — is in **frame pixels** (`frame.width` × `frame.height`).
+
+`truth_bbox` is in **dumped JPEG pixels**: the space of `frame.dumped`, which is
+what you see when you open `<run>_frame.jpg`. That is the only space a person can
+measure in, so it is the space the answer is written in. The two are identical on
+every screen up to 2.5 MP, which is why the difference was invisible until a
+large display was used.
+
+The converter does the arithmetic: the truth box needs no rescale (it is already
+in the fixture's space), the hint box is multiplied by `dumped / frame`, and a
+box that falls outside the JPEG is a hard error rather than a fixture that fails
+forever for a reason that looks like a model regression.
+
+### Labelling
+
+```bash
+POINTER_LOCATE_DEBUG_DIR=/tmp/locate_debug RUST_LOG=info   # then reproduce
+open /tmp/locate_debug/ed50b100_frame.jpg                  # measure on this
+jq '.truth_bbox = [346,567,387,608] | .note = "偏右一格，I7 认成 I8"' \
+  /tmp/locate_debug/ed50b100.json > /tmp/x && mv /tmp/x /tmp/locate_debug/ed50b100.json
+```
+
+### Converting
+
+```bash
+cargo run -p pointer-core --example locate_trace_to_truth -- /tmp/locate_debug
+```
+
+| output | what it is |
+|---|---|
+| `truth/truth_incidents.json` | one case per labelled run |
+| `fixtures/incidents/<run>.jpg` | that run's `frame.jpg`, copied verbatim |
+
+- **Rewritten, not appended.** The trace directory is the source: the dataset is
+  rebuilt from every labelled trace on each run, so fixing a case means fixing
+  its trace and converting again. Copied fixtures are never deleted.
+- **Unlabelled runs are reported and skipped**, listed by run id. A directory
+  where *nothing* is labelled is an error, not an empty dataset.
+- **Each case names its own fixture**, which is why `truth_incidents.json` has no
+  top-level `fixture`/`size`. `frozen_desktop_grounding` loads one frame per
+  distinct fixture and checks each screenshot's declared size, so a case whose
+  image was swapped or rescaled fails loudly instead of scoring noise.
+
+### Running
+
+```bash
+POINTER_LOCATE_TRUTH=truth_incidents.json \
+  cargo test --release -p pointer-core --test locate_fixture frozen_desktop_grounding \
+  -- --ignored --nocapture
+```
+
+The `scored >= 15` coverage bar does not apply here: an incidents dataset grows
+one labelled run at a time. The 70 % accuracy bar still does — an incident is a
+case that is supposed to pass.
+
+### Why a separate dataset
+
+`truth_sudoku.json` and the others are **frozen**: their numbers are compared
+across prompt and config versions, so a case may only be added or removed with a
+recorded reason. Incidents are the opposite — they accumulate from whatever went
+wrong this week, in whatever order. Mixing them would make every historical
+comparison a moving target, and a single production miss would silently change
+the denominator under the sudoku baseline.
+

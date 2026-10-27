@@ -280,7 +280,11 @@ impl Default for VerifyVerdict {
 }
 
 /// Tunables; defaults are the B5 baseline constants.
-#[derive(Debug, Clone, Copy, PartialEq)]
+///
+/// Not `Copy`: it carries the trace context (session / batch), which are strings
+/// handed in by the caller once per run. Cloning it per element is the only
+/// place that cost shows up.
+#[derive(Debug, Clone, PartialEq)]
 pub struct LocateConfig {
     pub max_locate: usize,
     pub max_verify_retry: usize,
@@ -307,6 +311,16 @@ pub struct LocateConfig {
     /// verifier's needs context *and* resolution. Sharing one number forced a
     /// trade that satisfied neither.
     pub verify_out_px: u32,
+    /// Which conversation this run belongs to. Recorded in the trace so a
+    /// collected sample says where it came from — a box that is wrong on a
+    /// sudoku board and one that is wrong on a spreadsheet are different bugs.
+    pub trace_session: Option<String>,
+    /// Groups the elements of one `locate_element` call. Three elements in one
+    /// call produce three runs; without this they cannot be told apart from
+    /// three separate calls.
+    pub trace_batch: Option<String>,
+    /// Position of this run inside its batch, 0-based.
+    pub trace_index: usize,
 }
 
 impl Default for LocateConfig {
@@ -320,6 +334,9 @@ impl Default for LocateConfig {
             out_px: CROP_OUT_PX,
             verify_mult: env_f64("POINTER_LOCATE_VERIFY_MULT", VERIFY_MULT),
             verify_out_px: env_u32("POINTER_LOCATE_VERIFY_OUT_PX", VERIFY_OUT_PX),
+            trace_session: None,
+            trace_batch: None,
+            trace_index: 0,
         }
     }
 }

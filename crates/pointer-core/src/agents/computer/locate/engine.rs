@@ -19,6 +19,62 @@ use super::types::{
     VerifyVerdict,
 };
 
+/// One switch for everything diagnostic — **the one in the settings UI**.
+///
+/// 设置 → 调试 → 「保存截图到本地」 (`debugSaveComputerCaptures`) already means
+/// 「write what the computer agent saw to disk」. Making locate honour a second,
+/// private switch would give two places to look when nothing appears, and the
+/// person debugging a miss has no reason to know that locate has its own.
+///
+/// So: that checkbox turns on the trace log **and** the locate crops, written
+/// next to the other captures under `<app data>/computer-captures/locate/`.
+///
+/// `POINTER_LOCATE_DEBUG=1` / `POINTER_LOCATE_DEBUG_DIR` stay as a back door for
+/// tests and CLIs, which have no settings UI to tick. They are not the documented
+/// path.
+fn debug_on() -> bool {
+    if crate::agents::computer::capture_debug::computer_capture_dump_enabled() {
+        return true;
+    }
+    matches!(
+        std::env::var("POINTER_LOCATE_DEBUG").as_deref().map(str::trim),
+        Ok("1") | Ok("on") | Ok("true")
+    )
+}
+
+/// Where images and traces are written.
+///
+/// An explicit `POINTER_LOCATE_DEBUG_DIR` wins — a test that writes to a temp
+/// directory must not scribble in the user's app data. Otherwise the captures
+/// live beside the other computer captures, which is where someone looking for
+/// 「what did it see」 already goes.
+fn debug_dir() -> Option<std::path::PathBuf> {
+    if let Ok(d) = std::env::var("POINTER_LOCATE_DEBUG_DIR") {
+        if !d.trim().is_empty() {
+            return Some(std::path::PathBuf::from(d));
+        }
+    }
+    if !debug_on() {
+        return None;
+    }
+    crate::storage::app_data_dir()
+        .ok()
+        .map(|base| base.join("computer-captures").join("locate"))
+}
+
+/// `debug_log!("round={n} box={:?}", b)` — printed only while debugging is on.
+///
+/// Same content as the `log::info!` lines it replaces, but gated by the switch
+/// instead of `RUST_LOG`, and written straight to `stderr` so it lands in the
+/// same capture as the test's own `println!`.
+macro_rules! debug_log {
+    ($($arg:tt)*) => {
+        if debug_on() {
+            eprintln!("[locate] {}", format!($($arg)*));
+        }
+    };
+}
+
 /// A short id that ties one `locate_one` run's log lines and dumped images
 /// together.
 ///
@@ -26,9 +82,6 @@ use super::types::{
 /// `round=2` appears dozens of times per screen and there is no way to tell
 /// whose `verify` verdict belongs to whose `locate` box. Every line and every
 /// dumped file carries `run=<id>`, so a failure can be replayed from disk.
-///
-/// `POINTER_LOCATE_DEBUG_DIR` decides whether images are written at all. Absent
-/// → nothing is dumped and only the ids appear in the log.
 fn new_run_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(0);
@@ -42,6 +95,22 @@ fn new_run_id() -> String {
     format!("{:06x}{:02x}", ms & 0xff_ffff, n & 0xff)
 }
 
+/// How much of a target description a **log line** keeps.
+///
+/// Only the log truncates: the trace stores `target_desc` in full, and so does
+/// every prompt. 40 was short enough that two different elements of the same
+/// list — 「…里的『第三行』」 vs 「…里的『第四行』」 — cut to the same prefix, which
+/// makes a log-only diagnosis actively misleading. The flag is printed next to
+/// the text so a reader never has to guess whether they saw all of it.
+const LOG_DESC_MAX: usize = 120;
+
+/// `(text, truncated)` for a log line.
+fn short_desc(desc: &str) -> (String, bool) {
+    let mut chars = desc.chars();
+    let head: String = chars.by_ref().take(LOG_DESC_MAX).collect();
+    (head, chars.next().is_some())
+}
+
 /// Write `image` to `POINTER_LOCATE_DEBUG_DIR/<name>.jpg` when debugging is on.
 ///
 /// Returns the **id** that was logged, so the log line and the file on disk are
@@ -50,20 +119,16 @@ fn new_run_id() -> String {
 /// dumping enabled.
 fn dump_image(run: &str, name: &str, image: &LocateImage) -> String {
     let id = format!("{run}_{name}");
-    let Ok(dir) = std::env::var("POINTER_LOCATE_DEBUG_DIR") else {
+    let Some(dir) = debug_dir() else {
         return id;
     };
-    if dir.trim().is_empty() {
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        log::warn!("locate: debug dir {} unusable: {e}", dir.display());
         return id;
     }
-    let path = std::path::Path::new(&dir);
-    if let Err(e) = std::fs::create_dir_all(path) {
-        log::warn!("locate: debug dir {dir} unusable: {e}");
-        return id;
-    }
-    let file = path.join(format!("{id}.jpg"));
+    let file = dir.join(format!("{id}.jpg"));
     match std::fs::write(&file, &image.jpeg) {
-        Ok(()) => log::info!("locate: dumped {} ({} bytes)", file.display(), image.jpeg.len()),
+        Ok(()) => debug_log!("dumped {} ({} bytes)", file.display(), image.jpeg.len()),
         Err(e) => log::warn!("locate: dump {} failed: {e}", file.display()),
     }
     id
@@ -77,16 +142,13 @@ fn dump_image(run: &str, name: &str, image: &LocateImage) -> String {
 /// case is ready to be turned into a fixture — no re-typing the description, the
 /// hint, or which round failed.
 fn write_trace(trace: &LocateTrace) {
-    let Ok(dir) = std::env::var("POINTER_LOCATE_DEBUG_DIR") else {
+    let Some(dir) = debug_dir() else {
         return;
     };
-    if dir.trim().is_empty() {
-        return;
-    }
-    let path = std::path::Path::new(&dir).join(format!("{}.json", trace.run_id));
+    let path = dir.join(format!("{}.json", trace.run_id));
     match serde_json::to_string_pretty(trace) {
         Ok(json) => match std::fs::write(&path, json) {
-            Ok(()) => log::info!("locate: trace -> {}", path.display()),
+            Ok(()) => debug_log!("trace -> {}", path.display()),
             Err(e) => log::warn!("locate: trace {} failed: {e}", path.display()),
         },
         Err(e) => log::warn!("locate: trace serialise failed: {e}"),
@@ -158,8 +220,22 @@ pub async fn locate_elements<V: LocateVision>(
     cancel: &CancellationToken,
 ) -> Result<Vec<LocateOutcome>> {
     let mut out = Vec::with_capacity(requests.len());
-    for req in requests {
-        out.push(locate_one(vision, frame, req, cfg, cancel).await?);
+    // One batch id per call, so the runs of a single `locate_element` can be
+    // grouped after the fact. Without it, three elements located in one call are
+    // indistinguishable from three separate calls, and a failure that only shows
+    // up when several targets share a screen is invisible.
+    let batch = if requests.len() > 1 {
+        Some(new_run_id())
+    } else {
+        None
+    };
+    for (index, req) in requests.iter().enumerate() {
+        let mut cfg = cfg.clone();
+        if cfg.trace_batch.is_none() {
+            cfg.trace_batch = batch.clone();
+            cfg.trace_index = index;
+        }
+        out.push(locate_one(vision, frame, req, &cfg, cancel).await?);
     }
     Ok(out)
 }
@@ -172,36 +248,68 @@ pub async fn locate_one<V: LocateVision>(
     cfg: &LocateConfig,
     cancel: &CancellationToken,
 ) -> Result<LocateOutcome> {
+    let (outcome, trace) = locate_one_traced(vision, frame, req, cfg, cancel).await?;
+    write_trace(&trace);
+    Ok(outcome)
+}
+
+/// The loop itself, returning the trace **without** writing it.
+///
+/// Split out so the record can be asserted in a unit test: `write_trace` is a
+/// no-op unless `POINTER_LOCATE_DEBUG_DIR` is set, and a test that has to create
+/// a directory and guess the run id is not worth writing. Everything a collector
+/// later relies on — the hint box, the dumped JPEG's size, the full prompts — is
+/// visible here.
+async fn locate_one_traced<V: LocateVision>(
+    vision: &V,
+    frame: &LocateFrame,
+    req: &LocateRequest,
+    cfg: &LocateConfig,
+    cancel: &CancellationToken,
+) -> Result<(LocateOutcome, LocateTrace)> {
     let (w, h) = (frame.width().max(1), frame.height().max(1));
     let full = CropBounds::full(w, h);
     // One id per run: every log line and every dumped image carries it, so a
     // failure can be traced from `round=2` back to the exact crop the model saw.
     let run = new_run_id();
     let started_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    log::info!(
-        "locate: start run={run} frame={}x{} desc={:?} hint={:?} max_locate={}",
+    let (desc_log, desc_cut) = short_desc(&req.target_desc);
+    debug_log!(
+        "locate: start run={run} frame={}x{} desc={:?} desc_truncated={desc_cut} hint={:?} max_locate={}",
         w,
         h,
-        req.target_desc.chars().take(40).collect::<String>(),
+        desc_log,
         req.hint_center().map(|(x, y)| [x.round(), y.round()]),
         cfg.max_locate,
     );
     // The full frame is dumped once per run, not once per round: it is what the
     // whole trace is measured against, and a labelled `truth_bbox` is only
     // meaningful in its coordinate space.
-    let frame_path = dump_image(&run, "frame", &render_full(frame, None)?);
+    //
+    // Its **encoded** size is recorded, not `w`/`h`: `render_full` downscales
+    // anything above `FULL_MAX_PX`, so on a 2560×1440 screen the JPEG on disk is
+    // smaller than the frame. A box measured on that JPEG (the only image a
+    // person can open) would otherwise be off by the scale factor, and nothing in
+    // the trace would say so.
+    let full_image = render_full(frame, None)?;
+    let frame_path = dump_image(&run, "frame", &full_image);
     let mut trace = LocateTrace {
         run_id: run.clone(),
         started_at,
+        session: cfg.trace_session.clone(),
+        batch: cfg.trace_batch.clone(),
+        index: cfg.trace_index,
         frame: FrameTrace {
             path: format!("{frame_path}.jpg"),
             width: w,
             height: h,
+            dumped: Some([full_image.width, full_image.height]),
         },
         request: RequestTrace {
             target_desc: req.target_desc.clone(),
             goal: req.goal.clone(),
             hint: req.hint_center().map(|(x, y)| [x, y]),
+            hint_box: req.hint_px.map(|b| [b.x1, b.y1, b.x2, b.y2]),
         },
         rounds: Vec::new(),
         outcome: OutcomeTrace {
@@ -229,8 +337,10 @@ pub async fn locate_one<V: LocateVision>(
 
     // ① First locate — skipped entirely when the caller supplied a hint box.
     if box_norm.is_none() {
-        let image = render_full(frame, None)?;
-        let (attempt, step) = locate_in(vision, &run, "full_init", &image, full, w, h, &req.target_desc, req.hint_center(), None, None).await;
+        // Same encoded image the frame JPEG was written from: re-rendering it
+        // would run Lanczos3 over the whole screen a second time and could only
+        // produce the same bytes.
+        let (attempt, step) = locate_in(vision, &run, "full_init", &full_image, full, w, h, &req.target_desc, req.hint_center(), None, None).await;
         trace.rounds.push(RoundTrace {
             round: 0,
             locate: Some(step),
@@ -304,7 +414,7 @@ pub async fn locate_one<V: LocateVision>(
             let wide_id = wide_image
                 .as_ref()
                 .map(|w| dump_image(&run, &format!("verify_r{rounds}_wide"), w));
-            log::info!(
+            debug_log!(
                 "locate: verify_input run={run} round={rounds} side={side:.0} box=[{:.0},{:.0},{:.0},{:.0}] close_id={close_id} close={}x{} wide_id={:?} wide={:?}",
                 current.to_px(w, h).x1,
                 current.to_px(w, h).y1,
@@ -332,7 +442,7 @@ pub async fn locate_one<V: LocateVision>(
             // indistinguishable from 「the model got slower」 — rendering two
             // crops at 1600² and 1920² is a real cost that never shows up in a
             // per-case timing.
-            log::info!(
+            debug_log!(
                 "locate: timing run={run} round={rounds} render={:.0}ms verify_call={:.0}ms close={}x{} wide={}",
                 (t_call - t_render).as_secs_f64() * 1000.0,
                 call_ms,
@@ -346,7 +456,7 @@ pub async fn locate_one<V: LocateVision>(
             // Every verdict, not just failures: without this line a locate run
             // is a black box — you cannot tell whether the box was too tight,
             // the crop too small, or the target genuinely absent.
-            log::info!(
+            debug_log!(
                 "locate: verify_output run={run} round={rounds} center={:?} size={:?} position={} close_id={close_id} notes={}",
                 v.center_on_target,
                 v.size_ok,
@@ -371,6 +481,10 @@ pub async fn locate_one<V: LocateVision>(
                     notes: v.notes.trim().to_string(),
                     render_ms: (t_call - t_render).as_millis() as u64,
                     call_ms: call_ms as u64,
+                    // The same prompt every round — recorded per step anyway so
+                    // that one `rounds[]` entry can be read (and replayed) on its
+                    // own, without cross-referencing another step.
+                    prompt: Some(verify_text.clone()),
                 }),
             });
             // `notes` opens with what is actually in the box, so it doubles as
@@ -532,7 +646,6 @@ pub async fn locate_one<V: LocateVision>(
         let (cx, cy) = b.center();
         trace.outcome.point = Some([cx / 1000.0 * w as f64, cy / 1000.0 * h as f64]);
     }
-    write_trace(&trace);
 
     if stop != Stop::Verified {
         let mut out = LocateOutcome::failure(
@@ -542,31 +655,37 @@ pub async fn locate_one<V: LocateVision>(
             rounds,
         );
         out.why = last_why;
-        return Ok(out);
+        return Ok((out, trace));
     }
 
     let Some(b) = box_norm else {
-        return Ok(LocateOutcome::failure(
-            req.target_desc.clone(),
-            FailureReason::NotFound,
-            what_i_saw,
-            rounds,
+        return Ok((
+            LocateOutcome::failure(
+                req.target_desc.clone(),
+                FailureReason::NotFound,
+                what_i_saw,
+                rounds,
+            ),
+            trace,
         ));
     };
     let (cx, cy) = b.center();
     let point = (cx / 1000.0 * w as f64, cy / 1000.0 * h as f64);
-    Ok(LocateOutcome {
-        target_desc: req.target_desc.clone(),
-        ok: true,
-        point_px: Some(point),
-        box_px: Some(b.to_px(w, h)),
-        confidence: Some(final_confidence),
-        what_i_saw,
-        why: last_why,
-        reasoning: last_reasoning,
-        rounds,
-        reason: None,
-    })
+    Ok((
+        LocateOutcome {
+            target_desc: req.target_desc.clone(),
+            ok: true,
+            point_px: Some(point),
+            box_px: Some(b.to_px(w, h)),
+            confidence: Some(final_confidence),
+            what_i_saw,
+            why: last_why,
+            reasoning: last_reasoning,
+            rounds,
+            reason: None,
+        },
+        trace,
+    ))
 }
 
 /// One `locate` call's outcome.
@@ -617,12 +736,13 @@ async fn locate_in<V: LocateVision>(
     let prev_rel = prev_box.map(|b| px_to_rel(b, bounds));
     let prompt = locate_prompt(description, hint_rel, previous_hint, prev_rel);
     let image_id = dump_image(run, &format!("locate_{where_}"), image);
+    let (desc_log, desc_cut) = short_desc(description);
     // The inputs matter as much as the answer: a box that is wrong because the
     // crop was wrong looks identical to a box that is wrong because the model
     // misread it. `bounds` is what the model actually saw, `prev` is what it was
     // told to fix, `hint` is where the caller thought the target was.
-    log::info!(
-        "locate: call run={run} where={where_} image_id={image_id} size={}x{} bounds=[{:.0},{:.0},{:.0},{:.0}] prev={:?} hint={:?} desc={:?}",
+    debug_log!(
+        "locate: call run={run} where={where_} image_id={image_id} size={}x{} bounds=[{:.0},{:.0},{:.0},{:.0}] prev={:?} hint={:?} desc={:?} desc_truncated={desc_cut}",
         image.width,
         image.height,
         bounds.x0,
@@ -631,7 +751,7 @@ async fn locate_in<V: LocateVision>(
         bounds.y1,
         prev_box.map(|b| [b.x1.round(), b.y1.round(), b.x2.round(), b.y2.round()]),
         hint_px.map(|(x, y)| [x.round(), y.round()]),
-        description.chars().take(40).collect::<String>(),
+        desc_log,
     );
     let mut step = LocateStep {
         where_: where_.to_string(),
@@ -641,6 +761,7 @@ async fn locate_in<V: LocateVision>(
         raw: None,
         box_px: None,
         not_found: false,
+        prompt: Some(prompt.clone()),
     };
     match vision.locate(image, &prompt).await {
         Ok(Some(LocateAnswer::Found(raw))) => {
@@ -649,7 +770,7 @@ async fn locate_in<V: LocateVision>(
             // pixels and answers in pixels looks identical to a correct one
             // until the two are compared.
             let mapped = rel_to_norm(raw, bounds, w, h);
-            log::info!(
+            debug_log!(
                 "locate: answer run={run} where={where_} raw=[{:.0},{:.0},{:.0},{:.0}] -> px=[{:.0},{:.0},{:.0},{:.0}] (rel=[{:.0},{:.0},{:.0},{:.0}])",
                 raw.x1,
                 raw.y1,
@@ -1085,5 +1206,119 @@ mod tests {
             .filter(|c| matches!(c, Call::Locate { .. }))
             .count();
         assert_eq!(locates, 2, "expected a re-locate, got {locates}");
+    }
+
+    /// Only the log line is cut; the flag tells a reader whether they saw all of
+    /// it, so a diagnosis is never built on a silently abbreviated description.
+    #[test]
+    fn short_desc_flags_truncation() {
+        assert_eq!(short_desc("保存按钮"), ("保存按钮".to_string(), false));
+        // Exactly at the cap is complete — the flag means "there is more".
+        let exact = "字".repeat(LOG_DESC_MAX);
+        assert_eq!(short_desc(&exact), (exact.clone(), false));
+        let over = format!("{exact}多");
+        let (text, cut) = short_desc(&over);
+        assert!(cut);
+        assert_eq!(text.chars().count(), LOG_DESC_MAX);
+    }
+
+    /// The trace is the artifact a failure is diagnosed from months later, so
+    /// what it must contain is worth asserting: the caller's whole hint box (not
+    /// just its centre), and the exact prompt each call was given.
+    #[tokio::test]
+    async fn trace_keeps_the_hint_box_and_the_full_prompts() {
+        let hint = PxBox {
+            x1: 800.0,
+            y1: 35.0,
+            x2: 840.0,
+            y2: 55.0,
+        };
+        let vision = FakeVision::new().with_verify(vec![yes("蓝色软盘图标")]);
+        let (out, trace) = locate_one_traced(
+            &vision,
+            &frame(),
+            &LocateRequest::new("保存按钮", "点击它").with_hint_px(hint),
+            &cfg(),
+            &cancel_token(),
+        )
+        .await
+        .unwrap();
+
+        assert!(out.ok);
+        // `hint` stays as the centre for old readers; `hint_box` is what the
+        // first verify round actually verified, so a fixture can replay it.
+        assert_eq!(trace.request.hint, Some([820.0, 45.0]));
+        assert_eq!(trace.request.hint_box, Some([800.0, 35.0, 840.0, 55.0]));
+
+        let verify = trace.rounds[0].verify.as_ref().expect("verify step");
+        let prompt = verify.prompt.as_deref().expect("verify prompt recorded");
+        assert!(prompt.contains("保存按钮"), "prompt lost the description");
+        // The hint box is what round 1 verified; it goes through the 0–1000
+        // normalisation, so compare with a tolerance rather than bit-exact.
+        for (got, want) in verify.box_px.iter().zip([800.0, 35.0, 840.0, 55.0]) {
+            assert!((got - want).abs() < 1e-6, "box {got} != {want}");
+        }
+
+        // The frame is 1000x800 = 0.8 MP, under `FULL_MAX_PX`, so the dumped JPEG
+        // is the frame and a hand-measured box needs no rescaling.
+        assert_eq!(trace.frame.dumped, Some([1000, 800]));
+        assert!(trace.frame.dump_is_identity());
+    }
+
+    #[tokio::test]
+    async fn trace_keeps_the_locate_prompt_of_every_call() {
+        let vision = FakeVision::new()
+            .with_locate(vec![Some(NormBox::new(400.0, 300.0, 500.0, 400.0))])
+            .with_verify(vec![yes("蓝色软盘图标")]);
+        let (_, trace) = locate_one_traced(
+            &vision,
+            &frame(),
+            &LocateRequest::new("保存按钮", "点击它"),
+            &cfg(),
+            &cancel_token(),
+        )
+        .await
+        .unwrap();
+
+        let locate = trace.rounds[0].locate.as_ref().expect("locate step");
+        assert_eq!(locate.where_, "full_init");
+        let prompt = locate.prompt.as_deref().expect("locate prompt recorded");
+        assert!(prompt.contains("保存按钮"), "prompt lost the description");
+    }
+
+    /// A description long enough that the **log line** cuts it: the trace must
+    /// still hold every character, otherwise the artifact a failure is diagnosed
+    /// from loses the part that distinguishes two look-alike targets.
+    #[tokio::test]
+    async fn trace_keeps_a_description_the_log_line_would_cut() {
+        // The words do not matter, only that the description is longer than the
+        // log line's cap (4 × ~41 chars).
+        let long = "「财务分析」标签页右侧的导出按钮，位于下拉箭头左边，仅在报表有数据时出现。".repeat(4);
+        assert!(
+            long.chars().count() > LOG_DESC_MAX,
+            "this test is pointless unless the description exceeds the log cap"
+        );
+        let vision = FakeVision::new()
+            .with_locate(vec![Some(NormBox::new(400.0, 300.0, 500.0, 400.0))])
+            .with_verify(vec![yes("导出按钮")]);
+        let (_, trace) = locate_one_traced(
+            &vision,
+            &frame(),
+            &LocateRequest::new(long.as_str(), "点击它"),
+            &cfg(),
+            &cancel_token(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(trace.request.target_desc, long);
+        let prompt = trace.rounds[0]
+            .locate
+            .as_ref()
+            .unwrap()
+            .prompt
+            .as_deref()
+            .unwrap();
+        assert!(prompt.contains(&long), "the trace must keep the whole prompt");
     }
 }

@@ -9,18 +9,29 @@
 //! ├── fixtures/
 //! │   ├── truth_desktop.png      frozen capture for truth_desktop.json
 //! │   ├── truth_eastmoney.png    frozen capture for the eastmoney truth files
-//! │   └── sudoku.png             frozen capture for truth_sudoku.json
+//! │   ├── sudoku.png             frozen capture for truth_sudoku.json
+//! │   └── incidents/             one <run>.jpg per collected incident (built)
 //! └── truth/
 //!     ├── truth_desktop.json     desktop, 20 cases
 //!     ├── truth_eastmoney.json   eastmoney page, 29 cases
 //!     ├── truth_fourpart.json    same page, four-part descriptions vs old ones
-//!     └── truth_sudoku.json      81 cells, one per test point
+//!     ├── truth_sudoku.json      81 cells, one per test point
+//!     └── truth_incidents.json   collected production runs (built)
 //! ```
 //!
 //! A fixture is named after the truth file that drives it, so a screenshot and
 //! its ground truth stay paired. `truth_fourpart.json` reuses
 //! `fixtures/truth_eastmoney.png` — it is the same page described two ways, and
 //! duplicating a 1 MB capture to honour the naming rule would buy nothing.
+//!
+//! `truth_incidents.json` is the one dataset that **names a fixture per case**:
+//! every case is a different screenshot, collected from a real run that went
+//! wrong. It is generated, never hand-edited —
+//! `cargo run -p pointer-core --example locate_trace_to_truth -- <debug dir>`
+//! turns labelled traces into it (see `BASELINE.md`). Keeping it apart from the
+//! frozen datasets is deliberate: those numbers are a baseline that is compared
+//! across versions, and a growing pile of production misses would make every
+//! comparison a moving target.
 //!
 //! `truth_sudoku.json` is different from the others: its cases are not
 //! descriptions to locate but cell boxes, each `bbox` being one sudoku cell. The
@@ -48,6 +59,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use pointer_core::agents::computer::locate::truth::{TruthCase, TruthFile};
 use pointer_core::agents::computer::locate::{
     locate_elements, ChatLocateVision, LocateConfig, LocateFrame, LocateOutcome, LocateRequest,
     PxBox,
@@ -102,38 +114,19 @@ fn load_truth_file(path: &PathBuf) -> Result<TruthFile> {
     Ok(file)
 }
 
-#[derive(serde::Deserialize)]
-struct TruthFile {
-    /// Fixture file name, relative to this directory.
-    fixture: String,
-    /// Expected `[width, height]` of the fixture, in logical pixels.
-    #[serde(default)]
-    size: Option<[u32; 2]>,
-    #[serde(default)]
-    cases: Vec<TruthCase>,
-}
-
-#[derive(serde::Deserialize)]
-struct TruthCase {
-    #[serde(default)]
-    scene: String,
-    description: String,
-    /// What the caller intends to do with the element. Mirrors production, where
-    /// `resolve_point` passes the model's own goal and the grounder uses it to
-    /// choose between look-alike targets. Falls back to the fill-in wording.
-    #[serde(default)]
-    goal: Option<String>,
-    /// `[x1, y1, x2, y2]` in logical pixels; `null` = not measured yet.
-    #[serde(default)]
-    bbox: Option<[f64; 4]>,
-    /// `plain` (default) or `partial_hint` — the latter supplies a `hint_box`
-    /// that overlaps the target but whose centre falls outside it.
-    #[serde(default)]
-    kind: String,
-    #[serde(default)]
-    hint_box: Option<[f64; 4]>,
-    #[serde(default)]
-    note: String,
+/// The one fixture a **frozen** dataset names for all of its cases.
+///
+/// The datasets under `truth/` all work this way: one screenshot, many
+/// descriptions. An incidents dataset names a fixture per case instead, and
+/// these tests have no meaning on it — say so rather than joining an empty
+/// string and failing later at decode time.
+fn shared_fixture(truth: &TruthFile) -> Result<&str> {
+    anyhow::ensure!(
+        truth.has_shared_fixture(),
+        "this dataset names a fixture per case; run it with \
+         `frozen_desktop_grounding`, which loads one frame per case"
+    );
+    Ok(&truth.fixture)
 }
 
 /// The truth file is the single source of truth: fixture name, size, and cases.
@@ -306,18 +299,38 @@ async fn frozen_desktop_grounding() -> Result<()> {
         .is_test(false)
         .try_init();
     let truth = load_truth()?;
-    let path = dir().join(&truth.fixture);
-    assert!(path.exists(), "missing fixture: {}", path.display());
 
-    let img = image::open(&path)?.to_rgb8();
-    let frame = LocateFrame::new(img);
-    if let Some([w, h]) = truth.size {
-        assert_eq!(
-            (frame.width(), frame.height()),
-            (w, h),
-            "fixture size does not match the truth file; a Retina 2x capture would \
-             shift every returned coordinate by 2x"
-        );
+    // One decoded frame per distinct fixture. The frozen datasets point every
+    // case at one screenshot; an incidents dataset gives each case its own, so
+    // this loads on demand instead of assuming a single image — and checks the
+    // declared size per screenshot, which is where a downscaled JPEG would
+    // otherwise shift every coordinate.
+    let mut loaded: std::collections::HashMap<PathBuf, std::sync::Arc<LocateFrame>> =
+        std::collections::HashMap::new();
+    let mut fixture_names: Vec<String> = Vec::new();
+    let mut case_frames: Vec<std::sync::Arc<LocateFrame>> = Vec::with_capacity(truth.cases.len());
+    for case in &truth.cases {
+        let name = truth.case_fixture_name(case)?;
+        let path = dir().join(name);
+        if !loaded.contains_key(&path) {
+            assert!(path.exists(), "missing fixture: {}", path.display());
+            let img = image::open(&path)?.to_rgb8();
+            let frame = LocateFrame::new(img);
+            if let Some([w, h]) = truth.case_size(case) {
+                assert_eq!(
+                    (frame.width(), frame.height()),
+                    (w, h),
+                    "{} is {}x{}, the truth file says {w}x{h}; a Retina 2x capture would \
+                     shift every returned coordinate by 2x",
+                    path.display(),
+                    frame.width(),
+                    frame.height()
+                );
+            }
+            fixture_names.push(name.to_string());
+            loaded.insert(path.clone(), std::sync::Arc::new(frame));
+        }
+        case_frames.push(loaded[&path].clone());
     }
 
     let capture = std::env::var("POINTER_LOCATE_CAPTURE").is_ok();
@@ -345,10 +358,15 @@ async fn frozen_desktop_grounding() -> Result<()> {
         .unwrap_or(60);
     let per_case = std::time::Duration::from_secs(timeout_secs);
     println!(
-        "mode: thinking={} timeout={}s fixture={}",
+        "mode: thinking={} timeout={}s cases={} fixtures={}",
         if thinking_enabled() { "on" } else { "off" },
         timeout_secs,
-        truth.fixture
+        truth.cases.len(),
+        if fixture_names.len() == 1 {
+            fixture_names[0].clone()
+        } else {
+            format!("{} files", fixture_names.len())
+        }
     );
 
     // `POINTER_LOCATE_ONLY=18` limits the run to specific 1-based case numbers.
@@ -415,7 +433,10 @@ async fn frozen_desktop_grounding() -> Result<()> {
                 }
                 let requests = vec![request];
                 let vision = &vision;
-                let frame = &frame;
+                // Owned `Arc` clone: the async block outlives this iteration, and
+                // the frame it borrows has to come from the per-fixture cache
+                // rather than one `frame` for the whole run.
+                let frame = case_frames[idx].clone();
                 let cancel = &cancel;
                 async move {
                     let started = std::time::Instant::now();
@@ -423,7 +444,7 @@ async fn frozen_desktop_grounding() -> Result<()> {
                     // minutes, and one of those must not swallow the whole run.
                     let call = tokio::time::timeout(
                         per_case,
-                        locate_elements(vision, frame, &requests, &LocateConfig::default(), cancel),
+                        locate_elements(vision, &frame, &requests, &LocateConfig::default(), cancel),
                     )
                     .await;
                     let elapsed = started.elapsed().as_secs_f64();
@@ -566,9 +587,11 @@ async fn frozen_desktop_grounding() -> Result<()> {
         println!("missed: {}", failures.join(", "));
     }
 
-    // The coverage bar only makes sense for a full run; `--only` deliberately
-    // scores a subset.
-    if only.is_empty() {
+    // The coverage bar only makes sense for a full run of a frozen dataset:
+    // `--only` deliberately scores a subset, and an incidents dataset grows one
+    // labelled run at a time, so "at least 15 cases" would fail every time a
+    // single incident is checked.
+    if only.is_empty() && truth.has_shared_fixture() {
         assert!(
             scored >= 15,
             "only {scored} case(s) have a bbox in the truth file; expected at least 15"
@@ -608,7 +631,7 @@ fn offset_hint(b: [f64; 4], max_w: f64, max_h: f64) -> PxBox {
 #[ignore = "calls a real vision model; run with --ignored"]
 async fn frozen_desktop_hint_grounding() -> Result<()> {
     let truth = load_truth()?;
-    let path = dir().join(&truth.fixture);
+    let path = dir().join(shared_fixture(&truth)?);
     let img = image::open(&path)?.to_rgb8();
     let frame = LocateFrame::new(img);
     if let Some([w, h]) = truth.size {
@@ -733,7 +756,7 @@ async fn frozen_desktop_far_hint_stays_honest() -> Result<()> {
         .is_test(false)
         .try_init();
     let truth = load_truth()?;
-    let path = dir().join(&truth.fixture);
+    let path = dir().join(shared_fixture(&truth)?);
     let img = image::open(&path)?.to_rgb8();
     let frame = LocateFrame::new(img);
     if let Some([w, h]) = truth.size {
@@ -865,7 +888,7 @@ async fn absent_targets_fail_honestly() -> Result<()> {
         .is_test(false)
         .try_init();
     let truth = load_truth()?;
-    let path = dir().join(&truth.fixture);
+    let path = dir().join(shared_fixture(&truth)?);
     let img = image::open(&path)?.to_rgb8();
     let frame = LocateFrame::new(img);
 
@@ -971,7 +994,7 @@ async fn absent_targets_fail_honestly() -> Result<()> {
 async fn eastmoney_frame() -> Result<(TruthFile, LocateFrame)> {
     let name = std::env::var("POINTER_LOCATE_TRUTH").unwrap_or_else(|_| "truth_eastmoney.json".into());
     let truth = load_truth_file(&truth_path_named(&name))?;
-    let path = dir().join(&truth.fixture);
+    let path = dir().join(shared_fixture(&truth)?);
     anyhow::ensure!(path.exists(), "missing fixture: {}", path.display());
     let img = image::open(&path)?.to_rgb8();
     let frame = LocateFrame::new(img);
@@ -1322,7 +1345,7 @@ fn pointer_overlay_lands_on_every_sudoku_cell() -> Result<()> {
     use pointer_core::agents::computer::vision::screen_overlay::redraw_with_current_pointer;
 
     let (truth, _) = sudoku_truth()?;
-    let path = dir().join(&truth.fixture);
+    let path = dir().join(shared_fixture(&truth)?);
     assert!(path.exists(), "missing fixture: {}", path.display());
     let raw = std::fs::read(&path)?;
     let full = image::load_from_memory(&raw)?.to_rgba8();

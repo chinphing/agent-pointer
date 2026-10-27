@@ -487,6 +487,9 @@ impl ConversationStore {
 
     pub fn delete_project(&self, id: &str, session_user_id: &str) -> Result<()> {
         let uid = session_user::normalize_session_user_id(session_user_id).to_string();
+        // Read before the rows are gone; best-effort so a query failure never
+        // blocks the delete (an orphan tree is later cleaned by prune).
+        let victims = self.project_conversation_workspaces(id).unwrap_or_default();
         self.db.execute_write(|conn| {
             let default: Option<i64> = conn
                 .query_row(
@@ -506,7 +509,8 @@ impl ConversationStore {
                 |r| r.get(0),
             )?;
             // Project deletion is confirmed by the UI and intentionally removes
-            // its conversations only. The workspace directory is never touched.
+            // its conversations only. The workspace directory is never touched —
+            // except a managed worktree created by this app for one of them.
             conn.execute(
                 "DELETE FROM conversations WHERE project_id = ?1",
                 params![id],
@@ -520,7 +524,29 @@ impl ConversationStore {
             );
             Ok(())
         })?;
+        for (conversation_id, workspace_root) in victims {
+            remove_worktree_for_deleted_conversation(&conversation_id, &workspace_root);
+        }
         Ok(())
+    }
+
+    /// Conversation ids and workspace roots owned by a project.
+    ///
+    /// Read before deleting the project: after the rows are gone there is no way
+    /// to find the managed worktrees they were pointing at.
+    fn project_conversation_workspaces(&self, project_id: &str) -> Result<Vec<(String, String)>> {
+        let conn = self.db.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, workspace_root FROM conversations WHERE project_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![project_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
     }
 
     /// Cheap list of all conversation ids (no message deserialization).
@@ -688,9 +714,12 @@ impl ConversationStore {
     }
 
     /// Explicitly delete one conversation and its messages, and clean up its
-    /// sandbox directory. Use this instead of relying on `save_meta_all` to
-    /// diff against a (now paginated, incomplete) in-memory list.
+    /// sandbox directory and managed worktree. Use this instead of relying on
+    /// `save_meta_all` to diff against a (now paginated, incomplete) in-memory list.
     pub fn delete_conversation(&self, id: &str) -> Result<()> {
+        // Read before the row is gone: the workspace path is the only handle we
+        // have on the conversation's checkout.
+        let workspace_root = self.workspace_root(id).unwrap_or_default();
         self.db
             .execute_write(|conn| persist::delete_conversation_from_conn(conn, id))?;
         crate::conversation_session::drop_conversation(id);
@@ -698,6 +727,7 @@ impl ConversationStore {
         if let Err(e) = crate::session_sandbox::SessionSandbox::cleanup_for_conversation(id) {
             log::warn!("session_sandbox cleanup failed for {id}: {e}");
         }
+        remove_worktree_for_deleted_conversation(id, &workspace_root);
         Ok(())
     }
 
@@ -1033,6 +1063,19 @@ impl ConversationStore {
             )
             .optional()?;
         Ok(root.unwrap_or_default())
+    }
+
+    /// Whether the conversation row still exists (used to keep live worktrees).
+    pub fn conversation_exists(&self, conversation_id: &str) -> Result<bool> {
+        let conn = self.db.conn.lock();
+        let found: Option<i64> = conn
+            .query_row(
+                "SELECT 1 FROM conversations WHERE id = ?1",
+                rusqlite::params![conversation_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(found.is_some())
     }
 
     pub fn workspace_user_set(&self, conversation_id: &str) -> Result<bool> {
@@ -2447,4 +2490,28 @@ fn create_fts_table(conn: &Connection) -> Result<()> {
     )?;
     conn.execute_batch(MESSAGES_AU_TRIGGER_SQL)?;
     Ok(())
+}
+
+/// Release the managed worktree of a conversation that was just deleted.
+///
+/// Best-effort by design: the conversation row is already gone, so a refused
+/// removal (uncommitted or ignored content) must not fail the delete. The tree is
+/// then left on disk and its owner record points at a dead conversation, which
+/// means the next prune may clean it once it is clean — the path is logged so it
+/// stays discoverable in the meantime.
+fn remove_worktree_for_deleted_conversation(conversation_id: &str, workspace_root: &str) {
+    let path = workspace_root.trim();
+    if path.is_empty() {
+        return;
+    }
+    match crate::worktree::session::remove_for_conversation(conversation_id, path) {
+        Ok(Some(root)) => log::info!(
+            "worktree: removed {} with conversation {conversation_id}",
+            root.display()
+        ),
+        Ok(None) => {}
+        Err(error) => log::warn!(
+            "worktree: kept {path} after deleting conversation {conversation_id}: {error:#}"
+        ),
+    }
 }

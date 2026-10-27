@@ -16,37 +16,13 @@ pub(super) fn resolve_workspace_root(
     session_user_id: &str,
     workspace_root: &str,
 ) -> String {
-    let trimmed = workspace_root.trim();
-    if !trimmed.is_empty() {
-        return trimmed.to_string();
-    }
-    // Try conversation store (user-picked workspace persisted across runs)
-    if let Ok(store) = crate::conversation_store::global_store() {
-        if let Ok(ws) = store.workspace_root(conversation_id) {
-            if !ws.trim().is_empty() {
-                log::info!(
-                    "registry: workspace from conversation store conversation_id={conversation_id}: {ws}"
-                );
-                return ws.trim().to_string();
-            }
-        }
-    }
-    // Fall back to session sandbox
-    match crate::session_sandbox::SessionSandbox::ensure_default(conversation_id, session_user_id) {
-        Ok(path) => {
-            let ws = path.display().to_string();
-            log::info!(
-                "registry: workspace from session sandbox conversation_id={conversation_id}: {ws}"
-            );
-            ws
-        }
-        Err(e) => {
-            log::warn!(
-                "registry: failed to ensure session sandbox conversation_id={conversation_id}: {e:#}"
-            );
-            String::new()
-        }
-    }
+    // Shared with terminal so both tools always agree on the directory.
+    crate::workspace_resolve::resolve_tool_workspace(
+        conversation_id,
+        Some(session_user_id),
+        workspace_root,
+        "registry",
+    )
 }
 
 pub(super) async fn dispatch_registry_invoke(

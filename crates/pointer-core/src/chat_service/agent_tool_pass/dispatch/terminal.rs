@@ -28,42 +28,13 @@ use super::super::super::StreamTx;
 use super::super::types::ToolExecResult;
 
 fn resolve_terminal_session_workspace(conversation_id: &str, from_settings: String) -> String {
-    let trimmed = from_settings.trim();
-    if !trimmed.is_empty() {
-        return trimmed.to_string();
-    }
-    if let Ok(store) = crate::conversation_store::global_store() {
-        if let Ok(ws) = store.workspace_root(conversation_id) {
-            if !ws.trim().is_empty() {
-                log::info!(
-                    "terminal: workspace from conversation store conversation_id={conversation_id}: {ws}"
-                );
-                return ws.trim().to_string();
-            }
-        }
-    }
-    let session_user_id = crate::conversation_store::global_store()
-        .ok()
-        .and_then(|store| store.session_user_id(conversation_id).ok())
-        .unwrap_or_default();
-    match crate::session_sandbox::SessionSandbox::ensure_default(
+    // Shared with file tools so both always agree on the directory.
+    crate::workspace_resolve::resolve_tool_workspace(
         conversation_id,
-        session_user_id.as_str(),
-    ) {
-        Ok(path) => {
-            let ws = path.display().to_string();
-            log::info!(
-                "terminal: workspace from session sandbox conversation_id={conversation_id}: {ws}"
-            );
-            ws
-        }
-        Err(e) => {
-            log::warn!(
-                "terminal: session sandbox ensure failed conversation_id={conversation_id}: {e:#}"
-            );
-            String::new()
-        }
-    }
+        None,
+        &from_settings,
+        "terminal",
+    )
 }
 
 fn input_class_wire(class: InputClass) -> String {

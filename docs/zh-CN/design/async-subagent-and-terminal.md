@@ -288,7 +288,7 @@ WorkerLease Drop → running_roots -1，叫醒队头
 | **P1** | `run_subagent.background` 仅 `self`/`explore`；`job.await` 支持 `any`/`all`；终态立刻放槽；UI 沿用 `SubAgentFrame` |
 | **P1.5** | **一张工人队列**（已落地）：删 `subagent_sem` + 全局 `running_slots`；按会话 FIFO；前台借槽不登记；嵌套不计新槽；串行 coder/computer 也借 1 格 |
 | **P2** | **空闲合并 push（已落地）**；**已完成工人 follow-up（已落地）**：`followupInstanceId` 恢复 scoped transcript；自定义 agent `is_background` |
-| **P3** | 重叠写入的 worktree 隔离；`coder` 后台（须隔离）；不做云 VM |
+| **P3** | 重叠写入的 worktree 隔离（**会话级 worktree 已落地**，见 [session-worktree.md](session-worktree.md)；子 agent 级隔离仍待做）；`coder` 后台（须隔离）；不做云 VM |
 
 **初版已落地**：JobSupervisor、`run_subagent.background`（self/explore）、`terminal.blockUntilMs`、`job` 工具、侧栏转圈 / 「后台执行中」、同一会话空闲合并 push。
 

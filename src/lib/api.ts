@@ -18,12 +18,14 @@ import type {
   DebugSessionSettings,
   EffectiveSettingsView,
   MediaDepsStatus,
+  ManagedWorktree,
   PlatformSettings,
   SkillDef,
   SkillImportResult,
   StreamEvent,
   ToolDef,
-  UserSettings
+  UserSettings,
+  WorktreeInfo
 } from '../types/chat'
 
 import * as tauriApi from './tauri'
@@ -310,6 +312,10 @@ export interface RuntimeApi {
   loadProject(projectId: string): Promise<Project | null>
   loadProjectConversationMetas(projectId: string, cursor: ConversationCursor | null, limit?: number): Promise<ConversationMetaPage>
   createProject(name: string, workspaceRoot: string): Promise<ProjectCreationResult>
+  /** Create a managed worktree for a conversation, based on the source HEAD. */
+  createWorktree(conversationId: string, sourceWorkspaceRoot: string, base?: string): Promise<ManagedWorktree>
+  /** Describe the workspace when it is a linked worktree; null for a main checkout. */
+  inspectWorktree(workspaceRoot: string): Promise<WorktreeInfo | null>
   createDirectory(parentPath: string, name: string): Promise<string>
   updateProject(id: string, patch: Partial<Pick<Project, 'name' | 'workspaceRoot' | 'isPinned' | 'isArchived'>>): Promise<Project>
   deleteProject(id: string): Promise<void>
@@ -502,6 +508,8 @@ export const loadSidebarProjects = api.loadSidebarProjects
 export const loadProject = api.loadProject
 export const loadProjectConversationMetas = api.loadProjectConversationMetas
 export const createProject = api.createProject
+export const createWorktree = api.createWorktree
+export const inspectWorktree = api.inspectWorktree
 export const createDirectory = api.createDirectory
 export const updateProject = api.updateProject
 export const deleteProject = api.deleteProject

@@ -423,6 +423,34 @@ export interface ProjectCreationResult {
   reusedExisting: boolean
 }
 
+/** A linked git worktree created for one conversation (session-level isolation). */
+export interface ManagedWorktree {
+  /** Checkout root under `{app_data}/worktrees/<bucket>/<repo>`. */
+  root: string
+  /** Working directory the conversation should use. */
+  cwd: string
+  /** Main checkout that owns the shared git directory. */
+  sourceRoot: string
+  sourceCwd: string
+  headSha: string
+  /** `null` means detached HEAD (the default for managed worktrees). */
+  branch: string | null
+  /** Ref requested at creation (`HEAD` when the default was used). */
+  base: string | null
+}
+
+/** Read-only description of a workspace that is a linked worktree. */
+export interface WorktreeInfo {
+  root: string
+  cwd: string
+  sourceRoot: string
+  headSha: string
+  branch: string | null
+  detached: boolean
+  /** True only when the checkout lives under this app's managed worktree root. */
+  managed: boolean
+}
+
 /** Conversation shell + DB-backed summary fields (no messages). */
 export interface ConversationMeta extends ConversationMetaBase {
   /** Persisted message count (DB-backed; 0 when derived from in-memory Conversation). */

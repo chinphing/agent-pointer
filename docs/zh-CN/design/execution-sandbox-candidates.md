@@ -11,7 +11,7 @@ Pointer 当前：
 
 - `session-sandboxes/` 只是 **app-data 目录约定**，不是 OS / 网络隔离。
 - `terminal`、文件工具、Computer 默认作用在主机（或 server 进程所在机）。
-- 异步子 Agent 设计里 **P3** 写的是 worktree 写冲突隔离，并明确 **不做云 VM**（见 [async-subagent-and-terminal.md](async-subagent-and-terminal.md)）——那是另一条「同仓并行写」问题，与本文「防主机受损 / 多租户隔离」可并行存在。
+- 异步子 Agent 设计里 **P3** 写的是 worktree 写冲突隔离，并明确 **不做云 VM**（见 [async-subagent-and-terminal.md](async-subagent-and-terminal.md)）——那是另一条「同仓并行写」问题，与本文「防主机受损 / 多租户隔离」可并行存在。会话级 worktree 的实现与口径见 [session-worktree.md](session-worktree.md)。
 
 产品上希望有一条 **可选** 的执行隔离能力（默认仍可本地）。讨论中收敛出两条不同产品线，不要混成一个方案：
 

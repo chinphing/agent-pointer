@@ -2,7 +2,7 @@
 import { resolveBrandName } from '../../lib/webBranding'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Check, FolderOpen, FolderPlus, PanelLeftOpen, Plus } from 'lucide-vue-next'
+import { Check, FolderOpen, FolderPlus, GitBranch, PanelLeftOpen, Plus } from 'lucide-vue-next'
 
 import { useChatStore } from '../../stores/chat'
 import { isTauriRuntime } from '../../lib/runtime'
@@ -43,6 +43,12 @@ const chat = useChatStore()
 const projectLocked = computed(
   () => !!chat.current?.projectId || (chat.current?.messages.length ?? 0) > 0
 )
+/**
+ * Workspace can only change before the first message. Unlike `projectLocked`,
+ * a conversation already bound to a project still allows a worktree: that keeps
+ * the project (sidebar grouping) but moves the checkout.
+ */
+const workspaceLocked = computed(() => (chat.current?.messages.length ?? 0) > 0)
 const selectedProject = computed(() =>
   chat.projectById(chat.current?.projectId ?? chat.current?.pendingProjectId)
 )
@@ -50,8 +56,60 @@ const projectPickerOpen = ref(false)
 const projectPickerButtonRef = ref<HTMLButtonElement | null>(null)
 const projectPickerRef = ref<HTMLElement | null>(null)
 const projectCreationPending = ref(false)
+const worktreePending = ref(false)
 const projectDropdownDirection = ref<'up' | 'down'>('up')
 const projectDropdownMaxHeight = ref<number | null>(null)
+
+/** Worktree description for the open conversation (null when it is a plain folder). */
+const worktreeInfo = computed(() => chat.worktreeInfoForConversation(chat.current?.id))
+const isWorktree = computed(() => !!worktreeInfo.value)
+
+/**
+ * Repository a new worktree would be cut from: the project folder, or the
+ * conversation's own workspace. Sandboxes are never a source.
+ */
+const worktreeSourceRoot = computed(() => {
+  const projectRoot = selectedProject.value?.workspaceRoot?.trim() ?? ''
+  const conversationRoot = chat.current?.workspaceRoot?.trim() ?? ''
+  const candidate = projectRoot || conversationRoot
+  if (!candidate || isEphemeralWorkspacePath(candidate)) return ''
+  if (worktreeInfo.value) return worktreeInfo.value.sourceRoot
+  return candidate
+})
+
+let worktreeInfoTimer: ReturnType<typeof setTimeout> | null = null
+function scheduleWorktreeInfoRefresh() {
+  if (worktreeInfoTimer) clearTimeout(worktreeInfoTimer)
+  worktreeInfoTimer = setTimeout(() => {
+    worktreeInfoTimer = null
+    void chat.refreshWorktreeInfo()
+  }, 350)
+}
+
+watch(
+  () => [chat.current?.id, chat.current?.workspaceRoot],
+  () => scheduleWorktreeInfoRefresh(),
+  { immediate: true }
+)
+
+async function startWorktreeSession() {
+  const source = worktreeSourceRoot.value
+  if (!source) {
+    chat.showUiToast(t('chat.worktreeNoRepo'), 'warning')
+    return
+  }
+  if (worktreePending.value || workspaceLocked.value) return
+  worktreePending.value = true
+  try {
+    await chat.startWorktreeConversation(source)
+    projectPickerOpen.value = false
+  } catch (error) {
+    console.error('[chat-topbar] create worktree failed', { source, error })
+    chat.showUiToast(t('chat.worktreeCreateFailed'), 'error')
+  } finally {
+    worktreePending.value = false
+  }
+}
 
 /** 项目选择弹窗内容较多，打开时按按钮上下可用空间动态选方向并限制高度，避免超出视口。 */
 function updateProjectDropdownPlacement() {
@@ -77,6 +135,8 @@ const workspaceTooltip = computed(() => {
   const p = chat.current?.workspaceRoot?.trim()
   if (!p) return t('chat.workspaceInheritHint')
   if (isEphemeralWorkspacePath(p)) return t('chat.ephemeralWorkspace', { path: p })
+  const info = worktreeInfo.value
+  if (info) return t('chat.worktreeTooltip', { path: info.root, source: info.sourceRoot })
   return p
 })
 
@@ -202,6 +262,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
+  if (worktreeInfoTimer) {
+    clearTimeout(worktreeInfoTimer)
+    worktreeInfoTimer = null
+  }
 })
 </script>
 
@@ -251,16 +315,17 @@ onUnmounted(() => {
           ref="projectPickerButtonRef"
           type="button"
           class="composer-agent-trigger chat-topbar-project-btn max-w-[240px]"
-          :class="projectLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'"
-          :title="projectLocked ? t('chat.projectLocked') : workspaceTooltip"
-          :disabled="projectLocked"
+          :class="workspaceLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'"
+          :title="workspaceLocked ? t('chat.projectLocked') : workspaceTooltip"
+          :disabled="workspaceLocked"
           @click="projectPickerOpen = !projectPickerOpen"
         >
           <FolderOpen class="chat-topbar-project-icon w-3.5 h-3.5 shrink-0 text-muted" />
           <span class="truncate max-w-[180px] text-foreground">{{ workspaceLabel }}</span>
+          <span v-if="isWorktree" class="chat-topbar-worktree-badge">{{ t('chat.worktreeBadge') }}</span>
         </button>
         <div
-          v-if="projectPickerOpen && !projectLocked"
+          v-if="projectPickerOpen && !workspaceLocked"
           ref="projectPickerRef"
           class="composer-dropdown composer-project-dropdown flex flex-col"
           :class="projectDropdownDirection === 'down' ? 'composer-dropdown--down' : 'composer-dropdown--up'"
@@ -274,7 +339,7 @@ onUnmounted(() => {
               v-if="isTauriRuntime()"
               type="button"
               class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
-              :disabled="projectCreationPending"
+              :disabled="projectCreationPending || projectLocked"
               @click="pickWorkspaceFolder"
             >
               <FolderPlus class="w-3.5 h-3.5 shrink-0" />
@@ -291,11 +356,25 @@ onUnmounted(() => {
               :aria-label="t('chat.createProjectFromPath')"
               class="composer-workspace-input"
               :title="workspaceTooltip"
+              :disabled="projectLocked"
               @input="onWorkspaceInput"
               @keydown.enter="onWorkspaceEnter"
               @compositionstart="workspaceComposing = true"
               @compositionend="onWorkspaceCompositionEnd"
             />
+            <button
+              type="button"
+              class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
+              :class="worktreeSourceRoot ? '' : 'cursor-not-allowed opacity-60'"
+              :disabled="worktreePending || !worktreeSourceRoot"
+              :title="worktreeSourceRoot ? t('chat.worktreeNewSessionHint') : t('chat.worktreeNoRepo')"
+              @click="startWorktreeSession"
+            >
+              <GitBranch class="w-3.5 h-3.5 shrink-0" />
+              <span class="whitespace-nowrap text-foreground">
+                {{ worktreePending ? t('chat.worktreeCreating') : t('chat.worktreeNewSession') }}
+              </span>
+            </button>
           </div>
           <div class="px-3 pb-1 pt-2">
             <div class="text-[10px] text-muted font-medium whitespace-nowrap">{{ t('chat.existingProjects') }}</div>
@@ -306,7 +385,11 @@ onUnmounted(() => {
               :key="project.id"
               type="button"
               class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
-              :class="project.id === (chat.current?.projectId ?? chat.current?.pendingProjectId) ? 'composer-dropdown-item-active' : ''"
+              :class="[
+                project.id === (chat.current?.projectId ?? chat.current?.pendingProjectId) ? 'composer-dropdown-item-active' : '',
+                projectLocked ? 'cursor-not-allowed opacity-60' : ''
+              ]"
+              :disabled="projectLocked"
               @click="selectProject(project.id)"
             >
               <FolderOpen class="w-3 h-3 shrink-0" />
@@ -321,7 +404,7 @@ onUnmounted(() => {
             <SkillDirectoryPicker
               :title="t('shell.skillDirectory')"
               variant="list"
-              :disabled="projectCreationPending"
+              :disabled="projectCreationPending || projectLocked"
               @select="onSkillDirectorySelect"
             />
           </div>
@@ -337,5 +420,17 @@ onUnmounted(() => {
 <style scoped>
 .composer-project-dropdown {
   width: min(200px, calc(100vw - 2rem));
+}
+
+.chat-topbar-worktree-badge {
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+  color: rgb(21 128 61);
+  flex-shrink: 0;
 }
 </style>

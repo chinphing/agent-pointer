@@ -106,7 +106,7 @@ pub(super) async fn drain_provider_events(
     rx: &mut tokio::sync::mpsc::Receiver<ProviderEvent>,
     state: &AppState,
     message_id: &str,
-    reasoning_in_messages: bool,
+    _reasoning_in_messages: bool,
     content_mode: ContentDeltaMode<'_>,
     llm_recorder: &mut LlmRoundRecorder<'_>,
     stream: &StreamTx,
@@ -170,9 +170,13 @@ pub(super) async fn drain_provider_events(
             }
             ProviderEvent::ReasoningDelta(delta) => {
                 buffers.reasoning_chars += delta.chars().count();
-                if reasoning_in_messages {
-                    buffers.reasoning_buf.push_str(&delta);
-                }
+                // Always accumulate: this buffer is what gets persisted to
+                // `payload.reasoning`. Whether the text is echoed back to the
+                // model on the next request is a separate decision made in
+                // `make_openai_messages_with_inject`, so it must not gate
+                // storage — a run that is never replayed still has to be
+                // diagnosable after the fact.
+                buffers.reasoning_buf.push_str(&delta);
                 emit(
                     stream,
                     StreamEvent::ReasoningDelta {

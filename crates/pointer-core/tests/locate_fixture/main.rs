@@ -1588,6 +1588,170 @@ async fn fullscreen_absolute_coordinates() -> Result<()> {
         locate_tool()
     };
 
+    // Single-image mode: point the probe at a real capture instead of the
+    // fixture, to test whether the picture the agent actually sees (annotated,
+    // with the previous action's highlight) reads differently from the clean
+    // one `locate` works on.
+    if let (Ok(img_path), Ok(desc)) = (
+        std::env::var("POINTER_PROBE_IMAGE"),
+        std::env::var("POINTER_PROBE_DESC"),
+    ) {
+        let img = image::open(&img_path)
+            .with_context(|| format!("open {img_path}"))?
+            .to_rgb8();
+        let frame = LocateFrame::new(img);
+        let (w, h) = (frame.width(), frame.height());
+        let full = render_full(&frame, None)?;
+        let prompt = format!(
+            "这是一张 {w}×{h} 的完整屏幕截图。\n\n\
+             目标：{desc}\n\n\
+             在整张图里找到这个目标，给出它的外接矩形。\n\
+             坐标用 0-1000 归一化：左上角 (0,0)，右下角 (1000,1000)。\n\
+             如果目标确实不在这张图里，返回 found=false。"
+        );
+        println!("image: {img_path} ({w}x{h})");
+        println!("desc : {desc}");
+        // `agent` style reproduces what the main LLM actually gets: AGENT.md as
+        // the system prompt, and a user turn that only names the target. The
+        // probe's own wording ("give its bounding box") demands precision that
+        // AGENT.md explicitly waives ("a loose box around the right area
+        // works"), so the two styles are not interchangeable.
+        let style = std::env::var("POINTER_PROBE_STYLE").unwrap_or_default();
+        // `tool=mouse` swaps in the schema the main LLM actually calls. It asks
+        // for `target_desc` + `goal` alongside `bbox`, which the locate tool does
+        // not — if that extra context pulls the answer away from the target, this
+        // is where it shows up.
+        let mouse_tool = style.eq_ignore_ascii_case("mouse");
+        let tool_used: serde_json::Value = if mouse_tool {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": "mouse_click_at",
+                    "description": "Click the given point on screen.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "target_desc": {
+                                "type": "string",
+                                "description": "What you want to act on. Four parts: appearance + control type + screen position + anchor."
+                            },
+                            "bbox": {
+                                "type": "array",
+                                "items": { "type": "number" },
+                                "minItems": 4,
+                                "maxItems": 4,
+                                "description": "Roughly where the target is, [x1, y1, x2, y2] in 0-1000 normalized coordinates."
+                            },
+                            "goal": { "type": "string" },
+                            "action": { "type": "string" }
+                        },
+                        "required": ["target_desc", "bbox", "goal"]
+                    }
+                }
+            })
+        } else {
+            tool.clone()
+        };
+        // `full` feeds the whole AGENT.md (frontmatter stripped), which is what
+        // the agent actually gets as its system prompt.
+        let system_owned: Option<String> = if style.eq_ignore_ascii_case("full") {
+            let raw = include_str!("../../src/agents/computer/AGENT.md");
+            // Skip the YAML frontmatter: the host sends only the body.
+            let body = match raw.match_indices("---").nth(1) {
+                Some((idx, _)) => &raw[idx + 3..],
+                None => raw,
+            };
+            Some(body.trim().to_string())
+        } else if style.eq_ignore_ascii_case("agent") || style.eq_ignore_ascii_case("mouse") {
+            Some(
+                "You drive the visible desktop using screenshots and desktop tools.\n\n\
+                 ## Locating targets\n\n\
+                 `bbox` is **0–1000 normalized**: treat the screenshot as a 1000×1000 \
+                 grid, `(0,0)` top-left and `(1000,1000)` bottom-right. Never convert \
+                 to screen pixels yourself — the tool does that, and your pixel \
+                 arithmetic is the least reliable step in the chain.\n\n\
+                 The pointing tools re-ground inside the box you pass before clicking, \
+                 so the box does not have to be tight: it narrows the search, and the \
+                 description decides what counts as a match. A loose box around the \
+                 right area works; a precise box around the wrong element does not."
+                    .to_string(),
+            )
+        } else {
+            None
+        };
+        let system_text: Option<&str> = system_owned.as_deref();
+        let user_prompt = if system_text.is_some() {
+            // AGENT.md style: the tool takes `target_desc` + `bbox`; say what to
+            // click, not where to look.
+            format!("点击「{desc}」")
+        } else {
+            prompt.clone()
+        };
+        // `pad=N` prepends N assistant/tool exchanges before the screenshot, to
+        // reproduce the 600+ message context the real agent runs in. If visual
+        // grounding degrades as the transcript grows, this is where it shows.
+        let pad = std::env::var("POINTER_PROBE_PAD")
+            .ok()
+            .and_then(|v| v.trim().parse::<usize>().ok())
+            .unwrap_or(0);
+        for run in 0..3 {
+            let mut messages: Vec<serde_json::Value> = Vec::new();
+            for i in 0..pad {
+                let n = i % 9 + 1;
+                messages.push(json!({
+                    "role": "assistant",
+                    "content": format!("E{n} 已选中（蓝色高亮在行E列{n}）。填入数字。")
+                }));
+                messages.push(json!({
+                    "role": "user",
+                    "content": format!(
+                        "[tool] Executed mouse_click_at: 向已选中的E{n}填入数字\n\
+                         Verify: pass — E{n} cell: empty → \"{n}\"; score {} → {}; key {n} badge 3 → 2.",
+                        2800 + i,
+                        2900 + i
+                    )
+                }));
+            }
+            messages.push(json!({
+                "role": "user",
+                "content": [
+                    { "type": "text", "text": "【图一】" },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": format!(
+                                "data:image/jpeg;base64,{}",
+                                encode_image_to_base64(&full.jpeg)
+                            )
+                        }
+                    },
+                    { "type": "text", "text": user_prompt.clone() }
+                ]
+            }));
+            let out = provider
+                .stream_pipeline_module_with_tools(
+                    messages,
+                    system_text,
+                    vec![tool_used.clone()],
+                    CancellationToken::new(),
+                    None,
+                    Some("probe"),
+                )
+                .await?;
+            let raw = out
+                .tool_calls
+                .iter()
+                .find(|tc| {
+                    tc.name.trim().eq_ignore_ascii_case("locate")
+                        || tc.name.trim().eq_ignore_ascii_case("mouse_click_at")
+                })
+                .map(|tc| tc.arguments.replace('\n', " ").replace("  ", " "))
+                .unwrap_or_else(|| format!("(no locate call) text={}", out.text.trim()));
+            println!("run {}: {raw}", run + 1);
+        }
+        return Ok(());
+    }
+
     // Only 1-based case numbers, matching `POINTER_LOCATE_ONLY` everywhere else.
     let only = std::env::var("POINTER_LOCATE_ONLY")
         .ok()

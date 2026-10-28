@@ -159,7 +159,7 @@ pub(super) fn build_lead_assistant_message_after_stream(
     assistant_id: &str,
     raw_content_buf: &str,
     reasoning_buf: String,
-    reasoning_in_messages: bool,
+    _reasoning_in_messages: bool,
     final_tool_calls: &[ToolCall],
     xml_thoughts: Option<String>,
     agent_plan: &AgentPlan,
@@ -183,10 +183,13 @@ pub(super) fn build_lead_assistant_message_after_stream(
         tool_call_id: None,
         tool_name: None,
         error_message: None,
-        reasoning: if reasoning_in_messages && !reasoning_buf.is_empty() {
-            Some(reasoning_buf)
-        } else {
+        // Persisted unconditionally: reasoning is diagnostic evidence, not
+        // context plumbing. `reasoningInMessages` only decides whether it is
+        // replayed to the model on the next request.
+        reasoning: if reasoning_buf.is_empty() {
             None
+        } else {
+            Some(reasoning_buf)
         },
         thoughts: xml_thoughts,
         headline: None,
@@ -222,7 +225,7 @@ pub(super) fn build_sub_assistant_message_after_stream(
     round_message_id: &str,
     round_content: String,
     round_reasoning: String,
-    reasoning_in_messages: bool,
+    _reasoning_in_messages: bool,
     final_tool_calls: &[ToolCall],
     round_thoughts: Option<String>,
     def: &AgentDef,
@@ -244,10 +247,11 @@ pub(super) fn build_sub_assistant_message_after_stream(
         tool_call_id: None,
         tool_name: None,
         error_message: None,
-        reasoning: if reasoning_in_messages && !round_reasoning.is_empty() {
-            Some(round_reasoning)
-        } else {
+        // Same rule as the lead path: store it, replay is a separate decision.
+        reasoning: if round_reasoning.is_empty() {
             None
+        } else {
+            Some(round_reasoning)
         },
         thoughts: round_thoughts,
         headline: None,
@@ -543,5 +547,111 @@ mod tests {
         let expected = crate::i18n::t(state.ui_locale(), "tools.terminal");
         assert_eq!(tcs[0].display_label.as_deref(), Some(expected.as_str()));
         assert_eq!(tcs[0].display_summary.as_deref(), Some("npm test"));
+    }
+
+    #[test]
+    fn reasoning_is_stored_even_when_it_is_not_replayed() {
+        // `reasoningInMessages` decides whether reasoning is echoed back to the
+        // model on the next request. Storage must not depend on it: a run that
+        // is never replayed still has to be diagnosable afterwards, and the
+        // buffer also feeds the reasoning-only length stop.
+        let _data_dir_guard = crate::storage::test_app_data_dir_lock();
+        let state = AppState::new();
+        let plan = AgentPlan {
+            lead_agent_id: "coder".into(),
+            lead_agent_name: "Coder".into(),
+            system_prompts: vec![],
+            active_def: crate::agents::AgentDef {
+                id: "coder".into(),
+                name: "Coder".into(),
+                description: String::new(),
+                role: "worker".into(),
+                profile: crate::agents::AgentProfile::Coder,
+                default_skill_ids: vec![],
+                skills_policy: crate::agents::SkillsPolicy::Disabled,
+                access_policy: crate::agents::AccessPolicy::default(),
+                builtin: true,
+                enabled: true,
+                tool_names: vec![],
+                source: None,
+                resource_files: vec![],
+                allow_agents: vec![],
+                config: std::collections::HashMap::new(),
+                ui: crate::agents::AgentUiConfig::default(),
+                plugin_id: None,
+            },
+            active_system_prompt: String::new(),
+            resolved_skill_ids: vec![],
+            resolved_skill_prompts: vec![],
+            allowed_tool_names: vec![],
+            allow_agents: vec![],
+            prompt_profile: crate::agents::PromptProfile::Default,
+        };
+        let msg = build_lead_assistant_message_after_stream(
+            "asst_reasoning",
+            "",
+            "盘面在左侧小窗口，先确认边界再估坐标".to_string(),
+            false, // reasoning NOT replayed to the model
+            &[],
+            None,
+            &plan,
+            None,
+            &[],
+            &state,
+        );
+        assert_eq!(
+            msg.reasoning.as_deref(),
+            Some("盘面在左侧小窗口，先确认边界再估坐标"),
+            "reasoning must be persisted regardless of the replay switch"
+        );
+    }
+
+    #[test]
+    fn empty_reasoning_stays_none() {
+        let _data_dir_guard = crate::storage::test_app_data_dir_lock();
+        let state = AppState::new();
+        let plan = AgentPlan {
+            lead_agent_id: "coder".into(),
+            lead_agent_name: "Coder".into(),
+            system_prompts: vec![],
+            active_def: crate::agents::AgentDef {
+                id: "coder".into(),
+                name: "Coder".into(),
+                description: String::new(),
+                role: "worker".into(),
+                profile: crate::agents::AgentProfile::Coder,
+                default_skill_ids: vec![],
+                skills_policy: crate::agents::SkillsPolicy::Disabled,
+                access_policy: crate::agents::AccessPolicy::default(),
+                builtin: true,
+                enabled: true,
+                tool_names: vec![],
+                source: None,
+                resource_files: vec![],
+                allow_agents: vec![],
+                config: std::collections::HashMap::new(),
+                ui: crate::agents::AgentUiConfig::default(),
+                plugin_id: None,
+            },
+            active_system_prompt: String::new(),
+            resolved_skill_ids: vec![],
+            resolved_skill_prompts: vec![],
+            allowed_tool_names: vec![],
+            allow_agents: vec![],
+            prompt_profile: crate::agents::PromptProfile::Default,
+        };
+        let msg = build_lead_assistant_message_after_stream(
+            "asst_no_reasoning",
+            "",
+            String::new(),
+            true,
+            &[],
+            None,
+            &plan,
+            None,
+            &[],
+            &state,
+        );
+        assert!(msg.reasoning.is_none(), "no reasoning means no field");
     }
 }

@@ -1239,6 +1239,7 @@ impl OpenAIProvider {
         dump_label: Option<&str>,
         dump_phase: &str,
     ) -> Result<ChatOnceOutput> {
+        let t_start = Instant::now();
         let base_url = self.base_url()?;
         self.dump_llm_round(dump_label, dump_phase, true, max_tok, &wire_messages);
         let stream_options = if stream_include_usage_enabled() {
@@ -1269,6 +1270,8 @@ impl OpenAIProvider {
             &wire_body,
         );
         let client = llm_http_client(Duration::from_secs(180))?;
+        let build_ms = t_start.elapsed().as_millis();
+        let t_send = Instant::now();
         let resp = tokio::select! {
             _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
             r = client
@@ -1277,6 +1280,7 @@ impl OpenAIProvider {
                 .json(&wire_body)
                 .send() => r?,
         };
+        let headers_ms = t_send.elapsed().as_millis();
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
@@ -1292,11 +1296,15 @@ impl OpenAIProvider {
         let mut last_console_lane: Option<ConsoleStreamLane> = None;
         let mut stream = resp.bytes_stream();
         let mut buf = String::new();
+        let mut ttft_ms: Option<u128> = None;
         loop {
             let item = tokio::select! {
                 _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
                 v = stream.next() => v,
             };
+            if ttft_ms.is_none() {
+                ttft_ms = Some(t_send.elapsed().as_millis());
+            }
             let chunk = match item {
                 Some(c) => c?,
                 None => break,
@@ -1391,6 +1399,17 @@ impl OpenAIProvider {
             content_buf.chars().count(),
             tool_calls.len(),
             last_usage.as_ref().map(|u| u.reasoning_tokens),
+        );
+        let total_ms = t_send.elapsed().as_millis();
+        let ttft = ttft_ms.unwrap_or(headers_ms);
+        log::info!(
+            "stream_wire_timing: build_ms={} headers_ms={} ttft_ms={} output_ms={} total_ms={} dump_label={:?}",
+            build_ms,
+            headers_ms,
+            ttft.saturating_sub(headers_ms),
+            total_ms.saturating_sub(ttft),
+            total_ms,
+            dump_label
         );
         Ok(ChatOnceOutput {
             text: content_buf,

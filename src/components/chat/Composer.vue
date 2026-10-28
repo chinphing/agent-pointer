@@ -68,7 +68,7 @@ import BackgroundJobsPanel from './BackgroundJobsPanel.vue'
 import { videoPreviewUrlFromLocalPath, videoPreviewUrlFromStorage } from '../../lib/chatMediaPreview'
 import type { MacosComputerPermissionsStatus } from '../../types/macosPermissions'
 import ComputerScreenPickerModal from './ComputerScreenPickerModal.vue'
-import { primaryComputerMonitor } from '../../lib/computerMonitorLayout'
+import { resolveSendMonitorId } from '../../lib/computerMonitorLayout'
 import AttachmentChip from './AttachmentChip.vue'
 import MacosComputerPermissionsModal from './MacosComputerPermissionsModal.vue'
 import { OpenSettingsKey } from '../../lib/settingsDialogKey'
@@ -1228,8 +1228,11 @@ async function sendWithOptionalComputerScreenPick() {
       screenPickerLoading.value = false
 
       if (computerAutoSwitchMonitor.value) {
-        const primary = primaryComputerMonitor(monitors)
-        if (primary) conv.computerMonitorId = primary.id
+        conv.computerMonitorId = resolveSendMonitorId(
+          conv.computerMonitorId,
+          monitors,
+          true
+        )
         await setComputerConversationMonitor(conv.id, conv.computerMonitorId || null)
       } else if (!conv.computerMonitorId) {
         if (monitors.length > 1) {
@@ -1305,16 +1308,18 @@ async function beginSubagentMonitorPickFlow(req: ComputerMonitorPickRequest) {
   }
 
   try {
-    if (computerAutoSwitchMonitor.value) {
-      const primary = primaryComputerMonitor(req.monitors)
-      if (primary) {
-        await confirmSubagentMonitorPick(req, conv, primary.id)
-        return
-      }
-    } else if (conv.computerMonitorId) {
-      await confirmSubagentMonitorPick(req, conv, conv.computerMonitorId)
+    // Same rule as the lead send path: keep the stored display while it is
+    // still connected, only fall back to primary when there is nothing to reuse.
+    const resolved = resolveSendMonitorId(
+      conv.computerMonitorId,
+      req.monitors,
+      computerAutoSwitchMonitor.value
+    )
+    if (resolved) {
+      await confirmSubagentMonitorPick(req, conv, resolved)
       return
-    } else if (req.monitors.length === 1) {
+    }
+    if (req.monitors.length === 1) {
       await confirmSubagentMonitorPick(req, conv, req.monitors[0].id)
       return
     } else if (req.monitors.length > 1) {

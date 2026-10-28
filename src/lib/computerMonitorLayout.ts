@@ -63,6 +63,24 @@ export function primaryComputerMonitor(monitors: ComputerMonitor[]): ComputerMon
   return monitors.find(m => m.isPrimary) ?? monitors[0]
 }
 
+/**
+ * Which monitor a send should use.
+ *
+ * A stored id wins as long as that display is still connected. Falling back to
+ * the primary display on every send would overwrite the screen the agent last
+ * followed the frontmost window to, so the next turn would capture the wrong
+ * display until the first desktop tool ran and switched it back.
+ */
+export function resolveSendMonitorId(
+  storedId: string | undefined,
+  monitors: ComputerMonitor[],
+  autoSwitchMonitor: boolean
+): string | undefined {
+  if (storedId && monitors.some(m => m.id === storedId)) return storedId
+  if (!autoSwitchMonitor) return storedId
+  return primaryComputerMonitor(monitors)?.id ?? storedId
+}
+
 export function monitorShortLabel(m: ComputerMonitor): string {
   return m.isPrimary ? '主屏幕' : '扩展屏幕'
 }

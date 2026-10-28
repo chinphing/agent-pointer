@@ -32,8 +32,8 @@ const CUR_SCREEN_TAG: &str = "[CUR_SCREEN]";
 /// moved — capture fresh instead of showing the model a stale picture.
 const CUR_SCREEN_CACHE_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(120);
 
-/// Thread notice while capture + processing runs (user-visible).
-const DESKTOP_NOTICE_PROCESSING: &str = "【桌面】截图处理中";
+/// Thread notice while capture runs (user-visible).
+const DESKTOP_NOTICE_PROCESSING: &str = "【桌面】截图中";
 const DESKTOP_NOTICE_READY: &str = "【桌面】已更新当前画面。";
 /// User-facing failure copy — do not echo internal errors.
 const DESKTOP_NOTICE_FAILED: &str =
@@ -262,7 +262,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                 });
             }
             Err(e) => {
-                log::warn!("computer screenshot processing failed: {:#}", e);
+                log::warn!("computer screenshot failed: {:#}", e);
                 emit_screen_notice_update(ctx, notice_id, DESKTOP_NOTICE_FAILED.to_string());
                 strip_images_from_prior_messages(ctx.injected_tail.as_mut_slice());
                 ctx.injected_tail.push(ChatMessage {

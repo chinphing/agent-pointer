@@ -148,14 +148,11 @@ ones, one cell among repeated cells. Otherwise omit it: a nearby-but-not-unique
 landmark pulls the grounder toward the landmark instead of the target.
 
 **Name a region, not a fraction.** Write the band you can see — `top nav bar`,
-`below the banner`, `above the footer`. The anchor follows the same rule: a
-neighbour that is true only for this target, such as `right of the search box`.
+`below the banner`, `above the footer`.
 
-**Keep the anchor within 100px of the target.** The locator does not search the
-whole screen — it renders a small crop centred on the target, about 120px in
-each direction. A landmark further away is outside that crop, so naming it does
-not narrow anything down; it only makes the check fail. When no element sits
-within 100px, leave the anchor out.
+**Keep the anchor within 100px of the target.** The locator renders a small crop
+centred on the target, about 120px in each direction, so a landmark further away
+is outside it and only makes the check fail.
 
 **Write it in the language of the UI.** If the screen shows Chinese labels,
 describe them in Chinese — never translate an element's name. The grounder

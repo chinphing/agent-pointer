@@ -139,18 +139,13 @@ in one sentence, plus an optional anchor:
 the blue rounded button in the top nav bar, white text "Save"
 ```
 
-**Describe only what you can actually see.** A guessed colour, a half-read label,
-or an invented icon makes the grounder match the wrong element. If a detail is
-blurry or partly covered, leave it out — a shorter description that is true beats
-a longer one that is wrong. The three parts together must already identify the
-target on their own.
+**Describe only what you can read clearly.** Leave out guessed colours, half-read
+labels, and invented icons — a wrong detail matches the wrong element. The three
+parts alone must identify the target.
 
-**Use the anchor only when the first three parts cannot single the target out.**
-When several elements look alike — a row of identical buttons, repeated grid
-cells, a list of same-styled rows — add a neighbour that separates this one from
-its lookalikes. Otherwise leave the anchor out: an extra landmark that is merely
-nearby, rather than unique to the target, pulls the grounder toward the landmark
-instead of the target.
+**Add an anchor only to separate lookalikes** — one button in a row of identical
+ones, one cell among repeated cells. Otherwise omit it: a nearby-but-not-unique
+landmark pulls the grounder toward the landmark instead of the target.
 
 **Name a region, not a fraction.** Write the band you can see — `top nav bar`,
 `below the banner`, `above the footer`. The anchor follows the same rule: a

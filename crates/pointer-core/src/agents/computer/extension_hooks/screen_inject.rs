@@ -86,9 +86,7 @@ fn build_cur_screen_preamble() -> String {
     let cite = "Each screenshot below is preceded by its slot label on its own line. Treat only what you see in that labeled image as ground truth. Do not invent UI from task text or prior turns. Do not write internal checklists, prompt block labels (`[Recent desktop tool calls]`, `[Screen current]`, `[Environment]`, …), or tool-call transcripts in assistant message text — those blocks are context addressed to you, not output for the user. When the user must see a reply (question, blockage, completion), write plain text in **content** in the same turn — reasoning alone is invisible to the user.";
     format!(
         "{CUR_SCREEN_TAG} Labeled image this turn: {SLOT_SCREEN_CURRENT}. {cite} \
-         Text below includes **Pointer position** and **Nearby overlay reference bboxes** (10 nearest the pointer; logical-pixel rects). \
-         **Verify:** host records outcomes on history rows — read the `verify:` suffix on `[Recent desktop tool calls]`. \
-         **Position:** for anything you cannot point at reliably, call `locate_element` and pass its `x`/`y` through unchanged.\n"
+         **Verify:** host records outcomes on history rows — read the `verify:` suffix on `[Recent desktop tool calls]`.\n"
     )
 }
 
@@ -434,11 +432,24 @@ mod tests {
     fn preamble_mentions_labeled_images() {
         let t = build_cur_screen_preamble();
         assert!(t.contains("Labeled image"));
-        assert!(t.contains("locate_element"));
         assert!(t.contains("verify:"));
         assert!(t.contains(SLOT_SCREEN_CURRENT));
         // The before frame is gone: verify owns before/after comparison.
         assert!(!t.contains("before action"));
         assert!(!t.contains("N–target relation"));
+    }
+
+    #[test]
+    fn preamble_advertises_no_pixel_coordinates() {
+        // `locate_element` was removed (676fec91) and
+        // `mouse_neighbor_reference_text` is never populated, so the old
+        // sentence promised "Pointer position" and "logical-pixel rects" that
+        // did not exist — and told the model to answer in `x`/`y` pixels.
+        let t = build_cur_screen_preamble();
+        assert!(!t.contains("locate_element"), "dead tool: {t}");
+        assert!(!t.contains("logical-pixel"), "pixel hint: {t}");
+        assert!(!t.contains("Pointer position"), "phantom data: {t}");
+        assert!(!t.contains("Nearby overlay"), "phantom data: {t}");
+        assert!(!t.contains("x`/`y"), "pixel-style answer hint: {t}");
     }
 }

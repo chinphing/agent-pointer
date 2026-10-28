@@ -1129,7 +1129,13 @@ fn finalize_skill_ids(ids: &mut Vec<String>) {
     ids.dedup();
 }
 
-fn resolve_tools(
+/// Resolve the tool names an agent may call.
+///
+/// `pub` (not `pub(crate)`) because `tests/computer_e2e` is an external test
+/// crate and needs the exact same list the main loop builds — a hand-written
+/// subset would silently diverge from production.
+#[doc(hidden)]
+pub fn resolve_tools(
     policy: &AccessPolicy,
     session_tools: &[String],
     tools: &ToolRegistry,
@@ -1337,23 +1343,41 @@ mod builtin_agent_tests {
             agent.system_prompt.contains("host runs **Verify**"),
             "computer communication should describe host verify"
         );
+        // The main LLM only ever receives one labeled frame, `[Current screen]`.
+        // Earlier revisions of this prompt described a four-frame layout
+        // (`[Screen before action]`, `[Annotated after action]`,
+        // `[Zoom pointer after action]`, …) that the injector stopped emitting;
+        // the model then looked for frames that were not there. Assert the
+        // single-slot contract and reject the retired names, so a future edit
+        // cannot quietly reintroduce them.
         assert!(
-            agent.system_prompt.contains("[Annotated after action]"),
-            "primary communication should reference annotated slot"
+            agent.system_prompt.contains("[Current screen]"),
+            "communication should reference the slot the injector actually emits"
         );
+        for retired in [
+            "[Annotated after action]",
+            "[Zoom pointer after action]",
+            "[Zoom bottom after action]",
+        ] {
+            assert!(
+                !agent.system_prompt.contains(retired),
+                "communication still references retired slot {retired}"
+            );
+        }
         assert!(
             agent.system_prompt.contains("## Positioning"),
             "communication should state positioning scenes"
         );
+        // There is no `*_index` tool in `mouse.schema.yaml`; every pointing tool
+        // is `*_at`. A "label index" route would point at a tool that cannot be
+        // called.
         assert!(
-            agent.system_prompt.contains("Label index."),
-            "communication should prefer label index"
+            !agent.system_prompt.contains("Label index."),
+            "communication should not route through a non-existent index tool"
         );
         assert!(
-            agent
-                .system_prompt
-                .contains("[Screen after action]"),
-            "communication should reference the current screen"
+            !agent.system_prompt.contains("zoom: true"),
+            "communication should not reference the removed zoom parameter"
         );
         assert!(
             !agent.system_prompt.contains("N–target relation"),

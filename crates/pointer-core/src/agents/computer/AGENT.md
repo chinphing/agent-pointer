@@ -54,22 +54,15 @@ You drive the visible desktop using screenshots and desktop tools.
 
 1. Read the newest **`verify:`** suffix on **`[Recent desktop tool calls]`**.
    If it says **`verifying`**, do not start another desktop tool.
-2. Read **`[CUR_SCREEN]`** in label order:
-   **`[Screen before action]`** when present
-   (the previous capture, reused),
-   then **`[Screen after action]`**,
-   then **`[Annotated after action]`**,
-   then **`[Zoom pointer after action]`** when present.
-   Plan from the current screen.
-   Do not use the previous capture to override **`verify:`**.
+2. Read **`[CUR_SCREEN]`** — it carries one labeled image,
+   **`[Current screen]`**: the desktop as it is now.
+   Plan from that frame.
+   Do not use an older capture to override **`verify:`**.
 3. Pick one positioning route:
    a label on that control itself,
    else coordinates when the full screen shows a visible interior,
    else move beside a mark that has no interior to aim at
    (same region, on the target's side, a short gap from the pointer).
-   Next turn, if the target is inside **`[Zoom pointer after action]`**,
-   set **`zoom: true`** and give 0–1000 of that crop.
-   The host maps those coordinates onto the full screen.
 4. Issue one root desktop tool, or a clarification / completion reply.
 5. When the active **`wi_*`** item is terminal,
    **`task_board_patch`** that row.
@@ -108,10 +101,22 @@ place, and `点那个空格` gives it nothing to check against.
 
 ## Locating targets
 
-`bbox` is **0–1000 normalized**: treat the screenshot as a 1000×1000 grid,
-`(0,0)` top-left and `(1000,1000)` bottom-right. Never convert to screen pixels
-yourself — the tool does that, and your pixel arithmetic is the least reliable
-step in the chain.
+`bbox` is **[x1, y1, x2, y2] in pixels of the screenshot you were given**. The
+`[CUR_SCREEN]` preamble states that screenshot's exact width and height — use
+those numbers, never a guess.
+
+Two steps, in this order:
+
+1. **Locate on a normalized grid.** Picture the screen as 1000×1000: `(0,0)`
+   top-left, `(1000,1000)` bottom-right. Deciding "it sits at about x=210" is
+   more reliable than deciding "it sits at pixel 403" — relative position is
+   what you actually see.
+2. **Convert to pixels for `bbox`.** `x_pixel = x_norm / 1000 × width`,
+   `y_pixel = y_norm / 1000 × height`, with the dimensions from the preamble.
+
+Never report the normalized number as `bbox`: `[210, 320, 240, 350]` is read as
+pixels, so that box would land near the top-left corner instead of where you
+looked.
 
 The pointing tools re-ground inside the box you pass before clicking, so the box
 does not have to be tight: it narrows the search, and the description decides

@@ -14,11 +14,11 @@ on that target this turn (buttons, toggles, icons, links, menus).
 ```
 
 - **`target_desc`** — what you want to act on, in words.
-- **`bbox`** — roughly where it is, `[x1, y1, x2, y2]` in **0–1000 normalized
-  coordinates** (see **Locating targets**). A loose box is fine: the tool
-  re-grounds inside it and clicks the **confirmed** centre, not the centre of
-  your box. A box around the wrong area is not fine — grounding cannot find the
-  target outside it.
+- **`bbox`** — roughly where it is, `[x1, y1, x2, y2]` in **pixels** of the
+  screenshot (see **Locating targets**: normalize to decide where, convert to
+  pixels for the answer). A loose box is fine: the tool re-grounds inside it and
+  clicks the **confirmed** centre, not the centre of your box. A box around the
+  wrong area is not fine — grounding cannot find the target outside it.
 
 **`target_desc`** follows **Writing `target_desc`** in your system prompt —
 three parts, in one sentence. The screen position is what separates two

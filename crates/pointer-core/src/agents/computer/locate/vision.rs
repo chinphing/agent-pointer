@@ -205,9 +205,22 @@ impl LocateVision for ChatLocateVision<'_> {
                         v.reasoning = out.reasoning_content.clone().unwrap_or_default();
                         return Ok(v);
                     }
-                    log::debug!(
-                        "locate_element: verify attempt {} returned no usable verdict",
-                        attempt + 1
+                    // `warn`, not `debug`: a verifier that returns nothing usable
+                    // makes the whole case fail with the generic
+                    // 「校验器无有效输出」, and at debug level the reason never
+                    // reached the log file — the trace only showed the fallback
+                    // verdict. Print what actually came back.
+                    log::warn!(
+                        "locate_element: verify attempt {} returned no usable verdict — \
+                         tool_calls={:?} text_len={} reasoning_len={} text_head={:?}",
+                        attempt + 1,
+                        out.tool_calls
+                            .iter()
+                            .map(|tc| (tc.name.clone(), tc.arguments.chars().take(160).collect::<String>()))
+                            .collect::<Vec<_>>(),
+                        out.text.len(),
+                        out.reasoning_content.as_deref().map(str::len).unwrap_or(0),
+                        out.text.chars().take(300).collect::<String>(),
                     );
                 }
                 Err(e) => log::warn!(
@@ -216,7 +229,15 @@ impl LocateVision for ChatLocateVision<'_> {
                 ),
             }
         }
-        // Never silently pass: `VerifyVerdict::default()` is unclear/too_blurry.
-        Ok(VerifyVerdict::default())
+        // Never silently pass, and never silently fail either. A verifier that
+        // answers three times without a usable `report` call is a broken call,
+        // not a verdict of "unclear": returning `VerifyVerdict::default()` here
+        // made the run look like an ordinary rejection (`notes=校验器无有效输出`,
+        // `stop=LocateFailed`) with nothing in the log to distinguish it from a
+        // box that was genuinely wrong. Surfacing it as `Err` lets the engine
+        // stop with its own reason and keeps the trace honest.
+        Err(anyhow::anyhow!(
+            "校验器连续 {MAX_CALL_ATTEMPTS} 次没有返回可用的判定（没有调用 report）"
+        ))
     }
 }

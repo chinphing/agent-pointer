@@ -143,28 +143,31 @@ fn parse_hint(raw: Option<&Value>, idx: usize, w: u32, h: u32) -> Result<Option<
             .as_f64()
             .ok_or_else(|| anyhow!("elements[{idx}].hint_box[{j}] 不是数字"))?;
     }
-    // `hint_box` arrives in the same 0–1000 space the model answers in
-    // everywhere else (`locate`, `verify`). Asking it for screen pixels made it
-    // do a ×1920 / ×1080 conversion in its head, and measured on the 81-cell
-    // sudoku set that cost an order of magnitude: 153.5 px median offset in
-    // pixels vs 14.4 px in 0–1000, hit rate 13.6 % vs 64.2 %. The conversion
-    // belongs in code, not in the model.
-    if !(0.0..=1000.0).contains(&v[0])
-        || !(0.0..=1000.0).contains(&v[1])
-        || !(0.0..=1000.0).contains(&v[2])
-        || !(0.0..=1000.0).contains(&v[3])
-    {
-        return Err(anyhow!(
-            "elements[{idx}].hint_box 必须是 0–1000 的归一化坐标，收到 [{}, {}, {}, {}]。\
-             把截图看成 1000×1000 的方格来报数：左上角 (0,0)，右下角 (1000,1000)。",
-            v[0],
-            v[1],
-            v[2],
-            v[3]
-        ));
-    }
-    let norm = NormBox::new(v[0], v[1], v[2], v[3]);
-    if norm.is_degenerate() {
+    // **Pixels only.** `AGENT.md` asks the model to locate on a 0–1000 grid and
+    // then convert to pixels before answering, so the value arriving here is
+    // already in frame pixels.
+    //
+    // This used to accept both shapes and disambiguate by magnitude ("any
+    // coordinate above 1000 must be a pixel"). That heuristic silently corrupted
+    // every target in the left/top part of the screen: a keypad button at
+    // `[236, 740, 260, 800]` is all under 1000, so it was read as normalized and
+    // multiplied by 1.92/1.08 — landing on a different button, which the
+    // verifier then correctly rejected. The model's answer was right; the
+    // conversion broke it. Unit is a contract question, not a numeric one.
+    //
+    // History worth keeping in view: an earlier attempt asked for pixels *without*
+    // telling the model to reason on a 0–1000 grid first, and that measured
+    // 153.5 px median offset / 13.6% hit versus 14.4 px / 64.2% for normalized.
+    // The failure was the missing relative frame, not the pixel unit — once the
+    // prompt spells out "locate on 1000×1000, then convert", pixels measure
+    // 5–8 px median (see `benchmarks/computer_e2e/README.md`).
+    let box_px = PxBox {
+        x1: v[0],
+        y1: v[1],
+        x2: v[2],
+        y2: v[3],
+    };
+    if box_px.x2 <= box_px.x1 || box_px.y2 <= box_px.y1 {
         return Err(anyhow!(
             "elements[{idx}].hint_box 宽高必须为正，收到 [{}, {}, {}, {}]",
             v[0],
@@ -173,7 +176,29 @@ fn parse_hint(raw: Option<&Value>, idx: usize, w: u32, h: u32) -> Result<Option<
             v[3]
         ));
     }
-    Ok(Some(norm.to_px(w, h)))
+    // The hint must be somewhere on the captured frame. Without this, a hint in
+    // the wrong *unit* (or in another monitor's space) still parses and becomes
+    // a reference box the locator cannot see — the first verify round then
+    // rejects a crop that only contains wallpaper, and the retry loop spends its
+    // budget fixing a hint that was never about this screen. Rejecting early
+    // makes the caller's error visible instead of silent.
+    //
+    // Intersection, not containment: a target at the very edge is legitimately
+    // clipped by the frame, so a box that overlaps but does not fit is fine.
+    let frame = (0.0, 0.0, w as f64, h as f64);
+    if box_px.x2 <= frame.0 || box_px.x1 >= frame.2 || box_px.y2 <= frame.1 || box_px.y1 >= frame.3
+    {
+        return Err(anyhow!(
+            "elements[{idx}].hint_box 完全在画面外，收到 [{}, {}, {}, {}]，画面 {}×{}",
+            v[0],
+            v[1],
+            v[2],
+            v[3],
+            w,
+            h
+        ));
+    }
+    Ok(Some(box_px))
 }
 
 fn render_results(outcomes: &[LocateOutcome]) -> String {
@@ -398,36 +423,79 @@ mod tests {
     }
 
     #[test]
-    fn parses_hint_box_normalized() {
-        // `hint_box` is 0–1000; the shim pins the frame at 1920×1080, so
-        // [800, 35, 840, 55] has to land on [1536, 37.8, 1612.8, 59.4].
+    fn hint_box_is_taken_as_pixels_verbatim() {
+        // Regression for the dev-environment failure at 04:21:47 on 2026-10-29.
+        //
+        // The model reasoned "Button 4 is at x≈247" and answered
+        // `bbox: [236, 740, 260, 800]` — correct pixels for a keypad button in
+        // the lower-left of the screen. Every value is under 1000, so the old
+        // magnitude heuristic read it as normalized and multiplied by 1.92/1.08,
+        // landing on `[453, 799, 499, 864]` — the *8th* key. The verifier then
+        // truthfully reported "框里是大字 8" and the model spent three rounds
+        // chasing a target the code had moved.
+        //
+        // Pixels are the only accepted unit now, so this must survive untouched.
         let reqs = parse_requests(&json!({
             "goal":"点击它",
-            "elements":[{"target_desc":"保存按钮","hint_box":[800,35,840,55]}]
+            "elements":[{"target_desc":"数字键盘 4","hint_box":[236,740,260,800]}]
         }))
-        .unwrap();
-        let hint = reqs[0].hint_px.unwrap();
-        // 35 / 1000 * 1080 is not exact in binary floating point.
-        let close = |a: f64, b: f64| (a - b).abs() < 1e-6;
-        assert!(close(hint.x1, 1536.0), "x1={}", hint.x1);
-        assert!(close(hint.y1, 37.8), "y1={}", hint.y1);
-        assert!(close(hint.x2, 1612.8), "x2={}", hint.x2);
-        assert!(close(hint.y2, 59.4), "y2={}", hint.y2);
+        .expect("pixel hint_box should be accepted");
+        let b = reqs[0].hint_px.expect("hint_px present");
+        assert_eq!((b.x1, b.y1, b.x2, b.y2), (236.0, 740.0, 260.0, 800.0));
     }
 
     #[test]
-    fn rejects_hint_box_in_screen_pixels() {
-        // The old contract was screen pixels. A model that still answers
-        // `[800, 35, 840, 55]`-style pixels for a 1920-wide screen is now out of
-        // range, and must be told so rather than silently clicking 4/5 of the
-        // way across the screen.
-        let err = parse_requests(&json!({
+    fn accepts_hint_box_in_screen_pixels() {
+        // Pixels are the documented shape (`AGENT.md` → Locating targets:
+        // normalize to decide where, convert to pixels for the answer).
+        let reqs = parse_requests(&json!({
             "goal":"点击它",
             "elements":[{"target_desc":"保存按钮","hint_box":[1600,700,1680,740]}]
         }))
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("0–1000"), "unexpected error: {err}");
+        .expect("pixel hint_box should be accepted");
+        let b = reqs[0].hint_px.expect("hint_px present");
+        assert_eq!((b.x1, b.y1, b.x2, b.y2), (1600.0, 700.0, 1680.0, 740.0));
+    }
+
+    #[test]
+    fn small_pixel_box_is_not_rescaled() {
+        // A box entirely below 1000 is still pixels — a target in the top-left
+        // quadrant is legitimately small in both axes. This is the exact shape
+        // the old heuristic got wrong.
+        let reqs = parse_requests(&json!({
+            "goal":"点击它",
+            "elements":[{"target_desc":"保存按钮","hint_box":[500,500,520,540]}]
+        }))
+        .expect("small pixel hint_box should be accepted");
+        let b = reqs[0].hint_px.expect("hint_px present");
+        assert_eq!((b.x1, b.y1, b.x2, b.y2), (500.0, 500.0, 520.0, 540.0));
+    }
+
+    #[test]
+    fn rejects_hint_box_off_the_frame() {
+        // A box that shares no area with the frame cannot be verified: every
+        // crop would contain nothing but wallpaper. Fail loudly instead of
+        // burning the retry budget on a hint that was never about this screen.
+        let err = parse_requests(&json!({
+            "goal":"点击它",
+            "elements":[{"target_desc":"保存按钮","hint_box":[2000,1200,2100,1300]}]
+        }))
+        .expect_err("off-frame hint_box must be rejected");
+        assert!(format!("{err}").contains("画面外"), "{err}");
+    }
+
+    #[test]
+    fn accepts_hint_box_clipped_by_the_frame_edge() {
+        // A target at the very edge is legitimately clipped. Intersection is the
+        // bar, not containment — `[1900, 1000, 1960, 1100]` starts inside the
+        // 1920×1080 frame even though it ends outside.
+        let reqs = parse_requests(&json!({
+            "goal":"点击它",
+            "elements":[{"target_desc":"保存按钮","hint_box":[1900,1000,1960,1100]}]
+        }))
+        .expect("partially visible hint_box should be accepted");
+        let b = reqs[0].hint_px.expect("hint_px present");
+        assert_eq!((b.x1, b.y1, b.x2, b.y2), (1900.0, 1000.0, 1960.0, 1100.0));
     }
 
     #[test]

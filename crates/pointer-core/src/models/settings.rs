@@ -2817,9 +2817,17 @@ pub struct EffectiveSettingsView {
 
 /// Debug-only settings (visible when debug menus are enabled).
 /// Omitted from pointer-server Web API responses for **non-admin** users so
-/// casual clients do not round-trip session-only debug state. Platform admins
-/// (including standalone local admin) receive these fields so settings UI save
-/// → reopen keeps debug toggles.
+/// casual clients do not round-trip session-only debug state.
+///
+/// **Local debug switches are deliberately absent from the list below.**
+/// `debugDumpLlmPrompts`, `rawContentViewEnabled` and `debugMenusEnabled` are
+/// per-machine debugging preferences, not platform configuration. Gating them
+/// on a platform-admin identity meant the standalone desktop app wrote them to
+/// disk correctly and then never read them back:
+/// `strip_debug_keys_from_settings_object` removed the key from the response,
+/// the settings dialog read `undefined`, and the toggle reopened as "off" every
+/// time. Observed: `user_settings.json` held `debugDumpLlmPrompts: true` while
+/// the dialog showed it disabled.
 ///
 /// Scene tier maps (`agentModeLlm` / `mediaModeLlm` / `computerTierLlm`),
 /// tool-round caps (`maxToolRounds` / `maxSubAgentToolRounds`) and the
@@ -2828,10 +2836,7 @@ pub struct EffectiveSettingsView {
 /// can edit them in Settings and they must round-trip on GET/PUT. Do not list
 /// them here or non-admin saves will drop the user's value.
 const DEBUG_WEB_SETTINGS_JSON_KEYS: &[&str] = &[
-    "rawContentViewEnabled",
-    "debugDumpLlmPrompts",
     "terminalEnvOverrides",
-    "debugMenusEnabled",
     "taskBoardShowChildBoards",
     "agentUiOverrides",
     "computerPipelineLlm",
@@ -2946,14 +2951,22 @@ pub fn preserve_platform_debug_settings_in_model(
 /// UserSettings 版脱敏保护：WEB 非 admin GET 时 user 切片的调试字段被剥掉
 /// （DEBUG_WEB_SETTINGS_JSON_KEYS），PUT 回来 serde 默认值会清掉服务端调试配置；
 /// 保存前用现有 user 值强改回。admin 走 round-trip 可正常更新，调用方应跳过。
+/// Re-apply the values that belong to the platform layer, so a non-admin PUT
+/// cannot overwrite them.
+///
+/// **Local debug switches are deliberately absent.** `debug_dump_llm_prompts`,
+/// `raw_content_view_enabled` and `debug_menus_enabled` live on the user's own
+/// machine; they are not platform state and nobody else administers them.
+/// Keeping them here meant the desktop app accepted the toggle, then quietly
+/// restored the previous value from disk before writing — the switch snapped
+/// back on every save, no matter how many times it was flipped.
+/// `debug_save_computer_captures` was never listed, which is exactly why that
+/// one always worked.
 pub fn preserve_platform_debug_settings_in_user(
     incoming: &mut UserSettings,
     existing: &UserSettings,
 ) {
-    incoming.raw_content_view_enabled = existing.raw_content_view_enabled;
-    incoming.debug_dump_llm_prompts = existing.debug_dump_llm_prompts;
     incoming.terminal_env_overrides = existing.terminal_env_overrides.clone();
-    incoming.debug_menus_enabled = existing.debug_menus_enabled;
     incoming.task_board_show_child_boards = existing.task_board_show_child_boards;
     incoming.agent_ui_overrides = existing.agent_ui_overrides.clone();
     incoming.agent_task_board_history_trim = existing.agent_task_board_history_trim.clone();
@@ -4775,9 +4788,12 @@ mod effective_extra_body_tests {
         assert!(!json.contains("secret-auth"));
         assert!(!json.contains("sk-live-secret"));
         assert!(!json.contains("oss-secret"));
-        assert!(!json.contains("rawContentViewEnabled"));
-        assert!(!json.contains("debugDumpLlmPrompts"));
-        assert!(!json.contains("debugMenusEnabled"));
+        // Local debug switches round-trip for every caller, admin or not: they
+        // are per-machine preferences, and stripping them made the desktop app
+        // save a value it could never read back.
+        assert!(json.contains("rawContentViewEnabled"));
+        assert!(json.contains("debugDumpLlmPrompts"));
+        assert!(json.contains("debugMenusEnabled"));
         assert!(json.contains("\"apiKey\":\"****\""));
     }
 
@@ -4882,12 +4898,17 @@ mod effective_extra_body_tests {
 
     /// The debug classification itself: these keys must not be in the strip list,
     /// while the genuinely debug-only ones must stay there.
+    ///
+    /// Local switches (`debugMenusEnabled`, `rawContentViewEnabled`,
+    /// `debugDumpLlmPrompts`) are **not** platform state — they belong to the
+    /// machine, so they must round-trip regardless of platform admin status.
     #[test]
     fn delegation_caps_are_not_classified_as_debug_keys() {
         assert!(!DEBUG_WEB_SETTINGS_JSON_KEYS.contains(&"maxSubAgentSpawnDepth"));
         assert!(!DEBUG_WEB_SETTINGS_JSON_KEYS.contains(&"maxChildrenPerAgent"));
-        assert!(DEBUG_WEB_SETTINGS_JSON_KEYS.contains(&"debugMenusEnabled"));
-        assert!(DEBUG_WEB_SETTINGS_JSON_KEYS.contains(&"rawContentViewEnabled"));
+        assert!(!DEBUG_WEB_SETTINGS_JSON_KEYS.contains(&"debugMenusEnabled"));
+        assert!(!DEBUG_WEB_SETTINGS_JSON_KEYS.contains(&"rawContentViewEnabled"));
+        assert!(!DEBUG_WEB_SETTINGS_JSON_KEYS.contains(&"debugDumpLlmPrompts"));
     }
 
     #[test]
@@ -4944,7 +4965,10 @@ mod effective_extra_body_tests {
         );
 
         preserve_platform_debug_settings_in_user(&mut incoming, &existing);
-        assert!(incoming.debug_menus_enabled);
+        // Local debug switches are the user's own: `incoming` wins, even for a
+        // non-admin PUT. Restoring `existing` here is what made the settings
+        // toggle snap back to its previous value after every save.
+        assert!(!incoming.debug_menus_enabled);
         let general = incoming.agent_mode_llm.get("general").expect("general");
         assert_eq!(general["fast"].model, "custom-fast");
         assert_eq!(general["standard"].model, "custom-standard");
@@ -4981,7 +5005,7 @@ mod effective_extra_body_tests {
         let json = serde_json::to_string(&WebEffectiveSettingsView(view)).unwrap();
         assert!(json.contains("custom-fast"));
         assert!(json.contains("agentModeLlm"));
-        assert!(!json.contains("debugMenusEnabled"));
+        assert!(json.contains("debugMenusEnabled"));
     }
 
     #[test]

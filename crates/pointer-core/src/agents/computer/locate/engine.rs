@@ -196,6 +196,10 @@ enum Stop {
     Verified,
     LocateFailed,
     RoundsExhausted,
+    /// The verifier never produced a usable verdict. Distinct from
+    /// `RoundsExhausted`: no box was ever judged, so nothing is known about
+    /// whether the target was found.
+    VerifyFailed,
 }
 
 impl Stop {
@@ -204,6 +208,7 @@ impl Stop {
             Self::Verified => FailureReason::NotFound, // unreachable; kept total
             Self::LocateFailed => FailureReason::NotFound,
             Self::RoundsExhausted => FailureReason::NotVerified,
+            Self::VerifyFailed => FailureReason::Unclear,
         }
     }
 }
@@ -515,8 +520,16 @@ async fn locate_one_traced<V: LocateVision>(
             {
                 Ok(v) => v,
                 Err(e) => {
+                    // No verdict arrived. Stop with a reason that says so,
+                    // instead of substituting `VerifyVerdict::default()` and
+                    // letting the run look like an ordinary "box was wrong"
+                    // rejection. The distinction matters to whoever reads the
+                    // trace: `Unclear` means nothing was checked, `NotVerified`
+                    // means it was checked and failed.
                     log::warn!("locate_element: verify call failed: {e}");
-                    VerifyVerdict::default()
+                    stop = Stop::VerifyFailed;
+                    last_why = format!("校验器没有返回判定：{e}");
+                    break (VerifyVerdict::default(), None);
                 }
             };
             let call_ms = t_call.elapsed().as_secs_f64() * 1000.0;
@@ -597,7 +610,7 @@ async fn locate_one_traced<V: LocateVision>(
             break (v, crop);
         };
 
-        if matches!(stop, Stop::Verified) {
+        if matches!(stop, Stop::Verified | Stop::VerifyFailed) {
             break;
         }
 
@@ -916,6 +929,10 @@ mod tests {
     struct FakeVision {
         locate_script: Mutex<VecDeque<Option<NormBox>>>,
         verify_script: Mutex<VecDeque<VerifyVerdict>>,
+        /// Verdicts to fail with, consumed before `verify_script`. Lets a test
+        /// model "the verifier never answered" — which is an `Err` now, not a
+        /// default verdict.
+        verify_errors: Mutex<VecDeque<String>>,
         calls: Mutex<Vec<Call>>,
     }
 
@@ -931,6 +948,13 @@ mod tests {
 
         fn with_verify(self, verdicts: Vec<VerifyVerdict>) -> Self {
             *self.verify_script.lock().unwrap() = verdicts.into();
+            self
+        }
+
+        /// Queue `Err` results — the "verifier never answered" path, which is
+        /// what `verify_pair` now returns after exhausting its retries.
+        fn with_verify_errors(self, messages: Vec<&str>) -> Self {
+            *self.verify_errors.lock().unwrap() = messages.into_iter().map(String::from).collect();
             self
         }
 
@@ -960,6 +984,9 @@ mod tests {
                 width: image.width,
                 height: image.height,
             });
+            if let Some(msg) = self.verify_errors.lock().unwrap().pop_front() {
+                return Err(anyhow::anyhow!(msg));
+            }
             Ok(self
                 .verify_script
                 .lock()
@@ -971,6 +998,21 @@ mod tests {
 
     fn frame() -> LocateFrame {
         LocateFrame::new(RgbImage::from_pixel(1000, 800, Rgb([40, 40, 40])))
+    }
+
+    /// The dev machine's real capture size. Kept separate from `frame()` so the
+    /// cases below can use the hint boxes exactly as production recorded them
+    /// instead of rescaling them into a fictional 1000×800 screen.
+    fn frame_1080p() -> LocateFrame {
+        LocateFrame::new(RgbImage::from_pixel(1920, 1080, Rgb([40, 40, 40])))
+    }
+
+    /// `VerifyVerdict::default()` — what `verify_pair` returns when the verifier
+    /// produced nothing usable. Both cases below were recorded from the dev
+    /// environment on 2026-10-29 and both stopped at `rounds=1`,
+    /// `stop=LocateFailed` with `notes=校验器无有效输出`.
+    fn verifier_silence() -> VerifyVerdict {
+        VerifyVerdict::default()
     }
 
     fn cfg() -> LocateConfig {
@@ -1084,6 +1126,167 @@ mod tests {
         let b = out.box_px.unwrap();
         assert!((b.x1 - 800.0).abs() < 1e-6);
         assert!((b.y2 - 55.0).abs() < 1e-6);
+    }
+
+    #[tokio::test]
+    async fn verifier_silence_is_never_a_pass() {
+        // The safety net itself: a verdict that never arrived must not read as
+        // approval. `VerifyVerdict::default()` is Unclear/Unclear/unknown and
+        // `is_hit()` must be false for it — otherwise every failed verify call
+        // would click wherever the hint pointed and report success.
+        assert!(
+            !verifier_silence().is_hit(),
+            "a missing verdict must never count as a hit"
+        );
+    }
+
+    #[tokio::test]
+    async fn keypad_first_key_with_silent_verifier_does_not_claim_success() {
+        // Dev environment, 2026-10-29 04:56:43. Real hint box for the keypad's
+        // leftmost key (大字1): [135, 745, 172, 800] on a 1920×1080 frame.
+        // The verifier returned nothing, and the run ended `ok=false` with
+        // `rounds=1`. The same target succeeded at 04:59:44 — same hint box,
+        // same frame — so this case exists to pin the silence path, not the
+        // coordinate path.
+        let hint = PxBox {
+            x1: 135.0,
+            y1: 745.0,
+            x2: 172.0,
+            y2: 800.0,
+        };
+        let vision = FakeVision::new().with_verify(vec![verifier_silence()]);
+        let out = locate_one(
+            &vision,
+            &frame_1080p(),
+            &LocateRequest::new("底部数字键盘从左数第1个按钮，大字1", "点击它").with_hint_px(hint),
+            &cfg(),
+            &cancel_token(),
+        )
+        .await
+        .unwrap();
+
+        assert!(!out.ok, "silent verifier must not produce a successful locate");
+        assert_eq!(out.reason, Some(FailureReason::NotFound));
+        assert_eq!(out.what_i_saw, "校验器无有效输出");
+    }
+
+    #[tokio::test]
+    async fn sudoku_cell_with_silent_verifier_does_not_claim_success() {
+        // Dev environment, 2026-10-29 05:04:52. Real hint box for the sudoku
+        // board's G9 cell: [500, 545, 535, 585] on a 1920×1080 frame. Same
+        // failure shape as the keypad case above — the hint was plausible, the
+        // verifier said nothing, and the run reported `ok=false`, `rounds=1`.
+        let hint = PxBox {
+            x1: 500.0,
+            y1: 545.0,
+            x2: 535.0,
+            y2: 585.0,
+        };
+        let vision = FakeVision::new().with_verify(vec![verifier_silence()]);
+        let out = locate_one(
+            &vision,
+            &frame_1080p(),
+            &LocateRequest::new("棋盘第7行(G行)第9列的空单元格", "点击它").with_hint_px(hint),
+            &cfg(),
+            &cancel_token(),
+        )
+        .await
+        .unwrap();
+
+        assert!(!out.ok, "silent verifier must not produce a successful locate");
+        assert_eq!(out.reason, Some(FailureReason::NotFound));
+        assert_eq!(out.what_i_saw, "校验器无有效输出");
+    }
+
+    #[tokio::test]
+    async fn silent_verifier_re_asks_the_locator_instead_of_stopping() {
+        // Both dev cases above burned their whole budget on `rounds=1`: the
+        // verifier said nothing, and the run gave up without asking the locator
+        // again. Silence is not evidence that the box is wrong — it is evidence
+        // that nothing was checked — so the engine should spend a locate round
+        // trying to settle it, exactly as it does for `center = no`.
+        //
+        // This test records the current behaviour so a change here is a
+        // deliberate one, not a silent regression.
+        let hint = PxBox {
+            x1: 135.0,
+            y1: 745.0,
+            x2: 172.0,
+            y2: 800.0,
+        };
+        let vision = FakeVision::new()
+            .with_locate(vec![Some(NormBox::new(60.0, 680.0, 95.0, 745.0))])
+            .with_verify(vec![verifier_silence(), yes("数字键盘第1个按钮")]);
+        let out = locate_one(
+            &vision,
+            &frame_1080p(),
+            &LocateRequest::new("底部数字键盘从左数第1个按钮，大字1", "点击它").with_hint_px(hint),
+            &cfg(),
+            &cancel_token(),
+        )
+        .await
+        .unwrap();
+
+        let calls = vision.calls();
+        let verify_calls = calls.iter().filter(|c| matches!(c, Call::Verify { .. })).count();
+        let locate_calls = calls.iter().filter(|c| matches!(c, Call::Locate { .. })).count();
+        assert!(
+            verify_calls >= 2,
+            "a silent verifier should be asked again, got {calls:?}"
+        );
+        assert!(
+            locate_calls >= 1,
+            "silence should also spend a locate round, got {calls:?}"
+        );
+        assert!(out.ok, "the second, decisive verdict should land the target");
+    }
+
+    #[tokio::test]
+    async fn verifier_error_stops_with_its_own_reason_not_a_default_verdict() {
+        // When `verify_pair` exhausts its retries it now returns `Err`, not
+        // `VerifyVerdict::default()`. The engine must stop with `VerifyFailed`
+        // (`FailureReason::Unclear`) rather than `LocateFailed` — the trace has
+        // to distinguish "nothing was ever judged" from "judged and rejected",
+        // because the two call for different fixes.
+        let hint = PxBox {
+            x1: 135.0,
+            y1: 745.0,
+            x2: 172.0,
+            y2: 800.0,
+        };
+        let vision = FakeVision::new().with_verify_errors(vec![
+            "校验器连续 3 次没有返回可用的判定（没有调用 report）",
+        ]);
+        let out = locate_one(
+            &vision,
+            &frame_1080p(),
+            &LocateRequest::new("底部数字键盘从左数第1个按钮，大字1", "点击它").with_hint_px(hint),
+            &cfg(),
+            &cancel_token(),
+        )
+        .await
+        .unwrap();
+
+        assert!(!out.ok, "a failed verify call must not yield a click point");
+        assert_eq!(out.reason, Some(FailureReason::Unclear));
+        assert!(
+            out.why.contains("校验器没有返回判定"),
+            "the failure must say the verifier never answered, got: {}",
+            out.why
+        );
+        // One verify attempt, no locate round: the loop stops at the failure
+        // instead of silently treating it as a wrong box.
+        let calls = vision.calls();
+        assert_eq!(
+            calls.iter().filter(|c| matches!(c, Call::Verify { .. })).count(),
+            1,
+            "got {calls:?}"
+        );
+        assert_eq!(
+            calls.iter().filter(|c| matches!(c, Call::Locate { .. })).count(),
+            0,
+            "a verify failure must not be mistaken for a bad box, got {calls:?}"
+        );
     }
 
     #[tokio::test]

@@ -10,7 +10,7 @@ mouse_click_at:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where the target is, [x1, y1, x2, y2] in 0-1000 normalized coordinates. The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
+      description: "Roughly where the target is, [x1, y1, x2, y2] in pixels of the screenshot (normalize to decide where, convert for the answer). The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
     goal:
       type: string
     action:
@@ -49,7 +49,7 @@ mouse_double_click_at:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where the target is, [x1, y1, x2, y2] in 0-1000 normalized coordinates. The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
+      description: "Roughly where the target is, [x1, y1, x2, y2] in pixels of the screenshot (normalize to decide where, convert for the answer). The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
     goal:
       type: string
     action:
@@ -76,7 +76,7 @@ mouse_right_click_at:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where the target is, [x1, y1, x2, y2] in 0-1000 normalized coordinates. The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
+      description: "Roughly where the target is, [x1, y1, x2, y2] in pixels of the screenshot (normalize to decide where, convert for the answer). The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
     goal:
       type: string
     action:
@@ -103,7 +103,7 @@ mouse_hover_at:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where the target is, [x1, y1, x2, y2] in 0-1000 normalized coordinates. The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
+      description: "Roughly where the target is, [x1, y1, x2, y2] in pixels of the screenshot (normalize to decide where, convert for the answer). The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
     goal:
       type: string
     action:
@@ -130,7 +130,7 @@ mouse_scroll_current:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where that panel is, [x1, y1, x2, y2] in 0-1000 normalized coordinates. The tool re-grounds inside it and moves the pointer to the confirmed centre, so a loose box is fine — and the point it settles on may differ from the box you passed, because the locator re-finds the panel from target_desc. Required together with target_desc."
+      description: "Roughly where that panel is, [x1, y1, x2, y2] in pixels of the screenshot (normalize to decide where, convert for the answer). The tool re-grounds inside it and moves the pointer to the confirmed centre, so a loose box is fine — and the point it settles on may differ from the box you passed, because the locator re-finds the panel from target_desc. Required together with target_desc."
     goal:
       type: string
     action:
@@ -171,7 +171,7 @@ mouse_down:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where the target is, [x1, y1, x2, y2] in 0-1000 normalized coordinates. The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
+      description: "Roughly where the target is, [x1, y1, x2, y2] in pixels of the screenshot (normalize to decide where, convert for the answer). The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
     goal:
       type: string
     action:
@@ -205,7 +205,7 @@ mouse_up:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where the target is, [x1, y1, x2, y2] in 0-1000 normalized coordinates. The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
+      description: "Roughly where the target is, [x1, y1, x2, y2] in pixels of the screenshot (normalize to decide where, convert for the answer). The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
     goal:
       type: string
     action:
@@ -239,7 +239,7 @@ mouse_drag_from_to_at:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where the grab point is, [x1, y1, x2, y2] in 0-1000 normalized coordinates."
+      description: "Roughly where the grab point is, [x1, y1, x2, y2] in pixels of the screenshot (normalize to decide where, convert for the answer)."
     to_target_desc:
       type: string
       description: "Where the drag drops it. Three parts: appearance + control type + screen position; add an anchor only when those cannot single it out. Example: Trash icon at the bottom right of the Dock. Required together with to_bbox."
@@ -249,7 +249,7 @@ mouse_drag_from_to_at:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where the drop point is, [x1, y1, x2, y2] in 0-1000 normalized coordinates."
+      description: "Roughly where the drop point is, [x1, y1, x2, y2] in pixels of the screenshot (normalize to decide where, convert for the answer)."
     goal:
       type: string
     action:

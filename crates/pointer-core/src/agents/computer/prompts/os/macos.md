@@ -70,7 +70,7 @@ Do **not** use Spotlight, Dock clicks, or Finder for that case while **`launch_a
 
 3. **Dock**
    - Single-click the app icon on the bottom dock strip.
-   - When the dock is visible in **`[Zoom bottom after action]`**, prefer overlay/coordinates on that strip.
+   - When the dock is visible in **`[Current screen]`**, prefer overlay/coordinates on that strip.
 
 4. **Desktop alias**
    - Double-click the desktop icon (single click only selects).

@@ -82,11 +82,27 @@ fn slot_labels() -> Vec<&'static str> {
     vec![SLOT_SCREEN_CURRENT]
 }
 
-fn build_cur_screen_preamble() -> String {
+/// `[CUR_SCREEN]` preamble text, byte-identical to what production injects.
+///
+/// `pub` for `tests/computer_e2e`: the benchmark must feed the main LLM the
+/// same preamble production does, otherwise a hint measured there says nothing
+/// about the shipped behaviour.
+#[doc(hidden)]
+/// Preamble for the `[CUR_SCREEN]` message.
+///
+/// Takes the capture so the screenshot's pixel dimensions can be stated here
+/// rather than baked into a prompt: the size is runtime data, and the `bbox`
+/// contract in `AGENT.md` ("Locating targets") refers to it instead of naming a
+/// number that would go stale on the next monitor change.
+pub fn build_cur_screen_preamble(cap: &ScreenCaptureResult) -> String {
     let cite = "Each screenshot below is preceded by its slot label on its own line. Treat only what you see in that labeled image as ground truth. Do not invent UI from task text or prior turns. Do not write internal checklists, prompt block labels (`[Recent desktop tool calls]`, `[Screen current]`, `[Environment]`, …), or tool-call transcripts in assistant message text — those blocks are context addressed to you, not output for the user. When the user must see a reply (question, blockage, completion), write plain text in **content** in the same turn — reasoning alone is invisible to the user.";
     format!(
-        "{CUR_SCREEN_TAG} Labeled image this turn: {SLOT_SCREEN_CURRENT}. {cite} \
-         **Verify:** host records outcomes on history rows — read the `verify:` suffix on `[Recent desktop tool calls]`.\n"
+        "{CUR_SCREEN_TAG} Labeled image this turn: {SLOT_SCREEN_CURRENT}. This screenshot is \
+         {w}×{h} pixels — use these dimensions for the `bbox` conversion described in \
+         **Locating targets**. {cite} \
+         **Verify:** host records outcomes on history rows — read the `verify:` suffix on `[Recent desktop tool calls]`.\n",
+        w = cap.monitor.width.max(1),
+        h = cap.monitor.height.max(1),
     )
 }
 
@@ -96,7 +112,10 @@ fn assemble_cur_screen_base64(cap: &ScreenCaptureResult) -> Vec<String> {
     out
 }
 
-fn assemble_cur_screen_payload(cap: &ScreenCaptureResult) -> (Vec<String>, Vec<String>) {
+/// `(slot_labels, base64_images)` for the `[CUR_SCREEN]` message — same pair
+/// production attaches, so `image_slot_labels` stays consistent.
+#[doc(hidden)]
+pub fn assemble_cur_screen_payload(cap: &ScreenCaptureResult) -> (Vec<String>, Vec<String>) {
     let labels: Vec<String> = slot_labels()
         .into_iter()
         .map(str::to_string)
@@ -219,7 +238,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                 if let Some(label) = ctx.computer_state.locked_goal_label(ctx.conversation_id) {
                     text.push_str(&format!("Locked goal: {label}\n\n"));
                 }
-                text.push_str(&build_cur_screen_preamble());
+                text.push_str(&build_cur_screen_preamble(&cap));
                 if let Some(block) = ctx
                     .computer_state
                     .recent_actions_prompt_block(ctx.conversation_id)
@@ -423,12 +442,24 @@ mod tests {
         assert_eq!(labels.len(), images.len());
     }
 
+    /// Minimal capture for preamble tests: only `monitor` is read.
+    fn sample_cap() -> ScreenCaptureResult {
+        ScreenCaptureResult {
+            raw_unmarked_jpeg: Vec::new(),
+            screenshot_jpeg: Vec::new(),
+            monitor: crate::agents::computer::vision::screen::MonitorInfo::new(0, 0, 1920, 1080),
+        }
+    }
+
     #[test]
     fn preamble_mentions_labeled_images() {
-        let t = build_cur_screen_preamble();
+        let t = build_cur_screen_preamble(&sample_cap());
         assert!(t.contains("Labeled image"));
         assert!(t.contains("verify:"));
         assert!(t.contains(SLOT_SCREEN_CURRENT));
+        // The screenshot's pixel size is stated here, not in a prompt: it is
+        // runtime data and the `bbox` contract refers to it.
+        assert!(t.contains("1920×1080"), "missing dimensions: {t}");
         // The before frame is gone: verify owns before/after comparison.
         assert!(!t.contains("before action"));
         assert!(!t.contains("N–target relation"));
@@ -440,7 +471,7 @@ mod tests {
         // `mouse_neighbor_reference_text` is never populated, so the old
         // sentence promised "Pointer position" and "logical-pixel rects" that
         // did not exist — and told the model to answer in `x`/`y` pixels.
-        let t = build_cur_screen_preamble();
+        let t = build_cur_screen_preamble(&sample_cap());
         assert!(!t.contains("locate_element"), "dead tool: {t}");
         assert!(!t.contains("logical-pixel"), "pixel hint: {t}");
         assert!(!t.contains("Pointer position"), "phantom data: {t}");

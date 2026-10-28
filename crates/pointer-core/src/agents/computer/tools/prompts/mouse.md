@@ -21,8 +21,8 @@ on that target this turn (buttons, toggles, icons, links, menus).
   target outside it.
 
 **`target_desc`** follows **Writing `target_desc`** in your system prompt —
-four parts, in one sentence. The position and the anchor are what separate two
-same-named elements on a real page.
+three parts, in one sentence. The screen position is what separates two
+same-named elements on a real page; add an anchor only when it still cannot.
 
 **Write `target_desc` in the language of the UI.** Chinese labels get a Chinese
 description — a translated element name does not match what the grounder reads

@@ -125,19 +125,32 @@ grab point and a drop point.
 ### Writing `target_desc`
 
 Every pointing tool — `mouse_*`'s `target_desc`, `input_at`'s `target_desc`, and
-each `modified_click_*` `positions[].target_desc` — uses the **same four parts**,
-in one sentence:
+each `modified_click_*` `positions[].target_desc` — uses the **same three parts**,
+in one sentence, plus an optional anchor:
 
 | Part | What to write | Example |
 | --- | --- | --- |
-| **Appearance** | Shape, colour, the text or symbol inside it | `blue rounded button, white text "Save"` |
+| **Appearance** | Shape, colour, the text or symbol inside it — **only what you can read clearly** | `blue rounded button, white text "Save"` |
 | **Control type** | button / icon / menu item / text label / input field / folder | `button` |
 | **Screen position** | A **named region you can see**: toolbar / nav bar / tab row / side rail / banner / footer / dialog | `in the top nav bar` |
-| **Anchor** | An element **within 100px** of the target that is true **only for it**. Omit this part when nothing sits that close | `next to the "Undo" button` |
+| **Anchor** *(optional)* | An element **within 100px** of the target that is true **only for it** | `next to the "Undo" button` |
 
 ```
-the blue rounded button in the top nav bar, white text "Save", next to the "Undo" button
+the blue rounded button in the top nav bar, white text "Save"
 ```
+
+**Describe only what you can actually see.** A guessed colour, a half-read label,
+or an invented icon makes the grounder match the wrong element. If a detail is
+blurry or partly covered, leave it out — a shorter description that is true beats
+a longer one that is wrong. The three parts together must already identify the
+target on their own.
+
+**Use the anchor only when the first three parts cannot single the target out.**
+When several elements look alike — a row of identical buttons, repeated grid
+cells, a list of same-styled rows — add a neighbour that separates this one from
+its lookalikes. Otherwise leave the anchor out: an extra landmark that is merely
+nearby, rather than unique to the target, pulls the grounder toward the landmark
+instead of the target.
 
 **Name a region, not a fraction.** Write the band you can see — `top nav bar`,
 `below the banner`, `above the footer`. The anchor follows the same rule: a
@@ -147,8 +160,7 @@ neighbour that is true only for this target, such as `right of the search box`.
 whole screen — it renders a small crop centred on the target, about 120px in
 each direction. A landmark further away is outside that crop, so naming it does
 not narrow anything down; it only makes the check fail. When no element sits
-within 100px, leave the anchor out. A shorter description that is true beats a
-longer one that points somewhere off-image.
+within 100px, leave the anchor out.
 
 **Write it in the language of the UI.** If the screen shows Chinese labels,
 describe them in Chinese — never translate an element's name. The grounder

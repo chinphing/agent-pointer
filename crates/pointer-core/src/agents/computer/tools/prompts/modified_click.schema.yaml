@@ -13,7 +13,7 @@ modified_click_select_at:
         properties:
           target_desc:
             type: string
-            description: "What this target is. Four parts: appearance + control type + screen position + anchor. Example: first row of the report table, below the header row. Required together with bbox."
+            description: "What this target is. Three parts: appearance + control type + screen position; add an anchor only when those cannot single it out. Example: first row of the report table, below the header row. Required together with bbox."
           bbox:
             type: array
             items:
@@ -48,7 +48,7 @@ modified_click_range_select_at:
         properties:
           target_desc:
             type: string
-            description: "What this target is. Four parts: appearance + control type + screen position + anchor. Example: first row of the report table, below the header row. Required together with bbox."
+            description: "What this target is. Three parts: appearance + control type + screen position; add an anchor only when those cannot single it out. Example: first row of the report table, below the header row. Required together with bbox."
           bbox:
             type: array
             items:

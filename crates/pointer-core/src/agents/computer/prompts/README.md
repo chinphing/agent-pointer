@@ -30,7 +30,7 @@ its body and prepends `communication`. There is no per-tier prompt directory —
 |--------|------|
 | Per-turn flow (verify → screenshots → positioning → one tool) | `AGENT.md` → `## Each turn` |
 | `goal` / `action` / `target_desc` field rules | `AGENT.md` → `## Tool call shape` |
-| How to write `target_desc` (four parts, 100px anchor, UI language) | `AGENT.md` → `### Writing target_desc` |
+| How to write `target_desc` (three parts, optional anchor, UI language) | `AGENT.md` → `### Writing target_desc` |
 | Scenes, rules, verify gating | `communication.md` |
 | OS-specific hints | `os/*.md` |
 | Disabled UI controls | `ui_disabled_controls.md` |

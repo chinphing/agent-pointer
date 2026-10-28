@@ -23,8 +23,8 @@ none, because the next step would build on a state you did not actually create.
 A loose box per target is fine; there is no raw-coordinate form.
 
 **Each `target_desc`** follows **Writing `target_desc`** in your system prompt —
-four parts, in one sentence. Two rows of the same table look alike; the position
-and the anchor are what separate them.
+three parts, in one sentence. Two rows of the same table look alike; the screen
+position separates them, and an anchor only when it cannot.
 
 **Write each `target_desc` in the language of the UI.** Chinese labels get a
 Chinese description — a translated element name does not match what the grounder

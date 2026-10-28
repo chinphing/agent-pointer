@@ -25,8 +25,8 @@ turn to type the same field. Put **`text`**, **`clear_first`**, and
   There is no raw-coordinate form.
 
 **`target_desc`** follows **Writing `target_desc`** in your system prompt —
-four parts, in one sentence. Several inputs can share a placeholder; the
-position is what tells them apart.
+three parts, in one sentence. Several inputs can share a placeholder; the
+screen position is what tells them apart.
 
 **Write `target_desc` in the language of the UI.** Chinese labels get a Chinese
 description — a translated element name does not match what the grounder reads

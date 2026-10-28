@@ -35,15 +35,15 @@ const CUR_SCREEN_CACHE_MAX_AGE: std::time::Duration = std::time::Duration::from_
 /// Thread notice while capture + processing runs (user-visible).
 const DESKTOP_NOTICE_PROCESSING: &str = "【桌面】截图处理中";
 const DESKTOP_NOTICE_READY: &str = "【桌面】已更新当前画面。";
-/// User-facing failure copy — do not echo internal/annotation-service errors.
+/// User-facing failure copy — do not echo internal errors.
 const DESKTOP_NOTICE_FAILED: &str =
-    "【桌面】截图处理失败，请检查屏幕录制权限或截图处理服务是否可用后重试。";
+    "【桌面】截图失败，请检查屏幕录制权限后重试。";
 
 fn cur_screen_failure_model_message() -> String {
     format!(
-        "{tag} Screenshot processing failed this turn.\n\
+        "{tag} Screenshot capture failed this turn.\n\
          You cannot rely on a fresh desktop image. \
-         The user may need screen capture permission or the screenshot processing service; suggest retrying after that.",
+         The user may need to grant screen recording permission; suggest retrying after that.",
         tag = CUR_SCREEN_TAG
     )
 }
@@ -91,7 +91,7 @@ fn build_cur_screen_preamble() -> String {
 }
 
 fn assemble_cur_screen_base64(cap: &ScreenCaptureResult) -> Vec<String> {
-    let mut out = Vec::with_capacity(2);
+    let mut out = Vec::with_capacity(1);
     out.push(screen::encode_image_to_base64(&cap.screenshot_jpeg));
     out
 }
@@ -175,7 +175,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
             Some(cap) => Ok((cap, None)),
             None => {
                 ctx.computer_state
-                    .capture_and_annotate(ctx.conversation_id)
+                    .capture_screen(ctx.conversation_id)
                     .await
             }
         };
@@ -197,14 +197,14 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     .as_deref()
                     .or(ctx.round_assistant_message_id.as_deref())
                     .unwrap_or("round_unknown");
-                let annotated_rel = capture_debug::save_computer_capture_debug(
+                let capture_rel = capture_debug::save_computer_capture_debug(
                     ctx.conversation_id,
                     dump_prefix,
                     &cap,
                 );
                 if let (Some(tx), Some(mid)) = (ctx.stream, ctx.round_assistant_message_id.as_ref())
                 {
-                    if let Some(rel) = annotated_rel {
+                    if let Some(rel) = capture_rel {
                         let _ = tx.send(StreamEvent::AssistantRoundScreen {
                             conversation_id: ctx.conversation_id.to_string(),
                             message_id: mid.clone(),
@@ -227,10 +227,6 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     text.push_str("\n\n");
                     text.push_str(&block);
                     text.push('\n');
-                }
-                if let Some(ref anchor) = cap.mouse_neighbor_reference_text {
-                    text.push_str("\n\n");
-                    text.push_str(anchor);
                 }
                 ctx.injected_tail.push(ChatMessage {
                     turn_elapsed_ms: None,
@@ -352,12 +348,11 @@ mod tests {
         }
     }
 
-    fn dummy_cap(has_before: bool) -> ScreenCaptureResult {
+    fn dummy_cap() -> ScreenCaptureResult {
         use crate::agents::computer::screen::MonitorInfo;
         ScreenCaptureResult {
             raw_unmarked_jpeg: vec![1, 2],
             screenshot_jpeg: vec![3, 4],
-            mouse_neighbor_reference_text: None,
             monitor: MonitorInfo::new(0, 0, 100, 100),
         }
     }
@@ -400,15 +395,15 @@ mod tests {
 
     #[test]
     fn slot_labels_match_image_count_primary() {
-        let cap = dummy_cap(true);
+        let cap = dummy_cap();
         let (labels, images) = assemble_cur_screen_payload(&cap);
         assert_eq!(labels.len(), 1);
         assert_eq!(labels.len(), images.len());
     }
 
     #[test]
-    fn slot_layout_without_before() {
-        let cap = dummy_cap(false);
+    fn slot_layout_is_current_screen_only() {
+        let cap = dummy_cap();
         let (labels, images) = assemble_cur_screen_payload(&cap);
         assert_eq!(labels.len(), 1);
         assert_eq!(labels, vec![SLOT_SCREEN_CURRENT]);
@@ -419,7 +414,7 @@ mod tests {
     /// the verify stage, whose verdict reaches the model as `verify:` text.
     #[test]
     fn cur_screen_has_no_before_frame() {
-        let cap = dummy_cap(true);
+        let cap = dummy_cap();
         let (labels, images) = assemble_cur_screen_payload(&cap);
         assert_eq!(
             labels.first().map(String::as_str),

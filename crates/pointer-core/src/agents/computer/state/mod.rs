@@ -38,8 +38,6 @@ pub struct ScreenCaptureResult {
     /// caret drawn on top. There used to be a second, annotated copy; it became
     /// identical once the annotation service was removed.
     pub screenshot_jpeg: Vec<u8>,
-    /// Optional prose under **`[CUR_SCREEN]`**: **Pointer position**.
-    pub mouse_neighbor_reference_text: Option<String>,
     /// Logical monitor bounds for this capture.
     pub monitor: screen::MonitorInfo,
 }
@@ -66,7 +64,7 @@ pub enum SessionStatus {
 
 pub struct ComputerSession {
     pub vision_state: Arc<Mutex<VisionState>>,
-    pub last_annotated: Option<(Vec<u8>, screen::MonitorInfo)>,
+    pub last_capture: Option<(Vec<u8>, screen::MonitorInfo)>,
     /// Current turn capture size in pixels.
     pub current_turn_capture_px: Option<(u32, u32)>,
     pub selected_monitor: Option<String>,
@@ -88,7 +86,7 @@ impl ComputerSession {
             .as_secs();
         Self {
             vision_state: Arc::new(Mutex::new(VisionState::new())),
-            last_annotated: None,
+            last_capture: None,
             current_turn_capture_px: None,
             selected_monitor: None,
             monitor_selection_done: false,
@@ -163,34 +161,19 @@ impl ComputerState {
         let human_like_default =
             crate::platform_config::effective_settings_global().computer_human_like;
         let pipeline_config = ComputerModelConfig::from_agent_registry(agents);
-        Self::with_annotate_url_human_like_and_tier(
+        Self::with_config(
             human_like_default,
             pipeline_config,
             Some(platform_config),
         )
     }
 
-    /// Test convenience constructor.
-    ///
-    /// The argument is kept only so existing call sites compile; the annotation
-    /// service it used to point at was removed, and nothing reads it now.
-    pub fn with_annotate_url(_annotate_api_base: &str) -> Self {
-        Self::with_annotate_url_human_like_and_tier(false, ComputerModelConfig::default(), None)
+    /// Test convenience constructor with default pipeline config.
+    pub fn default_for_test() -> Self {
+        Self::with_config(false, ComputerModelConfig::default(), None)
     }
 
-    /// Test convenience constructor with an explicit human-like default.
-    pub fn with_annotate_url_and_human_like(
-        _annotate_api_base: &str,
-        human_like_default: bool,
-    ) -> Self {
-        Self::with_annotate_url_human_like_and_tier(
-            human_like_default,
-            ComputerModelConfig::default(),
-            None,
-        )
-    }
-
-    pub fn with_annotate_url_human_like_and_tier(
+    pub fn with_config(
         human_like_default: bool,
         pipeline_config: ComputerModelConfig,
         platform_config: Option<SharedPlatformConfig>,
@@ -424,10 +407,6 @@ impl ComputerState {
 
         let session = self.get_or_create_session(conversation_id);
 
-        // Annotation service removed (P5): there is no SoM pass any more, so the
-        // coordinate baseline below is the only thing this block still owns.
-        let annotate_ms = 0.0_f64;
-
         let t = Instant::now();
         {
             let session_guard = session.lock().unwrap();
@@ -446,20 +425,17 @@ impl ComputerState {
         {
             let mut session = session.lock().unwrap();
             session.current_turn_capture_px = Some(capture_px);
-            session.last_annotated = Some((pack.screenshot_jpeg.clone(), monitor));
+            session.last_capture = Some((pack.screenshot_jpeg.clone(), monitor));
         }
 
         let total_ms = t_total.elapsed().as_secs_f64() * 1000.0;
         log::info!(
-            "apply_screen_capture: input={} annotate_png={} annotated_out={} | annotate_http {:.1}ms, vision_state {:.1}ms, overlay {:.1}ms, total {:.1}ms ({} boxes, {}x{} px)",
-            screen::format_data_size_bytes(screen_capture.len()),
+            "apply_screen_capture: input={} out={} | vision_state {:.1}ms, overlay {:.1}ms, total {:.1}ms ({}x{} px)",
             screen::format_data_size_bytes(screen_capture.len()),
             screen::format_data_size_bytes(pack.screenshot_jpeg.len()),
-            annotate_ms,
             vision_ms,
             overlay_ms,
             total_ms,
-            0,
             capture_px.0,
             capture_px.1
         );
@@ -467,7 +443,6 @@ impl ComputerState {
         Ok(ScreenCaptureResult {
             raw_unmarked_jpeg: screen_capture.to_vec(),
             screenshot_jpeg: pack.screenshot_jpeg,
-            mouse_neighbor_reference_text: None,
             monitor,
         })
     }
@@ -475,7 +450,7 @@ impl ComputerState {
     /// Capture the display under the cursor, call the annotation service, and refresh state for this session.
     ///
     /// Returns the capture result and an optional refreshed monitor id when a stale selection was recovered.
-    pub async fn capture_and_annotate(
+    pub async fn capture_screen(
         &self,
         conversation_id: &str,
     ) -> anyhow::Result<(ScreenCaptureResult, Option<String>)> {
@@ -484,7 +459,7 @@ impl ComputerState {
         let t = Instant::now();
         let monitor_id = self.selected_monitor_id_for_conversation(conversation_id);
         log::info!(
-            "capture_and_annotate: using monitor_id={} conversation_id={conversation_id}",
+            "capture_screen: using monitor_id={} conversation_id={conversation_id}",
             monitor_id.as_deref().unwrap_or("(cursor/auto)")
         );
         let plan = tokio::task::spawn_blocking(move || {
@@ -496,7 +471,7 @@ impl ComputerState {
         if let Some(ref new_id) = plan.refreshed_monitor_id {
             self.set_conversation_monitor(conversation_id, Some(new_id.clone()));
             log::info!(
-                "capture_and_annotate: monitor id refreshed conversation_id={conversation_id} new_id={new_id} kind={:?}",
+                "capture_screen: monitor id refreshed conversation_id={conversation_id} new_id={new_id} kind={:?}",
                 plan.resolve_kind
             );
         }
@@ -514,7 +489,7 @@ impl ComputerState {
             .await?;
 
         log::info!(
-            "capture_and_annotate: jpeg={} ({}x{} px) screenshot {:.1}ms, total_with_pipeline {:.1}ms",
+            "capture_screen: jpeg={} ({}x{} px) screenshot {:.1}ms, total_with_pipeline {:.1}ms",
             screen::format_data_size_bytes(shot.jpeg.len()),
             shot.capture_px.0,
             shot.capture_px.1,
@@ -525,14 +500,14 @@ impl ComputerState {
         Ok((out, plan.refreshed_monitor_id))
     }
 
-    /// Latest annotated screenshot (PNG bytes already shown to the model) for the given conversation, if any.
-    pub fn cached_annotated_for_conversation(
+    /// Latest screenshot (PNG bytes already shown to the model) for the given conversation, if any.
+    pub fn cached_capture_for_conversation(
         &self,
         conversation_id: &str,
     ) -> Option<(Vec<u8>, screen::MonitorInfo)> {
         let session = self.get_or_create_session(conversation_id);
         let s = session.lock().unwrap();
-        s.last_annotated.clone()
+        s.last_capture.clone()
     }
 
     /// Get a reference to the vision state for a specific conversation.
@@ -611,7 +586,7 @@ impl ComputerState {
             }
         }
         log::info!("pipeline capture: fresh OS screenshot conversation_id={conversation_id}");
-        let (cap, _) = self.capture_and_annotate(conversation_id).await?;
+        let (cap, _) = self.capture_screen(conversation_id).await?;
         {
             let session = self.get_or_create_session(conversation_id);
             let mut s = session.lock().unwrap();
@@ -770,7 +745,7 @@ mod tests {
     use std::time::Duration;
 
     fn make_state() -> ComputerState {
-        ComputerState::with_annotate_url("http://127.0.0.1:9999")
+        ComputerState::default_for_test()
     }
 
     /// The pipeline cache holds exactly one frame: a round stores its after-frame
@@ -810,7 +785,6 @@ mod tests {
         let cap = ScreenCaptureResult {
             raw_unmarked_jpeg: vec![7],
             screenshot_jpeg: vec![9, 9, 9],
-            mouse_neighbor_reference_text: None,
             monitor: screen::MonitorInfo::new(0, 0, 100, 100),
         };
         state.store_pipeline_after_capture("reuse", cap);
@@ -830,7 +804,6 @@ mod tests {
         let cap = ScreenCaptureResult {
             raw_unmarked_jpeg: vec![1],
             screenshot_jpeg: vec![9, 9, 9],
-            mouse_neighbor_reference_text: None,
             monitor: screen::MonitorInfo::new(0, 0, 100, 100),
         };
         state.store_pipeline_after_capture("fresh", cap);
@@ -906,7 +879,6 @@ mod tests {
         let cap = ScreenCaptureResult {
             raw_unmarked_jpeg: vec![1],
             screenshot_jpeg: vec![9, 9, 9],
-            mouse_neighbor_reference_text: None,
             monitor: screen::MonitorInfo::new(0, 0, 100, 100),
         };
         state.store_pipeline_after_capture("stale", cap);
@@ -937,7 +909,6 @@ mod tests {
         let cap = ScreenCaptureResult {
             raw_unmarked_jpeg: vec![1],
             screenshot_jpeg: vec![9, 9, 9],
-            mouse_neighbor_reference_text: None,
             monitor: screen::MonitorInfo::new(0, 0, 100, 100),
         };
         state.store_pipeline_after_capture("keep", cap);

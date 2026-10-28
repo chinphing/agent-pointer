@@ -273,7 +273,7 @@ mod tests {
             order: "_10_b",
             counter: c2.clone(),
         }));
-        let computer = ComputerState::with_annotate_url("http://127.0.0.1:9");
+        let computer = ComputerState::default_for_test();
         let base: &[ChatMessage] = &[];
         let mut tail = Vec::new();
         let mut ctx = MessageLoopPromptsAfterContext {
@@ -333,7 +333,7 @@ mod tests {
             run: run.clone(),
         }));
 
-        let computer = ComputerState::with_annotate_url("http://127.0.0.1:9");
+        let computer = ComputerState::default_for_test();
         let base: &[ChatMessage] = &[];
         let mut tail = Vec::new();
         let mut ctx = MessageLoopPromptsAfterContext {

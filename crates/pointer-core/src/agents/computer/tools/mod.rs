@@ -444,7 +444,7 @@ mod tests {
 
     fn registry_with_computer_tools() -> ToolRegistry {
         let reg = ToolRegistry::new();
-        let state = Arc::new(ComputerState::with_annotate_url("http://127.0.0.1:9999"));
+        let state = Arc::new(ComputerState::default_for_test());
         register_all(&reg, state);
         reg
     }

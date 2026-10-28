@@ -180,7 +180,7 @@ async fn apply_host_verify_shortcut(
 ) -> Result<()> {
     let (after_cap, _) = state
         .computer_state
-        .capture_and_annotate(conversation_id)
+        .capture_screen(conversation_id)
         .await?;
     state
         .computer_state
@@ -390,7 +390,7 @@ async fn apply_failed_verify_fallback(
     };
     let (after_cap, _) = state
         .computer_state
-        .capture_and_annotate(conversation_id)
+        .capture_screen(conversation_id)
         .await?;
     state
         .computer_state

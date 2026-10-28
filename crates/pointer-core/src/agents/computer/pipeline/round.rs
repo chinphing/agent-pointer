@@ -55,7 +55,7 @@ pub async fn run_verify_phase(
     mut usage: Option<&mut PipelineLlmUsageRecorder<'_>>,
 ) -> Result<VerifyConclusion> {
     let after_cap = computer_state
-        .capture_and_annotate(conversation_id)
+        .capture_screen(conversation_id)
         .await?
         .0;
     // Read the pointer once, right after the after-frame capture: it sits on the
@@ -161,7 +161,7 @@ pub async fn run_verify_phase(
             PIPELINE_LOADING_WAIT_SECS,
         ))
         .await;
-        after_for_cache = match computer_state.capture_and_annotate(conversation_id).await {
+        after_for_cache = match computer_state.capture_screen(conversation_id).await {
             Ok((cap, _)) => cap,
             Err(err) => {
                 emit_verify_debug_complete(

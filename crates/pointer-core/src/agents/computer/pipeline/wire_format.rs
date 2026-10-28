@@ -52,8 +52,9 @@ pub fn build_verify_wire_messages(input: &VerifyWireInput<'_>) -> Vec<Value> {
 
 #[derive(Debug, Clone, Copy)]
 enum PositionWireFormat {
-    /// `[Current screen]` + `[Annotated current screen]` + optional overlay bbox list.
-    AnnotatedDualScreen,
+    /// `[Current screen]` + optional bbox text. One image: the annotation
+    /// service that produced the second, numbered copy was removed.
+    SingleScreen,
 }
 
 impl PositionWireFormat {
@@ -64,28 +65,28 @@ impl PositionWireFormat {
             | OperationFamily::Scroll
             | OperationFamily::Drag
             | OperationFamily::Input
-            | OperationFamily::ModifiedClick => Self::AnnotatedDualScreen,
-            _ => Self::AnnotatedDualScreen,
+            | OperationFamily::ModifiedClick => Self::SingleScreen,
+            _ => Self::SingleScreen,
         }
     }
 
     fn build(self, input: &PositionWireInput<'_>) -> Vec<Value> {
         match self {
-            Self::AnnotatedDualScreen => build_position_annotated_dual_screen(input),
+            Self::SingleScreen => build_position_single_screen(input),
         }
     }
 }
 
-const POSITION_ANNOTATED_INSTRUCTION: &str = "\
-Compare [Current screen] layout with [Annotated current screen] overlay digits.\n\
+const POSITION_INSTRUCTION: &str = "\
+Locate the target in [Current screen] and read its bounds off that image.\n\
 Run spatial proof in reasoning_content only; then call exactly one submit_position_* tool (structured args).\n\
 Leave message content empty.\n";
 
-fn build_position_annotated_dual_screen(input: &PositionWireInput<'_>) -> Vec<Value> {
+fn build_position_single_screen(input: &PositionWireInput<'_>) -> Vec<Value> {
     let mut user_text = tagged_operation_block(
         TAG_POSITION,
         input.operation_text,
-        POSITION_ANNOTATED_INSTRUCTION,
+        POSITION_INSTRUCTION,
     );
     if let Some(bbox) = input.bbox_text.filter(|s| !s.trim().is_empty()) {
         user_text.push_str("\n\n");
@@ -247,7 +248,6 @@ mod tests {
         ScreenCaptureResult {
             raw_unmarked_jpeg: Vec::new(),
             screenshot_jpeg: vec![1, 2, 3],
-            mouse_neighbor_reference_text: None,
             monitor: MonitorInfo::new(0, 0, 1920, 1080),
         }
     }

@@ -1282,12 +1282,12 @@ async fn preview_computer_annotated_screen(
     state
         .core
         .computer_state
-        .cached_annotated_for_conversation(&q.conversation_id)
+        .cached_capture_for_conversation(&q.conversation_id)
         .map(|(img, _monitor)| ComputerAnnotatedPreview {
             image_base64: pointer_core::agents::computer::screen::encode_image_to_base64(&img),
             image_mime: pointer_core::agents::computer::screen::image_data_url_mime(&img)
                 .to_string(),
-            caption: "Annotated screenshot".into(),
+            caption: "Screenshot".into(),
         })
         .map(Json)
         .ok_or_else(|| {

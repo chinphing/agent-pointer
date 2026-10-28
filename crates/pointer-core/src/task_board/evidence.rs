@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn tier_history_detects_verify_pass() {
-        let state = ComputerState::with_annotate_url("http://127.0.0.1:9999");
+        let state = ComputerState::default_for_test();
         let conv = "evidence-pass";
         state.record_desktop_tool_if_applicable(
             conv,

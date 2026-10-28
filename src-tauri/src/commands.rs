@@ -641,7 +641,7 @@ pub fn get_task_board_snapshot(
     Ok(state.task_board_store.document(&store_key).to_value())
 }
 
-/// Returns the last annotated PNG from [`capture_and_annotate`] for a conversation.
+/// Returns the last captured screenshot from [`capture_screen`] for a conversation.
 #[tauri::command]
 pub fn preview_computer_annotated_screen(
     conversation_id: String,
@@ -649,12 +649,12 @@ pub fn preview_computer_annotated_screen(
 ) -> Result<ComputerAnnotatedPreview, String> {
     state
         .computer_state
-        .cached_annotated_for_conversation(&conversation_id)
+        .cached_capture_for_conversation(&conversation_id)
         .map(|(img, _monitor)| ComputerAnnotatedPreview {
             image_base64: pointer_core::agents::computer::screen::encode_image_to_base64(&img),
             image_mime: pointer_core::agents::computer::screen::image_data_url_mime(&img)
                 .to_string(),
-            caption: "Annotated screenshot".into(),
+            caption: "Screenshot".into(),
         })
         .ok_or_else(|| {
             "暂无桌面截图：请先完成一次截图处理（发送 Computer 消息），或确认会话 ID 正确。".into()

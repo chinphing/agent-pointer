@@ -799,6 +799,107 @@ bounds and the thing on screen are tied together.
 - **`frozen_desktop_far_hint_stays_honest`** still fails on `dangerous` boxes:
   blank-wallpaper targets, where any blank patch satisfies the description.
 
+## v16 — where the verify time actually goes, and the remark cut to 150 chars
+
+Three measurements, in the order they changed the picture.
+
+### 1. The four-section remark, compressed
+
+v13's four-section `position.remark` was 434 characters. The verifier was
+writing a full argument even when the box was already correct. It is now
+~150 characters: one sentence per section, the four edges of 图一 summarised
+in one clause instead of enumerated, and a 120-character ceiling on the whole
+remark. The four section headers and the 「报出读数」 requirement are unchanged,
+so `position_remark_covers_template` still holds.
+
+Measured on 81 cases × 3 runs, concurrency 10, release:
+
+| | old (434 chars) | **new (150 chars)** |
+|---|---|---|
+| hit | 230/243 = 94.65 % | **231/243 = 95.06 %** |
+| per-run | 96.3 / 95.1 / 92.6 | 93.8 / 96.3 / 95.1 |
+| wall clock, mean | 222.6 s | **184.8 s (−17 %)** |
+| per-case median | 22.7 s | **20.5 s (−9.7 %)** |
+| rounds per case | 1.68 | 1.65 |
+
+**A single run cannot decide this.** The old prompt's own three runs span 3.7
+points (96.3 / 95.1 / 92.6); comparing its best run against the new prompt's
+worst (93.8) produces a 「−2.5 points」 regression that does not exist. The
+three-run totals differ by 0.4 points in the other direction.
+
+The five cases that failed in the new prompt's first run (`r3c6`, `r4c6`,
+`r7c6`, `r3c4`, `r3c7` — all off by exactly one column) mostly pass in runs 2
+and 3. They are run-to-run spread, not a systematic loss.
+
+### 2. Three-stage timing: prefill is not the cost
+
+`stream_wire_timing` (added to `stream_wire_messages_collect_with_tools`)
+splits one call into four numbers. 5 cases × 3 runs, serial:
+
+| | V5 (`ac9174d7`) | main before v16 |
+|---|---|---|
+| `build` (base64 encode) | 0 ms | **0 ms** |
+| `headers` (upload + queue + prefill) | 1400 ms | **2290 ms** |
+| `ttft` (headers → first chunk) | 78 ms | 78 ms |
+| `output` (generation) | 1759 ms | **4078 ms** |
+| **total** | **~3.2 s** | **~6.6 s** |
+
+`ttft` is 78 ms. A 7,967-token prefill cannot finish in 78 ms, so **prefill is
+inside `headers`, not after it** — the SSE response headers are only sent once
+the model starts producing.
+
+That single fact explains every earlier dead end:
+
+- **`VERIFY_OUT_PX` 1920 → 960** (visual tokens −44 %) changed the single call
+  by **0 ms** (6.6 s → 6.6 s). Prefill is only ~250 ms of the 2,290 ms
+  `headers`; the rest is uploading 840 KB of base64 and queueing. Cutting
+  pixels cannot touch it.
+- **`VERIFY_MULT` 4.0 → 1.0** (drop 图二) saves 1.0 s of `headers` — the 426 KB
+  upload — but the verifier then loses the row/column labels and rounds go from
+  21 to 35 over the same 15 runs. Net loss.
+- **Concurrency does not race.** It inflates `headers`: 2,290 ms serial →
+  3,860 ms at concurrency 10 (+68 %), while `output` stays put. This is why the
+  prompt compression shows −37 % on 5 serial cases but only −8 % on the full
+  81-case concurrent run.
+
+### 3. Where the 2× between V5 and main came from
+
+| cost | increment | share of the gap |
+|---|---|---|
+| four-section remark | +2,320 ms (output) | **72 %** |
+| 图二 upload | +890 ms (headers) | 28 % |
+| prefill / pixels | ~0 | 0 % |
+
+The wide image was the obvious suspect and the wrong one. Most of the time
+went into writing 434 characters instead of 120.
+
+### Image sizes, for the record
+
+| | 图一 close | 图二 wide |
+|---|---|---|
+| output | 1600 × 1600 | 1920 × 1920 |
+| coverage | `side` (240–1600 px) | `side × 4` |
+| JPEG | 198 KB | 416 KB |
+| cell size in image | 240–273 px | 72–82 px |
+| job | does the box sit on the borders | read the row/column labels |
+
+`side = max(box w, box h) × 3.0`, clamped to `[240, 1600]`. Both images are
+`Mark::BoxAndDot` and share the same centre; 图二 is the same window pulled
+back 4×, which is why the box occupies a quarter of its width and the board's
+labels fit around it.
+
+### Still open
+
+- **`headers` is now 45 % of the call** (3.86 s of 8.6 s at concurrency 10) and
+  it is network + queue. Nothing in this crate can shrink it further without
+  dropping 图二, which costs accuracy.
+- **Adjacent identical candidates** (`r8c6` / I7 vs I8) unchanged from v15.
+- **ScreenSpot-Pro M2** still not re-run since v14; icon accuracy 73.9 % is the
+  largest remaining lever.
+- **The 150-character ceiling is a prompt instruction, not an enforced limit.**
+  Nothing in code truncates or rejects a longer remark; only
+  `position_remark_covers_template` checks the four headers are present.
+
 ## Superseded
 
 - **v1** (69.1 %) ran on the same dataset before the four locate fixes above.

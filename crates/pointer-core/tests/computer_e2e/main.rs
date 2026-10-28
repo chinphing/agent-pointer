@@ -70,19 +70,34 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn data_dir() -> PathBuf {
-    repo_root().join("benchmarks/computer_e2e/data")
+/// `pointer-eval-data/` sits **next to** this repo, not inside it: the fixtures
+/// are screenshots and captured JSONL, not source. Keeping them out of the
+/// checkout is what lets the repo stay small and the data be replaced wholesale.
+///
+/// Override with `POINTER_EVAL_DATA` when the data lives elsewhere (CI, another
+/// machine, a read-only mount).
+fn eval_data_root() -> PathBuf {
+    if let Ok(p) = std::env::var("POINTER_EVAL_DATA") {
+        return PathBuf::from(p);
+    }
+    repo_root()
+        .parent()
+        .map(|p| p.join("pointer-eval-data"))
+        .unwrap_or_else(|| repo_root().join("pointer-eval-data"))
 }
 
-/// Where the screenshots live. Production dumps them under app data; override
-/// with `POINTER_E2E_IMAGE_DIR` to point at a copy.
+fn data_dir() -> PathBuf {
+    eval_data_root().join("computer_e2e")
+}
+
+/// Where the screenshots live. They sit beside `e2e_truth.json` in the data
+/// root, so `POINTER_E2E_IMAGE_DIR` is only needed when a run should use a
+/// different image set than the one the truth file was built from.
 fn image_dir() -> PathBuf {
     if let Ok(p) = std::env::var("POINTER_E2E_IMAGE_DIR") {
         return PathBuf::from(p);
     }
-    let home = std::env::var("HOME").unwrap_or_default();
-    PathBuf::from(home)
-        .join("Library/Application Support/PointerApp/computer-captures/locate")
+    data_dir()
 }
 
 fn load_truth() -> Result<TruthFile> {
@@ -749,7 +764,7 @@ fn verify_dataset_path() -> PathBuf {
     if let Ok(p) = std::env::var("POINTER_E2E_VERIFY_JSONL") {
         return PathBuf::from(p);
     }
-    repo_root().join("datasets/pointer-2026-10-28/verify.jsonl")
+    eval_data_root().join("pointer-2026-10-28/verify.jsonl")
 }
 
 fn load_verify_records() -> Result<Vec<VerifyRecord>> {

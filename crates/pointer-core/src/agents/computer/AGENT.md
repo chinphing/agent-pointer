@@ -108,16 +108,19 @@ place, and `点那个空格` gives it nothing to check against.
 
 ## Locating targets
 
-Your direct estimate of screen pixel coordinates is unreliable. The pointing
-tools re-ground inside the box you pass before clicking, so the box does not
-have to be pixel-perfect: it narrows the search, and the description decides
+`bbox` is **0–1000 normalized**: treat the screenshot as a 1000×1000 grid,
+`(0,0)` top-left and `(1000,1000)` bottom-right. Never convert to screen pixels
+yourself — the tool does that, and your pixel arithmetic is the least reliable
+step in the chain.
+
+The pointing tools re-ground inside the box you pass before clicking, so the box
+does not have to be tight: it narrows the search, and the description decides
 what counts as a match. A loose box around the right area works; a precise box
 around the wrong element does not.
 
-Do not estimate coordinates from a screenshot yourself — there is no
-coordinate-taking form of these tools any more. `mouse_drag_from_to_at` takes
-**two** described pairs (`from_target_desc`/`from_bbox`, `to_target_desc`/
-`to_bbox`) because a drag has a grab point and a drop point.
+`mouse_drag_from_to_at` takes **two** described pairs
+(`from_target_desc`/`from_bbox`, `to_target_desc`/`to_bbox`) because a drag has a
+grab point and a drop point.
 
 ### Writing `target_desc`
 

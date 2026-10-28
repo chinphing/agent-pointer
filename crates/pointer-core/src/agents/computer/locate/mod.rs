@@ -46,8 +46,9 @@ pub async fn run_locate_element(
     args: &Value,
     cancel: &CancellationToken,
 ) -> Result<String> {
-    let requests = parse_requests(args)?;
     let frame = capture_frame(computer_state, conversation_id).await?;
+    // `hint_box` is 0–1000 normalized, so parsing it needs the frame size.
+    let requests = parse_requests(args, frame.width(), frame.height())?;
     // Thinking comes from the callers: `locate_providers` applies the locate /
     // locate-verify phase budgets (0 = off, the default). Leaving thinking on
     // lets the verifier spiral into self-doubt when a retry hint says the
@@ -74,7 +75,7 @@ async fn capture_frame(state: &ComputerState, conversation_id: &str) -> Result<L
     LocateFrame::from_jpeg(&cap.raw_unmarked_jpeg)
 }
 
-fn parse_requests(args: &Value) -> Result<Vec<LocateRequest>> {
+fn parse_requests(args: &Value, w: u32, h: u32) -> Result<Vec<LocateRequest>> {
     let elements = args
         .get("elements")
         .and_then(Value::as_array)
@@ -114,13 +115,13 @@ fn parse_requests(args: &Value) -> Result<Vec<LocateRequest>> {
         out.push(LocateRequest {
             target_desc: target_desc.to_string(),
             goal: goal.to_string(),
-            hint_px: parse_hint(el.get("hint_box"), idx)?,
+            hint_px: parse_hint(el.get("hint_box"), idx, w, h)?,
         });
     }
     Ok(out)
 }
 
-fn parse_hint(raw: Option<&Value>, idx: usize) -> Result<Option<PxBox>> {
+fn parse_hint(raw: Option<&Value>, idx: usize, w: u32, h: u32) -> Result<Option<PxBox>> {
     let Some(raw) = raw else {
         return Ok(None);
     };
@@ -142,12 +143,37 @@ fn parse_hint(raw: Option<&Value>, idx: usize) -> Result<Option<PxBox>> {
             .as_f64()
             .ok_or_else(|| anyhow!("elements[{idx}].hint_box[{j}] 不是数字"))?;
     }
-    Ok(Some(PxBox {
-        x1: v[0],
-        y1: v[1],
-        x2: v[2],
-        y2: v[3],
-    }))
+    // `hint_box` arrives in the same 0–1000 space the model answers in
+    // everywhere else (`locate`, `verify`). Asking it for screen pixels made it
+    // do a ×1920 / ×1080 conversion in its head, and measured on the 81-cell
+    // sudoku set that cost an order of magnitude: 153.5 px median offset in
+    // pixels vs 14.4 px in 0–1000, hit rate 13.6 % vs 64.2 %. The conversion
+    // belongs in code, not in the model.
+    if !(0.0..=1000.0).contains(&v[0])
+        || !(0.0..=1000.0).contains(&v[1])
+        || !(0.0..=1000.0).contains(&v[2])
+        || !(0.0..=1000.0).contains(&v[3])
+    {
+        return Err(anyhow!(
+            "elements[{idx}].hint_box 必须是 0–1000 的归一化坐标，收到 [{}, {}, {}, {}]。\
+             把截图看成 1000×1000 的方格来报数：左上角 (0,0)，右下角 (1000,1000)。",
+            v[0],
+            v[1],
+            v[2],
+            v[3]
+        ));
+    }
+    let norm = NormBox::new(v[0], v[1], v[2], v[3]);
+    if norm.is_degenerate() {
+        return Err(anyhow!(
+            "elements[{idx}].hint_box 宽高必须为正，收到 [{}, {}, {}, {}]",
+            v[0],
+            v[1],
+            v[2],
+            v[3]
+        ));
+    }
+    Ok(Some(norm.to_px(w, h)))
 }
 
 fn render_results(outcomes: &[LocateOutcome]) -> String {
@@ -235,6 +261,14 @@ fn failure_summary(reason: Option<FailureReason>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Test-side shim: `parse_requests` needs the frame size to convert the
+    /// 0–1000 `hint_box` into pixels. The assertions below only care about
+    /// argument validation, so pin a 1920×1080 frame and keep the call sites
+    /// reading like the one-argument version they were written against.
+    fn parse_requests(args: &Value) -> Result<Vec<LocateRequest>> {
+        super::parse_requests(args, 1920, 1080)
+    }
 
     #[test]
     fn located_result_carries_an_explicit_verdict() {
@@ -364,22 +398,36 @@ mod tests {
     }
 
     #[test]
-    fn parses_hint_box_pixels() {
+    fn parses_hint_box_normalized() {
+        // `hint_box` is 0–1000; the shim pins the frame at 1920×1080, so
+        // [800, 35, 840, 55] has to land on [1536, 37.8, 1612.8, 59.4].
         let reqs = parse_requests(&json!({
             "goal":"点击它",
             "elements":[{"target_desc":"保存按钮","hint_box":[800,35,840,55]}]
         }))
         .unwrap();
         let hint = reqs[0].hint_px.unwrap();
-        assert_eq!(
-            hint,
-            PxBox {
-                x1: 800.0,
-                y1: 35.0,
-                x2: 840.0,
-                y2: 55.0
-            }
-        );
+        // 35 / 1000 * 1080 is not exact in binary floating point.
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-6;
+        assert!(close(hint.x1, 1536.0), "x1={}", hint.x1);
+        assert!(close(hint.y1, 37.8), "y1={}", hint.y1);
+        assert!(close(hint.x2, 1612.8), "x2={}", hint.x2);
+        assert!(close(hint.y2, 59.4), "y2={}", hint.y2);
+    }
+
+    #[test]
+    fn rejects_hint_box_in_screen_pixels() {
+        // The old contract was screen pixels. A model that still answers
+        // `[800, 35, 840, 55]`-style pixels for a 1920-wide screen is now out of
+        // range, and must be told so rather than silently clicking 4/5 of the
+        // way across the screen.
+        let err = parse_requests(&json!({
+            "goal":"点击它",
+            "elements":[{"target_desc":"保存按钮","hint_box":[1600,700,1680,740]}]
+        }))
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("0–1000"), "unexpected error: {err}");
     }
 
     #[test]

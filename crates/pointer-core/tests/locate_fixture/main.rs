@@ -1511,3 +1511,267 @@ fn sudoku_truth_cells_tile_the_board() -> Result<()> {
     }
     Ok(())
 }
+
+/// Probe: the whole screenshot, no crop, no scaling, no hint.
+///
+/// This is the same job the main LLM does when it fills in `bbox` for
+/// `mouse_click_at` — one 1920×1080 picture, one written description, "point at
+/// it". The difference is only the schema: the agent answers in pixels through
+/// the pointing tool, this answers in 0–1000 through the locate tool.
+///
+/// **No hint is passed.** `locate_elements` always starts from the caller's box,
+/// so it can never show how well the model finds a target on its own. That is
+/// exactly what the agent's `bbox` is, and what this measures.
+///
+/// Run:
+/// ```text
+/// POINTER_LOCATE_TRUTH=truth_sudoku.json POINTER_LOCATE_CONCURRENCY=1 \
+///   cargo test --release -p pointer-core --test locate_fixture \
+///   fullscreen_absolute_coordinates -- --ignored --nocapture
+/// ```
+#[tokio::test]
+#[ignore = "calls a real vision model; run with --ignored"]
+async fn fullscreen_absolute_coordinates() -> Result<()> {
+    let _ = env_logger::builder()
+        .format_timestamp_millis()
+        .is_test(false)
+        .try_init();
+
+    use pointer_core::agents::computer::locate::prompt::{locate_tool, parse_locate_arguments};
+    use pointer_core::agents::computer::locate::render::render_full;
+    use pointer_core::agents::computer::vision::screen::encode_image_to_base64;
+    use serde_json::json;
+
+    // `norm` = the locate tool's native 0–1000 space (what the locator always
+    // uses). `pixel` = the space the main LLM answers in for `mouse_click_at`.
+    // Same model, same picture, same wording apart from the unit — the only
+    // variable is how the coordinate is expressed.
+    let coord_mode = std::env::var("POINTER_PROBE_COORD").unwrap_or_else(|_| "norm".into());
+    let pixel_mode = coord_mode.eq_ignore_ascii_case("pixel");
+
+    let truth = load_truth()?;
+    let provider = build_provider()?;
+
+    let img = image::open(dir().join("fixtures/sudoku.jpg"))
+        .context("open fixtures/sudoku.jpg")?
+        .to_rgb8();
+    let frame = LocateFrame::new(img);
+    let (w, h) = (frame.width(), frame.height());
+    let full = render_full(&frame, None)?;
+
+    let tool: serde_json::Value = if pixel_mode {
+        json!({
+            "type": "function",
+            "function": {
+                "name": "locate",
+                "description": "Report the target's bounding box in the pixel coordinates of this image.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "found": {
+                            "type": "boolean",
+                            "description": "false when the target is not in this image"
+                        },
+                        "bbox": {
+                            "type": "array",
+                            "items": { "type": "number" },
+                            "description": format!(
+                                "[x1, y1, x2, y2] in image pixels: x from 0 to {w}, y from 0 to {h}"
+                            )
+                        }
+                    },
+                    "required": ["found"]
+                }
+            }
+        })
+    } else {
+        locate_tool()
+    };
+
+    // Only 1-based case numbers, matching `POINTER_LOCATE_ONLY` everywhere else.
+    let only = std::env::var("POINTER_LOCATE_ONLY")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok());
+
+    println!(
+        "mode: fullscreen={}x{} cases={} coord={} (no crop, no scaling, no hint)",
+        w,
+        h,
+        truth.cases.len(),
+        if pixel_mode { "pixel" } else { "norm" }
+    );
+
+    let mut offsets: Vec<f64> = Vec::new();
+    let mut hits = 0usize;
+    let mut not_found = 0usize;
+    let mut done = 0usize;
+
+    let concurrency = std::env::var("POINTER_LOCATE_CONCURRENCY")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(8)
+        .clamp(1, 10);
+
+    let selected: Vec<&TruthCase> = truth
+        .cases
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| only.map(|n| i + 1 == n).unwrap_or(true))
+        .map(|(_, c)| c)
+        .collect();
+
+    println!("concurrency: {concurrency}");
+
+    // One future per case; `buffer_unordered` keeps `concurrency` in flight.
+    // Results come back out of order, so collect and sort before printing —
+    // interleaved lines are unreadable when 8 cases finish at once.
+    // Borrow once outside the closure; `async move` then captures the
+    // references (which are Copy) instead of the values.
+    let provider_ref = &provider;
+    let full_ref = &full;
+    let tool_ref = &tool;
+    let outcomes: Vec<(String, String, Option<[f64; 4]>, Option<(f64, f64, f64, f64, u128)>)> =
+        futures_util::stream::iter(selected.iter().map(|case| async move {
+            let prompt = if pixel_mode {
+                format!(
+                    "这是一张 {w}×{h} 的完整屏幕截图。\n\n\
+                     目标：{}\n\n\
+                     在整张图里找到这个目标，给出它的外接矩形。\n\
+                     坐标用**像素**：左上角 (0,0)，右下角 ({w},{h})。\n\
+                     如果目标确实不在这张图里，返回 found=false。",
+                    case.description
+                )
+            } else {
+                format!(
+                    "这是一张 {w}×{h} 的完整屏幕截图。\n\n\
+                     目标：{}\n\n\
+                     在整张图里找到这个目标，给出它的外接矩形。\n\
+                     坐标用 0-1000 归一化：左上角 (0,0)，右下角 (1000,1000)。\n\
+                     如果目标确实不在这张图里，返回 found=false。",
+                    case.description
+                )
+            };
+            let messages = vec![json!({
+                "role": "user",
+                "content": [
+                    { "type": "text", "text": "【图一】" },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": format!(
+                                "data:image/jpeg;base64,{}",
+                                encode_image_to_base64(&full_ref.jpeg)
+                            )
+                        }
+                    },
+                    { "type": "text", "text": prompt }
+                ]
+            })];
+            let started = std::time::Instant::now();
+            let answer = provider_ref
+                .stream_pipeline_module_with_tools(
+                    messages,
+                    None,
+                    vec![tool_ref.clone()],
+                    CancellationToken::new(),
+                    None,
+                    Some("probe"),
+                )
+                .await;
+            let ms = started.elapsed().as_millis();
+            let short: String = case.description.chars().take(22).collect();
+            let got = match answer {
+                Ok(out) => out
+                    .tool_calls
+                    .iter()
+                    .find_map(|tc| {
+                        tc.name
+                            .trim()
+                            .eq_ignore_ascii_case("locate")
+                            .then(|| tc.arguments.clone())
+                    })
+                    .and_then(|raw| {
+                        if pixel_mode {
+                            // Pixel answers come back already in frame pixels.
+                            let v: serde_json::Value = serde_json::from_str(raw.trim()).ok()?;
+                            if v.get("found").and_then(|f| f.as_bool()) == Some(false) {
+                                return None;
+                            }
+                            let b = v.get("bbox")?.as_array()?;
+                            let n: Vec<f64> =
+                                b.iter().filter_map(|x| x.as_f64()).collect();
+                            (n.len() == 4).then(|| (n[0], n[1], n[2], n[3]))
+                        } else {
+                            match parse_locate_arguments(&raw)? {
+                                pointer_core::agents::computer::locate::prompt::LocateAnswer::Found(
+                                    nb,
+                                ) => {
+                                    let px = nb.to_px(w, h);
+                                    Some((px.x1, px.y1, px.x2, px.y2))
+                                }
+                                _ => None,
+                            }
+                        }
+                    })
+                    .map(|(x1, y1, x2, y2)| ((x1 + x2) / 2.0, (y1 + y2) / 2.0, x1, y1, ms)),
+                Err(_) => None,
+            };
+            (case.scene.clone(), short, case.bbox, got)
+        }))
+        .buffer_unordered(concurrency)
+        .collect()
+        .await;
+
+    let mut rows = outcomes;
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+
+    for (scene, short, bbox, got) in rows {
+        let Some(bbox) = bbox else { continue };
+        let truth_cx = (bbox[0] + bbox[2]) / 2.0;
+        let truth_cy = (bbox[1] + bbox[3]) / 2.0;
+        done += 1;
+        match got {
+            Some((cx, cy, _x1, _y1, ms)) => {
+                let dx = cx - truth_cx;
+                let dy = cy - truth_cy;
+                let offset = dx.abs() + dy.abs();
+                let landed =
+                    cx >= bbox[0] && cx <= bbox[2] && cy >= bbox[1] && cy <= bbox[3];
+                if landed {
+                    hits += 1;
+                }
+                offsets.push(offset);
+                println!(
+                    "{:<6} {:<24} truth=[{:.0},{:.0}] got=[{:.0},{:.0}] d=({:+.0},{:+.0}) |d|={:.1} {} {}ms",
+                    scene,
+                    short,
+                    truth_cx,
+                    truth_cy,
+                    cx,
+                    cy,
+                    dx,
+                    dy,
+                    offset,
+                    if landed { "HIT " } else { "miss" },
+                    ms
+                );
+            }
+            None => {
+                not_found += 1;
+                println!("{:<6} {:<24} NOT FOUND", scene, short);
+            }
+        }
+    }
+
+    if !offsets.is_empty() {
+        let mut sorted = offsets.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median = sorted[sorted.len() / 2];
+        let mean = sorted.iter().sum::<f64>() / sorted.len() as f64;
+        println!(
+            "\n{} cases: {} hit, {} not-found | centre offset median {:.1}px mean {:.1}px",
+            done, hits, not_found, median, mean
+        );
+    }
+    Ok(())
+}

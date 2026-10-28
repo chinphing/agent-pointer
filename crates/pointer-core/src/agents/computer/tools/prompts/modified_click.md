@@ -2,7 +2,7 @@
 
 Each tool name is the complete operation — no `method` parameter.
 
-**Grounded** (logical pixels, origin at the screenshot's top-left):
+**Grounded** (0–1000 normalized, origin at the screenshot's top-left):
 - **`modified_click_select_at`** — Cmd/Ctrl+click each target. Requires
   **`positions`**: one `{target_desc, bbox}` per target, one or more.
 - **`modified_click_range_select_at`** — Shift+click the range between two
@@ -11,8 +11,8 @@ Each tool name is the complete operation — no `method` parameter.
 
 ```json
 {"positions": [
-   {"target_desc": "first row of the report table", "bbox": [100, 200, 400, 240]},
-   {"target_desc": "third row of the report table", "bbox": [100, 300, 400, 340]}
+   {"target_desc": "first row of the report table", "bbox": [52, 185, 208, 222]},
+   {"target_desc": "third row of the report table", "bbox": [52, 278, 208, 315]}
  ],
  "goal": "<what this selection achieves, in the user's language>"}
 ```
@@ -30,5 +30,4 @@ and the anchor are what separate them.
 Chinese description — a translated element name does not match what the grounder
 reads on screen.
 
-Coordinates are **logical pixels**, the same width and height as the screenshot
-you are looking at — not normalized, not Retina device pixels.
+Coordinates are **0–1000 normalized** — see **Locating targets**.

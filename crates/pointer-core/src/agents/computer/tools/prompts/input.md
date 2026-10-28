@@ -17,7 +17,7 @@ focus.
 turn to type the same field. Put **`text`**, **`clear_first`**, and
 **`auto_enter`** on the **same** **`input_at`** call.
 
-**Grounded** (logical pixels, origin at the screenshot's top-left):
+**Grounded** (0–1000 normalized, origin at the screenshot's top-left):
 - **`input_at`** — Ground **`target_desc`** inside **`bbox`**, click the confirmed
   centre, then type. Requires **`target_desc`**, **`bbox`**, **`text`**.
   Both parts are required: `bbox` narrows the search, `target_desc` says which
@@ -32,8 +32,7 @@ position is what tells them apart.
 description — a translated element name does not match what the grounder reads
 on screen.
 
-Coordinates are **logical pixels**, the same width and height as the screenshot
-you are looking at — not normalized, not Retina device pixels.
+Coordinates are **0–1000 normalized** — see **Locating targets**.
 
 **Focused field:**
 - **`input_focused`** — Type into focused input (no click). Requires **`text`** only.

@@ -10,14 +10,15 @@ on that target this turn (buttons, toggles, icons, links, menus).
 **Every pointing tool takes `target_desc` + `bbox` — both, always:**
 
 ```json
-{"target_desc": "Save button on the right of the toolbar", "bbox": [775, 265, 819, 283], "goal": "<what this step achieves, in the user's language>"}
+{"target_desc": "Save button on the right of the toolbar", "bbox": [404, 245, 427, 262], "goal": "<what this step achieves, in the user's language>"}
 ```
 
 - **`target_desc`** — what you want to act on, in words.
-- **`bbox`** — roughly where it is, `[x1, y1, x2, y2]` in logical pixels. A
-  loose box is fine: the tool re-grounds inside it and clicks the **confirmed**
-  centre, not the centre of your box. A box around the wrong area is not fine —
-  grounding cannot find the target outside it.
+- **`bbox`** — roughly where it is, `[x1, y1, x2, y2]` in **0–1000 normalized
+  coordinates** (see **Locating targets**). A loose box is fine: the tool
+  re-grounds inside it and clicks the **confirmed** centre, not the centre of
+  your box. A box around the wrong area is not fine — grounding cannot find the
+  target outside it.
 
 **`target_desc`** follows **Writing `target_desc`** in your system prompt —
 four parts, in one sentence. The position and the anchor are what separate two
@@ -53,13 +54,12 @@ and same-named elements confuse it).
   described — a bare point is not enough.
 
   ```json
-  {"from_target_desc": "report.pdf on the desktop", "from_bbox": [120, 300, 190, 360],
-   "to_target_desc": "Trash", "to_bbox": [1180, 700, 1240, 760],
+  {"from_target_desc": "report.pdf on the desktop", "from_bbox": [62, 278, 99, 333],
+   "to_target_desc": "Trash", "to_bbox": [615, 648, 646, 704],
    "goal": "<what this drag achieves, in the user's language>"}
   ```
 
-Coordinates are **logical pixels**, the same width and height as the screenshot
-you are looking at — not normalized, not Retina device pixels.
+Coordinates are **0–1000 normalized** — see **Locating targets**.
 
 **Button hold / release**
 

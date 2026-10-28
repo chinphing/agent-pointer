@@ -153,6 +153,10 @@ pub(super) async fn resolve_point(
     let bbox_value = args
         .get(&bbox_key)
         .ok_or_else(|| anyhow::anyhow!("缺少 {bbox_key}——目标大概在哪个范围"))?;
+    // The model answers `bbox` in 0–1000 normalized coordinates, so this value
+    // is **not** pixels even though `parse_bbox` returns a `PxBox` — it only
+    // validates the shape. `run_locate_element` → `parse_hint` does the
+    // conversion against the captured frame size.
     let hint = parse_bbox(bbox_value)?;
 
     let providers = locate_providers(state, conversation_id, provider)?;

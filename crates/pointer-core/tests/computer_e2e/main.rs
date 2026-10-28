@@ -827,7 +827,17 @@ async fn computer_verify_e2e() -> Result<()> {
 
     let verify_thinking = thinking_from_env("POINTER_E2E_VERIFY_THINKING", false);
     let provider = build_provider(verify_thinking)?;
-    let img_dir = image_dir();
+    // The crops sit beside the JSONL that names them, not in the e2e frame
+    // directory — `verify.jsonl` records a verifier call, and its two images are
+    // that call's input, not a full-screen fixture.
+    let img_dir = std::env::var("POINTER_E2E_IMAGE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            verify_dataset_path()
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| eval_data_root())
+        });
     let concurrency: usize = std::env::var("POINTER_E2E_CONCURRENCY")
         .ok()
         .and_then(|v| v.parse().ok())

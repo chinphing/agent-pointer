@@ -134,6 +134,120 @@ pub(super) fn parse_bbox(v: &Value) -> anyhow::Result<crate::agents::computer::l
 ///
 /// The returned point is the centre of the box **locate confirmed**, not the
 /// centre of the box the caller passed — so a loose hint still lands correctly.
+/// Build the message the main model sees when grounding fails.
+///
+/// The three failure shapes need three different responses from the model:
+///
+/// * `not_found` — the locator never produced a box. Retrying with a different
+///   hint is reasonable.
+/// * `not_verified` — a box was found and the verifier rejected it. The box or
+///   the description is wrong; retrying the same hint will fail again.
+/// * `unclear` — the verifier never answered. Nothing was judged, so the model
+///   should not "fix" its description over this.
+///
+/// On top of that, the verifier's own `结论：` line states whether `target_desc`
+/// disagrees with the screen. That is the one sentence that tells the model to
+/// The verifier's own conclusion sentence, if it wrote one.
+fn conclusion_line(summary: &str) -> Option<&str> {
+    summary
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| l.starts_with("结论"))
+        .map(|l| {
+            l.trim_start_matches("结论：")
+                .trim_start_matches("结论:")
+                .trim()
+        })
+        .filter(|s| !s.is_empty())
+}
+
+/// What `resolve_point` produces: a point, or a structured reason it could not
+/// find one.
+///
+/// Grounding failure used to be `Err(anyhow!("定位失败（…）"))`, which flattened
+/// everything the locate pass knew into one sentence and left the caller — and
+/// the verify stage after it — matching on a Chinese string prefix. `terminal`
+/// already returns `{"success": false, …}`; this brings grounding to the same
+/// shape so both can be read as data.
+pub(super) enum GroundOutcome {
+    /// A confirmed point, plus the box the locator settled on — the box is what
+    /// the model needs to judge "did it land where I meant", and it was being
+    /// thrown away after the centre was computed.
+    Point {
+        x: f64,
+        y: f64,
+        bbox: Value,
+    },
+    Failed(GroundFailure),
+}
+
+/// The result of a successful pointer action, in the same shape as a failure.
+///
+/// `terminal` reports `{"success": true, …}`; pointer tools used to answer with
+/// an English sentence, so a model reading a tool result had one shape on
+/// success and another on failure. Both now carry `success`, and the box travels
+/// with the point — a bare coordinate says where the click went, not what it hit.
+pub(super) fn success_payload(
+    action: &str,
+    points: &[(f64, f64)],
+    boxes: &[Value],
+    note: &str,
+) -> String {
+    let mut payload = serde_json::json!({
+        "success": true,
+        "action": action,
+        "note": note,
+    });
+    if let Some(obj) = payload.as_object_mut() {
+        if points.is_empty() {
+            // Scroll-at-current-pointer grounds nothing; there is no point or box
+            // to report and inventing an empty one would read as "located at []".
+        } else if points.len() == 1 {
+            obj.insert("point".into(), serde_json::json!([points[0].0, points[0].1]));
+            obj.insert("box".into(), boxes.first().cloned().unwrap_or(Value::Null));
+        } else {
+            obj.insert("points".into(), serde_json::json!(points));
+            obj.insert("boxes".into(), serde_json::json!(boxes));
+        }
+    }
+    payload.to_string()
+}
+
+/// Why grounding failed, as the payload the model sees.
+#[derive(Debug, Clone)]
+pub(super) struct GroundFailure {
+    pub status: String,
+    pub target_desc: String,
+    pub rounds: u64,
+    pub bbox: Value,
+    pub failure_reason: String,
+    pub summary: String,
+}
+
+impl GroundFailure {
+    /// `success: false` mirrors `terminal`'s result shape, so a caller that
+    /// already branches on that field does not need a second convention.
+    pub fn to_payload(&self) -> String {
+        // The verifier's own sentence is the whole point of the field; fall back
+        // to its conclusion line only when it never answered.
+        let reason = if self.failure_reason.trim().is_empty() {
+            conclusion_line(&self.summary).unwrap_or(self.summary.trim())
+        } else {
+            self.failure_reason.trim()
+        };
+        serde_json::json!({
+            "success": false,
+            "status": self.status,
+            "target_desc": self.target_desc,
+            "your_bbox": self.bbox,
+            "rounds": self.rounds,
+            "failure_reason": reason,
+        })
+        .to_string()
+    }
+}
+
 pub(super) async fn resolve_point(
     state: &AppState,
     conversation_id: &str,
@@ -141,7 +255,7 @@ pub(super) async fn resolve_point(
     args: &Value,
     prefix: &str,
     cancel: &CancellationToken,
-) -> anyhow::Result<(f64, f64)> {
+) -> anyhow::Result<GroundOutcome> {
     let desc_key = format!("{prefix}target_desc");
     let bbox_key = format!("{prefix}bbox");
     let target_desc = args
@@ -193,20 +307,42 @@ pub(super) async fn resolve_point(
 
     let status = first.get("status").and_then(|v| v.as_str()).unwrap_or("");
     if status != "located" {
-        // Surface the locate failure verbatim — its `summary` already explains
-        // what went wrong in user terms.
         let summary = first
             .get("summary")
             .and_then(|v| v.as_str())
             .unwrap_or("定位失败");
-        anyhow::bail!("没找到「{target_desc}」：{summary}");
+        let rounds = first.get("rounds").and_then(|v| v.as_u64()).unwrap_or(0);
+        let failure_reason = first
+            .get("failure_reason")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        return Ok(GroundOutcome::Failed(GroundFailure {
+            status: status.to_string(),
+            target_desc: target_desc.to_string(),
+            rounds,
+            bbox: bbox_value.clone(),
+            failure_reason: failure_reason.to_string(),
+            summary: summary.to_string(),
+        }));
     }
     let confirmed = first
         .get("bbox")
         .ok_or_else(|| anyhow::anyhow!("locate 结果缺少 bbox"))
         .and_then(parse_bbox)?;
     let (cx, cy) = confirmed.center();
-    Ok((cx, cy))
+    // Ship the box alongside the centre: the model asked for "the cell with a
+    // red 9" and gets back "clicked at (274, 341)" — without the box it cannot
+    // tell whether that point is inside the cell it named.
+    Ok(GroundOutcome::Point {
+        x: cx,
+        y: cy,
+        bbox: serde_json::json!([
+            confirmed.x1.round() as i64,
+            confirmed.y1.round() as i64,
+            confirmed.x2.round() as i64,
+            confirmed.y2.round() as i64,
+        ]),
+    })
 }
 
 #[cfg(test)]
@@ -229,6 +365,128 @@ mod tests {
     fn parse_bbox_keeps_the_centre() {
         let b = parse_bbox(&json!([100, 200, 300, 260])).unwrap();
         assert_eq!(b.center(), (200.0, 230.0));
+    }
+
+    // The dev run at 09:0x on 2026-10-29: the model wrote `target_desc` saying
+    // E4 held a red 9, but the red 9 was in E5. It retried the same wrong cell
+    // until the round budget ran out, because the old message
+    // 「没找到「…」：…」 read as "it exists, click again".
+    const E4_E5_SUMMARY: &str = "中心：红点完整落在空白单元格内部 / 大小：大小合适 / 位置：从图一看到：\
+框住空白格，四边各贴网格线，左邻空白、右邻红色数字9\n\
+从图二看到：列标4/5/6可见，行标E可见；框在E行第4列（E4）；右侧紧邻E5为红色9\n\
+预期的目标是：数独盘面E行第四列显示红色数字9的单元格\n\
+结论：no，描述要求目标单元格内有红色数字9，但图里E4是空白格，红色9在右侧E5";
+
+    fn failure_for(status: &str, reason: &str) -> GroundFailure {
+        GroundFailure {
+            status: status.to_string(),
+            target_desc: "数独盘面E行第四列显示红色数字9的单元格".to_string(),
+            rounds: 3,
+            bbox: json!([280, 430, 305, 460]),
+            failure_reason: reason.to_string(),
+            summary: E4_E5_SUMMARY.to_string(),
+        }
+    }
+
+    #[test]
+    fn success_payload_carries_the_point_and_the_box_it_landed_in() {
+        let v: serde_json::Value = serde_json::from_str(&success_payload(
+            "mouse_click_at",
+            &[(274.0, 341.0)],
+            &[json!([253, 320, 295, 363])],
+            "Attempted click. Do not assume success.",
+        ))
+        .unwrap();
+        assert_eq!(v["success"], serde_json::json!(true));
+        assert_eq!(v["action"], serde_json::json!("mouse_click_at"));
+        assert_eq!(v["point"], serde_json::json!([274.0, 341.0]));
+        // The box is the part the model was missing: a bare coordinate says
+        // where the click went, not what it hit.
+        assert_eq!(v["box"], serde_json::json!([253, 320, 295, 363]));
+    }
+
+    #[test]
+    fn success_payload_keeps_both_ends_of_a_drag() {
+        let v: serde_json::Value = serde_json::from_str(&success_payload(
+            "mouse_drag_from_to_at",
+            &[(10.0, 20.0), (300.0, 400.0)],
+            &[json!([5, 15, 15, 25]), json!([295, 395, 305, 405])],
+            "Attempted drag.",
+        ))
+        .unwrap();
+        assert_eq!(v["points"], serde_json::json!([[10.0, 20.0], [300.0, 400.0]]));
+        assert_eq!(
+            v["boxes"],
+            serde_json::json!([[5, 15, 15, 25], [295, 395, 305, 405]])
+        );
+        // A drag must not pretend to have a single point.
+        assert!(v.get("point").is_none(), "{v}");
+    }
+
+    #[test]
+    fn success_payload_omits_geometry_when_nothing_was_grounded() {
+        // Scroll-at-current-pointer grounds nothing; an empty `point: []` would
+        // read as "located at nowhere".
+        let v: serde_json::Value =
+            serde_json::from_str(&success_payload("mouse_scroll_current", &[], &[], "Scrolled."))
+                .unwrap();
+        assert_eq!(v["success"], serde_json::json!(true));
+        assert!(v.get("point").is_none(), "{v}");
+        assert!(v.get("box").is_none(), "{v}");
+    }
+
+    #[test]
+    fn payload_marks_the_call_unsuccessful_and_carries_every_field() {
+        let v: serde_json::Value = serde_json::from_str(
+            &failure_for("not_verified", "描述说框内有红色 9，但框里是空白，红色 9 在右侧相邻格")
+                .to_payload(),
+        )
+        .unwrap();
+        // Same discriminator `terminal` uses, so the verify stage can branch on
+        // one convention instead of matching message text.
+        assert_eq!(v["success"], serde_json::json!(false));
+        assert_eq!(v["status"], serde_json::json!("not_verified"));
+        assert_eq!(v["rounds"], serde_json::json!(3));
+        assert_eq!(v["your_bbox"], serde_json::json!([280, 430, 305, 460]));
+        assert_eq!(
+            v["failure_reason"],
+            serde_json::json!("描述说框内有红色 9，但框里是空白，红色 9 在右侧相邻格")
+        );
+    }
+
+    #[test]
+    fn payload_does_not_ship_the_four_section_diagnostics() {
+        // `summary` averages 304 characters of centre/size/position readings. The
+        // model cannot act on any of it, and carrying it buried the one sentence
+        // that says what to change.
+        let payload =
+            failure_for("not_verified", "描述说框内有红色 9，但框里是空白").to_payload();
+        assert!(!payload.contains("中心："), "{payload}");
+        assert!(!payload.contains("从图一看到"), "{payload}");
+    }
+
+    #[test]
+    fn payload_falls_back_to_the_conclusion_line() {
+        // Older prompts have no `failure_reason` field; the verifier's `结论：`
+        // line carries the same information, so the payload must not lose it.
+        let v: serde_json::Value =
+            serde_json::from_str(&failure_for("not_verified", "").to_payload()).unwrap();
+        assert_eq!(
+            v["failure_reason"],
+            serde_json::json!("no，描述要求目标单元格内有红色数字9，但图里E4是空白格，红色9在右侧E5")
+        );
+    }
+
+    #[test]
+    fn payload_keeps_the_status_that_says_nothing_was_judged() {
+        // `unclear` means the verifier never answered. The model must not read
+        // that as "my box is wrong" and start moving coordinates.
+        let v: serde_json::Value = serde_json::from_str(
+            &failure_for("unclear", "目标看不清，按钮边缘被选中框盖住").to_payload(),
+        )
+        .unwrap();
+        assert_eq!(v["status"], serde_json::json!("unclear"));
+        assert_eq!(v["failure_reason"], serde_json::json!("目标看不清，按钮边缘被选中框盖住"));
     }
 
     #[test]

@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::super::super::app_state::AppState;
 use super::super::types::ToolExecResult;
-use super::grounding::resolve_point;
+use super::grounding::{resolve_point, success_payload, GroundOutcome};
 
 fn method_for(tool_id: &str) -> Option<&'static str> {
     Some(match tool_id {
@@ -56,11 +56,20 @@ pub(super) async fn dispatch_modified_click(
     // (three of five rows) is worse than none, because the next step builds on
     // a state the model believes it created.
     let mut points: Vec<(f64, f64)> = Vec::with_capacity(entries.len());
+    let mut boxes: Vec<Value> = Vec::with_capacity(entries.len());
     for (i, entry) in entries.iter().enumerate() {
-        let (x, y) = resolve_point(state, conversation_id, provider, entry, "", cancel)
-            .await
-            .map_err(|e| anyhow::anyhow!("positions[{i}] 定位失败：{e}"))?;
+        // `positions[i]` is grounded on its own: one bad entry fails the whole
+        // call, and the payload says which index it was.
+        let (x, y, bbox) =
+            match resolve_point(state, conversation_id, provider, entry, "", cancel).await? {
+                GroundOutcome::Point { x, y, bbox } => (x, y, bbox),
+                GroundOutcome::Failed(mut f) => {
+                    f.status = format!("{} (positions[{i}])", f.status);
+                    return Ok((f.to_payload(), false, Some(f.failure_reason.clone())));
+                }
+            };
         points.push((x, y));
+        boxes.push(bbox);
     }
 
     let mut args = args_value;
@@ -89,5 +98,11 @@ pub(super) async fn dispatch_modified_click(
         effective_human_like_default(),
     );
     let out = tool.execute_with(ModifiedClickBackend::At, method, &args)?;
-    Ok((out, true, None))
+    // Same envelope as the failure path: `success` plus every grounded point and
+    // the box each one landed in.
+    Ok((
+        success_payload(tool_id, &points, &boxes, &out),
+        true,
+        None,
+    ))
 }

@@ -17,7 +17,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::super::super::app_state::AppState;
 use super::super::types::ToolExecResult;
-use super::grounding::resolve_point;
+use super::grounding::{resolve_point, success_payload, GroundOutcome};
 
 pub(super) async fn dispatch_input_at(
     state: &AppState,
@@ -29,7 +29,17 @@ pub(super) async fn dispatch_input_at(
 ) -> ToolExecResult {
     let _ = tc;
     let mut args = args_value;
-    let (x, y) = resolve_point(state, conversation_id, provider, &args, "", cancel).await?;
+    let (x, y, bbox) = match resolve_point(state, conversation_id, provider, &args, "", cancel).await?
+    {
+        GroundOutcome::Point { x, y, bbox } => (x, y, bbox),
+        // Grounding failed: hand back the structured reason instead of an
+        // `ERROR:` string. `false` marks the call as unsuccessful (the same
+        // convention `job` uses), so the verify stage can skip it without
+        // matching on text.
+        GroundOutcome::Failed(f) => {
+            return Ok((f.to_payload(), false, Some(f.failure_reason.clone())))
+        }
+    };
     {
         let obj = args
             .as_object_mut()
@@ -45,5 +55,6 @@ pub(super) async fn dispatch_input_at(
         .vision_state_for_conversation(conversation_id);
     let tool = InputTool::new(state.computer_state.control.clone(), vision);
     let out = tool.execute_with(InputBackend::At, &args)?;
-    Ok((out, true, None))
+    // Same envelope as the failure path, so the model reads one shape either way.
+    Ok((success_payload("type", &[(x, y)], &[bbox], &out), true, None))
 }

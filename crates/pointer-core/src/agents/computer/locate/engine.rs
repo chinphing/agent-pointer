@@ -386,6 +386,7 @@ async fn locate_one_traced<V: LocateVision>(
     let mut box_norm = req.hint_norm(w, h);
     let mut last_saw = String::new();
     let mut last_why = String::new();
+    let mut last_failure_reason = String::new();
     let mut last_reasoning = String::new();
     let mut final_confidence = Confidence::High;
     let mut rounds = 0usize;
@@ -590,6 +591,14 @@ async fn locate_one_traced<V: LocateVision>(
                 last_why = v.notes.clone();
                 last_reasoning = v.reasoning.clone();
             }
+            // Kept separate from `notes` on purpose: `notes` is four sections of
+            // measurements, this is the one sentence that says whether to move
+            // the box or rewrite the description. Overwriting it only when it is
+            // non-empty keeps the last *substantive* answer — a later round that
+            // fails to produce one should not erase what an earlier round said.
+            if !v.failure_reason.trim().is_empty() {
+                last_failure_reason = v.failure_reason.clone();
+            }
             let crop = Some((locate_image, bounds));
 
             // Three independent checks, all made by the verifier:
@@ -751,6 +760,7 @@ async fn locate_one_traced<V: LocateVision>(
             rounds,
         );
         out.why = last_why;
+        out.failure_reason = last_failure_reason;
         return Ok((out, trace));
     }
 
@@ -779,6 +789,8 @@ async fn locate_one_traced<V: LocateVision>(
             reasoning: last_reasoning,
             rounds,
             reason: None,
+            // Success: nothing failed, so no reason to report.
+            failure_reason: String::new(),
         },
         trace,
     ))

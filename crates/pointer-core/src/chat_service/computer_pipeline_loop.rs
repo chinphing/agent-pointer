@@ -199,6 +199,30 @@ async fn apply_host_verify_shortcut(
     Ok(())
 }
 
+/// Did the tool fail because it could not locate its target?
+///
+/// Grounding failure is not an operation failure: nothing was clicked, so the
+/// screen did not change and there is nothing to verify. Treating it as a failed
+/// operation wrote `Verify: fail (wrong_operation)` with the locate error copied
+/// into it, which showed the same sentence twice on one card and claimed an
+/// operation had gone wrong when none had run.
+///
+/// Read from the payload, not from text: `{"success": false, …}` is the same
+/// shape `terminal` returns, so this does not depend on the wording of a message.
+fn is_grounding_failure(tool_text: Option<&str>) -> bool {
+    let Some(text) = tool_text.map(str::trim) else {
+        return false;
+    };
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .and_then(|v| {
+            let failed = v.get("success").and_then(|x| x.as_bool()) == Some(false);
+            let has_status = v.get("status").and_then(|x| x.as_str()).is_some();
+            (failed && has_status).then_some(())
+        })
+        .is_some()
+}
+
 fn tool_execution_host_fail_conclusion(tool_text: Option<&str>) -> Option<VerifyConclusion> {
     let text = tool_text?.trim();
     if text.is_empty() {
@@ -294,6 +318,13 @@ pub async fn run_pipeline_post_execute_verify(
             .await?;
             return Ok(());
         }
+    }
+
+    if is_grounding_failure(tool_text) {
+        log::info!(
+            "computer pipeline: grounding failed — nothing was clicked, skipping verify"
+        );
+        return Ok(());
     }
 
     if let Some(conclusion) = tool_execution_host_fail_conclusion(tool_text) {
@@ -636,5 +667,37 @@ pub fn pipeline_give_up_error(state: &AppState, conversation_id: &str) -> Option
         ))
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_grounding_failure;
+
+    #[test]
+    fn grounding_payload_is_recognised_without_matching_message_text() {
+        // What `GroundFailure::to_payload` emits. Reading `success` + `status`
+        // means rewording the Chinese message cannot silently re-enable verify
+        // on a call that never clicked anything.
+        let payload = r#"{"success":false,"status":"not_verified","target_desc":"E4 的红色9",
+                          "your_bbox":[280,430,305,460],"rounds":3,
+                          "failure_reason":"描述说框内有红色 9，但框里是空白"}"#;
+        assert!(is_grounding_failure(Some(payload)));
+    }
+
+    #[test]
+    fn other_failures_are_not_treated_as_grounding() {
+        // `terminal` also reports `success: false`, but it ran and may have
+        // changed the screen — its failure still goes through the normal path.
+        let terminal = r#"{"success":false,"exitCode":1,"stdout":"","stderr":"boom"}"#;
+        assert!(!is_grounding_failure(Some(terminal)));
+
+        // A successful locate payload has no `success: false`.
+        let ok = r#"{"success":true,"status":"located"}"#;
+        assert!(!is_grounding_failure(Some(ok)));
+
+        // Legacy `ERROR:` strings and plain text keep their old behaviour.
+        assert!(!is_grounding_failure(Some("ERROR: Screen bounds not set")));
+        assert!(!is_grounding_failure(None));
     }
 }

@@ -227,6 +227,19 @@ pub struct VerifyVerdict {
     /// thinking is off. Kept for diagnosis: a wrong verdict is much easier to
     /// explain when you can read what the model reasoned before answering.
     pub reasoning: String,
+    /// Why the check failed, in the verifier's own words.
+    ///
+    /// `notes` says *what was seen* — four sections of measurements. This says
+    /// *what to do about it*: whether the box is off (nudge the coordinates) or
+    /// the description is off (rewrite it, because re-clicking the same cell will
+    /// fail again). The distinction cannot be recovered from `notes` by the
+    /// caller: 「框偏了」 and 「描述说框内有红色9，但框里是空白」 both arrive as
+    /// prose in the same field, and the caller treated them identically — which
+    /// is why a wrong description kept getting re-clicked at the same
+    /// coordinates until the round budget ran out.
+    ///
+    /// Empty when all three checks passed.
+    pub failure_reason: String,
 }
 
 impl VerifyVerdict {
@@ -275,6 +288,9 @@ impl Default for VerifyVerdict {
             notes: "校验器无有效输出".to_string(),
             confidence: Confidence::High,
             reasoning: String::new(),
+            // Empty, not a guess: nothing was judged, so there is no reason to
+            // report. The caller reads `notes` for the "nothing came back" case.
+            failure_reason: String::new(),
         }
     }
 }
@@ -429,6 +445,12 @@ pub struct LocateOutcome {
     /// The verifier's thinking channel from the final round. Diagnostic only —
     /// never shown to the main model. Empty when thinking is off.
     pub reasoning: String,
+    /// Why the last check failed, in the verifier's own words.
+    ///
+    /// `why` describes what was seen; this says what to do about it — nudge the
+    /// coordinates, or rewrite `target_desc` because it disagrees with the
+    /// screen. Empty on success.
+    pub failure_reason: String,
 }
 
 impl LocateOutcome {
@@ -444,6 +466,7 @@ impl LocateOutcome {
             rounds,
             reason: Some(reason),
             reasoning: String::new(),
+            failure_reason: String::new(),
         }
     }
 }

@@ -69,6 +69,93 @@
 
 ---
 
+## 三类验证数据怎么来
+
+生产跑一次真实任务，会留下三层可回放的记录。三层粒度不同，用途也不同：
+
+| 文件 | 粒度 | 一行是什么 | 用途 |
+|---|---|---|---|
+| `locate.jsonl` | 每次定位 LLM 调用 | 一张 crop + 目标描述 + 真值框 | 定位准确率、首次命中率 |
+| `verify.jsonl` | 每次 locate 内部 verify | 一张 close + 一张 wide + 三项判定 | locate verify 的假阳/假阴 |
+| `pipeline_verify.jsonl` | 每次工具执行后的 host verify | `Executed …` + `Verify: pass/fail — step_summary` | 操作级验证、`step_summary` 质量 |
+
+### locate + verify
+
+```bash
+cd pointer-eval
+python3 scripts/export_datasets.py <OUT_DIR> [SINCE_ISO]
+```
+
+`SINCE_ISO` 为空表示导出全部 trace。输出两个文件：
+
+**`locate.jsonl`** — `run_id` / `started_at` / `round` / `where` / `image` /
+`bounds` / `frame_size` / `target_desc` / `goal` / `prev_box` / `model_raw` /
+`model_box` / `not_found` / `answer_box` / `answer_box_frame` / `target_visible`
+
+**`verify.jsonl`** — `run_id` / `round` / `close_image` / `wide_image` /
+`target_desc` / `box` / `frame_size` / `labels{center,size,position,notes}` /
+`render_ms` / `call_ms`
+
+**只有 `outcome.ok == True` 的 trace 会进来**，所以 `answer_box` 是 pipeline
+真的点下去并确认过的框——不是人工标注。verify 判错的样本会带着错的真值进来，
+这是有意的（见「已知局限」）。
+
+### pipeline_verify
+
+```bash
+cd pointer-eval
+python3 scripts/export_pipeline_verify.py <OUT_JSONL> [LOG_PATH]
+```
+
+从 `~/Library/Application Support/PointerApp/logs/pointer_rCURRENT.log` 里抓
+`content` 形如「执行摘要 + 换行 + `Verify: …`」的 assistant 消息，拆成：
+
+```json
+{"executed": "Executed mouse_click_at: 选中I1空格，准备填入数字5",
+ "verdict": "pass",
+ "step_summary": "I1 cell: unselected → highlighted blue (selected); …"}
+```
+
+**日志在应用重启时会被截断**，所以会话跑完先导出再重启。
+
+这一层不含 before/after 截图——截图按 verify 调用存在
+`computer-captures/<date>/<conversation>/` 下，和日志行没有关联 id。要图就用
+`export_datasets.py`。
+
+### 统计口径
+
+**首次命中率要按 `run_id` 分组，不能按 `target_desc`。** 不同会话里同一句
+描述（「保存按钮」）是完全不同的定位任务，按描述分组会把几十次独立定位算成
+一个多轮任务，得出「21 轮」这种没有意义的数字。
+
+```python
+g = defaultdict(list)
+for r in rows:
+    g[r["run_id"]].append(r)
+first_hit = sum(1 for v in g.values() if max(r["round"] for r in v) == 1)
+```
+
+### 数据存哪
+
+`pointer-eval-data/<date>-<topic>/`，不进 git（`pointer-eval` 只存脚本和基线）。
+
+例：`pointer-2026-10-29-sudoku/` 是玩一局数独的完整记录——91 行 locate /
+202 行 verify / 350 行 pipeline verify。这一批的实测：
+
+| 指标 | 值 |
+|---|---|
+| 定位调用（`run_id` 数） | 77 |
+| 首轮命中 | **53（68.8%）** |
+| 需要 2 轮的 | 3 |
+| pipeline verify 判定 | `pass` 336 / `pending` 14 / **`fail` 0** |
+| `step_summary` 长度 | p50 **109** / p90 175 / max 214 字 |
+
+**`fail` 为 0 值得单独看**：一次会话里所有操作都通过，可能是真的都成功了，
+也可能是 verify 判不出失败。这两种情况在数据上无法区分，只有对照真实屏幕
+才能确定。
+
+---
+
 ## 四种 hint 模式
 
 一次跑一种，用来把误差归因到正确的层：

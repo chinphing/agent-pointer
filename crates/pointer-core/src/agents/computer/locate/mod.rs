@@ -262,6 +262,11 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                     "target_desc": o.target_desc,
                     "summary": summary,
                     "rounds": o.rounds,
+                    // The verifier's own answer to "what should change": move the
+                    // box, or rewrite the description. `summary` is four sections
+                    // of measurements and buries that; this is the one line the
+                    // caller acts on.
+                    "failure_reason": o.failure_reason,
                 })
             }
         })
@@ -313,6 +318,7 @@ mod tests {
             rounds: 1,
             reason: None,
             reasoning: String::new(),
+            failure_reason: String::new(),
         };
         let json: Value = serde_json::from_str(&render_results(&[out])).unwrap();
         let r = &json["results"][0];
@@ -538,6 +544,7 @@ mod tests {
             rounds: 2,
             reason: None,
             reasoning: String::new(),
+            failure_reason: String::new(),
         };
         let bad = LocateOutcome::failure(
             "地址栏",

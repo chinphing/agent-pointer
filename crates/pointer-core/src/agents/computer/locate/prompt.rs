@@ -334,6 +334,7 @@ pub fn parse_verify_arguments(raw: &str) -> Option<VerifyVerdict> {
         notes,
         confidence: Confidence::parse(&text_field(&v, "confidence")),
         reasoning: String::new(),
+        failure_reason: text_field(&v, "failure_reason"),
     })
 }
 

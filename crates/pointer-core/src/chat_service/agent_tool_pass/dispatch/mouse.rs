@@ -24,7 +24,24 @@ use tokio_util::sync::CancellationToken;
 
 use super::super::super::app_state::AppState;
 use super::super::types::ToolExecResult;
-use super::grounding::resolve_point;
+use super::grounding::{resolve_point, success_payload, GroundOutcome};
+
+/// Ground a point, or hand back the structured failure as the tool result.
+///
+/// Grounding failure is not a tool error — the tool ran and found nothing. It is
+/// reported as `Ok(payload, false, reason)` so the verify stage can skip the
+/// call without matching on text, the same way it treats a `terminal` command
+/// that exited non-zero.
+macro_rules! ground_or_fail {
+    ($expr:expr) => {
+        match $expr.await? {
+            GroundOutcome::Point { x, y, bbox } => (x, y, bbox),
+            GroundOutcome::Failed(f) => {
+                return Ok((f.to_payload(), false, Some(f.failure_reason.clone())))
+            }
+        }
+    };
+}
 
 /// `mouse_*` tools that **always** require `target_desc` + `bbox`.
 ///
@@ -67,11 +84,17 @@ pub(super) async fn dispatch_mouse(
     };
 
     let mut args = args_value;
+    // What was actually grounded, for the success payload. Empty when the tool
+    // grounds nothing (scroll at the current pointer).
+    let mut grounded: Vec<(f64, f64)> = Vec::new();
+    let mut boxes: Vec<Value> = Vec::new();
     if tool_id == "mouse_drag_from_to_at" {
         // Two ends, grounded separately: the grab point and the drop point can
         // be far apart and are often different kinds of thing.
-        let (fx, fy) = resolve_point(state, conversation_id, provider, &args, "from_", cancel).await?;
-        let (tx, ty) = resolve_point(state, conversation_id, provider, &args, "to_", cancel).await?;
+        let (fx, fy, fbox) =
+            ground_or_fail!(resolve_point(state, conversation_id, provider, &args, "from_", cancel));
+        let (tx, ty, tbox) =
+            ground_or_fail!(resolve_point(state, conversation_id, provider, &args, "to_", cancel));
         let obj = args
             .as_object_mut()
             .ok_or_else(|| anyhow::anyhow!("mouse 参数必须是对象"))?;
@@ -79,6 +102,10 @@ pub(super) async fn dispatch_mouse(
         obj.insert("y1".to_string(), serde_json::json!(fy));
         obj.insert("x2".to_string(), serde_json::json!(tx));
         obj.insert("y2".to_string(), serde_json::json!(ty));
+        grounded.push((fx, fy));
+        grounded.push((tx, ty));
+        boxes.push(fbox);
+        boxes.push(tbox);
         for k in ["from_target_desc", "from_bbox", "to_target_desc", "to_bbox"] {
             obj.remove(k);
         }
@@ -92,7 +119,8 @@ pub(super) async fn dispatch_mouse(
             .and_then(|v| v.as_str())
             .is_some_and(|s| !s.trim().is_empty());
         if has_target {
-            let (x, y) = resolve_point(state, conversation_id, provider, &args, "", cancel).await?;
+            let (x, y, bbox) =
+                ground_or_fail!(resolve_point(state, conversation_id, provider, &args, "", cancel));
             let obj = args
                 .as_object_mut()
                 .ok_or_else(|| anyhow::anyhow!("mouse 参数必须是对象"))?;
@@ -100,9 +128,12 @@ pub(super) async fn dispatch_mouse(
             obj.insert("y".to_string(), serde_json::json!(y));
             obj.remove("target_desc");
             obj.remove("bbox");
+            grounded.push((x, y));
+            boxes.push(bbox);
         }
     } else {
-        let (x, y) = resolve_point(state, conversation_id, provider, &args, "", cancel).await?;
+        let (x, y, bbox) =
+            ground_or_fail!(resolve_point(state, conversation_id, provider, &args, "", cancel));
         let obj = args
             .as_object_mut()
             .ok_or_else(|| anyhow::anyhow!("mouse 参数必须是对象"))?;
@@ -112,6 +143,8 @@ pub(super) async fn dispatch_mouse(
         // downstream sees exactly the shape it expects.
         obj.remove("target_desc");
         obj.remove("bbox");
+        grounded.push((x, y));
+        boxes.push(bbox);
     }
 
     let vision = state
@@ -119,7 +152,12 @@ pub(super) async fn dispatch_mouse(
         .vision_state_for_conversation(conversation_id);
     let tool = MouseTool::new(state.computer_state.control.clone(), vision);
     let out = tool.execute_with(MouseBackend::At, method, &args)?;
-    Ok((out, true, None))
+    // Same envelope as the failure path: `success` plus what was grounded.
+    Ok((
+        success_payload(tool_id, &grounded, &boxes, &out),
+        true,
+        None,
+    ))
 }
 
 #[cfg(test)]

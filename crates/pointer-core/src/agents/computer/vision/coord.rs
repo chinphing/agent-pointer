@@ -4,11 +4,12 @@ use super::screen::MonitorInfo;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CoordinateSystem {
     /// Qwen coordinate system: 0-1000 normalized.
-    #[default]
     Qwen,
     /// Kimi coordinate system: 0-1000 normalized (may have different mapping).
     Kimi,
-    /// Direct pixel coordinates.
+    /// Direct pixel coordinates. The default: every pointing tool's `bbox` is
+    /// pixels, and `state/mod.rs` sets this on each capture.
+    #[default]
     Pixel,
 }
 

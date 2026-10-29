@@ -64,7 +64,7 @@ pub async fn run_locate_element(
 /// The frame the model is already looking at.
 ///
 /// Reuses the pipeline capture rather than taking a new OS screenshot: the main
-/// LLM decided to call `locate_element` based on the `[Screen current]` image,
+/// LLM decided to call `locate_element` based on the `[Current screen]` image,
 /// so grounding has to run on that same frame. A second capture costs time and,
 /// worse, can land on a different moment (animation, loading) and return
 /// coordinates for a screen the caller never saw.

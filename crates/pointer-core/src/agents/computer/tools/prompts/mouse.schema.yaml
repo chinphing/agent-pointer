@@ -91,7 +91,7 @@ mouse_right_click_at:
     - goal
   additionalProperties: true
 
-mouse_hover_at:
+move_to:
   type: object
   properties:
     target_desc:

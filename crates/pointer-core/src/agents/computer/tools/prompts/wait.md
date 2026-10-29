@@ -35,6 +35,6 @@ Loading / transfer guidance:
   not mark the step failed yet.
 - Wait, then verify again at a completion surface (download list, transfer
   history, or final file presence indicator).
-- Only mark done when completion evidence appears; otherwise keep the step in
-  non-terminal verify state (for example `action_result=pending`) and continue
-  polling.
+- Only mark done when completion evidence appears; otherwise keep polling —
+  `wait` again and re-read the screen. `action_result` is the Verify module's
+  field, not yours to set.

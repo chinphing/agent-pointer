@@ -61,7 +61,7 @@ fn method_for(tool_id: &str) -> Option<&'static str> {
         "mouse_click_at" => "click",
         "mouse_double_click_at" => "double_click",
         "mouse_right_click_at" => "right_click",
-        "mouse_hover_at" => "hover",
+        "move_to" => "hover",
         "mouse_drag_from_to_at" => "drag_from_to",
         "mouse_down" => "mouse_down",
         "mouse_up" => "mouse_up",
@@ -167,13 +167,14 @@ mod tests {
 
     #[test]
     fn every_mouse_tool_name_reaches_a_method() {
-        // `method_for` is the dispatch table; anything the tool registry exposes
-        // under `mouse_*` must land on an arm or dispatch fails at runtime.
+        // `method_for` is the dispatch table; every name the mouse registry
+        // exposes must land on an arm or dispatch fails at runtime. `move_to`
+        // is the one that does not carry the `mouse_` prefix.
         for name in [
             "mouse_click_at",
             "mouse_double_click_at",
             "mouse_right_click_at",
-            "mouse_hover_at",
+            "move_to",
             "mouse_down",
             "mouse_up",
             "mouse_drag_from_to_at",

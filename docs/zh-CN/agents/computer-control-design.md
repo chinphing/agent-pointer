@@ -260,7 +260,7 @@ pub enum MouseButton { Left, Middle, Right }
 
 **实现方案（已定）：全局切换到 `CoordinateSystem::Pixel`。**
 
-现有坐标工具（`mouse_click_at`、`mouse_hover_at`、`mouse_drag_from_to_at`、`input_at`、
+现有坐标工具（`mouse_click_at`、`move_to`、`mouse_drag_from_to_at`、`input_at`、
 `modified_click_select_at`、`modified_click_range_select_at`）目前 LLM 侧收的是 **0–1000**，
 来源是 `state/mod.rs:561` 把坐标系统写死成 `CoordinateSystem::Qwen`。
 而 `vision/coord.rs` 里**已经有 `Pixel` 变体**，`normalized_to_screen` 直接透传。
@@ -296,7 +296,7 @@ pub enum MouseButton { Left, Middle, Right }
 
 ### 6.3 后续坐标工具的调用约束
 
-`locate_element` 只负责定位。`mouse_click_at`、`mouse_hover_at`、`mouse_drag_from_to_at`、`input_at` 等需要坐标的工具仍然独立暴露，但其工具说明和 computer-agent 提示词必须明确：
+`locate_element` 只负责定位。`mouse_click_at`、`move_to`、`mouse_drag_from_to_at`、`input_at` 等需要坐标的工具仍然独立暴露，但其工具说明和 computer-agent 提示词必须明确：
 
 > 你对屏幕像素坐标的直接估计不可靠。操作界面中的可见目标前，先调用 `locate_element`；将它返回的 x/y 原样用于后续动作。不要自行从截图估坐标。只有用户明确给出坐标，或坐标来自刚才的 `locate_element` 结果时，才可直接调用坐标工具。
 
@@ -373,7 +373,7 @@ pub enum MouseButton { Left, Middle, Right }
 | 分组 | 工具 | 用途 |
 |---|---|---|
 | 定位 | `locate_element` | 把 `elements[]`（最多 3 项，每项 `description` + 可选 `hint_box`）转换为逐项结果；不执行 GUI 动作 |
-| 坐标鼠标 | `mouse_hover_at` / `mouse_click_at` / `mouse_double_click_at` / `mouse_right_click_at` / `mouse_scroll_current` / `mouse_drag_from_to_at` / `mouse_down` / `mouse_up` | 像素坐标或当前指针操作；涉及可见目标时先 `locate_element` |
+| 坐标鼠标 | `move_to` / `mouse_click_at` / `mouse_double_click_at` / `mouse_right_click_at` / `mouse_scroll_current` / `mouse_drag_from_to_at` / `mouse_down` / `mouse_up` | 像素坐标或当前指针操作；涉及可见目标时先 `locate_element` |
 | 键盘 | `input_at` / `input_focused` / `hotkey` / `key_press` / `key_down` / `key_up` / `keyboard_type` | 输入或按键；涉及屏幕目标时先定位，焦点操作仍须基于当前状态 |
 | 既有系统能力 | `wait` / `clipboard_read` / `clipboard_write` / `list_apps` / `launch_app` | 等待、剪贴板与应用管理 |
 | 既有复合操作 | `modified_click_select_at` / `modified_click_range_select_at` | 保留既有修饰键选择能力 |
@@ -456,7 +456,7 @@ B5 只回答后者。且**从未比较过 B5 与 SoM 谁更好**——ScreenSpot
 
 | 工具 | trait 方法 |
 |---|---|
-| `mouse_hover_at` | `move_to` |
+| `move_to` | `move_to` |
 | `mouse_click_at` | `click` |
 | `mouse_double_click_at` | `double_click` |
 | `mouse_right_click_at` | `right_click` |

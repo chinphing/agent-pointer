@@ -45,11 +45,10 @@ fn click_tool_schema() -> Result<serde_json::Value> {
         "type": "function",
         "function": {
             "name": "mouse_click_at",
-            // Same wording as production `mouse.schema.yaml` — the two used to
-            // disagree (production said pixels, this said 0-1000 normalized),
-            // so a model that read `AGENT.md` answered in pixels and the harness
-            // scored it as normalized: a 1.92× overshoot on every case.
-            "description": "Click a point on screen. Supply the target description and the box the element occupies, [x1, y1, x2, y2] in pixels of the screenshot.",
+            // `mouse.md` is shared by all eight mouse tools, so production sends
+            // the compact description and puts the full doc in the Tools
+            // appendix. Calling the same function keeps the two from drifting.
+            "description": pointer_core::tools::openai_compact_description("mouse_click_at"),
             "parameters": params
         }
     }))
@@ -152,21 +151,25 @@ fn system_prompt_slices() -> Result<Vec<String>> {
     let base = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/agents/computer");
     let mut out = Vec::new();
 
-    // 1. The computer agent's role prompt — identity → shared rules → procedures,
-    //    assembled by the same function production uses. Hand-building it here
-    //    drifted once already: the harness kept pushing COMMUNICATION_PUBLIC
-    //    first after production moved it behind `AGENT.md`, so the benchmark was
-    //    measuring a prompt no user ever ran.
-    out.push(pointer_core::agents::computer_agent_role_prompt());
+    // 1. `system_prompts[0]` — the `Active agent:` identity block plus the role
+    //    prompt (identity → shared rules → procedures). Assembled by the same
+    //    function production uses; hand-building it here drifted once already.
+    out.push(pointer_core::agents::computer_agent_system_prompt());
 
-    // 2. Tool appendix. Production concatenates every allowed tool's `.md`; the
-    //    harness only exposes `mouse_click_at`, so only that doc applies. See
-    //    the module header for why the other 30 are absent.
+    // 2. MEDIA_DELIVERY. `wants_reply_media_prompts(Computer) == true`, so
+    //    production pushes this on every computer turn.
+    if let Some(block) = pointer_core::agents::rendered_media_delivery_inject() {
+        out.push(block);
+    }
+
+    // 3. Tool appendix. Production opens it with `## Tools` and dedupes by
+    //    `doc_source`; the harness only exposes `mouse_click_at`, so one doc
+    //    applies. See the module header for why the other 30 are absent.
     let mouse_doc = std::fs::read_to_string(base.join("tools/prompts/mouse.md"))
         .with_context(|| "read mouse.md".to_string())?;
-    out.push(mouse_doc);
+    out.push(format!("## Tools\n\n{mouse_doc}"));
 
-    // 3. [Environment] — OS / locale / date. No screen size in it; the model
+    // 4. [Environment] — OS / locale / date. No screen size in it; the model
     //    learns the frame from the image itself.
     out.push(format!(
         "[Environment]\n{}",

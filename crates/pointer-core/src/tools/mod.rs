@@ -782,7 +782,10 @@ pub fn validate_envelope_tool_batch(
     Ok(())
 }
 
-fn openai_compact_description(tool_name: &str) -> String {
+/// The short `function.description` used whenever the full doc lives in the
+/// system Tools appendix. Public so benchmarks can send the same string the
+/// model actually receives instead of a hand-copied one.
+pub fn openai_compact_description(tool_name: &str) -> String {
     format!("{tool_name}: parameters in schema; full usage in system Tools appendix.")
 }
 

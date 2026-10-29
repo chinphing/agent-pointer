@@ -220,6 +220,24 @@ pub fn computer_agent_role_prompt() -> String {
     )
 }
 
+/// The computer agent's full `system_prompts[0]`, `Active agent:` header included.
+///
+/// Production builds that slot with `agent_prompt()`, which prepends the identity
+/// block (`id` / `name` / `role` / `profile` / `description`) to the role prompt.
+/// A benchmark that assembles the role prompt alone measures a prompt the model
+/// never sees.
+pub fn computer_agent_system_prompt() -> String {
+    let raw = include_str!("computer/AGENT.md");
+    let comm = computer_communication();
+    match load_builtin_agent("computer", raw, &comm) {
+        // `system_prompt` is `compose_system_prompt(body, public, communication)`.
+        // Passing `None` here would fall back to `You are computer-use. <desc>`
+        // and silently drop the whole role prompt.
+        Ok(agent) => agent_prompt(&agent.def, Some(agent.system_prompt)),
+        Err(_) => computer_agent_role_prompt(),
+    }
+}
+
 /// Verify module prompt for an operation family (host post-execute pipeline).
 pub fn computer_verify_prompt(family: computer::pipeline::operation::OperationFamily) -> String {
     let family_md = match family {

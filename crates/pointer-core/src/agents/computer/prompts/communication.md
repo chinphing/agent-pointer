@@ -51,26 +51,21 @@ When the box has to be coarse, bias it toward the side the mark sits on.
 ## Locating targets
 
 `bbox` is **[x1, y1, x2, y2] in pixels of the screenshot you were given**. The
-`[CUR_SCREEN]` preamble states that screenshot's exact width and height — use
-those numbers, never a guess.
+`[CUR_SCREEN]` preamble states that screenshot's exact width and height.
 
 Two steps, in this order:
 
 1. **Locate on a normalized grid.** Picture the screen as 1000×1000: `(0,0)`
-   top-left, `(1000,1000)` bottom-right. Deciding "it sits at about x=210" is
-   more reliable than deciding "it sits at pixel 403" — relative position is
-   what you actually see.
+   top-left, `(1000,1000)` bottom-right.
 2. **Convert to pixels for `bbox`.** `x_pixel = x_norm / 1000 × width`,
-   `y_pixel = y_norm / 1000 × height`, with the dimensions from the preamble.
+   `y_pixel = y_norm / 1000 × height`.
 
-The pointing tools re-ground inside the box you pass before clicking, so the box
-does not have to be tight: it narrows the search, and the description decides
-what counts as a match. A loose box around the right area works; a precise box
-around the wrong element does not.
+The pointing tools re-ground inside the box before acting, so it does not have to
+be tight — it narrows the search, the description decides the match. A loose box
+around the right area works; a precise box around the wrong element does not.
 
-`mouse_drag_from_to_at` takes **two** described pairs
-(`from_target_desc`/`from_bbox`, `to_target_desc`/`to_bbox`) because a drag has a
-grab point and a drop point.
+`mouse_drag_from_to_at` takes **two** pairs (`from_*`, `to_*`) — a drag has a grab
+point and a drop point.
 
 ### Writing `target_desc`
 
@@ -110,20 +105,20 @@ compares your words against what it reads on screen.
 
 ## Verify state (host — read only)
 
-The host runs **Verify** after each desktop tool (separate Verify LLM).
+The host runs **Verify** once per turn, covering every desktop call you made in
+that turn (separate Verify LLM). One verdict, written to all of them.
 Each row in **`[Recent desktop tool calls]`** ends with **`verify:`**:
 
 | Suffix | Plan from this |
 |--------|----------------|
 | **`verify: verifying`** | Host still running — **no** new root desktop tool; wait for next inject |
-| **`verify: pending`** | Verify could not run (LLM error) — **do not** assume success; re-read the screen and decide |
 | **`verify: verified - pass`** | Last action succeeded — proceed to **Next** |
 | **`verify: verified - fail (wrong_operation)`** | Wrong target/action — run **Repetition**, then pivot in **Next** |
 | **`verify: verified - fail (precision_miss)`** | Aim miss — run **Repetition**, re-derive route in **Next** |
 | **`verify: verified - fail (at_edge)`** | Content already at that edge — **do not** scroll again or add notches; take the next step |
 | **`verify: verified - fail`** (no cause) | Failure — run **Repetition**, change tactic in **Next** |
 | **`verify: verified - n/a`** | No verify signal — proceed to **Next** |
-| **`verify: skipped`** | Superseded — no verify signal for that row |
+| **`verify: skipped`** | Never verified — the row closed before Verify ran |
 | **No history row** | First action turn — no prior verify |
 
 **Gate:** plan from the **newest** row; the earlier rows are intermediate states.
@@ -132,8 +127,7 @@ Each row in **`[Recent desktop tool calls]`** ends with **`verify:`**:
 When the pixels disagree with `verify:`, the pixels win — act on what you see, and
 say in your reasoning what the screen showed instead.
 
-For loading/transfer: prefer **`wait`** before a new trigger when the UI is settling;
-a new desktop action before verify settles marks the prior row **`skipped`**.
+For loading/transfer: prefer **`wait`** before a new trigger when the UI is settling.
 
 **Align Next with verify (reminders):**
 - Pointer over target ≠ business success unless **goal** was reposition-only.
@@ -146,9 +140,6 @@ The host sends **`[CUR_SCREEN]`** with one labeled image:
 
 - **`[Current screen]`**: the desktop as it is now.
   All coordinates come from this image.
-
-Overlay indices reset every screen.
-Never reuse a digit from a prior turn.
 
 ## Scenes
 

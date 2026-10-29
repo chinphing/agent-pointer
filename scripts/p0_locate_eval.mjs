@@ -176,7 +176,14 @@ async function runInteractive(only) {
     }
     const elapsedMs = Date.now() - t0;
     const item = payload?.results?.[0] ?? null;
-    const cropPath = item?.ok && item.box ? cropAround(s.id, item.box) : null;
+    // Production `render_results` emits `status: "located"` + `bbox`; the old
+    // `ok` / `x` / `y` / `box` fields are gone (`locate/mod.rs`), so reading
+    // them scored every case as a miss.
+    const located = item?.status === 'located';
+    const box = Array.isArray(item?.bbox) && item.bbox.length === 4 ? item.bbox : null;
+    const cx = box ? (box[0] + box[2]) / 2 : null;
+    const cy = box ? (box[1] + box[3]) / 2 : null;
+    const cropPath = located && box ? cropAround(s.id, box) : null;
 
     results.runs = results.runs.filter((x) => x.id !== s.id);
     results.runs.push({
@@ -186,22 +193,23 @@ async function runInteractive(only) {
       difficulty: s.difficulty,
       at: new Date().toISOString(),
       elapsedMs,
-      ok: item?.ok ?? false,
-      x: item?.x ?? null,
-      y: item?.y ?? null,
-      box: item?.box ?? null,
+      status: item?.status ?? null,
+      located,
+      x: cx,
+      y: cy,
+      box,
       confidence: item?.confidence ?? null,
       rounds: item?.rounds ?? null,
-      reason: item?.reason ?? null,
-      whatISaw: item?.what_i_saw ?? null,
+      failureReason: item?.failure_reason ?? null,
+      summary: item?.summary ?? null,
       crop: cropPath ? path.relative(ROOT, cropPath) : null,
       error,
     });
     saveResults(results);
 
     if (error) console.log(`  ✗ 调用失败: ${error}`);
-    else if (item?.ok) console.log(`  ✓ (${item.x}, ${item.y})  rounds=${item.rounds}  ${elapsedMs}ms`);
-    else console.log(`  ✗ ${item?.reason ?? 'unknown'}  ${elapsedMs}ms`);
+    else if (located && cx != null) console.log(`  ✓ (${Math.round(cx)}, ${Math.round(cy)})  rounds=${item.rounds}  ${elapsedMs}ms`);
+    else console.log(`  ✗ ${item?.status ?? 'unknown'}  ${elapsedMs}ms`);
   }
 
   rl.close();
@@ -243,7 +251,7 @@ function score() {
       const t = truth.get(run.id) ?? null;
       let hit = null;
       let falseConfirm = null;
-      if (t && run.ok && run.x != null && run.y != null) {
+      if (t && run.located && run.x != null && run.y != null) {
         hit = run.x >= t[0] && run.x <= t[2] && run.y >= t[1] && run.y <= t[3];
         falseConfirm = !hit;
       }
@@ -254,7 +262,7 @@ function score() {
   const n = scored.length;
   const hits = scored.filter((r) => r.hit === true).length;
   const falseConfirms = scored.filter((r) => r.falseConfirm === true).length;
-  const failures = scored.filter((r) => r.ok === false).length;
+  const failures = scored.filter((r) => r.located === false).length;
   const withRounds = scored.filter((r) => r.rounds != null);
   const avgRounds = withRounds.length
     ? withRounds.reduce((s, r) => s + r.rounds, 0) / withRounds.length

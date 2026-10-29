@@ -113,7 +113,7 @@ pub fn desktop_tool_family_id(tool_id: &str) -> Option<&'static str> {
             return Some(fam);
         }
     }
-    if id.starts_with("mouse_") {
+    if id.starts_with("mouse_") || id == "move_to" {
         return Some("mouse");
     }
     if id.starts_with("key_") || id.starts_with("keyboard_") {

@@ -117,7 +117,9 @@ pub fn operation_family_for_tool(tool_name: &str) -> OperationFamily {
     {
         return OperationFamily::PointerClick;
     }
-    if n.starts_with("mouse_hover") {
+    // `move_to` is the tool id; `hover` is the method it maps to and the name
+    // older traces carry.
+    if n.starts_with("mouse_hover") || n == "move_to" {
         return OperationFamily::PointerHover;
     }
     if n.starts_with("mouse_scroll") {
@@ -417,10 +419,7 @@ mod tests {
             index: Some(12),
             ..Default::default()
         };
-        assert_eq!(
-            resolve_execution_tool("mouse_move", &pos),
-            "mouse_hover_at"
-        );
+        assert_eq!(resolve_execution_tool("mouse_move", &pos), "move_to");
     }
 
     #[test]
@@ -545,7 +544,7 @@ mod tests {
         // calls `Other` gets a history row that nothing ever verifies.
         for name in [
             "mouse_click_at",
-            "mouse_hover_at",
+            "move_to",
             "mouse_scroll_at",
             "mouse_drag_from_to_at",
             "input_at",

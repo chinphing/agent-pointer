@@ -526,18 +526,13 @@ async fn frozen_desktop_grounding() -> Result<()> {
         };
 
         scored += 1;
-        let center = outcome
-            .box_px
-            .map(|b| ((b.x1 + b.x2) / 2.0, (b.y1 + b.y2) / 2.0));
-        // Accuracy is decided by **where the box centre lands**, not by what the
-        // verifier said about itself. `outcome.ok` is the model's own verdict; a
-        // run that reports `ok = true` with the centre outside the truth box is
-        // wrong, and a run that refuses while its last box happened to land on
-        // the target is right. Counting `ok` here would measure the verifier's
-        // self-confidence, not the grounder's accuracy.
+        let center = outcome.box_px.as_ref().map(box_centre);
+        let hit = landed_in_truth(outcome.ok, center, *bbox);
+        // Diagnostics, not scoring: geometry right but the verifier refused it,
+        // and the reverse. Together they explain the gap between `hit` and raw
+        // aim accuracy.
         let landed = center
             .is_some_and(|(cx, cy)| cx >= bbox[0] && cx <= bbox[2] && cy >= bbox[1] && cy <= bbox[3]);
-        let hit = landed;
         if landed && !outcome.ok {
             refused_but_landed += 1;
         }
@@ -692,11 +687,7 @@ async fn frozen_desktop_hint_grounding() -> Result<()> {
             misses.push(case.description.clone());
             continue;
         };
-        let hit = outcome.ok
-            && outcome.box_px.is_some_and(|b| {
-                let (cx, cy) = ((b.x1 + b.x2) / 2.0, (b.y1 + b.y2) / 2.0);
-                cx >= bbox[0] && cx <= bbox[2] && cy >= bbox[1] && cy <= bbox[3]
-            });
+        let hit = landed_in_truth(outcome.ok, outcome.box_px.as_ref().map(box_centre), bbox);
         if hit {
             hits += 1;
         } else {
@@ -1015,6 +1006,23 @@ fn inside(pt: (f64, f64), b: [f64; 4]) -> bool {
     pt.0 >= b[0] && pt.0 <= b[2] && pt.1 >= b[1] && pt.1 <= b[3]
 }
 
+/// The production delivery rule, in one place.
+///
+/// A case counts as a hit only when the run both **delivered** (`ok`, i.e. the
+/// verifier accepted the box, which is what makes `grounding` click it) and the
+/// point it would click lands inside the truth box. The three scoring sites in
+/// this file used to disagree: one ignored `ok`, one required it, one required
+/// `ok` plus `point_px`. Ignoring `ok` measures the grounder's geometry, not
+/// what a user gets — a refused run clicks nothing.
+fn landed_in_truth(ok: bool, point: Option<(f64, f64)>, truth: [f64; 4]) -> bool {
+    ok && point.is_some_and(|p| inside(p, truth))
+}
+
+/// Box centre, the point `grounding` clicks after locate confirms.
+fn box_centre(b: &PxBox) -> (f64, f64) {
+    ((b.x1 + b.x2) / 2.0, (b.y1 + b.y2) / 2.0)
+}
+
 #[tokio::test]
 #[ignore = "calls a real vision model; run with --ignored"]
 async fn eastmoney_home_grounding() -> Result<()> {
@@ -1046,10 +1054,7 @@ async fn eastmoney_home_grounding() -> Result<()> {
             misses.push(case.description.clone());
             continue;
         };
-        let hit = o.ok
-            && o.point_px
-                .map(|p| inside(p, bbox))
-                .unwrap_or(false);
+        let hit = landed_in_truth(o.ok, o.point_px, bbox);
         if hit {
             hits += 1;
         } else {

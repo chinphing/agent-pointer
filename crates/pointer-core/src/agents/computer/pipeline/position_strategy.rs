@@ -399,7 +399,7 @@ pub fn resolve_execution_tool(decision_name: &str, pos: &PositionModuleOutput) -
             "mouse_right_click_at",
         ),
         "hover" | "mouse_move" => {
-            route_index_or_at(has_index, has_at, "mouse_hover_at", "mouse_hover_at")
+            route_index_or_at(has_index, has_at, "move_to", "move_to")
         }
         "scroll" => route_index_or_at(
             has_index,

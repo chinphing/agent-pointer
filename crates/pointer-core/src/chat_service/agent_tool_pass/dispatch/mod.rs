@@ -137,7 +137,7 @@ pub(super) async fn execute_tool_invocation(
         // before the pointer moves. Without it the arm passes the args through
         // unchanged, so the at-current-pointer behaviour survives.
         "mouse_click_at" | "mouse_double_click_at" | "mouse_right_click_at"
-        | "mouse_hover_at" | "mouse_drag_from_to_at" | "mouse_down" | "mouse_up"
+        | "move_to" | "mouse_drag_from_to_at" | "mouse_down" | "mouse_up"
         | "mouse_scroll_current" => {
             mouse::dispatch_mouse(state, conversation_id, provider, tc, args_value, cancel).await
         }
@@ -344,7 +344,7 @@ pub(super) async fn invoke_prepared_parallel(
         // without one the arm just falls through to the tool unchanged, with one
         // it grounds the panel and moves the pointer before scrolling.
         "mouse_click_at" | "mouse_double_click_at" | "mouse_right_click_at"
-        | "mouse_hover_at" | "mouse_drag_from_to_at" | "mouse_down" | "mouse_up"
+        | "move_to" | "mouse_drag_from_to_at" | "mouse_down" | "mouse_up"
         | "mouse_scroll_current" => {
             mouse::dispatch_mouse(state, conversation_id, provider, tc, args_value, cancel).await
         }

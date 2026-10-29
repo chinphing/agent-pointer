@@ -1,6 +1,6 @@
 ## Disabled controls (gray / inactive UI)
 
-Before acting, check the control looks **actionable** on **`[Screen after action]`**.
+Before acting, check the control looks **actionable** on **`[Current screen]`**.
 Faded / low-contrast / no-hover styling often means **disabled** — clicks do nothing.
 
 ### Control types (all can gray out)

@@ -18,7 +18,6 @@ schema:
       maximum: 5
   required:
     - goal
-    - action
     - keys
   additionalProperties: true
 ---

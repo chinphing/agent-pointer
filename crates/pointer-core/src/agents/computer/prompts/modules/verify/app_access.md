@@ -1,5 +1,12 @@
 ### Scenario: app access
 
+> **Not currently reachable.** The AppAccess family has `needs_verify() == false`
+> (`pipeline/operation.rs`), so `computer_pipeline_loop` judges `list_apps` /
+> `launch_app` from host text (`parse_app_access_host_outcome`) and returns
+> before any Verify LLM call. This file is compiled in but never sent. Kept as
+> the spec for that host judgement; if AppAccess ever joins the LLM verify path,
+> align it with `parse_app_access_host_outcome` first.
+
 Judge `list_apps` / `launch_app` from tool reply and before/after screenshots.
 
 **Primary evidence:** **[Tool result]**; **[Screen after action]** for window focus.

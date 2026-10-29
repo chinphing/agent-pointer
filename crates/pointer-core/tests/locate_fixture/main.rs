@@ -628,7 +628,7 @@ async fn frozen_desktop_hint_grounding() -> Result<()> {
     let truth = load_truth()?;
     let path = dir().join(shared_fixture(&truth)?);
     let img = image::open(&path)?.to_rgb8();
-    let frame = LocateFrame::new(img);
+    let frame = std::sync::Arc::new(LocateFrame::new(img));
     if let Some([w, h]) = truth.size {
         assert_eq!(
             (frame.width(), frame.height()),
@@ -653,54 +653,116 @@ async fn frozen_desktop_hint_grounding() -> Result<()> {
     );
 
     let (fw, fh) = (frame.width() as f64, frame.height() as f64);
+
+    // Each case is an independent API call, so they overlap. Serial here meant
+    // 81 × 28 s ≈ 38 min, which is long enough that nobody reruns it — and a
+    // benchmark nobody reruns cannot catch a regression.
+    let concurrency: usize = std::env::var("POINTER_LOCATE_CONCURRENCY")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1)
+        .max(1);
+    if concurrency > 1 {
+        println!("concurrency: {concurrency}");
+    }
+
+    struct HintRun {
+        idx: usize,
+        desc: String,
+        bbox: [f64; 4],
+        result: Result<Option<LocateOutcome>, String>,
+        elapsed: f64,
+    }
+
+    let vision = &vision;
+    let runs: Vec<HintRun> = futures_util::stream::iter(
+        truth
+            .cases
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, case)| case.bbox.map(|b| (idx, case, b)))
+            .map(|(idx, case, bbox)| {
+                let desc = case.description.clone();
+                let hint = offset_hint(bbox, fw, fh);
+                let frame = frame.clone();
+                let cancel = cancel.clone();
+                async move {
+                    let requests = vec![
+                        LocateRequest::new(desc.as_str(), "点击它").with_hint_px(hint),
+                    ];
+                    let started = std::time::Instant::now();
+                    let call = tokio::time::timeout(
+                        per_case,
+                        locate_elements(
+                            vision,
+                            &frame,
+                            &requests,
+                            &LocateConfig::default(),
+                            &cancel,
+                        ),
+                    )
+                    .await;
+                    let elapsed = started.elapsed().as_secs_f64();
+                    let result = match call {
+                        Ok(Ok(mut v)) => Ok(v.pop()),
+                        Ok(Err(e)) => Err(format!("{e:#}")),
+                        Err(_) => Err(format!(">{timeout_secs}s")),
+                    };
+                    HintRun {
+                        idx,
+                        desc,
+                        bbox,
+                        result,
+                        elapsed,
+                    }
+                }
+            }),
+    )
+    .buffer_unordered(concurrency)
+    .collect()
+    .await;
+
+    // Concurrent calls finish out of order; report in file order so two runs diff.
+    let mut runs = runs;
+    runs.sort_by_key(|r| r.idx);
+
     let mut scored = 0usize;
     let mut hits = 0usize;
     let mut misses: Vec<String> = Vec::new();
 
-    for case in truth.cases.iter() {
-        let Some(bbox) = case.bbox else { continue };
-        let hint = offset_hint(bbox, fw, fh);
-        let requests = vec![LocateRequest::new(case.description.as_str(), "点击它").with_hint_px(hint)];
-        let started = std::time::Instant::now();
-        let call = tokio::time::timeout(
-            per_case,
-            locate_elements(&vision, &frame, &requests, &LocateConfig::default(), &cancel),
-        )
-        .await;
-        let elapsed = started.elapsed().as_secs_f64();
-
+    for run in &runs {
         scored += 1;
-        let outcome = match call {
-            Ok(Ok(mut v)) => v.pop(),
-            Ok(Err(e)) => {
-                println!("ERROR {:<34} {e:#}", case.description);
-                misses.push(case.description.clone());
+        let outcome = match &run.result {
+            Ok(Some(o)) => o,
+            Ok(None) => {
+                misses.push(run.desc.clone());
                 continue;
             }
-            Err(_) => {
-                println!("TIMEOUT {:<34} >{timeout_secs}s", case.description);
-                misses.push(case.description.clone());
+            Err(reason) => {
+                let label = if reason.starts_with('>') {
+                    "TIMEOUT"
+                } else {
+                    "ERROR"
+                };
+                println!("{label} {:<34} {reason}", run.desc);
+                misses.push(run.desc.clone());
                 continue;
             }
         };
-        let Some(outcome) = outcome else {
-            misses.push(case.description.clone());
-            continue;
-        };
-        let hit = landed_in_truth(outcome.ok, outcome.box_px.as_ref().map(box_centre), bbox);
+        let hit = landed_in_truth(outcome.ok, outcome.box_px.as_ref().map(box_centre), run.bbox);
         if hit {
             hits += 1;
         } else {
-            misses.push(case.description.clone());
+            misses.push(run.desc.clone());
         }
         println!(
             "{} hint {:<34} ok={:<5} box={:?} rounds={} {:.1}s",
             if hit { "PASS" } else { "FAIL" },
-            case.description,
+            run.desc,
             outcome.ok,
             outcome.box_px,
             outcome.rounds,
-            elapsed
+            run.elapsed
         );
     }
 

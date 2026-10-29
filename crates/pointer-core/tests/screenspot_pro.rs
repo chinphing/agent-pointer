@@ -59,9 +59,16 @@ use pointer_core::agents::computer::locate::{
 use pointer_core::models::ModelSettings;
 use pointer_core::provider::OpenAIProvider;
 
-/// `benchmarks/screenspot_grid` — the harness directory, not a build artifact.
+/// ScreenSpot 数据根。代码在 `pointer-eval/screenspot_grid/`，图片和标注在
+/// `pointer-eval-data/screenspot_grid/`——两者与 `agent-pointer/` 同级。
+///
+/// `POINTER_SP_DATA` 可覆盖（CI、只读挂载、数据在另一块盘上）。
 fn bench_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../benchmarks/screenspot_grid")
+    if let Ok(p) = std::env::var("POINTER_SP_DATA") {
+        return PathBuf::from(p);
+    }
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../pointer-eval-data/screenspot_grid")
 }
 
 /// `tests/locate_fixture/.env` — shared with the other model-backed tests so the

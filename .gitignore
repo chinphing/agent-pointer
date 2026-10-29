@@ -35,9 +35,8 @@ react-check/
 # vite / vitest writes a compiled config next to vite.config.ts
 vite.config.ts.timestamp-*.mjs
 
-# Nested benchmark repo with its own remote (chinphing/screenspot-pro-bench).
-# Keep it as a separate clone, never as files or a gitlink in this repo.
-benchmarks/screenspot_grid/
+# 评测数据与脚本分仓维护：脚本在 ../pointer-eval/，数据在 ../pointer-eval-data/。
+# 旧的内嵌 benchmark 仓库已迁出，这里不再需要 ignore 规则。
 
 # P0 harness output (screenshots, crops, results.json) — regenerate, do not commit.
 cases/

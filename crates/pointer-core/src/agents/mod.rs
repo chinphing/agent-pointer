@@ -1462,7 +1462,7 @@ mod builtin_agent_tests {
         for rule in [
             "Desktop tools run one at a time",
             "The screenshot is the only ground truth",
-            "Read the newest `verify:` before acting",
+            "Wait for `verify:` to settle",
             "`bbox` takes pixels",
         ] {
             assert!(rules.contains(rule), "AGENT.md should state: {rule}");

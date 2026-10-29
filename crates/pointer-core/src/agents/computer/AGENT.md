@@ -67,10 +67,8 @@ tells you what was sent; a `verify:` row is another model's opinion. Both are
 hints, not evidence — confirm them against the pixels. An older capture never
 overrides the current one.
 
-**Read the newest `verify:` before acting.** If it says `verifying`, start no
-desktop tool this turn. Every desktop tool gets its own `verify:` row, so a turn
-that emitted three calls returns three rows — read them in order, and the newest
-row tells you where the screen actually ended up.
+**Wait for `verify:` to settle.** If the newest row says `verifying`, start no
+desktop tool this turn — the host is still judging the last one.
 
 **`bbox` takes pixels.** You locate targets on a 1000×1000 grid first — that is
 easier to eyeball — but the value you pass must be converted with the

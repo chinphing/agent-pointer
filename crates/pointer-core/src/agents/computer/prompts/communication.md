@@ -127,9 +127,7 @@ Each row in **`[Recent desktop tool calls]`** ends with **`verify:`**:
 | **`verify: skipped`** | Superseded — no verify signal for that row |
 | **No history row** | First action turn — no prior verify |
 
-**Gate:** plan from the **newest** row. Read the earlier rows in the same turn to
-see what the intermediate states were — a batch of three desktop tools leaves
-three rows, and only the last one describes the screen you now have.
+**Gate:** plan from the **newest** row; the earlier rows are intermediate states.
 **Do not** re-derive **`Step result:`** or **`Cause:`** — the host already wrote the suffix.
 **A suffix is an opinion, not a verdict.** Check it against the current screen.
 When the pixels disagree with `verify:`, the pixels win — act on what you see, and

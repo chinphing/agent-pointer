@@ -9,14 +9,14 @@ input_at:
       type: string
     target_desc:
       type: string
-      description: "Which control to type into. Three parts: appearance + control type + screen position; add an anchor only when those cannot single it out. Example: search field at the top of the dialog, grey border, placeholder 'Search files'. Required together with bbox."
+      description: "Which control to type into. Required together with bbox. See Writing target_desc for the shape."
     bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where the control is, [x1, y1, x2, y2] in pixels of the screenshot. The tool re-grounds inside it before clicking into the field."
+      description: "Field box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
     text:
       type: string
     clear_first:

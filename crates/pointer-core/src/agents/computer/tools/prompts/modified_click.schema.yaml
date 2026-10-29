@@ -13,14 +13,14 @@ modified_click_select_at:
         properties:
           target_desc:
             type: string
-            description: "What this target is. Three parts: appearance + control type + screen position; add an anchor only when those cannot single it out. Example: first row of the report table, below the header row. Required together with bbox."
+            description: "What this target is. Required together with bbox. See Writing target_desc for the shape."
           bbox:
             type: array
             items:
               type: number
             minItems: 4
             maxItems: 4
-            description: "Roughly where the target is, [x1, y1, x2, y2] in pixels of the screenshot."
+            description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
         required:
           - target_desc
           - bbox
@@ -48,14 +48,14 @@ modified_click_range_select_at:
         properties:
           target_desc:
             type: string
-            description: "What this target is. Three parts: appearance + control type + screen position; add an anchor only when those cannot single it out. Example: first row of the report table, below the header row. Required together with bbox."
+            description: "What this target is. Required together with bbox. See Writing target_desc for the shape."
           bbox:
             type: array
             items:
               type: number
             minItems: 4
             maxItems: 4
-            description: "Roughly where the target is, [x1, y1, x2, y2] in pixels of the screenshot."
+            description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
         required:
           - target_desc
           - bbox

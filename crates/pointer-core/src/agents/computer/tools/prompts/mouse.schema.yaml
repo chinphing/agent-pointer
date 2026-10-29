@@ -3,14 +3,14 @@ mouse_click_at:
   properties:
     target_desc:
       type: string
-      description: "What you want to act on. Three parts: appearance + control type + screen position; add an anchor only when those cannot single it out. Example: the blue rounded button in the top nav bar, white text 'Save'. Required together with bbox."
+      description: "What you want to act on. Required together with bbox. See Writing target_desc for the shape."
     bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where the target is, [x1, y1, x2, y2] in pixels of the screenshot. The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
+      description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
     goal:
       type: string
     action:
@@ -42,14 +42,14 @@ mouse_double_click_at:
   properties:
     target_desc:
       type: string
-      description: "What you want to act on. Three parts: appearance + control type + screen position; add an anchor only when those cannot single it out. Example: the blue rounded button in the top nav bar, white text 'Save'. Required together with bbox."
+      description: "What you want to act on. Required together with bbox. See Writing target_desc for the shape."
     bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where the target is, [x1, y1, x2, y2] in pixels of the screenshot. The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
+      description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
     goal:
       type: string
     action:
@@ -69,14 +69,14 @@ mouse_right_click_at:
   properties:
     target_desc:
       type: string
-      description: "What you want to act on. Three parts: appearance + control type + screen position; add an anchor only when those cannot single it out. Example: the blue rounded button in the top nav bar, white text 'Save'. Required together with bbox."
+      description: "What you want to act on. Required together with bbox. See Writing target_desc for the shape."
     bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where the target is, [x1, y1, x2, y2] in pixels of the screenshot. The tool re-grounds inside it and clicks the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
+      description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
     goal:
       type: string
     action:
@@ -96,14 +96,14 @@ mouse_hover_at:
   properties:
     target_desc:
       type: string
-      description: "What you want to act on. Three parts: appearance + control type + screen position; add an anchor only when those cannot single it out. Example: the blue rounded button in the top nav bar, white text 'Save'. Required together with bbox."
+      description: "What you want to act on. Required together with bbox. See Writing target_desc for the shape."
     bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where the target is, [x1, y1, x2, y2] in pixels of the screenshot. The tool re-grounds inside it and moves the pointer to the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
+      description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
     goal:
       type: string
     action:
@@ -123,14 +123,14 @@ mouse_scroll_current:
   properties:
     target_desc:
       type: string
-      description: "Optional. What to scroll — the panel or list body that must move. When given, the tool grounds it and moves the pointer there before scrolling, because wheel events only reach the window under the pointer. Three parts: appearance + control type + screen position; add an anchor only when those cannot single it out. Omit only when the pointer is already inside the panel."
+      description: "Optional. The panel or list body that must move; when given, the pointer is moved there first because wheel events only reach the window under it. See Writing target_desc for the shape."
     bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where that panel is, [x1, y1, x2, y2] in pixels of the screenshot. The tool re-grounds inside it and moves the pointer to the confirmed centre, so a loose box is fine — and the point it settles on may differ from the box you passed, because the locator re-finds the panel from target_desc. Required together with target_desc."
+      description: "Panel box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
     goal:
       type: string
     action:
@@ -164,14 +164,14 @@ mouse_down:
   properties:
     target_desc:
       type: string
-      description: "What you want to act on. Three parts: appearance + control type + screen position; add an anchor only when those cannot single it out. Example: the blue rounded button in the top nav bar, white text 'Save'. Required together with bbox."
+      description: "What you want to act on. Required together with bbox. See Writing target_desc for the shape."
     bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where the target is, [x1, y1, x2, y2] in pixels of the screenshot. The tool re-grounds inside it and presses the button at the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
+      description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
     goal:
       type: string
     action:
@@ -198,14 +198,14 @@ mouse_up:
   properties:
     target_desc:
       type: string
-      description: "What you want to act on. Three parts: appearance + control type + screen position; add an anchor only when those cannot single it out. Example: the blue rounded button in the top nav bar, white text 'Save'. Required together with bbox."
+      description: "What you want to act on. Required together with bbox. See Writing target_desc for the shape."
     bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where the target is, [x1, y1, x2, y2] in pixels of the screenshot. The tool re-grounds inside it and releases the button at the confirmed centre, so a loose box is fine — but it must be given together with target_desc."
+      description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
     goal:
       type: string
     action:
@@ -232,24 +232,24 @@ mouse_drag_from_to_at:
   properties:
     from_target_desc:
       type: string
-      description: "What the drag grabs. Three parts: appearance + control type + screen position; add an anchor only when those cannot single it out. Example: report.pdf icon on the desktop. Required together with from_bbox."
+      description: "What the drag grabs. Required together with from_bbox. See Writing target_desc for the shape."
     from_bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where the grab point is, [x1, y1, x2, y2] in pixels of the screenshot."
+      description: "Grab point box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
     to_target_desc:
       type: string
-      description: "Where the drag drops it. Three parts: appearance + control type + screen position; add an anchor only when those cannot single it out. Example: Trash icon at the bottom right of the Dock. Required together with to_bbox."
+      description: "Where the drag drops it. Required together with to_bbox. See Writing target_desc for the shape."
     to_bbox:
       type: array
       items:
         type: number
       minItems: 4
       maxItems: 4
-      description: "Roughly where the drop point is, [x1, y1, x2, y2] in pixels of the screenshot."
+      description: "Drop point box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
     goal:
       type: string
     action:

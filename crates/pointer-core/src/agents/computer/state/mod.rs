@@ -654,7 +654,8 @@ impl ComputerState {
         let mut s = session.lock().unwrap();
         s.pipeline.last_verify = Some(conclusion.clone());
         let last_goal = s.runtime.last_executed_goal.clone();
-        let backfilled = s.runtime.backfill_newest_open_verify(outcome);
+        let filled = s.runtime.backfill_batch_open_verify(outcome);
+        let backfilled = filled > 0;
         let host_repetition_count =
             crate::agents::computer::runtime::same_goal_repetition_count_in_history(
                 s.runtime.history(),

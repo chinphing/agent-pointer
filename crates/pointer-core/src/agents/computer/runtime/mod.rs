@@ -403,6 +403,31 @@ impl ComputerRuntime {
         true
     }
 
+    /// Backfill one verify outcome into **every** open row in the batch.
+    ///
+    /// A turn may emit several desktop tools. One verify pass judges the batch by
+    /// comparing the frame before it with the frame after it, so its conclusion
+    /// covers all of them. Writing it only to the newest row left the earlier rows
+    /// marked `skipped`, which reads as "not verified" — the opposite of what
+    /// happened.
+    pub fn backfill_batch_open_verify(&mut self, outcome: VerifyOutcome) -> usize {
+        if outcome.step_result == "pending" {
+            return 0;
+        }
+        let v = &mut self.histories;
+        let mut filled = 0;
+        for row in v.iter_mut() {
+            if row.verify_result.is_none() {
+                row.verify_result = Some(outcome.clone());
+                filled += 1;
+            }
+        }
+        if filled == 0 {
+            log::warn!("computer: host verify ignored — no open verifying row to close");
+        }
+        filled
+    }
+
     /// Back-compat alias — prefer [`backfill_newest_open_verify`].
     pub fn backfill_last_verify(&mut self, outcome: VerifyOutcome) {
         let _ = self.backfill_newest_open_verify(outcome);

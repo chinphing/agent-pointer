@@ -5,7 +5,7 @@ use crate::agents::computer::pipeline::operation::{
 };
 use crate::agents::computer::pipeline::types::{ActionResult, FailureCause, VerifyConclusion};
 pub use crate::agents::computer::pipeline::PipelineLlmUsageRecorder;
-use crate::agents::computer::pipeline::{find_root_tool_name, run_verify_phase};
+use crate::agents::computer::pipeline::{find_root_tool_name, run_verify_phase, VerifyTarget};
 use crate::agents::computer::ScreenCaptureResult;
 use crate::agents::AgentProfile;
 use crate::chat_service::app_state::AppState;
@@ -88,6 +88,38 @@ pub fn tool_result_text_for_call(
         j += 1;
     }
     None
+}
+
+/// Every desktop tool in the batch, in execution order.
+///
+/// A turn may emit several desktop calls. They run serially and are judged by a
+/// single verify pass over the before/after frames, so verify needs all of them —
+/// judging only the first left the rest unverified while the conclusion still
+/// landed on the newest history row.
+pub fn collect_desktop_tools(
+    calls: &[ToolCall],
+    tools: &ToolRegistry,
+    history: &[ChatMessage],
+    message_id: &str,
+) -> Vec<VerifyTarget> {
+    let mut out = Vec::new();
+    for tc in calls {
+        let name = tc.name.trim();
+        if crate::task_board::checkpoint::is_task_board_tool_name(name)
+            || tools.get_def(name).is_none()
+        {
+            continue;
+        }
+        if !crate::agents::computer::input::timing::is_desktop_vision_log_tool(name) {
+            continue;
+        }
+        let args = serde_json::from_str(&tc.arguments).unwrap_or(Value::Null);
+        let tool_result = tool_result_text_for_call(history, message_id, &tc.id)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        out.push(VerifyTarget::new(name, args, tool_result));
+    }
+    out
 }
 
 fn is_internal_tool_log_line(line: &str) -> bool {
@@ -264,20 +296,23 @@ pub async fn run_pipeline_post_execute_verify(
     cancel: CancellationToken,
     usage: Option<&mut PipelineLlmUsageRecorder<'_>>,
 ) -> Result<()> {
-    let Some(root_name) = find_root_tool_name(tool_calls, state.tools.as_ref()) else {
+    let targets = collect_desktop_tools(tool_calls, state.tools.as_ref(), history, message_id);
+    let Some(root_name) = targets.first().map(|t| t.name.clone()) else {
         return Ok(());
     };
-    let root_tc = tool_calls
-        .iter()
-        .find(|tc| tc.name.trim() == root_name)
-        .or_else(|| tool_calls.first());
-    let root_args: Value = root_tc
-        .and_then(|tc| serde_json::from_str(&tc.arguments).ok())
+    let root_args = targets
+        .first()
+        .map(|t| t.args.clone())
         .unwrap_or(Value::Null);
-    let tool_text = root_tc
-        .and_then(|tc| tool_result_text_for_call(history, message_id, &tc.id))
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
+    let tool_text = targets
+        .first()
+        .and_then(|t| t.tool_result.clone())
+        .or_else(|| {
+            // Fallback: the first desktop call may have no recorded result while a
+            // later one does. Any non-empty result still tells us whether the batch
+            // errored out.
+            targets.iter().find_map(|t| t.tool_result.clone())
+        });
     let family = operation_family_for_tool(&root_name);
     let tool_text = tool_text.as_deref();
     let round_seq = state
@@ -369,10 +404,8 @@ pub async fn run_pipeline_post_execute_verify(
             conversation_id,
             message_id,
             settings,
-            &root_name,
-            &root_args,
+            &targets,
             before,
-            tool_text,
             cancel,
             Some(&format!("{file_prefix}_verify")),
             &file_prefix,

@@ -1,6 +1,20 @@
 ## Verify (host pipeline)
 
-Judge whether the last desktop action succeeded. You do not retry or fix — only judge.
+Judge whether the desktop calls in this turn succeeded. You do not retry or fix —
+only judge.
+
+### Batch
+
+A turn may carry several desktop calls, executed serially. You get two frames: the
+screen before the first call and the screen after the last one. Intermediate states
+are not captured, so judge the batch as one outcome rather than per call.
+
+- **Calls serving one goal** — judge that goal. Three calls that type into a search
+  box and submit it either produced results or they did not.
+- **Calls on independent targets** — every one of them must show its change in the
+  after frame. One landed and one did not is `fail`.
+- **Frames cannot settle it** — say what you could not see in `step_summary` and
+  answer `pending`. Do not guess `pass`.
 
 ### Flow
 

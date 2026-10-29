@@ -6,7 +6,7 @@ use crate::agents::computer::pipeline::debug_ui::{
 };
 use crate::agents::computer::pipeline::json_llm::{run_verify_llm, PipelineJsonLlmMeta};
 use crate::agents::computer::pipeline::operation::{
-    format_operation_summary, operation_family_for_tool,
+    format_operation_summary, operation_family_for_tool, OperationFamily,
 };
 use crate::agents::computer::pipeline::types::{
     PipelineLlmUsageRecorder, VerifyConclusion, VerifyModuleOutput,
@@ -38,15 +38,83 @@ fn should_retry_verify_for_loading(out: &VerifyModuleOutput, loops_done: u32) ->
     out.loading_detected && loops_done < PIPELINE_LOADING_MAX_LOOPS
 }
 
+/// One desktop tool in the batch that verify has to judge.
+///
+/// A turn may emit several desktop tools. They are judged together: verify sees
+/// the frame before the batch and the frame after it, so the batch has to be
+/// something those two frames can prove — same goal, or targets that cannot
+/// affect each other.
+#[derive(Debug, Clone)]
+pub struct VerifyTarget {
+    pub name: String,
+    pub args: Value,
+    /// Tool result text for this call, when the host captured one.
+    pub tool_result: Option<String>,
+}
+
+impl VerifyTarget {
+    pub fn new(name: impl Into<String>, args: Value, tool_result: Option<String>) -> Self {
+        Self {
+            name: name.into(),
+            args,
+            tool_result,
+        }
+    }
+}
+
+/// Prompt family for a batch: one family when every call shares it, else the
+/// generic prompt — a mixed batch (click then type) matches no single family's
+/// success criteria.
+fn batch_family(targets: &[VerifyTarget]) -> OperationFamily {
+    let mut families = targets.iter().map(|t| operation_family_for_tool(&t.name));
+    let Some(first) = families.next() else {
+        return OperationFamily::Other;
+    };
+    if families.all(|f| f == first) {
+        first
+    } else {
+        OperationFamily::Other
+    }
+}
+
+/// Human-readable list of the batch, one line per call, numbered when there is
+/// more than one so verify can refer to "call 2".
+fn batch_operation_text(targets: &[VerifyTarget]) -> String {
+    if targets.len() == 1 {
+        let t = &targets[0];
+        return format!(
+            "{} args={}",
+            format_operation_summary(&t.name, &t.args),
+            t.args
+        );
+    }
+    let mut out = format!(
+        "{} desktop calls in this batch, executed in order. The before frame is \
+         the screen before call 1; the after frame is the screen after call {}.\n",
+        targets.len(),
+        targets.len()
+    );
+    for (i, t) in targets.iter().enumerate() {
+        out.push_str(&format!(
+            "{}. {} args={}\n",
+            i + 1,
+            format_operation_summary(&t.name, &t.args),
+            t.args
+        ));
+        if let Some(text) = t.tool_result.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            out.push_str(&format!("   result: {text}\n"));
+        }
+    }
+    out
+}
+
 pub async fn run_verify_phase(
     computer_state: &ComputerState,
     conversation_id: &str,
     assistant_message_id: &str,
     settings: &ModelSettings,
-    root_tool_name: &str,
-    root_args: &Value,
+    targets: &[VerifyTarget],
     before_cap: &ScreenCaptureResult,
-    tool_result: Option<&str>,
     cancel: CancellationToken,
     dump_label: Option<&str>,
     file_prefix: &str,
@@ -62,12 +130,18 @@ pub async fn run_verify_phase(
     // click point, and both frames then show the same spot. A pointer that moved
     // later (user interference) is not something this marker can fix anyway.
     let current_pointer = crate::agents::computer::vision::screen::current_pointer().ok();
-    let family = operation_family_for_tool(root_tool_name);
-    let op_text = format!(
-        "{} args={}",
-        format_operation_summary(root_tool_name, root_args),
-        root_args
-    );
+    let family = batch_family(targets);
+    let op_text = batch_operation_text(targets);
+    // Debug/card label. A batch has no single tool name, so name it by size.
+    let debug_label = match targets {
+        [only] => only.name.clone(),
+        many => format!("batch of {}", many.len()),
+    };
+    let tool_result = targets
+        .iter()
+        .find_map(|t| t.tool_result.as_deref())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     let verify_prompt = computer_verify_prompt(family);
     let system = verify_prompt.trim().to_string();
     let verify_settings = computer_state.apply_pipeline_phase_settings(
@@ -97,7 +171,7 @@ pub async fn run_verify_phase(
                     tx,
                     assistant_message_id,
                     "verify",
-                    root_tool_name,
+                    &debug_label,
                     &wire_debug_text,
                 )
             })
@@ -140,7 +214,7 @@ pub async fn run_verify_phase(
                 stream,
                 debug_ui.as_ref(),
                 assistant_message_id,
-                root_tool_name,
+                &debug_label,
                 verify_started,
                 false,
                 None,
@@ -168,7 +242,7 @@ pub async fn run_verify_phase(
                     stream,
                     debug_ui.as_ref(),
                     assistant_message_id,
-                    root_tool_name,
+                    &debug_label,
                     verify_started,
                     false,
                     last_meta.reasoning.as_deref(),
@@ -214,7 +288,7 @@ pub async fn run_verify_phase(
                     stream,
                     debug_ui.as_ref(),
                     assistant_message_id,
-                    root_tool_name,
+                    &debug_label,
                     verify_started,
                     false,
                     last_meta.reasoning.as_deref(),
@@ -239,7 +313,7 @@ pub async fn run_verify_phase(
                 stream,
                 debug_ui.as_ref(),
                 assistant_message_id,
-                root_tool_name,
+                &debug_label,
                 verify_started,
                 false,
                 last_meta.reasoning.as_deref(),
@@ -254,7 +328,7 @@ pub async fn run_verify_phase(
         stream,
         debug_ui.as_ref(),
         assistant_message_id,
-        root_tool_name,
+        &debug_label,
         verify_started,
         true,
         last_meta.reasoning.as_deref(),
@@ -379,5 +453,37 @@ mod tests {
             PIPELINE_LOADING_MAX_LOOPS
         ));
         assert!(!should_retry_verify_for_loading(&clear, 0));
+    }
+
+    #[test]
+    fn batch_family_is_generic_when_calls_mix_families() {
+        // A batch of click + type matches no single family's success criteria, so
+        // it falls back to the generic prompt instead of judging a type as a click.
+        let click = VerifyTarget::new("mouse_click_at", Value::Null, None);
+        let input = VerifyTarget::new("input_at", Value::Null, None);
+        assert_eq!(batch_family(&[click.clone()]), OperationFamily::PointerClick);
+        assert_eq!(batch_family(&[input.clone()]), OperationFamily::Input);
+        assert_eq!(batch_family(&[click, input]), OperationFamily::Other);
+    }
+
+    #[test]
+    fn batch_operation_text_lists_every_call() {
+        // Verify has to see all of them: judging only the first left the rest
+        // unverified while the conclusion still landed on a history row.
+        let one = VerifyTarget::new("mouse_click_at", Value::Null, None);
+        assert_eq!(batch_operation_text(&[one]).lines().count(), 1);
+
+        let batch = vec![
+            VerifyTarget::new("mouse_click_at", Value::Null, Some("ok".into())),
+            VerifyTarget::new("input_at", Value::Null, Some("typed".into())),
+            VerifyTarget::new("hotkey", Value::Null, None),
+        ];
+        let text = batch_operation_text(&batch);
+        assert!(text.contains("3 desktop calls in this batch"));
+        assert!(text.contains("1. "));
+        assert!(text.contains("2. "));
+        assert!(text.contains("3. "));
+        assert!(text.contains("result: ok"));
+        assert!(text.contains("result: typed"));
     }
 }

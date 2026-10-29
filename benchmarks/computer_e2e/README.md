@@ -262,7 +262,7 @@ POINTER_E2E_MODE=oracle POINTER_E2E_ONLY=0069815c cargo test ...
 | `POINTER_E2E_CONCURRENCY` | 并发数，默认 4。`hint` 模式可用 8；**Moonshot 组织 RPM 上限 100，必须用 `1`** |
 | `POINTER_E2E_IMAGE_DIR` | 图片目录 |
 | `POINTER_E2E_MINIMAL_PROMPT` | `1` = 用最小 prompt（约 400 字符），不用生产 28K |
-| **`POINTER_E2E_BBOX_UNIT`** | **`norm`（默认，0-1000 归一化）/ `pixel`（原始像素）——两套最小 prompt 随之切换** |
+| **`POINTER_E2E_BBOX_UNIT`** | **`pixel`（默认，与生产 `mouse.schema.yaml` 一致）/ `norm`（0-1000 归一化，实验臂）——两套最小 prompt 随之切换** |
 | `POINTER_E2E_IMAGE_SIZE` | `1` = 在 `[CUR_SCREEN]` 里声明截图像素尺寸 + 换算说明（`pixel` 档自动开启） |
 | `POINTER_E2E_PIXEL_BBOX` | 旧写法，等价于 `BBOX_UNIT=pixel`（保留兼容） |
 | **`POINTER_E2E_TEMPERATURE`** | 采样温度，默认 `0.0`。**kimi-k3.1 只接受 `1.0`**，否则 400 |

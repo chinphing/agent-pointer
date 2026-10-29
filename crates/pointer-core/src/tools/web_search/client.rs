@@ -103,8 +103,9 @@ pub fn web_search_unsupported_on_generation_api(model: &str) -> bool {
     dashscope_model_uses_multimodal_endpoint(model)
 }
 
-/// Pick a model id for the search HTTP call. Empty falls back to `qwen3-max`.
-/// Multimodal ids are kept and routed to `multimodal-generation`.
+/// Pick a model id for the search HTTP call. Empty falls back to
+/// `DEFAULT_TOOL_WEB_SEARCH_MODEL`. Multimodal ids are kept and routed to
+/// `multimodal-generation`.
 pub fn resolve_web_search_api_model(configured: &str) -> String {
     let m = configured.trim();
     if m.is_empty() {
@@ -986,7 +987,11 @@ mod tests {
     fn resolve_api_model_keeps_qwen36_plus() {
         assert_eq!(resolve_web_search_api_model("qwen3.6-plus"), "qwen3.6-plus");
         assert_eq!(resolve_web_search_api_model("qwen-plus"), "qwen-plus");
-        assert_eq!(resolve_web_search_api_model(""), "qwen3-max");
+        assert_eq!(
+            resolve_web_search_api_model(""),
+            crate::tools::web_search::generation::DEFAULT_TOOL_WEB_SEARCH_MODEL
+        );
+        assert_eq!(resolve_web_search_api_model(""), "qwen3.7-plus");
     }
 
     #[test]

@@ -57,8 +57,9 @@ You drive the visible desktop using screenshots and desktop tools.
 ## Hard rules
 
 **Batch only what one verify can prove.** Emit as many desktop calls as the work
-needs in one turn. They execute serially in the order you list them, and `terminal`
-runs concurrently. A batch is allowed only when every call serves the same goal or
+needs in one turn. They execute in the order you list them, one at a time —
+`terminal` included, so a long command blocks the clicks behind it. A batch is
+allowed only when every call serves the same goal or
 touches targets that cannot affect each other — that is exactly what lets a single
 `verify:` pass judge the whole batch from the before and after frames. Two
 consequences: every `bbox` is measured against the frame in front of you now, so a

@@ -47,7 +47,8 @@ pub async fn run_locate_element(
     cancel: &CancellationToken,
 ) -> Result<String> {
     let frame = capture_frame(computer_state, conversation_id).await?;
-    // `hint_box` is 0–1000 normalized, so parsing it needs the frame size.
+    // `hint_box` is in frame pixels; the size is only used to reject a box that
+    // falls entirely outside the capture.
     let requests = parse_requests(args, frame.width(), frame.height())?;
     // Thinking comes from the callers: `locate_providers` applies the locate /
     // locate-verify phase budgets (0 = off, the default). Leaving thinking on

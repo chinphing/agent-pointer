@@ -1492,10 +1492,16 @@ mod builtin_agent_tests {
         assert!(rules.contains("Both are\nhints, not evidence"));
         assert!(rules.contains("An older capture never\noverrides the current one"));
 
-        // `terminal` is the only parallel-eligible tool the agent has. What makes
-        // a batch legal is that one verify pass can judge it: every call serves
-        // the same goal, or touches targets that cannot affect each other.
-        assert!(rules.contains("`terminal`\nruns concurrently"));
+        // Nothing overlaps, `terminal` included: the batch planner puts each
+        // Computer call in its own serial wave and `terminal` in another
+        // (`tools/parallel.rs`, `agent_tool_pass/batch.rs`). What makes a batch
+        // legal is that one verify pass can judge it: every call serves the
+        // same goal, or touches targets that cannot affect each other.
+        assert!(rules.contains("`terminal` included"));
+        assert!(
+            !rules.contains("runs concurrently"),
+            "terminal is serial like every other tool; the prompt must not promise overlap"
+        );
         assert!(rules.contains("serves the same goal or"));
         assert!(rules.contains("touches targets that cannot affect each other"));
         assert!(rules.contains("a single\n`verify:` pass judge the whole batch"));

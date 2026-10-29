@@ -19,7 +19,13 @@ use super::sse_drain::{read_dashscope_search_sse, read_dashscope_search_sse_from
 use super::stream_ui::WebSearchStreamUi;
 
 /// Default model for Generation + `enable_search` (tool path).
-pub const DEFAULT_TOOL_WEB_SEARCH_MODEL: &str = "qwen3-max";
+///
+/// `qwen3.7-plus` is in `dashscope_model_uses_multimodal_endpoint`, so this
+/// routes to `multimodal-generation` with the `agent` search strategy rather
+/// than `text-generation` + `enable_search` — `qwen3-max` would have used the
+/// latter. Both are valid; this one keeps search on the same model family as
+/// the rest of the app.
+pub const DEFAULT_TOOL_WEB_SEARCH_MODEL: &str = "qwen3.7-plus";
 
 pub fn resolve_dashscope_generation_config(
     settings: &ModelSettings,
@@ -170,8 +176,11 @@ mod tests {
     use crate::models::ModelSettings;
 
     #[test]
-    fn resolve_tool_model_defaults_to_qwen3_max() {
-        assert_eq!(resolve_tool_generation_model(""), "qwen3-max");
+    fn resolve_tool_model_defaults_to_qwen37_plus() {
+        assert_eq!(resolve_tool_generation_model(""), "qwen3.7-plus");
+        // An explicit id is passed through, not rewritten to the default.
+        assert_eq!(resolve_tool_generation_model("qwen3-max"), "qwen3-max");
+        assert_eq!(resolve_tool_generation_model("qwen3.6-plus"), "qwen3.6-plus");
     }
 
     #[test]

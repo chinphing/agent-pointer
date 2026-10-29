@@ -267,11 +267,11 @@ pub(super) async fn resolve_point(
     let bbox_value = args
         .get(&bbox_key)
         .ok_or_else(|| anyhow::anyhow!("缺少 {bbox_key}——目标大概在哪个范围"))?;
-    // `bbox` may arrive in either shape: **pixels** (what `AGENT.md` asks for
-    // now) or **0–1000 normalized** (the old contract, still accepted). This
-    // value is passed through untouched — `parse_bbox` only validates the shape.
-    // `run_locate_element` → `parse_hint` disambiguates by magnitude and
-    // converts against the captured frame size.
+    // `bbox` is **pixels**, full stop. This value is passed through untouched —
+    // `parse_bbox` only validates the shape, and `run_locate_element` →
+    // `parse_hint` treats it as pixels with no magnitude guessing and no
+    // conversion. A model that answers on a 0–1000 grid lands its hint in the
+    // top-left corner; that failure has been diagnosed twice already.
     let hint = parse_bbox(bbox_value)?;
 
     let providers = locate_providers(state, conversation_id, provider)?;

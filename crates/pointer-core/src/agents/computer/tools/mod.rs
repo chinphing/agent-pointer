@@ -105,7 +105,10 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                         err_name
                     ))
                 } else {
-                    // mouse_scroll_current — pixel dx/dy at the current pointer.
+                    // Unreachable in practice: every mouse name carries a
+                    // `backend_method`, so this branch never runs. Kept as a
+                    // fallback. Note that scrolling takes `notches_x` /
+                    // `notches_y` — wheel notches, not pixel deltas.
                     let control = ms.control.clone();
                     run_synthetic_computer_tool(move || {
                         tool_mouse::scroll_current(&control, &args)

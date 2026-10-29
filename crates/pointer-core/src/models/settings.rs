@@ -1849,7 +1849,7 @@ impl Default for ModelSettings {
     }
 }
 
-pub const DEFAULT_WEB_SEARCH_MODEL: &str = "qwen3-max-2026-01-23";
+pub const DEFAULT_WEB_SEARCH_MODEL: &str = "qwen3.7-plus";
 
 /// Scene id for DashScope `web_search` tool tiers (settings UI + agentModeLlm map).
 pub const WEB_SEARCH_SCENE_ID: &str = "web_search";
@@ -1864,7 +1864,9 @@ pub const WEB_SEARCH_SCENE_ID: &str = "web_search";
 /// 5. compile-time / `DEFAULT_WEB_SEARCH_MODEL`
 ///
 /// Catalog fallbacks typically land on `qwen3.5-plus`, which **does** support
-/// search via `multimodal-generation` with `search_strategy=agent`.
+/// search via `multimodal-generation` with `search_strategy=agent`. Step 5 is
+/// `qwen3.7-plus`, same family — the platform tier map and the legacy
+/// `webSearchModel` both override it.
 pub fn effective_web_search_model(settings: &ModelSettings, _agent_id: Option<&str>) -> String {
     if let Ok(m) = std::env::var("POINTER_WEB_SEARCH_MODEL") {
         let m = m.trim();

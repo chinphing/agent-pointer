@@ -54,10 +54,45 @@ use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 
 use pointer_core::agents::computer::locate::{
-    locate_one, ChatLocateVision, LocateConfig, LocateFrame, LocateRequest,
+    locate_one, ChatLocateVision, LocateConfig, LocateFrame, LocateRequest, PxBox,
 };
 use pointer_core::models::ModelSettings;
 use pointer_core::provider::OpenAIProvider;
+
+/// The production-shaped main-LLM call, reused from the computer e2e harness so
+/// the "agent" arm here measures the same thing it measures there: `AGENT.md`
+/// plus the `[CUR_SCREEN]` preamble, not a test-only prompt.
+#[path = "computer_e2e/harness.rs"]
+mod harness;
+
+/// Which arm to run.
+///
+/// - `none`  — locate alone, no hint. This is what this file used to do.
+/// - `agent` — main LLM produces a bbox, then locate verifies/refines it.
+///   The main-LLM call reuses `computer_e2e/harness.rs::agent_hint`, so the
+///   prompt assembly (`AGENT.md` + `[CUR_SCREEN]` preamble + slot labels +
+///   `mouse.schema.yaml`) is the same one the computer e2e benchmark measures.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    None,
+    Agent,
+}
+
+impl Mode {
+    fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "agent" => Mode::Agent,
+            _ => Mode::None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Mode::None => "none",
+            Mode::Agent => "agent",
+        }
+    }
+}
 
 /// ScreenSpot 数据根。代码在 `pointer-eval/screenspot_grid/`，图片和标注在
 /// `pointer-eval-data/screenspot_grid/`——两者与 `agent-pointer/` 同级。
@@ -311,6 +346,47 @@ fn build_provider() -> Result<OpenAIProvider> {
     Ok(OpenAIProvider::new(settings, api_key))
 }
 
+/// Provider for the main-LLM arm.
+///
+/// Must carry `supportsVision` — without it `make_openai_messages` replaces the
+/// screenshot with the text "(image not inlined: primary model does not support
+/// vision)" and the model answers blind. Must also carry `enable_thinking` in
+/// `extraBody` — `round_enable_thinking` alone does not put the flag on the
+/// wire, and without it `reasoning_content` comes back empty. Both are what
+/// `computer_e2e`'s provider sets, for the same reasons.
+fn build_agent_provider() -> Result<OpenAIProvider> {
+    load_dotenv();
+    let base_url = std::env::var("POINTER_LOCATE_BASE_URL")
+        .context("POINTER_LOCATE_BASE_URL is not set (see tests/locate_fixture/.env)")?;
+    let api_key = std::env::var("POINTER_LOCATE_API_KEY").unwrap_or_default();
+    let model =
+        std::env::var("POINTER_LOCATE_MODEL").unwrap_or_else(|_| "qwen3.8-flash".to_string());
+    let thinking = thinking_enabled();
+    let settings: ModelSettings = serde_json::from_value(serde_json::json!({
+        "providers": [{
+            "id": "screenspot-agent",
+            "name": "screenspot-agent",
+            "baseUrl": base_url,
+            "apiKey": "",
+            "models": [model.clone()],
+            "modelConfigs": { model.clone(): { "supportsVision": true } },
+            "extraBody": { "enable_thinking": thinking }
+        }],
+        "activeProviderId": "screenspot-agent",
+        "model": model,
+        // Production runs 0.7 on the main LLM (see the llm_prompts dumps).
+        "temperature": 0.7,
+        "maxTokens": 64000,
+        "hasKey": true
+    }))
+    .context("build agent ModelSettings from env")?;
+    let mut settings = settings;
+    settings.round_enable_thinking = Some(thinking);
+    // Computer tier default (`session_model.rs`): budget 1024, i.e. "low".
+    settings.round_thinking_budget = Some(1024);
+    Ok(OpenAIProvider::new(settings, api_key))
+}
+
 struct CaseOutcome {
     id: String,
     /// Returned point in original screenshot pixels, when the engine produced one.
@@ -395,9 +471,17 @@ async fn screenspot_pro() -> Result<()> {
     let concurrency = env_usize("POINTER_LOCATE_CONCURRENCY", 8).clamp(1, 16);
     let timeout = Duration::from_secs(env_usize("POINTER_LOCATE_TIMEOUT_SECS", 400) as u64);
     let provider = Arc::new(build_provider()?);
+    let mode = Mode::parse(&std::env::var("POINTER_SP_MODE").unwrap_or_else(|_| "none".into()));
+    // Only the main-LLM arm needs this provider; building it unconditionally
+    // would fail the `none` arm on a machine without the agent model configured.
+    let agent_provider = match mode {
+        Mode::None => None,
+        Mode::Agent => Some(Arc::new(build_agent_provider()?)),
+    };
 
     println!(
-        "screenspot-pro: split={split} cases={} concurrency={concurrency} timeout={}s thinking={}",
+        "screenspot-pro: split={split} mode={} cases={} concurrency={concurrency} timeout={}s thinking={}",
+        mode.as_str(),
         selected.len(),
         timeout.as_secs(),
         if thinking_enabled() { "on" } else { "off" }
@@ -415,6 +499,7 @@ async fn screenspot_pro() -> Result<()> {
                 .map(|d| d.block())
                 .unwrap_or_default();
             let provider = Arc::clone(&provider);
+            let agent_provider = agent_provider.clone();
             running.push(tokio::spawn(async move {
                 let t0 = std::time::Instant::now();
                 let img_path = bench_dir().join("data/images").join(&case.img_filename);
@@ -422,12 +507,47 @@ async fn screenspot_pro() -> Result<()> {
                     let img = image::open(&img_path).with_context(|| {
                         format!("open {} (run scripts/download_data.py?)", img_path.display())
                     })?;
+                    // The main-LLM arm needs the raw JPEG bytes: `agent_hint`
+                    // rebuilds the production `[CUR_SCREEN]` payload from them.
+                    let hint = match (&mode, &agent_provider) {
+                        (Mode::Agent, Some(ap)) => {
+                            let mut jpeg: Vec<u8> = Vec::new();
+                            let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(
+                                std::io::Cursor::new(&mut jpeg),
+                                90,
+                            );
+                            enc.encode_image(&img)
+                                .context("encode frame as jpeg for agent hint")?;
+                            let a = harness::agent_hint(
+                                ap,
+                                &jpeg,
+                                (img.width(), img.height()),
+                                &desc,
+                            )
+                            .await?;
+                            eprintln!(
+                                "[screenspot] hint {} norm=[{:.0},{:.0},{:.0},{:.0}] tool={}",
+                                case.id, a.box_norm[0], a.box_norm[1], a.box_norm[2], a.box_norm[3],
+                                a.tool
+                            );
+                            Some(PxBox {
+                                x1: a.box_px[0],
+                                y1: a.box_px[1],
+                                x2: a.box_px[2],
+                                y2: a.box_px[3],
+                            })
+                        }
+                        _ => None,
+                    };
                     let frame = LocateFrame::new(img.to_rgb8());
                     let cancel = CancellationToken::new();
                     let vision = ChatLocateVision::new(&provider, cancel.clone());
                     // `goal` is caller-facing metadata; the grounder never sees it
                     // (see `locate_prompt`). Any non-empty string will do.
-                    let req = LocateRequest::new(desc, "点击它");
+                    let mut req = LocateRequest::new(desc, "点击它");
+                    if let Some(h) = hint {
+                        req = req.with_hint_px(h);
+                    }
                     let out = locate_one(&vision, &frame, &req, &LocateConfig::default(), &cancel)
                         .await?;
                     Ok::<_, anyhow::Error>(out)

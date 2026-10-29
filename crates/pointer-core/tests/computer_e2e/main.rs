@@ -704,9 +704,38 @@ async fn run_case(
                 out.hit = inside(pt, case.bbox);
                 out.rounds = o.rounds;
                 out.cover = Some(box_cover(pred, case.bbox));
+                // Per-case verdict. `Mode::Hint` has always printed one; this
+                // path only ever filled the tallies, so two runs that scored the
+                // same could not be diffed to see *which* cases flipped. Without
+                // that, a change that trades two wins for two losses reads
+                // identical to no change at all.
+                let (tx, ty) = ((case.bbox[0] + case.bbox[2]) / 2.0, (case.bbox[1] + case.bbox[3]) / 2.0);
+                let (dx, dy) = (pt.0 - tx, pt.1 - ty);
+                out.log = Some(format!(
+                    "{}\n  {} hit={} centre=({:.0},{:.0}) truth=({:.0},{:.0}) d=({:+.0},{:+.0}) |{:.0}px| rounds={} ok={}",
+                    out.log.unwrap_or_default(),
+                    case.scene,
+                    if out.hit { "Y" } else { "n" },
+                    pt.0,
+                    pt.1,
+                    tx,
+                    ty,
+                    dx,
+                    dy,
+                    (dx * dx + dy * dy).sqrt(),
+                    o.rounds,
+                    o.ok,
+                ));
             }
             Some(o) => {
                 out.rounds = o.rounds;
+                out.log = Some(format!(
+                    "{}\n  {} hit=n rounds={} ok=false why={}",
+                    out.log.unwrap_or_default(),
+                    case.scene,
+                    o.rounds,
+                    o.why
+                ));
                 out.failure = Some(format!("{} rounds={} why={}", case.scene, o.rounds, o.why));
             }
             None => {

@@ -16,7 +16,7 @@ use super::trace::{
 };
 use super::types::{
     CenterOnTarget, Confidence, FailureReason, LocateConfig, LocateOutcome, LocateRequest,
-    VerifyVerdict,
+    PositionMatches, VerifyVerdict,
 };
 
 /// One switch for everything diagnostic — **the one in the settings UI**.
@@ -653,7 +653,19 @@ async fn locate_one_traced<V: LocateVision>(
         // target — the target is right there, the box is just misplaced — so the
         // crop is exactly where it should be re-located: at 8x the cell's borders
         // are legible, on the full screen they are not.
-        let stay_local = verdict.center_on_target != CenterOnTarget::Unclear;
+        //
+        // `position = no` breaks that assumption, which is why it is excluded
+        // here. It means the element in the box is **not the one the description
+        // names** — the verifier read the row/column labels on the wide image and
+        // they disagree. When that happens the crop is centred on the wrong
+        // place, so re-locating inside it can only re-find another element of the
+        // same kind. On a sudoku board every empty cell looks alike, so this ran
+        // three rounds inside one wrong crop and then gave up. `is_hit()` already
+        // treats `position = no` as a failure; the crop decision has to agree
+        // with it, or the run knows it is wrong and keeps looking in the same
+        // spot anyway.
+        let stay_local = verdict.center_on_target != CenterOnTarget::Unclear
+            && verdict.position_matches != PositionMatches::No;
 
         let mut from_crop = false;
         let mut next_box = None;

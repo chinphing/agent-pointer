@@ -15,6 +15,8 @@ toolNames:
   - clipboard
   - list_apps
   - launch_app
+  - web_search
+  - web_fetch
 accessPolicy:
   allowTools:
     - mouse
@@ -29,6 +31,8 @@ accessPolicy:
     - terminal
     - task_board
     - im_send
+    - web_search
+    - web_fetch
   denyTools: []
 ui:
   userSelectable: true

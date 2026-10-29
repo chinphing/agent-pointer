@@ -1902,6 +1902,29 @@ mod builtin_agent_tests {
     }
 
     #[test]
+    fn computer_builtin_can_reach_the_web() {
+        // The desktop agent has to be able to look something up without
+        // handing the turn back: "search for the price, then type it" is one
+        // task, not two. Without these it either guesses or gives up.
+        let raw = include_str!("computer/AGENT.md");
+        let agent = load_builtin_agent("computer", raw, "").expect("load builtin computer");
+        for tool in ["web_search", "web_fetch"] {
+            assert!(
+                agent
+                    .def
+                    .access_policy
+                    .allow_tools
+                    .contains(&tool.to_string()),
+                "computer allowTools must include {tool}"
+            );
+            assert!(
+                agent.def.tool_names.contains(&tool.to_string()),
+                "computer toolNames must declare {tool}"
+            );
+        }
+    }
+
+    #[test]
     fn computer_builtin_does_not_expose_locate_element() {
         // Grounding is internal: the pointing tools locate their own target, so
         // the model has no standalone locate tool to call first.

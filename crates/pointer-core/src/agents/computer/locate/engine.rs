@@ -695,7 +695,13 @@ async fn locate_one_traced<V: LocateVision>(
             }
         }
         if !from_crop || widen_needed {
-            let image = render_full(frame, Some(current))?;
+            // Clean full screen: no reference box drawn. The whole point of
+            // widening is that the caller's box was wrong, and a box painted on
+            // the image outshouts any sentence saying "it is only a candidate".
+            // With nothing drawn, the locator has the description, the labels on
+            // the screen, and nothing else — which is exactly the information a
+            // human would use.
+            let image = render_full(frame, None)?;
             // Drop the caller's hint centre here. `widen_needed` means the
             // locator already answered 「not in this image」 inside the crop —
             // the hint was wrong, and that is the whole reason we are widening.
@@ -726,7 +732,9 @@ async fn locate_one_traced<V: LocateVision>(
             }
         };
         if from_crop && !widen_needed && nearly_same(next_box, current) {
-            let image = render_full(frame, Some(current))?;
+            // Clean full screen, same reasoning as the widen above: the crop
+            // produced no movement, so the drawn box is anchoring the answer.
+            let image = render_full(frame, None)?;
             // Same reasoning as the widen above: the crop-local locator barely
             // moved, so its anchor is not helping. Re-arming the original hint
             // centre would just reproduce the same answer on a harder image.

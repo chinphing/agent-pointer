@@ -696,7 +696,15 @@ async fn locate_one_traced<V: LocateVision>(
         }
         if !from_crop || widen_needed {
             let image = render_full(frame, Some(current))?;
-            let (attempt, step) = locate_in(vision, &run, &format!("full_widen_r{rounds}"), &image, full, w, h, &req.target_desc, req.hint_center(), Some(&hint), Some(current.to_px(w, h))).await;
+            // Drop the caller's hint centre here. `widen_needed` means the
+            // locator already answered 「not in this image」 inside the crop —
+            // the hint was wrong, and that is the whole reason we are widening.
+            // Passing `hint_center()` anyway re-attaches the same wrong anchor
+            // to the full-screen search: `locate_near.md` then says 「pick the
+            // element nearest (x, y)」, so on a board of identical empty cells
+            // the locator walks straight back to the hint. `widen` has to mean
+            // "search from scratch", or it is not a widen.
+            let (attempt, step) = locate_in(vision, &run, &format!("full_widen_r{rounds}"), &image, full, w, h, &req.target_desc, None, Some(&hint), Some(current.to_px(w, h))).await;
             trace.rounds.push(RoundTrace {
                 round: rounds,
                 locate: Some(step),
@@ -719,7 +727,10 @@ async fn locate_one_traced<V: LocateVision>(
         };
         if from_crop && !widen_needed && nearly_same(next_box, current) {
             let image = render_full(frame, Some(current))?;
-            let (attempt, step) = locate_in(vision, &run, &format!("full_escalate_r{rounds}"), &image, full, w, h, &req.target_desc, req.hint_center(), Some(&hint), Some(current.to_px(w, h))).await;
+            // Same reasoning as the widen above: the crop-local locator barely
+            // moved, so its anchor is not helping. Re-arming the original hint
+            // centre would just reproduce the same answer on a harder image.
+            let (attempt, step) = locate_in(vision, &run, &format!("full_escalate_r{rounds}"), &image, full, w, h, &req.target_desc, None, Some(&hint), Some(current.to_px(w, h))).await;
             trace.rounds.push(RoundTrace {
                 round: rounds,
                 locate: Some(step),

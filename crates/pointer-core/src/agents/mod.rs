@@ -206,6 +206,20 @@ pub fn computer_agent_body() -> String {
         .unwrap_or_default()
 }
 
+/// The computer agent's role prompt, assembled exactly the way production does.
+///
+/// Benchmarks used to hand-build this by pushing `COMMUNICATION_PUBLIC`, then
+/// `AGENT.md`, then `COMMUNICATION.md` into a `Vec<String>`. When the production
+/// order changed to identity → shared rules → procedures, the harness kept the
+/// old one, so the benchmark was measuring a prompt no user ever ran.
+pub fn computer_agent_role_prompt() -> String {
+    compose_system_prompt(
+        &computer_agent_body(),
+        communication_public_md(),
+        &computer_communication(),
+    )
+}
+
 /// Verify module prompt for an operation family (host post-execute pipeline).
 pub fn computer_verify_prompt(family: computer::pipeline::operation::OperationFamily) -> String {
     let family_md = match family {

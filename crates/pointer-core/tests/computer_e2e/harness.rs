@@ -45,7 +45,11 @@ fn click_tool_schema() -> Result<serde_json::Value> {
         "type": "function",
         "function": {
             "name": "mouse_click_at",
-            "description": "Click a point on screen. Supply the target description and the box the element occupies, in 0-1000 normalized coordinates over the whole screen.",
+            // Same wording as production `mouse.schema.yaml` — the two used to
+            // disagree (production said pixels, this said 0-1000 normalized),
+            // so a model that read `AGENT.md` answered in pixels and the harness
+            // scored it as normalized: a 1.92× overshoot on every case.
+            "description": "Click a point on screen. Supply the target description and the box the element occupies, [x1, y1, x2, y2] in pixels of the screenshot.",
             "parameters": params
         }
     }))
@@ -69,14 +73,17 @@ fn click_tool_schema() -> Result<serde_json::Value> {
 /// the benchmark has no user store, and their absence is recorded in the README.
 /// Coordinate contract under test.
 ///
-/// `POINTER_E2E_BBOX_UNIT=norm` (default) — the production contract: `bbox` is
-/// 0-1000 normalized over the screen.
-/// `POINTER_E2E_BBOX_UNIT=pixel` — `bbox` is raw screenshot pixels.
+/// `POINTER_E2E_BBOX_UNIT=pixel` (default) — the production contract:
+/// `mouse.schema.yaml` says "`[x1, y1, x2, y2]` in pixels of the screenshot
+/// (normalize to decide where, convert for the answer)", and `AGENT.md` repeats
+/// it as a hard rule.
+/// `POINTER_E2E_BBOX_UNIT=norm` — `bbox` is 0-1000 normalized over the screen.
 ///
-/// The two arms exist because normalization forces the model to divide by the
+/// The norm arm exists because normalization forces the model to divide by the
 /// image width before answering, and the traces show that step being skipped
 /// (`norm=[410,408,455,442]` for a target the model itself placed at pixel 437).
-/// One switch, two prompts, so the arms stay comparable.
+/// It is an experiment, not the production shape — measuring the default arm
+/// against a prompt that says "pixels" scores the unit mismatch, not the model.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BboxUnit {
     Norm,
@@ -97,8 +104,8 @@ impl BboxUnit {
             .to_ascii_lowercase()
             .as_str()
         {
-            "pixel" | "px" => BboxUnit::Pixel,
-            _ => BboxUnit::Norm,
+            "norm" => BboxUnit::Norm,
+            _ => BboxUnit::Pixel,
         }
     }
 
@@ -145,28 +152,21 @@ fn system_prompt_slices() -> Result<Vec<String>> {
     let base = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/agents/computer");
     let mut out = Vec::new();
 
-    // 1. COMMUNICATION_PUBLIC — same accessor the main loop uses.
-    let public = pointer_core::agents::communication_public_md();
-    if !public.trim().is_empty() {
-        out.push(public.to_string());
-    }
+    // 1. The computer agent's role prompt — identity → shared rules → procedures,
+    //    assembled by the same function production uses. Hand-building it here
+    //    drifted once already: the harness kept pushing COMMUNICATION_PUBLIC
+    //    first after production moved it behind `AGENT.md`, so the benchmark was
+    //    measuring a prompt no user ever ran.
+    out.push(pointer_core::agents::computer_agent_role_prompt());
 
-    // 2. Computer agent role prompts. `computer_agent_body()` strips AGENT.md's
-    //    frontmatter.
-    out.push(pointer_core::agents::computer_agent_body());
-    // `computer_communication()` now only describes the single `[Current screen]`
-    // slot the injector actually emits; the retired multi-frame names are gone,
-    // so it no longer sends the model looking for frames that do not exist.
-    out.push(pointer_core::agents::computer_communication());
-
-    // 3. Tool appendix. Production concatenates every allowed tool's `.md`; the
+    // 2. Tool appendix. Production concatenates every allowed tool's `.md`; the
     //    harness only exposes `mouse_click_at`, so only that doc applies. See
     //    the module header for why the other 30 are absent.
     let mouse_doc = std::fs::read_to_string(base.join("tools/prompts/mouse.md"))
         .with_context(|| "read mouse.md".to_string())?;
     out.push(mouse_doc);
 
-    // 4. [Environment] — OS / locale / date. No screen size in it; the model
+    // 3. [Environment] — OS / locale / date. No screen size in it; the model
     //    learns the frame from the image itself.
     out.push(format!(
         "[Environment]\n{}",

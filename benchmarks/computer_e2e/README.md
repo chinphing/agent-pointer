@@ -104,23 +104,34 @@ python3 scripts/export_datasets.py <OUT_DIR> [SINCE_ISO]
 
 ```bash
 cd pointer-eval
-python3 scripts/export_pipeline_verify.py <OUT_JSONL> [LOG_PATH]
+python3 scripts/export_pipeline_verify.py <OUT_JSONL> \
+    [--conversation <id>] [--since <ISO>] [--db <path>]
 ```
 
-从 `~/Library/Application Support/PointerApp/logs/pointer_rCURRENT.log` 里抓
-`content` 形如「执行摘要 + 换行 + `Verify: …`」的 assistant 消息，拆成：
+**从 `conversations.db` 读，不要读日志。** 日志是调试流：应用重启时轮转，
+下一个 run 开始时当前文件被截断，所以跨重启的会话会被切开、尾部直接消失。
+
+实测代价：2026-10-29 那局数独，从日志里只捞到前十分钟 350 条，**全部是
+`pass`**；同一会话在数据库里有 455 条，到最后一个动作为止，**含 53 条 `fail`**。
+拿日志当数据源会把「一次失败都没有」当成结论。
+
+数据库里这些消息是 `role='tool'`，`content` 形如 `[tool] 执行摘要\nVerify: …`，
+`payload` 另存 `createdAt`（epoch ms）——截图文件名就是按这个时间戳命名的，
+所以只有从数据库读才接得上图。
 
 ```json
-{"executed": "Executed mouse_click_at: 选中I1空格，准备填入数字5",
+{"conversation_id": "0a8eeb49-…",
+ "created_at_ms": 1793243355152,
+ "executed": "Executed mouse_click_at: 选中I1空格，准备填入数字5",
  "verdict": "pass",
- "step_summary": "I1 cell: unselected → highlighted blue (selected); …"}
+ "step_summary": "I1 cell: unselected → highlighted blue (selected); …",
+ "shots": ["0a8eeb49-…_96_1793243355152_verify_screen_before_action.jpg", "…after_action.jpg"]}
 ```
 
-**日志在应用重启时会被截断**，所以会话跑完先导出再重启。
-
-这一层不含 before/after 截图——截图按 verify 调用存在
-`computer-captures/<date>/<conversation>/` 下，和日志行没有关联 id。要图就用
-`export_datasets.py`。
+`shots` 不是导出时写的，是按 `created_at_ms` 在
+`computer-captures/<date>/<conversation>/` 里 ±3 秒匹配出来的——**截图和日志行
+之间没有关联 id，只有时间**。实测 455 条里 297 条（65%）能配上，其余是截图没
+保存或已清理。
 
 ### 统计口径
 
@@ -139,20 +150,32 @@ first_hit = sum(1 for v in g.values() if max(r["round"] for r in v) == 1)
 
 `pointer-eval-data/<date>-<topic>/`，不进 git（`pointer-eval` 只存脚本和基线）。
 
-例：`pointer-2026-10-29-sudoku/` 是玩一局数独的完整记录——91 行 locate /
-202 行 verify / 350 行 pipeline verify。这一批的实测：
-
-| 指标 | 值 |
+| 目录 | 内容 |
 |---|---|
-| 定位调用（`run_id` 数） | 77 |
-| 首轮命中 | **53（68.8%）** |
-| 需要 2 轮的 | 3 |
-| pipeline verify 判定 | `pass` 336 / `pending` 14 / **`fail` 0** |
-| `step_summary` 长度 | p50 **109** / p90 175 / max 214 字 |
+| `pointer-2026-10-28/` | 早期一轮的 201 locate + 236 verify + 472 张图 |
+| `pointer-2026-10-28-locate-verify/` | 10-28 全量：**1100 locate + 1907 verify + 4914 张图**（987 MB） |
+| `pointer-2026-10-2{5,6,7,8,9}-sudoku/` | 同一个数独会话按天拆开的 pipeline verify |
+| `pointer-2026-10-29-sudoku/` | 10-29 的 91 locate + 202 verify + 88 pipeline verify + 671 张图 |
 
-**`fail` 为 0 值得单独看**：一次会话里所有操作都通过，可能是真的都成功了，
-也可能是 verify 判不出失败。这两种情况在数据上无法区分，只有对照真实屏幕
-才能确定。
+**`pointer-2026-10-28/` 是 `pointer-2026-10-28-locate-verify/` 的子集**（同一轮
+trace 的前 201 条），保留是因为已有基线跑在它上面。
+
+**数独会话 `0a8eeb49-…` 是一个跨 5 天的长会话**，pipeline verify 共 455 条：
+
+| 日期 | 条数 | 其中 fail |
+|---|---|---|
+| 10-25 | 92 | 10 |
+| 10-26 | 22 | 2 |
+| 10-27 | 44 | 14 |
+| 10-28 | 209 | 20 |
+| 10-29 | 88 | 7 |
+| **合计** | **455** | **53** |
+
+**只有 10-28 和 10-29 有截图**（418 + 176 张），10-25/26/27 的已从
+`computer-captures/` 清理。
+
+**10-29 的 locate/verify 只覆盖到 08:39**：那之后应用重启、日志轮转，trace 目录
+里也没有新文件。pipeline verify 那层有数据库兜底，locate 这层没有。
 
 ---
 

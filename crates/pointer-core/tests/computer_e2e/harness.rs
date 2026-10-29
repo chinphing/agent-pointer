@@ -445,6 +445,17 @@ pub async fn agent_hint(
     .await
     .context("stream_chat_wired")?;
 
+    // A model that answers in prose instead of calling the tool is a real
+    // outcome on short instructions ("Redo"), and dropping its text turns that
+    // into an opaque error. Print what it actually said.
+    if calls.is_empty() {
+        eprintln!("[hint] no tool call — model text: {:?}", text);
+        if let Some(r) = reasoning.as_deref() {
+            if !r.trim().is_empty() {
+                eprintln!("[hint] reasoning: {r}");
+            }
+        }
+    }
     let call = calls.first().context("model returned no tool call")?;
     // Diagnostic: a thinking model that returns no reasoning is either not
     // thinking or thinking into a channel we do not parse. Both matter when

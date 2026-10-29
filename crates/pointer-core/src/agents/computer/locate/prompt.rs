@@ -422,7 +422,13 @@ mod tests {
     fn locate_prompt_prefers_the_candidate_near_the_hint() {
         let p = locate_prompt("资讯公告", Some((975.0, 675.0)), None, None);
         assert!(p.contains("离 (975, 675) 最近的那个"), "{p}");
-        assert!(p.contains("另一行或另一栏的同名元素"), "{p}");
+        // The preference is weak on purpose. It used to assert 「通常八九不离十」,
+        // which told the locator to trust the caller's guess — and on a board of
+        // identical empty cells it then walked straight back to a hint that was
+        // three cells off. Labels and description now outrank proximity.
+        assert!(p.contains("弱偏好"), "{p}");
+        assert!(p.contains("标签优先于距离"), "{p}");
+        assert!(!p.contains("八九不离十"), "{p}");
     }
 
     #[test]

@@ -65,6 +65,35 @@ use pointer_core::provider::OpenAIProvider;
 #[path = "computer_e2e/harness.rs"]
 mod harness;
 
+/// What text the pipeline is asked to ground.
+///
+/// - `block` — `descriptions/v2` structured blocks (five labelled fields). This
+///   is what the Python baselines were scored on, and what `locate.md` expects.
+/// - `raw`   — ScreenSpot-Pro's own `instruction`, one short English fragment
+///   ("Und", "Bold"). This is the task as originally posed, before anyone wrote
+///   richer descriptions for it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DescMode {
+    Block,
+    Raw,
+}
+
+impl DescMode {
+    fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "raw" => DescMode::Raw,
+            _ => DescMode::Block,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            DescMode::Block => "block",
+            DescMode::Raw => "raw",
+        }
+    }
+}
+
 /// Which arm to run.
 ///
 /// - `none`  — locate alone, no hint. This is what this file used to do.
@@ -148,6 +177,14 @@ struct ScreenSpotCase {
     ui_type: String,
     #[serde(default)]
     group: String,
+    /// ScreenSpot-Pro's own instruction — one short English sentence, often a
+    /// fragment ("Und", "Bold"). This is what the benchmark actually asks; the
+    /// structured `descriptions/v2` blocks were written later to make the task
+    /// solvable by a grounder.
+    #[serde(default)]
+    instruction: String,
+    #[serde(default)]
+    instruction_cn: String,
 }
 
 /// One row of `descriptions/v2/<split>.json`.
@@ -437,12 +474,16 @@ async fn screenspot_pro() -> Result<()> {
     let mut selected = Vec::new();
     let mut missing = Vec::new();
     let mut no_desc = Vec::new();
+    let desc_mode =
+        DescMode::parse(&std::env::var("POINTER_SP_DESC").unwrap_or_else(|_| "block".into()));
     for id in &ids {
         let Some(case) = by_id.get(id) else {
             missing.push(id.clone());
             continue;
         };
-        if !descriptions.contains_key(id) {
+        // Only the `block` arm needs a descriptions/v2 row. The `raw` arm reads
+        // the dataset's own instruction, so a missing block is not a skip.
+        if desc_mode == DescMode::Block && !descriptions.contains_key(id) {
             no_desc.push(id.clone());
             continue;
         }
@@ -480,8 +521,9 @@ async fn screenspot_pro() -> Result<()> {
     };
 
     println!(
-        "screenspot-pro: split={split} mode={} cases={} concurrency={concurrency} timeout={}s thinking={}",
+        "screenspot-pro: split={split} mode={} desc={} cases={} concurrency={concurrency} timeout={}s thinking={}",
         mode.as_str(),
+        desc_mode.as_str(),
         selected.len(),
         timeout.as_secs(),
         if thinking_enabled() { "on" } else { "off" }
@@ -494,10 +536,16 @@ async fn screenspot_pro() -> Result<()> {
     loop {
         while running.len() < concurrency {
             let Some(case) = queue.next() else { break };
-            let desc = descriptions
-                .get(&case.id)
-                .map(|d| d.block())
-                .unwrap_or_default();
+            let desc = match desc_mode {
+                DescMode::Block => descriptions
+                    .get(&case.id)
+                    .map(|d| d.block())
+                    .unwrap_or_default(),
+                // The benchmark's own instruction, verbatim. Empty for ids the
+                // dataset forgot — those will ground against nothing, which is
+                // the honest outcome rather than silently falling back.
+                DescMode::Raw => case.instruction.clone(),
+            };
             let provider = Arc::clone(&provider);
             let agent_provider = agent_provider.clone();
             running.push(tokio::spawn(async move {
@@ -570,19 +618,43 @@ async fn screenspot_pro() -> Result<()> {
                             target_len,
                         }
                     }
-                    _ => CaseOutcome {
-                        id: case.id.clone(),
-                        point: None,
-                        box_px: None,
-                        ok: false,
-                        rounds: 0,
-                        secs: t0.elapsed().as_secs_f64(),
-                        app: case.application.clone(),
-                        platform: case.platform.clone(),
-                        ui_type: case.ui_type.clone(),
-                        group: case.group.clone(),
-                        target_len: (case.bbox[2] - case.bbox[0]).max(case.bbox[3] - case.bbox[1]),
-                    },
+                    Ok(Err(e)) => {
+                        // A swallowed error here reads as "the model was wrong",
+                        // which is exactly the confusion this benchmark exists to
+                        // avoid. Say what actually happened.
+                        println!("  ERROR {:<28} {e:#}", case.id);
+                        CaseOutcome {
+                            id: case.id.clone(),
+                            point: None,
+                            box_px: None,
+                            ok: false,
+                            rounds: 0,
+                            secs: t0.elapsed().as_secs_f64(),
+                            app: case.application.clone(),
+                            platform: case.platform.clone(),
+                            ui_type: case.ui_type.clone(),
+                            group: case.group.clone(),
+                            target_len: (case.bbox[2] - case.bbox[0])
+                                .max(case.bbox[3] - case.bbox[1]),
+                        }
+                    }
+                    Err(_elapsed) => {
+                        println!("  TIMEOUT {:<26} after {}s", case.id, timeout.as_secs());
+                        CaseOutcome {
+                            id: case.id.clone(),
+                            point: None,
+                            box_px: None,
+                            ok: false,
+                            rounds: 0,
+                            secs: t0.elapsed().as_secs_f64(),
+                            app: case.application.clone(),
+                            platform: case.platform.clone(),
+                            ui_type: case.ui_type.clone(),
+                            group: case.group.clone(),
+                            target_len: (case.bbox[2] - case.bbox[0])
+                                .max(case.bbox[3] - case.bbox[1]),
+                        }
+                    }
                 }
             }));
         }

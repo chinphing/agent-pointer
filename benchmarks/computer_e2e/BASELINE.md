@@ -8,7 +8,50 @@ POINTER_E2E_SCOPE=full POINTER_E2E_MODE=hint  cargo test --release -p pointer-co
 POINTER_E2E_SCOPE=full POINTER_E2E_MODE=agent cargo test --release -p pointer-core --test computer_e2e -- --ignored --nocapture
 ```
 
-## 2026-10-29 — hint 与 agent 各三遍
+## 2026-10-29 晚 — locate 与 verify 两处修复之后
+
+| | hint | agent | 差距 |
+|---|---|---|---|
+| 修复前（各三遍均值） | 88.1 % | 90.4 % | 2.3 pp |
+| **修复后（各 2–3 遍均值）** | **85.6 %** | **95.5 %** | **9.9 pp** |
+
+明细：
+
+| 遍 | hint | agent |
+|---|---|---|
+| 1 | 87/104 = 83.7 % | 100/104 = 96.2 % |
+| 2 | 91/104 = 87.5 % | 98/104 = 94.2 % |
+| 3 | — | 100/104 = 96.2 % |
+
+**agent +5.1 pp，hint −2.5 pp。** agent 的 100/104 是历史最高（此前最好 97/104）。
+
+### 改了什么
+
+两处，都在 locate 层：
+
+1. **`stay_local` 判据**：原来只要 verifier 的 `center` 不是 `Unclear` 就留在当前
+   crop 里重找。但 `position = no`（「框里这个不是描述指定的那一个」）说明 crop
+   本身就开错了地方，在错的窗口里重找只能再找到一个同类元素。现在
+   `position = no` 直接换全屏。
+
+2. **`center` 判据改成算比例**：`verify_body.md` 早就要求「先找四条边界线」，
+   但没给可数标准，于是偏 25 px（半格）的框被判 `center.ok = yes`。现在要求算出
+   红点中心在目标格内的百分比：30–70 % 才判 yes，15–30 % / 70–85 % 判 no。
+
+### 为什么 hint 反而降了
+
+`hint` 模式是**主 LLM 的框直接计分**，`rounds_med=0`——verify 根本不参与。判据
+变严对它没有任何帮助，那 −2.5 pp 落在它自己的波动范围里（历史 86.5–91.3）。
+
+**两模式的差距从 2.3 pp 拉到 9.9 pp，这才是 verify 起作用的形状**：agent 走
+locate + verify，判严了能靠 re-locate 纠回来；hint 模式没有纠正机会。
+
+### 噪声提醒
+
+`hint` 三遍极差 5.7 pp、`agent` 三遍极差 1.9 pp（修复前）。单遍标准误按
+p≈0.9、n=104 算约 3 pp。**小于 6 pp 的差异需要多遍才能判断。**
+
+## 2026-10-29 — hint 与 agent 各三遍（修复前）
 
 | 遍 | hint | agent |
 |---|---|---|

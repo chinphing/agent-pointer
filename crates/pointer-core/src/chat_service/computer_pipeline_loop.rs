@@ -5,7 +5,9 @@ use crate::agents::computer::pipeline::operation::{
 };
 use crate::agents::computer::pipeline::types::{ActionResult, FailureCause, VerifyConclusion};
 pub use crate::agents::computer::pipeline::PipelineLlmUsageRecorder;
-use crate::agents::computer::pipeline::{find_root_tool_name, run_verify_phase, VerifyTarget};
+use crate::agents::computer::pipeline::{
+    batch_family, find_root_tool_name, run_verify_phase, VerifyTarget,
+};
 use crate::agents::computer::ScreenCaptureResult;
 use crate::agents::AgentProfile;
 use crate::chat_service::app_state::AppState;
@@ -22,10 +24,14 @@ pub fn verify_host_active(state: &AppState, profile: &AgentProfile) -> bool {
 }
 
 pub fn batch_has_desktop_root_tool(tool_calls: &[ToolCall], tools: &ToolRegistry) -> bool {
-    // Any desktop call that needs verify opens the gate — not just the first one.
-    // A batch of `[key_press, mouse_click_at]` used to be skipped entirely because
-    // `key_press` classifies as `Other`, which `needs_verify()` rejects, even
-    // though the click in the same turn does need judging.
+    // Any desktop call that writes a verdict opens the gate — not just the first one.
+    //
+    // `needs_verify_for_tool` answers "does the verify LLM need to run", which is
+    // false for `AppAccess`: `launch_app` / `list_apps` are judged from the tool
+    // text by the host, no screenshot LLM involved. But they still write a
+    // verdict row, so gating on `needs_verify_for_tool` alone left that host-only
+    // path unreachable. `Other` covers `locate_element` and unknown tools, which
+    // have nothing to verify at all.
     tool_calls.iter().any(|tc| {
         let name = tc.name.trim();
         if tools.get_def(name).is_none()
@@ -33,7 +39,13 @@ pub fn batch_has_desktop_root_tool(tool_calls: &[ToolCall], tools: &ToolRegistry
         {
             return false;
         }
-        crate::agents::computer::pipeline::operation::needs_verify_for_tool(name, &Value::Null)
+        matches!(
+            operation_family_for_tool(name),
+            OperationFamily::AppAccess
+        ) || crate::agents::computer::pipeline::operation::needs_verify_for_tool(
+            name,
+            &Value::Null,
+        )
     })
 }
 
@@ -62,6 +74,29 @@ mod batch_gate_tests {
     #[test]
     fn input_needs_verify() {
         assert!(needs_verify_for_tool("input_at", &Value::Null));
+    }
+
+    #[test]
+    fn app_access_opens_the_gate_even_without_llm_verify() {
+        // `launch_app` / `list_apps` are judged from tool text by the host, so
+        // `needs_verify()` is false for them — but they still write a verdict row.
+        // Gating the whole pipeline on `needs_verify()` alone made the AppAccess
+        // host path unreachable.
+        assert!(!needs_verify_for_tool("launch_app", &Value::Null));
+        assert!(matches!(
+            operation_family_for_tool("launch_app"),
+            OperationFamily::AppAccess
+        ));
+    }
+
+    #[test]
+    fn batch_family_falls_back_to_generic_when_app_access_mixes_with_a_click() {
+        // `[launch_app, mouse_click_at]` must not take the AppAccess host path —
+        // that would judge the launch and never look at the click.
+        let launch = VerifyTarget::new("launch_app", Value::Null, None);
+        let click = VerifyTarget::new("mouse_click_at", Value::Null, None);
+        assert_eq!(batch_family(&[launch.clone()]), OperationFamily::AppAccess);
+        assert_eq!(batch_family(&[launch, click]), OperationFamily::Other);
     }
 }
 
@@ -320,7 +355,9 @@ pub async fn run_pipeline_post_execute_verify(
             // errored out.
             targets.iter().find_map(|t| t.tool_result.clone())
         });
-    let family = operation_family_for_tool(&root_name);
+    // Judge the batch, not the first call: `[launch_app, mouse_click_at]` used to
+    // take the AppAccess host path and never look at the click.
+    let family = batch_family(&targets);
     let tool_text = tool_text.as_deref();
     let round_seq = state
         .computer_state

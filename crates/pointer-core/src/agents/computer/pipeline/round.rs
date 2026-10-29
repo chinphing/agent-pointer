@@ -65,7 +65,7 @@ impl VerifyTarget {
 /// Prompt family for a batch: one family when every call shares it, else the
 /// generic prompt — a mixed batch (click then type) matches no single family's
 /// success criteria.
-fn batch_family(targets: &[VerifyTarget]) -> OperationFamily {
+pub fn batch_family(targets: &[VerifyTarget]) -> OperationFamily {
     let mut families = targets.iter().map(|t| operation_family_for_tool(&t.name));
     let Some(first) = families.next() else {
         return OperationFamily::Other;

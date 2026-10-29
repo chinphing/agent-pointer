@@ -13,7 +13,7 @@ pub mod wire_format;
 mod round;
 
 pub use round::{
-    find_root_tool_name, run_verify_phase, verify_outcome_for_tier, verify_outcome_struct,
-    VerifyTarget,
+    batch_family, find_root_tool_name, run_verify_phase, verify_outcome_for_tier,
+    verify_outcome_struct, VerifyTarget,
 };
 pub use types::{AdvancedPipelineSession, PipelineLlmUsageRecorder, VerifyConclusion};

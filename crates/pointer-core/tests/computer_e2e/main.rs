@@ -433,15 +433,20 @@ struct Tally {
     rounds: Vec<usize>,
     macro_sum: u32,
     micro_sum: f64,
+    /// Seconds, summed over cases: (image load, agent hint, locate).
+    timing: (f64, f64, f64),
 }
 
 impl Tally {
-    fn record(&mut self, hit: bool, rounds: usize, cover: Option<(u8, f64)>) {
+    fn record(&mut self, hit: bool, rounds: usize, cover: Option<(u8, f64)>, timing: (f64, f64, f64)) {
         self.n += 1;
         if hit {
             self.hit += 1;
         }
         self.rounds.push(rounds);
+        self.timing.0 += timing.0;
+        self.timing.1 += timing.1;
+        self.timing.2 += timing.2;
         if let Some((m, u)) = cover {
             self.macro_sum += m as u32;
             self.micro_sum += u;
@@ -455,8 +460,11 @@ impl Tally {
         let mut r = self.rounds.clone();
         r.sort_unstable();
         let median_rounds = r[r.len() / 2];
+        let mean_rounds = self.rounds.iter().sum::<usize>() as f64 / self.n as f64;
+        let mean_locate = self.timing.2 / self.n as f64;
+        let mean_hint = self.timing.1 / self.n as f64;
         format!(
-            "{label:<16} n={:<4} hit={:>3}/{:<3} = {:>5.1}%  cover(macro/micro)={:.0}%/{:.1}%  rounds_med={}",
+            "{label:<16} n={:<4} hit={:>3}/{:<3} = {:>5.1}%  cover(macro/micro)={:.0}%/{:.1}%  rounds_med={} rounds_avg={:.2}  hint={:.1}s locate={:.1}s",
             self.n,
             self.hit,
             self.n,
@@ -464,6 +472,9 @@ impl Tally {
             100.0 * self.macro_sum as f64 / self.n as f64,
             100.0 * self.micro_sum / self.n as f64,
             median_rounds,
+            mean_rounds,
+            mean_hint,
+            mean_locate,
         )
     }
 }
@@ -712,7 +723,7 @@ async fn run_case(
                 let (tx, ty) = ((case.bbox[0] + case.bbox[2]) / 2.0, (case.bbox[1] + case.bbox[3]) / 2.0);
                 let (dx, dy) = (pt.0 - tx, pt.1 - ty);
                 out.log = Some(format!(
-                    "{}\n  {} hit={} centre=({:.0},{:.0}) truth=({:.0},{:.0}) d=({:+.0},{:+.0}) |{:.0}px| rounds={} ok={}",
+                    "{}\n  {} hit={} centre=({:.0},{:.0}) truth=({:.0},{:.0}) d=({:+.0},{:+.0}) |{:.0}px| rounds={} ok={} hint={:.1}s locate={:.1}s",
                     out.log.unwrap_or_default(),
                     case.scene,
                     if out.hit { "Y" } else { "n" },
@@ -725,6 +736,8 @@ async fn run_case(
                     (dx * dx + dy * dy).sqrt(),
                     o.rounds,
                     o.ok,
+                    out.timing.1,
+                    out.timing.2,
                 ));
             }
             Some(o) => {
@@ -822,8 +835,8 @@ async fn computer_e2e_grounding() -> Result<()> {
         if let Some(f) = &r.failure {
             failures.push(f.clone());
         }
-        total.record(r.hit, r.rounds, r.cover);
-        buckets[r.bucket].record(r.hit, r.rounds, r.cover);
+        total.record(r.hit, r.rounds, r.cover, r.timing);
+        buckets[r.bucket].record(r.hit, r.rounds, r.cover, r.timing);
     }
 
     // Where the wall clock went, averaged per case.

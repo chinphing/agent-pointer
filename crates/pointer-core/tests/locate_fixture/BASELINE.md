@@ -59,7 +59,7 @@ measurement. Run-to-run stability is also much better in release (render spread
 | wall clock | 297.8 s | 292.2 s |
 | mean per completed case | 27.0 s | 32.2 s |
 
-### 2026-10-29 — after the computer-agent prompt refactor: 77/81 = 95.1 %
+### 2026-10-29 — after the computer-agent prompt refactor: 78/81 = 96.3 %
 
 The computer agent's system prompt was cut from 165 to 36 lines (`AGENT.md` now
 carries only identity + five hard rules), the slice order changed to identity →
@@ -69,8 +69,27 @@ run confirms it.
 
 | | v2 baseline | **after prompt refactor** |
 |---|---|---|
-| hit | 73/81 = 90.1 % | **77/81 = 95.1 %** |
-| wall clock | 292.2 s | 289.9 s |
+| hit | 73/81 = 90.1 % | **78/81 = 96.3 %** |
+| wall clock | 292.2 s | 188.7 s |
+
+**Scoring rule changed with this run.** All three scoring sites in this file used
+to disagree; they now share `landed_in_truth(ok, point, truth)` — a hit requires
+both that the run *delivered* (`ok`, i.e. the verifier accepted the box, which is
+what makes `grounding` click it) and that the point lands inside the truth box.
+The old `frozen_desktop_grounding` path ignored `ok` entirely.
+
+On this dataset the two rules barely differ, because the verifier almost never
+refuses a correct box:
+
+```
+verifier vs truth: claimed_but_missed=2  refused_but_landed=0
+```
+
+`refused_but_landed=0` means no case was scored a hit under the old rule that
+the new rule rejects. The two `claimed_but_missed` are runs where `ok=true` but
+the centre fell outside the truth box — they are misses under both rules; the
+old one counted them as hits only if the *centre* happened to land, which it
+did not.
 
 Four failures, all description-vs-screen mismatches rather than aim misses:
 `r7c2` asked for "H3, the cell **with the digit 9**" and boxed the empty H3;

@@ -1461,7 +1461,7 @@ mod builtin_agent_tests {
         // Rules live in AGENT.md — only the ones that are computer-specific.
         for rule in [
             "Desktop tools run one at a time",
-            "Trust only this turn's screenshots",
+            "The screenshot is the only ground truth",
             "Read the newest `verify:` before acting",
             "`bbox` takes pixels",
         ] {
@@ -1471,6 +1471,12 @@ mod builtin_agent_tests {
                 "communication.md should not restate the rule: {rule}"
             );
         }
+
+        // Tool results and `verify:` rows are hints, not proof — the model has to
+        // check them against the pixels. This is the rule that keeps a green
+        // `verify:` from papering over a click that never landed.
+        assert!(rules.contains("Both are\nhints, not evidence"));
+        assert!(rules.contains("An older capture never\noverrides the current one"));
 
         // `terminal` is the only parallel-eligible tool the agent has. The batch
         // condition matters more than the batching itself: a `bbox` is measured

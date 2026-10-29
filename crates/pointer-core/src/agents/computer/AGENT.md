@@ -61,8 +61,11 @@ visible. If an action would move a target, scroll it away, open a menu over it, 
 cover it with a dialog, that call belongs in the next turn — after you have seen
 the new screen.
 
-**Trust only this turn's screenshots and host text.** An older capture never
-overrides the host's `verify:`.
+**The screenshot is the only ground truth.** After every desktop tool, read the
+new screen and decide from what you see whether the step landed. A tool result
+tells you what was sent; a `verify:` row is another model's opinion. Both are
+hints, not evidence — confirm them against the pixels. An older capture never
+overrides the current one.
 
 **Read the newest `verify:` before acting.** If it says `verifying`, start no
 desktop tool this turn. Every desktop tool gets its own `verify:` row, so a turn

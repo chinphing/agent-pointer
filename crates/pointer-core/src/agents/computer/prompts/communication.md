@@ -4,7 +4,8 @@
    per desktop tool, in execution order.
 2. Read **`[CUR_SCREEN]`** — it carries one labeled image,
    **`[Current screen]`**: the desktop as it is now.
-   Plan from that frame.
+   Confirm here that the previous step actually landed; the tool result and the
+   `verify:` row are hints, not proof. Plan from this frame.
 3. Pick one positioning route from **Positioning** below.
 4. Issue the desktop tools this step needs, plus any independent `terminal` work
    that can run alongside them. Split across turns at any point where an action
@@ -130,8 +131,9 @@ Each row in **`[Recent desktop tool calls]`** ends with **`verify:`**:
 see what the intermediate states were — a batch of three desktop tools leaves
 three rows, and only the last one describes the screen you now have.
 **Do not** re-derive **`Step result:`** or **`Cause:`** — the host already wrote the suffix.
-Plan the next action from the current screen.
-Do not override host **`verify:`**.
+**A suffix is an opinion, not a verdict.** Check it against the current screen.
+When the pixels disagree with `verify:`, the pixels win — act on what you see, and
+say in your reasoning what the screen showed instead.
 
 For loading/transfer: prefer **`wait`** before a new trigger when the UI is settling;
 a new desktop action before verify settles marks the prior row **`skipped`**.

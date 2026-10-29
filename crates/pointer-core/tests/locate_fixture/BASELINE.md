@@ -91,6 +91,29 @@ the centre fell outside the truth box — they are misses under both rules; the
 old one counted them as hits only if the *centre* happened to land, which it
 did not.
 
+### Re-checked after the `stay_local` fix (2026-10-29, later)
+
+`engine.rs` now leaves the crop when the verifier reports `position = no`
+("the element in the box is not the one the description names"), instead of
+staying put whenever `center` was anything but `Unclear`. That fix took
+`frozen_desktop_hint_grounding` from 42.3 % to 79.8 % (three runs each).
+
+**This path is unchanged by it**, two runs:
+
+| | before | after |
+|---|---|---|
+| hit | 78/81 = 96.3 % | **78/81 = 96.3 %** (both runs) |
+| `claimed_but_missed` | 2 | 2 / 3 |
+
+That is the expected shape: a near hint keeps `position = yes` (the box already
+sits on the cell the description names), so `stay_local` still returns true and
+the round-by-round behaviour is identical. Only a hint that lands on the **wrong**
+cell flips `position` to `no`.
+
+Wall clock rose from 188 s to about 219 s per run — the ~7-15 % of cases that do
+report `position = no` now pay for one full-screen re-locate instead of spinning
+in a wrong crop.
+
 Four failures, all description-vs-screen mismatches rather than aim misses:
 `r7c2` asked for "H3, the cell **with the digit 9**" and boxed the empty H3;
 `r6c7` boxed G8 but the box ran 2× tall across G8/H8 — its own verify wrote

@@ -837,15 +837,21 @@ fn merge_legacy_session_into_communication(session_md: &str, communication: &str
 }
 
 /// Optional per-agent `COMMUNICATION.md` + `AGENT.md` body. [`communication_public_md`] is prepended per request in `chat_service`.
-fn compose_system_prompt(agent_communication: &str, body: &str) -> String {
+/// Join an agent's identity with its procedures, identity first.
+///
+/// `AGENT.md` says who the agent is and which rules it may not break;
+/// `COMMUNICATION.md` says how to carry them out. Reading the role after 250
+/// lines of file-tool policy is backwards — the model should know what it is
+/// before it learns how to `grep`.
+fn compose_system_prompt(body: &str, agent_communication: &str) -> String {
     let mut parts: Vec<&str> = Vec::new();
-    let mid = agent_communication.trim();
     let b = body.trim();
-    if !mid.is_empty() {
-        parts.push(mid);
-    }
+    let tail = agent_communication.trim();
     if !b.is_empty() {
         parts.push(b);
+    }
+    if !tail.is_empty() {
+        parts.push(tail);
     }
     parts.join("\n\n---\n\n")
 }
@@ -892,7 +898,7 @@ fn manifest_to_agent(
     };
 
     Ok(BaseAgent {
-        system_prompt: compose_system_prompt(communication, &manifest.body),
+        system_prompt: compose_system_prompt(&manifest.body, communication),
         def,
     })
 }
@@ -1437,28 +1443,63 @@ mod builtin_agent_tests {
     }
 
     #[test]
-    fn computer_agent_body_carries_every_turn_and_field_rules() {
-        // Regression: `computer_agent_body()` used to return `loop.md` while the
-        // per-turn flow and the field rules lived in two separate files. The
-        // field rules (`## Tool call shape`, `### Writing target_desc`) were then
-        // never injected on the lead path, so `goal` language and the 100px
-        // anchor limit were invisible to the model.
-        let body = computer_agent_body();
+    fn computer_prompt_splits_rules_from_details() {
+        // Two files, one job each: `AGENT.md` states who the agent is and the
+        // rules it may not break; `communication.md` carries every procedure —
+        // per-turn flow, positioning routes, field rules, host protocol, scenes.
+        //
+        // The regression this guards is duplication: the positioning route used
+        // to live in both files, with `AGENT.md` offering three routes (one of
+        // them an overlay-label path that no longer exists) and
+        // `communication.md` offering two that disagreed with it.
+        let rules = computer_agent_body();
+        let details = builtin_computer_communication();
+        let full = compose_system_prompt(&rules, &details);
+
+        // Rules live in AGENT.md.
+        for rule in [
+            "Native tool calls only",
+            "One root desktop tool per turn",
+            "`bbox` is pixels",
+        ] {
+            assert!(rules.contains(rule), "AGENT.md should state: {rule}");
+            assert!(
+                !details.contains(rule),
+                "communication.md should not restate the rule: {rule}"
+            );
+        }
+
+        // Procedures live in communication.md.
+        for section in [
+            "## Each turn",
+            "## Tool call shape",
+            "## Positioning",
+            "## Locating targets",
+            "### Writing `target_desc`",
+            "## Verify state",
+            "## Scenes",
+        ] {
+            assert!(
+                details.contains(section),
+                "communication.md should carry: {section}"
+            );
+            assert!(
+                !rules.contains(section),
+                "AGENT.md should not carry the procedure: {section}"
+            );
+        }
+
+        // Both reach the model.
+        assert!(full.contains("## Each turn"));
+        assert!(full.contains("100px"), "anchor distance limit must be visible");
+        assert!(full.contains("Native tool calls only"));
+
+        // The overlay-label route is gone: every pointing tool takes
+        // target_desc + bbox, so a prompt that still offers "a label on that
+        // control" sends the model down a path that does not exist.
         assert!(
-            body.contains("## Each turn"),
-            "computer body should keep the per-turn flow"
-        );
-        assert!(
-            body.contains("## Tool call shape"),
-            "computer body should define goal / action / target_desc"
-        );
-        assert!(
-            body.contains("### Writing `target_desc`"),
-            "computer body should define how to write target_desc"
-        );
-        assert!(
-            body.contains("100px"),
-            "target_desc rules should state the anchor distance limit"
+            !full.contains("a label on that control itself"),
+            "stale positioning route"
         );
     }
 

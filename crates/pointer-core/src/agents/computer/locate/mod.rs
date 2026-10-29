@@ -143,7 +143,7 @@ fn parse_hint(raw: Option<&Value>, idx: usize, w: u32, h: u32) -> Result<Option<
             .as_f64()
             .ok_or_else(|| anyhow!("elements[{idx}].hint_box[{j}] 不是数字"))?;
     }
-    // **Pixels only.** `AGENT.md` asks the model to locate on a 0–1000 grid and
+    // **Pixels only.** `communication.md` asks the model to locate on a 0–1000 grid and
     // then convert to pixels before answering, so the value arriving here is
     // already in frame pixels.
     //
@@ -452,7 +452,7 @@ mod tests {
 
     #[test]
     fn accepts_hint_box_in_screen_pixels() {
-        // Pixels are the documented shape (`AGENT.md` → Locating targets:
+        // Pixels are the documented shape (`communication.md` → Locating targets:
         // normalize to decide where, convert to pixels for the answer).
         let reqs = parse_requests(&json!({
             "goal":"点击它",

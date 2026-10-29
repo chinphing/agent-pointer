@@ -92,7 +92,7 @@ fn slot_labels() -> Vec<&'static str> {
 ///
 /// Takes the capture so the screenshot's pixel dimensions can be stated here
 /// rather than baked into a prompt: the size is runtime data, and the `bbox`
-/// contract in `AGENT.md` ("Locating targets") refers to it instead of naming a
+/// contract in `communication.md` ("Locating targets") refers to it instead of naming a
 /// number that would go stale on the next monitor change.
 pub fn build_cur_screen_preamble(cap: &ScreenCaptureResult) -> String {
     let cite = "Each screenshot below is preceded by its slot label on its own line. Treat only what you see in that labeled image as ground truth. Do not invent UI from task text or prior turns. Do not write internal checklists, prompt block labels (`[Recent desktop tool calls]`, `[Screen current]`, `[Environment]`, …), or tool-call transcripts in assistant message text — those blocks are context addressed to you, not output for the user. When the user must see a reply (question, blockage, completion), write plain text in **content** in the same turn — reasoning alone is invisible to the user.";

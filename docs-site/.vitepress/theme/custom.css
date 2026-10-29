@@ -57,6 +57,18 @@
   margin: 12px 0 0;
 }
 
+/* Why Pointer screenshots sit on one row. */
+.why-pointer-shots {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin: 16px 0 8px;
+}
+.why-pointer-shots img {
+  width: calc(50% - 8px);
+  height: auto;
+}
+
 /* Wide Markdown tables must scroll horizontally inside the content column.
    Do NOT override `.vp-doc table` with `display: table`: `overflow-x` only
    applies to block containers, so the table escapes the column and slides

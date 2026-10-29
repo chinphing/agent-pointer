@@ -340,6 +340,7 @@ const enSections: SectionSpec[] = [
 export default defineConfig({
   // The site mounts the existing `docs/` tree in place — nothing is copied or moved.
   srcDir: SRC_DIR,
+  publicDir: path.resolve(SRC_DIR, 'public'),
   srcExclude: SRC_EXCLUDE_GLOBS,
   rewrites,
   base: SITE_BASE,

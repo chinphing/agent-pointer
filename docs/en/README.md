@@ -23,7 +23,7 @@ Build and run digital employees on the computer people already use, and keep the
 
 ## Why Pointer
 
-A digital employee has to work inside a real office setup. It needs a license that allows commercial use, a small footprint, a long stretch of real use, eyes and hands on the desktop, and a model vendor you choose.
+A digital employee has to work inside a real office setup: a license that allows commercial use, a desktop client and a web app, a small footprint, eyes and a mouse on the screen, and one conversation that can keep going.
 
 <table>
   <thead>
@@ -35,24 +35,9 @@ A digital employee has to work inside a real office setup. It needs a license th
   </thead>
   <tbody>
     <tr>
-      <td>Product form</td>
-      <td>Open-source agents are mostly CLI, for developers</td>
-      <td><strong>A desktop app &amp; web server</strong>. <strong>Easy to distribute, and easy for everyone in the company to use</strong></td>
-    </tr>
-    <tr>
-      <td>Skill development</td>
-      <td>Skills pass in development and fail in production because the environments differ</td>
-      <td><strong>One harness</strong>: developing and running Skills stay consistent. <strong>Built for batch Skill testing</strong>: high-concurrency background execution, 20 sub-agents on a single CPU core</td>
-    </tr>
-    <tr>
-      <td>Enterprise features</td>
-      <td>Each person sets up their own account and keys; there is no central control</td>
-      <td><strong>Unified login, unified API-key management, unified Skill distribution, and conversation-record reporting — and more</strong></td>
-    </tr>
-    <tr>
-      <td>Open source, commercial use</td>
-      <td>Desktop apps are usually priced per seat</td>
-      <td><strong>Free to use, and free to customize.</strong> <a href="https://github.com/chinphing/agent-pointer/blob/main/LICENSE">Apache 2.0</a></td>
+      <td>Enterprise Feature</td>
+      <td>Open-source agents are mostly a CLI, priced per seat, and each person keeps their own skills</td>
+      <td><strong><a href="https://github.com/chinphing/agent-pointer/blob/main/LICENSE">Apache 2.0</a></strong>, free to use and free to customize. <strong>A desktop client and a web app, with the same capabilities.</strong> Skills are managed and developed in one place</td>
     </tr>
     <tr>
       <td rowspan="3">Resource use</td>
@@ -68,19 +53,22 @@ A digital employee has to work inside a real office setup. It needs a license th
       <td><strong>About 5% of one CPU core</strong> while running. <strong>20+ sub-agents at once</strong>. Other tasks are completely unaffected</td>
     </tr>
     <tr>
+      <td>Computer use</td>
+      <td>Depends on a browser debug protocol or the OS accessibility tree</td>
+      <td><strong>Screenshots and the mouse only.</strong> No CDP, and no accessibility tree. <strong>Qwen3.8-flash is enough.</strong> The same task costs about <strong>1/20</strong> of Codex</td>
+    </tr>
+    <tr>
       <td>Long conversations</td>
       <td>When the context fills up, you start a new chat, and earlier work is easy to lose</td>
       <td><strong>Stay in one conversation for as long as you want.</strong> It pages automatically, compresses context automatically, and you can mark milestones for quick recall</td>
     </tr>
-    <tr>
-      <td>Vendors</td>
-      <td>Tied to a specific vendor's models, or a specific vendor's ecosystem</td>
-      <td><strong>Not tied to a specific vendor's models</strong>, and not tied to a specific vendor's ecosystem</td>
-    </tr>
   </tbody>
 </table>
 
-A digital employee should not compete with a person for the computer. The memory and CPU figures above are there so it can stay on an everyday work machine. Pointer has already seen more than 3 months of high-intensity use in real business work, nearly 1000M tokens a day.
+<p class="why-pointer-shots">
+  <img src="why-pointer/home.png" alt="Pointer home" width="49%" />
+  <img src="why-pointer/models.png" alt="Pointer model settings" width="49%" />
+</p>
 
 ---
 

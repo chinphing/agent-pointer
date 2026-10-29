@@ -59,6 +59,24 @@ measurement. Run-to-run stability is also much better in release (render spread
 | wall clock | 297.8 s | 292.2 s |
 | mean per completed case | 27.0 s | 32.2 s |
 
+### 2026-10-29 — after the computer-agent prompt refactor: 77/81 = 95.1 %
+
+The computer agent's system prompt was cut from 165 to 36 lines (`AGENT.md` now
+carries only identity + five hard rules), the slice order changed to identity →
+shared rules → procedures, and the `bbox` rule was rewritten. None of that
+touches `locate/`, which reads its own nine files under `locate/prompts/` — this
+run confirms it.
+
+| | v2 baseline | **after prompt refactor** |
+|---|---|---|
+| hit | 73/81 = 90.1 % | **77/81 = 95.1 %** |
+| wall clock | 292.2 s | 289.9 s |
+
+Four failures, all description-vs-screen mismatches rather than aim misses:
+`r7c2` asked for "H3, the cell **with the digit 9**" and boxed the empty H3;
+`r6c7` boxed G8 but the box ran 2× tall across G8/H8 — its own verify wrote
+「纵向约 2 倍超出一圈，应判 no」 and then still returned `ok=true`.
+
 Both columns cover only the cases that finished under concurrency — the 10 and 1
 timeouts are excluded. Comparing a partial set against a full set is how an
 earlier revision of this file ended up claiming a 2.6× latency regression that

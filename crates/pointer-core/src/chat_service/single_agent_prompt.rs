@@ -74,7 +74,7 @@ pub(super) async fn prepare_single_agent_round_prompts(
         push_agent_role_cacheable_prompts(
             &mut cacheable,
             &lead_profile,
-            state.computer_state.as_ref(),
+            Some(state.computer_state.as_ref()),
             conversation_id,
             &session_vars,
             non_computer_prompts,

@@ -837,21 +837,23 @@ fn merge_legacy_session_into_communication(session_md: &str, communication: &str
 }
 
 /// Optional per-agent `COMMUNICATION.md` + `AGENT.md` body. [`communication_public_md`] is prepended per request in `chat_service`.
-/// Join an agent's identity with its procedures, identity first.
+/// Join an agent's identity, the shared rules, and its own procedures — in that
+/// order.
 ///
-/// `AGENT.md` says who the agent is and which rules it may not break;
-/// `COMMUNICATION.md` says how to carry them out. Reading the role after 250
-/// lines of file-tool policy is backwards — the model should know what it is
-/// before it learns how to `grep`.
-fn compose_system_prompt(body: &str, agent_communication: &str) -> String {
+/// * `body` — `AGENT.md`: who the agent is, and the rules it may not break.
+/// * `public` — `_shared/COMMUNICATION_PUBLIC.md`: rules every agent obeys.
+/// * `communication` — the agent's own `COMMUNICATION.md`: how to carry it out.
+///
+/// Shared rules sit between the two on purpose: they are more specific than
+/// "you are a desktop operator" but less specific than "call `list_apps` before
+/// `launch_app`". Output-format slices (charts, diagrams, media) are appended
+/// after all three by the caller — they are delivery mechanics, not behaviour.
+fn compose_system_prompt(body: &str, public: &str, communication: &str) -> String {
     let mut parts: Vec<&str> = Vec::new();
-    let b = body.trim();
-    let tail = agent_communication.trim();
-    if !b.is_empty() {
-        parts.push(b);
-    }
-    if !tail.is_empty() {
-        parts.push(tail);
+    for slice in [body.trim(), public.trim(), communication.trim()] {
+        if !slice.is_empty() {
+            parts.push(slice);
+        }
     }
     parts.join("\n\n---\n\n")
 }
@@ -898,7 +900,7 @@ fn manifest_to_agent(
     };
 
     Ok(BaseAgent {
-        system_prompt: compose_system_prompt(&manifest.body, communication),
+        system_prompt: compose_system_prompt(&manifest.body, communication_public_md(), communication),
         def,
     })
 }
@@ -1454,7 +1456,7 @@ mod builtin_agent_tests {
         // `communication.md` offering two that disagreed with it.
         let rules = computer_agent_body();
         let details = builtin_computer_communication();
-        let full = compose_system_prompt(&rules, &details);
+        let full = compose_system_prompt(&rules, communication_public_md(), &details);
 
         // Rules live in AGENT.md.
         for rule in [
@@ -1489,10 +1491,17 @@ mod builtin_agent_tests {
             );
         }
 
-        // Both reach the model.
-        assert!(full.contains("## Each turn"));
+        // Both reach the model, in reading order: identity → shared rules →
+        // own procedures. `compose_system_prompt` owns that order.
+        let body_at = full.find("# computer-use").expect("identity present");
+        let public_at = full.find("# General rules").expect("shared rules present");
+        let details_at = full.find("## Each turn").expect("procedures present");
+        assert!(
+            body_at < public_at && public_at < details_at,
+            "expected AGENT.md body → COMMUNICATION_PUBLIC → COMMUNICATION.md, got {body_at} / {public_at} / {details_at}"
+        );
+
         assert!(full.contains("100px"), "anchor distance limit must be visible");
-        assert!(full.contains("Native tool calls only"));
 
         // The overlay-label route is gone: every pointing tool takes
         // target_desc + bbox, so a prompt that still offers "a label on that

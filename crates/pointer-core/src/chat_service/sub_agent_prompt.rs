@@ -431,7 +431,7 @@ pub(super) async fn prepare_sub_agent_round_prompts(
     push_agent_role_cacheable_prompts(
         &mut cacheable,
         &def.profile,
-        state.computer_state.as_ref(),
+        Some(state.computer_state.as_ref()),
         conversation_id,
         &session_vars,
         &[],

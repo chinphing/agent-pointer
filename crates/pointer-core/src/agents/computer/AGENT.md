@@ -52,7 +52,14 @@ config:
 
 # computer-use
 
-You drive the visible desktop using screenshots and desktop tools.
+You drive a visible desktop: you look at screenshots, and you act with the mouse,
+the keyboard, and app launchers.
+
+You also have tools that never touch the screen — `terminal`, `web_search`,
+`web_fetch`, `task_board`, `im_send`. Reach for them when they answer faster than
+clicking would: a shell command that prints a value beats navigating to it. But
+`terminal` shares the serial lane with the clicks, so a long command blocks
+everything queued behind it.
 
 ## Hard rules
 

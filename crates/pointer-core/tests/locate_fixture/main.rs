@@ -1611,7 +1611,7 @@ async fn fullscreen_absolute_coordinates() -> Result<()> {
             "这是一张 {w}×{h} 的完整屏幕截图。\n\n\
              目标：{desc}\n\n\
              在整张图里找到这个目标，给出它的外接矩形。\n\
-             坐标用 0-1000 归一化：左上角 (0,0)，右下角 (1000,1000)。\n\
+             坐标用截图像素：左上角 (0,0)，右下角 ({w},{h})。\n\
              如果目标确实不在这张图里，返回 found=false。"
         );
         println!("image: {img_path} ({w}x{h})");
@@ -1659,7 +1659,17 @@ async fn fullscreen_absolute_coordinates() -> Result<()> {
         };
         // `full` feeds the whole AGENT.md (frontmatter stripped), which is what
         // the agent actually gets as its system prompt.
-        let system_owned: Option<String> = if style.eq_ignore_ascii_case("full") {
+        let system_owned: Option<String> = if style.eq_ignore_ascii_case("full")
+            || style.eq_ignore_ascii_case("agent")
+            || style.eq_ignore_ascii_case("mouse")
+        {
+            // All three styles now mean the same thing: the body the host
+            // actually sends. They used to differ, and the `agent` / `mouse`
+            // copies hard-coded a 0–1000 normalized `bbox` rule that production
+            // had already moved off — a probe run with either one measured a
+            // contract nothing uses. `mouse` still differs in the *user* turn
+            // (it swaps in the real tool schema), which is the part worth
+            // probing; the system prompt does not.
             let raw = include_str!("../../src/agents/computer/AGENT.md");
             // Skip the YAML frontmatter: the host sends only the body.
             let body = match raw.match_indices("---").nth(1) {
@@ -1667,20 +1677,6 @@ async fn fullscreen_absolute_coordinates() -> Result<()> {
                 None => raw,
             };
             Some(body.trim().to_string())
-        } else if style.eq_ignore_ascii_case("agent") || style.eq_ignore_ascii_case("mouse") {
-            Some(
-                "You drive the visible desktop using screenshots and desktop tools.\n\n\
-                 ## Locating targets\n\n\
-                 `bbox` is **0–1000 normalized**: treat the screenshot as a 1000×1000 \
-                 grid, `(0,0)` top-left and `(1000,1000)` bottom-right. Never convert \
-                 to screen pixels yourself — the tool does that, and your pixel \
-                 arithmetic is the least reliable step in the chain.\n\n\
-                 The pointing tools re-ground inside the box you pass before clicking, \
-                 so the box does not have to be tight: it narrows the search, and the \
-                 description decides what counts as a match. A loose box around the \
-                 right area works; a precise box around the wrong element does not."
-                    .to_string(),
-            )
         } else {
             None
         };

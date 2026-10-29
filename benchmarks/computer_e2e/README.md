@@ -203,27 +203,62 @@ agent  - none   →  hint 是正资产还是负资产
 
 ## 跑
 
+三个数据集，每个都能按**冒烟 / 小范围验证 / 全量**三档跑。分档按 **run 取样**，
+不是按行截断——`locate.jsonl` 一行是一轮，`LIMIT=10` 会拿到同一个 run 的十轮，
+说明不了别的目标还能不能定位。
+
 ```bash
-# 冒烟：3 例
-POINTER_E2E_MODE=none POINTER_E2E_LIMIT=3 \
-  cargo test --release -p pointer-core --test computer_e2e -- --ignored --nocapture
+# ── 数据集一：locate（computer_e2e_grounding）
+POINTER_E2E_SCOPE=smoke  POINTER_E2E_MODE=none cargo test --release -p pointer-core --test computer_e2e -- --ignored --nocapture
+POINTER_E2E_SCOPE=sample POINTER_E2E_MODE=none cargo test ...
+POINTER_E2E_SCOPE=full   POINTER_E2E_MODE=none cargo test ...
 
-# 单例
-POINTER_E2E_MODE=oracle POINTER_E2E_ONLY=0069815c \
-  cargo test --release -p pointer-core --test computer_e2e -- --ignored --nocapture
+# ── 数据集二：verify（computer_verify_e2e）
+POINTER_E2E_SCOPE=smoke  cargo test --release -p pointer-core --test computer_e2e computer_verify_e2e -- --ignored --nocapture
+POINTER_E2E_SCOPE=sample cargo test ... computer_verify_e2e ...
+POINTER_E2E_SCOPE=full   cargo test ... computer_verify_e2e ...
 
-# 全量
-POINTER_E2E_MODE=none \
-  cargo test --release -p pointer-core --test computer_e2e -- --ignored --nocapture
+# ── 单例（覆盖 scope）
+POINTER_E2E_MODE=oracle POINTER_E2E_ONLY=0069815c cargo test ...
 ```
+
+**三档的规模**（按 run 数取样，不是行数）：
+
+| `POINTER_E2E_SCOPE` | 取多少个 run | 用途 |
+|---|---|---|
+| `smoke` | **10**（不足则全部） | 改完立刻跑，几十秒到一分钟 |
+| `sample` | **20%**，但不少于 10 | 回归检查，不付全量的时间 |
+| `full`（默认） | 全部 | 进基线文件的数字 |
+
+**落到现有数据集上的实际条数：**
+
+| 数据集 | 行数 | run 数 | `smoke` | `sample` | `full` |
+|---|---|---|---|---|---|
+| locate 10-28（全量） | 1100 | 831 | **29 行** | 259 行 | 1100 行 |
+| locate 10-29 | 91 | 77 | **15 行** | 21 行 | 91 行 |
+| verify 10-28（全量） | 1907 | 1145 | **29 行** | 392 行 | 1907 行 |
+| verify 10-29 | 202 | 143 | **16 行** | 39 行 | 202 行 |
+
+**冒烟是 29 行不是 10 行**，因为一个 run 平均有 1.3 轮，10 个 run 带出来的行数
+超过 10。这正是按 run 取样的意义——10 行可能是同一个 run 的 10 轮。
+
+**`sample` 有下限 10**：20% 在 12 个 run 的数据集上是 2，那会让「小范围」比「冒烟」
+还弱。
+
+**取样保持一个 run 的所有轮次**。`round 2` 只有在 `round 1` 旁边时才表示
+「重试一次后纠正」；只留 `round 2` 会让它读成一次没重试的命中。
+
+**`POINTER_E2E_LIMIT` 仍然可用，优先级最高**——给的是行数，跳过 scope 取样，
+老命令不用改。
 
 **环境变量：**
 
 | 变量 | 作用 |
 |---|---|
+| **`POINTER_E2E_SCOPE`** | **`smoke` / `sample` / `full`（默认）。未知值直接 panic，不静默降级** |
 | `POINTER_E2E_MODE` | `none` / `oracle` / `hint` / `agent`（默认 `none`） |
-| `POINTER_E2E_LIMIT` | 只跑前 N 例 |
-| `POINTER_E2E_ONLY` | 只跑某个 `scene` |
+| `POINTER_E2E_LIMIT` | 只跑前 N **行**，覆盖 scope |
+| `POINTER_E2E_ONLY` | 只跑某个 `scene`（locate）/ `run_id`（verify） |
 | `POINTER_E2E_CONCURRENCY` | 并发数，默认 4。`hint` 模式可用 8；**Moonshot 组织 RPM 上限 100，必须用 `1`** |
 | `POINTER_E2E_IMAGE_DIR` | 图片目录 |
 | `POINTER_E2E_MINIMAL_PROMPT` | `1` = 用最小 prompt（约 400 字符），不用生产 28K |
@@ -236,10 +271,23 @@ POINTER_E2E_MODE=none \
 | `POINTER_E2E_AGENT_THINKING` | 主 LLM 思考（默认 `1`） |
 | `POINTER_E2E_LOCATE_THINKING` | locate 思考（默认 `0`） |
 | `POINTER_E2E_VERIFY_THINKING` | verify 思考（默认 `0`） |
+| `POINTER_E2E_VERIFY_JSONL` | verify 数据集路径 |
 | `POINTER_LOCATE_BASE_URL` / `_API_KEY` / `_MODEL` | provider（不设则读 `user_settings.json`） |
 
-**耗时**：约 **107 秒/例**（locate 多轮 + verify）。全量 105 例 ≈ **3 小时**。
-先 `LIMIT=3` 确认配置，再全量。
+**耗时**：locate 约 **107 秒/例**（多轮 + verify），105 例全量 ≈ **3 小时**；
+冒烟 10 个 run ≈ **5 分钟**。先跑 `smoke` 确认配置，再 `sample`，最后 `full`。
+
+### 第三个数据集（pipeline verify）没有离线测试
+
+`pipeline_verify.jsonl` 记的是**工具执行后**的 host verify——`submit_verify` 的
+`action_result` / `failure_cause` / `step_summary`。它和 `verify.jsonl` 不是同一套
+prompt：`verify.jsonl` 是 locate 内部的三项判定（center / size / position），
+pipeline 那层是 `computer_verify_prompt(family)` + `submit_verify`。
+
+要离线重放它，得从 jpg 造出 `ScreenCaptureResult` 再走
+`build_verify_wire_messages`——`VerifyWireInput` 要的是 `before` / `after` 两个
+`ScreenCaptureResult`，不是裸 jpeg。目前没做，`step_summary` 的质量只能用
+`export_pipeline_verify.py` 导出后人工看长度和结构。
 
 ---
 

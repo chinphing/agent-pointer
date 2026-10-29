@@ -17,7 +17,9 @@
 //!
 //! Run:
 //!   cargo test -p pointer-core --test computer_e2e -- --ignored --nocapture
-//!   POINTER_E2E_MODE=none POINTER_E2E_LIMIT=10 cargo test ... (smoke)
+//!   POINTER_E2E_SCOPE=smoke cargo test ... (10 runs, ~5 min)
+//!   POINTER_E2E_SCOPE=sample cargo test ... (20% of runs)
+//!   POINTER_E2E_LIMIT=10 cargo test ... (raw row count, overrides scope)
 
 use std::path::{Path, PathBuf};
 
@@ -36,6 +38,126 @@ use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 
 mod harness;
+
+// ---------------------------------------------------------------------------
+// dataset scope
+// ---------------------------------------------------------------------------
+
+/// How much of a dataset to run.
+///
+/// A full locate run is ~831 model calls: the right size for the number that goes
+/// into a baseline file, the wrong size for "did my edit break anything".
+///
+/// Sampling is **by run, not by row.** `locate.jsonl` has one row per round, so
+/// `LIMIT 10` can return ten rounds of a single run and say nothing about whether
+/// other targets still resolve. Keeping a run's rows together also keeps the
+/// multi-round story intact: round 2 only means "corrected after a retry" when
+/// round 1 is beside it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    /// ~10 runs. Seconds to a minute; use while editing.
+    Smoke,
+    /// ~20% of runs. A regression shows up without paying for the full set.
+    Sample,
+    /// Everything. This is the number a baseline records.
+    Full,
+}
+
+impl Scope {
+    fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "" | "full" | "all" => Some(Self::Full),
+            "smoke" => Some(Self::Smoke),
+            "sample" | "partial" => Some(Self::Sample),
+            _ => None,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Smoke => "smoke",
+            Self::Sample => "sample",
+            Self::Full => "full",
+        }
+    }
+
+    /// How many distinct runs to keep, given how many the dataset has.
+    fn runs(self, total: usize) -> usize {
+        match self {
+            Self::Smoke => 10.min(total),
+            // A fifth, but never fewer than the smoke set — on a small dataset a
+            // fifth can be smaller than smoke, which would make "sample" a
+            // weaker check than "smoke".
+            Self::Sample => (total / 5).max(10).min(total),
+            Self::Full => total,
+        }
+    }
+}
+
+/// `POINTER_E2E_SCOPE=smoke|sample|full`, default `full`.
+///
+/// An unknown value panics instead of falling back: silently running the full
+/// set because of a typo costs an hour, and silently running smoke looks like a
+/// pass.
+fn scope_from_env() -> Scope {
+    let raw = std::env::var("POINTER_E2E_SCOPE").unwrap_or_default();
+    Scope::parse(&raw).unwrap_or_else(|| {
+        panic!("POINTER_E2E_SCOPE={raw:?} is not smoke|sample|full")
+    })
+}
+
+/// Keep every row whose run id is among the first `n` distinct ones.
+fn take_runs<T>(rows: Vec<T>, n: usize, run_of: impl Fn(&T) -> &str) -> Vec<T> {
+    let mut kept: Vec<String> = Vec::new();
+    for r in &rows {
+        let id = run_of(r);
+        if kept.iter().any(|k| k == id) {
+            continue;
+        }
+        if kept.len() == n {
+            break;
+        }
+        kept.push(id.to_string());
+    }
+    rows.into_iter()
+        .filter(|r| kept.iter().any(|k| k == run_of(r)))
+        .collect()
+}
+
+/// Apply `ONLY` → `SCOPE` → `LIMIT`, in that order.
+///
+/// `ONLY` narrows to one run/scene; `SCOPE` picks how many runs; `LIMIT` is the
+/// escape hatch that overrides both and keeps the old `LIMIT=10` invocation
+/// working.
+fn select<T>(
+    rows: Vec<T>,
+    only: Option<&str>,
+    only_matches: impl Fn(&T, &str) -> bool,
+    run_of: impl Fn(&T) -> &str,
+    limit: Option<usize>,
+) -> Vec<T> {
+    let mut rows = rows;
+    if let Some(o) = only {
+        rows.retain(|r| only_matches(r, o));
+    }
+    if let Some(n) = limit {
+        rows.truncate(n);
+        return rows;
+    }
+    let scope = scope_from_env();
+    let total = {
+        let mut ids: Vec<&str> = rows.iter().map(&run_of).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids.len()
+    };
+    let want = scope.runs(total);
+    if want < total {
+        rows = take_runs(rows, want, run_of);
+    }
+    rows
+}
+
 
 // ---------------------------------------------------------------------------
 // dataset
@@ -612,13 +734,13 @@ async fn computer_e2e_grounding() -> Result<()> {
     let only: Option<String> = std::env::var("POINTER_E2E_ONLY").ok();
 
     let truth = load_truth()?;
-    let mut cases: Vec<&TruthCase> = truth.cases.iter().collect();
-    if let Some(scene) = only.as_deref() {
-        cases.retain(|c| c.scene == scene);
-    }
-    if let Some(n) = limit {
-        cases.truncate(n);
-    }
+    let cases: Vec<&TruthCase> = select(
+        truth.cases.iter().collect(),
+        only.as_deref(),
+        |c, o| c.scene == o,
+        |c| c.scene.as_str(),
+        limit,
+    );
     anyhow::ensure!(!cases.is_empty(), "no cases selected");
 
     let agent_thinking = thinking_from_env("POINTER_E2E_AGENT_THINKING", true);
@@ -816,13 +938,13 @@ async fn computer_verify_e2e() -> Result<()> {
         .and_then(|v| v.parse().ok());
     let only: Option<String> = std::env::var("POINTER_E2E_ONLY").ok();
 
-    let mut records = load_verify_records()?;
-    if let Some(run) = only.as_deref() {
-        records.retain(|r| r.run_id == run);
-    }
-    if let Some(n) = limit {
-        records.truncate(n);
-    }
+    let records = select(
+        load_verify_records()?,
+        only.as_deref(),
+        |r, o| r.run_id == o,
+        |r| r.run_id.as_str(),
+        limit,
+    );
     anyhow::ensure!(!records.is_empty(), "no verify records selected");
 
     let verify_thinking = thinking_from_env("POINTER_E2E_VERIFY_THINKING", false);
@@ -927,4 +1049,94 @@ async fn computer_verify_e2e() -> Result<()> {
     }
     println!();
     Ok(())
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::{take_runs, Scope};
+
+    /// Rows as they appear in `locate.jsonl`: several per run, ordered by round.
+    fn rows() -> Vec<(&'static str, u32)> {
+        vec![
+            ("a", 1),
+            ("a", 2),
+            ("a", 3),
+            ("b", 1),
+            ("c", 1),
+            ("c", 2),
+            ("d", 1),
+        ]
+    }
+
+    #[test]
+    fn smoke_keeps_whole_runs_not_the_first_n_rows() {
+        // The bug this guards: `LIMIT 3` would return a/a/a — three rounds of one
+        // run, telling you nothing about whether b, c or d still resolve.
+        let kept = take_runs(rows(), 2, |r| r.0);
+        assert_eq!(kept, vec![("a", 1), ("a", 2), ("a", 3), ("b", 1)]);
+        assert_eq!(
+            kept.iter().map(|r| r.0).collect::<std::collections::BTreeSet<_>>().len(),
+            2,
+            "two distinct runs"
+        );
+    }
+
+    #[test]
+    fn take_runs_never_splits_a_run_across_the_cut() {
+        let kept = take_runs(rows(), 3, |r| r.0);
+        // c has two rounds; both must survive or the second one reads as a
+        // correction that never happened.
+        assert!(kept.contains(&("c", 1)) && kept.contains(&("c", 2)));
+        assert_eq!(kept.len(), 6, "a(3) + b(1) + c(2)");
+    }
+
+    #[test]
+    fn smoke_is_a_subset_of_sample_is_a_subset_of_full() {
+        for total in [5usize, 12, 77, 831] {
+            let smoke = Scope::Smoke.runs(total);
+            let sample = Scope::Sample.runs(total);
+            let full = Scope::Full.runs(total);
+            assert!(smoke <= sample, "total={total}: smoke={smoke} sample={sample}");
+            assert!(sample <= full, "total={total}: sample={sample} full={full}");
+            assert_eq!(full, total);
+        }
+    }
+
+    #[test]
+    fn a_small_dataset_is_never_cut_below_smoke_size() {
+        // 20% of 12 is 2, which would make "sample" a weaker check than "smoke".
+        assert_eq!(Scope::Sample.runs(12), 10);
+        assert_eq!(Scope::Sample.runs(5), 5, "cannot exceed the dataset");
+    }
+
+    #[test]
+    fn limit_overrides_scope_and_counts_rows() {
+        // The old invocation shape has to keep working: LIMIT is a row count, so
+        // it can cut a run in half — that is the caller's call to make.
+        let kept = super::select(
+            rows(),
+            None,
+            |_r, _o| false,
+            |r| r.0,
+            Some(3),
+        );
+        assert_eq!(kept, vec![("a", 1), ("a", 2), ("a", 3)]);
+    }
+
+    #[test]
+    fn only_narrows_before_scope_runs() {
+        // ONLY picks one run; scope must not then drop it for being past the cut.
+        let kept = super::select(rows(), Some("d"), |r, o| r.0 == o, |r| r.0, None);
+        assert_eq!(kept, vec![("d", 1)]);
+    }
+
+    #[test]
+    fn an_unknown_scope_is_rejected_instead_of_defaulting() {
+        assert!(Scope::parse("smoke").is_some());
+        assert!(Scope::parse("SAMPLE").is_some());
+        assert!(Scope::parse("").is_some());
+        assert!(Scope::parse("all").is_some());
+        assert!(Scope::parse("smok").is_none());
+        assert!(Scope::parse("20").is_none());
+    }
 }

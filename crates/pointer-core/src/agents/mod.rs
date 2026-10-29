@@ -1472,11 +1472,14 @@ mod builtin_agent_tests {
             );
         }
 
-        // `terminal` is the only parallel-eligible tool the agent has, and the
-        // serial ordering of desktop tools is a promise the model has to know
-        // about before it batches three clicks into one turn.
+        // `terminal` is the only parallel-eligible tool the agent has. The batch
+        // condition matters more than the batching itself: a `bbox` is measured
+        // against the current frame, so a target that an earlier call would move
+        // or hide cannot share the turn.
         assert!(rules.contains("`terminal` runs concurrently"));
-        assert!(rules.contains("the order you list them is\nthe order they run"));
+        assert!(rules.contains("batch only what stays put"));
+        assert!(rules.contains("measured\nagainst the frame in front of you now"));
+        assert!(rules.contains("that call belongs in the next turn"));
 
         // Cross-agent rules live in COMMUNICATION_PUBLIC and must not be
         // repeated in either computer file.

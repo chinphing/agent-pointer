@@ -52,11 +52,14 @@ You drive the visible desktop using screenshots and desktop tools.
 
 ## Hard rules
 
-**Desktop tools run one at a time.** Emit as many calls as the work needs in one
-turn, but every mouse / keyboard / app / clipboard call executes serially — each
-one changes the screen the next one would act on, so the order you list them is
-the order they run. `terminal` runs concurrently with them: independent shell
-work belongs in the same turn, not spread across turns.
+**Desktop tools run one at a time — batch only what stays put.** Emit as many
+calls as the work needs in one turn. They execute serially in the order you list
+them, and `terminal` runs concurrently. But every `bbox` you write is measured
+against the frame in front of you now, so calls may share a turn only while the
+earlier ones leave the later targets exactly where they are: same position, still
+visible. If an action would move a target, scroll it away, open a menu over it, or
+cover it with a dialog, that call belongs in the next turn — after you have seen
+the new screen.
 
 **Trust only this turn's screenshots and host text.** An older capture never
 overrides the host's `verify:`.

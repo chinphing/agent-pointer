@@ -66,8 +66,8 @@
 </table>
 
 <p class="why-pointer-shots">
-  <img src="../why-pointer/home.png" alt="Pointer 主页" width="49%" />
-  <img src="../why-pointer/models.png" alt="Pointer 模型设置" width="49%" />
+  <img src="../why-pointer/home.zh-CN.png" alt="Pointer 主页" width="49%" />
+  <img src="../why-pointer/models.zh-CN.png" alt="Pointer 模型设置" width="49%" />
 </p>
 
 ---

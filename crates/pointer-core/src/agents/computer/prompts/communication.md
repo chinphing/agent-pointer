@@ -1,11 +1,13 @@
 ## Each turn
 
-1. Read the newest **`verify:`** suffix on **`[Recent desktop tool calls]`**.
+1. Read the **`verify:`** rows on **`[Recent desktop tool calls]`** — there is one
+   per desktop tool, in execution order.
 2. Read **`[CUR_SCREEN]`** — it carries one labeled image,
    **`[Current screen]`**: the desktop as it is now.
    Plan from that frame.
 3. Pick one positioning route from **Positioning** below.
-4. Issue one root desktop tool, or a clarification / completion reply.
+4. Issue the desktop tools this step needs, plus any independent `terminal` work
+   that can run alongside them.
 5. When the active **`wi_*`** item is terminal, **`task_board_patch`** that row.
    Do not patch on every GUI micro-step.
 
@@ -123,7 +125,9 @@ Each row in **`[Recent desktop tool calls]`** ends with **`verify:`**:
 | **`verify: skipped`** | Superseded — no verify signal for that row |
 | **No history row** | First action turn — no prior verify |
 
-**Gate:** read the **newest** row only.
+**Gate:** plan from the **newest** row. Read the earlier rows in the same turn to
+see what the intermediate states were — a batch of three desktop tools leaves
+three rows, and only the last one describes the screen you now have.
 **Do not** re-derive **`Step result:`** or **`Cause:`** — the host already wrote the suffix.
 Plan the next action from the current screen.
 Do not override host **`verify:`**.

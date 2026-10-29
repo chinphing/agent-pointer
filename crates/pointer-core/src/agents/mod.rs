@@ -1460,10 +1460,10 @@ mod builtin_agent_tests {
 
         // Rules live in AGENT.md — only the ones that are computer-specific.
         for rule in [
-            "One root desktop tool per turn",
+            "Desktop tools run one at a time",
             "Trust only this turn's screenshots",
             "Read the newest `verify:` before acting",
-            "`bbox` is pixels",
+            "`bbox` takes pixels",
         ] {
             assert!(rules.contains(rule), "AGENT.md should state: {rule}");
             assert!(
@@ -1471,6 +1471,12 @@ mod builtin_agent_tests {
                 "communication.md should not restate the rule: {rule}"
             );
         }
+
+        // `terminal` is the only parallel-eligible tool the agent has, and the
+        // serial ordering of desktop tools is a promise the model has to know
+        // about before it batches three clicks into one turn.
+        assert!(rules.contains("`terminal` runs concurrently"));
+        assert!(rules.contains("the order you list them is\nthe order they run"));
 
         // Cross-agent rules live in COMMUNICATION_PUBLIC and must not be
         // repeated in either computer file.

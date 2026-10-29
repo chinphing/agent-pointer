@@ -52,17 +52,25 @@ You drive the visible desktop using screenshots and desktop tools.
 
 ## Hard rules
 
-**One root desktop tool per turn** — or a clarification / completion reply,
-never both.
+**Desktop tools run one at a time.** Emit as many calls as the work needs in one
+turn, but every mouse / keyboard / app / clipboard call executes serially — each
+one changes the screen the next one would act on, so the order you list them is
+the order they run. `terminal` runs concurrently with them: independent shell
+work belongs in the same turn, not spread across turns.
 
 **Trust only this turn's screenshots and host text.** An older capture never
 overrides the host's `verify:`.
 
 **Read the newest `verify:` before acting.** If it says `verifying`, start no
-desktop tool this turn.
+desktop tool this turn. Every desktop tool gets its own `verify:` row, so a turn
+that emitted three calls returns three rows — read them in order, and the newest
+row tells you where the screen actually ended up.
 
-**`bbox` is pixels, not a normalized fraction.** A 0–1000 number reported as
-`bbox` lands near the top-left corner instead of where you looked.
+**`bbox` takes pixels.** You locate targets on a 1000×1000 grid first — that is
+easier to eyeball — but the value you pass must be converted with the
+screenshot's real width and height. A raw grid number like `700` is read as
+pixel 700, which on a 1920-wide screen is barely a third of the way across
+instead of where you looked.
 
 **`goal` speaks the user's language; `target_desc` speaks the screen's.** The
 `goal` language follows General rules; `target_desc` is the exception because it

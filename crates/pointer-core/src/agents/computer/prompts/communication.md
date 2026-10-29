@@ -60,6 +60,17 @@ Two steps, in this order:
 2. **Convert to pixels for `bbox`.** `x_pixel = x_norm / 1000 × width`,
    `y_pixel = y_norm / 1000 × height`.
 
+**When the target sits in something with labels or grid lines — a table with
+A/B/C and 1/2/3, a spreadsheet, a grid of cells, a numbered list — count to it
+instead of eyeballing the proportion.** Eyeballing puts every cell a fraction of
+a cell off in the same direction, and the error grows with the column number:
+the first column is 10 px off, the fifth is 40 px off. Counting does not drift.
+
+**A label marks the row or column, not a point.** The column header `5` is
+printed above column 5 — its x is the *edge* of that column, not the centre. Use
+the cell's own four borders: find the cell, then read where its left, right, top
+and bottom lines fall, and put `bbox` on those lines.
+
 The pointing tools re-ground inside the box before acting, so it does not have to
 be tight — it narrows the search, the description decides the match. A loose box
 around the right area works; a precise box around the wrong element does not.

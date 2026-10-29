@@ -1136,6 +1136,36 @@ mod tests {
     }
 
     #[test]
+    fn backfill_skipped_closes_row() {
+        // The three Verify-skip paths — grounding failed, the Verify LLM errored,
+        // and host verify disabled — all write `skipped`. If this stopped closing
+        // the row, it would render `verify: verifying` forever, which is the
+        // state the prompt used to forbid new desktop tools under: the agent
+        // could not retry the very step that failed.
+        let mut rt = ComputerRuntime::new();
+        rt.push_action(ActionRecord {
+            tool_name: "a".into(),
+            goal: "g".into(),
+            action: None,
+            coords: None,
+            verify_result: None,
+            extra_args_hint: None,
+        });
+        let closed = rt.backfill_batch_open_verify(VerifyOutcome {
+            step_result: "skipped".into(),
+            cause: Some("verify unavailable: 500".into()),
+        });
+        assert_eq!(closed, 1, "skipped must close the open row");
+        assert_eq!(
+            rt.history()[0]
+                .verify_result
+                .as_ref()
+                .map(|v| v.step_result.as_str()),
+            Some("skipped")
+        );
+    }
+
+    #[test]
     fn skipped_does_not_count_toward_repetition() {
         let records = vec![
             ActionRecord {

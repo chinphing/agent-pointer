@@ -681,6 +681,27 @@ impl ComputerState {
         }
     }
 
+    /// Close every open history row as `skipped` when Verify will never run.
+    ///
+    /// Three paths used to leave a row marked `verifying` forever: grounding
+    /// failed (nothing was clicked, so there is nothing to judge), the Verify
+    /// LLM errored, and the host has verify disabled. `verifying` reads as
+    /// "host still judging", and `communication.md` tells the model not to start
+    /// a new desktop tool while it sees that — so one leak locks the agent out of
+    /// retrying the very step that failed. `skipped` closes the row honestly:
+    /// nobody looked at this one.
+    ///
+    /// Returns the number of rows closed.
+    pub fn apply_pipeline_skipped_verify(&self, conversation_id: &str, reason: &str) -> usize {
+        let session = self.get_or_create_session(conversation_id);
+        let mut s = session.lock().unwrap();
+        s.runtime
+            .backfill_batch_open_verify(crate::agents::computer::runtime::VerifyOutcome {
+                step_result: "skipped".into(),
+                cause: Some(reason.to_string()),
+            })
+    }
+
     pub fn set_pipeline_last_operation(&self, conversation_id: &str, summary: String) {
         let session = self.get_or_create_session(conversation_id);
         let mut s = session.lock().unwrap();

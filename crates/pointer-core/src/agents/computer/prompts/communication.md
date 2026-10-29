@@ -111,7 +111,7 @@ Each row in **`[Recent desktop tool calls]`** ends with **`verify:`**:
 
 | Suffix | Plan from this |
 |--------|----------------|
-| **`verify: verifying`** | Host still running — **no** new root desktop tool; wait for next inject |
+| **`verify: verifying`** | Host still judging. You should not see this — Verify finishes inside the turn. If it appears, that step's judgement was lost: re-read the screen and decide for yourself whether to retry |
 | **`verify: verified - pass`** | Last action succeeded — proceed to **Next** |
 | **`verify: verified - fail (wrong_operation)`** | Wrong target/action — run **Repetition**, then pivot in **Next** |
 | **`verify: verified - fail (precision_miss)`** | Aim miss — run **Repetition**, re-derive route in **Next** |

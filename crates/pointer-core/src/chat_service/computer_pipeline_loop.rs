@@ -403,6 +403,13 @@ pub async fn run_pipeline_post_execute_verify(
         log::info!(
             "computer pipeline: grounding failed — nothing was clicked, skipping verify"
         );
+        // Nothing was clicked, so nothing can be judged — but leaving the row
+        // open renders `verify: verifying`, and the prompt forbids new desktop
+        // tools in that state. Close it so the model can retry the step.
+        state.computer_state.apply_pipeline_skipped_verify(
+            conversation_id,
+            "grounding failed; nothing was clicked",
+        );
         return Ok(());
     }
 
@@ -489,7 +496,12 @@ pub async fn run_pipeline_post_execute_verify(
 }
 
 /// Verify ran but the LLM call itself failed (bad key, timeout, 5xx).
-/// Record `pending` so the main LLM sees "outcome unknown" instead of "verified".
+///
+/// Records `skipped`, not `pending`. `pending` was rejected by both backfill
+/// functions in `runtime/mod.rs`, so it left the row rendering
+/// `verify: verifying` forever — and the prompt forbids new desktop tools in
+/// that state, which locks the agent out of retrying. `skipped` closes the row
+/// and says what actually happened: nobody judged this one.
 async fn apply_failed_verify_fallback(
     state: &AppState,
     conversation_id: &str,
@@ -497,11 +509,6 @@ async fn apply_failed_verify_fallback(
     root_args: &Value,
     err: &anyhow::Error,
 ) -> Result<()> {
-    let conclusion = VerifyConclusion {
-        action_result: ActionResult::Pending,
-        failure_cause: None,
-        step_summary: Some(format!("verify unavailable: {err}")),
-    };
     let (after_cap, _) = state
         .computer_state
         .capture_screen(conversation_id)
@@ -509,15 +516,16 @@ async fn apply_failed_verify_fallback(
     state
         .computer_state
         .store_pipeline_after_capture(conversation_id, after_cap);
-    state
-        .computer_state
-        .apply_pipeline_verify_result(conversation_id, &conclusion);
+    let closed = state.computer_state.apply_pipeline_skipped_verify(
+        conversation_id,
+        &format!("verify unavailable: {err}"),
+    );
     state.computer_state.set_pipeline_last_operation(
         conversation_id,
         format_operation_summary(root_name, root_args),
     );
     log::warn!(
-        "computer pipeline: verify pending (LLM call failed) conversation_id={conversation_id} tool={root_name}"
+        "computer pipeline: verify skipped (LLM call failed) conversation_id={conversation_id} tool={root_name} closed_rows={closed}"
     );
     Ok(())
 }

@@ -1494,7 +1494,7 @@ mod builtin_agent_tests {
         for rule in [
             "Batch only what one verify can prove",
             "The screenshot is the only ground truth",
-            "Wait for `verify:` to settle",
+            "A `verifying` row means the judgement was lost",
             "`bbox` takes pixels",
         ] {
             assert!(rules.contains(rule), "AGENT.md should state: {rule}");

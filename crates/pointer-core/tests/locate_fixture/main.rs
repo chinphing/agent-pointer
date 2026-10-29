@@ -755,12 +755,24 @@ async fn frozen_desktop_hint_grounding() -> Result<()> {
         } else {
             misses.push(run.desc.clone());
         }
+        // Per-failure detail: truth box, where it landed, and by how much.
+        // Without the truth box in the line, a miss that is one cell off and a
+        // miss on the far side of the board read identically.
+        let delta = outcome.box_px.as_ref().map(|b| {
+            let (cx, cy) = box_centre(b);
+            (
+                (cx - (run.bbox[0] + run.bbox[2]) / 2.0).round(),
+                (cy - (run.bbox[1] + run.bbox[3]) / 2.0).round(),
+            )
+        });
         println!(
-            "{} hint {:<34} ok={:<5} box={:?} rounds={} {:.1}s",
+            "{} hint {:<34} ok={:<5} box={:?} truth={:?} d={:?} rounds={} {:.1}s",
             if hit { "PASS" } else { "FAIL" },
             run.desc,
             outcome.ok,
             outcome.box_px,
+            run.bbox,
+            delta,
             outcome.rounds,
             run.elapsed
         );

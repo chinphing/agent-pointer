@@ -70,8 +70,11 @@ mod harness;
 /// - `block` — `descriptions/v2` structured blocks (five labelled fields). This
 ///   is what the Python baselines were scored on, and what `locate.md` expects.
 /// - `raw`   — ScreenSpot-Pro's own `instruction`, one short English fragment
-///   ("Und", "Bold"). This is the task as originally posed, before anyone wrote
-///   richer descriptions for it.
+///   ("Und", "Bold"), wrapped in the same task declaration the official
+///   implementations use ("find the bounding box … don't output analysis").
+///   The instruction itself is unchanged; only the task framing is added,
+///   because without it a general-purpose agent prompt has no reason to think
+///   this is a grounding request at all.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DescMode {
     Block,
@@ -541,10 +544,20 @@ async fn screenspot_pro() -> Result<()> {
                     .get(&case.id)
                     .map(|d| d.block())
                     .unwrap_or_default(),
-                // The benchmark's own instruction, verbatim. Empty for ids the
-                // dataset forgot — those will ground against nothing, which is
-                // the honest outcome rather than silently falling back.
-                DescMode::Raw => case.instruction.clone(),
+                // The benchmark's own instruction, verbatim — but with the task
+                // declaration both official implementations carry. ScreenSpot-Pro's
+                // own gpt4x.py prefixes "You are asked to find the bounding box of
+                // an UI element ... Don't output any analysis"; qwen2_5vl.py goes
+                // further and pre-fills the tool-call prefix. Without a declaration
+                // the model sees only a word ("Redo") plus a general-purpose agent
+                // prompt and reasonably asks what the user wants.
+                DescMode::Raw => format!(
+                    "Find the UI element in this screenshot that the instruction below \
+                     refers to, and call the pointing tool with its bounding box. \
+                     Don't output analysis — the tool call is the answer.\n\n\
+                     The instruction is:\n{}",
+                    case.instruction
+                ),
             };
             let provider = Arc::clone(&provider);
             let agent_provider = agent_provider.clone();

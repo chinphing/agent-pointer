@@ -132,6 +132,13 @@ pub fn operation_family_for_tool(tool_name: &str) -> OperationFamily {
     if n.starts_with("modified_click") {
         return OperationFamily::ModifiedClick;
     }
+    // Keyboard tools: `key_press` / `key_down` / `key_up` / `keyboard_type`.
+    // They land keystrokes on whatever has focus, so they change the desktop and
+    // need judging — `desktop_tool_family_id` already groups them under
+    // "keyboard", this keeps the two classifications aligned.
+    if n.starts_with("key_") || n.starts_with("keyboard_") {
+        return OperationFamily::Hotkey;
+    }
     OperationFamily::Other
 }
 
@@ -511,5 +518,54 @@ mod tests {
         };
         let exec = build_execution_args("modified_click", &args, &pos);
         assert_eq!(exec["positions"], json!([{"x": 100, "y": 200}]));
+    }
+
+    #[test]
+    fn keyboard_tools_need_verify() {
+        // `desktop_tool_family_id` groups these under "keyboard", so they are
+        // recorded on history rows. Classification has to agree, otherwise the
+        // row exists but no verify ever closes it.
+        for name in ["key_press", "key_down", "key_up", "keyboard_type"] {
+            assert_eq!(
+                operation_family_for_tool(name),
+                OperationFamily::Hotkey,
+                "{name} should classify as a keyboard action"
+            );
+            assert!(
+                needs_verify_for_tool(name, &Value::Null),
+                "{name} should need verify"
+            );
+        }
+    }
+
+    #[test]
+    fn classification_covers_every_vision_logged_desktop_tool() {
+        // The two classifications must agree on which tools touch the desktop.
+        // A tool that `desktop_tool_family_id` logs but `operation_family_for_tool`
+        // calls `Other` gets a history row that nothing ever verifies.
+        for name in [
+            "mouse_click_at",
+            "mouse_hover_at",
+            "mouse_scroll_at",
+            "mouse_drag_from_to_at",
+            "input_at",
+            "modified_click_at",
+            "hotkey",
+            "wait",
+            "clipboard_read",
+            "clipboard_write",
+            "key_press",
+            "keyboard_type",
+        ] {
+            assert!(
+                crate::agents::computer::input::timing::is_desktop_vision_log_tool(name),
+                "{name} should be logged as a desktop tool"
+            );
+            assert_ne!(
+                operation_family_for_tool(name),
+                OperationFamily::Other,
+                "{name} is logged but classifies as Other — its verify row would never close"
+            );
+        }
     }
 }

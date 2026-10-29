@@ -22,12 +22,19 @@ pub fn verify_host_active(state: &AppState, profile: &AgentProfile) -> bool {
 }
 
 pub fn batch_has_desktop_root_tool(tool_calls: &[ToolCall], tools: &ToolRegistry) -> bool {
-    let Some(name) = find_root_tool_name(tool_calls, tools) else {
-        return false;
-    };
-    // locate_element / app access 不会产生 verify 结果，为它们抓 before 截图
-    // 是白费：缓存命中时只是 clone，缓存空时要多花两秒截图。
-    crate::agents::computer::pipeline::operation::needs_verify_for_tool(&name, &Value::Null)
+    // Any desktop call that needs verify opens the gate — not just the first one.
+    // A batch of `[key_press, mouse_click_at]` used to be skipped entirely because
+    // `key_press` classifies as `Other`, which `needs_verify()` rejects, even
+    // though the click in the same turn does need judging.
+    tool_calls.iter().any(|tc| {
+        let name = tc.name.trim();
+        if tools.get_def(name).is_none()
+            || crate::task_board::checkpoint::is_task_board_tool_name(name)
+        {
+            return false;
+        }
+        crate::agents::computer::pipeline::operation::needs_verify_for_tool(name, &Value::Null)
+    })
 }
 
 #[cfg(test)]
@@ -378,7 +385,13 @@ pub async fn run_pipeline_post_execute_verify(
     // Tools that cannot change the desktop (locate_element, clipboard, app
     // access) have nothing to verify. Writing an `n/a` result for them put a
     // meaningless "Verify: n/a" line on every locate card.
-    if !needs_verify_for_tool(&root_name, &root_args) {
+    //
+    // Gate on the batch, not on the first call: a `key_press` ahead of a click
+    // classifies as `Other`, and judging by that alone would drop the click.
+    let any_needs_verify = targets
+        .iter()
+        .any(|t| needs_verify_for_tool(&t.name, &t.args));
+    if !any_needs_verify {
         return Ok(());
     }
 

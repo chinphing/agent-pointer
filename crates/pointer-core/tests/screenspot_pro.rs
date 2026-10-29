@@ -338,6 +338,38 @@ fn env_usize(key: &str, default: usize) -> usize {
         .unwrap_or(default)
 }
 
+/// Pixel budget for the frame handed to the main LLM, matching what `locate`
+/// does to the same frame internally (`FULL_MAX_PX`).
+///
+/// The two arms were measuring different images: `prepare_screenshot_jpeg`
+/// encodes the capture at its native resolution (a 3840×2160 ScreenSpot-Pro
+/// screenshot goes out as 8.3 MP), while `LocateFrame::fitted` immediately
+/// shrinks the identical capture to 2.5 MP. Whichever way the provider folds
+/// the image into its patch budget, the hint pass was starting from 3.3× the
+/// pixels of the pass that actually decides the answer.
+///
+/// `POINTER_SP_HINT_MAX_PX=0` restores the old behaviour (send the raw
+/// capture) so the difference stays measurable.
+fn hint_frame(img: &image::DynamicImage) -> image::DynamicImage {
+    let max_px = match std::env::var("POINTER_SP_HINT_MAX_PX") {
+        Ok(v) => v.trim().parse::<f64>().unwrap_or(2_500_000.0),
+        Err(_) => 2_500_000.0,
+    };
+    if max_px <= 0.0 {
+        return img.clone();
+    }
+    let (w, h) = (img.width().max(1), img.height().max(1));
+    let area = w as f64 * h as f64;
+    if area <= max_px {
+        return img.clone();
+    }
+    let scale = (max_px / area).sqrt().min(1.0);
+    let nw = ((w as f64 * scale).round() as u32).max(1);
+    let nh = ((h as f64 * scale).round() as u32).max(1);
+    eprintln!("[screenspot] hint frame {w}x{h} -> {nw}x{nh} (cap {max_px:.0} px)");
+    img.resize(nw, nh, image::imageops::FilterType::Lanczos3)
+}
+
 fn thinking_enabled() -> bool {
     matches!(
         std::env::var("POINTER_SP_THINKING").as_deref(),
@@ -572,17 +604,26 @@ async fn screenspot_pro() -> Result<()> {
                     // rebuilds the production `[CUR_SCREEN]` payload from them.
                     let hint = match (&mode, &agent_provider) {
                         (Mode::Agent, Some(ap)) => {
+                            // `prepare_screenshot_jpeg` never downscales, so the
+                            // hint pass receives the full 4K capture while the
+                            // locate pass immediately fits the same frame to
+                            // `FULL_MAX_PX` (2.5 MP). A 15 px icon is 0.5 % of a
+                            // 2880 px width; after the provider's own patch
+                            // budget there is nothing left to read. Match the two
+                            // by default and let `POINTER_SP_HINT_MAX_PX` override
+                            // it (0 = send the raw capture, the old behaviour).
+                            let hint_img = hint_frame(&img);
                             let mut jpeg: Vec<u8> = Vec::new();
                             let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(
                                 std::io::Cursor::new(&mut jpeg),
                                 90,
                             );
-                            enc.encode_image(&img)
+                            enc.encode_image(&hint_img)
                                 .context("encode frame as jpeg for agent hint")?;
                             let a = harness::agent_hint(
                                 ap,
                                 &jpeg,
-                                (img.width(), img.height()),
+                                (hint_img.width(), hint_img.height()),
                                 &desc,
                             )
                             .await?;

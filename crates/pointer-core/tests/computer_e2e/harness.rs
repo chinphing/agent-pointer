@@ -383,6 +383,28 @@ pub async fn agent_hint(
         images_base64.len(),
         img_bytes
     );
+    // The frame is 2880x1800 but what actually goes over the wire is whatever
+    // `prepare_screenshot_jpeg` produced, and that path deliberately never
+    // downscales (`max_long_edge == min_long_edge == long`). Decode the header
+    // and say the real number: a hint pass that silently receives a 5.2 MP
+    // image sees a 15 px icon as 0.5 % of the width, which is the difference
+    // between reading the glyph and guessing at the toolbar.
+    if let Some(first) = images_base64.first() {
+        if let Ok(raw) = {
+            use base64::Engine as _;
+            base64::engine::general_purpose::STANDARD.decode(first)
+        } {
+            if let Ok(img) = image::load_from_memory(&raw) {
+                eprintln!(
+                    "[hint-image] sent={}x{} ({} px, {} base64 chars) frame={w:.0}x{h:.0}",
+                    img.width(),
+                    img.height(),
+                    img.width() as u64 * img.height() as u64,
+                    first.len()
+                );
+            }
+        }
+    }
 
     // The `[CUR_SCREEN]` message production injects, then the user's goal as its
     // own row — same split production uses (inject tail, then the real turn).

@@ -545,4 +545,29 @@ mod tests {
         );
         assert_eq!(params["required"], serde_json::json!(["goal"]));
     }
+
+    #[test]
+    fn mouse_down_and_up_take_no_position() {
+        // `MouseTool::mouse_down` / `mouse_up` press and release wherever the
+        // pointer already is — their signatures take no coordinates. The schema
+        // used to require `target_desc` + `bbox` and promise the tool would
+        // "re-ground and click the confirmed centre", so every call spent a
+        // locate LLM round and then reported a `point` nothing had used.
+        let reg = registry_with_computer_tools();
+        for name in ["mouse_down", "mouse_up"] {
+            let tools = reg.openai_tools(&[name.to_string()]);
+            assert_eq!(tools.len(), 1);
+            let params = &tools[0]["function"]["parameters"];
+            let props = &params["properties"];
+            assert!(
+                props.get("bbox").is_none(),
+                "{name} must not take a box: {props}"
+            );
+            assert!(
+                props.get("target_desc").is_none(),
+                "{name} must not take a target description: {props}"
+            );
+            assert_eq!(params["required"], serde_json::json!(["goal"]));
+        }
+    }
 }

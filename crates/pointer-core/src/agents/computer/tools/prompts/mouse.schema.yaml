@@ -162,16 +162,6 @@ mouse_scroll_current:
 mouse_down:
   type: object
   properties:
-    target_desc:
-      type: string
-      description: "What you want to act on. Required together with bbox. See Writing target_desc for the shape."
-    bbox:
-      type: array
-      items:
-        type: number
-      minItems: 4
-      maxItems: 4
-      description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
     goal:
       type: string
     action:
@@ -188,24 +178,12 @@ mouse_down:
       minimum: 1
       maximum: 5
   required:
-    - target_desc
-    - bbox
     - goal
   additionalProperties: true
 
 mouse_up:
   type: object
   properties:
-    target_desc:
-      type: string
-      description: "What you want to act on. Required together with bbox. See Writing target_desc for the shape."
-    bbox:
-      type: array
-      items:
-        type: number
-      minItems: 4
-      maxItems: 4
-      description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
     goal:
       type: string
     action:
@@ -222,8 +200,6 @@ mouse_up:
       minimum: 1
       maximum: 5
   required:
-    - target_desc
-    - bbox
     - goal
   additionalProperties: true
 

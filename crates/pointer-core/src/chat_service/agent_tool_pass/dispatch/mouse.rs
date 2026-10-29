@@ -131,6 +131,17 @@ pub(super) async fn dispatch_mouse(
             grounded.push((x, y));
             boxes.push(bbox);
         }
+    } else if tool_id == "mouse_down" || tool_id == "mouse_up" {
+        // Press / release happen at wherever the pointer already is —
+        // `MouseTool` takes no position for these. Grounding here would spend a
+        // locate LLM call to produce a point nothing reads, and the success
+        // payload would then report that point as if it had been used.
+        let obj = args
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("mouse 参数必须是对象"))?;
+        for k in ["target_desc", "bbox"] {
+            obj.remove(k);
+        }
     } else {
         let (x, y, bbox) =
             ground_or_fail!(resolve_point(state, conversation_id, provider, &args, "", cancel));

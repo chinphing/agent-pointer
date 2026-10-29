@@ -1460,7 +1460,7 @@ mod builtin_agent_tests {
 
         // Rules live in AGENT.md — only the ones that are computer-specific.
         for rule in [
-            "Desktop tools run one at a time",
+            "Batch only what one verify can prove",
             "The screenshot is the only ground truth",
             "Wait for `verify:` to settle",
             "`bbox` takes pixels",
@@ -1478,14 +1478,15 @@ mod builtin_agent_tests {
         assert!(rules.contains("Both are\nhints, not evidence"));
         assert!(rules.contains("An older capture never\noverrides the current one"));
 
-        // `terminal` is the only parallel-eligible tool the agent has. The batch
-        // condition matters more than the batching itself: a `bbox` is measured
-        // against the current frame, so a target that an earlier call would move
-        // or hide cannot share the turn.
-        assert!(rules.contains("`terminal` runs concurrently"));
-        assert!(rules.contains("batch only what stays put"));
-        assert!(rules.contains("measured\nagainst the frame in front of you now"));
-        assert!(rules.contains("that call belongs in the next turn"));
+        // `terminal` is the only parallel-eligible tool the agent has. What makes
+        // a batch legal is that one verify pass can judge it: every call serves
+        // the same goal, or touches targets that cannot affect each other.
+        assert!(rules.contains("`terminal`\nruns concurrently"));
+        assert!(rules.contains("serves the same goal or"));
+        assert!(rules.contains("touches targets that cannot affect each other"));
+        assert!(rules.contains("a single\n`verify:` pass judge the whole batch"));
+        assert!(rules.contains("measured against the frame in front of you now"));
+        assert!(rules.contains("split it"));
 
         // Cross-agent rules live in COMMUNICATION_PUBLIC and must not be
         // repeated in either computer file.

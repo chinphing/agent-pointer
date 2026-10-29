@@ -7,9 +7,8 @@
    Confirm here that the previous step actually landed; the tool result and the
    `verify:` row are hints, not proof. Plan from this frame.
 3. Pick one positioning route from **Positioning** below.
-4. Issue the desktop tools this step needs, plus any independent `terminal` work
-   that can run alongside them. Split across turns at any point where an action
-   would move or hide a later target.
+4. Issue the desktop tools this step needs — they must serve one goal or touch
+   targets that cannot affect each other — plus any independent `terminal` work.
 5. When the active **`wi_*`** item is terminal, **`task_board_patch`** that row.
    Do not patch on every GUI micro-step.
 

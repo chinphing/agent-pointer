@@ -1458,16 +1458,35 @@ mod builtin_agent_tests {
         let details = builtin_computer_communication();
         let full = compose_system_prompt(&rules, communication_public_md(), &details);
 
-        // Rules live in AGENT.md.
+        // Rules live in AGENT.md — only the ones that are computer-specific.
         for rule in [
-            "Native tool calls only",
             "One root desktop tool per turn",
+            "Trust only this turn's screenshots",
+            "Read the newest `verify:` before acting",
             "`bbox` is pixels",
         ] {
             assert!(rules.contains(rule), "AGENT.md should state: {rule}");
             assert!(
                 !details.contains(rule),
                 "communication.md should not restate the rule: {rule}"
+            );
+        }
+
+        // Cross-agent rules live in COMMUNICATION_PUBLIC and must not be
+        // repeated in either computer file.
+        let shared = communication_public_md();
+        for shared_rule in ["native tool calling", "No checklists"] {
+            assert!(
+                shared.to_lowercase().contains(&shared_rule.to_lowercase()),
+                "COMMUNICATION_PUBLIC should state: {shared_rule}"
+            );
+            assert!(
+                !rules.to_lowercase().contains(&shared_rule.to_lowercase()),
+                "AGENT.md should not restate a shared rule: {shared_rule}"
+            );
+            assert!(
+                !details.to_lowercase().contains(&shared_rule.to_lowercase()),
+                "communication.md should not restate a shared rule: {shared_rule}"
             );
         }
 

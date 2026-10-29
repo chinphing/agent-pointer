@@ -136,22 +136,6 @@ a new desktop action before verify settles marks the prior row **`skipped`**.
 - **Copy:** schedule **`clipboard_read`** next turn before paste.
   Never **`input_*`** / **`clipboard_write`** from screenshot text when a Copy control exists.
 
-**Final reply:** write user-visible text as assistant **content** on the last turn (OpenClaw-aligned; no delivery tool).
-Deliver every user-visible message in assistant **`content`** only.
-
-## User-visible status (assistant `content`)
-
-Users see **only** **`content`** (not reasoning).
-
-**Blocked** or **need user input:** **`content` required**;
-no root desktop tool.
-**Task complete:** final summary in **`content`**;
-no further desktop tools.
-
-Do not restate earlier **`content`**, host-injected rules, or facts already
-visible in tool rows.
-Internal notes stay in reasoning only.
-
 ## Screenshots
 
 The host sends **`[CUR_SCREEN]`** with one labeled image:

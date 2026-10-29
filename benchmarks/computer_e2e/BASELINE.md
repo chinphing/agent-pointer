@@ -4,11 +4,58 @@
 每条一张 1920×1080 截图 + 一句目标描述 + 真值框。
 
 ```bash
-POINTER_E2E_SCOPE=full POINTER_E2E_MODE=hint  cargo test --release -p pointer-core --test computer_e2e -- --ignored --nocapture
-POINTER_E2E_SCOPE=full POINTER_E2E_MODE=agent cargo test --release -p pointer-core --test computer_e2e -- --ignored --nocapture
+POINTER_E2E_SCOPE=full POINTER_E2E_MODE=hint  POINTER_E2E_CONCURRENCY=8 cargo test --release -p pointer-core --test computer_e2e -- --ignored --nocapture
+POINTER_E2E_SCOPE=full POINTER_E2E_MODE=agent POINTER_E2E_CONCURRENCY=8 cargo test --release -p pointer-core --test computer_e2e -- --ignored --nocapture
 ```
 
-## 2026-10-29 晚 — locate 与 verify 两处修复之后
+## 2026-10-30 — 真值框按 9×9 网格重算之后（当前基线）
+
+**先修数据，再看模型。** `e2e_truth.json` 的 `bbox` 原本来自 `export_e2e_dataset.py`
+的 `outcome.box`——是 pipeline 自己点出来的框，不是人工标注。校验发现它的中心
+相对真实格子中心有 9.6px 标准差，31% 的样本偏超过 10px（一格 41px）。
+
+**重算方法**：收集所有数独格子的检测网格线，拟合一套全局 9×9 格阵
+（纵向 origin 16.95 step 39.58，横向 origin 238.87 step 41.17），把每个格子目标
+吸附到它所在的格。重算后 51 条的尺寸是 39.6×41.2，零方差。
+
+**未重算的 53 条**是键盘按键、按钮、图标——它们不是网格结构，真值框就是元素
+边界，保留原值。
+
+| | hint | agent | 差距 |
+|---|---|---|---|
+| **新真值（各三遍）** | **90.4 %** | **94.2 %** | **3.8 pp** |
+| 旧真值（各 2–3 遍） | 85.6 % | 95.5 % | 9.9 pp |
+
+明细：
+
+| 遍 | hint | agent |
+|---|---|---|
+| 1 | 94/104 = 90.4 % | 96/104 = 92.3 % |
+| 2 | 95/104 = 91.3 % | 100/104 = 96.2 % |
+| 3 | 93/104 = 89.4 % | 98/104 = 94.2 % |
+| 均值 | **94/104 = 90.4 %** | **98/104 = 94.2 %** |
+
+**轮次与耗时（每样本均值）：**
+
+| 模式 | rounds_avg | hint | locate |
+|---|---|---|---|
+| hint | 0.00 | 7.6–8.7 s | 0.0 s |
+| agent | 1.10–1.15 | 8.7–11.6 s | 8.8–9.9 s |
+
+`hint` 模式 `rounds_avg=0` 是因为它只给主 LLM 的框打分，不进 locate。
+
+### 旧真值把 agent 压低了
+
+同一套代码，换真值后 **hint +4.8 pp，agent −1.3 pp**。
+
+旧框偏的是随机方向（均值 −1.3px、标准差 9.6px），而 agent 的落点被 locate
+修正过、更靠近真实格子中心——**落点越准，越容易落在旧框外面**。所以旧真值对
+agent 的惩罚比 hint 重，把两者的差距从真实的 3.8 pp 拉成了 9.9 pp。
+
+**结论：之前「agent 比 hint 高 9.9 pp」这个数字有一半是真值框的偏差造成的，不是
+verify 的功劳。** 真实差距是 3.8 pp。
+
+## 2026-10-29 晚 — locate 与 verify 两处修复之后（旧真值）
 
 | | hint | agent | 差距 |
 |---|---|---|---|

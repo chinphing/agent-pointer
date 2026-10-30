@@ -201,6 +201,11 @@ impl PositionMatches {
 /// fallback: `unclear` + `too_blurry` (i.e. never silently pass).
 #[derive(Debug, Clone, PartialEq)]
 pub struct VerifyVerdict {
+    /// 判定 —— 十字交点是否**落在目标上**。
+    ///
+    /// **这是唯一的判定**：`center_on_target` 是它的同义镜像（给还没改的下游
+    /// 用），`size_ok` 不再参与。模型只需要在一处表态，不存在两处打架。
+    pub is_same: MatchVerdict,
     /// 中心定位 —— is the centre mark on the target? The mark sits at the box
     /// centre, which is the coordinate the engine returns, so this is the
     /// question that decides whether the answer is right.
@@ -249,12 +254,9 @@ impl VerifyVerdict {
     /// position the image could not confirm, and returning a box on that basis is
     /// a guess. `ignore` passes — there was nothing to check.
     pub fn is_hit(&self) -> bool {
-        self.center_on_target == CenterOnTarget::Yes
-            && self.size_ok == MatchVerdict::Yes
-            && !matches!(
-                self.position_matches,
-                PositionMatches::No | PositionMatches::Unknown
-            )
+        // 只看判定。`size_ok` 不再参与 —— 框大小不影响交付坐标，而实测里
+        // 模型把「框」和「目标」当成同一个东西，size 从来没判对过。
+        self.is_same == MatchVerdict::Yes
     }
 
     /// Which checks failed, for the hint. Empty when `is_hit()`.
@@ -279,6 +281,8 @@ impl VerifyVerdict {
 impl Default for VerifyVerdict {
     fn default() -> Self {
         Self {
+            // 没拿到判定：`Unclear` 让 `stay_local` 退回分项组合，不直接当成通过。
+            is_same: MatchVerdict::Unclear,
             center_on_target: CenterOnTarget::Unclear,
             size_ok: MatchVerdict::Unclear,
             // `unknown`, not `ignore`: a verdict that never arrived cannot claim

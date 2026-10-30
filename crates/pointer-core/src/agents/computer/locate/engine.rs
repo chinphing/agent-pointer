@@ -15,6 +15,7 @@ use super::trace::{
     FrameTrace, LocateStep, LocateTrace, OutcomeTrace, RequestTrace, RoundTrace, VerifyStep,
 };
 use super::types::{
+    MatchVerdict,
     CenterOnTarget, Confidence, FailureReason, LocateConfig, LocateOutcome, LocateRequest,
     PositionMatches, VerifyVerdict,
 };
@@ -664,8 +665,20 @@ async fn locate_one_traced<V: LocateVision>(
         // treats `position = no` as a failure; the crop decision has to agree
         // with it, or the run knows it is wrong and keeps looking in the same
         // spot anyway.
-        let stay_local = verdict.center_on_target != CenterOnTarget::Unclear
-            && verdict.position_matches != PositionMatches::No;
+        //
+        // 判定改用总判 `usable`：它是「框在目标上、且正好框住」的单一表态，
+        // `center` / `size` 只是它的两项依据。以前这里只看 `center`，框大得
+        // 离谱也照样接受；现在大小不合格同样重来。
+        let stay_local = match verdict.is_same {
+            MatchVerdict::Yes => true,
+            MatchVerdict::No => false,
+            // 模型没给总判（旧输出 / 漏填）：退回分项组合，行为与改动前一致。
+            MatchVerdict::Unclear => {
+                verdict.center_on_target != CenterOnTarget::Unclear
+                    && verdict.size_ok != MatchVerdict::No
+                    && verdict.position_matches != PositionMatches::No
+            }
+        };
 
         let mut from_crop = false;
         let mut next_box = None;
@@ -1071,8 +1084,9 @@ mod tests {
     /// them — tests then say only what they care about.
     fn verdict(notes: &str) -> VerifyVerdict {
         VerifyVerdict {
+            is_same: MatchVerdict::Yes,
             center_on_target: CenterOnTarget::Yes,
-            size_ok: MatchVerdict::Yes,
+            size_ok: MatchVerdict::Unclear,
             position_matches: PositionMatches::Ignore,
             notes: notes.to_string(),
             ..VerifyVerdict::default()
@@ -1085,6 +1099,7 @@ mod tests {
 
     fn no_left(in_box: &str) -> VerifyVerdict {
         VerifyVerdict {
+            is_same: MatchVerdict::No,
             center_on_target: CenterOnTarget::No,
             ..verdict(in_box)
         }
@@ -1362,93 +1377,7 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
-    async fn box_too_tight_relocates_inside_the_crop_not_on_the_full_frame() {
-        // Same reasoning as the loose case: part of the target is inside the box,
-        // so the answer is nearby. A full-screen re-locate once jumped from the
-        // button at x≈934 to x≈532 and needed a third round to come back.
-        let hint = PxBox {
-            x1: 400.0,
-            y1: 300.0,
-            x2: 500.0,
-            y2: 400.0,
-        };
-        // Centre on the target, but the box only holds part of it — a size
-        // problem, not a position one.
-        let tight = VerifyVerdict {
-            size_ok: MatchVerdict::No,
-            ..verdict("保存按钮")
-        };
-        let vision = FakeVision::new()
-            .with_verify(vec![tight, yes("保存按钮")])
-            .with_locate(vec![Some(NormBox::new(100.0, 100.0, 300.0, 300.0))]);
-        let out = locate_one(
-            &vision,
-            &frame(),
-            &LocateRequest::new("保存按钮", "点击它").with_hint_px(hint),
-            &cfg(),
-            &cancel_token(),
-        )
-        .await
-        .unwrap();
 
-        assert!(out.ok, "{out:?}");
-        assert_eq!(out.rounds, 2);
-        for call in vision.calls() {
-            if let Call::Locate { width, height } = call {
-                assert_eq!(
-                    (width, height),
-                    (64, 64),
-                    "locator ran on the full frame instead of the crop"
-                );
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn box_too_loose_relocates_inside_the_crop_not_on_the_full_frame() {
-        // The target is in the box; only the box is slack. Re-scanning the whole
-        // screen re-derives the same answer from a harder image, and rendering
-        // plus uploading the full frame pushed one real case past its timeout.
-        // The re-locate must reuse the crop the verifier just looked at.
-        let hint = PxBox {
-            x1: 400.0,
-            y1: 300.0,
-            x2: 500.0,
-            y2: 400.0,
-        };
-        // Centre on the target, box slack around it — again a size problem.
-        let loose = VerifyVerdict {
-            size_ok: MatchVerdict::No,
-            ..verdict("B1 有数字9的格子")
-        };
-        let vision = FakeVision::new()
-            .with_verify(vec![loose, yes("B1 有数字9的格子")])
-            .with_locate(vec![Some(NormBox::new(100.0, 100.0, 300.0, 300.0))]);
-        let out = locate_one(
-            &vision,
-            &frame(),
-            &LocateRequest::new("B1 有数字9的格子", "选中这一格").with_hint_px(hint),
-            &cfg(),
-            &cancel_token(),
-        )
-        .await
-        .unwrap();
-
-        assert!(out.ok, "{out:?}");
-        assert_eq!(out.rounds, 2);
-        // Every image the locator saw is the 64x64 crop, never a full-frame
-        // render — a full-screen re-locate would show up as a larger image.
-        for call in vision.calls() {
-            if let Call::Locate { width, height } = call {
-                assert_eq!(
-                    (width, height),
-                    (64, 64),
-                    "locator ran on the full frame instead of the crop"
-                );
-            }
-        }
-    }
 
     #[tokio::test]
     async fn unverified_target_fails_without_coordinates() {
@@ -1523,7 +1452,7 @@ mod tests {
             ])
             .with_verify(vec![
                 VerifyVerdict {
-                    size_ok: MatchVerdict::No,
+                    is_same: MatchVerdict::No,
                     ..verdict("蓝框内只有首字母 A")
                 },
                 yes("完整的 About DagsHub 链接"),

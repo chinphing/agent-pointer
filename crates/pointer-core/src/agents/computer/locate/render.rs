@@ -35,7 +35,6 @@ const BOX_OUTER_COLOR: Rgb<u8> = Rgb([0, 225, 255]);
 /// thin lines: at 3 px the magenta/cyan pair survives but reads muddy, and the
 /// whole point of the pair is being unmistakable.
 const BOX_WIDTH: i32 = 4;
-
 /// JPEG quality for images handed to the locator / verifier.
 const LOCATE_JPEG_QUALITY: u8 = 85;
 
@@ -150,6 +149,7 @@ pub fn render_annotated_frame(
                 x2: cx,
                 y2: cy,
             },
+            false,
         );
     }
     let _ = (w, h);
@@ -192,7 +192,9 @@ pub fn render_crop_opts(
     out_px: u32,
     dim: bool,
 ) -> Result<(LocateImage, CropBounds)> {
-    render_crop_marked(frame, candidate, side, out_px, dim, Mark::BoxAndDot)
+    // verify 只看十字星，不画框 —— 框的四条边会被当成「目标边界」去判，
+    // 而交付的坐标是十字交点。框大框小都不该影响判定。
+    render_crop_marked(frame, candidate, side, out_px, dim, Mark::CrossOnly)
 }
 
 /// What the crop draws on top of the screenshot.
@@ -208,6 +210,12 @@ pub enum Mark {
     /// box it was shown, returned unchanged. The candidate's real position is
     /// already in the prompt as four numbers, so the picture does not need it.
     DotOnly,
+    /// 只有十字星，没有框 —— verify 用这个。
+    ///
+    /// 框在 verify 里是个干扰源：它的四条边会被当成「目标的边界」去判，
+    /// 而真正交付的坐标是十字交点。臂长也不按框算，改成按画面短边的固定
+    /// 比例，这样框大框小都不改变标记的形状，模型看到的就是一个等大的准星。
+    CrossOnly,
 }
 
 /// [`render_crop`] with both the dimming and the mark style explicit.
@@ -264,7 +272,11 @@ pub fn render_crop_marked(
     // easier judgement than "do all four edges line up", and it is the question
     // that actually matters — a box can be generous enough to contain the target
     // and still be centred somewhere else entirely.
-    draw_center_mark(&mut magnified, drawn);
+    draw_center_mark(
+        &mut magnified,
+        drawn,
+        matches!(mark, Mark::CrossOnly),
+    );
 
     Ok((encode(&magnified)?, bounds))
 }
@@ -278,30 +290,34 @@ pub fn render_crop_marked(
 const MARK_CORE: Rgb<u8> = Rgb([220, 20, 20]);
 const MARK_RING: Rgb<u8> = Rgb([255, 255, 255]);
 
-/// Mark radius as a fraction of the image's short side.
+/// Crosshair arm length as a share of the box's own side.
 ///
-/// Small on purpose. The mark sits at the box centre, and the thing the verifier
-/// has to judge is whether **the whole mark** stays inside the target — which it
-/// cannot do if the mark covers the target's own boundary line. At 0.010 the mark
-/// was 16 px in a 1600 px close crop, i.e. 2.4 px on screen: wide enough to sit
-/// on a 1–2 px grid line and hide it, and then r7c2 reads 「the mark is in the
-/// middle of the cell」 while the cell's lower edge runs straight through the
-/// mark. At 0.004 it is 6.4 px in the image (0.96 px on screen) — still clearly
-/// visible, no longer able to swallow the edge it is being measured against.
-const MARK_RADIUS_RATIO: f64 = 0.004;
-/// Share of the radius taken by the white rim.
+/// 0.35 each way → the crosshair spans 70% of the box, so it never touches the
+/// outline it is judged against. Smaller and the arms read as a dot again.
+const CROSS_ARM_SHARE: f64 = 0.35;
+/// Half-thickness of the red core, as a share of the image's short side.
 ///
-/// 0.25 rather than 0.35: on a white cell the rim is invisible, so what the model
-/// actually sees is the red disc. A thinner rim keeps the visible disc closer to
-/// the radius the prompt describes.
-const MARK_RING_SHARE: f64 = 0.25;
+/// 0.0015 → 2.9 px in a 1920 px crop, 0.36 px on screen. Thin on purpose: the
+/// crosshair has to be able to sit between two grid lines one pixel apart
+/// without covering either.
+const CROSS_THICK_RATIO: f64 = 0.0025;
+/// Extra thickness added by the white halo on each side.
+const CROSS_RING_RATIO: f64 = 0.0018;
 
-/// Draw a two-ring mark at the box's centre.
+/// Draw a crosshair at the box's centre.
 ///
-/// Size is capped against the box too, so the mark never hides the thing it is
-/// supposed to be pointing at: at most 10% of the box's short side, and never
-/// below 3 px (a mark too small to see is worse than none).
-fn draw_center_mark(img: &mut RgbImage, b: PxBox) {
+/// Replaces the two-ring dot: a filled disc covers a patch of the image, so
+/// 「is the mark inside the target」 degenerates into 「does this blob overlap
+/// the cell」 — and a 16 px blob straddling a grid line reads as inside on
+/// both sides of it. A crosshair puts the answer on a single pixel: the
+/// intersection *is* the coordinate, and the four arms make it obvious which
+/// side of a boundary line that pixel falls on.
+///
+/// Arms stop short of the box edges (35% of the side each) so the crosshair
+/// never merges with the outline it is being judged against.
+/// 从交点垂直向上画一条细线到画面顶 —— 用来把交点和顶部的列标连起来。
+///
+fn draw_center_mark(img: &mut RgbImage, b: PxBox, fixed_arms: bool) {
     let (w, h) = (img.width() as f64, img.height() as f64);
     if w <= 0.0 || h <= 0.0 {
         return;
@@ -309,24 +325,59 @@ fn draw_center_mark(img: &mut RgbImage, b: PxBox) {
     let cx = (b.x1 + b.x2) / 2.0;
     let cy = (b.y1 + b.y2) / 2.0;
     let short = w.min(h);
-    let box_side = (b.x2 - b.x1).min(b.y2 - b.y1).max(1.0);
-    let r = (short * MARK_RADIUS_RATIO).min(box_side * 0.10).max(3.0);
-    let core = r * (1.0 - MARK_RING_SHARE);
+    let box_w = (b.x2 - b.x1).max(1.0);
+    let box_h = (b.y2 - b.y1).max(1.0);
+    // Arm length: a share of the box, capped so a huge box does not turn the
+    // crosshair into a full-width line, and floored against the image so it
+    // stays visible when the box is tiny.
+    // 臂长按**输出图里的框宽**算 —— `box_w` 已经是放大后的坐标，所以 close
+    // （框 320 px）得到 112 px、wide（框 80 px）得到 28 px，两者都是框的 70%，
+    // 视觉比例一致。
+    //
+    // 下限只防「框小到臂看不见」：0.008 × short = 15 px，正常尺寸永远不触发。
+    // 之前写 0.02（38 px）把 wide 的 28 px 顶了上去，臂撑到框的 96%，会压到邻居。
+    // `fixed_arms`：臂长不跟框走，按画面短边的固定比例。
+    // verify 走这条路 —— 框已经不画了，臂长再跟框绑定，就等于让模型从
+    // 十字的长短去反推一个它看不见的框。
+    let (arm_x, arm_y) = if fixed_arms {
+        let a = short * 0.03;
+        (a, a)
+    } else {
+        let arm_floor = short * 0.008;
+        (
+            (box_w * CROSS_ARM_SHARE).max(arm_floor).min(short * 0.25).max(4.0),
+            (box_h * CROSS_ARM_SHARE).max(arm_floor).min(short * 0.25).max(4.0),
+        )
+    };
+    let half = (short * CROSS_THICK_RATIO).max(1.0);
+    let ring = (short * CROSS_RING_RATIO).max(0.5);
 
-    let ri = r.ceil() as i32;
-    for dy in -ri..=ri {
-        for dx in -ri..=ri {
-            let d = ((dx * dx + dy * dy) as f64).sqrt();
-            if d > r {
-                continue;
+    let mut plot = |x: f64, y: f64, c: Rgb<u8>| {
+        let xi = x.round() as i32;
+        let yi = y.round() as i32;
+        if xi >= 0 && yi >= 0 && xi < w as i32 && yi < h as i32 {
+            img.put_pixel(xi as u32, yi as u32, c);
+        }
+    };
+
+    // White halo first, red core on top — same reasoning as the old dot's rim:
+    // one of the two always contrasts, whatever the cell background is.
+    for (c, extra) in [(MARK_RING, ring), (MARK_CORE, 0.0)] {
+        let tx = half + extra;
+        let ty = half + extra;
+        let mut x = cx - arm_x - extra;
+        while x <= cx + arm_x + extra {
+            for dy in -(ty as i32)..=(ty as i32) {
+                plot(x, cy + dy as f64, c);
             }
-            let x = cx.round() as i32 + dx;
-            let y = cy.round() as i32 + dy;
-            if x < 0 || y < 0 || x >= w as i32 || y >= h as i32 {
-                continue;
+            x += 1.0;
+        }
+        let mut y = cy - arm_y - extra;
+        while y <= cy + arm_y + extra {
+            for dx in -(tx as i32)..=(tx as i32) {
+                plot(cx + dx as f64, y, c);
             }
-            let colour = if d <= core { MARK_CORE } else { MARK_RING };
-            img.put_pixel(x as u32, y as u32, colour);
+            y += 1.0;
         }
     }
 }

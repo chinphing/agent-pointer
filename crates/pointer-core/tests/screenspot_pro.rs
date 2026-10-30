@@ -418,6 +418,64 @@ fn build_provider() -> Result<OpenAIProvider> {
     Ok(OpenAIProvider::new(settings, api_key))
 }
 
+/// Verifier provider, when `POINTER_SP_VERIFY_MODEL` (or `_BASE_URL` /
+/// `_API_KEY`) is set. `None` means "follow the locator".
+///
+/// Production's `locate_providers` builds the two independently — the verifier
+/// can override model, provider and thinking, and anything left empty follows
+/// the locator. The shipped config leaves all of them empty, so one provider is
+/// the real behaviour; but a harness that cannot express the split cannot
+/// measure it either, and the split is exactly where a weak verifier would be
+/// papered over.
+fn build_verify_provider() -> Result<Option<OpenAIProvider>> {
+    load_dotenv();
+    let override_model = std::env::var("POINTER_SP_VERIFY_MODEL")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    let override_url = std::env::var("POINTER_SP_VERIFY_BASE_URL")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    let override_key = std::env::var("POINTER_SP_VERIFY_API_KEY")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    if override_model.is_none() && override_url.is_none() && override_key.is_none() {
+        return Ok(None);
+    }
+    let base_url = match override_url {
+        Some(u) => u,
+        None => std::env::var("POINTER_LOCATE_BASE_URL")
+            .context("POINTER_LOCATE_BASE_URL is not set (see tests/locate_fixture/.env)")?,
+    };
+    let api_key = override_key
+        .or_else(|| std::env::var("POINTER_LOCATE_API_KEY").ok())
+        .unwrap_or_default();
+    let model = override_model.unwrap_or_else(|| {
+        std::env::var("POINTER_LOCATE_MODEL").unwrap_or_else(|_| "qwen3.8-flash".to_string())
+    });
+    let settings: ModelSettings = serde_json::from_value(serde_json::json!({
+        "providers": [{
+            "id": "screenspot-verify",
+            "name": "screenspot-verify",
+            "baseUrl": base_url,
+            "apiKey": "",
+            "models": [model.clone()]
+        }],
+        "activeProviderId": "screenspot-verify",
+        "model": model,
+        "temperature": 0.0,
+        "maxTokens": 64000,
+        "hasKey": true
+    }))
+    .context("build verify ModelSettings from env")?;
+    let mut settings = settings;
+    settings.round_enable_thinking = thinking_setting();
+    eprintln!(
+        "[screenspot] verify provider = {} @ {}",
+        settings.model, settings.active_provider_id
+    );
+    Ok(Some(OpenAIProvider::new(settings, api_key)))
+}
+
 /// Provider for the main-LLM arm.
 ///
 /// Must carry `supportsVision` — without it `make_openai_messages` replaces the
@@ -554,6 +612,8 @@ async fn screenspot_pro() -> Result<()> {
         Mode::None => None,
         Mode::Agent => Some(Arc::new(build_agent_provider()?)),
     };
+    // `None` = verifier follows the locator, which is the shipped config.
+    let verify_provider = Arc::new(build_verify_provider()?);
 
     println!(
         "screenspot-pro: split={split} mode={} desc={} cases={} concurrency={concurrency} timeout={}s thinking={}",
@@ -592,6 +652,7 @@ async fn screenspot_pro() -> Result<()> {
                 ),
             };
             let provider = Arc::clone(&provider);
+            let verify_provider = Arc::clone(&verify_provider);
             let agent_provider = agent_provider.clone();
             running.push(tokio::spawn(async move {
                 let t0 = std::time::Instant::now();
@@ -646,7 +707,12 @@ async fn screenspot_pro() -> Result<()> {
                     };
                     let frame = LocateFrame::new(img.to_rgb8());
                     let cancel = CancellationToken::new();
-                    let vision = ChatLocateVision::new(&provider, cancel.clone());
+                    let vision = match verify_provider.as_ref() {
+                        Some(v) => {
+                            ChatLocateVision::with_verify_provider(&provider, v, cancel.clone())
+                        }
+                        None => ChatLocateVision::new(&provider, cancel.clone()),
+                    };
                     // Production's `locate_element` tool carries three fields:
                     // `target_desc` and `goal` from the model's own call, and
                     // `hint_box`. The harness used to keep only the box, so the

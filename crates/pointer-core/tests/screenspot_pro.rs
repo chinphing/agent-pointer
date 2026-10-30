@@ -632,22 +632,35 @@ async fn screenspot_pro() -> Result<()> {
                                 case.id, a.box_norm[0], a.box_norm[1], a.box_norm[2], a.box_norm[3],
                                 a.tool
                             );
-                            Some(PxBox {
-                                x1: a.box_px[0],
-                                y1: a.box_px[1],
-                                x2: a.box_px[2],
-                                y2: a.box_px[3],
-                            })
+                            Some((
+                                PxBox {
+                                    x1: a.box_px[0],
+                                    y1: a.box_px[1],
+                                    x2: a.box_px[2],
+                                    y2: a.box_px[3],
+                                },
+                                a.target_desc,
+                            ))
                         }
                         _ => None,
                     };
                     let frame = LocateFrame::new(img.to_rgb8());
                     let cancel = CancellationToken::new();
                     let vision = ChatLocateVision::new(&provider, cancel.clone());
-                    // `goal` is caller-facing metadata; the grounder never sees it
-                    // (see `locate_prompt`). Any non-empty string will do.
-                    let mut req = LocateRequest::new(desc, "点击它");
-                    if let Some(h) = hint {
+                    // Production's `locate_element` tool carries three fields:
+                    // `target_desc` and `goal` from the model's own call, and
+                    // `hint_box`. The harness used to keep only the box, so the
+                    // grounder was asked to find `"cut file or folder"` while the
+                    // main LLM had already written "the Cut icon in the File
+                    // Explorer toolbar, next to Copy". Pass both through and the
+                    // two arms measure the same request.
+                    let (hint_box, hint_desc) = match hint {
+                        Some((b, d)) => (Some(b), Some(d)),
+                        None => (None, None),
+                    };
+                    let target_desc = hint_desc.filter(|d| !d.trim().is_empty()).unwrap_or_else(|| desc.clone());
+                    let mut req = LocateRequest::new(target_desc, desc);
+                    if let Some(h) = hint_box {
                         req = req.with_hint_px(h);
                     }
                     let out = locate_one(&vision, &frame, &req, &LocateConfig::default(), &cancel)

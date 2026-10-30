@@ -193,6 +193,13 @@ pub struct AgentHint {
     pub box_norm: [f64; 4],
     /// Tool name the model chose (empty when it answered in text).
     pub tool: String,
+    /// The model's own description of what it boxed, written while looking at
+    /// this screen. Production's `locate_element` tool takes exactly this as
+    /// `LocateRequest::target_desc`; the harness used to drop it and hand
+    /// `locate` the caller's raw goal instead, which is how a run that had
+    /// already said "the Cut icon in the File Explorer toolbar, next to Copy"
+    /// ended up grounding the words "cut file or folder".
+    pub target_desc: String,
     /// The model's reasoning channel, when the provider returned one.
     pub reasoning: String,
     pub usage_prompt_tokens: Option<u32>,
@@ -492,6 +499,23 @@ pub async fn agent_hint(
     );
     let args: serde_json::Value = serde_json::from_str(&call.arguments)
         .context("tool call arguments are not JSON")?;
+    // The model is required to write `target_desc` alongside the box, and that
+    // description is written while looking at this screen — so it can name the
+    // anchor and the neighbourhood that the goal never had. It is currently
+    // dropped: `locate` is handed the raw goal instead. Print it so the two can
+    // be compared before deciding whether to pass it through.
+    if let Some(td) = args.get("target_desc").and_then(|v| v.as_str()) {
+        eprintln!("[hint] target_desc={td:?}");
+    }
+    // Production passes this straight into `LocateRequest::target_desc`, so
+    // keeping it is what makes the harness measure the shipped path rather
+    // than a degraded copy of it.
+    let target_desc = args
+        .get("target_desc")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     let raw = args
         .get("bbox")
         .and_then(|v| v.as_array())
@@ -532,6 +556,7 @@ pub async fn agent_hint(
         box_px,
         box_norm,
         tool: call.name.clone(),
+        target_desc,
         reasoning: reasoning.unwrap_or_default(),
         usage_prompt_tokens: prompt_tokens,
     })

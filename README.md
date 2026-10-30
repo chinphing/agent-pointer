@@ -46,9 +46,9 @@ A digital employee has to work inside a real office setup: a license that allows
       <td><strong>About 5% of one CPU core</strong> while running. <strong>20+ sub-agents at once</strong>. Other tasks are completely unaffected</td>
     </tr>
     <tr>
-      <td>Computer Use for any software you can see</td>
+      <td>Computer Use<br>for any software you can see</td>
       <td>Depends on a browser debug protocol or the OS accessibility tree</td>
-      <td><strong>Screenshots and the mouse only.</strong> No CDP, and no accessibility tree. <strong>Qwen3.8-flash is enough.</strong> The same task costs about <strong>1/20</strong> of Codex</td>
+      <td><strong>Screenshots and the mouse only.</strong> No CDP, and no accessibility tree. Any software you can operate on the computer, it can operate too. <strong>Qwen3.8-flash is enough.</strong> The same task costs about <strong>1/20</strong> of Codex</td>
     </tr>
     <tr>
       <td>Long conversations</td>

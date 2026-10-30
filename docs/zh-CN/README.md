@@ -55,7 +55,7 @@
     <tr>
       <td>电脑操控<br>看得见的软件都能操作</td>
       <td>靠浏览器调试协议或系统无障碍树</td>
-      <td><strong>只看截图、只操作鼠标。</strong>不依赖 CDP，也不依赖无障碍树。电脑上你能操作的软件，它都能操作。<strong>Qwen3.8-flash 即可用</strong>，同样的任务，成本大约是 Codex 的 <strong>1/20</strong></td>
+      <td><strong>只看截图、只操作鼠标。</strong>不依赖 CDP，也不依赖无障碍树。你能操作的软件，它也能。<strong>Qwen3.8-flash 即可用</strong>，同样的任务，成本大约是 Codex 的 <strong>1/20</strong></td>
     </tr>
     <tr>
       <td>超长会话</td>

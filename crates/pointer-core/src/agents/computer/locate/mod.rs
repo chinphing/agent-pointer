@@ -161,7 +161,7 @@ fn parse_hint(raw: Option<&Value>, idx: usize, w: u32, h: u32) -> Result<Option<
     // 153.5 px median offset / 13.6% hit versus 14.4 px / 64.2% for normalized.
     // The failure was the missing relative frame, not the pixel unit — once the
     // prompt spells out "locate on 1000×1000, then convert", pixels measure
-    // 5–8 px median (see `benchmarks/computer_e2e/README.md`).
+    // 5–8 px median (see `benchmarks/full_chain/README.md`).
     let box_px = PxBox {
         x1: v[0],
         y1: v[1],

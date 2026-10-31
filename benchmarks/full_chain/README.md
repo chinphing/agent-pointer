@@ -11,7 +11,7 @@
 
 ## 和 screenspot_grid 的关系
 
-| | `screenspot_grid` | `computer_e2e`（本目录） |
+| | `screenspot_grid` | `full_chain`（本目录） |
 |---|---|---|
 | 输入 | 元素描述（外观/位置/锚点 4 字段） | **agent 自己写的 goal**（`target_desc`） |
 | 起点 | 无 hint，直接定位 | **主 LLM 先给 bbox，再进 locate** |
@@ -208,13 +208,13 @@ agent  - none   →  hint 是正资产还是负资产
 说明不了别的目标还能不能定位。
 
 ```bash
-# ── 数据集一：locate（computer_e2e_grounding）
-POINTER_E2E_SCOPE=smoke  POINTER_E2E_MODE=none cargo test --release -p pointer-core --test computer_e2e -- --ignored --nocapture
+# ── 数据集一：locate（full_chain_grounding）
+POINTER_E2E_SCOPE=smoke  POINTER_E2E_MODE=none cargo test --release -p pointer-core --test full_chain -- --ignored --nocapture
 POINTER_E2E_SCOPE=sample POINTER_E2E_MODE=none cargo test ...
 POINTER_E2E_SCOPE=full   POINTER_E2E_MODE=none cargo test ...
 
 # ── 数据集二：verify（computer_verify_e2e）
-POINTER_E2E_SCOPE=smoke  cargo test --release -p pointer-core --test computer_e2e computer_verify_e2e -- --ignored --nocapture
+POINTER_E2E_SCOPE=smoke  cargo test --release -p pointer-core --test full_chain computer_verify_e2e -- --ignored --nocapture
 POINTER_E2E_SCOPE=sample cargo test ... computer_verify_e2e ...
 POINTER_E2E_SCOPE=full   cargo test ... computer_verify_e2e ...
 
@@ -488,17 +488,17 @@ The `[CUR_SCREEN]` preamble states that screenshot's exact width and height.
 # A. 归一化，不声明尺寸（基线）
 POINTER_E2E_MINIMAL_PROMPT=1 POINTER_E2E_BBOX_UNIT=norm \
 POINTER_E2E_MODE=hint POINTER_E2E_CONCURRENCY=8 \
-  cargo test --release -p pointer-core --test computer_e2e -- --ignored --nocapture
+  cargo test --release -p pointer-core --test full_chain -- --ignored --nocapture
 
 # C. 归一化 + 声明尺寸 + 换算说明
 POINTER_E2E_MINIMAL_PROMPT=1 POINTER_E2E_BBOX_UNIT=norm POINTER_E2E_IMAGE_SIZE=1 \
 POINTER_E2E_MODE=hint POINTER_E2E_CONCURRENCY=8 \
-  cargo test --release -p pointer-core --test computer_e2e -- --ignored --nocapture
+  cargo test --release -p pointer-core --test full_chain -- --ignored --nocapture
 
 # D. 原始像素（尺寸自动声明，无需 IMAGE_SIZE）
 POINTER_E2E_MINIMAL_PROMPT=1 POINTER_E2E_BBOX_UNIT=pixel \
 POINTER_E2E_MODE=hint POINTER_E2E_CONCURRENCY=8 \
-  cargo test --release -p pointer-core --test computer_e2e -- --ignored --nocapture
+  cargo test --release -p pointer-core --test full_chain -- --ignored --nocapture
 ```
 
 **B 档（只说尺寸、不说算法）是 `IMAGE_SIZE` 的早期实现。当前代码里

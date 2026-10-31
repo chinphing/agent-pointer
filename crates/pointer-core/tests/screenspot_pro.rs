@@ -62,7 +62,7 @@ use pointer_core::provider::OpenAIProvider;
 /// The production-shaped main-LLM call, reused from the computer e2e harness so
 /// the "agent" arm here measures the same thing it measures there: `AGENT.md`
 /// plus the `[CUR_SCREEN]` preamble, not a test-only prompt.
-#[path = "computer_e2e/harness.rs"]
+#[path = "full_chain/harness.rs"]
 mod harness;
 
 /// What text the pipeline is asked to ground.
@@ -101,7 +101,7 @@ impl DescMode {
 ///
 /// - `none`  — locate alone, no hint. This is what this file used to do.
 /// - `agent` — main LLM produces a bbox, then locate verifies/refines it.
-///   The main-LLM call reuses `computer_e2e/harness.rs::agent_hint`, so the
+///   The main-LLM call reuses `full_chain/harness.rs::agent_hint`, so the
 ///   prompt assembly (`AGENT.md` + `[CUR_SCREEN]` preamble + slot labels +
 ///   `mouse.schema.yaml`) is the same one the computer e2e benchmark measures.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -483,7 +483,7 @@ fn build_verify_provider() -> Result<Option<OpenAIProvider>> {
 /// vision)" and the model answers blind. Must also carry `enable_thinking` in
 /// `extraBody` — `round_enable_thinking` alone does not put the flag on the
 /// wire, and without it `reasoning_content` comes back empty. Both are what
-/// `computer_e2e`'s provider sets, for the same reasons.
+/// `full_chain`'s provider sets, for the same reasons.
 fn build_agent_provider() -> Result<OpenAIProvider> {
     load_dotenv();
     let base_url = std::env::var("POINTER_LOCATE_BASE_URL")

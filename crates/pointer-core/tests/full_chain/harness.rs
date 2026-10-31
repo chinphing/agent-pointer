@@ -469,7 +469,7 @@ pub async fn agent_hint(
         &msgs,
         &system,
         vec![click_tool_schema()?],
-        "computer_e2e_agent",
+        "full_chain_agent",
     )
     .await
     .context("stream_chat_wired")?;

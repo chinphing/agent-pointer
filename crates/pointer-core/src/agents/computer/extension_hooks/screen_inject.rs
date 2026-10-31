@@ -84,7 +84,7 @@ fn slot_labels() -> Vec<&'static str> {
 
 /// `[CUR_SCREEN]` preamble text, byte-identical to what production injects.
 ///
-/// `pub` for `tests/computer_e2e`: the benchmark must feed the main LLM the
+/// `pub` for `tests/full_chain`: the benchmark must feed the main LLM the
 /// same preamble production does, otherwise a hint measured there says nothing
 /// about the shipped behaviour.
 #[doc(hidden)]

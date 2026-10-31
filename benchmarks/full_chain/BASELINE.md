@@ -1,11 +1,11 @@
-# computer_e2e 基线
+# full_chain 基线
 
-数据：`pointer-eval-data/computer_e2e/e2e_truth.json`，**104 条**（`POINTER_E2E_SCOPE=full`）。
+数据：`pointer-eval-data/full_chain/e2e_truth.json`，**104 条**（`POINTER_E2E_SCOPE=full`）。
 每条一张 1920×1080 截图 + 一句目标描述 + 真值框。
 
 ```bash
-POINTER_E2E_SCOPE=full POINTER_E2E_MODE=hint  POINTER_E2E_CONCURRENCY=8 cargo test --release -p pointer-core --test computer_e2e -- --ignored --nocapture
-POINTER_E2E_SCOPE=full POINTER_E2E_MODE=agent POINTER_E2E_CONCURRENCY=8 cargo test --release -p pointer-core --test computer_e2e -- --ignored --nocapture
+POINTER_E2E_SCOPE=full POINTER_E2E_MODE=hint  POINTER_E2E_CONCURRENCY=8 cargo test --release -p pointer-core --test full_chain -- --ignored --nocapture
+POINTER_E2E_SCOPE=full POINTER_E2E_MODE=agent POINTER_E2E_CONCURRENCY=8 cargo test --release -p pointer-core --test full_chain -- --ignored --nocapture
 ```
 
 ## 2026-10-30 — 真值框按「描述行列 + 9×9 格阵」重算（当前基线）

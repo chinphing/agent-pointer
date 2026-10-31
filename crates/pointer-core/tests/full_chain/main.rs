@@ -1,6 +1,6 @@
 //! Computer-use end-to-end grounding benchmark.
 //!
-//! Dataset: `benchmarks/computer_e2e/data/e2e_truth.json` — one case per real
+//! Dataset: `benchmarks/full_chain/data/e2e_truth.json` — one case per real
 //! production `locate` run, each carrying the full-screen frame the locator saw
 //! and the box the pipeline actually clicked.
 //!
@@ -16,7 +16,7 @@
 //!              the production path, and the number this benchmark exists for.
 //!
 //! Run:
-//!   cargo test -p pointer-core --test computer_e2e -- --ignored --nocapture
+//!   cargo test -p pointer-core --test full_chain -- --ignored --nocapture
 //!   POINTER_E2E_SCOPE=smoke cargo test ... (10 runs, ~5 min)
 //!   POINTER_E2E_SCOPE=sample cargo test ... (20% of runs)
 //!   POINTER_E2E_LIMIT=10 cargo test ... (raw row count, overrides scope)
@@ -802,7 +802,7 @@ async fn run_case(
 
 #[tokio::test]
 #[ignore = "calls a real vision model; run with --ignored"]
-async fn computer_e2e_grounding() -> Result<()> {
+async fn full_chain_grounding() -> Result<()> {
     let _ = env_logger::builder().is_test(false).try_init();
 
     let mode = Mode::parse(&std::env::var("POINTER_E2E_MODE").unwrap_or_else(|_| "none".into()));
@@ -834,7 +834,7 @@ async fn computer_e2e_grounding() -> Result<()> {
         .max(1);
 
     println!();
-    println!("== computer_e2e :: {} :: {} cases ==", mode.label(), cases.len());
+    println!("== full_chain :: {} :: {} cases ==", mode.label(), cases.len());
     println!("   images: {}", img_dir.display());
     println!("   concurrency: {}", concurrency);
 

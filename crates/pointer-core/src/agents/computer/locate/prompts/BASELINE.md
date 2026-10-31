@@ -124,5 +124,5 @@ remark 里写「索引不一致」「判 no」，`is_same` 填 `yes`。
 | `position_verify/sudoku/` | 189 | 405 张（close/wide/screen） |
 | `position_verify/general/` | 70 | 150 张 |
 
-**生成器：** `crates/pointer-core/tests/verify_fixture_gen.rs`
-**评测器：** `crates/pointer-core/tests/verify_fixture_eval.rs`
+**生成器：** `crates/pointer-core/tests/verify_position_gen.rs`
+**评测器：** `crates/pointer-core/tests/verify_position_eval.rs`

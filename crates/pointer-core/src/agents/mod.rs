@@ -1171,7 +1171,7 @@ fn finalize_skill_ids(ids: &mut Vec<String>) {
 
 /// Resolve the tool names an agent may call.
 ///
-/// `pub` (not `pub(crate)`) because `tests/computer_e2e` is an external test
+/// `pub` (not `pub(crate)`) because `tests/full_chain` is an external test
 /// crate and needs the exact same list the main loop builds — a hand-written
 /// subset would silently diverge from production.
 #[doc(hidden)]

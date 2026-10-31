@@ -644,23 +644,24 @@ fn execution_summary_for_tool_card(
     let name = root_name.trim().to_ascii_lowercase();
     let text = arg_str(args.get("text"));
     match name.as_str() {
-        "input_index" => {
-            let index = arg_u32(args.get("index"))?;
-            let payload = text?;
-            let mut line = format!("Executed input_index at overlay {index}: typed \"{payload}\"");
-            if loose_bool_arg(args.get("clear_first")) {
-                line.push_str("; cleared first");
-            }
-            if loose_bool_arg(args.get("auto_enter")) {
-                line.push_str("; Enter sent");
-            }
-            Some(line)
-        }
         "input_at" => {
-            let x = arg_u32(args.get("x"))?;
-            let y = arg_u32(args.get("y"))?;
             let payload = text?;
-            let mut line = format!("Executed input_at at ({x}, {y}): typed \"{payload}\"");
+            // 落点和框都从 payload 取：`args` 里的 x/y 是 dispatch 回写的同一份
+            // 数据，但框只在 payload 里。缺 `point` 时退回 args 的 x/y，不编框。
+            let calibrated = calibrated_point(tool_text).or_else(|| {
+                Some((
+                    arg_u32(args.get("x"))? as i64,
+                    arg_u32(args.get("y"))? as i64,
+                ))
+            });
+            let mut line = match calibrated {
+                Some((x, y)) => format!("Executed input_at — typed into calibrated point ({x}, {y})"),
+                None => "Executed input_at".to_string(),
+            };
+            if let Some([x1, y1, x2, y2]) = calibrated_box(tool_text) {
+                line.push_str(&format!("; target box [{x1}, {y1}, {x2}, {y2}]"));
+            }
+            line.push_str(&format!(": typed \"{payload}\""));
             if loose_bool_arg(args.get("clear_first")) {
                 line.push_str("; cleared first");
             }
@@ -765,6 +766,20 @@ fn execution_summary_for_tool_card(
             }
             if let Some([x1, y1, x2, y2]) = boxed {
                 line.push_str(&format!("; target box [{x1}, {y1}, {x2}, {y2}]"));
+            }
+            // 滚动量只在参数里，payload 没有。不报的话「滚了多少」全丢，
+            // 下一次该滚几格只能重新猜。
+            if name.contains("scroll") {
+                let nx = args.get("notches_x").and_then(|v| v.as_f64());
+                let ny = args.get("notches_y").and_then(|v| v.as_f64());
+                match (nx, ny) {
+                    (Some(x), Some(y)) if x != 0.0 || y != 0.0 => {
+                        line.push_str(&format!("; scrolled {x} x-notches, {y} y-notches"))
+                    }
+                    (Some(y), None) if y != 0.0 => line.push_str(&format!("; scrolled {y} y-notches")),
+                    (None, Some(y)) if y != 0.0 => line.push_str(&format!("; scrolled {y} y-notches")),
+                    _ => {}
+                }
             }
             return Some(line);
         }
@@ -953,6 +968,42 @@ mod tests {
         );
         // bbox 中心是 (600, 300)，和校准点不同 —— 报错位置一眼能看出来。
         assert!(!line.contains("(600, 300)"), "报的是 bbox 中心不是校准点: {line}");
+    }
+
+    /// `input_at` 也要带校准点和框。
+    #[test]
+    fn input_at_summary_carries_the_calibrated_point_and_box() {
+        let payload = r#"{"success":true,"action":"type","point":[605,307],"box":[588,291,612,309]}"#;
+        let args = serde_json::json!({"text": "hello", "clear_first": true});
+        let line = execution_summary_for_tool_card("input_at", &args, Some(payload))
+            .expect("有 payload 就该出摘要");
+        assert!(line.contains("(605, 307)"), "缺校准坐标: {line}");
+        assert!(line.contains("[588, 291, 612, 309]"), "缺框: {line}");
+        assert!(line.contains("typed \"hello\""), "缺输入内容: {line}");
+        assert!(line.contains("cleared first"), "{line}");
+    }
+
+    /// `input_index` 已不存在，不该再有摘要分支。
+    #[test]
+    fn input_index_is_not_a_summary_branch() {
+        let line = execution_summary_for_tool_card(
+            "input_index",
+            &serde_json::json!({"index": 12, "text": "hello"}),
+            Some(r#"{"success":true,"index":12}"#),
+        );
+        if let Some(line) = line {
+            assert!(!line.contains("overlay"), "input_index 还在出摘要: {line}");
+        }
+    }
+
+    /// 滚动量在参数里，payload 没有 —— 不报就丢了。
+    #[test]
+    fn scroll_summary_carries_notches() {
+        let payload = r#"{"success":true,"action":"mouse_scroll_current","note":"Scrolled."}"#;
+        let args = serde_json::json!({"notches_x": 0, "notches_y": -3});
+        let line = execution_summary_for_tool_card("mouse_scroll_current", &args, Some(payload))
+            .expect("有 payload 就该出摘要");
+        assert!(line.contains("-3 y-notches"), "缺滚动量: {line}");
     }
 
     /// drag 的两点读作「起点 → 终点」，不是两个独立目标。

@@ -156,14 +156,14 @@ mod tests {
 
     #[test]
     fn flat_computer_tool_ids_map_to_families() {
-        assert_eq!(desktop_tool_family_id("mouse_click_index"), Some("mouse"));
-        assert_eq!(desktop_tool_family_id("input_index"), Some("input"));
+        assert_eq!(desktop_tool_family_id("mouse_click_at"), Some("mouse"));
+        assert_eq!(desktop_tool_family_id("input_at"), Some("input"));
         assert_eq!(
-            desktop_tool_family_id("modified_click_select_index"),
+            desktop_tool_family_id("modified_click_select_at"),
             Some("modified_click")
         );
         assert_eq!(desktop_tool_family_id("clipboard_read"), Some("clipboard"));
-        assert!(is_desktop_vision_log_tool("mouse_click_index"));
+        assert!(is_desktop_vision_log_tool("mouse_click_at"));
         assert!(is_desktop_post_delay_tool("mouse_click_index"));
         assert!(is_desktop_vision_log_tool("clipboard_read"));
         assert!(!is_desktop_post_delay_tool("clipboard_read"));

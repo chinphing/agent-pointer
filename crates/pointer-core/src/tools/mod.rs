@@ -206,15 +206,16 @@ pub fn expand_family_allow_names(
 }
 
 /// Map retired split computer tool ids to unified family names for allow lists.
+///
+/// `input_at` / `input_focused` stay in the collapse list on purpose: an
+/// allow list that names one of them has always meant the whole `input`
+/// family, and widening is the direction this migration is allowed to go.
 pub fn remap_split_computer_tool_allow_names(names: &mut Vec<String>) {
     const TO_FAMILY: &[(&str, &str)] = &[
-        ("mouse_index", "mouse"),
         ("mouse_at", "mouse"),
         ("mouse_current", "mouse"),
-        ("input_index", "input"),
         ("input_at", "input"),
         ("input_focused", "input"),
-        ("modified_click_index", "modified_click"),
         ("modified_click_at", "modified_click"),
     ];
     for &(from, to) in TO_FAMILY {
@@ -229,13 +230,10 @@ pub fn remap_split_computer_tool_allow_names(names: &mut Vec<String>) {
         !matches!(
             base,
             "verify_report"
-                | "mouse_index"
                 | "mouse_at"
                 | "mouse_current"
-                | "input_index"
                 | "input_at"
                 | "input_focused"
-                | "modified_click_index"
                 | "modified_click_at"
         )
     });

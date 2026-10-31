@@ -121,12 +121,7 @@ fn explicit_operation_label(args: &Value) -> Option<String> {
 }
 
 fn infer_mouse_operation(args: &Value) -> Result<String> {
-    if args.get("from_index").is_some() && args.get("to_index").is_some() {
-        return Ok("drag_from_to_index".to_string());
-    }
-    if has_index_targeting(args) {
-        return Ok("click_index".to_string());
-    }
+    // overlay 编号早已不存在，`*_index` 一律不再推断。
     if has_xy(args) {
         if args.get("x2").is_some() && args.get("y2").is_some() {
             return Ok("drag_from_to_at".to_string());
@@ -140,12 +135,6 @@ fn infer_mouse_operation(args: &Value) -> Result<String> {
 }
 
 fn infer_input_operation(args: &Value) -> Result<String> {
-    if args.get("index").is_some() {
-        if args.get("text").is_some() {
-            return Ok("input_index".to_string());
-        }
-        return Ok("mouse_scroll_index".to_string());
-    }
     if args.get("text").is_some() && has_xy(args) {
         return Ok("input_at".to_string());
     }
@@ -159,17 +148,6 @@ fn infer_input_operation(args: &Value) -> Result<String> {
 }
 
 fn infer_modified_click_operation(args: &Value) -> Result<String> {
-    if args.get("indices").is_some() || has_index_targeting(args) {
-        let range = args
-            .get("range_select")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        return Ok(if range {
-            "range_select_index".to_string()
-        } else {
-            "select_index".to_string()
-        });
-    }
     if args.get("positions").is_some() || has_xy(args) {
         return Ok("select_at".to_string());
     }
@@ -305,30 +283,41 @@ mod tests {
 
 
     #[test]
-    fn display_infers_click_index_from_index_only() {
+    fn display_infers_click_at_from_xy() {
         let args = json!({
             "goal": "g",
             "action": "点击 Dock 栏中的微信图标",
-            "index": 133
+            "x": 133,
+            "y": 900
         });
         assert_eq!(
             operation_name_for_display("mouse", "mouse", &args),
-            "click_index"
+            "click_at"
         );
     }
 
 
     #[test]
-    fn display_infers_input_index_from_index_only() {
+    fn display_infers_input_at_from_text_and_xy() {
+        // overlay 编号不存在了；只剩「按坐标输入」和「按焦点输入」两种。
         let args = json!({
             "goal": "g",
             "action": "type in search box",
-            "index": 12,
+            "x": 100,
+            "y": 200,
             "text": "hello"
         });
         assert_eq!(
-            operation_name_for_display("input", "input_index", &args),
-            "input_index"
+            operation_name_for_display("input", "input_at", &args),
+            "input_at"
         );
+    }
+
+    /// `index` 不再是有效的定位方式 —— 没有编号图可读，推不出操作名。
+    #[test]
+    fn display_does_not_infer_index_operations() {
+        let args = json!({"goal": "g", "action": "click", "index": 12});
+        let name = operation_name_for_display("mouse", "mouse", &args);
+        assert!(!name.contains("index"), "index 不该再推出操作名: {name}");
     }
 }

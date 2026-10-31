@@ -260,13 +260,17 @@ impl VerifyVerdict {
     }
 
     /// Which checks failed, for the hint. Empty when `is_hit()`.
+    ///
+    /// 只有**真的判过**的维度才进这个列表。`Unclear` 是「没判过」，不是
+    /// 「不合格」—— 把它当成失败会让 `refine_hint` 生成排他性指令
+    /// （「这次只改 X」），把定位模型引到一条假线索上。
+    ///
+    /// `size_ok` 曾经在这里，但它恒为 `Unclear`（模型已不再回答该字段），
+    /// 于是每一轮都误报「大小合适」，把真正的错误（位置偏了）挤掉。
     pub fn failed_checks(&self) -> Vec<&'static str> {
         let mut out = Vec::new();
-        if self.center_on_target != CenterOnTarget::Yes {
+        if self.center_on_target == CenterOnTarget::No {
             out.push("中心定位");
-        }
-        if self.size_ok != MatchVerdict::Yes {
-            out.push("大小合适");
         }
         if matches!(
             self.position_matches,
@@ -512,6 +516,54 @@ mod tests {
         // `unknown`, not `ignore`: a verdict that never arrived cannot claim the
         // description asked for no position.
         assert_eq!(v.position_matches, PositionMatches::Unknown);
+    }
+
+    // ---- failed_checks：只有真的判过「不合格」才进列表 ----
+
+    /// 回归：`size_ok` 恒 `Unclear`（模型已不回答该字段），旧实现用
+    /// `!= Yes` 判断，于是每轮都报「大小合适」，`refine_hint` 生成
+    /// 「这次只改大小合适」——把定位模型引到一条假线索上，真正的
+    /// 位置错误反而被挤掉。
+    #[test]
+    fn unclear_size_never_lands_in_failed_checks() {
+        let v = VerifyVerdict {
+            is_same: MatchVerdict::No,
+            center_on_target: CenterOnTarget::No,
+            size_ok: MatchVerdict::Unclear,
+            position_matches: PositionMatches::Ignore,
+            ..Default::default()
+        };
+        let failed = v.failed_checks();
+        assert!(!failed.contains(&"大小合适"), "Unclear 不是不合格: {failed:?}");
+        assert_eq!(failed, vec!["中心定位"]);
+    }
+
+    /// `Unclear` 的判定不是「不合格」—— 没判过就不该给排他性指令。
+    /// 此时 `failed_checks()` 为空，`refine_hint` 退回原样转发 notes。
+    #[test]
+    fn unclear_verdict_yields_no_failed_checks() {
+        let v = VerifyVerdict {
+            is_same: MatchVerdict::Unclear,
+            center_on_target: CenterOnTarget::Unclear,
+            size_ok: MatchVerdict::Unclear,
+            position_matches: PositionMatches::Ignore,
+            ..Default::default()
+        };
+        assert!(v.failed_checks().is_empty(), "{:?}", v.failed_checks());
+        assert!(!v.is_hit());
+    }
+
+    /// 判过且不合格的维度仍然要报出来 —— 别把 bug 修成「什么都不报」。
+    #[test]
+    fn real_failures_are_still_reported() {
+        let v = VerifyVerdict {
+            is_same: MatchVerdict::No,
+            center_on_target: CenterOnTarget::No,
+            size_ok: MatchVerdict::Unclear,
+            position_matches: PositionMatches::No,
+            ..Default::default()
+        };
+        assert_eq!(v.failed_checks(), vec!["中心定位", "位置匹配"]);
     }
 
     #[test]

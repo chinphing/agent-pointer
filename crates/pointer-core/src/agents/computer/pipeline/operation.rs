@@ -11,17 +11,6 @@ pub use crate::agents::computer::pipeline::position_strategy::{
     position_schema_for_family, PositionSpatialModel,
 };
 
-/// Overlay digits on the annotated screenshot start at 1.
-pub fn valid_overlay_index(index: u32) -> bool {
-    index >= 1
-}
-
-/// Target overlay index from the index route only (`submit_position_index`).
-/// `reference_index` on the at route is a spatial anchor — not a click target.
-pub fn position_overlay_index(pos: &PositionModuleOutput) -> Option<u32> {
-    pos.index.filter(|i| valid_overlay_index(*i))
-}
-
 /// Operation family — one position prompt + one verify prompt per family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OperationFamily {
@@ -339,24 +328,12 @@ mod tests {
     }
 
     #[test]
-    fn merge_skips_invalid_overlay_index_zero() {
-        let mut args = json!({"goal": "g", "index": 25});
-        let pos = PositionModuleOutput {
-            index: Some(0),
-            ..Default::default()
-        };
-        merge_position_into_tool_args(&mut args, &pos);
-        assert_eq!(args["index"], 25);
-    }
-
-    #[test]
     fn merge_at_route_writes_xy_not_reference_index_as_target() {
         let mut args = json!({"goal": "g"});
         let pos = PositionModuleOutput {
             submit_route: Some(crate::agents::computer::pipeline::types::PositionSubmitRoute::At),
             x: Some(279),
             y: Some(332),
-            reference_index: Some(83),
             ..Default::default()
         };
         merge_position_into_tool_args(&mut args, &pos);
@@ -366,12 +343,11 @@ mod tests {
     }
 
     #[test]
-    fn resolve_execution_click_at_route_with_reference_index() {
+    fn resolve_execution_click_at_route() {
         let pos = PositionModuleOutput {
             submit_route: Some(crate::agents::computer::pipeline::types::PositionSubmitRoute::At),
             x: Some(279),
             y: Some(332),
-            reference_index: Some(83),
             ..Default::default()
         };
         assert_eq!(resolve_execution_tool("click", &pos), "mouse_click_at");
@@ -414,9 +390,10 @@ mod tests {
     }
 
     #[test]
-    fn resolve_execution_mouse_move_with_index() {
+    fn resolve_execution_mouse_move_goes_to_move_to() {
         let pos = PositionModuleOutput {
-            index: Some(12),
+            x: Some(12),
+            y: Some(34),
             ..Default::default()
         };
         assert_eq!(resolve_execution_tool("mouse_move", &pos), "move_to");
@@ -449,9 +426,10 @@ mod tests {
     }
 
     #[test]
-    fn resolve_execution_click_with_index() {
+    fn resolve_execution_click_with_coordinates() {
         let pos = PositionModuleOutput {
-            index: Some(5),
+            x: Some(5),
+            y: Some(6),
             ..Default::default()
         };
         assert_eq!(resolve_execution_tool("click", &pos), "mouse_click_at");
@@ -472,7 +450,10 @@ mod tests {
     #[test]
     fn resolve_execution_drag_with_from_to() {
         let pos = PositionModuleOutput {
-            indices: Some(vec![3, 7]),
+            positions: Some(vec![
+                crate::agents::computer::pipeline::types::PositionPoint { x: 3, y: 4 },
+                crate::agents::computer::pipeline::types::PositionPoint { x: 7, y: 8 },
+            ]),
             ..Default::default()
         };
         assert_eq!(
@@ -497,15 +478,16 @@ mod tests {
     }
 
     #[test]
-    fn build_execution_args_maps_index_to_indices_for_modified_click() {
+    fn build_execution_args_maps_positions_for_modified_click() {
         let args = json!({"action": "Ctrl+click row 3"});
         let pos = PositionModuleOutput {
-            index: Some(42),
+            positions: Some(vec![PositionPoint { x: 42, y: 43 }]),
             ..Default::default()
         };
         let exec = build_execution_args("modified_click", &args, &pos);
-        assert_eq!(exec["indices"], json!([42]));
+        assert_eq!(exec["positions"], json!([{"x": 42, "y": 43}]));
         assert!(exec.get("index").is_none());
+        assert!(exec.get("indices").is_none());
     }
 
     #[test]

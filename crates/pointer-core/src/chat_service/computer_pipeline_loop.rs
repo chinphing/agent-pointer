@@ -929,8 +929,7 @@ pub fn pipeline_give_up_error(state: &AppState, conversation_id: &str) -> Option
 #[cfg(test)]
 mod tests {
     use super::{
-        calibrated_box, calibrated_point, calibrated_points, execution_summary_for_tool_card,
-        is_grounding_failure,
+        calibrated_point, execution_summary_for_tool_card, is_grounding_failure,
     };
 
     /// verify 覆盖 tool 消息后，模型仍要能拿回**校准后**的落点。

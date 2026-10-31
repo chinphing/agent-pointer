@@ -211,14 +211,10 @@ pub struct AdvancedPipelineSession {
 pub enum PositionSubmitRoute {
     #[default]
     Unknown,
-    /// `submit_position_index`
-    Index,
-    /// `submit_position_at` (x, y + reference_index anchor)
+    /// `submit_position_at` (x, y)
     At,
     /// `submit_position_xy`
     Xy,
-    /// `submit_position_indices`
-    Indices,
     /// `submit_position_positions`
     Positions,
 }
@@ -233,12 +229,6 @@ pub struct PositionModuleOutput {
     #[serde(default)]
     pub y: Option<i32>,
     #[serde(default)]
-    pub index: Option<u32>,
-    #[serde(default)]
-    pub from_index: Option<u32>,
-    #[serde(default)]
-    pub to_index: Option<u32>,
-    #[serde(default)]
     pub x1: Option<i32>,
     #[serde(default)]
     pub y1: Option<i32>,
@@ -246,12 +236,7 @@ pub struct PositionModuleOutput {
     pub x2: Option<i32>,
     #[serde(default)]
     pub y2: Option<i32>,
-    #[serde(default)]
-    pub reference_index: Option<u32>,
-    /// Overlay index list (`MultipleIndexOrXy` model — drag, modified_click).
-    #[serde(default)]
-    pub indices: Option<Vec<u32>>,
-    /// Session coordinate list (`MultipleIndexOrXy` model — drag, modified_click).
+    /// Session coordinate list (drag, modified_click).
     #[serde(default)]
     pub positions: Option<Vec<PositionPoint>>,
 }

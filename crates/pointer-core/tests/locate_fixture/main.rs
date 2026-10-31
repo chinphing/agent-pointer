@@ -1397,7 +1397,6 @@ fn diff_bbox(
     b: &image::RgbaImage,
     window: (u32, u32, u32, u32),
 ) -> Option<(u32, u32, u32, u32)> {
-    use image::GenericImageView;
     let (w, h) = a.dimensions();
     let (wx0, wy0, wx1, wy1) = window;
     let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0u32, 0u32);

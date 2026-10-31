@@ -713,7 +713,7 @@ fn execution_summary_for_tool_card(
                     .or_else(|| arg_str(args.get("goal")));
                 // 两点的语义随工具变：drag 是「抓起点 / 放终点」同一对动作的
                 // 两端，不是两个独立目标。写成 `#0 / #1` 会让模型以为点了两下。
-                let mut line = if name.contains("drag") && multi.len() == 2 {
+                let line = if name.contains("drag") && multi.len() == 2 {
                     let (a, b) = (&multi[0], &multi[1]);
                     let mut l = match head {
                         Some(h) => format!("Executed {root_name}: {h} — dragged"),

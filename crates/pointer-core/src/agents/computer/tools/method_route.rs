@@ -42,12 +42,6 @@ fn has_xy(args: &Value) -> bool {
     args.get("x").is_some() && args.get("y").is_some()
 }
 
-fn has_index_targeting(args: &Value) -> bool {
-    args.get("index").is_some()
-        || args.get("from_index").is_some()
-        || args.get("to_index").is_some()
-        || args.get("indices").is_some()
-}
 
 fn strip_suffix(name: &str, suffix: &str) -> String {
     name.strip_suffix(suffix).unwrap_or(name).to_string()

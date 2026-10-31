@@ -174,7 +174,6 @@ pub(super) async fn dispatch_mouse(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn every_mouse_tool_name_reaches_a_method() {

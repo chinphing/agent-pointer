@@ -120,10 +120,6 @@ pub fn position_submit_tools(family: OperationFamily) -> Vec<Value> {
     }
 }
 
-fn has_at_coordinates(pos: &PositionModuleOutput) -> bool {
-    pos.x.is_some() && pos.y.is_some()
-}
-
 fn collect_positions(pos: &PositionModuleOutput) -> Vec<PositionPoint> {
     if let Some(list) = pos.positions.as_ref().filter(|v| !v.is_empty()) {
         return list.clone();

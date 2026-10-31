@@ -568,6 +568,57 @@ fn calibrated_point(tool_text: Option<&str>) -> Option<(i64, i64)> {
     Some((x.round() as i64, y.round() as i64))
 }
 
+/// locate 校准后的目标框，`[x1, y1, x2, y2]`。
+///
+/// 和 `point` 成对出现，但 `point` 只说落点、不说它命中的是什么。带框回来，
+/// 模型才能在下一次操作里用「就在刚才那个框附近」去描述新目标，而不是重新
+/// 从整屏猜一遍。这是 `success_payload` 里本来就有的 `box`，不是模型传的
+/// `bbox`——后者只是它的输入假设，这里不参与。
+/// 多目标时的落点与框：`points` / `boxes` 复数形态。
+///
+/// 批量点选（勾选多个复选框）走这条路径。只读单数 `point` 会让整条结果
+/// 只剩「点了 N 下」，一个坐标都不剩。
+fn calibrated_points(tool_text: Option<&str>) -> Option<Vec<((i64, i64), Option<[i64; 4]>)>> {
+    let v: serde_json::Value = serde_json::from_str(tool_text?.trim()).ok()?;
+    let pts = v.get("points")?.as_array()?;
+    if pts.len() < 2 {
+        return None;
+    }
+    let boxes = v.get("boxes").and_then(|b| b.as_array());
+    let mut out = Vec::with_capacity(pts.len());
+    for (i, p) in pts.iter().enumerate() {
+        let a = p.as_array()?;
+        let x = a.first()?.as_f64()?.round() as i64;
+        let y = a.get(1)?.as_f64()?.round() as i64;
+        let b = boxes
+            .and_then(|bs| bs.get(i))
+            .and_then(|b| b.as_array())
+            .filter(|b| b.len() == 4)
+            .and_then(|b| {
+                let mut o = [0i64; 4];
+                for (k, n) in b.iter().enumerate() {
+                    o[k] = n.as_f64()?.round() as i64;
+                }
+                Some(o)
+            });
+        out.push(((x, y), b));
+    }
+    Some(out)
+}
+
+fn calibrated_box(tool_text: Option<&str>) -> Option<[i64; 4]> {
+    let v: serde_json::Value = serde_json::from_str(tool_text?.trim()).ok()?;
+    let b = v.get("box")?.as_array()?;
+    if b.len() != 4 {
+        return None;
+    }
+    let mut out = [0i64; 4];
+    for (i, n) in b.iter().enumerate() {
+        out[i] = n.as_f64()?.round() as i64;
+    }
+    Some(out)
+}
+
 fn execution_summary_for_tool_card(
     root_name: &str,
     args: &Value,
@@ -634,9 +685,6 @@ fn execution_summary_for_tool_card(
             // 通常 5–20 px；`report_coordinate` 再把它反算成截图内像素。报
             // bbox 中心等于报模型自己的猜测，verify 说 fail 时它会以为「位置
             // 是对的、操作没生效」，而不是「我一开始就找错地方」。
-            let calibrated = calibrated_point(tool_text);
-            let label = arg_str(args.get("action")).or(arg_str(args.get("goal")));
-            let index = arg_u32(args.get("index"));
             let verb = if name.contains("drag") {
                 "dragged"
             } else if name.contains("scroll") {
@@ -646,20 +694,54 @@ fn execution_summary_for_tool_card(
             } else {
                 "clicked"
             };
-            return Some(match (label, calibrated, index) {
-                (Some(l), Some((x, y)), _) => format!(
-                    "Executed {root_name}: {l} — {verb} the calibrated point ({x}, {y}) \
-                     the locator confirmed, not the bbox you passed"
-                ),
-                (None, Some((x, y)), _) => format!(
-                    "Executed {root_name} — {verb} the calibrated point ({x}, {y}) \
-                     the locator confirmed, not the bbox you passed"
-                ),
+            // 多目标先判：`success_payload` 在 `points.len() > 1` 时只写复数
+            // 字段，单数读取会拿到 None，坐标就全丢了。
+            if let Some(multi) = calibrated_points(tool_text) {
+                let head = arg_str(args.get("target_desc"))
+                    .or_else(|| arg_str(args.get("action")))
+                    .or_else(|| arg_str(args.get("goal")));
+                let mut line = match head {
+                    Some(l) => format!("Executed {root_name}: {l} — {verb} {} calibrated points", multi.len()),
+                    None => format!("Executed {root_name} — {verb} {} calibrated points", multi.len()),
+                };
+                for (n, ((x, y), b)) in multi.iter().enumerate() {
+                    match b {
+                        Some([x1, y1, x2, y2]) => line.push_str(&format!(
+                            "; #{n}: ({x}, {y}) box [{x1}, {y1}, {x2}, {y2}]"
+                        )),
+                        None => line.push_str(&format!("; #{n}: ({x}, {y})")),
+                    }
+                }
+                return Some(line);
+            }
+            let calibrated = calibrated_point(tool_text);
+            let boxed = calibrated_box(tool_text);
+            // `target_desc` 是模型描述目标的主字段，`action`/`goal` 是旧别名。
+            // 只读后者会让最常见的那种调用在摘要里丢掉「点的是什么」。
+            let label = arg_str(args.get("target_desc"))
+                .or_else(|| arg_str(args.get("action")))
+                .or_else(|| arg_str(args.get("goal")));
+            let index = arg_u32(args.get("index"));
+            let mut line = match (label, calibrated, index) {
+                (Some(l), Some((x, y)), _) => {
+                    format!("Executed {root_name}: {l} — {verb} calibrated point ({x}, {y})")
+                }
+                (None, Some((x, y)), _) => {
+                    format!("Executed {root_name} — {verb} calibrated point ({x}, {y})")
+                }
                 (Some(l), None, Some(i)) => format!("Executed {root_name} at overlay {i}: {l}"),
                 (Some(l), None, None) => format!("Executed {root_name}: {l}"),
                 (None, None, Some(i)) => format!("Executed {root_name} at overlay {i}"),
                 (None, None, None) => format!("Executed {root_name}"),
-            });
+            };
+            // 「calibrated」只对落点成立时才写，别让它变成一句没有依据的形容词。
+            if calibrated.is_none() {
+                line = line.replace(" calibrated", "");
+            }
+            if let Some([x1, y1, x2, y2]) = boxed {
+                line.push_str(&format!("; target box [{x1}, {y1}, {x2}, {y2}]"));
+            }
+            return Some(line);
         }
         _ => {
             if let Some(t) = tool_text.map(str::trim).filter(|s| !s.is_empty()) {
@@ -806,7 +888,10 @@ pub fn pipeline_give_up_error(state: &AppState, conversation_id: &str) -> Option
 
 #[cfg(test)]
 mod tests {
-    use super::{calibrated_point, execution_summary_for_tool_card, is_grounding_failure};
+    use super::{
+        calibrated_box, calibrated_point, calibrated_points, execution_summary_for_tool_card,
+        is_grounding_failure,
+    };
 
     /// verify 覆盖 tool 消息后，模型仍要能拿回**校准后**的落点。
     ///
@@ -827,9 +912,9 @@ mod tests {
         assert_eq!(calibrated_point(Some(box_only)), None);
     }
 
-    /// 摘要里必须出现「calibrated」字样和那个坐标。
+    /// 摘要里必须出现校准坐标**和校准框**。
     #[test]
-    fn mouse_summary_carries_the_calibrated_point() {
+    fn mouse_summary_carries_the_calibrated_point_and_box() {
         let args = serde_json::json!({"target_desc": "保存按钮", "bbox": [580, 280, 620, 320]});
         let payload =
             r#"{"success":true,"action":"mouse_click_at","point":[605,307],"box":[588,291,612,309]}"#;
@@ -837,8 +922,83 @@ mod tests {
             .expect("有 payload 就该出摘要");
         assert!(line.contains("(605, 307)"), "缺校准坐标: {line}");
         assert!(line.contains("calibrated"), "没标明是校准后的: {line}");
+        assert!(
+            line.contains("[588, 291, 612, 309]"),
+            "缺校准框: {line}"
+        );
         // bbox 中心是 (600, 300)，和校准点不同 —— 报错位置一眼能看出来。
         assert!(!line.contains("(600, 300)"), "报的是 bbox 中心不是校准点: {line}");
+    }
+
+    /// 多目标（`points` / `boxes` 复数）也要带坐标和框回来。
+    ///
+    /// `success_payload` 在 `points.len() > 1` 时**只**写复数字段；只读单数
+    /// `point` 会拿到 None，整条摘要就退化成「点了 N 下」，一个坐标都不剩。
+    #[test]
+    fn multi_target_summary_carries_every_point_and_box() {
+        let payload = r#"{"success":true,"action":"mouse_click_at","points":[[100,200],[300,400]],"boxes":[[90,190,110,210],[290,390,310,410]]}"#;
+        let line = execution_summary_for_tool_card(
+            "mouse_click_at",
+            &serde_json::json!({"target_desc": "勾选三项"}),
+            Some(payload),
+        )
+        .expect("有 payload 就该出摘要");
+        assert!(line.contains("2 calibrated points"), "{line}");
+        assert!(line.contains("(100, 200)") && line.contains("[90, 190, 110, 210]"), "{line}");
+        assert!(line.contains("(300, 400)") && line.contains("[290, 390, 310, 410]"), "{line}");
+    }
+
+    /// 单个 `point` 不能走多目标路径。
+    #[test]
+    fn single_point_does_not_use_the_multi_target_path() {
+        let payload = r#"{"success":true,"action":"mouse_click_at","point":[605,307],"box":[588,291,612,309]}"#;
+        let line = execution_summary_for_tool_card(
+            "mouse_click_at",
+            &serde_json::json!({"target_desc": "保存按钮"}),
+            Some(payload),
+        )
+        .expect("有 payload 就该出摘要");
+        assert!(!line.contains("calibrated points"), "单点走了多目标分支: {line}");
+        assert!(line.contains("calibrated point (605, 307)"), "{line}");
+    }
+
+    /// 不能凭空断言「你传的 bbox」——模型可能压根没传，或者传了和这里无关。
+    ///
+    /// 摘要只陈述 payload 里的事实：落点和框。谁传的、差多少，payload 没有
+    /// 这个信息，就不该写进摘要。
+    #[test]
+    fn mouse_summary_makes_no_claim_about_the_models_bbox() {
+        let payload =
+            r#"{"success":true,"action":"mouse_click_at","point":[605,307],"box":[588,291,612,309]}"#;
+        for args in [
+            serde_json::json!({"target_desc": "保存按钮", "bbox": [580, 280, 620, 320]}),
+            serde_json::json!({"target_desc": "保存按钮"}),
+            serde_json::json!({}),
+        ] {
+            let line = execution_summary_for_tool_card("mouse_click_at", &args, Some(payload))
+                .expect("有 payload 就该出摘要");
+            assert!(
+                !line.to_lowercase().contains("you passed"),
+                "摘要不该假设模型传过 bbox: {line}"
+            );
+        }
+    }
+
+    /// 没有 `box` 时只报落点，不能编一个框出来；没有 `point` 时也不能
+    /// 保留「calibrated」这个形容词。
+    #[test]
+    fn mouse_summary_degrades_honestly() {
+        let no_box = r#"{"success":true,"action":"mouse_click_at","point":[605,307]}"#;
+        let line = execution_summary_for_tool_card("mouse_click_at", &serde_json::json!({}), Some(no_box))
+            .expect("有 payload 就该出摘要");
+        assert!(line.contains("(605, 307)"), "{line}");
+        assert!(!line.contains("target box"), "没框就不该报框: {line}");
+
+        let no_point = r#"{"success":true,"action":"mouse_click_at","box":[588,291,612,309]}"#;
+        let line = execution_summary_for_tool_card("mouse_click_at", &serde_json::json!({}), Some(no_point))
+            .expect("有 payload 就该出摘要");
+        assert!(!line.contains("calibrated"), "没落点还叫 calibrated 是假的: {line}");
+        assert!(line.contains("[588, 291, 612, 309]"), "框还是该报: {line}");
     }
 
     #[test]
@@ -868,3 +1028,6 @@ mod tests {
         assert!(!is_grounding_failure(None));
     }
 }
+
+
+

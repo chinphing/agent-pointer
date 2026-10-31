@@ -555,6 +555,19 @@ fn arg_str(v: Option<&Value>) -> Option<&str> {
         .filter(|s| !s.is_empty())
 }
 
+/// 从 `success_payload` 里取回**校准后**的落点。
+///
+/// `point` 是 `resolve_point` 返回的 locate 精定位中心，已经过
+/// `report_coordinate` 反算成模型输入侧的那套坐标（多屏时不带显示器偏移）。
+/// verify 覆盖 tool 消息时如果把它丢掉，模型就再也拿不回「我到底点了哪里」。
+fn calibrated_point(tool_text: Option<&str>) -> Option<(i64, i64)> {
+    let v: serde_json::Value = serde_json::from_str(tool_text?.trim()).ok()?;
+    let p = v.get("point")?.as_array()?;
+    let x = p.first()?.as_f64()?;
+    let y = p.get(1)?.as_f64()?;
+    Some((x.round() as i64, y.round() as i64))
+}
+
 fn execution_summary_for_tool_card(
     root_name: &str,
     args: &Value,
@@ -607,6 +620,47 @@ fn execution_summary_for_tool_card(
             }
             Some(line)
         }
+        // 带坐标的工具**先于**通用文本回退处理。
+        //
+        // 通用回退靠「文本里有没有 do not assume」判断要不要原样返回 payload，
+        // 那是 `note` 的措辞 —— 一改措辞，坐标就悄悄丢了。落点是 verify
+        // 判 fail 后模型唯一能用来区分「差一点」和「找错元素」的东西，不能
+        // 依赖别处的文案。
+        "mouse_click_at" | "mouse_double_click_at" | "mouse_right_click_at" | "move_to"
+        | "mouse_drag_from_to_at" | "mouse_scroll_current" => {
+            // 落点必须是**校准后**的那个，不是模型给的 `bbox` 中心。
+            //
+            // 模型给 `bbox` 只是「大概在这」，locate 会在裁片上精定位，偏差
+            // 通常 5–20 px；`report_coordinate` 再把它反算成截图内像素。报
+            // bbox 中心等于报模型自己的猜测，verify 说 fail 时它会以为「位置
+            // 是对的、操作没生效」，而不是「我一开始就找错地方」。
+            let calibrated = calibrated_point(tool_text);
+            let label = arg_str(args.get("action")).or(arg_str(args.get("goal")));
+            let index = arg_u32(args.get("index"));
+            let verb = if name.contains("drag") {
+                "dragged"
+            } else if name.contains("scroll") {
+                "scrolled"
+            } else if name == "move_to" {
+                "moved to"
+            } else {
+                "clicked"
+            };
+            return Some(match (label, calibrated, index) {
+                (Some(l), Some((x, y)), _) => format!(
+                    "Executed {root_name}: {l} — {verb} the calibrated point ({x}, {y}) \
+                     the locator confirmed, not the bbox you passed"
+                ),
+                (None, Some((x, y)), _) => format!(
+                    "Executed {root_name} — {verb} the calibrated point ({x}, {y}) \
+                     the locator confirmed, not the bbox you passed"
+                ),
+                (Some(l), None, Some(i)) => format!("Executed {root_name} at overlay {i}: {l}"),
+                (Some(l), None, None) => format!("Executed {root_name}: {l}"),
+                (None, None, Some(i)) => format!("Executed {root_name} at overlay {i}"),
+                (None, None, None) => format!("Executed {root_name}"),
+            });
+        }
         _ => {
             if let Some(t) = tool_text.map(str::trim).filter(|s| !s.is_empty()) {
                 let first = t.lines().next().unwrap_or(t).trim();
@@ -618,17 +672,6 @@ fn execution_summary_for_tool_card(
             }
             let action = arg_str(args.get("action"));
             let goal = arg_str(args.get("goal"));
-            let index = arg_u32(args.get("index"));
-            if name.starts_with("mouse_click")
-                || name.starts_with("mouse_double_click")
-                || name.starts_with("mouse_right_click")
-            {
-                let label = action.or(goal)?;
-                return Some(match index {
-                    Some(i) => format!("Executed {root_name} at overlay {i}: {label}"),
-                    None => format!("Executed {root_name}: {label}"),
-                });
-            }
             match (goal, action) {
                 (Some(g), _) => Some(format!("Executed {root_name}: {g}")),
                 (_, Some(a)) => Some(format!("Executed {root_name}: {a}")),
@@ -763,7 +806,40 @@ pub fn pipeline_give_up_error(state: &AppState, conversation_id: &str) -> Option
 
 #[cfg(test)]
 mod tests {
-    use super::is_grounding_failure;
+    use super::{calibrated_point, execution_summary_for_tool_card, is_grounding_failure};
+
+    /// verify 覆盖 tool 消息后，模型仍要能拿回**校准后**的落点。
+    ///
+    /// `success_payload` 的 `point` 是 locate 精定位 + `report_coordinate`
+    /// 反算的结果；摘要里报 `bbox` 中心等于报模型自己的猜测，verify 说 fail
+    /// 时它会以为「位置对了、操作没生效」而不是「我一开始就找错地方」。
+    #[test]
+    fn calibrated_point_is_read_from_the_tool_payload() {
+        let payload = r#"{"success":true,"action":"mouse_click_at","note":"...","point":[600,300],"box":[588,291,612,309]}"#;
+        assert_eq!(calibrated_point(Some(payload)), Some((600, 300)));
+
+        // 不是 JSON（比如 `hover` 的纯文本），不能编一个坐标出来。
+        assert_eq!(calibrated_point(Some("Hovered at (600, 300).")), None);
+        assert_eq!(calibrated_point(None), None);
+
+        // 缺 `point` 也不能回退到 `box` 中心 —— 那是模型的猜测。
+        let box_only = r#"{"success":true,"box":[588,291,612,309]}"#;
+        assert_eq!(calibrated_point(Some(box_only)), None);
+    }
+
+    /// 摘要里必须出现「calibrated」字样和那个坐标。
+    #[test]
+    fn mouse_summary_carries_the_calibrated_point() {
+        let args = serde_json::json!({"target_desc": "保存按钮", "bbox": [580, 280, 620, 320]});
+        let payload =
+            r#"{"success":true,"action":"mouse_click_at","point":[605,307],"box":[588,291,612,309]}"#;
+        let line = execution_summary_for_tool_card("mouse_click_at", &args, Some(payload))
+            .expect("有 payload 就该出摘要");
+        assert!(line.contains("(605, 307)"), "缺校准坐标: {line}");
+        assert!(line.contains("calibrated"), "没标明是校准后的: {line}");
+        // bbox 中心是 (600, 300)，和校准点不同 —— 报错位置一眼能看出来。
+        assert!(!line.contains("(600, 300)"), "报的是 bbox 中心不是校准点: {line}");
+    }
 
     #[test]
     fn grounding_payload_is_recognised_without_matching_message_text() {

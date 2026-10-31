@@ -598,7 +598,7 @@ mod tests {
         };
         // 只在「画标记」这一层比对 —— resize 与 JPEG 编码两边实现不同
         // （image crate vs PIL），整条链路比出来的差异全在底图上，跟标记无关。
-        // 所以这里直接拿一张已经放大到 1920 的图，画完就存 PNG（无损）。
+        // 所以这里直接拿一张已经放大到 1600 的图，画完就存 PNG（无损）。
         let mut img = reader.decode().unwrap().to_rgb8();
         let w = img.width() as f64;
         let h = img.height() as f64;
@@ -609,8 +609,11 @@ mod tests {
             x2: 0.55 * w,
             y2: 0.55 * h,
         };
+        // 与生产 verify close 一致：`ver_side` 钳到 CROP_MIN=240，
+        // 输出尺寸是 `cfg.out_px` = CROP_OUT_PX = 1600（不是 VERIFY_OUT_PX=1920）。
+        // 用 1920 会得到 40 px 的圈，而生产画的是 33 px —— 比对的就不是产线了。
         let side = 240.0;
-        let out_px = 1920u32;
+        let out_px = 1600u32;
         draw_center_mark(
             &mut img,
             drawn,

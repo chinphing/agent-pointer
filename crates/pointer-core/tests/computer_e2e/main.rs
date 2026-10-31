@@ -174,6 +174,10 @@ struct TruthCase {
     fixture: String,
     #[serde(default)]
     size: Option<[u32; 2]>,
+    /// 这条 case 的截图目录（`full_chain/<场景>/images`）。
+    /// 由 `load_truth` 填，不写在 truth.jsonl 里。
+    #[serde(skip)]
+    base: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
@@ -208,13 +212,13 @@ fn eval_data_root() -> PathBuf {
         .unwrap_or_else(|| repo_root().join("pointer-eval-data"))
 }
 
+/// `full_chain/` 下按场景分目录，每个目录内是 `truth.jsonl` + `images/`。
 fn data_dir() -> PathBuf {
-    eval_data_root().join("computer_e2e")
+    eval_data_root().join("full_chain")
 }
 
-/// Where the screenshots live. They sit beside `e2e_truth.json` in the data
-/// root, so `POINTER_E2E_IMAGE_DIR` is only needed when a run should use a
-/// different image set than the one the truth file was built from.
+/// 每个 case 的截图在它所属场景目录的 `images/` 下。`POINTER_E2E_IMAGE_DIR`
+/// 只在要用另一套截图时才需要。
 fn image_dir() -> PathBuf {
     if let Ok(p) = std::env::var("POINTER_E2E_IMAGE_DIR") {
         return PathBuf::from(p);
@@ -222,11 +226,42 @@ fn image_dir() -> PathBuf {
     data_dir()
 }
 
+/// 扫 `full_chain/<场景>/truth.jsonl`，把各场景的 case 合并成一份。
+///
+/// 场景目录名不写死列表——加一个新场景不用改这里。
 fn load_truth() -> Result<TruthFile> {
-    let path = data_dir().join("e2e_truth.json");
-    let raw = std::fs::read_to_string(&path)
-        .with_context(|| format!("read {}", path.display()))?;
-    serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))
+    let root = data_dir();
+    let mut cases = Vec::new();
+    let entries = std::fs::read_dir(&root)
+        .with_context(|| format!("read dir {}", root.display()))?;
+    let mut dirs: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    dirs.sort();
+    for dir in dirs {
+        let path = dir.join("truth.jsonl");
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for line in raw.lines().filter(|l| !l.trim().is_empty()) {
+            let mut case: TruthCase = serde_json::from_str(line)
+                .with_context(|| format!("parse {}: {}", path.display(), &line[..line.len().min(120)]))?;
+            case.base = match std::env::var("POINTER_E2E_IMAGE_DIR") {
+                Ok(p) => PathBuf::from(p),
+                Err(_) => dir.join("images"),
+            };
+            cases.push(case);
+        }
+    }
+    if cases.is_empty() {
+        anyhow::bail!(
+            "no cases under {} — run scripts/export_e2e_dataset.py first",
+            root.display()
+        );
+    }
+    Ok(TruthFile { cases })
 }
 
 // ---------------------------------------------------------------------------
@@ -542,7 +577,6 @@ async fn run_case(
     agent_provider: &OpenAIProvider,
     locate_provider: &OpenAIProvider,
     verify_provider: &OpenAIProvider,
-    img_dir: &Path,
     case: &TruthCase,
     mode: Mode,
 ) -> CaseResult {
@@ -557,7 +591,7 @@ async fn run_case(
     };
 
     let t_read = std::time::Instant::now();
-    let path = img_dir.join(&case.fixture);
+    let path = case.base.join(&case.fixture);
     if !path.exists() {
         out.log = Some(format!("  SKIP {} — missing {}", case.scene, path.display()));
         return out;
@@ -814,7 +848,6 @@ async fn computer_e2e_grounding() -> Result<()> {
                     &agent_provider,
                     &locate_provider,
                     &verify_provider,
-                    &img_dir,
                     c,
                     mode,
                 )

@@ -20,6 +20,14 @@
 //!   POINTER_E2E_SCOPE=smoke cargo test ... (10 runs, ~5 min)
 //!   POINTER_E2E_SCOPE=sample cargo test ... (20% of runs)
 //!   POINTER_E2E_LIMIT=10 cargo test ... (raw row count, overrides scope)
+//!
+//! 数据集用 `POINTER_E2E_SPLIT` 选，**一个目录 = 一个数据集**：
+//!
+//!   POINTER_E2E_SPLIT=sudoku      cargo test ... (104 条，数独游戏界面)
+//!   POINTER_E2E_SPLIT=screenspot  cargo test ... (300 条，ScreenSpot-Pro 4K)
+//!   POINTER_E2E_SPLIT=all         或不设 → 全部合并 (404 条)
+//!
+//! 写错的 split 直接报错并列出可用值 —— 静默跑全部会让人以为只跑了一个子集。
 
 use std::path::{Path, PathBuf};
 
@@ -226,11 +234,19 @@ fn image_dir() -> PathBuf {
     data_dir()
 }
 
-/// 扫 `full_chain/<场景>/truth.jsonl`，把各场景的 case 合并成一份。
+/// 扫 `full_chain/<数据集>/truth.jsonl`，把选中数据集的 case 合并成一份。
 ///
-/// 场景目录名不写死列表——加一个新场景不用改这里。
+/// **一个目录 = 一个数据集**，`POINTER_E2E_SPLIT` 选目录名：
+/// - 不设 / `all`：所有目录合并
+/// - 设成某个目录名：只跑那个数据集
+///
+/// 目录名不写死列表——加一个新数据集只需建目录，不用改这里。
 fn load_truth() -> Result<TruthFile> {
     let root = data_dir();
+    let split = std::env::var("POINTER_E2E_SPLIT").unwrap_or_default();
+    let split = split.trim();
+    let want_all = split.is_empty() || split == "all";
+
     let mut cases = Vec::new();
     let entries = std::fs::read_dir(&root)
         .with_context(|| format!("read dir {}", root.display()))?;
@@ -240,7 +256,25 @@ fn load_truth() -> Result<TruthFile> {
         .filter(|p| p.is_dir())
         .collect();
     dirs.sort();
+
+    // 选了某个数据集但目录不存在 —— 直接报错，不要静默跑空或跑全部。
+    // 静默跑全部会让人以为只跑了一个子集，代价是几十分钟的误判。
+    if !want_all && !dirs.iter().any(|d| d.file_name().is_some_and(|n| n == split)) {
+        let names: Vec<String> = dirs
+            .iter()
+            .filter_map(|d| d.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .collect();
+        anyhow::bail!(
+            "POINTER_E2E_SPLIT={split:?} 不存在于 {}；可用：{}（或 all）",
+            root.display(),
+            names.join(" | ")
+        );
+    }
+
     for dir in dirs {
+        if !want_all && dir.file_name().is_none_or(|n| n != split) {
+            continue;
+        }
         let path = dir.join("truth.jsonl");
         let Ok(raw) = std::fs::read_to_string(&path) else {
             continue;
@@ -257,8 +291,9 @@ fn load_truth() -> Result<TruthFile> {
     }
     if cases.is_empty() {
         anyhow::bail!(
-            "no cases under {} — run scripts/export_e2e_dataset.py first",
-            root.display()
+            "no cases under {} (split={:?}) — run scripts/export_e2e_dataset.py first",
+            root.display(),
+            split
         );
     }
     Ok(TruthFile { cases })

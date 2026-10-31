@@ -1,14 +1,97 @@
 # full_chain 基线
 
-数据：`pointer-eval-data/full_chain/e2e_truth.json`，**104 条**（`POINTER_E2E_SCOPE=full`）。
-每条一张 1920×1080 截图 + 一句目标描述 + 真值框。
+数据：`pointer-eval-data/full_chain/`，**一个目录 = 一个数据集**，用
+`POINTER_E2E_SPLIT` 选：
+
+| 目录 | 条数 | 内容 |
+|---|---|---|
+| `sudoku/` | **104** | 数独游戏界面（棋盘格 54 + 底部键盘 50） |
+| `screenspot/` | 300 | ScreenSpot-Pro 专业软件 4K |
+| 不设 / `all` | 404 | 全部合并 |
 
 ```bash
-POINTER_E2E_SCOPE=full POINTER_E2E_MODE=hint  POINTER_E2E_CONCURRENCY=8 cargo test --release -p pointer-core --test full_chain -- --ignored --nocapture
-POINTER_E2E_SCOPE=full POINTER_E2E_MODE=agent POINTER_E2E_CONCURRENCY=8 cargo test --release -p pointer-core --test full_chain -- --ignored --nocapture
+# 数独 104 条（历史基线的口径）
+POINTER_E2E_SPLIT=sudoku POINTER_E2E_MODE=hint  POINTER_E2E_CONCURRENCY=8 cargo test --release -p pointer-core --test full_chain full_chain_grounding -- --ignored --nocapture
+POINTER_E2E_SPLIT=sudoku POINTER_E2E_MODE=agent POINTER_E2E_CONCURRENCY=8 cargo test --release -p pointer-core --test full_chain full_chain_grounding -- --ignored --nocapture
+
+# 全部 404 条
+POINTER_E2E_SPLIT=all POINTER_E2E_MODE=hint POINTER_E2E_CONCURRENCY=8 cargo test --release -p pointer-core --test full_chain full_chain_grounding -- --ignored --nocapture
 ```
 
-## 2026-10-30 — 真值框按「描述行列 + 9×9 格阵」重算（当前基线）
+> **测试文件改过名**：`tests/computer_e2e/` → `tests/full_chain/`，测试函数
+> `computer_e2e_grounding` → `full_chain_grounding`。旧文档里的 `--test computer_e2e`
+> 会报「no test target named」。`POINTER_E2E_MODE` 支持 `none | oracle | agent | hint`。
+>
+> **2026-11-01 数据集重组**：原 `general/`(50) 与 `sudoku/`(54) 合并为 `sudoku/`(104)，
+> 两者都是数独游戏界面（前者目标是底部数字键盘，后者是棋盘格子）。旧的
+> `POINTER_E2E_SCOPE=full` 当时等于 104 条，现在等于 404 条——**旧命令跑出来的数字
+> 与新命令不可比**，一律改用 `POINTER_E2E_SPLIT`。
+
+## 2026-11-01 — communication.md 四类目标 + 容差圈（三次均值）
+
+**改动**：`prompts/communication.md` 的 `## Positioning` 从两类（Large/Small）
+扩到四类（Area / Point / Line / Gap-blank），`Control type` 增六个值
+（`divider / separator / progress bar / insertion point / gap / blank area`）。
+同时含上一轮的「索引降级 + 容差圈」两项，**三者混在一起，无法分离归因**
+（已决定不做 A/B）。
+
+**口径差异——读数字前必须知道：**
+
+| | 基线 86.5 % | 本次 90.7 % |
+|---|---|---|
+| 采样 | **单遍** | **三次均值** |
+| 数据 | 104 条 | 104 条（合并后同名） |
+| 命令 | `SCOPE=full` | `SPLIT=sudoku` |
+
+**三次原始数字：**
+
+| 次 | 命中 | 命中率 | hint 耗时 |
+|---|---|---|---|
+| 1 | 91/104 | 87.5 % | 9.3 s |
+| 2 | 96/104 | **92.3 %** | 12.6 s |
+| 3 | 96/104 | **92.3 %** | 8.1 s |
+| **均值** | 94.3/104 | **90.7 %** | — |
+
+| | 值 |
+|---|---|
+| 与基线差 | **+4.2 pp** |
+| 三次极差 | **4.8 pp**（87.5 → 92.3） |
+| 单遍标准误 | 3.1 pp |
+| 三次均值标准误 | 1.8 pp |
+| 差值显著性 | **2.3 σ** |
+
+**结论：三次全部 ≥ 基线（最低 87.5 % > 86.5 %），方向为正。**
+
+但 +4.2 pp **不宜当作精确提升量**，因为：
+
+1. 基线是单遍（±3.1 pp 波动），本次是三次均值（天然更靠近真值），口径不公平；
+2. 历史波动范围是 **86.5–91.3**，本次均值 90.7 % 落在**这个范围的上沿**，
+   无法排除「落在历史高值区」；
+3. 归因不可分离（三个改动同时生效）。
+
+**按尺寸（三次均值）：**
+
+| 尺寸 | n | 命中率 |
+|---|---|---|
+| 小 (<40px) | 1 | — |
+| 中 (40–120px) | 101 | 92.8 % |
+| 大 (>120px) | 2 | 100 % |
+
+104 条里 101 条是 40–120px，尺寸分桶在这个数据集上区分度很低。
+
+**耗时**：hint 8.1–12.6 s / 例，locate 0.0 s（hint 模式不进定位层）。
+
+### 顺带发现的真问题（未修）
+
+`f91c8a52`（7 键）首次跑到 538px 偏差。推理原文：
+
+> "the keys span from about x=85 to x=440 in the image. The **"7" key** ... is at
+> approximately **x=895**"
+
+**模型自己说键盘范围是 85–440，却给出 x=895**——在键盘外面。这是主 LLM 在
+「1000 归一化网格 ↔ 像素」换算时会自相矛盾，属于提示词层面的问题，不是数据问题。
+
+## 2026-10-30 — 真值框按「描述行列 + 9×9 格阵」重算（历史基线）
 
 **先修数据，再看模型。** `e2e_truth.json` 的 `bbox` 原本来自 `export_e2e_dataset.py`
 的 `outcome.box`——是 pipeline 自己点出来的框，不是人工标注。校验发现它的中心

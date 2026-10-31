@@ -61,7 +61,7 @@ impl MouseAtTool {
                 let y = required_f32_arg(args, "y")?;
                 let (px, py) = self.resolve_coord(args, x, y)?;
                 self.control.move_to(px, py)?;
-                Some((px, py))
+                Some(self.report_xy(px, py)?)
             }
             _ => None,
         };
@@ -76,6 +76,18 @@ impl MouseAtTool {
             .ok_or_else(|| anyhow!("Screen bounds not set"))
     }
 
+    /// 绝对屏幕像素 → 模型输入时用的那套坐标（monitor-relative）。
+    ///
+    /// 回给模型的数字必须和它自己给的坐标同一套刻度，否则多屏时它看到
+    /// `x=4442` 而截图只有 3840 宽，这个数字对它没有意义。
+    fn report_xy(&self, px: i32, py: i32) -> Result<(i32, i32)> {
+        let vision = self.vision_state.lock().unwrap();
+        let (x, y) = vision
+            .report_coordinate(px, py)
+            .ok_or_else(|| anyhow!("Screen bounds not set"))?;
+        Ok((x.round() as i32, y.round() as i32))
+    }
+
     fn click(&self, args: &Value) -> Result<String> {
         let x = required_f32_arg(args, "x")?;
         let y = required_f32_arg(args, "y")?;
@@ -83,7 +95,8 @@ impl MouseAtTool {
         let button = mouse_button_from_args(args)?;
         let clicks = click_count_from_args(args)?;
         self.control.click(button, Some(px), Some(py), clicks)?;
-        Ok(self.verify.click_hint(None, Some((px, py))))
+        let at = self.report_xy(px, py)?;
+        Ok(self.verify.click_hint(None, Some(at)))
     }
 
     fn double_click(&self, args: &Value) -> Result<String> {
@@ -91,7 +104,8 @@ impl MouseAtTool {
         let y = required_f32_arg(args, "y")?;
         let (px, py) = self.resolve_coord(args, x, y)?;
         self.control.double_click(px, py)?;
-        Ok(self.verify.click_hint(None, Some((px, py))))
+        let at = self.report_xy(px, py)?;
+        Ok(self.verify.click_hint(None, Some(at)))
     }
 
     fn right_click(&self, args: &Value) -> Result<String> {
@@ -100,7 +114,8 @@ impl MouseAtTool {
         let (px, py) = self.resolve_coord(args, x, y)?;
         // Compatibility alias for `mouse_click_at` with `button: right`.
         self.control.right_click(px, py)?;
-        Ok(self.verify.click_hint(None, Some((px, py))))
+        let at = self.report_xy(px, py)?;
+        Ok(self.verify.click_hint(None, Some(at)))
     }
 
     fn hover(&self, args: &Value) -> Result<String> {
@@ -108,7 +123,8 @@ impl MouseAtTool {
         let y = required_f32_arg(args, "y")?;
         let (px, py) = self.resolve_coord(args, x, y)?;
         self.control.move_to(px, py)?;
-        Ok(format!("Hovered at ({}, {}) px", px, py))
+        let (rx, ry) = self.report_xy(px, py)?;
+        Ok(format!("Hovered at ({rx}, {ry})."))
     }
 
     fn drag_from_to(&self, args: &Value) -> Result<String> {
@@ -139,9 +155,10 @@ impl MouseAtTool {
         // the same coordinate costs nothing.
         self.control.move_to(px1, py1)?;
         self.control.drag_to(px2, py2)?;
+        let (rx1, ry1) = self.report_xy(px1, py1)?;
+        let (rx2, ry2) = self.report_xy(px2, py2)?;
         Ok(format!(
-            "Dragged ({}, {}) -> ({}, {}). Verify on next screenshot.",
-            px1, py1, px2, py2
+            "Dragged ({rx1}, {ry1}) -> ({rx2}, {ry2}). Verify on next screenshot."
         ))
     }
 

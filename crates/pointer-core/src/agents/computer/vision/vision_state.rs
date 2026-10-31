@@ -118,6 +118,23 @@ impl VisionState {
         ))
     }
 
+    /// 绝对屏幕像素 → **模型输入时用的那套坐标**。
+    ///
+    /// `resolve_coordinate` 会加上显示器偏移（多屏时第二块屏从 `monitor.left`
+    /// 开始），但工具回给模型的必须是同一套坐标，否则模型看到 `x=4442` 而它
+    /// 只知道截图宽 3840，下一轮就无法用这个数字做任何推算。
+    ///
+    /// 这是 [`resolve_coordinate`] 的逆运算：`Pixel` 系统下返回 monitor-relative
+    /// 像素，`Qwen`/`Kimi` 系统下返回 0–1000。
+    pub fn report_coordinate(&self, px: i32, py: i32) -> Option<(f32, f32)> {
+        let monitor = self.screen_bbox?;
+        Some(super::coord::screen_to_normalized(
+            (px, py),
+            &monitor,
+            self.coordinate_system,
+        ))
+    }
+
     /// Record an action in the history.
     pub fn record_action(&mut self, action: RecentAction) {
         self.action_history.push(action);
@@ -246,6 +263,29 @@ mod tests {
 
         let pos = state.resolve_coordinate(500.0, 500.0);
         assert_eq!(pos, Some((960, 540)));
+    }
+
+    /// `report_coordinate` 必须是 `resolve_coordinate` 的逆运算。
+    ///
+    /// 工具回给模型的数字要和它自己给的坐标同一套刻度。多屏时第二块屏的
+    /// `monitor.left` 是 3840，模型给的 x=600 会落到绝对 4442；如果把这个
+    /// 4442 回给模型，它下一轮拿这个数字什么也算不出来 —— 截图只有 3840 宽。
+    #[test]
+    fn report_coordinate_inverts_resolve_coordinate() {
+        let mut state = VisionState::new();
+        // 第二块屏：从 3840 开始，和 4K 主屏并排。
+        state.set_screen_bbox(MonitorInfo::new(3840, 0, 3840, 2160));
+        state.set_coordinate_system(CoordinateSystem::Pixel);
+
+        let (px, py) = state.resolve_coordinate(600.0, 300.0).unwrap();
+        assert_eq!((px, py), (4440, 300), "绝对坐标要带屏偏移");
+
+        let (rx, ry) = state.report_coordinate(px, py).unwrap();
+        assert_eq!(
+            (rx.round() as i32, ry.round() as i32),
+            (600, 300),
+            "回给模型的必须是屏内相对坐标，不是绝对坐标"
+        );
     }
 
     /// The `mouse_click_at` chain: model point -> session -> screen.

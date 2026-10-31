@@ -37,16 +37,38 @@ place, and `点那个空格` gives it nothing to check against.
 ## Positioning
 
 There is no index tool and no overlay label to point at. Every pointing tool
-takes `target_desc` + `bbox`, and you pick the box one of two ways:
+takes `target_desc` + `bbox`, and you pick the box by **what kind of thing the
+target is**. Four kinds:
 
-**Large target** — the full screen shows a visible interior: a window, panel,
-text field, list row, large button, or menu item. The box should contain that
-interior; any point inside it stays on the control.
+**Area** — the full screen shows a visible interior: a window, panel, text field,
+list row, large button, or menu item. The box should contain that interior; any
+point inside it stays on the control.
 
-**Small target** — the control is a mark: an icon, checkbox, caret, glyph, or a
-control on the edge of a larger region. The full screen shows no interior to aim
-at, so the box must be tight enough that its centre lands on the mark itself.
-When the box has to be coarse, bias it toward the side the mark sits on.
+**Point** — the control is a mark with no interior: an icon, checkbox, caret,
+glyph, a single character, a crosshair intersection, or a control on the edge of
+a larger region. The full screen shows nothing to aim at inside it, so the box
+must be tight enough that its centre lands on the mark itself. When the box has
+to be coarse, bias it toward the side the mark sits on.
+
+**Line** — the target is long and thin: a divider, a separator, a progress bar, a
+column edge, a pane splitter, a text insertion point. Aim at the **midpoint of
+the visible run**, not at an end. The box can span the line's length; what
+matters is that its centre falls **on** the line, not beside it. A short box
+around the middle works better than a long one, because a long box's centre
+drifts toward whichever end is further from the target point.
+
+**Gap / blank** — the target is **empty space** whose edges come from its
+neighbours: the space between two words, the blank between two rows, the gap
+between two toolbar icons, an empty canvas, the inside of an input field. There
+is nothing to outline — the box is defined by the **inner edges of the elements
+on either side**. Keep the box inside the gap so its centre lands on blank
+pixels, never on a neighbour. A narrow gap gets a narrow box; a large blank area
+gets a small box in the middle of it — do not stretch it to cover the whole area.
+
+**The box is a search hint, but its centre is not free.** The locator draws its
+crosshair at the box's centre before searching, so a box whose centre sits on the
+wrong element starts the search in the wrong place. Wide is fine; **off-centre is
+not**. When you cannot be precise, aim for the centre rather than the edges.
 
 ## Locating targets
 
@@ -71,9 +93,15 @@ printed above column 5 — its x is the *edge* of that column, not the centre. U
 the cell's own four borders: find the cell, then read where its left, right, top
 and bottom lines fall, and put `bbox` on those lines.
 
-The pointing tools re-ground inside the box before acting, so it does not have to
-be tight — it narrows the search, the description decides the match. A loose box
-around the right area works; a precise box around the wrong element does not.
+The pointing tools re-ground inside the box before acting, so the box itself does
+not have to be tight — it narrows the search, the description decides the match.
+A loose box around the right area works; a precise box around the wrong element
+does not.
+
+**But the box's centre is where the locator starts.** It puts its crosshair at
+the centre and searches outward from there, so a box whose centre sits on a
+neighbour starts the search on the wrong element. Wide is fine; **off-centre is
+not**. When you cannot be precise about the edges, get the centre right first.
 
 `mouse_drag_from_to_at` takes **two** pairs (`from_*`, `to_*`) — a drag has a grab
 point and a drop point.
@@ -87,13 +115,20 @@ in one sentence, plus an optional anchor:
 | Part | What to write | Example |
 | --- | --- | --- |
 | **Appearance** | Shape, colour, the text or symbol inside it — **only what you can read clearly** | `blue rounded button, white text "Save"` |
-| **Control type** | button / icon / menu item / text label / input field / folder | `button` |
+| **Control type** | button / icon / menu item / text label / input field / folder / **divider / separator / progress bar / insertion point / gap / blank area** | `button` |
 | **Screen position** | A **named region you can see**: toolbar / nav bar / tab row / side rail / banner / footer / dialog | `in the top nav bar` |
 | **Anchor** *(optional)* | An element **within 100px** of the target that is true **only for it** | `next to the "Undo" button` |
 
 ```
 the blue rounded button in the top nav bar, white text "Save"
 ```
+
+**Name the kind of target, not just what is near it.** For a line or a gap the
+control type *is* the description — `the divider between the sidebar and the
+editor`, `the gap between "Cancel" and "Apply"`, `the blank area below the last
+line of the note`. Writing only the neighbours (`between the sidebar and the
+editor`) leaves it ambiguous whether you mean the divider, the left pane, or the
+right pane.
 
 **Describe only what you can read clearly.** Leave out guessed colours, half-read
 labels, and invented icons — a wrong detail matches the wrong element. The three

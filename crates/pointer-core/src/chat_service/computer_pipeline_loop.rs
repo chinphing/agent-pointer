@@ -606,6 +606,15 @@ fn calibrated_points(tool_text: Option<&str>) -> Option<Vec<((i64, i64), Option<
     Some(out)
 }
 
+/// `(605, 307) box [588, 291, 612, 309]`，框缺失时只留落点。
+fn fmt_point_box(pb: &((i64, i64), Option<[i64; 4]>)) -> String {
+    let ((x, y), b) = pb;
+    match b {
+        Some([x1, y1, x2, y2]) => format!("({x}, {y}) box [{x1}, {y1}, {x2}, {y2}]"),
+        None => format!("({x}, {y})"),
+    }
+}
+
 fn calibrated_box(tool_text: Option<&str>) -> Option<[i64; 4]> {
     let v: serde_json::Value = serde_json::from_str(tool_text?.trim()).ok()?;
     let b = v.get("box")?.as_array()?;
@@ -678,7 +687,8 @@ fn execution_summary_for_tool_card(
         // 判 fail 后模型唯一能用来区分「差一点」和「找错元素」的东西，不能
         // 依赖别处的文案。
         "mouse_click_at" | "mouse_double_click_at" | "mouse_right_click_at" | "move_to"
-        | "mouse_drag_from_to_at" | "mouse_scroll_current" => {
+        | "mouse_drag_from_to_at" | "mouse_scroll_current"
+        | "modified_click_select_at" | "modified_click_range_select_at" => {
             // 落点必须是**校准后**的那个，不是模型给的 `bbox` 中心。
             //
             // 模型给 `bbox` 只是「大概在这」，locate 会在裁片上精定位，偏差
@@ -700,18 +710,33 @@ fn execution_summary_for_tool_card(
                 let head = arg_str(args.get("target_desc"))
                     .or_else(|| arg_str(args.get("action")))
                     .or_else(|| arg_str(args.get("goal")));
-                let mut line = match head {
-                    Some(l) => format!("Executed {root_name}: {l} — {verb} {} calibrated points", multi.len()),
-                    None => format!("Executed {root_name} — {verb} {} calibrated points", multi.len()),
-                };
-                for (n, ((x, y), b)) in multi.iter().enumerate() {
-                    match b {
-                        Some([x1, y1, x2, y2]) => line.push_str(&format!(
-                            "; #{n}: ({x}, {y}) box [{x1}, {y1}, {x2}, {y2}]"
-                        )),
-                        None => line.push_str(&format!("; #{n}: ({x}, {y})")),
+                // 两点的语义随工具变：drag 是「抓起点 / 放终点」同一对动作的
+                // 两端，不是两个独立目标。写成 `#0 / #1` 会让模型以为点了两下。
+                let mut line = if name.contains("drag") && multi.len() == 2 {
+                    let (a, b) = (&multi[0], &multi[1]);
+                    let mut l = match head {
+                        Some(h) => format!("Executed {root_name}: {h} — dragged"),
+                        None => format!("Executed {root_name} — dragged"),
+                    };
+                    l.push_str(&format!(" from calibrated point {}", fmt_point_box(a)));
+                    l.push_str(&format!(" to calibrated point {}", fmt_point_box(b)));
+                    l
+                } else {
+                    let mut l = match head {
+                        Some(h) => format!(
+                            "Executed {root_name}: {h} — {verb} {} calibrated points",
+                            multi.len()
+                        ),
+                        None => format!(
+                            "Executed {root_name} — {verb} {} calibrated points",
+                            multi.len()
+                        ),
+                    };
+                    for (n, pb) in multi.iter().enumerate() {
+                        l.push_str(&format!("; #{n}: {}", fmt_point_box(pb)));
                     }
-                }
+                    l
+                };
                 return Some(line);
             }
             let calibrated = calibrated_point(tool_text);
@@ -930,6 +955,39 @@ mod tests {
         assert!(!line.contains("(600, 300)"), "报的是 bbox 中心不是校准点: {line}");
     }
 
+    /// drag 的两点读作「起点 → 终点」，不是两个独立目标。
+    ///
+    /// `mouse_drag_from_to_at` 分别 ground `from_*` 和 `to_*` 两处，所以 payload
+    /// 里是复数。但它是一次拖拽的两端；写成 `#0 / #1` 会让模型以为点了两下。
+    #[test]
+    fn drag_summary_reads_two_points_as_from_and_to() {
+        let payload = r#"{"success":true,"action":"mouse_drag_from_to_at","points":[[100,200],[300,400]],"boxes":[[90,190,110,210],[290,390,310,410]]}"#;
+        let line = execution_summary_for_tool_card(
+            "mouse_drag_from_to_at",
+            &serde_json::json!({"to_target_desc": "回收站"}),
+            Some(payload),
+        )
+        .expect("有 payload 就该出摘要");
+        assert!(line.contains("dragged from calibrated point (100, 200)"), "{line}");
+        assert!(line.contains("to calibrated point (300, 400)"), "{line}");
+        assert!(line.contains("[90, 190, 110, 210]") && line.contains("[290, 390, 310, 410]"), "{line}");
+        assert!(!line.contains("#0"), "drag 不该用编号列表: {line}");
+    }
+
+    /// 真正的多目标（`modified_click` 的 `positions[]`）才用编号列表。
+    #[test]
+    fn modified_click_summary_numbers_each_independent_target() {
+        let payload = r#"{"success":true,"action":"modified_click_select_at","points":[[100,200],[300,400],[500,600]],"boxes":[[90,190,110,210],[290,390,310,410],[490,590,510,610]]}"#;
+        let line = execution_summary_for_tool_card(
+            "modified_click_select_at",
+            &serde_json::json!({"goal": "勾选三项"}),
+            Some(payload),
+        )
+        .expect("有 payload 就该出摘要");
+        assert!(line.contains("3 calibrated points"), "{line}");
+        assert!(line.contains("#0: (100, 200)") && line.contains("#2: (500, 600)"), "{line}");
+    }
+
     /// 多目标（`points` / `boxes` 复数）也要带坐标和框回来。
     ///
     /// `success_payload` 在 `points.len() > 1` 时**只**写复数字段；只读单数
@@ -1028,6 +1086,7 @@ mod tests {
         assert!(!is_grounding_failure(None));
     }
 }
+
 
 
 

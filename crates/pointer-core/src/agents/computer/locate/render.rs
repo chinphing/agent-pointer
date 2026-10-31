@@ -150,6 +150,8 @@ pub fn render_annotated_frame(
                 y2: cy,
             },
             false,
+            None,
+            0.0,
         );
     }
     let _ = (w, h);
@@ -216,6 +218,15 @@ pub enum Mark {
     /// 而真正交付的坐标是十字交点。臂长也不按框算，改成按画面短边的固定
     /// 比例，这样框大框小都不改变标记的形状，模型看到的就是一个等大的准星。
     CrossOnly,
+    /// 十字星 + 容差圈 —— verify 的 close 图用这个。
+    ///
+    /// 判定是几何量：「交点离目标点 / 目标线的距离 < 5 px（原图）」。
+    /// 模型拿不到像素刻度，所以把 5 px 按放大倍数换算成图上的半径，
+    /// 画成虚线圆 —— 「量距离」变成「看包不包含」。
+    ///
+    /// 对点：目标点在圈内 ⟺ 距离 < 容差。
+    /// 对线：线穿过圈 ⟺ 垂距 < 容差（垂足是线上离交点最近的点）。
+    CrossWithTolerance,
 }
 
 /// [`render_crop`] with both the dimming and the mark style explicit.
@@ -275,7 +286,14 @@ pub fn render_crop_marked(
     draw_center_mark(
         &mut magnified,
         drawn,
-        matches!(mark, Mark::CrossOnly),
+        matches!(mark, Mark::CrossOnly | Mark::CrossWithTolerance),
+        if mark == Mark::CrossWithTolerance {
+            Some(super::geometry::tolerance_radius_px(side, out_px))
+        } else {
+            None
+        },
+        // 臂长下限：原图 10 px 换算到渲染图
+        super::geometry::tolerance_radius_px(side, out_px) * 2.0,
     );
 
     Ok((encode(&magnified)?, bounds))
@@ -289,6 +307,15 @@ pub fn render_crop_marked(
 /// deliberately generic: it has nothing to do with any particular app's palette.
 const MARK_CORE: Rgb<u8> = Rgb([220, 20, 20]);
 const MARK_RING: Rgb<u8> = Rgb([255, 255, 255]);
+
+/// 十字臂长的最小长度，**原图像素**。
+///
+/// 与 `VERIFY_TOLERANCE_PX = 5` 配对：臂长 ≥ 10 原图 px、圈半径 = 5 原图 px，
+/// 所以臂长恒 ≥ 2 × 圈半径 —— 臂必然穿过圈、露在外面，模型才能同时看到
+/// 「交点在哪」和「容差多大」。两个量都用原图单位，换放大倍数时关系不变。
+const CROSS_ARM_MIN_SRC_PX: f64 = 10.0;
+
+
 
 /// Crosshair arm length as a share of the box's own side.
 ///
@@ -317,7 +344,13 @@ const CROSS_RING_RATIO: f64 = 0.0018;
 /// never merges with the outline it is being judged against.
 /// 从交点垂直向上画一条细线到画面顶 —— 用来把交点和顶部的列标连起来。
 ///
-fn draw_center_mark(img: &mut RgbImage, b: PxBox, fixed_arms: bool) {
+fn draw_center_mark(
+    img: &mut RgbImage,
+    b: PxBox,
+    fixed_arms: bool,
+    tol_r: Option<f64>,
+    arm_min: f64,
+) {
     let (w, h) = (img.width() as f64, img.height() as f64);
     if w <= 0.0 || h <= 0.0 {
         return;
@@ -348,11 +381,21 @@ fn draw_center_mark(img: &mut RgbImage, b: PxBox, fixed_arms: bool) {
     //
     // 按框算则比例恒定：0.35 × 框宽 → 跨度永远是框的 70%，框多大都不遮挡。
     let _ = fixed_arms;
-    let arm_floor = short * 0.008;
-    let (arm_x, arm_y) = (
-        (box_w * CROSS_ARM_SHARE).max(arm_floor).min(short * 0.25).max(4.0),
-        (box_h * CROSS_ARM_SHARE).max(arm_floor).min(short * 0.25).max(4.0),
+    // 臂长 = min( max(框长边 × 0.35, 10 原图 px), 画面短边 × 0.25 )
+    //
+    // - 比例 0.35：单臂 35%、跨度 70% 框宽，不碰框线。
+    // - 下限改成 **原图 10 px**（`arm_min` 是调用方按放大倍数换算好的渲染值）。
+    //   旧下限是 `short × 0.008`（画面 0.8%），与目标无关；换成原图尺寸后
+    //   和圈半径同源：圈 = 5 原图 px，臂 ≥ 10 原图 px，臂恒 ≥ 2 × 圈半径，
+    //   必然穿过圈露在外面。
+    // - 上限 `short × 0.25` 保留：大目标时框接近画面，0.35 × 框会撑满，
+    //   臂长盖住目标就失去指示作用了。
+    let (mut arm_x, mut arm_y) = (
+        (box_w * CROSS_ARM_SHARE).max(arm_min).min(short * 0.25),
+        (box_h * CROSS_ARM_SHARE).max(arm_min).min(short * 0.25),
     );
+    let _ = &mut arm_x;
+    let _ = &mut arm_y;
     let half = (short * CROSS_THICK_RATIO).max(1.0);
     let ring = (short * CROSS_RING_RATIO).max(0.5);
 
@@ -363,6 +406,40 @@ fn draw_center_mark(img: &mut RgbImage, b: PxBox, fixed_arms: bool) {
             img.put_pixel(xi as u32, yi as u32, c);
         }
     };
+
+    // 容差圈：以交点为圆心，半径 = 原图 5 px × 放大倍数。
+    //
+    // **和十字星完全一致**：同一组 `half` / `ring` 参数、同样两遍循环
+    // （白描边 → 红芯）、同样沿法线扫描 `±(half + extra)`、同样的
+    // `MARK_CORE` / `MARK_RING` 配色。圈与准星是同一个符号的两个部分，
+    // 形状区分（环 vs 十字），不需要靠颜色区分。
+    //
+    // 虚线用「画一段 / 跳一段」产生：沿圆周密集采样，段内每步画一根法线。
+    // 第一版按角度画孤立点，52 个点被 JPEG 平均成灰色（实测 (0,200,220)
+    // 掉到 (107,171,180)），视觉上是一团模糊的淡影。
+    if let Some(r) = tol_r {
+        if r >= 1.0 {
+            // 虚线节拍：一段 16°、空 8°，圆周约 15 段。
+            let (dash, gap) = (16.0_f64.to_radians(), 8.0_f64.to_radians());
+            let period = dash + gap;
+            let sample = 0.004_f64; // ≈0.23°，保证段内连续
+            for (color, extra) in [(MARK_RING, ring), (MARK_CORE, 0.0)] {
+                let t = half + extra;
+                let mut a = 0.0_f64;
+                while a < std::f64::consts::TAU {
+                    if a % period <= dash {
+                        let (sn, cs) = (a.sin(), a.cos());
+                        let mut d = -t;
+                        while d <= t {
+                            plot(cx + (r + d) * cs, cy + (r + d) * sn, color);
+                            d += 1.0;
+                        }
+                    }
+                    a += sample;
+                }
+            }
+        }
+    }
 
     // White halo first, red core on top — same reasoning as the old dot's rim:
     // one of the two always contrasts, whatever the cell background is.
@@ -384,6 +461,7 @@ fn draw_center_mark(img: &mut RgbImage, b: PxBox, fixed_arms: bool) {
             y += 1.0;
         }
     }
+
 }
 
 /// Darken pixels outside `keep` so the box interior stands out.
@@ -477,6 +555,96 @@ mod tests {
         let img = render_full(&frame(1000, 800), None).unwrap();
         assert_eq!((img.width, img.height), (1000, 800));
         assert!(!img.jpeg.is_empty());
+    }
+
+    /// 容差圈：半径必须等于「原图 5 px × 放大倍数」。
+    ///
+    /// 这是判定的物理量。算错就意味着模型看到的「圈内」和真实的「5 px 内」
+    /// 对不上 —— 而且不会有任何报错，只会静默地放宽或收紧判据。
+    #[test]
+    fn tolerance_radius_matches_five_logical_px() {
+        use super::super::geometry::{tolerance_radius_px, CROP_OUT_PX};
+
+        // 裁片 240 px 输出 1600 px → 放大 6.67× → 5 px 原图 = 33.3 px 图上
+        let r = tolerance_radius_px(240.0, CROP_OUT_PX);
+        assert!((r - 5.0 * 1600.0 / 240.0).abs() < 1e-9);
+        assert!((r - 33.333).abs() < 0.01, "期望约 33.3 px，实际 {r}");
+
+        // 放大倍数变化时线性跟随
+        let r2 = tolerance_radius_px(480.0, CROP_OUT_PX);
+        assert!((r2 - r / 2.0).abs() < 1e-9);
+
+        // 退化输入不能产生 NaN / 负数（会画出一个半径 0 或巨大的圈）
+        assert_eq!(tolerance_radius_px(0.0, CROP_OUT_PX), 0.0);
+        assert_eq!(tolerance_radius_px(-1.0, CROP_OUT_PX), 0.0);
+        assert_eq!(tolerance_radius_px(240.0, 0), 0.0);
+    }
+
+    /// 渲染一致性校验：把 Rust 的渲染结果写到磁盘，供 Python 侧逐像素比对。
+    ///
+    /// `cargo test -p pointer-core --lib render::tests::dump_render_for_parity -- --ignored --nocapture`
+    ///
+    /// 输入图、候选框、裁片边长、输出尺寸全部写死，Python 侧
+    /// `pointer-eval/scripts/parity_check.py` 用同样的参数渲染后逐像素 diff。
+    #[test]
+    #[ignore]
+    fn dump_render_for_parity() {
+        use image::ImageReader;
+        let src = std::env::var("PARITY_SRC")
+            .unwrap_or_else(|_| "/tmp/parity_src.png".to_string());
+        let Ok(reader) = ImageReader::open(&src) else {
+            eprintln!("跳过：找不到 {src}");
+            return;
+        };
+        // 只在「画标记」这一层比对 —— resize 与 JPEG 编码两边实现不同
+        // （image crate vs PIL），整条链路比出来的差异全在底图上，跟标记无关。
+        // 所以这里直接拿一张已经放大到 1920 的图，画完就存 PNG（无损）。
+        let mut img = reader.decode().unwrap().to_rgb8();
+        let w = img.width() as f64;
+        let h = img.height() as f64;
+        // 与 Python 侧完全相同的 drawn 框
+        let drawn = PxBox {
+            x1: 0.35 * w,
+            y1: 0.35 * h,
+            x2: 0.55 * w,
+            y2: 0.55 * h,
+        };
+        let side = 240.0;
+        let out_px = 1920u32;
+        draw_center_mark(
+            &mut img,
+            drawn,
+            true,
+            Some(super::super::geometry::tolerance_radius_px(side, out_px)),
+            super::super::geometry::tolerance_radius_px(side, out_px) * 2.0,
+        );
+        img.save("/tmp/parity_rust.png").unwrap();
+        eprintln!("写出 /tmp/parity_rust.png {w}x{h}");
+    }
+
+    /// 圈一律画，不论半径大小 —— 圈是判据的载体，缺了它判定就退回凭感觉。
+    ///
+    /// 小圈（半径几像素）也要存在：线宽会跟着半径收缩，但圈本身必须有。
+    #[test]
+    fn tolerance_ring_is_always_drawn() {
+        let f = frame(1000, 800);
+        let candidate = NormBox::new(400.0, 400.0, 448.0, 448.0);
+
+        // 大裁片 → 小圈（120 px 裁片、400 px 输出 = 3.33× → 16.7 px 圈）
+        let (plain_a, _) =
+            render_crop_marked(&f, candidate, 120.0, 400, false, Mark::CrossOnly).unwrap();
+        let (ring_a, _) =
+            render_crop_marked(&f, candidate, 120.0, 400, false, Mark::CrossWithTolerance)
+                .unwrap();
+        assert_ne!(plain_a.jpeg, ring_a.jpeg, "小圈也必须画出来");
+
+        // 小裁片 → 大圈（80 px 裁片��400 px 输出 = 5.0× → 25 px 圈）
+        let (plain_b, _) =
+            render_crop_marked(&f, candidate, 80.0, 400, false, Mark::CrossOnly).unwrap();
+        let (ring_b, _) =
+            render_crop_marked(&f, candidate, 80.0, 400, false, Mark::CrossWithTolerance)
+                .unwrap();
+        assert_ne!(plain_b.jpeg, ring_b.jpeg, "大圈同样要画");
     }
 
     #[test]

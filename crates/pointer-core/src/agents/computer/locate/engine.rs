@@ -474,8 +474,16 @@ async fn locate_one_traced<V: LocateVision>(
             // 21–61%，40 px 以上 88–92%，断崖正好在这里。40 px 以下的目标在
             // 4K 截图上只有十几个真实像素，放大 8 倍后边界是插值糊的，模型没有
             // 可靠的视觉边界可判 —— 此时框是唯一的参照。
-            let (image, bounds) =
-                render_crop_opts(frame, current, ver_side, cfg.out_px, super::render::dim_enabled())?;
+            // verify 的 close 图带容差圈：判定是几何量（离目标 < 5 px），
+            // 模型拿不到像素刻度，所以把 5 px 换算成图上的圆半径。
+            let (image, bounds) = render_crop_marked(
+                frame,
+                current,
+                ver_side,
+                cfg.out_px,
+                super::render::dim_enabled(),
+                super::render::Mark::CrossWithTolerance,
+            )?;
             // The locator gets the same window without the candidate outline —
             // only the crosshair, same as verify. The outline was removed
             // because it is the most target-shaped thing in the crop and the

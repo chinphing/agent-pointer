@@ -42,8 +42,25 @@ pub const VERIFY_MULT: f64 = 4.0;
 /// locator's 1600 px the target lands at 68 px — coarse. 1920 brings it to 82 px
 /// for ~44 % more prompt tokens (area, not side, is what the provider bills).
 pub const VERIFY_OUT_PX: u32 = 1920;
+/// 判定容差（**原图逻辑像素**）：交点离目标点 / 目标线的距离在这个范围内算命中。
+///
+/// 这是几何判据，不是视觉判据 —— 模型看图时拿不到像素刻度，所以渲染时
+/// 以交点为圆心、半径 `VERIFY_TOLERANCE_PX × zoom` 画一个虚线圆，把
+/// 「量距离」变成「看包不包含」。见 [`tolerance_radius_px`]。
+pub const VERIFY_TOLERANCE_PX: f64 = 5.0;
 /// Full-screen images above this pixel count are downscaled (B5 `FULL_MAX_PX`).
 pub const FULL_MAX_PX: f64 = 2_500_000.0;
+
+/// 容差圈在**渲染图**上的半径：原图 5 px × 裁片放大倍数。
+///
+/// 放大倍数 = `out_px / side`。裁片 240 px 输出 1600 px 时是 6.67×，
+/// 5 px 原图 → 33 px 图上 —— 十字星臂长 4 px 的 8 倍，肉眼可辨。
+pub fn tolerance_radius_px(side: f64, out_px: u32) -> f64 {
+    if side <= 0.0 || out_px == 0 {
+        return 0.0;
+    }
+    VERIFY_TOLERANCE_PX * (out_px as f64 / side)
+}
 
 const NORM_MAX: f64 = 1000.0;
 

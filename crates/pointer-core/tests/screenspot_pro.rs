@@ -108,12 +108,15 @@ impl DescMode {
 enum Mode {
     None,
     Agent,
+    /// 只跑主 LLM 出 bbox，不进 locate —— 和 `full_chain` 的 `hint` 同口径。
+    Hint,
 }
 
 impl Mode {
     fn parse(raw: &str) -> Self {
         match raw.trim().to_ascii_lowercase().as_str() {
             "agent" => Mode::Agent,
+            "hint" | "hint_only" => Mode::Hint,
             _ => Mode::None,
         }
     }
@@ -122,6 +125,7 @@ impl Mode {
         match self {
             Mode::None => "none",
             Mode::Agent => "agent",
+            Mode::Hint => "hint=main-llm-only",
         }
     }
 }
@@ -610,7 +614,7 @@ async fn screenspot_pro() -> Result<()> {
     // would fail the `none` arm on a machine without the agent model configured.
     let agent_provider = match mode {
         Mode::None => None,
-        Mode::Agent => Some(Arc::new(build_agent_provider()?)),
+        Mode::Agent | Mode::Hint => Some(Arc::new(build_agent_provider()?)),
     };
     // `None` = verifier follows the locator, which is the shipped config.
     let verify_provider = Arc::new(build_verify_provider()?);
@@ -664,7 +668,7 @@ async fn screenspot_pro() -> Result<()> {
                     // The main-LLM arm needs the raw JPEG bytes: `agent_hint`
                     // rebuilds the production `[CUR_SCREEN]` payload from them.
                     let hint = match (&mode, &agent_provider) {
-                        (Mode::Agent, Some(ap)) => {
+                        (Mode::Agent, Some(ap)) | (Mode::Hint, Some(ap)) => {
                             // `prepare_screenshot_jpeg` never downscales, so the
                             // hint pass receives the full 4K capture while the
                             // locate pass immediately fits the same frame to

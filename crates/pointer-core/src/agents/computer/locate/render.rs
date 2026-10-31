@@ -339,16 +339,20 @@ fn draw_center_mark(img: &mut RgbImage, b: PxBox, fixed_arms: bool) {
     // `fixed_arms`：臂长不跟框走，按画面短边的固定比例。
     // verify 走这条路 —— 框已经不画了，臂长再跟框绑定，就等于让模型从
     // 十字的长短去反推一个它看不见的框。
-    let (arm_x, arm_y) = if fixed_arms {
-        let a = short * 0.03;
-        (a, a)
-    } else {
-        let arm_floor = short * 0.008;
-        (
-            (box_w * CROSS_ARM_SHARE).max(arm_floor).min(short * 0.25).max(4.0),
-            (box_h * CROSS_ARM_SHARE).max(arm_floor).min(short * 0.25).max(4.0),
-        )
-    };
+    // 臂长按**候选框**算，不按画面短边 —— 十字星必须待在框内。
+    //
+    // 曾经改成「按画面短边 3%」，理由是框不画了、臂长不该跟看不见的框绑定。
+    // 这个理由在小目标上失效：screenspot 的 15 px 图标放大到 120 px，而固定
+    // 臂长跨度 122 px，比目标本身还大，把目标整个盖住 —— M2 从 85.3% 掉到
+    // 80.0%，offset 中位数从 4.3 px 涨到 5.7 px。
+    //
+    // 按框算则比例恒定：0.35 × 框宽 → 跨度永远是框的 70%，框多大都不遮挡。
+    let _ = fixed_arms;
+    let arm_floor = short * 0.008;
+    let (arm_x, arm_y) = (
+        (box_w * CROSS_ARM_SHARE).max(arm_floor).min(short * 0.25).max(4.0),
+        (box_h * CROSS_ARM_SHARE).max(arm_floor).min(short * 0.25).max(4.0),
+    );
     let half = (short * CROSS_THICK_RATIO).max(1.0);
     let ring = (short * CROSS_RING_RATIO).max(0.5);
 

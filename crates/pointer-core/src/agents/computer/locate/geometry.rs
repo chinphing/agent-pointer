@@ -9,6 +9,10 @@
 pub const CROP_MULT: f64 = 3.0;
 /// Smallest crop side in logical pixels (B5 `CROP_MIN`).
 pub const CROP_MIN: f64 = 240.0;
+/// 目标长边小于这个值时，裁片改按长边的 `SMALL_TARGET_MULT` 倍取。
+pub const SMALL_TARGET_LONG_PX: f64 = 100.0;
+/// 小目标的裁片倍数。目标恒定占图宽的 1/5。
+pub const SMALL_TARGET_MULT: f64 = 5.0;
 /// Largest crop side in logical pixels (B5 `CROP_MAX`).
 pub const CROP_MAX: f64 = 1600.0;
 /// Side length the crop is resized to before the verifier sees it (B5 `OUT_PX`).
@@ -187,8 +191,20 @@ impl CropBounds {
 
 /// Crop side for a target box: `clamp(long edge × mult, min, max)` (B5 `crop_side_px`).
 pub fn crop_side_px(target: PxBox, mult: f64, min: f64, max: f64) -> f64 {
-    let side = target.width().max(target.height()) * mult;
-    side.clamp(min, max)
+    let long = target.width().max(target.height());
+    // 小目标按**长边的固定倍数**裁，不受 `min` 钳制。
+    //
+    // `min` 是为「框偏了一格时裁片还能罩住周边」设的，对 15 px 的图标代价
+    // 极大：15 px 落进 240 px 的裁片只占 6 %，放大到输出尺寸后目标只有 100 px，
+    // 边界是插值糊的，模型判不出「点偏出去没有」。按长边 5 倍裁则目标恒定占
+    // 图宽的 1/5，大小目标一视同仁。
+    //
+    // 阈值 100 px 来自 screenspot M2 的实测：<40 px 的桶命中 21–61 %，≥40 px
+    // 的桶 88–92 %，而 40–100 px 已经稳定，不需要额外放大。
+    if long < SMALL_TARGET_LONG_PX {
+        return (long * SMALL_TARGET_MULT).clamp(1.0, max);
+    }
+    (long * mult).clamp(min, max)
 }
 
 /// Crop-image 0–1000 → full-screen 0–1000 (B5 `rel_to_norm`, pure math).
@@ -288,7 +304,11 @@ mod tests {
             x2: 10.0,
             y2: 10.0,
         };
-        assert_eq!(crop_side_px(small, CROP_MULT, CROP_MIN, CROP_MAX), CROP_MIN);
+        // 小目标走 `SMALL_TARGET_MULT` 分支，不受 `CROP_MIN` 钳制。
+        assert_eq!(
+            crop_side_px(small, CROP_MULT, CROP_MIN, CROP_MAX),
+            10.0 * SMALL_TARGET_MULT
+        );
 
         let big = PxBox {
             x1: 0.0,

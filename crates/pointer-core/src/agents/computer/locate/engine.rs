@@ -156,6 +156,15 @@ fn write_trace(trace: &LocateTrace) {
     }
 }
 
+/// 测试用：环境变量覆盖裁片下限，未设置时用 `dflt`。
+fn env_crop_min(name: &str, dflt: f64) -> f64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|v| *v > 0.0)
+        .unwrap_or(dflt)
+}
+
 /// The two model calls the controller is allowed to make.
 #[async_trait]
 pub trait LocateVision: Send + Sync {
@@ -427,12 +436,18 @@ async fn locate_one_traced<V: LocateVision>(
         }
         rounds += 1;
 
-        let side = crop_side_px(
-            current.to_px(w, h),
-            cfg.crop_mult,
-            cfg.crop_min,
-            cfg.crop_max,
-        );
+        let cur_px = current.to_px(w, h);
+        let side = crop_side_px(cur_px, cfg.crop_mult, cfg.crop_min, cfg.crop_max);
+        // A/B 用：locator 和 verify 各自可以覆盖裁片下限。
+        //
+        // 两张图共用 `side` 时，缩小裁片会同时改变「定位看得多清」和「验证
+        // 的参照系多大」，无法判断是哪一边起作用。留两个环境变量就能分开测：
+        //   POINTER_LOCATE_CROP_MIN  只缩 locator 的裁片
+        //   POINTER_VERIFY_CROP_MIN  只缩 verify 的 close 图
+        // 生产不设这两个变量，行为等同 `cfg.crop_min`。
+        let loc_side = crop_side_px(cur_px, cfg.crop_mult, env_crop_min("POINTER_LOCATE_CROP_MIN", cfg.crop_min), cfg.crop_max);
+        let ver_side = crop_side_px(cur_px, cfg.crop_mult, env_crop_min("POINTER_VERIFY_CROP_MIN", cfg.crop_min), cfg.crop_max);
+        let _ = side;
         // The verifier no longer offers `unclear`, so the crop is rendered once
         // per round. `retry` survives only as a field on the outcome.
         let verify_retries = 0usize;
@@ -449,12 +464,25 @@ async fn locate_one_traced<V: LocateVision>(
         #[allow(clippy::never_loop)]
         let (verdict, last_crop) = loop {
             let t_render = std::time::Instant::now();
+            // 小目标画框，大目标只画十字星。
+            //
+            // 框是「候选边界」，模型判「点有没有偏出目标」时需要它；但目标够大
+            // 时（数独格子 40 px、按钮、面板），框和画面里的真实边线重合，反而
+            // 成了最像目标的东西，模型会把它原样返回。
+            //
+            // 40 px 这个阈值来自实测：screenspot M2 上 40 px 以下的命中率
+            // 21–61%，40 px 以上 88–92%，断崖正好在这里。40 px 以下的目标在
+            // 4K 截图上只有十几个真实像素，放大 8 倍后边界是插值糊的，模型没有
+            // 可靠的视觉边界可判 —— 此时框是唯一的参照。
             let (image, bounds) =
-                render_crop_opts(frame, current, side, cfg.out_px, super::render::dim_enabled())?;
+                render_crop_opts(frame, current, ver_side, cfg.out_px, super::render::dim_enabled())?;
             // The locator gets the same window without the candidate outline —
-            // only the centre dot. See `Mark::DotOnly`: the outline is the most
-            // target-shaped thing in the crop and the locator returns it
-            // unchanged instead of looking for the target.
+            // only the crosshair, same as verify. The outline was removed
+            // because it is the most target-shaped thing in the crop and the
+            // locator returns it unchanged instead of looking for the target;
+            // the shape of the mark itself is kept identical across both stages
+            // so the model does not have to re-learn what the marker looks like
+            // between refine and verify.
             //
             // Rendered from the same `bounds`, so both images are the same window
             // and the same scale: a box the locator reports in one maps straight
@@ -462,10 +490,10 @@ async fn locate_one_traced<V: LocateVision>(
             let locate_image = render_crop_marked(
                 frame,
                 current,
-                side,
+                loc_side,
                 cfg.out_px,
                 super::render::dim_enabled(),
-                super::render::Mark::DotOnly,
+                super::render::Mark::CrossOnly,
             )?
             .0;
             // 图一 — the original close crop. Everything precise is judged from

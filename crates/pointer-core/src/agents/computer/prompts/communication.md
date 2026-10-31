@@ -42,20 +42,23 @@ target is**. Four kinds:
 
 **Area** — the full screen shows a visible interior: a window, panel, text field,
 list row, large button, or menu item. The box should contain that interior; any
-point inside it stays on the control.
+point inside it stays on the control. Keep the short side at least 10 px, so the
+centre has room to land inside rather than on an edge.
 
 **Point** — the control is a mark with no interior: an icon, checkbox, caret,
 glyph, a single character, a crosshair intersection, or a control on the edge of
 a larger region. The full screen shows nothing to aim at inside it, so the box
-must be tight enough that its centre lands on the mark itself. When the box has
-to be coarse, bias it toward the side the mark sits on.
+must be tight enough that its centre lands on the mark itself: keep it roughly
+**8–16 px on a side** — big enough to hold the mark, small enough that its centre
+is on it. When the box has to be coarse, bias it toward the side the mark sits
+on.
 
 **Line** — the target is long and thin: a divider, a separator, a progress bar, a
 column edge, a pane splitter, a text insertion point. Aim at the **midpoint of
-the visible run**, not at an end. The box can span the line's length; what
-matters is that its centre falls **on** the line, not beside it. A short box
-around the middle works better than a long one, because a long box's centre
-drifts toward whichever end is further from the target point.
+the visible run**, not at an end. What matters is that the centre falls **on**
+the line, not beside it — so keep the long side **under 48 px**. A long box drifts
+toward whichever end is further from the target point; a short box around the
+middle stays put.
 
 **Gap / blank** — the target is **empty space** whose edges come from its
 neighbours: the space between two words, the blank between two rows, the gap

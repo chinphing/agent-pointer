@@ -322,14 +322,33 @@ const CROSS_ARM_MIN_SRC_PX: f64 = 10.0;
 /// 0.35 each way → the crosshair spans 70% of the box, so it never touches the
 /// outline it is judged against. Smaller and the arms read as a dot again.
 const CROSS_ARM_SHARE: f64 = 0.35;
-/// Half-thickness of the red core, as a share of the image's short side.
+/// Half-thickness of the red core, as a share of the crosshair's own arm.
 ///
-/// 0.0015 → 2.9 px in a 1920 px crop, 0.36 px on screen. Thin on purpose: the
-/// crosshair has to be able to sit between two grid lines one pixel apart
-/// without covering either.
-const CROSS_THICK_RATIO: f64 = 0.0025;
-/// Extra thickness added by the white halo on each side.
-const CROSS_RING_RATIO: f64 = 0.0018;
+/// Was `short × 0.0025` — a share of the image's short side, which ignores how
+/// big the box is. That works while the box is large, but `verify` renders the
+/// same box into two crops at different magnifications: close (240 px crop →
+/// 1600 px out, ×6.7) and wide (960 px crop → 1920 px out, ×2.0). A thickness
+/// fixed in *output* pixels therefore lands as 1.2 source px in the close crop
+/// and 4.8 source px in the wide one — four times thicker on the screen. On a
+/// 40 px target the wide crosshair covered ~12% of its width and the verifier
+/// could not read the digits underneath it.
+///
+/// Binding thickness to the arm instead keeps the crosshair's own proportions
+/// constant at any magnification: the arm is `0.35 × box`, so this is
+/// `0.0147 × box` — the same fraction of the target whether the crop is
+/// magnified 7.5× (close) or 2.2× (wide).
+///
+/// 0.042 was solved from the two magnifications rather than picked: it holds
+/// close at its previous 9 px stroke (single arm 110 px × 0.042 = 4.6 half)
+/// while taking wide from 9 px down to 3 px (arm 33 px × 0.042 = 1.4 half).
+/// 0.15 was tried first and failed both ways — it left wide unchanged
+/// (33 × 0.15 ≈ 1920 × 0.0025, a coincidence) and quadrupled close to 33 px.
+const CROSS_THICK_SHARE: f64 = 0.042;
+/// White halo thickness, as a share of the red core's half-thickness.
+///
+/// Kept as a ratio (not its own share of the arm) so the halo can never grow
+/// wider than the core it is supposed to outline.
+const CROSS_RING_SHARE: f64 = 0.72;
 
 /// Draw a crosshair at the box's centre.
 ///
@@ -390,14 +409,16 @@ fn draw_center_mark(
     //   必然穿过圈露在外面。
     // - 上限 `short × 0.25` 保留：大目标时框接近画面，0.35 × 框会撑满，
     //   臂长盖住目标就失去指示作用了。
-    let (mut arm_x, mut arm_y) = (
+    let (arm_x, arm_y) = (
         (box_w * CROSS_ARM_SHARE).max(arm_min).min(short * 0.25),
         (box_h * CROSS_ARM_SHARE).max(arm_min).min(short * 0.25),
     );
-    let _ = &mut arm_x;
-    let _ = &mut arm_y;
-    let half = (short * CROSS_THICK_RATIO).max(1.0);
-    let ring = (short * CROSS_RING_RATIO).max(0.5);
+    // Thickness follows the arm, not the image — see `CROSS_THICK_SHARE`.
+    // `min` of the two arms: a wide-but-short box must not get a stroke wider
+    // than its own vertical arm, or the crosshair reads as a horizontal bar.
+    let arm_side = arm_x.min(arm_y);
+    let half = (arm_side * CROSS_THICK_SHARE).max(1.0);
+    let ring = (half * CROSS_RING_SHARE).max(0.5);
 
     let mut plot = |x: f64, y: f64, c: Rgb<u8>| {
         let xi = x.round() as i32;
@@ -548,6 +569,58 @@ mod tests {
 
     fn frame(w: u32, h: u32) -> LocateFrame {
         LocateFrame::new(RgbImage::from_pixel(w, h, Rgb([30, 30, 30])))
+    }
+
+    /// 同一目标在 close 与 wide 两种放大倍数下的十字星粗细对比。
+    ///
+    /// 生产里 verify 会把同一个框渲染成两张图：
+    ///   close — 裁片 240 px → 输出 1600 px（放大 6.7×）
+    ///   wide  — 裁片 960 px → 输出 1920 px（放大 2.0×）
+    /// 线宽若按「输出图短边」定，两张图在**原图上**的线宽就差 3.3 倍，
+    /// 小目标上 wide 的十字会盖住目标本身。这个测试把两张图落盘供肉眼比对。
+    ///
+    /// `POINTER_CROSS_CASE_DIR` 指向 `pointer-eval-data/verify_position/sudoku`。
+    #[test]
+    #[ignore]
+    fn dump_cross_thickness_compare() {
+        use image::ImageReader;
+        let Ok(dir) = std::env::var("POINTER_CROSS_CASE_DIR") else {
+            eprintln!("跳过：未设置 POINTER_CROSS_CASE_DIR");
+            return;
+        };
+        let src = format!("{dir}/images/screen/0ff09072_base.jpg");
+        let Ok(reader) = ImageReader::open(&src) else {
+            eprintln!("跳过：找不到 {src}");
+            return;
+        };
+        let img = reader.decode().unwrap().to_rgb8();
+        let frame = LocateFrame::new(img);
+        let (w, h) = (frame.width(), frame.height());
+        // `0ff09072_pos` 的候选框（原图 px），42×43 —— 与 5e712d92 同量级。
+        let px = PxBox {
+            x1: 88.5,
+            y1: 239.0,
+            x2: 130.4,
+            y2: 281.9,
+        };
+        let norm = px.to_norm(w, h);
+        let side = super::super::geometry::crop_side_px(px, 3.0, 240.0, 1600.0);
+        eprintln!(
+            "原图 {w}x{h}  框 {:.0}x{:.0}  裁片 side={side:.0}",
+            px.width(),
+            px.height()
+        );
+        // 对比用：两张都带容差圈，条件一致才能比线宽。
+        // （生产上 wide 走 `render_crop_opts` 即 `CrossOnly`，本来不画圈。）
+        for (name, s, out, mark) in [
+            ("close", side, 1600u32, Mark::CrossWithTolerance),
+            ("wide", side * 4.0, 1920u32, Mark::CrossWithTolerance),
+        ] {
+            let (im, _) = render_crop_marked(&frame, norm, s, out, false, mark).unwrap();
+            let p = format!("{dir}/cross_{name}.jpg");
+            std::fs::write(&p, &im.jpeg).unwrap();
+            eprintln!("写出 {p}  {out}x{out}  mark={mark:?}");
+        }
     }
 
     #[test]

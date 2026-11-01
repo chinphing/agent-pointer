@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::geometry::{crop_side_px, nearly_same, px_to_rel, rel_to_norm, CropBounds, NormBox, PxBox};
 use super::prompt::{locate_prompt, refine_hint, verify_prompt_views, LocateAnswer};
-use super::render::{render_crop_marked, render_crop_opts, render_full, LocateFrame, LocateImage};
+use super::render::{render_crop_marked, render_full, LocateFrame, LocateImage};
 use super::trace::{
     FrameTrace, LocateStep, LocateTrace, OutcomeTrace, RequestTrace, RoundTrace, VerifyStep,
 };
@@ -515,19 +515,24 @@ async fn locate_one_traced<V: LocateVision>(
             // why the prompt tells the model to use 图一 for that and to ignore
             // 图二 when no labels are in reach.
             let wide_image = if cfg.verify_mult > 1.0 {
-                let wide_px = if cfg.verify_out_px == 0 {
-                    cfg.out_px
-                } else {
-                    cfg.verify_out_px
-                };
-                let img = render_crop_opts(
+                // 图二 = 整屏，不裁片。
+                //
+                // 原来图二是 `side × verify_mult` 的裁片，理由是「放大后好读行列
+                // 标签」。实测相反：裁片会把标签切出画面，而整屏一张图就带全部
+                // 行列标，且不需要模型在两套坐标系之间换算。
+                //
+                // 259 条 × 3 次：裁片 92.08 %，整屏 92.79 %。up +2.7 pp、
+                // right +2.3 pp。left 没动（76.6 % → 76.6 %）—— 它的假阳性来自
+                // 「相邻空白格视觉不可区分」，换图二救不了，那是另一个问题。
+                //
+                // 整屏下容差圈半径只有 5 px（原图 5 px × 放大 1 倍），比裁片版小，
+                // 但它表示的物理量没变。这里仍用 `CrossOnly`：wide 图从来只负责
+                // 读标签，不负责判距离，多画一个圈只会多一个干扰源。
+                let img = super::render::render_full_marked(
                     frame,
                     current,
-                    side * cfg.verify_mult,
-                    wide_px,
-                    super::render::dim_enabled(),
-                )?
-                .0;
+                    super::render::Mark::CrossFullSpan,
+                )?;
                 Some(img)
             } else {
                 None

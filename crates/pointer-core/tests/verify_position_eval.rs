@@ -17,7 +17,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use pointer_core::agents::computer::locate::prompt::verify_prompt_views;
-use pointer_core::agents::computer::locate::render::LocateImage;
+use pointer_core::agents::computer::locate::geometry::NormBox;
+use pointer_core::agents::computer::locate::render::{
+    render_full_marked, LocateFrame, LocateImage, Mark,
+};
 use pointer_core::agents::computer::locate::types::{CenterOnTarget, MatchVerdict, VerifyVerdict};
 use pointer_core::agents::computer::locate::{ChatLocateVision, LocateVision};
 use pointer_core::models::ModelSettings;
@@ -38,6 +41,11 @@ struct Row {
     description: String,
     close: String,
     wide: String,
+    /// 整屏原图。生产 `engine.rs:534` 用的是 `render_full_marked`（整屏 +
+    /// 贯穿十字），所以图二必须从它现渲染，不能读预先裁好的 `wide`。
+    screen: String,
+    /// 候选框，原图像素坐标。用来还原 `render_full_marked` 的交点位置。
+    box_px: [f64; 4],
     expect: Expect,
     /// 这条样本所属场景目录（`<root>/sudoku` 或 `<root>/general`）。
     /// 图片路径是相对它写的，不进 truth.jsonl。
@@ -146,8 +154,18 @@ fn fixture_root() -> PathBuf {
 
 fn load_rows() -> Result<Vec<Row>> {
     let root = fixture_root();
+    // 默认只跑原有的两个场景，保持既有基线可比。
+    // `POINTER_VERIFY_EVAL_SCENES=screenspot_area,screenspot_point` 可切到扩展集。
+    let scenes: Vec<String> = match std::env::var("POINTER_VERIFY_EVAL_SCENES") {
+        Ok(s) => s
+            .split(',')
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+            .collect(),
+        Err(_) => vec!["sudoku".to_string(), "general".to_string()],
+    };
     let mut out = Vec::new();
-    for scene in ["sudoku", "general"] {
+    for scene in &scenes {
         let p = root.join(scene).join("truth.jsonl");
         let Ok(text) = std::fs::read_to_string(&p) else {
             continue;
@@ -247,10 +265,53 @@ async fn eval_verify_fixture() -> Result<()> {
             let t_perm = t0.elapsed();
             let close = read_image(&row.base.join(&row.close))?;
             let single = std::env::var("POINTER_VERIFY_EVAL_SINGLE").is_ok();
+            // 图二 = 生产同款：整屏原图 + 贯穿十字。
+            // 读预先裁好的 `wide` 会测到生产根本不用的图，历史数据因此失真。
             let wide_img = if single {
                 None
             } else {
-                Some(read_image(&row.base.join(&row.wide))?)
+                let screen_jpeg = read_image(&row.base.join(&row.screen))?;
+                let frame = LocateFrame::from_jpeg(&screen_jpeg.jpeg)?;
+                let (fw, fh) = (frame.width(), frame.height());
+                let [x1, y1, x2, y2] = row.box_px;
+                let candidate = NormBox::new(
+                    x1 / fw as f64 * 1000.0,
+                    y1 / fh as f64 * 1000.0,
+                    x2 / fw as f64 * 1000.0,
+                    y2 / fh as f64 * 1000.0,
+                );
+                let mut img = render_full_marked(&frame, candidate, Mark::CrossFullSpan)?;
+                // 临时验证：把整屏再放大 N 倍，看「分辨率是不是 left 掉分的主因」。
+                // POINTER_VERIFY_EVAL_UPSCALE=2 → 3840×2160，格子从 42px 变 84px。
+                if let Ok(s) = std::env::var("POINTER_VERIFY_EVAL_UPSCALE") {
+                    if let Ok(k) = s.parse::<f64>() {
+                        if k > 1.0 {
+                            let decoded = image::load_from_memory(&img.jpeg)
+                                .context("decode wide for upscale")?
+                                .to_rgb8();
+                            let (nw, nh) = (
+                                (decoded.width() as f64 * k).round() as u32,
+                                (decoded.height() as f64 * k).round() as u32,
+                            );
+                            let scaled = image::imageops::resize(
+                                &decoded,
+                                nw,
+                                nh,
+                                image::imageops::FilterType::Lanczos3,
+                            );
+                            let mut buf = std::io::Cursor::new(Vec::new());
+                            scaled
+                                .write_to(&mut buf, image::ImageFormat::Jpeg)
+                                .context("encode upscaled wide")?;
+                            img = LocateImage {
+                                jpeg: buf.into_inner(),
+                                width: nw,
+                                height: nh,
+                            };
+                        }
+                    }
+                }
+                Some(img)
             };
             let t_img = t0.elapsed();
             let mut prompt = verify_prompt_views(&row.description, wide_img.is_some());

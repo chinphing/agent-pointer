@@ -98,6 +98,47 @@ pub fn render_full(frame: &LocateFrame, candidate: Option<NormBox>) -> Result<Lo
     encode(&img)
 }
 
+/// Whole screen with the crosshair (and optionally the tolerance ring) drawn at
+/// the candidate's centre.
+///
+/// 图二 用整屏而不是裁片时走这条路。裁片版（`render_crop_marked`）输出正方形，
+/// 整屏是 1920×1080 —— 只能用 `fitted()` 的原始宽高比，所以单独一个函数。
+///
+/// 十字臂长仍按框算（`0.35 × box`），所以目标多小，十字就多小，不会因为画面
+/// 变大而盖住目标。
+pub fn render_full_marked(
+    frame: &LocateFrame,
+    candidate: NormBox,
+    mark: Mark,
+) -> Result<LocateImage> {
+    let mut img = frame.fitted();
+    let (sw, sh) = (frame.width().max(1) as f64, frame.height().max(1) as f64);
+    let (dw, dh) = (img.width() as f64, img.height() as f64);
+    let (sx, sy) = (dw / sw, dh / sh);
+    let target = candidate.to_px(frame.width(), frame.height());
+    let drawn = PxBox {
+        x1: target.x1 * sx,
+        y1: target.y1 * sy,
+        x2: target.x2 * sx,
+        y2: target.y2 * sy,
+    };
+    // 容差圈：半径 = 原图 5 px 换算到这张图上。整屏放大倍数 ≈ 1，
+    // 所以圈只有 5 px —— 小，但它本来表示的就是 5 px。
+    let tol = if mark == Mark::CrossWithTolerance {
+        Some(super::geometry::VERIFY_TOLERANCE_PX * sx)
+    } else {
+        None
+    };
+    draw_center_mark(
+        &mut img,
+        drawn,
+        mark == Mark::CrossFullSpan,
+        tol,
+        tol.map(|r| r * 2.0).unwrap_or(0.0),
+    );
+    encode(&img)
+}
+
 /// The whole frame with every box the run produced drawn on it, plus the point
 /// that will be clicked.
 ///
@@ -227,6 +268,15 @@ pub enum Mark {
     /// 对点：目标点在圈内 ⟺ 距离 < 容差。
     /// 对线：线穿过圈 ⟺ 垂距 < 容差（垂足是线上离交点最近的点）。
     CrossWithTolerance,
+    /// 四条臂一直画到画面边缘 —— verify 的**整屏**图用这个。
+    ///
+    /// 整屏放大 1×，按框算臂长只有十几像素，在 1920×1080 上几乎看不见。臂贯穿
+    /// 全屏后，竖臂直接指向上下边缘的列标、横臂指向左右边缘的行标，读行列不再
+    /// 需要「先找到交点、再估它在第几列」—— 线自己把答案指出来了。
+    ///
+    /// 代价是两条线穿过整个画面。整屏图只用来读标签、不判距离，这个遮挡不影响
+    /// 它的职责。
+    CrossFullSpan,
 }
 
 /// [`render_crop`] with both the dimming and the mark style explicit.
@@ -286,7 +336,7 @@ pub fn render_crop_marked(
     draw_center_mark(
         &mut magnified,
         drawn,
-        matches!(mark, Mark::CrossOnly | Mark::CrossWithTolerance),
+        mark == Mark::CrossFullSpan,
         if mark == Mark::CrossWithTolerance {
             Some(super::geometry::tolerance_radius_px(side, out_px))
         } else {
@@ -344,6 +394,46 @@ const CROSS_ARM_SHARE: f64 = 0.35;
 /// 0.15 was tried first and failed both ways — it left wide unchanged
 /// (33 × 0.15 ≈ 1920 × 0.0025, a coincidence) and quadrupled close to 33 px.
 const CROSS_THICK_SHARE: f64 = 0.042;
+/// 臂长下限（**渲染图**像素）。
+///
+/// 整屏图放大 1×，42 px 的目标算出臂长只有 14.9 px —— 在 1920×1080 上是个
+/// 几乎看不见的小十字。`verify_position` 的 `left` 变体因此把「偏了一格」
+/// 读成「在格内」，假阳性 26/111。
+///
+/// 40 px 的依据：目标本身就有 40 px 量级，臂长取同等长度，十字仍落在目标
+/// 内部（臂长 = 框长边 × 0.35 的原意是「跨度 70% 框宽」），同时足够醒目。
+/// close 图上框放大 7.5×，臂长本就 ≥100 px，这个下限永远不触发。
+const CROSS_ARM_MIN_PX: f64 = 40.0;
+
+/// 裁片（close / wide）的臂长系数 —— 与整屏的 `CROSS_ARM_SHARE` 分开。
+///
+/// 2026-11 实测对比（ScreenSpot 254 条 + sudoku/general 259 条，各三次）：
+///
+/// | 配置 | ScreenSpot | sudoku |
+/// |---|---|---|
+/// | 0.35 + 圈×2 下限（旧） | 81.50 % | 92.54 % |
+/// | 跨度钉死 48 px（cap48） | 87.01 % | 93.44 % |
+/// | **0.1 + 48 px 下限 + 圈缩** | **87.80 %** | 92.02 % |
+///
+/// 小目标上 `0.35 × 框宽` 会被 `arm_min` 顶到目标整个宽度，把中心特征盖住；
+/// 0.1 让十字退化成准星附近的小十字，中心完全露出来。48 px 下限保证小框上
+/// 十字不至于短到看不出方向。
+const CROP_CROSS_ARM_SHARE: f64 = 0.1;
+/// 裁片臂长下限，渲染像素。跨度 = 2 × 24 = 48 px。
+const CROP_CROSS_ARM_MIN_PX: f64 = 24.0;
+/// 线宽下限（**渲染图**像素，即成品线的粗细）。
+///
+/// 1.25 px 的线过 JPEG 之后基本糊掉。5 px 在整屏上仍然远小于目标（42 px），
+/// 不会遮挡；close 上本就 9 px，不触发。
+const CROSS_THICK_MIN_PX: f64 = 5.0;
+/// 整屏贯穿十字的**红芯**宽度（渲染图像素）。
+///
+/// 贯穿线的长度是画面尺寸、与目标无关，粗细不能按比例推（按比例会得到 90 px
+/// 的红带，实测过）。固定 3 px 红芯 + 每侧 2 px 白边 = 总宽 7 px，
+/// 在 1920×1080 上既能一眼看到，又不会盖住标签。
+const CROSS_SPAN_CORE_PX: f64 = 3.0;
+/// 整屏贯穿十字的白边宽度（每侧，渲染图像素）。
+const CROSS_SPAN_HALO_PX: f64 = 1.0;
 /// White halo thickness, as a share of the red core's half-thickness.
 ///
 /// Kept as a ratio (not its own share of the arm) so the halo can never grow
@@ -366,7 +456,7 @@ const CROSS_RING_SHARE: f64 = 0.72;
 fn draw_center_mark(
     img: &mut RgbImage,
     b: PxBox,
-    fixed_arms: bool,
+    full_span: bool,
     tol_r: Option<f64>,
     arm_min: f64,
 ) {
@@ -388,7 +478,7 @@ fn draw_center_mark(
     //
     // 下限只防「框小到臂看不见」：0.008 × short = 15 px，正常尺寸永远不触发。
     // 之前写 0.02（38 px）把 wide 的 28 px 顶了上去，臂撑到框的 96%，会压到邻居。
-    // `fixed_arms`：臂长不跟框走，按画面短边的固定比例。
+    // `full_span`：臂长一直画到画面边缘，不跟框走。
     // verify 走这条路 —— 框已经不画了，臂长再跟框绑定，就等于让模型从
     // 十字的长短去反推一个它看不见的框。
     // 臂长按**候选框**算，不按画面短边 —— 十字星必须待在框内。
@@ -399,7 +489,7 @@ fn draw_center_mark(
     // 80.0%，offset 中位数从 4.3 px 涨到 5.7 px。
     //
     // 按框算则比例恒定：0.35 × 框宽 → 跨度永远是框的 70%，框多大都不遮挡。
-    let _ = fixed_arms;
+    // `full_span`：臂长贯穿全屏，不再按框算（见 `Mark::CrossFullSpan`）。
     // 臂长 = min( max(框长边 × 0.35, 10 原图 px), 画面短边 × 0.25 )
     //
     // - 比例 0.35：单臂 35%、跨度 70% 框宽，不碰框线。
@@ -409,16 +499,58 @@ fn draw_center_mark(
     //   必然穿过圈露在外面。
     // - 上限 `short × 0.25` 保留：大目标时框接近画面，0.35 × 框会撑满，
     //   臂长盖住目标就失去指示作用了。
-    let (arm_x, arm_y) = (
-        (box_w * CROSS_ARM_SHARE).max(arm_min).min(short * 0.25),
-        (box_h * CROSS_ARM_SHARE).max(arm_min).min(short * 0.25),
-    );
-    // Thickness follows the arm, not the image — see `CROSS_THICK_SHARE`.
-    // `min` of the two arms: a wide-but-short box must not get a stroke wider
-    // than its own vertical arm, or the crosshair reads as a horizontal bar.
-    let arm_side = arm_x.min(arm_y);
-    let half = (arm_side * CROSS_THICK_SHARE).max(1.0);
-    let ring = (half * CROSS_RING_SHARE).max(0.5);
+    // 线宽永远按**框**算出来的臂长，不按绘制臂长 ——
+    // 贯穿全屏时绘制臂长是画面尺寸，用它算线宽会得到 91 px 的红带。
+    //
+    // 2026-11 实测：`0.35 × 框宽` + `arm_min = 圈半径 × 2` 的组合，在小目标上
+    // 会把臂顶到目标整个宽度（ScreenSpot 21×20 px 图标放大到 140 px，臂被顶到
+    // 66.7 px，跨度 134 px = 目标宽度的 96%），把瞳孔、加号这些识别特征盖住。
+    // 裁片改走 `CROP_CROSS_ARM_SHARE = 0.1` + 24 px 下限（跨度 48 px），并把
+    // 容差圈按臂长缩短的比例一起缩 —— 否则圈比臂还长，十字整根缩在圈里。
+    // 整屏（`full_span`）的实线段不受影响，仍是 `CROSS_ARM_SHARE`。
+    let orig_arm = (box_w * CROSS_ARM_SHARE)
+        .max(arm_min)
+        .min(short * 0.25)
+        .max(CROSS_ARM_MIN_PX)
+        .min(
+            (box_h * CROSS_ARM_SHARE)
+                .max(arm_min)
+                .min(short * 0.25)
+                .max(CROSS_ARM_MIN_PX),
+        );
+    let (box_arm_x, box_arm_y) = if full_span {
+        (orig_arm, orig_arm)
+    } else {
+        (
+            (box_w * CROP_CROSS_ARM_SHARE).max(CROP_CROSS_ARM_MIN_PX),
+            (box_h * CROP_CROSS_ARM_SHARE).max(CROP_CROSS_ARM_MIN_PX),
+        )
+    };
+    let arm_side = box_arm_x.min(box_arm_y);
+    // 贯穿全屏时用**固定**像素值：红芯 3 px、白边每侧 2 px（总宽 7 px）。
+    // 按比例算在这里没有意义 —— 贯穿线的长度是画面尺寸，跟目标无关，
+    // 用它推粗细只会得到一条 90 px 的红带（实测过）。
+    let (half, ring) = if full_span {
+        (CROSS_SPAN_CORE_PX / 2.0, CROSS_SPAN_HALO_PX)
+    } else {
+        let h = (arm_side * CROSS_THICK_SHARE).max(CROSS_THICK_MIN_PX / 2.0);
+        (h, (h * CROSS_RING_SHARE).max(0.5))
+    };
+    // 容差圈跟着臂长缩短的比例缩 —— 只缩臂不缩圈，臂会整根缩进圈里。
+    let tol_r = tol_r.map(|r| {
+        if full_span || orig_arm <= 0.0 {
+            r
+        } else {
+            r * (arm_side / orig_arm).min(1.0)
+        }
+    });
+
+    let (arm_x, arm_y) = if full_span {
+        // 贯穿全屏：臂长取画面尺寸，超出边界的部分由 `plot` 丢掉。
+        (w, h)
+    } else {
+        (box_arm_x, box_arm_y)
+    };
 
     let mut plot = |x: f64, y: f64, c: Rgb<u8>| {
         let xi = x.round() as i32;
@@ -464,20 +596,40 @@ fn draw_center_mark(
 
     // White halo first, red core on top — same reasoning as the old dot's rim:
     // one of the two always contrasts, whatever the cell background is.
+    // For a full-span mark, keep the local cross solid and dash only the
+    // extensions outside it. This preserves an unambiguous centre point while
+    // making the long guide lines less dominant.
+    let dash_len = 6.0;
+    let gap_len = 16.0;
+    let solid_half_x = (box_w * CROSS_ARM_SHARE).max(half + ring);
+    let solid_half_y = (box_h * CROSS_ARM_SHARE).max(half + ring);
+    let is_drawn = |distance: f64, solid_half: f64| {
+        if !full_span || distance <= solid_half {
+            true
+        } else {
+            // 先空一段再画：中心实线严格等于框 × 0.35，外面才是均匀虚线。
+            let phase = distance - solid_half - gap_len;
+            phase >= 0.0 && (phase % (dash_len + gap_len)) < dash_len
+        }
+    };
     for (c, extra) in [(MARK_RING, ring), (MARK_CORE, 0.0)] {
         let tx = half + extra;
         let ty = half + extra;
         let mut x = cx - arm_x - extra;
         while x <= cx + arm_x + extra {
-            for dy in -(ty as i32)..=(ty as i32) {
-                plot(x, cy + dy as f64, c);
+            if is_drawn((x - cx).abs(), solid_half_x) {
+                for dy in -(ty as i32)..=(ty as i32) {
+                    plot(x, cy + dy as f64, c);
+                }
             }
             x += 1.0;
         }
         let mut y = cy - arm_y - extra;
         while y <= cy + arm_y + extra {
-            for dx in -(tx as i32)..=(tx as i32) {
-                plot(cx + dx as f64, y, c);
+            if is_drawn((y - cy).abs(), solid_half_y) {
+                for dx in -(tx as i32)..=(tx as i32) {
+                    plot(cx + dx as f64, y, c);
+                }
             }
             y += 1.0;
         }
@@ -621,6 +773,11 @@ mod tests {
             std::fs::write(&p, &im.jpeg).unwrap();
             eprintln!("写出 {p}  {out}x{out}  mark={mark:?}");
         }
+        // 整屏（verify 图二现在走这条路）
+        let full = render_full_marked(&frame, norm, Mark::CrossFullSpan).unwrap();
+        let p = format!("{dir}/cross_full.jpg");
+        std::fs::write(&p, &full.jpeg).unwrap();
+        eprintln!("写出 {p}  {}x{}  full", full.width, full.height);
     }
 
     #[test]

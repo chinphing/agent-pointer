@@ -202,6 +202,13 @@ pub struct AdvancedPipelineSession {
     pub last_operation_summary: Option<String>,
     /// Sequential round number for this pipeline session (file naming / tracing).
     pub pipeline_round_seq: u32,
+    /// Sequential sample number inside the current round.
+    ///
+    /// One increment per collected episode — a screen dump, a `locate_element`
+    /// call, an action verify. Only used to name samples
+    /// (`{conv8}_{round}_{msg}_{stage}`); nothing in the pipeline reads it.
+    /// Resets on `next_pipeline_round_seq` so every round starts at 1.
+    pub msg_seq: u32,
 }
 
 /// Which virtual position submit tool the Position LLM called.

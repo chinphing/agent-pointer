@@ -196,6 +196,26 @@ pub async fn run_verify_phase(
             ),
         ],
     );
+    // Collected sample: the two frames this verify actually judged, saved as the
+    // **model input** under one `{conv8}_{round}_{msg}` prefix.
+    //
+    // Not the raw screen: the verifier does not see `raw_unmarked_jpeg`, it sees
+    // `before` redrawn with the current pointer plus the freshly captured
+    // `after`. Saving the raw screen and reconstructing would mean the dataset
+    // holds a picture the model never saw.
+    // 一次采集单元只分配一个 `msg`：图（in1/in2）和 sidecar（action_verify.json）
+    // 必须共享同一个前缀，否则 `glob("{prefix}_*")` 会把它们分到两个单元，
+    // 数据集里图和判定就配不上了。
+    //
+    // 实测踩过：两处各调一次 `next_msg_seq()` → 图是 `_001_`、json 是 `_002_`。
+    let round_seq = computer_state.current_pipeline_round_seq(conversation_id);
+    let msg_seq = computer_state.next_msg_seq(conversation_id);
+    save_verify_inputs(
+        conversation_id,
+        round_seq,
+        msg_seq,
+        &verify_wire,
+    );
     let mut verify_wire = verify_wire;
     let (mut out, mut last_meta) = match run_verify_once(
         &prov,
@@ -338,7 +358,122 @@ pub async fn run_verify_phase(
 
     computer_state.apply_pipeline_verify_result(conversation_id, &conclusion);
     computer_state.store_pipeline_after_capture(conversation_id, after_for_cache);
+    write_action_verify_sidecar(
+        conversation_id,
+        round_seq,
+        msg_seq,
+        &op_text,
+        tool_result,
+        &conclusion,
+        current_pointer,
+    );
     Ok(conclusion)
+}
+
+/// Save the two images the verifier actually received, straight out of the wire.
+///
+/// This is deliberately **not** "the raw screen + replay". The verifier does not
+/// see `raw_unmarked_jpeg`: `before` is redrawn with the current pointer so the
+/// click point stays visible on the frame where the target is still intact. A
+/// dataset rebuilt from the raw screen would hold a picture the model never saw.
+///
+/// Extracting from the wire instead of re-deriving means the file is byte-equal
+/// to what went over the network — no second `redraw_with_current_pointer` call
+/// that could drift if that function ever changes.
+///
+/// Names: `{prefix}_action_verify_in1.jpg` (before) / `_in2.jpg` (after), the
+/// same `_inN` convention as the locate stages.
+fn save_verify_inputs(
+    conversation_id: &str,
+    round_seq: u32,
+    msg_seq: u32,
+    wire: &[serde_json::Value],
+) {
+    for (index, bytes) in extract_wire_jpegs(wire).into_iter().enumerate() {
+        let _ = capture_debug::write_sample_file(
+            conversation_id,
+            round_seq,
+            msg_seq,
+            &format!("action_verify_in{}", index + 1),
+            "jpg",
+            &bytes,
+        );
+    }
+}
+
+/// Pull every JPEG out of wire messages, in send order.
+///
+/// Split from `save_verify_inputs` so it can be tested without touching disk or
+/// the process-global data dir: the question "does the dataset hold the image
+/// the model actually received" is a pure question about the wire, and the
+/// pipeline verify path has no test coverage of its own.
+///
+/// Order matters — `in1` must be the before frame and `in2` the after frame,
+/// because the prompt labels them 图一 / 图二 and a dataset that swaps them
+/// would silently invert every label.
+fn extract_wire_jpegs(wire: &[serde_json::Value]) -> Vec<Vec<u8>> {
+    use base64::Engine as _;
+    const PREFIX: &str = "data:image/jpeg;base64,";
+    let mut out = Vec::new();
+    for message in wire {
+        let Some(content) = message.get("content").and_then(|c| c.as_array()) else {
+            continue;
+        };
+        for part in content {
+            if part.get("type").and_then(|t| t.as_str()) != Some("image_url") {
+                continue;
+            }
+            let Some(url) = part
+                .get("image_url")
+                .and_then(|u| u.get("url"))
+                .and_then(|u| u.as_str())
+            else {
+                continue;
+            };
+            let Some(b64) = url.strip_prefix(PREFIX) else {
+                continue;
+            };
+            match base64::engine::general_purpose::STANDARD.decode(b64) {
+                Ok(bytes) => out.push(bytes),
+                Err(e) => log::warn!("computer capture dump: wire jpeg decode failed: {e}"),
+            }
+        }
+    }
+    out
+}
+///
+/// The `Verify: pass|fail` line only exists inside the conversation DB as tool
+/// text, so building a dataset from captures meant regex-parsing Chinese prose
+/// back into fields. This file is that same verdict in structured form, under
+/// the same prefix as the screenshots of the same episode.
+///
+/// Failure is swallowed: this is a log, and a failed write must not turn a
+/// successful action into an error.
+fn write_action_verify_sidecar(
+    conversation_id: &str,
+    round_seq: u32,
+    msg_seq: u32,
+    operation_text: &str,
+    tool_result: Option<&str>,
+    conclusion: &VerifyConclusion,
+    pointer: Option<(i32, i32)>,
+) {
+    capture_debug::write_sample_json(
+        conversation_id,
+        round_seq,
+        msg_seq,
+        "action_verify",
+        &serde_json::json!({
+            "operation": operation_text,
+            "tool_result": tool_result,
+            "verify": {
+                "action_result": format!("{:?}", conclusion.action_result),
+                "failure_cause": conclusion.failure_cause.as_ref().map(|c| format!("{c:?}")),
+                "step_summary": conclusion.step_summary,
+            },
+            "pointer": pointer.map(|(x, y)| [x, y]),
+        }),
+    );
 }
 
 struct VerifyOnceBundle {
@@ -485,5 +620,48 @@ mod tests {
         assert!(text.contains("3. "));
         assert!(text.contains("result: ok"));
         assert!(text.contains("result: typed"));
+    }
+
+    /// The dataset must hold the images the verifier **received**, in the order
+    /// the prompt labels them. `in1` = before (图一), `in2` = after (图二).
+    ///
+    /// This is the only coverage the action-verify collection gets: the real
+    /// path (`run_verify_phase`) needs a live LLM, so the wire → bytes step is
+    /// tested on its own.
+    #[test]
+    fn extract_wire_jpegs_keeps_order_and_skips_text() {
+        use base64::Engine as _;
+        let enc = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
+        let before = b"\xff\xd8BEFORE\xff\xd9".to_vec();
+        let after = b"\xff\xd8AFTER\xff\xd9".to_vec();
+        let wire = vec![serde_json::json!({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "[Screen before action]"},
+                {"type": "image_url", "image_url": {"url": format!("data:image/jpeg;base64,{}", enc(&before))}},
+                {"type": "text", "text": "[Screen after action]"},
+                {"type": "image_url", "image_url": {"url": format!("data:image/jpeg;base64,{}", enc(&after))}},
+            ]
+        })];
+
+        let got = extract_wire_jpegs(&wire);
+        assert_eq!(got.len(), 2, "both frames must be extracted, text skipped");
+        assert_eq!(got[0], before, "in1 must be the before frame");
+        assert_eq!(got[1], after, "in2 must be the after frame");
+    }
+
+    /// A malformed or non-JPEG url must not shift the indices — otherwise `in2`
+    /// silently becomes the before frame.
+    #[test]
+    fn extract_wire_jpegs_ignores_non_jpeg_parts() {
+        let wire = vec![serde_json::json!({
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
+                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,bm90LWpwZWc="}},
+            ]
+        })];
+        let got = extract_wire_jpegs(&wire);
+        assert_eq!(got, vec![b"not-jpeg".to_vec()]);
     }
 }

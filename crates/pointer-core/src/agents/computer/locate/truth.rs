@@ -230,6 +230,8 @@ mod tests {
             run_id: "e45e4900".into(),
             started_at: "2026-10-27T10:25:03.561Z".into(),
             session: None,
+            round_seq: None,
+            msg_seq: None,
             batch: None,
             index: 0,
             frame: FrameTrace {

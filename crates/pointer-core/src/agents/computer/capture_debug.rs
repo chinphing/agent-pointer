@@ -220,6 +220,70 @@ pub fn save_pipeline_phase_captures(
     last_rel
 }
 
+/// `{conv8}_{round:03}_{msg:03}` — the prefix every file of one collected
+/// episode shares.
+///
+/// Collection is `glob("{prefix}_*")`: no filename parsing, no regex, no
+/// timestamps. A sample therefore has to be identifiable from its name alone —
+/// which round it came from and which step inside that round.
+pub fn sample_prefix(conversation_id: &str, round_seq: u32, msg_seq: u32) -> String {
+    let conv8: String = conversation_id.chars().take(8).collect();
+    format!("{conv8}_{round_seq:03}_{msg_seq:03}")
+}
+
+/// Write one collected sample file: `{conv8}_{round}_{msg}_{stage}.{ext}`.
+///
+/// Separate from `write_bytes` because the collected naming has no timestamp —
+/// `{prefix}_{stage}` is stable, so re-running a task overwrites the same file
+/// instead of piling up `_1729...` duplicates. That is the point: the directory
+/// is a dataset, not a log stream.
+///
+/// Returns the path relative to `computer-captures/`.
+pub fn write_sample_file(
+    conversation_id: &str,
+    round_seq: u32,
+    msg_seq: u32,
+    stage: &str,
+    ext: &str,
+    bytes: &[u8],
+) -> Option<String> {
+    if bytes.is_empty() {
+        return None;
+    }
+    let (date, dir, _ts) = capture_dump_dir(conversation_id)?;
+    let pfx = sample_prefix(conversation_id, round_seq, msg_seq);
+    let fname = format!("{pfx}_{stage}.{ext}");
+    let path = dir.join(&fname);
+    if let Err(e) = fs::write(&path, bytes) {
+        log::warn!("computer capture dump: sample {path:?}: {e}");
+        return None;
+    }
+    let conv_seg = sanitize_path_segment(conversation_id);
+    Some(format!("{date}/{conv_seg}/{fname}"))
+}
+
+/// Write one collected sample sidecar: `{conv8}_{round}_{msg}_{stage}.json`.
+pub fn write_sample_json(
+    conversation_id: &str,
+    round_seq: u32,
+    msg_seq: u32,
+    stage: &str,
+    value: &serde_json::Value,
+) {
+    let Ok(json) = serde_json::to_string_pretty(value) else {
+        log::warn!("computer capture dump: sample json serialise failed");
+        return;
+    };
+    let _ = write_sample_file(
+        conversation_id,
+        round_seq,
+        msg_seq,
+        stage,
+        "json",
+        json.as_bytes(),
+    );
+}
+
 /// Writes capture files under `{data_dir}/computer-captures/{YYYY-MM-DD}/{conversation_id}/`.
 /// All tiers use the same Primary slot layout (optional before + after + annotated).
 ///
@@ -292,4 +356,28 @@ mod tests {
             "screen_after_action"
         );
     }
+
+    /// Sample names are what collection depends on: `glob("{prefix}_*")` has to
+    /// pick up every file of one episode, so the prefix must be exactly
+    /// `{conv8}_{round:03}_{msg:03}` — short conv id, zero-padded numbers.
+    ///
+    /// Deliberately a pure-function test. An earlier version wrote real files
+    /// through the capture root, which meant swapping the process-global
+    /// `data_dir()`; because Rust runs tests in parallel, that leaked into
+    /// unrelated tests (`webhook_attachment` panicked on `strip_prefix` because
+    /// it resolved storage into a temp dir that had already been deleted).
+    #[test]
+    fn sample_prefix_is_conv8_round_msg() {
+        assert_eq!(sample_prefix("conv-abc123", 5, 3), "conv-abc_005_003");
+        // Short ids are not padded: there is nothing to pad.
+        assert_eq!(sample_prefix("abc", 1, 1), "abc_001_001");
+        // Long ids are cut to 8 chars so the name stays readable.
+        assert_eq!(
+            sample_prefix("0123456789abcdef", 12, 7),
+            "01234567_012_007"
+        );
+        // Round / msg are zero-padded to 3 so lexical sort == numeric sort.
+        assert_eq!(sample_prefix("c", 9, 99), "c_009_099");
+    }
+
 }

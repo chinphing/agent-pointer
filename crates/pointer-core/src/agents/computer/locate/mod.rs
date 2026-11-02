@@ -56,8 +56,15 @@ pub async fn run_locate_element(
     // previous box was wrong (observed: 20-40s per call, thousands of tokens of
     // "maybe the user is wrong" reasoning), so the default stays off.
     let vision = ChatLocateVision::with_verify_provider(provider, verify_provider, cancel.clone());
-    let outcomes =
-        locate_elements(&vision, &frame, &requests, &LocateConfig::default(), cancel).await?;
+    // Sample naming: `{conv8}_{round:03d}_{msg:03d}`. Only feeds the trace dump
+    // file name — a collected run needs to say which round and which locate call
+    // it came from, otherwise it cannot be joined back to the episode it belongs
+    // to (the old `run_id`-only naming made every trace an orphan).
+    let mut cfg = LocateConfig::default();
+    cfg.trace_session = Some(conversation_id.to_string());
+    cfg.trace_round_seq = Some(computer_state.current_pipeline_round_seq(conversation_id));
+    cfg.trace_msg_seq = Some(computer_state.next_msg_seq(conversation_id));
+    let outcomes = locate_elements(&vision, &frame, &requests, &cfg, cancel).await?;
     Ok(render_results(&outcomes))
 }
 

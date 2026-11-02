@@ -83,6 +83,25 @@ macro_rules! debug_log {
 /// `round=2` appears dozens of times per screen and there is no way to tell
 /// whose `verify` verdict belongs to whose `locate` box. Every line and every
 /// dumped file carries `run=<id>`, so a failure can be replayed from disk.
+/// Map a locate `where_` tag to the collected-sample stage name.
+///
+/// `full_init` is the first call; everything else is a re-locate. The engine
+/// already tags rounds this way (`crop_rN` / `full_widen_rN` / `full_escalate_rN`),
+/// and `write_stage_files` numbers stages by locate-call order — this keeps the
+/// image names on the same scheme as the JSON sidecars.
+fn locate_stage_name(where_: &str) -> String {
+    if where_ == "full_init" {
+        return "locate_init".to_string();
+    }
+    let n = where_
+        .rsplit('_')
+        .next()
+        .and_then(|s| s.strip_prefix('r'))
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(1);
+    format!("relocate_{n}")
+}
+
 fn new_run_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(0);
@@ -94,6 +113,24 @@ fn new_run_id() -> String {
     // 6 hex chars of time + 2 of sequence: unique within a session, short enough
     // to read in a log line.
     format!("{:06x}{:02x}", ms & 0xff_ffff, n & 0xff)
+}
+
+/// `{conv8}_{round:03d}_{msg:03d}` when the caller supplied the three ids,
+/// otherwise `None` so the caller falls back to `new_run_id()`.
+///
+/// Collected samples are grouped by this prefix: every file a single
+/// `locate_element` call produced shares it, so the whole episode can be picked
+/// up with one `glob("{prefix}_*")` — no filename parsing, no regex.
+///
+/// `run_id` alone was not enough: it says *which* run but not *where it came
+/// from*, so a trace on disk could never be joined back to the round that
+/// produced it.
+fn sample_prefix(cfg: &LocateConfig) -> Option<String> {
+    let conv = cfg.trace_session.as_deref()?;
+    let round = cfg.trace_round_seq?;
+    let msg = cfg.trace_msg_seq?;
+    let conv8: String = conv.chars().take(8).collect();
+    Some(format!("{conv8}_{round:03}_{msg:03}"))
 }
 
 /// How much of a target description a **log line** keeps.
@@ -153,6 +190,123 @@ fn write_trace(trace: &LocateTrace) {
             Err(e) => log::warn!("locate: trace {} failed: {e}", path.display()),
         },
         Err(e) => log::warn!("locate: trace serialise failed: {e}"),
+    }
+    write_stage_files(&dir, trace);
+}
+
+/// One JSON file per **step** of the run, named `{prefix}_{stage}.json`.
+///
+/// The combined trace above is for debugging a single run; these files are for
+/// *collecting* — one file = one step a human would label, so a validation set
+/// can be assembled with `glob("{prefix}_*")` and no parsing of nested rounds:
+///
+/// | stage | meaning |
+/// |---|---|
+/// | `locate_init` | first locate call (no prior box) |
+/// | `locate_verify` | the verify that judges it |
+/// | `relocate_{N}` | re-locate N, locate + verify together |
+///
+/// `round` in `RoundTrace` is 0-based and re-locate rounds carry both a
+/// `locate` and a `verify`, so they are written as one file rather than two —
+/// a re-locate is one correction step, and splitting it would make the
+/// labeler re-read the same box twice.
+fn write_stage_files(dir: &std::path::Path, trace: &LocateTrace) {
+    #[derive(serde::Serialize)]
+    struct StageFile<'a> {
+        run_id: &'a str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        round_seq: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        msg_seq: Option<u32>,
+        stage: &'a str,
+        frame: &'a crate::agents::computer::locate::trace::FrameTrace,
+        request: &'a crate::agents::computer::locate::trace::RequestTrace,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        locate: Option<&'a crate::agents::computer::locate::trace::LocateStep>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        verify: Option<&'a crate::agents::computer::locate::trace::VerifyStep>,
+    }
+
+    // Rounds alternate locate / verify (`round 0 = locate`, `round 1 = verify`,
+    // `round 2 = re-locate`, …), so the stage cannot be derived from `round`
+    // alone — it has to follow the **order of locate calls**.
+    //
+    //   1st locate  → `locate_init`
+    //   1st verify  → `locate_verify`
+    //   2nd locate  → `relocate_1`
+    //   2nd verify  → merged into `relocate_1`
+    //
+    // Collected first, written once per stage: a re-locate's locate and verify
+    // live in two different rounds, and splitting them would make the labeler
+    // re-read the same box from two files.
+    // 阶段名由 `where_` 决定，不能靠「第几个 locate」数出来。
+    //
+    // 真实 trace 的形态（有 hint 时）：
+    //
+    //     round=1 verify=yes              ← 跳过 locate，直接验证
+    //     round=1 locate=full_widen_r1    ← 重定位（注意 round 号也是 1）
+    //     round=2 verify=yes              ← 重定位后的验证
+    //
+    // 按「第几个 locate」编号会把它读成 locate_init + locate_verify，
+    // 而实际语义是 locate_verify + relocate_1。`where_` 才是可靠的依据：
+    // `full_init` 是首次定位，其余（`crop_rN` / `full_widen_rN` /
+    // `full_escalate_rN`）都是重定位。
+    //
+    // verify 归属：跟在它前面那个 locate 后面。首次定位的 verify 单独成
+    // `locate_verify`（用户要的「定位验证」就是这个），重定位的 verify 并进
+    // `relocate_N`（一次修正 = 一个样本，不该拆成两个文件）。
+    let mut stages: Vec<(String, Option<&LocateStep>, Option<&VerifyStep>)> = Vec::new();
+    let mut relocate_n = 0usize;
+    let mut pending_verify: Option<String> = None;
+    for round in &trace.rounds {
+        if let Some(l) = &round.locate {
+            let stage = if l.where_ == "full_init" {
+                "locate_init".to_string()
+            } else {
+                relocate_n += 1;
+                format!("relocate_{relocate_n}")
+            };
+            stages.push((stage.clone(), Some(l), None));
+            pending_verify = Some(if stage == "locate_init" {
+                "locate_verify".to_string()
+            } else {
+                stage
+            });
+        } else if let Some(v) = &round.verify {
+            // 没有前置 locate（hint 直接验证）时归到 `locate_verify`。
+            let stage = pending_verify
+                .clone()
+                .unwrap_or_else(|| "locate_verify".to_string());
+            match stages.iter_mut().find(|(s, _, _)| *s == stage) {
+                Some((_, _, slot)) => *slot = Some(v),
+                None => stages.push((stage, None, Some(v))),
+            }
+        }
+    }
+
+    for (stage, locate, verify) in stages {
+        let file = StageFile {
+            run_id: &trace.run_id,
+            session: trace.session.as_deref(),
+            round_seq: trace.round_seq,
+            msg_seq: trace.msg_seq,
+            stage: &stage,
+            frame: &trace.frame,
+            request: &trace.request,
+            locate,
+            verify,
+        };
+        let path = dir.join(format!("{}_{stage}.json", trace.run_id));
+        match serde_json::to_string_pretty(&file) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(&path, json) {
+                    log::warn!("locate: stage file {} failed: {e}", path.display());
+                }
+            }
+            Err(e) => log::warn!("locate: stage {stage} serialise failed: {e}"),
+        }
     }
 }
 
@@ -263,7 +417,21 @@ pub async fn locate_one<V: LocateVision>(
     cfg: &LocateConfig,
     cancel: &CancellationToken,
 ) -> Result<LocateOutcome> {
-    let (outcome, trace) = locate_one_traced(vision, frame, req, cfg, cancel).await?;
+    let (outcome, mut trace) = locate_one_traced(vision, frame, req, cfg, cancel).await?;
+    // `frame.path` 是在 `full_image` 渲染完就写死的（指向
+    // `{run}_locate_init_locate_in.jpg`），因为那时还假设「第一次 locate
+    // 一定是 full_init」。带 hint 调用时第一步直接是 verify，那张图从来没
+    // 被 dump 过，trace 就指向了一个不存在的文件 —— 实测 17/17 次全部如此。
+    //
+    // 这里补一次校验：没有 `full_init` 就把路径清空，让「没有整屏原图」
+    // 在数据里是显式的空，而不是一个指向虚空的名字。
+    if !trace
+        .rounds
+        .iter()
+        .any(|r| r.locate.as_ref().is_some_and(|l| l.where_ == "full_init"))
+    {
+        trace.frame.path.clear();
+    }
     dump_annotated_frame(frame, &trace);
     write_trace(&trace);
     Ok(outcome)
@@ -337,7 +505,12 @@ async fn locate_one_traced<V: LocateVision>(
     let full = CropBounds::full(w, h);
     // One id per run: every log line and every dumped image carries it, so a
     // failure can be traced from `round=2` back to the exact crop the model saw.
-    let run = new_run_id();
+    //
+    // Prefer the sample prefix (`{conv8}_{round}_{msg}`) when the caller supplied
+    // the ids — collected samples are picked up by `glob("{prefix}_*")`, so the
+    // prefix has to be stable across every file of one episode. Falls back to the
+    // random id for tests and any caller that did not set them.
+    let run = sample_prefix(cfg).unwrap_or_else(new_run_id);
     let started_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let (desc_log, desc_cut) = short_desc(&req.target_desc);
     debug_log!(
@@ -358,11 +531,16 @@ async fn locate_one_traced<V: LocateVision>(
     // person can open) would otherwise be off by the scale factor, and nothing in
     // the trace would say so.
     let full_image = render_full(frame, None)?;
-    let frame_path = dump_image(&run, "frame", &full_image);
+    // No separate `frame.jpg` dump: this exact image is dumped again by the
+    // first `locate_in` call as `locate_init_locate_in.jpg`, so a second copy is
+    // pure duplication. The trace records its size below either way.
+    let frame_path = format!("{run}_locate_init_locate_in");
     let mut trace = LocateTrace {
         run_id: run.clone(),
         started_at,
         session: cfg.trace_session.clone(),
+        round_seq: cfg.trace_round_seq,
+        msg_seq: cfg.trace_msg_seq,
         batch: cfg.trace_batch.clone(),
         index: cfg.trace_index,
         frame: FrameTrace {
@@ -541,10 +719,21 @@ async fn locate_one_traced<V: LocateVision>(
             // a file. A verdict saying 「no row labels」 is otherwise
             // unfalsifiable — you cannot tell whether the labels were outside
             // the crop or the model simply did not look.
-            let close_id = dump_image(&run, &format!("verify_r{rounds}_close"), &image);
+            // `_in1` / `_in2` = the two images the verifier received (图一 close,
+            // 图二 wide). These are the model's input for this stage, not a
+            // re-render of the screen.
+            let verify_stage = if rounds <= 1 {
+                "locate_verify".to_string()
+            } else {
+                format!("relocate_{}", rounds - 1)
+            };
+            // `locate_verify` already says "verify", so the suffix is just `_inN`
+            // here; only the locate call needs the explicit `_locate_in` marker
+            // to tell it apart from the verify that follows it.
+            let close_id = dump_image(&run, &format!("{verify_stage}_in1"), &image);
             let wide_id = wide_image
                 .as_ref()
-                .map(|w| dump_image(&run, &format!("verify_r{rounds}_wide"), w));
+                .map(|w| dump_image(&run, &format!("{verify_stage}_in2"), w));
             debug_log!(
                 "locate: verify_input run={run} round={rounds} side={side:.0} box=[{:.0},{:.0},{:.0},{:.0}] close_id={close_id} close={}x{} wide_id={:?} wide={:?}",
                 current.to_px(w, h).x1,
@@ -928,7 +1117,11 @@ async fn locate_in<V: LocateVision>(
     });
     let prev_rel = prev_box.map(|b| px_to_rel(b, bounds));
     let prompt = locate_prompt(description, hint_rel, previous_hint, prev_rel);
-    let image_id = dump_image(run, &format!("locate_{where_}"), image);
+    // `_in` marks this as the stage's **model input** — the exact bytes handed
+    // to `vision.locate`. Named after the stage (`locate_init`, `relocate_N`) so
+    // a collected episode is `glob("{prefix}_*")` with no filename parsing.
+    let stage = locate_stage_name(where_);
+    let image_id = dump_image(run, &format!("{stage}_locate_in"), image);
     let (desc_log, desc_cut) = short_desc(description);
     // The inputs matter as much as the answer: a box that is wrong because the
     // crop was wrong looks identical to a box that is wrong because the model

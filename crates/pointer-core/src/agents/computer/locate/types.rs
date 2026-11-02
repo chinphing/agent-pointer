@@ -339,6 +339,13 @@ pub struct LocateConfig {
     /// collected sample says where it came from — a box that is wrong on a
     /// sudoku board and one that is wrong on a spreadsheet are different bugs.
     pub trace_session: Option<String>,
+    /// Pipeline round this run belongs to (`1`, `2`, …). Together with
+    /// `trace_session` and `trace_msg_seq` it forms the sample prefix
+    /// `{conv8}_{round:03d}_{msg:03d}`, so a collected run can be joined back
+    /// to the round it came from without parsing timestamps.
+    pub trace_round_seq: Option<u32>,
+    /// `locate_element` call number inside that round (1-based).
+    pub trace_msg_seq: Option<u32>,
     /// Groups the elements of one `locate_element` call. Three elements in one
     /// call produce three runs; without this they cannot be told apart from
     /// three separate calls.
@@ -359,6 +366,8 @@ impl Default for LocateConfig {
             verify_mult: env_f64("POINTER_LOCATE_VERIFY_MULT", VERIFY_MULT),
             verify_out_px: env_u32("POINTER_LOCATE_VERIFY_OUT_PX", VERIFY_OUT_PX),
             trace_session: None,
+            trace_round_seq: None,
+            trace_msg_seq: None,
             trace_batch: None,
             trace_index: 0,
         }

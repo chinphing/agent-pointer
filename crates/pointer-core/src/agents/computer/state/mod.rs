@@ -712,7 +712,22 @@ impl ComputerState {
         let session = self.get_or_create_session(conversation_id);
         let mut s = session.lock().unwrap();
         s.pipeline.pipeline_round_seq += 1;
+        // New round → sample numbering restarts at 1, so a sample name always
+        // reads `{conv8}_{round}_{msg}` with `msg` counting from the round start.
+        s.pipeline.msg_seq = 0;
         s.pipeline.pipeline_round_seq
+    }
+
+    /// Next sample number inside the current round (1-based).
+    ///
+    /// One call per collected episode: a screen dump, a `locate_element` call,
+    /// an action verify. Only feeds collected-sample file names — nothing in the
+    /// pipeline reads it.
+    pub fn next_msg_seq(&self, conversation_id: &str) -> u32 {
+        let session = self.get_or_create_session(conversation_id);
+        let mut s = session.lock().unwrap();
+        s.pipeline.msg_seq += 1;
+        s.pipeline.msg_seq
     }
 
     pub fn current_pipeline_round_seq(&self, conversation_id: &str) -> u32 {

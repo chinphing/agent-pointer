@@ -70,6 +70,17 @@ pub struct LocateTrace {
     /// Conversation this run came from, when the caller supplied one.
     #[serde(default)]
     pub session: Option<String>,
+    /// Pipeline round this run came from (`1`, `2`, …).
+    ///
+    /// With `session` and `msg_seq` it reconstructs the sample prefix
+    /// `{conv8}_{round:03}_{msg:03}` that every dumped file of this episode
+    /// carries — so a trace on disk says which round produced it without any
+    /// timestamp arithmetic.
+    #[serde(default)]
+    pub round_seq: Option<u32>,
+    /// `locate_element` call number inside that round (1-based).
+    #[serde(default)]
+    pub msg_seq: Option<u32>,
     /// Groups the elements of one `locate_element` call.
     #[serde(default)]
     pub batch: Option<String>,

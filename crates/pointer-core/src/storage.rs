@@ -46,6 +46,18 @@ pub fn set_test_app_data_dir(dir: PathBuf) {
     // instead we re-check TEST_APP_DATA_DIR first inside data_dir().
 }
 
+/// Test hook: drop the override installed by [`set_test_app_data_dir`].
+///
+/// A test that installs an override **must** clear it before returning, even on
+/// failure. `TEST_APP_DATA_DIR` is process-global, so a leftover temp path makes
+/// unrelated tests resolve their storage into a directory that no longer exists
+/// (observed: `webhook_attachment::tests::save_and_validate_roundtrip` passed
+/// alone but failed in the full run).
+#[cfg(test)]
+pub fn clear_test_app_data_dir() {
+    *TEST_APP_DATA_DIR.lock().unwrap() = None;
+}
+
 static LEGACY_MIGRATION_ONCE: Once = Once::new();
 
 fn default_app_data_subdir() -> &'static str {

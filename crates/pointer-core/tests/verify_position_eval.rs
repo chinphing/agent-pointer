@@ -39,13 +39,24 @@ struct Row {
     // serde 默认忽略未知字段，所以这里不声明 —— 声明了也没人读。
     variant: String,
     description: String,
-    close: String,
-    wide: String,
-    /// 整屏原图。生产 `engine.rs:534` 用的是 `render_full_marked`（整屏 +
-    /// 贯穿十字），所以图二必须从它现渲染，不能读预先裁好的 `wide`。
-    screen: String,
-    /// 候选框，原图像素坐标。用来还原 `render_full_marked` 的交点位置。
-    box_px: [f64; 4],
+    /// 现成图（新格式）：这两张就是模型当时收到的图一 / 图二。
+    ///
+    /// 有它们就不再渲染。采集时落盘的是 `LocateImage.jpeg` 原字节，即
+    /// `vision.verify_pair` 实际发出去的那份 —— 再渲染一遍只会得到「同一张
+    /// 图重新编码后」的版本，还可能随 `render.rs` 改动漂移。
+    #[serde(default)]
+    image_in1: Option<String>,
+    #[serde(default)]
+    image_in2: Option<String>,
+    /// 旧格式：裁好的 close 图 + 整屏 screen 图 + 框，评测时现渲染 wide。
+    #[serde(default)]
+    close: Option<String>,
+    #[serde(default)]
+    wide: Option<String>,
+    #[serde(default)]
+    screen: Option<String>,
+    #[serde(default)]
+    box_px: Option<[f64; 4]>,
     expect: Expect,
     /// 这条样本所属场景目录（`<root>/sudoku` 或 `<root>/general`）。
     /// 图片路径是相对它写的，不进 truth.jsonl。
@@ -149,6 +160,13 @@ fn build_provider() -> Result<OpenAIProvider> {
 /// 评测数据在代码仓库之外：`<repo>/../pointer-eval-data/verify_position/`。
 /// 按场景分子目录，每个目录内是 `truth.jsonl` + `images/{close,wide,screen}/`。
 fn fixture_root() -> PathBuf {
+    // `POINTER_VERIFY_EVAL_ROOT` 指向任意数据集目录，用于跑运行时采集出来的
+    // 样本（`build_locate_set.py` 的输出），不污染仓库外的固定基线目录。
+    if let Ok(p) = std::env::var("POINTER_VERIFY_EVAL_ROOT") {
+        if !p.trim().is_empty() {
+            return PathBuf::from(p);
+        }
+    }
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../pointer-eval-data/verify_position")
 }
 
@@ -263,17 +281,33 @@ async fn eval_verify_fixture() -> Result<()> {
             let t0 = std::time::Instant::now();
             let _permit = sem.acquire().await.expect("semaphore");
             let t_perm = t0.elapsed();
-            let close = read_image(&row.base.join(&row.close))?;
-            let single = std::env::var("POINTER_VERIFY_EVAL_SINGLE").is_ok();
-            // 图二 = 生产同款：整屏原图 + 贯穿十字。
-            // 读预先裁好的 `wide` 会测到生产根本不用的图，历史数据因此失真。
+            // 新格式直接读采集到的现成图；旧格式回退到「读 close + 现渲染 wide」。
+            let close = match row.image_in1.as_deref() {
+                Some(p) => read_image(&row.base.join(p))?,
+                None => read_image(
+                    &row.base
+                        .join(row.close.as_deref().context("truth 行缺 close / image_in1")?),
+                )?,
+            };
+            let single = std::env::var("POINTER_VERIFY_EVAL_SINGLE").is_ok()
+                // 采集来的 locate 阶段样本只有一张输入图（模型当时就只收到一张）。
+                // 这种情况下不能强行要求图二 —— 那会把单图阶段排除在评测之外。
+                || (row.image_in2.is_none() && row.screen.is_none());
+            // 图二：新格式直接读；旧格式从整屏现渲染（生产 `engine.rs:534`
+            // 用的是 `render_full_marked`，读预先裁好的 `wide` 会测到生产
+            // 根本不用的图，历史数据因此失真）。
             let wide_img = if single {
                 None
+            } else if let Some(p) = row.image_in2.as_deref() {
+                Some(read_image(&row.base.join(p))?)
             } else {
-                let screen_jpeg = read_image(&row.base.join(&row.screen))?;
+                let screen_jpeg = read_image(
+                    &row.base
+                        .join(row.screen.as_deref().context("truth 行缺 screen / image_in2")?),
+                )?;
                 let frame = LocateFrame::from_jpeg(&screen_jpeg.jpeg)?;
                 let (fw, fh) = (frame.width(), frame.height());
-                let [x1, y1, x2, y2] = row.box_px;
+                let [x1, y1, x2, y2] = row.box_px.context("truth 行缺 box_px")?;
                 let candidate = NormBox::new(
                     x1 / fw as f64 * 1000.0,
                     y1 / fh as f64 * 1000.0,
@@ -397,14 +431,20 @@ async fn eval_verify_fixture() -> Result<()> {
         let got = [("position", u.clone(), want_u.to_string())];
         // 只有一个维度，所以 `usable_ok` 就是这一行是否全对 —— 单独再维护一个
         // `all_ok` 累加器只会是它的副本，且没有任何地方读。
-        let usable_ok = u == want_u;
-        for (dim, actual, want) in got {
-            let key = (dim.to_string(), row.variant.clone());
-            let e = stat.entry(key).or_insert((0, 0));
-            if actual == want {
-                e.0 += 1;
-            } else {
-                e.1 += 1;
+        //
+        // `unknown` = 该阶段没有判定可作标签（采集来的 `locate_init` 只有框、
+        // 没有 verify），不能进分母：把它当 `yes` 会让每条都记成失败。
+        let unlabeled = want_u == "unknown";
+        let usable_ok = unlabeled || u == want_u;
+        if !unlabeled {
+            for (dim, actual, want) in got {
+                let key = (dim.to_string(), row.variant.clone());
+                let e = stat.entry(key).or_insert((0, 0));
+                if actual == want {
+                    e.0 += 1;
+                } else {
+                    e.1 += 1;
+                }
             }
         }
         all_rows.push(serde_json::json!({
@@ -418,6 +458,21 @@ async fn eval_verify_fixture() -> Result<()> {
             "want_size": row.expect.size,
             "notes": notes,
         }));
+        if unlabeled {
+            // 无标签样本：只落盘观察，不参与任何比率。
+            all_rows.push(serde_json::json!({
+                "id": row.id,
+                "variant": row.variant,
+                "got_usable": u,
+                "got_center": c,
+                "got_size": s,
+                "want_usable": want_u,
+                "want_center": row.expect.center,
+                "want_size": row.expect.size,
+                "notes": notes,
+            }));
+            continue;
+        }
         let e = by_variant.entry(row.variant.clone()).or_insert((0, 0));
         if usable_ok {
             e.0 += 1;

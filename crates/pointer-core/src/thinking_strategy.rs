@@ -125,27 +125,6 @@ pub fn provider_looks_zhipu(provider: &ProviderConfig) -> bool {
     url.contains("bigmodel.cn") || url.contains("open.bigmodel.cn") || url.contains("api.z.ai")
 }
 
-fn deepseek_model_supports_thinking(model: &str) -> bool {
-    let m = model.trim().to_ascii_lowercase();
-    if m.is_empty() {
-        return false;
-    }
-    if m == "deepseek-reasoner" {
-        return true;
-    }
-    // Non-versioned aliases that accept `reasoning_effort` (current
-    // `deepseek-flash`, plus its dated snapshots). Keep this an explicit
-    // allowlist: classic non-thinking models such as `deepseek-chat` must stay
-    // out so the wire body never carries a field the API rejects.
-    if m == "deepseek-flash" || m.starts_with("deepseek-flash-") {
-        return true;
-    }
-    if m.starts_with("deepseek-v") && !m.starts_with("deepseek-v3") {
-        return true;
-    }
-    m.contains("deepseek-v4") || m.contains("deepseek-r1")
-}
-
 /// Resolve concrete strategy (never returns [`ThinkingStrategyId::Auto`]).
 pub fn resolve_thinking_strategy_id(
     provider: &ProviderConfig,
@@ -455,7 +434,9 @@ impl ThinkingStrategy for BudgetStrategy {
     }
 }
 
-/// DeepSeek accepts only `low` / `high` / `max` (no `medium`, no `thinking.type`).
+/// `reasoning_effort` on DeepSeek only has `low` / `high` / `max` (no `medium`);
+/// turning thinking **off** is not an effort rung — it goes through
+/// `thinking: {"type": "disabled"}` instead (see [`EffortStrategy`]).
 fn deepseek_reasoning_effort_wire(raw: &str) -> Option<&'static str> {
     match raw.trim().to_ascii_lowercase().as_str() {
         "low" | "minimal" => Some("low"),
@@ -480,13 +461,10 @@ impl ThinkingStrategy for EffortStrategy {
         intensity: Option<ThinkingIntensity>,
         settings: &ModelSettings,
         provider: &ProviderConfig,
-        model: &str,
+        _model: &str,
         model_over: Option<&ModelRuntimeOverrides>,
         m: &mut Map<String, Value>,
     ) {
-        if !deepseek_model_supports_thinking(model) && provider_uses_deepseek_api(provider) {
-            return;
-        }
         clear_budget_keys(m);
         m.remove("thinking");
         m.remove("output_config");
@@ -506,7 +484,11 @@ impl ThinkingStrategy for EffortStrategy {
             }
         };
         if !enable {
+            // DeepSeek thinks by default; dropping `reasoning_effort` leaves the
+            // server default (thinking ON, effort `high`). The switch is
+            // `thinking.type`, so 「off」 must be said out loud.
             m.remove("reasoning_effort");
+            insert_thinking_type(m, false);
             return;
         }
         let effort = match intensity {
@@ -527,9 +509,9 @@ impl ThinkingStrategy for EffortStrategy {
 
     fn apply_disabled(&self, m: &mut Map<String, Value>) {
         clear_budget_keys(m);
-        m.remove("thinking");
         m.remove("output_config");
         m.remove("reasoning_effort");
+        insert_thinking_type(m, false);
     }
 }
 
@@ -814,21 +796,46 @@ mod tests {
         assert!(m.get("output_config").is_none());
     }
 
+    /// DeepSeek thinks by default, so 「off」 must be stated as
+    /// `thinking: {"type": "disabled"}` — dropping `reasoning_effort` alone
+    /// leaves the server default (thinking ON) and silently keeps reasoning.
     #[test]
-    fn deepseek_thinking_allowlist_covers_flash_and_excludes_chat() {
-        assert!(deepseek_model_supports_thinking("deepseek-flash"));
-        assert!(deepseek_model_supports_thinking("deepseek-flash-2026-01"));
-        assert!(deepseek_model_supports_thinking("deepseek-v4-pro"));
-        assert!(deepseek_model_supports_thinking("deepseek-reasoner"));
-        // Classic non-thinking models must stay out: the API rejects the field.
-        assert!(!deepseek_model_supports_thinking("deepseek-chat"));
-        assert!(!deepseek_model_supports_thinking("deepseek-v3"));
-        assert!(!deepseek_model_supports_thinking(""));
+    fn deepseek_off_sends_thinking_disabled() {
+        let mut s = sample_settings();
+        s.active_provider_id = "deepseek".into();
+        s.model = "deepseek-flash".into();
+        s.providers[1].thinking_intensity = Some("off".into());
+        let p = &s.providers[1];
+        let mut m = Map::new();
+        apply_thinking_strategy(&s, p, "deepseek-flash", None, &mut m);
+        assert_eq!(
+            m.get("thinking"),
+            Some(&serde_json::json!({"type": "disabled"}))
+        );
+        assert!(m.get("reasoning_effort").is_none());
+        assert!(!thinking_enabled_in_extra_body(Some(&Value::Object(m.clone()))));
     }
 
-    /// Regression: `api.deepseek.com` + `deepseek-flash` used to return early
-    /// from the effort strategy, so `--thinking-intensity max` never reached
-    /// the wire.
+    /// The same switch must land when a round / phase locks thinking off
+    /// (`apply_thinking_disabled_strategy` — structured output, verify, locate).
+    #[test]
+    fn deepseek_apply_disabled_sends_thinking_disabled() {
+        let mut s = sample_settings();
+        s.active_provider_id = "deepseek".into();
+        s.model = "deepseek-flash".into();
+        s.providers[1].thinking_intensity = Some("high".into());
+        let mut extra = crate::models::effective_chat_extra_body(&s);
+        assert_eq!(
+            extra.as_ref().and_then(|v| v.get("reasoning_effort")),
+            Some(&Value::String("high".into()))
+        );
+        crate::models::apply_thinking_disabled_to_extra_body(&s, &mut extra);
+        let o = extra.as_ref().and_then(|v| v.as_object()).expect("obj");
+        assert_eq!(o.get("thinking"), Some(&serde_json::json!({"type": "disabled"})));
+        assert!(o.get("reasoning_effort").is_none());
+        assert!(!thinking_enabled_in_extra_body(extra.as_ref()));
+    }
+
     #[test]
     fn deepseek_flash_emits_reasoning_effort_on_wire() {
         let mut s = sample_settings();
@@ -843,18 +850,6 @@ mod tests {
             m.get("reasoning_effort").and_then(|v| v.as_str()),
             Some("max")
         );
-    }
-
-    #[test]
-    fn deepseek_chat_stays_out_of_the_wire_body() {
-        let mut s = sample_settings();
-        s.active_provider_id = "deepseek".into();
-        s.model = "deepseek-chat".into();
-        s.providers[1].thinking_intensity = Some("max".into());
-        let p = &s.providers[1];
-        let mut m = Map::new();
-        apply_thinking_strategy(&s, p, "deepseek-chat", None, &mut m);
-        assert!(m.get("reasoning_effort").is_none());
     }
 
     #[test]

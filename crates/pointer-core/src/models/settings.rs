@@ -1278,10 +1278,19 @@ pub const DEFAULT_FILE_READ_MAX_BYTES: u32 = 64 * 1024;
 ///
 /// Measured against TextEdit: at 30 ms only 20/30 pastes landed and 5 restored
 /// the *previous* clipboard text into the document; from 50 ms up every run was
-/// 30/30. 50 ms is the floor that measured clean, and the ceiling exists for
-/// slower targets (Electron editors, remote desktops) where the app may not have
-/// read the pasteboard yet.
-pub const DEFAULT_COMPUTER_PASTE_RESTORE_DELAY_MS: u32 = 50;
+/// 30/30.
+///
+/// **50 ms is TextEdit's floor, not every target's.** A real session on
+/// 2026-11-02 pasted the *previous* clipboard into a Chrome-rendered search box
+/// and into an iPhone Mirroring field at 50 ms — the two slow targets this
+/// constant's own doc comment warns about. TextEdit is the fastest reader we
+/// have; anything that renders through a webview or ships pixels over a remote
+/// link needs more. 100 ms covers both observed cases while staying under the
+/// point where typing feels laggy.
+///
+/// `FLOOR` stays at 50 so a user can still opt back into the measured TextEdit
+/// minimum; the ceiling exists for remote desktops that need far more.
+pub const DEFAULT_COMPUTER_PASTE_RESTORE_DELAY_MS: u32 = 100;
 pub const FLOOR_COMPUTER_PASTE_RESTORE_DELAY_MS: u32 = 50;
 pub const CEILING_COMPUTER_PASTE_RESTORE_DELAY_MS: u32 = 2000;
 pub const DEFAULT_FILE_LINE_MAX_BYTES: u32 = 1024;
@@ -1327,12 +1336,14 @@ mod paste_restore_delay_tests {
     use super::*;
 
     #[test]
-    fn default_matches_measured_floor() {
-        // 50 ms is the smallest gap that pasted 30/30 against TextEdit.
-        assert_eq!(default_computer_paste_restore_delay_ms(), 50);
-        assert_eq!(
-            FLOOR_COMPUTER_PASTE_RESTORE_DELAY_MS,
-            DEFAULT_COMPUTER_PASTE_RESTORE_DELAY_MS
+    fn default_clears_the_measured_floor() {
+        // 50 ms is TextEdit's floor. The default sits above it because Chrome
+        // webviews and iPhone Mirroring both pasted the previous clipboard at
+        // 50 ms in a real session.
+        assert_eq!(default_computer_paste_restore_delay_ms(), 100);
+        assert!(
+            DEFAULT_COMPUTER_PASTE_RESTORE_DELAY_MS > FLOOR_COMPUTER_PASTE_RESTORE_DELAY_MS,
+            "默认值必须高于 TextEdit 实测下限"
         );
     }
 
@@ -2260,7 +2271,8 @@ pub struct UserSettings {
     pub computer_auto_switch_monitor: bool,
     /// Delay before `type_text_via_clipboard` restores the previous clipboard
     /// content after Cmd+V. Measured on TextEdit: 30 ms lost 10/30 pastes,
-    /// 50 ms was 30/30. See `DEFAULT_COMPUTER_PASTE_RESTORE_DELAY_MS`.
+    /// 50 ms was 30/30 — but Chrome webviews and iPhone Mirroring still pasted
+    /// the previous content at 50 ms. See `DEFAULT_COMPUTER_PASTE_RESTORE_DELAY_MS`.
     #[serde(
         default = "default_computer_paste_restore_delay_ms",
         rename = "computerPasteRestoreDelayMs"
@@ -4713,7 +4725,13 @@ mod effective_extra_body_tests {
         s.model = "deepseek-v4-flash".into();
         s.providers[1].enable_thinking = Some(false);
         s.providers[1].reasoning_effort = Some("high".into());
-        assert!(effective_chat_extra_body(&s).is_none());
+        // 「关」必须显式下发：DeepSeek 默认就开思考，少发字段等于没关。
+        let v = effective_chat_extra_body(&s).expect("disabled marker");
+        assert_eq!(
+            v.get("thinking"),
+            Some(&serde_json::json!({"type": "disabled"}))
+        );
+        assert!(v.get("reasoning_effort").is_none());
     }
 
     #[test]
@@ -4743,7 +4761,10 @@ mod effective_extra_body_tests {
         apply_thinking_disabled_to_extra_body(&s, &mut extra);
         let o = extra.as_ref();
         assert!(o.and_then(|v| v.get("reasoning_effort")).is_none());
-        assert!(o.and_then(|v| v.get("thinking")).is_none());
+        assert_eq!(
+            o.and_then(|v| v.get("thinking")),
+            Some(&serde_json::json!({"type": "disabled"}))
+        );
         assert!(!thinking_enabled_in_extra_body(o));
     }
 

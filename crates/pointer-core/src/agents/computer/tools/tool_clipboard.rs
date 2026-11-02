@@ -10,6 +10,22 @@ const CLIPBOARD_MAX_RETURN_CHARS: usize = 100_000;
 /// Clipboard tool: `read` / `write` (XML: **`clipboard.read`**, **`clipboard.write`**).
 pub struct ClipboardTool;
 
+/// The reply `clipboard_write` sends back to the model.
+///
+/// Counts **characters**, not bytes. `str::len` is UTF-8 bytes, so a
+/// two-character CJK goal reported "Copied 6 characters" — the model compared
+/// that against its own two-character input, concluded the tool had written
+/// something else, and failed an operation that had in fact succeeded. Observed
+/// in a real session: `clipboard_write("深圳")` → "Copied 6 characters" →
+/// verify fail → retry.
+fn write_reply(goal: &str, text: &str) -> String {
+    format!(
+        "Goal: {}. Copied {} characters to clipboard. Nothing was pasted — use hotkey (paste) or input if needed.",
+        goal,
+        text.chars().count()
+    )
+}
+
 impl ClipboardTool {
     pub fn new() -> Self {
         Self
@@ -65,13 +81,9 @@ impl ClipboardTool {
         info!(
             "clipboard write_clipboard: goal_len={} chars_written={}",
             goal.chars().count(),
-            text.len()
+            text.chars().count()
         );
-        Ok(format!(
-            "Goal: {}. Copied {} characters to clipboard. Nothing was pasted — use hotkey (paste) or input if needed.",
-            goal,
-            text.len()
-        ))
+        Ok(write_reply(goal, text))
     }
 }
 
@@ -191,6 +203,21 @@ mod tests {
             clipboard_host_verify_kind("clipboard_read", Some(t)),
             ClipboardHostVerifyKind::Defer
         );
+    }
+
+    #[test]
+    fn write_reply_counts_characters_not_bytes() {
+        // 「深圳」= 2 chars / 6 bytes. Reporting 6 made the model think the
+        // tool had written something other than what it asked for.
+        let r = write_reply("把深圳放进剪贴板", "深圳");
+        assert!(r.contains("Copied 2 characters"), "{r}");
+        assert!(!r.contains("Copied 6 characters"), "{r}");
+    }
+
+    #[test]
+    fn write_reply_ascii_unchanged() {
+        let r = write_reply("copy", "hello");
+        assert!(r.contains("Copied 5 characters"), "{r}");
     }
 
     #[test]

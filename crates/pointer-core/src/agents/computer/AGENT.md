@@ -15,6 +15,8 @@ toolNames:
   - clipboard
   - list_apps
   - launch_app
+  - media_understand
+  - skill_read
   - web_search
   - web_fetch
 accessPolicy:
@@ -31,6 +33,8 @@ accessPolicy:
     - terminal
     - task_board
     - im_send
+    - media_understand
+    - skill_read
     - web_search
     - web_fetch
   denyTools: []
@@ -45,7 +49,7 @@ ui:
   avatar: computer
 defaultSkillIds:
     - xlsx
-skillsPolicy: defaultsOnly
+skillsPolicy: userConfigurable
 config:
   computerStandalonePlanner: "true"
 ---

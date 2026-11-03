@@ -191,7 +191,11 @@ fn build_provider() -> Result<OpenAIProvider> {
                 "name": "locate-test",
                 "baseUrl": base_url,
                 "apiKey": "",
-                "models": [model.clone()]
+                "models": [model.clone()],
+                // 同 `full_chain` 的 build_provider：缺这一项时
+                // `model_capability_flags` 判 `supports_vision = false`，
+                // 截图被换成「(image not inlined)」文本，模型盲答。
+                "modelConfigs": { model.clone(): { "supportsVision": true } }
             }],
             "activeProviderId": "locate-test",
             "model": model,

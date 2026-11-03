@@ -422,7 +422,7 @@ async fn eval_verify_fixture() -> Result<()> {
     let mut all_rows: Vec<serde_json::Value> = Vec::new();
 
     for h in handles {
-        let (row, c, s, u, notes, _reasoning) = h.await.context("join")??;
+        let (row, c, s, u, notes, reasoning) = h.await.context("join")??;
         // 现在只判位置，不判 size：usable 的期望就是 center 的期望。
         let want_u = row.expect.center.clone();
         // 只报一个维度：position 是否落在目标上。size 不再判 ——
@@ -457,20 +457,12 @@ async fn eval_verify_fixture() -> Result<()> {
             "want_center": row.expect.center,
             "want_size": row.expect.size,
             "notes": notes,
+            // 思考过程随结果一起落盘 —— 否则分析一次判错就要重跑一次全量。
+            "reasoning": reasoning,
         }));
         if unlabeled {
             // 无标签样本：只落盘观察，不参与任何比率。
-            all_rows.push(serde_json::json!({
-                "id": row.id,
-                "variant": row.variant,
-                "got_usable": u,
-                "got_center": c,
-                "got_size": s,
-                "want_usable": want_u,
-                "want_center": row.expect.center,
-                "want_size": row.expect.size,
-                "notes": notes,
-            }));
+            // 上面已经 push 过一条，这里不再重复。
             continue;
         }
         let e = by_variant.entry(row.variant.clone()).or_insert((0, 0));
@@ -499,6 +491,7 @@ async fn eval_verify_fixture() -> Result<()> {
                 "want_center": row.expect.center,
                 "want_size": row.expect.size,
                 "notes": notes,
+                "reasoning": reasoning,
             }));
         }
     }

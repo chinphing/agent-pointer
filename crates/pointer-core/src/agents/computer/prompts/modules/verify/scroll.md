@@ -52,8 +52,14 @@ moved ~1.5 target-heights
 The number is an estimate, not a measurement: `1.5` is enough, do not try to
 resolve `1.4` from `1.6`. What matters is that it is **over 1**, because that is
 the only signal telling the planner it skipped content. Mention the gap in
-`step_summary` too (`first row A → first row Z, rows between never visible`), so
-the planner knows to scroll back.
+`step_summary` too (`expected ~1.5 target-heights — first row A → first row Z,
+rows between never visible`), so the planner knows to scroll back.
+
+The summary follows core.md's shape, with the shift appended:
+
+```
+<panel>: expected ~0.6 target-heights further down — before first row "A", after first row "F"
+```
 
 **Also submit the number as fields**, not only in prose: `scroll_moved` (a
 number, e.g. `0.05` — **and above `1` when the jump exceeded a panel**) and

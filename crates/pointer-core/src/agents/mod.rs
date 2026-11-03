@@ -2248,6 +2248,29 @@ mod builtin_agent_tests {
         }
     }
 
+    /// `step_summary` 必须以「预期效果」开头，再写前后两帧。
+    ///
+    /// 只写「变了什么」时，读的人得自己反推那是不是要的变化 —— 而「有差异
+    /// 就算成功」正是这个字段要挡掉的情形。字段说明和格式示例曾经一个要预期、
+    /// 一个只写 before → after，模型跟着示例走，于是预期永远不出现。
+    #[test]
+    fn step_summary_leads_with_the_expected_effect() {
+        use computer::pipeline::operation::OperationFamily;
+        assert!(
+            COMPUTER_VERIFY_CORE.contains("expected <X> — before"),
+            "core.md 的 step_summary 模板没把预期放在最前"
+        );
+        assert!(
+            COMPUTER_VERIFY_CORE.contains("Lead with the effect"),
+            "core.md 没要求先写预期"
+        );
+        let click = computer_verify_prompt(OperationFamily::PointerClick);
+        assert!(
+            click.contains("leads with that expected effect"),
+            "click 场景的说明没跟 core.md 对齐"
+        );
+    }
+
     /// 滚动量词只能出现在 scroll 场景里。core.md 是所有场景共用的，
     /// 里面放一句 `moved ~0.4 target-heights` 的示例，点击场景的 verify
     /// 就会照着写「内容上移约 0.3 target-heights」。

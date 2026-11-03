@@ -38,6 +38,6 @@ Max **3 sentences**, plain prose.
 2. Whether the after frame shows that effect — or what it shows instead.
 3. Pass or fail + `failure_cause` when fail.
 
-`step_summary` reports that expected effect and whether it happened.
+`step_summary` leads with that expected effect, then what the frames show for it.
 
 **Forbidden:** "Analyze the Request"; JSON/`{`/`}`; repeating `submit_verify` args.

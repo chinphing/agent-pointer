@@ -52,20 +52,29 @@ the wrong panel did not achieve `goal`.
 | `action_result` | always | `pass` · `fail` · `pending` |
 | `loading_detected` | always | `true` when spinner/progress/partial load blocks a firm pass |
 | `failure_cause` | on `fail` | `wrong_operation` (wrong target/effect) · `precision_miss` (aim/offset) |
-| `step_summary` | always | The expected effect and whether the after frame shows it — the comparison that decided the verdict |
+| `step_summary` | always | The expected effect first, then what the two frames show for it — `<subject>: expected <X> — before <A>, after <B>` |
 
 ### `step_summary`
 
-Always filled. State the effect `goal` calls for, then what the two frames show
-for it — one line, `<subject>: <before> → <after>`:
+Always filled. **Lead with the effect `goal` calls for**, then what the two
+frames show for it — one line:
 
 ```
-col 3: empty → 5
-col 3: empty → col 2 shows 5
-Save: no toast → "已保存" toast
-rows 2–5: unselected → selected
-no change — Save button and the area around it are identical
+<subject>: expected <X> — before <A>, after <B>
 ```
+
+```
+col 3: expected 5 — before empty, after 5
+col 3: expected 5 — before empty, after col 2 shows 5
+Save: expected "已保存" toast — before none, after "已保存" toast
+rows 2–5: expected selected — before unselected, after selected
+Save: expected "已保存" toast — no change
+```
+
+The expectation comes first because it is the question the verdict answers.
+A summary that only reports *a* change leaves the reader to work out what was
+wanted — and 「something changed」 is exactly the reading this field exists to
+rule out.
 
 Name the subject once when it is the same on both sides; name both when the
 change landed somewhere else.

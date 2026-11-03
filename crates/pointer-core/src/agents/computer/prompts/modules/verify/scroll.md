@@ -52,13 +52,13 @@ moved ~1.5 target-heights
 The number is an estimate, not a measurement: `1.5` is enough, do not try to
 resolve `1.4` from `1.6`. What matters is that it is **over 1**, because that is
 the only signal telling the planner it skipped content. Mention the gap in
-`step_summary` too (`expected new rows — first row A → first row Z, rows between
-never visible`), so the planner knows to scroll back.
+`step_summary` too (`expected new rows — rows A…Z, the ones between never
+visible`), so the planner knows to scroll back.
 
 The summary follows core.md's shape, with the shift appended:
 
 ```
-<panel>: expected new rows further down — before first row "A", after first row "F", moved ~0.6 target-heights
+<panel>: expected new rows below the last visible one — before last row "P", after last row "T", moved ~0.6 target-heights
 ```
 
 **The expectation is 「new content appears」, never a distance.** How far one
@@ -81,9 +81,22 @@ Do not try to count pixels — the estimate is for scaling, not for measurement.
 The single test for success is **whether the two screenshots differ because the
 content scrolled**. Everything else follows from that.
 
-Read the first visible row (or column) in both frames: the shift is the
-**difference between the two**, and an unchanged first row with unchanged rows
-below it means nothing moved.
+**Measure on any anchor; judge on the leading edge.** The shift is the same on
+every row (or column) visible in both frames, so measure it wherever it is
+easiest to read — an unchanged first row with unchanged rows below it means
+nothing moved. The *expected effect* is not there though: new content shows up at
+the edge the scroll was heading toward, and that edge follows the direction.
+
+| Direction | New content appears |
+| --- | --- |
+| down | rows below the last row that was visible |
+| up | rows above the first row that was visible |
+| right | columns past the right-hand edge |
+| left | columns before the left-hand one |
+
+A frame where the trailing edge changed but the leading edge did not is a scroll
+in the **wrong direction** — `fail` / `wrong_operation`, however much the rest of
+the panel moved.
 
 | Situation | `action_result` | `failure_cause` |
 | --- | --- | --- |

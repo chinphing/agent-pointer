@@ -15,9 +15,7 @@ use super::trace::{
     FrameTrace, LocateStep, LocateTrace, OutcomeTrace, RequestTrace, RoundTrace, VerifyStep,
 };
 use super::types::{
-    MatchVerdict,
-    CenterOnTarget, Confidence, FailureReason, LocateConfig, LocateOutcome, LocateRequest,
-    PositionMatches, VerifyVerdict,
+    MatchVerdict, FailureReason, LocateConfig, LocateOutcome, LocateRequest, VerifyVerdict,
 };
 
 /// One switch for everything diagnostic — **the one in the settings UI**.
@@ -574,9 +572,7 @@ async fn locate_one_traced<V: LocateVision>(
     let mut box_norm = req.hint_norm(w, h);
     let mut last_saw = String::new();
     let mut last_why = String::new();
-    let mut last_failure_reason = String::new();
     let mut last_reasoning = String::new();
-    let mut final_confidence = Confidence::High;
     let mut rounds = 0usize;
     let mut stop = Stop::RoundsExhausted;
 
@@ -785,10 +781,8 @@ async fn locate_one_traced<V: LocateVision>(
             // is a black box — you cannot tell whether the box was too tight,
             // the crop too small, or the target genuinely absent.
             debug_log!(
-                "locate: verify_output run={run} round={rounds} center={:?} size={:?} position={} close_id={close_id} notes={}",
-                v.center_on_target,
-                v.size_ok,
-                v.position_matches.as_str(),
+                "locate: verify_output run={run} round={rounds} is_same={:?} close_id={close_id} notes={}",
+                v.is_same,
                 v.notes.trim()
             );
             trace.rounds.push(RoundTrace {
@@ -803,9 +797,7 @@ async fn locate_one_traced<V: LocateVision>(
                         current.to_px(w, h).x2,
                         current.to_px(w, h).y2,
                     ],
-                    center: format!("{:?}", v.center_on_target),
-                    size: format!("{:?}", v.size_ok),
-                    position: v.position_matches.as_str().to_string(),
+                    is_same: format!("{:?}", v.is_same),
                     notes: v.notes.trim().to_string(),
                     render_ms: (t_call - t_render).as_millis() as u64,
                     call_ms: call_ms as u64,
@@ -822,25 +814,9 @@ async fn locate_one_traced<V: LocateVision>(
                 last_why = v.notes.clone();
                 last_reasoning = v.reasoning.clone();
             }
-            // Kept separate from `notes` on purpose: `notes` is four sections of
-            // measurements, this is the one sentence that says whether to move
-            // the box or rewrite the description. Overwriting it only when it is
-            // non-empty keeps the last *substantive* answer — a later round that
-            // fails to produce one should not erase what an earlier round said.
-            if !v.failure_reason.trim().is_empty() {
-                last_failure_reason = v.failure_reason.clone();
-            }
             let crop = Some((locate_image, bounds));
 
-            // Three independent checks, all made by the verifier:
-            //   ① `center_on_target` — is the mark on the target? The mark sits at
-            //      the box centre, so this decides the returned coordinate.
-            //   ② `size_ok` — does the box frame the target properly?
-            //   ③ `position_matches` — is this the cell the description names?
-            // Code reads the three verdicts; it never re-derives them from
-            // numbers or prose.
             if v.is_hit() {
-                final_confidence = v.confidence;
                 stop = Stop::Verified;
                 break (v, crop);
             }
@@ -867,47 +843,19 @@ async fn locate_one_traced<V: LocateVision>(
         // label from `target_desc` — can hand back a box that covers all of it.
         let hint = refine_hint(&verdict);
 
-        // Re-locate inside the current crop whenever the target is known to be
-        // near where we already looked:
-        //  · `elsewhere_dir` — the verifier saw it just outside the box;
-        //  · `BoxTooLoose` — the verifier saw it *inside* the box and only
-        //    complained about slack;
-        //  · `BoxTooTight` — the verifier saw part of it inside the box.
-        // Falling through to a full-screen search was wrong for all three: the
-        // target never moved, so re-scanning 1920x1080 re-derived the same answer
-        // from a harder image (and for `BoxTooLoose` it also blew the timeout).
-        // A `BoxTooTight` case did exactly that — the retry jumped from the
-        // button at x≈934 to x≈532, then needed a third round to come back.
-        // Stay inside the previous crop unless the verifier failed to produce a
-        // usable verdict at all (`Unclear` is the parse-failure fallback, never a
-        // value the model is offered). A `center = no` means the mark is off the
-        // target — the target is right there, the box is just misplaced — so the
-        // crop is exactly where it should be re-located: at 8x the cell's borders
-        // are legible, on the full screen they are not.
+        // 判否后往哪找：只有一条路 —— 离开裁片、整屏重找。
         //
-        // `position = no` breaks that assumption, which is why it is excluded
-        // here. It means the element in the box is **not the one the description
-        // names** — the verifier read the row/column labels on the wide image and
-        // they disagree. When that happens the crop is centred on the wrong
-        // place, so re-locating inside it can only re-find another element of the
-        // same kind. On a sudoku board every empty cell looks alike, so this ran
-        // three rounds inside one wrong crop and then gave up. `is_hit()` already
-        // treats `position = no` as a failure; the crop decision has to agree
-        // with it, or the run knows it is wrong and keeps looking in the same
-        // spot anyway.
+        // 裁片是围绕上一轮候选裁的，判否说明候选本身就不对；在同一个裁片里
+        // 重找只会再找出一个同类的错误元素（数独空格的教训）。`crop_rN` /
+        // `full_escalate_rN` 两条分支依赖的分项判定（`center_on_target` /
+        // `size_ok` / `position_matches`）已经删除，它们永远不会被选中，留着
+        // 只会让读代码的人以为还有局部修正这条路。
         //
-        // 判定改用总判 `usable`：它是「框在目标上、且正好框住」的单一表态，
-        // `center` / `size` 只是它的两项依据。以前这里只看 `center`，框大得
-        // 离谱也照样接受；现在大小不合格同样重来。
+        // `Unclear` 是解析失败（模型漏填 `is_same`）的兜底，同样按判否处理：
+        // 没拿到判定就当没通过，重找一轮。
         let stay_local = match verdict.is_same {
-            MatchVerdict::Yes => true,
-            MatchVerdict::No => false,
-            // 模型没给总判（旧输出 / 漏填）：退回分项组合，行为与改动前一致。
-            MatchVerdict::Unclear => {
-                verdict.center_on_target != CenterOnTarget::Unclear
-                    && verdict.size_ok != MatchVerdict::No
-                    && verdict.position_matches != PositionMatches::No
-            }
+            MatchVerdict::Yes => true, // 走不到：`is_hit()` 已经 break
+            MatchVerdict::No | MatchVerdict::Unclear => false,
         };
 
         let mut from_crop = false;
@@ -1034,7 +982,6 @@ async fn locate_one_traced<V: LocateVision>(
             rounds,
         );
         out.why = last_why;
-        out.failure_reason = last_failure_reason;
         return Ok((out, trace));
     }
 
@@ -1057,14 +1004,11 @@ async fn locate_one_traced<V: LocateVision>(
             ok: true,
             point_px: Some(point),
             box_px: Some(b.to_px(w, h)),
-            confidence: Some(final_confidence),
             what_i_saw,
             why: last_why,
             reasoning: last_reasoning,
             rounds,
             reason: None,
-            // Success: nothing failed, so no reason to report.
-            failure_reason: String::new(),
         },
         trace,
     ))
@@ -1204,7 +1148,7 @@ async fn locate_in<V: LocateVision>(
 mod tests {
     use super::*;
     use crate::agents::computer::locate::geometry::{NormBox, PxBox};
-    use crate::agents::computer::locate::types::{MatchVerdict, PositionMatches};
+    use crate::agents::computer::locate::types::MatchVerdict;
     use image::{Rgb, RgbImage};
     use std::collections::VecDeque;
     use std::sync::Mutex;
@@ -1314,14 +1258,10 @@ mod tests {
         }
     }
 
-    /// A verdict whose three checks are all satisfied unless the caller overrides
-    /// them — tests then say only what they care about.
+    /// A passing verdict — tests then say only what they care about.
     fn verdict(notes: &str) -> VerifyVerdict {
         VerifyVerdict {
             is_same: MatchVerdict::Yes,
-            center_on_target: CenterOnTarget::Yes,
-            size_ok: MatchVerdict::Unclear,
-            position_matches: PositionMatches::Ignore,
             notes: notes.to_string(),
             ..VerifyVerdict::default()
         }
@@ -1334,7 +1274,6 @@ mod tests {
     fn no_left(in_box: &str) -> VerifyVerdict {
         VerifyVerdict {
             is_same: MatchVerdict::No,
-            center_on_target: CenterOnTarget::No,
             ..verdict(in_box)
         }
     }
@@ -1360,7 +1299,6 @@ mod tests {
 
         assert!(out.ok);
         assert_eq!(out.rounds, 1);
-        assert_eq!(out.confidence, Some(Confidence::High));
         assert_eq!(out.what_i_saw, "蓝色软盘图标");
         let (x, y) = out.point_px.unwrap();
         assert!((x - 450.0).abs() < 1e-6);

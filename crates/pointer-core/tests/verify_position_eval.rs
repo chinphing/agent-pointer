@@ -21,7 +21,7 @@ use pointer_core::agents::computer::locate::geometry::NormBox;
 use pointer_core::agents::computer::locate::render::{
     render_full_marked, LocateFrame, LocateImage, Mark,
 };
-use pointer_core::agents::computer::locate::types::{CenterOnTarget, MatchVerdict, VerifyVerdict};
+use pointer_core::agents::computer::locate::types::{MatchVerdict, VerifyVerdict};
 use pointer_core::agents::computer::locate::{ChatLocateVision, LocateVision};
 use pointer_core::models::ModelSettings;
 use pointer_core::provider::OpenAIProvider;
@@ -208,20 +208,6 @@ fn read_image(path: &Path) -> Result<LocateImage> {
     })
 }
 
-fn verdict_str(c: CenterOnTarget, s: MatchVerdict) -> (String, String) {
-    let cs = match c {
-        CenterOnTarget::Yes => "yes",
-        CenterOnTarget::No => "no",
-        CenterOnTarget::Unclear => "unclear",
-    };
-    let ss = match s {
-        MatchVerdict::Yes => "yes",
-        MatchVerdict::No => "no",
-        MatchVerdict::Unclear => "unclear",
-    };
-    (cs.to_string(), ss.to_string())
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn eval_verify_fixture() -> Result<()> {
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
@@ -389,7 +375,6 @@ async fn eval_verify_fixture() -> Result<()> {
                 vision.verify_pair(&close, wide_img.as_ref(), &prompt).await?
             };
             let t_call = t0.elapsed();
-            let (c, s) = verdict_str(v.center_on_target, v.size_ok);
             let u = match v.is_same {
                 MatchVerdict::Yes => "yes",
                 MatchVerdict::No => "no",
@@ -408,7 +393,7 @@ async fn eval_verify_fixture() -> Result<()> {
                     (t_call - t_img).as_millis()
                 );
             }
-            Ok::<_, anyhow::Error>((row, c, s, u, v.notes, v.reasoning))
+            Ok::<_, anyhow::Error>((row, u, v.notes, v.reasoning))
         }));
     }
 
@@ -422,12 +407,9 @@ async fn eval_verify_fixture() -> Result<()> {
     let mut all_rows: Vec<serde_json::Value> = Vec::new();
 
     for h in handles {
-        let (row, c, s, u, notes, reasoning) = h.await.context("join")??;
+        let (row, u, notes, reasoning) = h.await.context("join")??;
         // 现在只判位置，不判 size：usable 的期望就是 center 的期望。
         let want_u = row.expect.center.clone();
-        // 只报一个维度：position 是否落在目标上。size 不再判 ——
-        // 框大框小不影响交付坐标，留着它只会让汇总表多一栏恒 0% 的噪声。
-        let _ = &s;
         let got = [("position", u.clone(), want_u.to_string())];
         // 只有一个维度，所以 `usable_ok` 就是这一行是否全对 —— 单独再维护一个
         // `all_ok` 累加器只会是它的副本，且没有任何地方读。
@@ -451,11 +433,7 @@ async fn eval_verify_fixture() -> Result<()> {
             "id": row.id,
             "variant": row.variant,
             "got_usable": u,
-            "got_center": c,
-            "got_size": s,
             "want_usable": want_u,
-            "want_center": row.expect.center,
-            "want_size": row.expect.size,
             "notes": notes,
             // 思考过程随结果一起落盘 —— 否则分析一次判错就要重跑一次全量。
             "reasoning": reasoning,
@@ -475,8 +453,8 @@ async fn eval_verify_fixture() -> Result<()> {
                 let brief: String = flat.chars().take(300).collect();
                 let desc: String = row.description.chars().take(90).collect();
                 failures.push(format!(
-                    "{} [{}] u={} c={} s={} (want u={} c={} s={})\n     {}\n     desc: {}",
-                    row.id, row.variant, u, c, s, want_u, row.expect.center, row.expect.size,
+                    "{} [{}] u={} (want u={})\n     {}\n     desc: {}",
+                    row.id, row.variant, u, want_u,
                     brief, desc
                 ));
             }
@@ -485,11 +463,7 @@ async fn eval_verify_fixture() -> Result<()> {
                 "id": row.id,
                 "variant": row.variant,
                 "got_usable": u,
-                "got_center": c,
-                "got_size": s,
                 "want_usable": want_u,
-                "want_center": row.expect.center,
-                "want_size": row.expect.size,
                 "notes": notes,
                 "reasoning": reasoning,
             }));

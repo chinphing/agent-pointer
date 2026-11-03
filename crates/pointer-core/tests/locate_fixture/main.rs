@@ -1139,12 +1139,11 @@ async fn eastmoney_home_grounding() -> Result<()> {
             misses.push(case.description.clone());
         }
         println!(
-            "{} {:<40} ok={:<5} pt={:?} conf={:?} reason={:?} rounds={} {:.1}s saw={} why={}",
+            "{} {:<40} ok={:<5} pt={:?} reason={:?} rounds={} {:.1}s saw={} why={}",
             if hit { "PASS" } else { "FAIL" },
             case.description,
             o.ok,
             o.point_px.map(|(x, y)| (x.round() as i64, y.round() as i64)),
-            o.confidence.map(|c| c.as_str()),
             o.reason,
             o.rounds,
             secs,

@@ -1117,20 +1117,19 @@ async fn computer_verify_e2e() -> Result<()> {
     for (key, rec, verdict) in &results {
         match verdict {
             Ok(v) => {
-                let same = norm_label(&format!("{:?}", v.center_on_target)) == norm_label(&rec.labels.center)
-                    && norm_label(&format!("{:?}", v.size_ok)) == norm_label(&rec.labels.size)
-                    && norm_label(v.position_matches.as_str()) == norm_label(&rec.labels.position);
+                // 判定只剩 `is_same` 一个出口，它问的就是旧记录里的 `center`
+                // ——「交点有没有落在目标上」。`size` / `position` 两栏已经没有
+                // 对应字段，比对它们等于拿新模型去对一套不存在的标签。
+                let same = norm_label(&format!("{:?}", v.is_same)) == norm_label(&rec.labels.center);
                 if same {
                     agree += 1;
                 } else {
                     flipped.push(format!(
-                        "{key} was c={} s={} p={} → now c={:?} s={:?} p={}",
+                        "{key} was c={} s={} p={} → now is_same={:?}",
                         rec.labels.center,
                         rec.labels.size,
                         rec.labels.position,
-                        v.center_on_target,
-                        v.size_ok,
-                        v.position_matches.as_str()
+                        v.is_same,
                     ));
                 }
             }

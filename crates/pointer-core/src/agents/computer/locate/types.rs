@@ -66,29 +66,6 @@ pub enum MatchVerdict {
     Unclear,
 }
 
-/// Why the verifier could not decide.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnclearKind {
-    None,
-    AnchorOutOfView,
-    TooSmall,
-    TooBlurry,
-    Ambiguous,
-    /// The box holds part of the target — the rest spills outside. Distinct from
-    /// `AnchorOutOfView` (target is somewhere else entirely) and from `TooSmall`
-    /// (target is inside the box but too tiny to read). The fix here is a wider
-    /// box, not a different place to look.
-    BoxTooTight,
-    /// The box holds the whole target and a lot of its surroundings. Distinct
-    /// from `BoxTooTight` in the opposite direction, and from `No`: the target
-    /// *is* here, the box is just slack. Reported as `unclear` rather than `no`
-    /// so the retry says "shrink around the same place" instead of "look
-    /// elsewhere" — a `no` carries the wrong instruction and, with
-    /// `elsewhere_dir=inside`, produces the self-contradictory hint
-    /// 「不是目标」+「目标在框内部」.
-    BoxTooLoose,
-}
-
 /// Direction the target was seen relative to the candidate box.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ElsewhereDir {
@@ -122,129 +99,25 @@ impl ElsewhereDir {
     }
 }
 
-/// Whether the centre mark landed on the target.
-///
-/// Split out from `MatchVerdict` on purpose. The old single verdict asked 「is the
-/// target in the box」, which a generous box always answers `yes` to — and then
-/// the coordinate returned is the box's centre, which can be nowhere near the
-/// target. This asks the question that actually decides the answer: **is the
-/// point we are about to return sitting on the target**.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CenterOnTarget {
-    /// The mark is on the target.
-    Yes,
-    /// The mark is off the target; `center_offset` says which side.
-    No,
-    /// Cannot tell (blur, occlusion, too small).
-    Unclear,
-}
-
-impl CenterOnTarget {
-    pub fn parse(raw: &str) -> Option<Self> {
-        match raw.trim().to_ascii_lowercase().as_str() {
-            "yes" => Some(Self::Yes),
-            "no" => Some(Self::No),
-            "unclear" => Some(Self::Unclear),
-            _ => None,
-        }
-    }
-}
-
-/// Does the position the description names match the position in the image?
-///
-/// Separate from `CenterOnTarget` because they fail differently and need
-/// different fixes. The mark can sit on *a* cell while that cell is the wrong one
-/// — 「第四行第八列」 vs a box on row 3 — and no amount of looking at the mark
-/// alone will catch it. This is the check that compares what the description
-/// says with what the image shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PositionMatches {
-    /// The description named a position and the image agrees.
-    Yes,
-    /// The description named a position and the image disagrees.
-    No,
-    /// The description names a position but the image does not show enough
-    /// (labels cropped away, no absolute reference) to confirm or deny it.
-    ///
-    /// Distinct from `Ignore`: here the description *does* demand a position, so
-    /// the answer is unverified rather than unnecessary. Treating this as a pass
-    /// is what let r3c7 through — the verifier wrote 「绝对行号无法确证」 in `why`
-    /// and still returned a hit.
-    Unknown,
-    /// The description asks for no position at all (「提交按钮」, 「关闭图标」) —
-    /// there is nothing to check.
-    Ignore,
-}
-
-impl PositionMatches {
-    pub fn parse(raw: &str) -> Option<Self> {
-        match raw.trim().to_ascii_lowercase().as_str() {
-            "yes" => Some(Self::Yes),
-            "no" => Some(Self::No),
-            "unknown" => Some(Self::Unknown),
-            "ignore" => Some(Self::Ignore),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Yes => "yes",
-            Self::No => "no",
-            Self::Unknown => "unknown",
-            Self::Ignore => "ignore",
-        }
-    }
-}
-
 /// Structured verifier output. Defaults mirror B5's "verifier produced nothing"
-/// fallback: `unclear` + `too_blurry` (i.e. never silently pass).
+/// fallback: `unclear` (i.e. never silently pass).
 #[derive(Debug, Clone, PartialEq)]
 pub struct VerifyVerdict {
     /// 判定 —— 十字交点是否**落在目标上**。
     ///
-    /// **这是唯一的判定**：`center_on_target` 是它的同义镜像（给还没改的下游
-    /// 用），`size_ok` 不再参与。模型只需要在一处表态，不存在两处打架。
+    /// **这是唯一的判定**，模型只在一处表态，不存在两处打架。
     pub is_same: MatchVerdict,
-    /// 中心定位 —— is the centre mark on the target? The mark sits at the box
-    /// centre, which is the coordinate the engine returns, so this is the
-    /// question that decides whether the answer is right.
-    pub center_on_target: CenterOnTarget,
-    /// 大小合适 —— does the box frame the target properly (fully containing it,
-    /// not more than 1.5x its size)? Judged by the verifier, not by a threshold
-    /// in code.
-    pub size_ok: MatchVerdict,
-    /// 位置匹配 —— does the position the description names match what the image
-    /// shows? Orthogonal to the two above: the mark can be on *a* cell while that
-    /// cell is the wrong one.
-    pub position_matches: PositionMatches,
-    /// 备注 —— the diagnosis, four fixed sections (图像 / 中心 / 大小 / 位置).
+    /// 备注 —— 观测记录（图一读数 / 图二读数 / 描述要什么 / 结论）。
     ///
-    /// Semi-structured on purpose: the three verdicts above say *whether* each
-    /// check passed, this says *what was seen*. It is passed through to the
-    /// locator verbatim as its hint, so the model that has to fix the box reads
-    /// the verifier's own words instead of a translation of them.
+    /// Semi-structured on purpose: `is_same` says *whether* it passed, this says
+    /// *what was seen*. It is passed through to the locator verbatim as its hint,
+    /// so the model that has to fix the box reads the verifier's own words
+    /// instead of a translation of them.
     pub notes: String,
-    /// How many of the four appearance signals (text / position / icon / colour)
-    /// lined up. Diagnostic only; never gates a hit.
-    pub confidence: Confidence,
     /// The model's thinking channel, when the provider returned one. Empty when
     /// thinking is off. Kept for diagnosis: a wrong verdict is much easier to
     /// explain when you can read what the model reasoned before answering.
     pub reasoning: String,
-    /// Why the check failed, in the verifier's own words.
-    ///
-    /// `notes` says *what was seen* — four sections of measurements. This says
-    /// *what to do about it*: whether the box is off (nudge the coordinates) or
-    /// the description is off (rewrite it, because re-clicking the same cell will
-    /// fail again). The distinction cannot be recovered from `notes` by the
-    /// caller: 「框偏了」 and 「描述说框内有红色9，但框里是空白」 both arrive as
-    /// prose in the same field, and the caller treated them identically — which
-    /// is why a wrong description kept getting re-clicked at the same
-    /// coordinates until the round budget ran out.
-    ///
-    /// Empty when all three checks passed.
-    pub failure_reason: String,
 }
 
 impl VerifyVerdict {
@@ -264,41 +137,21 @@ impl VerifyVerdict {
     /// 只有**真的判过**的维度才进这个列表。`Unclear` 是「没判过」，不是
     /// 「不合格」—— 把它当成失败会让 `refine_hint` 生成排他性指令
     /// （「这次只改 X」），把定位模型引到一条假线索上。
-    ///
-    /// `size_ok` 曾经在这里，但它恒为 `Unclear`（模型已不再回答该字段），
-    /// 于是每一轮都误报「大小合适」，把真正的错误（位置偏了）挤掉。
     pub fn failed_checks(&self) -> Vec<&'static str> {
-        let mut out = Vec::new();
-        if self.center_on_target == CenterOnTarget::No {
-            out.push("中心定位");
+        match self.is_same {
+            MatchVerdict::Yes | MatchVerdict::Unclear => Vec::new(),
+            MatchVerdict::No => vec!["位置匹配"],
         }
-        if matches!(
-            self.position_matches,
-            PositionMatches::No | PositionMatches::Unknown
-        ) {
-            out.push("位置匹配");
-        }
-        out
     }
 }
 
 impl Default for VerifyVerdict {
     fn default() -> Self {
         Self {
-            // 没拿到判定：`Unclear` 让 `stay_local` 退回分项组合，不直接当成通过。
+            // 没拿到判定：`Unclear` 让 `stay_local` 判否重找，不直接当成通过。
             is_same: MatchVerdict::Unclear,
-            center_on_target: CenterOnTarget::Unclear,
-            size_ok: MatchVerdict::Unclear,
-            // `unknown`, not `ignore`: a verdict that never arrived cannot claim
-            // the description asked for no position. This is the "verifier
-            // produced nothing" fallback and must never read as a pass.
-            position_matches: PositionMatches::Unknown,
             notes: "校验器无有效输出".to_string(),
-            confidence: Confidence::High,
             reasoning: String::new(),
-            // Empty, not a guess: nothing was judged, so there is no reason to
-            // report. The caller reads `notes` for the "nothing came back" case.
-            failure_reason: String::new(),
         }
     }
 }
@@ -395,31 +248,6 @@ fn env_u32(key: &str, default: u32) -> u32 {
         .unwrap_or(default)
 }
 
-/// Confidence of a located element. Only verified targets are returned, so the
-/// only value that reaches the caller is `High` (§6.3.1: a hint may not lower
-/// the bar).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Confidence {
-    High,
-    Medium,
-}
-
-impl Confidence {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::High => "high",
-            Self::Medium => "medium",
-        }
-    }
-
-    pub fn parse(raw: &str) -> Self {
-        match raw.trim().to_ascii_lowercase().as_str() {
-            "medium" | "mid" | "中" => Self::Medium,
-            _ => Self::High,
-        }
-    }
-}
-
 /// Why an element could not be located. Failure never carries coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FailureReason {
@@ -450,7 +278,6 @@ pub struct LocateOutcome {
     pub point_px: Option<(f64, f64)>,
     /// Logical-pixel box (`None` unless `ok`).
     pub box_px: Option<PxBox>,
-    pub confidence: Option<Confidence>,
     /// What the verifier actually saw in the candidate box.
     pub what_i_saw: String,
     /// The verifier's one-line reason. On failure this is the "how far off"
@@ -462,12 +289,6 @@ pub struct LocateOutcome {
     /// The verifier's thinking channel from the final round. Diagnostic only —
     /// never shown to the main model. Empty when thinking is off.
     pub reasoning: String,
-    /// Why the last check failed, in the verifier's own words.
-    ///
-    /// `why` describes what was seen; this says what to do about it — nudge the
-    /// coordinates, or rewrite `target_desc` because it disagrees with the
-    /// screen. Empty on success.
-    pub failure_reason: String,
 }
 
 impl LocateOutcome {
@@ -477,13 +298,11 @@ impl LocateOutcome {
             ok: false,
             point_px: None,
             box_px: None,
-            confidence: None,
             what_i_saw,
             why: String::new(),
             rounds,
             reason: Some(reason),
             reasoning: String::new(),
-            failure_reason: String::new(),
         }
     }
 }
@@ -520,31 +339,20 @@ mod tests {
     fn verifier_default_never_passes() {
         let v = VerifyVerdict::default();
         assert!(!v.is_hit());
-        assert_eq!(v.center_on_target, CenterOnTarget::Unclear);
-        assert_eq!(v.size_ok, MatchVerdict::Unclear);
-        // `unknown`, not `ignore`: a verdict that never arrived cannot claim the
-        // description asked for no position.
-        assert_eq!(v.position_matches, PositionMatches::Unknown);
+        assert_eq!(v.is_same, MatchVerdict::Unclear);
     }
 
     // ---- failed_checks：只有真的判过「不合格」才进列表 ----
 
-    /// 回归：`size_ok` 恒 `Unclear`（模型已不回答该字段），旧实现用
-    /// `!= Yes` 判断，于是每轮都报「大小合适」，`refine_hint` 生成
-    /// 「这次只改大小合适」——把定位模型引到一条假线索上，真正的
-    /// 位置错误反而被挤掉。
+    /// 判 `no` 时只有一项不合格 —— 判定只剩 `is_same` 一个出口，
+    /// `refine_hint` 的排他性指令也只该有一项。
     #[test]
-    fn unclear_size_never_lands_in_failed_checks() {
+    fn no_verdict_reports_position_only() {
         let v = VerifyVerdict {
             is_same: MatchVerdict::No,
-            center_on_target: CenterOnTarget::No,
-            size_ok: MatchVerdict::Unclear,
-            position_matches: PositionMatches::Ignore,
             ..Default::default()
         };
-        let failed = v.failed_checks();
-        assert!(!failed.contains(&"大小合适"), "Unclear 不是不合格: {failed:?}");
-        assert_eq!(failed, vec!["中心定位"]);
+        assert_eq!(v.failed_checks(), vec!["位置匹配"]);
     }
 
     /// `Unclear` 的判定不是「不合格」—— 没判过就不该给排他性指令。
@@ -553,9 +361,6 @@ mod tests {
     fn unclear_verdict_yields_no_failed_checks() {
         let v = VerifyVerdict {
             is_same: MatchVerdict::Unclear,
-            center_on_target: CenterOnTarget::Unclear,
-            size_ok: MatchVerdict::Unclear,
-            position_matches: PositionMatches::Ignore,
             ..Default::default()
         };
         assert!(v.failed_checks().is_empty(), "{:?}", v.failed_checks());
@@ -567,12 +372,9 @@ mod tests {
     fn real_failures_are_still_reported() {
         let v = VerifyVerdict {
             is_same: MatchVerdict::No,
-            center_on_target: CenterOnTarget::No,
-            size_ok: MatchVerdict::Unclear,
-            position_matches: PositionMatches::No,
             ..Default::default()
         };
-        assert_eq!(v.failed_checks(), vec!["中心定位", "位置匹配"]);
+        assert_eq!(v.failed_checks(), vec!["位置匹配"]);
     }
 
     #[test]

@@ -238,7 +238,7 @@ pub enum MouseButton { Left, Middle, Right }
 {
   "results": [
     {"ok": true, "description": "保存按钮", "x": 820, "y": 45,
-     "box": [800, 35, 840, 55], "confidence": "high",
+     "box": [800, 35, 840, 55],
      "what_i_saw": "蓝色软盘图标", "rounds": 2},
     {"ok": false, "description": "地址栏", "reason": "not_found",
      "what_i_saw": "当前截图中未能可靠确认目标"}

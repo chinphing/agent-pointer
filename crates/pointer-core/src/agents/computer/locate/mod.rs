@@ -27,9 +27,7 @@ use crate::provider::OpenAIProvider;
 
 pub use engine::{locate_elements, locate_one, LocateVision};
 pub use geometry::{NormBox, PxBox};
-pub use types::{
-    Confidence, FailureReason, LocateConfig, LocateOutcome, LocateRequest, MAX_ELEMENTS,
-};
+pub use types::{FailureReason, LocateConfig, LocateOutcome, LocateRequest, MAX_ELEMENTS};
 
 pub use render::LocateFrame;
 pub use vision::ChatLocateVision;
@@ -246,7 +244,6 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                         b.x2.round() as i64,
                         b.y2.round() as i64,
                     ],
-                    "confidence": o.confidence.map(|c| c.as_str()),
                     "rounds": o.rounds,
                 })
             } else {
@@ -270,11 +267,6 @@ fn render_results(outcomes: &[LocateOutcome]) -> String {
                     "target_desc": o.target_desc,
                     "summary": summary,
                     "rounds": o.rounds,
-                    // The verifier's own answer to "what should change": move the
-                    // box, or rewrite the description. `summary` is four sections
-                    // of measurements and buries that; this is the one line the
-                    // caller acts on.
-                    "failure_reason": o.failure_reason,
                 })
             }
         })
@@ -320,13 +312,11 @@ mod tests {
                 x2: 840.0,
                 y2: 55.0,
             }),
-            confidence: Some(Confidence::High),
             what_i_saw: "圆形箭头图标".into(),
             why: String::new(),
             rounds: 1,
             reason: None,
             reasoning: String::new(),
-            failure_reason: String::new(),
         };
         let json: Value = serde_json::from_str(&render_results(&[out])).unwrap();
         let r = &json["results"][0];
@@ -546,13 +536,11 @@ mod tests {
                 x2: 840.0,
                 y2: 55.0,
             }),
-            confidence: Some(Confidence::High),
             what_i_saw: "蓝色软盘图标".into(),
             why: String::new(),
             rounds: 2,
             reason: None,
             reasoning: String::new(),
-            failure_reason: String::new(),
         };
         let bad = LocateOutcome::failure(
             "地址栏",
@@ -566,7 +554,6 @@ mod tests {
         assert_eq!(results[0]["status"], "located");
         assert_eq!(results[0]["target_desc"], "保存按钮");
         assert_eq!(results[0]["bbox"], serde_json::json!([800, 35, 840, 55]));
-        assert_eq!(results[0]["confidence"], "high");
         assert_eq!(results[1]["status"], "not_found");
         assert_eq!(results[1]["target_desc"], "地址栏");
         // Failure items must not carry a box at all.

@@ -9,7 +9,7 @@
 use serde_json::Value;
 
 use super::geometry::NormBox;
-use super::types::{CenterOnTarget, Confidence, MatchVerdict, PositionMatches, VerifyVerdict};
+use super::types::{MatchVerdict, VerifyVerdict};
 
 /// Max characters kept from each verifier free-text field (B5 truncation).
 /// Hard cap on any free-text field from the report tool.
@@ -286,20 +286,8 @@ pub fn parse_verify_arguments(raw: &str) -> Option<VerifyVerdict> {
 
     Some(VerifyVerdict {
         is_same,
-        // 下游（`is_hit` / trace / 日志）仍然读这两个字段。`center_on_target`
-        // 是 `position` 的镜像 —— 它问的本来就是同一件事；`size_ok` 不再判，
-        // 恒 `Unclear`，这样任何还看它的分支都会落回「没判过」而不是「通过」。
-        center_on_target: match is_same {
-            MatchVerdict::Yes => CenterOnTarget::Yes,
-            MatchVerdict::No => CenterOnTarget::No,
-            MatchVerdict::Unclear => CenterOnTarget::Unclear,
-        },
-        size_ok: MatchVerdict::Unclear,
-        position_matches: PositionMatches::Ignore,
         notes: remark.clone(),
-        confidence: Confidence::parse(&text_field(&v, "confidence")),
         reasoning: String::new(),
-        failure_reason: text_field(&v, "failure_reason"),
     })
 }
 
@@ -367,9 +355,7 @@ mod tests {
         let v = parse_verify_arguments(&raw).expect("should parse");
         assert_eq!(v.is_same, MatchVerdict::Yes);
         assert!(v.is_hit());
-        // 不再判 size：恒 Unclear，任何还看它的分支都落回「没判过」而不是「通过」。
-        assert_eq!(v.size_ok, MatchVerdict::Unclear);
-        assert_eq!(v.center_on_target, CenterOnTarget::Yes);
+        // 判定只剩 `is_same` 一个出口。
     }
 
     #[test]

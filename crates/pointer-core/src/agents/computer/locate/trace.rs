@@ -219,9 +219,13 @@ pub struct VerifyStep {
     /// Box under judgement, in frame pixels.
     #[serde(rename = "box")]
     pub box_px: [f64; 4],
-    pub center: String,
-    pub size: String,
-    pub position: String,
+    /// The verifier's single verdict: `yes` / `no` / `unclear`.
+    ///
+    /// `default` because traces written before the three-way verdict was
+    /// collapsed still carry `center` / `size` / `position` instead, and they
+    /// have to keep loading — they are the only record of those runs.
+    #[serde(default)]
+    pub is_same: String,
     pub notes: String,
     pub render_ms: u64,
     pub call_ms: u64,

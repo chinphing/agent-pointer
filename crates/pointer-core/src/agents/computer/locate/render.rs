@@ -342,7 +342,9 @@ pub fn render_crop_marked(
         } else {
             None
         },
-        // 臂长下限：原图 10 px 换算到渲染图
+        // 臂长下限 = **2 × 圈半径**（`VERIFY_TOLERANCE_PX = 5` → 原图 10 px）。
+        // 臂必然穿过圈、露在外面，模型才能同时看到「交点在哪」和「容差多大」。
+        // 两个量都从 `tolerance_radius_px` 来，换放大倍数时关系不变。
         super::geometry::tolerance_radius_px(side, out_px) * 2.0,
     );
 
@@ -357,15 +359,6 @@ pub fn render_crop_marked(
 /// deliberately generic: it has nothing to do with any particular app's palette.
 const MARK_CORE: Rgb<u8> = Rgb([220, 20, 20]);
 const MARK_RING: Rgb<u8> = Rgb([255, 255, 255]);
-
-/// 十字臂长的最小长度，**原图像素**。
-///
-/// 与 `VERIFY_TOLERANCE_PX = 5` 配对：臂长 ≥ 10 原图 px、圈半径 = 5 原图 px，
-/// 所以臂长恒 ≥ 2 × 圈半径 —— 臂必然穿过圈、露在外面，模型才能同时看到
-/// 「交点在哪」和「容差多大」。两个量都用原图单位，换放大倍数时关系不变。
-const CROSS_ARM_MIN_SRC_PX: f64 = 10.0;
-
-
 
 /// Crosshair arm length as a share of the box's own side.
 ///

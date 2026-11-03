@@ -179,8 +179,8 @@ Schema 定义：`position_strategy.rs`（`schemas.rs` 委托）。
 |---|---|---|
 | `< 0.6` | 按比例放大到 0.6 | `Scroll scale: -50 notches moved ~0.05 target-heights (≈1000 notches per full panel). Next scroll for ~0.6 target-heights: send notches_y=-600.` |
 | `0.6 – 0.8` | **不推荐**，让模型保持原值 | `Scroll scale: -60 notches moved ~0.62 target-heights — that is the target size (0.6 target-heights); keep this count.` |
-| `> 0.8` | **相对上次减半** | `Scroll scale: -400 notches moved ~0.90 target-heights — over the target 0.6 target-heights. Next scroll: halve it → send notches_y=-200.` |
-| `> 1.0` | 减半 + **漏内容告警** | 追加 `It jumped more than a full panel: rows between the two frames were never visible — scroll back ~0.6 to read them before continuing.` |
+| `> 0.8` | **按目标 0.6 重算** | `Scroll scale: -300 notches moved ~0.90 target-heights — over the target 0.6 target-heights. Next scroll for ~0.6 target-heights: send notches_y=-200.` |
+| `> 1.0` | 重算 + **漏内容告警** | 追加 `It jumped more than a full panel: rows between the two frames were never visible — scroll back ~0.6 to read them before continuing.` |
 
 - 目标刻度 `SCROLL_TARGET_FRACTION = 0.6`：一次滚动移动六成面板，够推进又不会冲过头。
 - 死区 `SCROLL_BAND_MIN/MAX = 0.6/0.8`：下限就是目标本身 —— 低于 0.6 一定给建议，不存在「勉强算达标」的区间。

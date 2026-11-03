@@ -836,8 +836,9 @@ pub const SCROLL_BAND_MAX: f32 = 0.8;
 ///
 /// - **under** `SCROLL_BAND_MIN` → scale up to `SCROLL_TARGET_FRACTION`
 /// - **inside** the band → no recommendation, keep the count
-/// - **over** `SCROLL_BAND_MAX` → halve the count (a move above 1.0 means whole
-///   rows were never visible, so the result also says to scroll back)
+/// - **over** `SCROLL_BAND_MAX` → recompute the count that lands on the target
+///   (a move above 1.0 means whole rows were never visible, so the result also
+///   says to scroll back)
 ///
 /// Returns `None` when there is nothing to scale from — non-scroll, missing
 /// measurement, or no notches on the moved axis.
@@ -897,36 +898,37 @@ pub fn scroll_scale_line(root_args: &Value, verify: &VerifyConclusion) -> Option
         ));
     }
 
-    if moved > SCROLL_BAND_MAX {
-        let halved = ((used_abs / 2.0).round().max(1.0) as i64).min(cap);
-        let mut line = format!(
-            "Scroll scale: {used} notches moved ~{moved:.2} {axis_label} — over the target \
-             {SCROLL_TARGET_FRACTION} {axis_label}. Next scroll: halve it → send \
-             {axis_key}={}.",
-            sign * halved
-        );
-        if moved > 1.0 {
-            line.push_str(&format!(
-                " It jumped more than a full panel: rows between the two frames were never \
-                 visible — scroll back ~{SCROLL_TARGET_FRACTION} to read them before \
-                 continuing."
-            ));
-        }
-        return Some(line);
-    }
-
+    // 两个方向做同一件事：算出下一次落到目标位移的刻度。
+    // 过冲不再减半 —— 减半是「相对上次」的猜测，而实测位移已经告诉我们每
+    // notch 走多远，直接除更准。`moved > 1` 时那个数字本身只是估计，所以仍
+    // 追加漏行告警，而不是把它当精确测量用。
     let per_notch = moved / used_abs;
     let needed = (SCROLL_TARGET_FRACTION / per_notch).round().max(1.0) as i64;
-    let capped = needed.min(i64::from(SCROLL_NOTCHES_MAX));
+    let capped = needed.min(cap);
     let full_panel = (used_abs / moved).round() as i64;
-    let mut line = format!(
-        "Scroll scale: {used} notches moved ~{moved:.2} {axis_label} (≈{full_panel} notches per \
-         full panel). Next scroll for ~{SCROLL_TARGET_FRACTION} {axis_label}: send \
-         {axis_key}={}",
-        sign * capped
-    );
+    let mut line = if moved > SCROLL_BAND_MAX {
+        format!(
+            "Scroll scale: {used} notches moved ~{moved:.2} {axis_label} — over the target \
+             {SCROLL_TARGET_FRACTION} {axis_label}. Next scroll for ~{SCROLL_TARGET_FRACTION} \
+             {axis_label}: send {axis_key}={}",
+            sign * capped
+        )
+    } else {
+        format!(
+            "Scroll scale: {used} notches moved ~{moved:.2} {axis_label} (≈{full_panel} notches per \
+             full panel). Next scroll for ~{SCROLL_TARGET_FRACTION} {axis_label}: send \
+             {axis_key}={}",
+            sign * capped
+        )
+    };
+    if moved > 1.0 {
+        line.push_str(&format!(
+            " It jumped more than a full panel: rows between the two frames were never \
+             visible — scroll back ~{SCROLL_TARGET_FRACTION} to read them before continuing."
+        ));
+    }
     if needed > capped {
-        let calls = (needed + i64::from(SCROLL_NOTCHES_MAX) - 1) / i64::from(SCROLL_NOTCHES_MAX);
+        let calls = (needed + cap - 1) / cap;
         line.push_str(&format!(
             " (wanted {needed}, capped at {SCROLL_NOTCHES_MAX}/call — ≈{calls} calls for that)"
         ));
@@ -1131,18 +1133,20 @@ mod tests {
         }
     }
 
-    /// 超过 0.8：相对上次刻度减半；超过 1（整屏以上）还要提示漏内容。
+    /// 超过 0.8：同样按目标 0.6 重算，不是简单减半。
+    /// 300 notches 走 0.9 → 每 notch 0.003，落到 0.6 需要 200。
+    /// 超过 1（整屏以上）还要提示漏内容。
     #[test]
-    fn scroll_scale_halves_after_an_overshoot() {
-        let args = json!({"notches_y": -400});
+    fn scroll_scale_rescales_after_an_overshoot() {
+        let args = json!({"notches_y": -300});
         let v = scroll_verify(0.9, ScrollAxis::Vertical);
         let line = scroll_scale_line(&args, &v).expect("行");
-        assert!(line.contains("notches_y=-200"), "400 减半是 200: {line}");
+        assert!(line.contains("notches_y=-200"), "0.9 应重算成 200: {line}");
         assert!(!line.contains("never visible"), "0.9 未跨整屏，不该说漏内容: {line}");
 
         let v = scroll_verify(1.5, ScrollAxis::Vertical);
         let line = scroll_scale_line(&args, &v).expect("行");
-        assert!(line.contains("notches_y=-200"), "400 减半是 200: {line}");
+        assert!(line.contains("notches_y=-120"), "1.5 应重算成 120: {line}");
         assert!(line.contains("never visible"), "跨整屏必须提示漏内容: {line}");
         assert!(line.contains("scroll back"), "还要让模型回滚核对: {line}");
     }

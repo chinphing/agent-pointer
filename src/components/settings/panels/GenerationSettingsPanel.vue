@@ -319,13 +319,6 @@ async function onPlaySoundToggle(checked: boolean) {
         <h4 class="text-sm font-medium text-foreground">{{ t('settings.display.execution') }}</h4>
         <div class="grid grid-cols-2 gap-y-3 gap-x-32">
           <div class="flex items-center justify-between gap-3">
-            <h4 class="text-[12px] font-medium text-foreground">{{ t('settings.display.autoCompact') }}</h4>
-            <label class="relative inline-flex items-center cursor-pointer shrink-0">
-              <input v-model="computerAutoCompact" type="checkbox" class="sr-only peer" />
-              <div class="settings-toggle-track" />
-            </label>
-          </div>
-          <div class="flex items-center justify-between gap-3">
             <h4 class="text-[12px] font-medium text-foreground">{{ t('settings.display.collapseProcess') }}</h4>
             <label class="relative inline-flex items-center cursor-pointer shrink-0">
               <input v-model="collapseProcessByDefault" type="checkbox" class="sr-only peer" />
@@ -409,6 +402,17 @@ async function onPlaySoundToggle(checked: boolean) {
                 :checked="computerAutoSwitchMonitor"
                 @change="computerAutoSwitchMonitor = ($event.target as HTMLInputElement).checked"
               />
+              <div class="settings-toggle-track" />
+            </label>
+          </div>
+
+          <div class="flex items-start justify-between gap-4 py-3">
+            <div class="min-w-0">
+              <p class="text-[12px] font-medium text-foreground">{{ t('settings.desktop.autoCompact') }}</p>
+              <p class="text-[11px] text-muted mt-0.5">{{ t('settings.desktop.autoCompactHint') }}</p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+              <input v-model="computerAutoCompact" type="checkbox" class="sr-only peer" />
               <div class="settings-toggle-track" />
             </label>
           </div>

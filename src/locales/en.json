@@ -605,7 +605,6 @@
       "showSubAgentTrace": "Show sub-agent frames",
       "showChildBoards": "Show child task boards",
       "execution": "Execution",
-      "autoCompact": "Collapse to status bar while running",
       "collapseProcess": "Collapse process by default"
     },
     "notify": {
@@ -655,7 +654,9 @@
       "humanLikeMouse": "Human-like mouse",
       "humanLikeMouseHint": "Curved path with micro-jitter; off uses straight uniform motion",
       "autoSwitchMonitor": "Follow active display",
-      "autoSwitchMonitorHint": "Defaults to primary; follows the window’s display after opening apps"
+      "autoSwitchMonitorHint": "Defaults to primary; follows the window’s display after opening apps",
+      "autoCompact": "Collapse to status bar while running",
+      "autoCompactHint": "Shrinks the main window to a corner status bar during desktop control; off keeps the window unchanged"
     },
     "mediaGen": {
       "heading": "Media generation",

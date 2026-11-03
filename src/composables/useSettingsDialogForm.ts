@@ -337,7 +337,7 @@ function createSettingsDialogForm(deps: {
   const taskBoardShowChildBoards = ref(false)
   const computerHumanLike = ref(false)
   const computerAutoSwitchMonitor = ref(true)
-  const computerAutoCompact = ref(true)
+  const computerAutoCompact = ref(false)
   const collapseProcessByDefault = ref(false)
   const userCodingRules = ref('')
   const debugSaveComputerCaptures = ref(false)
@@ -548,7 +548,7 @@ function createSettingsDialogForm(deps: {
   taskBoardShowChildBoards.value = s.settings.taskBoardShowChildBoards === true
   computerHumanLike.value = s.settings.computerHumanLike === true
   computerAutoSwitchMonitor.value = s.settings.computerAutoSwitchMonitor !== false
-  computerAutoCompact.value = s.userSettings.computerAutoCompact !== false
+  computerAutoCompact.value = s.userSettings.computerAutoCompact === true
   collapseProcessByDefault.value = s.userSettings.collapseProcessByDefault === true
   userCodingRules.value = s.userSettings.userCodingRules ?? ''
   debugSaveComputerCaptures.value = s.settings.debugSaveComputerCaptures === true

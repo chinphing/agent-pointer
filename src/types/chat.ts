@@ -674,7 +674,7 @@ export interface UserSettings {
   enabledSkillIds?: string[]
   /** Per-agent enabled skill ids — sole runtime enablement source. */
   agentSkillOverrides?: Record<string, string[]>
-  /** Shrink app window to dock bar while computer agent is executing (default true). */
+  /** Shrink app window to dock bar while computer agent is executing (default false). */
   computerAutoCompact?: boolean
   /** Play a short chime when a chat turn finishes (default true). */
   playSoundOnFinish?: boolean

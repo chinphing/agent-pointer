@@ -67,7 +67,7 @@ computer 在执行
 1. `chat.generating === true`
 2. 当前会话存在 **活跃的 computer 执行**（见下文检测规则）
 3. 无阻塞弹窗：`MacosComputerPermissionsModal`、`ComputerScreenPickerModal` 未打开（关闭后再进入）
-4. 设置项 `computerAutoCompact !== false`（默认 `true`）
+4. 设置项 `computerAutoCompact === true`（默认 `false`，在「设置 → 桌面自动化 → 电脑行为」里打开）
 
 ### 退出紧凑态
 
@@ -217,7 +217,7 @@ stateDiagram-v2
 - `ComputerCompactBar` + 标题派生 + `isComputerExecuting`（含子 agent）
 - Tauri 窗口收缩/恢复
 - 终止 / 展开；结束后自动展开
-- 设置项 `computerAutoCompact`（默认开）
+- 设置项 `computerAutoCompact`（默认关；设置 → 桌面自动化 → 电脑行为）
 
 ### P1
 

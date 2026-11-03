@@ -35,7 +35,7 @@ export function useComputerCompactMode() {
   })
 
   const computerAutoCompact = computed(
-    () => settings.userSettings.computerAutoCompact !== false
+    () => settings.userSettings.computerAutoCompact === true
   )
 
   const shouldEnterCompact = computed(() => {

@@ -1979,7 +1979,7 @@ fn default_curator_interval_days() -> u32 {
 }
 
 fn default_computer_auto_compact() -> bool {
-    true
+    false
 }
 
 fn default_play_sound_on_finish() -> bool {
@@ -3583,6 +3583,18 @@ mod model_capability_vision_tests {
 #[cfg(test)]
 mod user_settings_defaults_tests {
     use super::*;
+
+    /// 电脑操控「执行时收缩为状态条」默认关（设置 → 桌面自动化 → 电脑行为）；
+    /// 显式存过 `true` 的账号仍保持开。
+    #[test]
+    fn computer_auto_compact_defaults_off() {
+        let mut user = UserSettings::default();
+        assert!(!user.computer_auto_compact);
+        user.computer_auto_compact = true;
+        let json = serde_json::to_value(&user).expect("serialize");
+        let back: UserSettings = serde_json::from_value(json).expect("deserialize");
+        assert!(back.computer_auto_compact);
+    }
 
     #[test]
     fn strips_platform_source_providers_keeps_tier_maps() {

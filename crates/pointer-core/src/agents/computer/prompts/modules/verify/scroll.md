@@ -82,8 +82,8 @@ The single test for success is **whether the two screenshots differ because the
 content scrolled**. Everything else follows from that.
 
 **One anchor does both jobs: the row at the edge the scroll was heading
-toward.** Last fully visible row for down, first for up, rightmost column for
-right, leftmost for left. Read that row in both frames and it answers
+toward.** Last **fully visible** row for down, first for up, rightmost column
+for right, leftmost for left. Read that row in both frames and it answers
 everything:
 
 | Ask | How the anchor answers it |
@@ -91,6 +91,11 @@ everything:
 | how far did the content move | count the rows between the before anchor and where it sits in the after frame |
 | did new content appear | the after anchor was not visible in before |
 | did the jump exceed a panel | the before anchor is gone from the after frame — too far to count |
+
+「Fully visible」 is the point: the leading edge is exactly where the viewport
+clips, so the half-drawn row is easy to misread and easy to confuse with its
+neighbour. Take the last row you can read in full — the count is the same,
+because every row in the panel moves by the same amount.
 
 Same anchor row in both frames means nothing moved. Not-new anchor means the
 content did not advance — either it stayed put or it went the **wrong

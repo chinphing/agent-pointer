@@ -41,9 +41,9 @@ when the content did not shift at all.
 
 **Report values above `1` when the jump was bigger than the panel itself.** A
 fraction is measured against the target area's extent, so `1.0` is exactly one
-full panel. When the first row (or column) visible in the after frame does
-**not** appear anywhere in the before frame, the content jumped past more than a
-panel and the rows in between were never visible — say so with a number above 1:
+full panel. When the anchor row from before is **gone from the after frame**,
+the content moved at least a full panel and the rows in between were never
+visible — say so with a number above 1:
 
 ```
 moved ~1.5 target-heights
@@ -81,22 +81,21 @@ Do not try to count pixels — the estimate is for scaling, not for measurement.
 The single test for success is **whether the two screenshots differ because the
 content scrolled**. Everything else follows from that.
 
-**Measure on any anchor; judge on the leading edge.** The shift is the same on
-every row (or column) visible in both frames, so measure it wherever it is
-easiest to read — an unchanged first row with unchanged rows below it means
-nothing moved. The *expected effect* is not there though: new content shows up at
-the edge the scroll was heading toward, and that edge follows the direction.
+**One anchor does both jobs: the row at the edge the scroll was heading
+toward.** Last fully visible row for down, first for up, rightmost column for
+right, leftmost for left. Read that row in both frames and it answers
+everything:
 
-| Direction | New content appears |
+| Ask | How the anchor answers it |
 | --- | --- |
-| down | rows below the last row that was visible |
-| up | rows above the first row that was visible |
-| right | columns past the right-hand edge |
-| left | columns before the left-hand one |
+| how far did the content move | count the rows between the before anchor and where it sits in the after frame |
+| did new content appear | the after anchor was not visible in before |
+| did the jump exceed a panel | the before anchor is gone from the after frame — too far to count |
 
-A frame where the trailing edge changed but the leading edge did not is a scroll
-in the **wrong direction** — `fail` / `wrong_operation`, however much the rest of
-the panel moved.
+Same anchor row in both frames means nothing moved. Not-new anchor means the
+content did not advance — either it stayed put or it went the **wrong
+direction**, which is `fail` / `wrong_operation` however much the rest of the
+panel moved.
 
 | Situation | `action_result` | `failure_cause` |
 | --- | --- | --- |
@@ -138,7 +137,7 @@ tells the planner the rest. `at_edge` is reserved for a scroll that produced
 
 Max **3 sentences**, plain prose.
 
-1. First visible row in before, then in after — the shift as a viewport fraction.
+1. The leading-edge row in before, then in after — how far it moved, as a viewport fraction.
 2. Pass or fail + `failure_cause`.
 3. On `fail`, the edge evidence you used.
 

@@ -81,10 +81,10 @@ outside does nothing.
 
 **Choosing `notches_x` / `notches_y`:** Wheel notches, **not pixels**.
 **`notches_y` positive = up**, negative = down; **`notches_x` positive = right**,
-negative = left. Distance is proportional to the count: **30–50 for a normal
-scroll** (≈half a panel); up to **1000** when you deliberately jump past a long
-stretch. A big number skips rows you never saw — never use one just to "make
-sure" you get far enough.
+negative = left. Distance is proportional to the count: start with **40–60**;
+up to **1000** when you deliberately jump past a long stretch. A big number
+skips rows you never saw — never use one just to "make sure" you get far
+enough.
 
 **After every scroll**, read the result lines:
 

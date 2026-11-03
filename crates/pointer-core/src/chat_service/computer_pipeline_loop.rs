@@ -814,16 +814,19 @@ fn execution_summary_for_tool_card(
 
 /// What one scroll should move, as a fraction of the target area.
 ///
-/// Conservative on purpose: half a panel per scroll is big enough to make
-/// progress and small enough to stop on the row you want. The model only has
-/// to send the notch count this constant implies.
-pub const SCROLL_TARGET_FRACTION: f32 = 0.5;
+/// Big enough to make progress and small enough to stop on the row you want.
+/// The model only has to send the notch count this constant implies.
+pub const SCROLL_TARGET_FRACTION: f32 = 0.6;
 
 /// A move inside `[SCROLL_BAND_MIN, SCROLL_BAND_MAX]` is already the target
 /// size — recommending a new count there would be noise, so the host stays
 /// quiet and the model keeps the count it used.
-pub const SCROLL_BAND_MIN: f32 = 0.4;
-pub const SCROLL_BAND_MAX: f32 = 0.7;
+///
+/// `SCROLL_BAND_MIN` is the target itself: anything that moved less than the
+/// target gets a bigger count. A separate, lower floor would let a scroll that
+/// moved half of what was asked for pass without a word.
+pub const SCROLL_BAND_MIN: f32 = 0.6;
+pub const SCROLL_BAND_MAX: f32 = 0.8;
 
 /// Host-side scroll scaling line appended to a scroll's tool result.
 ///
@@ -848,8 +851,8 @@ pub fn scroll_scale_line(root_args: &Value, verify: &VerifyConclusion) -> Option
     let m = verify.scroll?;
     // Clamp to what the tool actually delivered. `root_args` is the model's raw
     // request; the tool caps it at ±`SCROLL_NOTCHES_MAX` before scrolling, so a
-    // raw `-950` moved the distance of `-100`. Scaling from the raw number makes
-    // every later recommendation wrong by the same factor.
+    // raw `-1500` moved the distance of `-1000`. Scaling from the raw number
+    // makes every later recommendation wrong by the same factor.
     let cap = i64::from(SCROLL_NOTCHES_MAX);
     let (used, axis_label, axis_key) = match m.axis {
         ScrollAxis::Vertical => (
@@ -1081,17 +1084,17 @@ mod tests {
         }
     }
 
-    /// 50 notches → 0.05 target-heights：0.5 需要 500 notches，上限 1000 之内，
-    /// 行里必须给出**能直接照抄**的 500。
+    /// 50 notches → 0.05 target-heights：0.6 需要 600 notches，上限 1000 之内，
+    /// 行里必须给出**能直接照抄**的 600。
     #[test]
     fn scroll_scale_gives_the_measured_count() {
         let args = json!({"notches_y": -50});
         let v = scroll_verify(0.05, ScrollAxis::Vertical);
         let line = scroll_scale_line(&args, &v).expect("有测量就该出缩放行");
-        assert!(line.contains("notches_y=-500"), "没给出可照抄的值: {line}");
-        assert!(!line.contains("capped"), "500 在上限内不该提截断: {line}");
+        assert!(line.contains("notches_y=-600"), "没给出可照抄的值: {line}");
+        assert!(!line.contains("capped"), "600 在上限内不该提截断: {line}");
         assert!(line.contains("≈1000 notches per full panel"), "没给全屏换算: {line}");
-        assert_eq!(SCROLL_TARGET_FRACTION, 0.5);
+        assert_eq!(SCROLL_TARGET_FRACTION, 0.6);
     }
 
     /// 需求刻度超过 ±1000 时才截断，并报还要几次调用。
@@ -1111,14 +1114,15 @@ mod tests {
         let args = json!({"notches_y": -10});
         let v = scroll_verify(0.25, ScrollAxis::Vertical);
         let line = scroll_scale_line(&args, &v).expect("缩放行");
-        assert!(line.contains("notches_y=-20"), "10 刻度走 0.25，0.5 需要 20: {line}");
+        assert!(line.contains("notches_y=-24"), "10 刻度走 0.25，0.6 需要 24: {line}");
         assert!(!line.contains("capped"), "没到上限不该提截断: {line}");
     }
 
-    /// 0.4–0.7 已经是目标尺寸：不给新刻度，明确让模型保持原值。
+    /// 0.6–0.8 已经是目标尺寸：不给新刻度，明确让模型保持原值。
+    /// 0.6 是下限本身 —— 低于它就一定给建议，不存在「勉强算达标」的区间。
     #[test]
     fn scroll_scale_stays_quiet_inside_the_target_band() {
-        for moved in [0.4_f32, 0.5, 0.7] {
+        for moved in [0.6_f32, 0.7, 0.8] {
             let args = json!({"notches_y": -300});
             let v = scroll_verify(moved, ScrollAxis::Vertical);
             let line = scroll_scale_line(&args, &v).expect("行");
@@ -1127,7 +1131,7 @@ mod tests {
         }
     }
 
-    /// 超过 0.7：相对上次刻度减半；超过 1（整屏以上）还要提示漏内容。
+    /// 超过 0.8：相对上次刻度减半；超过 1（整屏以上）还要提示漏内容。
     #[test]
     fn scroll_scale_halves_after_an_overshoot() {
         let args = json!({"notches_y": -400});
@@ -1148,9 +1152,9 @@ mod tests {
     fn scroll_scale_keeps_the_direction() {
         let v = scroll_verify(0.1, ScrollAxis::Vertical);
         let down = scroll_scale_line(&json!({"notches_y": 20}), &v).expect("行");
-        assert!(down.contains("notches_y=100"), "{down}");
+        assert!(down.contains("notches_y=120"), "{down}");
         let up = scroll_scale_line(&json!({"notches_y": -20}), &v).expect("行");
-        assert!(up.contains("notches_y=-100"), "{up}");
+        assert!(up.contains("notches_y=-120"), "{up}");
     }
 
     /// 横向滚动按 width 轴算，并用 notches_x。
@@ -1159,7 +1163,7 @@ mod tests {
         let args = json!({"notches_x": 30});
         let v = scroll_verify(0.1, ScrollAxis::Horizontal);
         let line = scroll_scale_line(&args, &v).expect("行");
-        assert!(line.contains("notches_x=150"), "{line}");
+        assert!(line.contains("notches_x=180"), "{line}");
         assert!(line.contains("target-widths"), "{line}");
     }
 

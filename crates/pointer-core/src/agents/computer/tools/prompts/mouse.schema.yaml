@@ -148,10 +148,10 @@ mouse_scroll_current:
       maximum: 1000
       description: >
         Vertical scroll in wheel notches. Positive = up, negative = down.
-        Omit when only horizontal movement is needed. Most page scrolls need
-        10-40; the distance one notch covers depends on the app — read the
-        previous scroll's result to learn how far your last scroll went, and
-        send the count its `Scroll scale:` line names.
+        Omit when only horizontal movement is needed. Start with 40-60; the
+        distance one notch covers depends on the app — read the previous
+        scroll's result to learn how far your last scroll went, and send the
+        count its `Scroll scale:` line names.
     wait:
       type: number
       minimum: 1

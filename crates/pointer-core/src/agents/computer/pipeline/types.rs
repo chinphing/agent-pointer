@@ -83,6 +83,47 @@ pub struct VerifyModuleOutput {
     pub step_summary: Option<String>,
     #[serde(default)]
     pub loading_detected: bool,
+    /// Scroll family only: fraction of the target area that moved (0.05 = 5%).
+    #[serde(default)]
+    pub scroll_moved: Option<f32>,
+    /// Scroll family only: `target-heights` | `target-widths` | `screen` | `screen-widths`.
+    #[serde(default)]
+    pub scroll_unit: Option<String>,
+}
+
+/// Which axis a scroll moved along — picks the notch count to scale.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollAxis {
+    Vertical,
+    Horizontal,
+}
+
+/// How far a scroll actually moved, as reported by the Verify LLM.
+///
+/// The host owns the arithmetic that turns this into a suggested notch count;
+/// the LLM only answers 「content moved how far」, which is the semantic call.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScrollMeasurement {
+    /// Fraction of the target area that moved (0.05 = 5%).
+    pub fraction: f32,
+    pub axis: ScrollAxis,
+}
+
+impl ScrollMeasurement {
+    /// Parse the Verify LLM's structured fields. Unknown units → `None`: a
+    /// guess here would feed the model a made-up notch count.
+    pub fn from_module_fields(moved: Option<f32>, unit: Option<&str>) -> Option<Self> {
+        let fraction = moved?;
+        if !fraction.is_finite() || fraction < 0.0 {
+            return None;
+        }
+        let axis = match unit?.trim().to_ascii_lowercase().as_str() {
+            "target-heights" | "screen" => ScrollAxis::Vertical,
+            "target-widths" | "screen-widths" => ScrollAxis::Horizontal,
+            _ => return None,
+        };
+        Some(Self { fraction, axis })
+    }
 }
 
 /// Conclusion stored for the next decision round.
@@ -91,6 +132,8 @@ pub struct VerifyConclusion {
     pub action_result: ActionResult,
     pub failure_cause: Option<FailureCause>,
     pub step_summary: Option<String>,
+    /// Set only for the scroll family; drives the host-side notch suggestion.
+    pub scroll: Option<ScrollMeasurement>,
 }
 
 impl VerifyConclusion {
@@ -129,6 +172,10 @@ impl VerifyConclusion {
             action_result,
             failure_cause,
             step_summary: out.step_summary.clone(),
+            scroll: ScrollMeasurement::from_module_fields(
+                out.scroll_moved,
+                out.scroll_unit.as_deref(),
+            ),
         })
     }
 
@@ -266,6 +313,8 @@ mod tests {
             failure_cause: None,
             step_summary: Some("Toward goal: clicked send".into()),
             loading_detected: false,
+            scroll_moved: None,
+            scroll_unit: None,
         };
         let c = VerifyConclusion::from_module_output(&out).unwrap();
         assert_eq!(c.action_result, ActionResult::Pass);
@@ -278,6 +327,8 @@ mod tests {
             failure_cause: Some("precision_miss".into()),
             step_summary: Some("click landed on the row above".into()),
             loading_detected: false,
+            scroll_moved: None,
+            scroll_unit: None,
         };
         let c = VerifyConclusion::from_module_output(&out).unwrap();
         assert_eq!(c.failure_cause.map(|x| x.as_str()), Some("precision_miss"));
@@ -288,6 +339,8 @@ mod tests {
             failure_cause: None,
             step_summary: Some("nothing changed".into()),
             loading_detected: false,
+            scroll_moved: None,
+            scroll_unit: None,
         };
         assert!(VerifyConclusion::from_module_output(&missing_cause).is_err());
     }
@@ -298,6 +351,7 @@ mod tests {
             action_result: ActionResult::Na,
             failure_cause: None,
             step_summary: None,
+            scroll: None,
         };
         assert_eq!(c.verify_line_for_tool_card(), "Verify: n/a");
     }
@@ -312,6 +366,8 @@ mod tests {
             failure_cause: Some("at_edge".into()),
             step_summary: Some("moved 0; footer 已显示全部 visible and static".into()),
             loading_detected: false,
+            scroll_moved: None,
+            scroll_unit: None,
         };
         let c = VerifyConclusion::from_module_output(&out).unwrap();
         assert_eq!(c.failure_cause.as_ref().map(|x| x.as_str()), Some("at_edge"));
@@ -330,6 +386,8 @@ mod tests {
             failure_cause: Some("wrong_operation".into()),
             step_summary: None,
             loading_detected: false,
+            scroll_moved: None,
+            scroll_unit: None,
         };
         let err = VerifyConclusion::from_module_output(&out).unwrap_err();
         assert!(err.to_string().contains("step_summary"), "{err}");
@@ -340,6 +398,8 @@ mod tests {
             failure_cause: Some("wrong_operation".into()),
             step_summary: Some("   ".into()),
             loading_detected: false,
+            scroll_moved: None,
+            scroll_unit: None,
         };
         assert!(VerifyConclusion::from_module_output(&blank).is_err());
     }

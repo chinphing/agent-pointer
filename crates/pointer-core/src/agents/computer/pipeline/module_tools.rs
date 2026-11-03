@@ -5,25 +5,26 @@ use serde_json::{json, Value};
 
 use crate::models::ToolCall;
 
+use super::operation::OperationFamily;
 use super::schemas::verify_response_schema;
 use super::types::VerifyModuleOutput;
 
 pub const TOOL_SUBMIT_VERIFY: &str = "submit_verify";
 
 /// OpenAI tool def for a Verify phase call.
-pub fn verify_submit_tool() -> Value {
+pub fn verify_submit_tool(family: OperationFamily) -> Value {
     json!({
         "type": "function",
         "function": {
             "name": TOOL_SUBMIT_VERIFY,
             "description": "Submit verify output after reasoning in reasoning_content per Scenario.",
-            "parameters": verify_response_schema()
+            "parameters": verify_response_schema(family)
         }
     })
 }
 
-pub fn verify_tools() -> Vec<Value> {
-    vec![verify_submit_tool()]
+pub fn verify_tools(family: OperationFamily) -> Vec<Value> {
+    vec![verify_submit_tool(family)]
 }
 
 fn pick_submit_tool_call<'a>(

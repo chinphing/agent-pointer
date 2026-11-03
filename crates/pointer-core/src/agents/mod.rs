@@ -2220,6 +2220,63 @@ mod builtin_agent_tests {
             );
         }
     }
+
+    /// 「预期效果」这条判据属于所有场景，必须住在共用的 core.md 里；
+    /// 否则每个场景各写一遍，写法一分叉就会退化回「有差异就算成功」。
+    #[test]
+    fn expected_effect_rule_lives_in_shared_core() {
+        use computer::pipeline::operation::OperationFamily;
+        assert!(
+            COMPUTER_VERIFY_CORE.contains("expected effect"),
+            "core.md 缺「预期效果」判据"
+        );
+        for family in [
+            OperationFamily::PointerClick,
+            OperationFamily::Scroll,
+            OperationFamily::Input,
+            OperationFamily::Drag,
+            OperationFamily::ModifiedClick,
+            OperationFamily::Hotkey,
+            OperationFamily::Wait,
+            OperationFamily::Clipboard,
+        ] {
+            let prompt = computer_verify_prompt(family);
+            assert!(
+                prompt.contains("expected effect"),
+                "{family:?} 的提示词没带上 core.md 的预期效果判据"
+            );
+        }
+    }
+
+    /// 滚动量词只能出现在 scroll 场景里。core.md 是所有场景共用的，
+    /// 里面放一句 `moved ~0.4 target-heights` 的示例，点击场景的 verify
+    /// 就会照着写「内容上移约 0.3 target-heights」。
+    #[test]
+    fn scroll_measurement_vocabulary_stays_out_of_shared_core() {
+        use computer::pipeline::operation::OperationFamily;
+        assert!(
+            !COMPUTER_VERIFY_CORE.contains("target-heights"),
+            "core.md 是共用提示词，不能出现滚动量词"
+        );
+        let scroll = computer_verify_prompt(OperationFamily::Scroll);
+        assert!(
+            scroll.contains("target-heights"),
+            "scroll 场景必须给出滚动量词"
+        );
+        for family in [
+            OperationFamily::PointerClick,
+            OperationFamily::Input,
+            OperationFamily::ModifiedClick,
+            OperationFamily::Hotkey,
+            OperationFamily::Drag,
+        ] {
+            let prompt = computer_verify_prompt(family);
+            assert!(
+                !prompt.contains("target-heights") && !prompt.contains("moved ~"),
+                "{family:?} 场景不该出现滚动量词"
+            );
+        }
+    }
 }
 
 

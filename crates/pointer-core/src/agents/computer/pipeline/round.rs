@@ -222,6 +222,7 @@ pub async fn run_verify_phase(
         &verify_settings,
         &system,
         verify_wire.clone(),
+        family,
         cancel.clone(),
         dump_label,
         usage.as_deref_mut(),
@@ -293,6 +294,7 @@ pub async fn run_verify_phase(
             &verify_settings,
             &system,
             verify_wire,
+            family,
             cancel.clone(),
             dump_label,
             usage.as_deref_mut(),
@@ -512,12 +514,13 @@ async fn run_verify_once(
     settings: &ModelSettings,
     system: &str,
     wire: Vec<Value>,
+    family: OperationFamily,
     cancel: CancellationToken,
     dump_label: Option<&str>,
     usage: Option<&mut PipelineLlmUsageRecorder<'_>>,
 ) -> Result<VerifyOnceBundle> {
     let (output, meta) =
-        run_verify_llm(prov, settings, system, wire, cancel, dump_label, usage).await?;
+        run_verify_llm(prov, settings, system, wire, family, cancel, dump_label, usage).await?;
     Ok(VerifyOnceBundle { output, meta })
 }
 
@@ -573,6 +576,8 @@ mod tests {
             failure_cause: None,
             step_summary: None,
             loading_detected: true,
+            scroll_moved: None,
+            scroll_unit: None,
         };
         let clear = VerifyModuleOutput {
             loading_detected: false,

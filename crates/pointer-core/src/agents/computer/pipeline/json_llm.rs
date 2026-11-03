@@ -8,6 +8,7 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use super::module_tools::{parse_verify_from_tool_calls, tool_call_raw_text, verify_tools};
+use super::operation::OperationFamily;
 use super::types::PipelineLlmUsageRecorder;
 
 /// Raw LLM response metadata for pipeline debug UI (no system prompt).
@@ -109,6 +110,7 @@ pub async fn run_verify_llm(
     settings: &ModelSettings,
     system_text: &str,
     wire_messages: Vec<Value>,
+    family: OperationFamily,
     cancel: CancellationToken,
     dump_label: Option<&str>,
     usage: Option<&mut PipelineLlmUsageRecorder<'_>>,
@@ -118,7 +120,7 @@ pub async fn run_verify_llm(
         settings,
         system_text,
         wire_messages,
-        verify_tools(),
+        verify_tools(family),
         "verify",
         cancel,
         dump_label,

@@ -166,8 +166,28 @@ Schema 定义：`position_strategy.rs`（`schemas.rs` 委托）。
 | `loading_detected` | boolean | 是 | `true` → 宿主 wait 2.5s 后**重跑一次** Verify |
 | `failure_cause` | `wrong_operation` \| `precision_miss` | `fail` 时必填 | 操作选错 vs 点偏 / 没点上 |
 | `step_summary` | string | `pass` 时必填 | 一行进度摘要（≤400 字），注入下轮 `[DECISION_CONTEXT]` |
+| `scroll_moved` | number | 仅 scroll | 内容移动了目标区域的多少（`0.05` = 5%）；非 scroll 不填 |
+| `scroll_unit` | `target-heights` \| `target-widths` \| `screen` \| `screen-widths` | 仅 scroll | `scroll_moved` 的单位，与 `step_summary` 里的措辞一致 |
 
 类型定义：`VerifyModuleOutput` → `VerifyConclusion`（`pipeline/types.rs`）。
+
+### Scroll 刻度换算（宿主确定性计算）
+
+`scroll_moved` + `scroll_unit` + 本次 `notches_x/notches_y` → 宿主在 tool 结果末尾追加一行（`computer_pipeline_loop.rs::scroll_scale_line`）。三段分档：
+
+| 上次实际位移 | 宿主输出 | 例子 |
+|---|---|---|
+| `< 0.4` | 按比例放大到 0.5 | `Scroll scale: -50 notches moved ~0.05 target-heights (≈1000 notches per full panel). Next scroll for ~0.5 target-heights: send notches_y=-500.` |
+| `0.4 – 0.7` | **不推荐**，让模型保持原值 | `Scroll scale: -40 notches moved ~0.50 target-heights — that is the target size (0.5 target-heights); keep this count.` |
+| `> 0.7` | **相对上次减半** | `Scroll scale: -400 notches moved ~0.90 target-heights — over the target 0.5 target-heights. Next scroll: halve it → send notches_y=-200.` |
+| `> 1.0` | 减半 + **漏内容告警** | 追加 `It jumped more than a full panel: rows between the two frames were never visible — scroll back ~0.5 to read them before continuing.` |
+
+- 目标刻度 `SCROLL_TARGET_FRACTION = 0.5`：一次滚动移动半个面板，够推进又不会冲过头。
+- 死区 `SCROLL_BAND_MIN/MAX = 0.4/0.7`：已经在目标尺寸内就不要再调，避免来回震荡。
+- `> 1.0` 由 Verify LLM 按 `verify/scroll.md` 的规则显式上报（后帧首行在前帧中找不到 = 跨了整屏以上）。
+- 单次上限 `SCROLL_NOTCHES_MAX = 1000`（= 100 条滚轮事件，每条 10 notches、间隔 20ms，约 2 秒）；日常推荐 30–50（≈半屏），多屏跳转由模型自行决定。超过上限时报被截断并给出总调用数（`capped at 1000 … ≈N calls`）。换算用的是**截断后**实际生效的刻度，不是模型原始请求值。
+- `moved 0` 时**不**给更大的数字，改为提示「指针没落在可滚区域，补 `target_desc` + `bbox`」。
+- 缺测量 / 轴上没有刻度 / `fail (at_edge)` → 不出这一行（绝不猜）。
 
 ### Decision tool call 公共字段
 

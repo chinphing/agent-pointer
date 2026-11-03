@@ -3,11 +3,14 @@
 use crate::agents::computer::pipeline::operation::{
     format_operation_summary, needs_verify_for_tool, operation_family_for_tool, OperationFamily,
 };
-use crate::agents::computer::pipeline::types::{ActionResult, FailureCause, VerifyConclusion};
+use crate::agents::computer::pipeline::types::{
+    ActionResult, FailureCause, ScrollAxis, VerifyConclusion,
+};
 pub use crate::agents::computer::pipeline::PipelineLlmUsageRecorder;
 use crate::agents::computer::pipeline::{
     batch_family, find_root_tool_name, run_verify_phase, VerifyTarget,
 };
+use crate::agents::computer::tools::args_util::SCROLL_NOTCHES_MAX;
 use crate::agents::computer::ScreenCaptureResult;
 use crate::agents::AgentProfile;
 use crate::chat_service::app_state::AppState;
@@ -187,6 +190,7 @@ fn host_verify_conclusion(
                         tool_text.unwrap_or_default(),
                     ),
                 ),
+                scroll: None,
             },
             Some(crate::agents::computer::tools::AppAccessHostOutcome::Fail) => VerifyConclusion {
                 action_result: ActionResult::Fail,
@@ -196,11 +200,13 @@ fn host_verify_conclusion(
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .map(str::to_string),
+                scroll: None,
             },
             None => VerifyConclusion {
                 action_result: ActionResult::Na,
                 failure_cause: None,
                 step_summary: None,
+                scroll: None,
             },
         };
     }
@@ -209,6 +215,7 @@ fn host_verify_conclusion(
         action_result: ActionResult::Na,
         failure_cause: None,
         step_summary: None,
+        scroll: None,
     }
 }
 
@@ -241,6 +248,7 @@ fn clipboard_early_fail_conclusion(
         action_result: ActionResult::Fail,
         failure_cause: Some(FailureCause::WrongOperation),
         step_summary: Some(step_summary),
+        scroll: None,
     })
 }
 
@@ -322,6 +330,7 @@ fn tool_execution_host_fail_conclusion(tool_text: Option<&str>) -> Option<Verify
                 .trim()
                 .to_string(),
         ),
+        scroll: None,
     })
 }
 
@@ -803,6 +812,126 @@ fn execution_summary_for_tool_card(
     }
 }
 
+/// What one scroll should move, as a fraction of the target area.
+///
+/// Conservative on purpose: half a panel per scroll is big enough to make
+/// progress and small enough to stop on the row you want. The model only has
+/// to send the notch count this constant implies.
+pub const SCROLL_TARGET_FRACTION: f32 = 0.5;
+
+/// A move inside `[SCROLL_BAND_MIN, SCROLL_BAND_MAX]` is already the target
+/// size — recommending a new count there would be noise, so the host stays
+/// quiet and the model keeps the count it used.
+pub const SCROLL_BAND_MIN: f32 = 0.4;
+pub const SCROLL_BAND_MAX: f32 = 0.7;
+
+/// Host-side scroll scaling line appended to a scroll's tool result.
+///
+/// The Verify LLM answers 「content moved how far」; the arithmetic that turns
+/// that into a notch count is deterministic and lives here, so the model never
+/// has to (and never gets to) guess. Three bands:
+///
+/// - **under** `SCROLL_BAND_MIN` → scale up to `SCROLL_TARGET_FRACTION`
+/// - **inside** the band → no recommendation, keep the count
+/// - **over** `SCROLL_BAND_MAX` → halve the count (a move above 1.0 means whole
+///   rows were never visible, so the result also says to scroll back)
+///
+/// Returns `None` when there is nothing to scale from — non-scroll, missing
+/// measurement, or no notches on the moved axis.
+pub fn scroll_scale_line(root_args: &Value, verify: &VerifyConclusion) -> Option<String> {
+    // At the edge the answer is 「stop scrolling」, not a bigger number — the
+    // `Verify: fail (at_edge)` line already says so, and suggesting a count
+    // here would fight it.
+    if verify.failure_cause == Some(FailureCause::AtEdge) {
+        return None;
+    }
+    let m = verify.scroll?;
+    // Clamp to what the tool actually delivered. `root_args` is the model's raw
+    // request; the tool caps it at ±`SCROLL_NOTCHES_MAX` before scrolling, so a
+    // raw `-950` moved the distance of `-100`. Scaling from the raw number makes
+    // every later recommendation wrong by the same factor.
+    let cap = i64::from(SCROLL_NOTCHES_MAX);
+    let (used, axis_label, axis_key) = match m.axis {
+        ScrollAxis::Vertical => (
+            root_args
+                .get("notches_y")
+                .and_then(|v| v.as_i64())?
+                .clamp(-cap, cap),
+            "target-heights",
+            "notches_y",
+        ),
+        ScrollAxis::Horizontal => (
+            root_args
+                .get("notches_x")
+                .and_then(|v| v.as_i64())?
+                .clamp(-cap, cap),
+            "target-widths",
+            "notches_x",
+        ),
+    };
+    if used == 0 {
+        return None;
+    }
+    let used_abs = used.unsigned_abs() as f32;
+    let sign = if used < 0 { -1 } else { 1 };
+    let moved = m.fraction;
+    if moved <= 0.0 {
+        // Nothing moved: scaling is meaningless — the wheel never reached a
+        // scrollable area. Say that instead of inventing a bigger number.
+        return Some(format!(
+            "Scroll scale: {used} notches moved 0 {axis_label} — the wheel did not \
+             reach a scrollable area. Pass target_desc + bbox so the pointer moves \
+             into the panel first, or check the app."
+        ));
+    }
+
+    if (SCROLL_BAND_MIN..=SCROLL_BAND_MAX).contains(&moved) {
+        // Already the size we want. Any number here would push the model to
+        // change a count that is working.
+        return Some(format!(
+            "Scroll scale: {used} notches moved ~{moved:.2} {axis_label} — that is the \
+             target size ({SCROLL_TARGET_FRACTION} {axis_label}); keep this count."
+        ));
+    }
+
+    if moved > SCROLL_BAND_MAX {
+        let halved = ((used_abs / 2.0).round().max(1.0) as i64).min(cap);
+        let mut line = format!(
+            "Scroll scale: {used} notches moved ~{moved:.2} {axis_label} — over the target \
+             {SCROLL_TARGET_FRACTION} {axis_label}. Next scroll: halve it → send \
+             {axis_key}={}.",
+            sign * halved
+        );
+        if moved > 1.0 {
+            line.push_str(&format!(
+                " It jumped more than a full panel: rows between the two frames were never \
+                 visible — scroll back ~{SCROLL_TARGET_FRACTION} to read them before \
+                 continuing."
+            ));
+        }
+        return Some(line);
+    }
+
+    let per_notch = moved / used_abs;
+    let needed = (SCROLL_TARGET_FRACTION / per_notch).round().max(1.0) as i64;
+    let capped = needed.min(i64::from(SCROLL_NOTCHES_MAX));
+    let full_panel = (used_abs / moved).round() as i64;
+    let mut line = format!(
+        "Scroll scale: {used} notches moved ~{moved:.2} {axis_label} (≈{full_panel} notches per \
+         full panel). Next scroll for ~{SCROLL_TARGET_FRACTION} {axis_label}: send \
+         {axis_key}={}",
+        sign * capped
+    );
+    if needed > capped {
+        let calls = (needed + i64::from(SCROLL_NOTCHES_MAX) - 1) / i64::from(SCROLL_NOTCHES_MAX);
+        line.push_str(&format!(
+            " (wanted {needed}, capped at {SCROLL_NOTCHES_MAX}/call — ≈{calls} calls for that)"
+        ));
+    }
+    line.push('.');
+    Some(line)
+}
+
 fn build_tool_card_text_after_verify(
     root_name: &str,
     root_args: &Value,
@@ -817,12 +946,18 @@ fn build_tool_card_text_after_verify(
         }
         return verify_line;
     }
-    match execution_summary_for_tool_card(root_name, root_args, tool_text) {
+    let base = match execution_summary_for_tool_card(root_name, root_args, tool_text) {
         Some(exec) => format!("{exec}\n{verify_line}"),
         None => verify_line,
+    };
+    if family != OperationFamily::Scroll {
+        return base;
+    }
+    match scroll_scale_line(root_args, verify) {
+        Some(scale) => format!("{base}\n{scale}"),
+        None => base,
     }
 }
-
 pub fn apply_pipeline_verify_to_tool_card(
     stream: &StreamTx,
     history: &mut Vec<ChatMessage>,
@@ -929,8 +1064,139 @@ pub fn pipeline_give_up_error(state: &AppState, conversation_id: &str) -> Option
 #[cfg(test)]
 mod tests {
     use super::{
-        calibrated_point, execution_summary_for_tool_card, is_grounding_failure,
+        calibrated_point, execution_summary_for_tool_card, is_grounding_failure, scroll_scale_line,
+        SCROLL_TARGET_FRACTION,
     };
+    use crate::agents::computer::pipeline::types::{
+        ActionResult, ScrollAxis, ScrollMeasurement, VerifyConclusion,
+    };
+    use serde_json::json;
+
+    fn scroll_verify(fraction: f32, axis: ScrollAxis) -> VerifyConclusion {
+        VerifyConclusion {
+            action_result: ActionResult::Pass,
+            failure_cause: None,
+            step_summary: Some("moved".into()),
+            scroll: Some(ScrollMeasurement { fraction, axis }),
+        }
+    }
+
+    /// 50 notches → 0.05 target-heights：0.5 需要 500 notches，上限 1000 之内，
+    /// 行里必须给出**能直接照抄**的 500。
+    #[test]
+    fn scroll_scale_gives_the_measured_count() {
+        let args = json!({"notches_y": -50});
+        let v = scroll_verify(0.05, ScrollAxis::Vertical);
+        let line = scroll_scale_line(&args, &v).expect("有测量就该出缩放行");
+        assert!(line.contains("notches_y=-500"), "没给出可照抄的值: {line}");
+        assert!(!line.contains("capped"), "500 在上限内不该提截断: {line}");
+        assert!(line.contains("≈1000 notches per full panel"), "没给全屏换算: {line}");
+        assert_eq!(SCROLL_TARGET_FRACTION, 0.5);
+    }
+
+    /// 需求刻度超过 ±1000 时才截断，并报还要几次调用。
+    #[test]
+    fn scroll_scale_caps_at_the_per_call_limit() {
+        let args = json!({"notches_y": -50});
+        let v = scroll_verify(0.0004, ScrollAxis::Vertical);
+        let line = scroll_scale_line(&args, &v).expect("行");
+        assert!(line.contains("notches_y=-1000"), "{line}");
+        assert!(line.contains("capped at 1000"), "没说明被截断: {line}");
+        assert!(line.contains("calls"), "没给调用次数: {line}");
+    }
+
+    /// 需要的刻度小于上限时直接给准确值，不要报截断。
+    #[test]
+    fn scroll_scale_gives_the_exact_count_when_under_the_cap() {
+        let args = json!({"notches_y": -10});
+        let v = scroll_verify(0.25, ScrollAxis::Vertical);
+        let line = scroll_scale_line(&args, &v).expect("缩放行");
+        assert!(line.contains("notches_y=-20"), "10 刻度走 0.25，0.5 需要 20: {line}");
+        assert!(!line.contains("capped"), "没到上限不该提截断: {line}");
+    }
+
+    /// 0.4–0.7 已经是目标尺寸：不给新刻度，明确让模型保持原值。
+    #[test]
+    fn scroll_scale_stays_quiet_inside_the_target_band() {
+        for moved in [0.4_f32, 0.5, 0.7] {
+            let args = json!({"notches_y": -300});
+            let v = scroll_verify(moved, ScrollAxis::Vertical);
+            let line = scroll_scale_line(&args, &v).expect("行");
+            assert!(line.contains("keep this count"), "{moved}: {line}");
+            assert!(!line.contains("send notches"), "{moved} 在带内不该推荐刻度: {line}");
+        }
+    }
+
+    /// 超过 0.7：相对上次刻度减半；超过 1（整屏以上）还要提示漏内容。
+    #[test]
+    fn scroll_scale_halves_after_an_overshoot() {
+        let args = json!({"notches_y": -400});
+        let v = scroll_verify(0.9, ScrollAxis::Vertical);
+        let line = scroll_scale_line(&args, &v).expect("行");
+        assert!(line.contains("notches_y=-200"), "400 减半是 200: {line}");
+        assert!(!line.contains("never visible"), "0.9 未跨整屏，不该说漏内容: {line}");
+
+        let v = scroll_verify(1.5, ScrollAxis::Vertical);
+        let line = scroll_scale_line(&args, &v).expect("行");
+        assert!(line.contains("notches_y=-200"), "400 减半是 200: {line}");
+        assert!(line.contains("never visible"), "跨整屏必须提示漏内容: {line}");
+        assert!(line.contains("scroll back"), "还要让模型回滚核对: {line}");
+    }
+
+    /// 方向必须跟随上一次滚动。
+    #[test]
+    fn scroll_scale_keeps_the_direction() {
+        let v = scroll_verify(0.1, ScrollAxis::Vertical);
+        let down = scroll_scale_line(&json!({"notches_y": 20}), &v).expect("行");
+        assert!(down.contains("notches_y=100"), "{down}");
+        let up = scroll_scale_line(&json!({"notches_y": -20}), &v).expect("行");
+        assert!(up.contains("notches_y=-100"), "{up}");
+    }
+
+    /// 横向滚动按 width 轴算，并用 notches_x。
+    #[test]
+    fn scroll_scale_uses_the_moved_axis() {
+        let args = json!({"notches_x": 30});
+        let v = scroll_verify(0.1, ScrollAxis::Horizontal);
+        let line = scroll_scale_line(&args, &v).expect("行");
+        assert!(line.contains("notches_x=150"), "{line}");
+        assert!(line.contains("target-widths"), "{line}");
+    }
+
+    /// 完全没动：不要凭空给一个更大的数字，要指向「指针没落在可滚区域」。
+    #[test]
+    fn scroll_scale_zero_move_points_at_the_pointer_not_a_bigger_count() {
+        let args = json!({"notches_y": -50});
+        let v = scroll_verify(0.0, ScrollAxis::Vertical);
+        let line = scroll_scale_line(&args, &v).expect("行");
+        assert!(line.contains("moved 0"), "{line}");
+        assert!(line.contains("target_desc"), "没指向定位修法: {line}");
+        assert!(!line.contains("notches_y="), "没动就不该建议刻度: {line}");
+    }
+
+    /// 已经滚到头：不给刻度建议，交给 `Verify: fail (at_edge)` 说「别滚了」。
+    #[test]
+    fn scroll_scale_says_nothing_at_the_edge() {
+        let args = json!({"notches_y": -50});
+        let mut v = scroll_verify(0.1, ScrollAxis::Vertical);
+        v.action_result = ActionResult::Fail;
+        v.failure_cause = Some(crate::agents::computer::pipeline::types::FailureCause::AtEdge);
+        assert!(
+            scroll_scale_line(&args, &v).is_none(),
+            "at_edge 时不该再建议刻度"
+        );
+    }
+
+    /// 没有测量 / 轴上没有刻度 / 非滚动：不出行，绝不猜。
+    #[test]
+    fn scroll_scale_stays_silent_without_measurement() {        let mut v = scroll_verify(0.1, ScrollAxis::Vertical);
+        v.scroll = None;
+        assert!(scroll_scale_line(&json!({"notches_y": -30}), &v).is_none());
+
+        let v = scroll_verify(0.1, ScrollAxis::Vertical);
+        assert!(scroll_scale_line(&json!({"notches_x": -30}), &v).is_none());
+        assert!(scroll_scale_line(&json!({"notches_y": 0}), &v).is_none());
+    }
 
     /// verify 覆盖 tool 消息后，模型仍要能拿回**校准后**的落点。
     ///

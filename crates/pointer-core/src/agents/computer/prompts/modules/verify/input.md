@@ -27,8 +27,9 @@ Read the pointer in the before frame — it sits where the input was aimed.
   `fail`, `wrong_operation`.
 - **Nothing changed anywhere** → `wrong_operation`.
 
-If `auto_enter`: form may have submitted — a navigation, results, or dialog close
-that is a **difference between the two frames** counts as achieving `goal`.
+If `auto_enter`: the form may have submitted — a navigation, results, or a
+dialog closing counts only when that is what submitting this field means for
+`goal`. A repaint somewhere else does not.
 
 **`loading_detected`:** post-submit spinner or page load in progress.
 

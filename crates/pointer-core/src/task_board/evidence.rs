@@ -125,6 +125,7 @@ mod tests {
                 action_result: crate::agents::computer::pipeline::types::ActionResult::Pass,
                 failure_cause: None,
                 step_summary: Some("ok".into()),
+                scroll: None,
             },
         );
         assert!(state.tier_history_has_verify_pass(conv));

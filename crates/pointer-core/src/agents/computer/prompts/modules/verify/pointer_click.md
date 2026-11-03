@@ -4,20 +4,15 @@ Two questions in order. Stop at the first one that decides it.
 
 **Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-### Step 1 — did the click achieve `goal`?
+### Step 1 — is the expected effect there?
 
-Compare the two frames. The change does not have to be on the element itself —
-a save button looks the same before and after; the toast, the dialog, the new
-page, the row that disappeared is the change. But it must be a **difference
-between the two frames**, not a state you notice in the after frame alone.
+State the effect this click should produce, then look for it in the two frames
+— on the element itself, or wherever that effect would show: a toast, a dialog,
+a window that is gone, a row that is now highlighted.
 
-**Where the change landed is part of `goal`.** When `goal` names a position — a
-row and column, an ordinal, a named panel — the change must appear there. The
-right kind of change in the wrong cell, the wrong row, or the wrong panel did
-not achieve `goal`.
-
-- **Yes, the change `goal` describes, where `goal` says** → `pass`. Done.
-- **No** → go to step 2 and find out why.
+- **Present, where `goal` says** → `pass`. Done.
+- **Absent, or the only difference is a side effect** → go to step 2 and find
+  out why.
 
 ### Step 2 — why not?
 
@@ -38,5 +33,11 @@ is intact there. That tells you which kind of miss this was.
 ### Reasoning (hard rule)
 
 Max **3 sentences**, plain prose.
+
+1. The expected effect, in one clause.
+2. Whether the after frame shows that effect — or what it shows instead.
+3. Pass or fail + `failure_cause` when fail.
+
+`step_summary` reports that expected effect and whether it happened.
 
 **Forbidden:** "Analyze the Request"; JSON/`{`/`}`; repeating `submit_verify` args.

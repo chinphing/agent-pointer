@@ -342,16 +342,20 @@ mod tests {
     #[test]
     fn scroll_passes_notches_through_on_both_axes() {
         let (c, calls) = control();
-        // Notches are the wire format — no conversion happens here.
+        // 距离靠事件条数：30 → 3 条 10，20 → 2 条 10。
         c.scroll(20, 30).unwrap();
         let log = recorded(&calls);
-        assert!(log.contains(&"scroll(30)".to_string()), "{log:?}");
-        assert!(log.contains(&"scroll_horizontal(20)".to_string()), "{log:?}");
+        assert_eq!(log.iter().filter(|l| *l == "scroll(10)").count(), 3, "{log:?}");
+        assert_eq!(
+            log.iter().filter(|l| *l == "scroll_horizontal(10)").count(),
+            2,
+            "{log:?}"
+        );
 
         let (c, calls) = control();
         c.scroll(0, -30).unwrap();
         let log = recorded(&calls);
-        assert!(log.contains(&"scroll(-30)".to_string()), "{log:?}");
+        assert_eq!(log.iter().filter(|l| *l == "scroll(-10)").count(), 3, "{log:?}");
         assert!(!log.iter().any(|c| c.starts_with("scroll_horizontal")));
 
         let (c, _) = control();

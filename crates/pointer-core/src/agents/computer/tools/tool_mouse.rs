@@ -207,7 +207,8 @@ fn scroll_report(n: ScrollNotches, moved: Option<(i32, i32)>) -> String {
     };
     if let Some((raw_x, raw_y)) = n.clamped_from {
         s.push_str(&format!(
-            " Requested {raw_x}×{raw_y}, clamped to ±{SCROLL_NOTCHES_MAX} notches."
+            " Requested {raw_x}×{raw_y}, clamped to ±{SCROLL_NOTCHES_MAX} notches \
+             (100 wheel events — the most one call delivers)."
         ));
     }
     s
@@ -483,7 +484,11 @@ mod tests {
     fn scroll_control() -> (Arc<dyn ComputerControl>, Arc<Mutex<Vec<String>>>) {
         let backend = RecordingBackend::default();
         let calls = backend.calls.clone();
-        let executor = Arc::new(Mutex::new(ActionExecutor::new(Box::new(backend))));
+        // 间隔置 0：一次 clamp 到 1000 notches 的调用是 100 条事件，
+        // 真实间隔下要睡 2 秒。
+        let executor = Arc::new(Mutex::new(
+            ActionExecutor::new(Box::new(backend)).with_scroll_gap_ms(0),
+        ));
         let control: Arc<dyn ComputerControl> =
             Arc::new(crate::agents::computer::control::LocalControl::new(executor, false));
         (control, calls)
@@ -498,8 +503,17 @@ mod tests {
         )
         .unwrap();
         let log = recorded(&calls);
-        assert!(log.contains(&"scroll(-30)".to_string()), "{log:?}");
-        assert!(log.contains(&"scroll_horizontal(20)".to_string()), "{log:?}");
+        // 距离靠条数：-30 → 3 条 -10，20 → 2 条 +10。
+        assert_eq!(
+            log.iter().filter(|l| *l == "scroll(-10)").count(),
+            3,
+            "{log:?}"
+        );
+        assert_eq!(
+            log.iter().filter(|l| *l == "scroll_horizontal(10)").count(),
+            2,
+            "{log:?}"
+        );
     }
 
     #[test]
@@ -516,14 +530,19 @@ mod tests {
     #[test]
     fn scroll_current_reports_the_clamp_instead_of_failing() {
         let (control, calls) = scroll_control();
-        // -900 was the pixel-era value. It must not fail — but the result has to
-        // say it was clamped, or the model keeps believing it scrolled 900.
-        let out = scroll_current(&control, &json!({"goal": "page", "notches_y": -900})).unwrap();
-        assert!(out.contains("-100"), "{out}");
-        assert!(out.contains("-900"), "{out}");
+        // -1500 is beyond the per-call ceiling. It must not fail — but the result
+        // has to say it was clamped, or the model keeps believing it scrolled 1500.
+        let out = scroll_current(&control, &json!({"goal": "page", "notches_y": -1500})).unwrap();
+        assert!(out.contains("-1000"), "{out}");
+        assert!(out.contains("-1500"), "{out}");
         assert!(out.contains("clamped"), "{out}");
+        // 1000 notches = 100 条事件，每条 -10。
         let log = recorded(&calls);
-        assert!(log.contains(&"scroll(-100)".to_string()), "{log:?}");
+        assert_eq!(
+            log.iter().filter(|l| *l == "scroll(-10)").count(),
+            100,
+            "{log:?}"
+        );
     }
 
     #[test]

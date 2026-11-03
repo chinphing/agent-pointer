@@ -69,6 +69,24 @@ pub const COMPOSITE_ACTION_STEP_GAP_MS: u64 = 50;
 /// as one double-click gesture reliably across platforms.
 pub const DOUBLE_CLICK_INTERVAL_MS: u64 = 60;
 
+/// Notches carried by **one** synthetic wheel event.
+///
+/// Apple's contract for `CGEventCreateScrollWheelEvent` is ±10 ("typically in a
+/// range from -10 to +10; large values may have unexpected results, depending on
+/// the application"). Measured on a live app: a single event of -15, -190 or
+/// -950 all moved exactly one row — the magnitude is ignored past the contract.
+/// 10 is therefore the largest value that still means something, and it is the
+/// step this tool splits a request into.
+pub const SCROLL_NOTCH_STEP: i32 = 10;
+
+/// Milliseconds between two wheel events of one scroll call.
+///
+/// The target app processes at most one wheel event per rendered frame; events
+/// that arrive inside the same frame are merged and lost. Measured at 60 Hz:
+/// 8 events with no gap moved 2 rows, the same 10 events with a 16 ms gap moved
+/// 10 rows. 20 ms leaves headroom over a 60 Hz frame (16.7 ms).
+pub const SCROLL_EVENT_GAP_MS: u64 = 20;
+
 /// Default waypoint count for cursor path planning (aligned with Python `MouseMove` ~10 points).
 pub const MOUSE_MOVE_DEFAULT_POINT_COUNT: usize = 10;
 

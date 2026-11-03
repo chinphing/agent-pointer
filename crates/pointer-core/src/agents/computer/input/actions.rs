@@ -1,6 +1,7 @@
 pub use super::mouse_move::MouseMoveProfile;
 use super::timing::{
-    COMPOSITE_ACTION_STEP_GAP_MS, POST_MOUSE_BUTTON_SETTLE_MS, SETTLE_AFTER_ABSOLUTE_MOVE_MS,
+    COMPOSITE_ACTION_STEP_GAP_MS, POST_MOUSE_BUTTON_SETTLE_MS, SCROLL_EVENT_GAP_MS,
+    SCROLL_NOTCH_STEP, SETTLE_AFTER_ABSOLUTE_MOVE_MS,
 };
 use anyhow::{anyhow, Result};
 use std::time::Duration;
@@ -175,6 +176,9 @@ pub trait ActionBackend: Send + Sync {
 /// and handles the two positioning systems (index-based and coordinate-based).
 pub struct ActionExecutor {
     backend: Box<dyn ActionBackend>,
+    /// 两条滚动事件之间的间隔。默认 [`SCROLL_EVENT_GAP_MS`]；测试置 0，
+    /// 免得一次滚到上限（1000 notches = 100 条事件）真睡 2 秒。
+    scroll_gap_ms: u64,
 }
 
 impl std::fmt::Debug for ActionExecutor {
@@ -186,7 +190,18 @@ impl std::fmt::Debug for ActionExecutor {
 impl ActionExecutor {
     /// Create a new ActionExecutor with the given backend.
     pub fn new(backend: Box<dyn ActionBackend>) -> Self {
-        Self { backend }
+        Self {
+            backend,
+            scroll_gap_ms: SCROLL_EVENT_GAP_MS,
+        }
+    }
+
+    /// 覆盖滚动事件间隔。只给测试用：真实间隔是实测出来的，
+    /// 改它会让「一条事件滚一行」这个前提失效。
+    #[cfg(test)]
+    pub(crate) fn with_scroll_gap_ms(mut self, ms: u64) -> Self {
+        self.scroll_gap_ms = ms;
+        self
     }
 
     /// Release every modifier key and all three mouse buttons.
@@ -517,19 +532,43 @@ impl ActionExecutor {
     /// Scroll at the current cursor position by **wheel notches** (`SCROLL`).
     ///
     /// Positive `dy` scrolls up, positive `dx` scrolls right — the same sign
-    /// convention as `pyautogui.vscroll` / `hscroll`, which the remote backend
-    /// forwards verbatim. Notches go to the backend unchanged: one notch is
-    /// whatever the OS and the app decide, so there is no pixel equivalent to
-    /// convert to.
+    /// convention as `pyautogui.vscroll` / `hscroll`.
+    ///
+    /// **距离由事件条数决定，不由单条数值决定。** macOS 的滚轮事件契约是 ±10
+    /// （`CGEventCreateScrollWheelEvent` 文档：「typically in a range from -10 to
+    /// +10，large values may have unexpected results」）。实测：一条 -15 / -190 /
+    /// -950 的事件都只滚 1 行 —— 超出契约后数值被应用忽略。所以这里把请求切成
+    /// 若干条 [`SCROLL_NOTCH_STEP`]（10）的事件，每条之间隔
+    /// [`SCROLL_EVENT_GAP_MS`]（20ms）：应用一个渲染帧只处理一条滚动事件，同帧
+    /// 内其余事件会被合并丢掉（实测无间隔发 8 条只滚 2 行，隔 16ms 发 10 条精确
+    /// 滚 10 行）。切分之后距离与 notch 数成正比。
     pub fn scroll_at_current_notches(&self, dx: i32, dy: i32) -> Result<ActionResult> {
-        if dy != 0 {
-            self.backend.scroll(dy)?;
-        }
-        if dx != 0 {
-            self.backend.scroll_horizontal(dx)?;
+        let mut events = 0usize;
+        for (value, vertical) in [(dy, true), (dx, false)] {
+            if value == 0 {
+                continue;
+            }
+            let sign = value.signum();
+            let mut remaining = value.abs();
+            while remaining > 0 {
+                let chunk = remaining.min(SCROLL_NOTCH_STEP);
+                let n = sign * chunk;
+                if vertical {
+                    self.backend.scroll(n)?;
+                } else {
+                    self.backend.scroll_horizontal(n)?;
+                }
+                remaining -= chunk;
+                events += 1;
+                // No gap after the last event: the caller's own post-action delay
+                // already covers the repaint.
+                if remaining > 0 {
+                    std::thread::sleep(Duration::from_millis(self.scroll_gap_ms));
+                }
+            }
         }
         Ok(ActionResult::success(format!(
-            "scrolled ({dx}, {dy}) notches"
+            "scrolled ({dx}, {dy}) notches in {events} wheel event(s)"
         )))
     }
 
@@ -906,13 +945,13 @@ mod tests {
     }
 
     #[test]
-    fn scroll_notches_pass_through_unchanged() {
-        // Notches are the wire format: no conversion, no rounding, no minimum.
-        // One notch is whatever the OS and the app decide.
+    fn scroll_notches_are_split_into_contract_sized_events() {
+        // 一条事件的数值上限是 Apple 契约的 ±10，距离靠条数：30 → 3 条事件。
         let backend = Box::new(MockBackend::default());
         let executor = ActionExecutor::new(backend);
         let out = executor.scroll_at_current_notches(0, -30).unwrap();
         assert!(out.message.contains("-30"), "{}", out.message);
+        assert!(out.message.contains("3 wheel event"), "{}", out.message);
     }
 
     #[test]

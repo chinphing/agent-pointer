@@ -72,34 +72,25 @@ one call (canvas panning, marquee, custom multi-step drag). They are **not**
 interchangeable with **`mouse_click_at`**, and a held button stays held until
 released — always release it on a later turn.
 
-**Scroll**
-
-`mouse_scroll_current` takes an optional **`target_desc`** + **`bbox`**. Pass them
-when the pointer is not already inside the panel that must move — the tool
-grounds the panel, moves the pointer there, then scrolls. Wheel events only
+**Scroll** — **`mouse_scroll_current`** requires **`notches_x`** and/or
+**`notches_y`** (wheel notches, 1–1000), plus optional **`target_desc`** +
+**`bbox`**. Pass the pair whenever the pointer is not already inside the panel:
+the tool grounds it, moves the pointer there, then scrolls. Wheel events only
 reach the window under the pointer, so scrolling "at the current pointer" from
-outside the panel does nothing.
-
-- **`mouse_scroll_current`** — Requires **`notches_x`** and/or **`notches_y`**,
-  in **wheel notches** (1–100). Add **`target_desc`** + **`bbox`** to scroll a
-  named panel; omit them only when the pointer already sits inside it.
+outside does nothing.
 
 **Choosing `notches_x` / `notches_y`:** Wheel notches, **not pixels**.
 **`notches_y` positive = up**, negative = down; **`notches_x` positive = right**,
-negative = left. A notch is one detent of a physical wheel — how far that moves
-depends on the app and its font size, so there is no pixel equivalent to aim at.
-Start around **30** for a meaningful jump. The previous scroll's tool result
-reports how far it actually went — `Verify: pass — moved ~0.3 target-heights`
-for vertical, `moved ~0.3 target-widths` for horizontal, both listed when both
-axes moved — so scale from there. At least one axis must be non-zero. Values
-beyond ±100 are clamped, and the result says so (`Requested 0×-900, clamped to
-±100 notches`) — read that line, it means your request was larger than one call
-can deliver.
+negative = left. Distance is proportional to the count: **30–50 for a normal
+scroll** (≈half a panel); up to **1000** when you deliberately jump past a long
+stretch. A big number skips rows you never saw — never use one just to "make
+sure" you get far enough.
 
-**After scroll:** read the `Verify:` line in that tool's result. `pass` with
-`moved ~N target-heights` (or `target-widths` for a horizontal scroll) tells you
-how far the last notch count went — scale the next one from it. `fail (at_edge)`
-means the content cannot move further in that direction: stop scrolling and
-continue with the next step. `fail (wrong_operation)` with `moved 0` means the
-pointer was not over a scrollable area — pass `target_desc` + `bbox` to name the
-panel instead of adding notches.
+**After every scroll**, read the result lines:
+
+- **`Scroll scale:`** ends with the next count — `send notches_y=-50`,
+  `keep this count`, or `halve it → send notches_y=-25`. **Send exactly that
+  number**; do not re-derive it and do not repeat the count it replaced.
+- **`fail (at_edge)`** — that direction is exhausted; stop scrolling.
+- **`moved 0`** — the pointer was not over a scrollable area; pass
+  `target_desc` + `bbox`.

@@ -244,11 +244,19 @@ pub fn click_count_from_args(args: &Value) -> Result<u32> {
 
 /// Wheel-notch scroll limit for one call.
 ///
-/// `notches_x` / `notches_y` are **notch counts**, not pixels: the value goes
-/// straight to `ComputerControl::scroll` / `scroll_horizontal`, which hands it
-/// to the OS wheel primitive. One notch is whatever the platform and the app
-/// decide — there is no pixel equivalent to promise, and none is claimed.
-pub const SCROLL_NOTCHES_MAX: i32 = 100;
+/// `notches_x` / `notches_y` are **notch counts**, not pixels. The tool splits
+/// the count into wheel events of [`super::super::input::timing::SCROLL_NOTCH_STEP`]
+/// (10) each — that is the largest value Apple's `CGEventCreateScrollWheelEvent`
+/// contract covers, and the only one a target app honours (measured on macOS and
+/// on Windows: one event of -15, -190 or -950 all move exactly one row, one event
+/// of -10 moves one row too).
+///
+/// 1000 notches is therefore **100 wheel events** ≈ 2 s at
+/// [`super::super::input::timing::SCROLL_EVENT_GAP_MS`]. That is a ceiling, not a
+/// recommendation: the prompt asks for 30–50 (≈half a panel) and leaves
+/// multi-screen jumps to the model's judgement. The cap exists so one call
+/// cannot stall a run longer than that.
+pub const SCROLL_NOTCHES_MAX: i32 = 1000;
 
 /// Parsed scroll delta: clamped notches plus what the caller originally asked
 /// for when clamping happened.
@@ -433,17 +441,17 @@ mod tests {
         use serde_json::json;
         // The bug this guards: `-900` used to be clamped silently, so the caller
         // believed it scrolled nine times further than it did.
-        let n = scroll_notches_from_args(&json!({"notches_y": -900})).unwrap();
-        assert_eq!((n.x, n.y), (0, -100));
-        assert_eq!(n.clamped_from, Some((0, -900)));
+        let n = scroll_notches_from_args(&json!({"notches_y": -1200})).unwrap();
+        assert_eq!((n.x, n.y), (0, -1000));
+        assert_eq!(n.clamped_from, Some((0, -1200)));
 
-        let n = scroll_notches_from_args(&json!({"notches_x": 101, "notches_y": -5})).unwrap();
-        assert_eq!((n.x, n.y), (100, -5));
-        assert_eq!(n.clamped_from, Some((101, -5)));
+        let n = scroll_notches_from_args(&json!({"notches_x": 1001, "notches_y": -5})).unwrap();
+        assert_eq!((n.x, n.y), (1000, -5));
+        assert_eq!(n.clamped_from, Some((1001, -5)));
 
         // The boundary itself is not a clamp.
-        let n = scroll_notches_from_args(&json!({"notches_y": -100})).unwrap();
-        assert_eq!((n.x, n.y), (0, -100));
+        let n = scroll_notches_from_args(&json!({"notches_y": -1000})).unwrap();
+        assert_eq!((n.x, n.y), (0, -1000));
         assert!(n.clamped_from.is_none());
     }
 

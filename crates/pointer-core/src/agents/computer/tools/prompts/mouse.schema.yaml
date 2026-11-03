@@ -137,20 +137,21 @@ mouse_scroll_current:
       type: string
     notches_x:
       type: integer
-      minimum: -100
-      maximum: 100
+      minimum: -1000
+      maximum: 1000
       description: >
         Horizontal scroll in wheel notches. Positive = right, negative = left.
         Omit when only vertical movement is needed.
     notches_y:
       type: integer
-      minimum: -100
-      maximum: 100
+      minimum: -1000
+      maximum: 1000
       description: >
         Vertical scroll in wheel notches. Positive = up, negative = down.
         Omit when only horizontal movement is needed. Most page scrolls need
-        10-40; 100 jumps far. The distance one notch covers depends on the app —
-        read the previous scroll's result to learn how far your last scroll went.
+        10-40; the distance one notch covers depends on the app — read the
+        previous scroll's result to learn how far your last scroll went, and
+        send the count its `Scroll scale:` line names.
     wait:
       type: number
       minimum: 1

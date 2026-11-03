@@ -64,9 +64,6 @@ frames show for it — one line:
 ```
 
 ```
-col 3: expected 5 — before empty, after 5
-col 3: expected 5 — before empty, after col 2 shows 5
-Save: expected "已保存" toast — before none, after "已保存" toast
 rows 2–5: expected selected — before unselected, after selected
 Save: expected "已保存" toast — no change
 ```

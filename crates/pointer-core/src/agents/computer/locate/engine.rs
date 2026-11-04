@@ -675,7 +675,7 @@ async fn locate_one_traced<V: LocateVision>(
             // 可靠的视觉边界可判 —— 此时框是唯一的参照。
             // verify 的 close 图带容差圈：判定是几何量（离目标 < 5 px），
             // 模型拿不到像素刻度，所以把 5 px 换算成图上的圆半径。
-            let (image, bounds) = render_crop_marked(
+            let (image, _verify_bounds) = render_crop_marked(
                 frame,
                 current,
                 ver_side,
@@ -691,18 +691,20 @@ async fn locate_one_traced<V: LocateVision>(
             // so the model does not have to re-learn what the marker looks like
             // between refine and verify.
             //
-            // Rendered from the same `bounds`, so both images are the same window
-            // and the same scale: a box the locator reports in one maps straight
-            // into the other.
-            let locate_image = render_crop_marked(
+            // **定位图和 verify 图是两个窗口**（`loc_side` ≠ `ver_side`），
+            // 所以必须各自带上自己的 `bounds`。曾经这里只取 `.0` 复用 verify
+            // 的 bounds —— 模型看的是 640 px 的窗口，答案却按 135 px 的窗口
+            // 映射回去，坐标被压缩了 640/135 ≈ 4.7 倍，框于是永远落在候选点
+            // 附近。表现是「模型有中心先验」（回归斜率 k ≈ 0.22），实际是映射
+            // 错了：0.22 恰好等于 135/640。
+            let (locate_image, locate_bounds) = render_crop_marked(
                 frame,
                 current,
                 loc_side,
                 LOCATE_CROP_OUT_PX,
                 super::render::dim_enabled(),
                 super::render::Mark::CrossOnly,
-            )?
-            .0;
+            )?;
             // 图一 — the original close crop. Everything precise is judged from
             // it: at 240 px a 41 px cell lands at 273 px in the image, which is
             // enough to see whether the box sits on the four borders.
@@ -839,7 +841,7 @@ async fn locate_one_traced<V: LocateVision>(
                 last_why = v.notes.clone();
                 last_reasoning = v.reasoning.clone();
             }
-            let crop = Some((locate_image, bounds));
+            let crop = Some((locate_image, locate_bounds));
 
             if v.is_hit() {
                 stop = Stop::Verified;

@@ -5,16 +5,16 @@ highlight).
 
 **Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-### Step 1 — did the hover achieve `goal`?
+### Step 1 — did the hover achieve `action`?
 
 Read the area around the pointer in both frames. Only a **difference between the
 two** counts as a reveal — a tooltip already open in the before frame did not
 appear because of this hover.
 
-**Which element revealed the UI is part of `goal`.** The expected tooltip on the
-neighbouring icon did not achieve `goal`.
+**Which element revealed the UI is part of `action`.** The expected tooltip on the
+neighbouring icon did not achieve `action`.
 
-- **Yes, the UI `goal` describes, on the element `goal` says** → `pass`. Done.
+- **Yes, the UI `action` describes, on the element `action` says** → `pass`. Done.
 - **No** → go to step 2 and find out why.
 
 ### Step 2 — why not?

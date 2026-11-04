@@ -1,6 +1,6 @@
 ### Scenario: clipboard
 
-Judge whether clipboard content matches the operation `goal`.
+Judge whether clipboard content matches the operation `action`.
 
 **Primary evidence:** **[Tool result]** — not screenshot bytes.
 

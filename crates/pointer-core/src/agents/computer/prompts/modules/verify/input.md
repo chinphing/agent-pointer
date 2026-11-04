@@ -5,16 +5,16 @@ Judge whether text was entered into the target field.
 **Evidence:** **[Screen before action]** vs **[Screen after action]** — field
 content and focus.
 
-### Step 1 — did the text land where `goal` asked?
+### Step 1 — did the text land where `action` asked?
 
-Read the field `goal` names in both frames. Only a **difference between the two**
+Read the field `action` names in both frames. Only a **difference between the two**
 counts as entered text — characters already present in the before frame were not
 typed by this action. `clear_first` means the before content should be gone.
 
-**Which field got the text is part of `goal`.** The expected text in the
-neighbouring field did not achieve `goal`.
+**Which field got the text is part of `action`.** The expected text in the
+neighbouring field did not achieve `action`.
 
-- **Yes, the text `goal` describes, in the field `goal` says** → `pass`. Done.
+- **Yes, the text `action` describes, in the field `action` says** → `pass`. Done.
 - **No** → go to step 2 and find out why.
 
 ### Step 2 — why not?
@@ -29,7 +29,7 @@ Read the pointer in the before frame — it sits where the input was aimed.
 
 If `auto_enter`: the form may have submitted — a navigation, results, or a
 dialog closing counts only when that is what submitting this field means for
-`goal`. A repaint somewhere else does not.
+`action`. A repaint somewhere else does not.
 
 **`loading_detected`:** post-submit spinner or page load in progress.
 

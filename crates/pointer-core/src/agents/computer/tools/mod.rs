@@ -579,7 +579,12 @@ mod tests {
             props.get("lines").is_none(),
             "line units were replaced by notches: {props}"
         );
-        assert_eq!(params["required"], serde_json::json!(["goal"]));
+        // `action` 与 `goal` 一起必填：verify 判的是单次调用的可见效果，
+        // 滚动没有 target_desc，`action` 是它唯一能拿到手的操作描述。
+        assert_eq!(
+            params["required"],
+            serde_json::json!(["goal", "action"])
+        );
     }
 
     #[test]
@@ -603,7 +608,10 @@ mod tests {
                 props.get("target_desc").is_none(),
                 "{name} must not take a target description: {props}"
             );
-            assert_eq!(params["required"], serde_json::json!(["goal"]));
+            assert_eq!(
+                params["required"],
+                serde_json::json!(["goal", "action"])
+            );
         }
     }
 }

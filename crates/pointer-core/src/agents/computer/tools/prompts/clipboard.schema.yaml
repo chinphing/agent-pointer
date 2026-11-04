@@ -5,8 +5,10 @@ clipboard_read:
       type: string
     action:
       type: string
+      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
   required:
     - goal
+    - action
   additionalProperties: true
 
 clipboard_write:
@@ -16,9 +18,11 @@ clipboard_write:
       type: string
     action:
       type: string
+      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     text:
       type: string
   required:
     - text
     - goal
+    - action
   additionalProperties: true

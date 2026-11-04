@@ -4,7 +4,7 @@ Judge whether the keyboard shortcut produced the expected UI effect.
 
 **Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-Read the effect class `goal` implies in both frames. Only a **difference between
+Read the effect class `action` implies in both frames. Only a **difference between
 the two** counts as the shortcut's effect — a dialog already open in the before
 frame did not open because of this shortcut.
 

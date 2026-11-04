@@ -10,7 +10,7 @@ State the effect this click should produce, then look for it in the two frames
 — on the element itself, or wherever that effect would show: a toast, a dialog,
 a window that is gone, a row that is now highlighted.
 
-- **Present, where `goal` says** → `pass`. Done.
+- **Present, where `action` says** → `pass`. Done.
 - **Absent, or the only difference is a side effect** → go to step 2 and find
   out why.
 

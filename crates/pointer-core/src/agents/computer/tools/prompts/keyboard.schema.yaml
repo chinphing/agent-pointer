@@ -7,6 +7,7 @@ key_press:
       type: string
     action:
       type: string
+      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     key:
       type: string
       description: Key name, e.g. enter, tab, escape, up, space, a.
@@ -17,6 +18,7 @@ key_press:
   required:
     - key
     - goal
+    - action
   additionalProperties: true
 
 key_down:
@@ -26,6 +28,7 @@ key_down:
       type: string
     action:
       type: string
+      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     key:
       type: string
       description: Key name to hold down until a later key_up.
@@ -36,6 +39,7 @@ key_down:
   required:
     - key
     - goal
+    - action
   additionalProperties: true
 
 key_up:
@@ -45,6 +49,7 @@ key_up:
       type: string
     action:
       type: string
+      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     key:
       type: string
       description: Key name to release.
@@ -55,6 +60,7 @@ key_up:
   required:
     - key
     - goal
+    - action
   additionalProperties: true
 
 keyboard_type:
@@ -64,6 +70,7 @@ keyboard_type:
       type: string
     action:
       type: string
+      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     text:
       type: string
       description: Text to type into the focused widget with raw key events.
@@ -74,4 +81,5 @@ keyboard_type:
   required:
     - text
     - goal
+    - action
   additionalProperties: true

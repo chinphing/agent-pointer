@@ -5,10 +5,12 @@ list_apps:
       type: string
     action:
       type: string
+      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     include_all:
       type: boolean
       default: false
       description: Omit or false on the first list_apps call (running + 14-day recent). Set true only on a second list_apps retry when the target app was not in the first result.
   required:
     - goal
+    - action
   additionalProperties: true

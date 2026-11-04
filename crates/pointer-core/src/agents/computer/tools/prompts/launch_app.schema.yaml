@@ -5,6 +5,7 @@ launch_app:
       type: string
     action:
       type: string
+      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     app:
       type: string
     activate_only:
@@ -14,4 +15,5 @@ launch_app:
   required:
     - goal
     - app
+    - action
   additionalProperties: true

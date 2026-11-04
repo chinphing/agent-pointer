@@ -4,16 +4,16 @@ Judge whether drag-and-drop produced the expected outcome.
 
 **Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-### Step 1 — did the drop achieve `goal`?
+### Step 1 — did the drop achieve `action`?
 
 Read the dragged item and the drop area in both frames. Only a **difference
 between the two** counts as a drop — an item that was already in the target
 position did not move because of this drag.
 
-**Where the item landed is part of `goal`.** The item in the neighbouring folder,
-or the adjacent time slot, did not achieve `goal`.
+**Where the item landed is part of `action`.** The item in the neighbouring folder,
+or the adjacent time slot, did not achieve `action`.
 
-- **Yes, the item moved to where `goal` says** → `pass`. Done.
+- **Yes, the item moved to where `action` says** → `pass`. Done.
 - **No** → go to step 2 and find out why.
 
 ### Step 2 — why not?

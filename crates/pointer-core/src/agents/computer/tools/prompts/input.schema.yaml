@@ -7,6 +7,7 @@ input_at:
       type: string
     action:
       type: string
+      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     target_desc:
       type: string
       description: "Which control to type into. Required together with bbox. See Writing target_desc for the shape."
@@ -32,6 +33,7 @@ input_at:
     - bbox
     - text
     - goal
+    - action
   additionalProperties: true
 
 input_focused:
@@ -41,6 +43,7 @@ input_focused:
       type: string
     action:
       type: string
+      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     text:
       type: string
     clear_first:
@@ -54,4 +57,5 @@ input_focused:
   required:
     - text
     - goal
+    - action
   additionalProperties: true

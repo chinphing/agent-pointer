@@ -16,9 +16,27 @@ are not captured, so judge the batch as one outcome rather than per call.
 - **Frames cannot settle it** — say what you could not see in `step_summary` and
   answer `pending`. Do not guess `pass`.
 
+### Which field states the effect
+
+The operation block carries two fields; they are not interchangeable.
+
+- **`action`** — what *this call* is for, as an effect you could see. This is the
+  anchor: the expected effect is the one `action` names.
+- **`goal`** — the larger objective the call serves. It usually spans several
+  calls, so a single before/after pair cannot show it. **Never judge against
+  `goal` directly** — 「open the settings panel」 is not an effect of one click,
+  and a verifier that looks for it ends up accepting whatever moved.
+
+Use `goal` only to disambiguate an `action` that has more than one reading:
+「click the third row」 selects or deletes depending on the goal.
+
+**If `action` is empty**, fall back to `goal` but say so in `step_summary` and
+answer `pending` rather than `pass` — without a single-call effect statement
+there is nothing to hold the frames against.
+
 ### Judge the expected effect, not "any change"
 
-**Before reading the after frame, state the effect `goal` calls for** — one
+**Before reading the after frame, state the effect `action` calls for** — one
 sentence: if this action works, what will be different?
 
 Then hold the two frames against that expectation and ask one question: **is
@@ -33,12 +51,12 @@ instead, then fail with the cause the Scenario defines.
 
 The effect does not have to appear on the element itself — a button looks the
 same before and after; a toast, a dialog, a new page, a row that disappeared is
-the effect. It does have to be the effect `goal` names.
+the effect. It does have to be the effect `action` names.
 
-**Where the effect lands is part of the expectation.** When `goal` names a
+**Where the effect lands is part of the expectation.** When `action` names a
 position — a row and column, an ordinal, a named panel — the expected effect has
 to appear there. The right kind of change in the wrong cell, the wrong row, or
-the wrong panel did not achieve `goal`.
+the wrong panel did not achieve `action`.
 
 ### Flow
 
@@ -56,7 +74,7 @@ the wrong panel did not achieve `goal`.
 
 ### `step_summary`
 
-Always filled. **Lead with the effect `goal` calls for**, then what the two
+Always filled. **Lead with the effect `action` calls for**, then what the two
 frames show for it — one line:
 
 ```

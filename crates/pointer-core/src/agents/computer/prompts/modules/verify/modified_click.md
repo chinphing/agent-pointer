@@ -6,18 +6,18 @@ extend the selection), not a single state change.
 
 **Evidence:** **[Screen before action]** vs **[Screen after action]**.
 
-### Step 1 — did the click achieve `goal`?
+### Step 1 — did the click achieve `action`?
 
 Compare the two frames. The expected change is a **multi-selection** or a special
 action (open in a new tab, extend the selection). It must be a **difference
 between the two frames** — the rows already selected in the before frame were not
 selected by this click.
 
-**Where the change landed is part of `goal`.** The rows that joined the selection
-must be the ones `goal` names. A neighbouring row selected instead did not
-achieve `goal`.
+**Where the change landed is part of `action`.** The rows that joined the selection
+must be the ones `action` names. A neighbouring row selected instead did not
+achieve `action`.
 
-- **Yes, the change `goal` describes, on the rows `goal` says** → `pass`. Done.
+- **Yes, the change `action` describes, on the rows `action` says** → `pass`. Done.
 - **No** → go to step 2 and find out why.
 
 ### Step 2 — why not?

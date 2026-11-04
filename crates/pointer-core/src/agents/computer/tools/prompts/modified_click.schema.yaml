@@ -5,6 +5,7 @@ modified_click_select_at:
       type: string
     action:
       type: string
+      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     positions:
       type: array
       description: "One entry per target to select. Each is grounded and confirmed before any click happens."
@@ -31,6 +32,7 @@ modified_click_select_at:
   required:
     - positions
     - goal
+    - action
   additionalProperties: true
 
 modified_click_range_select_at:
@@ -40,6 +42,7 @@ modified_click_range_select_at:
       type: string
     action:
       type: string
+      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     positions:
       type: array
       description: "One entry per target to select. Each is grounded and confirmed before any click happens."
@@ -66,4 +69,5 @@ modified_click_range_select_at:
   required:
     - positions
     - goal
+    - action
   additionalProperties: true

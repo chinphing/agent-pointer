@@ -26,7 +26,7 @@ Judge `list_apps` / `launch_app` from tool reply and before/after screenshots.
 
 Max **3 sentences**, plain prose.
 
-1. [Tool result] vs `goal` — list match or launch success/failure text.
+1. [Tool result] vs `action` — list match or launch success/failure text.
 2. After screenshot — correct app frontmost when launch; or explain mismatch.
 3. Pass, fail, or loading splash.
 

@@ -452,6 +452,42 @@ mod tests {
         reg
     }
 
+    /// 扫一遍注册表：任何工具的卡片标题都不该是裸工具名。
+    ///
+    /// 这是「掉进 display 兜底分支」的检测器 —— `move_to`、`key_press`、
+    /// `image_generate` 都是这么漏的：没有前缀分支、没有 locale 键，就直接显示原名。
+    #[test]
+    fn no_tool_renders_its_raw_name() {
+        let mut regs: Vec<ToolRegistry> = Vec::new();
+        regs.push(registry_with_computer_tools());
+        let builtin = ToolRegistry::new();
+        crate::tools::builtin::register_all(
+            &builtin,
+            Arc::new(crate::task_board::TaskBoardStore::new()),
+        );
+        regs.push(builtin);
+
+        let mut raw: Vec<String> = Vec::new();
+        for reg in &regs {
+            for def in reg.list_defs() {
+                let d = reg.format_display_for(
+                    &def.name,
+                    &serde_json::json!({}),
+                    crate::i18n::UiLocale::ZhCn,
+                );
+                if d.label == def.name {
+                    raw.push(def.name.clone());
+                }
+            }
+        }
+        raw.sort();
+        raw.dedup();
+        assert!(
+            raw.is_empty(),
+            "这些工具的卡片标题还是裸工具名，缺 display 分支或 locale 键: {raw:?}"
+        );
+    }
+
     #[test]
     fn locate_element_is_not_registered() {
         // Grounding is internal now: pointing tools locate the target themselves,

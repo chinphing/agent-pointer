@@ -128,7 +128,7 @@ fn mouse_method_label(locale: UiLocale, method: &str) -> String {
         "click_at" | "click_index" => t(locale, "tools.click"),
         "double_click_at" | "double_click_index" => t(locale, "tools.doubleClick"),
         "right_click_at" | "right_click_index" => t(locale, "tools.rightClick"),
-        "hover_at" | "hover_index" => t(locale, "tools.hover"),
+        "hover" | "hover_at" | "hover_index" => t(locale, "tools.hover"),
         "drag_from_to_at" | "drag_from_to_index" => t(locale, "tools.drag"),
         "scroll" => t(locale, "tools.scroll"),
         m if m.contains("type_text") => t(locale, "tools.typeText"),
@@ -378,11 +378,18 @@ pub fn default_display_for(raw_name: &str, args: &Value, locale: UiLocale) -> To
             };
             (file_method_label(locale, m), file_summary(args, m))
         }
-        n if n.starts_with("mouse_") => {
+        n if n.starts_with("mouse_") || n == "move_to" => {
+            // `move_to` has no `mouse_` prefix (it predates the flat names) and
+            // carries no method arg, so it used to fall through to the raw-name
+            // arm and render as a bare `move_to` in every locale.
             let ml = mouse_method_label(
                 locale,
                 if method.is_empty() {
-                    "click_index"
+                    if n == "move_to" {
+                        "hover"
+                    } else {
+                        "click_index"
+                    }
                 } else {
                     &method
                 },
@@ -410,6 +417,21 @@ pub fn default_display_for(raw_name: &str, args: &Value, locale: UiLocale) -> To
             t(locale, "tools.locateElement"),
             locate_element_summary(args),
         ),
+        "key_press" | "key_down" | "key_up" | "keyboard_type" => {
+            // These four have no prefix the mouse arm would catch, so they used
+            // to fall through to the raw-name arm and render as `key_press` etc.
+            let action = match base {
+                "key_press" => t(locale, "tools.pressKey"),
+                "key_down" => t(locale, "tools.holdKey"),
+                "key_up" => t(locale, "tools.releaseKey"),
+                _ => t(locale, "tools.typeText"),
+            };
+            let summary = str_field(args, &["goal"])
+                .map(|s| truncate(&s, SUMMARY_MAX))
+                .or_else(|| str_field(args, &["key"]).map(|s| truncate(&s, SUMMARY_MAX)))
+                .unwrap_or_default();
+            (tf(locale, "tools.keyboard", &[("action", action.as_str())]), summary)
+        }
         n if n.starts_with("modified_click_") => {
             let ml =
                 mouse_method_label(locale, if method.is_empty() { "click" } else { &method });
@@ -530,6 +552,18 @@ pub fn default_display_for(raw_name: &str, args: &Value, locale: UiLocale) -> To
                 truncate(&goal, SUMMARY_MAX),
             )
         }
+        "image_generate" => (
+            t(locale, "tools.imageGenerate"),
+            str_field(args, &["prompt", "goal"])
+                .map(|s| truncate(&s, SUMMARY_MAX))
+                .unwrap_or_default(),
+        ),
+        "video_generate" => (
+            t(locale, "tools.videoGenerate"),
+            str_field(args, &["prompt", "goal"])
+                .map(|s| truncate(&s, SUMMARY_MAX))
+                .unwrap_or_default(),
+        ),
         "run_subagent" => (
             t(locale, "tools.runSubagent"),
             str_field(args, &["title", "goal", "agentId"])
@@ -833,6 +867,52 @@ mod tests {
         );
         assert!(d.label.contains("鼠标"));
         assert!(d.summary.contains("Save"));
+    }
+
+    /// `key_press` / `key_down` / `key_up` / `keyboard_type` 同样没有前缀分支，
+    /// 以前卡片上显示裸工具名。
+    #[test]
+    fn keyboard_tools_are_localised() {
+        assert_eq!(
+            zh("key_press", &json!({"goal": "提交搜索", "key": "enter"})).label,
+            "键盘 · 按键"
+        );
+        assert_eq!(
+            zh("key_down", &json!({"key": "shift"})).summary,
+            "shift",
+            "没有 goal 时退到按键名"
+        );
+        assert_eq!(
+            zh("key_up", &json!({"goal": "松开 shift"})).label,
+            "键盘 · 松开"
+        );
+        assert_eq!(
+            zh("keyboard_type", &json!({"goal": "输入文件名", "text": "a.txt"})).label,
+            "键盘 · 输入文字"
+        );
+        assert_eq!(
+            default_display_for("key_press", &json!({"goal": "submit"}), UiLocale::En).label,
+            "Keyboard · Press key"
+        );
+    }
+
+    /// `move_to` 没有 `mouse_` 前缀，也没有 method 参数，以前直接掉进兜底分支，
+    /// 卡片上显示的是裸工具名 `move_to`。
+    #[test]
+    fn move_to_is_localised_as_a_hover() {
+        let d = zh(
+            "move_to",
+            &json!({"goal": "把鼠标移到搜索框", "x": 100, "y": 200}),
+        );
+        assert_eq!(d.label, "鼠标 · 悬停");
+        assert_eq!(d.summary, "把鼠标移到搜索框");
+
+        let en = default_display_for(
+            "move_to",
+            &json!({"goal": "move the pointer to the search box"}),
+            UiLocale::En,
+        );
+        assert_eq!(en.label, "Mouse · Hover");
     }
 
     #[test]

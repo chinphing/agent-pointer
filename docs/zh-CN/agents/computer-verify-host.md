@@ -10,9 +10,45 @@
 3. **Host verify** — `run_pipeline_post_execute_verify`（AppAccess/clipboard 短路 + Verify LLM）
 4. **Tier 写入** — `apply_pipeline_verify_result`
 
-配置：`computerPipelineVerifyHost`（默认 true）、`computerPipelineModelVerify`、`computerPipelineThinkingBudgetVerify`。
+配置：`computerPipelineModelVerify`、`computerPipelineThinkingBudgetVerify`。
+
+**verify 跑不跑只看档案**（`verify_host_active` = `profile == Computer`）。曾经有个
+`computerPipelineVerifyHost` 开关，但没有任何入口能写它 —— 恒为 true，它守卫的
+「host verify disabled」分支永远进不去。已删除。
 
 代码：`pipeline/round.rs`、`computer_pipeline_loop.rs`、`single_agent.rs` / `sub_agent.rs` post-execute hook。
+
+### Verify 模型选择
+
+换模型不是「谁分数高」一个问题 —— 两个评测集给出的结论**相反**。
+
+| 数据集 | 规模 | qwen3.8-flash | deepseek-flash |
+|---|---:|---:|---:|
+| sudoku + general（网格 / 键盘） | 259 | 92.0 % | 91.6 % |
+| ScreenSpot（真实截图，图标密集） | 254 | **87.8 %** | 74.5 % |
+
+**差别在分布，不在模型好坏。** sudoku/general 是规整的网格与数字键盘，交点压没压住
+一眼可判；ScreenSpot 是真实界面，图标密集且外观相近（「圆内加号」读成「圆内减号」、
+工具栏上相邻图标混淆）。
+
+按方向拆开（ScreenSpot，只看 n ≥ 62 的三项，其余每项只有 12–19 条、单条 5–8 个点）：
+
+| 变体 | n | qwen3.8 | deepseek | 差 |
+|---|---:|---:|---:|---:|
+| `big` | 62 | 86.0 % | 60.8 % | −25.2 |
+| `pos` | 63 | 87.3 % | 73.0 % | −14.3 |
+| `small` | 66 | 86.9 % | 73.7 % | −13.2 |
+
+**当前生产配的是 `deepseek-flash`**（`computerPipelineLlm.verify`）：在结构化布局上
+够用且快，在密集图标辨识上明显弱于 qwen3.8。要换回来只改配置，不用动提示词。
+
+**换后端必须同时换思考协议。** qwen 认 `budget`（`enable_thinking`），deepseek 认
+`effort`（`reasoning_effort`）。用错时模型**忽略**该参数、思考照跑 —— 实测单次
+15 s 而不是 1.6 s，且判对率会变。协议由 `resolve_thinking_strategy_id` 按 URL 猜，
+自动识别的结果与上表一致。
+
+完整数据、跑法与各次波动见
+[`locate/prompts/BASELINE.md`](../../../crates/pointer-core/src/agents/computer/locate/prompts/BASELINE.md)。
 
 ---
 

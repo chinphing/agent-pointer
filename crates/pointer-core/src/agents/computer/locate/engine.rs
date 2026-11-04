@@ -15,7 +15,7 @@ use super::trace::{
     FrameTrace, LocateStep, LocateTrace, OutcomeTrace, RequestTrace, RoundTrace, VerifyStep,
 };
 use super::types::{
-    MatchVerdict, FailureReason, LocateConfig, LocateOutcome, LocateRequest, VerifyVerdict,
+    FailureReason, LocateConfig, LocateOutcome, LocateRequest, VerifyVerdict,
 };
 
 /// One switch for everything diagnostic — **the one in the settings UI**.
@@ -317,6 +317,26 @@ fn env_crop_min(name: &str, dflt: f64) -> f64 {
         .unwrap_or(dflt)
 }
 
+/// 定位侧裁片的源窗口边长，**原图像素**。
+///
+/// 与 verify 侧解耦：verify 的 close 图按候选长边 ×`crop_mult` 取窗口，因为它
+/// 要的是「候选四周留出余量」；定位侧要的是**放大**，窗口大小跟候选无关。
+/// 640 源像素铺到 1920 是 3×，4K 截图（3840 宽）上等于把 1/6 屏宽摊满整张图。
+const LOCATE_CROP_SRC_PX: f64 = 640.0;
+
+/// 定位侧裁片的输出边长。`1920 / 640 = 3`，即放大 3 倍。
+const LOCATE_CROP_OUT_PX: u32 = 1920;
+
+/// 候选比源窗口大时，窗口按候选长边的这个倍数撑开 —— 否则裁片会把目标切掉
+/// 一块，模型看到的是残缺目标。
+const LOCATE_CROP_MARGIN: f64 = 1.25;
+
+/// 定位侧窗口边长：固定 640，但必须罩得住候选本身。
+fn locate_crop_side(cur: PxBox, src_px: f64) -> f64 {
+    let long = cur.width().max(cur.height());
+    (long * LOCATE_CROP_MARGIN).max(src_px)
+}
+
 /// The two model calls the controller is allowed to make.
 #[async_trait]
 pub trait LocateVision: Send + Sync {
@@ -574,6 +594,9 @@ async fn locate_one_traced<V: LocateVision>(
     let mut last_why = String::new();
     let mut last_reasoning = String::new();
     let mut rounds = 0usize;
+    // 上一轮是不是「在裁片里重找」。连续两次局部重找等于在同一个窗口里
+    // 反复问 —— 中间必须夹一次整屏，否则 `max_locate` 会被局部重找耗光。
+    let mut prev_was_crop_refine = false;
     let mut stop = Stop::RoundsExhausted;
 
     // ① First locate — skipped entirely when the caller supplied a hint box.
@@ -609,7 +632,6 @@ async fn locate_one_traced<V: LocateVision>(
             return Err(anyhow!("locate_element cancelled"));
         }
         rounds += 1;
-
         let cur_px = current.to_px(w, h);
         let side = crop_side_px(cur_px, cfg.crop_mult, cfg.crop_min, cfg.crop_max);
         // A/B 用：locator 和 verify 各自可以覆盖裁片下限。
@@ -619,7 +641,10 @@ async fn locate_one_traced<V: LocateVision>(
         //   POINTER_LOCATE_CROP_MIN  只缩 locator 的裁片
         //   POINTER_VERIFY_CROP_MIN  只缩 verify 的 close 图
         // 生产不设这两个变量，行为等同 `cfg.crop_min`。
-        let loc_side = crop_side_px(cur_px, cfg.crop_mult, env_crop_min("POINTER_LOCATE_CROP_MIN", cfg.crop_min), cfg.crop_max);
+        // 定位侧窗口与 verify 侧**分开算**：固定 640 源像素（可用
+        // `POINTER_LOCATE_CROP_SRC` 覆盖做 A/B），候选更大时按 1.25 倍撑开。
+        let loc_src = env_crop_min("POINTER_LOCATE_CROP_SRC", LOCATE_CROP_SRC_PX);
+        let loc_side = locate_crop_side(cur_px, loc_src);
         let ver_side = crop_side_px(cur_px, cfg.crop_mult, env_crop_min("POINTER_VERIFY_CROP_MIN", cfg.crop_min), cfg.crop_max);
         let _ = side;
         // The verifier no longer offers `unclear`, so the crop is rendered once
@@ -673,7 +698,7 @@ async fn locate_one_traced<V: LocateVision>(
                 frame,
                 current,
                 loc_side,
-                cfg.out_px,
+                LOCATE_CROP_OUT_PX,
                 super::render::dim_enabled(),
                 super::render::Mark::CrossOnly,
             )?
@@ -843,20 +868,23 @@ async fn locate_one_traced<V: LocateVision>(
         // label from `target_desc` — can hand back a box that covers all of it.
         let hint = refine_hint(&verdict);
 
-        // 判否后往哪找：只有一条路 —— 离开裁片、整屏重找。
+        // 判否后先回裁片重找一次，再回整屏。
         //
-        // 裁片是围绕上一轮候选裁的，判否说明候选本身就不对；在同一个裁片里
-        // 重找只会再找出一个同类的错误元素（数独空格的教训）。`crop_rN` /
-        // `full_escalate_rN` 两条分支依赖的分项判定（`center_on_target` /
-        // `size_ok` / `position_matches`）已经删除，它们永远不会被选中，留着
-        // 只会让读代码的人以为还有局部修正这条路。
+        // 裁片把 640 源像素铺到 1920，比整屏锐得多：4K 截图送模型前会被
+        // `fitted()` 降采样，小目标在整屏上只剩几十像素，边界是糊的。这是
+        // 「重定位次数」降不下来的主因。
         //
-        // `Unclear` 是解析失败（模型漏填 `is_same`）的兜底，同样按判否处理：
-        // 没拿到判定就当没通过，重找一轮。
-        let stay_local = match verdict.is_same {
-            MatchVerdict::Yes => true, // 走不到：`is_hit()` 已经 break
-            MatchVerdict::No | MatchVerdict::Unclear => false,
-        };
+        // 五道闸门，命中任意一条就走整屏（`full_widen_rN`）：
+        //   ① 本轮已经重找过 —— 一轮只给一次，避免同一窗口里来回打转
+        //   ② 窗口已经不小于整屏 —— 没有放大收益
+        //   ③ 候选比 640 还大 —— 裁片会把目标切掉一块
+        //   ④ 裁片内返回 NotFound —— 目标不在这个窗口里（下面的 `widen_needed`）
+        //   ⑤ 返回的框与刚被否掉的那个几乎相同 —— 没学到东西（数独相邻空格）
+        //
+        // `Unclear` 是解析失败（模型漏填 `is_same`）的兜底，按判否处理。
+        let box_long = cur_px.width().max(cur_px.height());
+        let frame_long = f64::from(w.max(h));
+        let stay_local = !prev_was_crop_refine && loc_side < frame_long && box_long < loc_src;
 
         let mut from_crop = false;
         let mut next_box = None;
@@ -887,17 +915,26 @@ async fn locate_one_traced<V: LocateVision>(
                     locate: Some(step),
                     verify: None,
                 });
+                prev_was_crop_refine = true;
                 next_box = match attempt {
-                    LocateAttempt::Found(b) => Some(b),
-                    LocateAttempt::NotFound => {
+                    // ⑤ 换了个位置但本质是同一个框 = 没学到东西，回整屏。
+                    LocateAttempt::Found(b) if nearly_same(b, current) => {
                         widen_needed = true;
                         None
                     }
-                    LocateAttempt::Failed => None,
+                    LocateAttempt::Found(b) => Some(b),
+                    // 裁片里找不到、或者模型压根没答出来，都是「这个窗口不够」
+                    // 的信号 —— 两种都回整屏。只把 NotFound 当信号会让一次
+                    // 解析失败变成空手退出，连整屏重找的机会都没有。
+                    LocateAttempt::NotFound | LocateAttempt::Failed => {
+                        widen_needed = true;
+                        None
+                    }
                 };
             }
         }
         if !from_crop || widen_needed {
+            prev_was_crop_refine = false;
             // Clean full screen: no reference box drawn. The whole point of
             // widening is that the caller's box was wrong, and a box painted on
             // the image outshouts any sentence saying "it is only a candidate".
@@ -1317,6 +1354,121 @@ mod tests {
                     height: 64
                 }
             ]
+        );
+    }
+
+    /// 判否后不该立刻回整屏：先在 640 源像素铺到 1920 的裁片里重找一次。
+    ///
+    /// 裁片是放大镜。4K 截图送模型前会被 `fitted()` 降采样，小目标在整屏上
+    /// 只剩几十像素，边界是糊的 —— 这一步省掉的正是最贵的整屏 locate。
+    #[tokio::test]
+    async fn failed_verify_refines_in_the_magnified_crop() {
+        let first = NormBox::new(400.0, 300.0, 500.0, 400.0);
+        let refined = NormBox::new(410.0, 310.0, 510.0, 410.0);
+        let vision = FakeVision::new()
+            .with_locate(vec![Some(first), Some(refined)])
+            .with_verify(vec![no_left("偏左"), yes("目标")]);
+        let out = locate_one(
+            &vision,
+            &frame(),
+            &LocateRequest::new("目标", "点击它"),
+            &cfg(),
+            &cancel_token(),
+        )
+        .await
+        .unwrap();
+
+        assert!(out.ok);
+        assert_eq!(
+            vision.calls(),
+            vec![
+                Call::Locate {
+                    width: 1000,
+                    height: 800
+                },
+                Call::Verify {
+                    width: 64,
+                    height: 64
+                },
+                // 裁片重找：1920 输出 = 640 源像素的 3 倍。
+                Call::Locate {
+                    width: 1920,
+                    height: 1920
+                },
+                Call::Verify {
+                    width: 64,
+                    height: 64
+                },
+            ]
+        );
+    }
+
+    /// 裁片里没找到（或没答出来）= 这个窗口不够，必须回整屏。
+    ///
+    /// 这是「局部重找」唯一的失败出口：裁片只有 640 源像素，候选偏出几百
+    /// 像素时目标根本不在画面里，`NotFound` 是正常回答，修复手段是更大的
+    /// 视野而不是在同一个窗口里再问一次。
+    #[tokio::test]
+    async fn crop_refine_not_found_widens_to_the_full_screen() {
+        let first = NormBox::new(400.0, 300.0, 500.0, 400.0);
+        let better = NormBox::new(430.0, 330.0, 530.0, 430.0);
+        let vision = FakeVision::new()
+            .with_locate(vec![Some(first), None, Some(better)])
+            .with_verify(vec![no_left("偏左"), yes("目标")]);
+        let out = locate_one(
+            &vision,
+            &frame(),
+            &LocateRequest::new("目标", "点击它"),
+            &cfg(),
+            &cancel_token(),
+        )
+        .await
+        .unwrap();
+
+        assert!(out.ok);
+        let calls = vision.calls();
+        assert_eq!(
+            calls[2],
+            Call::Locate {
+                width: 1920,
+                height: 1920
+            }
+        );
+        // 裁片里没有 → 回整屏，而不是在裁片里再问一次。
+        assert_eq!(
+            calls[3],
+            Call::Locate {
+                width: 1000,
+                height: 800
+            }
+        );
+    }
+
+    /// 候选比 640 还大时不走局部：裁片会把目标切掉一块。
+    #[tokio::test]
+    async fn oversized_candidate_skips_the_crop() {
+        let big = NormBox::new(100.0, 100.0, 800.0, 800.0);
+        let vision = FakeVision::new()
+            .with_locate(vec![Some(big), Some(big)])
+            .with_verify(vec![no_left("偏左"), yes("目标")]);
+        let _ = locate_one(
+            &vision,
+            &frame(),
+            &LocateRequest::new("目标", "点击它"),
+            &cfg(),
+            &cancel_token(),
+        )
+        .await
+        .unwrap();
+
+        // 700 px 长边 > 640：判否后直接整屏，没有 1920 的裁片调用。
+        assert!(
+            !vision
+                .calls()
+                .iter()
+                .any(|c| matches!(c, Call::Locate { width: 1920, .. })),
+            "大候选不该走裁片: {:?}",
+            vision.calls()
         );
     }
 

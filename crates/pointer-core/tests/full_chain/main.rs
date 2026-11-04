@@ -407,10 +407,54 @@ fn provider_from_settings_file(thinking: bool) -> Result<OpenAIProvider> {
 
 fn build_provider(thinking: bool) -> Result<OpenAIProvider> {
     load_dotenv();
-    if let Ok(base_url) = std::env::var("POINTER_LOCATE_BASE_URL") {
-        let api_key = std::env::var("POINTER_LOCATE_API_KEY").unwrap_or_default();
-        let model = std::env::var("POINTER_LOCATE_MODEL")
-            .unwrap_or_else(|_| "qwen3.8-flash".to_string());
+    // 与 `verify_position_eval.rs` 同一套约定：`.env` 里两套后端，
+    // `POINTER_VERIFY_EVAL_BACKEND=deepseek` 切到 `POINTER_DEEPSEEK_*`。
+    let backend = std::env::var("POINTER_VERIFY_EVAL_BACKEND")
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let is_deepseek = backend == "deepseek";
+    let (url_key, key_key, model_key, default_protocol, default_model) = if is_deepseek {
+        (
+            "POINTER_DEEPSEEK_BASE_URL",
+            "POINTER_DEEPSEEK_API_KEY",
+            "POINTER_DEEPSEEK_MODEL",
+            "effort",
+            "deepseek-flash",
+        )
+    } else {
+        (
+            "POINTER_LOCATE_BASE_URL",
+            "POINTER_LOCATE_API_KEY",
+            "POINTER_LOCATE_MODEL",
+            "budget",
+            "qwen3.8-flash",
+        )
+    };
+    if let Ok(base_url) = std::env::var(url_key) {
+        let api_key = std::env::var(key_key).unwrap_or_default();
+        // `.env` 里放 `enc:v1:` 密文时就地解（同 locate_fixture）。
+        let api_key = if let Some(rest) = api_key.strip_prefix("enc:v1:") {
+            use base64::Engine as _;
+            let blob = base64::engine::general_purpose::STANDARD
+                .decode(rest)
+                .context("decode enc:v1 provider key")?;
+            pointer_core::local_secret::decrypt_local_secret_with_info(
+                &blob,
+                b"provider-api-keys-v1",
+            )
+            .context("decrypt provider key")?
+        } else {
+            api_key
+        };
+        let model = std::env::var(model_key).unwrap_or_else(|_| default_model.to_string());
+        // `enable_thinking` 只对 qwen 有效。DeepSeek 由 Effort 策略写
+        // `thinking.type`，多发一个它不认识的字段只会制造歧义。
+        let extra_body = if is_deepseek {
+            serde_json::json!({})
+        } else {
+            serde_json::json!({ "enable_thinking": thinking })
+        };
         let mut settings: ModelSettings = serde_json::from_value(serde_json::json!({
             "providers": [{
                 "id": "e2e",
@@ -432,7 +476,9 @@ fn build_provider(thinking: bool) -> Result<OpenAIProvider> {
                 // `round_enable_thinking` alone does not put the flag on the
                 // wire — it has to be in the provider's `extraBody`, which
                 // `effective_chat_extra_body` merges into the request root.
-                "extraBody": { "enable_thinking": thinking }
+                "extraBody": extra_body,
+                "thinkingProtocol": std::env::var("POINTER_LOCATE_THINKING_PROTOCOL")
+                    .unwrap_or_else(|_| default_protocol.to_string())
             }],
             "activeProviderId": "e2e",
             "model": model,

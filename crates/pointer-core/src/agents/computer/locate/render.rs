@@ -709,6 +709,60 @@ fn encode(img: &RgbImage) -> Result<LocateImage> {
 
 #[cfg(test)]
 mod tests {
+
+    /// 裁片的内容必须真的对应它声称的 `bounds`。
+    ///
+    /// 这是 2026-11-04 那次 bug 的回归测试：定位图按 640 渲染、却用 verify 的
+    /// 135 窗口去映射答案，坐标被压缩 4.7 倍，而**两张图各自都是对的** ——
+    /// 只测「渲染成功」或「图是 1920」都发现不了。这里改成在合成图上画一个
+    /// 已知位置的方块，再从输出图里反算它落在哪，把「内容 ↔ bounds」钉死。
+    #[test]
+    fn crop_content_matches_the_returned_bounds() {
+        // 1000×800 黑底，在屏幕坐标 (495..505, 395..405) 画白块，中心 (500,400)。
+        let mut img = RgbImage::from_pixel(1000, 800, Rgb([0, 0, 0]));
+        for y in 395..405u32 {
+            for x in 495..505u32 {
+                img.put_pixel(x, y, Rgb([255, 255, 255]));
+            }
+        }
+        let frame = LocateFrame::new(img);
+        // 同一个白块的归一化坐标（0–1000 刻度）。
+        let candidate = NormBox::new(495.0, 493.75, 505.0, 506.25);
+
+        let (image, bounds) = render_crop_marked(
+            &frame,
+            candidate,
+            200.0,
+            1920,
+            false,
+            Mark::CrossOnly,
+        )
+        .unwrap();
+
+        // 窗口：边长 200，中心在 (500,400)。
+        assert_eq!(
+            (
+                bounds.x0.round(),
+                bounds.y0.round(),
+                bounds.x1.round(),
+                bounds.y1.round()
+            ),
+            (400.0, 300.0, 600.0, 500.0),
+            "裁片窗口不对"
+        );
+        assert_eq!((image.width, image.height), (1920, 1920));
+
+        // 白块 10 px 铺到 200 px 的窗口里 → 图上 96 px 宽，中心在图正中。
+        let decoded = image::load_from_memory(&image.jpeg).unwrap().to_rgb8();
+        let px = decoded.get_pixel(960, 960);
+        assert!(
+            px[0] > 200,
+            "图正中应当是白块（实际 {px:?}）—— 裁片内容没有对上 bounds"
+        );
+        // 白块左边界：960 - 48 = 912。往外 12 px 应当是黑底。
+        let outside = decoded.get_pixel(900, 960);
+        assert!(outside[0] < 60, "白块左边界外的像素应当是黑的（实际 {outside:?}）");
+    }
     use super::*;
     use image::Rgb;
 

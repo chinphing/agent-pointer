@@ -317,24 +317,27 @@ fn env_crop_min(name: &str, dflt: f64) -> f64 {
         .unwrap_or(dflt)
 }
 
-/// 定位侧裁片的源窗口边长，**原图像素**。
+/// 候选框在裁片里占的边长比例 —— 窗口 = 候选长边 / 这个值。
 ///
-/// 与 verify 侧解耦：verify 的 close 图按候选长边 ×`crop_mult` 取窗口，因为它
-/// 要的是「候选四周留出余量」；定位侧要的是**放大**，窗口大小跟候选无关。
-/// 640 源像素铺到 1920 是 3×，4K 截图（3840 宽）上等于把 1/6 屏宽摊满整张图。
-const LOCATE_CROP_SRC_PX: f64 = 640.0;
+/// 0.1 即「候选区域是候选框的 10 倍」：30 px 的图标配 300 px 窗口，铺到 1920
+/// 是 6.4×。比固定 640 的 3× 更放大，同时不像按目标尺寸无上限放大那样把锚点
+/// 挤出画面 —— 上限压在 640，任何候选都不会拿到比原来更大的窗口。
+const LOCATE_CROP_FILL: f64 = 0.10;
 
-/// 定位侧裁片的输出边长。`1920 / 640 = 3`，即放大 3 倍。
+/// 窗口上限：等于原来的固定值。候选大于 64 px 时行为与固定 640 完全一致。
+const LOCATE_CROP_MAX: f64 = 640.0;
+
+/// 窗口下限：候选框可能只框住目标的一部分，比例算出来的窗口会小到全是插值。
+/// 160 px 铺到 1920 是 12×，再往上放大只剩糊。
+const LOCATE_CROP_MIN: f64 = 160.0;
+
+/// 定位侧裁片的输出边长。窗口 640 时是 3×，160 时是 12×。
 const LOCATE_CROP_OUT_PX: u32 = 1920;
 
-/// 候选比源窗口大时，窗口按候选长边的这个倍数撑开 —— 否则裁片会把目标切掉
-/// 一块，模型看到的是残缺目标。
-const LOCATE_CROP_MARGIN: f64 = 1.25;
-
-/// 定位侧窗口边长：固定 640，但必须罩得住候选本身。
-fn locate_crop_side(cur: PxBox, src_px: f64) -> f64 {
+/// 定位侧窗口边长：候选长边的 10 倍，上限 640（= 原来的固定值）。
+fn locate_crop_side(cur: PxBox) -> f64 {
     let long = cur.width().max(cur.height());
-    (long * LOCATE_CROP_MARGIN).max(src_px)
+    (long / LOCATE_CROP_FILL).clamp(LOCATE_CROP_MIN, LOCATE_CROP_MAX)
 }
 
 /// The two model calls the controller is allowed to make.
@@ -641,10 +644,8 @@ async fn locate_one_traced<V: LocateVision>(
         //   POINTER_LOCATE_CROP_MIN  只缩 locator 的裁片
         //   POINTER_VERIFY_CROP_MIN  只缩 verify 的 close 图
         // 生产不设这两个变量，行为等同 `cfg.crop_min`。
-        // 定位侧窗口与 verify 侧**分开算**：固定 640 源像素（可用
-        // `POINTER_LOCATE_CROP_SRC` 覆盖做 A/B），候选更大时按 1.25 倍撑开。
-        let loc_src = env_crop_min("POINTER_LOCATE_CROP_SRC", LOCATE_CROP_SRC_PX);
-        let loc_side = locate_crop_side(cur_px, loc_src);
+        // 定位侧窗口与 verify 侧**分开算**：候选长边的 10 倍，上限 640。
+        let loc_side = locate_crop_side(cur_px);
         let ver_side = crop_side_px(cur_px, cfg.crop_mult, env_crop_min("POINTER_VERIFY_CROP_MIN", cfg.crop_min), cfg.crop_max);
         let _ = side;
         // The verifier no longer offers `unclear`, so the crop is rendered once
@@ -886,7 +887,10 @@ async fn locate_one_traced<V: LocateVision>(
         // `Unclear` 是解析失败（模型漏填 `is_same`）的兜底，按判否处理。
         let box_long = cur_px.width().max(cur_px.height());
         let frame_long = f64::from(w.max(h));
-        let stay_local = !prev_was_crop_refine && loc_side < frame_long && box_long < loc_src;
+        // 候选装不进窗口就不裁：窗口封顶 `LOCATE_CROP_MAX`，框比它还大时裁片
+        // 只能拍到目标的一部分，模型看到的是碎片。
+        let stay_local =
+            !prev_was_crop_refine && loc_side < frame_long && box_long <= LOCATE_CROP_MAX;
 
         let mut from_crop = false;
         let mut next_box = None;
@@ -1109,6 +1113,18 @@ async fn locate_in<V: LocateVision>(
     // 会拿整屏坐标去对一张局部图，或者反过来。
     let is_crop = (bounds.x1 - bounds.x0) < f64::from(w) - 0.5
         || (bounds.y1 - bounds.y0) < f64::from(h) - 0.5;
+    // 图和 bounds 必须是同一个窗口。2026-11-04 的 bug 就是这里错位：定位图
+    // 按 640 渲染、答案按 verify 的 135 映射，坐标被压缩 4.7 倍，而两张图
+    // 各自都是「正常」的 —— 只测渲染成功发现不了。
+    debug_assert!(
+        (f64::from(image.width) / bounds.width() - f64::from(image.height) / bounds.height()).abs()
+            < 0.01,
+        "定位图 {}x{} 与 bounds {}x{} 比例不一致",
+        image.width,
+        image.height,
+        bounds.width(),
+        bounds.height()
+    );
     let prompt = locate_prompt(description, hint_rel, previous_hint, is_crop);
     // `_in` marks this as the stage's **model input** — the exact bytes handed
     // to `vision.locate`. Named after the stage (`locate_init`, `relocate_N`) so

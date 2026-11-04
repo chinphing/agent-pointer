@@ -542,7 +542,7 @@ pub(super) async fn run_single_agent_loop(
         }
 
         let mut pipeline_before_capture = None;
-        if verify_host_active(state.as_ref(), &lead_profile)
+        if verify_host_active(&lead_profile)
             && batch_has_desktop_root_tool(&buf.final_tool_calls, state.tools.as_ref())
         {
             pipeline_before_capture =
@@ -620,7 +620,7 @@ pub(super) async fn run_single_agent_loop(
             super::single_agent_tools::ToolPassResult::RanTools => {}
         }
 
-        if verify_host_active(state.as_ref(), &lead_profile)
+        if verify_host_active(&lead_profile)
             && batch_has_desktop_root_tool(&buf.final_tool_calls, state.tools.as_ref())
         {
             let mut pipeline_usage = PipelineLlmUsageRecorder {
@@ -664,20 +664,6 @@ pub(super) async fn run_single_agent_loop(
                 ctx.tool_budget.sync_out(ctx.consumed_single);
                 return Err(err);
             }
-        } else if lead_profile == AgentProfile::Computer
-            && batch_has_desktop_root_tool(&buf.final_tool_calls, state.tools.as_ref())
-        {
-            // Computer turn with host verify switched off. Nothing will ever
-            // judge these rows, and an open row renders `verify: verifying` —
-            // which the prompt forbids new desktop tools under. `auto_close`
-            // deliberately keeps the newest open row for verify, so it will not
-            // clean this one up either. Close it here.
-            let closed = state
-                .computer_state
-                .apply_pipeline_skipped_verify(conversation_id, "host verify disabled");
-            log::info!(
-                "computer: host verify disabled — closed {closed} row(s) as skipped"
-            );
         }
 
         {

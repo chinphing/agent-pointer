@@ -275,11 +275,6 @@ impl ComputerState {
         );
     }
 
-    /// Whether host post-execute verify is enabled (all tiers when true).
-    pub fn verify_host_enabled(&self) -> bool {
-        self.effective_pipeline_config().verify_host_enabled
-    }
-
     /// Retrieve or create the session for a conversation, updating last_active_at and evicting if needed.
     /// Eviction priority: ended → cancelled → least recently active among active sessions.
     fn get_or_create_session(&self, conversation_id: &str) -> Arc<Mutex<ComputerSession>> {

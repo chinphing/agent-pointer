@@ -22,8 +22,12 @@ use anyhow::{anyhow, Result};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-pub fn verify_host_active(state: &AppState, profile: &AgentProfile) -> bool {
-    *profile == AgentProfile::Computer && state.computer_state.verify_host_enabled()
+/// Host post-execute verify runs on every computer-profile turn that touched the
+/// desktop. It used to also read a `computerPipelineVerifyHost` agent config, but
+/// nothing ever wrote that key — the flag was permanently `true`, and the
+/// "switched off" branch it guarded was unreachable. The gate is the profile.
+pub fn verify_host_active(profile: &AgentProfile) -> bool {
+    *profile == AgentProfile::Computer
 }
 
 pub fn batch_has_desktop_root_tool(tool_calls: &[ToolCall], tools: &ToolRegistry) -> bool {

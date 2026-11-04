@@ -662,7 +662,7 @@ pub(crate) async fn run_sub_agent(
         }
 
         let mut pipeline_before_capture = None;
-        if verify_host_active(state, &def.profile)
+        if verify_host_active(&def.profile)
             && batch_has_desktop_root_tool(&buf.final_tool_calls, state.tools.as_ref())
         {
             pipeline_before_capture =
@@ -753,7 +753,7 @@ pub(crate) async fn run_sub_agent(
             ToolPassResult::AskUserDeferred => {}
         }
 
-        if verify_host_active(state, &def.profile)
+        if verify_host_active(&def.profile)
             && batch_has_desktop_root_tool(&buf.final_tool_calls, state.tools.as_ref())
         {
             let mut pipeline_usage = PipelineLlmUsageRecorder {

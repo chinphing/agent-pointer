@@ -18,7 +18,6 @@ pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_LOCATE: &str =
 pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_POSITION: &str =
     "computerPipelineThinkingBudgetPosition";
 pub const CONFIG_KEY_PIPELINE_THINKING_BUDGET_VERIFY: &str = "computerPipelineThinkingBudgetVerify";
-pub const CONFIG_KEY_PIPELINE_VERIFY_HOST: &str = "computerPipelineVerifyHost";
 
 // 平台模型配置全部由平台下发；本地不内置 pipeline 默认模型（未配置时为空）。
 pub const DEFAULT_MODEL_PIPELINE_DECISION: &str = "";
@@ -168,14 +167,12 @@ fn parse_intensity_value(raw: &str) -> Option<String> {
 /// other agent, resolved by `chat_service::session_model`.
 #[derive(Debug, Clone)]
 pub struct ComputerModelConfig {
-    pub verify_host_enabled: bool,
     pub pipeline_llm: ComputerPipelineLlmConfig,
 }
 
 impl Default for ComputerModelConfig {
     fn default() -> Self {
         Self {
-            verify_host_enabled: true,
             pipeline_llm: ComputerPipelineLlmConfig::default(),
         }
     }
@@ -189,9 +186,6 @@ impl ComputerModelConfig {
         };
         for (k, v) in &def.config {
             match k.as_str() {
-                CONFIG_KEY_PIPELINE_VERIFY_HOST => {
-                    cfg.verify_host_enabled = v.eq_ignore_ascii_case("true") || v == "1";
-                }
                 CONFIG_KEY_PIPELINE_MODEL_DECISION if !v.trim().is_empty() => {
                     cfg.pipeline_llm.model_decision = v.trim().to_string();
                 }

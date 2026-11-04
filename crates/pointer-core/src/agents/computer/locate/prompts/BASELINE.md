@@ -266,6 +266,45 @@ remark 里写「索引不一致」「判 no」，`is_same` 填 `yes`。
 
 **27b 确认偏误更严重，且对「盘外」完全没概念。不建议替换。**
 
+### `deepseek-flash`（2026-11-04 补测，thinking off）
+
+生产 verify 早已切到 `deepseek-flash`（`computerPipelineLlm.verify`），但此前没有基线。
+补测口径与 qwen 一致：259 条（sudoku + general），thinking 关，temperature 0。
+
+跑法：
+
+```bash
+POINTER_VERIFY_EVAL_BACKEND=deepseek \
+  cargo test --release -p pointer-core --test verify_position_eval -- --nocapture
+```
+
+key 从 `crates/pointer-core/tests/locate_fixture/.env` 的 `POINTER_DEEPSEEK_*` 读，
+不碰生产配置。思考策略按 URL 自动识别为 `effort`；`POINTER_VERIFY_EVAL_THINKING=off`
+（默认）→ `reasoning_effort` 关闭，实测 `reasoning_tokens=0`，单次 **1.6 s**。
+（用 qwen 的 `budget` 协议打 DeepSeek 会被忽略，思考照跑，单次 15 s —— 差 9 倍。）
+
+三次跑：
+
+| 变体 | deepseek-flash (off) | qwen3.8-flash | 差 |
+|---|---:|---:|---:|
+| `small` | **99.1** | 95.50 | +3.6 |
+| `down` | **96.4** | 90.99 | +5.4 |
+| `pos` | **96.4** | 94.59 | +1.8 |
+| `right` | **96.4** | 94.59 | +1.8 |
+| `big` | 91.9 | 95.50 | −3.6 |
+| `left` | 80.2 | 81.98 | −1.8 |
+| `up` | 81.1 | 90.99 | **−9.9** |
+| **总体** | **91.6** | **92.02** | −0.4 |
+
+单次 91.12 / 91.89 / 91.89 %，抖动 ±0.8。
+
+**结论：总体与 qwen3.8-flash 打平（0.4 个点，在抖动内），但形状不同** ——
+`down` / `small` 更好，`up` 差近 10 个点，`left` 仍是两边共同的最弱方向。
+换模型不解决「偏上」这一类，反而放大它。
+
+**未测：** deepseek-flash 开思考（`POINTER_VERIFY_EVAL_THINKING=low`）的成绩。
+小样本上开思考 2/2、关思考 0/2，但 n=2 不足以下结论。
+
 ## 九、数据说明
 
 **评测数据在 `pointer-eval-data/position_verify/`（与代码仓库同级），不在仓库内。**

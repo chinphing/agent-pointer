@@ -29,6 +29,9 @@ use pointer_core::provider::OpenAIProvider;
 #[derive(Deserialize, Debug, Clone)]
 struct Expect {
     center: String,
+    /// 数据集仍写着 `size`，但判定只剩一个 `is_same` —— 保留字段是为了让
+    /// truth.jsonl 的既有形状不用改，读它没有任何意义。
+    #[allow(dead_code)]
     size: String,
 }
 
@@ -51,7 +54,10 @@ struct Row {
     /// 旧格式：裁好的 close 图 + 整屏 screen 图 + 框，评测时现渲染 wide。
     #[serde(default)]
     close: Option<String>,
+    /// 同上：旧格式的裁片 wide 不再被读（现渲染走 `render_full_marked`），
+    /// 字段留着只是为了让旧 truth 行还能反序列化。
     #[serde(default)]
+    #[allow(dead_code)]
     wide: Option<String>,
     #[serde(default)]
     screen: Option<String>,
@@ -120,11 +126,52 @@ fn base64_of(bytes: &[u8]) -> String {
 
 fn build_provider() -> Result<OpenAIProvider> {
     load_dotenv();
-    let base_url = std::env::var("POINTER_LOCATE_BASE_URL")
-        .context("POINTER_LOCATE_BASE_URL not set (tests/locate_fixture/.env)")?;
-    let api_key = std::env::var("POINTER_LOCATE_API_KEY").unwrap_or_default();
-    let model =
-        std::env::var("POINTER_LOCATE_MODEL").unwrap_or_else(|_| "qwen3.8-flash".to_string());
+    // `.env` carries both backends. `POINTER_VERIFY_EVAL_BACKEND=deepseek` reads
+    // the `POINTER_DEEPSEEK_*` block; anything else keeps the qwen one. Process
+    // env still wins over `.env`, so a one-off run can point at another host
+    // without editing the file.
+    let backend = std::env::var("POINTER_VERIFY_EVAL_BACKEND")
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let (url_key, key_key, model_key, default_protocol, default_model) = if backend == "deepseek" {
+        (
+            "POINTER_DEEPSEEK_BASE_URL",
+            "POINTER_DEEPSEEK_API_KEY",
+            "POINTER_DEEPSEEK_MODEL",
+            "effort",
+            "deepseek-flash",
+        )
+    } else {
+        (
+            "POINTER_LOCATE_BASE_URL",
+            "POINTER_LOCATE_API_KEY",
+            "POINTER_LOCATE_MODEL",
+            "budget",
+            "qwen3.8-flash",
+        )
+    };
+    let base_url = std::env::var(url_key)
+        .with_context(|| format!("{url_key} not set (tests/locate_fixture/.env)"))?;
+    let api_key = std::env::var(key_key).unwrap_or_default();
+    // `user_settings.json` stores provider keys as `enc:v1:<base64>`, encrypted
+    // with a per-machine key. Passing that blob straight through would hand the
+    // provider an opaque string and every call would come back empty, so decrypt
+    // it the way `storage.rs` does. Same branch as `locate_fixture/main.rs`.
+    let api_key = if let Some(rest) = api_key.strip_prefix("enc:v1:") {
+        use base64::Engine as _;
+        let blob = base64::engine::general_purpose::STANDARD
+            .decode(rest)
+            .context("decode enc:v1 provider key")?;
+        pointer_core::local_secret::decrypt_local_secret_with_info(
+            &blob,
+            b"provider-api-keys-v1",
+        )
+        .context("decrypt provider key from user_settings.json")?
+    } else {
+        api_key
+    };
+    let model = std::env::var(model_key).unwrap_or_else(|_| default_model.to_string());
     let settings: ModelSettings = serde_json::from_value(serde_json::json!({
         "providers": [{
             "id": "verifyeval",
@@ -136,7 +183,12 @@ fn build_provider() -> Result<OpenAIProvider> {
             // 猜，认不出 dashscope 就落到 `OpenaiEffort`（改 reasoning_effort），
             // 而这个模型只认 `enable_thinking` —— 结果关不掉，每次 verify 都跑
             // 一轮 reasoning，6–23 秒而不是 2–3 秒。
-            "thinkingProtocol": "budget"
+            //
+            // 换后端时这个假设不一定成立（DeepSeek 不认 `enable_thinking`），
+            // 所以允许用 `POINTER_LOCATE_THINKING_PROTOCOL` 覆盖；留空表示交给
+            // `resolve_thinking_strategy_id` 按 URL 猜。
+            "thinkingProtocol": std::env::var("POINTER_LOCATE_THINKING_PROTOCOL")
+                .unwrap_or_else(|_| default_protocol.to_string())
         }],
         "activeProviderId": "verifyeval",
         "model": model,

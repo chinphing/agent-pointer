@@ -636,18 +636,17 @@ async fn locate_one_traced<V: LocateVision>(
         }
         rounds += 1;
         let cur_px = current.to_px(w, h);
-        let side = crop_side_px(cur_px, cfg.crop_mult, cfg.crop_min, cfg.crop_max);
-        // A/B 用：locator 和 verify 各自可以覆盖裁片下限。
-        //
-        // 两张图共用 `side` 时，缩小裁片会同时改变「定位看得多清」和「验证
-        // 的参照系多大」，无法判断是哪一边起作用。留两个环境变量就能分开测：
-        //   POINTER_LOCATE_CROP_MIN  只缩 locator 的裁片
-        //   POINTER_VERIFY_CROP_MIN  只缩 verify 的 close 图
-        // 生产不设这两个变量，行为等同 `cfg.crop_min`。
-        // 定位侧窗口与 verify 侧**分开算**：候选长边的 10 倍，上限 640。
+        // 定位侧和 verify 侧的窗口**各自算**，因为两张图回答的问题不同：
+        //   verify 要「候选四周留余量」来判边界 → 跟着 `crop_mult` 走；
+        //   定位要「看清目标」→ 候选长边的 10 倍，封顶 640。
+        // `POINTER_VERIFY_CROP_MIN` 只缩 verify 的 close 图，不影响定位。
         let loc_side = locate_crop_side(cur_px);
-        let ver_side = crop_side_px(cur_px, cfg.crop_mult, env_crop_min("POINTER_VERIFY_CROP_MIN", cfg.crop_min), cfg.crop_max);
-        let _ = side;
+        let ver_side = crop_side_px(
+            cur_px,
+            cfg.crop_mult,
+            env_crop_min("POINTER_VERIFY_CROP_MIN", cfg.crop_min),
+            cfg.crop_max,
+        );
         // The verifier no longer offers `unclear`, so the crop is rendered once
         // per round. `retry` survives only as a field on the outcome.
         let verify_retries = 0usize;
@@ -684,12 +683,12 @@ async fn locate_one_traced<V: LocateVision>(
                 super::render::dim_enabled(),
                 super::render::Mark::CrossWithTolerance,
             )?;
-            // The locator gets the same window without the candidate outline —
-            // only the crosshair, same as verify. The outline was removed
-            // because it is the most target-shaped thing in the crop and the
-            // locator returns it unchanged instead of looking for the target;
-            // the shape of the mark itself is kept identical across both stages
-            // so the model does not have to re-learn what the marker looks like
+            // The locator gets a **different, tighter window** and no candidate
+            // outline — only the crosshair. The outline was removed because it
+            // is the most target-shaped thing in the crop and the locator
+            // returns it unchanged instead of looking for the target; the shape
+            // of the mark itself is kept identical across both stages so the
+            // model does not have to re-learn what the marker looks like
             // between refine and verify.
             //
             // **定位图和 verify 图是两个窗口**（`loc_side` ≠ `ver_side`），
@@ -759,7 +758,7 @@ async fn locate_one_traced<V: LocateVision>(
                 .as_ref()
                 .map(|w| dump_image(&run, &format!("{verify_stage}_in2"), w));
             debug_log!(
-                "locate: verify_input run={run} round={rounds} side={side:.0} box=[{:.0},{:.0},{:.0},{:.0}] close_id={close_id} close={}x{} wide_id={:?} wide={:?}",
+                "locate: verify_input run={run} round={rounds} side={ver_side:.0} loc_side={loc_side:.0} box=[{:.0},{:.0},{:.0},{:.0}] close_id={close_id} close={}x{} wide_id={:?} wide={:?}",
                 current.to_px(w, h).x1,
                 current.to_px(w, h).y1,
                 current.to_px(w, h).x2,

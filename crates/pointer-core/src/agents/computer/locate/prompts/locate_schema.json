@@ -8,7 +8,7 @@
       "properties": {
         "found": {
           "type": "boolean",
-          "description": "目标在不在这张图里。在就填 true 并给出 bbox；完全不在这张图里就填 false，不给 bbox。只有「图里确实没有」才填 false —— 目标在、只是位置不确定时仍然填 true，给一个大致位置。"
+          "description": "满足描述条件的目标是否在这张图里。在 → true 并给 bbox；不在 → false，不给 bbox。"
         },
         "bbox": {
           "type": "array",

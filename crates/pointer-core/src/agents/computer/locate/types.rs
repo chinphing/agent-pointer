@@ -132,17 +132,6 @@ impl VerifyVerdict {
         self.is_same == MatchVerdict::Yes
     }
 
-    /// Which checks failed, for the hint. Empty when `is_hit()`.
-    ///
-    /// 只有**真的判过**的维度才进这个列表。`Unclear` 是「没判过」，不是
-    /// 「不合格」—— 把它当成失败会让 `refine_hint` 生成排他性指令
-    /// （「这次只改 X」），把定位模型引到一条假线索上。
-    pub fn failed_checks(&self) -> Vec<&'static str> {
-        match self.is_same {
-            MatchVerdict::Yes | MatchVerdict::Unclear => Vec::new(),
-            MatchVerdict::No => vec!["位置匹配"],
-        }
-    }
 }
 
 impl Default for VerifyVerdict {
@@ -340,41 +329,6 @@ mod tests {
         let v = VerifyVerdict::default();
         assert!(!v.is_hit());
         assert_eq!(v.is_same, MatchVerdict::Unclear);
-    }
-
-    // ---- failed_checks：只有真的判过「不合格」才进列表 ----
-
-    /// 判 `no` 时只有一项不合格 —— 判定只剩 `is_same` 一个出口，
-    /// `refine_hint` 的排他性指令也只该有一项。
-    #[test]
-    fn no_verdict_reports_position_only() {
-        let v = VerifyVerdict {
-            is_same: MatchVerdict::No,
-            ..Default::default()
-        };
-        assert_eq!(v.failed_checks(), vec!["位置匹配"]);
-    }
-
-    /// `Unclear` 的判定不是「不合格」—— 没判过就不该给排他性指令。
-    /// 此时 `failed_checks()` 为空，`refine_hint` 退回原样转发 notes。
-    #[test]
-    fn unclear_verdict_yields_no_failed_checks() {
-        let v = VerifyVerdict {
-            is_same: MatchVerdict::Unclear,
-            ..Default::default()
-        };
-        assert!(v.failed_checks().is_empty(), "{:?}", v.failed_checks());
-        assert!(!v.is_hit());
-    }
-
-    /// 判过且不合格的维度仍然要报出来 —— 别把 bug 修成「什么都不报」。
-    #[test]
-    fn real_failures_are_still_reported() {
-        let v = VerifyVerdict {
-            is_same: MatchVerdict::No,
-            ..Default::default()
-        };
-        assert_eq!(v.failed_checks(), vec!["位置匹配"]);
     }
 
     #[test]

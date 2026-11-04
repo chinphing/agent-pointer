@@ -34,8 +34,9 @@ const FIELD_CHARS: usize = 800;
 // enough and no template engine is needed.
 const LOCATE_PROMPT: &str = include_str!("prompts/locate.md");
 const LOCATE_NEAR: &str = include_str!("prompts/locate_near.md");
-const LOCATE_HINT: &str = include_str!("prompts/locate_hint.md");
-const LOCATE_PREV_BOX: &str = include_str!("prompts/locate_prev_box.md");
+/// 裁片轮：**先判断在不在，再给框**。整屏重找用不了这份 —— 整屏没有「不在」
+/// 这个选项，目标只可能在整个屏幕里。
+const LOCATE_CROP: &str = include_str!("prompts/locate_crop.md");
 const VERIFY_INTRO_WIDE: &str = include_str!("prompts/verify_intro_wide.md");
 const VERIFY_INTRO_CLOSE: &str = include_str!("prompts/verify_intro_close.md");
 const VERIFY_BODY: &str = include_str!("prompts/verify_body.md");
@@ -91,7 +92,7 @@ pub fn locate_prompt(
     description: &str,
     hint_px: Option<(f64, f64)>,
     previous_hint: Option<&str>,
-    prev_box: Option<(f64, f64, f64, f64)>,
+    is_crop: bool,
 ) -> String {
     let near = match hint_px {
         Some((x, y)) => LOCATE_NEAR
@@ -99,26 +100,26 @@ pub fn locate_prompt(
             .replace("{y}", &(y.round() as i64).to_string()),
         None => String::new(),
     };
-    let prev_box_block = match prev_box {
-        Some((x1, y1, x2, y2)) => LOCATE_PREV_BOX
-            .replace("{x1}", &(x1.round() as i64).to_string())
-            .replace("{y1}", &(y1.round() as i64).to_string())
-            .replace("{x2}", &(x2.round() as i64).to_string())
-            .replace("{y2}", &(y2.round() as i64).to_string()),
-        None => String::new(),
-    };
     // `【上一轮的情况】` goes after everything else on purpose: it is the
     // correction for this round, and a correction placed mid-prompt loses to
     // the generic box rule that follows it.
     let hint_block = match previous_hint.map(str::trim).filter(|s| !s.is_empty()) {
-        Some(hint) => LOCATE_HINT.replace("{hint}", hint),
+        Some(hint) => format!("# 上一轮的情况\n\n{hint}"),
         None => String::new(),
     };
+    // 裁片轮是另一个任务：先判在不在，再框。它有自己的完整提示词，
+    // 不再挂在这份整屏画框指南的末尾 —— 两份拼在一起时，模型要在一份
+    // 11 KB 的整屏规则里找局部任务，还要调和两处对「参考框」的不同说法。
+    if is_crop {
+        return LOCATE_CROP
+            .replace("{size_max}", BOX_SIZE_MAX)
+            .replace("{desc}", description.trim())
+            .replace("{hint_block}", &hint_block);
+    }
     LOCATE_PROMPT
         .replace("{size_max}", BOX_SIZE_MAX)
         .replace("{desc}", description.trim())
         .replace("{near}", &near)
-        .replace("{prev_box}", &prev_box_block)
         .replace("{hint_block}", &hint_block)
 }
 
@@ -321,21 +322,19 @@ fn truncate_for_log(s: &str) -> String {
 
 /// Retry hint fed into the next locate round (B5 `hint` construction).
 ///
-/// The verifier's own words are the bulk of it: `notes` is four labelled lines
-/// that already say what was seen and what was wrong. Code adds only the list of
-/// failed dimensions, because that is the one thing prose does not state
-/// unambiguously — and it tells the locator what to change and what to leave
-/// alone.
+/// **只转发校验器原话，代码不再拼指令。**
+///
+/// 这里曾经拼过「上一轮不合格的维度：位置匹配。…这次只改位置匹配，其他维度
+/// 保持不变」。那是分项判定时代（`center_on_target` / `size_ok` /
+/// `position_matches`）的产物：那时代码知道具体哪条边偏了，可以给出排他性
+/// 指令。判定收敛成 `is_same` 一个出口之后，这个「维度」只剩一个空壳 ——
+/// 模型读到的是一句「只改位置匹配」，而它并不知道是哪个方向不对，结果就是
+/// 把框原地挪十几像素（实测中位 18 px），而不是重新找。
+///
+/// 校验器的 `notes` 本身已经是四行带标签的描述（看到什么、哪里不对），
+/// 直接给它比代码加工过的版本信息量大。
 pub fn refine_hint(verdict: &VerifyVerdict) -> String {
-    let failed = verdict.failed_checks();
-    if failed.is_empty() {
-        return verdict.notes.trim().to_string();
-    }
-    let list = failed.join("、");
-    format!(
-        "上一轮不合格的维度：{list}。\n{}\n这次只改{list}，其他维度保持不变。",
-        verdict.notes.trim()
-    )
+    verdict.notes.trim().to_string()
 }
 
 

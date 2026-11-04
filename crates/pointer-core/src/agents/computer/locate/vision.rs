@@ -131,6 +131,19 @@ impl LocateVision for ChatLocateVision<'_> {
                     for tc in &out.tool_calls {
                         log::info!("locate raw args: {}", tc.arguments);
                     }
+                    // 排查用：把模型的思考打出来。
+                    //
+                    // 定位的推理全在 `reasoning_content` 里（看到了什么、为什么
+                    // 认为这是目标、为什么不弃权），但 `LocateAnswer` 只带框，
+                    // 这条推理一直没落到任何地方 —— 于是「它到底怎么想的」只能
+                    // 靠猜。查这类问题时必须能直接读到。
+                    if std::env::var_os("POINTER_LOCATE_DUMP_REASONING").is_some() {
+                        if let Some(r) = out.reasoning_content.as_deref() {
+                            if !r.trim().is_empty() {
+                                eprintln!("[locate-reasoning] {}", r.replace('\n', " ⏎ "));
+                            }
+                        }
+                    }
                     let parsed = out.tool_calls.iter().find_map(|tc| {
                         tc.name
                             .trim()

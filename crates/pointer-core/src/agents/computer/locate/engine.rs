@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::geometry::{crop_side_px, nearly_same, px_to_rel, rel_to_norm, CropBounds, NormBox, PxBox};
 use super::prompt::{locate_prompt, refine_hint, verify_prompt_views, LocateAnswer};
-use super::render::{render_crop_marked, render_full, LocateFrame, LocateImage};
+use super::render::{render_crop_marked, render_full, render_full_marked, LocateFrame, LocateImage};
 use super::trace::{
     FrameTrace, LocateStep, LocateTrace, OutcomeTrace, RequestTrace, RoundTrace, VerifyStep,
 };
@@ -941,7 +941,10 @@ async fn locate_one_traced<V: LocateVision>(
             // With nothing drawn, the locator has the description, the labels on
             // the screen, and nothing else — which is exactly the information a
             // human would use.
-            let image = render_full(frame, None)?;
+            // 画准星而不是空白图：提示词 §3 说「十字星标的是参考框中心」，
+            // 空白图上没有这个东西，模型只能靠 prev_box 的四条边自己算，
+            // 而它算出来的中心和「图正中」对不上时就会卡在推理里。
+            let image = render_full_marked(frame, current, super::render::Mark::CrossOnly)?;
             // Drop the caller's hint centre here. `widen_needed` means the
             // locator already answered 「not in this image」 inside the crop —
             // the hint was wrong, and that is the whole reason we are widening.
@@ -974,7 +977,10 @@ async fn locate_one_traced<V: LocateVision>(
         if from_crop && !widen_needed && nearly_same(next_box, current) {
             // Clean full screen, same reasoning as the widen above: the crop
             // produced no movement, so the drawn box is anchoring the answer.
-            let image = render_full(frame, None)?;
+            // 画准星而不是空白图：提示词 §3 说「十字星标的是参考框中心」，
+            // 空白图上没有这个东西，模型只能靠 prev_box 的四条边自己算，
+            // 而它算出来的中心和「图正中」对不上时就会卡在推理里。
+            let image = render_full_marked(frame, current, super::render::Mark::CrossOnly)?;
             // Same reasoning as the widen above: the crop-local locator barely
             // moved, so its anchor is not helping. Re-arming the original hint
             // centre would just reproduce the same answer on a harder image.
@@ -1096,8 +1102,12 @@ async fn locate_in<V: LocateVision>(
         );
         (r.0, r.1)
     });
-    let prev_rel = prev_box.map(|b| px_to_rel(b, bounds));
-    let prompt = locate_prompt(description, hint_rel, previous_hint, prev_rel);
+    // 裁片 vs 整屏：`bounds` 比整帧小才是裁片。两者的判据不同 —— 裁片可以
+    // 「不在这张图里」，整屏不能（整屏就是全部）。提示词必须分开，否则模型
+    // 会拿整屏坐标去对一张局部图，或者反过来。
+    let is_crop = (bounds.x1 - bounds.x0) < f64::from(w) - 0.5
+        || (bounds.y1 - bounds.y0) < f64::from(h) - 0.5;
+    let prompt = locate_prompt(description, hint_rel, previous_hint, is_crop);
     // `_in` marks this as the stage's **model input** — the exact bytes handed
     // to `vision.locate`. Named after the stage (`locate_init`, `relocate_N`) so
     // a collected episode is `glob("{prefix}_*")` with no filename parsing.

@@ -476,6 +476,16 @@ fn build_provider(thinking: bool) -> Result<OpenAIProvider> {
                 // `round_enable_thinking` alone does not put the flag on the
                 // wire — it has to be in the provider's `extraBody`, which
                 // `effective_chat_extra_body` merges into the request root.
+                // `top_p` was never set here, so every hint ran with the
+                // library default `DEFAULT_MODEL_TOP_P = 0.95` — nucleus
+                // sampling wide open next to `temperature: 0`. That is not
+                // greedy decoding: the same image and goal produced five
+                // different boxes in five back-to-back calls. Set
+                // `POINTER_E2E_TOP_P=1` (with temperature 0) to sample
+                // greedily and make a prompt A/B reproducible.
+                "topP": std::env::var("POINTER_E2E_TOP_P")
+                    .ok()
+                    .and_then(|v| v.parse::<f32>().ok()),
                 "extraBody": extra_body,
                 "thinkingProtocol": std::env::var("POINTER_LOCATE_THINKING_PROTOCOL")
                     .unwrap_or_else(|_| default_protocol.to_string())

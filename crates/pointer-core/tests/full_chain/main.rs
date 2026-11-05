@@ -771,7 +771,15 @@ async fn run_case(
                         .filter(|l| !l.is_empty())
                         .collect::<Vec<_>>()
                         .join(" ⏎ ");
-                    let cut: String = flat.chars().take(600).collect();
+                    let cut: String = flat
+                        .chars()
+                        .take(
+                            std::env::var("POINTER_E2E_REASONING_CHARS")
+                                .ok()
+                                .and_then(|v| v.parse().ok())
+                                .unwrap_or(600),
+                        )
+                        .collect();
                     out.log = Some(format!(
                         "{}  ↳ reasoning: {cut}",
                         out.log.unwrap_or_default()

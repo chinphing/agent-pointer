@@ -486,6 +486,12 @@ pub async fn agent_hint(
         }
     }
     let call = calls.first().context("model returned no tool call")?;
+    // `POINTER_E2E_RAW_ARGS=1` dumps the model's exact tool-call JSON. Needed
+    // when a box looks wrong: it separates "the model answered that" from
+    // "we parsed it wrong".
+    if std::env::var("POINTER_E2E_RAW_ARGS").as_deref() == Ok("1") {
+        eprintln!("[hint-raw] tool={} args={}", call.name, call.arguments);
+    }
     // Diagnostic: a thinking model that returns no reasoning is either not
     // thinking or thinking into a channel we do not parse. Both matter when
     // comparing two prompt arms, so surface the raw shape.

@@ -2,8 +2,6 @@
 schema:
   type: object
   properties:
-    goal:
-      type: string
     action:
       type: string
     seconds:
@@ -11,7 +9,7 @@ schema:
       minimum: 0
       maximum: 60
   required:
-    - goal
+    - action
     - seconds
   additionalProperties: true
 ---

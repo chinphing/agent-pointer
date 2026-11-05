@@ -4,9 +4,9 @@ Each tool name is the complete operation — no `method` parameter.
 
 Read or set the **system clipboard** as **plain text**. Does **not** paste into a field by itself.
 
-- **`clipboard_read`** — Requires **`goal`** only. Returns current clipboard text in the tool reply (very long content may be truncated). **Mandatory after any copy** — UI copy button, context-menu Copy, or **`hotkey`** Copy (`command,c` / `ctrl,c`). Screenshots cannot show clipboard contents; **do not guess** and **do not copy again** until you have read once.
+- **`clipboard_read`** — Requires **`action`** only. Returns current clipboard text in the tool reply (very long content may be truncated). **Mandatory after any copy** — UI copy button, context-menu Copy, or **`hotkey`** Copy (`command,c` / `ctrl,c`). Screenshots cannot show clipboard contents; **do not guess** and **do not copy again** until you have read once.
 
-- **`clipboard_write`** — Requires **`goal`** and **`text`**. Puts `text` on the clipboard. To insert into the focused field, follow with **`hotkey`** paste or **`input_focused`** as appropriate.
+- **`clipboard_write`** — Requires **`action`** and **`text`**. Puts `text` on the clipboard. To insert into the focused field, follow with **`hotkey`** paste or **`input_focused`** as appropriate.
 
 **UI copy button (mandatory when present)**
 
@@ -33,4 +33,4 @@ transcribe visible text that has a copy button.
 
 **Note:** Binary or rich clipboard formats are not exposed — text only. On some **Linux** sessions (e.g. **Wayland** without a running clipboard portal), reads/writes may fail; the tool returns an error message instead of guessing.
 
-**`action` field:** Required when your desktop instructions ask for **`action`** on tool calls; describe the visible target or intent in words, **not** overlay indices.
+**`action` field:** describe the intent in words.

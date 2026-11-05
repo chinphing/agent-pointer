@@ -34,6 +34,11 @@ the screen shows, so it uses the screen's language:
 | `action` | the user's | shown as the card title; verify's anchor |
 | `target_desc` | the screen's | compared against on-screen text |
 
+The split is deliberate: `target_desc` is matched against pixels, so it copies
+the screen's wording; everything else follows General rules. A Chinese user
+driving an English app gets a Chinese `action` and an English `target_desc` in
+the same call.
+
 **When the target is one of several identical elements**, `action` must say which
 one — `第7行第3格`, `the third row from the top`, `the left panel`. A cell in a
 grid, a row in a list, a field in a form, a tab in a tab bar, a panel in a split

@@ -91,10 +91,8 @@ stall waiting for a row that will never close.
 **`bbox` takes pixels.** You locate targets on a 1000×1000 grid first — that is
 easier to eyeball — but the value you pass must be converted with the
 screenshot's real width and height. A raw grid number like `700` is read as
-pixel 700, which on a 1920-wide screen is barely a third of the way across
+pixel 700, which on an 1920-wide screen is barely a third of the way across
 instead of where you looked.
 
-**`action` speaks the user's language; `target_desc` speaks the screen's.** The
-`action` language follows General rules; `target_desc` is the exception because it
-is compared against on-screen text. A Chinese user driving an English app gets a
-Chinese `action` and an English `target_desc` in the same call.
+`action` / `target_desc` / `wait` field rules live in the communication slice,
+not here.

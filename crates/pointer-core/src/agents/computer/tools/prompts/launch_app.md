@@ -2,8 +2,8 @@
 
 Launch or bring an application to the foreground (Codex Computer Use compatible).
 
-Requires **`goal`**, **`app`** (display name, bundle identifier, or executable such as `notepad.exe`),
-and optional **`action`** when desktop instructions require it.
+Requires **`app`** (display name, bundle identifier, or executable such as `notepad.exe`);
+every call also carries **`action`**.
 
 Optional:
 - **`new_instance`**: `true` only when the user **explicitly** wants another window/process
@@ -47,4 +47,4 @@ clicks for that goal unless **`launch_app`** already failed or returned permissi
 **macOS:** Requires Accessibility permission. New instances use `open -n`.
 **Windows:** Use the executable name reported by **`list_apps`** (e.g. `notepad.exe`).
 
-**`action` field:** Describe the app or intent in words, not overlay indices.
+**`action` field:** Describe the app or intent in words.

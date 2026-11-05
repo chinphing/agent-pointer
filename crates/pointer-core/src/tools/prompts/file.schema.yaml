@@ -34,6 +34,7 @@ file_write:
       type: string
       description: >
         File path. Relative paths resolve under the session workspace root.
+        Creates or overwrites a whole file — use for new files or full rewrites.
     content: {}
   required: [path, content]
   additionalProperties: true
@@ -45,6 +46,7 @@ file_edit:
       type: string
       description: >
         File path. Relative paths resolve under the session workspace root.
+        Replaces one unique substring in one file — the default way to change existing code.
     file:
       type: string
     oldString:

@@ -59,6 +59,7 @@ Use **`file_read`** with **`offset`** / **`limit`** to confirm **current text**,
 changed): **re-read** the affected region, rebuild **`oldString`** from
 **fresh** content, or **narrow** the edit scope.
 Do **not** retry the same failing patch blindly.
+If the target still does not fit `file` tools, falling back to a shell edit is allowed — say which case applied in **Deliver**.
 
 ### When `file_read` hits caps or errors
 

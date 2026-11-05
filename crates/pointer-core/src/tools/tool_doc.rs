@@ -128,7 +128,7 @@ Body.
         assert!(cwd.contains("$WORKING_DIR"));
         let command = v["properties"]["command"]["description"].as_str().unwrap();
         assert!(command.contains("$WORKING_DIR"));
-        assert!(command.contains("All reads, writes"));
+        assert!(!command.contains("All reads, writes"));
     }
 
     #[test]

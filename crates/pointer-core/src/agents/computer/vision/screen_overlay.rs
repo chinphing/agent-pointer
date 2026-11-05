@@ -51,6 +51,9 @@ pub const BEFORE_POINTER_ZOOM_FACTOR: u32 = ZOOM_POINTER_MAGNIFY_FACTOR;
 const POINTER_CROSS_ARM_PX: i32 = 22;
 const POINTER_CROSS_CORE_PX: i32 = 3;
 const POINTER_CROSS_HALO_PX: i32 = 1;
+/// 虚线圆环半径。臂长 22 px，环 10 px —— 臂伸出环外 12 px，读起来是准星
+/// 而不是一个圆圈。
+const POINTER_CROSS_RING_PX: f64 = 10.0;
 
 /// 越界自动裁剪 —— 指针贴边时不该 panic，也不该画到图外。
 fn fill_rgba_rect(img: &mut RgbaImage, x0: i32, y0: i32, x1: i32, y1: i32, color: Rgba<u8>) {
@@ -63,12 +66,47 @@ fn fill_rgba_rect(img: &mut RgbaImage, x0: i32, y0: i32, x1: i32, y1: i32, color
 }
 
 /// 白边先画、红芯后画：任何背景上都看得见，中心永远是红的。
+///
+/// 形状 = 十字星 + 虚线圆环，和 locate 的容差圈（`Mark::CrossWithTolerance`）
+/// 同一套节拍：一段 16°、空 8°，白描边在下、红芯在上。十字负责指出交点，
+/// 圆环给出一个「大概这么大」的尺度 —— 判断「指针是否落在这个控件/面板里」
+/// 时，眼睛要比的是圆环和控件边界，而不是一个没有大小的点。
 fn composite_pointer_crosshair(img: &mut RgbaImage, cx: i32, cy: i32) {
     let core = POINTER_CROSS_CORE_PX / 2;
     let halo = core + POINTER_CROSS_HALO_PX;
     let arm = POINTER_CROSS_ARM_PX;
+    let ring = POINTER_CROSS_RING_PX;
     let white = Rgba([255, 255, 255, 235]);
     let red = Rgba([220, 38, 38, 255]);
+
+    let mut put = |x: f64, y: f64, c: Rgba<u8>| {
+        let (xi, yi) = (x.round() as i32, y.round() as i32);
+        if xi >= 0 && yi >= 0 && xi < img.width() as i32 && yi < img.height() as i32 {
+            img.put_pixel(xi as u32, yi as u32, c);
+        }
+    };
+
+    // 圆环：沿圆周密集采样，段内每步画一根法线（和 locate 一样 —— 按角度
+    // 画孤立点会被 JPEG 平均成一层灰影）。
+    let (dash, gap) = (16.0_f64.to_radians(), 8.0_f64.to_radians());
+    let period = dash + gap;
+    for (color, extra) in [(white, POINTER_CROSS_HALO_PX as f64), (red, 0.0)] {
+        let t = core as f64 + extra;
+        let mut a = 0.0_f64;
+        while a < std::f64::consts::TAU {
+            if a % period <= dash {
+                let (sn, cs) = (a.sin(), a.cos());
+                let mut d = -t;
+                while d <= t {
+                    put(cx as f64 + (ring + d) * cs, cy as f64 + (ring + d) * sn, color);
+                    d += 1.0;
+                }
+            }
+            a += 0.004;
+        }
+    }
+
+    // 十字：白边铺底，红芯压上。
     fill_rgba_rect(img, cx - arm - halo, cy - halo, cx + arm + halo, cy + halo, white);
     fill_rgba_rect(img, cx - halo, cy - arm - halo, cx + halo, cy + arm + halo, white);
     fill_rgba_rect(img, cx - arm, cy - core, cx + arm, cy + core, red);
@@ -281,7 +319,9 @@ mod tests {
         for (x, y) in [(100 - 20, 100), (100 + 20, 100), (100, 100 - 20), (100, 100 + 20)] {
             assert_eq!(img.get_pixel(x, y)[0], 220, "臂缺失于 ({x}, {y})");
         }
-        // 对角线上不画 —— 这是十字不是方框
+        // 虚线圆环：半径 10 px，0° 处正好在段内
+        assert_eq!(img.get_pixel(100 + 10, 100)[0], 220, "圆环缺失");
+        // 环外（对角 28 px 处）不画 —— 这是准星，不是方框
         assert_eq!(img.get_pixel(120, 120)[0], 40);
     }
 

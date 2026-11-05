@@ -91,7 +91,9 @@ one file per **`file_read`** (parallel calls for multiple files),
 behavior-changing edit without it.
 
 - Match neighboring code style; no drive-by refactors.
-- **`file_edit`** for localized changes; **`file_write`** for new files or full rewrites.
+- **Edit with `file` tools first.** Changing existing code defaults to **`file_edit`** (localized) / **`file_write`** (new file or full rewrite).
+- Shell-based rewriting — `sed -i`, `perl -pi`, `>` / `>>` into source, `python`/`node` heredoc writing files, `cp` to `/tmp` then copy back — is a **fallback** for what `file` tools handle poorly: bulk mechanical renames across many files, generated or binary files, encoding / line-ending repair, scripted transforms. When you take the fallback, name the case in **Deliver**.
+- Do not use shell edits to dodge a failed `oldString` match — rebuild the patch from fresh **`file_read`** content first.
 - Re-read mid-file targets before editing when match uniqueness is fragile.
 - Debugging: one hypothesis at a time when possible.
 - Related gap found → **optional follow-up** in **Deliver**, not silent scope expand.

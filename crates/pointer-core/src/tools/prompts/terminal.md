@@ -5,9 +5,8 @@ schema:
     command:
       type: string
       description: >
-        Shell command. All reads, writes, mkdir, clones, installs, and
-        other CLI work use the session workspace by default. Omit cwd;
-        relative paths resolve in `$WORKING_DIR` (workspace root).
+        Working directory defaults to the session workspace root
+        (`$WORKING_DIR`); omit cwd.
     cwd:
       type: string
       description: Omit for session workspace (`$WORKING_DIR`).

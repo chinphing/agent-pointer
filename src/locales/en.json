@@ -875,6 +875,7 @@
       "locateHint": "Model used to ground elements; empty inherits the main model",
       "locateInherit": "Inherit main model",
       "tierScopeHint": "These three follow the current tier: ",
+      "pipelineTierHint": "Each slot is set per tier, independent of the main model's tiers",
       "inheritGlobal": "Inherit global",
       "locateThinkingOff": "Thinking off",
       "verifyName": "Action check",

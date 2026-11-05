@@ -875,6 +875,7 @@
       "locateHint": "元素定位所用模型，留空则跟随主模型",
       "locateInherit": "跟随主模型",
       "tierScopeHint": "以下三项按当前档位配置：",
+      "pipelineTierHint": "三项各自按档位配置，与主模型的三档互相独立",
       "inheritGlobal": "跟随全局",
       "locateThinkingOff": "关闭思考",
       "verifyName": "动作校验",

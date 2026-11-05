@@ -26,33 +26,35 @@ const computerAdvancedModal = ref(false)
 // 只保留 off/low/medium/high/max；'' (不设置) 和 off 写的是同一个 0，重复了
 const THINKING_OPTIONS = computed(() => thinkingIntensityOptions().filter(o => o.value !== ''))
 
-function inheritLabel(kind: 'locate' | 'locateVerify' | 'verify', base: string): string {
-  const v = props.form.inheritedPipelineLabel(kind)
-  return v ? `${base}（${v}）` : base
-}
+type PipelineSlot = 'locate' | 'locateVerify' | 'verify'
 
-/** 思考强度下拉的「继承」项：显示该档位继承到的实际强度。 */
-function intensityInheritLabel(kind: 'locate' | 'locateVerify' | 'verify'): string {
+/**
+ * 三个槽位各自按档位配置 —— 与「三档模型映射」里主模型的三档是**两套独立配置**，
+ * 互不影响：主模型配的是 computer 自己用哪个模型，这里配的是定位链各阶段用哪个。
+ */
+const PIPELINE_SLOTS = computed<{ kind: PipelineSlot; label: string; hint: string }[]>(() => [
+  {
+    kind: 'locate',
+    label: t('settings.agentPanel.locateName'),
+    hint: t('settings.agentPanel.locateHint')
+  },
+  {
+    kind: 'locateVerify',
+    label: t('settings.agentPanel.locateVerifyName'),
+    hint: t('settings.agentPanel.locateVerifyHint')
+  },
+  {
+    kind: 'verify',
+    label: t('settings.agentPanel.verifyName'),
+    hint: t('settings.agentPanel.verifyHint')
+  }
+])
+
+/** 「继承」项文案：带上该档位实际会继承到的全局值。 */
+function inheritLabel(kind: PipelineSlot, mode: string): string {
   const base = t('settings.agentPanel.inheritGlobal')
-  const v = props.form.inheritedPipelineIntensity(kind)
+  const v = props.form.inheritedPipelineLabel(kind, mode)
   return v ? `${base}（${v}）` : base
-}
-
-function setIntensity(phase: 'locate' | 'verify' | 'locateVerify', value: string) {
-  const intensity = (value || undefined) as never
-  if (phase === 'locateVerify') {
-    props.form.patchPipelineTier(props.form.computerTier(), { locateVerifyThinkingIntensity: intensity })
-    return
-  }
-  if (phase === 'locate') {
-    props.form.patchPipelineTier(props.form.computerTier(), { locateThinkingIntensity: intensity })
-    return
-  }
-  props.form.patchPipelineTier(props.form.computerTier(), { verifyThinkingIntensity: intensity })
-}
-
-function locateVerifyIntensity(): string {
-  return props.form.pipelineTierIntensity('locateVerify')
 }
 
 // 媒体列「更多」：联网搜索等工具档位（非子智能体，与左侧 explore 入口对称）
@@ -86,14 +88,11 @@ const {
   PERFORMANCE_MODE_HELP,
   MEDIA_MODE_USER_ROWS,
   PERFORMANCE_MODE_UI,
-  computerPipelineLocateValue,
-  computerPipelineVerifyValue,
-  computerPipelineLocateVerifyValue,
   computerPipelineLlm,
   pipelineTierIntensity,
-  selectComputerPipelineLocate,
-  selectComputerPipelineVerify,
-  selectComputerPipelineLocateVerify,
+  pipelineTierValue,
+  selectPipelineTierModel,
+  setPipelineTierIntensity,
   enabledWorkers,
   agentPerformanceModesLocal,
   mediaUnderstandingModesLocal,
@@ -359,13 +358,13 @@ const {
         role="presentation"
         @click.self="computerAdvancedModal = false"
       >
-        <div class="w-[20rem] max-w-[90vw] max-h-[80vh] flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" @click.stop>
+        <div class="w-[23rem] max-w-[92vw] max-h-[80vh] flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" @click.stop>
           <div class="flex items-start justify-between gap-2 border-b border-border px-4 py-3 shrink-0">
             <div class="min-w-0">
               <h4 class="text-sm font-semibold text-foreground">{{ t('settings.assistant.computerAdvancedTitle') }}</h4>
               <p class="mt-0.5 text-[11px] text-muted">{{ t('settings.assistant.computerAdvancedHint') }}</p>
               <p class="mt-1 text-[11px] font-medium text-accent">
-                {{ t('settings.agentPanel.tierScopeHint') }}<span class="uppercase">{{ form.computerTier() }}</span>
+                {{ t('settings.agentPanel.pipelineTierHint') }}
               </p>
             </div>
             <button
@@ -378,79 +377,48 @@ const {
             </button>
           </div>
           <div class="divide-y divide-border overflow-y-auto">
-            <div class="px-3 py-2.5 space-y-1.5">
+            <div
+              v-for="slot in PIPELINE_SLOTS"
+              :key="'pipeline-' + slot.kind"
+              class="px-3 py-2.5 space-y-1.5"
+            >
               <div class="flex items-center gap-x-1.5">
                 <Monitor class="w-3.5 h-3.5 text-accent shrink-0" />
-                <span class="text-[12px] font-medium text-foreground">{{ t('settings.agentPanel.locateName') }}</span>
+                <span class="text-[12px] font-medium text-foreground">{{ slot.label }}</span>
               </div>
-              <p class="text-[10px] text-muted leading-snug">{{ t('settings.agentPanel.locateHint') }}</p>
-              <div class="flex items-center gap-2">
-                <select
-                  :value="computerPipelineLocateValue()"
-                  class="h-8 flex-1 min-w-0 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
-                  @change="selectComputerPipelineLocate(($event.target as HTMLSelectElement).value)"
+              <p class="text-[10px] text-muted leading-snug">{{ slot.hint }}</p>
+              <div class="space-y-1">
+                <div
+                  v-for="tier in PERFORMANCE_MODE_UI"
+                  :key="slot.kind + '-' + tier.value"
+                  class="grid grid-cols-[2.2rem_minmax(0,1fr)_4.5rem] items-center gap-1.5"
                 >
-                  <option value="">{{ inheritLabel('locate', t('settings.agentPanel.locateInherit')) }}</option>
-                  <option v-for="item in s.allModels" :key="'locate-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
-                </select>
-                <select
-                  :value="pipelineTierIntensity('locate')"
-                  class="h-8 w-[4.5rem] shrink-0 px-1.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
-                  @change="setIntensity('locate', ($event.target as HTMLSelectElement).value)"
-                >
-                  <option value="">{{ intensityInheritLabel('locate') }}</option>
-                  <option v-for="opt in THINKING_OPTIONS" :key="'locate-t-' + opt.value" :value="opt.value">{{ opt.label }}</option>
-                </select>
-              </div>
-            </div>
-            <div class="px-3 py-2.5 space-y-1.5">
-              <div class="flex items-center gap-x-1.5">
-                <Monitor class="w-3.5 h-3.5 text-accent shrink-0" />
-                <span class="text-[12px] font-medium text-foreground">{{ t('settings.agentPanel.verifyName') }}</span>
-              </div>
-              <p class="text-[10px] text-muted leading-snug">{{ t('settings.agentPanel.verifyHint') }}</p>
-              <div class="flex items-center gap-2">
-                <select
-                  :value="computerPipelineVerifyValue()"
-                  class="h-8 flex-1 min-w-0 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
-                  @change="selectComputerPipelineVerify(($event.target as HTMLSelectElement).value)"
-                >
-                  <option value="">{{ inheritLabel('verify', t('settings.agentPanel.locateInherit')) }}</option>
-                  <option v-for="item in s.allModels" :key="'verify-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
-                </select>
-                <select
-                  :value="pipelineTierIntensity('verify')"
-                  class="h-8 w-[4.5rem] shrink-0 px-1.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
-                  @change="setIntensity('verify', ($event.target as HTMLSelectElement).value)"
-                >
-                  <option value="">{{ intensityInheritLabel('verify') }}</option>
-                  <option v-for="opt in THINKING_OPTIONS" :key="'verify-t-' + opt.value" :value="opt.value">{{ opt.label }}</option>
-                </select>
-              </div>
-            </div>
-            <div class="px-3 py-2.5 space-y-1.5">
-              <div class="flex items-center gap-x-1.5">
-                <Monitor class="w-3.5 h-3.5 text-accent shrink-0" />
-                <span class="text-[12px] font-medium text-foreground">{{ t('settings.agentPanel.locateVerifyName') }}</span>
-              </div>
-              <p class="text-[10px] text-muted leading-snug">{{ t('settings.agentPanel.locateVerifyHint') }}</p>
-              <div class="flex items-center gap-2">
-                <select
-                  :value="computerPipelineLocateVerifyValue()"
-                  class="h-8 flex-1 min-w-0 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
-                  @change="selectComputerPipelineLocateVerify(($event.target as HTMLSelectElement).value)"
-                >
-                  <option value="">{{ inheritLabel('locateVerify', t('settings.agentPanel.locateVerifyInherit')) }}</option>
-                  <option v-for="item in s.allModels" :key="'locate-verify-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
-                </select>
-                <select
-                  :value="locateVerifyIntensity()"
-                  class="h-8 w-[4.5rem] shrink-0 px-1.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
-                  @change="setIntensity('locateVerify', ($event.target as HTMLSelectElement).value)"
-                >
-                  <option value="">{{ intensityInheritLabel('locateVerify') }}</option>
-                  <option v-for="opt in THINKING_OPTIONS" :key="'locate-verify-t-' + opt.value" :value="opt.value">{{ opt.label }}</option>
-                </select>
+                  <span class="text-[10px] text-muted">{{ tier.label }}</span>
+                  <select
+                    :value="pipelineTierValue(slot.kind, tier.value)"
+                    class="h-7 min-w-0 px-1.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[11px] text-foreground outline-none focus:border-accent/50"
+                    @change="selectPipelineTierModel(slot.kind, tier.value, ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">{{ inheritLabel(slot.kind, tier.value) }}</option>
+                    <option
+                      v-for="item in s.allModels"
+                      :key="slot.kind + tier.value + item.providerId + ':' + item.model"
+                      :value="item.providerId + ':' + item.model"
+                    >{{ item.providerName }} / {{ item.model }}</option>
+                  </select>
+                  <select
+                    :value="pipelineTierIntensity(slot.kind, tier.value)"
+                    class="h-7 px-1 rounded border border-border bg-[hsl(var(--card-elevated))] text-[11px] text-foreground outline-none focus:border-accent/50"
+                    @change="setPipelineTierIntensity(slot.kind, tier.value, ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">{{ t('settings.agentPanel.inheritGlobal') }}</option>
+                    <option
+                      v-for="opt in THINKING_OPTIONS"
+                      :key="slot.kind + tier.value + '-t-' + opt.value"
+                      :value="opt.value"
+                    >{{ opt.label }}</option>
+                  </select>
+                </div>
               </div>
             </div>
           </div>

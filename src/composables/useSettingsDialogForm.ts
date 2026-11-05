@@ -249,13 +249,16 @@ function createSettingsDialogForm(deps: {
   }
 
   /**
-   * 当前档位上**写过的**思考强度；空串 = 继承。
+   * 某个档位上**写过的**思考强度；空串 = 继承。
    *
    * 下拉框必须读这个原始值而不是合并后的全局值 —— 否则选完一档，控件
    * 立刻被全局值填回去，用户看不到自己刚设的东西。
    */
-  function pipelineTierIntensity(kind: 'locate' | 'locateVerify' | 'verify'): string {
-    const t = pipelineTier(computerTier())
+  function pipelineTierIntensity(
+    kind: 'locate' | 'locateVerify' | 'verify',
+    mode: string = computerTier()
+  ): string {
+    const t = pipelineTier(mode)
     const v =
       kind === 'locate'
         ? t.locateThinkingIntensity
@@ -265,12 +268,72 @@ function createSettingsDialogForm(deps: {
     return v ?? ''
   }
 
+  /** 某个档位某个槽位的 `provider:model`；空 = 继承全局。 */
+  function pipelineTierValue(
+    kind: 'locate' | 'locateVerify' | 'verify',
+    mode: string = computerTier()
+  ): string {
+    const t = pipelineTier(mode)
+    const provider =
+      kind === 'locate'
+        ? t.locateProviderId
+        : kind === 'locateVerify'
+          ? t.locateVerifyProviderId
+          : t.verifyProviderId
+    const model =
+      kind === 'locate' ? t.locate : kind === 'locateVerify' ? t.locateVerify : t.verify
+    return provider && model ? `${provider}:${model}` : ''
+  }
+
+  /** 写某个档位某个槽位的模型；空值 = 清回「继承」。 */
+  function selectPipelineTierModel(
+    kind: 'locate' | 'locateVerify' | 'verify',
+    mode: string,
+    value: string
+  ) {
+    const providerKey =
+      kind === 'locate'
+        ? 'locateProviderId'
+        : kind === 'locateVerify'
+          ? 'locateVerifyProviderId'
+          : 'verifyProviderId'
+    const modelKey = kind === 'locate' ? 'locate' : kind === 'locateVerify' ? 'locateVerify' : 'verify'
+    if (!value) {
+      patchPipelineTier(mode, { [providerKey]: '', [modelKey]: '' })
+      return
+    }
+    const i = value.indexOf(':')
+    if (i > 0 && i < value.length - 1) {
+      patchPipelineTier(mode, {
+        [providerKey]: value.slice(0, i).trim(),
+        [modelKey]: value.slice(i + 1).trim()
+      })
+      return
+    }
+    console.warn('[settings] selectPipelineTierModel: invalid value', value)
+  }
+
+  /** 写某个档位某个槽位的思考强度；空值 = 继承。 */
+  function setPipelineTierIntensity(
+    kind: 'locate' | 'locateVerify' | 'verify',
+    mode: string,
+    value: string
+  ) {
+    const key =
+      kind === 'locate'
+        ? 'locateThinkingIntensity'
+        : kind === 'locateVerify'
+          ? 'locateVerifyThinkingIntensity'
+          : 'verifyThinkingIntensity'
+    patchPipelineTier(mode, { [key]: (value || undefined) as never })
+  }
+
   /** 该档位「继承」时实际会用的思考强度：官网档位值优先，其次全局。 */
-  function inheritedPipelineIntensity(kind: 'locate' | 'locateVerify' | 'verify'): string {
-    const tier = platformComputerPipelineTierDefault(
-      s.platformSettings.tierDefaults,
-      computerTier()
-    )
+  function inheritedPipelineIntensity(
+    kind: 'locate' | 'locateVerify' | 'verify',
+    mode: string = computerTier()
+  ): string {
+    const tier = platformComputerPipelineTierDefault(s.platformSettings.tierDefaults, mode)
     const global = computerPipelineLlm()
     const v =
       (kind === 'locate'
@@ -287,12 +350,12 @@ function createSettingsDialogForm(deps: {
   }
 
   /** 「继承」选项上显示的值：这个档位没配时，实际会用哪个。 */
-  function inheritedPipelineLabel(kind: 'locate' | 'locateVerify' | 'verify'): string {
+  function inheritedPipelineLabel(
+    kind: 'locate' | 'locateVerify' | 'verify',
+    mode: string = computerTier()
+  ): string {
     // 官网按档位下发过的值，运行时会盖掉全局 —— 标签必须跟着说真话。
-    const tier = platformComputerPipelineTierDefault(
-      s.platformSettings.tierDefaults,
-      computerTier()
-    )
+    const tier = platformComputerPipelineTierDefault(s.platformSettings.tierDefaults, mode)
     const global = computerPipelineLlm()
     const provider =
       (kind === 'locate'
@@ -311,20 +374,22 @@ function createSettingsDialogForm(deps: {
     return provider && model ? `${provider} / ${model}` : ''
   }
 
+  /** 全局动作校验模型（不含档位覆盖）；档位值用 `pipelineTierValue`。 */
   function computerPipelineVerifyValue(): string {
-  const t = pipelineTier(computerTier())
-  return t.verifyProviderId && t.verify ? `${t.verifyProviderId}:${t.verify}` : ''
+  const p = computerPipelineLlm()
+  return p.verifyProviderId && p.verify ? `${p.verifyProviderId}:${p.verify}` : ''
   }
 
+  /** 全局定位模型（不含档位覆盖）。 */
   function computerPipelineLocateValue(): string {
-  const t = pipelineTier(computerTier())
-  return t.locateProviderId && t.locate ? `${t.locateProviderId}:${t.locate}` : ''
+  const p = computerPipelineLlm()
+  return p.locateProviderId && p.locate ? `${p.locateProviderId}:${p.locate}` : ''
   }
 
   function selectComputerPipelineLocate(value: string) {
   // 空值 = 「跟随主模型」，必须能清回空配置，否则选了具体模型就改不回去。
   if (!value) {
-    patchPipelineTier(computerTier(), { locateProviderId: '', locate: '' })
+    patchComputerPipelineLlm({ locateProviderId: '', locate: '' })
     return
   }
   const i = value.indexOf(':')
@@ -332,7 +397,7 @@ function createSettingsDialogForm(deps: {
     const locateProviderId = value.slice(0, i).trim()
     const locate = value.slice(i + 1).trim()
     if (locateProviderId && locate) {
-      patchPipelineTier(computerTier(), { locateProviderId, locate })
+      patchComputerPipelineLlm({ locateProviderId, locate })
       return
     }
   }
@@ -345,24 +410,25 @@ function createSettingsDialogForm(deps: {
     const verifyProviderId = value.slice(0, i).trim()
     const verify = value.slice(i + 1).trim()
     if (verifyProviderId && verify) {
-      patchPipelineTier(computerTier(), { verifyProviderId, verify })
+      patchComputerPipelineLlm({ verifyProviderId, verify })
       return
     }
   }
   console.warn('[settings] selectComputerPipelineVerify: invalid value', value)
   }
 
+  /** 全局定位校验模型（不含档位覆盖）。 */
   function computerPipelineLocateVerifyValue(): string {
-  const t = pipelineTier(computerTier())
-  return t.locateVerifyProviderId && t.locateVerify
-    ? `${t.locateVerifyProviderId}:${t.locateVerify}`
+  const p = computerPipelineLlm()
+  return p.locateVerifyProviderId && p.locateVerify
+    ? `${p.locateVerifyProviderId}:${p.locateVerify}`
     : ''
   }
 
   function selectComputerPipelineLocateVerify(value: string) {
   // 空值 = 「跟随定位」，必须能清回空配置。
   if (!value) {
-    patchPipelineTier(computerTier(), { locateVerifyProviderId: '', locateVerify: '' })
+    patchComputerPipelineLlm({ locateVerifyProviderId: '', locateVerify: '' })
     return
   }
   const i = value.indexOf(':')
@@ -370,7 +436,7 @@ function createSettingsDialogForm(deps: {
     const locateVerifyProviderId = value.slice(0, i).trim()
     const locateVerify = value.slice(i + 1).trim()
     if (locateVerifyProviderId && locateVerify) {
-      patchPipelineTier(computerTier(), { locateVerifyProviderId, locateVerify })
+      patchComputerPipelineLlm({ locateVerifyProviderId, locateVerify })
       return
     }
   }
@@ -1250,6 +1316,9 @@ function createSettingsDialogForm(deps: {
     pipelineTier,
     patchPipelineTier,
     pipelineTierIntensity,
+    pipelineTierValue,
+    selectPipelineTierModel,
+    setPipelineTierIntensity,
     inheritedPipelineIntensity,
     inheritedPipelineLabel,
     computerPipelineVerifyValue,

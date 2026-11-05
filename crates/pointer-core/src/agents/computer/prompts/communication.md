@@ -98,6 +98,11 @@ and bottom lines fall, and put `bbox` on those lines.
 
 The pointing tools re-ground inside the box before acting, so the box itself does
 not have to be tight — it narrows the search, the description decides the match.
+
+**The red crosshair on `[Current screen]` is your pointer.** The `[CUR_SCREEN]`
+preamble states its pixel position. A click lands there and the wheel acts there,
+so before asking a tool to move the pointer, check whether the crosshair is
+already on the element — or already inside the panel you want to scroll.
 A loose box around the right area works; a precise box around the wrong element
 does not.
 

@@ -7,7 +7,8 @@ Each tool name is the complete operation — no `method` parameter.
 submit in one call. Reserve **`mouse_click_*`** for pure clicks with no typing
 on that target this turn (buttons, toggles, icons, links, menus).
 
-**Every pointing tool takes `target_desc` + `bbox` — both, always:**
+**Click, input and drag tools take `target_desc` + `bbox` — both, always.**
+(`mouse_scroll_current` is the one exception — see its bullet below.)
 
 ```json
 {"target_desc": "Save button on the right of the toolbar", "bbox": [404, 245, 427, 262], "goal": "<what this step achieves, in the user's language>"}
@@ -45,8 +46,9 @@ and same-named elements confuse it).
   plus optional `target_desc` + `bbox`. With the pair, it re-grounds the panel
   from `target_desc` inside that box and moves the pointer to the **confirmed**
   centre — which may sit nowhere near the centre of the box you passed, the same
-  way every other pointing tool works. Do that whenever the pointer is not
-  already inside the panel; the result line names the point it settled on. With
+  way every other pointing tool works. Do that only when the red
+  crosshair is **not** already inside the panel — the `[CUR_SCREEN]` preamble
+  states where the crosshair is. The result line names the point it settled on. With
   no pair it scrolls whatever sits under the pointer right now.
 - **`mouse_drag_from_to_at`** takes **two** pairs, because a drag has two ends:
   `from_target_desc` + `from_bbox` (what to grab) and `to_target_desc` +

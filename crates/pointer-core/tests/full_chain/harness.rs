@@ -368,7 +368,7 @@ pub async fn agent_hint(
     // Production preamble now carries the screenshot's pixel dimensions (see
     // `build_cur_screen_preamble`), so the harness must not append its own copy:
     // two sources of truth is exactly the bug this change removes.
-    let preamble = build_cur_screen_preamble(&cap);
+    let preamble = build_cur_screen_preamble(&cap, None);
     // The minimal arm has no `AGENT.md` behind it, so it states the contract
     // itself. The full arm relies on `AGENT.md` → **Locating targets**.
     let preamble = if std::env::var("POINTER_E2E_MINIMAL_PROMPT").as_deref() == Ok("1") {

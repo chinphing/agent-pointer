@@ -9,7 +9,7 @@ use crate::agents::computer::pipeline::operation::{
     format_operation_summary, operation_family_for_tool, OperationFamily,
 };
 use crate::agents::computer::pipeline::types::{
-    PipelineLlmUsageRecorder, ScrollAxis, ScrollMeasurement, VerifyConclusion, VerifyModuleOutput,
+    PipelineLlmUsageRecorder, ScrollAxis, VerifyConclusion, VerifyModuleOutput,
 };
 use crate::agents::computer::pipeline::vision_pack::{
     build_verify_wire_messages, wire_messages_debug_text, VerifyWireInput,

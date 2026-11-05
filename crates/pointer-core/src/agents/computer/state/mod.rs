@@ -65,6 +65,9 @@ pub enum SessionStatus {
 pub struct ComputerSession {
     pub vision_state: Arc<Mutex<VisionState>>,
     pub last_capture: Option<(Vec<u8>, screen::MonitorInfo)>,
+    /// 最后一次截图时指针的**全局屏幕**坐标。和 `last_capture` 同源 —— 注入
+    /// 文案报的坐标必须和图上十字星画的位置一致，所以存下来而不是再读一次。
+    pub last_capture_pointer: Option<(i32, i32)>,
     /// Current turn capture size in pixels.
     pub current_turn_capture_px: Option<(u32, u32)>,
     pub selected_monitor: Option<String>,
@@ -87,6 +90,7 @@ impl ComputerSession {
         Self {
             vision_state: Arc::new(Mutex::new(VisionState::new())),
             last_capture: None,
+            last_capture_pointer: None,
             current_turn_capture_px: None,
             selected_monitor: None,
             monitor_selection_done: false,
@@ -429,6 +433,7 @@ impl ComputerState {
             let mut session = session.lock().unwrap();
             session.current_turn_capture_px = Some(capture_px);
             session.last_capture = Some((pack.screenshot_jpeg.clone(), monitor));
+            session.last_capture_pointer = Some(global_pointer);
         }
 
         let total_ms = t_total.elapsed().as_secs_f64() * 1000.0;
@@ -511,6 +516,16 @@ impl ComputerState {
         let session = self.get_or_create_session(conversation_id);
         let s = session.lock().unwrap();
         s.last_capture.clone()
+    }
+
+    /// 最后一次截图时指针的全局坐标（图上十字星就画在这里），没有截过图为 `None`。
+    pub fn last_capture_pointer_for_conversation(
+        &self,
+        conversation_id: &str,
+    ) -> Option<(i32, i32)> {
+        let session = self.get_or_create_session(conversation_id);
+        let s = session.lock().unwrap();
+        s.last_capture_pointer
     }
 
     /// Get a reference to the vision state for a specific conversation.

@@ -94,12 +94,26 @@ fn slot_labels() -> Vec<&'static str> {
 /// rather than baked into a prompt: the size is runtime data, and the `bbox`
 /// contract in `communication.md` ("Locating targets") refers to it instead of naming a
 /// number that would go stale on the next monitor change.
-pub fn build_cur_screen_preamble(cap: &ScreenCaptureResult) -> String {
+pub fn build_cur_screen_preamble(
+    cap: &ScreenCaptureResult,
+    pointer: Option<(i32, i32)>,
+) -> String {
     let cite = "Each screenshot below is preceded by its slot label on its own line. Treat only what you see in that labeled image as ground truth. Do not invent UI from task text or prior turns. Do not write internal checklists, prompt block labels (`[Recent desktop tool calls]`, `[Current screen]`, `[Environment]`, …), or tool-call transcripts in assistant message text — those blocks are context addressed to you, not output for the user. When the user must see a reply (question, blockage, completion), write plain text in **content** in the same turn — reasoning alone is invisible to the user.";
+    // 图上那个红十字星就是指针。不说清楚的话模型只能猜「这个标记是什么」，
+    // 于是每次滚动都保守地要求重新定位 —— 明明指针已经在面板里。
+    let crosshair = match pointer {
+        Some((x, y)) => format!(
+            "The red crosshair on it is **your mouse pointer**, at ({x}, {y}) in these pixels — \
+             wheel events and clicks land exactly there, and any panel the crosshair already \
+             sits in can be scrolled without asking the tool to move the pointer first."
+        ),
+        None => "A red crosshair on it marks **your mouse pointer** when it is on this monitor."
+            .to_string(),
+    };
     format!(
         "{CUR_SCREEN_TAG} Labeled image this turn: {SLOT_SCREEN_CURRENT}. This screenshot is \
          {w}×{h} pixels — use these dimensions for the `bbox` conversion described in \
-         **Locating targets**. {cite} \
+         **Locating targets**. {crosshair} {cite} \
          **Verify:** host records outcomes on history rows — read the `verify:` suffix on `[Recent desktop tool calls]`.\n",
         w = cap.monitor.width.max(1),
         h = cap.monitor.height.max(1),
@@ -238,7 +252,11 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                 if let Some(label) = ctx.computer_state.locked_goal_label(ctx.conversation_id) {
                     text.push_str(&format!("Locked goal: {label}\n\n"));
                 }
-                text.push_str(&build_cur_screen_preamble(&cap));
+                text.push_str(&build_cur_screen_preamble(
+                    &cap,
+                    ctx.computer_state
+                        .last_capture_pointer_for_conversation(ctx.conversation_id),
+                ));
                 if let Some(block) = ctx
                     .computer_state
                     .recent_actions_prompt_block(ctx.conversation_id)
@@ -453,7 +471,7 @@ mod tests {
 
     #[test]
     fn preamble_mentions_labeled_images() {
-        let t = build_cur_screen_preamble(&sample_cap());
+        let t = build_cur_screen_preamble(&sample_cap(), Some((615, 380)));
         assert!(t.contains("Labeled image"));
         assert!(t.contains("verify:"));
         assert!(t.contains(SLOT_SCREEN_CURRENT));
@@ -465,13 +483,31 @@ mod tests {
         assert!(!t.contains("N–target relation"));
     }
 
+    /// 十字星必须在文案里有名有姓、带坐标 —— 不说的话模型不知道那个标记是
+    /// 什么，只能保守地每次要求重新定位。
+    #[test]
+    fn preamble_names_the_crosshair_and_its_position() {
+        let t = build_cur_screen_preamble(&sample_cap(), Some((615, 380)));
+        assert!(t.contains("red crosshair"), "{t}");
+        assert!(t.contains("(615, 380)"), "缺少指针坐标: {t}");
+        assert!(t.contains("your mouse pointer"), "{t}");
+    }
+
+    /// 拿不到指针时也要说清十字星是什么，只是不编坐标。
+    #[test]
+    fn preamble_still_explains_the_crosshair_without_a_pointer() {
+        let t = build_cur_screen_preamble(&sample_cap(), None);
+        assert!(t.contains("red crosshair"), "{t}");
+        assert!(!t.contains("(615, 380)"), "{t}");
+    }
+
     #[test]
     fn preamble_advertises_no_pixel_coordinates() {
         // `locate_element` was removed (676fec91) and
         // `mouse_neighbor_reference_text` is never populated, so the old
         // sentence promised "Pointer position" and "logical-pixel rects" that
         // did not exist — and told the model to answer in `x`/`y` pixels.
-        let t = build_cur_screen_preamble(&sample_cap());
+        let t = build_cur_screen_preamble(&sample_cap(), Some((615, 380)));
         assert!(!t.contains("locate_element"), "dead tool: {t}");
         assert!(!t.contains("logical-pixel"), "pixel hint: {t}");
         assert!(!t.contains("Pointer position"), "phantom data: {t}");

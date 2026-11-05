@@ -8,9 +8,6 @@
 use super::screen::{self, MonitorInfo};
 use anyhow::{anyhow, Result};
 use image::{Rgba, RgbaImage};
-use imageproc::drawing::{draw_line_segment_mut, draw_polygon_mut};
-use imageproc::point::Point;
-use std::sync::OnceLock;
 
 /// Position-phase: full desktop at capture time (pipeline verify-host before-action slot).
 pub const SLOT_SCREEN_CURRENT: &str = "[Current screen]";
@@ -43,11 +40,40 @@ pub const BEFORE_POINTER_ZOOM_CROP_SIDE: u32 = ZOOM_POINTER_CROP_SIDE;
 /// Nearest-neighbor upscale applied to the before-action pointer crop.
 pub const BEFORE_POINTER_ZOOM_FACTOR: u32 = ZOOM_POINTER_MAGNIFY_FACTOR;
 
+/// 指针十字星：与 locate 整屏图（`Mark::CrossOnly`）同一形态。
+///
+/// 换掉箭头是因为**箭头的热点在尖端**：模型按视觉中心估位置，箭头按尖端画，
+/// 两者天然差几个像素。十字星的交点是中心，没有这个歧义 —— 而且整屏定位图
+/// 早就在用十字星，模型只需要认一种形状。
+///
+/// 尺寸对齐 locate 的整屏十字：臂长 = 候选框长边 × `CROSS_ARM_SHARE`(0.35)，
+/// 候选框按 64 px 估 → 22 px；红芯 3 px、白边每侧 1 px（同 `CROSS_SPAN_*`）。
+const POINTER_CROSS_ARM_PX: i32 = 22;
+const POINTER_CROSS_CORE_PX: i32 = 3;
+const POINTER_CROSS_HALO_PX: i32 = 1;
 
-/// Raster size / hotspot — matches Python `screen_overlay.py` (`_CURSOR_SIZE`, `_CURSOR_HOTSPOT`).
-const POINTER_CURSOR_SIZE: u32 = 32;
-const POINTER_HOTSPOT: (i32, i32) = (3, 2);
+/// 越界自动裁剪 —— 指针贴边时不该 panic，也不该画到图外。
+fn fill_rgba_rect(img: &mut RgbaImage, x0: i32, y0: i32, x1: i32, y1: i32, color: Rgba<u8>) {
+    let (w, h) = (img.width() as i32, img.height() as i32);
+    for y in y0.max(0)..=y1.min(h - 1) {
+        for x in x0.max(0)..=x1.min(w - 1) {
+            img.put_pixel(x as u32, y as u32, color);
+        }
+    }
+}
 
+/// 白边先画、红芯后画：任何背景上都看得见，中心永远是红的。
+fn composite_pointer_crosshair(img: &mut RgbaImage, cx: i32, cy: i32) {
+    let core = POINTER_CROSS_CORE_PX / 2;
+    let halo = core + POINTER_CROSS_HALO_PX;
+    let arm = POINTER_CROSS_ARM_PX;
+    let white = Rgba([255, 255, 255, 235]);
+    let red = Rgba([220, 38, 38, 255]);
+    fill_rgba_rect(img, cx - arm - halo, cy - halo, cx + arm + halo, cy + halo, white);
+    fill_rgba_rect(img, cx - halo, cy - arm - halo, cx + halo, cy + arm + halo, white);
+    fill_rgba_rect(img, cx - arm, cy - core, cx + arm, cy + core, red);
+    fill_rgba_rect(img, cx - core, cy - arm, cx + core, cy + arm, red);
+}
 
 /// The one screenshot the model sees for this turn.
 #[derive(Debug, Clone)]
@@ -84,80 +110,7 @@ fn set_px(img: &mut RgbaImage, x: i32, y: i32, c: Rgba<u8>) {
 }
 
 /// Vertices match Python fallback polygon / `cursor-pointer.svg` path.
-fn pointer_cursor_rgba() -> &'static RgbaImage {
-    static CUR: OnceLock<RgbaImage> = OnceLock::new();
-    CUR.get_or_init(|| {
-        let mut buf =
-            RgbaImage::from_pixel(POINTER_CURSOR_SIZE, POINTER_CURSOR_SIZE, Rgba([0, 0, 0, 0]));
-        let pts: Vec<Point<i32>> = vec![
-            Point::new(3, 2),
-            Point::new(3, 21),
-            Point::new(8, 16),
-            Point::new(11, 23),
-            Point::new(14, 22),
-            Point::new(11, 15),
-            Point::new(18, 15),
-        ];
-        let white = Rgba([255, 255, 255, 255]);
-        let black = Rgba([0, 0, 0, 255]);
-        draw_polygon_mut(&mut buf, &pts, white);
-        for i in 0..pts.len() {
-            let a = pts[i];
-            let b = pts[(i + 1) % pts.len()];
-            draw_line_segment_mut(
-                &mut buf,
-                (a.x as f32, a.y as f32),
-                (b.x as f32, b.y as f32),
-                black,
-            );
-        }
-        buf
-    })
-}
 
-fn blend_paste(dest: &mut RgbaImage, src: &RgbaImage, origin_x: i32, origin_y: i32) {
-    let dw = dest.width() as i32;
-    let dh = dest.height() as i32;
-    let sw = src.width() as i32;
-    let sh = src.height() as i32;
-    for sy in 0..sh {
-        for sx in 0..sw {
-            let dx = origin_x + sx;
-            let dy = origin_y + sy;
-            if dx < 0 || dy < 0 || dx >= dw || dy >= dh {
-                continue;
-            }
-            let sp = *src.get_pixel(sx as u32, sy as u32);
-            let a = sp[3] as u32;
-            if a == 0 {
-                continue;
-            }
-            let dp = *dest.get_pixel(dx as u32, dy as u32);
-            let inv = 255 - a;
-            let blend =
-                |s: u8, d: u8| -> u8 { ((s as u32 * a + d as u32 * inv) / 255).min(255) as u8 };
-            dest.put_pixel(
-                dx as u32,
-                dy as u32,
-                Rgba([
-                    blend(sp[0], dp[0]),
-                    blend(sp[1], dp[1]),
-                    blend(sp[2], dp[2]),
-                    (a + (dp[3] as u32 * inv) / 255).min(255) as u8,
-                ]),
-            );
-        }
-    }
-}
-
-/// Python `draw_cursor_pointer_overlay`: paste 32×32 cursor with hotspot `(3,2)`.
-fn composite_pointer_cursor(img: &mut RgbaImage, mouse_ix: i32, mouse_iy: i32) {
-    let cur = pointer_cursor_rgba();
-    let (hx, hy) = POINTER_HOTSPOT;
-    let ox = mouse_ix - hx;
-    let oy = mouse_iy - hy;
-    blend_paste(img, cur, ox, oy);
-}
 
 fn sample_luminance(img: &RgbaImage, cx: i32, cy: i32, radius: i32) -> f32 {
     let w = img.width() as i32;
@@ -235,7 +188,7 @@ pub fn redraw_with_current_pointer(
     let mut rgba = decode_jpeg_to_rgba(raw_jpeg_unmarked)?;
     let (w, h) = (rgba.width(), rgba.height());
     if let Some((px, py)) = overlay_position_if_inside(mx, my, w, h) {
-        composite_pointer_cursor(&mut rgba, px, py);
+        composite_pointer_crosshair(&mut rgba, px, py);
     }
     screen::rgba_to_jpeg_bytes(rgba, screen::SCREENSHOT_JPEG_QUALITY)
 }
@@ -251,7 +204,7 @@ fn apply_pointer_and_caret_overlays(
     }
     if DRAW_SYNTHETIC_POINTER_OVERLAY {
         if let Some((mx, my)) = mouse {
-            composite_pointer_cursor(img, mx, my);
+            composite_pointer_crosshair(img, mx, my);
         }
     }
 }
@@ -317,11 +270,28 @@ mod tests {
         assert_eq!(global_pointer_to_local(150, 250, &m), (50, 50));
     }
 
+    /// 十字星的中心必须落在指针位置上：臂往两侧展开、中心是红的。
     #[test]
-    fn pointer_cursor_has_opaque_arrow_pixels() {
-        let c = pointer_cursor_rgba();
-        assert_eq!(c.dimensions(), (POINTER_CURSOR_SIZE, POINTER_CURSOR_SIZE));
-        assert!(c.get_pixel(3, 2)[3] > 200);
+    fn pointer_crosshair_centres_on_the_pointer() {
+        let mut img = RgbaImage::from_pixel(200, 200, Rgba([40, 80, 120, 255]));
+        composite_pointer_crosshair(&mut img, 100, 100);
+        let centre = img.get_pixel(100, 100);
+        assert_eq!((centre[0], centre[1], centre[2]), (220, 38, 38), "中心应为红芯");
+        // 四条臂都画到了
+        for (x, y) in [(100 - 20, 100), (100 + 20, 100), (100, 100 - 20), (100, 100 + 20)] {
+            assert_eq!(img.get_pixel(x, y)[0], 220, "臂缺失于 ({x}, {y})");
+        }
+        // 对角线上不画 —— 这是十字不是方框
+        assert_eq!(img.get_pixel(120, 120)[0], 40);
+    }
+
+    /// 指针贴边时不能 panic，也不能画到图外。
+    #[test]
+    fn pointer_crosshair_clips_at_the_edge() {
+        let mut img = RgbaImage::from_pixel(60, 60, Rgba([0, 0, 0, 255]));
+        composite_pointer_crosshair(&mut img, 1, 58);
+        assert_eq!(img.get_pixel(1, 58)[0], 220);
+        assert_eq!(img.get_pixel(59, 59)[0], 0, "不该溢出到未触及的角落");
     }
 
     #[test]

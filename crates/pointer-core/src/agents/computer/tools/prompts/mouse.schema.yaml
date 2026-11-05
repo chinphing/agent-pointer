@@ -131,7 +131,7 @@ mouse_scroll_current:
   properties:
     target_desc:
       type: string
-      description: "Optional. The panel or list body that must move; when given, the pointer is moved there first because wheel events only reach the window under it. See Writing target_desc for the shape."
+      description: "Optional. The panel or list body that must move. Only needed when the red crosshair is not already inside that panel — wheel events reach only the window under the pointer. See Writing target_desc for the shape."
     bbox:
       type: array
       items:

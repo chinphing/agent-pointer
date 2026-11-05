@@ -860,13 +860,17 @@ pub fn normalize_tool_record(
     args: &Value,
     vision: &VisionState,
 ) -> Option<ActionRecord> {
+    // `action` 是现在唯一的「这次调用要做什么」字段；`goal` 是旧名字，旧会话的
+    // 历史行里还带着它。两个都读，缺了才丢弃记录 —— 只认 `goal` 会让新 schema
+    // 下的每一次鼠标操作都从 `[Recent desktop tool calls]` 里消失。
     let goal = args
         .get("goal")
         .and_then(|v| v.as_str())
+        .or_else(|| args.get("action").and_then(|v| v.as_str()))
         .unwrap_or("")
         .trim();
     if goal.is_empty() {
-        log::warn!("computer tier history: skip record — missing goal on {tool_name}");
+        log::warn!("computer tier history: skip record — no goal/action on {tool_name}");
         return None;
     }
     let action = args
@@ -951,6 +955,42 @@ mod tests {
         let a = ComputerRuntime::fingerprint_goal("Open  Settings");
         let b = ComputerRuntime::fingerprint_goal("open settings");
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn record_falls_back_to_action_when_goal_is_absent() {
+        // 鼠标工具的 schema 现在只有 `action`（`goal` 已并入它）。历史行仍要
+        // 记下来 —— 只认 `goal` 会让每一次点击都从 `[Recent desktop tool calls]`
+        // 里消失，模型下一轮就看不到自己刚做过什么。
+        let vision = VisionState::default();
+        let rec = normalize_tool_record(
+            "mouse_click_at",
+            &serde_json::json!({
+                "target_desc": "按键 9",
+                "bbox": [270, 660, 295, 700],
+                "action": "点击底部键盘的数字 9"
+            }),
+            &vision,
+        )
+        .expect("action alone must still produce a record");
+        assert_eq!(rec.goal, "点击底部键盘的数字 9");
+    }
+
+    #[test]
+    fn record_prefers_goal_when_both_are_present() {
+        // 旧会话/旧 schema 的调用两个字段都在，`goal` 仍是权威值。
+        let vision = VisionState::default();
+        let rec = normalize_tool_record(
+            "mouse_click_at",
+            &serde_json::json!({
+                "bbox": [1, 2, 3, 4],
+                "goal": "打开设置",
+                "action": "click"
+            }),
+            &vision,
+        )
+        .expect("goal present");
+        assert_eq!(rec.goal, "打开设置");
     }
 
     #[test]

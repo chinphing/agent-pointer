@@ -94,7 +94,7 @@ screenshot's real width and height. A raw grid number like `700` is read as
 pixel 700, which on a 1920-wide screen is barely a third of the way across
 instead of where you looked.
 
-**`goal` speaks the user's language; `target_desc` speaks the screen's.** The
-`goal` language follows General rules; `target_desc` is the exception because it
+**`action` speaks the user's language; `target_desc` speaks the screen's.** The
+`action` language follows General rules; `target_desc` is the exception because it
 is compared against on-screen text. A Chinese user driving an English app gets a
-Chinese `goal` and an English `target_desc` in the same call.
+Chinese `action` and an English `target_desc` in the same call.

@@ -583,7 +583,7 @@ mod tests {
         // 滚动没有 target_desc，`action` 是它唯一能拿到手的操作描述。
         assert_eq!(
             params["required"],
-            serde_json::json!(["goal", "action"])
+            serde_json::json!(["action"])
         );
     }
 
@@ -610,7 +610,7 @@ mod tests {
             );
             assert_eq!(
                 params["required"],
-                serde_json::json!(["goal", "action"])
+                serde_json::json!(["action"])
             );
         }
     }

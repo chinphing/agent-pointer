@@ -3,11 +3,9 @@
 key_press:
   type: object
   properties:
-    goal:
-      type: string
     action:
       type: string
-      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
+      description: "What this call is for, one clause, in the user's language — 「打开聊天标题栏的更多菜单」. This is the card title and the anchor verify judges against."
     key:
       type: string
       description: Key name, e.g. enter, tab, escape, up, space, a.
@@ -17,18 +15,15 @@ key_press:
       maximum: 5
   required:
     - key
-    - goal
     - action
   additionalProperties: true
 
 key_down:
   type: object
   properties:
-    goal:
-      type: string
     action:
       type: string
-      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
+      description: "What this call is for, one clause, in the user's language — 「打开聊天标题栏的更多菜单」. This is the card title and the anchor verify judges against."
     key:
       type: string
       description: Key name to hold down until a later key_up.
@@ -38,18 +33,15 @@ key_down:
       maximum: 5
   required:
     - key
-    - goal
     - action
   additionalProperties: true
 
 key_up:
   type: object
   properties:
-    goal:
-      type: string
     action:
       type: string
-      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
+      description: "What this call is for, one clause, in the user's language — 「打开聊天标题栏的更多菜单」. This is the card title and the anchor verify judges against."
     key:
       type: string
       description: Key name to release.
@@ -59,18 +51,15 @@ key_up:
       maximum: 5
   required:
     - key
-    - goal
     - action
   additionalProperties: true
 
 keyboard_type:
   type: object
   properties:
-    goal:
-      type: string
     action:
       type: string
-      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
+      description: "What this call is for, one clause, in the user's language — 「打开聊天标题栏的更多菜单」. This is the card title and the anchor verify judges against."
     text:
       type: string
       description: Text to type into the focused widget with raw key events.
@@ -80,6 +69,5 @@ keyboard_type:
       maximum: 5
   required:
     - text
-    - goal
     - action
   additionalProperties: true

@@ -129,9 +129,9 @@ function keyboardKeys(args: Record<string, unknown>): string {
   return ''
 }
 
-/** `goal` 是必填的，先用它；缺了再退回按键组合 / 文本本身。 */
+/** `action` 是必填的（旧行的字段名是 `goal`）；缺了再退回按键组合 / 文本本身。 */
 function keyboardSummary(args: Record<string, unknown>): string {
-  return strField(args, ['goal']) || keyboardKeys(args) || strField(args, ['text'])
+  return strField(args, ['action', 'goal']) || keyboardKeys(args) || strField(args, ['text'])
 }
 
 export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summary: string } {
@@ -146,17 +146,17 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
     }
   }
   if (base === 'launch_app') {
-    // `goal` 先说「要干什么」，`app` 只是手段。反过来会让工具行显示成
-    // `com.google.Chrome` —— 用户看不到这一步要达成什么。
+    // `action` 先说「要干什么」，`app` 只是手段。反过来会让工具行显示成
+    // `com.google.Chrome` —— 用户看不到这一步要达成什么。`goal` 是旧字段名。
     return {
       label: t('tools.launchApp'),
-      summary: truncateToolSummary(strField(args, ['goal']) || strField(args, ['app']))
+      summary: truncateToolSummary(strField(args, ['action', 'goal']) || strField(args, ['app']))
     }
   }
   if (base === 'list_apps') {
     return {
       label: t('tools.listApps'),
-      summary: truncateToolSummary(strField(args, ['goal']))
+      summary: truncateToolSummary(strField(args, ['action', 'goal']))
     }
   }
   if (base === 'locate_element') {

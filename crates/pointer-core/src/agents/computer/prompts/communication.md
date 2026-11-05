@@ -20,24 +20,24 @@
 
 ## Tool call shape
 
-Every desktop tool call takes **`goal`** (the outcome you want) and
-**`action`** (an optional short verb for routing — not shown to the user).
+Every desktop tool call takes **`action`** — one clause naming what this call is
+for, in the user's language. It is the card title the user reads, and the anchor
+verify judges the before/after frames against.
 Optional **`wait`** (1–5 s) holds the next step back; use the standalone
 **`wait`** tool when you need longer.
 
-`goal` is the card title the user reads. `target_desc` is compared against what
+`action` is the card title the user reads. `target_desc` is compared against what
 the screen shows, so it uses the screen's language:
 
 | Field | Language | Why |
 | --- | --- | --- |
-| `goal` | the user's | shown as the card title |
+| `action` | the user's | shown as the card title; verify's anchor |
 | `target_desc` | the screen's | compared against on-screen text |
-| `action` | either | routing hint only; never shown |
 
-**When the target is one of several identical elements**, `goal` must say which
+**When the target is one of several identical elements**, `action` must say which
 one — `第7行第3格`, `the third row from the top`, `the left panel`. A cell in a
 grid, a row in a list, a field in a form, a tab in a tab bar, a panel in a split
-view: the verifier reads `goal` to decide whether the change landed in the right
+view: the verifier reads `action` to decide whether the change landed in the right
 place, and `点那个空格` gives it nothing to check against.
 
 ## Positioning
@@ -190,7 +190,7 @@ say in your reasoning what the screen showed instead.
 For loading/transfer: prefer **`wait`** before a new trigger when the UI is settling.
 
 **Align Next with verify (reminders):**
-- Pointer over target ≠ business success unless **goal** was reposition-only.
+- Pointer over target ≠ business success unless **action** was reposition-only.
 - **Copy:** schedule **`clipboard_read`** next turn before paste.
   Never **`input_*`** / **`clipboard_write`** from screenshot text when a Copy control exists.
 

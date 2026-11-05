@@ -426,7 +426,7 @@ pub fn default_display_for(raw_name: &str, args: &Value, locale: UiLocale) -> To
                 "key_up" => t(locale, "tools.releaseKey"),
                 _ => t(locale, "tools.typeText"),
             };
-            let summary = str_field(args, &["goal"])
+            let summary = str_field(args, &["action", "goal"])
                 .map(|s| truncate(&s, SUMMARY_MAX))
                 .or_else(|| str_field(args, &["key"]).map(|s| truncate(&s, SUMMARY_MAX)))
                 .unwrap_or_default();
@@ -585,15 +585,16 @@ pub fn default_display_for(raw_name: &str, args: &Value, locale: UiLocale) -> To
         }
         "list_apps" => (
             t(locale, "tools.listApps"),
-            str_field(args, &["goal"])
+            str_field(args, &["action", "goal"])
                 .map(|s| truncate(&s, SUMMARY_MAX))
                 .unwrap_or_default(),
         ),
         "launch_app" => (
             // `app` 只是手段（可能是 bundle id，如 `com.tencent.xinWeChat`），
-            // 优先显示 `goal`（「打开微信」），缺失时才回退到 `app`。
+            // 优先显示 `action`（「打开微信」），缺失时才回退到 `app`。
+            // `goal` 是旧字段名，旧会话的历史行里还在。
             t(locale, "tools.launchApp"),
-            str_field(args, &["goal", "app"])
+            str_field(args, &["action", "goal", "app"])
                 .map(|s| truncate(&s, SUMMARY_MAX))
                 .unwrap_or_default(),
         ),
@@ -920,6 +921,7 @@ mod tests {
     /// 用户想看的是「打开微信」这类目标，所以 summary 优先 `goal`。
     #[test]
     fn launch_app_label_and_goal_summary() {
+        // `action` 是现在的唯一目的字段；两个都在时（旧行）优先 `action`。
         let d = zh(
             "launch_app",
             &json!({
@@ -929,7 +931,19 @@ mod tests {
             }),
         );
         assert_eq!(d.label, "启动应用");
-        assert_eq!(d.summary, "打开微信");
+        assert_eq!(d.summary, "启动微信");
+
+        // 只有 `action`（新 schema 的正常形态）。
+        assert_eq!(
+            zh("launch_app", &json!({"action": "打开微信", "app": "com.tencent.xinWeChat"})).summary,
+            "打开微信"
+        );
+
+        // 只有 `goal`（旧会话的历史行）仍要显示成人话。
+        assert_eq!(
+            zh("launch_app", &json!({"goal": "打开微信", "app": "com.tencent.xinWeChat"})).summary,
+            "打开微信"
+        );
 
         let en = default_display_for(
             "launch_app",

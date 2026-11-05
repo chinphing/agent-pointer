@@ -11,8 +11,6 @@ mouse_click_at:
       minItems: 4
       maxItems: 4
       description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
-    goal:
-      type: string
     action:
       type: string
     button:
@@ -34,7 +32,7 @@ mouse_click_at:
   required:
     - target_desc
     - bbox
-    - goal
+    - action
   additionalProperties: true
 
 mouse_double_click_at:
@@ -50,8 +48,6 @@ mouse_double_click_at:
       minItems: 4
       maxItems: 4
       description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
-    goal:
-      type: string
     action:
       type: string
     wait:
@@ -61,7 +57,7 @@ mouse_double_click_at:
   required:
     - target_desc
     - bbox
-    - goal
+    - action
   additionalProperties: true
 
 mouse_right_click_at:
@@ -77,8 +73,6 @@ mouse_right_click_at:
       minItems: 4
       maxItems: 4
       description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
-    goal:
-      type: string
     action:
       type: string
     wait:
@@ -88,7 +82,7 @@ mouse_right_click_at:
   required:
     - target_desc
     - bbox
-    - goal
+    - action
   additionalProperties: true
 
 move_to:
@@ -104,8 +98,6 @@ move_to:
       minItems: 4
       maxItems: 4
       description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
-    goal:
-      type: string
     action:
       type: string
     wait:
@@ -115,7 +107,7 @@ move_to:
   required:
     - target_desc
     - bbox
-    - goal
+    - action
   additionalProperties: true
 
 mouse_scroll_current:
@@ -131,8 +123,6 @@ mouse_scroll_current:
       minItems: 4
       maxItems: 4
       description: "Panel box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
-    goal:
-      type: string
     action:
       type: string
     notches_x:
@@ -157,15 +147,12 @@ mouse_scroll_current:
       minimum: 1
       maximum: 5
   required:
-    - goal
     - action
   additionalProperties: true
 
 mouse_down:
   type: object
   properties:
-    goal:
-      type: string
     action:
       type: string
     button:
@@ -180,15 +167,12 @@ mouse_down:
       minimum: 1
       maximum: 5
   required:
-    - goal
     - action
   additionalProperties: true
 
 mouse_up:
   type: object
   properties:
-    goal:
-      type: string
     action:
       type: string
     button:
@@ -203,7 +187,6 @@ mouse_up:
       minimum: 1
       maximum: 5
   required:
-    - goal
     - action
   additionalProperties: true
 
@@ -230,8 +213,6 @@ mouse_drag_from_to_at:
       minItems: 4
       maxItems: 4
       description: "Drop point box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
-    goal:
-      type: string
     action:
       type: string
     wait:
@@ -243,5 +224,5 @@ mouse_drag_from_to_at:
     - from_bbox
     - to_target_desc
     - to_bbox
-    - goal
+    - action
   additionalProperties: true

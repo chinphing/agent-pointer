@@ -1226,11 +1226,10 @@ mod openai_tools_schema_tests {
             .iter()
             .find(|t| t["function"]["name"] == "modified_click_select_at")
             .unwrap();
-        assert!(click["function"]["parameters"]["required"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|v| v == "goal"));
+        // `action` 是唯一的目的字段（`goal` 已并入它）。
+        let req = click["function"]["parameters"]["required"].as_array().unwrap();
+        assert!(req.iter().any(|v| v == "action"), "{req:?}");
+        assert!(!req.iter().any(|v| v == "goal"), "{req:?}");
     }
 
     #[test]

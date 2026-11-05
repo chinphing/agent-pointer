@@ -11,7 +11,7 @@ on that target this turn (buttons, toggles, icons, links, menus).
 (`mouse_scroll_current` is the one exception — see its bullet below.)
 
 ```json
-{"target_desc": "Save button on the right of the toolbar", "bbox": [404, 245, 427, 262], "goal": "<what this step achieves, in the user's language>"}
+{"target_desc": "Save button on the right of the toolbar", "bbox": [404, 245, 427, 262], "action": "<what this call is for, one clause, user's language>"}
 ```
 
 - **`target_desc`** — what you want to act on, in words.
@@ -61,7 +61,7 @@ and same-named elements confuse it).
   ```json
   {"from_target_desc": "report.pdf on the desktop", "from_bbox": [62, 278, 99, 333],
    "to_target_desc": "Trash", "to_bbox": [615, 648, 646, 704],
-   "goal": "<what this drag achieves, in the user's language>"}
+   "action": "<what this drag achieves, one clause>"}
   ```
 
 Coordinates are **0–1000 normalized** — see **Locating targets**.

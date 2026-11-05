@@ -1,28 +1,22 @@
 clipboard_read:
   type: object
   properties:
-    goal:
-      type: string
     action:
       type: string
-      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
+      description: "What this call is for, one clause, in the user's language — 「打开聊天标题栏的更多菜单」. This is the card title and the anchor verify judges against."
   required:
-    - goal
     - action
   additionalProperties: true
 
 clipboard_write:
   type: object
   properties:
-    goal:
-      type: string
     action:
       type: string
-      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
+      description: "What this call is for, one clause, in the user's language — 「打开聊天标题栏的更多菜单」. This is the card title and the anchor verify judges against."
     text:
       type: string
   required:
     - text
-    - goal
     - action
   additionalProperties: true

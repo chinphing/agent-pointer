@@ -623,6 +623,12 @@ pub(super) async fn run_single_agent_loop(
         if verify_host_active(&lead_profile)
             && batch_has_desktop_root_tool(&buf.final_tool_calls, state.tools.as_ref())
         {
+            // 本轮校验可能会被跳过（定位失败 → 没点下去），此时 `last_verify`
+            // 还停在上一次成功校验的结论上。不清掉，那张旧结论就会被盖到本轮
+            // 的卡片上，看起来每一步都 pass。
+            state
+                .computer_state
+                .clear_pipeline_last_verify(conversation_id);
             let mut pipeline_usage = PipelineLlmUsageRecorder {
                 stats: &mut ctx.token_session.stats,
                 scope: &ctx.token_session.lead_scope,

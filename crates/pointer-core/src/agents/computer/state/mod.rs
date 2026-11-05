@@ -646,6 +646,20 @@ impl ComputerState {
         )
     }
 
+    /// Drop the cached conclusion before a round's verify runs.
+    ///
+    /// The post-execute card update reads `last_verify`. When this round's verify
+    /// is **skipped** — grounding failed, nothing was clicked — the slot still
+    /// holds the previous round's conclusion, and that stale verdict gets stamped
+    /// onto the new cards. Observed: six consecutive steps all showed the same
+    /// `Verify: pass` text from a click seven minutes earlier, so every card read
+    /// as a success while nothing had actually been executed.
+    pub fn clear_pipeline_last_verify(&self, conversation_id: &str) {
+        let session = self.get_or_create_session(conversation_id);
+        let mut s = session.lock().unwrap();
+        s.pipeline.last_verify = None;
+    }
+
     pub fn apply_pipeline_verify_result(
         &self,
         conversation_id: &str,
@@ -786,6 +800,30 @@ mod tests {
 
     fn make_state() -> ComputerState {
         ComputerState::default_for_test()
+    }
+
+    /// 校验被跳过时，上一轮的结论不能留在槽位里被盖到本轮卡片上。
+    #[test]
+    fn clear_pipeline_last_verify_drops_the_previous_round_conclusion() {
+        use crate::agents::computer::pipeline::types::{ActionResult, VerifyConclusion};
+        let state = make_state();
+        let conv = "conv-clear-last-verify";
+        state.apply_pipeline_verify_result(
+            conv,
+            &VerifyConclusion {
+                action_result: ActionResult::Pass,
+                failure_cause: None,
+                step_summary: Some("上一轮：点标题链接触发了跳转".into()),
+                scroll: None,
+            },
+        );
+        assert!(state.pipeline_context_fields(conv).1.is_some());
+
+        state.clear_pipeline_last_verify(conv);
+        assert!(
+            state.pipeline_context_fields(conv).1.is_none(),
+            "跳过校验的轮次不能拿到上一轮的结论"
+        );
     }
 
     /// The pipeline cache holds exactly one frame: a round stores its after-frame

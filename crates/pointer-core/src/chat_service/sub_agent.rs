@@ -756,6 +756,10 @@ pub(crate) async fn run_sub_agent(
         if verify_host_active(&def.profile)
             && batch_has_desktop_root_tool(&buf.final_tool_calls, state.tools.as_ref())
         {
+            // 同 single_agent：校验被跳过时不能让上一轮的结论冒充本轮。
+            state
+                .computer_state
+                .clear_pipeline_last_verify(conversation_id);
             let mut pipeline_usage = PipelineLlmUsageRecorder {
                 stats: ctx.llm_stats,
                 scope: &instance_scope,

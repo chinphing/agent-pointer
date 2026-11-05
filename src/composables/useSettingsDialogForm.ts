@@ -244,6 +244,44 @@ function createSettingsDialogForm(deps: {
     scheduleDebugModelSave()
   }
 
+  /**
+   * 当前档位上**写过的**思考强度；空串 = 继承。
+   *
+   * 下拉框必须读这个原始值而不是合并后的全局值 —— 否则选完一档，控件
+   * 立刻被全局值填回去，用户看不到自己刚设的东西。
+   */
+  function pipelineTierIntensity(kind: 'locate' | 'locateVerify' | 'verify'): string {
+    const t = pipelineTier(computerTier())
+    const v =
+      kind === 'locate'
+        ? t.locateThinkingIntensity
+        : kind === 'locateVerify'
+          ? t.locateVerifyThinkingIntensity
+          : t.verifyThinkingIntensity
+    return v ?? ''
+  }
+
+  /** 该档位「继承」时实际会用的思考强度：官网档位值优先，其次全局。 */
+  function inheritedPipelineIntensity(kind: 'locate' | 'locateVerify' | 'verify'): string {
+    const tier = platformComputerPipelineTierDefault(
+      s.platformSettings.tierDefaults,
+      computerTier()
+    )
+    const global = computerPipelineLlm()
+    const v =
+      (kind === 'locate'
+        ? tier.locateThinkingIntensity
+        : kind === 'locateVerify'
+          ? tier.locateVerifyThinkingIntensity
+          : tier.verifyThinkingIntensity) ??
+      (kind === 'locate'
+        ? global.locateThinkingIntensity
+        : kind === 'locateVerify'
+          ? global.locateVerifyThinkingIntensity
+          : global.verifyThinkingIntensity)
+    return v ?? ''
+  }
+
   /** 「继承」选项上显示的值：这个档位没配时，实际会用哪个。 */
   function inheritedPipelineLabel(kind: 'locate' | 'locateVerify' | 'verify'): string {
     // 官网按档位下发过的值，运行时会盖掉全局 —— 标签必须跟着说真话。
@@ -1207,6 +1245,8 @@ function createSettingsDialogForm(deps: {
     computerTier,
     pipelineTier,
     patchPipelineTier,
+    pipelineTierIntensity,
+    inheritedPipelineIntensity,
     inheritedPipelineLabel,
     computerPipelineVerifyValue,
     computerPipelineLocateValue,

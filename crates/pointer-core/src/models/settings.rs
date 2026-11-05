@@ -2618,9 +2618,17 @@ where
 {
     use serde::Deserialize;
     let raw = Option::<serde_json::Value>::deserialize(deserializer)?;
-    Ok(raw.and_then(|v| match v {
+    Ok(raw.and_then(|v| normalize_thinking_intensity(&v)))
+}
+
+/// 归一思考强度：合法字符串按枚举规范化，数字按预算折算；非法值 → `None`
+/// （= 跟随），而不是静默关掉某个阶段。
+///
+/// 反序列化路径和官网下发路径共用这一份，避免两处判断漂移。
+fn normalize_thinking_intensity(v: &serde_json::Value) -> Option<String> {
+    match v {
         serde_json::Value::String(s) => {
-            crate::thinking_strategy::ThinkingIntensity::parse(&s).map(|i| i.as_str().to_string())
+            crate::thinking_strategy::ThinkingIntensity::parse(s).map(|i| i.as_str().to_string())
         }
         serde_json::Value::Number(n) => n.as_u64().map(|b| {
             crate::thinking_strategy::intensity_from_budget(b.min(u32::MAX as u64) as u32)
@@ -2628,7 +2636,7 @@ where
                 .to_string()
         }),
         _ => None,
-    }))
+    }
 }
 
 /// In-memory platform configuration. Only session-scoped / sensitive fields
@@ -3437,11 +3445,9 @@ fn fill_tier_slot(
         }
     }
     if thinking.is_none() {
-        if let Some(raw) = v.get("thinkingIntensity").and_then(|t| t.as_str()) {
-            let t = raw.trim().to_lowercase();
-            if !t.is_empty() {
-                *thinking = Some(t);
-            }
+        if let Some(v) = v.get("thinkingIntensity") {
+            // 与反序列化同一套归一：非法值落回 None（继承），不会把阶段静默关掉。
+            *thinking = normalize_thinking_intensity(v);
         }
     }
 }
@@ -5474,7 +5480,13 @@ mod web_search_tier_default_tests {
                             "thinkingIntensity": "High"
                         }
                     },
-                    "fast": { "locate": { "providerId": "qwen", "model": "fast-locate" } }
+                    "fast": {
+                        "locate": {
+                            "providerId": "qwen",
+                            "model": "fast-locate",
+                            "thinkingIntensity": "turbo"
+                        }
+                    }
                 }
             }
         });
@@ -5496,6 +5508,15 @@ mod web_search_tier_default_tests {
         );
         // 顶层全局槽位不是档位，不能被当成 mode 塞进 by_tier。
         assert!(!s.computer_pipeline_llm.by_tier.contains_key("locate"));
+        // 非法强度落回「继承」，不会把阶段静默关掉。
+        assert_eq!(
+            s.computer_pipeline_llm
+                .by_tier
+                .get("fast")
+                .unwrap()
+                .locate_thinking_intensity,
+            None
+        );
     }
 }
 

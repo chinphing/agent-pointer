@@ -31,6 +31,13 @@ function inheritLabel(kind: 'locate' | 'locateVerify' | 'verify', base: string):
   return v ? `${base}（${v}）` : base
 }
 
+/** 思考强度下拉的「继承」项：显示该档位继承到的实际强度。 */
+function intensityInheritLabel(kind: 'locate' | 'locateVerify' | 'verify'): string {
+  const base = t('settings.agentPanel.inheritGlobal')
+  const v = props.form.inheritedPipelineIntensity(kind)
+  return v ? `${base}（${v}）` : base
+}
+
 function setIntensity(phase: 'locate' | 'verify' | 'locateVerify', value: string) {
   const intensity = (value || undefined) as never
   if (phase === 'locateVerify') {
@@ -45,7 +52,7 @@ function setIntensity(phase: 'locate' | 'verify' | 'locateVerify', value: string
 }
 
 function locateVerifyIntensity(): string {
-  return props.form.computerPipelineLlm().locateVerifyThinkingIntensity ?? ''
+  return props.form.pipelineTierIntensity('locateVerify')
 }
 
 // 媒体列「更多」：联网搜索等工具档位（非子智能体，与左侧 explore 入口对称）
@@ -83,6 +90,7 @@ const {
   computerPipelineVerifyValue,
   computerPipelineLocateVerifyValue,
   computerPipelineLlm,
+  pipelineTierIntensity,
   selectComputerPipelineLocate,
   selectComputerPipelineVerify,
   selectComputerPipelineLocateVerify,
@@ -386,10 +394,11 @@ const {
                   <option v-for="item in s.allModels" :key="'locate-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                 </select>
                 <select
-                  :value="computerPipelineLlm().locateThinkingIntensity ?? 'off'"
+                  :value="pipelineTierIntensity('locate')"
                   class="h-8 w-[4.5rem] shrink-0 px-1.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                   @change="setIntensity('locate', ($event.target as HTMLSelectElement).value)"
                 >
+                  <option value="">{{ intensityInheritLabel('locate') }}</option>
                   <option v-for="opt in THINKING_OPTIONS" :key="'locate-t-' + opt.value" :value="opt.value">{{ opt.label }}</option>
                 </select>
               </div>
@@ -410,10 +419,11 @@ const {
                   <option v-for="item in s.allModels" :key="'verify-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                 </select>
                 <select
-                  :value="computerPipelineLlm().verifyThinkingIntensity ?? 'off'"
+                  :value="pipelineTierIntensity('verify')"
                   class="h-8 w-[4.5rem] shrink-0 px-1.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                   @change="setIntensity('verify', ($event.target as HTMLSelectElement).value)"
                 >
+                  <option value="">{{ intensityInheritLabel('verify') }}</option>
                   <option v-for="opt in THINKING_OPTIONS" :key="'verify-t-' + opt.value" :value="opt.value">{{ opt.label }}</option>
                 </select>
               </div>
@@ -438,7 +448,7 @@ const {
                   class="h-8 w-[4.5rem] shrink-0 px-1.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                   @change="setIntensity('locateVerify', ($event.target as HTMLSelectElement).value)"
                 >
-                  <option value="">{{ t('settings.agentPanel.locateVerifyInherit') }}</option>
+                  <option value="">{{ intensityInheritLabel('locateVerify') }}</option>
                   <option v-for="opt in THINKING_OPTIONS" :key="'locate-verify-t-' + opt.value" :value="opt.value">{{ opt.label }}</option>
                 </select>
               </div>

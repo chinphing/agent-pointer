@@ -378,3 +378,104 @@ verify 的范围——但它说明这 3 条在基线里是**恒定失分项**，
 
 旧口径下同一批修好的数据是 90/104 = 86.5 %，与本次 hint 的 88.1 % 同一量级，
 差异来自模型侧波动（本次三遍极差就有 5 条）。
+
+## 2026-11-06 — glm-5.3-flash / glm-5.3-flashx 首次 hint 基线（思考档位对照）
+
+**提交**：`2ef80a6b`（工作区干净）
+**模型**：`glm-5.3-flash`、`glm-5.3-flashx`
+**供应商**：`zhipu` / `https://open.bigmodel.cn/api/paas/v4`（本机 `user_settings.json`
+的 `zhipu` 条目，key 是 `enc:v1:` 密文，harness 就地解密）
+**数据**：`POINTER_E2E_SPLIT=sudoku`，104 条
+**模式**：`POINTER_E2E_MODE=hint`，`POINTER_E2E_BBOX_UNIT=pixel`，并发 8
+**提示词**：**完整臂**（`[system] 4 block(s), total 37105 chars`），没有设
+`POINTER_E2E_MINIMAL_PROMPT`——与 qwen 基线同口径，与 kimi 那次 100 %（精简臂 423 字符）**不可比**
+
+### 先说结论：GLM 的思考档位是个坑
+
+harness 对非 deepseek 后端默认 `thinkingProtocol: budget`，发的是 Qwen 的
+`enable_thinking` + `thinking_budget`。**智谱不认这两个字段，直接忽略**——也就是
+「不设档位」那批跑的是智谱服务端默认，客户端没控制任何东西。
+
+要用正确的字段得加 `POINTER_LOCATE_THINKING_PROTOCOL=glm`（`thinking_strategy.rs`
+把 `zhipu` / `bigmodel.cn` / `api.z.ai` 推断成 `OpenaiEffort`，发顶层
+`reasoning_effort`）。逐档实测智谱的接受度：
+
+| UI 档位 | 我们发的值 | 智谱结果 |
+|---|---|---|
+| 关 | `none` | ❌ 400 |
+| 低 | `low` | ✅ |
+| 中 | `medium` | ❌ 400 |
+| 高 | `high` | ✅ |
+| 最高 | `xhigh` | ❌ 400（智谱要的是 `max`，我们发的是 OpenAI 的叫法） |
+
+报错原文：
+
+```json
+{"error":{"code":"1210","message":"该模型始终思考，不支持关闭思考；请使用 low、high 或 max。"}}
+```
+
+**glm-5.3-flash 只接受 low / high / max 三档，`off` 和 `medium` 用不了。**
+而 `settings.rs` 里 `PIPELINE_THINKING_INTENSITY_LOCATE` 和 `_VERIFY` 的默认值都是
+`"off"`——**把定位模型配成 glm 时，每次定位都会发 `reasoning_effort: "none"` 然后 400。**
+这一条尚未修，先记录。
+
+另外 `glm-5.3` 和 `glm-5.2` **不支持图片**：
+`messages.content.type 参数非法，取值范围 ['text']`——纯文本模型，做不了截图任务，
+只有 `glm-5.3-flash` 可用。
+
+### 数字
+
+**默认档（未发 `reasoning_effort`，智谱服务端自己定）**
+
+| 模型 | #1 | #2 | 均值 | 超时 | 真错 |
+|---|---:|---:|---:|---:|---:|
+| glm-5.3-flash | 94.2 % (98/104) | 96.2 % (100/104) | **95.2 %** | 4 / 2 | 2 / 2 |
+| glm-5.3-flashx | 85.6 % (89/104) | 86.5 % (90/104) | 86.1 % | 13 / 10 | 2 / 4 |
+
+**low 档（`POINTER_LOCATE_THINKING_PROTOCOL=glm` + `POINTER_E2E_THINKING_BUDGET=1024`）**
+
+| 模型 | #1 | #2 | 均值 | 超时 | 真错 | hint 耗时 |
+|---|---:|---:|---:|---:|---:|---:|
+| glm-5.3-flash | 78.8 % (82/104) | 85.6 % (89/104) | 82.2 % | 1 / 0 | 21 / 15 | 9.3 / 7.6 s |
+| glm-5.3-flashx | 84.6 % (88/104) | 86.5 % (90/104) | **85.6 %** | 0 / 0 | 16 / 14 | 4.7 / 4.3 s |
+
+### 读数注意
+
+1. **默认档的耗时（33–44 s）不能当模型速度用**——里面混着服务端排队。同一条 case
+   连跑三次：flash 9.2 / **41.6** / 6.7 s，三条的 reasoning 长度相当，41.6 s 是排队不是思考。
+   low 档两批 0–1 次超时，耗时是干净的。
+2. **默认档的「档位」是未知量**。智谱给了什么级别没记录在响应里，所以
+   「默认 95.2 % vs low 82.2 %」只能说明默认比 low 强，不能反推它等于我们哪一档。
+3. **flash 靠思考吃饭，flashx 不靠**：flash 默认→low 掉 **13 pp**；flashx 只掉 0.5 pp
+   （噪声内）。所以 low 档下 flashx 反超（85.6 % vs 82.2 %）且快一倍。
+4. 掉精度集中在**中等尺寸（40–120 px）**那一档：flash low 第 2 次 86/101 = 85.1 %，
+   小/大两档全中。棋盘格子那一档就是 40–120 px。
+5. 单例对照（low 档，3 个不同 case，排除前缀缓存）：flash 5.1 / 8.1 / 8.8 s（均值 7.3），
+   flashx 2.6 / 4.6 / 7.2 s（均值 4.8），**约 1.5×**。同一 case 重复跑会出现 4× 的假差距
+   （flashx 2.2 / 2.5 / 2.6 s），那是前缀缓存。
+
+### 与 qwen 基线对比（同口径：完整提示词 / sudoku 104 / hint / 并发 8）
+
+| 模型 | 思考档 | 命中均值 | 单例耗时 |
+|---|---|---:|---:|
+| glm-5.3-flash | 默认 | **95.2 %** | 未知（含排队） |
+| glm-5.3-flash | low | 82.2 % | 8.5 s |
+| glm-5.3-flashx | low | 85.6 % | **4.5 s** |
+| qwen3.8-flash | 默认 | 70.2 %（八次 66.3–73.1） | 8–10 s |
+
+qwen 八次的标准差约 2.7 pp，**三次一组的采样分辨不了 4 pp 的差异**，所以只有
+「glm 默认档 95 %」和「qwen 70 %」这种量级的差距是可信的。
+
+### 复现命令
+
+```bash
+K=$(grep '^POINTER_LOCATE_API_KEY=' /tmp/glm.env | cut -d= -f2-)   # enc:v1: 密文
+POINTER_LOCATE_BASE_URL=https://open.bigmodel.cn/api/paas/v4 \
+POINTER_LOCATE_API_KEY="$K" POINTER_LOCATE_MODEL=glm-5.3-flash \
+POINTER_LOCATE_THINKING_PROTOCOL=glm POINTER_E2E_THINKING_BUDGET=1024 \
+POINTER_E2E_MODE=hint POINTER_E2E_BBOX_UNIT=pixel \
+POINTER_E2E_CONCURRENCY=8 POINTER_E2E_SPLIT=sudoku \
+cargo test --release -p pointer-core --test full_chain full_chain_grounding -- --ignored --nocapture
+```
+
+去掉 `POINTER_LOCATE_THINKING_PROTOCOL=glm` 就是「默认档」（Qwen 字段被智谱忽略）。

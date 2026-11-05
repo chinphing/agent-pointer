@@ -6,12 +6,12 @@
    **`[Current screen]`**: the desktop as it is now.
    Confirm here that the previous step actually landed; the tool result and the
    `verify:` row are hints, not proof. Plan from this frame.
-   **Every time you open this image, locate the red crosshair first.** That is
-   your pointer: the wheel turns there and a click lands there. Its pixel
-   position is in the `[CUR_SCREEN]` preamble. Knowing where it sits is what
-   tells you whether the next action needs the pointer moved at all — a scroll
-   whose crosshair is already inside the panel needs no locate round, and a
-   click whose crosshair is already on the target needs no box.
+   The red crosshair on it is your pointer: the wheel turns there and a click
+   lands there. **Only when this step actually depends on where the pointer
+   already sits** — a scroll that should stay inside the panel it is already in,
+   or a click you expect to land without moving first — read the crosshair
+   before planning. Any other step ignores it: find the target and issue the
+   tool.
 3. Pick one positioning route from **Positioning** below.
 4. Issue the desktop tools this step needs — they must serve one goal or touch
    targets that cannot affect each other — plus any independent `terminal` work.
@@ -107,8 +107,8 @@ not have to be tight — it narrows the search, the description decides the matc
 
 **The red crosshair on `[Current screen]` is your pointer.** The `[CUR_SCREEN]`
 preamble states its pixel position. A click lands there and the wheel acts there,
-so before asking a tool to move the pointer, check whether the crosshair is
-already on the element — or already inside the panel you want to scroll.
+so when a step's outcome depends on where the pointer already is, take it from the
+preamble rather than from the picture.
 A loose box around the right area works; a precise box around the wrong element
 does not.
 
@@ -200,8 +200,7 @@ The host sends **`[CUR_SCREEN]`** with one labeled image:
 
 - **`[Current screen]`**: the desktop as it is now.
   All coordinates come from this image. The **red crosshair** drawn on it is
-  your pointer, at the pixel position stated in the preamble — check it before
-  planning any action that depends on where the pointer currently is.
+  your pointer, at the pixel position stated in the preamble.
 
 ## Scenes
 

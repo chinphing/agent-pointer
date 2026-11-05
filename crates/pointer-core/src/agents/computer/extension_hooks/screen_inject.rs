@@ -111,19 +111,22 @@ pub fn build_cur_screen_preamble(
             format!(
                 "The red crosshair on it is **your mouse pointer**, at ({x}, {y}) in these pixels — \
                  wheel events and clicks land exactly there, and any panel the crosshair already \
-                 sits in can be scrolled without asking the tool to move the pointer first."
+                 sits in can be scrolled without asking the tool to move the pointer first. "
             )
         }
         Some(_) => "The pointer is currently on **another monitor**, so it is not in this \
-                    screenshot — nothing to look for here."
+                    screenshot — nothing to look for here. "
             .to_string(),
-        None => "A red crosshair on it marks **your mouse pointer** when it is on this monitor."
-            .to_string(),
+        // Pointer position unknown: say nothing about a crosshair. The image has
+        // none drawn, so describing one sends the model looking for a mark that
+        // is not there — the eval harness passes `None`, which turned every hint
+        // measurement into "find the crosshair that isn't in this picture".
+        None => String::new(),
     };
     format!(
         "{CUR_SCREEN_TAG} Labeled image this turn: {SLOT_SCREEN_CURRENT}. This screenshot is \
          {w}×{h} pixels — use these dimensions for the `bbox` conversion described in \
-         **Locating targets**. {crosshair} {cite} \
+         **Locating targets**. {crosshair}{cite} \
          **Verify:** host records outcomes on history rows — read the `verify:` suffix on `[Recent desktop tool calls]`.\n",
         w = cap.monitor.width.max(1),
         h = cap.monitor.height.max(1),
@@ -526,9 +529,14 @@ mod tests {
 
     /// 拿不到指针时也要说清十字星是什么，只是不编坐标。
     #[test]
-    fn preamble_still_explains_the_crosshair_without_a_pointer() {
+    fn preamble_says_nothing_about_a_crosshair_without_a_pointer() {
+        // No pointer known → no crosshair is drawn. Describing one anyway is a
+        // false statement about the image, and the model spends its attention
+        // hunting for it (this is exactly what the eval harness hit: it passes
+        // `None`, so every measured hint was told to find a crosshair that the
+        // fixture image never had).
         let t = build_cur_screen_preamble(&sample_cap(), None);
-        assert!(t.contains("red crosshair"), "{t}");
+        assert!(!t.contains("crosshair"), "{t}");
         assert!(!t.contains("(615, 380)"), "{t}");
     }
 

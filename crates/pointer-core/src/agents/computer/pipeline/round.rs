@@ -9,7 +9,7 @@ use crate::agents::computer::pipeline::operation::{
     format_operation_summary, operation_family_for_tool, OperationFamily,
 };
 use crate::agents::computer::pipeline::types::{
-    PipelineLlmUsageRecorder, VerifyConclusion, VerifyModuleOutput,
+    PipelineLlmUsageRecorder, ScrollAxis, ScrollMeasurement, VerifyConclusion, VerifyModuleOutput,
 };
 use crate::agents::computer::pipeline::vision_pack::{
     build_verify_wire_messages, wire_messages_debug_text, VerifyWireInput,
@@ -465,17 +465,40 @@ fn write_action_verify_sidecar(
         round_seq,
         msg_seq,
         "action_verify",
-        &serde_json::json!({
-            "operation": operation_text,
-            "tool_result": tool_result,
-            "verify": {
-                "action_result": format!("{:?}", conclusion.action_result),
-                "failure_cause": conclusion.failure_cause.as_ref().map(|c| format!("{c:?}")),
-                "step_summary": conclusion.step_summary,
-            },
-            "pointer": pointer.map(|(x, y)| [x, y]),
-        }),
+        &action_verify_sidecar_payload(operation_text, tool_result, conclusion, pointer),
     );
+}
+
+/// 落盘内容。拆成纯函数是为了能测 —— 这个文件是评测集的唯一原料，少一个
+/// 字段就得靠正则从散文里抠（`pointer-eval/scripts/build_scroll_set.py`）。
+fn action_verify_sidecar_payload(
+    operation_text: &str,
+    tool_result: Option<&str>,
+    conclusion: &VerifyConclusion,
+    pointer: Option<(i32, i32)>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "operation": operation_text,
+        "tool_result": tool_result,
+        "verify": {
+            "action_result": format!("{:?}", conclusion.action_result),
+            "failure_cause": conclusion.failure_cause.as_ref().map(|c| format!("{c:?}")),
+            "step_summary": conclusion.step_summary,
+            // 滚动族的位移。不落的话下游只能拿正则从 `step_summary` 的
+            // 「moved ~1.2 target-heights」里抠 —— 措辞一改就断，中文摘要
+            // 更是完全抓不到。
+            "scroll": conclusion.scroll.map(|m| serde_json::json!({
+                // f32 → f64 会带出 1.2000000476837158 这种尾巴，落盘时收三位。
+                "moved": (f64::from(m.fraction) * 1000.0).round() / 1000.0,
+                "axis": match m.axis {
+                    ScrollAxis::Vertical => "vertical",
+                    ScrollAxis::Horizontal => "horizontal",
+                },
+                "past_panel": m.past_panel,
+            })),
+        },
+        "pointer": pointer.map(|(x, y)| [x, y]),
+    })
 }
 
 struct VerifyOnceBundle {
@@ -567,6 +590,49 @@ pub fn verify_outcome_struct(conclusion: &VerifyConclusion) -> VerifyOutcome {
 
 #[cfg(test)]
 mod tests {
+    use super::action_verify_sidecar_payload;
+    use crate::agents::computer::pipeline::types::{
+        ActionResult, ScrollAxis, ScrollMeasurement, VerifyConclusion,
+    };
+
+    fn scroll_conclusion(past_panel: bool) -> VerifyConclusion {
+        VerifyConclusion {
+            action_result: ActionResult::Pass,
+            failure_cause: None,
+            step_summary: Some("中间聊天消息区域: 越过一整屏".into()),
+            scroll: Some(ScrollMeasurement {
+                fraction: 1.2,
+                axis: ScrollAxis::Vertical,
+                past_panel,
+            }),
+        }
+    }
+
+    /// 滚动位移必须落盘。缺了它，评测集只能靠正则从 `step_summary` 的散文里
+    /// 抠数字 —— 措辞一改就断，中文摘要更是抓不到。
+    #[test]
+    fn sidecar_keeps_the_scroll_measurement() {
+        let v = action_verify_sidecar_payload("tool=mouse_scroll_current", None, &scroll_conclusion(true), Some((615, 355)));
+        let sc = &v["verify"]["scroll"];
+        assert_eq!(sc["moved"], 1.2);
+        assert_eq!(sc["axis"], "vertical");
+        assert_eq!(sc["past_panel"], true);
+        assert_eq!(v["pointer"], serde_json::json!([615, 355]));
+    }
+
+    /// 非滚动族不该凭空多出 `scroll` 字段 —— 下游按 `null` 判断「不是滚动」。
+    #[test]
+    fn sidecar_omits_scroll_for_other_families() {
+        let conclusion = VerifyConclusion {
+            action_result: ActionResult::Pass,
+            failure_cause: None,
+            step_summary: Some("按钮: 已点击".into()),
+            scroll: None,
+        };
+        let v = action_verify_sidecar_payload("tool=mouse_click_at", None, &conclusion, None);
+        assert!(v["verify"]["scroll"].is_null(), "{v}");
+    }
+
     use super::*;
 
     #[test]

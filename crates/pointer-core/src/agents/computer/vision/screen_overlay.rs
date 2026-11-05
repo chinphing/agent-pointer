@@ -49,7 +49,7 @@ pub const BEFORE_POINTER_ZOOM_FACTOR: u32 = ZOOM_POINTER_MAGNIFY_FACTOR;
 /// 指针标记的尺寸**按图宽取比例**，不写死像素。
 ///
 /// 参照点：模型看的 `[Current screen]` 实测 1512 px 宽（Retina 逻辑分辨率），
-/// 正文一行约 14–18 px。臂长取 10 px → 整个标记跨度 20 px，约一行高。
+/// 正文一行约 14–18 px。臂长 18 px → 整个标记跨度 37 px。
 ///
 /// 不照抄 locate 的 24 px：那张图 2444 px 宽，像素值搬过来就是 1.6 倍粗，
 /// 直接糊住一行文字。像素值不可移植，可移植的只有比例。
@@ -59,7 +59,7 @@ const POINTER_CROSS_ARM_SHARE_OF_WIDTH: f64 = 18.0 / 1512.0;
 const POINTER_CROSS_ARM_MIN_PX: i32 = 10;
 /// 比例照抄 verify 的实测值（拿 `Mark::CrossWithTolerance` 渲染真图量出来的）：
 ///
-/// - 环直径 / 臂跨度 ≈ 0.65  →  环半径 = 臂 × 0.65
+/// - 环半径 = 臂 × 0.45（比 verify 的 0.57 再小一档 —— 圈大会把中心压住）
 /// - 线宽 / 半臂长 ≈ 1/9     →  芯半宽 = 臂 × 0.055
 /// - 白边 = 芯半宽 × 0.72
 ///
@@ -67,7 +67,7 @@ const POINTER_CROSS_ARM_MIN_PX: i32 = 10;
 /// 不会出现「十字粗了、环小了」这种比例漂移。
 const POINTER_CROSS_CORE_OF_ARM: f64 = 0.055;
 const POINTER_CROSS_HALO_OF_CORE: f64 = 0.72;
-const POINTER_CROSS_RING_OF_ARM: f64 = 0.65;
+const POINTER_CROSS_RING_OF_ARM: f64 = 0.45;
 
 /// `(臂长, 芯半宽, 白边宽, 环半径)` —— 后三项都是臂长的倍数，不做整数取整，
 /// 取整放在绘制时按像素边界做，避免小尺寸下比例被放大。
@@ -378,7 +378,7 @@ mod tests {
             let (arm, core, halo, ring) = pointer_crosshair_geometry(w);
             assert!((core / arm - 0.055).abs() < 1e-9, "w={w} 芯臂比漂移");
             assert!((halo / core - 0.72).abs() < 1e-9, "w={w} 白边比漂移");
-            assert!((ring / arm - 0.65).abs() < 1e-9, "w={w} 环臂比漂移");
+            assert!((ring / arm - 0.45).abs() < 1e-9, "w={w} 环臂比漂移");
         }
     }
 

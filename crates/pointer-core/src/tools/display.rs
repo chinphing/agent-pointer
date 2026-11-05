@@ -590,10 +590,11 @@ pub fn default_display_for(raw_name: &str, args: &Value, locale: UiLocale) -> To
                 .unwrap_or_default(),
         ),
         "launch_app" => (
+            // `app` 只是手段（可能是 bundle id，如 `com.tencent.xinWeChat`），
+            // 优先显示 `goal`（「打开微信」），缺失时才回退到 `app`。
             t(locale, "tools.launchApp"),
-            str_field(args, &["app"])
+            str_field(args, &["goal", "app"])
                 .map(|s| truncate(&s, SUMMARY_MAX))
-                .or_else(|| str_field(args, &["goal"]).map(|s| truncate(&s, SUMMARY_MAX)))
                 .unwrap_or_default(),
         ),
         "cron_job" => {
@@ -915,14 +916,41 @@ mod tests {
         assert_eq!(en.label, "Mouse · Hover");
     }
 
+    /// `app` 可能只是手段（显示名 / bundle id / 可执行文件名），
+    /// 用户想看的是「打开微信」这类目标，所以 summary 优先 `goal`。
     #[test]
-    fn launch_app_label_and_app_summary() {
+    fn launch_app_label_and_goal_summary() {
         let d = zh(
             "launch_app",
-            &json!({"goal": "打开微信", "app": "WeChat", "action": "启动微信"}),
+            &json!({
+                "goal": "打开微信",
+                "app": "com.tencent.xinWeChat",
+                "action": "启动微信"
+            }),
         );
         assert_eq!(d.label, "启动应用");
-        assert_eq!(d.summary, "WeChat");
+        assert_eq!(d.summary, "打开微信");
+
+        let en = default_display_for(
+            "launch_app",
+            &json!({"goal": "open WeChat", "app": "com.tencent.xinWeChat"}),
+            UiLocale::En,
+        );
+        assert_eq!(en.label, "Launch app");
+        assert_eq!(en.summary, "open WeChat");
+    }
+
+    /// 没有 `goal`（或 `goal` 为空白）时退回 `app`，不要显示空摘要。
+    #[test]
+    fn launch_app_falls_back_to_app_without_goal() {
+        assert_eq!(
+            zh("launch_app", &json!({"app": "com.tencent.xinWeChat"})).summary,
+            "com.tencent.xinWeChat"
+        );
+        assert_eq!(
+            zh("launch_app", &json!({"goal": "   ", "app": "WeChat"})).summary,
+            "WeChat"
+        );
     }
 
     #[test]

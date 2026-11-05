@@ -493,7 +493,16 @@ fn build_provider(thinking: bool) -> Result<OpenAIProvider> {
         // Match the computer tier defaults (`session_model.rs`: budget 1024,
         // i.e. "low"). Leaving it unset makes `resolve_thinking_intensity`
         // return Medium (2048), which is not what production sends.
-        settings.round_thinking_budget = Some(1024);
+        //
+        // Override with `POINTER_E2E_THINKING_BUDGET` to test whether the main
+        // LLM is being starved: a 9×9 grid needs column arithmetic, and 1024
+        // tokens may cut the reasoning off mid-count.
+        settings.round_thinking_budget = Some(
+            std::env::var("POINTER_E2E_THINKING_BUDGET")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1024),
+        );
         // Diagnostic: `enable_thinking` only reaches the wire through
         // `extraBody`, so print what the request will actually carry. A silent
         // "thinking is on" that never lands in the body would make every hint

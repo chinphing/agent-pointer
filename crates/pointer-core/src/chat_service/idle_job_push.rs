@@ -23,13 +23,29 @@ use crate::stream_broadcast;
 
 use super::job_supervisor::IdlePushItem;
 
+/// 初次去抖：一个 job 结束后先等这么久，把同时结束的几次合并成一轮。
 const DEBOUNCE: Duration = Duration::from_millis(500);
+/// 等待 lead 变闲时的退避上限。
+///
+/// 没有上限之前是拿 `DEBOUNCE` 当重试间隔 —— 每 500 ms 一次、每次一行
+/// `info!`，实测一次会话刷出 1337 行、11 分钟不停，并且每 tick 还要查一次
+/// `runs_list_non_terminal_for_conversation`。
+const BACKOFF_MAX: Duration = Duration::from_secs(30);
 const INTERNAL_LABEL: &str = "idle_job_push";
+
+/// 第 `attempt` 次重试前等多久：500ms → 1s → 2s → 4s → 8s → 16s → 30s 封顶。
+fn backoff_delay(attempt: u32) -> Duration {
+    let ms = DEBOUNCE.as_millis() as u64 * (1u64 << attempt.min(6));
+    Duration::from_millis(ms).min(BACKOFF_MAX)
+}
 
 #[derive(Clone)]
 struct IdleJobPush {
     dispatcher: RunDispatcher,
     gens: Arc<Mutex<HashMap<String, u64>>>,
+    /// 当前连续 defer 次数，按会话记。用来算退避，也用来决定「这一轮
+    /// 的等待只打一条 info」—— 后续重试降到 debug，日志不再刷屏。
+    deferrals: Arc<Mutex<HashMap<String, u32>>>,
 }
 
 impl IdleJobPush {
@@ -37,10 +53,15 @@ impl IdleJobPush {
         Self {
             dispatcher,
             gens: Arc::new(Mutex::new(HashMap::new())),
+            deferrals: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     fn schedule(&self, conversation_id: String) {
+        self.schedule_after(conversation_id, DEBOUNCE);
+    }
+
+    fn schedule_after(&self, conversation_id: String, delay: Duration) {
         if conversation_id.trim().is_empty() {
             return;
         }
@@ -58,12 +79,25 @@ impl IdleJobPush {
             return;
         };
         handle.spawn(async move {
-            tokio::time::sleep(DEBOUNCE).await;
+            tokio::time::sleep(delay).await;
             if this.gens.lock().get(&conversation_id).copied() != Some(gen) {
                 return;
             }
             this.try_flush(&conversation_id).await;
         });
+    }
+
+    /// 记一次 defer，返回**本次之前**已经连续 defer 过几次（0 = 刚开始等）。
+    fn note_deferral(&self, conversation_id: &str) -> u32 {
+        let mut deferrals = self.deferrals.lock();
+        let slot = deferrals.entry(conversation_id.to_string()).or_insert(0);
+        let attempt = *slot;
+        *slot = slot.saturating_add(1);
+        attempt
+    }
+
+    fn clear_deferral(&self, conversation_id: &str) {
+        self.deferrals.lock().remove(conversation_id);
     }
 
     fn lead_busy(&self, conversation_id: &str) -> bool {
@@ -93,15 +127,40 @@ impl IdleJobPush {
     }
 
     async fn try_flush(&self, conversation_id: &str) {
+        let state = self.dispatcher.app_state();
+        // 先问「还有东西要推吗」，再问「lead 忙不忙」。
+        //
+        // 顺序很关键：defer 过一次之后，队列可能早就空了（被 `job.await`
+        // 认领走，或者本来就是别的会话的），此时再排定时器就是空转 ——
+        // 旧代码把重排写在认领检查之前，只要 lead 一直忙就 2 Hz 转下去。
+        // `has_pushable` 是只读的，`claim_pushable` 会顺带认领，不能拿来当
+        // 这个判断。
+        if !state.jobs.has_pushable(conversation_id) {
+            self.clear_deferral(conversation_id);
+            return;
+        }
         if self.lead_busy(conversation_id) {
-            log::info!("idle_job_push: defer; lead busy conversation_id={conversation_id}");
+            let attempt = self.note_deferral(conversation_id);
+            let delay = backoff_delay(attempt);
+            if attempt == 0 {
+                log::info!(
+                    "idle_job_push: defer; lead busy conversation_id={conversation_id} \
+                     (retrying with backoff up to {}s)",
+                    BACKOFF_MAX.as_secs()
+                );
+            } else {
+                log::debug!(
+                    "idle_job_push: still deferring conversation_id={conversation_id} \
+                     attempt={attempt} next_in={delay:?}"
+                );
+            }
             // Job finish may race lead teardown. Reschedule so a deferred claim
             // still flushes once the lead is idle (do not rely only on the next
             // job finish or on_run_finished).
-            self.schedule(conversation_id.to_string());
+            self.schedule_after(conversation_id.to_string(), delay);
             return;
         }
-        let state = self.dispatcher.app_state();
+        self.clear_deferral(conversation_id);
         let items = state.jobs.claim_pushable(conversation_id);
         if items.is_empty() {
             return;
@@ -330,6 +389,29 @@ impl OnRunCancelledHook for IdleJobPushHook {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backoff_starts_at_the_debounce_and_caps() {
+        assert_eq!(backoff_delay(0), DEBOUNCE);
+        assert_eq!(backoff_delay(1), Duration::from_secs(1));
+        assert_eq!(backoff_delay(2), Duration::from_secs(2));
+        assert_eq!(backoff_delay(3), Duration::from_secs(4));
+        assert_eq!(backoff_delay(6), BACKOFF_MAX);
+        // 溢出保护：一直等下去也不能 panic 或回绕成 0
+        assert_eq!(backoff_delay(u32::MAX), BACKOFF_MAX);
+    }
+
+    /// 退避把「11 分钟 1337 次」压到个位数级别。
+    #[test]
+    fn backoff_keeps_retry_count_low_over_a_long_wait() {
+        let mut waited = Duration::ZERO;
+        let mut attempts = 0u32;
+        while waited < Duration::from_secs(11 * 60) {
+            waited += backoff_delay(attempts);
+            attempts += 1;
+        }
+        assert!(attempts <= 40, "11 分钟里重试了 {attempts} 次，退避没生效");
+    }
 
     #[test]
     fn user_text_starts_with_short_chinese_and_includes_bodies() {

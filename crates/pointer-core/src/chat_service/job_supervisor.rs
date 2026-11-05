@@ -1167,6 +1167,19 @@ impl JobSupervisor {
         items
     }
 
+    /// Read-only peek: is there anything `claim_pushable` would hand back?
+    ///
+    /// `claim_pushable` marks the jobs claimed, so it cannot answer "is there
+    /// work left" before a retry decision — asking would consume the push.
+    /// This one only reads.
+    pub fn has_pushable(&self, conversation_id: &str) -> bool {
+        let inner = self.inner.lock();
+        inner.by_conversation.get(conversation_id).is_some_and(|ids| {
+            ids.iter()
+                .any(|id| inner.jobs.get(id).is_some_and(job_is_idle_pushable))
+        })
+    }
+
     pub fn unclaim(&self, job_ids: &[String]) {
         let mut inner = self.inner.lock();
         for id in job_ids {
@@ -2670,6 +2683,26 @@ mod tests {
         let again = sup.claim_pushable("c1");
         assert_eq!(again.len(), 1);
         assert_eq!(again[0].job_id, done);
+    }
+
+    /// `has_pushable` 只读：问完不能把 job 认领掉，否则 peek 就等于消费。
+    #[test]
+    fn has_pushable_peeks_without_claiming() {
+        let sup = JobSupervisor::new();
+        let done = sup.register("c1", kind(), CancellationToken::new(), "test-run", Vec::new());
+        assert!(!sup.has_pushable("c1"), "运行中不该可推");
+
+        sup.finish(&done, JobStatus::Completed, Some("ok".into()), None);
+        assert!(sup.has_pushable("c1"));
+        assert!(sup.has_pushable("c1"), "连续 peek 不能把状态改掉");
+        assert!(!sup.is_claimed(&done), "peek 不能认领");
+
+        let items = sup.claim_pushable("c1");
+        assert_eq!(items.len(), 1, "peek 之后仍能被真正认领");
+        assert!(!sup.has_pushable("c1"), "认领后不该再可推");
+
+        sup.unclaim(&[done.clone()]);
+        assert!(sup.has_pushable("c1"), "unclaim 后重新可推");
     }
 
     #[test]

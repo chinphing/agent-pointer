@@ -259,6 +259,13 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
             }
         };
         let (tool_id, mut args_value) = normalize_tool_invoke_name(&tc.name, args_value);
+        // `goal` 已并入 `action`：模型只发 `action`，但执行层（各工具的参数
+        // 校验、卡片标题、`[Recent desktop tool calls]`）都还在读 `goal`。
+        // 在入口补一次，下游一行都不用改；旧会话的历史行本来就带 `goal`。
+        crate::agents::computer::pipeline::operation::ensure_goal_from_action(
+            &tool_id,
+            &mut args_value,
+        );
         if tool_id == "run_subagent" {
             let rewrite = match pass.ctx.active_delegation_scope() {
                 Some((current_agent_id, allow_agents)) => {

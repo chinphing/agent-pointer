@@ -241,6 +241,38 @@ pub fn build_execution_args(
     args
 }
 
+/// `goal` 已并入 `action`。执行层的参数校验（`require_non_empty_str(args,
+/// "goal")`）、卡片标题、`[Recent desktop tool calls]` 都还在读 `goal`，所以
+/// 在工具调用入口把 `action` 补成 `goal`，下游不必逐个改。
+///
+/// 只对 desktop 工具生效 —— `job` / `cron_job` 也有 `action` 字段（`list` /
+/// `create` 这种枚举），不能把它们的 `action` 当成 `goal`。
+/// `goal` 已经存在时保持原值（旧会话的历史行、以及模型偶尔仍写 `goal` 的情况）。
+pub fn ensure_goal_from_action(tool_id: &str, args: &mut Value) {
+    if !crate::agents::computer::is_desktop_vision_log_tool(tool_id) {
+        return;
+    }
+    let Some(obj) = args.as_object_mut() else {
+        return;
+    };
+    let goal_present = obj
+        .get("goal")
+        .and_then(|v| v.as_str())
+        .is_some_and(|s| !s.trim().is_empty());
+    if goal_present {
+        return;
+    }
+    let action = obj
+        .get("action")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    if let Some(action) = action {
+        obj.insert("goal".into(), Value::String(action));
+    }
+}
+
 /// Decide the positioning route from args.
 pub fn needs_positioning_for_tool(tool_name: &str, args: &serde_json::Value) -> bool {
     let n = tool_name.trim().to_ascii_lowercase();
@@ -465,6 +497,40 @@ mod tests {
     #[test]
     fn positioning_route_from_decision_tool() {
         assert_eq!(positioning_route("click", &json!({})), "auto");
+    }
+
+    #[test]
+    fn ensure_goal_from_action_fills_missing_goal() {
+        // 鼠标 schema 现在只有 `action`。执行层的 `require_non_empty_str(args,
+        // "goal")` 还在，入口补不上的话每次点击都会报参数错误。
+        let mut args = json!({"action": "点击保存", "bbox": [1, 2, 3, 4]});
+        ensure_goal_from_action("mouse_click_at", &mut args);
+        assert_eq!(args["goal"], "点击保存");
+    }
+
+    #[test]
+    fn ensure_goal_from_action_keeps_existing_goal() {
+        let mut args = json!({"goal": "打开设置", "action": "click"});
+        ensure_goal_from_action("mouse_click_at", &mut args);
+        assert_eq!(args["goal"], "打开设置");
+    }
+
+    #[test]
+    fn ensure_goal_from_action_ignores_non_desktop_tools() {
+        // `job` 的 `action` 是枚举（list/status/await/cancel），不能变成 goal。
+        let mut args = json!({"action": "list"});
+        ensure_goal_from_action("job", &mut args);
+        assert!(args.get("goal").is_none(), "{args}");
+        let mut cron = json!({"action": "create", "schedule": "0 9 * * *"});
+        ensure_goal_from_action("cron_job", &mut cron);
+        assert!(cron.get("goal").is_none(), "{cron}");
+    }
+
+    #[test]
+    fn ensure_goal_from_action_ignores_blank_action() {
+        let mut args = json!({"action": "   "});
+        ensure_goal_from_action("key_press", &mut args);
+        assert!(args.get("goal").is_none(), "{args}");
     }
 
     #[test]

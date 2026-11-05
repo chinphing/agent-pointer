@@ -35,12 +35,16 @@ pub fn verify_response_schema(family: OperationFamily) -> Value {
         properties["failure_cause"]["enum"] = json!(["wrong_operation", "precision_miss", "at_edge"]);
         properties["scroll_moved"] = json!({
             "type": "number",
-            "description": "How far the content moved, as a fraction of the target area (0.05 = 5%). Above 1 when the jump exceeded a full panel. Signed by the direction the content actually moved relative to the request."
+            "description": "How far the content moved, as a fraction of the target area (0.05 = 5%). Signed by the direction the content actually moved relative to the request."
         });
         properties["scroll_unit"] = json!({
             "type": "string",
             "enum": ["target-heights", "target-widths", "screen", "screen-widths"],
             "description": "The unit of scroll_moved — same words you use in step_summary."
+        });
+        properties["scroll_past_panel"] = json!({
+            "type": "boolean",
+            "description": "True when the before anchor is gone from the after frame: the jump exceeded a full panel and how far it went cannot be measured. Set this instead of guessing a number; leave scroll_moved out in that case."
         });
     }
     json!({

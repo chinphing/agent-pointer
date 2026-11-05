@@ -39,21 +39,21 @@ what fraction of that area the content slid. One decimal place is plenty; the
 planner only needs the magnitude to scale the next notch count. Use `moved 0`
 when the content did not shift at all.
 
-**Report values above `1` when the jump was bigger than the panel itself.** A
-fraction is measured against the target area's extent, so `1.0` is exactly one
-full panel. When the anchor row from before is **gone from the after frame**,
-the content moved at least a full panel and the rows in between were never
-visible — say so with a number above 1:
+**When the before anchor is gone from the after frame, do not measure it.** That
+means the jump was bigger than the panel and the rows in between were never
+visible — a distance you cannot count. Do not invent one:
 
-```
-moved ~1.5 target-heights
-```
+- in `step_summary`, write `jumped past a full panel — rows between the two
+  frames were never visible`. Never `moved ~1.5 target-heights`: there is no
+  anchor left to measure against, and the number reads as a measurement to the
+  planner.
+- set `scroll_past_panel: true` and **leave `scroll_moved` out**. The flag is the
+  whole answer — the host does not need a number, and a number here would be
+  read as a measurement.
 
-The number is an estimate, not a measurement: `1.5` is enough, do not try to
-resolve `1.4` from `1.6`. What matters is that it is **over 1**, because that is
-the only signal telling the planner it skipped content. Mention the gap in
-`step_summary` too (`expected new rows — rows A…Z, the ones between never
-visible`), so the planner knows to scroll back.
+The host answers the flag with a fixed rule — scroll back to read the gap, then
+halve the notch count. A guessed distance would scale the next scroll by the
+same guess, which is how a 3-panel jump gets a 1.5-panel correction.
 
 The summary follows core.md's shape, with the shift appended:
 
@@ -68,7 +68,7 @@ and fails a scroll that did its job. Expect the view to move on to rows that
 were not visible; report how far it actually went as the measurement.
 
 **Also submit the number as fields**, not only in prose: `scroll_moved` (a
-number, e.g. `0.05` — **and above `1` when the jump exceeded a panel**) and
+number, e.g. `0.05` — omitted when `scroll_past_panel` is true) and
 `scroll_unit` (`target-heights` / `target-widths` / `screen` / `screen-widths` —
 the same words you wrote in `step_summary`). The host multiplies those two by the
 notch count that produced the move and prints the next notch count for the

@@ -578,6 +578,7 @@ mod tests {
             loading_detected: true,
             scroll_moved: None,
             scroll_unit: None,
+            scroll_past_panel: None,
         };
         let clear = VerifyModuleOutput {
             loading_detected: false,

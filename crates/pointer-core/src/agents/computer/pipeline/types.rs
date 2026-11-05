@@ -89,6 +89,10 @@ pub struct VerifyModuleOutput {
     /// Scroll family only: `target-heights` | `target-widths` | `screen` | `screen-widths`.
     #[serde(default)]
     pub scroll_unit: Option<String>,
+    /// Scroll family only: the before anchor is gone from the after frame — the
+    /// jump exceeded a full panel, so the distance cannot be measured.
+    #[serde(default)]
+    pub scroll_past_panel: Option<bool>,
 }
 
 /// Which axis a scroll moved along — picks the notch count to scale.
@@ -105,24 +109,42 @@ pub enum ScrollAxis {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScrollMeasurement {
     /// Fraction of the target area that moved (0.05 = 5%).
+    /// Meaningless when `past_panel` is set.
     pub fraction: f32,
     pub axis: ScrollAxis,
+    /// 越过一整屏：锚点消失，位移不可测。只减半刻度，不按比例换算。
+    pub past_panel: bool,
 }
 
 impl ScrollMeasurement {
     /// Parse the Verify LLM's structured fields. Unknown units → `None`: a
     /// guess here would feed the model a made-up notch count.
-    pub fn from_module_fields(moved: Option<f32>, unit: Option<&str>) -> Option<Self> {
-        let fraction = moved?;
-        if !fraction.is_finite() || fraction < 0.0 {
-            return None;
-        }
+    pub fn from_module_fields(
+        moved: Option<f32>,
+        unit: Option<&str>,
+        past_panel: Option<bool>,
+    ) -> Option<Self> {
+        let past_panel = past_panel.unwrap_or(false);
+        // 越屏时模型不给数字 —— 轴仍要从 `unit` 取，用来决定缩放哪一根刻度。
+        let fraction = if past_panel {
+            moved.filter(|f| f.is_finite() && *f >= 0.0).unwrap_or(0.0)
+        } else {
+            let f = moved?;
+            if !f.is_finite() || f < 0.0 {
+                return None;
+            }
+            f
+        };
         let axis = match unit?.trim().to_ascii_lowercase().as_str() {
             "target-heights" | "screen" => ScrollAxis::Vertical,
             "target-widths" | "screen-widths" => ScrollAxis::Horizontal,
             _ => return None,
         };
-        Some(Self { fraction, axis })
+        Some(Self {
+            fraction,
+            axis,
+            past_panel,
+        })
     }
 }
 
@@ -175,6 +197,7 @@ impl VerifyConclusion {
             scroll: ScrollMeasurement::from_module_fields(
                 out.scroll_moved,
                 out.scroll_unit.as_deref(),
+                out.scroll_past_panel,
             ),
         })
     }
@@ -315,6 +338,7 @@ mod tests {
             loading_detected: false,
             scroll_moved: None,
             scroll_unit: None,
+            scroll_past_panel: None,
         };
         let c = VerifyConclusion::from_module_output(&out).unwrap();
         assert_eq!(c.action_result, ActionResult::Pass);
@@ -329,6 +353,7 @@ mod tests {
             loading_detected: false,
             scroll_moved: None,
             scroll_unit: None,
+            scroll_past_panel: None,
         };
         let c = VerifyConclusion::from_module_output(&out).unwrap();
         assert_eq!(c.failure_cause.map(|x| x.as_str()), Some("precision_miss"));
@@ -341,6 +366,7 @@ mod tests {
             loading_detected: false,
             scroll_moved: None,
             scroll_unit: None,
+            scroll_past_panel: None,
         };
         assert!(VerifyConclusion::from_module_output(&missing_cause).is_err());
     }
@@ -368,6 +394,7 @@ mod tests {
             loading_detected: false,
             scroll_moved: None,
             scroll_unit: None,
+            scroll_past_panel: None,
         };
         let c = VerifyConclusion::from_module_output(&out).unwrap();
         assert_eq!(c.failure_cause.as_ref().map(|x| x.as_str()), Some("at_edge"));
@@ -388,6 +415,7 @@ mod tests {
             loading_detected: false,
             scroll_moved: None,
             scroll_unit: None,
+            scroll_past_panel: None,
         };
         let err = VerifyConclusion::from_module_output(&out).unwrap_err();
         assert!(err.to_string().contains("step_summary"), "{err}");
@@ -400,6 +428,7 @@ mod tests {
             loading_detected: false,
             scroll_moved: None,
             scroll_unit: None,
+            scroll_past_panel: None,
         };
         assert!(VerifyConclusion::from_module_output(&blank).is_err());
     }

@@ -883,6 +883,19 @@ pub fn scroll_scale_line(root_args: &Value, verify: &VerifyConclusion) -> Option
     let used_abs = used.unsigned_abs() as f32;
     let sign = if used < 0 { -1 } else { 1 };
     let moved = m.fraction;
+    // 越过一整屏：前帧的锚点已经不在后帧里，位移**无从测量**。模型不再给
+    // 数字，只置 `past_panel`。这里只给结论 + 减半 —— 拿估计值反推刻度等于
+    // 把猜测当测量（估成 1.5 而实际走了三屏，算出来的刻度就小一倍）。
+    if m.past_panel || moved > 1.0 {
+        let half = (used_abs / 2.0).round().max(1.0) as i64;
+        return Some(format!(
+            "Scroll scale: {used} notches jumped past a full panel — the before anchor is gone \
+             from the after frame, so how far it went is not measurable. Rows in between were \
+             never visible: scroll back to read them, and halve the count — send {axis_key}={}.",
+            sign * half
+        ));
+    }
+
     if moved <= 0.0 {
         // Nothing moved: scaling is meaningless — the wheel never reached a
         // scrollable area. Say that instead of inventing a bigger number.
@@ -903,9 +916,6 @@ pub fn scroll_scale_line(root_args: &Value, verify: &VerifyConclusion) -> Option
     }
 
     // 两个方向做同一件事：算出下一次落到目标位移的刻度。
-    // 过冲不再减半 —— 减半是「相对上次」的猜测，而实测位移已经告诉我们每
-    // notch 走多远，直接除更准。`moved > 1` 时那个数字本身只是估计，所以仍
-    // 追加漏行告警，而不是把它当精确测量用。
     let per_notch = moved / used_abs;
     let needed = (SCROLL_TARGET_FRACTION / per_notch).round().max(1.0) as i64;
     let capped = needed.min(cap);
@@ -925,12 +935,6 @@ pub fn scroll_scale_line(root_args: &Value, verify: &VerifyConclusion) -> Option
             sign * capped
         )
     };
-    if moved > 1.0 {
-        line.push_str(&format!(
-            " It jumped more than a full panel: rows between the two frames were never \
-             visible — scroll back ~{SCROLL_TARGET_FRACTION} to read them before continuing."
-        ));
-    }
     if needed > capped {
         let calls = (needed + cap - 1) / cap;
         line.push_str(&format!(
@@ -1086,7 +1090,11 @@ mod tests {
             action_result: ActionResult::Pass,
             failure_cause: None,
             step_summary: Some("moved".into()),
-            scroll: Some(ScrollMeasurement { fraction, axis }),
+            scroll: Some(ScrollMeasurement {
+                fraction,
+                axis,
+                past_panel: false,
+            }),
         }
     }
 
@@ -1148,11 +1156,31 @@ mod tests {
         assert!(line.contains("notches_y=-200"), "0.9 应重算成 200: {line}");
         assert!(!line.contains("never visible"), "0.9 未跨整屏，不该说漏内容: {line}");
 
+        // 越过一整屏：锚点没了，位移不可测 —— 不再按估计值换算，直接减半。
         let v = scroll_verify(1.5, ScrollAxis::Vertical);
         let line = scroll_scale_line(&args, &v).expect("行");
-        assert!(line.contains("notches_y=-120"), "1.5 应重算成 120: {line}");
+        assert!(line.contains("notches_y=-150"), "跨整屏应减半成 150: {line}");
         assert!(line.contains("never visible"), "跨整屏必须提示漏内容: {line}");
         assert!(line.contains("scroll back"), "还要让模型回滚核对: {line}");
+        assert!(!line.contains("1.50"), "不能把估计值当测量引用: {line}");
+    }
+
+    /// 模型只置标志位、不给数字时，同样减半 —— 这是越屏的规范形态。
+    #[test]
+    fn scroll_scale_halves_when_the_panel_was_jumped() {
+        let args = json!({"notches_y": -200});
+        let mut v = scroll_verify(0.0, ScrollAxis::Vertical);
+        v.scroll = Some(ScrollMeasurement {
+            fraction: 0.0,
+            axis: ScrollAxis::Vertical,
+            past_panel: true,
+        });
+        let line = scroll_scale_line(&args, &v).expect("行");
+        assert!(line.contains("notches_y=-100"), "越屏应减半成 100: {line}");
+        assert!(
+            !line.contains("moved"),
+            "越屏不给位移数值，只给结论: {line}"
+        );
     }
 
     /// 方向必须跟随上一次滚动。

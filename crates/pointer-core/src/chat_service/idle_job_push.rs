@@ -33,6 +33,30 @@ const DEBOUNCE: Duration = Duration::from_millis(500);
 const BACKOFF_MAX: Duration = Duration::from_secs(30);
 const INTERNAL_LABEL: &str = "idle_job_push";
 
+/// `try_flush` 该做什么 —— 抽成纯函数，好把分支顺序锁进单测。
+///
+/// 顺序本身就是修过的 bug：旧代码先判 `lead_busy` 再查队列，于是一旦
+/// defer 过、队列又空了，只要 lead 还忙就会一直 2 Hz 重排下去。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FlushDecision {
+    /// 没东西要推：不重排、不打日志、清掉计数。
+    Stop,
+    /// 有东西要推但 lead 还忙：退避后再来。
+    Defer,
+    /// 有东西要推且 lead 空闲：推。
+    Flush,
+}
+
+fn flush_decision(has_pushable: bool, lead_busy: bool) -> FlushDecision {
+    if !has_pushable {
+        FlushDecision::Stop
+    } else if lead_busy {
+        FlushDecision::Defer
+    } else {
+        FlushDecision::Flush
+    }
+}
+
 /// 第 `attempt` 次重试前等多久：500ms → 1s → 2s → 4s → 8s → 16s → 30s 封顶。
 fn backoff_delay(attempt: u32) -> Duration {
     let ms = DEBOUNCE.as_millis() as u64 * (1u64 << attempt.min(6));
@@ -135,32 +159,40 @@ impl IdleJobPush {
         // 旧代码把重排写在认领检查之前，只要 lead 一直忙就 2 Hz 转下去。
         // `has_pushable` 是只读的，`claim_pushable` 会顺带认领，不能拿来当
         // 这个判断。
-        if !state.jobs.has_pushable(conversation_id) {
-            self.clear_deferral(conversation_id);
-            return;
-        }
-        if self.lead_busy(conversation_id) {
-            let attempt = self.note_deferral(conversation_id);
-            let delay = backoff_delay(attempt);
-            if attempt == 0 {
-                log::info!(
-                    "idle_job_push: defer; lead busy conversation_id={conversation_id} \
-                     (retrying with backoff up to {}s)",
-                    BACKOFF_MAX.as_secs()
-                );
-            } else {
-                log::debug!(
-                    "idle_job_push: still deferring conversation_id={conversation_id} \
-                     attempt={attempt} next_in={delay:?}"
-                );
+        let has_pushable = state.jobs.has_pushable(conversation_id);
+        // 短求值：没有东西要推时连 `lead_busy` 都不问 —— 它里面有一次
+        // `runs_list_non_terminal_for_conversation` 查询。
+        let busy = has_pushable && self.lead_busy(conversation_id);
+        match flush_decision(has_pushable, busy) {
+            FlushDecision::Stop => {
+                self.clear_deferral(conversation_id);
+                return;
             }
-            // Job finish may race lead teardown. Reschedule so a deferred claim
-            // still flushes once the lead is idle (do not rely only on the next
-            // job finish or on_run_finished).
-            self.schedule_after(conversation_id.to_string(), delay);
-            return;
+            FlushDecision::Defer => {
+                let attempt = self.note_deferral(conversation_id);
+                let delay = backoff_delay(attempt);
+                if attempt == 0 {
+                    log::info!(
+                        "idle_job_push: defer; lead busy conversation_id={conversation_id} \
+                         (retrying with backoff up to {}s)",
+                        BACKOFF_MAX.as_secs()
+                    );
+                } else {
+                    log::debug!(
+                        "idle_job_push: still deferring conversation_id={conversation_id} \
+                         attempt={attempt} next_in={delay:?}"
+                    );
+                }
+                // Job finish may race lead teardown. Reschedule so a deferred
+                // claim still flushes once the lead is idle (do not rely only on
+                // the next job finish or on_run_finished).
+                self.schedule_after(conversation_id.to_string(), delay);
+                return;
+            }
+            FlushDecision::Flush => {
+                self.clear_deferral(conversation_id);
+            }
         }
-        self.clear_deferral(conversation_id);
         let items = state.jobs.claim_pushable(conversation_id);
         if items.is_empty() {
             return;
@@ -389,6 +421,15 @@ impl OnRunCancelledHook for IdleJobPushHook {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 分支顺序：队列空了就不许重排，哪怕 lead 还在忙。
+    #[test]
+    fn empty_queue_stops_even_when_the_lead_is_busy() {
+        assert_eq!(flush_decision(false, true), FlushDecision::Stop);
+        assert_eq!(flush_decision(false, false), FlushDecision::Stop);
+        assert_eq!(flush_decision(true, true), FlushDecision::Defer);
+        assert_eq!(flush_decision(true, false), FlushDecision::Flush);
+    }
 
     #[test]
     fn backoff_starts_at_the_debounce_and_caps() {

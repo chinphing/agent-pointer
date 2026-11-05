@@ -101,12 +101,22 @@ pub fn build_cur_screen_preamble(
     let cite = "Each screenshot below is preceded by its slot label on its own line. Treat only what you see in that labeled image as ground truth. Do not invent UI from task text or prior turns. Do not write internal checklists, prompt block labels (`[Recent desktop tool calls]`, `[Current screen]`, `[Environment]`, …), or tool-call transcripts in assistant message text — those blocks are context addressed to you, not output for the user. When the user must see a reply (question, blockage, completion), write plain text in **content** in the same turn — reasoning alone is invisible to the user.";
     // 图上那个红十字星就是指针。不说清楚的话模型只能猜「这个标记是什么」，
     // 于是每次滚动都保守地要求重新定位 —— 明明指针已经在面板里。
+    //
+    // 坐标必须是**这张截图的像素**，不是全局屏幕坐标：调用方传进来的是全局值，
+    // 而截图是当前显示器裁出来的、十字星也画在 `global - monitor.origin` 处。
+    // 双屏时两者差一个显示器原点 —— 文案报 (2127, 380)、图上却在 (615, 380)。
     let crosshair = match pointer {
-        Some((x, y)) => format!(
-            "The red crosshair on it is **your mouse pointer**, at ({x}, {y}) in these pixels — \
-             wheel events and clicks land exactly there, and any panel the crosshair already \
-             sits in can be scrolled without asking the tool to move the pointer first."
-        ),
+        Some((gx, gy)) if cap.monitor.contains(gx, gy) => {
+            let (x, y) = (gx - cap.monitor.left, gy - cap.monitor.top);
+            format!(
+                "The red crosshair on it is **your mouse pointer**, at ({x}, {y}) in these pixels — \
+                 wheel events and clicks land exactly there, and any panel the crosshair already \
+                 sits in can be scrolled without asking the tool to move the pointer first."
+            )
+        }
+        Some(_) => "The pointer is currently on **another monitor**, so it is not in this \
+                    screenshot — nothing to look for here."
+            .to_string(),
         None => "A red crosshair on it marks **your mouse pointer** when it is on this monitor."
             .to_string(),
     };
@@ -491,6 +501,27 @@ mod tests {
         assert!(t.contains("red crosshair"), "{t}");
         assert!(t.contains("(615, 380)"), "缺少指针坐标: {t}");
         assert!(t.contains("your mouse pointer"), "{t}");
+    }
+
+    /// 双屏：注入的必须是**截图内像素**，不是全局屏幕坐标。
+    #[test]
+    fn preamble_reports_pointer_in_screenshot_pixels() {
+        let mut cap = sample_cap();
+        // 第二块屏，原点 (1920, 0)
+        cap.monitor = crate::agents::computer::vision::screen::MonitorInfo::new(1920, 0, 1512, 982);
+        let t = build_cur_screen_preamble(&cap, Some((2535, 380)));
+        assert!(t.contains("(615, 380)"), "应换算成截图坐标: {t}");
+        assert!(!t.contains("(2535, 380)"), "不能报全局坐标: {t}");
+    }
+
+    /// 指针在别的显示器上时，不能编一个截图里根本不存在的坐标。
+    #[test]
+    fn preamble_does_not_invent_coordinates_for_other_monitor() {
+        let cap = sample_cap(); // 0,0 1920×1080
+        let t = build_cur_screen_preamble(&cap, Some((2535, 380)));
+        assert!(!t.contains("(2535, 380)"), "{t}");
+        assert!(!t.contains("(615, 380)"), "{t}");
+        assert!(t.contains("another monitor"), "{t}");
     }
 
     /// 拿不到指针时也要说清十字星是什么，只是不编坐标。

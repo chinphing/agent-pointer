@@ -41,6 +41,7 @@ import {
   emptyTierConfig,
   platformAgentModeDefault,
   platformComputerPipelineDefault,
+  platformComputerPipelineTierDefault,
   platformMediaModeDefault,
   withInheritedThinking
 } from '../lib/platformTierDefaults'
@@ -245,15 +246,26 @@ function createSettingsDialogForm(deps: {
 
   /** 「继承」选项上显示的值：这个档位没配时，实际会用哪个。 */
   function inheritedPipelineLabel(kind: 'locate' | 'locateVerify' | 'verify'): string {
-    const p = computerPipelineLlm()
+    // 官网按档位下发过的值，运行时会盖掉全局 —— 标签必须跟着说真话。
+    const tier = platformComputerPipelineTierDefault(
+      s.platformSettings.tierDefaults,
+      computerTier()
+    )
+    const global = computerPipelineLlm()
     const provider =
-      kind === 'locate'
-        ? p.locateProviderId
+      (kind === 'locate'
+        ? tier.locateProviderId
         : kind === 'locateVerify'
-          ? p.locateVerifyProviderId
-          : p.verifyProviderId
+          ? tier.locateVerifyProviderId
+          : tier.verifyProviderId) ||
+      (kind === 'locate'
+        ? global.locateProviderId
+        : kind === 'locateVerify'
+          ? global.locateVerifyProviderId
+          : global.verifyProviderId)
     const model =
-      kind === 'locate' ? p.locate : kind === 'locateVerify' ? p.locateVerify : p.verify
+      (kind === 'locate' ? tier.locate : kind === 'locateVerify' ? tier.locateVerify : tier.verify) ||
+      (kind === 'locate' ? global.locate : kind === 'locateVerify' ? global.locateVerify : global.verify)
     return provider && model ? `${provider} / ${model}` : ''
   }
 

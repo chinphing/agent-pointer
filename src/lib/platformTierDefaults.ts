@@ -5,7 +5,8 @@ import type {
   PlatformProviderModelTemplate,
   PlatformProviderTemplate,
   PlatformSettings,
-  ProviderConfig
+  ProviderConfig,
+  TierPipelineLlm
 } from '../types/chat'
 import { parseThinkingIntensity, patchTierThinkingIntensity, thinkingPatchFromProviderModel, budgetForIntensity } from './thinkingIntensity'
 import type { ThinkingIntensity } from './thinkingIntensity'
@@ -245,6 +246,47 @@ export function platformComputerPipelineDefault(
   if (locateVerifyIntensity !== undefined) {
     out.locateVerifyThinkingIntensity = locateVerifyIntensity
   }
+  return out
+}
+
+/**
+ * 官网下发的**按档位**三槽位覆盖：`computerPipelineLlm.byTier[mode]`。
+ *
+ * 与全局槽位同一套嵌套 ref 形状。只返回该档位真正写过的字段 —— 没写的由
+ * 调用方回退到全局值（和运行时的解析顺序一致）。
+ */
+export function platformComputerPipelineTierDefault(
+  tierDefaults: unknown,
+  mode: string
+): TierPipelineLlm {
+  const pipeline = nestedMap(tierDefaultsObject(tierDefaults), 'computerPipelineLlm')
+  const byTier = nestedMap(pipeline, 'byTier')
+  const tier = nestedMap(byTier, mode)
+  const out: TierPipelineLlm = {}
+  if (!tier) return out
+  const locate = readTierModelRef(tier.locate)
+  if (locate) {
+    out.locate = locate.model
+    out.locateProviderId = locate.providerId
+  }
+  const locateIntensity = phaseThinkingIntensity(tier.locate)
+  if (locateIntensity !== undefined) out.locateThinkingIntensity = locateIntensity
+  const locateVerify = readTierModelRef(tier.locateVerify)
+  if (locateVerify) {
+    out.locateVerify = locateVerify.model
+    out.locateVerifyProviderId = locateVerify.providerId
+  }
+  const locateVerifyIntensity = phaseThinkingIntensity(tier.locateVerify)
+  if (locateVerifyIntensity !== undefined) {
+    out.locateVerifyThinkingIntensity = locateVerifyIntensity
+  }
+  const verify = readTierModelRef(tier.verify)
+  if (verify) {
+    out.verify = verify.model
+    out.verifyProviderId = verify.providerId
+  }
+  const verifyIntensity = phaseThinkingIntensity(tier.verify)
+  if (verifyIntensity !== undefined) out.verifyThinkingIntensity = verifyIntensity
   return out
 }
 

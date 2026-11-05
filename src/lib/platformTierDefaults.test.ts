@@ -4,6 +4,7 @@ import {
   normalizePlatformProviderTemplates,
   platformAgentModeDefault,
   platformComputerPipelineDefault,
+  platformComputerPipelineTierDefault,
   platformMediaGenerationDefault,
   platformModelNames,
   withInheritedThinking
@@ -244,5 +245,41 @@ describe('platformTierDefaults', () => {
     })
     expect(out.locateVerify).toBeUndefined()
     expect(out.locateVerifyThinkingIntensity).toBeUndefined()
+  })
+
+  it('reads per-tier pipeline slots from platform tierDefaults', () => {
+    const tierDefaults = {
+      computerPipelineLlm: {
+        locate: { providerId: 'qwen', model: 'qwen3.8-flash' },
+        byTier: {
+          expert: {
+            locate: { providerId: 'deepseek', model: 'deepseek-flash' },
+            locateVerify: {
+              providerId: 'qwen',
+              model: 'qwen3.8-flash',
+              thinkingIntensity: 'MAX'
+            },
+            verify: { providerId: 'deepseek', model: 'deepseek-flash' }
+          },
+          fast: { verify: { providerId: 'qwen', model: 'qwen3.7-flash' } }
+        }
+      }
+    }
+    const expert = platformComputerPipelineTierDefault(tierDefaults, 'expert')
+    expect(expert).toEqual({
+      locate: 'deepseek-flash',
+      locateProviderId: 'deepseek',
+      locateVerify: 'qwen3.8-flash',
+      locateVerifyProviderId: 'qwen',
+      locateVerifyThinkingIntensity: 'max',
+      verify: 'deepseek-flash',
+      verifyProviderId: 'deepseek'
+    })
+    // 只写了一个槽位的档位：其余保持未设置，由调用方回退全局。
+    const fast = platformComputerPipelineTierDefault(tierDefaults, 'fast')
+    expect(fast.verify).toBe('qwen3.7-flash')
+    expect(fast.locate).toBeUndefined()
+    // 没有下发该档位 = 空对象。
+    expect(platformComputerPipelineTierDefault(tierDefaults, 'standard')).toEqual({})
   })
 })

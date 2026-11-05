@@ -3221,11 +3221,18 @@ pub fn apply_platform_tier_defaults(
             }
         }
     }
-    // 官网下发的「按档位」定位链配置：tierDefaults.computerPipelineLlm[mode]。
-    // 逐字段补齐 —— 用户（或更高优先级的来源）已经写过的字段不动，这样平台
-    // 只配「专家档的定位模型」时，另外两槽和别的档位保持原样。
-    if let Some(by_tier) = obj.get("computerPipelineLlm").and_then(|v| v.as_object()) {
-        for (mode, val) in by_tier {
+    // 官网下发的「按档位」定位链配置：
+    //   computerPipelineLlm.byTier[mode] = { locate: {providerId, model, …}, … }
+    // 与顶层全局槽位同一套嵌套 ref 形状（管理端写的就是这个）。逐字段补齐 ——
+    // 用户已写过的字段不动，这样平台只配「专家档的定位模型」时，另外两槽和
+    // 别的档位保持原样。
+    if let Some(tiers) = obj
+        .get("computerPipelineLlm")
+        .and_then(|v| v.as_object())
+        .and_then(|p| p.get("byTier"))
+        .and_then(|v| v.as_object())
+    {
+        for (mode, val) in tiers {
             let Some(fields) = val.as_object() else {
                 continue;
             };
@@ -3234,31 +3241,24 @@ pub fn apply_platform_tier_defaults(
                 .by_tier
                 .entry(mode.trim().to_string())
                 .or_default();
-            for (key, dst) in [
-                ("locate", &mut slot.locate),
-                ("locateProviderId", &mut slot.locate_provider_id),
-                ("locateVerify", &mut slot.locate_verify),
-                ("locateVerifyProviderId", &mut slot.locate_verify_provider_id),
-                ("verify", &mut slot.verify),
-                ("verifyProviderId", &mut slot.verify_provider_id),
-            ] {
-                if dst.trim().is_empty() {
-                    if let Some(v) = fields.get(key).and_then(|v| v.as_str()) {
-                        *dst = v.trim().to_string();
-                    }
-                }
-            }
-            for (key, dst) in [
-                ("locateThinkingIntensity", &mut slot.locate_thinking_intensity),
-                ("locateVerifyThinkingIntensity", &mut slot.locate_verify_thinking_intensity),
-                ("verifyThinkingIntensity", &mut slot.verify_thinking_intensity),
-            ] {
-                if dst.is_none() {
-                    if let Some(v) = fields.get(key).and_then(|v| v.as_str()) {
-                        *dst = Some(v.trim().to_string());
-                    }
-                }
-            }
+            fill_tier_slot(
+                fields.get("locate"),
+                &mut slot.locate,
+                &mut slot.locate_provider_id,
+                &mut slot.locate_thinking_intensity,
+            );
+            fill_tier_slot(
+                fields.get("locateVerify"),
+                &mut slot.locate_verify,
+                &mut slot.locate_verify_provider_id,
+                &mut slot.locate_verify_thinking_intensity,
+            );
+            fill_tier_slot(
+                fields.get("verify"),
+                &mut slot.verify,
+                &mut slot.verify_provider_id,
+                &mut slot.verify_thinking_intensity,
+            );
         }
     }
 
@@ -3412,6 +3412,37 @@ fn agent_ref_from_json(v: &serde_json::Value) -> Option<AgentModelRef> {
             provider_id: pid.to_string(),
             model: model.to_string(),
         })
+    }
+}
+
+/// 把平台下发的 `{providerId, model, thinkingIntensity}` 填进某个档位槽位。
+///
+/// 只填**空**的字段：用户（或更高优先级的来源）已经写过的值不动。
+fn fill_tier_slot(
+    v: Option<&serde_json::Value>,
+    model: &mut String,
+    provider: &mut String,
+    thinking: &mut Option<String>,
+) {
+    let Some(v) = v else { return };
+    // model + provider 当**一对**处理：用户已经选了模型，就不再把平台的
+    // provider 塞进来 —— 否则会出现「用户的模型 + 平台的 provider」这种
+    // 跨服务商的错配。
+    if model.trim().is_empty() {
+        if let Some(r) = agent_ref_from_json(v) {
+            *model = r.model;
+            if provider.trim().is_empty() {
+                *provider = r.provider_id;
+            }
+        }
+    }
+    if thinking.is_none() {
+        if let Some(raw) = v.get("thinkingIntensity").and_then(|t| t.as_str()) {
+            let t = raw.trim().to_lowercase();
+            if !t.is_empty() {
+                *thinking = Some(t);
+            }
+        }
     }
 }
 
@@ -5429,26 +5460,42 @@ mod web_search_tier_default_tests {
                 ..Default::default()
             },
         );
+        // 官网管理端写的就是嵌套 ref：{providerId, model, thinkingIntensity}。
         let tier = serde_json::json!({
             "computerPipelineLlm": {
-                "expert": {
-                    "locate": "platform-locate",
-                    "locateVerify": "platform-lv",
-                    "verify": "platform-verify"
-                },
-                "fast": { "locate": "fast-locate" }
+                "locate": { "providerId": "qwen", "model": "global-locate" },
+                "byTier": {
+                    "expert": {
+                        "locate": { "providerId": "deepseek", "model": "platform-locate" },
+                        "locateVerify": { "providerId": "qwen", "model": "platform-lv" },
+                        "verify": {
+                            "providerId": "deepseek",
+                            "model": "platform-verify",
+                            "thinkingIntensity": "High"
+                        }
+                    },
+                    "fast": { "locate": { "providerId": "qwen", "model": "fast-locate" } }
+                }
             }
         });
         apply_platform_tier_defaults(&mut s, &tier, &[]);
 
         let expert = s.computer_pipeline_llm.by_tier.get("expert").unwrap();
+        // 用户已选 → 平台不覆盖，provider 也不补（这一项整体归用户）。
         assert_eq!(expert.locate, "user-picked");
+        assert_eq!(expert.locate_provider_id, "");
         assert_eq!(expert.locate_verify, "platform-lv");
+        assert_eq!(expert.locate_verify_provider_id, "qwen");
         assert_eq!(expert.verify, "platform-verify");
+        assert_eq!(expert.verify_provider_id, "deepseek");
+        // 思考强度归一成小写。
+        assert_eq!(expert.verify_thinking_intensity.as_deref(), Some("high"));
         assert_eq!(
             s.computer_pipeline_llm.by_tier.get("fast").unwrap().locate,
             "fast-locate"
         );
+        // 顶层全局槽位不是档位，不能被当成 mode 塞进 by_tier。
+        assert!(!s.computer_pipeline_llm.by_tier.contains_key("locate"));
     }
 }
 

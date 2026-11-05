@@ -874,6 +874,7 @@
       "locateDebug": "Grounding module (debug)",
       "locateHint": "Model used to ground elements; empty inherits the main model",
       "locateInherit": "Inherit main model",
+      "tierScopeHint": "These three follow the current tier: ",
       "locateThinkingOff": "Thinking off",
       "verifyName": "Action check",
       "verifyDebug": "Verification module (debug)",

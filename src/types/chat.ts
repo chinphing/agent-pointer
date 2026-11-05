@@ -774,6 +774,24 @@ export interface PerformanceModeLlmConfig {
   thinkingIntensity?: 'off' | 'low' | 'medium' | 'high' | 'max'
 }
 
+/**
+ * Per-tier override for the three locate-chain slots.
+ *
+ * Every field is optional: empty means "inherit the same field from the global
+ * `ComputerPipelineLlmSettings`. A missing tier inherits all three.
+ */
+export interface TierPipelineLlm {
+  locate?: string
+  locateProviderId?: string
+  locateThinkingIntensity?: ThinkingIntensity
+  locateVerify?: string
+  locateVerifyProviderId?: string
+  locateVerifyThinkingIntensity?: ThinkingIntensity
+  verify?: string
+  verifyProviderId?: string
+  verifyThinkingIntensity?: ThinkingIntensity
+}
+
 /** Per-phase model ids and thinking intensity for the host verify pipeline. */
 export interface ComputerPipelineLlmSettings {
   decision?: string
@@ -795,6 +813,8 @@ export interface ComputerPipelineLlmSettings {
   locateVerifyProviderId?: string
   /** Unset = follow the locate phase's thinking intensity. */
   locateVerifyThinkingIntensity?: ThinkingIntensity
+  /** Keyed by tier (`fast` / `standard` / `expert`). Absent = inherit global. */
+  byTier?: Record<string, TierPipelineLlm>
 }
 
 

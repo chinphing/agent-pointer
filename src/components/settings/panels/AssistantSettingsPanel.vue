@@ -26,18 +26,22 @@ const computerAdvancedModal = ref(false)
 // 只保留 off/low/medium/high/max；'' (不设置) 和 off 写的是同一个 0，重复了
 const THINKING_OPTIONS = computed(() => thinkingIntensityOptions().filter(o => o.value !== ''))
 
+function inheritLabel(kind: 'locate' | 'locateVerify' | 'verify', base: string): string {
+  const v = props.form.inheritedPipelineLabel(kind)
+  return v ? `${base}（${v}）` : base
+}
+
 function setIntensity(phase: 'locate' | 'verify' | 'locateVerify', value: string) {
-  // 空值 = 跟随（不写字段）；具体强度直接存字符串，不再折成预算数字。
-  const intensity = (value || undefined) as ThinkingIntensity | undefined
+  const intensity = (value || undefined) as never
   if (phase === 'locateVerify') {
-    props.form.patchComputerPipelineLlm({ locateVerifyThinkingIntensity: intensity })
+    props.form.patchPipelineTier(props.form.computerTier(), { locateVerifyThinkingIntensity: intensity })
     return
   }
   if (phase === 'locate') {
-    props.form.patchComputerPipelineLlm({ locateThinkingIntensity: intensity })
-  } else {
-    props.form.patchComputerPipelineLlm({ verifyThinkingIntensity: intensity })
+    props.form.patchPipelineTier(props.form.computerTier(), { locateThinkingIntensity: intensity })
+    return
   }
+  props.form.patchPipelineTier(props.form.computerTier(), { verifyThinkingIntensity: intensity })
 }
 
 function locateVerifyIntensity(): string {
@@ -352,6 +356,9 @@ const {
             <div class="min-w-0">
               <h4 class="text-sm font-semibold text-foreground">{{ t('settings.assistant.computerAdvancedTitle') }}</h4>
               <p class="mt-0.5 text-[11px] text-muted">{{ t('settings.assistant.computerAdvancedHint') }}</p>
+              <p class="mt-1 text-[11px] font-medium text-accent">
+                {{ t('settings.agentPanel.tierScopeHint') }}<span class="uppercase">{{ form.computerTier() }}</span>
+              </p>
             </div>
             <button
               type="button"
@@ -375,7 +382,7 @@ const {
                   class="h-8 flex-1 min-w-0 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                   @change="selectComputerPipelineLocate(($event.target as HTMLSelectElement).value)"
                 >
-                  <option value="">{{ t('settings.agentPanel.locateInherit') }}</option>
+                  <option value="">{{ inheritLabel('locate', t('settings.agentPanel.locateInherit')) }}</option>
                   <option v-for="item in s.allModels" :key="'locate-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                 </select>
                 <select
@@ -399,6 +406,7 @@ const {
                   class="h-8 flex-1 min-w-0 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                   @change="selectComputerPipelineVerify(($event.target as HTMLSelectElement).value)"
                 >
+                  <option value="">{{ inheritLabel('verify', t('settings.agentPanel.locateInherit')) }}</option>
                   <option v-for="item in s.allModels" :key="'verify-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                 </select>
                 <select
@@ -422,7 +430,7 @@ const {
                   class="h-8 flex-1 min-w-0 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                   @change="selectComputerPipelineLocateVerify(($event.target as HTMLSelectElement).value)"
                 >
-                  <option value="">{{ t('settings.agentPanel.locateVerifyInherit') }}</option>
+                  <option value="">{{ inheritLabel('locateVerify', t('settings.agentPanel.locateVerifyInherit')) }}</option>
                   <option v-for="item in s.allModels" :key="'locate-verify-' + item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                 </select>
                 <select

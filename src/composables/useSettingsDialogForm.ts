@@ -19,6 +19,7 @@ import type {
   AgentDef,
   AgentUiConfig,
   ComputerPipelineLlmSettings,
+  TierPipelineLlm,
   PerformanceModeLlmConfig,
   MediaModelOverrides,
   PerformanceMode,
@@ -217,20 +218,59 @@ function createSettingsDialogForm(deps: {
   scheduleDebugModelSave()
   }
 
+  /** 当前 computer 档位（fast / standard / expert）。 */
+  function computerTier(): string {
+    const m = (s.settings.agentPerformanceModes ?? {}).computer
+    return (m ?? '').trim() || 'standard'
+  }
+
+  /**
+   * 某个档位的覆盖值（**原始值**，不含全局回退）。
+   *
+   * 下拉框要能显示「继承」这个状态，所以这里必须返回空值而不是全局值 ——
+   * 把全局值填进来，用户就再也回不到「继承」了。
+   */
+  function pipelineTier(mode: string): TierPipelineLlm {
+    return s.settings.computerPipelineLlm?.byTier?.[mode] ?? {}
+  }
+
+  /** 只写 byTier，不碰全局字段 —— 全局值仍是被继承的那一份。 */
+  function patchPipelineTier(mode: string, patch: Partial<TierPipelineLlm>) {
+    const cfg = s.settings.computerPipelineLlm ?? {}
+    const byTier: Record<string, TierPipelineLlm> = { ...(cfg.byTier ?? {}) }
+    byTier[mode] = { ...(byTier[mode] ?? {}), ...patch }
+    s.settings.computerPipelineLlm = { ...cfg, byTier }
+    scheduleDebugModelSave()
+  }
+
+  /** 「继承」选项上显示的值：这个档位没配时，实际会用哪个。 */
+  function inheritedPipelineLabel(kind: 'locate' | 'locateVerify' | 'verify'): string {
+    const p = computerPipelineLlm()
+    const provider =
+      kind === 'locate'
+        ? p.locateProviderId
+        : kind === 'locateVerify'
+          ? p.locateVerifyProviderId
+          : p.verifyProviderId
+    const model =
+      kind === 'locate' ? p.locate : kind === 'locateVerify' ? p.locateVerify : p.verify
+    return provider && model ? `${provider} / ${model}` : ''
+  }
+
   function computerPipelineVerifyValue(): string {
-  const p = computerPipelineLlm()
-  return p.verifyProviderId && p.verify ? `${p.verifyProviderId}:${p.verify}` : ''
+  const t = pipelineTier(computerTier())
+  return t.verifyProviderId && t.verify ? `${t.verifyProviderId}:${t.verify}` : ''
   }
 
   function computerPipelineLocateValue(): string {
-  const p = computerPipelineLlm()
-  return p.locateProviderId && p.locate ? `${p.locateProviderId}:${p.locate}` : ''
+  const t = pipelineTier(computerTier())
+  return t.locateProviderId && t.locate ? `${t.locateProviderId}:${t.locate}` : ''
   }
 
   function selectComputerPipelineLocate(value: string) {
   // 空值 = 「跟随主模型」，必须能清回空配置，否则选了具体模型就改不回去。
   if (!value) {
-    patchComputerPipelineLlm({ locateProviderId: '', locate: '' })
+    patchPipelineTier(computerTier(), { locateProviderId: '', locate: '' })
     return
   }
   const i = value.indexOf(':')
@@ -238,7 +278,7 @@ function createSettingsDialogForm(deps: {
     const locateProviderId = value.slice(0, i).trim()
     const locate = value.slice(i + 1).trim()
     if (locateProviderId && locate) {
-      patchComputerPipelineLlm({ locateProviderId, locate })
+      patchPipelineTier(computerTier(), { locateProviderId, locate })
       return
     }
   }
@@ -251,7 +291,7 @@ function createSettingsDialogForm(deps: {
     const verifyProviderId = value.slice(0, i).trim()
     const verify = value.slice(i + 1).trim()
     if (verifyProviderId && verify) {
-      patchComputerPipelineLlm({ verifyProviderId, verify })
+      patchPipelineTier(computerTier(), { verifyProviderId, verify })
       return
     }
   }
@@ -259,16 +299,16 @@ function createSettingsDialogForm(deps: {
   }
 
   function computerPipelineLocateVerifyValue(): string {
-  const p = computerPipelineLlm()
-  return p.locateVerifyProviderId && p.locateVerify
-    ? `${p.locateVerifyProviderId}:${p.locateVerify}`
+  const t = pipelineTier(computerTier())
+  return t.locateVerifyProviderId && t.locateVerify
+    ? `${t.locateVerifyProviderId}:${t.locateVerify}`
     : ''
   }
 
   function selectComputerPipelineLocateVerify(value: string) {
   // 空值 = 「跟随定位」，必须能清回空配置。
   if (!value) {
-    patchComputerPipelineLlm({ locateVerifyProviderId: '', locateVerify: '' })
+    patchPipelineTier(computerTier(), { locateVerifyProviderId: '', locateVerify: '' })
     return
   }
   const i = value.indexOf(':')
@@ -276,7 +316,7 @@ function createSettingsDialogForm(deps: {
     const locateVerifyProviderId = value.slice(0, i).trim()
     const locateVerify = value.slice(i + 1).trim()
     if (locateVerifyProviderId && locateVerify) {
-      patchComputerPipelineLlm({ locateVerifyProviderId, locateVerify })
+      patchPipelineTier(computerTier(), { locateVerifyProviderId, locateVerify })
       return
     }
   }
@@ -1152,6 +1192,10 @@ function createSettingsDialogForm(deps: {
     patchMediaModeLlm,
     computerPipelineLlm,
     patchComputerPipelineLlm,
+    computerTier,
+    pipelineTier,
+    patchPipelineTier,
+    inheritedPipelineLabel,
     computerPipelineVerifyValue,
     computerPipelineLocateValue,
     selectComputerPipelineLocate,

@@ -14,6 +14,11 @@ pub(crate) mod app_state;
 mod computer_monitor_follow;
 mod computer_monitor_pick;
 mod computer_pipeline_loop;
+// 评测器（`tests/verify_action_eval.rs`）要拿生产换算函数量「该给多少 notches」。
+// 重新实现一份会让评测证明不了生产行为 —— 见 `pointer-eval/README.md`。
+pub use computer_pipeline_loop::{
+    scroll_scale_line, SCROLL_BAND_MAX, SCROLL_BAND_MIN, SCROLL_TARGET_FRACTION,
+};
 mod content_extract;
 mod context;
 mod conversation_persist;

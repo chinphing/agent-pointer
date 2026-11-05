@@ -2491,6 +2491,57 @@ pub struct ComputerPipelineLlmSettings {
         deserialize_with = "deserialize_thinking_intensity"
     )]
     pub locate_verify_thinking_intensity: Option<String>,
+    /// 按档位覆盖上面三个槽位（fast / standard / expert）。
+    ///
+    /// 空字段 = 落回同名字段的全局值 —— 用户只改「定位模型」时，另外两个槽位
+    /// 仍走全局。缺整个 mode = 三槽全继承。老配置没有这个键，行为不变。
+    #[serde(default, rename = "byTier", skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub by_tier: std::collections::BTreeMap<String, TierPipelineLlm>,
+}
+
+/// 单个档位对「定位 / 定位验证 / 动作验证」三个槽位的覆盖。
+///
+/// 每个字段都可留空 —— 空即继承 `ComputerPipelineLlmSettings` 的同名字段。
+/// 之所以带上 provider 和 thinking：换模型常常同时换 provider，
+/// 而「快速档 thinking off、专家档 on」也只能在这里表达。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TierPipelineLlm {
+    #[serde(default)]
+    pub locate: String,
+    #[serde(default, rename = "locateProviderId")]
+    pub locate_provider_id: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "locateThinkingIntensity",
+        alias = "locateThinkingBudget",
+        deserialize_with = "deserialize_thinking_intensity"
+    )]
+    pub locate_thinking_intensity: Option<String>,
+    #[serde(default, rename = "locateVerify")]
+    pub locate_verify: String,
+    #[serde(default, rename = "locateVerifyProviderId")]
+    pub locate_verify_provider_id: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "locateVerifyThinkingIntensity",
+        alias = "locateVerifyThinkingBudget",
+        deserialize_with = "deserialize_thinking_intensity"
+    )]
+    pub locate_verify_thinking_intensity: Option<String>,
+    #[serde(default)]
+    pub verify: String,
+    #[serde(default, rename = "verifyProviderId")]
+    pub verify_provider_id: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "verifyThinkingIntensity",
+        alias = "verifyThinkingBudget",
+        deserialize_with = "deserialize_thinking_intensity"
+    )]
+    pub verify_thinking_intensity: Option<String>,
 }
 
 impl Default for ComputerPipelineLlmSettings {
@@ -2510,6 +2561,7 @@ impl Default for ComputerPipelineLlmSettings {
             locate_verify: String::new(),
             locate_verify_provider_id: String::new(),
             locate_verify_thinking_intensity: None,
+            by_tier: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -3169,6 +3221,47 @@ pub fn apply_platform_tier_defaults(
             }
         }
     }
+    // 官网下发的「按档位」定位链配置：tierDefaults.computerPipelineLlm[mode]。
+    // 逐字段补齐 —— 用户（或更高优先级的来源）已经写过的字段不动，这样平台
+    // 只配「专家档的定位模型」时，另外两槽和别的档位保持原样。
+    if let Some(by_tier) = obj.get("computerPipelineLlm").and_then(|v| v.as_object()) {
+        for (mode, val) in by_tier {
+            let Some(fields) = val.as_object() else {
+                continue;
+            };
+            let slot = settings
+                .computer_pipeline_llm
+                .by_tier
+                .entry(mode.trim().to_string())
+                .or_default();
+            for (key, dst) in [
+                ("locate", &mut slot.locate),
+                ("locateProviderId", &mut slot.locate_provider_id),
+                ("locateVerify", &mut slot.locate_verify),
+                ("locateVerifyProviderId", &mut slot.locate_verify_provider_id),
+                ("verify", &mut slot.verify),
+                ("verifyProviderId", &mut slot.verify_provider_id),
+            ] {
+                if dst.trim().is_empty() {
+                    if let Some(v) = fields.get(key).and_then(|v| v.as_str()) {
+                        *dst = v.trim().to_string();
+                    }
+                }
+            }
+            for (key, dst) in [
+                ("locateThinkingIntensity", &mut slot.locate_thinking_intensity),
+                ("locateVerifyThinkingIntensity", &mut slot.locate_verify_thinking_intensity),
+                ("verifyThinkingIntensity", &mut slot.verify_thinking_intensity),
+            ] {
+                if dst.is_none() {
+                    if let Some(v) = fields.get(key).and_then(|v| v.as_str()) {
+                        *dst = Some(v.trim().to_string());
+                    }
+                }
+            }
+        }
+    }
+
     for (key, target) in [
         ("agentModeLlm", &mut settings.agent_mode_llm),
         ("mediaModeLlm", &mut settings.media_mode_llm),
@@ -3850,6 +3943,7 @@ mod user_settings_defaults_tests {
             locate_verify: String::new(),
             locate_verify_provider_id: String::new(),
             locate_verify_thinking_intensity: None,
+            by_tier: std::collections::BTreeMap::new(),
         };
 
         ensure_user_settings_defaults(&mut user);
@@ -5292,4 +5386,69 @@ mod web_search_tier_default_tests {
             .get("expert")
             .is_none());
     }
+    #[test]
+    fn tier_overrides_replace_only_the_slots_they_name() {
+        use crate::agents::computer::runtime::ComputerModelConfig;
+        let mut cfg = ComputerModelConfig::default();
+        cfg.pipeline_llm.model_locate = "global-locate".into();
+        cfg.pipeline_llm.model_locate_verify = "global-lv".into();
+        cfg.pipeline_llm.model_verify = "global-verify".into();
+
+        let mut s = ComputerPipelineLlmSettings::default();
+        s.by_tier.insert(
+            "expert".into(),
+            TierPipelineLlm {
+                locate: "expert-locate".into(),
+                locate_provider_id: "deepseek".into(),
+                ..Default::default()
+            },
+        );
+
+        cfg.apply_tier_overrides(&s, "expert");
+        assert_eq!(cfg.pipeline_llm.model_locate, "expert-locate");
+        assert_eq!(cfg.pipeline_llm.provider_locate, "deepseek");
+        // 没写的槽位继续走全局值 —— 用户只改一项时另外两项不能被动。
+        assert_eq!(cfg.pipeline_llm.model_locate_verify, "global-lv");
+        assert_eq!(cfg.pipeline_llm.model_verify, "global-verify");
+
+        // 没有配置的档位 = 全局值原样。
+        let mut fast = ComputerModelConfig::default();
+        fast.pipeline_llm.model_locate = "global-locate".into();
+        fast.apply_tier_overrides(&s, "fast");
+        assert_eq!(fast.pipeline_llm.model_locate, "global-locate");
+    }
+
+    #[test]
+    fn platform_tier_defaults_fill_computer_pipeline_slots() {
+        let mut s = ModelSettings::default();
+        // 用户在 expert 档上已经选了定位模型 → 平台不得覆盖这一项。
+        s.computer_pipeline_llm.by_tier.insert(
+            "expert".into(),
+            TierPipelineLlm {
+                locate: "user-picked".into(),
+                ..Default::default()
+            },
+        );
+        let tier = serde_json::json!({
+            "computerPipelineLlm": {
+                "expert": {
+                    "locate": "platform-locate",
+                    "locateVerify": "platform-lv",
+                    "verify": "platform-verify"
+                },
+                "fast": { "locate": "fast-locate" }
+            }
+        });
+        apply_platform_tier_defaults(&mut s, &tier, &[]);
+
+        let expert = s.computer_pipeline_llm.by_tier.get("expert").unwrap();
+        assert_eq!(expert.locate, "user-picked");
+        assert_eq!(expert.locate_verify, "platform-lv");
+        assert_eq!(expert.verify, "platform-verify");
+        assert_eq!(
+            s.computer_pipeline_llm.by_tier.get("fast").unwrap().locate,
+            "fast-locate"
+        );
+    }
 }
+

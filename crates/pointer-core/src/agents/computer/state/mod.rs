@@ -127,6 +127,14 @@ impl ComputerState {
             let user = crate::storage::load_user_settings().unwrap_or_default();
             let settings = crate::models::merge_user_platform(&user, &platform);
             cfg.apply_platform_pipeline_llm(&settings.computer_pipeline_llm);
+            // 档位覆盖排在全局之后：用户/平台在某一档上显式选过的，盖掉全局值。
+            let mode = settings
+                .agent_performance_modes
+                .get("computer")
+                .map(|m| m.trim())
+                .filter(|m| !m.is_empty())
+                .unwrap_or("standard");
+            cfg.apply_tier_overrides(&settings.computer_pipeline_llm, mode);
         }
         cfg
     }

@@ -222,6 +222,44 @@ impl ComputerModelConfig {
         cfg
     }
 
+    /// 按当前档位覆盖三个槽位（定位 / 定位验证 / 动作验证）。
+    ///
+    /// 在 `apply_platform_pipeline_llm` **之后**调用：先铺全局值，再用档位值盖。
+    /// 空字段不覆盖 —— 用户只改一项时，其余仍走全局。
+    pub fn apply_tier_overrides(
+        &mut self,
+        p: &crate::models::ComputerPipelineLlmSettings,
+        mode: &str,
+    ) {
+        let Some(t) = p.by_tier.get(mode.trim()) else {
+            return;
+        };
+        let set = |dst: &mut String, v: &str| {
+            if !v.trim().is_empty() {
+                *dst = v.trim().to_string();
+            }
+        };
+        set(&mut self.pipeline_llm.model_locate, &t.locate);
+        set(&mut self.pipeline_llm.provider_locate, &t.locate_provider_id);
+        if t.locate_thinking_intensity.is_some() {
+            self.pipeline_llm.thinking_intensity_locate = t.locate_thinking_intensity.clone();
+        }
+        set(&mut self.pipeline_llm.model_locate_verify, &t.locate_verify);
+        set(
+            &mut self.pipeline_llm.provider_locate_verify,
+            &t.locate_verify_provider_id,
+        );
+        if t.locate_verify_thinking_intensity.is_some() {
+            self.pipeline_llm.thinking_intensity_locate_verify =
+                t.locate_verify_thinking_intensity.clone();
+        }
+        set(&mut self.pipeline_llm.model_verify, &t.verify);
+        set(&mut self.pipeline_llm.provider_verify, &t.verify_provider_id);
+        if t.verify_thinking_intensity.is_some() {
+            self.pipeline_llm.thinking_intensity_verify = t.verify_thinking_intensity.clone();
+        }
+    }
+
     /// Override Advanced pipeline phase models from platform `computerPipelineLlm`.
     pub fn apply_platform_pipeline_llm(&mut self, p: &crate::models::ComputerPipelineLlmSettings) {
         if !p.decision.trim().is_empty() {

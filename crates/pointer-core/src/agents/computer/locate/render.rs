@@ -433,6 +433,20 @@ const CROSS_SPAN_HALO_PX: f64 = 1.0;
 /// wider than the core it is supposed to outline.
 const CROSS_RING_SHARE: f64 = 0.72;
 
+/// 整屏十字星（`Mark::CrossOnly`）的几何参数：`(臂长, 芯半宽, 白边宽)`。
+///
+/// 整屏走的是裁片分支 —— `臂长 = max(框 × 0.1, 24)`，框不超过 240 px 时恒为
+/// 24 px。主图上的指针没有框，取这个下限。
+///
+/// 暴露出来是给 `vision::screen_overlay` 的指针标记用的：两处各写一份常量，
+/// 迟早会漂成两个形状。
+pub fn full_frame_crosshair_geometry() -> (f64, f64, f64) {
+    let arm = CROP_CROSS_ARM_MIN_PX;
+    let half_core = (arm * CROSS_THICK_SHARE).max(CROSS_THICK_MIN_PX / 2.0);
+    let halo = (half_core * CROSS_RING_SHARE).max(0.5);
+    (arm, half_core, halo)
+}
+
 /// Draw a crosshair at the box's centre.
 ///
 /// Replaces the two-ring dot: a filled disc covers a patch of the image, so

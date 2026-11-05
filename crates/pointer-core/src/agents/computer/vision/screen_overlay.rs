@@ -46,11 +46,16 @@ pub const BEFORE_POINTER_ZOOM_FACTOR: u32 = ZOOM_POINTER_MAGNIFY_FACTOR;
 /// 两者天然差几个像素。十字星的交点是中心，没有这个歧义 —— 而且整屏定位图
 /// 早就在用十字星，模型只需要认一种形状。
 ///
-/// 尺寸对齐 locate 的整屏十字：臂长 = 候选框长边 × `CROSS_ARM_SHARE`(0.35)，
-/// 候选框按 64 px 估 → 22 px；红芯 3 px、白边每侧 1 px（同 `CROSS_SPAN_*`）。
-const POINTER_CROSS_ARM_PX: i32 = 22;
-const POINTER_CROSS_CORE_PX: i32 = 3;
-const POINTER_CROSS_HALO_PX: i32 = 1;
+/// 尺寸不另定，直接取 locate 整屏十字的几何（`full_frame_crosshair_geometry`）：
+/// 臂 24 px、芯宽 5 px、白边 1.8 px。两处各写一份常量迟早会漂成两个形状。
+fn pointer_crosshair_geometry() -> (i32, i32, i32) {
+    let (arm, half_core, halo) = crate::agents::computer::locate::render::full_frame_crosshair_geometry();
+    (
+        arm.round() as i32,
+        ((2.0 * half_core).round() as i32) / 2,   // 5 px 宽 → 半宽 2
+        halo.round() as i32,
+    )
+}
 /// 虚线圆环半径。臂长 22 px，环 10 px —— 臂伸出环外 12 px，读起来是准星
 /// 而不是一个圆圈。
 const POINTER_CROSS_RING_PX: f64 = 10.0;
@@ -72,9 +77,8 @@ fn fill_rgba_rect(img: &mut RgbaImage, x0: i32, y0: i32, x1: i32, y1: i32, color
 /// 圆环给出一个「大概这么大」的尺度 —— 判断「指针是否落在这个控件/面板里」
 /// 时，眼睛要比的是圆环和控件边界，而不是一个没有大小的点。
 fn composite_pointer_crosshair(img: &mut RgbaImage, cx: i32, cy: i32) {
-    let core = POINTER_CROSS_CORE_PX / 2;
-    let halo = core + POINTER_CROSS_HALO_PX;
-    let arm = POINTER_CROSS_ARM_PX;
+    let (arm, core, halo_w) = pointer_crosshair_geometry();
+    let halo = core + halo_w;
     let ring = POINTER_CROSS_RING_PX;
     let white = Rgba([255, 255, 255, 235]);
     let red = Rgba([220, 38, 38, 255]);
@@ -90,7 +94,7 @@ fn composite_pointer_crosshair(img: &mut RgbaImage, cx: i32, cy: i32) {
     // 画孤立点会被 JPEG 平均成一层灰影）。
     let (dash, gap) = (16.0_f64.to_radians(), 8.0_f64.to_radians());
     let period = dash + gap;
-    for (color, extra) in [(white, POINTER_CROSS_HALO_PX as f64), (red, 0.0)] {
+    for (color, extra) in [(white, halo_w as f64), (red, 0.0)] {
         let t = core as f64 + extra;
         let mut a = 0.0_f64;
         while a < std::f64::consts::TAU {

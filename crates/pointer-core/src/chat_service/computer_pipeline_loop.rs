@@ -886,12 +886,25 @@ pub fn scroll_scale_line(root_args: &Value, verify: &VerifyConclusion) -> Option
     // 越过一整屏：前帧的锚点已经不在后帧里，位移**无从测量**。模型不再给
     // 数字，只置 `past_panel`。这里只给结论 + 减半 —— 拿估计值反推刻度等于
     // 把猜测当测量（估成 1.5 而实际走了三屏，算出来的刻度就小一倍）。
-    if m.past_panel || moved > 1.0 {
+    if m.past_panel {
         let half = (used_abs / 2.0).round().max(1.0) as i64;
         return Some(format!(
             "Scroll scale: {used} notches jumped past a full panel — the before anchor is gone \
              from the after frame, so how far it went is not measurable. Rows in between were \
              never visible: scroll back to read them, and halve the count — send {axis_key}={}.",
+            sign * half
+        ));
+    }
+    // 报了一个超过一整屏的位移，却**没有**置 `past_panel` —— 这两个说法互相
+    // 矛盾：模型自己的 step_summary 常常还写着「锚点已上移、仍在画面里」。
+    // 数字不可信，但「滚多了」这个结论可信，所以照样减半；不能顺着数字断言
+    // 锚点消失，那是宿主替模型编了一个它没说过的事实。
+    if moved > 1.0 {
+        let half = (used_abs / 2.0).round().max(1.0) as i64;
+        return Some(format!(
+            "Scroll scale: {used} notches overshot — the reported move is bigger than the panel \
+             yet the before anchor was still described as visible, so the fraction is not usable. \
+             Halve the count and check the gap: send {axis_key}={}.",
             sign * half
         ));
     }
@@ -1156,13 +1169,34 @@ mod tests {
         assert!(line.contains("notches_y=-200"), "0.9 应重算成 200: {line}");
         assert!(!line.contains("never visible"), "0.9 未跨整屏，不该说漏内容: {line}");
 
-        // 越过一整屏：锚点没了，位移不可测 —— 不再按估计值换算，直接减半。
+        // 报了一个 >1 的位移但没置标志：数字不可信（模型自己的描述常常还写着
+        // 锚点可见），照样减半，但不能替它断言「锚点消失」。
         let v = scroll_verify(1.5, ScrollAxis::Vertical);
         let line = scroll_scale_line(&args, &v).expect("行");
-        assert!(line.contains("notches_y=-150"), "跨整屏应减半成 150: {line}");
-        assert!(line.contains("never visible"), "跨整屏必须提示漏内容: {line}");
-        assert!(line.contains("scroll back"), "还要让模型回滚核对: {line}");
+        assert!(line.contains("notches_y=-150"), "过冲应减半成 150: {line}");
+        assert!(line.contains("not usable"), "要说清分数不可用: {line}");
+        assert!(
+            !line.contains("anchor is gone"),
+            "没置标志就不能断言锚点消失: {line}"
+        );
         assert!(!line.contains("1.50"), "不能把估计值当测量引用: {line}");
+    }
+
+    /// 置了标志 = 锚点确实消失：这时才说「跳过了整屏、中间的行没看见」。
+    #[test]
+    fn scroll_scale_says_rows_were_skipped_only_when_flagged() {
+        let args = json!({"notches_y": -300});
+        let mut v = scroll_verify(0.0, ScrollAxis::Vertical);
+        v.scroll = Some(ScrollMeasurement {
+            fraction: 0.0,
+            axis: ScrollAxis::Vertical,
+            past_panel: true,
+        });
+        let line = scroll_scale_line(&args, &v).expect("行");
+        assert!(line.contains("anchor is gone"), "{line}");
+        assert!(line.contains("never visible"), "{line}");
+        assert!(line.contains("scroll back"), "{line}");
+        assert!(line.contains("notches_y=-150"), "减半: {line}");
     }
 
     /// 模型只置标志位、不给数字时，同样减半 —— 这是越屏的规范形态。

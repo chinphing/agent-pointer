@@ -55,6 +55,12 @@ The host answers the flag with a fixed rule — scroll back to read the gap, the
 halve the notch count. A guessed distance would scale the next scroll by the
 same guess, which is how a 3-panel jump gets a 1.5-panel correction.
 
+**The test is 「can I still see the before anchor」.** If it is still in the
+after frame — even squeezed against the top edge — the move is **under** a
+panel: report a fraction below `1` and never set the flag. Writing 「anchor
+moved up, still visible」 and `moved ~1.2` in the same breath is a
+contradiction, and the host has to pick one of them.
+
 The summary follows core.md's shape, with the shift appended:
 
 ```

@@ -135,11 +135,31 @@ fn load_dotenv() {
     }
 }
 
+/// `.env` 里 DeepSeek 的 key 是 `enc:v1:` 密文（本机 HKDF 派生）。走生产同一
+/// 条解密路径，省得为了跑对照实验去要明文；换机器解不开时会打印原因。
+fn resolve_api_key(raw: &str) -> String {
+    let Some(rest) = raw.strip_prefix("enc:v1:") else {
+        return raw.to_string();
+    };
+    use base64::Engine as _;
+    let Ok(blob) = base64::engine::general_purpose::STANDARD.decode(rest) else {
+        println!("key 解密失败：base64 解不开");
+        return String::new();
+    };
+    match pointer_core::local_secret::decrypt_local_secret_with_info(&blob, b"provider-api-keys-v1") {
+        Ok(k) => k,
+        Err(e) => {
+            println!("key 解密失败（换机器会这样）：{e}");
+            String::new()
+        }
+    }
+}
+
 fn build_provider() -> Result<OpenAIProvider> {
     load_dotenv();
     let base_url = std::env::var("POINTER_LOCATE_BASE_URL")
         .context("POINTER_LOCATE_BASE_URL not set (tests/locate_fixture/.env)")?;
-    let api_key = std::env::var("POINTER_LOCATE_API_KEY").unwrap_or_default();
+    let api_key = resolve_api_key(&std::env::var("POINTER_LOCATE_API_KEY").unwrap_or_default());
     let model =
         std::env::var("POINTER_LOCATE_MODEL").unwrap_or_else(|_| "qwen3.8-flash".to_string());
     // 字段名是 camelCase（`baseUrl` / `apiKey` / `activeProviderId`），
@@ -569,6 +589,16 @@ async fn eval_action_verify() -> Result<()> {
             } else {
                 (None, false)
             };
+            if row.family == OperationFamily::Scroll {
+                println!(
+                    "  {}: moved={:?} past_panel={} notches={:?} → 建议={:?}",
+                    row.id,
+                    moved_used,
+                    past_used,
+                    row.scroll.as_ref().and_then(|s| s.notches_y),
+                    scale_notches,
+                );
+            }
             let used_notches = row.scroll.as_ref().and_then(|s| {
                 if row.family != OperationFamily::Scroll {
                     return None;

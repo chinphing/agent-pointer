@@ -102,12 +102,23 @@ fn terminal_job_title(args: &serde_json::Value) -> (String, Option<String>) {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    // `action` is the schema-required intent field, so it owns the job title.
+    // `label` is the pre-rename key — history rows of old sessions still carry
+    // it — so it is a fallback and must never win over `action`. Same precedence
+    // as the tool-row summary in `tools::display` (terminal arm).
     let label = args
-        .get("label")
+        .get("action")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(str::to_string);
+        .map(str::to_string)
+        .or_else(|| {
+            args.get("label")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        });
     (command, label)
 }
 
@@ -668,8 +679,51 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
 
 #[cfg(test)]
 mod tests {
-    use super::terminal_self_caller;
+    use super::{terminal_job_title, terminal_self_caller};
     use crate::chat_service::job_supervisor::JobCaller;
+    use serde_json::json;
+
+    /// The background-job title (idle push「后台任务已完成：…」) must read the
+    /// intent, not the truncated raw command. `action` is the schema-required
+    /// field, so it wins; `label` is only the pre-rename key for old rows.
+    #[test]
+    fn terminal_job_title_prefers_action_over_label() {
+        let (command, label) = terminal_job_title(&json!({
+            "command": "cargo test -p pointer-core --lib",
+            "action": "运行 pointer-core 单元测试",
+            "label": "旧的标题字段",
+        }));
+        assert_eq!(command, "cargo test -p pointer-core --lib");
+        assert_eq!(label.as_deref(), Some("运行 pointer-core 单元测试"));
+    }
+
+    /// Old transcript rows have no `action`; without the fallback the push would
+    /// degrade to the raw command.
+    #[test]
+    fn terminal_job_title_falls_back_to_label_for_old_rows() {
+        let (command, label) = terminal_job_title(&json!({
+            "command": "cargo test -p pointer-core --lib",
+            "label": " 运行测试 ",
+        }));
+        assert_eq!(command, "cargo test -p pointer-core --lib");
+        assert_eq!(label.as_deref(), Some("运行测试"));
+    }
+
+    /// Blank `action` is not an intent — it must not swallow the `label`
+    /// fallback, and with neither present the title stays `None`.
+    #[test]
+    fn terminal_job_title_without_intent_is_none() {
+        let (command, label) = terminal_job_title(&json!({
+            "command": "sleep 1",
+            "action": "   ",
+            "label": "",
+        }));
+        assert_eq!(command, "sleep 1");
+        assert_eq!(label, None);
+
+        let (_, label) = terminal_job_title(&json!({ "command": "sleep 1" }));
+        assert_eq!(label, None);
+    }
 
     /// `blockUntilMs` waits as the job's own issuer, so the host self-wait keeps
     /// working after `job` became subtree-scoped.

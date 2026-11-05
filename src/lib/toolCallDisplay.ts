@@ -160,18 +160,19 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
     }
   }
   if (base === 'locate_element') {
-    // `description` lives inside `elements[]`; `goal` is top-level.
+    // `description` lives inside `elements[]`; the intent is top-level — `action`
+    // now, `goal` only in history rows of old sessions.
     const elements = Array.isArray(args.elements) ? args.elements : []
     const first = elements.find(
       (el): el is Record<string, unknown> => !!el && typeof el === 'object'
     )
     const firstDesc = first ? strField(first, ['description']) : ''
     const extra = elements.length > 1 ? ` +${elements.length - 1}` : ''
-    const goal = truncateToolSummary(strField(args, ['goal']))
+    const intent = truncateToolSummary(strField(args, ['action', 'goal']))
     const head = truncateToolSummary(firstDesc) + extra
     return {
       label: t('tools.locateElement'),
-      summary: [head, goal].filter(Boolean).join(' · ')
+      summary: [head, intent].filter(Boolean).join(' · ')
     }
   }
   if (base === 'cron_job') {
@@ -216,7 +217,9 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
     || (KEYBOARD_TOOLS.has(base) ? keyboardSummary(args) : '')
     || (base === 'media_understand' ? strField(args, ['goal', 'question']) : '')
     || (base === 'terminal'
-      ? (strField(args, ['command']).split('\n')[0]?.trim() || '')
+      ? (strField(args, ['action', 'label']).split('\n')[0]?.trim()
+        || strField(args, ['command']).split('\n')[0]?.trim()
+        || '')
       : '')
   return {
     label: tc.displayLabel?.trim() || tc.name,

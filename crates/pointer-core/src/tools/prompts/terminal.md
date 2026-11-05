@@ -34,8 +34,11 @@ schema:
             type: string
     elevated:
       type: boolean
-    label:
+    action:
       type: string
+      description: >
+        Short clause naming what this command is for, in the user's language.
+        Shown as the tool row title.
     blockUntilMs:
       type: integer
       minimum: 0
@@ -46,6 +49,7 @@ schema:
         (capped at 60000) then detach; only for commands finishing in seconds.
   required:
     - command
+    - action
   additionalProperties: true
 ---
 
@@ -53,7 +57,7 @@ schema:
 
 Run a shell command. Returns stdout, stderr, exit code, and timing.
 
-Set **`label`** to a short description of what the command does, in the user's language. When present the UI shows this label instead of the raw command.
+Every call passes **`action`** — a short clause naming what the command is for, in the user's language. It is the tool row title the user reads; rows without it fall back to the first line of **`command`**.
 
 #### When to use
 
@@ -170,5 +174,5 @@ A shell command, not a subagent. Same `job` table, different `kind`.
 | **`waitForInputMs`** | no | Max wait for in-app input after prompt detect |
 | **`envFiles`** | no | `.env` path or array |
 | **`elevated`** | no | Admin/root; see **Elevation** |
-| **`label`** | no | Human-readable short name shown in UI, in the user's language; defaults to first line of `command` |
+| **`action`** | yes | Short clause naming what the command is for, in the user's language; the tool row title (falls back to the first line of `command`) |
 | **`blockUntilMs`** | no | See **Background**. Omit = foreground join. `0` = job handle now (preferred for long commands). `N` = hold this call up to N ms (capped at **60000**) then detach |

@@ -184,18 +184,17 @@ fn computer_action_summary(locale: UiLocale, args: &Value) -> String {
         lower.contains("工作目录") || lower.contains("workspace")
     }
 
-    // `goal` is the only required prose field, so it owns the card title.
-    // `action` is optional and doubles as a routing hint (`read` / `write`), so it
-    // must never win the title — otherwise the same tool shows a sentence on one
-    // call and a bare verb on the next.
-    if let Some(g) = str_field(args, &["goal"]) {
-        if !has_workspace_noise(&g) {
-            return truncate(&g, SUMMARY_MAX);
-        }
-    }
+    // `action` is the desktop tools' required intent field, so it owns the card
+    // title. `goal` is only the old field name — history rows of old sessions
+    // still carry it — so it is a fallback and must never win over `action`.
     if let Some(a) = str_field(args, &["action"]) {
         if !has_workspace_noise(&a) {
             return truncate(&a, SUMMARY_MAX);
+        }
+    }
+    if let Some(g) = str_field(args, &["goal"]) {
+        if !has_workspace_noise(&g) {
+            return truncate(&g, SUMMARY_MAX);
         }
     }
     if let (Some(x), Some(y)) = (args.get("x"), args.get("y")) {
@@ -207,7 +206,8 @@ fn computer_action_summary(locale: UiLocale, args: &Value) -> String {
     String::new()
 }
 
-/// `locate_element` 的 description 在 elements[] 里，goal 在顶层。
+/// `locate_element` 的 description 在 elements[] 里，意图字段在顶层：
+/// 现在叫 `action`，`goal` 只是旧会话历史行里的旧字段名。
 fn locate_element_summary(args: &Value) -> String {
     let Some(items) = args.get("elements").and_then(|v| v.as_array()) else {
         return String::new();
@@ -221,9 +221,9 @@ fn locate_element_summary(args: &Value) -> String {
     if items.len() > 1 {
         out.push_str(&format!(" +{}", items.len() - 1));
     }
-    if let Some(goal) = str_field(args, &["goal"]).map(|g| truncate(&g, SUMMARY_MAX)) {
-        if !goal.is_empty() {
-            out.push_str(&format!(" · {goal}"));
+    if let Some(intent) = str_field(args, &["action", "goal"]).map(|g| truncate(&g, SUMMARY_MAX)) {
+        if !intent.is_empty() {
+            out.push_str(&format!(" · {}", intent));
         }
     }
     out
@@ -257,6 +257,12 @@ fn file_summary(args: &Value, method: &str) -> String {
 }
 
 fn hotkey_summary(args: &Value) -> String {
+    // `action` is required and states the intent ("聚焦地址栏"); `keys` is only the
+    // mechanical way to get there. Same shape as the keyboard arm above — the
+    // intent owns the summary, the raw combination is the fallback.
+    if let Some(action) = str_field(args, &["action", "goal"]) {
+        return truncate(&action, SUMMARY_MAX);
+    }
     if let Some(keys) = args.get("keys").and_then(|v| v.as_array()) {
         let parts: Vec<String> = keys
             .iter()
@@ -362,7 +368,10 @@ pub fn default_display_for(raw_name: &str, args: &Value, locale: UiLocale) -> To
             };
             (
                 label,
-                str_field(args, &["label"])
+                // `action` is the tool-row title (schema-required for new calls).
+                // `label` is the pre-rename key — kept so old transcript rows
+                // still show their summary instead of the raw command.
+                str_field(args, &["action", "label"])
                     .or_else(|| {
                         str_field(args, &["command"])
                             .map(|c| truncate(c.lines().next().unwrap_or(&c), SUMMARY_MAX))
@@ -809,7 +818,22 @@ mod tests {
     }
 
     #[test]
-    fn locate_element_shows_goal_after_the_description() {
+    fn locate_element_shows_action_after_the_description() {
+        // `action` 是现在的意图字段；`goal` 只是旧字段名，不能赢过它。
+        let d = zh(
+            "locate_element",
+            &json!({
+                "action": "输入股票代码查询行情",
+                "goal": "旧的意图字段",
+                "elements": [{"description": "搜索框"}]
+            }),
+        );
+        assert_eq!(d.summary, "搜索框 · 输入股票代码查询行情");
+    }
+
+    /// 旧会话的历史行只有 `goal`，仍要显示成人话。
+    #[test]
+    fn locate_element_falls_back_to_goal_for_old_rows() {
         let d = zh(
             "locate_element",
             &json!({
@@ -821,11 +845,11 @@ mod tests {
     }
 
     #[test]
-    fn locate_element_goal_comes_after_the_extra_count() {
+    fn locate_element_action_comes_after_the_extra_count() {
         let d = zh(
             "locate_element",
             &json!({
-                "goal": "查询行情",
+                "action": "查询行情",
                 "elements": [{"description": "搜索框"}, {"description": "搜索按钮"}]
             }),
         );
@@ -844,15 +868,14 @@ mod tests {
     }
 
     #[test]
-    fn mouse_prefers_goal_over_action() {
-        // `goal` is required; `action` is an optional routing hint. The card title
-        // must come from the required field, or the same tool shows a sentence on
-        // one call and a bare verb on the next.
+    fn mouse_prefers_action_over_goal() {
+        // `action` 是 desktop 工具的必填意图字段，卡片标题归它；`goal` 只是旧
+        // 字段名（旧会话的历史行仍在），不能赢过 `action`。
         let d = zh(
             "mouse_click_at",
             &json!({
-                "goal": "点击文件列表空白区域",
-                "action": "click Finder file list empty row",
+                "action": "点击文件列表空白区域",
+                "goal": "点击文件列表",
                 "x": 1,
                 "y": 2
             }),
@@ -861,11 +884,12 @@ mod tests {
         assert_eq!(d.summary, "点击文件列表空白区域");
     }
 
+    /// 旧会话的历史行只有 `goal`，仍要显示成人话。
     #[test]
-    fn mouse_falls_back_to_action_without_goal() {
+    fn mouse_falls_back_to_goal_for_old_rows() {
         let d = zh(
             "mouse_click_at",
-            &json!({"action": "Click Save", "x": 1, "y": 2}),
+            &json!({"goal": "Click Save", "x": 1, "y": 2}),
         );
         assert!(d.label.contains("鼠标"));
         assert!(d.summary.contains("Save"));
@@ -898,20 +922,68 @@ mod tests {
         );
     }
 
+    /// `hotkey` 的 schema 是 `{ action, keys }`：`action` 必填且说的是意图，
+    /// `keys` 只是手段。以前摘要只读 `keys`，卡片显示 `command+l`，用户看不到
+    /// 这一步要达成什么。
+    #[test]
+    fn hotkey_summary_shows_action_not_keys() {
+        let d = zh(
+            "hotkey",
+            &json!({
+                "action": "聚焦地址栏，准备输入东方财富网址",
+                "keys": ["command", "l"]
+            }),
+        );
+        assert_eq!(d.label, "快捷键");
+        assert_eq!(d.summary, "聚焦地址栏，准备输入东方财富网址");
+    }
+
+    /// 没有 `action`（或为空白）时退回按键组合，不要显示空摘要。
+    #[test]
+    fn hotkey_summary_falls_back_to_keys() {
+        assert_eq!(
+            zh("hotkey", &json!({"keys": ["command", "l"]})).summary,
+            "command+l"
+        );
+        assert_eq!(
+            zh("hotkey", &json!({"keys": ["ctrl", "shift", "t"]})).summary,
+            "ctrl+shift+t"
+        );
+        assert_eq!(
+            zh(
+                "hotkey",
+                &json!({"action": "   ", "keys": ["command", "l"]})
+            )
+            .summary,
+            "command+l",
+            "空白 action 不算意图"
+        );
+        assert_eq!(
+            zh("hotkey", &json!({"keys": "command, l"})).summary,
+            "command, l"
+        );
+    }
+
     /// `move_to` 没有 `mouse_` 前缀，也没有 method 参数，以前直接掉进兜底分支，
     /// 卡片上显示的是裸工具名 `move_to`。
     #[test]
     fn move_to_is_localised_as_a_hover() {
         let d = zh(
             "move_to",
-            &json!({"goal": "把鼠标移到搜索框", "x": 100, "y": 200}),
+            &json!({"action": "把鼠标移到搜索框", "x": 100, "y": 200}),
         );
         assert_eq!(d.label, "鼠标 · 悬停");
         assert_eq!(d.summary, "把鼠标移到搜索框");
 
+        // 旧会话的历史行只有 `goal`。
+        assert_eq!(
+            zh("move_to", &json!({"goal": "把鼠标移到搜索框"})).summary,
+            "把鼠标移到搜索框"
+        );
+
         let en = default_display_for(
             "move_to",
-            &json!({"goal": "move the pointer to the search box"}),
+            &json!({"action": "move the pointer to the search box"}),
             UiLocale::En,
         );
         assert_eq!(en.label, "Mouse · Hover");
@@ -1022,7 +1094,18 @@ mod tests {
     }
 
     #[test]
-    fn terminal_label_takes_priority_over_command() {
+    fn terminal_action_takes_priority_over_command() {
+        let d = zh(
+            "terminal",
+            &json!({"command": "cargo test -p pointer-core task_board::", "action": "运行 task_board 单元测试"}),
+        );
+        assert_eq!(d.label, "终端命令");
+        assert_eq!(d.summary, "运行 task_board 单元测试");
+    }
+
+    #[test]
+    fn terminal_summary_still_reads_legacy_label() {
+        // Rows persisted before the `label` → `action` rename keep their summary.
         let d = zh(
             "terminal",
             &json!({"command": "cargo test -p pointer-core task_board::", "label": "运行 task_board 单元测试"}),
@@ -1032,7 +1115,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_falls_back_to_command_when_label_absent() {
+    fn terminal_falls_back_to_command_when_action_absent() {
         let d = zh("terminal", &json!({"command": "cargo build --release"}));
         assert_eq!(d.label, "终端命令");
         assert_eq!(d.summary, "cargo build --release");

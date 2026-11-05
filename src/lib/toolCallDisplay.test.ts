@@ -81,6 +81,18 @@ describe('compactToolCallStatusLine', () => {
     )).toBe('识别发票金额')
     expect(compactToolCallLiveText(
       tc({
+        id: 'term-action',
+        name: 'terminal',
+        status: 'running',
+        displayLabel: '终端命令',
+        arguments: JSON.stringify({
+          command: 'cargo test -p pointer-core --lib display::',
+          action: '跑 display 单元测试'
+        })
+      })
+    )).toBe('跑 display 单元测试')
+    expect(compactToolCallLiveText(
+      tc({
         id: 'term-label',
         name: 'terminal',
         status: 'running',
@@ -320,16 +332,43 @@ describe('compactToolCallStatusLine', () => {
     expect(d.summary).toBe('WeChat')
   })
 
-  it('shows the goal for keyboard tools that have no label field', () => {
+  it('shows the action for keyboard tools that have no label field', () => {
+    // `hotkey` 的真实 schema 是 `{ action, keys }`（没有 `goal`）：`action` 必填、
+    // 说的是这一步的意图，`keys` 只是手段。
     const hotkey = resolveToolDisplayForCall(
       tc({
         id: '3c',
         name: 'hotkey',
         status: 'success',
+        arguments: JSON.stringify({
+          action: '聚焦地址栏，准备输入东方财富网址',
+          keys: ['command', 'l']
+        })
+      })
+    )
+    expect(hotkey.summary).toBe('聚焦地址栏，准备输入东方财富网址')
+
+    // 只有 keys、没有 action 时退回按键组合，而不是留空。
+    const keysOnly = resolveToolDisplayForCall(
+      tc({
+        id: '3c2',
+        name: 'hotkey',
+        status: 'success',
+        arguments: JSON.stringify({ keys: ['command', 'l'] })
+      })
+    )
+    expect(keysOnly.summary).toBe('command+l')
+
+    // 老会话里的 hotkey 行只有 goal，保留兼容兜底。
+    const legacy = resolveToolDisplayForCall(
+      tc({
+        id: '3c3',
+        name: 'hotkey',
+        status: 'success',
         arguments: JSON.stringify({ goal: '聚焦地址栏', keys: ['command', 'l'] })
       })
     )
-    expect(hotkey.summary).toBe('聚焦地址栏')
+    expect(legacy.summary).toBe('聚焦地址栏')
 
     // 没写 goal 时退回按键组合，而不是留空。
     const press = resolveToolDisplayForCall(
@@ -942,9 +981,25 @@ describe('resolveCollapsedGroupLiveTool', () => {
 })
 
 describe('locate_element summary', () => {
-  it('appends the goal after the description', () => {
+  it('appends the action after the description', () => {
+    // `action` 是现在的意图字段；`goal` 只是旧字段名，不能赢过它。
     const call = tc({
       id: '1',
+      name: 'locate_element',
+      status: 'success',
+      arguments: JSON.stringify({
+        action: '输入股票代码查询行情',
+        goal: '旧的意图字段',
+        elements: [{ description: '搜索框' }]
+      })
+    })
+    expect(resolveToolDisplayForCall(call).summary).toBe('搜索框 · 输入股票代码查询行情')
+  })
+
+  // 旧会话的历史行只有 `goal`，仍要显示成人话。
+  it('falls back to the legacy goal field', () => {
+    const call = tc({
+      id: '1b',
       name: 'locate_element',
       status: 'success',
       arguments: JSON.stringify({
@@ -955,13 +1010,13 @@ describe('locate_element summary', () => {
     expect(resolveToolDisplayForCall(call).summary).toBe('搜索框 · 输入股票代码查询行情')
   })
 
-  it('puts the goal after the extra count', () => {
+  it('puts the action after the extra count', () => {
     const call = tc({
       id: '2',
       name: 'locate_element',
       status: 'success',
       arguments: JSON.stringify({
-        goal: '查询行情',
+        action: '查询行情',
         elements: [{ description: '搜索框' }, { description: '搜索按钮' }]
       })
     })

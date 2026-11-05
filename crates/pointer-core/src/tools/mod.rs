@@ -1183,18 +1183,14 @@ mod openai_tools_schema_tests {
 
     #[test]
     fn openai_tools_modified_click_family_allow_exposes_flat_tools_with_schema() {
-        use super::tool_doc::load_tools_from_schema_yaml;
         use super::ToolEntry;
         use super::ToolRegistry;
         use std::collections::HashSet;
         use std::sync::Arc;
 
+        // 走真实加载路径：`action` 由 load_desktop_schemas 注入，YAML 里没有。
         let yaml = include_str!("../agents/computer/tools/prompts/modified_click.schema.yaml");
-        let schemas: std::collections::HashMap<String, serde_json::Value> =
-            load_tools_from_schema_yaml(yaml)
-                .unwrap()
-                .into_iter()
-                .collect();
+        let schemas = crate::agents::computer::tools::load_desktop_schemas(yaml).unwrap();
         let doc = include_str!("../agents/computer/tools/prompts/modified_click.md");
         let reg = ToolRegistry::new();
         for name in [

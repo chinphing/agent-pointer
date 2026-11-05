@@ -29,7 +29,7 @@ its body and prepends `communication`. There is no per-tier prompt directory —
 | Change | File |
 |--------|------|
 | Per-turn flow (verify → screenshots → positioning → one tool) | `AGENT.md` → `## Each turn` |
-| `goal` / `action` / `target_desc` field rules | `AGENT.md` → `## Tool call shape` |
+| `action` / `target_desc` field rules (what to write, which language, who reads it) | `communication.md` → `## Tool call shape` |
 | How to write `target_desc` (three parts, optional anchor, UI language) | `AGENT.md` → `### Writing target_desc` |
 | Scenes, rules, verify gating | `communication.md` |
 | OS-specific hints | `os/*.md` |
@@ -38,6 +38,11 @@ its body and prepends `communication`. There is no per-tier prompt directory —
 
 Main prompts state scenes and rules.
 Tool arguments stay in `tools/prompts/*.md`.
+
+`action` is shared by every desktop tool: its **schema structure** (`type:
+string` + required) is injected once by `tools/mod.rs::inject_action_field`, and
+its **wording** lives only in `communication.md → ## Tool call shape`. Never
+declare it in a `*.schema.yaml`, and never put prompt text in Rust.
 Positioning order: a label on that control,
 then coordinates when the full screen shows a visible interior,
 then move beside a mark that has no interior to aim at.
@@ -48,6 +53,11 @@ Do not add fill-in templates (`Next`, `Repetition`, `Locate`, ratio math).
 
 Main prompts state scenes and rules.
 Tool arguments stay in `tools/prompts/*.md`.
+
+`action` is shared by every desktop tool: its **schema structure** (`type:
+string` + required) is injected once by `tools/mod.rs::inject_action_field`, and
+its **wording** lives only in `communication.md → ## Tool call shape`. Never
+declare it in a `*.schema.yaml`, and never put prompt text in Rust.
 Positioning order: a label on that control,
 then coordinates when the full screen shows a visible interior,
 then move beside a mark that has no interior to aim at.

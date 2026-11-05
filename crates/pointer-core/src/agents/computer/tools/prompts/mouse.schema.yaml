@@ -1,3 +1,6 @@
+# `action` 不在本文件声明：desktop 工具共有的这个字段由 tools/mod.rs 的
+# inject_action_field 统一注入结构（type + required）。字段该写什么，权威在
+# ../prompts/communication.md 的 `## Tool call shape`。
 mouse_click_at:
   type: object
   properties:
@@ -11,8 +14,6 @@ mouse_click_at:
       minItems: 4
       maxItems: 4
       description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
-    action:
-      type: string
     button:
       type: string
       enum:
@@ -32,7 +33,6 @@ mouse_click_at:
   required:
     - target_desc
     - bbox
-    - action
   additionalProperties: true
 
 mouse_double_click_at:
@@ -48,8 +48,6 @@ mouse_double_click_at:
       minItems: 4
       maxItems: 4
       description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
-    action:
-      type: string
     wait:
       type: number
       minimum: 1
@@ -57,7 +55,6 @@ mouse_double_click_at:
   required:
     - target_desc
     - bbox
-    - action
   additionalProperties: true
 
 mouse_right_click_at:
@@ -73,8 +70,6 @@ mouse_right_click_at:
       minItems: 4
       maxItems: 4
       description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
-    action:
-      type: string
     wait:
       type: number
       minimum: 1
@@ -82,7 +77,6 @@ mouse_right_click_at:
   required:
     - target_desc
     - bbox
-    - action
   additionalProperties: true
 
 move_to:
@@ -98,8 +92,6 @@ move_to:
       minItems: 4
       maxItems: 4
       description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
-    action:
-      type: string
     wait:
       type: number
       minimum: 1
@@ -107,7 +99,6 @@ move_to:
   required:
     - target_desc
     - bbox
-    - action
   additionalProperties: true
 
 mouse_scroll_current:
@@ -123,8 +114,6 @@ mouse_scroll_current:
       minItems: 4
       maxItems: 4
       description: "Panel box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
-    action:
-      type: string
     notches_x:
       type: integer
       minimum: -1000
@@ -147,14 +136,11 @@ mouse_scroll_current:
       minimum: 1
       maximum: 5
   required:
-    - action
   additionalProperties: true
 
 mouse_down:
   type: object
   properties:
-    action:
-      type: string
     button:
       type: string
       enum:
@@ -167,14 +153,11 @@ mouse_down:
       minimum: 1
       maximum: 5
   required:
-    - action
   additionalProperties: true
 
 mouse_up:
   type: object
   properties:
-    action:
-      type: string
     button:
       type: string
       enum:
@@ -187,7 +170,6 @@ mouse_up:
       minimum: 1
       maximum: 5
   required:
-    - action
   additionalProperties: true
 
 mouse_drag_from_to_at:
@@ -213,8 +195,6 @@ mouse_drag_from_to_at:
       minItems: 4
       maxItems: 4
       description: "Drop point box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
-    action:
-      type: string
     wait:
       type: number
       minimum: 1
@@ -224,5 +204,4 @@ mouse_drag_from_to_at:
     - from_bbox
     - to_target_desc
     - to_bbox
-    - action
   additionalProperties: true

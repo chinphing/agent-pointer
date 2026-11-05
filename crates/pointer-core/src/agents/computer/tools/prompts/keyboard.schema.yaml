@@ -1,11 +1,11 @@
+# `action` 不在本文件声明：desktop 工具共有的这个字段由 tools/mod.rs 的
+# inject_action_field 统一注入结构（type + required）。字段该写什么，权威在
+# ../prompts/communication.md 的 `## Tool call shape`。
 # keyboard.schema.yaml — flat keyboard tool schemas (PRESS / KEY_DOWN / KEY_UP / TYPING)
 
 key_press:
   type: object
   properties:
-    action:
-      type: string
-      description: "What this call is for, one clause, in the user's language — 「打开聊天标题栏的更多菜单」. This is the card title and the anchor verify judges against."
     key:
       type: string
       description: Key name, e.g. enter, tab, escape, up, space, a.
@@ -15,15 +15,11 @@ key_press:
       maximum: 5
   required:
     - key
-    - action
   additionalProperties: true
 
 key_down:
   type: object
   properties:
-    action:
-      type: string
-      description: "What this call is for, one clause, in the user's language — 「打开聊天标题栏的更多菜单」. This is the card title and the anchor verify judges against."
     key:
       type: string
       description: Key name to hold down until a later key_up.
@@ -33,15 +29,11 @@ key_down:
       maximum: 5
   required:
     - key
-    - action
   additionalProperties: true
 
 key_up:
   type: object
   properties:
-    action:
-      type: string
-      description: "What this call is for, one clause, in the user's language — 「打开聊天标题栏的更多菜单」. This is the card title and the anchor verify judges against."
     key:
       type: string
       description: Key name to release.
@@ -51,15 +43,11 @@ key_up:
       maximum: 5
   required:
     - key
-    - action
   additionalProperties: true
 
 keyboard_type:
   type: object
   properties:
-    action:
-      type: string
-      description: "What this call is for, one clause, in the user's language — 「打开聊天标题栏的更多菜单」. This is the card title and the anchor verify judges against."
     text:
       type: string
       description: Text to type into the focused widget with raw key events.
@@ -69,5 +57,4 @@ keyboard_type:
       maximum: 5
   required:
     - text
-    - action
   additionalProperties: true

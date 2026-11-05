@@ -1,11 +1,11 @@
+# `action` 不在本文件声明：desktop 工具共有的这个字段由 tools/mod.rs 的
+# inject_action_field 统一注入结构（type + required）。字段该写什么，权威在
+# ../prompts/communication.md 的 `## Tool call shape`。
 # input.schema.yaml — flat input tool schemas (no method enum)
 
 input_at:
   type: object
   properties:
-    action:
-      type: string
-      description: "What this call is for, one clause, in the user's language — 「打开聊天标题栏的更多菜单」. This is the card title and the anchor verify judges against."
     target_desc:
       type: string
       description: "Which control to type into. Required together with bbox. See Writing target_desc for the shape."
@@ -30,15 +30,11 @@ input_at:
     - target_desc
     - bbox
     - text
-    - action
   additionalProperties: true
 
 input_focused:
   type: object
   properties:
-    action:
-      type: string
-      description: "What this call is for, one clause, in the user's language — 「打开聊天标题栏的更多菜单」. This is the card title and the anchor verify judges against."
     text:
       type: string
     clear_first:
@@ -51,5 +47,4 @@ input_focused:
       maximum: 5
   required:
     - text
-    - action
   additionalProperties: true

@@ -1,13 +1,12 @@
+# `action` 不在本文件声明：desktop 工具共有的这个字段由 tools/mod.rs 的
+# inject_action_field 统一注入结构（type + required）。字段该写什么，权威在
+# ../prompts/communication.md 的 `## Tool call shape`。
 list_apps:
   type: object
   properties:
-    action:
-      type: string
-      description: "What this call is for, one clause, in the user's language — 「打开聊天标题栏的更多菜单」. This is the card title and the anchor verify judges against."
     include_all:
       type: boolean
       default: false
       description: Omit or false on the first list_apps call (running + 14-day recent). Set true only on a second list_apps retry when the target app was not in the first result.
   required:
-    - action
   additionalProperties: true

@@ -21,8 +21,7 @@ pub use tool_clipboard::{clipboard_host_verify_kind, ClipboardHostVerifyKind};
 use crate::agents::computer::ComputerState;
 use crate::platform::run_synthetic_input;
 use crate::tools::tool_doc::load_tools_from_schema_yaml;
-use crate::tools::{ToolEntry, ToolHandler, ToolRegistry};
-pub(crate) use method_route::{InputBackend, ModifiedClickBackend, MouseBackend};
+use crate::tools::{ToolEntry, ToolHandler, ToolRegistry};pub(crate) use method_route::{InputBackend, ModifiedClickBackend, MouseBackend};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tool_input::InputTool;
@@ -43,6 +42,45 @@ fn conversation_id_from_args(args: &serde_json::Value) -> Option<&str> {
         .and_then(|v| v.as_str())
 }
 
+/// 把 desktop 工具共有的 `action` 字段注入一份 schema。
+///
+/// **只管结构**（`type: string` + 进 `required`），这里不放任何提示词。
+/// 这个字段该写什么、用哪种语言、给谁看，权威在
+/// `prompts/communication.md` → `## Tool call shape`。
+pub fn inject_action_field(schema: &mut serde_json::Value) {
+    let Some(obj) = schema.as_object_mut() else {
+        return;
+    };
+    let props = obj
+        .entry("properties")
+        .or_insert_with(|| serde_json::json!({}));
+    if !props.is_object() {
+        *props = serde_json::json!({});
+    }
+    if let Some(props) = props.as_object_mut() {
+        props.insert("action".into(), serde_json::json!({"type": "string"}));
+    }
+    let required = obj.entry("required").or_insert_with(|| serde_json::json!([]));
+    if !required.is_array() {
+        *required = serde_json::json!([]);
+    }
+    if let Some(required) = required.as_array_mut() {
+        if !required.iter().any(|v| v == "action") {
+            required.push(serde_json::json!("action"));
+        }
+    }
+}
+
+/// 加载 desktop 工具 schema：YAML 里不写 `action`，由这里统一注入结构。
+pub fn load_desktop_schemas(yaml: &str) -> anyhow::Result<HashMap<String, serde_json::Value>> {
+    let mut out = HashMap::new();
+    for (name, mut schema) in load_tools_from_schema_yaml(yaml)? {
+        inject_action_field(&mut schema);
+        out.insert(name, schema);
+    }
+    Ok(out)
+}
+
 /// Register all computer-use tools.
 pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     // ── mouse (flat tools) ────────────────────────────────────────────────
@@ -50,10 +88,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         const MOUSE_DOC_SOURCE: &str = "agents/computer/tools/prompts/mouse.md";
         const MOUSE_SCHEMA_YAML: &str = include_str!("prompts/mouse.schema.yaml");
         let mouse_schemas: HashMap<String, serde_json::Value> =
-            load_tools_from_schema_yaml(MOUSE_SCHEMA_YAML)
-                .expect("mouse.schema.yaml must be valid")
-                .into_iter()
-                .collect();
+            load_desktop_schemas(MOUSE_SCHEMA_YAML)
+                .expect("mouse.schema.yaml must be valid");
 
         let doc = include_str!("prompts/mouse.md").trim().to_string();
         let mouse_handlers: &[(&str, Option<(MouseBackend, &str)>)] = &[
@@ -158,10 +194,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         const INPUT_DOC_SOURCE: &str = "agents/computer/tools/prompts/input.md";
         const INPUT_SCHEMA_YAML: &str = include_str!("prompts/input.schema.yaml");
         let input_schemas: HashMap<String, serde_json::Value> =
-            load_tools_from_schema_yaml(INPUT_SCHEMA_YAML)
-                .expect("input.schema.yaml must be valid")
-                .into_iter()
-                .collect();
+            load_desktop_schemas(INPUT_SCHEMA_YAML)
+                .expect("input.schema.yaml must be valid");
 
         let doc = include_str!("prompts/input.md").trim().to_string();
         let input_handlers: &[(&str, InputBackend)] = &[
@@ -215,10 +249,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         const KEYBOARD_DOC_SOURCE: &str = "agents/computer/tools/prompts/keyboard.md";
         const KEYBOARD_SCHEMA_YAML: &str = include_str!("prompts/keyboard.schema.yaml");
         let keyboard_schemas: HashMap<String, serde_json::Value> =
-            load_tools_from_schema_yaml(KEYBOARD_SCHEMA_YAML)
-                .expect("keyboard.schema.yaml must be valid")
-                .into_iter()
-                .collect();
+            load_desktop_schemas(KEYBOARD_SCHEMA_YAML)
+                .expect("keyboard.schema.yaml must be valid");
 
         let doc = include_str!("prompts/keyboard.md").trim().to_string();
         let keyboard_handlers: &[&str] =
@@ -261,10 +293,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         const MODIFIED_CLICK_DOC_SOURCE: &str = "agents/computer/tools/prompts/modified_click.md";
         const MODIFIED_CLICK_SCHEMA_YAML: &str = include_str!("prompts/modified_click.schema.yaml");
         let modified_click_schemas: HashMap<String, serde_json::Value> =
-            load_tools_from_schema_yaml(MODIFIED_CLICK_SCHEMA_YAML)
-                .expect("modified_click.schema.yaml must be valid")
-                .into_iter()
-                .collect();
+            load_desktop_schemas(MODIFIED_CLICK_SCHEMA_YAML)
+                .expect("modified_click.schema.yaml must be valid");
 
         let doc = include_str!("prompts/modified_click.md").trim().to_string();
         let mc_handlers: &[(&str, ModifiedClickBackend, &str)] = &[
@@ -346,10 +376,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         const CLIPBOARD_DOC_SOURCE: &str = "agents/computer/tools/prompts/clipboard.md";
         const CLIPBOARD_SCHEMA_YAML: &str = include_str!("prompts/clipboard.schema.yaml");
         let clipboard_schemas: HashMap<String, serde_json::Value> =
-            load_tools_from_schema_yaml(CLIPBOARD_SCHEMA_YAML)
-                .expect("clipboard.schema.yaml must be valid")
-                .into_iter()
-                .collect();
+            load_desktop_schemas(CLIPBOARD_SCHEMA_YAML)
+                .expect("clipboard.schema.yaml must be valid");
 
         let doc = include_str!("prompts/clipboard.md").trim().to_string();
         let cb_handlers: &[(&str, &str)] =
@@ -391,18 +419,14 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         const LAUNCH_APP_DOC_SOURCE: &str = "agents/computer/tools/prompts/launch_app.md";
         const LIST_APPS_SCHEMA_YAML: &str = include_str!("prompts/list_apps.schema.yaml");
         const LAUNCH_APP_SCHEMA_YAML: &str = include_str!("prompts/launch_app.schema.yaml");
-        let list_schema = load_tools_from_schema_yaml(LIST_APPS_SCHEMA_YAML)
+        let list_schema = load_desktop_schemas(LIST_APPS_SCHEMA_YAML)
             .expect("list_apps.schema.yaml must be valid")
-            .into_iter()
-            .next()
-            .expect("list_apps.schema.yaml missing list_apps entry")
-            .1;
-        let launch_schema = load_tools_from_schema_yaml(LAUNCH_APP_SCHEMA_YAML)
+            .remove("list_apps")
+            .expect("list_apps.schema.yaml missing list_apps entry");
+        let launch_schema = load_desktop_schemas(LAUNCH_APP_SCHEMA_YAML)
             .expect("launch_app.schema.yaml must be valid")
-            .into_iter()
-            .next()
-            .expect("launch_app.schema.yaml missing launch_app entry")
-            .1;
+            .remove("launch_app")
+            .expect("launch_app.schema.yaml missing launch_app entry");
 
         let list_doc = include_str!("prompts/list_apps.md").trim();
         reg.register(
@@ -615,3 +639,4 @@ mod tests {
         }
     }
 }
+

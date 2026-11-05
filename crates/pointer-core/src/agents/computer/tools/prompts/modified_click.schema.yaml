@@ -1,9 +1,9 @@
+# `action` 不在本文件声明：desktop 工具共有的这个字段由 tools/mod.rs 的
+# inject_action_field 统一注入结构（type + required）。字段该写什么，权威在
+# ../prompts/communication.md 的 `## Tool call shape`。
 modified_click_select_at:
   type: object
   properties:
-    action:
-      type: string
-      description: "What this call is for, one clause, in the user's language — 「打开聊天标题栏的更多菜单」. This is the card title and the anchor verify judges against."
     positions:
       type: array
       description: "One entry per target to select. Each is grounded and confirmed before any click happens."
@@ -29,15 +29,11 @@ modified_click_select_at:
       maximum: 5
   required:
     - positions
-    - action
   additionalProperties: true
 
 modified_click_range_select_at:
   type: object
   properties:
-    action:
-      type: string
-      description: "What this call is for, one clause, in the user's language — 「打开聊天标题栏的更多菜单」. This is the card title and the anchor verify judges against."
     positions:
       type: array
       description: "One entry per target to select. Each is grounded and confirmed before any click happens."
@@ -63,5 +59,4 @@ modified_click_range_select_at:
       maximum: 5
   required:
     - positions
-    - action
   additionalProperties: true

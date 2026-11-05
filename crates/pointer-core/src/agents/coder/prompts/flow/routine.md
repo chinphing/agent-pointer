@@ -92,8 +92,7 @@ behavior-changing edit without it.
 
 - Match neighboring code style; no drive-by refactors.
 - **Edit with `file` tools first** — any existing text file (code, docs, config, data) → **`file_edit`**; new or fully rewritten files → **`file_write`**.
-- Shell rewriting (`sed -i`, `>`, heredoc, `cp` + copy-back) is a **fallback** only for what `file` tools handle poorly (bulk renames, generated/binary files, encoding repair) — name the case in **Deliver**.
-- A failed `oldString` → rebuild from fresh **`file_read`**; never switch to a shell edit to get around it.
+- Shell rewriting (`sed -i`, `>`, heredoc, `cp` + copy-back) is a **fallback** only for bulk renames, generated/binary files, or encoding repair — name the case in **Deliver**. A failed `oldString` → rebuild from **`file_read`**, never switch to shell.
 - Re-read mid-file targets before editing when match uniqueness is fragile.
 - Debugging: one hypothesis at a time when possible.
 - Related gap found → **optional follow-up** in **Deliver**, not silent scope expand.

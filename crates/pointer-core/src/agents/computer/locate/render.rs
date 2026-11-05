@@ -1014,3 +1014,4 @@ mod tests {
         assert_eq!((decoded.width(), decoded.height()), (16, 16));
     }
 }
+

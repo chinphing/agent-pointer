@@ -46,23 +46,46 @@ pub const BEFORE_POINTER_ZOOM_FACTOR: u32 = ZOOM_POINTER_MAGNIFY_FACTOR;
 /// 两者天然差几个像素。十字星的交点是中心，没有这个歧义 —— 而且整屏定位图
 /// 早就在用十字星，模型只需要认一种形状。
 ///
-/// 尺寸不另定，直接取 locate 整屏十字的几何（`full_frame_crosshair_geometry`）：
-/// 臂 24 px、芯宽 5 px、白边 1.8 px。两处各写一份常量迟早会漂成两个形状。
-fn pointer_crosshair_geometry() -> (i32, i32, i32) {
-    let (arm, half_core, halo) = crate::agents::computer::locate::render::full_frame_crosshair_geometry();
-    (
-        arm.round() as i32,
-        ((2.0 * half_core).round() as i32) / 2,   // 5 px 宽 → 半宽 2
-        halo.round() as i32,
-    )
+/// 指针标记的尺寸**按图宽取比例**，不写死像素。
+///
+/// 参照点：模型看的 `[Current screen]` 实测 1512 px 宽（Retina 逻辑分辨率），
+/// 正文一行约 14–18 px。臂长取 10 px → 整个标记跨度 20 px，约一行高。
+///
+/// 不照抄 locate 的 24 px：那张图 2444 px 宽，像素值搬过来就是 1.6 倍粗，
+/// 直接糊住一行文字。像素值不可移植，可移植的只有比例。
+const POINTER_CROSS_ARM_SHARE_OF_WIDTH: f64 = 18.0 / 1512.0;
+/// 比例算出来的下限。小窗口/小截图（宽 < 800 px）上按比例只剩个位数，
+/// 标记会缩到看不见 —— 保底 8 px。
+const POINTER_CROSS_ARM_MIN_PX: i32 = 10;
+/// 比例照抄 verify 的实测值（拿 `Mark::CrossWithTolerance` 渲染真图量出来的）：
+///
+/// - 环直径 / 臂跨度 ≈ 0.65  →  环半径 = 臂 × 0.65
+/// - 线宽 / 半臂长 ≈ 1/9     →  芯半宽 = 臂 × 0.055
+/// - 白边 = 芯半宽 × 0.72
+///
+/// **只有臂长带下限**，其余全部是臂长的倍数 —— 任何图宽下形状完全一样，
+/// 不会出现「十字粗了、环小了」这种比例漂移。
+const POINTER_CROSS_CORE_OF_ARM: f64 = 0.055;
+const POINTER_CROSS_HALO_OF_CORE: f64 = 0.72;
+const POINTER_CROSS_RING_OF_ARM: f64 = 0.65;
+
+/// `(臂长, 芯半宽, 白边宽, 环半径)` —— 后三项都是臂长的倍数，不做整数取整，
+/// 取整放在绘制时按像素边界做，避免小尺寸下比例被放大。
+fn pointer_crosshair_geometry(width: u32) -> (f64, f64, f64, f64) {
+    let arm = (width as f64 * POINTER_CROSS_ARM_SHARE_OF_WIDTH)
+        .round()
+        .max(POINTER_CROSS_ARM_MIN_PX as f64);
+    let core = arm * POINTER_CROSS_CORE_OF_ARM;
+    let halo = core * POINTER_CROSS_HALO_OF_CORE;
+    let ring = arm * POINTER_CROSS_RING_OF_ARM;
+    (arm, core, halo, ring)
 }
-/// 虚线圆环半径。臂长 22 px，环 10 px —— 臂伸出环外 12 px，读起来是准星
-/// 而不是一个圆圈。
-const POINTER_CROSS_RING_PX: f64 = 10.0;
 
 /// 越界自动裁剪 —— 指针贴边时不该 panic，也不该画到图外。
-fn fill_rgba_rect(img: &mut RgbaImage, x0: i32, y0: i32, x1: i32, y1: i32, color: Rgba<u8>) {
+fn fill_rgba_rect(img: &mut RgbaImage, x0: f64, y0: f64, x1: f64, y1: f64, color: Rgba<u8>) {
     let (w, h) = (img.width() as i32, img.height() as i32);
+    let (x0, y0) = (x0.round() as i32, y0.round() as i32);
+    let (x1, y1) = (x1.round() as i32, y1.round() as i32);
     for y in y0.max(0)..=y1.min(h - 1) {
         for x in x0.max(0)..=x1.min(w - 1) {
             img.put_pixel(x as u32, y as u32, color);
@@ -77,9 +100,9 @@ fn fill_rgba_rect(img: &mut RgbaImage, x0: i32, y0: i32, x1: i32, y1: i32, color
 /// 圆环给出一个「大概这么大」的尺度 —— 判断「指针是否落在这个控件/面板里」
 /// 时，眼睛要比的是圆环和控件边界，而不是一个没有大小的点。
 fn composite_pointer_crosshair(img: &mut RgbaImage, cx: i32, cy: i32) {
-    let (arm, core, halo_w) = pointer_crosshair_geometry();
+    let (arm, core, halo_w, ring) = pointer_crosshair_geometry(img.width());
     let halo = core + halo_w;
-    let ring = POINTER_CROSS_RING_PX;
+    let (fx, fy) = (cx as f64, cy as f64);
     let white = Rgba([255, 255, 255, 235]);
     let red = Rgba([220, 38, 38, 255]);
 
@@ -94,7 +117,7 @@ fn composite_pointer_crosshair(img: &mut RgbaImage, cx: i32, cy: i32) {
     // 画孤立点会被 JPEG 平均成一层灰影）。
     let (dash, gap) = (16.0_f64.to_radians(), 8.0_f64.to_radians());
     let period = dash + gap;
-    for (color, extra) in [(white, halo_w as f64), (red, 0.0)] {
+    for (color, extra) in [(white, halo_w), (red, 0.0)] {
         let t = core as f64 + extra;
         let mut a = 0.0_f64;
         while a < std::f64::consts::TAU {
@@ -102,7 +125,7 @@ fn composite_pointer_crosshair(img: &mut RgbaImage, cx: i32, cy: i32) {
                 let (sn, cs) = (a.sin(), a.cos());
                 let mut d = -t;
                 while d <= t {
-                    put(cx as f64 + (ring + d) * cs, cy as f64 + (ring + d) * sn, color);
+                    put(fx + (ring + d) * cs, fy + (ring + d) * sn, color);
                     d += 1.0;
                 }
             }
@@ -111,10 +134,10 @@ fn composite_pointer_crosshair(img: &mut RgbaImage, cx: i32, cy: i32) {
     }
 
     // 十字：白边铺底，红芯压上。
-    fill_rgba_rect(img, cx - arm - halo, cy - halo, cx + arm + halo, cy + halo, white);
-    fill_rgba_rect(img, cx - halo, cy - arm - halo, cx + halo, cy + arm + halo, white);
-    fill_rgba_rect(img, cx - arm, cy - core, cx + arm, cy + core, red);
-    fill_rgba_rect(img, cx - core, cy - arm, cx + core, cy + arm, red);
+    fill_rgba_rect(img, fx - arm - halo, fy - halo, fx + arm + halo, fy + halo, white);
+    fill_rgba_rect(img, fx - halo, fy - arm - halo, fx + halo, fy + arm + halo, white);
+    fill_rgba_rect(img, fx - arm, fy - core, fx + arm, fy + core, red);
+    fill_rgba_rect(img, fx - core, fy - arm, fx + core, fy + arm, red);
 }
 
 /// The one screenshot the model sees for this turn.
@@ -312,21 +335,51 @@ mod tests {
         assert_eq!(global_pointer_to_local(150, 250, &m), (50, 50));
     }
 
-    /// 十字星的中心必须落在指针位置上：臂往两侧展开、中心是红的。
+    /// 十字星的中心必须落在指针位置上：臂往两侧展开、中心是红的、环在臂内。
     #[test]
     fn pointer_crosshair_centres_on_the_pointer() {
-        let mut img = RgbaImage::from_pixel(200, 200, Rgba([40, 80, 120, 255]));
-        composite_pointer_crosshair(&mut img, 100, 100);
-        let centre = img.get_pixel(100, 100);
-        assert_eq!((centre[0], centre[1], centre[2]), (220, 38, 38), "中心应为红芯");
+        // 参照宽度 2444 px → 臂 24 px，和 locate 整屏图一致
+        let (arm, _core, _halo, ring) = pointer_crosshair_geometry(2444);
+        let (cx, cy) = (1200i32, 500i32);
+        let mut img = RgbaImage::from_pixel(2444, 1023, Rgba([40, 80, 120, 255]));
+        composite_pointer_crosshair(&mut img, cx, cy);
+        assert_eq!(img.get_pixel(cx as u32, cy as u32)[0], 220, "中心应为红芯");
         // 四条臂都画到了
-        for (x, y) in [(100 - 20, 100), (100 + 20, 100), (100, 100 - 20), (100, 100 + 20)] {
-            assert_eq!(img.get_pixel(x, y)[0], 220, "臂缺失于 ({x}, {y})");
+        let ai = arm as i32;
+        for (x, y) in [
+            (cx - ai + 2, cy),
+            (cx + ai - 2, cy),
+            (cx, cy - ai + 2),
+            (cx, cy + ai - 2),
+        ] {
+            assert_eq!(img.get_pixel(x as u32, y as u32)[0], 220, "臂缺失于 ({x}, {y})");
         }
-        // 虚线圆环：半径 10 px，0° 处正好在段内
-        assert_eq!(img.get_pixel(100 + 10, 100)[0], 220, "圆环缺失");
-        // 环外（对角 28 px 处）不画 —— 这是准星，不是方框
-        assert_eq!(img.get_pixel(120, 120)[0], 40);
+        // 圆环：30° 落在虚线「段」内（16°段 / 8°空），且不在任何一条臂上
+        let (a, r) = (30.0_f64.to_radians(), ring);
+        let rx = (cx as f64 + r * a.cos()).round() as u32;
+        let ry = (cy as f64 + r * a.sin()).round() as u32;
+        assert_ne!(img.get_pixel(rx, ry)[0], 40, "圆环缺失于 ({rx}, {ry})");
+        // 环外对角不画 —— 这是准星，不是方框
+        assert_eq!(img.get_pixel((cx + 40) as u32, (cy + 40) as u32)[0], 40);
+    }
+
+    /// 臂长按图宽比例走，并受最小值约束。
+    #[test]
+    fn pointer_crosshair_scales_with_image_width() {
+        // 1512 宽（模型实际看到的 Retina 逻辑分辨率）→ 18 px
+        assert_eq!(pointer_crosshair_geometry(1512).0, 18.0);
+        // 更大的图按比例放大
+        assert_eq!(pointer_crosshair_geometry(3024).0, 36.0);
+        // 小窗口：比例算出来只有 6，保底 10
+        assert_eq!(pointer_crosshair_geometry(500).0, 10.0);
+
+        // 除臂长外全部是臂长的倍数 —— 任意图宽下形状完全一致
+        for w in [500u32, 1512, 3024] {
+            let (arm, core, halo, ring) = pointer_crosshair_geometry(w);
+            assert!((core / arm - 0.055).abs() < 1e-9, "w={w} 芯臂比漂移");
+            assert!((halo / core - 0.72).abs() < 1e-9, "w={w} 白边比漂移");
+            assert!((ring / arm - 0.65).abs() < 1e-9, "w={w} 环臂比漂移");
+        }
     }
 
     /// 指针贴边时不能 panic，也不能画到图外。

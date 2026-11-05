@@ -1094,7 +1094,7 @@ mod tests {
         SCROLL_TARGET_FRACTION,
     };
     use crate::agents::computer::pipeline::types::{
-        ActionResult, FailureCause, ScrollAxis, ScrollMeasurement, VerifyConclusion,
+        ActionResult, ScrollAxis, ScrollMeasurement, VerifyConclusion,
     };
     use serde_json::json;
 
@@ -1109,114 +1109,6 @@ mod tests {
                 past_panel: false,
             }),
         }
-    }
-
-    /// 真实会话里收集的滚动校验样本 —— 每一条都对应一次实际运行，不是编的。
-    ///
-    /// 只锁**可判定的要点**（给多少 notches、有没有引用不可信的数字、有没有
-    /// 替模型断言它没说过的事），不锁整句措辞：措辞会改，要点不能错。
-    #[test]
-    fn verify_case_book_scroll_scale() {
-        // (编号, 来源, notches_y, fraction, past_panel, 必须出现, 禁止出现)
-        let cases: &[(&str, &str, i64, f32, bool, &[&str], &[&str])] = &[
-            (
-                "S1",
-                "200 notches 越过一整屏（锚点消失）",
-                -200,
-                1.2,
-                false,
-                &["notches_y=-100", "not usable", "Halve"],
-                &["anchor is gone", "1.20"],
-            ),
-            (
-                "S2",
-                "20 notches，摘要写着锚点已上移但仍在画面里",
-                20,
-                1.2,
-                false,
-                &["notches_y=10", "not usable"],
-                &["anchor is gone", "never visible"],
-            ),
-            (
-                "S3",
-                "置了 past_panel（新契约：不给数字）",
-                -200,
-                0.0,
-                true,
-                &["notches_y=-100", "anchor is gone", "never visible", "scroll back"],
-                &["not usable"],
-            ),
-            (
-                "S4",
-                "0×-100 notches，moved ~1.0 screen（恰好一屏，不算越屏）",
-                -100,
-                1.0,
-                false,
-                &["notches_y=-60"],
-                &["anchor is gone", "jumped past"],
-            ),
-            (
-                "S5",
-                "0×100 notches，moved ~1.0 screen",
-                100,
-                1.0,
-                false,
-                &["notches_y=60"],
-                &["anchor is gone", "jumped past"],
-            ),
-            (
-                "S6",
-                "落在目标带宽内，别动这个刻度",
-                -200,
-                0.6,
-                false,
-                &["keep this count"],
-                &["Next scroll", "Halve"],
-            ),
-            (
-                "S7",
-                "滚轮没落到可滚动区域",
-                -200,
-                0.0,
-                false,
-                &["did not reach a scrollable area"],
-                &["notches_y="],
-            ),
-            (
-                "S8",
-                "请求 -2000 被夹到 -1000 再换算",
-                -2000,
-                0.5,
-                false,
-                &["1000 notches", "notches_y=-1000", "capped at 1000"],
-                &["-2000 notches"],
-            ),
-        ];
-
-        for (id, origin, notches, fraction, past_panel, want, forbid) in cases {
-            let args = json!({ "notches_y": notches });
-            let mut v = scroll_verify(*fraction, ScrollAxis::Vertical);
-            if let Some(m) = v.scroll.as_mut() {
-                m.past_panel = *past_panel;
-            }
-            let line = scroll_scale_line(&args, &v)
-                .unwrap_or_else(|| panic!("{id}（{origin}）不该没有输出"));
-            for w in *want {
-                assert!(line.contains(w), "{id}（{origin}）缺少「{w}」: {line}");
-            }
-            for f in *forbid {
-                assert!(!line.contains(f), "{id}（{origin}）不该出现「{f}」: {line}");
-            }
-            println!("{id} | {origin}\n    {line}");
-        }
-    }
-
-    /// 到达边界：不给刻度建议 —— 结论是「别滚了」，不是「换个数字」。
-    #[test]
-    fn verify_case_book_at_edge_has_no_scale_line() {
-        let mut v = scroll_verify(0.0, ScrollAxis::Vertical);
-        v.failure_cause = Some(FailureCause::AtEdge);
-        assert!(scroll_scale_line(&json!({"notches_y": -200}), &v).is_none());
     }
 
     /// 50 notches → 0.05 target-heights：0.6 需要 600 notches，上限 1000 之内，

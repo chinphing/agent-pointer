@@ -221,7 +221,11 @@ function createSettingsDialogForm(deps: {
 
   /** 当前 computer 档位（fast / standard / expert）。 */
   function computerTier(): string {
-    const m = (s.settings.agentPerformanceModes ?? {}).computer
+    // 档位单选改的是表单里的**实时**值（agentPerformanceModesLocal），保存是
+    // 防抖的；只读 store 会让下面三个下拉慢一拍，看起来像「档位没同步」。
+    const m =
+      agentPerformanceModesLocal.value.computer ??
+      (s.settings.agentPerformanceModes ?? {}).computer
     return (m ?? '').trim() || 'standard'
   }
 

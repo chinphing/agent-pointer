@@ -6,6 +6,12 @@
    **`[Current screen]`**: the desktop as it is now.
    Confirm here that the previous step actually landed; the tool result and the
    `verify:` row are hints, not proof. Plan from this frame.
+   **Every time you open this image, locate the red crosshair first.** That is
+   your pointer: the wheel turns there and a click lands there. Its pixel
+   position is in the `[CUR_SCREEN]` preamble. Knowing where it sits is what
+   tells you whether the next action needs the pointer moved at all — a scroll
+   whose crosshair is already inside the panel needs no locate round, and a
+   click whose crosshair is already on the target needs no box.
 3. Pick one positioning route from **Positioning** below.
 4. Issue the desktop tools this step needs — they must serve one goal or touch
    targets that cannot affect each other — plus any independent `terminal` work.
@@ -193,7 +199,9 @@ For loading/transfer: prefer **`wait`** before a new trigger when the UI is sett
 The host sends **`[CUR_SCREEN]`** with one labeled image:
 
 - **`[Current screen]`**: the desktop as it is now.
-  All coordinates come from this image.
+  All coordinates come from this image. The **red crosshair** drawn on it is
+  your pointer, at the pixel position stated in the preamble — check it before
+  planning any action that depends on where the pointer currently is.
 
 ## Scenes
 

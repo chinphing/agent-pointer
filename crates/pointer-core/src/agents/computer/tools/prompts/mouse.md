@@ -46,10 +46,13 @@ and same-named elements confuse it).
   plus optional `target_desc` + `bbox`. With the pair, it re-grounds the panel
   from `target_desc` inside that box and moves the pointer to the **confirmed**
   centre — which may sit nowhere near the centre of the box you passed, the same
-  way every other pointing tool works. Do that only when the red
-  crosshair is **not** already inside the panel — the `[CUR_SCREEN]` preamble
-  states where the crosshair is. The result line names the point it settled on. With
-  no pair it scrolls whatever sits under the pointer right now.
+  way every other pointing tool works. **Default: pass neither.** Only pass the
+  pair when the red crosshair is **not** already inside the panel you mean to
+  scroll — the `[CUR_SCREEN]` preamble states where it is. Passing the pair
+  forces a locate round that takes 10–30 s and moves the pointer to a centre you
+  did not need; with no pair the wheel turns at the crosshair, which is what you
+  want whenever the pointer is already in the right panel. The result line names
+  the point it settled on.
 - **`mouse_drag_from_to_at`** takes **two** pairs, because a drag has two ends:
   `from_target_desc` + `from_bbox` (what to grab) and `to_target_desc` +
   `to_bbox` (where to drop). Both ends are grounded separately, so both must be

@@ -304,7 +304,43 @@ describe('compactToolCallStatusLine', () => {
       })
     )
     expect(d.label).toBe('启动应用')
+    // `goal` 说明这一步要达成什么；`app` 只是手段，只有缺 goal 时才退回它。
+    expect(d.summary).toBe('打开微信')
+  })
+
+  it('falls back to the app id when launch_app has no goal', () => {
+    const d = resolveToolDisplayForCall(
+      tc({
+        id: '3b',
+        name: 'launch_app',
+        status: 'success',
+        arguments: JSON.stringify({ app: 'WeChat' })
+      })
+    )
     expect(d.summary).toBe('WeChat')
+  })
+
+  it('shows the goal for keyboard tools that have no label field', () => {
+    const hotkey = resolveToolDisplayForCall(
+      tc({
+        id: '3c',
+        name: 'hotkey',
+        status: 'success',
+        arguments: JSON.stringify({ goal: '聚焦地址栏', keys: ['command', 'l'] })
+      })
+    )
+    expect(hotkey.summary).toBe('聚焦地址栏')
+
+    // 没写 goal 时退回按键组合，而不是留空。
+    const press = resolveToolDisplayForCall(
+      tc({
+        id: '3d',
+        name: 'key_press',
+        status: 'success',
+        arguments: JSON.stringify({ key: 'Enter' })
+      })
+    )
+    expect(press.summary).toBe('Enter')
   })
 
   it('falls back display for cron_job without backend labels', () => {

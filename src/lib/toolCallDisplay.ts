@@ -97,6 +97,43 @@ function isSlugToolDisplayLabel(tc: ToolCall, backendLabel: string): boolean {
 }
 
 /** Client fallback when backend display fields are missing (e.g. reloaded history). */
+/**
+ * 键盘类工具（`hotkey` / `key_press` / `key_down` / `key_up` / `keyboard_type`）
+ * 的 schema 里只有 `goal` / `action` / `key(s)` / `text`，**没有 `label`** ——
+ * 默认分支只认 `label`，所以这些工具的行走廊一直是空的。
+ */
+const KEYBOARD_TOOLS = new Set([
+  'hotkey',
+  'key_press',
+  'key_down',
+  'key_up',
+  'keyboard_type'
+])
+
+/** `keys` 可能是数组，也可能是 `command, c` 这种字符串 —— 统一成 `command+c`。 */
+function keyboardKeys(args: Record<string, unknown>): string {
+  const raw = args.keys ?? args.key
+  if (Array.isArray(raw)) {
+    return raw
+      .map(v => String(v).trim())
+      .filter(Boolean)
+      .join('+')
+  }
+  if (typeof raw === 'string') {
+    return raw
+      .split(/[,+]/)
+      .map(s => s.trim())
+      .filter(Boolean)
+      .join('+')
+  }
+  return ''
+}
+
+/** `goal` 是必填的，先用它；缺了再退回按键组合 / 文本本身。 */
+function keyboardSummary(args: Record<string, unknown>): string {
+  return strField(args, ['goal']) || keyboardKeys(args) || strField(args, ['text'])
+}
+
 export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summary: string } {
   const base = toolCallBaseName(tc.name)
   const args = parseToolArgs(tc)
@@ -109,9 +146,11 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
     }
   }
   if (base === 'launch_app') {
+    // `goal` 先说「要干什么」，`app` 只是手段。反过来会让工具行显示成
+    // `com.google.Chrome` —— 用户看不到这一步要达成什么。
     return {
       label: t('tools.launchApp'),
-      summary: truncateToolSummary(strField(args, ['app']) || strField(args, ['goal']))
+      summary: truncateToolSummary(strField(args, ['goal']) || strField(args, ['app']))
     }
   }
   if (base === 'list_apps') {
@@ -174,6 +213,7 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
 
   const fromArgs =
     strField(args, ['label'])
+    || (KEYBOARD_TOOLS.has(base) ? keyboardSummary(args) : '')
     || (base === 'media_understand' ? strField(args, ['goal', 'question']) : '')
     || (base === 'terminal'
       ? (strField(args, ['command']).split('\n')[0]?.trim() || '')

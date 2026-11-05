@@ -87,6 +87,3 @@ overrides the current one.
 turn, so you should never see one. If you do, the host dropped that step's
 verdict — re-read the screen and decide for yourself whether to retry. Do not
 stall waiting for a row that will never close.
-
-Tool-call field rules (`action` / `target_desc` / `bbox` / `wait`) live in the
-communication slice, not here.

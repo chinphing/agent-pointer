@@ -15,7 +15,6 @@ mouse_click_at:
       type: string
     action:
       type: string
-      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     button:
       type: string
       enum:
@@ -36,7 +35,6 @@ mouse_click_at:
     - target_desc
     - bbox
     - goal
-    - action
   additionalProperties: true
 
 mouse_double_click_at:
@@ -56,7 +54,6 @@ mouse_double_click_at:
       type: string
     action:
       type: string
-      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     wait:
       type: number
       minimum: 1
@@ -65,7 +62,6 @@ mouse_double_click_at:
     - target_desc
     - bbox
     - goal
-    - action
   additionalProperties: true
 
 mouse_right_click_at:
@@ -85,7 +81,6 @@ mouse_right_click_at:
       type: string
     action:
       type: string
-      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     wait:
       type: number
       minimum: 1
@@ -94,7 +89,6 @@ mouse_right_click_at:
     - target_desc
     - bbox
     - goal
-    - action
   additionalProperties: true
 
 move_to:
@@ -114,7 +108,6 @@ move_to:
       type: string
     action:
       type: string
-      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     wait:
       type: number
       minimum: 1
@@ -123,7 +116,6 @@ move_to:
     - target_desc
     - bbox
     - goal
-    - action
   additionalProperties: true
 
 mouse_scroll_current:
@@ -131,7 +123,7 @@ mouse_scroll_current:
   properties:
     target_desc:
       type: string
-      description: "Optional. The panel or list body that must move. Only needed when the red crosshair is not already inside that panel — wheel events reach only the window under the pointer. See Writing target_desc for the shape."
+      description: "Optional. The panel or list body that must move; when given, the pointer is moved there first because wheel events only reach the window under it. See Writing target_desc for the shape."
     bbox:
       type: array
       items:
@@ -143,7 +135,6 @@ mouse_scroll_current:
       type: string
     action:
       type: string
-      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     notches_x:
       type: integer
       minimum: -1000
@@ -177,7 +168,6 @@ mouse_down:
       type: string
     action:
       type: string
-      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     button:
       type: string
       enum:
@@ -201,7 +191,6 @@ mouse_up:
       type: string
     action:
       type: string
-      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     button:
       type: string
       enum:
@@ -245,7 +234,6 @@ mouse_drag_from_to_at:
       type: string
     action:
       type: string
-      description: "This call's purpose as a visible effect — 「打开聊天标题栏的更多菜单」. Verify judges against this, not `goal`. One clause."
     wait:
       type: number
       minimum: 1
@@ -256,5 +244,4 @@ mouse_drag_from_to_at:
     - to_target_desc
     - to_bbox
     - goal
-    - action
   additionalProperties: true

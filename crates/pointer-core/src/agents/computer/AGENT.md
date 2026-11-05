@@ -98,10 +98,3 @@ instead of where you looked.
 `goal` language follows General rules; `target_desc` is the exception because it
 is compared against on-screen text. A Chinese user driving an English app gets a
 Chinese `goal` and an English `target_desc` in the same call.
-
-**`action` is what verify judges against — write it as a visible effect.** One
-clause naming what should change if this call works: 「打开聊天标题栏的更多菜单」,
-「把收件人填入搜索框」. Not a restatement of `goal`: a goal spans several calls,
-so no single before/after pair can show it, and a verifier pointed at the goal
-accepts whatever happened to move. Verify reads `action` first; `goal` is only
-there to disambiguate a call whose effect has two readings.

@@ -94,7 +94,9 @@ Two steps, in this order:
 1. **Locate on a normalized grid.** Picture the screen as 1000×1000: `(0,0)`
    top-left, `(1000,1000)` bottom-right.
 2. **Convert to pixels for `bbox`.** `x_pixel = x_norm / 1000 × width`,
-   `y_pixel = y_norm / 1000 × height`.
+   `y_pixel = y_norm / 1000 × height`. **`bbox` takes pixels, not grid
+   numbers** — a raw `700` is read as pixel 700, which on a 1920-wide screen is
+   barely a third of the way across instead of where you looked.
 
 **When the target sits in something with labels or grid lines — a table with
 A/B/C and 1/2/3, a spreadsheet, a grid of cells, a numbered list — count to it

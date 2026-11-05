@@ -88,11 +88,5 @@ turn, so you should never see one. If you do, the host dropped that step's
 verdict — re-read the screen and decide for yourself whether to retry. Do not
 stall waiting for a row that will never close.
 
-**`bbox` takes pixels.** You locate targets on a 1000×1000 grid first — that is
-easier to eyeball — but the value you pass must be converted with the
-screenshot's real width and height. A raw grid number like `700` is read as
-pixel 700, which on an 1920-wide screen is barely a third of the way across
-instead of where you looked.
-
-`action` / `target_desc` / `wait` field rules live in the communication slice,
-not here.
+Tool-call field rules (`action` / `target_desc` / `bbox` / `wait`) live in the
+communication slice, not here.

@@ -1495,7 +1495,6 @@ mod builtin_agent_tests {
             "Batch only what one verify can prove",
             "The screenshot is the only ground truth",
             "A `verifying` row means the judgement was lost",
-            "`bbox` takes pixels",
         ] {
             assert!(rules.contains(rule), "AGENT.md should state: {rule}");
             assert!(
@@ -1543,6 +1542,18 @@ mod builtin_agent_tests {
                 "communication.md should not restate a shared rule: {shared_rule}"
             );
         }
+
+        // `bbox` conversion is a procedure, not a standing rule: it depends on
+        // the current frame's dimensions, so it belongs with the positioning
+        // steps in communication.md.
+        assert!(
+            details.contains("`bbox` takes pixels"),
+            "communication.md should carry the bbox pixel rule"
+        );
+        assert!(
+            !rules.contains("`bbox` takes pixels"),
+            "AGENT.md should not restate the bbox pixel rule"
+        );
 
         // Procedures live in communication.md.
         for section in [

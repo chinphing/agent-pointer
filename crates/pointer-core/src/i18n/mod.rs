@@ -6,6 +6,7 @@
 
 mod catalogs;
 
+#[cfg(any(target_os = "macos", windows))]
 use std::sync::OnceLock;
 
 /// Preference values persisted in `user_settings.json` (`uiLocale`).

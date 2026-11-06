@@ -118,6 +118,12 @@ pub fn screenshot_current_monitor() -> Result<ScreenshotPacket> {
     Err(headless_error("screen capture"))
 }
 
+/// Current pointer position — unavailable headless. Callers that only need a hint use
+/// `.ok()` and fall back to no pointer marker.
+pub fn current_pointer() -> Result<(i32, i32)> {
+    Err(headless_error("pointer position"))
+}
+
 /// Encode logical RGBA to JPEG with vision byte cap (pure; no display needed).
 pub fn rgba_to_jpeg_bytes(rgba: image::RgbaImage, _quality: u8) -> Result<Vec<u8>> {
     prepare_screenshot_jpeg(DynamicImage::ImageRgba8(rgba), "screenshot")

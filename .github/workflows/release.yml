@@ -124,18 +124,16 @@ jobs:
             target/universal-apple-darwin/release/bundle \
             target/release/pointer-server-bundle
 
-      - name: Require official updater signing secrets
+      - name: Build official client
+        id: official_client
         run: |
           if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ] || [ -z "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
-            echo "Official client builds need repository secrets TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD."
-            exit 1
+            echo "built=false" >> "$GITHUB_OUTPUT"
+            echo "Official client skipped: set TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD."
+            exit 0
           fi
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-
-      - name: Build official client
-        run: npm run tauri:build -- ${{ matrix.tauri_args }}
+          npm run tauri:build -- ${{ matrix.tauri_args }}
+          echo "built=true" >> "$GITHUB_OUTPUT"
         env:
           POINTER_PACKAGE_LABEL: official
           POINTER_EDITION: managed
@@ -155,6 +153,7 @@ jobs:
           APPLE_PASSWORD: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_PASSWORD || '' }}
 
       - name: Stage official client
+        if: steps.official_client.outputs.built == 'true'
         run: node scripts/rename-release-assets.mjs --flavor official --dest release-assets
 
       - name: Clear bundle output before community server
@@ -198,7 +197,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
           name: Pointer ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
-          draft: true
+          draft: false
           fail_on_unmatched_files: true
           files: release-assets/*
           body: |

@@ -85,6 +85,29 @@ describe('findBrokenLinks', () => {
     expect(findBrokenLinks({ root }).broken).toHaveLength(0);
     expect(findBrokenLinks({ root, includeCodeFences: true }).broken).toHaveLength(1);
   });
+
+  it('records links that leave the scanned root without reporting them as broken', () => {
+    const root = makeRepo({
+      'docs/target.md': '# Target\n',
+      'docs/index.md': [
+        '[sibling](../../pointer-eval/datasets.md)',
+        '[sibling dir](../../pointer-eval/baselines/)',
+        '[inside](./target.md)',
+        '',
+      ].join('\n'),
+    });
+
+    const { links, broken } = findBrokenLinks({ root });
+    expect(broken).toHaveLength(0);
+
+    const outside = links.filter((link) => link.scope === 'out-of-repo');
+    expect(outside.map((link) => link.target)).toEqual([
+      '../../pointer-eval/datasets.md',
+      '../../pointer-eval/baselines/',
+    ]);
+    expect(outside.every((link) => link.kind === null)).toBe(true);
+    expect(links.find((link) => link.target === './target.md').scope).not.toBe('out-of-repo');
+  });
 });
 
 /** Minimal site context: routes → docs-relative files, rooted at a temp repo. */

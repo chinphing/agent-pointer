@@ -28,6 +28,11 @@
  * `/route` links are only read as site routes while the scanned root contains
  * the docs tree, so `--root <tmpdir>` keeps the plain filesystem reading.
  *
+ * Out-of-repo links: a relative link that resolves outside the scanned root
+ * (e.g. `../../pointer-eval/datasets.md` pointing at a sibling checkout) cannot
+ * be verified from a plain clone, so it is recorded with `scope: 'out-of-repo'`
+ * and never counted as broken.
+ *
  * Exit code: 1 when any link is broken, 0 otherwise (2 on usage error).
  */
 import fs from 'node:fs';
@@ -136,6 +141,12 @@ function normalizeRoute(route) {
   return trimmed === '' ? '/' : trimmed;
 }
 
+/** True when `target` lies outside `root` (sibling checkout, absolute escape, …). */
+export function isOutsideRoot(root, target) {
+  const rel = path.relative(root, target);
+  return rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
+}
+
 /**
  * Site context for a scanned root, or `null` when the root does not contain the
  * VitePress source tree (e.g. the `--root <tmpdir>` unit tests) — in that case
@@ -218,6 +229,14 @@ export function findBrokenLinks({
         else if (decodedPath.startsWith('/')) resolved = path.join(root, decodedPath.slice(1));
         else resolved = path.resolve(path.dirname(file), decodedPath);
         record.resolved = path.relative(root, resolved);
+
+        // A link that leaves the scanned tree points at a sibling checkout that a
+        // plain clone does not have. Record it, but never call it broken.
+        if (isOutsideRoot(root, resolved)) {
+          record.scope = 'out-of-repo';
+          links.push(record);
+          continue;
+        }
 
         if (site) {
           const siteRel = path.relative(site.srcDir, resolved).split(path.sep).join('/');
@@ -311,8 +330,14 @@ export function main(argv = process.argv.slice(2)) {
   } else {
     console.log('site map: not applicable (scanned root does not contain docs/)');
   }
+  const outOfRepo = links.filter((link) => link.scope === 'out-of-repo').length;
+  if (outOfRepo) {
+    console.log(
+      `skipped ${outOfRepo} link(s) pointing outside the scanned root ` +
+        '(sibling checkouts are not present in a plain clone)',
+    );
+  }
   console.log(`broken: ${broken.length}`);
-
   if (opts.verbose) {
     for (const link of links) {
       console.log(`  ${link.kind ? 'BROKEN' : 'ok    '}  ${link.file}:${link.line}  ${link.target}`);

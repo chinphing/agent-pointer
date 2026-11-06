@@ -172,7 +172,7 @@ npm run web:dev
 
 ## 发布
 
-改根目录 `VERSION`，同步版本号，再推一个 `v*.*.*` 标签。CI 会打 Windows / macOS / Linux 包，并在 [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) 生成草稿。**CI 只产 standalone 客户端包** —— managed（官方 / 企业）包在本地或企业 CI 打。
+改根目录 `VERSION`，同步版本号，再推一个 `v*.*.*` 标签。CI 会打 Windows / macOS / Linux 的社区版和官方版客户端，以及两种 server，并在 [GitHub Releases](https://github.com/chinphing/agent-pointer/releases) 生成草稿。文件名带 `community` 或 `official`。企业内网域名的包在本地或企业 CI 打。
 
 ```bash
 # 编辑 VERSION 后：

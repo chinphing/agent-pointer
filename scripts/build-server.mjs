@@ -21,6 +21,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { platformLabel, platformTag } from './lib/platform-tag.mjs'
+import { serverZipBaseName } from './rename-release-assets.mjs'
 import { applyPointerLocalEnv } from './lib/load-pointer-local-env.mjs'
 import { verifyBuildArtifacts } from './lib/verify-baked-edition.mjs'
 
@@ -114,7 +115,7 @@ function printSummary() {
     'target',
     'release',
     'pointer-server-bundle',
-    `pointer-server-${platformTag()}.zip`
+    `${serverZipBaseName(platformTag(), env)}.zip`
   )
   const debDir = path.join(ROOT, 'target', 'release', 'bundle', 'deb')
   console.log('')

@@ -46,7 +46,7 @@
 
 ## 4. CI 口径
 
-`.github/workflows/release.yml` **只产 standalone 客户端包**：三端都带 `--config src-tauri/tauri.personal.conf.json`，不注入控制面域名，也没有 updater 产物。**managed 客户端需在本地或企业 CI 打**，见 [`editions.md`](editions.md)。
+`.github/workflows/release.yml` 同一次 tag 打社区版和官方版的客户端与 server。官方版注入 readflowai 域名，更新签名用仓库密钥。企业内网域名的包在本地或企业 CI 打，见 [`editions.md`](editions.md)。
 
 详细步骤（触发方式、Linux 系统依赖、Draft Release）见 [GitHub Actions 三端发版](../contributing/cross-platform-build.md#github-actions-三端发版)。
 

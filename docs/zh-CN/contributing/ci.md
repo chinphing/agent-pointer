@@ -8,7 +8,7 @@
 ci.yml          ← 主 CI：测试 + 审计 + 清单一致性 + 密钥扫描（PR 与 main 都跑）
 docs-links.yml  ← 文档相对链接与锚点校验
 docs-site.yml   ← 构建文档站并发布到 GitHub Pages
-release.yml     ← 打 tag 后三端打包桌面客户端（只产 standalone）
+release.yml     ← 打 tag 后三端打包社区版、官方版客户端和 server
 ```
 
 ## 四支 workflow 一览
@@ -18,7 +18,7 @@ release.yml     ← 打 tag 后三端打包桌面客户端（只产 standalone�
 | `ci.yml` | CI | PR、push `main`、手动 | 前端与 Rust 测试、依赖审计、第三方清单、gitleaks |
 | `docs-links.yml` | Docs links | PR、push `main` | `node scripts/check-doc-links.mjs` |
 | `docs-site.yml` | Docs site | push `main`（改到 `docs/**` / `docs-site/**`）、手动 | 构建文档站 → GitHub Pages |
-| `release.yml` | Release (standalone) | push tag `v*.*.*`、手动 | 三端打包桌面客户端 → Draft Release |
+| `release.yml` | Release | push tag `v*.*.*`、手动 | 三端打包社区版 / 官方版客户端和 server → Draft Release |
 
 ## `ci.yml`：唯一的主 CI
 
@@ -88,15 +88,15 @@ npm run docs:build          # 仓库根执行 → npm --prefix docs-site run bui
 
 ## `release.yml`
 
-**只产 standalone 客户端**：三端都带 `--config src-tauri/tauri.personal.conf.json`，不注入控制面域名，也没有 updater 产物。managed（官方 / 企业）包要在本地或企业 CI 打，见 [editions.md](../deploy/editions.md)。
+每个平台各打四份：社区版客户端、官方版客户端、社区版 server、官方版 server。社区版不注入控制面，没有 updater 产物。官方版使用 `POINTER_EDITION=managed` 和 readflowai 三个域名；客户端更新签名读仓库密钥 `TAURI_SIGNING_PRIVATE_KEY` 与 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`，私钥不进仓库。`npm run tauri:build` 和 `npm run server:build` 在写出安装包时就把 `community` 或 `official` 写进文件名。未绑定控制面的包是 community；绑定 readflowai 的 managed 包是 official。企业自己的域名不会被标成 official。
 
-| Runner | 额外参数 | 产物 |
+| Runner | 客户端额外参数 | 产物 |
 |--------|----------|------|
-| `windows-latest` | — | Windows MSI |
-| `macos-latest` | `--target universal-apple-darwin` | Universal macOS |
-| `ubuntu-24.04` | — | Linux deb + AppImage |
+| `windows-latest` | — | 客户端 MSI / NSIS，server zip |
+| `macos-latest` | `--target universal-apple-darwin` | Universal macOS 客户端，server zip |
+| `ubuntu-24.04` | — | 客户端 deb + AppImage，server zip + deb |
 
-步骤：checkout → Node 20 → Rust stable（macOS 加两个 target）→（Linux 装系统依赖）→ **`npm install`** → `npm run icons` → `tauri-apps/tauri-action` → 建 **Draft** Release。
+步骤：checkout → Node 20 → Rust stable（macOS 加两个 target）→（Linux 装系统依赖）→ **`npm install`** → `npm run icons` → 按上面四份依次 `npm run tauri:build` / `npm run server:build` → 重命名后上传 **Draft** Release。
 
 - ⚠️ 这里用的是 `npm install` 而不是 `npm ci`（与 `ci.yml` 不同），不要照抄到别处
 - Release 是 **draft**，需要人工确认后发布

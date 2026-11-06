@@ -1,8 +1,15 @@
-# Builds the **standalone** package: no control plane is bound, so the app runs
-# with local models and keys only, and no updater artifacts are produced.
-# An official package (Pointer's own control plane) is built locally instead —
-# see docs/en/deploy/editions.md.
-name: Release (standalone)
+# One tag builds both client flavours and both server flavours for
+# Windows, macOS, and Linux.
+#
+# community: no control plane, no updater artifacts.
+# official: POINTER_EDITION=managed and Pointer's readflowai hosts.
+#   The updater private key stays in GitHub secrets
+#   TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
+#   It is not stored in this file.
+#
+# Uploaded names carry `_community` / `_official` or
+# `Pointer-community-...` / `pointer-server-official-...`.
+name: Release
 
 on:
   workflow_dispatch:
@@ -15,18 +22,21 @@ permissions:
 
 jobs:
   build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.platform }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: macos-latest
-            args: --target universal-apple-darwin --config src-tauri/tauri.personal.conf.json
+            tauri_args: --target universal-apple-darwin
           - platform: ubuntu-24.04
-            args: --config src-tauri/tauri.personal.conf.json
+            tauri_args: ""
           - platform: windows-latest
-            args: --config src-tauri/tauri.personal.conf.json
-
-    runs-on: ${{ matrix.platform }}
+            tauri_args: ""
 
     steps:
       - name: Checkout
@@ -75,7 +85,8 @@ jobs:
             libgbm-dev \
             libegl1-mesa-dev \
             libdrm-dev \
-            libwayland-dev
+            libwayland-dev \
+            dpkg
 
       - name: Install frontend dependencies
         run: npm install
@@ -83,23 +94,115 @@ jobs:
       - name: Generate app icons
         run: npm run icons
 
-      - name: Build and bundle Tauri app
-        uses: tauri-apps/tauri-action@v0
+      - name: Clear bundle output
+        run: |
+          rm -rf \
+            target/release/bundle \
+            target/universal-apple-darwin/release/bundle \
+            target/release/pointer-server-bundle \
+            release-assets
+          mkdir -p release-assets
+
+      - name: Build community client
+        run: npm run tauri:build -- ${{ matrix.tauri_args }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # No control-plane domains: this workflow builds the standalone flavour.
-          NO_STRIP: ${{ matrix.platform == 'ubuntu-24.04' && 'true' || '' }}
-          # macOS: set repository secrets to enable sign + notarize (see signing/macos/README.md)
+          POINTER_PACKAGE_LABEL: community
           APPLE_CERTIFICATE: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE || '' }}
           APPLE_CERTIFICATE_PASSWORD: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
           APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_SIGNING_IDENTITY || '' }}
           APPLE_TEAM_ID: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_TEAM_ID || '' }}
           APPLE_ID: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_ID || '' }}
           APPLE_PASSWORD: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_PASSWORD || '' }}
+
+      - name: Stage community client
+        run: node scripts/rename-release-assets.mjs --flavor community --dest release-assets
+
+      - name: Clear bundle output before official client
+        run: |
+          rm -rf \
+            target/release/bundle \
+            target/universal-apple-darwin/release/bundle \
+            target/release/pointer-server-bundle
+
+      - name: Build official client
+        id: official_client
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ] || [ -z "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
+            echo "built=false" >> "$GITHUB_OUTPUT"
+            echo "Official client skipped: set TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD."
+            exit 0
+          fi
+          npm run tauri:build -- ${{ matrix.tauri_args }}
+          echo "built=true" >> "$GITHUB_OUTPUT"
+        env:
+          POINTER_PACKAGE_LABEL: official
+          POINTER_EDITION: managed
+          VITE_POINTER_EDITION: managed
+          POINTER_API_BASE: https://pointer-api.readflowai.com
+          POINTER_WEB_BASE: https://pointer.readflowai.com
+          VITE_POINTER_WEB_BASE: https://pointer.readflowai.com
+          COMPUTER_ANNOTATE_API_BASE: https://pointer-som.readflowai.com
+          POINTER_DOWNLOAD_URL: https://pointer.readflowai.com/download
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_TEAM_ID: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_ID: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_PASSWORD || '' }}
+
+      - name: Stage official client
+        if: steps.official_client.outputs.built == 'true'
+        run: node scripts/rename-release-assets.mjs --flavor official --dest release-assets
+
+      - name: Clear bundle output before community server
+        run: |
+          rm -rf \
+            target/release/bundle \
+            target/universal-apple-darwin/release/bundle \
+            target/release/pointer-server-bundle
+
+      - name: Build community server
+        run: npm run server:build
+        env:
+          POINTER_PACKAGE_LABEL: community
+
+      - name: Stage community server
+        run: node scripts/rename-release-assets.mjs --flavor community --dest release-assets
+
+      - name: Clear bundle output before official server
+        run: |
+          rm -rf \
+            target/release/bundle \
+            target/release/pointer-server-bundle
+
+      - name: Build official server
+        run: npm run server:build
+        env:
+          POINTER_PACKAGE_LABEL: official
+          POINTER_EDITION: managed
+          VITE_POINTER_EDITION: managed
+          POINTER_API_BASE: https://pointer-api.readflowai.com
+          POINTER_WEB_BASE: https://pointer.readflowai.com
+          VITE_POINTER_WEB_BASE: https://pointer.readflowai.com
+          COMPUTER_ANNOTATE_API_BASE: https://pointer-som.readflowai.com
+          POINTER_DOWNLOAD_URL: https://pointer.readflowai.com/download
+
+      - name: Stage official server
+        run: node scripts/rename-release-assets.mjs --flavor official --dest release-assets
+
+      - name: Upload to the release
+        uses: softprops/action-gh-release@v2
         with:
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
-          releaseName: Pointer standalone ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
-          releaseBody: Standalone build for Windows, macOS and Linux. No control plane is bound — local models and keys only.
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
+          name: Pointer ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
+          draft: false
+          fail_on_unmatched_files: true
+          files: release-assets/*
+          body: |
+            Community packages are unbound: bring your own model Base URL and API key. They have no updater.
+            Official packages bind the readflowai control plane and require a Pointer account. Client updater artifacts are signed.
+            Server packages are the zip (and a Linux deb). Names contain `community` or `official`.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

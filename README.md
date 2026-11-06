@@ -172,7 +172,7 @@ Platform packaging (Windows / macOS / Linux): [docs/en/deploy/platforms.md](docs
 
 ## Release
 
-Bump the root `VERSION` file, sync, then push a `v*.*.*` tag. CI builds Windows / macOS / Linux and opens a draft on [GitHub Releases](https://github.com/chinphing/agent-pointer/releases). **CI produces the standalone client package only** — managed (official / enterprise) packages are built locally or on your own CI.
+Bump the root `VERSION` file, sync, then push a `v*.*.*` tag. CI builds the community and official clients for Windows / macOS / Linux, plus both servers, and opens a draft on [GitHub Releases](https://github.com/chinphing/agent-pointer/releases). File names contain `community` or `official`. Packages for an enterprise control plane are built locally or on your own CI.
 
 ```bash
 # edit VERSION, then:

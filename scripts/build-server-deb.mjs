@@ -16,6 +16,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assertNoForbiddenReleasePaths } from './lib/release-hygiene.mjs'
+import { serverDebBaseName } from './rename-release-assets.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
@@ -106,7 +107,7 @@ function main() {
   // lib/systemd/system/ → pointer-server.service
 
   const D = DEB_STAGING
-  const PKG_NAME = `pointer-server_${PACKAGE_VERSION}_${debArch}`
+  const PKG_NAME = serverDebBaseName(PACKAGE_VERSION, debArch, process.env)
 
   // Binary
   const binDir = path.join(D, 'usr', 'bin')

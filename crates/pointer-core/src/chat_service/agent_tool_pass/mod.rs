@@ -43,7 +43,7 @@ use super::run_subagent_delegation::{
 };
 use approval::run_approval_gate;
 use dispatch::{execute_tool_invocation, invoke_prepared_parallel};
-use outcome::record_tool_exec_outcome;
+use outcome::{record_tool_exec_outcome, PostActionSettle};
 use types::ToolExecResult;
 
 use crate::dispatcher::{HookOutcome, PreToolCallContext};
@@ -205,6 +205,12 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
     let mut any_executed = false;
     let mut task_board_succeeded = false;
     let mut final_reply_output: Option<String> = None;
+    // Largest post-action delay any tool of this pass asked for. Applied **once** after the
+    // whole pass — see the sleep below the wave loop.
+    let mut round_post_delay_ms: u64 = 0;
+    // A tool already slept an explicit `wait` inline; that is this pass's settle, so the
+    // round-level default must not stack on top of it.
+    let mut round_explicit_waited = false;
 
     let settings = &pass.ctx.provider.settings;
     let parallel_limits = ParallelLimits::from_settings(settings);
@@ -553,7 +559,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                         sub_scoped_id.as_deref(),
                     )
                     .await?;
-                    apply_one_outcome(
+                    let settle = apply_one_outcome(
                         &mut pass,
                         &prepared,
                         idx,
@@ -564,6 +570,8 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                         &mut final_reply_output,
                     )
                     .await;
+                    round_post_delay_ms = round_post_delay_ms.max(settle.round_default_ms);
+                    round_explicit_waited |= settle.explicit_waited;
                 }
             }
             ToolWave::Parallel(indices) => {
@@ -605,7 +613,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                             })
                             .await?;
                         if let HookOutcome::Reject { reason } = outcome {
-                            apply_one_outcome(
+                            let settle = apply_one_outcome(
                                 &mut pass,
                                 &prepared,
                                 idx,
@@ -622,6 +630,8 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                                 &mut final_reply_output,
                             )
                             .await;
+                            round_post_delay_ms = round_post_delay_ms.max(settle.round_default_ms);
+                            round_explicit_waited |= settle.explicit_waited;
                             continue;
                         }
                     }
@@ -634,7 +644,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                     )
                     .await?
                     {
-                        apply_one_outcome(
+                        let settle = apply_one_outcome(
                             &mut pass,
                             &prepared,
                             idx,
@@ -651,6 +661,8 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                             &mut final_reply_output,
                         )
                         .await;
+                        round_post_delay_ms = round_post_delay_ms.max(settle.round_default_ms);
+                        round_explicit_waited |= settle.explicit_waited;
                         continue;
                     }
                     emit_tool_running(
@@ -830,7 +842,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                                     .position(|p| p.index == outcome.index)
                                     .expect("prepared index");
                                 in_flight_prep.retain(|&p| p != prep_pos);
-                                apply_one_outcome(
+                                let settle = apply_one_outcome(
                                     &mut pass,
                                     &prepared,
                                     prep_pos,
@@ -841,6 +853,8 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                                     &mut final_reply_output,
                                 )
                                 .await;
+                                round_post_delay_ms = round_post_delay_ms.max(settle.round_default_ms);
+                                round_explicit_waited |= settle.explicit_waited;
                             }
                         }
                     }
@@ -899,6 +913,23 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
             .computer_state
             .mark_cancelled(pass.ctx.session.conversation_id);
         return Err(anyhow!(crate::i18n::generation_stopped_msg()));
+    }
+
+    // One settle per pass, not per tool: the next screenshot is captured at the start of the
+    // next model round, so waiting between two tools of the same round only costs wall time.
+    if round_explicit_waited && round_post_delay_ms > 0 {
+        log::info!(
+            "desktop post_action: explicit wait already settled this pass, skipping {}ms default (tool_calls={})",
+            round_post_delay_ms,
+            pass.final_tool_calls.len()
+        );
+    } else if round_post_delay_ms > 0 {
+        log::info!(
+            "desktop post_action sleep {}ms after tool pass before next capture (tool_calls={})",
+            round_post_delay_ms,
+            pass.final_tool_calls.len()
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(round_post_delay_ms)).await;
     }
 
     if let Some(hook) = pass.trim_hook.as_ref() {
@@ -1744,10 +1775,10 @@ async fn apply_one_outcome(
     any_executed: &mut bool,
     task_board_succeeded: &mut bool,
     final_reply_output: &mut Option<String>,
-) {
+) -> PostActionSettle {
     if outcome.skipped {
         *any_executed = true;
-        return;
+        return PostActionSettle::default();
     }
     let prep = &prepared[prep_index];
     let tc = &prep.tc;
@@ -1761,7 +1792,7 @@ async fn apply_one_outcome(
             .then(|| out.clone())
     });
 
-    record_tool_exec_outcome(
+    let settle = record_tool_exec_outcome(
         &mut pass.ctx,
         tc,
         &prep.tool_id,
@@ -1794,6 +1825,7 @@ async fn apply_one_outcome(
         );
     }
     *any_executed = true;
+    settle
 }
 
 fn emit_tool_pass_cancelled(

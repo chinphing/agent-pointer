@@ -19,23 +19,30 @@ pub const POST_DESKTOP_ACTION_WAIT_SEC_MAX: f64 = 5.0;
 /// **1.0–5.0** clamped); if missing, invalid, non-positive, or not an object, returns
 /// [`POST_DESKTOP_ACTION_DELAY_MS`].
 pub fn post_desktop_action_delay_ms_from_tool_args(args: &Value) -> u64 {
+    explicit_wait_delay_ms_from_tool_args(args).unwrap_or(POST_DESKTOP_ACTION_DELAY_MS)
+}
+
+/// Milliseconds the model asked for via `tool_args.wait` (seconds, **1.0–5.0** clamped), or
+/// `None` when it did not ask.
+///
+/// `Some` means "this exact step needs this much time before the next one" — the caller must
+/// sleep right here. `None` falls back to the round-level [`POST_DESKTOP_ACTION_DELAY_MS`].
+pub fn explicit_wait_delay_ms_from_tool_args(args: &Value) -> Option<u64> {
     let Value::Object(map) = args else {
-        return POST_DESKTOP_ACTION_DELAY_MS;
+        return None;
     };
-    let Some(raw) = map.get("wait") else {
-        return POST_DESKTOP_ACTION_DELAY_MS;
-    };
+    let raw = map.get("wait")?;
     let sec = match raw {
         Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
         Value::String(s) => s.trim().parse::<f64>().unwrap_or(f64::NAN),
         _ => {
             debug!("post_action wait: ignored non-number wait value");
-            return POST_DESKTOP_ACTION_DELAY_MS;
+            return None;
         }
     };
     if !sec.is_finite() || sec <= 0.0 {
-        debug!("post_action wait: non-positive or non-finite, using default ms");
-        return POST_DESKTOP_ACTION_DELAY_MS;
+        debug!("post_action wait: non-positive or non-finite, ignored");
+        return None;
     }
     let clamped = sec.clamp(
         POST_DESKTOP_ACTION_WAIT_SEC_MIN,
@@ -47,7 +54,7 @@ pub fn post_desktop_action_delay_ms_from_tool_args(args: &Value) -> u64 {
             sec, clamped
         );
     }
-    ((clamped * 1000.0).round() as u64).max(1)
+    Some(((clamped * 1000.0).round() as u64).max(1))
 }
 
 /// After [`super::actions::ActionExecutor`] moves the cursor to an absolute target, wait before
@@ -219,6 +226,25 @@ mod tests {
         assert_eq!(
             post_desktop_action_delay_ms_from_tool_args(&json!({"wait": 0})),
             POST_DESKTOP_ACTION_DELAY_MS
+        );
+    }
+
+    #[test]
+    fn explicit_wait_is_distinguishable_from_the_default() {
+        // No `wait` → `None`, so the caller folds in the round-level default instead of
+        // sleeping here. This is what keeps one settle per pass.
+        assert_eq!(explicit_wait_delay_ms_from_tool_args(&json!({"action": "x"})), None);
+        assert_eq!(explicit_wait_delay_ms_from_tool_args(&json!({"wait": 0})), None);
+        assert_eq!(explicit_wait_delay_ms_from_tool_args(&json!({"wait": "abc"})), None);
+        assert_eq!(explicit_wait_delay_ms_from_tool_args(&json!(["not", "an", "object"])), None);
+        // Explicit `wait` → a per-step gap the caller must sleep immediately.
+        assert_eq!(
+            explicit_wait_delay_ms_from_tool_args(&json!({"wait": 2})),
+            Some(2000)
+        );
+        assert_eq!(
+            explicit_wait_delay_ms_from_tool_args(&json!({"wait": "1.5"})),
+            Some(1500)
         );
     }
 }

@@ -1,13 +1,22 @@
 //! Record tool execution outcome to stream, history, and computer state.
 
 use crate::models::{StreamEvent, ToolCall};
-use std::time::Duration;
 
 use super::super::emit::{emit, trace_id_opt};
 use super::super::util::{
     append_assistant_tool_raw_output, desktop_tool_failure_note, truncate_str,
 };
 use super::types::ToolPassContext;
+
+/// What the tool pass still owes the UI after one tool call.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct PostActionSettle {
+    /// Default settle to apply **once** at the end of the pass (`0` = nothing to do).
+    pub round_default_ms: u64,
+    /// The model asked for an explicit `wait` and it was already slept inline. The round-level
+    /// default must not stack on top of it — one settle per pass, never two.
+    pub explicit_waited: bool,
+}
 
 pub(super) async fn record_tool_exec_outcome(
     ctx: &mut ToolPassContext<'_>,
@@ -17,7 +26,12 @@ pub(super) async fn record_tool_exec_outcome(
     exec: super::types::ToolExecResult,
     duration: u64,
     trace_id: Option<&str>,
-) {
+) -> PostActionSettle {
+    // Post-action settle is a **round-level** concern: the next screenshot is captured at the
+    // start of the next model round, never between two tools of this one. So the *default* is
+    // returned to the caller and slept once at the end of the pass, while an explicit
+    // `tool_args.wait` is a per-step gap and is slept right here.
+    let mut settle = PostActionSettle::default();
     let persist = &ctx.persist;
     let scoped_message_id = ctx.sub.as_ref().map(|s| s.scoped_message_id.as_str());
     let conversation_id = ctx.session.conversation_id;
@@ -41,15 +55,26 @@ pub(super) async fn record_tool_exec_outcome(
                 failed_note.as_deref(),
             );
             if ok && crate::agents::computer::is_desktop_post_delay_tool(tool_id) {
-                let delay_ms = crate::agents::computer::post_desktop_action_delay_ms_from_tool_args(
+                match crate::agents::computer::explicit_wait_delay_ms_from_tool_args(
                     args_for_desktop_log,
-                );
-                log::info!(
-                    "desktop post_action sleep {}ms before next capture (tool={})",
-                    delay_ms,
-                    tool_id
-                );
-                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                ) {
+                    // The model asked for a gap **after this step**: it must happen here, before
+                    // the next tool of the same round — deferring it to the end would be wrong.
+                    Some(wait_ms) => {
+                        log::info!(
+                            "desktop post_action explicit wait {}ms after tool (tool={})",
+                            wait_ms,
+                            tool_id
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(wait_ms)).await;
+                        settle.explicit_waited = true;
+                    }
+                    // No `wait` → the plain default, folded into the single end-of-pass settle.
+                    None => {
+                        settle.round_default_ms =
+                            crate::agents::computer::POST_DESKTOP_ACTION_DELAY_MS;
+                    }
+                }
             }
             let preview = if tool_id == "list_apps" {
                 truncate_str(&out, 12_000)
@@ -226,4 +251,5 @@ pub(super) async fn record_tool_exec_outcome(
             );
         }
     }
+    settle
 }

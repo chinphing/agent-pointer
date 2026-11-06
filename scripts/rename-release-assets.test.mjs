@@ -14,19 +14,19 @@ import {
 describe('releaseAssetName', () => {
   it('marks client installers and updater signatures', () => {
     expect(releaseAssetName('Pointer_0.1.2_amd64.deb', 'community')).toBe(
-      'Pointer_community_0.1.2_amd64.deb',
+      'Pointer-community-0.1.2-amd64.deb',
     )
     expect(releaseAssetName('Pointer_0.1.2_x64-setup.exe', 'official')).toBe(
-      'Pointer_official_0.1.2_x64-setup.exe',
+      'Pointer-official-0.1.2-x64-setup.exe',
     )
     expect(releaseAssetName('Pointer_0.1.2_x64_zh-CN.msi', 'community')).toBe(
-      'Pointer_community_0.1.2_x64_zh-CN.msi',
+      'Pointer-community-0.1.2-x64-zh-CN.msi',
     )
     expect(releaseAssetName('Pointer_0.1.2_amd64.AppImage', 'official')).toBe(
-      'Pointer_official_0.1.2_amd64.AppImage',
+      'Pointer-official-0.1.2-amd64.AppImage',
     )
     expect(releaseAssetName('Pointer_0.1.2_amd64.deb.sig', 'official')).toBe(
-      'Pointer_official_0.1.2_amd64.deb.sig',
+      'Pointer-official-0.1.2-amd64.deb.sig',
     )
   })
 
@@ -38,13 +38,13 @@ describe('releaseAssetName', () => {
       'pointer-server-official-windows-x64.zip',
     )
     expect(releaseAssetName('pointer-server_0.1.2_amd64.deb', 'official')).toBe(
-      'pointer-server-official_0.1.2_amd64.deb',
+      'pointer-server-official-0.1.2-amd64.deb',
     )
   })
 
   it('leaves an already marked name unchanged', () => {
-    expect(releaseAssetName('Pointer_community_0.1.2_amd64.deb', 'community')).toBe(
-      'Pointer_community_0.1.2_amd64.deb',
+    expect(releaseAssetName('Pointer-community-0.1.2-amd64.deb', 'community')).toBe(
+      'Pointer-community-0.1.2-amd64.deb',
     )
   })
 })
@@ -70,7 +70,7 @@ describe('resolveReleaseLabel', () => {
   it('uses the label in server archive names', () => {
     expect(serverZipBaseName('linux-x64', {})).toBe('pointer-server-community-linux-x64')
     expect(serverDebBaseName('0.1.2', 'amd64', { POINTER_PACKAGE_LABEL: 'official' })).toBe(
-      'pointer-server-official_0.1.2_amd64',
+      'pointer-server-official-0.1.2-amd64',
     )
   })
 })
@@ -84,8 +84,8 @@ describe('markBuiltReleaseFiles', () => {
 
     const renamed = markBuiltReleaseFiles(root, { POINTER_PACKAGE_LABEL: 'community' })
 
-    expect(renamed.map((file) => path.basename(file))).toEqual(['Pointer_community_0.1.2_amd64.deb'])
-    expect(fs.existsSync(path.join(debDir, 'Pointer_community_0.1.2_amd64.deb'))).toBe(true)
+    expect(renamed.map((file) => path.basename(file))).toEqual(['Pointer-community-0.1.2-amd64.deb'])
+    expect(fs.existsSync(path.join(debDir, 'Pointer-community-0.1.2-amd64.deb'))).toBe(true)
   })
 })
 
@@ -103,10 +103,10 @@ describe('stageReleaseAssets', () => {
     const copied = stageReleaseAssets({ root, flavor: 'community', dest })
 
     expect(copied.map((file) => path.basename(file)).sort()).toEqual([
-      'Pointer_community_0.1.2_amd64.deb',
+      'Pointer-community-0.1.2-amd64.deb',
       'pointer-server-community-linux-x64.zip',
     ])
-    expect(fs.readFileSync(path.join(dest, 'Pointer_community_0.1.2_amd64.deb'), 'utf8')).toBe(
+    expect(fs.readFileSync(path.join(dest, 'Pointer-community-0.1.2-amd64.deb'), 'utf8')).toBe(
       'client',
     )
   })

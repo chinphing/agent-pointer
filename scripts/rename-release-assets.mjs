@@ -47,7 +47,7 @@ export function serverZipBaseName(platform, env) {
 export function serverDebBaseName(version, arch, env) {
   const label = resolveReleaseLabel(env)
   return label
-    ? `pointer-server-${label}_${version}_${arch}`
+    ? `pointer-server-${label}-${version}-${arch}`
     : `pointer-server_${version}_${arch}`
 }
 
@@ -57,26 +57,48 @@ const SEARCH_ROOTS = [
   'target/release/pointer-server-bundle',
 ]
 
-function alreadyMarked(filename) {
-  return (
-    /^Pointer_(community|official)_/.test(filename)
-    || /^pointer-server-(community|official)([-_]|$)/.test(filename)
-  )
+const RELEASE_EXTS = [
+  '.deb.sig',
+  '.app.tar.gz',
+  '.nsis.zip',
+  '.tar.gz',
+  '.AppImage',
+  '.deb',
+  '.msi',
+  '.exe',
+  '.dmg',
+  '.zip',
+  '.sig',
+]
+
+function splitReleaseExt(filename) {
+  const lower = filename.toLowerCase()
+  for (const ext of RELEASE_EXTS) {
+    if (lower.endsWith(ext.toLowerCase())) {
+      return [filename.slice(0, -ext.length), filename.slice(-ext.length)]
+    }
+  }
+  return [filename, '']
+}
+
+function withFlavor(prefix, rest, flavor) {
+  const body = rest.replace(/^(community|official)[-_]/, '').replaceAll('_', '-')
+  return `${prefix}-${flavor}-${body}`
 }
 
 export function releaseAssetName(filename, flavor) {
   if (!FLAVORS.has(flavor)) {
     throw new Error(`release flavor must be community or official, got ${flavor}`)
   }
-  if (alreadyMarked(filename)) return filename
-  if (filename.startsWith('Pointer_')) {
-    return `Pointer_${flavor}_${filename.slice('Pointer_'.length)}`
+  const [stem, ext] = splitReleaseExt(filename)
+  if (stem.startsWith(`Pointer-${flavor}-`) || stem.startsWith(`pointer-server-${flavor}-`)) {
+    return filename
   }
-  if (filename.startsWith('pointer-server-')) {
-    return `pointer-server-${flavor}-${filename.slice('pointer-server-'.length)}`
+  if (stem.startsWith('pointer-server-') || stem.startsWith('pointer-server_')) {
+    return `${withFlavor('pointer-server', stem.slice('pointer-server-'.length), flavor)}${ext}`
   }
-  if (filename.startsWith('pointer-server_')) {
-    return `pointer-server-${flavor}_${filename.slice('pointer-server_'.length)}`
+  if (stem.startsWith('Pointer-') || stem.startsWith('Pointer_')) {
+    return `${withFlavor('Pointer', stem.slice('Pointer_'.length), flavor)}${ext}`
   }
   throw new Error(`cannot mark release file ${filename}`)
 }

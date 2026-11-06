@@ -372,13 +372,13 @@ mod tests {
     }
 
     #[test]
-    fn apply_agent_model_defaults_applies_computer_builtin_tiers() {
-        // `computer` ships built-in fast/standard/expert models; with no
-        // `agentPerformanceModes.computer` entry the default mode is `standard`.
+    fn apply_agent_model_defaults_leaves_computer_on_the_session_model_without_tiers() {
+        // Since 0d9fe61b `computer` ships no built-in tiers: `agentModeLlm.computer`
+        // stays empty and is filled only by the user or the platform tierDefaults.
+        // With no tier resolved the session model must survive untouched.
         let mut settings = sample_settings();
-        assert!(apply_agent_model_defaults(&mut settings, "computer"));
-        assert_eq!(settings.model, "qwen3.8-flash");
-        // The built-in tier carries its own provider id.
+        assert!(!apply_agent_model_defaults(&mut settings, "computer"));
+        assert_eq!(settings.model, "qwen-plus");
         assert_eq!(settings.active_provider_id, "qwen");
     }
 
@@ -388,6 +388,22 @@ mod tests {
         settings
             .agent_performance_modes
             .insert("computer".into(), "expert".into());
+        settings.agent_mode_llm.insert(
+            "computer".into(),
+            [(
+                "expert".into(),
+                ComputerTierLlmConfig {
+                    provider_id: "deepseek".into(),
+                    model: "deepseek-flash".into(),
+                    enable_thinking: true,
+                    thinking_budget: None,
+                    reasoning_effort: None,
+                    thinking_intensity: None,
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
         assert!(apply_agent_model_defaults(&mut settings, "computer"));
         assert_eq!(settings.model, "deepseek-flash");
         assert_eq!(settings.active_provider_id, "deepseek");

@@ -201,6 +201,14 @@ mod tests {
 
     #[test]
     fn save_and_validate_roundtrip() {
+        // `app_data_dir()` is process-global and other tests swap it mid-run, so hold
+        // the data-dir lock and install our own root: the sandbox path and the
+        // app-data prefix have to come from the same directory inside one test,
+        // otherwise the storage rel path lands "outside app data".
+        let _data_dir_guard = crate::storage::test_app_data_dir_lock();
+        let data = tempfile::tempdir().expect("app data");
+        crate::storage::set_test_app_data_dir(data.path().to_path_buf());
+
         let conv = format!("webhook_test_{}", Uuid::new_v4());
         let saved = save_webhook_upload(&conv, "note.txt", Some("text/plain"), b"hello").unwrap();
         assert_eq!(saved.kind, "document");
@@ -227,8 +235,8 @@ mod tests {
             saved.storage_rel_path.contains("/attachments/"),
             "expected sandbox attachment storage rel path"
         );
-        if let Some(parent) = abs.parent() {
-            let _ = std::fs::remove_dir_all(parent);
-        }
+
+        // Clear before the temp dir drops: a leftover path breaks unrelated tests.
+        crate::storage::clear_test_app_data_dir();
     }
 }

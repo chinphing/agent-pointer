@@ -53,6 +53,24 @@ npm install && npm run build:macos
 npm install && npm run build:windows
 ```
 
+**Packaging on Linux does not need a display; running does.** These two are easy to conflate:
+
+| Stage | Needs a display server? | Notes |
+| --- | --- | --- |
+| Build / bundle | No | Only links `libxdo`, `libX11` and friends — it never connects to an X server. Install the dev packages on a headless box (`bash scripts/install-linux-build-deps.sh`) and you can bundle there |
+| Screen capture and mouse control | **Yes** | The target machine must be logged into a graphical session |
+
+So "build on a headless server, run on a desktop" works — just do **not** pass `--no-default-features`. That flag is for *running* on a headless machine and drops the `computer` feature entirely.
+
+**Use an X11 session on the Linux target.** The bundled `enigo` compiles only its `xdo` (X11 XTest) backend by default, while `xcap` supports both:
+
+| Session | Capture | Mouse / keyboard injection |
+| --- | --- | --- |
+| X11 | ✅ | ✅ |
+| Wayland | ✅ | ⚠️ XWayland apps only — native Wayland apps never receive it |
+
+Ubuntu 24.04 logs into Wayland by default; the symptom is **capture works but clicks do nothing**. Pick **"Ubuntu on Xorg"** at the login screen — no code change needed.
+
 #### Enterprise
 
 1. One command to compile and start

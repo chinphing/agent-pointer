@@ -53,6 +53,24 @@ npm install && npm run build:macos
 npm install && npm run build:windows
 ```
 
+**Linux 打包不需要图形界面，运行需要。** 这两件事经常被混为一谈：
+
+| 阶段 | 需要显示服务器？ | 说明 |
+| --- | --- | --- |
+| 编译 / 打包 | 不需要 | 只链接 `libxdo`、`libX11` 等共享库，不连 X server。无头服务器上装好开发包（`bash scripts/install-linux-build-deps.sh`）即可打包 |
+| 运行截图识别与鼠标操作 | **需要** | 目标机必须登录到图形会话 |
+
+所以「无头服务器打包、有界面的电脑运行」完全可行 —— 只要**不要**加 `--no-default-features`，那个开关是给「无头机器上运行」准备的，会砍掉 `computer` 能力。
+
+**Linux 目标机请用 X11 会话。** 仓库依赖的 `enigo` 默认只编了 `xdo`（X11 XTest）后端，`xcap` 则同时支持 X11 与 Wayland：
+
+| 会话 | 截图 | 鼠标 / 键盘注入 |
+| --- | --- | --- |
+| X11 | ✅ | ✅ |
+| Wayland | ✅ | ⚠️ 仅对 XWayland 应用生效，原生 Wayland 应用收不到 |
+
+Ubuntu 24.04 默认登录是 Wayland，此时典型表现是**截图正常但点击没反应**。在登录界面选择 **「Ubuntu on Xorg」** 即可，无需改动任何代码。
+
 #### 企业版
 
 1. 一行命令编译并启动

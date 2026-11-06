@@ -24,7 +24,6 @@ import path from 'node:path'
 export const CONTROL_PLANE_DOMAINS = [
   { key: 'POINTER_API_BASE', label: 'control-plane API base' },
   { key: 'POINTER_WEB_BASE', label: 'control-plane web base' },
-  { key: 'COMPUTER_ANNOTATE_API_BASE', label: 'SOM annotate base' },
 ]
 
 const CHUNK_BYTES = 64 * 1024

@@ -146,7 +146,6 @@ jobs:
           POINTER_API_BASE: https://pointer-api.readflowai.com
           POINTER_WEB_BASE: https://pointer.readflowai.com
           VITE_POINTER_WEB_BASE: https://pointer.readflowai.com
-          COMPUTER_ANNOTATE_API_BASE: https://pointer-som.readflowai.com
           POINTER_DOWNLOAD_URL: https://pointer.readflowai.com/download
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -196,7 +195,6 @@ jobs:
           POINTER_API_BASE: https://pointer-api.readflowai.com
           POINTER_WEB_BASE: https://pointer.readflowai.com
           VITE_POINTER_WEB_BASE: https://pointer.readflowai.com
-          COMPUTER_ANNOTATE_API_BASE: https://pointer-som.readflowai.com
           POINTER_DOWNLOAD_URL: https://pointer.readflowai.com/download
 
       - name: Stage official server

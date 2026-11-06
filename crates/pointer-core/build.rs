@@ -53,13 +53,9 @@ fn emit_edition() {
 /// The open-source tree carries no production domain: a managed build must
 /// supply them here, and a build that does not stays unbound (standalone).
 fn emit_platform_domains() {
-    const DOMAINS: [(&str, &str); 3] = [
+    const DOMAINS: [(&str, &str); 2] = [
         ("POINTER_API_BASE", "POINTER_BUILTIN_API_BASE"),
         ("POINTER_WEB_BASE", "POINTER_BUILTIN_WEB_BASE"),
-        (
-            "COMPUTER_ANNOTATE_API_BASE",
-            "POINTER_BUILTIN_ANNOTATE_API_BASE",
-        ),
     ];
 
     let managed = env::var("POINTER_EDITION")

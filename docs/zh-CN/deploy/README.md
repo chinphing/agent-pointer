@@ -44,7 +44,7 @@
 <a id="managed-client"></a>
 ## 1. managed × 客户端
 
-- [ ] **1. 准备变量** —— 在 `pointer.local.env` 写：`POINTER_EDITION=managed`、`VITE_POINTER_EDITION=managed`、三个域名（`POINTER_API_BASE` / `POINTER_WEB_BASE` / `COMPUTER_ANNOTATE_API_BASE`）、updater 签名私钥（`TAURI_SIGNING_PRIVATE_KEY` 或 `TAURI_SIGNING_PRIVATE_KEY_PATH`）
+- [ ] **1. 准备变量** —— 在 `pointer.local.env` 写：`POINTER_EDITION=managed`、`VITE_POINTER_EDITION=managed`、两个域名（`POINTER_API_BASE` / `POINTER_WEB_BASE`）、updater 签名私钥（`TAURI_SIGNING_PRIVATE_KEY` 或 `TAURI_SIGNING_PRIVATE_KEY_PATH`）
 - [ ] **2. 装依赖与图标** —— `npm install && npm run icons`
 - [ ] **3. 构建** —— `npm run tauri:build`
 - [ ] **4. 验证** —— 构建日志有 `[tauri-build] POINTER_EDITION=managed`；`find src-tauri/target/release/bundle -name '*.sig'` 有结果；启动后关于页显示更新入口

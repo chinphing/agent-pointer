@@ -255,7 +255,6 @@ No platform provider/model is built in locally any more (`activeProviderId` / `m
 | `token_usage_store.rs`               | `usage_report_enabled()` defaults to false, reporting is skipped                  |
 | `media/oss.rs`                       | Reads from `[media_oss]` or `OSS_*` environment variables, not injected from OAuth            |
 | `experiences.rs`                     | **Does not load** the official experience catalogue (returns empty directly; the welcome page shows no experience area)                    |
-| `agents/computer/vision/annotate.rs` | Computer Agent annotation capability is degraded (requires a self-hosted `COMPUTER_ANNOTATE_API_BASE`) |
 
 
 ---

@@ -1,4 +1,4 @@
-//! pointer-server / SOM API base URLs.
+//! pointer-server API base URLs.
 //!
 //! The open-source tree hardcodes no Pointer domain. A managed build injects
 //! the domains at build time (see `build.rs`); without them this build is unbound.
@@ -7,7 +7,7 @@
 //!   injected domains.
 //! - **Any other build**: unbound unless `POINTER_*` is set, i.e. standalone.
 //! - **Standalone / unbound**: empty, so related platform features stay disabled.
-//! - Any build can override with `POINTER_*` / `COMPUTER_ANNOTATE_API_BASE`.
+//! - Any build can override with `POINTER_*`.
 
 /// Baked in by `build.rs` from `POINTER_API_BASE`; empty when the build supplied none.
 pub const DEFAULT_API_BASE: &str = env!("POINTER_BUILTIN_API_BASE");
@@ -16,9 +16,6 @@ pub const DEFAULT_API_BASE: &str = env!("POINTER_BUILTIN_API_BASE");
 pub const DEFAULT_WEB_BASE: &str = env!("POINTER_BUILTIN_WEB_BASE");
 
 pub const DEFAULT_OAUTH_CLIENT_ID: &str = "pointer-desktop";
-
-/// Baked in by `build.rs` from `COMPUTER_ANNOTATE_API_BASE`; empty when the build supplied none.
-pub const DEFAULT_ANNOTATE_API_BASE: &str = env!("POINTER_BUILTIN_ANNOTATE_API_BASE");
 
 /// Resolve one platform base URL: an explicit env var wins, otherwise only a
 /// managed build falls back to the domain injected at build time. Anything else
@@ -52,10 +49,6 @@ pub fn web_base() -> String {
 
 pub fn oauth_client_id() -> String {
     std::env::var("POINTER_OAUTH_CLIENT_ID").unwrap_or_else(|_| DEFAULT_OAUTH_CLIENT_ID.to_string())
-}
-
-pub fn annotate_api_base() -> String {
-    resolve_platform_base("COMPUTER_ANNOTATE_API_BASE", DEFAULT_ANNOTATE_API_BASE)
 }
 
 #[cfg(test)]
@@ -128,7 +121,7 @@ mod tests {
 
     fn is_allowed_path(rel: &str) -> bool {
         const ALLOWED_DIRS: [&str; 2] = ["docs/", "skills/"];
-        const ALLOWED_FILES: [&str; 15] = [
+        const ALLOWED_FILES: [&str; 17] = [
             "NOTICE",
             "LICENSE",
             "README.md",
@@ -141,6 +134,9 @@ mod tests {
             "Cargo.lock",
             "src-tauri/tauri.conf.json",
             "scripts/build-server-deb.mjs",
+            // Release tooling that has to recognise the official hosts to label them.
+            "scripts/rename-release-assets.mjs",
+            "scripts/rename-release-assets.test.mjs",
             "pointer.local.env.example",
             "server/pointer-server.toml.example",
             "src-tauri/tauri.personal.conf.json",

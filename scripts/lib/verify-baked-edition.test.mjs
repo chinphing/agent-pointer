@@ -13,7 +13,6 @@ import {
 
 const API_BASE = 'https://pointer-api.example.com'
 const WEB_BASE = 'https://pointer.example.com'
-const ANNOTATE_BASE = 'https://pointer-som.example.com'
 
 const MANAGED_ENV = {
   POINTER_EDITION: 'managed',
@@ -21,7 +20,6 @@ const MANAGED_ENV = {
   POINTER_API_BASE: API_BASE,
   POINTER_WEB_BASE: WEB_BASE,
   VITE_POINTER_WEB_BASE: WEB_BASE,
-  COMPUTER_ANNOTATE_API_BASE: ANNOTATE_BASE,
 }
 
 /** Stand-in for a real artifact: `text` is what a `strings`-style scan would find. */
@@ -41,7 +39,7 @@ function check({ env = MANAGED_ENV, binary = null, web = null, binaryProbe, webP
   })
 }
 
-const FULL_BINARY = artifact(`${API_BASE}\u0000${WEB_BASE}\u0000${ANNOTATE_BASE}`)
+const FULL_BINARY = artifact(`${API_BASE}\u0000${WEB_BASE}`)
 const MANAGED_WEB = artifact(`window.env={"VITE_POINTER_EDITION":"managed","VITE_POINTER_WEB_BASE":"${WEB_BASE}"}`)
 
 const tempDirs = []
@@ -73,15 +71,14 @@ describe('verifyBakedEdition', () => {
     expect(result.errors).toEqual([])
     expect(result.warnings).toEqual([])
     expect(result.ok).toBe(true)
-    expect(result.summary).toBe('edition=managed domains=3/3 baked, web=managed')
+    expect(result.summary).toBe('edition=managed domains=2/2 baked, web=managed')
   })
 
   it('fails a half-bound build: managed web assets over a standalone binary', () => {
     const result = check({ binary: artifact('edition: unset (standalone defaults)'), web: MANAGED_WEB })
     expect(result.ok).toBe(false)
-    expect(result.summary).toBe('edition=managed domains=0/3 baked, web=managed')
+    expect(result.summary).toBe('edition=managed domains=0/2 baked, web=managed')
     expect(result.errors.join('\n')).toContain(API_BASE)
-    expect(result.errors.join('\n')).toContain(ANNOTATE_BASE)
   })
 
   it('fails a managed build whose web assets lost the web base', () => {

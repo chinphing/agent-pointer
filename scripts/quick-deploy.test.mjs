@@ -24,7 +24,6 @@ import {
 const domains = {
   apiBase: 'https://pointer-api.example.com',
   webBase: 'https://pointer.example.com',
-  annotateBase: 'https://pointer-som.example.com',
 }
 
 function plan(mode, extra = {}) {
@@ -87,7 +86,6 @@ describe('quick-deploy plans', () => {
     expect(env.POINTER_API_BASE).toBe(domains.apiBase)
     expect(env.POINTER_WEB_BASE).toBe(domains.webBase)
     expect(env.VITE_POINTER_WEB_BASE).toBe(domains.webBase)
-    expect(env.COMPUTER_ANNOTATE_API_BASE).toBe(domains.annotateBase)
     expect(env.POINTER_SERVER_ADMIN_USERNAME).toBeUndefined()
   })
 
@@ -108,12 +106,10 @@ describe('quick-deploy plans', () => {
       'https://api.example',
       '--web-base',
       'https://web.example',
-      '--annotate-base',
-      'https://som.example',
     ])
     expect(parsed.command).toBe('start')
     expect(parsed.mode).toBe('managed-server')
-    expect(parsed.domains.annotateBase).toBe('https://som.example')
+    expect(parsed.domains.webBase).toBe('https://web.example')
     expect(parsed.runtime).toBe('bin')
     expect(parsed.build).toBe(false)
   })
@@ -208,7 +204,6 @@ describe('quick-deploy plans', () => {
     expect(managed.processes[0].command).toBe(defaultReleaseBinary(REPO_ROOT, 'client'))
     expect(managed.processes[0].env.POINTER_EDITION).toBe('managed')
     expect(managed.processes[0].env.POINTER_API_BASE).toBe(domains.apiBase)
-    expect(managed.processes[0].env.COMPUTER_ANNOTATE_API_BASE).toBe(domains.annotateBase)
   })
 
   it('refuses a bin launch when the release binary or web bundle is missing', () => {
@@ -276,7 +271,6 @@ describe('quick-deploy plans', () => {
       POINTER_EDITION: 'managed',
       POINTER_API_BASE: domains.apiBase,
       POINTER_WEB_BASE: domains.webBase,
-      COMPUTER_ANNOTATE_API_BASE: domains.annotateBase,
     })
     expect(managed.args[0]).toBe(path.join(REPO_ROOT, 'scripts/tauri-build.mjs'))
     expect(managed.env.POINTER_EDITION).toBe('managed')

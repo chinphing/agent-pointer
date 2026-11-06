@@ -36,7 +36,6 @@ The flavour only decides the **build-time defaults**; it is not a runtime switch
 | `VITE_POINTER_EDITION=managed` | Frontend flavour (`src/lib/platformUrls.ts` → `isManagedEdition()`) |
 | `POINTER_API_BASE` | Control-plane API domain (baked into `POINTER_BUILTIN_API_BASE` at build time) |
 | `POINTER_WEB_BASE` / `VITE_POINTER_WEB_BASE` | Control-plane Web domain (top-up / cloud-host redirects) |
-| `COMPUTER_ANNOTATE_API_BASE` | SOM annotation service domain (baked in at build time) |
 | `POINTER_DOWNLOAD_URL` / `VITE_POINTER_DOWNLOAD_URL` | Download page link (About page) |
 | `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PATH` | Updater signing private key, **needed only by the managed client** |
 
@@ -78,7 +77,7 @@ npm run tauri:build
 POINTER_EDITION=managed VITE_POINTER_EDITION=managed \
   POINTER_API_BASE=https://pointer-api.example.com \
   POINTER_WEB_BASE=https://pointer.example.com \
-  COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com \
+  \
   VITE_POINTER_WEB_BASE=https://pointer.example.com \
   POINTER_DOWNLOAD_URL=https://pointer.example.com/download \
   TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key \
@@ -101,7 +100,7 @@ npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 | --- | --- | --- |
 | `POINTER_EDITION=managed` | ✅ | Flavour. **Only `managed` or empty is accepted**: any other value (including the old `official`) makes the build fail outright, avoiding a silent downgrade to unbound |
 | `VITE_POINTER_EDITION=managed` | ✅ | Frontend flavour; when unset the script fills it in from `POINTER_EDITION` |
-| `POINTER_API_BASE` / `POINTER_WEB_BASE` / `COMPUTER_ANNOTATE_API_BASE` | ✅ | The three control-plane domains; missing any one panics the build |
+| `POINTER_API_BASE` / `POINTER_WEB_BASE` | ✅ | The two control-plane domains; missing any one panics the build |
 | `VITE_POINTER_WEB_BASE` / `POINTER_DOWNLOAD_URL` | Recommended | Frontend redirects and the About page download link |
 | `TAURI_SIGNING_PRIVATE_KEY` or `…_PATH` | ✅ | Updater signing private key |
 
@@ -140,7 +139,7 @@ Users start this cell's desktop app with the script. It does not call npm. An ex
 ./scripts/quick-deploy.sh start managed-client --runtime bin \
   --api-base https://pointer-api.example.com \
   --web-base https://pointer.example.com \
-  --annotate-base https://pointer-som.example.com
+ 
 ```
 
 Developers change the code with `npm run tauri:dev`. Replace `--runtime bin` with `--runtime dev` only when this script should launch the dev runtime; that path uses the Tauri CLI and rebuilds when the sources, `POINTER_EDITION`, or the three domains change.
@@ -166,7 +165,7 @@ POINTER_EDITION=managed \
 VITE_POINTER_EDITION=managed \
 POINTER_API_BASE=https://pointer-api.example.com \
 POINTER_WEB_BASE=https://pointer.example.com \
-COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com \
+\
 VITE_POINTER_WEB_BASE=https://pointer.example.com \
 npm run server:build
 ```
@@ -181,7 +180,7 @@ npm run server:build
 | --- | --- | --- |
 | `POINTER_EDITION=managed` | ✅ | Flavour; also the switch that panics when domains are missing |
 | `VITE_POINTER_EDITION=managed` | Recommended | Frontend flavour (visibility of the cloud-host / top-up entries) |
-| `POINTER_API_BASE` / `POINTER_WEB_BASE` / `COMPUTER_ANNOTATE_API_BASE` | ✅ | The three control-plane domains |
+| `POINTER_API_BASE` / `POINTER_WEB_BASE` | ✅ | The two control-plane domains |
 | `VITE_POINTER_WEB_BASE` | Recommended | Frontend redirect to the control-plane Web |
 
 **Runtime** (`pointer-server.toml`, see `server/pointer-server.toml.example`):
@@ -236,7 +235,7 @@ Users start this cell's already built server with the script. It does not call n
 ./scripts/quick-deploy.sh start managed-server --runtime bin \
   --api-base https://pointer-api.example.com \
   --web-base https://pointer.example.com \
-  --annotate-base https://pointer-som.example.com
+ 
 ```
 
 Developers change the code with `npm run server:dev`. `--runtime dev` on the script is what runs `cargo run -p pointer-server` and the local Vite CLI. Cargo reuses the existing debug artifacts when the sources, flavour, and three domains are unchanged.

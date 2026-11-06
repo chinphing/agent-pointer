@@ -73,13 +73,11 @@ describe('resolveReleaseLabel', () => {
       POINTER_EDITION: 'managed',
       POINTER_API_BASE: 'https://pointer-api.readflowai.com',
       POINTER_WEB_BASE: 'https://pointer.readflowai.com/',
-      COMPUTER_ANNOTATE_API_BASE: 'https://pointer-som.readflowai.com',
     })).toBe('official')
     expect(resolveReleaseLabel({
       POINTER_EDITION: 'managed',
       POINTER_API_BASE: 'https://pointer-api.example.com',
       POINTER_WEB_BASE: 'https://pointer.example.com',
-      COMPUTER_ANNOTATE_API_BASE: 'https://pointer-som.example.com',
     })).toBeNull()
   })
 

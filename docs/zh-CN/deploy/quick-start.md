@@ -113,14 +113,14 @@ scripts\quick-deploy.bat start standalone-server --runtime bin
 ./scripts/quick-deploy.sh start managed-server --runtime bin \
   --api-base https://pointer-api.example.com \
   --web-base https://pointer.example.com \
-  --annotate-base https://pointer-som.example.com
+ 
 ```
 
 ```bat
-scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://pointer-api.example.com --web-base https://pointer.example.com
 ```
 
-也可以导出 `POINTER_API_BASE`、`POINTER_WEB_BASE`、`COMPUTER_ANNOTATE_API_BASE`，再省略这三项参数。不写 `--build` 时，脚本只把域名放进进程环境后启动已有二进制。加上 `--build` 才按这次传入的域名本地重新编译。构建缺一个域名就会失败。开发者打这个包也可以用 `npm run server:build`。
+也可以导出 `POINTER_API_BASE`、`POINTER_WEB_BASE`，再省略这两项参数。不写 `--build` 时，脚本只把域名放进进程环境后启动已有二进制。加上 `--build` 才按这次传入的域名本地重新编译。构建缺一个域名就会失败。开发者打这个包也可以用 `npm run server:build`。
 
 `--runtime dev` 才会执行 `cargo run -p pointer-server` 和本机 Vite。Cargo 只在源码、`POINTER_EDITION` 或三个域名变化时重编。
 
@@ -130,7 +130,7 @@ scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://p
 ./scripts/quick-deploy.sh start managed-client --runtime bin \
   --api-base https://pointer-api.example.com \
   --web-base https://pointer.example.com \
-  --annotate-base https://pointer-som.example.com
+ 
 ```
 
 不写 `--build` 时用已有的 `target/release/pointer-app` 或已安装的程序。加上 `--build` 才按这次传入的三个域名本地重新编译。企业版客户端还要一把 updater 私钥，默认 `~/.tauri/pointer-updater.key`（Windows 是 `%USERPROFILE%\.tauri\pointer-updater.key`）。文件不存在时，终端里会问一次，输入 `y` 才生成；加上 `--generate-updater-key` 则直接生成。已有文件不会被覆盖。开发者打这个客户端也可以用 `npm run tauri:build`。
@@ -140,7 +140,7 @@ scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://p
 ```bash
 ./scripts/quick-deploy.sh plan standalone-server
 ./scripts/quick-deploy.sh plan standalone-client --runtime dev
-./scripts/quick-deploy.sh plan managed-client --api-base https://pointer-api.example.com --web-base https://pointer.example.com --annotate-base https://pointer-som.example.com
+./scripts/quick-deploy.sh plan managed-client --api-base https://pointer-api.example.com --web-base https://pointer.example.com
 ```
 
 `plan` 不写 `--runtime` 时看的是二进制计划。`stop` 不带模式名会停掉 `.quick-deploy/` 里记录的全部模式和两种 runtime。`stop <模式>` 不带 `--runtime` 会停掉该模式的二进制和开发态。停止时按 pid 文件结束对应进程，不会按进程名去杀。

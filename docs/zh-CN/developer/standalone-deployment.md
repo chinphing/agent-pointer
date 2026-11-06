@@ -255,7 +255,6 @@ Standalone **不从** `pointer-server.toml` 读取模型、地址或 API Key：�
 | `token_usage_store.rs`               | `usage_report_enabled()` 默认 false，跳过上报                  |
 | `media/oss.rs`                       | 从 `[media_oss]` 或 `OSS_*` 环境变量读取，不从 OAuth 注入            |
 | `experiences.rs`                     | **不加载**官方经验目录（直接返回空，欢迎页不展示经验区）                    |
-| `agents/computer/vision/annotate.rs` | Computer Agent 标注能力降级（需自建 `COMPUTER_ANNOTATE_API_BASE`） |
 
 
 ---

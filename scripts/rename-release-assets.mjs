@@ -16,7 +16,6 @@ const FLAVORS = new Set(['community', 'official'])
 const OFFICIAL_HOSTS = {
   POINTER_API_BASE: 'https://pointer-api.readflowai.com',
   POINTER_WEB_BASE: 'https://pointer.readflowai.com',
-  COMPUTER_ANNOTATE_API_BASE: 'https://pointer-som.readflowai.com',
 }
 
 function normalizedHost(value) {

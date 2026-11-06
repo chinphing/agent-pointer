@@ -36,7 +36,6 @@
 | `VITE_POINTER_EDITION=managed` | 前端口味（`src/lib/platformUrls.ts` → `isManagedEdition()`） |
 | `POINTER_API_BASE` | 控制面 API 域名（构建期烧入 `POINTER_BUILTIN_API_BASE`） |
 | `POINTER_WEB_BASE` / `VITE_POINTER_WEB_BASE` | 控制面 Web 域名（充值 / 云主机跳转） |
-| `COMPUTER_ANNOTATE_API_BASE` | SOM 标注服务域名（构建期烧入） |
 | `POINTER_DOWNLOAD_URL` / `VITE_POINTER_DOWNLOAD_URL` | 下载页链接（关于页） |
 | `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PATH` | updater 签名私钥，**仅 managed 客户端需要** |
 
@@ -78,7 +77,7 @@ npm run tauri:build
 POINTER_EDITION=managed VITE_POINTER_EDITION=managed \
   POINTER_API_BASE=https://pointer-api.example.com \
   POINTER_WEB_BASE=https://pointer.example.com \
-  COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com \
+  \
   VITE_POINTER_WEB_BASE=https://pointer.example.com \
   POINTER_DOWNLOAD_URL=https://pointer.example.com/download \
   TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key \
@@ -101,7 +100,7 @@ npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 | --- | --- | --- |
 | `POINTER_EDITION=managed` | ✅ | 口味。**只接受 `managed` 或留空**：其他任何值（含旧值 `official`）会让构建直接失败，避免静默降级为未绑定 |
 | `VITE_POINTER_EDITION=managed` | ✅ | 前端口味；未设时脚本会由 `POINTER_EDITION` 补齐 |
-| `POINTER_API_BASE` / `POINTER_WEB_BASE` / `COMPUTER_ANNOTATE_API_BASE` | ✅ | 三个控制面域名，缺一即构建 panic |
+| `POINTER_API_BASE` / `POINTER_WEB_BASE` | ✅ | 两个控制面域名，缺一即构建 panic |
 | `VITE_POINTER_WEB_BASE` / `POINTER_DOWNLOAD_URL` | 建议 | 前端跳转与关于页下载链接 |
 | `TAURI_SIGNING_PRIVATE_KEY` 或 `…_PATH` | ✅ | updater 签名私钥 |
 
@@ -140,7 +139,7 @@ src-tauri/target/release/bundle/
 ./scripts/quick-deploy.sh start managed-client --runtime bin \
   --api-base https://pointer-api.example.com \
   --web-base https://pointer.example.com \
-  --annotate-base https://pointer-som.example.com
+ 
 ```
 
 开发者改代码用 `npm run tauri:dev`。脚本里要对这一格做开发态拉起时，把 `--runtime bin` 换成 `--runtime dev`，那才会走 Tauri CLI，并在源码、`POINTER_EDITION` 或三个域名变化时重编。
@@ -166,7 +165,7 @@ POINTER_EDITION=managed \
 VITE_POINTER_EDITION=managed \
 POINTER_API_BASE=https://pointer-api.example.com \
 POINTER_WEB_BASE=https://pointer.example.com \
-COMPUTER_ANNOTATE_API_BASE=https://pointer-som.example.com \
+\
 VITE_POINTER_WEB_BASE=https://pointer.example.com \
 npm run server:build
 ```
@@ -181,7 +180,7 @@ npm run server:build
 | --- | --- | --- |
 | `POINTER_EDITION=managed` | ✅ | 口味；也是「缺域名就 panic」的开关 |
 | `VITE_POINTER_EDITION=managed` | 建议 | 前端口味（云主机 / 充值入口可见性） |
-| `POINTER_API_BASE` / `POINTER_WEB_BASE` / `COMPUTER_ANNOTATE_API_BASE` | ✅ | 三个控制面域名 |
+| `POINTER_API_BASE` / `POINTER_WEB_BASE` | ✅ | 两个控制面域名 |
 | `VITE_POINTER_WEB_BASE` | 建议 | 前端跳转控制面 Web |
 
 **运行期**（`pointer-server.toml`，见 `server/pointer-server.toml.example`）：
@@ -236,7 +235,7 @@ curl -s http://127.0.0.1:8787/api/auth/mode      # → {"mode":"platform"}
 ./scripts/quick-deploy.sh start managed-server --runtime bin \
   --api-base https://pointer-api.example.com \
   --web-base https://pointer.example.com \
-  --annotate-base https://pointer-som.example.com
+ 
 ```
 
 开发者改代码用 `npm run server:dev`。脚本里的 `--runtime dev` 才会执行 `cargo run -p pointer-server` 和本机 Vite；源码、口味、三个域名都没变时，Cargo 复用已有 debug 产物。

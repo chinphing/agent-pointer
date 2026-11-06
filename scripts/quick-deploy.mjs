@@ -58,7 +58,6 @@ const CLEARED_KEYS = [
   'POINTER_API_BASE',
   'POINTER_WEB_BASE',
   'VITE_POINTER_WEB_BASE',
-  'COMPUTER_ANNOTATE_API_BASE',
   'POINTER_DOWNLOAD_URL',
   'VITE_POINTER_DOWNLOAD_URL',
   'POINTER_DEPLOYMENT_MODE',
@@ -87,7 +86,6 @@ export const STANDALONE_BUILD_KEEP_UNSET = [
   'POINTER_API_BASE',
   'POINTER_WEB_BASE',
   'VITE_POINTER_WEB_BASE',
-  'COMPUTER_ANNOTATE_API_BASE',
   'POINTER_DOWNLOAD_URL',
   'VITE_POINTER_DOWNLOAD_URL',
 ]
@@ -200,7 +198,6 @@ function requireDomains(domains) {
   const missing = []
   if (!domains?.apiBase) missing.push('POINTER_API_BASE (--api-base)')
   if (!domains?.webBase) missing.push('POINTER_WEB_BASE (--web-base)')
-  if (!domains?.annotateBase) missing.push('COMPUTER_ANNOTATE_API_BASE (--annotate-base)')
   if (missing.length) {
     throw new Error(`managed mode needs control-plane domains: ${missing.join(', ')}`)
   }
@@ -212,7 +209,7 @@ function requireDomains(domains) {
  *   mode: string,
  *   root?: string,
  *   stateDir: string,
- *   domains?: { apiBase?: string, webBase?: string, annotateBase?: string },
+ *   domains?: { apiBase?: string, webBase?: string },
  *   runtime?: 'dev' | 'bin',
  *   credentials?: { username: string, secret: string, password: string, passwordHmac: string } | null,
  *   baseEnv?: NodeJS.ProcessEnv,
@@ -239,7 +236,6 @@ export function buildPlan(input) {
     env.POINTER_API_BASE = input.domains.apiBase
     env.POINTER_WEB_BASE = input.domains.webBase
     env.VITE_POINTER_WEB_BASE = input.domains.webBase
-    env.COMPUTER_ANNOTATE_API_BASE = input.domains.annotateBase
   }
 
   const staticDir = path.join(root, 'dist')
@@ -344,7 +340,7 @@ export function missingLaunchArtifact(plan) {
 
 function usage() {
   console.error(`Usage:
-  ./scripts/quick-deploy.sh start <${MODES.join('|')}> [--runtime dev|bin] [--build] [--generate-updater-key] [--api-base URL --web-base URL --annotate-base URL]
+  ./scripts/quick-deploy.sh start <${MODES.join('|')}> [--runtime dev|bin] [--build] [--generate-updater-key] [--api-base URL --web-base URL]
   scripts\\quick-deploy.bat start <mode> [--runtime dev|bin] [--build] [--generate-updater-key] [domain flags]
   ./scripts/quick-deploy.sh plan <mode> [--runtime dev|bin] [--build] [--generate-updater-key] [domain flags]
   ./scripts/quick-deploy.sh status
@@ -354,7 +350,7 @@ function usage() {
 --build compiles that release binary locally, then starts target/release. It is never implied. It does not apply to --runtime dev.
 --generate-updater-key applies to a managed client --build. It creates ~/.tauri/pointer-updater.key when that file is missing, and keeps an existing file. Without the flag, a terminal asks first.
 --runtime dev compiles as it starts: cargo run, the local Vite CLI, or the local Tauri CLI.
-Managed modes need the three control-plane domains (flags or POINTER_API_BASE / POINTER_WEB_BASE / COMPUTER_ANNOTATE_API_BASE).
+Managed modes need both control-plane domains (flags or POINTER_API_BASE / POINTER_WEB_BASE).
 Dev server and dev client share Vite port ${WEB_PORT}. The release server serves dist/ on ${SERVER_ADDR}.`)
 }
 
@@ -393,7 +389,6 @@ export function parseArgs(argv) {
     }
     if (flag === '--api-base') domains.apiBase = value
     else if (flag === '--web-base') domains.webBase = value
-    else if (flag === '--annotate-base') domains.annotateBase = value
     else if (flag === '--state-dir') stateDir = value
     else if (flag === '--runtime') runtime = value
     else throw new Error(`unknown flag ${flag}`)
@@ -417,7 +412,6 @@ export function parseArgs(argv) {
   }
   domains.apiBase ||= process.env.POINTER_API_BASE
   domains.webBase ||= process.env.POINTER_WEB_BASE
-  domains.annotateBase ||= process.env.COMPUTER_ANNOTATE_API_BASE
   return { command, mode, domains, stateDir, runtime, build, generateUpdaterKey }
 }
 

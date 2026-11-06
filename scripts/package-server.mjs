@@ -9,6 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { platformTag } from './lib/platform-tag.mjs'
+import { serverZipBaseName } from './rename-release-assets.mjs'
 import { syncServerDeployScripts } from './lib/sync-server-deploy-scripts.mjs'
 import { assertNoForbiddenReleasePaths } from './lib/release-hygiene.mjs'
 
@@ -132,7 +133,7 @@ function main() {
 
   const bundleRoot = path.join(ROOT, 'target', 'release', 'pointer-server-bundle')
   const stagingRoot = path.join(bundleRoot, 'staging')
-  const bundleName = `pointer-server-${platformTag()}`
+  const bundleName = serverZipBaseName(platformTag(), process.env)
   const stagingDir = path.join(stagingRoot, 'pointer-server')
   const zipPath = path.join(bundleRoot, `${bundleName}.zip`)
 

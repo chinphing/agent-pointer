@@ -88,7 +88,7 @@ npm run docs:build          # run at the repository root → npm --prefix docs-s
 
 ## `release.yml`
 
-Each platform builds four artifacts: the community client, the official client, the community server, and the official server. Community builds inject no control plane and produce no updater artifacts. Official builds set `POINTER_EDITION=managed` and the three readflowai domains. Client update signing reads repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`; the private key is not committed. File names contain `community` or `official`.
+Each platform builds four artifacts: the community client, the official client, the community server, and the official server. Community builds inject no control plane and produce no updater artifacts. Official builds set `POINTER_EDITION=managed` and the three readflowai domains. Client update signing reads repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`; the private key is not committed. `npm run tauri:build` and `npm run server:build` write `community` or `official` into the file name as they package. An unbound build is community. A managed build bound to readflowai is official. An enterprise domain is not labeled official.
 
 | Runner | Extra client arguments | Artifacts |
 |--------|----------|------|

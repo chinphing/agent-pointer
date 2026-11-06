@@ -2,7 +2,14 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { releaseAssetName, stageReleaseAssets } from './rename-release-assets.mjs'
+import {
+  markBuiltReleaseFiles,
+  releaseAssetName,
+  resolveReleaseLabel,
+  serverDebBaseName,
+  serverZipBaseName,
+  stageReleaseAssets,
+} from './rename-release-assets.mjs'
 
 describe('releaseAssetName', () => {
   it('marks client installers and updater signatures', () => {
@@ -39,6 +46,46 @@ describe('releaseAssetName', () => {
     expect(releaseAssetName('Pointer_community_0.1.2_amd64.deb', 'community')).toBe(
       'Pointer_community_0.1.2_amd64.deb',
     )
+  })
+})
+
+describe('resolveReleaseLabel', () => {
+  it('marks an unbound build as community and the readflowai build as official', () => {
+    expect(resolveReleaseLabel({})).toBe('community')
+    expect(resolveReleaseLabel({ POINTER_PACKAGE_LABEL: 'official' })).toBe('official')
+    expect(resolveReleaseLabel({
+      POINTER_EDITION: 'managed',
+      POINTER_API_BASE: 'https://pointer-api.readflowai.com',
+      POINTER_WEB_BASE: 'https://pointer.readflowai.com/',
+      COMPUTER_ANNOTATE_API_BASE: 'https://pointer-som.readflowai.com',
+    })).toBe('official')
+    expect(resolveReleaseLabel({
+      POINTER_EDITION: 'managed',
+      POINTER_API_BASE: 'https://pointer-api.example.com',
+      POINTER_WEB_BASE: 'https://pointer.example.com',
+      COMPUTER_ANNOTATE_API_BASE: 'https://pointer-som.example.com',
+    })).toBeNull()
+  })
+
+  it('uses the label in server archive names', () => {
+    expect(serverZipBaseName('linux-x64', {})).toBe('pointer-server-community-linux-x64')
+    expect(serverDebBaseName('0.1.2', 'amd64', { POINTER_PACKAGE_LABEL: 'official' })).toBe(
+      'pointer-server-official_0.1.2_amd64',
+    )
+  })
+})
+
+describe('markBuiltReleaseFiles', () => {
+  it('renames the installer where the packager wrote it', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pointer-mark-'))
+    const debDir = path.join(root, 'target', 'release', 'bundle', 'deb')
+    fs.mkdirSync(debDir, { recursive: true })
+    fs.writeFileSync(path.join(debDir, 'Pointer_0.1.2_amd64.deb'), 'client')
+
+    const renamed = markBuiltReleaseFiles(root, { POINTER_PACKAGE_LABEL: 'community' })
+
+    expect(renamed.map((file) => path.basename(file))).toEqual(['Pointer_community_0.1.2_amd64.deb'])
+    expect(fs.existsSync(path.join(debDir, 'Pointer_community_0.1.2_amd64.deb'))).toBe(true)
   })
 })
 

@@ -106,6 +106,7 @@ jobs:
       - name: Build community client
         run: npm run tauri:build -- ${{ matrix.tauri_args }}
         env:
+          POINTER_PACKAGE_LABEL: community
           APPLE_CERTIFICATE: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE || '' }}
           APPLE_CERTIFICATE_PASSWORD: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
           APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_SIGNING_IDENTITY || '' }}
@@ -136,6 +137,7 @@ jobs:
       - name: Build official client
         run: npm run tauri:build -- ${{ matrix.tauri_args }}
         env:
+          POINTER_PACKAGE_LABEL: official
           POINTER_EDITION: managed
           VITE_POINTER_EDITION: managed
           POINTER_API_BASE: https://pointer-api.readflowai.com
@@ -164,6 +166,8 @@ jobs:
 
       - name: Build community server
         run: npm run server:build
+        env:
+          POINTER_PACKAGE_LABEL: community
 
       - name: Stage community server
         run: node scripts/rename-release-assets.mjs --flavor community --dest release-assets
@@ -177,6 +181,7 @@ jobs:
       - name: Build official server
         run: npm run server:build
         env:
+          POINTER_PACKAGE_LABEL: official
           POINTER_EDITION: managed
           VITE_POINTER_EDITION: managed
           POINTER_API_BASE: https://pointer-api.readflowai.com

@@ -9,6 +9,7 @@ import { unlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { applyPointerLocalEnv } from './lib/load-pointer-local-env.mjs';
 import { prepareUpdaterSigning } from './lib/updater-signing-key.mjs';
+import { markBuiltReleaseFiles } from './rename-release-assets.mjs';
 
 const env = { ...process.env };
 applyPointerLocalEnv(env, { logPrefix: '[tauri-build]' });
@@ -55,6 +56,17 @@ try {
       console.error('  • 未安装系统依赖 → bash scripts/install-linux-build-deps.sh');
       console.error('  • 直接运行 npx/cargo tauri build（未设 NO_STRIP）→ 请用 npm run tauri:build');
       console.error('  • 查看具体错误 → npm run tauri:build -- --bundles appimage --verbose\n');
+    }
+  }
+  if (status === 0) {
+    try {
+      const renamed = markBuiltReleaseFiles(process.cwd(), env);
+      for (const file of renamed) {
+        console.log(`[tauri-build] marked ${file}`);
+      }
+    } catch (err) {
+      console.error(`[tauri-build] ${err instanceof Error ? err.message : err}`);
+      status = 1;
     }
   }
 } finally {

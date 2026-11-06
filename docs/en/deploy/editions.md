@@ -350,9 +350,9 @@ Developers change the code with `npm run server:dev` and `npm run web:dev`. That
 
 ## 7. CI and release policy
 
-- `.github/workflows/release.yml` **produces standalone client packages only**: all three targets carry `--config src-tauri/tauri.personal.conf.json`, inject no `POINTER_*` at all, and upload the artifacts to a Draft Release. **managed (official / enterprise) clients are built locally or on enterprise CI**.
-- There is no CI for the managed server: it must be built on a machine / pipeline carrying the control-plane variables (copy [4.1](#managed-server)). `scripts/build-server.mjs` hands `pointer.local.env` or the CI environment variables to both halves and verifies before packaging; on CI use environment variables (there is no `pointer.local.env` file).
-- After releasing a managed client, the installer + updater archive + `.sig` go through the console's client-release flow; standalone packages go straight to a GitHub Release.
+- `.github/workflows/release.yml` builds the community and official clients and servers in one tag, and uploads all three platforms to a Draft Release. File names contain `community` or `official`. The official flavour injects the readflowai domains; client signing uses repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+- A managed package aimed at an enterprise control plane is still built locally or on enterprise CI (copy [4.1](#managed-server)). `scripts/build-server.mjs` hands `pointer.local.env` or the CI environment variables to both halves and verifies before packaging.
+- The official client installer, updater archive, and `.sig` are attached to the GitHub Release and can still be published through the console's client-release flow.
 
 ---
 

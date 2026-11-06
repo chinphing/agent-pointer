@@ -592,7 +592,7 @@ src-tauri/target/release/bundle/
 | `src-tauri/tauri.conf.json` | Window, bundle targets, Linux deb/AppImage, Windows NSIS |
 | `package.json` | `tauri:dev` / `tauri:build` / `build:*` / `icons` scripts |
 | `scripts/tauri-build.mjs` | Cross-platform `tauri build`; a managed client reads or creates the updater private key at `~/.tauri/pointer-updater.key` (`--generate-updater-key`, or a terminal confirmation; an existing file is kept) and embeds a sibling `.pub` for that build only; standalone automatically adds `--config src-tauri/tauri.personal.conf.json`; **Linux only** sets `NO_STRIP=true` automatically (AppImage) |
-| `.github/workflows/release.yml` | Three-platform CI packaging (**standalone packages only**) |
+| `.github/workflows/release.yml` | Three-platform CI: community / official clients and server |
 
 ### Icons
 
@@ -624,9 +624,9 @@ Workflow: `.github/workflows/release.yml`
 
 | Runner | Artifacts |
 |--------|------|
-| `windows-latest` | Windows MSI installer |
-| `macos-latest` | Universal macOS (`--target universal-apple-darwin`) |
-| `ubuntu-24.04` | Linux deb + AppImage |
+| `windows-latest` | Community and official Windows clients, both server zips |
+| `macos-latest` | Community and official Universal macOS clients, both server zips |
+| `ubuntu-24.04` | Community and official Linux deb + AppImage, both server zips + debs |
 
 **How to trigger:**
 
@@ -638,9 +638,9 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-CI steps: checkout → Node 20 → Rust stable → (install Linux system dependencies) → `npm install` → `npm run icons` → `tauri-apps/tauri-action` → upload a **Draft Release**.
+CI steps: checkout → Node 20 → Rust stable → (install Linux system dependencies) → `npm install` → `npm run icons` → community client, official client, community server, official server → add `community` or `official` to the file name → upload a **Draft Release**.
 
-**This workflow produces standalone packages only**: all three targets carry `--config src-tauri/tauri.personal.conf.json`, no control-plane domains are injected, and there are no updater artifacts. Managed clients must be built locally or on enterprise CI — see [editions.md](../deploy/editions.md).
+Community builds inject no control plane. Official builds inject `POINTER_EDITION=managed` and the three readflowai domains. Client update signing uses repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Packages aimed at an enterprise control plane are still built locally or on enterprise CI — see [editions.md](../deploy/editions.md).
 
 ---
 
@@ -680,7 +680,7 @@ The current configuration produces **unsigned** installers, which is enough for 
 ## Official domains and environment variables (desktop builds)
 
 `npm run tauri:dev` / `tauri:build` load the local **`pointer.local.env`** (gitignored, see `pointer.local.env.example`); with no file present the control plane is unbound (purely local / standalone).  
-To bind a control plane, set the domains in that file or in the environment plus `POINTER_EDITION=managed` (the word `official` only refers to Pointer's own releases; it is not a flavour value). `.github/workflows/release.yml` **produces standalone packages only** and injects no `POINTER_*` at all; managed (official / enterprise) packages are built locally or on enterprise CI. The full four-cell steps are in [editions.md](../deploy/editions.md).
+To bind a control plane, set the domains in that file or in the environment plus `POINTER_EDITION=managed` (the word `official` only refers to Pointer's own releases; it is not a flavour value). `.github/workflows/release.yml` builds the community and official flavours in one release: the official flavour uses the readflowai domains, and the signing private key stays in a GitHub secret. Enterprise domains are still built locally or on enterprise CI. The full four-cell steps are in [editions.md](../deploy/editions.md).
 
 ---
 

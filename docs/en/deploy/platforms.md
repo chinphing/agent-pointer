@@ -46,7 +46,7 @@ The server is not constrained by platform packaging formats: **the zip works eve
 
 ## 4. CI policy
 
-`.github/workflows/release.yml` **produces standalone client packages only**: all three targets carry `--config src-tauri/tauri.personal.conf.json`, no control-plane domains are injected, and there are no updater artifacts. **Managed clients must be built locally or on enterprise CI** — see [`editions.md`](editions.md).
+`.github/workflows/release.yml` builds the community and official clients and servers in one tag. The official flavour injects the readflowai domains, and update signing uses repository secrets. Packages for an enterprise control plane are built locally or on enterprise CI — see [`editions.md`](editions.md).
 
 Detailed steps (how to trigger, Linux system dependencies, Draft Release) are in [GitHub Actions three-platform releases](../contributing/cross-platform-build.md#github-actions-three-platform-releases).
 

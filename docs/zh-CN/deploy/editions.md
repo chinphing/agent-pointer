@@ -350,9 +350,9 @@ curl -s http://127.0.0.1:8787/api/license/status  # 自建 notConfigured；官�
 
 ## 7. CI 与发布口径
 
-- `.github/workflows/release.yml` **只产 standalone 客户端包**：三端都带 `--config src-tauri/tauri.personal.conf.json`，不注入任何 `POINTER_*`，产物上传 Draft Release。**managed（官方 / 企业）客户端在本地或企业 CI 打**。
-- 没有 managed 服务端的 CI：managed server 需在带控制面变量的机器 / 流水线上打（照 [4.1](#managed-server) 抄）。`scripts/build-server.mjs` 会把 `pointer.local.env` 或 CI 环境变量同时交给两半，并在打包前校验；CI 上请用环境变量（没有 `pointer.local.env` 文件）。
-- 发布 managed 客户端后，安装包 + updater 压缩包 + `.sig` 走控制台「客户端发布」；standalone 包直接发 GitHub Release。
+- `.github/workflows/release.yml` 在同一次 tag 里打社区版和官方版的客户端与 server，三端都上传到 Draft Release。文件名带 `community` 或 `official`。官方版注入 readflowai 域名；客户端签名用仓库密钥 `TAURI_SIGNING_PRIVATE_KEY` 与 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。
+- 企业内网域名的 managed 包仍在本地或企业 CI 打（照 [4.1](#managed-server) 抄）。`scripts/build-server.mjs` 会把 `pointer.local.env` 或 CI 环境变量同时交给两半，并在打包前校验。
+- 官方版客户端的安装包、updater 压缩包和 `.sig` 会出现在 GitHub Release 上，同时仍可走控制台「客户端发布」。
 
 ---
 

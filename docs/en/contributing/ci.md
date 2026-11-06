@@ -8,7 +8,7 @@ The repository has **4 workflows** (`.github/workflows/`). This page explains wh
 ci.yml          ← main CI: tests + audit + manifest consistency + secret scanning (runs on PRs and main)
 docs-links.yml  ← documentation relative-link and anchor validation
 docs-site.yml   ← build the docs site and publish it to GitHub Pages
-release.yml     ← after a tag, package the desktop client for the three platforms (standalone only)
+release.yml     ← after a tag, package community and official clients plus server for the three platforms
 ```
 
 ## The four workflows at a glance
@@ -18,7 +18,7 @@ release.yml     ← after a tag, package the desktop client for the three platfo
 | `ci.yml` | CI | PR, push to `main`, manual | Frontend and Rust tests, dependency audit, third-party manifest, gitleaks |
 | `docs-links.yml` | Docs links | PR, push to `main` | `node scripts/check-doc-links.mjs` |
 | `docs-site.yml` | Docs site | push to `main` (changes under `docs/**` / `docs-site/**`), manual | Build the docs site → GitHub Pages |
-| `release.yml` | Release (standalone) | push tag `v*.*.*`, manual | Package the desktop client for the three platforms → Draft Release |
+| `release.yml` | Release | push tag `v*.*.*`, manual | Package community / official clients and server for the three platforms → Draft Release |
 
 ## `ci.yml`: the only main CI
 
@@ -88,15 +88,15 @@ npm run docs:build          # run at the repository root → npm --prefix docs-s
 
 ## `release.yml`
 
-**It only produces the standalone client**: all three platforms pass `--config src-tauri/tauri.personal.conf.json`, no control-plane domain is injected, and there are no updater artifacts. managed (official / enterprise) packages must be built locally or in enterprise CI, see [editions.md](../deploy/editions.md).
+Each platform builds four artifacts: the community client, the official client, the community server, and the official server. Community builds inject no control plane and produce no updater artifacts. Official builds set `POINTER_EDITION=managed` and the three readflowai domains. Client update signing reads repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`; the private key is not committed. File names contain `community` or `official`.
 
-| Runner | Extra arguments | Artifacts |
+| Runner | Extra client arguments | Artifacts |
 |--------|----------|------|
-| `windows-latest` | — | Windows MSI |
-| `macos-latest` | `--target universal-apple-darwin` | Universal macOS |
-| `ubuntu-24.04` | — | Linux deb + AppImage |
+| `windows-latest` | — | Client MSI / NSIS, server zip |
+| `macos-latest` | `--target universal-apple-darwin` | Universal macOS client, server zip |
+| `ubuntu-24.04` | — | Client deb + AppImage, server zip + deb |
 
-Steps: checkout → Node 20 → Rust stable (two extra targets on macOS) → (install system dependencies on Linux) → **`npm install`** → `npm run icons` → `tauri-apps/tauri-action` → create a **Draft** Release.
+Steps: checkout → Node 20 → Rust stable (two extra targets on macOS) → (install system dependencies on Linux) → **`npm install`** → `npm run icons` → `npm run tauri:build` / `npm run server:build` for the four packages → rename → upload a **Draft** Release.
 
 - ⚠️ This uses `npm install` rather than `npm ci` (unlike `ci.yml`) — do not copy it elsewhere
 - The Release is a **draft** and needs a human to confirm before publishing

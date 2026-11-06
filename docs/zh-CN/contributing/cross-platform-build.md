@@ -592,7 +592,7 @@ src-tauri/target/release/bundle/
 | `src-tauri/tauri.conf.json` | 窗口、bundle 目标、Linux deb/AppImage、Windows NSIS |
 | `package.json` | `tauri:dev` / `tauri:build` / `build:*` / `icons` 脚本 |
 | `scripts/tauri-build.mjs` | 跨平台 `tauri build`；managed 客户端在缺省路径 `~/.tauri/pointer-updater.key` 读取或生成 updater 私钥（`--generate-updater-key` 或终端确认，已有文件不覆盖），有 `.pub` 时只给这次构建嵌公钥；standalone 自动加 `--config src-tauri/tauri.personal.conf.json`；**仅 Linux** 自动 `NO_STRIP=true`（AppImage） |
-| `.github/workflows/release.yml` | 三端 CI 自动打包（**仅 standalone 包**） |
+| `.github/workflows/release.yml` | 三端 CI：社区版 / 官方版客户端和 server |
 
 ### 图标
 
@@ -624,9 +624,9 @@ npm run icons
 
 | Runner | 产物 |
 |--------|------|
-| `windows-latest` | Windows MSI 安装包 |
-| `macos-latest` | Universal macOS（`--target universal-apple-darwin`） |
-| `ubuntu-24.04` | Linux deb + AppImage |
+| `windows-latest` | 社区版和官方版 Windows 客户端，两种 server zip |
+| `macos-latest` | 社区版和官方版 Universal macOS 客户端，两种 server zip |
+| `ubuntu-24.04` | 社区版和官方版 Linux deb + AppImage，两种 server zip + deb |
 
 **触发方式：**
 
@@ -638,9 +638,9 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-CI 步骤：checkout → Node 20 → Rust stable →（Linux 装系统依赖）→ `npm install` → `npm run icons` → `tauri-apps/tauri-action` → 上传 **Draft Release**。
+CI 步骤：checkout → Node 20 → Rust stable →（Linux 装系统依赖）→ `npm install` → `npm run icons` → 社区版客户端、官方版客户端、社区版 server、官方版 server → 文件名加上 `community` 或 `official` → 上传 **Draft Release**。
 
-**该 workflow 只产 standalone 包**：三端都带 `--config src-tauri/tauri.personal.conf.json`，不注入控制面域名，也没有 updater 产物。managed 客户端需在本地或企业 CI 打，见 [editions.md](../deploy/editions.md)。
+社区版不注入控制面。官方版注入 `POINTER_EDITION=managed` 和 readflowai 三个域名。客户端更新签名用仓库密钥 `TAURI_SIGNING_PRIVATE_KEY` 与 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。企业内网域名的包仍在本地或企业 CI 打，见 [editions.md](../deploy/editions.md)。
 
 ---
 
@@ -680,7 +680,7 @@ $env:RUST_LOG="debug"; npm run tauri:dev
 ## 官网与环境变量（桌面构建）
 
 `npm run tauri:dev` / `tauri:build` 会加载本机 **`pointer.local.env`**（gitignore，见 `pointer.local.env.example`）；无文件时未绑定控制面（纯本地 / standalone）。  
-绑定控制面时在该文件或环境里设置域名 + `POINTER_EDITION=managed`（`official` 一词仅指 Pointer 官方发布，不是口味取值）。`.github/workflows/release.yml` **只产 standalone 包**，不注入任何 `POINTER_*`；managed（官方 / 企业）包在本地或企业 CI 打。四格完整步骤见 [editions.md](../deploy/editions.md)。
+绑定控制面时在该文件或环境里设置域名 + `POINTER_EDITION=managed`（`official` 一词仅指 Pointer 官方发布，不是口味取值）。`.github/workflows/release.yml` 在同一次发版里打社区版和官方版：官方版使用 readflowai 域名，签名私钥放在 GitHub secret。企业内网域名仍在本地或企业 CI 打。四格完整步骤见 [editions.md](../deploy/editions.md)。
 
 ---
 

@@ -110,4 +110,19 @@ describe('stageReleaseAssets', () => {
       'client',
     )
   })
+
+  it('ignores bundle-internal assets such as the AppImage icon', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pointer-release-'))
+    const appimageDir = path.join(root, 'target', 'release', 'bundle', 'appimage')
+    fs.mkdirSync(appimageDir, { recursive: true })
+    fs.writeFileSync(path.join(appimageDir, 'Pointer_0.1.2_amd64.AppImage'), 'client')
+    fs.writeFileSync(path.join(appimageDir, 'Pointer.png'), 'icon')
+
+    const dest = path.join(root, 'release-assets')
+    const copied = stageReleaseAssets({ root, flavor: 'community', dest })
+
+    expect(copied.map((file) => path.basename(file))).toEqual([
+      'Pointer-community-0.1.2-amd64.AppImage',
+    ])
+  })
 })

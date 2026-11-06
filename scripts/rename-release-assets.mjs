@@ -104,6 +104,10 @@ export function releaseAssetName(filename, flavor) {
 }
 
 function isReleaseFile(filename) {
+  // Bundle trees also carry loose assets such as the AppImage icon (`Pointer.png`)
+  // or the `.Dir` payload; only files with a known release extension are installers.
+  const lower = filename.toLowerCase()
+  if (!RELEASE_EXTS.some((ext) => lower.endsWith(ext.toLowerCase()))) return false
   return (
     filename.startsWith('Pointer')
     || filename.startsWith('pointer-server-')

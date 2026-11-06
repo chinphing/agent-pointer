@@ -1,7 +1,7 @@
 # Computer-use 端到端定位 Benchmark
 
 **给「真实主 LLM + locate 全链路」做端到端评测。** 输入只有一张全屏截图 + 一句 goal，
-输出一个落点，用和 [`screenspot_grid`](../screenspot_grid/README.md) 完全相同的
+输出一个落点，用和 `screenspot_grid` 完全相同的
 指标（命中率 + 尺寸分档 + 框包裹度）打分。
 
 数据集来自 **2026-10-28 一次真实生产会话**（`0a8eeb49`，17:00–18:57，116 分钟），

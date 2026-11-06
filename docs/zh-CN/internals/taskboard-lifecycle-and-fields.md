@@ -62,7 +62,7 @@ Type enforcement (schema + host):
 
 ## History trim (maintainer)
 
-- **Trigger:** `init` / `replace` / `finalize`, or `patch` with substantive progress: row `done`, non-empty `remark`, or `work_item_delta`. Details: [`agent-task-board-and-verification.md`](agent-task-board-and-verification.md#task_board-触发的历史截断当前实现).
+- **Trigger:** `init` / `replace` / `finalize`, or `patch` with substantive progress: row `done`, non-empty `remark`, or `work_item_delta`. Details: [`agent-task-board-and-verification.md`](agent-task-board-and-verification.md#task_board-触发的历史截断已停用).
 - **Not a trigger:** `in_progress` only; v3 fields (`progress`, `validate_results`, …).
 - Computer keeps anchor user + last 10 messages + latest live `[CUR_SCREEN]`.
 

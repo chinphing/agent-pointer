@@ -66,8 +66,8 @@ A digital employee has to work inside a real office setup: a license that allows
 </table>
 
 <p class="why-pointer-shots">
-  <img src="why-pointer/home.png" alt="Pointer home" width="49%" />
-  <img src="why-pointer/models.png" alt="Pointer model settings" width="49%" />
+  <img src="/why-pointer/home.png" alt="Pointer home" width="49%" />
+  <img src="/why-pointer/models.png" alt="Pointer model settings" width="49%" />
 </p>
 
 ---

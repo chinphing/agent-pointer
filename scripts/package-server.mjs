@@ -47,9 +47,25 @@ function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }
 
+/**
+ * Zip tool for the Windows path: the bundled bsdtar at `%SystemRoot%\System32\tar.exe`.
+ *
+ * A bare `tar` resolves to Git's GNU tar first on the Windows runner, and GNU tar reads
+ * `D:\a\...\Pointer.zip` as a remote archive spec, failing with
+ * `tar: Cannot connect to D: resolve failed`. GNU tar cannot write zip either — only
+ * bsdtar's `-a` does that.
+ */
+function tarBinary() {
+  if (process.platform === 'win32') {
+    const systemTar = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe')
+    if (fs.existsSync(systemTar)) return systemTar
+  }
+  return 'tar'
+}
+
 /** Entry names inside a zip, or null when the archive cannot be read. */
 function listZipEntries(zipPath) {
-  const result = spawnSync('tar', ['-tf', zipPath], {
+  const result = spawnSync(tarBinary(), ['-tf', zipPath], {
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
   })
@@ -68,7 +84,7 @@ function listZipEntries(zipPath) {
  * and the finished archive is verified afterwards — a partial zip is deleted, never kept.
  */
 function createZipWindows(stagingRoot, zipPath, innerDirName) {
-  const tarCheck = spawnSync('tar', ['--version'], { stdio: 'ignore' })
+  const tarCheck = spawnSync(tarBinary(), ['--version'], { stdio: 'ignore' })
   if (tarCheck.status !== 0) {
     console.error(
       '[package-server] `tar` not found. Windows 10 1803+ bundles C:\\Windows\\System32\\tar.exe.'
@@ -78,7 +94,7 @@ function createZipWindows(stagingRoot, zipPath, innerDirName) {
 
   const requiredEntry = `${innerDirName}/${BIN_NAME}`
   for (let attempt = 1; attempt <= WIN32_ZIP_ATTEMPTS; attempt += 1) {
-    const result = spawnSync('tar', ['-a', '-c', '-f', zipPath, '-C', stagingRoot, innerDirName], {
+    const result = spawnSync(tarBinary(), ['-a', '-c', '-f', zipPath, '-C', stagingRoot, innerDirName], {
       stdio: 'inherit',
     })
     const entries = result.status === 0 ? listZipEntries(zipPath) : null

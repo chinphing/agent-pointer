@@ -91,8 +91,18 @@ export function releaseAssetName(filename, flavor) {
     throw new Error(`release flavor must be community or official, got ${flavor}`)
   }
   const [stem, ext] = splitReleaseExt(filename)
-  if (stem.startsWith(`Pointer-${flavor}-`) || stem.startsWith(`pointer-server-${flavor}-`)) {
+  const marked = `Pointer-${flavor}`
+  const alreadyMarked =
+    stem === marked ||
+    stem.startsWith(`${marked}-`) ||
+    stem.startsWith(`${marked}.`) ||
+    stem.startsWith(`pointer-server-${flavor}-`)
+  if (alreadyMarked) {
     return filename
+  }
+  // Tauri's updater tarball carries no separator: `Pointer.app.tar.gz` and its `.sig`.
+  if (stem === 'Pointer' || stem.startsWith('Pointer.')) {
+    return `${marked}${stem.slice('Pointer'.length)}${ext}`
   }
   if (stem.startsWith('pointer-server-') || stem.startsWith('pointer-server_')) {
     return `${withFlavor('pointer-server', stem.slice('pointer-server-'.length), flavor)}${ext}`

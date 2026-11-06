@@ -47,6 +47,22 @@ describe('releaseAssetName', () => {
       'Pointer-community-0.1.2-amd64.deb',
     )
   })
+
+  it('marks the updater tarball and its signature, which carry no separator', () => {
+    expect(releaseAssetName('Pointer.app.tar.gz', 'community')).toBe(
+      'Pointer-community.app.tar.gz',
+    )
+    expect(releaseAssetName('Pointer.app.tar.gz.sig', 'official')).toBe(
+      'Pointer-official.app.tar.gz.sig',
+    )
+    // Idempotent: a second pass must not stack another flavor marker.
+    expect(releaseAssetName('Pointer-community.app.tar.gz', 'community')).toBe(
+      'Pointer-community.app.tar.gz',
+    )
+    expect(releaseAssetName('Pointer-official.app.tar.gz.sig', 'official')).toBe(
+      'Pointer-official.app.tar.gz.sig',
+    )
+  })
 })
 
 describe('resolveReleaseLabel', () => {

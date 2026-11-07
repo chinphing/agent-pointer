@@ -136,7 +136,9 @@ impl RemoteSkill {
 
 #[derive(Debug, Clone, Default, Deserialize, serde::Serialize)]
 pub struct Catalog {
-    #[serde(default)]
+    /// 控制面的键随类型变化：技能是 `skills`，插件是 `plugins`。
+    /// 少写这个 alias 会把插件目录静默解析成空列表。
+    #[serde(default, alias = "plugins")]
     pub skills: Vec<RemoteSkill>,
     #[serde(default, rename = "catalogHash")]
     pub catalog_hash: String,
@@ -628,6 +630,16 @@ pub async fn install_package(
     apply(&root, kind, &plan, &packages)
 }
 
+/// 从台账里删掉一条（卸载 / 测试清理用）。目录本身由调用方删除。
+pub fn forget_package(kind: PackageKind, key: &str) -> Result<()> {
+    let root = kind.root()?;
+    let mut manifest = read_manifest(&root);
+    if manifest.remove(key).is_some() {
+        write_manifest(&root, &manifest)?;
+    }
+    Ok(())
+}
+
 /// 启动后台同步：首次延迟 15s（别和登录/启动抢资源），之后每 6 小时一次。
 pub fn start_background_loop(state: std::sync::Arc<crate::chat_service::AppState>) {
     if !crate::platform_endpoints::control_plane_bound() {
@@ -1003,6 +1015,28 @@ mod tests {
         assert!(read_policy(&root).is_empty());
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn catalog_parses_plugin_wire_shape() {
+        // 插件的键是 `plugins`，不是 `skills`——漏了 alias 会静默变空列表。
+        let raw = r#"{
+            "catalogHash": "abc",
+            "plugins": [{
+                "slug": "e2e-plugin",
+                "name": "E2E 插件",
+                "pluginId": "com.example.e2e",
+                "activation": "default_on",
+                "version": "1.0.0",
+                "hash": "deadbeef",
+                "sizeBytes": 264,
+                "url": "/auth/partner/plugins/e2e-plugin/1.0.0/download"
+            }]
+        }"#;
+        let catalog: Catalog = serde_json::from_str(raw).expect("parse");
+        assert_eq!(catalog.skills.len(), 1, "插件目录不能被解析成空");
+        assert_eq!(catalog.skills[0].plugin_id.as_deref(), Some("com.example.e2e"));
+        assert!(catalog.skills[0].is_default_on());
     }
 
     #[test]

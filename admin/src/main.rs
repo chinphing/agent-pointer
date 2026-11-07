@@ -114,6 +114,19 @@ async fn main() -> Result<()> {
     let config = AdminConfig::from_env();
     let db_url = config.db_url();
     log::info!("控制面数据库：{db_url}");
+    // 密钥模式决定密文能不能跨机器解，部署时最容易搞错，启动就说清楚。
+    if std::env::var(pointer_admin::crypto::MASTER_KEY_ENV)
+        .ok()
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false)
+    {
+        log::info!("企业密钥加密：使用 {}（可跨实例解密）", pointer_admin::crypto::MASTER_KEY_ENV);
+    } else {
+        log::warn!(
+            "企业密钥加密：未配置 {}，按本机标识派生——换机/多实例部署后旧密钥解不开",
+            pointer_admin::crypto::MASTER_KEY_ENV
+        );
+    }
 
     let store = AdminStore::connect(&db_url)
         .await

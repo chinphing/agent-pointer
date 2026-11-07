@@ -535,13 +535,15 @@ MySQL → `VARCHAR(n)`，SQLite / PostgreSQL → `TEXT`（不引入长度上限�
 - **授权码已落库**（`oauth_codes`，schema v5）：OAuth 登录是两个独立请求，
   多实例下会落到不同进程，放内存会「时好时坏」。库里只存 `sha256(code)`，
   一次性由原子 `UPDATE ... WHERE used_at IS NULL` 保证，并发重放只有一个能成功。
-- **加密材料仍绑本机**（`machine_uid` 派生）：多实例跨机部署时，A 加密的 key B 解不开。
-  修法是加一个显式的 `POINTER_ADMIN_MASTER_KEY`（配了优先用，没配沿用本机标识）。
-  **这项还没做**，是目前唯一挡着多实例的问题。
+- **加密材料可切主密钥**：默认仍按 `machine_uid` 派生（单机，`enc:v1:`）；
+  配置 `POINTER_ADMIN_MASTER_KEY` 后改用主密钥派生（`enc:v2:`），密文可跨实例/跨机解密。
+  解密按前缀选钥匙，所以切模式后**老数据（v1）仍能在原机器上解**，新写入才走 v2。
+  换错主密钥时接口报 500 并明确指出是 `POINTER_ADMIN_MASTER_KEY` 不一致，不会静默。
+  启动日志会打印当前处于哪种模式。
 - 技能包校验常量（20 MiB / 5 MiB / 条目数）与
   `crates/pointer-core/src/skills/external.rs` 各存一份——admin 不依赖 pointer-core，
   改一处必须同步另一处。
-- 技能包存本地磁盘（`POINTER_ADMIN_DATA_DIR`，默认 `admin/data`），多实例部署前要换对象存储。
+- 技能包存本地磁盘（`POINTER_ADMIN_DATA_DIR`，默认 `admin/data`），多实例部署前要换对象存储（用户已确认暂时保持本地）。
 - 企业技能与插件**默认不启用**，但控制面可以按资源设「启用策略」（用户已确认只做两档）：
   | `activation` | 语义 |
   | --- | --- |

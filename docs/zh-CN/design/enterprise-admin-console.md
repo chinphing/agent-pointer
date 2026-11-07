@@ -484,6 +484,13 @@ admin 与 server 只通过 HTTP 说话；指针不共享，桌面包体不受影
 2. 时间戳用 `BIGINT` 存 unix 秒，不用各库不同的日期类型；
 3. 避开保留字：`meta_key` / `meta_value` / `role_key`，不写 `key`（MySQL 保留字）。
 
+**第 4 条是实测踩出来的**：MySQL 上**所有** `TEXT` 列都读不出来。
+sqlx 的 `Any` 驱动把 MySQL 的 `TEXT`（协议层就是 `BLOB`）映射成
+`AnyTypeInfoKind::Blob`，而 `String` 只能从 `Text` 解码，于是报
+`mismatched types; Rust type String is not compatible with SQL type BLOB`。
+所以 DDL 里文本列写成 `TEXT$<n>` 标记，`schema::migrate` 按后端翻译：
+MySQL → `VARCHAR(n)`，SQLite / PostgreSQL → `TEXT`（不引入长度上限）。
+
 另外不用 `ON CONFLICT`、`INSERT OR IGNORE`、`RETURNING`——三者语法各不相同；
 唯一性靠「先查后写」保证，索引重复创建的错误直接忽略。
 
@@ -540,7 +547,20 @@ admin 与 server 只通过 HTTP 说话；指针不共享，桌面包体不受影
 - 桌面端按公共客户端处理（无 client_secret，靠 PKCE）；server 是机密客户端。
 - 余额恒为 `0.00`：控制面不接计费，`token_quota_exhausted` 由配额推导。
 - `parentId` 之外的资源字段暂不支持修改（`kind`/`slug` 建后不可变）。
-- PG / MySQL 仍只在代码层支持，未在真实实例上跑过（见 13.1 的验证命令）。
+- PG / MySQL 已在真实实例上验证通过（PostgreSQL 16.15 / MySQL 9.3.0，见 13.1）。
+
+## 13.3 真机数据库验证（2026-11-07）
+
+| 后端 | 版本 | 结果 | 命令 |
+| --- | --- | --- | --- |
+| SQLite | 内存 / 文件 | 119 单测 | `cargo test -p pointer-admin` |
+| PostgreSQL | 16.15 (Homebrew) | 通过 | `POINTER_ADMIN_TEST_DB_URL='postgres://127.0.0.1:5432/pointer_admin_test' cargo test -p pointer-admin --test db_backends` |
+| MySQL | 9.3.0 (隔离实例，端口 3307) | 通过 | `POINTER_ADMIN_TEST_DB_URL='mysql://root@127.0.0.1:3307/pointer_admin_test' cargo test -p pointer-admin --test db_backends` |
+
+冒烟测试做的是：连接 → 迁移 → **再迁移一次（幂等）** → 建用户 → 建会话 → 清理。
+
+MySQL 那条一开始是失败的，暴露了 13 节里第 4 条约束（`TEXT` 在 `Any` 驱动下
+被当成 `BLOB`）。修完 DDL 适配层才通过——**这条不真机跑是发现不了的**。
 
 ## 14. 相关文档
 

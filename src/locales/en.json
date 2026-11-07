@@ -1524,6 +1524,8 @@
     "sourceSystem": "Built-in",
     "sourceExternal": "External",
     "sourcePlugin": "Plugin",
+    "sourceOrg": "Org",
+    "sourceOrgTitle": "Delivered by the enterprise control plane (read-only, auto-updated)",
     "sourcePluginLabel": "Plugin · {name}",
     "sourcePluginTitle": "Provided by plugin {id}",
     "sourceSystemTitle": "Built-in Pointer skill",

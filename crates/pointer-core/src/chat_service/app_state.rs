@@ -1139,6 +1139,7 @@ impl AppState {
 
     pub fn start_background_tasks(self: &Arc<Self>) {
         crate::skills::curator::start_background_loop(self.clone());
+        crate::skills::org_sync::start_background_loop(self.clone());
     }
 
     /// Build a [`crate::dispatcher::RunDispatcher`] backed by this state.

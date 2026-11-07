@@ -1524,6 +1524,8 @@
     "sourceSystem": "内置",
     "sourceExternal": "外部",
     "sourcePlugin": "插件",
+    "sourceOrg": "企业",
+    "sourceOrgTitle": "由企业控制面统一下发（只读，自动更新）",
     "sourcePluginLabel": "插件 · {name}",
     "sourcePluginTitle": "由插件 {id} 提供",
     "sourceSystemTitle": "Pointer 自带技能",

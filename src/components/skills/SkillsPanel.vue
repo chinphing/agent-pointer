@@ -74,6 +74,13 @@ function skillSource(skill: SkillDef): { label: string; kind: string; title: str
       title: t('skills.sourceSystemTitle')
     }
   }
+  if (skill.provenance === 'org') {
+    return {
+      label: t('skills.sourceOrg'),
+      kind: 'org',
+      title: t('skills.sourceOrgTitle')
+    }
+  }
   if (skill.provenance === 'external') {
     return {
       label: t('skills.sourceExternal'),
@@ -96,6 +103,8 @@ function sourceClass(kind: string): string {
       return 'bg-[hsl(var(--code-bg))] text-muted'
     case 'external':
       return 'bg-[hsl(var(--code-bg))] text-foreground/80'
+    case 'org':
+      return 'bg-accent/15 text-accent'
     default:
       return 'bg-[hsl(var(--code-bg))] text-accent'
   }

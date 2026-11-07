@@ -12,6 +12,8 @@ const MAX_ZIP_SIZE: usize = 20 * 1024 * 1024;
 const MAX_ENTRY_SIZE: u64 = 5 * 1024 * 1024;
 const LEGACY_SKILLS_DIR: &str = "skills";
 const AGENTS_SKILLS_DIR: &str = ".agents/skills";
+/// 企业下发的技能库目录名（`{data_dir}/org-skills/`）。
+const ORG_SKILLS_DIR: &str = "org-skills";
 
 #[derive(Debug, Deserialize)]
 struct SkillManifest {
@@ -64,6 +66,23 @@ pub fn system_skills_dir() -> Result<PathBuf> {
 /// User-managed imports (`~/.pointer/skills`).
 pub fn skills_dir() -> Result<PathBuf> {
     pointer_skills_dir()
+}
+
+/// 企业下发的技能库（`{data_dir}/org-skills/`）。
+///
+/// 单独一个目录，**不能放进 `~/.pointer/skills`**：
+/// 那边归 curator 管（90 天未用会被归档进 `.archive`），企业技能不能被自动清理。
+pub fn org_skills_dir() -> Result<PathBuf> {
+    let dir = storage::app_data_dir()?.join(ORG_SKILLS_DIR);
+    fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// `path` 是否位于 `root` 之下（双方都做 canonicalize，容忍符号链接与相对路径）。
+pub fn is_under(path: &Path, root: &Path) -> bool {
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    canon.starts_with(&root)
 }
 
 /// Inject `SKILL_DIR` into a terminal child env map (user skill library root).
@@ -414,6 +433,55 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
     Ok(SkillImportResult { imported, skipped })
 }
 
+/// 把 zip 解到指定根目录（企业技能下发用），返回 `(目录名, 路径)`。
+///
+/// 与 [`import_skill_zip`] 的差别：不写用户库、不标记 agent 创建、不静默跳过。
+/// 一个包只允许包含一个技能——多技能包在下发场景里语义不清，直接拒绝。
+pub fn import_skill_zip_into(root: &Path, bytes: &[u8]) -> Result<(String, PathBuf)> {
+    if bytes.len() > MAX_ZIP_SIZE {
+        return Err(anyhow!("Skills zip 文件过大，最大支持 20MB"));
+    }
+
+    let mut archive = ZipArchive::new(Cursor::new(bytes)).context("无法读取 Skills zip 文件")?;
+    let mut manifests = Vec::new();
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)?;
+        if file.is_dir() || file.size() > MAX_ENTRY_SIZE {
+            continue;
+        }
+        let name = normalize_zip_entry_path(file.name());
+        if is_manifest_path(&name) {
+            let mut raw = String::new();
+            file.read_to_string(&mut raw)?;
+            let manifest = parse_skill_md(&raw).with_context(|| format!("解析 {name} 失败"))?;
+            let base = zip_manifest_base(&name);
+            manifests.push((manifest, base));
+        }
+    }
+    if manifests.is_empty() {
+        return Err(anyhow!("zip 中未找到 SKILL.md 或 skill.md"));
+    }
+    if manifests.len() > 1 {
+        return Err(anyhow!(
+            "技能包只能包含一个技能，实际发现 {} 个",
+            manifests.len()
+        ));
+    }
+
+    let (manifest, base) = manifests.pop().expect("checked non-empty");
+    validate_manifest(&manifest)?;
+
+    // 允许两种布局：`SKILL.md` 在根（base 为空）或 `xxx/SKILL.md`（base 为 xxx）。
+    let dir_name = manifest.name.trim().to_string();
+    let target = root.join(&dir_name);
+    if target.exists() {
+        fs::remove_dir_all(&target)?;
+    }
+    fs::create_dir_all(&target)?;
+    extract_skill_dir(&mut archive, &base, &target)?;
+    Ok((dir_name, target))
+}
+
 fn import_skill_zip_file(path: &Path) -> Result<SkillImportResult> {
     if !is_zip_file(path) {
         return Err(anyhow!(
@@ -543,9 +611,12 @@ fn is_zip_file(path: &Path) -> bool {
 
 /// Runtime discovery roots (first match wins per skill id).
 ///
-/// Order: user library → `~/.agents/skills` → system bundled.
+/// Order: user library → org skills → `~/.agents/skills` → system bundled.
 fn skill_roots() -> Result<Vec<PathBuf>> {
     let mut roots = vec![pointer_skills_dir()?];
+    // 员工自建的同名技能优先于企业版：便于本地调试与科室特例，
+    // 也延续「本地改动不被覆盖」的语义。
+    roots.push(org_skills_dir()?);
     if let Some(dir) = home_agents_skills_dir() {
         roots.push(dir);
     }

@@ -2,6 +2,7 @@ pub mod builtin;
 pub mod curator;
 pub mod external;
 pub mod external_probe;
+pub mod org_sync;
 pub mod provenance;
 
 /// Bundled skills shipped under repository `skills/`. Keep in sync with frontend `DEFAULT_ENABLED_SKILL_IDS`.

@@ -517,7 +517,7 @@ admin 与 server 只通过 HTTP 说话；指针不共享，桌面包体不受影
 | 审计流水 | 完成 | `GET /api/admin/audit` |
 | 前端工程 `admin/web/` | **完成**（6 页，hash 路由，产物由进程托管） | `npm run build` → `admin/web/dist` |
 | 技能 zip 版本下发（控制面侧） | **完成**：上传/发布/下载 + 路径穿越校验 | `POST /api/admin/resources/:id/versions`、`GET /auth/partner/skills` |
-| 技能 zip 版本下发（客户端侧 `org-skills`） | **未开始**（M1 剩余） | 需改 `pointer-core/src/skills/` |
+| 技能 zip 版本下发（客户端侧 `org-skills`） | **完成**：目录 + provenance `org` + 后台同步 | `crates/pointer-core/src/skills/org_sync.rs` |
 | 插件 / 按角色下发档位 | **未开始**（M2） | — |
 
 已知取舍：
@@ -527,6 +527,9 @@ admin 与 server 只通过 HTTP 说话；指针不共享，桌面包体不受影
   `crates/pointer-core/src/skills/external.rs` 各存一份——admin 不依赖 pointer-core，
   改一处必须同步另一处。
 - 技能包存本地磁盘（`POINTER_ADMIN_DATA_DIR`，默认 `admin/data`），多实例部署前要换对象存储。
+- 企业技能**默认不自动启用**：员工在技能面板里能看到「企业」来源并自行开启。
+  是否强制启用是产品决策（涉及员工能否关掉），未擅自决定。
+- 客户端同步周期 6 小时 + 启动后 15 秒一次；暂无「立即同步」入口。
 - 桌面端按公共客户端处理（无 client_secret，靠 PKCE）；server 是机密客户端。
 - 余额恒为 `0.00`：控制面不接计费，`token_quota_exhausted` 由配额推导。
 - `parentId` 之外的资源字段暂不支持修改（`kind`/`slug` 建后不可变）。

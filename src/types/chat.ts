@@ -983,7 +983,7 @@ export interface SkillDef {
   /** Always empty in catalog responses; resources read on demand via skill_read. */
   resourceFiles?: string[]
   source?: string
-  /** `system` = app data bundled; `user` = ~/.pointer/skills; `external` = ~/.agents/skills */
+  /** `system` = app data bundled; `user` = ~/.pointer/skills; `external` = ~/.agents/skills; `org` = 企业下发（只读） */
   provenance?: string
   mutable?: boolean
   /** Set when the skill is provided by a plugin (P1). */

@@ -518,7 +518,10 @@ admin 与 server 只通过 HTTP 说话；指针不共享，桌面包体不受影
 | 前端工程 `admin/web/` | **完成**（6 页，hash 路由，产物由进程托管） | `npm run build` → `admin/web/dist` |
 | 技能 zip 版本下发（控制面侧） | **完成**：上传/发布/下载 + 路径穿越校验 | `POST /api/admin/resources/:id/versions`、`GET /auth/partner/skills` |
 | 技能 zip 版本下发（客户端侧 `org-skills`） | **完成**：目录 + provenance `org` + 后台同步 | `crates/pointer-core/src/skills/org_sync.rs` |
-| 插件 / 按角色下发档位 | **未开始**（M2） | — |
+| 按角色下发档位 | **完成**：多条档位映射按「用户直授 > 角色 > 全员」取一条 | `admin/src/credentials.rs` |
+| 配额拦截 | **完成**：`over_action=block` 超限 → `token_quota_exhausted=true`，客户端 `ensure_llm_allowed` 已有 gate | `admin/src/oauth/partner.rs` |
+| 插件包下发（控制面侧） | **完成**：插件资源可传版本 + `GET /auth/partner/plugins` | `admin/src/oauth/partner.rs` |
+| 插件包下发（客户端侧） | **未做**（原因见下） | — |
 
 已知取舍：
 
@@ -530,6 +533,12 @@ admin 与 server 只通过 HTTP 说话；指针不共享，桌面包体不受影
 - 企业技能**默认不自动启用**：员工在技能面板里能看到「企业」来源并自行开启。
   是否强制启用是产品决策（涉及员工能否关掉），未擅自决定。
 - 客户端同步周期 6 小时 + 启动后 15 秒一次；暂无「立即同步」入口。
+- **插件客户端同步没做**，两个硬原因：
+  1. `import_plugin_zip` 落盘目录由插件自身的 `plugin_id` 决定，admin 的 slug 对不上，
+     没法可靠判断「这个目录是我们装的」，也就无法安全地覆盖/删除；
+  2. 插件带工具、hooks、MCP，激活是独立语义（`plugins/activation.rs`），
+     「下发即激活」等于把执行能力直接塞给客户端，需要单独评审。
+  技能那套「slug 当目录名 + origin hash 台账」在插件上不成立，硬套会退化成兜底逻辑。
 - 桌面端按公共客户端处理（无 client_secret，靠 PKCE）；server 是机密客户端。
 - 余额恒为 `0.00`：控制面不接计费，`token_quota_exhausted` 由配额推导。
 - `parentId` 之外的资源字段暂不支持修改（`kind`/`slug` 建后不可变）。

@@ -14,7 +14,7 @@ use pointer_contract::{
 
 use crate::crypto::decrypt_secret;
 use crate::db::AdminStore;
-use crate::grants;
+use crate::grants::{self, Principal};
 use crate::resources::{self, Resource, KIND_MODEL, KIND_PROVIDER, KIND_TIER_PROFILE};
 
 /// 档位映射的固定 slug。
@@ -124,7 +124,7 @@ pub async fn build_for_user(
         fingerprints.insert(provider.slug.clone(), key_fingerprint(&secret));
     }
 
-    let tier_defaults = load_tier_defaults(store, tenant_id, &visible).await?;
+    let tier_defaults = load_tier_defaults(store, tenant_id, user_id, &visible).await?;
     let hash = model_catalog_hash(&catalog, &tier_defaults, &fingerprints);
 
     Ok(PlatformLoginCredentials {
@@ -142,17 +142,50 @@ pub async fn build_for_user(
 async fn load_tier_defaults(
     store: &AdminStore,
     tenant_id: &str,
+    user_id: &str,
     visible: &HashSet<String>,
 ) -> Result<serde_json::Value> {
-    let Some(profile) =
-        resources::find_by_slug(store, tenant_id, KIND_TIER_PROFILE, DEFAULT_TIER_PROFILE).await?
-    else {
-        return Ok(serde_json::Value::Null);
-    };
-    if !profile.enabled || !visible.contains(&profile.id) {
-        return Ok(serde_json::Value::Null);
+    let profiles: Vec<Resource> = resources::list(store, tenant_id, Some(KIND_TIER_PROFILE))
+        .await?
+        .into_iter()
+        .filter(|r| r.enabled && visible.contains(&r.id))
+        .collect();
+
+    // 一个用户可能同时命中多条档位映射（全员默认 + 部门专属）。
+    // 规则：用户直授 > 角色授 > 全员，同级按 slug 字典序取第一个。
+    let mut best: Option<(u8, String, Resource)> = None;
+    for profile in profiles {
+        let specificity = tier_specificity(store, &profile.id, user_id).await?;
+        let candidate = (specificity, profile.slug.clone(), profile);
+        best = match best {
+            None => Some(candidate),
+            Some(current) => {
+                let better = candidate.0 > current.0
+                    || (candidate.0 == current.0 && candidate.1 < current.1);
+                Some(if better { candidate } else { current })
+            }
+        };
     }
-    Ok(parse_payload(&profile.payload_json))
+
+    Ok(match best {
+        Some((_, _, profile)) => parse_payload(&profile.payload_json),
+        None => serde_json::Value::Null,
+    })
+}
+
+/// 3 = 直接授给这个用户；2 = 授给某个角色；1 = 全员；0 = 无授权（不应出现）。
+async fn tier_specificity(store: &AdminStore, resource_id: &str, user_id: &str) -> Result<u8> {
+    let list = grants::grants(store, resource_id).await?;
+    let mut score = 0u8;
+    for principal in list {
+        match principal {
+            Principal::User(id) if id == user_id => return Ok(3),
+            Principal::User(_) => {}
+            Principal::Role(_) => score = score.max(2),
+            Principal::All => score = score.max(1),
+        }
+    }
+    Ok(score)
 }
 
 fn parse_payload(raw: &str) -> serde_json::Value {
@@ -367,6 +400,83 @@ mod tests {
             creds.tier_defaults["agentModeLlm"]["general"]["fast"]["model"],
             "m1"
         );
+    }
+
+    #[tokio::test]
+    async fn user_specific_tier_profile_beats_all_grant() {
+        let (store, uid) = setup().await;
+
+        let global = resources::create(
+            &store,
+            DEFAULT_TENANT,
+            KIND_TIER_PROFILE,
+            "a-global",
+            "全员档位",
+            "",
+            None,
+            r#"{"agentModeLlm":{"general":{"fast":{"model":"global-model"}}}}"#,
+            None,
+        )
+        .await
+        .expect("global");
+        resources::set_enabled(&store, &global.id, true).await.expect("enable");
+        grants::replace_grants(&store, &global.id, &[Principal::All])
+            .await
+            .expect("grant global");
+
+        let personal = resources::create(
+            &store,
+            DEFAULT_TENANT,
+            KIND_TIER_PROFILE,
+            "z-personal",
+            "个人档位",
+            "",
+            None,
+            r#"{"agentModeLlm":{"general":{"fast":{"model":"personal-model"}}}}"#,
+            None,
+        )
+        .await
+        .expect("personal");
+        resources::set_enabled(&store, &personal.id, true).await.expect("enable");
+        grants::replace_grants(&store, &personal.id, &[Principal::User(uid.clone())])
+            .await
+            .expect("grant personal");
+
+        let creds = build_for_user(&store, DEFAULT_TENANT, &uid)
+            .await
+            .expect("build");
+        assert_eq!(
+            creds.tier_defaults["agentModeLlm"]["general"]["fast"]["model"],
+            "personal-model",
+            "用户直授的档位应压过全员档位"
+        );
+    }
+
+    #[tokio::test]
+    async fn tier_profile_without_grant_is_ignored() {
+        let (store, uid) = setup().await;
+        let profile = resources::create(
+            &store,
+            DEFAULT_TENANT,
+            KIND_TIER_PROFILE,
+            DEFAULT_TIER_PROFILE,
+            "默认档位",
+            "",
+            None,
+            r#"{"agentModeLlm":{}}"#,
+            None,
+        )
+        .await
+        .expect("profile");
+        resources::set_enabled(&store, &profile.id, true)
+            .await
+            .expect("enable");
+        // 故意不授权
+
+        let creds = build_for_user(&store, DEFAULT_TENANT, &uid)
+            .await
+            .expect("build");
+        assert!(creds.tier_defaults.is_null());
     }
 
     #[tokio::test]

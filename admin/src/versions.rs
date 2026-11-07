@@ -13,7 +13,7 @@ use sqlx::{Any, Row};
 use zip::ZipArchive;
 
 use crate::db::{now_ts, random_id, sha256_hex, AdminStore};
-use crate::resources::{self, KIND_SKILL};
+use crate::resources::{self, KIND_PLUGIN, KIND_SKILL};
 
 pub const MAX_ZIP_BYTES: usize = 20 * 1024 * 1024;
 pub const MAX_ENTRY_BYTES: u64 = 5 * 1024 * 1024;
@@ -161,8 +161,8 @@ pub async fn add_version(
     let resource = resources::get(store, resource_id)
         .await?
         .ok_or_else(|| anyhow!("资源不存在：{resource_id}"))?;
-    if resource.kind != KIND_SKILL {
-        return Err(anyhow!("只有技能资源可以上传版本"));
+    if resource.kind != KIND_SKILL && resource.kind != KIND_PLUGIN {
+        return Err(anyhow!("只有技能或插件资源可以上传版本"));
     }
 
     let summary = inspect_zip(bytes)?;

@@ -391,13 +391,29 @@ fn version_view(v: &crate::versions::SkillVersion) -> Value {
     })
 }
 
+/// 版本类操作按资源类型落到不同权限域（技能 / 插件）。
+async fn version_perms(
+    state: &Shared,
+    auth: &AdminAuth,
+    resource_id: &str,
+    action: &str,
+) -> ApiResult<()> {
+    let resource = load(state, resource_id).await?;
+    let domain = if resource.kind == resources::KIND_PLUGIN {
+        "plugin"
+    } else {
+        "skill"
+    };
+    auth.require(&format!("{domain}:{action}"))
+}
+
 pub async fn list_versions(
     State(state): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
     let auth = current_auth(&state, &headers).await?;
-    auth.require("skill:read")?;
+    version_perms(&state, &auth, &id, "read").await?;
     let items: Vec<Value> = crate::versions::list_versions(&state.store, &id)
         .await?
         .iter()
@@ -420,7 +436,7 @@ pub async fn upload_version(
     body: axum::body::Bytes,
 ) -> ApiResult<Json<Value>> {
     let auth = current_auth(&state, &headers).await?;
-    auth.require("skill:write")?;
+    version_perms(&state, &auth, &id, "write").await?;
 
     let version = crate::versions::add_version(
         &state.store,
@@ -460,7 +476,7 @@ pub async fn publish_version(
     Path((id, version_id)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {
     let auth = current_auth(&state, &headers).await?;
-    auth.require("skill:publish")?;
+    version_perms(&state, &auth, &id, "publish").await?;
 
     crate::versions::publish(&state.store, &id, &version_id)
         .await
@@ -490,7 +506,7 @@ pub async fn delete_version(
     Path((_id, version_id)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {
     let auth = current_auth(&state, &headers).await?;
-    auth.require("skill:write")?;
+    version_perms(&state, &auth, &_id, "write").await?;
 
     let removed = crate::versions::delete_version(&state.store, &state.config.data_dir, &version_id)
         .await

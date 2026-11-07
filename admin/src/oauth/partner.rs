@@ -12,7 +12,7 @@ use crate::db::{now_ts, sha256_hex};
 use crate::grants;
 use crate::http::error::{ApiError, ApiResult};
 use crate::oauth::token::{month_prefix, today_string};
-use crate::resources::{self, KIND_SKILL};
+use crate::resources::{self, KIND_PLUGIN, KIND_SKILL};
 use crate::sessions;
 use crate::state::Shared;
 use crate::usage;
@@ -152,24 +152,29 @@ pub async fn me(State(state): State<Shared>, headers: HeaderMap) -> ApiResult<Js
 
 // ---- 技能下发 ----
 
-/// `GET /auth/partner/skills`：该用户可见、已发布、已启用的技能清单。
-///
-/// 只返回元数据 + 下载路径，zip 走单独的下载接口——
-/// 客户端可以先比对 `hash` 再决定要不要真的下载。
-pub async fn skills(
-    State(state): State<Shared>,
-    headers: HeaderMap,
-) -> ApiResult<Json<Value>> {
-    let user = bearer_user(&state, &headers).await?;
+/// 技能与插件共用一套下发逻辑，只是资源类型与 URL 段不同。
+fn package_path(kind: &str) -> &'static str {
+    if kind == KIND_PLUGIN {
+        "plugins"
+    } else {
+        "skills"
+    }
+}
 
+async fn list_packages(
+    state: &Shared,
+    user: &User,
+    kind: &str,
+) -> ApiResult<Value> {
     let visible: std::collections::HashSet<String> =
         grants::visible_resource_ids(&state.store, &state.config.tenant_id, &user.id)
             .await?
             .into_iter()
             .collect();
 
+    let segment = package_path(kind);
     let mut items: Vec<Value> = Vec::new();
-    for resource in resources::list(&state.store, &state.config.tenant_id, Some(KIND_SKILL)).await? {
+    for resource in resources::list(&state.store, &state.config.tenant_id, Some(kind)).await? {
         if !resource.enabled || !visible.contains(&resource.id) {
             continue;
         }
@@ -186,14 +191,14 @@ pub async fn skills(
             "hash": version.dir_hash,
             "sizeBytes": version.size_bytes,
             "url": format!(
-                "/auth/partner/skills/{}/{}/download",
-                resource.slug, version.version
+                "/auth/partner/{}/{}/{}/download",
+                segment, resource.slug, version.version
             ),
         }));
     }
     items.sort_by(|a, b| a["slug"].as_str().cmp(&b["slug"].as_str()));
 
-    // 目录哈希：客户端据此判断「要不要重新同步技能」，算法固定且顺序无关。
+    // 目录哈希：客户端据此判断「要不要重新同步」，算法固定且顺序无关。
     let mut keys: Vec<String> = items
         .iter()
         .map(|item| {
@@ -208,31 +213,25 @@ pub async fn skills(
     keys.sort();
     let catalog_hash = sha256_hex(keys.join("\n").as_bytes())[..16].to_string();
 
-    Ok(Json(json!({ "skills": items, "catalogHash": catalog_hash })))
+    Ok(json!({ segment: items, "catalogHash": catalog_hash }))
 }
 
-/// `GET /auth/partner/skills/:slug/:version/download`。
-///
-/// 版本必须已存在；资源必须已启用且对该用户可见（或对该用户有授权）。
-/// 不做「只能下最新版」的限制——客户端可能固定旧版本。
-pub async fn download_skill(
-    State(state): State<Shared>,
-    headers: HeaderMap,
-    Path((slug, version)): Path<(String, String)>,
+async fn download_package(
+    state: &Shared,
+    user: &User,
+    kind: &str,
+    slug: &str,
+    version: &str,
 ) -> ApiResult<Response> {
-    let user = bearer_user(&state, &headers).await?;
-
-    let resource = resources::find_by_slug(&state.store, &state.config.tenant_id, KIND_SKILL, &slug)
+    let resource = resources::find_by_slug(&state.store, &state.config.tenant_id, kind, slug)
         .await?
-        .ok_or_else(|| ApiError::NotFound(format!("技能不存在：{slug}")))?;
+        .ok_or_else(|| ApiError::NotFound(format!("资源不存在：{slug}")))?;
 
-    if !resource.enabled
-        || !grants::can_see(&state.store, &resource.id, &user.id).await?
-    {
-        return Err(ApiError::NotFound(format!("技能不存在：{slug}")));
+    if !resource.enabled || !grants::can_see(&state.store, &resource.id, &user.id).await? {
+        return Err(ApiError::NotFound(format!("资源不存在：{slug}")));
     }
 
-    let version = versions::find_version(&state.store, &resource.id, &version)
+    let version = versions::find_version(&state.store, &resource.id, version)
         .await?
         .ok_or_else(|| ApiError::NotFound("版本不存在".to_string()))?;
 
@@ -252,6 +251,44 @@ pub async fn download_skill(
         bytes,
     )
         .into_response())
+}
+
+/// `GET /auth/partner/skills`
+pub async fn skills(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Value>> {
+    let user = bearer_user(&state, &headers).await?;
+    Ok(Json(list_packages(&state, &user, KIND_SKILL).await?))
+}
+
+/// `GET /auth/partner/plugins`
+pub async fn plugins(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Value>> {
+    let user = bearer_user(&state, &headers).await?;
+    Ok(Json(list_packages(&state, &user, KIND_PLUGIN).await?))
+}
+
+/// `GET /auth/partner/skills/:slug/:version/download`
+pub async fn download_skill(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Path((slug, version)): Path<(String, String)>,
+) -> ApiResult<Response> {
+    let user = bearer_user(&state, &headers).await?;
+    download_package(&state, &user, KIND_SKILL, &slug, &version).await
+}
+
+/// `GET /auth/partner/plugins/:slug/:version/download`
+pub async fn download_plugin(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Path((slug, version)): Path<(String, String)>,
+) -> ApiResult<Response> {
+    let user = bearer_user(&state, &headers).await?;
+    download_package(&state, &user, KIND_PLUGIN, &slug, &version).await
 }
 
 #[cfg(test)]
@@ -401,6 +438,75 @@ mod tests {
         assert_eq!(response.status(), 200);
 
         let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
+    #[tokio::test]
+    async fn balance_reports_quota_block() {
+        let (state, uid) = state_with_user().await;
+        usage::record(
+            &state.store,
+            DEFAULT_TENANT,
+            &uid,
+            "qwen",
+            &today_string(now_ts()),
+            100,
+            0,
+        )
+        .await
+        .expect("usage");
+        usage::set_quota(
+            &state.store,
+            DEFAULT_TENANT,
+            &uid,
+            Some(50),
+            usage::OVER_ACTION_BLOCK,
+        )
+        .await
+        .expect("quota");
+
+        let access = sessions::create(&state.store, &uid, sessions::KIND_ACCESS, 3600)
+            .await
+            .expect("access");
+        let body = balance(State(state.clone()), bearer(&access))
+            .await
+            .expect("balance");
+        assert_eq!(
+            body.0["token_quota_exhausted"], true,
+            "block 策略超限必须让客户端 gate 拦住"
+        );
+    }
+
+    #[tokio::test]
+    async fn balance_does_not_block_on_warn() {
+        let (state, uid) = state_with_user().await;
+        usage::record(
+            &state.store,
+            DEFAULT_TENANT,
+            &uid,
+            "qwen",
+            &today_string(now_ts()),
+            100,
+            0,
+        )
+        .await
+        .expect("usage");
+        usage::set_quota(
+            &state.store,
+            DEFAULT_TENANT,
+            &uid,
+            Some(50),
+            usage::OVER_ACTION_WARN,
+        )
+        .await
+        .expect("quota");
+
+        let access = sessions::create(&state.store, &uid, sessions::KIND_ACCESS, 3600)
+            .await
+            .expect("access");
+        let body = balance(State(state.clone()), bearer(&access))
+            .await
+            .expect("balance");
+        assert_eq!(body.0["token_quota_exhausted"], false, "warn 只提示不拦");
     }
 
     #[tokio::test]

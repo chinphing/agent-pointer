@@ -30,5 +30,10 @@ pub fn router() -> Router<Shared> {
             "/auth/partner/skills/:slug/:version/download",
             get(partner::download_skill),
         )
+        .route("/auth/partner/plugins", get(partner::plugins))
+        .route(
+            "/auth/partner/plugins/:slug/:version/download",
+            get(partner::download_plugin),
+        )
         .route("/auth/me", get(partner::me))
 }

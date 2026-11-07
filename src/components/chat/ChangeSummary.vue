@@ -6,8 +6,7 @@ import type { FileChangeSummary } from '../../lib/toolCallDisplay'
 import { workspaceRelativeDisplayPathWithFallbacks } from '../../lib/toolCallDisplay'
 import { useChatStore } from '../../stores/chat'
 import { useWorkspacePanelStore } from '../../stores/workspacePanel'
-import { usePlatformAuthStore } from '../../stores/platformAuth'
-import { useSettingsStore } from '../../stores/settings'
+import { useIsAppAdmin } from '../../composables/useAppAdmin'
 
 const props = defineProps<{
   turnId: string
@@ -22,10 +21,8 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const chat = useChatStore()
 const workspacePanel = useWorkspacePanelStore()
-const platformAuth = usePlatformAuthStore()
-const settingsStore = useSettingsStore()
-const canOpenWorkspace = () =>
-  platformAuth.isPlatformAdmin || settingsStore.isPlatformAdmin
+const isAppAdmin = useIsAppAdmin()
+const canOpenWorkspace = () => isAppAdmin.value
 
 const displayRoots = computed(() => {
   const conv = chat.current

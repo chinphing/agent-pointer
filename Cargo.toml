@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "admin",
   "crates/pointer-cli",
   "crates/pointer-core",
   "crates/pointer-channels",

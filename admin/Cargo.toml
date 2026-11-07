@@ -1,0 +1,20 @@
+[package]
+name = "pointer-admin"
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition = "2021"
+description = "Pointer 企业控制面（管理端）：账号、RBAC、资源、配额、审计"
+
+[lib]
+name = "pointer_admin"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1"
+log = "0.4"
+rusqlite = { version = "0.32", features = ["bundled"] }
+argon2 = "0.5"
+rand = "0.8"
+sha2 = "0.10"

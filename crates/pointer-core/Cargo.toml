@@ -69,6 +69,7 @@ hmac = "0.12"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 aes-gcm = "0.10"
 hkdf = "0.12"
+pointer-contract = { path = "../pointer-contract" }
 machine-uid = "0.5"
 ossify = "0.4.2"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }

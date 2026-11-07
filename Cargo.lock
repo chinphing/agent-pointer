@@ -5335,6 +5335,7 @@ dependencies = [
  "hkdf",
  "log",
  "machine-uid",
+ "pointer-contract",
  "rand 0.8.6",
  "sha2 0.10.9",
  "sqlx",
@@ -5426,6 +5427,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pointer-contract"
+version = "0.1.2"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "pointer-core"
 version = "0.1.2"
 dependencies = [
@@ -5472,6 +5482,7 @@ dependencies = [
  "partial-json-fixer",
  "pdfium-auto",
  "pdfium-render",
+ "pointer-contract",
  "portable-pty",
  "prost 0.14.4",
  "rand 0.8.6",

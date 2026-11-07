@@ -436,7 +436,10 @@ agent-pointer/
 │   │       └── components/              KindTabs / ResourceDrawer / GrantPicker / PermissionMatrix
 │   └── tests/                   集成测试：起 router 打真实请求
 ├── server/src/main.rs           改 1 处：spa_fallback 把 /admin 302 到 admin
+├── crates/pointer-contract/     新：三端共用的契约类型 + 哈希（无内部依赖）
+│   └── src/{credentials,provider,session,hash}.rs
 ├── crates/pointer-core/
+│   ├── src/platform_auth.rs     改：契约类型改为 pub use pointer_contract
 │   └── src/skills/provenance.rs 改：M1 加 SkillProvenanceKind::Org
 └── src/                         不动（客户端与 server 前端零改动）
 ```
@@ -444,14 +447,15 @@ agent-pointer/
 依赖方向（**admin 与 server 之间没有 crate 依赖**）：
 
 ```text
-admin ──────→ （不依赖任何内部 crate）
-server ─────→ pointer-core, pointer-channels
-src-tauri ──→ pointer-core, pointer-channels
+admin ─────────────→ pointer-contract
+pointer-core ──────→ pointer-contract
+server ────────────→ pointer-core, pointer-channels
+src-tauri ─────────→ pointer-core, pointer-channels
 ```
 
 admin 与 server 只通过 HTTP 说话；指针不共享，桌面包体不受影响。
-admin 也不依赖 pointer-core：契约类型在 admin 侧独立定义，靠 JSON 字段名对齐
-（`PlatformLoginCredentials` 的形状以 `platform_auth.rs` 为准）。
+`pointer-contract` 只装 serde 类型与纯函数（`PlatformLoginCredentials`、`PlatformProviderTemplate`、
+`model_catalog_hash`），三端共用同一份定义，字段名不可能漂移。
 前端同理：`admin/web/` 与根 `src/` 各自构建，互不引用。
 
 ### 13.1 数据层：sqlx，三库可选

@@ -240,7 +240,7 @@ key_fingerprint    = sha256(api_key) 的前 8 位十六进制
 | 项 | 方案 |
 | --- | --- |
 | 落库 | `resources.secret_enc`（`kind=provider`），AES-256-GCM |
-| 加密材料 | 复用 `crates/pointer-core/src/local_secret.rs`：HKDF(pepper, machine_uid) + 用途标签 `admin-provider-keys-v1` |
+| 加密材料 | 同算法独立实现（`admin/src/crypto.rs`）：HKDF(pepper, machine_uid) + 用途标签 `admin-provider-keys-v1`；**admin 不依赖 pointer-core** |
 | 明文边界 | 只在服务端内存中出现；浏览器与员工端永远拿不到 |
 | 运维后果 | 加密材料绑定本机——**换机、迁移、从备份恢复到新机器后 Key 需重新录入**；不支持多副本共享同一份 admin.db |
 | 取明文 | `POST /api/admin/resources/:id/reveal`，需 `provider:reveal`，二次确认 + 写审计 |
@@ -444,12 +444,14 @@ agent-pointer/
 依赖方向（**admin 与 server 之间没有 crate 依赖**）：
 
 ```text
-admin ──────→ pointer-core
+admin ──────→ （不依赖任何内部 crate）
 server ─────→ pointer-core, pointer-channels
 src-tauri ──→ pointer-core, pointer-channels
 ```
 
 admin 与 server 只通过 HTTP 说话；指针不共享，桌面包体不受影响。
+admin 也不依赖 pointer-core：契约类型在 admin 侧独立定义，靠 JSON 字段名对齐
+（`PlatformLoginCredentials` 的形状以 `platform_auth.rs` 为准）。
 前端同理：`admin/web/` 与根 `src/` 各自构建，互不引用。
 
 ### 13.1 数据层：sqlx，三库可选

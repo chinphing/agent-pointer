@@ -13,7 +13,7 @@ use sqlx::{Any, Row};
 use crate::db::{now_ts, AdminStore, Backend};
 use crate::rbac;
 
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 pub const DEFAULT_TENANT: &str = "default";
 
 const DDL_V1: &[&str] = &[
@@ -70,11 +70,56 @@ const DDL_V1: &[&str] = &[
     )",
 ];
 
+/// v2：统一资源表 + 版本 + 授权。
+///
+/// 技能、模型、插件、模型服务、MCP、档位映射都走 `resources`，差异只在 `kind` 与 `payload_json`。
+const DDL_V2: &[&str] = &[
+    "CREATE TABLE IF NOT EXISTS resources (
+        id                 VARCHAR(64) PRIMARY KEY,
+        tenant_id          VARCHAR(64) NOT NULL DEFAULT 'default',
+        kind               VARCHAR(32) NOT NULL,
+        slug               VARCHAR(128) NOT NULL,
+        name               VARCHAR(255) NOT NULL,
+        description        TEXT NOT NULL,
+        parent_id          VARCHAR(64),
+        enabled            INTEGER NOT NULL DEFAULT 0,
+        payload_json       TEXT NOT NULL,
+        secret_enc         TEXT,
+        current_version_id VARCHAR(64),
+        created_at         BIGINT NOT NULL,
+        updated_at         BIGINT NOT NULL,
+        CONSTRAINT uq_resources_tenant_kind_slug UNIQUE (tenant_id, kind, slug)
+    )",
+    "CREATE TABLE IF NOT EXISTS resource_versions (
+        id          VARCHAR(64) PRIMARY KEY,
+        resource_id VARCHAR(64) NOT NULL,
+        version     VARCHAR(32) NOT NULL,
+        dir_hash    VARCHAR(64) NOT NULL,
+        blob_path   VARCHAR(512),
+        size_bytes  BIGINT,
+        uploaded_by VARCHAR(64),
+        created_at  BIGINT NOT NULL,
+        CONSTRAINT uq_resource_versions UNIQUE (resource_id, version),
+        CONSTRAINT fk_rv_resource FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE CASCADE
+    )",
+    "CREATE TABLE IF NOT EXISTS resource_grants (
+        id             VARCHAR(64) PRIMARY KEY,
+        resource_id    VARCHAR(64) NOT NULL,
+        principal_type VARCHAR(16) NOT NULL,
+        principal_id   VARCHAR(64) NOT NULL DEFAULT '',
+        CONSTRAINT uq_resource_grants UNIQUE (resource_id, principal_type, principal_id),
+        CONSTRAINT fk_rg_resource FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE CASCADE
+    )",
+];
+
 fn index_statements(backend: Backend) -> Vec<String> {
     let defs = [
         ("idx_sessions_user", "sessions", "user_id"),
         ("idx_sessions_expires", "sessions", "expires_at"),
         ("idx_user_roles_user", "user_roles", "user_id"),
+        ("idx_resources_kind", "resources", "kind"),
+        ("idx_grants_resource", "resource_grants", "resource_id"),
+        ("idx_grants_principal", "resource_grants", "principal_id"),
     ];
     defs.iter()
         .map(|(name, table, column)| {
@@ -108,6 +153,15 @@ pub async fn migrate(store: &AdminStore) -> Result<()> {
                 .with_context(|| format!("apply admin schema v1: {}", first_line(stmt)))?;
         }
         write_version(store, 1).await?;
+    }
+    if read_version(store).await? < 2 {
+        for stmt in DDL_V2 {
+            store
+                .exec(stmt)
+                .await
+                .with_context(|| format!("apply admin schema v2: {}", first_line(stmt)))?;
+        }
+        write_version(store, 2).await?;
     }
 
     for stmt in index_statements(store.backend()) {

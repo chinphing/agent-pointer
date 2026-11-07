@@ -5328,9 +5328,13 @@ dependencies = [
 name = "pointer-admin"
 version = "0.1.2"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "argon2",
+ "base64 0.22.1",
+ "hkdf",
  "log",
+ "machine-uid",
  "rand 0.8.6",
  "sha2 0.10.9",
  "sqlx",

@@ -17,8 +17,12 @@ use crate::resources::{self, KIND_PLUGIN, KIND_SKILL};
 
 pub const MAX_ZIP_BYTES: usize = 20 * 1024 * 1024;
 pub const MAX_ENTRY_BYTES: u64 = 5 * 1024 * 1024;
+/// 插件的单条目上限放宽：可能带 sidecar 二进制。
+pub const MAX_PLUGIN_ENTRY_BYTES: u64 = 20 * 1024 * 1024;
 pub const MAX_ENTRIES: usize = 2_000;
 pub const MANIFEST_NAME: &str = "SKILL.md";
+/// 插件包的必备清单（与客户端 `PLUGIN_MANIFEST_FILE` 一致）。
+pub const PLUGIN_MANIFEST_NAME: &str = "pointer-plugin.toml";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SkillVersion {
@@ -49,7 +53,11 @@ fn normalize_entry(name: &str) -> String {
 }
 
 /// 校验 zip 并算出内容哈希。任何可疑条目都直接拒绝，不做「尽力而为」。
-pub fn inspect_zip(bytes: &[u8]) -> Result<ZipSummary> {
+///
+/// `kind` 决定「必备清单文件」与「单条目上限」：
+/// - 技能：必须有 `SKILL.md`，单条目 ≤ 5 MiB（纯文本 + 脚本）；
+/// - 插件：必须有 `pointer-plugin.toml`，单条目 ≤ 20 MiB（可能带二进制/MCP sidecar）。
+pub fn inspect_zip(bytes: &[u8], kind: &str) -> Result<ZipSummary> {
     if bytes.is_empty() {
         return Err(anyhow!("zip 为空"));
     }
@@ -59,6 +67,12 @@ pub fn inspect_zip(bytes: &[u8]) -> Result<ZipSummary> {
             MAX_ZIP_BYTES / 1024 / 1024
         ));
     }
+
+    let (manifest_name, max_entry) = if kind == KIND_PLUGIN {
+        (PLUGIN_MANIFEST_NAME, MAX_PLUGIN_ENTRY_BYTES)
+    } else {
+        (MANIFEST_NAME, MAX_ENTRY_BYTES)
+    };
 
     let mut archive = ZipArchive::new(Cursor::new(bytes)).map_err(|e| anyhow!("不是合法的 zip：{e}"))?;
     if archive.len() > MAX_ENTRIES {
@@ -85,26 +99,26 @@ pub fn inspect_zip(bytes: &[u8]) -> Result<ZipSummary> {
         if entry.is_dir() {
             continue;
         }
-        if entry.size() > MAX_ENTRY_BYTES {
+        if entry.size() > max_entry {
             return Err(anyhow!(
                 "条目 {} 超过 {} MiB 上限",
                 entry.name(),
-                MAX_ENTRY_BYTES / 1024 / 1024
+                max_entry / 1024 / 1024
             ));
         }
         // 真正读一遍：防「声明 1 KB、实际解出 1 GB」的 zip 炸弹。
         let mut sink = Vec::new();
-        let mut limited = (&mut entry).take(MAX_ENTRY_BYTES + 1);
+        let mut limited = (&mut entry).take(max_entry + 1);
         limited
             .read_to_end(&mut sink)
             .map_err(|e| anyhow!("读取条目 {} 失败：{e}", entry.name()))?;
-        if sink.len() as u64 > MAX_ENTRY_BYTES {
+        if sink.len() as u64 > max_entry {
             return Err(anyhow!("条目 {} 解压后超限", entry.name()));
         }
 
         if safe_path
             .file_name()
-            .map(|n| n.to_string_lossy() == MANIFEST_NAME)
+            .map(|n| n.to_string_lossy() == manifest_name)
             .unwrap_or(false)
         {
             has_manifest = true;
@@ -116,7 +130,7 @@ pub fn inspect_zip(bytes: &[u8]) -> Result<ZipSummary> {
         return Err(anyhow!("zip 里没有文件"));
     }
     if !has_manifest {
-        return Err(anyhow!("技能包必须包含 {MANIFEST_NAME}"));
+        return Err(anyhow!("包内必须包含 {manifest_name}"));
     }
 
     Ok(ZipSummary {
@@ -165,7 +179,7 @@ pub async fn add_version(
         return Err(anyhow!("只有技能或插件资源可以上传版本"));
     }
 
-    let summary = inspect_zip(bytes)?;
+    let summary = inspect_zip(bytes, &resource.kind)?;
 
     let existing = store.sql(
         "SELECT id FROM resource_versions WHERE resource_id = ? AND version = ?",
@@ -449,7 +463,7 @@ mod tests {
     #[test]
     fn valid_zip_passes_and_hashes_content() {
         let zip = build_test_zip("# demo", &[("references/a.md", "hello")]);
-        let summary = inspect_zip(&zip).expect("inspect");
+        let summary = inspect_zip(&zip, KIND_SKILL).expect("inspect");
         assert_eq!(summary.entries, 2);
         assert_eq!(summary.size_bytes, zip.len() as i64);
         assert_eq!(summary.dir_hash.len(), 64);
@@ -457,32 +471,74 @@ mod tests {
     }
 
     #[test]
+    fn plugin_zip_requires_plugin_manifest_not_skill_md() {
+        // 插件包只有 pointer-plugin.toml，没有 SKILL.md。
+        let plugin_zip = build_zip_with_entries(&[(
+            "pointer-plugin.toml",
+            "[plugin]\nid = \"com.example.demo\"\nname = \"示例\"\nversion = \"1.0.0\"\n",
+        )]);
+        let summary = inspect_zip(&plugin_zip, KIND_PLUGIN).expect("插件包应被接受");
+        assert!(summary.size_bytes > 0);
+
+        // 同一个包按技能上传必须被拒（没有 SKILL.md）。
+        let err = inspect_zip(&plugin_zip, KIND_SKILL).expect_err("技能包必须有 SKILL.md");
+        assert!(err.to_string().contains("SKILL.md"));
+
+        // 反过来：只有 SKILL.md 的包按插件上传也要被拒。
+        let skill_zip = build_test_zip("---\nname: demo\ndescription: d\n---\n", &[]);
+        inspect_zip(&skill_zip, KIND_SKILL).expect("技能包合法");
+        let err = inspect_zip(&skill_zip, KIND_PLUGIN).expect_err("插件包必须有 pointer-plugin.toml");
+        assert!(err.to_string().contains("pointer-plugin.toml"));
+    }
+
+    #[test]
+    fn plugin_zip_allows_larger_entries_than_skill() {
+        // 6 MiB 的 sidecar：技能上限 5 MiB 会拒，插件上限 20 MiB 应放行。
+        let big = "x".repeat(6 * 1024 * 1024);
+        let zip = build_zip_with_entries(&[
+            (
+                "pointer-plugin.toml",
+                "[plugin]\nid = \"com.example.big\"\nname = \"大\"\nversion = \"1.0.0\"\n",
+            ),
+            ("bin/sidecar", big.as_str()),
+        ]);
+        inspect_zip(&zip, KIND_PLUGIN).expect("插件单条目 6 MiB 应放行");
+
+        let skill_zip = build_test_zip(
+            "---\nname: demo\ndescription: d\n---\n",
+            &[("assets/big.bin", big.as_str())],
+        );
+        let err = inspect_zip(&skill_zip, KIND_SKILL).expect_err("技能单条目超 5 MiB 应拒");
+        assert!(err.to_string().contains("上限"));
+    }
+
+    #[test]
     fn zip_without_manifest_is_rejected() {
         let zip = build_zip_with_entries(&[("readme.txt", "hi")]);
-        let err = inspect_zip(&zip).expect_err("no manifest");
+        let err = inspect_zip(&zip, KIND_SKILL).expect_err("no manifest");
         assert!(err.to_string().contains("SKILL.md"), "got: {err}");
     }
 
     #[test]
     fn path_traversal_is_rejected() {
         let zip = build_zip_with_entries(&[("../evil.txt", "x")]);
-        assert!(inspect_zip(&zip).is_err());
+        assert!(inspect_zip(&zip, KIND_SKILL).is_err());
     }
 
     #[test]
     fn absolute_path_is_rejected() {
         let zip = build_zip_with_entries(&[("/etc/passwd", "x")]);
-        assert!(inspect_zip(&zip).is_err());
+        assert!(inspect_zip(&zip, KIND_SKILL).is_err());
     }
 
     #[test]
     fn empty_bytes_are_rejected() {
-        assert!(inspect_zip(&[]).is_err());
+        assert!(inspect_zip(&[], KIND_SKILL).is_err());
     }
 
     #[test]
     fn garbage_is_not_a_zip() {
-        assert!(inspect_zip(b"not a zip at all").is_err());
+        assert!(inspect_zip(b"not a zip at all", KIND_SKILL).is_err());
     }
 
     #[test]

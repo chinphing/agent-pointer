@@ -516,12 +516,17 @@ admin 与 server 只通过 HTTP 说话；指针不共享，桌面包体不受影
 | 用量上报 + 配额（warn/block） | 完成 | `POST /auth/partner/token-usage`、`/api/admin/usage*` |
 | 审计流水 | 完成 | `GET /api/admin/audit` |
 | 前端工程 `admin/web/` | **完成**（6 页，hash 路由，产物由进程托管） | `npm run build` → `admin/web/dist` |
-| 技能 zip 版本下发 | **未开始**（M1） | `resource_versions` 表已建 |
+| 技能 zip 版本下发（控制面侧） | **完成**：上传/发布/下载 + 路径穿越校验 | `POST /api/admin/resources/:id/versions`、`GET /auth/partner/skills` |
+| 技能 zip 版本下发（客户端侧 `org-skills`） | **未开始**（M1 剩余） | 需改 `pointer-core/src/skills/` |
 | 插件 / 按角色下发档位 | **未开始**（M2） | — |
 
 已知取舍：
 
 - 授权码存进程内存（5 分钟、一次性）。多实例部署前必须换 Redis/DB。
+- 技能包校验常量（20 MiB / 5 MiB / 条目数）与
+  `crates/pointer-core/src/skills/external.rs` 各存一份——admin 不依赖 pointer-core，
+  改一处必须同步另一处。
+- 技能包存本地磁盘（`POINTER_ADMIN_DATA_DIR`，默认 `admin/data`），多实例部署前要换对象存储。
 - 桌面端按公共客户端处理（无 client_secret，靠 PKCE）；server 是机密客户端。
 - 余额恒为 `0.00`：控制面不接计费，`token_quota_exhausted` 由配额推导。
 - `parentId` 之外的资源字段暂不支持修改（`kind`/`slug` 建后不可变）。

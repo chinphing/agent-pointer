@@ -376,3 +376,143 @@ pub async fn reveal_secret(
 
     Ok(Json(json!({ "secret": plain })))
 }
+
+// ---- 技能包版本 ----
+
+fn version_view(v: &crate::versions::SkillVersion) -> Value {
+    json!({
+        "id": v.id,
+        "version": v.version,
+        "hash": v.dir_hash,
+        "sizeBytes": v.size_bytes,
+        "uploadedBy": v.uploaded_by,
+        "createdAt": v.created_at,
+        "isCurrent": v.is_current,
+    })
+}
+
+pub async fn list_versions(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    let auth = current_auth(&state, &headers).await?;
+    auth.require("skill:read")?;
+    let items: Vec<Value> = crate::versions::list_versions(&state.store, &id)
+        .await?
+        .iter()
+        .map(version_view)
+        .collect();
+    Ok(Json(json!({ "items": items, "total": items.len() })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VersionQuery {
+    pub version: String,
+}
+
+/// 上传 zip：请求体就是原始字节，版本号走查询串。
+pub async fn upload_version(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(query): Query<VersionQuery>,
+    body: axum::body::Bytes,
+) -> ApiResult<Json<Value>> {
+    let auth = current_auth(&state, &headers).await?;
+    auth.require("skill:write")?;
+
+    let version = crate::versions::add_version(
+        &state.store,
+        &state.config.data_dir,
+        &id,
+        &query.version,
+        &body,
+        Some(&auth.user.id),
+    )
+    .await
+    .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    audit::record(
+        &state.store,
+        &state.config.tenant_id,
+        AuditInput {
+            actor_user_id: Some(&auth.user.id),
+            actor_name: &auth.user.display_name,
+            action: "skill.version.upload",
+            target_type: "skill",
+            target_id: &id,
+            before_json: None,
+            after_json: Some(&format!(
+                r#"{{"version":"{}","hash":"{}","size":{}}}"#,
+                version.version, version.dir_hash, version.size_bytes
+            )),
+        },
+    )
+    .await?;
+
+    Ok(Json(version_view(&version)))
+}
+
+pub async fn publish_version(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Path((id, version_id)): Path<(String, String)>,
+) -> ApiResult<Json<Value>> {
+    let auth = current_auth(&state, &headers).await?;
+    auth.require("skill:publish")?;
+
+    crate::versions::publish(&state.store, &id, &version_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    audit::record(
+        &state.store,
+        &state.config.tenant_id,
+        AuditInput {
+            actor_user_id: Some(&auth.user.id),
+            actor_name: &auth.user.display_name,
+            action: "skill.version.publish",
+            target_type: "skill",
+            target_id: &id,
+            before_json: None,
+            after_json: Some(&format!(r#"{{"versionId":"{version_id}"}}"#)),
+        },
+    )
+    .await?;
+
+    Ok(Json(json!({ "ok": true })))
+}
+
+pub async fn delete_version(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Path((_id, version_id)): Path<(String, String)>,
+) -> ApiResult<Json<Value>> {
+    let auth = current_auth(&state, &headers).await?;
+    auth.require("skill:write")?;
+
+    let removed = crate::versions::delete_version(&state.store, &state.config.data_dir, &version_id)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    if !removed {
+        return Err(ApiError::NotFound("版本不存在".to_string()));
+    }
+
+    audit::record(
+        &state.store,
+        &state.config.tenant_id,
+        AuditInput {
+            actor_user_id: Some(&auth.user.id),
+            actor_name: &auth.user.display_name,
+            action: "skill.version.delete",
+            target_type: "skill",
+            target_id: &version_id,
+            before_json: None,
+            after_json: None,
+        },
+    )
+    .await?;
+
+    Ok(Json(json!({ "ok": true })))
+}

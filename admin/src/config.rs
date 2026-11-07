@@ -15,6 +15,8 @@ pub struct AdminConfig {
     pub cookie_name: String,
     pub cookie_secure: bool,
     pub static_dir: Option<PathBuf>,
+    /// 技能包等二进制的落盘根目录（默认 `admin/data`）。
+    pub data_dir: PathBuf,
     pub bootstrap_user: Option<String>,
     pub bootstrap_password: Option<String>,
     /// 未配置时 OAuth 端点返回 503，而不是拿一个随机密钥糊过去。
@@ -33,6 +35,7 @@ impl Default for AdminConfig {
             cookie_name: "pointer_admin_session".to_string(),
             cookie_secure: false,
             static_dir: None,
+            data_dir: PathBuf::from("admin/data"),
             bootstrap_user: None,
             bootstrap_password: None,
             oauth_secret: None,
@@ -87,6 +90,9 @@ impl AdminConfig {
             if candidate.is_dir() {
                 cfg.static_dir = Some(candidate);
             }
+        }
+        if let Some(v) = env_str("POINTER_ADMIN_DATA_DIR") {
+            cfg.data_dir = PathBuf::from(v);
         }
         cfg.bootstrap_user = env_str("POINTER_ADMIN_BOOTSTRAP_USER");
         cfg.bootstrap_password = env_str("POINTER_ADMIN_BOOTSTRAP_PASSWORD");

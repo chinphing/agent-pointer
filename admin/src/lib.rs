@@ -19,3 +19,4 @@ pub mod sessions;
 pub mod state;
 pub mod usage;
 pub mod users;
+pub mod versions;

@@ -25,5 +25,10 @@ pub fn router() -> Router<Shared> {
         .route("/auth/partner/llm-credentials", get(partner::llm_credentials))
         .route("/auth/partner/balance", get(partner::balance))
         .route("/auth/partner/token-usage", post(partner::token_usage))
+        .route("/auth/partner/skills", get(partner::skills))
+        .route(
+            "/auth/partner/skills/:slug/:version/download",
+            get(partner::download_skill),
+        )
         .route("/auth/me", get(partner::me))
 }

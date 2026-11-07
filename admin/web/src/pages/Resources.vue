@@ -32,6 +32,14 @@ const grantUserId = ref('')
 
 const revealed = ref<{ name: string; secret: string } | null>(null)
 
+// 技能包版本
+const versionsFor = ref<any>(null)
+const versions = ref<any[]>([])
+const uploadVersion = ref('')
+const uploadFile = ref<File | null>(null)
+const uploadBusy = ref(false)
+const versionError = ref('')
+
 const visibleKinds = computed(() => KINDS.filter((k) => can(k.read)))
 const canWrite = computed(() => can(`${kind.value === 'tier_profile' ? 'model' : kind.value}:write`))
 
@@ -175,6 +183,99 @@ async function reveal(row: any) {
   }
 }
 
+async function openVersions(row: any) {
+  versionsFor.value = row
+  versions.value = []
+  uploadVersion.value = ''
+  uploadFile.value = null
+  versionError.value = ''
+  await loadVersions(row.id)
+}
+
+async function loadVersions(resourceId: string) {
+  try {
+    const res = await api.get(`/api/admin/resources/${resourceId}/versions`)
+    versions.value = res.items
+  } catch (e) {
+    versionError.value = errText(e)
+  }
+}
+
+function pickFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  uploadFile.value = input.files?.[0] ?? null
+}
+
+async function doUpload() {
+  versionError.value = ''
+  const file = uploadFile.value
+  const version = uploadVersion.value.trim()
+  if (!file) {
+    versionError.value = '请选择 zip 文件'
+    return
+  }
+  if (!version) {
+    versionError.value = '请填写版本号'
+    return
+  }
+  uploadBusy.value = true
+  try {
+    const res = await fetch(
+      `/api/admin/resources/${versionsFor.value.id}/versions?version=${encodeURIComponent(version)}`,
+      { method: 'POST', credentials: 'include', body: file },
+    )
+    const text = await res.text()
+    if (!res.ok) {
+      let message = `上传失败（HTTP ${res.status}）`
+      try {
+        message = JSON.parse(text).message || message
+      } catch {
+        /* 非 JSON 错误体 */
+      }
+      throw new Error(message)
+    }
+    uploadVersion.value = ''
+    uploadFile.value = null
+    notice.value = '版本已上传，记得点「发布」才会下发给员工'
+    await loadVersions(versionsFor.value.id)
+    await load()
+  } catch (e) {
+    versionError.value = errText(e)
+  } finally {
+    uploadBusy.value = false
+  }
+}
+
+async function publishVersion(version: any) {
+  versionError.value = ''
+  try {
+    await api.post(`/api/admin/resources/${versionsFor.value.id}/versions/${version.id}/publish`)
+    notice.value = `已发布 ${version.version}`
+    await loadVersions(versionsFor.value.id)
+    await load()
+  } catch (e) {
+    versionError.value = errText(e)
+  }
+}
+
+async function removeVersion(version: any) {
+  if (!confirm(`删除版本 ${version.version}？`)) return
+  versionError.value = ''
+  try {
+    await api.del(`/api/admin/resources/${versionsFor.value.id}/versions/${version.id}`)
+    await loadVersions(versionsFor.value.id)
+  } catch (e) {
+    versionError.value = errText(e)
+  }
+}
+
+function humanSize(bytes: number) {
+  if (!bytes) return '—'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
 function when(ts: number) {
   return new Date(ts * 1000).toLocaleString('zh-CN')
 }
@@ -251,6 +352,7 @@ onMounted(async () => {
           <td class="row" style="gap: 6px">
             <button v-if="canWrite" class="tiny" @click="openEdit(row)">编辑</button>
             <button v-if="canWrite" class="tiny" @click="openGrants(row)">授权</button>
+            <button v-if="row.kind === 'skill' && can('skill:read')" class="tiny" @click="openVersions(row)">版本</button>
             <button v-if="can('provider:reveal') && row.hasSecret" class="tiny" @click="reveal(row)">看密钥</button>
             <button v-if="canWrite" class="tiny" @click="toggleEnabled(row)">
               {{ row.enabled ? '停用' : '启用' }}
@@ -344,4 +446,81 @@ onMounted(async () => {
       </div>
     </div>
   </div>
+
+  <div v-if="versionsFor" class="modal-mask" @click.self="versionsFor = null">
+    <div class="modal" style="width: 620px">
+      <h2>版本：{{ versionsFor.name }}</h2>
+      <p class="muted small">
+        上传 zip 后需要点「发布」，员工端才会拿到。包必须包含 <span class="mono">SKILL.md</span>，
+        上限 20 MB，单文件 5 MB。
+      </p>
+
+      <div v-if="versionError" class="err" style="margin-top: 12px">{{ versionError }}</div>
+
+      <div v-if="can('skill:write')" class="upload-box">
+        <div style="flex: 1">
+          <label>zip 文件</label>
+          <input type="file" accept=".zip" @change="pickFile" />
+        </div>
+        <div style="width: 140px">
+          <label>版本号</label>
+          <input v-model="uploadVersion" placeholder="1.0.0" class="mono" />
+        </div>
+        <button class="primary" style="margin-top: 18px" :disabled="uploadBusy" @click="doUpload">
+          {{ uploadBusy ? '上传中…' : '上传' }}
+        </button>
+      </div>
+
+      <div v-if="!versions.length" class="empty">还没有版本</div>
+      <table v-else style="margin-top: 12px">
+        <thead>
+          <tr>
+            <th>版本</th>
+            <th>内容哈希</th>
+            <th class="num">大小</th>
+            <th style="width: 150px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="v in versions" :key="v.id">
+            <td class="mono">
+              {{ v.version }}
+              <span v-if="v.isCurrent" class="tag ok" style="margin-left: 6px">已发布</span>
+            </td>
+            <td class="mono small">{{ v.hash.slice(0, 12) }}…</td>
+            <td class="num small">{{ humanSize(v.sizeBytes) }}</td>
+            <td class="row" style="gap: 6px">
+              <button
+                v-if="can('skill:publish') && !v.isCurrent"
+                class="tiny"
+                @click="publishVersion(v)"
+              >发布</button>
+              <button
+                v-if="can('skill:write') && !v.isCurrent"
+                class="tiny danger"
+                @click="removeVersion(v)"
+              >删除</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="modal-actions">
+        <button @click="versionsFor = null">关闭</button>
+      </div>
+    </div>
+  </div>
 </template>
+
+<style scoped>
+.upload-box {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  margin-top: 14px;
+  padding: 14px;
+  background: #fafbfc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+</style>

@@ -7,7 +7,8 @@ pub mod resources;
 pub mod roles;
 pub mod users;
 
-use axum::routing::{get, post};
+use axum::extract::DefaultBodyLimit;
+use axum::routing::{delete, get, post};
 use axum::Router;
 
 use crate::state::Shared;
@@ -47,6 +48,21 @@ pub fn router() -> Router<Shared> {
         .route(
             "/api/admin/resources/:id/reveal",
             post(resources::reveal_secret),
+        )
+        .route(
+            "/api/admin/resources/:id/versions",
+            get(resources::list_versions)
+                .post(resources::upload_version)
+                // 技能包上限 20 MiB，默认 2 MiB 的 body 限制会直接 413
+                .layer(DefaultBodyLimit::max(crate::versions::MAX_ZIP_BYTES)),
+        )
+        .route(
+            "/api/admin/resources/:id/versions/:vid/publish",
+            post(resources::publish_version),
+        )
+        .route(
+            "/api/admin/resources/:id/versions/:vid",
+            delete(resources::delete_version),
         )
         .route("/api/admin/usage", get(insight::usage))
         .route(

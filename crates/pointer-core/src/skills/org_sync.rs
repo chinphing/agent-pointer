@@ -13,7 +13,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
@@ -24,12 +24,98 @@ use super::{external, provenance};
 /// 下发台账：`slug:远端哈希:本地目录哈希`，一行一条。
 const ORG_MANIFEST: &str = ".org_manifest";
 
+/// 下发对象类型：技能与插件的落盘位置、目录命名、哈希口径都不同。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackageKind {
+    Skill,
+    Plugin,
+}
+
+impl PackageKind {
+    fn segment(self) -> &'static str {
+        match self {
+            Self::Skill => "skills",
+            Self::Plugin => "plugins",
+        }
+    }
+
+    fn root(self) -> Result<PathBuf> {
+        match self {
+            Self::Skill => external::org_skills_dir(),
+            Self::Plugin => plugins_root(),
+        }
+    }
+}
+
+/// 企业下发的插件落在 `~/.pointer/plugins`（原生插件目录），**只落盘不激活**。
+pub fn plugins_root() -> Result<PathBuf> {
+    let dir = external::pointer_home_dir()?.join(crate::plugins::USER_PLUGINS_DIR_NAME);
+    fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// 插件目录的内容哈希：所有文件的 (相对路径, 内容 sha256) 排序后再哈希。
+/// 技能用 `SKILL.md` 单文件哈希就够，插件没有统一入口文件，只能整目录算。
+pub fn plugin_dir_hash(dir: &Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+
+    let mut files: Vec<(String, String)> = Vec::new();
+    for entry in walkdir::WalkDir::new(dir).follow_links(false) {
+        let entry = entry?;
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let rel = entry
+            .path()
+            .strip_prefix(dir)
+            .unwrap_or(entry.path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let digest = Sha256::digest(fs::read(entry.path())?);
+        files.push((rel, format!("{digest:x}")));
+    }
+    files.sort();
+
+    let mut hasher = Sha256::new();
+    for (rel, digest) in &files {
+        hasher.update(rel.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(digest.as_bytes());
+        hasher.update(b"\n");
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// 安装目录名：技能用资源 slug，插件用插件自己的 id（`import_plugin_zip` 就是这么建的目录）。
+fn install_key(kind: PackageKind, remote: &RemoteSkill) -> Result<String> {
+    match kind {
+        PackageKind::Skill => Ok(remote.slug.trim().to_string()),
+        PackageKind::Plugin => remote
+            .plugin_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| anyhow!("插件资源缺少 pluginId，无法确定安装目录")),
+    }
+}
+
+fn dir_hash(kind: PackageKind, dir: &Path) -> Result<String> {
+    match kind {
+        PackageKind::Skill => provenance::skill_dir_hash(dir),
+        PackageKind::Plugin => plugin_dir_hash(dir),
+    }
+}
+
 /// 远端清单里的一条技能。
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct RemoteSkill {
     pub slug: String,
     #[serde(default)]
     pub name: String,
+    /// 插件自己的 id（`pointer-plugin.toml` 里的 id），仅插件用。
+    #[serde(default, rename = "pluginId")]
+    pub plugin_id: Option<String>,
     pub version: String,
     /// zip 的 sha256（与 admin 侧 `dir_hash` 同义）。
     pub hash: String,
@@ -117,19 +203,27 @@ pub struct SyncReport {
 }
 
 /// 纯计算：对比本地目录与远端清单，决定要下载/删除什么。不碰网络。
-pub fn plan(root: &Path, catalog: &Catalog) -> Result<SyncPlan> {
+pub fn plan(root: &Path, kind: PackageKind, catalog: &Catalog) -> Result<SyncPlan> {
     let mut out = SyncPlan::default();
     let manifest = read_manifest(root);
-    let mut remote: HashSet<&str> = HashSet::new();
+    let mut remote: HashSet<String> = HashSet::new();
 
     for skill in &catalog.skills {
         let slug = skill.slug.trim();
         if slug.is_empty() {
             continue;
         }
-        remote.insert(slug);
-        let dir = root.join(slug);
-        let entry = manifest.get(slug);
+        let key = match install_key(kind, skill) {
+            Ok(key) => key,
+            Err(err) => {
+                out.blocked.push((slug.to_string(), err.to_string()));
+                continue;
+            }
+        };
+        remote.insert(key.clone());
+
+        let dir = root.join(&key);
+        let entry = manifest.get(&key);
 
         if !dir.is_dir() {
             out.download.push(skill.clone());
@@ -139,19 +233,19 @@ pub fn plan(root: &Path, catalog: &Catalog) -> Result<SyncPlan> {
         let Some(entry) = entry else {
             // 目录在、但没有下发记录：不是我们装的，不碰。
             out.blocked
-                .push((slug.to_string(), "目录已存在且无下发记录".to_string()));
+                .push((key, "目录已存在且无下发记录".to_string()));
             continue;
         };
 
-        let current = provenance::skill_dir_hash(&dir).ok();
+        let current = dir_hash(kind, &dir).ok();
         if current.as_deref() != Some(entry.local_hash.as_str()) {
             out.blocked
-                .push((slug.to_string(), "本地已修改，跳过覆盖".to_string()));
+                .push((key, "本地已修改，跳过覆盖".to_string()));
             continue;
         }
 
         if entry.remote_hash == skill.hash {
-            out.unchanged.push(slug.to_string());
+            out.unchanged.push(key);
         } else {
             out.download.push(skill.clone());
         }
@@ -172,7 +266,7 @@ pub fn plan(root: &Path, catalog: &Catalog) -> Result<SyncPlan> {
             }
             let unmodified = manifest
                 .get(name)
-                .and_then(|e| provenance::skill_dir_hash(&path).ok().map(|c| c == e.local_hash))
+                .and_then(|e| dir_hash(kind, &path).ok().map(|c| c == e.local_hash))
                 .unwrap_or(false);
             if unmodified {
                 out.remove.push(name.to_string());
@@ -186,9 +280,10 @@ pub fn plan(root: &Path, catalog: &Catalog) -> Result<SyncPlan> {
     Ok(out)
 }
 
-/// 把计划落到磁盘。`packages` 里是要下载的包的字节（key = slug）。
+/// 把计划落到磁盘。`packages` 里是要下载的包的字节（key = 安装目录名）。
 pub fn apply(
     root: &Path,
+    kind: PackageKind,
     plan: &SyncPlan,
     packages: &HashMap<String, Vec<u8>>,
 ) -> Result<SyncReport> {
@@ -202,54 +297,88 @@ pub fn apply(
     let mut manifest_dirty = false;
 
     for skill in &plan.download {
+        let key = match install_key(kind, skill) {
+            Ok(key) => key,
+            Err(err) => {
+                report.failed.push((skill.slug.clone(), err.to_string()));
+                continue;
+            }
+        };
         let Some(bytes) = packages.get(&skill.slug) else {
             report
                 .failed
-                .push((skill.slug.clone(), "下载失败".to_string()));
+                .push((key, "下载失败".to_string()));
             continue;
         };
-        match external::import_skill_zip_into(root, bytes) {
-            Ok((dir_name, path)) => {
-                // zip 里的技能名与资源 slug 可能不同（中文名 vs 英文 slug），
-                // 目录统一按 slug 命名，避免两套名字并存。
-                let target = if dir_name == skill.slug {
-                    path
-                } else {
-                    let target = root.join(&skill.slug);
+
+        let installed: Result<PathBuf> = match kind {
+            PackageKind::Skill => external::import_skill_zip_into(root, bytes).and_then(
+                |(dir_name, path)| {
+                    if dir_name == key {
+                        return Ok(path);
+                    }
+                    // zip 里的技能名与资源 slug 可能不同（中文名 vs 英文 slug），
+                    // 目录统一按 slug 命名，避免两套名字并存。
+                    let target = root.join(&key);
                     if target.exists() {
                         fs::remove_dir_all(&target)?;
                     }
                     fs::rename(&path, &target).with_context(|| {
                         format!("重命名 {} -> {}", path.display(), target.display())
                     })?;
-                    target
-                };
-                let local_hash = provenance::skill_dir_hash(&target)?;
+                    Ok(target)
+                },
+            ),
+            PackageKind::Plugin => crate::plugins::importer::import_plugin_zip(bytes, root)
+                .map_err(|e| anyhow!(e.to_string()))
+                .and_then(|reports| {
+                    if reports.len() != 1 {
+                        return Err(anyhow!(
+                            "插件包应只含一个插件，实际 {} 个",
+                            reports.len()
+                        ));
+                    }
+                    let report = &reports[0];
+                    if report.plugin_id != key {
+                        return Err(anyhow!(
+                            "插件 id 不匹配：包内为 {}，资源声明为 {key}",
+                            report.plugin_id
+                        ));
+                    }
+                    Ok(report.target_dir.clone())
+                }),
+        };
+
+        match installed.and_then(|target| {
+            let local_hash = dir_hash(kind, &target)?;
+            Ok((target, local_hash))
+        }) {
+            Ok((_target, local_hash)) => {
                 manifest.insert(
-                    skill.slug.clone(),
+                    key.clone(),
                     ManifestEntry {
                         remote_hash: skill.hash.clone(),
                         local_hash,
                     },
                 );
                 manifest_dirty = true;
-                report.installed.push(skill.slug.clone());
+                report.installed.push(key);
             }
-            Err(err) => report.failed.push((skill.slug.clone(), err.to_string())),
+            Err(err) => report.failed.push((key, err.to_string())),
         }
     }
 
-    for slug in &plan.remove {
-        let dir = root.join(slug);
+    for key in &plan.remove {
+        let dir = root.join(key);
         if let Err(err) = fs::remove_dir_all(&dir) {
             report
                 .failed
-                .push((slug.clone(), format!("删除失败：{err}")));
+                .push((key.clone(), format!("删除失败：{err}")));
             continue;
         }
-        manifest.remove(slug);
+        manifest.remove(key);
         manifest_dirty = true;
-        report.removed.push(slug.clone());
+        report.removed.push(key.clone());
     }
 
     if manifest_dirty {
@@ -271,23 +400,30 @@ fn absolute_url(url: &str) -> String {
     }
 }
 
-/// `GET {api_base}/auth/partner/skills`
-pub async fn fetch_catalog(auth: &crate::platform_auth::PlatformAuthManager) -> Result<Catalog> {
+/// `GET {api_base}/auth/partner/{skills|plugins}`
+pub async fn fetch_catalog(
+    auth: &crate::platform_auth::PlatformAuthManager,
+    kind: PackageKind,
+) -> Result<Catalog> {
     let token = auth.ensure_access_token().await?;
-    let url = format!("{}/auth/partner/skills", api_base().trim_end_matches('/'));
+    let url = format!(
+        "{}/auth/partner/{}",
+        api_base().trim_end_matches('/'),
+        kind.segment()
+    );
     let resp = reqwest::Client::new()
         .get(&url)
         .bearer_auth(token)
         .send()
         .await
-        .context("拉取技能目录失败")?;
+        .context("拉取下发目录失败")?;
     if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
         return Err(anyhow!("platform_token_expired"));
     }
     if !resp.status().is_success() {
-        return Err(anyhow!("拉取技能目录失败：HTTP {}", resp.status()));
+        return Err(anyhow!("拉取下发目录失败：HTTP {}", resp.status()));
     }
-    resp.json::<Catalog>().await.context("解析技能目录失败")
+    resp.json::<Catalog>().await.context("解析下发目录失败")
 }
 
 async fn download_package(
@@ -308,10 +444,13 @@ async fn download_package(
 }
 
 /// 同步一次：拉目录 → 规划 → 下载有变化的包 → 落盘。
-pub async fn sync(auth: &crate::platform_auth::PlatformAuthManager) -> Result<SyncReport> {
-    let catalog = fetch_catalog(auth).await?;
-    let root = external::org_skills_dir()?;
-    let plan = plan(&root, &catalog)?;
+pub async fn sync(
+    auth: &crate::platform_auth::PlatformAuthManager,
+    kind: PackageKind,
+) -> Result<SyncReport> {
+    let catalog = fetch_catalog(auth, kind).await?;
+    let root = kind.root()?;
+    let plan = plan(&root, kind, &catalog)?;
 
     let mut packages: HashMap<String, Vec<u8>> = HashMap::new();
     for skill in &plan.download {
@@ -319,11 +458,15 @@ pub async fn sync(auth: &crate::platform_auth::PlatformAuthManager) -> Result<Sy
             Ok(bytes) => {
                 packages.insert(skill.slug.clone(), bytes);
             }
-            Err(err) => log::warn!("org skill {} 下载失败: {err:#}", skill.slug),
+            Err(err) => log::warn!(
+                "org {} {} 下载失败: {err:#}",
+                kind.segment(),
+                skill.slug
+            ),
         }
     }
 
-    apply(&root, &plan, &packages)
+    apply(&root, kind, &plan, &packages)
 }
 
 /// 启动后台同步：首次延迟 15s（别和登录/启动抢资源），之后每 6 小时一次。
@@ -335,24 +478,31 @@ pub fn start_background_loop(state: std::sync::Arc<crate::chat_service::AppState
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(15)).await;
         loop {
-            match sync(state.platform_auth.as_ref()).await {
-                Ok(report) => {
-                    if !report.installed.is_empty() || !report.removed.is_empty() {
-                        log::info!(
-                            "org skills synced: +{} -{} (unchanged {})",
-                            report.installed.len(),
-                            report.removed.len(),
-                            report.unchanged.len()
-                        );
-                        if let Err(err) = state.skills.reload_meta() {
-                            log::warn!("org skills: reload registry failed: {err:#}");
+            let mut changed = false;
+            for kind in [PackageKind::Skill, PackageKind::Plugin] {
+                match sync(state.platform_auth.as_ref(), kind).await {
+                    Ok(report) => {
+                        if !report.installed.is_empty() || !report.removed.is_empty() {
+                            changed = true;
+                            log::info!(
+                                "org {} synced: +{} -{} (unchanged {})",
+                                kind.segment(),
+                                report.installed.len(),
+                                report.removed.len(),
+                                report.unchanged.len()
+                            );
+                        }
+                        for (key, reason) in &report.failed {
+                            log::warn!("org {} {key} 未处理: {reason}", kind.segment());
                         }
                     }
-                    for (slug, reason) in &report.failed {
-                        log::warn!("org skill {slug} 未处理: {reason}");
-                    }
+                    Err(err) => log::warn!("org {} sync failed: {err:#}", kind.segment()),
                 }
-                Err(err) => log::warn!("org skills sync failed: {err:#}"),
+            }
+            if changed {
+                if let Err(err) = state.skills.reload_meta() {
+                    log::warn!("org packages: reload registry failed: {err:#}");
+                }
             }
             tokio::time::sleep(Duration::from_secs(6 * 3600)).await;
         }
@@ -393,10 +543,31 @@ fn build_zip(manifest_name: &str, body: &str) -> Vec<u8> {
 }
 
 #[cfg(test)]
+fn build_plugin_zip(plugin_id: &str) -> Vec<u8> {
+    use std::io::Write;
+    let mut buffer = Vec::new();
+    {
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(&mut buffer));
+        let options = zip::write::SimpleFileOptions::default();
+        writer.start_file("pointer-plugin.toml", options).expect("start");
+        write!(
+            writer,
+            "[plugin]\nid = \"{plugin_id}\"\nname = \"示例插件\"\nversion = \"1.0.0\"\napi_version = \"v1\"\n"
+        )
+        .expect("write");
+        writer.start_file("README.md", options).expect("start readme");
+        writer.write_all(b"# demo\n").expect("write readme");
+        writer.finish().expect("finish");
+    }
+    buffer
+}
+
+#[cfg(test)]
 fn remote(slug: &str, hash: &str) -> RemoteSkill {
     RemoteSkill {
         slug: slug.to_string(),
         name: slug.to_string(),
+        plugin_id: None,
         version: "1.0.0".to_string(),
         hash: hash.to_string(),
         size_bytes: 0,
@@ -417,10 +588,10 @@ mod tests {
 
     fn install(root: &Path, slug: &str, zip: Vec<u8>, hash: &str) {
         let catalog = catalog_with(vec![remote(slug, hash)]);
-        let plan1 = plan(root, &catalog).expect("plan");
+        let plan1 = plan(root, PackageKind::Skill, &catalog).expect("plan");
         let mut packages = HashMap::new();
         packages.insert(slug.to_string(), zip);
-        apply(root, &plan1, &packages).expect("apply");
+        apply(root, PackageKind::Skill, &plan1, &packages).expect("apply");
     }
 
     #[test]
@@ -429,12 +600,12 @@ mod tests {
         let zip = build_zip("travel", "# 差旅");
         let catalog = catalog_with(vec![remote("travel", "zip-hash-v1")]);
 
-        let plan1 = plan(&root, &catalog).expect("plan1");
+        let plan1 = plan(&root, PackageKind::Skill, &catalog).expect("plan1");
         assert_eq!(plan1.download.len(), 1);
 
         let mut packages = HashMap::new();
         packages.insert("travel".to_string(), zip);
-        let report = apply(&root, &plan1, &packages).expect("apply");
+        let report = apply(&root, PackageKind::Skill, &plan1, &packages).expect("apply");
         assert_eq!(report.installed, vec!["travel"]);
         assert!(root.join("travel/SKILL.md").is_file());
 
@@ -447,7 +618,7 @@ mod tests {
         );
 
         // 第二次：两个哈希都没变 → 不下载
-        let plan2 = plan(&root, &catalog).expect("plan2");
+        let plan2 = plan(&root, PackageKind::Skill, &catalog).expect("plan2");
         assert!(plan2.download.is_empty());
         assert_eq!(plan2.unchanged, vec!["travel"]);
 
@@ -467,7 +638,7 @@ mod tests {
         .expect("modify");
 
         let catalog2 = catalog_with(vec![remote("travel", "zip-hash-v2")]);
-        let plan2 = plan(&root, &catalog2).expect("plan2");
+        let plan2 = plan(&root, PackageKind::Skill, &catalog2).expect("plan2");
         assert!(plan2.download.is_empty(), "本地改过就不该覆盖");
         assert_eq!(plan2.blocked.len(), 1);
         assert!(plan2.blocked[0].1.contains("本地已修改"));
@@ -481,12 +652,12 @@ mod tests {
         install(&root, "travel", build_zip("travel", "# v1"), "zip-hash-v1");
 
         let catalog2 = catalog_with(vec![remote("travel", "zip-hash-v2")]);
-        let plan2 = plan(&root, &catalog2).expect("plan2");
+        let plan2 = plan(&root, PackageKind::Skill, &catalog2).expect("plan2");
         assert_eq!(plan2.download.len(), 1, "远端换了哈希应重新下载");
 
         let mut packages = HashMap::new();
         packages.insert("travel".to_string(), build_zip("travel", "# v2"));
-        apply(&root, &plan2, &packages).expect("apply");
+        apply(&root, PackageKind::Skill, &plan2, &packages).expect("apply");
         let entry = read_manifest(&root).remove("travel").expect("entry");
         assert_eq!(entry.remote_hash, "zip-hash-v2");
 
@@ -499,9 +670,9 @@ mod tests {
         install(&root, "travel", build_zip("travel", "# 差旅"), "zip-hash-v1");
 
         let empty = Catalog::default();
-        let plan2 = plan(&root, &empty).expect("plan2");
+        let plan2 = plan(&root, PackageKind::Skill, &empty).expect("plan2");
         assert_eq!(plan2.remove, vec!["travel"]);
-        let report = apply(&root, &plan2, &HashMap::new()).expect("apply");
+        let report = apply(&root, PackageKind::Skill, &plan2, &HashMap::new()).expect("apply");
         assert_eq!(report.removed, vec!["travel"]);
         assert!(!root.join("travel").exists());
         assert!(read_manifest(&root).get("travel").is_none());
@@ -520,12 +691,12 @@ mod tests {
         .expect("write");
 
         let catalog = catalog_with(vec![remote("handmade", "zip-hash")]);
-        let plan1 = plan(&root, &catalog).expect("plan");
+        let plan1 = plan(&root, PackageKind::Skill, &catalog).expect("plan");
         assert!(plan1.download.is_empty());
         assert_eq!(plan1.blocked.len(), 1);
 
         let empty = Catalog::default();
-        let plan2 = plan(&root, &empty).expect("plan2");
+        let plan2 = plan(&root, PackageKind::Skill, &empty).expect("plan2");
         assert!(plan2.remove.is_empty(), "没下发记录的不删");
 
         let _ = fs::remove_dir_all(&root);
@@ -553,10 +724,47 @@ mod tests {
     fn missing_package_is_reported_not_panicked() {
         let root = temp_root("missing");
         let catalog = catalog_with(vec![remote("travel", "zip-hash-v1")]);
-        let plan1 = plan(&root, &catalog).expect("plan1");
-        let report = apply(&root, &plan1, &HashMap::new()).expect("apply");
+        let plan1 = plan(&root, PackageKind::Skill, &catalog).expect("plan1");
+        let report = apply(&root, PackageKind::Skill, &plan1, &HashMap::new()).expect("apply");
         assert!(report.installed.is_empty());
         assert_eq!(report.failed.len(), 1);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn plugin_install_uses_plugin_id_as_directory() {
+        let root = temp_root("plugin");
+        let zip = build_plugin_zip("com.example.demo");
+        let mut item = remote("demo-plugin", "zip-hash-v1");
+        item.plugin_id = Some("com.example.demo".to_string());
+        let catalog = catalog_with(vec![item]);
+
+        let plan1 = plan(&root, PackageKind::Plugin, &catalog).expect("plan");
+        assert_eq!(plan1.download.len(), 1);
+
+        let mut packages = HashMap::new();
+        packages.insert("demo-plugin".to_string(), zip);
+        let report = apply(&root, PackageKind::Plugin, &plan1, &packages).expect("apply");
+        assert_eq!(report.installed, vec!["com.example.demo"]);
+        assert!(root.join("com.example.demo/pointer-plugin.toml").is_file());
+        assert!(read_manifest(&root).get("com.example.demo").is_some());
+
+        // 第二次：哈希不变 → 不重装
+        let plan2 = plan(&root, PackageKind::Plugin, &catalog).expect("plan2");
+        assert!(plan2.download.is_empty());
+        assert_eq!(plan2.unchanged, vec!["com.example.demo"]);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn plugin_without_plugin_id_is_blocked() {
+        let root = temp_root("plugin-noid");
+        let catalog = catalog_with(vec![remote("demo-plugin", "zip-hash-v1")]);
+        let plan1 = plan(&root, PackageKind::Plugin, &catalog).expect("plan");
+        assert!(plan1.download.is_empty());
+        assert_eq!(plan1.blocked.len(), 1);
+        assert!(plan1.blocked[0].1.contains("pluginId"));
         let _ = fs::remove_dir_all(&root);
     }
 

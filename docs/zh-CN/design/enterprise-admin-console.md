@@ -521,7 +521,7 @@ admin 与 server 只通过 HTTP 说话；指针不共享，桌面包体不受影
 | 按角色下发档位 | **完成**：多条档位映射按「用户直授 > 角色 > 全员」取一条 | `admin/src/credentials.rs` |
 | 配额拦截 | **完成**：`over_action=block` 超限 → `token_quota_exhausted=true`，客户端 `ensure_llm_allowed` 已有 gate | `admin/src/oauth/partner.rs` |
 | 插件包下发（控制面侧） | **完成**：插件资源可传版本 + `GET /auth/partner/plugins` | `admin/src/oauth/partner.rs` |
-| 插件包下发（客户端侧） | **未做**（原因见下） | — |
+| 插件包下发（客户端侧） | **完成**：按 `pluginId` 落盘 `~/.pointer/plugins`，只下发不激活 | `crates/pointer-core/src/skills/org_sync.rs` |
 
 已知取舍：
 
@@ -533,12 +533,10 @@ admin 与 server 只通过 HTTP 说话；指针不共享，桌面包体不受影
 - 企业技能**默认不自动启用**：员工在技能面板里能看到「企业」来源并自行开启。
   是否强制启用是产品决策（涉及员工能否关掉），未擅自决定。
 - 客户端同步周期 6 小时 + 启动后 15 秒一次；暂无「立即同步」入口。
-- **插件客户端同步没做**，两个硬原因：
-  1. `import_plugin_zip` 落盘目录由插件自身的 `plugin_id` 决定，admin 的 slug 对不上，
-     没法可靠判断「这个目录是我们装的」，也就无法安全地覆盖/删除；
-  2. 插件带工具、hooks、MCP，激活是独立语义（`plugins/activation.rs`），
-     「下发即激活」等于把执行能力直接塞给客户端，需要单独评审。
-  技能那套「slug 当目录名 + origin hash 台账」在插件上不成立，硬套会退化成兜底逻辑。
+- **插件下发只落盘、不激活**：文件进 `~/.pointer/plugins`，是否启用仍走 `plugins/activation.rs`
+  的既有流程。理由：插件带工具、hooks、MCP，「下发即激活」等于把执行能力直接塞给客户端。
+- **插件资源必须带 `pluginId`**（payload 里 `pluginId` / `plugin_id` 均可）。缺了客户端直接拒绝下发，
+  因为 `import_plugin_zip` 按插件自身 id 建目录，slug 对不上就无法判断目录归属、也无法安全覆盖/删除。
 - 桌面端按公共客户端处理（无 client_secret，靠 PKCE）；server 是机密客户端。
 - 余额恒为 `0.00`：控制面不接计费，`token_quota_exhausted` 由配额推导。
 - `parentId` 之外的资源字段暂不支持修改（`kind`/`slug` 建后不可变）。

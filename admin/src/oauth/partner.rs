@@ -184,9 +184,25 @@ async fn list_packages(
         let Some(version) = versions::get_version(&state.store, current).await? else {
             continue;
         };
+        // 插件必须带 plugin_id：客户端要按它建目录、核对包内 id。
+        let plugin_id = if kind == KIND_PLUGIN {
+            serde_json::from_str::<Value>(&resource.payload_json)
+                .ok()
+                .and_then(|v| {
+                    v.get("pluginId")
+                        .or_else(|| v.get("plugin_id"))
+                        .and_then(|x| x.as_str())
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                })
+        } else {
+            None
+        };
         items.push(json!({
             "slug": resource.slug,
             "name": resource.name,
+            "pluginId": plugin_id,
             "version": version.version,
             "hash": version.dir_hash,
             "sizeBytes": version.size_bytes,

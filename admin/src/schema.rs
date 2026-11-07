@@ -13,7 +13,7 @@ use sqlx::{Any, Row};
 use crate::db::{now_ts, AdminStore, Backend};
 use crate::rbac;
 
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 pub const DEFAULT_TENANT: &str = "default";
 
 const DDL_V1: &[&str] = &[
@@ -112,6 +112,46 @@ const DDL_V2: &[&str] = &[
     )",
 ];
 
+/// v3：审计、用量、配额、OAuth 客户端。
+const DDL_V3: &[&str] = &[
+    "CREATE TABLE IF NOT EXISTS audit_log (
+        id            VARCHAR(64) PRIMARY KEY,
+        tenant_id     VARCHAR(64) NOT NULL DEFAULT 'default',
+        actor_user_id VARCHAR(64),
+        actor_name    VARCHAR(128) NOT NULL DEFAULT '',
+        action        VARCHAR(64) NOT NULL,
+        target_type   VARCHAR(32) NOT NULL DEFAULT '',
+        target_id     VARCHAR(64) NOT NULL DEFAULT '',
+        before_json   TEXT,
+        after_json    TEXT,
+        created_at    BIGINT NOT NULL
+    )",
+    "CREATE TABLE IF NOT EXISTS usage_daily (
+        id                VARCHAR(64) PRIMARY KEY,
+        tenant_id         VARCHAR(64) NOT NULL DEFAULT 'default',
+        user_id           VARCHAR(64) NOT NULL,
+        model             VARCHAR(128) NOT NULL DEFAULT '',
+        day               VARCHAR(10) NOT NULL,
+        prompt_tokens     BIGINT NOT NULL DEFAULT 0,
+        completion_tokens BIGINT NOT NULL DEFAULT 0,
+        CONSTRAINT uq_usage_daily UNIQUE (tenant_id, user_id, model, day)
+    )",
+    "CREATE TABLE IF NOT EXISTS quotas (
+        user_id             VARCHAR(64) PRIMARY KEY,
+        tenant_id           VARCHAR(64) NOT NULL DEFAULT 'default',
+        monthly_token_limit BIGINT,
+        over_action         VARCHAR(16) NOT NULL DEFAULT 'warn',
+        updated_at          BIGINT NOT NULL
+    )",
+    "CREATE TABLE IF NOT EXISTS oauth_clients (
+        client_id         VARCHAR(64) PRIMARY KEY,
+        client_secret_hash VARCHAR(128) NOT NULL,
+        kind              VARCHAR(16) NOT NULL,
+        redirect_uris     TEXT NOT NULL,
+        created_at        BIGINT NOT NULL
+    )",
+];
+
 fn index_statements(backend: Backend) -> Vec<String> {
     let defs = [
         ("idx_sessions_user", "sessions", "user_id"),
@@ -120,6 +160,8 @@ fn index_statements(backend: Backend) -> Vec<String> {
         ("idx_resources_kind", "resources", "kind"),
         ("idx_grants_resource", "resource_grants", "resource_id"),
         ("idx_grants_principal", "resource_grants", "principal_id"),
+        ("idx_audit_created", "audit_log", "created_at"),
+        ("idx_usage_user_day", "usage_daily", "user_id"),
     ];
     defs.iter()
         .map(|(name, table, column)| {
@@ -162,6 +204,15 @@ pub async fn migrate(store: &AdminStore) -> Result<()> {
                 .with_context(|| format!("apply admin schema v2: {}", first_line(stmt)))?;
         }
         write_version(store, 2).await?;
+    }
+    if read_version(store).await? < 3 {
+        for stmt in DDL_V3 {
+            store
+                .exec(stmt)
+                .await
+                .with_context(|| format!("apply admin schema v3: {}", first_line(stmt)))?;
+        }
+        write_version(store, 3).await?;
     }
 
     for stmt in index_statements(store.backend()) {

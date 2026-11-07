@@ -412,28 +412,26 @@ agent-pointer/
 ├── Cargo.toml                   改：members 加 "admin"
 ├── admin/                       新：独立控制面进程 + 独立前端工程
 │   ├── Cargo.toml
-│   ├── src/                     Rust
-│   │   ├── main.rs              读配置 → open db → 起 axum :8788
+│   ├── src/                     Rust（平铺，未做 store/ 子目录：模块名已足够区分）
+│   │   ├── main.rs              读配置 → open db → 种子 → 起 axum :8788
 │   │   ├── config.rs            POINTER_ADMIN_*
-│   │   ├── db.rs / schema.rs    连接、迁移、CREATE TABLE
+│   │   ├── state.rs             AppState（store + config + 授权码内存表）
+│   │   ├── db.rs / schema.rs    连接、迁移（v1→v3）、CREATE TABLE
 │   │   ├── password.rs          argon2id
-│   │   ├── store/               领域层（无 HTTP）
-│   │   │   users / sessions / rbac / resources / grants
-│   │   │   quota / usage / audit / credentials
+│   │   ├── crypto.rs            AES-256-GCM + HKDF(machine_uid)
+│   │   ├── users / sessions / rbac / resources / grants
+│   │   ├── quota → usage.rs     用量与配额
+│   │   ├── audit.rs             审计流水
+│   │   ├── credentials.rs       组装 PlatformLoginCredentials
 │   │   ├── http/                管理后台 /api/admin/*（cookie + RBAC）
+│   │   │   auth / users / roles / resources / insight / error
 │   │   ├── oauth/               控制面契约（server 与客户端消费）
-│   │   │   authorize / code / exchange / app_token / partner
-│   │   └── static_files.rs      serve admin/web/dist
-│   ├── web/                     新：独立 Vite 工程，不依赖根 package.json
+│   │   │   authorize / code / clients / token / partner
+│   │   └── （静态资源：main.rs 里挂 ServeDir + 占位页，未单列 static_files.rs）
+│   ├── scripts/smoke.sh         端到端冒烟：登录→建资源→OAuth→取凭证→报用量
+│   ├── web/                     **未实现**：独立 Vite 工程，不依赖根 package.json
 │   │   ├── package.json  vite.config.ts  index.html
-│   │   └── src/
-│   │       ├── main.ts  App.vue
-│   │       ├── styles/tokens.css        复制根 globals.css 的变量
-│   │       ├── api/client.ts            fetch 封装 + 401/403
-│   │       ├── stores/auth.ts  resources.ts
-│   │       ├── layout/AdminShell.vue
-│   │       ├── pages/                   概览/成员/角色/资源/档位/用量/审计
-│   │       └── components/              KindTabs / ResourceDrawer / GrantPicker / PermissionMatrix
+│   │   └── src/                 概览/成员/角色/资源/档位/用量/审计
 │   └── tests/                   集成测试：起 router 打真实请求
 ├── server/src/main.rs           改 1 处：spa_fallback 把 /admin 302 到 admin
 ├── crates/pointer-contract/     新：三端共用的契约类型 + 哈希（无内部依赖）
@@ -479,13 +477,43 @@ admin 与 server 只通过 HTTP 说话；指针不共享，桌面包体不受影
 
 | 层 | 位置 | 放什么 | 不放什么 |
 | --- | --- | --- | --- |
-| 领域 | `admin/src/store/` | 表、迁移、密码、RBAC、授权、配额、凭证 | 任何 HTTP 概念 |
+| 领域 | `admin/src/*.rs`（平铺） | 表、迁移、密码、RBAC、授权、配额、凭证 | 任何 HTTP 概念 |
 | 后台 API | `admin/src/http/` | 路由、cookie、状态码 | 业务规则、SQL |
 | 控制面契约 | `admin/src/oauth/` | authorize / token / partner 七端点 | 管理后台逻辑 |
-| UI | `src/components/admin/` | 展示与交互 | 权限判定 |
+| UI | `admin/web/src/` | 展示与交互 | 权限判定 |
 
-测试：`admin/tests/` 放集成测试（起 router 打真实请求）；领域单测就近写在 `store/*.rs` 的 `#[cfg(test)]`；
-前端 `src/components/admin/**/*.test.ts`。
+> 实现时没有建 `store/` 子目录：模块名（`users`/`sessions`/`rbac`/`resources`/`grants`/`usage`/`audit`）
+> 已经能区分职责，多一层目录只是多一次 import 跳转。
+
+测试：领域单测就近写在各自 `.rs` 的 `#[cfg(test)]`；端到端用 `admin/scripts/smoke.sh`
+（真起进程、真发 HTTP、真换凭证）。
+
+## 13.2 M0 实现进度（2026-11-07）
+
+已落地并可运行（`cargo run -p pointer-admin`）：
+
+| 能力 | 状态 | 入口 |
+| --- | --- | --- |
+| 账号 / 登录 / 会话 | 完成 | `POST /api/admin/auth/login`、`/api/admin/me` |
+| RBAC（4 内置角色、25 权限） | 完成 | `GET /api/admin/roles`、`/api/admin/permissions` |
+| 成员管理 + CSV 导入 | 完成 | `/api/admin/users*`、`POST /api/admin/users/import` |
+| 统一资源（6 类）+ 授权 | 完成 | `/api/admin/resources*` |
+| 密钥查看（单独权限 + 审计） | 完成 | `POST /api/admin/resources/:id/reveal` |
+| 凭证组装 + 目录哈希 | 完成 | `admin/src/credentials.rs` |
+| OAuth 七端点 | 完成 | `/oauth/authorize`、`/auth/app/token`、`/auth/partner/*` |
+| 用量上报 + 配额（warn/block） | 完成 | `POST /auth/partner/token-usage`、`/api/admin/usage*` |
+| 审计流水 | 完成 | `GET /api/admin/audit` |
+| 前端工程 `admin/web/` | **未开始** | 当前返回占位页 |
+| 技能 zip 版本下发 | **未开始**（M1） | `resource_versions` 表已建 |
+| 插件 / 按角色下发档位 | **未开始**（M2） | — |
+
+已知取舍：
+
+- 授权码存进程内存（5 分钟、一次性）。多实例部署前必须换 Redis/DB。
+- 桌面端按公共客户端处理（无 client_secret，靠 PKCE）；server 是机密客户端。
+- 余额恒为 `0.00`：控制面不接计费，`token_quota_exhausted` 由配额推导。
+- `parentId` 之外的资源字段暂不支持修改（`kind`/`slug` 建后不可变）。
+- PG / MySQL 仍只在代码层支持，未在真实实例上跑过（见 13.1 的验证命令）。
 
 ## 14. 相关文档
 

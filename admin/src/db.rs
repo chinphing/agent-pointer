@@ -40,6 +40,30 @@ impl Backend {
     }
 }
 
+/// sqlx 不会自动创建 SQLite 文件；控制面首次启动应该自己把库建出来，
+/// 否则用户会看到 "unable to open database file" 这种毫无指向性的报错。
+fn ensure_sqlite_file(url: &str) -> Result<()> {
+    let raw = url.trim().strip_prefix("sqlite:").unwrap_or(url);
+    let raw = raw.split('?').next().unwrap_or(raw);
+    let raw = raw.strip_prefix("//").unwrap_or(raw);
+    let path = raw.trim();
+    if path.is_empty() || path == ":memory:" {
+        return Ok(());
+    }
+    let file = std::path::Path::new(path);
+    if file.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = file.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("create db dir {}", parent.display()))?;
+        }
+    }
+    std::fs::File::create(file).with_context(|| format!("create db file {path}"))?;
+    Ok(())
+}
+
 /// 控制面数据库句柄。
 pub struct AdminStore {
     pool: AnyPool,
@@ -56,6 +80,10 @@ impl AdminStore {
     pub async fn connect(url: &str) -> Result<Self> {
         install_drivers();
         let backend = Backend::from_url(url)?;
+
+        if backend == Backend::Sqlite {
+            ensure_sqlite_file(url)?;
+        }
 
         // SQLite 是单文件：单连接即可，省掉 per-connection PRAGMA 的麻烦。
         let max_connections = if backend == Backend::Sqlite { 1 } else { 5 };

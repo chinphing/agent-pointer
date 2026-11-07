@@ -10,6 +10,10 @@ use crate::db::{now_ts, sha256_hex, AdminStore};
 
 pub const KIND_ADMIN: &str = "admin";
 pub const KIND_MEMBER: &str = "member";
+/// 下发给 server / 客户端的 access token。
+pub const KIND_ACCESS: &str = "access";
+/// 刷新用，寿命更长；刷新时不轮换（见 `oauth::token`）。
+pub const KIND_REFRESH: &str = "refresh";
 /// 30 天，与 server `web_session` 的 Max-Age 对齐。
 pub const DEFAULT_TTL_SECS: i64 = 30 * 24 * 3600;
 

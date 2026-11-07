@@ -38,6 +38,9 @@ pub const ALL_PERMISSIONS: &[&str] = &[
 ];
 
 pub const SUPER_ADMIN: &str = "super_admin";
+pub const ROLE_ADMIN: &str = "admin";
+pub const ROLE_VIEWER: &str = "viewer";
+pub const ROLE_MEMBER: &str = "member";
 
 pub struct BuiltinRole {
     pub key: &'static str,

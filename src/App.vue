@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
+import { defineAsyncComponent, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import AppShell from './components/layout/AppShell.vue'
 import ChatView from './components/chat/ChatView.vue'
 import ComputerCompactBar from './components/chat/ComputerCompactBar.vue'
 import { useComputerCompactMode } from './composables/useComputerCompactMode'
 import { useChannelPairingPrompt } from './composables/useChannelPairingPrompt'
+import { useIsAppAdmin } from './composables/useAppAdmin'
 import { useExternalSkillsImportPrompt } from './composables/useExternalSkillsImportPrompt'
 import { useAppUpdater } from './composables/useAppUpdater'
 import UpdateReadyBanner from './components/updater/UpdateReadyBanner.vue'
@@ -39,9 +40,7 @@ const settings = useSettingsStore()
 const skills = useSkillsStore()
 
 const showSettings = ref(false)
-const isAppAdmin = computed(
-  () => platformAuth.isPlatformAdmin || settings.isPlatformAdmin
-)
+const isAppAdmin = useIsAppAdmin()
 const settingsInitialSection = ref('assistant')
 const {
   open: pairingModalOpen,

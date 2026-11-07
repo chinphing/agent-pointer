@@ -50,9 +50,8 @@ import {
   resolveBrandName,
   resolveDesktopSnapshotEnabled
 } from '../../lib/webBranding'
-import { usePlatformAuthStore } from '../../stores/platformAuth'
-import { useSettingsStore } from '../../stores/settings'
 import { OpenSettingsKey } from '../../lib/settingsDialogKey'
+import { useIsAppAdmin } from '../../composables/useAppAdmin'
 import type { Project } from '../../types/chat'
 
 /** Lazy: DiffView + markdown preview stay out of the first paint. */
@@ -84,16 +83,12 @@ const { t } = useI18n()
 // Chat UI (ChatTopBar / Composer) opens the settings dialog through this.
 const chat = useChatStore()
 const workspacePanel = useWorkspacePanelStore()
-const platformAuth = usePlatformAuthStore()
-const settingsStore = useSettingsStore()
 
 const brandName = resolveBrandName()
 const brandIcon = resolveBrandIcon()
 const desktopSnapshotEnabled = resolveDesktopSnapshotEnabled()
-/** Platform / standalone admin — gates settings entry and workspace panel. */
-const isAppAdmin = computed(
-  () => platformAuth.isPlatformAdmin || settingsStore.isPlatformAdmin
-)
+/** Desktop client, platform admin, or standalone admin — gates settings entry and workspace panel. */
+const isAppAdmin = useIsAppAdmin()
 
 provide(OpenSettingsKey, (section?: string) => {
   if (!isAppAdmin.value) {

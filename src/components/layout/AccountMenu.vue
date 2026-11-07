@@ -23,6 +23,7 @@ import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { resolveBrandIcon } from '../../lib/webBranding'
 import { usePlatformBalance } from '../../composables/usePlatformBalance'
 import { useAppUpdater } from '../../composables/useAppUpdater'
+import { useIsAppAdmin } from '../../composables/useAppAdmin'
 import { openPlatformBillingPage } from '../../lib/platformUrls'
 import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
 
@@ -35,9 +36,7 @@ const emit = defineEmits<{
 const s = useSettingsStore()
 const platformAuth = usePlatformAuthStore()
 const brandIcon = resolveBrandIcon()
-const isAppAdmin = computed(
-  () => platformAuth.isPlatformAdmin || s.isPlatformAdmin
-)
+const isAppAdmin = useIsAppAdmin()
 
 const updater = useAppUpdater()
 const {

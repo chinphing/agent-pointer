@@ -415,7 +415,7 @@ agent-pointer/
 │   ├── src/                     Rust（平铺，未做 store/ 子目录：模块名已足够区分）
 │   │   ├── main.rs              读配置 → open db → 种子 → 起 axum :8788
 │   │   ├── config.rs            POINTER_ADMIN_*
-│   │   ├── state.rs             AppState（store + config + 授权码内存表）
+│   │   ├── state.rs             AppState（store + config；进程内无跨请求状态）
 │   │   ├── db.rs / schema.rs    连接、迁移（v1→v3）、CREATE TABLE
 │   │   ├── password.rs          argon2id
 │   │   ├── crypto.rs            AES-256-GCM + HKDF(machine_uid)
@@ -532,7 +532,12 @@ MySQL → `VARCHAR(n)`，SQLite / PostgreSQL → `TEXT`（不引入长度上限�
 
 已知取舍：
 
-- 授权码存进程内存（5 分钟、一次性）。多实例部署前必须换 Redis/DB。
+- **授权码已落库**（`oauth_codes`，schema v5）：OAuth 登录是两个独立请求，
+  多实例下会落到不同进程，放内存会「时好时坏」。库里只存 `sha256(code)`，
+  一次性由原子 `UPDATE ... WHERE used_at IS NULL` 保证，并发重放只有一个能成功。
+- **加密材料仍绑本机**（`machine_uid` 派生）：多实例跨机部署时，A 加密的 key B 解不开。
+  修法是加一个显式的 `POINTER_ADMIN_MASTER_KEY`（配了优先用，没配沿用本机标识）。
+  **这项还没做**，是目前唯一挡着多实例的问题。
 - 技能包校验常量（20 MiB / 5 MiB / 条目数）与
   `crates/pointer-core/src/skills/external.rs` 各存一份——admin 不依赖 pointer-core，
   改一处必须同步另一处。

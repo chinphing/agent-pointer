@@ -19,7 +19,7 @@ pub const DEFAULT_TENANT: &str = "default";
 const DDL_V1: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS meta (
         meta_key   VARCHAR(64) PRIMARY KEY,
-        meta_value TEXT NOT NULL
+        meta_value TEXT$255 NOT NULL
     )",
     "CREATE TABLE IF NOT EXISTS tenants (
         id         VARCHAR(64) PRIMARY KEY,
@@ -32,7 +32,7 @@ const DDL_V1: &[&str] = &[
         tenant_id     VARCHAR(64) NOT NULL DEFAULT 'default',
         username      VARCHAR(128) NOT NULL,
         display_name  VARCHAR(255) NOT NULL DEFAULT '',
-        password_hash TEXT NOT NULL,
+        password_hash TEXT$255 NOT NULL,
         status        VARCHAR(32) NOT NULL DEFAULT 'active',
         created_at    BIGINT NOT NULL,
         last_login_at BIGINT,
@@ -80,11 +80,11 @@ const DDL_V2: &[&str] = &[
         kind               VARCHAR(32) NOT NULL,
         slug               VARCHAR(128) NOT NULL,
         name               VARCHAR(255) NOT NULL,
-        description        TEXT NOT NULL,
+        description        TEXT$1024 NOT NULL,
         parent_id          VARCHAR(64),
         enabled            INTEGER NOT NULL DEFAULT 0,
-        payload_json       TEXT NOT NULL,
-        secret_enc         TEXT,
+        payload_json       TEXT$8000 NOT NULL,
+        secret_enc         TEXT$1024,
         current_version_id VARCHAR(64),
         created_at         BIGINT NOT NULL,
         updated_at         BIGINT NOT NULL,
@@ -122,8 +122,8 @@ const DDL_V3: &[&str] = &[
         action        VARCHAR(64) NOT NULL,
         target_type   VARCHAR(32) NOT NULL DEFAULT '',
         target_id     VARCHAR(64) NOT NULL DEFAULT '',
-        before_json   TEXT,
-        after_json    TEXT,
+        before_json   TEXT$4000,
+        after_json    TEXT$4000,
         created_at    BIGINT NOT NULL
     )",
     "CREATE TABLE IF NOT EXISTS usage_daily (
@@ -147,7 +147,7 @@ const DDL_V3: &[&str] = &[
         client_id         VARCHAR(64) PRIMARY KEY,
         client_secret_hash VARCHAR(128) NOT NULL,
         kind              VARCHAR(16) NOT NULL,
-        redirect_uris     TEXT NOT NULL,
+        redirect_uris     TEXT$1024 NOT NULL,
         created_at        BIGINT NOT NULL
     )",
 ];
@@ -175,14 +175,40 @@ fn index_statements(backend: Backend) -> Vec<String> {
         .collect()
 }
 
+/// 把 DDL 里的文本列标记翻译成目标后端真正支持的写法。
+///
+/// `TEXT$255` 这类标记存在的原因：sqlx 的 `Any` 驱动把 MySQL 的 `TEXT`
+/// （协议里就是 `BLOB`）映射成 `AnyTypeInfoKind::Blob`，而 `String` 只能从
+/// `Text` 解码——于是 MySQL 上任何 `TEXT` 列都读不出来。MySQL 必须用
+/// `VARCHAR(n)`；SQLite / PostgreSQL 保留 `TEXT`（无长度上限，不会因为
+/// payload 变大而写失败）。
+fn adapt(stmt: &str, backend: Backend) -> String {
+    let mut out = String::with_capacity(stmt.len() + 16);
+    let mut rest = stmt;
+    while let Some(pos) = rest.find("TEXT$") {
+        out.push_str(&rest[..pos]);
+        let tail = &rest[pos + 5..];
+        let digits: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if backend == Backend::MySql {
+            out.push_str(&format!("VARCHAR({digits})"));
+        } else {
+            out.push_str("TEXT");
+        }
+        rest = &tail[digits.len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
 pub async fn migrate(store: &AdminStore) -> Result<()> {
     store
-        .exec(
+        .exec(&adapt(
             "CREATE TABLE IF NOT EXISTS meta (
                 meta_key   VARCHAR(64) PRIMARY KEY,
-                meta_value TEXT NOT NULL
+                meta_value TEXT$255 NOT NULL
             )",
-        )
+            store.backend,
+        ))
         .await
         .context("create meta table")?;
 
@@ -190,7 +216,7 @@ pub async fn migrate(store: &AdminStore) -> Result<()> {
     if current < 1 {
         for stmt in DDL_V1 {
             store
-                .exec(stmt)
+                .exec(&adapt(stmt, store.backend))
                 .await
                 .with_context(|| format!("apply admin schema v1: {}", first_line(stmt)))?;
         }
@@ -199,7 +225,7 @@ pub async fn migrate(store: &AdminStore) -> Result<()> {
     if read_version(store).await? < 2 {
         for stmt in DDL_V2 {
             store
-                .exec(stmt)
+                .exec(&adapt(stmt, store.backend))
                 .await
                 .with_context(|| format!("apply admin schema v2: {}", first_line(stmt)))?;
         }
@@ -208,7 +234,7 @@ pub async fn migrate(store: &AdminStore) -> Result<()> {
     if read_version(store).await? < 3 {
         for stmt in DDL_V3 {
             store
-                .exec(stmt)
+                .exec(&adapt(stmt, store.backend))
                 .await
                 .with_context(|| format!("apply admin schema v3: {}", first_line(stmt)))?;
         }
@@ -281,6 +307,23 @@ mod tests {
 
     async fn store() -> AdminStore {
         AdminStore::connect_in_memory().await.expect("connect")
+    }
+
+    #[test]
+    fn adapt_maps_text_markers_per_backend() {
+        let stmt = "CREATE TABLE t (a TEXT$255 NOT NULL, b TEXT$8000)";
+        assert_eq!(
+            adapt(stmt, Backend::MySql),
+            "CREATE TABLE t (a VARCHAR(255) NOT NULL, b VARCHAR(8000))"
+        );
+        assert_eq!(
+            adapt(stmt, Backend::Sqlite),
+            "CREATE TABLE t (a TEXT NOT NULL, b TEXT)"
+        );
+        assert_eq!(
+            adapt(stmt, Backend::Postgres),
+            "CREATE TABLE t (a TEXT NOT NULL, b TEXT)"
+        );
     }
 
     #[tokio::test]

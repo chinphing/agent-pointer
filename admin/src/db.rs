@@ -67,7 +67,7 @@ fn ensure_sqlite_file(url: &str) -> Result<()> {
 /// 控制面数据库句柄。
 pub struct AdminStore {
     pool: AnyPool,
-    backend: Backend,
+    pub backend: Backend,
 }
 
 fn install_drivers() {

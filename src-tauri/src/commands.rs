@@ -492,8 +492,63 @@ pub fn list_plugins(state: State<'_, Arc<AppState>>) -> Result<Vec<PluginView>, 
         .collect())
 }
 
-fn view_plugin(state: &AppState, plugin_id: &str) -> Result<PluginView, String> {
-    let record = state
+// ---- 企业下发插件（按需安装）----
+
+/// 企业目录里的一条插件。`installed=false` 表示只在清单里，还没下载到本地。
+#[derive(serde::Serialize)]
+pub struct OrgPluginView {
+    pub slug: String,
+    pub name: String,
+    #[serde(rename = "pluginId")]
+    pub plugin_id: Option<String>,
+    pub version: String,
+    #[serde(rename = "sizeBytes")]
+    pub size_bytes: i64,
+    /// `optional` / `default_on`
+    pub activation: String,
+    pub installed: bool,
+}
+
+/// 列出企业提供的插件（读上次同步下来的目录缓存，不联网）。
+#[tauri::command]
+pub fn list_org_plugins(state: State<'_, Arc<AppState>>) -> Result<Vec<OrgPluginView>, String> {
+    use pointer_core::skills::org_sync::{read_catalog_cache, PackageKind};
+    let installed: std::collections::HashSet<String> =
+        state.plugin_list().iter().map(|r| r.id.clone()).collect();
+    Ok(read_catalog_cache(PackageKind::Plugin)
+        .into_iter()
+        .map(|item| OrgPluginView {
+            installed: item
+                .plugin_id
+                .as_deref()
+                .map(|id| installed.contains(id))
+                .unwrap_or(false),
+            slug: item.slug,
+            name: item.name,
+            plugin_id: item.plugin_id,
+            version: item.version,
+            size_bytes: item.size_bytes,
+            activation: item.activation,
+        })
+        .collect())
+}
+
+/// 按需安装一个企业插件（`optional` 的走这里；`default_on` 后台已自动下过）。
+#[tauri::command]
+pub async fn install_org_plugin(
+    state: State<'_, Arc<AppState>>,
+    slug: String,
+) -> Result<(), String> {
+    use pointer_core::skills::org_sync::{install_package, PackageKind};
+    install_package(state.platform_auth.as_ref(), PackageKind::Plugin, &slug)
+        .await
+        .map_err(|e| e.to_string())?;
+    state.plugins.scan().map_err(|e| e.to_string())?;
+    state.apply_plugins();
+    Ok(())
+}
+
+fn view_plugin(state: &AppState, plugin_id: &str) -> Result<PluginView, String> {    let record = state
         .plugins
         .get(plugin_id)
         .ok_or_else(|| format!("插件不存在: {plugin_id}"))?;

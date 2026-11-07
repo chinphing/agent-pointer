@@ -9,6 +9,8 @@ import { isTauriRuntime } from '../../../lib/runtime'
 import { useSkillsStore } from '../../../stores/skills'
 import {
   listPlugins,
+  listOrgPlugins,
+  installOrgPlugin,
   enablePlugin,
   disablePlugin,
   uninstallPlugin,
@@ -17,7 +19,7 @@ import {
   probeExternalPlugins,
   importExternalPlugin
 } from '../../../lib/api'
-import type { PluginView, ExternalPluginsProbeResult, ImportReport } from '../../../types/plugin'
+import type { PluginView, OrgPluginView, ExternalPluginsProbeResult, ImportReport } from '../../../types/plugin'
 
 const plugins = ref<PluginView[]>([])
 const loading = ref(false)
@@ -115,10 +117,31 @@ async function refresh() {
   loading.value = true
   try {
     plugins.value = await listPlugins()
+    // 企业目录里还没安装的（optional）：只列出来，员工点了才下载。
+    try {
+      orgPlugins.value = (await listOrgPlugins()).filter(p => !p.installed)
+    } catch {
+      orgPlugins.value = []
+    }
   } catch (err: unknown) {
     message.value = err instanceof Error ? err.message : String(err)
   } finally {
     loading.value = false
+  }
+}
+
+const orgPlugins = ref<OrgPluginView[]>([])
+const orgInstalling = ref('')
+
+async function installOrgPluginFromCatalog(slug: string) {
+  orgInstalling.value = slug
+  try {
+    await installOrgPlugin(slug)
+    await refresh()
+  } catch (err: unknown) {
+    message.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    orgInstalling.value = ''
   }
 }
 
@@ -465,6 +488,31 @@ async function dismissExternal() {
     </div>
 
     <div v-if="loading" class="py-8 text-center text-sm text-muted">{{ t('settings.automation.loading') }}</div>
+
+    <!-- 企业提供但还没安装的插件：点了才下载，避免几十个包占满磁盘 -->
+    <div v-if="orgPlugins.length" class="mb-3 space-y-2">
+      <p class="text-xs font-medium uppercase tracking-wide text-muted">企业提供（按需安装）</p>
+      <div
+        v-for="p in orgPlugins"
+        :key="p.slug"
+        class="flex items-center justify-between gap-3 rounded-xl border border-border panel px-4 py-3"
+      >
+        <div class="min-w-0">
+          <div class="truncate text-sm font-medium text-foreground">{{ p.name }}</div>
+          <div class="text-xs text-muted">
+            v{{ p.version }} · {{ (p.sizeBytes / 1024 / 1024).toFixed(1) }} MB
+          </div>
+        </div>
+        <button
+          type="button"
+          class="h-8 shrink-0 rounded-lg bg-accent px-3 text-xs font-medium text-accent-foreground hover:opacity-90 cursor-pointer transition-opacity disabled:opacity-50"
+          :disabled="orgInstalling === p.slug"
+          @click="installOrgPluginFromCatalog(p.slug)"
+        >
+          {{ orgInstalling === p.slug ? '安装中…' : '安装' }}
+        </button>
+      </div>
+    </div>
 
     <div v-else-if="plugins.length === 0" class="rounded-2xl border border-dashed border-border py-10 text-center text-sm text-muted">
       {{ t('settings.plugins.empty') }} <code class="rounded bg-[hsl(var(--code-bg))] px-1.5 py-0.5 text-xs">~/.pointer/plugins</code>。

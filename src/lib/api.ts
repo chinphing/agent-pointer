@@ -261,6 +261,10 @@ export interface RuntimeApi {
   importExternalSkills(sourceIds: string[]): Promise<SkillImportResult>
   dismissExternalSkillsPrompt(): Promise<void>
   listPlugins(): Promise<import('../types/plugin').PluginView[]>
+  /** 企业下发的插件目录（含未安装的）。 */
+  listOrgPlugins(): Promise<import('../types/plugin').OrgPluginView[]>
+  /** 按需安装一个企业插件（`optional` 的走这里）。 */
+  installOrgPlugin(slug: string): Promise<void>
   enablePlugin(pluginId: string): Promise<import('../types/plugin').PluginView>
   disablePlugin(pluginId: string): Promise<import('../types/plugin').PluginView>
   uninstallPlugin(pluginId: string): Promise<void>
@@ -414,6 +418,8 @@ export const probeExternalSkills = api.probeExternalSkills
 export const importExternalSkills = api.importExternalSkills
 export const dismissExternalSkillsPrompt = api.dismissExternalSkillsPrompt
 export const listPlugins = api.listPlugins
+export const listOrgPlugins = api.listOrgPlugins
+export const installOrgPlugin = api.installOrgPlugin
 export const enablePlugin = api.enablePlugin
 export const disablePlugin = api.disablePlugin
 export const uninstallPlugin = api.uninstallPlugin

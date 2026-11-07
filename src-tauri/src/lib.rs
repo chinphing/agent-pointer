@@ -507,6 +507,8 @@ pub fn run() {
             commands::import_external_skills,
             commands::dismiss_external_skills_prompt,
             commands::list_plugins,
+            commands::list_org_plugins,
+            commands::install_org_plugin,
             commands::enable_plugin,
             commands::disable_plugin,
             commands::uninstall_plugin,

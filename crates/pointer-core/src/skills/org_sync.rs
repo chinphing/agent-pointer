@@ -108,7 +108,7 @@ fn dir_hash(kind: PackageKind, dir: &Path) -> Result<String> {
 }
 
 /// 远端清单里的一条技能。
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, serde::Serialize)]
 pub struct RemoteSkill {
     pub slug: String,
     #[serde(default)]
@@ -134,7 +134,7 @@ impl RemoteSkill {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, serde::Serialize)]
 pub struct Catalog {
     #[serde(default)]
     pub skills: Vec<RemoteSkill>,
@@ -197,6 +197,8 @@ fn write_manifest(root: &Path, entries: &HashMap<String, ManifestEntry>) -> Resu
 pub struct SyncPlan {
     pub download: Vec<RemoteSkill>,
     pub unchanged: Vec<String>,
+    /// 远端有、本地没装、且策略是 `optional`：不自动下载，等员工按需安装。
+    pub deferred: Vec<RemoteSkill>,
     /// (slug, 原因)：本地有改动，保留本地不覆盖。
     pub blocked: Vec<(String, String)>,
     /// 远端已下架、且本地未被改动的目录。
@@ -208,6 +210,8 @@ pub struct SyncReport {
     pub installed: Vec<String>,
     pub unchanged: Vec<String>,
     pub removed: Vec<String>,
+    /// 按需安装、本次没下载的（插件 `optional`）。
+    pub deferred: Vec<String>,
     pub failed: Vec<(String, String)>,
 }
 
@@ -235,6 +239,12 @@ pub fn plan(root: &Path, kind: PackageKind, catalog: &Catalog) -> Result<SyncPla
         let entry = manifest.get(&key);
 
         if !dir.is_dir() {
+            // 插件只在企业标了 `default_on` 时自动下载；`optional` 的留到员工按需安装，
+            // 否则几十个插件会把员工磁盘占满。技能包小、且 agent 要随时能读，保持全量。
+            if kind == PackageKind::Plugin && !skill.is_default_on() {
+                out.deferred.push(skill.clone());
+                continue;
+            }
             out.download.push(skill.clone());
             continue;
         }
@@ -298,6 +308,7 @@ pub fn apply(
 ) -> Result<SyncReport> {
     let mut report = SyncReport {
         unchanged: plan.unchanged.clone(),
+        deferred: plan.deferred.iter().map(|item| item.slug.clone()).collect(),
         ..Default::default()
     };
     report.failed.extend(plan.blocked.iter().cloned());
@@ -467,6 +478,31 @@ pub fn default_on_skill_ids() -> Vec<String> {
     cached_default_on()
 }
 
+/// 目录缓存：让 UI 能列出「企业提供了哪些插件、哪些还没装」。
+const CATALOG_CACHE: &str = ".org_catalog.json";
+
+fn write_catalog_cache(root: &Path, catalog: &Catalog) -> Result<()> {
+    let path = root.join(CATALOG_CACHE);
+    let body = serde_json::to_vec_pretty(catalog)?;
+    let tmp = root.join(format!("{CATALOG_CACHE}.part"));
+    fs::write(&tmp, &body)?;
+    fs::rename(&tmp, &path)?;
+    Ok(())
+}
+
+/// 读上次同步下来的目录（不联网）。UI 用它列出可安装的插件。
+pub fn read_catalog_cache(kind: PackageKind) -> Vec<RemoteSkill> {
+    let Ok(root) = kind.root() else {
+        return Vec::new();
+    };
+    let Ok(raw) = fs::read_to_string(root.join(CATALOG_CACHE)) else {
+        return Vec::new();
+    };
+    serde_json::from_str::<Catalog>(&raw)
+        .map(|c| c.skills)
+        .unwrap_or_default()
+}
+
 fn api_base() -> String {
     crate::platform_endpoints::api_base()
 }
@@ -546,6 +582,7 @@ pub async fn sync(
     }
 
     let report = apply(&root, kind, &plan, &packages)?;
+    write_catalog_cache(&root, &catalog)?;
 
     // 只有技能会按策略默认启用；插件带工具/hooks/MCP，仍需显式激活。
     if kind == PackageKind::Skill {
@@ -559,6 +596,36 @@ pub async fn sync(
     }
 
     Ok(report)
+}
+
+/// 按需安装一个企业包（插件 `optional` 用）。
+///
+/// 与后台同步的区别：**不看 activation**，明确下载这一个。
+pub async fn install_package(
+    auth: &crate::platform_auth::PlatformAuthManager,
+    kind: PackageKind,
+    slug: &str,
+) -> Result<SyncReport> {
+    let catalog = fetch_catalog(auth, kind).await?;
+    let root = kind.root()?;
+    write_catalog_cache(&root, &catalog)?;
+
+    let item = catalog
+        .skills
+        .iter()
+        .find(|item| item.slug == slug)
+        .cloned()
+        .ok_or_else(|| anyhow!("企业未提供该包：{slug}"))?;
+
+    let mut packages = HashMap::new();
+    packages.insert(item.slug.clone(), download_package(auth, &item.url).await?);
+
+    // 只装这一个，不再过策略（员工是主动点的）。
+    let plan = SyncPlan {
+        download: vec![item],
+        ..Default::default()
+    };
+    apply(&root, kind, &plan, &packages)
 }
 
 /// 启动后台同步：首次延迟 15s（别和登录/启动抢资源），之后每 6 小时一次。
@@ -842,6 +909,8 @@ mod tests {
         let zip = build_plugin_zip("com.example.demo");
         let mut item = remote("demo-plugin", "zip-hash-v1");
         item.plugin_id = Some("com.example.demo".to_string());
+        // 插件只有 default_on 才会自动下发。
+        item.activation = "default_on".to_string();
         let catalog = catalog_with(vec![item]);
 
         let plan1 = plan(&root, PackageKind::Plugin, &catalog).expect("plan");
@@ -870,6 +939,52 @@ mod tests {
         assert!(plan1.download.is_empty());
         assert_eq!(plan1.blocked.len(), 1);
         assert!(plan1.blocked[0].1.contains("pluginId"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn optional_plugin_is_deferred_not_downloaded() {
+        let root = temp_root("defer");
+        let mut optional = remote("optional-plugin", "hash-a");
+        optional.plugin_id = Some("com.example.optional".to_string());
+        optional.activation = "optional".to_string();
+
+        let mut forced = remote("default-plugin", "hash-b");
+        forced.plugin_id = Some("com.example.default".to_string());
+        forced.activation = "default_on".to_string();
+
+        let catalog = catalog_with(vec![optional, forced]);
+        let plan1 = plan(&root, PackageKind::Plugin, &catalog).expect("plan");
+
+        // 只有 default_on 的自动下；optional 的进 deferred。
+        assert_eq!(plan1.download.len(), 1);
+        assert_eq!(plan1.download[0].slug, "default-plugin");
+        assert_eq!(plan1.deferred.len(), 1);
+        assert_eq!(plan1.deferred[0].slug, "optional-plugin");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn skills_are_still_downloaded_regardless_of_activation() {
+        let root = temp_root("skill-all");
+        let catalog = catalog_with(vec![remote("travel", "hash-a")]);
+        let plan1 = plan(&root, PackageKind::Skill, &catalog).expect("plan");
+        assert_eq!(plan1.download.len(), 1, "技能保持全量下发");
+        assert!(plan1.deferred.is_empty());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn catalog_cache_roundtrip() {
+        let root = temp_root("cache");
+        let catalog = catalog_with(vec![remote("travel", "hash-a")]);
+        write_catalog_cache(&root, &catalog).expect("write");
+        let raw = fs::read_to_string(root.join(CATALOG_CACHE)).expect("read");
+        let parsed: Catalog = serde_json::from_str(&raw).expect("parse");
+        assert_eq!(parsed.skills.len(), 1);
+        assert_eq!(parsed.skills[0].slug, "travel");
         let _ = fs::remove_dir_all(&root);
     }
 

@@ -547,6 +547,14 @@ MySQL → `VARCHAR(n)`，SQLite / PostgreSQL → `TEXT`（不引入长度上限�
   前端 `agentDefaultSkillIds` 用同一规则，保证界面与运行时一致。
   员工一旦在面板里动过（写了 override），后续同步不再干预——**opt-out 就是 override 本身**，
   不额外记一份状态。
+- **插件按策略下载**（用户选定方案 B）：
+  | 情况 | 行为 |
+  | --- | --- |
+  | 插件 `default_on` | 后台同步自动下载落盘（仍不激活） |
+  | 插件 `optional` | **不下载**，只在 `.org_catalog.json` 里列出来；员工在插件面板点「安装」才下 |
+  | 技能（无论策略） | 全量下发（包小，且 agent 要能随时 `skill_read`） |
+  目的：几十个插件不至于把员工磁盘占满。按需安装走 `org_sync::install_package`，
+  明确绕开策略只下这一个。
 - **插件即使设 `default_on` 也只落盘、不激活**：插件带工具、hooks、MCP，激活需要显式授权。
 - **下发是客户端拉取（pull），不是服务端推送**：没有 webhook、没有长连接。
   客户端启动后 15 秒拉一次，之后每 6 小时一次；管理员发布新版本后，

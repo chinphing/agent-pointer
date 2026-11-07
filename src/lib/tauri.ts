@@ -894,3 +894,11 @@ export async function revealWebhookSourceToken(
 ): Promise<WebhookTokenReveal> {
   return await invoke<WebhookTokenReveal>('reveal_webhook_source_token', { src })
 }
+
+export async function listOrgPlugins(): Promise<import('../types/plugin').OrgPluginView[]> {
+  return await invoke<import('../types/plugin').OrgPluginView[]>('list_org_plugins')
+}
+
+export async function installOrgPlugin(slug: string): Promise<void> {
+  await invoke('install_org_plugin', { slug })
+}

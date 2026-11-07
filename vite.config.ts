@@ -102,6 +102,9 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // Pins host capabilities (logical core count) so the same test cannot pass on
+    // one machine and fail on another. See `src/test/setup.ts`.
+    setupFiles: ['src/test/setup.ts'],
     // `scripts/**` covers the build-script guardrails (plain .mjs, no DOM).
     include: ['src/**/*.test.ts', 'scripts/**/*.test.mjs']
   },

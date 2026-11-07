@@ -1,5 +1,5 @@
 import { createPinia, setActivePinia } from 'pinia'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EffectiveSettingsView, UserSettings } from '../types/chat'
 
 const updateUserSettings = vi.hoisted(() => vi.fn())
@@ -33,10 +33,6 @@ describe('settings maxChildrenPerAgent', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
   })
 
   it('derives the ceiling as clamp(cores × 10, 32, 100)', () => {
@@ -117,14 +113,9 @@ describe('settings maxChildrenPerAgent', () => {
 
   it('round-trips a value above the old fixed cap (the reported bug)', async () => {
     // The ceiling is `clamp(cores × 10, 32, 100)`, so 33 only survives on a host
-    // that reports ≥ 4 cores. Pin the count instead of trusting the runner: Node 20
-    // has no `navigator` global at all, and the 1-core fallback would clamp 33 back
-    // to 32 — failing here for a reason that has nothing to do with the round-trip.
-    vi.stubGlobal('navigator', {
-      hardwareConcurrency: 8,
-      language: 'en-US',
-      languages: ['en-US']
-    })
+    // that reports ≥ 4 cores. `src/test/setup.ts` pins the count to 8 for every
+    // suite — without it this assertion depends on the machine (Node 20 has no
+    // `navigator` at all → 1-core fallback → 33 clamps back to 32).
     const store = useSettingsStore()
     const aboveOldCap = MIN_MAX_CHILDREN_PER_AGENT + 32 // 33 > the old ceiling of 32
     updateUserSettings.mockImplementation(async (snapshot: UserSettings) => ({

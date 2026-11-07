@@ -3524,6 +3524,9 @@ pub struct SkillDef {
     /// Plugin provenance: set when the skill is provided by a plugin (P1).
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "pluginId")]
     pub plugin_id: Option<String>,
+    /// 企业策略 `default_on`：没被员工显式关掉时，默认进入各 agent 的启用列表。
+    #[serde(default, rename = "defaultEnabled")]
+    pub default_enabled: bool,
 }
 
 fn default_skill_provenance() -> String {

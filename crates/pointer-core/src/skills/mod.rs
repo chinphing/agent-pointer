@@ -379,6 +379,7 @@ mod tests {
             provenance: "system".into(),
             mutable: false,
             plugin_id: None,
+            default_enabled: false,
         };
         assert_eq!(
             skill_manifest_path(&skill).map(|p| p.to_string_lossy().into_owned()),
@@ -403,6 +404,7 @@ mod tests {
             provenance: "system".into(),
             mutable: false,
             plugin_id: None,
+            default_enabled: false,
         });
         let (prompts, tools) = reg.progressive_context(&["demo".into()]);
         assert_eq!(tools.len(), 2);
@@ -444,6 +446,7 @@ mod tests {
             provenance: "user".into(),
             mutable: true,
             plugin_id: None,
+            default_enabled: false,
         });
 
         let out = reg
@@ -478,6 +481,7 @@ mod tests {
             provenance: "user".into(),
             mutable: true,
             plugin_id: None,
+            default_enabled: false,
         });
 
         let err = reg
@@ -512,6 +516,7 @@ mod tests {
             provenance: "user".into(),
             mutable: true,
             plugin_id: None,
+            default_enabled: false,
         });
 
         let out1 = reg.read("live-skill", "SKILL.md").expect("read v1");
@@ -554,6 +559,7 @@ mod tests {
             provenance: "system".into(),
             mutable: false,
             plugin_id: None,
+            default_enabled: false,
         });
         let out = reg.read("vid", "SKILL.md").expect("read");
         let expected = format!("{}/scripts/frame.sh", skill_dir.display());
@@ -577,6 +583,7 @@ mod tests {
             provenance: "system".into(),
             mutable: false,
             plugin_id: None,
+            default_enabled: false,
         });
         let err = reg.read("vid", "  ").expect_err("empty path");
         assert!(err.to_string().contains("缺少 path"));

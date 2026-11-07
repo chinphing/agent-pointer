@@ -44,12 +44,14 @@ pub struct Resource {
     /// 是否有加密密钥（不返回密文本身）。
     pub has_secret: bool,
     pub current_version_id: Option<String>,
+    /// `optional`（默认）/ `default_on`：下发后客户端是否默认启用。
+    pub activation: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
 const COLS: &str = "id, tenant_id, kind, slug, name, description, parent_id, enabled, \
-                    payload_json, secret_enc, current_version_id, created_at, updated_at";
+                    payload_json, secret_enc, current_version_id, created_at, updated_at, activation";
 
 fn map_resource(row: &AnyRow) -> Result<Resource> {
     let enabled: i64 = row.try_get(7)?;
@@ -68,7 +70,38 @@ fn map_resource(row: &AnyRow) -> Result<Resource> {
         current_version_id: row.try_get(10)?,
         created_at: row.try_get(11)?,
         updated_at: row.try_get(12)?,
+        activation: row.try_get(13)?,
     })
+}
+
+/// 启用策略取值：`optional`（默认）/ `default_on`。
+pub const ACTIVATION_OPTIONAL: &str = "optional";
+pub const ACTIVATION_DEFAULT_ON: &str = "default_on";
+
+pub fn normalize_activation(raw: &str) -> Result<String> {
+    match raw.trim() {
+        "" | ACTIVATION_OPTIONAL => Ok(ACTIVATION_OPTIONAL.to_string()),
+        ACTIVATION_DEFAULT_ON => Ok(ACTIVATION_DEFAULT_ON.to_string()),
+        other => Err(anyhow!(
+            "activation 只能是 {ACTIVATION_OPTIONAL} 或 {ACTIVATION_DEFAULT_ON}，收到 {other}"
+        )),
+    }
+}
+
+pub async fn set_activation(
+    store: &AdminStore,
+    id: &str,
+    activation: &str,
+) -> Result<()> {
+    let value = normalize_activation(activation)?;
+    let sql = store.sql("UPDATE resources SET activation = ?, updated_at = ? WHERE id = ?");
+    sqlx::query::<Any>(&sql)
+        .bind(&value)
+        .bind(now_ts())
+        .bind(id)
+        .execute(store.pool())
+        .await?;
+    Ok(())
 }
 
 fn normalize_slug(raw: &str) -> Result<String> {
@@ -297,6 +330,26 @@ mod tests {
 
     async fn store() -> AdminStore {
         AdminStore::connect_in_memory().await.expect("store")
+    }
+
+    #[tokio::test]
+    async fn activation_defaults_optional_and_is_validated() {
+        let store = store().await;
+        let skill = create_skill(&store, "travel").await;
+        assert_eq!(skill.activation, ACTIVATION_OPTIONAL);
+
+        set_activation(&store, &skill.id, ACTIVATION_DEFAULT_ON)
+            .await
+            .expect("set");
+        let reloaded = get(&store, &skill.id).await.expect("get").expect("some");
+        assert_eq!(reloaded.activation, ACTIVATION_DEFAULT_ON);
+
+        // 未实现 forced，写入必须被拒（不是静默接受）。
+        let err = set_activation(&store, &skill.id, "forced")
+            .await
+            .expect_err("forced 不支持");
+        assert!(err.to_string().contains("activation"));
+        assert_eq!(normalize_activation("").expect("empty"), ACTIVATION_OPTIONAL);
     }
 
     async fn create_skill(store: &AdminStore, slug: &str) -> Resource {

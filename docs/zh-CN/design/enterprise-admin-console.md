@@ -537,8 +537,17 @@ MySQL → `VARCHAR(n)`，SQLite / PostgreSQL → `TEXT`（不引入长度上限�
   `crates/pointer-core/src/skills/external.rs` 各存一份——admin 不依赖 pointer-core，
   改一处必须同步另一处。
 - 技能包存本地磁盘（`POINTER_ADMIN_DATA_DIR`，默认 `admin/data`），多实例部署前要换对象存储。
-- 企业技能与插件**默认不启用**（用户已确认）：员工在技能/插件面板里能看到来源并自行开启。
-  下发只负责「文件到位 + 注册表刷新」，不替员工做启用决定。
+- 企业技能与插件**默认不启用**，但控制面可以按资源设「启用策略」（用户已确认只做两档）：
+  | `activation` | 语义 |
+  | --- | --- |
+  | `optional`（默认） | 员工自己决定，下发不改变启用状态 |
+  | `default_on` | 下发后默认启用；员工关掉后以他的选择为准，不再强开 |
+  客户端落地：`sync` 写 `.org_policy.json`（`defaultOn` 列表），`manifest_to_skill` 标记
+  `defaultEnabled`，`resolve_skill_ids` 在**没有 override** 时把默认启用项补进列表；
+  前端 `agentDefaultSkillIds` 用同一规则，保证界面与运行时一致。
+  员工一旦在面板里动过（写了 override），后续同步不再干预——**opt-out 就是 override 本身**，
+  不额外记一份状态。
+- **插件即使设 `default_on` 也只落盘、不激活**：插件带工具、hooks、MCP，激活需要显式授权。
 - **下发是客户端拉取（pull），不是服务端推送**：没有 webhook、没有长连接。
   客户端启动后 15 秒拉一次，之后每 6 小时一次；管理员发布新版本后，
   员工端最长等 6 小时（或重启客户端）才看到。暂无「立即同步」入口（用户已接受该频率）。

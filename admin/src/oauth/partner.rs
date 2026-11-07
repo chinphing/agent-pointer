@@ -203,6 +203,7 @@ async fn list_packages(
             "slug": resource.slug,
             "name": resource.name,
             "pluginId": plugin_id,
+            "activation": resource.activation,
             "version": version.version,
             "hash": version.dir_hash,
             "sizeBytes": version.size_bytes,

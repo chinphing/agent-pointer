@@ -121,8 +121,17 @@ pub struct RemoteSkill {
     pub hash: String,
     #[serde(default, rename = "sizeBytes")]
     pub size_bytes: i64,
+    /// `optional`（默认）/ `default_on`：控制面设置的启用策略。
+    #[serde(default)]
+    pub activation: String,
     /// 相对路径（admin 返回 `/auth/partner/skills/...`），客户端自行拼 base。
     pub url: String,
+}
+
+impl RemoteSkill {
+    fn is_default_on(&self) -> bool {
+        self.activation.trim() == "default_on"
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -388,6 +397,76 @@ pub fn apply(
     Ok(report)
 }
 
+/// 企业策略文件：`default_on` 的技能 id 列表，由 `sync` 写、`manifest_to_skill` /
+/// `resolve_skill_ids` 读。
+const POLICY_FILE: &str = ".org_policy.json";
+
+#[derive(Debug, Default, Clone, serde::Serialize, Deserialize)]
+struct Policy {
+    #[serde(default, rename = "defaultOn")]
+    default_on: Vec<String>,
+}
+
+fn write_policy(root: &Path, default_on: Vec<String>) -> Result<()> {
+    let path = root.join(POLICY_FILE);
+    let body = serde_json::to_vec_pretty(&Policy { default_on })?;
+    let tmp = root.join(format!("{POLICY_FILE}.part"));
+    fs::write(&tmp, &body)?;
+    fs::rename(&tmp, &path)?;
+    Ok(())
+}
+
+fn read_policy(root: &Path) -> Vec<String> {
+    let Ok(raw) = fs::read_to_string(root.join(POLICY_FILE)) else {
+        return Vec::new();
+    };
+    serde_json::from_str::<Policy>(&raw)
+        .map(|p| p.default_on)
+        .unwrap_or_default()
+}
+
+/// 缓存：技能目录每次加载都会问一遍，不能每个技能读一次文件。
+/// 用 (mtime, 长度) 当 key——文件一变就重读，测试里也不会有陈旧值。
+/// 策略缓存：(文件 mtime, 长度, 解析结果)。
+type PolicyCache = std::sync::Mutex<Option<(std::time::SystemTime, u64, Vec<String>)>>;
+
+fn cached_default_on() -> Vec<String> {
+    use std::sync::OnceLock;
+
+    static CACHE: OnceLock<PolicyCache> = OnceLock::new();    let Ok(root) = external::org_skills_dir() else {
+        return Vec::new();
+    };
+    let path = root.join(POLICY_FILE);
+    let Ok(meta) = fs::metadata(&path) else {
+        return Vec::new();
+    };
+    let key = (meta.modified().unwrap_or(std::time::UNIX_EPOCH), meta.len());
+
+    let cell = CACHE.get_or_init(|| std::sync::Mutex::new(None));
+    let mut guard = match cell.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if let Some((mtime, len, ids)) = guard.as_ref() {
+        if *mtime == key.0 && *len == key.1 {
+            return ids.clone();
+        }
+    }
+    let fresh = read_policy(&root);
+    *guard = Some((key.0, key.1, fresh.clone()));
+    fresh
+}
+
+/// 该技能是否被企业设为「默认启用」。
+pub fn is_default_on(skill_id: &str) -> bool {
+    cached_default_on().iter().any(|id| id == skill_id)
+}
+
+/// 企业设为 `default_on` 的技能 id（供 agent 解析默认技能列表时合并）。
+pub fn default_on_skill_ids() -> Vec<String> {
+    cached_default_on()
+}
+
 fn api_base() -> String {
     crate::platform_endpoints::api_base()
 }
@@ -466,7 +545,20 @@ pub async fn sync(
         }
     }
 
-    apply(&root, kind, &plan, &packages)
+    let report = apply(&root, kind, &plan, &packages)?;
+
+    // 只有技能会按策略默认启用；插件带工具/hooks/MCP，仍需显式激活。
+    if kind == PackageKind::Skill {
+        let default_on: Vec<String> = catalog
+            .skills
+            .iter()
+            .filter(|item| item.is_default_on())
+            .filter_map(|item| install_key(kind, item).ok())
+            .collect();
+        write_policy(&root, default_on)?;
+    }
+
+    Ok(report)
 }
 
 /// 启动后台同步：首次延迟 15s（别和登录/启动抢资源），之后每 6 小时一次。
@@ -583,6 +675,7 @@ fn remote(slug: &str, hash: &str) -> RemoteSkill {
         version: "1.0.0".to_string(),
         hash: hash.to_string(),
         size_bytes: 0,
+        activation: "optional".to_string(),
         url: format!("/auth/partner/skills/{slug}/1.0.0/download"),
     }
 }
@@ -777,6 +870,23 @@ mod tests {
         assert!(plan1.download.is_empty());
         assert_eq!(plan1.blocked.len(), 1);
         assert!(plan1.blocked[0].1.contains("pluginId"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn policy_file_roundtrip() {
+        let root = temp_root("policy");
+        write_policy(&root, vec!["travel".into(), "expense".into()]).expect("write");
+        assert_eq!(read_policy(&root), vec!["travel", "expense"]);
+        assert_eq!(
+            read_policy(&root),
+            vec!["travel".to_string(), "expense".to_string()]
+        );
+
+        // 空策略也要能读（客户端据此判定「没有企业强制默认」）。
+        write_policy(&root, Vec::new()).expect("write empty");
+        assert!(read_policy(&root).is_empty());
+
         let _ = fs::remove_dir_all(&root);
     }
 

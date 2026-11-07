@@ -41,6 +41,7 @@ fn view(resource: &Resource) -> Value {
         "enabled": resource.enabled,
         "payload": payload,
         "hasSecret": resource.has_secret,
+        "activation": resource.activation,
         "createdAt": resource.created_at,
         "updatedAt": resource.updated_at,
     })
@@ -116,6 +117,9 @@ pub struct CreateBody {
     pub secret: Option<String>,
     #[serde(default)]
     pub enabled: bool,
+    /// `optional`（默认）/ `default_on`：下发后客户端是否默认启用。
+    #[serde(default)]
+    pub activation: Option<String>,
 }
 
 pub async fn create_resource(
@@ -152,6 +156,11 @@ pub async fn create_resource(
     if body.enabled {
         resources::set_enabled(&state.store, &resource.id, true).await?;
     }
+    if let Some(activation) = body.activation.as_deref() {
+        resources::set_activation(&state.store, &resource.id, activation)
+            .await
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    }
 
     audit::record(
         &state.store,
@@ -185,6 +194,9 @@ pub struct UpdateBody {
     pub secret: Option<String>,
     #[serde(default)]
     pub enabled: Option<bool>,
+    /// `optional` / `default_on`。
+    #[serde(default)]
+    pub activation: Option<String>,
 }
 
 pub async fn update_resource(
@@ -219,6 +231,11 @@ pub async fn update_resource(
     }
     if let Some(enabled) = body.enabled {
         resources::set_enabled(&state.store, &id, enabled).await?;
+    }
+    if let Some(activation) = body.activation.as_deref() {
+        resources::set_activation(&state.store, &id, activation)
+            .await
+            .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     }
 
     audit::record(

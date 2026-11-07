@@ -650,6 +650,7 @@ fn manifest_to_skill(manifest: SkillManifest, dir: &Path) -> Result<SkillDef> {
     let id = manifest.name.clone();
     let provenance = super::provenance::resolve_provenance_for_path(&id, dir);
     let mutable = super::provenance::is_mutable(&id, dir);
+    let default_enabled = super::org_sync::is_default_on(&id);
     Ok(SkillDef {
         id,
         name: manifest.name,
@@ -666,6 +667,7 @@ fn manifest_to_skill(manifest: SkillManifest, dir: &Path) -> Result<SkillDef> {
         provenance: provenance.as_str().to_string(),
         mutable,
         plugin_id: None,
+        default_enabled,
     })
 }
 

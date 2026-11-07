@@ -23,7 +23,7 @@ const members = ref<any[]>([])
 
 const editing = ref<any>(null)
 const creating = ref(false)
-const form = ref({ slug: '', name: '', description: '', payload: '{}', secret: '', enabled: false })
+const form = ref({ slug: '', name: '', description: '', payload: '{}', secret: '', enabled: false, activation: 'optional' })
 
 const grantFor = ref<any>(null)
 const grantType = ref('all')
@@ -64,7 +64,7 @@ function switchKind(next: string) {
 function openCreate() {
   creating.value = true
   editing.value = null
-  form.value = { slug: '', name: '', description: '', payload: '{}', secret: '', enabled: false }
+  form.value = { slug: '', name: '', description: '', payload: '{}', secret: '', enabled: false, activation: 'optional' }
 }
 
 function openEdit(row: any) {
@@ -77,6 +77,7 @@ function openEdit(row: any) {
     payload: JSON.stringify(row.payload ?? {}, null, 2),
     secret: '',
     enabled: row.enabled,
+    activation: row.activation || 'optional',
   }
 }
 
@@ -99,6 +100,7 @@ async function submit() {
         payload,
         secret: form.value.secret || undefined,
         enabled: form.value.enabled,
+        activation: form.value.activation,
       })
       notice.value = '资源已创建'
     } else {
@@ -107,6 +109,7 @@ async function submit() {
         description: form.value.description.trim(),
         payload,
         enabled: form.value.enabled,
+        activation: form.value.activation,
       }
       if (form.value.secret) body.secret = form.value.secret
       await api.put(`/api/admin/resources/${editing.value.id}`, body)
@@ -391,6 +394,15 @@ onMounted(async () => {
         <input type="checkbox" v-model="form.enabled" style="width: auto" />
         <span class="small">立即启用（新建时默认停用）</span>
       </label>
+
+      <label v-if="kind === 'skill' || kind === 'plugin'">启用策略</label>
+      <select v-if="kind === 'skill' || kind === 'plugin'" v-model="form.activation">
+        <option value="optional">optional — 员工自己决定（默认）</option>
+        <option value="default_on">default_on — 下发后默认启用，员工可关</option>
+      </select>
+      <p v-if="kind === 'skill' || kind === 'plugin'" class="small muted" style="margin: 4px 0 0">
+        插件即使设为 default_on 也只落盘、不自动激活（插件带工具与 MCP，需显式授权）。
+      </p>
 
       <div class="modal-actions">
         <button @click="creating = false; editing = null">取消</button>

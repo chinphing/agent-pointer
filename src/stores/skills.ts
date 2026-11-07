@@ -38,8 +38,13 @@ export const useSkillsStore = defineStore('skills', () => {
   /** Resolve the agent's default skill ids from its definition (from AGENT.md). */
   function agentDefaultSkillIds(agentId: string): string[] {
     const agent = agentsCache.value.find(a => a.id === agentId)
-    if (agent) return [...agent.defaultSkillIds]
-    return []
+    const ids = agent ? [...agent.defaultSkillIds] : []
+    // 企业策略 default_on：和运行时一致，没被员工显式关掉就默认启用。
+    // 员工一旦写过 override，就走 override（关掉就是关掉），这里不再补。
+    for (const skill of skills.value) {
+      if (skill.defaultEnabled && !ids.includes(skill.id)) ids.push(skill.id)
+    }
+    return ids
   }
 
   /** UI effective list: override ?? defaults (runtime also merges missing bundled defaults). */

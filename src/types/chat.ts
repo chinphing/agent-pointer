@@ -985,6 +985,8 @@ export interface SkillDef {
   source?: string
   /** `system` = app data bundled; `user` = ~/.pointer/skills; `external` = ~/.agents/skills; `org` = 企业下发（只读） */
   provenance?: string
+  /** 企业策略 `default_on`：没被显式关掉时默认启用。 */
+  defaultEnabled?: boolean
   mutable?: boolean
   /** Set when the skill is provided by a plugin (P1). */
   pluginId?: string

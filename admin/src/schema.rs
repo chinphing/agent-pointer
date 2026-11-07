@@ -13,7 +13,7 @@ use sqlx::{Any, Row};
 use crate::db::{now_ts, AdminStore, Backend};
 use crate::rbac;
 
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 pub const DEFAULT_TENANT: &str = "default";
 
 const DDL_V1: &[&str] = &[
@@ -200,6 +200,14 @@ fn adapt(stmt: &str, backend: Backend) -> String {
     out
 }
 
+/// v4：资源级「启用策略」。
+///
+/// 刻意用 `ALTER` 而不是写进 DDL_V1：老库和新库都走同一条路径，只有一份定义。
+/// 值域：`optional`（默认，员工自己决定）/ `default_on`（下发后默认启用，员工可关）。
+const DDL_V4: &[&str] = &[
+    "ALTER TABLE resources ADD COLUMN activation VARCHAR(16) NOT NULL DEFAULT 'optional'",
+];
+
 pub async fn migrate(store: &AdminStore) -> Result<()> {
     store
         .exec(&adapt(
@@ -239,6 +247,15 @@ pub async fn migrate(store: &AdminStore) -> Result<()> {
                 .with_context(|| format!("apply admin schema v3: {}", first_line(stmt)))?;
         }
         write_version(store, 3).await?;
+    }
+    if read_version(store).await? < 4 {
+        for stmt in DDL_V4 {
+            store
+                .exec(&adapt(stmt, store.backend))
+                .await
+                .with_context(|| format!("apply admin schema v4: {}", first_line(stmt)))?;
+        }
+        write_version(store, 4).await?;
     }
 
     for stmt in index_statements(store.backend()) {

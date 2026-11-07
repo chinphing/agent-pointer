@@ -84,13 +84,13 @@ Expected: adds `tauri-plugin-updater` to `src-tauri/Cargo.toml` and `@tauri-apps
 
 - [ ] **Step 2: Update tauri.conf.json**
 
-Set `bundle.createUpdaterArtifacts` to `true`. Add `nsis` to `bundle.targets` (keep existing targets). Add `plugins.updater` block — **endpoint must use the official API base**, same as `platform_endpoints::DEFAULT_API_BASE`:
+Set `bundle.createUpdaterArtifacts` to `true`. Keep `bundle.targets` as is — Windows ships MSI only (`nsis` is not bundled). Add `plugins.updater` block — **endpoint must use the official API base**, same as `platform_endpoints::DEFAULT_API_BASE`:
 
 ```json
 {
   "bundle": {
     "createUpdaterArtifacts": true,
-    "targets": ["msi", "nsis", "deb", "appimage", "dmg"]
+    "targets": ["msi", "deb", "appimage", "dmg"]
   },
   "plugins": {
     "updater": {

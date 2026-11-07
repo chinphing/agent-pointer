@@ -151,7 +151,7 @@ export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="..."
 {
   "bundle": {
     "createUpdaterArtifacts": true,
-    "targets": ["msi", "nsis", "deb", "appimage", "dmg"]
+    "targets": ["msi", "deb", "appimage", "dmg"]
   },
   "plugins": {
     "updater": {
@@ -166,20 +166,20 @@ export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="..."
 
 说明：
 
-- Windows 新增 **NSIS** target，供 updater 静默安装（`passive` 模式）；MSI 仍供官网下载
-- `createUpdaterArtifacts: true` 为 Tauri v2 推荐值（非 `v1Compatible`）
+- Windows **只打 MSI**（`bundle.targets` 不含 `nsis`）；`installMode` 是 NSIS 专属配置，保留但当前不生效
+- `createUpdaterArtifacts: true` 为 Tauri v2 推荐值（非 `v1Compatible`）；Windows 侧只产出 `*.msi.sig`
 - **endpoint 域名** 与 `platform_endpoints::DEFAULT_API_BASE` / `POINTER_API_BASE` 一致；构建时可通过 `build.rs` 或环境变量注入，避免与 OAuth 域名分叉
 
 ### 5.2 各平台产物对照
 
 | 平台 | 官网下载（现有 kind） | Updater kind（新增） | Updater 文件 |
 |------|----------------------|---------------------|--------------|
-| Windows | `windows` → `.msi` | `windows_updater` | `.msi` + `.msi.sig` 或 NSIS `.exe` + `.sig` |
+| Windows | `windows` → `.msi` | `windows_updater` | `.msi` + `.msi.sig` |
 | macOS | `macos` → `.dmg` | `macos_updater` | `.app.tar.gz` + `.sig` |
 | Linux deb | `linux_deb` → `.deb` | — | 不支持自动升级 |
 | Linux AppImage | `linux_appimage` | `linux_appimage_updater` | `.AppImage` + `.sig` |
 
-首版 Windows updater 使用 **MSI + .sig**（与现有 MSI 上传一致，减少构建变更）。若静默安装体验不佳，再切换 NSIS。
+Windows updater 使用 **MSI + .sig**（与现有 MSI 上传一致，减少构建变更）。中途曾加过 NSIS target 走 `passive` 静默安装，现已在 `bundle.targets` 中移除，回到 MSI 单产物。
 
 ### 5.3 构建与上传（官网发版）
 
@@ -360,7 +360,7 @@ check_for_update()（仅探测）
             进行中：「请勿关闭应用，完成后将自动重新打开」
 ```
 
-**Windows 注意：** `install()` 会启动 MSI/NSIS 并 `process::exit(0)`。主动检查在用户确认后才下载+安装；后台路径在用户点「立即更新」后才安装。
+**Windows 注意：** `install()` 会启动 MSI 安装程序并 `process::exit(0)`。主动检查在用户确认后才下载+安装；后台路径在用户点「立即更新」后才安装。
 
 **文案原则（界面规范）：** 简洁、面向用户，不出现「manifest / sig / updater artifact」等开发术语。
 

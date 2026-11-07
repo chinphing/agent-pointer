@@ -86,6 +86,32 @@ function withFlavor(prefix, rest, flavor) {
 }
 
 export function releaseAssetName(filename, flavor) {
+  return stripInstallerLocale(markReleaseName(filename, flavor))
+}
+
+/**
+ * Tauri appends the WiX culture to MSI names (`Pointer_0.1.2_x64_zh-CN.msi`). The
+ * app ships every locale in one package, so that tag names the installer wizard's
+ * language, not the product — publishing it suggests a language-specific build.
+ * Strip it from the published name; the MSI's embedded language is untouched.
+ * `…_zh-CN.msi.sig` carries the installer's name, so it is stripped the same way.
+ */
+function stripInstallerLocale(filename) {
+  const [stem, ext] = splitReleaseExt(filename)
+  const lowerExt = ext.toLowerCase()
+  if (lowerExt === '.msi') return `${stripMsiCulture(stem)}${ext}`
+  if (lowerExt === '.sig' && stem.toLowerCase().endsWith('.msi')) {
+    return `${stripMsiCulture(stem.slice(0, -'.msi'.length))}.msi${ext}`
+  }
+  return filename
+}
+
+/** `…-x64-zh-CN` → `…-x64`; an architecture tag (`x64`, `aarch64`) never matches. */
+function stripMsiCulture(stem) {
+  return stem.replace(/[_-][a-z]{2}(?:-[A-Z]{2})?$/, '')
+}
+
+function markReleaseName(filename, flavor) {
   if (!FLAVORS.has(flavor)) {
     throw new Error(`release flavor must be community or official, got ${flavor}`)
   }

@@ -612,7 +612,7 @@ npm run icons
 若安装包或任务栏仍显示旧图标：
 
 1. 执行完整打包：`npm run build:windows`（不要只跑 `cargo build`）
-2. 用**本次**产物安装：`target/release/bundle/msi/Pointer_*_x64_*.msi`（勿用 `bundle/nsis/` 下残留的旧 setup.exe）
+2. 用**本次**产物安装：`target/release/bundle/msi/Pointer_*_x64*.msi`（NSIS 已不再打包，`bundle/nsis/` 下的旧 setup.exe 是历史残留，勿用）
 3. 先卸载旧版再装新版；开始菜单快捷方式可能缓存图标，可删快捷方式后重装
 4. 仍不对时清理后重编：`cargo clean -p pointer-app`，再 `npm run build:windows`
 

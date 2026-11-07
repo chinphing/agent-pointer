@@ -108,10 +108,10 @@ npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 
 ```text
 src-tauri/target/release/bundle/
-├── msi/  nsis/          # Windows 安装包
+├── msi/                 # Windows 安装包（仅 MSI，不再打 NSIS）
 ├── macos/  dmg/         # macOS（.app / .dmg）
 ├── deb/  appimage/      # Linux
-└── *.sig + updater 压缩包（Windows `.nsis.zip`、macOS `.app.tar.gz`、Linux `.AppImage.tar.gz`）
+└── *.sig + updater 压缩包（Windows `.msi.sig`、macOS `.app.tar.gz`、Linux `.AppImage.tar.gz`）
 ```
 
 - 签名 Universal 打包的产物在 `target/universal-apple-darwin/release/bundle/`。
@@ -262,7 +262,7 @@ npm run tauri:build          # 不设任何 POINTER_* 变量
 
 ### 5.3 产物位置
 
-`src-tauri/target/release/bundle/{msi,nsis,macos,dmg,deb,appimage}`，**没有** `*.sig` / updater 压缩包。
+`src-tauri/target/release/bundle/{msi,macos,dmg,deb,appimage}`，**没有** `*.sig` / updater 压缩包。
 
 ### 5.4 怎么验证
 

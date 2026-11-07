@@ -20,13 +20,30 @@ describe('releaseAssetName', () => {
       'Pointer-official-0.1.2-x64-setup.exe',
     )
     expect(releaseAssetName('Pointer_0.1.2_x64_zh-CN.msi', 'community')).toBe(
-      'Pointer-community-0.1.2-x64-zh-CN.msi',
+      'Pointer-community-0.1.2-x64.msi',
     )
     expect(releaseAssetName('Pointer_0.1.2_amd64.AppImage', 'official')).toBe(
       'Pointer-official-0.1.2-amd64.AppImage',
     )
     expect(releaseAssetName('Pointer_0.1.2_amd64.deb.sig', 'official')).toBe(
       'Pointer-official-0.1.2-amd64.deb.sig',
+    )
+  })
+
+  it('drops the WiX culture from MSI names without touching the architecture', () => {
+    expect(releaseAssetName('Pointer_0.1.2_x64_en-US.msi', 'official')).toBe(
+      'Pointer-official-0.1.2-x64.msi',
+    )
+    expect(releaseAssetName('Pointer_0.1.2_aarch64_zh-CN.msi', 'community')).toBe(
+      'Pointer-community-0.1.2-aarch64.msi',
+    )
+    // Non-MSI installers keep their full name: NSIS names carry no culture.
+    expect(releaseAssetName('Pointer_0.1.2_x64-setup.exe', 'community')).toBe(
+      'Pointer-community-0.1.2-x64-setup.exe',
+    )
+    // The updater signature repeats the installer's name, so it loses the tag too.
+    expect(releaseAssetName('Pointer_0.1.2_x64_zh-CN.msi.sig', 'official')).toBe(
+      'Pointer-official-0.1.2-x64.msi.sig',
     )
   })
 

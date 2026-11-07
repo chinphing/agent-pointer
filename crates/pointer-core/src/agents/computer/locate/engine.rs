@@ -1430,6 +1430,41 @@ mod tests {
         );
     }
 
+    /// 裁片没找到、整屏重找也没找到 → `not_found`，且一轮里确实发生了四次调用。
+    ///
+    /// 这条把「回整屏」钉死：`rounds` 只数校验轮数（这里是 1），但模型调用是
+    /// 4 次（初定位 / 校验 / 裁片重找 / 整屏重找）。只看 `rounds` 会误以为
+    /// 没有放大。
+    #[tokio::test]
+    async fn crop_refine_and_widen_both_missing_end_as_not_found() {
+        let first = NormBox::new(400.0, 300.0, 500.0, 400.0);
+        let vision = FakeVision::new()
+            .with_locate(vec![Some(first), None, None])
+            .with_verify(vec![no_left("偏左")]);
+        let out = locate_one(
+            &vision,
+            &frame(),
+            &LocateRequest::new("目标", "点击它"),
+            &cfg(),
+            &cancel_token(),
+        )
+        .await
+        .unwrap();
+
+        assert!(!out.ok);
+        assert_eq!(out.reason, Some(FailureReason::NotFound));
+        assert_eq!(out.rounds, 1, "rounds counts verify rounds, not model calls");
+        assert_eq!(
+            vision.calls(),
+            vec![
+                Call::Locate { width: 1000, height: 800 },  // full_init
+                Call::Verify { width: 64, height: 64 },     // 校验裁片
+                Call::Locate { width: 1920, height: 1920 }, // crop_r1
+                Call::Locate { width: 1000, height: 800 },  // full_widen_r1
+            ]
+        );
+    }
+
     /// 裁片里没找到（或没答出来）= 这个窗口不够，必须回整屏。
     ///
     /// 这是「局部重找」唯一的失败出口：裁片只有 640 源像素，候选偏出几百

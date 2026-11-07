@@ -478,12 +478,16 @@ pub fn start_background_loop(state: std::sync::Arc<crate::chat_service::AppState
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(15)).await;
         loop {
-            let mut changed = false;
+            let mut skills_changed = false;
+            let mut plugins_changed = false;
             for kind in [PackageKind::Skill, PackageKind::Plugin] {
                 match sync(state.platform_auth.as_ref(), kind).await {
                     Ok(report) => {
                         if !report.installed.is_empty() || !report.removed.is_empty() {
-                            changed = true;
+                            match kind {
+                                PackageKind::Skill => skills_changed = true,
+                                PackageKind::Plugin => plugins_changed = true,
+                            }
                             log::info!(
                                 "org {} synced: +{} -{} (unchanged {})",
                                 kind.segment(),
@@ -499,9 +503,17 @@ pub fn start_background_loop(state: std::sync::Arc<crate::chat_service::AppState
                     Err(err) => log::warn!("org {} sync failed: {err:#}", kind.segment()),
                 }
             }
-            if changed {
+            if skills_changed {
                 if let Err(err) = state.skills.reload_meta() {
-                    log::warn!("org packages: reload registry failed: {err:#}");
+                    log::warn!("org skills: reload registry failed: {err:#}");
+                }
+            }
+            if plugins_changed {
+                // 插件落了盘还要重扫 + 装配，否则界面里看不到、能力也不生效。
+                // 注意：只扫不激活——是否启用仍由员工/管理员决定。
+                match state.plugins.scan() {
+                    Ok(_) => state.apply_plugins(),
+                    Err(err) => log::warn!("org plugins: rescan failed: {err:#}"),
                 }
             }
             tokio::time::sleep(Duration::from_secs(6 * 3600)).await;

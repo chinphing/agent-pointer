@@ -386,7 +386,7 @@ export function useChannelSettingsForm() {
 
   watch(config, scheduleChannelAutosave, { deep: true })
 
-  /** 供设置页底部「保存」调用：仅持久化配置，不强制连接 */
+  /** 立即持久化通道配置（不强制连接）；设置页已改为改动即自动保存，此处保留供显式调用 */
   async function save() {
     saving.value = true
     error.value = ''

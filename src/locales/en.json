@@ -1007,7 +1007,7 @@
       "setupReady": "Configured; tap Connect",
       "running": "Running; messaging is live",
       "notConnected": "Not connected; tap Connect",
-      "footerHint": "Scan success connects automatically; manual credentials need Connect. Save writes all channel configs. Feishu / WeCom use WSS; DingTalk uses Stream.",
+      "footerHint": "Scan success connects automatically; manual credentials need Connect. Channel changes save automatically. Feishu / WeCom use WSS; DingTalk uses Stream.",
       "enabled": "Enabled",
       "scanConnect": "Scan to connect",
       "weixinDesktopOnly": "WeChat QR login needs the desktop app",

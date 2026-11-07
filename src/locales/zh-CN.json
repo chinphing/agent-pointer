@@ -1007,7 +1007,7 @@
       "setupReady": "已配置，点击连接",
       "running": "运行中，可正常收发消息",
       "notConnected": "未连接，请点击「连接」",
-      "footerHint": "扫码授权成功后会自动连接；手填凭证需点「连接」。底部「保存」写入全部通道配置。飞书 / 企微为 WSS 长连接，钉钉为 Stream 长连接。",
+      "footerHint": "扫码授权成功后会自动连接；手填凭证需点「连接」。通道配置改动即自动保存。飞书 / 企微为 WSS 长连接，钉钉为 Stream 长连接。",
       "enabled": "启用",
       "scanConnect": "扫码连接",
       "weixinDesktopOnly": "微信扫码登录仅支持桌面客户端",

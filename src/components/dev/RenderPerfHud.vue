@@ -54,7 +54,10 @@ import {
  * is off — no timer, no click target, no listener.
  *
  * Rendered as a single pre-formatted text block: the 4 Hz refresh then costs
- * one text update instead of a vnode tree.
+ * one text update instead of a vnode tree. The box is capped at `96ch` — half the
+ * 191-character geometry footnote, which is what sets the overlay's natural width.
+ * `pre-wrap` keeps the column alignment and lets that one long line fold instead of
+ * pushing the overlay across the window.
  *
  * Clicking the block copies that block (see `lib/clipboardText.ts`), so the
  * numbers can be pasted instead of screenshotted, and the title row reports the
@@ -442,7 +445,7 @@ const displayText = computed(() => {
 
 <template>
   <div
-    class="fixed bottom-2 left-2 z-[250] cursor-pointer select-none whitespace-pre rounded-md border border-white/10 bg-black/80 px-2.5 py-1.5 font-mono text-[10px] leading-[1.4] text-emerald-100/90 shadow-lg"
+    class="fixed bottom-2 left-2 z-[250] max-w-[96ch] cursor-pointer select-none whitespace-pre-wrap rounded-md border border-white/10 bg-black/80 px-2.5 py-1.5 font-mono text-[10px] leading-[1.4] text-emerald-100/90 shadow-lg"
     aria-hidden="true"
     data-testid="render-perf-hud"
     title="Click to copy the HUD text"

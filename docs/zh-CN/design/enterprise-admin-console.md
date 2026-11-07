@@ -588,6 +588,67 @@ MySQL → `VARCHAR(n)`，SQLite / PostgreSQL → `TEXT`（不引入长度上限�
 MySQL 那条一开始是失败的，暴露了 13 节里第 4 条约束（`TEXT` 在 `Any` 驱动下
 被当成 `BLOB`）。修完 DDL 适配层才通过——**这条不真机跑是发现不了的**。
 
+## 13.4 部署形态（单机 / 多实例）
+
+### 单机（默认，什么都不用配）
+
+```bash
+cargo run -p pointer-admin
+```
+
+- 数据库：SQLite 文件（`POINTER_ADMIN_DB_URL=sqlite:...`）
+- 密钥加密：按本机标识派生（`enc:v1:`）
+- 包存储：`POINTER_ADMIN_DATA_DIR`（默认 `admin/data`）
+- 适用：员工规模一两千以内、不要求高可用
+
+### 多实例
+
+**三条硬要求，缺一条就会出随机故障：**
+
+| # | 要求 | 不满足会怎样 |
+| --- | --- | --- |
+| 1 | **同一个数据库**，且必须是 PostgreSQL / MySQL | SQLite 是单机文件，多进程/跨机写会锁冲突 |
+| 2 | **同一个 `POINTER_ADMIN_MASTER_KEY`** | 各实例派生出不同密钥，A 写的 key B 解不开（接口 500） |
+| 3 | **同一个 `POINTER_ADMIN_DATA_DIR`**（共享卷 NFS/EFS） | 上传落在 A 的磁盘，下载打到 B 就 404 |
+
+```bash
+# 每个实例的环境变量（除地址外完全一致）
+POINTER_ADMIN_ADDR=0.0.0.0:8788
+POINTER_ADMIN_DB_URL=postgres://user:pass@db.internal:5432/pointer_admin
+POINTER_ADMIN_MASTER_KEY=<同一个 32+ 字节随机串，放进 secret manager>
+POINTER_ADMIN_DATA_DIR=/mnt/pointer-admin-data      # 共享卷
+POINTER_ADMIN_OAUTH_SECRET=<同一个>
+```
+
+**部署后自查**（任一实例执行，结果必须一致）：
+
+```bash
+# 1. 加密模式：日志里应有「使用 POINTER_ADMIN_MASTER_KEY（可跨实例解密）」
+# 2. 包可见性：在 A 上传一个技能包，然后直接打 B 的下载地址
+curl -s -o /dev/null -w '%{http_code}\n' -H "authorization: Bearer $TOKEN" \
+  "http://<实例B>/auth/partner/skills/<slug>/<version>/download"   # 期望 200
+# 3. 登录：连续登录 20 次（负载均衡会把两个请求打到不同实例）
+```
+
+### 从单机迁到多实例
+
+1. **先在原机器上**配好 `POINTER_ADMIN_MASTER_KEY` 并重启一次——此后新写入的密钥是 `enc:v2:`，可跨机解密；
+2. 把数据目录挂成共享卷；
+3. 加第二个实例。
+
+**老数据的坑**：切换前写入的 `enc:v1:` 密文**只有在原机器上才解得开**。
+所以「先切 master key、再迁数据」是唯一安全顺序。如果已经换了机器，
+只能把企业密钥重新录入一遍（`POST /api/admin/resources/:id` 带 `secret` 字段）。
+后续可以加一个「按当前模式重新加密所有密文」的维护接口来消除这个手工步骤，目前没有。
+
+### 已知限制（多实例下仍然成立）
+
+| 限制 | 影响 | 兜法 |
+| --- | --- | --- |
+| 包存本地盘 | 不挂共享卷就只有上传的那台能下载 | 挂共享卷；后续可换对象存储 |
+| 没有「立即同步」入口 | 发布新版本后员工最长等 6 小时 | 重启客户端（15 秒后拉一次） |
+| 审计/用量写库 | 无 | — |
+
 ## 14. 相关文档
 
 - [control-plane-and-editions.md](control-plane-and-editions.md)（三种用法、客户端/服务端、门禁）

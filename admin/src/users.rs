@@ -3,9 +3,10 @@
 //! 密码只以 argon2id 哈希入库；`User` 结构体刻意不含 `password_hash`，避免误传给接口层。
 
 use anyhow::{anyhow, Result};
-use rusqlite::{params, Connection, OptionalExtension};
+use sqlx::any::AnyRow;
+use sqlx::{Any, Row};
 
-use crate::db::{now_ts, random_id};
+use crate::db::{now_ts, random_id, AdminStore};
 use crate::password;
 
 pub const STATUS_ACTIVE: &str = "active";
@@ -30,15 +31,15 @@ impl User {
 
 const COLS: &str = "id, tenant_id, username, display_name, status, created_at, last_login_at";
 
-fn map_user(r: &rusqlite::Row<'_>) -> rusqlite::Result<User> {
+fn map_user(row: &AnyRow) -> Result<User> {
     Ok(User {
-        id: r.get(0)?,
-        tenant_id: r.get(1)?,
-        username: r.get(2)?,
-        display_name: r.get(3)?,
-        status: r.get(4)?,
-        created_at: r.get(5)?,
-        last_login_at: r.get(6)?,
+        id: row.try_get(0)?,
+        tenant_id: row.try_get(1)?,
+        username: row.try_get(2)?,
+        display_name: row.try_get(3)?,
+        status: row.try_get(4)?,
+        created_at: row.try_get(5)?,
+        last_login_at: row.try_get(6)?,
     })
 }
 
@@ -56,8 +57,8 @@ fn normalize_username(raw: &str) -> Result<String> {
     Ok(name.to_string())
 }
 
-pub fn create(
-    conn: &Connection,
+pub async fn create(
+    store: &AdminStore,
     tenant_id: &str,
     username: &str,
     display_name: &str,
@@ -72,115 +73,143 @@ pub fn create(
             d.to_string()
         }
     };
-    if find_by_username(conn, tenant_id, &username)?.is_some() {
+    if find_by_username(store, tenant_id, &username).await?.is_some() {
         return Err(anyhow!("username already exists: {username}"));
     }
     let password_hash = password::hash_password(plain_password)?;
     let id = random_id();
-    conn.execute(
+    let sql = store.sql(
         "INSERT INTO users (id, tenant_id, username, display_name, password_hash, status, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![
-            id,
-            tenant_id,
-            username,
-            display_name,
-            password_hash,
-            STATUS_ACTIVE,
-            now_ts()
-        ],
-    )?;
-    get(conn, &id)?.ok_or_else(|| anyhow!("user vanished right after insert"))
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
+    );
+    sqlx::query::<Any>(&sql)
+        .bind(&id)
+        .bind(tenant_id)
+        .bind(&username)
+        .bind(&display_name)
+        .bind(password_hash)
+        .bind(STATUS_ACTIVE)
+        .bind(now_ts())
+        .execute(store.pool())
+        .await?;
+    get(store, &id)
+        .await?
+        .ok_or_else(|| anyhow!("user vanished right after insert"))
 }
 
-pub fn find_by_username(
-    conn: &Connection,
+pub async fn find_by_username(
+    store: &AdminStore,
     tenant_id: &str,
     username: &str,
 ) -> Result<Option<User>> {
-    Ok(conn
-        .query_row(
-            &format!("SELECT {COLS} FROM users WHERE tenant_id = ?1 AND username = ?2"),
-            params![tenant_id, username.trim()],
-            map_user,
-        )
-        .optional()?)
+    let sql = store.sql(&format!(
+        "SELECT {COLS} FROM users WHERE tenant_id = ? AND username = ?"
+    ));
+    let row = sqlx::query::<Any>(&sql)
+        .bind(tenant_id)
+        .bind(username.trim())
+        .fetch_optional(store.pool())
+        .await?;
+    match row {
+        Some(row) => Ok(Some(map_user(&row)?)),
+        None => Ok(None),
+    }
 }
 
-pub fn get(conn: &Connection, user_id: &str) -> Result<Option<User>> {
-    Ok(conn
-        .query_row(
-            &format!("SELECT {COLS} FROM users WHERE id = ?1"),
-            params![user_id],
-            map_user,
-        )
-        .optional()?)
+pub async fn get(store: &AdminStore, user_id: &str) -> Result<Option<User>> {
+    let sql = store.sql(&format!("SELECT {COLS} FROM users WHERE id = ?"));
+    let row = sqlx::query::<Any>(&sql)
+        .bind(user_id)
+        .fetch_optional(store.pool())
+        .await?;
+    match row {
+        Some(row) => Ok(Some(map_user(&row)?)),
+        None => Ok(None),
+    }
 }
 
-pub fn list(conn: &Connection, tenant_id: &str) -> Result<Vec<User>> {
-    let mut stmt = conn.prepare(&format!(
-        "SELECT {COLS} FROM users WHERE tenant_id = ?1 ORDER BY username"
-    ))?;
-    let rows = stmt.query_map(params![tenant_id], map_user)?;
-    let mut out = Vec::new();
-    for row in rows {
-        out.push(row?);
+pub async fn list(store: &AdminStore, tenant_id: &str) -> Result<Vec<User>> {
+    let sql = store.sql(&format!(
+        "SELECT {COLS} FROM users WHERE tenant_id = ? ORDER BY username"
+    ));
+    let rows = sqlx::query::<Any>(&sql)
+        .bind(tenant_id)
+        .fetch_all(store.pool())
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        out.push(map_user(row)?);
     }
     Ok(out)
 }
 
-pub fn set_status(conn: &Connection, user_id: &str, status: &str) -> Result<()> {
+pub async fn set_status(store: &AdminStore, user_id: &str, status: &str) -> Result<()> {
     if status != STATUS_ACTIVE && status != STATUS_DISABLED {
         return Err(anyhow!("unknown user status: {status}"));
     }
-    let changed = conn.execute(
-        "UPDATE users SET status = ?2 WHERE id = ?1",
-        params![user_id, status],
-    )?;
+    let sql = store.sql("UPDATE users SET status = ? WHERE id = ?");
+    let changed = sqlx::query::<Any>(&sql)
+        .bind(status)
+        .bind(user_id)
+        .execute(store.pool())
+        .await?
+        .rows_affected();
     if changed == 0 {
         return Err(anyhow!("user not found: {user_id}"));
     }
     Ok(())
 }
 
-pub fn reset_password(conn: &Connection, user_id: &str, plain_password: &str) -> Result<()> {
+pub async fn reset_password(
+    store: &AdminStore,
+    user_id: &str,
+    plain_password: &str,
+) -> Result<()> {
     let password_hash = password::hash_password(plain_password)?;
-    let changed = conn.execute(
-        "UPDATE users SET password_hash = ?2 WHERE id = ?1",
-        params![user_id, password_hash],
-    )?;
+    let sql = store.sql("UPDATE users SET password_hash = ? WHERE id = ?");
+    let changed = sqlx::query::<Any>(&sql)
+        .bind(password_hash)
+        .bind(user_id)
+        .execute(store.pool())
+        .await?
+        .rows_affected();
     if changed == 0 {
         return Err(anyhow!("user not found: {user_id}"));
     }
     Ok(())
 }
 
-pub fn touch_login(conn: &Connection, user_id: &str) -> Result<()> {
-    conn.execute(
-        "UPDATE users SET last_login_at = ?2 WHERE id = ?1",
-        params![user_id, now_ts()],
-    )?;
+pub async fn touch_login(store: &AdminStore, user_id: &str) -> Result<()> {
+    let sql = store.sql("UPDATE users SET last_login_at = ? WHERE id = ?");
+    sqlx::query::<Any>(&sql)
+        .bind(now_ts())
+        .bind(user_id)
+        .execute(store.pool())
+        .await?;
     Ok(())
 }
 
 /// 校验账密。用户不存在、被禁用、密码错误一律返回 `None`（不泄露是哪一种）。
-pub fn authenticate(
-    conn: &Connection,
+pub async fn authenticate(
+    store: &AdminStore,
     tenant_id: &str,
     username: &str,
     plain_password: &str,
 ) -> Result<Option<User>> {
-    let row: Option<(String, String, String)> = conn
-        .query_row(
-            "SELECT id, password_hash, status FROM users WHERE tenant_id = ?1 AND username = ?2",
-            params![tenant_id, username.trim()],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .optional()?;
+    let sql = store.sql(
+        "SELECT id, password_hash, status FROM users WHERE tenant_id = ? AND username = ?",
+    );
+    let row = sqlx::query::<Any>(&sql)
+        .bind(tenant_id)
+        .bind(username.trim())
+        .fetch_optional(store.pool())
+        .await?;
 
-    let Some((id, hash, status)) = row else {
-        return Ok(None);
-    };
+    let Some(row) = row else { return Ok(None) };
+    let id: String = row.try_get(0)?;
+    let hash: String = row.try_get(1)?;
+    let status: String = row.try_get(2)?;
+
     if status != STATUS_ACTIVE {
         log::warn!("admin auth: user {id} is {status}");
         return Ok(None);
@@ -188,128 +217,173 @@ pub fn authenticate(
     if !password::verify_password(&hash, plain_password) {
         return Ok(None);
     }
-    touch_login(conn, &id)?;
-    get(conn, &id)
+    touch_login(store, &id).await?;
+    get(store, &id).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::test_conn;
+    use crate::db::AdminStore;
     use crate::schema::DEFAULT_TENANT;
 
-    #[test]
-    fn create_and_fetch() {
-        let conn = test_conn();
-        let u = create(&conn, DEFAULT_TENANT, "  alice  ", "", "pw-123456").expect("create");
+    async fn store() -> AdminStore {
+        AdminStore::connect_in_memory().await.expect("store")
+    }
+
+    #[tokio::test]
+    async fn create_and_fetch() {
+        let store = store().await;
+        let u = create(&store, DEFAULT_TENANT, "  alice  ", "", "pw-123456")
+            .await
+            .expect("create");
         assert_eq!(u.username, "alice");
         assert_eq!(u.display_name, "alice");
         assert_eq!(u.status, STATUS_ACTIVE);
         assert!(u.last_login_at.is_none());
 
-        let found = find_by_username(&conn, DEFAULT_TENANT, "alice")
+        let found = find_by_username(&store, DEFAULT_TENANT, "alice")
+            .await
             .expect("find")
             .expect("present");
         assert_eq!(found.id, u.id);
-        assert_eq!(get(&conn, &u.id).expect("get").expect("present"), u);
+        assert_eq!(get(&store, &u.id).await.expect("get").expect("present"), u);
     }
 
-    #[test]
-    fn duplicate_username_rejected() {
-        let conn = test_conn();
-        create(&conn, DEFAULT_TENANT, "bob", "Bob", "pw-123456").expect("first");
-        let err = create(&conn, DEFAULT_TENANT, "bob", "Bob2", "pw-123456").expect_err("dup");
+    #[tokio::test]
+    async fn duplicate_username_rejected() {
+        let store = store().await;
+        create(&store, DEFAULT_TENANT, "bob", "Bob", "pw-123456")
+            .await
+            .expect("first");
+        let err = create(&store, DEFAULT_TENANT, "bob", "Bob2", "pw-123456")
+            .await
+            .expect_err("dup");
         assert!(err.to_string().contains("already exists"), "got: {err}");
     }
 
-    #[test]
-    fn invalid_usernames_rejected() {
-        let conn = test_conn();
-        for bad in ["", "   ", "a b", "x".repeat(65).as_str()] {
+    #[tokio::test]
+    async fn invalid_usernames_rejected() {
+        let store = store().await;
+        let long = "x".repeat(65);
+        for bad in ["", "   ", "a b", long.as_str()] {
             assert!(
-                create(&conn, DEFAULT_TENANT, bad, "", "pw-123456").is_err(),
+                create(&store, DEFAULT_TENANT, bad, "", "pw-123456")
+                    .await
+                    .is_err(),
                 "expected reject for {bad:?}"
             );
         }
     }
 
-    #[test]
-    fn password_is_not_stored_in_plaintext() {
-        let conn = test_conn();
-        let u = create(&conn, DEFAULT_TENANT, "carol", "", "pw-123456").expect("create");
-        let hash: String = conn
-            .query_row(
-                "SELECT password_hash FROM users WHERE id = ?1",
-                params![u.id],
-                |r| r.get(0),
-            )
-            .expect("hash");
+    #[tokio::test]
+    async fn password_is_not_stored_in_plaintext() {
+        let store = store().await;
+        let u = create(&store, DEFAULT_TENANT, "carol", "", "pw-123456")
+            .await
+            .expect("create");
+        let sql = store.sql("SELECT password_hash FROM users WHERE id = ?");
+        let row = sqlx::query::<Any>(&sql)
+            .bind(&u.id)
+            .fetch_one(store.pool())
+            .await
+            .expect("hash row");
+        let hash: String = row.try_get(0).expect("hash");
         assert!(hash.starts_with("$argon2id$"), "got: {hash}");
         assert!(!hash.contains("pw-123456"));
     }
 
-    #[test]
-    fn authenticate_ok_and_updates_last_login() {
-        let conn = test_conn();
-        let u = create(&conn, DEFAULT_TENANT, "dave", "", "pw-123456").expect("create");
-        let authed = authenticate(&conn, DEFAULT_TENANT, "dave", "pw-123456")
+    #[tokio::test]
+    async fn authenticate_ok_and_updates_last_login() {
+        let store = store().await;
+        let u = create(&store, DEFAULT_TENANT, "dave", "", "pw-123456")
+            .await
+            .expect("create");
+        let authed = authenticate(&store, DEFAULT_TENANT, "dave", "pw-123456")
+            .await
             .expect("auth")
             .expect("ok");
         assert_eq!(authed.id, u.id);
         assert!(authed.last_login_at.is_some());
     }
 
-    #[test]
-    fn authenticate_rejects_wrong_password_and_disabled_user() {
-        let conn = test_conn();
-        let u = create(&conn, DEFAULT_TENANT, "erin", "", "pw-123456").expect("create");
-        assert!(authenticate(&conn, DEFAULT_TENANT, "erin", "wrong").expect("auth").is_none());
+    #[tokio::test]
+    async fn authenticate_rejects_wrong_password_and_disabled_user() {
+        let store = store().await;
+        let u = create(&store, DEFAULT_TENANT, "erin", "", "pw-123456")
+            .await
+            .expect("create");
+        assert!(authenticate(&store, DEFAULT_TENANT, "erin", "wrong")
+            .await
+            .expect("auth")
+            .is_none());
 
-        set_status(&conn, &u.id, STATUS_DISABLED).expect("disable");
+        set_status(&store, &u.id, STATUS_DISABLED)
+            .await
+            .expect("disable");
         assert!(
-            authenticate(&conn, DEFAULT_TENANT, "erin", "pw-123456")
+            authenticate(&store, DEFAULT_TENANT, "erin", "pw-123456")
+                .await
                 .expect("auth")
                 .is_none(),
             "disabled user must not authenticate"
         );
     }
 
-    #[test]
-    fn authenticate_unknown_user_is_none() {
-        let conn = test_conn();
-        assert!(authenticate(&conn, DEFAULT_TENANT, "ghost", "pw-123456")
+    #[tokio::test]
+    async fn authenticate_unknown_user_is_none() {
+        let store = store().await;
+        assert!(authenticate(&store, DEFAULT_TENANT, "ghost", "pw-123456")
+            .await
             .expect("auth")
             .is_none());
     }
 
-    #[test]
-    fn reset_password_takes_effect() {
-        let conn = test_conn();
-        let u = create(&conn, DEFAULT_TENANT, "frank", "", "old-password").expect("create");
-        reset_password(&conn, &u.id, "new-password").expect("reset");
-        assert!(authenticate(&conn, DEFAULT_TENANT, "frank", "old-password")
+    #[tokio::test]
+    async fn reset_password_takes_effect() {
+        let store = store().await;
+        let u = create(&store, DEFAULT_TENANT, "frank", "", "old-password")
+            .await
+            .expect("create");
+        reset_password(&store, &u.id, "new-password")
+            .await
+            .expect("reset");
+        assert!(authenticate(&store, DEFAULT_TENANT, "frank", "old-password")
+            .await
             .expect("auth")
             .is_none());
-        assert!(authenticate(&conn, DEFAULT_TENANT, "frank", "new-password")
-            .expect("auth")
-            .is_some());
+        assert!(
+            authenticate(&store, DEFAULT_TENANT, "frank", "new-password")
+                .await
+                .expect("auth")
+                .is_some()
+        );
     }
 
-    #[test]
-    fn set_status_rejects_unknown_value_and_missing_user() {
-        let conn = test_conn();
-        let u = create(&conn, DEFAULT_TENANT, "gina", "", "pw-123456").expect("create");
-        assert!(set_status(&conn, &u.id, "archived").is_err());
-        assert!(set_status(&conn, "missing", STATUS_DISABLED).is_err());
+    #[tokio::test]
+    async fn set_status_rejects_unknown_value_and_missing_user() {
+        let store = store().await;
+        let u = create(&store, DEFAULT_TENANT, "gina", "", "pw-123456")
+            .await
+            .expect("create");
+        assert!(set_status(&store, &u.id, "archived").await.is_err());
+        assert!(set_status(&store, "missing", STATUS_DISABLED).await.is_err());
     }
 
-    #[test]
-    fn list_is_tenant_scoped_and_sorted() {
-        let conn = test_conn();
-        create(&conn, DEFAULT_TENANT, "zoe", "", "pw-123456").expect("zoe");
-        create(&conn, DEFAULT_TENANT, "amy", "", "pw-123456").expect("amy");
-        create(&conn, "other", "anna", "", "pw-123456").expect("other tenant");
-        let names: Vec<String> = list(&conn, DEFAULT_TENANT)
+    #[tokio::test]
+    async fn list_is_tenant_scoped_and_sorted() {
+        let store = store().await;
+        create(&store, DEFAULT_TENANT, "zoe", "", "pw-123456")
+            .await
+            .expect("zoe");
+        create(&store, DEFAULT_TENANT, "amy", "", "pw-123456")
+            .await
+            .expect("amy");
+        create(&store, "other", "anna", "", "pw-123456")
+            .await
+            .expect("other tenant");
+        let names: Vec<String> = list(&store, DEFAULT_TENANT)
+            .await
             .expect("list")
             .into_iter()
             .map(|u| u.username)

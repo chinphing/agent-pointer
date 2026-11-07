@@ -452,6 +452,25 @@ src-tauri ──→ pointer-core, pointer-channels
 admin 与 server 只通过 HTTP 说话；指针不共享，桌面包体不受影响。
 前端同理：`admin/web/` 与根 `src/` 各自构建，互不引用。
 
+### 13.1 数据层：sqlx，三库可选
+
+| 项 | 做法 |
+| --- | --- |
+| 驱动 | `sqlx` + `Any`，运行期由 `POINTER_ADMIN_DB_URL` 前缀决定：`sqlite:` / `postgres:` / `mysql:` |
+| 占位符 | SQL 一律写 `?`；PG 下由 `AdminStore::sql` 改写成 `$1..$n` |
+| 影响范围 | **只有 admin**；客户端与 server 仍用 rusqlite 的 `conversations.db`，不动 |
+| SQLite | `max_connections=1` + `journal_mode=WAL` + `foreign_keys=ON`（单文件，单连接最省事） |
+| 事务 | 先解析完角色 id 再开事务——SQLite 只有一条连接，事务内再查池会自锁 |
+
+三条跨库 DDL 约束（否则 SQLite 能跑、MySQL 报错）：
+
+1. 字符串主键用 `VARCHAR(n)`，不用 `TEXT`（MySQL 的 `TEXT` 不能做主键）；
+2. 时间戳用 `BIGINT` 存 unix 秒，不用各库不同的日期类型；
+3. 避开保留字：`meta_key` / `meta_value` / `role_key`，不写 `key`（MySQL 保留字）。
+
+另外不用 `ON CONFLICT`、`INSERT OR IGNORE`、`RETURNING`——三者语法各不相同；
+唯一性靠「先查后写」保证，索引重复创建的错误直接忽略。
+
 | 层 | 位置 | 放什么 | 不放什么 |
 | --- | --- | --- | --- |
 | 领域 | `admin/src/store/` | 表、迁移、密码、RBAC、授权、配额、凭证 | 任何 HTTP 概念 |

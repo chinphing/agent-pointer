@@ -22,19 +22,22 @@ pub async fn list_roles(
     auth.require("role:read")?;
 
     let sql = state.store.sql(
-        "SELECT r.role_key, COUNT(ur.user_id) FROM roles r
+        "SELECT r.id, r.role_key, COUNT(ur.user_id) FROM roles r
          LEFT JOIN user_roles ur ON ur.role_id = r.id
-         WHERE r.tenant_id = ? GROUP BY r.role_key",
+         WHERE r.tenant_id = ? GROUP BY r.id, r.role_key",
     );
     let rows = sqlx::query::<Any>(&sql)
         .bind(&state.config.tenant_id)
         .fetch_all(state.store.pool())
         .await?;
     let mut counts = std::collections::HashMap::new();
+    let mut ids = std::collections::HashMap::new();
     for row in &rows {
-        let key: String = row.try_get(0)?;
-        let count: i64 = row.try_get(1)?;
-        counts.insert(key, count);
+        let id: String = row.try_get(0)?;
+        let key: String = row.try_get(1)?;
+        let count: i64 = row.try_get(2)?;
+        counts.insert(key.clone(), count);
+        ids.insert(key, id);
     }
 
     let items: Vec<Value> = rbac::BUILTIN_ROLES
@@ -46,6 +49,7 @@ pub async fn list_roles(
                 rbac::builtin_permissions(role.key)
             };
             json!({
+                "id": ids.get(role.key).cloned().unwrap_or_default(),
                 "key": role.key,
                 "name": role.name,
                 "permissions": permissions,

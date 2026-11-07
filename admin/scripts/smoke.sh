@@ -82,3 +82,13 @@ curl -s -b "$CJ" "$BASE/api/admin/overview"; echo
 
 echo "== 12. 审计 =="
 curl -s -b "$CJ" "$BASE/api/admin/audit?limit=3" | head -c 500; echo
+
+echo "== 13. 前端产物 =="
+INDEX=$(curl -s "$BASE/")
+if echo "$INDEX" | grep -q 'id="app"'; then
+  echo "index.html -> 已挂载前端产物"
+  ASSET=$(echo "$INDEX" | grep -o '/assets/[^"]*\.js' | head -1)
+  curl -s -o /dev/null -w "asset $ASSET -> %{http_code}\n" "$BASE$ASSET"
+else
+  echo "index.html -> 占位页（未执行 npm run build）"
+fi

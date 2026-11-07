@@ -429,9 +429,9 @@ agent-pointer/
 │   │   │   authorize / code / clients / token / partner
 │   │   └── （静态资源：main.rs 里挂 ServeDir + 占位页，未单列 static_files.rs）
 │   ├── scripts/smoke.sh         端到端冒烟：登录→建资源→OAuth→取凭证→报用量
-│   ├── web/                     **未实现**：独立 Vite 工程，不依赖根 package.json
-│   │   ├── package.json  vite.config.ts  index.html
-│   │   └── src/                 概览/成员/角色/资源/档位/用量/审计
+│   ├── web/                     独立 Vite 工程（Vue 3 + hash 路由），产物被进程托管
+│   │   ├── package.json  vite.config.ts  index.html  README.md
+│   │   └── src/                 概览/成员/角色/资源/用量/审计 + api/store/router
 │   └── tests/                   集成测试：起 router 打真实请求
 ├── server/src/main.rs           改 1 处：spa_fallback 把 /admin 302 到 admin
 ├── crates/pointer-contract/     新：三端共用的契约类型 + 哈希（无内部依赖）
@@ -452,6 +452,18 @@ src-tauri ─────────→ pointer-core, pointer-channels
 ```
 
 admin 与 server 只通过 HTTP 说话；指针不共享，桌面包体不受影响。
+
+**客户端接入不需要新配置。** 桌面端与 server 早就只认 `platform_endpoints` 这一套：
+
+| 变量 | 作用 | 指向 admin 时 |
+| --- | --- | --- |
+| `POINTER_API_BASE` | token / partner 接口根 | `http://<admin-host>:8788` |
+| `POINTER_WEB_BASE` | 登录页根（拼 `/oauth/authorize`） | 同上 |
+| `POINTER_OAUTH_CLIENT_ID` | 默认 `pointer-desktop` | 不用改，admin 已登记同名客户端 |
+
+也就是说 admin 是「官网后端」的同构替代品，**不新增 `POINTER_ADMIN_*` 之类的客户端配置**，
+也不需要改 `server/src/main.rs`。托管构建仍可把域名在编译期烧进去（`build.rs`）。
+
 `pointer-contract` 只装 serde 类型与纯函数（`PlatformLoginCredentials`、`PlatformProviderTemplate`、
 `model_catalog_hash`），三端共用同一份定义，字段名不可能漂移。
 前端同理：`admin/web/` 与根 `src/` 各自构建，互不引用。
@@ -503,7 +515,7 @@ admin 与 server 只通过 HTTP 说话；指针不共享，桌面包体不受影
 | OAuth 七端点 | 完成 | `/oauth/authorize`、`/auth/app/token`、`/auth/partner/*` |
 | 用量上报 + 配额（warn/block） | 完成 | `POST /auth/partner/token-usage`、`/api/admin/usage*` |
 | 审计流水 | 完成 | `GET /api/admin/audit` |
-| 前端工程 `admin/web/` | **未开始** | 当前返回占位页 |
+| 前端工程 `admin/web/` | **完成**（6 页，hash 路由，产物由进程托管） | `npm run build` → `admin/web/dist` |
 | 技能 zip 版本下发 | **未开始**（M1） | `resource_versions` 表已建 |
 | 插件 / 按角色下发档位 | **未开始**（M2） | — |
 

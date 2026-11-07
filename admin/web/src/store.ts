@@ -1,0 +1,57 @@
+import { reactive } from 'vue'
+import { api } from './api'
+
+export interface SessionUser {
+  id: string
+  username: string
+  displayName: string
+}
+
+export const session = reactive({
+  ready: false,
+  user: null as SessionUser | null,
+  roles: [] as string[],
+  permissions: [] as string[],
+})
+
+export function can(permission: string): boolean {
+  return session.permissions.includes(permission)
+}
+
+/** 权限前缀判断：`canAny('provider')` 命中 provider:read/write/delete。 */
+export function canAny(domain: string): boolean {
+  return session.permissions.some((p) => p.startsWith(`${domain}:`))
+}
+
+export async function loadSession(): Promise<void> {
+  try {
+    const me = await api.get('/api/admin/me')
+    session.user = me.user
+    session.roles = me.roles || []
+    session.permissions = me.permissions || []
+  } catch {
+    session.user = null
+    session.roles = []
+    session.permissions = []
+  } finally {
+    session.ready = true
+  }
+}
+
+export async function login(username: string, password: string): Promise<void> {
+  const r = await api.post('/api/admin/auth/login', { username, password })
+  session.user = r.user
+  session.roles = r.roles || []
+  session.permissions = r.permissions || []
+  session.ready = true
+}
+
+export async function logout(): Promise<void> {
+  try {
+    await api.post('/api/admin/auth/logout')
+  } finally {
+    session.user = null
+    session.roles = []
+    session.permissions = []
+  }
+}

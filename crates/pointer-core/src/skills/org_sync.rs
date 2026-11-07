@@ -6,13 +6,14 @@
 //! 为什么要记两个哈希：
 //! - **远端哈希**（zip 的 sha256）决定「要不要重新下载」；
 //! - **本地目录哈希**（SKILL.md 的 sha256）决定「员工是不是改过」，改过就不覆盖。
+//!
 //! 只记一个会把两种情况混在一起：要么永远重下，要么永远以为本地被改过。
 //!
 //! 目录独立于 `~/.pointer/skills`，否则会被 curator 90 天归档。
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
@@ -359,7 +360,7 @@ pub fn start_background_loop(state: std::sync::Arc<crate::chat_service::AppState
 }
 
 #[cfg(test)]
-fn temp_root(tag: &str) -> PathBuf {
+fn temp_root(tag: &str) -> std::path::PathBuf {
     let mut path = std::env::temp_dir();
     path.push(format!(
         "pointer-org-skills-{tag}-{}-{}",

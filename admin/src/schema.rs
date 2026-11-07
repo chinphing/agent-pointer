@@ -13,7 +13,7 @@ use sqlx::{Any, Row};
 use crate::db::{now_ts, AdminStore, Backend};
 use crate::rbac;
 
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 pub const DEFAULT_TENANT: &str = "default";
 
 const DDL_V1: &[&str] = &[
@@ -208,6 +208,20 @@ const DDL_V4: &[&str] = &[
     "ALTER TABLE resources ADD COLUMN activation VARCHAR(16) NOT NULL DEFAULT 'optional'",
 ];
 
+/// v5：授权码落库（多实例下两个 OAuth 请求会落到不同进程）。
+const DDL_V5: &[&str] = &[
+    "CREATE TABLE IF NOT EXISTS oauth_codes (
+        code_hash     VARCHAR(64) PRIMARY KEY,
+        client_id     VARCHAR(64) NOT NULL,
+        user_id       VARCHAR(64) NOT NULL,
+        redirect_uri  VARCHAR(1024) NOT NULL,
+        code_challenge VARCHAR(128) NOT NULL,
+        expires_at    BIGINT NOT NULL,
+        used_at       BIGINT,
+        created_at    BIGINT NOT NULL
+    )",
+];
+
 pub async fn migrate(store: &AdminStore) -> Result<()> {
     store
         .exec(&adapt(
@@ -256,6 +270,15 @@ pub async fn migrate(store: &AdminStore) -> Result<()> {
                 .with_context(|| format!("apply admin schema v4: {}", first_line(stmt)))?;
         }
         write_version(store, 4).await?;
+    }
+    if read_version(store).await? < 5 {
+        for stmt in DDL_V5 {
+            store
+                .exec(&adapt(stmt, store.backend))
+                .await
+                .with_context(|| format!("apply admin schema v5: {}", first_line(stmt)))?;
+        }
+        write_version(store, 5).await?;
     }
 
     for stmt in index_statements(store.backend()) {

@@ -203,7 +203,6 @@ mod tests {
     use super::*;
     use crate::config::AdminConfig;
     use crate::db::AdminStore;
-    use crate::oauth::code::CodeStore;
     use crate::schema::DEFAULT_TENANT;
     use axum::http::HeaderValue;
     use std::sync::Arc;
@@ -213,7 +212,6 @@ mod tests {
         Arc::new(crate::state::AppState {
             store,
             config: AdminConfig::default(),
-            codes: CodeStore::default(),
         })
     }
 

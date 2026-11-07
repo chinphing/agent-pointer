@@ -181,9 +181,10 @@ pub async fn do_exchange_code(state: &Shared, body: ExchangeBody) -> ApiResult<V
         .unwrap_or(CLIENT_SERVER);
     check_client(state, client_id, body.client_secret.as_deref()).await?;
 
-    let pending = state.codes.consume(&body.code).ok_or_else(|| {
-        ApiError::BadRequest("授权码无效或已过期".to_string())
-    })?;
+    let pending = crate::oauth::code::consume(&state.store, &body.code)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::BadRequest("授权码无效或已过期".to_string()))?;
     if pending.client_id != client_id {
         return Err(ApiError::BadRequest("授权码与客户端不匹配".to_string()));
     }
@@ -266,9 +267,9 @@ pub async fn do_app_token(state: &Shared, body: AppTokenBody) -> ApiResult<Value
         .ok_or_else(|| ApiError::BadRequest("缺少 code".to_string()))?;
     let verifier = body.code_verifier.as_deref().unwrap_or_default();
 
-    let pending = state
-        .codes
-        .consume(code)
+    let pending = crate::oauth::code::consume(&state.store, code)
+        .await
+        .map_err(ApiError::internal)?
         .ok_or_else(|| ApiError::BadRequest("授权码无效或已过期".to_string()))?;
     if pending.client_id != client_id {
         return Err(ApiError::BadRequest("授权码与客户端不匹配".to_string()));
@@ -334,7 +335,6 @@ mod tests {
     use super::*;
     use crate::crypto::encrypt_secret;
     use crate::grants::{self, Principal};
-    use crate::oauth::code::CodeStore;
     use crate::resources::{self, KIND_MODEL, KIND_PROVIDER};
     use crate::schema::DEFAULT_TENANT;
     use crate::{config::AdminConfig, db::AdminStore};
@@ -354,7 +354,6 @@ mod tests {
         Arc::new(crate::state::AppState {
             store,
             config: cfg,
-            codes: CodeStore::default(),
         })
     }
 
@@ -405,23 +404,29 @@ mod tests {
         uid
     }
 
-    fn issue_code(state: &Shared, uid: &str, verifier: &str) -> String {
+    async fn issue_code(state: &Shared, uid: &str, verifier: &str) -> String {
         let challenge = {
             use base64::Engine;
             use sha2::{Digest, Sha256};
             base64::engine::general_purpose::URL_SAFE_NO_PAD
                 .encode(Sha256::digest(verifier.as_bytes()))
         };
-        state
-            .codes
-            .issue(CLIENT_SERVER, uid, "http://127.0.0.1:8787/auth/callback", &challenge)
+        crate::oauth::code::issue(
+            &state.store,
+            CLIENT_SERVER,
+            uid,
+            "http://127.0.0.1:8787/auth/callback",
+            &challenge,
+        )
+        .await
+        .expect("issue code")
     }
 
     #[tokio::test]
     async fn exchange_happy_path_returns_credentials() {
         let state = state().await;
         let uid = user_with_provider(&state).await;
-        let code = issue_code(&state, &uid, "verifier-123");
+        let code = issue_code(&state, &uid, "verifier-123").await;
 
         let body = do_exchange_code(
             &state,
@@ -447,7 +452,7 @@ mod tests {
     async fn wrong_client_secret_is_unauthorized() {
         let state = state().await;
         let uid = user_with_provider(&state).await;
-        let code = issue_code(&state, &uid, "v");
+        let code = issue_code(&state, &uid, "v").await;
         let err = do_exchange_code(
             &state,
             ExchangeBody {
@@ -467,7 +472,7 @@ mod tests {
     async fn bad_pkce_is_rejected_and_code_is_burned() {
         let state = state().await;
         let uid = user_with_provider(&state).await;
-        let code = issue_code(&state, &uid, "right");
+        let code = issue_code(&state, &uid, "right").await;
 
         let err = do_exchange_code(
             &state,
@@ -503,7 +508,7 @@ mod tests {
     async fn app_token_uses_snake_case_user_and_supports_refresh() {
         let state = state().await;
         let uid = user_with_provider(&state).await;
-        let code = issue_code(&state, &uid, "v2");
+        let code = issue_code(&state, &uid, "v2").await;
 
         let first = do_app_token(
             &state,
@@ -546,7 +551,6 @@ mod tests {
         let state = Arc::new(crate::state::AppState {
             store,
             config: AdminConfig::default(),
-            codes: CodeStore::default(),
         });
         let err = do_exchange_code(
             &state,

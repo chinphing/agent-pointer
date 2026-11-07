@@ -158,12 +158,15 @@ pub async fn submit(
         return Err(ApiError::Unauthorized);
     };
 
-    let code = state.codes.issue(
+    let code = crate::oauth::code::issue(
+        &state.store,
         &form.client_id,
         &user.id,
         &form.redirect_uri,
         &form.code_challenge,
-    );
+    )
+    .await
+    .map_err(ApiError::internal)?;
 
     let mut target = format!("{}?code={}", form.redirect_uri, urlenc(&code));
     if let Some(st) = form.state.as_deref().filter(|s| !s.is_empty()) {

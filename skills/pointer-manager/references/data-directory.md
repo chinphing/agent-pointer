@@ -22,19 +22,26 @@
 | `.env` | 终端工具自动加载的用户环境变量 | 按需编辑 |
 | `logs/` | 运行时日志目录 | 见下节 |
 | `logs/pointer_*.log` | 应用日志，按日轮转，保留约 7 个文件 | ✅ 可删旧文件腾空间 |
-| `logs/llm_prompts/{会话ID}/` | 调试模式下 LLM 请求落盘（需开启调试「保存每轮对话请求」）；按会话分子目录 | ✅ 可整目录清理 |
-| `computer-captures/` | 电脑操控调试截图；**仅调试模式开启时**才会写入 | ✅ 可删；启动时自动清理 7 天前 |
+| `logs/llm_prompts/{会话ID}/` | 调试分区开启「保存每轮对话请求」后的 LLM 请求落盘；按会话分子目录 | ✅ 可整目录清理 |
+| `computer-captures/` | 电脑操控调试截图；**仅调试分区开启「保存截图到本地」时**才会写入 | ✅ 可删；启动时自动清理 7 天前 |
 | `conversation-media/` | 会话附件与聊天媒体缓存 | ⚠️ 删后部分附件需重新获取 |
 | `generated-media/` | AI 生成图片/视频等输出 | ⚠️ 按需清理 |
 | `memories/` | 持久化记忆存储 | ❌ 除非用户明确要求清空记忆 |
+| `session-sandboxes/` | 每个会话的隔离工作目录（`_anonymous`、会话 ID、项目名） | ⚠️ 删后该会话的工作区文件丢失 |
+| `turn-baselines/` | 每轮改动前的文件内容快照，供「变更审阅」对比 diff | ✅ 可删；仅影响历史 diff 展示 |
+| `worktrees/` | 项目托管 git worktree | ❌ 删后需重新创建 |
+| `agents/` | 用户自定义智能体覆盖（`AGENT.md` / `COMMUNICATION.md`） | ❌ 有内容时不可删 |
 | `skills/` | 应用内置 Skill 同步副本（带 `.bundled_manifest`） | ❌ 由应用维护 |
 | `native/` | 打包释放的原生扩展二进制 | ❌ 由应用维护 |
 | `task_boards.db` | 任务板 SQLite | ❌ 除非用户要清空任务板 |
 | `token_usage.db` | Token 用量统计 | ❌ |
+| `token_usage_archives/` | 用量库归档 | ⚠️ 按需清理 |
+| `platform_model_catalog.json` | 平台下发的模型目录缓存 | ✅ 可删，重启后重新拉取 |
 | `channels_config.json` | IM 通道配置 | ❌ |
 | `channel_credentials/` | 通道凭证 | ❌ |
-| `channel_histories.deprecated/` | 旧版 IM JSON 历史（已弃用，可删） | ⚠️ 按需清理 |
 | `channel_pairing/` | 通道配对状态 | ❌ |
+| `channel_histories.deprecated/` | 旧版 IM JSON 历史（仅老版本升级后残留） | ⚠️ 可删 |
+| `work_items.db` / `pointer.db` / `PointerApp.db` | 旧版本残留，当前代码不再读写 | ✅ 可删 |
 
 ---
 
@@ -54,13 +61,14 @@
 
 **开启 LLM 提示词落盘**
 
-- 调试模式 → 界面配置 →「保存每轮对话请求」开启后才会产生 `logs/llm_prompts/{会话ID}/`
+- 设置 → **调试** 分区 →「**保存每轮对话请求**」开启后才会产生 `logs/llm_prompts/{会话ID}/`
+- 调试分区仅对平台管理员 / 独立部署账号显示
 
 ---
 
 ## 电脑操控截图
 
-- **前提**：标题栏 **调试模式**（虫子图标）已开启；关闭时不会产生新文件
+- **前提**：设置 → **调试** 分区 →「**保存截图到本地**」已开启；关闭时不会产生新文件
 - 路径：`computer-captures/{YYYY-MM-DD}/{conversation_id}/`
 - 应用启动时会删除 **7 天前** 的日期目录
 - 用户可手动删除整个 `computer-captures/` 释放空间；不影响对话记录，仅丢失本地调试截图

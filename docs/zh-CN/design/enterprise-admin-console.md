@@ -294,7 +294,14 @@ M0 不做。M0 只做下发默认值。
 | 上下文与生成 | `contextBudgetTokens` / `maxTokens` / `temperature` / `topP` |
 | 思考 | `enableThinking` / `thinkingBudget` / `thinkingIntensity` / `reasoningEffort` / `reasoningInMessages` |
 
-留空 = 不下发 = 客户端继承服务商默认。
+**服务商级**同样有这 9 个默认参数（`reasoningInMessages` / `enableThinking` /
+`thinkingBudget` / `reasoningEffort` / `thinkingIntensity` / `temperature` /
+`topP` / `maxTokens` / `contextBudgetTokens`），在服务商编辑弹窗的「默认参数」里配。
+留空 = 不下发 = 用客户端默认。
+
+措辞上分两层，别混：模型级留空写「跟随服务商」，服务商级留空写「不设置」——
+服务商没有可跟随的上一级。能力（视觉/音频/出图/出视频）只有模型级，
+所以那四项在模型表单里也是「不设置」。
 
 两个坑（界面已按此约束）：
 

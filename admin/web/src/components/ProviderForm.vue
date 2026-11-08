@@ -394,19 +394,19 @@ async function submit() {
         <div class="two" style="margin-top: 8px">
           <div>
             <label>{{ t('models.contextBudget') }}</label>
-            <input v-model="defLimits.contextBudgetTokens" type="number" min="0" :placeholder="t('models.follow')" />
+            <input v-model="defLimits.contextBudgetTokens" type="number" min="0" :placeholder="t('models.unset')" />
           </div>
           <div>
             <label>{{ t('models.maxTokens') }}</label>
-            <input v-model="defLimits.maxTokens" type="number" min="0" :placeholder="t('models.follow')" />
+            <input v-model="defLimits.maxTokens" type="number" min="0" :placeholder="t('models.unset')" />
           </div>
           <div>
             <label>{{ t('models.temperature') }}</label>
-            <input v-model="defLimits.temperature" type="number" step="0.1" min="0" max="2" :placeholder="t('models.follow')" />
+            <input v-model="defLimits.temperature" type="number" step="0.1" min="0" max="2" :placeholder="t('models.unset')" />
           </div>
           <div>
             <label>{{ t('models.topP') }}</label>
-            <input v-model="defLimits.topP" type="number" step="0.05" min="0" max="1" :placeholder="t('models.follow')" />
+            <input v-model="defLimits.topP" type="number" step="0.05" min="0" max="1" :placeholder="t('models.unset')" />
           </div>
         </div>
 
@@ -414,7 +414,7 @@ async function submit() {
           <div>
             <label>{{ t('models.enableThinking') }}</label>
             <select v-model="defThinking.enableThinking">
-              <option value="">{{ t('models.follow') }}</option>
+              <option value="">{{ t('models.unset') }}</option>
               <option value="true">{{ t('models.yes') }}</option>
               <option value="false">{{ t('models.no') }}</option>
             </select>
@@ -422,7 +422,7 @@ async function submit() {
           <div>
             <label>{{ t('tier.thinking') }}</label>
             <select v-model="defThinking.thinkingIntensity">
-              <option value="">{{ t('models.follow') }}</option>
+              <option value="">{{ t('models.unset') }}</option>
               <option value="off">{{ t('tier.thinking_off') }}</option>
               <option value="low">{{ t('tier.thinking_low') }}</option>
               <option value="medium">{{ t('tier.thinking_medium') }}</option>
@@ -432,12 +432,12 @@ async function submit() {
           </div>
           <div>
             <label>{{ t('models.thinkingBudget') }}</label>
-            <input v-model="defThinking.thinkingBudget" type="number" min="0" :placeholder="t('models.follow')" />
+            <input v-model="defThinking.thinkingBudget" type="number" min="0" :placeholder="t('models.unset')" />
           </div>
           <div>
             <label>reasoningEffort</label>
             <select v-model="defThinking.reasoningEffort">
-              <option value="">{{ t('models.follow') }}</option>
+              <option value="">{{ t('models.unset') }}</option>
               <option value="high">high</option>
               <option value="max">max</option>
             </select>
@@ -445,7 +445,7 @@ async function submit() {
           <div>
             <label>{{ t('models.reasoningInMessages') }}</label>
             <select v-model="defThinking.reasoningInMessages">
-              <option value="">{{ t('models.follow') }}</option>
+              <option value="">{{ t('models.unset') }}</option>
               <option value="true">{{ t('models.yes') }}</option>
               <option value="false">{{ t('models.no') }}</option>
             </select>

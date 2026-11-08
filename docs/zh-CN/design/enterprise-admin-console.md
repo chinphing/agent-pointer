@@ -370,13 +370,19 @@ M2 需要「不同部门不同档位」时，改成多条 + `resource_grants`，
 | --- | --- | --- |
 | 工程 | `src/`（根 `package.json`） | `admin/web/`（独立 `package.json`） |
 | 产物 | `dist/`，server 与桌面共用 | `admin/web/dist`，由 admin 进程 serve |
-| 语言 | zh + en，`localeParity.test.ts` 强制同键 | 只中文，不接 i18n |
+| 语言 | zh + en，`localeParity.test.ts` 强制同键 | zh + en，`locales/localeParity.test.ts` 强制同键 |
 | 主题 | `src/styles/globals.css` | 取值与客户端 token 对齐（zinc 灰阶 + `#0071EB`），见 `admin-mockups/` |
 | 路由 | 无 router，两态 | vue-router hash 路由（刷新任意页不 404） |
 | 页面 | 聊天 / 设置 | 概览 / 成员 / 角色 / 资源 / 用量 / 审计（6 页，档位映射是资源页的一个页签） |
 
 界面线框图在 [`admin-mockups/`](admin-mockups/)（9 张，含登录、概览、资源、角色权限、
 详情抽屉、授权浮层、新建模型服务、档位映射）。**改界面先看图，别自己发挥。**
+
+侧栏底部按图 02 是「26px 圆形头像 + 名字 + 角色」一行，图里没有退出登录与语言入口。
+实现保留这一行不动，把两者收进点头像后向上弹出的浮层——否则界面上没有退出的地方。
+这类「图里没有但必须有」的补充要回写到这里，不要默默加在界面上。
+
+侧栏 `position: sticky` + 自身滚动：页面比视口高时，账号区仍常驻左下角。
 
 「复制 CSS 变量」是唯一刻意的重复（约 30 行），换来客户端与 server 前端**零改动**。
 

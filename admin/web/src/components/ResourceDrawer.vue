@@ -5,9 +5,12 @@
  * 右侧滑出，把「状态 / 可见范围 / 版本历史 / 已授权」集中到一处；
  * 行内按钮仍然保留，抽屉里的操作按钮只是复用同一批弹窗（emit action）。
  */
+import { useI18n } from 'vue-i18n'
 import { computed, ref, watch } from 'vue'
 import { api, errText } from '../api'
 import { humanSize, when } from '../lib/format'
+
+const { t } = useI18n()
 
 const props = defineProps<{ resource: any; canWrite: boolean }>()
 const emit = defineEmits<{
@@ -22,12 +25,12 @@ const error = ref('')
 const loading = ref(false)
 
 const KIND_LABEL: Record<string, string> = {
-  provider: '模型服务',
-  model: '模型',
-  skill: '技能',
-  plugin: '插件',
+  provider: t('kind.provider'),
+  model: t('kind.model'),
+  skill: t('kind.skill'),
+  plugin: t('kind.plugin'),
   mcp: 'MCP',
-  tier_profile: '档位映射',
+  tier_profile: t('kind.tier_profile'),
 }
 
 const kindLabel = computed(() => KIND_LABEL[props.resource?.kind] || props.resource?.kind || '')
@@ -61,8 +64,8 @@ async function load() {
 watch(() => props.resource?.id, load, { immediate: true })
 
 function grantLabel(g: any) {
-  if (g.type === 'all') return '全员'
-  return g.type === 'role' ? `角色 · ${g.id.slice(0, 8)}` : `成员 · ${g.id.slice(0, 8)}`
+  if (g.type === 'all') return t('drawer.everyone')
+  return g.type === 'role' ? t('drawer.groupRole', { id: g.id.slice(0, 8) }) : t('drawer.groupMember', { id: g.id.slice(0, 8) })
 }
 </script>
 
@@ -82,35 +85,35 @@ function grantLabel(g: any) {
       <div v-if="error" class="err" style="margin-top: 12px">{{ error }}</div>
 
       <section style="margin-top: 18px">
-        <div class="label">状态</div>
+        <div class="label">{{ t('drawer.status') }}</div>
         <span class="tag" :class="resource.enabled ? 'ok' : 'plain'">
-          {{ resource.enabled ? '已启用' : '已停用' }}
+          {{ resource.enabled ? t('common.enabled') : t('common.disabled') }}
         </span>
       </section>
 
       <section style="margin-top: 16px">
-        <div class="label">可见范围</div>
-        <div v-if="loading" class="small muted">加载中…</div>
+        <div class="label">{{ t('drawer.visibleTo') }}</div>
+        <div v-if="loading" class="small muted">{{ t('common.loading') }}</div>
         <div v-else-if="isAll" class="row" style="gap: 6px; flex-wrap: wrap">
-          <span class="tag ok">全员</span>
+          <span class="tag ok">{{ t('drawer.everyone') }}</span>
         </div>
         <div v-else-if="grants.length" class="row" style="gap: 6px; flex-wrap: wrap">
           <span v-for="g in grants" :key="g.type + g.id" class="tag">{{ grantLabel(g) }}</span>
         </div>
-        <div v-else class="small muted">未授权 —— 员工端看不到这个资源</div>
+        <div v-else class="small muted">{{ t('drawer.notGranted') }}</div>
       </section>
 
       <section v-if="versions.length" style="margin-top: 16px">
-        <div class="label">版本历史</div>
+        <div class="label">{{ t('drawer.versionHistory') }}</div>
         <table style="margin-top: 6px">
           <thead>
-            <tr><th>版本</th><th>大小</th><th>时间</th></tr>
+            <tr><th>{{ t('drawer.version') }}</th><th>{{ t('drawer.size') }}</th><th>{{ t('drawer.time') }}</th></tr>
           </thead>
           <tbody>
             <tr v-for="v in versions" :key="v.id">
               <td class="mono">
                 {{ v.version }}
-                <span v-if="v.isCurrent" class="tag ok" style="margin-left: 4px">当前</span>
+                <span v-if="v.isCurrent" class="tag ok" style="margin-left: 4px">{{ t('drawer.current') }}</span>
               </td>
               <td class="small muted">{{ humanSize(v.sizeBytes) }}</td>
               <td class="small muted">{{ when(v.createdAt) }}</td>
@@ -124,13 +127,13 @@ function grantLabel(g: any) {
       </p>
 
       <div v-if="canWrite" class="row" style="gap: 8px; margin-top: 10px; flex-wrap: wrap">
-        <button class="tiny" @click="emit('action', 'edit')">编辑</button>
-        <button class="tiny" @click="emit('action', 'grants')">授权</button>
+        <button class="tiny" @click="emit('action', 'edit')">{{ t('common.edit') }}</button>
+        <button class="tiny" @click="emit('action', 'grants')">{{ t('drawer.grants') }}</button>
         <button v-if="resource.kind === 'skill' || resource.kind === 'plugin'" class="tiny" @click="emit('action', 'versions')">
           版本
         </button>
         <button class="tiny" :class="{ danger: resource.enabled }" @click="emit('action', 'toggle')">
-          {{ resource.enabled ? '停用资源' : '启用资源' }}
+          {{ resource.enabled ? t('drawer.disable') : t('drawer.enable') }}
         </button>
       </div>
     </aside>

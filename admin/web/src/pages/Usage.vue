@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
 import { fmtCount as fmt } from '../lib/format'
 import { can } from '../store'
 
+const { t } = useI18n()
 const from = ref('')
 const to = ref('')
 const data = ref<any>(null)
@@ -54,7 +56,7 @@ async function saveQuota() {
       monthlyTokenLimit: quotaLimit.value === '' ? null : Number(quotaLimit.value),
       overAction: quotaAction.value,
     })
-    notice.value = '配额已保存'
+    notice.value = t('usage.quotaSaved')
     await loadQuota()
   } catch (e) {
     error.value = errText(e)
@@ -67,50 +69,50 @@ onMounted(load)
 <template>
   <div class="spread">
     <div>
-      <h1>用量</h1>
-      <p class="muted small" style="margin: 4px 0 0">数据来自客户端/服务端上报的 token 用量。</p>
+      <h1>{{ t('usage.title') }}</h1>
+      <p class="muted small" style="margin: 4px 0 0">{{ t('usage.subtitle') }}</p>
     </div>
     <div class="row">
       <input v-model="from" type="date" style="width: 150px" />
-      <span class="muted">至</span>
+      <span class="muted">{{ t('usage.to') }}</span>
       <input v-model="to" type="date" style="width: 150px" />
-      <button @click="load">查询</button>
+      <button @click="load">{{ t('usage.query') }}</button>
     </div>
   </div>
 
   <div v-if="error" class="err" style="margin-top: 16px">{{ error }}</div>
   <div v-if="notice" class="okmsg" style="margin-top: 16px">{{ notice }}</div>
 
-  <div v-if="loading" class="empty">加载中…</div>
+  <div v-if="loading" class="empty">{{ t('common.loading') }}</div>
 
   <template v-else-if="data">
     <div class="panel" style="margin-top: 16px">
       <div class="spread">
-        <h2>合计</h2>
+        <h2>{{ t('usage.total') }}</h2>
         <div class="small muted">{{ data.from }} ~ {{ data.to }}</div>
       </div>
       <div class="grid" style="margin-top: 12px">
         <div>
-          <div class="muted small">输入 tokens</div>
+          <div class="muted small">{{ t('usage.inputTokens') }}</div>
           <div class="big">{{ fmt(data.totals.promptTokens) }}</div>
         </div>
         <div>
-          <div class="muted small">输出 tokens</div>
+          <div class="muted small">{{ t('usage.outputTokens') }}</div>
           <div class="big">{{ fmt(data.totals.completionTokens) }}</div>
         </div>
         <div>
-          <div class="muted small">总计</div>
+          <div class="muted small">{{ t('usage.total') }}</div>
           <div class="big">{{ fmt(data.totals.total) }}</div>
         </div>
       </div>
     </div>
 
     <div class="panel">
-      <h2>按成员</h2>
-      <div v-if="!data.byUser.length" class="empty">没有数据</div>
+      <h2>{{ t('usage.byMember') }}</h2>
+      <div v-if="!data.byUser.length" class="empty">{{ t('usage.noData') }}</div>
       <table v-else style="margin-top: 10px">
         <thead>
-          <tr><th>成员 ID</th><th class="num">输入</th><th class="num">输出</th><th class="num">合计</th></tr>
+          <tr><th>{{ t('usage.memberId') }}</th><th class="num">{{ t('usage.input') }}</th><th class="num">{{ t('usage.output') }}</th><th class="num">{{ t('usage.total') }}</th></tr>
         </thead>
         <tbody>
           <tr v-for="row in data.byUser" :key="row.key">
@@ -124,15 +126,15 @@ onMounted(load)
     </div>
 
     <div class="panel">
-      <h2>按模型</h2>
-      <div v-if="!data.byModel.length" class="empty">没有数据</div>
+      <h2>{{ t('usage.byModel') }}</h2>
+      <div v-if="!data.byModel.length" class="empty">{{ t('usage.noData') }}</div>
       <table v-else style="margin-top: 10px">
         <thead>
-          <tr><th>模型</th><th class="num">输入</th><th class="num">输出</th><th class="num">合计</th></tr>
+          <tr><th>{{ t('usage.model') }}</th><th class="num">{{ t('usage.input') }}</th><th class="num">{{ t('usage.output') }}</th><th class="num">{{ t('usage.total') }}</th></tr>
         </thead>
         <tbody>
           <tr v-for="row in data.byModel" :key="row.key">
-            <td class="mono">{{ row.key || '（未标注）' }}</td>
+            <td class="mono">{{ row.key || t('usage.unlabeled') }}</td>
             <td class="num">{{ fmt(row.promptTokens) }}</td>
             <td class="num">{{ fmt(row.completionTokens) }}</td>
             <td class="num">{{ fmt(row.total) }}</td>
@@ -142,11 +144,11 @@ onMounted(load)
     </div>
 
     <div class="panel">
-      <h2>按日期</h2>
-      <div v-if="!data.byDay.length" class="empty">没有数据</div>
+      <h2>{{ t('usage.byDate') }}</h2>
+      <div v-if="!data.byDay.length" class="empty">{{ t('usage.noData') }}</div>
       <table v-else style="margin-top: 10px">
         <thead>
-          <tr><th>日期</th><th class="num">输入</th><th class="num">输出</th><th class="num">合计</th></tr>
+          <tr><th>{{ t('usage.date') }}</th><th class="num">{{ t('usage.input') }}</th><th class="num">{{ t('usage.output') }}</th><th class="num">{{ t('usage.total') }}</th></tr>
         </thead>
         <tbody>
           <tr v-for="row in data.byDay" :key="row.key">
@@ -160,30 +162,32 @@ onMounted(load)
     </div>
 
     <div v-if="can('usage:read')" class="panel">
-      <h2>配额</h2>
-      <p class="muted small">按月累计 token。warn 只提示，block 会让客户端停用该账号的模型调用。</p>
+      <h2>{{ t('usage.quota') }}</h2>
+      <p class="muted small">{{ t('usage.quotaHint') }}</p>
       <div class="row" style="margin-top: 12px">
-        <input v-model="quotaUser" placeholder="成员 ID" class="mono" style="max-width: 340px" />
-        <button @click="loadQuota">查询</button>
+        <input v-model="quotaUser" :placeholder="t('usage.memberId')" class="mono" style="max-width: 340px" />
+        <button @click="loadQuota">{{ t('usage.query') }}</button>
       </div>
 
       <div v-if="quotaState" class="quota-box">
         <div class="small muted">
-          本月已用 <strong>{{ fmt(quotaState.used) }}</strong>
-          <span v-if="quotaState.monthlyTokenLimit"> / 上限 {{ fmt(quotaState.monthlyTokenLimit) }}</span>
-          <span v-if="quotaState.blocks" class="tag danger" style="margin-left: 8px">已拦截</span>
-          <span v-else-if="quotaState.exceeded" class="tag warn" style="margin-left: 8px">已超限（仅提示）</span>
+          {{ t('usage.usedThisMonth') }} <strong>{{ fmt(quotaState.used) }}</strong>
+          <span v-if="quotaState.monthlyTokenLimit">
+            {{ t('usage.limitOf', { n: fmt(quotaState.monthlyTokenLimit) }) }}
+          </span>
+          <span v-if="quotaState.blocks" class="tag danger" style="margin-left: 8px">{{ t('usage.blocked') }}</span>
+          <span v-else-if="quotaState.exceeded" class="tag warn" style="margin-left: 8px">{{ t('usage.overLimit') }}</span>
         </div>
         <div class="row" style="margin-top: 12px">
           <div style="width: 200px">
-            <label>每月上限（留空=不限）</label>
-            <input v-model.number="quotaLimit" type="number" min="0" placeholder="不限" />
+            <label>{{ t('usage.monthlyLimit') }}</label>
+            <input v-model.number="quotaLimit" type="number" min="0" :placeholder="t('usage.unlimited')" />
           </div>
           <div style="width: 160px">
-            <label>超限动作</label>
+            <label>{{ t('usage.overAction') }}</label>
             <select v-model="quotaAction">
-              <option value="warn">warn（提示）</option>
-              <option value="block">block（拦截）</option>
+              <option value="warn">{{ t('usage.actionWarn') }}</option>
+              <option value="block">{{ t('usage.actionBlock') }}</option>
             </select>
           </div>
           <button class="primary" style="margin-top: 18px" :disabled="!can('usage:write')" @click="saveQuota">

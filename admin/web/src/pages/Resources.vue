@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
 import { humanSize, when } from '../lib/format'
 import { can } from '../store'
@@ -7,13 +8,14 @@ import TierMatrix from '../components/TierMatrix.vue'
 import ResourceDrawer from '../components/ResourceDrawer.vue'
 import ProviderForm from '../components/ProviderForm.vue'
 
+const { t } = useI18n()
 const KINDS = [
-  { key: 'provider', label: '模型服务', read: 'provider:read' },
-  { key: 'model', label: '模型', read: 'model:read' },
-  { key: 'skill', label: '技能', read: 'skill:read' },
-  { key: 'plugin', label: '插件', read: 'plugin:read' },
-  { key: 'mcp', label: 'MCP', read: 'mcp:read' },
-  { key: 'tier_profile', label: '档位映射', read: 'model:read' },
+  { key: 'provider', labelKey: 'kind.provider', read: 'provider:read' },
+  { key: 'model', labelKey: 'kind.model', read: 'model:read' },
+  { key: 'skill', labelKey: 'kind.skill', read: 'skill:read' },
+  { key: 'plugin', labelKey: 'kind.plugin', read: 'plugin:read' },
+  { key: 'mcp', labelKey: 'kind.mcp', read: 'mcp:read' },
+  { key: 'tier_profile', labelKey: 'kind.tier_profile', read: 'model:read' },
 ]
 
 const kind = ref('provider')
@@ -203,7 +205,7 @@ async function submit() {
   try {
     payload = JSON.parse(form.value.payload || '{}')
   } catch {
-    error.value = 'payload 不是合法 JSON'
+    error.value = t('resources.badJson')
     return
   }
   try {
@@ -263,10 +265,10 @@ async function toggleEnabled(row: any) {
 }
 
 async function remove(row: any) {
-  if (!confirm(`删除资源「${row.name}」？授权关系会一并清除。`)) return
+  if (!confirm(t('resources.deleteConfirm2', { name: row.name }))) return
   try {
     await api.del(`/api/admin/resources/${row.id}`)
-    notice.value = '已删除'
+    notice.value = t('resources.deleted')
     await load()
   } catch (e) {
     error.value = errText(e)
@@ -324,12 +326,12 @@ async function testConnection() {
   try {
     payload = JSON.parse(form.value.payload || '{}')
   } catch {
-    testResult.value = { ok: false, message: 'payload 不是合法 JSON' }
+    testResult.value = { ok: false, message: t('resources.badJson') }
     return
   }
   const baseUrl = String(payload.baseUrl || '').trim()
   if (!baseUrl) {
-    testResult.value = { ok: false, message: '先填 payload 里的 baseUrl' }
+    testResult.value = { ok: false, message: t('resources.needBaseUrl2') }
     return
   }
   testBusy.value = true
@@ -401,7 +403,7 @@ async function doUpload() {
     )
     const text = await res.text()
     if (!res.ok) {
-      let message = `上传失败（HTTP ${res.status}）`
+      let message = t('resources.uploadFailed', { status: res.status })
       try {
         message = JSON.parse(text).message || message
       } catch {
@@ -411,7 +413,7 @@ async function doUpload() {
     }
     uploadVersion.value = ''
     uploadFile.value = null
-    notice.value = '版本已上传，记得点「发布」才会下发给员工'
+    notice.value = t('resources.publishHint')
     await loadVersions(versionsFor.value.id)
     await load()
   } catch (e) {
@@ -425,7 +427,7 @@ async function publishVersion(version: any) {
   versionError.value = ''
   try {
     await api.post(`/api/admin/resources/${versionsFor.value.id}/versions/${version.id}/publish`)
-    notice.value = `已发布 ${version.version}`
+    notice.value = t('resources.publishedV', { v: version.version })
     await loadVersions(versionsFor.value.id)
     await load()
   } catch (e) {
@@ -434,7 +436,7 @@ async function publishVersion(version: any) {
 }
 
 async function removeVersion(version: any) {
-  if (!confirm(`删除版本 ${version.version}？`)) return
+  if (!confirm(t('resources.deleteVersion2', { v: version.version }))) return
   versionError.value = ''
   try {
     await api.del(`/api/admin/resources/${versionsFor.value.id}/versions/${version.id}`)
@@ -462,17 +464,17 @@ onMounted(async () => {
 <template>
   <div class="spread">
     <div>
-      <h1>资源</h1>
+      <h1>{{ t('resources.title') }}</h1>
       <p class="muted small" style="margin: 4px 0 0">
-        服务商 / 模型 / 技能 / 插件 / MCP / 档位映射共用一套存储与授权。
+        {{ t('resources.subtitle') }}
       </p>
     </div>
     <!-- 模型不单独建：它属于某个服务商，跟着服务商一起配 -->
     <span v-if="kind === 'model'" class="small muted">
-      模型跟着服务商配 —— 到「模型服务」里编辑对应服务商即可增删
+      {{ t('resources.modelsWithProvider') }}
     </span>
     <button v-else-if="canWrite" class="primary" @click="openCreate">
-      新建{{ KINDS.find((k) => k.key === kind)?.label }}
+      {{ t('resources.new') }}
     </button>
   </div>
 
@@ -482,7 +484,7 @@ onMounted(async () => {
       :key="k.key"
       :class="{ active: kind === k.key }"
       @click="switchKind(k.key)"
-    >{{ k.label }}</button>
+    >{{ t(k.labelKey) }}</button>
   </div>
 
   <div v-if="error" class="err" style="margin-top: 16px">{{ error }}</div>
@@ -501,36 +503,36 @@ onMounted(async () => {
   <div v-else class="panel" style="margin-top: 16px">
     <!-- 设计图 03：搜索 + 状态筛选 -->
     <div class="row" style="padding: 0 0 12px; gap: 8px">
-      <input v-model="keyword" placeholder="搜索名称 / 标识" style="max-width: 260px" />
+      <input v-model="keyword" :placeholder="t('resources.search')" style="max-width: 260px" />
       <select
         v-if="kind === 'model'"
         v-model="providerFilter"
         style="max-width: 180px"
       >
-        <option value="">服务商：全部</option>
+        <option value="">{{ t('resources.allProviders') }}</option>
         <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
       </select>
       <select v-model="statusFilter" style="max-width: 140px">
-        <option value="all">状态：全部</option>
-        <option value="enabled">已启用</option>
-        <option value="disabled">已停用</option>
+        <option value="all">{{ t('resources.allStatus') }}</option>
+        <option value="enabled">{{ t('common.enabled') }}</option>
+        <option value="disabled">{{ t('common.disabled') }}</option>
       </select>
       <span class="small muted">
         共 {{ filtered.length }} 条 · 已启用 {{ filtered.filter((i) => i.enabled).length }}
       </span>
     </div>
 
-    <div v-if="loading" class="empty">加载中…</div>
-    <div v-else-if="!items.length" class="empty">这一类还没有资源</div>
-    <div v-else-if="!filtered.length" class="empty">没有匹配的资源</div>
+    <div v-if="loading" class="empty">{{ t('common.loading') }}</div>
+    <div v-else-if="!items.length" class="empty">{{ t('resources.empty') }}</div>
+    <div v-else-if="!filtered.length" class="empty">{{ t('resources.noMatch') }}</div>
     <table v-else>
       <thead>
         <tr>
-          <th style="width: 190px">标识</th>
-          <th>名称</th>
-          <th style="width: 88px">状态</th>
-          <th style="width: 88px">密钥</th>
-          <th style="width: 140px">更新时间</th>
+          <th style="width: 190px">{{ t('resources.id') }}</th>
+          <th>{{ t('resources.name') }}</th>
+          <th style="width: 88px">{{ t('resources.status') }}</th>
+          <th style="width: 88px">{{ t('resources.secret') }}</th>
+          <th style="width: 140px">{{ t('resources.updated') }}</th>
           <th style="width: 176px"></th>
         </tr>
       </thead>
@@ -545,7 +547,7 @@ onMounted(async () => {
           </td>
           <td>
             <span class="tag" :class="row.enabled ? 'ok' : 'plain'">
-              {{ row.enabled ? '已启用' : '停用' }}
+              {{ row.enabled ? t('common.enabled') : t('resources.disableShort') }}
             </span>
           </td>
           <td>
@@ -555,12 +557,12 @@ onMounted(async () => {
           <td class="small muted">{{ when(row.updatedAt) }}</td>
           <td class="actions">
             <div class="actions-row">
-              <button class="tiny" @click="detailFor = row">详情</button>
-              <button v-if="canWrite" class="tiny" @click="openEdit(row)">编辑</button>
+              <button class="tiny" @click="detailFor = row">{{ t('resources.detail') }}</button>
+              <button v-if="canWrite" class="tiny" @click="openEdit(row)">{{ t('resources.edit') }}</button>
               <div class="more-wrap">
-                <button class="tiny" @click.stop="toggleMenu(row.id)">更多 ▾</button>
+                <button class="tiny" @click.stop="toggleMenu(row.id)">{{ t('resources.more') }}</button>
                 <div v-if="menuFor === row.id" class="more-menu" @click.stop>
-                  <button v-if="canWrite" @click="closeMenu(); openGrants(row)">授权范围</button>
+                  <button v-if="canWrite" @click="closeMenu(); openGrants(row)">{{ t('resources.grants') }}</button>
                   <button v-if="row.kind === 'skill' && can('skill:read')" @click="closeMenu(); openVersions(row)">
                     版本历史
                   </button>
@@ -568,9 +570,9 @@ onMounted(async () => {
                     查看密钥
                   </button>
                   <button v-if="canWrite" @click="closeMenu(); toggleEnabled(row)">
-                    {{ row.enabled ? '停用资源' : '启用资源' }}
+                    {{ row.enabled ? t('resources.disable') : t('resources.enable') }}
                   </button>
-                  <button v-if="canWrite" class="danger" @click="closeMenu(); remove(row)">删除资源</button>
+                  <button v-if="canWrite" class="danger" @click="closeMenu(); remove(row)">{{ t('resources.deleteResource') }}</button>
                 </div>
               </div>
             </div>
@@ -585,9 +587,9 @@ onMounted(async () => {
       class="row"
       style="padding-top: 12px; gap: 8px; align-items: center"
     >
-      <button class="tiny" :disabled="page <= 1" @click="page -= 1">上一页</button>
-      <span class="small muted">第 {{ page }} / {{ pageCount }} 页</span>
-      <button class="tiny" :disabled="page >= pageCount" @click="page += 1">下一页</button>
+      <button class="tiny" :disabled="page <= 1" @click="page -= 1">{{ t('resources.prev') }}</button>
+      <span class="small muted">{{ t('resources.page', { page, total: pageCount }) }}</span>
+      <button class="tiny" :disabled="page >= pageCount" @click="page += 1">{{ t('resources.next') }}</button>
     </div>
   </div>
 
@@ -613,16 +615,16 @@ onMounted(async () => {
     @click.self="creating = false; editing = null"
   >
     <div class="modal">
-      <h2>{{ creating ? '新建资源' : '编辑资源' }}</h2>
+      <h2>{{ creating ? t('resources.new') : t('resources.editTitle') }}</h2>
 
       <label>标识（slug，建后不可改）</label>
       <input v-model="form.slug" :disabled="!creating" placeholder="qwen / qwen3.5-plus" />
 
-      <label>名称</label>
+      <label>{{ t('resources.name') }}</label>
       <input v-model="form.name" placeholder="阿里云百炼" />
 
-      <label>描述</label>
-      <input v-model="form.description" placeholder="可选" />
+      <label>{{ t('resources.desc') }}</label>
+      <input v-model="form.description" :placeholder="t('resources.optional')" />
 
       <label>payload（JSON）</label>
       <textarea v-model="form.payload" rows="6" class="mono"></textarea>
@@ -631,7 +633,7 @@ onMounted(async () => {
         <span class="mono">{"agentModeLlm":{…}}</span>。
       </p>
 
-      <label>密钥{{ editing ? '（留空表示不修改）' : '' }}</label>
+      <label>{{ t('resources.secret') }}{{ editing ? t('resources.secretKeep') : '' }}</label>
       <input v-model="form.secret" type="password" placeholder="sk-…" />
       <div v-if="kind === 'provider'" class="row" style="gap: 8px; margin-top: 8px">
         <button class="tiny" :disabled="testBusy" @click="testConnection">
@@ -646,9 +648,9 @@ onMounted(async () => {
         </span>
       </div>
 
-      <label>可见范围</label>
+      <label>{{ t('drawer.visibleTo') }}</label>
       <select v-model="form.visibility">
-        <option value="all">全员可见</option>
+        <option value="all">{{ t('resources.grantEveryone') }}</option>
         <option value="specified">指定角色 / 成员（保存后弹出选择）</option>
       </select>
       <p class="small muted" style="margin: 4px 0 0">
@@ -657,37 +659,37 @@ onMounted(async () => {
 
       <label class="row" style="gap: 8px; margin-top: 16px">
         <input type="checkbox" v-model="form.enabled" style="width: auto" />
-        <span class="small">立即启用（新建时默认停用）</span>
+        <span class="small">{{ t('resources.enableNow') }}</span>
       </label>
 
-      <label v-if="kind === 'skill' || kind === 'plugin'">启用策略</label>
+      <label v-if="kind === 'skill' || kind === 'plugin'">{{ t('resources.activation') }}</label>
       <select v-if="kind === 'skill' || kind === 'plugin'" v-model="form.activation">
-        <option value="optional">optional — 员工自己决定（默认）</option>
-        <option value="default_on">default_on — 下发后默认启用，员工可关</option>
+        <option value="optional">{{ t('resources.activationOptional') }}</option>
+        <option value="default_on">{{ t('resources.activationDefaultOn') }}</option>
       </select>
       <p v-if="kind === 'skill' || kind === 'plugin'" class="small muted" style="margin: 4px 0 0">
         插件即使设为 default_on 也只落盘、不自动激活（插件带工具与 MCP，需显式授权）。
       </p>
 
       <div class="modal-actions">
-        <button @click="creating = false; editing = null">取消</button>
-        <button class="primary" @click="submit">保存</button>
+        <button @click="creating = false; editing = null">{{ t('common.cancel') }}</button>
+        <button class="primary" @click="submit">{{ t('common.save') }}</button>
       </div>
     </div>
   </div>
 
   <div v-if="grantFor" class="modal-mask" @click.self="grantFor = null">
     <div class="modal">
-      <h2>授权：{{ grantFor.name }}</h2>
-      <p class="muted small">只有并集，没有排除。选「全员」时不要再选角色/成员。</p>
+      <h2>{{ t('resources.grantFor', { name: grantFor.name }) }}</h2>
+      <p class="muted small">{{ t('resources.grantHint') }}</p>
 
       <label class="row" style="gap: 8px; margin-top: 14px">
         <input type="radio" :value="true" v-model="grantAll" style="width: auto" />
-        <span>全员可见</span>
+        <span>{{ t('resources.grantEveryone') }}</span>
       </label>
       <label class="row" style="gap: 8px">
         <input type="radio" :value="false" v-model="grantAll" style="width: auto" />
-        <span>按角色 / 成员指定</span>
+        <span>{{ t('resources.grantSpecific') }}</span>
       </label>
 
       <div v-if="!grantAll" style="margin-top: 12px">
@@ -704,11 +706,11 @@ onMounted(async () => {
         </div>
 
         <div class="row" style="gap: 6px; margin-bottom: 8px">
-          <button class="tiny" :class="{ primary: grantTab === 'role' }" @click="grantTab = 'role'">按角色</button>
-          <button class="tiny" :class="{ primary: grantTab === 'user' }" @click="grantTab = 'user'">按成员</button>
+          <button class="tiny" :class="{ primary: grantTab === 'role' }" @click="grantTab = 'role'">{{ t('resources.grantByRole') }}</button>
+          <button class="tiny" :class="{ primary: grantTab === 'user' }" @click="grantTab = 'user'">{{ t('resources.grantByMember') }}</button>
         </div>
 
-        <input v-model="grantSearch" :placeholder="grantTab === 'role' ? '搜索角色' : '搜索姓名或账号'" />
+        <input v-model="grantSearch" :placeholder="grantTab === 'role' ? t('resources.searchRole') : t('resources.searchMember')" />
 
         <div style="max-height: 220px; overflow: auto; margin-top: 8px; border: 1px solid var(--line); border-radius: var(--radius-sm)">
           <template v-if="grantTab === 'role'">
@@ -726,7 +728,7 @@ onMounted(async () => {
               />
               <span class="small">{{ r.name }} <span class="muted">（{{ r.key }}）</span></span>
             </label>
-            <div v-if="!grantRoleOptions.length" class="empty small">没有匹配的角色</div>
+            <div v-if="!grantRoleOptions.length" class="empty small">{{ t('resources.noRole') }}</div>
           </template>
           <template v-else>
             <label
@@ -746,34 +748,34 @@ onMounted(async () => {
                 <span class="muted mono">{{ m.username }}</span>
               </span>
             </label>
-            <div v-if="!grantUserOptions.length" class="empty small">没有匹配的成员</div>
+            <div v-if="!grantUserOptions.length" class="empty small">{{ t('resources.noMember') }}</div>
           </template>
         </div>
       </div>
 
       <div class="modal-actions">
-        <button @click="grantFor = null">取消</button>
-        <button class="primary" @click="saveGrants">保存授权</button>
+        <button @click="grantFor = null">{{ t('common.cancel') }}</button>
+        <button class="primary" @click="saveGrants">{{ t('resources.saveGrants') }}</button>
       </div>
     </div>
   </div>
 
   <div v-if="revealed" class="modal-mask" @click.self="revealed = null">
     <div class="modal">
-      <h2>明文密钥：{{ revealed.name }}</h2>
-      <p class="err small" style="margin-top: 12px">这次查看已经记入审计。</p>
+      <h2>{{ t('resources.revealed', { name: revealed.name }) }}</h2>
+      <p class="err small" style="margin-top: 12px">{{ t('resources.audited') }}</p>
       <pre class="mono" style="margin-top: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; overflow: auto">{{ revealed.secret }}</pre>
       <div class="modal-actions">
-        <button @click="revealed = null">关闭</button>
+        <button @click="revealed = null">{{ t('common.close') }}</button>
       </div>
     </div>
   </div>
 
   <div v-if="versionsFor" class="modal-mask" @click.self="versionsFor = null">
     <div class="modal" style="width: 620px">
-      <h2>版本：{{ versionsFor.name }}</h2>
+      <h2>{{ t('resources.versions', { name: versionsFor.name }) }}</h2>
       <p class="muted small">
-        上传 zip 后需要点「发布」，员工端才会拿到。包必须包含 <span class="mono">SKILL.md</span>，
+        {{ t('resources.uploadHint') }} <span class="mono">SKILL.md</span>，
         上限 20 MB，单文件 5 MB。
       </p>
 
@@ -781,25 +783,25 @@ onMounted(async () => {
 
       <div v-if="can('skill:write')" class="upload-box">
         <div style="flex: 1">
-          <label>zip 文件</label>
+          <label>{{ t('resources.zipFile') }}</label>
           <input type="file" accept=".zip" @change="pickFile" />
         </div>
         <div style="width: 140px">
-          <label>版本号</label>
+          <label>{{ t('resources.versionNo') }}</label>
           <input v-model="uploadVersion" placeholder="1.0.0" class="mono" />
         </div>
         <button class="primary" style="margin-top: 18px" :disabled="uploadBusy" @click="doUpload">
-          {{ uploadBusy ? '上传中…' : '上传' }}
+          {{ uploadBusy ? t('resources.uploading') : t('resources.upload') }}
         </button>
       </div>
 
-      <div v-if="!versions.length" class="empty">还没有版本</div>
+      <div v-if="!versions.length" class="empty">{{ t('resources.noVersions') }}</div>
       <table v-else style="margin-top: 12px">
         <thead>
           <tr>
-            <th>版本</th>
-            <th>内容哈希</th>
-            <th class="num">大小</th>
+            <th>{{ t('resources.version') }}</th>
+            <th>{{ t('resources.contentHash') }}</th>
+            <th class="num">{{ t('resources.size') }}</th>
             <th style="width: 150px"></th>
           </tr>
         </thead>
@@ -807,7 +809,7 @@ onMounted(async () => {
           <tr v-for="v in versions" :key="v.id">
             <td class="mono">
               {{ v.version }}
-              <span v-if="v.isCurrent" class="tag ok" style="margin-left: 6px">已发布</span>
+              <span v-if="v.isCurrent" class="tag ok" style="margin-left: 6px">{{ t('resources.published') }}</span>
             </td>
             <td class="mono small">{{ v.hash.slice(0, 12) }}…</td>
             <td class="num small">{{ humanSize(v.sizeBytes) }}</td>
@@ -816,19 +818,19 @@ onMounted(async () => {
                 v-if="can('skill:publish') && !v.isCurrent"
                 class="tiny"
                 @click="publishVersion(v)"
-              >发布</button>
+              >{{ t('resources.publish') }}</button>
               <button
                 v-if="can('skill:write') && !v.isCurrent"
                 class="tiny danger"
                 @click="removeVersion(v)"
-              >删除</button>
+              >{{ t('common.delete') }}</button>
             </td>
           </tr>
         </tbody>
       </table>
 
       <div class="modal-actions">
-        <button @click="versionsFor = null">关闭</button>
+        <button @click="versionsFor = null">{{ t('common.close') }}</button>
       </div>
     </div>
   </div>

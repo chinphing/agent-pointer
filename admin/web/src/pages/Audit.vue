@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
 import { prettyJson as pretty, when } from '../lib/format'
 
+const { t } = useI18n()
 const items = ref<any[]>([])
 const loading = ref(true)
 const error = ref('')
@@ -26,15 +28,15 @@ onMounted(load)
 <template>
   <div class="spread">
     <div>
-      <h1>审计</h1>
-      <p class="muted small" style="margin: 4px 0 0">所有写操作都会留痕，含改前改后。</p>
+      <h1>{{ t('audit.title') }}</h1>
+      <p class="muted small" style="margin: 4px 0 0">{{ t('audit.subtitle') }}</p>
     </div>
     <div class="row">
       <select v-model.number="limit" style="width: 110px" @change="load">
-        <option :value="50">最近 50</option>
-        <option :value="100">最近 100</option>
-        <option :value="200">最近 200</option>
-        <option :value="500">最近 500</option>
+        <option :value="50">{{ t('audit.recent', { n: 50 }) }}</option>
+        <option :value="100">{{ t('audit.recent', { n: 100 }) }}</option>
+        <option :value="200">{{ t('audit.recent', { n: 200 }) }}</option>
+        <option :value="500">{{ t('audit.recent', { n: 500 }) }}</option>
       </select>
     </div>
   </div>
@@ -42,15 +44,15 @@ onMounted(load)
   <div v-if="error" class="err" style="margin-top: 16px">{{ error }}</div>
 
   <div class="panel" style="margin-top: 16px">
-    <div v-if="loading" class="empty">加载中…</div>
-    <div v-else-if="!items.length" class="empty">还没有审计记录</div>
+    <div v-if="loading" class="empty">{{ t('common.loading') }}</div>
+    <div v-else-if="!items.length" class="empty">{{ t('audit.empty') }}</div>
     <table v-else>
       <thead>
         <tr>
-          <th style="width: 160px">时间</th>
-          <th style="width: 120px">操作人</th>
-          <th style="width: 170px">动作</th>
-          <th>对象</th>
+          <th style="width: 160px">{{ t('audit.time') }}</th>
+          <th style="width: 120px">{{ t('audit.actor') }}</th>
+          <th style="width: 170px">{{ t('audit.action') }}</th>
+          <th>{{ t('audit.target') }}</th>
           <th style="width: 90px"></th>
         </tr>
       </thead>
@@ -66,18 +68,18 @@ onMounted(load)
             </td>
             <td>
               <details v-if="entry.before || entry.after">
-                <summary class="small" style="cursor: pointer">详情</summary>
+                <summary class="small" style="cursor: pointer">{{ t('audit.detail') }}</summary>
               </details>
             </td>
           </tr>
           <tr v-if="entry.before || entry.after">
             <td colspan="5" style="background: #fafbfc">
               <div v-if="entry.before" class="small">
-                <div class="muted">改前</div>
+                <div class="muted">{{ t('audit.before') }}</div>
                 <pre class="mono">{{ pretty(entry.before) }}</pre>
               </div>
               <div v-if="entry.after" class="small">
-                <div class="muted">改后</div>
+                <div class="muted">{{ t('audit.after') }}</div>
                 <pre class="mono">{{ pretty(entry.after) }}</pre>
               </div>
             </td>

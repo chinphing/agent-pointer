@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { login } from '../store'
 import { api, errText } from '../api'
 
 const router = useRouter()
+const { t } = useI18n()
 const username = ref('')
 const password = ref('')
 const captcha = ref('')
@@ -47,26 +49,26 @@ async function submit() {
 <template>
   <div class="wrap">
     <form class="card" @submit.prevent="submit">
-      <h1>登录 Pointer 控制面</h1>
-      <p class="muted small">账号由管理员统一创建，不开放自注册。</p>
+      <h1>{{ t('login.title') }}</h1>
+      <p class="muted small">{{ t('login.subtitle') }}</p>
 
       <div v-if="error" class="err" style="margin-top: 14px">{{ error }}</div>
 
-      <label for="u">账号</label>
+      <label for="u">{{ t('login.account') }}</label>
       <input id="u" v-model="username" autocomplete="username" autofocus required />
 
-      <label for="p">密码</label>
+      <label for="p">{{ t('login.password') }}</label>
       <input id="p" v-model="password" type="password" autocomplete="current-password" required />
 
       <template v-if="captchaRequired">
-      <label for="c">验证码</label>
+      <label for="c">{{ t('login.captcha') }}</label>
       <div class="row" style="gap: 8px; align-items: center">
         <input id="c" v-model="captcha" autocomplete="off" maxlength="4" required style="flex: 1" />
         <img
           v-if="captchaImage"
           :src="captchaImage"
-          alt="验证码"
-          title="看不清？点一下换一张"
+          :alt="t('login.captcha')"
+          :title="t('login.refreshCaptcha')"
           style="height: 40px; cursor: pointer; border-radius: 8px"
           @click="refreshCaptcha"
         />
@@ -74,7 +76,7 @@ async function submit() {
       </template>
 
       <button class="primary" style="width: 100%; margin-top: 20px" :disabled="busy">
-        {{ busy ? '登录中…' : '登录' }}
+        {{ busy ? t('login.submitting') : t('login.submit') }}
       </button>
     </form>
   </div>

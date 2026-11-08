@@ -18,3 +18,25 @@ export function addableRoles<T extends RoleLike>(
   const has = new Set(assigned)
   return all.filter((r) => !has.has(r.key))
 }
+
+/**
+ * 角色的显示名。
+ *
+ * 内置角色（super_admin / admin / viewer / member）一律走 i18n 键，
+ * 后端返回的中文名不再直接上屏 —— 否则切英文时角色名还是中文。
+ * 自定义角色用管理员起的名字，没有名字才退回 key。
+ */
+const BUILTIN_ROLE_KEYS = ['super_admin', 'admin', 'viewer', 'member']
+
+export function isBuiltinRole(key: string): boolean {
+  return BUILTIN_ROLE_KEYS.includes(key)
+}
+
+export function roleLabel(
+  key: string,
+  fallbackName: string | undefined,
+  translate: (k: string) => string
+): string {
+  if (isBuiltinRole(key)) return translate(`roles.${key}`)
+  return (fallbackName || '').trim() || key
+}

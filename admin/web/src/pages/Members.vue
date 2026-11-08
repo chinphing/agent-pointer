@@ -1,9 +1,22 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
 import { can } from '../store'
-import { addableRoles } from '../lib/roles'
+import { addableRoles, roleLabel } from '../lib/roles'
 import { when } from '../lib/format'
+
+const { t } = useI18n()
+
+/**
+ * 角色名统一走 roleLabel：内置角色翻译成当前语言，自定义角色用管理员起的名字。
+ * 之前这里直接渲染 key（super_admin），而别处渲染 name（超级管理员），
+ * 于是同一个角色在两个地方一个中文一个英文。
+ */
+function label(key: string) {
+  const r = roles.value.find((x) => x.key === key)
+  return roleLabel(key, r?.name, t)
+}
 
 const items = ref<any[]>([])
 const roles = ref<any[]>([])
@@ -50,7 +63,7 @@ async function createUser() {
     })
     showCreate.value = false
     form.value = { username: '', displayName: '', password: '', roles: ['member'] }
-    notice.value = '账号已创建'
+    notice.value = t('members.created')
     await load()
   } catch (e) {
     error.value = errText(e)
@@ -63,7 +76,7 @@ async function toggleStatus(user: any) {
   const next = user.status === 'active' ? 'disabled' : 'active'
   try {
     await api.post(`/api/admin/users/${user.id}/status`, { status: next })
-    notice.value = next === 'active' ? '已启用' : '已停用（该账号所有会话已踢下线）'
+    notice.value = next === 'active' ? t('members.enabledNotice') : t('members.disabledNotice')
     await load()
   } catch (e) {
     error.value = errText(e)
@@ -71,11 +84,13 @@ async function toggleStatus(user: any) {
 }
 
 async function resetPassword(user: any) {
-  const pw = prompt(`为「${user.displayName || user.username}」设置新密码（至少 8 位）`)
+  const pw = prompt(
+    t('members.resetPrompt', { name: user.displayName || user.username })
+  )
   if (!pw) return
   try {
     await api.post(`/api/admin/users/${user.id}/password`, { password: pw })
-    notice.value = '密码已重置，该账号需要重新登录'
+    notice.value = t('members.resetDone')
   } catch (e) {
     error.value = errText(e)
   }
@@ -84,7 +99,7 @@ async function resetPassword(user: any) {
 async function saveRoles(user: any, selected: string[]) {
   try {
     await api.post(`/api/admin/users/${user.id}/roles`, { roles: selected })
-    notice.value = '角色已更新'
+    notice.value = t('members.rolesUpdated')
     await load()
   } catch (e) {
     error.value = errText(e)
@@ -130,12 +145,12 @@ onMounted(load)
 <template>
   <div class="spread">
     <div>
-      <h1>成员</h1>
-      <p class="muted small" style="margin: 4px 0 0">账号只能由管理员创建，不开放自注册。</p>
+      <h1>{{ t('members.title') }}</h1>
+      <p class="muted small" style="margin: 4px 0 0">{{ t('members.subtitle') }}</p>
     </div>
     <div class="row" v-if="can('user:write')">
-      <button @click="showImport = true; importResult = null">批量导入</button>
-      <button class="primary" @click="showCreate = true">新建账号</button>
+      <button @click="showImport = true; importResult = null">{{ t('members.import') }}</button>
+      <button class="primary" @click="showCreate = true">{{ t('members.create') }}</button>
     </div>
   </div>
 
@@ -143,16 +158,16 @@ onMounted(load)
   <div v-if="notice" class="okmsg" style="margin-top: 16px">{{ notice }}</div>
 
   <div class="panel" style="margin-top: 16px">
-    <div v-if="loading" class="empty">加载中…</div>
-    <div v-else-if="!items.length" class="empty">还没有成员</div>
+    <div v-if="loading" class="empty">{{ t('common.loading') }}</div>
+    <div v-else-if="!items.length" class="empty">{{ t('members.empty') }}</div>
     <table v-else>
       <thead>
         <tr>
-          <th style="width: 150px">账号</th>
-          <th style="width: 130px">姓名</th>
-          <th style="width: 84px">状态</th>
-          <th>角色</th>
-          <th style="width: 150px">最近登录</th>
+          <th style="width: 150px">{{ t('members.account') }}</th>
+          <th style="width: 130px">{{ t('members.name') }}</th>
+          <th style="width: 84px">{{ t('members.status') }}</th>
+          <th>{{ t('members.roles') }}</th>
+          <th style="width: 150px">{{ t('members.lastLogin') }}</th>
           <th style="width: 176px"></th>
         </tr>
       </thead>
@@ -162,7 +177,7 @@ onMounted(load)
           <td>{{ user.displayName || '—' }}</td>
           <td>
             <span class="tag" :class="user.status === 'active' ? 'ok' : 'plain'">
-              {{ user.status === 'active' ? '启用' : '停用' }}
+              {{ user.status === 'active' ? t('common.enabled') : t('common.disabled') }}
             </span>
           </td>
           <td>
@@ -172,34 +187,38 @@ onMounted(load)
                 :key="key"
                 class="tag"
                 :style="{ cursor: can('user:write') ? 'pointer' : 'default' }"
-                :title="can('user:write') ? '点击移除该角色' : ''"
+                :title="can('user:write') ? t('members.removeRoleHint') : ''"
                 @click="can('user:write') && toggleRole(user, key)"
-              >{{ key }}</span>
-              <span v-if="!user.roles.length" class="muted small">无角色</span>
+              >{{ label(key) }}</span>
+              <span v-if="!user.roles.length" class="muted small">{{ t('roles.noRole') }}</span>
               <select
                 v-if="can('user:write') && addableFor(user).length"
                 class="tiny"
-                title="添加角色"
+                :title="t('members.addRoleHint')"
                 @change="onAddRole(user, $event)"
               >
-                <option value="">+ 角色</option>
+                <option value="">{{ t('roles.add') }}</option>
                 <option v-for="r in addableFor(user)" :key="r.key" :value="r.key">
-                  {{ r.name || r.key }}
+                  {{ label(r.key) }}
                 </option>
               </select>
             </div>
           </td>
-          <td class="small muted">{{ user.lastLoginAt ? when(user.lastLoginAt) : '从未登录' }}</td>
+          <td class="small muted">
+            {{ user.lastLoginAt ? when(user.lastLoginAt) : t('members.neverLoggedIn') }}
+          </td>
           <td class="actions">
             <div class="actions-row">
-              <button v-if="can('user:write')" class="tiny" @click="resetPassword(user)">重置密码</button>
+              <button v-if="can('user:write')" class="tiny" @click="resetPassword(user)">
+                {{ t('members.resetPassword') }}
+              </button>
               <button
                 v-if="can('user:write')"
                 class="tiny"
                 :class="{ danger: user.status === 'active' }"
                 @click="toggleStatus(user)"
               >
-                {{ user.status === 'active' ? '停用' : '启用' }}
+                {{ user.status === 'active' ? t('members.disable') : t('members.enable') }}
               </button>
             </div>
           </td>
@@ -210,14 +229,14 @@ onMounted(load)
 
   <div v-if="showCreate" class="modal-mask" @click.self="showCreate = false">
     <div class="modal">
-      <h2>新建账号</h2>
-      <label>账号</label>
-      <input v-model="form.username" placeholder="登录名，不含空格" />
-      <label>姓名</label>
-      <input v-model="form.displayName" placeholder="显示名" />
-      <label>初始密码</label>
-      <input v-model="form.password" type="password" placeholder="至少 8 位" />
-      <label>角色</label>
+      <h2>{{ t('members.create') }}</h2>
+      <label>{{ t('members.account') }}</label>
+      <input v-model="form.username" :placeholder="t('members.usernamePlaceholder')" />
+      <label>{{ t('members.name') }}</label>
+      <input v-model="form.displayName" :placeholder="t('members.displayNamePlaceholder')" />
+      <label>{{ t('members.initialPassword') }}</label>
+      <input v-model="form.password" type="password" :placeholder="t('members.passwordPlaceholder')" />
+      <label>{{ t('members.roles') }}</label>
       <div class="row wrap">
         <label v-for="key in roleKeys()" :key="key" class="row" style="margin: 0; gap: 6px">
           <input
@@ -226,30 +245,34 @@ onMounted(load)
             :value="key"
             v-model="form.roles"
           />
-          <span class="small">{{ key }}</span>
+          <span class="small">{{ label(key) }}</span>
         </label>
       </div>
       <div class="modal-actions">
-        <button @click="showCreate = false">取消</button>
-        <button class="primary" :disabled="busy" @click="createUser">创建</button>
+        <button @click="showCreate = false">{{ t('common.cancel') }}</button>
+        <button class="primary" :disabled="busy" @click="createUser">
+          {{ t('members.createSubmit') }}
+        </button>
       </div>
     </div>
   </div>
 
   <div v-if="showImport" class="modal-mask" @click.self="showImport = false">
     <div class="modal">
-      <h2>批量导入</h2>
-      <p class="muted small">每行 <span class="mono">账号,姓名,初始密码[,角色]</span>，首行可为表头。坏行会跳过并列出原因。</p>
+      <h2>{{ t('members.import') }}</h2>
+      <p class="muted small">{{ t('members.importHint') }}</p>
       <textarea v-model="csv" rows="8" style="margin-top: 10px; font-family: ui-monospace, monospace"></textarea>
       <div v-if="importResult" class="okmsg" style="margin-top: 12px">
-        成功 {{ importResult.created }} 个，跳过 {{ importResult.skipped.length }} 行
+        {{ t('members.importResult', { created: importResult.created, skipped: importResult.skipped.length }) }}
         <div v-for="row in importResult.skipped" :key="row.line" class="small">
-          第 {{ row.line }} 行：{{ row.reason }}
+          {{ t('members.importLine', { line: row.line, reason: row.reason }) }}
         </div>
       </div>
       <div class="modal-actions">
-        <button @click="showImport = false">关闭</button>
-        <button class="primary" :disabled="busy" @click="runImport">导入</button>
+        <button @click="showImport = false">{{ t('common.close') }}</button>
+        <button class="primary" :disabled="busy" @click="runImport">
+          {{ t('members.importSubmit') }}
+        </button>
       </div>
     </div>
   </div>

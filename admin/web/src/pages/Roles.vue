@@ -7,29 +7,29 @@
  * 所以建完立刻生效。
  */
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
 import { can } from '../store'
+import { roleLabel } from '../lib/roles'
 
-const MODULE_LABEL: Record<string, string> = {
-  user: '成员',
-  role: '角色',
-  provider: '模型与密钥',
-  model: '模型',
-  skill: '技能',
-  plugin: '插件',
-  mcp: 'MCP',
-  usage: '用量与配额',
-  audit: '审计日志',
-  system: '系统',
-}
-const ACTION_LABEL: Record<string, string> = {
-  read: '查看',
-  write: '新建修改',
-  publish: '发布',
-  delete: '删除',
-  reveal: '取明文',
-}
+const { t } = useI18n()
+
+/** 模块与动作的名字走语言包；新增模块只要加键，不用改这里。 */
+const MODULE_ORDER = ['user', 'role', 'provider', 'model', 'skill', 'plugin', 'mcp', 'usage', 'audit', 'system']
 const ACTION_ORDER = ['read', 'write', 'publish', 'delete', 'reveal']
+
+function moduleLabel(m: string) {
+  const key = `permModule.${m}`
+  return t(key) === key ? m : t(key)
+}
+function actionLabel(a: string) {
+  const key = `permAction.${a}`
+  return t(key) === key ? a : t(key)
+}
+/** 角色名：内置角色翻译，自定义角色用管理员起的名字。 */
+function nameOf(role: any) {
+  return roleLabel(role.key, role.name, t)
+}
 
 const roles = ref<any[]>([])
 const allPermissions = ref<string[]>([])
@@ -46,15 +46,11 @@ const modules = computed(() => {
   const set = new Set<string>()
   for (const p of allPermissions.value) set.add(p.split(':')[0])
   return [...set].sort((a, b) => {
-    const ai = Object.keys(MODULE_LABEL).indexOf(a)
-    const bi = Object.keys(MODULE_LABEL).indexOf(b)
+    const ai = MODULE_ORDER.indexOf(a)
+    const bi = MODULE_ORDER.indexOf(b)
     return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi)
   })
 })
-
-function moduleLabel(m: string) {
-  return MODULE_LABEL[m] || m
-}
 
 /** 该模块下有哪些动作（不是每个模块都有 5 个动作）。 */
 function actionsOf(m: string) {
@@ -126,13 +122,13 @@ async function submit() {
         name: form.value.name.trim(),
         permissions: form.value.permissions,
       })
-      notice.value = '角色已创建'
+      notice.value = t('roles_page.created')
     } else {
       await api.put(`/api/admin/roles/${editing.value.id}`, {
         name: form.value.name.trim(),
         permissions: form.value.permissions,
       })
-      notice.value = '角色已更新'
+      notice.value = t('roles_page.updated')
     }
     editing.value = null
     await load()
@@ -144,11 +140,11 @@ async function submit() {
 }
 
 async function remove(role: any) {
-  if (!confirm(`删除角色「${role.name}」？`)) return
+  if (!confirm(t('roles_page.deleteConfirm', { name: nameOf(role) }))) return
   error.value = ''
   try {
     await api.del(`/api/admin/roles/${role.id}`)
-    notice.value = '角色已删除'
+    notice.value = t('roles_page.deleted')
     await load()
   } catch (e) {
     error.value = errText(e)
@@ -159,59 +155,60 @@ async function remove(role: any) {
 <template>
   <div class="row" style="justify-content: space-between; align-items: flex-start">
     <div>
-      <h1>角色与权限</h1>
-      <p class="muted small" style="margin-top: 4px">
-        内置角色权限固定，不可修改；需要差异请新建自定义角色。权限判定取并集，没有 deny。
-      </p>
+      <h1>{{ t('roles_page.title') }}</h1>
+      <p class="muted small" style="margin-top: 4px">{{ t('roles_page.subtitle') }}</p>
     </div>
-    <button v-if="can('role:write')" class="primary" @click="openCreate">+ 新建角色</button>
+    <button v-if="can('role:write')" class="primary" @click="openCreate">
+      {{ t('roles_page.create') }}
+    </button>
   </div>
 
   <div v-if="error" class="err" style="margin-top: 16px">{{ error }}</div>
   <div v-if="notice" class="okmsg" style="margin-top: 16px">{{ notice }}</div>
-  <div v-if="loading" class="empty">加载中…</div>
+  <div v-if="loading" class="empty">{{ t('common.loading') }}</div>
 
   <div v-else class="grid" style="margin-top: 16px">
     <div v-for="role in roles" :key="role.id || role.key" class="panel stat">
       <div class="row" style="justify-content: space-between">
-        <strong>{{ role.name }}</strong>
+        <strong>{{ nameOf(role) }}</strong>
         <span class="tag" :class="role.builtin === false ? 'warn' : 'plain'">
-          {{ role.builtin === false ? '自定义' : '内置' }}
+          {{ role.builtin === false ? t('roles.custom') : t('roles.builtin') }}
         </span>
       </div>
       <div class="small muted mono">{{ role.key }}</div>
       <div class="small" style="margin-top: 8px">
-        权限 {{ role.permissions?.length || 0 }} 项 · 成员 {{ role.memberCount }} 人
+        {{ t('roles_page.permissionCount', { n: role.permissions?.length || 0 }) }}
+        · {{ t('roles_page.memberCount', { n: role.memberCount }) }}
       </div>
       <div v-if="role.builtin === false && can('role:write')" class="row" style="gap: 6px; margin-top: 10px">
-        <button class="tiny" @click="openEdit(role)">编辑权限</button>
-        <button class="tiny danger" @click="remove(role)">删除</button>
+        <button class="tiny" @click="openEdit(role)">{{ t('roles_page.editPerm') }}</button>
+        <button class="tiny danger" @click="remove(role)">{{ t('common.delete') }}</button>
       </div>
     </div>
   </div>
 
   <div v-if="editing" class="modal-mask" @click.self="editing = null">
     <div class="modal" style="max-width: 720px">
-      <h2>{{ editing.isNew ? '新建角色' : '编辑角色' }}</h2>
+      <h2>{{ editing.isNew ? t('roles_page.createTitle') : t('roles_page.editTitle') }}</h2>
 
-      <label>标识（建后不可改）</label>
-      <input v-model="form.key" :disabled="!editing.isNew" placeholder="auditor" />
+      <label>{{ t('roles_page.keyLabel') }}</label>
+      <input v-model="form.key" :disabled="!editing.isNew" :placeholder="t('roles_page.keyPlaceholder')" />
 
-      <label>名称</label>
-      <input v-model="form.name" placeholder="审计员" />
+      <label>{{ t('roles_page.nameLabel') }}</label>
+      <input v-model="form.name" :placeholder="t('roles_page.namePlaceholder')" />
 
-      <label>权限（勾选即授予；同一模块可整列切换）</label>
+      <label>{{ t('roles_page.permissionHint') }}</label>
       <table style="margin-top: 8px">
         <thead>
           <tr>
-            <th style="width: 150px">模块</th>
-            <th v-for="a in ACTION_ORDER" :key="a">{{ ACTION_LABEL[a] }}</th>
+            <th style="width: 150px">{{ t('roles_page.moduleCol') }}</th>
+            <th v-for="a in ACTION_ORDER" :key="a">{{ actionLabel(a) }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="m in modules" :key="m">
             <td>
-              <span style="cursor: pointer" title="整行切换" @click="toggleModule(m)">
+              <span style="cursor: pointer" :title="t('roles_page.toggleRow')" @click="toggleModule(m)">
                 {{ moduleLabel(m) }}
               </span>
             </td>
@@ -230,8 +227,8 @@ async function remove(role: any) {
       </table>
 
       <div class="modal-actions">
-        <button @click="editing = null">取消</button>
-        <button class="primary" :disabled="busy" @click="submit">保存</button>
+        <button @click="editing = null">{{ t('common.cancel') }}</button>
+        <button class="primary" :disabled="busy" @click="submit">{{ t('common.save') }}</button>
       </div>
     </div>
   </div>

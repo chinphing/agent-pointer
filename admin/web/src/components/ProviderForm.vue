@@ -9,34 +9,36 @@
  *       → 在同一个列表里增删模型 → 保存（服务商 + 模型一起落库）。
  */
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
 
 const props = defineProps<{ resource: any | null }>()
+const { t } = useI18n()
 const emit = defineEmits<{ (e: 'saved'): void; (e: 'cancel'): void }>()
 
 const TEMPLATES = [
   {
     id: 'bailian',
-    label: '阿里云百炼（DashScope）',
+    labelKey: 'provider.tplBailian',
     slug: 'bailian',
     name: '阿里云百炼',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   },
   {
     id: 'deepseek',
-    label: 'DeepSeek',
+    labelKey: 'provider.tplDeepseek',
     slug: 'deepseek',
     name: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com/v1',
   },
   {
     id: 'openai',
-    label: 'OpenAI',
+    labelKey: 'provider.tplOpenai',
     slug: 'openai',
     name: 'OpenAI',
     baseUrl: 'https://api.openai.com/v1',
   },
-  { id: 'custom', label: '其他（OpenAI 兼容）', slug: '', name: '', baseUrl: '' },
+  { id: 'custom', labelKey: 'provider.tplCustom', slug: '', name: '', baseUrl: '' },
 ]
 
 const isEdit = computed(() => Boolean(props.resource))
@@ -113,17 +115,17 @@ async function testConnection() {
       baseUrl: form.value.baseUrl.trim(),
       apiKey: form.value.apiKey.trim(),
     })
-    testResult.value = { ok: Boolean(r.ok), message: r.message || (r.ok ? '连接正常' : '连接失败') }
+    testResult.value = { ok: Boolean(r.ok), message: r.message || (r.ok ? t('provider.connected') : t('provider.connectFailed')) }
     if (r.ok) {
       const remote: string[] = r.models || []
       const added = remote.filter((m) => !modelList.value.includes(m))
       if (remote.length === 0) {
-        notice.value = '连接正常，但这个接口没有返回模型清单——可以手动添加'
+        notice.value = t('provider.noModels')
       } else if (added.length === 0) {
-        notice.value = `远端 ${remote.length} 个模型都已在列表里`
+        notice.value = t('provider.fetchedAll', { n: remote.length })
       } else {
         modelList.value = [...modelList.value, ...added]
-        notice.value = `拉取到 ${remote.length} 个模型，已加入 ${added.length} 个（不需要的可以删掉）`
+        notice.value = t('provider.fetchedAdded', { total: remote.length, added: added.length })
       }
     }
   } catch (e) {
@@ -165,9 +167,9 @@ async function modelsReferencedByTiers(slugs: string[]): Promise<string[]> {
 async function submit() {
   error.value = ''
   notice.value = ''
-  if (!form.value.slug.trim()) return (error.value = '请填写标识')
-  if (!form.value.name.trim()) return (error.value = '请填写名称')
-  if (!form.value.baseUrl.trim()) return (error.value = '请填写接口地址')
+  if (!form.value.slug.trim()) return (error.value = t('provider.errSlug'))
+  if (!form.value.name.trim()) return (error.value = t('provider.errName'))
+  if (!form.value.baseUrl.trim()) return (error.value = t('provider.errBaseUrl'))
 
   busy.value = true
   try {
@@ -178,7 +180,7 @@ async function submit() {
       if (removed.length) {
         const used = await modelsReferencedByTiers(removed)
         if (used.length) {
-          error.value = `这些模型还被档位映射引用，先改档位再删：${used.join('、')}`
+          error.value = t('provider.referenced', { list: used.join('、') })
           return
         }
       }
@@ -238,47 +240,47 @@ async function submit() {
 <template>
   <div class="modal-mask" @click.self="emit('cancel')">
     <div class="modal" style="width: 640px">
-      <h2>{{ isEdit ? '编辑模型服务' : '新建模型服务' }}</h2>
+      <h2>{{ isEdit ? t('provider.editTitle') : t('provider.createTitle') }}</h2>
 
       <template v-if="!isEdit">
-        <label>选择服务商</label>
+        <label>{{ t('provider.chooseTemplate') }}</label>
         <div class="tpl-grid">
           <button
-            v-for="t in TEMPLATES"
-            :key="t.id"
+            v-for="item in TEMPLATES"
+            :key="item.id"
             type="button"
             class="tpl"
-            :class="{ active: template === t.id }"
-            @click="applyTemplate(t.id)"
+            :class="{ active: template === item.id }"
+            @click="applyTemplate(item.id)"
           >
-            {{ t.label }}
+            {{ t(item.labelKey) }}
           </button>
         </div>
       </template>
 
       <div class="two">
         <div>
-          <label>名称</label>
-          <input v-model="form.name" placeholder="阿里云百炼" />
+          <label>{{ t('provider.name') }}</label>
+          <input v-model="form.name" :placeholder="t('provider.namePlaceholder')" />
         </div>
         <div>
-          <label>标识（建后不可改）</label>
+          <label>{{ t('provider.slug') }}</label>
           <input v-model="form.slug" :disabled="isEdit" placeholder="bailian" />
         </div>
       </div>
 
-      <label>接口地址</label>
+      <label>{{ t('provider.baseUrl') }}</label>
       <input v-model="form.baseUrl" class="mono" placeholder="https://…/v1" />
       <p class="small muted" style="margin: 4px 0 0">
-        填到 <span class="mono">/v1</span> 为止，系统会在后面拼 <span class="mono">/models</span> 探测模型。
+        {{ t('provider.baseUrlHint') }}
       </p>
 
-      <label>API Key{{ isEdit ? '（留空表示不修改）' : '' }}</label>
+      <label>{{ t('provider.apiKey') }}{{ isEdit ? t('provider.apiKeyKeep') : '' }}</label>
       <input v-model="form.apiKey" type="password" placeholder="sk-…" />
 
       <div class="row" style="gap: 10px; margin-top: 12px">
         <button class="tiny" :disabled="testing" @click="testConnection">
-          {{ testing ? '探测中…' : '测试连接并获取模型' }}
+          {{ testing ? t('provider.testing') : t('provider.test') }}
         </button>
         <span
           v-if="testResult"
@@ -293,8 +295,8 @@ async function submit() {
       <div class="models">
         <div class="spread" style="margin-bottom: 8px">
           <span class="small">
-            模型（{{ modelList.length }} 个）
-            <span v-if="isEdit" class="muted">· 删掉的行保存后才会真正移除</span>
+            {{ t('provider.models', { n: modelList.length }) }}
+            <span v-if="isEdit" class="muted">{{ t('provider.removeHint') }}</span>
           </span>
         </div>
 
@@ -303,20 +305,20 @@ async function submit() {
             v-model="newModel"
             class="tiny"
             style="flex: 1"
-            placeholder="手动添加模型名，回车确认"
+            :placeholder="t('provider.addPlaceholder')"
             @keyup.enter="addModel"
           />
-          <button class="tiny" :disabled="!newModel.trim()" @click="addModel">添加</button>
+          <button class="tiny" :disabled="!newModel.trim()" @click="addModel">{{ t('provider.add') }}</button>
         </div>
 
         <div v-if="!modelList.length && loaded" class="small muted" style="padding: 6px 2px">
-          还没有模型。点上面的「测试连接并获取模型」自动拉，或在下面手动加。
+          {{ t('provider.emptyModels') }}
         </div>
 
         <div class="model-list">
           <div v-for="m in modelList" :key="m" class="model-row">
             <span class="mono">{{ m }}</span>
-            <button class="tiny" title="从列表移除" @click="removeModel(m)">移除</button>
+            <button class="tiny" :title="t('provider.remove')" @click="removeModel(m)">{{ t('provider.remove') }}</button>
           </div>
         </div>
 
@@ -326,9 +328,9 @@ async function submit() {
       <div v-if="notice" class="okmsg" style="margin-top: 12px">{{ notice }}</div>
 
       <div class="modal-actions">
-        <button @click="emit('cancel')">取消</button>
+        <button @click="emit('cancel')">{{ t('common.cancel') }}</button>
         <button class="primary" :disabled="busy" @click="submit">
-          {{ isEdit ? '保存' : modelList.length ? `创建并启用 ${modelList.length} 个模型` : '创建' }}
+          {{ isEdit ? t('common.save') : modelList.length ? t('provider.createWithModels', { n: modelList.length }) : t('provider.create') }}
         </button>
       </div>
     </div>

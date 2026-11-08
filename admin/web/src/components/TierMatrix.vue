@@ -10,7 +10,10 @@
  * 保存放在底部、有改动才点亮。
  */
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   resource: any | null
@@ -23,28 +26,28 @@ const emit = defineEmits<{ (e: 'saved'): void }>()
 /** 按用途分组：对话/工具走 agentModeLlm，媒体走 mediaModeLlm。 */
 const GROUPS = [
   {
-    label: '对话与工具',
+    labelKey: 'tier.groupChat',
     scenes: [
-      { key: 'general', label: '通用对话', group: 'agentModeLlm' },
-      { key: 'coder', label: '编码', group: 'agentModeLlm' },
-      { key: 'computer', label: '桌面操作', group: 'agentModeLlm' },
-      { key: 'web_search', label: '联网搜索', group: 'agentModeLlm' },
+      { key: 'general', labelKey: 'tier.scene_general', group: 'agentModeLlm' },
+      { key: 'coder', labelKey: 'tier.scene_coder', group: 'agentModeLlm' },
+      { key: 'computer', labelKey: 'tier.scene_computer', group: 'agentModeLlm' },
+      { key: 'web_search', labelKey: 'tier.scene_web_search', group: 'agentModeLlm' },
     ],
   },
   {
-    label: '媒体',
+    labelKey: 'tier.groupMedia',
     scenes: [
-      { key: 'image', label: '图片理解', group: 'mediaModeLlm' },
-      { key: 'audio', label: '音频转写', group: 'mediaModeLlm' },
-      { key: 'video', label: '视频理解', group: 'mediaModeLlm' },
+      { key: 'image', labelKey: 'tier.scene_image', group: 'mediaModeLlm' },
+      { key: 'audio', labelKey: 'tier.scene_audio', group: 'mediaModeLlm' },
+      { key: 'video', labelKey: 'tier.scene_video', group: 'mediaModeLlm' },
     ],
   },
 ]
 
 const TIERS = [
-  { key: 'fast', label: '快速' },
-  { key: 'standard', label: '标准' },
-  { key: 'expert', label: '高级' },
+  { key: 'fast', labelKey: 'tier.tier_fast' },
+  { key: 'standard', labelKey: 'tier.tier_standard' },
+  { key: 'expert', labelKey: 'tier.tier_expert' },
 ]
 
 /**
@@ -54,19 +57,19 @@ const TIERS = [
  * 老的 decision / position 两个槽位客户端仍兼容，但界面上不露出。
  */
 const SLOTS = [
-  { key: 'locate', label: '定位', hint: '在屏幕上找到要操作的位置' },
-  { key: 'locateVerify', label: '定位验证', hint: '确认找到的位置对不对' },
-  { key: 'verify', label: '动作验证', hint: '确认动作是否执行成功' },
+  { key: 'locate', labelKey: 'tier.slot_locate', hintKey: 'tier.slot_locateHint' },
+  { key: 'locateVerify', labelKey: 'tier.slot_locateVerify', hintKey: 'tier.slot_locateVerifyHint' },
+  { key: 'verify', labelKey: 'tier.slot_verify', hintKey: 'tier.slot_verifyHint' },
 ]
 
 /** 与客户端 `thinkingIntensity` 阶梯一致；留空 = 继承模型默认。 */
 const THINKING = [
   { key: '', label: '—' },
-  { key: 'off', label: '关' },
-  { key: 'low', label: '低' },
-  { key: 'medium', label: '中' },
-  { key: 'high', label: '高' },
-  { key: 'max', label: '最高' },
+  { key: 'off', labelKey: 'tier.thinking_off' },
+  { key: 'low', labelKey: 'tier.thinking_low' },
+  { key: 'medium', labelKey: 'tier.thinking_medium' },
+  { key: 'high', labelKey: 'tier.thinking_high' },
+  { key: 'max', labelKey: 'tier.thinking_max' },
 ]
 
 const payload = ref<any>({})
@@ -231,7 +234,7 @@ async function save() {
   try {
     await api.put(`/api/admin/resources/${props.resource.id}`, { payload: payload.value })
     saved.value = stable(payload.value)
-    notice.value = '已保存'
+    notice.value = t('tier.saved')
     emit('saved')
   } catch (e) {
     error.value = errText(e)
@@ -253,7 +256,7 @@ async function createDefault() {
     await api.post('/api/admin/resources', {
       kind: 'tier_profile',
       slug: 'default',
-      name: '默认档位映射',
+      name: t('tier.title'),
       enabled: true,
       payload: {},
     })
@@ -271,61 +274,59 @@ async function createDefault() {
     <div v-if="error" class="err">{{ error }}</div>
 
     <div v-if="!resource" class="empty">
-      还没有档位映射。
+      {{ t('tier.empty') }}
       <button v-if="canWrite" class="tiny" style="margin-left: 8px" :disabled="busy" @click="createDefault">
-        创建默认档位映射
+        {{ t('tier.createDefault') }}
       </button>
     </div>
 
     <template v-else>
-      <p class="hint">
-        每格选该场景该档位用的模型；留空就是「继承默认」，客户端用自己的内置模型。
-        选了模型后可再调<strong>思考强度</strong>（关 / 低 / 中 / 高 / 最高），不选就跟随模型默认。
-        管理员配的只是默认值，员工自己改过的那一档不会被覆盖。
-      </p>
+      <p class="hint">{{ t('tier.hint') }}</p>
 
       <div class="matrix-scroll">
       <div class="matrix">
         <div class="head-row">
-          <div class="scene-col">场景</div>
-          <div v-for="t in TIERS" :key="t.key" class="tier-head">{{ t.label }}</div>
+          <div class="scene-col">{{ t('tier.scene') }}</div>
+          <div v-for="tier in TIERS" :key="tier.key" class="tier-head">{{ t(tier.labelKey) }}</div>
         </div>
 
-        <template v-for="g in GROUPS" :key="g.label">
-          <div class="group-row">{{ g.label }}</div>
+        <template v-for="g in GROUPS" :key="g.labelKey">
+          <div class="group-row">{{ t(g.labelKey) }}</div>
           <div v-for="s in g.scenes" :key="s.group + s.key" class="scene-row">
-            <div class="scene-col" :title="s.key">{{ s.label }}</div>
+            <div class="scene-col" :title="s.key">{{ t(s.labelKey) }}</div>
             <div
-              v-for="t in TIERS"
-              :key="t.key"
+              v-for="tier in TIERS"
+              :key="tier.key"
               class="cell"
-              :class="{ filled: !!modelOf(s.key, s.group, t.key) }"
+              :class="{ filled: !!modelOf(s.key, s.group, tier.key) }"
             >
               <select
                 class="ghost"
-                :class="{ filled: !!modelOf(s.key, s.group, t.key) }"
-                :value="modelOf(s.key, s.group, t.key)"
+                :class="{ filled: !!modelOf(s.key, s.group, tier.key) }"
+                :value="modelOf(s.key, s.group, tier.key)"
                 :disabled="!canWrite"
-                @change="setModel(s.key, s.group, t.key, ($event.target as HTMLSelectElement).value)"
+                @change="setModel(s.key, s.group, tier.key, ($event.target as HTMLSelectElement).value)"
               >
-                <option value="">继承默认</option>
+                <option value="">{{ t('tier.inherit') }}</option>
                 <option v-for="m in modelOptions" :key="m.slug" :value="m.slug">{{ m.label }}</option>
               </select>
               <select
-                v-if="modelOf(s.key, s.group, t.key)"
+                v-if="modelOf(s.key, s.group, tier.key)"
                 class="mini"
-                :value="intensityOf(s.key, s.group, t.key)"
+                :value="intensityOf(s.key, s.group, tier.key)"
                 :disabled="!canWrite"
-                title="思考强度"
-                @change="setIntensity(s.key, s.group, t.key, ($event.target as HTMLSelectElement).value)"
+                :title="t('tier.thinking')"
+                @change="setIntensity(s.key, s.group, tier.key, ($event.target as HTMLSelectElement).value)"
               >
-                <option v-for="o in THINKING" :key="o.key" :value="o.key">{{ o.label }}</option>
+                <option v-for="o in THINKING" :key="o.key" :value="o.key">
+                  {{ o.labelKey ? t(o.labelKey) : o.label }}
+                </option>
               </select>
               <button
-                v-if="modelOf(s.key, s.group, t.key) && canWrite"
+                v-if="modelOf(s.key, s.group, tier.key) && canWrite"
                 class="clear"
-                title="清空这一格"
-                @click="clearCell(s.key, s.group, t.key)"
+                :title="t('tier.clearCell')"
+                @click="clearCell(s.key, s.group, tier.key)"
               >×</button>
             </div>
           </div>
@@ -334,20 +335,20 @@ async function createDefault() {
 
       <div class="pipe-block">
         <div class="pipe-title">
-          <h3>电脑操控 · 定位链</h3>
+          <h3>{{ t('tier.pipeTitle') }}</h3>
           <span class="small muted">
-            三段各自用哪个模型；档位列留空就是继承「全局默认」，全局也留空则跟随主模型。
+            {{ t('tier.pipeIntro') }}
           </span>
         </div>
 
         <div class="pipe-grid pipe-head">
-          <div class="slot-col">槽位</div>
-          <div class="global-col">全局默认</div>
-          <div v-for="t in TIERS" :key="t.key">{{ t.label }}</div>
+          <div class="slot-col">{{ t('tier.slot') }}</div>
+          <div class="global-col">{{ t('tier.globalCol') }}</div>
+          <div v-for="tier in TIERS" :key="tier.key">{{ t(tier.labelKey) }}</div>
         </div>
 
         <div v-for="sl in SLOTS" :key="sl.key" class="pipe-grid pipe-row">
-          <div class="slot-col" :title="sl.hint">{{ sl.label }}</div>
+          <div class="slot-col" :title="t(sl.hintKey)">{{ t(sl.labelKey) }}</div>
           <div
             v-for="col in ['', ...TIERS.map((t) => t.key)]"
             :key="col || 'global'"
@@ -359,10 +360,10 @@ async function createDefault() {
               :class="{ filled: !!pipeModel(sl.key, col) }"
               :value="pipeModel(sl.key, col)"
               :disabled="!canWrite"
-              :title="col ? '留空 = 用全局默认那一格' : '留空 = 跟随电脑操控的主模型'"
+              :title="col ? t('tier.pipeTierHint') : t('tier.pipeGlobalHint')"
               @change="setPipeModel(sl.key, col, ($event.target as HTMLSelectElement).value)"
             >
-              <option value="">{{ col ? '继承全局' : '跟随主模型' }}</option>
+              <option value="">{{ col ? t('tier.pipeInherit') : t('tier.pipeFollowMain') }}</option>
               <option v-for="m in modelOptions" :key="m.slug" :value="m.slug">{{ m.label }}</option>
             </select>
             <select
@@ -370,15 +371,17 @@ async function createDefault() {
               class="mini"
               :value="pipeIntensity(sl.key, col)"
               :disabled="!canWrite"
-              title="思考强度"
+              :title="t('tier.thinking')"
               @change="setPipeIntensity(sl.key, col, ($event.target as HTMLSelectElement).value)"
             >
-              <option v-for="o in THINKING" :key="o.key" :value="o.key">{{ o.label }}</option>
+              <option v-for="o in THINKING" :key="o.key" :value="o.key">
+                {{ o.labelKey ? t(o.labelKey) : o.label }}
+              </option>
             </select>
             <button
               v-if="pipeModel(sl.key, col) && canWrite"
               class="clear"
-              title="清空这一格"
+              :title="t('tier.clearCell')"
               @click="setPipeModel(sl.key, col, '')"
             >×</button>
           </div>
@@ -389,13 +392,13 @@ async function createDefault() {
 
       <div class="foot">
         <span class="small muted">
-          主矩阵 {{ filledCount }} / {{ totalCells }} 格
-          <template v-if="pipeFilled"> · 定位链 {{ pipeFilled }} / 12 格</template>
-          <template v-if="dirty"> · 有未保存的改动</template>
+          {{ t('tier.matrixCount', { n: filledCount, total: totalCells }) }}
+          <template v-if="pipeFilled"> · {{ t('tier.pipeCount', { n: pipeFilled }) }}</template>
+          <template v-if="dirty"> · {{ t('tier.dirty') }}</template>
         </span>
         <div v-if="canWrite" class="row" style="gap: 8px">
-          <button v-if="dirty" class="tiny" :disabled="busy" @click="revert">撤销改动</button>
-          <button class="primary" :disabled="busy || !dirty" @click="save">保存</button>
+          <button v-if="dirty" class="tiny" :disabled="busy" @click="revert">{{ t('tier.revert') }}</button>
+          <button class="primary" :disabled="busy || !dirty" @click="save">{{ t('tier.save') }}</button>
         </div>
       </div>
 

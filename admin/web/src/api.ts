@@ -25,10 +25,12 @@ async function request(method: string, path: string, body?: unknown): Promise<an
     }
   }
   if (!res.ok) {
-    throw new ApiError(res.status, data?.message || `请求失败（HTTP ${res.status}）`, data?.error)
+    throw new ApiError(res.status, data?.message || `${t('common.requestFailed', { status: res.status })}`, data?.error)
   }
   return data
 }
+
+import { t } from './i18n'
 
 export const api = {
   get: (p: string) => request('GET', p),

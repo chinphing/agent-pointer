@@ -1,20 +1,22 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
 import { fmtCount as fmt, when } from '../lib/format'
 
 const loading = ref(true)
 const error = ref('')
+const { t } = useI18n()
 const data = ref<any>(null)
 const usage = ref<any>(null)
 
 const KIND_LABEL: Record<string, string> = {
-  provider: '模型服务',
-  model: '模型',
-  skill: '技能',
-  plugin: '插件',
+  provider: t('kind.provider'),
+  model: t('kind.model'),
+  skill: t('kind.skill'),
+  plugin: t('kind.plugin'),
   mcp: 'MCP',
-  tier_profile: '档位映射',
+  tier_profile: t('kind.tier_profile'),
 }
 
 /** 近 7 天柱状图的基准高度用最大值，全 0 时给 1 避免除零。 */
@@ -23,26 +25,9 @@ const trendMax = computed(() => {
   return Math.max(1, ...list.map((d: any) => Number(d.tokens || 0)))
 })
 
-const ACTION_LABEL: Record<string, string> = {
-  login: '登录',
-  login_failed: '登录失败',
-  'user.create': '创建账号',
-  'user.import': '批量导入',
-  'user.roles': '改角色',
-  'user.status': '改账号状态',
-  'user.password': '重置密码',
-  'resource.create': '创建资源',
-  'resource.update': '修改资源',
-  'resource.delete': '删除资源',
-  'resource.grants': '改授权',
-  'resource.reveal': '查看密钥',
-  'skill.version.upload': '上传版本',
-  'skill.version.publish': '发布版本',
-  'usage.quota': '改配额',
-}
-
 function actionText(action: string) {
-  return ACTION_LABEL[action] || action
+  const key = `action.${action}`
+  return t(key) === key ? action : t(key)
 }
 
 const resourceTotal = computed(() => {
@@ -67,11 +52,11 @@ onMounted(async () => {
 </script>
 
 <template>
-  <h1>概览</h1>
-  <p class="muted small" style="margin-top: 4px">账号、资源与本月消耗。</p>
+  <h1>{{ t('overview.title') }}</h1>
+  <p class="muted small" style="margin-top: 4px">{{ t('overview.subtitle') }}</p>
 
   <div v-if="error" class="err" style="margin-top: 16px">{{ error }}</div>
-  <div v-else-if="loading" class="empty">加载中…</div>
+  <div v-else-if="loading" class="empty">{{ t('common.loading') }}</div>
 
   <template v-else-if="data">
     <div v-if="!data.oauthConfigured" class="err" style="margin-top: 16px">
@@ -82,23 +67,23 @@ onMounted(async () => {
       <div class="panel stat">
         <div class="muted small">账号</div>
         <div class="big">{{ data.users.total }}</div>
-        <div class="small muted">其中启用 {{ data.users.active }}</div>
+        <div class="small muted">{{ t('overview.usersActive', { n: data.users.active }) }}</div>
       </div>
       <div class="panel stat">
-        <div class="muted small">资源总数</div>
+        <div class="muted small">{{ t('overview.resourceTotal') }}</div>
         <div class="big">{{ resourceTotal }}</div>
-        <div class="small muted">{{ Object.keys(data.resources || {}).length }} 类</div>
+        <div class="small muted">{{ t('overview.kinds', { n: Object.keys(data.resources || {}).length }) }}</div>
       </div>
       <div class="panel stat">
-        <div class="muted small">今日 tokens</div>
+        <div class="muted small">{{ t('overview.todayTokens') }}</div>
         <div class="big">{{ fmt(data.todayTokens) }}</div>
-        <div class="small muted">本月 {{ fmt(usage?.totals?.total || 0) }}</div>
+        <div class="small muted">{{ t('overview.monthTokens', { n: fmt(usage?.totals?.total || 0) }) }}</div>
       </div>
     </div>
 
     <div class="panel" style="margin-top: 16px">
-      <h2>近 7 天 Token 用量</h2>
-      <div v-if="!data.tokenTrend?.length" class="empty">还没有用量数据</div>
+      <h2>{{ t('overview.last7d') }}</h2>
+      <div v-if="!data.tokenTrend?.length" class="empty">{{ t('overview.noUsageData') }}</div>
       <div v-else class="trend">
         <div v-for="d in data.tokenTrend" :key="d.day" class="bar-wrap">
           <div class="bar-col">
@@ -114,11 +99,11 @@ onMounted(async () => {
     </div>
 
     <div class="panel">
-      <h2>最近操作</h2>
-      <div v-if="!data.recentActions?.length" class="empty">还没有操作记录</div>
+      <h2>{{ t('overview.recent') }}</h2>
+      <div v-if="!data.recentActions?.length" class="empty">{{ t('overview.noActions') }}</div>
       <table v-else style="margin-top: 10px">
         <thead>
-          <tr><th style="width: 170px">时间</th><th style="width: 120px">操作人</th><th>操作</th></tr>
+          <tr><th style="width: 170px">{{ t('overview.time') }}</th><th style="width: 120px">{{ t('overview.actor') }}</th><th>{{ t('overview.action') }}</th></tr>
         </thead>
         <tbody>
           <tr v-for="(a, i) in data.recentActions" :key="i">
@@ -134,11 +119,11 @@ onMounted(async () => {
     </div>
 
     <div class="panel">
-      <h2>资源分布</h2>
-      <div v-if="!Object.keys(data.resources || {}).length" class="empty">还没有任何资源</div>
+      <h2>{{ t('overview.resourceDist') }}</h2>
+      <div v-if="!Object.keys(data.resources || {}).length" class="empty">{{ t('overview.noResources') }}</div>
       <table v-else style="margin-top: 10px">
         <thead>
-          <tr><th>类型</th><th class="num">数量</th></tr>
+          <tr><th>{{ t('overview.type') }}</th><th class="num">{{ t('overview.count') }}</th></tr>
         </thead>
         <tbody>
           <tr v-for="(count, kind) in data.resources" :key="kind">
@@ -150,20 +135,20 @@ onMounted(async () => {
     </div>
 
     <div class="panel">
-      <h2>本月按模型</h2>
-      <div v-if="!usage?.byModel?.length" class="empty">本月还没有用量上报</div>
+      <h2>{{ t('overview.monthByModel') }}</h2>
+      <div v-if="!usage?.byModel?.length" class="empty">{{ t('overview.noUsage') }}</div>
       <table v-else style="margin-top: 10px">
         <thead>
           <tr>
-            <th>模型</th>
-            <th class="num">输入</th>
-            <th class="num">输出</th>
-            <th class="num">合计</th>
+            <th>{{ t('usage.model') }}</th>
+            <th class="num">{{ t('usage.input') }}</th>
+            <th class="num">{{ t('usage.output') }}</th>
+            <th class="num">{{ t('usage.total') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="row in usage.byModel" :key="row.key">
-            <td class="mono">{{ row.key || '（未标注）' }}</td>
+            <td class="mono">{{ row.key || t('overview.unlabeled') }}</td>
             <td class="num">{{ fmt(row.promptTokens) }}</td>
             <td class="num">{{ fmt(row.completionTokens) }}</td>
             <td class="num">{{ fmt(row.total) }}</td>

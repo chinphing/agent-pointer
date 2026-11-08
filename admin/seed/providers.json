@@ -1,0 +1,197 @@
+{
+  "_comment": "服务商目录：种子数据 + 新建时的快速选择模板共用这一份。改这里两边同时生效。",
+  "_fields": {
+    "seeded": "true = 装库时直接建成企业供应商（可下发）；false = 只作为新建服务商时的模板，选完填 key 即可",
+    "contextBudgetTokens": "模型上下文窗口，查不到就别写（留空 = 客户端默认 256K）",
+    "maxTokens": "最大输出，查不到就别写",
+    "supportsVision": "能否输入图片/视频",
+    "supportsAudio": "能否输入音频",
+    "canGenerateImage": "能否生成图片",
+    "canGenerateVideo": "能否生成视频"
+  },
+  "providers": [
+    {
+      "slug": "qwen",
+      "name": "阿里百炼",
+      "seeded": true,
+      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "models": [
+        { "id": "qwen3.8-max", "contextBudgetTokens": 1000000, "maxTokens": 131072, "supportsVision": true },
+        { "id": "qwen3.8-flash", "contextBudgetTokens": 1000000, "maxTokens": 131072, "supportsVision": true },
+        { "id": "qwen3.8-27b", "supportsVision": true },
+        { "id": "qwen3.7-plus", "contextBudgetTokens": 1000000, "supportsVision": true },
+        { "id": "qwen3.7-flash", "contextBudgetTokens": 1000000, "supportsVision": true }
+      ]
+    },
+    {
+      "slug": "deepseek",
+      "name": "DeepSeek",
+      "seeded": true,
+      "baseUrl": "https://api.deepseek.com/v1",
+      "models": [
+        { "id": "deepseek-v4-pro" },
+        { "id": "deepseek-flash" }
+      ]
+    },
+    {
+      "slug": "doubao",
+      "name": "火山方舟",
+      "seeded": true,
+      "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+      "models": [
+        { "id": "doubao-seed-2-1-pro-260628", "supportsVision": true },
+        { "id": "doubao-seed-2-0-pro-260215", "supportsVision": true },
+        { "id": "doubao-seed-2-0-lite-260215", "supportsVision": true },
+        { "id": "doubao-seed-1-6-thinking-250715", "supportsVision": true },
+        { "id": "doubao-seedream-5-0-260128", "canGenerateImage": true },
+        { "id": "doubao-seedance-2-0-260128", "canGenerateVideo": true }
+      ]
+    },
+    {
+      "slug": "zhipu",
+      "name": "智谱 GLM",
+      "seeded": false,
+      "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
+      "models": [
+        { "id": "glm-5.3" },
+        { "id": "glm-5.3-flash", "contextBudgetTokens": 1000000, "maxTokens": 131100 },
+        { "id": "glm-5.3-flashx" }
+      ]
+    },
+    {
+      "slug": "kimi",
+      "name": "月之暗面 Kimi",
+      "seeded": false,
+      "baseUrl": "https://api.moonshot.cn/v1",
+      "models": [
+        { "id": "kimi-k3" },
+        { "id": "kimi-k3.1-pro" },
+        { "id": "kimi-k2.7-code" }
+      ]
+    },
+    {
+      "slug": "mimo",
+      "name": "小米 MiMo",
+      "seeded": false,
+      "baseUrl": "https://api.xiaomimimo.com/v1",
+      "models": [
+        { "id": "mimo-v2.6-pro" },
+        { "id": "mimo-v2.6-flash" },
+        { "id": "mimo-v2.6-pro-ultraspeed" }
+      ]
+    },
+    {
+      "slug": "hunyuan",
+      "name": "腾讯混元",
+      "seeded": false,
+      "baseUrl": "https://api.hunyuan.cloud.tencent.com/v1",
+      "models": [
+        { "id": "hy4", "contextBudgetTokens": 1000000, "maxTokens": 65536, "supportsVision": true }
+      ]
+    },
+    {
+      "slug": "qianfan",
+      "name": "百度千帆",
+      "seeded": false,
+      "baseUrl": "https://qianfan.baidubce.com/v2",
+      "models": [
+        { "id": "ernie-4.5-turbo-128k", "contextBudgetTokens": 131072 },
+        { "id": "ernie-speed-8k", "contextBudgetTokens": 8192 }
+      ]
+    },
+    {
+      "slug": "minimax",
+      "name": "MiniMax",
+      "seeded": false,
+      "baseUrl": "https://api.minimax.cn/v1",
+      "models": [
+        { "id": "MiniMax-M3.1-Flash", "contextBudgetTokens": 1000000, "supportsVision": true },
+        { "id": "MiniMax-M3", "contextBudgetTokens": 1000000, "maxTokens": 131072, "supportsVision": true }
+      ]
+    },
+    {
+      "slug": "stepfun",
+      "name": "阶跃星辰",
+      "seeded": false,
+      "baseUrl": "https://api.stepfun.com/v1",
+      "models": [
+        { "id": "step-3.7-flash" },
+        { "id": "step-5-preview" }
+      ]
+    },
+    {
+      "slug": "openai",
+      "name": "OpenAI",
+      "seeded": false,
+      "baseUrl": "https://api.openai.com/v1",
+      "models": [
+        { "id": "gpt-6-astra", "supportsVision": true },
+        { "id": "gpt-6.1-sol", "supportsVision": true },
+        { "id": "gpt-6-luna", "supportsVision": true },
+        { "id": "gpt-5.6-sol", "supportsVision": true },
+        { "id": "gpt-5.6-terra", "supportsVision": true },
+        { "id": "gpt-5.6-luna", "supportsVision": true },
+        { "id": "gpt-5.4-mini" },
+        { "id": "gpt-5.4-nano" }
+      ]
+    },
+    {
+      "slug": "gemini",
+      "name": "Google Gemini",
+      "seeded": false,
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai/",
+      "models": [
+        { "id": "gemini-3.8-flash", "contextBudgetTokens": 1000000, "maxTokens": 65536, "supportsVision": true },
+        { "id": "gemini-3.7-flash", "contextBudgetTokens": 1000000, "maxTokens": 65536, "supportsVision": true },
+        { "id": "gemini-3.1-pro-preview", "contextBudgetTokens": 1000000, "maxTokens": 65536, "supportsVision": true },
+        { "id": "gemini-3.1-flash-image", "canGenerateImage": true },
+        { "id": "veo-3.1-generate-preview", "canGenerateVideo": true }
+      ]
+    },
+    {
+      "slug": "grok",
+      "name": "xAI Grok",
+      "seeded": false,
+      "baseUrl": "https://api.x.ai/v1",
+      "models": [
+        { "id": "grok-4.7", "contextBudgetTokens": 500000, "supportsVision": true },
+        { "id": "grok-4.6", "contextBudgetTokens": 500000, "supportsVision": true },
+        { "id": "grok-imagine-image-2.0", "canGenerateImage": true },
+        { "id": "grok-imagine-video-1.5", "canGenerateVideo": true }
+      ]
+    },
+    {
+      "slug": "openrouter",
+      "name": "OpenRouter",
+      "seeded": false,
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "models": [
+        { "id": "openai/gpt-5.6-sol" },
+        { "id": "openai/gpt-5.6-luna" },
+        { "id": "anthropic/claude-opus-5" },
+        { "id": "anthropic/claude-fable-5" },
+        { "id": "google/gemini-3.6-flash" },
+        { "id": "stepfun/step-3.7-flash" }
+      ]
+    }
+  ],
+  "tierProfile": {
+    "slug": "default",
+    "name": "默认档位",
+    "payload": {
+      "agentModeLlm": {
+        "general": {
+          "fast": { "providerId": "qwen", "model": "qwen3.8-27b", "thinkingIntensity": "off" },
+          "standard": { "providerId": "qwen", "model": "qwen3.8-flash", "thinkingIntensity": "medium" },
+          "expert": { "providerId": "qwen", "model": "qwen3.8-max", "thinkingIntensity": "high" }
+        }
+      },
+      "computerPipelineLlm": {
+        "locate": { "providerId": "qwen", "model": "qwen3.8-flash" },
+        "byTier": {
+          "standard": { "verify": { "providerId": "qwen", "model": "qwen3.8-max" } }
+        }
+      }
+    }
+  }
+}

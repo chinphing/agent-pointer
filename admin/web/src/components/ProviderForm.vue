@@ -12,6 +12,7 @@ import { computed, ref } from 'vue'
 import { useNotice } from '../lib/notice'
 import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
+import providerCatalog from '../../../seed/providers.json'
 import {
   LIMIT_KEYS,
   THINKING_KEYS,
@@ -29,29 +30,43 @@ const emit = defineEmits<{
   (e: 'created', id: string): void
 }>()
 
-const TEMPLATES = [
-  {
-    id: 'bailian',
-    labelKey: 'provider.tplBailian',
-    slug: 'bailian',
-    name: '阿里云百炼',
-    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  },
-  {
-    id: 'deepseek',
-    labelKey: 'provider.tplDeepseek',
-    slug: 'deepseek',
-    name: 'DeepSeek',
-    baseUrl: 'https://api.deepseek.com/v1',
-  },
-  {
-    id: 'openai',
-    labelKey: 'provider.tplOpenai',
-    slug: 'openai',
-    name: 'OpenAI',
-    baseUrl: 'https://api.openai.com/v1',
-  },
-  { id: 'custom', labelKey: 'provider.tplCustom', slug: '', name: '', baseUrl: '' },
+/**
+ * 模板来自 `admin/seed/providers.json` —— 和后端种子数据同一份文件。
+ * 这里只列「非种子」的服务商：种子那三家（qwen/deepseek/豆包）已经建好了，
+ * 新建时再出现一遍会让人以为要重复建。
+ */
+interface PresetModel {
+  id: string
+}
+interface PresetProvider {
+  slug: string
+  name: string
+  seeded: boolean
+  baseUrl: string
+  models: PresetModel[]
+}
+interface TemplateOption {
+  id: string
+  label: string
+  slug: string
+  name: string
+  baseUrl: string
+  models: string[]
+}
+
+const catalog = (providerCatalog as { providers: PresetProvider[] }).providers
+const TEMPLATES: TemplateOption[] = [
+  ...catalog
+    .filter((p) => !p.seeded)
+    .map((p) => ({
+      id: p.slug,
+      label: p.name,
+      slug: p.slug,
+      name: p.name,
+      baseUrl: p.baseUrl,
+      models: p.models.map((m) => m.id),
+    })),
+  { id: 'custom', label: t('provider.tplCustom'), slug: '', name: '', baseUrl: '', models: [] },
 ]
 
 const isEdit = computed(() => Boolean(props.resource))
@@ -168,6 +183,10 @@ function applyTemplate(id: string) {
   const t = TEMPLATES.find((x) => x.id === id)
   if (!t) return
   if (t.baseUrl) form.value.baseUrl = t.baseUrl
+  // 模板自带模型清单：选中即填好，管理员只需要补 key
+  if (t.models.length) {
+    modelList.value = [...new Set([...modelList.value, ...t.models])]
+  }
   const slugUntouched = !form.value.slug || form.value.slug === autoFilled.value.slug
   const nameUntouched = !form.value.name || form.value.name === autoFilled.value.name
   if (t.slug && slugUntouched) form.value.slug = t.slug
@@ -339,7 +358,7 @@ async function submit() {
             :class="{ active: template === item.id }"
             @click="applyTemplate(item.id)"
           >
-            {{ t(item.labelKey) }}
+            {{ item.label }}
           </button>
         </div>
       </template>

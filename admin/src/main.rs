@@ -16,6 +16,7 @@ use serde_json::json;
 use pointer_admin::config::AdminConfig;
 use pointer_admin::db::AdminStore;
 use pointer_admin::oauth;
+use pointer_admin::seed;
 use pointer_admin::rbac;
 use pointer_admin::state::{AppState, Shared};
 use pointer_admin::users;
@@ -162,6 +163,20 @@ async fn main() -> Result<()> {
         .await
         .context("连接控制面数据库失败")?;
     bootstrap(&store, &config).await?;
+
+    // `pointer-admin seed` —— 装一遍内置服务商（qwen / deepseek / 豆包）与默认档位。
+    // 幂等：已存在的 slug 跳过，不覆盖管理员改过的配置。
+    if std::env::args().any(|a| a == "seed") {
+        let report = seed::seed(&store, pointer_admin::schema::DEFAULT_TENANT).await?;
+        println!(
+            "服务商：新建 {} 个，跳过 {} 个；模型新建 {} 个；档位映射：{}",
+            report.providers_created,
+            report.providers_skipped,
+            report.models_created,
+            if report.tier_created { "已建" } else { "已存在" }
+        );
+        return Ok(());
+    }
 
     let state = AppState::new(store, config.clone());
     let mut app = Router::new()

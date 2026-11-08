@@ -16,6 +16,7 @@ pub mod password;
 pub mod rbac;
 pub mod resources;
 pub mod schema;
+pub mod seed;
 pub mod sessions;
 pub mod state;
 pub mod usage;

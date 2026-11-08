@@ -52,6 +52,8 @@ function intensityOptionLabel(v: string) {
   return t('models.intensityBudget', { label: t(`tier.thinking_${v}`), budget: INTENSITY_BUDGET[v] })
 }
 
+/** 强度留空时客户端按思考预算反推（2048 → 中），不是固定某一档。 */
+
 function ph(v: string | number) {
   return t('models.defaultIs', { v })
 }

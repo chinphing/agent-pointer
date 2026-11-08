@@ -399,6 +399,7 @@ async function submit() {
         </button>
         <template v-if="showDefaults">
         <p class="small muted" style="margin: 6px 0 0">{{ t('provider.defaultsHint') }}</p>
+        <p class="small" style="margin: 4px 0 0; color: var(--warn)">{{ t('provider.defaultsOverride') }}</p>
 
         <div class="two" style="margin-top: 8px">
           <div>
@@ -431,7 +432,7 @@ async function submit() {
           <div>
             <label>{{ t('tier.thinking') }}</label>
             <select v-model="defThinking.thinkingIntensity">
-              <option value="">{{ t('models.unset') }}</option>
+              <option value="">{{ t('models.intensityAuto') }}</option>
               <option v-for="v in ['off','low','medium','high','max']" :key="v" :value="v">{{ intensityOptionLabel(v) }}</option>
             </select>
           </div>

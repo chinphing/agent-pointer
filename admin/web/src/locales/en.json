@@ -210,7 +210,8 @@
     "namePlaceholder": "e.g. Alibaba Bailian",
     "defaults": "Defaults (optional)",
     "defaultsSet": "set",
-    "defaultsHint": "Models without their own value inherit these; blank falls back to the client default."
+    "defaultsHint": "Models without their own value inherit these; blank falls back to the client default.",
+    "defaultsOverride": "Note: values set here override an employee's own global settings (client order: model > provider > user global)."
   },
   "tier": {
     "title": "Default tier mapping",
@@ -459,6 +460,7 @@
     "intensityBudget": "{label} · {budget}",
     "yesDefault": "Default on",
     "noDefault": "Default off",
-    "defaultsNote": "Blank uses client defaults: temperature 0.7, topP 0.95, max output 16384, context 262144 (256K), thinking budget 2048, thinking on, reasoning not returned."
+    "defaultsNote": "Blank uses client defaults: temperature 0.7, topP 0.95, max output 16384, context 262144 (256K), thinking budget 2048, thinking on, reasoning not returned.",
+    "intensityAuto": "Derived from thinking budget"
   }
 }

@@ -303,6 +303,25 @@ M0 不做。M0 只做下发默认值。
 服务商没有可跟随的上一级。能力（视觉/音频/出图/出视频）只有模型级，
 所以那四项在模型表单里也是「不设置」。
 
+**留空时的客户端默认值**（界面按这些值显示占位，改之前先改 `pointer-core`）：
+
+| 字段 | 默认 | 出处 |
+| --- | --- | --- |
+| 上下文预算 | 262144（256K） | `settings.rs:1237` `default_context_budget_tokens` |
+| 最大输出 | 16384 | `DEFAULT_MODEL_MAX_TOKENS` |
+| 温度 | 0.7 | `DEFAULT_MODEL_TEMPERATURE` |
+| topP | 0.95 | `DEFAULT_MODEL_TOP_P` |
+| 思考预算 | 2048 | `DEFAULT_THINKING_BUDGET` |
+| 思考强度 | 按思考预算反推（2048 → 中） | `thinking_strategy.rs` `intensity_from_budget` |
+| 启用思考 | 开 | `settings.rs:3487` `unwrap_or(true)` |
+| 回传 reasoning | 否 | `settings.rs:315` `unwrap_or(false)` |
+
+强度 → 预算：关 0 / 低 1024 / 中 2048 / 高 4096 / 最高 8192。
+
+**取值优先级**（`effective_temperature` / `effective_context_budget_tokens`）：
+模型级 > 服务商级 > 员工全局。所以管理员在服务商级设了值，会盖过员工自己的设置，
+界面上有醒目提示。
+
 两个坑（界面已按此约束）：
 
 - `reasoningEffort` 客户端只认 `high` / `max`，别的值被 `normalize_reasoning_effort` 丢掉

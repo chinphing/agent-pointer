@@ -210,7 +210,8 @@
     "namePlaceholder": "如 阿里云百炼",
     "defaults": "默认参数（可选）",
     "defaultsSet": "已设置",
-    "defaultsHint": "模型没单独配的字段就用这里的值；留空则用客户端默认。"
+    "defaultsHint": "模型没单独配的字段就用这里的值；留空则用客户端默认。",
+    "defaultsOverride": "注意：这里设了值会盖过员工自己的全局设置（客户端取值顺序：模型 > 服务商 > 员工全局）。"
   },
   "tier": {
     "title": "默认档位映射",
@@ -459,6 +460,7 @@
     "intensityBudget": "{label} · {budget}",
     "yesDefault": "默认 开",
     "noDefault": "默认 否",
-    "defaultsNote": "留空用客户端默认：温度 0.7、topP 0.95、最大输出 16384、上下文 262144（256K）、思考预算 2048、启用思考、不回传 reasoning。"
+    "defaultsNote": "留空用客户端默认：温度 0.7、topP 0.95、最大输出 16384、上下文 262144（256K）、思考预算 2048、启用思考、不回传 reasoning。",
+    "intensityAuto": "按思考预算推断"
   }
 }

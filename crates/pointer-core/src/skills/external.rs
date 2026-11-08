@@ -41,11 +41,9 @@ struct SkillManifest {
 }
 
 /// Pointer home (`~/.pointer`), shared across app installs.
+/// 统一走 [`crate::storage::pointer_home_dir`]，那里才认 `POINTER_HOME`。
 pub fn pointer_home_dir() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow!("无法解析用户主目录"))?;
-    let dir = home.join(".pointer");
-    fs::create_dir_all(&dir)?;
-    Ok(dir)
+    crate::storage::pointer_home_dir()
 }
 
 /// Curator-managed skill library (`~/.pointer/skills`).
@@ -1116,11 +1114,15 @@ mod tests {
         // and by `~`-expanding code paths in other modules, so a module-local
         // lock is not enough and a panicking assert must not leak the temp home.
         let _home_lock = crate::test_support::home_env_lock();
-        let _restore = crate::test_support::EnvRestore::capture(&["HOME", "USERPROFILE"]);
+        // POINTER_HOME 的优先级高于 HOME：不清掉它，这个用例就会被外层环境
+        // 或别的用例带偏，断言 `$HOME/.pointer/skills/...` 时找不到文件。
+        let _restore =
+            crate::test_support::EnvRestore::capture(&["HOME", "USERPROFILE", "POINTER_HOME"]);
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path();
         std::env::set_var("HOME", home);
         std::env::set_var("USERPROFILE", home);
+        std::env::remove_var("POINTER_HOME");
         f(home)
     }
 

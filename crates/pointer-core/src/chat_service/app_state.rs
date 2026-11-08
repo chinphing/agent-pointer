@@ -1886,11 +1886,25 @@ mod active_main_task_board_tests {
     }
 
     /// 把插件主目录指向临时目录（防测试污染真实 `~/.pointer/plugins`）。
-    /// 返回旧值以便测试结束后恢复。
-    fn isolate_plugins_home() -> tempfile::TempDir {
+    ///
+    /// 用 guard 持有临时目录、锁与恢复记录：POINTER_HOME 是进程级全局，
+    /// 只设不恢复会泄漏给并行跑的技能用例（它们按 `$HOME/.pointer` 找文件）。
+    struct PluginsHomeGuard {
+        _tmp: tempfile::TempDir,
+        _lock: std::sync::MutexGuard<'static, ()>,
+        _restore: crate::test_support::EnvRestore,
+    }
+
+    fn isolate_plugins_home() -> PluginsHomeGuard {
         let tmp = tempfile::tempdir().expect("temp plugins home");
+        let lock = crate::test_support::home_env_lock();
+        let restore = crate::test_support::EnvRestore::capture(&["POINTER_HOME"]);
         std::env::set_var("POINTER_HOME", tmp.path());
-        tmp
+        PluginsHomeGuard {
+            _tmp: tmp,
+            _lock: lock,
+            _restore: restore,
+        }
     }
 
     /// 插件启用后：其技能自动加入 general 的 agentSkillOverrides（落盘），

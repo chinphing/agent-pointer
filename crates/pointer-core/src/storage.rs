@@ -4,7 +4,7 @@ use crate::models::{
     PlatformSettings, Project, ProjectCreationResult, ProjectCursor, ProjectPage, ProviderConfig,
     UserSettings,
 };
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -112,6 +112,41 @@ fn data_dir() -> Result<PathBuf> {
 
 pub fn app_data_dir() -> Result<PathBuf> {
     data_dir()
+}
+
+/// `~/.pointer` —— 跨安装共享的 Pointer home（技能、插件、AGENTS.md 都在下面）。
+///
+/// `POINTER_HOME` 可覆盖，供测试与多环境隔离使用。**只认非空值**：空串或纯空白
+/// 一律退回真实主目录，否则一个写错的环境变量会把插件/技能目录指到进程 cwd。
+///
+/// 这里曾有三份各自实现：插件认 `POINTER_HOME`，技能与 AGENTS.md 不认，
+/// 结果隔离环境下插件目录被隔离、企业目录缓存却读真实 home。
+pub fn pointer_home_dir() -> Result<PathBuf> {
+    resolve_pointer_home(std::env::var("POINTER_HOME").ok().as_deref())
+}
+
+/// 同 [`pointer_home_dir`]，但不创建目录（只判断路径是否存在时用）。
+pub fn pointer_home_dir_no_create() -> Option<PathBuf> {
+    resolve_pointer_home_no_create(std::env::var("POINTER_HOME").ok().as_deref())
+}
+
+/// 纯函数形式，便于不碰进程环境变量地测覆盖逻辑。
+fn resolve_pointer_home(raw: Option<&str>) -> Result<PathBuf> {
+    if let Some(dir) = resolve_pointer_home_no_create(raw) {
+        std::fs::create_dir_all(&dir)?;
+        return Ok(dir);
+    }
+    Err(anyhow!("无法解析用户主目录"))
+}
+
+fn resolve_pointer_home_no_create(raw: Option<&str>) -> Option<PathBuf> {
+    if let Some(raw) = raw {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            return Some(PathBuf::from(trimmed));
+        }
+    }
+    dirs::home_dir().map(|home| home.join(".pointer"))
 }
 
 /// Inject `DATA_DIR` into a terminal child env map (Pointer app data root).
@@ -1421,6 +1456,92 @@ mod legacy_context_budget_tests {
         assert!(
             after["contextBudgetTokens"].as_u64().unwrap() != 122_880,
             "legacy value must be gone"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pointer_home_honors_override() {
+        let tmp = tempfile::tempdir().unwrap();
+        let raw = tmp.path().to_string_lossy().to_string();
+        let dir = resolve_pointer_home(Some(&raw)).unwrap();
+        assert_eq!(dir, tmp.path(), "POINTER_HOME 生效时应直接用它");
+        assert!(dir.is_dir(), "应当建好目录");
+    }
+
+    #[test]
+    fn pointer_home_trims_whitespace() {
+        let tmp = tempfile::tempdir().unwrap();
+        let raw = format!("  {}  ", tmp.path().to_string_lossy());
+        let dir = resolve_pointer_home(Some(&raw)).unwrap();
+        assert_eq!(dir, tmp.path(), "两端空白要吃掉，否则会建成一个带空格的怪目录");
+    }
+
+    #[test]
+    fn empty_override_falls_back_to_real_home() {
+        for raw in ["", "   ", "\t\n"] {
+            assert_eq!(
+                resolve_pointer_home(Some(raw)).unwrap(),
+                dirs::home_dir().unwrap().join(".pointer"),
+                "空值 {raw:?} 应退回 ~/.pointer"
+            );
+        }
+        assert_eq!(
+            resolve_pointer_home(None).unwrap(),
+            dirs::home_dir().unwrap().join(".pointer")
+        );
+    }
+
+    /// 技能、插件、AGENTS.md 三处必须解析到同一个 pointer home。
+    ///
+    /// 曾经是三份各自实现：插件认 `POINTER_HOME`，技能与 AGENTS.md 不认。
+    /// 后果是隔离环境下插件目录被隔离、企业目录缓存却读真实 `~/.pointer`，
+    /// 真机验证时企业插件区整块不出现，排查方向被带偏。
+    #[test]
+    fn all_modules_resolve_the_same_pointer_home() {
+        let _lock = crate::test_support::home_env_lock();
+        let _restore = crate::test_support::EnvRestore::capture(&["POINTER_HOME"]);
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("POINTER_HOME", tmp.path());
+
+        assert_eq!(pointer_home_dir().unwrap(), tmp.path());
+        assert_eq!(
+            crate::skills::external::pointer_home_dir().unwrap(),
+            tmp.path(),
+            "技能侧必须跟着 POINTER_HOME 走"
+        );
+        assert_eq!(
+            crate::plugins::pointer_home_dir().unwrap(),
+            tmp.path(),
+            "插件侧必须跟着 POINTER_HOME 走"
+        );
+        assert_eq!(
+            crate::skills::org_sync::plugins_root().unwrap(),
+            tmp.path().join(crate::plugins::USER_PLUGINS_DIR_NAME),
+            "企业下发的插件目录（含目录缓存）也必须在同一个 home 下"
+        );
+    }
+
+    #[test]
+    fn no_create_variant_does_not_touch_disk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("not-created-yet");
+        let raw = target.to_string_lossy().to_string();
+        assert_eq!(resolve_pointer_home_no_create(Some(&raw)), Some(target.clone()));
+        assert!(!target.exists(), "no_create 变体不该建目录");
+    }
+
+    #[test]
+    fn override_beats_home_for_both_variants() {
+        let tmp = tempfile::tempdir().unwrap();
+        let raw = tmp.path().to_string_lossy().to_string();
+        assert_eq!(
+            resolve_pointer_home(Some(&raw)).unwrap(),
+            resolve_pointer_home_no_create(Some(&raw)).unwrap()
         );
     }
 }

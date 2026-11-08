@@ -127,7 +127,7 @@ fn render_png(code: &str) -> Result<Vec<u8>> {
                 for dy in 0..SCALE {
                     for dx in 0..SCALE {
                         set(
-                            ox + col as i32 * SCALE + dx,
+                            ox + col * SCALE + dx,
                             oy + row as i32 * SCALE + dy,
                             [0x18, 0x18, 0x1B],
                         );

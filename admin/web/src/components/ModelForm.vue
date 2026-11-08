@@ -40,7 +40,6 @@ const CAP_LABELS: Record<string, string> = {
 }
 const INTENSITY = ['', 'off', 'low', 'medium', 'high', 'max']
 /** 客户端 normalize_reasoning_effort 只认 high / max，其余值会被丢掉。 */
-const EFFORT = ['', 'high', 'max']
 
 function intensityLabel(v: string) {
   return v ? t(`tier.thinking_${v}`) : t('models.follow')
@@ -140,23 +139,9 @@ async function submit() {
         <legend>{{ t('models.thinking') }}</legend>
         <div class="three">
           <div>
-            <label>{{ t('models.enableThinking') }}</label>
-            <select v-model="thinking.enableThinking">
-              <option value="">{{ t('models.yesDefault') }}</option>
-              <option value="true">{{ t('models.yes') }}</option>
-              <option value="false">{{ t('models.no') }}</option>
-            </select>
-          </div>
-          <div>
             <label>{{ t('tier.thinking') }}</label>
             <select v-model="thinking.thinkingIntensity">
               <option v-for="v in INTENSITY" :key="v" :value="v">{{ intensityLabel(v) }}</option>
-            </select>
-          </div>
-          <div>
-            <label>reasoningEffort</label>
-            <select v-model="thinking.reasoningEffort">
-              <option v-for="v in EFFORT" :key="v" :value="v">{{ v || t('models.follow') }}</option>
             </select>
           </div>
           <div>

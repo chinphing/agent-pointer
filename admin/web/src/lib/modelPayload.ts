@@ -19,15 +19,16 @@ export interface ModelFormState {
 export const CAP_KEYS = ['supportsVision', 'supportsAudio', 'canGenerateImage', 'canGenerateVideo']
 export const LIMIT_KEYS = ['contextBudgetTokens', 'maxTokens', 'temperature', 'topP']
 /**
- * 思考预算不在此列：客户端设了强度就用 `budget_for_intensity(level)` 现算，
- * 存的 budget 会被覆盖（thinking_strategy.rs:207）。单独配一个预算只会自相矛盾。
+ * 思考只留「强度」和「是否回传 reasoning」两项。
+ *
+ * 另外三个都只是强度的派生结果，客户端设了强度就现算、把存的值覆盖掉：
+ * - thinkingBudget  → budget_for_intensity(level)          thinking_strategy.rs:207
+ * - enableThinking  → 强度非 off 即 true                    thinking_strategy.rs:419
+ * - reasoningEffort → effort_for_intensity / deepseek 映射   thinking_strategy.rs:213
+ *
+ * 「回传 reasoning」是独立语义（要不要把 reasoning_content 回灌进消息），与强度无关。
  */
-export const THINKING_KEYS = [
-  'enableThinking',
-  'thinkingIntensity',
-  'reasoningEffort',
-  'reasoningInMessages',
-]
+export const THINKING_KEYS = ['thinkingIntensity', 'reasoningInMessages']
 
 /** 强度 → 预算的反查，只用于把历史数据里的「只有预算」迁移成强度。 */
 const BUDGET_TO_INTENSITY: Array<[number, string]> = [
@@ -37,6 +38,20 @@ const BUDGET_TO_INTENSITY: Array<[number, string]> = [
   [1, 'low'],
 ]
 const BOOL_KEYS = new Set(['enableThinking', 'reasoningInMessages'])
+
+/**
+ * 从历史字段反推强度，顺序与客户端 `resolve_thinking_intensity` 一致：
+ * 强度 → reasoningEffort（只认 high/max）→ 思考预算 → enableThinking。
+ */
+export function resolveIntensity(p: Record<string, unknown>): string {
+  if (typeof p.thinkingIntensity === 'string' && p.thinkingIntensity) return p.thinkingIntensity
+  const effort = typeof p.reasoningEffort === 'string' ? p.reasoningEffort : ''
+  if (effort === 'high' || effort === 'max') return effort
+  if (typeof p.thinkingBudget === 'number') return intensityFromBudget(p.thinkingBudget)
+  if (p.enableThinking === false) return 'off'
+  if (p.enableThinking === true) return 'medium'
+  return ''
+}
 
 /** 预算反推强度，与客户端 intensity_from_budget 同一套分档。 */
 export function intensityFromBudget(budget: number): string {
@@ -65,10 +80,9 @@ export function payloadToState(payload: any) {
   for (const k of THINKING_KEYS) {
     thinking[k] = BOOL_KEYS.has(k) ? toTri(p[k]) : p[k] === undefined || p[k] === null ? '' : String(p[k])
   }
-  // 老数据可能只存了预算没存强度：换算成强度显示，保存时归一到强度。
-  if (!thinking.thinkingIntensity && typeof p.thinkingBudget === 'number') {
-    thinking.thinkingIntensity = intensityFromBudget(p.thinkingBudget)
-  }
+  // 老数据可能只存了派生字段没存强度：按客户端 resolve_thinking_intensity 的顺序
+  // 反推（强度 → effort → 预算 → enable），保存时归一到强度。
+  thinking.thinkingIntensity = resolveIntensity(p)
   return { caps, limits, thinking }
 }
 

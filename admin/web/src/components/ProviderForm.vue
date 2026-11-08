@@ -421,26 +421,10 @@ async function submit() {
 
         <div class="three" style="margin-top: 8px">
           <div>
-            <label>{{ t('models.enableThinking') }}</label>
-            <select v-model="defThinking.enableThinking">
-              <option value="">{{ t('models.yesDefault') }}</option>
-              <option value="true">{{ t('models.yes') }}</option>
-              <option value="false">{{ t('models.no') }}</option>
-            </select>
-          </div>
-          <div>
             <label>{{ t('tier.thinking') }}</label>
             <select v-model="defThinking.thinkingIntensity">
               <option value="">{{ t('models.intensityAuto') }}</option>
               <option v-for="v in ['off','low','medium','high','max']" :key="v" :value="v">{{ intensityLabel(v) }}</option>
-            </select>
-          </div>
-          <div>
-            <label>reasoningEffort</label>
-            <select v-model="defThinking.reasoningEffort">
-              <option value="">{{ t('models.unset') }}</option>
-              <option value="high">high</option>
-              <option value="max">max</option>
             </select>
           </div>
           <div>

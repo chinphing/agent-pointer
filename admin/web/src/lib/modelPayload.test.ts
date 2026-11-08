@@ -37,15 +37,41 @@ describe('model payload', () => {
     expect('maxTokens' in out).toBe(false)
   })
 
-  it('reasoningEffort 只放行 high / max', () => {
-    // 客户端 normalize_reasoning_effort 只认这两个，别的值会被静默丢掉
-    expect(buildModelPayload({ caps: {}, limits: {}, thinking: { reasoningEffort: 'high' } })).toEqual({
-      reasoningEffort: 'high',
+  it('不产出 enableThinking / reasoningEffort —— 都由强度推出来', () => {
+    // 设了强度，客户端 round_enable_thinking = 强度非 off 即 true，
+    // round_reasoning_effort = effort_for_intensity(level)，存的值被覆盖
+    const out = buildModelPayload({
+      caps: {},
+      limits: {},
+      thinking: { enableThinking: 'false', reasoningEffort: 'max', thinkingIntensity: 'low' },
     })
-    expect(buildModelPayload({ caps: {}, limits: {}, thinking: { reasoningEffort: 'max' } })).toEqual({
-      reasoningEffort: 'max',
+    expect(out).toEqual({ thinkingIntensity: 'low' })
+  })
+
+  it('思考只下发强度与回传开关，其余原始字段不展开', () => {
+    // 管理端只存原始值，不做换算：强度 → 预算/effort 是客户端的事
+    const out = buildModelPayload({
+      caps: {},
+      limits: {},
+      thinking: { thinkingIntensity: 'high', reasoningInMessages: 'true' },
     })
-    expect(buildModelPayload({ caps: {}, limits: {}, thinking: { reasoningEffort: 'low' } })).toEqual({})
+    expect(out).toEqual({ thinkingIntensity: 'high', reasoningInMessages: true })
+    expect('thinkingBudget' in out).toBe(false)
+    expect('reasoningEffort' in out).toBe(false)
+    expect('enableThinking' in out).toBe(false)
+  })
+
+  it('历史字段按客户端顺序反推强度', () => {
+    // resolve_thinking_intensity：强度 → effort(high/max) → 预算 → enable
+    expect(payloadToState({ reasoningEffort: 'max' }).thinking.thinkingIntensity).toBe('max')
+    expect(payloadToState({ reasoningEffort: 'high' }).thinking.thinkingIntensity).toBe('high')
+    expect(payloadToState({ enableThinking: false }).thinking.thinkingIntensity).toBe('off')
+    expect(payloadToState({ enableThinking: true }).thinking.thinkingIntensity).toBe('medium')
+    // 强度优先于其他字段
+    expect(
+      payloadToState({ thinkingIntensity: 'low', reasoningEffort: 'max', enableThinking: false }).thinking
+        .thinkingIntensity
+    ).toBe('low')
   })
 
   it('不产出 thinkingBudget —— 预算由强度换算，不单独下发', () => {
@@ -97,14 +123,13 @@ describe('model payload', () => {
       contextBudgetTokens: 131072,
       maxTokens: 8192,
       thinkingIntensity: 'high',
-      reasoningEffort: 'max',
       reasoningInMessages: false,
     }
     const state = payloadToState(payload)
     expect(state.caps.supportsVision).toBe('true')
     expect(state.caps.supportsAudio).toBe('')
     expect(state.limits.contextBudgetTokens).toBe('131072')
-    expect(state.thinking.reasoningEffort).toBe('max')
+    expect(state.thinking.thinkingIntensity).toBe('high')
     expect(state.thinking.reasoningInMessages).toBe('false')
     expect(buildModelPayload(state)).toEqual(payload)
   })
@@ -122,13 +147,12 @@ describe('provider defaults', () => {
     // 服务商级没有 supportsVision 这类字段，能力只有模型级
     const out = buildProviderDefaults({
       limits: { contextBudgetTokens: '128000', temperature: '0.6' },
-      thinking: { thinkingIntensity: 'medium', reasoningEffort: 'high' },
+      thinking: { thinkingIntensity: 'medium' },
     })
     expect(out).toEqual({
       contextBudgetTokens: 128000,
       temperature: 0.6,
       thinkingIntensity: 'medium',
-      reasoningEffort: 'high',
     })
     expect('supportsVision' in out).toBe(false)
   })

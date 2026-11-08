@@ -294,10 +294,20 @@ M0 不做。M0 只做下发默认值。
 | 上下文与生成 | `contextBudgetTokens` / `maxTokens` / `temperature` / `topP` |
 | 思考 | `enableThinking` / `thinkingIntensity` / `reasoningEffort` / `reasoningInMessages` |
 
-**思考预算不单独配**：客户端设了强度就用 `budget_for_intensity(level)` 现算，
-存的 `thinkingBudget` 会被覆盖（`thinking_strategy.rs:207`）。所以界面只给强度，
-预算作为强度的换算结果显示在说明里。老数据只存了预算没存强度的，
-读出来时按 `intensity_from_budget` 换算成强度，保存即归一。
+**思考只配强度**：`thinkingBudget` / `enableThinking` / `reasoningEffort` 三个
+都是强度的派生结果，客户端设了强度就现算、把存的值覆盖掉
+（`thinking_strategy.rs:207 / 419 / 213`）。界面只给强度 + 「回传 reasoning」
+（后者语义独立：要不要把 reasoning_content 回灌进消息）。
+
+**下发是原始透传**：管理端不展开、不换算。payload 里存什么就下发什么，
+接口返回 `thinkingIntensity: "high"` 时 `enableThinking` / `thinkingBudget` /
+`reasoningEffort` 都是 `null`。换算全在客户端
+（`resolve_thinking_intensity` → `budget_for_intensity` / `effort_for_intensity`
+→ 各厂商 wire 策略）。
+
+API 层面仍接受这三个原始字段（`credentials.rs` 按结构体全量反序列化），
+手工写进去会照原样下发；只是界面不再给入口，避免配出「强度=低 且 effort=max」
+这种客户端按顺序静默取一个的矛盾配置。
 
 **服务商级**同样有 8 个默认参数（`reasoningInMessages` / `enableThinking` /
 `reasoningEffort` / `thinkingIntensity` / `temperature` /

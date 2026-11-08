@@ -850,7 +850,8 @@
       "exploreDesc": "代码库探索、符号映射与资料检索",
       "imageDesc": "识别图片内容",
       "audioDesc": "语音转文字",
-      "videoDesc": "分析视频画面"
+      "videoDesc": "分析视频画面",
+      "tierLockedByOrg": "企业已锁定档位，员工不可修改"
     },
     "agentPanel": {
       "smartMode": "智能模式",
@@ -862,7 +863,7 @@
       "useGlobalDefault": "使用全局默认",
       "compactAfterBoard": "任务板后精简历史",
       "skills": "技能",
-      "inheritGlobal": "继承全局设置",
+      "inheritGlobal": "跟随全局",
       "noSkills": "未启用技能",
       "configure": "配置",
       "reset": "重置",
@@ -876,7 +877,6 @@
       "locateInherit": "跟随主模型",
       "tierScopeHint": "以下三项按当前档位配置：",
       "pipelineTierHint": "三项各自按档位配置，与主模型的三档互相独立",
-      "inheritGlobal": "跟随全局",
       "locateThinkingOff": "关闭思考",
       "verifyName": "动作校验",
       "verifyDebug": "校验模块（调试）",

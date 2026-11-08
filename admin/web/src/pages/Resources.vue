@@ -4,6 +4,7 @@ import { api, errText } from '../api'
 import { humanSize, when } from '../lib/format'
 import { can } from '../store'
 import TierMatrix from '../components/TierMatrix.vue'
+import ResourceDrawer from '../components/ResourceDrawer.vue'
 
 const KINDS = [
   { key: 'provider', label: '模型服务', read: 'provider:read' },
@@ -89,6 +90,15 @@ const testBusy = ref(false)
 const testResult = ref<{ ok: boolean; message: string } | null>(null)
 
 const revealed = ref<{ name: string; secret: string } | null>(null)
+// 详情抽屉（设计图 05）
+const detailFor = ref<any>(null)
+
+function onDrawerAction(row: any, action: 'edit' | 'grants' | 'versions' | 'toggle') {
+  if (action === 'edit') openEdit(row)
+  else if (action === 'grants') openGrants(row)
+  else if (action === 'versions') openVersions(row)
+  else toggleEnabled(row)
+}
 
 // 技能包版本
 const versionsFor = ref<any>(null)
@@ -494,6 +504,7 @@ onMounted(async () => {
           </td>
           <td class="small muted">{{ when(row.updatedAt) }}</td>
           <td class="row" style="gap: 6px">
+            <button class="tiny" @click="detailFor = row">详情</button>
             <button v-if="canWrite" class="tiny" @click="openEdit(row)">编辑</button>
             <button v-if="canWrite" class="tiny" @click="openGrants(row)">授权</button>
             <button v-if="row.kind === 'skill' && can('skill:read')" class="tiny" @click="openVersions(row)">版本</button>
@@ -518,6 +529,15 @@ onMounted(async () => {
       <button class="tiny" :disabled="page >= pageCount" @click="page += 1">下一页</button>
     </div>
   </div>
+
+  <ResourceDrawer
+    v-if="detailFor"
+    :resource="detailFor"
+    :can-write="canWrite"
+    @close="detailFor = null"
+    @action="onDrawerAction(detailFor, $event)"
+    @refresh="load"
+  />
 
   <div v-if="creating || editing" class="modal-mask" @click.self="creating = false; editing = null">
     <div class="modal">

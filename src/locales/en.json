@@ -850,7 +850,8 @@
       "exploreDesc": "Explore codebases, symbols, and research",
       "imageDesc": "Understand images",
       "audioDesc": "Speech to text",
-      "videoDesc": "Analyze video frames"
+      "videoDesc": "Analyze video frames",
+      "tierLockedByOrg": "Tiers are locked by your organization"
     },
     "agentPanel": {
       "smartMode": "Smart mode",
@@ -862,7 +863,7 @@
       "useGlobalDefault": "Use global default",
       "compactAfterBoard": "Compact history after task board",
       "skills": "Skills",
-      "inheritGlobal": "Inherit global settings",
+      "inheritGlobal": "Inherit global",
       "noSkills": "No skills enabled",
       "configure": "Configure",
       "reset": "Reset",
@@ -876,7 +877,6 @@
       "locateInherit": "Inherit main model",
       "tierScopeHint": "These three follow the current tier: ",
       "pipelineTierHint": "Each slot is set per tier, independent of the main model's tiers",
-      "inheritGlobal": "Inherit global",
       "locateThinkingOff": "Thinking off",
       "verifyName": "Action check",
       "verifyDebug": "Verification module (debug)",

@@ -26,6 +26,15 @@ const SCENES = [
   { key: 'audio', label: '音频转写', group: 'mediaModeLlm' },
   { key: 'video', label: '视频理解', group: 'mediaModeLlm' },
 ]
+/** 与客户端 `thinkingIntensity` 阶梯一致；留空 = 继承模型默认。 */
+const THINKING = [
+  { key: '', label: '强度·继承' },
+  { key: 'off', label: '强度·关' },
+  { key: 'low', label: '强度·低' },
+  { key: 'medium', label: '强度·中' },
+  { key: 'high', label: '强度·高' },
+  { key: 'max', label: '强度·最高' },
+]
 const TIERS = [
   { key: 'fast', label: '快速' },
   { key: 'standard', label: '标准' },
@@ -70,6 +79,25 @@ function modelOf(scene: string, group: string, tier: string): string {
   return cell(scene, group, tier).model || ''
 }
 
+function intensityOf(scene: string, group: string, tier: string): string {
+  return cell(scene, group, tier).thinkingIntensity || ''
+}
+
+function setIntensity(scene: string, group: string, tier: string, value: string) {
+  const cur = payload.value?.[group]?.[scene]?.[tier]
+  if (!cur) return
+  if (value) cur.thinkingIntensity = value
+  else delete cur.thinkingIntensity
+}
+
+/** 锁定档位：员工端的档位选择器会置灰。 */
+const lockTiers = computed(() => Boolean(payload.value?.lockTiers))
+
+function setLockTiers(on: boolean) {
+  if (on) payload.value.lockTiers = true
+  else delete payload.value.lockTiers
+}
+
 function setModel(scene: string, group: string, tier: string, slug: string) {
   if (!payload.value[group]) payload.value[group] = {}
   if (!payload.value[group][scene]) payload.value[group][scene] = {}
@@ -77,9 +105,11 @@ function setModel(scene: string, group: string, tier: string, slug: string) {
     delete payload.value[group][scene][tier]
   } else {
     const found = modelOptions.value.find((m) => m.slug === slug)
+    const prevIntensity = payload.value[group][scene][tier]?.thinkingIntensity
     payload.value[group][scene][tier] = {
       providerId: found?.providerId || '',
       model: slug,
+      ...(prevIntensity ? { thinkingIntensity: prevIntensity } : {}),
     }
   }
   // 空对象留着会下发一堆空档位，清掉更干净。
@@ -137,6 +167,16 @@ async function createDefault() {
     </div>
 
     <template v-else>
+      <label class="row" style="gap: 8px; margin-bottom: 10px">
+        <input
+          type="checkbox"
+          style="width: auto"
+          :checked="lockTiers"
+          :disabled="!canWrite"
+          @change="setLockTiers(($event.target as HTMLInputElement).checked)"
+        />
+        <span class="small">锁定档位（员工端档位选择器置灰，只能按企业配置跑）</span>
+      </label>
       <p class="small muted" style="margin: 0 0 12px">
         每格 = 该场景该档位使用的模型；留空表示「继承默认」，客户端用自己的内置档位模型。
         这是**默认值**：员工自己改过某一档，这里的配置不覆盖他。
@@ -162,6 +202,15 @@ async function createDefault() {
               >
                 <option value="">继承默认</option>
                 <option v-for="m in modelOptions" :key="m.slug" :value="m.slug">{{ m.label }}</option>
+              </select>
+              <select
+                v-if="modelOf(s.key, s.group, t.key)"
+                style="margin-top: 4px"
+                :value="intensityOf(s.key, s.group, t.key)"
+                :disabled="!canWrite"
+                @change="setIntensity(s.key, s.group, t.key, ($event.target as HTMLSelectElement).value)"
+              >
+                <option v-for="o in THINKING" :key="o.key" :value="o.key">{{ o.label }}</option>
               </select>
             </td>
           </tr>

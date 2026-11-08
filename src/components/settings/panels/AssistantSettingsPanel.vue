@@ -26,6 +26,14 @@ const computerAdvancedModal = ref(false)
 // 只保留 off/low/medium/high/max；'' (不设置) 和 off 写的是同一个 0，重复了
 const THINKING_OPTIONS = computed(() => thinkingIntensityOptions().filter(o => o.value !== ''))
 
+/**
+ * 企业锁定档位：控制面的档位映射里带了 `lockTiers`，员工就不能改场景档位。
+ * 只读平台下发的原始 tierDefaults —— 这属于策略，不进用户设置。
+ */
+const tierLockedByOrg = computed(() =>
+  Boolean((s.platformSettings as { tierDefaults?: { lockTiers?: boolean } })?.tierDefaults?.lockTiers)
+)
+
 type PipelineSlot = 'locate' | 'locateVerify' | 'verify'
 
 /**
@@ -120,6 +128,9 @@ const {
           <p class="mt-1 text-[11px] text-muted">
             {{ t('settings.assistant.sceneTiersHint') }}
           </p>
+          <p v-if="tierLockedByOrg" class="mt-1 text-[11px] text-warning">
+            {{ t('settings.assistant.tierLockedByOrg') }}
+          </p>
         </div>
         <div class="grid grid-cols-2 gap-2.5 items-start">
           <div class="rounded-lg border border-border bg-card/50 overflow-hidden">
@@ -155,6 +166,7 @@ const {
                   <input
                     type="radio"
                     class="sr-only"
+                    :disabled="tierLockedByOrg"
                     name="scene-general-mode"
                     :checked="(agentPerformanceModesLocal.general ?? 'standard') === opt.value"
                     @change="agentPerformanceModesLocal = { ...agentPerformanceModesLocal, general: opt.value }"
@@ -194,6 +206,7 @@ const {
                   <input
                     type="radio"
                     class="sr-only"
+                    :disabled="tierLockedByOrg"
                     name="scene-coder-mode"
                     :checked="(agentPerformanceModesLocal.coder ?? 'standard') === opt.value"
                     @change="agentPerformanceModesLocal = { ...agentPerformanceModesLocal, coder: opt.value }"
@@ -233,6 +246,7 @@ const {
                   <input
                     type="radio"
                     class="sr-only"
+                    :disabled="tierLockedByOrg"
                     name="scene-computer-mode"
                     :checked="(agentPerformanceModesLocal.computer ?? 'standard') === opt.value"
                     @change="agentPerformanceModesLocal = { ...agentPerformanceModesLocal, computer: opt.value }"
@@ -473,6 +487,7 @@ const {
                     <input
                       type="radio"
                       class="sr-only"
+                      :disabled="tierLockedByOrg"
                       :name="'more-mode-' + w.id"
                       :checked="(agentPerformanceModesLocal[w.id] ?? 'standard') === opt.value"
                       @change="agentPerformanceModesLocal = { ...agentPerformanceModesLocal, [w.id]: opt.value }"
@@ -541,6 +556,7 @@ const {
                     <input
                       type="radio"
                       class="sr-only"
+                      :disabled="tierLockedByOrg"
                       name="more-mode-web-search"
                       :checked="(agentPerformanceModesLocal[WEB_SEARCH_SCENE_ID] ?? 'fast') === opt.value"
                       @change="agentPerformanceModesLocal = { ...agentPerformanceModesLocal, [WEB_SEARCH_SCENE_ID]: opt.value }"

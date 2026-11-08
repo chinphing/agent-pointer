@@ -43,6 +43,8 @@ pub struct Resource {
     pub payload_json: String,
     /// 是否有加密密钥（不返回密文本身）。
     pub has_secret: bool,
+    /// 密文本身。只给 http 层算脱敏展示用，不进 JSON。
+    pub secret_enc: Option<String>,
     pub current_version_id: Option<String>,
     /// `optional`（默认）/ `default_on`：下发后客户端是否默认启用。
     pub activation: String,
@@ -67,6 +69,7 @@ fn map_resource(row: &AnyRow) -> Result<Resource> {
         enabled: enabled != 0,
         payload_json: row.try_get(8)?,
         has_secret: secret.is_some(),
+        secret_enc: secret,
         current_version_id: row.try_get(10)?,
         created_at: row.try_get(11)?,
         updated_at: row.try_get(12)?,

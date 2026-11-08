@@ -212,10 +212,11 @@
     "defaultsSet": "已设置",
     "defaultsHint": "模型没单独配的字段就用这里的值；留空则用客户端默认。",
     "defaultsOverride": "注意：这里设了值会盖过员工自己的全局设置（客户端取值顺序：模型 > 服务商 > 员工全局）。",
-    "secretMasked": "•••••••• 已配置",
+    "secretMasked": "已配置",
     "secretClear": "清除密钥",
     "secretClearConfirm": "确定清除密钥？清除后客户端拿不到这个服务商的凭据。",
-    "secretKept": "留空 = 保持现有密钥不变"
+    "secretKept": "留空 = 保持现有密钥不变",
+    "secretCurrent": "当前密钥"
   },
   "tier": {
     "title": "默认档位映射",
@@ -428,10 +429,11 @@
     "visPick": "指定",
     "pickAfterCreate": "建好后会打开授权面板，选具体角色或成员",
     "orphanProvider": "服务商已删除",
-    "secretMasked": "•••••••• 已配置",
+    "secretMasked": "已配置",
     "secretClear": "清除密钥",
     "secretClearConfirm": "确定清除密钥？清除后客户端拿不到这个服务商的凭据。",
-    "secretKept": "留空 = 保持现有密钥不变"
+    "secretKept": "留空 = 保持现有密钥不变",
+    "secretCurrent": "当前密钥"
   },
   "common2": {},
   "topbar": {

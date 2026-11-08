@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::audit::{self, AuditInput};
-use crate::crypto::{decrypt_secret, encrypt_secret};
+use crate::crypto::{decrypt_secret, encrypt_secret, EncryptedSecret};
 use crate::grants::{self, Principal};
 use crate::http::auth::{current_auth, AdminAuth};
 use crate::http::error::{ApiError, ApiResult};
@@ -28,6 +28,27 @@ fn perms_for(kind: &str) -> (&'static str, &'static str, &'static str) {
     }
 }
 
+/// 密钥脱敏：留头 3 位和尾 4 位，中间打码。
+///
+/// 明文只在 `reveal_secret` 里出（`provider:reveal` 权限 + 审计）；
+/// 这里是给编辑界面「看得出配了什么、但看不到全部」用的。
+pub fn mask_secret(secret: &str) -> String {
+    let chars: Vec<char> = secret.chars().collect();
+    // 短密钥直接全打码：露头 3 位 + 尾 4 位等于暴露一半，反而更好猜。
+    if chars.len() < 16 {
+        return "••••••••".to_string();
+    }
+    let head: String = chars[..3].iter().collect();
+    let tail: String = chars[chars.len() - 4..].iter().collect();
+    format!("{head}••••{tail}")
+}
+
+fn secret_mask(resource: &Resource) -> Option<String> {
+    let enc = EncryptedSecret::from_stored(resource.secret_enc.as_deref()?).ok()?;
+    let plain = decrypt_secret(&enc).ok()?;
+    Some(mask_secret(&plain))
+}
+
 fn view(resource: &Resource) -> Value {
     let payload: Value =
         serde_json::from_str(&resource.payload_json).unwrap_or(serde_json::Value::Null);
@@ -41,6 +62,8 @@ fn view(resource: &Resource) -> Value {
         "enabled": resource.enabled,
         "payload": payload,
         "hasSecret": resource.has_secret,
+        // 脱敏值，给编辑界面回显用；明文仍只在 reveal 接口
+        "secretMask": secret_mask(resource),
         "activation": resource.activation,
         "createdAt": resource.created_at,
         "updatedAt": resource.updated_at,
@@ -625,4 +648,27 @@ pub async fn delete_version(
     .await?;
 
     Ok(Json(json!({ "ok": true })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mask_secret;
+
+    #[test]
+    fn mask_secret_keeps_edges_only() {
+        assert_eq!(mask_secret("sk-acceptance-demo"), "sk-••••demo");
+        // 短密钥全打码：露头露尾反而更好猜
+        assert_eq!(mask_secret("sk-1234567890"), "••••••••");
+        assert_eq!(mask_secret("sk-123456789"), "••••••••");
+        assert_eq!(mask_secret("sk-1234567890123"), "sk-••••0123");
+        assert_eq!(mask_secret(""), "••••••••");
+    }
+
+    #[test]
+    fn mask_secret_never_returns_plaintext() {
+        let secret = "sk-live-abcdefghijklmnop";
+        let masked = mask_secret(secret);
+        assert!(!masked.contains("abcdefghij"));
+        assert!(masked.len() < secret.len());
+    }
 }

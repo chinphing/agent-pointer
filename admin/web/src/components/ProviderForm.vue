@@ -59,6 +59,8 @@ const form = ref({ slug: '', name: '', baseUrl: '', apiKey: '' })
 
 /** 编辑时后端只说「有没有密钥」，不返明文——所以只能给脱敏提示，不能回显。 */
 const hasSecret = ref(Boolean(props.resource?.hasSecret))
+/** 后端只给脱敏值（头 3 + 尾 4），明文仍只在「查看密钥」里。 */
+const secretMask = ref<string | null>(props.resource?.secretMask ?? null)
 const clearing = ref(false)
 
 async function clearSecret() {
@@ -341,6 +343,9 @@ async function submit() {
         {{ t('provider.apiKey') }}{{ isEdit ? t('provider.apiKeyKeep') : '' }}
         <span v-if="hasSecret" class="tag ok" style="margin-left: 6px">{{ t('provider.secretMasked') }}</span>
       </label>
+      <p v-if="hasSecret && secretMask" class="mask-line mono small">
+        {{ t('provider.secretCurrent') }}：{{ secretMask }}
+      </p>
       <input
         v-model="form.apiKey"
         type="password"
@@ -525,4 +530,11 @@ async function submit() {
 }
 .defaults-toggle:hover { color: var(--fg); }
 .three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+/* 只读提示：不画边框、不加底色，免得看着像第二个输入框 */
+.mask-line {
+  margin: 2px 0 8px;
+  padding: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
 </style>

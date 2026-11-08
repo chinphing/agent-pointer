@@ -693,6 +693,9 @@ onMounted(async () => {
           {{ t('resources.secretMasked') }}
         </span>
       </label>
+      <p v-if="editingRow?.secretMask" class="mask-line mono small">
+        {{ t('resources.secretCurrent') }}：{{ editingRow.secretMask }}
+      </p>
       <input
         v-model="form.secret"
         type="password"
@@ -903,6 +906,13 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* 只读提示：不画边框、不加底色，免得看着像第二个输入框 */
+.mask-line {
+  margin: 2px 0 8px;
+  padding: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
 .upload-box {
   display: flex;
   gap: 12px;

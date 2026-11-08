@@ -54,7 +54,6 @@ const AUTH_MODE_URL = 'http://127.0.0.1:8787/api/auth/mode'
 
 const CLEARED_KEYS = [
   'POINTER_EDITION',
-  'VITE_POINTER_EDITION',
   'POINTER_API_BASE',
   'VITE_POINTER_WEB_BASE',
   'POINTER_DOWNLOAD_URL',
@@ -81,7 +80,6 @@ export function defaultReleaseBinary(root, kind) {
 /** Keys a standalone `--build` must leave unset so `pointer.local.env` cannot fill them. */
 export const STANDALONE_BUILD_KEEP_UNSET = [
   'POINTER_EDITION',
-  'VITE_POINTER_EDITION',
   'POINTER_API_BASE',
   'VITE_POINTER_WEB_BASE',
   'POINTER_DOWNLOAD_URL',
@@ -229,7 +227,6 @@ export function buildPlan(input) {
   if (managed) {
     requireDomains(input.domains)
     env.POINTER_EDITION = 'managed'
-    env.VITE_POINTER_EDITION = 'managed'
     env.POINTER_API_BASE = input.domains.apiBase
     // 控制面只有一个地址；前端跳转（充值/下载）默认也用它，--web-base 仅作覆盖。
     env.VITE_POINTER_WEB_BASE = input.domains.webBase || input.domains.apiBase

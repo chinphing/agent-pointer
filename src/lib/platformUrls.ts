@@ -6,15 +6,6 @@ function viteEnv(name: string): string {
   return String(env?.[name] ?? '').trim()
 }
 
-/** Packaging flavour: `managed`, or empty for standalone. Gates nothing. */
-export function pointerEdition(): string {
-  return viteEnv('VITE_POINTER_EDITION').toLowerCase()
-}
-
-export function isManagedEdition(): boolean {
-  return pointerEdition() === 'managed'
-}
-
 /**
  * Web base for platform pages (billing, …). Supplied by the build
  * (`VITE_POINTER_WEB_BASE`); the open-source tree hardcodes no vendor domain, so

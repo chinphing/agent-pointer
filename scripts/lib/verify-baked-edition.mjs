@@ -4,10 +4,10 @@
  *
  * A pointer-server release is bound only when **both** halves carry the control
  * plane:
- *   • the Rust binary  ← `POINTER_EDITION=managed` + the three domains, baked by
+ *   • the Rust binary  ← `POINTER_EDITION=managed` + `POINTER_API_BASE`, baked by
  *                        `crates/pointer-core/build.rs` (`cargo:rustc-env=…`);
- *   • the web assets   ← `VITE_POINTER_EDITION` / `VITE_POINTER_WEB_BASE` inlined
- *                        by Vite.
+ *   • the web assets   ← `VITE_POINTER_WEB_BASE` inlined by Vite (optional; it
+ *                        only feeds redirect links and follows the api base).
  *
  * Loading `pointer.local.env` in only one of the two build steps used to produce
  * a silently half-bound artifact (managed UI over a standalone binary). This
@@ -23,7 +23,6 @@ import path from 'node:path'
 /** Domains `crates/pointer-core/build.rs` bakes into the binary, in its order. */
 export const CONTROL_PLANE_DOMAINS = [
   { key: 'POINTER_API_BASE', label: 'control-plane API base' },
-  { key: 'POINTER_WEB_BASE', label: 'control-plane web base' },
 ]
 
 const CHUNK_BYTES = 64 * 1024
@@ -35,7 +34,7 @@ const MAX_SCAN_BYTES = 256 * 1024 * 1024
  * `crates/pointer-core/src/edition.rs`.
  */
 export function effectiveEdition(env = {}) {
-  const raw = String(env.POINTER_EDITION ?? env.VITE_POINTER_EDITION ?? '')
+  const raw = String(env.POINTER_EDITION ?? '')
     .trim()
     .toLowerCase()
   return raw === 'managed' ? 'managed' : 'standalone'
@@ -51,9 +50,9 @@ export function configuredDomains(env = {}) {
   return found
 }
 
-/** Web base the frontend inlines (`VITE_POINTER_WEB_BASE`, mirrored from POINTER_WEB_BASE). */
+/** 前端跳转基址（`VITE_POINTER_WEB_BASE`），可选；不设时跟随 api 基址。 */
 export function configuredWebBase(env = {}) {
-  return String(env.POINTER_WEB_BASE ?? env.VITE_POINTER_WEB_BASE ?? '').trim()
+  return String(env.VITE_POINTER_WEB_BASE ?? '').trim()
 }
 
 /** Byte-exact substring search over one file, read in chunks. */
@@ -169,6 +168,10 @@ export function verifyBakedEdition({
     }
   }
 
+  if (managed && domains.length === 0) {
+    errors.push('no POINTER_API_BASE configured — a managed build must inject the control-plane address')
+  }
+
   let baked = 0
   for (const domain of domains) {
     const hit = binaryProbe ? binaryProbe(domain.value) : null
@@ -197,17 +200,15 @@ export function verifyBakedEdition({
       notes.push(`${webLabel} carry the web base`)
     } else if (hit === false) {
       if (managed) {
-        errors.push(`${webLabel} do NOT carry POINTER_WEB_BASE: ${webBase}`)
+        errors.push(`${webLabel} do NOT carry VITE_POINTER_WEB_BASE: ${webBase}`)
       } else {
-        warnings.push(`${webLabel} carry POINTER_WEB_BASE (${webBase}) although the edition is standalone`)
+        warnings.push(`${webLabel} carry VITE_POINTER_WEB_BASE (${webBase}) although the edition is standalone`)
       }
     } else if (managed) {
       errors.push(`${webLabel} not found — cannot verify the managed web base (${webBase})`)
     } else {
       notes.push(`${webLabel} not found (nothing baked to report)`)
     }
-  } else if (managed) {
-    errors.push('no POINTER_WEB_BASE configured — a managed build must inject the control-plane domains')
   }
 
   if (!managed) {

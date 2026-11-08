@@ -33,7 +33,6 @@
 | 变量 | 作用 |
 | --- | --- |
 | `POINTER_EDITION=managed` | 打包口味，编译期烧入。**缺控制面域名时 `crates/pointer-core/build.rs` 直接 panic，构建失败** |
-| `VITE_POINTER_EDITION=managed` | 前端口味（`src/lib/platformUrls.ts` → `isManagedEdition()`） |
 | `POINTER_API_BASE` | 控制面 API 域名（构建期烧入 `POINTER_BUILTIN_API_BASE`） |
 | `VITE_POINTER_WEB_BASE` | 前端跳转基址（充值/下载），缺省跟随 `POINTER_API_BASE` |
 | `POINTER_DOWNLOAD_URL` / `VITE_POINTER_DOWNLOAD_URL` | 下载页链接（关于页） |
@@ -74,7 +73,7 @@ npm run icons                     # 首次或更换 icon.png 后
 npm run tauri:build
 
 # 方式 B：一次性导出（CI / 临时；键名与 pointer.local.env.example 一致）
-POINTER_EDITION=managed VITE_POINTER_EDITION=managed \
+POINTER_EDITION=managed \
   POINTER_API_BASE=https://pointer-api.example.com \
   \
   VITE_  POINTER_DOWNLOAD_URL=https://pointer.example.com/download \
@@ -97,7 +96,6 @@ npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 | 变量 | 必需 | 说明 |
 | --- | --- | --- |
 | `POINTER_EDITION=managed` | ✅ | 口味。**只接受 `managed` 或留空**：其他任何值（含旧值 `official`）会让构建直接失败，避免静默降级为未绑定 |
-| `VITE_POINTER_EDITION=managed` | ✅ | 前端口味；未设时脚本会由 `POINTER_EDITION` 补齐 |
 | `POINTER_API_BASE` | ✅ | 控制面地址（登录页/授权页/接口同源），缺即构建 panic |
 | `VITE_POINTER_WEB_BASE` / `POINTER_DOWNLOAD_URL` | 建议 | 前端跳转与关于页下载链接 |
 | `TAURI_SIGNING_PRIVATE_KEY` 或 `…_PATH` | ✅ | updater 签名私钥 |
@@ -160,7 +158,7 @@ npm run server:build
 
 # 方式 B：一次性导出（CI / 临时；键名与 pointer.local.env.example 一致）
 POINTER_EDITION=managed \
-VITE_POINTER_EDITION=managed \
+\
 POINTER_API_BASE=https://pointer-api.example.com \
 \
 VITE_npm run server:build
@@ -175,7 +173,6 @@ VITE_npm run server:build
 | 变量 | 必需 | 说明 |
 | --- | --- | --- |
 | `POINTER_EDITION=managed` | ✅ | 口味；也是「缺域名就 panic」的开关 |
-| `VITE_POINTER_EDITION=managed` | 建议 | 前端口味（云主机 / 充值入口可见性） |
 | `POINTER_API_BASE` | ✅ | 控制面地址（登录页/授权页/接口同源） |
 | `VITE_POINTER_WEB_BASE` | 建议 | 前端跳转控制面 Web |
 

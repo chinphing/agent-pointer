@@ -32,7 +32,6 @@ const extra = prepared.argv
 const edition = (env.POINTER_EDITION || '').trim().toLowerCase();
 const isManaged = edition === 'managed';
 if (isManaged) {
-  env.VITE_POINTER_EDITION = env.VITE_POINTER_EDITION || 'managed';
   console.log(`[tauri-build] POINTER_EDITION=${edition}`);
 } else {
   // Standalone build: no updater artifacts, no baked-in control plane.

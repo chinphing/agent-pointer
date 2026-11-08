@@ -90,7 +90,6 @@ describe('quick-deploy plans', () => {
     const env = result.processes[0].env
     expect(result.authMode).toBe('platform')
     expect(env.POINTER_EDITION).toBe('managed')
-    expect(env.VITE_POINTER_EDITION).toBe('managed')
     expect(env.POINTER_DEPLOYMENT_MODE).toBe('platform')
     expect(env.POINTER_API_BASE).toBe(domains.apiBase)
     expect(env.VITE_POINTER_WEB_BASE).toBe(domains.webBase)
@@ -316,7 +315,6 @@ describe('quick-deploy plans', () => {
     fs.writeFileSync(file, [
       'POINTER_EDITION=managed',
       'POINTER_API_BASE=https://leak.example',
-      'VITE_POINTER_EDITION=managed',
       'OTHER_KEY=kept',
     ].join('\n'))
     const env = {
@@ -325,7 +323,6 @@ describe('quick-deploy plans', () => {
     applyPointerLocalEnv(env, { filePath: file, logPrefix: '[test]' })
     expect(env.POINTER_EDITION).toBeUndefined()
     expect(env.POINTER_API_BASE).toBeUndefined()
-    expect(env.VITE_POINTER_EDITION).toBeUndefined()
     expect(env.OTHER_KEY).toBe('kept')
   })
 

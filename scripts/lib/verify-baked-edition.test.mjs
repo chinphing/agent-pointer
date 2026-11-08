@@ -16,9 +16,7 @@ const WEB_BASE = 'https://pointer.example.com'
 
 const MANAGED_ENV = {
   POINTER_EDITION: 'managed',
-  VITE_POINTER_EDITION: 'managed',
   POINTER_API_BASE: API_BASE,
-  POINTER_WEB_BASE: WEB_BASE,
   VITE_POINTER_WEB_BASE: WEB_BASE,
 }
 
@@ -39,8 +37,8 @@ function check({ env = MANAGED_ENV, binary = null, web = null, binaryProbe, webP
   })
 }
 
-const FULL_BINARY = artifact(`${API_BASE}\u0000${WEB_BASE}`)
-const MANAGED_WEB = artifact(`window.env={"VITE_POINTER_EDITION":"managed","VITE_POINTER_WEB_BASE":"${WEB_BASE}"}`)
+const FULL_BINARY = artifact(`${API_BASE}\u0000`)
+const MANAGED_WEB = artifact(`window.env={"VITE_POINTER_WEB_BASE":"${WEB_BASE}"}`)
 
 const tempDirs = []
 
@@ -59,7 +57,6 @@ function makeTempDir() {
 describe('effectiveEdition', () => {
   it('accepts only `managed`; everything else is standalone', () => {
     expect(effectiveEdition({ POINTER_EDITION: ' managed ' })).toBe('managed')
-    expect(effectiveEdition({ VITE_POINTER_EDITION: 'MANAGED' })).toBe('managed')
     expect(effectiveEdition({})).toBe('standalone')
     expect(effectiveEdition({ POINTER_EDITION: 'official' })).toBe('standalone')
   })
@@ -71,13 +68,13 @@ describe('verifyBakedEdition', () => {
     expect(result.errors).toEqual([])
     expect(result.warnings).toEqual([])
     expect(result.ok).toBe(true)
-    expect(result.summary).toBe('edition=managed domains=2/2 baked, web=managed')
+    expect(result.summary).toBe('edition=managed domains=1/1 baked, web=managed')
   })
 
   it('fails a half-bound build: managed web assets over a standalone binary', () => {
     const result = check({ binary: artifact('edition: unset (standalone defaults)'), web: MANAGED_WEB })
     expect(result.ok).toBe(false)
-    expect(result.summary).toBe('edition=managed domains=0/2 baked, web=managed')
+    expect(result.summary).toBe('edition=managed domains=0/1 baked, web=managed')
     expect(result.errors.join('\n')).toContain(API_BASE)
   })
 
@@ -101,7 +98,7 @@ describe('verifyBakedEdition', () => {
       web: artifact(''),
     })
     expect(result.ok).toBe(false)
-    expect(result.errors.join('\n')).toContain('POINTER_WEB_BASE')
+    expect(result.errors.join('\n')).toContain('POINTER_API_BASE')
   })
 
   it('keeps a clean standalone build quiet', () => {

@@ -489,7 +489,9 @@ async function dismissExternal() {
 
     <div v-if="loading" class="py-8 text-center text-sm text-muted">{{ t('settings.automation.loading') }}</div>
 
-    <!-- 企业提供但还没安装的插件：点了才下载，避免几十个包占满磁盘 -->
+    <!-- 企业提供但还没安装的插件：点了才下载，避免几十个包占满磁盘。
+         注意：这一段与下面的本地插件列表是**并列**的，不能串成 v-if/v-else 链——
+         否则企业只要下发了一个还没安装的插件，员工本地已装的插件就整段不渲染了。 -->
     <div v-if="orgPlugins.length" class="mb-3 space-y-2">
       <p class="text-xs font-medium uppercase tracking-wide text-muted">企业提供（按需安装）</p>
       <div
@@ -514,11 +516,14 @@ async function dismissExternal() {
       </div>
     </div>
 
-    <div v-else-if="plugins.length === 0" class="rounded-2xl border border-dashed border-border py-10 text-center text-sm text-muted">
+    <div
+      v-if="plugins.length === 0 && !orgPlugins.length"
+      class="rounded-2xl border border-dashed border-border py-10 text-center text-sm text-muted"
+    >
       {{ t('settings.plugins.empty') }} <code class="rounded bg-[hsl(var(--code-bg))] px-1.5 py-0.5 text-xs">~/.pointer/plugins</code>。
     </div>
 
-    <div v-else class="space-y-3">
+    <div v-if="plugins.length" class="space-y-3">
       <div class="flex items-center justify-between text-xs text-muted">
         <span>{{ t('settings.plugins.summary', { total: plugins.length, enabled: enabledCount }) }}</span>
       </div>

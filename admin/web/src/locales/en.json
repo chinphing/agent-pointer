@@ -215,8 +215,9 @@
     "secretMasked": "configured",
     "secretClear": "Clear key",
     "secretClearConfirm": "Clear the key? The client will stop receiving credentials for this provider.",
-    "secretKept": "Leave blank to keep the current key",
-    "secretCurrent": "Current key"
+    "secretKept": "Configured. Replace the whole value to rotate; clearing does not delete",
+    "secretCurrent": "Current key",
+    "secretMaskHint": "Key must not contain • placeholders — replace the whole value"
   },
   "tier": {
     "title": "Default tier mapping",
@@ -432,8 +433,9 @@
     "secretMasked": "configured",
     "secretClear": "Clear key",
     "secretClearConfirm": "Clear the key? The client will stop receiving credentials for this provider.",
-    "secretKept": "Leave blank to keep the current key",
-    "secretCurrent": "Current key"
+    "secretKept": "Configured. Replace the whole value to rotate; clearing does not delete",
+    "secretCurrent": "Current key",
+    "secretMaskHint": "Key must not contain • placeholders — replace the whole value"
   },
   "common2": {},
   "topbar": {

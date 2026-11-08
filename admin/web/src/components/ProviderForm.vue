@@ -61,6 +61,17 @@ const form = ref({ slug: '', name: '', baseUrl: '', apiKey: '' })
 const hasSecret = ref(Boolean(props.resource?.hasSecret))
 /** 后端只给脱敏值（头 3 + 尾 4），明文仍只在「查看密钥」里。 */
 const secretMask = ref<string | null>(props.resource?.secretMask ?? null)
+
+/** 框里还是那串脱敏值时，用明文显示（否则密码框会把 • 再打一遍码）。 */
+const isMaskValue = computed(() => Boolean(secretMask.value) && form.value.apiKey === secretMask.value)
+
+/** 用户要提交的新密钥：脱敏占位原样不动 = 不修改。 */
+function secretToSend(): { secret?: string; error?: string } {
+  const raw = form.value.apiKey.trim()
+  if (!raw || raw === secretMask.value) return {}
+  if (raw.includes('•')) return { error: t('provider.secretMaskHint') }
+  return { secret: raw }
+}
 const clearing = ref(false)
 
 async function clearSecret() {
@@ -128,7 +139,8 @@ if (props.resource) {
     slug: props.resource.slug || '',
     name: props.resource.name || '',
     baseUrl: payload.baseUrl || '',
-    apiKey: '',
+    // 脱敏值直接放进输入框：看得出是哪把密钥，改就整段替换
+    apiKey: props.resource.secretMask || '',
   }
   void loadExistingModels()
 } else {
@@ -244,10 +256,16 @@ async function submit() {
         }
       }
 
+      const next = secretToSend()
+      if (next.error) {
+        error.value = next.error
+        return
+      }
+
       await api.put(`/api/admin/resources/${props.resource.id}`, {
         name: form.value.name.trim(),
         payload,
-        ...(form.value.apiKey.trim() ? { secret: form.value.apiKey.trim() } : {}),
+        ...(next.secret ? { secret: next.secret } : {}),
       })
 
       for (const slug of removed) {
@@ -343,14 +361,13 @@ async function submit() {
         {{ t('provider.apiKey') }}{{ isEdit ? t('provider.apiKeyKeep') : '' }}
         <span v-if="hasSecret" class="tag ok" style="margin-left: 6px">{{ t('provider.secretMasked') }}</span>
       </label>
-      <p v-if="hasSecret && secretMask" class="mask-line mono small">
-        {{ t('provider.secretCurrent') }}：{{ secretMask }}
-      </p>
       <input
         v-model="form.apiKey"
-        type="password"
+        :type="isMaskValue ? 'text' : 'password'"
+        class="mono"
         :placeholder="hasSecret ? t('provider.secretKept') : 'sk-…'"
       />
+      <p v-if="hasSecret" class="mask-line small">{{ t('provider.secretKept') }}</p>
       <div v-if="hasSecret" class="row" style="gap: 8px; margin-top: 6px">
         <button class="tiny" type="button" @click="clearSecret">{{ t('provider.secretClear') }}</button>
       </div>

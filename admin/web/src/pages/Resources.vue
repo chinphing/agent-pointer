@@ -229,7 +229,8 @@ function openEdit(row: any) {
     name: row.name,
     description: row.description || '',
     payload: JSON.stringify(row.payload ?? {}, null, 2),
-    secret: '',
+    // 脱敏值直接放进输入框，看得出是哪把密钥
+    secret: row.secretMask || '',
     enabled: row.enabled,
     activation: row.activation || 'optional',
     visibility: 'all',
@@ -281,7 +282,15 @@ async function submit() {
         enabled: form.value.enabled,
         activation: form.value.activation,
       }
-      if (form.value.secret) body.secret = form.value.secret
+      // 脱敏占位原样不动 = 不修改；含 • 说明是没替换干净的占位
+      const raw = form.value.secret.trim()
+      if (raw && raw !== editingRow.value?.secretMask) {
+        if (raw.includes('•')) {
+          error.value = t('resources.secretMaskHint')
+          return
+        }
+        body.secret = raw
+      }
       await api.put(`/api/admin/resources/${editing.value.id}`, body)
       notice.value = '资源已保存'
     }
@@ -693,14 +702,13 @@ onMounted(async () => {
           {{ t('resources.secretMasked') }}
         </span>
       </label>
-      <p v-if="editingRow?.secretMask" class="mask-line mono small">
-        {{ t('resources.secretCurrent') }}：{{ editingRow.secretMask }}
-      </p>
       <input
         v-model="form.secret"
-        type="password"
+        :type="editingRow?.secretMask && form.secret === editingRow.secretMask ? 'text' : 'password'"
+        class="mono"
         :placeholder="editingRow?.hasSecret ? t('resources.secretKept') : 'sk-…'"
       />
+      <p v-if="editingRow?.hasSecret" class="mask-line small">{{ t('resources.secretKept') }}</p>
       <div v-if="editingRow?.hasSecret" class="row" style="gap: 8px; margin-top: 6px">
         <button class="tiny" type="button" @click="clearSecret">{{ t('resources.secretClear') }}</button>
       </div>

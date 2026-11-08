@@ -215,8 +215,9 @@
     "secretMasked": "已配置",
     "secretClear": "清除密钥",
     "secretClearConfirm": "确定清除密钥？清除后客户端拿不到这个服务商的凭据。",
-    "secretKept": "留空 = 保持现有密钥不变",
-    "secretCurrent": "当前密钥"
+    "secretKept": "已配置。整段替换即可更换；清空不会删除，要删点下面的按钮",
+    "secretCurrent": "当前密钥",
+    "secretMaskHint": "密钥不能包含 • 占位符，请整段替换"
   },
   "tier": {
     "title": "默认档位映射",
@@ -432,8 +433,9 @@
     "secretMasked": "已配置",
     "secretClear": "清除密钥",
     "secretClearConfirm": "确定清除密钥？清除后客户端拿不到这个服务商的凭据。",
-    "secretKept": "留空 = 保持现有密钥不变",
-    "secretCurrent": "当前密钥"
+    "secretKept": "已配置。整段替换即可更换；清空不会删除，要删点下面的按钮",
+    "secretCurrent": "当前密钥",
+    "secretMaskHint": "密钥不能包含 • 占位符，请整段替换"
   },
   "common2": {},
   "topbar": {

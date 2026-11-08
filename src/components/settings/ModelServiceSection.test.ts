@@ -227,7 +227,7 @@ describe('ModelServiceSection', () => {
     expect(dialog.querySelector('#provider-api-key')).toBeTruthy()
 
     ;[...dialog.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent?.trim() === 'MiMo')!
+      .find(button => button.textContent?.trim() === '小米 MiMo')!
       .click()
     await settle()
 

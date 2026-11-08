@@ -34,9 +34,10 @@ describe('platform provider detection', () => {
     expect(byId.qwen.defaultBaseUrl).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1')
     expect(byId.qwen.defaultModels).toEqual([
       'qwen3.8-max',
-      'qwen3.8-omni-flash',
       'qwen3.8-flash',
-      'qwen3.8-27b'
+      'qwen3.8-27b',
+      'qwen3.7-plus',
+      'qwen3.7-flash'
     ])
     expect(byId.mimo.defaultBaseUrl).toBe('https://api.xiaomimimo.com/v1')
     expect(byId.mimo.defaultModels).toEqual([
@@ -47,19 +48,18 @@ describe('platform provider detection', () => {
     expect(byId.kimi.defaultBaseUrl).toBe('https://api.moonshot.cn/v1')
     expect(byId.kimi.defaultModels).toEqual([
       'kimi-k3',
+      'kimi-k3.1-pro',
       'kimi-k2.7-code',
-      'kimi-k2.7-code-highspeed',
-      'kimi-k2.6'
+      'kimi-k2.7-code-highspeed'
     ])
-    expect(byId.zhipu.label).toBe('GLM')
+    expect(byId.zhipu.label).toBe('智谱 GLM')
     expect(byId.zhipu.defaultBaseUrl).toBe('https://open.bigmodel.cn/api/paas/v4')
     expect(byId.zhipu.defaultModels).toEqual(['glm-5.3', 'glm-5.3-flash', 'glm-5.3-flashx', 'glm-5.2'])
-    expect(PROVIDER_TEMPLATE_OPTIONS.map(option => option.id).slice(0, 5)).toEqual([
-      'deepseek',
+    // 企业预置的三家排最前，其余按目录顺序
+    expect(PROVIDER_TEMPLATE_OPTIONS.map(option => option.id).slice(0, 3)).toEqual([
       'qwen',
-      'mimo',
-      'kimi',
-      'zhipu'
+      'deepseek',
+      'doubao'
     ])
   })
 
@@ -106,14 +106,14 @@ describe('platform provider detection', () => {
     })
     expect(draft).toMatchObject({
       id: 'mimo',
-      name: 'MiMo',
+      name: '小米 MiMo',
       baseUrl: 'https://api.xiaomimimo.com/v1',
       apiKey: '',
       models: ['mimo-v2.6-pro', 'mimo-v2.6-flash', 'mimo-v2.6-pro-ultraspeed']
     })
-    expect(firstPresetTemplate(new Set(['deepseek', 'qwen']))).toBe('mimo')
-    expect(
-      firstPresetTemplate(new Set(['deepseek', 'qwen', 'mimo', 'kimi', 'zhipu', 'openrouter']))
-    ).toBe('openai_compatible')
+    // 已占用 qwen/deepseek/doubao 后，第一个可用的预设是 zhipu（按目录顺序）
+    expect(firstPresetTemplate(new Set(['qwen', 'deepseek', 'doubao']))).toBe('zhipu')
+    const allIds = new Set(PROVIDER_TEMPLATE_OPTIONS.map(o => o.defaultId).filter(Boolean))
+    expect(firstPresetTemplate(allIds)).toBe('openai_compatible')
   })
 })

@@ -62,6 +62,8 @@ h3 { font-size: 14px; }
 
 button {
   font: inherit;
+  /* 中文按钮在窄容器里会逐字换行（截图里的「详/情」竖排），统一禁止换行 */
+  white-space: nowrap;
   padding: 7px 14px;
   border-radius: 8px;
   border: 1px solid var(--line);
@@ -90,12 +92,22 @@ input:focus, select:focus, textarea:focus {
   border-color: var(--accent);
 }
 label { display: block; margin: 12px 0 5px; font-size: 12px; color: var(--muted); }
+/* 行内小控件：默认 select 是 100% 宽，塞进表格会把整列撑变形 */
+select.tiny, input.tiny {
+  width: auto;
+  padding: 3px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+}
 
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
 th { font-size: 12px; color: var(--muted); font-weight: 500; }
 tbody tr:hover { background: #fafbfc; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* 操作列：按钮横向排开、靠右对齐，窄屏也不压缩文字 */
+td.actions { white-space: nowrap; }
+td.actions .row, .actions-row { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
 
 .tag {
   display: inline-block;

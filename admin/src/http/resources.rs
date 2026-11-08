@@ -408,11 +408,20 @@ pub async fn test_provider(
                 json!({"ok": false, "message": format!("服务商返回 HTTP {status}")})
             } else {
                 let text = resp.text().await.unwrap_or_default();
-                let count = serde_json::from_str::<Value>(&text)
+                // 顺手把模型清单带回去：新建服务商时直接勾选要启用的模型，
+                // 省掉「先建服务商、再逐个手敲模型 slug」这一步。
+                let models: Vec<String> = serde_json::from_str::<Value>(&text)
                     .ok()
-                    .and_then(|v| v.get("data").and_then(|d| d.as_array()).map(|a| a.len()))
-                    .unwrap_or(0);
-                json!({"ok": true, "modelCount": count})
+                    .and_then(|v| {
+                        v.get("data").and_then(|d| d.as_array()).map(|arr| {
+                            arr.iter()
+                                .filter_map(|m| m.get("id").and_then(|i| i.as_str()))
+                                .map(|s| s.to_string())
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                    .unwrap_or_default();
+                json!({"ok": true, "modelCount": models.len(), "models": models})
             }
         }
         Err(err) => {

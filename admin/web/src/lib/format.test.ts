@@ -31,7 +31,17 @@ describe('humanSize', () => {
 describe('when', () => {
   it('秒按本地时区换算，不是毫秒', () => {
     const ts = 1735689600 // 2025-01-01T00:00:00Z
-    expect(when(ts)).toBe(new Date(ts * 1000).toLocaleString('zh-CN'))
+    const d = new Date(ts * 1000)
+    const p = (n: number) => String(n).padStart(2, '0')
+    expect(when(ts)).toBe(
+      `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+    )
+  })
+
+  it('月日时分补零，一列时间才对得齐', () => {
+    // 本地时间 2025-03-05 08:07
+    const d = new Date(2025, 2, 5, 8, 7, 0)
+    expect(when(Math.floor(d.getTime() / 1000))).toBe('2025/03/05 08:07')
   })
 
   it('空值显示破折号', () => {

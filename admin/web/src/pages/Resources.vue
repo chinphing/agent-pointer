@@ -5,6 +5,7 @@ import { humanSize, when } from '../lib/format'
 import { can } from '../store'
 import TierMatrix from '../components/TierMatrix.vue'
 import ResourceDrawer from '../components/ResourceDrawer.vue'
+import ProviderForm from '../components/ProviderForm.vue'
 
 const KINDS = [
   { key: 'provider', label: '模型服务', read: 'provider:read' },
@@ -64,6 +65,8 @@ const grantUserOptions = computed(() => {
 // 列表：搜索 + 状态筛选 + 分页（设计图 03）
 const keyword = ref('')
 const statusFilter = ref<'all' | 'enabled' | 'disabled'>('all')
+// 模型页按服务商过滤：模型一多，平铺一列根本找不到
+const providerFilter = ref('')
 const page = ref(1)
 const PAGE_SIZE = 20
 
@@ -72,6 +75,7 @@ const filtered = computed(() => {
   return items.value.filter((it) => {
     if (statusFilter.value === 'enabled' && !it.enabled) return false
     if (statusFilter.value === 'disabled' && it.enabled) return false
+    if (providerFilter.value && it.parentId !== providerFilter.value) return false
     if (!kw) return true
     return `${it.slug} ${it.name}`.toLowerCase().includes(kw)
   })
@@ -92,6 +96,34 @@ const testResult = ref<{ ok: boolean; message: string } | null>(null)
 const revealed = ref<{ name: string; secret: string } | null>(null)
 // 详情抽屉（设计图 05）
 const detailFor = ref<any>(null)
+// 行内「更多」菜单（把授权/版本/看密钥/停用/删除收起来，避免一排六个按钮挤成竖排）
+const menuFor = ref<string | null>(null)
+
+/** 模型所属服务商的显示名（列表里比父 id 前 8 位好读）。 */
+function providerName(row: any) {
+  const p = items.value.find((r: any) => r.id === row.parentId)
+  return p?.name || ''
+}
+
+function toggleMenu(id: string) {
+  menuFor.value = menuFor.value === id ? null : id
+}
+
+async function onProviderSaved() {
+  creating.value = false
+  editing.value = null
+  notice.value = '模型服务已保存'
+  await load()
+}
+
+function closeMenu() {
+  menuFor.value = null
+}
+
+/** 点页面其它地方关掉菜单。 */
+function onDocClick() {
+  if (menuFor.value) menuFor.value = null
+}
 
 function onDrawerAction(row: any, action: 'edit' | 'grants' | 'versions' | 'toggle') {
   if (action === 'edit') openEdit(row)
@@ -117,7 +149,8 @@ async function load() {
   try {
     const res = await api.get(`/api/admin/resources?kind=${kind.value}`)
     items.value = res.items
-    if (kind.value === 'tier_profile') {
+    // 模型页要按服务商筛；档位矩阵要选模型——两处都需要额外的列表
+    if (kind.value === 'tier_profile' || kind.value === 'model') {
       const [m, p] = await Promise.all([
         api.get('/api/admin/resources?kind=model'),
         api.get('/api/admin/resources?kind=provider'),
@@ -133,6 +166,7 @@ async function load() {
 }
 
 function switchKind(next: string) {
+  providerFilter.value = ''
   kind.value = next
   load()
 }
@@ -462,6 +496,14 @@ onMounted(async () => {
     <!-- 设计图 03：搜索 + 状态筛选 -->
     <div class="row" style="padding: 0 0 12px; gap: 8px">
       <input v-model="keyword" placeholder="搜索名称 / 标识" style="max-width: 260px" />
+      <select
+        v-if="kind === 'model'"
+        v-model="providerFilter"
+        style="max-width: 180px"
+      >
+        <option value="">服务商：全部</option>
+        <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
+      </select>
       <select v-model="statusFilter" style="max-width: 140px">
         <option value="all">状态：全部</option>
         <option value="enabled">已启用</option>
@@ -478,12 +520,12 @@ onMounted(async () => {
     <table v-else>
       <thead>
         <tr>
-          <th>标识</th>
+          <th style="width: 190px">标识</th>
           <th>名称</th>
-          <th style="width: 90px">状态</th>
-          <th style="width: 90px">密钥</th>
-          <th style="width: 170px">更新时间</th>
-          <th style="width: 210px"></th>
+          <th style="width: 88px">状态</th>
+          <th style="width: 88px">密钥</th>
+          <th style="width: 140px">更新时间</th>
+          <th style="width: 176px"></th>
         </tr>
       </thead>
       <tbody>
@@ -491,7 +533,9 @@ onMounted(async () => {
           <td class="mono">{{ row.slug }}</td>
           <td>
             {{ row.name }}
-            <div v-if="row.parentId" class="small muted mono">父：{{ row.parentId.slice(0, 8) }}</div>
+            <div v-if="row.kind === 'model' && providerName(row)" class="small muted">
+              来自 {{ providerName(row) }}
+            </div>
           </td>
           <td>
             <span class="tag" :class="row.enabled ? 'ok' : 'plain'">
@@ -503,16 +547,27 @@ onMounted(async () => {
             <span v-else class="muted small">—</span>
           </td>
           <td class="small muted">{{ when(row.updatedAt) }}</td>
-          <td class="row" style="gap: 6px">
-            <button class="tiny" @click="detailFor = row">详情</button>
-            <button v-if="canWrite" class="tiny" @click="openEdit(row)">编辑</button>
-            <button v-if="canWrite" class="tiny" @click="openGrants(row)">授权</button>
-            <button v-if="row.kind === 'skill' && can('skill:read')" class="tiny" @click="openVersions(row)">版本</button>
-            <button v-if="can('provider:reveal') && row.hasSecret" class="tiny" @click="reveal(row)">看密钥</button>
-            <button v-if="canWrite" class="tiny" @click="toggleEnabled(row)">
-              {{ row.enabled ? '停用' : '启用' }}
-            </button>
-            <button v-if="canWrite" class="tiny danger" @click="remove(row)">删除</button>
+          <td class="actions">
+            <div class="actions-row">
+              <button class="tiny" @click="detailFor = row">详情</button>
+              <button v-if="canWrite" class="tiny" @click="openEdit(row)">编辑</button>
+              <div class="more-wrap">
+                <button class="tiny" @click.stop="toggleMenu(row.id)">更多 ▾</button>
+                <div v-if="menuFor === row.id" class="more-menu" @click.stop>
+                  <button v-if="canWrite" @click="closeMenu(); openGrants(row)">授权范围</button>
+                  <button v-if="row.kind === 'skill' && can('skill:read')" @click="closeMenu(); openVersions(row)">
+                    版本历史
+                  </button>
+                  <button v-if="can('provider:reveal') && row.hasSecret" @click="closeMenu(); reveal(row)">
+                    查看密钥
+                  </button>
+                  <button v-if="canWrite" @click="closeMenu(); toggleEnabled(row)">
+                    {{ row.enabled ? '停用资源' : '启用资源' }}
+                  </button>
+                  <button v-if="canWrite" class="danger" @click="closeMenu(); remove(row)">删除资源</button>
+                </div>
+              </div>
+            </div>
           </td>
         </tr>
       </tbody>
@@ -539,7 +594,18 @@ onMounted(async () => {
     @refresh="load"
   />
 
-  <div v-if="creating || editing" class="modal-mask" @click.self="creating = false; editing = null">
+  <ProviderForm
+    v-if="(creating || editing) && kind === 'provider'"
+    :resource="editing"
+    @saved="onProviderSaved"
+    @cancel="creating = false; editing = null"
+  />
+
+  <div
+    v-if="(creating || editing) && kind !== 'provider'"
+    class="modal-mask"
+    @click.self="creating = false; editing = null"
+  >
     <div class="modal">
       <h2>{{ creating ? '新建资源' : '编辑资源' }}</h2>
 
@@ -773,4 +839,30 @@ onMounted(async () => {
   border: 1px solid var(--line);
   border-radius: 8px;
 }
+
+.more-wrap { position: relative; }
+.more-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 132px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(24, 24, 27, 0.12);
+  padding: 4px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+}
+.more-menu button {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.more-menu button:hover { background: var(--panel-alt); }
+.more-menu button.danger { color: var(--danger); }
 </style>

@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { api, errText } from '../api'
 import { can } from '../store'
 import { addableRoles } from '../lib/roles'
+import { when } from '../lib/format'
 
 const items = ref<any[]>([])
 const roles = ref<any[]>([])
@@ -147,12 +148,12 @@ onMounted(load)
     <table v-else>
       <thead>
         <tr>
-          <th>账号</th>
-          <th>姓名</th>
-          <th>状态</th>
+          <th style="width: 150px">账号</th>
+          <th style="width: 130px">姓名</th>
+          <th style="width: 84px">状态</th>
           <th>角色</th>
-          <th>最近登录</th>
-          <th style="width: 160px"></th>
+          <th style="width: 150px">最近登录</th>
+          <th style="width: 176px"></th>
         </tr>
       </thead>
       <tbody>
@@ -165,34 +166,42 @@ onMounted(load)
             </span>
           </td>
           <td>
-            <span
-              v-for="key in user.roles"
-              :key="key"
-              class="tag"
-              style="margin-right: 4px; cursor: pointer"
-              :title="can('user:write') ? '点击移除该角色' : ''"
-              @click="can('user:write') && toggleRole(user, key)"
-            >{{ key }}</span>
-            <span v-if="!user.roles.length" class="muted small">无</span>
-            <select
-              v-if="can('user:write') && addableFor(user).length"
-              class="tiny"
-              style="margin-left: 4px"
-              title="添加角色"
-              @change="onAddRole(user, $event)"
-            >
-              <option value="">+ 角色</option>
-              <option v-for="r in addableFor(user)" :key="r.key" :value="r.key">
-                {{ r.name || r.key }}
-              </option>
-            </select>
+            <div class="role-cell">
+              <span
+                v-for="key in user.roles"
+                :key="key"
+                class="tag"
+                :style="{ cursor: can('user:write') ? 'pointer' : 'default' }"
+                :title="can('user:write') ? '点击移除该角色' : ''"
+                @click="can('user:write') && toggleRole(user, key)"
+              >{{ key }}</span>
+              <span v-if="!user.roles.length" class="muted small">无角色</span>
+              <select
+                v-if="can('user:write') && addableFor(user).length"
+                class="tiny"
+                title="添加角色"
+                @change="onAddRole(user, $event)"
+              >
+                <option value="">+ 角色</option>
+                <option v-for="r in addableFor(user)" :key="r.key" :value="r.key">
+                  {{ r.name || r.key }}
+                </option>
+              </select>
+            </div>
           </td>
-          <td class="small muted">{{ user.lastLoginAt ? new Date(user.lastLoginAt * 1000).toLocaleString('zh-CN') : '从未' }}</td>
-          <td class="row" style="gap: 6px">
-            <button v-if="can('user:write')" class="tiny" @click="resetPassword(user)">重置密码</button>
-            <button v-if="can('user:write')" class="tiny danger" @click="toggleStatus(user)">
-              {{ user.status === 'active' ? '停用' : '启用' }}
-            </button>
+          <td class="small muted">{{ user.lastLoginAt ? when(user.lastLoginAt) : '从未登录' }}</td>
+          <td class="actions">
+            <div class="actions-row">
+              <button v-if="can('user:write')" class="tiny" @click="resetPassword(user)">重置密码</button>
+              <button
+                v-if="can('user:write')"
+                class="tiny"
+                :class="{ danger: user.status === 'active' }"
+                @click="toggleStatus(user)"
+              >
+                {{ user.status === 'active' ? '停用' : '启用' }}
+              </button>
+            </div>
           </td>
         </tr>
       </tbody>
@@ -245,3 +254,7 @@ onMounted(load)
     </div>
   </div>
 </template>
+
+<style scoped>
+.role-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+</style>

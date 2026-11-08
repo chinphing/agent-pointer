@@ -148,6 +148,18 @@ async function createDefault() {
 
 <template>
   <div class="panel" style="margin-top: 16px">
+    <div class="spread" style="margin-bottom: 10px">
+      <div>
+        <h2>档位映射</h2>
+        <div class="small muted" style="margin-top: 2px">
+          场景 × 档位 → 模型；强度留空则继承模型默认。
+        </div>
+      </div>
+      <button v-if="canWrite && resource" class="primary" :disabled="busy" @click="save">
+        保存档位映射
+      </button>
+    </div>
+
     <div v-if="error" class="err">{{ error }}</div>
     <div v-if="notice" class="okmsg">{{ notice }}</div>
 
@@ -160,8 +172,8 @@ async function createDefault() {
 
     <template v-else>
       <p class="small muted" style="margin: 0 0 12px">
-        每格 = 该场景该档位使用的模型；留空表示「继承默认」，客户端用自己的内置档位模型。
-        这是**默认值**：员工自己改过某一档，这里的配置不覆盖他。
+        每格 = 该场景该档位使用的模型，留空表示「继承默认」（客户端用自己的内置档位模型）。
+        这是<strong>默认值</strong>：员工自己改过某一档，这里的配置不覆盖他。
       </p>
       <table>
         <thead>
@@ -176,7 +188,7 @@ async function createDefault() {
               {{ s.label }}
               <span class="small muted mono">{{ s.key }}</span>
             </td>
-            <td v-for="t in TIERS" :key="t.key">
+            <td v-for="t in TIERS" :key="t.key" class="tier-cell">
               <select
                 :value="modelOf(s.key, s.group, t.key)"
                 :disabled="!canWrite"
@@ -186,10 +198,10 @@ async function createDefault() {
                 <option v-for="m in modelOptions" :key="m.slug" :value="m.slug">{{ m.label }}</option>
               </select>
               <select
-                v-if="modelOf(s.key, s.group, t.key)"
-                style="margin-top: 4px"
+                class="tiny intensity"
                 :value="intensityOf(s.key, s.group, t.key)"
-                :disabled="!canWrite"
+                :disabled="!canWrite || !modelOf(s.key, s.group, t.key)"
+                :title="modelOf(s.key, s.group, t.key) ? '思考强度' : '先选模型再配强度'"
                 @change="setIntensity(s.key, s.group, t.key, ($event.target as HTMLSelectElement).value)"
               >
                 <option v-for="o in THINKING" :key="o.key" :value="o.key">{{ o.label }}</option>
@@ -198,9 +210,6 @@ async function createDefault() {
           </tr>
         </tbody>
       </table>
-      <div v-if="canWrite" class="row" style="margin-top: 12px">
-        <button class="primary" :disabled="busy" @click="save">保存档位映射</button>
-      </div>
     </template>
   </div>
 </template>

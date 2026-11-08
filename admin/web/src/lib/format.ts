@@ -11,10 +11,17 @@ export function humanSize(bytes: number | null | undefined): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-/** Unix 秒 → 本地时间串。后端统一存秒，不要传毫秒。 */
+/**
+ * Unix 秒 → 本地时间串。后端统一存秒，不要传毫秒。
+ *
+ * 自己拼而不是 `toLocaleString('zh-CN')`：后者输出 `2026/11/8 12:45:39`，
+ * 月日不补零，一列时间对不齐，看着像临时拼的字符串。
+ */
 export function when(ts: number | null | undefined): string {
   if (!ts) return '—'
-  return new Date(ts * 1000).toLocaleString('zh-CN')
+  const d = new Date(ts * 1000)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 /** 整数千分位。 */

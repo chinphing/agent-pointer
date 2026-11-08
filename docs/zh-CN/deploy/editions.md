@@ -123,7 +123,7 @@ src-tauri/target/release/bundle/
 
 ### 3.5 外部依赖
 
-- 控制面 API / Web / SOM 三个域名可达（企业用内网域名）。
+- 控制面地址可达（`POINTER_API_BASE`，企业用内网域名）。
 - updater 私钥。私钥旁边有 `.pub` 时，这次构建嵌这把公钥，不改 `src-tauri/tauri.conf.json`。没有 `.pub` 时用仓库里的 `plugins.updater.pubkey`，必须和私钥配对。
 - 发版：安装包 + updater 压缩包 + `.sig` 走控制台「客户端发布」。
 
@@ -138,7 +138,7 @@ src-tauri/target/release/bundle/
  
 ```
 
-开发者改代码用 `npm run tauri:dev`。脚本里要对这一格做开发态拉起时，把 `--runtime bin` 换成 `--runtime dev`，那才会走 Tauri CLI，并在源码、`POINTER_EDITION` 或三个域名变化时重编。
+开发者改代码用 `npm run tauri:dev`。脚本里要对这一格做开发态拉起时，把 `--runtime bin` 换成 `--runtime dev`，那才会走 Tauri CLI，并在源码、`POINTER_EDITION` 或控制面地址变化时重编。
 
 ---
 
@@ -231,7 +231,7 @@ curl -s http://127.0.0.1:8787/api/auth/mode      # → {"mode":"platform"}
  
 ```
 
-开发者改代码用 `npm run server:dev`。脚本里的 `--runtime dev` 才会执行 `cargo run -p pointer-server` 和本机 Vite；源码、口味、三个域名都没变时，Cargo 复用已有 debug 产物。
+开发者改代码用 `npm run server:dev`。脚本里的 `--runtime dev` 才会执行 `cargo run -p pointer-server` 和本机 Vite；源码、口味、控制面地址都没变时，Cargo 复用已有 debug 产物。
 
 ---
 
@@ -361,7 +361,7 @@ npm run server:dev                                # 服务端调试（不受 poi
 | 角色 | 建议 |
 | --- | --- |
 | 开源 / 个人 | 不建文件（不设域名即未绑定 ⇒ standalone） |
-| 官网维护者 | 在 `pointer.local.env` 写 `managed` + 官网 API/Web/SOM 域名 |
+| 官网维护者 | 在 `pointer.local.env` 写 `managed` + 官网控制面地址 |
 | 企业内部 | 同样写 `managed`，域名改成内网控制面 |
 
 不要把生产域名、签名口令写进公开 `main`。需要联调控制面时只改本机 `pointer.local.env`。

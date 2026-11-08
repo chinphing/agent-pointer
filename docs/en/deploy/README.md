@@ -50,7 +50,7 @@ Detailed version (artifact lists, troubleshooting, CI policy): [`editions.md`](e
 - [ ] **4. Verify** — the build log contains `[tauri-build] POINTER_EDITION=managed`; `find src-tauri/target/release/bundle -name '*.sig'` returns results; after launch the About page shows the update entry
 - [ ] **5. Distribute** — artifacts under `src-tauri/target/release/bundle/**`
 
-**External dependencies**: the three control-plane domains reachable (internal domains for enterprises); the updater signing private key.
+**External dependencies**: the control-plane address reachable (internal domains for enterprises); the updater signing private key.
 
 **Why the signing key is mandatory**: `bundle.createUpdaterArtifacts` in `src-tauri/tauri.conf.json` is `true` (only the standalone `tauri.personal.conf.json` turns it off), so a missing key fails at the signing stage.
 

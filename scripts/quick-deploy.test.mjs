@@ -277,7 +277,6 @@ describe('quick-deploy plans', () => {
     const managed = releaseBuildInvocation('managed-client', {
       POINTER_EDITION: 'managed',
       POINTER_API_BASE: domains.apiBase,
-      POINTER_WEB_BASE: domains.webBase,
     })
     expect(managed.args[0]).toBe(path.join(REPO_ROOT, 'scripts/tauri-build.mjs'))
     expect(managed.env.POINTER_EDITION).toBe('managed')

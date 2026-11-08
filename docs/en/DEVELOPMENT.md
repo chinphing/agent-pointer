@@ -97,7 +97,7 @@ The `npm install` in the first step already installs the frontend dependencies. 
 npm install
 ```
 
-When `POINTER_EDITION` is not set, no control plane is bound (standalone, purely local). To integrate with a control plane, set `POINTER_EDITION=managed` and the three domains in `pointer.local.env` (see [deploy/editions.md](deploy/editions.md)); writing any other value (including the old `official`) makes the build fail outright.
+When `POINTER_EDITION` is not set, no control plane is bound (standalone, purely local). To integrate with a control plane, set `POINTER_EDITION=managed` and the control-plane address in `pointer.local.env` (see [deploy/editions.md](deploy/editions.md)); writing any other value (including the old `official`) makes the build fail outright.
 
 ## Debugging the pieces separately
 

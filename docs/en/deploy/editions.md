@@ -123,7 +123,7 @@ src-tauri/target/release/bundle/
 
 ### 3.5 External dependencies
 
-- The control-plane API / Web / SOM domains reachable (internal domains for enterprises).
+- The control-plane address reachable (`POINTER_API_BASE`; internal domains for enterprises).
 - The updater private key. When a `.pub` file sits beside it, this build embeds that public key and does not edit `src-tauri/tauri.conf.json`. Without a `.pub`, the build keeps `plugins.updater.pubkey` from the repository, which must match the private key.
 - Release: the installer + updater archive + `.sig` go through the console's client-release flow.
 
@@ -138,7 +138,7 @@ Users start this cell's desktop app with the script. It does not call npm. An ex
  
 ```
 
-Developers change the code with `npm run tauri:dev`. Replace `--runtime bin` with `--runtime dev` only when this script should launch the dev runtime; that path uses the Tauri CLI and rebuilds when the sources, `POINTER_EDITION`, or the three domains change.
+Developers change the code with `npm run tauri:dev`. Replace `--runtime bin` with `--runtime dev` only when this script should launch the dev runtime; that path uses the Tauri CLI and rebuilds when the sources, `POINTER_EDITION`, or the control-plane address changes.
 
 ---
 
@@ -231,7 +231,7 @@ Users start this cell's already built server with the script. It does not call n
  
 ```
 
-Developers change the code with `npm run server:dev`. `--runtime dev` on the script is what runs `cargo run -p pointer-server` and the local Vite CLI. Cargo reuses the existing debug artifacts when the sources, flavour, and three domains are unchanged.
+Developers change the code with `npm run server:dev`. `--runtime dev` on the script is what runs `cargo run -p pointer-server` and the local Vite CLI. Cargo reuses the existing debug artifacts when the sources, flavour, and control-plane address are unchanged.
 
 ---
 
@@ -361,7 +361,7 @@ npm run server:dev                                # server debugging (unaffected
 | Role | Recommendation |
 | --- | --- |
 | Open source / individual | do not create the file (no domains set ⇒ unbound ⇒ standalone) |
-| Official-site maintainer | write `managed` + the official API/Web/SOM domains into `pointer.local.env` |
+| Official-site maintainer | write `managed` + the official control-plane address into `pointer.local.env` |
 | Enterprise internal | also write `managed`, with the domains pointing at the internal control plane |
 
 Never write production domains or signing passphrases into the public `main`. When you need to work against a control plane, change only the local `pointer.local.env`.

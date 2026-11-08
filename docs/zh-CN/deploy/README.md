@@ -50,7 +50,7 @@
 - [ ] **4. 验证** —— 构建日志有 `[tauri-build] POINTER_EDITION=managed`；`find src-tauri/target/release/bundle -name '*.sig'` 有结果；启动后关于页显示更新入口
 - [ ] **5. 分发** —— 产物在 `src-tauri/target/release/bundle/**`
 
-**外部依赖**：三个控制面域名可达（企业用内网域名）；updater 签名私钥。
+**外部依赖**：控制面地址可达（企业用内网域名）；updater 签名私钥。
 
 **为什么必须有签名私钥**：`src-tauri/tauri.conf.json` 的 `bundle.createUpdaterArtifacts` 为 `true`（只有 standalone 用的 `tauri.personal.conf.json` 关掉），缺私钥会在签名阶段失败。
 

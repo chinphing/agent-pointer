@@ -265,6 +265,74 @@ mod tests {
         }
     }
 
+    /// 思考强度只能落在客户端那套阶梯上（`off | low | medium | high | max`）。
+    /// 写错一个字母，客户端 `parse` 会静默丢弃，档位看起来配了强度、实际没生效。
+    #[test]
+    fn tier_profile_thinking_intensity_is_in_the_ladder() {
+        let c = load_catalog().expect("catalog");
+        let tier = c.tier_profile.expect("tier");
+        let allowed = ["off", "low", "medium", "high", "max"];
+
+        let mut values: Vec<String> = Vec::new();
+        collect_thinking_intensity(&tier.payload, &mut values);
+        assert!(!values.is_empty(), "档位里一个思考强度都没有 —— 截图里明明配了");
+
+        for v in values {
+            assert!(allowed.contains(&v.as_str()), "思考强度不在阶梯上：{v}");
+        }
+    }
+
+    /// 电脑操控流水线按档位下发时，三档 × 三步必须齐全；缺一格客户端就退回
+    /// 内置默认，界面上却仍显示平台配置。
+    #[test]
+    fn computer_pipeline_covers_every_tier_and_step() {
+        let c = load_catalog().expect("catalog");
+        let tier = c.tier_profile.expect("tier");
+        let by_tier = tier
+            .payload
+            .get("computerPipelineLlm")
+            .and_then(|v| v.get("byTier"))
+            .and_then(|v| v.as_object())
+            .expect("computerPipelineLlm.byTier 缺失");
+
+        for mode in ["fast", "standard", "expert"] {
+            let slot = by_tier
+                .get(mode)
+                .and_then(|v| v.as_object())
+                .unwrap_or_else(|| panic!("流水线缺档位：{mode}"));
+            for step in ["locate", "verify", "locateVerify"] {
+                let entry = slot
+                    .get(step)
+                    .and_then(|v| v.as_object())
+                    .unwrap_or_else(|| panic!("{mode} 档缺步骤：{step}"));
+                assert!(
+                    entry.get("providerId").and_then(|v| v.as_str()).is_some()
+                        && entry.get("model").and_then(|v| v.as_str()).is_some(),
+                    "{mode}/{step} 没写全 providerId+model"
+                );
+            }
+        }
+    }
+
+    fn collect_thinking_intensity(node: &serde_json::Value, out: &mut Vec<String>) {
+        match node {
+            serde_json::Value::Object(map) => {
+                if let Some(serde_json::Value::String(v)) = map.get("thinkingIntensity") {
+                    out.push(v.clone());
+                }
+                for v in map.values() {
+                    collect_thinking_intensity(v, out);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for v in items {
+                    collect_thinking_intensity(v, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn collect_refs(node: &serde_json::Value, out: &mut Vec<(String, String)>) {
         match node {
             serde_json::Value::Object(map) => {

@@ -464,43 +464,46 @@
         "general": {
           "fast": {
             "providerId": "deepseek",
-            "model": "deepseek-v4-flash"
+            "model": "deepseek-flash"
           },
           "standard": {
             "providerId": "deepseek",
-            "model": "deepseek-v4-pro"
+            "model": "deepseek-flash"
           },
           "expert": {
             "providerId": "qwen",
-            "model": "qwen3.7-plus"
+            "model": "qwen3.8-max"
           }
         },
         "coder": {
           "fast": {
             "providerId": "deepseek",
-            "model": "deepseek-v4-flash"
+            "model": "deepseek-flash"
           },
           "standard": {
             "providerId": "deepseek",
-            "model": "deepseek-v4-pro"
+            "model": "deepseek-flash"
           },
           "expert": {
             "providerId": "qwen",
-            "model": "qwen3.7-max"
+            "model": "qwen3.8-max"
           }
         },
         "computer": {
           "fast": {
-            "providerId": "qwen",
-            "model": "qwen3.5-flash"
+            "providerId": "deepseek",
+            "model": "deepseek-flash",
+            "thinkingIntensity": "off"
           },
           "standard": {
-            "providerId": "qwen",
-            "model": "qwen3.5-plus"
+            "providerId": "deepseek",
+            "model": "deepseek-flash",
+            "thinkingIntensity": "high"
           },
           "expert": {
             "providerId": "qwen",
-            "model": "qwen3.7-plus"
+            "model": "qwen3.8-flash",
+            "thinkingIntensity": "low"
           }
         }
       },
@@ -560,6 +563,59 @@
         "verify": {
           "providerId": "qwen",
           "model": "qwen3.5-flash"
+        },
+        "byTier": {
+          "fast": {
+            "locate": {
+              "providerId": "deepseek",
+              "model": "deepseek-flash",
+              "thinkingIntensity": "off"
+            },
+            "verify": {
+              "providerId": "deepseek",
+              "model": "deepseek-flash",
+              "thinkingIntensity": "off"
+            },
+            "locateVerify": {
+              "providerId": "deepseek",
+              "model": "deepseek-flash",
+              "thinkingIntensity": "off"
+            }
+          },
+          "standard": {
+            "locate": {
+              "providerId": "qwen",
+              "model": "qwen3.8-flash",
+              "thinkingIntensity": "off"
+            },
+            "verify": {
+              "providerId": "deepseek",
+              "model": "deepseek-flash",
+              "thinkingIntensity": "off"
+            },
+            "locateVerify": {
+              "providerId": "qwen",
+              "model": "qwen3.8-flash",
+              "thinkingIntensity": "off"
+            }
+          },
+          "expert": {
+            "locate": {
+              "providerId": "qwen",
+              "model": "qwen3.8-flash",
+              "thinkingIntensity": "off"
+            },
+            "verify": {
+              "providerId": "qwen",
+              "model": "qwen3.8-flash",
+              "thinkingIntensity": "off"
+            },
+            "locateVerify": {
+              "providerId": "qwen",
+              "model": "qwen3.8-flash",
+              "thinkingIntensity": "low"
+            }
+          }
         }
       },
       "mediaGeneration": {

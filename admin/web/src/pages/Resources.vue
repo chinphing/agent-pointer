@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { api, errText } from '../api'
+import { humanSize, when } from '../lib/format'
 import { can } from '../store'
 
 const KINDS = [
@@ -270,17 +271,6 @@ async function removeVersion(version: any) {
   } catch (e) {
     versionError.value = errText(e)
   }
-}
-
-function humanSize(bytes: number) {
-  if (!bytes) return '—'
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
-function when(ts: number) {
-  return new Date(ts * 1000).toLocaleString('zh-CN')
 }
 
 onMounted(async () => {

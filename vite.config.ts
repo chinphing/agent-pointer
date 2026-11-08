@@ -106,7 +106,7 @@ export default defineConfig({
     // one machine and fail on another. See `src/test/setup.ts`.
     setupFiles: ['src/test/setup.ts'],
     // `scripts/**` covers the build-script guardrails (plain .mjs, no DOM).
-    include: ['src/**/*.test.ts', 'scripts/**/*.test.mjs']
+    include: ['src/**/*.test.ts', 'scripts/**/*.test.mjs', 'admin/web/src/**/*.test.ts']
   },
   clearScreen: false,
   build: {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { api, errText } from '../api'
+import { prettyJson as pretty, when } from '../lib/format'
 
 const items = ref<any[]>([])
 const loading = ref(true)
@@ -16,19 +17,6 @@ async function load() {
     error.value = errText(e)
   } finally {
     loading.value = false
-  }
-}
-
-function when(ts: number) {
-  return new Date(ts * 1000).toLocaleString('zh-CN')
-}
-
-function pretty(raw: string | null) {
-  if (!raw) return ''
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2)
-  } catch {
-    return raw
   }
 }
 

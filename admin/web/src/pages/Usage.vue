@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { api, errText } from '../api'
+import { fmtCount as fmt } from '../lib/format'
 import { can } from '../store'
 
 const from = ref('')
@@ -14,10 +15,6 @@ const quotaUser = ref('')
 const quotaLimit = ref<number | ''>('')
 const quotaAction = ref('warn')
 const quotaState = ref<any>(null)
-
-function fmt(n: number) {
-  return Number(n || 0).toLocaleString('zh-CN')
-}
 
 async function load() {
   loading.value = true

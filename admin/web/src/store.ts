@@ -49,6 +49,9 @@ export async function login(username: string, password: string): Promise<void> {
 export async function logout(): Promise<void> {
   try {
     await api.post('/api/admin/auth/logout')
+  } catch {
+    // 本地状态照清：接口失败（网络/会话已失效）不该让用户卡在「已登录」界面，
+    // 也不该把「登出失败」这种假错误弹给用户——登出意图已经达成了。
   } finally {
     session.user = null
     session.roles = []

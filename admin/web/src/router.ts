@@ -1,5 +1,5 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
-import { session } from './store'
+import { authGuard } from './guard'
 
 import Overview from './pages/Overview.vue'
 import Members from './pages/Members.vue'
@@ -25,9 +25,4 @@ export const router = createRouter({
   ],
 })
 
-router.beforeEach((to) => {
-  if (to.meta.public) return true
-  if (!session.ready) return true
-  if (!session.user) return { path: '/login' }
-  return true
-})
+router.beforeEach(authGuard)

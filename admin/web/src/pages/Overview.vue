@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { api, errText } from '../api'
+import { fmtCount as fmt } from '../lib/format'
 
 const loading = ref(true)
 const error = ref('')
@@ -20,10 +21,6 @@ const resourceTotal = computed(() => {
   const map = data.value?.resources || {}
   return Object.values(map).reduce((sum: number, n: any) => sum + Number(n || 0), 0)
 })
-
-function fmt(n: number): string {
-  return Number(n || 0).toLocaleString('zh-CN')
-}
 
 onMounted(async () => {
   try {
@@ -80,7 +77,7 @@ onMounted(async () => {
         </thead>
         <tbody>
           <tr v-for="(count, kind) in data.resources" :key="kind">
-            <td>{{ KIND_LABEL[kind as string] || kind }}</td>
+            <td>{{ KIND_LABEL[String(kind)] || kind }}</td>
             <td class="num">{{ count }}</td>
           </tr>
         </tbody>

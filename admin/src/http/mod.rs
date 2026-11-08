@@ -30,7 +30,14 @@ pub fn router() -> Router<Shared> {
             post(users::reset_user_password),
         )
         .route("/api/admin/users/:id/roles", post(users::set_user_roles))
-        .route("/api/admin/roles", get(roles::list_roles))
+        .route(
+            "/api/admin/roles",
+            get(roles::list_roles).post(roles::create_role),
+        )
+        .route(
+            "/api/admin/roles/:id",
+            axum::routing::put(roles::update_role).delete(roles::delete_role),
+        )
         .route("/api/admin/permissions", get(roles::list_permissions))
         .route(
             "/api/admin/resources",

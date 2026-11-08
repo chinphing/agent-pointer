@@ -179,6 +179,42 @@ pub async fn role_keys_for_user(store: &AdminStore, user_id: &str) -> Result<Vec
 }
 
 /// 用户的有效权限集。命中 `super_admin` 直接返回全部。
+/// 某个角色的权限（自定义角色用）。
+pub async fn permissions_for_role(store: &AdminStore, role_id: &str) -> Result<Vec<String>> {
+    let sql = store.sql("SELECT permission FROM role_permissions WHERE role_id = ?");
+    let rows = sqlx::query::<Any>(&sql)
+        .bind(role_id)
+        .fetch_all(store.pool())
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        out.push(row.try_get::<String, _>(0)?);
+    }
+    Ok(out)
+}
+
+/// 整体替换某角色的权限集合（先删后插，语义是「这就是全集」）。
+pub async fn replace_role_permissions(
+    store: &AdminStore,
+    role_id: &str,
+    permissions: &[String],
+) -> Result<()> {
+    let sql = store.sql("DELETE FROM role_permissions WHERE role_id = ?");
+    sqlx::query::<Any>(&sql)
+        .bind(role_id)
+        .execute(store.pool())
+        .await?;
+    for perm in permissions {
+        let sql = store.sql("INSERT INTO role_permissions (role_id, permission) VALUES (?, ?)");
+        sqlx::query::<Any>(&sql)
+            .bind(role_id)
+            .bind(perm)
+            .execute(store.pool())
+            .await?;
+    }
+    Ok(())
+}
+
 pub async fn permissions_for_user(
     store: &AdminStore,
     user_id: &str,

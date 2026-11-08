@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { api, errText } from '../api'
 import { humanSize, when } from '../lib/format'
 import { can } from '../store'
+import TierMatrix from '../components/TierMatrix.vue'
 
 const KINDS = [
   { key: 'provider', label: '模型服务', read: 'provider:read' },
@@ -21,6 +22,9 @@ const notice = ref('')
 
 const roles = ref<any[]>([])
 const members = ref<any[]>([])
+// 档位映射矩阵需要模型与服务商列表
+const models = ref<any[]>([])
+const providers = ref<any[]>([])
 
 const editing = ref<any>(null)
 const creating = ref(false)
@@ -103,6 +107,14 @@ async function load() {
   try {
     const res = await api.get(`/api/admin/resources?kind=${kind.value}`)
     items.value = res.items
+    if (kind.value === 'tier_profile') {
+      const [m, p] = await Promise.all([
+        api.get('/api/admin/resources?kind=model'),
+        api.get('/api/admin/resources?kind=provider'),
+      ])
+      models.value = m.items
+      providers.value = p.items
+    }
   } catch (e) {
     error.value = errText(e)
   } finally {
@@ -426,7 +438,17 @@ onMounted(async () => {
   <div v-if="error" class="err" style="margin-top: 16px">{{ error }}</div>
   <div v-if="notice" class="okmsg" style="margin-top: 16px">{{ notice }}</div>
 
-  <div class="panel" style="margin-top: 16px">
+  <!-- 档位映射用矩阵编辑器，不走通用表格（设计图 08/09） -->
+  <TierMatrix
+    v-if="kind === 'tier_profile'"
+    :resource="items[0] || null"
+    :models="models"
+    :providers="providers"
+    :can-write="canWrite"
+    @saved="load"
+  />
+
+  <div v-else class="panel" style="margin-top: 16px">
     <!-- 设计图 03：搜索 + 状态筛选 -->
     <div class="row" style="padding: 0 0 12px; gap: 8px">
       <input v-model="keyword" placeholder="搜索名称 / 标识" style="max-width: 260px" />

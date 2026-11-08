@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
 import { can } from '../store'
@@ -7,6 +8,7 @@ import { addableRoles, roleLabel } from '../lib/roles'
 import { when } from '../lib/format'
 
 const { t } = useI18n()
+const route = useRoute()
 
 /**
  * 角色名统一走 roleLabel：内置角色翻译成当前语言，自定义角色用管理员起的名字。
@@ -19,6 +21,17 @@ function label(key: string) {
 }
 
 const items = ref<any[]>([])
+/** 顶栏搜索的关键词（?q=）：账号 / 姓名模糊匹配。 */
+const keyword = ref(typeof route.query.q === 'string' ? route.query.q : '')
+const shown = computed(() => {
+  const q = keyword.value.trim().toLowerCase()
+  if (!q) return items.value
+  return items.value.filter(
+    (u) =>
+      String(u.username || '').toLowerCase().includes(q) ||
+      String(u.displayName || '').toLowerCase().includes(q)
+  )
+})
 const roles = ref<any[]>([])
 const loading = ref(true)
 const error = ref('')
@@ -139,14 +152,20 @@ async function runImport() {
   }
 }
 
+watch(
+  () => route.query.q,
+  (q) => {
+    keyword.value = typeof q === 'string' ? q : ''
+  }
+)
+
 onMounted(load)
 </script>
 
 <template>
   <div class="spread">
     <div>
-      <h1>{{ t('members.title') }}</h1>
-      <p class="muted small" style="margin: 4px 0 0">{{ t('members.subtitle') }}</p>
+      <p class="muted small" style="margin: 0">{{ t('members.subtitle') }}</p>
     </div>
     <div class="row" v-if="can('user:write')">
       <button @click="showImport = true; importResult = null">{{ t('members.import') }}</button>
@@ -160,6 +179,7 @@ onMounted(load)
   <div class="panel" style="margin-top: 16px">
     <div v-if="loading" class="empty">{{ t('common.loading') }}</div>
     <div v-else-if="!items.length" class="empty">{{ t('members.empty') }}</div>
+    <div v-else-if="!shown.length" class="empty">{{ t('members.noMatch') }}</div>
     <table v-else>
       <thead>
         <tr>
@@ -172,7 +192,7 @@ onMounted(load)
         </tr>
       </thead>
       <tbody>
-        <tr v-for="user in items" :key="user.id">
+        <tr v-for="user in shown" :key="user.id">
           <td class="mono">{{ user.username }}</td>
           <td>{{ user.displayName || '—' }}</td>
           <td>

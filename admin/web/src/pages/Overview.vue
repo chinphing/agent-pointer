@@ -52,8 +52,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <h1>{{ t('overview.title') }}</h1>
-  <p class="muted small" style="margin-top: 4px">{{ t('overview.subtitle') }}</p>
+  <p class="muted small" style="margin: 0 0 4px">{{ t('overview.subtitle') }}</p>
 
   <div v-if="error" class="err" style="margin-top: 16px">{{ error }}</div>
   <div v-else-if="loading" class="empty">{{ t('common.loading') }}</div>

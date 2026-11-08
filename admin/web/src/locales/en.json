@@ -73,7 +73,8 @@
     "importHint": "One row per account: username,name,password[,role]. A header row is allowed. Bad rows are skipped with reasons.",
     "importResult": "Created {created}, skipped {skipped} rows",
     "importLine": "Line {line}: {reason}",
-    "importSubmit": "Import"
+    "importSubmit": "Import",
+    "noMatch": "No matching members"
   },
   "login": {
     "title": "Sign in to Pointer console",
@@ -414,5 +415,10 @@
     "enableShort": "Enable",
     "disableShort": "Disable"
   },
-  "common2": {}
+  "common2": {},
+  "topbar": {
+    "search": "Search members / resources",
+    "searchHint": "Press Enter to search",
+    "account": "Account"
+  }
 }

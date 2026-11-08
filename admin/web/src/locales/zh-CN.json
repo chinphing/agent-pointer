@@ -73,7 +73,8 @@
     "importHint": "每行 账号,姓名,初始密码[,角色]，首行可为表头。坏行会跳过并列出原因。",
     "importResult": "成功 {created} 个，跳过 {skipped} 行",
     "importLine": "第 {line} 行：{reason}",
-    "importSubmit": "导入"
+    "importSubmit": "导入",
+    "noMatch": "没有匹配的成员"
   },
   "login": {
     "title": "登录 Pointer 控制面",
@@ -414,5 +415,10 @@
     "enableShort": "启用",
     "disableShort": "停用"
   },
-  "common2": {}
+  "common2": {},
+  "topbar": {
+    "search": "搜索成员 / 资源",
+    "searchHint": "输入后回车",
+    "account": "账号"
+  }
 }

@@ -155,8 +155,7 @@ async function remove(role: any) {
 <template>
   <div class="row" style="justify-content: space-between; align-items: flex-start">
     <div>
-      <h1>{{ t('roles_page.title') }}</h1>
-      <p class="muted small" style="margin-top: 4px">{{ t('roles_page.subtitle') }}</p>
+      <p class="muted small" style="margin: 0">{{ t('roles_page.subtitle') }}</p>
     </div>
     <button v-if="can('role:write')" class="primary" @click="openCreate">
       {{ t('roles_page.create') }}

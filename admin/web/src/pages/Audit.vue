@@ -28,8 +28,7 @@ onMounted(load)
 <template>
   <div class="spread">
     <div>
-      <h1>{{ t('audit.title') }}</h1>
-      <p class="muted small" style="margin: 4px 0 0">{{ t('audit.subtitle') }}</p>
+      <p class="muted small" style="margin: 0">{{ t('audit.subtitle') }}</p>
     </div>
     <div class="row">
       <select v-model.number="limit" style="width: 110px" @change="load">

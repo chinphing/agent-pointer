@@ -15,12 +15,12 @@ export const router = createRouter({
   routes: [
     { path: '/', redirect: '/overview' },
     { path: '/login', component: Login, meta: { public: true } },
-    { path: '/overview', component: Overview },
-    { path: '/members', component: Members },
-    { path: '/roles', component: Roles },
-    { path: '/resources', component: Resources },
-    { path: '/usage', component: Usage },
-    { path: '/audit', component: Audit },
+    { path: '/overview', meta: { title: 'nav.overview' }, component: Overview },
+    { path: '/members', meta: { title: 'nav.members' }, component: Members },
+    { path: '/roles', meta: { title: 'nav.roles' }, component: Roles },
+    { path: '/resources', meta: { title: 'nav.resources' }, component: Resources },
+    { path: '/usage', meta: { title: 'nav.usage' }, component: Usage },
+    { path: '/audit', meta: { title: 'nav.audit' }, component: Audit },
     { path: '/:pathMatch(.*)*', redirect: '/overview' },
   ],
 })

@@ -33,8 +33,20 @@ const roleNames = computed(() =>
   })
 )
 
-/** 账号菜单：语言与退出登录收在这里，侧栏底部保持设计图那样只有头像+名字+角色。 */
+/** 账号菜单挂在顶栏右上角（设计图 02/03/04/08/09 都是这样）。 */
 const menuOpen = ref(false)
+
+/** 顶栏标题取自路由 meta，页面正文不再重复写一遍 h1。 */
+const pageTitle = computed(() => (route.meta.title ? t(String(route.meta.title)) : ''))
+
+/** 顶栏搜索：回车把关键词带到当前列表页；成员页搜成员，其余搜资源。 */
+const search = ref('')
+function submitSearch() {
+  const q = search.value.trim()
+  if (!q) return
+  const target = route.path === '/members' ? '/members' : '/resources'
+  router.push({ path: target, query: { q } })
+}
 
 function switchLocale(next: AdminLocale) {
   setLocale(next)
@@ -87,29 +99,50 @@ async function doLogout() {
       </nav>
 
       <div class="side-foot">
-        <button class="account" :class="{ open: menuOpen }" @click="menuOpen = !menuOpen">
-          <span class="avatar">{{ avatarText }}</span>
-          <span class="account-text">
-            <span class="account-name">{{ session.user.displayName }}</span>
-            <span class="account-role">{{ roleNames.join(' / ') || t('app.noRole') }}</span>
-          </span>
-          <span class="account-caret">⋯</span>
-        </button>
-
-        <div v-if="menuOpen" class="account-menu">
-          <div class="lang-row">
-            <button :class="{ active: locale === 'zh-CN' }" @click="switchLocale('zh-CN')">中文</button>
-            <button :class="{ active: locale === 'en' }" @click="switchLocale('en')">English</button>
-          </div>
-          <div class="menu-divider"></div>
-          <button class="logout" @click="doLogout">{{ t('app.logout') }}</button>
-        </div>
+        <span class="avatar">{{ avatarText }}</span>
+        <span class="account-text">
+          <span class="account-name">{{ session.user.displayName }}</span>
+          <span class="account-role">{{ roleNames.join(' / ') || t('app.noRole') }}</span>
+        </span>
       </div>
     </aside>
 
-    <main class="main">
-      <router-view />
-    </main>
+    <div class="content">
+      <header class="topbar">
+        <h1>{{ pageTitle }}</h1>
+        <div class="topbar-right">
+          <input
+            v-model="search"
+            class="search"
+            :placeholder="t('topbar.search')"
+            :title="t('topbar.searchHint')"
+            @keyup.enter="submitSearch"
+          />
+          <div class="account-wrap">
+            <button class="avatar-btn" :class="{ open: menuOpen }" @click="menuOpen = !menuOpen">
+              <span class="avatar">{{ avatarText }}</span>
+            </button>
+            <div v-if="menuOpen" class="account-menu">
+              <div class="who">
+                <div class="account-name">{{ session.user.displayName }}</div>
+                <div class="account-role">{{ roleNames.join(' / ') || t('app.noRole') }}</div>
+              </div>
+              <div class="menu-divider"></div>
+              <div class="lang-row">
+                <button :class="{ active: locale === 'zh-CN' }" @click="switchLocale('zh-CN')">中文</button>
+                <button :class="{ active: locale === 'en' }" @click="switchLocale('en')">English</button>
+              </div>
+              <div class="menu-divider"></div>
+              <button class="logout" @click="doLogout">{{ t('app.logout') }}</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="main">
+        <router-view />
+      </main>
+    </div>
   </div>
 </template>
 
@@ -154,22 +187,16 @@ nav { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
 .nav-item:hover { background: var(--line); }
 .nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 
-.side-foot { margin-top: auto; position: relative; padding: 0 0 8px; }
-
-/* 设计图 02：圆头像 + 名字 + 角色，一行，没有别的控件 */
-.account {
-  width: 100%;
+.side-foot {
+  margin-top: auto;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 7px;
-  border: none;
-  background: transparent;
-  border-radius: 8px;
-  cursor: pointer;
-  text-align: left;
+  padding: 0 7px 8px;
 }
-.account:hover, .account.open { background: #e8e8eb; }
+
+/* 设计图 02：底部只有圆头像 + 名字 + 角色，纯展示，不带控件 */
+.account { display: flex; align-items: center; gap: 10px; }
 
 .avatar {
   width: 26px; height: 26px; flex: 0 0 26px;
@@ -184,22 +211,58 @@ nav { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
 .account-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
 .account-name { font-size: 12px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-role { font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.account-caret { color: var(--muted); font-size: 13px; line-height: 1; opacity: 0; }
-.account:hover .account-caret, .account.open .account-caret { opacity: 1; }
+.content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+/* 顶栏（设计图 02/03/04/08/09）：白底 56px，标题在左，搜索与头像在右 */
+.topbar {
+  height: 56px;
+  flex: 0 0 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 24px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 15;
+}
+.topbar h1 { margin: 0; font-size: 15px; font-weight: 600; }
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+
+.topbar .search {
+  width: 180px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: var(--panel-alt);
+  font-size: 12px;
+}
+.topbar .search:focus { border-color: var(--accent); background: var(--panel); outline: none; }
+
+.account-wrap { position: relative; }
+.avatar-btn { border: none; background: transparent; padding: 0; cursor: pointer; display: flex; }
+.avatar-btn .avatar { background: #e8e8eb; }
+.avatar-btn.open .avatar, .avatar-btn:hover .avatar { background: #d4d4d8; }
 
 .account-menu {
   position: absolute;
-  left: 0; right: 0; bottom: 46px;
+  right: 0;
+  top: 38px;
+  width: 200px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 8%);
-  padding: 6px;
+  padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   z-index: 20;
 }
+.account-menu .who { padding: 2px 4px; display: flex; flex-direction: column; gap: 1px; }
 .account-menu .lang-row { display: flex; gap: 4px; }
 .account-menu .lang-row button {
   flex: 1;
@@ -224,5 +287,5 @@ nav { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
 }
 .account-menu .logout:hover { background: var(--panel-alt); color: var(--danger); }
 
-.main { flex: 1; padding: 26px 30px 60px; max-width: 1180px; }
+.main { flex: 1; padding: 22px 24px 60px; max-width: 1180px; width: 100%; box-sizing: border-box; }
 </style>

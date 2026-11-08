@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
 import { humanSize, when } from '../lib/format'
@@ -9,6 +10,7 @@ import ResourceDrawer from '../components/ResourceDrawer.vue'
 import ProviderForm from '../components/ProviderForm.vue'
 
 const { t } = useI18n()
+const route = useRoute()
 const KINDS = [
   { key: 'provider', labelKey: 'kind.provider', read: 'provider:read' },
   { key: 'model', labelKey: 'kind.model', read: 'model:read' },
@@ -65,7 +67,8 @@ const grantUserOptions = computed(() => {
 })
 
 // 列表：搜索 + 状态筛选 + 分页（设计图 03）
-const keyword = ref('')
+/** 顶栏搜索把关键词带过来（?q=），落地成这一页的筛选条件。 */
+const keyword = ref(typeof route.query.q === 'string' ? route.query.q : '')
 const statusFilter = ref<'all' | 'enabled' | 'disabled'>('all')
 // 模型页按服务商过滤：模型一多，平铺一列根本找不到
 const providerFilter = ref('')
@@ -446,6 +449,13 @@ async function removeVersion(version: any) {
   }
 }
 
+watch(
+  () => route.query.q,
+  (q) => {
+    keyword.value = typeof q === 'string' ? q : ''
+  }
+)
+
 onMounted(async () => {
   try {
     const [roleList, userList] = await Promise.all([
@@ -464,10 +474,7 @@ onMounted(async () => {
 <template>
   <div class="spread">
     <div>
-      <h1>{{ t('resources.title') }}</h1>
-      <p class="muted small" style="margin: 4px 0 0">
-        {{ t('resources.subtitle') }}
-      </p>
+      <p class="muted small" style="margin: 0">{{ t('resources.subtitle') }}</p>
     </div>
     <!-- 模型不单独建：它属于某个服务商，跟着服务商一起配 -->
     <span v-if="kind === 'model'" class="small muted">

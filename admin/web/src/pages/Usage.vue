@@ -69,8 +69,7 @@ onMounted(load)
 <template>
   <div class="spread">
     <div>
-      <h1>{{ t('usage.title') }}</h1>
-      <p class="muted small" style="margin: 4px 0 0">{{ t('usage.subtitle') }}</p>
+      <p class="muted small" style="margin: 0">{{ t('usage.subtitle') }}</p>
     </div>
     <div class="row">
       <input v-model="from" type="date" style="width: 150px" />

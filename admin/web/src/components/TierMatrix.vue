@@ -47,6 +47,18 @@ const TIERS = [
   { key: 'expert', label: '高级' },
 ]
 
+/**
+ * 电脑操控内部的定位链三段。下发形状（客户端 `settings.rs` 解析）：
+ *   computerPipelineLlm.locate / locateVerify / verify = {providerId, model, thinkingIntensity?}
+ *   computerPipelineLlm.byTier[档位].{locate,locateVerify,verify} 同上，留空继承全局
+ * 老的 decision / position 两个槽位客户端仍兼容，但界面上不露出。
+ */
+const SLOTS = [
+  { key: 'locate', label: '定位', hint: '在屏幕上找到要操作的位置' },
+  { key: 'locateVerify', label: '定位验证', hint: '确认找到的位置对不对' },
+  { key: 'verify', label: '动作验证', hint: '确认动作是否执行成功' },
+]
+
 /** 与客户端 `thinkingIntensity` 阶梯一致；留空 = 继承模型默认。 */
 const THINKING = [
   { key: '', label: '—' },
@@ -130,6 +142,52 @@ function clearCell(scene: string, group: string, tier: string) {
   setModel(scene, group, tier, '')
 }
 
+// ---- 电脑操控定位链 ----
+
+function pipeCell(slot: string, col: string): any {
+  const root = payload.value?.computerPipelineLlm
+  if (!root) return {}
+  return col ? root.byTier?.[col]?.[slot] || {} : root[slot] || {}
+}
+
+function pipeModel(slot: string, col: string): string {
+  return pipeCell(slot, col).model || ''
+}
+
+function pipeIntensity(slot: string, col: string): string {
+  return pipeCell(slot, col).thinkingIntensity || ''
+}
+
+function setPipeModel(slot: string, col: string, slug: string) {
+  if (!payload.value.computerPipelineLlm) payload.value.computerPipelineLlm = {}
+  const root = payload.value.computerPipelineLlm
+  const target = col ? (root.byTier ??= {})[col] ??= {} : root
+  if (!slug) {
+    delete target[slot]
+  } else {
+    const found = modelOptions.value.find((m) => m.slug === slug)
+    const prev = target[slot]?.thinkingIntensity
+    target[slot] = {
+      providerId: found?.providerId || '',
+      model: slug,
+      ...(prev ? { thinkingIntensity: prev } : {}),
+    }
+  }
+  // 空对象不下发，省得客户端收到一堆空档位
+  if (col && root.byTier && !Object.keys(root.byTier[col] || {}).length) delete root.byTier[col]
+  if (root.byTier && !Object.keys(root.byTier).length) delete root.byTier
+  if (!Object.keys(root).length) delete payload.value.computerPipelineLlm
+}
+
+function setPipeIntensity(slot: string, col: string, value: string) {
+  const cur = col
+    ? payload.value?.computerPipelineLlm?.byTier?.[col]?.[slot]
+    : payload.value?.computerPipelineLlm?.[slot]
+  if (!cur) return
+  if (value) cur.thinkingIntensity = value
+  else delete cur.thinkingIntensity
+}
+
 /** 已配置格子数：给用户一个「改了多少」的量化反馈。 */
 const filledCount = computed(() => {
   let n = 0
@@ -140,6 +198,16 @@ const filledCount = computed(() => {
 })
 
 const totalCells = GROUPS.reduce((n, g) => n + g.scenes.length, 0) * TIERS.length
+
+/** 定位链已配置的格数（全局 3 + 三档各 3）。 */
+const pipeFilled = computed(() => {
+  let n = 0
+  for (const sl of SLOTS) {
+    if (pipeModel(sl.key, '')) n++
+    for (const t of TIERS) if (pipeModel(sl.key, t.key)) n++
+  }
+  return n
+})
 
 /** 键序无关的稳定序列化：服务端存的键序和这里重建的不一定一致。 */
 function stable(v: any): string {
@@ -263,11 +331,66 @@ async function createDefault() {
           </div>
         </template>
       </div>
+
+      <div class="pipe-block">
+        <div class="pipe-title">
+          <h3>电脑操控 · 定位链</h3>
+          <span class="small muted">
+            三段各自用哪个模型；档位列留空就是继承「全局默认」，全局也留空则跟随主模型。
+          </span>
+        </div>
+
+        <div class="pipe-grid pipe-head">
+          <div class="slot-col">槽位</div>
+          <div class="global-col">全局默认</div>
+          <div v-for="t in TIERS" :key="t.key">{{ t.label }}</div>
+        </div>
+
+        <div v-for="sl in SLOTS" :key="sl.key" class="pipe-grid pipe-row">
+          <div class="slot-col" :title="sl.hint">{{ sl.label }}</div>
+          <div
+            v-for="col in ['', ...TIERS.map((t) => t.key)]"
+            :key="col || 'global'"
+            class="cell"
+            :class="{ filled: !!pipeModel(sl.key, col), 'global-col': col === '' }"
+          >
+            <select
+              class="ghost"
+              :class="{ filled: !!pipeModel(sl.key, col) }"
+              :value="pipeModel(sl.key, col)"
+              :disabled="!canWrite"
+              :title="col ? '留空 = 用全局默认那一格' : '留空 = 跟随电脑操控的主模型'"
+              @change="setPipeModel(sl.key, col, ($event.target as HTMLSelectElement).value)"
+            >
+              <option value="">{{ col ? '继承全局' : '跟随主模型' }}</option>
+              <option v-for="m in modelOptions" :key="m.slug" :value="m.slug">{{ m.label }}</option>
+            </select>
+            <select
+              v-if="pipeModel(sl.key, col)"
+              class="mini"
+              :value="pipeIntensity(sl.key, col)"
+              :disabled="!canWrite"
+              title="思考强度"
+              @change="setPipeIntensity(sl.key, col, ($event.target as HTMLSelectElement).value)"
+            >
+              <option v-for="o in THINKING" :key="o.key" :value="o.key">{{ o.label }}</option>
+            </select>
+            <button
+              v-if="pipeModel(sl.key, col) && canWrite"
+              class="clear"
+              title="清空这一格"
+              @click="setPipeModel(sl.key, col, '')"
+            >×</button>
+          </div>
+        </div>
+      </div>
+
       </div>
 
       <div class="foot">
         <span class="small muted">
-          已配置 {{ filledCount }} / {{ totalCells }} 格
+          主矩阵 {{ filledCount }} / {{ totalCells }} 格
+          <template v-if="pipeFilled"> · 定位链 {{ pipeFilled }} / 12 格</template>
           <template v-if="dirty"> · 有未保存的改动</template>
         </span>
         <div v-if="canWrite" class="row" style="gap: 8px">
@@ -355,10 +478,10 @@ async function createDefault() {
 }
 
 .mini {
-  flex: 0 0 62px;
-  width: 62px;
-  padding: 3px 4px;
-  font-size: 12px;
+  flex: 0 0 50px;
+  width: 50px;
+  padding: 3px 2px;
+  font-size: 11.5px;
   color: var(--muted);
   border-color: transparent;
   background: var(--panel-alt);
@@ -379,6 +502,28 @@ async function createDefault() {
 }
 .cell:hover .clear { opacity: 1; }
 .clear:hover { color: var(--danger); }
+
+.pipe-block { border-top: 1px solid var(--line); background: var(--bg); }
+.pipe-title { display: flex; align-items: baseline; gap: 10px; padding: 14px 18px 6px; }
+.pipe-title h3 { margin: 0; font-size: 13px; }
+
+.pipe-grid {
+  display: grid;
+  grid-template-columns: 112px 1.15fr repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 10px;
+  padding: 0 18px;
+}
+.pipe-head { height: 28px; font-size: 12px; color: var(--muted); }
+.pipe-head > div { padding-left: 7px; }
+.pipe-row { height: 38px; border-top: 1px solid var(--line); }
+.pipe-row:hover { background: #f7f9fb; }
+.slot-col { font-size: 13.5px; }
+/* 全局默认是基准值，不是第四个档位——用底色和分隔线跟三档分开 */
+.global-col {
+  background: #fbfbfd;
+  box-shadow: inset -1px 0 0 var(--line);
+}
 
 /* 底栏在滚动区之外，永远可见 */
 .foot {

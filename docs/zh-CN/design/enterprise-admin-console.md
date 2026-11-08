@@ -285,6 +285,12 @@ key_fingerprint    = sha256(api_key) 的前 8 位十六进制
 要「强制统一档位」需要客户端新增锁定字段并在设置界面置灰档位选择器——**这不是纯管理端功能**，
 M0 不做。M0 只做下发默认值。
 
+**电脑操控的定位链**单独配（`computerPipelineLlm`）：`locate` / `locateVerify` / `verify`
+三个槽位各自是 `{providerId, model, thinkingIntensity?}`；再叠一层
+`byTier[fast|standard|expert]` 覆盖，留空即继承全局槽位。
+管理端界面按「槽位 × 全局默认 / 三档」的矩阵配；`decision` / `position` 两个老槽位
+客户端仍兼容，但不在界面露出。
+
 四条约束：
 
 1. **引用必须在可见目录内**：保存时校验 `providerId/model` 存在于 `model_catalog`，否则员工端拿到的档位指向一个看不见的模型；

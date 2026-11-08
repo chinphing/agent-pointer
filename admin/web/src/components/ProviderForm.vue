@@ -62,6 +62,12 @@ const filteredModels = computed(() => {
   return q ? fetched.value.filter((m) => m.toLowerCase().includes(q)) : fetched.value
 })
 
+// 上一次由模板自动填进去的值：只有用户没动过才跟着模板换，
+// 否则从「百炼」切到「DeepSeek」会留下一个叫「阿里云百炼」的 DeepSeek 服务商。
+// 必须在下面那次 applyTemplate 之前声明 —— const 有暂时性死区，
+// 函数声明会提升但读不到还没初始化的 const。
+const autoFilled = ref({ slug: '', name: '' })
+
 // 编辑已有服务商时用它的现值初始化
 if (props.resource) {
   const payload = props.resource.payload || {}
@@ -74,10 +80,6 @@ if (props.resource) {
 } else {
   applyTemplate('bailian')
 }
-
-// 上一次由模板自动填进去的值：只有用户没动过才跟着模板换，
-// 否则从「百炼」切到「DeepSeek」会留下一个叫「阿里云百炼」的 DeepSeek 服务商。
-const autoFilled = ref({ slug: '', name: '' })
 
 function applyTemplate(id: string) {
   template.value = id

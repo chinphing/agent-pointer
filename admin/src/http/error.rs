@@ -9,6 +9,9 @@ use serde_json::json;
 pub enum ApiError {
     BadRequest(String),
     Unauthorized,
+    /// 登录时账号或密码不对。和 `Unauthorized`（会话过期）分开：
+    /// 用户看到「会话已过期」会以为是系统问题，实际是密码打错了。
+    InvalidCredentials,
     Forbidden(String),
     NotFound(String),
     ServiceUnavailable(String),
@@ -29,6 +32,11 @@ impl ApiError {
                 StatusCode::UNAUTHORIZED,
                 "unauthorized",
                 "未登录或会话已过期".to_string(),
+            ),
+            Self::InvalidCredentials => (
+                StatusCode::UNAUTHORIZED,
+                "invalid_credentials",
+                "账号或密码错误".to_string(),
             ),
             Self::Forbidden(msg) => (StatusCode::FORBIDDEN, "forbidden", msg.clone()),
             Self::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found", msg.clone()),

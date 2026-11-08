@@ -105,9 +105,9 @@ pub async fn get_quota(
 
 #[derive(Debug, Deserialize)]
 pub struct QuotaBody {
-    #[serde(default, alias = "monthly_token_limit")]
+    #[serde(default, rename = "monthlyTokenLimit", alias = "monthly_token_limit")]
     pub monthly_token_limit: Option<i64>,
-    #[serde(default, alias = "over_action")]
+    #[serde(default, rename = "overAction", alias = "over_action")]
     pub over_action: Option<String>,
 }
 

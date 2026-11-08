@@ -127,7 +127,7 @@ pub async fn login(
             },
         )
         .await?;
-        return Err(ApiError::Unauthorized);
+        return Err(ApiError::InvalidCredentials);
     };
 
     let token = sessions::create(

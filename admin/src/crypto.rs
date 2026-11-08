@@ -145,11 +145,10 @@ pub fn decrypt_secret(secret: &EncryptedSecret) -> Result<String> {
 mod tests {
     use super::*;
 
-    /// 环境变量是进程级的，这几个用例必须串行跑，否则互相污染。
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
+    /// 用全 crate 共用的锁：不只是这几个用例之间要串行，
+    /// 其他会读 MASTER_KEY 的用例（如 credentials）也必须互斥。
     fn lock() -> std::sync::MutexGuard<'static, ()> {
-        ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        crate::test_support::env_lock()
     }
 
     fn set_master(value: Option<&str>) {

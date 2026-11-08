@@ -61,7 +61,7 @@ pub async fn list_users(
 #[derive(Debug, Deserialize)]
 pub struct CreateUserBody {
     pub username: String,
-    #[serde(default, alias = "display_name")]
+    #[serde(default, rename = "displayName", alias = "display_name")]
     pub display_name: String,
     pub password: String,
     #[serde(default)]
@@ -255,7 +255,7 @@ pub async fn set_user_roles(
 pub struct ImportBody {
     /// CSV 文本：`username,display_name,password[,role]`，首行可为表头。
     pub csv: String,
-    #[serde(default)]
+    #[serde(default, alias = "defaultRole")]
     pub default_role: Option<String>,
 }
 

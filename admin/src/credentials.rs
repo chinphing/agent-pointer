@@ -204,13 +204,16 @@ mod tests {
     use crate::schema::DEFAULT_TENANT;
     use crate::users;
 
-    async fn setup() -> (AdminStore, String) {
+    /// 解密会读 `POINTER_ADMIN_MASTER_KEY`，而 crypto 的用例会临时设置它。
+    /// 这里必须拿同一把全局锁并**持有到用例结束**，否则并行跑时偶发解密失败。
+    async fn setup() -> (AdminStore, String, std::sync::MutexGuard<'static, ()>) {
+        let guard = crate::test_support::env_lock();
         let store = AdminStore::connect_in_memory().await.expect("store");
         let uid = users::create(&store, DEFAULT_TENANT, "alice", "", "pw-123456")
             .await
             .expect("user")
             .id;
-        (store, uid)
+        (store, uid, guard)
     }
 
     async fn add_provider(
@@ -260,7 +263,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_visible_resources_yields_empty_credentials() {
-        let (store, uid) = setup().await;
+        let (store, uid, _guard) = setup().await;
         let creds = build_for_user(&store, DEFAULT_TENANT, &uid)
             .await
             .expect("build");
@@ -272,7 +275,7 @@ mod tests {
 
     #[tokio::test]
     async fn builds_catalog_and_keys_from_resources() {
-        let (store, uid) = setup().await;
+        let (store, uid, _guard) = setup().await;
         let (provider_id, _models) = add_provider(&store, "qwen", "sk-live", &["m1", "m2"]).await;
 
         // 授权：provider 与它的模型都要可见
@@ -307,7 +310,7 @@ mod tests {
 
     #[tokio::test]
     async fn model_inherits_provider_visibility() {
-        let (store, uid) = setup().await;
+        let (store, uid, _guard) = setup().await;
         let (provider_id, _models) = add_provider(&store, "qwen", "sk", &["m1", "m2"]).await;
         // 只授权服务商，模型本身不单独授权
         grants::replace_grants(&store, &provider_id, &[Principal::All])
@@ -326,7 +329,7 @@ mod tests {
 
     #[tokio::test]
     async fn provider_without_key_is_skipped() {
-        let (store, uid) = setup().await;
+        let (store, uid, _guard) = setup().await;
         let provider = resources::create(
             &store,
             DEFAULT_TENANT,
@@ -355,7 +358,7 @@ mod tests {
 
     #[tokio::test]
     async fn disabled_provider_is_not_shipped() {
-        let (store, uid) = setup().await;
+        let (store, uid, _guard) = setup().await;
         let (provider_id, _) = add_provider(&store, "qwen", "sk", &["m1"]).await;
         resources::set_enabled(&store, &provider_id, false)
             .await
@@ -372,7 +375,7 @@ mod tests {
 
     #[tokio::test]
     async fn tier_profile_is_shipped_when_visible() {
-        let (store, uid) = setup().await;
+        let (store, uid, _guard) = setup().await;
         let profile = resources::create(
             &store,
             DEFAULT_TENANT,
@@ -404,7 +407,7 @@ mod tests {
 
     #[tokio::test]
     async fn user_specific_tier_profile_beats_all_grant() {
-        let (store, uid) = setup().await;
+        let (store, uid, _guard) = setup().await;
 
         let global = resources::create(
             &store,
@@ -454,7 +457,7 @@ mod tests {
 
     #[tokio::test]
     async fn tier_profile_without_grant_is_ignored() {
-        let (store, uid) = setup().await;
+        let (store, uid, _guard) = setup().await;
         let profile = resources::create(
             &store,
             DEFAULT_TENANT,
@@ -481,7 +484,7 @@ mod tests {
 
     #[tokio::test]
     async fn rotating_key_changes_hash() {
-        let (store, uid) = setup().await;
+        let (store, uid, _guard) = setup().await;
         let (provider_id, _) = add_provider(&store, "qwen", "sk-old", &["m1"]).await;
         grants::replace_grants(&store, &provider_id, &[Principal::All])
             .await

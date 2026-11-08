@@ -59,11 +59,11 @@ pub async fn build_for_user(
     for provider in &providers {
         let payload = parse_payload(&provider.payload_json);
 
-        let mut names: Vec<String> = models
+        let own: Vec<&Resource> = models
             .iter()
             .filter(|m| m.parent_id.as_deref() == Some(provider.id.as_str()))
-            .map(|m| m.slug.clone())
             .collect();
+        let mut names: Vec<String> = own.iter().map(|m| m.slug.clone()).collect();
         if names.is_empty() {
             // 回退：provider 的 payload 里直接写了 models 数组
             names = payload
@@ -110,13 +110,7 @@ pub async fn build_for_user(
             id: provider.slug.clone(),
             name: provider.name.clone(),
             base_url,
-            models: names
-                .iter()
-                .map(|name| PlatformProviderModel {
-                    name: name.clone(),
-                    ..Default::default()
-                })
-                .collect(),
+            models: model_templates(&own, &names),
             ..Default::default()
         });
         catalog.insert(provider.slug.clone(), names);
@@ -186,6 +180,31 @@ async fn tier_specificity(store: &AdminStore, resource_id: &str, user_id: &str) 
         }
     }
     Ok(score)
+}
+
+/// 模型资源 → 下发给客户端的模型模板。
+///
+/// payload 里存的就是 `PlatformProviderModel` 那套字段（supportsVision /
+/// contextBudgetTokens / thinkingIntensity…），这里原样反序列化；`name` 一律取
+/// slug —— 它是真正发给模型接口的 id，显示名走资源自身的 `name`，两者不能混。
+///
+/// 之前这里只填了 name，模型级参数被整个丢掉：管理端配了视觉能力、上下文长度，
+/// 客户端一个也收不到。
+fn model_templates(models: &[&Resource], names: &[String]) -> Vec<PlatformProviderModel> {
+    names
+        .iter()
+        .map(|name| {
+            let payload = models
+                .iter()
+                .find(|m| &m.slug == name)
+                .map(|m| parse_payload(&m.payload_json))
+                .unwrap_or(serde_json::Value::Null);
+            let mut tpl: PlatformProviderModel =
+                serde_json::from_value(payload).unwrap_or_default();
+            tpl.name = name.clone();
+            tpl
+        })
+        .collect()
 }
 
 fn parse_payload(raw: &str) -> serde_json::Value {
@@ -263,6 +282,42 @@ mod tests {
             ids.push(m.id);
         }
         (provider.id, ids)
+    }
+
+    /// 模型级参数（视觉 / 上下文长度 / 思考强度）必须跟着下发。
+    /// 之前这里只填 name，管理端配了这些字段客户端一个都收不到。
+    #[tokio::test]
+    async fn model_level_params_are_distributed() {
+        let (store, uid, _guard) = setup().await;
+        let (pid, ids) = add_provider(&store, "bailian", "sk-test", &["qwen-vl"]).await;
+        resources::update_meta(
+            &store,
+            &ids[0],
+            "qwen-vl",
+            "",
+            r#"{"supportsVision":true,"contextBudgetTokens":131072,"thinkingIntensity":"high"}"#,
+        )
+        .await
+        .expect("payload");
+        grants::replace_grants(&store, &pid, &[Principal::All])
+            .await
+            .expect("grant provider");
+        grants::replace_grants(&store, &ids[0], &[Principal::All])
+            .await
+            .expect("grant model");
+
+        let creds = build_for_user(&store, DEFAULT_TENANT, &uid)
+            .await
+            .expect("build");
+        let tpl = creds
+            .platform_providers
+            .iter()
+            .find(|p| p.id == "bailian")
+            .expect("provider");
+        let model = tpl.models.iter().find(|m| m.name == "qwen-vl").expect("model");
+        assert_eq!(model.supports_vision, Some(true));
+        assert_eq!(model.context_budget_tokens, Some(131072));
+        assert_eq!(model.thinking_intensity.as_deref(), Some("high"));
     }
 
     #[tokio::test]

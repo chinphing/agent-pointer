@@ -429,5 +429,27 @@
     "searchGlobal": "Search members / resources",
     "searchResource": "Search resource names",
     "searchMember": "Search name or account"
+  },
+  "models": {
+    "editTitle": "Edit model",
+    "displayName": "Display name",
+    "capabilities": "Capabilities",
+    "vision": "Vision",
+    "audio": "Audio",
+    "imageOut": "Image generation",
+    "videoOut": "Video generation",
+    "follow": "Provider default",
+    "yes": "Yes",
+    "no": "No",
+    "limits": "Context & generation",
+    "contextBudget": "Context budget (tokens)",
+    "maxTokens": "Max output (tokens)",
+    "temperature": "Temperature",
+    "topP": "topP",
+    "thinking": "Thinking",
+    "enableThinking": "Enable thinking",
+    "thinkingBudget": "Thinking budget",
+    "reasoningInMessages": "Send reasoning in messages",
+    "followHint": "Blank = not distributed; clients inherit the provider default."
   }
 }

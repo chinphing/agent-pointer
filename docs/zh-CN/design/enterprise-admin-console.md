@@ -285,6 +285,18 @@ key_fingerprint    = sha256(api_key) 的前 8 位十六进制
 要「强制统一档位」需要客户端新增锁定字段并在设置界面置灰档位选择器——**这不是纯管理端功能**，
 M0 不做。M0 只做下发默认值。
 
+**模型级参数**挂在 `model` 资源的 payload 上，字段与客户端 `PlatformProviderModel`
+一一对应（`credentials.rs` 原样反序列化后下发）：
+
+| 组 | 字段 |
+| --- | --- |
+| 能力 | `supportsVision` / `supportsAudio` / `canGenerateImage` / `canGenerateVideo` |
+| 上下文与生成 | `contextBudgetTokens` / `maxTokens` / `temperature` / `topP` |
+| 思考 | `enableThinking` / `thinkingBudget` / `thinkingIntensity` / `reasoningEffort` / `thinkingProtocol` / `reasoningInMessages` |
+
+留空 = 不下发 = 客户端继承服务商默认。`name` 由 slug 决定（真正发给模型接口的 id），
+资源自身的 `name` 只是显示名，两者不能混。
+
 **电脑操控的定位链**单独配（`computerPipelineLlm`）：`locate` / `locateVerify` / `verify`
 三个槽位各自是 `{providerId, model, thinkingIntensity?}`；再叠一层
 `byTier[fast|standard|expert]` 覆盖，留空即继承全局槽位。

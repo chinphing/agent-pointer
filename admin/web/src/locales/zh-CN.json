@@ -429,5 +429,27 @@
     "searchGlobal": "搜索成员 / 资源",
     "searchResource": "搜索资源名称",
     "searchMember": "搜索姓名或账号"
+  },
+  "models": {
+    "editTitle": "编辑模型",
+    "displayName": "显示名",
+    "capabilities": "能力",
+    "vision": "支持视觉",
+    "audio": "支持音频",
+    "imageOut": "可生成图片",
+    "videoOut": "可生成视频",
+    "follow": "跟随服务商",
+    "yes": "是",
+    "no": "否",
+    "limits": "上下文与生成",
+    "contextBudget": "上下文预算（tokens）",
+    "maxTokens": "最大输出（tokens）",
+    "temperature": "温度",
+    "topP": "topP",
+    "thinking": "思考",
+    "enableThinking": "启用思考",
+    "thinkingBudget": "思考预算",
+    "reasoningInMessages": "在消息里回传 reasoning",
+    "followHint": "留空 = 不下发，客户端继承服务商默认。"
   }
 }

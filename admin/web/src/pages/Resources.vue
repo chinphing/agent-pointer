@@ -8,6 +8,7 @@ import { can } from '../store'
 import TierMatrix from '../components/TierMatrix.vue'
 import ResourceDrawer from '../components/ResourceDrawer.vue'
 import ProviderForm from '../components/ProviderForm.vue'
+import ModelForm from '../components/ModelForm.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -628,6 +629,14 @@ onMounted(async () => {
     @refresh="load"
   />
 
+  <ModelForm
+    v-if="editing && kind === 'model'"
+    :resource="editing"
+    :providers="providers"
+    @saved="onProviderSaved"
+    @cancel="creating = false; editing = null"
+  />
+
   <ProviderForm
     v-if="(creating || editing) && kind === 'provider'"
     :resource="editing"
@@ -637,7 +646,7 @@ onMounted(async () => {
   />
 
   <div
-    v-if="(creating || editing) && kind !== 'provider'"
+    v-if="(creating || editing) && kind !== 'provider' && kind !== 'model'"
     class="modal-mask"
     @click.self="creating = false; editing = null"
   >

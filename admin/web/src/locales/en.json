@@ -214,10 +214,12 @@
     "defaultsOverride": "Note: values set here override an employee's own global settings (client order: model > provider > user global).",
     "secretMasked": "configured",
     "secretClear": "Clear key",
-    "secretClearConfirm": "Clear the key? The client will stop receiving credentials for this provider.",
+    "secretClearConfirm": "This clears the provider key; clients will stop receiving its credentials. Continue?",
     "secretKept": "Configured. Replace the whole value to rotate; clearing does not delete",
     "secretCurrent": "Current key",
-    "secretMaskHint": "Key must not contain • placeholders — replace the whole value"
+    "secretMaskHint": "Key must not contain • placeholders — replace the whole value",
+    "secretHint": "Replace the whole value to rotate; clearing and saving deletes it.",
+    "secretHintNew": "Fill it in, then use “Test connection” below to verify."
   },
   "tier": {
     "title": "Default tier mapping",
@@ -432,10 +434,12 @@
     "orphanProvider": "Provider deleted",
     "secretMasked": "configured",
     "secretClear": "Clear key",
-    "secretClearConfirm": "Clear the key? The client will stop receiving credentials for this provider.",
+    "secretClearConfirm": "This clears the provider key; clients will stop receiving its credentials. Continue?",
     "secretKept": "Configured. Replace the whole value to rotate; clearing does not delete",
     "secretCurrent": "Current key",
-    "secretMaskHint": "Key must not contain • placeholders — replace the whole value"
+    "secretMaskHint": "Key must not contain • placeholders — replace the whole value",
+    "secretHint": "Replace the whole value to rotate; clearing and saving deletes it.",
+    "secretHintNew": "Fill it in, then use “Test connection” below to verify."
   },
   "common2": {},
   "topbar": {

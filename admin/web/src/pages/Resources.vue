@@ -104,18 +104,6 @@ const revealed = ref<{ name: string; secret: string } | null>(null)
 /** 正在编辑的那一行（用来判断有没有密钥、能不能清除）。 */
 const editingRow = ref<any>(null)
 
-async function clearSecret() {
-  const row = editingRow.value
-  if (!row || !window.confirm(t('resources.secretClearConfirm'))) return
-  try {
-    await api.put(`/api/admin/resources/${row.id}`, { secret: '' })
-    row.hasSecret = false
-    form.value.secret = ''
-    await load()
-  } catch (e) {
-    error.value = errText(e)
-  }
-}
 // 详情抽屉（设计图 05）
 const detailFor = ref<any>(null)
 // 行内「更多」菜单（把授权/版本/看密钥/停用/删除收起来，避免一排六个按钮挤成竖排）
@@ -238,6 +226,12 @@ function openEdit(row: any) {
   testResult.value = null
 }
 
+/** 点进来时全选掩码，直接粘贴就是整段替换。 */
+function selectIfMask(e: FocusEvent) {
+  const el = e.target as HTMLInputElement
+  if (editingRow.value?.secretMask && el.value === editingRow.value.secretMask) el.select()
+}
+
 async function submit() {
   error.value = ''
   let payload: any
@@ -282,14 +276,21 @@ async function submit() {
         enabled: form.value.enabled,
         activation: form.value.activation,
       }
-      // 脱敏占位原样不动 = 不修改；含 • 说明是没替换干净的占位
+      // 密钥规则与 ProviderForm 保持一致，只有一处判断
       const raw = form.value.secret.trim()
-      if (raw && raw !== editingRow.value?.secretMask) {
-        if (raw.includes('•')) {
+      const mask = editingRow.value?.secretMask ?? ''
+      if (raw !== mask) {
+        if (!raw) {
+          if (editingRow.value?.hasSecret) {
+            if (!window.confirm(t('resources.secretClearConfirm'))) return
+            body.secret = ''
+          }
+        } else if (raw.includes('•')) {
           error.value = t('resources.secretMaskHint')
           return
+        } else {
+          body.secret = raw
         }
-        body.secret = raw
       }
       await api.put(`/api/admin/resources/${editing.value.id}`, body)
       notice.value = '资源已保存'
@@ -697,7 +698,7 @@ onMounted(async () => {
       </p>
 
       <label>
-        {{ t('resources.secret') }}{{ editing ? t('resources.secretKeep') : '' }}
+        {{ t('resources.secret') }}
         <span v-if="editingRow?.hasSecret" class="tag ok" style="margin-left: 6px">
           {{ t('resources.secretMasked') }}
         </span>
@@ -706,12 +707,12 @@ onMounted(async () => {
         v-model="form.secret"
         :type="editingRow?.secretMask && form.secret === editingRow.secretMask ? 'text' : 'password'"
         class="mono"
-        :placeholder="editingRow?.hasSecret ? t('resources.secretKept') : 'sk-…'"
+        placeholder="sk-…"
+        @focus="selectIfMask"
       />
-      <p v-if="editingRow?.hasSecret" class="mask-line small">{{ t('resources.secretKept') }}</p>
-      <div v-if="editingRow?.hasSecret" class="row" style="gap: 8px; margin-top: 6px">
-        <button class="tiny" type="button" @click="clearSecret">{{ t('resources.secretClear') }}</button>
-      </div>
+      <p class="small muted" style="margin: 4px 0 0">
+        {{ editingRow?.hasSecret ? t('resources.secretHint') : t('resources.secretHintNew') }}
+      </p>
       <div v-if="kind === 'provider'" class="row" style="gap: 8px; margin-top: 8px">
         <button class="tiny" :disabled="testBusy" @click="testConnection">
           {{ testBusy ? '测试中…' : '测试连接' }}
@@ -914,13 +915,6 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* 只读提示：不画边框、不加底色，免得看着像第二个输入框 */
-.mask-line {
-  margin: 2px 0 8px;
-  padding: 0;
-  color: var(--muted);
-  line-height: 1.5;
-}
 .upload-box {
   display: flex;
   gap: 12px;

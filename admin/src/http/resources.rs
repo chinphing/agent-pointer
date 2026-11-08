@@ -34,13 +34,18 @@ fn perms_for(kind: &str) -> (&'static str, &'static str, &'static str) {
 /// 这里是给编辑界面「看得出配了什么、但看不到全部」用的。
 pub fn mask_secret(secret: &str) -> String {
     let chars: Vec<char> = secret.chars().collect();
-    // 短密钥直接全打码：露头 3 位 + 尾 4 位等于暴露一半，反而更好猜。
-    if chars.len() < 16 {
+    // 尾部 4 位始终露出：这是管理员辨认「是哪把密钥」的唯一依据。
+    // 长度够就再露开头 3 位（`sk-` 这类前缀一眼能认出来）。
+    if chars.len() <= 4 {
         return "••••••••".to_string();
     }
-    let head: String = chars[..3].iter().collect();
     let tail: String = chars[chars.len() - 4..].iter().collect();
-    format!("{head}••••{tail}")
+    if chars.len() >= 16 {
+        let head: String = chars[..3].iter().collect();
+        format!("{head}••••{tail}")
+    } else {
+        format!("••••{tail}")
+    }
 }
 
 fn secret_mask(resource: &Resource) -> Option<String> {
@@ -658,9 +663,13 @@ mod tests {
     fn mask_secret_keeps_edges_only() {
         assert_eq!(mask_secret("sk-acceptance-demo"), "sk-••••demo");
         // 短密钥全打码：露头露尾反而更好猜
-        assert_eq!(mask_secret("sk-1234567890"), "••••••••");
-        assert_eq!(mask_secret("sk-123456789"), "••••••••");
+        // 短密钥也要露出尾部，否则看不出是哪把
+        assert_eq!(mask_secret("sk-1234567890"), "••••7890");
+        assert_eq!(mask_secret("abcd"), "••••••••");
+        assert_eq!(mask_secret("sk-12345678901"), "••••8901");
+        // 满 16 位开始露前缀
         assert_eq!(mask_secret("sk-1234567890123"), "sk-••••0123");
+        assert_eq!(mask_secret("sk-123456789012345"), "sk-••••2345");
         assert_eq!(mask_secret(""), "••••••••");
     }
 

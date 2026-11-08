@@ -59,34 +59,35 @@ const form = ref({ slug: '', name: '', baseUrl: '', apiKey: '' })
 
 /** 编辑时后端只说「有没有密钥」，不返明文——所以只能给脱敏提示，不能回显。 */
 const hasSecret = ref(Boolean(props.resource?.hasSecret))
-/** 后端只给脱敏值（头 3 + 尾 4），明文仍只在「查看密钥」里。 */
+/** 后端只给脱敏值，明文仍只在「查看密钥」里。 */
 const secretMask = ref<string | null>(props.resource?.secretMask ?? null)
+
+/** 点进来时全选掩码，直接粘贴/输入就整段替换，不会粘成「掩码+新钥」。 */
+function selectIfMask(e: FocusEvent) {
+  const el = e.target as HTMLInputElement
+  if (isMaskValue.value) el.select()
+}
 
 /** 框里还是那串脱敏值时，用明文显示（否则密码框会把 • 再打一遍码）。 */
 const isMaskValue = computed(() => Boolean(secretMask.value) && form.value.apiKey === secretMask.value)
 
-/** 用户要提交的新密钥：脱敏占位原样不动 = 不修改。 */
-function secretToSend(): { secret?: string; error?: string } {
+/**
+ * 密钥提交规则（唯一入口，避免多处判断打架）：
+ * - 框里还是脱敏值      → 不修改
+ * - 清空且原本有密钥    → 确认后删除（secret: ''）
+ * - 含 • 占位符         → 拦下，要求整段替换
+ * - 其它非空            → 轮换
+ */
+function secretToSend(): { secret?: string; error?: string; cancel?: boolean } {
   const raw = form.value.apiKey.trim()
-  if (!raw || raw === secretMask.value) return {}
+  if (raw === (secretMask.value ?? '')) return {}
+  if (!raw) {
+    if (!hasSecret.value) return {}
+    if (!window.confirm(t('provider.secretClearConfirm'))) return { cancel: true }
+    return { secret: '' }
+  }
   if (raw.includes('•')) return { error: t('provider.secretMaskHint') }
   return { secret: raw }
-}
-const clearing = ref(false)
-
-async function clearSecret() {
-  if (!props.resource || clearing.value) return
-  if (!window.confirm(t('provider.secretClearConfirm'))) return
-  clearing.value = true
-  try {
-    await api.put(`/api/admin/resources/${props.resource.id}`, { secret: '' })
-    hasSecret.value = false
-    emit('saved')
-  } catch (e) {
-    error.value = errText(e)
-  } finally {
-    clearing.value = false
-  }
 }
 const busy = ref(false)
 const error = ref('')
@@ -261,11 +262,13 @@ async function submit() {
         error.value = next.error
         return
       }
+      if (next.cancel) return
 
       await api.put(`/api/admin/resources/${props.resource.id}`, {
         name: form.value.name.trim(),
         payload,
-        ...(next.secret ? { secret: next.secret } : {}),
+        // 注意用 !== undefined：空字符串是「删除密钥」的有效值，不能用真值判断
+        ...(next.secret !== undefined ? { secret: next.secret } : {}),
       })
 
       for (const slug of removed) {
@@ -358,19 +361,17 @@ async function submit() {
       </p>
 
       <label>
-        {{ t('provider.apiKey') }}{{ isEdit ? t('provider.apiKeyKeep') : '' }}
+        {{ t('provider.apiKey') }}
         <span v-if="hasSecret" class="tag ok" style="margin-left: 6px">{{ t('provider.secretMasked') }}</span>
       </label>
       <input
         v-model="form.apiKey"
         :type="isMaskValue ? 'text' : 'password'"
         class="mono"
-        :placeholder="hasSecret ? t('provider.secretKept') : 'sk-…'"
+        placeholder="sk-…"
+        @focus="selectIfMask"
       />
-      <p v-if="hasSecret" class="mask-line small">{{ t('provider.secretKept') }}</p>
-      <div v-if="hasSecret" class="row" style="gap: 8px; margin-top: 6px">
-        <button class="tiny" type="button" @click="clearSecret">{{ t('provider.secretClear') }}</button>
-      </div>
+      <p class="small muted" style="margin: 4px 0 0">{{ hasSecret ? t('provider.secretHint') : t('provider.secretHintNew') }}</p>
 
       <div class="row" style="gap: 10px; margin-top: 12px">
         <button class="tiny" :disabled="testing" @click="testConnection">
@@ -547,11 +548,4 @@ async function submit() {
 }
 .defaults-toggle:hover { color: var(--fg); }
 .three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-/* 只读提示：不画边框、不加底色，免得看着像第二个输入框 */
-.mask-line {
-  margin: 2px 0 8px;
-  padding: 0;
-  color: var(--muted);
-  line-height: 1.5;
-}
 </style>

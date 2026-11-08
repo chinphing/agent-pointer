@@ -454,6 +454,11 @@
     "thinkingBudget": "思考预算",
     "reasoningInMessages": "在消息里回传 reasoning",
     "followHint": "留空 = 不下发，客户端继承服务商默认。",
-    "unset": "不设置"
+    "unset": "不设置",
+    "defaultIs": "默认 {v}",
+    "intensityBudget": "{label} · {budget}",
+    "yesDefault": "默认 开",
+    "noDefault": "默认 否",
+    "defaultsNote": "留空用客户端默认：温度 0.7、topP 0.95、最大输出 16384、上下文 262144（256K）、思考预算 2048、启用思考、不回传 reasoning。"
   }
 }

@@ -454,6 +454,11 @@
     "thinkingBudget": "Thinking budget",
     "reasoningInMessages": "Send reasoning in messages",
     "followHint": "Blank = not distributed; clients inherit the provider default.",
-    "unset": "Not set"
+    "unset": "Not set",
+    "defaultIs": "Default {v}",
+    "intensityBudget": "{label} · {budget}",
+    "yesDefault": "Default on",
+    "noDefault": "Default off",
+    "defaultsNote": "Blank uses client defaults: temperature 0.7, topP 0.95, max output 16384, context 262144 (256K), thinking budget 2048, thinking on, reasoning not returned."
   }
 }

@@ -17,6 +17,7 @@ import {
   buildProviderDefaults,
   payloadToState,
 } from '../lib/modelPayload'
+import { FIELD_DEFAULTS, INTENSITY_BUDGET, contextBudgetLabel } from '../lib/modelDefaults'
 
 const props = defineProps<{ resource: any | null }>()
 const { t } = useI18n()
@@ -81,6 +82,14 @@ const showDefaults = ref(false)
 const defState = payloadToState(props.resource?.payload || {})
 const defLimits = ref<Record<string, string>>(defState.limits)
 const defThinking = ref<Record<string, string>>(defState.thinking)
+function ph(v: string | number) {
+  return t('models.defaultIs', { v })
+}
+function intensityOptionLabel(v: string) {
+  if (!v) return t('models.unset')
+  return t('models.intensityBudget', { label: t(`tier.thinking_${v}`), budget: INTENSITY_BUDGET[v] })
+}
+
 const hasDefaults = computed(
   () =>
     Object.values(defLimits.value).some((v) => v !== '') ||
@@ -394,19 +403,19 @@ async function submit() {
         <div class="two" style="margin-top: 8px">
           <div>
             <label>{{ t('models.contextBudget') }}</label>
-            <input v-model="defLimits.contextBudgetTokens" type="number" min="0" :placeholder="t('models.unset')" />
+            <input v-model="defLimits.contextBudgetTokens" type="number" min="0" :placeholder="contextBudgetLabel()" />
           </div>
           <div>
             <label>{{ t('models.maxTokens') }}</label>
-            <input v-model="defLimits.maxTokens" type="number" min="0" :placeholder="t('models.unset')" />
+            <input v-model="defLimits.maxTokens" type="number" min="0" :placeholder="ph(FIELD_DEFAULTS.maxTokens)" />
           </div>
           <div>
             <label>{{ t('models.temperature') }}</label>
-            <input v-model="defLimits.temperature" type="number" step="0.1" min="0" max="2" :placeholder="t('models.unset')" />
+            <input v-model="defLimits.temperature" type="number" step="0.05" min="0" max="2" :placeholder="ph(FIELD_DEFAULTS.temperature)" />
           </div>
           <div>
             <label>{{ t('models.topP') }}</label>
-            <input v-model="defLimits.topP" type="number" step="0.05" min="0" max="1" :placeholder="t('models.unset')" />
+            <input v-model="defLimits.topP" type="number" step="0.05" min="0" max="1" :placeholder="ph(FIELD_DEFAULTS.topP)" />
           </div>
         </div>
 
@@ -414,7 +423,7 @@ async function submit() {
           <div>
             <label>{{ t('models.enableThinking') }}</label>
             <select v-model="defThinking.enableThinking">
-              <option value="">{{ t('models.unset') }}</option>
+              <option value="">{{ t('models.yesDefault') }}</option>
               <option value="true">{{ t('models.yes') }}</option>
               <option value="false">{{ t('models.no') }}</option>
             </select>
@@ -423,16 +432,12 @@ async function submit() {
             <label>{{ t('tier.thinking') }}</label>
             <select v-model="defThinking.thinkingIntensity">
               <option value="">{{ t('models.unset') }}</option>
-              <option value="off">{{ t('tier.thinking_off') }}</option>
-              <option value="low">{{ t('tier.thinking_low') }}</option>
-              <option value="medium">{{ t('tier.thinking_medium') }}</option>
-              <option value="high">{{ t('tier.thinking_high') }}</option>
-              <option value="max">{{ t('tier.thinking_max') }}</option>
+              <option v-for="v in ['off','low','medium','high','max']" :key="v" :value="v">{{ intensityOptionLabel(v) }}</option>
             </select>
           </div>
           <div>
             <label>{{ t('models.thinkingBudget') }}</label>
-            <input v-model="defThinking.thinkingBudget" type="number" min="0" :placeholder="t('models.unset')" />
+            <input v-model="defThinking.thinkingBudget" type="number" min="0" :placeholder="ph(FIELD_DEFAULTS.thinkingBudget)" />
           </div>
           <div>
             <label>reasoningEffort</label>
@@ -445,7 +450,7 @@ async function submit() {
           <div>
             <label>{{ t('models.reasoningInMessages') }}</label>
             <select v-model="defThinking.reasoningInMessages">
-              <option value="">{{ t('models.unset') }}</option>
+              <option value="">{{ t('models.noDefault') }}</option>
               <option value="true">{{ t('models.yes') }}</option>
               <option value="false">{{ t('models.no') }}</option>
             </select>

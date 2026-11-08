@@ -12,6 +12,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
 import { CAP_KEYS, LIMIT_KEYS, THINKING_KEYS, buildModelPayload, payloadToState } from '../lib/modelPayload'
+import { FIELD_DEFAULTS, INTENSITY_BUDGET, contextBudgetLabel } from '../lib/modelDefaults'
 
 const props = defineProps<{ resource: any; providers: any[] }>()
 const emit = defineEmits<{ (e: 'saved'): void; (e: 'cancel'): void }>()
@@ -43,6 +44,16 @@ const EFFORT = ['', 'high', 'max']
 
 function intensityLabel(v: string) {
   return v ? t(`tier.thinking_${v}`) : t('models.follow')
+}
+
+/** 强度选项带出它换算的思考预算，省得再去猜 2048 是几档。 */
+function intensityOptionLabel(v: string) {
+  if (!v) return t('models.follow')
+  return t('models.intensityBudget', { label: t(`tier.thinking_${v}`), budget: INTENSITY_BUDGET[v] })
+}
+
+function ph(v: string | number) {
+  return t('models.defaultIs', { v })
 }
 
 async function submit() {
@@ -112,19 +123,19 @@ async function submit() {
         <div class="two">
           <div>
             <label>{{ t('models.contextBudget') }}</label>
-            <input v-model="limits.contextBudgetTokens" type="number" min="0" :placeholder="t('models.follow')" />
+            <input v-model="limits.contextBudgetTokens" type="number" min="0" :placeholder="contextBudgetLabel()" />
           </div>
           <div>
             <label>{{ t('models.maxTokens') }}</label>
-            <input v-model="limits.maxTokens" type="number" min="0" :placeholder="t('models.follow')" />
+            <input v-model="limits.maxTokens" type="number" min="0" :placeholder="ph(FIELD_DEFAULTS.maxTokens)" />
           </div>
           <div>
             <label>{{ t('models.temperature') }}</label>
-            <input v-model="limits.temperature" type="number" step="0.1" min="0" max="2" :placeholder="t('models.follow')" />
+            <input v-model="limits.temperature" type="number" step="0.05" min="0" max="2" :placeholder="ph(FIELD_DEFAULTS.temperature)" />
           </div>
           <div>
             <label>{{ t('models.topP') }}</label>
-            <input v-model="limits.topP" type="number" step="0.05" min="0" max="1" :placeholder="t('models.follow')" />
+            <input v-model="limits.topP" type="number" step="0.05" min="0" max="1" :placeholder="ph(FIELD_DEFAULTS.topP)" />
           </div>
         </div>
       </fieldset>
@@ -135,7 +146,7 @@ async function submit() {
           <div>
             <label>{{ t('models.enableThinking') }}</label>
             <select v-model="thinking.enableThinking">
-              <option value="">{{ t('models.follow') }}</option>
+              <option value="">{{ t('models.yesDefault') }}</option>
               <option value="true">{{ t('models.yes') }}</option>
               <option value="false">{{ t('models.no') }}</option>
             </select>
@@ -143,12 +154,12 @@ async function submit() {
           <div>
             <label>{{ t('tier.thinking') }}</label>
             <select v-model="thinking.thinkingIntensity">
-              <option v-for="v in INTENSITY" :key="v" :value="v">{{ intensityLabel(v) }}</option>
+              <option v-for="v in INTENSITY" :key="v" :value="v">{{ intensityOptionLabel(v) }}</option>
             </select>
           </div>
           <div>
             <label>{{ t('models.thinkingBudget') }}</label>
-            <input v-model="thinking.thinkingBudget" type="number" min="0" :placeholder="t('models.follow')" />
+            <input v-model="thinking.thinkingBudget" type="number" min="0" :placeholder="ph(FIELD_DEFAULTS.thinkingBudget)" />
           </div>
           <div>
             <label>reasoningEffort</label>
@@ -159,7 +170,7 @@ async function submit() {
           <div>
             <label>{{ t('models.reasoningInMessages') }}</label>
             <select v-model="thinking.reasoningInMessages">
-              <option value="">{{ t('models.follow') }}</option>
+              <option value="">{{ t('models.noDefault') }}</option>
               <option value="true">{{ t('models.yes') }}</option>
               <option value="false">{{ t('models.no') }}</option>
             </select>
@@ -167,7 +178,7 @@ async function submit() {
         </div>
       </fieldset>
 
-      <p class="small muted" style="margin-top: 10px">{{ t('models.followHint') }}</p>
+      <p class="small muted" style="margin-top: 10px">{{ t('models.defaultsNote') }}</p>
 
       <div v-if="error" class="err" style="margin-top: 10px">{{ error }}</div>
 

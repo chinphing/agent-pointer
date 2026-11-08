@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { session, loadSession, logout } from './store'
@@ -39,14 +39,38 @@ const menuOpen = ref(false)
 /** 顶栏标题取自路由 meta，页面正文不再重复写一遍 h1。 */
 const pageTitle = computed(() => (route.meta.title ? t(String(route.meta.title)) : ''))
 
-/** 顶栏搜索：回车把关键词带到当前列表页；成员页搜成员，其余搜资源。 */
+/**
+ * 顶栏搜索：设计图上并非每页都有 ——
+ *   概览「搜索成员 / 资源」、资源页「搜索资源名称」、角色页与档位映射页没有搜索框。
+ * 用路由 meta.search 决定有没有、占位写什么、回车往哪儿带。
+ */
+const searchKind = computed(() => (route.meta.search as string) || '')
 const search = ref('')
+
+const searchPlaceholder = computed(() => {
+  if (searchKind.value === 'resource') return t('topbar.searchResource')
+  if (searchKind.value === 'member') return t('topbar.searchMember')
+  return t('topbar.searchGlobal')
+})
+
 function submitSearch() {
   const q = search.value.trim()
   if (!q) return
-  const target = route.path === '/members' ? '/members' : '/resources'
-  router.push({ path: target, query: { q } })
+  // 概览是跨页搜索，落到资源列表；其它页原地筛。
+  const target =
+    searchKind.value === 'member' ? '/members' : '/resources'
+  const samePage = route.path === target
+  if (samePage) router.replace({ path: target, query: { q } })
+  else router.push({ path: target, query: { q } })
 }
+
+/** 换页时清空输入，避免上一页的关键词留在框里误导。 */
+watch(
+  () => route.path,
+  () => {
+    search.value = ''
+  }
+)
 
 function switchLocale(next: AdminLocale) {
   setLocale(next)
@@ -112,9 +136,10 @@ async function doLogout() {
         <h1>{{ pageTitle }}</h1>
         <div class="topbar-right">
           <input
+            v-if="searchKind"
             v-model="search"
             class="search"
-            :placeholder="t('topbar.search')"
+            :placeholder="searchPlaceholder"
             :title="t('topbar.searchHint')"
             @keyup.enter="submitSearch"
           />

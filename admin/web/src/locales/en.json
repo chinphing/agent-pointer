@@ -419,6 +419,9 @@
   "topbar": {
     "search": "Search members / resources",
     "searchHint": "Press Enter to search",
-    "account": "Account"
+    "account": "Account",
+    "searchGlobal": "Search members / resources",
+    "searchResource": "Search resource names",
+    "searchMember": "Search name or account"
   }
 }

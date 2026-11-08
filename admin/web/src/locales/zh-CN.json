@@ -419,6 +419,9 @@
   "topbar": {
     "search": "搜索成员 / 资源",
     "searchHint": "输入后回车",
-    "account": "账号"
+    "account": "账号",
+    "searchGlobal": "搜索成员 / 资源",
+    "searchResource": "搜索资源名称",
+    "searchMember": "搜索姓名或账号"
   }
 }

@@ -10,6 +10,7 @@
  * 保存放在底部、有改动才点亮。
  */
 import { computed, ref, watch } from 'vue'
+import { useNotice } from '../lib/notice'
 import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
 
@@ -75,7 +76,7 @@ const THINKING = [
 const payload = ref<any>({})
 const saved = ref('{}')
 const error = ref('')
-const notice = ref('')
+const { notice, flash: flashNotice, clear: clearNotice } = useNotice()
 const busy = ref(false)
 
 watch(
@@ -236,11 +237,11 @@ async function save() {
   if (!props.resource) return
   busy.value = true
   error.value = ''
-  notice.value = ''
+  flashNotice('')
   try {
     await api.put(`/api/admin/resources/${props.resource.id}`, { payload: payload.value })
     saved.value = stable(payload.value)
-    notice.value = t('tier.saved')
+    flashNotice(t('tier.saved'))
     emit('saved')
   } catch (e) {
     error.value = errText(e)
@@ -251,7 +252,7 @@ async function save() {
 
 function revert() {
   payload.value = JSON.parse(saved.value)
-  notice.value = ''
+  flashNotice('')
   error.value = ''
 }
 

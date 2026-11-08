@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useNotice } from '../lib/notice'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
@@ -35,7 +36,7 @@ const shown = computed(() => {
 const roles = ref<any[]>([])
 const loading = ref(true)
 const error = ref('')
-const notice = ref('')
+const { notice, flash: flashNotice, clear: clearNotice } = useNotice()
 
 const showCreate = ref(false)
 const form = ref({ username: '', displayName: '', password: '', roles: ['member'] })
@@ -76,7 +77,7 @@ async function createUser() {
     })
     showCreate.value = false
     form.value = { username: '', displayName: '', password: '', roles: ['member'] }
-    notice.value = t('members.created')
+    flashNotice(t('members.created'))
     await load()
   } catch (e) {
     error.value = errText(e)
@@ -103,7 +104,7 @@ async function resetPassword(user: any) {
   if (!pw) return
   try {
     await api.post(`/api/admin/users/${user.id}/password`, { password: pw })
-    notice.value = t('members.resetDone')
+    flashNotice(t('members.resetDone'))
   } catch (e) {
     error.value = errText(e)
   }
@@ -112,7 +113,7 @@ async function resetPassword(user: any) {
 async function saveRoles(user: any, selected: string[]) {
   try {
     await api.post(`/api/admin/users/${user.id}/roles`, { roles: selected })
-    notice.value = t('members.rolesUpdated')
+    flashNotice(t('members.rolesUpdated'))
     await load()
   } catch (e) {
     error.value = errText(e)

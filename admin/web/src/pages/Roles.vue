@@ -7,6 +7,7 @@
  * 所以建完立刻生效。
  */
 import { computed, onMounted, ref } from 'vue'
+import { useNotice } from '../lib/notice'
 import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
 import { can } from '../store'
@@ -35,7 +36,7 @@ const roles = ref<any[]>([])
 const allPermissions = ref<string[]>([])
 const loading = ref(true)
 const error = ref('')
-const notice = ref('')
+const { notice, flash: flashNotice, clear: clearNotice } = useNotice()
 const busy = ref(false)
 
 // 编辑弹窗
@@ -114,7 +115,7 @@ function openEdit(role: any) {
 async function submit() {
   busy.value = true
   error.value = ''
-  notice.value = ''
+  flashNotice('')
   try {
     if (editing.value?.isNew) {
       await api.post('/api/admin/roles', {
@@ -122,13 +123,13 @@ async function submit() {
         name: form.value.name.trim(),
         permissions: form.value.permissions,
       })
-      notice.value = t('roles_page.created')
+      flashNotice(t('roles_page.created'))
     } else {
       await api.put(`/api/admin/roles/${editing.value.id}`, {
         name: form.value.name.trim(),
         permissions: form.value.permissions,
       })
-      notice.value = t('roles_page.updated')
+      flashNotice(t('roles_page.updated'))
     }
     editing.value = null
     await load()
@@ -144,7 +145,7 @@ async function remove(role: any) {
   error.value = ''
   try {
     await api.del(`/api/admin/roles/${role.id}`)
-    notice.value = t('roles_page.deleted')
+    flashNotice(t('roles_page.deleted'))
     await load()
   } catch (e) {
     error.value = errText(e)

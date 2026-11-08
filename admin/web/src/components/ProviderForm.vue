@@ -9,6 +9,7 @@
  *       → 在同一个列表里增删模型 → 保存（服务商 + 模型一起落库）。
  */
 import { computed, ref } from 'vue'
+import { useNotice } from '../lib/notice'
 import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
 import {
@@ -91,7 +92,7 @@ function secretToSend(): { secret?: string; error?: string; cancel?: boolean } {
 }
 const busy = ref(false)
 const error = ref('')
-const notice = ref('')
+const { notice, flash: flashNotice, clear: clearNotice } = useNotice()
 
 const testing = ref(false)
 const testResult = ref<{ ok: boolean; message: string } | null>(null)
@@ -178,7 +179,7 @@ function applyTemplate(id: string) {
 async function testConnection() {
   testing.value = true
   testResult.value = null
-  notice.value = ''
+  flashNotice('')
   try {
     const r = await api.post('/api/admin/providers/test', {
       baseUrl: form.value.baseUrl.trim(),
@@ -189,12 +190,12 @@ async function testConnection() {
       const remote: string[] = r.models || []
       const added = remote.filter((m) => !modelList.value.includes(m))
       if (remote.length === 0) {
-        notice.value = t('provider.noModels')
+        flashNotice(t('provider.noModels'))
       } else if (added.length === 0) {
-        notice.value = t('provider.fetchedAll', { n: remote.length })
+        flashNotice(t('provider.fetchedAll', { n: remote.length }))
       } else {
         modelList.value = [...modelList.value, ...added]
-        notice.value = t('provider.fetchedAdded', { total: remote.length, added: added.length })
+        flashNotice(t('provider.fetchedAdded', { total: remote.length, added: added.length }))
       }
     }
   } catch (e) {
@@ -235,7 +236,7 @@ async function modelsReferencedByTiers(slugs: string[]): Promise<string[]> {
 
 async function submit() {
   error.value = ''
-  notice.value = ''
+  flashNotice('')
   if (!form.value.slug.trim()) return (error.value = t('provider.errSlug'))
   if (!form.value.name.trim()) return (error.value = t('provider.errName'))
   if (!form.value.baseUrl.trim()) return (error.value = t('provider.errBaseUrl'))

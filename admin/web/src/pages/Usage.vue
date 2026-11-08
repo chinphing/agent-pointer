@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useNotice } from '../lib/notice'
 import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
 import { fmtCount as fmt } from '../lib/format'
@@ -11,7 +12,7 @@ const to = ref('')
 const data = ref<any>(null)
 const loading = ref(true)
 const error = ref('')
-const notice = ref('')
+const { notice, flash: flashNotice, clear: clearNotice } = useNotice()
 
 const quotaUser = ref('')
 const quotaLimit = ref<number | ''>('')
@@ -56,7 +57,7 @@ async function saveQuota() {
       monthlyTokenLimit: quotaLimit.value === '' ? null : Number(quotaLimit.value),
       overAction: quotaAction.value,
     })
-    notice.value = t('usage.quotaSaved')
+    flashNotice(t('usage.quotaSaved'))
     await loadQuota()
   } catch (e) {
     error.value = errText(e)

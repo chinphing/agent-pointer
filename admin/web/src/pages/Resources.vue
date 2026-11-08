@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useNotice } from '../lib/notice'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
@@ -26,7 +27,7 @@ const kind = ref('provider')
 const items = ref<any[]>([])
 const loading = ref(true)
 const error = ref('')
-const notice = ref('')
+const { notice, flash: flashNotice, clear: clearNotice } = useNotice()
 
 const roles = ref<any[]>([])
 const members = ref<any[]>([])
@@ -132,13 +133,13 @@ async function onProviderCreated(id: string) {
   await load()
   const row = items.value.find((r: any) => r.id === id)
   if (row) openGrants(row)
-  else notice.value = t('resources.created')
+  else flashNotice(t('resources.created'))
 }
 
 async function onProviderSaved() {
   creating.value = false
   editing.value = null
-  notice.value = '模型服务已保存'
+  flashNotice('模型服务已保存')
   await load()
 }
 
@@ -194,6 +195,8 @@ async function load() {
 function switchKind(next: string) {
   providerFilter.value = ''
   kind.value = next
+  // 换页签时把上一条成功提示收掉，免得看着像当前状态
+  clearNotice()
   load()
 }
 
@@ -253,7 +256,7 @@ async function submit() {
         enabled: form.value.enabled,
         activation: form.value.activation,
       })
-      notice.value = '资源已创建'
+      flashNotice('资源已创建')
       // 建完直接给可见范围，省掉「建了但员工看不到」这一步（设计图 07）。
       if (form.value.visibility === 'all' && created?.id) {
         await api.put(`/api/admin/resources/${created.id}/grants`, {
@@ -293,7 +296,7 @@ async function submit() {
         }
       }
       await api.put(`/api/admin/resources/${editing.value.id}`, body)
-      notice.value = '资源已保存'
+      flashNotice('资源已保存')
     }
     creating.value = false
     editing.value = null
@@ -316,7 +319,7 @@ async function remove(row: any) {
   if (!confirm(t('resources.deleteConfirm2', { name: row.name }))) return
   try {
     await api.del(`/api/admin/resources/${row.id}`)
-    notice.value = t('resources.deleted')
+    flashNotice(t('resources.deleted'))
     await load()
   } catch (e) {
     error.value = errText(e)
@@ -360,7 +363,7 @@ function grantItems() {
 async function saveGrants() {
   try {
     await api.put(`/api/admin/resources/${grantFor.value.id}/grants`, { items: grantItems() })
-    notice.value = '授权已保存'
+    flashNotice('授权已保存')
     grantFor.value = null
   } catch (e) {
     error.value = errText(e)
@@ -461,7 +464,7 @@ async function doUpload() {
     }
     uploadVersion.value = ''
     uploadFile.value = null
-    notice.value = t('resources.publishHint')
+    flashNotice(t('resources.publishHint'))
     await loadVersions(versionsFor.value.id)
     await load()
   } catch (e) {
@@ -475,7 +478,7 @@ async function publishVersion(version: any) {
   versionError.value = ''
   try {
     await api.post(`/api/admin/resources/${versionsFor.value.id}/versions/${version.id}/publish`)
-    notice.value = t('resources.publishedV', { v: version.version })
+    flashNotice(t('resources.publishedV', { v: version.version }))
     await loadVersions(versionsFor.value.id)
     await load()
   } catch (e) {

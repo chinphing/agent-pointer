@@ -74,7 +74,7 @@ case "${1:-start}" in
   reset)
     stop
     rm -rf "$DIR"
-    echo "已清空 $DIR，下次 start 是空库，需要重新 seed"
+    echo "已清空 ${DIR}，下次 start 是空库，会自动种下三家服务商"
     ;;
   *)
     echo "用法：$0 {start|stop|status|reset}"

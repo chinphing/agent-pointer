@@ -178,6 +178,23 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // 全新库：把内置的三家服务商（百炼 / DeepSeek / 豆包）和默认档位种上，
+    // 否则管理员登录后是一片空白。库里已经有服务商就不动 —— 管理员删掉的
+    // 不该在重启后又冒出来。
+    if pointer_admin::resources::list(&store, &config.tenant_id, Some(pointer_admin::resources::KIND_PROVIDER))
+        .await?
+        .is_empty()
+    {
+        match seed::seed(&store, &config.tenant_id).await {
+            Ok(r) => log::info!(
+                "初始化服务商：新建 {} 个，模型 {} 个",
+                r.providers_created,
+                r.models_created
+            ),
+            Err(e) => log::warn!("初始化服务商失败（不影响启动）：{e}"),
+        }
+    }
+
     let state = AppState::new(store, config.clone());
     let mut app = Router::new()
         .merge(oauth::router())

@@ -43,6 +43,64 @@
           "id": "qwen3.7-flash",
           "contextBudgetTokens": 1000000,
           "supportsVision": true
+        },
+        {
+          "id": "qwen3.5-plus",
+          "supportsVision": true
+        },
+        {
+          "id": "qwen3.5-27b",
+          "supportsVision": true
+        },
+        {
+          "id": "qwen3.5-flash",
+          "supportsVision": true
+        },
+        {
+          "id": "qwen3.6-plus",
+          "supportsVision": true
+        },
+        {
+          "id": "qwen3.6-27b",
+          "supportsVision": true
+        },
+        {
+          "id": "qwen3.6-flash",
+          "supportsVision": true
+        },
+        {
+          "id": "qwen3.7-max",
+          "supportsVision": true
+        },
+        {
+          "id": "qwen3-asr-flash",
+          "supportsVision": true,
+          "supportsAudio": true
+        },
+        {
+          "id": "fun-asr",
+          "supportsVision": true,
+          "supportsAudio": true
+        },
+        {
+          "id": "wan2.7-image-pro",
+          "supportsVision": true,
+          "canGenerateImage": true
+        },
+        {
+          "id": "qwen-image-2.0-pro",
+          "supportsVision": true,
+          "canGenerateImage": true
+        },
+        {
+          "id": "happyhorse-1.0-t2v",
+          "supportsVision": true,
+          "canGenerateVideo": true
+        },
+        {
+          "id": "happyhorse-1.0-i2v",
+          "supportsVision": true,
+          "canGenerateVideo": true
         }
       ]
     },
@@ -59,6 +117,9 @@
         },
         {
           "id": "deepseek-v4-pro"
+        },
+        {
+          "id": "deepseek-v4-flash"
         }
       ]
     },
@@ -92,6 +153,18 @@
         },
         {
           "id": "doubao-seedance-2-0-260128",
+          "canGenerateVideo": true
+        },
+        {
+          "id": "doubao-seedream-5-0-lite-260128",
+          "canGenerateImage": true
+        },
+        {
+          "id": "doubao-seedream-4-5-251128",
+          "canGenerateImage": true
+        },
+        {
+          "id": "doubao-seedance-2-0-fast-260128",
           "canGenerateVideo": true
         }
       ]
@@ -369,37 +442,134 @@
     "slug": "default",
     "name": "默认档位",
     "payload": {
+      "agentDefaultModels": {
+        "coder": {
+          "providerId": "deepseek",
+          "model": "deepseek-v4-pro"
+        },
+        "explore": {
+          "providerId": "deepseek",
+          "model": "deepseek-v4-flash"
+        },
+        "computer": {
+          "providerId": "qwen",
+          "model": "qwen3.5-plus"
+        },
+        "general": {
+          "providerId": "deepseek",
+          "model": "deepseek-v4-flash"
+        }
+      },
       "agentModeLlm": {
         "general": {
           "fast": {
-            "providerId": "qwen",
-            "model": "qwen3.8-27b",
-            "thinkingIntensity": "off"
+            "providerId": "deepseek",
+            "model": "deepseek-v4-flash"
           },
           "standard": {
-            "providerId": "qwen",
-            "model": "qwen3.8-flash",
-            "thinkingIntensity": "medium"
+            "providerId": "deepseek",
+            "model": "deepseek-v4-pro"
           },
           "expert": {
             "providerId": "qwen",
-            "model": "qwen3.8-max",
-            "thinkingIntensity": "high"
+            "model": "qwen3.7-plus"
+          }
+        },
+        "coder": {
+          "fast": {
+            "providerId": "deepseek",
+            "model": "deepseek-v4-flash"
+          },
+          "standard": {
+            "providerId": "deepseek",
+            "model": "deepseek-v4-pro"
+          },
+          "expert": {
+            "providerId": "qwen",
+            "model": "qwen3.7-max"
+          }
+        },
+        "computer": {
+          "fast": {
+            "providerId": "qwen",
+            "model": "qwen3.5-flash"
+          },
+          "standard": {
+            "providerId": "qwen",
+            "model": "qwen3.5-plus"
+          },
+          "expert": {
+            "providerId": "qwen",
+            "model": "qwen3.7-plus"
+          }
+        }
+      },
+      "mediaModeLlm": {
+        "image": {
+          "fast": {
+            "providerId": "qwen",
+            "model": "qwen3.5-flash"
+          },
+          "standard": {
+            "providerId": "qwen",
+            "model": "qwen3.5-plus"
+          },
+          "expert": {
+            "providerId": "qwen",
+            "model": "qwen3.6-plus"
+          }
+        },
+        "audio": {
+          "fast": {
+            "providerId": "qwen",
+            "model": "qwen3-asr-flash"
+          },
+          "standard": {
+            "providerId": "qwen",
+            "model": "fun-asr"
+          },
+          "expert": {
+            "providerId": "qwen",
+            "model": "fun-asr"
+          }
+        },
+        "video": {
+          "fast": {
+            "providerId": "qwen",
+            "model": "qwen3.5-flash"
+          },
+          "standard": {
+            "providerId": "qwen",
+            "model": "qwen3.5-plus"
+          },
+          "expert": {
+            "providerId": "qwen",
+            "model": "qwen3.6-plus"
           }
         }
       },
       "computerPipelineLlm": {
-        "locate": {
+        "decision": {
           "providerId": "qwen",
-          "model": "qwen3.8-flash"
+          "model": "qwen3.5-flash"
         },
-        "byTier": {
-          "standard": {
-            "verify": {
-              "providerId": "qwen",
-              "model": "qwen3.8-max"
-            }
-          }
+        "position": {
+          "providerId": "qwen",
+          "model": "qwen3.5-plus"
+        },
+        "verify": {
+          "providerId": "qwen",
+          "model": "qwen3.5-flash"
+        }
+      },
+      "mediaGeneration": {
+        "image": {
+          "providerId": "doubao",
+          "model": "doubao-seedream-5-0-lite-260128"
+        },
+        "video": {
+          "providerId": "doubao",
+          "model": "doubao-seedance-2-0-fast-260128"
         }
       }
     }

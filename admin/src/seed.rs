@@ -237,25 +237,52 @@ mod tests {
         );
     }
 
+    /// 档位里引用的每个 `providerId` / `model` 都必须真的在目录里 —— 否则
+    /// 客户端拿到一个指向不存在模型的档位，界面显示「已配置」，实际调不通。
     #[test]
-    fn tier_profile_models_belong_to_seeded_providers() {
+    fn tier_profile_references_exist_in_the_catalog() {
         let c = load_catalog().expect("catalog");
-        let seeded: Vec<&str> = c.providers.iter().filter(|p| p.seeded).map(|p| p.slug.as_str()).collect();
         let tier = c.tier_profile.expect("tier");
-        let text = tier.payload.to_string();
-        for pid in ["qwen", "deepseek", "doubao"] {
-            if text.contains(&format!("\"providerId\":\"{pid}\"")) {
-                assert!(seeded.contains(&pid), "档位引用了未种子的服务商 {pid}");
-            }
+
+        let mut refs: Vec<(String, String)> = Vec::new();
+        collect_refs(&tier.payload, &mut refs);
+        assert!(!refs.is_empty(), "档位里一个模型引用都没有");
+
+        for (provider_id, model_id) in refs {
+            let provider = c
+                .providers
+                .iter()
+                .find(|p| p.slug == provider_id)
+                .unwrap_or_else(|| panic!("档位引用了目录里没有的服务商：{provider_id}"));
+            assert!(
+                provider.seeded,
+                "档位引用了未种子的服务商 {provider_id} —— 客户端不会下发它"
+            );
+            assert!(
+                provider.models.iter().any(|m| m.id == model_id),
+                "档位引用了 {provider_id} 下不存在的模型：{model_id}"
+            );
         }
-        // 档位里引用的模型必须在种子模型里存在，否则客户端拿到空档位
-        let all_models: Vec<&str> = c
-            .providers
-            .iter()
-            .flat_map(|p| p.models.iter().map(|m| m.id.as_str()))
-            .collect();
-        for model in ["qwen3.8-max", "qwen3.8-flash", "qwen3.8-27b"] {
-            assert!(all_models.contains(&model), "档位引用了不存在的模型 {model}");
+    }
+
+    fn collect_refs(node: &serde_json::Value, out: &mut Vec<(String, String)>) {
+        match node {
+            serde_json::Value::Object(map) => {
+                if let (Some(serde_json::Value::String(p)), Some(serde_json::Value::String(m))) =
+                    (map.get("providerId"), map.get("model"))
+                {
+                    out.push((p.clone(), m.clone()));
+                }
+                for v in map.values() {
+                    collect_refs(v, out);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for v in items {
+                    collect_refs(v, out);
+                }
+            }
+            _ => {}
         }
     }
 }

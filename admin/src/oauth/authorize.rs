@@ -33,6 +33,10 @@ pub struct AuthorizeForm {
     pub state: Option<String>,
     #[serde(default)]
     pub code_challenge: String,
+    #[serde(default)]
+    pub captcha_id: String,
+    #[serde(default)]
+    pub captcha: String,
 }
 
 fn escape_html(raw: &str) -> String {
@@ -91,14 +95,33 @@ pub async fn page(
     Query(q): Query<AuthorizeQuery>,
 ) -> ApiResult<Response> {
     validate(&state, &q).await?;
+    let html = render_page(&state, &q, None).await?;
+    Ok(Html(html).into_response())
+}
 
-    let html = format!(
+/// 渲染登录页。失败后要能带着错误信息重新渲染——所以验证码也是这里发的。
+async fn render_page(
+    state: &Shared,
+    q: &AuthorizeQuery,
+    error: Option<&str>,
+) -> ApiResult<String> {
+    let (captcha_id, captcha_image) = crate::captcha::issue(&state.store)
+        .await
+        .map_err(ApiError::internal)?;
+    let error_html = match error {
+        Some(msg) => format!(
+            r#"<p class="err">{}</p>"#,
+            escape_html(msg)
+        ),
+        None => String::new(),
+    };
+    Ok(format!(
         r#"<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pointer 企业控制面 · 登录</title>
 <style>
-:root{{--bg:#f6f7f9;--fg:#1f2328;--muted:#6b7280;--line:#d9dde3;--accent:#185FA5}}
+:root{{--bg:#FAFAFA;--fg:#18181B;--muted:#71717A;--line:#E5E5E8;--accent:#0071EB}}
 *{{box-sizing:border-box}}
 body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
 background:var(--bg);color:var(--fg);
@@ -106,8 +129,12 @@ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft
 .card{{width:380px;padding:32px;background:#fff;border:1px solid var(--line);border-radius:12px}}
 h1{{margin:0 0 6px;font-size:18px}}
 p.sub{{margin:0 0 22px;color:var(--muted);font-size:13px}}
+p.err{{margin:0 0 12px;padding:8px 10px;border-radius:8px;background:#FDEAEA;color:#A12A2A;font-size:13px}}
 label{{display:block;margin:14px 0 6px;font-size:13px;color:var(--muted)}}
 input{{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px}}
+.row{{display:flex;gap:8px;align-items:center}}
+.row input{{flex:1}}
+.row img{{height:40px;border-radius:8px;cursor:pointer;border:1px solid var(--line)}}
 button{{width:100%;margin-top:22px;padding:11px;border:0;border-radius:8px;
 background:var(--accent);color:#fff;font-size:14px;cursor:pointer}}
 .note{{margin-top:16px;color:var(--muted);font-size:12px;line-height:1.6}}
@@ -115,14 +142,21 @@ background:var(--accent);color:#fff;font-size:14px;cursor:pointer}}
 <body><form class="card" method="post" action="/oauth/authorize">
 <h1>登录 Pointer</h1>
 <p class="sub">使用企业账号登录，凭证将由控制面统一下发</p>
+{error_html}
 <input type="hidden" name="client_id" value="{client_id}">
 <input type="hidden" name="redirect_uri" value="{redirect_uri}">
 <input type="hidden" name="state" value="{state_value}">
 <input type="hidden" name="code_challenge" value="{challenge}">
+<input type="hidden" name="captcha_id" value="{captcha_id}">
 <label for="username">账号</label>
 <input id="username" name="username" autocomplete="username" autofocus required>
 <label for="password">密码</label>
 <input id="password" name="password" type="password" autocomplete="current-password" required>
+<label for="captcha">验证码</label>
+<div class="row">
+<input id="captcha" name="captcha" autocomplete="off" maxlength="4" required>
+<img src="{captcha_image}" alt="验证码" title="看不清？刷新页面换一张">
+</div>
 <button type="submit">登录</button>
 <p class="note">首次登录后请立即修改初始密码。账号由管理员统一创建。</p>
 </form></body></html>"#,
@@ -130,8 +164,9 @@ background:var(--accent);color:#fff;font-size:14px;cursor:pointer}}
         redirect_uri = escape_html(&q.redirect_uri),
         state_value = escape_html(q.state.as_deref().unwrap_or("")),
         challenge = escape_html(&q.code_challenge),
-    );
-    Ok(Html(html).into_response())
+        captcha_id = escape_html(&captcha_id),
+        captcha_image = captcha_image,
+    ))
 }
 
 pub async fn submit(
@@ -147,6 +182,17 @@ pub async fn submit(
     };
     validate(&state, &query).await?;
 
+    // 验证码先于密码校验，且答错就换一张——撞库脚本连密码都试不到。
+    if state.config.captcha_required
+        && (form.captcha_id.trim().is_empty()
+            || !crate::captcha::consume(&state.store, form.captcha_id.trim(), form.captcha.trim())
+                .await
+                .map_err(ApiError::internal)?)
+    {
+        let html = render_page(&state, &query, Some("验证码不正确或已过期，请重试")).await?;
+        return Ok(Html(html).into_response());
+    }
+
     let user = users::authenticate(
         &state.store,
         &state.config.tenant_id,
@@ -155,7 +201,9 @@ pub async fn submit(
     )
     .await?;
     let Some(user) = user else {
-        return Err(ApiError::Unauthorized);
+        // 不抛 JSON：让员工能在同一页重试，不然换个验证码还得重开客户端。
+        let html = render_page(&state, &query, Some("账号或密码错误")).await?;
+        return Ok(Html(html).into_response());
     };
 
     let code = crate::oauth::code::issue(

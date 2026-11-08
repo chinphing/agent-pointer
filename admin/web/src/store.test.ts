@@ -86,14 +86,14 @@ describe('login / logout', () => {
 
   it('登录成功写入会话', async () => {
     mockMe({ user: { id: 'u1', username: 'admin', displayName: '管理员' }, roles: ['admin'], permissions: ['user:read'] })
-    await login('admin', 'pw')
+    await login('admin', 'pw', 'cap-id', 'AB2C')
     expect(session.user?.username).toBe('admin')
     expect(session.ready).toBe(true)
   })
 
   it('登录失败抛出错误且不写入会话', async () => {
     mockMe({ error: 'bad_request', message: '用户名或密码错误' }, 400)
-    await expect(login('admin', 'wrong')).rejects.toThrow('用户名或密码错误')
+    await expect(login('admin', 'wrong', 'cap-id', 'AB2C')).rejects.toThrow('用户名或密码错误')
     expect(session.user).toBeNull()
   })
 

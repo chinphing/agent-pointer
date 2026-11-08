@@ -20,6 +20,8 @@ export POINTER_ADMIN_BOOTSTRAP_USER=admin
 export POINTER_ADMIN_BOOTSTRAP_PASSWORD=admin12345
 export POINTER_ADMIN_OAUTH_SECRET=s3cret
 export POINTER_ADMIN_SERVER_REDIRECT=http://127.0.0.1:8787/auth/callback
+# 冒烟脚本解不了验证码，显式关掉；生产环境不要设这个变量。
+export POINTER_ADMIN_CAPTCHA=off
 export RUST_LOG=warn
 
 ./target/debug/pointer-admin >/tmp/pointer-admin.log 2>&1 &

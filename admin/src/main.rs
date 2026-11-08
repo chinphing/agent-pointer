@@ -156,6 +156,12 @@ async fn main() -> Result<()> {
         .addr
         .parse()
         .with_context(|| format!("地址格式不正确：{}", config.addr))?;
+    if !config.captcha_required {
+        log::warn!(
+            "登录验证码已关闭（POINTER_ADMIN_CAPTCHA=off）——只应在自动化测试或内网联调时这么配"
+        );
+    }
+
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .with_context(|| format!("监听 {addr} 失败"))?;

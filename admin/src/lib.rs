@@ -4,6 +4,7 @@
 //! 不依赖 `pointer-core`，只依赖 `pointer-contract`（纯类型 + 哈希）。
 
 pub mod audit;
+pub mod captcha;
 pub mod config;
 pub mod credentials;
 pub mod crypto;

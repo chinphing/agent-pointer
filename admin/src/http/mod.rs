@@ -15,6 +15,7 @@ use crate::state::Shared;
 
 pub fn router() -> Router<Shared> {
     Router::new()
+        .route("/api/admin/auth/captcha", get(auth::issue_captcha))
         .route("/api/admin/auth/login", post(auth::login))
         .route("/api/admin/auth/logout", post(auth::logout))
         .route("/api/admin/me", get(auth::me))

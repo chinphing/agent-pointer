@@ -38,8 +38,13 @@ export async function loadSession(): Promise<void> {
   }
 }
 
-export async function login(username: string, password: string): Promise<void> {
-  const r = await api.post('/api/admin/auth/login', { username, password })
+export async function login(
+  username: string,
+  password: string,
+  captchaId: string,
+  captcha: string
+): Promise<void> {
+  const r = await api.post('/api/admin/auth/login', { username, password, captchaId, captcha })
   session.user = r.user
   session.roles = r.roles || []
   session.permissions = r.permissions || []

@@ -245,10 +245,48 @@ pub async fn overview(
     .await?;
     let today_tokens: i64 = today_rows.iter().map(|r| r.total()).sum();
 
+    // 近 7 天用量：按天汇总，缺的日子补 0，前端直接画柱状图。
+    let mut token_trend = Vec::new();
+    for back in (0..7).rev() {
+        let day = today_string(now_ts() - back * 86_400);
+        let sql = state.store.sql(
+            "SELECT COALESCE(SUM(prompt_tokens + completion_tokens), 0) FROM usage_daily \
+             WHERE tenant_id = ? AND day = ?",
+        );
+        let sum: i64 = sqlx::query::<Any>(&sql)
+            .bind(&state.config.tenant_id)
+            .bind(&day)
+            .fetch_one(state.store.pool())
+            .await?
+            .try_get(0)?;
+        token_trend.push(json!({ "day": day, "tokens": sum }));
+    }
+
+    // 最近 5 条操作：审计里已经有，不必再记一份。
+    let sql = state.store.sql(
+        "SELECT action, actor_name, target_type, created_at FROM audit_log \
+         WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 5",
+    );
+    let rows = sqlx::query::<Any>(&sql)
+        .bind(&state.config.tenant_id)
+        .fetch_all(state.store.pool())
+        .await?;
+    let mut recent_actions = Vec::new();
+    for row in &rows {
+        recent_actions.push(json!({
+            "action": row.try_get::<String, _>(0)?,
+            "actorName": row.try_get::<String, _>(1)?,
+            "targetType": row.try_get::<String, _>(2)?,
+            "createdAt": row.try_get::<i64, _>(3)?,
+        }));
+    }
+
     Ok(Json(json!({
         "users": { "total": users_total, "active": users_active },
         "resources": resources_by_kind,
         "todayTokens": today_tokens,
+        "tokenTrend": token_trend,
+        "recentActions": recent_actions,
         "oauthConfigured": state.config.oauth_secret.is_some(),
     })))
 }

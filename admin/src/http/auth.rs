@@ -98,12 +98,45 @@ fn cleared_cookie(state: &Shared) -> String {
 pub struct LoginBody {
     pub username: String,
     pub password: String,
+    #[serde(default, rename = "captchaId", alias = "captcha_id")]
+    pub captcha_id: String,
+    #[serde(default)]
+    pub captcha: String,
+}
+
+/// 发一张登录验证码。公开接口——登录前就要能拿到。
+///
+/// 同时告诉前端「这次登录要不要验证码」：关掉验证码时前端不该显示这个框，
+/// 否则必填项会把登录卡住。
+pub async fn issue_captcha(State(state): State<Shared>) -> ApiResult<Json<Value>> {
+    if !state.config.captcha_required {
+        return Ok(Json(json!({ "required": false })));
+    }
+    let (id, image) = crate::captcha::issue(&state.store)
+        .await
+        .map_err(ApiError::internal)?;
+    Ok(Json(json!({ "required": true, "id": id, "image": image })))
 }
 
 pub async fn login(
     State(state): State<Shared>,
     Json(body): Json<LoginBody>,
 ) -> ApiResult<Response> {
+    // 先验验证码再验密码：撞库脚本连密码都试不到。
+    if state.config.captcha_required {
+        let captcha_id = body.captcha_id.trim();
+        let captcha_answer = body.captcha.trim();
+        if captcha_id.is_empty() || captcha_answer.is_empty() {
+            return Err(ApiError::BadRequest("请填写验证码".into()));
+        }
+        if !crate::captcha::consume(&state.store, captcha_id, captcha_answer)
+            .await
+            .map_err(ApiError::internal)?
+        {
+            return Err(ApiError::BadRequest("验证码不正确或已过期，请刷新重试".into()));
+        }
+    }
+
     let user = users::authenticate(
         &state.store,
         &state.config.tenant_id,

@@ -5343,6 +5343,7 @@ dependencies = [
  "hkdf",
  "log",
  "machine-uid",
+ "png 0.17.16",
  "pointer-contract",
  "rand 0.8.6",
  "reqwest 0.12.28",

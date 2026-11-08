@@ -292,19 +292,7 @@ const performanceModeLabel = computed(
   () => t(`chat.mode${performanceMode.value === 'fast' ? 'Fast' : performanceMode.value === 'expert' ? 'Expert' : 'Standard'}`)
 )
 
-/**
- * 企业锁定档位：设置页置灰之外，聊天框这个按会话切换的口子也得堵上，
- * 否则员工在聊天里一换就绕过去了。
- */
-const tierLockedByOrg = computed(() =>
-  Boolean(
-    (settings.platformSettings as { tierDefaults?: { lockTiers?: boolean } })?.tierDefaults
-      ?.lockTiers
-  )
-)
-
 function selectMode(mode: PerformanceMode) {
-  if (tierLockedByOrg.value) return
   chat.setConversationPerformanceMode(mode)
   modePickerOpen.value = false
 }
@@ -2082,12 +2070,8 @@ onUnmounted(() => {
                       v-for="m in PERFORMANCE_MODE_OPTIONS"
                       :key="m.value"
                       type="button"
-                      class="composer-dropdown-item composer-dropdown-item--compact"
-                      :class="[
-                        m.value === performanceMode ? 'composer-dropdown-item-active' : '',
-                        tierLockedByOrg ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
-                      ]"
-                      :disabled="tierLockedByOrg"
+                      class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
+                      :class="m.value === performanceMode ? 'composer-dropdown-item-active' : ''"
                       @click="selectMode(m.value)"
                     >
                       <component :is="PERFORMANCE_MODE_ICONS[m.value]" class="w-3 h-3 shrink-0" />

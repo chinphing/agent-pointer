@@ -850,8 +850,7 @@
       "exploreDesc": "Explore codebases, symbols, and research",
       "imageDesc": "Understand images",
       "audioDesc": "Speech to text",
-      "videoDesc": "Analyze video frames",
-      "tierLockedByOrg": "Tiers are locked by your organization"
+      "videoDesc": "Analyze video frames"
     },
     "agentPanel": {
       "smartMode": "Smart mode",

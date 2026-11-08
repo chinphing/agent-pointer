@@ -90,14 +90,6 @@ function setIntensity(scene: string, group: string, tier: string, value: string)
   else delete cur.thinkingIntensity
 }
 
-/** 锁定档位：员工端的档位选择器会置灰。 */
-const lockTiers = computed(() => Boolean(payload.value?.lockTiers))
-
-function setLockTiers(on: boolean) {
-  if (on) payload.value.lockTiers = true
-  else delete payload.value.lockTiers
-}
-
 function setModel(scene: string, group: string, tier: string, slug: string) {
   if (!payload.value[group]) payload.value[group] = {}
   if (!payload.value[group][scene]) payload.value[group][scene] = {}
@@ -167,16 +159,6 @@ async function createDefault() {
     </div>
 
     <template v-else>
-      <label class="row" style="gap: 8px; margin-bottom: 10px">
-        <input
-          type="checkbox"
-          style="width: auto"
-          :checked="lockTiers"
-          :disabled="!canWrite"
-          @change="setLockTiers(($event.target as HTMLInputElement).checked)"
-        />
-        <span class="small">锁定档位（员工端档位选择器置灰，只能按企业配置跑）</span>
-      </label>
       <p class="small muted" style="margin: 0 0 12px">
         每格 = 该场景该档位使用的模型；留空表示「继承默认」，客户端用自己的内置档位模型。
         这是**默认值**：员工自己改过某一档，这里的配置不覆盖他。

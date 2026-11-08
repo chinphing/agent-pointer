@@ -850,8 +850,7 @@
       "exploreDesc": "代码库探索、符号映射与资料检索",
       "imageDesc": "识别图片内容",
       "audioDesc": "语音转文字",
-      "videoDesc": "分析视频画面",
-      "tierLockedByOrg": "企业已锁定档位，员工不可修改"
+      "videoDesc": "分析视频画面"
     },
     "agentPanel": {
       "smartMode": "智能模式",

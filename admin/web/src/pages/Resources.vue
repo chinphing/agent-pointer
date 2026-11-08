@@ -467,7 +467,13 @@ onMounted(async () => {
         服务商 / 模型 / 技能 / 插件 / MCP / 档位映射共用一套存储与授权。
       </p>
     </div>
-    <button v-if="canWrite" class="primary" @click="openCreate">新建{{ KINDS.find((k) => k.key === kind)?.label }}</button>
+    <!-- 模型不单独建：它属于某个服务商，跟着服务商一起配 -->
+    <span v-if="kind === 'model'" class="small muted">
+      模型跟着服务商配 —— 到「模型服务」里编辑对应服务商即可增删
+    </span>
+    <button v-else-if="canWrite" class="primary" @click="openCreate">
+      新建{{ KINDS.find((k) => k.key === kind)?.label }}
+    </button>
   </div>
 
   <div class="tabs" style="margin-top: 16px">

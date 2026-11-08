@@ -165,9 +165,16 @@ td.actions .row, .actions-row { display: flex; align-items: center; gap: 6px; ju
   padding: 22px 24px;
   border: 1px solid var(--line);
 }
+/* 弹窗内容一长，保存按钮就被挤到可视区外 —— 操作栏吸底，永远点得到 */
 .modal-actions {
+  position: sticky;
+  bottom: -22px;
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 20px;
+  margin: 16px -24px -22px;
+  padding: 12px 24px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 12px 12px;
 }

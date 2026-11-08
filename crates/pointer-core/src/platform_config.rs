@@ -541,6 +541,25 @@ mod tests {
         assert_eq!(qwen.source.as_deref(), Some("platform"));
     }
 
+    /// 管理端给单个模型配的能力与生成参数，必须落到该模型的 model_configs，
+    /// 而不是被服务商级默认覆盖掉。
+    #[test]
+    fn apply_login_platform_providers_copies_model_level_capabilities() {
+        let mut providers: Vec<ProviderConfig> = Vec::new();
+        let mut tpl = qwen_template();
+        tpl.models[0].supports_vision = Some(true);
+        tpl.models[0].supports_audio = Some(false);
+        tpl.models[0].max_tokens = Some(8192);
+        tpl.models[0].thinking_intensity = Some("high".into());
+        apply_login_platform_providers(&mut providers, &[tpl]);
+        let qwen = providers.iter().find(|p| p.id == "qwen").unwrap();
+        let cfg = qwen.model_configs.get("qwen3.5-plus").expect("model config");
+        assert_eq!(cfg.supports_vision, Some(true));
+        assert_eq!(cfg.supports_audio, Some(false));
+        assert_eq!(cfg.max_tokens, Some(8192));
+        assert_eq!(cfg.thinking_intensity.as_deref(), Some("high"));
+    }
+
     #[test]
     fn apply_login_platform_providers_copies_context_budget() {
         let mut providers: Vec<ProviderConfig> = Vec::new();

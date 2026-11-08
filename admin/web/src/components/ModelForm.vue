@@ -11,6 +11,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
+import { CAP_KEYS, LIMIT_KEYS, THINKING_KEYS, buildModelPayload, payloadToState } from '../lib/modelPayload'
 
 const props = defineProps<{ resource: any; providers: any[] }>()
 const emit = defineEmits<{ (e: 'saved'): void; (e: 'cancel'): void }>()
@@ -25,38 +26,20 @@ const error = ref('')
 
 const provider = computed(() => props.providers.find((p) => p.id === props.resource?.parentId))
 
-/** 三态布尔：'' = 跟随服务商，'true' / 'false' 显式下发。 */
-function tri(v: unknown): string {
-  if (v === true) return 'true'
-  if (v === false) return 'false'
-  return ''
+const initial = payloadToState(payload.value)
+const caps = ref<Record<string, string>>(initial.caps)
+const limits = ref<Record<string, string>>(initial.limits)
+const thinking = ref<Record<string, string>>(initial.thinking)
+
+const CAP_LABELS: Record<string, string> = {
+  supportsVision: 'vision',
+  supportsAudio: 'audio',
+  canGenerateImage: 'imageOut',
+  canGenerateVideo: 'videoOut',
 }
-
-const caps = ref({
-  supportsVision: tri(payload.value.supportsVision),
-  supportsAudio: tri(payload.value.supportsAudio),
-  canGenerateImage: tri(payload.value.canGenerateImage),
-  canGenerateVideo: tri(payload.value.canGenerateVideo),
-})
-
-const limits = ref({
-  contextBudgetTokens: payload.value.contextBudgetTokens ?? '',
-  maxTokens: payload.value.maxTokens ?? '',
-  temperature: payload.value.temperature ?? '',
-  topP: payload.value.topP ?? '',
-})
-
-const thinking = ref({
-  enableThinking: tri(payload.value.enableThinking),
-  thinkingIntensity: payload.value.thinkingIntensity ?? '',
-  thinkingBudget: payload.value.thinkingBudget ?? '',
-  reasoningEffort: payload.value.reasoningEffort ?? '',
-  thinkingProtocol: payload.value.thinkingProtocol ?? '',
-  reasoningInMessages: tri(payload.value.reasoningInMessages),
-})
-
 const INTENSITY = ['', 'off', 'low', 'medium', 'high', 'max']
-const EFFORT = ['', 'low', 'medium', 'high', 'max']
+/** 客户端 normalize_reasoning_effort 只认 high / max，其余值会被丢掉。 */
+const EFFORT = ['', 'high', 'max']
 
 function intensityLabel(v: string) {
   return v ? t(`tier.thinking_${v}`) : t('models.follow')
@@ -66,14 +49,11 @@ async function submit() {
   error.value = ''
   busy.value = true
   try {
-    // 只把填了的字段写进 payload：留空 = 不下发，客户端继续继承服务商默认。
-    const next: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(caps.value)) if (v !== '') next[k] = v === 'true'
-    for (const [k, v] of Object.entries(limits.value)) if (v !== '' && v !== null) next[k] = Number(v)
-    for (const [k, v] of Object.entries(thinking.value)) {
-      if (v === '' || v === null) continue
-      next[k] = k === 'enableThinking' || k === 'reasoningInMessages' ? v === 'true' : v
-    }
+    const next = buildModelPayload({
+      caps: caps.value,
+      limits: limits.value,
+      thinking: thinking.value,
+    })
 
     await api.put(`/api/admin/resources/${props.resource.id}`, {
       name: name.value.trim() || props.resource.slug,
@@ -116,14 +96,9 @@ async function submit() {
       <fieldset>
         <legend>{{ t('models.capabilities') }}</legend>
         <div class="cap-grid">
-          <label v-for="(labelKey, key) in {
-            supportsVision: 'models.vision',
-            supportsAudio: 'models.audio',
-            canGenerateImage: 'models.imageOut',
-            canGenerateVideo: 'models.videoOut',
-          }" :key="key" class="cap">
-            <span>{{ t(labelKey) }}</span>
-            <select v-model="caps[key as keyof typeof caps]">
+          <label v-for="key in CAP_KEYS" :key="key" class="cap">
+            <span>{{ t(`models.${CAP_LABELS[key]}`) }}</span>
+            <select v-model="caps[key]">
               <option value="">{{ t('models.follow') }}</option>
               <option value="true">{{ t('models.yes') }}</option>
               <option value="false">{{ t('models.no') }}</option>
@@ -180,10 +155,6 @@ async function submit() {
             <select v-model="thinking.reasoningEffort">
               <option v-for="v in EFFORT" :key="v" :value="v">{{ v || t('models.follow') }}</option>
             </select>
-          </div>
-          <div>
-            <label>thinkingProtocol</label>
-            <input v-model="thinking.thinkingProtocol" :placeholder="t('models.follow')" />
           </div>
           <div>
             <label>{{ t('models.reasoningInMessages') }}</label>

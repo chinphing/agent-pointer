@@ -292,9 +292,14 @@ M0 不做。M0 只做下发默认值。
 | --- | --- |
 | 能力 | `supportsVision` / `supportsAudio` / `canGenerateImage` / `canGenerateVideo` |
 | 上下文与生成 | `contextBudgetTokens` / `maxTokens` / `temperature` / `topP` |
-| 思考 | `enableThinking` / `thinkingBudget` / `thinkingIntensity` / `reasoningEffort` / `thinkingProtocol` / `reasoningInMessages` |
+| 思考 | `enableThinking` / `thinkingBudget` / `thinkingIntensity` / `reasoningEffort` / `reasoningInMessages` |
 
-留空 = 不下发 = 客户端继承服务商默认。`name` 由 slug 决定（真正发给模型接口的 id），
+留空 = 不下发 = 客户端继承服务商默认。
+
+两个坑（界面已按此约束）：
+
+- `reasoningEffort` 客户端只认 `high` / `max`，别的值被 `normalize_reasoning_effort` 丢掉
+- `thinkingProtocol` 客户端 `platform_config.rs` 里硬写成 `None`，**平台配了不生效**，界面不露出`name` 由 slug 决定（真正发给模型接口的 id），
 资源自身的 `name` 只是显示名，两者不能混。
 
 **电脑操控的定位链**单独配（`computerPipelineLlm`）：`locate` / `locateVerify` / `verify`

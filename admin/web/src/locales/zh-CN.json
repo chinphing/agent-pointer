@@ -413,7 +413,13 @@
     "publishedV": "已发布 {v}",
     "deleteVersion2": "删除版本 {v}？",
     "enableShort": "启用",
-    "disableShort": "停用"
+    "disableShort": "停用",
+    "newKind": "新建{kind}",
+    "visibility": "可见范围",
+    "visAll": "全员",
+    "visPick": "指定",
+    "pickAfterCreate": "建好后会打开授权面板，选具体角色或成员",
+    "orphanProvider": "服务商已删除"
   },
   "common2": {},
   "topbar": {

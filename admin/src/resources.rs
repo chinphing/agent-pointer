@@ -312,7 +312,34 @@ pub async fn secret(store: &AdminStore, id: &str) -> Result<Option<EncryptedSecr
     }
 }
 
+/// 删除资源。服务商连带删除它下面的模型，并把授权一起清掉。
+///
+/// 删除前查一遍档位映射：**任何被引用的模型都不允许删**，否则客户端会拿到
+/// 指向不存在模型的档位，运行时才炸。删单个模型和删整个服务商走同一套检查。
 pub async fn delete(store: &AdminStore, id: &str) -> Result<bool> {
+    let children = children_of(store, id).await?;
+    let mut doomed: Vec<String> = children.iter().map(|c| c.slug.clone()).collect();
+    if let Some(own) = slug_of(store, id).await? {
+        doomed.push(own);
+    }
+    let used = referenced_by_tier_profiles(store, &doomed).await?;
+    if !used.is_empty() {
+        anyhow::bail!(
+            "这些模型还被档位映射引用，先改档位再删：{}",
+            used.join("、")
+        );
+    }
+
+    // 先删子资源与授权，再删自己：老库没有外键，顺序反了会留孤儿
+    for child in &children {
+        let sql = store.sql("DELETE FROM resource_grants WHERE resource_id = ?");
+        sqlx::query::<Any>(&sql).bind(&child.id).execute(store.pool()).await?;
+        let sql = store.sql("DELETE FROM resources WHERE id = ?");
+        sqlx::query::<Any>(&sql).bind(&child.id).execute(store.pool()).await?;
+    }
+    let sql = store.sql("DELETE FROM resource_grants WHERE resource_id = ?");
+    sqlx::query::<Any>(&sql).bind(id).execute(store.pool()).await?;
+
     let sql = store.sql("DELETE FROM resources WHERE id = ?");
     Ok(sqlx::query::<Any>(&sql)
         .bind(id)
@@ -320,6 +347,58 @@ pub async fn delete(store: &AdminStore, id: &str) -> Result<bool> {
         .await?
         .rows_affected()
         > 0)
+}
+
+async fn slug_of(store: &AdminStore, id: &str) -> Result<Option<String>> {
+    let sql = store.sql("SELECT slug FROM resources WHERE id = ?");
+    let row: Option<(String,)> = sqlx::query_as::<Any, (String,)>(&sql)
+        .bind(id)
+        .fetch_optional(store.pool())
+        .await?;
+    Ok(row.map(|r| r.0))
+}
+
+async fn children_of(store: &AdminStore, id: &str) -> Result<Vec<ChildResource>> {
+    let sql = store.sql("SELECT id, slug FROM resources WHERE parent_id = ?");
+    let rows: Vec<(String, String)> = sqlx::query_as::<Any, (String, String)>(&sql)
+        .bind(id)
+        .fetch_all(store.pool())
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, slug)| ChildResource { id, slug })
+        .collect())
+}
+
+struct ChildResource {
+    id: String,
+    slug: String,
+}
+
+/// 档位映射里引用了哪些 slug。payload 是 JSON，按 `"model":"<slug>"` 精确匹配，
+/// 不做前缀或子串猜测。
+async fn referenced_by_tier_profiles(
+    store: &AdminStore,
+    slugs: &[String],
+) -> Result<Vec<String>> {
+    if slugs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let sql = store.sql("SELECT payload_json FROM resources WHERE kind = 'tier_profile'");
+    let payloads: Vec<(String,)> = sqlx::query_as::<Any, (String,)>(&sql)
+        .fetch_all(store.pool())
+        .await?;
+    let mut hits: Vec<String> = Vec::new();
+    for (payload,) in payloads {
+        for slug in slugs {
+            let needle = format!("\"model\":\"{slug}\"");
+            let spaced = format!("\"model\": \"{slug}\"");
+            if (payload.contains(&needle) || payload.contains(&spaced)) && !hits.contains(slug) {
+                hits.push(slug.clone());
+            }
+        }
+    }
+    Ok(hits)
 }
 
 #[cfg(test)]
@@ -330,6 +409,83 @@ mod tests {
 
     async fn store() -> AdminStore {
         AdminStore::connect_in_memory().await.expect("store")
+    }
+
+    async fn make_provider(store: &AdminStore, slug: &str) -> Resource {
+        create(
+            store,
+            DEFAULT_TENANT,
+            KIND_PROVIDER,
+            slug,
+            "阿里云百炼",
+            "",
+            None,
+            "{}",
+            None,
+        )
+        .await
+        .expect("provider")
+    }
+
+    async fn make_model(store: &AdminStore, provider: &Resource, slug: &str) -> Resource {
+        create(
+            store,
+            DEFAULT_TENANT,
+            KIND_MODEL,
+            slug,
+            slug,
+            "",
+            Some(&provider.id),
+            "{}",
+            None,
+        )
+        .await
+        .expect("model")
+    }
+
+    /// 删服务商要连带删模型，否则模型变成 parent_id 指向空资源的孤儿，
+    /// 还会继续出现在档位矩阵的模型下拉里。
+    #[tokio::test]
+    async fn delete_provider_cascades_to_models() {
+        let store = store().await;
+        let p = make_provider(&store, "bailian").await;
+        let m1 = make_model(&store, &p, "qwen-plus").await;
+        let m2 = make_model(&store, &p, "qwen-max").await;
+
+        assert!(delete(&store, &p.id).await.expect("delete provider"));
+        assert!(get(&store, &m1.id).await.expect("query").is_none(), "模型应被一起删掉");
+        assert!(get(&store, &m2.id).await.expect("query").is_none(), "模型应被一起删掉");
+    }
+
+    /// 被档位映射引用的模型不能删，删服务商也不行 —— 否则客户端拿到死档位。
+    #[tokio::test]
+    async fn delete_refuses_models_referenced_by_tier_profile() {
+        let store = store().await;
+        let p = make_provider(&store, "bailian").await;
+        let m = make_model(&store, &p, "qwen-plus").await;
+        create(
+            &store,
+            DEFAULT_TENANT,
+            KIND_TIER_PROFILE,
+            "default",
+            "默认档位映射",
+            "",
+            None,
+            r#"{"agentModeLlm":{"general":{"fast":{"providerId":"bailian","model":"qwen-plus"}}}}"#,
+            None,
+        )
+        .await
+        .expect("tier profile");
+
+        let err = delete(&store, &m.id).await.expect_err("应拒绝");
+        assert!(err.to_string().contains("qwen-plus"), "报错要点名是哪个模型");
+
+        let err = delete(&store, &p.id).await.expect_err("删服务商也要拒绝");
+        assert!(err.to_string().contains("qwen-plus"));
+
+        // 资源都还在
+        assert!(get(&store, &m.id).await.expect("query").is_some());
+        assert!(get(&store, &p.id).await.expect("query").is_some());
     }
 
     #[tokio::test]

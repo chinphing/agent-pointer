@@ -104,14 +104,30 @@ const detailFor = ref<any>(null)
 // 行内「更多」菜单（把授权/版本/看密钥/停用/删除收起来，避免一排六个按钮挤成竖排）
 const menuFor = ref<string | null>(null)
 
-/** 模型所属服务商的显示名（列表里比父 id 前 8 位好读）。 */
+/** 模型所属服务商的显示名。查 providers 而不是 items —— 模型页里 items 全是模型。 */
 function providerName(row: any) {
-  const p = items.value.find((r: any) => r.id === row.parentId)
+  const p = providers.value.find((r: any) => r.id === row.parentId)
   return p?.name || ''
+}
+
+/** 模型挂在一个已经不存在的服务商下面（历史数据）。 */
+function isOrphan(row: any) {
+  if (row.kind !== 'model') return false
+  return Boolean(row.parentId) && !providers.value.some((r: any) => r.id === row.parentId)
 }
 
 function toggleMenu(id: string) {
   menuFor.value = menuFor.value === id ? null : id
+}
+
+/** 建好但还没授权：直接打开授权面板，省一次翻找。 */
+async function onProviderCreated(id: string) {
+  creating.value = false
+  editing.value = null
+  await load()
+  const row = items.value.find((r: any) => r.id === id)
+  if (row) openGrants(row)
+  else notice.value = t('resources.created')
 }
 
 async function onProviderSaved() {
@@ -481,7 +497,7 @@ onMounted(async () => {
       {{ t('resources.modelsWithProvider') }}
     </span>
     <button v-else-if="canWrite" class="primary" @click="openCreate">
-      {{ t('resources.new') }}
+      {{ t('resources.newKind', { kind: t(KINDS.find((k) => k.key === kind)?.labelKey || '') }) }}
     </button>
   </div>
 
@@ -551,6 +567,9 @@ onMounted(async () => {
             <div v-if="row.kind === 'model' && providerName(row)" class="small muted">
               来自 {{ providerName(row) }}
             </div>
+            <div v-else-if="isOrphan(row)" class="small" style="color: var(--danger)">
+              {{ t('resources.orphanProvider') }}
+            </div>
           </td>
           <td>
             <span class="tag" :class="row.enabled ? 'ok' : 'plain'">
@@ -613,6 +632,7 @@ onMounted(async () => {
     v-if="(creating || editing) && kind === 'provider'"
     :resource="editing"
     @saved="onProviderSaved"
+    @created="onProviderCreated"
     @cancel="creating = false; editing = null"
   />
 

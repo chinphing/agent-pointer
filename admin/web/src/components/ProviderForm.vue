@@ -14,7 +14,12 @@ import { api, errText } from '../api'
 
 const props = defineProps<{ resource: any | null }>()
 const { t } = useI18n()
-const emit = defineEmits<{ (e: 'saved'): void; (e: 'cancel'): void }>()
+const emit = defineEmits<{
+  (e: 'saved'): void
+  (e: 'cancel'): void
+  /** 指定可见范围时，父组件拿 id 打开授权面板 */
+  (e: 'created', id: string): void
+}>()
 
 const TEMPLATES = [
   {
@@ -59,6 +64,8 @@ const existingIds = ref<Record<string, string>>({})
 const loaded = ref(false)
 
 const newModel = ref('')
+/** 可见范围（设计图 07）：全员直接授权；指定则建完后打开授权面板挑人。 */
+const visibility = ref<'all' | 'pick'>('all')
 
 // 上一次由模板自动填进去的值：只有用户没动过才跟着模板换，
 // 否则从「百炼」切到「DeepSeek」会留下一个叫「阿里云百炼」的 DeepSeek 服务商。
@@ -227,8 +234,13 @@ async function submit() {
         payload: {},
       })
     }
-    await api.put(`/api/admin/resources/${created.id}/grants`, { items: [{ type: 'all' }] })
-    emit('saved')
+    if (visibility.value === 'all') {
+      await api.put(`/api/admin/resources/${created.id}/grants`, { items: [{ type: 'all' }] })
+      emit('saved')
+    } else {
+      // 不给授权 = 谁都看不到，正好等管理员在授权面板里挑
+      emit('created', created.id)
+    }
   } catch (e) {
     error.value = errText(e)
   } finally {
@@ -324,6 +336,29 @@ async function submit() {
 
       </div>
 
+      <template v-if="!isEdit">
+        <label>{{ t('resources.visibility') }}</label>
+        <div class="row" style="gap: 8px">
+          <button
+            type="button"
+            class="pill"
+            :class="{ active: visibility === 'all' }"
+            @click="visibility = 'all'"
+          >
+            {{ t('resources.visAll') }}
+          </button>
+          <button
+            type="button"
+            class="pill"
+            :class="{ active: visibility === 'pick' }"
+            @click="visibility = 'pick'"
+          >
+            {{ t('resources.visPick') }}
+          </button>
+          <span v-if="visibility === 'pick'" class="small muted">{{ t('resources.pickAfterCreate') }}</span>
+        </div>
+      </template>
+
       <div v-if="error" class="err" style="margin-top: 12px">{{ error }}</div>
       <div v-if="notice" class="okmsg" style="margin-top: 12px">{{ notice }}</div>
 
@@ -353,4 +388,13 @@ async function submit() {
   border-radius: 6px;
 }
 .model-row:hover { background: var(--panel-alt); }
+.pill {
+  font-size: 12px;
+  padding: 4px 14px;
+  border-radius: 13px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.pill.active { background: #edf5fd; border-color: var(--accent); color: var(--accent); }
 </style>

@@ -413,7 +413,13 @@
     "publishedV": "Published {v}",
     "deleteVersion2": "Delete version {v}?",
     "enableShort": "Enable",
-    "disableShort": "Disable"
+    "disableShort": "Disable",
+    "newKind": "New {kind}",
+    "visibility": "Visible to",
+    "visAll": "Everyone",
+    "visPick": "Specific",
+    "pickAfterCreate": "The grants panel opens right after creation",
+    "orphanProvider": "Provider deleted"
   },
   "common2": {},
   "topbar": {

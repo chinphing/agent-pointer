@@ -95,12 +95,18 @@ const providerSlugById = computed(() => {
   return map
 })
 
+/**
+ * 可选模型。挂在不存在的服务商下面的模型要排除 —— 选了它会写进
+ * `providerId: ""`，客户端拿到一个没有服务商的档位，等于配了个死档。
+ */
 const modelOptions = computed(() =>
-  (props.models || []).map((m: any) => ({
-    slug: m.slug,
-    label: m.name || m.slug,
-    providerId: providerSlugById.value[m.parentId] || '',
-  }))
+  (props.models || [])
+    .filter((m: any) => providerSlugById.value[m.parentId])
+    .map((m: any) => ({
+      slug: m.slug,
+      label: m.name || m.slug,
+      providerId: providerSlugById.value[m.parentId],
+    }))
 )
 
 function cell(scene: string, group: string, tier: string): any {

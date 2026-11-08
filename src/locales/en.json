@@ -952,7 +952,9 @@
       "providerMissing": "Provider not found; cancel and edit again",
       "fieldsRequired": "Enter service ID, name, and API URL",
       "applyFailed": "Failed to apply settings; try again",
-      "deleteFailed": "Failed to delete service; try again"
+      "deleteFailed": "Failed to delete service; try again",
+      "moreServices": "More providers ({n})",
+      "fewerServices": "Show less"
     },
     "channels": {
       "brands": {

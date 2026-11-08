@@ -219,7 +219,9 @@
     "secretCurrent": "Current key",
     "secretMaskHint": "Key must not contain • placeholders — replace the whole value",
     "secretHint": "Replace the whole value to rotate; clearing and saving deletes it.",
-    "secretHintNew": "Fill it in, then use “Test connection” below to verify."
+    "secretHintNew": "Fill it in, then use “Test connection” below to verify.",
+    "moreTemplates": "More providers ({n})",
+    "fewerTemplates": "Show less"
   },
   "tier": {
     "title": "Default tier mapping",

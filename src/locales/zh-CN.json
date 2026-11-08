@@ -952,7 +952,9 @@
       "providerMissing": "找不到要更新的服务商，请取消后重新编辑",
       "fieldsRequired": "请填写服务 ID、名称和 API 地址",
       "applyFailed": "应用配置失败，请重试",
-      "deleteFailed": "删除服务失败，请重试"
+      "deleteFailed": "删除服务失败，请重试",
+      "moreServices": "更多服务商（{n}）",
+      "fewerServices": "收起"
     },
     "channels": {
       "brands": {

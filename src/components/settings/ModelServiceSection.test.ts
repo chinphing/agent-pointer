@@ -215,12 +215,29 @@ describe('ModelServiceSection', () => {
 
     const dialog = document.body
     expect(dialog.textContent).toContain('填入 API Key。地址和模型已预设。')
-    expect(dialog.textContent).toContain('DeepSeek')
-    expect(dialog.textContent).toContain('MiMo')
-    expect(dialog.textContent).toContain('Kimi')
-    expect(dialog.textContent).toContain('GLM')
-    expect(dialog.textContent).toContain('其他')
-    expect(dialog.textContent).not.toContain('Qwen')
+    // 常用四个直接露出，其余收进「更多服务商」
+    const buttonLabels = () =>
+      [...dialog.querySelectorAll('button')].map(b => b.textContent?.trim() ?? '')
+    const has = (text: string) => buttonLabels().some(l => l.includes(text))
+    expect(has('Kimi')).toBe(true)
+    expect(has('OpenAI')).toBe(true)
+    expect(has('其他')).toBe(true)
+    expect(has('GLM')).toBe(true)
+    expect(has('DeepSeek')).toBe(false)
+    expect(has('小米 MiMo')).toBe(false)
+    expect(has('阿里百炼')).toBe(false)
+    // 展开后其余服务商出现
+    buttonLabels()
+    ;[...dialog.querySelectorAll<HTMLButtonElement>('button')]
+      .find(b => b.textContent?.includes('更多服务商'))!
+      .click()
+    await settle()
+    expect(has('DeepSeek')).toBe(true)
+    expect(has('小米 MiMo')).toBe(true)
+    ;[...dialog.querySelectorAll<HTMLButtonElement>('button')]
+      .find(b => b.textContent?.trim() === 'DeepSeek')!
+      .click()
+    await settle()
     expect(dialog.textContent).toContain('https://api.deepseek.com/v1')
     expect(dialog.textContent).toContain('deepseek-flash')
     expect(dialog.textContent).not.toContain('模型参数')

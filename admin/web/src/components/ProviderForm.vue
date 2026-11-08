@@ -69,6 +69,17 @@ const TEMPLATES: TemplateOption[] = [
   { id: 'custom', label: t('provider.tplCustom'), slug: '', name: '', baseUrl: '', models: [] },
 ]
 
+/** 常用四个直接露出，其余收进「更多服务商」，避免一次铺满十几个。 */
+const PRIMARY_TEMPLATE_IDS = new Set(['zhipu', 'kimi', 'openai', 'custom'])
+const moreTemplatesOpen = ref(false)
+const primaryTemplates = computed(() => TEMPLATES.filter((t) => PRIMARY_TEMPLATE_IDS.has(t.id)))
+const restTemplates = computed(() => TEMPLATES.filter((t) => !PRIMARY_TEMPLATE_IDS.has(t.id)))
+const visibleTemplates = computed(() => {
+  if (moreTemplatesOpen.value) return [...primaryTemplates.value, ...restTemplates.value]
+  const selected = restTemplates.value.find((t) => t.id === template.value)
+  return selected ? [...primaryTemplates.value, selected] : primaryTemplates.value
+})
+
 const isEdit = computed(() => Boolean(props.resource))
 const template = ref('bailian')
 const form = ref({ slug: '', name: '', baseUrl: '', apiKey: '' })
@@ -351,7 +362,7 @@ async function submit() {
         <label>{{ t('provider.chooseTemplate') }}</label>
         <div class="tpl-grid">
           <button
-            v-for="item in TEMPLATES"
+            v-for="item in visibleTemplates"
             :key="item.id"
             type="button"
             class="tpl"
@@ -359,6 +370,14 @@ async function submit() {
             @click="applyTemplate(item.id)"
           >
             {{ item.label }}
+          </button>
+          <button
+            v-if="restTemplates.length"
+            type="button"
+            class="tpl tpl-more"
+            @click="moreTemplatesOpen = !moreTemplatesOpen"
+          >
+            {{ moreTemplatesOpen ? t('provider.fewerTemplates') : t('provider.moreTemplates', { n: restTemplates.length }) }}
           </button>
         </div>
       </template>
@@ -568,4 +587,5 @@ async function submit() {
 }
 .defaults-toggle:hover { color: var(--fg); }
 .three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.tpl-more { border-style: dashed; color: var(--muted); }
 </style>

@@ -365,13 +365,17 @@ M2 需要「不同部门不同档位」时，改成多条 + `resource_grants`，
 | 工程 | `src/`（根 `package.json`） | `admin/web/`（独立 `package.json`） |
 | 产物 | `dist/`，server 与桌面共用 | `admin/web/dist`，由 admin 进程 serve |
 | 语言 | zh + en，`localeParity.test.ts` 强制同键 | 只中文，不接 i18n |
-| 主题 | `src/styles/globals.css` | 复制同一组 CSS 变量，注释标注来源 |
-| 路由 | 无 router，两态 | 无 router，登录页 + 后台两态 |
-| 页面 | 聊天 / 设置 | 概览 / 成员 / 角色与权限 / 资源 / 档位映射 / 用量 / 审计 |
+| 主题 | `src/styles/globals.css` | 取值与客户端 token 对齐（zinc 灰阶 + `#0071EB`），见 `admin-mockups/` |
+| 路由 | 无 router，两态 | vue-router hash 路由（刷新任意页不 404） |
+| 页面 | 聊天 / 设置 | 概览 / 成员 / 角色 / 资源 / 用量 / 审计（6 页，档位映射是资源页的一个页签） |
+
+界面线框图在 [`admin-mockups/`](admin-mockups/)（9 张，含登录、概览、资源、角色权限、
+详情抽屉、授权浮层、新建模型服务、档位映射）。**改界面先看图，别自己发挥。**
 
 「复制 CSS 变量」是唯一刻意的重复（约 30 行），换来客户端与 server 前端**零改动**。
 
-管理端登录页就是 admin 的 `/`，员工与管理员同一个页面，按 `redirect_uri` 分流。
+登录入口有两个，各自独立：员工与桌面客户端走服务端渲染的 `/oauth/authorize`
+（自包含页面，不依赖前端路由）；管理员走 SPA 的 `#/login`。
 
 「资源」页是统一列表，用 `kind` 筛选出技能、模型、插件——这是「技能与其它功能同样管理」在界面上的直接体现。
 

@@ -1,0 +1,23 @@
+<svg viewBox="0 0 1040 560" xmlns="http://www.w3.org/2000/svg" role="img">
+  <title>管理端登录页</title>
+  <rect width="1040" height="560" fill="#F7F7F8"/>
+  <rect x="320" y="80" width="400" height="400" rx="14" fill="#FFFFFF" stroke="#E5E5E8"/>
+  <g font-family="system-ui, -apple-system, 'PingFang SC', sans-serif">
+    <rect x="352" y="112" width="28" height="28" rx="8" fill="#0071EB"/>
+    <text x="392" y="132" font-size="16" font-weight="600" fill="#18181B">Pointer 企业控制台</text>
+    <text x="352" y="178" font-size="12" fill="#71717A">使用企业账号登录</text>
+    <text x="352" y="212" font-size="12" fill="#18181B">账号</text>
+    <rect x="352" y="222" width="336" height="38" rx="8" fill="#FFFFFF" stroke="#D4D4D8"/>
+    <text x="366" y="246" font-size="12" fill="#A1A1AA">wang.guohong</text>
+    <text x="352" y="284" font-size="12" fill="#18181B">密码</text>
+    <rect x="352" y="294" width="336" height="38" rx="8" fill="#FFFFFF" stroke="#D4D4D8"/>
+    <text x="366" y="318" font-size="12" fill="#A1A1AA">••••••••</text>
+    <text x="352" y="356" font-size="12" fill="#18181B">验证码</text>
+    <rect x="352" y="366" width="200" height="38" rx="8" fill="#FFFFFF" stroke="#D4D4D8"/>
+    <rect x="568" y="366" width="120" height="38" rx="8" fill="#F2F2F4" stroke="#D4D4D8"/>
+    <text x="628" y="391" font-size="15" font-weight="600" fill="#18181B" text-anchor="middle" letter-spacing="3">7K3M</text>
+    <rect x="352" y="428" width="336" height="42" rx="8" fill="#0071EB"/>
+    <text x="520" y="454" font-size="14" font-weight="600" fill="#FFFFFF" text-anchor="middle">登录</text>
+  </g>
+  <text x="520" y="512" font-size="11" fill="#71717A" text-anchor="middle" font-family="system-ui, 'PingFang SC', sans-serif">首次部署：用 pointer-server.toml 里的管理员账号登录，该账号自动成为超级管理员</text>
+</svg>

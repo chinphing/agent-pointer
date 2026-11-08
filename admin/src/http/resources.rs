@@ -361,6 +361,74 @@ pub async fn replace_grants(
     Ok(Json(json!({ "ok": true })))
 }
 
+/// 测试连接：拿 baseUrl + key 探一次 `{baseUrl}/models`。
+///
+/// 只回答「能不能连、看到几个模型」，不落库、不写密钥。
+/// 失败也走 200 + `ok:false`，让前端把原因显示在表单里，而不是弹一个 500。
+#[derive(Debug, Deserialize)]
+pub struct TestProviderBody {
+    #[serde(rename = "baseUrl", alias = "base_url")]
+    pub base_url: String,
+    #[serde(default, rename = "apiKey", alias = "api_key")]
+    pub api_key: String,
+}
+
+pub async fn test_provider(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Json(body): Json<TestProviderBody>,
+) -> ApiResult<Json<Value>> {
+    let auth: AdminAuth = current_auth(&state, &headers).await?;
+    auth.require("provider:write")?;
+
+    let raw = body.base_url.trim().trim_end_matches('/');
+    let parsed = reqwest::Url::parse(raw)
+        .map_err(|_| ApiError::BadRequest("baseUrl 不是合法 URL".into()))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(ApiError::BadRequest("baseUrl 只支持 http/https".into()));
+    }
+    // 云元数据地址是 SSRF 的经典跳板，管理端不该被当成跳板用。
+    if parsed.host_str() == Some("169.254.169.254") {
+        return Err(ApiError::BadRequest("不允许探测云元数据地址".into()));
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(ApiError::internal)?;
+    let mut req = client.get(format!("{raw}/models"));
+    if !body.api_key.trim().is_empty() {
+        req = req.bearer_auth(body.api_key.trim());
+    }
+
+    let out = match req.send().await {
+        Ok(resp) => {
+            let status = resp.status();
+            if !status.is_success() {
+                json!({"ok": false, "message": format!("服务商返回 HTTP {status}")})
+            } else {
+                let text = resp.text().await.unwrap_or_default();
+                let count = serde_json::from_str::<Value>(&text)
+                    .ok()
+                    .and_then(|v| v.get("data").and_then(|d| d.as_array()).map(|a| a.len()))
+                    .unwrap_or(0);
+                json!({"ok": true, "modelCount": count})
+            }
+        }
+        Err(err) => {
+            let msg = if err.is_timeout() {
+                "连接超时（8 秒）".to_string()
+            } else if err.is_connect() {
+                "连不上：域名解析失败或网络不通".to_string()
+            } else {
+                format!("连接失败：{err}")
+            };
+            json!({"ok": false, "message": msg})
+        }
+    };
+    Ok(Json(out))
+}
+
 /// 查看明文密钥：单独一个权限（`provider:reveal`），并且每次都进审计。
 pub async fn reveal_secret(
     State(state): State<Shared>,

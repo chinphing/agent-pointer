@@ -80,7 +80,7 @@ async function doLogout() {
 .side {
   width: 208px;
   flex: 0 0 208px;
-  background: #fff;
+  background: var(--panel-alt);
   border-right: 1px solid var(--line);
   padding: 20px 14px;
   display: flex;
@@ -101,7 +101,7 @@ nav { display: flex; flex-direction: column; gap: 2px; }
   color: var(--fg);
   font-size: 14px;
 }
-.nav-item:hover { background: #f2f4f7; }
+.nav-item:hover { background: var(--line); }
 .nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 
 .side-foot { margin-top: auto; padding: 12px 6px 0; display: flex; flex-direction: column; gap: 4px; }

@@ -1,10 +1,19 @@
+/**
+ * 设计来源：docs/zh-CN/design/admin-mockups/ 里的线框图。
+ * 取值刻意沿用 Pointer 客户端 `src/styles/globals.css` 的 token
+ * （中性 zinc 灰阶 + 系统蓝），管理端与员工端看起来是同一个产品。
+ * 改动这里之前先看图，别再自己调一套配色。
+ */
 :root {
-  --bg: #f6f7f9;
+  --bg: #fafafa;
   --panel: #ffffff;
-  --fg: #1f2328;
-  --muted: #6b7280;
-  --line: #d9dde3;
-  --accent: #185fa5;
+  --panel-alt: #f2f2f4;
+  --fg: #18181b;
+  --muted: #71717a;
+  --line: #e5e5e8;
+  --line-strong: #d4d4d8;
+  --placeholder: #a1a1aa;
+  --accent: #0071eb;
   --accent-soft: #e6f1fb;
   --ok: #0f6e56;
   --ok-soft: #e1f5ee;
@@ -13,6 +22,7 @@
   --danger: #a12a2a;
   --danger-soft: #fdeaea;
   --radius: 10px;
+  --radius-sm: 8px;
 }
 
 * { box-sizing: border-box; }

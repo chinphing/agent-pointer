@@ -78,6 +78,17 @@ fn grant_item_uses_type_not_principal_type() {
 }
 
 #[test]
+fn test_provider_body_accepts_camel_case() {
+    // Resources.vue: api.post('/api/admin/providers/test', { baseUrl, apiKey })
+    let body: resources::TestProviderBody = parse(json!({
+        "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "apiKey": "sk-test"
+    }));
+    assert_eq!(body.base_url, "https://dashscope.aliyuncs.com/compatible-mode/v1");
+    assert_eq!(body.api_key, "sk-test");
+}
+
+#[test]
 fn usage_query_accepts_camel_case_params() {
     let q: insight::UsageQuery = parse(json!({
         "from": "2026-11-01",

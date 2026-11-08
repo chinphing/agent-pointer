@@ -196,6 +196,10 @@ fn parse_payload(raw: &str) -> serde_json::Value {
 }
 
 #[cfg(test)]
+// 这些用例故意把全局环境锁持有到用例结束（跨 await）：环境变量是进程级的，
+// 不这么做就会和 crypto 用例互相污染。测试跑在 current_thread 运行时上，
+// 不存在跨线程持锁死锁的问题，clippy 这条在这里是误报。
+#[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
     use crate::crypto::encrypt_secret;

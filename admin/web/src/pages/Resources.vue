@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api, errText } from '../api'
 import { humanSize, when } from '../lib/format'
 import { can } from '../store'
@@ -24,12 +24,65 @@ const members = ref<any[]>([])
 
 const editing = ref<any>(null)
 const creating = ref(false)
-const form = ref({ slug: '', name: '', description: '', payload: '{}', secret: '', enabled: false, activation: 'optional' })
+const form = ref({
+  slug: '',
+  name: '',
+  description: '',
+  payload: '{}',
+  secret: '',
+  enabled: false,
+  activation: 'optional',
+  visibility: 'all' as 'all' | 'specified',
+})
 
 const grantFor = ref<any>(null)
-const grantType = ref('all')
-const grantRoleId = ref('')
-const grantUserId = ref('')
+// 授权：支持角色与个人混排、可搜索勾选（设计图 06）
+const grantAll = ref(true)
+const grantTab = ref<'role' | 'user'>('role')
+const grantSearch = ref('')
+const grantRoleIds = ref<string[]>([])
+const grantUserIds = ref<string[]>([])
+
+const grantRoleOptions = computed(() => {
+  const kw = grantSearch.value.trim().toLowerCase()
+  return roles.value.filter(
+    (r) => !kw || `${r.key} ${r.name || ''}`.toLowerCase().includes(kw)
+  )
+})
+const grantUserOptions = computed(() => {
+  const kw = grantSearch.value.trim().toLowerCase()
+  return members.value.filter(
+    (u) => !kw || `${u.username} ${u.displayName || ''}`.toLowerCase().includes(kw)
+  )
+})
+
+// 列表：搜索 + 状态筛选 + 分页（设计图 03）
+const keyword = ref('')
+const statusFilter = ref<'all' | 'enabled' | 'disabled'>('all')
+const page = ref(1)
+const PAGE_SIZE = 20
+
+const filtered = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  return items.value.filter((it) => {
+    if (statusFilter.value === 'enabled' && !it.enabled) return false
+    if (statusFilter.value === 'disabled' && it.enabled) return false
+    if (!kw) return true
+    return `${it.slug} ${it.name}`.toLowerCase().includes(kw)
+  })
+})
+const pageCount = computed(() => Math.max(1, Math.ceil(filtered.value.length / PAGE_SIZE)))
+const paged = computed(() => {
+  const start = (page.value - 1) * PAGE_SIZE
+  return filtered.value.slice(start, start + PAGE_SIZE)
+})
+watch([keyword, statusFilter, kind], () => {
+  page.value = 1
+})
+
+// 测试连接（设计图 07）
+const testBusy = ref(false)
+const testResult = ref<{ ok: boolean; message: string } | null>(null)
 
 const revealed = ref<{ name: string; secret: string } | null>(null)
 
@@ -65,7 +118,11 @@ function switchKind(next: string) {
 function openCreate() {
   creating.value = true
   editing.value = null
-  form.value = { slug: '', name: '', description: '', payload: '{}', secret: '', enabled: false, activation: 'optional' }
+  form.value = {
+    slug: '', name: '', description: '', payload: '{}', secret: '',
+    enabled: false, activation: 'optional', visibility: 'all',
+  }
+  testResult.value = null
 }
 
 function openEdit(row: any) {
@@ -79,7 +136,9 @@ function openEdit(row: any) {
     secret: '',
     enabled: row.enabled,
     activation: row.activation || 'optional',
+    visibility: 'all',
   }
+  testResult.value = null
 }
 
 async function submit() {
@@ -93,7 +152,7 @@ async function submit() {
   }
   try {
     if (creating.value) {
-      await api.post('/api/admin/resources', {
+      const created = await api.post('/api/admin/resources', {
         kind: kind.value,
         slug: form.value.slug.trim(),
         name: form.value.name.trim(),
@@ -104,6 +163,20 @@ async function submit() {
         activation: form.value.activation,
       })
       notice.value = '资源已创建'
+      // 建完直接给可见范围，省掉「建了但员工看不到」这一步（设计图 07）。
+      if (form.value.visibility === 'all' && created?.id) {
+        await api.put(`/api/admin/resources/${created.id}/grants`, {
+          items: [{ type: 'all', id: '' }],
+        })
+      }
+      creating.value = false
+      editing.value = null
+      await load()
+      if (form.value.visibility === 'specified' && created?.id) {
+        const row = items.value.find((it: any) => it.id === created.id)
+        if (row) openGrants(row)
+      }
+      return
     } else {
       const body: any = {
         name: form.value.name.trim(),
@@ -146,35 +219,77 @@ async function remove(row: any) {
 
 async function openGrants(row: any) {
   grantFor.value = row
-  grantType.value = 'all'
-  grantRoleId.value = roles.value[0]?.id || ''
-  grantUserId.value = members.value[0]?.id || ''
+  grantAll.value = true
+  grantTab.value = 'role'
+  grantSearch.value = ''
+  grantRoleIds.value = []
+  grantUserIds.value = []
   try {
     const res = await api.get(`/api/admin/resources/${row.id}/grants`)
-    const first = res.items?.[0]
-    if (first) {
-      grantType.value = first.type
-      if (first.type === 'role') grantRoleId.value = first.id
-      if (first.type === 'user') grantUserId.value = first.id
-    }
+    const list: any[] = res.items || []
+    grantAll.value = list.some((g) => g.type === 'all') || list.length === 0
+    grantRoleIds.value = list.filter((g) => g.type === 'role').map((g) => g.id)
+    grantUserIds.value = list.filter((g) => g.type === 'user').map((g) => g.id)
   } catch {
-    /* 没有授权记录时保持默认 */
+    /* 没有授权记录时保持「全员可见」默认 */
   }
 }
 
+function toggleGrantId(list: 'role' | 'user', id: string) {
+  const target = list === 'role' ? grantRoleIds : grantUserIds
+  const i = target.value.indexOf(id)
+  if (i >= 0) target.value.splice(i, 1)
+  else target.value.push(id)
+}
+
+/** 把当前选择拼成 grants 载荷。全员优先；否则角色 + 个人混排。 */
+function grantItems() {
+  if (grantAll.value) return [{ type: 'all', id: '' }]
+  return [
+    ...grantRoleIds.value.map((id) => ({ type: 'role', id })),
+    ...grantUserIds.value.map((id) => ({ type: 'user', id })),
+  ]
+}
+
 async function saveGrants() {
-  const items =
-    grantType.value === 'all'
-      ? [{ type: 'all', id: '' }]
-      : grantType.value === 'role'
-      ? [{ type: 'role', id: grantRoleId.value }]
-      : [{ type: 'user', id: grantUserId.value }]
   try {
-    await api.put(`/api/admin/resources/${grantFor.value.id}/grants`, { items })
+    await api.put(`/api/admin/resources/${grantFor.value.id}/grants`, { items: grantItems() })
     notice.value = '授权已保存'
     grantFor.value = null
   } catch (e) {
     error.value = errText(e)
+  }
+}
+
+/** 测试连接：拿表单里的 baseUrl + key 让后端探一次 /models。 */
+async function testConnection() {
+  testResult.value = null
+  let payload: any
+  try {
+    payload = JSON.parse(form.value.payload || '{}')
+  } catch {
+    testResult.value = { ok: false, message: 'payload 不是合法 JSON' }
+    return
+  }
+  const baseUrl = String(payload.baseUrl || '').trim()
+  if (!baseUrl) {
+    testResult.value = { ok: false, message: '先填 payload 里的 baseUrl' }
+    return
+  }
+  testBusy.value = true
+  try {
+    const r = await api.post('/api/admin/providers/test', {
+      baseUrl,
+      apiKey: form.value.secret || '',
+    })
+    testResult.value = {
+      ok: !!r.ok,
+      message: r.ok ? `连接成功，发现 ${r.modelCount} 个模型` : r.message || '连接失败',
+    }
+  } catch (e) {
+    testResult.value = { ok: false, message: errText(e) }
+  } finally {
+    testBusy.value = false
   }
 }
 
@@ -312,8 +427,22 @@ onMounted(async () => {
   <div v-if="notice" class="okmsg" style="margin-top: 16px">{{ notice }}</div>
 
   <div class="panel" style="margin-top: 16px">
+    <!-- 设计图 03：搜索 + 状态筛选 -->
+    <div class="row" style="padding: 0 0 12px; gap: 8px">
+      <input v-model="keyword" placeholder="搜索名称 / 标识" style="max-width: 260px" />
+      <select v-model="statusFilter" style="max-width: 140px">
+        <option value="all">状态：全部</option>
+        <option value="enabled">已启用</option>
+        <option value="disabled">已停用</option>
+      </select>
+      <span class="small muted">
+        共 {{ filtered.length }} 条 · 已启用 {{ filtered.filter((i) => i.enabled).length }}
+      </span>
+    </div>
+
     <div v-if="loading" class="empty">加载中…</div>
     <div v-else-if="!items.length" class="empty">这一类还没有资源</div>
+    <div v-else-if="!filtered.length" class="empty">没有匹配的资源</div>
     <table v-else>
       <thead>
         <tr>
@@ -326,7 +455,7 @@ onMounted(async () => {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="row in items" :key="row.id">
+        <tr v-for="row in paged" :key="row.id">
           <td class="mono">{{ row.slug }}</td>
           <td>
             {{ row.name }}
@@ -355,6 +484,17 @@ onMounted(async () => {
         </tr>
       </tbody>
     </table>
+
+    <!-- 分页（设计图 03） -->
+    <div
+      v-if="pageCount > 1"
+      class="row"
+      style="padding-top: 12px; gap: 8px; align-items: center"
+    >
+      <button class="tiny" :disabled="page <= 1" @click="page -= 1">上一页</button>
+      <span class="small muted">第 {{ page }} / {{ pageCount }} 页</span>
+      <button class="tiny" :disabled="page >= pageCount" @click="page += 1">下一页</button>
+    </div>
   </div>
 
   <div v-if="creating || editing" class="modal-mask" @click.self="creating = false; editing = null">
@@ -379,6 +519,27 @@ onMounted(async () => {
 
       <label>密钥{{ editing ? '（留空表示不修改）' : '' }}</label>
       <input v-model="form.secret" type="password" placeholder="sk-…" />
+      <div v-if="kind === 'provider'" class="row" style="gap: 8px; margin-top: 8px">
+        <button class="tiny" :disabled="testBusy" @click="testConnection">
+          {{ testBusy ? '测试中…' : '测试连接' }}
+        </button>
+        <span
+          v-if="testResult"
+          class="small"
+          :style="{ color: testResult.ok ? 'var(--ok)' : 'var(--danger)' }"
+        >
+          {{ testResult.message }}
+        </span>
+      </div>
+
+      <label>可见范围</label>
+      <select v-model="form.visibility">
+        <option value="all">全员可见</option>
+        <option value="specified">指定角色 / 成员（保存后弹出选择）</option>
+      </select>
+      <p class="small muted" style="margin: 4px 0 0">
+        不设可见范围时员工端拿不到这个资源——建完不用再点一次「授权」。
+      </p>
 
       <label class="row" style="gap: 8px; margin-top: 16px">
         <input type="checkbox" v-model="form.enabled" style="width: auto" />
@@ -407,29 +568,74 @@ onMounted(async () => {
       <p class="muted small">只有并集，没有排除。选「全员」时不要再选角色/成员。</p>
 
       <label class="row" style="gap: 8px; margin-top: 14px">
-        <input type="radio" value="all" v-model="grantType" style="width: auto" />
+        <input type="radio" :value="true" v-model="grantAll" style="width: auto" />
         <span>全员可见</span>
       </label>
-
       <label class="row" style="gap: 8px">
-        <input type="radio" value="role" v-model="grantType" style="width: auto" />
-        <span>按角色</span>
+        <input type="radio" :value="false" v-model="grantAll" style="width: auto" />
+        <span>按角色 / 成员指定</span>
       </label>
-      <select v-if="grantType === 'role'" v-model="grantRoleId">
-        <option v-for="role in roles" :key="role.id" :value="role.id">
-          {{ role.name }}（{{ role.key }}）
-        </option>
-      </select>
 
-      <label class="row" style="gap: 8px">
-        <input type="radio" value="user" v-model="grantType" style="width: auto" />
-        <span>按成员</span>
-      </label>
-      <select v-if="grantType === 'user'" v-model="grantUserId">
-        <option v-for="m in members" :key="m.id" :value="m.id">
-          {{ m.displayName || m.username }}
-        </option>
-      </select>
+      <div v-if="!grantAll" style="margin-top: 12px">
+        <!-- 已选 chips：角色与个人混排 -->
+        <div v-if="grantRoleIds.length || grantUserIds.length" class="row" style="gap: 6px; flex-wrap: wrap; margin-bottom: 10px">
+          <span v-for="id in grantRoleIds" :key="'r' + id" class="tag ok">
+            角色 · {{ roles.find((r) => r.id === id)?.name || id }}
+            <span style="cursor: pointer; margin-left: 4px" @click="toggleGrantId('role', id)">×</span>
+          </span>
+          <span v-for="id in grantUserIds" :key="'u' + id" class="tag" style="background: var(--accent-soft); color: var(--accent)">
+            个人 · {{ members.find((m) => m.id === id)?.displayName || id }}
+            <span style="cursor: pointer; margin-left: 4px" @click="toggleGrantId('user', id)">×</span>
+          </span>
+        </div>
+
+        <div class="row" style="gap: 6px; margin-bottom: 8px">
+          <button class="tiny" :class="{ primary: grantTab === 'role' }" @click="grantTab = 'role'">按角色</button>
+          <button class="tiny" :class="{ primary: grantTab === 'user' }" @click="grantTab = 'user'">按成员</button>
+        </div>
+
+        <input v-model="grantSearch" :placeholder="grantTab === 'role' ? '搜索角色' : '搜索姓名或账号'" />
+
+        <div style="max-height: 220px; overflow: auto; margin-top: 8px; border: 1px solid var(--line); border-radius: var(--radius-sm)">
+          <template v-if="grantTab === 'role'">
+            <label
+              v-for="r in grantRoleOptions"
+              :key="r.id"
+              class="row"
+              style="gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--line)"
+            >
+              <input
+                type="checkbox"
+                style="width: auto"
+                :checked="grantRoleIds.includes(r.id)"
+                @change="toggleGrantId('role', r.id)"
+              />
+              <span class="small">{{ r.name }} <span class="muted">（{{ r.key }}）</span></span>
+            </label>
+            <div v-if="!grantRoleOptions.length" class="empty small">没有匹配的角色</div>
+          </template>
+          <template v-else>
+            <label
+              v-for="m in grantUserOptions"
+              :key="m.id"
+              class="row"
+              style="gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--line)"
+            >
+              <input
+                type="checkbox"
+                style="width: auto"
+                :checked="grantUserIds.includes(m.id)"
+                @change="toggleGrantId('user', m.id)"
+              />
+              <span class="small">
+                {{ m.displayName || m.username }}
+                <span class="muted mono">{{ m.username }}</span>
+              </span>
+            </label>
+            <div v-if="!grantUserOptions.length" class="empty small">没有匹配的成员</div>
+          </template>
+        </div>
+      </div>
 
       <div class="modal-actions">
         <button @click="grantFor = null">取消</button>

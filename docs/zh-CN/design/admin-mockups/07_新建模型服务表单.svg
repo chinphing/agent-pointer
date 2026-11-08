@@ -1,0 +1,36 @@
+<svg viewBox="0 0 1040 620" xmlns="http://www.w3.org/2000/svg" role="img">
+  <title>新建模型服务表单</title>
+  <rect width="1040" height="620" fill="#F7F7F8"/>
+  <rect x="260" y="70" width="520" height="480" rx="14" fill="#FFFFFF" stroke="#E5E5E8"/>
+  <g font-family="system-ui, -apple-system, 'PingFang SC', sans-serif">
+    <text x="284" y="108" font-size="14" font-weight="600" fill="#18181B">新建模型服务</text>
+    <text x="756" y="108" font-size="16" fill="#71717A" text-anchor="end">×</text>
+    <text x="284" y="142" font-size="11" fill="#71717A">名称</text>
+    <rect x="284" y="150" width="472" height="36" rx="8" fill="#FFFFFF" stroke="#D4D4D8"/>
+    <text x="298" y="173" font-size="12" fill="#A1A1AA">阿里云百炼</text>
+    <text x="284" y="204" font-size="11" fill="#71717A">Base URL</text>
+    <rect x="284" y="212" width="472" height="36" rx="8" fill="#FFFFFF" stroke="#D4D4D8"/>
+    <text x="298" y="235" font-size="12" fill="#A1A1AA">https://dashscope.aliyuncs.com/compatible-mode/v1</text>
+    <text x="284" y="266" font-size="11" fill="#71717A">API Key</text>
+    <rect x="284" y="274" width="300" height="36" rx="8" fill="#FFFFFF" stroke="#D4D4D8"/>
+    <text x="298" y="297" font-size="12" fill="#18181B" letter-spacing="2">sk-••••••••••••••••••</text>
+    <rect x="596" y="274" width="76" height="36" rx="8" fill="#FFFFFF" stroke="#E5E5E8"/>
+    <text x="634" y="297" font-size="11" fill="#52525B" text-anchor="middle">测试连接</text>
+    <text x="690" y="297" font-size="11" fill="#0071EB">显示</text>
+    <text x="284" y="328" font-size="11" fill="#71717A">默认模型（逗号分隔）</text>
+    <rect x="284" y="336" width="472" height="36" rx="8" fill="#FFFFFF" stroke="#D4D4D8"/>
+    <text x="298" y="359" font-size="12" fill="#A1A1AA">qwen3.5-plus, qwen3.5-turbo</text>
+    <text x="284" y="390" font-size="11" fill="#71717A">可见范围</text>
+    <rect x="284" y="398" width="64" height="26" rx="13" fill="#EDF5FD" stroke="#0071EB"/>
+    <text x="316" y="415" font-size="11" fill="#0071EB" text-anchor="middle">全员</text>
+    <rect x="356" y="398" width="64" height="26" rx="13" fill="#FFFFFF" stroke="#E5E5E8"/>
+    <text x="388" y="415" font-size="11" fill="#52525B" text-anchor="middle">指定</text>
+    <line x1="284" y1="448" x2="756" y2="448" stroke="#E5E5E8"/>
+    <text x="284" y="472" font-size="10" fill="#71717A">Key 加密后存服务端，员工端与浏览器都拿不到明文。</text>
+    <text x="284" y="490" font-size="10" fill="#71717A">加密材料绑定本机：换机或迁移后需重新录入。</text>
+    <rect x="612" y="508" width="68" height="32" rx="8" fill="#FFFFFF" stroke="#E5E5E8"/>
+    <text x="646" y="529" font-size="11" fill="#52525B" text-anchor="middle">取消</text>
+    <rect x="692" y="508" width="64" height="32" rx="8" fill="#0071EB"/>
+    <text x="724" y="529" font-size="11" fill="#FFFFFF" text-anchor="middle">保存</text>
+  </g>
+</svg>

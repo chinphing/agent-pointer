@@ -46,6 +46,10 @@ pub fn router() -> Router<Shared> {
             get(resources::get_grants).put(resources::replace_grants),
         )
         .route(
+            "/api/admin/providers/test",
+            post(resources::test_provider),
+        )
+        .route(
             "/api/admin/resources/:id/reveal",
             post(resources::reveal_secret),
         )

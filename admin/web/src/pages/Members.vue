@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { api, errText } from '../api'
 import { can } from '../store'
+import { addableRoles } from '../lib/roles'
 
 const items = ref<any[]>([])
 const roles = ref<any[]>([])
@@ -97,6 +98,18 @@ function toggleRole(user: any, key: string) {
   saveRoles(user, current)
 }
 
+/** 「+ 角色」下拉里可选的项：还没分给这个人的角色。 */
+function addableFor(user: any) {
+  return addableRoles(roles.value, user.roles || [])
+}
+
+function onAddRole(user: any, ev: Event) {
+  const el = ev.target as HTMLSelectElement
+  const key = el.value
+  el.value = ''
+  if (key) toggleRole(user, key)
+}
+
 async function runImport() {
   busy.value = true
   error.value = ''
@@ -161,6 +174,18 @@ onMounted(load)
               @click="can('user:write') && toggleRole(user, key)"
             >{{ key }}</span>
             <span v-if="!user.roles.length" class="muted small">无</span>
+            <select
+              v-if="can('user:write') && addableFor(user).length"
+              class="tiny"
+              style="margin-left: 4px"
+              title="添加角色"
+              @change="onAddRole(user, $event)"
+            >
+              <option value="">+ 角色</option>
+              <option v-for="r in addableFor(user)" :key="r.key" :value="r.key">
+                {{ r.name || r.key }}
+              </option>
+            </select>
           </td>
           <td class="small muted">{{ user.lastLoginAt ? new Date(user.lastLoginAt * 1000).toLocaleString('zh-CN') : '从未' }}</td>
           <td class="row" style="gap: 6px">

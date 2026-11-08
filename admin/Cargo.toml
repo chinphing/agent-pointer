@@ -30,6 +30,8 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 axum = { version = "0.7", features = ["macros"] }
+# 只用于「测试连接」：探一次服务商的 /models。工作区里 pointer-core 已在用同一版本，编译可复用。
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tower-http = { version = "0.6", features = ["fs", "compression-gzip"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "fs"] }
 pointer-contract = { path = "../crates/pointer-contract" }

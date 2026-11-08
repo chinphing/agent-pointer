@@ -207,7 +207,10 @@
     "tplDeepseek": "DeepSeek",
     "tplOpenai": "OpenAI",
     "tplCustom": "Other (OpenAI-compatible)",
-    "namePlaceholder": "e.g. Alibaba Bailian"
+    "namePlaceholder": "e.g. Alibaba Bailian",
+    "defaults": "Defaults (optional)",
+    "defaultsSet": "set",
+    "defaultsHint": "Models without their own value inherit these; blank falls back to the client default."
   },
   "tier": {
     "title": "Default tier mapping",
@@ -450,6 +453,7 @@
     "enableThinking": "Enable thinking",
     "thinkingBudget": "Thinking budget",
     "reasoningInMessages": "Send reasoning in messages",
-    "followHint": "Blank = not distributed; clients inherit the provider default."
+    "followHint": "Blank = not distributed; clients inherit the provider default.",
+    "unset": "Not set"
   }
 }

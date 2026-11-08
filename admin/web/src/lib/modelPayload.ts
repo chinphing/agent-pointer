@@ -97,3 +97,15 @@ export function buildModelPayload(state: {
 
   return out
 }
+
+/** 服务商级默认参数（模型没单独配时用它）。能力不在此列——能力只有模型级。 */
+export const PROVIDER_DEFAULT_LIMIT_KEYS = LIMIT_KEYS
+export const PROVIDER_DEFAULT_THINKING_KEYS = THINKING_KEYS
+
+export function buildProviderDefaults(state: {
+  limits: Record<string, string>
+  thinking: Record<string, string>
+}): Record<string, unknown> {
+  const out = buildModelPayload({ caps: {}, limits: state.limits, thinking: state.thinking })
+  return out
+}

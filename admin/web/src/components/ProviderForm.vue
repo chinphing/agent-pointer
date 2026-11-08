@@ -11,6 +11,12 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
+import {
+  LIMIT_KEYS,
+  THINKING_KEYS,
+  buildProviderDefaults,
+  payloadToState,
+} from '../lib/modelPayload'
 
 const props = defineProps<{ resource: any | null }>()
 const { t } = useI18n()
@@ -66,6 +72,20 @@ const loaded = ref(false)
 const newModel = ref('')
 /** 可见范围（设计图 07）：全员直接授权；指定则建完后打开授权面板挑人。 */
 const visibility = ref<'all' | 'pick'>('all')
+
+/**
+ * 服务商级默认参数：模型没单独配的字段就用这里的。
+ * 图 07 没有这一段，但模型表单里写了「跟随服务商」，服务商这边必须真的能设。
+ */
+const showDefaults = ref(false)
+const defState = payloadToState(props.resource?.payload || {})
+const defLimits = ref<Record<string, string>>(defState.limits)
+const defThinking = ref<Record<string, string>>(defState.thinking)
+const hasDefaults = computed(
+  () =>
+    Object.values(defLimits.value).some((v) => v !== '') ||
+    Object.values(defThinking.value).some((v) => v !== '')
+)
 
 // 上一次由模板自动填进去的值：只有用户没动过才跟着模板换，
 // 否则从「百炼」切到「DeepSeek」会留下一个叫「阿里云百炼」的 DeepSeek 服务商。
@@ -180,7 +200,10 @@ async function submit() {
 
   busy.value = true
   try {
-    const payload = { baseUrl: form.value.baseUrl.trim() }
+    const payload = {
+      baseUrl: form.value.baseUrl.trim(),
+      ...buildProviderDefaults({ limits: defLimits.value, thinking: defThinking.value }),
+    }
 
     if (isEdit.value) {
       const removed = Object.keys(existingIds.value).filter((s) => !modelList.value.includes(s))
@@ -359,6 +382,78 @@ async function submit() {
         </div>
       </template>
 
+      <div class="defaults">
+        <button type="button" class="defaults-toggle" @click="showDefaults = !showDefaults">
+          <span>{{ showDefaults ? '▾' : '▸' }}</span>
+          {{ t('provider.defaults') }}
+          <span v-if="hasDefaults" class="tag ok" style="margin-left: 6px">{{ t('provider.defaultsSet') }}</span>
+        </button>
+        <template v-if="showDefaults">
+        <p class="small muted" style="margin: 6px 0 0">{{ t('provider.defaultsHint') }}</p>
+
+        <div class="two" style="margin-top: 8px">
+          <div>
+            <label>{{ t('models.contextBudget') }}</label>
+            <input v-model="defLimits.contextBudgetTokens" type="number" min="0" :placeholder="t('models.follow')" />
+          </div>
+          <div>
+            <label>{{ t('models.maxTokens') }}</label>
+            <input v-model="defLimits.maxTokens" type="number" min="0" :placeholder="t('models.follow')" />
+          </div>
+          <div>
+            <label>{{ t('models.temperature') }}</label>
+            <input v-model="defLimits.temperature" type="number" step="0.1" min="0" max="2" :placeholder="t('models.follow')" />
+          </div>
+          <div>
+            <label>{{ t('models.topP') }}</label>
+            <input v-model="defLimits.topP" type="number" step="0.05" min="0" max="1" :placeholder="t('models.follow')" />
+          </div>
+        </div>
+
+        <div class="three" style="margin-top: 8px">
+          <div>
+            <label>{{ t('models.enableThinking') }}</label>
+            <select v-model="defThinking.enableThinking">
+              <option value="">{{ t('models.follow') }}</option>
+              <option value="true">{{ t('models.yes') }}</option>
+              <option value="false">{{ t('models.no') }}</option>
+            </select>
+          </div>
+          <div>
+            <label>{{ t('tier.thinking') }}</label>
+            <select v-model="defThinking.thinkingIntensity">
+              <option value="">{{ t('models.follow') }}</option>
+              <option value="off">{{ t('tier.thinking_off') }}</option>
+              <option value="low">{{ t('tier.thinking_low') }}</option>
+              <option value="medium">{{ t('tier.thinking_medium') }}</option>
+              <option value="high">{{ t('tier.thinking_high') }}</option>
+              <option value="max">{{ t('tier.thinking_max') }}</option>
+            </select>
+          </div>
+          <div>
+            <label>{{ t('models.thinkingBudget') }}</label>
+            <input v-model="defThinking.thinkingBudget" type="number" min="0" :placeholder="t('models.follow')" />
+          </div>
+          <div>
+            <label>reasoningEffort</label>
+            <select v-model="defThinking.reasoningEffort">
+              <option value="">{{ t('models.follow') }}</option>
+              <option value="high">high</option>
+              <option value="max">max</option>
+            </select>
+          </div>
+          <div>
+            <label>{{ t('models.reasoningInMessages') }}</label>
+            <select v-model="defThinking.reasoningInMessages">
+              <option value="">{{ t('models.follow') }}</option>
+              <option value="true">{{ t('models.yes') }}</option>
+              <option value="false">{{ t('models.no') }}</option>
+            </select>
+          </div>
+        </div>
+        </template>
+      </div>
+
       <div v-if="error" class="err" style="margin-top: 12px">{{ error }}</div>
       <div v-if="notice" class="okmsg" style="margin-top: 12px">{{ notice }}</div>
 
@@ -397,4 +492,23 @@ async function submit() {
   color: var(--muted);
 }
 .pill.active { background: #edf5fd; border-color: var(--accent); color: var(--accent); }
+.defaults {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px 12px;
+}
+.defaults-toggle {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.defaults-toggle:hover { color: var(--fg); }
+.three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 </style>

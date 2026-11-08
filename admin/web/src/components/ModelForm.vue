@@ -99,7 +99,7 @@ async function submit() {
           <label v-for="key in CAP_KEYS" :key="key" class="cap">
             <span>{{ t(`models.${CAP_LABELS[key]}`) }}</span>
             <select v-model="caps[key]">
-              <option value="">{{ t('models.follow') }}</option>
+              <option value="">{{ t('models.unset') }}</option>
               <option value="true">{{ t('models.yes') }}</option>
               <option value="false">{{ t('models.no') }}</option>
             </select>

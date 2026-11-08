@@ -207,7 +207,10 @@
     "tplDeepseek": "DeepSeek",
     "tplOpenai": "OpenAI",
     "tplCustom": "其他（OpenAI 兼容）",
-    "namePlaceholder": "如 阿里云百炼"
+    "namePlaceholder": "如 阿里云百炼",
+    "defaults": "默认参数（可选）",
+    "defaultsSet": "已设置",
+    "defaultsHint": "模型没单独配的字段就用这里的值；留空则用客户端默认。"
   },
   "tier": {
     "title": "默认档位映射",
@@ -450,6 +453,7 @@
     "enableThinking": "启用思考",
     "thinkingBudget": "思考预算",
     "reasoningInMessages": "在消息里回传 reasoning",
-    "followHint": "留空 = 不下发，客户端继承服务商默认。"
+    "followHint": "留空 = 不下发，客户端继承服务商默认。",
+    "unset": "不设置"
   }
 }

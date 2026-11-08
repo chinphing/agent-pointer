@@ -106,11 +106,27 @@ pub async fn build_for_user(
             .unwrap_or_default()
             .to_string();
 
+        // 服务商级默认参数：模型没单独配的字段，客户端就用这里的值。
+        // 之前这里是 `..Default::default()`，等于服务商永远没有默认值。
+        let defaults: PlatformProviderTemplate =
+            serde_json::from_value(payload.clone()).unwrap_or_default();
+
         templates.push(PlatformProviderTemplate {
             id: provider.slug.clone(),
             name: provider.name.clone(),
             base_url,
             models: model_templates(&own, &names),
+            reasoning_in_messages: defaults.reasoning_in_messages,
+            enable_thinking: defaults.enable_thinking,
+            thinking_budget: defaults.thinking_budget,
+            reasoning_effort: defaults.reasoning_effort,
+            // thinkingProtocol 客户端在 apply_login_platform_providers 里硬写成 None，
+            // 平台配了也不生效，这里不转发。
+            thinking_intensity: defaults.thinking_intensity,
+            temperature: defaults.temperature,
+            top_p: defaults.top_p,
+            max_tokens: defaults.max_tokens,
+            context_budget_tokens: defaults.context_budget_tokens,
             ..Default::default()
         });
         catalog.insert(provider.slug.clone(), names);
@@ -282,6 +298,41 @@ mod tests {
             ids.push(m.id);
         }
         (provider.id, ids)
+    }
+
+    /// 服务商级默认参数必须跟着下发 —— 模型表单里写了「跟随服务商」，
+    /// 服务商这边得真的有值可跟。
+    #[tokio::test]
+    async fn provider_level_defaults_are_distributed() {
+        let (store, uid, _guard) = setup().await;
+        let (pid, _ids) = add_provider(&store, "bailian", "sk-test", &["qwen-plus"]).await;
+        resources::update_meta(
+            &store,
+            &pid,
+            "bailian",
+            "",
+            r#"{"baseUrl":"https://example.invalid/v1","contextBudgetTokens":128000,"temperature":0.6,"thinkingIntensity":"medium","reasoningEffort":"max"}"#,
+        )
+        .await
+        .expect("payload");
+        grants::replace_grants(&store, &pid, &[Principal::All])
+            .await
+            .expect("grant");
+
+        let creds = build_for_user(&store, DEFAULT_TENANT, &uid)
+            .await
+            .expect("build");
+        let tpl = creds
+            .platform_providers
+            .iter()
+            .find(|p| p.id == "bailian")
+            .expect("provider");
+        assert_eq!(tpl.context_budget_tokens, Some(128000));
+        assert_eq!(tpl.temperature, Some(0.6));
+        assert_eq!(tpl.thinking_intensity.as_deref(), Some("medium"));
+        assert_eq!(tpl.reasoning_effort.as_deref(), Some("max"));
+        // 客户端不认的字段不转发
+        assert!(tpl.thinking_protocol.is_none());
     }
 
     /// 模型级参数（视觉 / 上下文长度 / 思考强度）必须跟着下发。

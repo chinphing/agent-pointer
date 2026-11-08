@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildModelPayload, payloadToState } from './modelPayload'
+import { buildModelPayload, buildProviderDefaults, payloadToState } from './modelPayload'
 
 /**
  * 这些用例挡的是「界面上看着对、下发后不生效」这类错：
@@ -76,5 +76,26 @@ describe('model payload', () => {
     expect(Object.values(state.caps).every((v) => v === '')).toBe(true)
     expect(Object.values(state.limits).every((v) => v === '')).toBe(true)
     expect(Object.values(state.thinking).every((v) => v === '')).toBe(true)
+  })
+})
+
+describe('provider defaults', () => {
+  it('只带上下文/生成/思考，不带能力', () => {
+    // 服务商级没有 supportsVision 这类字段，能力只有模型级
+    const out = buildProviderDefaults({
+      limits: { contextBudgetTokens: '128000', temperature: '0.6' },
+      thinking: { thinkingIntensity: 'medium', reasoningEffort: 'high' },
+    })
+    expect(out).toEqual({
+      contextBudgetTokens: 128000,
+      temperature: 0.6,
+      thinkingIntensity: 'medium',
+      reasoningEffort: 'high',
+    })
+    expect('supportsVision' in out).toBe(false)
+  })
+
+  it('全空时不下发任何默认', () => {
+    expect(buildProviderDefaults({ limits: {}, thinking: {} })).toEqual({})
   })
 })

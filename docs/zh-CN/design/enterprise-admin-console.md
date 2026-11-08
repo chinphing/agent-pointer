@@ -424,7 +424,7 @@ M2 需要「不同部门不同档位」时，改成多条 + `resource_grants`，
 
 | 项 | 改动 |
 | --- | --- |
-| 部署模式 | `deployment_mode=platform`，`POINTER_API_BASE` / `POINTER_WEB_BASE` 指向 admin |
+| 部署模式 | `deployment_mode=platform`，`POINTER_API_BASE` 指向 admin（登录页与接口同源） |
 | 登录 | 现有链路：`/api/auth/login/start` → admin 的 `/oauth/authorize` → `/api/auth/oauth/callback` |
 | 凭证 | `platform_auth` 拉 `/auth/partner/llm-credentials`，塞进 `WebSessionEntry.creds` |
 | 门禁与上报 | `/auth/partner/balance`、`/auth/partner/token-usage` 已有；`is_standalone()` 为 false 时自动生效 |
@@ -559,7 +559,7 @@ admin 与 server 只通过 HTTP 说话；指针不共享，桌面包体不受影
 | 变量 | 作用 | 指向 admin 时 |
 | --- | --- | --- |
 | `POINTER_API_BASE` | token / partner 接口根 | `http://<admin-host>:8788` |
-| `POINTER_WEB_BASE` | 登录页根（拼 `/oauth/authorize`） | 同上 |
+| ~~`POINTER_WEB_BASE`~~ | 已取消，授权页与接口同源 | — |
 | `POINTER_OAUTH_CLIENT_ID` | 默认 `pointer-desktop` | 不用改，admin 已登记同名客户端 |
 
 也就是说 admin 是「官网后端」的同构替代品，**不新增 `POINTER_ADMIN_*` 之类的客户端配置**，

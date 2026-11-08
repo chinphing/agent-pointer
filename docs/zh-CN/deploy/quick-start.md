@@ -120,7 +120,7 @@ scripts\quick-deploy.bat start standalone-server --runtime bin
 scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://pointer-api.example.com --web-base https://pointer.example.com
 ```
 
-也可以导出 `POINTER_API_BASE`、`POINTER_WEB_BASE`，再省略这两项参数。不写 `--build` 时，脚本只把域名放进进程环境后启动已有二进制。加上 `--build` 才按这次传入的域名本地重新编译。构建缺一个域名就会失败。开发者打这个包也可以用 `npm run server:build`。
+也可以导出 `POINTER_API_BASE`，再省略 `--api-base`。不写 `--build` 时，脚本只把域名放进进程环境后启动已有二进制。加上 `--build` 才按这次传入的域名本地重新编译。构建缺控制面地址就会失败。开发者打这个包也可以用 `npm run server:build`。
 
 `--runtime dev` 才会执行 `cargo run -p pointer-server` 和本机 Vite。Cargo 只在源码、`POINTER_EDITION` 或三个域名变化时重编。
 

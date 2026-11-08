@@ -120,7 +120,7 @@ The three control-plane domains are required. Without a reachable control plane 
 scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://pointer-api.example.com --web-base https://pointer.example.com
 ```
 
-You can export `POINTER_API_BASE` and `POINTER_WEB_BASE` instead of passing the two flags. Without `--build`, the script puts the domains into the process environment and starts the existing binary. `--build` recompiles locally with the domains from this command. A build that is missing one domain fails. Developers can also produce this package with `npm run server:build`.
+You can export `POINTER_API_BASE` instead of passing `--api-base`. Without `--build`, the script puts the domains into the process environment and starts the existing binary. `--build` recompiles locally with the domains from this command. A build that is missing the control-plane address fails. Developers can also produce this package with `npm run server:build`.
 
 `--runtime dev` is what runs `cargo run -p pointer-server` and the local Vite CLI. Cargo rebuilds only when the sources, `POINTER_EDITION`, or the three domains change.
 

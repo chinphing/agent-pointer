@@ -53,10 +53,8 @@ fn emit_edition() {
 /// The open-source tree carries no production domain: a managed build must
 /// supply them here, and a build that does not stays unbound (standalone).
 fn emit_platform_domains() {
-    const DOMAINS: [(&str, &str); 2] = [
-        ("POINTER_API_BASE", "POINTER_BUILTIN_API_BASE"),
-        ("POINTER_WEB_BASE", "POINTER_BUILTIN_WEB_BASE"),
-    ];
+    // 控制面只有一个地址：登录页、授权页、接口都在同一台机器上。
+    const DOMAINS: [(&str, &str); 1] = [("POINTER_API_BASE", "POINTER_BUILTIN_API_BASE")];
 
     let managed = env::var("POINTER_EDITION")
         .map(|raw| raw.trim().eq_ignore_ascii_case("managed"))

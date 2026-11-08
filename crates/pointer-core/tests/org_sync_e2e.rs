@@ -365,7 +365,6 @@ async fn client_syncs_skills_and_plugins_from_control_plane() {
     // 所以下面用带时间戳的唯一 plugin id，并在结尾清理，避免污染真实目录。
     let data_dir = temp_dir("data");
     std::env::set_var("POINTER_API_BASE", &base);
-    std::env::set_var("POINTER_WEB_BASE", &base);
     std::env::set_var("POINTER_DEPLOYMENT_MODE", "platform");
     std::env::set_var("POINTER_APP_DATA_DIR", &data_dir);
 

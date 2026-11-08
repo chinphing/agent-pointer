@@ -12,9 +12,6 @@
 /// Baked in by `build.rs` from `POINTER_API_BASE`; empty when the build supplied none.
 pub const DEFAULT_API_BASE: &str = env!("POINTER_BUILTIN_API_BASE");
 
-/// Baked in by `build.rs` from `POINTER_WEB_BASE`; empty when the build supplied none.
-pub const DEFAULT_WEB_BASE: &str = env!("POINTER_BUILTIN_WEB_BASE");
-
 pub const DEFAULT_OAUTH_CLIENT_ID: &str = "pointer-desktop";
 
 /// Resolve one platform base URL: an explicit env var wins, otherwise only a
@@ -34,17 +31,18 @@ fn resolve_platform_base(key: &str, platform_default: &str) -> String {
 }
 
 /// Whether this process has a control plane to talk to.
+///
+/// 只看 `POINTER_API_BASE` —— 控制面只有一个地址，登录页/授权页/接口同源。
 pub fn control_plane_bound() -> bool {
-    !resolve_platform_base("POINTER_API_BASE", DEFAULT_API_BASE).is_empty()
-        || !resolve_platform_base("POINTER_WEB_BASE", DEFAULT_WEB_BASE).is_empty()
+    is_bound(&api_base())
+}
+
+fn is_bound(api_base: &str) -> bool {
+    !api_base.trim().is_empty()
 }
 
 pub fn api_base() -> String {
     resolve_platform_base("POINTER_API_BASE", DEFAULT_API_BASE)
-}
-
-pub fn web_base() -> String {
-    resolve_platform_base("POINTER_WEB_BASE", DEFAULT_WEB_BASE)
 }
 
 pub fn oauth_client_id() -> String {
@@ -65,6 +63,13 @@ mod tests {
             offenders.is_empty(),
             "shipped code must not hardcode a vendor domain — inject it at build time instead: {offenders:#?}"
         );
+    }
+
+    #[test]
+    fn binding_depends_only_on_the_api_base() {
+        assert!(!super::is_bound(""));
+        assert!(!super::is_bound("   "));
+        assert!(super::is_bound("https://admin.example.com"));
     }
 
     fn collect_offenders(

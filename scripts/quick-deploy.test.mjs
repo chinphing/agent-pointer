@@ -75,8 +75,17 @@ describe('quick-deploy plans', () => {
     expect(result.processes[0].env.POINTER_APP_DATA_DIR).toContain('standalone-client')
   })
 
+  it('managed mode needs only the api base and reuses it for web links', () => {
+    const onlyApi = plan('managed-server', { domains: { apiBase: 'https://admin.example.com' } })
+    const env = onlyApi.processes[0].env
+    expect(env.POINTER_API_BASE).toBe('https://admin.example.com')
+    // 不再有独立的 web 基址，前端跳转默认跟随 api
+    expect(env.VITE_POINTER_WEB_BASE).toBe('https://admin.example.com')
+    expect(env.POINTER_WEB_BASE).toBeUndefined()
+  })
+
   it('managed-server requires domains and records platform mode', () => {
-    expect(() => plan('managed-server', { domains: {} })).toThrow(/control-plane domains/)
+    expect(() => plan('managed-server', { domains: {} })).toThrow(/control-plane address/)
     const result = plan('managed-server')
     const env = result.processes[0].env
     expect(result.authMode).toBe('platform')
@@ -84,7 +93,6 @@ describe('quick-deploy plans', () => {
     expect(env.VITE_POINTER_EDITION).toBe('managed')
     expect(env.POINTER_DEPLOYMENT_MODE).toBe('platform')
     expect(env.POINTER_API_BASE).toBe(domains.apiBase)
-    expect(env.POINTER_WEB_BASE).toBe(domains.webBase)
     expect(env.VITE_POINTER_WEB_BASE).toBe(domains.webBase)
     expect(env.POINTER_SERVER_ADMIN_USERNAME).toBeUndefined()
   })

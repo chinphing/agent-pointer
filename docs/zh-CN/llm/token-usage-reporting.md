@@ -71,7 +71,7 @@ LLM usage is **post-paid soft overdraft** on the server (`charge_llm_yuan` alway
 | Mid-turn tool / multi-model rounds | No re-check (same turn may still soft-overdraft) |
 | Cloud agent open / oauth code | Same gate, shares the same snapshot |
 
-When exhausted, the official desktop UI shows a composer banner and error card with a **去充值** button that opens `{POINTER_WEB_BASE}/profile/billing` (the official build injects its web base at build time). Unbound (non-official) builds default to no usage upload and no billing URL unless you set the env vars.
+When exhausted, the desktop UI shows a composer banner and error card with a **去充值** button. The button only appears when a top-up URL is configured (`VITE_POINTER_WEB_BASE`, defaulting to the control-plane address); the open-source tree ships no billing page, so it stays hidden unless you set one. Unbound builds default to no usage upload.
 
 Login / token exchange / `GET /auth/partner/llm-credentials` are unchanged and do **not** perform this gate.
 

@@ -44,7 +44,7 @@ Detailed version (artifact lists, troubleshooting, CI policy): [`editions.md`](e
 <a id="managed-client"></a>
 ## 1. managed × client
 
-- [ ] **1. Prepare variables** — in `pointer.local.env` write: `POINTER_EDITION=managed`, `VITE_POINTER_EDITION=managed`, the two domains (`POINTER_API_BASE` / `POINTER_WEB_BASE`), and the updater signing private key (`TAURI_SIGNING_PRIVATE_KEY` or `TAURI_SIGNING_PRIVATE_KEY_PATH`)
+- [ ] **1. Prepare variables** — in `pointer.local.env` write: `POINTER_EDITION=managed`, `VITE_POINTER_EDITION=managed`, the control-plane address (`POINTER_API_BASE`), and the updater signing private key (`TAURI_SIGNING_PRIVATE_KEY` or `TAURI_SIGNING_PRIVATE_KEY_PATH`)
 - [ ] **2. Install dependencies and icons** — `npm install && npm run icons`
 - [ ] **3. Build** — `npm run tauri:build`
 - [ ] **4. Verify** — the build log contains `[tauri-build] POINTER_EDITION=managed`; `find src-tauri/target/release/bundle -name '*.sig'` returns results; after launch the About page shows the update entry

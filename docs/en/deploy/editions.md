@@ -35,7 +35,7 @@ The flavour only decides the **build-time defaults**; it is not a runtime switch
 | `POINTER_EDITION=managed` | Packaging flavour, baked in at compile time. **When control-plane domains are missing, `crates/pointer-core/build.rs` panics outright and the build fails** |
 | `VITE_POINTER_EDITION=managed` | Frontend flavour (`src/lib/platformUrls.ts` → `isManagedEdition()`) |
 | `POINTER_API_BASE` | Control-plane API domain (baked into `POINTER_BUILTIN_API_BASE` at build time) |
-| `POINTER_WEB_BASE` / `VITE_POINTER_WEB_BASE` | Control-plane Web domain (top-up / cloud-host redirects) |
+| `VITE_POINTER_WEB_BASE` | Frontend redirect base (top-up / download); defaults to `POINTER_API_BASE` |
 | `POINTER_DOWNLOAD_URL` / `VITE_POINTER_DOWNLOAD_URL` | Download page link (About page) |
 | `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PATH` | Updater signing private key, **needed only by the managed client** |
 
@@ -76,10 +76,8 @@ npm run tauri:build
 # Option B: export for one run (CI / temporary; key names match pointer.local.env.example)
 POINTER_EDITION=managed VITE_POINTER_EDITION=managed \
   POINTER_API_BASE=https://pointer-api.example.com \
-  POINTER_WEB_BASE=https://pointer.example.com \
   \
-  VITE_POINTER_WEB_BASE=https://pointer.example.com \
-  POINTER_DOWNLOAD_URL=https://pointer.example.com/download \
+  VITE_  POINTER_DOWNLOAD_URL=https://pointer.example.com/download \
   TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key \
   npm run tauri:build
 ```
@@ -100,7 +98,7 @@ npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 | --- | --- | --- |
 | `POINTER_EDITION=managed` | ✅ | Flavour. **Only `managed` or empty is accepted**: any other value (including the old `official`) makes the build fail outright, avoiding a silent downgrade to unbound |
 | `VITE_POINTER_EDITION=managed` | ✅ | Frontend flavour; when unset the script fills it in from `POINTER_EDITION` |
-| `POINTER_API_BASE` / `POINTER_WEB_BASE` | ✅ | The two control-plane domains; missing any one panics the build |
+| `POINTER_API_BASE` | ✅ | The control-plane address (login page, authorize page and API share one origin); missing it panics the build |
 | `VITE_POINTER_WEB_BASE` / `POINTER_DOWNLOAD_URL` | Recommended | Frontend redirects and the About page download link |
 | `TAURI_SIGNING_PRIVATE_KEY` or `…_PATH` | ✅ | Updater signing private key |
 
@@ -164,10 +162,8 @@ npm run server:build
 POINTER_EDITION=managed \
 VITE_POINTER_EDITION=managed \
 POINTER_API_BASE=https://pointer-api.example.com \
-POINTER_WEB_BASE=https://pointer.example.com \
 \
-VITE_POINTER_WEB_BASE=https://pointer.example.com \
-npm run server:build
+VITE_npm run server:build
 ```
 
 `server:build` = same-origin Vue build (`VITE_WEB_API_BASE` emptied) → `cargo build -p pointer-server --release` → **verify that both halves share the flavour** → zip; on Linux, add a `.deb` when `dpkg-deb` is available. `--package-only` / `--deb-only` skip recompiling but still verify the existing artifacts.
@@ -180,7 +176,7 @@ npm run server:build
 | --- | --- | --- |
 | `POINTER_EDITION=managed` | ✅ | Flavour; also the switch that panics when domains are missing |
 | `VITE_POINTER_EDITION=managed` | Recommended | Frontend flavour (visibility of the cloud-host / top-up entries) |
-| `POINTER_API_BASE` / `POINTER_WEB_BASE` | ✅ | The two control-plane domains |
+| `POINTER_API_BASE` | ✅ | The control-plane address (single origin) |
 | `VITE_POINTER_WEB_BASE` | Recommended | Frontend redirect to the control-plane Web |
 
 **Runtime** (`pointer-server.toml`, see `server/pointer-server.toml.example`):

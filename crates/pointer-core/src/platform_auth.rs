@@ -440,10 +440,6 @@ impl PlatformAuthManager {
         platform_endpoints::api_base()
     }
 
-    fn web_base() -> String {
-        platform_endpoints::web_base()
-    }
-
     fn client_id() -> String {
         platform_endpoints::oauth_client_id()
     }
@@ -465,7 +461,7 @@ impl PlatformAuthManager {
         code_challenge: &str,
         state: &str,
     ) -> String {
-        let web = Self::web_base();
+        let web = Self::api_base();
         let client_id = Self::client_id();
         format!(
             "{web}/oauth/authorize?client_id={client_id}&redirect_uri={}&code_challenge={code_challenge}&code_challenge_method=S256&state={state}",
@@ -1513,9 +1509,12 @@ async fn serve_oauth_keepalive(listener: tokio::net::TcpListener, cancel: Cancel
     }
 }
 
-/// 桌面 OAuth 回调成功后跳转官网首页（带一次性提示用的 query）。
+/// 桌面 OAuth 回调成功后跳控制面的「登录成功」页（带一次性提示用的 query）。
+///
+/// 控制面根路径看到 `desktop_oauth=success` 会直接渲染一个「可以关闭此页」的
+/// 静态页，不再把用户丢到官网首页。
 pub fn desktop_oauth_success_redirect_url() -> String {
-    let home = format!("{}/", platform_endpoints::web_base().trim_end_matches('/'));
+    let home = format!("{}/", platform_endpoints::api_base().trim_end_matches('/'));
     format!("{home}?{DESKTOP_OAUTH_SUCCESS_QUERY}={DESKTOP_OAUTH_SUCCESS_VALUE}")
 }
 
@@ -1893,7 +1892,7 @@ mod tests {
         );
         assert!(url.starts_with(&format!(
             "{}/oauth/authorize?",
-            PlatformAuthManager::web_base()
+            PlatformAuthManager::api_base()
         )));
         assert!(url.contains("client_id=pointer-desktop"));
         assert!(url.contains("code_challenge=challenge_abc"));
@@ -1917,7 +1916,7 @@ mod tests {
         );
         assert!(url.starts_with(&format!(
             "{}/oauth/authorize?",
-            PlatformAuthManager::web_base()
+            PlatformAuthManager::api_base()
         )));
         assert!(url.contains("client_id=pointer-desktop"));
         assert!(url.contains("code_challenge=challenge_abc"));
@@ -1943,7 +1942,7 @@ mod tests {
         let url = super::desktop_oauth_success_redirect_url();
         // The host comes from the bound control plane; an unbound build gets a
         // relative URL, which is why login is only offered when bound.
-        let web_base = crate::platform_endpoints::web_base();
+        let web_base = crate::platform_endpoints::api_base();
         assert!(url.starts_with(&format!("{web_base}/")));
         assert!(url.contains("desktop_oauth=success"));
     }

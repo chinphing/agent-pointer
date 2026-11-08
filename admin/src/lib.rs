@@ -14,6 +14,7 @@ pub mod http;
 pub mod oauth;
 pub mod password;
 pub mod rbac;
+pub mod releases;
 pub mod resources;
 pub mod schema;
 pub mod seed;

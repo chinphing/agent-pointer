@@ -763,10 +763,6 @@ async fn main() -> anyhow::Result<()> {
             "/api/conversations/:conversation_id/messages/append",
             post(append_conversation_messages),
         )
-        .route("/api/experiences/pinned", get(list_pinned_experiences))
-        .route("/api/experiences/home", get(get_experience_home))
-        .route("/api/experiences/search", get(search_experiences))
-        .route("/api/experiences/:slug", get(get_experience_detail))
         .route("/api/chat/media-preview", get(preview_chat_media))
         .route("/api/chat/media-download", get(download_chat_media))
         .route("/api/chat/media-stream", get(stream_chat_media))
@@ -3857,47 +3853,6 @@ where
         HeaderValue::from_static("no"),
     );
     res
-}
-
-#[derive(Deserialize)]
-struct PinnedExperiencesQuery {
-    limit: Option<u32>,
-}
-
-async fn list_pinned_experiences(
-    Query(q): Query<PinnedExperiencesQuery>,
-) -> Result<Json<Vec<pointer_core::experiences::ExperienceListItem>>, ApiError> {
-    let n = q.limit.unwrap_or(3).max(1).min(10) as usize;
-    let rows = pointer_core::experiences::fetch_pinned_experiences(n).await?;
-    Ok(Json(rows))
-}
-
-async fn get_experience_home(
-) -> Result<Json<pointer_core::experiences::ExperienceHomeResponse>, ApiError> {
-    let home = pointer_core::experiences::fetch_experience_home().await?;
-    Ok(Json(home))
-}
-
-#[derive(Deserialize)]
-struct SearchExperiencesQuery {
-    q: Option<String>,
-    limit: Option<u32>,
-}
-
-async fn search_experiences(
-    Query(q): Query<SearchExperiencesQuery>,
-) -> Result<Json<Vec<pointer_core::experiences::ExperienceListItem>>, ApiError> {
-    let query = q.q.unwrap_or_default();
-    let n = q.limit.unwrap_or(20).max(1).min(50) as usize;
-    let rows = pointer_core::experiences::fetch_experience_search(&query, n).await?;
-    Ok(Json(rows))
-}
-
-async fn get_experience_detail(
-    Path(slug): Path<String>,
-) -> Result<Json<pointer_core::experiences::ExperienceDetail>, ApiError> {
-    let detail = pointer_core::experiences::fetch_experience_detail(&slug).await?;
-    Ok(Json(detail))
 }
 
 /// Deb / FHS install path for the Vue SPA (see `scripts/build-server-deb.mjs`).

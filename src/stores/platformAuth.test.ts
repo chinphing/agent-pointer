@@ -77,7 +77,6 @@ describe('loginRequiredMessage / mapLoginGateError', () => {
     expect(loginRequiredMessage(true, 'default')).toBe(t('auth.loginRequired'))
     expect(loginRequiredMessage(false, 'attachment')).toBe(t('auth.loginRequiredPointerAttach'))
     expect(loginRequiredMessage(true, 'attachment')).toBe(t('auth.loginRequiredAttach'))
-    expect(loginRequiredMessage(false, 'cloud')).toBe(t('auth.loginRequiredPointer'))
   })
 
   it('asks the browser standalone page to sign in, and leaves the desktop app alone', () => {

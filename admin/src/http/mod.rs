@@ -40,6 +40,26 @@ pub fn router() -> Router<Shared> {
         )
         .route("/api/admin/permissions", get(roles::list_permissions))
         .route(
+            "/api/admin/releases",
+            get(crate::releases::admin_list).post(crate::releases::admin_create),
+        )
+        .route(
+            "/api/admin/releases/:id",
+            delete(crate::releases::admin_delete),
+        )
+        .route(
+            "/api/admin/releases/:id/publish",
+            post(crate::releases::admin_publish),
+        )
+        .route(
+            "/api/admin/releases/:id/artifacts",
+            post(crate::releases::admin_upload_artifact),
+        )
+        .route(
+            "/api/admin/releases/:id/artifacts/:kind",
+            delete(crate::releases::admin_delete_artifact),
+        )
+        .route(
             "/api/admin/resources",
             get(resources::list_resources).post(resources::create_resource),
         )

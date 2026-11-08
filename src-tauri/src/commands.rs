@@ -1638,44 +1638,6 @@ pub fn append_conversation_messages(
     storage::append_conversation_messages(&conversation_id, &messages).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub async fn list_pinned_experiences(
-    limit: Option<u32>,
-) -> Result<Vec<pointer_core::experiences::ExperienceListItem>, String> {
-    let n = limit.unwrap_or(3).max(1).min(10) as usize;
-    pointer_core::experiences::fetch_pinned_experiences(n)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn list_experience_home(
-) -> Result<pointer_core::experiences::ExperienceHomeResponse, String> {
-    pointer_core::experiences::fetch_experience_home()
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn search_experiences(
-    query: String,
-    limit: Option<u32>,
-) -> Result<Vec<pointer_core::experiences::ExperienceListItem>, String> {
-    let n = limit.unwrap_or(20).max(1).min(50) as usize;
-    pointer_core::experiences::fetch_experience_search(&query, n)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_experience_detail(
-    slug: String,
-) -> Result<pointer_core::experiences::ExperienceDetail, String> {
-    pointer_core::experiences::fetch_experience_detail(&slug)
-        .await
-        .map_err(|e| e.to_string())
-}
-
 // ---- Phase 5/6: cron jobs + webhook token config (desktop IPC) ----
 // These mirror the server HTTP endpoints so the frontend Automation panel
 // works identically on desktop (Tauri IPC) and web (HTTP).

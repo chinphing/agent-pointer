@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onErrorCaptured, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, Bug, Sparkles, Bot, Cpu, MessageSquare, Cloud, Clock, Info, Settings, Puzzle, Plug, Gauge } from 'lucide-vue-next'
+import { ArrowLeft, Bug, Sparkles, Bot, Cpu, MessageSquare, Clock, Info, Settings, Puzzle, Plug, Gauge } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import WindowDragRegion from '../layout/WindowDragRegion.vue'
@@ -14,7 +14,6 @@ import AssistantSettingsPanel from './panels/AssistantSettingsPanel.vue'
 import GenerationSettingsPanel from './panels/GenerationSettingsPanel.vue'
 import ModelSettingsPanel from './panels/ModelSettingsPanel.vue'
 import DebugSettingsPanel from './panels/DebugSettingsPanel.vue'
-import CloudSettingsPanel from './panels/CloudSettingsPanel.vue'
 import AutomationSettingsPanel from './panels/AutomationSettingsPanel.vue'
 import AboutSettingsPanel from './panels/AboutSettingsPanel.vue'
 import UsageSettingsPanel from './panels/UsageSettingsPanel.vue'
@@ -139,7 +138,6 @@ const sections = computed<SidebarGroup[]>(() => {
   }
   if (isTauriRuntime() && !platformAuth.isStandalone) {
     systemItems.push(
-      sectionItem('cloud', 'settings.sections.cloud', 'settings.sections.cloudDesc', Cloud)
     )
   }
   systemItems.push(
@@ -268,10 +266,6 @@ onMounted(() => {
 
             <section v-else-if="activeSection === 'generation'" class="min-h-full flex flex-col">
               <GenerationSettingsPanel :form="form" />
-            </section>
-
-            <section v-else-if="activeSection === 'cloud'" class="min-h-full flex flex-col">
-              <CloudSettingsPanel :form="form" />
             </section>
 
             <section v-else-if="activeSection === 'usage'" class="min-h-full flex flex-col">

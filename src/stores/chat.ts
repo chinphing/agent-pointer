@@ -3562,11 +3562,6 @@ export const useChatStore = defineStore('chat', () => {
     scheduleComposerDraftFlush()
   }, { deep: true })
 
-  function prefillComposer(text: string) {
-    composerPrefill.value = text
-    composerText.value = text
-  }
-
   function consumeComposerPrefill(): string | null {
     const v = composerPrefill.value
     composerPrefill.value = null
@@ -4091,7 +4086,7 @@ export const useChatStore = defineStore('chat', () => {
     effectiveConversationLeadAgentId,
     showUiToast,
     clearPlatformLoginErrorMessages,
-    composerPrefill, prefillComposer, consumeComposerPrefill,
+    composerPrefill, consumeComposerPrefill,
     composerText, composerAttachments, clearActiveComposer,
     getComposerDraft, setComposerDraft, clearComposerDraft,
     computerMonitorPickRequest, clearComputerMonitorPickRequest,

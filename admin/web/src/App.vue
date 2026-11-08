@@ -20,6 +20,7 @@ const nav = [
   { path: '/members', key: 'nav.members', perm: 'user:read' },
   { path: '/roles', key: 'nav.roles', perm: 'role:read' },
   { path: '/resources', key: 'nav.resources', perm: '' },
+  { path: '/releases', key: 'nav.releases', perm: '' },
   { path: '/usage', key: 'nav.usage', perm: 'usage:read' },
   { path: '/audit', key: 'nav.audit', perm: 'audit:read' },
 ]

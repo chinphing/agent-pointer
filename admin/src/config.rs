@@ -22,6 +22,8 @@ pub struct AdminConfig {
     /// 未配置时 OAuth 端点返回 503，而不是拿一个随机密钥糊过去。
     pub oauth_secret: Option<String>,
     pub server_redirect_uri: String,
+    /// 对外基址（自动更新清单里拼下载链接用）。留空则按请求的 Host 推。
+    pub public_base: Option<String>,
     /// 登录是否必须过验证码。默认开；只有自动化测试/内网联调才关。
     /// 关掉时启动日志会打一条 WARN，避免悄悄跑在生产上。
     pub captcha_required: bool,
@@ -43,6 +45,7 @@ impl Default for AdminConfig {
             bootstrap_password: None,
             oauth_secret: None,
             server_redirect_uri: "http://127.0.0.1:8787/auth/callback".to_string(),
+            public_base: None,
             captcha_required: true,
         }
     }
@@ -105,6 +108,9 @@ impl AdminConfig {
             cfg.server_redirect_uri = v;
         }
         // 只认明确的关闭值；写错/留空一律按「开启」处理，宁可多一道验证码。
+        if let Some(v) = env_str("POINTER_ADMIN_PUBLIC_BASE") {
+            cfg.public_base = Some(v.trim().to_string()).filter(|v| !v.is_empty());
+        }
         if let Some(v) = env_str("POINTER_ADMIN_CAPTCHA") {
             cfg.captcha_required = !matches!(v.trim().to_ascii_lowercase().as_str(), "off" | "0" | "false" | "disabled");
         }

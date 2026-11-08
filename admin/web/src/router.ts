@@ -19,6 +19,7 @@ export const router = createRouter({
     { path: '/members', meta: { title: 'nav.members', search: 'member' }, component: Members },
     { path: '/roles', meta: { title: 'nav.roles' }, component: Roles },
     { path: '/resources', meta: { title: 'nav.resources', search: 'resource' }, component: Resources },
+    { path: '/releases', meta: { title: 'nav.releases' }, component: () => import('./pages/Releases.vue') },
     { path: '/usage', meta: { title: 'nav.usage' }, component: Usage },
     { path: '/audit', meta: { title: 'nav.audit' }, component: Audit },
     { path: '/:pathMatch(.*)*', redirect: '/overview' },

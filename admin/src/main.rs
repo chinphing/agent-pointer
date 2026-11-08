@@ -199,6 +199,11 @@ async fn main() -> Result<()> {
     let mut app = Router::new()
         .merge(oauth::router())
         .merge(pointer_admin::http::router())
+        .route("/api/updates/latest", get(pointer_admin::releases::updates_latest))
+        .route(
+            "/api/downloads/files/:id",
+            get(pointer_admin::releases::download_file),
+        )
         .route("/", get(index))
         .route("/admin", get(index))
         .route("/admin/*rest", get(index))

@@ -12,7 +12,8 @@
     "roles": "角色",
     "resources": "资源",
     "usage": "用量",
-    "audit": "审计"
+    "audit": "审计",
+    "releases": "应用更新"
   },
   "common": {
     "save": "保存",
@@ -29,7 +30,9 @@
     "loading": "加载中…",
     "none": "无",
     "empty": "还没有数据",
-    "requestFailed": "请求失败（HTTP {status}）"
+    "requestFailed": "请求失败（HTTP {status}）",
+    "refresh": "刷新",
+    "create": "创建"
   },
   "roles": {
     "title": "角色与权限",
@@ -481,5 +484,33 @@
     "noDefault": "默认 否",
     "defaultsNote": "留空用客户端默认：温度 0.7、topP 0.95、最大输出 16384、上下文 262144（256K）、启用思考、不回传 reasoning。思考强度决定思考预算（关 0 / 低 1024 / 中 2048 / 高 4096 / 最高 8192），不用单独设。",
     "intensityAuto": "按思考预算推断"
+  },
+  "releases": {
+    "subtitle": "客户端自动更新：上传各平台安装包与签名文件，发布后客户端启动时自动检查。",
+    "newVersion": "新建版本",
+    "version": "版本号",
+    "notes": "更新说明",
+    "notesPlaceholder": "用户会在更新提示里看到这段文字",
+    "created": "版本已创建",
+    "uploaded": "安装包已上传",
+    "published": "已发布",
+    "unpublished": "已取消发布",
+    "deleted": "已删除",
+    "confirmDelete": "确定删除版本 {version}？安装包会一并删除。",
+    "empty": "还没有任何版本。先新建一个版本，再上传各平台安装包。",
+    "statusPublished": "已发布",
+    "statusDraft": "草稿",
+    "publish": "发布",
+    "unpublish": "取消发布",
+    "platform": "平台",
+    "package": "安装包",
+    "size": "大小",
+    "signature": "签名",
+    "signed": "已签名",
+    "unsigned": "缺签名",
+    "upload": "上传",
+    "uploading": "上传中…",
+    "pickPackage": "请先选择安装包",
+    "pickSignature": "请先选择签名文件（.sig）"
   }
 }

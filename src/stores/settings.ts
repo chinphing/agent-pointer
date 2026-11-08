@@ -16,7 +16,8 @@ import type {
   DebugSessionSettings,
   EffectiveSettingsView,
   MediaModelOverrides,
-  MediaUnderstandingModes,
+  MediaKind,
+  MediaUnderstandingModels,
   ModelSettings,
   PerformanceMode,
   PlatformSettings,
@@ -47,7 +48,6 @@ import { normalizePlatformProviderTemplates, mergePlatformModelConfigs } from '.
 
 // 场景档位默认由平台目录下发（tierDefaults）；本地不内置任何平台模型固定配置。
 const defaultAgentModeLlm = () => ({})
-const defaultMediaModeLlm = () => ({})
 
 const defaultPlatformSettings = (): PlatformSettings => ({
   providers: defaultProviders,
@@ -196,9 +196,8 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     agentUiOverrides: { ...(s.agentUiOverrides ?? {}) },
     mediaModelOverrides: { ...(s.mediaModelOverrides ?? {}) },
     agentPerformanceModes: { ...(s.agentPerformanceModes ?? {}) },
-    mediaUnderstandingModes: { ...(s.mediaUnderstandingModes ?? {}) },
+    mediaUnderstanding: { ...(s.mediaUnderstanding ?? {}) },
     agentModeLlm: { ...(s.agentModeLlm ?? {}) },
-    mediaModeLlm: { ...(s.mediaModeLlm ?? {}) },
     parallelToolExecutionEnabled: s.parallelToolExecutionEnabled !== false,
     maxParallelToolCalls: s.maxParallelToolCalls,
     maxParallelSubAgents: s.maxParallelSubAgents,
@@ -367,9 +366,8 @@ export const useSettingsStore = defineStore('settings', () => {
       verifyThinkingIntensity: 'off'
     },
     agentModeLlm: defaultAgentModeLlm(),
-    mediaModeLlm: defaultMediaModeLlm(),
+    mediaUnderstanding: {},
     agentPerformanceModes: { general: 'standard', coder: 'standard' },
-    mediaUnderstandingModes: { image: 'fast', audio: 'fast', video: 'fast' },
     parallelToolExecutionEnabled: true,
     theme: 'system'
   } as ModelSettings)
@@ -464,7 +462,7 @@ export const useSettingsStore = defineStore('settings', () => {
       agentUiOverrides:
         mergedIn.agentUiOverrides ?? prevMerged.agentUiOverrides,
       agentModeLlm: mergedIn.agentModeLlm ?? prevMerged.agentModeLlm ?? {},
-      mediaModeLlm: mergedIn.mediaModeLlm ?? prevMerged.mediaModeLlm ?? {},
+      mediaUnderstanding: mergedIn.mediaUnderstanding ?? prevMerged.mediaUnderstanding ?? {},
       computerPipelineLlm:
         mergedIn.computerPipelineLlm ?? prevMerged.computerPipelineLlm ?? {}
     }
@@ -591,7 +589,7 @@ export const useSettingsStore = defineStore('settings', () => {
     return cloneJson({
       ...userSettings.value,
       agentModeLlm: settings.value.agentModeLlm ?? userSettings.value.agentModeLlm,
-      mediaModeLlm: settings.value.mediaModeLlm ?? userSettings.value.mediaModeLlm,
+      mediaUnderstanding: settings.value.mediaUnderstanding ?? userSettings.value.mediaUnderstanding,
       ...patch
     })
   }
@@ -711,13 +709,12 @@ export const useSettingsStore = defineStore('settings', () => {
         ...(user.agentPerformanceModes ?? {}),
         ...(mergedIn.agentPerformanceModes ?? {})
       },
-      mediaUnderstandingModes: {
-        ...(settings.value.mediaUnderstandingModes ?? {}),
-        ...(user.mediaUnderstandingModes ?? {}),
-        ...(mergedIn.mediaUnderstandingModes ?? {})
+      mediaUnderstanding: {
+        ...(settings.value.mediaUnderstanding ?? {}),
+        ...(user.mediaUnderstanding ?? {}),
+        ...(mergedIn.mediaUnderstanding ?? {})
       },
       agentModeLlm: mergedIn.agentModeLlm ?? user.agentModeLlm ?? settings.value.agentModeLlm,
-      mediaModeLlm: mergedIn.mediaModeLlm ?? user.mediaModeLlm ?? settings.value.mediaModeLlm,
       computerPipelineLlm:
         mergedIn.computerPipelineLlm ?? user.computerPipelineLlm ?? settings.value.computerPipelineLlm
     }
@@ -745,7 +742,7 @@ export const useSettingsStore = defineStore('settings', () => {
       maxTokens: settings.value.maxTokens,
       computerPipelineLlm: settings.value.computerPipelineLlm ?? {},
       agentModeLlm: settings.value.agentModeLlm ?? {},
-      mediaModeLlm: settings.value.mediaModeLlm ?? {},
+      mediaUnderstanding: settings.value.mediaUnderstanding ?? {},
       ...patch
     })
   }
@@ -969,17 +966,15 @@ export const useSettingsStore = defineStore('settings', () => {
     return settings.value.agentPerformanceModes?.[agentId] ?? 'standard'
   }
 
-  async function setMediaUnderstandingMode(
-    kind: keyof MediaUnderstandingModes,
-    mode: PerformanceMode
-  ) {
-    const next: MediaUnderstandingModes = { ...(settings.value.mediaUnderstandingModes ?? {}) }
-    next[kind] = mode
-    await saveAgentPreferences({ mediaUnderstandingModes: next })
+  async function setMediaUnderstandingModel(kind: MediaKind, ref: AgentModelRef | null) {
+    const next: MediaUnderstandingModels = { ...(settings.value.mediaUnderstanding ?? {}) }
+    if (!ref || !ref.model?.trim()) delete next[kind]
+    else next[kind] = ref
+    await saveAgentPreferences({ mediaUnderstanding: next })
   }
 
-  function getMediaUnderstandingMode(kind: keyof MediaUnderstandingModes): PerformanceMode {
-    return settings.value.mediaUnderstandingModes?.[kind] ?? 'fast'
+  function getMediaUnderstandingModel(kind: MediaKind): AgentModelRef | undefined {
+    return settings.value.mediaUnderstanding?.[kind]
   }
 
   async function setMediaModelOverride(
@@ -1049,8 +1044,8 @@ export const useSettingsStore = defineStore('settings', () => {
     getAgentPerformanceMode,
     getMediaModelOverride,
     setMediaModelOverride,
-    setMediaUnderstandingMode,
-    getMediaUnderstandingMode,
+    getMediaUnderstandingModel,
+    setMediaUnderstandingModel,
     isTaskBoardHistoryTrimEnabled,
     setTaskBoardHistoryTrim,
     defaultTaskBoardHistoryTrim,

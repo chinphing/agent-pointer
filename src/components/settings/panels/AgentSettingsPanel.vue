@@ -47,9 +47,9 @@ const {
   selectComputerPipelineLocate,
   selectComputerPipelineVerify,
   MEDIA_DEBUG_KINDS,
-  mediaModeLlm,
-  selectMediaModeModel,
-  patchMediaModeLlm,
+  mediaUnderstanding,
+  selectMediaUnderstandingModel,
+  patchMediaUnderstandingModel,
   maxSubAgentSpawnDepth,
   isLeadWorkerSelected,
   isLeadAgentSelectable,
@@ -257,33 +257,30 @@ function skillLabel(skillId: string): string {
                   <h4 class="text-xs font-medium text-foreground">{{ t('settings.agentPanel.mediaModeModelsDebug') }}</h4>
                   <span class="text-[10px] text-muted">{{ t('settings.agentPanel.mediaModeModelsHint') }}</span>
                 </div>
-                <div v-for="kind in MEDIA_DEBUG_KINDS" :key="'media-debug-' + kind" class="space-y-2">
-                  <span class="text-[12px] text-foreground font-medium">{{ kind === 'image' ? t('settings.mediaKinds.imageShort') : kind === 'audio' ? t('settings.mediaKinds.audioShort') : t('settings.mediaKinds.videoShort') }}</span>
-                  <div
-                    v-for="mode in PERFORMANCE_MODE_UI"
-                    :key="kind + '-' + mode.value"
-                    class="grid grid-cols-[3rem_1fr_auto_6rem] gap-2 items-center px-2 py-1.5"
+                <div
+                  v-for="kind in MEDIA_DEBUG_KINDS"
+                  :key="'media-debug-' + kind"
+                  class="grid grid-cols-[3rem_1fr_auto_6rem] gap-2 items-center px-2 py-1.5"
+                >
+                  <span class="text-[11px] text-muted font-medium">{{ kind === 'image' ? t('settings.mediaKinds.imageShort') : kind === 'audio' ? t('settings.mediaKinds.audioShort') : t('settings.mediaKinds.videoShort') }}</span>
+                  <select
+                    :value="mediaUnderstanding(kind).providerId + ':' + mediaUnderstanding(kind).model"
+                    class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                    @change="selectMediaUnderstandingModel(kind, ($event.target as HTMLSelectElement).value)"
                   >
-                    <span class="text-[11px] text-muted font-medium">{{ mode.label }}</span>
-                    <select
-                      :value="mediaModeLlm(kind, mode.value).providerId + ':' + mediaModeLlm(kind, mode.value).model"
-                      class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
-                      @change="selectMediaModeModel(kind, mode.value, ($event.target as HTMLSelectElement).value)"
-                    >
-                      <option v-for="item in mediaDebugModelOptions(kind)" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
-                    </select>
-                    <select
-                      class="h-8 col-span-2 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
-                      :value="tierThinkingIntensityValue(mediaModeLlm(kind, mode.value))"
-                      @change="patchMediaModeLlm(kind, mode.value, patchTierThinkingIntensity(($event.target as HTMLSelectElement).value as '' | 'off' | 'low' | 'medium' | 'high' | 'max'))"
-                    >
-                      <option
-                        v-for="opt in THINKING_INTENSITY_OPTIONS"
-                        :key="opt.value || 'unset'"
-                        :value="opt.value"
-                      >{{ opt.label }}</option>
-                    </select>
-                  </div>
+                    <option v-for="item in mediaDebugModelOptions(kind)" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
+                  </select>
+                  <select
+                    class="h-8 col-span-2 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                    :value="tierThinkingIntensityValue(mediaUnderstanding(kind))"
+                    @change="patchMediaUnderstandingModel(kind, patchTierThinkingIntensity(($event.target as HTMLSelectElement).value as '' | 'off' | 'low' | 'medium' | 'high' | 'max'))"
+                  >
+                    <option
+                      v-for="opt in THINKING_INTENSITY_OPTIONS"
+                      :key="opt.value || 'unset'"
+                      :value="opt.value"
+                    >{{ opt.label }}</option>
+                  </select>
                 </div>
               </div>
             </div>

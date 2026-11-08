@@ -3,7 +3,7 @@
  * 档位映射矩阵（设计图 08/09）。
  *
  * 配的是「场景 × 档位 → 模型」，不是「员工用哪一档」——选哪一档仍由员工决定。
- * 下发形状见设计文档 §7.2：`{agentModeLlm:{场景:{fast|standard|expert:{providerId,model}}}, mediaModeLlm:{...}}`。
+ * 下发形状见设计文档 §7.2：`{agentModeLlm:{场景:{fast|standard|expert:{providerId,model}}}, mediaUnderstanding:{类型:{providerId,model}}}`。
  *
  * 这是**配置矩阵**，不是表单：一眼要能看出哪些格子被改过、哪些还在继承。
  * 所以每格默认是「文字 + 幽灵下拉」，未配置显示灰色「继承默认」，配置了才显示模型名；
@@ -24,7 +24,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ (e: 'saved'): void }>()
 
-/** 按用途分组：对话/工具走 agentModeLlm，媒体走 mediaModeLlm。 */
+/** 按用途分组：对话/工具走 agentModeLlm（三档），媒体走 mediaUnderstanding（单模型）。 */
 const GROUPS = [
   {
     labelKey: 'tier.groupChat',
@@ -38,9 +38,9 @@ const GROUPS = [
   {
     labelKey: 'tier.groupMedia',
     scenes: [
-      { key: 'image', labelKey: 'tier.scene_image', group: 'mediaModeLlm' },
-      { key: 'audio', labelKey: 'tier.scene_audio', group: 'mediaModeLlm' },
-      { key: 'video', labelKey: 'tier.scene_video', group: 'mediaModeLlm' },
+      { key: 'image', labelKey: 'tier.scene_image', group: 'mediaUnderstanding' },
+      { key: 'audio', labelKey: 'tier.scene_audio', group: 'mediaUnderstanding' },
+      { key: 'video', labelKey: 'tier.scene_video', group: 'mediaUnderstanding' },
     ],
   },
 ]
@@ -110,7 +110,11 @@ const modelOptions = computed(() =>
     }))
 )
 
+/** 媒体理解是「类型 → 单模型」，没有档位层；其它分组按档位取。 */
+const FLAT_GROUP = 'mediaUnderstanding'
+
 function cell(scene: string, group: string, tier: string): any {
+  if (group === FLAT_GROUP) return payload.value?.[group]?.[scene] || {}
   return payload.value?.[group]?.[scene]?.[tier] || {}
 }
 
@@ -124,6 +128,21 @@ function intensityOf(scene: string, group: string, tier: string): string {
 
 function setModel(scene: string, group: string, tier: string, slug: string) {
   if (!payload.value[group]) payload.value[group] = {}
+  if (group === FLAT_GROUP) {
+    if (!slug) {
+      delete payload.value[group][scene]
+    } else {
+      const found = modelOptions.value.find((m) => m.slug === slug)
+      const prevIntensity = payload.value[group][scene]?.thinkingIntensity
+      payload.value[group][scene] = {
+        providerId: found?.providerId || '',
+        model: slug,
+        ...(prevIntensity ? { thinkingIntensity: prevIntensity } : {}),
+      }
+    }
+    if (!Object.keys(payload.value[group]).length) delete payload.value[group]
+    return
+  }
   if (!payload.value[group][scene]) payload.value[group][scene] = {}
   if (!slug) {
     delete payload.value[group][scene][tier]
@@ -142,7 +161,8 @@ function setModel(scene: string, group: string, tier: string, slug: string) {
 }
 
 function setIntensity(scene: string, group: string, tier: string, value: string) {
-  const cur = payload.value?.[group]?.[scene]?.[tier]
+  const cur =
+    group === FLAT_GROUP ? payload.value?.[group]?.[scene] : payload.value?.[group]?.[scene]?.[tier]
   if (!cur) return
   if (value) cur.thinkingIntensity = value
   else delete cur.thinkingIntensity
@@ -302,7 +322,41 @@ async function createDefault() {
           <div v-for="s in g.scenes" :key="s.group + s.key" class="scene-row">
             <div class="scene-col" :title="s.key">{{ t(s.labelKey) }}</div>
             <div
-              v-for="tier in TIERS"
+              v-if="s.group === FLAT_GROUP"
+              class="cell flat"
+              :class="{ filled: !!modelOf(s.key, s.group, '') }"
+            >
+              <select
+                class="ghost"
+                :class="{ filled: !!modelOf(s.key, s.group, '') }"
+                :value="modelOf(s.key, s.group, '')"
+                :disabled="!canWrite"
+                @change="setModel(s.key, s.group, '', ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="">{{ t('tier.inherit') }}</option>
+                <option v-for="m in modelOptions" :key="m.slug" :value="m.slug">{{ m.label }}</option>
+              </select>
+              <select
+                v-if="modelOf(s.key, s.group, '')"
+                class="mini"
+                :value="intensityOf(s.key, s.group, '')"
+                :disabled="!canWrite"
+                :title="t('tier.thinking')"
+                @change="setIntensity(s.key, s.group, '', ($event.target as HTMLSelectElement).value)"
+              >
+                <option v-for="o in THINKING" :key="o.key" :value="o.key">
+                  {{ o.labelKey ? t(o.labelKey) : o.label }}
+                </option>
+              </select>
+              <button
+                v-if="modelOf(s.key, s.group, '') && canWrite"
+                class="clear"
+                :title="t('tier.clearCell')"
+                @click="clearCell(s.key, s.group, '')"
+              >×</button>
+            </div>
+            <div
+              v-for="tier in s.group === FLAT_GROUP ? [] : TIERS"
               :key="tier.key"
               class="cell"
               :class="{ filled: !!modelOf(s.key, s.group, tier.key) }"
@@ -458,6 +512,7 @@ async function createDefault() {
 .scene-col { font-size: 13.5px; }
 
 .cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.cell.flat { grid-column: span 3; }
 
 /* 幽灵下拉：平时看起来像一行文字，hover/聚焦才显出输入框 */
 .ghost {

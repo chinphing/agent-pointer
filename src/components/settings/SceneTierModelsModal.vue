@@ -9,7 +9,7 @@ import { useSettingsStore } from '../../stores/settings'
 import {
   isSameTierRef,
   platformAgentModeDefault,
-  platformMediaModeDefault
+  platformMediaUnderstandingDefault
 } from '../../lib/platformTierDefaults'
 import {
   thinkingIntensityOptions,
@@ -121,7 +121,7 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
     preferred ??
     (group === 'agent'
       ? platformAgentModeDefault(tierDefaults, id ?? '', mode)
-      : platformMediaModeDefault(tierDefaults, id ?? '', mode))
+      : platformMediaUnderstandingDefault(tierDefaults, id ?? ''))
   if (!fallback) return Boolean(config.providerId && config.model)
   return !isSameTierRef(config, fallback)
 }
@@ -190,23 +190,23 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
           </template>
 
           <template v-else>
-            <div v-for="tier in modeTiers" :key="'media-' + scene + '-' + tier.key" class="space-y-1">
+            <div class="space-y-1">
               <div class="flex items-center gap-1.5">
-                <span class="text-[11px] font-medium text-foreground">{{ tier.label }}</span>
-                <span v-if="modeOverridden(form.mediaModeLlm(mediaKind, tier.key), tier.key, 'media', mediaKind)" class="rounded bg-warning/15 px-1 text-[9px] text-warning">{{ t('settings.overridden') }}</span>
+                <span class="text-[11px] font-medium text-foreground">{{ t('settings.agentPanel.mediaModel') }}</span>
+                <span v-if="modeOverridden(form.mediaUnderstanding(mediaKind), '', 'media', mediaKind)" class="rounded bg-warning/15 px-1 text-[9px] text-warning">{{ t('settings.overridden') }}</span>
               </div>
               <div class="grid grid-cols-[minmax(0,1fr)_9.5rem] gap-2 items-center">
                 <select
-                  :value="form.mediaModeLlm(mediaKind, tier.key).providerId + ':' + form.mediaModeLlm(mediaKind, tier.key).model"
+                  :value="form.mediaUnderstanding(mediaKind).providerId + ':' + form.mediaUnderstanding(mediaKind).model"
                   class="h-8 min-w-0 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
-                  @change="form.selectMediaModeModel(mediaKind, tier.key, ($event.target as HTMLSelectElement).value)"
+                  @change="form.selectMediaUnderstandingModel(mediaKind, ($event.target as HTMLSelectElement).value)"
                 >
                   <option v-for="item in mediaOptions(mediaKind)" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                 </select>
                 <select
-                  :value="variantValue(form.mediaModeLlm(mediaKind, tier.key))"
+                  :value="variantValue(form.mediaUnderstanding(mediaKind))"
                   class="h-8 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
-                  @change="patchVariant(patch => form.patchMediaModeLlm(mediaKind, tier.key, patch), ($event.target as HTMLSelectElement).value)"
+                  @change="patchVariant(patch => form.patchMediaUnderstandingModel(mediaKind, patch), ($event.target as HTMLSelectElement).value)"
                 >
                   <option
                     v-for="opt in THINKING_INTENSITY_OPTIONS"

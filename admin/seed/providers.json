@@ -507,50 +507,6 @@
           }
         }
       },
-      "mediaModeLlm": {
-        "image": {
-          "fast": {
-            "providerId": "qwen",
-            "model": "qwen3.5-flash"
-          },
-          "standard": {
-            "providerId": "qwen",
-            "model": "qwen3.5-plus"
-          },
-          "expert": {
-            "providerId": "qwen",
-            "model": "qwen3.6-plus"
-          }
-        },
-        "audio": {
-          "fast": {
-            "providerId": "qwen",
-            "model": "qwen3-asr-flash"
-          },
-          "standard": {
-            "providerId": "qwen",
-            "model": "fun-asr"
-          },
-          "expert": {
-            "providerId": "qwen",
-            "model": "fun-asr"
-          }
-        },
-        "video": {
-          "fast": {
-            "providerId": "qwen",
-            "model": "qwen3.5-flash"
-          },
-          "standard": {
-            "providerId": "qwen",
-            "model": "qwen3.5-plus"
-          },
-          "expert": {
-            "providerId": "qwen",
-            "model": "qwen3.6-plus"
-          }
-        }
-      },
       "computerPipelineLlm": {
         "decision": {
           "providerId": "qwen",
@@ -616,6 +572,20 @@
               "thinkingIntensity": "low"
             }
           }
+        }
+      },
+      "mediaUnderstanding": {
+        "image": {
+          "providerId": "qwen",
+          "model": "qwen3.5-flash"
+        },
+        "audio": {
+          "providerId": "qwen",
+          "model": "qwen3-asr-flash"
+        },
+        "video": {
+          "providerId": "qwen",
+          "model": "qwen3.5-flash"
         }
       },
       "mediaGeneration": {

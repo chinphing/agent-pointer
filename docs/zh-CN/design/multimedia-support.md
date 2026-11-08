@@ -210,7 +210,7 @@ mediaModelOverrides: {
 | 图片 / 语音 / 视频理解 | 非 vision 主模型或抽帧理解时按所选模式解析模型 |
 | 电脑操控 | 新会话初始视觉模式（快速 / 标准 / 专家，对应 primary / intermediate / advanced） |
 
-各模式对应的具体模型在 **调试模式** 下配置（`agentModeLlm` / `mediaModeLlm` / `computerTierLlm`）。
+各模式对应的具体模型在 **调试模式** 下配置（`agentModeLlm` / `computerTierLlm`）。
 
 ### 图片 / 视频生成（用户可选模型）
 

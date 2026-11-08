@@ -30,15 +30,24 @@ describe('platform provider detection', () => {
   it('presets DeepSeek, Qwen, MiMo, Kimi, and GLM with a base URL and models', () => {
     const byId = Object.fromEntries(PROVIDER_TEMPLATE_OPTIONS.map(option => [option.id, option]))
     expect(byId.deepseek.defaultBaseUrl).toBe('https://api.deepseek.com/v1')
-    expect(byId.deepseek.defaultModels).toEqual(['deepseek-flash', 'deepseek-v4-pro'])
+    // 前两位决定默认模型与网页搜索档位，顺序不能变；后面的按目录追加。
+    expect(byId.deepseek.defaultModels.slice(0, 2)).toEqual([
+      'deepseek-flash',
+      'deepseek-v4-pro'
+    ])
+    expect(byId.deepseek.defaultModels).toContain('deepseek-v4-flash')
     expect(byId.qwen.defaultBaseUrl).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1')
-    expect(byId.qwen.defaultModels).toEqual([
+    expect(byId.qwen.defaultModels.slice(0, 5)).toEqual([
       'qwen3.8-max',
       'qwen3.8-flash',
       'qwen3.8-27b',
       'qwen3.7-plus',
       'qwen3.7-flash'
     ])
+    // 档位默认值引用的模型必须在预设里，否则新用户建的服务商调不通。
+    for (const model of ['qwen3.5-flash', 'qwen3.5-plus', 'qwen3.7-max', 'fun-asr']) {
+      expect(byId.qwen.defaultModels).toContain(model)
+    }
     expect(byId.mimo.defaultBaseUrl).toBe('https://api.xiaomimimo.com/v1')
     expect(byId.mimo.defaultModels).toEqual([
       'mimo-v2.6-pro',

@@ -2312,11 +2312,9 @@ mod active_main_task_board_tests {
                 config.model = "session-worker".into();
             }
         }
-        for modes in debug.media_mode_llm.values_mut() {
-            for config in modes.values_mut() {
-                config.provider_id = "session-provider".into();
-                config.model = "session-worker".into();
-            }
+        for config in debug.media_understanding.values_mut() {
+            config.provider_id = "session-provider".into();
+            config.model = "session-worker".into();
         }
         debug.computer_pipeline_llm.decision = "session-worker".into();
         debug.computer_pipeline_llm.position = "session-worker".into();

@@ -16,7 +16,7 @@ const snapshot = {
   maxTokens: 4096,
   computerPipelineLlm: {},
   agentModeLlm: {},
-  mediaModeLlm: {}
+  mediaUnderstanding: {}
 } satisfies DebugSessionSettings
 
 describe('debug session settings transports', () => {

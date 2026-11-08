@@ -27,17 +27,15 @@ describe('settings agent tier fallback mirror', () => {
     vi.clearAllMocks()
   })
 
-  it('defaults agent tiers to standard while media stays fast', () => {
+  it('defaults agent tiers to standard', () => {
     const store = useSettingsStore()
     // Local seed mirrors the backend agent fallback (`standard`).
     expect(store.getAgentPerformanceMode('general')).toBe('standard')
     expect(store.getAgentPerformanceMode('coder')).toBe('standard')
-    // An agent with no stored value still falls back to `standard` …
+    // An agent with no stored value still falls back to `standard`.
     expect(store.getAgentPerformanceMode('explore')).toBe('standard')
-    // … while the non-agent media scenes keep `fast`.
-    expect(store.getMediaUnderstandingMode('image')).toBe('fast')
-    expect(store.getMediaUnderstandingMode('audio')).toBe('fast')
-    expect(store.getMediaUnderstandingMode('video')).toBe('fast')
+    // 媒体理解没有档位，未配置就是未配置。
+    expect(store.getMediaUnderstandingModel('image')).toBeUndefined()
   })
 
   it('keeps stored explicit agent tiers when the effective view loads', async () => {

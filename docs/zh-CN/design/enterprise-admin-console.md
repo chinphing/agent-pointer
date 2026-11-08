@@ -283,8 +283,10 @@ key_fingerprint    = sha256(api_key) 的前 8 位十六进制
     "computer": { "...": {} },
     "web_search": { "...": {} }
   },
-  "mediaModeLlm": {
-    "image": { "fast": {} }, "audio": { "fast": {} }, "video": { "fast": {} }
+  "mediaUnderstanding": {
+    "image": { "providerId": "qwen", "model": "qwen3.5-flash" },
+    "audio": { "providerId": "qwen", "model": "qwen3-asr-flash" },
+    "video": { "providerId": "qwen", "model": "qwen3.5-flash" }
   },
   "computerPipelineLlm": {
     "locate": {}, "locateVerify": {}, "verify": {},
@@ -293,6 +295,9 @@ key_fingerprint    = sha256(api_key) 的前 8 位十六进制
   "agentDefaultModels": { "general": {} }
 }
 ```
+
+媒体理解是**单模型**（`mediaUnderstanding`：类型 → 一个模型），没有档位层——
+它没有「每轮可切换」的入口，三档只会变成三个永远不用的槽位。
 
 **合并语义是「补齐」，不是「强制」**：客户端只填缺失项，用户已显式配置的档位保持不变
 （`apply_platform_tier_defaults` 里的 `contains_key` 与 `trim().is_empty()` 判断）。

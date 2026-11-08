@@ -49,11 +49,11 @@
 | `src/components/settings/ModelCapabilityForm.vue` | 模型能力：视觉/生图/生视频开关 |
 | `src/components/settings/panels/AgentSettingsPanel.vue` | 「智能模式」面板（调试模式）：各智能体默认模型；各模式对应模型（快速/标准/专家）；电脑操控各档模型（快速/标准/高级）；图片/语音/视频各模式模型；computer pipeline |
 | `src/lib/providerParams.ts` | **硬编码**平台模板 `PROVIDER_TEMPLATE_OPTIONS`（qwen/deepseek/openai_compatible 的默认 ID/名称/baseUrl/模型清单），`isQwenProvider`/`isDeepSeekProvider` 按 ID/域名启发式判断 |
-| `src/stores/settings.ts` | **硬编码** `defaultPlatformSettings()`：默认服务商、默认模型、温度/最大输出、`agentModeLlm`/`mediaModeLlm`/`computerTierLlm` 三档映射、`mediaModelOverrides` |
+| `src/stores/settings.ts` | **硬编码** `defaultPlatformSettings()`：默认服务商、默认模型、温度/最大输出、`agentModeLlm`/`computerTierLlm` 三档映射（媒体理解已改为单模型 `mediaUnderstanding`）、`mediaModelOverrides` |
 | `src/lib/modelCapabilities.ts` | **硬编码**模型能力推断（视觉/生图/生视频/语音）与生成模型清单（qwen/doubao 系列） |
 | 运行时 | `useRuntimeParams.ts` 按「服务商默认 → 模型定制」两级取参；`isQwenProvider`/`isDeepSeekProvider` 决定表单变体 |
 
-「三档」现状：`PerformanceMode = fast|standard|expert`（快速/标准/专家）用于 `agentModeLlm` 与 `mediaModeLlm`；`ComputerTierKey = primary|intermediate|advanced`（快速/标准/高级）用于 `computerTierLlm`。三档映射目前只在**调试模式**的表格里可改，且模型下拉依赖 `s.allModels`（即 providers 的 models 并集）。
+「三档」现状：`PerformanceMode = fast|standard|expert`（快速/标准/专家）用于 `agentModeLlm`；`ComputerTierKey = primary|intermediate|advanced`（快速/标准/高级）用于 `computerTierLlm`。三档映射目前只在**调试模式**的表格里可改，且模型下拉依赖 `s.allModels`（即 providers 的 models 并集）。
 
 关键结论：
 - 平台配置三处硬编码（providerParams / settings 默认值 / modelCapabilities）是第 4 目标要移除的。
@@ -154,7 +154,7 @@
    - 按「类型」分组：对话（agent）、图片理解、语音理解、视频理解、电脑操控；
    - 每类型三档卡片：档位说明（快速/标准/高级的用途文案）+ 模型下拉（按类型过滤能力：视觉/语音）+ 思考开关/预算；
    - 默认值标注「平台默认」，改动后显示「已覆盖」徽标（便于识别与恢复默认）。
-4. 数据字段第 1 期保持：仍写回 `agentModeLlm` / `mediaModeLlm` / `computerTierLlm` / providers；当前保存链路统一为 `saveModelService` / `saveAgentPreferences` → `updateUserSettings`，重启后保留。`saveDebugSession` 仅为旧 API 兼容和测试保留，设置页面不调用。
+4. 数据字段第 1 期保持：仍写回 `agentModeLlm` / `mediaUnderstanding` / `computerTierLlm` / providers；当前保存链路统一为 `saveModelService` / `saveAgentPreferences` → `updateUserSettings`，重启后保留。`saveDebugSession` 仅为旧 API 兼容和测试保留，设置页面不调用。
 5. `AgentSettingsPanel.vue` 中的旧三档表格已不再接入设置页；后续单独清理或改为受控只读摘要，避免恢复第二套编辑入口。
 6. 删除语义：仅「自定义服务」显示删除按钮；删除后立刻提交完整服务列表到用户设置，持久化失败时恢复删除前状态。平台服务由平台统一管理，不提供删除入口。
 
@@ -184,7 +184,7 @@
      }>
      tierDefaults: {                       // 三档默认映射（快速/标准/高级）
        agentModeLlm: Record<string, Record<PerformanceMode, TierModelRef>>
-       mediaModeLlm: Record<'image'|'audio'|'video', Record<PerformanceMode, TierModelRef>>
+       mediaUnderstanding: Record<'image'|'audio'|'video', TierModelRef>
        computerTierLlm: Record<ComputerTierKey, TierModelRef>
      }
      defaults: { activeProviderId; model; temperature; maxTokens; mediaModelOverrides }

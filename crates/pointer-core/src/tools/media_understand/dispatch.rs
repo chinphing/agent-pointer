@@ -15,7 +15,7 @@ use crate::media::{
     list_image_files_in_dir, prepare_video_bytes_for_range, probe_video_duration,
     read_media_ref_bytes, resolve_media_ref, transcribe_audio_with_model,
 };
-use crate::mode_llm::resolve_media_mode_llm;
+use crate::mode_llm::resolve_media_understanding_model;
 use crate::models::ModelSettings;
 use crate::tools::media_understand::{
     format_goal_block, parse_context, parse_goal, parse_image_dir_range, parse_pdf_page_range,
@@ -211,7 +211,7 @@ async fn understand_image_file(
 ) -> Result<String> {
     let (prepared, mime) = maybe_downscale_image_jpeg(bytes, file_name)?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&prepared);
-    let image_model = resolve_media_mode_llm(settings, "image");
+    let image_model = resolve_media_understanding_model(settings, "image");
     describe_image_with_model(
         settings,
         &image_model,
@@ -265,7 +265,7 @@ async fn understand_image_directory(
         );
     }
 
-    let image_model = resolve_media_mode_llm(settings, "image");
+    let image_model = resolve_media_understanding_model(settings, "image");
     let body = describe_images_with_model(
         settings,
         &image_model,
@@ -337,7 +337,7 @@ async fn understand_image_refs(
     }
 
     let notice = format_multi_refs_scope_notice(refs.len());
-    let image_model = resolve_media_mode_llm(settings, "image");
+    let image_model = resolve_media_understanding_model(settings, "image");
     let body = describe_images_with_model(
         settings,
         &image_model,
@@ -377,7 +377,7 @@ async fn understand_audio(
         prepare_audio_bytes_for_asr_cached(&bytes, &mime, file_name, storage_ctx.as_ref())
             .context("prepare audio for ASR")?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&prepared.bytes);
-    let audio_model = resolve_media_mode_llm(settings, "audio");
+    let audio_model = resolve_media_understanding_model(settings, "audio");
     transcribe_audio_with_model(
         settings,
         &audio_model,
@@ -403,7 +403,7 @@ async fn understand_video(
     token_ctx: &MediaTokenContext,
     cancel: &CancellationToken,
 ) -> Result<String> {
-    let video_model = resolve_media_mode_llm(settings, "video");
+    let video_model = resolve_media_understanding_model(settings, "video");
     let duration = if let Some(b) = bytes {
         probe_video_duration(b, file_name).context("probe video duration")?
     } else {
@@ -514,7 +514,7 @@ async fn understand_pdf(
         page_range.start,
         page_range.end
     );
-    let image_model = resolve_media_mode_llm(settings, "image");
+    let image_model = resolve_media_understanding_model(settings, "image");
     let body = describe_pdf_pages_with_model(
         settings,
         &image_model,

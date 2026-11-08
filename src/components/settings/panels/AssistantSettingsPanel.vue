@@ -95,9 +95,14 @@ const {
   setPipelineTierIntensity,
   enabledWorkers,
   agentPerformanceModesLocal,
-  mediaUnderstandingModesLocal,
+  mediaUnderstanding,
   userCodingRules
 } = props.form
+
+function mediaModelLabel(kind: string): string {
+  const cfg = mediaUnderstanding(kind as 'image' | 'audio' | 'video')
+  return cfg.model || '—'
+}
 
 </script>
 
@@ -288,25 +293,7 @@ const {
               <span class="text-[10px] text-muted">{{ mediaModeDesc(row.key) }}</span>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-              <div class="inline-flex rounded-lg border border-border bg-card p-0.5">
-                <label
-                  v-for="opt in PERFORMANCE_MODE_UI"
-                  :key="row.key + '-mode-' + opt.value"
-                  class="h-7 px-2.5 rounded-md text-[11px] cursor-pointer transition-colors flex items-center"
-                  :class="mediaUnderstandingModesLocal[row.key] === opt.value
-                    ? 'bg-hover text-foreground'
-                    : 'text-muted hover:text-foreground'"
-                >
-                  <input
-                    type="radio"
-                    class="sr-only"
-                    :name="'media-mode-' + row.key"
-                    :checked="mediaUnderstandingModesLocal[row.key] === opt.value"
-                    @change="mediaUnderstandingModesLocal = { ...mediaUnderstandingModesLocal, [row.key]: opt.value }"
-                  />
-                  {{ opt.label }}
-                </label>
-              </div>
+              <span class="text-[11px] text-muted font-mono truncate max-w-[16rem]">{{ mediaModelLabel(row.key) }}</span>
               <button
                 type="button"
                 class="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"

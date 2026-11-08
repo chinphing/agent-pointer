@@ -872,6 +872,7 @@
       "thinkingIntensity": "思考强度",
       "mediaModeModelsDebug": "多媒体理解各模式对应模型（调试）",
       "mediaModeModelsHint": "图片 / 语音 / 视频各模式对应模型",
+      "mediaModel": "媒体理解模型",
       "delegation": "子任务委托",
       "delegationHintBefore": "可委派的 worker 由主 Agent 的 AGENT.md 中",
       "delegationHintAfter": "配置。",

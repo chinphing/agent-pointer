@@ -872,6 +872,7 @@
       "thinkingIntensity": "Thinking intensity",
       "mediaModeModelsDebug": "Media understanding modes (debug)",
       "mediaModeModelsHint": "Models for image / audio / video modes",
+      "mediaModel": "Media understanding model",
       "delegation": "Subtask delegation",
       "delegationHintBefore": "Delegatable workers are set by allowAgents in the lead agent’s",
       "delegationHintAfter": ".",

@@ -254,18 +254,6 @@ where
     }
     m.end()
 }
-/// User-selected performance mode for image / audio / video understanding.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MediaUnderstandingModes {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audio: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub video: Option<String>,
-}
-
 /// Independent models for media understanding / generation (does not switch the primary chat model).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1013,15 +1001,12 @@ pub struct ModelSettings {
     /// User-selected performance mode per agent (`general`, `coder`, …).
     #[serde(default, rename = "agentPerformanceModes")]
     pub agent_performance_modes: HashMap<String, String>,
-    /// User-selected performance mode for media understanding kinds.
-    #[serde(default, rename = "mediaUnderstandingModes")]
-    pub media_understanding_modes: MediaUnderstandingModes,
+    /// 媒体理解：类型（image / audio / video）→ 单模型，无档位。
+    #[serde(default, rename = "mediaUnderstanding")]
+    pub media_understanding: HashMap<String, ComputerTierLlmConfig>,
     /// Debug: agent id → performance mode → LLM profile.
     #[serde(default, rename = "agentModeLlm")]
     pub agent_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
-    /// Debug: media kind → performance mode → LLM profile.
-    #[serde(default, rename = "mediaModeLlm")]
-    pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
     /// Debug: computer tier → LLM profile.
     /// Debug: per-phase LLM for computer host verify pipeline.
     #[serde(default, rename = "computerPipelineLlm")]
@@ -1176,9 +1161,8 @@ fn strip_session_placeholder_model_configs(user: &mut UserSettings) {
     for (_, modes) in user.agent_mode_llm.iter_mut() {
         modes.retain(|_, cfg| !is_session_placeholder(cfg));
     }
-    for (_, modes) in user.media_mode_llm.iter_mut() {
-        modes.retain(|_, cfg| !is_session_placeholder(cfg));
-    }
+    user.media_understanding
+        .retain(|_, cfg| !is_session_placeholder(cfg));
 
     let pipeline = &mut user.computer_pipeline_llm;
     if pipeline
@@ -1841,10 +1825,9 @@ impl Default for ModelSettings {
             web_search_model: default_web_search_model_setting(),
             media_model_overrides: default_media_generation_overrides(),
             agent_performance_modes: HashMap::new(),
-            media_understanding_modes: MediaUnderstandingModes::default(),
+            media_understanding: HashMap::new(),
             computer_pipeline_llm: ComputerPipelineLlmSettings::default(),
             agent_mode_llm: default_agent_mode_llm(),
-            media_mode_llm: default_media_mode_llm(),
             media_oss: MediaOssConfig::default(),
             max_parallel_tool_calls: None,
             max_parallel_sub_agents: None,
@@ -2289,14 +2272,12 @@ pub struct UserSettings {
     pub media_model_overrides: MediaModelOverrides,
     #[serde(default, rename = "agentPerformanceModes")]
     pub agent_performance_modes: HashMap<String, String>,
-    #[serde(default, rename = "mediaUnderstandingModes")]
-    pub media_understanding_modes: MediaUnderstandingModes,
+    #[serde(default, rename = "mediaUnderstanding")]
+    pub media_understanding: HashMap<String, ComputerTierLlmConfig>,
     #[serde(default, rename = "computerPipelineLlm")]
     pub computer_pipeline_llm: ComputerPipelineLlmSettings,
     #[serde(default = "default_agent_mode_llm", rename = "agentModeLlm")]
     pub agent_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
-    #[serde(default = "default_media_mode_llm", rename = "mediaModeLlm")]
-    pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
     #[serde(
         default,
         rename = "maxParallelToolCalls",
@@ -2388,10 +2369,9 @@ impl Default for UserSettings {
             web_search_model: default_web_search_model_setting(),
             media_model_overrides: default_media_generation_overrides(),
             agent_performance_modes: HashMap::new(),
-            media_understanding_modes: MediaUnderstandingModes::default(),
+            media_understanding: HashMap::new(),
             computer_pipeline_llm: ComputerPipelineLlmSettings::default(),
             agent_mode_llm: default_agent_mode_llm(),
-            media_mode_llm: default_media_mode_llm(),
             max_parallel_tool_calls: None,
             max_parallel_sub_agents: None,
             max_parallel_media_jobs: None,
@@ -2676,8 +2656,8 @@ pub struct DebugSessionSettings {
     pub computer_pipeline_llm: ComputerPipelineLlmSettings,
     #[serde(rename = "agentModeLlm")]
     pub agent_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
-    #[serde(rename = "mediaModeLlm")]
-    pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
+    #[serde(rename = "mediaUnderstanding")]
+    pub media_understanding: HashMap<String, ComputerTierLlmConfig>,
 }
 
 impl From<&ModelSettings> for DebugSessionSettings {
@@ -2690,7 +2670,7 @@ impl From<&ModelSettings> for DebugSessionSettings {
             max_tokens: merged.max_tokens,
             computer_pipeline_llm: merged.computer_pipeline_llm.clone(),
             agent_mode_llm: merged.agent_mode_llm.clone(),
-            media_mode_llm: merged.media_mode_llm.clone(),
+            media_understanding: merged.media_understanding.clone(),
         }
     }
 }
@@ -2809,10 +2789,6 @@ fn default_agent_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmCo
     HashMap::new()
 }
 
-fn default_media_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmConfig>> {
-    HashMap::new()
-}
-
 fn default_platform_agent_models() -> HashMap<String, AgentModelRef> {
     HashMap::new()
 }
@@ -2903,7 +2879,7 @@ pub struct EffectiveSettingsView {
 /// time. Observed: `user_settings.json` held `debugDumpLlmPrompts: true` while
 /// the dialog showed it disabled.
 ///
-/// Scene tier maps (`agentModeLlm` / `mediaModeLlm` / `computerTierLlm`),
+/// Scene tier maps (`agentModeLlm` / `mediaUnderstanding` / `computerTierLlm`),
 /// tool-round caps (`maxToolRounds` / `maxSubAgentToolRounds`) and the
 /// sub-agent delegation caps (`maxSubAgentSpawnDepth` /
 /// `maxChildrenPerAgent`) are **user preferences**, not debug state: every user
@@ -3167,9 +3143,8 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         web_search_model: user.web_search_model.clone(),
         media_model_overrides: user.media_model_overrides.clone(),
         agent_performance_modes: user.agent_performance_modes.clone(),
-        media_understanding_modes: user.media_understanding_modes.clone(),
+        media_understanding: user.media_understanding.clone(),
         agent_mode_llm: user.agent_mode_llm.clone(),
-        media_mode_llm: user.media_mode_llm.clone(),
         computer_pipeline_llm: user.computer_pipeline_llm.clone(),
         media_oss: platform.media_oss.clone(),
         max_parallel_tool_calls: user.max_parallel_tool_calls,
@@ -3270,10 +3245,7 @@ pub fn apply_platform_tier_defaults(
         }
     }
 
-    for (key, target) in [
-        ("agentModeLlm", &mut settings.agent_mode_llm),
-        ("mediaModeLlm", &mut settings.media_mode_llm),
-    ] {
+    for (key, target) in [("agentModeLlm", &mut settings.agent_mode_llm)] {
         let Some(outer) = obj.get(key).and_then(|v| v.as_object()) else {
             continue;
         };
@@ -3295,6 +3267,17 @@ pub fn apply_platform_tier_defaults(
                 if let Some(cfg) = tier_cfg_from_json(cfg_val, providers) {
                     inner_map.insert(mode.clone(), cfg);
                 }
+            }
+        }
+    }
+    // 媒体理解：类型 → 单模型（无档位）。平台只补用户没配的类型。
+    if let Some(media) = obj.get("mediaUnderstanding").and_then(|v| v.as_object()) {
+        for (kind, cfg_val) in media {
+            if settings.media_understanding.contains_key(kind) {
+                continue;
+            }
+            if let Some(cfg) = tier_cfg_from_json(cfg_val, providers) {
+                settings.media_understanding.insert(kind.clone(), cfg);
             }
         }
     }
@@ -3952,21 +3935,16 @@ mod user_settings_defaults_tests {
             .into_iter()
             .collect(),
         );
-        user.media_mode_llm.insert(
+        user.media_understanding.insert(
             "image".into(),
-            [(
-                "fast".into(),
-                ComputerTierLlmConfig {
-                    provider_id: "session-provider".into(),
-                    model: "session-worker".into(),
-                    enable_thinking: true,
-                    thinking_budget: Some(2048),
-                    reasoning_effort: None,
-                    thinking_intensity: None,
-                },
-            )]
-            .into_iter()
-            .collect(),
+            ComputerTierLlmConfig {
+                provider_id: "session-provider".into(),
+                model: "session-worker".into(),
+                enable_thinking: true,
+                thinking_budget: Some(2048),
+                reasoning_effort: None,
+                thinking_intensity: None,
+            },
         );
         user.computer_pipeline_llm = ComputerPipelineLlmSettings {
             decision: "session-worker".into(),
@@ -3996,11 +3974,8 @@ mod user_settings_defaults_tests {
             "agent_mode_llm session placeholder should be removed"
         );
         assert!(
-            user.media_mode_llm
-                .get("image")
-                .map(|m| m.is_empty())
-                .unwrap_or(true),
-            "media_mode_llm session placeholder should be removed"
+            user.media_understanding.get("image").is_none(),
+            "media_understanding session placeholder should be removed"
         );
         assert_ne!(user.computer_pipeline_llm.decision, "session-worker");
         assert_ne!(
@@ -4042,21 +4017,16 @@ mod user_settings_defaults_tests {
             .into_iter()
             .collect(),
         );
-        user.media_mode_llm.insert(
+        user.media_understanding.insert(
             "video".into(),
-            [(
-                "expert".into(),
-                ComputerTierLlmConfig {
-                    provider_id: "qwen".into(),
-                    model: "qwen3.6-plus".into(),
-                    enable_thinking: true,
-                    thinking_budget: Some(8192),
-                    reasoning_effort: None,
-                    thinking_intensity: None,
-                },
-            )]
-            .into_iter()
-            .collect(),
+            ComputerTierLlmConfig {
+                provider_id: "qwen".into(),
+                model: "qwen3.6-plus".into(),
+                enable_thinking: true,
+                thinking_budget: Some(8192),
+                reasoning_effort: None,
+                thinking_intensity: None,
+            },
         );
 
         ensure_user_settings_defaults(&mut user);
@@ -4076,9 +4046,8 @@ mod user_settings_defaults_tests {
         );
         // media / computer 指向平台 provider（qwen）的用户覆盖必须保留
         assert_eq!(
-            user.media_mode_llm
+            user.media_understanding
                 .get("video")
-                .and_then(|m| m.get("expert"))
                 .map(|c| c.model.as_str()),
             Some("qwen3.6-plus")
         );

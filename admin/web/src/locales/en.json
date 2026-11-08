@@ -211,7 +211,11 @@
     "defaults": "Defaults (optional)",
     "defaultsSet": "set",
     "defaultsHint": "Models without their own value inherit these; blank falls back to the client default.",
-    "defaultsOverride": "Note: values set here override an employee's own global settings (client order: model > provider > user global)."
+    "defaultsOverride": "Note: values set here override an employee's own global settings (client order: model > provider > user global).",
+    "secretMasked": "•••••••• configured",
+    "secretClear": "Clear key",
+    "secretClearConfirm": "Clear the key? The client will stop receiving credentials for this provider.",
+    "secretKept": "Leave blank to keep the current key"
   },
   "tier": {
     "title": "Default tier mapping",
@@ -423,7 +427,11 @@
     "visAll": "Everyone",
     "visPick": "Specific",
     "pickAfterCreate": "The grants panel opens right after creation",
-    "orphanProvider": "Provider deleted"
+    "orphanProvider": "Provider deleted",
+    "secretMasked": "•••••••• configured",
+    "secretClear": "Clear key",
+    "secretClearConfirm": "Clear the key? The client will stop receiving credentials for this provider.",
+    "secretKept": "Leave blank to keep the current key"
   },
   "common2": {},
   "topbar": {

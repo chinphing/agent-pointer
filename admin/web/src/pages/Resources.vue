@@ -101,6 +101,21 @@ const testBusy = ref(false)
 const testResult = ref<{ ok: boolean; message: string } | null>(null)
 
 const revealed = ref<{ name: string; secret: string } | null>(null)
+/** 正在编辑的那一行（用来判断有没有密钥、能不能清除）。 */
+const editingRow = ref<any>(null)
+
+async function clearSecret() {
+  const row = editingRow.value
+  if (!row || !window.confirm(t('resources.secretClearConfirm'))) return
+  try {
+    await api.put(`/api/admin/resources/${row.id}`, { secret: '' })
+    row.hasSecret = false
+    form.value.secret = ''
+    await load()
+  } catch (e) {
+    error.value = errText(e)
+  }
+}
 // 详情抽屉（设计图 05）
 const detailFor = ref<any>(null)
 // 行内「更多」菜单（把授权/版本/看密钥/停用/删除收起来，避免一排六个按钮挤成竖排）
@@ -197,6 +212,7 @@ function switchKind(next: string) {
 function openCreate() {
   creating.value = true
   editing.value = null
+  editingRow.value = null
   form.value = {
     slug: '', name: '', description: '', payload: '{}', secret: '',
     enabled: false, activation: 'optional', visibility: 'all',
@@ -205,6 +221,7 @@ function openCreate() {
 }
 
 function openEdit(row: any) {
+  editingRow.value = row
   creating.value = false
   editing.value = row
   form.value = {
@@ -670,8 +687,20 @@ onMounted(async () => {
         <span class="mono">{"agentModeLlm":{…}}</span>。
       </p>
 
-      <label>{{ t('resources.secret') }}{{ editing ? t('resources.secretKeep') : '' }}</label>
-      <input v-model="form.secret" type="password" placeholder="sk-…" />
+      <label>
+        {{ t('resources.secret') }}{{ editing ? t('resources.secretKeep') : '' }}
+        <span v-if="editingRow?.hasSecret" class="tag ok" style="margin-left: 6px">
+          {{ t('resources.secretMasked') }}
+        </span>
+      </label>
+      <input
+        v-model="form.secret"
+        type="password"
+        :placeholder="editingRow?.hasSecret ? t('resources.secretKept') : 'sk-…'"
+      />
+      <div v-if="editingRow?.hasSecret" class="row" style="gap: 8px; margin-top: 6px">
+        <button class="tiny" type="button" @click="clearSecret">{{ t('resources.secretClear') }}</button>
+      </div>
       <div v-if="kind === 'provider'" class="row" style="gap: 8px; margin-top: 8px">
         <button class="tiny" :disabled="testBusy" @click="testConnection">
           {{ testBusy ? '测试中…' : '测试连接' }}

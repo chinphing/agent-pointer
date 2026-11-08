@@ -56,6 +56,25 @@ const TEMPLATES = [
 const isEdit = computed(() => Boolean(props.resource))
 const template = ref('bailian')
 const form = ref({ slug: '', name: '', baseUrl: '', apiKey: '' })
+
+/** 编辑时后端只说「有没有密钥」，不返明文——所以只能给脱敏提示，不能回显。 */
+const hasSecret = ref(Boolean(props.resource?.hasSecret))
+const clearing = ref(false)
+
+async function clearSecret() {
+  if (!props.resource || clearing.value) return
+  if (!window.confirm(t('provider.secretClearConfirm'))) return
+  clearing.value = true
+  try {
+    await api.put(`/api/admin/resources/${props.resource.id}`, { secret: '' })
+    hasSecret.value = false
+    emit('saved')
+  } catch (e) {
+    error.value = errText(e)
+  } finally {
+    clearing.value = false
+  }
+}
 const busy = ref(false)
 const error = ref('')
 const notice = ref('')
@@ -318,8 +337,18 @@ async function submit() {
         {{ t('provider.baseUrlHint') }}
       </p>
 
-      <label>{{ t('provider.apiKey') }}{{ isEdit ? t('provider.apiKeyKeep') : '' }}</label>
-      <input v-model="form.apiKey" type="password" placeholder="sk-…" />
+      <label>
+        {{ t('provider.apiKey') }}{{ isEdit ? t('provider.apiKeyKeep') : '' }}
+        <span v-if="hasSecret" class="tag ok" style="margin-left: 6px">{{ t('provider.secretMasked') }}</span>
+      </label>
+      <input
+        v-model="form.apiKey"
+        type="password"
+        :placeholder="hasSecret ? t('provider.secretKept') : 'sk-…'"
+      />
+      <div v-if="hasSecret" class="row" style="gap: 8px; margin-top: 6px">
+        <button class="tiny" type="button" @click="clearSecret">{{ t('provider.secretClear') }}</button>
+      </div>
 
       <div class="row" style="gap: 10px; margin-top: 12px">
         <button class="tiny" :disabled="testing" @click="testConnection">

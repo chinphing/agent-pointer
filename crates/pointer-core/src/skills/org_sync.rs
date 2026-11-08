@@ -651,6 +651,7 @@ pub fn start_background_loop(state: std::sync::Arc<crate::chat_service::AppState
         loop {
             let mut skills_changed = false;
             let mut plugins_changed = false;
+            let mut failed = false;
             for kind in [PackageKind::Skill, PackageKind::Plugin] {
                 match sync(state.platform_auth.as_ref(), kind).await {
                     Ok(report) => {
@@ -671,7 +672,10 @@ pub fn start_background_loop(state: std::sync::Arc<crate::chat_service::AppState
                             log::warn!("org {} {key} 未处理: {reason}", kind.segment());
                         }
                     }
-                    Err(err) => log::warn!("org {} sync failed: {err:#}", kind.segment()),
+                    Err(err) => {
+                        failed = true;
+                        log::warn!("org {} sync failed: {err:#}", kind.segment());
+                    }
                 }
             }
             if skills_changed {
@@ -687,7 +691,13 @@ pub fn start_background_loop(state: std::sync::Arc<crate::chat_service::AppState
                     Err(err) => log::warn!("org plugins: rescan failed: {err:#}"),
                 }
             }
-            tokio::time::sleep(Duration::from_secs(6 * 3600)).await;
+            // 失败（常见：还没登录）就快点重试，否则「先启动后登录」的用户要等 6 小时。
+            let next = if failed {
+                Duration::from_secs(120)
+            } else {
+                Duration::from_secs(6 * 3600)
+            };
+            tokio::time::sleep(next).await;
         }
     });
 }

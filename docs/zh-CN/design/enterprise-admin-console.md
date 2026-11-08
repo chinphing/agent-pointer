@@ -292,10 +292,15 @@ M0 不做。M0 只做下发默认值。
 | --- | --- |
 | 能力 | `supportsVision` / `supportsAudio` / `canGenerateImage` / `canGenerateVideo` |
 | 上下文与生成 | `contextBudgetTokens` / `maxTokens` / `temperature` / `topP` |
-| 思考 | `enableThinking` / `thinkingBudget` / `thinkingIntensity` / `reasoningEffort` / `reasoningInMessages` |
+| 思考 | `enableThinking` / `thinkingIntensity` / `reasoningEffort` / `reasoningInMessages` |
 
-**服务商级**同样有这 9 个默认参数（`reasoningInMessages` / `enableThinking` /
-`thinkingBudget` / `reasoningEffort` / `thinkingIntensity` / `temperature` /
+**思考预算不单独配**：客户端设了强度就用 `budget_for_intensity(level)` 现算，
+存的 `thinkingBudget` 会被覆盖（`thinking_strategy.rs:207`）。所以界面只给强度，
+预算作为强度的换算结果显示在说明里。老数据只存了预算没存强度的，
+读出来时按 `intensity_from_budget` 换算成强度，保存即归一。
+
+**服务商级**同样有 8 个默认参数（`reasoningInMessages` / `enableThinking` /
+`reasoningEffort` / `thinkingIntensity` / `temperature` /
 `topP` / `maxTokens` / `contextBudgetTokens`），在服务商编辑弹窗的「默认参数」里配。
 留空 = 不下发 = 用客户端默认。
 
@@ -311,7 +316,7 @@ M0 不做。M0 只做下发默认值。
 | 最大输出 | 16384 | `DEFAULT_MODEL_MAX_TOKENS` |
 | 温度 | 0.7 | `DEFAULT_MODEL_TEMPERATURE` |
 | topP | 0.95 | `DEFAULT_MODEL_TOP_P` |
-| 思考预算 | 2048 | `DEFAULT_THINKING_BUDGET` |
+| 思考预算 | 2048（=强度「中」） | `DEFAULT_THINKING_BUDGET`，由强度换算 |
 | 思考强度 | 按思考预算反推（2048 → 中） | `thinking_strategy.rs` `intensity_from_budget` |
 | 启用思考 | 开 | `settings.rs:3487` `unwrap_or(true)` |
 | 回传 reasoning | 否 | `settings.rs:315` `unwrap_or(false)` |

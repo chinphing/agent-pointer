@@ -460,7 +460,7 @@
     "intensityBudget": "{label} · {budget}",
     "yesDefault": "Default on",
     "noDefault": "Default off",
-    "defaultsNote": "Blank uses client defaults: temperature 0.7, topP 0.95, max output 16384, context 262144 (256K), thinking budget 2048, thinking on, reasoning not returned.",
+    "defaultsNote": "Blank uses client defaults: temperature 0.7, topP 0.95, max output 16384, context 262144 (256K), thinking on, reasoning not returned. Thinking intensity determines the budget (off 0 / low 1024 / medium 2048 / high 4096 / max 8192); no separate setting needed.",
     "intensityAuto": "Derived from thinking budget"
   }
 }

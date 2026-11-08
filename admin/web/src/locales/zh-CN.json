@@ -460,7 +460,7 @@
     "intensityBudget": "{label} · {budget}",
     "yesDefault": "默认 开",
     "noDefault": "默认 否",
-    "defaultsNote": "留空用客户端默认：温度 0.7、topP 0.95、最大输出 16384、上下文 262144（256K）、思考预算 2048、启用思考、不回传 reasoning。",
+    "defaultsNote": "留空用客户端默认：温度 0.7、topP 0.95、最大输出 16384、上下文 262144（256K）、启用思考、不回传 reasoning。思考强度决定思考预算（关 0 / 低 1024 / 中 2048 / 高 4096 / 最高 8192），不用单独设。",
     "intensityAuto": "按思考预算推断"
   }
 }

@@ -17,7 +17,7 @@ import {
   buildProviderDefaults,
   payloadToState,
 } from '../lib/modelPayload'
-import { FIELD_DEFAULTS, INTENSITY_BUDGET, contextBudgetLabel } from '../lib/modelDefaults'
+import { FIELD_DEFAULTS, contextBudgetLabel } from '../lib/modelDefaults'
 
 const props = defineProps<{ resource: any | null }>()
 const { t } = useI18n()
@@ -85,9 +85,8 @@ const defThinking = ref<Record<string, string>>(defState.thinking)
 function ph(v: string | number) {
   return t('models.defaultIs', { v })
 }
-function intensityOptionLabel(v: string) {
-  if (!v) return t('models.unset')
-  return t('models.intensityBudget', { label: t(`tier.thinking_${v}`), budget: INTENSITY_BUDGET[v] })
+function intensityLabel(v: string) {
+  return v ? t(`tier.thinking_${v}`) : t('models.unset')
 }
 
 const hasDefaults = computed(
@@ -433,12 +432,8 @@ async function submit() {
             <label>{{ t('tier.thinking') }}</label>
             <select v-model="defThinking.thinkingIntensity">
               <option value="">{{ t('models.intensityAuto') }}</option>
-              <option v-for="v in ['off','low','medium','high','max']" :key="v" :value="v">{{ intensityOptionLabel(v) }}</option>
+              <option v-for="v in ['off','low','medium','high','max']" :key="v" :value="v">{{ intensityLabel(v) }}</option>
             </select>
-          </div>
-          <div>
-            <label>{{ t('models.thinkingBudget') }}</label>
-            <input v-model="defThinking.thinkingBudget" type="number" min="0" :placeholder="ph(FIELD_DEFAULTS.thinkingBudget)" />
           </div>
           <div>
             <label>reasoningEffort</label>

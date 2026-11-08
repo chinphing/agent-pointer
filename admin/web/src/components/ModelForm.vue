@@ -12,7 +12,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
 import { CAP_KEYS, LIMIT_KEYS, THINKING_KEYS, buildModelPayload, payloadToState } from '../lib/modelPayload'
-import { FIELD_DEFAULTS, INTENSITY_BUDGET, contextBudgetLabel } from '../lib/modelDefaults'
+import { FIELD_DEFAULTS, contextBudgetLabel } from '../lib/modelDefaults'
 
 const props = defineProps<{ resource: any; providers: any[] }>()
 const emit = defineEmits<{ (e: 'saved'): void; (e: 'cancel'): void }>()
@@ -44,12 +44,6 @@ const EFFORT = ['', 'high', 'max']
 
 function intensityLabel(v: string) {
   return v ? t(`tier.thinking_${v}`) : t('models.follow')
-}
-
-/** 强度选项带出它换算的思考预算，省得再去猜 2048 是几档。 */
-function intensityOptionLabel(v: string) {
-  if (!v) return t('models.follow')
-  return t('models.intensityBudget', { label: t(`tier.thinking_${v}`), budget: INTENSITY_BUDGET[v] })
 }
 
 /** 强度留空时客户端按思考预算反推（2048 → 中），不是固定某一档。 */
@@ -156,12 +150,8 @@ async function submit() {
           <div>
             <label>{{ t('tier.thinking') }}</label>
             <select v-model="thinking.thinkingIntensity">
-              <option v-for="v in INTENSITY" :key="v" :value="v">{{ intensityOptionLabel(v) }}</option>
+              <option v-for="v in INTENSITY" :key="v" :value="v">{{ intensityLabel(v) }}</option>
             </select>
-          </div>
-          <div>
-            <label>{{ t('models.thinkingBudget') }}</label>
-            <input v-model="thinking.thinkingBudget" type="number" min="0" :placeholder="ph(FIELD_DEFAULTS.thinkingBudget)" />
           </div>
           <div>
             <label>reasoningEffort</label>

@@ -18,14 +18,34 @@ export interface ModelFormState {
 /** 客户端认的模型级字段。多一个没有，少一个客户端读不到。 */
 export const CAP_KEYS = ['supportsVision', 'supportsAudio', 'canGenerateImage', 'canGenerateVideo']
 export const LIMIT_KEYS = ['contextBudgetTokens', 'maxTokens', 'temperature', 'topP']
+/**
+ * 思考预算不在此列：客户端设了强度就用 `budget_for_intensity(level)` 现算，
+ * 存的 budget 会被覆盖（thinking_strategy.rs:207）。单独配一个预算只会自相矛盾。
+ */
 export const THINKING_KEYS = [
   'enableThinking',
   'thinkingIntensity',
-  'thinkingBudget',
   'reasoningEffort',
   'reasoningInMessages',
 ]
+
+/** 强度 → 预算的反查，只用于把历史数据里的「只有预算」迁移成强度。 */
+const BUDGET_TO_INTENSITY: Array<[number, string]> = [
+  [6144, 'max'],
+  [3072, 'high'],
+  [1536, 'medium'],
+  [1, 'low'],
+]
 const BOOL_KEYS = new Set(['enableThinking', 'reasoningInMessages'])
+
+/** 预算反推强度，与客户端 intensity_from_budget 同一套分档。 */
+export function intensityFromBudget(budget: number): string {
+  if (budget <= 0) return 'off'
+  for (const [floor, level] of BUDGET_TO_INTENSITY) {
+    if (budget >= floor) return level
+  }
+  return 'low'
+}
 
 /** 三态布尔 → 表单值：'' = 跟随服务商。 */
 export function toTri(v: unknown): string {
@@ -44,6 +64,10 @@ export function payloadToState(payload: any) {
   const thinking: Record<string, string> = {}
   for (const k of THINKING_KEYS) {
     thinking[k] = BOOL_KEYS.has(k) ? toTri(p[k]) : p[k] === undefined || p[k] === null ? '' : String(p[k])
+  }
+  // 老数据可能只存了预算没存强度：换算成强度显示，保存时归一到强度。
+  if (!thinking.thinkingIntensity && typeof p.thinkingBudget === 'number') {
+    thinking.thinkingIntensity = intensityFromBudget(p.thinkingBudget)
   }
   return { caps, limits, thinking }
 }
@@ -85,11 +109,6 @@ export function buildModelPayload(state: {
     if (k === 'reasoningEffort') {
       // 客户端只认这两个；别的值静默丢弃，不如在这里就不发。
       if (raw === 'high' || raw === 'max') out[k] = raw
-      continue
-    }
-    if (k === 'thinkingBudget') {
-      const n = Number(raw)
-      if (Number.isFinite(n)) out[k] = n
       continue
     }
     out[k] = raw

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { buildModelPayload, buildProviderDefaults, payloadToState } from './modelPayload'
+import {
+  buildModelPayload,
+  buildProviderDefaults,
+  intensityFromBudget,
+  payloadToState,
+} from './modelPayload'
 
 /**
  * 这些用例挡的是「界面上看着对、下发后不生效」这类错：
@@ -41,6 +46,39 @@ describe('model payload', () => {
       reasoningEffort: 'max',
     })
     expect(buildModelPayload({ caps: {}, limits: {}, thinking: { reasoningEffort: 'low' } })).toEqual({})
+  })
+
+  it('不产出 thinkingBudget —— 预算由强度换算，不单独下发', () => {
+    const out = buildModelPayload({
+      caps: {},
+      limits: {},
+      thinking: { thinkingBudget: '4096', thinkingIntensity: 'high' },
+    })
+    expect('thinkingBudget' in out).toBe(false)
+    expect(out.thinkingIntensity).toBe('high')
+  })
+
+  it('老数据只有预算时换算成强度', () => {
+    // 客户端 intensity_from_budget 的分档：<1536 低 / <3072 中 / <6144 高 / 其余最高
+    expect(payloadToState({ thinkingBudget: 8192 }).thinking.thinkingIntensity).toBe('max')
+    expect(payloadToState({ thinkingBudget: 4096 }).thinking.thinkingIntensity).toBe('high')
+    expect(payloadToState({ thinkingBudget: 2048 }).thinking.thinkingIntensity).toBe('medium')
+    expect(payloadToState({ thinkingBudget: 1024 }).thinking.thinkingIntensity).toBe('low')
+    expect(payloadToState({ thinkingBudget: 0 }).thinking.thinkingIntensity).toBe('off')
+  })
+
+  it('强度已有值时不被预算覆盖', () => {
+    expect(
+      payloadToState({ thinkingIntensity: 'low', thinkingBudget: 8192 }).thinking.thinkingIntensity
+    ).toBe('low')
+  })
+
+  it('intensityFromBudget 与客户端分档一致', () => {
+    expect(intensityFromBudget(0)).toBe('off')
+    expect(intensityFromBudget(1024)).toBe('low')
+    expect(intensityFromBudget(2048)).toBe('medium')
+    expect(intensityFromBudget(4096)).toBe('high')
+    expect(intensityFromBudget(8192)).toBe('max')
   })
 
   it('不产出 thinkingProtocol —— 客户端硬丢弃这个字段', () => {

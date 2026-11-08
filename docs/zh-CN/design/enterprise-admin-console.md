@@ -100,13 +100,29 @@ server 侧另有 `POINTER_OAUTH_CLIENT_SECRET`；admin 必须按这两者登记�
 | `model` | 模型目录与档位 |
 | `skill` | 企业技能库 |
 | `plugin` | 企业插件库 |
-| `mcp` | 全局 MCP 配置 |
+| `mcp` | 全局 MCP 配置（**未接入，页签已隐藏**，见下） |
 | `usage` | 用量与配额 |
 | `audit` | 审计流水 |
 | `system` | 版本、许可证、存储 |
 
 action 取值：`read` / `write` / `publish` / `delete` / `reveal`。
 权限清单定义在代码常量里，DB 只存「角色 → 权限」的授权关系，避免权限表迁移。
+
+#### MCP 为什么先不做
+
+`mcp` 这个 kind 在库里能存、API 能增删改查，但**没有任何下发通道**：
+
+- `PlatformLoginCredentials`（`pointer-contract/src/credentials.rs`）里没有 mcp 字段
+- `admin/src/credentials.rs` 只组装 provider / model / tier，没有读 `kind='mcp'`
+- `admin/src/oauth/partner.rs` 只有 skills / plugins 的 `list-packages` 与 `download-package`
+
+技能和插件是通的（客户端 `skills/org_sync.rs` 会去拉），MCP 不通。所以界面上
+留一个 MCP 页签等于让管理员配一个客户端永远收不到的东西 —— 先隐藏，等确定
+要不要做再加回来。
+
+真要做时的取舍：stdio 类型的 MCP 会在员工机器上执行本地命令，等于企业控制台
+具备向员工机器下发可执行命令的能力，需要单独的安全评估与审计开关；
+http 类型只是远程调用，风险低得多。
 
 ### 4.2 预置角色
 

@@ -17,7 +17,8 @@ const KINDS = [
   { key: 'model', labelKey: 'kind.model', read: 'model:read' },
   { key: 'skill', labelKey: 'kind.skill', read: 'skill:read' },
   { key: 'plugin', labelKey: 'kind.plugin', read: 'plugin:read' },
-  { key: 'mcp', labelKey: 'kind.mcp', read: 'mcp:read' },
+  // MCP 暂不露出：库里能存，但契约和 partner 都没有下发通道，客户端拿不到。
+  // 与其摆一个不生效的页签，不如等真接了分发再加回来。
   { key: 'tier_profile', labelKey: 'kind.tier_profile', read: 'model:read' },
 ]
 

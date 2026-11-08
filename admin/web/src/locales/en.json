@@ -333,7 +333,7 @@
   },
   "resources": {
     "title": "Resources",
-    "subtitle": "Providers, models, skills, plugins, MCP and tier profiles share one store and one grant model.",
+    "subtitle": "Providers / models / skills / plugins / tier profiles share one store and one grant model.",
     "search": "Search name / key",
     "empty": "No resources of this kind yet",
     "noMatch": "No matching resources",

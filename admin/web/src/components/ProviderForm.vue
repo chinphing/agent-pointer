@@ -41,6 +41,7 @@ interface PresetModel {
 interface PresetProvider {
   slug: string
   name: string
+  short?: string
   seeded: boolean
   baseUrl: string
   models: PresetModel[]
@@ -48,6 +49,8 @@ interface PresetProvider {
 interface TemplateOption {
   id: string
   label: string
+  /** 按钮上的短名，标签一行放得下 */
+  short: string
   slug: string
   name: string
   baseUrl: string
@@ -61,12 +64,13 @@ const TEMPLATES: TemplateOption[] = [
     .map((p) => ({
       id: p.slug,
       label: p.name,
+      short: p.short ?? p.name,
       slug: p.slug,
       name: p.name,
       baseUrl: p.baseUrl,
       models: p.models.map((m) => m.id),
     })),
-  { id: 'custom', label: t('provider.tplCustom'), slug: '', name: '', baseUrl: '', models: [] },
+  { id: 'custom', label: t('provider.tplCustom'), short: t('provider.tplCustomShort'), slug: '', name: '', baseUrl: '', models: [] },
 ]
 
 /** 常用四个直接露出，其余收进「更多服务商」，避免一次铺满十几个。 */
@@ -360,7 +364,7 @@ async function submit() {
 
       <template v-if="!isEdit">
         <label>{{ t('provider.chooseTemplate') }}</label>
-        <div class="tpl-grid">
+        <div class="tpl-grid" :class="{ expanded: moreTemplatesOpen }">
           <button
             v-for="item in visibleTemplates"
             :key="item.id"
@@ -369,7 +373,7 @@ async function submit() {
             :class="{ active: template === item.id }"
             @click="applyTemplate(item.id)"
           >
-            {{ item.label }}
+            {{ item.short }}
           </button>
           <button
             v-if="restTemplates.length"
@@ -544,8 +548,10 @@ async function submit() {
 </template>
 
 <style scoped>
-.tpl-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 6px; }
-.tpl { text-align: left; font-size: 13px; }
+.tpl-grid { display: flex; gap: 6px; margin-top: 6px; }
+.tpl-grid.expanded { display: grid; grid-template-columns: repeat(3, 1fr); }
+.tpl { flex: 1 1 0; min-width: 0; text-align: center; font-size: 13px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tpl.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .models { margin-top: 16px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; }

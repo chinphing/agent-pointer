@@ -224,8 +224,8 @@ describe('ModelServiceSection', () => {
     expect(has('其他')).toBe(true)
     expect(has('GLM')).toBe(true)
     expect(has('DeepSeek')).toBe(false)
-    expect(has('小米 MiMo')).toBe(false)
-    expect(has('阿里百炼')).toBe(false)
+    expect(has('MiMo')).toBe(false)
+    expect(has('百炼')).toBe(false)
     // 展开后其余服务商出现
     buttonLabels()
     ;[...dialog.querySelectorAll<HTMLButtonElement>('button')]
@@ -233,7 +233,7 @@ describe('ModelServiceSection', () => {
       .click()
     await settle()
     expect(has('DeepSeek')).toBe(true)
-    expect(has('小米 MiMo')).toBe(true)
+    expect(has('MiMo')).toBe(true)
     ;[...dialog.querySelectorAll<HTMLButtonElement>('button')]
       .find(b => b.textContent?.trim() === 'DeepSeek')!
       .click()
@@ -244,7 +244,7 @@ describe('ModelServiceSection', () => {
     expect(dialog.querySelector('#provider-api-key')).toBeTruthy()
 
     ;[...dialog.querySelectorAll<HTMLButtonElement>('button')]
-      .find(button => button.textContent?.trim() === '小米 MiMo')!
+      .find(button => button.textContent?.trim() === 'MiMo')!
       .click()
     await settle()
 

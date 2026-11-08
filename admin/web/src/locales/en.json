@@ -221,7 +221,8 @@
     "secretHint": "Replace the whole value to rotate; clearing and saving deletes it.",
     "secretHintNew": "Fill it in, then use “Test connection” below to verify.",
     "moreTemplates": "More providers ({n})",
-    "fewerTemplates": "Show less"
+    "fewerTemplates": "Show less",
+    "tplCustomShort": "Other"
   },
   "tier": {
     "title": "Default tier mapping",

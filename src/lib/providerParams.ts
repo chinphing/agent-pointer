@@ -34,6 +34,8 @@ export type ProviderTemplateId =
 export interface ProviderTemplateMeta {
   id: ProviderTemplateId
   label: string
+  /** 按钮上的短名，一行放得下 */
+  short: string
   /** Shown under the type picker in settings. */
   hint: string
   defaultId: string
@@ -50,6 +52,7 @@ export interface ProviderTemplateMeta {
 interface CatalogProvider {
   slug: string
   name: string
+  short?: string
   hint?: string
   seeded?: boolean
   baseUrl: string
@@ -67,6 +70,7 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
   ...ORDERED.map(provider => ({
     id: provider.slug as ProviderTemplateId,
     label: provider.name,
+    short: provider.short ?? provider.name,
     hint: provider.hint ?? provider.name,
     defaultId: provider.slug,
     defaultName: provider.name,
@@ -76,6 +80,7 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
   {
     id: 'openai_compatible',
     label: 'Other',
+    short: '其他',
     hint: '自定义 OpenAI 兼容地址',
     defaultId: '',
     defaultName: '',

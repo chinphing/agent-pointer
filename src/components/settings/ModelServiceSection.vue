@@ -129,9 +129,9 @@ const globalGenFallback = {
 const providerRuntimeApi = useRuntimeParams(editingProvider, providerScopeModelId, globalGenFallback)
 const modelRuntimeApi = useRuntimeParams(editingProvider, modelConfigModalId, globalGenFallback)
 
-function templateLabel(opt: { id: ProviderTemplateId; label: string }): string {
+function templateLabel(opt: { id: ProviderTemplateId; label: string; short: string }): string {
   if (opt.id === 'openai_compatible') return t('settings.models.otherService')
-  return opt.label
+  return opt.short || opt.label
 }
 
 function presetNeedsAdvanced(template: ProviderTemplateId): boolean {

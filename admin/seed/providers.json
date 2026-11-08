@@ -14,6 +14,7 @@
       "slug": "qwen",
       "name": "阿里百炼",
       "hint": "通义千问",
+      "short": "百炼",
       "seeded": true,
       "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
       "models": [
@@ -49,6 +50,7 @@
       "slug": "deepseek",
       "name": "DeepSeek",
       "hint": "深度求索",
+      "short": "DeepSeek",
       "seeded": true,
       "baseUrl": "https://api.deepseek.com/v1",
       "models": [
@@ -64,6 +66,7 @@
       "slug": "doubao",
       "name": "火山方舟",
       "hint": "字节火山方舟",
+      "short": "豆包",
       "seeded": true,
       "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
       "models": [
@@ -97,6 +100,7 @@
       "slug": "zhipu",
       "name": "智谱 GLM",
       "hint": "智谱清言",
+      "short": "GLM",
       "seeded": false,
       "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
       "models": [
@@ -120,6 +124,7 @@
       "slug": "kimi",
       "name": "月之暗面 Kimi",
       "hint": "月之暗面",
+      "short": "Kimi",
       "seeded": false,
       "baseUrl": "https://api.moonshot.cn/v1",
       "models": [
@@ -141,6 +146,7 @@
       "slug": "mimo",
       "name": "小米 MiMo",
       "hint": "小米",
+      "short": "MiMo",
       "seeded": false,
       "baseUrl": "https://api.xiaomimimo.com/v1",
       "models": [
@@ -159,6 +165,7 @@
       "slug": "hunyuan",
       "name": "腾讯混元",
       "hint": "腾讯",
+      "short": "混元",
       "seeded": false,
       "baseUrl": "https://api.hunyuan.cloud.tencent.com/v1",
       "models": [
@@ -174,6 +181,7 @@
       "slug": "qianfan",
       "name": "百度千帆",
       "hint": "百度文心",
+      "short": "千帆",
       "seeded": false,
       "baseUrl": "https://qianfan.baidubce.com/v2",
       "models": [
@@ -191,6 +199,7 @@
       "slug": "minimax",
       "name": "MiniMax",
       "hint": "MiniMax",
+      "short": "MiniMax",
       "seeded": false,
       "baseUrl": "https://api.minimax.cn/v1",
       "models": [
@@ -211,6 +220,7 @@
       "slug": "stepfun",
       "name": "阶跃星辰",
       "hint": "阶跃星辰",
+      "short": "阶跃",
       "seeded": false,
       "baseUrl": "https://api.stepfun.com/v1",
       "models": [
@@ -226,6 +236,7 @@
       "slug": "openai",
       "name": "OpenAI",
       "hint": "OpenAI",
+      "short": "OpenAI",
       "seeded": false,
       "baseUrl": "https://api.openai.com/v1",
       "models": [
@@ -265,6 +276,7 @@
       "slug": "gemini",
       "name": "Google Gemini",
       "hint": "谷歌",
+      "short": "Gemini",
       "seeded": false,
       "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai/",
       "models": [
@@ -300,6 +312,7 @@
       "slug": "grok",
       "name": "xAI Grok",
       "hint": "xAI",
+      "short": "Grok",
       "seeded": false,
       "baseUrl": "https://api.x.ai/v1",
       "models": [
@@ -327,6 +340,7 @@
       "slug": "openrouter",
       "name": "OpenRouter",
       "hint": "聚合入口",
+      "short": "OpenRouter",
       "seeded": false,
       "baseUrl": "https://openrouter.ai/api/v1",
       "models": [

@@ -221,7 +221,8 @@
     "secretHint": "整段替换即可更换；清空后保存即删除。",
     "secretHintNew": "填好可点下面「测试连接并获取模型」验证。",
     "moreTemplates": "更多服务商（{n}）",
-    "fewerTemplates": "收起"
+    "fewerTemplates": "收起",
+    "tplCustomShort": "其他"
   },
   "tier": {
     "title": "默认档位映射",

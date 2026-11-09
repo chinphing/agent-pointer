@@ -2,12 +2,14 @@
 # inject_action_field 统一注入结构（type + required）。字段该写什么，权威在
 # ../prompts/communication.md 的 `## Tool call shape`。
 clipboard_read:
+  description: "Read the current clipboard text."
   type: object
   properties:
   required:
   additionalProperties: true
 
 clipboard_write:
+  description: "Put text on the clipboard. Does not paste it anywhere."
   type: object
   properties:
     text:

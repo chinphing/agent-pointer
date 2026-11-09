@@ -343,6 +343,8 @@ pub struct ToolEntry {
     pub final_reply: bool,
     /// When true, the tool may run concurrently with other eligible tools in the same batch.
     pub parallel_eligible: bool,
+    /// One-line purpose, used as the native `function.description` when set.
+    pub description: Option<String>,
     /// Conflict class for batch scheduling (path, subagent, media, …).
     pub conflict_class: parallel::ToolConflictClass,
     /// Explicit subagent inheritance policy. `None` defaults to inheritable.
@@ -418,7 +420,22 @@ impl ToolEntry {
             conflict_class,
             inherit_to_subagent: None,
             plugin_id: None,
+            description: None,
         }
+    }
+
+    /// One-line "what this tool does", sent as the native `function.description`.
+    ///
+    /// Without it, tools that share a prompt file fall back to
+    /// `"<name>: parameters in schema; full usage in system Tools appendix."` —
+    /// a placeholder that leaves the model choosing by name alone.
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        let s = description.into();
+        let s = s.trim();
+        if !s.is_empty() {
+            self.description = Some(s.to_string());
+        }
+        self
     }
 
     /// Register a tool with a standalone JSON Schema (from `.schema.yaml`), bypassing
@@ -725,6 +742,7 @@ impl ToolRegistry {
                     &e.doc_markdown,
                     peers,
                     e.doc_source.as_ref(),
+                    e.description.as_deref(),
                 ),
                 openai_parameters_from_doc_or_builtin(
                     &e.def.name,
@@ -794,7 +812,12 @@ fn openai_description_for_entry(
     doc: &str,
     peers_sharing_doc_source: usize,
     doc_source: &str,
+    description: Option<&str>,
 ) -> String {
+    // 显式的一句话用途优先：这是模型选工具时唯一会读到的元数据。
+    if let Some(s) = description.map(str::trim).filter(|s| !s.is_empty()) {
+        return s.to_string();
+    }
     if peers_sharing_doc_source > 1 {
         return openai_compact_description(name);
     }

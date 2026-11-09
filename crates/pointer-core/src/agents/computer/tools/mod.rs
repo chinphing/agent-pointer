@@ -76,10 +76,35 @@ pub fn inject_action_field(schema: &mut serde_json::Value) {
 pub fn load_desktop_schemas(yaml: &str) -> anyhow::Result<HashMap<String, serde_json::Value>> {
     let mut out = HashMap::new();
     for (name, mut schema) in load_tools_from_schema_yaml(yaml)? {
+        // `description` 是工具的一句话用途（进 native `function.description`），
+        // 不是 JSON Schema 的字段说明，不能留在 `parameters` 里。
+        if let Some(obj) = schema.as_object_mut() {
+            obj.remove("description");
+        }
         inject_action_field(&mut schema);
         out.insert(name, schema);
     }
     Ok(out)
+}
+
+/// 每个工具的一句话用途，从同一份 schema YAML 的 `description` 取。
+///
+/// 单独成函数是为了不动 [`load_desktop_schemas`] 的签名：schema 是"参数长什么样"，
+/// description 是"这个工具做什么"，两者用途不同但写在同一个文件里。
+pub fn load_desktop_descriptions(yaml: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let Ok(tools) = load_tools_from_schema_yaml(yaml) else {
+        return out;
+    };
+    for (name, schema) in tools {
+        if let Some(s) = schema.get("description").and_then(|v| v.as_str()) {
+            let s = s.trim();
+            if !s.is_empty() {
+                out.insert(name, s.to_string());
+            }
+        }
+    }
+    out
 }
 
 /// Register all computer-use tools.
@@ -88,6 +113,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     {
         const MOUSE_DOC_SOURCE: &str = "agents/computer/tools/prompts/mouse.md";
         const MOUSE_SCHEMA_YAML: &str = include_str!("prompts/mouse.schema.yaml");
+        let mouse_descriptions = load_desktop_descriptions(MOUSE_SCHEMA_YAML);
         let mouse_schemas: HashMap<String, serde_json::Value> =
             load_desktop_schemas(MOUSE_SCHEMA_YAML)
                 .expect("mouse.schema.yaml must be valid");
@@ -161,6 +187,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             reg.register(
                 ToolEntry::new(tool_name, MOUSE_DOC_SOURCE, "low", false, prompt, handler)
                     .with_schema(schema)
+                    .with_description(mouse_descriptions.get(*name).cloned().unwrap_or_default())
                     .with_subagent_inheritance(false),
             );
         }
@@ -186,6 +213,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     })
                 }),
             )
+            .with_description("Press a key combination such as Cmd+S or Ctrl+Shift+T.")
             .with_subagent_inheritance(false),
         );
     }
@@ -194,6 +222,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     {
         const INPUT_DOC_SOURCE: &str = "agents/computer/tools/prompts/input.md";
         const INPUT_SCHEMA_YAML: &str = include_str!("prompts/input.schema.yaml");
+        let input_descriptions = load_desktop_descriptions(INPUT_SCHEMA_YAML);
         let input_schemas: HashMap<String, serde_json::Value> =
             load_desktop_schemas(INPUT_SCHEMA_YAML)
                 .expect("input.schema.yaml must be valid");
@@ -240,6 +269,12 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             reg.register(
                 ToolEntry::new(tool_name, INPUT_DOC_SOURCE, "low", false, prompt, handler)
                     .with_schema(schema)
+                    .with_description(
+                        input_descriptions
+                            .get(*name)
+                            .cloned()
+                            .unwrap_or_default(),
+                    )
                     .with_subagent_inheritance(false),
             );
         }
@@ -249,6 +284,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     {
         const KEYBOARD_DOC_SOURCE: &str = "agents/computer/tools/prompts/keyboard.md";
         const KEYBOARD_SCHEMA_YAML: &str = include_str!("prompts/keyboard.schema.yaml");
+        let keyboard_descriptions = load_desktop_descriptions(KEYBOARD_SCHEMA_YAML);
         let keyboard_schemas: HashMap<String, serde_json::Value> =
             load_desktop_schemas(KEYBOARD_SCHEMA_YAML)
                 .expect("keyboard.schema.yaml must be valid");
@@ -284,6 +320,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     handler,
                 )
                 .with_schema(schema)
+                .with_description(keyboard_descriptions.get(*name).cloned().unwrap_or_default())
                 .with_subagent_inheritance(false),
             );
         }
@@ -293,6 +330,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     {
         const MODIFIED_CLICK_DOC_SOURCE: &str = "agents/computer/tools/prompts/modified_click.md";
         const MODIFIED_CLICK_SCHEMA_YAML: &str = include_str!("prompts/modified_click.schema.yaml");
+        let modified_click_descriptions = load_desktop_descriptions(MODIFIED_CLICK_SCHEMA_YAML);
         let modified_click_schemas: HashMap<String, serde_json::Value> =
             load_desktop_schemas(MODIFIED_CLICK_SCHEMA_YAML)
                 .expect("modified_click.schema.yaml must be valid");
@@ -347,6 +385,12 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     handler,
                 )
                 .with_schema(schema)
+                .with_description(
+                    modified_click_descriptions
+                        .get(*name)
+                        .cloned()
+                        .unwrap_or_default(),
+                )
                 .with_subagent_inheritance(false),
             );
         }
@@ -368,6 +412,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     tool.execute("wait", &args)
                 }),
             )
+            .with_description("Pause for a moment while the UI settles before the next step.")
             .with_subagent_inheritance(false),
         );
     }
@@ -376,6 +421,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     {
         const CLIPBOARD_DOC_SOURCE: &str = "agents/computer/tools/prompts/clipboard.md";
         const CLIPBOARD_SCHEMA_YAML: &str = include_str!("prompts/clipboard.schema.yaml");
+        let clipboard_descriptions = load_desktop_descriptions(CLIPBOARD_SCHEMA_YAML);
         let clipboard_schemas: HashMap<String, serde_json::Value> =
             load_desktop_schemas(CLIPBOARD_SCHEMA_YAML)
                 .expect("clipboard.schema.yaml must be valid");
@@ -409,6 +455,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     handler,
                 )
                 .with_schema(schema)
+                .with_description(clipboard_descriptions.get(*name).cloned().unwrap_or_default())
                 .with_subagent_inheritance(false),
             );
         }
@@ -444,6 +491,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 }),
             )
             .with_schema(list_schema)
+            .with_description("List running and recently used apps with their display names.")
             .with_subagent_inheritance(false),
         );
 
@@ -460,6 +508,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 }),
             )
             .with_schema(launch_schema)
+            .with_description("Launch an app, or bring a running one to the foreground.")
             .with_subagent_inheritance(false),
         );
 
@@ -478,6 +527,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 Arc::new(|args| tool_use_screen::UseScreenTool::new().execute(&args)),
             )
             .with_schema(use_screen_schema)
+            .with_description("Switch the captured display to another monitor by its id.")
             .with_subagent_inheritance(false),
         );
     }
@@ -495,6 +545,33 @@ mod tests {
         let state = Arc::new(ComputerState::default_for_test());
         register_all(&reg, state);
         reg
+    }
+
+    /// 每个桌面工具在 native tool list 里都必须有一句真实用途。
+    ///
+    /// 共用一份 prompt 文档的工具曾经全部退化成占位符
+    /// （`"<name>: parameters in schema; ..."`），模型只能靠名字选工具 ——
+    /// 于是出现给 `mouse_click_at` 传 `text` 这种错：名字里有 click，语义却是输入。
+    #[test]
+    fn every_computer_tool_has_a_real_description() {
+        let reg = registry_with_computer_tools();
+        let allow: Vec<String> = reg.list_defs().into_iter().map(|d| d.name).collect();
+        let tools = reg.openai_tools(&allow);
+        assert!(!tools.is_empty(), "computer tools should be registered");
+
+        let mut missing: Vec<String> = Vec::new();
+        for t in &tools {
+            let name = t["function"]["name"].as_str().unwrap_or_default().to_string();
+            let desc = t["function"]["description"].as_str().unwrap_or_default();
+            let placeholder = desc.contains("full usage in system Tools appendix");
+            if desc.trim().is_empty() || placeholder {
+                missing.push(name);
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "these tools would fall back to a placeholder description: {missing:?}"
+        );
     }
 
     /// 扫一遍注册表：任何工具的卡片标题都不该是裸工具名。

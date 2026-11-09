@@ -2,6 +2,7 @@
 # inject_action_field 统一注入结构（type + required）。字段该写什么，权威在
 # ../prompts/communication.md 的 `## Tool call shape`。
 mouse_click_at:
+  description: "Click a control at a located target. Does not type text — use input_at to type into a field."
   type: object
   properties:
     target_desc:
@@ -36,6 +37,7 @@ mouse_click_at:
   additionalProperties: true
 
 mouse_double_click_at:
+  description: "Double-click a located target (open, select a word, or toggle)."
   type: object
   properties:
     target_desc:
@@ -58,6 +60,7 @@ mouse_double_click_at:
   additionalProperties: true
 
 mouse_right_click_at:
+  description: "Right-click a located target to open its context menu."
   type: object
   properties:
     target_desc:
@@ -80,6 +83,7 @@ mouse_right_click_at:
   additionalProperties: true
 
 move_to:
+  description: "Move the pointer onto a located target without clicking (hover)."
   type: object
   properties:
     target_desc:
@@ -102,6 +106,7 @@ move_to:
   additionalProperties: true
 
 mouse_scroll_current:
+  description: "Scroll the wheel at the pointer, optionally moving it onto a panel first."
   type: object
   properties:
     target_desc:
@@ -139,6 +144,7 @@ mouse_scroll_current:
   additionalProperties: true
 
 mouse_down:
+  description: "Press and hold a mouse button at a located target (drag start)."
   type: object
   properties:
     button:
@@ -156,6 +162,7 @@ mouse_down:
   additionalProperties: true
 
 mouse_up:
+  description: "Release a held mouse button (drag end)."
   type: object
   properties:
     button:
@@ -173,6 +180,7 @@ mouse_up:
   additionalProperties: true
 
 mouse_drag_from_to_at:
+  description: "Drag from one located target to another (grab, move, drop)."
   type: object
   properties:
     from_target_desc:

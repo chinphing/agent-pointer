@@ -4,6 +4,7 @@
 # keyboard.schema.yaml — flat keyboard tool schemas (PRESS / KEY_DOWN / KEY_UP / TYPING)
 
 key_press:
+  description: "Press and release a key, or a chord such as Cmd+S."
   type: object
   properties:
     key:
@@ -18,6 +19,7 @@ key_press:
   additionalProperties: true
 
 key_down:
+  description: "Hold a key down (key-down half of a manual chord or hold)."
   type: object
   properties:
     key:
@@ -32,6 +34,7 @@ key_down:
   additionalProperties: true
 
 key_up:
+  description: "Release a held key (key-up half of a manual chord or hold)."
   type: object
   properties:
     key:
@@ -46,6 +49,7 @@ key_up:
   additionalProperties: true
 
 keyboard_type:
+  description: "Type raw characters into whatever has focus, without locating a field."
   type: object
   properties:
     text:

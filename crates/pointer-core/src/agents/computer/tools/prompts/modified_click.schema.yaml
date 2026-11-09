@@ -2,6 +2,7 @@
 # inject_action_field 统一注入结构（type + required）。字段该写什么，权威在
 # ../prompts/communication.md 的 `## Tool call shape`。
 modified_click_select_at:
+  description: "Modifier-click a located target (Cmd/Ctrl/Shift/Alt held) — multi-select or toggle."
   type: object
   properties:
     positions:
@@ -32,6 +33,7 @@ modified_click_select_at:
   additionalProperties: true
 
 modified_click_range_select_at:
+  description: "Shift-click from one located target to another to select the range between them."
   type: object
   properties:
     positions:

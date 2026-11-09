@@ -4,6 +4,7 @@
 # input.schema.yaml — flat input tool schemas (no method enum)
 
 input_at:
+  description: "Type text into a located field: clicks it to focus, optionally clears it, types, optionally presses Enter."
   type: object
   properties:
     target_desc:
@@ -33,6 +34,7 @@ input_at:
   additionalProperties: true
 
 input_focused:
+  description: "Type into the field that already has focus — no click, no coordinates."
   type: object
   properties:
     text:

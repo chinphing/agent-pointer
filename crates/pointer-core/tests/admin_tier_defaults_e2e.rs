@@ -104,6 +104,12 @@ fn web_search_resolves_single_deepseek_model() {
     let s = apply_fixture();
     assert_eq!(s.web_search_llm.provider_id, "deepseek");
     assert_eq!(effective_web_search_model(&s, None), "deepseek-flash");
+    // DeepSeek 走 effort 协议，默认强度是高。
+    assert_eq!(
+        s.web_search_llm.thinking_intensity.as_deref(),
+        Some("high"),
+        "联网搜索默认思考强度应为 high"
+    );
     for tier in ["fast", "standard", "expert"] {
         assert!(
             !s.agent_mode_llm

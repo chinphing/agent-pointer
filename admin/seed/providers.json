@@ -588,7 +588,8 @@
       },
       "webSearchLlm": {
         "providerId": "deepseek",
-        "model": "deepseek-flash"
+        "model": "deepseek-flash",
+        "thinkingIntensity": "high"
       },
       "mediaGeneration": {
         "image": {

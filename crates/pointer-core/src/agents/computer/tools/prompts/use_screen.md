@@ -1,15 +1,16 @@
 ### use_screen
 
-Switch the captured display to the one the target app lives on.
+Move the captured display to another screen.
 
-`[CUR_SCREEN]` captures **one display at a time**. When the app you were told to
-work with is open on another display, the frame in front of you does not contain
-it — do not go hunting with `terminal`/`screencapture`, call this instead.
+`[CUR_SCREEN]` captures **one display at a time**. When the app you must work
+with sits on a different display, the frame in front of you does not contain it.
+Do not go hunting with `terminal`/`screencapture` — switch the capture instead.
 
 Optional:
-- **`app`**: the app whose display you want. Omit to follow the frontmost app.
+- **`monitor`**: the display id **exactly as `launch_app` reported it** (for example
+  `xcap:3`). Take it from that reply; do not invent or re-derive it. Omit to keep
+  the current display (the reply lists every display and its id).
 
-**`action` field:** say which app (or display) you want to see and why.
+**`action` field:** say which app or display you want to see and why.
 
-The reply lists every display and marks the one capture will move to. The next
-`[CUR_SCREEN]` frame comes from that display.
+The next `[CUR_SCREEN]` frame comes from the chosen display.

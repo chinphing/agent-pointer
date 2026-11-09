@@ -9,7 +9,6 @@
 
 use super::args_util::require_non_empty_str;
 use crate::agents::computer::vision::screen;
-use crate::platform::app_access;
 use anyhow::Result;
 use serde_json::Value;
 
@@ -23,21 +22,30 @@ impl UseScreenTool {
     pub fn execute(&self, args: &Value) -> Result<String> {
         require_non_empty_str(args, "goal")?;
         let goal = args["goal"].as_str().unwrap_or("").trim();
-        let app = args
-            .get("app")
+        // 编号来自 `launch_app` 的返回（`display xcap:3 …`），这里不再重新找应用：
+        // 重新解析一遍既慢，又可能因为窗口刚移动而和刚才那块屏不一致。
+        let wanted = args
+            .get("monitor")
+            .or_else(|| args.get("display"))
             .and_then(|v| v.as_str())
             .map(str::trim)
-            .filter(|s| !s.is_empty());
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
 
         let monitors = screen::list_monitors()?;
-        let target_id = match app {
-            Some(app) => app_access::monitor_id_for_launched_app(app),
-            None => app_access::monitor_id_for_frontmost_app(),
+        let target = match &wanted {
+            Some(id) => monitors.iter().find(|m| &m.id == id),
+            None => None,
         };
-        let target = target_id
-            .as_deref()
-            .and_then(|id| monitors.iter().find(|m| m.id == id))
-            .or_else(|| monitors.iter().find(|m| m.is_primary));
+        if let (Some(id), None) = (&wanted, target) {
+            let known: Vec<&str> = monitors.iter().map(|m| m.id.as_str()).collect();
+            return Ok(format!(
+                "Goal: {goal}. No display with id `{id}`. Known ids: {}. \
+                 Take the id from a `launch_app` reply.",
+                known.join(", ")
+            ));
+        }
+        let target = target.or_else(|| monitors.iter().find(|m| m.is_primary));
 
         let mut body = String::from("Displays:\n");
         for m in &monitors {
@@ -57,20 +65,16 @@ impl UseScreenTool {
             ));
         }
 
-        let where_ = match (app, target) {
-            (Some(app), Some(t)) => format!("`{app}` sits on display {}.", t.id),
-            (None, Some(t)) => format!("The frontmost app sits on display {}.", t.id),
-            (Some(app), None) => format!(
-                "Could not locate a window for `{app}`; no display will be switched to."
-            ),
-            (None, None) => "Could not locate the frontmost app's display.".to_string(),
+        let where_ = match target {
+            Some(t) => format!("Capture will move to display {}.", t.id),
+            None => "No display matched; capture stays where it is.".to_string(),
         };
 
         let next = if target.is_some() {
             "The next `[CUR_SCREEN]` frame captures that display — do not take your own \
              screenshots with `terminal`."
         } else {
-            "Ask which display to use, or call `list_apps` first."
+            "Call `launch_app` for the target app and use the display id from its reply."
         };
 
         Ok(format!("Goal: {goal}. {where_}\n\n{body}\n{next}"))
@@ -93,5 +97,26 @@ mod tests {
     fn requires_goal() {
         let err = UseScreenTool::new().execute(&json!({})).unwrap_err();
         assert!(err.to_string().contains("goal"), "旧字段名也要出现在报错里");
+    }
+
+    /// 换屏直接用 `launch_app` 报回来的编号，**不重新找应用**：
+    /// 解析结果就是传入的那个 id，与前台应用无关。
+    #[test]
+    fn monitor_id_is_taken_verbatim() {
+        let args = json!({ "goal": "看 Chrome", "monitor": "xcap:3" });
+        assert_eq!(
+            super::super::tool_app_access::resolve_monitor_for_tool("use_screen", &args),
+            Some("xcap:3".to_string())
+        );
+    }
+
+    /// 没给编号时不要瞎猜某块屏（交给调用方报错或保持现状）。
+    #[test]
+    fn missing_monitor_resolves_to_nothing() {
+        let args = json!({ "goal": "看 Chrome" });
+        assert_eq!(
+            super::super::tool_app_access::resolve_monitor_for_tool("use_screen", &args),
+            None
+        );
     }
 }

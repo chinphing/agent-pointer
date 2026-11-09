@@ -101,8 +101,15 @@ fn format_launch_reply(
     let app = args["app"].as_str().unwrap_or("").trim();
     let display_app = result.app_name.as_deref().unwrap_or(app);
     let status = if result.success { "OK" } else { "FAILED" };
+    // 告诉模型它在哪块屏：双屏下「看不见刚打开的应用」多半就是采集在另一块屏。
+    let screen = monitor_id_for_launched_app(args)
+        .map(|id| match describe_monitor(&id) {
+            Some(d) => format!(" It is on {d}."),
+            None => String::new(),
+        })
+        .unwrap_or_default();
     format!(
-        "Goal: {goal}. {status} — {} (action: {}). {}",
+        "Goal: {goal}. {status} — {} (action: {}).{screen} {}",
         result.message,
         result.action,
         verify.launch_app_hint(display_app, result.success, &result.action),
@@ -158,7 +165,38 @@ pub fn app_access_host_pass_summary(tool_name: &str, text: &str) -> String {
     }
 }
 
-/// Map a launched app's main window to a capture monitor id, when detectable.
+/// 这次工具调用该把采集切到哪块屏 —— `use_screen` 与「自动跟随」共用一套解析，
+/// 免得同一个判断在两个地方各写一遍、日后漂移。
+pub fn resolve_monitor_for_tool(tool_id: &str, args: &Value) -> Option<String> {
+    match tool_id {
+        // 显式换屏：直接用 `launch_app` 报回来的编号，不重新找应用。
+        "use_screen" => args
+            .get("monitor")
+            .or_else(|| args.get("display"))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        "launch_app" => monitor_id_for_launched_app(args),
+        _ => crate::platform::app_access::monitor_id_for_frontmost_app(),
+    }
+}
+
+/// 一句话说明某块屏的位置与尺寸，用于工具返回（模型据此判断要不要换屏）。
+pub fn describe_monitor(monitor_id: &str) -> Option<String> {
+    let monitors = crate::agents::computer::vision::screen::list_monitors().ok()?;
+    let m = monitors.iter().find(|m| m.id == monitor_id)?;
+    Some(format!(
+        "display {} at ({}, {}) {}x{}{}",
+        m.id,
+        m.left,
+        m.top,
+        m.width,
+        m.height,
+        if m.is_primary { " primary" } else { "" }
+    ))
+}
+
 pub fn monitor_id_for_launched_app(args: &Value) -> Option<String> {
     let app = args
         .get("app")

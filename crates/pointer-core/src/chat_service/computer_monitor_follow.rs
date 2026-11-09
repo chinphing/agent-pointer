@@ -74,20 +74,7 @@ pub fn maybe_auto_switch_capture_monitor_after_tool(
         return;
     }
 
-    let new_id = match tool_id {
-        "launch_app" => tool_app_access::monitor_id_for_launched_app(args),
-        "use_screen" => match args
-            .get("app")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            Some(app) => tool_app_access::monitor_id_for_launched_app(args)
-                .or_else(|| crate::platform::app_access::monitor_id_for_launched_app(app)),
-            None => crate::platform::app_access::monitor_id_for_frontmost_app(),
-        },
-        _ => crate::platform::app_access::monitor_id_for_frontmost_app(),
-    };
+    let new_id = tool_app_access::resolve_monitor_for_tool(tool_id, args);
 
     let Some(new_id) = new_id else {
         log::warn!(

@@ -154,6 +154,15 @@ fn job_status_from_terminal(
         JobStatus::Cancelled
     } else if ok {
         JobStatus::Completed
+    } else if r.exit_code.is_none()
+        && !r.timed_out
+        && !r.elevation_denied
+        && !(r.agent_retry_forbidden && r.needs_input_likely && !r.user_input_provided)
+    {
+        // 没有退出码 = 进程被信号终止（例如自己 `pkill` 掉刚起的后台命令）。
+        // 那不是「命令失败」，记成 Cancelled：既不推送「后台任务失败」，
+        // 也让 `job status` 显示得符合实际。
+        JobStatus::Cancelled
     } else {
         JobStatus::Failed
     }
@@ -679,9 +688,13 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
 
 #[cfg(test)]
 mod tests {
-    use super::{terminal_job_title, terminal_self_caller};
+    use super::{
+        job_status_from_terminal, terminal_job_title, terminal_self_caller, InputClass,
+        JobStatus, TerminalStreamingResult,
+    };
     use crate::chat_service::job_supervisor::JobCaller;
     use serde_json::json;
+    use tokio_util::sync::CancellationToken;
 
     /// The background-job title (idle push「后台任务已完成：…」) must read the
     /// intent, not the truncated raw command. `action` is the schema-required
@@ -734,6 +747,61 @@ mod tests {
         assert_eq!(
             terminal_self_caller(&chain),
             JobCaller::Instance("inst-terminal")
+        );
+    }
+
+    fn streaming_result(exit_code: Option<i32>, success: bool) -> TerminalStreamingResult {
+        TerminalStreamingResult {
+            exit_code,
+            success,
+            timed_out: false,
+            cancelled: false,
+            run_aborted: false,
+            elevation_denied: false,
+            needs_input_likely: false,
+            input_hint: None,
+            input_class: InputClass::Normal,
+            agent_retry_forbidden: false,
+            user_input_provided: false,
+            input_dismissed: false,
+            waited_for_input_ms: 0,
+            duration_ms: 0,
+            stdout: String::new(),
+            stderr: String::new(),
+            stdout_truncated: false,
+            stderr_truncated: false,
+        }
+    }
+
+    /// 后台命令被 `pkill` 之类信号终止时没有退出码。那种情况不是「命令失败」，
+    /// 记成 Cancelled，否则会把「我自己把它停了」当成「后台任务失败」推给用户。
+    #[test]
+    fn killed_terminal_job_is_cancelled_not_failed() {
+        let token = CancellationToken::new();
+        let killed = streaming_result(None, false);
+        assert_eq!(
+            job_status_from_terminal(&killed, &token),
+            JobStatus::Cancelled
+        );
+    }
+
+    /// 有退出码的非零退出仍然算失败——不能因为「没成功」就一律当取消。
+    #[test]
+    fn non_zero_exit_is_still_failed() {
+        let token = CancellationToken::new();
+        let failed = streaming_result(Some(1), false);
+        assert_eq!(job_status_from_terminal(&failed, &token), JobStatus::Failed);
+    }
+
+    /// 超时被杀的进程同样没有退出码，但那是真失败，不能算取消。
+    #[test]
+    fn timed_out_terminal_job_stays_failed() {
+        let token = CancellationToken::new();
+        let mut timed_out = streaming_result(None, false);
+        timed_out.timed_out = true;
+        assert_eq!(
+            job_status_from_terminal(&timed_out, &token),
+            JobStatus::Failed
         );
     }
 }

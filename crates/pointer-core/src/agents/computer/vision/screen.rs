@@ -79,6 +79,16 @@ impl MonitorInfo {
 /// Prefix for OS-stable monitor ids from [`xcap::Monitor::id`] (survives resolution / scaling changes).
 pub const XCAP_MONITOR_ID_PREFIX: &str = "xcap:";
 
+/// 去掉可选的 `xcap:` 前缀，只留 OS 的显示器编号。
+///
+/// 前缀只用于区分「新式编号」和旧版 `{left},{top},{width},{height}` 存储值，
+/// 对模型是纯噪音 —— 它只需要一个能原样传回来的标识。
+pub fn normalize_monitor_id(id: &str) -> &str {
+    id.strip_prefix(XCAP_MONITOR_ID_PREFIX)
+        .unwrap_or(id)
+        .trim()
+}
+
 /// How a stored monitor id was resolved for capture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MonitorResolveKind {

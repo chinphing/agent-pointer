@@ -170,27 +170,52 @@ pub fn app_access_host_pass_summary(tool_name: &str, text: &str) -> String {
 /// 免得同一个判断在两个地方各写一遍、日后漂移。
 pub fn resolve_monitor_for_tool(tool_id: &str, args: &Value) -> Option<String> {
     match tool_id {
-        // 显式换屏：直接用 `launch_app` 报回来的编号，不重新找应用。
+        // 显式换屏：模型传回 `launch_app` / `[CUR_SCREEN]` 里看到的编号，
+        // 可能是裸编号（`3`）也可能带前缀（`xcap:3`）——统一还原成存储用的规范 id。
         "use_screen" => args
             .get("monitor")
             .or_else(|| args.get("display"))
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map(str::to_string),
+            .map(canonical_monitor_id),
         "launch_app" => monitor_id_for_launched_app(args),
         _ => crate::platform::app_access::monitor_id_for_frontmost_app(),
     }
 }
 
+/// 把模型写的编号还原成存储里的规范形式（`xcap:{id}`）。
+///
+/// 模型看到的是去掉前缀的编号，直接拿它去写会话状态会让 UI 选择器对不上号
+/// （那边比的是完整字符串）。列不出显示器时原样返回，交给下游判失效。
+fn canonical_monitor_id(raw: &str) -> String {
+    let wanted = crate::agents::computer::vision::screen::normalize_monitor_id(raw);
+    let Ok(monitors) = crate::agents::computer::vision::screen::list_monitors() else {
+        return raw.to_string();
+    };
+    monitors
+        .iter()
+        .find(|m| crate::agents::computer::vision::screen::normalize_monitor_id(&m.id) == wanted)
+        .map(|m| m.id.clone())
+        .unwrap_or_else(|| raw.to_string())
+}
+
 /// 一句话说明某块屏的大小，用于工具返回（模型据此判断要不要换屏）。
 ///
 /// **不带绝对坐标**：`bbox` 换算用的是图片像素，混进全局坐标只会让模型
-/// 拿错参考系。
+/// 拿错参考系。也**不带 `xcap:` 前缀**：模型只需原样传回编号。
 pub fn describe_monitor(monitor_id: &str) -> Option<String> {
     let monitors = crate::agents::computer::vision::screen::list_monitors().ok()?;
-    let m = monitors.iter().find(|m| m.id == monitor_id)?;
-    Some(format!("display {} ({}×{})", m.id, m.width, m.height))
+    let wanted = crate::agents::computer::vision::screen::normalize_monitor_id(monitor_id);
+    let m = monitors
+        .iter()
+        .find(|m| crate::agents::computer::vision::screen::normalize_monitor_id(&m.id) == wanted)?;
+    Some(format!(
+        "display {} ({}×{})",
+        crate::agents::computer::vision::screen::normalize_monitor_id(&m.id),
+        m.width,
+        m.height
+    ))
 }
 
 pub fn monitor_id_for_launched_app(args: &Value) -> Option<String> {

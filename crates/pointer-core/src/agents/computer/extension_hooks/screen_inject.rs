@@ -104,28 +104,38 @@ fn slot_labels() -> Vec<&'static str> {
 ///
 /// 编号一定要报：只有连 id 都没有时才沉默。列不出显示器列表（权限、平台不支持）
 /// 只会让「还有哪些屏」这段缺失，不该把已知的编号一起吞掉。
+///
+/// 显示时去掉 `xcap:` 前缀 —— 模型只需原样传回，前缀是噪音。
 fn display_summary(current_id: &str, monitors: &[crate::models::ComputerMonitor]) -> String {
-    if current_id.is_empty() {
+    let current = crate::agents::computer::vision::screen::normalize_monitor_id(current_id);
+    if current.is_empty() {
         return String::new();
     }
     let current_size = monitors
         .iter()
-        .find(|m| m.id == current_id)
+        .find(|m| crate::agents::computer::vision::screen::normalize_monitor_id(&m.id) == current)
         .map(|m| format!(" ({}×{})", m.width, m.height))
         .unwrap_or_default();
     if monitors.is_empty() {
-        return format!("This frame is display {current_id}{current_size}. ");
+        return format!("This frame is display {current}{current_size}. ");
     }
     let others: Vec<String> = monitors
         .iter()
-        .filter(|m| m.id != current_id)
-        .map(|m| format!("{} ({}×{})", m.id, m.width, m.height))
+        .filter(|m| crate::agents::computer::vision::screen::normalize_monitor_id(&m.id) != current)
+        .map(|m| {
+            format!(
+                "{} ({}×{})",
+                crate::agents::computer::vision::screen::normalize_monitor_id(&m.id),
+                m.width,
+                m.height
+            )
+        })
         .collect();
     if others.is_empty() {
-        format!("This frame is display {current_id}{current_size} (the only display). ")
+        format!("This frame is display {current}{current_size} (the only display). ")
     } else {
         format!(
-            "This frame is display {current_id}{current_size} — one of {} displays. \
+            "This frame is display {current}{current_size} — one of {} displays. \
              Other displays: {}. \
              If the app you need is not in this image, it is on another display: call \
              `use_screen` with that id instead of taking your own screenshot. ",
@@ -421,7 +431,8 @@ mod tests {
     }
 
     /// 双屏时必须说清「这是第几块、另一块是什么」，否则模型以为画面就是全部。
-    /// **只报编号与尺寸**：绝对坐标会让模型把 `bbox` 换算的参考系搞混。
+    /// **只报编号与尺寸**：绝对坐标会让模型把 `bbox` 换算的参考系搞混；
+    /// 编号也不带 `xcap:` 前缀 —— 模型原样传回即可。
     #[test]
     fn display_summary_names_the_other_displays() {
         let monitors = vec![
@@ -430,12 +441,11 @@ mod tests {
         ];
         let text = super::display_summary("xcap:0,0", &monitors);
         assert!(text.contains("one of 2 displays"), "got: {text}");
-        assert!(text.contains("xcap:-890,-1440"), "另一块屏的编号必须出现: {text}");
+        assert!(text.contains("0,0 (1512×982)"), "当前屏编号要出现: {text}");
+        assert!(text.contains("-890,-1440 (3440×1440)"), "另一块屏要出现: {text}");
         assert!(text.contains("use_screen"), "要告诉模型下一步怎么做: {text}");
-        assert!(
-            !text.contains("-1440)"),
-            "不能出现绝对坐标，会污染 bbox 参考系: {text}"
-        );
+        assert!(!text.contains("xcap:"), "前缀是噪音，不该出现在提示词里: {text}");
+        assert!(!text.contains("-1440)"), "不能出现绝对坐标: {text}");
     }
 
     /// 编号直接来自截取时的显示器，不靠坐标反查 —— 坐标对不上也照常报。
@@ -455,8 +465,8 @@ mod tests {
             monitor(-890, -1440, 3440, 1440),
         ];
         let text = super::display_summary("xcap:0,0", &monitors);
-        assert!(text.contains("display xcap:0,0"), "got: {text}");
-        assert!(text.contains("xcap:-890,-1440"), "got: {text}");
+        assert!(text.contains("display 0,0"), "got: {text}");
+        assert!(text.contains("-890,-1440"), "got: {text}");
     }
 
     /// 单屏不啰嗦，只报「这是唯一一块」。
@@ -472,7 +482,7 @@ mod tests {
     #[test]
     fn display_summary_keeps_the_id_without_monitors() {
         let text = super::display_summary("xcap:0,0", &[]);
-        assert!(text.contains("display xcap:0,0"), "got: {text}");
+        assert!(text.contains("display 0,0"), "got: {text}");
         assert!(!text.contains("only display"), "不知道有几块时别下结论: {text}");
     }
 

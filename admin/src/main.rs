@@ -195,6 +195,13 @@ async fn main() -> Result<()> {
         }
     }
 
+    // 单价每次启动都补一次：库可能是早就建好的，服务商播种不会再跑。
+    match seed::seed_prices(&store, &config.tenant_id).await {
+        Ok(0) => {}
+        Ok(n) => log::info!("初始化模型单价：补齐 {n} 个（照抄官网费率）"),
+        Err(e) => log::warn!("初始化模型单价失败（不影响启动）：{e}"),
+    }
+
     let state = AppState::new(store, config.clone());
     let mut app = Router::new()
         .merge(oauth::router())

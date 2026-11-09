@@ -14,6 +14,7 @@ use crate::http::error::{ApiError, ApiResult};
 use crate::oauth::token::{month_prefix, today_string};
 use crate::state::Shared;
 use crate::usage::{self, GroupBy};
+use crate::users;
 
 #[derive(Debug, Deserialize)]
 pub struct UsageQuery {
@@ -47,32 +48,93 @@ pub async fn usage(
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| today_string(now));
 
-    let rows = usage::list(
+    // 总量由「按天」聚合结果累加：天数是有限的几十行，省掉第 4 次全区间扫描。
+    let by_day_aggs = usage::aggregate_by(
         &state.store,
         &state.config.tenant_id,
         &from,
         &to,
         query.user_id.as_deref(),
+        GroupBy::Day,
     )
     .await?;
+    let prompt: i64 = by_day_aggs.iter().map(|a| a.prompt).sum();
+    let completion: i64 = by_day_aggs.iter().map(|a| a.completion).sum();
+    let thinking: i64 = by_day_aggs.iter().map(|a| a.thinking).sum();
+    let cached: i64 = by_day_aggs.iter().map(|a| a.cached).sum();
 
-    let prompt: i64 = rows.iter().map(|r| r.prompt_tokens).sum();
-    let completion: i64 = rows.iter().map(|r| r.completion_tokens).sum();
-
-    let to_items = |pairs: Vec<(String, i64, i64)>| -> Vec<Value> {
-        pairs
-            .into_iter()
-            .map(|(key, p, c)| json!({ "key": key, "promptTokens": p, "completionTokens": c, "total": p + c }))
+    let to_items = |aggs: Vec<usage::UsageAgg>| -> Vec<Value> {
+        aggs.into_iter()
+            .map(|a| {
+                json!({
+                    "key": a.key,
+                    "promptTokens": a.prompt,
+                    "completionTokens": a.completion,
+                    "thinkingTokens": a.thinking,
+                    "cachedTokens": a.cached,
+                    "total": a.total(),
+                })
+            })
             .collect()
     };
+
+    // 成员维度用可读名展示：`key` 仍是用户 id（筛选/配额接口要它），`label` 给人看。
+    // 名字缺失（用户已删）时退回 id，页面不会出现空白单元格。
+    let by_user_aggs = usage::aggregate_range(
+        &state.store,
+        &state.config.tenant_id,
+        &from,
+        &to,
+        query.user_id.as_deref(),
+        GroupBy::User,
+    )
+    .await?;
+    let user_ids: Vec<String> = by_user_aggs.iter().map(|a| a.key.clone()).collect();
+    let users_by_id = users::display_names_by_id(&state.store, &state.config.tenant_id, &user_ids)
+        .await?;
+
+    let by_user: Vec<Value> = by_user_aggs
+        .into_iter()
+        .map(|a| {
+            let label = users_by_id
+                .get(&a.key)
+                .cloned()
+                .unwrap_or_else(|| a.key.clone());
+            json!({
+                "key": a.key,
+                "label": label,
+                "promptTokens": a.prompt,
+                "completionTokens": a.completion,
+                "thinkingTokens": a.thinking,
+                "cachedTokens": a.cached,
+                "total": a.total(),
+            })
+        })
+        .collect();
 
     Ok(Json(json!({
         "from": from,
         "to": to,
-        "totals": { "promptTokens": prompt, "completionTokens": completion, "total": prompt + completion },
-        "byUser": to_items(usage::aggregate(&rows, GroupBy::User)),
-        "byModel": to_items(usage::aggregate(&rows, GroupBy::Model)),
-        "byDay": to_items(usage::aggregate(&rows, GroupBy::Day)),
+        "totals": {
+            "promptTokens": prompt,
+            "completionTokens": completion,
+            "thinkingTokens": thinking,
+            "cachedTokens": cached,
+            "total": prompt + completion,
+        },
+        "byUser": by_user,
+        "byModel": to_items(
+            usage::aggregate_range(
+                &state.store,
+                &state.config.tenant_id,
+                &from,
+                &to,
+                query.user_id.as_deref(),
+                GroupBy::Model,
+            )
+            .await?
+        ),
+        "byDay": to_items(by_day_aggs),
     })))
 }
 
@@ -235,7 +297,7 @@ pub async fn overview(
     }
 
     let today = today_string(now_ts());
-    let today_rows = usage::list(
+    let today_agg = usage::totals(
         &state.store,
         &state.config.tenant_id,
         &today,
@@ -243,7 +305,7 @@ pub async fn overview(
         None,
     )
     .await?;
-    let today_tokens: i64 = today_rows.iter().map(|r| r.total()).sum();
+    let today_tokens: i64 = today_agg.total();
 
     // 近 7 天用量：按天汇总，缺的日子补 0，前端直接画柱状图。
     let mut token_trend = Vec::new();

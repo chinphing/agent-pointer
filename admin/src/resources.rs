@@ -380,6 +380,10 @@ struct ChildResource {
 
 /// 档位映射里引用了哪些 slug。payload 是 JSON，按 `"model":"<slug>"` 精确匹配，
 /// 不做前缀或子串猜测。
+/// 找出这些模型被哪些档位映射、**哪个字段**引用。
+///
+/// 只报「档位被引用」等于没说：档位 payload 是一大块 JSON，用户翻不到具体位置，
+/// 会以为「根本没映射」。所以定位到字段路径（如 `agentDefaultModels.explore.model`）。
 async fn referenced_by_tier_profiles(
     store: &AdminStore,
     slugs: &[String],
@@ -387,21 +391,56 @@ async fn referenced_by_tier_profiles(
     if slugs.is_empty() {
         return Ok(Vec::new());
     }
-    let sql = store.sql("SELECT payload_json FROM resources WHERE kind = 'tier_profile'");
-    let payloads: Vec<(String,)> = sqlx::query_as::<Any, (String,)>(&sql)
+    let sql = store.sql("SELECT slug, payload_json FROM resources WHERE kind = 'tier_profile'");
+    let payloads: Vec<(String, String)> = sqlx::query_as::<Any, (String, String)>(&sql)
         .fetch_all(store.pool())
         .await?;
     let mut hits: Vec<String> = Vec::new();
-    for (payload,) in payloads {
+    for (profile, payload) in payloads {
+        let parsed: Option<serde_json::Value> = serde_json::from_str(&payload).ok();
         for slug in slugs {
-            let needle = format!("\"model\":\"{slug}\"");
-            let spaced = format!("\"model\": \"{slug}\"");
-            if (payload.contains(&needle) || payload.contains(&spaced)) && !hits.contains(slug) {
-                hits.push(slug.clone());
+            let where_used: Vec<String> = match &parsed {
+                Some(value) => {
+                    let mut paths = Vec::new();
+                    collect_paths_with_value(value, slug, "", &mut paths);
+                    paths
+                }
+                // JSON 坏了也要拦住删除，但说清楚是解析不了
+                None if payload.contains(slug) => vec!["（payload 无法解析，按文本命中）".into()],
+                None => Vec::new(),
+            };
+            if !where_used.is_empty() {
+                hits.push(format!(
+                    "{slug}（档位 {profile}：{}）",
+                    where_used.join("、")
+                ));
             }
         }
     }
     Ok(hits)
+}
+
+/// 收集 `value == target` 的叶子字段路径，例如 `agentDefaultModels.explore.model`。
+fn collect_paths_with_value(value: &serde_json::Value, target: &str, path: &str, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(s) if s == target => out.push(path.to_string()),
+        serde_json::Value::Object(map) => {
+            for (k, v) in map {
+                let next = if path.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{path}.{k}")
+                };
+                collect_paths_with_value(v, target, &next, out);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for (i, v) in items.iter().enumerate() {
+                collect_paths_with_value(v, target, &format!("{path}[{i}]"), out);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]
@@ -482,6 +521,12 @@ mod tests {
 
         let err = delete(&store, &m.id).await.expect_err("应拒绝");
         assert!(err.to_string().contains("qwen-plus"), "报错要点名是哪个模型");
+        // 还要指出**具体字段**：档位 payload 是一大块 JSON，只说「档位被引用」
+        // 用户翻不到，会以为没被映射。
+        assert!(
+            err.to_string().contains("agentModeLlm.general.fast.model"),
+            "报错要定位到字段路径，实际：{err}"
+        );
 
         let err = delete(&store, &p.id).await.expect_err("删服务商也要拒绝");
         assert!(err.to_string().contains("qwen-plus"));

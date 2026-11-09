@@ -126,7 +126,11 @@
     "editPerm": "Edit permissions",
     "toggleRow": "Toggle whole row",
     "permissionHint": "Check to grant; click a module name to toggle the whole row",
-    "moduleCol": "Module"
+    "moduleCol": "Module",
+    "viewPerm": "View permissions",
+    "viewTitle": "Permissions: {name}",
+    "cloneAsCustom": "Copy as custom role",
+    "builtinReadonlyHint": "Built-in role permissions are fixed in code and change with releases — read-only here. Use “Copy as custom role” to adjust."
   },
   "permModule": {
     "user": "Members",
@@ -279,12 +283,16 @@
     "pipeCount": "Locate chain {n} / 12",
     "empty": "No tier profile yet.",
     "createDefault": "Create default tier profile",
-    "hint": "Pick the model each scene uses per tier; leave a cell blank to inherit the client's built-in default. When a model is set you can also choose a thinking intensity (off / low / medium / high / max); blank follows the model default. These are defaults only — a tier an employee has changed is never overwritten."
+    "hint": "Pick the model each scene uses per tier; leave a cell blank to inherit the client's built-in default. When a model is set you can also choose a thinking intensity (off / low / medium / high / max); blank follows the model default. These are defaults only — a tier an employee has changed is never overwritten.",
+    "fallback": "Fallback",
+    "fallbackHint": "Model used when this agent has no tier configured (agentDefaultModels)",
+    "scene_explore": "Explore"
   },
   "usage": {
     "title": "Usage",
     "subtitle": "Token usage reported by clients and the server.",
     "byMember": "By member",
+    "member": "Member",
     "byModel": "By model",
     "byDate": "By date",
     "query": "Query",
@@ -310,7 +318,12 @@
     "blocked": "Blocked",
     "unlabeled": "(unlabeled)",
     "limitOf": "/ limit {n}",
-    "usedThisMonth": "Used this month"
+    "usedThisMonth": "Used this month",
+    "thinking": "Thinking",
+    "cached": "Cached",
+    "thinkingTokens": "Thinking tokens",
+    "cachedTokens": "Cached tokens",
+    "breakdownHint": "Total = input + output. Thinking tokens are already inside output and cached tokens inside input — shown for reference only, not added again."
   },
   "overview": {
     "title": "Overview",
@@ -522,20 +535,30 @@
   },
   "billing": {
     "title": "Billing",
-    "hint": "Deduct model usage from each member credit; the client blocks sending once the balance runs out.",
+    "hint": "Same as the official site: each model has one rate, multiplied by the global base price.",
     "addTitle": "Add / overwrite price",
     "listTitle": "Model prices",
     "model": "Model",
     "modelPlaceholder": "e.g. qwen3.7-flash",
-    "prompt": "Input",
-    "completion": "Output",
     "save": "Save",
-    "unitHint": "Unit: CNY per million tokens.",
     "modelRequired": "Model name is required",
-    "promptInput": "Input price for {model} (CNY / M tokens)",
-    "completionInput": "Output price for {model} (CNY / M tokens)",
     "saved": "Saved price for {model}",
-    "empty": "No price configured yet — fallback pricing applies",
-    "fallbackHint": "Models without a price use a name-based fallback so usage is never free; fill contract prices before launch."
+    "status": "Status",
+    "configured": "Configured",
+    "clear": "Clear",
+    "cleared": "Cleared the price for {model}; fallback applies",
+    "emptyCatalog": "No models in the platform catalog yet — add a provider and models under Resources first",
+    "unpriced": "No rate · unavailable",
+    "pricingRule": "Formula: ceil(total tokens × base price × rate ÷ 2²⁰). Input and output share one rate.",
+    "unpricedPlaceholder": "Unpriced",
+    "baseTitle": "Base price",
+    "baseHint": "Price of the baseline model (rate 1.0) per 1 MB (2²⁰ = 1,048,576 tokens). Changing it reprices everything.",
+    "baseUnit": "CNY / MB",
+    "baseInvalid": "Base price must be a non-negative number",
+    "baseSaved": "Base price updated",
+    "ratio": "Rate",
+    "ratioHint": "The rate is a multiple of the baseline model (baseline = 1.0). Models without a rate are not shipped to clients.",
+    "ratioRequired": "Rate is required",
+    "ratioInvalid": "Rate must be a non-negative number"
   }
 }

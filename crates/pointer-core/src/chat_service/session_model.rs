@@ -95,7 +95,7 @@ fn provider_model_usable(settings: &ModelSettings, provider_id: &str, model: &st
     if pid.is_empty() || model.is_empty() || !provider_has_api_key(settings, pid) {
         return false;
     }
-    let Some(provider) = settings.providers.iter().find(|p| p.id == pid) else {
+    let Some(provider) = crate::platform_config::find_provider_by_id(&settings.providers, pid) else {
         return false;
     };
     if provider.models.is_empty() {
@@ -207,7 +207,7 @@ pub(crate) fn apply_session_agent_model_defaults(
 /// When the active provider entry exists but has no key, returns empty (do not borrow another provider's key).
 pub(crate) fn resolve_provider_api_key(settings: &ModelSettings, fallback_api_key: &str) -> String {
     let pid = settings.active_provider_id.trim();
-    if let Some(p) = settings.providers.iter().find(|p| p.id == pid) {
+    if let Some(p) = crate::platform_config::find_provider_by_id(&settings.providers, pid) {
         if !p.api_key.trim().is_empty() {
             return p.api_key.clone();
         }

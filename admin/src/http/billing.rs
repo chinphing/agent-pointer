@@ -14,7 +14,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::audit::{self, AuditInput};
-use crate::billing::{self, Price, MICRO_PER_YUAN};
+use crate::billing::{self, Ratio, MICRO_PER_YUAN};
 use crate::db::AdminStore;
 use crate::http::auth::current_auth;
 use crate::http::error::{ApiError, ApiResult};
@@ -109,26 +109,54 @@ pub async fn list_prices(State(state): State<Shared>, headers: HeaderMap) -> Api
     let auth = current_auth(&state, &headers).await?;
     auth.require("usage:read")?;
     let rows = billing::list_prices(&state.store, &state.config.tenant_id).await?;
-    let items: Vec<Value> = rows
+
+    // 页面上按平台模型目录列出全部模型，已配置的显示现价，未配置的显示兜底价——
+    // 管理员不用手打模型名，也不会看到一张空表。
+    let mut configured: std::collections::BTreeMap<String, Ratio> = rows.into_iter().collect();
+    let catalog: Vec<String> = crate::resources::list(
+        &state.store,
+        &state.config.tenant_id,
+        Some(crate::resources::KIND_MODEL),
+    )
+    .await?
+    .into_iter()
+    .map(|r| r.slug)
+    .collect();
+
+    let mut names: Vec<String> = catalog;
+    for name in configured.keys() {
+        if !names.contains(name) {
+            names.push(name.clone());
+        }
+    }
+    names.sort();
+    names.dedup();
+
+    let items: Vec<Value> = names
         .into_iter()
-        .map(|(model, price)| {
+        .map(|model| {
+            let own = configured.remove(&model);
+            let configured_flag = own.is_some();
+            let ratio = own.map(|r| r.as_f64()).unwrap_or(0.0);
             json!({
                 "model": model,
-                "promptYuanPerMillion": micro_per_million_to_yuan(price.prompt_micro_per_million),
-                "completionYuanPerMillion": micro_per_million_to_yuan(price.completion_micro_per_million),
+                "configured": configured_flag,
+                "ratio": ratio,
             })
         })
         .collect();
-    Ok(Json(json!({ "items": items })))
+    let base = billing::base_price_micro_per_mb(&state.store).await?;
+    Ok(Json(json!({
+        "baseYuanPerMb": micro_per_million_to_yuan(base),
+        "items": items,
+    })))
 }
 
 #[derive(Debug, Deserialize)]
 pub struct PriceBody {
     pub model: String,
-    #[serde(alias = "promptYuanPerMillion")]
-    pub prompt_yuan_per_million: Option<f64>,
-    #[serde(alias = "completionYuanPerMillion")]
-    pub completion_yuan_per_million: Option<f64>,
+    /// 费率：以基准模型 1.0 为参照的倍数（官网同款）。
+    pub ratio: Option<f64>,
 }
 
 pub async fn set_price(
@@ -142,15 +170,11 @@ pub async fn set_price(
     if model.is_empty() {
         return Err(ApiError::BadRequest("缺少 model".to_string()));
     }
-    let prompt = body.prompt_yuan_per_million.unwrap_or(0.0);
-    let completion = body.completion_yuan_per_million.unwrap_or(0.0);
-    if !prompt.is_finite() || !completion.is_finite() || prompt < 0.0 || completion < 0.0 {
-        return Err(ApiError::BadRequest("单价必须是非负数".to_string()));
+    let ratio = body.ratio.unwrap_or(0.0);
+    if !ratio.is_finite() || ratio < 0.0 {
+        return Err(ApiError::BadRequest("费率必须是非负数".to_string()));
     }
-    let price = Price {
-        prompt_micro_per_million: (prompt * MICRO_PER_YUAN as f64).round() as i64,
-        completion_micro_per_million: (completion * MICRO_PER_YUAN as f64).round() as i64,
-    };
+    let price = Ratio::from_ratio(ratio);
     billing::set_price(&state.store, &state.config.tenant_id, &model, price)
         .await
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
@@ -160,13 +184,82 @@ pub async fn set_price(
         AuditInput {
             actor_user_id: Some(&auth.user.id),
             actor_name: &auth.user.display_name,
-            action: "model_price.set",
+            action: "model_ratio.set",
             target_type: "model",
             target_id: &model,
             before_json: None,
-            after_json: Some(&format!(
-                r#"{{"promptYuanPerMillion":{prompt},"completionYuanPerMillion":{completion}}}"#
-            )),
+            after_json: Some(&format!(r#"{{"ratio":{ratio}}}"#)),
+        },
+    )
+    .await?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BasePriceBody {
+    /// 基准价：元 / MB（官网 `llm_base_yuan_per_mb`，默认 1）。
+    pub base_yuan_per_mb: Option<f64>,
+}
+
+/// 改全局基准价。费率都是相对它算的，所以改它等于整体调价。
+pub async fn set_base_price(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Json(body): Json<BasePriceBody>,
+) -> ApiResult<Json<Value>> {
+    let auth = current_auth(&state, &headers).await?;
+    auth.require("usage:write")?;
+    let yuan = body.base_yuan_per_mb.unwrap_or(0.0);
+    if !yuan.is_finite() || yuan < 0.0 {
+        return Err(ApiError::BadRequest("基准价必须是非负数".to_string()));
+    }
+    let micro = (yuan * MICRO_PER_YUAN as f64).round() as i64;
+    billing::set_base_price_micro_per_mb(&state.store, micro)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    audit::record(
+        &state.store,
+        &state.config.tenant_id,
+        AuditInput {
+            actor_user_id: Some(&auth.user.id),
+            actor_name: &auth.user.display_name,
+            action: "base_price.set",
+            target_type: "platform",
+            target_id: "llm_base_yuan_per_mb",
+            before_json: None,
+            after_json: Some(&format!(r#"{{"baseYuanPerMb":{yuan}}}"#)),
+        },
+    )
+    .await?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// 清掉某模型的显式费率。费率清掉后模型不下发，等于不可用。
+pub async fn clear_price(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Path(model): Path<String>,
+) -> ApiResult<Json<Value>> {
+    let auth = current_auth(&state, &headers).await?;
+    auth.require("usage:write")?;
+    let model = model.trim().to_string();
+    if model.is_empty() {
+        return Err(ApiError::BadRequest("缺少 model".to_string()));
+    }
+    billing::delete_price(&state.store, &state.config.tenant_id, &model)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    audit::record(
+        &state.store,
+        &state.config.tenant_id,
+        AuditInput {
+            actor_user_id: Some(&auth.user.id),
+            actor_name: &auth.user.display_name,
+            action: "model_ratio.clear",
+            target_type: "model",
+            target_id: &model,
+            before_json: None,
+            after_json: None,
         },
     )
     .await?;

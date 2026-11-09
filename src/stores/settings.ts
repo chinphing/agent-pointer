@@ -417,15 +417,20 @@ export const useSettingsStore = defineStore('settings', () => {
     canEditPlatform.value = view.canEditPlatform
     isPlatformAdmin.value = view.isPlatformAdmin
     const activeId = mergedIn.activeProviderId || ''
-    const platformById = new Map(normalizedPlatformProviders.map(provider => [provider.id, provider]))
+    // 身份是 (source, id)：同名的用户服务商和平台服务商是两条独立记录，
+    // 只按 id 匹配会把其中一条吞掉（平台服务商被显示成自定义服务）。
+    const providerKey = (p: { id: string; source?: string }) =>
+      `${p.source ?? 'platform'}::${p.id}`
+    const platformByKey = new Map(normalizedPlatformProviders.map(provider => [providerKey(provider), provider]))
     const seenMerged = new Set<string>()
     const mergedProviders: ProviderConfig[] = (mergedIn.providers ?? []).map(provider => {
-      seenMerged.add(provider.id)
-      const plat = platformById.get(provider.id)
-      if (!plat) return provider
-      // source=user 自己管名称 / 地址 / 模型名单（桌面 fork 或 standalone 自定义服务）。
-      // 平台目录仍拥有未 fork 的 platform 服务，刷新后能看到新模型。
-      if (provider.source === 'user') {
+      seenMerged.add(providerKey(provider))
+      const source = (provider.source ?? 'platform') as 'user' | 'platform'
+      const plat = platformByKey.get(`${source}::${provider.id}`)
+      if (!plat) return { ...provider, source }
+      // 同 source 同 id 才合并：平台目录拥有 platform 条目的名称/地址/模型名单，
+      // user 条目归用户自己管（桌面 fork 或 standalone 自定义服务）。
+      if (source === 'user') {
         return {
           ...provider,
           source: 'user',
@@ -434,7 +439,7 @@ export const useSettingsStore = defineStore('settings', () => {
       }
       return {
         ...provider,
-        source: (provider.source ?? 'platform') as 'user' | 'platform',
+        source: 'platform',
         name: plat.name || provider.name,
         baseUrl: plat.baseUrl || provider.baseUrl,
         models: plat.models.length ? [...plat.models] : (provider.models ?? []),
@@ -442,8 +447,9 @@ export const useSettingsStore = defineStore('settings', () => {
       }
     })
     for (const plat of normalizedPlatformProviders) {
-      if (seenMerged.has(plat.id)) continue
-      mergedProviders.push({ ...plat, source: (plat.source ?? 'platform') as 'user' | 'platform' })
+      const key = providerKey({ ...plat, source: 'platform' })
+      if (seenMerged.has(key)) continue
+      mergedProviders.push({ ...plat, source: 'platform' })
     }
     const nextMerged = {
       ...mergedIn,

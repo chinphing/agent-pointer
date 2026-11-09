@@ -106,6 +106,24 @@ function openCreate() {
   error.value = ''
 }
 
+/** 只读查看：内置角色也能看自己有哪些权限。 */
+function openView(role: any) {
+  editing.value = { ...role, readonly: true, isNew: false }
+  form.value = { key: role.key, name: role.name, permissions: [...(role.permissions || [])] }
+  error.value = ''
+}
+
+/** 内置角色是代码常量、改了会被升级覆盖，所以提供「复制成自定义角色」再改。 */
+function cloneAsCustom(role: any) {
+  editing.value = { builtin: false, isNew: true }
+  form.value = {
+    key: `${role.key}_copy`,
+    name: `${nameOf(role)}（副本）`,
+    permissions: [...(role.permissions || [])],
+  }
+  error.value = ''
+}
+
 function openEdit(role: any) {
   editing.value = role
   form.value = { key: role.key, name: role.name, permissions: [...(role.permissions || [])] }
@@ -180,22 +198,45 @@ async function remove(role: any) {
         {{ t('roles_page.permissionCount', { n: role.permissions?.length || 0 }) }}
         · {{ t('roles_page.memberCount', { n: role.memberCount }) }}
       </div>
-      <div v-if="role.builtin === false && can('role:write')" class="row" style="gap: 6px; margin-top: 10px">
-        <button class="tiny" @click="openEdit(role)">{{ t('roles_page.editPerm') }}</button>
-        <button class="tiny danger" @click="remove(role)">{{ t('common.delete') }}</button>
+      <div class="row" style="gap: 6px; margin-top: 10px">
+        <button class="tiny" @click="openView(role)">{{ t('roles_page.viewPerm') }}</button>
+        <template v-if="role.builtin === false && can('role:write')">
+          <button class="tiny" @click="openEdit(role)">{{ t('roles_page.editPerm') }}</button>
+          <button class="tiny danger" @click="remove(role)">{{ t('common.delete') }}</button>
+        </template>
+        <button v-else-if="can('role:write')" class="tiny" @click="cloneAsCustom(role)">
+          {{ t('roles_page.cloneAsCustom') }}
+        </button>
       </div>
     </div>
   </div>
 
   <div v-if="editing" class="modal-mask" @click.self="editing = null">
     <div class="modal" style="max-width: 720px">
-      <h2>{{ editing.isNew ? t('roles_page.createTitle') : t('roles_page.editTitle') }}</h2>
+      <h2>
+        {{
+          editing.readonly
+            ? t('roles_page.viewTitle', { name: nameOf(editing) })
+            : editing.isNew
+              ? t('roles_page.createTitle')
+              : t('roles_page.editTitle')
+        }}
+      </h2>
+      <p v-if="editing.readonly" class="muted small">{{ t('roles_page.builtinReadonlyHint') }}</p>
 
       <label>{{ t('roles_page.keyLabel') }}</label>
-      <input v-model="form.key" :disabled="!editing.isNew" :placeholder="t('roles_page.keyPlaceholder')" />
+      <input
+        v-model="form.key"
+        :disabled="!editing.isNew || editing.readonly"
+        :placeholder="t('roles_page.keyPlaceholder')"
+      />
 
       <label>{{ t('roles_page.nameLabel') }}</label>
-      <input v-model="form.name" :placeholder="t('roles_page.namePlaceholder')" />
+      <input
+        v-model="form.name"
+        :disabled="editing.readonly"
+        :placeholder="t('roles_page.namePlaceholder')"
+      />
 
       <label>{{ t('roles_page.permissionHint') }}</label>
       <table style="margin-top: 8px">
@@ -218,6 +259,7 @@ async function remove(role: any) {
                 type="checkbox"
                 style="width: auto"
                 :checked="has(`${m}:${a}`)"
+                :disabled="editing.readonly"
                 @change="toggle(`${m}:${a}`)"
               />
               <span v-else class="muted small">—</span>
@@ -227,8 +269,24 @@ async function remove(role: any) {
       </table>
 
       <div class="modal-actions">
-        <button @click="editing = null">{{ t('common.cancel') }}</button>
-        <button class="primary" :disabled="busy" @click="submit">{{ t('common.save') }}</button>
+        <button @click="editing = null">
+          {{ editing.readonly ? t('common.close') : t('common.cancel') }}
+        </button>
+        <button
+          v-if="editing.readonly && editing.builtin !== false && can('role:write')"
+          class="primary"
+          @click="cloneAsCustom(editing)"
+        >
+          {{ t('roles_page.cloneAsCustom') }}
+        </button>
+        <button
+          v-else-if="!editing.readonly"
+          class="primary"
+          :disabled="busy"
+          @click="submit"
+        >
+          {{ t('common.save') }}
+        </button>
       </div>
     </div>
   </div>

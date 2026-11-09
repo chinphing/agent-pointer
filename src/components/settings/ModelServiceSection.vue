@@ -408,11 +408,14 @@ function applyProviderSnapshotToStore(
   reopenEdit = true
 ): boolean {
   const id = snapshot.id.trim()
-  if (wasAdd && s.settings.providers.some(p => p.id === id)) {
+  // 同一 source 内唯一：用户可以有一个和平台同名的服务商（source=user），
+  // 但不能和自己已有的同名。
+  const sameSource = (p: ProviderConfig) => (p.source ?? 'platform') === 'user'
+  if (wasAdd && s.settings.providers.some(p => p.id === id && sameSource(p))) {
     providerSaveError.value = t('settings.msg_0225b7')
     return false
   }
-  if (!wasAdd && !s.settings.providers.some(p => p.id === id)) {
+  if (!wasAdd && !s.settings.providers.some(p => p.id === id && sameSource(p))) {
     providerSaveError.value = t('settings.s_1df86f')
     return false
   }

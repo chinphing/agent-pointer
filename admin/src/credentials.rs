@@ -37,10 +37,19 @@ pub async fn build_for_user(
         .filter(|r| r.enabled && visible.contains(&r.id))
         .collect();
 
+    // 没配单价的模型不下发：客户端拿不到就调不了，这是「没配价不许用」的
+    // 第一道也是唯一一道确定性的闸门（扣费侧的拦截只是兜底）。
+    let priced: HashSet<String> = crate::billing::list_prices(store, tenant_id)
+        .await?
+        .into_iter()
+        .map(|(model, _)| model)
+        .collect();
+
     let models: Vec<Resource> = resources::list(store, tenant_id, Some(KIND_MODEL))
         .await?
         .into_iter()
         .filter(|r| r.enabled)
+        .filter(|r| priced.contains(&r.slug))
         .filter(|r| {
             // 模型继承服务商的可见性：授权了服务商就等于授权了它下面的模型，
             // 否则每加一个模型都要再授权一次，实际不可维护。
@@ -295,6 +304,15 @@ mod tests {
             .await
             .expect("model");
             resources::set_enabled(store, &m.id, true).await.expect("enable model");
+            // 没配单价的模型不再下发，所以夹具里必须给每个模型定价。
+            crate::billing::set_price(
+                store,
+                DEFAULT_TENANT,
+                model,
+                crate::billing::Ratio::from_ratio(1.0),
+            )
+            .await
+            .expect("price model");
             ids.push(m.id);
         }
         (provider.id, ids)

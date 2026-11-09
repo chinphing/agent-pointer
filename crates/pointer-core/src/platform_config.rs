@@ -121,11 +121,43 @@ impl Default for PlatformConfigManager {
 }
 
 /// Attach active-provider api key + has_key to merged runtime settings.
+/// 按 id 取服务商。
+///
+/// 身份是 `(source, id)`：同一个 id 可能同时存在「用户自己的」和「平台下发的」
+/// 两条记录。这里优先能真正发请求的那条——先看有没有密钥，再优先平台；
+/// 两边都有密钥时用户那条（显式选择）优先。
+pub fn find_provider_by_id<'a>(
+    providers: &'a [ProviderConfig],
+    id: &str,
+) -> Option<&'a ProviderConfig> {
+    let id = id.trim();
+    if id.is_empty() {
+        return None;
+    }
+    // 平手时保留**第一条**（用户条目排在平台条目之前，显式选择优先）。
+    // `max_by_key` 在相等时返回最后一条，会把用户的选择换成平台的。
+    let mut best: Option<&ProviderConfig> = None;
+    for provider in providers.iter().filter(|p| p.id == id) {
+        match best {
+            Some(current) if provider_rank(provider) <= provider_rank(current) => {}
+            _ => best = Some(provider),
+        }
+    }
+    best
+}
+
+fn provider_rank(provider: &ProviderConfig) -> u8 {
+    let has_key = !provider.api_key.trim().is_empty();
+    let is_platform = provider.source.as_deref() == Some("platform");
+    match (has_key, is_platform) {
+        (true, _) => 2,
+        (false, true) => 1,
+        (false, false) => 0,
+    }
+}
+
 pub fn finalize_merged_settings(mut settings: ModelSettings) -> ModelSettings {
-    if let Some(p) = settings
-        .providers
-        .iter()
-        .find(|p| p.id == settings.active_provider_id)
+    if let Some(p) = find_provider_by_id(&settings.providers, &settings.active_provider_id)
         .or_else(|| settings.providers.first())
     {
         settings.api_key = p.api_key.clone();

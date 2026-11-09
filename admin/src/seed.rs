@@ -87,6 +87,32 @@ pub fn load_catalog() -> Result<Catalog> {
     serde_json::from_str(CATALOG).context("解析 seed/providers.json 失败")
 }
 
+// ---------------------------------------------------------------------------
+// 单价种子：照抄官网费率，换算成「元 / 百万 token」
+// ---------------------------------------------------------------------------
+
+const PRICES: &str = include_str!("../seed/prices.json");
+
+/// 官网按 1MB（2²⁰ token）计费，本仓库按 100 万 token 计费。
+
+#[derive(Debug, Deserialize)]
+pub struct PriceSeed {
+    #[serde(rename = "defaultRatio")]
+    pub default_ratio: f64,
+    pub ratios: std::collections::HashMap<String, f64>,
+}
+
+pub fn load_prices() -> Result<PriceSeed> {
+    serde_json::from_str(PRICES).context("解析 seed/prices.json 失败")
+}
+
+impl PriceSeed {
+    /// 某模型的费率（倍数）。官网 `DEFAULT_MODEL_RATIOS.get(name, 1.0)` 同款。
+    fn ratio_for(&self, model: &str) -> f64 {
+        self.ratios.get(model).copied().unwrap_or(self.default_ratio)
+    }
+}
+
 #[derive(Debug, Default, PartialEq)]
 pub struct SeedReport {
     pub providers_created: usize,
@@ -95,7 +121,43 @@ pub struct SeedReport {
     pub tier_created: bool,
 }
 
-/// 幂等：已存在的 slug 一律跳过，不覆盖管理员改过的配置。
+/// 幂等：已存在的 slug 一律跳过，不覆盖管理员改过的配置。/// 按官网费率给还没有单价的模型补价；已有单价的一律跳过，管理员改过的价不会被覆盖。
+///
+/// 与 [`seed`] 分开：服务商只在库为空时播种，而单价要对**已存在的库**也生效，
+/// 所以这个函数每次启动都跑。
+pub async fn seed_prices(store: &AdminStore, tenant_id: &str) -> Result<usize> {
+    let catalog = load_catalog()?;
+    let prices = load_prices()?;
+    let mut created = 0usize;
+
+    for preset in catalog.providers.iter().filter(|p| p.seeded) {
+        for model in &preset.models {
+            // 图片/视频按「次 / 秒」计价，本仓库只按 token 计费；给它们配 token 价
+            // 只会变成 0 元白用，所以留空——客户端拿不到，也就调不了。
+            if model.can_generate_image || model.can_generate_video {
+                continue;
+            }
+            if crate::billing::price_for(store, tenant_id, &model.id)
+                .await?
+                .is_some()
+            {
+                continue;
+            }
+            // 官网存的是费率（倍数），直接落 ratio，不做任何换算。
+            let ratio = prices.ratio_for(&model.id);
+            crate::billing::set_price(
+                store,
+                tenant_id,
+                &model.id,
+                crate::billing::Ratio::from_ratio(ratio),
+            )
+            .await?;
+            created += 1;
+        }
+    }
+    Ok(created)
+}
+
 pub async fn seed(store: &AdminStore, tenant_id: &str) -> Result<SeedReport> {
     let catalog = load_catalog()?;
     let mut report = SeedReport::default();
@@ -157,8 +219,7 @@ pub async fn seed(store: &AdminStore, tenant_id: &str) -> Result<SeedReport> {
     if let Some(tier) = &catalog.tier_profile {
         let existing =
             resources::find_by_slug(store, tenant_id, KIND_TIER_PROFILE, &tier.slug).await?;
-        if existing.is_none() {
-            let created = resources::create(
+        if existing.is_none() {            let created = resources::create(
                 store,
                 tenant_id,
                 KIND_TIER_PROFILE,

@@ -3046,35 +3046,58 @@ impl serde::Serialize for WebEffectiveSettingsView {
 }
 
 /// Merge persisted user settings with in-memory platform config.
+/// 用户条目是不是「平台服务商的落盘副本」。
+///
+/// 判据全部来自可观测事实，不做意图猜测：id 相同、地址相同、模型名单相同，
+/// 且密钥就是平台那把——那它不携带任何用户自有信息，展示出来只会和平台条目
+/// 撞名。用户改过其中任一项（换 key、换地址、加减模型）就不再算副本。
+fn is_stale_platform_copy(user: &ProviderConfig, platform: &[ProviderConfig]) -> bool {
+    let key = user.api_key.trim();
+    if key.is_empty() {
+        return false;
+    }
+    platform.iter().any(|p| {
+        let platform_key = p.api_key.trim();
+        !platform_key.is_empty()
+            && p.id == user.id
+            && p.base_url.trim() == user.base_url.trim()
+            && p.models == user.models
+            && platform_key == key
+    })
+}
+
 pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> ModelSettings {
     // Providers are user-owned (persisted in user_settings.json). Runtime keys
     // (OAuth / login injection) live in platform.providers and are overlaid
     // by provider id so user edits never wipe injected credentials.
     let mut providers = user.providers.clone();
-    let platform_keys: HashMap<String, String> = platform
-        .providers
-        .iter()
-        .map(|p| (p.id.clone(), p.api_key.clone()))
-        .collect();
     for provider in &mut providers {
         provider.source = Some("user".into());
-        if provider.api_key.trim().is_empty() {
-            if let Some(key) = platform_keys.get(&provider.id) {
-                provider.api_key = key.clone();
-            }
-        }
     }
-    // Platform-only providers (OAuth / login directory) are appended to the
-    // merged list so the UI and runtime can use them even before the user
-    // saves a copy. User-owned providers keep precedence; duplicates by id
-    // never appear.
-    let known: std::collections::HashSet<String> = providers.iter().map(|p| p.id.clone()).collect();
+    // 平台密钥被注入后落盘的副本不是「用户自己的服务商」：id / 地址 / 模型名单
+    // 都和平台那条一致、密钥也是平台那把，说明它只是历史残留。留着会让界面同时
+    // 出现两条同名服务商，其中一条顶着平台密钥却显示成「自定义服务」。
+    providers.retain(|p| !is_stale_platform_copy(p, &platform.providers));
+    // 身份是 (source, id)：用户自己的 `deepseek` 和平台下发的 `deepseek` 是两条
+    // 独立记录，可以同名并存。只按 id 去重会把其中一条吞掉——那正是「平台服务商
+    // 被显示成自定义服务」的成因。平台密钥只属于平台那条，不注入用户条目。
+    let known: std::collections::HashSet<(String, String)> = providers
+        .iter()
+        .map(|p| {
+            (
+                p.source.clone().unwrap_or_default(),
+                p.id.clone(),
+            )
+        })
+        .collect();
     for platform_provider in &platform.providers {
-        if !known.contains(&platform_provider.id) {
-            let mut p = platform_provider.clone();
-            p.source = Some("platform".into());
-            providers.push(p);
+        let identity = ("platform".to_string(), platform_provider.id.clone());
+        if known.contains(&identity) {
+            continue;
         }
+        let mut p = platform_provider.clone();
+        p.source = Some("platform".into());
+        providers.push(p);
     }
     let mut settings = ModelSettings {
         providers,
@@ -4407,8 +4430,12 @@ mod user_settings_defaults_tests {
         assert_eq!(merged.providers[0].id, "vllm-local");
     }
 
+    /// 身份是 `(source, id)`：同名的用户服务商和平台服务商并存，互不吞掉。
+    ///
+    /// 旧实现按 id 去重，会把平台那条藏起来、把平台密钥注入用户条目，
+    /// 界面于是把平台下发的服务商显示成「自定义服务」。
     #[test]
-    fn platform_only_provider_does_not_duplicate_existing_user_provider() {
+    fn platform_provider_coexists_with_same_id_user_provider() {
         let mut platform = PlatformSettings::default();
         platform
             .providers
@@ -4419,13 +4446,73 @@ mod user_settings_defaults_tests {
         let merged = merge_user_platform(&user, &platform);
         assert_eq!(
             merged.providers.len(),
-            1,
-            "no duplicate for user-owned provider"
+            2,
+            "同名但 source 不同，应并存两条"
         );
+        let user_entry = merged
+            .providers
+            .iter()
+            .find(|p| p.source.as_deref() == Some("user"))
+            .expect("user entry kept");
         assert_eq!(
-            merged.providers[0].api_key, "platform-qwen-key",
-            "platform key overlaid onto user-owned provider"
+            user_entry.api_key, "",
+            "平台密钥不注入用户条目——否则用户条目会看起来像平台服务商"
         );
+        let platform_entry = merged
+            .providers
+            .iter()
+            .find(|p| p.source.as_deref() == Some("platform"))
+            .expect("platform entry appended");
+        assert_eq!(platform_entry.api_key, "platform-qwen-key");
+    }
+
+    /// 平台密钥落盘的副本不展示：否则界面同时出现两条同名服务商。
+    #[test]
+    fn stale_copy_of_platform_provider_is_hidden() {
+        let mut platform = PlatformSettings::default();
+        let mut tpl = sample_settings().providers.remove(0);
+        tpl.api_key = "platform-key".into();
+        platform.providers.push(tpl.clone());
+
+        // 副本：id / 地址 / 模型 / 密钥全同
+        let mut user = UserSettings::default();
+        user.providers.push(tpl.clone());
+
+        let merged = merge_user_platform(&user, &platform);
+        assert_eq!(merged.providers.len(), 1, "副本被抑制，只剩平台那条");
+        assert_eq!(merged.providers[0].source.as_deref(), Some("platform"));
+
+        // 用户换成自己的密钥 → 是真 fork，必须保留
+        let mut forked = tpl.clone();
+        forked.api_key = "my-own-key".into();
+        let mut user2 = UserSettings::default();
+        user2.providers.push(forked);
+        let merged2 = merge_user_platform(&user2, &platform);
+        assert_eq!(merged2.providers.len(), 2, "换了自己的密钥就不是副本");
+    }
+
+    /// 运行时按 id 取服务商时，同 id 多条要挑能用的那条。
+    #[test]
+    fn find_provider_by_id_prefers_usable_entry() {
+        let mut providers = sample_settings().providers;
+        let platform_entry = providers.remove(0);
+        let mut user_entry = platform_entry.clone();
+        user_entry.source = Some("user".into());
+        user_entry.api_key = String::new();
+        let mut platform_entry = platform_entry;
+        platform_entry.source = Some("platform".into());
+        platform_entry.api_key = "platform-key".into();
+        let list = vec![user_entry, platform_entry];
+
+        let picked = crate::platform_config::find_provider_by_id(&list, "qwen").expect("found");
+        assert_eq!(picked.source.as_deref(), Some("platform"));
+        assert_eq!(picked.api_key, "platform-key");
+
+        // 用户自己填了密钥 → 用户那条优先（显式选择）
+        let mut list2 = list.clone();
+        list2[0].api_key = "my-own-key".into();
+        let picked = crate::platform_config::find_provider_by_id(&list2, "qwen").expect("found");
+        assert_eq!(picked.api_key, "my-own-key");
     }
 }
 

@@ -13,7 +13,7 @@ use sqlx::{Any, Row};
 use crate::db::{now_ts, AdminStore, Backend};
 use crate::rbac;
 
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 11;
 pub const DEFAULT_TENANT: &str = "default";
 
 const DDL_V1: &[&str] = &[
@@ -163,6 +163,9 @@ fn index_statements(backend: Backend) -> Vec<String> {
         ("idx_grants_principal", "resource_grants", "principal_id"),
         ("idx_audit_created", "audit_log", "created_at"),
         ("idx_usage_user_day", "usage_daily", "user_id"),
+        // 用量查询按 tenant + 日期区间过滤；没有这个索引就是全表扫。
+        ("idx_usage_tenant_day", "usage_daily", "tenant_id, day"),
+        ("idx_usage_monthly", "usage_monthly", "tenant_id, month"),
     ];
     defs.iter()
         .map(|(name, table, column)| {
@@ -240,6 +243,54 @@ const DDL_V5: &[&str] = &[
 ///
 /// 金额一律用 **微元**（1 元 = 1_000_000）存整数，避免浮点误差；
 /// 展示时再除以 1e6 转成元。
+/// v9：计费口径对齐官网 —— 单一费率 + token 细分落库。
+///
+/// 官网按 `ceil3(raw × 基准价 × ratio ÷ 2²⁰)` 计费，输入输出不分价；上报的
+/// token 有 prompt / completion / thinking / cached 细分，都要能查。
+/// v10：费率口径 —— 官网存的是「倍数」，不是换算后的单价。
+///
+/// 每个模型一个 ratio（以基准模型 1.0 为参照），全局一个基准价（元 / MB）。
+/// `ratio_micro` = ratio × 1e6（整数存，避免浮点误差）；老库按换算关系反推。
+/// v11：用量月表 —— 年度/历史报表不再扫明细。
+///
+/// 建表时从 `usage_daily` 回填一次，保证月表与日表从同一时刻起口径一致；
+/// 之后由 `usage::record` 双写维护。
+const DDL_V11: &[&str] = &[
+    "CREATE TABLE IF NOT EXISTS usage_monthly (
+        tenant_id  VARCHAR(64) NOT NULL DEFAULT 'default',
+        month      VARCHAR(7) NOT NULL,
+        user_id    VARCHAR(64) NOT NULL,
+        model      VARCHAR(128) NOT NULL DEFAULT '',
+        prompt_tokens     BIGINT NOT NULL DEFAULT 0,
+        completion_tokens BIGINT NOT NULL DEFAULT 0,
+        thinking_tokens   BIGINT NOT NULL DEFAULT 0,
+        cached_tokens     BIGINT NOT NULL DEFAULT 0,
+        CONSTRAINT uq_usage_monthly UNIQUE (tenant_id, user_id, model, month)
+    )",
+    "INSERT INTO usage_monthly
+        (tenant_id, month, user_id, model, prompt_tokens, completion_tokens,
+         thinking_tokens, cached_tokens)
+     SELECT tenant_id, SUBSTR(day, 1, 7), user_id, model,
+            SUM(prompt_tokens), SUM(completion_tokens),
+            SUM(thinking_tokens), SUM(cached_tokens)
+       FROM usage_daily
+      GROUP BY tenant_id, SUBSTR(day, 1, 7), user_id, model",
+];
+
+const DDL_V10: &[&str] = &[
+    "ALTER TABLE model_prices ADD COLUMN ratio_micro BIGINT NOT NULL DEFAULT 0",
+    // 元/百万 = ratio × 1e6 ÷ 2²⁰ → ratio_micro = micro_per_million × 2²⁰ ÷ 1e6
+    "UPDATE model_prices SET ratio_micro = (micro_per_million * 1048576 + 500000) / 1000000 WHERE ratio_micro = 0",
+];
+
+const DDL_V9: &[&str] = &[
+    "ALTER TABLE model_prices ADD COLUMN micro_per_million BIGINT NOT NULL DEFAULT 0",
+    // 老库里的两档价此时是同一个数（初始化照抄官网单费率），取输入档回填。
+    "UPDATE model_prices SET micro_per_million = prompt_micro_per_million WHERE micro_per_million = 0",
+    "ALTER TABLE usage_daily ADD COLUMN thinking_tokens BIGINT NOT NULL DEFAULT 0",
+    "ALTER TABLE usage_daily ADD COLUMN cached_tokens BIGINT NOT NULL DEFAULT 0",
+];
+
 const DDL_V8: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS wallets (
         user_id     VARCHAR(64) PRIMARY KEY,
@@ -376,6 +427,33 @@ pub async fn migrate(store: &AdminStore) -> Result<()> {
                 .with_context(|| format!("apply admin schema v8: {}", first_line(stmt)))?;
         }
         write_version(store, 8).await?;
+    }
+    if read_version(store).await? < 9 {
+        for stmt in DDL_V9 {
+            store
+                .exec(&adapt(stmt, store.backend))
+                .await
+                .with_context(|| format!("apply admin schema v9: {}", first_line(stmt)))?;
+        }
+        write_version(store, 9).await?;
+    }
+    if read_version(store).await? < 10 {
+        for stmt in DDL_V10 {
+            store
+                .exec(&adapt(stmt, store.backend))
+                .await
+                .with_context(|| format!("apply admin schema v10: {}", first_line(stmt)))?;
+        }
+        write_version(store, 10).await?;
+    }
+    if read_version(store).await? < 11 {
+        for stmt in DDL_V11 {
+            store
+                .exec(&adapt(stmt, store.backend))
+                .await
+                .with_context(|| format!("apply admin schema v11: {}", first_line(stmt)))?;
+        }
+        write_version(store, 11).await?;
     }
 
     for stmt in index_statements(store.backend()) {

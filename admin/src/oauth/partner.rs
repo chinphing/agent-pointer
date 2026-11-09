@@ -64,7 +64,13 @@ pub async fn llm_credentials(
     let user = bearer_user(&state, &headers).await?;
     let creds =
         credentials::build_for_user(&state.store, &state.config.tenant_id, &user.id).await?;
-    Ok(Json(serde_json::to_value(&creds).map_err(ApiError::internal)?))
+    // 客户端 `PartnerLlmCredentialResponse` 要求 `ok` 字段；它是「成功即 true」的信封，
+    // 不带这个字段客户端会直接解码失败（missing field `ok`），目录永远刷不到。
+    let mut body = serde_json::to_value(&creds).map_err(ApiError::internal)?;
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("ok".to_string(), Value::Bool(true));
+    }
+    Ok(Json(body))
 }
 
 pub async fn balance(
@@ -89,14 +95,33 @@ pub async fn balance(
 
 #[derive(Debug, Deserialize)]
 pub struct UsageReport {
-    #[serde(default)]
+    /// 客户端上报的字段叫 `model_name`；旧的 `model` 也接受，两者都缺才留空。
+    #[serde(default, alias = "model_name")]
     pub model: String,
     #[serde(default, alias = "promptTokens")]
     pub prompt_tokens: i64,
     #[serde(default, alias = "completionTokens")]
     pub completion_tokens: i64,
+    /// 思考 token（已含在 completion 里，单独存一份用于分析）。
+    #[serde(default, alias = "thinkingTokens")]
+    pub thinking_tokens: i64,
+    /// 上下文缓存命中（已含在 prompt 里）。
+    #[serde(default, alias = "cachedTokens")]
+    pub cached_tokens: i64,
+    /// 客户端自报的总 token；缺省时用 prompt + completion。
+    #[serde(default, alias = "totalTokens")]
+    pub total_tokens: Option<i64>,
     #[serde(default)]
     pub day: Option<String>,
+}
+
+impl UsageReport {
+    /// 计费口径对齐官网：按总 token 算，不区分输入输出。
+    fn billable_total(&self) -> i64 {
+        self.total_tokens
+            .filter(|t| *t > 0)
+            .unwrap_or_else(|| self.prompt_tokens.max(0) + self.completion_tokens.max(0))
+    }
 }
 
 pub async fn token_usage(
@@ -121,6 +146,8 @@ pub async fn token_usage(
         &day,
         body.prompt_tokens,
         body.completion_tokens,
+        body.thinking_tokens,
+        body.cached_tokens,
     )
     .await?;
 
@@ -129,10 +156,22 @@ pub async fn token_usage(
         &state.config.tenant_id,
         &user.id,
         body.model.trim(),
-        body.prompt_tokens,
-        body.completion_tokens,
+        billing::UsageTokens {
+            total: body.billable_total(),
+            prompt: body.prompt_tokens,
+            completion: body.completion_tokens,
+        },
     )
-    .await?;
+    .await
+    .map_err(|e| {
+        // 缺单价是配置问题，不是服务端故障：用 400 明确告诉调用方去补价。
+        let msg = e.to_string();
+        if msg.contains("model_price_missing") {
+            ApiError::BadRequest(msg)
+        } else {
+            ApiError::internal(e)
+        }
+    })?;
 
     let q = usage::quota_state(
         &state.store,
@@ -400,6 +439,24 @@ mod tests {
         assert_eq!(user.id, uid);
     }
 
+    /// 客户端 `PartnerLlmCredentialResponse` 必须能解出来：`ok` 缺失会直接解码失败。
+    #[tokio::test]
+    async fn llm_credentials_response_has_ok_flag() {
+        let (state, uid) = state_with_user().await;
+        let access = sessions::create(&state.store, &uid, sessions::KIND_ACCESS, 3600)
+            .await
+            .expect("access");
+        let body = llm_credentials(State(state.clone()), bearer(&access))
+            .await
+            .expect("credentials");
+        assert_eq!(body.0["ok"], true, "客户端要求 ok 字段");
+        // 目录字段还在，没有被信封吞掉
+        assert!(
+            body.0.get("modelCatalog").is_some(),
+            "modelCatalog 字段应保留"
+        );
+    }
+
     #[tokio::test]
     async fn skills_listing_requires_publish_and_visibility() {
         use crate::grants::Principal;
@@ -485,6 +542,8 @@ mod tests {
             &today_string(now_ts()),
             100,
             0,
+            0,
+            0,
         )
         .await
         .expect("usage");
@@ -521,6 +580,8 @@ mod tests {
             &today_string(now_ts()),
             100,
             0,
+            0,
+            0,
         )
         .await
         .expect("usage");
@@ -546,6 +607,15 @@ mod tests {
     #[tokio::test]
     async fn usage_report_accumulates_tokens() {
         let (state, uid) = state_with_user().await;
+        // 没配单价的模型会被拒绝计费，先按价目表配一个。
+        crate::billing::set_price(
+            &state.store,
+            DEFAULT_TENANT,
+            "qwen",
+            crate::billing::Ratio::from_ratio(1.0),
+        )
+        .await
+        .expect("price");
         let access = sessions::create(&state.store, &uid, sessions::KIND_ACCESS, 3600)
             .await
             .expect("access");
@@ -557,6 +627,9 @@ mod tests {
                 model: "qwen".into(),
                 prompt_tokens: 10,
                 completion_tokens: 5,
+                thinking_tokens: 0,
+                cached_tokens: 0,
+                total_tokens: None,
                 day: Some("2026-11-07".into()),
             }),
         )
@@ -574,5 +647,25 @@ mod tests {
         .expect("list");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].total(), 15);
+    }
+
+    /// 客户端上报的字段是 `model_name`，不是 `model`。
+    ///
+    /// 这两个名字一旦对不上，`usage_daily.model` 会静默存成空串，
+    /// 管理端「按模型」就只能显示「（未标注）」—— 曾经真实发生过。
+    #[test]
+    fn usage_report_accepts_client_model_name_field() {
+        let parsed: UsageReport = serde_json::from_str(
+            r#"{"model_name":"deepseek-flash","prompt_tokens":12,"completion_tokens":3}"#,
+        )
+        .expect("client payload must deserialize");
+        assert_eq!(parsed.model, "deepseek-flash");
+        assert_eq!(parsed.prompt_tokens, 12);
+        assert_eq!(parsed.completion_tokens, 3);
+
+        // 旧字段名仍然接受，避免老客户端上报丢模型。
+        let legacy: UsageReport =
+            serde_json::from_str(r#"{"model":"qwen3.8-flash"}"#).expect("legacy payload");
+        assert_eq!(legacy.model, "qwen3.8-flash");
     }
 }

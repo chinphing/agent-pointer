@@ -32,6 +32,11 @@ logs/
 # local test/debug scratch (scripts, logs, phoenix.db, venv)
 react-check/
 
+# 本地控制面 dev 库：里面存着加密后的服务商密钥，绝不入库
+admin/*.db
+admin/*.db-shm
+admin/*.db-wal
+
 # vite / vitest writes a compiled config next to vite.config.ts
 vite.config.ts.timestamp-*.mjs
 

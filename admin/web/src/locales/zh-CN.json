@@ -126,7 +126,11 @@
     "editPerm": "编辑权限",
     "toggleRow": "整行切换",
     "permissionHint": "勾选即授予；同一模块可整列切换",
-    "moduleCol": "模块"
+    "moduleCol": "模块",
+    "viewPerm": "查看权限",
+    "viewTitle": "权限明细：{name}",
+    "cloneAsCustom": "复制为自定义角色",
+    "builtinReadonlyHint": "内置角色的权限由程序固定，随版本更新——这里只能查看。要调整请「复制为自定义角色」再改。"
   },
   "permModule": {
     "user": "成员",
@@ -279,12 +283,16 @@
     "pipeCount": "定位链 {n} / 12 格",
     "empty": "还没有档位映射。",
     "createDefault": "创建默认档位映射",
-    "hint": "每格选该场景该档位用的模型；留空就是「继承默认」，客户端用自己的内置模型。选了模型后可再调思考强度（关 / 低 / 中 / 高 / 最高），不选就跟随模型默认。管理员配的只是默认值，员工自己改过的那一档不会被覆盖。"
+    "hint": "每格选该场景该档位用的模型；留空就是「继承默认」，客户端用自己的内置模型。选了模型后可再调思考强度（关 / 低 / 中 / 高 / 最高），不选就跟随模型默认。管理员配的只是默认值，员工自己改过的那一档不会被覆盖。",
+    "fallback": "兜底",
+    "fallbackHint": "该 agent 没配任何档位时用哪条模型（agentDefaultModels）",
+    "scene_explore": "探索"
   },
   "usage": {
     "title": "用量",
     "subtitle": "数据来自客户端/服务端上报的 token 用量。",
     "byMember": "按成员",
+    "member": "成员",
     "byModel": "按模型",
     "byDate": "按日期",
     "query": "查询",
@@ -310,7 +318,12 @@
     "blocked": "已拦截",
     "unlabeled": "（未标注）",
     "limitOf": "/ 上限 {n}",
-    "usedThisMonth": "本月已用"
+    "usedThisMonth": "本月已用",
+    "thinking": "思考",
+    "cached": "缓存",
+    "thinkingTokens": "思考 tokens",
+    "cachedTokens": "缓存 tokens",
+    "breakdownHint": "总计 = 输入 + 输出。思考 token 已含在输出里、缓存 token 已含在输入里，只作细分展示，不重复计入。"
   },
   "overview": {
     "title": "概览",
@@ -522,20 +535,30 @@
   },
   "billing": {
     "title": "计费",
-    "hint": "按模型单价从员工额度里扣费；余额用尽客户端会禁止发送。",
+    "hint": "按官网口径计费：每个模型一个费率，乘上全局基准价得到单价。",
     "addTitle": "新增/覆盖单价",
     "listTitle": "模型单价",
     "model": "模型",
     "modelPlaceholder": "例如 qwen3.7-flash",
-    "prompt": "输入价",
-    "completion": "输出价",
     "save": "保存",
-    "unitHint": "单位：元 / 百万 token。",
     "modelRequired": "请填写模型名",
-    "promptInput": "{model} 的输入价（元/百万 token）",
-    "completionInput": "{model} 的输出价（元/百万 token）",
     "saved": "已保存 {model} 的单价",
-    "empty": "还没有配置单价，全部走兜底价",
-    "fallbackHint": "没配单价的模型按模型名分档用兜底价，不会白用；上线前建议按合同价填全。"
+    "status": "状态",
+    "configured": "已配置",
+    "clear": "清除",
+    "cleared": "已清除 {model} 的单价，改回兜底价",
+    "emptyCatalog": "平台目录里还没有模型，先在「资源」里加服务商与模型",
+    "unpriced": "未配费率·不可用",
+    "pricingRule": "计费公式：ceil(总 token × 基准价 × 费率 ÷ 2²⁰)，输入输出不分价。",
+    "unpricedPlaceholder": "未配价",
+    "baseTitle": "基准价",
+    "baseHint": "基准模型（费率 1.0）每 1 MB（2²⁰ = 1 048 576 token）的价格。改它等于整体调价。",
+    "baseUnit": "元 / MB",
+    "baseInvalid": "基准价必须是非负数字",
+    "baseSaved": "基准价已更新",
+    "ratio": "费率",
+    "ratioHint": "费率是相对基准模型的倍数（基准模型 = 1.0）。未配费率的模型不会下发给客户端。",
+    "ratioRequired": "请填费率",
+    "ratioInvalid": "费率必须是非负数字"
   }
 }

@@ -24,66 +24,98 @@ pub const DEFAULT_GRANT_MICRO: i64 = 10 * MICRO_PER_YUAN;
 pub const KIND_GRANT: &str = "grant";
 pub const KIND_CHARGE: &str = "charge";
 
-/// 未配置单价时用这份兜底价（元 / 百万 token），管理端可覆盖。
-///
-/// 只是防止「没配价就白用」，不是权威价目表；上线前应由管理员按合同价填。
-pub fn default_price(model: &str) -> (i64, i64) {
-    let m = model.to_ascii_lowercase();
-    let yuan_per_million: (f64, f64) = if m.contains("asr") || m.contains("fun-") {
-        (0.8, 0.8)
-    } else if m.contains("max") {
-        (4.0, 16.0)
-    } else if m.contains("pro") {
-        (2.0, 8.0)
-    } else if m.contains("plus") {
-        (1.0, 4.0)
-    } else if m.contains("flash") || m.contains("mini") || m.contains("turbo") {
-        (0.5, 2.0)
-    } else {
-        (1.0, 4.0)
-    };
-    (
-        (yuan_per_million.0 * MICRO_PER_YUAN as f64) as i64,
-        (yuan_per_million.1 * MICRO_PER_YUAN as f64) as i64,
-    )
-}
-
+/// 模型费率：以基准模型 1.0 为参照的倍数，整数存（ratio × 1e6）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Price {
-    pub prompt_micro_per_million: i64,
-    pub completion_micro_per_million: i64,
+pub struct Ratio {
+    pub ratio_micro: i64,
 }
 
-impl Price {
-    /// 一次调用的费用（微元）。整数运算，向下取整到微元。
-    pub fn cost_micro(&self, prompt_tokens: i64, completion_tokens: i64) -> i64 {
-        let p = prompt_tokens.max(0) as i128 * self.prompt_micro_per_million.max(0) as i128;
-        let c = completion_tokens.max(0) as i128 * self.completion_micro_per_million.max(0) as i128;
-        ((p + c) / 1_000_000) as i64
+impl Ratio {
+    pub fn from_ratio(ratio: f64) -> Self {
+        Self {
+            ratio_micro: (ratio.max(0.0) * 1_000_000.0).round() as i64,
+        }
+    }
+
+    pub fn as_f64(&self) -> f64 {
+        self.ratio_micro as f64 / 1_000_000.0
+    }
+
+    /// 一次调用的费用（微元）。
+    ///
+    /// 对齐官网：`ceil(raw × 基准价 × ratio ÷ 2²⁰)`，输入输出不分价。
+    /// `base_micro_per_mb` 是基准价（微元 / MB，默认 1 元 = 1_000_000）。
+    pub fn cost_micro(&self, total_tokens: i64, base_micro_per_mb: i64) -> i64 {
+        let t = total_tokens.max(0) as i128;
+        let r = self.ratio_micro.max(0) as i128;
+        let b = base_micro_per_mb.max(0) as i128;
+        let num = t * r * b;
+        let den = 1_000_000i128 * 1_048_576i128; // ratio 缩放 × 2²⁰
+        ((num + den - 1) / den) as i64
     }
 }
 
-/// 取某模型的单价：先查表，没有就用兜底价。
-pub async fn price_for(store: &AdminStore, tenant_id: &str, model: &str) -> Result<Price> {
+/// 基准价默认值：1 元 / MB（官网 `DEFAULT_LLM_BASE_YUAN_PER_MB`）。
+pub const DEFAULT_BASE_MICRO_PER_MB: i64 = MICRO_PER_YUAN;
+
+const META_BASE_PRICE: &str = "llm_base_micro_per_mb";
+
+/// 读全局基准价（微元 / MB）。
+pub async fn base_price_micro_per_mb(store: &AdminStore) -> Result<i64> {
+    let row = store
+        .fetch_optional(&format!(
+            "SELECT meta_value FROM meta WHERE meta_key = '{META_BASE_PRICE}'"
+        ))
+        .await?;
+    let Some(row) = row else {
+        return Ok(DEFAULT_BASE_MICRO_PER_MB);
+    };
+    let raw: String = row.try_get(0)?;
+    Ok(raw
+        .trim()
+        .parse::<i64>()
+        .unwrap_or(DEFAULT_BASE_MICRO_PER_MB))
+}
+
+/// 写全局基准价。
+pub async fn set_base_price_micro_per_mb(store: &AdminStore, value: i64) -> Result<()> {
+    if value < 0 {
+        return Err(anyhow!("基准价必须是非负数"));
+    }
+    let sql = store.sql(&format!(
+        "UPDATE meta SET meta_value = ? WHERE meta_key = '{META_BASE_PRICE}'"
+    ));
+    let updated = sqlx::query::<Any>(&sql)
+        .bind(value.to_string())
+        .execute(store.pool())
+        .await?
+        .rows_affected();
+    if updated == 0 {
+        let sql = store.sql("INSERT INTO meta (meta_key, meta_value) VALUES (?, ?)");
+        sqlx::query::<Any>(&sql)
+            .bind(META_BASE_PRICE)
+            .bind(value.to_string())
+            .execute(store.pool())
+            .await?;
+    }
+    Ok(())
+}
+
+/// 取某模型的单价：**只认显式配置**。没配价就是没配价，不猜、不兜底。
+pub async fn price_for(store: &AdminStore, tenant_id: &str, model: &str) -> Result<Option<Ratio>> {
     let sql = store.sql(
-        "SELECT prompt_micro_per_million, completion_micro_per_million
-           FROM model_prices WHERE tenant_id = ? AND model = ?",
+        "SELECT ratio_micro FROM model_prices WHERE tenant_id = ? AND model = ?",
     );
     let row = sqlx::query::<Any>(&sql)
         .bind(tenant_id)
         .bind(model)
         .fetch_optional(store.pool())
         .await?;
-    if let Some(row) = row {
-        return Ok(Price {
-            prompt_micro_per_million: row.try_get(0)?,
-            completion_micro_per_million: row.try_get(1)?,
-        });
-    }
-    let (p, c) = default_price(model);
-    Ok(Price {
-        prompt_micro_per_million: p,
-        completion_micro_per_million: c,
+    Ok(match row {
+        Some(row) => Some(Ratio {
+            ratio_micro: row.try_get(0)?,
+        }),
+        None => None,
     })
 }
 
@@ -92,7 +124,7 @@ pub async fn set_price(
     store: &AdminStore,
     tenant_id: &str,
     model: &str,
-    price: Price,
+    ratio: Ratio,
 ) -> Result<()> {
     if model.trim().is_empty() {
         return Err(anyhow!("model must not be empty"));
@@ -106,12 +138,11 @@ pub async fn set_price(
     if found.is_some() {
         let sql = store.sql(
             "UPDATE model_prices
-                SET prompt_micro_per_million = ?, completion_micro_per_million = ?, updated_at = ?
+                SET ratio_micro = ?, updated_at = ?
               WHERE tenant_id = ? AND model = ?",
         );
         sqlx::query::<Any>(&sql)
-            .bind(price.prompt_micro_per_million)
-            .bind(price.completion_micro_per_million)
+            .bind(ratio.ratio_micro)
             .bind(now_ts())
             .bind(tenant_id)
             .bind(model)
@@ -120,14 +151,15 @@ pub async fn set_price(
     } else {
         let sql = store.sql(
             "INSERT INTO model_prices
-                (tenant_id, model, prompt_micro_per_million, completion_micro_per_million, updated_at)
-             VALUES (?, ?, ?, ?, ?)",
+                (tenant_id, model, prompt_micro_per_million, completion_micro_per_million,
+                 micro_per_million, ratio_micro, updated_at)
+             VALUES (?, ?, 0, 0, 0, ?, ?)",
         );
+        // 老的三列（两档价 + 换算价）保留但不再读；权威只有 ratio_micro。
         sqlx::query::<Any>(&sql)
             .bind(tenant_id)
             .bind(model)
-            .bind(price.prompt_micro_per_million)
-            .bind(price.completion_micro_per_million)
+            .bind(ratio.ratio_micro)
             .bind(now_ts())
             .execute(store.pool())
             .await?;
@@ -135,10 +167,9 @@ pub async fn set_price(
     Ok(())
 }
 
-pub async fn list_prices(store: &AdminStore, tenant_id: &str) -> Result<Vec<(String, Price)>> {
+pub async fn list_prices(store: &AdminStore, tenant_id: &str) -> Result<Vec<(String, Ratio)>> {
     let sql = store.sql(
-        "SELECT model, prompt_micro_per_million, completion_micro_per_million
-           FROM model_prices WHERE tenant_id = ? ORDER BY model",
+        "SELECT model, ratio_micro FROM model_prices WHERE tenant_id = ? ORDER BY model",
     );
     let rows = sqlx::query::<Any>(&sql)
         .bind(tenant_id)
@@ -148,13 +179,26 @@ pub async fn list_prices(store: &AdminStore, tenant_id: &str) -> Result<Vec<(Str
     for row in rows {
         out.push((
             row.try_get(0)?,
-            Price {
-                prompt_micro_per_million: row.try_get(1)?,
-                completion_micro_per_million: row.try_get(2)?,
+            Ratio {
+                ratio_micro: row.try_get(1)?,
             },
         ));
     }
     Ok(out)
+}
+
+/// 删除某模型的显式单价：删掉后该模型回到兜底价。
+pub async fn delete_price(store: &AdminStore, tenant_id: &str, model: &str) -> Result<bool> {
+    if model.trim().is_empty() {
+        return Err(anyhow!("model must not be empty"));
+    }
+    let sql = store.sql("DELETE FROM model_prices WHERE tenant_id = ? AND model = ?");
+    let res = sqlx::query::<Any>(&sql)
+        .bind(tenant_id)
+        .bind(model)
+        .execute(store.pool())
+        .await?;
+    Ok(res.rows_affected() > 0)
 }
 
 /// 读余额；钱包不存在时返回 `None`（调用方决定要不要开户）。
@@ -271,16 +315,28 @@ pub async fn grant(store: &AdminStore, tenant_id: &str, user_id: &str, amount_mi
 ///
 /// 余额可以为负：一次调用可能比余额大，允许透支到负数，
 /// 由 `exhausted()` 拦住下一次调用，而不是把这次的费用截断。
+/// 一次上报的 token 账：`total` 用于计费，细分只落账本给人看。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UsageTokens {
+    pub total: i64,
+    pub prompt: i64,
+    pub completion: i64,
+}
+
 pub async fn charge(
     store: &AdminStore,
     tenant_id: &str,
     user_id: &str,
     model: &str,
-    prompt_tokens: i64,
-    completion_tokens: i64,
+    tokens: UsageTokens,
 ) -> Result<(i64, i64)> {
-    let price = price_for(store, tenant_id, model).await?;
-    let cost = price.cost_micro(prompt_tokens, completion_tokens);
+    let ratio = price_for(store, tenant_id, model).await?.ok_or_else(|| {
+        anyhow!(
+            "model_price_missing: 模型 {model} 没有配置费率，已拒绝计费（先在管理端「计费」里填费率）"
+        )
+    })?;
+    let base = base_price_micro_per_mb(store).await?;
+    let cost = ratio.cost_micro(tokens.total, base);
     let current = ensure_wallet(store, tenant_id, user_id).await?;
     let next = current - cost;
     let sql = store.sql("UPDATE wallets SET balance_micro = ?, updated_at = ? WHERE user_id = ?");
@@ -298,8 +354,8 @@ pub async fn charge(
         -cost,
         next,
         model,
-        prompt_tokens,
-        completion_tokens,
+        tokens.prompt,
+        tokens.completion,
         "",
     )
     .await?;
@@ -356,21 +412,18 @@ mod tests {
             &store,
             DEFAULT_TENANT,
             "test-model",
-            Price {
-                prompt_micro_per_million: 1_000_000,     // 1 元/百万
-                completion_micro_per_million: 4_000_000, // 4 元/百万
-            },
+            Ratio::from_ratio(1.0),
         )
         .await
         .expect("price");
         ensure_wallet(&store, DEFAULT_TENANT, "u1").await.expect("wallet");
 
-        // 200 万输入 + 0 输出 = 2 元
-        let (cost, balance) = charge(&store, DEFAULT_TENANT, "u1", "test-model", 2_000_000, 0)
+        // 200 万 token × 基准价 1 元/MB × ratio 1.0 = ceil(2e6 × 2²⁰⁻¹) ≈ 1.907349 元
+        let (cost, balance) = charge(&store, DEFAULT_TENANT, "u1", "test-model", UsageTokens { total: 2_000_000, prompt: 2_000_000, completion: 0 })
             .await
             .expect("charge");
-        assert_eq!(cost, 2 * MICRO_PER_YUAN);
-        assert_eq!(yuan_string(balance), "8.00");
+        assert_eq!(cost, 1_907_349, "200 万 token × 1 元/MB × ratio 1.0");
+        assert_eq!(yuan_string(balance), "8.09");
     }
 
     /// 余额用光后 exhausted 判定生效（balance <= 0）。
@@ -381,20 +434,18 @@ mod tests {
             &store,
             DEFAULT_TENANT,
             "expensive",
-            Price {
-                prompt_micro_per_million: 100 * MICRO_PER_YUAN, // 100 元/百万
-                completion_micro_per_million: 0,
-            },
+            Ratio::from_ratio(100.0),
         )
         .await
         .expect("price");
         ensure_wallet(&store, DEFAULT_TENANT, "u1").await.expect("wallet");
-        // 100 万输入 = 100 元，比 10 元额度多
-        let (_, balance) = charge(&store, DEFAULT_TENANT, "u1", "expensive", 1_000_000, 0)
+        // 100 万 token = 100 元，比 10 元额度多
+        let (_, balance) = charge(&store, DEFAULT_TENANT, "u1", "expensive", UsageTokens { total: 1_000_000, prompt: 1_000_000, completion: 0 })
             .await
             .expect("charge");
         assert!(balance < 0, "应透支到负数，实际 {balance}");
-        assert_eq!(yuan_string(balance), "-90.00");
+        // 100 万 token × ratio 100 = 190.73 元，10 元额度撑不住
+        assert_eq!(yuan_string(balance), "-85.37");
     }
 
     /// 管理员加额能救回负余额。
@@ -417,30 +468,56 @@ mod tests {
         assert!(grant(&store, DEFAULT_TENANT, "u1", -100).await.is_err());
     }
 
-    /// 没配单价的模型走兜底价，不会白用。
+    /// 没配单价的模型必须**拒绝计费**，不再按名字猜一个兜底价。
     #[tokio::test]
-    async fn unpriced_model_uses_default_price() {
+    async fn unpriced_model_is_rejected() {
         let store = store().await;
         ensure_wallet(&store, DEFAULT_TENANT, "u1").await.expect("wallet");
-        let (cost, _) = charge(&store, DEFAULT_TENANT, "u1", "some-new-flash", 1_000_000, 0)
+        let err = charge(&store, DEFAULT_TENANT, "u1", "some-new-flash", UsageTokens { total: 1_000_000, prompt: 1_000_000, completion: 0 })
+            .await
+            .expect_err("没配价必须报错");
+        assert!(
+            err.to_string().contains("model_price_missing"),
+            "错误里要点明是缺单价：{err}"
+        );
+    }
+
+    /// 配了价就按配置扣，且钱真的从余额里走。
+    #[tokio::test]
+    async fn configured_price_is_charged() {
+        let store = store().await;
+        ensure_wallet(&store, DEFAULT_TENANT, "u1").await.expect("wallet");
+        set_price(
+            &store,
+            DEFAULT_TENANT,
+            "priced-model",
+            Ratio::from_ratio(1.0),
+        )
+        .await
+        .expect("set price");
+        let (cost, _) = charge(&store, DEFAULT_TENANT, "u1", "priced-model", UsageTokens { total: 1_000_000, prompt: 1_000_000, completion: 0 })
             .await
             .expect("charge");
-        assert!(cost > 0, "兜底价必须产生费用");
+        // ceil(1e6 × 1e6 × 1e6 ÷ (1e6 × 2²⁰)) = ceil(953674.32) = 953675 微元
+        assert_eq!(cost, 953_675, "100 万 token × 1 元/MB × ratio 1.0");
     }
 
     #[test]
-    fn cost_uses_prompt_and_completion_prices() {
-        let p = Price {
-            prompt_micro_per_million: 1_000_000,     // 1 元/百万
-            completion_micro_per_million: 4_000_000, // 4 元/百万
-        };
-        // 100 万输入 + 100 万输出 = 5 元
-        assert_eq!(p.cost_micro(1_000_000, 1_000_000), 5 * MICRO_PER_YUAN);
-        // 1000 输入 + 0 输出 = 0.001 元
-        assert_eq!(p.cost_micro(1_000, 0), 1_000);
+    fn cost_uses_single_rate_on_total_tokens() {
+        // 口径对齐官网：单费率 × 总 token，输入输出不分价。
+        let r = Ratio::from_ratio(1.0);
+        let base = DEFAULT_BASE_MICRO_PER_MB; // 1 元 / MB
+        // 200 万 token
+        assert_eq!(r.cost_micro(2_000_000, base), 1_907_349);
+        // 1000 token
+        assert_eq!(r.cost_micro(1_000, base), 954);
+        // 不足 1 微元向上取整（官网也是 ceil）
+        assert_eq!(r.cost_micro(1, base), 1);
         // 负数/0 不产生负费用
-        assert_eq!(p.cost_micro(0, 0), 0);
-        assert_eq!(p.cost_micro(-5, -5), 0);
+        assert_eq!(r.cost_micro(0, base), 0);
+        assert_eq!(r.cost_micro(-5, base), 0);
+        // 基准价翻倍 → 费用翻倍
+        assert_eq!(r.cost_micro(2_000_000, base * 2), 3_814_698);
     }
 
     #[test]
@@ -460,12 +537,16 @@ mod tests {
         assert_eq!(yuan_to_micro(0.5), 500_000);
     }
 
-    #[test]
-    fn default_price_tiers_are_ordered() {
-        let (max_p, _) = default_price("qwen3.8-max");
-        let (plus_p, _) = default_price("qwen3.7-plus");
-        let (flash_p, _) = default_price("deepseek-flash");
-        assert!(max_p > plus_p, "max 应比 plus 贵");
-        assert!(plus_p > flash_p, "plus 应比 flash 贵");
+    /// 兜底价已删除：没配价就是 `None`，绝不按模型名猜。
+    #[tokio::test]
+    async fn unknown_model_has_no_price() {
+        let store = store().await;
+        assert!(
+            price_for(&store, DEFAULT_TENANT, "qwen3.8-max")
+                .await
+                .expect("query")
+                .is_none(),
+            "没配价的模型不应返回任何价格"
+        );
     }
 }

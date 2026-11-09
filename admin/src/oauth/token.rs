@@ -401,6 +401,15 @@ mod tests {
         grants::replace_grants(&state.store, &model.id, &[Principal::All])
             .await
             .expect("grant model");
+        // 没配单价的模型不下发，夹具里给它定价。
+        crate::billing::set_price(
+            &state.store,
+            DEFAULT_TENANT,
+            "m1",
+            crate::billing::Ratio::from_ratio(1.0),
+        )
+        .await
+        .expect("price model");
         uid
     }
 

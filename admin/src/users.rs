@@ -143,6 +143,42 @@ pub async fn list(store: &AdminStore, tenant_id: &str) -> Result<Vec<User>> {
     Ok(out)
 }
 
+/// 只取「id → 展示名」，供用量报表给成员列贴名字。
+///
+/// 走 `WHERE id IN (...)`：报表只关心出现过的那几个成员，
+/// 没必要像 [`list`] 那样把整张用户表（含密码哈希）读出来。
+pub async fn display_names_by_id(
+    store: &AdminStore,
+    tenant_id: &str,
+    ids: &[String],
+) -> Result<std::collections::HashMap<String, String>> {
+    let mut out = std::collections::HashMap::new();
+    if ids.is_empty() {
+        return Ok(out);
+    }
+    let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+    let sql = store.sql(&format!(
+        "SELECT id, username, display_name FROM users
+          WHERE tenant_id = ? AND id IN ({placeholders})"
+    ));
+    let mut query = sqlx::query::<Any>(&sql).bind(tenant_id);
+    for id in ids {
+        query = query.bind(id);
+    }
+    for row in query.fetch_all(store.pool()).await? {
+        let id: String = row.try_get(0)?;
+        let username: String = row.try_get(1)?;
+        let display_name: String = row.try_get(2)?;
+        let name = if display_name.trim().is_empty() {
+            username
+        } else {
+            display_name
+        };
+        out.insert(id, name);
+    }
+    Ok(out)
+}
+
 pub async fn set_status(store: &AdminStore, user_id: &str, status: &str) -> Result<()> {
     if status != STATUS_ACTIVE && status != STATUS_DISABLED {
         return Err(anyhow!("unknown user status: {status}"));

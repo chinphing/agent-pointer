@@ -224,6 +224,12 @@ onMounted(load)
               {{ user.status === 'active' ? t('common.enabled') : t('common.disabled') }}
             </span>
           </td>
+          <td class="mono">
+            <span v-if="user.balanceYuan !== null && user.balanceYuan !== undefined">
+              ¥{{ user.balanceYuan }}
+            </span>
+            <span v-else class="muted small">{{ t('members.balanceUnopened') }}</span>
+          </td>
           <td>
             <div class="role-cell">
               <span
@@ -247,12 +253,6 @@ onMounted(load)
                 </option>
               </select>
             </div>
-          </td>
-          <td class="mono">
-            <span v-if="user.balanceYuan !== null && user.balanceYuan !== undefined">
-              ¥{{ user.balanceYuan }}
-            </span>
-            <span v-else class="muted small">{{ t('members.balanceUnopened') }}</span>
           </td>
           <td class="small muted">
             {{ user.lastLoginAt ? when(user.lastLoginAt) : t('members.neverLoggedIn') }}

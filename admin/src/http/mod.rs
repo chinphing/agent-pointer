@@ -37,6 +37,14 @@ pub fn router() -> Router<Shared> {
             "/api/admin/model-prices",
             get(billing::list_prices).post(billing::set_price),
         )
+        .route(
+            "/api/admin/model-prices/base",
+            axum::routing::put(billing::set_base_price),
+        )
+        .route(
+            "/api/admin/model-prices/:model",
+            axum::routing::delete(billing::clear_price),
+        )
         .route("/api/admin/my-wallet", get(billing::my_wallet))
         .route(
             "/api/admin/roles",

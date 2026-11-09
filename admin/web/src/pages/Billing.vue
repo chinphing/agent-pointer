@@ -1,25 +1,45 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
 import { useNotice } from '../lib/notice'
 import { can } from '../store'
+import { parseRatioInput } from '../lib/ratioInput'
+
+type RatioRow = {
+  model: string
+  configured: boolean
+  ratio: number
+}
 
 const { t } = useI18n()
-const items = ref<{ model: string; promptYuanPerMillion: number; completionYuanPerMillion: number }[]>([])
+const rows = ref<RatioRow[]>([])
+const baseYuan = ref('1')
 const loading = ref(true)
 const error = ref('')
 const { notice, flash: flashNotice, clear: clearNotice } = useNotice()
+const savingModel = ref('')
+const savingBase = ref(false)
 
-const draft = ref({ model: '', prompt: '1', completion: '4' })
-const saving = ref(false)
+/** 每行可编辑的费率，按模型名存。未配费率留空，不显示 0。 */
+const draft = reactive<Record<string, string>>({})
+
+const editable = computed(() => can('usage:write'))
+
+function syncDraft(list: RatioRow[]) {
+  for (const row of list) {
+    draft[row.model] = row.configured ? String(row.ratio) : ''
+  }
+}
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
     const res = await api.get('/api/admin/model-prices')
-    items.value = res.items || []
+    rows.value = res.items || []
+    baseYuan.value = String(res.baseYuanPerMb ?? 1)
+    syncDraft(rows.value)
   } catch (e) {
     error.value = errText(e)
   } finally {
@@ -27,46 +47,59 @@ async function load() {
   }
 }
 
-async function save(model: string, prompt: string, completion: string) {
+async function saveBase() {
+  const parsed = parseRatioInput(baseYuan.value)
+  if (!parsed.ok) {
+    error.value = t('billing.baseInvalid')
+    return
+  }
+  const yuan = parsed.value
   error.value = ''
-  saving.value = true
+  savingBase.value = true
   try {
-    await api.post('/api/admin/model-prices', {
-      model,
-      promptYuanPerMillion: Number(prompt),
-      completionYuanPerMillion: Number(completion),
-    })
-    flashNotice(t('billing.saved', { model }))
+    await api.put('/api/admin/model-prices/base', { baseYuanPerMb: yuan })
+    flashNotice(t('billing.baseSaved'))
     await load()
   } catch (e) {
     error.value = errText(e)
   } finally {
-    saving.value = false
+    savingBase.value = false
   }
 }
 
-async function addPrice() {
-  const model = draft.value.model.trim()
-  if (!model) {
-    error.value = t('billing.modelRequired')
+async function saveRow(row: RatioRow) {
+  // `v-model` 绑在 `type="number"` 上时值是 Number，不是字符串——不能直接 `.trim()`。
+  const parsed = parseRatioInput(draft[row.model])
+  if (!parsed.ok) {
+    error.value = parsed.reason === 'empty' ? t('billing.ratioRequired') : t('billing.ratioInvalid')
     return
   }
-  await save(model, draft.value.prompt, draft.value.completion)
-  draft.value = { model: '', prompt: '1', completion: '4' }
+  const ratio = parsed.value
+  error.value = ''
+  savingModel.value = row.model
+  try {
+    await api.post('/api/admin/model-prices', { model: row.model, ratio })
+    flashNotice(t('billing.saved', { model: row.model }))
+    await load()
+  } catch (e) {
+    error.value = errText(e)
+  } finally {
+    savingModel.value = ''
+  }
 }
 
-function editPrice(row: any) {
-  const p = window.prompt(
-    t('billing.promptInput', { model: row.model }),
-    String(row.promptYuanPerMillion)
-  )
-  if (p === null) return
-  const c = window.prompt(
-    t('billing.completionInput', { model: row.model }),
-    String(row.completionYuanPerMillion)
-  )
-  if (c === null) return
-  void save(row.model, p, c)
+async function clearRow(row: RatioRow) {
+  error.value = ''
+  savingModel.value = row.model
+  try {
+    await api.del(`/api/admin/model-prices/${encodeURIComponent(row.model)}`)
+    flashNotice(t('billing.cleared', { model: row.model }))
+    await load()
+  } catch (e) {
+    error.value = errText(e)
+  } finally {
+    savingModel.value = ''
+  }
 }
 
 onMounted(load)
@@ -82,46 +115,112 @@ onMounted(load)
     <div v-if="notice" class="okmsg" @click="clearNotice">{{ notice }}</div>
     <div v-if="error" class="err">{{ error }}</div>
 
-    <div v-if="can('usage:write')" class="panel">
-      <h2>{{ t('billing.addTitle') }}</h2>
-      <div class="row wrap">
-        <input v-model="draft.model" :placeholder="t('billing.modelPlaceholder')" />
-        <input v-model="draft.prompt" class="num" :placeholder="t('billing.prompt')" />
-        <input v-model="draft.completion" class="num" :placeholder="t('billing.completion')" />
-        <button :disabled="saving" @click="addPrice">{{ t('billing.save') }}</button>
+    <div class="panel">
+      <h2>{{ t('billing.baseTitle') }}</h2>
+      <p class="muted small">{{ t('billing.baseHint') }}</p>
+      <div class="row" style="margin-top: 12px">
+        <input
+          v-model="baseYuan"
+          class="num base"
+          type="number"
+          min="0"
+          step="0.01"
+          :disabled="!editable"
+          aria-label="基准价"
+        />
+        <span class="muted small">{{ t('billing.baseUnit') }}</span>
+        <button v-if="editable" class="tiny" :disabled="savingBase" @click="saveBase">
+          {{ t('billing.save') }}
+        </button>
       </div>
-      <p class="muted small">{{ t('billing.unitHint') }}</p>
     </div>
 
     <div class="panel">
       <h2>{{ t('billing.listTitle') }}</h2>
+      <p class="muted small">{{ t('billing.ratioHint') }}</p>
+
       <p v-if="loading" class="muted">{{ t('common.loading') }}</p>
       <table v-else style="margin-top: 10px">
         <thead>
           <tr>
             <th>{{ t('billing.model') }}</th>
-            <th class="num">{{ t('billing.prompt') }}</th>
-            <th class="num">{{ t('billing.completion') }}</th>
+            <th class="num">{{ t('billing.ratio') }}</th>
+            <th>{{ t('billing.status') }}</th>
             <th class="actions"></th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in items" :key="row.model">
+          <tr v-for="row in rows" :key="row.model">
             <td class="mono">{{ row.model }}</td>
-            <td class="num mono">{{ row.promptYuanPerMillion }}</td>
-            <td class="num mono">{{ row.completionYuanPerMillion }}</td>
+            <td class="num">
+              <input
+                v-if="editable"
+                v-model="draft[row.model]"
+                class="num ratio"
+                type="number"
+                min="0"
+                step="0.0001"
+                :placeholder="t('billing.unpricedPlaceholder')"
+                :aria-label="`${row.model} ${t('billing.ratio')}`"
+              />
+              <span v-else class="mono">{{ row.ratio }}</span>
+            </td>
+            <td>
+              <span v-if="row.configured" class="tag on">{{ t('billing.configured') }}</span>
+              <span v-else class="tag off">{{ t('billing.unpriced') }}</span>
+            </td>
             <td class="actions">
-              <button v-if="can('usage:write')" class="tiny" @click="editPrice(row)">
-                {{ t('common.edit') }}
-              </button>
+              <template v-if="editable">
+                <button class="tiny" :disabled="savingModel === row.model" @click="saveRow(row)">
+                  {{ t('billing.save') }}
+                </button>
+                <button
+                  v-if="row.configured"
+                  class="tiny"
+                  :disabled="savingModel === row.model"
+                  @click="clearRow(row)"
+                >
+                  {{ t('billing.clear') }}
+                </button>
+              </template>
             </td>
           </tr>
-          <tr v-if="!items.length">
-            <td colspan="4" class="muted small">{{ t('billing.empty') }}</td>
+          <tr v-if="!rows.length">
+            <td colspan="4" class="muted small">{{ t('billing.emptyCatalog') }}</td>
           </tr>
         </tbody>
       </table>
-      <p class="muted small">{{ t('billing.fallbackHint') }}</p>
+
+      <p class="muted small">{{ t('billing.pricingRule') }}</p>
     </div>
   </div>
 </template>
+
+<style scoped>
+input.ratio {
+  width: 110px;
+  text-align: right;
+}
+input.base {
+  width: 120px;
+  text-align: right;
+}
+.tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.55);
+}
+.tag.on {
+  border-color: rgba(22, 163, 74, 0.35);
+  background: rgba(22, 163, 74, 0.08);
+  color: #15803d;
+}
+.tag.off {
+  border-color: rgba(185, 28, 28, 0.3);
+  background: rgba(185, 28, 28, 0.06);
+  color: #b91c1c;
+}
+</style>

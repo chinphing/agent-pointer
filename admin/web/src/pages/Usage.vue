@@ -101,10 +101,19 @@ onMounted(load)
           <div class="big">{{ fmt(data.totals.completionTokens) }}</div>
         </div>
         <div>
+          <div class="muted small">{{ t('usage.thinkingTokens') }}</div>
+          <div class="big">{{ fmt(data.totals.thinkingTokens) }}</div>
+        </div>
+        <div>
+          <div class="muted small">{{ t('usage.cachedTokens') }}</div>
+          <div class="big">{{ fmt(data.totals.cachedTokens) }}</div>
+        </div>
+        <div>
           <div class="muted small">{{ t('usage.total') }}</div>
           <div class="big">{{ fmt(data.totals.total) }}</div>
         </div>
       </div>
+      <p class="muted small" style="margin-top: 10px">{{ t('usage.breakdownHint') }}</p>
     </div>
 
     <div class="panel">
@@ -112,13 +121,15 @@ onMounted(load)
       <div v-if="!data.byUser.length" class="empty">{{ t('usage.noData') }}</div>
       <table v-else style="margin-top: 10px">
         <thead>
-          <tr><th>{{ t('usage.memberId') }}</th><th class="num">{{ t('usage.input') }}</th><th class="num">{{ t('usage.output') }}</th><th class="num">{{ t('usage.total') }}</th></tr>
+          <tr><th>{{ t('usage.member') }}</th><th class="num">{{ t('usage.input') }}</th><th class="num">{{ t('usage.output') }}</th><th class="num">{{ t('usage.thinking') }}</th><th class="num">{{ t('usage.cached') }}</th><th class="num">{{ t('usage.total') }}</th></tr>
         </thead>
         <tbody>
           <tr v-for="row in data.byUser" :key="row.key">
-            <td class="mono">{{ row.key }}</td>
+            <td>{{ row.label || row.key }}</td>
             <td class="num">{{ fmt(row.promptTokens) }}</td>
             <td class="num">{{ fmt(row.completionTokens) }}</td>
+            <td class="num muted">{{ fmt(row.thinkingTokens) }}</td>
+            <td class="num muted">{{ fmt(row.cachedTokens) }}</td>
             <td class="num">{{ fmt(row.total) }}</td>
           </tr>
         </tbody>
@@ -130,13 +141,15 @@ onMounted(load)
       <div v-if="!data.byModel.length" class="empty">{{ t('usage.noData') }}</div>
       <table v-else style="margin-top: 10px">
         <thead>
-          <tr><th>{{ t('usage.model') }}</th><th class="num">{{ t('usage.input') }}</th><th class="num">{{ t('usage.output') }}</th><th class="num">{{ t('usage.total') }}</th></tr>
+          <tr><th>{{ t('usage.model') }}</th><th class="num">{{ t('usage.input') }}</th><th class="num">{{ t('usage.output') }}</th><th class="num">{{ t('usage.thinking') }}</th><th class="num">{{ t('usage.cached') }}</th><th class="num">{{ t('usage.total') }}</th></tr>
         </thead>
         <tbody>
           <tr v-for="row in data.byModel" :key="row.key">
             <td class="mono">{{ row.key || t('usage.unlabeled') }}</td>
             <td class="num">{{ fmt(row.promptTokens) }}</td>
             <td class="num">{{ fmt(row.completionTokens) }}</td>
+            <td class="num muted">{{ fmt(row.thinkingTokens) }}</td>
+            <td class="num muted">{{ fmt(row.cachedTokens) }}</td>
             <td class="num">{{ fmt(row.total) }}</td>
           </tr>
         </tbody>
@@ -148,13 +161,15 @@ onMounted(load)
       <div v-if="!data.byDay.length" class="empty">{{ t('usage.noData') }}</div>
       <table v-else style="margin-top: 10px">
         <thead>
-          <tr><th>{{ t('usage.date') }}</th><th class="num">{{ t('usage.input') }}</th><th class="num">{{ t('usage.output') }}</th><th class="num">{{ t('usage.total') }}</th></tr>
+          <tr><th>{{ t('usage.date') }}</th><th class="num">{{ t('usage.input') }}</th><th class="num">{{ t('usage.output') }}</th><th class="num">{{ t('usage.thinking') }}</th><th class="num">{{ t('usage.cached') }}</th><th class="num">{{ t('usage.total') }}</th></tr>
         </thead>
         <tbody>
           <tr v-for="row in data.byDay" :key="row.key">
             <td class="mono">{{ row.key }}</td>
             <td class="num">{{ fmt(row.promptTokens) }}</td>
             <td class="num">{{ fmt(row.completionTokens) }}</td>
+            <td class="num muted">{{ fmt(row.thinkingTokens) }}</td>
+            <td class="num muted">{{ fmt(row.cachedTokens) }}</td>
             <td class="num">{{ fmt(row.total) }}</td>
           </tr>
         </tbody>

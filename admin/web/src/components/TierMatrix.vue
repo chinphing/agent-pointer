@@ -32,6 +32,7 @@ const GROUPS = [
       { key: 'general', labelKey: 'tier.scene_general', group: 'agentModeLlm' },
       { key: 'coder', labelKey: 'tier.scene_coder', group: 'agentModeLlm' },
       { key: 'computer', labelKey: 'tier.scene_computer', group: 'agentModeLlm' },
+      { key: 'explore', labelKey: 'tier.scene_explore', group: 'agentModeLlm' },
       { key: 'web_search', labelKey: 'tier.scene_web_search', group: 'webSearchLlm' },
     ],
   },
@@ -110,17 +111,28 @@ const modelOptions = computed(() =>
     }))
 )
 
-/** 单模型（无档位）的两类分组：媒体理解按类型嵌套，联网搜索只有一份。 */
+/**
+ * 单模型（无档位）的分组：
+ * - `mediaUnderstanding.<类型>`：媒体理解
+ * - `agentDefaultModels.<agent>`：各 agent 的默认模型（形状与媒体同款）
+ * - `webSearchLlm`：联网搜索只有一份，直接挂顶层
+ */
 const FLAT_GROUP = 'mediaUnderstanding'
+const FLAT_GROUPS = new Set([FLAT_GROUP, 'agentDefaultModels'])
 const FLAT_TOP = 'webSearchLlm'
 
 function isFlat(group: string) {
-  return group === FLAT_GROUP || group === FLAT_TOP
+  return FLAT_GROUPS.has(group) || group === FLAT_TOP
+}
+
+/** 形状是 `payload[group][scene] = {providerId, model}`（非顶层那份）。 */
+function isNestedFlat(group: string) {
+  return FLAT_GROUPS.has(group)
 }
 
 function cell(scene: string, group: string, tier: string): any {
   if (group === FLAT_TOP) return payload.value?.[FLAT_TOP] || {}
-  if (group === FLAT_GROUP) return payload.value?.[group]?.[scene] || {}
+  if (isNestedFlat(group)) return payload.value?.[group]?.[scene] || {}
   return payload.value?.[group]?.[scene]?.[tier] || {}
 }
 
@@ -148,7 +160,7 @@ function setModel(scene: string, group: string, tier: string, slug: string) {
     return
   }
   if (!payload.value[group]) payload.value[group] = {}
-  if (group === FLAT_GROUP) {
+  if (isNestedFlat(group)) {
     if (!slug) {
       delete payload.value[group][scene]
     } else {
@@ -180,11 +192,30 @@ function setModel(scene: string, group: string, tier: string, slug: string) {
   if (!Object.keys(payload.value[group]).length) delete payload.value[group]
 }
 
+/** 该 agent 的兜底模型（`agentDefaultModels.<agent>`）。 */
+function agentDefaultOf(agent: string): string {
+  return payload.value?.agentDefaultModels?.[agent]?.model || ''
+}
+
+function setAgentDefault(agent: string, slug: string) {
+  if (!payload.value.agentDefaultModels) payload.value.agentDefaultModels = {}
+  if (!slug) {
+    delete payload.value.agentDefaultModels[agent]
+    if (!Object.keys(payload.value.agentDefaultModels).length) delete payload.value.agentDefaultModels
+    return
+  }
+  const found = modelOptions.value.find((m) => m.slug === slug)
+  payload.value.agentDefaultModels[agent] = {
+    providerId: found?.providerId || '',
+    model: slug,
+  }
+}
+
 function setIntensity(scene: string, group: string, tier: string, value: string) {
   const cur =
     group === FLAT_TOP
       ? payload.value?.[FLAT_TOP]
-      : group === FLAT_GROUP
+      : isNestedFlat(group)
         ? payload.value?.[group]?.[scene]
         : payload.value?.[group]?.[scene]?.[tier]
   if (!cur) return
@@ -339,6 +370,7 @@ async function createDefault() {
         <div class="head-row">
           <div class="scene-col">{{ t('tier.scene') }}</div>
           <div v-for="tier in TIERS" :key="tier.key" class="tier-head">{{ t(tier.labelKey) }}</div>
+          <div class="tier-head" :title="t('tier.fallbackHint')">{{ t('tier.fallback') }}</div>
         </div>
 
         <template v-for="g in GROUPS" :key="g.labelKey">
@@ -412,6 +444,31 @@ async function createDefault() {
                 class="clear"
                 :title="t('tier.clearCell')"
                 @click="clearCell(s.key, s.group, tier.key)"
+              >×</button>
+            </div>
+            <!-- 兜底：该 agent 没配档位时用哪条（`agentDefaultModels.<agent>`）。
+                 和上面三档是同一条记录的两层，不另起一行。 -->
+            <div
+              v-if="s.group === 'agentModeLlm'"
+              class="cell fallback"
+              :class="{ filled: !!agentDefaultOf(s.key) }"
+            >
+              <select
+                class="ghost"
+                :class="{ filled: !!agentDefaultOf(s.key) }"
+                :value="agentDefaultOf(s.key)"
+                :disabled="!canWrite"
+                :title="t('tier.fallbackHint')"
+                @change="setAgentDefault(s.key, ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="">{{ t('tier.inherit') }}</option>
+                <option v-for="m in modelOptions" :key="m.slug" :value="m.slug">{{ m.label }}</option>
+              </select>
+              <button
+                v-if="agentDefaultOf(s.key) && canWrite"
+                class="clear"
+                :title="t('tier.clearCell')"
+                @click="setAgentDefault(s.key, '')"
               >×</button>
             </div>
           </div>
@@ -502,7 +559,7 @@ async function createDefault() {
 .head-row,
 .scene-row {
   display: grid;
-  grid-template-columns: 160px repeat(3, minmax(0, 1fr));
+  grid-template-columns: 160px repeat(3, minmax(0, 1fr)) 150px;
   align-items: center;
   gap: 10px;
   padding: 0 18px;
@@ -536,7 +593,7 @@ async function createDefault() {
 .scene-col { font-size: 13.5px; }
 
 .cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.cell.flat { grid-column: span 3; }
+.cell.flat { grid-column: span 4; }
 
 /* 幽灵下拉：平时看起来像一行文字，hover/聚焦才显出输入框 */
 .ghost {

@@ -86,8 +86,7 @@ impl UseScreenTool {
         };
 
         let next = if target.is_some() {
-            "The next `[CUR_SCREEN]` frame captures that display — do not take your own \
-             screenshots with `terminal`."
+            "The next `[CUR_SCREEN]` frame captures that display."
         } else {
             "Call `launch_app` for the target app and use the display id from its reply."
         };

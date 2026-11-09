@@ -182,19 +182,14 @@ pub fn resolve_monitor_for_tool(tool_id: &str, args: &Value) -> Option<String> {
     }
 }
 
-/// 一句话说明某块屏的位置与尺寸，用于工具返回（模型据此判断要不要换屏）。
+/// 一句话说明某块屏的大小，用于工具返回（模型据此判断要不要换屏）。
+///
+/// **不带绝对坐标**：`bbox` 换算用的是图片像素，混进全局坐标只会让模型
+/// 拿错参考系。
 pub fn describe_monitor(monitor_id: &str) -> Option<String> {
     let monitors = crate::agents::computer::vision::screen::list_monitors().ok()?;
     let m = monitors.iter().find(|m| m.id == monitor_id)?;
-    Some(format!(
-        "display {} at ({}, {}) {}x{}{}",
-        m.id,
-        m.left,
-        m.top,
-        m.width,
-        m.height,
-        if m.is_primary { " primary" } else { "" }
-    ))
+    Some(format!("display {} ({}×{})", m.id, m.width, m.height))
 }
 
 pub fn monitor_id_for_launched_app(args: &Value) -> Option<String> {

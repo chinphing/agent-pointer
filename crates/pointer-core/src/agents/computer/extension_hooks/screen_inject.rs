@@ -108,23 +108,19 @@ fn display_summary(current_id: &str, monitors: &[crate::models::ComputerMonitor]
     let others: Vec<String> = monitors
         .iter()
         .filter(|m| m.id != current_id)
-        .map(|m| {
-            format!(
-                "{} at ({}, {}) {}x{}{}",
-                m.id,
-                m.left,
-                m.top,
-                m.width,
-                m.height,
-                if m.is_primary { " primary" } else { "" }
-            )
-        })
+        .map(|m| format!("{} ({}×{})", m.id, m.width, m.height))
         .collect();
+    let current_size = monitors
+        .iter()
+        .find(|m| m.id == current_id)
+        .map(|m| format!(" ({}×{})", m.width, m.height))
+        .unwrap_or_default();
     if others.is_empty() {
-        format!("This frame is display {current_id} (the only display). ")
+        format!("This frame is display {current_id}{current_size} (the only display). ")
     } else {
         format!(
-            "This frame is display {current_id} — one of {} displays. Other displays: {}. \
+            "This frame is display {current_id}{current_size} — one of {} displays. \
+             Other displays: {}. \
              If the app you need is not in this image, it is on another display: call \
              `use_screen` with that id instead of taking your own screenshot. ",
             monitors.len(),
@@ -419,6 +415,7 @@ mod tests {
     }
 
     /// 双屏时必须说清「这是第几块、另一块是什么」，否则模型以为画面就是全部。
+    /// **只报编号与尺寸**：绝对坐标会让模型把 `bbox` 换算的参考系搞混。
     #[test]
     fn display_summary_names_the_other_displays() {
         let monitors = vec![
@@ -429,6 +426,10 @@ mod tests {
         assert!(text.contains("one of 2 displays"), "got: {text}");
         assert!(text.contains("xcap:-890,-1440"), "另一块屏的编号必须出现: {text}");
         assert!(text.contains("use_screen"), "要告诉模型下一步怎么做: {text}");
+        assert!(
+            !text.contains("-1440)"),
+            "不能出现绝对坐标，会污染 bbox 参考系: {text}"
+        );
     }
 
     /// 编号直接来自截取时的显示器，不靠坐标反查 —— 坐标对不上也照常报。

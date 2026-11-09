@@ -49,11 +49,11 @@ impl UseScreenTool {
 
         let mut body = String::from("Displays:\n");
         for m in &monitors {
+            // 只报编号与尺寸，**不报绝对坐标**：`bbox` 换算用图片像素，
+            // 混进全局坐标会让模型拿错参考系。
             body.push_str(&format!(
-                "- id={id} bounds=({left},{top}) {w}x{h}{primary}{chosen}\n",
+                "- id={id} {w}×{h}{primary}{chosen}\n",
                 id = m.id,
-                left = m.left,
-                top = m.top,
                 w = m.width,
                 h = m.height,
                 primary = if m.is_primary { " primary" } else { "" },

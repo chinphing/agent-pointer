@@ -54,7 +54,12 @@ impl UseScreenTool {
                  Take the id from a `launch_app` reply. No capture change was made."
             ));
         }
-        let target = target.or_else(|| monitors.iter().find(|m| m.is_primary));
+        // 没传 `display`：只列出显示器，**不改采集**。
+        // （原来这里会 or_else 到主屏，等于"省略即切主屏"，与文档说的「保持当前」相反。）
+        let target = match &wanted {
+            Some(_) => target,
+            None => None,
+        };
 
         let mut body = String::from("Displays:\n");
         for m in &monitors {
@@ -74,9 +79,10 @@ impl UseScreenTool {
             ));
         }
 
-        let where_ = match target {
-            Some(t) => format!("Capture will move to display {}.", t.id),
-            None => "No display matched; capture stays where it is.".to_string(),
+        let where_ = match (target, &wanted) {
+            (Some(t), _) => format!("Capture will move to display {}.", t.id),
+            (None, None) => "No `display` was given — capture stays where it is.".to_string(),
+            (None, Some(_)) => "No display matched; capture stays where it is.".to_string(),
         };
 
         let next = if target.is_some() {

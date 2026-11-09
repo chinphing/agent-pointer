@@ -154,11 +154,18 @@ pub async fn token_usage(
 pub async fn me(State(state): State<Shared>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     let user = bearer_user(&state, &headers).await?;
     let quota = quota_json(&state, &user.id).await?;
+    // 客户端 `PlatformMe` 把 `nickname` 当必填键解析，缺了整条响应会失败、
+    // 余额条就退回「--」。所以这里必须给全 balance_yuan + nickname。
+    let balance = billing::ensure_wallet(&state.store, &state.config.tenant_id, &user.id).await?;
+    let nickname = user.display_name.clone();
     Ok(Json(json!({
         "id": user.id,
         "username": user.username,
         "displayName": user.display_name,
+        "nickname": nickname,
         "quota": quota,
+        "balance_yuan": billing::yuan_string(balance),
+        "token_quota_exhausted": balance <= 0,
     })))
 }
 

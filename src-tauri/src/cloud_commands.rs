@@ -15,7 +15,12 @@ async fn ensure_platform(
 #[tauri::command]
 pub async fn get_cloud_platform_me(state: State<'_, Arc<AppState>>) -> Result<PlatformMe, String> {
     ensure_platform(state.platform_auth.as_ref()).await?;
-    fetch_platform_me(state.platform_auth.as_ref())
-        .await
-        .map_err(|e| e.to_string())
+    match fetch_platform_me(state.platform_auth.as_ref()).await {
+        Ok(me) => Ok(me),
+        Err(e) => {
+            // 余额条取不到值时只显示「--」，界面层不会报错；这里留痕便于排查。
+            log::warn!("get_cloud_platform_me failed: {e:#}");
+            Err(e.to_string())
+        }
+    }
 }

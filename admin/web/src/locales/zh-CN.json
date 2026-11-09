@@ -13,7 +13,8 @@
     "resources": "资源",
     "usage": "用量",
     "audit": "审计",
-    "releases": "应用更新"
+    "releases": "应用更新",
+    "billing": "计费"
   },
   "common": {
     "save": "保存",
@@ -518,5 +519,23 @@
     "uploading": "上传中…",
     "pickPackage": "请先选择安装包",
     "pickSignature": "请先选择签名文件（.sig）"
+  },
+  "billing": {
+    "title": "计费",
+    "hint": "按模型单价从员工额度里扣费；余额用尽客户端会禁止发送。",
+    "addTitle": "新增/覆盖单价",
+    "listTitle": "模型单价",
+    "model": "模型",
+    "modelPlaceholder": "例如 qwen3.7-flash",
+    "prompt": "输入价",
+    "completion": "输出价",
+    "save": "保存",
+    "unitHint": "单位：元 / 百万 token。",
+    "modelRequired": "请填写模型名",
+    "promptInput": "{model} 的输入价（元/百万 token）",
+    "completionInput": "{model} 的输出价（元/百万 token）",
+    "saved": "已保存 {model} 的单价",
+    "empty": "还没有配置单价，全部走兜底价",
+    "fallbackHint": "没配单价的模型按模型名分档用兜底价，不会白用；上线前建议按合同价填全。"
   }
 }

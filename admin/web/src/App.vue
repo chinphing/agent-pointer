@@ -22,6 +22,7 @@ const nav = [
   { path: '/resources', key: 'nav.resources', perm: '' },
   { path: '/releases', key: 'nav.releases', perm: '' },
   { path: '/usage', key: 'nav.usage', perm: 'usage:read' },
+  { path: '/billing', key: 'nav.billing', perm: 'usage:read' },
   { path: '/audit', key: 'nav.audit', perm: 'audit:read' },
 ]
 

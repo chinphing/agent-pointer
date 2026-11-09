@@ -13,7 +13,8 @@
     "resources": "Resources",
     "usage": "Usage",
     "audit": "Audit",
-    "releases": "App updates"
+    "releases": "App updates",
+    "billing": "Billing"
   },
   "common": {
     "save": "Save",
@@ -518,5 +519,23 @@
     "uploading": "Uploading…",
     "pickPackage": "Pick an installer first",
     "pickSignature": "Pick the .sig file first"
+  },
+  "billing": {
+    "title": "Billing",
+    "hint": "Deduct model usage from each member credit; the client blocks sending once the balance runs out.",
+    "addTitle": "Add / overwrite price",
+    "listTitle": "Model prices",
+    "model": "Model",
+    "modelPlaceholder": "e.g. qwen3.7-flash",
+    "prompt": "Input",
+    "completion": "Output",
+    "save": "Save",
+    "unitHint": "Unit: CNY per million tokens.",
+    "modelRequired": "Model name is required",
+    "promptInput": "Input price for {model} (CNY / M tokens)",
+    "completionInput": "Output price for {model} (CNY / M tokens)",
+    "saved": "Saved price for {model}",
+    "empty": "No price configured yet — fallback pricing applies",
+    "fallbackHint": "Models without a price use a name-based fallback so usage is never free; fill contract prices before launch."
   }
 }

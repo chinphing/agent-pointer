@@ -41,6 +41,9 @@ fn http_client() -> Result<reqwest::Client> {
 #[serde(rename_all = "snake_case")]
 pub struct PlatformMe {
     pub balance_yuan: String,
+    /// 可选展示名。**必须 `default`**：控制面早期版本不返回这个键，
+    /// 缺键会让整条响应反序列化失败，余额条退回「--」。
+    #[serde(default)]
     pub nickname: Option<String>,
     #[serde(default)]
     pub token_quota_exhausted: bool,

@@ -44,13 +44,13 @@
 <a id="managed-client"></a>
 ## 1. managed × 客户端
 
-- [ ] **1. 准备变量** —— 在 `pointer.local.env` 写：`POINTER_EDITION=managed`、`VITE_POINTER_EDITION=managed`、两个域名（`POINTER_API_BASE` / `POINTER_WEB_BASE`）、updater 签名私钥（`TAURI_SIGNING_PRIVATE_KEY` 或 `TAURI_SIGNING_PRIVATE_KEY_PATH`）
+- [ ] **1. 准备变量** —— 在 `pointer.local.env` 写：`POINTER_EDITION=managed`、控制面地址 `POINTER_API_BASE`、updater 签名私钥（`TAURI_SIGNING_PRIVATE_KEY` 或 `TAURI_SIGNING_PRIVATE_KEY_PATH`）
 - [ ] **2. 装依赖与图标** —— `npm install && npm run icons`
 - [ ] **3. 构建** —— `npm run tauri:build`
 - [ ] **4. 验证** —— 构建日志有 `[tauri-build] POINTER_EDITION=managed`；`find src-tauri/target/release/bundle -name '*.sig'` 有结果；启动后关于页显示更新入口
 - [ ] **5. 分发** —— 产物在 `src-tauri/target/release/bundle/**`
 
-**外部依赖**：三个控制面域名可达（企业用内网域名）；updater 签名私钥。
+**外部依赖**：控制面地址可达（企业用内网域名）；updater 签名私钥。
 
 **为什么必须有签名私钥**：`src-tauri/tauri.conf.json` 的 `bundle.createUpdaterArtifacts` 为 `true`（只有 standalone 用的 `tauri.personal.conf.json` 关掉），缺私钥会在签名阶段失败。
 
@@ -59,7 +59,7 @@
 <a id="managed-server"></a>
 ## 2. managed × 服务端
 
-- [ ] **1. 准备变量** —— `POINTER_EDITION=managed` + `VITE_POINTER_EDITION=managed` + 三个域名。写进 `pointer.local.env` 或显式导出（**OS / CI 环境变量优先**，文件只补空缺）
+- [ ] **1. 准备变量** —— `POINTER_EDITION=managed` + 控制面地址。写进 `pointer.local.env` 或显式导出（**OS / CI 环境变量优先**，文件只补空缺）
 - [ ] **2. 构建** —— `npm install && npm run server:build`
 - [ ] **3. 验证域名已烧入** —— 构建日志有 `[server-build] edition=managed domains=3/3 baked, web=managed`；`strings target/release/pointer-server | grep -m1 <你的 api_base 域名>` 有输出
 - [ ] **4. 运行期配置** —— `pointer-server.toml` 的 `[pointer]`：`api_base`、`oauth_client_secret`（与控制面 `THIRD_PARTY_OAUTH_EXCHANGE_SECRET` 对齐）、`public_url`；回调 URL 已在控制面登记

@@ -7,7 +7,7 @@ After the desktop client completes the loopback callback it returns a **302** to
 ## Redirect URL
 
 ```
-{POINTER_WEB_BASE}/?desktop_oauth=success
+{POINTER_API_BASE}/?desktop_oauth=success
 ```
 
 The constants are defined in `crates/pointer-core/src/platform_auth.rs`: `DESKTOP_OAUTH_SUCCESS_QUERY`, `DESKTOP_OAUTH_SUCCESS_VALUE`.

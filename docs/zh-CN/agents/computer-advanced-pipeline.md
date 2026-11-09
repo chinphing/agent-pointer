@@ -226,18 +226,18 @@ Decision 注入前会 `strip_images_from_prior_messages`，避免历史消息堆
 
 ```yaml
 computerAdvancedPipeline: "true"
-computerPipelineModelDecision: "qwen3.5-flash"
+computerPipelineModelDecision: "qwen3.7-flash"
 computerPipelineModelPosition: "qwen3.5-plus"
-computerPipelineModelVerify: "qwen3.5-flash"
+computerPipelineModelVerify: "qwen3.7-flash"
 computerPipelineThinkingBudgetPosition: "1024"
 computerPipelineThinkingBudgetVerify: "1024"
 ```
 
 | 阶段 | 配置键 | 默认模型 | 思考预算 |
 |------|--------|----------|----------|
-| Decision | `computerPipelineModelDecision` | `qwen3.5-flash` | 跟随 `computerThinkingBudget` |
+| Decision | `computerPipelineModelDecision` | `qwen3.7-flash` | 跟随 `computerThinkingBudget` |
 | Position | `computerPipelineModelPosition` | `qwen3.5-plus` | `computerPipelineThinkingBudgetPosition`（默认 **1024**） |
-| Verify | `computerPipelineModelVerify` | `qwen3.5-flash` | `computerPipelineThinkingBudgetVerify`（默认 **1024**） |
+| Verify | `computerPipelineModelVerify` | `qwen3.7-flash` | `computerPipelineThinkingBudgetVerify`（默认 **1024**） |
 
 Decision 沿用主模型的 thinking 开关与预算。Position / Verify **开启** thinking，使用 `computerPipelineThinkingBudgetPosition` / `verifyThinkingBudget`。
 

@@ -7,7 +7,7 @@
 ## 跳转 URL
 
 ```
-{POINTER_WEB_BASE}/?desktop_oauth=success
+{POINTER_API_BASE}/?desktop_oauth=success
 ```
 
 常量定义见 `crates/pointer-core/src/platform_auth.rs`：`DESKTOP_OAUTH_SUCCESS_QUERY`、`DESKTOP_OAUTH_SUCCESS_VALUE`。

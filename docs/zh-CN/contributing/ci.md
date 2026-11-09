@@ -88,7 +88,7 @@ npm run docs:build          # 仓库根执行 → npm --prefix docs-site run bui
 
 ## `release.yml`
 
-每个平台各打四份：社区版客户端、官方版客户端、社区版 server、官方版 server。社区版不注入控制面，没有 updater 产物。官方版使用 `POINTER_EDITION=managed` 和 readflowai 三个域名；客户端更新签名读仓库密钥 `TAURI_SIGNING_PRIVATE_KEY` 与 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`，私钥不进仓库。`npm run tauri:build` 和 `npm run server:build` 在写出安装包时就把 `community` 或 `official` 写进文件名。未绑定控制面的包是 community；绑定 readflowai 的 managed 包是 official。企业自己的域名不会被标成 official。
+每个平台各打四份：社区版客户端、官方版客户端、社区版 server、官方版 server。社区版不注入控制面，没有 updater 产物。官方版使用 `POINTER_EDITION=managed` 和 readflowai 控制面地址；客户端更新签名读仓库密钥 `TAURI_SIGNING_PRIVATE_KEY` 与 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`，私钥不进仓库。`npm run tauri:build` 和 `npm run server:build` 在写出安装包时就把 `community` 或 `official` 写进文件名。未绑定控制面的包是 community；绑定 readflowai 的 managed 包是 official。企业自己的域名不会被标成 official。
 
 | Runner | 客户端额外参数 | 产物 |
 |--------|----------|------|

@@ -1144,8 +1144,32 @@ fn resolve_skill_ids(
             }
         }
     };
+    // 企业策略：`default_on` 的技能默认启用，除非员工显式关过（记在保留键里）。
+    //
+    // 这里刻意**不再**用「有没有 override」当判据：老员工的 override 列表建于技能下发之前，
+    // 里面没有这个 id 并不代表他关掉了它——那会让企业默认对所有人失效。
+    let opted_out = agent_skill_overrides
+        .get(ORG_OPT_OUT_KEY)
+        .cloned()
+        .unwrap_or_default();
+    merge_org_default_on(&mut ids, &crate::skills::org_sync::default_on_skill_ids(), &opted_out);
     finalize_skill_ids(&mut ids);
     ids
+}
+
+/// `agentSkillOverrides` 里记录「员工显式关掉的企业技能」的保留键。
+/// 复用同一张 map，避免为这一个字段再穿一层调用链。
+pub const ORG_OPT_OUT_KEY: &str = "_orgOptOut";
+
+/// 把企业设为 `default_on` 的技能补进启用列表（已存在的不重复加）。
+/// 把企业设为 `default_on` 的技能补进启用列表，跳过员工显式关过的。
+fn merge_org_default_on(ids: &mut Vec<String>, default_on: &[String], opted_out: &[String]) {
+    for id in default_on {
+        if opted_out.contains(id) || ids.contains(id) {
+            continue;
+        }
+        ids.push(id.clone());
+    }
 }
 
 /// Keep bundled skills listed in `defaultSkillIds` present after upgrades even when a
@@ -1219,6 +1243,50 @@ fn agent_prompt(agent: &AgentDef, prompt: Option<String>) -> String {
 #[cfg(test)]
 mod builtin_agent_tests {
     use super::*;
+
+    #[test]
+    fn org_default_on_skills_are_merged_once() {
+        let mut ids = vec!["find-skills".to_string(), "travel".to_string()];
+        merge_org_default_on(&mut ids, &["travel".into(), "expense".into()], &[]);
+        assert_eq!(ids, vec!["find-skills", "travel", "expense"]);
+
+        // 没有企业策略时是空操作。
+        let mut plain = vec!["find-skills".to_string()];
+        merge_org_default_on(&mut plain, &[], &[]);
+        assert_eq!(plain, vec!["find-skills"]);
+    }
+
+    #[test]
+    fn org_default_on_respects_explicit_opt_out() {
+        // 员工显式关过的不能被强行加回来。
+        let mut ids = vec!["find-skills".to_string()];
+        merge_org_default_on(
+            &mut ids,
+            &["travel".into(), "expense".into()],
+            &["travel".into()],
+        );
+        assert_eq!(ids, vec!["find-skills", "expense"]);
+    }
+
+    #[test]
+    fn stale_override_does_not_block_org_default_on() {
+        // 老员工的 override 列表建于技能下发之前：里面没有 travel，
+        // 但这不代表他关掉了它——企业默认仍应生效。
+        let mut overrides: HashMap<String, Vec<String>> = HashMap::new();
+        overrides.insert(
+            "general".to_string(),
+            vec!["find-skills".to_string(), "agent-browser".to_string()],
+        );
+        let ids = resolve_skill_ids(&default_agent_def(), &[], &overrides);
+        let default_on = crate::skills::org_sync::default_on_skill_ids();
+        if default_on.is_empty() {
+            // 没有企业策略时这条用例没有意义（真机上才有 policy 文件）。
+            return;
+        }
+        for id in default_on {
+            assert!(ids.contains(&id), "企业默认技能 {id} 应被补进列表");
+        }
+    }
 
     #[test]
     fn resolve_skill_ids_uses_override_or_defaults_not_enabled_list() {

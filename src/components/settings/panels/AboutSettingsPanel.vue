@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Info, ArrowUpRight, Loader2 } from 'lucide-vue-next'
 import { useAppUpdater } from '../../../composables/useAppUpdater'
 import { isTauriRuntime } from '../../../lib/runtime'
 import { APP_VERSION } from '../../../lib/appVersion'
 import { openExternalUrl } from '../../../lib/openExternalUrl'
-import { isManagedEdition } from '../../../lib/platformUrls'
+import { usePlatformAuthStore } from '../../../stores/platformAuth'
 
 const { t } = useI18n()
 
@@ -19,7 +19,13 @@ const DOWNLOAD_URL = String(
   (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_POINTER_DOWNLOAD_URL ?? ''
 ).trim()
 
-const showUpdater = isManagedEdition() && isTauriRuntime()
+/**
+ * 有控制面地址才谈得上更新：`isStandalone` 由 `get_auth_mode` 从
+ * `control_plane_bound()` 推出，和 `useAppUpdater` 的门禁是同一个判据。
+ * 不再依赖构建期口味标记 —— 漏设一个变量就会让入口凭空消失。
+ */
+const platformAuth = usePlatformAuthStore()
+const showUpdater = computed(() => isTauriRuntime() && !platformAuth.isStandalone)
 
 function openDownloadPage(e: MouseEvent) {
   e.preventDefault()

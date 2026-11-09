@@ -183,13 +183,16 @@ export function platformAgentModeDefault(
   return readTierModelRef(modes?.[mode])
 }
 
-export function platformMediaModeDefault(
+export function platformMediaUnderstandingDefault(
   tierDefaults: unknown,
-  kind: string,
-  mode: string
+  kind: string
 ): PlatformTierRef | undefined {
-  const modes = nestedMap(nestedMap(tierDefaultsObject(tierDefaults), 'mediaModeLlm'), kind)
-  return readTierModelRef(modes?.[mode])
+  const media = nestedMap(tierDefaultsObject(tierDefaults), 'mediaUnderstanding')
+  return readTierModelRef(media?.[kind])
+}
+
+export function platformWebSearchDefault(tierDefaults: unknown): PlatformTierRef | undefined {
+  return readTierModelRef(nestedMap(tierDefaultsObject(tierDefaults), 'webSearchLlm'))
 }
 
 export function platformMediaGenerationDefault(

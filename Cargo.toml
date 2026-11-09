@@ -1,8 +1,10 @@
 [workspace]
 members = [
+  "admin",
   "crates/pointer-cli",
   "crates/pointer-core",
   "crates/pointer-channels",
+  "crates/pointer-contract",
   "server",
   "src-tauri",
   "tools/license-gen"

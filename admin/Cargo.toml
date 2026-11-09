@@ -1,0 +1,48 @@
+[package]
+name = "pointer-admin"
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition = "2021"
+description = "Pointer 企业控制面（管理端）：账号、RBAC、资源、配额、审计"
+
+[lib]
+name = "pointer_admin"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pointer-admin"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+argon2 = "0.5"
+rand = "0.8"
+sha2 = "0.10"
+base64 = "0.22"
+aes-gcm = "0.10"
+hkdf = "0.12"
+machine-uid = "0.5"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+axum = { version = "0.7", features = ["macros", "multipart"] }
+# 只用于「测试连接」：探一次服务商的 /models。工作区里 pointer-core 已在用同一版本，编译可复用。
+png = "0.17"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tower-http = { version = "0.6", features = ["fs", "compression-gzip"] }
+tower = { version = "0.5", features = ["util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "fs"] }
+pointer-contract = { path = "../crates/pointer-contract" }
+# 只影响 admin；客户端与 server 仍用 rusqlite 的 conversations.db，互不干扰。
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls-ring",
+    "sqlite",
+    "postgres",
+    "mysql",
+    "any",
+] }

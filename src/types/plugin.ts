@@ -58,3 +58,15 @@ export interface ExternalPluginsProbeResult {
   sources: ExternalPluginSource[]
   total: number
 }
+
+/** 企业下发的插件（控制面目录里的条目）。 */
+export interface OrgPluginView {
+  slug: string
+  name: string
+  pluginId?: string
+  version: string
+  sizeBytes: number
+  /** `optional` = 需按需安装；`default_on` = 已自动下发 */
+  activation: string
+  installed: boolean
+}

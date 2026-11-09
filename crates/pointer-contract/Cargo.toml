@@ -1,0 +1,17 @@
+[package]
+name = "pointer-contract"
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition = "2021"
+description = "Pointer 控制面契约：admin / server / 客户端共用的类型与哈希"
+
+[lib]
+name = "pointer_contract"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"

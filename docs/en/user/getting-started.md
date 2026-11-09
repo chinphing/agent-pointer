@@ -99,13 +99,13 @@ npm run tauri signer generate -w %USERPROFILE%\.tauri\pointer-updater.key
 
 ```bash
 # Linux
-npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com POINTER_DOWNLOAD_URL=https://pointer.example.com/download TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key npm run build:linux
+npm install && POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com POINTER_DOWNLOAD_URL=https://pointer.example.com/download TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key npm run build:linux
 
 # macOS
-npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com POINTER_DOWNLOAD_URL=https://pointer.example.com/download TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key npm run build:macos
+npm install && POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com POINTER_DOWNLOAD_URL=https://pointer.example.com/download TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key npm run build:macos
 
 # Windows
-npm install && set POINTER_EDITION=managed&& set VITE_POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set POINTER_WEB_BASE=https://pointer.example.com&& set VITE_POINTER_WEB_BASE=https://pointer.example.com&& set POINTER_DOWNLOAD_URL=https://pointer.example.com/download&& set TAURI_SIGNING_PRIVATE_KEY_PATH=%USERPROFILE%\.tauri\pointer-updater.key&& npm run build:windows
+npm install && set POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set VITE_POINTER_WEB_BASE=https://pointer.example.com&& set POINTER_DOWNLOAD_URL=https://pointer.example.com/download&& set TAURI_SIGNING_PRIVATE_KEY_PATH=%USERPROFILE%\.tauri\pointer-updater.key&& npm run build:windows
 ```
 
 A missing private key is handled the same way as above.
@@ -155,13 +155,13 @@ npm install && scripts\quick-deploy.bat start managed-server --runtime bin --bui
 
 ```bash
 # Linux
-npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com npm run server:build
+npm install && POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com npm run server:build
 
 # macOS
-npm install && POINTER_EDITION=managed VITE_POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_WEB_BASE=https://pointer.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com npm run server:build
+npm install && POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com npm run server:build
 
 # Windows
-npm install && set POINTER_EDITION=managed&& set VITE_POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set POINTER_WEB_BASE=https://pointer.example.com&& set VITE_POINTER_WEB_BASE=https://pointer.example.com&& npm run server:build
+npm install && set POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set VITE_POINTER_WEB_BASE=https://pointer.example.com&& npm run server:build
 ```
 
 ## After that

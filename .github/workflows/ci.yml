@@ -67,6 +67,16 @@ jobs:
       - name: Frontend tests
         run: npm test
 
+      - name: Install admin console dependencies
+        run: npm ci --prefix admin/web
+
+      - name: Admin console typecheck
+        # vite build 用 esbuild 只转译不校验类型，类型错误必须单独跑一次。
+        run: npm --prefix admin/web run typecheck
+
+      - name: Admin console build
+        run: npm --prefix admin/web run build
+
       - name: Rust tests
         run: cargo test --workspace
 

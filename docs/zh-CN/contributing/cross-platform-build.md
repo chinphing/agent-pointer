@@ -640,7 +640,7 @@ git push origin v0.1.0
 
 CI 步骤：checkout → Node 20 → Rust stable →（Linux 装系统依赖）→ `npm install` → `npm run icons` → 社区版客户端、官方版客户端、社区版 server、官方版 server → 文件名加上 `community` 或 `official` → 上传 **Draft Release**。
 
-社区版不注入控制面。官方版注入 `POINTER_EDITION=managed` 和 readflowai 三个域名。客户端更新签名用仓库密钥 `TAURI_SIGNING_PRIVATE_KEY` 与 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。企业内网域名的包仍在本地或企业 CI 打，见 [editions.md](../deploy/editions.md)。
+社区版不注入控制面。官方版注入 `POINTER_EDITION=managed` 和 readflowai 控制面地址。客户端更新签名用仓库密钥 `TAURI_SIGNING_PRIVATE_KEY` 与 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。企业内网域名的包仍在本地或企业 CI 打，见 [editions.md](../deploy/editions.md)。
 
 ---
 

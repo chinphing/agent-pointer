@@ -5,7 +5,7 @@
 
 use crate::models::{
     provider_uses_dashscope_compatible_api, provider_uses_deepseek_api, ModelSettings,
-    ProviderConfig, WEB_SEARCH_SCENE_ID,
+    ProviderConfig,
 };
 use anyhow::{anyhow, Context, Result};
 use log::{info, warn};
@@ -276,20 +276,13 @@ fn explicit_search_choice(
         info!("web_search explicit model from POINTER_WEB_SEARCH_MODEL={model}");
         return Some(choice_from_provider_and_model(settings, "", model));
     }
-    let mode = crate::mode_llm::agent_performance_mode(settings, WEB_SEARCH_SCENE_ID);
-    if let Some(cfg) = settings
-        .agent_mode_llm
-        .get(WEB_SEARCH_SCENE_ID)
-        .and_then(|inner| inner.get(mode))
-    {
-        let model = cfg.model.trim();
-        if !model.is_empty() {
-            return Some(choice_from_provider_and_model(
-                settings,
-                &cfg.provider_id,
-                model,
-            ));
-        }
+    let single = settings.web_search_llm.model.trim();
+    if !single.is_empty() {
+        return Some(choice_from_provider_and_model(
+            settings,
+            &settings.web_search_llm.provider_id,
+            single,
+        ));
     }
     let legacy = settings.web_search_model.trim();
     if !legacy.is_empty() {
@@ -740,19 +733,14 @@ mod tests {
             "deepseek",
             "deepseek-v4-pro",
         );
-        let mut tiers = HashMap::new();
-        tiers.insert(
-            "standard".into(),
-            ComputerTierLlmConfig {
-                provider_id: "qwen".into(),
-                model: "qwen3.8-max".into(),
-                enable_thinking: false,
-                thinking_budget: None,
-                reasoning_effort: None,
-                thinking_intensity: None,
-            },
-        );
-        s.agent_mode_llm.insert(WEB_SEARCH_SCENE_ID.into(), tiers);
+        s.web_search_llm = ComputerTierLlmConfig {
+            provider_id: "qwen".into(),
+            model: "qwen3.8-max".into(),
+            enable_thinking: false,
+            thinking_budget: None,
+            reasoning_effort: None,
+            thinking_intensity: None,
+        };
         let route = resolve_web_search_route_with_env(&s, None).unwrap();
         assert_eq!(route, WebSearchRoute::DashScope);
 
@@ -804,19 +792,14 @@ mod tests {
             "deepseek-v4-pro",
         );
         s.web_search_model.clear();
-        let mut fast = HashMap::new();
-        fast.insert(
-            "fast".into(),
-            ComputerTierLlmConfig {
-                provider_id: "deepseek".into(),
-                model: "deepseek-v4-pro".into(),
-                enable_thinking: true,
-                thinking_budget: None,
-                reasoning_effort: None,
-                thinking_intensity: None,
-            },
-        );
-        s.agent_mode_llm.insert(WEB_SEARCH_SCENE_ID.into(), fast);
+        s.web_search_llm = ComputerTierLlmConfig {
+            provider_id: "deepseek".into(),
+            model: "deepseek-v4-pro".into(),
+            enable_thinking: true,
+            thinking_budget: None,
+            reasoning_effort: None,
+            thinking_intensity: None,
+        };
         let route = resolve_web_search_route_with_env(&s, None).unwrap();
         assert_eq!(
             route,

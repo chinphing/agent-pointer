@@ -254,18 +254,6 @@ where
     }
     m.end()
 }
-/// User-selected performance mode for image / audio / video understanding.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MediaUnderstandingModes {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audio: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub video: Option<String>,
-}
-
 /// Independent models for media understanding / generation (does not switch the primary chat model).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1013,15 +1001,15 @@ pub struct ModelSettings {
     /// User-selected performance mode per agent (`general`, `coder`, …).
     #[serde(default, rename = "agentPerformanceModes")]
     pub agent_performance_modes: HashMap<String, String>,
-    /// User-selected performance mode for media understanding kinds.
-    #[serde(default, rename = "mediaUnderstandingModes")]
-    pub media_understanding_modes: MediaUnderstandingModes,
+    /// 媒体理解：类型（image / audio / video）→ 单模型，无档位。
+    #[serde(default, rename = "mediaUnderstanding")]
+    pub media_understanding: HashMap<String, ComputerTierLlmConfig>,
+    /// 联网搜索：单模型，无档位（和媒体理解同一口径）。
+    #[serde(default = "default_web_search_llm", rename = "webSearchLlm")]
+    pub web_search_llm: ComputerTierLlmConfig,
     /// Debug: agent id → performance mode → LLM profile.
     #[serde(default, rename = "agentModeLlm")]
     pub agent_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
-    /// Debug: media kind → performance mode → LLM profile.
-    #[serde(default, rename = "mediaModeLlm")]
-    pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
     /// Debug: computer tier → LLM profile.
     /// Debug: per-phase LLM for computer host verify pipeline.
     #[serde(default, rename = "computerPipelineLlm")]
@@ -1176,9 +1164,8 @@ fn strip_session_placeholder_model_configs(user: &mut UserSettings) {
     for (_, modes) in user.agent_mode_llm.iter_mut() {
         modes.retain(|_, cfg| !is_session_placeholder(cfg));
     }
-    for (_, modes) in user.media_mode_llm.iter_mut() {
-        modes.retain(|_, cfg| !is_session_placeholder(cfg));
-    }
+    user.media_understanding
+        .retain(|_, cfg| !is_session_placeholder(cfg));
 
     let pipeline = &mut user.computer_pipeline_llm;
     if pipeline
@@ -1841,10 +1828,10 @@ impl Default for ModelSettings {
             web_search_model: default_web_search_model_setting(),
             media_model_overrides: default_media_generation_overrides(),
             agent_performance_modes: HashMap::new(),
-            media_understanding_modes: MediaUnderstandingModes::default(),
+            media_understanding: HashMap::new(),
+            web_search_llm: default_web_search_llm(),
             computer_pipeline_llm: ComputerPipelineLlmSettings::default(),
             agent_mode_llm: default_agent_mode_llm(),
-            media_mode_llm: default_media_mode_llm(),
             media_oss: MediaOssConfig::default(),
             max_parallel_tool_calls: None,
             max_parallel_sub_agents: None,
@@ -1869,15 +1856,10 @@ pub const WEB_SEARCH_SCENE_ID: &str = "web_search";
 ///
 /// Resolution order:
 /// 1. `POINTER_WEB_SEARCH_MODEL` env
-/// 2. `agentModeLlm.web_search[agentPerformanceModes.web_search ?? "fast"]` (settings UI tiers)
+/// 2. `webSearchLlm` —— 联网搜索只有一个模型，没有档位
 /// 3. legacy `webSearchModel` string
 /// 4. first model on a DashScope-compatible provider
 /// 5. compile-time / `DEFAULT_WEB_SEARCH_MODEL`
-///
-/// Catalog fallbacks typically land on `qwen3.5-plus`, which **does** support
-/// search via `multimodal-generation` with `search_strategy=agent`. Step 5 is
-/// `qwen3.7-plus`, same family — the platform tier map and the legacy
-/// `webSearchModel` both override it.
 pub fn effective_web_search_model(settings: &ModelSettings, _agent_id: Option<&str>) -> String {
     if let Ok(m) = std::env::var("POINTER_WEB_SEARCH_MODEL") {
         let m = m.trim();
@@ -1885,11 +1867,9 @@ pub fn effective_web_search_model(settings: &ModelSettings, _agent_id: Option<&s
             return m.to_string();
         }
     }
-    if let Some(cfg) = resolve_web_search_mode_llm_config(settings) {
-        let model = cfg.model.trim();
-        if !model.is_empty() {
-            return model.to_string();
-        }
+    let single = settings.web_search_llm.model.trim();
+    if !single.is_empty() {
+        return single.to_string();
     }
     let configured = settings.web_search_model.trim();
     if !configured.is_empty() {
@@ -1903,23 +1883,6 @@ pub fn effective_web_search_model(settings: &ModelSettings, _agent_id: Option<&s
     DEFAULT_WEB_SEARCH_MODEL.to_string()
 }
 
-/// Tier map entry for `web_search` (same shape as general/coder `agentModeLlm`).
-///
-/// The scene keeps the **`fast`** fallback: only the *agent* tier defaults to
-/// `standard`, so an unconfigured web-search scene must not be dragged along.
-fn resolve_web_search_mode_llm_config(settings: &ModelSettings) -> Option<&ComputerTierLlmConfig> {
-    let mode = crate::mode_llm::agent_performance_mode_with_default(
-        settings,
-        WEB_SEARCH_SCENE_ID,
-        crate::mode_llm::PERFORMANCE_MODE_FAST,
-    );
-    let inner = settings.agent_mode_llm.get(WEB_SEARCH_SCENE_ID)?;
-    let cfg = inner.get(mode)?;
-    if cfg.model.trim().is_empty() {
-        return None;
-    }
-    Some(cfg)
-}
 
 /// First provider whose base URL is DashScope compatible.
 pub fn find_dashscope_provider(settings: &ModelSettings) -> Option<&ProviderConfig> {
@@ -2289,14 +2252,14 @@ pub struct UserSettings {
     pub media_model_overrides: MediaModelOverrides,
     #[serde(default, rename = "agentPerformanceModes")]
     pub agent_performance_modes: HashMap<String, String>,
-    #[serde(default, rename = "mediaUnderstandingModes")]
-    pub media_understanding_modes: MediaUnderstandingModes,
+    #[serde(default, rename = "mediaUnderstanding")]
+    pub media_understanding: HashMap<String, ComputerTierLlmConfig>,
+    #[serde(default = "default_web_search_llm", rename = "webSearchLlm")]
+    pub web_search_llm: ComputerTierLlmConfig,
     #[serde(default, rename = "computerPipelineLlm")]
     pub computer_pipeline_llm: ComputerPipelineLlmSettings,
     #[serde(default = "default_agent_mode_llm", rename = "agentModeLlm")]
     pub agent_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
-    #[serde(default = "default_media_mode_llm", rename = "mediaModeLlm")]
-    pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
     #[serde(
         default,
         rename = "maxParallelToolCalls",
@@ -2388,10 +2351,10 @@ impl Default for UserSettings {
             web_search_model: default_web_search_model_setting(),
             media_model_overrides: default_media_generation_overrides(),
             agent_performance_modes: HashMap::new(),
-            media_understanding_modes: MediaUnderstandingModes::default(),
+            media_understanding: HashMap::new(),
+            web_search_llm: default_web_search_llm(),
             computer_pipeline_llm: ComputerPipelineLlmSettings::default(),
             agent_mode_llm: default_agent_mode_llm(),
-            media_mode_llm: default_media_mode_llm(),
             max_parallel_tool_calls: None,
             max_parallel_sub_agents: None,
             max_parallel_media_jobs: None,
@@ -2676,8 +2639,8 @@ pub struct DebugSessionSettings {
     pub computer_pipeline_llm: ComputerPipelineLlmSettings,
     #[serde(rename = "agentModeLlm")]
     pub agent_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
-    #[serde(rename = "mediaModeLlm")]
-    pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
+    #[serde(rename = "mediaUnderstanding")]
+    pub media_understanding: HashMap<String, ComputerTierLlmConfig>,
 }
 
 impl From<&ModelSettings> for DebugSessionSettings {
@@ -2690,7 +2653,7 @@ impl From<&ModelSettings> for DebugSessionSettings {
             max_tokens: merged.max_tokens,
             computer_pipeline_llm: merged.computer_pipeline_llm.clone(),
             agent_mode_llm: merged.agent_mode_llm.clone(),
-            media_mode_llm: merged.media_mode_llm.clone(),
+            media_understanding: merged.media_understanding.clone(),
         }
     }
 }
@@ -2742,7 +2705,7 @@ pub(crate) fn sample_settings() -> ModelSettings {
         name: "千问".into(),
         base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
         api_key: String::new(),
-        models: vec!["qwen3.5-plus".into(), "qwen3.5-flash".into()],
+        models: vec!["qwen3.5-plus".into(), "qwen3.7-flash".into()],
         reasoning_in_messages: Some(false),
         temperature: None,
         top_p: None,
@@ -2809,8 +2772,16 @@ fn default_agent_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmCo
     HashMap::new()
 }
 
-fn default_media_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmConfig>> {
-    HashMap::new()
+/// 联网搜索没有配置时的空值：`model` 为空表示「还没选」，由解析链继续往下找。
+fn default_web_search_llm() -> ComputerTierLlmConfig {
+    ComputerTierLlmConfig {
+        provider_id: String::new(),
+        model: String::new(),
+        enable_thinking: default_tier_enable_thinking(),
+        thinking_budget: None,
+        reasoning_effort: None,
+        thinking_intensity: None,
+    }
 }
 
 fn default_platform_agent_models() -> HashMap<String, AgentModelRef> {
@@ -2903,7 +2874,7 @@ pub struct EffectiveSettingsView {
 /// time. Observed: `user_settings.json` held `debugDumpLlmPrompts: true` while
 /// the dialog showed it disabled.
 ///
-/// Scene tier maps (`agentModeLlm` / `mediaModeLlm` / `computerTierLlm`),
+/// Scene tier maps (`agentModeLlm` / `mediaUnderstanding` / `computerTierLlm`),
 /// tool-round caps (`maxToolRounds` / `maxSubAgentToolRounds`) and the
 /// sub-agent delegation caps (`maxSubAgentSpawnDepth` /
 /// `maxChildrenPerAgent`) are **user preferences**, not debug state: every user
@@ -3075,35 +3046,58 @@ impl serde::Serialize for WebEffectiveSettingsView {
 }
 
 /// Merge persisted user settings with in-memory platform config.
+/// 用户条目是不是「平台服务商的落盘副本」。
+///
+/// 判据全部来自可观测事实，不做意图猜测：id 相同、地址相同、模型名单相同，
+/// 且密钥就是平台那把——那它不携带任何用户自有信息，展示出来只会和平台条目
+/// 撞名。用户改过其中任一项（换 key、换地址、加减模型）就不再算副本。
+fn is_stale_platform_copy(user: &ProviderConfig, platform: &[ProviderConfig]) -> bool {
+    let key = user.api_key.trim();
+    if key.is_empty() {
+        return false;
+    }
+    platform.iter().any(|p| {
+        let platform_key = p.api_key.trim();
+        !platform_key.is_empty()
+            && p.id == user.id
+            && p.base_url.trim() == user.base_url.trim()
+            && p.models == user.models
+            && platform_key == key
+    })
+}
+
 pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> ModelSettings {
     // Providers are user-owned (persisted in user_settings.json). Runtime keys
     // (OAuth / login injection) live in platform.providers and are overlaid
     // by provider id so user edits never wipe injected credentials.
     let mut providers = user.providers.clone();
-    let platform_keys: HashMap<String, String> = platform
-        .providers
-        .iter()
-        .map(|p| (p.id.clone(), p.api_key.clone()))
-        .collect();
     for provider in &mut providers {
         provider.source = Some("user".into());
-        if provider.api_key.trim().is_empty() {
-            if let Some(key) = platform_keys.get(&provider.id) {
-                provider.api_key = key.clone();
-            }
-        }
     }
-    // Platform-only providers (OAuth / login directory) are appended to the
-    // merged list so the UI and runtime can use them even before the user
-    // saves a copy. User-owned providers keep precedence; duplicates by id
-    // never appear.
-    let known: std::collections::HashSet<String> = providers.iter().map(|p| p.id.clone()).collect();
+    // 平台密钥被注入后落盘的副本不是「用户自己的服务商」：id / 地址 / 模型名单
+    // 都和平台那条一致、密钥也是平台那把，说明它只是历史残留。留着会让界面同时
+    // 出现两条同名服务商，其中一条顶着平台密钥却显示成「自定义服务」。
+    providers.retain(|p| !is_stale_platform_copy(p, &platform.providers));
+    // 身份是 (source, id)：用户自己的 `deepseek` 和平台下发的 `deepseek` 是两条
+    // 独立记录，可以同名并存。只按 id 去重会把其中一条吞掉——那正是「平台服务商
+    // 被显示成自定义服务」的成因。平台密钥只属于平台那条，不注入用户条目。
+    let known: std::collections::HashSet<(String, String)> = providers
+        .iter()
+        .map(|p| {
+            (
+                p.source.clone().unwrap_or_default(),
+                p.id.clone(),
+            )
+        })
+        .collect();
     for platform_provider in &platform.providers {
-        if !known.contains(&platform_provider.id) {
-            let mut p = platform_provider.clone();
-            p.source = Some("platform".into());
-            providers.push(p);
+        let identity = ("platform".to_string(), platform_provider.id.clone());
+        if known.contains(&identity) {
+            continue;
         }
+        let mut p = platform_provider.clone();
+        p.source = Some("platform".into());
+        providers.push(p);
     }
     let mut settings = ModelSettings {
         providers,
@@ -3167,9 +3161,9 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         web_search_model: user.web_search_model.clone(),
         media_model_overrides: user.media_model_overrides.clone(),
         agent_performance_modes: user.agent_performance_modes.clone(),
-        media_understanding_modes: user.media_understanding_modes.clone(),
+        media_understanding: user.media_understanding.clone(),
+        web_search_llm: user.web_search_llm.clone(),
         agent_mode_llm: user.agent_mode_llm.clone(),
-        media_mode_llm: user.media_mode_llm.clone(),
         computer_pipeline_llm: user.computer_pipeline_llm.clone(),
         media_oss: platform.media_oss.clone(),
         max_parallel_tool_calls: user.max_parallel_tool_calls,
@@ -3185,25 +3179,6 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
     };
     apply_platform_tier_defaults(&mut settings, &platform.tier_defaults, &platform.providers);
     settings
-}
-
-/// First configured DeepSeek model. Web search prefers this over a platform Qwen default.
-fn deepseek_web_search_tier(providers: &[ProviderConfig]) -> Option<ComputerTierLlmConfig> {
-    let provider = providers
-        .iter()
-        .find(|p| p.id.eq_ignore_ascii_case("deepseek") || provider_uses_deepseek_api(p))?;
-    let model = provider
-        .models
-        .iter()
-        .find(|m| !m.trim().is_empty())?
-        .trim();
-    tier_cfg_from_json(
-        &serde_json::json!({
-            "providerId": provider.id,
-            "model": model,
-        }),
-        providers,
-    )
 }
 
 /// 将平台下发的档位默认（tierDefaults）补齐到运行时设置：用户已显式配置的
@@ -3270,10 +3245,7 @@ pub fn apply_platform_tier_defaults(
         }
     }
 
-    for (key, target) in [
-        ("agentModeLlm", &mut settings.agent_mode_llm),
-        ("mediaModeLlm", &mut settings.media_mode_llm),
-    ] {
+    for (key, target) in [("agentModeLlm", &mut settings.agent_mode_llm)] {
         let Some(outer) = obj.get(key).and_then(|v| v.as_object()) else {
             continue;
         };
@@ -3286,27 +3258,30 @@ pub fn apply_platform_tier_defaults(
                 if inner_map.contains_key(mode) {
                     continue;
                 }
-                if outer_key == WEB_SEARCH_SCENE_ID {
-                    if let Some(cfg) = deepseek_web_search_tier(providers) {
-                        inner_map.insert(mode.clone(), cfg);
-                        continue;
-                    }
-                }
                 if let Some(cfg) = tier_cfg_from_json(cfg_val, providers) {
                     inner_map.insert(mode.clone(), cfg);
                 }
             }
         }
     }
-    if let Some(cfg) = deepseek_web_search_tier(providers) {
-        let inner_map = settings
-            .agent_mode_llm
-            .entry(WEB_SEARCH_SCENE_ID.to_string())
-            .or_default();
-        for mode in ["fast", "standard", "expert"] {
-            inner_map
-                .entry(mode.to_string())
-                .or_insert_with(|| cfg.clone());
+    // 媒体理解：类型 → 单模型（无档位）。平台只补用户没配的类型。
+    if let Some(media) = obj.get("mediaUnderstanding").and_then(|v| v.as_object()) {
+        for (kind, cfg_val) in media {
+            if settings.media_understanding.contains_key(kind) {
+                continue;
+            }
+            if let Some(cfg) = tier_cfg_from_json(cfg_val, providers) {
+                settings.media_understanding.insert(kind.clone(), cfg);
+            }
+        }
+    }
+    // 联网搜索：单模型（无档位），和媒体理解同一口径。
+    if settings.web_search_llm.model.trim().is_empty() {
+        if let Some(cfg) = obj
+            .get("webSearchLlm")
+            .and_then(|v| tier_cfg_from_json(v, providers))
+        {
+            settings.web_search_llm = cfg;
         }
     }
     if let Some(pipeline) = obj.get("computerPipelineLlm").and_then(|v| v.as_object()) {
@@ -3524,6 +3499,9 @@ pub struct SkillDef {
     /// Plugin provenance: set when the skill is provided by a plugin (P1).
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "pluginId")]
     pub plugin_id: Option<String>,
+    /// 企业策略 `default_on`：没被员工显式关掉时，默认进入各 agent 的启用列表。
+    #[serde(default, rename = "defaultEnabled")]
+    pub default_enabled: bool,
 }
 
 fn default_skill_provenance() -> String {
@@ -3810,7 +3788,7 @@ mod user_settings_defaults_tests {
                 "fast".into(),
                 ComputerTierLlmConfig {
                     provider_id: "qwen".into(),
-                    model: "qwen3.5-flash".into(),
+                    model: "qwen3.7-flash".into(),
                     enable_thinking: true,
                     thinking_budget: None,
                     reasoning_effort: None,
@@ -3863,7 +3841,7 @@ mod user_settings_defaults_tests {
             .unwrap_or_default();
         assert_eq!(
             general.get("fast").map(|c| c.model.as_str()),
-            Some("qwen3.5-flash")
+            Some("qwen3.7-flash")
         );
     }
 
@@ -3949,21 +3927,16 @@ mod user_settings_defaults_tests {
             .into_iter()
             .collect(),
         );
-        user.media_mode_llm.insert(
+        user.media_understanding.insert(
             "image".into(),
-            [(
-                "fast".into(),
-                ComputerTierLlmConfig {
-                    provider_id: "session-provider".into(),
-                    model: "session-worker".into(),
-                    enable_thinking: true,
-                    thinking_budget: Some(2048),
-                    reasoning_effort: None,
-                    thinking_intensity: None,
-                },
-            )]
-            .into_iter()
-            .collect(),
+            ComputerTierLlmConfig {
+                provider_id: "session-provider".into(),
+                model: "session-worker".into(),
+                enable_thinking: true,
+                thinking_budget: Some(2048),
+                reasoning_effort: None,
+                thinking_intensity: None,
+            },
         );
         user.computer_pipeline_llm = ComputerPipelineLlmSettings {
             decision: "session-worker".into(),
@@ -3993,11 +3966,8 @@ mod user_settings_defaults_tests {
             "agent_mode_llm session placeholder should be removed"
         );
         assert!(
-            user.media_mode_llm
-                .get("image")
-                .map(|m| m.is_empty())
-                .unwrap_or(true),
-            "media_mode_llm session placeholder should be removed"
+            user.media_understanding.get("image").is_none(),
+            "media_understanding session placeholder should be removed"
         );
         assert_ne!(user.computer_pipeline_llm.decision, "session-worker");
         assert_ne!(
@@ -4039,21 +4009,16 @@ mod user_settings_defaults_tests {
             .into_iter()
             .collect(),
         );
-        user.media_mode_llm.insert(
+        user.media_understanding.insert(
             "video".into(),
-            [(
-                "expert".into(),
-                ComputerTierLlmConfig {
-                    provider_id: "qwen".into(),
-                    model: "qwen3.6-plus".into(),
-                    enable_thinking: true,
-                    thinking_budget: Some(8192),
-                    reasoning_effort: None,
-                    thinking_intensity: None,
-                },
-            )]
-            .into_iter()
-            .collect(),
+            ComputerTierLlmConfig {
+                provider_id: "qwen".into(),
+                model: "qwen3.6-plus".into(),
+                enable_thinking: true,
+                thinking_budget: Some(8192),
+                reasoning_effort: None,
+                thinking_intensity: None,
+            },
         );
 
         ensure_user_settings_defaults(&mut user);
@@ -4073,9 +4038,8 @@ mod user_settings_defaults_tests {
         );
         // media / computer 指向平台 provider（qwen）的用户覆盖必须保留
         assert_eq!(
-            user.media_mode_llm
+            user.media_understanding
                 .get("video")
-                .and_then(|m| m.get("expert"))
                 .map(|c| c.model.as_str()),
             Some("qwen3.6-plus")
         );
@@ -4265,7 +4229,7 @@ mod user_settings_defaults_tests {
             "computerPipelineLlm": {
                 "verify": {
                     "providerId": "qwen",
-                    "model": "qwen3.5-flash",
+                    "model": "qwen3.7-flash",
                     "thinkingIntensity": "high"
                 },
                 "locate": {
@@ -4278,7 +4242,7 @@ mod user_settings_defaults_tests {
         let mut settings = ModelSettings::default();
         apply_platform_tier_defaults(&mut settings, &defaults, &[]);
         let p = &settings.computer_pipeline_llm;
-        assert_eq!(p.verify, "qwen3.5-flash");
+        assert_eq!(p.verify, "qwen3.7-flash");
         assert_eq!(p.verify_provider_id, "qwen");
         assert_eq!(p.verify_thinking_intensity.as_deref(), Some("high"));
         // 定位模型留空 = 跟随主模型，思考强度仍独立生效。
@@ -4397,7 +4361,7 @@ mod user_settings_defaults_tests {
             "computerPipelineLlm": {
                 "verify": {
                     "providerId": "qwen",
-                    "model": "qwen3.5-flash",
+                    "model": "qwen3.7-flash",
                     "thinkingIntensity": "max"
                 },
                 "locate": {
@@ -4415,7 +4379,7 @@ mod user_settings_defaults_tests {
         // 用户改过的强度不被平台默认覆盖；模型仍按缺失补齐。
         assert_eq!(p.verify_thinking_intensity.as_deref(), Some("low"));
         assert_eq!(p.locate_thinking_intensity.as_deref(), Some("medium"));
-        assert_eq!(p.verify, "qwen3.5-flash");
+        assert_eq!(p.verify, "qwen3.7-flash");
         assert_eq!(p.locate, "qwen3.5-plus");
     }
 
@@ -4466,8 +4430,12 @@ mod user_settings_defaults_tests {
         assert_eq!(merged.providers[0].id, "vllm-local");
     }
 
+    /// 身份是 `(source, id)`：同名的用户服务商和平台服务商并存，互不吞掉。
+    ///
+    /// 旧实现按 id 去重，会把平台那条藏起来、把平台密钥注入用户条目，
+    /// 界面于是把平台下发的服务商显示成「自定义服务」。
     #[test]
-    fn platform_only_provider_does_not_duplicate_existing_user_provider() {
+    fn platform_provider_coexists_with_same_id_user_provider() {
         let mut platform = PlatformSettings::default();
         platform
             .providers
@@ -4478,43 +4446,97 @@ mod user_settings_defaults_tests {
         let merged = merge_user_platform(&user, &platform);
         assert_eq!(
             merged.providers.len(),
-            1,
-            "no duplicate for user-owned provider"
+            2,
+            "同名但 source 不同，应并存两条"
         );
+        let user_entry = merged
+            .providers
+            .iter()
+            .find(|p| p.source.as_deref() == Some("user"))
+            .expect("user entry kept");
         assert_eq!(
-            merged.providers[0].api_key, "platform-qwen-key",
-            "platform key overlaid onto user-owned provider"
+            user_entry.api_key, "",
+            "平台密钥不注入用户条目——否则用户条目会看起来像平台服务商"
         );
+        let platform_entry = merged
+            .providers
+            .iter()
+            .find(|p| p.source.as_deref() == Some("platform"))
+            .expect("platform entry appended");
+        assert_eq!(platform_entry.api_key, "platform-qwen-key");
+    }
+
+    /// 平台密钥落盘的副本不展示：否则界面同时出现两条同名服务商。
+    #[test]
+    fn stale_copy_of_platform_provider_is_hidden() {
+        let mut platform = PlatformSettings::default();
+        let mut tpl = sample_settings().providers.remove(0);
+        tpl.api_key = "platform-key".into();
+        platform.providers.push(tpl.clone());
+
+        // 副本：id / 地址 / 模型 / 密钥全同
+        let mut user = UserSettings::default();
+        user.providers.push(tpl.clone());
+
+        let merged = merge_user_platform(&user, &platform);
+        assert_eq!(merged.providers.len(), 1, "副本被抑制，只剩平台那条");
+        assert_eq!(merged.providers[0].source.as_deref(), Some("platform"));
+
+        // 用户换成自己的密钥 → 是真 fork，必须保留
+        let mut forked = tpl.clone();
+        forked.api_key = "my-own-key".into();
+        let mut user2 = UserSettings::default();
+        user2.providers.push(forked);
+        let merged2 = merge_user_platform(&user2, &platform);
+        assert_eq!(merged2.providers.len(), 2, "换了自己的密钥就不是副本");
+    }
+
+    /// 运行时按 id 取服务商时，同 id 多条要挑能用的那条。
+    #[test]
+    fn find_provider_by_id_prefers_usable_entry() {
+        let mut providers = sample_settings().providers;
+        let platform_entry = providers.remove(0);
+        let mut user_entry = platform_entry.clone();
+        user_entry.source = Some("user".into());
+        user_entry.api_key = String::new();
+        let mut platform_entry = platform_entry;
+        platform_entry.source = Some("platform".into());
+        platform_entry.api_key = "platform-key".into();
+        let list = vec![user_entry, platform_entry];
+
+        let picked = crate::platform_config::find_provider_by_id(&list, "qwen").expect("found");
+        assert_eq!(picked.source.as_deref(), Some("platform"));
+        assert_eq!(picked.api_key, "platform-key");
+
+        // 用户自己填了密钥 → 用户那条优先（显式选择）
+        let mut list2 = list.clone();
+        list2[0].api_key = "my-own-key".into();
+        let picked = crate::platform_config::find_provider_by_id(&list2, "qwen").expect("found");
+        assert_eq!(picked.api_key, "my-own-key");
     }
 }
 
 #[cfg(test)]
 mod effective_web_search_model_tests {
     use super::*;
-    use std::collections::HashMap;
 
+    fn single(provider: &str, model: &str) -> ComputerTierLlmConfig {
+        ComputerTierLlmConfig {
+            provider_id: provider.into(),
+            model: model.into(),
+            enable_thinking: true,
+            thinking_budget: None,
+            reasoning_effort: None,
+            thinking_intensity: None,
+        }
+    }
+
+    /// 联网搜索只有一个模型：配了就一定用它，legacy 字符串不能盖过它。
     #[test]
-    fn tier_map_beats_legacy_web_search_model_string() {
+    fn single_model_beats_legacy_web_search_model_string() {
         let mut settings = ModelSettings::default();
         settings.web_search_model = "legacy-model".into();
-        settings
-            .agent_performance_modes
-            .insert(WEB_SEARCH_SCENE_ID.into(), "expert".into());
-        let mut expert = HashMap::new();
-        expert.insert(
-            "expert".into(),
-            ComputerTierLlmConfig {
-                provider_id: "qwen".into(),
-                model: "qwen3-max-2026-01-23".into(),
-                enable_thinking: true,
-                thinking_budget: None,
-                reasoning_effort: None,
-                thinking_intensity: None,
-            },
-        );
-        settings
-            .agent_mode_llm
-            .insert(WEB_SEARCH_SCENE_ID.into(), expert);
+        settings.web_search_llm = single("qwen", "qwen3-max-2026-01-23");
         assert_eq!(
             effective_web_search_model(&settings, None),
             "qwen3-max-2026-01-23"
@@ -4522,47 +4544,30 @@ mod effective_web_search_model_tests {
     }
 
     #[test]
-    fn empty_tier_falls_back_to_legacy_string() {
+    fn empty_single_model_falls_back_to_legacy_string() {
         let mut settings = ModelSettings::default();
         settings.web_search_model = "from-legacy".into();
         assert_eq!(effective_web_search_model(&settings, None), "from-legacy");
     }
 
+    /// 没配也没 legacy 时走目录里的 DashScope 模型，不能返回空串。
     #[test]
-    fn unset_web_search_scene_prefers_fast_over_standard_tier() {
+    fn unset_everything_falls_back_to_catalog() {
+        let settings = ModelSettings::default();
+        assert!(!effective_web_search_model(&settings, None).is_empty());
+    }
+
+    /// 档位已经是历史概念：agentModeLlm 里的 web_search 不再影响结果。
+    #[test]
+    fn tier_map_no_longer_affects_the_model() {
         let mut settings = ModelSettings::default();
-        // Both tiers exist, but the scene mode is unset: the non-agent `web_search`
-        // scene keeps the `fast` fallback (only agent tiers default to `standard`).
-        let mut tiers = HashMap::new();
-        for (mode, model) in [
-            ("fast", "qwen3-fast-2026"),
-            ("standard", "qwen3-standard-2026"),
-        ] {
-            tiers.insert(
-                mode.into(),
-                ComputerTierLlmConfig {
-                    provider_id: "qwen".into(),
-                    model: model.into(),
-                    enable_thinking: true,
-                    thinking_budget: None,
-                    reasoning_effort: None,
-                    thinking_intensity: None,
-                },
-            );
-        }
+        settings.web_search_llm = single("qwen", "qwen3.7-flash");
+        let mut tiers = std::collections::HashMap::new();
+        tiers.insert("expert".into(), single("qwen", "should-be-ignored"));
         settings
             .agent_mode_llm
             .insert(WEB_SEARCH_SCENE_ID.into(), tiers);
-        assert!(
-            !settings
-                .agent_performance_modes
-                .contains_key(WEB_SEARCH_SCENE_ID),
-            "precondition: scene mode unset"
-        );
-        assert_eq!(
-            effective_web_search_model(&settings, None),
-            "qwen3-fast-2026"
-        );
+        assert_eq!(effective_web_search_model(&settings, None), "qwen3.7-flash");
     }
 }
 
@@ -5327,102 +5332,60 @@ mod web_search_tier_default_tests {
         .unwrap()
     }
 
+    /// 平台下发 webSearchLlm → 直接落到单模型字段。
     #[test]
-    fn platform_web_search_default_uses_deepseek_when_present() {
-        let providers = vec![
-            provider(
-                "qwen",
-                "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                &["qwen3.8-max"],
-            ),
-            provider(
-                "deepseek",
-                "https://api.deepseek.com/v1",
-                &["deepseek-flash", "deepseek-v4-pro"],
-            ),
-        ];
+    fn platform_web_search_single_model_is_applied() {
+        let providers = vec![provider(
+            "qwen",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            &["qwen3.7-flash"],
+        )];
         let defaults = serde_json::json!({
-            "agentModeLlm": {
-                "web_search": {
-                    "fast": { "providerId": "qwen", "model": "qwen3.8-max" }
-                }
-            }
+            "webSearchLlm": { "providerId": "qwen", "model": "qwen3.7-flash" }
         });
         let mut settings = ModelSettings::default();
         apply_platform_tier_defaults(&mut settings, &defaults, &providers);
-        assert_eq!(
-            settings.agent_mode_llm["web_search"]["fast"].provider_id,
-            "deepseek"
-        );
-        assert_eq!(
-            settings.agent_mode_llm["web_search"]["fast"].model,
-            "deepseek-flash"
-        );
-        assert_eq!(
-            settings.agent_mode_llm["web_search"]["expert"].model,
-            "deepseek-flash"
-        );
+        assert_eq!(settings.web_search_llm.provider_id, "qwen");
+        assert_eq!(settings.web_search_llm.model, "qwen3.7-flash");
     }
 
+    /// 用户已经选了模型，平台下发不能覆盖。
     #[test]
-    fn user_web_search_tier_is_kept() {
+    fn user_web_search_model_is_kept() {
+        let providers = vec![provider(
+            "qwen",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            &["qwen3.7-flash"],
+        )];
+        let mut settings = ModelSettings::default();
+        settings.web_search_llm = ComputerTierLlmConfig {
+            provider_id: "qwen".into(),
+            model: "user-picked".into(),
+            enable_thinking: false,
+            thinking_budget: None,
+            reasoning_effort: None,
+            thinking_intensity: None,
+        };
+        let defaults = serde_json::json!({
+            "webSearchLlm": { "providerId": "qwen", "model": "qwen3.7-flash" }
+        });
+        apply_platform_tier_defaults(&mut settings, &defaults, &providers);
+        assert_eq!(settings.web_search_llm.model, "user-picked");
+    }
+
+    /// 平台没下发 webSearchLlm 时保持空，交给解析链往下找，不编造模型。
+    #[test]
+    fn missing_platform_web_search_default_stays_empty() {
         let providers = vec![provider(
             "deepseek",
             "https://api.deepseek.com/v1",
             &["deepseek-flash"],
         )];
         let mut settings = ModelSettings::default();
-        settings.agent_mode_llm.insert(
-            "web_search".into(),
-            [(
-                "fast".into(),
-                ComputerTierLlmConfig {
-                    provider_id: "qwen".into(),
-                    model: "qwen3.8-max".into(),
-                    enable_thinking: false,
-                    thinking_budget: None,
-                    reasoning_effort: None,
-                    thinking_intensity: None,
-                },
-            )]
-            .into_iter()
-            .collect(),
-        );
         apply_platform_tier_defaults(&mut settings, &serde_json::json!({}), &providers);
-        assert_eq!(
-            settings.agent_mode_llm["web_search"]["fast"].provider_id,
-            "qwen"
-        );
-        assert_eq!(
-            settings.agent_mode_llm["web_search"]["standard"].provider_id,
-            "deepseek"
-        );
+        assert!(settings.web_search_llm.model.is_empty());
     }
 
-    #[test]
-    fn qwen_platform_default_stays_without_deepseek() {
-        let providers = vec![provider(
-            "qwen",
-            "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            &["qwen3.8-max"],
-        )];
-        let defaults = serde_json::json!({
-            "agentModeLlm": {
-                "web_search": {
-                    "fast": { "providerId": "qwen", "model": "qwen3.8-max" }
-                }
-            }
-        });
-        let mut settings = ModelSettings::default();
-        apply_platform_tier_defaults(&mut settings, &defaults, &providers);
-        assert_eq!(
-            settings.agent_mode_llm["web_search"]["fast"].provider_id,
-            "qwen"
-        );
-        assert!(settings.agent_mode_llm["web_search"]
-            .get("expert")
-            .is_none());
-    }
     #[test]
     fn tier_overrides_replace_only_the_slots_they_name() {
         use crate::agents::computer::runtime::ComputerModelConfig;

@@ -254,7 +254,7 @@ fn prepare_media_model_settings(
     if !model.model.trim().is_empty() {
         s.model = model.model.trim().to_string();
     }
-    if let Some(cfg) = crate::mode_llm::resolve_media_mode_llm_config(settings, kind) {
+    if let Some(cfg) = crate::mode_llm::resolve_media_understanding_config(settings, kind) {
         crate::thinking_strategy::apply_tier_thinking_to_round(&mut s, cfg);
     }
     s

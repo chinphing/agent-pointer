@@ -1268,3 +1268,12 @@ export async function revealWebhookSourceToken(
     `/api/webhooks/config/${encodeURIComponent(src)}/token`
   )
 }
+
+/** 企业插件下发只在桌面端（客户端直连控制面）；Web 端没有这条链路。 */
+export async function listOrgPlugins(): Promise<import('../types/plugin').OrgPluginView[]> {
+  return []
+}
+
+export async function installOrgPlugin(): Promise<void> {
+  throw new Error('企业插件下发仅在桌面端可用')
+}

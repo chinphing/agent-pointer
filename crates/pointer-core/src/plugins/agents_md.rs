@@ -39,7 +39,7 @@ fn is_filesystem_root(path: &Path) -> bool {
 }
 
 fn pointer_home_dir_no_create() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".pointer"))
+    crate::storage::pointer_home_dir_no_create()
 }
 
 fn same_dir(a: &Path, b: &Path) -> bool {

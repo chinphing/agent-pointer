@@ -14,7 +14,7 @@
 > **工具轮次**：`maxToolRounds`（默认 5000）/ `maxSubAgentToolRounds`（默认 **500**，硬顶 500）是普通用户偏好，在 **设置 → 系统设置 → 执行 → 轮次** 编辑；不要列入 WEB 调试字段剥离名单，否则非管理员改完会被服务端旧值盖回。自动压缩始终开启，无界面开关。加载时把旧产品默认 `200` 升到 500。
 
 > **WEB 回读**：平台管理员（含 standalone 本地管理员）的 `/api/settings` 响应会保留
-> `debugMenusEnabled` 等调试字段。三档映射（`agentModeLlm` / `mediaModeLlm` /
+> `debugMenusEnabled` 等调试字段。三档映射（`agentModeLlm` /
 > `computerTierLlm`）是普通用户偏好，**非管理员 GET/PUT 也必须回传**，否则改标准档
 > 会把已自定义的快速档冲回平台默认。
 > 其余调试字段非管理员响应仍省略；后端保存时保留平台调试字段。
@@ -33,7 +33,7 @@
 
 设置页在第一个异步请求之前同步构造不可变快照。服务端返回有效设置后同步回填 Store，避免旧响应覆盖正在编辑的模型服务 key 或场景模型映射。
 
-`saveUserSnapshot` 不能只回填 providers / 当前模型。场景档位（`agentPerformanceModes` / `mediaUnderstandingModes` / `computerInitialTier`）和三档映射也要写回 merged，否则输入框和下一轮对话仍读旧值。改档位时先写入内存，再异步落盘。
+`saveUserSnapshot` 不能只回填 providers / 当前模型。场景档位（`agentPerformanceModes` / `computerInitialTier`）和三档映射也要写回 merged，否则输入框和下一轮对话仍读旧值。改档位时先写入内存，再异步落盘。
 
 ## 模型能力标记
 
@@ -54,7 +54,7 @@
 
 ## 模式选择与调试模型映射
 
-- 通用 / 编程 Agent、多媒体理解、电脑操控：用户在 **设置 → 模型配置** 中调整场景档位；`agentModeLlm` / `mediaModeLlm` / `computerTierLlm` 作为用户覆盖通过 `updateUserSettings` 持久化，重启后保留。用户层服务商只按 `source` 分层：`source=platform` 不落盘、读盘删除；不得按服务商 id 认平台。档位映射引用平台 id 仍是用户覆盖。
+- 通用 / 编程 Agent、多媒体理解、电脑操控：用户在 **设置 → 模型配置** 中调整场景档位；`agentModeLlm` / `mediaUnderstanding` / `computerTierLlm` 作为用户覆盖通过 `updateUserSettings` 持久化，重启后保留。用户层服务商只按 `source` 分层：`source=platform` 不落盘、读盘删除；不得按服务商 id 认平台。档位映射引用平台 id 仍是用户覆盖。
 - **电脑操控档位 / Verify**：调试下拉使用全部已配置服务商的 `allModels`（值为 `providerId:model`），写入 `providerId` + `model`；运行时 `apply_round_settings` / `apply_pipeline_phase_settings` 会同时切换 `activeProviderId` 与 `model`。
 - **API Key 回退**：主会话 / 子 Agent 按模式解析出的 Provider **没有可用 API Key**，但当前活跃 Provider 有 Key 时，自动回退到活跃 Provider；模型优先用原活跃模型，若不在该 Provider 的 `models` 列表中则改用列表首项（打 warn 日志）。有 Key 时仍优先用模式映射，不静默改道。
 

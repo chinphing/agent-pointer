@@ -5,7 +5,10 @@ import type { SkillDef, SkillImportResult } from '../types/chat'
 import { GENERAL_AGENT_ID } from '../lib/agentUi'
 import { useSettingsStore } from './settings'
 import { agentsCache, ensureAgentsCatalog } from '../composables/useAgentUi'
-import { missingDefaultSystemSkillIds, missingSystemSkillIds } from '../lib/skillEnablement'
+import { missingDefaultSystemSkillIds, missingSystemSkillIds, mergeOrgDefaultOn } from '../lib/skillEnablement'
+
+/** `agentSkillOverrides` 里记录「员工显式关掉的企业技能」的保留键（与 Rust 侧 ORG_OPT_OUT_KEY 一致）。 */
+const ORG_OPT_OUT_KEY = '_orgOptOut'
 
 export const useSkillsStore = defineStore('skills', () => {
   const skills = ref<SkillDef[]>([])
@@ -38,13 +41,19 @@ export const useSkillsStore = defineStore('skills', () => {
   /** Resolve the agent's default skill ids from its definition (from AGENT.md). */
   function agentDefaultSkillIds(agentId: string): string[] {
     const agent = agentsCache.value.find(a => a.id === agentId)
-    if (agent) return [...agent.defaultSkillIds]
-    return []
+    return agent ? [...agent.defaultSkillIds] : []
   }
 
-  /** UI effective list: override ?? defaults (runtime also merges missing bundled defaults). */
+  /** UI effective list: override ?? defaults，再合并企业 `default_on`（员工显式关过的除外）。 */
   function enabledIdsForAgent(agentId: string): string[] {
-    return agentOverrideIds(agentId) ?? agentDefaultSkillIds(agentId)
+    const ids = agentOverrideIds(agentId) ?? agentDefaultSkillIds(agentId)
+    const defaultOn = skills.value.filter(s => s.defaultEnabled).map(s => s.id)
+    return mergeOrgDefaultOn(ids, defaultOn, orgOptOutIds())
+  }
+
+  /** 员工显式关掉的企业技能（存在保留键里，与运行时同一口径）。 */
+  function orgOptOutIds(): string[] {
+    return useSettingsStore().userSettings.agentSkillOverrides?.[ORG_OPT_OUT_KEY] ?? []
   }
 
   function hasAgentOverride(agentId: string): boolean {
@@ -58,12 +67,20 @@ export const useSkillsStore = defineStore('skills', () => {
 
   async function setAgentEnabledIds(agentId: string, ids: string[]) {
     const settings = useSettingsStore()
-    await settings.saveUser({
-      agentSkillOverrides: {
-        ...(settings.userSettings.agentSkillOverrides ?? {}),
-        [agentId]: [...new Set(ids)]
-      }
-    })
+    const overrides = { ...(settings.userSettings.agentSkillOverrides ?? {}) }
+    const next = [...new Set(ids)]
+    overrides[agentId] = next
+
+    // 企业 `default_on` 的技能被关掉时要记进 opt-out，否则下次合并又给开回来。
+    const optOut = new Set(orgOptOutIds())
+    for (const skill of skills.value) {
+      if (!skill.defaultEnabled) continue
+      if (next.includes(skill.id)) optOut.delete(skill.id)
+      else optOut.add(skill.id)
+    }
+    overrides[ORG_OPT_OUT_KEY] = [...optOut]
+
+    await settings.saveUser({ agentSkillOverrides: overrides })
   }
 
   async function toggleForAgent(agentId: string, skillId: string) {

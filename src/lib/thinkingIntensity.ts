@@ -162,11 +162,18 @@ export function defaultProtocolForTemplate(
     | 'qwen'
     | 'deepseek'
     | 'doubao'
-    | 'openai_compatible'
-    | 'openrouter'
-    | 'kimi'
     | 'zhipu'
+    | 'kimi'
     | 'mimo'
+    | 'hunyuan'
+    | 'qianfan'
+    | 'minimax'
+    | 'stepfun'
+    | 'openai'
+    | 'gemini'
+    | 'grok'
+    | 'openrouter'
+    | 'openai_compatible'
 ): ThinkingProtocol {
   switch (template) {
     case 'qwen':
@@ -182,6 +189,17 @@ export function defaultProtocolForTemplate(
     case 'doubao':
       return 'off'
     case 'mimo':
+      return 'auto'
+    // 这几家都吃根级 reasoning_effort（Rust 侧 Auto 也推断成 OpenaiEffort）
+    case 'openai':
+    case 'grok':
+    case 'minimax':
+      return 'openai_effort'
+    // 混元 / 千帆 / 阶跃 / Gemini：没有统一的思考字段，交给 Auto 按地址推断
+    case 'hunyuan':
+    case 'qianfan':
+    case 'stepfun':
+    case 'gemini':
       return 'auto'
     default:
       return 'auto'

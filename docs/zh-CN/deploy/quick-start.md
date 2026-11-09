@@ -67,7 +67,7 @@ npm run web:dev
 | `--runtime` | 默认 | 启动什么 | 会不会重新编译 |
 | --- | --- | --- | --- |
 | `bin` | 是 | 桌面客户端：已有的 `target/release/pointer-app`，否则已安装的 `pointer-app`。服务端：已有的 `pointer-server` | 不编译。客户端两处都没有，或服务端缺二进制 / `dist/`，就退出。只有写了 `--build` 才本地重新编译 |
-| `dev` | 否 | `cargo run`、本机 Vite、本机 Tauri CLI | 源码、`POINTER_EDITION` 或三个域名变了才重编。都没变时 Cargo 复用已有 debug 产物 |
+| `dev` | 否 | `cargo run`、本机 Vite、本机 Tauri CLI | 源码、`POINTER_EDITION` 或控制面地址变了才重编。都没变时 Cargo 复用已有 debug 产物 |
 
 开发者日常改代码用上面的 npm，不用脚本的 `--runtime dev`。`--runtime dev` 只在要用脚本把四种格子拉成开发态时使用。
 
@@ -76,7 +76,7 @@ npm run web:dev
 | `standalone-server` | 页面在 `http://127.0.0.1:8787/`，`GET /api/auth/mode` 为 `standalone` | Vite 页面在 `http://127.0.0.1:1420/`，API 仍在 `8787` |
 | `standalone-client` | 桌面窗口是 `pointer-app`，不占用 `1420` | Vite 在 `127.0.0.1:1420` 监听，桌面窗口出现 |
 | `managed-server` | 同上，`GET /api/auth/mode` 为 `platform` | 同上，并且 `POINTER_EDITION=managed` |
-| `managed-client` | 桌面进程带上三个控制面域名，不占用 `1420` | `tauri dev`，编译和运行都带上三个域名 |
+| `managed-client` | 桌面进程带上控制面地址，不占用 `1420` | `tauri dev`，编译和运行都带上控制面地址 |
 
 开发态的服务端网页和桌面客户端都占用 Vite 端口 `1420`，同时只能跑一个。服务端 API 固定在 `127.0.0.1:8787`。发布版服务端自己托管 `dist/`，网页也在 `http://127.0.0.1:8787/`。开发态和发布版的服务端不能同时听 `8787`。
 
@@ -107,7 +107,7 @@ scripts\quick-deploy.bat start standalone-server --runtime bin
 
 ## managed 服务端
 
-需要三个控制面域名。没有真实控制面时，进程仍会以 platform 模式起来，但浏览器登录要等控制面可访问。
+需要控制面地址（`POINTER_API_BASE`）。没有真实控制面时，进程仍会以 platform 模式起来，但浏览器登录要等控制面可访问。
 
 ```bash
 ./scripts/quick-deploy.sh start managed-server --runtime bin \
@@ -120,9 +120,9 @@ scripts\quick-deploy.bat start standalone-server --runtime bin
 scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://pointer-api.example.com --web-base https://pointer.example.com
 ```
 
-也可以导出 `POINTER_API_BASE`、`POINTER_WEB_BASE`，再省略这两项参数。不写 `--build` 时，脚本只把域名放进进程环境后启动已有二进制。加上 `--build` 才按这次传入的域名本地重新编译。构建缺一个域名就会失败。开发者打这个包也可以用 `npm run server:build`。
+也可以导出 `POINTER_API_BASE`，再省略 `--api-base`。不写 `--build` 时，脚本只把域名放进进程环境后启动已有二进制。加上 `--build` 才按这次传入的域名本地重新编译。构建缺控制面地址就会失败。开发者打这个包也可以用 `npm run server:build`。
 
-`--runtime dev` 才会执行 `cargo run -p pointer-server` 和本机 Vite。Cargo 只在源码、`POINTER_EDITION` 或三个域名变化时重编。
+`--runtime dev` 才会执行 `cargo run -p pointer-server` 和本机 Vite。Cargo 只在源码、`POINTER_EDITION` 或控制面地址变化时重编。
 
 ## managed 客户端
 
@@ -133,7 +133,7 @@ scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://p
  
 ```
 
-不写 `--build` 时用已有的 `target/release/pointer-app` 或已安装的程序。加上 `--build` 才按这次传入的三个域名本地重新编译。企业版客户端还要一把 updater 私钥，默认 `~/.tauri/pointer-updater.key`（Windows 是 `%USERPROFILE%\.tauri\pointer-updater.key`）。文件不存在时，终端里会问一次，输入 `y` 才生成；加上 `--generate-updater-key` 则直接生成。已有文件不会被覆盖。开发者打这个客户端也可以用 `npm run tauri:build`。
+不写 `--build` 时用已有的 `target/release/pointer-app` 或已安装的程序。加上 `--build` 才按这次传入的控制面地址本地重新编译。企业版客户端还要一把 updater 私钥，默认 `~/.tauri/pointer-updater.key`（Windows 是 `%USERPROFILE%\.tauri\pointer-updater.key`）。文件不存在时，终端里会问一次，输入 `y` 才生成；加上 `--generate-updater-key` 则直接生成。已有文件不会被覆盖。开发者打这个客户端也可以用 `npm run tauri:build`。
 
 ## 只看计划、不启动
 

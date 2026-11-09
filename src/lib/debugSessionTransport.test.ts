@@ -16,7 +16,8 @@ const snapshot = {
   maxTokens: 4096,
   computerPipelineLlm: {},
   agentModeLlm: {},
-  mediaModeLlm: {}
+  mediaUnderstanding: {},
+  webSearchLlm: { providerId: '', model: '' }
 } satisfies DebugSessionSettings
 
 describe('debug session settings transports', () => {

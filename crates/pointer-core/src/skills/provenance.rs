@@ -19,6 +19,8 @@ pub enum SkillProvenanceKind {
     User,
     /// Codex / Agent `~/.agents/skills` compatibility path (read-only in Pointer).
     External,
+    /// 企业控制面下发（`{data_dir}/org-skills`，只读）。
+    Org,
 }
 
 impl SkillProvenanceKind {
@@ -27,6 +29,7 @@ impl SkillProvenanceKind {
             Self::System => "system",
             Self::User => "user",
             Self::External => "external",
+            Self::Org => "org",
         }
     }
 }
@@ -179,6 +182,33 @@ pub fn mark_agent_created(skill_id: &str, imported_from: Option<&str>) {
     }
 }
 
+/// 从 origin manifest 里删掉一条（技能下架时用）。
+pub fn remove_manifest_entry(root: &Path, skill_id: &str) -> Result<()> {
+    let path = root.join(BUNDLED_MANIFEST);
+    if !path.exists() {
+        return Ok(());
+    }
+    let kept: Vec<String> = fs::read_to_string(&path)?
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                return true;
+            }
+            trimmed.split(':').next().map(str::trim) != Some(skill_id)
+        })
+        .map(str::to_string)
+        .collect();
+    if kept.iter().all(|line| line.trim().is_empty()) {
+        let _ = fs::remove_file(&path);
+        return Ok(());
+    }
+    let mut body = kept.join("\n");
+    body.push('\n');
+    atomic_write(&path, body.as_bytes())?;
+    Ok(())
+}
+
 pub fn is_pinned(skill_id: &str) -> bool {
     load_usage().skills.get(skill_id).is_some_and(|r| r.pinned)
 }
@@ -213,6 +243,12 @@ pub fn resolve_provenance_for_path(skill_id: &str, skill_dir: &Path) -> SkillPro
     if super::external::is_agents_skills_path(skill_dir) {
         return SkillProvenanceKind::External;
     }
+    if super::external::org_skills_dir()
+        .ok()
+        .is_some_and(|root| super::external::is_under(skill_dir, &root))
+    {
+        return SkillProvenanceKind::Org;
+    }
     if system_skills_dir()
         .ok()
         .is_some_and(|root| skill_dir.starts_with(&root))
@@ -225,7 +261,9 @@ pub fn resolve_provenance_for_path(skill_id: &str, skill_dir: &Path) -> SkillPro
 
 pub fn is_mutable(skill_id: &str, skill_dir: &Path) -> bool {
     match resolve_provenance_for_path(skill_id, skill_dir) {
-        SkillProvenanceKind::System | SkillProvenanceKind::External => false,
+        SkillProvenanceKind::System
+        | SkillProvenanceKind::External
+        | SkillProvenanceKind::Org => false,
         SkillProvenanceKind::User => !is_pinned(skill_id),
     }
 }

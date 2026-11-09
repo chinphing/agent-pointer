@@ -1,0 +1,26 @@
+{
+  "_comment": "模型费率，照抄 pointer-official/apps/api/app/services/platform_model_catalog.py 的 DEFAULT_MODEL_RATIOS。ratio=1.0 是基准价：官方按 1 元 / 1MB（2^20 token）× ratio 计费。本仓库按「元 / 百万 token」计费，所以落库前要换算：yuan_per_million = ratio * 1000000 / 1048576。未列出的模型按 defaultRatio 处理（与官方一致）。",
+  "defaultRatio": 1.0,
+  "ratios": {
+    "qwen3.5-plus": 1.0,
+    "qwen3.5-27b": 1.0,
+    "qwen3.5-flash": 1.0,
+    "qwen3.7-max": 1.0,
+    "qwen3.7-plus": 1.0,
+    "qwen3.6-plus": 1.0,
+    "qwen3.6-27b": 1.0,
+    "qwen3.6-flash": 1.0,
+    "qwen3-asr-flash": 1.0,
+    "fun-asr": 1.0,
+    "qwen-image-2.0-pro": 1.0,
+    "wan2.7-image-pro": 0.5,
+    "happyhorse-1.0-t2v": 0.9,
+    "happyhorse-1.0-i2v": 0.9,
+    "deepseek-v4-flash": 2.0,
+    "deepseek-v4-pro": 2.0,
+    "doubao-seedream-5-0-lite-260128": 0.22,
+    "doubao-seedream-4-5-251128": 0.22,
+    "doubao-seedance-2-0-fast-260128": 1.0,
+    "doubao-seedance-2-0-260128": 1.0
+  }
+}

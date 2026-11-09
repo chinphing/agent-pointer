@@ -35,20 +35,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// `~/.pointer` 共享主目录（与 skills 同一 home）。
-/// 测试/部署可用 `POINTER_HOME` 覆盖整个 pointer home（避免污染真实用户目录）。
+/// 统一走 [`crate::storage::pointer_home_dir`]——`POINTER_HOME` 只在那里解析一次。
 pub fn pointer_home_dir() -> Result<PathBuf> {
-    if let Ok(raw) = std::env::var("POINTER_HOME") {
-        let trimmed = raw.trim();
-        if !trimmed.is_empty() {
-            let dir = PathBuf::from(trimmed);
-            std::fs::create_dir_all(&dir)?;
-            return Ok(dir);
-        }
-    }
-    let home = dirs::home_dir().ok_or_else(|| anyhow!("无法解析用户主目录"))?;
-    let dir = home.join(".pointer");
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
+    crate::storage::pointer_home_dir()
 }
 
 /// 用户级插件根目录 `~/.pointer/plugins`（不存在时创建）。

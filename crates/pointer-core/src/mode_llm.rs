@@ -62,22 +62,6 @@ fn tier_cfg_to_ref(cfg: &ComputerTierLlmConfig) -> AgentModelRef {
     }
 }
 
-fn lookup_mode_llm(
-    map: &std::collections::HashMap<
-        String,
-        std::collections::HashMap<String, ComputerTierLlmConfig>,
-    >,
-    outer_key: &str,
-    mode: &str,
-) -> Option<AgentModelRef> {
-    let inner = map.get(outer_key)?;
-    let cfg = inner.get(mode)?;
-    if cfg.model.trim().is_empty() {
-        return None;
-    }
-    Some(tier_cfg_to_ref(cfg))
-}
-
 /// Stored tier for `agent_id`, falling back to `default_mode` when unset.
 ///
 /// The fallback is a **caller** decision, not a global constant: agents default to
@@ -100,15 +84,6 @@ pub fn agent_performance_mode_with_default(
 /// Agent tier for `agent_id`; unset → [`PERFORMANCE_MODE_STANDARD`].
 pub fn agent_performance_mode(settings: &ModelSettings, agent_id: &str) -> &'static str {
     agent_performance_mode_with_default(settings, agent_id, PERFORMANCE_MODE_STANDARD)
-}
-
-pub fn media_understanding_mode(settings: &ModelSettings, kind: &str) -> &'static str {
-    let mode = match kind.trim() {
-        "audio" => settings.media_understanding_modes.audio.as_deref(),
-        "video" => settings.media_understanding_modes.video.as_deref(),
-        _ => settings.media_understanding_modes.image.as_deref(),
-    };
-    normalize_performance_mode(mode.unwrap_or(PERFORMANCE_MODE_FAST))
 }
 
 pub fn resolve_agent_mode_llm(settings: &ModelSettings, agent_id: &str) -> Option<AgentModelRef> {
@@ -153,36 +128,23 @@ pub fn resolve_agent_mode_llm_config<'a>(
     resolve_agent_mode_llm_config_for_mode(settings, key, mode)
 }
 
-pub fn resolve_media_mode_llm_config<'a>(
+/// 媒体理解：类型（image / audio / video）→ 单模型，无档位。
+pub fn resolve_media_understanding_config<'a>(
     settings: &'a ModelSettings,
     kind: &str,
 ) -> Option<&'a ComputerTierLlmConfig> {
-    let kind = kind.trim();
-    let mode = media_understanding_mode(settings, kind);
-    let inner = settings.media_mode_llm.get(kind)?;
-    let cfg = inner.get(mode)?;
+    let cfg = settings.media_understanding.get(kind.trim())?;
     if cfg.model.trim().is_empty() {
         return None;
     }
     Some(cfg)
 }
 
-pub fn resolve_media_mode_llm(settings: &ModelSettings, kind: &str) -> AgentModelRef {
-    let kind = kind.trim();
-    let mode = media_understanding_mode(settings, kind);
-    if let Some(r) = lookup_mode_llm(&settings.media_mode_llm, kind, mode) {
-        return r;
+pub fn resolve_media_understanding_model(settings: &ModelSettings, kind: &str) -> AgentModelRef {
+    if let Some(cfg) = resolve_media_understanding_config(settings, kind) {
+        return tier_cfg_to_ref(cfg);
     }
-    // Legacy direct overrides (image / audio / video keys in media_model_overrides).
-    let legacy = match kind {
-        "audio" => settings.media_model_overrides.audio.as_ref(),
-        "video" => settings.media_model_overrides.video.as_ref(),
-        _ => settings.media_model_overrides.image.as_ref(),
-    };
-    if let Some(m) = legacy.filter(|m| !m.model.trim().is_empty()) {
-        return m.clone();
-    }
-    // 无本地平台默认：媒体理解未配置时返回空引用，由调用方按“未配置 API Key”处理。
+    // 媒体理解未配置时返回空引用，由调用方按「未配置 API Key」处理。
     AgentModelRef {
         provider_id: String::new(),
         model: String::new(),
@@ -192,7 +154,6 @@ pub fn resolve_media_mode_llm(settings: &ModelSettings, kind: &str) -> AgentMode
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::MediaModelOverrides;
     use std::collections::HashMap;
 
     fn sample_mode_llm(
@@ -223,33 +184,41 @@ mod tests {
         settings
             .agent_performance_modes
             .insert("general".into(), "fast".into());
-        settings.agent_mode_llm = sample_mode_llm("general", "fast", "qwen3.5-flash");
+        settings.agent_mode_llm = sample_mode_llm("general", "fast", "qwen3.7-flash");
         let r = resolve_agent_mode_llm(&settings, "general").unwrap();
-        assert_eq!(r.model, "qwen3.5-flash");
+        assert_eq!(r.model, "qwen3.7-flash");
     }
 
     #[test]
-    fn resolve_media_fast_fallback_empty_without_platform_defaults() {
+    fn resolve_media_understanding_empty_without_config() {
         let settings = ModelSettings::default();
-        let r = resolve_media_mode_llm(&settings, "image");
-        // 本地不再内置平台默认模型；未配置时返回空引用，由调用方按未配置处理。
+        let r = resolve_media_understanding_model(&settings, "image");
+        // 本地不内置平台默认模型；未配置时返回空引用，由调用方按未配置处理。
         assert!(r.model.is_empty());
         assert!(r.provider_id.is_empty());
     }
 
     #[test]
-    fn resolve_media_legacy_override() {
+    fn resolve_media_understanding_reads_one_model_per_kind() {
         let mut settings = ModelSettings::default();
-        settings.media_mode_llm.clear();
-        settings.media_model_overrides = MediaModelOverrides {
-            image: Some(AgentModelRef {
-                provider_id: "deepseek".into(),
-                model: "deepseek-v4-pro".into(),
-            }),
-            ..Default::default()
-        };
-        let r = resolve_media_mode_llm(&settings, "image");
-        assert_eq!(r.model, "deepseek-v4-pro");
+        settings.media_understanding.insert(
+            "image".into(),
+            ComputerTierLlmConfig {
+                provider_id: "qwen".into(),
+                model: "qwen3.8-flash".into(),
+                enable_thinking: false,
+                thinking_budget: None,
+                reasoning_effort: None,
+                thinking_intensity: None,
+            },
+        );
+        let r = resolve_media_understanding_model(&settings, "image");
+        assert_eq!(r.provider_id, "qwen");
+        assert_eq!(r.model, "qwen3.8-flash");
+        // 其它类型互不影响
+        assert!(resolve_media_understanding_model(&settings, "audio")
+            .model
+            .is_empty());
     }
 
     #[test]
@@ -369,20 +338,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn media_understanding_defaults_to_fast_when_unset() {
-        let settings = ModelSettings::default();
-        assert_eq!(
-            media_understanding_mode(&settings, "image"),
-            PERFORMANCE_MODE_FAST
-        );
-        assert_eq!(
-            media_understanding_mode(&settings, "audio"),
-            PERFORMANCE_MODE_FAST
-        );
-        assert_eq!(
-            media_understanding_mode(&settings, "video"),
-            PERFORMANCE_MODE_FAST
-        );
-    }
 }

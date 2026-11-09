@@ -54,9 +54,7 @@ const AUTH_MODE_URL = 'http://127.0.0.1:8787/api/auth/mode'
 
 const CLEARED_KEYS = [
   'POINTER_EDITION',
-  'VITE_POINTER_EDITION',
   'POINTER_API_BASE',
-  'POINTER_WEB_BASE',
   'VITE_POINTER_WEB_BASE',
   'POINTER_DOWNLOAD_URL',
   'VITE_POINTER_DOWNLOAD_URL',
@@ -82,9 +80,7 @@ export function defaultReleaseBinary(root, kind) {
 /** Keys a standalone `--build` must leave unset so `pointer.local.env` cannot fill them. */
 export const STANDALONE_BUILD_KEEP_UNSET = [
   'POINTER_EDITION',
-  'VITE_POINTER_EDITION',
   'POINTER_API_BASE',
-  'POINTER_WEB_BASE',
   'VITE_POINTER_WEB_BASE',
   'POINTER_DOWNLOAD_URL',
   'VITE_POINTER_DOWNLOAD_URL',
@@ -197,9 +193,8 @@ function cleanEnv(base) {
 function requireDomains(domains) {
   const missing = []
   if (!domains?.apiBase) missing.push('POINTER_API_BASE (--api-base)')
-  if (!domains?.webBase) missing.push('POINTER_WEB_BASE (--web-base)')
   if (missing.length) {
-    throw new Error(`managed mode needs control-plane domains: ${missing.join(', ')}`)
+    throw new Error(`managed mode needs a control-plane address: ${missing.join(', ')}`)
   }
 }
 
@@ -232,10 +227,9 @@ export function buildPlan(input) {
   if (managed) {
     requireDomains(input.domains)
     env.POINTER_EDITION = 'managed'
-    env.VITE_POINTER_EDITION = 'managed'
     env.POINTER_API_BASE = input.domains.apiBase
-    env.POINTER_WEB_BASE = input.domains.webBase
-    env.VITE_POINTER_WEB_BASE = input.domains.webBase
+    // 控制面只有一个地址；前端跳转（充值/下载）默认也用它，--web-base 仅作覆盖。
+    env.VITE_POINTER_WEB_BASE = input.domains.webBase || input.domains.apiBase
   }
 
   const staticDir = path.join(root, 'dist')
@@ -350,7 +344,7 @@ function usage() {
 --build compiles that release binary locally, then starts target/release. It is never implied. It does not apply to --runtime dev.
 --generate-updater-key applies to a managed client --build. It creates ~/.tauri/pointer-updater.key when that file is missing, and keeps an existing file. Without the flag, a terminal asks first.
 --runtime dev compiles as it starts: cargo run, the local Vite CLI, or the local Tauri CLI.
-Managed modes need both control-plane domains (flags or POINTER_API_BASE / POINTER_WEB_BASE).
+Managed modes need the control-plane address (--api-base or POINTER_API_BASE).
 Dev server and dev client share Vite port ${WEB_PORT}. The release server serves dist/ on ${SERVER_ADDR}.`)
 }
 
@@ -411,7 +405,7 @@ export function parseArgs(argv) {
     }
   }
   domains.apiBase ||= process.env.POINTER_API_BASE
-  domains.webBase ||= process.env.POINTER_WEB_BASE
+  domains.webBase ||= process.env.VITE_POINTER_WEB_BASE
   return { command, mode, domains, stateDir, runtime, build, generateUpdaterKey }
 }
 

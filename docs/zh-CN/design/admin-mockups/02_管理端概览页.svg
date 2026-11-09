@@ -1,0 +1,93 @@
+<svg viewBox="0 0 1040 640" xmlns="http://www.w3.org/2000/svg" role="img">
+  <title>管理端概览页</title>
+  <rect width="1040" height="640" fill="#F7F7F8"/>
+  <rect x="0" y="0" width="212" height="640" fill="#F2F2F4"/>
+  <line x1="212" y1="0" x2="212" y2="640" stroke="#E5E5E8"/>
+  <rect x="212" y="0" width="828" height="56" fill="#FFFFFF"/>
+  <line x1="212" y1="56" x2="1040" y2="56" stroke="#E5E5E8"/>
+  <g font-family="system-ui, -apple-system, 'PingFang SC', sans-serif">
+    <text x="20" y="34" font-size="13" font-weight="600" fill="#18181B">Pointer 管理端</text>
+    <rect x="12" y="68" width="188" height="32" rx="8" fill="#E8E8EB"/>
+    <text x="28" y="89" font-size="12" font-weight="600" fill="#18181B">概览</text>
+    <text x="28" y="125" font-size="12" fill="#52525B">成员</text>
+    <text x="28" y="161" font-size="12" fill="#52525B">角色与权限</text>
+    <text x="28" y="197" font-size="12" fill="#52525B">资源</text>
+    <text x="28" y="233" font-size="12" fill="#52525B">用量与配额</text>
+    <text x="28" y="269" font-size="12" fill="#52525B">审计日志</text>
+    <text x="28" y="305" font-size="12" fill="#52525B">系统</text>
+    <circle cx="32" cy="596" r="13" fill="#D4D4D8"/>
+    <text x="54" y="592" font-size="12" fill="#18181B">王国宏</text>
+    <text x="54" y="608" font-size="10" fill="#71717A">超级管理员</text>
+    <text x="236" y="34" font-size="15" font-weight="600" fill="#18181B">概览</text>
+    <rect x="740" y="16" width="180" height="28" rx="8" fill="#F2F2F4"/>
+    <text x="752" y="34" font-size="11" fill="#A1A1AA">搜索成员 / 资源</text>
+    <circle cx="1000" cy="30" r="13" fill="#E8E8EB"/>
+    <text x="1000" y="34" font-size="11" fill="#18181B" text-anchor="middle">王</text>
+  </g>
+  <g font-family="system-ui, 'PingFang SC', sans-serif">
+    <rect x="236" y="76" width="182" height="88" rx="10" fill="#FFFFFF" stroke="#E5E5E8"/>
+    <text x="256" y="104" font-size="11" fill="#71717A">成员</text>
+    <text x="256" y="140" font-size="20" font-weight="600" fill="#18181B">128</text>
+    <text x="256" y="156" font-size="10" fill="#71717A">本月新增 6</text>
+    <rect x="434" y="76" width="182" height="88" rx="10" fill="#FFFFFF" stroke="#E5E5E8"/>
+    <text x="454" y="104" font-size="11" fill="#71717A">本月 Token</text>
+    <text x="454" y="140" font-size="20" font-weight="600" fill="#18181B">42.6M</text>
+    <text x="454" y="156" font-size="10" fill="#71717A">较上月 +18%</text>
+    <rect x="632" y="76" width="182" height="88" rx="10" fill="#FFFFFF" stroke="#E5E5E8"/>
+    <text x="652" y="104" font-size="11" fill="#71717A">启用资源</text>
+    <text x="652" y="140" font-size="20" font-weight="600" fill="#18181B">22</text>
+    <text x="652" y="156" font-size="10" fill="#71717A">模型 6 · 技能 12 · 插件 4</text>
+    <rect x="830" y="76" width="182" height="88" rx="10" fill="#FFFFFF" stroke="#E5E5E8"/>
+    <text x="850" y="104" font-size="11" fill="#71717A">近 24h 异常</text>
+    <text x="850" y="140" font-size="20" font-weight="600" fill="#C0362C">2</text>
+    <text x="850" y="156" font-size="10" fill="#71717A">均为登录失败</text>
+    <rect x="236" y="184" width="404" height="222" rx="10" fill="#FFFFFF" stroke="#E5E5E8"/>
+    <text x="256" y="212" font-size="12" font-weight="600" fill="#18181B">近 7 天 Token 用量</text>
+    <text x="624" y="212" font-size="10" fill="#71717A" text-anchor="end">单位：百万 token</text>
+    <rect x="262" y="308" width="32" height="58" rx="4" fill="#A8CBFA"/>
+    <rect x="316" y="284" width="32" height="82" rx="4" fill="#A8CBFA"/>
+    <rect x="370" y="296" width="32" height="70" rx="4" fill="#A8CBFA"/>
+    <rect x="424" y="260" width="32" height="106" rx="4" fill="#A8CBFA"/>
+    <rect x="478" y="274" width="32" height="92" rx="4" fill="#A8CBFA"/>
+    <rect x="532" y="242" width="32" height="124" rx="4" fill="#0071EB"/>
+    <rect x="586" y="280" width="32" height="86" rx="4" fill="#A8CBFA"/>
+    <line x1="256" y1="366" x2="624" y2="366" stroke="#E5E5E8"/>
+    <text x="278" y="386" font-size="10" fill="#71717A" text-anchor="middle">周一</text>
+    <text x="332" y="386" font-size="10" fill="#71717A" text-anchor="middle">周二</text>
+    <text x="386" y="386" font-size="10" fill="#71717A" text-anchor="middle">周三</text>
+    <text x="440" y="386" font-size="10" fill="#71717A" text-anchor="middle">周四</text>
+    <text x="494" y="386" font-size="10" fill="#71717A" text-anchor="middle">周五</text>
+    <text x="548" y="386" font-size="10" fill="#71717A" text-anchor="middle">周六</text>
+    <text x="602" y="386" font-size="10" fill="#71717A" text-anchor="middle">周日</text>
+    <rect x="656" y="184" width="356" height="222" rx="10" fill="#FFFFFF" stroke="#E5E5E8"/>
+    <text x="676" y="212" font-size="12" font-weight="600" fill="#18181B">最近操作</text>
+    <text x="676" y="242" font-size="11" fill="#18181B">王国宏 修改了 技能「差旅报销」</text>
+    <text x="996" y="242" font-size="10" fill="#71717A" text-anchor="end">2 小时前</text>
+    <text x="676" y="272" font-size="11" fill="#18181B">李静 新增了 模型 qwen3.5-plus</text>
+    <text x="996" y="272" font-size="10" fill="#71717A" text-anchor="end">昨天</text>
+    <text x="676" y="302" font-size="11" fill="#18181B">王国宏 停用了 技能「会议纪要」</text>
+    <text x="996" y="302" font-size="10" fill="#71717A" text-anchor="end">3 天前</text>
+    <text x="676" y="332" font-size="11" fill="#18181B">张伟 登录失败 2 次</text>
+    <text x="996" y="332" font-size="10" fill="#71717A" text-anchor="end">3 天前</text>
+    <text x="676" y="362" font-size="11" fill="#18181B">系统 轮换了 模型服务密钥</text>
+    <text x="996" y="362" font-size="10" fill="#71717A" text-anchor="end">5 天前</text>
+    <rect x="236" y="422" width="776" height="190" rx="10" fill="#FFFFFF" stroke="#E5E5E8"/>
+    <text x="256" y="450" font-size="12" font-weight="600" fill="#18181B">资源总览</text>
+    <rect x="256" y="466" width="172" height="112" rx="8" fill="#FAFAFA" stroke="#E5E5E8"/>
+    <text x="272" y="492" font-size="11" fill="#71717A">模型服务</text>
+    <text x="272" y="524" font-size="18" font-weight="600" fill="#18181B">3</text>
+    <text x="272" y="544" font-size="10" fill="#71717A">3 个可用 Key</text>
+    <rect x="444" y="466" width="172" height="112" rx="8" fill="#FAFAFA" stroke="#E5E5E8"/>
+    <text x="460" y="492" font-size="11" fill="#71717A">模型</text>
+    <text x="460" y="524" font-size="18" font-weight="600" fill="#18181B">6</text>
+    <text x="460" y="544" font-size="10" fill="#71717A">2 个档位</text>
+    <rect x="632" y="466" width="172" height="112" rx="8" fill="#FAFAFA" stroke="#E5E5E8"/>
+    <text x="648" y="492" font-size="11" fill="#71717A">技能</text>
+    <text x="648" y="524" font-size="18" font-weight="600" fill="#18181B">12</text>
+    <text x="648" y="544" font-size="10" fill="#71717A">10 启用 / 2 停用</text>
+    <rect x="820" y="466" width="172" height="112" rx="8" fill="#FAFAFA" stroke="#E5E5E8"/>
+    <text x="836" y="492" font-size="11" fill="#71717A">插件</text>
+    <text x="836" y="524" font-size="18" font-weight="600" fill="#18181B">4</text>
+    <text x="836" y="544" font-size="10" fill="#71717A">4 已启用</text>
+  </g>
+</svg>

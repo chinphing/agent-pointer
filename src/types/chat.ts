@@ -590,11 +590,11 @@ export const PERFORMANCE_MODE_OPTIONS: { value: PerformanceMode; labelKey: strin
   { value: 'expert', labelKey: 'chat.modeExpert' }
 ]
 
-export interface MediaUnderstandingModes {
-  image?: PerformanceMode
-  audio?: PerformanceMode
-  video?: PerformanceMode
-}
+/** 媒体理解的三种附件类型。 */
+export type MediaKind = 'image' | 'audio' | 'video'
+
+/** 媒体理解：类型 → 单模型（无档位）。 */
+export type MediaUnderstandingModels = Partial<Record<MediaKind, PerformanceModeLlmConfig>>
 
 /** agentId → user-selected performance mode (general / coder). */
 export type AgentPerformanceModes = Partial<Record<string, PerformanceMode>>
@@ -602,11 +602,6 @@ export type AgentPerformanceModes = Partial<Record<string, PerformanceMode>>
 /** Debug: agentId → mode → LLM profile (like computer tier models). */
 export type AgentModeLlmMap = Partial<
   Record<string, Partial<Record<PerformanceModeKey, PerformanceModeLlmConfig>>>
->
-
-/** Debug: media kind → mode → LLM profile. */
-export type MediaModeLlmMap = Partial<
-  Record<'image' | 'audio' | 'video', Partial<Record<PerformanceModeKey, PerformanceModeLlmConfig>>>
 >
 
 export interface ProviderConfig {
@@ -737,10 +732,11 @@ export interface UserSettings {
   webSearchModel?: string
   mediaModelOverrides?: MediaModelOverrides
   agentPerformanceModes?: AgentPerformanceModes
-  mediaUnderstandingModes?: MediaUnderstandingModes
+  mediaUnderstanding?: MediaUnderstandingModels
+  /** 联网搜索：单模型，无档位。 */
+  webSearchLlm?: PerformanceModeLlmConfig
   computerPipelineLlm?: ComputerPipelineLlmSettings
   agentModeLlm?: AgentModeLlmMap
-  mediaModeLlm?: MediaModeLlmMap
   parallelToolExecutionEnabled?: boolean
   maxParallelToolCalls?: number | null
   maxParallelSubAgents?: number | null
@@ -827,7 +823,8 @@ export interface DebugSessionSettings {
   maxTokens: number
   computerPipelineLlm: ComputerPipelineLlmSettings
   agentModeLlm: AgentModeLlmMap
-  mediaModeLlm: MediaModeLlmMap
+  mediaUnderstanding: MediaUnderstandingModels
+  webSearchLlm: PerformanceModeLlmConfig
 }
 
 /** 平台模型条目（name + 可选模型级参数；未设置的字段继承服务商默认）。 */
@@ -958,9 +955,9 @@ export interface ModelSettings {
   agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
   mediaModelOverrides?: MediaModelOverrides
   agentPerformanceModes?: AgentPerformanceModes
-  mediaUnderstandingModes?: MediaUnderstandingModes
+  mediaUnderstanding?: MediaUnderstandingModels
+  webSearchLlm?: PerformanceModeLlmConfig
   agentModeLlm?: AgentModeLlmMap
-  mediaModeLlm?: MediaModeLlmMap
   computerPipelineLlm?: ComputerPipelineLlmSettings
   mediaOss?: MediaOssConfig
   parallelToolExecutionEnabled?: boolean
@@ -983,8 +980,10 @@ export interface SkillDef {
   /** Always empty in catalog responses; resources read on demand via skill_read. */
   resourceFiles?: string[]
   source?: string
-  /** `system` = app data bundled; `user` = ~/.pointer/skills; `external` = ~/.agents/skills */
+  /** `system` = app data bundled; `user` = ~/.pointer/skills; `external` = ~/.agents/skills; `org` = 企业下发（只读） */
   provenance?: string
+  /** 企业策略 `default_on`：没被显式关掉时默认启用。 */
+  defaultEnabled?: boolean
   mutable?: boolean
   /** Set when the skill is provided by a plugin (P1). */
   pluginId?: string

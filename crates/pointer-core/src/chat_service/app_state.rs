@@ -1139,6 +1139,7 @@ impl AppState {
 
     pub fn start_background_tasks(self: &Arc<Self>) {
         crate::skills::curator::start_background_loop(self.clone());
+        crate::skills::org_sync::start_background_loop(self.clone());
     }
 
     /// Build a [`crate::dispatcher::RunDispatcher`] backed by this state.
@@ -1885,11 +1886,25 @@ mod active_main_task_board_tests {
     }
 
     /// 把插件主目录指向临时目录（防测试污染真实 `~/.pointer/plugins`）。
-    /// 返回旧值以便测试结束后恢复。
-    fn isolate_plugins_home() -> tempfile::TempDir {
+    ///
+    /// 用 guard 持有临时目录、锁与恢复记录：POINTER_HOME 是进程级全局，
+    /// 只设不恢复会泄漏给并行跑的技能用例（它们按 `$HOME/.pointer` 找文件）。
+    struct PluginsHomeGuard {
+        _tmp: tempfile::TempDir,
+        _lock: std::sync::MutexGuard<'static, ()>,
+        _restore: crate::test_support::EnvRestore,
+    }
+
+    fn isolate_plugins_home() -> PluginsHomeGuard {
         let tmp = tempfile::tempdir().expect("temp plugins home");
+        let lock = crate::test_support::home_env_lock();
+        let restore = crate::test_support::EnvRestore::capture(&["POINTER_HOME"]);
         std::env::set_var("POINTER_HOME", tmp.path());
-        tmp
+        PluginsHomeGuard {
+            _tmp: tmp,
+            _lock: lock,
+            _restore: restore,
+        }
     }
 
     /// 插件启用后：其技能自动加入 general 的 agentSkillOverrides（落盘），
@@ -2297,11 +2312,9 @@ mod active_main_task_board_tests {
                 config.model = "session-worker".into();
             }
         }
-        for modes in debug.media_mode_llm.values_mut() {
-            for config in modes.values_mut() {
-                config.provider_id = "session-provider".into();
-                config.model = "session-worker".into();
-            }
+        for config in debug.media_understanding.values_mut() {
+            config.provider_id = "session-provider".into();
+            config.model = "session-worker".into();
         }
         debug.computer_pipeline_llm.decision = "session-worker".into();
         debug.computer_pipeline_llm.position = "session-worker".into();

@@ -3,8 +3,6 @@ import { computed, defineAsyncComponent, defineComponent, h, nextTick, onBeforeU
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import Composer from './Composer.vue'
-import ExperienceHomePanel from './ExperienceHomePanel.vue'
-import ExperienceHotPreview from './ExperienceHotPreview.vue'
 import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
 import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
@@ -118,7 +116,6 @@ const showFooterComposer = computed(() =>
 )
 // Standalone installs (no control plane) chat with local model keys — no login.
 const needsPlatformLogin = computed(() => platformAuth.needsSignIn)
-const experienceSectionExpanded = ref(false)
 /** Dev-only render perf overlay — off unless toggled (see `lib/renderPerf.ts`). */
 const perfHudOn = useRenderPerfEnabled()
 
@@ -421,41 +418,8 @@ const toastClass = computed(() => {
           <div
             v-if="!isMobileViewport || needsPlatformLogin"
             class="flex w-full flex-col"
-            :class="
-              isMobileViewport
-                ? 'pt-2'
-                : !platformAuth.isStandalone && experienceSectionExpanded
-                  ? 'min-h-[clamp(8rem,calc(50vh-4.5rem),16rem)] pt-12'
-                  : 'pt-10'
-            "
+            :class="isMobileViewport ? 'pt-2' : 'pt-10'"
           >
-            <template v-if="!isMobileViewport && !platformAuth.isStandalone">
-              <div class="mb-3 flex items-center gap-2">
-                <div class="min-w-0 flex-1">
-                  <ExperienceHotPreview />
-                </div>
-                <button
-                  type="button"
-                  class="inline-flex shrink-0 cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
-                  :aria-expanded="experienceSectionExpanded"
-                  @click="experienceSectionExpanded = !experienceSectionExpanded"
-                >
-                  <span class="text-xs font-medium text-muted">{{ t('chat.s_79f3b1') }}</span>
-                  <ChevronDown
-                    class="h-3.5 w-3.5 shrink-0 text-muted transition-transform duration-200"
-                    :class="experienceSectionExpanded ? 'rotate-180' : ''"
-                    aria-hidden="true"
-                  />
-                </button>
-              </div>
-
-              <Transition name="experience-section-expand">
-                <div v-if="experienceSectionExpanded" class="w-full">
-                  <ExperienceHomePanel />
-                </div>
-              </Transition>
-            </template>
-
             <div v-if="needsPlatformLogin" class="mt-10 flex w-full max-w-sm flex-col items-center">
               <div class="mb-4 h-px w-full bg-border" />
               <PlatformLoginActions
@@ -504,21 +468,4 @@ const toastClass = computed(() => {
   opacity: 0;
 }
 
-.experience-section-expand-enter-active,
-.experience-section-expand-leave-active {
-  overflow: hidden;
-  transition: max-height 0.24s ease, opacity 0.2s ease;
-}
-
-.experience-section-expand-enter-from,
-.experience-section-expand-leave-to {
-  max-height: 0;
-  opacity: 0;
-}
-
-.experience-section-expand-enter-to,
-.experience-section-expand-leave-from {
-  max-height: 32rem;
-  opacity: 1;
-}
 </style>

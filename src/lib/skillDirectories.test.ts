@@ -37,6 +37,16 @@ describe('userSkillDirectoryCandidates', () => {
     ])
   })
 
+  it('excludes enterprise org skills (managed by the control plane)', () => {
+    const skills = [
+      skill({ id: 'travel', name: 'travel', provenance: 'org', source: '/data/org-skills/travel' }),
+      skill({ id: 'mine', name: 'mine', provenance: 'user', source: '/Users/u/.pointer/skills/mine' })
+    ]
+    expect(userSkillDirectoryCandidates(skills, [])).toEqual([
+      { name: 'mine', path: '/Users/u/.pointer/skills/mine' }
+    ])
+  })
+
   it('excludes bundled system skills and skills without a source', () => {
     const skills = [
       skill({ id: 'pdf', name: 'pdf', provenance: 'system', source: '/app/PointerApp/skills/pdf' }),

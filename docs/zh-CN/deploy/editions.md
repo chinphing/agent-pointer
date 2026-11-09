@@ -33,9 +33,8 @@
 | 变量 | 作用 |
 | --- | --- |
 | `POINTER_EDITION=managed` | 打包口味，编译期烧入。**缺控制面域名时 `crates/pointer-core/build.rs` 直接 panic，构建失败** |
-| `VITE_POINTER_EDITION=managed` | 前端口味（`src/lib/platformUrls.ts` → `isManagedEdition()`） |
 | `POINTER_API_BASE` | 控制面 API 域名（构建期烧入 `POINTER_BUILTIN_API_BASE`） |
-| `POINTER_WEB_BASE` / `VITE_POINTER_WEB_BASE` | 控制面 Web 域名（充值 / 云主机跳转） |
+| `VITE_POINTER_WEB_BASE` | 前端跳转基址（充值/下载），缺省跟随 `POINTER_API_BASE` |
 | `POINTER_DOWNLOAD_URL` / `VITE_POINTER_DOWNLOAD_URL` | 下载页链接（关于页） |
 | `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PATH` | updater 签名私钥，**仅 managed 客户端需要** |
 
@@ -74,12 +73,10 @@ npm run icons                     # 首次或更换 icon.png 后
 npm run tauri:build
 
 # 方式 B：一次性导出（CI / 临时；键名与 pointer.local.env.example 一致）
-POINTER_EDITION=managed VITE_POINTER_EDITION=managed \
+POINTER_EDITION=managed \
   POINTER_API_BASE=https://pointer-api.example.com \
-  POINTER_WEB_BASE=https://pointer.example.com \
   \
-  VITE_POINTER_WEB_BASE=https://pointer.example.com \
-  POINTER_DOWNLOAD_URL=https://pointer.example.com/download \
+  VITE_  POINTER_DOWNLOAD_URL=https://pointer.example.com/download \
   TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key \
   npm run tauri:build
 ```
@@ -99,8 +96,7 @@ npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 | 变量 | 必需 | 说明 |
 | --- | --- | --- |
 | `POINTER_EDITION=managed` | ✅ | 口味。**只接受 `managed` 或留空**：其他任何值（含旧值 `official`）会让构建直接失败，避免静默降级为未绑定 |
-| `VITE_POINTER_EDITION=managed` | ✅ | 前端口味；未设时脚本会由 `POINTER_EDITION` 补齐 |
-| `POINTER_API_BASE` / `POINTER_WEB_BASE` | ✅ | 两个控制面域名，缺一即构建 panic |
+| `POINTER_API_BASE` | ✅ | 控制面地址（登录页/授权页/接口同源），缺即构建 panic |
 | `VITE_POINTER_WEB_BASE` / `POINTER_DOWNLOAD_URL` | 建议 | 前端跳转与关于页下载链接 |
 | `TAURI_SIGNING_PRIVATE_KEY` 或 `…_PATH` | ✅ | updater 签名私钥 |
 
@@ -127,7 +123,7 @@ src-tauri/target/release/bundle/
 
 ### 3.5 外部依赖
 
-- 控制面 API / Web / SOM 三个域名可达（企业用内网域名）。
+- 控制面地址可达（`POINTER_API_BASE`，企业用内网域名）。
 - updater 私钥。私钥旁边有 `.pub` 时，这次构建嵌这把公钥，不改 `src-tauri/tauri.conf.json`。没有 `.pub` 时用仓库里的 `plugins.updater.pubkey`，必须和私钥配对。
 - 发版：安装包 + updater 压缩包 + `.sig` 走控制台「客户端发布」。
 
@@ -142,7 +138,7 @@ src-tauri/target/release/bundle/
  
 ```
 
-开发者改代码用 `npm run tauri:dev`。脚本里要对这一格做开发态拉起时，把 `--runtime bin` 换成 `--runtime dev`，那才会走 Tauri CLI，并在源码、`POINTER_EDITION` 或三个域名变化时重编。
+开发者改代码用 `npm run tauri:dev`。脚本里要对这一格做开发态拉起时，把 `--runtime bin` 换成 `--runtime dev`，那才会走 Tauri CLI，并在源码、`POINTER_EDITION` 或控制面地址变化时重编。
 
 ---
 
@@ -162,12 +158,10 @@ npm run server:build
 
 # 方式 B：一次性导出（CI / 临时；键名与 pointer.local.env.example 一致）
 POINTER_EDITION=managed \
-VITE_POINTER_EDITION=managed \
-POINTER_API_BASE=https://pointer-api.example.com \
-POINTER_WEB_BASE=https://pointer.example.com \
 \
-VITE_POINTER_WEB_BASE=https://pointer.example.com \
-npm run server:build
+POINTER_API_BASE=https://pointer-api.example.com \
+\
+VITE_npm run server:build
 ```
 
 `server:build` = Vue 同源构建（`VITE_WEB_API_BASE` 置空）→ `cargo build -p pointer-server --release` → **校验两半口味一致** → 打 zip；Linux 上有 `dpkg-deb` 时再加 `.deb`。`--package-only` / `--deb-only` 不重新编译，但同样校验已有产物。
@@ -179,8 +173,7 @@ npm run server:build
 | 变量 | 必需 | 说明 |
 | --- | --- | --- |
 | `POINTER_EDITION=managed` | ✅ | 口味；也是「缺域名就 panic」的开关 |
-| `VITE_POINTER_EDITION=managed` | 建议 | 前端口味（云主机 / 充值入口可见性） |
-| `POINTER_API_BASE` / `POINTER_WEB_BASE` | ✅ | 两个控制面域名 |
+| `POINTER_API_BASE` | ✅ | 控制面地址（登录页/授权页/接口同源） |
 | `VITE_POINTER_WEB_BASE` | 建议 | 前端跳转控制面 Web |
 
 **运行期**（`pointer-server.toml`，见 `server/pointer-server.toml.example`）：
@@ -238,7 +231,7 @@ curl -s http://127.0.0.1:8787/api/auth/mode      # → {"mode":"platform"}
  
 ```
 
-开发者改代码用 `npm run server:dev`。脚本里的 `--runtime dev` 才会执行 `cargo run -p pointer-server` 和本机 Vite；源码、口味、三个域名都没变时，Cargo 复用已有 debug 产物。
+开发者改代码用 `npm run server:dev`。脚本里的 `--runtime dev` 才会执行 `cargo run -p pointer-server` 和本机 Vite；源码、口味、控制面地址都没变时，Cargo 复用已有 debug 产物。
 
 ---
 
@@ -368,7 +361,7 @@ npm run server:dev                                # 服务端调试（不受 poi
 | 角色 | 建议 |
 | --- | --- |
 | 开源 / 个人 | 不建文件（不设域名即未绑定 ⇒ standalone） |
-| 官网维护者 | 在 `pointer.local.env` 写 `managed` + 官网 API/Web/SOM 域名 |
+| 官网维护者 | 在 `pointer.local.env` 写 `managed` + 官网控制面地址 |
 | 企业内部 | 同样写 `managed`，域名改成内网控制面 |
 
 不要把生产域名、签名口令写进公开 `main`。需要联调控制面时只改本机 `pointer.local.env`。

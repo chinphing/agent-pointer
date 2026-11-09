@@ -121,11 +121,43 @@ impl Default for PlatformConfigManager {
 }
 
 /// Attach active-provider api key + has_key to merged runtime settings.
+/// 按 id 取服务商。
+///
+/// 身份是 `(source, id)`：同一个 id 可能同时存在「用户自己的」和「平台下发的」
+/// 两条记录。这里优先能真正发请求的那条——先看有没有密钥，再优先平台；
+/// 两边都有密钥时用户那条（显式选择）优先。
+pub fn find_provider_by_id<'a>(
+    providers: &'a [ProviderConfig],
+    id: &str,
+) -> Option<&'a ProviderConfig> {
+    let id = id.trim();
+    if id.is_empty() {
+        return None;
+    }
+    // 平手时保留**第一条**（用户条目排在平台条目之前，显式选择优先）。
+    // `max_by_key` 在相等时返回最后一条，会把用户的选择换成平台的。
+    let mut best: Option<&ProviderConfig> = None;
+    for provider in providers.iter().filter(|p| p.id == id) {
+        match best {
+            Some(current) if provider_rank(provider) <= provider_rank(current) => {}
+            _ => best = Some(provider),
+        }
+    }
+    best
+}
+
+fn provider_rank(provider: &ProviderConfig) -> u8 {
+    let has_key = !provider.api_key.trim().is_empty();
+    let is_platform = provider.source.as_deref() == Some("platform");
+    match (has_key, is_platform) {
+        (true, _) => 2,
+        (false, true) => 1,
+        (false, false) => 0,
+    }
+}
+
 pub fn finalize_merged_settings(mut settings: ModelSettings) -> ModelSettings {
-    if let Some(p) = settings
-        .providers
-        .iter()
-        .find(|p| p.id == settings.active_provider_id)
+    if let Some(p) = find_provider_by_id(&settings.providers, &settings.active_provider_id)
         .or_else(|| settings.providers.first())
     {
         settings.api_key = p.api_key.clone();
@@ -539,6 +571,25 @@ mod tests {
         );
         assert_eq!(qwen.models, vec!["qwen3.5-plus", "qwen-next"]);
         assert_eq!(qwen.source.as_deref(), Some("platform"));
+    }
+
+    /// 管理端给单个模型配的能力与生成参数，必须落到该模型的 model_configs，
+    /// 而不是被服务商级默认覆盖掉。
+    #[test]
+    fn apply_login_platform_providers_copies_model_level_capabilities() {
+        let mut providers: Vec<ProviderConfig> = Vec::new();
+        let mut tpl = qwen_template();
+        tpl.models[0].supports_vision = Some(true);
+        tpl.models[0].supports_audio = Some(false);
+        tpl.models[0].max_tokens = Some(8192);
+        tpl.models[0].thinking_intensity = Some("high".into());
+        apply_login_platform_providers(&mut providers, &[tpl]);
+        let qwen = providers.iter().find(|p| p.id == "qwen").unwrap();
+        let cfg = qwen.model_configs.get("qwen3.5-plus").expect("model config");
+        assert_eq!(cfg.supports_vision, Some(true));
+        assert_eq!(cfg.supports_audio, Some(false));
+        assert_eq!(cfg.max_tokens, Some(8192));
+        assert_eq!(cfg.thinking_intensity.as_deref(), Some("high"));
     }
 
     #[test]

@@ -44,13 +44,13 @@ Detailed version (artifact lists, troubleshooting, CI policy): [`editions.md`](e
 <a id="managed-client"></a>
 ## 1. managed × client
 
-- [ ] **1. Prepare variables** — in `pointer.local.env` write: `POINTER_EDITION=managed`, `VITE_POINTER_EDITION=managed`, the two domains (`POINTER_API_BASE` / `POINTER_WEB_BASE`), and the updater signing private key (`TAURI_SIGNING_PRIVATE_KEY` or `TAURI_SIGNING_PRIVATE_KEY_PATH`)
+- [ ] **1. Prepare variables** — in `pointer.local.env` write: `POINTER_EDITION=managed`, the control-plane address (`POINTER_API_BASE`), and the updater signing private key (`TAURI_SIGNING_PRIVATE_KEY` or `TAURI_SIGNING_PRIVATE_KEY_PATH`)
 - [ ] **2. Install dependencies and icons** — `npm install && npm run icons`
 - [ ] **3. Build** — `npm run tauri:build`
 - [ ] **4. Verify** — the build log contains `[tauri-build] POINTER_EDITION=managed`; `find src-tauri/target/release/bundle -name '*.sig'` returns results; after launch the About page shows the update entry
 - [ ] **5. Distribute** — artifacts under `src-tauri/target/release/bundle/**`
 
-**External dependencies**: the three control-plane domains reachable (internal domains for enterprises); the updater signing private key.
+**External dependencies**: the control-plane address reachable (internal domains for enterprises); the updater signing private key.
 
 **Why the signing key is mandatory**: `bundle.createUpdaterArtifacts` in `src-tauri/tauri.conf.json` is `true` (only the standalone `tauri.personal.conf.json` turns it off), so a missing key fails at the signing stage.
 
@@ -59,7 +59,7 @@ Detailed version (artifact lists, troubleshooting, CI policy): [`editions.md`](e
 <a id="managed-server"></a>
 ## 2. managed × server
 
-- [ ] **1. Prepare variables** — `POINTER_EDITION=managed` + `VITE_POINTER_EDITION=managed` + the three domains. Write them into `pointer.local.env` or export them explicitly (**OS / CI environment variables win**; the file only fills gaps)
+- [ ] **1. Prepare variables** — `POINTER_EDITION=managed` + the control-plane address. Write them into `pointer.local.env` or export them explicitly (**OS / CI environment variables win**; the file only fills gaps)
 - [ ] **2. Build** — `npm install && npm run server:build`
 - [ ] **3. Verify the domains are baked in** — the build log contains `[server-build] edition=managed domains=3/3 baked, web=managed`; `strings target/release/pointer-server | grep -m1 <your api_base domain>` prints output
 - [ ] **4. Runtime configuration** — `[pointer]` in `pointer-server.toml`: `api_base`, `oauth_client_secret` (aligned with the control plane's `THIRD_PARTY_OAUTH_EXCHANGE_SECRET`), `public_url`; the callback URL is already registered on the control plane

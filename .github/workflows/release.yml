@@ -2,7 +2,7 @@
 # Windows, macOS, and Linux.
 #
 # community: no control plane, no updater artifacts.
-# official: POINTER_EDITION=managed and Pointer's readflowai hosts.
+# official: POINTER_EDITION=managed and Pointer's readflowai control-plane address.
 #   The updater private key stays in GitHub secrets
 #   TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
 #   It is not stored in this file.
@@ -142,9 +142,7 @@ jobs:
         env:
           POINTER_PACKAGE_LABEL: official
           POINTER_EDITION: managed
-          VITE_POINTER_EDITION: managed
           POINTER_API_BASE: https://pointer-api.readflowai.com
-          POINTER_WEB_BASE: https://pointer.readflowai.com
           VITE_POINTER_WEB_BASE: https://pointer.readflowai.com
           POINTER_DOWNLOAD_URL: https://pointer.readflowai.com/download
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -191,9 +189,7 @@ jobs:
         env:
           POINTER_PACKAGE_LABEL: official
           POINTER_EDITION: managed
-          VITE_POINTER_EDITION: managed
           POINTER_API_BASE: https://pointer-api.readflowai.com
-          POINTER_WEB_BASE: https://pointer.readflowai.com
           VITE_POINTER_WEB_BASE: https://pointer.readflowai.com
           POINTER_DOWNLOAD_URL: https://pointer.readflowai.com/download
 

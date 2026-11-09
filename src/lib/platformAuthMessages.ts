@@ -12,14 +12,13 @@ export function needsSignInBeforeChat(input: {
   return !input.loggedIn && !(input.isStandalone && input.isTauri)
 }
 
-/** User-facing login gate copy (Composer / send / cloud). */
-export type LoginRequiredPurpose = 'default' | 'attachment' | 'cloud'
+/** User-facing login gate copy (Composer / send). */
+export type LoginRequiredPurpose = 'default' | 'attachment'
 
 export function loginRequiredMessage(
   isStandalone: boolean,
   purpose: LoginRequiredPurpose = 'default'
 ): string {
-  if (purpose === 'cloud') return t('auth.loginRequiredPointer')
   if (isStandalone) {
     return purpose === 'attachment'
       ? t('auth.loginRequiredAttach')

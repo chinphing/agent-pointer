@@ -1,0 +1,57 @@
+<svg viewBox="0 0 1040 640" xmlns="http://www.w3.org/2000/svg" role="img">
+  <title>资源详情抽屉</title>
+  <rect width="1040" height="640" fill="#F7F7F8"/>
+  <rect x="0" y="0" width="212" height="640" fill="#F2F2F4"/>
+  <rect x="212" y="0" width="828" height="56" fill="#FFFFFF"/>
+  <rect x="236" y="172" width="776" height="376" rx="10" fill="#FFFFFF" stroke="#E5E5E8"/>
+  <rect x="236" y="172" width="776" height="38" rx="10" fill="#FAFAFA"/>
+  <line x1="236" y1="262" x2="1012" y2="262" stroke="#EDEDF0"/>
+  <line x1="236" y1="314" x2="1012" y2="314" stroke="#EDEDF0"/>
+  <line x1="236" y1="366" x2="1012" y2="366" stroke="#EDEDF0"/>
+  <line x1="236" y1="418" x2="1012" y2="418" stroke="#EDEDF0"/>
+  <rect x="0" y="0" width="1040" height="640" fill="#18181B" opacity="0.16"/>
+  <rect x="640" y="0" width="400" height="640" fill="#FFFFFF"/>
+  <line x1="640" y1="0" x2="640" y2="640" stroke="#E5E5E8"/>
+  <g font-family="system-ui, -apple-system, 'PingFang SC', sans-serif">
+    <text x="664" y="38" font-size="15" font-weight="600" fill="#18181B">差旅报销</text>
+    <text x="1016" y="38" font-size="16" fill="#71717A" text-anchor="end">×</text>
+    <text x="664" y="62" font-size="10" fill="#71717A">技能 · v2.3 · 2 小时前更新</text>
+    <line x1="640" y1="80" x2="1040" y2="80" stroke="#E5E5E8"/>
+    <text x="664" y="108" font-size="11" fill="#71717A">状态</text>
+    <rect x="740" y="94" width="56" height="22" rx="11" fill="#E8F5EC"/>
+    <text x="768" y="109" font-size="10" fill="#1A7F37" text-anchor="middle">已启用</text>
+    <text x="664" y="148" font-size="11" fill="#71717A">可见范围</text>
+    <rect x="664" y="160" width="64" height="26" rx="13" fill="#EDF5FD" stroke="#0071EB"/>
+    <text x="696" y="177" font-size="11" fill="#0071EB" text-anchor="middle">全员</text>
+    <rect x="736" y="160" width="72" height="26" rx="13" fill="#FFFFFF" stroke="#E5E5E8"/>
+    <text x="772" y="177" font-size="11" fill="#52525B" text-anchor="middle">财务组</text>
+    <rect x="816" y="160" width="72" height="26" rx="13" fill="#FFFFFF" stroke="#E5E5E8"/>
+    <text x="852" y="177" font-size="11" fill="#52525B" text-anchor="middle">研发组</text>
+    <rect x="896" y="160" width="56" height="26" rx="13" fill="#FFFFFF" stroke="#E5E5E8"/>
+    <text x="924" y="177" font-size="11" fill="#71717A" text-anchor="middle">+ 添加</text>
+    <text x="664" y="214" font-size="11" fill="#71717A">版本历史</text>
+    <text x="664" y="238" font-size="11" fill="#18181B">v2.3</text>
+    <text x="716" y="238" font-size="10" fill="#71717A">2 小时前</text>
+    <text x="800" y="238" font-size="10" fill="#71717A">9f2a3c1</text>
+    <rect x="924" y="224" width="40" height="18" rx="9" fill="#EDF5FD"/>
+    <text x="944" y="237" font-size="10" fill="#0071EB" text-anchor="middle">当前</text>
+    <text x="664" y="268" font-size="11" fill="#18181B">v2.2</text>
+    <text x="716" y="268" font-size="10" fill="#71717A">3 天前</text>
+    <text x="800" y="268" font-size="10" fill="#71717A">71b0e4d</text>
+    <text x="664" y="298" font-size="11" fill="#18181B">v2.1</text>
+    <text x="716" y="298" font-size="10" fill="#71717A">2 周前</text>
+    <text x="800" y="298" font-size="10" fill="#71717A">5c9d12a</text>
+    <text x="664" y="336" font-size="11" fill="#71717A">已授权</text>
+    <text x="664" y="360" font-size="11" fill="#18181B">财务组</text>
+    <text x="1016" y="360" font-size="10" fill="#71717A" text-anchor="end">可见 · 8 人</text>
+    <text x="664" y="386" font-size="11" fill="#18181B">研发组</text>
+    <text x="1016" y="386" font-size="10" fill="#71717A" text-anchor="end">可见 · 12 人</text>
+    <line x1="640" y1="412" x2="1040" y2="412" stroke="#E5E5E8"/>
+    <text x="664" y="438" font-size="10" fill="#71717A">停用后，成员端下一轮同步即不可见；已下载的副本不会删除。</text>
+    <rect x="664" y="456" width="120" height="32" rx="8" fill="#FFFFFF" stroke="#E5E5E8"/>
+    <text x="724" y="477" font-size="11" fill="#C0362C" text-anchor="middle">停用资源</text>
+    <line x1="640" y1="552" x2="1040" y2="552" stroke="#E5E5E8"/>
+    <rect x="664" y="572" width="352" height="40" rx="8" fill="#0071EB"/>
+    <text x="840" y="597" font-size="13" font-weight="600" fill="#FFFFFF" text-anchor="middle">发布新版本</text>
+  </g>
+</svg>

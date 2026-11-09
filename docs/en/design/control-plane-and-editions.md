@@ -121,7 +121,7 @@ Official domains are injected at build time; the source carries no constants. No
 
 Resolution order (first match wins; an empty string counts as unset):
 
-1. `POINTER_API_BASE` / `POINTER_WEB_BASE` / `VITE_POINTER_WEB_BASE`
+1. `POINTER_API_BASE` (+ optional `VITE_POINTER_WEB_BASE`)
 2. User settings (P1)
 3. Build defaults: `managed` uses the domains injected at build time; unset means empty
 

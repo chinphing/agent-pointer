@@ -111,7 +111,7 @@ mod tests {
         let request_id = token_usage_store::request_id_for_run(
             &ctx.run_id,
             &image.agent_instance_id,
-            "qwen3.5-flash",
+            "qwen3.7-flash",
         );
         assert_eq!(request_id.matches(':').count(), 3);
     }

@@ -472,6 +472,34 @@ exec = { command = "bin/demo-tool", transport = "sidecar" }
         dir
     }
 
+    /// 两个根目录下同名目录会互相覆盖：记录以「目录名」为键，
+    /// 后扫到的把先扫到的顶掉，列表里就少一个插件。
+    #[test]
+    fn same_dir_name_in_two_roots_shadows_one() {
+        let user_root = tempfile::tempdir().unwrap();
+        let ws_root = tempfile::tempdir().unwrap();
+        let user_dir = user_root.path().join("local.superpowers");
+        let ws_dir = ws_root.path().join("local.superpowers");
+        for dir in [&user_dir, &ws_dir] {
+            fs::create_dir_all(dir.join("skills")).unwrap();
+            fs::write(dir.join("pointer-plugin.toml"), VALID).unwrap();
+            fs::write(dir.join("skills/hello.md"), "# Hello\n").unwrap();
+        }
+
+        let auth = user_root.path().join(".auth.json");
+        let reg = PluginRegistry::with_auth_path(auth);
+        let scanned = reg
+            .scan_roots(&[(user_dir.clone(), true), (ws_dir.clone(), false)])
+            .unwrap();
+
+        assert_eq!(scanned, 2, "两个目录都被扫到了");
+        assert_eq!(
+            reg.list().len(),
+            1,
+            "但记录以目录名为键，同名时只剩一个——这就是「插件从列表里消失」"
+        );
+    }
+
     #[test]
     fn build_record_rejected_on_bad_manifest() {
         let tmp = tempfile::tempdir().unwrap();

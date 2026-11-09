@@ -26,7 +26,7 @@ export function userSkillDirectoryCandidates(
   const out: SkillDirectoryCandidate[] = []
   for (const skill of skills) {
     const path = skill.source?.trim()
-    if (!path || skill.provenance === 'system' || existingRoots.has(path)) {
+    if (!path || skill.provenance === 'system' || skill.provenance === 'org' || existingRoots.has(path)) {
       continue
     }
     out.push({ name: skill.name, path })

@@ -42,7 +42,8 @@ import {
   platformAgentModeDefault,
   platformComputerPipelineDefault,
   platformComputerPipelineTierDefault,
-  platformMediaModeDefault,
+  platformMediaUnderstandingDefault,
+  platformWebSearchDefault,
   withInheritedThinking
 } from '../lib/platformTierDefaults'
 import { preferredWebSearchTier } from '../lib/providerParams'
@@ -136,8 +137,7 @@ function createSettingsDialogForm(deps: {
     void s
       .saveAgentPreferences({
         computerPipelineLlm: s.settings.computerPipelineLlm,
-        agentModeLlm: s.settings.agentModeLlm,
-        mediaModeLlm: s.settings.mediaModeLlm
+        agentModeLlm: s.settings.agentModeLlm
       })
       .catch(error => {
         console.error('[settings] failed to save debug model mapping', error)
@@ -171,21 +171,32 @@ function createSettingsDialogForm(deps: {
   return fallback ? withInheritedThinking(fallback, s.settings.providers) : emptyTierConfig()
   }
 
-  function patchMediaModeLlm(kind: MediaDebugKind, mode: PerformanceModeKey, patch: Partial<PerformanceModeLlmConfig>) {
-  const next = { ...(s.settings.mediaModeLlm ?? {}) }
-  const kindMap = { ...(next[kind] ?? {}) }
-  const prev = kindMap[mode] ?? mediaModeLlm(kind, mode)
-  kindMap[mode] = mergeTierLlmPatch(prev, patch)
-  next[kind] = kindMap
-  s.settings.mediaModeLlm = next
+  function patchMediaUnderstandingModel(kind: MediaDebugKind, patch: Partial<PerformanceModeLlmConfig>) {
+  const next = { ...(s.settings.mediaUnderstanding ?? {}) }
+  const prev = next[kind] ?? mediaUnderstanding(kind)
+  next[kind] = mergeTierLlmPatch(prev, patch)
+  s.settings.mediaUnderstanding = next
   scheduleDebugModelSave()
   }
 
-  function mediaModeLlm(kind: MediaDebugKind, mode: PerformanceModeKey): PerformanceModeLlmConfig {
-  const m = s.settings.mediaModeLlm?.[kind]?.[mode]
+  function mediaUnderstanding(kind: MediaDebugKind): PerformanceModeLlmConfig {
+  const m = s.settings.mediaUnderstanding?.[kind]
   if (m?.providerId && m.model) return m
-  const fallback = platformMediaModeDefault(s.platformSettings.tierDefaults, kind, mode)
+  const fallback = platformMediaUnderstandingDefault(s.platformSettings.tierDefaults, kind)
   return fallback ? withInheritedThinking(fallback, s.settings.providers) : emptyTierConfig()
+  }
+
+  /** 联网搜索：单模型，无档位。 */
+  function webSearchLlm(): PerformanceModeLlmConfig {
+  const m = s.settings.webSearchLlm
+  if (m?.providerId && m.model) return m
+  const fallback = platformWebSearchDefault(s.platformSettings.tierDefaults)
+  return fallback ? withInheritedThinking(fallback, s.settings.providers) : emptyTierConfig()
+  }
+
+  function patchWebSearchLlm(patch: Partial<PerformanceModeLlmConfig>) {
+  s.settings.webSearchLlm = mergeTierLlmPatch(webSearchLlm(), patch)
+  scheduleDebugModelSave()
   }
 
   function computerPipelineLlm(): ComputerPipelineLlmSettings {
@@ -508,11 +519,6 @@ function createSettingsDialogForm(deps: {
   const mediaVideoGenerationModel = ref('')
 
   const agentPerformanceModesLocal = ref<Record<string, PerformanceMode>>({})
-  const mediaUnderstandingModesLocal = ref<{ image: PerformanceMode; audio: PerformanceMode; video: PerformanceMode }>({
-  image: 'fast',
-  audio: 'fast',
-  video: 'fast'
-  })
 
   const mediaDeps = ref<import('../types/chat').MediaDepsStatus | null>(null)
   const agents = ref<AgentDef[]>([])
@@ -722,11 +728,6 @@ function createSettingsDialogForm(deps: {
     general: s.getAgentPerformanceMode('general'),
     coder: s.getAgentPerformanceMode('coder')
   }
-  mediaUnderstandingModesLocal.value = {
-    image: s.getMediaUnderstandingMode('image'),
-    audio: s.getMediaUnderstandingMode('audio'),
-    video: s.getMediaUnderstandingMode('video')
-  }
   void nextTick(() => {
     autosaveReady = true
   })
@@ -853,22 +854,34 @@ function createSettingsDialogForm(deps: {
     console.warn('[settings] selectAgentModeModel: invalid value', value)
   }
 
-  function selectMediaModeModel(kind: MediaDebugKind, mode: PerformanceModeKey, value: string) {
+  function selectWebSearchModel(value: string) {
     const parsed = splitProviderModelValue(value)
     if (parsed) {
-      const next = { ...(s.settings.mediaModeLlm ?? {}) }
-      const kindMap = { ...(next[kind] ?? {}) }
-      kindMap[mode] = {
+      s.settings.webSearchLlm = {
         providerId: parsed.providerId,
         model: parsed.model,
         ...thinkingPatchFromProviderModel(s.settings.providers, parsed.providerId, parsed.model)
       }
-      next[kind] = kindMap
-      s.settings.mediaModeLlm = next
       scheduleDebugModelSave()
       return
     }
-    console.warn('[settings] selectMediaModeModel: invalid value', value)
+    console.warn('[settings] selectWebSearchModel: invalid value', value)
+  }
+
+  function selectMediaUnderstandingModel(kind: MediaDebugKind, value: string) {
+    const parsed = splitProviderModelValue(value)
+    if (parsed) {
+      const next = { ...(s.settings.mediaUnderstanding ?? {}) }
+      next[kind] = {
+        providerId: parsed.providerId,
+        model: parsed.model,
+        ...thinkingPatchFromProviderModel(s.settings.providers, parsed.providerId, parsed.model)
+      }
+      s.settings.mediaUnderstanding = next
+      scheduleDebugModelSave()
+      return
+    }
+    console.warn('[settings] selectMediaUnderstandingModel: invalid value', value)
   }
 
   /** Get agent default model with provider prefix: "providerId:model" */
@@ -1033,7 +1046,6 @@ function createSettingsDialogForm(deps: {
       Math.max(1024 * 1024, Math.round(Number(attachmentUploadMaxMb.value) || 100) * 1024 * 1024)
     ),
     agentPerformanceModes: { ...agentPerformanceModesLocal.value },
-    mediaUnderstandingModes: { ...mediaUnderstandingModesLocal.value },
     rawContentViewEnabled: rawContentViewEnabled.value,
     debugSaveComputerCaptures: debugSaveComputerCaptures.value,
     taskBoardShowChildBoards: taskBoardShowChildBoards.value,
@@ -1052,7 +1064,6 @@ function createSettingsDialogForm(deps: {
     // 否则后续只带部分字段的 saveUser 会用旧 userSettings 把刚改的值盖掉。
     s.settings.toolApprovalMode = payload.toolApprovalMode
     s.settings.agentPerformanceModes = { ...payload.agentPerformanceModes }
-    s.settings.mediaUnderstandingModes = { ...payload.mediaUnderstandingModes }
     s.settings.computerHumanLike = payload.computerHumanLike
     s.settings.computerAutoSwitchMonitor = payload.computerAutoSwitchMonitor
     s.settings.fileReadMaxBytes = payload.fileReadMaxBytes
@@ -1080,7 +1091,6 @@ function createSettingsDialogForm(deps: {
     s.userSettings.userCodingRules = payload.userCodingRules
     s.userSettings.toolApprovalMode = payload.toolApprovalMode
     s.userSettings.agentPerformanceModes = { ...payload.agentPerformanceModes }
-    s.userSettings.mediaUnderstandingModes = { ...payload.mediaUnderstandingModes }
     s.userSettings.computerHumanLike = payload.computerHumanLike
     s.userSettings.computerAutoSwitchMonitor = payload.computerAutoSwitchMonitor
     s.userSettings.fileReadMaxBytes = payload.fileReadMaxBytes
@@ -1200,8 +1210,7 @@ function createSettingsDialogForm(deps: {
       userCodingRules,
       rawContentViewEnabled,
       taskBoardShowChildBoards,
-      agentPerformanceModesLocal,
-      mediaUnderstandingModesLocal
+      agentPerformanceModesLocal
     ],
     scheduleAssistantSave,
     { deep: true }
@@ -1276,7 +1285,6 @@ function createSettingsDialogForm(deps: {
     mediaImageGenerationModel,
     mediaVideoGenerationModel,
     agentPerformanceModesLocal,
-    mediaUnderstandingModesLocal,
     mediaDeps,
     agents,
     enabledWorkers,
@@ -1303,13 +1311,16 @@ function createSettingsDialogForm(deps: {
     askAssistantInstallFfmpeg,
     selectMediaModelWithProvider,
     selectAgentModeModel,
-    selectMediaModeModel,
+    webSearchLlm,
+    patchWebSearchLlm,
+    selectWebSearchModel,
+    selectMediaUnderstandingModel,
     getAgentModelWithProvider,
     selectAgentModelWithProvider,
     agentModeLlm,
     patchAgentModeLlm,
-    mediaModeLlm,
-    patchMediaModeLlm,
+    mediaUnderstanding,
+    patchMediaUnderstandingModel,
     computerPipelineLlm,
     patchComputerPipelineLlm,
     computerTier,

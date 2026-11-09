@@ -48,13 +48,39 @@ const customProviders = computed(() =>
     ? s.settings.providers
     : s.settings.providers.filter(provider => !isPlatformProvider(provider))
 )
+/** 常用的四个直接露出来，其余收进「更多服务商」里，避免一次铺满 15 个。 */
+const PRIMARY_TEMPLATE_IDS: ReadonlySet<ProviderTemplateId> = new Set<ProviderTemplateId>([
+  'zhipu',
+  'kimi',
+  'openai',
+  'openai_compatible'
+])
+
+/** 添加服务时可选的模板（已占用 id 的排除掉）。 */
+const availableTemplateOptions = computed(() => {
+  const occupiedIds = new Set(s.settings.providers.map(p => p.id))
+  return PROVIDER_TEMPLATE_OPTIONS.filter(
+    option => !option.defaultId || !occupiedIds.has(option.defaultId)
+  )
+})
+
+const moreTemplatesOpen = ref(false)
+
+
+/** 「更多服务商」里还剩几个，用来决定要不要显示展开按钮。 */
+const hiddenTemplateCount = computed(
+  () => availableTemplateOptions.value.filter(o => !PRIMARY_TEMPLATE_IDS.has(o.id)).length
+)
+
 const editableTemplateOptions = computed(() => {
   if (showAddProvider.value) {
-    // 添加服务：已有服务商 id（含平台注入）不要再用同 id 模板自建。
-    const occupiedIds = new Set(s.settings.providers.map(p => p.id))
-    return PROVIDER_TEMPLATE_OPTIONS.filter(
-      option => !option.defaultId || !occupiedIds.has(option.defaultId)
-    )
+    const all = availableTemplateOptions.value
+    const primary = all.filter(option => PRIMARY_TEMPLATE_IDS.has(option.id))
+    const rest = all.filter(option => !PRIMARY_TEMPLATE_IDS.has(option.id))
+    if (moreTemplatesOpen.value) return [...primary, ...rest]
+    // 收起时把当前选中的也留在外面，否则从「更多」里选完就看不见选中态了
+    const selected = rest.find(o => o.id === providerTemplate.value)
+    return selected ? [...primary, selected] : primary
   }
   // 编辑已有服务：类型锁定为当前服务的类型，只显示一个按钮，
   // 避免把所有模板（看起来像所有 provider）都列出来。
@@ -77,6 +103,21 @@ const modelConfigModalError = ref('')
 const providerSaveError = ref('')
 const providerScopeModelId = ref<string | null>(null)
 const providerTemplate = ref<ProviderTemplateId>('deepseek')
+// 打开「添加服务」时如果当前类型不可用（比如平台已注入 deepseek），
+// 落到第一个常用类型上，避免表单里显示着 deepseek 却没有对应按钮。
+watch(showAddProvider, open => {
+  if (!open) {
+    moreTemplatesOpen.value = false
+    return
+  }
+  const all = availableTemplateOptions.value
+  const current = all.find(o => o.id === providerTemplate.value)
+  if (current && PRIMARY_TEMPLATE_IDS.has(current.id)) return
+  // 收起的列表里只有常用四项，默认值也得落在其中，否则表单显示的和按钮对不上
+  const fallback = all.find(o => PRIMARY_TEMPLATE_IDS.has(o.id)) ?? all[0]
+  if (fallback) setProviderTemplate(fallback.id)
+})
+
 const showAdvanced = ref(false)
 
 const globalGenFallback = {
@@ -88,9 +129,9 @@ const globalGenFallback = {
 const providerRuntimeApi = useRuntimeParams(editingProvider, providerScopeModelId, globalGenFallback)
 const modelRuntimeApi = useRuntimeParams(editingProvider, modelConfigModalId, globalGenFallback)
 
-function templateLabel(opt: { id: ProviderTemplateId; label: string }): string {
+function templateLabel(opt: { id: ProviderTemplateId; label: string; short: string }): string {
   if (opt.id === 'openai_compatible') return t('settings.models.otherService')
-  return opt.label
+  return opt.short || opt.label
 }
 
 function presetNeedsAdvanced(template: ProviderTemplateId): boolean {
@@ -367,11 +408,14 @@ function applyProviderSnapshotToStore(
   reopenEdit = true
 ): boolean {
   const id = snapshot.id.trim()
-  if (wasAdd && s.settings.providers.some(p => p.id === id)) {
+  // 同一 source 内唯一：用户可以有一个和平台同名的服务商（source=user），
+  // 但不能和自己已有的同名。
+  const sameSource = (p: ProviderConfig) => (p.source ?? 'platform') === 'user'
+  if (wasAdd && s.settings.providers.some(p => p.id === id && sameSource(p))) {
     providerSaveError.value = t('settings.msg_0225b7')
     return false
   }
-  if (!wasAdd && !s.settings.providers.some(p => p.id === id)) {
+  if (!wasAdd && !s.settings.providers.some(p => p.id === id && sameSource(p))) {
     providerSaveError.value = t('settings.s_1df86f')
     return false
   }
@@ -699,6 +743,18 @@ defineExpose({
             @click="setProviderTemplate(opt.id)"
           >
             {{ templateLabel(opt) }}
+          </button>
+          <button
+            v-if="showAddProvider && hiddenTemplateCount > 0"
+            type="button"
+            class="h-8 px-3 rounded-lg border border-dashed text-[12px] cursor-pointer text-muted hover:text-foreground"
+            @click="moreTemplatesOpen = !moreTemplatesOpen"
+          >
+            {{
+              moreTemplatesOpen
+                ? t('settings.models.fewerServices')
+                : t('settings.models.moreServices', { n: hiddenTemplateCount })
+            }}
           </button>
         </div>
       </div>

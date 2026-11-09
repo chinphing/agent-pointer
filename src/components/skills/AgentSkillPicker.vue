@@ -132,7 +132,7 @@ async function resetOverride() {
             <div class="flex items-center gap-2 min-w-0">
               <span class="text-[14px] font-semibold text-foreground truncate">{{ skill.name }}</span>
               <span class="text-[10px] px-1.5 py-0.5 rounded bg-[hsl(var(--code-bg))] text-muted shrink-0">
-                {{ skill.builtin ? t('skills.sourceSystem') : t('skills.sourceExternal') }}
+                {{ skill.builtin ? t('skills.sourceSystem') : skill.provenance === 'org' ? t('skills.sourceOrg') : t('skills.sourceExternal') }}
               </span>
               <span class="ml-auto inline-flex items-center gap-2 shrink-0">
                 <span class="text-[10px]" :class="enabledIds.has(skill.id) ? 'text-accent' : 'text-muted'">{{ enabledIds.has(skill.id) ? t('skills.enabled') : t('skills.disabled') }}</span>

@@ -83,7 +83,7 @@ function verifyEditionOrExit() {
     console.error(`  • ${error}`)
   }
   console.error(
-    '[server-build] Fix: set POINTER_EDITION=managed plus POINTER_API_BASE / POINTER_WEB_BASE ' +
+    '[server-build] Fix: set POINTER_EDITION=managed plus POINTER_API_BASE ' +
       'in pointer.local.env (or the OS / CI env), then rebuild both halves. ' +
       'See docs/en/deploy/editions.md.',
   )

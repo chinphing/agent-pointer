@@ -1,7 +1,6 @@
 mod channel_commands;
 mod channel_monitor;
 mod cloud_commands;
-mod cloud_webview;
 mod commands;
 mod platform_auth_gate;
 #[cfg(target_os = "macos")]
@@ -507,6 +506,8 @@ pub fn run() {
             commands::import_external_skills,
             commands::dismiss_external_skills_prompt,
             commands::list_plugins,
+            commands::list_org_plugins,
+            commands::install_org_plugin,
             commands::enable_plugin,
             commands::disable_plugin,
             commands::uninstall_plugin,
@@ -566,10 +567,6 @@ pub fn run() {
             commands::delete_conversation,
             commands::save_conversation_meta,
             commands::append_conversation_messages,
-            commands::list_pinned_experiences,
-            commands::list_experience_home,
-            commands::search_experiences,
-            commands::get_experience_detail,
             commands::list_cron_jobs,
             commands::list_cron_delivery_targets,
             commands::get_dispatcher_queue_snapshot,
@@ -604,19 +601,6 @@ pub fn run() {
             platform_commands::load_platform_session_persisted,
             platform_commands::load_platform_session_from_keyring,
             cloud_commands::get_cloud_platform_me,
-            cloud_commands::list_cloud_shop_regions,
-            cloud_commands::get_cloud_shop_pricing,
-            cloud_commands::preview_cloud_shop,
-            cloud_commands::purchase_cloud_agent,
-            cloud_commands::list_cloud_agents,
-            cloud_commands::get_cloud_agent,
-            cloud_commands::renew_cloud_agent,
-            cloud_commands::release_cloud_agent,
-            cloud_commands::create_cloud_agent_oauth_code,
-            cloud_commands::open_cloud_agent,
-            cloud_commands::focus_cloud_agent,
-            cloud_commands::close_cloud_agent,
-            cloud_commands::is_cloud_agent_window_open,
             #[cfg(target_os = "macos")]
             macos_permission_commands::register_macos_screen_recording_access,
             #[cfg(target_os = "macos")]

@@ -38,7 +38,7 @@ DTO 包含：
 - `computerTierLlm`
 - `computerPipelineLlm`
 - `agentModeLlm`
-- `mediaModeLlm`
+- `mediaUnderstanding`
 
 前端点击保存时先生成不可变快照，再执行任何异步请求。调试页保存只调用
 新的会话接口；主题等持久化设置可单独保存，但不得再参与调试 payload

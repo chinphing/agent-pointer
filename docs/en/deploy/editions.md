@@ -33,9 +33,8 @@ The flavour only decides the **build-time defaults**; it is not a runtime switch
 | Variable | Purpose |
 | --- | --- |
 | `POINTER_EDITION=managed` | Packaging flavour, baked in at compile time. **When control-plane domains are missing, `crates/pointer-core/build.rs` panics outright and the build fails** |
-| `VITE_POINTER_EDITION=managed` | Frontend flavour (`src/lib/platformUrls.ts` → `isManagedEdition()`) |
 | `POINTER_API_BASE` | Control-plane API domain (baked into `POINTER_BUILTIN_API_BASE` at build time) |
-| `POINTER_WEB_BASE` / `VITE_POINTER_WEB_BASE` | Control-plane Web domain (top-up / cloud-host redirects) |
+| `VITE_POINTER_WEB_BASE` | Frontend redirect base (top-up / download); defaults to `POINTER_API_BASE` |
 | `POINTER_DOWNLOAD_URL` / `VITE_POINTER_DOWNLOAD_URL` | Download page link (About page) |
 | `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PATH` | Updater signing private key, **needed only by the managed client** |
 
@@ -74,12 +73,10 @@ npm run icons                     # first time, or after replacing icon.png
 npm run tauri:build
 
 # Option B: export for one run (CI / temporary; key names match pointer.local.env.example)
-POINTER_EDITION=managed VITE_POINTER_EDITION=managed \
+POINTER_EDITION=managed \
   POINTER_API_BASE=https://pointer-api.example.com \
-  POINTER_WEB_BASE=https://pointer.example.com \
   \
-  VITE_POINTER_WEB_BASE=https://pointer.example.com \
-  POINTER_DOWNLOAD_URL=https://pointer.example.com/download \
+  VITE_  POINTER_DOWNLOAD_URL=https://pointer.example.com/download \
   TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key \
   npm run tauri:build
 ```
@@ -99,8 +96,7 @@ npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `POINTER_EDITION=managed` | ✅ | Flavour. **Only `managed` or empty is accepted**: any other value (including the old `official`) makes the build fail outright, avoiding a silent downgrade to unbound |
-| `VITE_POINTER_EDITION=managed` | ✅ | Frontend flavour; when unset the script fills it in from `POINTER_EDITION` |
-| `POINTER_API_BASE` / `POINTER_WEB_BASE` | ✅ | The two control-plane domains; missing any one panics the build |
+| `POINTER_API_BASE` | ✅ | The control-plane address (login page, authorize page and API share one origin); missing it panics the build |
 | `VITE_POINTER_WEB_BASE` / `POINTER_DOWNLOAD_URL` | Recommended | Frontend redirects and the About page download link |
 | `TAURI_SIGNING_PRIVATE_KEY` or `…_PATH` | ✅ | Updater signing private key |
 
@@ -127,7 +123,7 @@ src-tauri/target/release/bundle/
 
 ### 3.5 External dependencies
 
-- The control-plane API / Web / SOM domains reachable (internal domains for enterprises).
+- The control-plane address reachable (`POINTER_API_BASE`; internal domains for enterprises).
 - The updater private key. When a `.pub` file sits beside it, this build embeds that public key and does not edit `src-tauri/tauri.conf.json`. Without a `.pub`, the build keeps `plugins.updater.pubkey` from the repository, which must match the private key.
 - Release: the installer + updater archive + `.sig` go through the console's client-release flow.
 
@@ -142,7 +138,7 @@ Users start this cell's desktop app with the script. It does not call npm. An ex
  
 ```
 
-Developers change the code with `npm run tauri:dev`. Replace `--runtime bin` with `--runtime dev` only when this script should launch the dev runtime; that path uses the Tauri CLI and rebuilds when the sources, `POINTER_EDITION`, or the three domains change.
+Developers change the code with `npm run tauri:dev`. Replace `--runtime bin` with `--runtime dev` only when this script should launch the dev runtime; that path uses the Tauri CLI and rebuilds when the sources, `POINTER_EDITION`, or the control-plane address changes.
 
 ---
 
@@ -162,12 +158,10 @@ npm run server:build
 
 # Option B: export for one run (CI / temporary; key names match pointer.local.env.example)
 POINTER_EDITION=managed \
-VITE_POINTER_EDITION=managed \
-POINTER_API_BASE=https://pointer-api.example.com \
-POINTER_WEB_BASE=https://pointer.example.com \
 \
-VITE_POINTER_WEB_BASE=https://pointer.example.com \
-npm run server:build
+POINTER_API_BASE=https://pointer-api.example.com \
+\
+VITE_npm run server:build
 ```
 
 `server:build` = same-origin Vue build (`VITE_WEB_API_BASE` emptied) → `cargo build -p pointer-server --release` → **verify that both halves share the flavour** → zip; on Linux, add a `.deb` when `dpkg-deb` is available. `--package-only` / `--deb-only` skip recompiling but still verify the existing artifacts.
@@ -179,8 +173,7 @@ npm run server:build
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `POINTER_EDITION=managed` | ✅ | Flavour; also the switch that panics when domains are missing |
-| `VITE_POINTER_EDITION=managed` | Recommended | Frontend flavour (visibility of the cloud-host / top-up entries) |
-| `POINTER_API_BASE` / `POINTER_WEB_BASE` | ✅ | The two control-plane domains |
+| `POINTER_API_BASE` | ✅ | The control-plane address (single origin) |
 | `VITE_POINTER_WEB_BASE` | Recommended | Frontend redirect to the control-plane Web |
 
 **Runtime** (`pointer-server.toml`, see `server/pointer-server.toml.example`):
@@ -238,7 +231,7 @@ Users start this cell's already built server with the script. It does not call n
  
 ```
 
-Developers change the code with `npm run server:dev`. `--runtime dev` on the script is what runs `cargo run -p pointer-server` and the local Vite CLI. Cargo reuses the existing debug artifacts when the sources, flavour, and three domains are unchanged.
+Developers change the code with `npm run server:dev`. `--runtime dev` on the script is what runs `cargo run -p pointer-server` and the local Vite CLI. Cargo reuses the existing debug artifacts when the sources, flavour, and control-plane address are unchanged.
 
 ---
 
@@ -368,7 +361,7 @@ npm run server:dev                                # server debugging (unaffected
 | Role | Recommendation |
 | --- | --- |
 | Open source / individual | do not create the file (no domains set ⇒ unbound ⇒ standalone) |
-| Official-site maintainer | write `managed` + the official API/Web/SOM domains into `pointer.local.env` |
+| Official-site maintainer | write `managed` + the official control-plane address into `pointer.local.env` |
 | Enterprise internal | also write `managed`, with the domains pointing at the internal control plane |
 
 Never write production domains or signing passphrases into the public `main`. When you need to work against a control plane, change only the local `pointer.local.env`.

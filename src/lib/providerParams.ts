@@ -1,3 +1,4 @@
+import providerCatalog from '../../admin/seed/providers.json'
 import type { ModelRuntimeOverrides, ProviderConfig } from '../types/chat'
 import {
   defaultProtocolForTemplate,
@@ -17,15 +18,24 @@ export type ProviderTemplateId =
   | 'qwen'
   | 'deepseek'
   | 'doubao'
-  | 'openai_compatible'
-  | 'openrouter'
-  | 'kimi'
   | 'zhipu'
+  | 'kimi'
   | 'mimo'
+  | 'hunyuan'
+  | 'qianfan'
+  | 'minimax'
+  | 'stepfun'
+  | 'openai'
+  | 'gemini'
+  | 'grok'
+  | 'openrouter'
+  | 'openai_compatible'
 
 export interface ProviderTemplateMeta {
   id: ProviderTemplateId
   label: string
+  /** 按钮上的短名，一行放得下 */
+  short: string
   /** Shown under the type picker in settings. */
   hint: string
   defaultId: string
@@ -34,75 +44,43 @@ export interface ProviderTemplateMeta {
   defaultModels: string[]
 }
 
+/**
+ * 服务商清单只有一份：`admin/seed/providers.json`。
+ * 企业控制面的种子数据和这里的「添加服务」预设读同一个文件，
+ * 改一处两边同步，不会出现控制台配好了、客户端却选不到的情况。
+ */
+interface CatalogProvider {
+  slug: string
+  name: string
+  short?: string
+  hint?: string
+  seeded?: boolean
+  baseUrl: string
+  models: Array<{ id: string }>
+}
+
+const CATALOG = (providerCatalog as { providers: CatalogProvider[] }).providers
+
+/** 企业已预置的三家排前面，其余按目录顺序。 */
+const ORDERED = [...CATALOG].sort(
+  (a, b) => Number(Boolean(b.seeded)) - Number(Boolean(a.seeded))
+)
+
 export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
-  {
-    id: 'deepseek',
-    label: 'DeepSeek',
-    hint: '深度求索',
-    defaultId: 'deepseek',
-    defaultName: 'DeepSeek',
-    defaultBaseUrl: 'https://api.deepseek.com/v1',
-    defaultModels: ['deepseek-flash', 'deepseek-v4-pro']
-  },
-  {
-    id: 'qwen',
-    label: 'Qwen',
-    hint: '通义千问',
-    defaultId: 'qwen',
-    defaultName: 'Qwen',
-    defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    defaultModels: ['qwen3.8-max', 'qwen3.8-omni-flash', 'qwen3.8-flash', 'qwen3.8-27b']
-  },
-  {
-    id: 'mimo',
-    label: 'MiMo',
-    hint: '小米 MiMo',
-    defaultId: 'mimo',
-    defaultName: 'MiMo',
-    defaultBaseUrl: 'https://api.xiaomimimo.com/v1',
-    defaultModels: ['mimo-v2.6-pro', 'mimo-v2.6-flash', 'mimo-v2.6-pro-ultraspeed']
-  },
-  {
-    id: 'kimi',
-    label: 'Kimi',
-    hint: '月之暗面',
-    defaultId: 'kimi',
-    defaultName: 'Kimi',
-    defaultBaseUrl: 'https://api.moonshot.cn/v1',
-    defaultModels: ['kimi-k3', 'kimi-k2.7-code', 'kimi-k2.7-code-highspeed', 'kimi-k2.6']
-  },
-  {
-    id: 'zhipu',
-    label: 'GLM',
-    hint: '智谱 GLM',
-    defaultId: 'zhipu',
-    defaultName: 'GLM',
-    defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    defaultModels: ['glm-5.3', 'glm-5.3-flash', 'glm-5.3-flashx', 'glm-5.2']
-  },
-  {
-    id: 'openrouter',
-    label: 'OpenRouter',
-    hint: '聚合入口',
-    defaultId: 'openrouter',
-    defaultName: 'OpenRouter',
-    defaultBaseUrl: 'https://openrouter.ai/api/v1',
-    defaultModels: [
-      'stepfun/step-3.7-flash',
-      'openai/gpt-5.4-nano',
-      'openai/gpt-5.4-mini',
-      'openai/gpt-5.6-luna',
-      'openai/gpt-5.6-luna-pro',
-      'openai/gpt-5.6-terra',
-      'openai/gpt-5.6-sol',
-      'anthropic/claude-opus-5',
-      'anthropic/claude-fable-5',
-      'google/gemini-3.6-flash'
-    ]
-  },
+  ...ORDERED.map(provider => ({
+    id: provider.slug as ProviderTemplateId,
+    label: provider.name,
+    short: provider.short ?? provider.name,
+    hint: provider.hint ?? provider.name,
+    defaultId: provider.slug,
+    defaultName: provider.name,
+    defaultBaseUrl: provider.baseUrl,
+    defaultModels: provider.models.map(m => m.id)
+  })),
   {
     id: 'openai_compatible',
     label: 'Other',
+    short: '其他',
     hint: '自定义 OpenAI 兼容地址',
     defaultId: '',
     defaultName: '',
@@ -179,6 +157,41 @@ export function isMimoProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boole
   return /xiaomimimo\.com/i.test(p.baseUrl || '')
 }
 
+export function isHunyuanProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
+  if (providerIdLower(p) === 'hunyuan') return true
+  return /hunyuan\.cloud\.tencent\.com|tokenhub.*tencentmaas/i.test(p.baseUrl || '')
+}
+
+export function isQianfanProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
+  if (providerIdLower(p) === 'qianfan') return true
+  return /qianfan\.baidubce\.com/i.test(p.baseUrl || '')
+}
+
+export function isMinimaxProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
+  if (providerIdLower(p) === 'minimax') return true
+  return /api\.minimax\.(cn|io)/i.test(p.baseUrl || '')
+}
+
+export function isStepfunProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
+  if (providerIdLower(p) === 'stepfun') return true
+  return /api\.stepfun\.com/i.test(p.baseUrl || '')
+}
+
+export function isOpenaiProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
+  if (providerIdLower(p) === 'openai') return true
+  return /api\.openai\.com/i.test(p.baseUrl || '')
+}
+
+export function isGeminiProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
+  if (providerIdLower(p) === 'gemini') return true
+  return /generativelanguage\.googleapis\.com/i.test(p.baseUrl || '')
+}
+
+export function isGrokProvider(p: Pick<ProviderConfig, 'id' | 'baseUrl'>): boolean {
+  if (providerIdLower(p) === 'grok' || providerIdLower(p) === 'xai') return true
+  return /api\.x\.ai/i.test(p.baseUrl || '')
+}
+
 export function detectProviderTemplateId(
   p: Pick<ProviderConfig, 'id' | 'baseUrl'>
 ): ProviderTemplateId {
@@ -189,6 +202,13 @@ export function detectProviderTemplateId(
   if (isKimiProvider(p)) return 'kimi'
   if (isZhipuProvider(p)) return 'zhipu'
   if (isMimoProvider(p)) return 'mimo'
+  if (isHunyuanProvider(p)) return 'hunyuan'
+  if (isQianfanProvider(p)) return 'qianfan'
+  if (isMinimaxProvider(p)) return 'minimax'
+  if (isStepfunProvider(p)) return 'stepfun'
+  if (isOpenaiProvider(p)) return 'openai'
+  if (isGeminiProvider(p)) return 'gemini'
+  if (isGrokProvider(p)) return 'grok'
   return 'openai_compatible'
 }
 

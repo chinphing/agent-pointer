@@ -50,7 +50,7 @@ impl UseScreenTool {
         };
         if let (Some(id), None) = (&wanted, target) {
             return Ok(format!(
-                "Goal: {goal}. No display with id `{id}`. Known ids: {known}. \
+                "No display with id `{id}`. Known ids: {known}. \
                  Take the id from a `launch_app` reply. No capture change was made."
             ));
         }

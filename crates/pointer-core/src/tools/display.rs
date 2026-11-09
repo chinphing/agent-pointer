@@ -598,6 +598,12 @@ pub fn default_display_for(raw_name: &str, args: &Value, locale: UiLocale) -> To
                 .map(|s| truncate(&s, SUMMARY_MAX))
                 .unwrap_or_default(),
         ),
+        "use_screen" => (
+            t(locale, "tools.useScreen"),
+            str_field(args, &["app", "goal"])
+                .map(|s| truncate(&s, SUMMARY_MAX))
+                .unwrap_or_default(),
+        ),
         "launch_app" => (
             // `app` 只是手段（可能是 bundle id，如 `com.tencent.xinWeChat`），
             // 优先显示 `action`（「打开微信」），缺失时才回退到 `app`。

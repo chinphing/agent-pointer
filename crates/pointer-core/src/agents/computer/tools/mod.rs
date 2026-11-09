@@ -11,6 +11,7 @@ pub(crate) mod tool_input;
 mod tool_keyboard;
 pub(crate) mod tool_modified_click;
 pub(crate) mod tool_mouse;
+pub(crate) mod tool_use_screen;
 mod tool_wait;
 
 pub use tool_app_access::{
@@ -416,6 +417,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     // ── list_apps / launch_app (Codex Computer Use aligned) ───────────────
     {
         const LIST_APPS_DOC_SOURCE: &str = "agents/computer/tools/prompts/list_apps.md";
+        const USE_SCREEN_SCHEMA_YAML: &str = include_str!("prompts/use_screen.schema.yaml");
+        const USE_SCREEN_DOC_SOURCE: &str = "agents/computer/tools/prompts/use_screen.md";
         const LAUNCH_APP_DOC_SOURCE: &str = "agents/computer/tools/prompts/launch_app.md";
         const LIST_APPS_SCHEMA_YAML: &str = include_str!("prompts/list_apps.schema.yaml");
         const LAUNCH_APP_SCHEMA_YAML: &str = include_str!("prompts/launch_app.schema.yaml");
@@ -457,6 +460,24 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 }),
             )
             .with_schema(launch_schema)
+            .with_subagent_inheritance(false),
+        );
+
+        let use_screen_schema = load_desktop_schemas(USE_SCREEN_SCHEMA_YAML)
+            .expect("use_screen.schema.yaml must be valid")
+            .remove("use_screen")
+            .expect("use_screen.schema.yaml missing use_screen entry");
+        let use_screen_doc = include_str!("prompts/use_screen.md").trim();
+        reg.register(
+            ToolEntry::new(
+                "use_screen",
+                USE_SCREEN_DOC_SOURCE,
+                "low",
+                false,
+                use_screen_doc,
+                Arc::new(|args| tool_use_screen::UseScreenTool::new().execute(&args)),
+            )
+            .with_schema(use_screen_schema)
             .with_subagent_inheritance(false),
         );
     }

@@ -87,6 +87,7 @@ entries! {
     "tools.readLints" => "代码检查", "Lint check",
     "tools.listApps" => "列出应用", "List apps",
     "tools.launchApp" => "启动应用", "Launch app",
+    "tools.useScreen" => "切换屏幕", "Switch display",
     "tools.jobList" => "查看后台任务", "List background jobs",
     "tools.jobStatus" => "后台任务状态", "Background job status",
     "tools.jobAwait" => "等待后台任务", "Await background job",

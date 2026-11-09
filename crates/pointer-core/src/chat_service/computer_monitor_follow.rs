@@ -64,17 +64,29 @@ pub fn maybe_auto_switch_capture_monitor_after_tool(
     ok: bool,
     args: &Value,
 ) {
-    if !ok || !settings.computer_auto_switch_monitor {
+    // `use_screen` 是模型显式要求换屏，不受「自动跟随」开关限制；
+    // 其余工具只在自动跟随打开时才跟着活动窗口走。
+    let explicit = tool_id == "use_screen";
+    if !ok || (!settings.computer_auto_switch_monitor && !explicit) {
         return;
     }
     if !crate::agents::computer::is_desktop_post_delay_tool(tool_id) {
         return;
     }
 
-    let new_id = if tool_id == "launch_app" {
-        tool_app_access::monitor_id_for_launched_app(args)
-    } else {
-        crate::platform::app_access::monitor_id_for_frontmost_app()
+    let new_id = match tool_id {
+        "launch_app" => tool_app_access::monitor_id_for_launched_app(args),
+        "use_screen" => match args
+            .get("app")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            Some(app) => tool_app_access::monitor_id_for_launched_app(args)
+                .or_else(|| crate::platform::app_access::monitor_id_for_launched_app(app)),
+            None => crate::platform::app_access::monitor_id_for_frontmost_app(),
+        },
+        _ => crate::platform::app_access::monitor_id_for_frontmost_app(),
     };
 
     let Some(new_id) = new_id else {

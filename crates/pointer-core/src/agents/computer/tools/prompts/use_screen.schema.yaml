@@ -1,0 +1,7 @@
+# `action` 由 tools/mod.rs 的 inject_action_field 统一注入，这里不声明。
+use_screen:
+  type: object
+  properties:
+    app:
+      type: string
+  additionalProperties: true

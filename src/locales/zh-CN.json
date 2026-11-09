@@ -828,7 +828,7 @@
       "computerAdvancedHint": "定位与校验可各用独立模型，思考强度单独调整",
       "noMoreAgents": "暂无其他执行智能体",
       "moreTools": "更多工具",
-      "moreToolsHint": "调整联网搜索等工具的档位与模型",
+      "moreToolsHint": "调整联网搜索等工具用哪个模型",
       "webSearch": "联网搜索",
       "webSearchDesc": "外部事实检索与来源汇总",
       "exploreDesc": "代码库探索、符号映射与资料检索",

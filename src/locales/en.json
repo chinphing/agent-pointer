@@ -828,7 +828,7 @@
       "computerAdvancedHint": "Grounding and verification can each use their own model and thinking intensity",
       "noMoreAgents": "No other workers",
       "moreTools": "More tools",
-      "moreToolsHint": "Adjust tiers and models for tools like web search",
+      "moreToolsHint": "Pick the model used by web search and other tools",
       "webSearch": "Web search",
       "webSearchDesc": "External facts and source summaries",
       "exploreDesc": "Explore codebases, symbols, and research",

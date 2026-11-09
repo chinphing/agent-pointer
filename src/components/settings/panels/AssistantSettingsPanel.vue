@@ -302,7 +302,7 @@ const MEDIA_THINKING_OPTIONS = computed(() => thinkingIntensityOptions())
             <div class="flex flex-wrap items-center gap-2">
               <select
                 class="h-8 min-w-0 flex-1 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
-                :value="mediaUnderstanding(row.key).providerId + ':' + mediaUnderstanding(row.key).model"
+                :value="mediaUnderstanding(row.key).model ? mediaUnderstanding(row.key).providerId + ':' + mediaUnderstanding(row.key).model : ''"
                 @change="selectMediaUnderstandingModel(row.key, ($event.target as HTMLSelectElement).value)"
               >
                 <option value="">{{ t('settings.thinking.unset') }}</option>
@@ -534,7 +534,7 @@ const MEDIA_THINKING_OPTIONS = computed(() => thinkingIntensityOptions())
               <div class="flex flex-wrap items-center gap-2">
                 <select
                   class="h-8 min-w-0 flex-1 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
-                  :value="webSearchLlm().providerId + ':' + webSearchLlm().model"
+                  :value="webSearchLlm().model ? webSearchLlm().providerId + ':' + webSearchLlm().model : ''"
                   @change="selectWebSearchModel(($event.target as HTMLSelectElement).value)"
                 >
                   <option value="">{{ t('settings.thinking.unset') }}</option>

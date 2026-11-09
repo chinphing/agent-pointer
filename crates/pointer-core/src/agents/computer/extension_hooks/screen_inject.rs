@@ -101,20 +101,26 @@ fn slot_labels() -> Vec<&'static str> {
 /// 说清楚「这是 1/2 块屏，另一块是什么」，它才有依据去 `use_screen`。
 ///
 /// `current_id` 是截取时从所选显示器直接带出来的编号，**不靠坐标反查**。
+///
+/// 编号一定要报：只有连 id 都没有时才沉默。列不出显示器列表（权限、平台不支持）
+/// 只会让「还有哪些屏」这段缺失，不该把已知的编号一起吞掉。
 fn display_summary(current_id: &str, monitors: &[crate::models::ComputerMonitor]) -> String {
-    if current_id.is_empty() || monitors.is_empty() {
+    if current_id.is_empty() {
         return String::new();
+    }
+    let current_size = monitors
+        .iter()
+        .find(|m| m.id == current_id)
+        .map(|m| format!(" ({}×{})", m.width, m.height))
+        .unwrap_or_default();
+    if monitors.is_empty() {
+        return format!("This frame is display {current_id}{current_size}. ");
     }
     let others: Vec<String> = monitors
         .iter()
         .filter(|m| m.id != current_id)
         .map(|m| format!("{} ({}×{})", m.id, m.width, m.height))
         .collect();
-    let current_size = monitors
-        .iter()
-        .find(|m| m.id == current_id)
-        .map(|m| format!(" ({}×{})", m.width, m.height))
-        .unwrap_or_default();
     if others.is_empty() {
         format!("This frame is display {current_id}{current_size} (the only display). ")
     } else {
@@ -462,11 +468,12 @@ mod tests {
         assert!(!text.contains("use_screen"));
     }
 
-    /// 拿不到显示器列表时不要瞎编。
+    /// 列不出显示器列表时，编号仍要报出来 —— 那是已知信息，不该跟着一起丢。
     #[test]
-    fn display_summary_is_silent_without_monitors() {
+    fn display_summary_keeps_the_id_without_monitors() {
         let text = super::display_summary("xcap:0,0", &[]);
-        assert!(text.is_empty(), "got: {text}");
+        assert!(text.contains("display xcap:0,0"), "got: {text}");
+        assert!(!text.contains("only display"), "不知道有几块时别下结论: {text}");
     }
 
     /// 编号缺失（旧缓存 / 测试构造）时保持沉默，不退回坐标猜测。

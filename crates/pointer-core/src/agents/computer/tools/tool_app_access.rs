@@ -102,10 +102,11 @@ fn format_launch_reply(
     let display_app = result.app_name.as_deref().unwrap_or(app);
     let status = if result.success { "OK" } else { "FAILED" };
     // 告诉模型它在哪块屏：双屏下「看不见刚打开的应用」多半就是采集在另一块屏。
+    // 列不出显示器列表时也要报编号，只是少了尺寸。
     let screen = monitor_id_for_launched_app(args)
         .map(|id| match describe_monitor(&id) {
             Some(d) => format!(" It is on {d}."),
-            None => String::new(),
+            None => format!(" It is on display {id}."),
         })
         .unwrap_or_default();
     format!(

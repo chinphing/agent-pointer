@@ -6,6 +6,7 @@ import {
   platformComputerPipelineDefault,
   platformComputerPipelineTierDefault,
   platformMediaGenerationDefault,
+  platformMediaUnderstandingDefault,
   platformModelNames,
   withInheritedThinking
 } from './platformTierDefaults'
@@ -107,6 +108,14 @@ describe('platformTierDefaults', () => {
       verify: 'qwen3.8-max',
       verifyProviderId: 'qwen'
     })
+    // 媒体理解是扁平单模型，没有档位层。
+    expect(
+      platformMediaUnderstandingDefault(
+        { mediaUnderstanding: { image: { providerId: 'qwen', model: 'qwen3.5-flash' } } },
+        'image'
+      )
+    ).toEqual({ providerId: 'qwen', model: 'qwen3.5-flash' })
+    expect(platformMediaUnderstandingDefault(tierDefaults, 'audio')).toBeUndefined()
     expect(isSameTierRef({ providerId: 'qwen', model: 'qwen-next' }, {
       providerId: 'qwen',
       model: 'qwen-next'

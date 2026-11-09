@@ -111,24 +111,22 @@ fn display_summary(current_id: &str, monitors: &[crate::models::ComputerMonitor]
     if current.is_empty() {
         return String::new();
     }
-    let current_size = monitors
-        .iter()
-        .find(|m| m.id == current)
-        .map(|m| format!(" ({}×{})", m.width, m.height))
-        .unwrap_or_default();
+    // 这块屏的尺寸由 `build_cur_screen_preamble` 统一报一次（「This screenshot is
+    // W×H pixels — use these dimensions for the bbox conversion」）。这里再报一遍
+    // 就是同一句话出现两次；别的屏的尺寸更是没有任何用处 —— 换屏收的是编号。
     if monitors.is_empty() {
-        return format!("This frame is display {current}{current_size}. ");
+        return format!("This frame is display {current}. ");
     }
     let others: Vec<String> = monitors
         .iter()
         .filter(|m| m.id != current)
-        .map(|m| format!("{} ({}×{})", m.id, m.width, m.height))
+        .map(|m| m.id.clone())
         .collect();
     if others.is_empty() {
-        format!("This frame is display {current}{current_size} (the only display). ")
+        format!("This frame is display {current} (the only display). ")
     } else {
         format!(
-            "This frame is display {current}{current_size} — one of {} displays. \
+            "This frame is display {current} — one of {} displays. \
              Other displays: {}. \
              If the app you need is not in this image, it is on another display: call \
              `use_screen` with that id instead of taking your own screenshot. ",
@@ -433,9 +431,10 @@ mod tests {
         ];
         let text = super::display_summary("1", &monitors);
         assert!(text.contains("one of 2 displays"), "got: {text}");
-        assert!(text.contains("display 1 (1512×982)"), "当前屏要出现: {text}");
-        assert!(text.contains("3 (3440×1440)"), "另一块屏要出现: {text}");
+        assert!(text.contains("This frame is display 1"), "当前屏要出现: {text}");
+        assert!(text.contains("Other displays: 3."), "另一块屏要出现: {text}");
         assert!(text.contains("use_screen"), "要告诉模型下一步怎么做: {text}");
+        assert!(!text.contains('×'), "尺寸统一由像素换算那句报，这里不重复: {text}");
         assert!(!text.contains("-1440"), "不能出现绝对坐标: {text}");
     }
 
@@ -457,7 +456,7 @@ mod tests {
         ];
         let text = super::display_summary("1", &monitors);
         assert!(text.contains("display 1"), "got: {text}");
-        assert!(text.contains("3 (3440×1440)"), "got: {text}");
+        assert!(text.contains("Other displays: 3."), "got: {text}");
     }
 
     /// 单屏不啰嗦，只报「这是唯一一块」。
@@ -606,6 +605,54 @@ mod tests {
             monitor_id: "0,0".into(),
             capture_px: (1920, 1080),
         }
+    }
+
+    /// 尺寸只报一次：就是给像素换算用的那句。显示器清单里不再重复。
+    #[test]
+    fn screen_size_is_stated_exactly_once() {
+        let cap = ScreenCaptureResult {
+            raw_unmarked_jpeg: Vec::new(),
+            screenshot_jpeg: Vec::new(),
+            monitor: crate::agents::computer::vision::screen::MonitorInfo::new(0, 0, 1920, 1080),
+            monitor_id: "0,0".into(),
+            capture_px: (1920, 1080),
+        };
+        let t = build_cur_screen_preamble(&cap, Some((615, 380)));
+        assert_eq!(
+            t.matches('×').count(),
+            1,
+            "整段只应出现一处宽×高（像素换算那句），实际：{t}"
+        );
+        assert!(t.contains("1920×1080"), "缺了像素换算用的尺寸：{t}");
+    }
+
+    /// 显示器清单只给编号，不带尺寸。
+    #[test]
+    fn display_summary_lists_ids_only() {
+        use crate::models::ComputerMonitor;
+        let monitors = vec![
+            ComputerMonitor {
+                id: "1".into(),
+                left: 0,
+                top: 0,
+                width: 1512,
+                height: 982,
+                is_primary: true,
+                work_area: None,
+            },
+            ComputerMonitor {
+                id: "3".into(),
+                left: 1512,
+                top: 0,
+                width: 3440,
+                height: 1440,
+                is_primary: false,
+                work_area: None,
+            },
+        ];
+        let text = super::display_summary("3", &monitors);
+        assert!(text.contains("Other displays: 1."), "got: {text}");
+        assert!(!text.contains('×'), "清单里不要尺寸：{text}");
     }
 
     /// 注入文案报的必须是**图片像素**，`bbox` 就在这套坐标里。

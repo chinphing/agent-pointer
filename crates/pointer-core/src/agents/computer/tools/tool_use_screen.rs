@@ -54,44 +54,22 @@ impl UseScreenTool {
                  Take the id from a `launch_app` reply. No capture change was made."
             ));
         }
-        // 没传 `display`：只列出显示器，**不改采集**。
-        // （原来这里会 or_else 到主屏，等于"省略即切主屏"，与文档说的「保持当前」相反。）
-        let target = match &wanted {
-            Some(_) => target,
-            None => None,
-        };
-
-        let mut body = String::from("Displays:\n");
-        for m in &monitors {
-            // 只报编号与尺寸，**不报绝对坐标**：`bbox` 换算用图片像素，
-            // 混进全局坐标会让模型拿错参考系。
-            body.push_str(&format!(
-                "- id={id} {w}×{h}{primary}{chosen}\n",
-                id = m.id,
-                w = m.width,
-                h = m.height,
-                primary = if m.is_primary { " primary" } else { "" },
-                chosen = if Some(&m.id) == target.map(|t| &t.id) {
-                    " ← capture switches here"
-                } else {
-                    ""
-                },
-            ));
+        // 给了编号且这块屏存在 → 一句话确认。显示器清单、编号、下一帧会截哪块屏，
+        // 模型都已经知道（编号就是它从 `launch_app` 抄来的），再说一遍只是噪声。
+        if let Some(t) = target {
+            return Ok(switched_reply(&t.id));
         }
 
-        let where_ = match (target, &wanted) {
-            (Some(t), _) => format!("Capture will move to display {}.", t.id),
-            (None, None) => "No `display` was given — capture stays where it is.".to_string(),
-            (None, Some(_)) => "No display matched; capture stays where it is.".to_string(),
-        };
-
-        let next = if target.is_some() {
-            "The next `[CUR_SCREEN]` frame captures that display."
-        } else {
-            "Call `launch_app` for the target app and use the display id from its reply."
-        };
-
-        Ok(format!("{where_}\n\n{body}\n{next}"))
+        // 没传 `display`：只列出编号，**不改采集**。
+        // （原来这里会 or_else 到主屏，等于"省略即切主屏"，与文档说的「保持当前」相反。）
+        //
+        // 不报尺寸也不报绝对坐标：换屏收的是编号；`bbox` 换算用当前截图的像素，
+        // 混进别的数字只会让模型拿错参考系。
+        Ok(format!(
+            "No `display` was given — capture stays where it is.\n\n{}\
+             Call `launch_app` for the target app and use the display id from its reply.",
+            display_list_reply(&monitors)
+        ))
     }
 }
 
@@ -99,6 +77,30 @@ impl Default for UseScreenTool {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// 显示器清单：**只给编号**（外加 `primary` 标记）。
+///
+/// 不报尺寸、不报绝对坐标 —— 换屏收的是编号，`bbox` 换算用当前截图的像素，
+/// 多给数字只会让模型拿错参考系。
+fn display_list_reply(monitors: &[crate::models::ComputerMonitor]) -> String {
+    let mut body = String::from("Displays:\n");
+    for m in monitors {
+        body.push_str(&format!(
+            "- {id}{primary}\n",
+            id = m.id,
+            primary = if m.is_primary { " primary" } else { "" },
+        ));
+    }
+    body
+}
+
+/// 换屏成功的回复：**只有这一句**。
+///
+/// 显示器清单、编号、下一帧会截哪块屏 —— 模型都已经知道（编号就是它从
+/// `launch_app` 抄来的），再说一遍是噪声。
+fn switched_reply(id: &str) -> String {
+    format!("Switched to display {id}.")
 }
 
 /// `display` 读不出来时的回复：带上真实编号，模型可直接改对再调一次。
@@ -151,6 +153,41 @@ mod tests {
             super::super::tool_app_access::resolve_monitor_for_tool("use_screen", &args),
             Some("3".to_string())
         );
+    }
+
+    /// 列显示器时只给编号：尺寸对换屏没用，模型拿到编号就够了。
+    #[test]
+    fn display_list_reports_ids_only() {
+        let text = super::display_list_reply(&[
+            crate::models::ComputerMonitor {
+                id: "1".into(),
+                left: 0,
+                top: 0,
+                width: 1512,
+                height: 982,
+                is_primary: true,
+                work_area: None,
+            },
+            crate::models::ComputerMonitor {
+                id: "3".into(),
+                left: 1512,
+                top: 0,
+                width: 3440,
+                height: 1440,
+                is_primary: false,
+                work_area: None,
+            },
+        ]);
+        assert_eq!(text, "Displays:\n- 1 primary\n- 3\n");
+        assert!(!text.contains('×'), "不要报尺寸：{text}");
+    }
+
+    /// 成功回复只有一句，不能带清单或解释。
+    #[test]
+    fn success_reply_is_one_line() {
+        let text = super::switched_reply("3");
+        assert_eq!(text, "Switched to display 3.");
+        assert_eq!(text.lines().count(), 1, "多行就是在重复模型已知的信息");
     }
 
     /// 报错时必须把真实编号一并给出：模型能直接改对重调，不用再问一轮。

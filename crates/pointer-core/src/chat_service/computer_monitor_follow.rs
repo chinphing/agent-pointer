@@ -55,8 +55,6 @@ pub fn ensure_primary_monitor_when_auto(
 }
 
 /// After a successful desktop tool, follow the active app window to its display when auto-switch is on.
-///
-/// `out_note`：需要补进工具结果、让模型看见的事实（例如「你要的屏本来就是当前屏」）。
 pub fn maybe_auto_switch_capture_monitor_after_tool(
     stream: &StreamTx,
     state: &AppState,
@@ -65,7 +63,6 @@ pub fn maybe_auto_switch_capture_monitor_after_tool(
     tool_id: &str,
     ok: bool,
     args: &Value,
-    out_note: &mut Option<String>,
 ) {
     // `use_screen` 是模型显式要求换屏，不受「自动跟随」开关限制；
     // 其余工具只在自动跟随打开时才跟着活动窗口走。
@@ -104,11 +101,6 @@ pub fn maybe_auto_switch_capture_monitor_after_tool(
     log::info!(
         "auto monitor switch: switched capture monitor conversation_id={conversation_id} tool={tool_id} monitor_id={new_id}"
     );
-    // 显式换屏才回一句结果：工具自己的文案是「will move」，模型需要知道真的换成了。
-    // 没换（本来就在这块屏）时不说多余的话，画面本身就是证据。
-    if explicit {
-        *out_note = Some(format!("Switched to display {new_id}."));
-    }
 }
 
 fn computer_monitor_picker_enabled(state: &AppState, settings: &ModelSettings) -> bool {

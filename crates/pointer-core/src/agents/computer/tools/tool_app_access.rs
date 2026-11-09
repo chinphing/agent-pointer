@@ -101,12 +101,9 @@ fn format_launch_reply(
     let display_app = result.app_name.as_deref().unwrap_or(app);
     let status = if result.success { "OK" } else { "FAILED" };
     // 告诉模型它在哪块屏：双屏下「看不见刚打开的应用」多半就是采集在另一块屏。
-    // 列不出显示器列表时也要报编号，只是少了尺寸。
+    // 只报编号：`use_screen` 收的就是编号，尺寸对定位没有任何用处。
     let screen = monitor_id_for_launched_app(args)
-        .map(|id| match describe_monitor(&id) {
-            Some(d) => format!(" It is on {d}."),
-            None => format!(" It is on display {id}."),
-        })
+        .map(|id| format!(" It is on display {id}."))
         .unwrap_or_default();
     format!(
         "{status} — {} (action: {}).{screen} {}",
@@ -182,17 +179,6 @@ pub fn resolve_monitor_for_tool(tool_id: &str, args: &Value) -> Option<String> {
 /// 模型写的编号就是存储用的编号，只需去掉两端空白。
 fn canonical_monitor_id(raw: &str) -> String {
     raw.trim().to_string()
-}
-
-/// 一句话说明某块屏的大小，用于工具返回（模型据此判断要不要换屏）。
-///
-/// **不带绝对坐标**：`bbox` 换算用的是图片像素，混进全局坐标只会让模型
-/// 拿错参考系。
-pub fn describe_monitor(monitor_id: &str) -> Option<String> {
-    let monitors = crate::agents::computer::vision::screen::list_monitors().ok()?;
-    let wanted = monitor_id.trim();
-    let m = monitors.iter().find(|m| m.id == wanted)?;
-    Some(format!("display {} ({}×{})", m.id, m.width, m.height))
 }
 
 pub fn monitor_id_for_launched_app(args: &Value) -> Option<String> {

@@ -99,6 +99,11 @@ pub fn parse_mdls_date(raw: &str) -> Option<NaiveDate> {
     if trimmed.is_empty() {
         return None;
     }
+    // `mdls` 自己打印的是 `2026-11-03 19:29:22 +0000` —— 空格分隔、不是 RFC3339，
+    // 少了这一条 `kMDItemLastUsedDate` 永远解析失败，「最近使用」就恒为空。
+    if let Ok(dt) = DateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M:%S %z") {
+        return Some(dt.date_naive());
+    }
     if let Ok(dt) = DateTime::parse_from_rfc3339(trimmed) {
         return Some(dt.date_naive());
     }
@@ -141,6 +146,20 @@ pub fn compare_listed_apps(a: &ListedApp, b: &ListedApp) -> std::cmp::Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `mdls` 打印的日期是 `2026-11-03 19:29:22 +0000`，不是 RFC3339；
+    /// 少了这条格式，`kMDItemLastUsedDate` 解析失败，「最近使用」恒为空。
+    #[test]
+    fn mdls_date_format_is_parsed() {
+        assert_eq!(
+            parse_mdls_date("2026-11-03 19:29:22 +0000"),
+            NaiveDate::from_ymd_opt(2026, 11, 3)
+        );
+        assert_eq!(
+            parse_mdls_date("2026-11-03"),
+            NaiveDate::from_ymd_opt(2026, 11, 3)
+        );
+    }
 
     #[test]
     fn macos_line_includes_markers() {

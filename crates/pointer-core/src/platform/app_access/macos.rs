@@ -323,6 +323,35 @@ fn collect_mdfind_app_paths(root: &Path, paths: &mut HashSet<PathBuf>) {
     }
 }
 
+/// 只要最近用过的应用：日期条件交给 mdfind。
+///
+/// 比「捞全部再逐个 mdls」少几个数量级：实测 `/Applications` 54 个应用里
+/// 14 天内用过的只有 17 个。多取一天，最终仍由 `mdls_app_record` 按日粒度裁。
+fn collect_recent_mdfind_app_paths(
+    root: &Path,
+    cutoff: NaiveDate,
+    paths: &mut HashSet<PathBuf>,
+) {
+    let days = (chrono::Local::now().date_naive() - cutoff).num_days().max(0) + 1;
+    let query = format!(
+        "kMDItemContentType==com.apple.application-bundle && kMDItemLastUsedDate>=$time.now(-{days}d)"
+    );
+    let Ok(output) = Command::new("mdfind")
+        .args(["-onlyin", &root.to_string_lossy(), query.as_str()])
+        .output()
+    else {
+        log::warn!("list_apps macOS: mdfind unavailable for {}", root.display());
+        return;
+    };
+    if !output.status.success() {
+        return;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        paths.insert(PathBuf::from(line));
+    }
+}
+
 fn walk_app_bundles(dir: &Path, paths: &mut HashSet<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
@@ -349,7 +378,10 @@ fn spotlight_apps_in(root: &Path, cutoff: NaiveDate) -> Result<Vec<ListedApp>> {
         return Ok(Vec::new());
     }
     let mut paths = HashSet::new();
-    collect_mdfind_app_paths(root, &mut paths);
+    // 让 Spotlight 自己按日期筛，而不是「全部捞回来再逐个 mdls 过滤」——
+    // 后者对每个装着的应用都起一次子进程。多要一天是为了让下面的
+    // `mdls_app_record` 仍按原来的日粒度做最终判定，边界语义不变。
+    collect_recent_mdfind_app_paths(root, cutoff, &mut paths);
     let mut out = Vec::new();
     for path in paths {
         let path_str = path.to_string_lossy();
@@ -361,13 +393,34 @@ fn spotlight_apps_in(root: &Path, cutoff: NaiveDate) -> Result<Vec<ListedApp>> {
     Ok(out)
 }
 
+/// 目录清单的每条记录。
+///
+/// **不跑 `mdls`**：`include_all` 只需要 bundle id 与显示名，Info.plist 里就有，
+/// 而 `mdls` 是每个应用一次子进程 —— 263 个应用约 4.4 秒，是 `list_apps` 里最贵
+/// 的一段。纯文件读同一个规模只要 70 毫秒（实测），而且没有「输出不带文件名、
+/// 只能按行序对位」的解析风险。
+///
+/// 最近使用时间只对最近用过的应用有意义，那部分走 [`spotlight_apps_in`]。
 fn app_catalog_record(path: &str) -> Option<ListedApp> {
-    if let Some(record) = mdls_catalog_record(path) {
-        return Some(record);
+    // 二进制 Info.plist（实测 263 个应用里 13 个，如 Adobe Acrobat、GarageBand）
+    // 没法按文本找 `<key>`，直接交给 mdls；XML 的走文本解析。这是按格式分支，
+    // 不是「失败重试」—— 两种编码各有各的读法。
+    let Some(bytes) = bundle_plist_bytes(path) else {
+        return mdls_catalog_record(path);
+    };
+    // 后台应用（LSUIElement / LSBackgroundOnly）直接排除。这一步必须在问
+    // Spotlight 之前：`mdls` 自己也会再判一次后台应用然后返回 None，白跑
+    // 一次 20ms 的子进程 —— CoreServices 里几乎全是这种。
+    if is_background_bundle_from(&bytes) {
+        return None;
     }
-    let record = plist_catalog_record(path)?;
-    log::info!("list_apps macOS: mdls unavailable for {path}, using Info.plist fallback");
-    Some(record)
+    if !is_binary_bundle_plist(&bytes) {
+        if let Some(record) = plist_catalog_record_from(&bytes, path) {
+            return Some(record);
+        }
+        // XML 但解析不出来（格式异于常规）：交给 Spotlight 兜住。
+    }
+    mdls_catalog_record(path)
 }
 
 fn mdls_catalog_record(path: &str) -> Option<ListedApp> {
@@ -425,11 +478,17 @@ fn mdls_app_record(path: &str, cutoff: NaiveDate) -> Option<ListedApp> {
     }
 }
 
-fn plist_catalog_record(path: &str) -> Option<ListedApp> {
-    if is_background_bundle(path) {
-        return None;
-    }
-    let text = read_bundle_plist_text(path)?;
+/// Info.plist 是否二进制编码（`bplist00` 头）。二进制没法按 `<key>` 文本解析。
+fn is_binary_bundle_plist(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"bplist00")
+}
+
+fn bundle_plist_bytes(path: &str) -> Option<Vec<u8>> {
+    fs::read(PathBuf::from(path).join("Contents/Info.plist")).ok()
+}
+
+fn plist_catalog_record_from(bytes: &[u8], path: &str) -> Option<ListedApp> {
+    let text = String::from_utf8_lossy(bytes).into_owned();
     let bundle = plist_string_value(&text, "CFBundleIdentifier")?;
     if bundle.is_empty() {
         return None;
@@ -481,6 +540,11 @@ fn is_background_bundle(path: &str) -> bool {
     plist_bool_true(&text, "LSBackgroundOnly") || plist_bool_true(&text, "LSUIElement")
 }
 
+fn is_background_bundle_from(bytes: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(bytes);
+    plist_bool_true(&text, "LSBackgroundOnly") || plist_bool_true(&text, "LSUIElement")
+}
+
 fn plist_bool_true(text: &str, key: &str) -> bool {
     let marker = format!("<key>{key}</key>");
     let Some(pos) = text.find(&marker) else {
@@ -490,14 +554,26 @@ fn plist_bool_true(text: &str, key: &str) -> bool {
     after.starts_with("<true/>") || after.starts_with("<true />")
 }
 
+/// 从 `mdls` 输出里取一个属性值。
+///
+/// 属性名在 `=` 前**按最长名字补空格对齐**（`kMDItemUseCount           = 5`），
+/// 所以不能拼 `"{key} = "` 去找 —— 只有最长那个属性恰好是单个空格，其余全都
+/// 匹配不上，取值永远是 None。按行切 `=` 再比名字才稳。
 fn mdls_value(text: &str, key: &str) -> Option<String> {
-    let needle = format!("{key} = ");
-    let start = text.find(&needle)? + needle.len();
-    let rest = text[start..].lines().next()?.trim();
-    if rest == "(null)" {
-        return None;
+    for line in text.lines() {
+        let Some((name, value)) = line.split_once('=') else {
+            continue;
+        };
+        if name.trim() != key {
+            continue;
+        }
+        let value = value.trim();
+        if value == "(null)" {
+            return None;
+        }
+        return Some(value.trim_matches('"').to_string());
     }
-    Some(rest.trim_matches('"').to_string())
+    None
 }
 
 /// 主线程上发出的激活请求结果。
@@ -970,3 +1046,54 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::*;
+
+    const XML_PLIST: &[u8] = br#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.example.Demo</string>
+<key>CFBundleName</key><string>Demo</string>
+</dict></plist>"#;
+
+    /// `mdls` 的属性名按最长名字补空格对齐，不能拼 `"{key} = "` 去找。
+    /// 之前只有最长那个属性恰好对得上，`kMDItemLastUsedDate` / `kMDItemUseCount`
+    /// 永远取不到 —— 「最近使用」列表因此恒为空。
+    #[test]
+    fn mdls_value_tolerates_padded_attribute_names() {
+        let text = "kMDItemCFBundleIdentifier = \"com.apple.Safari\"\n\
+kMDItemDisplayName        = \"Safari浏览器\"\n\
+kMDItemLastUsedDate       = 2026-11-03 19:29:22 +0000\n\
+kMDItemUseCount           = 5\n";
+        assert_eq!(mdls_value(text, "kMDItemCFBundleIdentifier").as_deref(), Some("com.apple.Safari"));
+        assert_eq!(mdls_value(text, "kMDItemLastUsedDate").as_deref(), Some("2026-11-03 19:29:22 +0000"));
+        assert_eq!(mdls_value(text, "kMDItemUseCount").as_deref(), Some("5"));
+        assert_eq!(mdls_value(text, "kMDItemMissing"), None);
+    }
+
+    /// XML plist 直接出记录，不需要 `mdls` 子进程。
+    #[test]
+    fn xml_plist_yields_record_without_mdls() {
+        let rec = plist_catalog_record_from(XML_PLIST, "/nonexistent/Demo.app")
+            .expect("XML plist 应该能解析出记录");
+        assert_eq!(rec.identifier, "com.example.Demo");
+        assert_eq!(rec.name, "Demo");
+        assert!(rec.last_used.is_none(), "目录清单不需要使用时间");
+    }
+
+    /// 二进制 plist 必须被识别出来，走 `mdls` —— 按文本解析必然失败。
+    /// 实测 263 个应用里 13 个是二进制（Adobe Acrobat、GarageBand 等），
+    /// 少了这个分支它们会从清单里消失。
+    #[test]
+    fn binary_plist_is_detected_and_not_text_parsed() {
+        let binary: &[u8] = b"bplist00\x00\x01\x02binary-payload";
+        assert!(is_binary_bundle_plist(binary));
+        assert!(!is_binary_bundle_plist(XML_PLIST));
+        assert!(
+            plist_catalog_record_from(binary, "/nonexistent/Demo.app").is_none(),
+            "二进制内容不该被当文本解析出记录"
+        );
+    }
+}
+

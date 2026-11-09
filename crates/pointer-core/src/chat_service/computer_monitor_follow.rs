@@ -94,15 +94,6 @@ pub fn maybe_auto_switch_capture_monitor_after_tool(
         log::info!(
             "auto monitor switch: already on monitor_id={new_id} conversation_id={conversation_id} tool={tool_id}"
         );
-        // 工具自己不知道当前采集在哪块屏，只会回「Capture will move to display N」。
-        // 选择其实早就等于 N 时，模型看到画面没变就会一直重调 `use_screen`。
-        // 这里补一句事实，让模型知道「切换已经生效、画面就是这块屏」。
-        if explicit {
-            *out_note = Some(format!(
-                "Already capturing display {new_id} — the frame you are looking at IS that display; \
-                 nothing changed. Do not call `use_screen` for {new_id} again."
-            ));
-        }
         return;
     }
 
@@ -113,6 +104,11 @@ pub fn maybe_auto_switch_capture_monitor_after_tool(
     log::info!(
         "auto monitor switch: switched capture monitor conversation_id={conversation_id} tool={tool_id} monitor_id={new_id}"
     );
+    // 显式换屏才回一句结果：工具自己的文案是「will move」，模型需要知道真的换成了。
+    // 没换（本来就在这块屏）时不说多余的话，画面本身就是证据。
+    if explicit {
+        *out_note = Some(format!("Switched to display {new_id}."));
+    }
 }
 
 fn computer_monitor_picker_enabled(state: &AppState, settings: &ModelSettings) -> bool {

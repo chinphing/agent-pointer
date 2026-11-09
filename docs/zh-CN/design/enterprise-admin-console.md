@@ -275,7 +275,7 @@ key_fingerprint    = sha256(api_key) 的前 8 位十六进制
 {
   "agentModeLlm": {
     "general": {
-      "fast":     {"providerId":"qwen","model":"qwen3.5-flash","thinkingIntensity":"off"},
+      "fast":     {"providerId":"qwen","model":"qwen3.7-flash","thinkingIntensity":"off"},
       "standard": {"providerId":"qwen","model":"qwen3.5-plus","thinkingIntensity":"medium"},
       "expert":   {"providerId":"qwen","model":"qwen3.5-max","thinkingIntensity":"high"}
     },
@@ -284,9 +284,9 @@ key_fingerprint    = sha256(api_key) 的前 8 位十六进制
     "web_search": { "...": {} }
   },
   "mediaUnderstanding": {
-    "image": { "providerId": "qwen", "model": "qwen3.5-flash" },
+    "image": { "providerId": "qwen", "model": "qwen3.7-flash" },
     "audio": { "providerId": "qwen", "model": "qwen3-asr-flash" },
-    "video": { "providerId": "qwen", "model": "qwen3.5-flash" }
+    "video": { "providerId": "qwen", "model": "qwen3.7-flash" }
   },
   "computerPipelineLlm": {
     "locate": {}, "locateVerify": {}, "verify": {},

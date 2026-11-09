@@ -111,10 +111,10 @@ describe('platformTierDefaults', () => {
     // 媒体理解是扁平单模型，没有档位层。
     expect(
       platformMediaUnderstandingDefault(
-        { mediaUnderstanding: { image: { providerId: 'qwen', model: 'qwen3.5-flash' } } },
+        { mediaUnderstanding: { image: { providerId: 'qwen', model: 'qwen3.7-flash' } } },
         'image'
       )
-    ).toEqual({ providerId: 'qwen', model: 'qwen3.5-flash' })
+    ).toEqual({ providerId: 'qwen', model: 'qwen3.7-flash' })
     expect(platformMediaUnderstandingDefault(tierDefaults, 'audio')).toBeUndefined()
     expect(isSameTierRef({ providerId: 'qwen', model: 'qwen-next' }, {
       providerId: 'qwen',
@@ -204,13 +204,13 @@ describe('platformTierDefaults', () => {
       computerPipelineLlm: {
         verify: {
           providerId: 'qwen',
-          model: 'qwen3.5-flash',
+          model: 'qwen3.7-flash',
           thinkingIntensity: 'high'
         },
         locate: { providerId: '', model: '', thinkingIntensity: 'off' }
       }
     })
-    expect(out.verify).toBe('qwen3.5-flash')
+    expect(out.verify).toBe('qwen3.7-flash')
     expect(out.verifyProviderId).toBe('qwen')
     expect(out.verifyThinkingIntensity).toBe('high')
     // 定位模型留空 = 跟随主模型，思考强度仍独立生效。
@@ -250,7 +250,7 @@ describe('platformTierDefaults', () => {
 
   it('keeps locate verify following locate when the platform omits it', () => {
     const out = platformComputerPipelineDefault({
-      computerPipelineLlm: { locate: { providerId: 'qwen', model: 'qwen3.5-flash' } }
+      computerPipelineLlm: { locate: { providerId: 'qwen', model: 'qwen3.7-flash' } }
     })
     expect(out.locateVerify).toBeUndefined()
     expect(out.locateVerifyThinkingIntensity).toBeUndefined()

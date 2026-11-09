@@ -191,6 +191,10 @@ export function platformMediaUnderstandingDefault(
   return readTierModelRef(media?.[kind])
 }
 
+export function platformWebSearchDefault(tierDefaults: unknown): PlatformTierRef | undefined {
+  return readTierModelRef(nestedMap(tierDefaultsObject(tierDefaults), 'webSearchLlm'))
+}
+
 export function platformMediaGenerationDefault(
   tierDefaults: unknown,
   kind: 'image' | 'video'

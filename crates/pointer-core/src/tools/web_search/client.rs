@@ -84,7 +84,7 @@ pub fn dashscope_model_uses_multimodal_endpoint(model: &str) -> bool {
     }
     for stem in [
         "qwen3.5-plus",
-        "qwen3.5-flash",
+        "qwen3.7-flash",
         "qwen3.6-plus",
         "qwen3.6-flash",
         "qwen3.7-plus",
@@ -1144,7 +1144,7 @@ mod tests {
                 name: "Qwen".into(),
                 base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
                 api_key: "sk-qwen".into(),
-                models: vec!["qwen3.5-plus".into(), "qwen3.5-flash".into()],
+                models: vec!["qwen3.5-plus".into(), "qwen3.7-flash".into()],
                 reasoning_in_messages: None,
                 temperature: None,
                 top_p: None,

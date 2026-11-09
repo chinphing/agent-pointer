@@ -8,7 +8,7 @@ import { useSettingsStore } from '../../../stores/settings'
 import { CircleHelp, Code, Film, Gauge, Monitor, SlidersHorizontal, UserRound, Bot, X } from 'lucide-vue-next'
 import { composerAgentLabel } from '../../../lib/agentUi'
 import SceneTierModelsModal from '../SceneTierModelsModal.vue'
-import { thinkingIntensityOptions } from '../../../lib/thinkingIntensity'
+import { thinkingIntensityOptions, patchTierThinkingIntensity, tierThinkingIntensityValue } from '../../../lib/thinkingIntensity'
 import type { ThinkingIntensity } from '../../../lib/thinkingIntensity'
 
 const props = defineProps<{
@@ -59,7 +59,6 @@ function inheritLabel(kind: PipelineSlot, mode: string): string {
 
 // 媒体列「更多」：联网搜索等工具档位（非子智能体，与左侧 explore 入口对称）
 const moreMediaModal = ref(false)
-const WEB_SEARCH_SCENE_ID = 'web_search'
 const RETIRED_MORE_AGENT_IDS = new Set(['research'])
 const moreWorkers = computed(() =>
   enabledWorkers.value.filter(
@@ -96,13 +95,21 @@ const {
   enabledWorkers,
   agentPerformanceModesLocal,
   mediaUnderstanding,
+  selectMediaUnderstandingModel,
+  patchMediaUnderstandingModel,
+  webSearchLlm,
+  selectWebSearchModel,
+  patchWebSearchLlm,
   userCodingRules
 } = props.form
 
-function mediaModelLabel(kind: string): string {
-  const cfg = mediaUnderstanding(kind as 'image' | 'audio' | 'video')
-  return cfg.model || '—'
+/** 媒体理解的候选模型：音频走转写模型，图片/视频走视觉模型。 */
+function mediaOptions(kind: 'image' | 'audio' | 'video') {
+  return kind === 'audio' ? s.audioModels : s.visionModels
 }
+
+/** 思考强度：'' 表示跟随模型。 */
+const MEDIA_THINKING_OPTIONS = computed(() => thinkingIntensityOptions())
 
 </script>
 
@@ -293,17 +300,26 @@ function mediaModelLabel(kind: string): string {
               <span class="text-[10px] text-muted">{{ mediaModeDesc(row.key) }}</span>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-              <span class="text-[11px] text-muted font-mono truncate max-w-[16rem]">{{ mediaModelLabel(row.key) }}</span>
-              <button
-                type="button"
-                class="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"
-                :title="t('settings.s_8fd4c8')"
-                :aria-label="t('settings.assistant.configureTierModelsAria', { name: row.label })"
-                @click="sceneModal = row.key"
+              <select
+                class="h-8 min-w-0 flex-1 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
+                :value="mediaUnderstanding(row.key).providerId + ':' + mediaUnderstanding(row.key).model"
+                @change="selectMediaUnderstandingModel(row.key, ($event.target as HTMLSelectElement).value)"
               >
-                <SlidersHorizontal class="w-3 h-3" />
-                {{ t('settings.assistant.models') }}
-              </button>
+                <option value="">{{ t('settings.thinking.unset') }}</option>
+                <option
+                  v-for="item in mediaOptions(row.key)"
+                  :key="item.providerId + ':' + item.model"
+                  :value="item.providerId + ':' + item.model"
+                >{{ item.providerName }} / {{ item.model }}</option>
+              </select>
+              <select
+                class="h-8 w-[6.5rem] px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
+                :value="tierThinkingIntensityValue(mediaUnderstanding(row.key))"
+                :title="t('settings.agentPanel.thinkingIntensity')"
+                @change="patchMediaUnderstandingModel(row.key, patchTierThinkingIntensity(($event.target as HTMLSelectElement).value as '' | 'off' | 'low' | 'medium' | 'high' | 'max'))"
+              >
+                <option v-for="opt in MEDIA_THINKING_OPTIONS" :key="opt.value || 'unset'" :value="opt.value">{{ opt.label }}</option>
+              </select>
             </div>
           </div>
             </div>
@@ -516,35 +532,26 @@ function mediaModelLabel(kind: string): string {
                 <span class="text-[10px] text-muted truncate min-w-0">{{ t('settings.assistant.webSearchDesc') }}</span>
               </div>
               <div class="flex flex-wrap items-center gap-2">
-                <div class="inline-flex rounded-lg border border-border bg-card p-0.5">
-                  <label
-                    v-for="opt in PERFORMANCE_MODE_UI"
-                    :key="'more-web-search-' + opt.value"
-                    class="h-7 px-2.5 rounded-md text-[11px] cursor-pointer transition-colors flex items-center"
-                    :class="(agentPerformanceModesLocal[WEB_SEARCH_SCENE_ID] ?? 'fast') === opt.value
-                      ? 'bg-hover text-foreground'
-                      : 'text-muted hover:text-foreground'"
-                  >
-                    <input
-                      type="radio"
-                      class="sr-only"
-                      name="more-mode-web-search"
-                      :checked="(agentPerformanceModesLocal[WEB_SEARCH_SCENE_ID] ?? 'fast') === opt.value"
-                      @change="agentPerformanceModesLocal = { ...agentPerformanceModesLocal, [WEB_SEARCH_SCENE_ID]: opt.value }"
-                    />
-                    {{ opt.label }}
-                  </label>
-                </div>
-                <button
-                  type="button"
-                  class="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors shrink-0"
-                  :title="t('settings.assistant.configureWebSearch')"
-                  :aria-label="t('settings.assistant.configureWebSearchAria')"
-                  @click="sceneModal = WEB_SEARCH_SCENE_ID"
+                <select
+                  class="h-8 min-w-0 flex-1 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
+                  :value="webSearchLlm().providerId + ':' + webSearchLlm().model"
+                  @change="selectWebSearchModel(($event.target as HTMLSelectElement).value)"
                 >
-                  <SlidersHorizontal class="w-3 h-3" />
-                  {{ t('settings.assistant.models') }}
-                </button>
+                  <option value="">{{ t('settings.thinking.unset') }}</option>
+                  <option
+                    v-for="item in s.allModels"
+                    :key="'web-search-' + item.providerId + ':' + item.model"
+                    :value="item.providerId + ':' + item.model"
+                  >{{ item.providerName }} / {{ item.model }}</option>
+                </select>
+                <select
+                  class="h-8 w-[6.5rem] px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
+                  :value="tierThinkingIntensityValue(webSearchLlm())"
+                  :title="t('settings.agentPanel.thinkingIntensity')"
+                  @change="patchWebSearchLlm(patchTierThinkingIntensity(($event.target as HTMLSelectElement).value as '' | 'off' | 'low' | 'medium' | 'high' | 'max'))"
+                >
+                  <option v-for="opt in MEDIA_THINKING_OPTIONS" :key="'ws-' + (opt.value || 'unset')" :value="opt.value">{{ opt.label }}</option>
+                </select>
               </div>
             </div>
           </div>

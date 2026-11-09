@@ -265,7 +265,7 @@ mod tests {
 
     #[test]
     fn configured_model_id_is_kept() {
-        assert_eq!(dashscope_audio_model_id("qwen3.5-flash"), "qwen3.5-flash");
+        assert_eq!(dashscope_audio_model_id("qwen3.7-flash"), "qwen3.7-flash");
         assert_eq!(dashscope_audio_model_id("fun-asr"), "fun-asr");
         assert_eq!(
             dashscope_audio_model_id("qwen3-asr-flash"),

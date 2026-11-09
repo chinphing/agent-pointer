@@ -801,9 +801,7 @@
       "liveHint": "变更即时生效，与「智能体 → 场景档位」联动",
       "title": "{scene} · 三档模型映射",
       "webSearchHint": "千问走 DashScope，DeepSeek 走网页搜索；「已覆盖」表示非默认模型",
-      "sceneFallback": "场景",
-      "mediaTitle": "{scene} · 模型",
-      "mediaHint": "该类型固定用一个模型；「已覆盖」表示非平台默认"
+      "sceneFallback": "场景"
     },
     "assistant": {
       "sceneTiers": "场景档位",
@@ -833,8 +831,6 @@
       "moreToolsHint": "调整联网搜索等工具的档位与模型",
       "webSearch": "联网搜索",
       "webSearchDesc": "外部事实检索与来源汇总",
-      "configureWebSearch": "配置联网搜索各档位模型",
-      "configureWebSearchAria": "配置联网搜索档位模型",
       "exploreDesc": "代码库探索、符号映射与资料检索",
       "imageDesc": "识别图片内容",
       "audioDesc": "语音转文字",

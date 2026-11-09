@@ -32,7 +32,7 @@ const GROUPS = [
       { key: 'general', labelKey: 'tier.scene_general', group: 'agentModeLlm' },
       { key: 'coder', labelKey: 'tier.scene_coder', group: 'agentModeLlm' },
       { key: 'computer', labelKey: 'tier.scene_computer', group: 'agentModeLlm' },
-      { key: 'web_search', labelKey: 'tier.scene_web_search', group: 'agentModeLlm' },
+      { key: 'web_search', labelKey: 'tier.scene_web_search', group: 'webSearchLlm' },
     ],
   },
   {
@@ -110,10 +110,16 @@ const modelOptions = computed(() =>
     }))
 )
 
-/** 媒体理解是「类型 → 单模型」，没有档位层；其它分组按档位取。 */
+/** 单模型（无档位）的两类分组：媒体理解按类型嵌套，联网搜索只有一份。 */
 const FLAT_GROUP = 'mediaUnderstanding'
+const FLAT_TOP = 'webSearchLlm'
+
+function isFlat(group: string) {
+  return group === FLAT_GROUP || group === FLAT_TOP
+}
 
 function cell(scene: string, group: string, tier: string): any {
+  if (group === FLAT_TOP) return payload.value?.[FLAT_TOP] || {}
   if (group === FLAT_GROUP) return payload.value?.[group]?.[scene] || {}
   return payload.value?.[group]?.[scene]?.[tier] || {}
 }
@@ -127,6 +133,20 @@ function intensityOf(scene: string, group: string, tier: string): string {
 }
 
 function setModel(scene: string, group: string, tier: string, slug: string) {
+  if (group === FLAT_TOP) {
+    if (!slug) {
+      delete payload.value[FLAT_TOP]
+    } else {
+      const found = modelOptions.value.find((m) => m.slug === slug)
+      const prevIntensity = payload.value[FLAT_TOP]?.thinkingIntensity
+      payload.value[FLAT_TOP] = {
+        providerId: found?.providerId || '',
+        model: slug,
+        ...(prevIntensity ? { thinkingIntensity: prevIntensity } : {}),
+      }
+    }
+    return
+  }
   if (!payload.value[group]) payload.value[group] = {}
   if (group === FLAT_GROUP) {
     if (!slug) {
@@ -162,7 +182,11 @@ function setModel(scene: string, group: string, tier: string, slug: string) {
 
 function setIntensity(scene: string, group: string, tier: string, value: string) {
   const cur =
-    group === FLAT_GROUP ? payload.value?.[group]?.[scene] : payload.value?.[group]?.[scene]?.[tier]
+    group === FLAT_TOP
+      ? payload.value?.[FLAT_TOP]
+      : group === FLAT_GROUP
+        ? payload.value?.[group]?.[scene]
+        : payload.value?.[group]?.[scene]?.[tier]
   if (!cur) return
   if (value) cur.thinkingIntensity = value
   else delete cur.thinkingIntensity
@@ -322,7 +346,7 @@ async function createDefault() {
           <div v-for="s in g.scenes" :key="s.group + s.key" class="scene-row">
             <div class="scene-col" :title="s.key">{{ t(s.labelKey) }}</div>
             <div
-              v-if="s.group === FLAT_GROUP"
+              v-if="isFlat(s.group)"
               class="cell flat"
               :class="{ filled: !!modelOf(s.key, s.group, '') }"
             >
@@ -356,7 +380,7 @@ async function createDefault() {
               >×</button>
             </div>
             <div
-              v-for="tier in s.group === FLAT_GROUP ? [] : TIERS"
+              v-for="tier in isFlat(s.group) ? [] : TIERS"
               :key="tier.key"
               class="cell"
               :class="{ filled: !!modelOf(s.key, s.group, tier.key) }"

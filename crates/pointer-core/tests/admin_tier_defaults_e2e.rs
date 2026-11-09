@@ -31,9 +31,9 @@ fn payload_creates_the_three_platform_providers() {
 fn media_understanding_resolves_one_model_per_kind() {
     let s = apply_fixture();
     for (kind, provider, model) in [
-        ("image", "qwen", "qwen3.5-flash"),
+        ("image", "qwen", "qwen3.7-flash"),
         ("audio", "qwen", "qwen3-asr-flash"),
-        ("video", "qwen", "qwen3.5-flash"),
+        ("video", "qwen", "qwen3.7-flash"),
     ] {
         let r = resolve_media_understanding_model(&s, kind);
         assert_eq!(

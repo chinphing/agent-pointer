@@ -139,7 +139,7 @@ describe('settings debug-session save', () => {
   it('selects a valid model when removing the active provider', () => {
     const store = useSettingsStore()
     store.settings.providers = [
-      { id: 'qwen', name: '千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', apiKey: '', models: ['qwen3.5-plus', 'qwen3.5-flash'], modelConfigs: {} }
+      { id: 'qwen', name: '千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', apiKey: '', models: ['qwen3.5-plus', 'qwen3.7-flash'], modelConfigs: {} }
     ]
     store.settings.activeProviderId = 'qwen'
     store.settings.model = 'qwen3.5-plus'

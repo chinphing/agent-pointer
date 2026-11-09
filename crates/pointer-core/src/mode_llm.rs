@@ -184,9 +184,9 @@ mod tests {
         settings
             .agent_performance_modes
             .insert("general".into(), "fast".into());
-        settings.agent_mode_llm = sample_mode_llm("general", "fast", "qwen3.5-flash");
+        settings.agent_mode_llm = sample_mode_llm("general", "fast", "qwen3.7-flash");
         let r = resolve_agent_mode_llm(&settings, "general").unwrap();
-        assert_eq!(r.model, "qwen3.5-flash");
+        assert_eq!(r.model, "qwen3.7-flash");
     }
 
     #[test]

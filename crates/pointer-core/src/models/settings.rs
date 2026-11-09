@@ -1004,6 +1004,9 @@ pub struct ModelSettings {
     /// 媒体理解：类型（image / audio / video）→ 单模型，无档位。
     #[serde(default, rename = "mediaUnderstanding")]
     pub media_understanding: HashMap<String, ComputerTierLlmConfig>,
+    /// 联网搜索：单模型，无档位（和媒体理解同一口径）。
+    #[serde(default = "default_web_search_llm", rename = "webSearchLlm")]
+    pub web_search_llm: ComputerTierLlmConfig,
     /// Debug: agent id → performance mode → LLM profile.
     #[serde(default, rename = "agentModeLlm")]
     pub agent_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
@@ -1826,6 +1829,7 @@ impl Default for ModelSettings {
             media_model_overrides: default_media_generation_overrides(),
             agent_performance_modes: HashMap::new(),
             media_understanding: HashMap::new(),
+            web_search_llm: default_web_search_llm(),
             computer_pipeline_llm: ComputerPipelineLlmSettings::default(),
             agent_mode_llm: default_agent_mode_llm(),
             media_oss: MediaOssConfig::default(),
@@ -1852,15 +1856,10 @@ pub const WEB_SEARCH_SCENE_ID: &str = "web_search";
 ///
 /// Resolution order:
 /// 1. `POINTER_WEB_SEARCH_MODEL` env
-/// 2. `agentModeLlm.web_search[agentPerformanceModes.web_search ?? "fast"]` (settings UI tiers)
+/// 2. `webSearchLlm` —— 联网搜索只有一个模型，没有档位
 /// 3. legacy `webSearchModel` string
 /// 4. first model on a DashScope-compatible provider
 /// 5. compile-time / `DEFAULT_WEB_SEARCH_MODEL`
-///
-/// Catalog fallbacks typically land on `qwen3.5-plus`, which **does** support
-/// search via `multimodal-generation` with `search_strategy=agent`. Step 5 is
-/// `qwen3.7-plus`, same family — the platform tier map and the legacy
-/// `webSearchModel` both override it.
 pub fn effective_web_search_model(settings: &ModelSettings, _agent_id: Option<&str>) -> String {
     if let Ok(m) = std::env::var("POINTER_WEB_SEARCH_MODEL") {
         let m = m.trim();
@@ -1868,11 +1867,9 @@ pub fn effective_web_search_model(settings: &ModelSettings, _agent_id: Option<&s
             return m.to_string();
         }
     }
-    if let Some(cfg) = resolve_web_search_mode_llm_config(settings) {
-        let model = cfg.model.trim();
-        if !model.is_empty() {
-            return model.to_string();
-        }
+    let single = settings.web_search_llm.model.trim();
+    if !single.is_empty() {
+        return single.to_string();
     }
     let configured = settings.web_search_model.trim();
     if !configured.is_empty() {
@@ -1886,23 +1883,6 @@ pub fn effective_web_search_model(settings: &ModelSettings, _agent_id: Option<&s
     DEFAULT_WEB_SEARCH_MODEL.to_string()
 }
 
-/// Tier map entry for `web_search` (same shape as general/coder `agentModeLlm`).
-///
-/// The scene keeps the **`fast`** fallback: only the *agent* tier defaults to
-/// `standard`, so an unconfigured web-search scene must not be dragged along.
-fn resolve_web_search_mode_llm_config(settings: &ModelSettings) -> Option<&ComputerTierLlmConfig> {
-    let mode = crate::mode_llm::agent_performance_mode_with_default(
-        settings,
-        WEB_SEARCH_SCENE_ID,
-        crate::mode_llm::PERFORMANCE_MODE_FAST,
-    );
-    let inner = settings.agent_mode_llm.get(WEB_SEARCH_SCENE_ID)?;
-    let cfg = inner.get(mode)?;
-    if cfg.model.trim().is_empty() {
-        return None;
-    }
-    Some(cfg)
-}
 
 /// First provider whose base URL is DashScope compatible.
 pub fn find_dashscope_provider(settings: &ModelSettings) -> Option<&ProviderConfig> {
@@ -2274,6 +2254,8 @@ pub struct UserSettings {
     pub agent_performance_modes: HashMap<String, String>,
     #[serde(default, rename = "mediaUnderstanding")]
     pub media_understanding: HashMap<String, ComputerTierLlmConfig>,
+    #[serde(default = "default_web_search_llm", rename = "webSearchLlm")]
+    pub web_search_llm: ComputerTierLlmConfig,
     #[serde(default, rename = "computerPipelineLlm")]
     pub computer_pipeline_llm: ComputerPipelineLlmSettings,
     #[serde(default = "default_agent_mode_llm", rename = "agentModeLlm")]
@@ -2370,6 +2352,7 @@ impl Default for UserSettings {
             media_model_overrides: default_media_generation_overrides(),
             agent_performance_modes: HashMap::new(),
             media_understanding: HashMap::new(),
+            web_search_llm: default_web_search_llm(),
             computer_pipeline_llm: ComputerPipelineLlmSettings::default(),
             agent_mode_llm: default_agent_mode_llm(),
             max_parallel_tool_calls: None,
@@ -2722,7 +2705,7 @@ pub(crate) fn sample_settings() -> ModelSettings {
         name: "千问".into(),
         base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
         api_key: String::new(),
-        models: vec!["qwen3.5-plus".into(), "qwen3.5-flash".into()],
+        models: vec!["qwen3.5-plus".into(), "qwen3.7-flash".into()],
         reasoning_in_messages: Some(false),
         temperature: None,
         top_p: None,
@@ -2787,6 +2770,18 @@ fn legacy_builtin_computer_mode_llm() -> HashMap<String, ComputerTierLlmConfig> 
 
 fn default_agent_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmConfig>> {
     HashMap::new()
+}
+
+/// 联网搜索没有配置时的空值：`model` 为空表示「还没选」，由解析链继续往下找。
+fn default_web_search_llm() -> ComputerTierLlmConfig {
+    ComputerTierLlmConfig {
+        provider_id: String::new(),
+        model: String::new(),
+        enable_thinking: default_tier_enable_thinking(),
+        thinking_budget: None,
+        reasoning_effort: None,
+        thinking_intensity: None,
+    }
 }
 
 fn default_platform_agent_models() -> HashMap<String, AgentModelRef> {
@@ -3144,6 +3139,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         media_model_overrides: user.media_model_overrides.clone(),
         agent_performance_modes: user.agent_performance_modes.clone(),
         media_understanding: user.media_understanding.clone(),
+        web_search_llm: user.web_search_llm.clone(),
         agent_mode_llm: user.agent_mode_llm.clone(),
         computer_pipeline_llm: user.computer_pipeline_llm.clone(),
         media_oss: platform.media_oss.clone(),
@@ -3160,25 +3156,6 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
     };
     apply_platform_tier_defaults(&mut settings, &platform.tier_defaults, &platform.providers);
     settings
-}
-
-/// First configured DeepSeek model. Web search prefers this over a platform Qwen default.
-fn deepseek_web_search_tier(providers: &[ProviderConfig]) -> Option<ComputerTierLlmConfig> {
-    let provider = providers
-        .iter()
-        .find(|p| p.id.eq_ignore_ascii_case("deepseek") || provider_uses_deepseek_api(p))?;
-    let model = provider
-        .models
-        .iter()
-        .find(|m| !m.trim().is_empty())?
-        .trim();
-    tier_cfg_from_json(
-        &serde_json::json!({
-            "providerId": provider.id,
-            "model": model,
-        }),
-        providers,
-    )
 }
 
 /// 将平台下发的档位默认（tierDefaults）补齐到运行时设置：用户已显式配置的
@@ -3258,12 +3235,6 @@ pub fn apply_platform_tier_defaults(
                 if inner_map.contains_key(mode) {
                     continue;
                 }
-                if outer_key == WEB_SEARCH_SCENE_ID {
-                    if let Some(cfg) = deepseek_web_search_tier(providers) {
-                        inner_map.insert(mode.clone(), cfg);
-                        continue;
-                    }
-                }
                 if let Some(cfg) = tier_cfg_from_json(cfg_val, providers) {
                     inner_map.insert(mode.clone(), cfg);
                 }
@@ -3281,15 +3252,13 @@ pub fn apply_platform_tier_defaults(
             }
         }
     }
-    if let Some(cfg) = deepseek_web_search_tier(providers) {
-        let inner_map = settings
-            .agent_mode_llm
-            .entry(WEB_SEARCH_SCENE_ID.to_string())
-            .or_default();
-        for mode in ["fast", "standard", "expert"] {
-            inner_map
-                .entry(mode.to_string())
-                .or_insert_with(|| cfg.clone());
+    // 联网搜索：单模型（无档位），和媒体理解同一口径。
+    if settings.web_search_llm.model.trim().is_empty() {
+        if let Some(cfg) = obj
+            .get("webSearchLlm")
+            .and_then(|v| tier_cfg_from_json(v, providers))
+        {
+            settings.web_search_llm = cfg;
         }
     }
     if let Some(pipeline) = obj.get("computerPipelineLlm").and_then(|v| v.as_object()) {
@@ -3796,7 +3765,7 @@ mod user_settings_defaults_tests {
                 "fast".into(),
                 ComputerTierLlmConfig {
                     provider_id: "qwen".into(),
-                    model: "qwen3.5-flash".into(),
+                    model: "qwen3.7-flash".into(),
                     enable_thinking: true,
                     thinking_budget: None,
                     reasoning_effort: None,
@@ -3849,7 +3818,7 @@ mod user_settings_defaults_tests {
             .unwrap_or_default();
         assert_eq!(
             general.get("fast").map(|c| c.model.as_str()),
-            Some("qwen3.5-flash")
+            Some("qwen3.7-flash")
         );
     }
 
@@ -4237,7 +4206,7 @@ mod user_settings_defaults_tests {
             "computerPipelineLlm": {
                 "verify": {
                     "providerId": "qwen",
-                    "model": "qwen3.5-flash",
+                    "model": "qwen3.7-flash",
                     "thinkingIntensity": "high"
                 },
                 "locate": {
@@ -4250,7 +4219,7 @@ mod user_settings_defaults_tests {
         let mut settings = ModelSettings::default();
         apply_platform_tier_defaults(&mut settings, &defaults, &[]);
         let p = &settings.computer_pipeline_llm;
-        assert_eq!(p.verify, "qwen3.5-flash");
+        assert_eq!(p.verify, "qwen3.7-flash");
         assert_eq!(p.verify_provider_id, "qwen");
         assert_eq!(p.verify_thinking_intensity.as_deref(), Some("high"));
         // 定位模型留空 = 跟随主模型，思考强度仍独立生效。
@@ -4369,7 +4338,7 @@ mod user_settings_defaults_tests {
             "computerPipelineLlm": {
                 "verify": {
                     "providerId": "qwen",
-                    "model": "qwen3.5-flash",
+                    "model": "qwen3.7-flash",
                     "thinkingIntensity": "max"
                 },
                 "locate": {
@@ -4387,7 +4356,7 @@ mod user_settings_defaults_tests {
         // 用户改过的强度不被平台默认覆盖；模型仍按缺失补齐。
         assert_eq!(p.verify_thinking_intensity.as_deref(), Some("low"));
         assert_eq!(p.locate_thinking_intensity.as_deref(), Some("medium"));
-        assert_eq!(p.verify, "qwen3.5-flash");
+        assert_eq!(p.verify, "qwen3.7-flash");
         assert_eq!(p.locate, "qwen3.5-plus");
     }
 
@@ -4463,30 +4432,24 @@ mod user_settings_defaults_tests {
 #[cfg(test)]
 mod effective_web_search_model_tests {
     use super::*;
-    use std::collections::HashMap;
 
+    fn single(provider: &str, model: &str) -> ComputerTierLlmConfig {
+        ComputerTierLlmConfig {
+            provider_id: provider.into(),
+            model: model.into(),
+            enable_thinking: true,
+            thinking_budget: None,
+            reasoning_effort: None,
+            thinking_intensity: None,
+        }
+    }
+
+    /// 联网搜索只有一个模型：配了就一定用它，legacy 字符串不能盖过它。
     #[test]
-    fn tier_map_beats_legacy_web_search_model_string() {
+    fn single_model_beats_legacy_web_search_model_string() {
         let mut settings = ModelSettings::default();
         settings.web_search_model = "legacy-model".into();
-        settings
-            .agent_performance_modes
-            .insert(WEB_SEARCH_SCENE_ID.into(), "expert".into());
-        let mut expert = HashMap::new();
-        expert.insert(
-            "expert".into(),
-            ComputerTierLlmConfig {
-                provider_id: "qwen".into(),
-                model: "qwen3-max-2026-01-23".into(),
-                enable_thinking: true,
-                thinking_budget: None,
-                reasoning_effort: None,
-                thinking_intensity: None,
-            },
-        );
-        settings
-            .agent_mode_llm
-            .insert(WEB_SEARCH_SCENE_ID.into(), expert);
+        settings.web_search_llm = single("qwen", "qwen3-max-2026-01-23");
         assert_eq!(
             effective_web_search_model(&settings, None),
             "qwen3-max-2026-01-23"
@@ -4494,47 +4457,30 @@ mod effective_web_search_model_tests {
     }
 
     #[test]
-    fn empty_tier_falls_back_to_legacy_string() {
+    fn empty_single_model_falls_back_to_legacy_string() {
         let mut settings = ModelSettings::default();
         settings.web_search_model = "from-legacy".into();
         assert_eq!(effective_web_search_model(&settings, None), "from-legacy");
     }
 
+    /// 没配也没 legacy 时走目录里的 DashScope 模型，不能返回空串。
     #[test]
-    fn unset_web_search_scene_prefers_fast_over_standard_tier() {
+    fn unset_everything_falls_back_to_catalog() {
+        let settings = ModelSettings::default();
+        assert!(!effective_web_search_model(&settings, None).is_empty());
+    }
+
+    /// 档位已经是历史概念：agentModeLlm 里的 web_search 不再影响结果。
+    #[test]
+    fn tier_map_no_longer_affects_the_model() {
         let mut settings = ModelSettings::default();
-        // Both tiers exist, but the scene mode is unset: the non-agent `web_search`
-        // scene keeps the `fast` fallback (only agent tiers default to `standard`).
-        let mut tiers = HashMap::new();
-        for (mode, model) in [
-            ("fast", "qwen3-fast-2026"),
-            ("standard", "qwen3-standard-2026"),
-        ] {
-            tiers.insert(
-                mode.into(),
-                ComputerTierLlmConfig {
-                    provider_id: "qwen".into(),
-                    model: model.into(),
-                    enable_thinking: true,
-                    thinking_budget: None,
-                    reasoning_effort: None,
-                    thinking_intensity: None,
-                },
-            );
-        }
+        settings.web_search_llm = single("qwen", "qwen3.7-flash");
+        let mut tiers = std::collections::HashMap::new();
+        tiers.insert("expert".into(), single("qwen", "should-be-ignored"));
         settings
             .agent_mode_llm
             .insert(WEB_SEARCH_SCENE_ID.into(), tiers);
-        assert!(
-            !settings
-                .agent_performance_modes
-                .contains_key(WEB_SEARCH_SCENE_ID),
-            "precondition: scene mode unset"
-        );
-        assert_eq!(
-            effective_web_search_model(&settings, None),
-            "qwen3-fast-2026"
-        );
+        assert_eq!(effective_web_search_model(&settings, None), "qwen3.7-flash");
     }
 }
 
@@ -5299,102 +5245,60 @@ mod web_search_tier_default_tests {
         .unwrap()
     }
 
+    /// 平台下发 webSearchLlm → 直接落到单模型字段。
     #[test]
-    fn platform_web_search_default_uses_deepseek_when_present() {
-        let providers = vec![
-            provider(
-                "qwen",
-                "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                &["qwen3.8-max"],
-            ),
-            provider(
-                "deepseek",
-                "https://api.deepseek.com/v1",
-                &["deepseek-flash", "deepseek-v4-pro"],
-            ),
-        ];
+    fn platform_web_search_single_model_is_applied() {
+        let providers = vec![provider(
+            "qwen",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            &["qwen3.7-flash"],
+        )];
         let defaults = serde_json::json!({
-            "agentModeLlm": {
-                "web_search": {
-                    "fast": { "providerId": "qwen", "model": "qwen3.8-max" }
-                }
-            }
+            "webSearchLlm": { "providerId": "qwen", "model": "qwen3.7-flash" }
         });
         let mut settings = ModelSettings::default();
         apply_platform_tier_defaults(&mut settings, &defaults, &providers);
-        assert_eq!(
-            settings.agent_mode_llm["web_search"]["fast"].provider_id,
-            "deepseek"
-        );
-        assert_eq!(
-            settings.agent_mode_llm["web_search"]["fast"].model,
-            "deepseek-flash"
-        );
-        assert_eq!(
-            settings.agent_mode_llm["web_search"]["expert"].model,
-            "deepseek-flash"
-        );
+        assert_eq!(settings.web_search_llm.provider_id, "qwen");
+        assert_eq!(settings.web_search_llm.model, "qwen3.7-flash");
     }
 
+    /// 用户已经选了模型，平台下发不能覆盖。
     #[test]
-    fn user_web_search_tier_is_kept() {
+    fn user_web_search_model_is_kept() {
+        let providers = vec![provider(
+            "qwen",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            &["qwen3.7-flash"],
+        )];
+        let mut settings = ModelSettings::default();
+        settings.web_search_llm = ComputerTierLlmConfig {
+            provider_id: "qwen".into(),
+            model: "user-picked".into(),
+            enable_thinking: false,
+            thinking_budget: None,
+            reasoning_effort: None,
+            thinking_intensity: None,
+        };
+        let defaults = serde_json::json!({
+            "webSearchLlm": { "providerId": "qwen", "model": "qwen3.7-flash" }
+        });
+        apply_platform_tier_defaults(&mut settings, &defaults, &providers);
+        assert_eq!(settings.web_search_llm.model, "user-picked");
+    }
+
+    /// 平台没下发 webSearchLlm 时保持空，交给解析链往下找，不编造模型。
+    #[test]
+    fn missing_platform_web_search_default_stays_empty() {
         let providers = vec![provider(
             "deepseek",
             "https://api.deepseek.com/v1",
             &["deepseek-flash"],
         )];
         let mut settings = ModelSettings::default();
-        settings.agent_mode_llm.insert(
-            "web_search".into(),
-            [(
-                "fast".into(),
-                ComputerTierLlmConfig {
-                    provider_id: "qwen".into(),
-                    model: "qwen3.8-max".into(),
-                    enable_thinking: false,
-                    thinking_budget: None,
-                    reasoning_effort: None,
-                    thinking_intensity: None,
-                },
-            )]
-            .into_iter()
-            .collect(),
-        );
         apply_platform_tier_defaults(&mut settings, &serde_json::json!({}), &providers);
-        assert_eq!(
-            settings.agent_mode_llm["web_search"]["fast"].provider_id,
-            "qwen"
-        );
-        assert_eq!(
-            settings.agent_mode_llm["web_search"]["standard"].provider_id,
-            "deepseek"
-        );
+        assert!(settings.web_search_llm.model.is_empty());
     }
 
-    #[test]
-    fn qwen_platform_default_stays_without_deepseek() {
-        let providers = vec![provider(
-            "qwen",
-            "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            &["qwen3.8-max"],
-        )];
-        let defaults = serde_json::json!({
-            "agentModeLlm": {
-                "web_search": {
-                    "fast": { "providerId": "qwen", "model": "qwen3.8-max" }
-                }
-            }
-        });
-        let mut settings = ModelSettings::default();
-        apply_platform_tier_defaults(&mut settings, &defaults, &providers);
-        assert_eq!(
-            settings.agent_mode_llm["web_search"]["fast"].provider_id,
-            "qwen"
-        );
-        assert!(settings.agent_mode_llm["web_search"]
-            .get("expert")
-            .is_none());
-    }
     #[test]
     fn tier_overrides_replace_only_the_slots_they_name() {
         use crate::agents::computer::runtime::ComputerModelConfig;

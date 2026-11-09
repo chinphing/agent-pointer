@@ -733,6 +733,8 @@ export interface UserSettings {
   mediaModelOverrides?: MediaModelOverrides
   agentPerformanceModes?: AgentPerformanceModes
   mediaUnderstanding?: MediaUnderstandingModels
+  /** 联网搜索：单模型，无档位。 */
+  webSearchLlm?: PerformanceModeLlmConfig
   computerPipelineLlm?: ComputerPipelineLlmSettings
   agentModeLlm?: AgentModeLlmMap
   parallelToolExecutionEnabled?: boolean
@@ -822,6 +824,7 @@ export interface DebugSessionSettings {
   computerPipelineLlm: ComputerPipelineLlmSettings
   agentModeLlm: AgentModeLlmMap
   mediaUnderstanding: MediaUnderstandingModels
+  webSearchLlm: PerformanceModeLlmConfig
 }
 
 /** 平台模型条目（name + 可选模型级参数；未设置的字段继承服务商默认）。 */
@@ -953,6 +956,7 @@ export interface ModelSettings {
   mediaModelOverrides?: MediaModelOverrides
   agentPerformanceModes?: AgentPerformanceModes
   mediaUnderstanding?: MediaUnderstandingModels
+  webSearchLlm?: PerformanceModeLlmConfig
   agentModeLlm?: AgentModeLlmMap
   computerPipelineLlm?: ComputerPipelineLlmSettings
   mediaOss?: MediaOssConfig

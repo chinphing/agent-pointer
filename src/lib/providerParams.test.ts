@@ -45,7 +45,7 @@ describe('platform provider detection', () => {
       'qwen3.7-flash'
     ])
     // 档位默认值引用的模型必须在预设里，否则新用户建的服务商调不通。
-    for (const model of ['qwen3.5-flash', 'qwen3.5-plus', 'qwen3.7-max', 'fun-asr']) {
+    for (const model of ['qwen3.7-flash', 'qwen3.5-plus', 'qwen3.7-max', 'fun-asr']) {
       expect(byId.qwen.defaultModels).toContain(model)
     }
     expect(byId.mimo.defaultBaseUrl).toBe('https://api.xiaomimimo.com/v1')

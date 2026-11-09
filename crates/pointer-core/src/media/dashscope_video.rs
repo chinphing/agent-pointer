@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn build_request_uses_video_url_and_fps() {
         let body = build_compatible_video_request(
-            "qwen3.5-flash",
+            "qwen3.7-flash",
             "data:video/mp4;base64,abc",
             1.0,
             "Summarize the clip",

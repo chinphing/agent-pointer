@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 import { X } from 'lucide-vue-next'
 import type { SettingsDialogForm } from '../../composables/useSettingsDialogForm'
 import { composerAgentLabel } from '../../lib/agentUi'
-import { modelSupportsHostedWebSearch, preferredWebSearchTier } from '../../lib/providerParams'
 import { useSettingsStore } from '../../stores/settings'
 import {
   isSameTierRef,
@@ -31,16 +30,11 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 const s = useSettingsStore()
 const form = props.form
 const THINKING_INTENSITY_OPTIONS = computed(() => thinkingIntensityOptions())
-type MediaKind = (typeof form.MEDIA_DEBUG_KINDS)[number]
 
 const scene = computed(() => props.scene)
 const isComputer = computed(() => scene.value === 'computer')
-const isMedia = computed(() => (form.MEDIA_DEBUG_KINDS as readonly string[]).includes(scene.value))
-const isWebSearch = computed(() => scene.value === 'web_search')
 // `computer` is a mode agent now: it shares the fast/standard/expert rows with
-// general / coder / web_search instead of having its own single-model branch.
-const isAgent = computed(() => !isMedia.value)
-const mediaKind = computed(() => scene.value as MediaKind)
+// general / coder instead of having its own single-model branch.
 
 type AgentMode = Parameters<typeof form.agentModeLlm>[1]
 
@@ -62,7 +56,6 @@ function agentModeValueMissing(agentId: string, mode: string) {
 
 const sceneLabel = computed(() => {
   if (scene.value === 'computer') return t('agents.computer')
-  if (scene.value === 'web_search') return t('settings.assistant.webSearch')
   const agent = form.AGENT_MODE_USER_ROWS.value.find(row => row.id === scene.value)
   if (agent) return agent.label
   const media = form.MEDIA_MODE_USER_ROWS.value.find(row => row.key === scene.value)
@@ -72,26 +65,12 @@ const sceneLabel = computed(() => {
   return t('settings.sceneModal.sceneFallback')
 })
 
-/** Qwen models, plus any configured DeepSeek model (Search API route). */
-const webSearchModels = computed(() =>
-  s.allModels.filter(item => {
-    const provider = s.settings.providers.find(p => p.id === item.providerId)
-    return provider ? modelSupportsHostedWebSearch(provider, item.model) : false
-  })
-)
-
-const agentModelOptions = computed(() =>
-  isWebSearch.value ? webSearchModels.value : s.allModels
-)
+const agentModelOptions = computed(() => s.allModels)
 
 // 统一档位结构：key（档位 id）+ label。agent/media 用 PerformanceMode。
 const modeTiers = computed(() =>
   form.PERFORMANCE_MODE_UI.value.map(m => ({ key: m.value, label: m.label }))
 )
-
-function mediaOptions(kind: MediaKind) {
-  return kind === 'audio' ? s.audioModels : s.visionModels
-}
 
 function patchVariant(
   patch: (value: ReturnType<typeof patchTierThinkingIntensity>) => void,
@@ -115,10 +94,7 @@ function variantValue(config: {
 
 function modeOverridden(config: { providerId: string; model: string }, mode: string, group: 'agent' | 'media', id?: string) {
   const tierDefaults = s.platformSettings.tierDefaults
-  const preferred =
-    group === 'agent' && id === 'web_search' ? preferredWebSearchTier(s.settings.providers) : undefined
   const fallback =
-    preferred ??
     (group === 'agent'
       ? platformAgentModeDefault(tierDefaults, id ?? '', mode)
       : platformMediaUnderstandingDefault(tierDefaults, id ?? ''))
@@ -138,13 +114,9 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
       <div class="w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" @click.stop>
         <div class="flex items-start justify-between gap-2 border-b border-border px-5 py-4 shrink-0">
           <div class="min-w-0">
-            <h4 class="text-sm font-semibold text-foreground">{{ t(isMedia ? 'settings.sceneModal.mediaTitle' : 'settings.sceneModal.title', { scene: sceneLabel }) }}</h4>
+            <h4 class="text-sm font-semibold text-foreground">{{ t('settings.sceneModal.title', { scene: sceneLabel }) }}</h4>
             <p class="mt-0.5 text-[11px] text-muted">
-              {{ isWebSearch
-                ? t('settings.sceneModal.webSearchHint')
-                : isMedia
-                  ? t('settings.sceneModal.mediaHint')
-                  : t('settings.sceneModal.hint') }}
+              {{ t('settings.sceneModal.hint') }}
             </p>
           </div>
           <button
@@ -158,67 +130,36 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
         </div>
 
         <div class="p-4 space-y-3 overflow-y-auto">
-          <template v-if="isAgent">
-            <div v-for="tier in modeTiers" :key="'agent-' + scene + '-' + tier.key" class="space-y-1">
-              <div class="flex items-center gap-1.5">
-                <span class="text-[11px] font-medium text-foreground">{{ tier.label }}</span>
-                <span v-if="modeOverridden(form.agentModeLlm(scene, tier.key), tier.key, 'agent', scene)" class="rounded bg-warning/15 px-1 text-[9px] text-warning">{{ t('settings.overridden') }}</span>
-              </div>
-              <div class="grid grid-cols-[minmax(0,1fr)_9.5rem] gap-2 items-center">
-                <select
-                  :value="form.agentModeLlm(scene, tier.key).providerId + ':' + form.agentModeLlm(scene, tier.key).model"
-                  class="h-8 min-w-0 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
-                  @change="form.selectAgentModeModel(scene, tier.key, ($event.target as HTMLSelectElement).value)"
-                >
-                  <option v-for="item in agentModelOptions" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
-                  <option
-                    v-if="agentModeValueMissing(scene, tier.key)"
-                    :value="agentModeValue(scene, tier.key)"
-                  >{{ form.agentModeLlm(scene, tier.key).model }}</option>
-                </select>
-                <select
-                  :value="variantValue(form.agentModeLlm(scene, tier.key))"
-                  class="h-8 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
-                  @change="patchVariant(patch => form.patchAgentModeLlm(scene, tier.key, patch), ($event.target as HTMLSelectElement).value)"
-                >
-                  <option
-                    v-for="opt in THINKING_INTENSITY_OPTIONS"
-                    :key="opt.value || 'unset'"
-                    :value="opt.value"
-                  >{{ opt.label }}</option>
-                </select>
-              </div>
+          <div v-for="tier in modeTiers" :key="'agent-' + scene + '-' + tier.key" class="space-y-1">
+            <div class="flex items-center gap-1.5">
+              <span class="text-[11px] font-medium text-foreground">{{ tier.label }}</span>
+              <span v-if="modeOverridden(form.agentModeLlm(scene, tier.key), tier.key, 'agent', scene)" class="rounded bg-warning/15 px-1 text-[9px] text-warning">{{ t('settings.overridden') }}</span>
             </div>
-          </template>
-
-          <template v-else>
-            <div class="space-y-1">
-              <div class="flex items-center gap-1.5">
-                <span class="text-[11px] font-medium text-foreground">{{ t('settings.agentPanel.mediaModel') }}</span>
-                <span v-if="modeOverridden(form.mediaUnderstanding(mediaKind), '', 'media', mediaKind)" class="rounded bg-warning/15 px-1 text-[9px] text-warning">{{ t('settings.overridden') }}</span>
-              </div>
-              <div class="grid grid-cols-[minmax(0,1fr)_9.5rem] gap-2 items-center">
-                <select
-                  :value="form.mediaUnderstanding(mediaKind).providerId + ':' + form.mediaUnderstanding(mediaKind).model"
-                  class="h-8 min-w-0 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
-                  @change="form.selectMediaUnderstandingModel(mediaKind, ($event.target as HTMLSelectElement).value)"
-                >
-                  <option v-for="item in mediaOptions(mediaKind)" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
-                </select>
-                <select
-                  :value="variantValue(form.mediaUnderstanding(mediaKind))"
-                  class="h-8 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
-                  @change="patchVariant(patch => form.patchMediaUnderstandingModel(mediaKind, patch), ($event.target as HTMLSelectElement).value)"
-                >
-                  <option
-                    v-for="opt in THINKING_INTENSITY_OPTIONS"
-                    :key="opt.value || 'unset'"
-                    :value="opt.value"
-                  >{{ opt.label }}</option>
-                </select>
-              </div>
+            <div class="grid grid-cols-[minmax(0,1fr)_9.5rem] gap-2 items-center">
+              <select
+                :value="form.agentModeLlm(scene, tier.key).providerId + ':' + form.agentModeLlm(scene, tier.key).model"
+                class="h-8 min-w-0 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
+                @change="form.selectAgentModeModel(scene, tier.key, ($event.target as HTMLSelectElement).value)"
+              >
+                <option v-for="item in agentModelOptions" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
+                <option
+                  v-if="agentModeValueMissing(scene, tier.key)"
+                  :value="agentModeValue(scene, tier.key)"
+                >{{ form.agentModeLlm(scene, tier.key).model }}</option>
+              </select>
+              <select
+                :value="variantValue(form.agentModeLlm(scene, tier.key))"
+                class="h-8 px-2 rounded border border-border bg-card text-[11px] text-foreground outline-none focus:border-accent/50"
+                @change="patchVariant(patch => form.patchAgentModeLlm(scene, tier.key, patch), ($event.target as HTMLSelectElement).value)"
+              >
+                <option
+                  v-for="opt in THINKING_INTENSITY_OPTIONS"
+                  :key="opt.value || 'unset'"
+                  :value="opt.value"
+                >{{ opt.label }}</option>
+              </select>
             </div>
-          </template>
+          </div>
 
         </div>
 

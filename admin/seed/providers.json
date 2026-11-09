@@ -508,7 +508,7 @@
       "computerPipelineLlm": {
         "decision": {
           "providerId": "qwen",
-          "model": "qwen3.5-flash"
+          "model": "qwen3.7-flash"
         },
         "position": {
           "providerId": "qwen",
@@ -516,7 +516,7 @@
         },
         "verify": {
           "providerId": "qwen",
-          "model": "qwen3.5-flash"
+          "model": "qwen3.7-flash"
         },
         "byTier": {
           "fast": {
@@ -575,7 +575,7 @@
       "mediaUnderstanding": {
         "image": {
           "providerId": "qwen",
-          "model": "qwen3.5-flash"
+          "model": "qwen3.7-flash"
         },
         "audio": {
           "providerId": "qwen",
@@ -583,8 +583,12 @@
         },
         "video": {
           "providerId": "qwen",
-          "model": "qwen3.5-flash"
+          "model": "qwen3.7-flash"
         }
+      },
+      "webSearchLlm": {
+        "providerId": "qwen",
+        "model": "qwen3.7-flash"
       },
       "mediaGeneration": {
         "image": {

@@ -43,6 +43,7 @@ import {
   platformComputerPipelineDefault,
   platformComputerPipelineTierDefault,
   platformMediaUnderstandingDefault,
+  platformWebSearchDefault,
   withInheritedThinking
 } from '../lib/platformTierDefaults'
 import { preferredWebSearchTier } from '../lib/providerParams'
@@ -183,6 +184,19 @@ function createSettingsDialogForm(deps: {
   if (m?.providerId && m.model) return m
   const fallback = platformMediaUnderstandingDefault(s.platformSettings.tierDefaults, kind)
   return fallback ? withInheritedThinking(fallback, s.settings.providers) : emptyTierConfig()
+  }
+
+  /** 联网搜索：单模型，无档位。 */
+  function webSearchLlm(): PerformanceModeLlmConfig {
+  const m = s.settings.webSearchLlm
+  if (m?.providerId && m.model) return m
+  const fallback = platformWebSearchDefault(s.platformSettings.tierDefaults)
+  return fallback ? withInheritedThinking(fallback, s.settings.providers) : emptyTierConfig()
+  }
+
+  function patchWebSearchLlm(patch: Partial<PerformanceModeLlmConfig>) {
+  s.settings.webSearchLlm = mergeTierLlmPatch(webSearchLlm(), patch)
+  scheduleDebugModelSave()
   }
 
   function computerPipelineLlm(): ComputerPipelineLlmSettings {
@@ -840,6 +854,20 @@ function createSettingsDialogForm(deps: {
     console.warn('[settings] selectAgentModeModel: invalid value', value)
   }
 
+  function selectWebSearchModel(value: string) {
+    const parsed = splitProviderModelValue(value)
+    if (parsed) {
+      s.settings.webSearchLlm = {
+        providerId: parsed.providerId,
+        model: parsed.model,
+        ...thinkingPatchFromProviderModel(s.settings.providers, parsed.providerId, parsed.model)
+      }
+      scheduleDebugModelSave()
+      return
+    }
+    console.warn('[settings] selectWebSearchModel: invalid value', value)
+  }
+
   function selectMediaUnderstandingModel(kind: MediaDebugKind, value: string) {
     const parsed = splitProviderModelValue(value)
     if (parsed) {
@@ -1283,6 +1311,9 @@ function createSettingsDialogForm(deps: {
     askAssistantInstallFfmpeg,
     selectMediaModelWithProvider,
     selectAgentModeModel,
+    webSearchLlm,
+    patchWebSearchLlm,
+    selectWebSearchModel,
     selectMediaUnderstandingModel,
     getAgentModelWithProvider,
     selectAgentModelWithProvider,

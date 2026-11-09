@@ -48,6 +48,8 @@ import { normalizePlatformProviderTemplates, mergePlatformModelConfigs } from '.
 
 // 场景档位默认由平台目录下发（tierDefaults）；本地不内置任何平台模型固定配置。
 const defaultAgentModeLlm = () => ({})
+/** 联网搜索单模型：没有值时也要给出完整形状（providerId / model 必填）。 */
+const emptyWebSearchLlm = (): PerformanceModeLlmConfig => ({ providerId: '', model: '' })
 
 const defaultPlatformSettings = (): PlatformSettings => ({
   providers: defaultProviders,
@@ -197,6 +199,7 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     mediaModelOverrides: { ...(s.mediaModelOverrides ?? {}) },
     agentPerformanceModes: { ...(s.agentPerformanceModes ?? {}) },
     mediaUnderstanding: { ...(s.mediaUnderstanding ?? {}) },
+    webSearchLlm: { ...emptyWebSearchLlm(), ...(s.webSearchLlm ?? {}) },
     agentModeLlm: { ...(s.agentModeLlm ?? {}) },
     parallelToolExecutionEnabled: s.parallelToolExecutionEnabled !== false,
     maxParallelToolCalls: s.maxParallelToolCalls,
@@ -367,6 +370,7 @@ export const useSettingsStore = defineStore('settings', () => {
     },
     agentModeLlm: defaultAgentModeLlm(),
     mediaUnderstanding: {},
+    webSearchLlm: emptyWebSearchLlm(),
     agentPerformanceModes: { general: 'standard', coder: 'standard' },
     parallelToolExecutionEnabled: true,
     theme: 'system'
@@ -463,6 +467,7 @@ export const useSettingsStore = defineStore('settings', () => {
         mergedIn.agentUiOverrides ?? prevMerged.agentUiOverrides,
       agentModeLlm: mergedIn.agentModeLlm ?? prevMerged.agentModeLlm ?? {},
       mediaUnderstanding: mergedIn.mediaUnderstanding ?? prevMerged.mediaUnderstanding ?? {},
+      webSearchLlm: mergedIn.webSearchLlm ?? prevMerged.webSearchLlm ?? emptyWebSearchLlm(),
       computerPipelineLlm:
         mergedIn.computerPipelineLlm ?? prevMerged.computerPipelineLlm ?? {}
     }
@@ -590,6 +595,7 @@ export const useSettingsStore = defineStore('settings', () => {
       ...userSettings.value,
       agentModeLlm: settings.value.agentModeLlm ?? userSettings.value.agentModeLlm,
       mediaUnderstanding: settings.value.mediaUnderstanding ?? userSettings.value.mediaUnderstanding,
+      webSearchLlm: settings.value.webSearchLlm ?? userSettings.value.webSearchLlm ?? emptyWebSearchLlm(),
       ...patch
     })
   }
@@ -714,6 +720,12 @@ export const useSettingsStore = defineStore('settings', () => {
         ...(user.mediaUnderstanding ?? {}),
         ...(mergedIn.mediaUnderstanding ?? {})
       },
+      webSearchLlm: {
+        ...emptyWebSearchLlm(),
+        ...(settings.value.webSearchLlm ?? {}),
+        ...(user.webSearchLlm ?? {}),
+        ...(mergedIn.webSearchLlm ?? {})
+      },
       agentModeLlm: mergedIn.agentModeLlm ?? user.agentModeLlm ?? settings.value.agentModeLlm,
       computerPipelineLlm:
         mergedIn.computerPipelineLlm ?? user.computerPipelineLlm ?? settings.value.computerPipelineLlm
@@ -741,6 +753,7 @@ export const useSettingsStore = defineStore('settings', () => {
       temperature: settings.value.temperature,
       maxTokens: settings.value.maxTokens,
       computerPipelineLlm: settings.value.computerPipelineLlm ?? {},
+      webSearchLlm: settings.value.webSearchLlm ?? emptyWebSearchLlm(),
       agentModeLlm: settings.value.agentModeLlm ?? {},
       mediaUnderstanding: settings.value.mediaUnderstanding ?? {},
       ...patch

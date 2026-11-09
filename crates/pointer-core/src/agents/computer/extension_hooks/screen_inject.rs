@@ -99,22 +99,15 @@ fn slot_labels() -> Vec<&'static str> {
 /// 之前 `[CUR_SCREEN]` 只说像素尺寸，模型不知道自己在第几块屏上，也不知道
 /// 「另一块屏」存不存在 —— 双屏下目标窗口在别处时，它只会觉得画面是空的。
 /// 说清楚「这是 1/2 块屏，另一块是什么」，它才有依据去 `use_screen`。
-fn display_summary(current: &crate::agents::computer::vision::screen::MonitorInfo, monitors: &[crate::models::ComputerMonitor]) -> String {
-    if monitors.is_empty() {
+///
+/// `current_id` 是截取时从所选显示器直接带出来的编号，**不靠坐标反查**。
+fn display_summary(current_id: &str, monitors: &[crate::models::ComputerMonitor]) -> String {
+    if current_id.is_empty() || monitors.is_empty() {
         return String::new();
     }
-    let matched = monitors.iter().find(|m| {
-        m.left == current.left
-            && m.top == current.top
-            && m.width == current.width
-            && m.height == current.height
-    });
-    let Some(cur) = matched else {
-        return String::new();
-    };
     let others: Vec<String> = monitors
         .iter()
-        .filter(|m| m.id != cur.id)
+        .filter(|m| m.id != current_id)
         .map(|m| {
             format!(
                 "{} at ({}, {}) {}x{}{}",
@@ -128,13 +121,12 @@ fn display_summary(current: &crate::agents::computer::vision::screen::MonitorInf
         })
         .collect();
     if others.is_empty() {
-        format!("This frame is display {} (the only display). ", cur.id)
+        format!("This frame is display {current_id} (the only display). ")
     } else {
         format!(
-            "This frame is display {} — one of {} displays. Other displays: {}. \
+            "This frame is display {current_id} — one of {} displays. Other displays: {}. \
              If the app you need is not in this image, it is on another display: call \
              `use_screen` with that id instead of taking your own screenshot. ",
-            cur.id,
             monitors.len(),
             others.join("; ")
         )
@@ -171,7 +163,7 @@ pub fn build_cur_screen_preamble(
         None => String::new(),
     };
     let displays = display_summary(
-        &cap.monitor,
+        &cap.monitor_id,
         &crate::agents::computer::vision::screen::list_monitors().unwrap_or_default(),
     );
     format!(
@@ -433,23 +425,38 @@ mod tests {
             monitor(0, 0, 1512, 982),
             monitor(-890, -1440, 3440, 1440),
         ];
-        let text = super::display_summary(
-            &crate::agents::computer::vision::screen::MonitorInfo::new(0, 0, 1512, 982),
-            &monitors,
-        );
+        let text = super::display_summary("xcap:0,0", &monitors);
         assert!(text.contains("one of 2 displays"), "got: {text}");
         assert!(text.contains("xcap:-890,-1440"), "另一块屏的编号必须出现: {text}");
         assert!(text.contains("use_screen"), "要告诉模型下一步怎么做: {text}");
+    }
+
+    /// 编号直接来自截取时的显示器，不靠坐标反查 —— 坐标对不上也照常报。
+    #[test]
+    fn display_summary_uses_the_id_not_the_bounds() {
+        let monitors = vec![
+            crate::models::ComputerMonitor {
+                id: "xcap:0,0".into(),
+                // 与 current_id 无关的坐标：靠坐标匹配会失配
+                left: 9999,
+                top: 9999,
+                width: 10,
+                height: 10,
+                is_primary: false,
+                work_area: None,
+            },
+            monitor(-890, -1440, 3440, 1440),
+        ];
+        let text = super::display_summary("xcap:0,0", &monitors);
+        assert!(text.contains("display xcap:0,0"), "got: {text}");
+        assert!(text.contains("xcap:-890,-1440"), "got: {text}");
     }
 
     /// 单屏不啰嗦，只报「这是唯一一块」。
     #[test]
     fn single_display_summary_is_short() {
         let monitors = vec![monitor(0, 0, 1512, 982)];
-        let text = super::display_summary(
-            &crate::agents::computer::vision::screen::MonitorInfo::new(0, 0, 1512, 982),
-            &monitors,
-        );
+        let text = super::display_summary("xcap:0,0", &monitors);
         assert!(text.contains("only display"), "got: {text}");
         assert!(!text.contains("use_screen"));
     }
@@ -457,10 +464,15 @@ mod tests {
     /// 拿不到显示器列表时不要瞎编。
     #[test]
     fn display_summary_is_silent_without_monitors() {
-        let text = super::display_summary(
-            &crate::agents::computer::vision::screen::MonitorInfo::new(0, 0, 1512, 982),
-            &[],
-        );
+        let text = super::display_summary("xcap:0,0", &[]);
+        assert!(text.is_empty(), "got: {text}");
+    }
+
+    /// 编号缺失（旧缓存 / 测试构造）时保持沉默，不退回坐标猜测。
+    #[test]
+    fn display_summary_is_silent_without_id() {
+        let monitors = vec![monitor(0, 0, 1512, 982)];
+        let text = super::display_summary("", &monitors);
         assert!(text.is_empty(), "got: {text}");
     }
 
@@ -505,6 +517,7 @@ mod tests {
             raw_unmarked_jpeg: vec![1, 2],
             screenshot_jpeg: vec![3, 4],
             monitor: MonitorInfo::new(0, 0, 100, 100),
+            monitor_id: "xcap:0,0".into(),
         }
     }
 
@@ -580,6 +593,7 @@ mod tests {
             raw_unmarked_jpeg: Vec::new(),
             screenshot_jpeg: Vec::new(),
             monitor: crate::agents::computer::vision::screen::MonitorInfo::new(0, 0, 1920, 1080),
+            monitor_id: "xcap:0,0".into(),
         }
     }
 

@@ -40,6 +40,11 @@ pub struct ScreenCaptureResult {
     pub screenshot_jpeg: Vec<u8>,
     /// Logical monitor bounds for this capture.
     pub monitor: screen::MonitorInfo,
+    /// 这块屏的编号（`xcap:{os_id}`），截取时直接来自所选显示器。
+    ///
+    /// 不要用 `monitor` 的坐标去别处反查 —— 编号本来就在手上，坐标匹配在
+    /// 显示器刚拔插或分辨率变化时会静默失配。
+    pub monitor_id: String,
 }
 
 /// Per-conversation state for computer use tools.
@@ -406,6 +411,7 @@ impl ComputerState {
         conversation_id: &str,
         screen_capture: &[u8],
         monitor: screen::MonitorInfo,
+        monitor_id: &str,
         capture_px: (u32, u32),
         global_pointer: (i32, i32),
         global_caret: Option<(i32, i32)>,
@@ -452,6 +458,7 @@ impl ComputerState {
             raw_unmarked_jpeg: screen_capture.to_vec(),
             screenshot_jpeg: pack.screenshot_jpeg,
             monitor,
+            monitor_id: monitor_id.to_string(),
         })
     }
 
@@ -490,6 +497,7 @@ impl ComputerState {
                 conversation_id,
                 &shot.jpeg,
                 shot.monitor,
+                &shot.monitor_id,
                 shot.capture_px,
                 shot.global_pointer,
                 shot.global_caret,
@@ -879,6 +887,7 @@ mod tests {
             raw_unmarked_jpeg: vec![7],
             screenshot_jpeg: vec![9, 9, 9],
             monitor: screen::MonitorInfo::new(0, 0, 100, 100),
+            monitor_id: "xcap:0,0".into(),
         };
         state.store_pipeline_after_capture("reuse", cap);
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -898,6 +907,7 @@ mod tests {
             raw_unmarked_jpeg: vec![1],
             screenshot_jpeg: vec![9, 9, 9],
             monitor: screen::MonitorInfo::new(0, 0, 100, 100),
+            monitor_id: "xcap:0,0".into(),
         };
         state.store_pipeline_after_capture("fresh", cap);
 
@@ -938,6 +948,7 @@ mod tests {
                 "real",
                 &jpeg,
                 monitor,
+                "xcap:0,0",
                 (w, h),
                 (100, 100),
                 None,
@@ -973,6 +984,7 @@ mod tests {
             raw_unmarked_jpeg: vec![1],
             screenshot_jpeg: vec![9, 9, 9],
             monitor: screen::MonitorInfo::new(0, 0, 100, 100),
+            monitor_id: "xcap:0,0".into(),
         };
         state.store_pipeline_after_capture("stale", cap);
 
@@ -1003,6 +1015,7 @@ mod tests {
             raw_unmarked_jpeg: vec![1],
             screenshot_jpeg: vec![9, 9, 9],
             monitor: screen::MonitorInfo::new(0, 0, 100, 100),
+            monitor_id: "xcap:0,0".into(),
         };
         state.store_pipeline_after_capture("keep", cap);
 

@@ -37,6 +37,9 @@ pub const SCREENSHOT_JPEG_QUALITY: u8 = 88;
 pub struct ScreenshotPacket {
     pub jpeg: Vec<u8>,
     pub monitor: MonitorInfo,
+    /// `xcap:{os_id}` of the captured monitor — taken from the `Monitor` we
+    /// just captured, never reverse-looked-up from bounds.
+    pub monitor_id: String,
     pub capture_px: (u32, u32),
     pub global_pointer: (i32, i32),
     /// Text-focus hint in **global screen** coordinates (Python `focus_position.get_focus_position()`), if available.
@@ -283,6 +286,7 @@ fn screenshot_from_monitor(
     Ok(ScreenshotPacket {
         jpeg,
         monitor: info,
+        monitor_id: monitor_list_id(monitor)?,
         capture_px,
         global_pointer,
         global_caret,

@@ -77,7 +77,13 @@
     "importResult": "Created {created}, skipped {skipped} rows",
     "importLine": "Line {line}: {reason}",
     "importSubmit": "Import",
-    "noMatch": "No matching members"
+    "noMatch": "No matching members",
+    "balance": "Credit",
+    "balanceUnopened": "Not opened",
+    "grant": "Top up",
+    "grantPrompt": "How much CNY to add for {name}?",
+    "grantInvalid": "Enter an amount greater than 0",
+    "grantDone": "Added ¥{amount}, balance now ¥{balance}"
   },
   "login": {
     "title": "Sign in to Pointer console",

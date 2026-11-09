@@ -7,6 +7,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::billing;
 use crate::credentials;
 use crate::db::{now_ts, sha256_hex};
 use crate::grants;
@@ -71,6 +72,8 @@ pub async fn balance(
     headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
     let user = bearer_user(&state, &headers).await?;
+    let balance = billing::ensure_wallet(&state.store, &state.config.tenant_id, &user.id).await?;
+    // 金额额度与 token 配额是两条独立闸门：任意一条判定超限都要拦。
     let q = usage::quota_state(
         &state.store,
         &state.config.tenant_id,
@@ -79,9 +82,8 @@ pub async fn balance(
     )
     .await?;
     Ok(Json(json!({
-        // 控制面不接计费系统，余额恒为 0.00；客户端只是展示，不做扣减判断。
-        "balance_yuan": "0.00",
-        "token_quota_exhausted": q.blocks(),
+        "balance_yuan": billing::yuan_string(balance),
+        "token_quota_exhausted": balance <= 0 || q.blocks(),
     })))
 }
 
@@ -122,6 +124,16 @@ pub async fn token_usage(
     )
     .await?;
 
+    let (_cost, balance) = billing::charge(
+        &state.store,
+        &state.config.tenant_id,
+        &user.id,
+        body.model.trim(),
+        body.prompt_tokens,
+        body.completion_tokens,
+    )
+    .await?;
+
     let q = usage::quota_state(
         &state.store,
         &state.config.tenant_id,
@@ -133,8 +145,8 @@ pub async fn token_usage(
     Ok(Json(json!({
         "id": user.id,
         "received": true,
-        "balance_yuan": "0.00",
-        "token_quota_exhausted": q.blocks(),
+        "balance_yuan": billing::yuan_string(balance),
+        "token_quota_exhausted": balance <= 0 || q.blocks(),
     })))
 }
 

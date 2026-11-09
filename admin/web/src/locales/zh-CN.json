@@ -77,7 +77,13 @@
     "importResult": "成功 {created} 个，跳过 {skipped} 行",
     "importLine": "第 {line} 行：{reason}",
     "importSubmit": "导入",
-    "noMatch": "没有匹配的成员"
+    "noMatch": "没有匹配的成员",
+    "balance": "额度",
+    "balanceUnopened": "未开通",
+    "grant": "加额",
+    "grantPrompt": "给 {name} 加多少元？",
+    "grantInvalid": "请输入大于 0 的金额",
+    "grantDone": "已加 {amount} 元，当前余额 {balance} 元"
   },
   "login": {
     "title": "登录 Pointer 控制面",

@@ -86,6 +86,28 @@ async function createUser() {
   }
 }
 
+async function grantCredit(user: any) {
+  const raw = prompt(
+    t('members.grantPrompt', { name: user.displayName || user.username }),
+    '10'
+  )
+  if (!raw) return
+  const amount = Number(raw)
+  if (!Number.isFinite(amount) || amount <= 0) {
+    error.value = t('members.grantInvalid')
+    return
+  }
+  try {
+    const res = await api.post(`/api/admin/users/${user.id}/wallet/grant`, {
+      amountYuan: amount,
+    })
+    flashNotice(t('members.grantDone', { amount, balance: res.balanceYuan }))
+    await load()
+  } catch (e) {
+    error.value = errText(e)
+  }
+}
+
 async function toggleStatus(user: any) {
   const next = user.status === 'active' ? 'disabled' : 'active'
   try {
@@ -187,6 +209,7 @@ onMounted(load)
           <th style="width: 150px">{{ t('members.account') }}</th>
           <th style="width: 130px">{{ t('members.name') }}</th>
           <th style="width: 84px">{{ t('members.status') }}</th>
+          <th style="width: 110px">{{ t('members.balance') }}</th>
           <th>{{ t('members.roles') }}</th>
           <th style="width: 150px">{{ t('members.lastLogin') }}</th>
           <th style="width: 176px"></th>
@@ -225,11 +248,20 @@ onMounted(load)
               </select>
             </div>
           </td>
+          <td class="mono">
+            <span v-if="user.balanceYuan !== null && user.balanceYuan !== undefined">
+              ¥{{ user.balanceYuan }}
+            </span>
+            <span v-else class="muted small">{{ t('members.balanceUnopened') }}</span>
+          </td>
           <td class="small muted">
             {{ user.lastLoginAt ? when(user.lastLoginAt) : t('members.neverLoggedIn') }}
           </td>
           <td class="actions">
             <div class="actions-row">
+              <button v-if="can('usage:write')" class="tiny" @click="grantCredit(user)">
+                {{ t('members.grant') }}
+              </button>
               <button v-if="can('user:write')" class="tiny" @click="resetPassword(user)">
                 {{ t('members.resetPassword') }}
               </button>

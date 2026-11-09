@@ -13,7 +13,7 @@ use sqlx::{Any, Row};
 use crate::db::{now_ts, AdminStore, Backend};
 use crate::rbac;
 
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 pub const DEFAULT_TENANT: &str = "default";
 
 const DDL_V1: &[&str] = &[
@@ -158,6 +158,7 @@ fn index_statements(backend: Backend) -> Vec<String> {
         ("idx_sessions_expires", "sessions", "expires_at"),
         ("idx_user_roles_user", "user_roles", "user_id"),
         ("idx_resources_kind", "resources", "kind"),
+        ("idx_wallet_ledger_user", "wallet_ledger", "user_id"),
         ("idx_grants_resource", "resource_grants", "resource_id"),
         ("idx_grants_principal", "resource_grants", "principal_id"),
         ("idx_audit_created", "audit_log", "created_at"),
@@ -235,6 +236,40 @@ const DDL_V5: &[&str] = &[
 
 /// v7：客户端自动更新。一个版本一行，产物按平台各一行。
 /// `signature` 存 `.sig` 全文 —— tauri-plugin-updater 要求内联，不能给 URL。
+/// 计费：钱包（每人一个余额）+ 流水 + 模型单价。
+///
+/// 金额一律用 **微元**（1 元 = 1_000_000）存整数，避免浮点误差；
+/// 展示时再除以 1e6 转成元。
+const DDL_V8: &[&str] = &[
+    "CREATE TABLE IF NOT EXISTS wallets (
+        user_id     VARCHAR(64) PRIMARY KEY,
+        tenant_id   VARCHAR(64) NOT NULL DEFAULT 'default',
+        balance_micro BIGINT NOT NULL DEFAULT 0,
+        updated_at  BIGINT NOT NULL
+    )",
+    "CREATE TABLE IF NOT EXISTS wallet_ledger (
+        id           VARCHAR(64) PRIMARY KEY,
+        tenant_id    VARCHAR(64) NOT NULL DEFAULT 'default',
+        user_id      VARCHAR(64) NOT NULL,
+        kind         VARCHAR(16) NOT NULL,
+        amount_micro BIGINT NOT NULL,
+        balance_after_micro BIGINT NOT NULL,
+        model        VARCHAR(128) NOT NULL DEFAULT '',
+        prompt_tokens     BIGINT NOT NULL DEFAULT 0,
+        completion_tokens BIGINT NOT NULL DEFAULT 0,
+        note         TEXT$255 NOT NULL DEFAULT '',
+        created_at   BIGINT NOT NULL
+    )",
+    "CREATE TABLE IF NOT EXISTS model_prices (
+        tenant_id  VARCHAR(64) NOT NULL DEFAULT 'default',
+        model      VARCHAR(128) NOT NULL,
+        prompt_micro_per_million     BIGINT NOT NULL DEFAULT 0,
+        completion_micro_per_million BIGINT NOT NULL DEFAULT 0,
+        updated_at BIGINT NOT NULL,
+        CONSTRAINT uq_model_prices UNIQUE (tenant_id, model)
+    )",
+];
+
 const DDL_V7: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS app_releases (
         id           VARCHAR(64) PRIMARY KEY,
@@ -332,6 +367,15 @@ pub async fn migrate(store: &AdminStore) -> Result<()> {
                 .with_context(|| format!("apply admin schema v7: {}", first_line(stmt)))?;
         }
         write_version(store, 7).await?;
+    }
+    if read_version(store).await? < 8 {
+        for stmt in DDL_V8 {
+            store
+                .exec(&adapt(stmt, store.backend))
+                .await
+                .with_context(|| format!("apply admin schema v8: {}", first_line(stmt)))?;
+        }
+        write_version(store, 8).await?;
     }
 
     for stmt in index_statements(store.backend()) {

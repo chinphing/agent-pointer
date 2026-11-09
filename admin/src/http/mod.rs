@@ -1,6 +1,7 @@
 //! 管理后台 HTTP API。
 
 pub mod auth;
+pub mod billing;
 pub mod error;
 pub mod insight;
 pub mod resources;
@@ -30,6 +31,13 @@ pub fn router() -> Router<Shared> {
             post(users::reset_user_password),
         )
         .route("/api/admin/users/:id/roles", post(users::set_user_roles))
+        .route("/api/admin/users/:id/wallet", get(billing::get_wallet))
+        .route("/api/admin/users/:id/wallet/grant", post(billing::grant_wallet))
+        .route(
+            "/api/admin/model-prices",
+            get(billing::list_prices).post(billing::set_price),
+        )
+        .route("/api/admin/my-wallet", get(billing::my_wallet))
         .route(
             "/api/admin/roles",
             get(roles::list_roles).post(roles::create_role),

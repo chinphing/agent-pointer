@@ -32,6 +32,25 @@ async fn role_map(state: &Shared) -> ApiResult<HashMap<String, Vec<String>>> {
     Ok(map)
 }
 
+/// 所有用户的钱包余额（微元）。一次查全表，避免 N+1。
+async fn wallet_map(state: &Shared) -> Result<HashMap<String, i64>, ApiError> {
+    let sql = state
+        .store
+        .sql("SELECT user_id, balance_micro FROM wallets WHERE tenant_id = ?");
+    let rows = sqlx::query::<Any>(&sql)
+        .bind(&state.config.tenant_id)
+        .fetch_all(state.store.pool())
+        .await
+        .map_err(ApiError::internal)?;
+    let mut map = HashMap::new();
+    for row in rows {
+        let user_id: String = row.try_get(0).map_err(ApiError::internal)?;
+        let balance: i64 = row.try_get(1).map_err(ApiError::internal)?;
+        map.insert(user_id, balance);
+    }
+    Ok(map)
+}
+
 pub async fn list_users(
     State(state): State<Shared>,
     headers: HeaderMap,
@@ -41,6 +60,7 @@ pub async fn list_users(
 
     let users = users::list(&state.store, &state.config.tenant_id).await?;
     let roles = role_map(&state).await?;
+    let wallets = wallet_map(&state).await?;
     let items: Vec<Value> = users
         .iter()
         .map(|u| {
@@ -52,6 +72,8 @@ pub async fn list_users(
                 "roles": roles.get(&u.id).cloned().unwrap_or_default(),
                 "createdAt": u.created_at,
                 "lastLoginAt": u.last_login_at,
+                // 还没用过的人没有钱包行，给 null 让前端区分「没开」和「0 元」。
+                "balanceYuan": wallets.get(&u.id).map(|v| crate::billing::yuan_string(*v)),
             })
         })
         .collect();

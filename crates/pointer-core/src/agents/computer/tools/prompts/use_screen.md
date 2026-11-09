@@ -7,9 +7,9 @@ with sits on a different display, the frame in front of you does not contain it.
 Do not go hunting with `terminal`/`screencapture` — switch the capture instead.
 
 Optional:
-- **`monitor`**: the display id **exactly as `launch_app` reported it** (for example
-  `xcap:3`). Take it from that reply; do not invent or re-derive it. Omit to keep
-  the current display (the reply lists every display and its id).
+- **`display`**: the display id **exactly as `launch_app` reported it** (for
+  example `3`). Take it from that reply; do not invent or re-derive it. Omit to
+  keep the current display (the reply lists every display and its id).
 
 **`action` field:** say which app or display you want to see and why.
 

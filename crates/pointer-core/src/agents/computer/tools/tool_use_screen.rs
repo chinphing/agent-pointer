@@ -24,9 +24,11 @@ impl UseScreenTool {
         let goal = args["goal"].as_str().unwrap_or("").trim();
         // 编号来自 `launch_app` 的返回（`display 3 …`），这里不再重新找应用：
         // 重新解析一遍既慢，又可能因为窗口刚移动而和刚才那块屏不一致。
+        //
+        // 参数名统一是 `display`（模型可见层）；代码里的 `monitor` 是 xcap 的
+        // 类型名，两者不混用。
         let wanted = args
-            .get("monitor")
-            .or_else(|| args.get("display"))
+            .get("display")
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())
@@ -103,7 +105,7 @@ mod tests {
     /// 解析结果就是传入的那个 id，与前台应用无关。
     #[test]
     fn monitor_id_is_taken_verbatim() {
-        let args = json!({ "goal": "看 Chrome", "monitor": "3" });
+        let args = json!({ "goal": "看 Chrome", "display": "3" });
         assert_eq!(
             super::super::tool_app_access::resolve_monitor_for_tool("use_screen", &args),
             Some("3".to_string())
@@ -113,7 +115,7 @@ mod tests {
     /// 两端空白要容忍：模型抄回来时可能带空格。
     #[test]
     fn monitor_id_is_trimmed() {
-        let args = json!({ "goal": "看 Chrome", "monitor": " 3 " });
+        let args = json!({ "goal": "看 Chrome", "display": " 3 " });
         assert_eq!(
             super::super::tool_app_access::resolve_monitor_for_tool("use_screen", &args),
             Some("3".to_string())

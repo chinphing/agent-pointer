@@ -2,7 +2,7 @@
 use_screen:
   type: object
   properties:
-    monitor:
+    display:
       type: string
-      description: Display id exactly as `launch_app` reported it (e.g. `xcap:3`). Omit to keep the current display.
+      description: Display id exactly as `launch_app` reported it (e.g. `3`). Omit to keep the current display.
   additionalProperties: true

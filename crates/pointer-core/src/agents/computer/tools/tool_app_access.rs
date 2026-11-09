@@ -170,11 +170,10 @@ pub fn app_access_host_pass_summary(tool_name: &str, text: &str) -> String {
 /// 免得同一个判断在两个地方各写一遍、日后漂移。
 pub fn resolve_monitor_for_tool(tool_id: &str, args: &Value) -> Option<String> {
     match tool_id {
-        // 显式换屏：模型传回 `launch_app` / `[CUR_SCREEN]` 里看到的编号，
-        // 可能是裸编号（`3`）也可能带前缀（`xcap:3`）——统一还原成存储用的规范 id。
+        // 显式换屏：模型传回 `launch_app` / `[CUR_SCREEN]` 里看到的编号。
+        // 参数名是 `display`（模型可见层），内部字段仍叫 monitor id。
         "use_screen" => args
-            .get("monitor")
-            .or_else(|| args.get("display"))
+            .get("display")
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())

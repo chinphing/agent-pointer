@@ -171,13 +171,10 @@ pub fn app_access_host_pass_summary(tool_name: &str, text: &str) -> String {
 pub fn resolve_monitor_for_tool(tool_id: &str, args: &Value) -> Option<String> {
     match tool_id {
         // 显式换屏：模型传回 `launch_app` / `[CUR_SCREEN]` 里看到的编号。
-        // 参数名是 `display`（模型可见层），内部字段仍叫 monitor id。
-        "use_screen" => args
-            .get("display")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(canonical_monitor_id),
+        // 参数名是 `display`（模型可见层），内部字段仍叫 monitor id；
+        // 值可能是字符串 `"3"` 或数字 `3`，两种都收。
+        "use_screen" => super::args_util::display_id_from_args(args.get("display"))
+            .map(|id| canonical_monitor_id(&id)),
         "launch_app" => monitor_id_for_launched_app(args),
         _ => crate::platform::app_access::monitor_id_for_frontmost_app(),
     }

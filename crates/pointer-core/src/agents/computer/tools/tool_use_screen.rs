@@ -7,7 +7,7 @@
 //! 真正的切换在宿主侧完成（`computer_monitor_follow`）：工具执行完，宿主把会话
 //! 的采集显示器改成这里解析出来的那块，下一帧 `[CUR_SCREEN]` 就是它。
 
-use super::args_util::require_non_empty_str;
+use super::args_util::{display_id_from_args, require_non_empty_str};
 use crate::agents::computer::vision::screen;
 use anyhow::Result;
 use serde_json::Value;
@@ -26,13 +26,20 @@ impl UseScreenTool {
         // 重新解析一遍既慢，又可能因为窗口刚移动而和刚才那块屏不一致。
         //
         // 参数名统一是 `display`（模型可见层）；代码里的 `monitor` 是 xcap 的
-        // 类型名，两者不混用。
-        let wanted = args
-            .get("display")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string);
+        // 类型名，两者不混用。值可能是字符串 `"3"` 或数字 `3`，两种都收。
+        let wanted = match args.get("display") {
+            None => None,
+            Some(v) => match display_id_from_args(Some(v)) {
+                Some(id) => Some(id),
+                // 传了但读不出来：明确报错，不能当成「没传」静默换到主屏。
+                None => {
+                    return Ok(format!(
+                        "Goal: {goal}. `display` must be a display id such as 3, got `{v}`. \
+                         No capture change was made."
+                    ))
+                }
+            },
+        };
 
         let monitors = screen::list_monitors()?;
         let target = match &wanted {
@@ -116,6 +123,17 @@ mod tests {
     #[test]
     fn monitor_id_is_trimmed() {
         let args = json!({ "goal": "看 Chrome", "display": " 3 " });
+        assert_eq!(
+            super::super::tool_app_access::resolve_monitor_for_tool("use_screen", &args),
+            Some("3".to_string())
+        );
+    }
+
+    /// 显示器 id 在 JSON 里天然是数字：模型写 `{"display": 3}` 也要认。
+    /// 只认字符串会让它被当成「没传」，静默换到主屏。
+    #[test]
+    fn numeric_display_id_is_accepted() {
+        let args = json!({ "goal": "看 Chrome", "display": 3 });
         assert_eq!(
             super::super::tool_app_access::resolve_monitor_for_tool("use_screen", &args),
             Some("3".to_string())

@@ -192,6 +192,26 @@ pub fn text_from_args(v: Option<&Value>) -> Result<String> {
     }
 }
 
+/// 显示器 id：模型可能写字符串 `"3"` 也可能写数字 `3`，两种都收。
+///
+/// 显示器 id 在 JSON 里天然是数字，模型把 `display 3` 抄进参数时很可能写成
+/// `{"display": 3}`。只认字符串会让它被当成「没传」，静默落到主屏。
+pub fn display_id_from_args(v: Option<&Value>) -> Option<String> {
+    let v = v?;
+    match v {
+        Value::String(s) => {
+            let s = s.trim();
+            (!s.is_empty()).then(|| s.to_string())
+        }
+        Value::Number(n) => n.as_u64().map(|n| n.to_string()).or_else(|| {
+            n.as_f64()
+                .filter(|f| f.is_finite() && f.fract() == 0.0)
+                .map(|f| format!("{f:.0}"))
+        }),
+        _ => None,
+    }
+}
+
 /// Wait seconds: Pointer allows 0..=60 (float).
 pub fn parse_wait_seconds(arg: Option<&Value>) -> Result<f64> {
     let Some(v) = arg else {

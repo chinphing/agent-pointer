@@ -3,19 +3,20 @@
 1. Read the **`verify:`** rows on **`[Recent desktop tool calls]`** — there is one
    per desktop tool, in execution order.
 2. Read **`[CUR_SCREEN]`** — it carries one labeled image,
-   **`[Current screen]`**: the desktop as it is now.
-   Confirm here that the previous step actually landed; the tool result and the
-   `verify:` row are hints, not proof. Plan from this frame.
+   **`[Current screen]`**: the desktop as it is now, including whatever state your
+   last step left behind. Judge there whether that step landed; the tool result and
+   the `verify:` row are hints, not proof. Then choose the next step from the task —
+   the frame tells you where you are, not what you are here to do.
    The red crosshair on it is your pointer: the wheel turns there and a click
    lands there. **Only when this step actually depends on where the pointer
    already sits** — a scroll that should stay inside the panel it is already in,
    or a click you expect to land without moving first — read the crosshair
    before planning. Any other step ignores it: find the target and issue the
    tool.
-3. Pick one positioning route from **Positioning** below.
-4. Issue the desktop tools this step needs — they must serve one goal or touch
+3. Issue the desktop tools this step needs — they must serve one goal or touch
    targets that cannot affect each other — plus any independent `terminal` work.
-5. When the active **`wi_*`** item is terminal, **`task_board_patch`** that row.
+   A pointing tool needs the target named and boxed; see **Positioning**.
+4. When the active **`wi_*`** item is terminal, **`task_board_patch`** that row.
    Do not patch on every GUI micro-step.
 
 ## Tool call shape

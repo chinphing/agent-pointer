@@ -5,7 +5,7 @@
 //! 不是手写样例。控制面改了下发形状、客户端没跟上时，这里会红。
 
 use pointer_core::mode_llm::{resolve_agent_mode_llm_config_for_mode, resolve_media_understanding_model};
-use pointer_core::models::ModelSettings;
+use pointer_core::models::{effective_web_search_model, ModelSettings};
 use pointer_core::platform_auth::PlatformLoginCredentials;
 use pointer_core::platform_config::apply_login_credentials_to_model_settings;
 
@@ -96,4 +96,20 @@ fn computer_pipeline_by_tier_lands_in_settings() {
     let standard = by_tier.get("standard").expect("standard 档流水线应存在");
     assert_eq!(standard.locate, "qwen3.8-flash");
     assert_eq!(standard.verify, "deepseek-flash", "标准档的动作校验仍是 deepseek");
+}
+
+/// 联网搜索只有一个模型，默认 deepseek-flash；档位层已经不存在。
+#[test]
+fn web_search_resolves_single_deepseek_model() {
+    let s = apply_fixture();
+    assert_eq!(s.web_search_llm.provider_id, "deepseek");
+    assert_eq!(effective_web_search_model(&s, None), "deepseek-flash");
+    for tier in ["fast", "standard", "expert"] {
+        assert!(
+            !s.agent_mode_llm
+                .get("web_search")
+                .is_some_and(|m| m.contains_key(tier)),
+            "web_search 不该再有 {tier} 档位"
+        );
+    }
 }

@@ -587,8 +587,8 @@
         }
       },
       "webSearchLlm": {
-        "providerId": "qwen",
-        "model": "qwen3.7-flash"
+        "providerId": "deepseek",
+        "model": "deepseek-flash"
       },
       "mediaGeneration": {
         "image": {

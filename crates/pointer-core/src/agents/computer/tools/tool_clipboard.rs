@@ -18,10 +18,9 @@ pub struct ClipboardTool;
 /// something else, and failed an operation that had in fact succeeded. Observed
 /// in a real session: `clipboard_write("深圳")` → "Copied 6 characters" →
 /// verify fail → retry.
-fn write_reply(goal: &str, text: &str) -> String {
+fn write_reply(text: &str) -> String {
     format!(
-        "Goal: {}. Copied {} characters to clipboard. Nothing was pasted — use hotkey (paste) or input if needed.",
-        goal,
+        "Copied {} characters to clipboard. Nothing was pasted — use hotkey (paste) or input if needed.",
         text.chars().count()
     )
 }
@@ -65,10 +64,7 @@ impl ClipboardTool {
             body.len(),
             truncated
         );
-        Ok(format!(
-            "Goal: {}. Clipboard text{}:\n\n{}",
-            goal, note, body
-        ))
+        Ok(format!("Clipboard text{}:\n\n{}", note, body))
     }
 
     fn write_clipboard(&self, args: &Value) -> Result<String> {
@@ -83,7 +79,7 @@ impl ClipboardTool {
             goal.chars().count(),
             text.chars().count()
         );
-        Ok(write_reply(goal, text))
+        Ok(write_reply(text))
     }
 }
 
@@ -144,7 +140,9 @@ pub fn clipboard_host_verify_kind(
 
 /// Body after the `Clipboard text:` header in a successful `read_clipboard` reply.
 pub fn extract_clipboard_read_body(tool_text: &str) -> Option<&str> {
-    let needle = ". Clipboard text";
+    // 只认 "Clipboard text"，不假设前面有没有别的句子 —— 回复不再回显 `action`，
+    // 但旧转录里可能还带着前缀。
+    let needle = "Clipboard text";
     let suffix = tool_text.get(tool_text.find(needle)? + needle.len()..)?;
     let suffix = suffix
         .strip_prefix(" (truncated in reply)")
@@ -177,19 +175,19 @@ mod tests {
 
     #[test]
     fn extract_read_body_non_empty() {
-        let t = "Goal: Read key. Clipboard text:\n\nsk-abc";
+        let t = "Clipboard text:\n\nsk-abc";
         assert_eq!(extract_clipboard_read_body(t), Some("sk-abc"));
     }
 
     #[test]
     fn extract_read_body_empty() {
-        let t = "Goal: Read key. Clipboard text:\n\n";
+        let t = "Clipboard text:\n\n";
         assert_eq!(extract_clipboard_read_body(t), Some(""));
     }
 
     #[test]
     fn host_verify_empty_clipboard_skips_llm() {
-        let t = "Goal: Read key. Clipboard text:\n\n";
+        let t = "Clipboard text:\n\n";
         assert_eq!(
             clipboard_host_verify_kind("clipboard_read", Some(t)),
             ClipboardHostVerifyKind::EmptyClipboard
@@ -198,7 +196,7 @@ mod tests {
 
     #[test]
     fn host_verify_non_empty_deferrs() {
-        let t = "Goal: Read key. Clipboard text:\n\nhello";
+        let t = "Clipboard text:\n\nhello";
         assert_eq!(
             clipboard_host_verify_kind("clipboard_read", Some(t)),
             ClipboardHostVerifyKind::Defer
@@ -209,20 +207,20 @@ mod tests {
     fn write_reply_counts_characters_not_bytes() {
         // 「深圳」= 2 chars / 6 bytes. Reporting 6 made the model think the
         // tool had written something other than what it asked for.
-        let r = write_reply("把深圳放进剪贴板", "深圳");
+        let r = write_reply("深圳");
         assert!(r.contains("Copied 2 characters"), "{r}");
         assert!(!r.contains("Copied 6 characters"), "{r}");
     }
 
     #[test]
     fn write_reply_ascii_unchanged() {
-        let r = write_reply("copy", "hello");
+        let r = write_reply("hello");
         assert!(r.contains("Copied 5 characters"), "{r}");
     }
 
     #[test]
     fn host_verify_write_zero_chars() {
-        let t = "Goal: Copy. Copied 0 characters to clipboard. Nothing was pasted — use hotkey (paste) or input if needed.";
+        let t = "Copied 0 characters to clipboard. Nothing was pasted — use hotkey (paste) or input if needed.";
         assert_eq!(
             clipboard_host_verify_kind("clipboard_write", Some(t)),
             ClipboardHostVerifyKind::ZeroWritten
@@ -231,7 +229,7 @@ mod tests {
 
     #[test]
     fn host_verify_empty_after_trimmed_tool_text() {
-        let t = "Goal: Read key. Clipboard text:";
+        let t = "Clipboard text:";
         assert_eq!(
             clipboard_host_verify_kind("clipboard_read", Some(t)),
             ClipboardHostVerifyKind::EmptyClipboard

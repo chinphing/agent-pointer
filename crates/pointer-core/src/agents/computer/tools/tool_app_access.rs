@@ -97,7 +97,6 @@ fn format_launch_reply(
     result: &AppOpenResult,
     verify: &VerifyHintGenerator,
 ) -> String {
-    let goal = args["goal"].as_str().unwrap_or("").trim();
     let app = args["app"].as_str().unwrap_or("").trim();
     let display_app = result.app_name.as_deref().unwrap_or(app);
     let status = if result.success { "OK" } else { "FAILED" };
@@ -110,7 +109,7 @@ fn format_launch_reply(
         })
         .unwrap_or_default();
     format!(
-        "Goal: {goal}. {status} — {} (action: {}).{screen} {}",
+        "{status} — {} (action: {}).{screen} {}",
         result.message,
         result.action,
         verify.launch_app_hint(display_app, result.success, &result.action),

@@ -86,7 +86,7 @@ impl UseScreenTool {
             "Call `launch_app` for the target app and use the display id from its reply."
         };
 
-        Ok(format!("Goal: {goal}. {where_}\n\n{body}\n{next}"))
+        Ok(format!("{where_}\n\n{body}\n{next}"))
     }
 }
 

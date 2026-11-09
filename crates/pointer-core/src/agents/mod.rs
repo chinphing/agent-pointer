@@ -1522,7 +1522,7 @@ mod builtin_agent_tests {
         // Rules live in AGENT.md — only the ones that are computer-specific.
         for rule in [
             "Batch only what one verify can prove",
-            "The screen is ground truth for what happened",
+            "Read the result on screen; decide the next step from the task",
             "A `verifying` row means the judgement was lost",
         ] {
             assert!(rules.contains(rule), "AGENT.md should state: {rule}");

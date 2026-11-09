@@ -1,8 +1,9 @@
 # `action` 由 tools/mod.rs 的 inject_action_field 统一注入，这里不声明。
 use_screen:
+  description: "Switch the captured display to another monitor by its id."
   type: object
   properties:
     display:
       type: string
       description: Display id exactly as `launch_app` reported it (e.g. `3`). Omit to keep the current display.
-  additionalProperties: true
+  additionalProperties: false

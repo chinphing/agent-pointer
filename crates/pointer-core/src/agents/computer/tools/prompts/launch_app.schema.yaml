@@ -2,14 +2,18 @@
 # inject_action_field 统一注入结构（type + required）。字段该写什么，权威在
 # ../prompts/communication.md 的 `## Tool call shape`。
 launch_app:
+  description: "Launch an app, or bring a running one to the foreground."
   type: object
   properties:
     app:
       type: string
+      description: "App name or bundle id, as `list_apps` reported it."
     activate_only:
       type: boolean
+      description: "Only bring an already-running app forward; do not launch. Default false."
     new_instance:
       type: boolean
+      description: "Start a second window/instance instead of reusing the running one. Default false."
   required:
     - app
-  additionalProperties: true
+  additionalProperties: false

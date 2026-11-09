@@ -28,13 +28,14 @@ mouse_click_at:
       maximum: 2
       description: Number of clicks (1 or 2). Default 1.
     wait:
+      description: "Seconds to hold the next step back. Omit when the screen already shows the result."
       type: number
       minimum: 1
       maximum: 5
   required:
     - target_desc
     - bbox
-  additionalProperties: true
+  additionalProperties: false
 
 mouse_double_click_at:
   description: "Double-click a located target (open, select a word, or toggle)."
@@ -51,13 +52,14 @@ mouse_double_click_at:
       maxItems: 4
       description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
     wait:
+      description: "Seconds to hold the next step back. Omit when the screen already shows the result."
       type: number
       minimum: 1
       maximum: 5
   required:
     - target_desc
     - bbox
-  additionalProperties: true
+  additionalProperties: false
 
 mouse_right_click_at:
   description: "Right-click a located target to open its context menu."
@@ -74,13 +76,14 @@ mouse_right_click_at:
       maxItems: 4
       description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
     wait:
+      description: "Seconds to hold the next step back. Omit when the screen already shows the result."
       type: number
       minimum: 1
       maximum: 5
   required:
     - target_desc
     - bbox
-  additionalProperties: true
+  additionalProperties: false
 
 move_to:
   description: "Move the pointer onto a located target without clicking (hover)."
@@ -97,13 +100,14 @@ move_to:
       maxItems: 4
       description: "Target box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
     wait:
+      description: "Seconds to hold the next step back. Omit when the screen already shows the result."
       type: number
       minimum: 1
       maximum: 5
   required:
     - target_desc
     - bbox
-  additionalProperties: true
+  additionalProperties: false
 
 mouse_scroll_current:
   description: "Scroll the wheel at the pointer, optionally moving it onto a panel first."
@@ -137,11 +141,12 @@ mouse_scroll_current:
         scroll's result to learn how far your last scroll went, and send the
         count its `Scroll scale:` line names.
     wait:
+      description: "Seconds to hold the next step back. Omit when the screen already shows the result."
       type: number
       minimum: 1
       maximum: 5
   required:
-  additionalProperties: true
+  additionalProperties: false
 
 mouse_down:
   description: "Press and hold a mouse button at a located target (drag start)."
@@ -155,11 +160,12 @@ mouse_down:
         - right
       description: Mouse button to hold. Default left.
     wait:
+      description: "Seconds to hold the next step back. Omit when the screen already shows the result."
       type: number
       minimum: 1
       maximum: 5
   required:
-  additionalProperties: true
+  additionalProperties: false
 
 mouse_up:
   description: "Release a held mouse button (drag end)."
@@ -173,11 +179,12 @@ mouse_up:
         - right
       description: Mouse button to release. Default left.
     wait:
+      description: "Seconds to hold the next step back. Omit when the screen already shows the result."
       type: number
       minimum: 1
       maximum: 5
   required:
-  additionalProperties: true
+  additionalProperties: false
 
 mouse_drag_from_to_at:
   description: "Drag from one located target to another (grab, move, drop)."
@@ -204,6 +211,7 @@ mouse_drag_from_to_at:
       maxItems: 4
       description: "Drop point box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
     wait:
+      description: "Seconds to hold the next step back. Omit when the screen already shows the result."
       type: number
       minimum: 1
       maximum: 5
@@ -212,4 +220,4 @@ mouse_drag_from_to_at:
     - from_bbox
     - to_target_desc
     - to_bbox
-  additionalProperties: true
+  additionalProperties: false

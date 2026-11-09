@@ -2,6 +2,7 @@
 # inject_action_field 统一注入结构（type + required）。字段该写什么，权威在
 # ../prompts/communication.md 的 `## Tool call shape`。
 list_apps:
+  description: "List running and recently used apps with their display names."
   type: object
   properties:
     include_all:
@@ -9,4 +10,4 @@ list_apps:
       default: false
       description: Omit or false on the first list_apps call (running + 14-day recent). Set true only on a second list_apps retry when the target app was not in the first result.
   required:
-  additionalProperties: true
+  additionalProperties: false

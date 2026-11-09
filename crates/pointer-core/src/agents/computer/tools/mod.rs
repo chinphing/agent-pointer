@@ -59,7 +59,13 @@ pub fn inject_action_field(schema: &mut serde_json::Value) {
         *props = serde_json::json!({});
     }
     if let Some(props) = props.as_object_mut() {
-        props.insert("action".into(), serde_json::json!({"type": "string"}));
+        props.insert(
+            "action".into(),
+            serde_json::json!({
+                "type": "string",
+                "description": "What this call is for, one clause, in the user's language. Shown as the card title and used as verify's anchor."
+            }),
+        );
     }
     let required = obj.entry("required").or_insert_with(|| serde_json::json!([]));
     if !required.is_array() {
@@ -491,7 +497,12 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 }),
             )
             .with_schema(list_schema)
-            .with_description("List running and recently used apps with their display names.")
+            .with_description(
+                load_desktop_descriptions(LIST_APPS_SCHEMA_YAML)
+                    .get("list_apps")
+                    .cloned()
+                    .unwrap_or_default(),
+            )
             .with_subagent_inheritance(false),
         );
 
@@ -508,7 +519,12 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 }),
             )
             .with_schema(launch_schema)
-            .with_description("Launch an app, or bring a running one to the foreground.")
+            .with_description(
+                load_desktop_descriptions(LAUNCH_APP_SCHEMA_YAML)
+                    .get("launch_app")
+                    .cloned()
+                    .unwrap_or_default(),
+            )
             .with_subagent_inheritance(false),
         );
 
@@ -527,7 +543,12 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 Arc::new(|args| tool_use_screen::UseScreenTool::new().execute(&args)),
             )
             .with_schema(use_screen_schema)
-            .with_description("Switch the captured display to another monitor by its id.")
+            .with_description(
+                load_desktop_descriptions(USE_SCREEN_SCHEMA_YAML)
+                    .get("use_screen")
+                    .cloned()
+                    .unwrap_or_default(),
+            )
             .with_subagent_inheritance(false),
         );
     }

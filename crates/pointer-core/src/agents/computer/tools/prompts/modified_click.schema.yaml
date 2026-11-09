@@ -25,12 +25,13 @@ modified_click_select_at:
           - target_desc
           - bbox
     wait:
+      description: "Seconds to hold the next step back. Omit when the screen already shows the result."
       type: number
       minimum: 1
       maximum: 5
   required:
     - positions
-  additionalProperties: true
+  additionalProperties: false
 
 modified_click_range_select_at:
   description: "Shift-click from one located target to another to select the range between them."
@@ -56,9 +57,10 @@ modified_click_range_select_at:
           - target_desc
           - bbox
     wait:
+      description: "Seconds to hold the next step back. Omit when the screen already shows the result."
       type: number
       minimum: 1
       maximum: 5
   required:
     - positions
-  additionalProperties: true
+  additionalProperties: false

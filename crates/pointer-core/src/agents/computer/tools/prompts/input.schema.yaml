@@ -19,11 +19,15 @@ input_at:
       description: "Field box, [x1, y1, x2, y2] in screenshot pixels. See Locating targets."
     text:
       type: string
+      description: "The text to type."
     clear_first:
       type: boolean
+      description: "Replace the field's existing content first. Default false."
     auto_enter:
       type: boolean
+      description: "Press Enter after typing (submit or confirm). Default false."
     wait:
+      description: "Seconds to hold the next step back. Omit when the screen already shows the result."
       type: number
       minimum: 1
       maximum: 5
@@ -31,7 +35,7 @@ input_at:
     - target_desc
     - bbox
     - text
-  additionalProperties: true
+  additionalProperties: false
 
 input_focused:
   description: "Type into the field that already has focus."
@@ -39,14 +43,18 @@ input_focused:
   properties:
     text:
       type: string
+      description: "The text to type."
     clear_first:
       type: boolean
+      description: "Replace the field's existing content first. Default false."
     auto_enter:
       type: boolean
+      description: "Press Enter after typing (submit or confirm). Default false."
     wait:
+      description: "Seconds to hold the next step back. Omit when the screen already shows the result."
       type: number
       minimum: 1
       maximum: 5
   required:
     - text
-  additionalProperties: true
+  additionalProperties: false

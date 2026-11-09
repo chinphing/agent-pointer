@@ -27,31 +27,31 @@ impl UseScreenTool {
         //
         // 参数名统一是 `display`（模型可见层）；代码里的 `monitor` 是 xcap 的
         // 类型名，两者不混用。值可能是字符串 `"3"` 或数字 `3`，两种都收。
+        let monitors = screen::list_monitors()?;
+        // 任何一条失败路径都带上真实编号：模型据此自我纠正，不必再问一轮。
+        let known = monitors
+            .iter()
+            .map(|m| m.id.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+
         let wanted = match args.get("display") {
             None => None,
             Some(v) => match display_id_from_args(Some(v)) {
                 Some(id) => Some(id),
                 // 传了但读不出来：明确报错，不能当成「没传」静默换到主屏。
-                None => {
-                    return Ok(format!(
-                        "Goal: {goal}. `display` must be a display id such as 3, got `{v}`. \
-                         No capture change was made."
-                    ))
-                }
+                None => return Ok(invalid_display_reply(goal, v, &known)),
             },
         };
 
-        let monitors = screen::list_monitors()?;
         let target = match &wanted {
             Some(id) => monitors.iter().find(|m| m.id == id.trim()),
             None => None,
         };
         if let (Some(id), None) = (&wanted, target) {
-            let known: Vec<&str> = monitors.iter().map(|m| m.id.as_str()).collect();
             return Ok(format!(
-                "Goal: {goal}. No display with id `{id}`. Known ids: {}. \
-                 Take the id from a `launch_app` reply.",
-                known.join(", ")
+                "Goal: {goal}. No display with id `{id}`. Known ids: {known}. \
+                 Take the id from a `launch_app` reply. No capture change was made."
             ));
         }
         let target = target.or_else(|| monitors.iter().find(|m| m.is_primary));
@@ -96,6 +96,14 @@ impl Default for UseScreenTool {
     }
 }
 
+/// `display` 读不出来时的回复：带上真实编号，模型可直接改对再调一次。
+fn invalid_display_reply(goal: &str, got: &Value, known: &str) -> String {
+    format!(
+        "Goal: {goal}. `display` must be a display id such as 3, got `{got}`. \
+         Known ids: {known}. No capture change was made."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,6 +146,14 @@ mod tests {
             super::super::tool_app_access::resolve_monitor_for_tool("use_screen", &args),
             Some("3".to_string())
         );
+    }
+
+    /// 报错时必须把真实编号一并给出：模型能直接改对重调，不用再问一轮。
+    #[test]
+    fn invalid_display_reply_lists_known_ids() {
+        let text = super::invalid_display_reply("看 Chrome", &json!({}), "1, 3");
+        assert!(text.contains("Known ids: 1, 3"), "got: {text}");
+        assert!(text.contains("No capture change was made"), "got: {text}");
     }
 
     /// 没给编号时不要瞎猜某块屏（交给调用方报错或保持现状）。

@@ -92,6 +92,6 @@ mod tests {
     #[test]
     fn requires_goal() {
         let err = UseScreenTool::new().execute(&json!({})).unwrap_err();
-        assert!(err.to_string().contains("goal"));
+        assert!(err.to_string().contains("goal"), "旧字段名也要出现在报错里");
     }
 }

@@ -318,6 +318,24 @@ pub fn format_operation_summary(tool_name: &str, args: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// 新桌面工具必须纳入 `action → goal` 的归一化，否则执行层会报缺 goal。
+    /// `use_screen` 加进来时漏过一次，这里钉住。
+    #[test]
+    fn use_screen_gets_goal_from_action() {
+        let mut args = serde_json::json!({ "action": "切到 Chrome 所在的屏" });
+        ensure_goal_from_action("use_screen", &mut args);
+        assert_eq!(args["goal"], "切到 Chrome 所在的屏");
+    }
+
+    /// 非桌面工具不能被误补：`job` 的 `action` 是 `list`/`create` 这类枚举。
+    #[test]
+    fn non_desktop_tool_action_is_not_turned_into_goal() {
+        let mut args = serde_json::json!({ "action": "list" });
+        ensure_goal_from_action("job", &mut args);
+        assert!(args.get("goal").is_none());
+    }
+
     use super::*;
     use crate::agents::computer::pipeline::types::{PositionModuleOutput, PositionPoint};
     use serde_json::json;

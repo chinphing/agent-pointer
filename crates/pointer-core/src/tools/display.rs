@@ -600,7 +600,8 @@ pub fn default_display_for(raw_name: &str, args: &Value, locale: UiLocale) -> To
         ),
         "use_screen" => (
             t(locale, "tools.useScreen"),
-            str_field(args, &["app", "goal"])
+            // 模型侧字段是 `action`；`goal` 只是宿主从它补齐的内部值。
+            str_field(args, &["action", "app"])
                 .map(|s| truncate(&s, SUMMARY_MAX))
                 .unwrap_or_default(),
         ),

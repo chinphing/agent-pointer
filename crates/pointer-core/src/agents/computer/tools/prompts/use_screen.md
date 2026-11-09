@@ -9,5 +9,7 @@ it — do not go hunting with `terminal`/`screencapture`, call this instead.
 Optional:
 - **`app`**: the app whose display you want. Omit to follow the frontmost app.
 
+**`action` field:** say which app (or display) you want to see and why.
+
 The reply lists every display and marks the one capture will move to. The next
 `[CUR_SCREEN]` frame comes from that display.

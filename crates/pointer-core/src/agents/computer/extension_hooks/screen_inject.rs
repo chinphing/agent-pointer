@@ -94,6 +94,53 @@ fn slot_labels() -> Vec<&'static str> {
 /// rather than baked into a prompt: the size is runtime data, and the `bbox`
 /// contract in `communication.md` ("Locating targets") refers to it instead of naming a
 /// number that would go stale on the next monitor change.
+/// 这张截图来自哪块屏、一共有几块。
+///
+/// 之前 `[CUR_SCREEN]` 只说像素尺寸，模型不知道自己在第几块屏上，也不知道
+/// 「另一块屏」存不存在 —— 双屏下目标窗口在别处时，它只会觉得画面是空的。
+/// 说清楚「这是 1/2 块屏，另一块是什么」，它才有依据去 `use_screen`。
+fn display_summary(current: &crate::agents::computer::vision::screen::MonitorInfo, monitors: &[crate::models::ComputerMonitor]) -> String {
+    if monitors.is_empty() {
+        return String::new();
+    }
+    let matched = monitors.iter().find(|m| {
+        m.left == current.left
+            && m.top == current.top
+            && m.width == current.width
+            && m.height == current.height
+    });
+    let Some(cur) = matched else {
+        return String::new();
+    };
+    let others: Vec<String> = monitors
+        .iter()
+        .filter(|m| m.id != cur.id)
+        .map(|m| {
+            format!(
+                "{} at ({}, {}) {}x{}{}",
+                m.id,
+                m.left,
+                m.top,
+                m.width,
+                m.height,
+                if m.is_primary { " primary" } else { "" }
+            )
+        })
+        .collect();
+    if others.is_empty() {
+        format!("This frame is display {} (the only display). ", cur.id)
+    } else {
+        format!(
+            "This frame is display {} — one of {} displays. Other displays: {}. \
+             If the app you need is not in this image, it is on another display: call \
+             `use_screen` with that id instead of taking your own screenshot. ",
+            cur.id,
+            monitors.len(),
+            others.join("; ")
+        )
+    }
+}
+
 pub fn build_cur_screen_preamble(
     cap: &ScreenCaptureResult,
     pointer: Option<(i32, i32)>,
@@ -123,10 +170,14 @@ pub fn build_cur_screen_preamble(
         // measurement into "find the crosshair that isn't in this picture".
         None => String::new(),
     };
+    let displays = display_summary(
+        &cap.monitor,
+        &crate::agents::computer::vision::screen::list_monitors().unwrap_or_default(),
+    );
     format!(
         "{CUR_SCREEN_TAG} Labeled image this turn: {SLOT_SCREEN_CURRENT}. This screenshot is \
          {w}×{h} pixels — use these dimensions for the `bbox` conversion described in \
-         **Locating targets**. {crosshair}{cite} \
+         **Locating targets**. {displays}{crosshair}{cite} \
          **Verify:** host records outcomes on history rows — read the `verify:` suffix on `[Recent desktop tool calls]`.\n",
         w = cap.monitor.width.max(1),
         h = cap.monitor.height.max(1),
@@ -362,6 +413,56 @@ mod tests {
     use super::*;
     use crate::agents::computer::ScreenCaptureResult;
     use crate::models::ChatMessage;
+
+    fn monitor(left: i32, top: i32, width: i32, height: i32) -> crate::models::ComputerMonitor {
+        crate::models::ComputerMonitor {
+            id: format!("xcap:{left},{top}"),
+            left,
+            top,
+            width,
+            height,
+            is_primary: left == 0 && top == 0,
+            work_area: None,
+        }
+    }
+
+    /// 双屏时必须说清「这是第几块、另一块是什么」，否则模型以为画面就是全部。
+    #[test]
+    fn display_summary_names_the_other_displays() {
+        let monitors = vec![
+            monitor(0, 0, 1512, 982),
+            monitor(-890, -1440, 3440, 1440),
+        ];
+        let text = super::display_summary(
+            &crate::agents::computer::vision::screen::MonitorInfo::new(0, 0, 1512, 982),
+            &monitors,
+        );
+        assert!(text.contains("one of 2 displays"), "got: {text}");
+        assert!(text.contains("xcap:-890,-1440"), "另一块屏的编号必须出现: {text}");
+        assert!(text.contains("use_screen"), "要告诉模型下一步怎么做: {text}");
+    }
+
+    /// 单屏不啰嗦，只报「这是唯一一块」。
+    #[test]
+    fn single_display_summary_is_short() {
+        let monitors = vec![monitor(0, 0, 1512, 982)];
+        let text = super::display_summary(
+            &crate::agents::computer::vision::screen::MonitorInfo::new(0, 0, 1512, 982),
+            &monitors,
+        );
+        assert!(text.contains("only display"), "got: {text}");
+        assert!(!text.contains("use_screen"));
+    }
+
+    /// 拿不到显示器列表时不要瞎编。
+    #[test]
+    fn display_summary_is_silent_without_monitors() {
+        let text = super::display_summary(
+            &crate::agents::computer::vision::screen::MonitorInfo::new(0, 0, 1512, 982),
+            &[],
+        );
+        assert!(text.is_empty(), "got: {text}");
+    }
 
     fn msg_with_images(images: Option<Vec<&str>>) -> ChatMessage {
         ChatMessage {

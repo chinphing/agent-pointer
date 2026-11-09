@@ -5,8 +5,7 @@
 2. Read **`[CUR_SCREEN]`** — it carries one labeled image,
    **`[Current screen]`**: the desktop as it is now, including whatever state your
    last step left behind. Judge there whether that step landed; the tool result and
-   the `verify:` row are hints, not proof. Then choose the next step from the task —
-   the frame tells you where you are, not what you are here to do.
+   the `verify:` row are hints, not proof.
    The red crosshair on it is your pointer: the wheel turns there and a click
    lands there. **Only when this step actually depends on where the pointer
    already sits** — a scroll that should stay inside the panel it is already in,

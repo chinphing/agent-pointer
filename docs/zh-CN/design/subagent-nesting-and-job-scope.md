@@ -28,7 +28,7 @@
 | 默认最大嵌套深度 = **2**（不是 1） | `models/settings.rs:1468` `default_max_sub_agent_spawn_depth() -> 2`；平台默认同 `:2407` |
 | 深度门控 | `tools/run_subagent.rs:81` `validate_spawn_depth`、`:112` `can_spawn_subagents(depth < max)` |
 | 子 agent 能否再委派 | `chat_service/sub_agent_prompt.rs:67` `resolve_subagent_spawn_capability` → `Registered / SelfOnly / None`；`:215-217` Snapshot（self fork）剥掉 `run_subagent` |
-| 当前唯一可达嵌套链 | `general.allowAgents=[coder, computer]`（`agents/general/AGENT.md:15`）→ `coder.allowAgents=[explore]`（`agents/coder/AGENT.md:14`）→ `explore` 无 `allowAgents` |
+| 当前可达嵌套链 | `general.allowAgents=[coder, computer, explore]`（`agents/general/AGENT.md:15`）→ `coder.allowAgents=[explore, general, computer]`（`agents/coder/AGENT.md:14`）→ `explore` 无 `allowAgents`、`computer` 为叶子 |
 | 目标必须 `role == "worker"` | `tools/run_subagent.rs:263-272` |
 | `general-worker` 已于 2026-07 删除，由 `general → self` 替代 | `agents/mod.rs:1613-1621`、`:1623-1660` 两条"必须不存在"断言 |
 
@@ -114,8 +114,8 @@ depth 1 的 48 行 `general` 是 **lead 自己的 self fork**。
 
 | 节点 | role / profile | 现状 allowAgents | 目标 allowAgents（建议） | 可后台 |
 |------|----------------|------------------|--------------------------|--------|
-| `general`（lead，depth 0） | lead | `coder, computer` | `coder, computer, explore` | — |
-| `coder`（depth ≥1） | worker | `explore` | `explore` + general 的子形态（见下） | ✅ 默认后台 |
+| `general`（lead，depth 0） | lead | `coder, computer, explore` | 同左 | — |
+| `coder`（depth ≥1） | worker | `explore, general, computer` | 同左；`computer` 始终前台 | ✅ 默认后台（`computer` 除外） |
 | `explore`（depth ≥1） | worker | 空 | `explore`（建议；不含 coder，见 D-A2） | ✅ 默认后台 |
 | `computer` | worker | 空 | 保持 leaf（桌面权限不可嵌套） | ❌ 始终前台 |
 

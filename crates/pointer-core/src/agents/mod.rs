@@ -2107,6 +2107,14 @@ mod builtin_agent_tests {
         assert!(
             agent
                 .def
+                .allow_agents
+                .binary_search(&"computer".to_string())
+                .is_ok(),
+            "coder allowAgents should include computer（桌面 GUI 验证要能派）"
+        );
+        assert!(
+            agent
+                .def
                 .default_skill_ids
                 .iter()
                 .any(|id| id == "skill-manager"),

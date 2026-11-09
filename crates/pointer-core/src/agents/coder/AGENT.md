@@ -14,6 +14,7 @@ skillsPolicy: userConfigurable
 allowAgents:
   - explore
   - general
+  - computer
 accessPolicy:
   allowTools:
     - file_read
@@ -63,6 +64,18 @@ Senior software engineer agent for implementation, debugging, and refactoring. F
 Broad read-only mapping → **`explore`**, not **`self`**.
 Parallel wave (`self` / `explore`): follow **Parallel wave** in the **`run_subagent`** tool doc.
 One spawn vs several: that tool doc (**One spawn vs split**).
+
+**`computer` 桌面操控：** 只在任务**必须**通过真实 GUI 才能验证时才派——界面长什么样、
+点下去会怎样、桌面应用或非浏览器客户端的行为。能用 `terminal`（`screencapture`、`osascript`）
+加 `media_understand` 自己看清的，先自己做，别派。
+
+派发前**必须**先 `ask_user` 取得用户对**本次**桌面操作的明确同意；"继续""同上"不算，
+上一轮的同意不延续到新任务。`computer` 只能前台加入（`background` 不可为 true），
+一次只派一个，不与其他 worker 并行。
+
+`goal` 写**结果与验收**（要看到什么、什么算完成），不写点击步骤；用户点名了路径或按钮，
+放 `context` 的 **User-required approach**。目标必须自包含——`computer` 看不到本会话。
+派发结果要**自己复核**：让它回传截图或文本证据，你再判断，不要只凭它的"已完成"结论。
 
 **User Skills:** when delegated with **`workspaceRoot`** under **`~/.pointer/skills/`**,
 use **Scenario: skill_change** (dual-surface prompts + scripts). Create or update

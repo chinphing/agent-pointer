@@ -84,8 +84,8 @@ Await only when the user's question cannot be answered without the result.
   leaf and has no **`run_subagent`**.
 - Registered delegation stops at **`maxSubAgentSpawnDepth`** (default 2).
 - Nesting nodes: **`general`** → `coder` / `computer` / `explore`;
-  **`coder`** → `explore` / `general`; **`explore`** → `explore` only (read-only, never
-  `coder`); **`computer`** stays a leaf and always foreground.
+  **`coder`** → `explore` / `general` / `computer`; **`explore`** → `explore` only
+  (read-only, never `coder`); **`computer`** stays a leaf and always foreground.
 - Concurrency: **`maxParallelSubAgents`** (the single user-visible knob, also
   shown as "sub-agents" in settings) caps how many sub-agents run at once. A
   single agent's child fan-out follows the same value; a spawn past it **waits

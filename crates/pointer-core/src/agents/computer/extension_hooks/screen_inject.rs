@@ -105,15 +105,15 @@ fn slot_labels() -> Vec<&'static str> {
 /// 编号一定要报：只有连 id 都没有时才沉默。列不出显示器列表（权限、平台不支持）
 /// 只会让「还有哪些屏」这段缺失，不该把已知的编号一起吞掉。
 ///
-/// 显示时去掉 `xcap:` 前缀 —— 模型只需原样传回，前缀是噪音。
+/// 显示时直接用编号 —— 模型只需原样传回。
 fn display_summary(current_id: &str, monitors: &[crate::models::ComputerMonitor]) -> String {
-    let current = crate::agents::computer::vision::screen::normalize_monitor_id(current_id);
+    let current = current_id.trim();
     if current.is_empty() {
         return String::new();
     }
     let current_size = monitors
         .iter()
-        .find(|m| crate::agents::computer::vision::screen::normalize_monitor_id(&m.id) == current)
+        .find(|m| m.id == current)
         .map(|m| format!(" ({}×{})", m.width, m.height))
         .unwrap_or_default();
     if monitors.is_empty() {
@@ -121,15 +121,8 @@ fn display_summary(current_id: &str, monitors: &[crate::models::ComputerMonitor]
     }
     let others: Vec<String> = monitors
         .iter()
-        .filter(|m| crate::agents::computer::vision::screen::normalize_monitor_id(&m.id) != current)
-        .map(|m| {
-            format!(
-                "{} ({}×{})",
-                crate::agents::computer::vision::screen::normalize_monitor_id(&m.id),
-                m.width,
-                m.height
-            )
-        })
+        .filter(|m| m.id != current)
+        .map(|m| format!("{} ({}×{})", m.id, m.width, m.height))
         .collect();
     if others.is_empty() {
         format!("This frame is display {current}{current_size} (the only display). ")
@@ -418,9 +411,9 @@ mod tests {
     use crate::agents::computer::ScreenCaptureResult;
     use crate::models::ChatMessage;
 
-    fn monitor(left: i32, top: i32, width: i32, height: i32) -> crate::models::ComputerMonitor {
+    fn monitor(id: &str, left: i32, top: i32, width: i32, height: i32) -> crate::models::ComputerMonitor {
         crate::models::ComputerMonitor {
-            id: format!("xcap:{left},{top}"),
+            id: id.to_string(),
             left,
             top,
             width,
@@ -431,21 +424,19 @@ mod tests {
     }
 
     /// 双屏时必须说清「这是第几块、另一块是什么」，否则模型以为画面就是全部。
-    /// **只报编号与尺寸**：绝对坐标会让模型把 `bbox` 换算的参考系搞混；
-    /// 编号也不带 `xcap:` 前缀 —— 模型原样传回即可。
+    /// **只报编号与尺寸**：绝对坐标会让模型把 `bbox` 换算的参考系搞混。
     #[test]
     fn display_summary_names_the_other_displays() {
         let monitors = vec![
-            monitor(0, 0, 1512, 982),
-            monitor(-890, -1440, 3440, 1440),
+            monitor("1", 0, 0, 1512, 982),
+            monitor("3", -890, -1440, 3440, 1440),
         ];
-        let text = super::display_summary("xcap:0,0", &monitors);
+        let text = super::display_summary("1", &monitors);
         assert!(text.contains("one of 2 displays"), "got: {text}");
-        assert!(text.contains("0,0 (1512×982)"), "当前屏编号要出现: {text}");
-        assert!(text.contains("-890,-1440 (3440×1440)"), "另一块屏要出现: {text}");
+        assert!(text.contains("display 1 (1512×982)"), "当前屏要出现: {text}");
+        assert!(text.contains("3 (3440×1440)"), "另一块屏要出现: {text}");
         assert!(text.contains("use_screen"), "要告诉模型下一步怎么做: {text}");
-        assert!(!text.contains("xcap:"), "前缀是噪音，不该出现在提示词里: {text}");
-        assert!(!text.contains("-1440)"), "不能出现绝对坐标: {text}");
+        assert!(!text.contains("-1440"), "不能出现绝对坐标: {text}");
     }
 
     /// 编号直接来自截取时的显示器，不靠坐标反查 —— 坐标对不上也照常报。
@@ -453,8 +444,8 @@ mod tests {
     fn display_summary_uses_the_id_not_the_bounds() {
         let monitors = vec![
             crate::models::ComputerMonitor {
-                id: "xcap:0,0".into(),
-                // 与 current_id 无关的坐标：靠坐标匹配会失配
+                id: "1".into(),
+                // 与当前屏无关的坐标：靠坐标匹配会失配
                 left: 9999,
                 top: 9999,
                 width: 10,
@@ -462,18 +453,18 @@ mod tests {
                 is_primary: false,
                 work_area: None,
             },
-            monitor(-890, -1440, 3440, 1440),
+            monitor("3", -890, -1440, 3440, 1440),
         ];
-        let text = super::display_summary("xcap:0,0", &monitors);
-        assert!(text.contains("display 0,0"), "got: {text}");
-        assert!(text.contains("-890,-1440"), "got: {text}");
+        let text = super::display_summary("1", &monitors);
+        assert!(text.contains("display 1"), "got: {text}");
+        assert!(text.contains("3 (3440×1440)"), "got: {text}");
     }
 
     /// 单屏不啰嗦，只报「这是唯一一块」。
     #[test]
     fn single_display_summary_is_short() {
-        let monitors = vec![monitor(0, 0, 1512, 982)];
-        let text = super::display_summary("xcap:0,0", &monitors);
+        let monitors = vec![monitor("1", 0, 0, 1512, 982)];
+        let text = super::display_summary("1", &monitors);
         assert!(text.contains("only display"), "got: {text}");
         assert!(!text.contains("use_screen"));
     }
@@ -481,15 +472,15 @@ mod tests {
     /// 列不出显示器列表时，编号仍要报出来 —— 那是已知信息，不该跟着一起丢。
     #[test]
     fn display_summary_keeps_the_id_without_monitors() {
-        let text = super::display_summary("xcap:0,0", &[]);
-        assert!(text.contains("display 0,0"), "got: {text}");
+        let text = super::display_summary("1", &[]);
+        assert!(text.contains("display 1"), "got: {text}");
         assert!(!text.contains("only display"), "不知道有几块时别下结论: {text}");
     }
 
     /// 编号缺失（旧缓存 / 测试构造）时保持沉默，不退回坐标猜测。
     #[test]
     fn display_summary_is_silent_without_id() {
-        let monitors = vec![monitor(0, 0, 1512, 982)];
+        let monitors = vec![monitor("1", 0, 0, 1512, 982)];
         let text = super::display_summary("", &monitors);
         assert!(text.is_empty(), "got: {text}");
     }
@@ -535,7 +526,7 @@ mod tests {
             raw_unmarked_jpeg: vec![1, 2],
             screenshot_jpeg: vec![3, 4],
             monitor: MonitorInfo::new(0, 0, 100, 100),
-            monitor_id: "xcap:0,0".into(),
+            monitor_id: "0,0".into(),
         }
     }
 
@@ -611,7 +602,7 @@ mod tests {
             raw_unmarked_jpeg: Vec::new(),
             screenshot_jpeg: Vec::new(),
             monitor: crate::agents::computer::vision::screen::MonitorInfo::new(0, 0, 1920, 1080),
-            monitor_id: "xcap:0,0".into(),
+            monitor_id: "0,0".into(),
         }
     }
 

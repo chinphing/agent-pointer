@@ -10,8 +10,6 @@ use core_graphics::window::{
     kCGWindowListOptionOnScreenOnly,
 };
 
-use crate::agents::computer::screen::XCAP_MONITOR_ID_PREFIX;
-
 /// Minimum width/height for a window to count as user-visible (filters 1px helpers).
 const MIN_VISIBLE_DIMENSION: f64 = 50.0;
 
@@ -61,7 +59,7 @@ fn monitor_id_for_quartz_point(qx: f64, qy: f64) -> Option<String> {
         if qx < bx || qx >= bx + bw || qy < by || qy >= by + bh {
             continue;
         }
-        let monitor_id = format!("{XCAP_MONITOR_ID_PREFIX}{display_id}");
+        let monitor_id = display_id.to_string();
         log::info!(
             "launch_app macOS: window center quartz=({qx:.0},{qy:.0}) -> monitor={monitor_id} \
              (display origin=({bx:.0},{by:.0}) size={bw:.0}x{bh:.0})"
@@ -131,8 +129,9 @@ fn quartz_point_to_top_left_global(qx: f64, qy: f64) -> Option<(i32, i32)> {
             continue;
         }
         let monitor = monitors.iter().find(|m| {
-            m.id.strip_prefix(XCAP_MONITOR_ID_PREFIX)
-                .and_then(|s| s.parse::<u32>().ok())
+            m.id
+                .parse::<u32>()
+                .ok()
                 .is_some_and(|xid| xid == display_id)
         })?;
         let local_x = qx - bx;
@@ -209,6 +208,6 @@ mod tests {
     #[ignore = "环境依赖：依赖本机显示器数量/布局（CGDisplayBounds），多显示器顺序变化即失败"]
     fn wechat_secondary_display_quartz_center_maps_to_xcap_3() {
         let id = monitor_id_for_quartz_point(1674.0, -643.0);
-        assert_eq!(id.as_deref(), Some("xcap:3"), "got {id:?}");
+        assert_eq!(id.as_deref(), Some("3"), "got {id:?}");
     }
 }

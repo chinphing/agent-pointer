@@ -22,7 +22,7 @@ impl UseScreenTool {
     pub fn execute(&self, args: &Value) -> Result<String> {
         require_non_empty_str(args, "goal")?;
         let goal = args["goal"].as_str().unwrap_or("").trim();
-        // 编号来自 `launch_app` 的返回（`display xcap:3 …`），这里不再重新找应用：
+        // 编号来自 `launch_app` 的返回（`display 3 …`），这里不再重新找应用：
         // 重新解析一遍既慢，又可能因为窗口刚移动而和刚才那块屏不一致。
         let wanted = args
             .get("monitor")
@@ -34,17 +34,11 @@ impl UseScreenTool {
 
         let monitors = screen::list_monitors()?;
         let target = match &wanted {
-            // 模型可能写裸编号（`3`）或带前缀（`xcap:3`），两种都认。
-            Some(id) => monitors
-                .iter()
-                .find(|m| screen::normalize_monitor_id(&m.id) == screen::normalize_monitor_id(id)),
+            Some(id) => monitors.iter().find(|m| m.id == id.trim()),
             None => None,
         };
         if let (Some(id), None) = (&wanted, target) {
-            let known: Vec<&str> = monitors
-                .iter()
-                .map(|m| screen::normalize_monitor_id(&m.id))
-                .collect();
+            let known: Vec<&str> = monitors.iter().map(|m| m.id.as_str()).collect();
             return Ok(format!(
                 "Goal: {goal}. No display with id `{id}`. Known ids: {}. \
                  Take the id from a `launch_app` reply.",
@@ -56,10 +50,10 @@ impl UseScreenTool {
         let mut body = String::from("Displays:\n");
         for m in &monitors {
             // 只报编号与尺寸，**不报绝对坐标**：`bbox` 换算用图片像素，
-            // 混进全局坐标会让模型拿错参考系。编号也不带 `xcap:` 前缀。
+            // 混进全局坐标会让模型拿错参考系。
             body.push_str(&format!(
                 "- id={id} {w}×{h}{primary}{chosen}\n",
-                id = screen::normalize_monitor_id(&m.id),
+                id = m.id,
                 w = m.width,
                 h = m.height,
                 primary = if m.is_primary { " primary" } else { "" },
@@ -72,10 +66,7 @@ impl UseScreenTool {
         }
 
         let where_ = match target {
-            Some(t) => format!(
-                "Capture will move to display {}.",
-                screen::normalize_monitor_id(&t.id)
-            ),
+            Some(t) => format!("Capture will move to display {}.", t.id),
             None => "No display matched; capture stays where it is.".to_string(),
         };
 
@@ -112,21 +103,20 @@ mod tests {
     /// 解析结果就是传入的那个 id，与前台应用无关。
     #[test]
     fn monitor_id_is_taken_verbatim() {
-        let args = json!({ "goal": "看 Chrome", "monitor": "xcap:3" });
-        assert_eq!(
-            super::super::tool_app_access::resolve_monitor_for_tool("use_screen", &args),
-            Some("xcap:3".to_string())
-        );
-    }
-
-    /// 模型看到的是去掉前缀的编号，裸编号也要能解析。
-    #[test]
-    fn bare_monitor_id_is_accepted() {
         let args = json!({ "goal": "看 Chrome", "monitor": "3" });
         assert_eq!(
             super::super::tool_app_access::resolve_monitor_for_tool("use_screen", &args),
-            Some("xcap:3".to_string()),
-            "裸编号要还原成存储用的规范 id，否则 UI 选择器对不上"
+            Some("3".to_string())
+        );
+    }
+
+    /// 两端空白要容忍：模型抄回来时可能带空格。
+    #[test]
+    fn monitor_id_is_trimmed() {
+        let args = json!({ "goal": "看 Chrome", "monitor": " 3 " });
+        assert_eq!(
+            super::super::tool_app_access::resolve_monitor_for_tool("use_screen", &args),
+            Some("3".to_string())
         );
     }
 

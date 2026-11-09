@@ -55,18 +55,16 @@ impl MonitorInfo {
     }
 }
 
-/// Prefix for OS-stable monitor ids (same value as the GUI module).
-pub const XCAP_MONITOR_ID_PREFIX: &str = "xcap:";
+/// 显示器 id：OS 给的编号，原样使用（无前缀）。
+pub fn normalize_monitor_id(id: &str) -> &str {
+    id.trim()
+}
 
 /// How a stored monitor id was resolved for capture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MonitorResolveKind {
-    /// `xcap:{id}` exact match.
-    XcapId,
-    /// Legacy `{left},{top},{width},{height}` exact match.
-    LegacyBoundsExact,
-    /// Legacy id matched same `(left, top)` after resolution / scaling change.
-    LegacyBoundsOrigin,
+    /// Exact id match.
+    MonitorId,
     /// Auto mode: monitor under cursor.
     Cursor,
     /// Stale id: fell back to primary display.

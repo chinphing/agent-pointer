@@ -249,7 +249,7 @@ mod tests {
             raw_unmarked_jpeg: Vec::new(),
             screenshot_jpeg: vec![1, 2, 3],
             monitor: MonitorInfo::new(0, 0, 1920, 1080),
-            monitor_id: "xcap:0,0".into(),
+            monitor_id: "0,0".into(),
         }
     }
 

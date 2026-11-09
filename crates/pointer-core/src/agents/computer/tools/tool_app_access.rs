@@ -184,38 +184,20 @@ pub fn resolve_monitor_for_tool(tool_id: &str, args: &Value) -> Option<String> {
     }
 }
 
-/// 把模型写的编号还原成存储里的规范形式（`xcap:{id}`）。
-///
-/// 模型看到的是去掉前缀的编号，直接拿它去写会话状态会让 UI 选择器对不上号
-/// （那边比的是完整字符串）。列不出显示器时原样返回，交给下游判失效。
+/// 模型写的编号就是存储用的编号，只需去掉两端空白。
 fn canonical_monitor_id(raw: &str) -> String {
-    let wanted = crate::agents::computer::vision::screen::normalize_monitor_id(raw);
-    let Ok(monitors) = crate::agents::computer::vision::screen::list_monitors() else {
-        return raw.to_string();
-    };
-    monitors
-        .iter()
-        .find(|m| crate::agents::computer::vision::screen::normalize_monitor_id(&m.id) == wanted)
-        .map(|m| m.id.clone())
-        .unwrap_or_else(|| raw.to_string())
+    raw.trim().to_string()
 }
 
 /// 一句话说明某块屏的大小，用于工具返回（模型据此判断要不要换屏）。
 ///
 /// **不带绝对坐标**：`bbox` 换算用的是图片像素，混进全局坐标只会让模型
-/// 拿错参考系。也**不带 `xcap:` 前缀**：模型只需原样传回编号。
+/// 拿错参考系。
 pub fn describe_monitor(monitor_id: &str) -> Option<String> {
     let monitors = crate::agents::computer::vision::screen::list_monitors().ok()?;
-    let wanted = crate::agents::computer::vision::screen::normalize_monitor_id(monitor_id);
-    let m = monitors
-        .iter()
-        .find(|m| crate::agents::computer::vision::screen::normalize_monitor_id(&m.id) == wanted)?;
-    Some(format!(
-        "display {} ({}×{})",
-        crate::agents::computer::vision::screen::normalize_monitor_id(&m.id),
-        m.width,
-        m.height
-    ))
+    let wanted = monitor_id.trim();
+    let m = monitors.iter().find(|m| m.id == wanted)?;
+    Some(format!("display {} ({}×{})", m.id, m.width, m.height))
 }
 
 pub fn monitor_id_for_launched_app(args: &Value) -> Option<String> {

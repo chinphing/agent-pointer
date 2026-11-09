@@ -37,7 +37,7 @@ pub const SCREENSHOT_JPEG_QUALITY: u8 = 88;
 pub struct ScreenshotPacket {
     pub jpeg: Vec<u8>,
     pub monitor: MonitorInfo,
-    /// `xcap:{os_id}` of the captured monitor — taken from the `Monitor` we
+    /// 显示器编号 of the captured monitor — taken from the `Monitor` we
     /// just captured, never reverse-looked-up from bounds.
     pub monitor_id: String,
     pub capture_px: (u32, u32),
@@ -76,28 +76,18 @@ impl MonitorInfo {
     }
 }
 
-/// Prefix for OS-stable monitor ids from [`xcap::Monitor::id`] (survives resolution / scaling changes).
-pub const XCAP_MONITOR_ID_PREFIX: &str = "xcap:";
-
-/// 去掉可选的 `xcap:` 前缀，只留 OS 的显示器编号。
+/// 显示器 id：OS 给的编号（`xcap::Monitor::id()`），原样使用。
 ///
-/// 前缀只用于区分「新式编号」和旧版 `{left},{top},{width},{height}` 存储值，
-/// 对模型是纯噪音 —— 它只需要一个能原样传回来的标识。
+/// 不带前缀 —— 模型、存储、UI 选择器看到的是同一个值，没有第二套格式。
 pub fn normalize_monitor_id(id: &str) -> &str {
-    id.strip_prefix(XCAP_MONITOR_ID_PREFIX)
-        .unwrap_or(id)
-        .trim()
+    id.trim()
 }
 
 /// How a stored monitor id was resolved for capture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MonitorResolveKind {
-    /// `xcap:{id}` exact match.
-    XcapId,
-    /// Legacy `{left},{top},{width},{height}` exact match.
-    LegacyBoundsExact,
-    /// Legacy id matched same `(left, top)` after resolution / scaling change.
-    LegacyBoundsOrigin,
+    /// Exact id match.
+    MonitorId,
     /// Auto mode: monitor under cursor.
     Cursor,
     /// Stale id: fell back to primary display.
@@ -115,55 +105,16 @@ pub struct MonitorCapturePlan {
     pub resolve_kind: MonitorResolveKind,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StoredMonitorId {
-    Xcap(u32),
-    LegacyBounds,
-}
-
-/// Build the id shown in the monitor picker and stored on conversations.
+/// 显示器 id：就是 OS 的编号（`xcap::Monitor::id()`），原样存储、原样使用。
 pub fn monitor_list_id(m: &Monitor) -> Result<String> {
     let id = m.id().map_err(|e| anyhow!("monitor id: {}", e))?;
-    Ok(format!("{XCAP_MONITOR_ID_PREFIX}{id}"))
+    Ok(id.to_string())
 }
 
-fn parse_stored_monitor_id(stored_id: &str) -> StoredMonitorId {
-    if let Some(rest) = stored_id.strip_prefix(XCAP_MONITOR_ID_PREFIX) {
-        if let Ok(n) = rest.parse::<u32>() {
-            return StoredMonitorId::Xcap(n);
-        }
-    }
-    StoredMonitorId::LegacyBounds
-}
-
-fn legacy_origin_from_id(stored_id: &str) -> Option<(i32, i32)> {
-    let mut parts = stored_id.split(',');
-    let left: i32 = parts.next()?.parse().ok()?;
-    let top: i32 = parts.next()?.parse().ok()?;
-    // Require four comma-separated numbers so we do not treat `xcap:1` as legacy.
-    let _w: i32 = parts.next()?.parse().ok()?;
-    let _h: i32 = parts.next()?.parse().ok()?;
-    Some((left, top))
-}
-
-fn monitor_matches_stored_id(
-    m: &Monitor,
-    info: &MonitorInfo,
-    stored_id: &str,
-) -> Option<MonitorResolveKind> {
-    match parse_stored_monitor_id(stored_id) {
-        StoredMonitorId::Xcap(n) => {
-            let xid = m.id().ok()?;
-            (xid == n).then_some(MonitorResolveKind::XcapId)
-        }
-        StoredMonitorId::LegacyBounds => {
-            if info.stable_id() == stored_id {
-                return Some(MonitorResolveKind::LegacyBoundsExact);
-            }
-            let (ol, ot) = legacy_origin_from_id(stored_id)?;
-            (info.left == ol && info.top == ot).then_some(MonitorResolveKind::LegacyBoundsOrigin)
-        }
-    }
+fn monitor_matches_stored_id(m: &Monitor, stored_id: &str) -> Option<MonitorResolveKind> {
+    let wanted: u32 = stored_id.trim().parse().ok()?;
+    let id = m.id().ok()?;
+    (id == wanted).then_some(MonitorResolveKind::MonitorId)
 }
 
 fn list_monitor_pairs() -> Result<Vec<(Monitor, MonitorInfo)>> {
@@ -180,7 +131,7 @@ fn find_monitor_by_stored_id(
     stored_id: &str,
 ) -> Result<(Monitor, MonitorInfo, MonitorResolveKind)> {
     for (m, info) in list_monitor_pairs()? {
-        if let Some(kind) = monitor_matches_stored_id(&m, &info, stored_id) {
+        if let Some(kind) = monitor_matches_stored_id(&m, stored_id) {
             return Ok((m, info, kind));
         }
     }
@@ -201,7 +152,7 @@ fn find_primary_monitor() -> Result<(Monitor, MonitorInfo)> {
     first.ok_or_else(|| anyhow!("no displays found"))
 }
 
-/// List all monitors for UI selection (`xcap:{id}` ids).
+/// List all monitors for UI selection (显示器编号).
 pub fn list_monitors() -> Result<Vec<ComputerMonitor>> {
     let monitors = Monitor::all().map_err(|e| anyhow!("list monitors: {}", e))?;
     let mut out: Vec<ComputerMonitor> = Vec::with_capacity(monitors.len());
@@ -346,10 +297,8 @@ pub fn screenshot_for_selection(stored_id: Option<&str>) -> Result<MonitorCaptur
         }
         Some(id) => match find_monitor_by_stored_id(id) {
             Ok((monitor, info, kind)) => {
-                let needs_refresh = !matches!(
-                    kind,
-                    MonitorResolveKind::XcapId | MonitorResolveKind::LegacyBoundsExact
-                );
+                // 精确命中就不必回写；其余情况（光标模式等）才刷新。
+                let needs_refresh = !matches!(kind, MonitorResolveKind::MonitorId);
                 let refreshed_monitor_id = needs_refresh
                     .then(|| monitor_list_id(&monitor))
                     .transpose()?;
@@ -706,29 +655,9 @@ mod tests {
     }
 
     #[test]
-    fn legacy_origin_parses_bounds_id() {
-        assert_eq!(legacy_origin_from_id("0,0,1512,950"), Some((0, 0)));
-        assert_eq!(legacy_origin_from_id("1512,0,1920,1080"), Some((1512, 0)));
-        assert!(legacy_origin_from_id("xcap:1").is_none());
-        assert!(legacy_origin_from_id("0,0").is_none());
-    }
-
-    #[test]
-    fn parse_stored_monitor_id_recognizes_xcap_and_legacy() {
-        assert_eq!(parse_stored_monitor_id("xcap:3"), StoredMonitorId::Xcap(3));
-        assert_eq!(
-            parse_stored_monitor_id("0,0,1512,950"),
-            StoredMonitorId::LegacyBounds
-        );
-    }
-
-    #[test]
-    fn legacy_bounds_origin_matches_same_top_left() {
-        let info = MonitorInfo::new(0, 0, 1728, 1117);
-        assert_eq!(info.stable_id(), "0,0,1728,1117");
-        assert_ne!(info.stable_id(), "0,0,1512,950");
-        let (ol, ot) = legacy_origin_from_id("0,0,1512,950").unwrap();
-        assert_eq!(info.left, ol);
-        assert_eq!(info.top, ot);
+    fn monitor_id_is_the_bare_os_number() {
+        // 存储、UI、模型三处看到的是同一个值：OS 给的编号本身。
+        assert_eq!(normalize_monitor_id("3"), "3");
+        assert_eq!(normalize_monitor_id(" 3 "), "3");
     }
 }

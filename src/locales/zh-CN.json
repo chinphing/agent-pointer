@@ -801,7 +801,9 @@
       "liveHint": "变更即时生效，与「智能体 → 场景档位」联动",
       "title": "{scene} · 三档模型映射",
       "webSearchHint": "千问走 DashScope，DeepSeek 走网页搜索；「已覆盖」表示非默认模型",
-      "sceneFallback": "场景"
+      "sceneFallback": "场景",
+      "mediaTitle": "{scene} · 模型",
+      "mediaHint": "该类型固定用一个模型；「已覆盖」表示非平台默认"
     },
     "assistant": {
       "sceneTiers": "场景档位",

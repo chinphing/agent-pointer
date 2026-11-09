@@ -138,11 +138,13 @@ function modeOverridden(config: { providerId: string; model: string }, mode: str
       <div class="w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" @click.stop>
         <div class="flex items-start justify-between gap-2 border-b border-border px-5 py-4 shrink-0">
           <div class="min-w-0">
-            <h4 class="text-sm font-semibold text-foreground">{{ t('settings.sceneModal.title', { scene: sceneLabel }) }}</h4>
+            <h4 class="text-sm font-semibold text-foreground">{{ t(isMedia ? 'settings.sceneModal.mediaTitle' : 'settings.sceneModal.title', { scene: sceneLabel }) }}</h4>
             <p class="mt-0.5 text-[11px] text-muted">
               {{ isWebSearch
                 ? t('settings.sceneModal.webSearchHint')
-                : t('settings.sceneModal.hint') }}
+                : isMedia
+                  ? t('settings.sceneModal.mediaHint')
+                  : t('settings.sceneModal.hint') }}
             </p>
           </div>
           <button

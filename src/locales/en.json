@@ -801,7 +801,9 @@
       "liveHint": "Changes apply immediately and sync with Agents → Scene tiers",
       "title": "{scene} · Tier models",
       "webSearchHint": "Qwen uses DashScope; DeepSeek uses web search. Overridden means a non-default model",
-      "sceneFallback": "Scene"
+      "sceneFallback": "Scene",
+      "mediaTitle": "{scene} · Model",
+      "mediaHint": "One model for this media kind; “Overridden” means it differs from the platform default"
     },
     "assistant": {
       "sceneTiers": "Scene tiers",

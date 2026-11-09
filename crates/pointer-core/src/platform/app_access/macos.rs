@@ -27,17 +27,29 @@ pub fn list_apps(options: ListAppsOptions) -> Result<Vec<ListedApp>> {
         ));
     }
     let include_all = options.include_all;
-    crate::platform::run_synthetic_input(move || list_apps_impl(include_all))
+    // **不要**把整段包进主线程：`run_synthetic_input` 是同步 hop，主线程是
+    // WebView 的绘制线程，占住它界面就卡死。这里真正必须上主线程的只有
+    // NSWorkspace 的几次读，其余（mdfind 子进程、逐个 mdls、目录扫描）都是
+    // 纯 I/O，留在调用线程。
+    list_apps_impl(include_all)
+}
+
+/// 前台应用的 bundle id —— 只有这一次 NSWorkspace 读需要主线程。
+fn frontmost_bundle_id() -> Option<String> {
+    use objc2_app_kit::NSWorkspace;
+
+    NSWorkspace::sharedWorkspace()
+        .frontmostApplication()
+        .and_then(|app| app.bundleIdentifier())
+        .map(|s| s.to_string().to_ascii_lowercase())
 }
 
 fn list_apps_impl(include_all: bool) -> Result<Vec<ListedApp>> {
-    use objc2_app_kit::NSWorkspace;
+    use std::time::Instant;
+    let t0 = Instant::now();
 
-    let workspace = NSWorkspace::sharedWorkspace();
-    let frontmost = workspace
-        .frontmostApplication()
-        .and_then(|app| app.bundleIdentifier())
-        .map(|s| s.to_string().to_ascii_lowercase());
+    let frontmost = crate::platform::run_synthetic_input(frontmost_bundle_id);
+    let t_running = Instant::now();
 
     let mut by_bundle: HashMap<String, ListedApp> = HashMap::new();
     if include_all {
@@ -47,7 +59,9 @@ fn list_apps_impl(include_all: bool) -> Result<Vec<ListedApp>> {
         }
     }
 
-    for app in user_facing_running(&frontmost)? {
+    let running = user_facing_running(&frontmost)?;
+    let t_windows = Instant::now();
+    for app in running {
         let key = app.identifier.to_ascii_lowercase();
         if let Some(entry) = by_bundle.get_mut(&key) {
             entry.name = app.name.clone();
@@ -59,8 +73,11 @@ fn list_apps_impl(include_all: bool) -> Result<Vec<ListedApp>> {
         }
     }
 
+    let t_catalog = Instant::now();
     let cutoff = recent_usage_cutoff_days(RECENT_USAGE_DAYS);
-    for record in spotlight_recent_apps(cutoff)? {
+    let recent = spotlight_recent_apps(cutoff)?;
+    let t_spotlight = Instant::now();
+    for record in recent {
         let key = record.identifier.to_ascii_lowercase();
         if let Some(entry) = by_bundle.get_mut(&key) {
             if entry.last_used.is_none() {
@@ -77,9 +94,15 @@ fn list_apps_impl(include_all: bool) -> Result<Vec<ListedApp>> {
     let mut entries: Vec<ListedApp> = by_bundle.into_values().collect();
     entries.sort_by(compare_listed_apps);
     log::info!(
-        "list_apps macOS: total={} running={} include_all={include_all}",
+        "list_apps macOS: total={} running={} include_all={include_all} | \
+         running {:?}, windows {:?}, catalog {:?}, spotlight {:?}, total {:?}",
         entries.len(),
-        entries.iter().filter(|e| e.running).count()
+        entries.iter().filter(|e| e.running).count(),
+        t_running - t0,
+        t_windows - t_running,
+        t_catalog - t_windows,
+        t_spotlight - t_catalog,
+        t_spotlight - t0,
     );
     Ok(entries)
 }
@@ -90,7 +113,9 @@ pub fn launch_app(app: &str, options: AppOpenOptions) -> Result<AppOpenResult> {
             "Accessibility permission required for launch_app on macOS. Enable Pointer in System Settings → Privacy & Security → Accessibility."
         ));
     }
-    crate::platform::run_synthetic_input(|| launch_app_impl(app, options))
+    // 同 `list_apps`：整段上主线程会把界面一起冻住（实测 launch_app 9.7s、
+    // list_apps 4.9s）。主线程只留给 NSWorkspace 那几次调用。
+    launch_app_impl(app, options)
 }
 
 fn launch_app_impl(app: &str, options: AppOpenOptions) -> Result<AppOpenResult> {
@@ -166,6 +191,30 @@ fn launch_macos(app: &str, new_instance: bool) -> Result<AppOpenResult> {
 }
 
 fn user_facing_running(frontmost: &Option<String>) -> Result<Vec<ListedApp>> {
+    // 主线程只做 NSWorkspace 的枚举（几毫秒）；`has_onscreen_window_for_pid`
+    // 会去拉整张窗口列表，逐个应用各拉一次，放到主线程就是肉眼可见的卡顿。
+    let rows = crate::platform::run_synthetic_input(running_app_rows);
+    let mut out = Vec::with_capacity(rows.len());
+    for (name, bundle, pid) in rows {
+        let key = bundle.to_ascii_lowercase();
+        let ns_front = frontmost.as_ref().map(|f| f == &key).unwrap_or(false);
+        let is_front = ns_front && macos_window::has_onscreen_window_for_pid(pid);
+        out.push(ListedApp {
+            name,
+            identifier: bundle,
+            running: true,
+            frontmost: is_front,
+            last_used: None,
+            uses: None,
+            window_title: None,
+            pid: Some(pid as u32),
+        });
+    }
+    Ok(out)
+}
+
+/// NSWorkspace 侧的运行中应用快照：`(名字, bundle id, pid)`。
+fn running_app_rows() -> Vec<(String, String, i32)> {
     use objc2_app_kit::{NSApplicationActivationPolicy, NSWorkspace};
 
     let workspace = NSWorkspace::sharedWorkspace();
@@ -189,22 +238,9 @@ fn user_facing_running(frontmost: &Option<String>) -> Result<Vec<ListedApp>> {
             .bundleIdentifier()
             .map(|s| s.to_string())
             .unwrap_or_else(|| name.clone());
-        let key = bundle.to_ascii_lowercase();
-        let pid = app.processIdentifier();
-        let ns_front = frontmost.as_ref().map(|f| f == &key).unwrap_or(false);
-        let is_front = ns_front && macos_window::has_onscreen_window_for_pid(pid);
-        out.push(ListedApp {
-            name,
-            identifier: bundle,
-            running: true,
-            frontmost: is_front,
-            last_used: None,
-            uses: None,
-            window_title: None,
-            pid: Some(app.processIdentifier() as u32),
-        });
+        out.push((name, bundle, app.processIdentifier()));
     }
-    Ok(out)
+    out
 }
 
 fn spotlight_recent_apps(cutoff: NaiveDate) -> Result<Vec<ListedApp>> {
@@ -464,29 +500,74 @@ fn mdls_value(text: &str, key: &str) -> Option<String> {
     Some(rest.trim_matches('"').to_string())
 }
 
+/// 主线程上发出的激活请求结果。
+enum ActivationAttempt {
+    /// 激活请求已发出 —— 是否真的到了前台要在主线程之外等。
+    Requested { regular: bool },
+    /// Accessory（菜单栏）应用：无法抬到前台，但它在运行，按「已打开」处理。
+    AccessoryRunning,
+    /// 没有匹配的运行中实例。
+    NotFound,
+}
+
 fn activate_running(app: &str) -> Result<bool> {
+    use std::thread;
+    use std::time::Duration;
+
+    // 主线程只负责「发激活请求」，不 sleep、不跑子进程、不做轮询 ——
+    // 那些都在下面，等在主线程上界面就卡住。
+    let attempt = crate::platform::run_synthetic_input(|| request_activation(app));
+
+    match attempt {
+        ActivationAttempt::AccessoryRunning => {
+            log::info!(
+                "launch_app macOS activate: accessory app is running but not raisable app={app}"
+            );
+            return Ok(true);
+        }
+        ActivationAttempt::Requested { regular } => {
+            thread::sleep(Duration::from_millis(ACTIVATE_SETTLE_MS));
+            if running_app_state(app).is_some_and(|o| o.frontmost) {
+                return Ok(true);
+            }
+            log::info!(
+                "launch_app macOS activate: NSWorkspace activate did not frontmost app={app} regular={regular}"
+            );
+        }
+        ActivationAttempt::NotFound => {}
+    }
+
+    if running_app_state(app).is_some_and(|o| o.running) {
+        log::info!("launch_app macOS activate: trying open -a tray restore app={app}");
+        let status = Command::new("open").args(["-a", app]).status()?;
+        if status.success() {
+            thread::sleep(Duration::from_millis(TRAY_RELAUNCH_SETTLE_MS));
+            return Ok(running_app_state(app).is_some_and(|o| o.running && o.frontmost));
+        }
+    }
+    Ok(false)
+}
+
+/// 在**主线程**上枚举运行中实例并发出激活请求。
+///
+/// 只做 NSWorkspace 调用：先 Regular 再 Accessory 两遍 —— 有窗口的应用优先，
+/// 菜单栏应用也算「已经开着」，否则会再开一份。
+fn request_activation(app: &str) -> ActivationAttempt {
     use objc2_app_kit::{
         NSApplicationActivationOptions, NSApplicationActivationPolicy, NSWorkspace,
     };
-    use std::thread;
-    use std::time::Duration;
 
     let workspace = NSWorkspace::sharedWorkspace();
     let apps = workspace.runningApplications();
     let count = apps.count();
-    // Two passes. Regular apps first — they own a window and are what the user
-    // means by "it's already open". Then Accessory (menu-bar) apps: they have
-    // no window to raise, but seeing one running is still enough to stop us
-    // from launching a second copy. A single pass that skipped Accessory is why
-    // a running tray app looked absent and got opened again.
+    let mut requested: Option<bool> = None;
     for regular_pass in [true, false] {
         for i in 0..count {
             let running = apps.objectAtIndex(i);
             if running.isTerminated() {
                 continue;
             }
-            let is_regular =
-                running.activationPolicy() == NSApplicationActivationPolicy::Regular;
+            let is_regular = running.activationPolicy() == NSApplicationActivationPolicy::Regular;
             if is_regular != regular_pass {
                 continue;
             }
@@ -505,35 +586,22 @@ fn activate_running(app: &str) -> Result<bool> {
             #[allow(deprecated)]
             let opts = NSApplicationActivationOptions::ActivateAllWindows
                 | NSApplicationActivationOptions::ActivateIgnoringOtherApps;
-            let ok = running.activateWithOptions(opts);
-            if ok {
-                thread::sleep(Duration::from_millis(ACTIVATE_SETTLE_MS));
-                if running_app_state(app).is_some_and(|o| o.frontmost) {
-                    return Ok(true);
-                }
-                log::info!(
-                    "launch_app macOS activate: NSWorkspace activate did not frontmost app={app} regular={is_regular}"
-                );
-            } else if !is_regular {
-                // An Accessory app cannot be raised, but it is running. Treat
-                // that as "already open" so the caller does not launch again.
-                log::info!(
-                    "launch_app macOS activate: accessory app is running but not raisable app={app}"
-                );
-                return Ok(true);
+            if running.activateWithOptions(opts) {
+                requested = Some(is_regular);
+                break;
+            }
+            if !is_regular {
+                return ActivationAttempt::AccessoryRunning;
             }
         }
-    }
-
-    if running_app_state(app).is_some_and(|o| o.running) {
-        log::info!("launch_app macOS activate: trying open -a tray restore app={app}");
-        let status = Command::new("open").args(["-a", app]).status()?;
-        if status.success() {
-            thread::sleep(Duration::from_millis(TRAY_RELAUNCH_SETTLE_MS));
-            return Ok(running_app_state(app).is_some_and(|o| o.running && o.frontmost));
+        if requested.is_some() {
+            break;
         }
     }
-    Ok(false)
+    match requested {
+        Some(regular) => ActivationAttempt::Requested { regular },
+        None => ActivationAttempt::NotFound,
+    }
 }
 
 fn localized_name_matches(app: &str, localized: &str) -> bool {
@@ -587,6 +655,11 @@ fn app_identifier_matches(app: &str, localized: Option<&str>, bundle: Option<&st
 /// and `activate_running` now treats them as running, so the message needs to
 /// be able to name them too.
 fn localized_display_name(app: &str) -> Option<String> {
+    let app = app.to_string();
+    crate::platform::run_synthetic_input(move || localized_display_name_on_main(&app))
+}
+
+fn localized_display_name_on_main(app: &str) -> Option<String> {
     use objc2_app_kit::NSWorkspace;
 
     let workspace = NSWorkspace::sharedWorkspace();
@@ -638,6 +711,11 @@ pub(crate) fn wait_for_launch_verification(
 }
 
 fn running_app_state(app: &str) -> Option<LaunchVerifyOutcome> {
+    let app = app.to_string();
+    crate::platform::run_synthetic_input(move || running_app_state_on_main(&app))
+}
+
+fn running_app_state_on_main(app: &str) -> Option<LaunchVerifyOutcome> {
     use objc2_app_kit::{NSApplicationActivationPolicy, NSWorkspace};
 
     let workspace = NSWorkspace::sharedWorkspace();
@@ -756,6 +834,11 @@ fn running_app_pid(app: &str) -> Option<i32> {
 }
 
 fn application_url_for_bundle(bundle: &str) -> Option<PathBuf> {
+    let bundle = bundle.to_string();
+    crate::platform::run_synthetic_input(move || application_url_for_bundle_on_main(&bundle))
+}
+
+fn application_url_for_bundle_on_main(bundle: &str) -> Option<PathBuf> {
     use objc2_app_kit::NSWorkspace;
     use objc2_foundation::NSString;
 

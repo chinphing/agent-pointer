@@ -45,6 +45,13 @@ pub struct ScreenCaptureResult {
     /// 不要用 `monitor` 的坐标去别处反查 —— 编号本来就在手上，坐标匹配在
     /// 显示器刚拔插或分辨率变化时会静默失配。
     pub monitor_id: String,
+    /// 这张图**真实的像素尺寸**，`bbox` 就在这套坐标里。
+    ///
+    /// 正常路径下等于 `monitor` 的逻辑宽高（截完会重采样到逻辑尺寸），但契约是
+    /// 「图多大就报多大」：注入文案直接引用它，模型据此把 0–1000 网格换成像素。
+    /// 只信 `monitor` 的话，一旦哪天重采样比例变了，报出去的数字就是错的，
+    /// 而错误是静默的 —— 每一次点击都会偏，且看不出原因。
+    pub capture_px: (u32, u32),
 }
 
 /// Per-conversation state for computer use tools.
@@ -461,11 +468,21 @@ impl ComputerState {
             capture_px.1
         );
 
+        if capture_px != (monitor.width as u32, monitor.height as u32) {
+            log::warn!(
+                "apply_screen_capture: image {capture_px:?} != monitor logical {}x{} — \
+                 bbox is reported in image pixels, clicks resolve in monitor space; \
+                 these must agree",
+                monitor.width,
+                monitor.height
+            );
+        }
         Ok(ScreenCaptureResult {
             raw_unmarked_jpeg: screen_capture.to_vec(),
             screenshot_jpeg: pack.screenshot_jpeg,
             monitor,
             monitor_id: monitor_id.to_string(),
+            capture_px,
         })
     }
 
@@ -906,6 +923,7 @@ mod tests {
             screenshot_jpeg: vec![9, 9, 9],
             monitor: screen::MonitorInfo::new(0, 0, 100, 100),
             monitor_id: "xcap:0,0".into(),
+            capture_px: (100, 100),
         };
         state.store_pipeline_after_capture("reuse", cap);
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -926,6 +944,7 @@ mod tests {
             screenshot_jpeg: vec![9, 9, 9],
             monitor: screen::MonitorInfo::new(0, 0, 100, 100),
             monitor_id: "xcap:0,0".into(),
+            capture_px: (100, 100),
         };
         state.store_pipeline_after_capture("fresh", cap);
 
@@ -1091,6 +1110,7 @@ mod tests {
             screenshot_jpeg: vec![9, 9, 9],
             monitor: screen::MonitorInfo::new(0, 0, 100, 100),
             monitor_id: "xcap:0,0".into(),
+            capture_px: (100, 100),
         };
         state.store_pipeline_after_capture("stale", cap);
 
@@ -1122,6 +1142,7 @@ mod tests {
             screenshot_jpeg: vec![9, 9, 9],
             monitor: screen::MonitorInfo::new(0, 0, 100, 100),
             monitor_id: "xcap:0,0".into(),
+            capture_px: (100, 100),
         };
         state.store_pipeline_after_capture("keep", cap);
 

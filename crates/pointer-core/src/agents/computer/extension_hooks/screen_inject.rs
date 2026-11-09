@@ -176,8 +176,8 @@ pub fn build_cur_screen_preamble(
          {w}×{h} pixels — use these dimensions for the `bbox` conversion described in \
          **Locating targets**. {displays}{crosshair}{cite} \
          **Verify:** host records outcomes on history rows — read the `verify:` suffix on `[Recent desktop tool calls]`.\n",
-        w = cap.monitor.width.max(1),
-        h = cap.monitor.height.max(1),
+        w = cap.capture_px.0.max(1),
+        h = cap.capture_px.1.max(1),
     )
 }
 
@@ -527,6 +527,7 @@ mod tests {
             screenshot_jpeg: vec![3, 4],
             monitor: MonitorInfo::new(0, 0, 100, 100),
             monitor_id: "0,0".into(),
+            capture_px: (100, 100),
         }
     }
 
@@ -603,7 +604,26 @@ mod tests {
             screenshot_jpeg: Vec::new(),
             monitor: crate::agents::computer::vision::screen::MonitorInfo::new(0, 0, 1920, 1080),
             monitor_id: "0,0".into(),
+            capture_px: (1920, 1080),
         }
+    }
+
+    /// 注入文案报的必须是**图片像素**，`bbox` 就在这套坐标里。
+    /// 只信 `monitor` 的逻辑尺寸时，一旦重采样比例变了，报出去的数字是错的，
+    /// 而错误静默 —— 每次点击都偏，看不出原因。
+    #[test]
+    fn preamble_states_image_pixels_not_monitor_logical_size() {
+        let cap = ScreenCaptureResult {
+            raw_unmarked_jpeg: Vec::new(),
+            screenshot_jpeg: Vec::new(),
+            monitor: crate::agents::computer::vision::screen::MonitorInfo::new(0, 0, 1920, 1080),
+            monitor_id: "0,0".into(),
+            // 假设图被重采样过：逻辑 1920×1080，实际 1280×720
+            capture_px: (1280, 720),
+        };
+        let t = build_cur_screen_preamble(&cap, None);
+        assert!(t.contains("1280×720"), "应报图片真实像素：{t}");
+        assert!(!t.contains("1920×1080"), "不能报显示器逻辑尺寸：{t}");
     }
 
     #[test]

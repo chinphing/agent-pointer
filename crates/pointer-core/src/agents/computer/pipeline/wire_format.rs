@@ -250,6 +250,7 @@ mod tests {
             screenshot_jpeg: vec![1, 2, 3],
             monitor: MonitorInfo::new(0, 0, 1920, 1080),
             monitor_id: "0,0".into(),
+            capture_px: (1920, 1080),
         }
     }
 

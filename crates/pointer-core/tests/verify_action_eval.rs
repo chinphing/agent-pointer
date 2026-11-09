@@ -337,7 +337,8 @@ fn fake_capture(jpeg: Vec<u8>) -> ScreenCaptureResult {
         raw_unmarked_jpeg: Vec::new(),
         screenshot_jpeg: jpeg,
         monitor: MonitorInfo::new(0, 0, 1920, 1080),
-        monitor_id: "xcap:0,0".into(),
+        capture_px: (1920, 1080),
+            monitor_id: "xcap:0,0".into(),
     }
 }
 

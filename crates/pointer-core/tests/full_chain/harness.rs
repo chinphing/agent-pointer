@@ -363,7 +363,8 @@ pub async fn agent_hint(
         raw_unmarked_jpeg: frame_jpeg.to_vec(),
         screenshot_jpeg: frame_jpeg.to_vec(),
         monitor: MonitorInfo::new(0, 0, w as i32, h as i32),
-        monitor_id: "xcap:0,0".into(),
+        capture_px: (0, 0),
+            monitor_id: "xcap:0,0".into(),
     };
     let (slot_labels, images_base64) = assemble_cur_screen_payload(&cap);
     // Production preamble now carries the screenshot's pixel dimensions (see

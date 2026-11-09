@@ -1522,7 +1522,7 @@ mod builtin_agent_tests {
         // Rules live in AGENT.md — only the ones that are computer-specific.
         for rule in [
             "Batch only what one verify can prove",
-            "The screenshot is the only ground truth",
+            "The screen is ground truth for what happened",
             "A `verifying` row means the judgement was lost",
         ] {
             assert!(rules.contains(rule), "AGENT.md should state: {rule}");
@@ -1535,8 +1535,10 @@ mod builtin_agent_tests {
         // Tool results and `verify:` rows are hints, not proof — the model has to
         // check them against the pixels. This is the rule that keeps a green
         // `verify:` from papering over a click that never landed.
-        assert!(rules.contains("Both are\nhints, not evidence"));
-        assert!(rules.contains("An older capture never\noverrides the current one"));
+        // 按空白归一化后比对：换行位置属于排版，不该让测试红。
+        let rules_flat = rules.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(rules_flat.contains("Both are hints, not evidence"));
+        assert!(rules_flat.contains("An older capture never overrides the current one"));
 
         // Nothing overlaps, `terminal` included: the batch planner puts each
         // Computer call in its own serial wave and `terminal` in another

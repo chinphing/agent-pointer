@@ -2,7 +2,7 @@
 # inject_action_field 统一注入结构（type + required）。字段该写什么，权威在
 # ../prompts/communication.md 的 `## Tool call shape`。
 mouse_click_at:
-  description: "Click a control at a located target. Does not type text — use input_at to type into a field."
+  description: "Click a control at a located target."
   type: object
   properties:
     target_desc:

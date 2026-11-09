@@ -49,7 +49,7 @@ key_up:
   additionalProperties: true
 
 keyboard_type:
-  description: "Type raw characters into whatever has focus, without locating a field."
+  description: "Type raw characters into whatever has focus."
   type: object
   properties:
     text:

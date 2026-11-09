@@ -34,7 +34,7 @@ input_at:
   additionalProperties: true
 
 input_focused:
-  description: "Type into the field that already has focus — no click, no coordinates."
+  description: "Type into the field that already has focus."
   type: object
   properties:
     text:

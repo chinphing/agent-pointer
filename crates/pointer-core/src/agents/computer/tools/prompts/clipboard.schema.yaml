@@ -9,7 +9,7 @@ clipboard_read:
   additionalProperties: true
 
 clipboard_write:
-  description: "Put text on the clipboard. Does not paste it anywhere."
+  description: "Put text on the clipboard."
   type: object
   properties:
     text:

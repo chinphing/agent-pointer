@@ -74,12 +74,10 @@
         },
         {
           "id": "qwen3-asr-flash",
-          "supportsVision": true,
           "supportsAudio": true
         },
         {
           "id": "fun-asr",
-          "supportsVision": true,
           "supportsAudio": true
         },
         {

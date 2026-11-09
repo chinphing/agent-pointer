@@ -333,8 +333,26 @@ mod tests {
         }
     }
 
-    fn collect_refs(node: &serde_json::Value, out: &mut Vec<(String, String)>) {
-        match node {
+    /// 语音转写模型不能标成支持视觉。客户端「图片理解 / 视频理解」的下拉框按
+    /// `supportsVision` 过滤，标错的结果是用户能给图片理解选一个 ASR 模型——
+    /// 实测踩过：图片理解被选成 qwen3-asr-flash。
+    #[test]
+    fn asr_models_do_not_claim_vision() {
+        let c = load_catalog().expect("catalog");
+        for provider in c.providers.iter().filter(|p| p.seeded) {
+            for m in &provider.models {
+                if m.id.to_ascii_lowercase().contains("asr") {
+                    assert!(
+                        !m.supports_vision,
+                        "{}/{} 是语音转写模型，不该标 supportsVision",
+                        provider.slug, m.id
+                    );
+                }
+            }
+        }
+    }
+
+    fn collect_refs(node: &serde_json::Value, out: &mut Vec<(String, String)>) {        match node {
             serde_json::Value::Object(map) => {
                 if let (Some(serde_json::Value::String(p)), Some(serde_json::Value::String(m))) =
                     (map.get("providerId"), map.get("model"))

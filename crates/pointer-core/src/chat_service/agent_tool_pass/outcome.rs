@@ -157,6 +157,8 @@ pub(super) async fn record_tool_exec_outcome(
                 );
             }
             let settings = ctx.session.state.effective_settings();
+            let mut out = out;
+            let mut monitor_note: Option<String> = None;
             super::super::computer_monitor_follow::maybe_auto_switch_capture_monitor_after_tool(
                 ctx.session.stream,
                 ctx.session.state,
@@ -165,7 +167,11 @@ pub(super) async fn record_tool_exec_outcome(
                 tool_id,
                 ok,
                 args_for_desktop_log,
+                &mut monitor_note,
             );
+            if let Some(note) = monitor_note {
+                out = format!("{out}\n\n{note}");
+            }
             super::super::util::push_tool_result(
                 ctx.transcript.history,
                 conversation_id,

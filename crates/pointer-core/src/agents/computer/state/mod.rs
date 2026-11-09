@@ -378,8 +378,15 @@ impl ComputerState {
         s.selected_monitor = monitor_id.clone();
         s.monitor_selection_done = true;
         if prev.as_deref() != monitor_id.as_deref() {
+            // 换屏必须作废已缓存的帧。`[CUR_SCREEN]` 会复用 pipeline 缓存（最长 120s），
+            // 不清理的话模型切到 3 号屏、下一轮拿到的还是 1 号屏的画面，于是反复
+            // 调 `use_screen` —— 每次宿主都答「已经在这块屏了」，看起来像切换无效。
+            s.pipeline.cached_capture = None;
+            s.pipeline.cached_capture_at = None;
+            s.last_capture = None;
+            s.last_capture_pointer = None;
             log::info!(
-                "computer monitor: conversation_id={conversation_id} {} -> {}",
+                "computer monitor: conversation_id={conversation_id} {} -> {} (capture cache dropped)",
                 prev.as_deref().unwrap_or("(none)"),
                 monitor_id.as_deref().unwrap_or("(auto/cursor)")
             );
@@ -649,6 +656,17 @@ impl ComputerState {
                 "pipeline capture: cached frame too old ({age:?} > {max_age:?}) — recapture"
             );
             return None;
+        }
+        // 帧必须来自当前选中的那块屏。选择刚变、缓存还没清（或清之前的老路径）时，
+        // 复用会喂给模型另一块屏的画面，它就会一直要求换屏。
+        if let Some(selected) = s.selected_monitor.as_deref() {
+            if !selected.trim().is_empty() && cap.monitor_id.trim() != selected.trim() {
+                log::info!(
+                    "pipeline capture: cached frame is display {} but selection is {selected} — recapture",
+                    cap.monitor_id
+                );
+                return None;
+            }
         }
         log::info!(
             "pipeline capture: reuse verify frame for [CUR_SCREEN] bytes={} age={age:?}",
@@ -974,6 +992,94 @@ mod tests {
             reused.screenshot_jpeg.as_slice(),
             cap.screenshot_jpeg.as_slice(),
             "the next round must read back exactly what this round produced"
+        );
+    }
+
+    /// 换屏必须作废缓存帧：否则下一轮 `[CUR_SCREEN]` 复用的还是上一块屏的画面，
+    /// 模型看不到变化就会反复调 `use_screen`（线上就是这样连调 23 次）。
+    #[test]
+    fn switching_monitor_drops_cached_frame() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/locate_fixture/fixtures/sudoku.jpg");
+        let jpeg = std::fs::read(&path).expect("fixture");
+        let (w, h) = image::ImageReader::new(std::io::Cursor::new(&jpeg))
+            .with_guessed_format()
+            .expect("probe")
+            .into_dimensions()
+            .expect("dimensions");
+        let state = make_state();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let cap = rt
+            .block_on(state.apply_screen_capture(
+                "switch",
+                &jpeg,
+                screen::MonitorInfo::new(0, 0, w as i32, h as i32),
+                "1",
+                (w, h),
+                (10, 10),
+                None,
+            ))
+            .expect("capture");
+        state.set_conversation_monitor("switch", Some("1".into()));
+        state.store_pipeline_after_capture("switch", cap);
+        assert!(
+            state
+                .fresh_pipeline_capture("switch", Duration::from_secs(120))
+                .is_some(),
+            "同一块屏内应能复用"
+        );
+
+        state.set_conversation_monitor("switch", Some("3".into()));
+        assert!(
+            state
+                .fresh_pipeline_capture("switch", Duration::from_secs(120))
+                .is_none(),
+            "换屏后旧帧必须作废"
+        );
+    }
+
+    /// 缓存帧的显示器与当前选择不一致时，宁可不复用。
+    #[test]
+    fn cached_frame_from_another_display_is_not_reused() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/locate_fixture/fixtures/sudoku.jpg");
+        let jpeg = std::fs::read(&path).expect("fixture");
+        let (w, h) = image::ImageReader::new(std::io::Cursor::new(&jpeg))
+            .with_guessed_format()
+            .expect("probe")
+            .into_dimensions()
+            .expect("dimensions");
+        let state = make_state();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let cap = rt
+            .block_on(state.apply_screen_capture(
+                "mismatch",
+                &jpeg,
+                screen::MonitorInfo::new(0, 0, w as i32, h as i32),
+                "1",
+                (w, h),
+                (10, 10),
+                None,
+            ))
+            .expect("capture");
+        state.set_conversation_monitor("mismatch", Some("1".into()));
+        state.store_pipeline_after_capture("mismatch", cap);
+        // 直接把选择改掉但不走 set（模拟外部写入）
+        {
+            let session = state.get_or_create_session("mismatch");
+            session.lock().unwrap().selected_monitor = Some("3".into());
+        }
+        assert!(
+            state
+                .fresh_pipeline_capture("mismatch", Duration::from_secs(120))
+                .is_none(),
+            "别的屏的帧不能复用"
         );
     }
 

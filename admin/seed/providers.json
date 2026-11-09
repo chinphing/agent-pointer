@@ -443,11 +443,11 @@
       "agentDefaultModels": {
         "coder": {
           "providerId": "deepseek",
-          "model": "deepseek-v4-pro"
+          "model": "deepseek-flash"
         },
         "explore": {
           "providerId": "deepseek",
-          "model": "deepseek-v4-flash"
+          "model": "deepseek-flash"
         },
         "computer": {
           "providerId": "qwen",
@@ -455,7 +455,7 @@
         },
         "general": {
           "providerId": "deepseek",
-          "model": "deepseek-v4-flash"
+          "model": "deepseek-flash"
         }
       },
       "agentModeLlm": {
@@ -502,6 +502,20 @@
             "providerId": "qwen",
             "model": "qwen3.8-flash",
             "thinkingIntensity": "low"
+          }
+        },
+        "explore": {
+          "fast": {
+            "providerId": "deepseek",
+            "model": "deepseek-flash"
+          },
+          "standard": {
+            "providerId": "deepseek",
+            "model": "deepseek-flash"
+          },
+          "expert": {
+            "providerId": "deepseek",
+            "model": "deepseek-flash"
           }
         }
       },

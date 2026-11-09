@@ -572,6 +572,20 @@ mod tests {
             missing.is_empty(),
             "these tools would fall back to a placeholder description: {missing:?}"
         );
+
+        // 工具用途只属于 `function.description`，不能漏进 `parameters`：
+        // 后者是 JSON Schema，"这个工具做什么"和"参数是什么形状"是两件事。
+        let mut leaked: Vec<String> = Vec::new();
+        for t in &tools {
+            let name = t["function"]["name"].as_str().unwrap_or_default().to_string();
+            if t["function"]["parameters"].get("description").is_some() {
+                leaked.push(name);
+            }
+        }
+        assert!(
+            leaked.is_empty(),
+            "tool description leaked into parameters: {leaked:?}"
+        );
     }
 
     /// 扫一遍注册表：任何工具的卡片标题都不该是裸工具名。

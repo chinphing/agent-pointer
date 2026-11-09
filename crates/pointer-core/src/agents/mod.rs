@@ -1374,8 +1374,7 @@ mod builtin_agent_tests {
         let agent = load_builtin_agent("computer", raw, &comm).expect("load builtin computer");
         assert_eq!(agent.def.role, "worker");
         assert!(agent.def.enabled);
-        assert_eq!(agent.def.profile, AgentProfile::Computer);
-        assert!(
+        assert_eq!(agent.def.profile, AgentProfile::Computer);        assert!(
             agent.system_prompt.contains("## Verify state (host — read only)"),
             "computer communication should keep the host verify section"
         );
@@ -1427,6 +1426,36 @@ mod builtin_agent_tests {
             !agent.system_prompt.contains("Locate (Primary"),
             "communication should not include the Locate template"
         );
+    }
+
+    /// 提示词里让模型调的工具，必须真的在权限白名单里。
+    ///
+    /// `use_screen` 就是漏在这儿的：工具注册了、文档写了、提示词让模型调，
+    /// 但 `accessPolicy.allowTools` 没加 —— `resolve_tools` 直接把它滤掉，
+    /// 模型从头到尾看不到这个工具，功能等于不存在。
+    #[test]
+    fn computer_prompt_tools_are_allowed() {
+        let raw = include_str!("computer/AGENT.md");
+        let comm = builtin_computer_communication();
+        let agent = load_builtin_agent("computer", raw, &comm).expect("load builtin computer");
+        let allowed = &agent.def.access_policy.allow_tools;
+        for name in &agent.def.tool_names {
+            assert!(
+                allowed.contains(name),
+                "tool `{name}` is in toolNames but missing from accessPolicy.allowTools"
+            );
+        }
+        // 提示词正文里点名的工具也要能调。
+        for name in ["use_screen", "launch_app", "list_apps"] {
+            assert!(
+                agent.system_prompt.contains(name),
+                "prompt should mention `{name}`"
+            );
+            assert!(
+                allowed.iter().any(|a| a == name),
+                "prompt tells the model to call `{name}` but it is not allowed"
+            );
+        }
     }
 
     fn prompt_requires_top_level_trace_section(prompt: &str, heading: &str) -> bool {

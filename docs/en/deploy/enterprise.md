@@ -105,19 +105,29 @@ location / {
 
 `X-Forwarded-Proto` is required — the control plane uses it to decide whether the request is HTTPS, which decides whether the cookie gets `Secure`.
 
-### 2.6 Static assets
+### 2.6 Build and package
 
-The control plane does not build the frontend; it only serves whatever is in `POINTER_ADMIN_STATIC_DIR`. So the deployment order is:
+The control plane does not build the frontend; it only serves whatever is in `POINTER_ADMIN_STATIC_DIR`. That means it ships as **two halves** — the binary and the frontend output — and the two must come from the same source.
+
+One command does both:
 
 ```bash
-npm --prefix admin/web ci
-npm --prefix admin/web run build        # output: admin/web/dist
-cargo build --release -p pointer-admin
-
-POINTER_ADMIN_STATIC_DIR=$PWD/admin/web/dist ./target/release/pointer-admin
+npm run admin:build
+# artifacts:
+#   target/release/pointer-admin-bundle/pointer-admin-{os}-{arch}/
+#   target/release/pointer-admin-bundle/pointer-admin-{os}-{arch}.tar.gz
 ```
 
-Skip this and the home page is a 404 or a blank screen.
+The bundle contains `pointer-admin`, `web/`, `build-info.json` and `README.txt`. `build-info.json` records the commit and sha256 of each half — check it first when the binary looks new but the UI looks old.
+
+Run it:
+
+```bash
+cd pointer-admin-{os}-{arch}
+POINTER_ADMIN_STATIC_DIR=./web ./pointer-admin
+```
+
+To re-package without recompiling, use `npm run admin:package`. If either half is missing the script fails outright instead of producing a partial bundle — a control plane that starts but serves a blank page is far harder to diagnose than a build that refuses to finish.
 
 ---
 

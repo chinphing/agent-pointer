@@ -106,19 +106,29 @@ location / {
 
 `X-Forwarded-Proto` 必须传——控制面靠它判断是不是 HTTPS，决定 Cookie 要不要加 `Secure`。
 
-### 2.6 静态资源
+### 2.6 构建与打包
 
-控制面自己不做前端构建，它只负责把 `POINTER_ADMIN_STATIC_DIR` 里的文件发出去。所以部署顺序是：
+控制面自己不做前端构建，它只负责把 `POINTER_ADMIN_STATIC_DIR` 里的文件发出去。所以它有**两半**：二进制 + 前端产物，两半必须同源。
+
+一条命令搞定：
 
 ```bash
-npm --prefix admin/web ci
-npm --prefix admin/web run build        # 产物 admin/web/dist
-cargo build --release -p pointer-admin
-
-POINTER_ADMIN_STATIC_DIR=$PWD/admin/web/dist ./target/release/pointer-admin
+npm run admin:build
+# 产物：
+#   target/release/pointer-admin-bundle/pointer-admin-{os}-{arch}/
+#   target/release/pointer-admin-bundle/pointer-admin-{os}-{arch}.tar.gz
 ```
 
-漏了这一步，打开首页就是 404 或白屏。
+包里是 `pointer-admin`、`web/`、`build-info.json`、`README.txt`。`build-info.json` 记着两半的 commit 与 sha256——排查「二进制是新的、页面是旧的」时先看它。
+
+启动：
+
+```bash
+cd pointer-admin-{os}-{arch}
+POINTER_ADMIN_STATIC_DIR=./web ./pointer-admin
+```
+
+只想重新打包、不重新编译用 `npm run admin:package`。缺任何一半会直接失败，不会产出半成品——控制面起来白屏比构建失败难查得多。
 
 ---
 

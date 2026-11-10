@@ -21,7 +21,7 @@ use crate::state::Shared;
 pub fn router(state: Shared) -> Router<Shared> {
     Router::new()
         // 私有仓扩展：默认是空 Router，开源版行为不变。
-        .merge(crate::ext::router())
+        .merge(crate::ext::router(&state))
         .route("/api/admin/auth/captcha", get(auth::issue_captcha))
         .route("/api/admin/auth/login", post(auth::login))
         .route("/api/admin/auth/logout", post(auth::logout))

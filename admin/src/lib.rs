@@ -3,6 +3,7 @@
 //! 独立进程：server 与桌面客户端都是它的 OAuth 客户端，凭证由它统一下发。
 //! 不依赖 `pointer-core`，只依赖 `pointer-contract`（纯类型 + 哈希）。
 
+pub mod app;
 pub mod audit;
 pub mod billing;
 pub mod captcha;

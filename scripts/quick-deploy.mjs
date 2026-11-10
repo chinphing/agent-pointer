@@ -55,9 +55,7 @@ const AUTH_MODE_URL = 'http://127.0.0.1:8787/api/auth/mode'
 const CLEARED_KEYS = [
   'POINTER_EDITION',
   'POINTER_API_BASE',
-  'VITE_POINTER_WEB_BASE',
   'POINTER_DOWNLOAD_URL',
-  'VITE_POINTER_DOWNLOAD_URL',
   'POINTER_DEPLOYMENT_MODE',
   'POINTER_SERVER_ADMIN_USERNAME',
   'POINTER_SERVER_ADMIN_PASSWORD_HMAC',
@@ -81,9 +79,7 @@ export function defaultReleaseBinary(root, kind) {
 export const STANDALONE_BUILD_KEEP_UNSET = [
   'POINTER_EDITION',
   'POINTER_API_BASE',
-  'VITE_POINTER_WEB_BASE',
   'POINTER_DOWNLOAD_URL',
-  'VITE_POINTER_DOWNLOAD_URL',
 ]
 
 const BUILD_RUNTIME_ONLY_KEYS = [
@@ -204,7 +200,7 @@ function requireDomains(domains) {
  *   mode: string,
  *   root?: string,
  *   stateDir: string,
- *   domains?: { apiBase?: string, webBase?: string },
+ *   domains?: { apiBase?: string },
  *   runtime?: 'dev' | 'bin',
  *   credentials?: { username: string, secret: string, password: string, passwordHmac: string } | null,
  *   baseEnv?: NodeJS.ProcessEnv,
@@ -227,9 +223,9 @@ export function buildPlan(input) {
   if (managed) {
     requireDomains(input.domains)
     env.POINTER_EDITION = 'managed'
+    // 控制面只有一个地址：登录页、接口、充值页、下载页全在同一个 host 上，
+    // 前端跳转基址也由它内联，不再有第二个变量。
     env.POINTER_API_BASE = input.domains.apiBase
-    // 控制面只有一个地址；前端跳转（充值/下载）默认也用它，--web-base 仅作覆盖。
-    env.VITE_POINTER_WEB_BASE = input.domains.webBase || input.domains.apiBase
   }
 
   const staticDir = path.join(root, 'dist')
@@ -382,7 +378,6 @@ export function parseArgs(argv) {
       throw new Error(`missing value for ${flag}`)
     }
     if (flag === '--api-base') domains.apiBase = value
-    else if (flag === '--web-base') domains.webBase = value
     else if (flag === '--state-dir') stateDir = value
     else if (flag === '--runtime') runtime = value
     else throw new Error(`unknown flag ${flag}`)
@@ -405,7 +400,6 @@ export function parseArgs(argv) {
     }
   }
   domains.apiBase ||= process.env.POINTER_API_BASE
-  domains.webBase ||= process.env.VITE_POINTER_WEB_BASE
   return { command, mode, domains, stateDir, runtime, build, generateUpdaterKey }
 }
 

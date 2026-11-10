@@ -77,10 +77,10 @@ Ubuntu 24.04 logs into Wayland by default; the symptom is **capture works but cl
 
 ```bash
 # Linux / macOS
-npm install && ./scripts/quick-deploy.sh start managed-client --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com
+npm install && ./scripts/quick-deploy.sh start managed-client --runtime bin --build --api-base https://pointer-api.example.com
 
 # Windows
-npm install && scripts\quick-deploy.bat start managed-client --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com
+npm install && scripts\quick-deploy.bat start managed-client --runtime bin --build --api-base https://pointer-api.example.com
 ```
 
 This starts `target/release/pointer-app`. If the updater private key is missing, the terminal asks once; `y` creates it. The default path is `~/.tauri/pointer-updater.key` (Windows: `%USERPROFILE%\.tauri\pointer-updater.key`), and later builds keep using that file. Add `--generate-updater-key` after `--build` to create it without asking.
@@ -99,13 +99,13 @@ npm run tauri signer generate -w %USERPROFILE%\.tauri\pointer-updater.key
 
 ```bash
 # Linux
-npm install && POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com POINTER_DOWNLOAD_URL=https://pointer.example.com/download TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key npm run build:linux
+npm install && POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_DOWNLOAD_URL=https://pointer.example.com/download TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key npm run build:linux
 
 # macOS
-npm install && POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com POINTER_DOWNLOAD_URL=https://pointer.example.com/download TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key npm run build:macos
+npm install && POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com POINTER_DOWNLOAD_URL=https://pointer.example.com/download TAURI_SIGNING_PRIVATE_KEY_PATH=~/.tauri/pointer-updater.key npm run build:macos
 
 # Windows
-npm install && set POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set VITE_POINTER_WEB_BASE=https://pointer.example.com&& set POINTER_DOWNLOAD_URL=https://pointer.example.com/download&& set TAURI_SIGNING_PRIVATE_KEY_PATH=%USERPROFILE%\.tauri\pointer-updater.key&& npm run build:windows
+npm install && set POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set POINTER_DOWNLOAD_URL=https://pointer.example.com/download&& set TAURI_SIGNING_PRIVATE_KEY_PATH=%USERPROFILE%\.tauri\pointer-updater.key&& npm run build:windows
 ```
 
 A missing private key is handled the same way as above.
@@ -145,23 +145,23 @@ npm install && npm run server:build
 
 ```bash
 # Linux / macOS
-npm install && ./scripts/quick-deploy.sh start managed-server --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com
+npm install && ./scripts/quick-deploy.sh start managed-server --runtime bin --build --api-base https://pointer-api.example.com
 
 # Windows
-npm install && scripts\quick-deploy.bat start managed-server --runtime bin --build --api-base https://pointer-api.example.com --web-base https://pointer.example.com
+npm install && scripts\quick-deploy.bat start managed-server --runtime bin --build --api-base https://pointer-api.example.com
 ```
 
 2. Build an installer
 
 ```bash
 # Linux
-npm install && POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com npm run server:build
+npm install && POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com npm run server:build
 
 # macOS
-npm install && POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com VITE_POINTER_WEB_BASE=https://pointer.example.com npm run server:build
+npm install && POINTER_EDITION=managed POINTER_API_BASE=https://pointer-api.example.com npm run server:build
 
 # Windows
-npm install && set POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& set VITE_POINTER_WEB_BASE=https://pointer.example.com&& npm run server:build
+npm install && set POINTER_EDITION=managed&& set POINTER_API_BASE=https://pointer-api.example.com&& npm run server:build
 ```
 
 ## After that

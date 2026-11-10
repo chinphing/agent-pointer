@@ -121,7 +121,7 @@ deployment_mode          仅服务端：platform（控制面 OAuth）
 
 解析顺序（先命中先用；空串当未设置）：
 
-1. `POINTER_API_BASE`（+ 可选 `VITE_POINTER_WEB_BASE`）
+1. `POINTER_API_BASE`（前端跳转基址与它同源；纯 Web 构建由 Vite 在构建期内联）
 2. 用户设置（P1）
 3. 构建默认：`managed` 用构建期注入的域名，未设置则为空
 

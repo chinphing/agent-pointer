@@ -93,8 +93,21 @@ function dropUnsupportedMermaidDiagrams() {
   }
 }
 
+/**
+ * 纯 Web 构建的控制面地址：和桌面端共用同一个 `POINTER_API_BASE`。
+ *
+ * 只用 `define` 内联这一个值。**不要**改成 `envPrefix: ['POINTER_']`——
+ * 那会把 `pointer.local.env` 里所有 `POINTER_*`（可能含密钥）打进公开产物。
+ */
+const webControlPlaneBase = (process.env.POINTER_API_BASE ?? '')
+  .trim()
+  .replace(/\/+$/, '')
+
 export default defineConfig({
   plugins: [dropUnsupportedMermaidDiagrams(), vue()],
+  define: {
+    __POINTER_API_BASE__: JSON.stringify(webControlPlaneBase),
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src')

@@ -6,8 +6,8 @@
  * plane:
  *   • the Rust binary  ← `POINTER_EDITION=managed` + `POINTER_API_BASE`, baked by
  *                        `crates/pointer-core/build.rs` (`cargo:rustc-env=…`);
- *   • the web assets   ← `VITE_POINTER_WEB_BASE` inlined by Vite (optional; it
- *                        only feeds redirect links and follows the api base).
+ *   • the web assets   ← the same `POINTER_API_BASE`, inlined by Vite `define`
+ *                        (it feeds redirect links: billing / download pages).
  *
  * Loading `pointer.local.env` in only one of the two build steps used to produce
  * a silently half-bound artifact (managed UI over a standalone binary). This
@@ -50,9 +50,9 @@ export function configuredDomains(env = {}) {
   return found
 }
 
-/** 前端跳转基址（`VITE_POINTER_WEB_BASE`），可选；不设时跟随 api 基址。 */
+/** 前端跳转基址：和 api 基址是同一个变量，纯 Web 构建由 Vite `define` 内联。 */
 export function configuredWebBase(env = {}) {
-  return String(env.VITE_POINTER_WEB_BASE ?? '').trim()
+  return String(env.POINTER_API_BASE ?? '').trim()
 }
 
 /** Byte-exact substring search over one file, read in chunks. */
@@ -197,12 +197,18 @@ export function verifyBakedEdition({
     const hit = webProbe ? webProbe(webBase) : null
     webBaked = hit === true
     if (hit === true) {
-      notes.push(`${webLabel} carry the web base`)
-    } else if (hit === false) {
       if (managed) {
-        errors.push(`${webLabel} do NOT carry VITE_POINTER_WEB_BASE: ${webBase}`)
+        notes.push(`${webLabel} carry the control-plane address`)
       } else {
-        warnings.push(`${webLabel} carry VITE_POINTER_WEB_BASE (${webBase}) although the edition is standalone`)
+        // 和二进制那一半同一个口径：standalone 却带了控制面域名，要提醒但不判失败
+        warnings.push(
+          `${webLabel} carry the control-plane address (${webBase}) although the edition is standalone`,
+        )
+      }
+    } else if (hit === false) {
+      // standalone 且没带地址 = 正常状态，不提示
+      if (managed) {
+        errors.push(`${webLabel} do NOT carry the control-plane address: ${webBase}`)
       }
     } else if (managed) {
       errors.push(`${webLabel} not found — cannot verify the managed web base (${webBase})`)

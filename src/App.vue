@@ -80,8 +80,11 @@ const {
 } = useAppUpdater()
 
 onMounted(() => {
-  // 控制面地址来自运行期绑定（官方包不烧域名）；读不到就保持构建期兜底。
-  void initPlatformWebBase()
+  // 控制面地址来自运行期绑定（官方包不烧域名）；纯 Web 构建用构建期内联的同一个变量。
+  void initPlatformWebBase().catch((e) => {
+    // 桌面端读失败要说出来：命令没注册 / IPC 故障，和「没配置地址」是两回事。
+    console.warn('[platformUrls] 读取控制面地址失败：', e)
+  })
   void Promise.all([platformAuth.load(), settings.load()])
     .then(async () => {
       skills.initEnabledFromUserSettings()

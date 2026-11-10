@@ -34,8 +34,7 @@
 | --- | --- |
 | `POINTER_EDITION=managed` | 打包口味，编译期烧入。**缺控制面域名时 `crates/pointer-core/build.rs` 直接 panic，构建失败** |
 | `POINTER_API_BASE` | 控制面 API 域名（构建期烧入 `POINTER_BUILTIN_API_BASE`） |
-| `VITE_POINTER_WEB_BASE` | 前端跳转基址（充值/下载），缺省跟随 `POINTER_API_BASE` |
-| `POINTER_DOWNLOAD_URL` / `VITE_POINTER_DOWNLOAD_URL` | 下载页链接（关于页） |
+| `POINTER_DOWNLOAD_URL` | 下载页链接（关于页） |
 | `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PATH` | updater 签名私钥，**仅 managed 客户端需要** |
 
 未设置口味时，源码不写入任何控制面默认值 ⇒ 未绑定 ⇒ standalone。
@@ -97,7 +96,7 @@ npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 | --- | --- | --- |
 | `POINTER_EDITION=managed` | ✅ | 口味。**只接受 `managed` 或留空**：其他任何值（含旧值 `official`）会让构建直接失败，避免静默降级为未绑定 |
 | `POINTER_API_BASE` | ✅ | 控制面地址（登录页/授权页/接口同源），缺即构建 panic |
-| `VITE_POINTER_WEB_BASE` / `POINTER_DOWNLOAD_URL` | 建议 | 前端跳转与关于页下载链接 |
+| `POINTER_DOWNLOAD_URL` | 建议 | 关于页下载链接 |
 | `TAURI_SIGNING_PRIVATE_KEY` 或 `…_PATH` | ✅ | updater 签名私钥 |
 
 ### 3.3 产物位置
@@ -134,7 +133,6 @@ src-tauri/target/release/bundle/
 ```bash
 ./scripts/quick-deploy.sh start managed-client --runtime bin \
   --api-base https://pointer-api.example.com \
-  --web-base https://pointer.example.com \
  
 ```
 
@@ -174,7 +172,6 @@ VITE_npm run server:build
 | --- | --- | --- |
 | `POINTER_EDITION=managed` | ✅ | 口味；也是「缺域名就 panic」的开关 |
 | `POINTER_API_BASE` | ✅ | 控制面地址（登录页/授权页/接口同源） |
-| `VITE_POINTER_WEB_BASE` | 建议 | 前端跳转控制面 Web |
 
 **运行期**（`pointer-server.toml`，见 `server/pointer-server.toml.example`）：
 
@@ -227,7 +224,6 @@ curl -s http://127.0.0.1:8787/api/auth/mode      # → {"mode":"platform"}
 ```bash
 ./scripts/quick-deploy.sh start managed-server --runtime bin \
   --api-base https://pointer-api.example.com \
-  --web-base https://pointer.example.com \
  
 ```
 

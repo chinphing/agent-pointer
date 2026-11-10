@@ -112,12 +112,11 @@ scripts\quick-deploy.bat start standalone-server --runtime bin
 ```bash
 ./scripts/quick-deploy.sh start managed-server --runtime bin \
   --api-base https://pointer-api.example.com \
-  --web-base https://pointer.example.com \
  
 ```
 
 ```bat
-scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://pointer-api.example.com --web-base https://pointer.example.com
+scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://pointer-api.example.com
 ```
 
 也可以导出 `POINTER_API_BASE`，再省略 `--api-base`。不写 `--build` 时，脚本只把域名放进进程环境后启动已有二进制。加上 `--build` 才按这次传入的域名本地重新编译。构建缺控制面地址就会失败。开发者打这个包也可以用 `npm run server:build`。
@@ -129,7 +128,6 @@ scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://p
 ```bash
 ./scripts/quick-deploy.sh start managed-client --runtime bin \
   --api-base https://pointer-api.example.com \
-  --web-base https://pointer.example.com \
  
 ```
 
@@ -140,7 +138,7 @@ scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://p
 ```bash
 ./scripts/quick-deploy.sh plan standalone-server
 ./scripts/quick-deploy.sh plan standalone-client --runtime dev
-./scripts/quick-deploy.sh plan managed-client --api-base https://pointer-api.example.com --web-base https://pointer.example.com
+./scripts/quick-deploy.sh plan managed-client --api-base https://pointer-api.example.com
 ```
 
 `plan` 不写 `--runtime` 时看的是二进制计划。`stop` 不带模式名会停掉 `.quick-deploy/` 里记录的全部模式和两种 runtime。`stop <模式>` 不带 `--runtime` 会停掉该模式的二进制和开发态。停止时按 pid 文件结束对应进程，不会按进程名去杀。

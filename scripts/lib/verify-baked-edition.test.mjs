@@ -12,12 +12,12 @@ import {
 } from './verify-baked-edition.mjs'
 
 const API_BASE = 'https://pointer-api.example.com'
-const WEB_BASE = 'https://pointer.example.com'
+// 前端跳转基址与 api 基址是同一个变量（纯 Web 构建由 Vite `define` 内联）
+const WEB_BASE = API_BASE
 
 const MANAGED_ENV = {
   POINTER_EDITION: 'managed',
   POINTER_API_BASE: API_BASE,
-  VITE_POINTER_WEB_BASE: WEB_BASE,
 }
 
 /** Stand-in for a real artifact: `text` is what a `strings`-style scan would find. */
@@ -38,7 +38,7 @@ function check({ env = MANAGED_ENV, binary = null, web = null, binaryProbe, webP
 }
 
 const FULL_BINARY = artifact(`${API_BASE}\u0000`)
-const MANAGED_WEB = artifact(`window.env={"VITE_POINTER_WEB_BASE":"${WEB_BASE}"}`)
+const MANAGED_WEB = artifact(`${WEB_BASE}`)
 
 const tempDirs = []
 
@@ -136,7 +136,8 @@ describe('file probes', () => {
     fs.mkdirSync(path.join(dir, 'assets'))
     fs.writeFileSync(path.join(dir, 'assets', 'index.js'), `const webBase = "${WEB_BASE}"`)
     expect(pathContains(dir, WEB_BASE)).toBe(true)
-    expect(pathContains(dir, API_BASE)).toBe(false)
+    // WEB_BASE 现在就是 API_BASE，换一个肯定不存在的串来验证「找不到」
+    expect(pathContains(dir, 'https://absent.example.com')).toBe(false)
     expect(pathContains(path.join(dir, 'nope'), WEB_BASE)).toBeNull()
   })
 })

@@ -112,12 +112,11 @@ The control-plane address (`POINTER_API_BASE`) is required. Without a reachable 
 ```bash
 ./scripts/quick-deploy.sh start managed-server --runtime bin \
   --api-base https://pointer-api.example.com \
-  --web-base https://pointer.example.com \
  
 ```
 
 ```bat
-scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://pointer-api.example.com --web-base https://pointer.example.com
+scripts\quick-deploy.bat start managed-server --runtime bin --api-base https://pointer-api.example.com
 ```
 
 You can export `POINTER_API_BASE` instead of passing `--api-base`. Without `--build`, the script puts the domains into the process environment and starts the existing binary. `--build` recompiles locally with the domains from this command. A build that is missing the control-plane address fails. Developers can also produce this package with `npm run server:build`.
@@ -129,7 +128,6 @@ You can export `POINTER_API_BASE` instead of passing `--api-base`. Without `--bu
 ```bash
 ./scripts/quick-deploy.sh start managed-client --runtime bin \
   --api-base https://pointer-api.example.com \
-  --web-base https://pointer.example.com \
  
 ```
 
@@ -140,7 +138,7 @@ Without `--build`, an existing `target/release/pointer-app` or the installed app
 ```bash
 ./scripts/quick-deploy.sh plan standalone-server
 ./scripts/quick-deploy.sh plan standalone-client --runtime dev
-./scripts/quick-deploy.sh plan managed-client --api-base https://pointer-api.example.com --web-base https://pointer.example.com
+./scripts/quick-deploy.sh plan managed-client --api-base https://pointer-api.example.com
 ```
 
 `plan` without `--runtime` prints the binary plan. `stop` without a mode stops every recorded mode and both runtimes under `.quick-deploy/`. `stop <mode>` without `--runtime` stops that mode's binary and its dev runtime. Stop signals the pid file. It does not kill by process name.

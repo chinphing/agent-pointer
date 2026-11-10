@@ -15,8 +15,8 @@ const { t } = useI18n()
 const isDevBuild = import.meta.env.DEV
 
 /**
- * 下载页地址：控制面绑定时用「运行期地址 + /download」，
- * 未绑定时回落到构建期 `VITE_POINTER_DOWNLOAD_URL`（老的自建构建）。
+ * 下载页地址：控制面地址 + `/download`。
+ * 地址未绑定时为空串，调用方据此隐藏下载入口（不再有第二个兜底来源）。
  */
 const DOWNLOAD_URL = computed(() => platformDownloadUrl())
 

@@ -34,8 +34,7 @@ The flavour only decides the **build-time defaults**; it is not a runtime switch
 | --- | --- |
 | `POINTER_EDITION=managed` | Packaging flavour, baked in at compile time. **When control-plane domains are missing, `crates/pointer-core/build.rs` panics outright and the build fails** |
 | `POINTER_API_BASE` | Control-plane API domain (baked into `POINTER_BUILTIN_API_BASE` at build time) |
-| `VITE_POINTER_WEB_BASE` | Frontend redirect base (top-up / download); defaults to `POINTER_API_BASE` |
-| `POINTER_DOWNLOAD_URL` / `VITE_POINTER_DOWNLOAD_URL` | Download page link (About page) |
+| `POINTER_DOWNLOAD_URL` | Download page link (About page) |
 | `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PATH` | Updater signing private key, **needed only by the managed client** |
 
 With no flavour set, the source writes no control-plane default ⇒ unbound ⇒ standalone.
@@ -97,7 +96,7 @@ npm run tauri signer generate -w ~/.tauri/pointer-updater.key
 | --- | --- | --- |
 | `POINTER_EDITION=managed` | ✅ | Flavour. **Only `managed` or empty is accepted**: any other value (including the old `official`) makes the build fail outright, avoiding a silent downgrade to unbound |
 | `POINTER_API_BASE` | ✅ | The control-plane address (login page, authorize page and API share one origin); missing it panics the build |
-| `VITE_POINTER_WEB_BASE` / `POINTER_DOWNLOAD_URL` | Recommended | Frontend redirects and the About page download link |
+| `POINTER_DOWNLOAD_URL` | Recommended | About page download link |
 | `TAURI_SIGNING_PRIVATE_KEY` or `…_PATH` | ✅ | Updater signing private key |
 
 ### 3.3 Artifact location
@@ -134,7 +133,6 @@ Users start this cell's desktop app with the script. It does not call npm. An ex
 ```bash
 ./scripts/quick-deploy.sh start managed-client --runtime bin \
   --api-base https://pointer-api.example.com \
-  --web-base https://pointer.example.com \
  
 ```
 
@@ -174,7 +172,6 @@ VITE_npm run server:build
 | --- | --- | --- |
 | `POINTER_EDITION=managed` | ✅ | Flavour; also the switch that panics when domains are missing |
 | `POINTER_API_BASE` | ✅ | The control-plane address (single origin) |
-| `VITE_POINTER_WEB_BASE` | Recommended | Frontend redirect to the control-plane Web |
 
 **Runtime** (`pointer-server.toml`, see `server/pointer-server.toml.example`):
 
@@ -227,7 +224,6 @@ Users start this cell's already built server with the script. It does not call n
 ```bash
 ./scripts/quick-deploy.sh start managed-server --runtime bin \
   --api-base https://pointer-api.example.com \
-  --web-base https://pointer.example.com \
  
 ```
 

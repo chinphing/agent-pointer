@@ -11,7 +11,6 @@ export const POINTER_LOCAL_ENV_EXAMPLE = path.join(REPO_ROOT, 'pointer.local.env
 
 const MIRROR_PAIRS = [
   ['POINTER_EDITION'],
-  ['POINTER_DOWNLOAD_URL', 'VITE_POINTER_DOWNLOAD_URL'],
 ];
 
 function isBlank(value) {

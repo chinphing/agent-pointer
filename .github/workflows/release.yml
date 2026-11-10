@@ -143,7 +143,6 @@ jobs:
           POINTER_PACKAGE_LABEL: official
           POINTER_EDITION: managed
           POINTER_API_BASE: https://pointer-api.readflowai.com
-          VITE_POINTER_WEB_BASE: https://pointer.readflowai.com
           POINTER_DOWNLOAD_URL: https://pointer.readflowai.com/download
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -190,7 +189,6 @@ jobs:
           POINTER_PACKAGE_LABEL: official
           POINTER_EDITION: managed
           POINTER_API_BASE: https://pointer-api.readflowai.com
-          VITE_POINTER_WEB_BASE: https://pointer.readflowai.com
           POINTER_DOWNLOAD_URL: https://pointer.readflowai.com/download
 
       - name: Stage official server

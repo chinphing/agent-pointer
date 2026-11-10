@@ -29,6 +29,36 @@ describe('authGuard', () => {
     expect(authGuard(protectedRoute)).toEqual({ path: '/login' })
   })
 
+  it('未登录访问具体页面 → 带上 ?next= 记住原目标', () => {
+    session.ready = true
+    session.user = null
+    expect(authGuard({ meta: {}, fullPath: '/me/billing' })).toEqual({
+      path: '/login',
+      query: { next: '/me/billing' },
+    })
+  })
+
+  it('原目标带查询串时完整保留', () => {
+    session.ready = true
+    session.user = null
+    expect(authGuard({ meta: {}, fullPath: '/admin/members?q=zhang' })).toEqual({
+      path: '/login',
+      query: { next: '/admin/members?q=zhang' },
+    })
+  })
+
+  it('原目标本身是登录页时不再嵌套 ?next=', () => {
+    session.ready = true
+    session.user = null
+    expect(authGuard({ meta: {}, fullPath: '/login' })).toEqual({ path: '/login' })
+  })
+
+  it('原目标不是站内路径时丢弃，避免开放重定向', () => {
+    session.ready = true
+    session.user = null
+    expect(authGuard({ meta: {}, fullPath: '//evil.example.com/x' })).toEqual({ path: '/login' })
+  })
+
   it('已登录 → 放行', () => {
     session.ready = true
     session.user = { id: 'u1', username: 'admin', displayName: '管理员' }

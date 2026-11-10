@@ -1,13 +1,29 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { login, session } from '../store'
 import { landingFor } from '../routes'
 import { api, errText } from '../api'
 
 const router = useRouter()
+const route = useRoute()
 const { t } = useI18n()
+
+/**
+ * 登录后要回到的页面（守卫放进来的 `?next=`）。
+ *
+ * 只接受站内绝对路径：`//evil.com` 是协议相对的绝对 URL，`javascript:` 之类
+ * 也不是以 `/` 开头，都要挡掉，否则登录页就成了开放重定向。
+ */
+function safeNext(raw: unknown): string {
+  if (typeof raw !== 'string') return ''
+  const value = raw.trim()
+  if (!value.startsWith('/') || value.startsWith('//')) return ''
+  return value
+}
+
+const nextPath = safeNext(route.query.next)
 const username = ref('')
 const password = ref('')
 const captcha = ref('')
@@ -37,8 +53,9 @@ async function submit() {
   busy.value = true
   try {
     await login(username.value.trim(), password.value, captchaId.value, captcha.value.trim())
-    // 落地页按权限算：管理员进概览，普通用户进 /me，不再固定跳管理员页。
-    router.replace(landingFor(session.permissions))
+    // 有 ?next= 就回原本要去的页面（客户端「余额」直接打开 /me/billing 的场景），
+    // 没有才按权限算落地页：管理员进概览，普通用户进 /me。
+    router.replace(nextPath || landingFor(session.permissions))
   } catch (e) {
     error.value = errText(e)
     await refreshCaptcha()

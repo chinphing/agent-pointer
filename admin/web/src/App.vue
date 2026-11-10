@@ -16,8 +16,8 @@ onMounted(async () => {
   await loadSession()
   // 会话就绪后按同一套规则再判一次当前路由：首屏守卫会因为 `!session.ready` 放行，
   // 这里补上判定，同时**不能**把公开页（首页 / 下载）也踢到登录页。
-  const verdict = authGuard({ meta: route.meta })
-  if (verdict !== true) router.replace(verdict.path)
+  const verdict = authGuard({ meta: route.meta, fullPath: route.fullPath })
+  if (verdict !== true) router.replace({ path: verdict.path, query: verdict.query })
 })
 
 /** 当前所在板块。登录页、404 这类不属于任何板块，顶部导航不高亮任何一项。 */

@@ -22,15 +22,16 @@
 <a id="where"></a>
 ## 0. 先定位：你要做什么？
 
-| 你要做的事 | 你的格子 | 去哪 |
-|---|---|---|
-| 自己用，或给同事发一个**自己构建**的客户端 | standalone × 客户端 | [§3 standalone × 客户端](#standalone-client) |
-| 自己搭一台服务器给团队用 | standalone × 服务端 | [§4 standalone × 服务端](#standalone-server) |
-| 企业：部署**内网控制面** | managed × 控制面 | [企业内网部署 §2](enterprise.md#control-plane) |
-| 企业：客户端连**内网**控制面 | managed × 客户端 | [企业内网部署 §3](enterprise.md#client) |
-| 想要 Pointer **官方签名包** | —— | 不在本仓产出，见 [`../../user/which-build.md`](../user/which-build.md) |
+先看你是谁，再选运行形态：
 
-> 企业那两行不是彼此独立的格子：**控制面和客户端要一起装**，先 §2 再 §3。只装一半会出现「能登录但更新不了」「能发消息但余额打不开」这类半通状态。
+| | 客户端（桌面 App） | 服务端（`pointer-server`） |
+|---|---|---|
+| **个人 / 小团队** | 自己用，或发一个自己构建的客户端 → [§3](#standalone-client) | 自己搭一台服务器给团队用 → [§4](#standalone-server) |
+| **企业内网** | 员工装企业客户端 → [企业内网部署 §3](enterprise.md#client) | 内网服务端 → [企业内网部署 §4](enterprise.md#server) |
+
+> 企业那两格都要**先部署控制面**（[企业内网部署 §2](enterprise.md#control-plane)）。控制面不是第三种运行形态，它是企业的前置步骤——没有它，客户端不知道连谁，服务端也没有账号体系。
+
+想要 Pointer **官方签名包**：不在本仓产出，见 [`../../user/which-build.md`](../user/which-build.md)。
 
 **总表**（每格五项：构建命令 / 需要的变量 / 产物位置 / 怎么验证 / 外部依赖）：
 

@@ -153,6 +153,8 @@ A `.pub` file is written next to the private key. **When a `.pub` sits beside th
 
 ## 4. Step two (optional): deploy the server
 
+<a id="server"></a>
+
 Only needed when the team shares one model gateway. Its artifact differs from the client:
 
 ```bash

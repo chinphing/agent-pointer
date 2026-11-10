@@ -154,6 +154,8 @@ npm run tauri signer generate -- -w ~/.pointer/updater.key
 
 ## 4. 第二步（可选）：部署服务端
 
+<a id="server"></a>
+
 团队要共用一个模型网关时才需要。产物与客户端不同：
 
 ```bash

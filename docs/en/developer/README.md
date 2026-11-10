@@ -46,6 +46,8 @@ The rest of this page follows the sidebar groups: **Concepts / Tools and protoco
 
 The word `official` refers only to an official Pointer release; it is not a value of `POINTER_EDITION`. For cross-platform environment setup see [../contributing/cross-platform-build.md](../contributing/cross-platform-build.md).
 
+An enterprise intranet is a different story: it requires **deploying the control plane first**, then choosing whether employees use the client or the server. For the whole set, see [Enterprise Internal Deployment](../deploy/enterprise.md).
+
 ## Concepts
 
 | Document | Description |

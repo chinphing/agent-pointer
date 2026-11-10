@@ -4,6 +4,8 @@ English | [简体中文](../../zh-CN/developer/standalone-deployment.md)
 
 pointer-server supports **being deployed standalone, detached from the official platform**. This document covers the architecture, configuration format, API endpoints and implementation modules.
 
+> This document is about `pointer-server`. The control plane is a separate binary, `pointer-admin`; for its deployment and the client wiring see [Enterprise Internal Deployment](../deploy/enterprise.md).
+
 ## Table of contents
 
 - [Deployment mode (deployment_mode.rs)](#deployment-mode)

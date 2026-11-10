@@ -4,6 +4,8 @@
 
 pointer-server 支持**脱离官方平台独立部署**。本文档覆盖架构、配置格式、API 端点与实现模块。
 
+> 本文讲的是 `pointer-server`。控制面是另一个二进制 `pointer-admin`，它的部署与客户端对接见 [企业内网部署](../deploy/enterprise.md)。
+
 ## 目录
 
 - [部署模式（deployment_mode.rs）](#部署模式)

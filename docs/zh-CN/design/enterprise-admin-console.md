@@ -696,6 +696,8 @@ MySQL 那条一开始是失败的，暴露了 13 节里第 4 条约束（`TEXT` 
 
 ## 13.4 部署形态（单机 / 多实例）
 
+> 面向运维的单机部署步骤（环境变量、首启账号、OAuth、反代与 TLS、验证连通）已整理成发布文档：[企业内网部署](../deploy/enterprise.md)。本节保留多实例与跨实例一致性这些设计层面的内容。
+
 ### 单机（默认，什么都不用配）
 
 ```bash
@@ -758,6 +760,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "authorization: Bearer $TOKEN" \
 ## 14. 相关文档
 
 - [control-plane-and-editions.md](control-plane-and-editions.md)（三种用法、客户端/服务端、门禁）
+- [../deploy/enterprise.md](../deploy/enterprise.md)（企业内网部署：控制面 + 客户端/服务端，面向运维）
 - [../developer/standalone-local-login.md](../developer/standalone-local-login.md)（本地账密现状）
 - [../developer/standalone-deployment.md](../developer/standalone-deployment.md)（服务端部署）
 - [../developer/session-user-id.md](../developer/session-user-id.md)（`ListScope` 与多用户隔离现状）

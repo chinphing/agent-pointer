@@ -46,6 +46,8 @@ npm run web:dev
 
 `official` 一词仅指 Pointer 官方发布，不是 `POINTER_EDITION` 的取值。跨平台环境准备见 [../contributing/cross-platform-build.md](../contributing/cross-platform-build.md)。
 
+企业内网是另一回事：它要**先把控制面装起来**，再决定员工用客户端还是服务端。整套怎么装见 [企业内网部署](../deploy/enterprise.md)。
+
 ## 概念
 
 | 文档 | 说明 |

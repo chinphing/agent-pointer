@@ -151,11 +151,13 @@ A `.pub` file is written next to the private key. **When a `.pub` sits beside th
 
 ---
 
-## 4. Step two (optional): deploy the server
+## 4. Step two: deploy the server
 
 <a id="server"></a>
 
-Only needed when the team shares one model gateway. Its artifact differs from the client:
+When you need this section: employees use a browser instead of the desktop client, or the team shares one model gateway. If neither applies, skip it — each employee enters their own model API key in the client.
+
+Its artifact differs from the client:
 
 ```bash
 npm run server:build

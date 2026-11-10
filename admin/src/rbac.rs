@@ -33,9 +33,21 @@ pub const ALL_PERMISSIONS: &[&str] = &[
     "mcp:write",
     "usage:read",
     "usage:write",
+    "release:read",
+    "release:write",
     "audit:read",
     "system:read",
 ];
+
+/// 全部权限 = 内置清单 + 私有仓扩展。
+///
+/// 私有仓通过 `ext::extra_permissions()` 追加自己的键（如 `payment:read`），
+/// 内置的 `admin` / `viewer` 会自动继承。
+pub fn all_permissions() -> Vec<String> {
+    let mut out: Vec<String> = ALL_PERMISSIONS.iter().map(|p| (*p).to_string()).collect();
+    out.extend(crate::ext::extra_permissions());
+    out
+}
 
 pub const SUPER_ADMIN: &str = "super_admin";
 pub const ROLE_ADMIN: &str = "admin";
@@ -68,16 +80,14 @@ pub const BUILTIN_ROLES: &[BuiltinRole] = &[
 ];
 
 /// 内置角色的默认权限。`super_admin` 隐式拥有全部权限，这里返回空。
-pub fn builtin_permissions(key: &str) -> Vec<&'static str> {
+pub fn builtin_permissions(key: &str) -> Vec<String> {
     match key {
-        "admin" => ALL_PERMISSIONS
-            .iter()
-            .copied()
-            .filter(|p| *p != "role:write" && *p != "provider:reveal")
+        "admin" => all_permissions()
+            .into_iter()
+            .filter(|p| p != "role:write" && p != "provider:reveal")
             .collect(),
-        "viewer" => ALL_PERMISSIONS
-            .iter()
-            .copied()
+        "viewer" => all_permissions()
+            .into_iter()
             .filter(|p| p.ends_with(":read"))
             .collect(),
         _ => Vec::new(),
@@ -92,7 +102,7 @@ pub async fn seed_builtin_roles(store: &AdminStore, tenant_id: &str) -> Result<(
     for role in BUILTIN_ROLES {
         let role_id = ensure_role(store, tenant_id, role.key, role.name, true).await?;
         for perm in builtin_permissions(role.key) {
-            if permission_exists(store, &role_id, perm).await? {
+            if permission_exists(store, &role_id, &perm).await? {
                 continue;
             }
             let sql = store.sql("INSERT INTO role_permissions (role_id, permission) VALUES (?, ?)");
@@ -221,7 +231,7 @@ pub async fn permissions_for_user(
 ) -> Result<HashSet<String>> {
     let keys = role_keys_for_user(store, user_id).await?;
     if keys.iter().any(|k| k == SUPER_ADMIN) {
-        return Ok(ALL_PERMISSIONS.iter().map(|p| (*p).to_string()).collect());
+        return Ok(all_permissions().into_iter().collect());
     }
     let sql = store.sql(
         "SELECT DISTINCT rp.permission FROM user_roles ur
@@ -344,7 +354,7 @@ mod tests {
             .await
             .expect("assign");
         let perms = permissions_for_user(&store, &uid).await.expect("perms");
-        assert_eq!(perms.len(), ALL_PERMISSIONS.len());
+        assert_eq!(perms.len(), all_permissions().len());
         assert!(perms.contains("role:write"));
         assert!(perms.contains("provider:reveal"));
     }

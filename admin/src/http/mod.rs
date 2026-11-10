@@ -16,6 +16,8 @@ use crate::state::Shared;
 
 pub fn router() -> Router<Shared> {
     Router::new()
+        // 私有仓扩展：默认是空 Router，开源版行为不变。
+        .merge(crate::ext::router())
         .route("/api/admin/auth/captcha", get(auth::issue_captcha))
         .route("/api/admin/auth/login", post(auth::login))
         .route("/api/admin/auth/logout", post(auth::logout))
@@ -26,6 +28,7 @@ pub fn router() -> Router<Shared> {
         )
         .route("/api/admin/users/import", post(users::import_users))
         .route("/api/admin/users/:id/status", post(users::set_user_status))
+        .route("/api/admin/users/:id/phone", post(users::set_user_phone))
         .route(
             "/api/admin/users/:id/password",
             post(users::reset_user_password),
@@ -46,6 +49,8 @@ pub fn router() -> Router<Shared> {
             axum::routing::delete(billing::clear_price),
         )
         .route("/api/admin/my-wallet", get(billing::my_wallet))
+        .route("/api/admin/my-wallet/ledger", get(billing::my_ledger))
+        .route("/api/admin/my-usage", get(insight::my_usage))
         .route(
             "/api/admin/roles",
             get(roles::list_roles).post(roles::create_role),
@@ -68,8 +73,14 @@ pub fn router() -> Router<Shared> {
             post(crate::releases::admin_publish),
         )
         .route(
+            "/api/admin/releases/:id/artifacts/reuse",
+            post(crate::releases::admin_reuse_artifacts),
+        )
+        .route(
             "/api/admin/releases/:id/artifacts",
-            post(crate::releases::admin_upload_artifact),
+            // 安装包动辄上百 MB，默认 2 MiB 的 body 限制会让 multipart 解析失败
+            post(crate::releases::admin_upload_artifact)
+                .layer(DefaultBodyLimit::max(crate::releases::MAX_ARTIFACT_BYTES)),
         )
         .route(
             "/api/admin/releases/:id/artifacts/:kind",

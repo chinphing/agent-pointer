@@ -7,7 +7,7 @@
 //!
 //! 金额对外一律用「元」（字符串两位小数 / 数值），内部微元不暴露。
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
@@ -34,12 +34,13 @@ pub async fn get_wallet(
     let auth = current_auth(&state, &headers).await?;
     auth.require("usage:read")?;
     let balance = billing::ensure_wallet(&state.store, &state.config.tenant_id, &user_id).await?;
-    let ledger = recent_ledger(&state.store, &user_id, 20).await?;
+    let (ledger, total) = ledger_page(&state.store, &user_id, None, 20, 0).await?;
     Ok(Json(json!({
         "userId": user_id,
         "balanceYuan": billing::yuan_string(balance),
         "balanceMicro": balance,
         "ledger": ledger,
+        "ledgerTotal": total,
     })))
 }
 
@@ -266,19 +267,57 @@ pub async fn clear_price(
     Ok(Json(json!({ "ok": true })))
 }
 
-/// 最近 N 条流水（给管理端看账）。
-async fn recent_ledger(store: &AdminStore, user_id: &str, limit: i64) -> ApiResult<Vec<Value>> {
-    let sql = store.sql(
-        "SELECT kind, amount_micro, balance_after_micro, model, prompt_tokens, completion_tokens,
-                note, created_at
-           FROM wallet_ledger WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
-    );
-    let rows = sqlx::query::<sqlx::Any>(&sql)
-        .bind(user_id)
+/// 流水分页查询：返回 (本页, 总数)。`kind` 为空表示不过滤。
+async fn ledger_page(
+    store: &AdminStore,
+    user_id: &str,
+    kind: Option<&str>,
+    limit: i64,
+    offset: i64,
+) -> ApiResult<(Vec<Value>, i64)> {
+    let limit = limit.clamp(1, 200);
+    let offset = offset.max(0);
+
+    let count_sql = match kind {
+        Some(_) => store.sql("SELECT COUNT(*) FROM wallet_ledger WHERE user_id = ? AND kind = ?"),
+        None => store.sql("SELECT COUNT(*) FROM wallet_ledger WHERE user_id = ?"),
+    };
+    let mut count_query = sqlx::query::<sqlx::Any>(&count_sql).bind(user_id);
+    if let Some(kind) = kind {
+        count_query = count_query.bind(kind);
+    }
+    let total: i64 = count_query
+        .fetch_one(store.pool())
+        .await
+        .map_err(ApiError::internal)?
+        .try_get(0)
+        .map_err(ApiError::internal)?;
+
+    let page_sql = match kind {
+        Some(_) => store.sql(
+            "SELECT kind, amount_micro, balance_after_micro, model, prompt_tokens, completion_tokens,
+                    note, created_at, external_ref
+               FROM wallet_ledger WHERE user_id = ? AND kind = ?
+              ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+        ),
+        None => store.sql(
+            "SELECT kind, amount_micro, balance_after_micro, model, prompt_tokens, completion_tokens,
+                    note, created_at, external_ref
+               FROM wallet_ledger WHERE user_id = ?
+              ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+        ),
+    };
+    let mut page_query = sqlx::query::<sqlx::Any>(&page_sql).bind(user_id);
+    if let Some(kind) = kind {
+        page_query = page_query.bind(kind);
+    }
+    let rows = page_query
         .bind(limit)
+        .bind(offset)
         .fetch_all(store.pool())
         .await
         .map_err(ApiError::internal)?;
+
     use sqlx::Row;
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
@@ -293,19 +332,58 @@ async fn recent_ledger(store: &AdminStore, user_id: &str, limit: i64) -> ApiResu
             "completionTokens": row.try_get::<i64, _>(5).map_err(ApiError::internal)?,
             "note": row.try_get::<String, _>(6).map_err(ApiError::internal)?,
             "createdAt": row.try_get::<i64, _>(7).map_err(ApiError::internal)?,
+            "externalRef": row.try_get::<Option<String>, _>(8).map_err(ApiError::internal)?,
         }));
     }
-    Ok(out)
+    Ok((out, total))
+}
+
+/// 控制台网页走 Cookie 会话，客户端走 Bearer token；两者都只读自己的钱包。
+async fn wallet_owner(state: &Shared, headers: &HeaderMap) -> ApiResult<crate::users::User> {
+    if let Ok(auth) = current_auth(state, headers).await {
+        return Ok(auth.user);
+    }
+    bearer_user(state, headers).await
 }
 
 /// 客户端侧：查自己的余额（不需要管理权限，只要登录态）。
 pub async fn my_wallet(State(state): State<Shared>, headers: HeaderMap) -> ApiResult<Json<Value>> {
-    let user = bearer_user(&state, &headers).await?;
+    let user = wallet_owner(&state, &headers).await?;
     let balance = billing::ensure_wallet(&state.store, &state.config.tenant_id, &user.id).await?;
-    let ledger = recent_ledger(&state.store, &user.id, 20).await?;
+    let (ledger, total) = ledger_page(&state.store, &user.id, None, 20, 0).await?;
     Ok(Json(json!({
         "balanceYuan": billing::yuan_string(balance),
         "balanceMicro": balance,
         "ledger": ledger,
+        "ledgerTotal": total,
     })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LedgerQuery {
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: Option<i64>,
+}
+
+/// 个人中心：自己的消费/充值流水分页。
+pub async fn my_ledger(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Query(query): Query<LedgerQuery>,
+) -> ApiResult<Json<Value>> {
+    let user = wallet_owner(&state, &headers).await?;
+    let kind = query.kind.trim();
+    let (items, total) = ledger_page(
+        &state.store,
+        &user.id,
+        if kind.is_empty() { None } else { Some(kind) },
+        query.limit.unwrap_or(20),
+        query.offset.unwrap_or(0),
+    )
+    .await?;
+    Ok(Json(json!({ "items": items, "total": total })))
 }

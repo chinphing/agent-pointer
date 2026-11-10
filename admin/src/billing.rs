@@ -246,7 +246,8 @@ pub async fn ensure_wallet(store: &AdminStore, tenant_id: &str, user_id: &str) -
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn write_ledger(
+async fn insert_ledger_on(
+    conn: &mut sqlx::AnyConnection,
     store: &AdminStore,
     tenant_id: &str,
     user_id: &str,
@@ -257,12 +258,13 @@ async fn write_ledger(
     prompt_tokens: i64,
     completion_tokens: i64,
     note: &str,
+    external_ref: Option<&str>,
 ) -> Result<()> {
     let sql = store.sql(
         "INSERT INTO wallet_ledger
             (id, tenant_id, user_id, kind, amount_micro, balance_after_micro,
-             model, prompt_tokens, completion_tokens, note, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             model, prompt_tokens, completion_tokens, note, external_ref, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
     sqlx::query::<Any>(&sql)
         .bind(random_id())
@@ -275,27 +277,88 @@ async fn write_ledger(
         .bind(prompt_tokens)
         .bind(completion_tokens)
         .bind(note)
+        .bind(external_ref)
         .bind(now_ts())
-        .execute(store.pool())
+        .execute(&mut *conn)
         .await?;
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+async fn write_ledger(
+    store: &AdminStore,
+    tenant_id: &str,
+    user_id: &str,
+    kind: &str,
+    amount_micro: i64,
+    balance_after_micro: i64,
+    model: &str,
+    prompt_tokens: i64,
+    completion_tokens: i64,
+    note: &str,
+) -> Result<()> {
+    let mut conn = store.pool().acquire().await?;
+    insert_ledger_on(
+        &mut conn,
+        store,
+        tenant_id,
+        user_id,
+        kind,
+        amount_micro,
+        balance_after_micro,
+        model,
+        prompt_tokens,
+        completion_tokens,
+        note,
+        None,
+    )
+    .await
+}
+
+/// 在给定连接上读余额（事务内用，保证与写入看到同一快照）。
+async fn balance_on(conn: &mut sqlx::AnyConnection, store: &AdminStore, user_id: &str) -> Result<i64> {
+    let sql = store.sql("SELECT balance_micro FROM wallets WHERE user_id = ?");
+    let row = sqlx::query::<Any>(&sql)
+        .bind(user_id)
+        .fetch_one(&mut *conn)
+        .await?;
+    Ok(row.try_get(0)?)
+}
+
 /// 管理员加额（微元，必须为正）。
 pub async fn grant(store: &AdminStore, tenant_id: &str, user_id: &str, amount_micro: i64) -> Result<i64> {
+    grant_with_ref(store, tenant_id, user_id, amount_micro, None).await
+}
+
+/// 带幂等键的加额：同一个 `external_ref` 只能入账一次（唯一索引兜底）。
+///
+/// 余额用 `balance_micro = balance_micro + ?` 原子自增，不用「读-改-写」——
+/// 后者在 PostgreSQL / MySQL 多连接下会丢更新，SQLite 单连接把它掩盖了。
+/// 余额读取与流水写入在同一个事务里，账实一致。
+pub async fn grant_with_ref(
+    store: &AdminStore,
+    tenant_id: &str,
+    user_id: &str,
+    amount_micro: i64,
+    external_ref: Option<&str>,
+) -> Result<i64> {
     if amount_micro <= 0 {
         return Err(anyhow!("加额必须大于 0"));
     }
-    let current = ensure_wallet(store, tenant_id, user_id).await?;
-    let next = current + amount_micro;
-    let sql = store.sql("UPDATE wallets SET balance_micro = ?, updated_at = ? WHERE user_id = ?");
+    ensure_wallet(store, tenant_id, user_id).await?;
+
+    let mut tx = store.pool().begin().await?;
+    let sql = store
+        .sql("UPDATE wallets SET balance_micro = balance_micro + ?, updated_at = ? WHERE user_id = ?");
     sqlx::query::<Any>(&sql)
-        .bind(next)
+        .bind(amount_micro)
         .bind(now_ts())
         .bind(user_id)
-        .execute(store.pool())
+        .execute(&mut *tx)
         .await?;
-    write_ledger(
+    let next = balance_on(&mut tx, store, user_id).await?;
+    insert_ledger_on(
+        &mut tx,
         store,
         tenant_id,
         user_id,
@@ -306,8 +369,10 @@ pub async fn grant(store: &AdminStore, tenant_id: &str, user_id: &str, amount_mi
         0,
         0,
         "管理员加额",
+        external_ref,
     )
     .await?;
+    tx.commit().await?;
     Ok(next)
 }
 
@@ -330,6 +395,18 @@ pub async fn charge(
     model: &str,
     tokens: UsageTokens,
 ) -> Result<(i64, i64)> {
+    charge_with_ref(store, tenant_id, user_id, model, tokens, None).await
+}
+
+/// 带幂等键的扣费：同一次上报重放不会扣两次。
+pub async fn charge_with_ref(
+    store: &AdminStore,
+    tenant_id: &str,
+    user_id: &str,
+    model: &str,
+    tokens: UsageTokens,
+    external_ref: Option<&str>,
+) -> Result<(i64, i64)> {
     let ratio = price_for(store, tenant_id, model).await?.ok_or_else(|| {
         anyhow!(
             "model_price_missing: 模型 {model} 没有配置费率，已拒绝计费（先在管理端「计费」里填费率）"
@@ -337,16 +414,20 @@ pub async fn charge(
     })?;
     let base = base_price_micro_per_mb(store).await?;
     let cost = ratio.cost_micro(tokens.total, base);
-    let current = ensure_wallet(store, tenant_id, user_id).await?;
-    let next = current - cost;
-    let sql = store.sql("UPDATE wallets SET balance_micro = ?, updated_at = ? WHERE user_id = ?");
+    ensure_wallet(store, tenant_id, user_id).await?;
+
+    let mut tx = store.pool().begin().await?;
+    let sql = store
+        .sql("UPDATE wallets SET balance_micro = balance_micro - ?, updated_at = ? WHERE user_id = ?");
     sqlx::query::<Any>(&sql)
-        .bind(next)
+        .bind(cost)
         .bind(now_ts())
         .bind(user_id)
-        .execute(store.pool())
+        .execute(&mut *tx)
         .await?;
-    write_ledger(
+    let next = balance_on(&mut tx, store, user_id).await?;
+    insert_ledger_on(
+        &mut tx,
         store,
         tenant_id,
         user_id,
@@ -357,9 +438,39 @@ pub async fn charge(
         tokens.prompt,
         tokens.completion,
         "",
+        external_ref,
     )
     .await?;
+    tx.commit().await?;
     Ok((cost, next))
+}
+
+/// 区间内的扣费合计与调用次数。
+///
+/// `amount_micro` 在 charge 行是**负数**（余额减少），这里取反返回正数。
+/// 调用次数 = charge 流水条数，一次调用一条，与账单页能对上。
+pub async fn spend_in_range(
+    store: &AdminStore,
+    user_id: &str,
+    from_ts: i64,
+    to_ts: i64,
+) -> Result<(i64, i64)> {
+    let sql = store.sql(
+        "SELECT COALESCE(SUM(amount_micro), 0) AS spent, COUNT(*) AS calls
+           FROM wallet_ledger
+          WHERE user_id = ? AND kind = ? AND created_at >= ? AND created_at < ?",
+    );
+    let row = sqlx::query::<sqlx::Any>(&sql)
+        .bind(user_id)
+        .bind(KIND_CHARGE)
+        .bind(from_ts)
+        .bind(to_ts)
+        .fetch_one(store.pool())
+        .await?;
+    use sqlx::Row;
+    let spent: i64 = row.try_get("spent").unwrap_or(0);
+    let calls: i64 = row.try_get("calls").unwrap_or(0);
+    Ok((spent.saturating_neg(), calls))
 }
 
 /// 余额转「元」字符串，保留 2 位小数（内部微元，展示四舍五入到分）。
@@ -381,6 +492,57 @@ pub fn yuan_string(balance_micro: i64) -> String {
 /// 元 → 微元（管理端输入用），四舍五入到微元。
 pub fn yuan_to_micro(yuan: f64) -> i64 {
     (yuan * MICRO_PER_YUAN as f64).round() as i64
+}
+
+#[cfg(test)]
+mod spend_tests {
+    use super::*;
+
+    // 扣费行存的是负数，概览要显示正数；发放（grant）不能算进消费。
+    #[tokio::test]
+    async fn spend_in_range_sums_charges_only() {
+        let store = crate::db::AdminStore::connect_in_memory().await.expect("store");
+        let tenant = crate::schema::DEFAULT_TENANT;
+        ensure_wallet(&store, tenant, "u1").await.expect("wallet");
+
+        // 两笔扣费 + 一笔发放
+        let sql = store.sql(
+            "INSERT INTO wallet_ledger
+               (id, tenant_id, user_id, kind, amount_micro, balance_after_micro,
+                model, prompt_tokens, completion_tokens, note, created_at, external_ref)
+             VALUES (?, ?, ?, ?, ?, ?, '', 0, 0, '', ?, NULL)",
+        );
+        for (id, kind, amount, ts) in [
+            ("l1", KIND_CHARGE, -1_000_000_i64, 1_800_000_000_i64),
+            ("l2", KIND_CHARGE, -2_500_000, 1_800_050_000),
+            ("l3", KIND_GRANT, 10_000_000, 1_800_060_000),
+        ] {
+            sqlx::query::<sqlx::Any>(&sql)
+                .bind(id)
+                .bind(tenant)
+                .bind("u1")
+                .bind(kind)
+                .bind(amount)
+                .bind(0_i64)
+                .bind(ts)
+                .execute(store.pool())
+                .await
+                .expect("insert");
+        }
+
+        let (spent, calls) = spend_in_range(&store, "u1", 1_799_000_000, 1_801_000_000)
+            .await
+            .expect("spend");
+        assert_eq!(spent, 3_500_000, "扣费合计取正数");
+        assert_eq!(calls, 2, "发放不算调用次数");
+
+        // 区间外的不计入
+        let (spent2, calls2) = spend_in_range(&store, "u1", 1_800_000_000, 1_800_040_000)
+            .await
+            .expect("spend");
+        assert_eq!(spent2, 1_000_000);
+        assert_eq!(calls2, 1);
+    }
 }
 
 #[cfg(test)]
@@ -548,5 +710,36 @@ mod tests {
                 .is_none(),
             "没配价的模型不应返回任何价格"
         );
+    }
+
+    /// 幂等：同一个 `external_ref` 只能入账一次。
+    #[tokio::test]
+    async fn duplicate_external_ref_is_rejected() {
+        let store = store().await;
+        let first = grant_with_ref(&store, DEFAULT_TENANT, "u1", 1_000_000, Some("order-1"))
+            .await
+            .expect("first grant");
+        let second =
+            grant_with_ref(&store, DEFAULT_TENANT, "u1", 1_000_000, Some("order-1")).await;
+        assert!(second.is_err(), "同一 external_ref 第二次必须被唯一索引挡住");
+        let after = balance_micro(&store, "u1")
+            .await
+            .expect("query")
+            .expect("wallet");
+        assert_eq!(after, first, "重复入账不能改变余额");
+    }
+
+    /// 多次加额必须累加（原子自增，不是覆盖写）。
+    #[tokio::test]
+    async fn grants_accumulate() {
+        let store = store().await;
+        let base = ensure_wallet(&store, DEFAULT_TENANT, "u1")
+            .await
+            .expect("wallet");
+        grant(&store, DEFAULT_TENANT, "u1", 2_000_000)
+            .await
+            .expect("g1");
+        let final_balance = grant(&store, DEFAULT_TENANT, "u1", 3_000_000).await.expect("g2");
+        assert_eq!(final_balance, base + 5_000_000);
     }
 }

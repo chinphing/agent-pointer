@@ -89,6 +89,18 @@ async fn not_found() -> Response {
         .into_response()
 }
 
+/// 非 API 路径回落到 SPA 的 index（history 路由刷新不 404）。
+///
+/// `/api`、`/auth`、`/oauth` 仍然返回 JSON 404 —— 否则打错的接口会被吞成首页，
+/// 排查时看到的是一张 HTML 而不是「接口不存在」。
+async fn spa_or_404(State(state): State<Shared>, uri: axum::http::Uri) -> Response {
+    let path = uri.path();
+    if path.starts_with("/api") || path.starts_with("/auth") || path.starts_with("/oauth") {
+        return not_found().await;
+    }
+    index(State(state), uri).await
+}
+
 async fn bootstrap(store: &AdminStore, cfg: &AdminConfig) -> Result<()> {
     let existing = users::list(store, &cfg.tenant_id).await?;
     if existing.is_empty() {
@@ -206,15 +218,19 @@ async fn main() -> Result<()> {
     let mut app = Router::new()
         .merge(oauth::router())
         .merge(pointer_admin::http::router())
+        // 私有仓的免鉴权路由（支付回调、短信发码）；开源版为空 Router。
+        .merge(pointer_admin::ext::public_router())
         .route("/api/updates/latest", get(pointer_admin::releases::updates_latest))
+        .route(
+            "/api/downloads/releases",
+            get(pointer_admin::releases::downloads_list),
+        )
         .route(
             "/api/downloads/files/:id",
             get(pointer_admin::releases::download_file),
         )
-        .route("/", get(index))
-        .route("/admin", get(index))
-        .route("/admin/*rest", get(index))
-        .fallback(not_found);
+        // history 路由：非 API 路径全部交给 SPA，否则刷新 `/me/billing` 会 404。
+        .fallback(spa_or_404);
 
     if let Some(dir) = &config.static_dir {
         log::info!("静态资源目录：{}", dir.display());

@@ -26,27 +26,61 @@ use sqlx::Row;
 use tower::ServiceExt;
 
 use crate::db::{now_ts, AdminStore};
+use crate::http::auth::current_auth;
 use crate::http::error::{ApiError, ApiResult};
 use crate::state::Shared;
 
+/// **自动更新包**：Tauri updater 产物（`.tar.gz` + `.sig`），只进
+/// `/api/updates/latest` 的清单，客户端启动时自动更新用。
+///
 /// 产物类型 → manifest 里的 platform key。与官方实现保持一致：
 /// macOS 一份产物同时供 aarch64 / x86_64，Windows 同理。
-const KINDS: &[(&str, &[&str])] = &[
+const UPDATER_KINDS: &[(&str, &[&str])] = &[
     ("macos_updater", &["darwin-aarch64", "darwin-x86_64"]),
     ("windows_updater", &["windows-x86_64", "windows-i686"]),
     ("linux_appimage_updater", &["linux-x86_64"]),
 ];
 
+/// **安装包**：用户在下载页手动下载的完整安装程序，与官网下载页的四种格式对齐
+/// （`.dmg` / `.msi` / `.deb` / `.AppImage`）。
+///
+/// 与更新包是两回事：更新包是给 updater 用的差量/全量包，装不上；下载页给错了
+/// 文件，用户拿到的是一个 tar.gz 而不是能双击安装的程序。
+const INSTALLER_KINDS: &[&str] = &["macos_dmg", "windows_msi", "linux_deb", "linux_appimage"];
+
+/// 单个安装包 / 更新包的上限。
+///
+/// 桌面安装包通常 80–200 MB，`.AppImage` 还要更大。**必须显式设置**：axum 默认
+/// body 上限只有 2 MiB，超了 multipart 会直接解析失败，前端只会看到一句
+/// 「Error parsing multipart/form-data request」，看不出是文件太大。
+pub const MAX_ARTIFACT_BYTES: usize = 512 * 1024 * 1024;
+
 pub fn kind_platform_keys(kind: &str) -> &'static [&'static str] {
-    KINDS
+    UPDATER_KINDS
         .iter()
         .find(|(k, _)| *k == kind)
         .map(|(_, keys)| *keys)
         .unwrap_or(&[])
 }
 
+/// 上传时允许的全部类型：更新包 + 安装包。
 pub fn known_kinds() -> Vec<&'static str> {
-    KINDS.iter().map(|(k, _)| *k).collect()
+    let mut all: Vec<&'static str> = UPDATER_KINDS.iter().map(|(k, _)| *k).collect();
+    all.extend_from_slice(INSTALLER_KINDS);
+    all
+}
+
+pub fn updater_kinds() -> Vec<&'static str> {
+    UPDATER_KINDS.iter().map(|(k, _)| *k).collect()
+}
+
+pub fn installer_kinds() -> Vec<&'static str> {
+    INSTALLER_KINDS.to_vec()
+}
+
+/// 这个产物是不是安装包（下载页只展示安装包）。
+pub fn is_installer_kind(kind: &str) -> bool {
+    INSTALLER_KINDS.contains(&kind)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -69,6 +103,13 @@ pub struct Artifact {
     /// `.sig` 是否已填。列表接口不回全文，避免把签名刷到列表里。
     pub has_signature: bool,
     pub created_at: i64,
+    /// 以下三个只在服务端内部用（复用、删除前查引用），不进列表接口。
+    #[serde(skip)]
+    pub stored_as: String,
+    #[serde(skip)]
+    pub signature: String,
+    #[serde(skip)]
+    pub sha256: String,
 }
 
 fn row_to_artifact(row: &sqlx::any::AnyRow) -> Artifact {
@@ -80,12 +121,15 @@ fn row_to_artifact(row: &sqlx::any::AnyRow) -> Artifact {
         size: row.try_get("size").unwrap_or(0),
         has_signature: !sig.trim().is_empty(),
         created_at: row.try_get("created_at").unwrap_or(0),
+        stored_as: row.try_get("stored_as").unwrap_or_default(),
+        signature: sig,
+        sha256: row.try_get("sha256").unwrap_or_default(),
     }
 }
 
 async fn artifacts_for(store: &AdminStore, release_id: &str) -> Result<Vec<Artifact>> {
     let sql = store.sql(
-        "SELECT id, kind, filename, size, signature, created_at
+        "SELECT id, kind, filename, size, signature, created_at, stored_as, sha256
          FROM app_release_artifacts WHERE release_id = ? ORDER BY kind",
     );
     let rows = sqlx::query::<sqlx::Any>(&sql)
@@ -207,12 +251,13 @@ pub async fn add_artifact(
     stored_as: &str,
     size: i64,
     signature: &str,
+    sha256: &str,
 ) -> Result<String> {
     let id = crate::db::random_id();
     let sql = store.sql(
         "INSERT INTO app_release_artifacts
-           (id, release_id, kind, filename, stored_as, size, signature, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+           (id, release_id, kind, filename, stored_as, size, signature, created_at, sha256)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
     sqlx::query::<sqlx::Any>(&sql)
         .bind(&id)
@@ -223,9 +268,80 @@ pub async fn add_artifact(
         .bind(size)
         .bind(signature.trim())
         .bind(now_ts())
+        .bind(sha256)
         .execute(store.pool())
         .await?;
     Ok(id)
+}
+
+/// 内容相同的产物只存一份：按 sha256 找已存在的那份磁盘文件。
+///
+/// 只有 macOS 变了的时候，Windows/Linux 的包跟上一版逐字节相同，没必要再存一份。
+pub async fn find_stored_by_sha(store: &AdminStore, sha256: &str) -> Result<Option<String>> {
+    if sha256.trim().is_empty() {
+        return Ok(None);
+    }
+    let sql = store.sql(
+        "SELECT stored_as FROM app_release_artifacts WHERE sha256 = ? LIMIT 1",
+    );
+    let row = sqlx::query::<sqlx::Any>(&sql)
+        .bind(sha256)
+        .fetch_optional(store.pool())
+        .await?;
+    Ok(row.and_then(|r| r.try_get::<String, _>("stored_as").ok()))
+}
+
+/// 还有没有别的产物记录引用同一个磁盘文件。删除前必须查，否则复用会把别人的包删掉。
+pub async fn stored_as_referenced(store: &AdminStore, stored_as: &str) -> Result<bool> {
+    let sql = store.sql(
+        "SELECT COUNT(*) AS n FROM app_release_artifacts WHERE stored_as = ?",
+    );
+    let row = sqlx::query::<sqlx::Any>(&sql)
+        .bind(stored_as)
+        .fetch_one(store.pool())
+        .await?;
+    let n: i64 = row.try_get("n").unwrap_or(0);
+    Ok(n > 0)
+}
+
+/// 把 `from` 版本里的产物**按引用**复制到 `to` 版本，只补 `to` 还没有的 kind。
+///
+/// 不复制文件，只多一条指向同一 `stored_as` 的记录 —— 这就是「相同的包直接复用」。
+/// 返回真正复制过去的 kind 列表。
+pub async fn reuse_artifacts(
+    store: &AdminStore,
+    to_release: &str,
+    from_release: &str,
+) -> Result<Vec<String>> {
+    let src = artifacts_for(store, from_release).await?;
+    let mut copied = Vec::new();
+    for a in src {
+        let sql = store.sql(
+            "SELECT COUNT(*) AS n FROM app_release_artifacts WHERE release_id = ? AND kind = ?",
+        );
+        let row = sqlx::query::<sqlx::Any>(&sql)
+            .bind(to_release)
+            .bind(&a.kind)
+            .fetch_one(store.pool())
+            .await?;
+        let n: i64 = row.try_get("n").unwrap_or(0);
+        if n > 0 {
+            continue; // 目标版本已有同类型产物，不覆盖
+        }
+        add_artifact(
+            store,
+            to_release,
+            &a.kind,
+            &a.filename,
+            &a.stored_as,
+            a.size,
+            &a.signature,
+            &a.sha256,
+        )
+        .await?;
+        copied.push(a.kind.clone());
+    }
+    Ok(copied)
 }
 
 pub async fn delete_artifact(store: &AdminStore, release_id: &str, kind: &str) -> Result<()> {
@@ -350,6 +466,74 @@ pub struct UpdateQuery {
     pub current_version: Option<String>,
 }
 
+/// `GET /api/downloads/releases` —— 公开的版本 + 产物清单（下载页用）。
+///
+/// 与 `/api/updates/latest` 的区别：那个只回**最新一版**、且跳过未签名产物
+/// （更新器装不了没签名的包）。下载页要能列出所有平台的包，所以这里不要求签名。
+pub async fn downloads_list(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Query(q): Query<DownloadsQuery>,
+) -> ApiResult<Json<Value>> {
+    let limit = q.limit.unwrap_or(5).clamp(1, 20);
+    let sql = state.store.sql(
+        "SELECT id, version, notes, published_at
+           FROM app_releases
+          WHERE tenant_id = ? AND published = 1
+          ORDER BY published_at DESC, created_at DESC
+          LIMIT ?",
+    );
+    let rows = sqlx::query::<sqlx::Any>(&sql)
+        .bind(&state.config.tenant_id)
+        .bind(limit)
+        .fetch_all(state.store.pool())
+        .await
+        .map_err(ApiError::internal)?;
+
+    let base = public_base(&state, &headers);
+    let mut items = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let id: String = row.try_get("id").map_err(ApiError::internal)?;
+        let version: String = row.try_get("version").map_err(ApiError::internal)?;
+        let notes: String = row.try_get("notes").unwrap_or_default();
+        let published_at: Option<i64> = row.try_get("published_at").ok();
+        let artifacts = artifacts_for(&state.store, &id)
+            .await
+            .map_err(ApiError::internal)?;
+        let list: Vec<Value> = artifacts
+            .iter()
+            // 下载页只给安装包：更新包是给客户端 updater 用的，装不上。
+            .filter(|a| is_installer_kind(&a.kind))
+            .map(|a| {
+                json!({
+                    "id": a.id,
+                    "kind": a.kind,
+                    "filename": a.filename,
+                    "size": a.size,
+                    "downloadUrl": format!(
+                        "{}/api/downloads/files/{}",
+                        base.trim_end_matches('/'),
+                        a.id
+                    ),
+                })
+            })
+            .collect();
+        items.push(json!({
+            "version": version,
+            "notes": notes,
+            "publishedAt": published_at,
+            "artifacts": list,
+        }));
+    }
+    Ok(Json(json!({ "items": items })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DownloadsQuery {
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
 /// `GET /api/updates/latest` —— 公开，客户端不带鉴权。
 pub async fn updates_latest(
     State(state): State<Shared>,
@@ -463,11 +647,20 @@ pub async fn download_file(
 
 // ---------- 管理端 ----------
 
-pub async fn admin_list(State(state): State<Shared>) -> ApiResult<Json<Value>> {
+pub async fn admin_list(State(state): State<Shared>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    let auth = current_auth(&state, &headers).await?;
+    auth.require("release:read")?;
+
     let rows = list_releases(&state.store, &state.config.tenant_id)
         .await
         .map_err(ApiError::internal)?;
-    Ok(Json(json!({ "items": rows, "kinds": known_kinds() })))
+    Ok(Json(json!({
+        "items": rows,
+        "kinds": known_kinds(),
+        // 前端分两组渲染：安装包（下载页展示）与更新包（客户端自动更新）。
+        "installerKinds": installer_kinds(),
+        "updaterKinds": updater_kinds(),
+    })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -479,8 +672,12 @@ pub struct CreateReleaseBody {
 
 pub async fn admin_create(
     State(state): State<Shared>,
+    headers: HeaderMap,
     Json(body): Json<CreateReleaseBody>,
 ) -> ApiResult<Json<Value>> {
+    let auth = current_auth(&state, &headers).await?;
+    auth.require("release:write")?;
+
     let release = create_release(
         &state.store,
         &state.config.tenant_id,
@@ -494,8 +691,12 @@ pub async fn admin_create(
 
 pub async fn admin_delete(
     State(state): State<Shared>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
+    let auth = current_auth(&state, &headers).await?;
+    auth.require("release:write")?;
+
     delete_release(&state.store, &state.config.tenant_id, &id)
         .await
         .map_err(ApiError::internal)?;
@@ -509,9 +710,13 @@ pub struct PublishBody {
 
 pub async fn admin_publish(
     State(state): State<Shared>,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<PublishBody>,
 ) -> ApiResult<Json<Value>> {
+    let auth = current_auth(&state, &headers).await?;
+    auth.require("release:write")?;
+
     if body.published {
         // 发布前必须至少有一份带签名的产物，否则客户端只会拿到 204。
         let artifacts = artifacts_for(&state.store, &id)
@@ -533,15 +738,27 @@ pub async fn admin_publish(
 /// `kind`（文本）+ `signature`（文本，.sig 全文）+ `file`（安装包）。
 pub async fn admin_upload_artifact(
     State(state): State<Shared>,
+    headers: HeaderMap,
     Path(id): Path<String>,
     mut multipart: Multipart,
 ) -> ApiResult<Json<Value>> {
+    let auth = current_auth(&state, &headers).await?;
+    auth.require("release:write")?;
+
     let mut kind = String::new();
     let mut signature = String::new();
     let mut filename = String::new();
     let mut bytes: Option<Vec<u8>> = None;
 
-    while let Some(field) = multipart.next_field().await.map_err(ApiError::internal)? {
+    // 超限时 multer 只会吐一句「Error parsing multipart/form-data request」，
+    // 看不出是文件太大；这里翻译成人话，带上上限。
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        ApiError::BadRequest(format!(
+            "上传失败：{}（单个文件上限 {} MB）",
+            e,
+            MAX_ARTIFACT_BYTES / 1024 / 1024
+        ))
+    })? {
         match field.name().unwrap_or_default() {
             "kind" => kind = field.text().await.map_err(ApiError::internal)?,
             "signature" => signature = field.text().await.map_err(ApiError::internal)?,
@@ -563,21 +780,34 @@ pub async fn admin_upload_artifact(
     let Some(bytes) = bytes else {
         return Err(ApiError::BadRequest("缺少安装包文件".to_string()));
     };
-    if signature.trim().is_empty() {
+    // 只有更新包必须带签名：客户端 updater 验签失败会直接拒绝安装。
+    // 安装包（.dmg/.msi/.deb/.AppImage）走系统自身的签名机制，不要求 .sig。
+    if !is_installer_kind(&kind) && signature.trim().is_empty() {
         return Err(ApiError::BadRequest(
             "缺少签名文件内容（.sig 全文），没有签名客户端会拒绝安装".to_string(),
         ));
     }
 
-    let dir = state.config.data_dir.join("releases").join(&id);
-    tokio::fs::create_dir_all(&dir)
+    // 内容相同就不重复落盘：只改了 macOS 时，Windows/Linux 的包跟上一版逐字节相同。
+    let sha = sha256_hex(&bytes);
+    let stored_as = match find_stored_by_sha(&state.store, &sha)
         .await
-        .map_err(ApiError::internal)?;
-    let stored_as = format!("releases/{id}/{kind}-{}", sanitize(&filename));
-    let path = state.config.data_dir.join(&stored_as);
-    tokio::fs::write(&path, &bytes)
-        .await
-        .map_err(ApiError::internal)?;
+        .map_err(ApiError::internal)?
+    {
+        Some(existing) => existing,
+        None => {
+            let dir = state.config.data_dir.join("releases").join(&id);
+            tokio::fs::create_dir_all(&dir)
+                .await
+                .map_err(ApiError::internal)?;
+            let fresh = format!("releases/{id}/{kind}-{}", sanitize(&filename));
+            let path = state.config.data_dir.join(&fresh);
+            tokio::fs::write(&path, &bytes)
+                .await
+                .map_err(ApiError::internal)?;
+            fresh
+        }
+    };
 
     // 同类型重传视为替换，避免一个平台挂两个包。
     delete_artifact(&state.store, &id, kind)
@@ -591,6 +821,7 @@ pub async fn admin_upload_artifact(
         &stored_as,
         bytes.len() as i64,
         &signature,
+        &sha,
     )
     .await
     .map_err(ApiError::internal)?;
@@ -600,12 +831,60 @@ pub async fn admin_upload_artifact(
 
 pub async fn admin_delete_artifact(
     State(state): State<Shared>,
+    headers: HeaderMap,
     Path((id, kind)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {
+    let auth = current_auth(&state, &headers).await?;
+    auth.require("release:write")?;
+
     delete_artifact(&state.store, &id, &kind)
         .await
         .map_err(ApiError::internal)?;
     Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReuseBody {
+    /// 从哪个版本沿用产物（通常是上一版）。
+    pub from: String,
+}
+
+/// `POST /api/admin/releases/:id/artifacts/reuse`
+///
+/// 把 `from` 版本的产物按**引用**复制过来，只补本版本还缺的 kind。
+/// 不传文件、不占额外磁盘：同一个包在多个版本里共用一份。
+pub async fn admin_reuse_artifacts(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<ReuseBody>,
+) -> ApiResult<Json<Value>> {
+    let auth = current_auth(&state, &headers).await?;
+    auth.require("release:write")?;
+
+    if body.from == id {
+        return Err(ApiError::BadRequest("不能从自己沿用产物".to_string()));
+    }
+    let src = artifacts_for(&state.store, &body.from)
+        .await
+        .map_err(ApiError::internal)?;
+    if src.is_empty() {
+        return Err(ApiError::BadRequest(
+            "来源版本没有可沿用的产物".to_string(),
+        ));
+    }
+
+    let copied = reuse_artifacts(&state.store, &id, &body.from)
+        .await
+        .map_err(ApiError::internal)?;
+    Ok(Json(json!({ "ok": true, "copied": copied })))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(bytes);
+    format!("{:x}", h.finalize())
 }
 
 fn sanitize(name: &str) -> String {
@@ -623,6 +902,61 @@ fn sanitize(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // 回归：安装包和更新包曾经共用一套 kind，结果下载页把 Tauri 更新包
+    // （tar.gz + .sig）当成安装包发给用户，下载下来装不上。
+    // 回归：上传路由曾经没设 body 上限，axum 默认 2 MiB，真实安装包一传就
+    // 「Error parsing multipart/form-data request」。上限必须明显大于桌面安装包体积。
+    #[test]
+    fn artifact_body_limit_fits_real_installers() {
+        assert!(
+            MAX_ARTIFACT_BYTES >= 200 * 1024 * 1024,
+            "安装包常见 80–200 MB，上限不能低于 200 MiB"
+        );
+        assert!(
+            MAX_ARTIFACT_BYTES > 2 * 1024 * 1024,
+            "必须显式超过 axum 默认的 2 MiB，否则 multipart 会解析失败"
+        );
+    }
+
+    #[test]
+    fn installer_and_updater_kinds_are_disjoint() {
+        let updaters = updater_kinds();
+        for k in installer_kinds() {
+            assert!(!updaters.contains(&k), "{k} 不能同时是安装包和更新包");
+        }
+        assert_eq!(updaters.len(), 3);
+        assert_eq!(installer_kinds().len(), 4);
+    }
+
+    #[test]
+    fn download_page_only_sees_installers() {
+        for k in updater_kinds() {
+            assert!(!is_installer_kind(k), "{k} 是更新包，不该出现在下载页");
+        }
+        for k in installer_kinds() {
+            assert!(is_installer_kind(k));
+        }
+    }
+
+    #[test]
+    fn upload_accepts_both_sets() {
+        let known = known_kinds();
+        for k in updater_kinds() {
+            assert!(known.contains(&k), "{k} 应可上传");
+        }
+        for k in installer_kinds() {
+            assert!(known.contains(&k), "{k} 应可上传");
+        }
+        // 更新清单只认更新包：安装包没有 manifest platform key。
+        for k in installer_kinds() {
+            assert!(kind_platform_keys(k).is_empty(), "{k} 不该进更新清单");
+        }
+        assert_eq!(
+            kind_platform_keys("macos_updater"),
+            &["darwin-aarch64", "darwin-x86_64"]
+        );
+    }
 
     #[test]
     fn semver_compare_ignores_prerelease() {
@@ -681,6 +1015,57 @@ mod tests {
         assert!(build_manifest("1.0.0", "", None, "https://x", &artifacts).is_none());
     }
 
+    #[tokio::test]
+    async fn reuse_copies_references_without_new_files() {
+        let store = AdminStore::connect_in_memory().await.expect("store");
+        let tenant = crate::schema::DEFAULT_TENANT;
+
+        let v1 = create_release(&store, tenant, "1.0.0", "").await.expect("v1");
+        add_artifact(&store, &v1.id, "macos_dmg", "P.dmg", "releases/x/a", 10, "", "sha-a")
+            .await
+            .expect("a1");
+        add_artifact(&store, &v1.id, "windows_msi", "P.msi", "releases/x/b", 20, "", "sha-b")
+            .await
+            .expect("a2");
+
+        let v2 = create_release(&store, tenant, "1.1.0", "").await.expect("v2");
+        // v2 已经有 macOS 包，沿用时应保留自己的，不覆盖。
+        add_artifact(&store, &v2.id, "macos_dmg", "P2.dmg", "releases/y/c", 11, "", "sha-c")
+            .await
+            .expect("a3");
+
+        let copied = reuse_artifacts(&store, &v2.id, &v1.id).await.expect("reuse");
+        assert_eq!(copied, vec!["windows_msi".to_string()]);
+
+        let got = artifacts_for(&store, &v2.id).await.expect("list");
+        assert_eq!(got.len(), 2);
+        let mac = got.iter().find(|a| a.kind == "macos_dmg").expect("mac");
+        assert_eq!(mac.filename, "P2.dmg", "已有产物不应被覆盖");
+        let win = got.iter().find(|a| a.kind == "windows_msi").expect("win");
+        // 复用的是同一条磁盘文件，不是复制出来的新文件。
+        assert_eq!(win.stored_as, "releases/x/b");
+        assert_eq!(win.sha256, "sha-b");
+    }
+
+    #[tokio::test]
+    async fn same_content_reuses_one_stored_file() {
+        let store = AdminStore::connect_in_memory().await.expect("store");
+        let tenant = crate::schema::DEFAULT_TENANT;
+        let v1 = create_release(&store, tenant, "1.0.0", "").await.expect("v1");
+        add_artifact(&store, &v1.id, "macos_dmg", "P.dmg", "releases/x/a", 10, "", "sha-a")
+            .await
+            .expect("a");
+
+        assert_eq!(
+            find_stored_by_sha(&store, "sha-a").await.expect("find"),
+            Some("releases/x/a".to_string())
+        );
+        // 没存过的内容返回 None，走正常落盘。
+        assert_eq!(find_stored_by_sha(&store, "sha-z").await.expect("find"), None);
+        // 空哈希不参与去重（历史数据没有 sha）。
+        assert_eq!(find_stored_by_sha(&store, "").await.expect("find"), None);
+    }
+
     #[test]
     fn timestamp_renders_rfc3339_utc() {
         // 2026-07-12T04:00:00Z
@@ -693,5 +1078,124 @@ mod tests {
     #[test]
     fn unknown_kind_has_no_platform_keys() {
         assert!(kind_platform_keys("nope").is_empty());
+    }
+
+    /// 回归：这 6 个管理端端点曾经**完全没有鉴权**——未登录即可列出、新建、
+    /// 删除、发布安装包，也能上传任意文件。
+    #[tokio::test]
+    async fn admin_endpoints_reject_anonymous() {
+        use axum::body::Body;
+        use axum::http::{Method, Request, StatusCode};
+        use tower::ServiceExt;
+
+        let store = AdminStore::connect_in_memory().await.expect("store");
+        let state = crate::state::AppState::new(store, crate::config::AdminConfig::default());
+        let app = crate::http::router().with_state(state);
+
+        let json = "application/json";
+        let multipart = "multipart/form-data; boundary=x";
+        let cases: Vec<(Method, &str, Option<(&str, &str)>)> = vec![
+            (Method::GET, "/api/admin/releases", None),
+            (
+                Method::POST,
+                "/api/admin/releases",
+                Some((json, r#"{"version":"9.9.9"}"#)),
+            ),
+            (Method::DELETE, "/api/admin/releases/r1", None),
+            (
+                Method::POST,
+                "/api/admin/releases/r1/publish",
+                Some((json, r#"{"published":false}"#)),
+            ),
+            (
+                Method::POST,
+                "/api/admin/releases/r1/artifacts",
+                Some((multipart, "")),
+            ),
+            (
+                Method::DELETE,
+                "/api/admin/releases/r1/artifacts/macos_updater",
+                None,
+            ),
+        ];
+
+        for (method, uri, body) in cases {
+            let mut req = Request::builder().method(method.clone()).uri(uri);
+            let payload = match body {
+                Some((content_type, raw)) => {
+                    req = req.header("content-type", content_type);
+                    Body::from(raw)
+                }
+                None => Body::empty(),
+            };
+            let resp = app
+                .clone()
+                .oneshot(req.body(payload).expect("request"))
+                .await
+                .expect("response");
+            assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "{method} {uri}");
+        }
+    }
+
+    /// 下载页清单：只列已发布版本，并给出可直接下载的 URL（不要求签名）。
+    #[tokio::test]
+    async fn downloads_list_only_returns_published() {
+        let store = AdminStore::connect_in_memory().await.expect("store");
+        let tenant = crate::schema::DEFAULT_TENANT;
+
+        let released = create_release(&store, tenant, "1.0.0", "notes")
+            .await
+            .expect("release");
+        // 同一版本里同时放更新包和安装包：下载页只应看到安装包。
+        add_artifact(
+            &store,
+            &released.id,
+            "macos_updater",
+            "app.tar.gz",
+            "releases/x/a",
+            1024,
+            "",
+            "",
+        )
+        .await
+        .expect("updater");
+        add_artifact(
+            &store,
+            &released.id,
+            "macos_dmg",
+            "Pointer_1.0.0_universal.dmg",
+            "releases/x/b",
+            2048,
+            "",
+            "abc123",
+        )
+        .await
+        .expect("installer");
+        set_published(&store, tenant, &released.id, true)
+            .await
+            .expect("publish");
+        // 草稿版本不应出现
+        create_release(&store, tenant, "1.1.0", "").await.expect("draft");
+
+        let state = crate::state::AppState::new(store, crate::config::AdminConfig::default());
+        let Json(v) = downloads_list(
+            axum::extract::State(state),
+            HeaderMap::new(),
+            Query(DownloadsQuery { limit: None }),
+        )
+        .await
+        .expect("list");
+
+        let items = v["items"].as_array().expect("items");
+        assert_eq!(items.len(), 1, "未发布的版本不应出现在下载页");
+        assert_eq!(items[0]["version"], "1.0.0");
+        let artifacts = items[0]["artifacts"].as_array().expect("artifacts");
+        assert_eq!(artifacts.len(), 1, "更新包不该出现在下载页；安装包未签名也要列出");
+        assert_eq!(artifacts[0]["kind"], "macos_dmg");
+        assert_eq!(artifacts[0]["filename"], "Pointer_1.0.0_universal.dmg");
+        assert!(artifacts[0]["downloadUrl"]
+            .as_str()
+            .expect("url")
+            .contains("/api/downloads/files/"));
     }
 }

@@ -42,6 +42,27 @@ pub fn today_string(ts: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
+/// `2026-11-01` → 当天 00:00 UTC 的 Unix 秒。与 `civil_from_ts` 互逆。
+///
+/// 流水的 `created_at` 是 Unix 秒，按「日」筛区间得先把日期换回秒。
+pub fn ts_from_day(day: &str) -> Option<i64> {
+    let mut it = day.trim().split('-');
+    let y: i64 = it.next()?.parse().ok()?;
+    let m: i64 = it.next()?.parse().ok()?;
+    let d: i64 = it.next()?.parse().ok()?;
+    if it.next().is_some() || !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = if m > 2 { m - 3 } else { m + 9 };
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(days * 86_400)
+}
+
 pub fn month_prefix(ts: i64) -> String {
     let (y, m, _) = civil_from_ts(ts);
     format!("{y:04}-{m:02}")
@@ -583,5 +604,32 @@ mod tests {
         // 2026-11-07 00:00:00 UTC
         assert_eq!(today_string(1_794_019_200), "2026-11-07");
         assert_eq!(month_prefix(1_794_019_200), "2026-11");
+    }
+}
+
+#[cfg(test)]
+mod ts_from_day_tests {
+    use super::*;
+
+    #[test]
+    fn roundtrips_with_civil_from_ts() {
+        for day in ["2026-11-01", "2026-01-01", "2024-02-29", "1999-12-31"] {
+            let ts = ts_from_day(day).expect("parse");
+            assert_eq!(today_string(ts), day, "{day} 应能往返");
+        }
+    }
+
+    #[test]
+    fn rejects_malformed() {
+        assert!(ts_from_day("2026-11").is_none());
+        assert!(ts_from_day("2026-13-01").is_none());
+        assert!(ts_from_day("abc").is_none());
+        assert!(ts_from_day("").is_none());
+    }
+
+    #[test]
+    fn is_midnight_utc() {
+        let ts = ts_from_day("2026-11-01").expect("parse");
+        assert_eq!(ts % 86_400, 0);
     }
 }

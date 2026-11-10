@@ -10,6 +10,7 @@ pub mod config;
 pub mod credentials;
 pub mod crypto;
 pub mod db;
+pub mod ext;
 pub mod grants;
 pub mod http;
 pub mod oauth;

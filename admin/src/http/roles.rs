@@ -45,8 +45,8 @@ pub async fn list_roles(
     let mut items: Vec<Value> = rbac::BUILTIN_ROLES
         .iter()
         .map(|role| {
-            let permissions: Vec<&str> = if role.key == rbac::SUPER_ADMIN {
-                rbac::ALL_PERMISSIONS.to_vec()
+            let permissions: Vec<String> = if role.key == rbac::SUPER_ADMIN {
+                rbac::all_permissions()
             } else {
                 rbac::builtin_permissions(role.key)
             };
@@ -92,9 +92,10 @@ pub async fn list_permissions(
 ) -> ApiResult<Json<Value>> {
     let auth = current_auth(&state, &headers).await?;
     auth.require("role:read")?;
+    let items = rbac::all_permissions();
     Ok(Json(json!({
-        "items": rbac::ALL_PERMISSIONS,
-        "total": rbac::ALL_PERMISSIONS.len(),
+        "total": items.len(),
+        "items": items,
     })))
 }
 
@@ -109,8 +110,9 @@ pub struct RoleBody {
 }
 
 fn validate_permissions(perms: &[String]) -> ApiResult<()> {
+    let known = rbac::all_permissions();
     for p in perms {
-        if !rbac::ALL_PERMISSIONS.contains(&p.as_str()) {
+        if !known.contains(p) {
             return Err(crate::http::error::ApiError::BadRequest(format!(
                 "未知权限：{p}"
             )));

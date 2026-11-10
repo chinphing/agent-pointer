@@ -13,7 +13,7 @@ use sqlx::{Any, Row};
 use crate::db::{now_ts, AdminStore, Backend};
 use crate::rbac;
 
-pub const SCHEMA_VERSION: i64 = 11;
+pub const SCHEMA_VERSION: i64 = 14;
 pub const DEFAULT_TENANT: &str = "default";
 
 const DDL_V1: &[&str] = &[
@@ -277,6 +277,34 @@ const DDL_V11: &[&str] = &[
       GROUP BY tenant_id, SUBSTR(day, 1, 7), user_id, model",
 ];
 
+/// v12：流水加幂等键。
+///
+/// 支付回调、用量上报都可能重放；没有唯一键时同一个业务事件会被记两次账。
+/// `external_ref` 为 NULL 的旧流水不受影响（唯一索引允许多个 NULL）。
+const DDL_V12: &[&str] = &[
+    "ALTER TABLE wallet_ledger ADD COLUMN external_ref VARCHAR(128)",
+    "CREATE UNIQUE INDEX uq_wallet_ledger_external ON wallet_ledger(tenant_id, external_ref)",
+];
+
+/// v13：手机号。
+///
+/// 开源仓只负责**存**与**维护**（成员页手工录入），登录方式仍只有账号密码；
+/// 私有仓的短信登录复用这一列。唯一索引按租户，NULL 不占用（多行为 NULL 合法）。
+const DDL_V13: &[&str] = &[
+    "ALTER TABLE users ADD COLUMN phone VARCHAR(32)",
+    "CREATE UNIQUE INDEX uq_users_tenant_phone ON users(tenant_id, phone)",
+];
+
+/// v14：产物内容哈希。
+///
+/// 同一个安装包经常要出现在多个版本里（只有 macOS 变了，Windows/Linux 的包原样
+/// 沿用）。存了 sha256 就能在**上传时**发现内容相同、直接复用磁盘上的那份，
+/// 也能让「沿用上一版」只复制一条记录而不动文件。
+const DDL_V14: &[&str] = &[
+    "ALTER TABLE app_release_artifacts ADD COLUMN sha256 VARCHAR(64) NOT NULL DEFAULT ''",
+    "CREATE INDEX idx_artifacts_sha ON app_release_artifacts(sha256)",
+];
+
 const DDL_V10: &[&str] = &[
     "ALTER TABLE model_prices ADD COLUMN ratio_micro BIGINT NOT NULL DEFAULT 0",
     // 元/百万 = ratio × 1e6 ÷ 2²⁰ → ratio_micro = micro_per_million × 2²⁰ ÷ 1e6
@@ -455,6 +483,36 @@ pub async fn migrate(store: &AdminStore) -> Result<()> {
         }
         write_version(store, 11).await?;
     }
+    if read_version(store).await? < 12 {
+        for stmt in DDL_V12 {
+            store
+                .exec(&adapt(stmt, store.backend))
+                .await
+                .with_context(|| format!("apply admin schema v12: {}", first_line(stmt)))?;
+        }
+        write_version(store, 12).await?;
+    }
+    if read_version(store).await? < 13 {
+        for stmt in DDL_V13 {
+            store
+                .exec(&adapt(stmt, store.backend))
+                .await
+                .with_context(|| format!("apply admin schema v13: {}", first_line(stmt)))?;
+        }
+        write_version(store, 13).await?;
+    }
+    if read_version(store).await? < 14 {
+        for stmt in DDL_V14 {
+            store
+                .exec(&adapt(stmt, store.backend))
+                .await
+                .with_context(|| format!("apply admin schema v14: {}", first_line(stmt)))?;
+        }
+        write_version(store, 14).await?;
+    }
+
+    // 私有仓的迁移段：版本号从 9000 起，与开源仓的 1..n 互不干扰。
+    migrate_ext(store).await?;
 
     for stmt in index_statements(store.backend()) {
         // 重复创建索引在 MySQL 会报错；索引是纯优化，失败不影响正确性。
@@ -491,6 +549,57 @@ async fn write_version(store: &AdminStore, version: i64) -> Result<()> {
         let sql = store.sql("INSERT INTO meta (meta_key, meta_value) VALUES (?, ?)");
         sqlx::query::<Any>(&sql)
             .bind("schema_version")
+            .bind(version.to_string())
+            .execute(store.pool())
+            .await?;
+    }
+    Ok(())
+}
+
+/// 跑私有仓的迁移段。版本号记在 `meta.ext_schema_version`，与开源仓的
+/// `meta.schema_version` 分开，两边可以各自推进不撞号。
+async fn migrate_ext(store: &AdminStore) -> Result<()> {
+    let current = read_meta_i64(store, "ext_schema_version").await?;
+    let mut applied = current;
+    for (version, ddl) in crate::ext::migrations() {
+        if *version <= current {
+            continue;
+        }
+        store
+            .exec(&adapt(ddl, store.backend))
+            .await
+            .with_context(|| format!("apply ext schema v{version}: {}", first_line(ddl)))?;
+        applied = *version;
+    }
+    if applied != current {
+        write_meta_i64(store, "ext_schema_version", applied).await?;
+    }
+    Ok(())
+}
+
+async fn read_meta_i64(store: &AdminStore, key: &str) -> Result<i64> {
+    let sql = store.sql("SELECT meta_value FROM meta WHERE meta_key = ?");
+    let row = sqlx::query::<Any>(&sql)
+        .bind(key)
+        .fetch_optional(store.pool())
+        .await?;
+    let Some(row) = row else { return Ok(0) };
+    let raw: String = row.try_get(0)?;
+    Ok(raw.trim().parse().unwrap_or(0))
+}
+
+async fn write_meta_i64(store: &AdminStore, key: &str, version: i64) -> Result<()> {
+    let sql = store.sql("UPDATE meta SET meta_value = ? WHERE meta_key = ?");
+    let updated = sqlx::query::<Any>(&sql)
+        .bind(version.to_string())
+        .bind(key)
+        .execute(store.pool())
+        .await?
+        .rows_affected();
+    if updated == 0 {
+        let sql = store.sql("INSERT INTO meta (meta_key, meta_value) VALUES (?, ?)");
+        sqlx::query::<Any>(&sql)
+            .bind(key)
             .bind(version.to_string())
             .execute(store.pool())
             .await?;

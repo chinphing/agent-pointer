@@ -68,6 +68,7 @@ pub async fn list_users(
                 "id": u.id,
                 "username": u.username,
                 "displayName": u.display_name,
+                "phone": u.phone,
                 "status": u.status,
                 "roles": roles.get(&u.id).cloned().unwrap_or_default(),
                 "createdAt": u.created_at,
@@ -143,9 +144,54 @@ pub async fn create_user(
         "id": user.id,
         "username": user.username,
         "displayName": user.display_name,
+        "phone": user.phone,
         "status": user.status,
         "roles": body.roles,
     })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PhoneBody {
+    #[serde(default)]
+    pub phone: String,
+}
+
+/// 维护成员手机号（开源仓只存不用；私有仓的短信登录复用这一列）。
+pub async fn set_user_phone(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Path(user_id): Path<String>,
+    Json(body): Json<PhoneBody>,
+) -> ApiResult<Json<Value>> {
+    let auth = current_auth(&state, &headers).await?;
+    auth.require("user:write")?;
+
+    let phone = body.phone.trim();
+    users::set_phone(
+        &state.store,
+        &state.config.tenant_id,
+        &user_id,
+        if phone.is_empty() { None } else { Some(phone) },
+    )
+    .await
+    .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+
+    audit::record(
+        &state.store,
+        &state.config.tenant_id,
+        AuditInput {
+            actor_user_id: Some(&auth.user.id),
+            actor_name: &auth.user.display_name,
+            action: "user.phone",
+            target_type: "user",
+            target_id: &user_id,
+            before_json: None,
+            after_json: Some(&format!(r#"{{"phone":"{phone}"}}"#)),
+        },
+    )
+    .await?;
+
+    Ok(Json(json!({ "ok": true, "phone": phone })))
 }
 
 #[derive(Debug, Deserialize)]

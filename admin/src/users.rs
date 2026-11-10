@@ -21,6 +21,8 @@ pub struct User {
     pub status: String,
     pub created_at: i64,
     pub last_login_at: Option<i64>,
+    /// 手机号：开源仓只负责存与维护；私有仓的短信登录复用这一列。
+    pub phone: Option<String>,
 }
 
 impl User {
@@ -29,7 +31,7 @@ impl User {
     }
 }
 
-const COLS: &str = "id, tenant_id, username, display_name, status, created_at, last_login_at";
+const COLS: &str = "id, tenant_id, username, display_name, status, created_at, last_login_at, phone";
 
 fn map_user(row: &AnyRow) -> Result<User> {
     Ok(User {
@@ -40,6 +42,7 @@ fn map_user(row: &AnyRow) -> Result<User> {
         status: row.try_get(4)?,
         created_at: row.try_get(5)?,
         last_login_at: row.try_get(6)?,
+        phone: row.try_get(7)?,
     })
 }
 
@@ -193,6 +196,38 @@ pub async fn set_status(store: &AdminStore, user_id: &str, status: &str) -> Resu
     if changed == 0 {
         return Err(anyhow!("user not found: {user_id}"));
     }
+    Ok(())
+}
+
+/// 设置/清空手机号。空串视为清空（NULL），唯一索引按租户。
+pub async fn set_phone(
+    store: &AdminStore,
+    tenant_id: &str,
+    user_id: &str,
+    phone: Option<&str>,
+) -> Result<()> {
+    let normalized = phone
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(|p| p.to_string());
+    if let Some(p) = &normalized {
+        let sql = store.sql("SELECT id FROM users WHERE tenant_id = ? AND phone = ? AND id <> ?");
+        let taken = sqlx::query::<Any>(&sql)
+            .bind(tenant_id)
+            .bind(p)
+            .bind(user_id)
+            .fetch_optional(store.pool())
+            .await?;
+        if taken.is_some() {
+            return Err(anyhow!("手机号已被其他成员占用：{p}"));
+        }
+    }
+    let sql = store.sql("UPDATE users SET phone = ? WHERE id = ?");
+    sqlx::query::<Any>(&sql)
+        .bind(normalized)
+        .bind(user_id)
+        .execute(store.pool())
+        .await?;
     Ok(())
 }
 
@@ -425,5 +460,39 @@ mod tests {
             .map(|u| u.username)
             .collect();
         assert_eq!(names, vec!["amy".to_string(), "zoe".to_string()]);
+    }
+
+    /// 手机号按租户唯一；空串视为清空；不同租户可以重复。
+    #[tokio::test]
+    async fn phone_is_unique_per_tenant() {
+        let store = store().await;
+        let amy = create(&store, DEFAULT_TENANT, "amy", "", "pw-123456")
+            .await
+            .expect("amy");
+        let bob = create(&store, DEFAULT_TENANT, "bob", "", "pw-123456")
+            .await
+            .expect("bob");
+
+        set_phone(&store, DEFAULT_TENANT, &amy.id, Some("13800000001"))
+            .await
+            .expect("set amy");
+
+        let dup = set_phone(&store, DEFAULT_TENANT, &bob.id, Some("13800000001")).await;
+        assert!(dup.is_err(), "同租户手机号不能重复");
+
+        // 换一个租户可以用同一个号（用户的 tenant_id 不变，只是冲突检查按租户）
+        let carol = create(&store, "other", "carol", "", "pw-123456")
+            .await
+            .expect("carol");
+        set_phone(&store, "other", &carol.id, Some("13800000001"))
+            .await
+            .expect("cross tenant");
+
+        // 空串 / 纯空白视为清空
+        set_phone(&store, DEFAULT_TENANT, &amy.id, Some("   "))
+            .await
+            .expect("clear");
+        let after = get(&store, &amy.id).await.expect("get").expect("present");
+        assert_eq!(after.phone, None);
     }
 }

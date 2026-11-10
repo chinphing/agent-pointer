@@ -224,6 +224,7 @@ pub async fn me(State(state): State<Shared>, headers: HeaderMap) -> ApiResult<Js
             "username": auth.user.username,
             "displayName": auth.user.display_name,
             "status": auth.user.status,
+            "phone": auth.user.phone,
             "lastLoginAt": auth.user.last_login_at,
         },
         "roles": auth.roles,

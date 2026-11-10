@@ -28,6 +28,98 @@ pub struct UsageQuery {
     pub user_id: Option<String>,
 }
 
+/// `GET /api/admin/my-usage` —— 当前登录人自己的用量概览。
+///
+/// 与管理端 `/api/admin/usage` 的区别：`user_id` 强制取当前登录人，**不要求
+/// `usage:read`**（普通成员没有任何权限，但看得见自己的账）。口径与管理端一致：
+/// 数据来自 `usage_daily`，金额来自 `wallet_ledger` 的扣费流水。
+pub async fn my_usage(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Query(query): Query<UsageQuery>,
+) -> ApiResult<Json<Value>> {
+    let auth = current_auth(&state, &headers).await?;
+    let user_id = auth.user.id.clone();
+
+    let now = now_ts();
+    let from = query
+        .from
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| format!("{}-01", month_prefix(now)));
+    let to = query
+        .to
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| today_string(now));
+
+    let by_day = usage::aggregate_by(
+        &state.store,
+        &state.config.tenant_id,
+        &from,
+        &to,
+        Some(&user_id),
+        GroupBy::Day,
+    )
+    .await?;
+    let by_model = usage::aggregate_by(
+        &state.store,
+        &state.config.tenant_id,
+        &from,
+        &to,
+        Some(&user_id),
+        GroupBy::Model,
+    )
+    .await?;
+
+    let prompt: i64 = by_day.iter().map(|a| a.prompt).sum();
+    let completion: i64 = by_day.iter().map(|a| a.completion).sum();
+    let thinking: i64 = by_day.iter().map(|a| a.thinking).sum();
+    let cached: i64 = by_day.iter().map(|a| a.cached).sum();
+
+    // 金额按扣费流水合计：这才是真实扣掉的钱，和余额变化一致。
+    // 区间按「日」闭区间，转成秒时右端加一天。
+    let from_ts = crate::oauth::token::ts_from_day(&from).unwrap_or(0);
+    let to_ts = crate::oauth::token::ts_from_day(&to)
+        .map(|t| t + 86_400)
+        .unwrap_or(now + 86_400);
+    let (spent_micro, calls) = crate::billing::spend_in_range(&state.store, &user_id, from_ts, to_ts)
+        .await
+        .unwrap_or((0, 0));
+
+    // 今日消费单独算：概览卡上「今天花了多少」比「本月」更常看。
+    let today_ts = crate::oauth::token::ts_from_day(&today_string(now)).unwrap_or(now);
+    let (today_micro, _) =
+        crate::billing::spend_in_range(&state.store, &user_id, today_ts, today_ts + 86_400)
+            .await
+            .unwrap_or((0, 0));
+
+    Ok(Json(json!({
+        "from": from,
+        "to": to,
+        "spentYuan": crate::billing::yuan_string(spent_micro),
+        "todaySpentYuan": crate::billing::yuan_string(today_micro),
+        "calls": calls,
+        "totals": {
+            "promptTokens": prompt,
+            "completionTokens": completion,
+            "thinkingTokens": thinking,
+            "cachedTokens": cached,
+            "totalTokens": prompt + completion,
+        },
+        "byDay": by_day.iter().map(|a| json!({
+            "day": a.key,
+            "promptTokens": a.prompt,
+            "completionTokens": a.completion,
+            "totalTokens": a.prompt + a.completion,
+        })).collect::<Vec<_>>(),
+        "byModel": by_model.iter().map(|a| json!({
+            "model": a.key,
+            "totalTokens": a.prompt + a.completion,
+        })).collect::<Vec<_>>(),
+    })))
+}
+
 pub async fn usage(
     State(state): State<Shared>,
     headers: HeaderMap,

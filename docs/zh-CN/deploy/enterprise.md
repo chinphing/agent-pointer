@@ -132,18 +132,27 @@ POINTER_ADMIN_STATIC_DIR=./web ./pointer-admin
 
 ### 2.7 启停与维护
 
-构建好之后用脚本管理进程：
+**生产用包里自带的 shell 脚本**，不依赖 node / npm：
 
 ```bash
-npm run admin:start     # 后台启动，写 PID 文件和日志
-npm run admin:status    # 运行中退出 0，已停止退出 1
-npm run admin:restart
-npm run admin:stop
+cd pointer-admin-{os}-{arch}
+./pointer-admin.sh start      # 后台启动，写 PID 文件
+./pointer-admin.sh status     # 运行中退出 0，已停止退出 1
+./pointer-admin.sh restart
+./pointer-admin.sh stop       # 先 TERM，10 秒不退再 KILL
 ```
 
-日志在 `target/release/pointer-admin.log`，PID 在 `target/release/.pointer-admin.pid`。
+PID 和日志都在解包目录下：`pointer-admin.pid`、`pointer-admin.log`。
 
-`admin:start` 会自动找前端产物（优先用 bundle 里的 `web/`，其次 `admin/web/dist`），不用每次手动设 `POINTER_ADMIN_STATIC_DIR`。数据库和数据目录仍然由环境变量决定，脚本不去猜——那两样指向真实数据。
+脚本会把 `POINTER_ADMIN_STATIC_DIR` 自动指向同目录的 `web/`，所以不用手工设；数据库和数据目录仍然由环境变量决定，脚本不去猜——那两样指向真实数据，猜错比启动失败更危险。
+
+**开发机**用 npm 脚本，等价但多一层 node：
+
+```bash
+npm run admin:start / admin:status / admin:stop / admin:restart
+```
+
+要开机自启和崩溃拉起，交给 systemd（`pointer-admin.sh` 可作 `ExecStart`，配 `Type=forking` + `PIDFile`），或者直接 `ExecStart` 二进制用 `Type=simple`。
 
 ---
 

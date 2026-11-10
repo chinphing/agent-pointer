@@ -131,18 +131,27 @@ To re-package without recompiling, use `npm run admin:package`. If either half i
 
 ### 2.7 Start, stop and maintain
 
-Once built, manage the process with the scripts:
+**Production uses the shell script shipped inside the bundle** — no node, no npm:
 
 ```bash
-npm run admin:start     # background start; writes a PID file and a log
-npm run admin:status    # exit 0 when running, 1 when stopped
-npm run admin:restart
-npm run admin:stop
+cd pointer-admin-{os}-{arch}
+./pointer-admin.sh start      # background start; writes a PID file
+./pointer-admin.sh status     # exit 0 when running, 1 when stopped
+./pointer-admin.sh restart
+./pointer-admin.sh stop       # TERM first, KILL after 10s
 ```
 
-The log is `target/release/pointer-admin.log`; the PID file is `target/release/.pointer-admin.pid`.
+The PID file and log live in the unpacked directory: `pointer-admin.pid`, `pointer-admin.log`.
 
-`admin:start` resolves the frontend output itself (the bundle's `web/` first, then `admin/web/dist`), so you do not set `POINTER_ADMIN_STATIC_DIR` by hand each time. The database and data directory still come from environment variables — the script does not guess those, because they point at real state.
+The script points `POINTER_ADMIN_STATIC_DIR` at the sibling `web/` automatically, so you do not set it by hand. The database and data directory still come from environment variables — the script does not guess those, because they point at real state and a wrong guess is worse than a failed start.
+
+**On a dev machine** use the npm scripts; equivalent, one node layer heavier:
+
+```bash
+npm run admin:start / admin:status / admin:stop / admin:restart
+```
+
+For boot-time start and crash restarts, hand it to systemd (`pointer-admin.sh` works as `ExecStart` with `Type=forking` + `PIDFile`, or point `ExecStart` at the binary with `Type=simple`).
 
 ---
 

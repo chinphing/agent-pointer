@@ -43,6 +43,8 @@ jobs:
           languages: javascript-typescript
           # 纯静态分析，不需要构建前端产物
           build-mode: none
+          # 排除测试夹具（见 .github/codeql/codeql-config.yml）
+          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Analyze
         uses: github/codeql-action/analyze@v3

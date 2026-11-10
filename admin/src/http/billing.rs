@@ -7,6 +7,7 @@
 //!
 //! 金额对外一律用「元」（字符串两位小数 / 数值），内部微元不暴露。
 
+use axum::Extension;
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
@@ -16,7 +17,7 @@ use serde_json::{json, Value};
 use crate::audit::{self, AuditInput};
 use crate::billing::{self, Ratio, MICRO_PER_YUAN};
 use crate::db::AdminStore;
-use crate::http::auth::current_auth;
+use crate::http::auth::{current_auth, AdminAuth};
 use crate::http::error::{ApiError, ApiResult};
 use crate::http::Shared;
 use crate::oauth::partner::bearer_user;
@@ -28,11 +29,8 @@ fn micro_per_million_to_yuan(v: i64) -> f64 {
 
 pub async fn get_wallet(
     State(state): State<Shared>,
-    headers: HeaderMap,
     Path(user_id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("usage:read")?;
     let balance = billing::ensure_wallet(&state.store, &state.config.tenant_id, &user_id).await?;
     let (ledger, total) = ledger_page(&state.store, &user_id, None, 20, 0).await?;
     Ok(Json(json!({
@@ -57,12 +55,10 @@ pub struct GrantBody {
 
 pub async fn grant_wallet(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path(user_id): Path<String>,
     Json(body): Json<GrantBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("usage:write")?;
     let yuan = body
         .amount_yuan
         .or(body.amount_yuan_alias)
@@ -106,9 +102,7 @@ pub async fn grant_wallet(
     })))
 }
 
-pub async fn list_prices(State(state): State<Shared>, headers: HeaderMap) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("usage:read")?;
+pub async fn list_prices(State(state): State<Shared>) -> ApiResult<Json<Value>> {
     let rows = billing::list_prices(&state.store, &state.config.tenant_id).await?;
 
     // 页面上按平台模型目录列出全部模型，已配置的显示现价，未配置的显示兜底价——
@@ -162,11 +156,9 @@ pub struct PriceBody {
 
 pub async fn set_price(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Json(body): Json<PriceBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("usage:write")?;
     let model = body.model.trim().to_string();
     if model.is_empty() {
         return Err(ApiError::BadRequest("缺少 model".to_string()));
@@ -205,11 +197,9 @@ pub struct BasePriceBody {
 /// 改全局基准价。费率都是相对它算的，所以改它等于整体调价。
 pub async fn set_base_price(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Json(body): Json<BasePriceBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("usage:write")?;
     let yuan = body.base_yuan_per_mb.unwrap_or(0.0);
     if !yuan.is_finite() || yuan < 0.0 {
         return Err(ApiError::BadRequest("基准价必须是非负数".to_string()));
@@ -238,11 +228,9 @@ pub async fn set_base_price(
 /// 清掉某模型的显式费率。费率清掉后模型不下发，等于不可用。
 pub async fn clear_price(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path(model): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("usage:write")?;
     let model = model.trim().to_string();
     if model.is_empty() {
         return Err(ApiError::BadRequest("缺少 model".to_string()));

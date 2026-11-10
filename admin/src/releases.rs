@@ -26,7 +26,6 @@ use sqlx::Row;
 use tower::ServiceExt;
 
 use crate::db::{now_ts, AdminStore};
-use crate::http::auth::current_auth;
 use crate::http::error::{ApiError, ApiResult};
 use crate::state::Shared;
 
@@ -647,9 +646,7 @@ pub async fn download_file(
 
 // ---------- 管理端 ----------
 
-pub async fn admin_list(State(state): State<Shared>, headers: HeaderMap) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("release:read")?;
+pub async fn admin_list(State(state): State<Shared>) -> ApiResult<Json<Value>> {
 
     let rows = list_releases(&state.store, &state.config.tenant_id)
         .await
@@ -672,11 +669,8 @@ pub struct CreateReleaseBody {
 
 pub async fn admin_create(
     State(state): State<Shared>,
-    headers: HeaderMap,
     Json(body): Json<CreateReleaseBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("release:write")?;
 
     let release = create_release(
         &state.store,
@@ -691,11 +685,8 @@ pub async fn admin_create(
 
 pub async fn admin_delete(
     State(state): State<Shared>,
-    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("release:write")?;
 
     delete_release(&state.store, &state.config.tenant_id, &id)
         .await
@@ -710,12 +701,9 @@ pub struct PublishBody {
 
 pub async fn admin_publish(
     State(state): State<Shared>,
-    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<PublishBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("release:write")?;
 
     if body.published {
         // 发布前必须至少有一份带签名的产物，否则客户端只会拿到 204。
@@ -738,12 +726,9 @@ pub async fn admin_publish(
 /// `kind`（文本）+ `signature`（文本，.sig 全文）+ `file`（安装包）。
 pub async fn admin_upload_artifact(
     State(state): State<Shared>,
-    headers: HeaderMap,
     Path(id): Path<String>,
     mut multipart: Multipart,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("release:write")?;
 
     let mut kind = String::new();
     let mut signature = String::new();
@@ -831,11 +816,8 @@ pub async fn admin_upload_artifact(
 
 pub async fn admin_delete_artifact(
     State(state): State<Shared>,
-    headers: HeaderMap,
     Path((id, kind)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("release:write")?;
 
     delete_artifact(&state.store, &id, &kind)
         .await
@@ -855,12 +837,9 @@ pub struct ReuseBody {
 /// 不传文件、不占额外磁盘：同一个包在多个版本里共用一份。
 pub async fn admin_reuse_artifacts(
     State(state): State<Shared>,
-    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<ReuseBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("release:write")?;
 
     if body.from == id {
         return Err(ApiError::BadRequest("不能从自己沿用产物".to_string()));
@@ -1090,7 +1069,7 @@ mod tests {
 
         let store = AdminStore::connect_in_memory().await.expect("store");
         let state = crate::state::AppState::new(store, crate::config::AdminConfig::default());
-        let app = crate::http::router().with_state(state);
+        let app = crate::http::router(state.clone()).with_state(state);
 
         let json = "application/json";
         let multipart = "multipart/form-data; boundary=x";

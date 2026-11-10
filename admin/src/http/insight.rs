@@ -1,7 +1,7 @@
 //! 用量、配额、审计、总览。
 
+use axum::Extension;
 use axum::extract::{Path, Query, State};
-use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -9,7 +9,7 @@ use sqlx::{Any, Row};
 
 use crate::audit;
 use crate::db::now_ts;
-use crate::http::auth::current_auth;
+use crate::http::auth::AdminAuth;
 use crate::http::error::{ApiError, ApiResult};
 use crate::oauth::token::{month_prefix, today_string};
 use crate::state::Shared;
@@ -35,10 +35,9 @@ pub struct UsageQuery {
 /// 数据来自 `usage_daily`，金额来自 `wallet_ledger` 的扣费流水。
 pub async fn my_usage(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Query(query): Query<UsageQuery>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
     let user_id = auth.user.id.clone();
 
     let now = now_ts();
@@ -122,11 +121,8 @@ pub async fn my_usage(
 
 pub async fn usage(
     State(state): State<Shared>,
-    headers: HeaderMap,
     Query(query): Query<UsageQuery>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("usage:read")?;
 
     let now = now_ts();
     let from = query
@@ -232,11 +228,8 @@ pub async fn usage(
 
 pub async fn get_quota(
     State(state): State<Shared>,
-    headers: HeaderMap,
     Path(user_id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("usage:read")?;
 
     let quota = usage::get_quota(&state.store, &user_id).await?;
     let state_q = usage::quota_state(
@@ -267,12 +260,10 @@ pub struct QuotaBody {
 
 pub async fn set_quota(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path(user_id): Path<String>,
     Json(body): Json<QuotaBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("usage:write")?;
 
     let action = body
         .over_action
@@ -317,11 +308,8 @@ pub struct AuditQuery {
 
 pub async fn audit_log(
     State(state): State<Shared>,
-    headers: HeaderMap,
     Query(query): Query<AuditQuery>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("audit:read")?;
 
     let entries = audit::list(
         &state.store,
@@ -351,10 +339,7 @@ pub async fn audit_log(
 
 pub async fn overview(
     State(state): State<Shared>,
-    headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("system:read")?;
 
     let sql = state
         .store
@@ -444,3 +429,4 @@ pub async fn overview(
         "oauthConfigured": state.config.oauth_secret.is_some(),
     })))
 }
+

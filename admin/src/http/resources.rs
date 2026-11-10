@@ -1,7 +1,7 @@
 //! 资源管理 API：CRUD + 授权 + 密钥查看。
 
+use axum::Extension;
 use axum::extract::{Path, Query, State};
-use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use crate::audit::{self, AuditInput};
 use crate::crypto::{decrypt_secret, encrypt_secret, EncryptedSecret};
 use crate::grants::{self, Principal};
-use crate::http::auth::{current_auth, AdminAuth};
+use crate::http::auth::AdminAuth;
 use crate::http::error::{ApiError, ApiResult};
 use crate::resources::{self, Resource};
 use crate::state::Shared;
@@ -89,10 +89,9 @@ pub struct ListQuery {
 
 pub async fn list_resources(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Query(query): Query<ListQuery>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
 
     let kinds: Vec<&str> = match query.kind.as_deref().filter(|k| !k.is_empty()) {
         Some(kind) => {
@@ -120,10 +119,9 @@ pub async fn list_resources(
 
 pub async fn get_resource(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
     let resource = load(&state, &id).await?;
     auth.require(perms_for(&resource.kind).0)?;
     Ok(Json(view(&resource)))
@@ -152,10 +150,9 @@ pub struct CreateBody {
 
 pub async fn create_resource(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Json(body): Json<CreateBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
     auth.require(perms_for(&body.kind).1)?;
 
     let payload_json = match body.payload.as_ref() {
@@ -229,11 +226,10 @@ pub struct UpdateBody {
 
 pub async fn update_resource(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path(id): Path<String>,
     Json(body): Json<UpdateBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
     let existing = load(&state, &id).await?;
     auth.require(perms_for(&existing.kind).1)?;
 
@@ -287,10 +283,9 @@ pub async fn update_resource(
 
 pub async fn delete_resource(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
     let existing = load(&state, &id).await?;
     auth.require(perms_for(&existing.kind).2)?;
 
@@ -316,10 +311,9 @@ pub async fn delete_resource(
 
 pub async fn get_grants(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
     let resource = load(&state, &id).await?;
     auth.require(perms_for(&resource.kind).0)?;
 
@@ -351,11 +345,10 @@ pub struct GrantsBody {
 
 pub async fn replace_grants(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path(id): Path<String>,
     Json(body): Json<GrantsBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
     let resource = load(&state, &id).await?;
     auth.require(perms_for(&resource.kind).1)?;
 
@@ -402,13 +395,8 @@ pub struct TestProviderBody {
 }
 
 pub async fn test_provider(
-    State(state): State<Shared>,
-    headers: HeaderMap,
     Json(body): Json<TestProviderBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth: AdminAuth = current_auth(&state, &headers).await?;
-    auth.require("provider:write")?;
-
     let raw = body.base_url.trim().trim_end_matches('/');
     let parsed = reqwest::Url::parse(raw)
         .map_err(|_| ApiError::BadRequest("baseUrl 不是合法 URL".into()))?;
@@ -469,11 +457,9 @@ pub async fn test_provider(
 /// 查看明文密钥：单独一个权限（`provider:reveal`），并且每次都进审计。
 pub async fn reveal_secret(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let auth: AdminAuth = current_auth(&state, &headers).await?;
-    auth.require("provider:reveal")?;
 
     let resource = load(&state, &id).await?;
     let Some(encrypted) = resources::secret(&state.store, &id).await? else {
@@ -531,10 +517,9 @@ async fn version_perms(
 
 pub async fn list_versions(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
     version_perms(&state, &auth, &id, "read").await?;
     let items: Vec<Value> = crate::versions::list_versions(&state.store, &id)
         .await?
@@ -552,12 +537,11 @@ pub struct VersionQuery {
 /// 上传 zip：请求体就是原始字节，版本号走查询串。
 pub async fn upload_version(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path(id): Path<String>,
     Query(query): Query<VersionQuery>,
     body: axum::body::Bytes,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
     version_perms(&state, &auth, &id, "write").await?;
 
     let version = crate::versions::add_version(
@@ -594,10 +578,9 @@ pub async fn upload_version(
 
 pub async fn publish_version(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path((id, version_id)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
     version_perms(&state, &auth, &id, "publish").await?;
 
     crate::versions::publish(&state.store, &id, &version_id)
@@ -624,10 +607,9 @@ pub async fn publish_version(
 
 pub async fn delete_version(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path((_id, version_id)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
     version_perms(&state, &auth, &_id, "write").await?;
 
     let removed = crate::versions::delete_version(&state.store, &state.config.data_dir, &version_id)
@@ -681,3 +663,4 @@ mod tests {
         assert!(masked.len() < secret.len());
     }
 }
+

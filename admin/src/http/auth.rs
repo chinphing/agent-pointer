@@ -2,20 +2,22 @@
 
 use std::collections::HashSet;
 
+use axum::Extension;
 use axum::extract::State;
-use axum::http::{header, HeaderMap};
+use axum::http::{header, HeaderMap, HeaderValue};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::audit::{self, AuditInput};
 use crate::http::error::{ApiError, ApiResult};
 use crate::rbac;
 use crate::sessions;
 use crate::state::Shared;
 use crate::users::{self, User};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AdminAuth {
     pub user: User,
     pub permissions: HashSet<String>,
@@ -92,6 +94,80 @@ fn cleared_cookie(state: &Shared) -> String {
         "{}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
         state.config.cookie_name
     )
+}
+
+
+#[derive(Debug, Deserialize)]
+pub struct ChangePasswordBody {
+    pub old_password: String,
+    pub new_password: String,
+}
+
+/// 自助改密码。路由上只要求登录（`.login_only`），不需要任何权限。
+///
+/// 成功后**换一个会话**：旧 token 全部作废（改密码最常见的动机就是怀疑泄露），
+/// 当前这个会话立刻拿到新 token 写回 Cookie，用户不用重新登录。
+pub async fn change_my_password(
+    State(state): State<Shared>,
+    Extension(auth): Extension<AdminAuth>,
+    Json(body): Json<ChangePasswordBody>,
+) -> ApiResult<Response> {
+    let new_password = body.new_password.trim();
+    if new_password.chars().count() < 8 {
+        return Err(ApiError::BadRequest("新密码至少 8 位".to_string()));
+    }
+    if new_password == body.old_password.trim() {
+        return Err(ApiError::BadRequest("新密码不能与旧密码相同".to_string()));
+    }
+
+    let matched = users::verify_password_for(&state.store, &auth.user.id, &body.old_password)
+        .await
+        .map_err(ApiError::internal)?;
+    if !matched {
+        // 与登录失败同一个语义：是「密码不对」，不是「会话过期」。
+        return Err(ApiError::InvalidCredentials);
+    }
+
+    users::reset_password(&state.store, &auth.user.id, new_password)
+        .await
+        .map_err(ApiError::internal)?;
+    sessions::revoke_all_for_user(&state.store, &auth.user.id)
+        .await
+        .map_err(ApiError::internal)?;
+    let token = sessions::create(
+        &state.store,
+        &auth.user.id,
+        sessions::KIND_ADMIN,
+        state.config.session_ttl_secs,
+    )
+    .await
+    .map_err(ApiError::internal)?;
+
+    // 审计失败不该让已经改成功的密码「看起来失败」，记日志即可。
+    if let Err(e) = audit::record(
+        &state.store,
+        &state.config.tenant_id,
+        AuditInput {
+            actor_user_id: Some(&auth.user.id),
+            actor_name: &auth.user.display_name,
+            action: "user.change_password",
+            target_type: "user",
+            target_id: &auth.user.id,
+            before_json: None,
+            after_json: None,
+        },
+    )
+    .await
+    {
+        log::warn!("记录改密码审计失败：{e}");
+    }
+
+    let mut resp = Json(json!({ "ok": true })).into_response();
+    resp.headers_mut().insert(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&session_cookie(&state, &token)).map_err(ApiError::internal)?,
+    );
+    Ok(resp)
 }
 
 #[derive(Debug, Deserialize)]
@@ -216,8 +292,7 @@ pub async fn logout(State(state): State<Shared>, headers: HeaderMap) -> ApiResul
         .into_response())
 }
 
-pub async fn me(State(state): State<Shared>, headers: HeaderMap) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
+pub async fn me(Extension(auth): Extension<AdminAuth>) -> ApiResult<Json<Value>> {
     Ok(Json(json!({
         "user": {
             "id": auth.user.id,
@@ -316,3 +391,4 @@ mod tests {
         ));
     }
 }
+

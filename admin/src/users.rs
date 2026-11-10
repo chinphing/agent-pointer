@@ -250,6 +250,23 @@ pub async fn reset_password(
     Ok(())
 }
 
+/// 按用户 id 校验密码。自助改密码用：只需要确认「旧密码对不对」，
+/// 不碰 `last_login_at`（`authenticate` 会写，那属于登录语义）。
+pub async fn verify_password_for(
+    store: &AdminStore,
+    user_id: &str,
+    plain_password: &str,
+) -> Result<bool> {
+    let sql = store.sql("SELECT password_hash FROM users WHERE id = ?");
+    let row = sqlx::query::<Any>(&sql)
+        .bind(user_id)
+        .fetch_optional(store.pool())
+        .await?;
+    let Some(row) = row else { return Ok(false) };
+    let hash: String = row.try_get(0)?;
+    Ok(password::verify_password(&hash, plain_password))
+}
+
 pub async fn touch_login(store: &AdminStore, user_id: &str) -> Result<()> {
     let sql = store.sql("UPDATE users SET last_login_at = ? WHERE id = ?");
     sqlx::query::<Any>(&sql)

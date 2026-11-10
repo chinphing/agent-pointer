@@ -217,7 +217,7 @@ async fn main() -> Result<()> {
     let state = AppState::new(store, config.clone());
     let mut app = Router::new()
         .merge(oauth::router())
-        .merge(pointer_admin::http::router())
+        .merge(pointer_admin::http::router(state.clone()))
         // 私有仓的免鉴权路由（支付回调、短信发码）；开源版为空 Router。
         .merge(pointer_admin::ext::public_router())
         .route("/api/updates/latest", get(pointer_admin::releases::updates_latest))

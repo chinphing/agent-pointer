@@ -4,24 +4,21 @@
 //! 自定义角色存在 `roles` / `role_permissions` 两张表里，可增删改。
 //! 权限判定只认 `role_permissions`，所以自定义角色天然生效。
 
+use axum::Extension;
 use axum::extract::{Path, State};
 use serde::Deserialize;
-use axum::http::HeaderMap;
 use axum::Json;
 use serde_json::{json, Value};
 use sqlx::{Any, Row};
 
-use crate::http::auth::current_auth;
+use crate::http::auth::AdminAuth;
 use crate::http::error::ApiResult;
 use crate::rbac;
 use crate::state::Shared;
 
 pub async fn list_roles(
     State(state): State<Shared>,
-    headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("role:read")?;
 
     let sql = state.store.sql(
         "SELECT r.id, r.role_key, COUNT(ur.user_id) FROM roles r
@@ -86,12 +83,7 @@ pub async fn list_roles(
     Ok(Json(json!({ "items": items, "total": items.len() })))
 }
 
-pub async fn list_permissions(
-    State(state): State<Shared>,
-    headers: HeaderMap,
-) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("role:read")?;
+pub async fn list_permissions() -> ApiResult<Json<Value>> {
     let items = rbac::all_permissions();
     Ok(Json(json!({
         "total": items.len(),
@@ -147,11 +139,9 @@ fn normalize_role_key(raw: &str) -> ApiResult<String> {
 
 pub async fn create_role(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Json(body): Json<RoleBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("role:write")?;
 
     let key = normalize_role_key(&body.key)?;
     let name = body.name.trim();
@@ -226,12 +216,10 @@ async fn load_custom_role(state: &Shared, id: &str) -> ApiResult<String> {
 
 pub async fn update_role(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path(id): Path<String>,
     Json(body): Json<RoleBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("role:write")?;
     let key = load_custom_role(&state, &id).await?;
     validate_permissions(&body.permissions)?;
 
@@ -265,11 +253,9 @@ pub async fn update_role(
 
 pub async fn delete_role(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("role:write")?;
     let key = load_custom_role(&state, &id).await?;
 
     let sql = state.store.sql("SELECT COUNT(*) FROM user_roles WHERE role_id = ?");

@@ -2,15 +2,15 @@
 
 use std::collections::HashMap;
 
+use axum::Extension;
 use axum::extract::{Path, State};
-use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::{Any, Row};
 
 use crate::audit::{self, AuditInput};
-use crate::http::auth::current_auth;
+use crate::http::auth::AdminAuth;
 use crate::http::error::{ApiError, ApiResult};
 use crate::rbac;
 use crate::sessions;
@@ -53,10 +53,7 @@ async fn wallet_map(state: &Shared) -> Result<HashMap<String, i64>, ApiError> {
 
 pub async fn list_users(
     State(state): State<Shared>,
-    headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("user:read")?;
 
     let users = users::list(&state.store, &state.config.tenant_id).await?;
     let roles = role_map(&state).await?;
@@ -104,11 +101,9 @@ async fn apply_roles(state: &Shared, user_id: &str, roles: &[String]) -> ApiResu
 
 pub async fn create_user(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Json(body): Json<CreateUserBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("user:write")?;
 
     let user = users::create(
         &state.store,
@@ -159,12 +154,10 @@ pub struct PhoneBody {
 /// 维护成员手机号（开源仓只存不用；私有仓的短信登录复用这一列）。
 pub async fn set_user_phone(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path(user_id): Path<String>,
     Json(body): Json<PhoneBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("user:write")?;
 
     let phone = body.phone.trim();
     users::set_phone(
@@ -201,12 +194,10 @@ pub struct StatusBody {
 
 pub async fn set_user_status(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path(user_id): Path<String>,
     Json(body): Json<StatusBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("user:write")?;
     if body.status != STATUS_ACTIVE && body.status != STATUS_DISABLED {
         return Err(ApiError::BadRequest(format!(
             "未知状态：{}",
@@ -249,12 +240,10 @@ pub struct PasswordBody {
 
 pub async fn reset_user_password(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path(user_id): Path<String>,
     Json(body): Json<PasswordBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("user:write")?;
 
     users::reset_password(&state.store, &user_id, &body.password)
         .await
@@ -287,12 +276,10 @@ pub struct RolesBody {
 
 pub async fn set_user_roles(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Path(user_id): Path<String>,
     Json(body): Json<RolesBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("user:write")?;
     if user_id == auth.user.id && !body.roles.iter().any(|r| r == rbac::SUPER_ADMIN) {
         // 允许自己降权会导致「最后一个管理员把自己锁在门外」。
         return Err(ApiError::BadRequest(
@@ -330,11 +317,9 @@ pub struct ImportBody {
 /// 批量导入。逐行处理，坏行不影响好行，最后统一报告。
 pub async fn import_users(
     State(state): State<Shared>,
-    headers: HeaderMap,
+    Extension(auth): Extension<AdminAuth>,
     Json(body): Json<ImportBody>,
 ) -> ApiResult<Json<Value>> {
-    let auth = current_auth(&state, &headers).await?;
-    auth.require("user:write")?;
 
     let default_role = body
         .default_role

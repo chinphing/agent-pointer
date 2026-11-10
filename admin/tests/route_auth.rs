@@ -10,6 +10,7 @@ use axum::Router;
 use pointer_admin::config::AdminConfig;
 use pointer_admin::db::AdminStore;
 use pointer_admin::http;
+use pointer_admin::rbac;
 use pointer_admin::schema::DEFAULT_TENANT;
 use pointer_admin::sessions;
 use pointer_admin::state::{AppState, Shared};
@@ -86,7 +87,7 @@ fn concrete(path: &str) -> String {
 }
 
 fn app(state: Shared) -> Router {
-    http::router().with_state(state)
+    http::router(state.clone()).with_state(state)
 }
 
 async fn state() -> Shared {
@@ -110,6 +111,24 @@ async fn send(app: &Router, method: &Method, uri: &str, cookie: Option<&str>) ->
         .await
         .expect("body");
     (status, String::from_utf8_lossy(&bytes).to_string())
+}
+
+
+/// 建一个超管账号并返回它的 Cookie 头。
+async fn super_admin_cookie(state: &Shared) -> String {
+    rbac::seed_builtin_roles(&state.store, DEFAULT_TENANT)
+        .await
+        .expect("seed roles");
+    let user = users::create(&state.store, DEFAULT_TENANT, "root", "超管", "pw-123456")
+        .await
+        .expect("create user");
+    rbac::replace_roles(&state.store, DEFAULT_TENANT, &user.id, &[rbac::SUPER_ADMIN])
+        .await
+        .expect("assign super admin");
+    let token = sessions::create(&state.store, &user.id, sessions::KIND_ADMIN, 3600)
+        .await
+        .expect("session");
+    format!("{}={}", state.config.cookie_name, token)
 }
 
 /// 建一个零权限账号并返回它的 Cookie 头。
@@ -236,5 +255,29 @@ async fn bearer_endpoints_still_reject_anonymous() {
     for uri in BEARER_ONLY {
         let (status, _) = send(&app, &Method::GET, uri, None).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED, "{uri} 匿名应 401");
+    }
+}
+
+/// 超管不该被任何权限检查挡住。
+///
+/// 零权限测试只能证明「不该进的进不去」：权限键拼错（写成 `release:reed`）时，
+/// 零权限用户照样 403、测试照样绿，而真正该进的人被挡在门外。这条补上那个盲区。
+#[tokio::test]
+async fn super_admin_is_never_blocked_by_permission_checks() {
+    let state = state().await;
+    let cookie = super_admin_cookie(&state).await;
+    let app = app(state);
+
+    for path in admin_route_paths() {
+        // 走 Bearer 的接口不收 Cookie，单独在 bearer_endpoints_still_reject_anonymous 里管
+        if PUBLIC.contains(&path.as_str()) || BEARER_ONLY.contains(&path.as_str()) {
+            continue;
+        }
+        let uri = concrete(&path);
+        let (status, body) = send(&app, &Method::GET, &uri, Some(&cookie)).await;
+        assert!(
+            !matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN),
+            "GET {uri} 超管被拒：{status} {body}"
+        );
     }
 }

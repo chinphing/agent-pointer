@@ -31,6 +31,7 @@ import {
   findFilePreviewMatches,
   tokenizeCodeLine
 } from '../../lib/workspaceFilePreview'
+import type { FilePreviewSearchPart } from '../../lib/workspaceFilePreview'
 import {
   workspaceFileExtension,
   workspaceRichPreviewKindFromExt,
@@ -275,6 +276,20 @@ const matchCountLabel = computed(() => {
   return `${activeMatchIndex.value + 1}/${matchTotal.value}`
 })
 const hasSearchMatches = computed(() => Boolean(searchQuery.value.trim()) && matchTotal.value > 0)
+
+/**
+ * 一行的渲染片段：搜索打开且有查询时按命中切分，否则整行一个片段。
+ *
+ * 抽成函数而不是写在模板的三元里，是为了让返回类型明确是
+ * `FilePreviewSearchPart[]`。模板里那个三元会推断出 `{ text: string }`
+ * 这个不含 `matchIndex` 的联合分支，读 `part.matchIndex` 就报类型错。
+ */
+function lineSearchParts(line: string, index: number): FilePreviewSearchPart[] {
+  if (searchOpen.value && searchQuery.value.trim()) {
+    return filePreviewSearchParts(line, index, searchMatches.value)
+  }
+  return [{ text: line || '\u00A0' }]
+}
 
 async function copyPath() {
   await navigator.clipboard.writeText(props.absolutePath)
@@ -769,11 +784,7 @@ onBeforeUnmount(() => {
           <span class="file-preview-line-number">{{ index + 1 }}</span>
           <code>
             <template
-              v-for="(part, partIndex) in (
-                searchOpen && searchQuery.trim()
-                  ? filePreviewSearchParts(line, index, searchMatches)
-                  : [{ text: line || '\u00A0' }]
-              )"
+              v-for="(part, partIndex) in lineSearchParts(line, index)"
               :key="partIndex"
             >
               <mark

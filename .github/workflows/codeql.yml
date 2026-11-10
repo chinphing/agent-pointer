@@ -1,0 +1,50 @@
+name: CodeQL
+
+# 代码扫描。结果出现在仓库的 Security → Code scanning 里。
+#
+# 目前只扫 JavaScript/TypeScript（`src/`、`admin/web/`、`docs-site/`）。
+# Rust 那半边没开：CodeQL 分析 Rust 需要在 runner 上真正把工作区编译出来，
+# 而 tauri 依赖 GTK 等一批系统库（见 ci.yml 里那段 apt 安装）。
+# 等那套环境复用起来再单独加一个 rust 的 matrix 项。
+#
+# 密钥扫描不在这里：提交历史由 ci.yml 里的 gitleaks 负责，
+# 仓库设置里的 secret scanning / push protection 是另一层，在 GitHub 后台开。
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    # 每周一凌晨扫一次，抓上游新披露的规则
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  security-events: write
+  contents: read
+  actions: read
+
+jobs:
+  analyze:
+    name: Analyze JavaScript/TypeScript
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          # 纯静态分析，不需要构建前端产物
+          build-mode: none
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:javascript-typescript'

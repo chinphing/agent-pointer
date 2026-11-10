@@ -26,9 +26,11 @@ When you are packaging a release, find your cell in §0 below.
 |---|---|---|
 | Use it yourself, or hand a **self-built** client to a colleague | standalone × client | [§3 standalone × client](#standalone-client) |
 | Stand up a server for your team | standalone × server | [§4 standalone × server](#standalone-server) |
+| Enterprise: deploy the **internal** control plane | managed × control plane | [Enterprise deployment §2](enterprise.md#control-plane) |
 | Enterprise: client connecting to an **internal** control plane | managed × client | [Enterprise deployment §3](enterprise.md#client) |
-| Enterprise: deploy the internal control-plane server | managed × control plane | [Enterprise deployment §2](enterprise.md) |
 | You want a Pointer **official signed package** | —— | Not produced by this repo; see [`../user/which-build.md`](../user/which-build.md) |
+
+> The two enterprise rows are not independent cells: **the control plane and the client are installed together** — §2 first, then §3. Installing only one half leaves you half-connected: you can log in but updates never arrive, or you can chat but the balance page goes nowhere.
 
 **Master table** (five items per cell: build command / required variables / artifact location / how to verify / external dependencies):
 

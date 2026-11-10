@@ -26,9 +26,11 @@
 |---|---|---|
 | 自己用，或给同事发一个**自己构建**的客户端 | standalone × 客户端 | [§3 standalone × 客户端](#standalone-client) |
 | 自己搭一台服务器给团队用 | standalone × 服务端 | [§4 standalone × 服务端](#standalone-server) |
+| 企业：部署**内网控制面** | managed × 控制面 | [企业内网部署 §2](enterprise.md#control-plane) |
 | 企业：客户端连**内网**控制面 | managed × 客户端 | [企业内网部署 §3](enterprise.md#client) |
-| 企业：部署内网控制面服务端 | managed × 控制面 | [企业内网部署 §2](enterprise.md) |
 | 想要 Pointer **官方签名包** | —— | 不在本仓产出，见 [`../../user/which-build.md`](../user/which-build.md) |
+
+> 企业那两行不是彼此独立的格子：**控制面和客户端要一起装**，先 §2 再 §3。只装一半会出现「能登录但更新不了」「能发消息但余额打不开」这类半通状态。
 
 **总表**（每格五项：构建命令 / 需要的变量 / 产物位置 / 怎么验证 / 外部依赖）：
 

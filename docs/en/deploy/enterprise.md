@@ -39,6 +39,8 @@ To build a single artifact, see [Packaging and Deployment](README.md). This page
 
 ## 2. Step one: deploy the control plane
 
+<a id="control-plane"></a>
+
 ### 2.1 Prerequisites
 
 - One Linux host (2 cores / 2 GB is plenty to start)

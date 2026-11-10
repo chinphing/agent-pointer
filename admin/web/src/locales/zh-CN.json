@@ -14,7 +14,113 @@
     "usage": "用量",
     "audit": "审计",
     "releases": "应用更新",
-    "billing": "计费"
+    "billing": "计费",
+    "me": "我的账户",
+    "meBilling": "账单",
+    "meUsage": "消费明细",
+    "meSettings": "设置",
+    "noAccess": "无权限",
+    "login": "登录"
+  },
+  "section": {
+    "home": "首页",
+    "download": "下载",
+    "account": "个人中心",
+    "console": "控制面板"
+  },
+  "me": {
+    "subtitle": "账号信息与余额",
+    "billingSubtitle": "余额与全部流水",
+    "usageSubtitle": "按模型统计的消费明细",
+    "usageDetail": "消费明细",
+    "balance": "账户余额",
+    "recentLedger": "最近流水",
+    "ledger": "流水",
+    "emptyLedger": "还没有流水记录",
+    "emptyUsage": "还没有消费记录",
+    "time": "时间",
+    "kind": "类型",
+    "kindGrant": "赠送",
+    "kindCharge": "扣费",
+    "amount": "金额",
+    "balanceAfter": "变动后余额",
+    "model": "模型",
+    "tokens": "输入 / 输出",
+    "note": "说明",
+    "prev": "上一页",
+    "next": "下一页",
+    "pageOf": "第 {page} / {pages} 页",
+    "settingsSubtitle": "账户信息",
+    "username": "账号",
+    "displayName": "显示名",
+    "roles": "角色",
+    "passwordHint": "修改密码请联系管理员。",
+    "accountInfo": "账号信息",
+    "phone": "手机号",
+    "notSet": "未设置",
+    "statusLabel": "状态",
+    "lastLogin": "最近登录",
+    "neverLoggedIn": "从未登录",
+    "viewBilling": "查看账单",
+    "viewUsage": "查看消费明细",
+    "accountInfoHint": "账号由管理员创建与维护，不开放自注册。",
+    "ledgerHint": "余额的每一次变动都会留一条记录。",
+    "usageHint": "按调用时间倒序，金额为本条调用扣费。",
+    "totalRecords": "共 {n} 条",
+    "usageRecords": "调用记录",
+    "overview": "本月概览",
+    "overviewHint": "金额按实际扣费流水合计，与余额变化一致。",
+    "monthSpent": "本月消费",
+    "todaySpent": "今日消费",
+    "monthTokens": "本月 tokens",
+    "calls": "调用次数",
+    "last7d": "近 7 天 Token 用量",
+    "noUsageYet": "这 7 天还没有用量",
+    "viewAll": "查看全部",
+    "balanceAfterShort": "余额"
+  },
+  "download": {
+    "title": "下载 Pointer",
+    "subtitle": "选择与您电脑系统对应的安装包",
+    "back": "返回首页",
+    "empty": "还没有已发布的安装包。",
+    "macos": "macOS",
+    "windows": "Windows",
+    "linux": "Linux",
+    "local": "本机",
+    "unavailable": "暂未开放",
+    "fileSize": "文件大小",
+    "download": "下载",
+    "minReq": "最低系统要求",
+    "installSteps": "安装说明",
+    "req": {
+      "windows": "Windows 10 及以上（64 位）",
+      "macos": "macOS 10.15（Catalina）及以上",
+      "linux": "Ubuntu 22.04 及以上（64 位）"
+    },
+    "steps": {
+      "windows": [
+        "下载后双击安装。",
+        "若出现安全提示，请选择「更多信息」→「仍要运行」。"
+      ],
+      "macos": [
+        "打开安装包，将 Pointer 拖入「应用程序」文件夹。",
+        "若提示无法验证开发者，请在「系统设置 → 隐私与安全性」中允许。"
+      ],
+      "linux": [
+        ".deb：Ubuntu / Debian 适用，双击安装。",
+        "AppImage：免安装，允许执行后直接运行。"
+      ]
+    }
+  },
+  "notFound": {
+    "title": "页面不存在",
+    "hint": "地址可能输错了，或者这个页面已经被移除。",
+    "back": "返回首页"
+  },
+  "noAccess": {
+    "title": "没有可访问的页面",
+    "hint": "请联系管理员为你分配角色和权限。"
   },
   "common": {
     "save": "保存",
@@ -51,6 +157,12 @@
     "subtitle": "账号只能由管理员创建，不开放自注册。",
     "account": "账号",
     "name": "姓名",
+    "phone": "手机号",
+    "phoneAdd": "填手机号",
+    "phoneEdit": "改",
+    "phoneEditHint": "手机号（私有版的短信登录复用这一列）",
+    "phonePrompt": "填写 {name} 的手机号（留空即清除）",
+    "phoneDone": "手机号已保存",
     "status": "状态",
     "roles": "角色",
     "lastLogin": "最近登录",
@@ -84,7 +196,8 @@
     "grant": "加额",
     "grantPrompt": "给 {name} 加多少元？",
     "grantInvalid": "请输入大于 0 的金额",
-    "grantDone": "已加 {amount} 元，当前余额 {balance} 元"
+    "grantDone": "已加 {amount} 元，当前余额 {balance} 元",
+    "search": "搜索姓名或账号"
   },
   "login": {
     "title": "登录 Pointer 控制面",
@@ -506,7 +619,7 @@
     "intensityAuto": "按思考预算推断"
   },
   "releases": {
-    "subtitle": "客户端自动更新：上传各平台安装包与签名文件，发布后客户端启动时自动检查。",
+    "subtitle": "每个平台一次选完：安装包（.dmg / .msi / .deb / .AppImage）、更新包（.tar.gz）与对应 .sig，按文件名自动归位。安装包进下载页，更新包供客户端自动更新。",
     "newVersion": "新建版本",
     "version": "版本号",
     "notes": "更新说明",
@@ -531,7 +644,31 @@
     "upload": "上传",
     "uploading": "上传中…",
     "pickPackage": "请先选择安装包",
-    "pickSignature": "请先选择签名文件（.sig）"
+    "pickSignature": "请先选择签名文件（.sig）",
+    "installers": "安装包（下载页展示）",
+    "updaters": "自动更新包（客户端自动更新）",
+    "kindMacosDmg": "macOS 安装包",
+    "kindWindowsMsi": "Windows 安装包",
+    "kindLinuxDeb": "Linux Debian 包",
+    "kindLinuxAppImage": "Linux AppImage",
+    "kindMacosUpdater": "macOS 更新包",
+    "kindWindowsUpdater": "Windows 更新包",
+    "kindLinuxUpdater": "Linux 更新包",
+    "reusePrevious": "沿用上一版",
+    "reuseHint": "把 {version} 的安装包与更新包沿用过来（内容相同，不重复上传）",
+    "reusing": "沿用中…",
+    "reuseDone": "已从 {version} 沿用 {n} 个包",
+    "reuseNothing": "上一版的包本版本都已有，没有需要沿用的",
+    "pickFiles": "请先选择文件",
+    "onlySig": "只选了 .sig，没有安装包或更新包",
+    "uploadCount": "已上传 {n} 个包",
+    "uploadPartial": "上传 {ok} 个，跳过：{skipped}",
+    "missing": "待补：{kinds}",
+    "complete": "齐全",
+    "pickHint": "可多选：安装包（.dmg/.msi/.deb/.AppImage）、更新包（.tar.gz）与对应 .sig",
+    "picked": "已选 {n} 个：",
+    "missingCount": "待补 {n} 项",
+    "notUploaded": "未上传"
   },
   "billing": {
     "title": "计费",

@@ -5,6 +5,9 @@ export interface SessionUser {
   id: string
   username: string
   displayName: string
+  status?: string
+  phone?: string | null
+  lastLoginAt?: number | null
 }
 
 export const session = reactive({
@@ -49,6 +52,9 @@ export async function login(
   session.roles = r.roles || []
   session.permissions = r.permissions || []
   session.ready = true
+  // 登录响应只带最小字段；再拉一次 `/me` 补上 status / phone / lastLoginAt，
+  // 否则「我的账户」里状态会显示成「停用」、手机号显示成「未设置」。
+  await loadSession()
 }
 
 export async function logout(): Promise<void> {

@@ -108,6 +108,22 @@ async function grantCredit(user: any) {
   }
 }
 
+/** 维护成员手机号：开源仓只存不用，私有仓的短信登录复用这一列。 */
+async function editPhone(user: any) {
+  const raw = prompt(
+    t('members.phonePrompt', { name: user.displayName || user.username }),
+    user.phone || ''
+  )
+  if (raw === null) return
+  try {
+    await api.post(`/api/admin/users/${user.id}/phone`, { phone: raw.trim() })
+    flashNotice(t('members.phoneDone'))
+    await load()
+  } catch (e) {
+    error.value = errText(e)
+  }
+}
+
 async function toggleStatus(user: any) {
   const next = user.status === 'active' ? 'disabled' : 'active'
   try {
@@ -190,9 +206,17 @@ onMounted(load)
     <div>
       <p class="muted small" style="margin: 0">{{ t('members.subtitle') }}</p>
     </div>
-    <div class="row" v-if="can('user:write')">
-      <button @click="showImport = true; importResult = null">{{ t('members.import') }}</button>
-      <button class="primary" @click="showCreate = true">{{ t('members.create') }}</button>
+    <div class="row" style="gap: 8px">
+      <input
+        v-model="keyword"
+        class="toolbar-search"
+        :placeholder="t('members.search')"
+        type="search"
+      />
+      <template v-if="can('user:write')">
+        <button @click="showImport = true; importResult = null">{{ t('members.import') }}</button>
+        <button class="primary" @click="showCreate = true">{{ t('members.create') }}</button>
+      </template>
     </div>
   </div>
 
@@ -208,6 +232,7 @@ onMounted(load)
         <tr>
           <th style="width: 150px">{{ t('members.account') }}</th>
           <th style="width: 130px">{{ t('members.name') }}</th>
+          <th style="width: 130px">{{ t('members.phone') }}</th>
           <th style="width: 84px">{{ t('members.status') }}</th>
           <th style="width: 110px">{{ t('members.balance') }}</th>
           <th>{{ t('members.roles') }}</th>
@@ -219,6 +244,18 @@ onMounted(load)
         <tr v-for="user in shown" :key="user.id">
           <td class="mono">{{ user.username }}</td>
           <td>{{ user.displayName || '—' }}</td>
+          <td class="mono small phone-cell">
+            <span v-if="user.phone">{{ user.phone }}</span>
+            <span v-else class="muted">—</span>
+            <button
+              v-if="can('user:write')"
+              class="tiny phone-edit"
+              :title="t('members.phoneEditHint')"
+              @click="editPhone(user)"
+            >
+              {{ user.phone ? t('members.phoneEdit') : t('members.phoneAdd') }}
+            </button>
+          </td>
           <td>
             <span class="tag" :class="user.status === 'active' ? 'ok' : 'plain'">
               {{ user.status === 'active' ? t('common.enabled') : t('common.disabled') }}
@@ -333,4 +370,8 @@ onMounted(load)
 
 <style scoped>
 .role-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* 手机号为空时只显示「—」，编辑按钮悬停才出现，避免每行挂一个带边框按钮。 */
+.phone-cell .phone-edit { margin-left: 6px; opacity: 0; transition: opacity 0.12s; }
+.phone-cell:hover .phone-edit,
+.phone-cell:focus-within .phone-edit { opacity: 1; }
 </style>

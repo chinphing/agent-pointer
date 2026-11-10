@@ -524,13 +524,21 @@ onMounted(async () => {
     <div>
       <p class="muted small" style="margin: 0">{{ t('resources.subtitle') }}</p>
     </div>
-    <!-- 模型不单独建：它属于某个服务商，跟着服务商一起配 -->
-    <span v-if="kind === 'model'" class="small muted">
-      {{ t('resources.modelsWithProvider') }}
-    </span>
-    <button v-else-if="canWrite" class="primary" @click="openCreate">
-      {{ t('resources.newKind', { kind: t(KINDS.find((k) => k.key === kind)?.labelKey || '') }) }}
-    </button>
+    <div class="row" style="gap: 8px">
+      <input
+        v-model="keyword"
+        class="toolbar-search"
+        :placeholder="t('resources.search')"
+        type="search"
+      />
+      <!-- 模型不单独建：它属于某个服务商，跟着服务商一起配 -->
+      <span v-if="kind === 'model'" class="small muted">
+        {{ t('resources.modelsWithProvider') }}
+      </span>
+      <button v-else-if="canWrite" class="primary" @click="openCreate">
+        {{ t('resources.newKind', { kind: t(KINDS.find((k) => k.key === kind)?.labelKey || '') }) }}
+      </button>
+    </div>
   </div>
 
   <div class="tabs" style="margin-top: 16px">
@@ -558,7 +566,6 @@ onMounted(async () => {
   <div v-else class="panel" style="margin-top: 16px">
     <!-- 设计图 03：搜索 + 状态筛选 -->
     <div class="row" style="padding: 0 0 12px; gap: 8px">
-      <input v-model="keyword" :placeholder="t('resources.search')" style="max-width: 260px" />
       <select
         v-if="kind === 'model'"
         v-model="providerFilter"

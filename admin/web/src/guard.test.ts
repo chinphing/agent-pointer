@@ -9,6 +9,7 @@ describe('authGuard', () => {
   beforeEach(() => {
     session.ready = false
     session.user = null
+    session.permissions = []
   })
 
   it('公开页（登录页）直接放行', () => {
@@ -32,5 +33,29 @@ describe('authGuard', () => {
     session.ready = true
     session.user = { id: 'u1', username: 'admin', displayName: '管理员' }
     expect(authGuard(protectedRoute)).toBe(true)
+  })
+
+  it('有权限的页面放行', () => {
+    session.ready = true
+    session.user = { id: 'u1', username: 'admin', displayName: '管理员' }
+    session.permissions = ['audit:read']
+    expect(authGuard({ meta: { perm: 'audit:read' } })).toBe(true)
+  })
+
+  it('没权限的页面重定向到能看的落地页，而不是渲染后吃 403', () => {
+    session.ready = true
+    session.user = { id: 'u2', username: 'member', displayName: '成员' }
+    session.permissions = []
+    // 零权限用户的落地页是 /me（登录即可）
+    expect(authGuard({ meta: { perm: 'audit:read' } })).toEqual({ path: '/me' })
+  })
+
+  it('任一权限命中即可（资源页跨多种 kind）', () => {
+    session.ready = true
+    session.user = { id: 'u3', username: 'ops', displayName: '运营' }
+    session.permissions = ['model:read']
+    expect(
+      authGuard({ meta: { perm: ['provider:read', 'model:read', 'skill:read'] } })
+    ).toBe(true)
   })
 })

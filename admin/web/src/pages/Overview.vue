@@ -2,7 +2,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
-import { fmtCount as fmt, when } from '../lib/format'
+import { when } from '../lib/format'
+import { fmtCompact } from '../lib/chart'
+import BarChart from '../components/BarChart.vue'
 
 const loading = ref(true)
 const error = ref('')
@@ -18,12 +20,6 @@ const KIND_LABEL: Record<string, string> = {
   mcp: 'MCP',
   tier_profile: t('kind.tier_profile'),
 }
-
-/** 近 7 天柱状图的基准高度用最大值，全 0 时给 1 避免除零。 */
-const trendMax = computed(() => {
-  const list: any[] = data.value?.tokenTrend || []
-  return Math.max(1, ...list.map((d: any) => Number(d.tokens || 0)))
-})
 
 function actionText(action: string) {
   const key = `action.${action}`
@@ -75,26 +71,28 @@ onMounted(async () => {
       </div>
       <div class="panel stat">
         <div class="muted small">{{ t('overview.todayTokens') }}</div>
-        <div class="big">{{ fmt(data.todayTokens) }}</div>
-        <div class="small muted">{{ t('overview.monthTokens', { n: fmt(usage?.totals?.total || 0) }) }}</div>
+        <div class="big" :title="String(data.todayTokens)">{{ fmtCompact(data.todayTokens) }}</div>
+        <div class="small muted">
+          {{ t('overview.monthTokens', { n: fmtCompact(usage?.totals?.total || 0) }) }}
+        </div>
       </div>
     </div>
 
     <div class="panel" style="margin-top: 16px">
       <h2>{{ t('overview.last7d') }}</h2>
       <div v-if="!data.tokenTrend?.length" class="empty">{{ t('overview.noUsageData') }}</div>
-      <div v-else class="trend">
-        <div v-for="d in data.tokenTrend" :key="d.day" class="bar-wrap">
-          <div class="bar-col">
-            <div
-              class="bar"
-              :style="{ height: Math.max(2, (Number(d.tokens) / trendMax) * 100) + '%' }"
-              :title="`${d.day}：${fmt(d.tokens)} tokens`"
-            ></div>
-          </div>
-          <div class="small muted">{{ String(d.day).slice(5) }}</div>
-        </div>
-      </div>
+      <BarChart
+        v-else
+        class="trend"
+        :height="130"
+        :points="
+          data.tokenTrend.map((d: any) => ({
+            label: String(d.day).slice(5),
+            value: Number(d.tokens || 0),
+            hint: `${d.day}：${fmtCompact(d.tokens)} tokens`,
+          }))
+        "
+      />
     </div>
 
     <div class="panel">
@@ -148,9 +146,9 @@ onMounted(async () => {
         <tbody>
           <tr v-for="row in usage.byModel" :key="row.key">
             <td class="mono">{{ row.key || t('overview.unlabeled') }}</td>
-            <td class="num">{{ fmt(row.promptTokens) }}</td>
-            <td class="num">{{ fmt(row.completionTokens) }}</td>
-            <td class="num">{{ fmt(row.total) }}</td>
+            <td class="num" :title="String(row.promptTokens)">{{ fmtCompact(row.promptTokens) }}</td>
+            <td class="num" :title="String(row.completionTokens)">{{ fmtCompact(row.completionTokens) }}</td>
+            <td class="num" :title="String(row.total)">{{ fmtCompact(row.total) }}</td>
           </tr>
         </tbody>
       </table>
@@ -162,13 +160,6 @@ onMounted(async () => {
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .stat .big { font-size: 26px; font-weight: 600; margin: 6px 0 2px; }
 
-.trend { display: flex; gap: 10px; align-items: flex-end; margin-top: 14px; }
-.bar-wrap { flex: 1; text-align: center; }
-.bar-col { height: 110px; display: flex; align-items: flex-end; }
-.bar {
-  width: 100%;
-  background: var(--accent);
-  border-radius: 6px 6px 2px 2px;
-  min-height: 2px;
-}
+/* 图表组件自带布局，这里只补间距，不要再加 flex —— 会覆盖组件的 grid */
+.trend { margin-top: 16px; }
 </style>

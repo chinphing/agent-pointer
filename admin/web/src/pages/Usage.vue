@@ -3,7 +3,8 @@ import { onMounted, ref } from 'vue'
 import { useNotice } from '../lib/notice'
 import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
-import { fmtCount as fmt } from '../lib/format'
+import { fmtCount } from '../lib/format'
+import { fmtCompact } from '../lib/chart'
 import { can } from '../store'
 
 const { t } = useI18n()
@@ -28,6 +29,10 @@ async function load() {
     if (to.value) params.set('to', to.value)
     const qs = params.toString()
     data.value = await api.get(`/api/admin/usage${qs ? `?${qs}` : ''}`)
+    // 没指定区间时后端按月兜底；把兜底区间回填到控件，
+    // 否则输入框空着、下面却显示「2026-11-01 ~ 2026-11-10」，看不出在查哪一段。
+    if (!from.value && data.value?.from) from.value = String(data.value.from).slice(0, 10)
+    if (!to.value && data.value?.to) to.value = String(data.value.to).slice(0, 10)
   } catch (e) {
     error.value = errText(e)
   } finally {
@@ -94,23 +99,23 @@ onMounted(load)
       <div class="grid" style="margin-top: 12px">
         <div>
           <div class="muted small">{{ t('usage.inputTokens') }}</div>
-          <div class="big">{{ fmt(data.totals.promptTokens) }}</div>
+          <div class="big" :title="fmtCount(data.totals.promptTokens)">{{ fmtCompact(data.totals.promptTokens) }}</div>
         </div>
         <div>
           <div class="muted small">{{ t('usage.outputTokens') }}</div>
-          <div class="big">{{ fmt(data.totals.completionTokens) }}</div>
+          <div class="big" :title="fmtCount(data.totals.completionTokens)">{{ fmtCompact(data.totals.completionTokens) }}</div>
         </div>
         <div>
           <div class="muted small">{{ t('usage.thinkingTokens') }}</div>
-          <div class="big">{{ fmt(data.totals.thinkingTokens) }}</div>
+          <div class="big" :title="fmtCount(data.totals.thinkingTokens)">{{ fmtCompact(data.totals.thinkingTokens) }}</div>
         </div>
         <div>
           <div class="muted small">{{ t('usage.cachedTokens') }}</div>
-          <div class="big">{{ fmt(data.totals.cachedTokens) }}</div>
+          <div class="big" :title="fmtCount(data.totals.cachedTokens)">{{ fmtCompact(data.totals.cachedTokens) }}</div>
         </div>
         <div>
           <div class="muted small">{{ t('usage.total') }}</div>
-          <div class="big">{{ fmt(data.totals.total) }}</div>
+          <div class="big" :title="fmtCount(data.totals.total)">{{ fmtCompact(data.totals.total) }}</div>
         </div>
       </div>
       <p class="muted small" style="margin-top: 10px">{{ t('usage.breakdownHint') }}</p>
@@ -126,11 +131,11 @@ onMounted(load)
         <tbody>
           <tr v-for="row in data.byUser" :key="row.key">
             <td>{{ row.label || row.key }}</td>
-            <td class="num">{{ fmt(row.promptTokens) }}</td>
-            <td class="num">{{ fmt(row.completionTokens) }}</td>
-            <td class="num muted">{{ fmt(row.thinkingTokens) }}</td>
-            <td class="num muted">{{ fmt(row.cachedTokens) }}</td>
-            <td class="num">{{ fmt(row.total) }}</td>
+            <td class="num" :title="fmtCount(row.promptTokens)">{{ fmtCompact(row.promptTokens) }}</td>
+            <td class="num" :title="fmtCount(row.completionTokens)">{{ fmtCompact(row.completionTokens) }}</td>
+            <td class="num muted" :title="fmtCount(row.thinkingTokens)">{{ fmtCompact(row.thinkingTokens) }}</td>
+            <td class="num muted" :title="fmtCount(row.cachedTokens)">{{ fmtCompact(row.cachedTokens) }}</td>
+            <td class="num" :title="fmtCount(row.total)">{{ fmtCompact(row.total) }}</td>
           </tr>
         </tbody>
       </table>
@@ -146,11 +151,11 @@ onMounted(load)
         <tbody>
           <tr v-for="row in data.byModel" :key="row.key">
             <td class="mono">{{ row.key || t('usage.unlabeled') }}</td>
-            <td class="num">{{ fmt(row.promptTokens) }}</td>
-            <td class="num">{{ fmt(row.completionTokens) }}</td>
-            <td class="num muted">{{ fmt(row.thinkingTokens) }}</td>
-            <td class="num muted">{{ fmt(row.cachedTokens) }}</td>
-            <td class="num">{{ fmt(row.total) }}</td>
+            <td class="num" :title="fmtCount(row.promptTokens)">{{ fmtCompact(row.promptTokens) }}</td>
+            <td class="num" :title="fmtCount(row.completionTokens)">{{ fmtCompact(row.completionTokens) }}</td>
+            <td class="num muted" :title="fmtCount(row.thinkingTokens)">{{ fmtCompact(row.thinkingTokens) }}</td>
+            <td class="num muted" :title="fmtCount(row.cachedTokens)">{{ fmtCompact(row.cachedTokens) }}</td>
+            <td class="num" :title="fmtCount(row.total)">{{ fmtCompact(row.total) }}</td>
           </tr>
         </tbody>
       </table>
@@ -166,11 +171,11 @@ onMounted(load)
         <tbody>
           <tr v-for="row in data.byDay" :key="row.key">
             <td class="mono">{{ row.key }}</td>
-            <td class="num">{{ fmt(row.promptTokens) }}</td>
-            <td class="num">{{ fmt(row.completionTokens) }}</td>
-            <td class="num muted">{{ fmt(row.thinkingTokens) }}</td>
-            <td class="num muted">{{ fmt(row.cachedTokens) }}</td>
-            <td class="num">{{ fmt(row.total) }}</td>
+            <td class="num" :title="fmtCount(row.promptTokens)">{{ fmtCompact(row.promptTokens) }}</td>
+            <td class="num" :title="fmtCount(row.completionTokens)">{{ fmtCompact(row.completionTokens) }}</td>
+            <td class="num muted" :title="fmtCount(row.thinkingTokens)">{{ fmtCompact(row.thinkingTokens) }}</td>
+            <td class="num muted" :title="fmtCount(row.cachedTokens)">{{ fmtCompact(row.cachedTokens) }}</td>
+            <td class="num" :title="fmtCount(row.total)">{{ fmtCompact(row.total) }}</td>
           </tr>
         </tbody>
       </table>
@@ -186,9 +191,9 @@ onMounted(load)
 
       <div v-if="quotaState" class="quota-box">
         <div class="small muted">
-          {{ t('usage.usedThisMonth') }} <strong>{{ fmt(quotaState.used) }}</strong>
+          {{ t('usage.usedThisMonth') }} <strong :title="fmtCount(quotaState.used)">{{ fmtCompact(quotaState.used) }}</strong>
           <span v-if="quotaState.monthlyTokenLimit">
-            {{ t('usage.limitOf', { n: fmt(quotaState.monthlyTokenLimit) }) }}
+            {{ t('usage.limitOf', { n: fmtCompact(quotaState.monthlyTokenLimit) }) }}
           </span>
           <span v-if="quotaState.blocks" class="tag danger" style="margin-left: 8px">{{ t('usage.blocked') }}</span>
           <span v-else-if="quotaState.exceeded" class="tag warn" style="margin-left: 8px">{{ t('usage.overLimit') }}</span>

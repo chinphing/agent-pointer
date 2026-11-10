@@ -14,7 +14,113 @@
     "usage": "Usage",
     "audit": "Audit",
     "releases": "App updates",
-    "billing": "Billing"
+    "billing": "Billing",
+    "me": "My account",
+    "meBilling": "Billing",
+    "meUsage": "Usage detail",
+    "meSettings": "Settings",
+    "noAccess": "No access",
+    "login": "Sign in"
+  },
+  "section": {
+    "home": "Home",
+    "download": "Download",
+    "account": "Account",
+    "console": "Console"
+  },
+  "me": {
+    "subtitle": "Account details and balance",
+    "billingSubtitle": "Balance and full ledger",
+    "usageSubtitle": "Consumption detail by model",
+    "usageDetail": "Consumption detail",
+    "balance": "Balance",
+    "recentLedger": "Recent ledger",
+    "ledger": "Ledger",
+    "emptyLedger": "No ledger entries yet",
+    "emptyUsage": "No consumption yet",
+    "time": "Time",
+    "kind": "Type",
+    "kindGrant": "Credit",
+    "kindCharge": "Charge",
+    "amount": "Amount",
+    "balanceAfter": "Balance after",
+    "model": "Model",
+    "tokens": "In / Out",
+    "note": "Note",
+    "prev": "Previous",
+    "next": "Next",
+    "pageOf": "Page {page} of {pages}",
+    "settingsSubtitle": "Account information",
+    "username": "Account",
+    "displayName": "Display name",
+    "roles": "Roles",
+    "passwordHint": "Ask an administrator to change your password.",
+    "accountInfo": "Account",
+    "phone": "Phone",
+    "notSet": "Not set",
+    "statusLabel": "Status",
+    "lastLogin": "Last login",
+    "neverLoggedIn": "Never signed in",
+    "viewBilling": "View billing",
+    "viewUsage": "View usage",
+    "accountInfoHint": "Accounts are created and maintained by administrators.",
+    "ledgerHint": "Every balance change leaves a record here.",
+    "usageHint": "Newest first; amount is the charge for that call.",
+    "totalRecords": "{n} records",
+    "usageRecords": "Call records",
+    "overview": "This month",
+    "overviewHint": "Amounts are summed from actual charge records and match balance changes.",
+    "monthSpent": "Spent this month",
+    "todaySpent": "Spent today",
+    "monthTokens": "Tokens this month",
+    "calls": "Calls",
+    "last7d": "Token usage · last 7 days",
+    "noUsageYet": "No usage in the last 7 days",
+    "viewAll": "View all",
+    "balanceAfterShort": "Balance"
+  },
+  "download": {
+    "title": "Download Pointer",
+    "subtitle": "Pick the installer that matches your system",
+    "back": "Back to home",
+    "empty": "No published builds yet.",
+    "macos": "macOS",
+    "windows": "Windows",
+    "linux": "Linux",
+    "local": "This device",
+    "unavailable": "Not available yet",
+    "fileSize": "Size",
+    "download": "Download",
+    "minReq": "Minimum requirements",
+    "installSteps": "Installation",
+    "req": {
+      "windows": "Windows 10 or later (64-bit)",
+      "macos": "macOS 10.15 (Catalina) or later",
+      "linux": "Ubuntu 22.04 or later (64-bit)"
+    },
+    "steps": {
+      "windows": [
+        "Double-click the installer to install.",
+        "If a security prompt appears, choose More info → Run anyway."
+      ],
+      "macos": [
+        "Open the package and drag Pointer into Applications.",
+        "If macOS cannot verify the developer, allow it under System Settings → Privacy & Security."
+      ],
+      "linux": [
+        ".deb: for Ubuntu / Debian, double-click to install.",
+        "AppImage: no install needed, make it executable and run."
+      ]
+    }
+  },
+  "notFound": {
+    "title": "Page not found",
+    "hint": "The address may be mistyped, or this page no longer exists.",
+    "back": "Back to home"
+  },
+  "noAccess": {
+    "title": "No pages available",
+    "hint": "Ask an administrator to grant you a role and permissions."
   },
   "common": {
     "save": "Save",
@@ -51,6 +157,12 @@
     "subtitle": "Accounts are created by admins; self sign-up is disabled.",
     "account": "Account",
     "name": "Name",
+    "phone": "Phone",
+    "phoneAdd": "Add phone",
+    "phoneEdit": "Edit",
+    "phoneEditHint": "Phone number (the private edition reuses this column for SMS login)",
+    "phonePrompt": "Phone number for {name} (leave empty to clear)",
+    "phoneDone": "Phone number saved",
     "status": "Status",
     "roles": "Roles",
     "lastLogin": "Last sign-in",
@@ -84,7 +196,8 @@
     "grant": "Top up",
     "grantPrompt": "How much CNY to add for {name}?",
     "grantInvalid": "Enter an amount greater than 0",
-    "grantDone": "Added ¥{amount}, balance now ¥{balance}"
+    "grantDone": "Added ¥{amount}, balance now ¥{balance}",
+    "search": "Search name or account"
   },
   "login": {
     "title": "Sign in to Pointer console",
@@ -506,7 +619,7 @@
     "intensityAuto": "Derived from thinking budget"
   },
   "releases": {
-    "subtitle": "Client auto-update: upload per-platform installers and signatures; clients check on launch once published.",
+    "subtitle": "Pick everything for one platform at once: installers (.dmg / .msi / .deb / .AppImage), updater bundles (.tar.gz) and their .sig. Files are sorted by name — installers go to the download page, updater bundles drive client auto-update.",
     "newVersion": "New version",
     "version": "Version",
     "notes": "Release notes",
@@ -531,7 +644,31 @@
     "upload": "Upload",
     "uploading": "Uploading…",
     "pickPackage": "Pick an installer first",
-    "pickSignature": "Pick the .sig file first"
+    "pickSignature": "Pick the .sig file first",
+    "installers": "Installers (shown on the download page)",
+    "updaters": "Updater bundles (client auto-update)",
+    "kindMacosDmg": "macOS installer",
+    "kindWindowsMsi": "Windows installer",
+    "kindLinuxDeb": "Linux Debian package",
+    "kindLinuxAppImage": "Linux AppImage",
+    "kindMacosUpdater": "macOS updater",
+    "kindWindowsUpdater": "Windows updater",
+    "kindLinuxUpdater": "Linux updater",
+    "reusePrevious": "Reuse previous",
+    "reuseHint": "Reuse installers and updater bundles from {version} (identical content, no re-upload)",
+    "reusing": "Reusing…",
+    "reuseDone": "Reused {n} package(s) from {version}",
+    "reuseNothing": "Nothing to reuse — this version already has them all",
+    "pickFiles": "Choose files first",
+    "onlySig": "Only .sig files selected — no installer or updater bundle",
+    "uploadCount": "Uploaded {n} package(s)",
+    "uploadPartial": "Uploaded {ok}, skipped: {skipped}",
+    "missing": "Missing: {kinds}",
+    "complete": "Complete",
+    "pickHint": "Multi-select: installers (.dmg/.msi/.deb/.AppImage), updater bundles (.tar.gz) and their .sig",
+    "picked": "{n} selected: ",
+    "missingCount": "{n} missing",
+    "notUploaded": "Not uploaded"
   },
   "billing": {
     "title": "Billing",

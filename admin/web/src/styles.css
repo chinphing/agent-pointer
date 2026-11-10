@@ -178,3 +178,142 @@ td.actions .row, .actions-row { display: flex; align-items: center; gap: 6px; ju
   border-top: 1px solid var(--line);
   border-radius: 0 0 12px 12px;
 }
+
+/* ---------- 个人中心：统一区块、身份条、大号数字与键值行 ---------- */
+.me-page { display: flex; flex-direction: column; gap: 20px; }
+.me-lead { margin: -4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
+
+.me-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 22px 24px;
+}
+.me-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.me-card-title { font-size: 14px; font-weight: 600; color: var(--fg); }
+.me-card-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+/* 身份条：大头像 + 名字 + 账号/角色 */
+.me-identity { display: flex; align-items: center; gap: 16px; }
+.me-avatar {
+  width: 56px; height: 56px; flex: 0 0 56px;
+  border-radius: 18px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; font-weight: 600;
+  background: var(--accent-soft); color: var(--accent);
+}
+.me-identity-name { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+.me-identity-meta { font-size: 13px; color: var(--muted); margin-top: 5px; }
+
+/* 余额：数字要撑得住版面 */
+.me-balance-label { font-size: 13px; color: var(--muted); }
+.me-balance {
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  margin-top: 8px;
+}
+
+/* 键值行 */
+.me-kv { display: flex; flex-direction: column; }
+.me-kv-row {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.me-kv-row:last-child { border-bottom: none; padding-bottom: 0; }
+.me-kv-key { color: var(--muted); }
+.me-kv-val { min-width: 0; overflow-wrap: anywhere; }
+
+/* 统计数字并排 */
+.me-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.me-stat { background: var(--panel); padding: 18px 20px; }
+.me-stat-value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.me-stat-label { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+/* 表格留白比后台列表更宽，个人中心内容少，松一点更好看 */
+.me-table th, .me-table td { padding: 13px 12px; }
+.me-table th:first-child, .me-table td:first-child { padding-left: 0; }
+.me-table th:last-child, .me-table td:last-child { padding-right: 0; }
+.me-pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+/* ---------- .btn：之前只在模板里当类名用，样式从未定义，导致链接型按钮退化成纯文字 ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn:disabled:hover { border-color: var(--line); color: var(--fg); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { opacity: 0.92; color: #fff; }
+.btn.danger { color: var(--danger); border-color: var(--danger-soft); }
+.btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+.btn.tiny { height: 26px; padding: 0 10px; font-size: 12px; }
+
+.me-page { max-width: 980px; }
+/* 空状态给个图标位，别只剩一行灰字 */
+.me-empty { padding: 44px 0; }
+.me-empty svg { width: 40px; height: 40px; opacity: 0.55; margin-bottom: 14px; color: var(--muted); }
+.me-empty p { margin: 0; font-size: 13px; }
+
+/* 余额卡：数字与快捷入口同一行，卡片不会被拉得又高又空 */
+.me-balance-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+/* 页面工具栏里的搜索框：放在操作按钮左侧，与按钮同高 */
+.toolbar-search {
+  width: 200px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  font-size: 13px;
+  color: var(--fg);
+  transition: border-color 0.12s;
+}
+.toolbar-search::placeholder { color: var(--muted); }
+.toolbar-search:focus { border-color: var(--accent); outline: none; }

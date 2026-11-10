@@ -2,7 +2,8 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { login } from '../store'
+import { login, session } from '../store'
+import { landingFor } from '../routes'
 import { api, errText } from '../api'
 
 const router = useRouter()
@@ -36,7 +37,8 @@ async function submit() {
   busy.value = true
   try {
     await login(username.value.trim(), password.value, captchaId.value, captcha.value.trim())
-    router.replace('/overview')
+    // 落地页按权限算：管理员进概览，普通用户进 /me，不再固定跳管理员页。
+    router.replace(landingFor(session.permissions))
   } catch (e) {
     error.value = errText(e)
     await refreshCaptcha()

@@ -1,34 +1,23 @@
-import { createRouter, createWebHashHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
 import { authGuard } from './guard'
+import { ROUTES } from './routes'
 
-import Overview from './pages/Overview.vue'
-import Members from './pages/Members.vue'
-import Roles from './pages/Roles.vue'
-import Resources from './pages/Resources.vue'
-import Usage from './pages/Usage.vue'
-import Audit from './pages/Audit.vue'
-import Login from './pages/Login.vue'
-
-// hash 路由：控制面是单进程静态托管，刷新任意页面都不会 404
+// history 路由：`/me/billing` 这类多段路径 hash 模式做不到（服务端拿不到 `#` 之后的内容）。
+// 刷新不 404 由服务端 fallback 兜底（见 `admin/src/main.rs` 的 `spa_or_404`）。
+// `BASE_URL` 让子路径部署（`https://host/pointer/`）也能正常工作。
 export const router = createRouter({
-  history: createWebHashHistory(),
-  routes: [
-    { path: '/', redirect: '/overview' },
-    { path: '/login', component: Login, meta: { public: true } },
-    { path: '/overview', meta: { title: 'nav.overview', search: 'global' }, component: Overview },
-    { path: '/members', meta: { title: 'nav.members', search: 'member' }, component: Members },
-    { path: '/roles', meta: { title: 'nav.roles' }, component: Roles },
-    { path: '/resources', meta: { title: 'nav.resources', search: 'resource' }, component: Resources },
-    { path: '/releases', meta: { title: 'nav.releases' }, component: () => import('./pages/Releases.vue') },
-    { path: '/usage', meta: { title: 'nav.usage' }, component: Usage },
-    {
-      path: '/billing',
-      meta: { title: 'nav.billing', search: 'billing' },
-      component: () => import('./pages/Billing.vue'),
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes: ROUTES.map((route) => ({
+    path: route.path,
+    component: route.component,
+    meta: {
+      title: route.titleKey,
+      public: route.public,
+      perm: route.perm,
+      search: route.search,
+      section: route.section,
     },
-    { path: '/audit', meta: { title: 'nav.audit' }, component: Audit },
-    { path: '/:pathMatch(.*)*', redirect: '/overview' },
-  ],
+  })),
 })
 
 router.beforeEach(authGuard)

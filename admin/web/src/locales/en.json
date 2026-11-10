@@ -77,7 +77,17 @@
     "last7d": "Token usage · last 7 days",
     "noUsageYet": "No usage in the last 7 days",
     "viewAll": "View all",
-    "balanceAfterShort": "Balance"
+    "balanceAfterShort": "Balance",
+    "changePassword": "Change password",
+    "changePasswordHint": "Other devices will be signed out; this session stays signed in.",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "newPasswordMin": "At least 8 characters",
+    "confirmPassword": "Confirm new password",
+    "passwordTooShort": "New password must be at least 8 characters",
+    "passwordMismatch": "The two new passwords do not match",
+    "passwordSameAsOld": "New password must differ from the current one",
+    "passwordChanged": "Password updated. Other devices have been signed out."
   },
   "download": {
     "title": "Download Pointer",

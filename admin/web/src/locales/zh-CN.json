@@ -77,7 +77,17 @@
     "last7d": "近 7 天 Token 用量",
     "noUsageYet": "这 7 天还没有用量",
     "viewAll": "查看全部",
-    "balanceAfterShort": "余额"
+    "balanceAfterShort": "余额",
+    "changePassword": "修改密码",
+    "changePasswordHint": "改完会作废其他设备上的登录，当前会话自动续上。",
+    "currentPassword": "当前密码",
+    "newPassword": "新密码",
+    "newPasswordMin": "至少 8 位",
+    "confirmPassword": "确认新密码",
+    "passwordTooShort": "新密码至少 8 位",
+    "passwordMismatch": "两次输入的新密码不一致",
+    "passwordSameAsOld": "新密码不能与当前密码相同",
+    "passwordChanged": "密码已更新，其他设备上的登录已失效"
   },
   "download": {
     "title": "下载 Pointer",

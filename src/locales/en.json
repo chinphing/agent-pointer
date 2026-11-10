@@ -762,6 +762,7 @@
     },
     "about": {
       "currentVersion": "Current version",
+      "devBuild": "Dev build",
       "checking": "Checking…",
       "recheck": "Check again",
       "checkUpdate": "Check for updates",

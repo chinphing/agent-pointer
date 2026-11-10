@@ -7,19 +7,52 @@ function viteEnv(name: string): string {
 }
 
 /**
- * Web base for platform pages (billing, …). Supplied by the build
- * (`VITE_POINTER_WEB_BASE`); the open-source tree hardcodes no vendor domain, so
- * a build without it returns empty and callers stay inert.
+ * 控制面地址（部署配置，不是用户设置）。
+ *
+ * 来源只有构建期注入的 `POINTER_API_BASE`（managed 构建）或启动时的同名环境变量。
+ * 启动时由 `initPlatformWebBase()` 从后端读回来，前端据此拼账单页/下载页路径。
+ * 构建期 `VITE_POINTER_WEB_BASE` 只作为非 Tauri 环境（纯 Web 构建）的兜底。
  */
-export function platformWebBase(): string {
-  return viteEnv('VITE_POINTER_WEB_BASE').replace(/\/$/, '')
+let runtimeWebBase = ''
+
+/** 设置运行期控制面地址（去掉尾部斜杠）。 */
+export function setPlatformWebBase(base: string): void {
+  runtimeWebBase = String(base ?? '')
+    .trim()
+    .replace(/\/+$/, '')
 }
 
-/** Official account billing / WeChat recharge page. Empty for personal builds. */
+/** 当前生效的控制面地址；未绑定时为空串，调用方保持静默。 */
+export function platformWebBase(): string {
+  if (runtimeWebBase) return runtimeWebBase
+  return viteEnv('VITE_POINTER_WEB_BASE').replace(/\/+$/, '')
+}
+
+/**
+ * 从后端读一次已保存的控制面地址。启动时调用；失败不影响其他功能。
+ */
+export async function initPlatformWebBase(): Promise<void> {
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    const saved = await invoke<string>('get_control_plane_base')
+    if (saved) setPlatformWebBase(saved)
+  } catch {
+    // 浏览器 / 非 Tauri 环境：保持构建期兜底
+  }
+}
+
+/** 账单/充值页。控制面与官网用同一个路径，客户端不需要按部署分支。 */
 export function platformBillingUrl(): string {
   const base = platformWebBase()
   if (!base) return ''
-  return `${base}/profile/billing`
+  return `${base}/me/billing`
+}
+
+/** 下载页。同样两边同路径。 */
+export function platformDownloadUrl(): string {
+  const base = platformWebBase()
+  if (!base) return viteEnv('VITE_POINTER_DOWNLOAD_URL')
+  return `${base}/download`
 }
 
 export async function openPlatformBillingPage(): Promise<void> {

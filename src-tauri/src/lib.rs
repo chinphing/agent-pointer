@@ -246,6 +246,14 @@ pub fn run() {
             popup_windows::create_main_window(app)
                 .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
 
+            // 开发构建加标题后缀：同一台机器上正式版和调试版可能同时在跑，
+            // 标题一样就分不清该操作哪个窗口。
+            if cfg!(debug_assertions) {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.set_title("Pointer · AI 工作台 · 开发版");
+                }
+            }
+
             // Close button minimizes to tray instead of quitting.
             // Restore: tray left-click / tray menu「显示」; on macOS also Dock icon (`RunEvent::Reopen`).
             // Quit: tray menu「退出」.
@@ -600,6 +608,7 @@ pub fn run() {
             platform_commands::list_token_usage,
             platform_commands::load_platform_session_persisted,
             platform_commands::load_platform_session_from_keyring,
+            platform_commands::get_control_plane_base,
             cloud_commands::get_cloud_platform_me,
             #[cfg(target_os = "macos")]
             macos_permission_commands::register_macos_screen_recording_access,

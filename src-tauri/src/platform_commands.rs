@@ -121,3 +121,12 @@ pub async fn load_platform_session_from_keyring(
 ) -> Result<bool, String> {
     load_platform_session_persisted(state).await
 }
+
+/// 当前生效的控制面地址（来自构建期注入或 `POINTER_API_BASE`）。
+///
+/// 只读：控制面是**部署配置**，不提供运行期改写入口。前端用它拼账单页/下载页
+/// 的相对路径，排查时也能确认这个客户端连的是哪个控制面。
+#[tauri::command]
+pub fn get_control_plane_base() -> String {
+    pointer_core::platform_endpoints::api_base()
+}

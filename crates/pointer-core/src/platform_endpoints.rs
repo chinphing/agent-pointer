@@ -17,6 +17,9 @@ pub const DEFAULT_OAUTH_CLIENT_ID: &str = "pointer-desktop";
 /// Resolve one platform base URL: an explicit env var wins, otherwise only a
 /// managed build falls back to the domain injected at build time. Anything else
 /// is unbound and behaves as standalone.
+///
+/// 控制面地址是**部署配置**，只由构建期注入或启动时的 `POINTER_API_BASE` 决定，
+/// 不提供运行期改写入口：终端用户没有这个信息，填错还会把自己锁在外面。
 fn resolve_platform_base(key: &str, platform_default: &str) -> String {
     if let Ok(raw) = std::env::var(key) {
         let trimmed = raw.trim();

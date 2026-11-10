@@ -6,18 +6,19 @@ import { useAppUpdater } from '../../../composables/useAppUpdater'
 import { isTauriRuntime } from '../../../lib/runtime'
 import { APP_VERSION } from '../../../lib/appVersion'
 import { openExternalUrl } from '../../../lib/openExternalUrl'
+import { platformDownloadUrl } from '../../../lib/platformUrls'
 import { usePlatformAuthStore } from '../../../stores/platformAuth'
 
 const { t } = useI18n()
 
+/** 调试版（vite dev / tauri dev）标出来，避免和已安装的正式版混淆。 */
+const isDevBuild = import.meta.env.DEV
+
 /**
- * Download page for the error-state fallback link. Supplied by the build
- * (`VITE_POINTER_DOWNLOAD_URL`); the open-source tree hardcodes no vendor domain,
- * so a build without it simply shows no link.
+ * 下载页地址：控制面绑定时用「运行期地址 + /download」，
+ * 未绑定时回落到构建期 `VITE_POINTER_DOWNLOAD_URL`（老的自建构建）。
  */
-const DOWNLOAD_URL = String(
-  (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_POINTER_DOWNLOAD_URL ?? ''
-).trim()
+const DOWNLOAD_URL = computed(() => platformDownloadUrl())
 
 /**
  * 有控制面地址才谈得上更新：`isStandalone` 由 `get_auth_mode` 从
@@ -29,8 +30,8 @@ const showUpdater = computed(() => isTauriRuntime() && !platformAuth.isStandalon
 
 function openDownloadPage(e: MouseEvent) {
   e.preventDefault()
-  if (!DOWNLOAD_URL) return
-  void openExternalUrl(DOWNLOAD_URL)
+  if (!DOWNLOAD_URL.value) return
+  void openExternalUrl(DOWNLOAD_URL.value)
 }
 
 const {
@@ -86,7 +87,13 @@ function handleCheckUpdate() {
           </div>
           <div>
             <p class="text-sm font-medium text-foreground">{{ t('settings.about.currentVersion') }}</p>
-            <p class="text-xs text-muted">v{{ currentVersion }}</p>
+            <p class="text-xs text-muted">
+              v{{ currentVersion }}
+              <span
+                v-if="isDevBuild"
+                class="ml-1 rounded bg-warning/15 px-1.5 py-0.5 text-[10px] text-warning"
+              >{{ t('settings.about.devBuild') }}</span>
+            </p>
           </div>
         </div>
 
@@ -213,5 +220,6 @@ function handleCheckUpdate() {
         </a>
       </div>
     </div>
+
   </section>
 </template>

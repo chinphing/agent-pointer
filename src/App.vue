@@ -15,6 +15,7 @@ import { usePlatformAuthStore } from './stores/platformAuth'
 import { useSettingsStore } from './stores/settings'
 import { useSkillsStore } from './stores/skills'
 import { isTauriRuntime } from './lib/runtime'
+import { initPlatformWebBase } from './lib/platformUrls'
 import { migrateLegacyTurnElapsedOnce } from './lib/turnElapsedMigration'
 
 const isDesktopApp = isTauriRuntime()
@@ -79,6 +80,8 @@ const {
 } = useAppUpdater()
 
 onMounted(() => {
+  // 控制面地址来自运行期绑定（官方包不烧域名）；读不到就保持构建期兜底。
+  void initPlatformWebBase()
   void Promise.all([platformAuth.load(), settings.load()])
     .then(async () => {
       skills.initEnabledFromUserSettings()

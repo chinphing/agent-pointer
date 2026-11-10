@@ -26,8 +26,8 @@ When you are packaging a release, find your cell in §0 below.
 |---|---|---|
 | Use it yourself, or hand a **self-built** client to a colleague | standalone × client | [§3 standalone × client](#standalone-client) |
 | Stand up a server for your team | standalone × server | [§4 standalone × server](#standalone-server) |
-| Enterprise: client connecting to an **internal** control plane | managed × client | [§1 managed × client](#managed-client) |
-| Enterprise: deploy the internal control-plane server | managed × server | [§2 managed × server](#managed-server) |
+| Enterprise: client connecting to an **internal** control plane | managed × client | [Enterprise deployment §3](enterprise.md#client) |
+| Enterprise: deploy the internal control-plane server | managed × control plane | [Enterprise deployment §2](enterprise.md) |
 | You want a Pointer **official signed package** | —— | Not produced by this repo; see [`../user/which-build.md`](../user/which-build.md) |
 
 **Master table** (five items per cell: build command / required variables / artifact location / how to verify / external dependencies):

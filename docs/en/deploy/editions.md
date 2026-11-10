@@ -143,6 +143,8 @@ Developers change the code with `npm run tauri:dev`. Replace `--runtime bin` wit
 <a id="managed-server"></a>
 ## 4. managed × server
 
+> **This section is about `pointer-server` (the model gateway), not the control plane.** The control plane is a separate binary, `pointer-admin`; for its deployment and the client wiring see [Enterprise Internal Deployment](enterprise.md).
+
 > Current state: `scripts/build-server.mjs` reads `pointer.local.env` (pre-existing OS / CI variables win) and passes the same environment to both the Vue build and `cargo`; `crates/pointer-core/build.rs` bakes the domains into the binary at compile time. After the build and before packaging, `scripts/lib/verify-baked-edition.mjs` verifies that the two halves agree: under the managed flavour, a missing half fails the build.
 
 ### 4.1 Build command

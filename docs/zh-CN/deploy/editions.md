@@ -143,6 +143,8 @@ src-tauri/target/release/bundle/
 <a id="managed-server"></a>
 ## 4. managed × 服务端
 
+> **这一节讲的是 `pointer-server`（模型网关），不是控制面。** 控制面是另一个二进制 `pointer-admin`，它的部署与客户端对接见 [企业内网部署](enterprise.md)。
+
 > 现状：`scripts/build-server.mjs` 读 `pointer.local.env`（已存在的 OS / CI 变量优先），把同一份环境透传给 Vue 构建与 `cargo`；`crates/pointer-core/build.rs` 把域名编译期烧进二进制。构建后、打包前由 `scripts/lib/verify-baked-edition.mjs` 校验两半一致：managed 口味下任一半缺失即构建失败。
 
 ### 4.1 构建命令

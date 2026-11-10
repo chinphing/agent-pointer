@@ -26,8 +26,8 @@
 |---|---|---|
 | 自己用，或给同事发一个**自己构建**的客户端 | standalone × 客户端 | [§3 standalone × 客户端](#standalone-client) |
 | 自己搭一台服务器给团队用 | standalone × 服务端 | [§4 standalone × 服务端](#standalone-server) |
-| 企业：客户端连**内网**控制面 | managed × 客户端 | [§1 managed × 客户端](#managed-client) |
-| 企业：部署内网控制面服务端 | managed × 服务端 | [§2 managed × 服务端](#managed-server) |
+| 企业：客户端连**内网**控制面 | managed × 客户端 | [企业内网部署 §3](enterprise.md#client) |
+| 企业：部署内网控制面服务端 | managed × 控制面 | [企业内网部署 §2](enterprise.md) |
 | 想要 Pointer **官方签名包** | —— | 不在本仓产出，见 [`../../user/which-build.md`](../user/which-build.md) |
 
 **总表**（每格五项：构建命令 / 需要的变量 / 产物位置 / 怎么验证 / 外部依赖）：

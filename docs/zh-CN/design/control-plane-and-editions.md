@@ -287,6 +287,7 @@ P0 已落地：`standalone` 由「是否绑定控制面」推导，客户端与�
 ## 13. 随各期同步的文档
 
 - [../zh-CN/deploy/editions.md](../deploy/editions.md)
+- [企业内网部署](../deploy/enterprise.md)
 - [../contributing/cross-platform-build.md](../contributing/cross-platform-build.md)
 - [../user/which-build.md](../user/which-build.md)
 - [../user/standalone-server.md](../user/standalone-server.md)

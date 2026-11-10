@@ -287,6 +287,7 @@ Known leftovers (for a later dedicated pass):
 ## 13. Documents updated alongside each phase
 
 - [../deploy/editions.md](../deploy/editions.md)
+- [Enterprise Internal Deployment](../deploy/enterprise.md)
 - [../contributing/cross-platform-build.md](../contributing/cross-platform-build.md)
 - [../user/which-build.md](../user/which-build.md)
 - [../user/standalone-server.md](../user/standalone-server.md)

@@ -524,6 +524,12 @@ pub async fn migrate(store: &AdminStore) -> Result<()> {
     Ok(())
 }
 
+/// 这条 DDL 是不是在建索引。
+fn is_index_ddl(stmt: &str) -> bool {
+    let head = stmt.trim_start().to_ascii_uppercase();
+    head.starts_with("CREATE INDEX") || head.starts_with("CREATE UNIQUE INDEX")
+}
+
 fn first_line(stmt: &str) -> &str {
     stmt.lines().next().unwrap_or(stmt).trim()
 }
@@ -565,10 +571,21 @@ async fn migrate_ext(store: &AdminStore) -> Result<()> {
         if *version <= current {
             continue;
         }
-        store
-            .exec(&adapt(ddl, store.backend))
-            .await
-            .with_context(|| format!("apply ext schema v{version}: {}", first_line(ddl)))?;
+        let stmt = adapt(ddl, store.backend);
+        // 索引是纯优化：重复创建（老库、中途失败重跑）不该让整个迁移失败。
+        // 开源仓自己建索引也是这个策略（`let _ = store.exec(...)`）。
+        // 不这么做的话，迁移在中途失败一次就会永久卡住——版本号没写进去，
+        // 下次重跑又会撞上「索引已存在」。
+        if is_index_ddl(ddl) {
+            if let Err(e) = store.exec(&stmt).await {
+                log::warn!("ext 迁移 v{version} 建索引失败（已忽略）：{e}");
+            }
+        } else {
+            store
+                .exec(&stmt)
+                .await
+                .with_context(|| format!("apply ext schema v{version}: {}", first_line(ddl)))?;
+        }
         applied = *version;
     }
     if applied != current {

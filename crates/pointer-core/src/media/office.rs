@@ -127,7 +127,8 @@ fn list_worksheet_paths(zip: &mut ZipArchive<Cursor<&[u8]>>) -> Vec<String> {
     let mut paths: Vec<String> = (0..zip.len())
         .filter_map(|i| {
             let file = zip.by_index(i).ok()?;
-            let name = file.name().to_string();
+            // zip 9 起 name() 返回 Result<Cow<str>, ZipError>
+            let name = file.name().ok()?.to_string();
             if name.starts_with("xl/worksheets/") && name.ends_with(".xml") {
                 Some(name)
             } else {

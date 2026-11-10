@@ -87,13 +87,20 @@ pub fn inspect_zip(bytes: &[u8], kind: &str) -> Result<ZipSummary> {
             .by_index(index)
             .map_err(|e| anyhow!("读取 zip 条目失败：{e}"))?;
 
+        // zip 9 起 name() 返回 Result<Cow<str>, ZipError>：先取成 String。
+        // 后面 entry 会被可变借用（read_to_end），不能再持有它的引用。
+        let entry_name = entry
+            .name()
+            .map(|n| n.to_string())
+            .unwrap_or_else(|_| "<非法条目名>".to_string());
+
         // enclosed_name() 对绝对路径与 `..` 返回 None —— 路径穿越的第一道闸。
         let safe_path = entry
             .enclosed_name()
-            .ok_or_else(|| anyhow!("zip 内含非法路径：{}", entry.name()))?;
+            .ok_or_else(|| anyhow!("zip 内含非法路径：{entry_name}"))?;
         let normalized = normalize_entry(&safe_path.to_string_lossy());
         if normalized.split('/').any(|part| part == "..") {
-            return Err(anyhow!("zip 内含非法路径：{}", entry.name()));
+            return Err(anyhow!("zip 内含非法路径：{entry_name}"));
         }
 
         if entry.is_dir() {
@@ -101,8 +108,7 @@ pub fn inspect_zip(bytes: &[u8], kind: &str) -> Result<ZipSummary> {
         }
         if entry.size() > max_entry {
             return Err(anyhow!(
-                "条目 {} 超过 {} MiB 上限",
-                entry.name(),
+                "条目 {entry_name} 超过 {} MiB 上限",
                 max_entry / 1024 / 1024
             ));
         }
@@ -111,9 +117,9 @@ pub fn inspect_zip(bytes: &[u8], kind: &str) -> Result<ZipSummary> {
         let mut limited = (&mut entry).take(max_entry + 1);
         limited
             .read_to_end(&mut sink)
-            .map_err(|e| anyhow!("读取条目 {} 失败：{e}", entry.name()))?;
+            .map_err(|e| anyhow!("读取条目 {entry_name} 失败：{e}"))?;
         if sink.len() as u64 > max_entry {
-            return Err(anyhow!("条目 {} 解压后超限", entry.name()));
+            return Err(anyhow!("条目 {entry_name} 解压后超限"));
         }
 
         if safe_path

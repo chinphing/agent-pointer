@@ -368,7 +368,9 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
         if file.is_dir() || file.size() > MAX_ENTRY_SIZE {
             continue;
         }
-        let name = normalize_zip_entry_path(file.name());
+        // zip 9 起 name() 返回 Result<Cow<str>, ZipError>；名字读不出来的条目直接跳过
+        let Ok(entry_name) = file.name() else { continue };
+        let name = normalize_zip_entry_path(&entry_name);
         if is_manifest_path(&name) {
             let mut raw = String::new();
             file.read_to_string(&mut raw)?;
@@ -447,7 +449,9 @@ pub fn import_skill_zip_into(root: &Path, bytes: &[u8]) -> Result<(String, PathB
         if file.is_dir() || file.size() > MAX_ENTRY_SIZE {
             continue;
         }
-        let name = normalize_zip_entry_path(file.name());
+        // zip 9 起 name() 返回 Result<Cow<str>, ZipError>；名字读不出来的条目直接跳过
+        let Ok(entry_name) = file.name() else { continue };
+        let name = normalize_zip_entry_path(&entry_name);
         if is_manifest_path(&name) {
             let mut raw = String::new();
             file.read_to_string(&mut raw)?;
@@ -688,7 +692,12 @@ fn extract_skill_dir<R: Read + std::io::Seek>(
 ) -> Result<()> {
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
-        let name = file.name();
+        // zip 9 起 name() 返回 Result<Cow<str>, ZipError>；转成 String 以免
+        // 与后面 file.read_to_end 的可变借用冲突
+        let Ok(entry_name) = file.name().map(|n| n.into_owned()) else {
+            continue;
+        };
+        let name = entry_name.as_str();
         let Some(rel) = zip_entry_relative_to_base(name, base) else {
             continue;
         };

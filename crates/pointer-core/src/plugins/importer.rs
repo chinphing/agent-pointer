@@ -421,7 +421,11 @@ pub fn import_plugin_zip(bytes: &[u8], target_root: &Path) -> Result<Vec<ImportR
     let tmp = tempfile::tempdir().context("创建临时目录失败")?;
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
-        let name = file.name().to_string();
+        // zip 9 起 name() 返回 Result<Cow<str>, ZipError>
+        let name = file
+            .name()
+            .map_err(|e| anyhow!("读取 zip 条目名失败: {e}"))?
+            .to_string();
         let Some(relative) = normalize_zip_entry_path(&name) else {
             return Err(anyhow!("插件 zip 包含非法路径: {name}"));
         };

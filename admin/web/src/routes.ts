@@ -111,6 +111,13 @@ export const ROUTES: AdminRoute[] = [
     order: 20,
   },
   {
+    path: '/me/recharge',
+    titleKey: 'nav.meRecharge',
+    component: () => import('./pages/me/Recharge.vue'),
+    section: 'account',
+    order: 25,
+  },
+  {
     path: '/me/usage',
     titleKey: 'nav.meUsage',
     component: () => import('./pages/me/Usage.vue'),

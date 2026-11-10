@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { canView, landingFor, ROUTES, SECTIONS, tabsFor, topNavFor } from './routes'
 
-const ACCOUNT_PATHS = ['/me', '/me/billing', '/me/usage', '/me/settings']
+const ACCOUNT_PATHS = ['/me', '/me/billing', '/me/recharge', '/me/usage', '/me/settings']
 const CONSOLE_PATHS = [
   '/admin/overview',
   '/admin/members',
@@ -82,7 +82,7 @@ describe('routes', () => {
     expect(SECTIONS.map((s) => s.key)).not.toContain('home')
   })
 
-  it('个人中心侧边栏固定四项', () => {
+  it('个人中心侧边栏固定五项', () => {
     expect(tabsFor('account', []).map((r) => r.path)).toEqual(ACCOUNT_PATHS)
   })
 

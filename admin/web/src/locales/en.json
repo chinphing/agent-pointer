@@ -20,7 +20,8 @@
     "meUsage": "Usage detail",
     "meSettings": "Settings",
     "noAccess": "No access",
-    "login": "Sign in"
+    "login": "Sign in",
+    "meRecharge": "Top up"
   },
   "section": {
     "download": "Download",
@@ -713,5 +714,25 @@
     "ratioHint": "The rate is a multiple of the baseline model (baseline = 1.0). Models without a rate are not shipped to clients.",
     "ratioRequired": "Rate is required",
     "ratioInvalid": "Rate must be a non-negative number"
+  },
+  "recharge": {
+    "title": "Top up",
+    "subtitle": "Scan to pay; the balance is available as soon as it clears.",
+    "amount": "Amount",
+    "custom": "Custom amount",
+    "customHint": "Amount in yuan",
+    "submit": "Generate QR code",
+    "submitting": "Creating order…",
+    "pending": "Waiting for payment…",
+    "paid": "Payment received. Balance updated.",
+    "closed": "Order closed",
+    "expired": "QR code expired, please start over",
+    "scanHint": "Scan the QR code with WeChat to pay",
+    "mockPay": "Simulate payment (test)",
+    "iPaid": "I have paid",
+    "again": "Top up again",
+    "invalidAmount": "Enter a valid amount",
+    "disabled": "Online top-up is not enabled on this deployment.",
+    "yuan": "CNY"
   }
 }

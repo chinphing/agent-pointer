@@ -20,7 +20,8 @@
     "meUsage": "消费明细",
     "meSettings": "设置",
     "noAccess": "无权限",
-    "login": "登录"
+    "login": "登录",
+    "meRecharge": "充值"
   },
   "section": {
     "download": "下载",
@@ -713,5 +714,25 @@
     "ratioHint": "费率是相对基准模型的倍数（基准模型 = 1.0）。未配费率的模型不会下发给客户端。",
     "ratioRequired": "请填费率",
     "ratioInvalid": "费率必须是非负数字"
+  },
+  "recharge": {
+    "title": "账户充值",
+    "subtitle": "扫码支付，到账后余额立即可用。",
+    "amount": "充值金额",
+    "custom": "其他金额",
+    "customHint": "输入金额，单位元",
+    "submit": "生成支付二维码",
+    "submitting": "正在下单…",
+    "pending": "等待支付…",
+    "paid": "支付成功，余额已到账",
+    "closed": "订单已关闭",
+    "expired": "二维码已过期，请重新下单",
+    "scanHint": "请用微信扫描二维码完成支付",
+    "mockPay": "模拟支付（测试用）",
+    "iPaid": "我已完成支付",
+    "again": "再充一笔",
+    "invalidAmount": "请输入有效金额",
+    "disabled": "当前部署未开通在线充值，请联系管理员。",
+    "yuan": "元"
   }
 }

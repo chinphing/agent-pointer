@@ -92,6 +92,12 @@ function startCountdown() {
   }, 1000)
 }
 
+/** 两种登录方式互切。切换时清掉上一次的错误，否则会带着旧报错进新表单。 */
+function switchMode() {
+  mode.value = mode.value === 'sms' ? 'password' : 'sms'
+  error.value = ''
+}
+
 async function sendCode() {
   error.value = ''
   busy.value = true
@@ -138,18 +144,18 @@ async function submitPassword() {
 <template>
   <div class="wrap">
     <div class="card">
-      <h1>{{ t('login.title') }}</h1>
+      <div class="head">
+        <h1>{{ t('login.title') }}</h1>
+        <button v-if="smsEnabled" type="button" class="link" @click="switchMode">
+          {{ mode === 'sms' ? t('login.passwordTab') : t('login.smsTab') }}
+        </button>
+      </div>
       <p class="muted small">{{ mode === 'sms' ? t('login.smsHint') : t('login.subtitle') }}</p>
 
       <div v-if="error" class="err" style="margin-top: 14px">{{ error }}</div>
 
       <form v-if="mode === 'sms'" @submit.prevent="submitSms">
-        <div class="label-row">
-          <label for="phone">{{ t('login.phone') }}</label>
-          <button type="button" class="link" @click="mode = 'password'; error = ''">
-            {{ t('login.passwordTab') }}
-          </button>
-        </div>
+        <label for="phone">{{ t('login.phone') }}</label>
         <input
           id="phone"
           v-model="phone"
@@ -187,17 +193,7 @@ async function submitPassword() {
       </form>
 
       <form v-else @submit.prevent="submitPassword">
-        <div class="label-row">
-          <label for="u">{{ t('login.account') }}</label>
-          <button
-            v-if="smsEnabled"
-            type="button"
-            class="link"
-            @click="mode = 'sms'; error = ''"
-          >
-            {{ t('login.smsTab') }}
-          </button>
-        </div>
+        <label for="u">{{ t('login.account') }}</label>
         <input id="u" v-model="username" autocomplete="username" autofocus required />
 
         <label for="p">{{ t('login.password') }}</label>
@@ -256,11 +252,11 @@ async function submitPassword() {
 }
 h1 { font-size: 18px; margin-bottom: 6px; }
 p { margin: 0; }
-.label-row {
+.head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
 }
 .link {
   border: 0;

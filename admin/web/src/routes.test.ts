@@ -44,21 +44,20 @@ describe('routes', () => {
     }
   })
 
-  it('四个板块，顺序固定：首页 / 下载 / 个人中心 / 控制面板', () => {
-    expect(SECTIONS.map((s) => s.key)).toEqual(['home', 'download', 'account', 'console'])
+  it('三个板块，顺序固定：下载 / 个人中心 / 控制面板', () => {
+    expect(SECTIONS.map((s) => s.key)).toEqual(['download', 'account', 'console'])
   })
 
-  it('未登录只看到首页与下载', () => {
-    expect(topNavFor([], false).map((i) => i.key)).toEqual(['home', 'download'])
+  it('未登录只看到下载', () => {
+    expect(topNavFor([], false).map((i) => i.key)).toEqual(['download'])
   })
 
   it('登录即出现个人中心；零权限不出现控制面板', () => {
-    expect(topNavFor([], true).map((i) => i.key)).toEqual(['home', 'download', 'account'])
+    expect(topNavFor([], true).map((i) => i.key)).toEqual(['download', 'account'])
   })
 
   it('有任一管理端读权限才出现控制面板', () => {
     expect(topNavFor(['system:read'], true).map((i) => i.key)).toEqual([
-      'home',
       'download',
       'account',
       'console',
@@ -67,10 +66,20 @@ describe('routes', () => {
 
   it('点板块落到该板块第一页', () => {
     const nav = topNavFor(ALL_PERMS, true)
-    expect(nav.find((i) => i.key === 'home')?.path).toBe('/')
     expect(nav.find((i) => i.key === 'download')?.path).toBe('/download')
     expect(nav.find((i) => i.key === 'account')?.path).toBe('/me')
     expect(nav.find((i) => i.key === 'console')?.path).toBe('/admin/overview')
+  })
+
+  // 回归：`/` 曾经是「首页」板块的页面。私有部署的 `/` 归营销站，开源部署的 `/`
+  // 必须只是重定向——两边都别在这里挂组件，否则同一个 URL 会出现两种渲染。
+  it('根路径只做重定向，不挂页面', () => {
+    const root = ROUTES.find((r) => r.path === '/')
+    expect(root).toBeDefined()
+    expect(root?.component).toBeUndefined()
+    expect(root?.redirect).toBe('/me')
+    expect(root?.section).toBeUndefined()
+    expect(SECTIONS.map((s) => s.key)).not.toContain('home')
   })
 
   it('个人中心侧边栏固定四项', () => {

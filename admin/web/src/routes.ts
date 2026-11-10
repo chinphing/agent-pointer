@@ -7,7 +7,6 @@ import Resources from './pages/Resources.vue'
 import Usage from './pages/Usage.vue'
 import Audit from './pages/Audit.vue'
 import Login from './pages/Login.vue'
-import Home from './pages/Home.vue'
 import Download from './pages/Download.vue'
 import Me from './pages/me/Index.vue'
 import NoAccess from './pages/NoAccess.vue'
@@ -23,13 +22,15 @@ import NotFound from './pages/NotFound.vue'
  * - `perm` 省略 = 登录即可；数组 = 任一命中即可见
  * - `public` = 无需登录
  */
-export type Section = 'home' | 'download' | 'account' | 'console'
+export type Section = 'download' | 'account' | 'console'
 
 export interface AdminRoute {
   path: string
   /** i18n key，导航与页面标题共用。 */
   titleKey: string
-  component: RouteComponent
+  /** 重定向路由不渲染组件，只换地址。 */
+  redirect?: string
+  component?: RouteComponent
   public?: boolean
   perm?: string | string[]
   /** 属于哪个板块。 */
@@ -53,10 +54,9 @@ export interface SectionDef {
 /**
  * 四个板块，顺序即顶部导航顺序。
  *
- * 个人中心与控制面板各自有左侧栏；首页与下载是独立页面，只有顶部导航。
+ * 个人中心与控制面板各自有左侧栏；下载是独立页面，只有顶部导航。
  */
 export const SECTIONS: SectionDef[] = [
-  { key: 'home', labelKey: 'section.home' },
   { key: 'download', labelKey: 'section.download' },
   { key: 'account', labelKey: 'section.account', requiresLogin: true, hasSidebar: true },
   { key: 'console', labelKey: 'section.console', requiresLogin: true, hasSidebar: true },
@@ -73,13 +73,12 @@ const RESOURCE_READ_PERMS = [
 
 export const ROUTES: AdminRoute[] = [
   {
+    // 根路径不再有自己的页面：私有部署的 `/` 由营销站占用，开源部署直接落到
+    // 个人中心（未登录会被守卫带去登录页）。留一条重定向，避免访问根路径吃 404。
     path: '/',
-    // 首页内容待定，页头标题留空 —— 否则导航「首页」和内容区标题会重复两遍。
     titleKey: '',
-    component: Home,
+    redirect: '/me',
     public: true,
-    section: 'home',
-    order: 10,
   },
   {
     path: '/download',
@@ -214,7 +213,6 @@ export function tabsFor(section: Section, granted: string[]): AdminRoute[] {
 
 /** 点击板块时去哪个页面：首页/下载是固定路径，其余取该板块第一页。 */
 export function sectionEntry(section: Section, granted: string[]): string {
-  if (section === 'home') return '/'
   if (section === 'download') return '/download'
   return tabsFor(section, granted)[0]?.path ?? '/no-access'
 }
@@ -226,9 +224,9 @@ export interface TopNavItem {
 }
 
 /**
- * 顶部导航的四个板块。
+ * 顶部导航的板块。
  *
- * 未登录时只剩首页与下载；控制面板要有至少一页可见权限才出现，
+ * 未登录时只剩下载；控制面板要有至少一页可见权限才出现，
  * 零权限账号看不到它，而不是点进去被弹回来。
  */
 export function topNavFor(granted: string[], loggedIn: boolean): TopNavItem[] {

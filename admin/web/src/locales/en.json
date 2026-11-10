@@ -216,7 +216,14 @@
     "submit": "Sign in",
     "submitting": "Signing in…",
     "refreshCaptcha": "Can't read it? Click to refresh",
-    "subtitle": "Accounts are created by your administrator; self sign-up is disabled."
+    "subtitle": "Accounts are created by your administrator; self sign-up is disabled.",
+    "smsTab": "Sign in with SMS",
+    "passwordTab": "Password sign-in",
+    "phone": "Phone",
+    "smsCode": "Code",
+    "sendCode": "Send code",
+    "smsSubmit": "Verify and continue",
+    "smsHint": "A new phone number creates an account on first sign-in."
   },
   "roles_page": {
     "title": "Roles & permissions",

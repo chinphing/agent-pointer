@@ -130,6 +130,21 @@ POINTER_ADMIN_STATIC_DIR=./web ./pointer-admin
 
 只想重新打包、不重新编译用 `npm run admin:package`。缺任何一半会直接失败，不会产出半成品——控制面起来白屏比构建失败难查得多。
 
+### 2.7 启停与维护
+
+构建好之后用脚本管理进程：
+
+```bash
+npm run admin:start     # 后台启动，写 PID 文件和日志
+npm run admin:status    # 运行中退出 0，已停止退出 1
+npm run admin:restart
+npm run admin:stop
+```
+
+日志在 `target/release/pointer-admin.log`，PID 在 `target/release/.pointer-admin.pid`。
+
+`admin:start` 会自动找前端产物（优先用 bundle 里的 `web/`，其次 `admin/web/dist`），不用每次手动设 `POINTER_ADMIN_STATIC_DIR`。数据库和数据目录仍然由环境变量决定，脚本不去猜——那两样指向真实数据。
+
 ---
 
 <a id="client"></a>

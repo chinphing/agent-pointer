@@ -129,6 +129,21 @@ POINTER_ADMIN_STATIC_DIR=./web ./pointer-admin
 
 To re-package without recompiling, use `npm run admin:package`. If either half is missing the script fails outright instead of producing a partial bundle — a control plane that starts but serves a blank page is far harder to diagnose than a build that refuses to finish.
 
+### 2.7 Start, stop and maintain
+
+Once built, manage the process with the scripts:
+
+```bash
+npm run admin:start     # background start; writes a PID file and a log
+npm run admin:status    # exit 0 when running, 1 when stopped
+npm run admin:restart
+npm run admin:stop
+```
+
+The log is `target/release/pointer-admin.log`; the PID file is `target/release/.pointer-admin.pid`.
+
+`admin:start` resolves the frontend output itself (the bundle's `web/` first, then `admin/web/dist`), so you do not set `POINTER_ADMIN_STATIC_DIR` by hand each time. The database and data directory still come from environment variables — the script does not guess those, because they point at real state.
+
 ---
 
 <a id="client"></a>

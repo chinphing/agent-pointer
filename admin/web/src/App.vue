@@ -16,7 +16,7 @@ onMounted(async () => {
   await loadSession()
   // 会话就绪后按同一套规则再判一次当前路由：首屏守卫会因为 `!session.ready` 放行，
   // 这里补上判定，同时**不能**把公开页（首页 / 下载）也踢到登录页。
-  const verdict = authGuard({ meta: route.meta, fullPath: route.fullPath })
+  const verdict = authGuard({ meta: route.meta, path: route.path, fullPath: route.fullPath })
   if (verdict !== true) router.replace({ path: verdict.path, query: verdict.query })
 })
 
@@ -78,10 +78,12 @@ async function doLogout() {
   <template v-else>
     <!-- 顶部导航：四个板块。个人中心与控制面板的侧边栏在下面，不占这里的位置。 -->
     <header class="topnav">
-      <router-link to="/" class="brand">
+      <!-- 用 <a> 而不是 <router-link>：站点根 `/` 是服务端渲染的首页（私有部署有
+           营销页，开源部署会重定向回控制台），走浏览器整页跳转才能到。 -->
+      <a href="/" class="brand">
         <span class="dot"></span>
         <strong>Pointer</strong>
-      </router-link>
+      </a>
 
       <div class="topnav-right">
         <nav class="sections">

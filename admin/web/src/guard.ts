@@ -4,6 +4,8 @@ import { canView, landingFor } from './routes'
 /** 路由守卫需要的最小结构，单独抽出来才能脱离组件树单测。 */
 export interface GuardTarget {
   meta: { public?: boolean; perm?: string | string[] }
+  /** 目标路径，用于识别「已登录还打开登录页」。 */
+  path?: string
   fullPath?: string
 }
 
@@ -22,7 +24,14 @@ export type GuardResult = true | { path: string; query?: Record<string, string> 
  * `/me/billing`，那个标签没有会话，登录完必须回到账单页，而不是被扔到角色首页。
  */
 export function authGuard(to: GuardTarget): GuardResult {
-  if (to.meta.public) return true
+  if (to.meta.public) {
+    // 已登录还打开登录页：直接送进控制台。否则用户从首页点「登录」会看到一张
+    // 空登录表单，以为自己的会话丢了。
+    if (session.ready && session.user && to.path === '/login') {
+      return { path: landingFor(session.permissions) }
+    }
+    return true
+  }
   if (!session.ready) return true
   if (!session.user) {
     const target = to.fullPath?.trim()

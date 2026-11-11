@@ -54,6 +54,33 @@ pub trait Ext: Send + Sync + 'static {
     fn migrations(&self) -> &'static [(i64, &'static str)] {
         &[]
     }
+
+    /// `/oauth/authorize` 登录页里除账号密码之外的登录方式（短信、扫码、SSO…）。
+    ///
+    /// 桌面端的登录是浏览器打开控制面的授权页，而那一页是服务端内联渲染的：
+    /// 不依赖前端工程，所以「没构建前端」的部署也能登录。这里返回的每一种都会
+    /// 渲染成一个标签页，**第一个默认选中**，内置的账号密码排在最后（管理员
+    /// 首次登录、扩展服务挂掉时的入口）。同一时刻只显示一种。
+    ///
+    /// 表单里的脚本直接调扩展自己的接口；登录成功写的是同一个会话 Cookie，
+    /// 所以 `location.reload()` 之后 `page()` 会认出会话并直接发码回调。
+    ///
+    /// 返回空列表时页面与开源版完全一致（只有账号密码）。
+    fn login_methods(&self) -> Vec<LoginMethod> {
+        Vec::new()
+    }
+}
+
+/// 授权页里的一种登录方式（账号密码由开源仓内置，不在这里）。
+#[derive(Debug, Clone)]
+pub struct LoginMethod {
+    /// 稳定标识：标签的 `data-tab` 与面板 id 都用它（`pane-<key>`），
+    /// 只用 `[a-z0-9_-]`。
+    pub key: String,
+    /// 标签文字，例如「短信登录」。
+    pub label: String,
+    /// 表单 HTML（不含标题，会被放进标签面板里）。
+    pub html: String,
 }
 
 /// 不装任何扩展。开源版用它。
@@ -100,6 +127,11 @@ pub fn public_router() -> Router<Shared> {
 /// 私有仓的迁移段。没有扩展时为空。
 pub fn migrations() -> &'static [(i64, &'static str)] {
     installed().map(|ext| ext.migrations()).unwrap_or(&[])
+}
+
+/// 授权页里的扩展登录方式（按声明顺序，第一个默认选中）。没有扩展时为空。
+pub fn login_methods() -> Vec<LoginMethod> {
+    installed().map(|ext| ext.login_methods()).unwrap_or_default()
 }
 
 /// 挂进 `AppState` 的私有状态（支付渠道配置、短信服务商配置等）。

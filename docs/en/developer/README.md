@@ -56,6 +56,7 @@ An enterprise intranet is a different story: it requires **deploying the control
 | [workspace-root.md](workspace-root.md) | Session workspace root path resolution and sandbox directory layout |
 | [attachment-storage.md](attachment-storage.md) | Attachment storage location and naming (`session-sandboxes/`) |
 | [agent-extension-hooks.md](agent-extension-hooks.md) | Extension registry and hook trigger points |
+| [control-plane-ext-seam.md](control-plane-ext-seam.md) | Control-plane seam: backend `Ext` trait + frontend `@ext`; the open-source / private boundary |
 | [skills-compatibility.md](skills-compatibility.md) | `SKILL.md` format and Codex / Agent directory compatibility |
 | [skills-persistence.md](skills-persistence.md) | Load order, persistence, Curator (implementation-oriented) |
 

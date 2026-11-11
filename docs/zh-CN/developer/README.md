@@ -56,6 +56,7 @@ npm run web:dev
 | [workspace-root.md](workspace-root.md) | 会话工作区根路径解析与沙箱目录布局 |
 | [attachment-storage.md](attachment-storage.md) | 附件落盘位置与命名（`session-sandboxes/`） |
 | [agent-extension-hooks.md](agent-extension-hooks.md) | 扩展注册表与钩子触发点 |
+| [control-plane-ext-seam.md](control-plane-ext-seam.md) | 控制面扩展缝：后端 `Ext` trait + 前端 `@ext`，开源仓与私有仓的边界 |
 | [skills-compatibility.md](skills-compatibility.md) | `SKILL.md` 格式与 Codex / Agent 目录兼容 |
 | [skills-persistence.md](skills-persistence.md) | 加载顺序、持久化、Curator（实现向） |
 

@@ -416,15 +416,22 @@ mod tests {
     async fn assign_role_is_idempotent_and_replace_roles_resets() {
         let store = AdminStore::connect_in_memory().await.expect("store");
         let uid = seed_user(&store, "multi").await;
+        // 新用户默认带「成员」角色：没有任何权限，但界面上有个身份
+        assert_eq!(
+            role_keys_for_user(&store, &uid).await.expect("keys"),
+            vec!["member".to_string()]
+        );
+
         assign_role(&store, DEFAULT_TENANT, &uid, "admin")
             .await
             .expect("assign");
         assign_role(&store, DEFAULT_TENANT, &uid, "admin")
             .await
             .expect("assign again");
+        // 重复分配同一角色不该多出一行：member + admin
         assert_eq!(
             role_keys_for_user(&store, &uid).await.expect("keys").len(),
-            1
+            2
         );
 
         replace_roles(&store, DEFAULT_TENANT, &uid, &["viewer", "member"])

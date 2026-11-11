@@ -95,6 +95,15 @@ pub async fn create(
         .bind(now_ts())
         .execute(store.pool())
         .await?;
+
+    // 新用户默认给「成员」角色。它没有任何权限（`builtin_permissions` 返回空），
+    // 但用户在界面上有个身份，不会显示成「无角色」；要提权由管理员在成员页分配。
+    //
+    // 先 `ensure_role` 再分配：内置角色通常是 `seed_builtin_roles` 播的，但建号
+    // 不该假设它已经跑过——缺角色时把用户创建整体搞失败，比没有角色更糟。
+    crate::rbac::ensure_role(store, tenant_id, crate::rbac::ROLE_MEMBER, "成员", true).await?;
+    crate::rbac::assign_role(store, tenant_id, &id, crate::rbac::ROLE_MEMBER).await?;
+
     get(store, &id)
         .await?
         .ok_or_else(|| anyhow!("user vanished right after insert"))

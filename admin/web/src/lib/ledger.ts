@@ -6,7 +6,9 @@
  * 未知值原样返回，不要吞成空白 —— 后端加新类型时页面还能显示出来，
  * 而不是变成一行空白让人以为是渲染坏了。
  */
-import { ledgerKindKeys } from '../ext'
+// 必须走别名：相对路径会绕过 vite 的 @ext 替换，私有构建时静默拿到开源仓那份
+// 空实现，界面上就会直接显示 `recharge` 这样的原始 kind。
+import { ledgerKindKeys } from '@ext'
 
 const KIND_KEYS: Record<string, string> = {
   grant: 'me.kindGrant',

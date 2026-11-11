@@ -107,6 +107,11 @@ open-source one — the latter contains no payment or SMS UI at all.
 
 ## 4. Rules
 
+- **Always import the extension via `@ext`, never a relative path.** `import { x } from
+  '../ext'` bypasses the vite alias, so a private build silently gets the empty
+  open-source implementation — no error, just missing UI (hit this: ledger kinds rendered
+  as raw `recharge`).
+
 - **No extension business code or copy in the open repo.** New UI goes in the private `ext.ts`.
 - **No copying open-source code into the extension.** Import via `@app`.
 - **Capability probes live in the extension.** The open repo does not know what "payment" or

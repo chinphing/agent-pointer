@@ -732,6 +732,7 @@
       "user": "用户",
       "assistant": "助手",
       "tool": "工具"
-    }
+    },
+    "countCapped": "共 {total}+ 条，本页 {n} 条（总数超过 1 万后不再精确统计）"
   }
 }

@@ -732,6 +732,7 @@
       "user": "User",
       "assistant": "Assistant",
       "tool": "Tool"
-    }
+    },
+    "countCapped": "{total}+ total, {n} on this page (count stops being exact past 10,000)"
   }
 }

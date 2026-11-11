@@ -23,6 +23,13 @@ use crate::db::{now_ts, random_id, AdminStore};
 /// 列表里展示的预览长度（首条用户消息）。
 const PREVIEW_CHARS: usize = 120;
 
+/// 列表页「共 N 条」的计数上限。
+///
+/// 精确 COUNT 要扫完整张表：100 万行 ~190ms、500 万行 ~940ms，而列表本身
+/// 只要 0.04ms——每次翻页都被这个计数拖住。封顶到 1 万行后代价恒定（~2ms），
+/// 超过就显示「10000+」，对「有没有更多」这个用途足够。
+const COUNT_CAP: i64 = 10_000;
+
 /// 一条快照的索引信息（不含消息正文）。
 #[derive(Debug, Clone)]
 pub struct Snapshot {
@@ -175,41 +182,56 @@ pub async fn record(
 }
 
 /// 列表：按时间倒序，可按用户过滤。
+///
+/// 返回 `(本页数据, 总数, 总数是否被 COUNT_CAP 截断)`。
 pub async fn list(
     store: &AdminStore,
     tenant_id: &str,
     user_id: Option<&str>,
     limit: i64,
     offset: i64,
-) -> Result<(Vec<Snapshot>, i64)> {
+) -> Result<(Vec<Snapshot>, i64, bool)> {
     let limit = limit.clamp(1, 200);
     let offset = offset.max(0);
+    // 分两段：先在子查询里用索引取「这一页的 id」，再回表取字段、关联成员名。
+    //
+    // 直接写 `LEFT JOIN users ... ORDER BY created_at DESC LIMIT 50` 会让
+    // MySQL 选 `uq_snapshot_request(tenant_id)` 去扫全部行再排序——百万行实测
+    // 3.5 秒。改成子查询后走 idx_snapshot_tenant_time 反向扫 50 行，0.35 毫秒。
+    const PAGE_COLUMNS: &str = "s.id, s.user_id, COALESCE(u.display_name, u.username, s.user_id) AS user_name,
+                s.conversation_id, s.agent_instance_id, s.agent_role_id, s.model,
+                s.prompt_tokens, s.completion_tokens, s.message_count, s.preview,
+                s.size_bytes, s.created_at";
     let (count_sql, page_sql) = match user_id {
         Some(_) => (
-            store.sql("SELECT COUNT(*) FROM conversation_snapshots WHERE tenant_id = ? AND user_id = ?"),
-            store.sql(
-                "SELECT s.id, s.user_id, COALESCE(u.display_name, u.username, s.user_id) AS user_name,
-                        s.conversation_id, s.agent_instance_id, s.agent_role_id, s.model,
-                        s.prompt_tokens, s.completion_tokens, s.message_count, s.preview,
-                        s.size_bytes, s.created_at
-                   FROM conversation_snapshots s
+            store.sql(&format!(
+                "SELECT COUNT(*) FROM (SELECT 1 FROM conversation_snapshots
+                   WHERE tenant_id = ? AND user_id = ? LIMIT {COUNT_CAP}) t"
+            )),
+            store.sql(&format!(
+                "SELECT {PAGE_COLUMNS}
+                   FROM (SELECT id FROM conversation_snapshots
+                          WHERE tenant_id = ? AND user_id = ?
+                          ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?) page
+                   JOIN conversation_snapshots s ON s.id = page.id
                    LEFT JOIN users u ON u.id = s.user_id
-                  WHERE s.tenant_id = ? AND s.user_id = ?
-                  ORDER BY s.created_at DESC, s.id DESC LIMIT ? OFFSET ?",
-            ),
+                  ORDER BY s.created_at DESC, s.id DESC"
+            )),
         ),
         None => (
-            store.sql("SELECT COUNT(*) FROM conversation_snapshots WHERE tenant_id = ?"),
-            store.sql(
-                "SELECT s.id, s.user_id, COALESCE(u.display_name, u.username, s.user_id) AS user_name,
-                        s.conversation_id, s.agent_instance_id, s.agent_role_id, s.model,
-                        s.prompt_tokens, s.completion_tokens, s.message_count, s.preview,
-                        s.size_bytes, s.created_at
-                   FROM conversation_snapshots s
+            store.sql(&format!(
+                "SELECT COUNT(*) FROM (SELECT 1 FROM conversation_snapshots
+                   WHERE tenant_id = ? LIMIT {COUNT_CAP}) t"
+            )),
+            store.sql(&format!(
+                "SELECT {PAGE_COLUMNS}
+                   FROM (SELECT id FROM conversation_snapshots
+                          WHERE tenant_id = ?
+                          ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?) page
+                   JOIN conversation_snapshots s ON s.id = page.id
                    LEFT JOIN users u ON u.id = s.user_id
-                  WHERE s.tenant_id = ?
-                  ORDER BY s.created_at DESC, s.id DESC LIMIT ? OFFSET ?",
-            ),
+                  ORDER BY s.created_at DESC, s.id DESC"
+            )),
         ),
     };
 
@@ -247,7 +269,7 @@ pub async fn list(
             created_at: row.try_get(12)?,
         });
     }
-    Ok((out, total))
+    Ok((out, total, total >= COUNT_CAP))
 }
 
 /// 详情：读出 zip 并解析成消息列表。
@@ -324,6 +346,53 @@ mod tests {
         out
     }
 
+
+    async fn insert_row(store: &AdminStore, id: &str, user_id: &str, created_at: i64) {
+        let sql = store.sql(
+            "INSERT INTO conversation_snapshots
+             (id, tenant_id, user_id, conversation_id, agent_instance_id, agent_role_id,
+              request_id, model, prompt_tokens, completion_tokens, message_count,
+              preview, blob_path, size_bytes, created_at)
+             VALUES (?, 'default', ?, 'c1', 'a1', 'coder', ?, 'm', 0, 0, 1, '预览', NULL, 0, ?)",
+        );
+        sqlx::query::<Any>(&sql)
+            .bind(id)
+            .bind(user_id)
+            .bind(format!("req-{id}"))
+            .bind(created_at)
+            .execute(store.pool())
+            .await
+            .expect("insert");
+    }
+
+    /// 列表按时间倒序，且总数不会被 COUNT_CAP 误标成「封顶」。
+    #[tokio::test]
+    async fn list_returns_newest_first() {
+        let store = AdminStore::connect_in_memory().await.expect("store");
+        insert_row(&store, "s1", "u1", 100).await;
+        insert_row(&store, "s2", "u1", 300).await;
+        insert_row(&store, "s3", "u2", 200).await;
+
+        let (rows, total, capped) = list(&store, "default", None, 10, 0)
+            .await
+            .expect("list");
+        let ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, vec!["s2", "s3", "s1"], "必须按时间倒序");
+        assert_eq!(total, 3);
+        assert!(!capped);
+
+        // 按成员过滤
+        let (rows, total, _) = list(&store, "default", Some("u1"), 10, 0)
+            .await
+            .expect("list");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(total, 2);
+
+        // 分页
+        let (rows, _, _) = list(&store, "default", None, 1, 1).await.expect("list");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "s3");
+    }
     #[test]
     fn preview_uses_first_user_message() {
         let snap = json!({ "messages": [

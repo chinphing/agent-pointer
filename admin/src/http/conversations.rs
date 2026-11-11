@@ -37,7 +37,7 @@ pub async fn list(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty());
-    let (rows, total) = conversations::list(
+    let (rows, total, total_capped) = conversations::list(
         &state.store,
         &state.config.tenant_id,
         user_id,
@@ -66,7 +66,7 @@ pub async fn list(
             })
         })
         .collect();
-    Ok(Json(json!({ "items": items, "total": total })))
+    Ok(Json(json!({ "items": items, "total": total, "totalCapped": total_capped })))
 }
 
 /// `GET /api/admin/conversations/:id` —— 打开一份快照的完整对话。

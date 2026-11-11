@@ -41,6 +41,7 @@ interface Message {
 
 const items = ref<Snapshot[]>([])
 const total = ref(0)
+const totalCapped = ref(false)
 const limit = ref(50)
 const userId = ref('')
 const loading = ref(true)
@@ -60,6 +61,7 @@ async function load() {
     const res = await api.get(`/api/admin/conversations?${params.toString()}`)
     items.value = res.items
     total.value = res.total
+    totalCapped.value = !!res.totalCapped
   } catch (e) {
     error.value = errText(e)
   } finally {
@@ -161,7 +163,11 @@ onMounted(load)
   </div>
 
   <p v-if="!loading && items.length" class="muted small" style="margin-top: 10px">
-    {{ t('conversations.count', { n: items.length, total }) }}
+    {{
+      totalCapped
+        ? t('conversations.countCapped', { n: items.length, total })
+        : t('conversations.count', { n: items.length, total })
+    }}
   </p>
 
   <!-- 详情：抽屉 -->

@@ -86,7 +86,8 @@
     "passwordTooShort": "New password must be at least 8 characters",
     "passwordMismatch": "The two new passwords do not match",
     "passwordSameAsOld": "New password must differ from the current one",
-    "passwordChanged": "Password updated. Other devices have been signed out."
+    "passwordChanged": "Password updated. Other devices have been signed out.",
+    "passwordSet": "Set"
   },
   "download": {
     "title": "Download Pointer",
@@ -696,16 +697,19 @@
     "cleared": "Cleared the price for {model}; fallback applies",
     "emptyCatalog": "No models in the platform catalog yet — add a provider and models under Resources first",
     "unpriced": "No rate · unavailable",
-    "pricingRule": "Formula: ceil(total tokens × base price × rate ÷ 2²⁰). Input and output share one rate.",
+    "pricingRule": "Unit price = base price × ratio; one call costs ceil(tokens × unit price ÷ 1,000,000), input and output priced alike.",
     "unpricedPlaceholder": "Unpriced",
     "baseTitle": "Base price",
-    "baseHint": "Price of the baseline model (rate 1.0) per 1 MB (2²⁰ = 1,048,576 tokens). Changing it reprices everything.",
+    "baseHint": "Price of the base model (ratio 1.0) per 1,000,000 tokens. Changing it reprices everything.",
     "baseUnit": "CNY / MB",
     "baseInvalid": "Base price must be a non-negative number",
     "baseSaved": "Base price updated",
     "ratio": "Rate",
     "ratioHint": "The rate is a multiple of the baseline model (baseline = 1.0). Models without a rate are not shipped to clients.",
     "ratioRequired": "Rate is required",
-    "ratioInvalid": "Rate must be a non-negative number"
+    "ratioInvalid": "Rate must be a non-negative number",
+    "baseUnitPerMillion": "CNY / million tokens",
+    "unitPrice": "Unit price (CNY / 1M tokens)",
+    "baseImpact": "After saving, the base model (ratio 1.0) costs exactly this; other models scale by ratio."
   }
 }

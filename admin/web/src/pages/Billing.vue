@@ -14,7 +14,15 @@ type RatioRow = {
 
 const { t } = useI18n()
 const rows = ref<RatioRow[]>([])
-const baseYuan = ref('1')
+/**
+ * 基准价：接口口径是「元 / MB」（1 MB = 2²⁰ = 1,048,576 token），
+ * 页面按人话展示成「元 / 百万 token」——换算只发生在展示与输入边界，
+ * 后端存储和计费公式一行不动。
+ */
+const baseYuanMb = ref(1)
+const baseDraft = ref('')
+const editingBase = ref(false)
+const editingModel = ref('')
 const loading = ref(true)
 const error = ref('')
 const { notice, flash: flashNotice, clear: clearNotice } = useNotice()
@@ -25,6 +33,36 @@ const savingBase = ref(false)
 const draft = reactive<Record<string, string>>({})
 
 const editable = computed(() => can('usage:write'))
+
+const TOKENS_PER_MB = 1048576
+const TOKENS_PER_MILLION = 1000000
+
+/** 元 / MB → 元 / 百万 token（×1.048576）。 */
+function toPerMillion(yuanPerMb: number): number {
+  return (yuanPerMb * TOKENS_PER_MB) / TOKENS_PER_MILLION
+}
+
+/** 元 / 百万 token → 元 / MB。 */
+function fromPerMillion(yuanPerMillion: number): number {
+  return (yuanPerMillion * TOKENS_PER_MILLION) / TOKENS_PER_MB
+}
+
+/**
+ * 金额格式化：最多 6 位小数、去掉尾随零。
+ *
+ * 必须保精度——如果显示成 1.05 再原样保存回去，价格会被悄悄改掉 0.14%。
+ */
+function fmtMoney(v: number): string {
+  return String(Number(v.toFixed(6)))
+}
+
+const basePerMillion = computed(() => toPerMillion(baseYuanMb.value))
+const baseDisplay = computed(() => fmtMoney(basePerMillion.value))
+
+/** 某费率对应的单价（元 / 百万 token）。 */
+function unitPrice(ratio: number): string {
+  return fmtMoney(basePerMillion.value * ratio)
+}
 
 function syncDraft(list: RatioRow[]) {
   for (const row of list) {
@@ -38,7 +76,7 @@ async function load() {
   try {
     const res = await api.get('/api/admin/model-prices')
     rows.value = res.items || []
-    baseYuan.value = String(res.baseYuanPerMb ?? 1)
+    baseYuanMb.value = Number(res.baseYuanPerMb ?? 1)
     syncDraft(rows.value)
   } catch (e) {
     error.value = errText(e)
@@ -47,24 +85,47 @@ async function load() {
   }
 }
 
+function startEditBase() {
+  // 预填完整精度，避免「打开编辑→直接保存」把价格改掉。
+  baseDraft.value = baseDisplay.value
+  editingBase.value = true
+}
+
+function cancelEditBase() {
+  editingBase.value = false
+  baseDraft.value = ''
+}
+
 async function saveBase() {
-  const parsed = parseRatioInput(baseYuan.value)
+  const parsed = parseRatioInput(baseDraft.value)
   if (!parsed.ok) {
     error.value = t('billing.baseInvalid')
     return
   }
-  const yuan = parsed.value
   error.value = ''
   savingBase.value = true
   try {
-    await api.put('/api/admin/model-prices/base', { baseYuanPerMb: yuan })
+    // 页面单位是元/百万 token，接口单位是元/MB，只在这一处换算。
+    await api.put('/api/admin/model-prices/base', {
+      baseYuanPerMb: fromPerMillion(parsed.value),
+    })
     flashNotice(t('billing.baseSaved'))
+    editingBase.value = false
     await load()
   } catch (e) {
     error.value = errText(e)
   } finally {
     savingBase.value = false
   }
+}
+
+function startEditRow(row: RatioRow) {
+  draft[row.model] = row.configured ? String(row.ratio) : ''
+  editingModel.value = row.model
+}
+
+function cancelEditRow() {
+  editingModel.value = ''
 }
 
 async function saveRow(row: RatioRow) {
@@ -80,6 +141,7 @@ async function saveRow(row: RatioRow) {
   try {
     await api.post('/api/admin/model-prices', { model: row.model, ratio })
     flashNotice(t('billing.saved', { model: row.model }))
+    editingModel.value = ''
     await load()
   } catch (e) {
     error.value = errText(e)
@@ -118,21 +180,37 @@ onMounted(load)
     <div class="panel">
       <h2>{{ t('billing.baseTitle') }}</h2>
       <p class="muted small">{{ t('billing.baseHint') }}</p>
-      <div class="row" style="margin-top: 12px">
+
+      <!-- 展示态：只读，不摆输入框 -->
+      <div v-if="!editingBase" class="row" style="margin-top: 12px; align-items: baseline">
+        <span class="mono base-value">{{ baseDisplay }}</span>
+        <span class="muted small">{{ t('billing.baseUnitPerMillion') }}</span>
+        <button v-if="editable" class="tiny" @click="startEditBase">
+          {{ t('common.edit') }}
+        </button>
+      </div>
+
+      <!-- 编辑态：改完才回到展示态 -->
+      <div v-else class="row" style="margin-top: 12px">
         <input
-          v-model="baseYuan"
+          v-model="baseDraft"
           class="num base"
           type="number"
           min="0"
           step="0.01"
-          :disabled="!editable"
           aria-label="基准价"
         />
-        <span class="muted small">{{ t('billing.baseUnit') }}</span>
-        <button v-if="editable" class="tiny" :disabled="savingBase" @click="saveBase">
+        <span class="muted small">{{ t('billing.baseUnitPerMillion') }}</span>
+        <button class="tiny" :disabled="savingBase" @click="saveBase">
           {{ t('billing.save') }}
         </button>
+        <button class="tiny" :disabled="savingBase" @click="cancelEditBase">
+          {{ t('common.cancel') }}
+        </button>
       </div>
+      <p v-if="editingBase" class="muted small" style="margin-top: 8px">
+        {{ t('billing.baseImpact') }}
+      </p>
     </div>
 
     <div class="panel">
@@ -145,6 +223,7 @@ onMounted(load)
           <tr>
             <th>{{ t('billing.model') }}</th>
             <th class="num">{{ t('billing.ratio') }}</th>
+            <th class="num">{{ t('billing.unitPrice') }}</th>
             <th>{{ t('billing.status') }}</th>
             <th class="actions"></th>
           </tr>
@@ -154,7 +233,7 @@ onMounted(load)
             <td class="mono">{{ row.model }}</td>
             <td class="num">
               <input
-                v-if="editable"
+                v-if="editingModel === row.model"
                 v-model="draft[row.model]"
                 class="num ratio"
                 type="number"
@@ -163,17 +242,24 @@ onMounted(load)
                 :placeholder="t('billing.unpricedPlaceholder')"
                 :aria-label="`${row.model} ${t('billing.ratio')}`"
               />
-              <span v-else class="mono">{{ row.ratio }}</span>
+              <span v-else class="mono">{{ row.configured ? row.ratio : '—' }}</span>
             </td>
+            <td class="num mono">{{ row.configured ? unitPrice(row.ratio) : '—' }}</td>
             <td>
               <span v-if="row.configured" class="tag on">{{ t('billing.configured') }}</span>
               <span v-else class="tag off">{{ t('billing.unpriced') }}</span>
             </td>
             <td class="actions">
-              <template v-if="editable">
+              <template v-if="editable && editingModel === row.model">
                 <button class="tiny" :disabled="savingModel === row.model" @click="saveRow(row)">
                   {{ t('billing.save') }}
                 </button>
+                <button class="tiny" :disabled="savingModel === row.model" @click="cancelEditRow">
+                  {{ t('common.cancel') }}
+                </button>
+              </template>
+              <template v-else-if="editable">
+                <button class="tiny" @click="startEditRow(row)">{{ t('common.edit') }}</button>
                 <button
                   v-if="row.configured"
                   class="tiny"
@@ -186,7 +272,7 @@ onMounted(load)
             </td>
           </tr>
           <tr v-if="!rows.length">
-            <td colspan="4" class="muted small">{{ t('billing.emptyCatalog') }}</td>
+            <td colspan="5" class="muted small">{{ t('billing.emptyCatalog') }}</td>
           </tr>
         </tbody>
       </table>
@@ -202,8 +288,12 @@ input.ratio {
   text-align: right;
 }
 input.base {
-  width: 120px;
+  width: 140px;
   text-align: right;
+}
+.base-value {
+  font-size: 20px;
+  font-weight: 600;
 }
 .tag {
   display: inline-block;

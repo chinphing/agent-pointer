@@ -86,7 +86,8 @@
     "passwordTooShort": "新密码至少 8 位",
     "passwordMismatch": "两次输入的新密码不一致",
     "passwordSameAsOld": "新密码不能与当前密码相同",
-    "passwordChanged": "密码已更新，其他设备上的登录已失效"
+    "passwordChanged": "密码已更新，其他设备上的登录已失效",
+    "passwordSet": "已设置"
   },
   "download": {
     "title": "下载 Pointer",
@@ -696,16 +697,19 @@
     "cleared": "已清除 {model} 的单价，改回兜底价",
     "emptyCatalog": "平台目录里还没有模型，先在「资源」里加服务商与模型",
     "unpriced": "未配费率·不可用",
-    "pricingRule": "计费公式：ceil(总 token × 基准价 × 费率 ÷ 2²⁰)，输入输出不分价。",
+    "pricingRule": "单价 = 基准价 × 费率；一次调用扣费 = ceil(总 token × 单价 ÷ 1 000 000)，输入输出不分价。",
     "unpricedPlaceholder": "未配价",
     "baseTitle": "基准价",
-    "baseHint": "基准模型（费率 1.0）每 1 MB（2²⁰ = 1 048 576 token）的价格。改它等于整体调价。",
+    "baseHint": "基准模型（费率 1.0）每 100 万 token 的价格。改它等于整体调价。",
     "baseUnit": "元 / MB",
     "baseInvalid": "基准价必须是非负数字",
     "baseSaved": "基准价已更新",
     "ratio": "费率",
     "ratioHint": "费率是相对基准模型的倍数（基准模型 = 1.0）。未配费率的模型不会下发给客户端。",
     "ratioRequired": "请填费率",
-    "ratioInvalid": "费率必须是非负数字"
+    "ratioInvalid": "费率必须是非负数字",
+    "baseUnitPerMillion": "元 / 百万 token",
+    "unitPrice": "单价（元 / 百万 token）",
+    "baseImpact": "保存后，基准模型（费率 1.0）就是上面这个价；其余模型按费率换算。"
   }
 }

@@ -27,6 +27,8 @@ const isActive = computed(() => session.user?.status === 'active')
  * 后端改完会作废旧会话并发一个新 token 写回 Cookie，所以这里不用跳登录页，
  * 只要把表单清空、提示一句「其他设备上的登录已失效」。
  */
+/** 展示态 / 编辑态分离：默认只显示「已设置」，点「修改密码」才展开表单。 */
+const editing = ref(false)
 const oldPassword = ref('')
 const newPassword = ref('')
 const confirmPassword = ref('')
@@ -41,6 +43,14 @@ const canSubmit = computed(
     newPassword.value.length > 0 &&
     confirmPassword.value.length > 0
 )
+
+function cancelEdit() {
+  editing.value = false
+  oldPassword.value = ''
+  newPassword.value = ''
+  confirmPassword.value = ''
+  error.value = ''
+}
 
 async function submit() {
   error.value = ''
@@ -69,6 +79,7 @@ async function submit() {
     oldPassword.value = ''
     newPassword.value = ''
     confirmPassword.value = ''
+    editing.value = false
     notice.value = t('me.passwordChanged')
   } catch (e) {
     error.value = errText(e)
@@ -124,7 +135,16 @@ async function submit() {
         </div>
       </div>
 
-      <form class="pw-form" @submit.prevent="submit">
+      <!-- 展示态 -->
+      <div v-if="!editing" class="row" style="align-items: center; gap: 10px">
+        <span class="pw-state">{{ t('me.passwordSet') }}</span>
+        <button class="btn" type="button" @click="editing = true">
+          {{ t('me.changePassword') }}
+        </button>
+      </div>
+
+      <!-- 编辑态 -->
+      <form v-else class="pw-form" @submit.prevent="submit">
         <label class="pw-field">
           <span class="pw-label">{{ t('me.currentPassword') }}</span>
           <input
@@ -162,6 +182,9 @@ async function submit() {
           <button type="submit" class="btn primary" :disabled="!canSubmit">
             {{ saving ? t('common.loading') : t('common.save') }}
           </button>
+          <button type="button" class="btn" :disabled="saving" @click="cancelEdit">
+            {{ t('common.cancel') }}
+          </button>
         </div>
       </form>
     </section>
@@ -170,6 +193,7 @@ async function submit() {
 
 <style scoped>
 .pw-form { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
+.pw-state { color: var(--muted); font-size: 13px; }
 .pw-field { display: flex; flex-direction: column; gap: 6px; }
 .pw-label { font-size: 12px; color: var(--muted); }
 .pw-field input { height: 34px; }

@@ -39,11 +39,21 @@ interface Message {
   images?: string[]
 }
 
+interface Member {
+  id: string
+  displayName: string
+  username: string
+}
+
 const items = ref<Snapshot[]>([])
 const total = ref(0)
 const totalCapped = ref(false)
 const limit = ref(50)
+const page = ref(0) // 从 0 开始
 const userId = ref('')
+const fromDate = ref('')
+const toDate = ref('')
+const members = ref<Member[]>([])
 const loading = ref(true)
 const error = ref('')
 
@@ -56,8 +66,13 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const params = new URLSearchParams({ limit: String(limit.value) })
-    if (userId.value.trim()) params.set('userId', userId.value.trim())
+    const params = new URLSearchParams({
+      limit: String(limit.value),
+      offset: String(page.value * limit.value),
+    })
+    if (userId.value) params.set('userId', userId.value)
+    if (fromDate.value) params.set('from', fromDate.value)
+    if (toDate.value) params.set('to', toDate.value)
     const res = await api.get(`/api/admin/conversations?${params.toString()}`)
     items.value = res.items
     total.value = res.total
@@ -66,6 +81,51 @@ async function load() {
     error.value = errText(e)
   } finally {
     loading.value = false
+  }
+}
+
+/** 改了筛选条件就回到第一页，否则会停在一个空页上。 */
+function applyFilter() {
+  page.value = 0
+  load()
+}
+
+function resetFilter() {
+  userId.value = ''
+  fromDate.value = ''
+  toDate.value = ''
+  page.value = 0
+  load()
+}
+
+function prevPage() {
+  if (page.value === 0) return
+  page.value -= 1
+  load()
+}
+
+/** 本页没满就说明到底了；总数封顶时不能只看 total。 */
+function hasNext() {
+  return items.value.length >= limit.value
+}
+
+function nextPage() {
+  if (!hasNext()) return
+  page.value += 1
+  load()
+}
+
+/** 成员下拉：没有 user:read 权限时降级成手输 ID。 */
+async function loadMembers() {
+  try {
+    const res = await api.get('/api/admin/users')
+    members.value = (res.items ?? []).map((u: Member) => ({
+      id: u.id,
+      displayName: u.displayName || u.username || u.id,
+      username: u.username,
+    }))
+  } catch {
+    members.value = []
   }
 }
 
@@ -106,7 +166,10 @@ function sizeText(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-onMounted(load)
+onMounted(() => {
+  loadMembers()
+  load()
+})
 </script>
 
 <template>
@@ -115,17 +178,38 @@ onMounted(load)
       <p class="muted small" style="margin: 0">{{ t('conversations.subtitle') }}</p>
     </div>
     <div class="row">
+      <select v-if="members.length" v-model="userId" style="width: 170px" @change="applyFilter">
+        <option value="">{{ t('conversations.allMembers') }}</option>
+        <option v-for="m in members" :key="m.id" :value="m.id">{{ m.displayName }}</option>
+      </select>
       <input
+        v-else
         v-model="userId"
         :placeholder="t('conversations.filterUser')"
-        style="width: 200px"
-        @keyup.enter="load"
+        style="width: 180px"
+        @keyup.enter="applyFilter"
       />
-      <select v-model.number="limit" style="width: 110px" @change="load">
-        <option :value="50">{{ t('conversations.recent', { n: 50 }) }}</option>
-        <option :value="100">{{ t('conversations.recent', { n: 100 }) }}</option>
-        <option :value="200">{{ t('conversations.recent', { n: 200 }) }}</option>
+      <input
+        v-model="fromDate"
+        type="date"
+        :title="t('conversations.from')"
+        style="width: 150px"
+        @change="applyFilter"
+      />
+      <span class="muted small">—</span>
+      <input
+        v-model="toDate"
+        type="date"
+        :title="t('conversations.to')"
+        style="width: 150px"
+        @change="applyFilter"
+      />
+      <select v-model.number="limit" style="width: 110px" @change="applyFilter">
+        <option :value="50">{{ t('conversations.pageSize', { n: 50 }) }}</option>
+        <option :value="100">{{ t('conversations.pageSize', { n: 100 }) }}</option>
+        <option :value="200">{{ t('conversations.pageSize', { n: 200 }) }}</option>
       </select>
+      <button class="ghost sm" @click="resetFilter">{{ t('conversations.reset') }}</button>
     </div>
   </div>
 
@@ -162,13 +246,28 @@ onMounted(load)
     </table>
   </div>
 
-  <p v-if="!loading && items.length" class="muted small" style="margin-top: 10px">
-    {{
-      totalCapped
-        ? t('conversations.countCapped', { n: items.length, total })
-        : t('conversations.count', { n: items.length, total })
-    }}
-  </p>
+  <div
+    v-if="!loading && (items.length || page > 0)"
+    class="spread"
+    style="margin-top: 10px; align-items: center"
+  >
+    <p class="muted small" style="margin: 0">
+      {{
+        totalCapped
+          ? t('conversations.countCapped', { n: items.length, total })
+          : t('conversations.count', { n: items.length, total })
+      }}
+    </p>
+    <div class="row">
+      <button class="ghost sm" :disabled="page === 0" @click="prevPage">
+        {{ t('conversations.prev') }}
+      </button>
+      <span class="muted small">{{ t('conversations.pageNo', { n: page + 1 }) }}</span>
+      <button class="ghost sm" :disabled="!hasNext()" @click="nextPage">
+        {{ t('conversations.next') }}
+      </button>
+    </div>
+  </div>
 
   <!-- 详情：抽屉 -->
   <div v-if="detail" class="drawer-mask" @click.self="close">

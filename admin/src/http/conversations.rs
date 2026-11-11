@@ -20,10 +20,25 @@ use crate::state::Shared;
 pub struct ListQuery {
     #[serde(default, alias = "userId")]
     pub user_id: Option<String>,
+    /// 起始日期，`YYYY-MM-DD`（含当天）。
+    #[serde(default)]
+    pub from: Option<String>,
+    /// 结束日期，`YYYY-MM-DD`（含当天）。
+    #[serde(default)]
+    pub to: Option<String>,
     #[serde(default)]
     pub limit: Option<i64>,
     #[serde(default)]
     pub offset: Option<i64>,
+}
+
+/// `YYYY-MM-DD` → 当天零点；`to` 再加一天，让区间含结束日整天。
+fn day_start(raw: &str) -> Option<i64> {
+    let day = raw.trim();
+    if day.is_empty() {
+        return None;
+    }
+    crate::oauth::token::ts_from_day(day)
 }
 
 /// `GET /api/admin/conversations` —— 快照列表（不含正文，只有预览）。
@@ -37,10 +52,21 @@ pub async fn list(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty());
+    let from_ts = query.from.as_deref().and_then(day_start);
+    let to_ts = query
+        .to
+        .as_deref()
+        .and_then(day_start)
+        .map(|ts| ts + 86_400);
+
     let (rows, total, total_capped) = conversations::list(
         &state.store,
         &state.config.tenant_id,
-        user_id,
+        conversations::ListFilter {
+            user_id,
+            from_ts,
+            to_ts,
+        },
         query.limit.unwrap_or(50),
         query.offset.unwrap_or(0),
     )

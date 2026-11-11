@@ -889,7 +889,7 @@ mod tests {
         .await
         .expect("multipart report must be accepted");
 
-        let (rows, total, _) = crate::conversations::list(&state.store, DEFAULT_TENANT, Some(&uid), 10, 0)
+        let (rows, total, _) = crate::conversations::list(&state.store, DEFAULT_TENANT, crate::conversations::ListFilter { user_id: Some(&uid), ..Default::default() }, 10, 0)
             .await
             .expect("list");
         assert_eq!(total, 1, "快照应当入库");
@@ -911,7 +911,7 @@ mod tests {
         )
         .await
         .expect("replay");
-        let (_, total_after, _) = crate::conversations::list(&state.store, DEFAULT_TENANT, Some(&uid), 10, 0)
+        let (_, total_after, _) = crate::conversations::list(&state.store, DEFAULT_TENANT, crate::conversations::ListFilter { user_id: Some(&uid), ..Default::default() }, 10, 0)
             .await
             .expect("list");
         assert_eq!(total_after, 1, "重发不能存第二份");

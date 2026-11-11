@@ -181,18 +181,42 @@ pub async fn record(
     Ok(true)
 }
 
-/// 列表：按时间倒序，可按用户过滤。
+/// 列表筛选条件。
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ListFilter<'a> {
+    /// 只看某个成员。
+    pub user_id: Option<&'a str>,
+    /// 起始时间（含），unix 秒。
+    pub from_ts: Option<i64>,
+    /// 结束时间（不含），unix 秒。
+    pub to_ts: Option<i64>,
+}
+
+/// 列表：按时间倒序，可按成员和时间区间过滤。
 ///
 /// 返回 `(本页数据, 总数, 总数是否被 COUNT_CAP 截断)`。
 pub async fn list(
     store: &AdminStore,
     tenant_id: &str,
-    user_id: Option<&str>,
+    filter: ListFilter<'_>,
     limit: i64,
     offset: i64,
 ) -> Result<(Vec<Snapshot>, i64, bool)> {
     let limit = limit.clamp(1, 200);
     let offset = offset.max(0);
+
+    // 动态拼 WHERE，绑定顺序必须和这里一致。
+    let mut where_sql = String::from("tenant_id = ?");
+    if filter.user_id.is_some() {
+        where_sql.push_str(" AND user_id = ?");
+    }
+    if filter.from_ts.is_some() {
+        where_sql.push_str(" AND created_at >= ?");
+    }
+    if filter.to_ts.is_some() {
+        where_sql.push_str(" AND created_at < ?");
+    }
+
     // 分两段：先在子查询里用索引取「这一页的 id」，再回表取字段、关联成员名。
     //
     // 直接写 `LEFT JOIN users ... ORDER BY created_at DESC LIMIT 50` 会让
@@ -202,49 +226,35 @@ pub async fn list(
                 s.conversation_id, s.agent_instance_id, s.agent_role_id, s.model,
                 s.prompt_tokens, s.completion_tokens, s.message_count, s.preview,
                 s.size_bytes, s.created_at";
-    let (count_sql, page_sql) = match user_id {
-        Some(_) => (
-            store.sql(&format!(
-                "SELECT COUNT(*) FROM (SELECT 1 FROM conversation_snapshots
-                   WHERE tenant_id = ? AND user_id = ? LIMIT {COUNT_CAP}) t"
-            )),
-            store.sql(&format!(
-                "SELECT {PAGE_COLUMNS}
-                   FROM (SELECT id FROM conversation_snapshots
-                          WHERE tenant_id = ? AND user_id = ?
-                          ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?) page
-                   JOIN conversation_snapshots s ON s.id = page.id
-                   LEFT JOIN users u ON u.id = s.user_id
-                  ORDER BY s.created_at DESC, s.id DESC"
-            )),
-        ),
-        None => (
-            store.sql(&format!(
-                "SELECT COUNT(*) FROM (SELECT 1 FROM conversation_snapshots
-                   WHERE tenant_id = ? LIMIT {COUNT_CAP}) t"
-            )),
-            store.sql(&format!(
-                "SELECT {PAGE_COLUMNS}
-                   FROM (SELECT id FROM conversation_snapshots
-                          WHERE tenant_id = ?
-                          ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?) page
-                   JOIN conversation_snapshots s ON s.id = page.id
-                   LEFT JOIN users u ON u.id = s.user_id
-                  ORDER BY s.created_at DESC, s.id DESC"
-            )),
-        ),
-    };
+    let count_sql = store.sql(&format!(
+        "SELECT COUNT(*) FROM (SELECT 1 FROM conversation_snapshots
+           WHERE {where_sql} LIMIT {COUNT_CAP}) t"
+    ));
+    let page_sql = store.sql(&format!(
+        "SELECT {PAGE_COLUMNS}
+           FROM (SELECT id FROM conversation_snapshots
+                  WHERE {where_sql}
+                  ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?) page
+           JOIN conversation_snapshots s ON s.id = page.id
+           LEFT JOIN users u ON u.id = s.user_id
+          ORDER BY s.created_at DESC, s.id DESC"
+    ));
 
     let mut count_query = sqlx::query::<Any>(&count_sql).bind(tenant_id);
-    if let Some(uid) = user_id {
-        count_query = count_query.bind(uid);
-    }
-    let total: i64 = count_query.fetch_one(store.pool()).await?.try_get(0)?;
-
     let mut page_query = sqlx::query::<Any>(&page_sql).bind(tenant_id);
-    if let Some(uid) = user_id {
+    if let Some(uid) = filter.user_id {
+        count_query = count_query.bind(uid);
         page_query = page_query.bind(uid);
     }
+    if let Some(from) = filter.from_ts {
+        count_query = count_query.bind(from);
+        page_query = page_query.bind(from);
+    }
+    if let Some(to) = filter.to_ts {
+        count_query = count_query.bind(to);
+        page_query = page_query.bind(to);
+    }
+    let total: i64 = count_query.fetch_one(store.pool()).await?.try_get(0)?;
     let rows = page_query
         .bind(limit)
         .bind(offset)
@@ -373,7 +383,7 @@ mod tests {
         insert_row(&store, "s2", "u1", 300).await;
         insert_row(&store, "s3", "u2", 200).await;
 
-        let (rows, total, capped) = list(&store, "default", None, 10, 0)
+        let (rows, total, capped) = list(&store, "default", ListFilter::default(), 10, 0)
             .await
             .expect("list");
         let ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
@@ -382,14 +392,67 @@ mod tests {
         assert!(!capped);
 
         // 按成员过滤
-        let (rows, total, _) = list(&store, "default", Some("u1"), 10, 0)
-            .await
-            .expect("list");
+        let (rows, total, _) = list(
+            &store,
+            "default",
+            ListFilter {
+                user_id: Some("u1"),
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .await
+        .expect("list");
         assert_eq!(rows.len(), 2);
         assert_eq!(total, 2);
 
         // 分页
-        let (rows, _, _) = list(&store, "default", None, 1, 1).await.expect("list");
+        let (rows, _, _) = list(&store, "default", ListFilter::default(), 1, 1)
+            .await
+            .expect("list");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "s3");
+    }
+
+    /// 时间区间筛选：含起始日整天、不含结束日的次日。
+    #[tokio::test]
+    async fn list_filters_by_time_range() {
+        let store = AdminStore::connect_in_memory().await.expect("store");
+        insert_row(&store, "s1", "u1", 1_000).await;
+        insert_row(&store, "s2", "u1", 2_000).await;
+        insert_row(&store, "s3", "u1", 3_000).await;
+
+        let (rows, total, _) = list(
+            &store,
+            "default",
+            ListFilter {
+                from_ts: Some(2_000),
+                to_ts: Some(3_001),
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .await
+        .expect("list");
+        let ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, vec!["s3", "s2"], "区间应包含两端");
+        assert_eq!(total, 2);
+
+        // 只给起始
+        let (rows, _, _) = list(
+            &store,
+            "default",
+            ListFilter {
+                from_ts: Some(2_500),
+                ..Default::default()
+            },
+            10,
+            0,
+        )
+        .await
+        .expect("list");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, "s3");
     }

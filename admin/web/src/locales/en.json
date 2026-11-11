@@ -733,6 +733,14 @@
       "assistant": "Assistant",
       "tool": "Tool"
     },
-    "countCapped": "{total}+ total, {n} on this page (count stops being exact past 10,000)"
+    "countCapped": "{total}+ total, {n} on this page (count stops being exact past 10,000)",
+    "allMembers": "All members",
+    "from": "From date",
+    "to": "To date",
+    "pageSize": "{n} per page",
+    "reset": "Reset",
+    "prev": "Previous",
+    "next": "Next",
+    "pageNo": "Page {n}"
   }
 }

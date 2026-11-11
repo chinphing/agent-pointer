@@ -388,10 +388,12 @@ pub async fn overview(
     let mut token_trend = Vec::new();
     for back in (0..7).rev() {
         let day = today_string(now_ts() - back * 86_400);
-        let sql = state.store.sql(
-            "SELECT COALESCE(SUM(prompt_tokens + completion_tokens), 0) FROM usage_daily \
-             WHERE tenant_id = ? AND day = ?",
-        );
+        let sql = state.store.sql(&format!(
+            "SELECT {} FROM usage_daily WHERE tenant_id = ? AND day = ?",
+            state
+                .store
+                .int_sum("COALESCE(SUM(prompt_tokens + completion_tokens), 0)")
+        ));
         let sum: i64 = sqlx::query::<Any>(&sql)
             .bind(&state.config.tenant_id)
             .bind(&day)

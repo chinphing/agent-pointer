@@ -38,6 +38,24 @@ impl Backend {
     pub fn uses_dollar_placeholders(self) -> bool {
         matches!(self, Self::Postgres)
     }
+
+    /// `SUM()` over an integer column comes back as **DECIMAL** on MySQL, and
+    /// `sqlx::Any` cannot decode it:
+    ///
+    /// ```text
+    /// Any driver does not support MySql type MySqlTypeInfo { type: NewDecimal, … }
+    /// ```
+    ///
+    /// So every aggregate that is read back as `i64` has to be cast to an
+    /// integer first — with a dialect-specific type name.
+    pub fn int_cast(self, expr: &str) -> String {
+        let ty = match self {
+            Self::Sqlite => "INTEGER",
+            Self::Postgres => "BIGINT",
+            Self::MySql => "SIGNED",
+        };
+        format!("CAST({expr} AS {ty})")
+    }
 }
 
 /// sqlx 不会自动创建 SQLite 文件；控制面首次启动应该自己把库建出来，
@@ -126,6 +144,11 @@ impl AdminStore {
         rewrite_placeholders(raw, self.backend)
     }
 
+    /// 把聚合表达式转成本后端能解码的整数（见 [`Backend::int_cast`]）。
+    pub fn int_sum(&self, expr: &str) -> String {
+        self.backend.int_cast(expr)
+    }
+
     /// 执行一条无参语句，返回受影响行数。
     pub async fn exec(&self, raw: &str) -> Result<u64> {
         let sql = self.sql(raw);
@@ -199,6 +222,22 @@ pub fn sha256_hex(data: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    /// MySQL 的 `SUM(int_col)` 返回 DECIMAL，`sqlx::Any` 解不了——所以读回 i64 的
+    /// 聚合必须按后端转成整数。这条测试钉死三种方言的类型名。
+    #[test]
+    fn int_cast_uses_backend_specific_type() {
+        assert_eq!(
+            Backend::Sqlite.int_cast("SUM(x)"),
+            "CAST(SUM(x) AS INTEGER)"
+        );
+        assert_eq!(
+            Backend::Postgres.int_cast("SUM(x)"),
+            "CAST(SUM(x) AS BIGINT)"
+        );
+        assert_eq!(Backend::MySql.int_cast("SUM(x)"), "CAST(SUM(x) AS SIGNED)");
+    }
 
     #[test]
     fn backend_is_detected_from_url() {

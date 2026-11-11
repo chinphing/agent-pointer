@@ -483,11 +483,12 @@ pub async fn spend_in_range(
     from_ts: i64,
     to_ts: i64,
 ) -> Result<(i64, i64)> {
-    let sql = store.sql(
-        "SELECT COALESCE(SUM(amount_micro), 0) AS spent, COUNT(*) AS calls
+    let sql = store.sql(&format!(
+        "SELECT {} AS spent, COUNT(*) AS calls
            FROM wallet_ledger
           WHERE user_id = ? AND kind = ? AND created_at >= ? AND created_at < ?",
-    );
+        store.int_sum("COALESCE(SUM(amount_micro), 0)")
+    ));
     let row = sqlx::query::<sqlx::Any>(&sql)
         .bind(user_id)
         .bind(KIND_CHARGE)

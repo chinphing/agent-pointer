@@ -212,10 +212,13 @@ pub async fn totals(
     user_id: Option<&str>,
 ) -> Result<UsageAgg> {
     let sql = store.sql(&format!(
-        "SELECT COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0),
-                COALESCE(SUM(thinking_tokens), 0), COALESCE(SUM(cached_tokens), 0)
+        "SELECT {}, {}, {}, {}
            FROM usage_daily
           WHERE tenant_id = ? AND day >= ? AND day <= ?{}",
+        store.int_sum("COALESCE(SUM(prompt_tokens), 0)"),
+        store.int_sum("COALESCE(SUM(completion_tokens), 0)"),
+        store.int_sum("COALESCE(SUM(thinking_tokens), 0)"),
+        store.int_sum("COALESCE(SUM(cached_tokens), 0)"),
         user_filter_sql(user_id)
     ));
     let mut query = sqlx::query::<Any>(&sql)
@@ -272,12 +275,15 @@ async fn aggregate_by_period(
     };
     let sql = store.sql(&format!(
         "SELECT {column} AS k,
-                COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0),
-                COALESCE(SUM(thinking_tokens), 0), COALESCE(SUM(cached_tokens), 0)
+                {}, {}, {}, {}
            FROM {table}
           WHERE tenant_id = ? AND {period_column} >= ? AND {period_column} <= ?{}
           GROUP BY {column}
           ORDER BY SUM(prompt_tokens + completion_tokens) DESC, k",
+        store.int_sum("COALESCE(SUM(prompt_tokens), 0)"),
+        store.int_sum("COALESCE(SUM(completion_tokens), 0)"),
+        store.int_sum("COALESCE(SUM(thinking_tokens), 0)"),
+        store.int_sum("COALESCE(SUM(cached_tokens), 0)"),
         user_filter_sql(user_id)
     ));
     let mut query = sqlx::query::<Any>(&sql)

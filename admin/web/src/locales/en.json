@@ -88,7 +88,8 @@
     "passwordMismatch": "The two new passwords do not match",
     "passwordSameAsOld": "New password must differ from the current one",
     "passwordChanged": "Password updated. Other devices have been signed out.",
-    "kindRecharge": "Top-up"
+    "kindRecharge": "Top-up",
+    "recharge": "Top up"
   },
   "download": {
     "title": "Download Pointer",
@@ -150,7 +151,8 @@
     "empty": "Nothing here yet",
     "requestFailed": "Request failed (HTTP {status})",
     "refresh": "Refresh",
-    "create": "Create"
+    "create": "Create",
+    "done": "Done"
   },
   "roles": {
     "title": "Roles & permissions",

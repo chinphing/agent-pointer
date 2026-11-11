@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { canView, landingFor, ROUTES, SECTIONS, tabsFor, topNavFor } from './routes'
 
-const ACCOUNT_PATHS = ['/me', '/me/billing', '/me/recharge', '/me/usage', '/me/settings']
+const ACCOUNT_PATHS = ['/me', '/me/billing', '/me/usage', '/me/settings']
 const CONSOLE_PATHS = [
   '/admin/overview',
   '/admin/members',

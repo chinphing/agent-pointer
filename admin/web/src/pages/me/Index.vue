@@ -5,6 +5,7 @@ import { api } from '../../api'
 import { when } from '../../lib/format'
 import { fmtCompact } from '../../lib/chart'
 import BarChart from '../../components/BarChart.vue'
+import RechargeDialog from '../../components/RechargeDialog.vue'
 import { ledgerKindLabel } from '../../lib/ledger'
 
 const { t } = useI18n()
@@ -16,6 +17,14 @@ const { t } = useI18n()
 const loading = ref(true)
 const error = ref('')
 const balanceYuan = ref('0.00')
+
+/**
+ * 充值做成弹窗，不是独立页面：充值只是账户页上的一个动作，付完就地看到余额变化。
+ * 支付能力不是每个部署都有（开源版没有支付后端），所以先探测再决定要不要出按钮。
+ */
+const payEnabled = ref(false)
+const payChannel = ref('')
+const showRecharge = ref(false)
 
 interface LedgerRow {
   kind: string
@@ -63,7 +72,35 @@ const hasUsage = computed(() => byDay.value.some((d) => d.totalTokens > 0))
 /** 概览里只展示最近 3 条，全量去账单页看。 */
 const recent = computed(() => ledger.value.slice(0, 3))
 
+/** 余额与最近流水。充值成功后要能单独刷新，所以从 onMounted 里抽出来。 */
+async function loadWallet() {
+  try {
+    const w = await api.get('/api/admin/my-wallet')
+    balanceYuan.value = w.balanceYuan ?? '0.00'
+    ledger.value = w.ledger ?? []
+  } catch (e) {
+    error.value = errText(e)
+  }
+}
+
+/** 到账后刷新余额，不用用户自己刷页面。 */
+function onPaid() {
+  error.value = ''
+  void loadWallet()
+}
+
 onMounted(async () => {
+  // 支付能力探测失败不报错：开源版没有支付后端，按钮不出现即可。
+  api
+    .get('/api/admin/pay/enabled')
+    .then((r) => {
+      payEnabled.value = r.enabled === true
+      payChannel.value = r.channel || ''
+    })
+    .catch(() => {
+      payEnabled.value = false
+    })
+
   try {
     // 余额与流水、用量统计是两个接口，任一失败都不该让整页白屏。
     const [wallet, usage] = await Promise.allSettled([
@@ -105,11 +142,21 @@ onMounted(async () => {
           </div>
         </div>
         <div class="row" style="gap: 10px">
+          <button v-if="payEnabled" class="btn primary" type="button" @click="showRecharge = true">
+            {{ t('me.recharge') }}
+          </button>
           <router-link to="/me/billing" class="btn">{{ t('me.viewBilling') }}</router-link>
           <router-link to="/me/usage" class="btn">{{ t('me.viewUsage') }}</router-link>
         </div>
       </div>
     </section>
+
+    <RechargeDialog
+      v-if="showRecharge"
+      :channel="payChannel"
+      @close="showRecharge = false"
+      @paid="onPaid"
+    />
 
     <!-- 本月概览 -->
     <section class="me-card">

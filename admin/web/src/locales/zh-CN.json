@@ -88,7 +88,8 @@
     "passwordMismatch": "两次输入的新密码不一致",
     "passwordSameAsOld": "新密码不能与当前密码相同",
     "passwordChanged": "密码已更新，其他设备上的登录已失效",
-    "kindRecharge": "充值"
+    "kindRecharge": "充值",
+    "recharge": "充值"
   },
   "download": {
     "title": "下载 Pointer",
@@ -150,7 +151,8 @@
     "empty": "还没有数据",
     "requestFailed": "请求失败（HTTP {status}）",
     "refresh": "刷新",
-    "create": "创建"
+    "create": "创建",
+    "done": "完成"
   },
   "roles": {
     "title": "角色与权限",

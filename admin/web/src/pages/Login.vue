@@ -43,6 +43,15 @@ const busy = ref(false)
 const methods = ref<LoginMethod[]>([])
 const active = ref('password')
 
+/**
+ * 能力探测是否结束。
+ *
+ * 探测是异步的，结束前 `methods` 还是空的，`active` 还是 'password'——直接渲染
+ * 会先画一帧账号密码表单，探测回来后整块换成短信表单，看起来像页面在抽风。
+ * 所以探测结束前只显示加载态。
+ */
+const probed = ref(false)
+
 const activeMethod = computed(() => methods.value.find((m) => m.key === active.value) ?? null)
 const activeComponent = computed(() =>
   activeMethod.value ? defineAsyncComponent(activeMethod.value.component) : null
@@ -64,12 +73,13 @@ async function refreshCaptcha() {
 onMounted(async () => {
   void refreshCaptcha()
 
-  const probed = await Promise.all(
+  const available = await Promise.all(
     LOGIN_METHODS.map(async (m) => (((await m.available?.()) ?? true) ? m : null))
   )
-  methods.value = probed.filter((m): m is LoginMethod => m !== null)
+  methods.value = available.filter((m): m is LoginMethod => m !== null)
   // 有扩展方式时默认用它：私有部署装短信就是为了少输密码。
   if (methods.value.length) active.value = methods.value[0].key
+  probed.value = true
 })
 
 onUnmounted(() => {
@@ -110,12 +120,21 @@ async function submitPassword() {
       <div class="head">
         <h1>{{ t('login.title') }}</h1>
         <!-- 只有一种扩展方式时保持右上角的切换链接；多种才用 tab 行 -->
-        <button v-if="methods.length === 1" type="button" class="link" @click="switchMode">
+        <button
+          v-if="probed && methods.length === 1"
+          type="button"
+          class="link"
+          @click="switchMode"
+        >
           {{ active === 'password' ? t(methods[0].labelKey) : t('login.passwordTab') }}
         </button>
       </div>
 
-      <div v-if="methods.length > 1" class="tabs">
+      <div v-if="!probed" class="muted small" style="margin-top: 16px">
+        {{ t('common.loading') }}
+      </div>
+
+      <div v-else-if="methods.length > 1" class="tabs">
         <button
           type="button"
           :class="{ active: active === 'password' }"
@@ -134,13 +153,17 @@ async function submitPassword() {
         </button>
       </div>
 
-      <p v-if="active === 'password'" class="muted small">{{ t('login.subtitle') }}</p>
+      <p v-if="probed && active === 'password'" class="muted small">{{ t('login.subtitle') }}</p>
 
       <div v-if="error" class="err" style="margin-top: 14px">{{ error }}</div>
 
-      <component :is="activeComponent" v-if="activeComponent" @success="onMethodSuccess" />
+      <component
+        :is="activeComponent"
+        v-if="probed && activeComponent"
+        @success="onMethodSuccess"
+      />
 
-      <form v-else @submit.prevent="submitPassword">
+      <form v-else-if="probed" @submit.prevent="submitPassword">
         <label for="u">{{ t('login.account') }}</label>
         <input id="u" v-model="username" autocomplete="username" autofocus required />
 

@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use sqlx::any::{AnyPoolOptions, AnyRow};
 use sqlx::{Any, AnyPool};
 use std::sync::Once;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::schema;
 
@@ -89,9 +89,74 @@ pub struct AdminStore {
     pub backend: Backend,
 }
 
+// ---------------------------------------------------------------------------
+// 连接池参数
+//
+// 按 Druid 的语义对齐（maxActive / minIdle / maxWait / testOnBorrow /
+// connectionInitSqls）。sqlx 只给了旋钮，没有 Druid 那套"帮你兜住"的后台机制，
+// 所以另外补了两块：启动预热（等价 initialSize）和保活任务（等价 keepAlive）。
+//
+// 为什么 min 不是 0：sqlx 默认 `min_connections = 0` + `idle_timeout = 10min`，
+// 意味着空闲 10 分钟后池子归零，下一次请求要重建连接。
+// ---------------------------------------------------------------------------
+
+/// 等价 Druid `maxActive`。管理后台用户个位数，一个页面并发 2~3 个请求，10 够用。
+const POOL_MAX: u32 = 10;
+/// 等价 Druid `minIdle`。常驻两条：一条给保活，一条给用户请求。
+const POOL_MIN: u32 = 2;
+/// 等价 Druid `maxWait`。默认 30 秒太久，用户等不了。
+const POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(3);
+/// 等价 Druid `phyTimeoutMillis`。定期换新连接，兜底对端静默超时。
+const POOL_MAX_LIFETIME: Duration = Duration::from_secs(1800);
+/// 保活间隔（秒）。必须短于环境里 NAT / RDS Proxy 的空闲回收时间（NAT 约 350 秒）。
+/// 用 `POINTER_ADMIN_KEEPALIVE_SECS` 覆盖，`0` 表示关闭。
+pub const POOL_KEEPALIVE_EVERY_SECS: u64 = 240;
+
+/// 等价 Druid `connectionInitSqls`：连接建立后立刻执行的会话设置。
+///
+/// `wait_timeout` 让 MySQL 别在 8 小时静默后踢人；权限不足时静默忽略。
+const SESSION_INIT_SQL: &[&str] = &[
+    "SET NAMES utf8mb4",
+    "SET SESSION wait_timeout = 28800",
+    "SET SESSION interactive_timeout = 28800",
+];
+
 fn install_drivers() {
     static ONCE: Once = Once::new();
     ONCE.call_once(sqlx::any::install_default_drivers);
+}
+
+/// 按后端构造池参数。SQLite 单文件只留一条连接（per-connection PRAGMA 的麻烦）。
+fn pool_options(backend: Backend) -> AnyPoolOptions {
+    let mut opts = AnyPoolOptions::new()
+        .max_connections(if backend == Backend::Sqlite { 1 } else { POOL_MAX })
+        .acquire_timeout(POOL_ACQUIRE_TIMEOUT)
+        // 等价 Druid testOnBorrow：取连接前 ping 一次。内网成本 <1ms，
+        // 换来的是"拿到的一定是活连接"。
+        .test_before_acquire(true);
+
+    if backend != Backend::Sqlite {
+        opts = opts
+            .min_connections(POOL_MIN)
+            // 不因空闲关闭：靠 min_connections 常驻 + max_lifetime 轮换。
+            // （Druid 的 minEvictableIdleTimeMillis 只淘汰超出 minIdle 的部分，
+            //   sqlx 没有这个"只淘汰多余"的语义，直接关掉更可控。）
+            .idle_timeout(None)
+            .max_lifetime(Some(POOL_MAX_LIFETIME))
+            // 取连接耗时默认不打日志——线上出问题时看不到慢在哪，这里打开。
+            .acquire_time_level(log::LevelFilter::Debug)
+            .after_connect(|conn, _| {
+                Box::pin(async move {
+                    for sql in SESSION_INIT_SQL {
+                        if let Err(e) = sqlx::query(sql).execute(&mut *conn).await {
+                            log::debug!("会话初始化语句被忽略（{sql}）：{e}");
+                        }
+                    }
+                    Ok(())
+                })
+            });
+    }
+    opts
 }
 
 impl AdminStore {
@@ -104,13 +169,34 @@ impl AdminStore {
             ensure_sqlite_file(url)?;
         }
 
-        // SQLite 是单文件：单连接即可，省掉 per-connection PRAGMA 的麻烦。
-        let max_connections = if backend == Backend::Sqlite { 1 } else { 5 };
-        let pool = AnyPoolOptions::new()
-            .max_connections(max_connections)
+        let pool = pool_options(backend)
             .connect(url)
             .await
             .with_context(|| format!("connect admin db ({url})"))?;
+
+        // 启动预热（等价 Druid initialSize）：sqlx 的 min_connections 是后台
+        // 任务懒补齐的，connect 之后并不会主动建。不预热的话第一个用户请求
+        // 要自己付建连成本。
+        if backend != Backend::Sqlite {
+            let mut held = Vec::with_capacity(POOL_MIN as usize);
+            for _ in 0..POOL_MIN {
+                match pool.acquire().await {
+                    Ok(conn) => held.push(conn),
+                    Err(e) => {
+                        log::warn!("连接池预热失败（不影响启动）：{e}");
+                        break;
+                    }
+                }
+            }
+            let warmed = held.len();
+            drop(held);
+            log::info!(
+                "连接池就绪：max={POOL_MAX} min={POOL_MIN} 预热={warmed} 条 \
+                 acquire_timeout={}s max_lifetime={}s",
+                POOL_ACQUIRE_TIMEOUT.as_secs(),
+                POOL_MAX_LIFETIME.as_secs()
+            );
+        }
 
         let store = Self { pool, backend };
         if backend == Backend::Sqlite {
@@ -147,6 +233,43 @@ impl AdminStore {
     /// 把聚合表达式转成本后端能解码的整数（见 [`Backend::int_cast`]）。
     pub fn int_sum(&self, expr: &str) -> String {
         self.backend.int_cast(expr)
+    }
+
+    /// 后台保活（等价 Druid `keepAlive`）。
+    ///
+    /// sqlx 没有这个能力：空闲时池子不会自己 ping，而 NAT 网关（约 350 秒）
+    /// 或 RDS Proxy 会把静默的连接回收掉。`test_before_acquire` 能保证拿到的
+    /// 是活连接，但**发现死连接的那次请求要自己付建连成本**——保活把这一下
+    /// 也省掉。
+    ///
+    /// SQLite 是本地文件，没有"对端超时"这回事，直接跳过。
+    /// `every` 为零表示关闭。
+    pub fn spawn_keepalive(&self, every: Duration) {
+        if self.backend == Backend::Sqlite || every.is_zero() {
+            return;
+        }
+        let store = self.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(every);
+            // 错过的节拍不补，避免网络抖动后连续 ping 一串。
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            // 第一次 tick 立即返回，跳过——预热刚做完，没必要马上再 ping。
+            tick.tick().await;
+            loop {
+                tick.tick().await;
+                match store.pool.acquire().await {
+                    Ok(mut conn) => match sqlx::query("SELECT 1").execute(&mut *conn).await {
+                        Ok(_) => log::debug!(
+                            "连接池保活：ok size={} idle={}",
+                            store.pool.size(),
+                            store.pool.num_idle()
+                        ),
+                        Err(e) => log::warn!("连接池保活失败：{e}"),
+                    },
+                    Err(e) => log::warn!("连接池保活取连接失败：{e}"),
+                }
+            }
+        });
     }
 
     /// 执行一条无参语句，返回受影响行数。
@@ -224,6 +347,34 @@ mod tests {
     use super::*;
 
     #[test]
+    /// 池参数按 Druid 语义钉死：min=2 / max=10 / 不因空闲关闭 / 30 分钟轮换 /
+    /// 3 秒取连接超时 / 取连接前校验。改这些数字前先想清楚线上会怎样。
+    #[test]
+    fn pool_options_follow_druid_semantics() {
+        let o = pool_options(Backend::MySql);
+        assert_eq!(o.get_max_connections(), 10, "Druid maxActive");
+        assert_eq!(o.get_min_connections(), 2, "Druid minIdle：池子不归零");
+        assert_eq!(
+            o.get_acquire_timeout(),
+            Duration::from_secs(3),
+            "Druid maxWait"
+        );
+        assert_eq!(o.get_idle_timeout(), None, "空闲不关闭，靠 max_lifetime 轮换");
+        assert_eq!(
+            o.get_max_lifetime(),
+            Some(Duration::from_secs(1800)),
+            "Druid phyTimeout"
+        );
+        assert!(o.get_test_before_acquire(), "Druid testOnBorrow");
+    }
+
+    #[test]
+    fn sqlite_pool_stays_single_connection() {
+        let o = pool_options(Backend::Sqlite);
+        assert_eq!(o.get_max_connections(), 1);
+        assert_eq!(o.get_min_connections(), 0, "SQLite 不做常驻与保活");
+    }
+
     /// MySQL 的 `SUM(int_col)` 返回 DECIMAL，`sqlx::Any` 解不了——所以读回 i64 的
     /// 聚合必须按后端转成整数。这条测试钉死三种方言的类型名。
     #[test]

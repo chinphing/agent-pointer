@@ -19,6 +19,7 @@ use sqlx::Any;
 
 #[tokio::test]
 async fn smoke_against_configured_backend() {
+    let _ = env_logger::builder().is_test(true).try_init();
     let Ok(url) = std::env::var("POINTER_ADMIN_TEST_DB_URL") else {
         eprintln!("skipped: POINTER_ADMIN_TEST_DB_URL not set");
         return;
@@ -68,6 +69,22 @@ async fn smoke_against_configured_backend() {
         .expect("session should exist");
     assert_eq!(session.user_id, user.id);
     assert!(sessions::revoke(&store, &token).await.expect("revoke"));
+
+    // 连接池：启动预热应已建出 min_connections 条空闲连接。
+    assert!(
+        store.pool().num_idle() >= 2,
+        "启动预热没生效：idle={}",
+        store.pool().num_idle()
+    );
+
+    // 保活跑一轮后池子仍健康（间隔压到 1 秒，测试不用等 4 分钟）。
+    store.spawn_keepalive(std::time::Duration::from_secs(1));
+    tokio::time::sleep(std::time::Duration::from_millis(1600)).await;
+    assert!(
+        store.pool().num_idle() >= 2,
+        "保活后空闲连接数异常：idle={}",
+        store.pool().num_idle()
+    );
 
     // 聚合读回 i64：MySQL 的 SUM() 返回 DECIMAL，sqlx::Any 解不了
     // （`Any driver does not support MySql type NewDecimal`）。

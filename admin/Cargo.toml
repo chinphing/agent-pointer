@@ -35,7 +35,7 @@ png = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tower-http = { version = "0.6", features = ["fs", "compression-gzip"] }
 tower = { version = "0.5", features = ["util"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "fs"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "fs", "time"] }
 pointer-contract = { path = "../crates/pointer-contract" }
 # 只影响 admin；客户端与 server 仍用 rusqlite 的 conversations.db，互不干扰。
 sqlx = { version = "0.8", default-features = false, features = [

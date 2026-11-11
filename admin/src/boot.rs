@@ -87,6 +87,15 @@ impl Boot {
             .await
             .context("连接控制面数据库失败")?;
 
+        // 后台保活（等价 Druid keepAlive）：SQLite 自动跳过。
+        let every = keepalive_every();
+        if every.is_zero() {
+            log::warn!("连接池保活已关闭（POINTER_ADMIN_KEEPALIVE_SECS=0）");
+        } else {
+            log::info!("连接池保活：每 {} 秒一次", every.as_secs());
+        }
+        store.spawn_keepalive(every);
+
         bootstrap(&store, &self.config).await?;
         seed_providers(&store, &self.config).await;
         seed_prices(&store, &self.config).await;
@@ -221,4 +230,14 @@ async fn seed_prices(store: &AdminStore, cfg: &AdminConfig) {
         Ok(n) => log::info!("初始化模型单价：补齐 {n} 个（照抄官网费率）"),
         Err(e) => log::warn!("初始化模型单价失败（不影响启动）：{e}"),
     }
+}
+
+/// 保活间隔：默认 [`crate::db::POOL_KEEPALIVE_EVERY_SECS`]，可用
+/// `POINTER_ADMIN_KEEPALIVE_SECS` 覆盖，`0` 关闭。
+fn keepalive_every() -> std::time::Duration {
+    let secs = std::env::var("POINTER_ADMIN_KEEPALIVE_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(crate::db::POOL_KEEPALIVE_EVERY_SECS);
+    std::time::Duration::from_secs(secs)
 }

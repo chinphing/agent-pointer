@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '../../api'
 import { when } from '../../lib/format'
 import { fmtCompact } from '../../lib/chart'
 import BarChart from '../../components/BarChart.vue'
-import RechargeDialog from '../../components/RechargeDialog.vue'
 import { ledgerKindLabel } from '../../lib/ledger'
+import { ACCOUNT_ACTIONS, type AccountAction } from '@ext'
 
 const { t } = useI18n()
 
@@ -19,12 +19,16 @@ const error = ref('')
 const balanceYuan = ref('0.00')
 
 /**
- * 充值做成弹窗，不是独立页面：充值只是账户页上的一个动作，付完就地看到余额变化。
- * 支付能力不是每个部署都有（开源版没有支付后端），所以先探测再决定要不要出按钮。
+ * 余额旁的动作按钮由扩展提供（开源版为空）。私有部署的「充值」就是从这里来的：
+ * 开源仓只负责渲染，不知道按钮背后是什么业务。
  */
-const payEnabled = ref(false)
-const payChannel = ref('')
-const showRecharge = ref(false)
+const actions = ref<AccountAction[]>([])
+const openAction = ref<AccountAction | null>(null)
+
+/** 打开哪个动作，就异步加载哪个弹窗。 */
+const openComponent = computed(() =>
+  openAction.value ? defineAsyncComponent(openAction.value.component) : null
+)
 
 interface LedgerRow {
   kind: string
@@ -83,23 +87,19 @@ async function loadWallet() {
   }
 }
 
-/** 到账后刷新余额，不用用户自己刷页面。 */
-function onPaid() {
+/** 动作执行成功（例如充值到账）后刷新余额，不用用户自己刷页面。 */
+function onActionDone() {
   error.value = ''
   void loadWallet()
 }
 
 onMounted(async () => {
-  // 支付能力探测失败不报错：开源版没有支付后端，按钮不出现即可。
-  api
-    .get('/api/admin/pay/enabled')
-    .then((r) => {
-      payEnabled.value = r.enabled === true
-      payChannel.value = r.channel || ''
-    })
-    .catch(() => {
-      payEnabled.value = false
-    })
+  // 扩展动作各自探测能力：没开通的就不显示按钮，而不是点进去报错。
+  void Promise.all(
+    ACCOUNT_ACTIONS.map(async (a) => (((await a.available?.()) ?? true) ? a : null))
+  ).then((list) => {
+    actions.value = list.filter((a): a is AccountAction => a !== null)
+  })
 
   try {
     // 余额与流水、用量统计是两个接口，任一失败都不该让整页白屏。
@@ -142,8 +142,14 @@ onMounted(async () => {
           </div>
         </div>
         <div class="row" style="gap: 10px">
-          <button v-if="payEnabled" class="btn primary" type="button" @click="showRecharge = true">
-            {{ t('me.recharge') }}
+          <button
+            v-for="a in actions"
+            :key="a.key"
+            class="btn primary"
+            type="button"
+            @click="openAction = a"
+          >
+            {{ t(a.labelKey) }}
           </button>
           <router-link to="/me/billing" class="btn">{{ t('me.viewBilling') }}</router-link>
           <router-link to="/me/usage" class="btn">{{ t('me.viewUsage') }}</router-link>
@@ -151,11 +157,11 @@ onMounted(async () => {
       </div>
     </section>
 
-    <RechargeDialog
-      v-if="showRecharge"
-      :channel="payChannel"
-      @close="showRecharge = false"
-      @paid="onPaid"
+    <component
+      :is="openComponent"
+      v-if="openComponent"
+      @close="openAction = null"
+      @done="onActionDone"
     />
 
     <!-- 本月概览 -->

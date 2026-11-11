@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { login, loginWithSms, session } from '../store'
+import { login, session } from '../store'
 import { landingFor } from '../routes'
 import { api, errText } from '../api'
+import { LOGIN_METHODS, type LoginMethod } from '@ext'
 
 const router = useRouter()
 const route = useRoute()
@@ -34,29 +35,18 @@ const error = ref('')
 const busy = ref(false)
 
 /**
- * 短信登录是**私有部署才有的能力**，开源版的后端根本不注册那组路由。
- * 所以入口不能写死，得先探测：探测不到就不显示，避免出现点了必报错的 tab。
+ * 账号密码之外的登录方式由扩展提供（开源版为空）。
+ *
+ * 开源仓不知道「短信」这回事：它只渲染扩展给的 tab，加载扩展给的组件。
+ * 能力探测也由扩展自己做，没开通的方式不会出现在 tab 里。
  */
-const smsEnabled = ref(false)
-const mode = ref<'password' | 'sms'>('password')
-const phone = ref('')
-const smsCode = ref('')
-const countdown = ref(0)
-let timer: ReturnType<typeof setInterval> | null = null
+const methods = ref<LoginMethod[]>([])
+const active = ref('password')
 
-async function probeSms() {
-  try {
-    const r = await fetch('/api/auth/sms/enabled', { credentials: 'same-origin' })
-    if (!r.ok) return
-    const data = (await r.json()) as { enabled?: boolean }
-    if (data.enabled) {
-      smsEnabled.value = true
-      mode.value = 'sms'
-    }
-  } catch {
-    // 探测失败就当没有短信登录：宁可不显示，也不显示一个点了会报错的入口。
-  }
-}
+const activeMethod = computed(() => methods.value.find((m) => m.key === active.value) ?? null)
+const activeComponent = computed(() =>
+  activeMethod.value ? defineAsyncComponent(activeMethod.value.component) : null
+)
 
 /** 拉一张新验证码。每次登录失败都要换，旧的已经被消费掉了。 */
 async function refreshCaptcha() {
@@ -71,57 +61,30 @@ async function refreshCaptcha() {
   }
 }
 
-onMounted(() => {
-  void probeSms()
+onMounted(async () => {
   void refreshCaptcha()
+
+  const probed = await Promise.all(
+    LOGIN_METHODS.map(async (m) => (((await m.available?.()) ?? true) ? m : null))
+  )
+  methods.value = probed.filter((m): m is LoginMethod => m !== null)
+  // 有扩展方式时默认用它：私有部署装短信就是为了少输密码。
+  if (methods.value.length) active.value = methods.value[0].key
 })
 
 onUnmounted(() => {
-  if (timer) clearInterval(timer)
+  /* 无需清理：扩展组件自己管自己的定时器 */
 })
 
-function startCountdown() {
-  countdown.value = 60
-  if (timer) clearInterval(timer)
-  timer = setInterval(() => {
-    countdown.value -= 1
-    if (countdown.value <= 0 && timer) {
-      clearInterval(timer)
-      timer = null
-    }
-  }, 1000)
-}
-
-/** 两种登录方式互切。切换时清掉上一次的错误，否则会带着旧报错进新表单。 */
+/** 密码与扩展方式互切。切换时清掉上一次的错误，否则会带着旧报错进新表单。 */
 function switchMode() {
-  mode.value = mode.value === 'sms' ? 'password' : 'sms'
+  active.value = active.value === 'password' ? (methods.value[0]?.key ?? 'password') : 'password'
   error.value = ''
 }
 
-async function sendCode() {
-  error.value = ''
-  busy.value = true
-  try {
-    await api.post('/api/auth/sms/send', { phone: phone.value.trim(), scene: 'sign_in' })
-    startCountdown()
-  } catch (e) {
-    error.value = errText(e)
-  } finally {
-    busy.value = false
-  }
-}
-
-async function submitSms() {
-  error.value = ''
-  busy.value = true
-  try {
-    await loginWithSms(phone.value.trim(), smsCode.value.trim())
-    router.replace(nextPath || landingFor(session.permissions))
-  } catch (e) {
-    error.value = errText(e)
-  } finally {
-    busy.value = false
-  }
+/** 扩展方式登录成功：和密码登录走同一套落地逻辑。 */
+function onMethodSuccess() {
+  router.replace(nextPath || landingFor(session.permissions))
 }
 
 async function submitPassword() {
@@ -146,51 +109,36 @@ async function submitPassword() {
     <div class="card">
       <div class="head">
         <h1>{{ t('login.title') }}</h1>
-        <button v-if="smsEnabled" type="button" class="link" @click="switchMode">
-          {{ mode === 'sms' ? t('login.passwordTab') : t('login.smsTab') }}
+        <!-- 只有一种扩展方式时保持右上角的切换链接；多种才用 tab 行 -->
+        <button v-if="methods.length === 1" type="button" class="link" @click="switchMode">
+          {{ active === 'password' ? t(methods[0].labelKey) : t('login.passwordTab') }}
         </button>
       </div>
-      <p class="muted small">{{ mode === 'sms' ? t('login.smsHint') : t('login.subtitle') }}</p>
+
+      <div v-if="methods.length > 1" class="tabs">
+        <button
+          type="button"
+          :class="{ active: active === 'password' }"
+          @click="active = 'password'"
+        >
+          {{ t('login.passwordTab') }}
+        </button>
+        <button
+          v-for="m in methods"
+          :key="m.key"
+          type="button"
+          :class="{ active: active === m.key }"
+          @click="active = m.key"
+        >
+          {{ t(m.labelKey) }}
+        </button>
+      </div>
+
+      <p v-if="active === 'password'" class="muted small">{{ t('login.subtitle') }}</p>
 
       <div v-if="error" class="err" style="margin-top: 14px">{{ error }}</div>
 
-      <form v-if="mode === 'sms'" @submit.prevent="submitSms">
-        <label for="phone">{{ t('login.phone') }}</label>
-        <input
-          id="phone"
-          v-model="phone"
-          type="tel"
-          inputmode="numeric"
-          autocomplete="tel"
-          autofocus
-          required
-        />
-
-        <label for="code">{{ t('login.smsCode') }}</label>
-        <div class="row" style="gap: 8px; align-items: center">
-          <input
-            id="code"
-            v-model="smsCode"
-            inputmode="numeric"
-            autocomplete="one-time-code"
-            maxlength="6"
-            required
-            style="flex: 1"
-          />
-          <button
-            type="button"
-            class="ghost"
-            :disabled="busy || countdown > 0 || !phone.trim()"
-            @click="sendCode"
-          >
-            {{ countdown > 0 ? `${countdown}s` : t('login.sendCode') }}
-          </button>
-        </div>
-
-        <button class="primary" style="width: 100%; margin-top: 20px" :disabled="busy">
-          {{ busy ? t('login.submitting') : t('login.smsSubmit') }}
-        </button>
-      </form>
+      <component :is="activeComponent" v-if="activeComponent" @success="onMethodSuccess" />
 
       <form v-else @submit.prevent="submitPassword">
         <label for="u">{{ t('login.account') }}</label>
@@ -250,8 +198,13 @@ async function submitPassword() {
   border-radius: 12px;
   padding: 30px 32px;
 }
-h1 { font-size: 18px; margin-bottom: 6px; }
-p { margin: 0; }
+h1 {
+  font-size: 18px;
+  margin-bottom: 6px;
+}
+p {
+  margin: 0;
+}
 .head {
   display: flex;
   align-items: baseline;
@@ -266,16 +219,25 @@ p { margin: 0; }
   color: var(--accent);
   cursor: pointer;
 }
-.link:hover { text-decoration: underline; }
-.ghost {
-  flex-shrink: 0;
+.link:hover {
+  text-decoration: underline;
+}
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin: 14px 0 0;
+}
+.tabs button {
   border: 1px solid var(--line);
   background: #fff;
   border-radius: 8px;
-  padding: 0 12px;
-  height: 40px;
+  padding: 6px 12px;
   font-size: 13px;
   cursor: pointer;
 }
-.ghost:disabled { opacity: 0.45; cursor: not-allowed; }
+.tabs button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
 </style>

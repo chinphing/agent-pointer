@@ -57,18 +57,6 @@ export async function login(
   await loadSession()
 }
 
-/**
- * 短信登录。后端在响应里种会话 Cookie，所以这里只要把会话读回来。
- *
- * 只有私有部署会注册这个接口（开源版没有短信能力），调用方要先探测
- * `/api/auth/sms/enabled` 再决定是否展示入口。
- */
-export async function loginWithSms(phone: string, code: string): Promise<void> {
-  await api.post('/api/auth/sms/login', { phone, code })
-  await loadSession()
-  if (!session.user) throw new Error('登录失败')
-}
-
 export async function logout(): Promise<void> {
   try {
     await api.post('/api/admin/auth/logout')

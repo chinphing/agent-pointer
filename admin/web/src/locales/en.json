@@ -20,8 +20,7 @@
     "meUsage": "Usage detail",
     "meSettings": "Settings",
     "noAccess": "No access",
-    "login": "Sign in",
-    "meRecharge": "Top up"
+    "login": "Sign in"
   },
   "section": {
     "download": "Download",
@@ -87,9 +86,7 @@
     "passwordTooShort": "New password must be at least 8 characters",
     "passwordMismatch": "The two new passwords do not match",
     "passwordSameAsOld": "New password must differ from the current one",
-    "passwordChanged": "Password updated. Other devices have been signed out.",
-    "kindRecharge": "Top-up",
-    "recharge": "Top up"
+    "passwordChanged": "Password updated. Other devices have been signed out."
   },
   "download": {
     "title": "Download Pointer",
@@ -151,8 +148,7 @@
     "empty": "Nothing here yet",
     "requestFailed": "Request failed (HTTP {status})",
     "refresh": "Refresh",
-    "create": "Create",
-    "done": "Done"
+    "create": "Create"
   },
   "roles": {
     "title": "Roles & permissions",
@@ -221,13 +217,7 @@
     "submitting": "Signing in…",
     "refreshCaptcha": "Can't read it? Click to refresh",
     "subtitle": "Accounts are created by your administrator; self sign-up is disabled.",
-    "smsTab": "Sign in with SMS",
-    "passwordTab": "Password sign-in",
-    "phone": "Phone",
-    "smsCode": "Code",
-    "sendCode": "Send code",
-    "smsSubmit": "Verify and continue",
-    "smsHint": "A new phone number creates an account on first sign-in."
+    "passwordTab": "Password sign-in"
   },
   "roles_page": {
     "title": "Roles & permissions",
@@ -717,25 +707,5 @@
     "ratioHint": "The rate is a multiple of the baseline model (baseline = 1.0). Models without a rate are not shipped to clients.",
     "ratioRequired": "Rate is required",
     "ratioInvalid": "Rate must be a non-negative number"
-  },
-  "recharge": {
-    "title": "Top up",
-    "subtitle": "Scan to pay; the balance is available as soon as it clears.",
-    "amount": "Amount",
-    "custom": "Custom amount",
-    "customHint": "Amount in yuan",
-    "submit": "Generate QR code",
-    "submitting": "Creating order…",
-    "pending": "Waiting for payment…",
-    "paid": "Payment received. Balance updated.",
-    "closed": "Order closed",
-    "expired": "QR code expired, please start over",
-    "scanHint": "Scan the QR code with WeChat to pay",
-    "mockPay": "Simulate payment (test)",
-    "iPaid": "I have paid",
-    "again": "Top up again",
-    "invalidAmount": "Enter a valid amount",
-    "disabled": "Online top-up is not enabled on this deployment.",
-    "yuan": "CNY"
   }
 }

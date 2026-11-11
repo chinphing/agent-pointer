@@ -110,13 +110,6 @@ export const ROUTES: AdminRoute[] = [
     section: 'account',
     order: 20,
   },
-  // 充值已改成账户页里的弹窗，不再占一个侧边栏位置。
-  // 保留旧地址做跳转：收藏夹和文档里的链接不该 404。
-  {
-    path: '/me/recharge',
-    titleKey: 'nav.meRecharge',
-    redirect: '/me',
-  },
   {
     path: '/me/usage',
     titleKey: 'nav.meUsage',

@@ -1,6 +1,7 @@
 import { createI18n } from 'vue-i18n'
 import en from './locales/en.json'
 import zhCN from './locales/zh-CN.json'
+import { messages as extMessages } from '@ext'
 
 /**
  * 管理端国际化，做法与客户端一致：vue-i18n + 两份完整语言包 + 键集合校验。
@@ -22,12 +23,32 @@ export function readStoredLocale(): AdminLocale {
   return 'zh-CN'
 }
 
+/**
+ * 把扩展提供的文案并进来。深合并是为了让扩展只写自己那几段，
+ * 不必把整个 `me` 或 `login` 重新抄一遍。
+ */
+function deepMerge(base: Record<string, unknown>, extra: Record<string, unknown>) {
+  const out: Record<string, unknown> = { ...base }
+  for (const [k, v] of Object.entries(extra)) {
+    const prev = out[k]
+    if (v && typeof v === 'object' && !Array.isArray(v) && prev && typeof prev === 'object') {
+      out[k] = deepMerge(prev as Record<string, unknown>, v as Record<string, unknown>)
+    } else {
+      out[k] = v
+    }
+  }
+  return out
+}
+
 export const i18n = createI18n({
   legacy: false,
   globalInjection: true,
   locale: readStoredLocale(),
   fallbackLocale: 'zh-CN',
-  messages: { 'zh-CN': zhCN, en },
+  messages: {
+    'zh-CN': deepMerge(zhCN as Record<string, unknown>, extMessages['zh-CN'] ?? {}),
+    en: deepMerge(en as Record<string, unknown>, extMessages.en ?? {}),
+  },
 })
 
 export function setLocale(locale: AdminLocale) {

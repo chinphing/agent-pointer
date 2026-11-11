@@ -11,6 +11,8 @@ use crate::db::{now_ts, random_id, AdminStore};
 
 pub const ALL_PERMISSIONS: &[&str] = &[
     "user:read",
+    // 会话内容属于敏感数据，单独一个键；内置 viewer 角色默认不给。
+    "conversation:read",
     "user:write",
     "role:read",
     "role:write",
@@ -89,6 +91,8 @@ pub fn builtin_permissions(key: &str) -> Vec<String> {
         "viewer" => all_permissions()
             .into_iter()
             .filter(|p| p.ends_with(":read"))
+            // 只读账号也不能翻别人的对话——对话里可能有患者信息。
+            .filter(|p| p != "conversation:read")
             .collect(),
         _ => Vec::new(),
     }

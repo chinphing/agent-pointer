@@ -20,7 +20,8 @@
     "meUsage": "Usage detail",
     "meSettings": "Settings",
     "noAccess": "No access",
-    "login": "Sign in"
+    "login": "Sign in",
+    "conversations": "Conversations"
   },
   "section": {
     "download": "Download",
@@ -711,5 +712,26 @@
     "baseUnitPerMillion": "CNY / million tokens",
     "unitPrice": "Unit price (CNY / 1M tokens)",
     "baseImpact": "After saving, the base model (ratio 1.0) costs exactly this; other models scale by ratio."
+  },
+  "conversations": {
+    "subtitle": "Conversation snapshots uploaded by clients. Every detail view is audited.",
+    "filterUser": "Filter by member ID",
+    "recent": "Latest {n}",
+    "empty": "No snapshots yet (clients upload them with usage reports)",
+    "time": "Time",
+    "user": "Member",
+    "preview": "First user message",
+    "messages": "Messages",
+    "model": "Model",
+    "size": "Size",
+    "view": "View",
+    "count": "{total} total, {n} on this page",
+    "detailTitle": "Conversation",
+    "noMessages": "This snapshot has no messages",
+    "role": {
+      "user": "User",
+      "assistant": "Assistant",
+      "tool": "Tool"
+    }
   }
 }

@@ -20,7 +20,8 @@
     "meUsage": "消费明细",
     "meSettings": "设置",
     "noAccess": "无权限",
-    "login": "登录"
+    "login": "登录",
+    "conversations": "会话"
   },
   "section": {
     "download": "下载",
@@ -711,5 +712,26 @@
     "baseUnitPerMillion": "元 / 百万 token",
     "unitPrice": "单价（元 / 百万 token）",
     "baseImpact": "保存后，基准模型（费率 1.0）就是上面这个价；其余模型按费率换算。"
+  },
+  "conversations": {
+    "subtitle": "客户端上报的对话快照。每次打开详情都会记一条审计。",
+    "filterUser": "按成员 ID 过滤",
+    "recent": "最近 {n} 条",
+    "empty": "还没有会话快照（客户端上报用量时会一并上传）",
+    "time": "时间",
+    "user": "成员",
+    "preview": "首条用户消息",
+    "messages": "消息数",
+    "model": "模型",
+    "size": "大小",
+    "view": "查看",
+    "count": "共 {total} 条，本页 {n} 条",
+    "detailTitle": "对话内容",
+    "noMessages": "这份快照里没有消息",
+    "role": {
+      "user": "用户",
+      "assistant": "助手",
+      "tool": "工具"
+    }
   }
 }

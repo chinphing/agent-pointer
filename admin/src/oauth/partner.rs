@@ -93,7 +93,7 @@ pub async fn balance(
     })))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, serde::Serialize)]
 pub struct UsageReport {
     /// 客户端上报的字段叫 `model_name`；旧的 `model` 也接受，两者都缺才留空。
     #[serde(default, alias = "model_name")]
@@ -128,12 +128,108 @@ impl UsageReport {
     }
 }
 
+
+/// 上报体上限：客户端快照 256KB 封顶，留足余量。
+const MAX_USAGE_BODY: usize = 4 * 1024 * 1024;
+
+/// 读用量上报：JSON 和 multipart 都收。
+///
+/// 客户端是照官网接口写的，**永远先发 multipart**（`metadata` + 可选
+/// `history_archive`）。控制面原来只挂 JSON handler，于是每次上报都先吃一个
+/// 415、再退回 JSON——白跑一趟，归档也永远收不到。
+async fn parse_usage_request(
+    request: axum::extract::Request,
+) -> Result<(UsageReport, Option<Vec<u8>>), ApiError> {
+    let is_multipart = request
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.starts_with("multipart/form-data"))
+        .unwrap_or(false);
+
+    if !is_multipart {
+        let bytes = axum::body::to_bytes(request.into_body(), MAX_USAGE_BODY)
+            .await
+            .map_err(|e| ApiError::BadRequest(format!("读取上报内容失败：{e}")))?;
+        let report = serde_json::from_slice(&bytes)
+            .map_err(|e| ApiError::BadRequest(format!("用量上报格式不对：{e}")))?;
+        return Ok((report, None));
+    }
+
+    use axum::extract::FromRequest;
+    let mut multipart = axum::extract::Multipart::from_request(request, &())
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("multipart 解析失败：{e}")))?;
+    let mut report: Option<UsageReport> = None;
+    let mut archive: Option<Vec<u8>> = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("multipart 读取失败：{e}")))?
+    {
+        let name = field.name().unwrap_or_default().to_string();
+        match name.as_str() {
+            "metadata" => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError::BadRequest(format!("metadata 读取失败：{e}")))?;
+                report = Some(
+                    serde_json::from_str(&text)
+                        .map_err(|e| ApiError::BadRequest(format!("metadata 格式不对：{e}")))?,
+                );
+            }
+            "history_archive" => {
+                archive = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|e| ApiError::BadRequest(format!("归档读取失败：{e}")))?
+                        .to_vec(),
+                );
+            }
+            _ => {
+                let _ = field.bytes().await;
+            }
+        }
+    }
+    let report = report.ok_or_else(|| ApiError::BadRequest("multipart 里缺少 metadata".into()))?;
+    Ok((report, archive))
+}
+
 pub async fn token_usage(
     State(state): State<Shared>,
     headers: HeaderMap,
-    Json(body): Json<UsageReport>,
+    request: axum::extract::Request,
 ) -> ApiResult<Json<Value>> {
+    let (body, archive) = parse_usage_request(request).await?;
     let user = bearer_user(&state, &headers).await?;
+
+    // 归档先落盘：即使后面计费失败（比如没配单价），对话内容也已经存下来了。
+    if let Some(bytes) = archive.as_deref() {
+        let meta = crate::conversations::ReportMeta {
+            request_id: body.request_id.as_deref().map(str::trim).filter(|s| !s.is_empty()),
+            conversation_id: None,
+            agent_instance_id: None,
+            agent_role_id: None,
+            model: body.model.trim(),
+            prompt_tokens: body.prompt_tokens,
+            completion_tokens: body.completion_tokens,
+        };
+        if let Err(e) = crate::conversations::record(
+            &state.store,
+            &state.config,
+            &state.config.tenant_id,
+            &user.id,
+            &meta,
+            bytes,
+        )
+        .await
+        {
+            // 存快照失败不能影响计费，记日志继续。
+            log::warn!("会话快照保存失败 user={}: {e}", user.id);
+        }
+    }
     let day = body
         .day
         .as_deref()
@@ -642,6 +738,61 @@ mod tests {
         assert_eq!(body.0["token_quota_exhausted"], false, "warn 只提示不拦");
     }
 
+    /// 把上报体包成一个 JSON 请求（handler 现在直接收 `Request`，因为要兼容 multipart）。
+    fn json_report_request(report: &UsageReport) -> axum::extract::Request {
+        axum::extract::Request::builder()
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::to_vec(report).expect("serialize report"),
+            ))
+            .expect("request")
+    }
+
+    /// 构造一个 multipart 上报请求（跟客户端 `report_token_usage_multipart` 同形）。
+    fn multipart_report_request(report: &UsageReport, archive: &[u8]) -> axum::extract::Request {
+        let boundary = "----pointer-test-boundary";
+        let mut body: Vec<u8> = Vec::new();
+        body.extend_from_slice(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"metadata\"\r\n\r\n{}\r\n",
+                serde_json::to_string(report).expect("serialize report")
+            )
+            .as_bytes(),
+        );
+        body.extend_from_slice(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"history_archive\"; filename=\"history.zip\"\r\nContent-Type: application/zip\r\n\r\n"
+            )
+            .as_bytes(),
+        );
+        body.extend_from_slice(archive);
+        body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+        axum::extract::Request::builder()
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(axum::body::Body::from(body))
+            .expect("request")
+    }
+
+    /// 拼一个会话快照 zip（客户端 `write_snapshot_zip` 同格式）。
+    fn snapshot_zip(messages: &serde_json::Value) -> Vec<u8> {
+        let mut out = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut out));
+            let opts = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated);
+            zip.start_file("conversation_snapshot.json", opts)
+                .expect("start_file");
+            use std::io::Write;
+            zip.write_all(messages.to_string().as_bytes())
+                .expect("write");
+            zip.finish().expect("finish");
+        }
+        out
+    }
+
     #[tokio::test]
     async fn usage_report_accumulates_tokens() {
         let (state, uid) = state_with_user().await;
@@ -661,7 +812,7 @@ mod tests {
         let _ = token_usage(
             State(state.clone()),
             bearer(&access),
-            Json(UsageReport {
+            json_report_request(&UsageReport {
                 model: "qwen".into(),
                 prompt_tokens: 10,
                 completion_tokens: 5,
@@ -686,6 +837,86 @@ mod tests {
         .expect("list");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].total(), 15);
+    }
+
+
+    /// multipart 上报：客户端本来就是这么发的，服务端必须收下，并把对话存起来。
+    ///
+    /// 以前这里只有 JSON handler，multipart 一律 415——客户端每次白跑一趟，
+    /// 归档也永远存不进来。
+    #[tokio::test]
+    async fn multipart_report_stores_conversation_snapshot() {
+        let dir = std::env::temp_dir().join(format!("pointer-admin-snap-{}", crate::db::random_id()));
+        let (state, uid) = state_with_user_in(dir.clone()).await;
+        crate::billing::set_price(
+            &state.store,
+            DEFAULT_TENANT,
+            "qwen",
+            crate::billing::Ratio::from_ratio(1.0),
+        )
+        .await
+        .expect("price");
+        let access = sessions::create(&state.store, &uid, sessions::KIND_ACCESS, 3600)
+            .await
+            .expect("access");
+
+        let snapshot = serde_json::json!({
+            "conversation_id": "conv-1",
+            "agent_instance_id": "agent-1",
+            "agent_role_id": "coder",
+            "messages": [
+                { "role": "user", "content": "帮我看看这个报销单", "created_at": "2026-11-12T10:00:00Z" },
+                { "role": "assistant", "content": "好的，先看金额", "created_at": "2026-11-12T10:00:05Z" }
+            ]
+        });
+        let archive = snapshot_zip(&snapshot);
+        let report = UsageReport {
+            model: "qwen".into(),
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            thinking_tokens: 0,
+            cached_tokens: 0,
+            total_tokens: None,
+            day: Some("2026-11-12".into()),
+            request_id: Some("req-multipart-1".into()),
+        };
+
+        let _ = token_usage(
+            State(state.clone()),
+            bearer(&access),
+            multipart_report_request(&report, &archive),
+        )
+        .await
+        .expect("multipart report must be accepted");
+
+        let (rows, total) = crate::conversations::list(&state.store, DEFAULT_TENANT, Some(&uid), 10, 0)
+            .await
+            .expect("list");
+        assert_eq!(total, 1, "快照应当入库");
+        assert_eq!(rows[0].conversation_id, "conv-1");
+        assert_eq!(rows[0].message_count, 2);
+        assert_eq!(rows[0].preview, "帮我看看这个报销单");
+
+        let (_, content) = crate::conversations::detail(&state.store, DEFAULT_TENANT, &rows[0].id)
+            .await
+            .expect("detail")
+            .expect("row");
+        assert_eq!(content["messages"][1]["content"], "好的，先看金额");
+
+        // 同一条上报重发不会存第二份
+        let _ = token_usage(
+            State(state.clone()),
+            bearer(&access),
+            multipart_report_request(&report, &archive),
+        )
+        .await
+        .expect("replay");
+        let (_, total_after) = crate::conversations::list(&state.store, DEFAULT_TENANT, Some(&uid), 10, 0)
+            .await
+            .expect("list");
+        assert_eq!(total_after, 1, "重发不能存第二份");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// 同一条上报重发两次：钱只扣一次，用量也只记一次。
@@ -724,7 +955,7 @@ mod tests {
             let _ = token_usage(
                 State(state.clone()),
                 bearer(&access),
-                Json(report()),
+                json_report_request(&report()),
             )
             .await
             .expect("report must succeed both times");

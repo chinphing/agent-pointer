@@ -181,6 +181,14 @@ export const ROUTES: AdminRoute[] = [
     order: 70,
   },
   {
+    path: '/admin/conversations',
+    titleKey: 'nav.conversations',
+    component: () => import('./pages/Conversations.vue'),
+    perm: 'conversation:read',
+    section: 'console',
+    order: 75,
+  },
+  {
     path: '/admin/audit',
     titleKey: 'nav.audit',
     component: Audit,

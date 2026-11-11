@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod billing;
+pub mod conversations;
 pub mod error;
 pub mod guard;
 pub mod insight;
@@ -182,6 +183,14 @@ pub fn router(state: Shared) -> Router<Shared> {
                 .require(&state, "usage:read")
                 .put(insight::set_quota)
                 .require(&state, "usage:write"),
+        )
+        .route(
+            "/api/admin/conversations",
+            get(conversations::list).require(&state, "conversation:read"),
+        )
+        .route(
+            "/api/admin/conversations/:id",
+            get(conversations::detail).require(&state, "conversation:read"),
         )
         .route("/api/admin/audit", get(insight::audit_log).require(&state, "audit:read"))
         .route(

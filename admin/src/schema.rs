@@ -13,7 +13,7 @@ use sqlx::{Any, Row};
 use crate::db::{now_ts, AdminStore, Backend};
 use crate::rbac;
 
-pub const SCHEMA_VERSION: i64 = 14;
+pub const SCHEMA_VERSION: i64 = 15;
 pub const DEFAULT_TENANT: &str = "default";
 
 const DDL_V1: &[&str] = &[
@@ -305,6 +305,35 @@ const DDL_V14: &[&str] = &[
     "CREATE INDEX idx_artifacts_sha ON app_release_artifacts(sha256)",
 ];
 
+/// v15：会话快照索引。
+///
+/// 客户端上报用量时会顺带传一份对话快照（zip）。正文落盘（`blob_path`），
+/// 库里只存索引和小预览——跟 `resource_versions` 一个路子，避免给 MySQL
+/// 换 MEDIUMTEXT，也让列表页只扫小字段。
+const DDL_V15: &[&str] = &[
+    "CREATE TABLE IF NOT EXISTS conversation_snapshots (
+        id                VARCHAR(64) PRIMARY KEY,
+        tenant_id         VARCHAR(64) NOT NULL,
+        user_id           VARCHAR(64) NOT NULL,
+        conversation_id   VARCHAR(64) NOT NULL,
+        agent_instance_id VARCHAR(64) NOT NULL,
+        agent_role_id     VARCHAR(64),
+        request_id        VARCHAR(128),
+        model             VARCHAR(128) NOT NULL DEFAULT '',
+        prompt_tokens     BIGINT NOT NULL DEFAULT 0,
+        completion_tokens BIGINT NOT NULL DEFAULT 0,
+        message_count     BIGINT NOT NULL DEFAULT 0,
+        preview           TEXT$512 NOT NULL DEFAULT '',
+        blob_path         VARCHAR(512),
+        size_bytes        BIGINT NOT NULL DEFAULT 0,
+        created_at        BIGINT NOT NULL
+    )",
+    // 同一条上报重放只存一份；request_id 为空的老客户端不受约束（NULL 不占唯一）。
+    "CREATE UNIQUE INDEX uq_snapshot_request ON conversation_snapshots(tenant_id, request_id)",
+    "CREATE INDEX idx_snapshot_conv ON conversation_snapshots(tenant_id, conversation_id)",
+    "CREATE INDEX idx_snapshot_user ON conversation_snapshots(tenant_id, user_id, created_at)",
+];
+
 const DDL_V10: &[&str] = &[
     "ALTER TABLE model_prices ADD COLUMN ratio_micro BIGINT NOT NULL DEFAULT 0",
     // 元/百万 = ratio × 1e6 ÷ 2²⁰ → ratio_micro = micro_per_million × 2²⁰ ÷ 1e6
@@ -509,6 +538,21 @@ pub async fn migrate(store: &AdminStore) -> Result<()> {
                 .with_context(|| format!("apply admin schema v14: {}", first_line(stmt)))?;
         }
         write_version(store, 14).await?;
+    }
+
+    if read_version(store).await? < 15 {
+        for stmt in DDL_V15 {
+            if is_index_ddl(stmt) {
+                // 索引是纯优化，失败不影响正确性（MySQL 重复建索引会报错）。
+                let _ = store.exec(&adapt(stmt, store.backend)).await;
+                continue;
+            }
+            store
+                .exec(&adapt(stmt, store.backend))
+                .await
+                .with_context(|| format!("apply admin schema v15: {}", first_line(stmt)))?;
+        }
+        write_version(store, 15).await?;
     }
 
     // 私有仓的迁移段：版本号从 9000 起，与开源仓的 1..n 互不干扰。

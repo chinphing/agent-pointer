@@ -9,6 +9,7 @@ pub mod billing;
 pub mod boot;
 pub mod captcha;
 pub mod config;
+pub mod conversations;
 pub mod credentials;
 pub mod crypto;
 pub mod db;

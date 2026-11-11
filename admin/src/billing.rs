@@ -421,6 +421,17 @@ pub struct UsageTokens {
     pub completion: i64,
 }
 
+/// 一次扣费的结果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChargeResult {
+    /// 本次实际扣掉的微元；幂等命中时为 0。
+    pub cost: i64,
+    /// 扣完（或命中时）的余额。
+    pub balance: i64,
+    /// true = 这个 `external_ref` 之前已经入过账，本次没有扣钱。
+    pub duplicated: bool,
+}
+
 pub async fn charge(
     store: &AdminStore,
     tenant_id: &str,
@@ -428,10 +439,38 @@ pub async fn charge(
     model: &str,
     tokens: UsageTokens,
 ) -> Result<(i64, i64)> {
-    charge_with_ref(store, tenant_id, user_id, model, tokens, None).await
+    let out = charge_with_ref(store, tenant_id, user_id, model, tokens, None).await?;
+    Ok((out.cost, out.balance))
+}
+
+/// 幂等键对应的余额；没入过账返回 `None`。
+async fn balance_for_ref(
+    store: &AdminStore,
+    tenant_id: &str,
+    external_ref: &str,
+) -> Result<Option<i64>> {
+    let sql = store.sql(
+        "SELECT balance_after_micro FROM wallet_ledger
+          WHERE tenant_id = ? AND external_ref = ? LIMIT 1",
+    );
+    let row = sqlx::query::<Any>(&sql)
+        .bind(tenant_id)
+        .bind(external_ref)
+        .fetch_optional(store.pool())
+        .await?;
+    match row {
+        Some(row) => Ok(Some(row.try_get(0)?)),
+        None => Ok(None),
+    }
 }
 
 /// 带幂等键的扣费：同一次上报重放不会扣两次。
+///
+/// 客户端上报用量时会带 `request_id`（同一条上报在本地是主键，重试时不变）。
+/// 拿它当 `external_ref`：唯一索引 `uq_wallet_ledger_external` 挡住重复入账，
+/// 命中时返回 `duplicated = true` 和当前余额，调用方按成功处理即可。
+///
+/// 没有幂等键时行为与原来一致（照常扣费）。
 pub async fn charge_with_ref(
     store: &AdminStore,
     tenant_id: &str,
@@ -439,7 +478,7 @@ pub async fn charge_with_ref(
     model: &str,
     tokens: UsageTokens,
     external_ref: Option<&str>,
-) -> Result<(i64, i64)> {
+) -> Result<ChargeResult> {
     let ratio = price_for(store, tenant_id, model).await?.ok_or_else(|| {
         anyhow!(
             "model_price_missing: 模型 {model} 没有配置费率，已拒绝计费（先在管理端「计费」里填费率）"
@@ -448,6 +487,20 @@ pub async fn charge_with_ref(
     let base = base_price_micro_per_mb(store).await?;
     let cost = ratio.cost_micro(tokens.total, base);
     ensure_wallet(store, tenant_id, user_id).await?;
+
+    // 幂等：这次上报之前已经入过账，直接返回当时的结果，不再扣钱。
+    if let Some(reference) = external_ref {
+        if let Some(balance) = balance_for_ref(store, tenant_id, reference).await? {
+            log::info!(
+                "billing: 重复上报（external_ref={reference}），跳过扣费 user={user_id}"
+            );
+            return Ok(ChargeResult {
+                cost: 0,
+                balance,
+                duplicated: true,
+            });
+        }
+    }
 
     let mut tx = store.pool().begin().await?;
     let sql = store
@@ -459,7 +512,7 @@ pub async fn charge_with_ref(
         .execute(&mut *tx)
         .await?;
     let next = balance_on(&mut tx, store, user_id).await?;
-    insert_ledger_on(
+    if let Err(err) = insert_ledger_on(
         &mut tx,
         store,
         tenant_id,
@@ -473,9 +526,31 @@ pub async fn charge_with_ref(
         "",
         external_ref,
     )
-    .await?;
+    .await
+    {
+        // 先回滚再查：SQLite 只有一条连接，事务没放掉就查会自己把自己锁住。
+        let _ = tx.rollback().await;
+        // 并发下的重复上报：两个请求同时通过了前置检查，唯一索引挡住后到的那个。
+        if let Some(reference) = external_ref {
+            if let Some(balance) = balance_for_ref(store, tenant_id, reference).await? {
+                log::info!(
+                    "billing: 并发重复上报（external_ref={reference}），跳过扣费 user={user_id}"
+                );
+                return Ok(ChargeResult {
+                    cost: 0,
+                    balance,
+                    duplicated: true,
+                });
+            }
+        }
+        return Err(err);
+    }
     tx.commit().await?;
-    Ok((cost, next))
+    Ok(ChargeResult {
+        cost,
+        balance: next,
+        duplicated: false,
+    })
 }
 
 /// 区间内的扣费合计与调用次数。
@@ -773,6 +848,76 @@ mod tests {
             .expect("query")
             .expect("wallet");
         assert_eq!(after, first, "重复入账不能改变余额");
+    }
+
+    /// 同一个 `external_ref` 重放：只扣一次钱，第二次标记 duplicated。
+    ///
+    /// 这是用量上报的核心保护：响应丢失后客户端会重发同一条上报，
+    /// 没有它就会扣两次钱。
+    #[tokio::test]
+    async fn repeated_charge_with_same_ref_is_charged_once() {
+        let store = store().await;
+        set_price(&store, DEFAULT_TENANT, "m", Ratio::from_ratio(1.0))
+            .await
+            .expect("price");
+        ensure_wallet(&store, DEFAULT_TENANT, "u1")
+            .await
+            .expect("wallet");
+        let tokens = UsageTokens {
+            total: 1_000_000,
+            prompt: 1_000_000,
+            completion: 0,
+        };
+
+        let first = charge_with_ref(&store, DEFAULT_TENANT, "u1", "m", tokens, Some("req-1"))
+            .await
+            .expect("first");
+        assert!(!first.duplicated, "第一次必须真的扣费");
+        assert!(first.cost > 0);
+
+        let again = charge_with_ref(&store, DEFAULT_TENANT, "u1", "m", tokens, Some("req-1"))
+            .await
+            .expect("replay");
+        assert!(again.duplicated, "重放必须被认出来");
+        assert_eq!(again.cost, 0, "重放不能扣钱");
+        assert_eq!(again.balance, first.balance, "余额必须停在上次扣完的位置");
+
+        // 余额确实只掉了一次
+        assert_eq!(
+            balance_micro(&store, "u1").await.expect("query").expect("wallet"),
+            first.balance
+        );
+
+        // 换一个 request_id 就是新的一次调用，照常扣费
+        let other = charge_with_ref(&store, DEFAULT_TENANT, "u1", "m", tokens, Some("req-2"))
+            .await
+            .expect("different ref");
+        assert!(!other.duplicated);
+        assert_eq!(other.balance, first.balance - first.cost);
+    }
+
+    /// 没有幂等键时保持原行为（每次都扣）。
+    #[tokio::test]
+    async fn charge_without_ref_always_deducts() {
+        let store = store().await;
+        set_price(&store, DEFAULT_TENANT, "m", Ratio::from_ratio(1.0))
+            .await
+            .expect("price");
+        ensure_wallet(&store, DEFAULT_TENANT, "u1")
+            .await
+            .expect("wallet");
+        let tokens = UsageTokens {
+            total: 1_000_000,
+            prompt: 1_000_000,
+            completion: 0,
+        };
+        let a = charge(&store, DEFAULT_TENANT, "u1", "m", tokens)
+            .await
+            .expect("a");
+        let b = charge(&store, DEFAULT_TENANT, "u1", "m", tokens)
+            .await
+            .expect("b");
+        assert_eq!(b.1, a.1 - a.0);
     }
 
     /// 多次加额必须累加（原子自增，不是覆盖写）。

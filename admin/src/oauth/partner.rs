@@ -113,6 +113,10 @@ pub struct UsageReport {
     pub total_tokens: Option<i64>,
     #[serde(default)]
     pub day: Option<String>,
+    /// 客户端为「同一条上报」生成的稳定 id（本地表主键，重试时不变）。
+    /// 拿它当扣费幂等键：响应丢失后的重发不会扣两次钱。
+    #[serde(default, alias = "requestId")]
+    pub request_id: Option<String>,
 }
 
 impl UsageReport {
@@ -138,20 +142,14 @@ pub async fn token_usage(
         .map(str::to_string)
         .unwrap_or_else(|| today_string(now_ts()));
 
-    usage::record(
-        &state.store,
-        &state.config.tenant_id,
-        &user.id,
-        body.model.trim(),
-        &day,
-        body.prompt_tokens,
-        body.completion_tokens,
-        body.thinking_tokens,
-        body.cached_tokens,
-    )
-    .await?;
+    let request_id = body
+        .request_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
 
-    let (_cost, balance) = billing::charge(
+    // 先扣费：幂等键命中时这里会告诉我们「这条上报已经处理过」。
+    let charged = billing::charge_with_ref(
         &state.store,
         &state.config.tenant_id,
         &user.id,
@@ -161,6 +159,7 @@ pub async fn token_usage(
             prompt: body.prompt_tokens,
             completion: body.completion_tokens,
         },
+        request_id,
     )
     .await
     .map_err(|e| {
@@ -171,7 +170,46 @@ pub async fn token_usage(
         } else {
             ApiError::internal(e)
         }
-    })?;
+    });
+
+    let charged = match charged {
+        Ok(out) => out,
+        Err(err) => {
+            // 扣不了费（比如没配单价）也要把用量记下来，否则管理端看不到
+            // 这个模型到底被调了多少——用量和钱是两件事。
+            usage::record(
+                &state.store,
+                &state.config.tenant_id,
+                &user.id,
+                body.model.trim(),
+                &day,
+                body.prompt_tokens,
+                body.completion_tokens,
+                body.thinking_tokens,
+                body.cached_tokens,
+            )
+            .await?;
+            return Err(err);
+        }
+    };
+
+    // 重复上报不再重复记用量，否则重试会把 token 数刷成两倍。
+    if !charged.duplicated {
+        usage::record(
+            &state.store,
+            &state.config.tenant_id,
+            &user.id,
+            body.model.trim(),
+            &day,
+            body.prompt_tokens,
+            body.completion_tokens,
+            body.thinking_tokens,
+            body.cached_tokens,
+        )
+        .await?;
+    }
+
+    let balance = charged.balance;
 
     let q = usage::quota_state(
         &state.store,
@@ -631,6 +669,7 @@ mod tests {
                 cached_tokens: 0,
                 total_tokens: None,
                 day: Some("2026-11-07".into()),
+                request_id: None,
             }),
         )
         .await
@@ -647,6 +686,72 @@ mod tests {
         .expect("list");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].total(), 15);
+    }
+
+    /// 同一条上报重发两次：钱只扣一次，用量也只记一次。
+    ///
+    /// 这是「响应丢了客户端重发」的真实场景——没有幂等键时余额和用量都会翻倍。
+    #[tokio::test]
+    async fn duplicate_usage_report_is_charged_and_counted_once() {
+        let (state, uid) = state_with_user().await;
+        crate::billing::set_price(
+            &state.store,
+            DEFAULT_TENANT,
+            "qwen",
+            crate::billing::Ratio::from_ratio(1.0),
+        )
+        .await
+        .expect("price");
+        let access = sessions::create(&state.store, &uid, sessions::KIND_ACCESS, 3600)
+            .await
+            .expect("access");
+        let before = crate::billing::ensure_wallet(&state.store, DEFAULT_TENANT, &uid)
+            .await
+            .expect("wallet");
+
+        let report = || UsageReport {
+            model: "qwen".into(),
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            thinking_tokens: 0,
+            cached_tokens: 0,
+            total_tokens: None,
+            day: Some("2026-11-07".into()),
+            request_id: Some("req-dup-1".into()),
+        };
+
+        for _ in 0..2 {
+            let _ = token_usage(
+                State(state.clone()),
+                bearer(&access),
+                Json(report()),
+            )
+            .await
+            .expect("report must succeed both times");
+        }
+
+        // 钱只扣一次
+        let after = crate::billing::ensure_wallet(&state.store, DEFAULT_TENANT, &uid)
+            .await
+            .expect("wallet");
+        let (spent, calls) = crate::billing::spend_in_range(&state.store, &uid, 0, i64::MAX)
+            .await
+            .expect("spend");
+        assert_eq!(calls, 1, "只应有一条扣费流水");
+        assert_eq!(after, before - spent, "余额只掉一次");
+
+        // 用量也只记一次
+        let rows = usage::list(
+            &state.store,
+            DEFAULT_TENANT,
+            "2026-11-01",
+            "2026-11-30",
+            Some(&uid),
+        )
+        .await
+        .expect("list");
+        let total: i64 = rows.iter().map(|r| r.total()).sum();
+        assert_eq!(total, 15, "重发不能把 token 数刷成两倍");
     }
 
     /// 客户端上报的字段是 `model_name`，不是 `model`。

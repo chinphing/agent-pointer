@@ -87,7 +87,8 @@
     "passwordTooShort": "新密码至少 8 位",
     "passwordMismatch": "两次输入的新密码不一致",
     "passwordSameAsOld": "新密码不能与当前密码相同",
-    "passwordChanged": "密码已更新，其他设备上的登录已失效"
+    "passwordChanged": "密码已更新，其他设备上的登录已失效",
+    "kindRecharge": "充值"
   },
   "download": {
     "title": "下载 Pointer",

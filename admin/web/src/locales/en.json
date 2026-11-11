@@ -87,7 +87,8 @@
     "passwordTooShort": "New password must be at least 8 characters",
     "passwordMismatch": "The two new passwords do not match",
     "passwordSameAsOld": "New password must differ from the current one",
-    "passwordChanged": "Password updated. Other devices have been signed out."
+    "passwordChanged": "Password updated. Other devices have been signed out.",
+    "kindRecharge": "Top-up"
   },
   "download": {
     "title": "Download Pointer",

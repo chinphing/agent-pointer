@@ -23,6 +23,9 @@ pub const DEFAULT_GRANT_MICRO: i64 = 10 * MICRO_PER_YUAN;
 
 pub const KIND_GRANT: &str = "grant";
 pub const KIND_CHARGE: &str = "charge";
+/// 在线充值（微信支付等）。与「赠送」区分开：赠送是白给的，充值是用户付的钱，
+/// 对账和退款都要按这个区分。
+pub const KIND_RECHARGE: &str = "recharge";
 
 /// 模型费率：以基准模型 1.0 为参照的倍数，整数存（ratio × 1e6）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -342,6 +345,31 @@ pub async fn grant_with_ref(
     amount_micro: i64,
     external_ref: Option<&str>,
 ) -> Result<i64> {
+    credit_with_ref(
+        store,
+        tenant_id,
+        user_id,
+        amount_micro,
+        KIND_GRANT,
+        "管理员加额",
+        external_ref,
+    )
+    .await
+}
+
+/// 带幂等键的入账，**类型与说明由调用方指定**。
+///
+/// 充值不能走 `grant_with_ref`：那条路固定写 `kind = grant` + 「管理员加额」，
+/// 流水里会把用户付的钱显示成「赠送」，对账和退款都分不清。
+pub async fn credit_with_ref(
+    store: &AdminStore,
+    tenant_id: &str,
+    user_id: &str,
+    amount_micro: i64,
+    kind: &str,
+    note: &str,
+    external_ref: Option<&str>,
+) -> Result<i64> {
     if amount_micro <= 0 {
         return Err(anyhow!("加额必须大于 0"));
     }
@@ -362,13 +390,13 @@ pub async fn grant_with_ref(
         store,
         tenant_id,
         user_id,
-        KIND_GRANT,
+        kind,
         amount_micro,
         next,
         "",
         0,
         0,
-        "管理员加额",
+        note,
         external_ref,
     )
     .await?;

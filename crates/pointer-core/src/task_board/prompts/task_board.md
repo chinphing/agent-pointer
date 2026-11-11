@@ -18,6 +18,25 @@ Treat injected **`[TASK_BOARD]`** as source of truth.
 
 Tool result is compact.
 
+## Init vs continue
+
+`[TASK_BOARD]` in context means a board **exists**. It does not mean it is yours.
+
+- **Continue with `patch`** when the message refines the deliverable the board
+  already describes — same feature, same bug, same document, same repository.
+- **Start a new board with `task_board_init`** when any of these is true:
+  - the message introduces a **different deliverable** (another feature, bug,
+    document, or repository);
+  - the board's rows are **all terminal** — the plan is finished, so a new
+    request must not append to it;
+  - the board's `goal` no longer describes what you are about to do.
+- A `task_board_init` on a non-empty board opens a **new board** bound to the
+  current user turn; the previous one is kept as-is. Never rewrite a finished
+  board to make it fit a new request.
+
+One board = one deliverable. A board that outlives its deliverable is worse than
+no board: it reports progress for work nobody is doing.
+
 Row status:
 `pending`, `ready`, `in_progress`, `done`, `cancelled`, `failed`.
 

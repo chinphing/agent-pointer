@@ -1792,16 +1792,28 @@ impl AppState {
     }
 
     pub fn get_active_main_task_board_key(&self, conversation_id: &str) -> Option<String> {
+        // A turn claims its board key *before* the agent writes anything into it
+        // (`task_board_main_key: new_turn`). Until the first write that key
+        // resolves to an empty document, and `get_task_board_snapshot` hands it
+        // back verbatim — the UI then has nothing to paint, so the conversation
+        // looks board-less even though earlier turns finished real boards.
+        // Treat an empty board as "no board" everywhere below.
+        let has_content = |k: &str| !self.task_board_store.document(k).board_is_empty();
         {
             let mut active = self.active_main_task_boards.lock();
             if let Some(k) = active.get(conversation_id).cloned() {
-                if !crate::task_board::is_child_store_key(&k) {
+                if !crate::task_board::is_child_store_key(&k) && has_content(&k) {
                     return Some(k);
                 }
                 log::warn!(
-                    "task_board_main_key: drop_invalid_active conversation_id={} store_key={}",
+                    "task_board_main_key: drop_invalid_active conversation_id={} store_key={} reason={}",
                     conversation_id,
-                    k
+                    k,
+                    if crate::task_board::is_child_store_key(&k) {
+                        "child_key"
+                    } else {
+                        "empty_board"
+                    }
                 );
                 active.remove(conversation_id);
             }
@@ -1814,22 +1826,28 @@ impl AppState {
         let mut keys = self.task_board_store.list_store_keys_by_prefix(&prefix);
         keys.retain(|k| !crate::task_board::is_child_store_key(k));
         if !keys.is_empty() {
+            // Prefer a live board; otherwise the most recent one that actually
+            // has content (keys arrive newest-first), so a placeholder key from
+            // a later turn cannot shadow the finished board above it.
             let pick = keys
                 .iter()
                 .find(|k| {
                     let doc = self.task_board_store.document(k);
-                    !matches!(
-                        doc.meta.status,
-                        crate::task_board::MetaStatus::Completed
-                            | crate::task_board::MetaStatus::Failed
-                    )
+                    !doc.board_is_empty()
+                        && !matches!(
+                            doc.meta.status,
+                            crate::task_board::MetaStatus::Completed
+                                | crate::task_board::MetaStatus::Failed
+                        )
                 })
                 .cloned()
-                .unwrap_or_else(|| keys.remove(0));
-            self.active_main_task_boards
-                .lock()
-                .insert(conversation_id.to_string(), pick.clone());
-            return Some(pick);
+                .or_else(|| keys.iter().find(|k| has_content(k)).cloned());
+            if let Some(pick) = pick {
+                self.active_main_task_boards
+                    .lock()
+                    .insert(conversation_id.to_string(), pick.clone());
+                return Some(pick);
+            }
         }
         let legacy = self.task_board_store.document(conversation_id);
         if !legacy.board_is_empty() || !legacy.meta.goal.trim().is_empty() {
@@ -1844,7 +1862,9 @@ mod active_main_task_board_tests {
     use super::{AppState, FileWriteLockManager, ToolExecutionScope};
     use crate::models::DebugSessionSettings;
     use crate::platform_auth::{PlatformSession, PlatformUserSummary};
-    use crate::task_board::{main_turn_task_board_store_key, sub_agent_task_board_store_key};
+    use crate::task_board::{
+        main_turn_task_board_store_key, sub_agent_task_board_store_key, BoardDocument,
+    };
     use serde_json::json;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -2367,6 +2387,65 @@ mod active_main_task_board_tests {
         let conv = "conv-active-child";
         seed_running_child_board(&state, conv, "user-1", "sub_task_x");
         assert_eq!(state.get_active_main_task_board_key(conv), None);
+    }
+
+    /// Regression: a turn claims its main-board key at `new_turn` and only writes
+    /// the board when the agent calls `task_board_init`. If it never does, that
+    /// placeholder key used to be returned verbatim, the snapshot came back
+    /// empty, and the whole conversation rendered without a board — even with
+    /// finished boards sitting in the store (observed on a 17k-message chat).
+    #[test]
+    fn placeholder_active_key_without_board_falls_back_to_real_board() {
+        let state = AppState::new();
+        let conv = "conv-placeholder-active";
+        let finished = main_turn_task_board_store_key(conv, "user-1");
+        state
+            .task_board_store
+            .apply(
+                &finished,
+                "init",
+                &json!({
+                    "goal": "finished board",
+                    "items": [{"id": "m1", "title": "A", "status": "done"}]
+                }),
+            )
+            .expect("init finished board");
+        let placeholder = main_turn_task_board_store_key(conv, "user-2");
+        state.set_active_main_task_board_key(conv, &placeholder);
+
+        assert_eq!(
+            state.get_active_main_task_board_key(conv).as_deref(),
+            Some(finished.as_str()),
+            "an empty placeholder key must not shadow the real board"
+        );
+    }
+
+    #[test]
+    fn prefix_scan_ignores_empty_board_document() {
+        let state = AppState::new();
+        let conv = "conv-empty-in-scan";
+        let real = main_turn_task_board_store_key(conv, "user-1");
+        state
+            .task_board_store
+            .apply(
+                &real,
+                "init",
+                &json!({
+                    "goal": "real board",
+                    "items": [{"id": "m1", "title": "A", "status": "pending"}]
+                }),
+            )
+            .expect("init real board");
+        let empty = main_turn_task_board_store_key(conv, "user-2");
+        state
+            .task_board_store
+            .save_document(&empty, BoardDocument::empty_for_store_key(&empty));
+
+        assert_eq!(
+            state.get_active_main_task_board_key(conv).as_deref(),
+            Some(real.as_str()),
+            "a persisted but empty board must be skipped"
+        );
     }
 
     #[test]

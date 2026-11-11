@@ -36,11 +36,24 @@ fn latest_real_user_turn(history: &[ChatMessage]) -> Option<(&str, &str)> {
 }
 
 fn is_parent_board_unfinished(store: &crate::task_board::TaskBoardStore, store_key: &str) -> bool {
+    use crate::task_board::{ItemStatus, MetaStatus};
     let doc = store.document(store_key);
-    !matches!(
-        doc.meta.status,
-        crate::task_board::MetaStatus::Completed | crate::task_board::MetaStatus::Failed
-    )
+    if matches!(doc.meta.status, MetaStatus::Completed | MetaStatus::Failed) {
+        return false;
+    }
+    if doc.board_is_empty() {
+        // Placeholder key with nothing written yet — nothing to resume.
+        return true;
+    }
+    // Rows all terminal means the plan is finished even when the model never
+    // called `task_board_finalize`. Treating that as unfinished is what let one
+    // board swallow 34 unrelated user turns (see the 2026-11-11 incident).
+    !doc.global_milestones.iter().all(|m| {
+        matches!(
+            m.status,
+            ItemStatus::Done | ItemStatus::Cancelled | ItemStatus::Failed
+        )
+    })
 }
 
 fn choose_main_task_board_store_key(
@@ -726,6 +739,20 @@ mod workspace_tests {
         let state = AppState::new();
         let original = vec![user_message("u-original", "start")];
         let key = choose_main_task_board_store_key(&state, "conv-resume", &original);
+        // A board that can be resumed has content. An empty placeholder key is
+        // dropped on read now (see `placeholder_active_key_without_board_falls_back_to_real_board`),
+        // so seeding the document is what makes this a real resume.
+        state
+            .task_board_store
+            .apply(
+                &key,
+                "init",
+                &serde_json::json!({
+                    "goal": "resume me",
+                    "items": [{"id": "m1", "title": "A", "status": "pending"}]
+                }),
+            )
+            .expect("init board");
         let resumed = vec![
             user_message("u-original", "start"),
             user_message("u-resume", "continue"),
@@ -742,9 +769,44 @@ mod workspace_tests {
         );
     }
 
+    /// Rows all done but the model never called `task_board_finalize`: the next
+    /// user turn must open a new board instead of appending to a finished one.
     #[test]
-    fn workspace_baseline_uses_stored_when_inherit_disabled() {
-        let baseline = workspace_baseline_for_ui("c1", "", true, "user-1", false);
+    fn finished_rows_open_a_new_board_without_finalize() {
+        let state = AppState::new();
+        let conv = "conv-done-rows";
+        let first = vec![user_message("u-a", "开始迁移")];
+        let key = choose_main_task_board_store_key(&state, conv, &first);
+        state
+            .task_board_store
+            .apply(
+                &key,
+                "init",
+                &serde_json::json!({
+                    "goal": "迁移",
+                    "items": [{"id": "m1", "title": "A", "status": "done"}]
+                }),
+            )
+            .expect("init board");
+
+        let next = vec![
+            user_message("u-a", "开始迁移"),
+            user_message("u-b", "看看充值记录为什么记成赠送"),
+        ];
+        let next_key = choose_main_task_board_store_key(&state, conv, &next);
+
+        assert_eq!(
+            next_key,
+            crate::task_board::main_turn_task_board_store_key(conv, "u-b")
+        );
+        assert_eq!(
+            state.get_main_task_board_anchor(conv, &next_key).as_deref(),
+            Some("u-b")
+        );
+    }
+
+    #[test]
+    fn workspace_baseline_uses_stored_when_inherit_disabled() {        let baseline = workspace_baseline_for_ui("c1", "", true, "user-1", false);
         assert_eq!(baseline, "");
     }
 

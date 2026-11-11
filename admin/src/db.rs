@@ -106,8 +106,6 @@ const POOL_MAX: u32 = 10;
 const POOL_MIN: u32 = 2;
 /// 等价 Druid `maxWait`。默认 30 秒太久，用户等不了。
 const POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(3);
-/// 等价 Druid `phyTimeoutMillis`。定期换新连接，兜底对端静默超时。
-const POOL_MAX_LIFETIME: Duration = Duration::from_secs(1800);
 /// 保活间隔（秒）。必须短于环境里 NAT / RDS Proxy 的空闲回收时间（NAT 约 350 秒）。
 /// 用 `POINTER_ADMIN_KEEPALIVE_SECS` 覆盖，`0` 表示关闭。
 pub const POOL_KEEPALIVE_EVERY_SECS: u64 = 240;
@@ -142,7 +140,10 @@ fn pool_options(backend: Backend) -> AnyPoolOptions {
             // （Druid 的 minEvictableIdleTimeMillis 只淘汰超出 minIdle 的部分，
             //   sqlx 没有这个"只淘汰多余"的语义，直接关掉更可控。）
             .idle_timeout(None)
-            .max_lifetime(Some(POOL_MAX_LIFETIME))
+            // 不做生命周期轮换（对齐 Druid `phyTimeoutMillis = -1` 的默认值）。
+            // 原来解决的两件事都已由别的机制接管：空闲被对端杀 → 保活任务；
+            // 死连接 → test_before_acquire。留下它只是每 30 分钟白重连一次。
+            .max_lifetime(None)
             // 取连接耗时默认不打日志——线上出问题时看不到慢在哪，这里打开。
             .acquire_time_level(log::LevelFilter::Debug)
             .after_connect(|conn, _| {
@@ -192,9 +193,8 @@ impl AdminStore {
             drop(held);
             log::info!(
                 "连接池就绪：max={POOL_MAX} min={POOL_MIN} 预热={warmed} 条 \
-                 acquire_timeout={}s max_lifetime={}s",
-                POOL_ACQUIRE_TIMEOUT.as_secs(),
-                POOL_MAX_LIFETIME.as_secs()
+                 acquire_timeout={}s max_lifetime=不轮换",
+                POOL_ACQUIRE_TIMEOUT.as_secs()
             );
         }
 
@@ -362,8 +362,8 @@ mod tests {
         assert_eq!(o.get_idle_timeout(), None, "空闲不关闭，靠 max_lifetime 轮换");
         assert_eq!(
             o.get_max_lifetime(),
-            Some(Duration::from_secs(1800)),
-            "Druid phyTimeout"
+            None,
+            "对齐 Druid phyTimeout 默认值 -1：不做生命周期轮换"
         );
         assert!(o.get_test_before_acquire(), "Druid testOnBorrow");
     }

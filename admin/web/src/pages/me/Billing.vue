@@ -5,8 +5,22 @@ import { api } from '../../api'
 import { when } from '../../lib/format'
 import { ledgerKindLabel } from '../../lib/ledger'
 import { widgetsFor } from '../../modules/registry'
+import { ACCOUNT_ACTIONS, type AccountAction } from '@ext'
 
 const { t } = useI18n()
+
+/**
+ * 充值入口。
+ *
+ * 客户端余额不足时会把用户送到这里，所以这一页必须能充值——只在「我的账户」
+ * 放按钮，从客户端跳过来的人会卡在流水页上。开源版 `ACCOUNT_ACTIONS` 是空
+ * 数组，按钮自然不出现；私有部署的支付能力探测通过后才显示。
+ */
+const actions = ref<AccountAction[]>([])
+const openAction = ref<AccountAction | null>(null)
+const openComponent = computed(() =>
+  openAction.value ? defineAsyncComponent(openAction.value.component) : null
+)
 
 /** 私有仓注入的卡片（充值、订单历史）；开源仓这里是空数组。 */
 const billingWidgets = widgetsFor('billing').map((w) => ({
@@ -67,7 +81,20 @@ function go(delta: number) {
   void load()
 }
 
-onMounted(load)
+/** 充值到账后刷新流水（新的一行会带出新的余额）。 */
+function onActionDone() {
+  openAction.value = null
+  void load()
+}
+
+onMounted(async () => {
+  void Promise.all(
+    ACCOUNT_ACTIONS.map(async (a) => (((await a.available?.()) ?? true) ? a : null))
+  ).then((list) => {
+    actions.value = list.filter((a): a is AccountAction => a !== null)
+  })
+  await load()
+})
 </script>
 
 <template>
@@ -75,19 +102,26 @@ onMounted(load)
     <div v-if="error" class="err">{{ error }}</div>
 
     <section class="me-card">
-      <div class="me-balance-label">{{ t('me.balance') }}</div>
-      <div class="me-balance">¥{{ balanceYuan }}</div>
-    </section>
-
-    <section class="me-card">
       <div class="me-card-head">
         <div>
           <div class="me-card-title">{{ t('me.ledger') }}</div>
           <div class="me-card-sub">{{ t('me.ledgerHint') }}</div>
         </div>
-        <span v-if="!loading" class="muted small">
-          {{ t('me.totalRecords', { n: total }) }}
-        </span>
+        <div class="row" style="gap: 12px; align-items: center">
+          <!-- 余额不再单独占一张卡（账户页已经是主角），这里只作为充值的上下文。 -->
+          <span v-if="!loading" class="muted small">
+            {{ t('me.balance') }} ¥{{ balanceYuan }}
+          </span>
+          <button
+            v-for="a in actions"
+            :key="a.key"
+            class="btn primary"
+            type="button"
+            @click="openAction = a"
+          >
+            {{ t(a.labelKey) }}
+          </button>
+        </div>
       </div>
 
       <div v-if="loading" class="empty">{{ t('common.loading') }}</div>
@@ -119,12 +153,21 @@ onMounted(load)
         </tbody>
       </table>
 
-      <div v-if="!loading && total > PAGE_SIZE" class="me-pager">
+      <div v-if="!loading && total > 0" class="me-pager">
         <button class="btn" :disabled="!hasPrev" @click="go(-1)">{{ t('me.prev') }}</button>
-        <span class="muted small">{{ t('me.pageOf', { page, pages }) }}</span>
+        <span class="muted small">
+          {{ t('me.pageOf', { page, pages }) }} · {{ t('me.totalRecords', { n: total }) }}
+        </span>
         <button class="btn" :disabled="!hasNext" @click="go(1)">{{ t('me.next') }}</button>
       </div>
     </section>
+
+    <component
+      :is="openComponent"
+      v-if="openComponent"
+      @close="openAction = null"
+      @done="onActionDone"
+    />
 
     <!-- 私有仓注入的卡片（充值、订单历史）；开源仓没有模块，这里不渲染 -->
     <section v-for="w in billingWidgets" :key="w.id" class="me-card">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fmtCount, humanSize, prettyJson, when } from './format'
+import { epochSeconds, fmtCount, humanSize, prettyJson, when } from './format'
 
 describe('humanSize', () => {
   it('没有包时显示破折号，而不是 0 B', () => {
@@ -74,5 +74,30 @@ describe('prettyJson', () => {
   it('空值返回空串', () => {
     expect(prettyJson(null)).toBe('')
     expect(prettyJson('')).toBe('')
+  })
+})
+
+describe('epochSeconds', () => {
+  it('秒级时间戳原样返回', () => {
+    expect(epochSeconds(1794417217)).toBe(1794417217)
+  })
+
+  it('毫秒级时间戳换算成秒', () => {
+    // 客户端上报的 created_at 是毫秒；直接喂给 Date.parse 会 NaN，
+    // 界面上就会显示成一串数字
+    expect(epochSeconds(1794417217000)).toBe(1794417217)
+  })
+
+  it('ISO 字符串能解析', () => {
+    expect(epochSeconds('2026-11-12T01:13:00Z')).toBe(1794445980)
+  })
+
+  it('解析不了返回 null，调用方自己决定怎么兜底', () => {
+    expect(epochSeconds('不是时间')).toBeNull()
+    expect(epochSeconds('')).toBeNull()
+    expect(epochSeconds(null)).toBeNull()
+    expect(epochSeconds(undefined)).toBeNull()
+    expect(epochSeconds(0)).toBeNull()
+    expect(epochSeconds(-5)).toBeNull()
   })
 })

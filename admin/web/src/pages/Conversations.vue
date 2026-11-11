@@ -9,7 +9,7 @@
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api, errText } from '../api'
-import { when } from '../lib/format'
+import { epochSeconds, when } from '../lib/format'
 
 const { t } = useI18n()
 
@@ -35,7 +35,7 @@ interface Message {
   content: string
   tool_name?: string
   agent_name?: string
-  created_at?: string
+  created_at?: number | string
   images?: string[]
 }
 
@@ -154,10 +154,10 @@ function roleLabel(role: string) {
 }
 
 /** 气泡里的时间是 RFC3339 字符串，转成跟列表一致的本地时间。 */
-function msgTime(raw?: string) {
-  if (!raw) return ''
-  const ts = Date.parse(raw)
-  return Number.isNaN(ts) ? raw : when(Math.floor(ts / 1000))
+function msgTime(raw?: number | string) {
+  const ts = epochSeconds(raw)
+  // 解析不了才退回原值：宁可显示原始串，也不要显示一个假时间
+  return ts === null ? String(raw ?? '') : when(ts)
 }
 
 function sizeText(bytes: number) {

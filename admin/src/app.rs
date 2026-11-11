@@ -101,6 +101,10 @@ pub fn build_app(state: Shared) -> Router {
     let mut app = Router::new()
         .merge(crate::oauth::router())
         .merge(crate::http::router(state.clone()))
+        // 营销首页与法律声明：由控制面直接返回 HTML，不依赖前端构建。
+        // 首页按登录态换导航入口，所以放在这里而不是静态目录。
+        .merge(crate::home::router())
+        .merge(crate::legal::router())
         // 私有仓的免鉴权路由（支付回调、短信发码）；开源版为空 Router。
         .merge(crate::ext::public_router())
         .route("/api/updates/latest", get(crate::releases::updates_latest))

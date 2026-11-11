@@ -19,6 +19,10 @@ pub const SCREENSHOT_JPEG_QUALITY: u8 = 88;
 pub struct ScreenshotPacket {
     pub jpeg: Vec<u8>,
     pub monitor: MonitorInfo,
+    /// 显示器编号 of the captured monitor. The headless module never captures,
+    /// but callers (`computer::state`) read this field unconditionally — keep the
+    /// surface identical to the real module or the no-`computer` build breaks.
+    pub monitor_id: String,
     pub capture_px: (u32, u32),
     pub global_pointer: (i32, i32),
     /// Text-focus hint in **global screen** coordinates, if available.

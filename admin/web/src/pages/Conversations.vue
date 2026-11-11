@@ -329,16 +329,25 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* 气泡按内容收缩，不要拉满整行——短回复铺满一条会显得很空 */
+  align-items: flex-start;
 }
 .bubble {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 10px 12px;
   background: #fafbfc;
+  /* 气泡不铺满整行，否则左右对齐看不出区别 */
+  max-width: 86%;
 }
 .bubble.user {
   background: #f2f7ff;
   border-color: #cfe0f7;
+  /* 用户说的话靠右，和助手的靠左区分开 */
+  align-self: flex-end;
+}
+.bubble.user .bubble-head {
+  justify-content: flex-end;
 }
 .bubble.tool {
   background: #fbfaf4;

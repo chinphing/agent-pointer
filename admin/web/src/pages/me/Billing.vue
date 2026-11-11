@@ -27,7 +27,7 @@ const PAGE_SIZE = 20
 
 const loading = ref(true)
 const error = ref('')
-const balanceYuan = ref('0.00')
+const balanceYuan = ref('0.000')
 const rows = ref<LedgerRow[]>([])
 const total = ref(0)
 const offset = ref(0)
@@ -50,7 +50,7 @@ async function load() {
       api.get('/api/admin/my-wallet'),
       api.get(`/api/admin/my-wallet/ledger?limit=${PAGE_SIZE}&offset=${offset.value}`),
     ])
-    balanceYuan.value = wallet.balanceYuan ?? '0.00'
+    balanceYuan.value = wallet.balanceYuan ?? '0.000'
     rows.value = ledger.items ?? []
     total.value = ledger.total ?? 0
   } catch (e) {

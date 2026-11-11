@@ -16,7 +16,7 @@ const { t } = useI18n()
  */
 const loading = ref(true)
 const error = ref('')
-const balanceYuan = ref('0.00')
+const balanceYuan = ref('0.000')
 
 /**
  * 余额旁的动作按钮由扩展提供（开源版为空）。私有部署的「充值」就是从这里来的：
@@ -45,8 +45,8 @@ interface DayPoint {
 }
 
 const ledger = ref<LedgerRow[]>([])
-const spentYuan = ref('0.00')
-const todaySpentYuan = ref('0.00')
+const spentYuan = ref('0.000')
+const todaySpentYuan = ref('0.000')
 const calls = ref(0)
 const monthTokens = ref(0)
 const byDay = ref<DayPoint[]>([])
@@ -80,7 +80,7 @@ const recent = computed(() => ledger.value.slice(0, 3))
 async function loadWallet() {
   try {
     const w = await api.get('/api/admin/my-wallet')
-    balanceYuan.value = w.balanceYuan ?? '0.00'
+    balanceYuan.value = w.balanceYuan ?? '0.000'
     ledger.value = w.ledger ?? []
   } catch (e) {
     error.value = errText(e)
@@ -108,15 +108,15 @@ onMounted(async () => {
       api.get('/api/admin/my-usage'),
     ])
     if (wallet.status === 'fulfilled') {
-      balanceYuan.value = wallet.value.balanceYuan ?? '0.00'
+      balanceYuan.value = wallet.value.balanceYuan ?? '0.000'
       ledger.value = wallet.value.ledger ?? []
     } else {
       error.value = errText(wallet.reason)
     }
     if (usage.status === 'fulfilled') {
       const u = usage.value
-      spentYuan.value = u.spentYuan ?? '0.00'
-      todaySpentYuan.value = u.todaySpentYuan ?? '0.00'
+      spentYuan.value = u.spentYuan ?? '0.000'
+      todaySpentYuan.value = u.todaySpentYuan ?? '0.000'
       calls.value = u.calls ?? 0
       monthTokens.value = u.totals?.totalTokens ?? 0
       byDay.value = u.byDay ?? []

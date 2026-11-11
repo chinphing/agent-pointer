@@ -697,7 +697,7 @@
     "cleared": "Cleared the price for {model}; fallback applies",
     "emptyCatalog": "No models in the platform catalog yet — add a provider and models under Resources first",
     "unpriced": "No rate · unavailable",
-    "pricingRule": "Unit price = base price × ratio; one call costs ceil(tokens × unit price ÷ 1,000,000), input and output priced alike.",
+    "pricingRule": "Unit price = base price × ratio; one call costs tokens × unit price ÷ 1,000,000, rounded up to 0.001 CNY.",
     "unpricedPlaceholder": "Unpriced",
     "baseTitle": "Base price",
     "baseHint": "Price of the base model (ratio 1.0) per 1,000,000 tokens. Changing it reprices everything.",

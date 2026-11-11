@@ -54,7 +54,12 @@ impl Ratio {
         let b = base_micro_per_mb.max(0) as i128;
         let num = t * r * b;
         let den = 1_000_000i128 * 1_048_576i128; // ratio 缩放 × 2²⁰
-        ((num + den - 1) / den) as i64
+        // 按「厘」（0.001 元 = 1000 微元）向上取整，与展示精度一致。
+        //
+        // 原来取整到微元，账本里会出现 0.034999 这种值：金额列显示 −0.03、
+        // 余额却掉了 0.04，两列各滚各的，看起来像少算了一分钱。
+        let millis = (num + den * 1000 - 1) / (den * 1000);
+        (millis * 1000) as i64
     }
 }
 
@@ -506,12 +511,15 @@ pub async fn spend_in_range(
 pub fn yuan_string(balance_micro: i64) -> String {
     let negative = balance_micro < 0;
     let abs = balance_micro.unsigned_abs();
-    // 微元 → 分：四舍五入
-    let cents = (abs + 5_000) / 10_000;
-    let yuan = cents / 100;
-    let frac = cents % 100;
+    // 微元 → 厘（0.001 元）：四舍五入。
+    //
+    // 计费本身也按厘取整，所以金额列和余额列永远对得上，不会出现
+    // 「每笔显示 −0.03、余额却少了 0.04」。
+    let millis = (abs + 500) / 1_000;
+    let yuan = millis / 1_000;
+    let frac = millis % 1_000;
     format!(
-        "{}{}.{:02}",
+        "{}{}.{:03}",
         if negative { "-" } else { "" },
         yuan,
         frac
@@ -589,7 +597,7 @@ mod tests {
         let store = store().await;
         let balance = ensure_wallet(&store, DEFAULT_TENANT, "u1").await.expect("wallet");
         assert_eq!(balance, DEFAULT_GRANT_MICRO);
-        assert_eq!(yuan_string(balance), "10.00");
+        assert_eq!(yuan_string(balance), "10.000");
         // 幂等：再调一次不加钱
         let again = ensure_wallet(&store, DEFAULT_TENANT, "u1").await.expect("wallet");
         assert_eq!(again, DEFAULT_GRANT_MICRO);
@@ -613,8 +621,9 @@ mod tests {
         let (cost, balance) = charge(&store, DEFAULT_TENANT, "u1", "test-model", UsageTokens { total: 2_000_000, prompt: 2_000_000, completion: 0 })
             .await
             .expect("charge");
-        assert_eq!(cost, 1_907_349, "200 万 token × 1 元/MB × ratio 1.0");
-        assert_eq!(yuan_string(balance), "8.09");
+        // 1.907349 元按厘向上取整 → 1.908
+        assert_eq!(cost, 1_908_000, "200 万 token × 1 元/MB × ratio 1.0");
+        assert_eq!(yuan_string(balance), "8.092");
     }
 
     /// 余额用光后 exhausted 判定生效（balance <= 0）。
@@ -635,8 +644,8 @@ mod tests {
             .await
             .expect("charge");
         assert!(balance < 0, "应透支到负数，实际 {balance}");
-        // 100 万 token × ratio 100 = 190.73 元，10 元额度撑不住
-        assert_eq!(yuan_string(balance), "-85.37");
+        // 100 万 token × ratio 100 = 95.368 元，10 元额度撑不住
+        assert_eq!(yuan_string(balance), "-85.368");
     }
 
     /// 管理员加额能救回负余额。
@@ -647,7 +656,7 @@ mod tests {
         let after = grant(&store, DEFAULT_TENANT, "u1", 5 * MICRO_PER_YUAN)
             .await
             .expect("grant");
-        assert_eq!(yuan_string(after), "15.00");
+        assert_eq!(yuan_string(after), "15.000");
     }
 
     /// 加额必须为正数。
@@ -689,8 +698,8 @@ mod tests {
         let (cost, _) = charge(&store, DEFAULT_TENANT, "u1", "priced-model", UsageTokens { total: 1_000_000, prompt: 1_000_000, completion: 0 })
             .await
             .expect("charge");
-        // ceil(1e6 × 1e6 × 1e6 ÷ (1e6 × 2²⁰)) = ceil(953674.32) = 953675 微元
-        assert_eq!(cost, 953_675, "100 万 token × 1 元/MB × ratio 1.0");
+        // 953674.32 微元 = 0.953674 元 → 按厘向上取整 = 0.954 元 = 954000 微元
+        assert_eq!(cost, 954_000, "100 万 token × 1 元/MB × ratio 1.0");
     }
 
     #[test]
@@ -698,28 +707,36 @@ mod tests {
         // 口径对齐官网：单费率 × 总 token，输入输出不分价。
         let r = Ratio::from_ratio(1.0);
         let base = DEFAULT_BASE_MICRO_PER_MB; // 1 元 / MB
-        // 200 万 token
-        assert_eq!(r.cost_micro(2_000_000, base), 1_907_349);
-        // 1000 token
-        assert_eq!(r.cost_micro(1_000, base), 954);
-        // 不足 1 微元向上取整（官网也是 ceil）
-        assert_eq!(r.cost_micro(1, base), 1);
+        // 200 万 token：1.907349 元 → 按厘取整 1.908
+        assert_eq!(r.cost_micro(2_000_000, base), 1_908_000);
+        // 1000 token：0.000954 元 → 按厘取整 0.001
+        assert_eq!(r.cost_micro(1_000, base), 1_000);
+        // 不足 1 厘向上取整（0.001 元 = 1000 微元）
+        assert_eq!(r.cost_micro(1, base), 1_000);
         // 负数/0 不产生负费用
         assert_eq!(r.cost_micro(0, base), 0);
         assert_eq!(r.cost_micro(-5, base), 0);
         // 基准价翻倍 → 费用翻倍
-        assert_eq!(r.cost_micro(2_000_000, base * 2), 3_814_698);
+        assert_eq!(r.cost_micro(2_000_000, base * 2), 3_815_000);
+        // 任何一笔扣费都必须是整厘，否则金额列和余额列会各滚各的
+        for tokens in [1_i64, 999, 12_345, 2_000_000, 7_654_321] {
+            assert_eq!(r.cost_micro(tokens, base) % 1_000, 0, "tokens={tokens}");
+        }
     }
 
+    /// 金额显示到厘（0.001 元），与计费取整精度一致。
     #[test]
-    fn yuan_string_rounds_to_cents() {
-        assert_eq!(yuan_string(DEFAULT_GRANT_MICRO), "10.00");
-        assert_eq!(yuan_string(0), "0.00");
-        assert_eq!(yuan_string(-1_500_000), "-1.50");
-        // 0.004 元 → 0.00（分以下四舍五入）
-        assert_eq!(yuan_string(4_000), "0.00");
-        // 0.006 元 → 0.01
-        assert_eq!(yuan_string(6_000), "0.01");
+    fn yuan_string_rounds_to_mills() {
+        assert_eq!(yuan_string(DEFAULT_GRANT_MICRO), "10.000");
+        assert_eq!(yuan_string(0), "0.000");
+        assert_eq!(yuan_string(-1_500_000), "-1.500");
+        // 0.0004 元 → 0.000（厘以下四舍五入）
+        assert_eq!(yuan_string(400), "0.000");
+        // 0.0006 元 → 0.001
+        assert_eq!(yuan_string(600), "0.001");
+        // 截图里那两笔：0.031 与 0.034999，现在显示得出差别
+        assert_eq!(yuan_string(31_000), "0.031");
+        assert_eq!(yuan_string(34_999), "0.035");
     }
 
     #[test]

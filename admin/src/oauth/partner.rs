@@ -213,8 +213,6 @@ pub async fn token_usage(
             agent_instance_id: None,
             agent_role_id: None,
             model: body.model.trim(),
-            prompt_tokens: body.prompt_tokens,
-            completion_tokens: body.completion_tokens,
         };
         if let Err(e) = crate::conversations::record(
             &state.store,
@@ -895,13 +893,28 @@ mod tests {
         assert_eq!(total, 1, "快照应当入库");
         assert_eq!(rows[0].conversation_id, "conv-1");
         assert_eq!(rows[0].message_count, 2);
-        assert_eq!(rows[0].preview, "帮我看看这个报销单");
+        assert_eq!(rows[0].title, "帮我看看这个报销单");
 
-        let (_, content) = crate::conversations::detail(&state.store, DEFAULT_TENANT, &rows[0].id)
+        let threads = crate::conversations::threads(&state.store, DEFAULT_TENANT, "conv-1")
             .await
-            .expect("detail")
-            .expect("row");
-        assert_eq!(content["messages"][1]["content"], "好的，先看金额");
+            .expect("threads");
+        assert_eq!(threads.len(), 1);
+        let (turns, _) = crate::conversations::turns(
+            &state.store,
+            DEFAULT_TENANT,
+            &threads[0].id,
+            20,
+            0,
+        )
+        .await
+        .expect("turns");
+        assert_eq!(turns.len(), 1);
+        let (_, messages) =
+            crate::conversations::turn_messages(&state.store, DEFAULT_TENANT, &turns[0].id)
+                .await
+                .expect("messages")
+                .expect("row");
+        assert_eq!(messages[1]["content"], "好的，先看金额");
 
         // 同一条上报重发不会存第二份
         let _ = token_usage(

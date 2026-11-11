@@ -189,8 +189,16 @@ pub fn router(state: Shared) -> Router<Shared> {
             get(conversations::list).require(&state, "conversation:read"),
         )
         .route(
-            "/api/admin/conversations/:id",
-            get(conversations::detail).require(&state, "conversation:read"),
+            "/api/admin/conversations/:conversation_id/tabs",
+            get(conversations::tabs).require(&state, "conversation:read"),
+        )
+        .route(
+            "/api/admin/threads/:thread_id/turns",
+            get(conversations::turns).require(&state, "conversation:read"),
+        )
+        .route(
+            "/api/admin/turns/:turn_id",
+            get(conversations::turn).require(&state, "conversation:read"),
         )
         .route("/api/admin/audit", get(insight::audit_log).require(&state, "audit:read"))
         .route(

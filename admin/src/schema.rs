@@ -13,7 +13,7 @@ use sqlx::{Any, Row};
 use crate::db::{now_ts, AdminStore, Backend};
 use crate::rbac;
 
-pub const SCHEMA_VERSION: i64 = 15;
+pub const SCHEMA_VERSION: i64 = 16;
 pub const DEFAULT_TENANT: &str = "default";
 
 const DDL_V1: &[&str] = &[
@@ -343,6 +343,54 @@ const DDL_V15: &[&str] = &[
     "CREATE INDEX idx_snapshot_tenant_time ON conversation_snapshots(tenant_id, created_at, id)",
 ];
 
+/// v16：会话内容上报改成「会话 + 轮次」两张表。
+///
+/// 旧表每轮存一份**全量**快照：一个 N 轮的会话要存 O(N²) 条消息，第 N 轮的
+/// 快照里前 N-1 轮又出现一遍。改成按轮存之后，每条消息只落一次。
+///
+/// 判定主会话用 `lead_agent_instance_id` 而不是布尔标记：lead 是会话的属性，
+/// 每次上报都带同一个值，所以先到后到、重试、丢包都不会影响判定。
+///
+/// 产品决定不做历史兼容，旧表直接丢弃。
+const DDL_V16: &[&str] = &[
+    "DROP TABLE IF EXISTS conversation_snapshots",
+    "CREATE TABLE IF NOT EXISTS conversation_threads (
+        id                     VARCHAR(64) PRIMARY KEY,
+        tenant_id              VARCHAR(64) NOT NULL,
+        user_id                VARCHAR(64) NOT NULL,
+        conversation_id        VARCHAR(64) NOT NULL,
+        agent_instance_id      VARCHAR(64) NOT NULL,
+        agent_role_id          VARCHAR(64),
+        agent_name             VARCHAR(128),
+        lead_agent_instance_id VARCHAR(64) NOT NULL DEFAULT '',
+        title                  TEXT$512 NOT NULL DEFAULT '',
+        model                  VARCHAR(128) NOT NULL DEFAULT '',
+        turn_count             BIGINT NOT NULL DEFAULT 0,
+        message_count          BIGINT NOT NULL DEFAULT 0,
+        first_at               BIGINT NOT NULL,
+        last_at                BIGINT NOT NULL,
+        UNIQUE (tenant_id, conversation_id, agent_instance_id)
+    )",
+    "CREATE TABLE IF NOT EXISTS conversation_turns (
+        id            VARCHAR(64) PRIMARY KEY,
+        thread_id     VARCHAR(64) NOT NULL,
+        tenant_id     VARCHAR(64) NOT NULL,
+        run_id        VARCHAR(128) NOT NULL,
+        seq           BIGINT NOT NULL,
+        turn_at       BIGINT NOT NULL,
+        preview       TEXT$512 NOT NULL DEFAULT '',
+        message_count BIGINT NOT NULL DEFAULT 0,
+        blob_path     VARCHAR(512),
+        size_bytes    BIGINT NOT NULL DEFAULT 0,
+        created_at    BIGINT NOT NULL,
+        UNIQUE (thread_id, run_id)
+    )",
+    // 列表页「按租户过滤 + 最近活跃倒序」。
+    "CREATE INDEX idx_threads_last ON conversation_threads(tenant_id, last_at)",
+    // 抽屉里按 seq 倒序分页取轮次。
+    "CREATE INDEX idx_turns_thread ON conversation_turns(thread_id, seq)",
+];
+
 const DDL_V10: &[&str] = &[
     "ALTER TABLE model_prices ADD COLUMN ratio_micro BIGINT NOT NULL DEFAULT 0",
     // 元/百万 = ratio × 1e6 ÷ 2²⁰ → ratio_micro = micro_per_million × 2²⁰ ÷ 1e6
@@ -562,6 +610,21 @@ pub async fn migrate(store: &AdminStore) -> Result<()> {
                 .with_context(|| format!("apply admin schema v15: {}", first_line(stmt)))?;
         }
         write_version(store, 15).await?;
+    }
+
+    if read_version(store).await? < 16 {
+        for stmt in DDL_V16 {
+            if is_index_ddl(stmt) {
+                // 索引是纯优化，失败不影响正确性（MySQL 重复建索引会报错）。
+                let _ = store.exec(&adapt(stmt, store.backend)).await;
+                continue;
+            }
+            store
+                .exec(&adapt(stmt, store.backend))
+                .await
+                .with_context(|| format!("apply admin schema v16: {}", first_line(stmt)))?;
+        }
+        write_version(store, 16).await?;
     }
 
     // 私有仓的迁移段：版本号从 9000 起，与开源仓的 1..n 互不干扰。

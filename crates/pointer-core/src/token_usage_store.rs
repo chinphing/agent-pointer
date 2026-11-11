@@ -878,11 +878,20 @@ fn maybe_write_history_archive(
     conversation_id: &str,
     agent_instance_id: &str,
     agent_role_id: &str,
+    run_id: &str,
+    lead_agent_instance_id: &str,
     history: &[ChatMessage],
 ) -> Result<Option<String>> {
     use crate::conversation_snapshot::{build_snapshot_json, write_snapshot_zip};
 
-    let snapshot = build_snapshot_json(conversation_id, agent_instance_id, agent_role_id, history);
+    let snapshot = build_snapshot_json(
+        conversation_id,
+        agent_instance_id,
+        agent_role_id,
+        lead_agent_instance_id,
+        run_id,
+        history,
+    );
     let empty = snapshot["messages"]
         .as_array()
         .map(|messages| messages.is_empty())
@@ -1015,10 +1024,28 @@ pub fn finalize_run(run_id: &str, conversation_id: &str, history: &[ChatMessage]
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
+    // 主会话判定靠 lead 实例 id：它是**会话**的属性，每次上报都带同一个值，
+    // 所以上报乱序、重试、主会话漏报都不会让服务端判错。
+    let lead_agent_instance_id = match crate::conversation_store::
+        mint_lead_agent_instance_if_empty(&conn, conversation_id)
+    {
+        Ok(id) => id,
+        Err(e) => {
+            log::warn!("取 lead_agent_instance_id 失败 conversation_id={conversation_id}: {e}");
+            String::new()
+        }
+    };
+
     for row in rows {
         let role_id = row.agent_role_id.as_deref().unwrap_or("unknown");
-        let archive_path =
-            maybe_write_history_archive(conversation_id, &row.agent_instance_id, role_id, history)?;
+        let archive_path = maybe_write_history_archive(
+            conversation_id,
+            &row.agent_instance_id,
+            role_id,
+            run_id,
+            &lead_agent_instance_id,
+            history,
+        )?;
         conn.execute(
             "UPDATE usage_accum SET
                report_status = ?3,

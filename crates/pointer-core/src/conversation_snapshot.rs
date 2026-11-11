@@ -110,13 +110,39 @@ pub fn build_snapshot_messages(history: &[ChatMessage], agent_instance_id: &str)
     out
 }
 
+/// 本轮 = 最后一条用户消息及其之后。
+///
+/// 服务端按「会话 + 轮次」存，前几轮的内容在之前的轮次里已经落库了，这里再带一遍
+/// 会让存储退化成 O(N²)——第 N 轮把前 N-1 轮又存一次。
+pub fn current_turn(history: &[ChatMessage]) -> &[ChatMessage] {
+    let start = history
+        .iter()
+        .rposition(|m| matches!(m.role, Role::User))
+        .unwrap_or(0);
+    &history[start..]
+}
+
 pub fn build_snapshot_json(
     conversation_id: &str,
     agent_instance_id: &str,
     agent_role_id: &str,
+    lead_agent_instance_id: &str,
+    run_id: &str,
     history: &[ChatMessage],
 ) -> Value {
-    let mut messages = build_snapshot_messages(history, agent_instance_id);
+    let turn = current_turn(history);
+    // 本轮的时间锚点：首条消息的时间。服务端拿它排序和显示。
+    let turn_at = turn.first().map(|m| m.created_at).unwrap_or(0);
+    // 子会话的名字取本轮里该实例的第一条助手消息。
+    let agent_name = turn
+        .iter()
+        .find(|m| {
+            matches!(m.role, Role::Assistant)
+                && m.agent_instance_id.as_deref() == Some(agent_instance_id)
+        })
+        .and_then(|m| m.agent_name.clone());
+
+    let mut messages = build_snapshot_messages(turn, agent_instance_id);
     while serde_json::to_vec(&messages).map(|v| v.len()).unwrap_or(0) > MAX_SNAPSHOT_BYTES {
         if messages.is_empty() {
             break;
@@ -132,6 +158,10 @@ pub fn build_snapshot_json(
         "conversation_id": conversation_id,
         "agent_instance_id": agent_instance_id,
         "agent_role_id": agent_role_id,
+        "agent_name": agent_name,
+        "lead_agent_instance_id": lead_agent_instance_id,
+        "run_id": run_id,
+        "turn_at": turn_at,
         "messages": messages,
     })
 }
@@ -287,7 +317,7 @@ mod tests {
                 tool_raw_output: None,
             },
         ];
-        let snap = build_snapshot_json("conv-1", inst, "coder", &history);
+        let snap = build_snapshot_json("conv-1", inst, "coder", inst, "run-1", &history);
         let msgs = snap["messages"].as_array().expect("messages array");
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0]["role"], "user");
@@ -301,5 +331,71 @@ mod tests {
             .starts_with("[image:"));
         assert_eq!(msgs[1]["role"], "assistant");
         assert_eq!(msgs[1]["agent_instance_id"], inst);
+    }
+
+    /// 构造一条消息，只填测试关心的字段。
+    fn msg(id: &str, role: Role, content: &str, at: i64, inst: Option<&str>) -> ChatMessage {
+        ChatMessage {
+            turn_elapsed_ms: None,
+            id: id.into(),
+            role,
+            content: content.into(),
+            status: "done".into(),
+            created_at: at,
+            tool_calls: None,
+            tool_call_id: None,
+            tool_name: None,
+            error_message: None,
+            reasoning: None,
+            thoughts: None,
+            headline: None,
+            raw_content: None,
+            agent_id: None,
+            agent_instance_id: inst.map(|s| s.to_string()),
+            agent_name: inst.map(|_| "通用助手".to_string()),
+            agent_trace: None,
+            image_slot_labels: None,
+            images_base64: None,
+            computer_round_screen_rel_path: None,
+            ui_bindings: None,
+            context_state: None,
+            attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
+            agent_chain: None,
+            tool_raw_output: None,
+        }
+    }
+
+    /// 多轮历史里只切出本轮——前几轮已经在之前的轮次里落库了。
+    #[test]
+    fn snapshot_contains_only_current_turn() {
+        let inst = "11111111-1111-1111-1111-111111111111";
+        let history = vec![
+            msg("u1", Role::User, "第一轮问题", 1_000, None),
+            msg("a1", Role::Assistant, "第一轮回答", 1_001, Some(inst)),
+            msg("u2", Role::User, "第二轮问题", 2_000, None),
+            msg("a2", Role::Assistant, "第二轮回答", 2_001, Some(inst)),
+        ];
+        let snap = build_snapshot_json("conv-1", inst, "coder", inst, "run-2", &history);
+        let msgs = snap["messages"].as_array().expect("messages");
+        assert_eq!(msgs.len(), 2, "只带本轮的两条");
+        assert_eq!(msgs[0]["content"], "第二轮问题");
+        assert_eq!(msgs[1]["content"], "第二轮回答");
+        // 时间锚点取本轮首条消息
+        assert_eq!(snap["turn_at"], 2_000);
+        assert_eq!(snap["run_id"], "run-2");
+        assert_eq!(snap["lead_agent_instance_id"], inst);
+        assert_eq!(snap["agent_name"], "通用助手");
+    }
+
+    /// 历史里没有用户消息（异常路径）时退回整段，别产出空快照。
+    #[test]
+    fn current_turn_falls_back_to_whole_history() {
+        let inst = "11111111-1111-1111-1111-111111111111";
+        let history = vec![msg("a1", Role::Assistant, "只有助手", 1_000, Some(inst))];
+        assert_eq!(current_turn(&history).len(), 1);
     }
 }

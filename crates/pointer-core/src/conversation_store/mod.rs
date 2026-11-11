@@ -22,6 +22,7 @@ mod write;
 pub use message_page::{
     load_messages_page, LoadMessagesPageOpts, MessagePage, DEFAULT_MESSAGE_PAGE_TURNS,
 };
+pub use persist::mint_lead_agent_instance_if_empty;
 pub use write::AppendedMessageRow;
 
 pub use session_user::{normalize_session_user_id, ListScope};

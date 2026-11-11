@@ -1414,7 +1414,8 @@ pub fn materialize_wave(
 
 ## 10. Resume and continuation
 
-Reuse `looks_like_resume_intent` + extend:
+Resume-intent detection (a deleted helper; write it fresh here when the campaign
+queue lands — the old `looks_like_resume_intent` had no caller and was removed):
 
 ```rust
 fn should_auto_resume_campaign(doc: &BoardDocument) -> bool {

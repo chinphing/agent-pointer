@@ -39,38 +39,6 @@ pub fn anchor_message_id_from_main_turn_key(store_key: &str) -> Option<String> {
     }
 }
 
-pub fn looks_like_resume_intent(text: &str) -> bool {
-    let t = text.trim().to_lowercase();
-    if t.is_empty() {
-        return false;
-    }
-    let cn_keywords = [
-        "继续",
-        "接着",
-        "接下来",
-        "上次",
-        "之前",
-        "刚才",
-        "延续",
-        "补完",
-        "继续执行",
-        "继续做",
-    ];
-    if cn_keywords.iter().any(|k| t.contains(k)) {
-        return true;
-    }
-    let en_keywords = [
-        "continue",
-        "resume",
-        "pick up",
-        "follow up",
-        "carry on",
-        "as above",
-        "previous task",
-    ];
-    en_keywords.iter().any(|k| t.contains(k))
-}
-
 /// Latest non-synthetic **lead** user message id in transcript order
 /// (for main-turn board binding and turn-file baselines).
 ///
@@ -116,13 +84,31 @@ pub fn resolve_fresh_main_turn_init_store_key(
     history: &[ChatMessage],
 ) -> Option<String> {
     if crate::task_board::is_child_store_key(current_store_key) {
+        log::debug!(
+            "task_board_init: no fresh key, child scope store_key={current_store_key}"
+        );
         return None;
     }
     if store.document(current_store_key).board_is_empty() {
+        // First init of a turn: the key the host already opened is the right one.
+        log::debug!("task_board_init: no fresh key, current board is empty store_key={current_store_key}");
         return None;
     }
-    let uid = latest_real_user_message_id(history)?;
-    fresh_main_turn_store_key_for_init(conversation_id, current_store_key, &uid)
+    let Some(uid) = latest_real_user_message_id(history) else {
+        // No real user turn in history (sub-agent / synthetic-only). Splitting
+        // here would anchor the new board to nothing.
+        log::debug!(
+            "task_board_init: no fresh key, no real user message in history store_key={current_store_key}"
+        );
+        return None;
+    };
+    let fresh = fresh_main_turn_store_key_for_init(conversation_id, current_store_key, &uid);
+    if fresh.is_none() {
+        log::debug!(
+            "task_board_init: no fresh key, current key already belongs to user message {uid} store_key={current_store_key}"
+        );
+    }
+    fresh
 }
 
 /// Mark the previous unfinished parent board failed before a fresh `task_board_init`.
@@ -167,10 +153,43 @@ mod tests {
     }
 
     #[test]
-    fn resume_intent_detects_cn_and_en() {
-        assert!(looks_like_resume_intent("继续上次任务"));
-        assert!(looks_like_resume_intent("please continue this task"));
-        assert!(!looks_like_resume_intent("新建一个独立任务"));
+    fn fresh_init_key_needs_content_and_a_different_anchor() {
+        let store = TaskBoardStore::new();
+        let conv = "conv-fresh";
+        let old = main_turn_task_board_store_key(conv, "msg-old");
+        let user = |id: &str| {
+            let mut m = crate::models::ChatMessage::user_text("do it");
+            m.id = id.to_string();
+            m
+        };
+
+        // Placeholder key, nothing written yet → the key already open is right.
+        assert_eq!(
+            resolve_fresh_main_turn_init_store_key(&store, conv, &old, &[user("msg-new")]),
+            None
+        );
+
+        store
+            .apply(
+                &old,
+                "init",
+                &serde_json::json!({
+                    "goal": "migrate",
+                    "items": [{"id": "m1", "title": "A", "status": "pending"}]
+                }),
+            )
+            .expect("init board");
+
+        // Non-empty board + a newer user turn → init opens a fresh key on it.
+        assert_eq!(
+            resolve_fresh_main_turn_init_store_key(&store, conv, &old, &[user("msg-new")]),
+            Some(main_turn_task_board_store_key(conv, "msg-new"))
+        );
+        // Same anchor as the open board → keep it.
+        assert_eq!(
+            resolve_fresh_main_turn_init_store_key(&store, conv, &old, &[user("msg-old")]),
+            None
+        );
     }
 
     #[test]

@@ -6,6 +6,7 @@
 pub mod app;
 pub mod audit;
 pub mod billing;
+pub mod boot;
 pub mod captcha;
 pub mod config;
 pub mod credentials;

@@ -7,6 +7,7 @@ import { SECTIONS, tabsFor, topNavFor, type Section } from './routes'
 import { authGuard } from './guard'
 import { roleLabel } from './lib/roles'
 import { setLocale, type AdminLocale } from './i18n'
+import appIcon from './assets/app-icon.png'
 
 const route = useRoute()
 const router = useRouter()
@@ -81,7 +82,7 @@ async function doLogout() {
       <!-- 用 <a> 而不是 <router-link>：站点根 `/` 是服务端渲染的首页（私有部署有
            营销页，开源部署会重定向回控制台），走浏览器整页跳转才能到。 -->
       <a href="/" class="brand">
-        <span class="dot"></span>
+        <img :src="appIcon" alt="" class="brand-icon" />
         <strong>Pointer</strong>
       </a>
 
@@ -187,9 +188,9 @@ async function doLogout() {
 
 .brand { display: flex; gap: 9px; align-items: center; color: var(--fg); }
 .brand strong { font-size: 15px; }
-.dot {
-  width: 10px; height: 10px; border-radius: 50%;
-  background: var(--accent); flex: 0 0 10px;
+.brand-icon {
+  width: 22px; height: 22px; border-radius: 5px;
+  display: block; flex: 0 0 22px;
 }
 
 .sections { display: flex; align-items: center; gap: 4px; }

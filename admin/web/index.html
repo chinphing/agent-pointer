@@ -3,6 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 图标走 Vite 资产管线：服务端只挂载 /assets，根路径的文件发不出去。
+         Vite 构建时会把这里的路径重写成带 hash 的 /assets/xxx.png。 -->
+    <link rel="icon" type="image/png" href="./src/assets/favicon.png" />
     <title>Pointer 企业控制面</title>
   </head>
   <body>

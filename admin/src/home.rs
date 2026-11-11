@@ -40,6 +40,61 @@ async fn index(State(state): State<Shared>, headers: HeaderMap) -> Response {
 }
 
 /// 把登录态拼进首页。
+/// 演示视频的托管基址。
+///
+/// 开源仓不能把厂商域名写死在代码里（`platform_endpoints` 的守卫测试会拦），
+/// 所以这里留空——留空时整段「演示视频」不渲染。部署方把视频放到自己的对象存储，
+/// 用 `POINTER_HOME_VIDEO_BASE=https://oss.example.com` 注入即可。
+fn video_base() -> String {
+    std::env::var("POINTER_HOME_VIDEO_BASE")
+        .unwrap_or_default()
+        .trim()
+        .trim_end_matches('/')
+        .to_string()
+}
+
+/// 「演示视频」区块。基址为空时返回空串，标题一起不渲染。
+fn demos_html(base: &str) -> String {
+    if base.is_empty() {
+        return String::new();
+    }
+    format!(
+        r#"<div class="sec-head"><span class="rule"></span><h2>演示视频</h2></div>
+  <p class="sec-sub">在真实桌面场景中的能力展示，点击封面即可在当前页内播放。</p>
+
+  <div class="demos" id="demos">
+    <article class="card">
+      <div class="frame">
+        <button class="cover" type="button" data-src="{base}/video/%E5%BE%AE%E4%BF%A1%E5%B0%8F%E6%B8%B8%E6%88%8F%E2%80%94%E6%95%B0%E7%8B%AC.mp4">
+          <video src="{base}/video/%E5%BE%AE%E4%BF%A1%E5%B0%8F%E6%B8%B8%E6%88%8F%E2%80%94%E6%95%B0%E7%8B%AC.mp4#t=2" preload="metadata" muted playsinline></video>
+          <span>▶ 点击播放</span>
+        </button>
+      </div>
+      <h3>玩微信小游戏—数独</h3>
+    </article>
+    <article class="card">
+      <div class="frame">
+        <button class="cover" type="button" data-src="{base}/video/%E5%BE%AE%E4%BF%A1%E8%81%8A%E5%A4%A9%E8%AE%B0%E5%BD%95.mp4">
+          <video src="{base}/video/%E5%BE%AE%E4%BF%A1%E8%81%8A%E5%A4%A9%E8%AE%B0%E5%BD%95.mp4#t=2" preload="metadata" muted playsinline></video>
+          <span>▶ 点击播放</span>
+        </button>
+      </div>
+      <h3>用最笨但合规的方法查微信聊天记录</h3>
+    </article>
+    <article class="card">
+      <div class="frame">
+        <button class="cover" type="button" data-src="{base}/video/%E7%A8%8E%E5%8A%A1%E5%B1%80%E7%BC%B4%E7%A8%8E.mp4">
+          <video src="{base}/video/%E7%A8%8E%E5%8A%A1%E5%B1%80%E7%BC%B4%E7%A8%8E.mp4#t=2" preload="metadata" muted playsinline></video>
+          <span>▶ 点击播放</span>
+        </button>
+      </div>
+      <h3>操作手机镜像税务局缴税</h3>
+    </article>
+  </div>"#,
+        base = base
+    )
+}
+
 fn render(auth: Option<&AdminAuth>) -> String {
     let (nav, avatar, hero) = match auth {
         Some(a) => {
@@ -64,6 +119,7 @@ fn render(auth: Option<&AdminAuth>) -> String {
         ),
     };
     HOMEPAGE
+        .replace("<!--DEMOS-->", &demos_html(&video_base()))
         .replace("<!--NAV_SESSION-->", &nav)
         .replace("<!--AVATAR-->", &avatar)
         .replace("<!--HERO_SESSION-->", &hero)
@@ -248,38 +304,7 @@ box-shadow:0 1px 2px rgba(0,0,0,.04)}
 </div>
 
 <main>
-  <div class="sec-head"><span class="rule"></span><h2>演示视频</h2></div>
-  <p class="sec-sub">在真实桌面场景中的能力展示，点击封面即可在当前页内播放。</p>
-
-  <div class="demos" id="demos">
-    <article class="card">
-      <div class="frame">
-        <button class="cover" type="button" data-src="https://oss.readflowai.com/video/%E5%BE%AE%E4%BF%A1%E5%B0%8F%E6%B8%B8%E6%88%8F%E2%80%94%E6%95%B0%E7%8B%AC.mp4">
-          <video src="https://oss.readflowai.com/video/%E5%BE%AE%E4%BF%A1%E5%B0%8F%E6%B8%B8%E6%88%8F%E2%80%94%E6%95%B0%E7%8B%AC.mp4#t=2" preload="metadata" muted playsinline></video>
-          <span>▶ 点击播放</span>
-        </button>
-      </div>
-      <h3>玩微信小游戏—数独</h3>
-    </article>
-    <article class="card">
-      <div class="frame">
-        <button class="cover" type="button" data-src="https://oss.readflowai.com/video/%E5%BE%AE%E4%BF%A1%E8%81%8A%E5%A4%A9%E8%AE%B0%E5%BD%95.mp4">
-          <video src="https://oss.readflowai.com/video/%E5%BE%AE%E4%BF%A1%E8%81%8A%E5%A4%A9%E8%AE%B0%E5%BD%95.mp4#t=2" preload="metadata" muted playsinline></video>
-          <span>▶ 点击播放</span>
-        </button>
-      </div>
-      <h3>用最笨但合规的方法查微信聊天记录</h3>
-    </article>
-    <article class="card">
-      <div class="frame">
-        <button class="cover" type="button" data-src="https://oss.readflowai.com/video/%E7%A8%8E%E5%8A%A1%E5%B1%80%E7%BC%B4%E7%A8%8E.mp4">
-          <video src="https://oss.readflowai.com/video/%E7%A8%8E%E5%8A%A1%E5%B1%80%E7%BC%B4%E7%A8%8E.mp4#t=2" preload="metadata" muted playsinline></video>
-          <span>▶ 点击播放</span>
-        </button>
-      </div>
-      <h3>操作手机镜像税务局缴税</h3>
-    </article>
-  </div>
+  <!--DEMOS-->
 
   <section class="legal">
     <p>
@@ -292,7 +317,8 @@ box-shadow:0 1px 2px rgba(0,0,0,.04)}
 
 <script>
 // 点击封面就地播放：和官网一样，不跳页、不弹层。
-document.getElementById('demos').addEventListener('click', function (e) {
+var demos = document.getElementById('demos');
+if (demos) demos.addEventListener('click', function (e) {
   var btn = e.target.closest('.cover');
   if (!btn) return;
   var frame = btn.parentNode;

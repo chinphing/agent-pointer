@@ -12,9 +12,9 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.2"
+version = "0.1.3-rc2"
 license = "Apache-2.0"
-authors = ["刘新星 <https://pointer.readflowai.com>"]
+authors = ["刘新星 <https://ptr.readflowai.com>"]
 repository = "https://github.com/chinphing/agent-pointer"
 
 # 截图链路（image::imageops::resize / JPEG 编解码）在 debug 下慢一个数量级：

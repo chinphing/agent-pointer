@@ -142,8 +142,8 @@ jobs:
         env:
           POINTER_PACKAGE_LABEL: official
           POINTER_EDITION: managed
-          POINTER_API_BASE: https://pointer-api.readflowai.com
-          POINTER_DOWNLOAD_URL: https://pointer.readflowai.com/download
+          POINTER_API_BASE: https://ptr.readflowai.com
+          POINTER_DOWNLOAD_URL: https://ptr.readflowai.com/download
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE || '' }}
@@ -188,8 +188,8 @@ jobs:
         env:
           POINTER_PACKAGE_LABEL: official
           POINTER_EDITION: managed
-          POINTER_API_BASE: https://pointer-api.readflowai.com
-          POINTER_DOWNLOAD_URL: https://pointer.readflowai.com/download
+          POINTER_API_BASE: https://ptr.readflowai.com
+          POINTER_DOWNLOAD_URL: https://ptr.readflowai.com/download
 
       - name: Stage official server
         run: node scripts/rename-release-assets.mjs --flavor official --dest release-assets
@@ -200,6 +200,9 @@ jobs:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
           name: Pointer ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
           draft: false
+          # 带 `-rc` / `-beta` 的标签产出预发布，不会被标成 Latest，
+          # 正式版仍是 `vX.Y.Z`。
+          prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true
           files: release-assets/*
           body: |

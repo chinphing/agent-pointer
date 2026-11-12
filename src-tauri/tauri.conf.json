@@ -68,9 +68,8 @@
     },
     "windows": {
       "digestAlgorithm": "sha256",
-      "webviewInstallMode": {
-        "type": "embedBootstrapper",
-        "silent": false
+      "nsis": {
+        "template": "./windows/installer.nsi"
       },
       "wix": {
         "language": "zh-CN"

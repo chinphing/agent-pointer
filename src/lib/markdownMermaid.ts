@@ -184,8 +184,26 @@ export function quoteFlowchartSubgraphTitles(source: string): string {
 }
 
 /** Strip host-theme init and quote fragile flowchart labels (model output). */
+/**
+ * 把 `layout: elk` / `layout: elk.stress` 改写成 `layout: dagre`。
+ *
+ * Pointer 不打包 ELK（见 `elkStub.ts`）：elkjs 是 mermaid 12 的硬依赖、1.4 MB，
+ * 而我们的图几乎都是默认 dagre。改写只动 frontmatter 与 `%%{init}%%` 指令，
+ * 正文里出现的同名字样（节点标题等）保持原样。
+ */
+export function downgradeElkLayout(source: string): string {
+  const frontmatter = /^(---\r?\n)([\s\S]*?)(\r?\n---)/.exec(source)
+  let out = source
+  if (frontmatter) {
+    const body = frontmatter[2].replace(/(\blayout\s*:\s*)elk(\.[A-Za-z]+)?/g, '$1dagre')
+    out = frontmatter[1] + body + frontmatter[3] + source.slice(frontmatter[0].length)
+  }
+  // %%{init: {"layout": "elk"}}%%
+  return out.replace(/("layout"\s*:\s*")elk(\.[A-Za-z]+)?(")/g, '$1dagre$3')
+}
+
 export function prepareMermaidSource(raw: string): string {
-  const stripped = stripMermaidHostThemeOverrides(raw)
+  const stripped = stripMermaidHostThemeOverrides(downgradeElkLayout(raw))
   const quotedNodes = quoteFlowchartNodeLabels(stripped)
   const quoted = quoteFlowchartSubgraphTitles(quotedNodes)
   if (quoted !== stripped) {

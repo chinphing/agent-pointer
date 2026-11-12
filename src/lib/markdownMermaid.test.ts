@@ -18,6 +18,7 @@ import {
   stripMermaidHostThemeOverrides,
   quoteFlowchartNodeLabels,
   quoteFlowchartSubgraphTitles,
+  downgradeElkLayout,
   prepareMermaidSource,
   roundMermaidSvgRects,
   MERMAID_NODE_RX,
@@ -29,6 +30,37 @@ const SAMPLE = `flowchart TD
   A[开始] --> B{是否继续?}
   B -- 是 --> C[继续]
   B -- 否 --> D[结束]`
+
+describe('ELK 布局降级为 dagre', () => {
+  it('frontmatter 里的 layout: elk 改写成 dagre', () => {
+    const src = ['---', 'layout: elk', '---', 'flowchart TD', '  A --> B'].join('\n')
+    expect(downgradeElkLayout(src)).toContain('layout: dagre')
+    expect(downgradeElkLayout(src)).not.toContain('layout: elk')
+  })
+
+  it('嵌套在 config 下、带算法后缀的写法也能改写', () => {
+    const nested = ['---', 'config:', '  layout: elk.stress', '---', 'graph TD', '  A --> B'].join('\n')
+    expect(downgradeElkLayout(nested)).toContain('layout: dagre')
+
+    const tree = ['---', 'layout: elk.mrtree', '---', 'graph TD', '  A --> B'].join('\n')
+    expect(downgradeElkLayout(tree)).toContain('layout: dagre')
+  })
+
+  it('init 指令里的 layout 也改', () => {
+    const src = '%%{init: {"layout": "elk"}}%%\nflowchart TD\n  A --> B'
+    expect(downgradeElkLayout(src)).toContain('"layout": "dagre"')
+  })
+
+  it('正文里的同名字样不动（只有 frontmatter / init 指令会被改写）', () => {
+    const src = ['---', 'title: demo', '---', 'flowchart TD', '  A["layout: elk"] --> B'].join('\n')
+    expect(downgradeElkLayout(src)).toContain('A["layout: elk"]')
+  })
+
+  it('没有 frontmatter 时原样返回', () => {
+    const src = 'flowchart TD\n  A --> B'
+    expect(downgradeElkLayout(src)).toBe(src)
+  })
+})
 
 describe('isMermaidFenceLang', () => {
   it('accepts mermaid only (case-insensitive)', () => {

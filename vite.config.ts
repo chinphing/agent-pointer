@@ -110,7 +110,10 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'src')
+      '@': path.resolve(__dirname, 'src'),
+      // ELK 布局不打包（mermaid 12 硬依赖 elkjs，1.4 MB）。渲染前已改写成 dagre，
+      // 这里换成本地桩，elk 的代码不会进产物。见 `src/lib/elkStub.ts`。
+      'elkjs/lib/elk.bundled.js': path.resolve(__dirname, 'src/lib/elkStub.ts')
     }
   },
   test: {

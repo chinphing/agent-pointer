@@ -536,7 +536,7 @@ skills_dir = "skills"        # bundled Skills source; for deb use /usr/share/poi
 # data directory and logs default to the same as the desktop client (PointerApp/logs/, PointerAppDev for debug); no configuration needed
 
 [pointer]
-api_base = "https://pointer-api.readflowai.com"
+api_base = "https://ptr.readflowai.com"
 oauth_client_secret = "your-secret"
 ```
 

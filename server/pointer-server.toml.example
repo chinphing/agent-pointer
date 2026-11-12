@@ -139,13 +139,13 @@ skills_dir = "skills"
 [pointer]
 # Your control plane. The open-source tree ships no vendor default, so this has
 # no fallback: leave it empty for a standalone server.
-# api_base = "https://pointer-api.readflowai.com"
+# api_base = "https://ptr.readflowai.com"
 # Must match pointer-official API env THIRD_PARTY_OAUTH_EXCHANGE_SECRET (NOT JWT_SECRET).
 oauth_client_secret = "replace-me"
 
 # Optional: any additional env vars (KEY=VALUE)
 # [env]
-# POINTER_API_BASE = "https://pointer-api.readflowai.com"
+# POINTER_API_BASE = "https://ptr.readflowai.com"
 
 # ---------------------------------------------------------------------------
 # Global MCP servers (P2b): non-plugin MCP, independent of plugin enable state.

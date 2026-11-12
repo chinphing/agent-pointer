@@ -536,7 +536,7 @@ skills_dir = "skills"        # 内置 Skills 源；deb 用 /usr/share/pointer-se
 # 数据目录与日志默认与桌面客户端相同（PointerApp/logs/，debug 为 PointerAppDev），无需配置
 
 [pointer]
-api_base = "https://pointer-api.readflowai.com"
+api_base = "https://ptr.readflowai.com"
 oauth_client_secret = "your-secret"
 ```
 

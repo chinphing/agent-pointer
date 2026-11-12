@@ -300,7 +300,7 @@ app_data_dir = "/var/lib/pointer-server"
 # Under standalone mode the [pointer] section takes no part in OAuth and can be omitted.
 # If kept, it does not affect the main standalone flow:
 # [pointer]
-# api_base = "https://pointer-api.readflowai.com"
+# api_base = "https://ptr.readflowai.com"
 # oauth_client_secret = "unused-in-standalone"
 ```
 

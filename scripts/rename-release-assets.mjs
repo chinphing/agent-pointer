@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 const FLAVORS = new Set(['community', 'official'])
 
 const OFFICIAL_HOSTS = {
-  POINTER_API_BASE: 'https://pointer-api.readflowai.com',
+  POINTER_API_BASE: 'https://ptr.readflowai.com',
 }
 
 function normalizedHost(value) {

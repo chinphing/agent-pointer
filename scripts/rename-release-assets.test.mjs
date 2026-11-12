@@ -88,7 +88,7 @@ describe('resolveReleaseLabel', () => {
     expect(resolveReleaseLabel({ POINTER_PACKAGE_LABEL: 'official' })).toBe('official')
     expect(resolveReleaseLabel({
       POINTER_EDITION: 'managed',
-      POINTER_API_BASE: 'https://pointer-api.readflowai.com',
+      POINTER_API_BASE: 'https://ptr.readflowai.com',
     })).toBe('official')
     expect(resolveReleaseLabel({
       POINTER_EDITION: 'managed',

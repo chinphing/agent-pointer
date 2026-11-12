@@ -300,7 +300,7 @@ app_data_dir = "/var/lib/pointer-server"
 # standalone 模式下 [pointer] 段不参与 OAuth，可省略。
 # 若保留，不影响 standalone 主流程：
 # [pointer]
-# api_base = "https://pointer-api.readflowai.com"
+# api_base = "https://ptr.readflowai.com"
 # oauth_client_secret = "unused-in-standalone"
 ```
 

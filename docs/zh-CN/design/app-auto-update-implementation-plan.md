@@ -96,7 +96,7 @@ Set `bundle.createUpdaterArtifacts` to `true`. Keep `bundle.targets` as is — W
     "updater": {
       "pubkey": "REPLACE_WITH_PUBLIC_KEY",
       "endpoints": [
-        "https://pointer-api.readflowai.com/api/updates/latest?target={{target}}&arch={{arch}}&current_version={{current_version}}"
+        "https://ptr.readflowai.com/api/updates/latest?target={{target}}&arch={{arch}}&current_version={{current_version}}"
       ],
       "windows": {
         "installMode": "passive"

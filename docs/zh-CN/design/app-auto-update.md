@@ -250,7 +250,7 @@ GET /api/updates/latest
   "pub_date": "2026-07-12T04:00:00Z",
   "platforms": {
     "darwin-aarch64": {
-      "url": "https://pointer-api.readflowai.com/api/downloads/files/{uuid}",
+      "url": "https://ptr.readflowai.com/api/downloads/files/{uuid}",
       "signature": "<sig file content>"
     },
     "darwin-x86_64": { "url": "...", "signature": "..." },

@@ -5,6 +5,7 @@ import { api, errText } from '../api'
 import { useNotice } from '../lib/notice'
 import { can } from '../store'
 import { parseRatioInput } from '../lib/ratioInput'
+import { perMillionToYuanPerMb, yuanPerMbToPerMillion } from '../lib/billingUnits'
 
 type RatioRow = {
   model: string
@@ -34,19 +35,6 @@ const draft = reactive<Record<string, string>>({})
 
 const editable = computed(() => can('usage:write'))
 
-const TOKENS_PER_MB = 1048576
-const TOKENS_PER_MILLION = 1000000
-
-/** 元 / MB → 元 / 百万 token（×1.048576）。 */
-function toPerMillion(yuanPerMb: number): number {
-  return (yuanPerMb * TOKENS_PER_MB) / TOKENS_PER_MILLION
-}
-
-/** 元 / 百万 token → 元 / MB。 */
-function fromPerMillion(yuanPerMillion: number): number {
-  return (yuanPerMillion * TOKENS_PER_MILLION) / TOKENS_PER_MB
-}
-
 /**
  * 金额格式化：最多 6 位小数、去掉尾随零。
  *
@@ -56,7 +44,7 @@ function fmtMoney(v: number): string {
   return String(Number(v.toFixed(6)))
 }
 
-const basePerMillion = computed(() => toPerMillion(baseYuanMb.value))
+const basePerMillion = computed(() => yuanPerMbToPerMillion(baseYuanMb.value))
 const baseDisplay = computed(() => fmtMoney(basePerMillion.value))
 
 /** 某费率对应的单价（元 / 百万 token）。 */
@@ -107,7 +95,7 @@ async function saveBase() {
   try {
     // 页面单位是元/百万 token，接口单位是元/MB，只在这一处换算。
     await api.put('/api/admin/model-prices/base', {
-      baseYuanPerMb: fromPerMillion(parsed.value),
+      baseYuanPerMb: perMillionToYuanPerMb(parsed.value),
     })
     flashNotice(t('billing.baseSaved'))
     editingBase.value = false

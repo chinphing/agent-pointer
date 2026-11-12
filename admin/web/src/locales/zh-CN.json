@@ -699,10 +699,10 @@
     "cleared": "已清除 {model} 的单价，改回兜底价",
     "emptyCatalog": "平台目录里还没有模型，先在「资源」里加服务商与模型",
     "unpriced": "未配费率·不可用",
-    "pricingRule": "单价 = 基准价 × 费率；一次调用扣费 = 总 token × 单价 ÷ 1 000 000，按 0.001 元向上取整。",
+    "pricingRule": "单价 = 基准价 × 费率；一次调用扣费 = 总 token × 单价 ÷ 1 048 576，按 0.001 元向上取整。",
     "unpricedPlaceholder": "未配价",
     "baseTitle": "基准价",
-    "baseHint": "基准模型（费率 1.0）每 100 万 token 的价格。改它等于整体调价。",
+    "baseHint": "基准模型（费率 1.0）每 1 MB（1,048,576 个 token）的价格。改它等于整体调价。",
     "baseUnit": "元 / MB",
     "baseInvalid": "基准价必须是非负数字",
     "baseSaved": "基准价已更新",
@@ -710,8 +710,7 @@
     "ratioHint": "费率是相对基准模型的倍数（基准模型 = 1.0）。未配费率的模型不会下发给客户端。",
     "ratioRequired": "请填费率",
     "ratioInvalid": "费率必须是非负数字",
-    "baseUnitPerMillion": "元 / 百万 token",
-    "unitPrice": "单价（元 / 百万 token）",
+    "unitPrice": "单价（元 / MB）",
     "baseImpact": "保存后，基准模型（费率 1.0）就是上面这个价；其余模型按费率换算。"
   },
   "conversations": {

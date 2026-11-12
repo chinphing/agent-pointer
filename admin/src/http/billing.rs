@@ -23,8 +23,12 @@ use crate::http::Shared;
 use crate::oauth::partner::bearer_user;
 
 /// 微元 → 「元/百万 token」数值（保留 6 位，够表达 0.000001 元）。
-fn micro_per_million_to_yuan(v: i64) -> f64 {
-    (v as f64) / (MICRO_PER_YUAN as f64) * 1_000_000.0 / 1_000_000.0
+/// 微元 / MB → 元 / MB。
+///
+/// 名字里的单位必须是 MB：基准价存的就是「元 / MB」（1 MB = 2²⁰ token）。
+/// 早先叫 `micro_per_million_to_yuan`，正是这个错名字把前端换算带反了。
+fn micro_per_mb_to_yuan(v: i64) -> f64 {
+    (v as f64) / (MICRO_PER_YUAN as f64)
 }
 
 pub async fn get_wallet(
@@ -142,7 +146,7 @@ pub async fn list_prices(State(state): State<Shared>) -> ApiResult<Json<Value>> 
         .collect();
     let base = billing::base_price_micro_per_mb(&state.store).await?;
     Ok(Json(json!({
-        "baseYuanPerMb": micro_per_million_to_yuan(base),
+        "baseYuanPerMb": micro_per_mb_to_yuan(base),
         "items": items,
     })))
 }

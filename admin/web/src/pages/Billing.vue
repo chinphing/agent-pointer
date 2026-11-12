@@ -5,7 +5,6 @@ import { api, errText } from '../api'
 import { useNotice } from '../lib/notice'
 import { can } from '../store'
 import { parseRatioInput } from '../lib/ratioInput'
-import { perMillionToYuanPerMb, yuanPerMbToPerMillion } from '../lib/billingUnits'
 
 type RatioRow = {
   model: string
@@ -16,9 +15,11 @@ type RatioRow = {
 const { t } = useI18n()
 const rows = ref<RatioRow[]>([])
 /**
- * 基准价：接口口径是「元 / MB」（1 MB = 2²⁰ = 1,048,576 token），
- * 页面按人话展示成「元 / 百万 token」——换算只发生在展示与输入边界，
- * 后端存储和计费公式一行不动。
+ * 基准价：单位是「元 / MB」（1 MB = 2²⁰ = 1,048,576 token），与后端存储、
+ * 计费公式完全一致——页面不做任何单位换算，输入什么就存什么、显示什么。
+ *
+ * 曾经这里换算成「元 / 百万 token」展示，方向还写反了（乘而不是除），
+ * 导致基准价 1 元/MB 显示成 1.048576，输入 1 又只存 0.953674。
  */
 const baseYuanMb = ref(1)
 const baseDraft = ref('')
@@ -44,12 +45,11 @@ function fmtMoney(v: number): string {
   return String(Number(v.toFixed(6)))
 }
 
-const basePerMillion = computed(() => yuanPerMbToPerMillion(baseYuanMb.value))
-const baseDisplay = computed(() => fmtMoney(basePerMillion.value))
+const baseDisplay = computed(() => fmtMoney(baseYuanMb.value))
 
-/** 某费率对应的单价（元 / 百万 token）。 */
+/** 某费率对应的单价（元 / MB）。 */
 function unitPrice(ratio: number): string {
-  return fmtMoney(basePerMillion.value * ratio)
+  return fmtMoney(baseYuanMb.value * ratio)
 }
 
 function syncDraft(list: RatioRow[]) {
@@ -93,9 +93,8 @@ async function saveBase() {
   error.value = ''
   savingBase.value = true
   try {
-    // 页面单位是元/百万 token，接口单位是元/MB，只在这一处换算。
     await api.put('/api/admin/model-prices/base', {
-      baseYuanPerMb: perMillionToYuanPerMb(parsed.value),
+      baseYuanPerMb: parsed.value,
     })
     flashNotice(t('billing.baseSaved'))
     editingBase.value = false
@@ -172,7 +171,7 @@ onMounted(load)
       <!-- 展示态：只读，不摆输入框 -->
       <div v-if="!editingBase" class="row" style="margin-top: 12px; align-items: baseline">
         <span class="mono base-value">{{ baseDisplay }}</span>
-        <span class="muted small">{{ t('billing.baseUnitPerMillion') }}</span>
+        <span class="muted small">{{ t('billing.baseUnit') }}</span>
         <button v-if="editable" class="tiny" @click="startEditBase">
           {{ t('common.edit') }}
         </button>
@@ -188,7 +187,7 @@ onMounted(load)
           step="0.01"
           aria-label="基准价"
         />
-        <span class="muted small">{{ t('billing.baseUnitPerMillion') }}</span>
+        <span class="muted small">{{ t('billing.baseUnit') }}</span>
         <button class="tiny" :disabled="savingBase" @click="saveBase">
           {{ t('billing.save') }}
         </button>

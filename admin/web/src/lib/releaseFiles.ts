@@ -10,7 +10,7 @@ export type PlatformId = 'macos' | 'windows' | 'linux'
 /** 每个平台允许出现的产物类型。 */
 export const PLATFORM_KINDS: Record<PlatformId, string[]> = {
   macos: ['macos_dmg', 'macos_updater'],
-  windows: ['windows_msi', 'windows_updater'],
+  windows: ['windows_msi', 'windows_nsis', 'windows_updater'],
   linux: ['linux_deb', 'linux_appimage', 'linux_appimage_updater'],
 }
 
@@ -28,6 +28,8 @@ export function classifyReleaseFile(name: string, platform: PlatformId): string 
   }
   if (n.endsWith('.dmg')) return 'macos_dmg'
   if (n.endsWith('.msi')) return 'windows_msi'
+  // NSIS 安装包；`.nsis.zip` 是更新包，已在上面按压缩包判掉
+  if (n.endsWith('.exe')) return 'windows_nsis'
   if (n.endsWith('.deb')) return 'linux_deb'
   if (n.endsWith('.appimage')) return 'linux_appimage'
   return null

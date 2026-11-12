@@ -680,7 +680,8 @@
     "pickHint": "可多选：安装包（.dmg/.msi/.deb/.AppImage）、更新包（.tar.gz）与对应 .sig",
     "picked": "已选 {n} 个：",
     "missingCount": "待补 {n} 项",
-    "notUploaded": "未上传"
+    "notUploaded": "未上传",
+    "kindWindowsNsis": "Windows 安装包（.exe）"
   },
   "billing": {
     "title": "计费",

@@ -45,7 +45,13 @@ const UPDATER_KINDS: &[(&str, &[&str])] = &[
 ///
 /// 与更新包是两回事：更新包是给 updater 用的差量/全量包，装不上；下载页给错了
 /// 文件，用户拿到的是一个 tar.gz 而不是能双击安装的程序。
-const INSTALLER_KINDS: &[&str] = &["macos_dmg", "windows_msi", "linux_deb", "linux_appimage"];
+const INSTALLER_KINDS: &[&str] = &[
+    "macos_dmg",
+    "windows_msi",
+    "windows_nsis",
+    "linux_deb",
+    "linux_appimage",
+];
 
 /// 单个安装包 / 更新包的上限。
 ///
@@ -905,7 +911,8 @@ mod tests {
             assert!(!updaters.contains(&k), "{k} 不能同时是安装包和更新包");
         }
         assert_eq!(updaters.len(), 3);
-        assert_eq!(installer_kinds().len(), 4);
+        // Windows 同时收 .msi 与 NSIS 的 .exe：老版本还在发 msi，新版本改出 nsis。
+        assert_eq!(installer_kinds().len(), 5);
     }
 
     #[test]

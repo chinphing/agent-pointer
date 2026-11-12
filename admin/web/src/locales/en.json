@@ -680,7 +680,8 @@
     "pickHint": "Multi-select: installers (.dmg/.msi/.deb/.AppImage), updater bundles (.tar.gz) and their .sig",
     "picked": "{n} selected: ",
     "missingCount": "{n} missing",
-    "notUploaded": "Not uploaded"
+    "notUploaded": "Not uploaded",
+    "kindWindowsNsis": "Windows installer (.exe)"
   },
   "billing": {
     "title": "Billing",

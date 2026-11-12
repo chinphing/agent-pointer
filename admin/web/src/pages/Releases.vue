@@ -72,6 +72,7 @@ function classify(name: string, platform: PlatformId): string | null {
   }
   if (n.endsWith('.dmg')) return 'macos_dmg'
   if (n.endsWith('.msi')) return 'windows_msi'
+  if (n.endsWith('.exe')) return 'windows_nsis'
   if (n.endsWith('.deb')) return 'linux_deb'
   if (n.endsWith('.appimage')) return 'linux_appimage'
   return null
@@ -115,6 +116,7 @@ async function create() {
 const KIND_KEYS: Record<string, string> = {
   macos_dmg: 'releases.kindMacosDmg',
   windows_msi: 'releases.kindWindowsMsi',
+  windows_nsis: 'releases.kindWindowsNsis',
   linux_deb: 'releases.kindLinuxDeb',
   linux_appimage: 'releases.kindLinuxAppImage',
   macos_updater: 'releases.kindMacosUpdater',

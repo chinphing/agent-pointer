@@ -5,6 +5,10 @@ describe('classifyReleaseFile', () => {
   it('安装包按扩展名归位', () => {
     expect(classifyReleaseFile('Pointer_1.0.0_universal.dmg', 'macos')).toBe('macos_dmg')
     expect(classifyReleaseFile('Pointer_1.0.0_x64_en-US.msi', 'windows')).toBe('windows_msi')
+    // NSIS 安装包：改名后是 `Pointer-official-1.0.0-x64-setup.exe`
+    expect(classifyReleaseFile('Pointer-official-1.0.0-x64-setup.exe', 'windows')).toBe('windows_nsis')
+    // NSIS 更新包是 `.nsis.zip`，必须归到 updater，不能当成安装包
+    expect(classifyReleaseFile('Pointer-official-1.0.0-x64.nsis.zip', 'windows')).toBe('windows_updater')
     expect(classifyReleaseFile('pointer_1.0.0_amd64.deb', 'linux')).toBe('linux_deb')
     expect(classifyReleaseFile('pointer_1.0.0_amd64.AppImage', 'linux')).toBe('linux_appimage')
   })

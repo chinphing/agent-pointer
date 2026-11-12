@@ -9,6 +9,7 @@ const { t, tm } = useI18n()
 const KIND_TO_PLATFORM: Record<string, string> = {
   macos_dmg: 'macos',
   windows_msi: 'windows',
+  windows_nsis: 'windows',
   linux_deb: 'linux',
   linux_appimage: 'linux',
 }

@@ -31,7 +31,7 @@ use sqlx::any::Any;
 use sqlx::Row;
 
 use crate::config::AdminConfig;
-use crate::db::{now_ts, random_id, AdminStore};
+use crate::db::{now_ts, random_id, AdminStore, Backend};
 
 /// 预览（本轮首条用户消息）保留的字数。
 const PREVIEW_CHARS: usize = 120;
@@ -392,6 +392,31 @@ pub struct ListFilter<'a> {
     /// 结束时间（不含），unix 秒。
     pub to_ts: Option<i64>,
 }
+/// 会话列表分页 SQL。
+///
+/// 两处 `SUM()` 读回 `i64`，而 MySQL 的 `SUM(int)` 返回 **DECIMAL**，
+/// `sqlx::Any` 解不了，会报
+/// `Any driver does not support MySql type … NewDecimal`。
+/// 所以聚合必须按后端 `CAST` 成整数（见 [`Backend::int_cast`]）。
+fn conversations_page_sql(backend: Backend, where_sql: &str) -> String {
+    format!(
+        "SELECT conversation_id,
+                MAX(last_at)       AS last_at,
+                MIN(first_at)      AS first_at,
+                {}    AS turn_count,
+                {} AS message_count,
+                COUNT(*)           AS thread_count,
+                MAX(user_id)       AS user_id
+           FROM conversation_threads
+          WHERE {where_sql}
+          GROUP BY conversation_id
+          ORDER BY last_at DESC
+          LIMIT ? OFFSET ?",
+        backend.int_cast("SUM(turn_count)"),
+        backend.int_cast("SUM(message_count)"),
+    )
+}
+
 
 /// 列表：一个会话一行，按最近活跃倒序。
 ///
@@ -422,20 +447,7 @@ pub async fn list(
         "SELECT COUNT(*) FROM (SELECT 1 FROM conversation_threads
            WHERE {where_sql} GROUP BY conversation_id LIMIT {COUNT_CAP}) t"
     ));
-    let page_sql = store.sql(&format!(
-        "SELECT conversation_id,
-                MAX(last_at)       AS last_at,
-                MIN(first_at)      AS first_at,
-                SUM(turn_count)    AS turn_count,
-                SUM(message_count) AS message_count,
-                COUNT(*)           AS thread_count,
-                MAX(user_id)       AS user_id
-           FROM conversation_threads
-          WHERE {where_sql}
-          GROUP BY conversation_id
-          ORDER BY last_at DESC
-          LIMIT ? OFFSET ?"
-    ));
+    let page_sql = store.sql(&conversations_page_sql(store.backend(), &where_sql));
 
     let mut count_query = sqlx::query::<Any>(&count_sql).bind(tenant_id);
     let mut page_query = sqlx::query::<Any>(&page_sql).bind(tenant_id);
@@ -713,6 +725,24 @@ pub async fn turn_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// MySQL 的 `SUM(int)` 返回 DECIMAL，`sqlx::Any` 解不了——
+    /// 会话列表的聚合必须带 CAST，否则线上报
+    /// `Any driver does not support MySql type … NewDecimal`。
+    #[test]
+    fn page_sql_casts_sums_for_every_backend() {
+        for (backend, ty) in [
+            (Backend::MySql, "SIGNED"),
+            (Backend::Sqlite, "INTEGER"),
+            (Backend::Postgres, "BIGINT"),
+        ] {
+            let sql = conversations_page_sql(backend, "tenant_id = ?");
+            for col in ["SUM(turn_count)", "SUM(message_count)"] {
+                let want = format!("CAST({col} AS {ty})");
+                assert!(sql.contains(&want), "{backend:?} 缺少 {want}：\n{sql}");
+            }
+        }
+    }
 
     fn zip_with(json: &str) -> Vec<u8> {
         let mut out = Vec::new();

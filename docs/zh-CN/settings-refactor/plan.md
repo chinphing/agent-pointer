@@ -155,7 +155,7 @@
    - 每类型三档卡片：档位说明（快速/标准/高级的用途文案）+ 模型下拉（按类型过滤能力：视觉/语音）+ 思考开关/预算；
    - 默认值标注「平台默认」，改动后显示「已覆盖」徽标（便于识别与恢复默认）。
 4. 数据字段第 1 期保持：仍写回 `agentModeLlm` / `mediaUnderstanding` / `computerTierLlm` / providers；当前保存链路统一为 `saveModelService` / `saveAgentPreferences` → `updateUserSettings`，重启后保留。`saveDebugSession` 仅为旧 API 兼容和测试保留，设置页面不调用。
-5. `AgentSettingsPanel.vue` 中的旧三档表格已不再接入设置页；后续单独清理或改为受控只读摘要，避免恢复第二套编辑入口。
+5. `AgentSettingsPanel.vue` 已删除：旧三档表格早已不接入设置页，留着只会变成第二套编辑入口。`computerDelegationPanel.test.ts` 钉住它不会被重新接回来。
 6. 删除语义：仅「自定义服务」显示删除按钮；删除后立刻提交完整服务列表到用户设置，持久化失败时恢复删除前状态。平台服务由平台统一管理，不提供删除入口。
 
 **验收**：非调试模式下普通用户也能配置模型服务；平台服务商只需密钥+三档；自定义服务商完整编辑不受影响；三档改动保存后运行时生效（用 `runTest` 或实际对话验证）。
@@ -248,5 +248,5 @@
 - [ ] M6 硬编码清理与回归验证
 
 ### 第 1 期备注
-- AgentSettingsPanel 旧三档表格保留（高级调试入口），后续可再收敛（低优先级）。
+- AgentSettingsPanel 已删除（旧三档表格没有任何挂载点，保留只会误导后续改动）。
 - Web 端无 `getCloudPlatformMe` 等价接口，余额胶囊仅桌面 Tauri 平台模式显示（O1 工程化修正）。

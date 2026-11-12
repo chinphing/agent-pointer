@@ -15,10 +15,6 @@ const assistant = readFileSync(
   'utf8'
 )
 const sceneModal = readFileSync(new URL('./SceneTierModelsModal.vue', import.meta.url), 'utf8')
-const debugPanel = readFileSync(
-  new URL('./panels/AgentSettingsPanel.vue', import.meta.url),
-  'utf8'
-)
 
 describe('媒体理解的设置界面', () => {
   it('助手面板不再给媒体类型配档位单选', () => {
@@ -43,13 +39,6 @@ describe('媒体理解的设置界面', () => {
     expect(sceneModal).not.toContain('isMedia')
     // 智能体那条分支还在用档位。
     expect(sceneModal).toContain('modeTiers')
-  })
-
-  it('调试面板的媒体表格按类型一行，不再按档位展开', () => {
-    expect(debugPanel).not.toContain('mediaModeLlm')
-    expect(debugPanel).not.toContain('selectMediaModeModel')
-    expect(debugPanel).toContain('mediaUnderstanding(kind)')
-    expect(debugPanel).toContain('selectMediaUnderstandingModel')
   })
 
   it('旧键名在整个前端源码里已经不存在', () => {

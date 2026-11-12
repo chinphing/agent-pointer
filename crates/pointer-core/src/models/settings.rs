@@ -933,6 +933,12 @@ pub struct ModelSettings {
         rename = "computerAutoSwitchMonitor"
     )]
     pub computer_auto_switch_monitor: bool,
+    /// How eagerly leads may delegate to the `computer` (desktop) agent.
+    /// `off` removes it from `allowAgents` and injects no prompt at all;
+    /// `confirm` (default) requires `ask_user` before every delegation;
+    /// `auto` delegates without asking.
+    #[serde(default = "default_computer_delegation", rename = "computerDelegation")]
+    pub computer_delegation: String,
     /// Delay before `type_text_via_clipboard` restores the previous clipboard
     /// content after Cmd+V. Measured on TextEdit: 30 ms lost 10/30 pastes
     /// (5 of them pasted the *old* clipboard), 50 ms was 30/30. Raise it for
@@ -1095,6 +1101,45 @@ pub(crate) fn default_lead_agent_id() -> String {
 
 fn default_computer_human_like() -> bool {
     true
+}
+
+/// `computer` delegation strength. Global, not per-agent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComputerDelegation {
+    /// Not delegatable: dropped from `allowAgents`, no prompt injected at all.
+    Off,
+    /// Delegatable, but `ask_user` must approve each delegation (default).
+    Confirm,
+    /// Delegatable without asking.
+    Auto,
+}
+
+pub const COMPUTER_DELEGATION_OFF: &str = "off";
+pub const COMPUTER_DELEGATION_CONFIRM: &str = "confirm";
+pub const COMPUTER_DELEGATION_AUTO: &str = "auto";
+
+impl ComputerDelegation {
+    /// Unknown values fall back to the default tier — a corrupted setting must
+    /// never silently unlock desktop control.
+    pub fn from_settings(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            COMPUTER_DELEGATION_OFF => Self::Off,
+            COMPUTER_DELEGATION_AUTO => Self::Auto,
+            _ => Self::Confirm,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => COMPUTER_DELEGATION_OFF,
+            Self::Confirm => COMPUTER_DELEGATION_CONFIRM,
+            Self::Auto => COMPUTER_DELEGATION_AUTO,
+        }
+    }
+}
+
+pub fn default_computer_delegation() -> String {
+    COMPUTER_DELEGATION_CONFIRM.to_string()
 }
 
 /// Clean up legacy settings loaded from disk:
@@ -1316,6 +1361,45 @@ pub fn clamp_computer_paste_restore_delay_ms(n: u32) -> u32 {
         FLOOR_COMPUTER_PASTE_RESTORE_DELAY_MS,
         CEILING_COMPUTER_PASTE_RESTORE_DELAY_MS,
     )
+}
+
+#[cfg(test)]
+mod computer_delegation_tests {
+    use super::*;
+
+    #[test]
+    fn defaults_to_confirm_and_honors_the_wire_name() {
+        let empty: UserSettings = serde_json::from_str("{}").expect("defaults");
+        assert_eq!(empty.computer_delegation, "confirm");
+
+        let off: UserSettings =
+            serde_json::from_str(r#"{"computerDelegation":"off"}"#).expect("parse");
+        assert_eq!(off.computer_delegation, "off");
+
+        let auto: UserSettings =
+            serde_json::from_str(r#"{"computerDelegation":"auto"}"#).expect("parse");
+        assert_eq!(auto.computer_delegation, "auto");
+    }
+
+    /// 配置写坏了不能把桌面控制放开：未知值一律回落到 confirm。
+    #[test]
+    fn unknown_value_falls_back_to_confirm() {
+        assert_eq!(
+            ComputerDelegation::from_settings("bogus"),
+            ComputerDelegation::Confirm
+        );
+        assert_eq!(ComputerDelegation::from_settings(""), ComputerDelegation::Confirm);
+        assert_eq!(
+            ComputerDelegation::from_settings("  AUTO "),
+            ComputerDelegation::Auto
+        );
+        assert_eq!(
+            ComputerDelegation::from_settings("OFF"),
+            ComputerDelegation::Off
+        );
+        assert_eq!(ComputerDelegation::Auto.as_str(), "auto");
+        assert_eq!(default_computer_delegation(), "confirm");
+    }
 }
 
 #[cfg(test)]
@@ -1811,6 +1895,7 @@ impl Default for ModelSettings {
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
             computer_auto_switch_monitor: default_computer_auto_switch_monitor(),
             computer_paste_restore_delay_ms: default_computer_paste_restore_delay_ms(),
+            computer_delegation: default_computer_delegation(),
             memory_enabled: default_memory_enabled(),
             user_profile_enabled: default_user_profile_enabled(),
             user_coding_rules: String::new(),
@@ -2222,6 +2307,8 @@ pub struct UserSettings {
     pub agent_task_board_history_trim: HashMap<String, bool>,
     #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     pub computer_human_like: bool,
+    #[serde(default = "default_computer_delegation", rename = "computerDelegation")]
+    pub computer_delegation: String,
     #[serde(
         default = "default_computer_show_monitor_picker",
         rename = "computerShowMonitorPicker"
@@ -2298,6 +2385,7 @@ impl Default for UserSettings {
             agent_skill_overrides: HashMap::new(),
             memory_enabled: default_memory_enabled(),
             computer_paste_restore_delay_ms: default_computer_paste_restore_delay_ms(),
+            computer_delegation: default_computer_delegation(),
             user_profile_enabled: default_user_profile_enabled(),
             user_coding_rules: String::new(),
             memory_char_limit: default_memory_char_limit(),
@@ -3142,6 +3230,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         agent_default_models: user.agent_default_models.clone(),
         agent_task_board_history_trim: user.agent_task_board_history_trim.clone(),
         computer_human_like: user.computer_human_like,
+        computer_delegation: user.computer_delegation.clone(),
         computer_show_monitor_picker: user.computer_show_monitor_picker,
         computer_auto_switch_monitor: user.computer_auto_switch_monitor,
         memory_enabled: user.memory_enabled,

@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import type { LaneQueueView, RunQueueSnapshot } from '../../../types/automation'
 import type { UiLocalePreference } from '../../../types/chat'
-import { ChevronRight, CircleHelp, Film, Languages, Monitor, Plus, Sparkles, Terminal, Volume2, Wrench, X } from 'lucide-vue-next'
+import { ChevronRight, CircleHelp, Film, Languages, Monitor, Plus, Sparkles, Terminal, Users, Volume2, Wrench, X } from 'lucide-vue-next'
 import { getDispatcherQueueSnapshot } from '../../../lib/api'
 import { playTaskCompleteSound, primeTaskCompleteAudio } from '../../../lib/taskCompleteSound'
 import { laneQueueLabel, shortId, triggerSourceLabel } from '../../../lib/dispatcherQueueLabels'
@@ -79,8 +79,20 @@ const {
   removeTerminalEnvRow,
   saveTerminalEnvRows,
   activeSection,
-  toolApprovalMode
+  toolApprovalMode,
+  computerDelegation
 } = props.form
+
+/** 桌面委派三档。默认「确认」，与后端 default_computer_delegation 一致。 */
+const COMPUTER_DELEGATION_OPTIONS = [
+  { value: 'off' as const, labelKey: 'settings.desktop.delegationOff', hintKey: 'settings.desktop.delegationOffHint' },
+  { value: 'confirm' as const, labelKey: 'settings.desktop.delegationConfirm', hintKey: 'settings.desktop.delegationConfirmHint' },
+  { value: 'auto' as const, labelKey: 'settings.desktop.delegationAuto', hintKey: 'settings.desktop.delegationAutoHint' }
+]
+const computerDelegationHint = computed(() =>
+  COMPUTER_DELEGATION_OPTIONS.find(o => o.value === computerDelegation.value)?.hintKey
+    ?? 'settings.desktop.delegationConfirmHint'
+)
 
 function restoreTimeoutSeconds(value: unknown): number {
   const n = Number(value)
@@ -363,6 +375,43 @@ async function onPlaySoundToggle(checked: boolean) {
       <div class="flex items-center gap-2 px-1 pt-2 pb-1">
         <h4 id="system-desktop-heading" class="text-[11px] font-semibold uppercase tracking-wider text-muted/80">{{ t('settings.desktop.heading') }}</h4>
         <div class="flex-1 h-px bg-border/60" />
+      </div>
+
+      <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-5">
+        <div>
+          <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+            <Users class="w-4 h-4 text-accent shrink-0" />{{ t('settings.desktop.delegation') }}
+          </h4>
+          <p class="mt-1 text-[11px] text-muted">{{ t('settings.desktop.delegationHint') }}</p>
+        </div>
+
+        <div class="border-t border-border pt-4">
+          <div class="flex items-start justify-between gap-4">
+            <div class="min-w-0">
+              <p class="text-[12px] font-medium text-foreground">{{ t('settings.desktop.delegationTier') }}</p>
+              <p class="mt-0.5 text-[11px] text-muted">{{ t(computerDelegationHint) }}</p>
+            </div>
+            <div class="inline-flex rounded-lg border border-border bg-card p-0.5 shrink-0">
+              <label
+                v-for="opt in COMPUTER_DELEGATION_OPTIONS"
+                :key="'delegation-' + opt.value"
+                class="h-7 px-2.5 rounded-md text-[11px] cursor-pointer transition-colors flex items-center"
+                :class="computerDelegation === opt.value
+                  ? 'bg-hover text-foreground'
+                  : 'text-muted hover:text-foreground'"
+              >
+                <input
+                  type="radio"
+                  class="sr-only"
+                  name="computer-delegation"
+                  :checked="computerDelegation === opt.value"
+                  @change="computerDelegation = opt.value"
+                />
+                {{ t(opt.labelKey) }}
+              </label>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-5">

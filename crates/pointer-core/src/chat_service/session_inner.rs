@@ -414,6 +414,7 @@ pub(super) async fn run_chat_inner(
         &[],
         &req.agent_skill_overrides,
         lead_worker_id.as_deref(),
+        crate::models::ComputerDelegation::from_settings(&settings.computer_delegation),
     );
     let mut agent_plan = agent_plan;
     // Headless / benchmark override (env-driven; inert unless a caller opts in).
@@ -442,6 +443,13 @@ pub(super) async fn run_chat_inner(
         if let Some(block) =
             delegatable_sub_agents_system_block(&state.agents, &agent_plan.allow_agents)
         {
+            agent_plan.system_prompts.push(block);
+        }
+        // Desktop delegation rules follow the same allow-list: `off` drops
+        // `computer` above and returns `None` here, so nothing mentions it.
+        if let Some(block) = crate::agents::computer_delegation_block(
+            crate::models::ComputerDelegation::from_settings(&settings.computer_delegation),
+        ) {
             agent_plan.system_prompts.push(block);
         }
     }

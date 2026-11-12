@@ -11,6 +11,7 @@ import {
 import type {
   AgentModelRef,
   AgentUiConfig,
+  ComputerDelegation,
   ComputerPipelineLlmSettings,
   PerformanceModeLlmConfig,
   DebugSessionSettings,
@@ -193,6 +194,7 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId),
     agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) },
     computerHumanLike: s.computerHumanLike === true,
+    computerDelegation: normalizeComputerDelegation(s.computerDelegation),
     computerAutoSwitchMonitor: s.computerAutoSwitchMonitor !== false,
     theme: (s.theme as ThemePreference) ?? 'system',
     agentUiOverrides: { ...(s.agentUiOverrides ?? {}) },
@@ -315,6 +317,11 @@ function normalizeAgentDefaultModels(
   return out
 }
 
+/** 三档取值只认 off/confirm/auto；未知值一律回落到默认档，避免放行。 */
+function normalizeComputerDelegation(raw: unknown): ComputerDelegation {
+  return raw === 'off' || raw === 'auto' ? raw : 'confirm'
+}
+
 export const useSettingsStore = defineStore('settings', () => {
   const userSettings = ref<UserSettings>({
     theme: 'system',
@@ -355,6 +362,7 @@ export const useSettingsStore = defineStore('settings', () => {
     agentDefaultModels: {},
     agentTaskBoardHistoryTrim: {},
     computerHumanLike: true,
+    computerDelegation: 'confirm',
     computerAutoSwitchMonitor: true,
     agentUiOverrides: {},
     mediaModelOverrides: {},
@@ -671,6 +679,9 @@ export const useSettingsStore = defineStore('settings', () => {
       ),
       toolApprovalMode: mergedIn.toolApprovalMode ?? user.toolApprovalMode ?? settings.value.toolApprovalMode,
       computerHumanLike: mergedIn.computerHumanLike ?? user.computerHumanLike ?? settings.value.computerHumanLike,
+      computerDelegation: normalizeComputerDelegation(
+        mergedIn.computerDelegation ?? user.computerDelegation ?? settings.value.computerDelegation
+      ),
       computerAutoSwitchMonitor:
         mergedIn.computerAutoSwitchMonitor
         ?? user.computerAutoSwitchMonitor

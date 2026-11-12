@@ -1,3 +1,4 @@
+use crate::models::ComputerDelegation;
 use crate::skills::SkillRegistry;
 use crate::storage;
 use crate::tools::ToolRegistry;
@@ -601,6 +602,58 @@ pub fn normalize_allow_agents(raw: &[String]) -> Vec<String> {
     out
 }
 
+/// Drop `computer` from a declared allow-list when desktop delegation is off.
+///
+/// Order is preserved: `validate_run_subagent_target` binary-searches the list,
+/// so this must never reorder or dedupe — only remove.
+pub fn effective_allow_agents(
+    declared: &[String],
+    mode: ComputerDelegation,
+) -> Vec<String> {
+    if mode == ComputerDelegation::Off {
+        declared
+            .iter()
+            .filter(|id| id.as_str() != "computer")
+            .cloned()
+            .collect()
+    } else {
+        declared.to_vec()
+    }
+}
+
+/// Desktop-delegation rules, shared verbatim by every lead that can reach `computer`.
+///
+/// The text lives in `computer_delegation/*.md` — prompts belong in markdown, not
+/// in Rust literals. Only the consent paragraph differs per tier; the "when to
+/// delegate" rules are identical, so a tier switch can never silently widen
+/// *what* gets delegated.
+///
+/// - `shared-head.md` — when to delegate, browser-skill-first, manual-step offer
+/// - `consent-confirm.md` / `consent-auto.md` — the one paragraph that differs
+/// - `shared-tail.md` — dispatch after the decision, fallback on decline
+const COMPUTER_DELEGATION_HEAD: &str = include_str!("computer_delegation/shared-head.md");
+const COMPUTER_DELEGATION_TAIL: &str = include_str!("computer_delegation/shared-tail.md");
+const COMPUTER_CONSENT_CONFIRM: &str = include_str!("computer_delegation/consent-confirm.md");
+const COMPUTER_CONSENT_AUTO: &str = include_str!("computer_delegation/consent-auto.md");
+
+/// Desktop-delegation block for the current tier.
+///
+/// `Off` returns `None`: nothing is injected, and `effective_allow_agents` has
+/// already removed `computer` from the list — the model never learns it exists.
+pub fn computer_delegation_block(mode: ComputerDelegation) -> Option<String> {
+    let consent = match mode {
+        ComputerDelegation::Off => return None,
+        ComputerDelegation::Confirm => COMPUTER_CONSENT_CONFIRM,
+        ComputerDelegation::Auto => COMPUTER_CONSENT_AUTO,
+    };
+    Some(format!(
+        "{}\n\n{}\n\n{}",
+        COMPUTER_DELEGATION_HEAD.trim_end(),
+        consent.trim_end(),
+        COMPUTER_DELEGATION_TAIL.trim_end()
+    ))
+}
+
 /// Optional system block: worker metadata for lead manifest `allowAgents` (used with `run_subagent`).
 pub fn delegatable_sub_agents_system_block(
     registry: &AgentRegistry,
@@ -649,6 +702,7 @@ impl AgentOrchestrator {
         enabled_skill_ids: &[String],
         agent_skill_overrides: &HashMap<String, Vec<String>>,
         lead_worker_id: Option<&str>,
+        computer_delegation: ComputerDelegation,
     ) -> AgentPlan {
         let default_agent = agents.get(DEFAULT_LEAD_AGENT_ID).or_else(|| {
             agents.get(DEFAULT_AGENT_ID).or_else(|| {
@@ -692,7 +746,10 @@ impl AgentOrchestrator {
             resolved_skill_ids: session_skill_ids,
             resolved_skill_prompts: skill_prompts,
             allowed_tool_names,
-            allow_agents: normalize_allow_agents(&agent.allow_agents),
+            allow_agents: normalize_allow_agents(&effective_allow_agents(
+                &agent.allow_agents,
+                computer_delegation,
+            )),
             prompt_profile: PromptProfile::Default,
         }
     }
@@ -1324,6 +1381,7 @@ mod builtin_agent_tests {
             &[],
             &overrides,
             Some("general"),
+            ComputerDelegation::Confirm,
         );
 
         assert!(plan
@@ -2018,6 +2076,171 @@ mod builtin_agent_tests {
         }
     }
 
+
+
+
+    /// off 档拼出来的 lead 提示词里不允许出现 computer——用户看不到这个能力。
+    ///
+    /// 这里按 `session_inner` 的真实拼装顺序复现：角色提示词 → 可委派元数据块 →
+    /// 桌面委派规则块。
+    #[test]
+    fn off_tier_injects_no_computer_text() {
+        fn lead_prompts(lead: &str, mode: ComputerDelegation) -> String {
+            let agents = AgentRegistry::new();
+            register_builtin_agents(&agents);
+            let skills = SkillRegistry::new();
+            let tools = ToolRegistry::new();
+            let store = std::sync::Arc::new(crate::task_board::TaskBoardStore::new());
+            crate::tools::builtin::register_all(&tools, store);
+            let plan = AgentOrchestrator::build_plan(
+                &agents,
+                &skills,
+                &tools,
+                &[],
+                &HashMap::new(),
+                Some(lead),
+                mode,
+            );
+            let mut out = plan.system_prompts.join("\n");
+            if let Some(block) = delegatable_sub_agents_system_block(&agents, &plan.allow_agents) {
+                out.push_str("\n\n");
+                out.push_str(&block);
+            }
+            if let Some(block) = computer_delegation_block(mode) {
+                out.push_str("\n\n");
+                out.push_str(&block);
+            }
+            out
+        }
+
+        for lead in ["general", "coder"] {
+            let off = lead_prompts(lead, ComputerDelegation::Off).to_lowercase();
+            assert!(
+                !off.contains("computer"),
+                "{lead} 的 off 档提示词仍提到 computer"
+            );
+
+            let confirm = lead_prompts(lead, ComputerDelegation::Confirm);
+            assert!(
+                confirm.contains("### Desktop work: `computer`"),
+                "{lead} 的 confirm 档应注入桌面委派规则"
+            );
+        }
+    }
+    /// 三档注入：off 什么都没有，confirm/auto 共用同一套判定规则。
+    #[test]
+    fn computer_delegation_block_matches_tier() {
+        // 提示词按列宽换行，断言前把空白压平，否则跨行的短语匹配不到。
+        fn flat(text: &str) -> String {
+            text.split_whitespace().collect::<Vec<_>>().join(" ")
+        }
+
+        assert!(
+            computer_delegation_block(ComputerDelegation::Off).is_none(),
+            "off 档不注入任何内容"
+        );
+
+        let confirm = computer_delegation_block(ComputerDelegation::Confirm).expect("confirm");
+        let auto = computer_delegation_block(ComputerDelegation::Auto).expect("auto");
+        let (confirm_flat, auto_flat) = (flat(&confirm), flat(&auto));
+
+        // 判定规则逐字相同
+        // md 文件末尾有换行，拼装时会 trim，断言也用 trim 后的片段。
+        let head = COMPUTER_DELEGATION_HEAD.trim();
+        let tail = COMPUTER_DELEGATION_TAIL.trim();
+        assert!(confirm.starts_with(head));
+        assert!(auto.starts_with(head));
+        assert!(confirm.ends_with(tail));
+        assert!(auto.ends_with(tail));
+        assert!(
+            confirm_flat.contains(
+                "unless they already declined or asked for instructions only"
+            ),
+            "手动步骤的豁免条件不能丢"
+        );
+        assert!(
+            auto_flat.contains("unless they already declined or asked for instructions only"),
+            "auto 档同样保留豁免条件"
+        );
+
+        // 差异只在确认
+        assert!(confirm_flat.contains("Consent for **this** task must use **`ask_user`**"));
+        assert!(!auto_flat.contains("Consent for **this** task must use"));
+        assert!(auto_flat.contains("**No confirmation needed**"));
+        assert!(!auto_flat.contains("Ask before delegating"));
+
+        // 去掉确认段后，两档逐字相同
+        assert_eq!(
+            confirm.replace(COMPUTER_CONSENT_CONFIRM.trim(), ""),
+            auto.replace(COMPUTER_CONSENT_AUTO.trim(), "")
+        );
+    }
+
+    #[test]
+    fn effective_allow_agents_drops_computer_only_when_off() {
+        let declared = vec![
+            "coder".to_string(),
+            "computer".to_string(),
+            "explore".to_string(),
+        ];
+        assert_eq!(
+            effective_allow_agents(&declared, ComputerDelegation::Off),
+            vec!["coder".to_string(), "explore".to_string()]
+        );
+        assert_eq!(
+            effective_allow_agents(&declared, ComputerDelegation::Confirm),
+            declared
+        );
+        assert_eq!(
+            effective_allow_agents(&declared, ComputerDelegation::Auto),
+            declared
+        );
+    }
+
+    /// `off` 档下 general / coder 的计划里都不能再有 computer，且列表仍有序。
+    #[test]
+    fn build_plan_drops_computer_when_delegation_is_off() {
+        let agents = AgentRegistry::new();
+        register_builtin_agents(&agents);
+        let skills = SkillRegistry::new();
+        let tools = ToolRegistry::new();
+        let store = std::sync::Arc::new(crate::task_board::TaskBoardStore::new());
+        crate::tools::builtin::register_all(&tools, store);
+
+        for lead in ["general", "coder"] {
+            let on = AgentOrchestrator::build_plan(
+                &agents,
+                &skills,
+                &tools,
+                &[],
+                &HashMap::new(),
+                Some(lead),
+                ComputerDelegation::Confirm,
+            );
+            assert!(
+                on.allow_agents.iter().any(|id| id == "computer"),
+                "{lead} 在 confirm 档应能派 computer"
+            );
+
+            let off = AgentOrchestrator::build_plan(
+                &agents,
+                &skills,
+                &tools,
+                &[],
+                &HashMap::new(),
+                Some(lead),
+                ComputerDelegation::Off,
+            );
+            assert!(
+                !off.allow_agents.iter().any(|id| id == "computer"),
+                "{lead} 在 off 档不应有 computer"
+            );
+            assert!(
+                off.allow_agents.windows(2).all(|w| w[0] <= w[1]),
+                "过滤后必须保持有序：validate 用二分查找"
+            );
+        }
+    }
     #[test]
     fn computer_builtin_stays_a_leaf() {
         let raw = include_str!("computer/AGENT.md");

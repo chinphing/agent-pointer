@@ -254,15 +254,10 @@ Unverified assumptions (optional).
   it cannot ask the user (no clarify) — the brief must be self-contained.
 - Parallel rules: see **Parallel wave** above.
 
-**`computer` (general lead only)**
+**`computer` targets**
 
-- **User consent required** before **every** **`run_subagent(computer)`** call.
-- **Offer first** — ask whether to operate the user's machine for **this** task.
-- **Prior consent does not carry forward.** A yes for an earlier task, an earlier
-  turn, or a prior session does **not** authorize a new delegation.
-- **Only skip the separate ask** when the user's **current message** explicitly
-  authorizes hands-on desktop work for **this same task** (not a vague follow-up
-  like "continue", "do it", or "same as before").
+- Consent policy lives in the lead's role prompt (it follows the user's
+  `computerDelegation` setting); this doc only covers the call shape.
 - Optional **`computerTarget`** — `self` for Pointer UI, `external` for other apps (default inferred from task).
 - **List files:** put the file **`localPath`** or **`pointer-media://…`** ref in **`context`** (**Facts**) — the worker expands targets into **`wi_*`** rows in **`global_milestones`** on **`task_board_init`**.
 

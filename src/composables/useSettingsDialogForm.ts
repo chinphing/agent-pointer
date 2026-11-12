@@ -18,6 +18,7 @@ import {
 import type {
   AgentDef,
   AgentUiConfig,
+  ComputerDelegation,
   ComputerPipelineLlmSettings,
   TierPipelineLlm,
   PerformanceModeLlmConfig,
@@ -507,6 +508,7 @@ function createSettingsDialogForm(deps: {
   const terminalEnvRows = ref<Array<{ id: string; key: string; value: string }>>([])
   const taskBoardShowChildBoards = ref(false)
   const computerHumanLike = ref(false)
+  const computerDelegation = ref<ComputerDelegation>('confirm')
   const computerAutoSwitchMonitor = ref(true)
   const computerAutoCompact = ref(false)
   const collapseProcessByDefault = ref(false)
@@ -713,6 +715,7 @@ function createSettingsDialogForm(deps: {
   }))
   taskBoardShowChildBoards.value = s.settings.taskBoardShowChildBoards === true
   computerHumanLike.value = s.settings.computerHumanLike === true
+  computerDelegation.value = s.settings.computerDelegation ?? 'confirm'
   computerAutoSwitchMonitor.value = s.settings.computerAutoSwitchMonitor !== false
   computerAutoCompact.value = s.userSettings.computerAutoCompact === true
   collapseProcessByDefault.value = s.userSettings.collapseProcessByDefault === true
@@ -1010,6 +1013,7 @@ function createSettingsDialogForm(deps: {
     userCodingRules: userCodingRules.value.trim(),
     toolApprovalMode: toolApprovalMode.value,
     computerHumanLike: computerHumanLike.value,
+    computerDelegation: computerDelegation.value,
     computerAutoSwitchMonitor: computerAutoSwitchMonitor.value,
     parallelToolExecutionEnabled: parallelToolExecutionEnabled.value,
     maxParallelToolCalls: parallelToolExecutionEnabled.value
@@ -1065,6 +1069,7 @@ function createSettingsDialogForm(deps: {
     s.settings.toolApprovalMode = payload.toolApprovalMode
     s.settings.agentPerformanceModes = { ...payload.agentPerformanceModes }
     s.settings.computerHumanLike = payload.computerHumanLike
+    s.settings.computerDelegation = payload.computerDelegation
     s.settings.computerAutoSwitchMonitor = payload.computerAutoSwitchMonitor
     s.settings.fileReadMaxBytes = payload.fileReadMaxBytes
     s.settings.fileLineMaxBytes = payload.fileLineMaxBytes
@@ -1092,6 +1097,7 @@ function createSettingsDialogForm(deps: {
     s.userSettings.toolApprovalMode = payload.toolApprovalMode
     s.userSettings.agentPerformanceModes = { ...payload.agentPerformanceModes }
     s.userSettings.computerHumanLike = payload.computerHumanLike
+    s.userSettings.computerDelegation = payload.computerDelegation
     s.userSettings.computerAutoSwitchMonitor = payload.computerAutoSwitchMonitor
     s.userSettings.fileReadMaxBytes = payload.fileReadMaxBytes
     s.userSettings.fileLineMaxBytes = payload.fileLineMaxBytes
@@ -1204,6 +1210,7 @@ function createSettingsDialogForm(deps: {
       parallelToolExecutionEnabled,
       maxConcurrentRuns,
       computerHumanLike,
+      computerDelegation,
       computerAutoSwitchMonitor,
       computerAutoCompact,
       collapseProcessByDefault,
@@ -1274,6 +1281,7 @@ function createSettingsDialogForm(deps: {
     saveTerminalEnvRows,
     taskBoardShowChildBoards,
     computerHumanLike,
+    computerDelegation,
     computerAutoSwitchMonitor,
     computerAutoCompact,
     collapseProcessByDefault,

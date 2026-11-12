@@ -488,6 +488,11 @@ struct StoredSettings {
     agent_task_board_history_trim: HashMap<String, bool>,
     #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     computer_human_like: bool,
+    #[serde(
+        default = "default_computer_delegation",
+        rename = "computerDelegation"
+    )]
+    computer_delegation: String,
     #[serde(default = "default_theme")]
     theme: String,
     #[serde(default, rename = "agentUiOverrides")]
@@ -543,6 +548,10 @@ fn default_theme() -> String {
 
 fn default_computer_human_like() -> bool {
     true
+}
+
+fn default_computer_delegation() -> String {
+    crate::models::default_computer_delegation()
 }
 
 fn default_debug_dump_llm_prompts() -> bool {
@@ -911,6 +920,7 @@ fn stored_settings_to_user(stored: &StoredSettings) -> UserSettings {
         agent_default_models: normalize_disk_agent_defaults(&stored.agent_default_models, &active),
         agent_task_board_history_trim: stored.agent_task_board_history_trim.clone(),
         computer_human_like: stored.computer_human_like,
+        computer_delegation: stored.computer_delegation.clone(),
         theme: stored.theme.clone(),
         agent_ui_overrides: stored.agent_ui_overrides.clone(),
         ..UserSettings::default()
@@ -1055,6 +1065,7 @@ impl Default for StoredSettings {
                 .collect(),
             agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
             computer_human_like: s.computer_human_like,
+            computer_delegation: s.computer_delegation.clone(),
             theme: s.theme.clone(),
             agent_ui_overrides: s.agent_ui_overrides.clone(),
             legacy_reasoning_in_messages: None,

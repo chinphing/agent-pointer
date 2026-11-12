@@ -657,6 +657,9 @@ export interface AgentModelRef {
   model: string
 }
 
+/** How eagerly leads may delegate to the `computer` (desktop) agent. */
+export type ComputerDelegation = 'off' | 'confirm' | 'auto'
+
 export interface UserSettings {
   theme?: ThemePreference
   /** UI language preference; default `system`. */
@@ -727,6 +730,8 @@ export interface UserSettings {
   agentDefaultModels?: Record<string, AgentModelRef>
   agentTaskBoardHistoryTrim?: Record<string, boolean>
   computerHumanLike?: boolean
+  /** off | confirm (default) | auto — global desktop delegation tier */
+  computerDelegation?: ComputerDelegation
   computerAutoSwitchMonitor?: boolean
   agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
   webSearchModel?: string
@@ -946,6 +951,8 @@ export interface ModelSettings {
   agentTaskBoardHistoryTrim?: Record<string, boolean>
   /** Computer agent: default human-like mouse movement (Bézier path + jitter) */
   computerHumanLike?: boolean
+  /** off | confirm (default) | auto — global desktop delegation tier */
+  computerDelegation?: ComputerDelegation
   /** Computer agent: starting tier for new conversations */
   /** Auto-select primary monitor and follow launch_app window */
   computerAutoSwitchMonitor?: boolean

@@ -705,6 +705,38 @@ mod tests {
         assert_eq!(blank.explicit_workspace_root(), None);
     }
 
+
+    /// off 档下 computer 不在有效列表里，工具层必须直接拒绝。
+    #[test]
+    fn off_tier_rejects_computer() {
+        let registry = crate::agents::AgentRegistry::new();
+        crate::agents::register_builtin_agents(&registry);
+        let declared = vec![
+            "coder".to_string(),
+            "computer".to_string(),
+            "explore".to_string(),
+        ];
+
+        let off = crate::agents::effective_allow_agents(
+            &declared,
+            crate::models::ComputerDelegation::Off,
+        );
+        let err = validate_run_subagent_target(&registry, &off, "general", "computer")
+            .expect_err("off 档必须拒绝 computer");
+        assert!(
+            err.contains("not listed in the current agent allowAgents"),
+            "报错要指向 allowAgents：{err}"
+        );
+
+        let confirm = crate::agents::effective_allow_agents(
+            &declared,
+            crate::models::ComputerDelegation::Confirm,
+        );
+        assert!(
+            validate_run_subagent_target(&registry, &confirm, "general", "computer").is_ok(),
+            "confirm 档应放行"
+        );
+    }
     #[test]
     fn validate_coder_requires_workspace_root() {
         let parsed = parse_run_subagent_args(&json!({

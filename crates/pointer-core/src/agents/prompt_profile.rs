@@ -163,6 +163,7 @@ mod tests {
             &[],
             &std::collections::HashMap::new(),
             Some("coder"),
+            crate::models::ComputerDelegation::Confirm,
         )
     }
 

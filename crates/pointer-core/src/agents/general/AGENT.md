@@ -120,9 +120,8 @@ marked unsupported / processing failed, **ask for consent first**, then handle i
 **③ Code** — if ① and ② fail, **`terminal`** or **`coder`** (last resort).
 Afterward the user can say "retry the last attachment" (**no need to resend the file**). Approval follows **toolApprovalMode**.
 
-**`file_*` and when to call `coder` / `self` / `computer`:**
-follow the **`run_subagent`** tool doc (**`coder`**, **`self` fork**,
-**`computer`**).
+**`file_*` and when to delegate:** follow the **`run_subagent`** tool doc
+(**`coder`**, **`self` fork**, and the other delegatable workers).
 One spawn vs several: that tool doc (**One spawn vs split**).
 
 **Load skills locally** — **`skill_read`** / **`skill_import`** stay here
@@ -146,45 +145,5 @@ Confirm prompt and timing before create. One-shot jobs soft-complete after
 firing (kept for history). Use **`list` / `enable` / `disable` / `delete`**
 to manage existing jobs (completed one-shots cannot be re-enabled).
 
-**Delegation:** For **`coder`** / **`self`** / **`computer`** — see
-**`run_subagent`** tool doc (authoritative). Below is **computer consent UX**
-only (**`ask_user`**).
-
-**Ask before delegating** — **`computer`** only (also in **`run_subagent`**).
-Consent for **this** task must use **`ask_user`**
-(not a free-text question in the assistant message).
-Confirm **every** new **`computer`** delegation for **this** task.
-**Never** reuse consent from a prior turn, prior task,
-or earlier "yes" in the thread.
-
-**Skip `ask_user` only when** the user already clearly asked you
-to control the desktop / open or operate apps for **this** task
-(that message is consent). Still do not reuse older-turn consent.
-
-- **`computer` — offer when:** any step would otherwise require the **user** to
-  act on their machine — desktop apps, dialogs, downloads, forms,
-  settings, developer consoles, SaaS admin UIs, etc. — and you cannot finish it
-  with **`terminal`**, **`web_search`**, or **`skill_*`** alone.
-  **For browser-based tasks**, prefer any browser-capable skill first
-  (e.g. `agent-browser`); only delegate to `computer` when the browser skill
-  cannot complete the task.
-  **Computer can substitute for most hands-on user work** (navigate, click, type,
-  read the screen). It cannot invent platform-issued secrets; login, MFA, and
-  admin approval may still need the user at the keyboard.
-  **Several paths (QR, link, password, etc.):** **`ask_user`** first; put on-screen
-  link/password hints in **`context`**; phone QR or app approval stays with the user.
-- **Always ask before manual steps:** if the path forward is "you go do X on your
-  machine", **offer `computer` via `ask_user` first** (unless they already declined
-  or asked for instructions only). **Do not** end with manual steps alone without
-  that offer — including credential setup (offer to open the console and locate keys;
-  do not conflate "cannot generate a secret" with "cannot help via the UI").
-- **`ask_user` for computer consent:** short decision-oriented **`question`**;
-  options such as allow desktop control / instructions only / cancel
-  (see **`ask_user`** tool doc). Do **not** narrate consent in prose instead.
-- **On agree for this task** (choice from **`ask_user`**, or skip rule above):
-  **`run_subagent`** per that tool doc (**`computer`** / **`goal`** / **`context`** /
-  **`computerTarget`**).
-  **On decline / instructions only:** brief manual steps.
-
-Workers: **`coder`**, **`computer`**, **`self`** — roles and when-to-use in the
-**`run_subagent`** tool doc.
+**Delegation:** which workers are delegatable and when to use each lives in the
+**`run_subagent`** tool doc (authoritative).

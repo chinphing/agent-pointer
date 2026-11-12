@@ -229,7 +229,12 @@ pub(super) fn init_sub_agent_session(
                 );
                 let (skill_prompts, session_tools) = state.skills.progressive_context(&skill_ids);
                 let allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
-                let allow_agents = normalize_allow_agents(&def.allow_agents);
+                let allow_agents = normalize_allow_agents(&crate::agents::effective_allow_agents(
+                    &def.allow_agents,
+                    crate::models::ComputerDelegation::from_settings(
+                        &provider.settings.computer_delegation,
+                    ),
+                ));
                 (
                     def,
                     agent.system_prompt(),
@@ -302,6 +307,13 @@ pub(super) fn init_sub_agent_session(
     ));
     if spawn_capability == SubAgentSpawnCapability::Registered {
         if let Some(block) = delegatable_sub_agents_system_block(&state.agents, &allow_agents) {
+            session_extras.push(block);
+        }
+        if let Some(block) = crate::agents::computer_delegation_block(
+            crate::models::ComputerDelegation::from_settings(
+                &provider.settings.computer_delegation,
+            ),
+        ) {
             session_extras.push(block);
         }
     }

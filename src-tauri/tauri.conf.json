@@ -68,6 +68,10 @@
     },
     "windows": {
       "digestAlgorithm": "sha256",
+      "webviewInstallMode": {
+        "type": "embedBootstrapper",
+        "silent": false
+      },
       "wix": {
         "language": "zh-CN"
       }

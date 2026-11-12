@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import { toolCallBaseName } from './messageTooling'
 import type { AgentTrace, SubAgentToolStats } from '../types/chat'
 
@@ -157,71 +158,59 @@ export function incrementSubAgentToolStats(
 }
 
 export function subAgentStatusLabel(status: string): string {
-  if (status === 'completed') return '已完成'
-  if (status === 'failed') return '失败'
-  if (status === 'running') return '进行中'
+  if (status === 'completed') return t('tools.subAgentCompleted')
+  if (status === 'failed') return t('tools.subAgentFailed')
+  if (status === 'running') return t('tools.subAgentRunning')
   return status
 }
 
 function statSeg(label: string, count: number | undefined): string | null {
   const n = count ?? 0
-  return n > 0 ? `${label} ${n} 次` : null
+  return n > 0 ? t('tools.statSeg', { label, count: n }) : null
 }
 
 function joinStatSegments(parts: Array<string | null>): string {
   const visible = parts.filter((p): p is string => !!p)
-  return visible.length > 0 ? visible.join(' · ') : '工具 0 次'
+  return visible.length > 0 ? visible.join(' · ') : t('tools.statEmpty')
 }
 
-function formatStatsForAgent(agentId: string, stats: SubAgentToolStats): string {
-  const id = agentId.trim().toLowerCase()
-  if (id === 'computer') {
-    return joinStatSegments([
-      statSeg('鼠标', stats.mouseCount),
-      statSeg('输入', stats.inputCount),
-      statSeg('后台任务', stats.jobCount),
-      statSeg('委派', stats.delegateCount),
-      statSeg('其他', stats.otherCount)
-    ])
-  }
-  if (id === 'coder') {
-    return joinStatSegments([
-      statSeg('搜索', stats.searchCount),
-      statSeg('读文件', stats.readCount),
-      statSeg('终端', stats.terminalCount),
-      statSeg('编辑', stats.writeCount),
-      statSeg('后台任务', stats.jobCount),
-      statSeg('委派', stats.delegateCount),
-      statSeg('其他', stats.otherCount)
-    ])
-  }
-  if (id === 'general-worker' || id === 'general_worker') {
-    return joinStatSegments([
-      statSeg('终端', stats.terminalCount),
-      statSeg('技能', stats.skillCount),
-      statSeg('媒体', stats.mediaCount),
-      statSeg('搜索', stats.webSearchCount),
-      statSeg('读文件', stats.readCount),
-      statSeg('编辑', stats.writeCount),
-      statSeg('后台任务', stats.jobCount),
-      statSeg('委派', stats.delegateCount),
-      statSeg('其他', stats.otherCount)
-    ])
-  }
-  // explore, self-fork (`current-agent`), and other file-heavy workers
-  return joinStatSegments([
-    statSeg('搜索', stats.searchCount),
-    statSeg('读文件', stats.readCount),
-    statSeg('终端', stats.terminalCount),
-    statSeg('编辑', stats.writeCount),
-    statSeg('后台任务', stats.jobCount),
-    statSeg('委派', stats.delegateCount),
-    statSeg('其他', stats.otherCount)
-  ])
+type CounterKey = keyof SubAgentToolStats
+
+/**
+ * 统计口径对所有智能体一致：每个计数器登记一次标签，按固定顺序输出。
+ *
+ * 以前是每个 agent 一份白名单（computer / coder / general-worker / explore 各挑几个桶）。
+ * computer 那份漏了终端等 7 个桶，于是「其他 2 次」旁边列着 5 条工具。改成一张表后：
+ * 同一个词只对应一个计数器（「检索」= 文件检索，「联网」= web_search），也不会再漏。
+ *
+ * 新增计数器时忘了登记，`subAgentStats.test.ts` 的覆盖断言会红。
+ */
+export const SUB_AGENT_STAT_BUCKETS = [
+  ['mouseCount', 'tools.statMouse'],
+  ['inputCount', 'tools.statInput'],
+  ['terminalCount', 'tools.statTerminal'],
+  ['searchCount', 'tools.statSearch'],
+  ['readCount', 'tools.statRead'],
+  ['writeCount', 'tools.statEdit'],
+  ['webSearchCount', 'tools.statWeb'],
+  ['skillCount', 'tools.statSkill'],
+  ['mediaCount', 'tools.statMedia'],
+  ['jobCount', 'tools.statJob'],
+  ['delegateCount', 'tools.statDelegate'],
+  ['otherCount', 'tools.statOther']
+] as const satisfies ReadonlyArray<readonly [CounterKey, string]>
+
+/** 行内数字之和 == 工具调用数：这张表覆盖 `SubAgentToolStats` 的每个计数器。 */
+function formatStats(stats: SubAgentToolStats): string {
+  return joinStatSegments(
+    SUB_AGENT_STAT_BUCKETS.map(([key, labelKey]) => statSeg(t(labelKey), stats[key] ?? 0))
+  )
 }
 
 /** Collapsed process row when scoped stats are not hydrated yet. */
-export const SUB_AGENT_PROCESS_PLACEHOLDER = '过程'
+export function subAgentProcessPlaceholder(): string {
+  return t('tools.subAgentProcess')
+}
 
 /**
  * Stats line under the host row. While the spawn is running and a live /
@@ -236,16 +225,12 @@ export function resolveSubAgentSummaryDisplay(input: {
   const stats = input.statsSummary.trim()
   if (stats) return stats
   if (input.running && (input.liveLine ?? '').trim()) return ''
-  return SUB_AGENT_PROCESS_PLACEHOLDER
+  return subAgentProcessPlaceholder()
 }
 
 /** Counts only — host「委派子任务」row already shows the goal. */
-export function formatSubAgentStatsLine(
-  status: string,
-  stats: SubAgentToolStats,
-  agentId?: string
-): string {
-  const metrics = formatStatsForAgent(agentId ?? 'explore', stats)
+export function formatSubAgentStatsLine(status: string, stats: SubAgentToolStats): string {
+  const metrics = formatStats(stats)
   if (status === 'failed') {
     return `${metrics} · ${subAgentStatusLabel(status)}`
   }
@@ -255,11 +240,10 @@ export function formatSubAgentStatsLine(
 export function formatSubAgentSummaryLine(
   name: string,
   status: string,
-  stats: SubAgentToolStats,
-  agentId?: string
+  stats: SubAgentToolStats
 ): string {
-  const label = name.trim() || '子任务'
-  return `${label} · ${formatSubAgentStatsLine(status, stats, agentId)}`
+  const label = name.trim() || t('tools.subAgentFallbackName')
+  return `${label} · ${formatSubAgentStatsLine(status, stats)}`
 }
 
 export type CollapsedSubAgentView = {
@@ -276,15 +260,12 @@ export function resolveCollapsedSubAgentView(input: {
   orphanTitle?: string
   status: string
   stats: SubAgentToolStats
-  agentId?: string
   liveToolLine?: string | null
   thinkingLine?: string | null
 }): CollapsedSubAgentView {
-  const metrics = formatStatsForAgent(input.agentId ?? 'explore', input.stats)
-  const hasStats = input.status === 'failed' || metrics !== '工具 0 次'
-  let statsLine = hasStats
-    ? formatSubAgentStatsLine(input.status, input.stats, input.agentId)
-    : ''
+  const metrics = formatStats(input.stats)
+  const hasStats = input.status === 'failed' || metrics !== t('tools.statEmpty')
+  const statsLine = hasStats ? formatSubAgentStatsLine(input.status, input.stats) : ''
   const orphan = input.orphanTitle?.trim() || ''
   const summaryLine = orphan
     ? (statsLine ? `${orphan} · ${statsLine}` : orphan)

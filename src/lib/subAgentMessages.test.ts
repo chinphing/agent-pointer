@@ -578,7 +578,7 @@ describe('rehydrateAgentTracesFromScopedMessages', () => {
       }
     ]
     const stats = computeSubAgentStatsFromMessages(messages)
-    const line = formatSubAgentSummaryLine('电脑操控', 'completed', stats, 'computer')
+    const line = formatSubAgentSummaryLine('电脑操控', 'completed', stats)
     expect(line).toContain('其他 1 次')
     expect(line).not.toContain('工具 0 次')
   })
@@ -606,7 +606,7 @@ describe('rehydrateAgentTracesFromScopedMessages', () => {
       }
     ]
     const stats = computeSubAgentStatsFromMessages(messages)
-    const line = formatSubAgentSummaryLine('测试子代理', 'completed', stats, 'general')
+    const line = formatSubAgentSummaryLine('测试子代理', 'completed', stats)
     expect(line).toContain('其他 1 次')
     expect(line).not.toContain('工具 0 次')
   })

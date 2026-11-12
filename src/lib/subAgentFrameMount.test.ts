@@ -129,7 +129,7 @@ describe('subAgentFrameMount', () => {
       }
     })
     persistTerminalTraceSummaryLine(t, { scopedTraceMessages: [] })
-    expect(t.summaryLine).toContain('搜索 2 次')
+    expect(t.summaryLine).toContain('检索 2 次')
     expect(t.summaryLine).toContain('读文件 3 次')
   })
 })

@@ -25,7 +25,7 @@ import {
 } from '../../../../lib/subAgentFrameMount'
 import { isPendingApprovalToolCall } from '../../../../lib/messageTooling'
 import { isSubAgentTraceTerminal, subTraceUiSignal, toggleSubTraceExpanded } from '../../../../lib/subAgentSession'
-import { SUB_AGENT_PROCESS_PLACEHOLDER } from '../../../../lib/subAgentStats'
+import { subAgentProcessPlaceholder } from '../../../../lib/subAgentStats'
 import { traceSubtreeContainsSearchTarget } from '../../../../lib/subAgentSearch'
 import SubAgentFrame, { type SubAgentTaskBoardBinding } from './SubAgentFrame.vue'
 import SubAgentFrameStub from './SubAgentFrameStub.vue'
@@ -155,7 +155,7 @@ const stubView = computed(() =>
 )
 
 const stubSummaryLine = computed(
-  () => stubView.value.summaryLine.trim() || SUB_AGENT_PROCESS_PLACEHOLDER
+  () => stubView.value.summaryLine.trim() || subAgentProcessPlaceholder()
 )
 
 function onStubToggle() {

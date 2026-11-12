@@ -439,7 +439,6 @@ const collapsedView = computed(() => {
     orphanTitle: props.hostTool ? '' : (goalLabel.value || traceLabel.value),
     status: props.trace.status,
     stats,
-    agentId: resolveTraceAgentId(props.trace),
     liveToolLine: live,
     thinkingLine: thinking
   })

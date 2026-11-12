@@ -1,5 +1,6 @@
 import type { AgentMessageBodyModel } from '../components/chat/message/assistant/AgentMessageBody.vue'
 import type { AgentTrace, ChatMessage, Conversation, SubAgentToolStats, ToolCall } from '../types/chat'
+import { t } from '../i18n'
 import { parseAskUserArgs } from './askUser'
 import { toolCallBaseName } from './messageTooling'
 import { toolCallArguments } from './toolCallArguments'
@@ -598,7 +599,7 @@ export function rehydrateAgentTracesFromScopedMessages(
         .pop()
       lead.agentTrace.push({
         id: agentInstanceId || traceId,
-        name: first?.agentName?.trim() || agentId || '子任务',
+        name: first?.agentName?.trim() || agentId || t('tools.subAgentFallbackName'),
         role: '',
         status,
         depth: first?.spawnDepth ?? 1,

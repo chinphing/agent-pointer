@@ -72,8 +72,7 @@ export function buildTerminalSubAgentStubView(input: {
   return resolveCollapsedSubAgentView({
     orphanTitle: orphan,
     status: input.trace.status,
-    stats,
-    agentId: resolveTraceAgentId(input.trace)
+    stats
   })
 }
 
@@ -128,8 +127,7 @@ function computeTraceSummaryLine(
   return resolveCollapsedSubAgentView({
     orphanTitle: orphan,
     status: trace.status,
-    stats,
-    agentId: resolveTraceAgentId(trace)
+    stats
   }).summaryLine.trim()
 }
 

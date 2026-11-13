@@ -1,0 +1,83 @@
+# Windows 7 client build (experimental).
+#
+# Why this exists:
+# The regular release builds target `x86_64-pc-windows-msvc`. Since Rust 1.78
+# that target's std links Windows 8+ futex APIs
+# (`api-ms-win-core-synch-l1-2-0.dll`), so the produced binary cannot start on
+# Windows 7 — it fails with a missing-DLL error, and once the DLL is forced in
+# it crashes with 0xc0000005 (access violation).
+#
+# This workflow builds the same client against the Rust
+# `x86_64-win7-windows-msvc` target (Tier 3), whose std uses Windows 7 era
+# synchronisation primitives. Std is compiled from source via `-Z build-std`.
+#
+# Windows only: the Win7 target exists solely for Windows, so no macOS/Linux
+# jobs here.
+name: Win7 Client
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/win7-build
+
+permissions:
+  contents: read
+
+concurrency:
+  group: win7-client-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-win7:
+    name: windows-win7
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # build-std requires the nightly toolchain plus the rust-src component.
+      - name: Setup Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      # `tauri build` shells out to cargo, so build-std is enabled through
+      # cargo config rather than a command line flag. Generated in CI only —
+      # committing this would force build-std on every other build.
+      - name: Enable build-std
+        run: |
+          mkdir -p .cargo
+          printf '[unstable]\nbuild-std = ["std"]\n' > .cargo/config.toml
+          echo '--- .cargo/config.toml ---'
+          cat .cargo/config.toml
+
+      # The `cc` crate does not know this custom triple, so point it at MSVC
+      # explicitly. `cl.exe` ships with the VS toolchain on windows-latest.
+      - name: Build Windows 7 client
+        env:
+          CC_x86_64_win7_windows_msvc: cl.exe
+          CXX_x86_64_win7_windows_msvc: cl.exe
+        run: npm run tauri:build -- --target x86_64-win7-windows-msvc --bundles nsis
+
+      - name: Upload client
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pointer-win7-client
+          path: |
+            target/x86_64-win7-windows-msvc/release/pointer-app.exe
+            target/x86_64-win7-windows-msvc/release/bundle/nsis/*.exe
+          if-no-files-found: warn

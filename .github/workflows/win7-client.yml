@@ -65,6 +65,13 @@ jobs:
         with:
           components: rust-src
 
+      # `cl.exe` is not on PATH on windows-latest until the MSVC environment is
+      # loaded; several dependencies (aws-lc-sys) compile C code.
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       # The `cc` crate does not know this custom triple, so point it at MSVC
       # explicitly. `cl.exe` ships with the VS toolchain on windows-latest.
       - name: Build client binary for Windows 7

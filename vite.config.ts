@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 import legacy from '@vitejs/plugin-legacy'
+import { transformUnicodePropertyRegex } from './scripts/lib/transform-unicode-regex.mjs'
 import path from 'node:path'
 import { applyPointerLocalEnvToProcess } from './scripts/lib/load-pointer-local-env.mjs'
 
@@ -111,6 +112,8 @@ export default defineConfig({
     // 医院环境还在用 Chrome 63：语法由 esbuild 降到 chrome63（见 build.target），
     // 这里只负责补 Chrome 63 缺失的运行时 API（core-js + web 平台补丁）。
     // Chrome 63 已支持 ESM，不需要 SystemJS 老包，所以关掉 legacy chunk。
+    // Chrome 63 不支持 `\p{L}` 这类正则语法，esbuild 不降级，必须单独展开。
+    transformUnicodePropertyRegex(),
     legacy({
       targets: ['chrome >= 63'],
       // 现代包也按 chrome63 降级：Chrome 63 支持 ESM，会走现代包，

@@ -1,3 +1,6 @@
+// 必须是第一个 import：Chrome 63 缺 AbortController 等 API，早于任何业务模块安装。
+import { installLegacyPolyfills } from './lib/legacyPolyfills'
+
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
@@ -9,6 +12,7 @@ import { installExternalLinkClickHandler } from './lib/externalLinkClick'
 import { initRenderPerf } from './lib/renderPerf'
 import { i18n } from './i18n'
 
+installLegacyPolyfills()
 applyThemeBootstrap()
 installExternalLinkClickHandler()
 // Registers the render-perf HUD toggle (keyboard + console). HUD stays off by default.

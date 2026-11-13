@@ -40,6 +40,30 @@ function randomUuidV4(): string {
   ].join('-')
 }
 
+/**
+ * Flex `gap` landed in Chrome 84 — `@supports (gap: 1px)` cannot tell it apart
+ * from grid `gap` (Chrome 66 already has that), so feature detection has to
+ * measure a real flex layout. When it is missing we tag `<html>` and the
+ * stylesheet supplies margin fallbacks; modern browsers never get the class.
+ */
+function markFlexGapSupport(): void {
+  if (typeof document === 'undefined' || !document.body) return
+  const probe = document.createElement('div')
+  probe.setAttribute('aria-hidden', 'true')
+  probe.style.cssText =
+    'position:absolute;top:-9999px;left:-9999px;display:flex;flex-direction:column;gap:1px;visibility:hidden'
+  const first = document.createElement('div')
+  const second = document.createElement('div')
+  first.style.cssText = 'height:1px;width:1px'
+  second.style.cssText = 'height:1px;width:1px'
+  probe.append(first, second)
+  document.body.appendChild(probe)
+  const supported =
+    second.getBoundingClientRect().top - first.getBoundingClientRect().bottom >= 1
+  probe.remove()
+  document.documentElement.classList.toggle('no-flex-gap', !supported)
+}
+
 export function installLegacyPolyfills(): void {
   if (typeof window === 'undefined') return
 
@@ -47,6 +71,8 @@ export function installLegacyPolyfills(): void {
     ;(window as unknown as { ResizeObserver: unknown }).ResizeObserver =
       ResizeObserverPolyfill
   }
+
+  markFlexGapSupport()
 
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID !== 'function') {
     ;(crypto as unknown as { randomUUID: () => string }).randomUUID = randomUuidV4

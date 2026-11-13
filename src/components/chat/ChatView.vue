@@ -390,7 +390,7 @@ const toastClass = computed(() => {
         >
           <!-- Desktop hero: slogan + inline composer. Mobile uses the footer composer. -->
           <template v-if="!isMobileViewport">
-            <div class="mx-auto flex w-full max-w-[42rem] min-h-[clamp(7rem,calc(50vh-4.5rem),14rem)] flex-col items-center justify-end">
+            <div class="mx-auto flex w-full max-w-[42rem] chat-empty-stage flex-col items-center justify-end">
               <WelcomeTipBanner
                 v-if="welcomeTip"
                 class="mb-[30px] w-full max-w-[42rem]"

@@ -821,7 +821,7 @@
       "returnReasoning": "Return reasoning",
       "extraBody": "Extra params (extra_body)",
       "extraBodyHint": "JSON object sent alongside temperature",
-      "extraBodyMustObject": "Must be a JSON object, e.g. { \"repetition_penalty\": 1.1 }",
+      "extraBodyMustObject": "Must be a JSON object, e.g. {'{'} \"repetition_penalty\": 1.1 {'}'}",
       "invalidJson": "Invalid JSON",
       "noProvider": "No provider"
     },
@@ -1260,7 +1260,7 @@
       "cronDesc": "Run on a schedule or once after a delay. Each job gets an isolated session. One-shot jobs stay completed; open the session to review.",
       "webhookDesc": "Each source has its own token that must match the URL path. POST body supports text or messages. After trigger, open the session for the transcript.",
       "deliverHint": "When enabled, the final reply is pushed to the selected channel when the run ends.",
-      "blockingHint": "Pass blocking:true to keep the connection until the run ends and return { ok, runId, text }; optional timeoutSeconds (default 120, max 600). Otherwise 202 async ack.",
+      "blockingHint": "Pass blocking:true to keep the connection until the run ends and return {'{'} ok, runId, text {'}'}; optional timeoutSeconds (default 120, max 600). Otherwise 202 async ack.",
       "sessionModeHint": "Session mode controls whether each trigger reuses a chat.",
       "legacyTokenDesc": "Legacy global token (compatibility).",
       "authHeaderHint": "Auth header name.",
@@ -1317,7 +1317,7 @@
     "headerToken_6b17d3": "; each source can set a custom Header plaintext Token",
     "s_1a3acc": ", optional",
     "s_fef0c3": "Run on a schedule or once after a delay. Each job gets an isolated session. One-shot jobs stay as completed; open the session to review.",
-    "trueRunOkRunId_a177cf": ": true keeps the connection until the run ends and returns { ok, runId, text }; optional ",
+    "trueRunOkRunId_a177cf": ": true keeps the connection until the run ends and returns {'{'} ok, runId, text {'}'}; optional ",
     "xGitHubDeliveryIdempotencyKey_3e7549": "Continue by day: one source shares context within the local day; isolate per delivery: each delivery gets its own session (use X-GitHub-Delivery or idempotencyKey to distinguish).",
     "token_a1fafc": "Legacy global Token detected; it applies to all sources. Prefer per-source configuration.",
     "authorizationBearerXPointer_cd052f": "Leave empty to use Authorization: Bearer or X-Pointer-Token",
@@ -1367,7 +1367,7 @@
       "cronSectionDesc": "Run on a schedule or once after a delay. Each job gets an isolated session. One-shot jobs stay completed; open the session to review.",
       "webhookSectionDesc": "Each source has its own token that must match the URL path. POST body supports text or messages. After trigger, open the session for the transcript.",
       "deliverHint": "When enabled, the final reply is pushed to the selected channel when the run ends. Each channel maps to the last person who messaged Pointer privately.",
-      "webhookBlocking": "Pass blocking:true to keep the connection until the run ends and return { ok, runId, text }; optional timeoutSeconds (default 120, max 600). Otherwise 202 async ack; poll GET /api/webhooks/:src/runs/:runId."
+      "webhookBlocking": "Pass blocking:true to keep the connection until the run ends and return {'{'} ok, runId, text {'}'}; optional timeoutSeconds (default 120, max 600). Otherwise 202 async ack; poll GET /api/webhooks/:src/runs/:runId."
     },
     "thinking": {
       "unset": "Not set",

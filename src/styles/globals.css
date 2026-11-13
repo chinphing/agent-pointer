@@ -350,6 +350,18 @@
       padding-right: 6rem;
     }
   }
+  /* Chrome < 105 has no container queries, so the rule above is dropped and the
+     shell keeps its px-8 gutter — the chat column then reads narrower than on a
+     modern browser. Approximate the same threshold from the viewport: the chat
+     pane is the viewport minus the 260px sidebar. */
+  @supports not (container-type: inline-size) {
+    @media (min-width: 980px) {
+      .chat-shell {
+        padding-left: 6rem;
+        padding-right: 6rem;
+      }
+    }
+  }
   .chat-column {
     @apply mx-auto w-full;
     /* Fallback ≈ former max-w-3xl when min() is unavailable. */
@@ -697,6 +709,15 @@
   @container chat (max-width: 719px) {
     .message-avatar-slot {
       display: none !important;
+    }
+  }
+  /* Chrome < 105: the container query above never matches, so mirror it with a
+     viewport threshold (chat pane = viewport − 260px sidebar). */
+  @supports not (container-type: inline-size) {
+    @media (max-width: 979px) {
+      .message-avatar-slot {
+        display: none !important;
+      }
     }
   }
 }
@@ -1234,3 +1255,187 @@ html.tauri-app .window-controls-btn {
   -webkit-app-region: no-drag !important;
   app-region: no-drag !important;
 }
+
+/* Chrome < 88 cannot parse `:where()` in Tailwind's preflight reset, so the
+   whole `button, input:where(...) { background-color: transparent }` rule is
+   discarded and every <button> falls back to the UA `buttonface` grey (#ddd) —
+   light blobs on the dark shell. Restate the same declarations with selectors
+   every supported browser understands; the values match preflight exactly, so
+   modern browsers are unaffected. */
+button,
+input[type='button'],
+input[type='reset'],
+input[type='submit'] {
+  -webkit-appearance: button;
+  background-color: transparent;
+  background-image: none;
+}
+
+/* Same `:where()` fallout as the button reset above — Tailwind's preflight
+   wraps both of these, so Chrome < 88 drops them. */
+abbr[title] {
+  text-decoration: underline dotted;
+}
+
+/* Guarded: modern preflight deliberately excludes `[hidden=until-found]` (it
+   keeps the box for content-visibility). Only restore the blunt rule where the
+   preflight one cannot parse. */
+@supports not (color: color-mix(in srgb, red, blue)) {
+  [hidden] {
+    display: none;
+  }
+}
+
+/* Empty-state stage (ChatView). `clamp()` is Chrome 79+; the fixed min-height
+   keeps the composer from collapsing on older browsers. */
+.chat-empty-stage {
+  min-height: 7rem;
+  min-height: clamp(7rem, calc(50vh - 4.5rem), 14rem);
+}
+
+/*
+ * Chrome < 84 has no flex `gap`, so icons and labels collide. `@supports
+ * (gap: 1px)` cannot detect it — grid gap shipped in Chrome 66 and makes the
+ * query true — so legacyPolyfills.ts measures a real flex row and tags
+ * `<html class="no-flex-gap">` instead.
+ *
+ * Audited: every element carrying a `gap-*` class in this app is either flex or
+ * grid (zero exceptions), so excluding `.grid` leaves exactly the containers
+ * that need a margin fallback. Grid layouts, where `gap` already works, keep
+ * their own spacing and are never double-spaced.
+ *
+ * Row flex gets margin-left, column flex margin-top; `gap-x` / `gap-y` map to
+ * the same two axes. Values follow the Tailwind spacing scale.
+ */
+html.no-flex-gap .gap-0\.5:not(.grid):not(.inline-grid):not(.flex-col) > * + *,
+html.no-flex-gap .gap-x-0\.5:not(.grid):not(.inline-grid) > * + * { margin-left: 0.125rem; }
+
+html.no-flex-gap .gap-1:not(.grid):not(.inline-grid):not(.flex-col) > * + *,
+html.no-flex-gap .gap-x-1:not(.grid):not(.inline-grid) > * + * { margin-left: 0.25rem; }
+
+html.no-flex-gap .gap-1\.5:not(.grid):not(.inline-grid):not(.flex-col) > * + *,
+html.no-flex-gap .gap-x-1\.5:not(.grid):not(.inline-grid) > * + * { margin-left: 0.375rem; }
+
+html.no-flex-gap .gap-2:not(.grid):not(.inline-grid):not(.flex-col) > * + *,
+html.no-flex-gap .gap-x-2:not(.grid):not(.inline-grid) > * + * { margin-left: 0.5rem; }
+
+html.no-flex-gap .gap-2\.5:not(.grid):not(.inline-grid):not(.flex-col) > * + *,
+html.no-flex-gap .gap-x-2\.5:not(.grid):not(.inline-grid) > * + * { margin-left: 0.625rem; }
+
+html.no-flex-gap .gap-3:not(.grid):not(.inline-grid):not(.flex-col) > * + *,
+html.no-flex-gap .gap-x-3:not(.grid):not(.inline-grid) > * + * { margin-left: 0.75rem; }
+
+html.no-flex-gap .gap-4:not(.grid):not(.inline-grid):not(.flex-col) > * + *,
+html.no-flex-gap .gap-x-4:not(.grid):not(.inline-grid) > * + * { margin-left: 1rem; }
+
+html.no-flex-gap .gap-5:not(.grid):not(.inline-grid):not(.flex-col) > * + *,
+html.no-flex-gap .gap-x-5:not(.grid):not(.inline-grid) > * + * { margin-left: 1.25rem; }
+
+html.no-flex-gap .gap-6:not(.grid):not(.inline-grid):not(.flex-col) > * + *,
+html.no-flex-gap .gap-x-6:not(.grid):not(.inline-grid) > * + * { margin-left: 1.5rem; }
+
+html.no-flex-gap .gap-8:not(.grid):not(.inline-grid):not(.flex-col) > * + *,
+html.no-flex-gap .gap-x-8:not(.grid):not(.inline-grid) > * + * { margin-left: 2rem; }
+
+html.no-flex-gap .gap-32:not(.grid):not(.inline-grid):not(.flex-col) > * + *,
+html.no-flex-gap .gap-x-32:not(.grid):not(.inline-grid) > * + * { margin-left: 8rem; }
+
+/* These set `gap` in their own rules rather than via a utility class. */
+html.no-flex-gap .message-footer-actions > * + *,
+html.no-flex-gap .collapsed-run-live-line .collapsed-run-hover-pill > * + * {
+  margin-left: 0.375rem;
+}
+
+/*
+ * The live status slot ("思考中…") is a block child of a column flex whose
+ * `align-items: flex-start` makes children fit-content. It declares
+ * `width: 100%`, which Chrome 66 resolves to 0 in that context (measured:
+ * computed width 0px inside a 744px button). Zero width plus `overflow: hidden`
+ * clips the label to nothing, so the whole status line reads as blank.
+ *
+ * `align-self: stretch` + `width: auto` is the flex-native way to fill the
+ * cross axis and does not depend on percentage resolution. Legacy-only so the
+ * modern rendering path is untouched.
+ */
+@supports not (color: color-mix(in srgb, red, blue)) {
+  .collapsed-run-live-slot {
+    width: auto;
+    align-self: stretch;
+  }
+}
+
+/*
+ * Accepted degradations on Chrome 63/66 (audited, deliberately not polyfilled):
+ *
+ *   `backdrop-filter` (76+)      — surfaces stay opaque instead of blurred.
+ *   `:is()` / `:has()`           — confined to Markdown/Mermaid styling; the
+ *                                  rules drop and the diagrams keep base styles.
+ *   `text-wrap: balance` (114+)  — headings wrap greedily instead of balanced.
+ *   `dvh`                        — `height: 100%` is declared first, so it holds.
+ *
+ * These lose polish, not layout or state. Everything that would have dropped a
+ * whole rule (selector lists, positioning shorthands) is handled above, and
+ * flex `gap` — which read as broken icons — has its own fallback layer above.
+ */
+
+/* 图标 + 裸文本节点：`> * + *` 只匹配元素，文本节点匹配不到，
+   所以图标本身也要留出 gap 的宽度。工具类专用（组件类由插件生成）。 */
+html.no-flex-gap .gap-0\.5:not(.grid):not(.inline-grid):not(.flex-col) > svg,
+html.no-flex-gap .gap-x-0\.5:not(.grid):not(.inline-grid) > svg { margin-right: 0.125rem; }
+html.no-flex-gap .gap-1:not(.grid):not(.inline-grid):not(.flex-col) > svg,
+html.no-flex-gap .gap-x-1:not(.grid):not(.inline-grid) > svg { margin-right: 0.25rem; }
+html.no-flex-gap .gap-1\.5:not(.grid):not(.inline-grid):not(.flex-col) > svg,
+html.no-flex-gap .gap-x-1\.5:not(.grid):not(.inline-grid) > svg { margin-right: 0.375rem; }
+html.no-flex-gap .gap-2:not(.grid):not(.inline-grid):not(.flex-col) > svg,
+html.no-flex-gap .gap-x-2:not(.grid):not(.inline-grid) > svg { margin-right: 0.5rem; }
+html.no-flex-gap .gap-2\.5:not(.grid):not(.inline-grid):not(.flex-col) > svg,
+html.no-flex-gap .gap-x-2\.5:not(.grid):not(.inline-grid) > svg { margin-right: 0.625rem; }
+html.no-flex-gap .gap-3:not(.grid):not(.inline-grid):not(.flex-col) > svg,
+html.no-flex-gap .gap-x-3:not(.grid):not(.inline-grid) > svg { margin-right: 0.75rem; }
+html.no-flex-gap .gap-4:not(.grid):not(.inline-grid):not(.flex-col) > svg,
+html.no-flex-gap .gap-x-4:not(.grid):not(.inline-grid) > svg { margin-right: 1rem; }
+html.no-flex-gap .gap-5:not(.grid):not(.inline-grid):not(.flex-col) > svg,
+html.no-flex-gap .gap-x-5:not(.grid):not(.inline-grid) > svg { margin-right: 1.25rem; }
+html.no-flex-gap .gap-6:not(.grid):not(.inline-grid):not(.flex-col) > svg,
+html.no-flex-gap .gap-x-6:not(.grid):not(.inline-grid) > svg { margin-right: 1.5rem; }
+html.no-flex-gap .gap-8:not(.grid):not(.inline-grid):not(.flex-col) > svg,
+html.no-flex-gap .gap-x-8:not(.grid):not(.inline-grid) > svg { margin-right: 2rem; }
+html.no-flex-gap .gap-32:not(.grid):not(.inline-grid):not(.flex-col) > svg,
+html.no-flex-gap .gap-x-32:not(.grid):not(.inline-grid) > svg { margin-right: 8rem; }
+
+/* 文本在前、图标在后：前一个兄弟是文本节点，`* + svg` 匹配不到。 */
+html.no-flex-gap .gap-0\.5:not(.grid):not(.inline-grid):not(.flex-col) > svg:not(:first-child),
+html.no-flex-gap .gap-x-0\.5:not(.grid):not(.inline-grid) > svg:not(:first-child) { margin-left: 0.125rem; }
+html.no-flex-gap .gap-1:not(.grid):not(.inline-grid):not(.flex-col) > svg:not(:first-child),
+html.no-flex-gap .gap-x-1:not(.grid):not(.inline-grid) > svg:not(:first-child) { margin-left: 0.25rem; }
+html.no-flex-gap .gap-1\.5:not(.grid):not(.inline-grid):not(.flex-col) > svg:not(:first-child),
+html.no-flex-gap .gap-x-1\.5:not(.grid):not(.inline-grid) > svg:not(:first-child) { margin-left: 0.375rem; }
+html.no-flex-gap .gap-2:not(.grid):not(.inline-grid):not(.flex-col) > svg:not(:first-child),
+html.no-flex-gap .gap-x-2:not(.grid):not(.inline-grid) > svg:not(:first-child) { margin-left: 0.5rem; }
+html.no-flex-gap .gap-2\.5:not(.grid):not(.inline-grid):not(.flex-col) > svg:not(:first-child),
+html.no-flex-gap .gap-x-2\.5:not(.grid):not(.inline-grid) > svg:not(:first-child) { margin-left: 0.625rem; }
+html.no-flex-gap .gap-3:not(.grid):not(.inline-grid):not(.flex-col) > svg:not(:first-child),
+html.no-flex-gap .gap-x-3:not(.grid):not(.inline-grid) > svg:not(:first-child) { margin-left: 0.75rem; }
+html.no-flex-gap .gap-4:not(.grid):not(.inline-grid):not(.flex-col) > svg:not(:first-child),
+html.no-flex-gap .gap-x-4:not(.grid):not(.inline-grid) > svg:not(:first-child) { margin-left: 1rem; }
+html.no-flex-gap .gap-5:not(.grid):not(.inline-grid):not(.flex-col) > svg:not(:first-child),
+html.no-flex-gap .gap-x-5:not(.grid):not(.inline-grid) > svg:not(:first-child) { margin-left: 1.25rem; }
+html.no-flex-gap .gap-6:not(.grid):not(.inline-grid):not(.flex-col) > svg:not(:first-child),
+html.no-flex-gap .gap-x-6:not(.grid):not(.inline-grid) > svg:not(:first-child) { margin-left: 1.5rem; }
+html.no-flex-gap .gap-8:not(.grid):not(.inline-grid):not(.flex-col) > svg:not(:first-child),
+html.no-flex-gap .gap-x-8:not(.grid):not(.inline-grid) > svg:not(:first-child) { margin-left: 2rem; }
+html.no-flex-gap .gap-32:not(.grid):not(.inline-grid):not(.flex-col) > svg:not(:first-child),
+html.no-flex-gap .gap-x-32:not(.grid):not(.inline-grid) > svg:not(:first-child) { margin-left: 8rem; }
+
+/* 列方向容器：gap 是竖向的，对应 margin-top。 */
+html.no-flex-gap .gap-0\.5.flex-col:not(.grid):not(.inline-grid) > * + * { margin-top: 0.125rem; }
+html.no-flex-gap .gap-1.flex-col:not(.grid):not(.inline-grid) > * + * { margin-top: 0.25rem; }
+html.no-flex-gap .gap-1\.5.flex-col:not(.grid):not(.inline-grid) > * + * { margin-top: 0.375rem; }
+html.no-flex-gap .gap-2.flex-col:not(.grid):not(.inline-grid) > * + * { margin-top: 0.5rem; }
+html.no-flex-gap .gap-2\.5.flex-col:not(.grid):not(.inline-grid) > * + * { margin-top: 0.625rem; }
+html.no-flex-gap .gap-3.flex-col:not(.grid):not(.inline-grid) > * + * { margin-top: 0.75rem; }
+html.no-flex-gap .gap-4.flex-col:not(.grid):not(.inline-grid) > * + * { margin-top: 1rem; }
+html.no-flex-gap .gap-5.flex-col:not(.grid):not(.inline-grid) > * + * { margin-top: 1.25rem; }
+html.no-flex-gap .gap-6.flex-col:not(.grid):not(.inline-grid) > * + * { margin-top: 1.5rem; }
+html.no-flex-gap .gap-8.flex-col:not(.grid):not(.inline-grid) > * + * { margin-top: 2rem; }
+html.no-flex-gap .gap-32.flex-col:not(.grid):not(.inline-grid) > * + * { margin-top: 8rem; }

@@ -426,6 +426,9 @@ onUnmounted(() => {
   margin-left: 4px;
   padding: 0 4px;
   border-radius: 4px;
+  /* Chrome < 111 has no color-mix(): keep a plain hairline rather than losing
+     the border entirely. */
+  border: 1px solid currentColor;
   border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
   font-size: 10px;
   line-height: 14px;

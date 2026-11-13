@@ -648,11 +648,11 @@ async function onPlaySoundToggle(checked: boolean) {
               </div>
               <div v-if="parallelToolExecutionEnabled" class="flex flex-wrap items-start gap-x-5 gap-y-3">
                 <div>
-                  <div class="flex items-center gap-1 mb-1.5">
+                  <div class="flex items-center gap-1 mb-1.5 whitespace-nowrap">
                     <span class="text-[12px] text-muted">{{ t('settings.exec.generalTools') }}</span>
                     <button
                       type="button"
-                      class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                      class="inline-flex items-center shrink-0 text-muted hover:text-foreground transition-colors"
                       :title="t('settings.exec.generalToolsHint')"
                       :aria-label="t('settings.exec.generalTools')"
                     >
@@ -671,11 +671,11 @@ async function onPlaySoundToggle(checked: boolean) {
                   />
                 </div>
                 <div>
-                  <div class="flex items-center gap-1 mb-1.5">
+                  <div class="flex items-center gap-1 mb-1.5 whitespace-nowrap">
                     <span class="text-[12px] text-muted">{{ t('settings.exec.subAgent') }}</span>
                     <button
                       type="button"
-                      class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                      class="inline-flex items-center shrink-0 text-muted hover:text-foreground transition-colors"
                       :title="t('settings.exec.subAgentHint')"
                       :aria-label="t('settings.exec.subAgent')"
                     >
@@ -694,11 +694,11 @@ async function onPlaySoundToggle(checked: boolean) {
                   />
                 </div>
                 <div>
-                  <div class="flex items-center gap-1 mb-1.5">
+                  <div class="flex items-center gap-1 mb-1.5 whitespace-nowrap">
                     <span class="text-[12px] text-muted">{{ t('settings.exec.mediaTools') }}</span>
                     <button
                       type="button"
-                      class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                      class="inline-flex items-center shrink-0 text-muted hover:text-foreground transition-colors"
                       :title="t('settings.exec.mediaToolsHint')"
                       :aria-label="t('settings.exec.mediaTools')"
                     >
@@ -728,11 +728,11 @@ async function onPlaySoundToggle(checked: boolean) {
             </div>
             <div class="flex flex-wrap items-start gap-x-5 gap-y-3">
               <div>
-                <div class="flex items-center gap-1 mb-1.5">
+                <div class="flex items-center gap-1 mb-1.5 whitespace-nowrap">
                   <span class="text-[12px] text-muted">{{ t('settings.exec.thisRound') }}</span>
                   <button
                     type="button"
-                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    class="inline-flex items-center shrink-0 text-muted hover:text-foreground transition-colors"
                     :title="t('settings.exec.thisRoundHint')"
                     :aria-label="t('settings.exec.thisRound')"
                   >
@@ -749,11 +749,11 @@ async function onPlaySoundToggle(checked: boolean) {
                 />
               </div>
               <div>
-                <div class="flex items-center gap-1 mb-1.5">
+                <div class="flex items-center gap-1 mb-1.5 whitespace-nowrap">
                   <span class="text-[12px] text-muted">{{ t('settings.exec.subTask') }}</span>
                   <button
                     type="button"
-                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    class="inline-flex items-center shrink-0 text-muted hover:text-foreground transition-colors"
                     :title="t('settings.exec.subTaskHint')"
                     :aria-label="t('settings.exec.subTask')"
                   >
@@ -779,11 +779,11 @@ async function onPlaySoundToggle(checked: boolean) {
               <span class="text-[12px] font-medium text-foreground">{{ t('settings.exec.taskParallel') }}</span>
             </div>
             <div>
-              <div class="flex items-center gap-1 mb-1.5">
+              <div class="flex items-center gap-1 mb-1.5 whitespace-nowrap">
                 <span class="text-[12px] text-muted">{{ t('settings.exec.concurrentTasks') }}</span>
                 <button
                   type="button"
-                  class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                  class="inline-flex items-center shrink-0 text-muted hover:text-foreground transition-colors"
                   :title="t('settings.exec.concurrentTasksHint')"
                   :aria-label="t('settings.exec.concurrentTasks')"
                 >
@@ -829,7 +829,7 @@ async function onPlaySoundToggle(checked: boolean) {
               <span class="text-[12px] font-medium text-foreground">{{ t('settings.exec.contentLimits') }}</span>
               <button
                 type="button"
-                class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                class="inline-flex items-center shrink-0 text-muted hover:text-foreground transition-colors"
                 :title="t('settings.exec.contentLimitsHint')"
                 :aria-label="t('settings.exec.contentLimits')"
               >
@@ -838,11 +838,11 @@ async function onPlaySoundToggle(checked: boolean) {
             </div>
             <div class="flex flex-wrap min-[960px]:flex-nowrap items-start gap-x-5 gap-y-3">
               <div>
-                <div class="flex items-center gap-1 mb-1.5">
+                <div class="flex items-center gap-1 mb-1.5 whitespace-nowrap">
                   <span class="text-[12px] text-muted">{{ t('settings.exec.uploadMb') }}</span>
                   <button
                     type="button"
-                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    class="inline-flex items-center shrink-0 text-muted hover:text-foreground transition-colors"
                     :title="t('settings.exec.uploadHint')"
                     :aria-label="t('settings.exec.uploadMb')"
                   >
@@ -859,11 +859,11 @@ async function onPlaySoundToggle(checked: boolean) {
                 />
               </div>
               <div>
-                <div class="flex items-center gap-1 mb-1.5">
+                <div class="flex items-center gap-1 mb-1.5 whitespace-nowrap">
                   <span class="text-[12px] text-muted">{{ t('settings.exec.bodyKb') }}</span>
                   <button
                     type="button"
-                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    class="inline-flex items-center shrink-0 text-muted hover:text-foreground transition-colors"
                     :title="t('settings.exec.bodyHint')"
                     :aria-label="t('settings.exec.bodyKb')"
                   >
@@ -880,11 +880,11 @@ async function onPlaySoundToggle(checked: boolean) {
                 />
               </div>
               <div>
-                <div class="flex items-center gap-1 mb-1.5">
+                <div class="flex items-center gap-1 mb-1.5 whitespace-nowrap">
                   <span class="text-[12px] text-muted">{{ t('settings.exec.lineBytes') }}</span>
                   <button
                     type="button"
-                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    class="inline-flex items-center shrink-0 text-muted hover:text-foreground transition-colors"
                     :title="t('settings.exec.lineHint')"
                     :aria-label="t('settings.exec.lineBytes')"
                   >
@@ -901,11 +901,11 @@ async function onPlaySoundToggle(checked: boolean) {
                 />
               </div>
               <div>
-                <div class="flex items-center gap-1 mb-1.5">
+                <div class="flex items-center gap-1 mb-1.5 whitespace-nowrap">
                   <span class="text-[12px] text-muted">{{ t('settings.exec.grepCount') }}</span>
                   <button
                     type="button"
-                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    class="inline-flex items-center shrink-0 text-muted hover:text-foreground transition-colors"
                     :title="t('settings.exec.grepHint')"
                     :aria-label="t('settings.exec.grepCount')"
                   >
@@ -922,11 +922,11 @@ async function onPlaySoundToggle(checked: boolean) {
                 />
               </div>
               <div>
-                <div class="flex items-center gap-1 mb-1.5">
+                <div class="flex items-center gap-1 mb-1.5 whitespace-nowrap">
                   <span class="text-[12px] text-muted">{{ t('settings.exec.terminalKb') }}</span>
                   <button
                     type="button"
-                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    class="inline-flex items-center shrink-0 text-muted hover:text-foreground transition-colors"
                     :title="t('settings.exec.terminalHint')"
                     :aria-label="t('settings.exec.terminalKb')"
                   >
@@ -952,7 +952,7 @@ async function onPlaySoundToggle(checked: boolean) {
               <span class="text-[12px] font-medium text-foreground">{{ t('settings.exec.terminalTimeout') }}</span>
               <button
                 type="button"
-                class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                class="inline-flex items-center shrink-0 text-muted hover:text-foreground transition-colors"
                 :title="t('settings.exec.terminalTimeoutHint')"
                 :aria-label="t('settings.exec.terminalTimeout')"
               >
@@ -961,11 +961,11 @@ async function onPlaySoundToggle(checked: boolean) {
             </div>
             <div class="flex flex-nowrap items-start gap-x-5">
               <div>
-                <div class="flex items-center gap-1 mb-1.5">
+                <div class="flex items-center gap-1 mb-1.5 whitespace-nowrap">
                   <span class="text-[12px] text-muted">{{ t('settings.exec.idleSec') }}</span>
                   <button
                     type="button"
-                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    class="inline-flex items-center shrink-0 text-muted hover:text-foreground transition-colors"
                     :title="t('settings.exec.idleHint')"
                     :aria-label="t('settings.exec.idleSec')"
                   >
@@ -983,11 +983,11 @@ async function onPlaySoundToggle(checked: boolean) {
                 />
               </div>
               <div>
-                <div class="flex items-center gap-1 mb-1.5">
+                <div class="flex items-center gap-1 mb-1.5 whitespace-nowrap">
                   <span class="text-[12px] text-muted">{{ t('settings.exec.maxWallHours') }}</span>
                   <button
                     type="button"
-                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    class="inline-flex items-center shrink-0 text-muted hover:text-foreground transition-colors"
                     :title="t('settings.exec.maxWallHint')"
                     :aria-label="t('settings.exec.maxWallHours')"
                   >

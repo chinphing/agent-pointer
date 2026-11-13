@@ -1797,11 +1797,21 @@ watch(searchQuery, q => {
 }
 .sidebar-conv-row.is-selected,
 .sidebar-conv-row.is-selected:hover {
-  --sidebar-row-fill: color-mix(
-    in srgb,
-    hsl(var(--foreground)) 10%,
-    hsl(var(--shell-sidebar))
-  );
+  /* A custom property is not validated at parse time, so a plain
+     `fallback; modern` pair cannot work here: the invalid `color-mix()` token
+     stream would still win and `var()` would resolve to nothing. Give older
+     browsers the hover fill instead, and upgrade only where it is supported. */
+  --sidebar-row-fill: hsl(var(--hover));
+}
+@supports (color: color-mix(in srgb, red, blue)) {
+  .sidebar-conv-row.is-selected,
+  .sidebar-conv-row.is-selected:hover {
+    --sidebar-row-fill: color-mix(
+      in srgb,
+      hsl(var(--foreground)) 10%,
+      hsl(var(--shell-sidebar))
+    );
+  }
 }
 .sidebar-row-actions {
   position: absolute;

@@ -7,7 +7,6 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { ChevronDown } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { collectBackgroundJobsPanelItems, type BackgroundJobsPanelItem } from '../../lib/backgroundJobsPanel'
-import { compactToolCallStatusLine } from '../../lib/toolCallDisplay'
 
 const props = defineProps<{
   conversationId: string
@@ -19,23 +18,15 @@ const expanded = ref(false)
 const armedCancel = ref(false)
 let disarmTimer: ReturnType<typeof setTimeout> | null = null
 
-const conv = computed(
-  () =>
-    (chat.current?.id === props.conversationId ? chat.current : undefined)
-    ?? chat.conversations.find(c => c.id === props.conversationId)
-)
-
 /** 有占用就显示：父回合仍在生成（含 `job.await`）时也要看得见，
  *  否则用户会以为后台任务只在空闲时才存在。主界面停止按钮仍负责
  *  「停 lead + 全部后台」；本面板可单独结束某一条。 */
 const count = computed(() => chat.backgroundJobCount(props.conversationId))
 const visible = computed(() => count.value > 0)
 
+/** 只列真实后台 job，行数与 `count` 一致。 */
 const rows = computed(() =>
-  collectBackgroundJobsPanelItems(
-    chat.backgroundJobItems(props.conversationId),
-    conv.value?.messages
-  )
+  collectBackgroundJobsPanelItems(chat.backgroundJobItems(props.conversationId))
 )
 
 const generating = computed(() => chat.isConversationGenerating(props.conversationId))
@@ -45,23 +36,16 @@ const companionHint = computed(() =>
 
 /** 可一键取消的 host 行（拿到了 jobId）。 */
 const cancelableHosts = computed(
-  () => rows.value.filter(r => r.kind === 'host' && !!r.jobId)
+  () => rows.value.filter(r => !!r.jobId)
 )
 
 function rowLabel(item: BackgroundJobsPanelItem): string {
-  if (item.kind === 'host') return item.title || t('tools.job')
-  return compactToolCallStatusLine(item.toolCall, chat.current?.workspaceRoot, {
-    includeStatus: false
-  }) || t('tools.jobAwait')
+  return item.title || t('tools.job')
 }
 
-function cancelJob(item: Extract<BackgroundJobsPanelItem, { kind: 'host' }>) {
+function cancelJob(item: BackgroundJobsPanelItem) {
   if (!item.jobId) return
   void chat.cancelBackgroundJob(item.jobId)
-}
-
-function endWait() {
-  void chat.endWaitKeepBackground()
 }
 
 function disarmCancel() {
@@ -138,19 +122,12 @@ onBeforeUnmount(disarmCancel)
       >
         <span class="min-w-0 flex-1 truncate text-foreground">{{ rowLabel(item) }}</span>
         <button
-          v-if="item.kind === 'host' && item.jobId"
+          v-if="item.jobId"
           type="button"
           class="shrink-0 border-0 bg-transparent px-1 py-0.5 text-[11px] text-danger/80 hover:text-danger cursor-pointer transition-colors"
           :title="t('chat.endThisBackgroundJob')"
           @click.stop="cancelJob(item)"
         >{{ t('chat.s_f3120e') }}</button>
-        <button
-          v-else-if="item.kind === 'await'"
-          type="button"
-          class="shrink-0 border-0 bg-transparent px-1 py-0.5 text-[11px] text-danger/80 hover:text-danger cursor-pointer transition-colors"
-          :title="t('chat.endWaitKeepBackground')"
-          @click.stop="endWait"
-        >{{ t('chat.s_7d8ba7') }}</button>
       </li>
       <li v-if="!rows.length" class="px-3 py-2 text-[11px] text-muted">
         {{ t('chat.s_3ded60') }}

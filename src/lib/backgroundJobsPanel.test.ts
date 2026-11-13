@@ -1,44 +1,30 @@
-import { describe, expect, it } from 'vitest'
-import type { ChatMessage, ToolCall } from '../types/chat'
+import { beforeAll, describe, expect, it } from 'vitest'
+import type { BackgroundJobView } from '../types/chat'
+import { i18n } from '../i18n'
 import { collectBackgroundJobsPanelItems } from './backgroundJobsPanel'
 
-function tc(
-  partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name' | 'status'>
-): ToolCall {
-  return { arguments: '', ...partial }
-}
-
-function assistantMessage(toolCalls: ToolCall[]): ChatMessage {
-  return {
-    id: `m-${toolCalls[0]?.id ?? Math.random()}`,
-    role: 'assistant',
-    content: '',
-    status: 'done',
-    createdAt: 0,
-    toolCalls
-  } as ChatMessage
-}
+beforeAll(() => {
+  // Fallback labels assert against zh-CN catalog until tests cover both locales.
+  i18n.global.locale.value = 'zh-CN'
+})
 
 describe('collectBackgroundJobsPanelItems', () => {
   it('lists occupancy jobs including nested background terminals', () => {
-    const items = collectBackgroundJobsPanelItems(
-      [
-        {
-          jobId: 'job_sub',
-          status: 'running',
-          kind: 'subagent',
-          title: '铺线 1',
-          agentId: 'self'
-        },
-        {
-          jobId: 'job_term',
-          status: 'running',
-          kind: 'terminal',
-          title: 'python scrape.py'
-        }
-      ],
-      undefined
-    )
+    const items = collectBackgroundJobsPanelItems([
+      {
+        jobId: 'job_sub',
+        status: 'running',
+        kind: 'subagent',
+        title: '铺线 1',
+        agentId: 'self'
+      },
+      {
+        jobId: 'job_term',
+        status: 'running',
+        kind: 'terminal',
+        title: 'python scrape.py'
+      }
+    ])
     expect(items).toHaveLength(2)
     expect(items[0]).toMatchObject({ kind: 'host', jobId: 'job_sub', title: '铺线 1' })
     expect(items[1]).toMatchObject({
@@ -49,28 +35,30 @@ describe('collectBackgroundJobsPanelItems', () => {
     })
   })
 
-  it('does not invent host rows from parent messages', () => {
-    const host = tc({
-      id: 'host-1',
-      name: 'run_subagent',
-      status: 'running',
-      arguments: JSON.stringify({ agentId: 'explore', goal: 'map', background: true })
-    })
-    expect(collectBackgroundJobsPanelItems(undefined, [assistantMessage([host])])).toEqual([])
-    expect(collectBackgroundJobsPanelItems([], [assistantMessage([host])])).toEqual([])
+  it('falls back to a localized title when the job has none', () => {
+    const items = collectBackgroundJobsPanelItems([
+      { jobId: 'job_a', status: 'running', kind: 'subagent', title: '   ' },
+      { jobId: 'job_b', status: 'running', kind: 'terminal' }
+    ])
+    expect(items.map(i => i.title)).toEqual(['子任务', '终端'])
   })
 
-  it('keeps await rows when occupancy already lists hosts', () => {
-    const awaitCall = tc({
-      id: 'await-1',
-      name: 'job',
-      status: 'running',
-      arguments: JSON.stringify({ action: 'await', jobId: 'job_abc' })
-    })
-    const items = collectBackgroundJobsPanelItems(
-      [{ jobId: 'job_term', status: 'running', kind: 'terminal', title: 'sleep 9' }],
-      [assistantMessage([awaitCall])]
-    )
-    expect(items.map(i => i.kind)).toEqual(['host', 'await'])
+  it('returns no rows for empty or missing occupancy', () => {
+    expect(collectBackgroundJobsPanelItems(undefined)).toEqual([])
+    expect(collectBackgroundJobsPanelItems([])).toEqual([])
+  })
+
+  it('row count always equals occupancy length (no await rows)', () => {
+    // `job.await` 不再进面板：它的「结束等待」按钮在消息里的工具行上。
+    // 面板行数必须与 `backgroundJobCount`（= occupancy.length）完全一致。
+    const occupancy: BackgroundJobView[] = [
+      { jobId: 'job_1', status: 'running', kind: 'subagent', title: 'a' },
+      { jobId: 'job_2', status: 'running', kind: 'terminal', title: 'b' },
+      { jobId: 'job_3', status: 'running', kind: 'terminal' }
+    ]
+    const items = collectBackgroundJobsPanelItems(occupancy)
+    expect(items).toHaveLength(occupancy.length)
+    expect(items.map(i => i.kind)).toEqual(['host', 'host', 'host'])
+    expect(items.map(i => i.key)).toEqual(['job_1', 'job_2', 'job_3'])
   })
 })

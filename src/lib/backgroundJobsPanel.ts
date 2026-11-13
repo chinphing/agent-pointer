@@ -1,29 +1,14 @@
-import type { BackgroundJobView, ChatMessage, ToolCall } from '../types/chat'
+import type { BackgroundJobView } from '../types/chat'
 import { t } from '../i18n'
-import { isJobAwaitCall } from './toolCallDisplay'
 
-export type BackgroundJobsPanelItem =
-  | {
-      kind: 'host'
-      key: string
-      title: string
-      jobKind: string
-      /** JobSupervisor job id. */
-      jobId: string
-    }
-  | {
-      kind: 'await'
-      key: string
-      toolCall: ToolCall
-      title?: undefined
-      jobKind?: undefined
-      jobId: null
-    }
-
-const RUNNING_STATUSES: ReadonlySet<ToolCall['status']> = new Set([
-  'running',
-  'pending'
-])
+export type BackgroundJobsPanelItem = {
+  kind: 'host'
+  key: string
+  title: string
+  jobKind: string
+  /** JobSupervisor job id. */
+  jobId: string
+}
 
 export function occupancyJobTitle(job: BackgroundJobView): string {
   const title = job.title?.trim()
@@ -33,36 +18,18 @@ export function occupancyJobTitle(job: BackgroundJobView): string {
 }
 
 /**
- * Composer 后台条：占用名单只认 JobSupervisor（含嵌套后台终端）。
- * `job.await` 不是 job，从当前消息补一行。
+ * Composer 后台条：只列 JobSupervisor 占用名单里的真实 job。
+ * `job.await` 不是 job（它的「结束等待」按钮在消息里的工具行上），
+ * 因此行数恒等于 `backgroundJobCount`，徽标与列表不会对不上。
  */
 export function collectBackgroundJobsPanelItems(
-  occupancy: readonly BackgroundJobView[] | undefined,
-  messages: readonly ChatMessage[] | undefined
+  occupancy: readonly BackgroundJobView[] | undefined
 ): BackgroundJobsPanelItem[] {
-  const hosts = (occupancy ?? []).map(job => ({
+  return (occupancy ?? []).map(job => ({
     kind: 'host' as const,
     key: job.jobId,
     title: occupancyJobTitle(job),
     jobKind: job.kind,
     jobId: job.jobId
   }))
-  return [...hosts, ...collectLiveAwaitJobs(messages)]
-}
-
-function collectLiveAwaitJobs(
-  messages: readonly ChatMessage[] | undefined
-): Extract<BackgroundJobsPanelItem, { kind: 'await' }>[] {
-  const seen = new Set<string>()
-  const out: Extract<BackgroundJobsPanelItem, { kind: 'await' }>[] = []
-  for (const message of messages ?? []) {
-    for (const tc of message.toolCalls ?? []) {
-      if (!RUNNING_STATUSES.has(tc.status)) continue
-      if (seen.has(tc.id)) continue
-      if (!isJobAwaitCall(tc)) continue
-      seen.add(tc.id)
-      out.push({ kind: 'await', key: tc.id, toolCall: tc, jobId: null })
-    }
-  }
-  return out
 }

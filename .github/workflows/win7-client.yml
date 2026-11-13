@@ -101,7 +101,10 @@ jobs:
           mkdir -p .cargo
           cat > .cargo/config.toml <<'EOF'
           [target.x86_64-win7-windows-msvc]
-          rustflags = ['--cfg', 'target_vendor="pc"']
+          rustflags = [
+            '-A', 'explicit_builtin_cfgs_in_flags',
+            '--cfg', 'target_vendor="pc"',
+          ]
           EOF
           cat .cargo/config.toml
 

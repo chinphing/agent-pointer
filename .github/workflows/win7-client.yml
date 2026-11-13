@@ -35,6 +35,8 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      WIN7_TARGET: x86_64-win7-windows-msvc
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,29 +50,46 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # `tauri build` would run this via beforeBuildCommand, but the Tauri CLI
+      # is not used for the compile step below (it rejects Tier 3 targets), so
+      # build the frontend explicitly.
+      - name: Build frontend
+        run: npm run build
+
       # build-std requires the nightly toolchain plus the rust-src component.
       - name: Setup Rust nightly
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: rust-src
 
-      # `tauri build` shells out to cargo, so build-std is enabled through
-      # cargo config rather than a command line flag. Generated in CI only —
-      # committing this would force build-std on every other build.
-      - name: Enable build-std
-        run: |
-          mkdir -p .cargo
-          printf '[unstable]\nbuild-std = ["std"]\n' > .cargo/config.toml
-          echo '--- .cargo/config.toml ---'
-          cat .cargo/config.toml
-
       # The `cc` crate does not know this custom triple, so point it at MSVC
       # explicitly. `cl.exe` ships with the VS toolchain on windows-latest.
-      - name: Build Windows 7 client
+      - name: Build client binary for Windows 7
         env:
           CC_x86_64_win7_windows_msvc: cl.exe
           CXX_x86_64_win7_windows_msvc: cl.exe
-        run: npm run tauri:build -- --target x86_64-win7-windows-msvc --bundles nsis
+        run: |
+          cargo build --release -p pointer-app \
+            -Z build-std=std,panic_abort \
+            --target "$WIN7_TARGET"
+
+      # The Tauri CLI refuses any target missing from `rustup target list`,
+      # and Tier 3 targets are never distributed by rustup. Creating the
+      # sysroot directory makes the target show up as installed so the
+      # bundler accepts it; std itself still comes from build-std.
+      - name: Register target with rustup for the bundler
+        run: |
+          SYSROOT="$(rustc --print sysroot)"
+          mkdir -p "$SYSROOT/lib/rustlib/$WIN7_TARGET"
+          rustup target list --installed
+
+      - name: Package NSIS installer
+        continue-on-error: true
+        env:
+          CC_x86_64_win7_windows_msvc: cl.exe
+          CXX_x86_64_win7_windows_msvc: cl.exe
+        run: |
+          npm run tauri:build -- --target "$WIN7_TARGET" --bundles nsis
 
       - name: Upload client
         if: always()

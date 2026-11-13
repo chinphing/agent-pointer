@@ -1361,6 +1361,9 @@ html.no-flex-gap .collapsed-run-live-line .collapsed-run-hover-pill > * + * {
   .collapsed-run-live-slot {
     width: auto;
     align-self: stretch;
+    /* 首个「思考中」出现时还没有工具行，外层是收缩宽度（w-max / w-full 落在
+       fit-content 容器里），stretch 撑到的也是 0。给一个下限保证文字有位置。 */
+    min-width: 4rem;
   }
 }
 

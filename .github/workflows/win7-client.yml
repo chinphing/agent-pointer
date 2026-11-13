@@ -115,9 +115,20 @@ jobs:
           CC_x86_64_win7_windows_msvc: cl.exe
           CXX_x86_64_win7_windows_msvc: cl.exe
         run: |
+          set +e
           cargo build --release -p pointer-app \
             -Z build-std=std,panic_abort \
-            --target "$WIN7_TARGET"
+            --target "$WIN7_TARGET" > build.log 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::group::linker / compiler error detail"
+            grep -n -A40 -m1 'error: linking with' build.log \
+              || grep -n -A25 -m1 'error\[' build.log \
+              || tail -60 build.log
+            echo "::endgroup::"
+            exit "$status"
+          fi
+          tail -5 build.log
 
       # The Tauri CLI refuses any target missing from `rustup target list`,
       # and Tier 3 targets are never distributed by rustup. Creating the

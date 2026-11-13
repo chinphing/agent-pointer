@@ -72,6 +72,23 @@ jobs:
         with:
           arch: x64
 
+      # Git for Windows ships a POSIX `link.exe` (a hardlink utility). When it
+      # shadows MSVC's linker, rustc reports "link.exe returned an unexpected
+      # error" with no further output.
+      - name: Make sure MSVC linker wins
+        run: |
+          echo '--- link.exe resolution ---'
+          which -a link.exe || true
+          echo '--- cl.exe resolution ---'
+          which -a cl.exe || true
+          GIT_LINK="/c/Program Files/Git/usr/bin/link.exe"
+          if [ -f "$GIT_LINK" ]; then
+            mv "$GIT_LINK" "$GIT_LINK.disabled"
+            echo "disabled $GIT_LINK"
+          fi
+          echo '--- after ---'
+          which -a link.exe || true
+
       # The `cc` crate does not know this custom triple, so point it at MSVC
       # explicitly. `cl.exe` ships with the VS toolchain on windows-latest.
       - name: Build client binary for Windows 7

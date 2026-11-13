@@ -148,6 +148,14 @@ jobs:
         run: |
           npm run tauri:build -- --target "$WIN7_TARGET" --bundles nsis
 
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: warn
+
       - name: Upload client
         if: always()
         uses: actions/upload-artifact@v4

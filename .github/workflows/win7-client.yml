@@ -89,6 +89,22 @@ jobs:
           echo '--- after ---'
           which -a link.exe || true
 
+      # The target triple carries `win7` in the vendor position, so
+      # `cfg(target_vendor = "pc")` is false and crates that gate Windows code
+      # on the vendor (e.g. `ctor`) emit "not supported on the current target".
+      # rustc accepts extra values for the same cfg key, so adding `pc` makes
+      # the target look like a regular Windows target without patching crates.
+      # Scoped to this target only: applying it to the host would mislabel the
+      # build scripts.
+      - name: Mark the target as a Windows vendor
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml <<'EOF'
+          [target.x86_64-win7-windows-msvc]
+          rustflags = ['--cfg', 'target_vendor="pc"']
+          EOF
+          cat .cargo/config.toml
+
       # The `cc` crate does not know this custom triple, so point it at MSVC
       # explicitly. `cl.exe` ships with the VS toolchain on windows-latest.
       - name: Build client binary for Windows 7

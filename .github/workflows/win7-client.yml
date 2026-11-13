@@ -98,14 +98,31 @@ jobs:
       # build scripts.
       - name: Mark the target as a Windows vendor
         run: |
+          # Fetch dependencies first so the windows_*_msvc crates are unpacked.
+          cargo fetch --target "$WIN7_TARGET" > /dev/null 2>&1 || true
+
+          # `windows_x86_64_msvc`'s build script hardcodes the exact triple
+          # (`x86_64-pc-windows-msvc`), so it never emits its
+          # `rustc-link-search` for the win7 target and the linker then fails
+          # with LNK1181: cannot open input file 'windows.0.48.5.lib'.
+          # Add every such lib directory explicitly instead of patching crates.
+          LIB_DIRS=$(find "$HOME/.cargo/registry/src" -maxdepth 3 -type d \
+            -path '*windows_*_msvc-*/lib' 2>/dev/null || true)
+          echo "--- windows msvc lib dirs ---"
+          echo "$LIB_DIRS"
+
           mkdir -p .cargo
-          cat > .cargo/config.toml <<'EOF'
-          [target.x86_64-win7-windows-msvc]
-          rustflags = [
-            '-A', 'explicit_builtin_cfgs_in_flags',
-            '--cfg', 'target_vendor="pc"',
-          ]
-          EOF
+          {
+            echo '[target.x86_64-win7-windows-msvc]'
+            echo 'rustflags = ['
+            echo "  '-A', 'explicit_builtin_cfgs_in_flags',"
+            echo "  '--cfg', 'target_vendor=\"pc\"',"
+            for d in $LIB_DIRS; do
+              native=$(cygpath -m "$d" 2>/dev/null || echo "$d")
+              echo "  '-L', 'native=$native',"
+            done
+            echo ']'
+          } > .cargo/config.toml
           cat .cargo/config.toml
 
       # The `cc` crate does not know this custom triple, so point it at MSVC

@@ -37,6 +37,9 @@ jobs:
         shell: bash
     env:
       WIN7_TARGET: x86_64-win7-windows-msvc
+      # rust-toolchain.toml pins `channel = "stable"`, which would override the
+      # nightly install and make cargo reject `-Z build-std`.
+      RUSTUP_TOOLCHAIN: nightly
     steps:
       - name: Checkout
         uses: actions/checkout@v4

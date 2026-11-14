@@ -58,3 +58,13 @@ token.txt
 
 # 本地 E2B 沙箱开发环境（scripts/dev-sandbox.sh 产物）
 .dev-sandbox/
+
+# 本地登录联调产物（含测试密钥/口令，勿提交）
+/tmp/l1-auth/
+/tmp/l2-auth/
+/tmp/l3-rate/
+/tmp/l3-rl.toml
+/tmp/mg/
+/tmp/portal-doc/
+/tmp/login-design/
+/tmp/e2e-shots/

@@ -37,9 +37,11 @@ Pointer 桌面客户端可以运行在 Windows 7 SP1 x64 上，但需要两个�
 
 | 文件 | 大小（字节） | SHA-256 |
 |---|---|---|
-| `MicrosoftEdgeWebView2RuntimeInstallerX64.exe` | 145,772,880 | `f2cc49863e221402d4664d9fa944a47f22543da2dcb363438c3e598789b9fd5b` |
+| `MicrosoftEdgeWebView2RuntimeInstallerX64.exe`（109.0.1518.61） | 145,778,984 | `e6acaa1fe257c03c4f49346c0c779450041301f0ea2eeebd6ea42f2bb2a405fb` |
 | `vc_redist.x64.exe` | 25,635,768 | `cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b` |
 | `pointer-app.exe`（Win7 专用构建） | 约 64,500,000 | 每次构建不同，见 3.4 |
+
+> 我们实测跑通的是 109.0.1518.**78**（145,772,880 字节，SHA-256 `f2cc49863e221402d4664d9fa944a47f22543da2dcb363438c3e598789b9fd5b`）。下表给的是目前仍能取到的 **109.0.1518.61**，同属 109 分支，Win7 同样可用。两者任选其一，**别混用校验值**。
 
 拷贝到目标机器后用 `certutil -hashfile <文件> SHA256` 核对，不一致就重新取。
 
@@ -54,9 +56,17 @@ Installation Aborted
 
 原因有两个：Win7 的 TLS 栈过旧，且新版安装器调用了 Win7 没有的 `GetPackagesByPackageFamily`。
 
-微软已下架 109 的独立安装包。按以下顺序找：
+微软已下架 109 的独立安装包。**可直接下载的地址**（archive.org 归档，2026-11 验证有效）：
 
-1. **归档镜像（实际可用的途径）**。archive.org 上存在多个 Windows 补丁/运行库合集条目，检索 `MicrosoftEdgeWebView2RuntimeInstallerX64` 可找到。下载后用 3.1 的 SHA-256 核对——这是唯一能确认"拿到的是 109 而不是被替换成新版"的办法。
+```
+https://archive.org/download/patches_2023-01/110221-MicrosoftEdgeWebView2RuntimeInstallerX64_109.0.1518.61.exe
+```
+
+下载后务必核对 SHA-256 与 3.1 一致——这是唯一能确认"拿到的是 109 而不是被替换成新版"的办法。
+
+如果该条目失效，按以下顺序另找：
+
+1. **archive.org 其他补丁合集**。检索 `MicrosoftEdgeWebView2RuntimeInstallerX64`，在条目的文件列表里找文件名含 `109.0.1518` 的那个。
 2. **NuGet 固定版本包** `Microsoft.WebView2.FixedVersionRuntime.109.0.1518.*`。这是给应用自带运行时用的，解压后是完整运行时目录而非安装器，可替代使用（把解压目录放在应用旁边并设置 `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` 环境变量）。注意多个 109 的子版本在 NuGet 上已 404。
 3. **微软更新目录** `https://www.catalog.update.microsoft.com/Search.aspx?q=edge-109` 有 109.0.1518.52/.55/.78/.95/.115/.140 的 x86/x64/ARM64 包。但这些是**增量更新包**，只能升级已装的 Edge，**不能全新安装**，不能单独用于部署。
 

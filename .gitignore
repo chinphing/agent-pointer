@@ -55,3 +55,6 @@ crates/pointer-core/tests/locate_fixture/.env
 # CWPT 技能测试的残留：token.txt 含真实会话 cookie，绝不能进仓库
 token.txt
 .cache/
+
+# 本地 E2B 沙箱开发环境（scripts/dev-sandbox.sh 产物）
+.dev-sandbox/

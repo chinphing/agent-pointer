@@ -131,6 +131,7 @@ reg query "HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A
 3. 双击 `pointer-app.exe`，**无错误弹窗**
 4. 主窗口出现，侧栏可见 `New task` / `Skills` / `Connections`
 5. 任务管理器中除 `pointer-app.exe` 外应有多个 `msedgewebview2.exe` 进程——没有则说明 WebView2 未初始化
+6. 跑一次 computer-use 任务（截图 + 点击），确认 GDI 截图返回的是正常画面而不是全黑
 
 ---
 
@@ -192,7 +193,7 @@ python3 scripts/patch-win7-imports.py target/x86_64-win7-windows-msvc/release/po
 
 ### 7.1 截图后端降级为 GDI
 
-Win7 产物使用 GDI 截图（`BitBlt`），而不是 Windows 10+ 的 WGC：
+Win7 产物使用 GDI 截图（`BitBlt`），而不是 Windows 10+ 的 WGC。**已在 Win7 SP1 x64 上实测可用**：截图、点击等 computer-use 操作正常。
 
 | 项 | Win10/11（WGC） | Win7（GDI） |
 |---|---|---|

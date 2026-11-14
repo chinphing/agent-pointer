@@ -27,6 +27,57 @@ POINTER_E2E_SPLIT=all POINTER_E2E_MODE=hint POINTER_E2E_CONCURRENCY=8 cargo test
 > `POINTER_E2E_SCOPE=full` 当时等于 104 条，现在等于 404 条——**旧命令跑出来的数字
 > 与新命令不可比**，一律改用 `POINTER_E2E_SPLIT`。
 
+## 2026-11-14 — 思考预算 1024 会把模型判成「不能用」（harness 默认已改 8192）
+
+**读这张表之前先看这一节。** 这天同时查出两个缺陷，都会让分数凭空塌掉，
+而且**都不报错**——看起来就像「这个模型不行」。
+
+### 缺陷一：harness 没填 `capture_px`，模型被告知截图是 1×1
+
+`tests/full_chain/harness.rs` 构造 `ScreenCaptureResult` 时写的是
+`capture_px: (0, 0)`，而生产 `build_cur_screen_preamble` 用它告诉模型像素尺寸，
+`.max(1)` 一兜底就成了 **「This screenshot is 1×1 pixels」**。模型按 1×1 做
+`bbox` 换算，坐标全废。修复 `026bcf4f` 后：
+
+| 模型 | 修复前 | 修复后 |
+|---|---:|---:|
+| qwen3.8-flash | 23.1 % | **70.2 %** |
+
+**这之前的任何像素单位结果都不可信。**
+
+### 缺陷二：`thinking_budget: 1024` 把推理饿死
+
+harness 原先照抄生产 computer 档默认值（`session_model.rs` 的 1024 = low）。
+在这个预算下模型不会报错，只会给出**看起来合理、但整体向原点压缩**的框：
+
+| 模型 | budget | 命中 | X 斜率 | Y 斜率 |
+|---|---:|---:|---:|---:|
+| qwen3.8-27b | 1024 | **0.0 %**（复测 0.0 %，temp 1.0 时 1.0 %） | 0.77 | 0.72 |
+| qwen3.8-27b | 8192 | **73.1 % / 77.9 %** | 1.06 | 1.04 |
+| qwen3.8-flash | 1024 | 76.0 % / 70.2 % | — | — |
+| qwen3.8-flash | 8192 | 69.2 % | 1.04 | 1.00 |
+
+斜率是判据：正常应为 **1.0 左右**。**斜率明显小于 1（0.7–0.8）＝ 预算不够，
+不是模型差**，别急着下结论。
+
+排除过程中，下列变量单独测都正常，别再重复试：视觉能力、图像尺寸识别、
+「先归一化再换算」指令、工具调用格式、37 k 系统提示词原文、上下文长度、
+temperature / top_p、思考开关本身。
+
+### 现在的口径
+
+harness 默认 `round_thinking_budget = 8192`；要复现生产档位显式传
+`POINTER_E2E_THINKING_BUDGET=1024`。低于 2048 时 harness 会打印
+`[provider] WARNING: thinking_budget=… < 2048`，**看到这行就别拿这轮数字和 8k 基线比**。
+
+`[provider]` 启动行现在固定打印 `budget=…`，每次跑都先确认它。
+
+### 还没确认的
+
+- 中间档（2048 / 4096）够不够——只测了 1024 与 8192 两个端点。
+- 生产 `session_model.rs` 的 1024 是否要跟着改——这是产品问题，尚未动。
+- screenspot 300 例（含小目标）在 8192 下的表现——本次只跑了 sudoku。
+
 ## 2026-11-01 — communication.md 四类目标 + 容差圈（三次均值）
 
 **改动**：`prompts/communication.md` 的 `## Positioning` 从两类（Large/Small）

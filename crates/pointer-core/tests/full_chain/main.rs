@@ -500,30 +500,44 @@ fn build_provider(thinking: bool) -> Result<OpenAIProvider> {
             "hasKey": true
         }))?;
         settings.round_enable_thinking = Some(thinking);
-        // Match the computer tier defaults (`session_model.rs`: budget 1024,
-        // i.e. "low"). Leaving it unset makes `resolve_thinking_intensity`
-        // return Medium (2048), which is not what production sends.
+        // Default 8192, not the production computer-tier value (1024 = "low").
         //
-        // Override with `POINTER_E2E_THINKING_BUDGET` to test whether the main
-        // LLM is being starved: a 9×9 grid needs column arithmetic, and 1024
-        // tokens may cut the reasoning off mid-count.
+        // Measured on sudoku / hint / pixel / concurrency 8, 104 cases:
+        //   · qwen3.8-27b @ 1024 → 0/104 and 0/104; fitted slope 0.77 (X) /
+        //     0.72 (Y), i.e. every box compressed toward the origin.
+        //   · qwen3.8-27b @ 8192 → 73.1 % and 77.9 %; slope 1.06 / 1.04.
+        //   · qwen3.8-flash is insensitive (70–76 % at both settings).
+        // A starved budget does not fail loudly — it produces plausible,
+        // systematically shrunken coordinates that read as "the model is bad".
+        // Benchmark at 8192 unless the run is explicitly about the production
+        // budget; set `POINTER_E2E_THINKING_BUDGET=1024` to reproduce that.
         settings.round_thinking_budget = Some(
             std::env::var("POINTER_E2E_THINKING_BUDGET")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(1024),
+                .unwrap_or(8192),
         );
         // Diagnostic: `enable_thinking` only reaches the wire through
         // `extraBody`, so print what the request will actually carry. A silent
         // "thinking is on" that never lands in the body would make every hint
         // measurement unrepresentative of production.
         eprintln!(
-            "[provider] thinking={thinking} round_enable={:?} extra_body={}",
+            "[provider] thinking={thinking} round_enable={:?} budget={:?} extra_body={}",
             settings.round_enable_thinking,
+            settings.round_thinking_budget,
             pointer_core::models::effective_chat_extra_body(&settings)
                 .map(|v| v.to_string())
                 .unwrap_or_else(|| "<none>".into())
         );
+        if settings.round_thinking_budget.unwrap_or(0) < 2048 {
+            eprintln!(
+                "[provider] WARNING: thinking_budget={:?} < 2048 — a starved budget does not \
+                 fail loudly, it returns plausible but systematically shrunken boxes \
+                 (qwen3.8-27b: 0 % at 1024 vs 73–78 % at 8192 on sudoku). \
+                 This run is NOT comparable to the 8k baseline.",
+                settings.round_thinking_budget
+            );
+        }
         return Ok(OpenAIProvider::new(settings, api_key));
     }
     provider_from_settings_file(thinking)

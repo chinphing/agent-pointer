@@ -260,6 +260,15 @@ fn read_image(path: &Path) -> Result<LocateImage> {
     })
 }
 
+/// 需要**真实模型**与外部数据集 `pointer-eval-data/verify_position`（259 条，每条约一次
+/// 多图请求）。默认不跑：`cargo test` 不能依赖外部资源与网络。
+///
+/// 手动运行：
+/// ```bash
+/// POINTER_VERIFY_EVAL_N=20 \
+///   cargo test -p pointer-core --test verify_position_eval -- --ignored --nocapture
+/// ```
+#[ignore = "needs a real model + external pointer-eval-data; run with --ignored (see the doc comment)"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn eval_verify_fixture() -> Result<()> {
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))

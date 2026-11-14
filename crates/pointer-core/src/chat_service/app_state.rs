@@ -1911,20 +1911,14 @@ mod active_main_task_board_tests {
     /// 只设不恢复会泄漏给并行跑的技能用例（它们按 `$HOME/.pointer` 找文件）。
     struct PluginsHomeGuard {
         _tmp: tempfile::TempDir,
-        _lock: std::sync::MutexGuard<'static, ()>,
-        _restore: crate::test_support::EnvRestore,
+        _home: crate::storage::TestPointerHome,
     }
 
     fn isolate_plugins_home() -> PluginsHomeGuard {
         let tmp = tempfile::tempdir().expect("temp plugins home");
-        let lock = crate::test_support::home_env_lock();
-        let restore = crate::test_support::EnvRestore::capture(&["POINTER_HOME"]);
-        std::env::set_var("POINTER_HOME", tmp.path());
-        PluginsHomeGuard {
-            _tmp: tmp,
-            _lock: lock,
-            _restore: restore,
-        }
+        // 注入 pointer home：不再改写进程级 POINTER_HOME。
+        let home = crate::storage::TestPointerHome::set(tmp.path());
+        PluginsHomeGuard { _tmp: tmp, _home: home }
     }
 
     /// 插件启用后：其技能自动加入 general 的 agentSkillOverrides（落盘），

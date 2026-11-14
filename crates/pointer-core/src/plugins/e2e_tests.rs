@@ -14,10 +14,11 @@ use std::sync::Arc;
 
 /// 隔离 storage 数据目录 + 插件主目录（防测试污染真实 `~/.pointer`）。
 struct TestIsolation {
-    _lock: std::sync::MutexGuard<'static, ()>,
+    // 字段按声明顺序 drop：override 必须先于 `_lock` 撤销，否则锁一放，
+    // 下一个测试写入自己的 home 后，这里的 Drop 会把它的值改回 None。
+    _home: crate::storage::TestPointerHome,
     _data: tempfile::TempDir,
-    _home_lock: std::sync::MutexGuard<'static, ()>,
-    _home_restore: crate::test_support::EnvRestore,
+    _lock: std::sync::MutexGuard<'static, ()>,
     plugins_home: tempfile::TempDir,
     workspace: tempfile::TempDir,
 }
@@ -27,17 +28,13 @@ fn isolate() -> TestIsolation {
     let data = tempfile::tempdir().expect("temp data dir");
     crate::storage::set_test_app_data_dir(data.path().to_path_buf());
     let plugins_home = tempfile::tempdir().expect("temp plugins home");
-    // POINTER_HOME 与 HOME 决定同一个落点，必须共用 home_env_lock，
-    // 且用完要恢复——否则会泄漏给并行跑的技能用例。
-    let home_lock = crate::test_support::home_env_lock();
-    let home_restore = crate::test_support::EnvRestore::capture(&["POINTER_HOME"]);
-    std::env::set_var("POINTER_HOME", plugins_home.path());
+    // 注入 pointer home（不碰 POINTER_HOME/HOME），drop 时自动恢复。
+    let home = crate::storage::TestPointerHome::set(plugins_home.path());
     let workspace = tempfile::tempdir().expect("temp workspace");
     TestIsolation {
-        _lock: lock,
+        _home: home,
         _data: data,
-        _home_lock: home_lock,
-        _home_restore: home_restore,
+        _lock: lock,
         plugins_home,
         workspace,
     }

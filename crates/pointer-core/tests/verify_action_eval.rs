@@ -43,7 +43,14 @@ use pointer_core::provider::OpenAIProvider;
 
 #[derive(Deserialize, Debug, Clone)]
 struct Row {
+    /// 样本 id。旧数据集手写；运行时采集产物没有这个字段，见 [`Row::ensure_id`]。
+    #[serde(default)]
     id: String,
+    /// 采集产物用它 + `created_at_ms` 标识一条样本。
+    #[serde(default)]
+    conversation_id: String,
+    #[serde(default)]
+    created_at_ms: Option<i64>,
     /// 采集时记下的操作文本，例如 `Clicked 'Save' button`。
     #[serde(default)]
     operation: String,
@@ -201,6 +208,22 @@ fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../pointer-eval-data/verify_action")
 }
 
+impl Row {
+    /// 采集产物（`pointer-eval-data/verify_action/*/truth.jsonl`）只有
+    /// `conversation_id` + `created_at_ms`；拼一个稳定 id，报错时能定位到条目。
+    fn ensure_id(&mut self) {
+        if !self.id.trim().is_empty() {
+            return;
+        }
+        let conv = self.conversation_id.trim();
+        self.id = match (conv.is_empty(), self.created_at_ms) {
+            (false, Some(ts)) => format!("{conv}@{ts}"),
+            (false, None) => conv.to_string(),
+            _ => "unnamed".to_string(),
+        };
+    }
+}
+
 fn load_rows() -> Result<Vec<Row>> {
     let root = root();
     let scenes = scene_dirs(&root);
@@ -218,6 +241,7 @@ fn load_rows() -> Result<Vec<Row>> {
             }
             let mut row: Row = serde_json::from_str(line)
                 .with_context(|| format!("{}:{} 解析失败", truth.display(), i + 1))?;
+            row.ensure_id();
             row.base = dir.clone();
             row.family = row_family(&row);
             out.push(row);
@@ -465,6 +489,16 @@ fn scale_rule_violation(o: &Outcome) -> Option<String> {
     }
 }
 
+/// 需要**真实模型**与外部数据集 `pointer-eval-data/verify_action`（每条样本都要
+/// 发一次多图请求，259 条要几分钟）。默认不跑：`cargo test` 不能依赖外部资源。
+///
+/// 手动运行：
+/// ```bash
+/// # 默认根目录是 <repo>/../pointer-eval-data/verify_action；
+/// # 覆盖时用绝对路径（相对路径按 crates/pointer-core 解析）。
+/// cargo test -p pointer-core --test verify_action_eval -- --ignored --nocapture
+/// ```
+#[ignore = "needs a real model + external pointer-eval-data; run with --ignored (see the doc comment)"]
 #[tokio::test(flavor = "multi_thread")]
 async fn eval_action_verify() -> Result<()> {
     let rows = load_rows()?;
@@ -700,4 +734,25 @@ async fn eval_action_verify() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[test]
+fn parses_a_collected_row_without_an_id() {
+    // Shape produced by the runtime collector: no `id`, no `operation`; the row
+    // is identified by `conversation_id` + `created_at_ms`.
+    let line = r#"{"conversation_id":"0a8eeb49-d15f-4fa6-a769-4c9a36fad089","created_at_ms":1793117271760,"executed":"Executed mouse_click_at: 点击Dock中数独九宫格图标","verdict":"pass","step_summary":"brought to foreground","shots":["a.jpg","b.jpg"]}"#;
+    let mut row: Row = serde_json::from_str(line).expect("collected row parses");
+    row.ensure_id();
+    assert_eq!(row.id, "0a8eeb49-d15f-4fa6-a769-4c9a36fad089@1793117271760");
+    assert_eq!(row.shots.len(), 2);
+    assert!(row.operation.is_empty(), "operation falls back to `executed`");
+    assert_eq!(row.verdict, "pass");
+}
+
+#[test]
+fn an_explicit_id_is_kept() {
+    let mut row: Row =
+        serde_json::from_str(r#"{"id":"sudoku-1","shots":["a.jpg"]}"#).expect("parses");
+    row.ensure_id();
+    assert_eq!(row.id, "sudoku-1");
 }

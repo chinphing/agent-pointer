@@ -119,6 +119,7 @@ async fn webhook_trigger_completes_assistant_reply_with_local_api_key() {
         workspace_inherit_disabled: None,
         deliver: DeliverTarget::None,
         web_session_auth: None,
+        access_host: None,
     };
 
     let handle = dispatcher.dispatch(req).await.unwrap();

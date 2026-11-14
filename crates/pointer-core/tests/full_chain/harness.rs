@@ -451,6 +451,10 @@ pub async fn agent_hint(
     .context("build goal message")?;
 
     let slices = system_prompt_slices()?;
+    if let Ok(path) = std::env::var("POINTER_E2E_DUMP_SYSTEM") {
+        let _ = std::fs::write(&path, slices.join("\n\n"));
+        eprintln!("[system] dumped to {path}");
+    }
     eprintln!(
         "[system] {} block(s), total {} chars",
         slices.len(),

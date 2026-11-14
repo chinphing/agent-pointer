@@ -1578,6 +1578,29 @@ impl OpenAIProvider {
         } = wire;
         let client = llm_http_client(Duration::from_secs(180))?;
 
+        // Temporary diagnostic: dump the exact streaming request body so an eval
+        // run can be diffed against a hand-built probe. Env-gated, no-op otherwise.
+        if let Ok(path) = std::env::var("POINTER_DUMP_STREAM_BODY") {
+            fn scrub(v: &mut serde_json::Value) {
+                match v {
+                    serde_json::Value::String(s) => {
+                        if s.starts_with("data:") && s.len() > 200 {
+                            *s = format!("<image {} chars>", s.len());
+                        }
+                    }
+                    serde_json::Value::Array(a) => a.iter_mut().for_each(scrub),
+                    serde_json::Value::Object(o) => o.values_mut().for_each(scrub),
+                    _ => {}
+                }
+            }
+            let mut body = wire_body.clone();
+            scrub(&mut body);
+            let _ = std::fs::write(
+                &path,
+                serde_json::to_string_pretty(&body).unwrap_or_default(),
+            );
+        }
+
         let t_http = Instant::now();
         let resp = tokio::select! {
             _ = cancel.cancelled() => return Err(anyhow!("cancelled")),

@@ -130,6 +130,17 @@ jobs:
           } > .cargo/config.toml
           cat .cargo/config.toml
 
+      # xcap ships two Windows capture backends: Windows Graphics Capture
+      # (Win10+, needs WinRT) and GDI (available since Windows 2000). Selecting
+      # GDI keeps the computer-use tools working on Windows 7 without pulling
+      # WinRT into the import table. The `windows` dependency enables
+      # Win32_Graphics_Gdi unconditionally, so only the WinRT bits drop out.
+      # Mainline builds keep WGC — this rewrite is CI-only.
+      - name: Select the GDI capture backend
+        run: |
+          sed -i 's/, features = \["wgc"\]//' crates/pointer-core/Cargo.toml
+          grep -n '^xcap' crates/pointer-core/Cargo.toml
+
       # The `cc` crate does not know this custom triple, so point it at MSVC
       # explicitly. `cl.exe` ships with the VS toolchain on windows-latest.
       - name: Build client binary for Windows 7

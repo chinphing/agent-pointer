@@ -18,7 +18,7 @@ log = "0.4"
 md5 = "0.7"
 mime_guess = "2"
 parking_lot = "0.12"
-pointer-core = { path = "../pointer-core", default-features = false }
+pointer-core = { path = "../pointer-core" }
 rand = "0.8"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }

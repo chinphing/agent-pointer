@@ -2487,23 +2487,18 @@ async fn append_conversation_messages(
     Ok(Json(appended))
 }
 
-async fn send_chat(
-    State(state): State<ServerState>,
-    headers: HeaderMap,
-    Json(payload): Json<SendChatPayload>,
-) -> Result<StatusCode, ApiError> {
-    require_platform_access(&state)?;
-    let web_session_auth =
-        web_session::lookup_session_auth(&state.web_sessions, &headers).or_else(|| {
-            pointer_core::web_request_auth::capture_web_session_auth(&state.core.platform_auth)
-        });
-    if web_session_auth.is_none() {
-        log::warn!(
-            "send_chat: no browser session auth (conversation_id={})",
-            payload.conversation_id
-        );
-    }
-    let req = TriggerRequest {
+/// Build the `TriggerRequest` for `POST /api/chat`.
+///
+/// Split out of [`send_chat`] so the request assembly — in particular
+/// `access_host`, which decides 内网/外网 for downstream skills — can be tested
+/// without standing up `ServerState` (twelve fields, including a live
+/// dispatcher and the whole `AppState`).
+fn send_chat_trigger_request(
+    payload: SendChatPayload,
+    web_session_auth: Option<pointer_core::web_request_auth::WebSessionAuth>,
+    headers: &HeaderMap,
+) -> TriggerRequest {
+    TriggerRequest {
         run_id: None,
         idempotency_key: None,
         conversation_id: Some(payload.conversation_id),
@@ -2520,12 +2515,91 @@ async fn send_chat(
         workspace_inherit_disabled: payload.workspace_inherit_disabled,
         deliver: DeliverTarget::None,
         web_session_auth,
-        access_host: access_host::request_access_host(&headers),
-    };
+        access_host: access_host::request_access_host(headers),
+    }
+}
+
+async fn send_chat(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    Json(payload): Json<SendChatPayload>,
+) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
+    let web_session_auth =
+        web_session::lookup_session_auth(&state.web_sessions, &headers).or_else(|| {
+            pointer_core::web_request_auth::capture_web_session_auth(&state.core.platform_auth)
+        });
+    if web_session_auth.is_none() {
+        log::warn!(
+            "send_chat: no browser session auth (conversation_id={})",
+            payload.conversation_id
+        );
+    }
+    let req = send_chat_trigger_request(payload, web_session_auth, &headers);
     if let Err(e) = state.dispatcher.dispatch(req).await {
         log::error!("send_chat: dispatch failed: {e:#}");
     }
     Ok(StatusCode::ACCEPTED)
+}
+
+#[cfg(test)]
+mod send_chat_trigger_request_tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    fn payload() -> SendChatPayload {
+        serde_json::from_value(serde_json::json!({
+            "conversationId": "c1",
+            "messages": [{
+                "id": "m1",
+                "role": "user",
+                "content": "hi",
+                "status": "complete",
+                "createdAt": 0
+            }]
+        }))
+        .expect("minimal SendChatPayload")
+    }
+
+    /// 外网域名走代理时，`X-Forwarded-Host` 才是用户真正访问的域名。
+    /// 这一跳错了，技能脚本会拿到内网地址，外网用户点进去打不开。
+    #[test]
+    fn forwarded_host_reaches_the_trigger_request() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-host",
+            HeaderValue::from_static("pointer.hospital.example"),
+        );
+        let req = send_chat_trigger_request(payload(), None, &headers);
+        assert_eq!(
+            req.access_host.as_deref(),
+            Some("pointer.hospital.example")
+        );
+    }
+
+    #[test]
+    fn host_header_is_the_fallback() {
+        let mut headers = HeaderMap::new();
+        headers.insert("host", HeaderValue::from_static("10.0.0.5:8787"));
+        let req = send_chat_trigger_request(payload(), None, &headers);
+        assert_eq!(req.access_host.as_deref(), Some("10.0.0.5"));
+    }
+
+    /// 没有 HTTP 上下文时必须留空——下游技能据此回退，不能猜一个默认域名。
+    #[test]
+    fn missing_headers_leave_access_host_empty() {
+        let req = send_chat_trigger_request(payload(), None, &HeaderMap::new());
+        assert_eq!(req.access_host, None);
+    }
+
+    /// 其余字段照旧搬运，别在抽函数时搬丢了。
+    #[test]
+    fn other_fields_still_come_from_the_payload() {
+        let req = send_chat_trigger_request(payload(), None, &HeaderMap::new());
+        assert_eq!(req.conversation_id.as_deref(), Some("c1"));
+        assert_eq!(req.trigger_source, TriggerSource::HttpRuns);
+        assert_eq!(req.messages.len(), 1);
+    }
 }
 
 // ---- Phase 4: HTTP Runs API + generic webhook ----

@@ -422,14 +422,18 @@ impl RunDispatcher {
         let run_id_task = run_id.clone();
         let conv_id_task = conversation_id.clone();
         let web_session_auth = req.web_session_auth.clone();
+        let access_host = req.access_host.clone();
         let join = tokio::spawn(async move {
-            crate::web_request_auth::run_with_optional_web_session(
-                web_session_auth,
-                || async move {
-                    this.run_runner(req, run_id_task, conv_id_task, cancel)
-                        .await
-                },
-            )
+            crate::access_host_scope::run_scoped(access_host, || async move {
+                crate::web_request_auth::run_with_optional_web_session(
+                    web_session_auth,
+                    || async move {
+                        this.run_runner(req, run_id_task, conv_id_task, cancel)
+                            .await
+                    },
+                )
+                .await
+            })
             .await;
         });
         self.inner.tasks.lock().insert(run_id.clone(), join);
@@ -1006,6 +1010,7 @@ impl RunDispatcher {
             workspace_inherit_disabled: None,
             deliver: DeliverTarget::None,
             web_session_auth: self.app_state().automation_execution_auth(),
+            access_host: None,
         };
         self.dispatch(req).await
     }
@@ -1067,6 +1072,7 @@ mod origin_stamp_tests {
             workspace_inherit_disabled: None,
             deliver: DeliverTarget::None,
             web_session_auth: None,
+            access_host: None,
         }
     }
 

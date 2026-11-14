@@ -215,6 +215,10 @@ pub struct TriggerRequest {
     /// Per-browser OAuth session for pointer-server HTTP runs (not serialized).
     #[serde(skip, default)]
     pub web_session_auth: Option<WebSessionAuth>,
+    /// 本次请求访问进来的域名（内网/外网区分用，not serialized）。
+    /// 没有 HTTP 上下文的触发源（cron / webhook / IM）保持 `None`。
+    #[serde(skip, default)]
+    pub access_host: Option<String>,
 }
 
 /// Immediate response from [`crate::dispatcher::RunDispatcher::dispatch`].

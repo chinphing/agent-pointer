@@ -51,3 +51,7 @@ cases/
 
 # locate_fixture 的本地 API key（模板是 env.example，见 README）
 crates/pointer-core/tests/locate_fixture/.env
+
+# CWPT 技能测试的残留：token.txt 含真实会话 cookie，绝不能进仓库
+token.txt
+.cache/

@@ -255,6 +255,8 @@ impl IdleJobPush {
             // Same as cron/webhook: reuse browser/local session (or cached LLM keys)
             // so standalone server idle push is not gated as "请先登录".
             web_session_auth: state.automation_execution_auth(),
+            // 空闲推送没有 HTTP 请求，拿不到域名。
+            access_host: None,
         };
         if let Err(err) = self.dispatcher.dispatch(req).await {
             log::error!(

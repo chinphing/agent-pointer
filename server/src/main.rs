@@ -35,6 +35,7 @@ use pointer_core::{
     provider::OpenAIProvider,
     storage,
 };
+mod access_host;
 mod channels;
 mod local_auth;
 mod web_session;
@@ -2446,6 +2447,7 @@ async fn send_chat(
         workspace_inherit_disabled: payload.workspace_inherit_disabled,
         deliver: DeliverTarget::None,
         web_session_auth,
+        access_host: access_host::request_access_host(&headers),
     };
     if let Err(e) = state.dispatcher.dispatch(req).await {
         log::error!("send_chat: dispatch failed: {e:#}");
@@ -3054,6 +3056,7 @@ async fn webhook_ingress(
             sync_automation_web_session(&state);
             state.core.automation_execution_auth()
         },
+        access_host: None,
     };
 
     let handle = state

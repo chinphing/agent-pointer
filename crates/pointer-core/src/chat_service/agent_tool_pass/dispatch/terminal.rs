@@ -292,6 +292,8 @@ async fn run_terminal_foreground(
         .unwrap_or_default();
     let session_user_id_for_blocking = session_user_id.clone();
     let session_work_dir_for_blocking = session_workspace.clone();
+    // thread-local 不跟随 spawn_blocking，必须先取出再在闭包里重放。
+    let access_host_for_blocking = crate::access_host_env::current_access_host();
     let join = tokio::task::spawn_blocking(move || {
         let state = unsafe { &*(state_ptr as *const AppState) };
         let stream = unsafe { &*(stream_ptr as *const StreamTx) };
@@ -320,6 +322,9 @@ async fn run_terminal_foreground(
             );
             let _session_user_guard = crate::session_user_env::SessionUserIdGuard::enter(
                 session_user_id_for_blocking.clone(),
+            );
+            let _access_host_guard = crate::access_host_env::AccessHostGuard::enter(
+                access_host_for_blocking.clone().unwrap_or_default(),
             );
             run_terminal_command_streaming(
                 args_value,
@@ -416,7 +421,11 @@ async fn run_terminal_background(
         host_scoped_message_id: scoped_message_id,
         abort_flag,
     };
-    tokio::spawn(run_background_terminal(job_id.clone(), spawn));
+    let access_host = crate::access_host_env::current_access_host();
+    let job_id_for_task = job_id.clone();
+    tokio::spawn(crate::access_host_scope::run_scoped(access_host, move || {
+        run_background_terminal(job_id_for_task, spawn)
+    }));
 
     let handle = background_job_handle_json(&job_id, JobStatus::Running, "terminal", None, None);
     // A large `blockUntilMs` must never park the parent turn: the job keeps
@@ -586,6 +595,7 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
     let trace_id_for_terminal = trace_id_opt(spawn.host_trace_id.as_deref());
     let scoped_message_id_for_terminal = trace_id_opt(spawn.host_scoped_message_id.as_deref());
     let session_work_dir_for_blocking = session_workspace.clone();
+    let access_host_for_blocking = crate::access_host_scope::current();
 
     let join = tokio::task::spawn_blocking(move || {
         let _workspace_guard = ConversationWorkspaceGuard::enter(session_workspace.clone());
@@ -593,6 +603,9 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
             crate::session_work_dir_env::SessionWorkDirGuard::enter(session_work_dir_for_blocking);
         let _session_user_guard =
             crate::session_user_env::SessionUserIdGuard::enter(session_user_id);
+        let _access_host_guard = crate::access_host_env::AccessHostGuard::enter(
+            access_host_for_blocking.unwrap_or_default(),
+        );
         run_terminal_command_streaming(
             args_value,
             session_workspace,

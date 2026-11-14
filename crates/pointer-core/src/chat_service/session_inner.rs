@@ -328,6 +328,10 @@ pub(super) async fn run_chat_inner(
         crate::session_work_dir_env::SessionWorkDirGuard::enter(effective_workspace.clone());
 
     let _session_user_guard = crate::session_user_env::SessionUserIdGuard::enter(session_user_id);
+    // 请求级域名：从 HTTP 边界带过来的 task-local，落成 thread-local 供终端环境注入。
+    let _access_host_guard = crate::access_host_env::AccessHostGuard::enter(
+        crate::access_host_scope::current().unwrap_or_default(),
+    );
 
     if effective_workspace.trim() != ui_workspace_before.trim() {
         let is_ephemeral = ui_workspace_before.trim().is_empty()

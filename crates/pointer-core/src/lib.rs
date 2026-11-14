@@ -1,6 +1,8 @@
 pub mod agent_events;
 pub mod agent_instance_scope;
 pub mod agents;
+pub mod access_host_env;
+pub mod access_host_scope;
 pub mod channel_outbound;
 pub mod chat_service;
 pub mod client_env;
@@ -33,6 +35,7 @@ pub mod scheduler;
 pub mod server_access;
 pub mod server_config;
 pub mod server_workspace;
+pub(crate) mod scoped_env_slot;
 pub mod session_sandbox;
 pub mod session_search;
 pub mod session_user_env;

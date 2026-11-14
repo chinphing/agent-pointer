@@ -117,6 +117,11 @@ jobs:
             echo 'rustflags = ['
             echo "  '-A', 'explicit_builtin_cfgs_in_flags',"
             echo "  '--cfg', 'target_vendor=\"pc\"',"
+            # Our EventSetInformation stub (src-tauri/src/main.rs) collides with
+            # the import-library thunk that the windows crate drags in. The
+            # object file is linked before the library, so /FORCE:MULTIPLE keeps
+            # our definition and the import is never referenced.
+            echo "  '-C', 'link-arg=/FORCE:MULTIPLE',"
             for d in $LIB_DIRS; do
               native=$(cygpath -m "$d" 2>/dev/null || echo "$d")
               echo "  '-L', 'native=$native',"

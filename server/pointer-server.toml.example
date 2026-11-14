@@ -1,5 +1,10 @@
 # Copy to pointer-server.toml beside pointer-server.exe (NOT pointer-server.toml.example).
 # OS environment variables override file values (remove NSSM AppEnvironmentExtra if duplicated).
+#
+# 单实例约束：Web 会话（pointer_web_session）与登录中状态都保存在本进程内存里，
+# 没有外置会话存储。同一份配置只能跑一个实例（不要多副本/负载均衡），
+# 进程重启会让所有在线会话失效、未完成的登录失效。
+# 自检：pointer-server auth doctor [--config <path>] [--network] [--exchange]
 
 # --- Standalone self-hosted deployment (no readflowai.com) ---
 # [deployment]
@@ -11,9 +16,19 @@
 # # Generate: pointer-server --hash-password --secret '<hmac_secret>' '<password>'
 # password_hmac = "...."
 #
-# # Third-party SSO (standalone only): open https://{audience}/?sso=<jwt>
-# [auth.local.sso]
-# enabled = true
+# # Third-party SSO: a `token_lookup` provider. The portal opens
+# # https://{public_url}/api/auth/callback/portal?ticket=<jwt>
+# [auth.providers.portal]
+# kind = "token_lookup"
+# display_name = "SSO"
+# icon = "ticket"              # building / key / ticket / user / shield / globe
+#
+# [auth.providers.portal.token_lookup]
+# ticket_param = "ticket"      # query parameter carrying the ticket
+# subject_path = "/sub"        # stable user id claim
+# nickname_path = "/name"      # optional display name claim
+#
+# [auth.providers.portal.token_lookup.signing]
 # secret = "replace-with-shared-hmac-secret"
 # audience = "https://pointer.example.com"
 #
@@ -125,12 +140,25 @@ skills_dir = "skills"
 # any legacy auth.dat under the data dir so old global sessions are not reused
 # by the desktop-style code path on other entrypoints.
 #
-# Standalone mode: Web UI shows username/password + captcha login, and optional
-# third-party SSO via ?sso=<jwt> (local HMAC verify; no official exchange-code).
-# POST /api/auth/local/login with [auth.local] username / password_hmac / hmac_secret.
+# Standalone mode: the Web UI renders one entry per enabled provider from
+# `[auth.providers.<id>]` (GET /api/auth/providers). `local_password` shows the
+# username/password + captcha form:
+#   POST /api/auth/login/start?provider=local_password  → { captcha: { captchaId, imageSvg } }
+#   POST /api/auth/login/finish?provider=local_password → { username, password, captchaId, captcha } → session cookie
+# A `token_lookup` provider is entered by the portal at
+# GET /api/auth/callback/<id>?<ticket_param>=<jwt>.
 # Generate password_hmac: pointer-server --hash-password --secret '<hmac_secret>' '<password>'
-# SSO: [auth.local.sso] secret + audience; mint with --mint-sso-ticket --sub USER_ID
+# SSO: [auth.providers.<id>] kind = "token_lookup" + signing secret/audience;
+# mint with --mint-sso-ticket --sub USER_ID
 # Deprecated: admin_token is ignored.
+#
+# 登录入口限流（默认开启；进程内计数，单实例）：
+# [auth.rate_limit]
+# enabled = true                 # 总开关
+# per_ip_per_minute = 20         # 每 IP 每分钟的 login/start 次数；0 = 不限
+# max_pending = 256              # 同时在途的登录上限；超限拒绝新请求（不淘汰进行中的）；0 = 不限
+# finish_fail_backoff_secs = 3   # login/finish 失败后的冷却秒数；0 = 关闭
+# trusted_proxies = ["10.0.0.0/8", "127.0.0.1"]   # 只有来自这些地址的请求才采信 X-Forwarded-For
 #
 # Conversation history (GET /api/conversations*) requires a logged-in browser
 # session. Unauthenticated visitors see an empty sidebar until they sign in.

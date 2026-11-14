@@ -89,11 +89,12 @@ impl WebSessionStore {
     }
 }
 
-pub fn session_id_from_headers(headers: &HeaderMap) -> Option<String> {
+/// Value of one cookie from the request headers.
+pub fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
     let raw = headers.get(header::COOKIE)?.to_str().ok()?;
+    let prefix = format!("{name}=");
     for part in raw.split(';') {
         let part = part.trim();
-        let prefix = format!("{WEB_SESSION_COOKIE}=");
         if let Some(value) = part.strip_prefix(&prefix) {
             let value = value.trim();
             if !value.is_empty() {
@@ -102,6 +103,10 @@ pub fn session_id_from_headers(headers: &HeaderMap) -> Option<String> {
         }
     }
     None
+}
+
+pub fn session_id_from_headers(headers: &HeaderMap) -> Option<String> {
+    cookie_value(headers, WEB_SESSION_COOKIE)
 }
 
 pub fn set_session_cookie(headers: &mut HeaderMap, session_id: &str, secure: bool) {

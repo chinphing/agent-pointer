@@ -148,6 +148,12 @@ jobs:
           fi
           tail -5 build.log
 
+      # Third-party crates still drag a few Windows 8 entry points into the
+      # import table as static imports, and the Windows 7 loader resolves them
+      # before any of our code runs. See the script for the full explanation.
+      - name: Neutralise Windows 8+ imports
+        run: python scripts/patch-win7-imports.py "target/$WIN7_TARGET/release/pointer-app.exe"
+
       # The Tauri CLI refuses any target missing from `rustup target list`,
       # and Tier 3 targets are never distributed by rustup. Creating the
       # sysroot directory makes the target show up as installed so the

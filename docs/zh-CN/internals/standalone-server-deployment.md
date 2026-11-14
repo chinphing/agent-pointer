@@ -412,6 +412,7 @@ Standalone server 支持 Webhook 与 WSS 长连接。扫码注册流程：
 | `POINTER_USAGE_REPORT_ENABLED` | 用量上报 | `false` |
 | `POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL` | Agent `terminal` 禁止 command/stdin 含 `SESSION_USER_ID`（TOML `[server].forbid_session_user_id_in_terminal`） | 默认关闭；需要时 `true` |
 | `POINTER_SERVER_CORS_ORIGINS` | 浏览器 CORS Origin 列表（TOML `[server].cors_origins`；`*` 镜像任意来源） | 默认关闭（仅同源）；前后端分离或 `web:dev` 直连 API 时再开 |
+| `POINTER_ACCESS_HOST` | **只读注入**：用户本次访问的域名，由 `X-Forwarded-Host` → `Host` 推导后注入给技能脚本子进程 | 由服务自动设置，不要手工配置 |
 
 TOML `[env]` 段可批量注入上述变量（见 `server/pointer-server.toml.example`）。
 
@@ -435,6 +436,8 @@ server {
         proxy_pass http://127.0.0.1:8787;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
+        # 让后端知道用户实际访问的域名（内网/外网双域名部署时必需）
+        proxy_set_header X-Forwarded-Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -446,6 +449,51 @@ server {
     }
 }
 ```
+
+#### 双域名（内网 / 外网）部署
+
+同一套服务挂两个域名时，后端需要知道用户是从哪一个进来的，技能脚本据此选择对应的内网/外网系统地址。
+
+`X-Forwarded-Host` **必须透传**，否则后端只能拿到 `Host`——而 `Host` 在多层代理下可能是内网地址或 `127.0.0.1`，内外网就分不出来了。
+
+后端读取顺序为 `X-Forwarded-Host` → `Host`，取第一个（代理链最左侧），去掉端口并转小写，通过环境变量 `POINTER_ACCESS_HOST` 注入给技能脚本。
+
+多域名示例：
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name pointer.hospital.com;          # 外网
+    # ... ssl ...
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name pointer.internal.hospital.local;   # 内网
+    # ... ssl ...
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+脚本侧读取：
+
+```python
+host = os.environ.get("POINTER_ACCESS_HOST", "")
+```
+
+> 定时任务、Webhook、IM 消息触发的运行没有 HTTP 请求，不会设置该变量。脚本读到空值时应自行回退，不要猜。
+
 
 `pointer-server` 的 SSE 响应会带 `X-Accel-Buffering: no`，在未写 `proxy_buffering off` 的 location 上也可让 Nginx 对本响应关闭缓冲；**`proxy_read_timeout` 仍须在反代侧配置**（应用无法改写网关超时）。直连 `pointer-server`（无反代）无需这些项。
 

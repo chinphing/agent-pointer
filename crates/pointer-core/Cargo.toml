@@ -72,6 +72,9 @@ pointer-contract = { path = "../pointer-contract" }
 machine-uid = "0.5"
 ossify = "0.4.2"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# RS256/384/512 verification for the OIDC driver's ID tokens. Already in the
+# dependency graph through rustls (same 0.17 version, no new crate).
+ring = { version = "0.17", default-features = false, features = ["alloc"] }
 pdfium-render = { version = "0.8.37", default-features = false, features = ["image_025", "pdfium_latest", "thread_safe"] }
 pdfium-auto = "0.3"
 # OTLP/HTTP protobuf encoding for the OtlpExporter (Phoenix rejects JSON with 415).

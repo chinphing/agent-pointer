@@ -1886,7 +1886,7 @@ mod tests {
     #[test]
     fn build_authorize_url_for_redirect_includes_pkce_and_encoded_redirect() {
         let url = PlatformAuthManager::build_authorize_url_for_redirect(
-            "https://pointer.example.com/api/auth/oauth/callback",
+            "https://pointer.example.com/api/auth/callback/platform",
             "challenge_abc",
             "pointer-app",
         );
@@ -1899,7 +1899,7 @@ mod tests {
         assert!(url.contains("code_challenge_method=S256"));
         assert!(url.contains("state=pointer-app"));
         assert!(url.contains(
-            "redirect_uri=https%3A%2F%2Fpointer.example.com%2Fapi%2Fauth%2Foauth%2Fcallback"
+            "redirect_uri=https%3A%2F%2Fpointer.example.com%2Fapi%2Fauth%2Fcallback%2Fplatform"
         ));
         assert!(
             url.contains('&'),

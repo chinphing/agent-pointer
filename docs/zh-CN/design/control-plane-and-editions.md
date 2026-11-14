@@ -85,7 +85,7 @@ Agent 跑在哪？
 1. 产物、口味、控制面绑定、服务端认证方式，四问正交，不合成一个枚举。
 2. 控制面是运行时绑定，不是编译开关。登录、充值、云主机、余额走同一套代码。
 3. 发消息看凭证：本地 Key 和控制面会话都合法。官方客户端可额外要求登录。
-4. 公司云主机走控制面 OAuth，不走 standalone。`?sso=` 只服务「只要 server、无店铺」。
+4. 公司云主机走控制面 OAuth，不走 standalone。`token_lookup` 只服务「只要 server、无店铺」。
 5. 不增加 `POINTER_EDITION=enterprise`。不新增长期商业分支。
 6. 不改产品名、bundle id、crate、数据目录。
 7. 桌面和 Web、三个桌面系统，同一套门禁和绑定。
@@ -141,7 +141,7 @@ P1 设置项（面向用户，不写开发词）：
 | `deployment_mode` | 身份来自 | 用于 |
 | --- | --- | --- |
 | `platform` | 控制面 OAuth（官网或公司自建官网） | 用 Pointer；自己用但已绑控制面；公司还要云主机 |
-| `standalone` | 本机账密或门户 `?sso=` | 公司只要 server；完全离线的自建 Web |
+| `standalone` | 本机账密或门户 `token_lookup` 票 | 公司只要 server；完全离线的自建 Web |
 
 standalone 关闭云主机 OAuth 和店铺。
 公司既要统一登录又要云主机：部署开源后的控制面，服务端用 `platform`，客户端绑定该公司地址。
@@ -227,7 +227,7 @@ control_plane_bound   已绑定控制面
 
 ### P2 公司只要 server
 
-standalone 账密和 `?sso=` 已有。本期只收口预期：
+standalone 账密和 `token_lookup` 票已有。本期只收口预期：
 
 - 员工从浏览器打开公司服务端完成统一登录
 - 不把短时票接到桌面回环

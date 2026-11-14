@@ -48,7 +48,7 @@ Configuration source priority:
 
 ## Local authentication
 
-**Files:** `crates/pointer-core/src/local_auth.rs`, `server/src/local_auth.rs`
+**Files:** `crates/pointer-core/src/local_auth.rs`, `server/src/auth_routes.rs`
 
 In standalone mode this replaces the official OAuth. The configuration stores `username` + `password_hmac` (HMAC-SHA256 hex) + `hmac_secret`; no plaintext password is stored.
 
@@ -64,17 +64,23 @@ Operations generate a digest:
 pointer-server --hash-password --secret '<hmac_secret>' '<password>'
 ```
 
-**Flow:**
+**Flow** (every login method is a provider in one registry — see [`standalone-local-login.md`](standalone-local-login.md)):
 
 ```
 GET  /api/auth/mode              → { "mode": "standalone" | "platform" }
-GET  /api/auth/local/captcha     → { captchaId, imageSvg }  (in-memory, single-use, TTL 5min)
-POST /api/auth/local/login
+GET  /api/auth/providers         → { providers: [{ id, display_name, kind }] }
+POST /api/auth/login/start?provider=local_password
+  → { provider, kind, captcha: { captchaId, imageSvg } }  (in-memory, single-use, TTL 5min)
+POST /api/auth/login/finish?provider=local_password
   { username, password, captchaId, captcha }
   → verify captcha → verify_local_password
   → success: create a WebSession (auth_kind = Local) + Set-Cookie
   → failure: 401 invalid_captcha | invalid_credentials
 ```
+
+`start` only begins a login (redirect URL, or the captcha challenge above) and `finish` only submits
+credentials; a credential body sent to `start` is rejected, and `finish` on a redirect provider answers
+`password_login_required` (on a `token_lookup` provider, `ticket_entry_only`).
 
 **Session:** `WebSessionAuthKind::Local`; in standalone mode every API that requires login requires a local session.
 
@@ -269,8 +275,10 @@ No platform provider/model is built in locally any more (`activeProviderId` / `m
 | Endpoint                        | Method   | Description                                                         |
 | ------------------------- | ---- | ---------------------------------------------------------- |
 | `/api/auth/mode`          | GET  | `{ "mode": "standalone" | "platform" }`                    |
-| `/api/auth/local/captcha` | GET  | `{ captchaId, imageSvg }`, standalone only                  |
-| `/api/auth/local/login`   | POST | `{ username, password, captchaId, captcha }`, returns Set-Cookie |
+| `/api/auth/providers`     | GET  | `{ providers: [{ id, display_name, kind, icon }] }` — enabled providers for the login page; `icon` is the icon name for that provider's login button |
+| `/api/auth/login/start`   | POST | `?provider=<id>`; redirect kinds → `{ authorize_url }`; `local_password` → the captcha challenge only (no credentials) |
+| `/api/auth/login/finish`  | POST | `?provider=<id>` + `{ username, password, captchaId, captcha }`; `local_password` only → session view + Set-Cookie; redirect kinds → `password_login_required`, ticket kinds → `ticket_entry_only` |
+| `/api/auth/callback/:provider` | GET | Terminal hop for every kind (`platform` keeps `/api/auth/oauth/callback` unless `callback_path` overrides it) |
 | `/api/license/status`     | GET  | Returns license claims, status and machine binding information                                |
 | `/api/license/reload`     | POST | Hot-reloads a new license from `POINTER_LICENSE_KEY`                       |
 
@@ -309,13 +317,30 @@ hmac_secret = "replace-with-long-random-secret"
 # pointer-server --hash-password --secret '<hmac_secret>' '<password>'
 password_hmac = "...."
 
-# Third-party SSO short-lived ticket (optional; without it only account + password is used)
-# [auth.local.sso]
-# enabled = true                       # env POINTER_SERVER_SSO_ENABLED (when unset, decided automatically from secret / audience)
-# secret = "shared-with-portal"        # env POINTER_SERVER_SSO_SECRET
-# secret_prev = "rotating-old-secret"  # env POINTER_SERVER_SSO_SECRET_PREV (secondary key for the rotation window)
-# audience = "pointer-server"          # env POINTER_SERVER_SSO_AUDIENCE (must match the ticket's aud)
-# max_skew_secs = 30                   # env POINTER_SERVER_SSO_MAX_SKEW_SECS (default 30)
+# Login providers. Deployment mode injects the default (standalone → local_password,
+# managed → platform); an explicit entry with the same id wins, `enabled = false` removes it.
+# [auth.providers.local_password]
+# kind = "local_password"
+# display_name = "本地密码"
+# allow_in_managed = true               # managed mode only: local_password bypasses the
+#                                       # allow-list, so it stays disabled unless this is true
+#
+# Third-party SSO short-lived ticket: a `token_lookup` provider. The portal opens
+# https://{public_url}/api/auth/callback/portal?ticket=<jwt>
+# [auth.providers.portal]
+# kind = "token_lookup"
+# display_name = "SSO"
+# callback_path = "/api/auth/callback/portal"   # optional; this is the default
+#
+# [auth.providers.portal.token_lookup]
+# ticket_param = "ticket"               # query parameter carrying the ticket
+# subject_path = "/sub"                 # stable user id claim
+# nickname_path = "/name"               # optional display name claim
+#
+# [auth.providers.portal.token_lookup.signing]
+# secret = "shared-with-portal"
+# secret_prev = "rotating-old-secret"   # secondary key for the rotation window
+# audience = "pointer-server"           # must match the ticket's aud
 
 [license]
 key = "base64_payload.base64_sig"      # license key string (takes precedence when non-empty)
@@ -380,6 +405,12 @@ skills_dir = "skills"
 # headers = { Authorization = "Bearer …" }   # http: extra request headers
 ```
 
+> **Single instance only.** Web sessions (`web_sessions`) and pending logins (`auth_pending`, TTL 600 s)
+> are kept in **process memory**: one configuration serves exactly one `pointer-server` process. Do not
+> put two instances behind a load balancer — a login started on one cannot be finished on the other
+> (`invalid_state`), and a restart signs every online session out. `pointer-server auth doctor` prints
+> this as its session-store check and exits 1 when a real problem is found; see [cli.md](cli.md).
+
 ### `[server]` web branding / copy parameters
 
 | TOML | Environment variable | Purpose | When unset |
@@ -424,17 +455,61 @@ Local `web:dev` is same-origin by default (Vite proxies `/api` to 8787). If the 
 
 > For an externally reachable instance, set both `public_url` and `allowed_user_ids`. An empty allow-list on a publicly reachable instance hands it to any platform user.
 
-### `[auth.local.sso]` (third-party short-lived ticket)
+### `[auth.providers.<id>]` (login providers)
 
-| TOML | Environment variable | Default |
+The map key is the provider id; it appears in URLs and logs. The nested provider tables are TOML only (no environment-variable equivalent).
+
+| TOML | Default | Description |
 |------|----------|------|
-| `enabled` | `POINTER_SERVER_SSO_ENABLED` | when unset, decided automatically from whether `secret` / `audience` are configured |
-| `secret` | `POINTER_SERVER_SSO_SECRET` | empty |
-| `secret_prev` | `POINTER_SERVER_SSO_SECRET_PREV` | empty (secondary key for the rotation window) |
-| `audience` | `POINTER_SERVER_SSO_AUDIENCE` | empty (must match the ticket's `aud`) |
-| `max_skew_secs` | `POINTER_SERVER_SSO_MAX_SKEW_SECS` | `30` |
+| `kind` | required | `platform` \| `local_password` \| `token_lookup` \| `oauth2_userinfo` \| `oidc` |
+| `enabled` | `true` | `false` disables the provider (and removes an injected default) |
+| `display_name` | the provider id | Label on the login page |
+| `allow_in_managed` | `false` | `local_password` only: managed mode refuses to start with it enabled unless this is `true` |
+| `callback_path` | `/api/auth/callback/<id>` | Overrides the browser callback path; `platform` defaults to `/api/auth/oauth/callback` instead |
+| `icon` | by `kind` | Login-button icon name; the SPA knows `building` / `key` / `ticket` / `user` / `shield` / `globe` and falls back to a circle with the display name's first letter for anything else |
+
+Default `icon` per `kind`: `platform` → `building`, `local_password` → `key`, `token_lookup` → `ticket`, `oauth2_userinfo` → `user`, `oidc` → `shield`.
+
+`token_lookup` (inbound SSO ticket):
+
+| TOML | Default | Description |
+|------|----------|------|
+| `ticket_param` | `ticket` | Query parameter carrying the ticket |
+| `subject_path` | `/sub` | Stable user id claim |
+| `nickname_path` | empty | Optional display-name claim |
+| `clock_skew_secs` | `30` | Tolerance for `exp` / `iat` |
+| `lookup.url` | empty | Server-to-server verification of an **opaque** ticket; mutually exclusive with `signing.secret` |
+| `signing.secret` | empty | HMAC secret for a **signed** JWT ticket |
+| `signing.secret_prev` | empty | Secondary key, still accepted during rotation |
+| `signing.audience` | empty | Expected `aud`; empty means "do not check" |
+
+`oauth2_userinfo` and `oidc` additionally take `authorize`, `token`, `userinfo` / `oidc` sub-tables (endpoint URLs, parameter names, JSON pointers, error rules) — see the module docs in `crates/pointer-core/src/auth_provider/`.
 
 For the login flow see [`standalone-local-login.md`](standalone-local-login.md); for the operations view see [`../user/standalone-server.md`](../user/standalone-server.md).
+
+### `[auth.rate_limit]` (login entry rate limiting)
+
+On by default, and it protects `POST /api/auth/login/start` and `POST /api/auth/login/finish` against brute force and floods. The counters live in **process memory**: per instance, cleared on restart. TOML only — there is no environment-variable form.
+
+| TOML | Default | Description |
+|------|----------|------|
+| `enabled` | `true` | Master switch; `false` drops the per-IP window, the capacity cap and the cooldown |
+| `per_ip_per_minute` | `20` | `login/start` calls allowed per client IP per minute; `0` = no per-IP limit |
+| `max_pending` | `256` | In-flight logins allowed at once; `0` = unlimited |
+| `finish_fail_backoff_secs` | `3` | Cooldown after a failed `login/finish` (`401 invalid_captcha` / `401 invalid_credentials`), cleared by a success; `0` = off |
+| `trusted_proxies` | empty | Proxy addresses whose `X-Forwarded-For` is trusted (exact IP or CIDR) |
+
+Every rejection is **429** with a plain-text error code as the body:
+
+| Body | Meaning |
+|------|------|
+| `rate_limited` | more than `per_ip_per_minute` `login/start` calls from that IP in the current minute |
+| `too_many_attempts` | that IP is inside a `finish_fail_backoff_secs` cooldown |
+| `login_capacity_reached` | `max_pending` logins are already in flight |
+
+Over `max_pending` the server **rejects the new request and never evicts a login in progress** — evicting would hand that user an unexplained `invalid_state`.
+
+`X-Forwarded-For` is read **only when the direct peer matches `trusted_proxies`**, and the client is then the rightmost hop that is itself not trusted, so appending a fake leftmost entry changes nothing; requests from anywhere else are keyed on the socket address. Behind a reverse proxy, list the proxy's address (exact IP, or a CIDR such as `10.0.0.0/8`), otherwise every user shares the proxy's bucket.
 
 ### `[env]` and `[[mcp_servers.server]]`
 
@@ -481,7 +556,8 @@ For the login flow see [`standalone-local-login.md`](standalone-local-login.md);
 | `crates/pointer-core/src/license/mod.rs`     | License module entry                                |
 | `crates/pointer-core/src/license/verify.rs`  | Ed25519 verification, startup validation, hot reload, machine binding                    |
 | `crates/pointer-core/license.pub`            | Public key file compiled in                                   |
-| `server/src/local_auth.rs`                   | `/api/auth/local/login`, `/api/license/*` routes |
+| `server/src/auth_routes.rs`                  | `/api/auth/providers`, `/api/auth/login/start`, `/api/auth/login/finish`, `/api/auth/callback/:provider`, `/api/license/*` routes |
+| `server/src/auth_doctor.rs`                  | `pointer-server auth doctor` — read-only login preflight (config → providers → callbacks → optional network), exit code 1 on any FAIL |
 | `tools/license-gen/Cargo.toml`               | License issuance CLI                              |
 | `tools/license-gen/src/main.rs`              | `gen-keypair` / `sign` subcommands                  |
 | `tools/license-gen/dev-license.key.example`  | Example private key for development                                     |

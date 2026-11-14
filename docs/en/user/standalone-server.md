@@ -195,24 +195,42 @@ Customer side                       Issuer (administrator)
 
 Standalone does **not** go through the official-site cloud PC `code/state` exchange. It supports:
 
-1. **Third-party SSO**: the portal issues a short-lived ticket and then opens `https://{public_url}/?sso=<ticket>` (configuration is in the developer doc [standalone-local-login.md](../developer/standalone-local-login.md)).
+1. **Third-party SSO**: the portal issues a short-lived ticket and then opens `https://{public_url}/api/auth/callback/portal?ticket=<ticket>` (configuration is in the developer doc [standalone-local-login.md](../developer/standalone-local-login.md)).
 2. **Account, password and graphical captcha** (operations fallback):
 
 ```bash
-# 1) fetch a captcha
-curl -s http://localhost:8787/api/auth/local/captcha
-# → {"captchaId":"...","imageSvg":"<svg>...</svg>"}
+# 1) start the login — this returns the captcha challenge only
+curl -s -X POST 'http://localhost:8787/api/auth/login/start?provider=local_password'
+# → {"provider":"local_password","kind":"local_password","captcha":{"captchaId":"...","imageSvg":"<svg>...</svg>"}}
 
-# 2) sign in (read the captcha from the SVG)
-curl -X POST http://localhost:8787/api/auth/local/login \
+# 2) finish the login (read the captcha from the SVG, then submit the credentials)
+curl -X POST 'http://localhost:8787/api/auth/login/finish?provider=local_password' \
   -H "Content-Type: application/json" \
   -c /tmp/pointer-cookies.txt \
   -d '{"username":"admin","password":"your-password","captchaId":"...","captcha":"ABCD"}'
 ```
 
-On success the server returns a `Set-Cookie` (`pointer_web_session`), and later requests carry the session automatically.
+`GET /api/auth/providers` lists the enabled providers — the same list the login page renders.
 
-Configuration: `[auth.local]` (password) and the optional `[auth.local.sso]` (third-party redirect).
+On success the server returns a `Set-Cookie` (`pointer_web_session`), and later requests carry the session automatically.
+A wrong captcha answers `401 invalid_captcha`, a wrong account/password `401 invalid_credentials`.
+
+The login endpoints are throttled by default (`[auth.rate_limit]`). When a limit is hit the answer is **429** with a
+plain-text error code as the body: `rate_limited` (too many `login/start` calls from one IP in a minute),
+`too_many_attempts` (that IP is cooling down after a failed attempt) or `login_capacity_reached` (too many logins
+in flight). Waiting a few seconds clears all three; a proxy in front needs its address listed in `trusted_proxies`,
+otherwise every user shares the proxy's IP.
+
+**One instance only:** web sessions and started-but-unfinished logins are kept in the server process memory.
+A restart signs everyone out, and a second instance (or a load balancer in front of two of them) cannot finish a
+login another one started — you get sent back to the login page or an `invalid_state` error.
+
+**Preflight:** before exposing the service, run the read-only check `pointer-server auth doctor`
+(add `--network` to also test outbound connectivity to the provider endpoints, and `--exchange` to send one
+fake-code token request per `oauth2_userinfo` / `oidc` provider). It prints a verdict and a fix
+hint per item, and exits with code 1 when something must be fixed.
+
+Configuration: `[auth.local]` (password) and the optional `[auth.providers.<id>]` with `kind = "token_lookup"` (third-party redirect).
 The old `admin_token` is deprecated and ignored.
 
 ---
@@ -312,7 +330,7 @@ More parameter details are in [`../../llm/model-thinking-api.md`](../../zh-CN/ll
 | `POINTER_SERVER_ALLOWED_USER_IDS` | Platform user allowlist | empty |
 | `POINTER_SERVER_CORS_ORIGINS` | Origins allowed for browser CORS (comma-separated; `*` mirrors any origin) | off (same-origin only) |
 
-> This is a **curated subset**. For the full key table — including `require_allowed_users`, `forbid_session_user_id_in_terminal`, `[webhooks] bearer_token`, the five `[auth.local.sso]` keys, `[env]` and `[[mcp_servers.server]]` — see the "Configuration reference" in the [standalone deployment developer doc](../developer/standalone-deployment.md).
+> This is a **curated subset**. For the full key table — including `require_allowed_users`, `forbid_session_user_id_in_terminal`, `[webhooks] bearer_token`, the `[auth.providers.<id>]` login providers, `[env]` and `[[mcp_servers.server]]` — see the "Configuration reference" in the [standalone deployment developer doc](../developer/standalone-deployment.md).
 
 ---
 

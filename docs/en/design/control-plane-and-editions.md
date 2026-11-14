@@ -85,7 +85,7 @@ Users of "Use Pointer" normally install only the official client, not the server
 1. Artifact, flavour, control-plane binding and server authentication mode are four orthogonal questions; do not merge them into one enumeration.
 2. The control plane is a runtime binding, not a compile switch. Sign-in, top-up, cloud hosts and balance go through the same code.
 3. Sending a message depends on credentials: a local Key and a control-plane session are both valid. The official client may additionally require sign-in.
-4. Company cloud hosts go through control-plane OAuth, not standalone. `?sso=` only serves "server only, no shop".
+4. Company cloud hosts go through control-plane OAuth, not standalone. The `token_lookup` provider only serves "server only, no shop".
 5. Do not add `POINTER_EDITION=enterprise`. Do not add long-lived commercial branches.
 6. Do not change the product name, bundle id, crates or data directories.
 7. Desktop and Web, and all three desktop systems, share one set of gating and binding rules.
@@ -141,7 +141,7 @@ Unbound: the page still opens, explains that you must bind first, logs a warn on
 | `deployment_mode` | Identity comes from | Used for |
 | --- | --- | --- |
 | `platform` | control-plane OAuth (official site or a company-run official site) | Use Pointer; self-hosted but bound to a control plane; a company that also wants cloud hosts |
-| `standalone` | local account+password or the portal's `?sso=` | a company that only wants the server; a fully offline self-hosted Web |
+| `standalone` | local account+password or a portal `token_lookup` provider | a company that only wants the server; a fully offline self-hosted Web |
 
 standalone turns off cloud-host OAuth and the shop.
 A company that wants both unified sign-in and cloud hosts: deploy the open-sourced control plane, run the server with `platform`, and bind the client to that company's address.
@@ -227,7 +227,7 @@ Acceptance:
 
 ### P2 Company wants the server only
 
-The standalone account+password and `?sso=` already exist. This phase only closes off expectations:
+The standalone `local_password` and `token_lookup` providers already exist. This phase only closes off expectations:
 
 - Employees open the company server in a browser and complete unified sign-in there
 - Do not wire the short-lived ticket into the desktop loopback

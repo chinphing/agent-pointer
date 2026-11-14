@@ -195,24 +195,35 @@ curl -X POST http://localhost:8787/api/license/reload
 
 Standalone **不走**官网云电脑 `code/state` 换码。支持：
 
-1. **第三方 SSO**：门户签发短时票后打开 `https://{public_url}/?sso=<ticket>`（配置见开发者文档 [standalone-local-login.md](../developer/standalone-local-login.md)）。
+1. **第三方 SSO**：门户签发短时票后打开 `https://{public_url}/api/auth/callback/portal?ticket=<ticket>`（配置见开发者文档 [standalone-local-login.md](../developer/standalone-local-login.md)）。
 2. **账号密码 + 图形验证码**（运维备用）：
 
 ```bash
-# 1) 取验证码
-curl -s http://localhost:8787/api/auth/local/captcha
-# → {"captchaId":"...","imageSvg":"<svg>...</svg>"}
+# 1) 发起登录：只返回验证码挑战
+curl -s -X POST 'http://localhost:8787/api/auth/login/start?provider=local_password'
+# → {"provider":"local_password","kind":"local_password","captcha":{"captchaId":"...","imageSvg":"<svg>...</svg>"}}
 
-# 2) 登录（验证码看 SVG）
-curl -X POST http://localhost:8787/api/auth/local/login \
+# 2) 提交凭据登录（验证码看 SVG）
+curl -X POST 'http://localhost:8787/api/auth/login/finish?provider=local_password' \
   -H "Content-Type: application/json" \
   -c /tmp/pointer-cookies.txt \
   -d '{"username":"admin","password":"your-password","captchaId":"...","captcha":"ABCD"}'
 ```
 
-成功后服务端返回 `Set-Cookie`（`pointer_web_session`），后续请求自动带 Session。
+`GET /api/auth/providers` 返回已启用的登录方式——登录页渲染的就是这份列表。
 
-配置：`[auth.local]`（密码）与可选 `[auth.local.sso]`（第三方跳转）。
+成功后服务端返回 `Set-Cookie`（`pointer_web_session`），后续请求自动带 Session。
+验证码不对返回 `401 invalid_captcha`，账号或密码不对返回 `401 invalid_credentials`。
+
+登录入口默认限流（`[auth.rate_limit]`）：超限时返回 **429**，body 是纯文本错误码 —— `rate_limited`（同一 IP 每分钟 `login/start` 次数超限）、`too_many_attempts`（该 IP 刚失败过，正在冷却）、`login_capacity_reached`（在途登录过多）。等几秒再试即可；前面挂了反向代理时，要把代理地址写进 `trusted_proxies`，否则所有用户共用代理 IP 的额度。
+
+**只支持单实例**：Web 会话与「已发起、未完成」的登录状态都存在进程内存里。重启会让所有在线会话失效；
+也不能部署两个实例（或前面挂负载均衡）——在一个实例上发起的登录，另一个实例无法完成，页面会被弹回登录页或报 `invalid_state`。
+
+**上线前自检**：先跑只读检查 `pointer-server auth doctor`（加 `--network` 会额外测试到各 provider 端点的连通性；加 `--exchange` 会对每个 `oauth2_userinfo` / `oidc` provider 发一次假 code 的 token 请求）。
+它按「项 → 结论 → 修复建议」逐条输出，有任何 FAIL 时退出码为 1。
+
+配置：`[auth.local]`（密码）与可选的 `[auth.providers.<id>]`（`kind = "token_lookup"`，第三方跳转）。
 旧版 `admin_token` 已废弃并忽略。
 
 ---
@@ -312,7 +323,7 @@ curl -X POST http://localhost:8787/api/auth/local/login \
 | `POINTER_SERVER_ALLOWED_USER_IDS` | 平台用户白名单 | 空 |
 | `POINTER_SERVER_CORS_ORIGINS` | 浏览器 CORS 允许的 Origin（逗号分隔；`*` 镜像任意来源） | 关闭（仅同源） |
 
-> 这里是**精选子集**。完整键表 —— 含 `require_allowed_users`、`forbid_session_user_id_in_terminal`、`[webhooks] bearer_token`、`[auth.local.sso]` 五键、`[env]` 与 `[[mcp_servers.server]]` —— 见 [独立部署开发文档](../developer/standalone-deployment.md) 的「配置参考」。
+> 这里是**精选子集**。完整键表 —— 含 `require_allowed_users`、`forbid_session_user_id_in_terminal`、`[webhooks] bearer_token`、`[auth.providers.<id>]` 登录 provider、`[env]` 与 `[[mcp_servers.server]]` —— 见 [独立部署开发文档](../developer/standalone-deployment.md) 的「配置参考」。
 
 ---
 

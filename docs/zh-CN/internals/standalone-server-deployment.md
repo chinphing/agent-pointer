@@ -319,6 +319,10 @@ app_data_dir = "/var/lib/pointer-server"
 ### 8.1 启动检查
 
 ```bash
+# 登录链路自检（只读；加 --network 额外测连通性）
+pointer-server auth doctor
+# 期望：退出码 0，报告里没有 FAIL
+
 # License 状态
 curl -s http://127.0.0.1:8787/api/license/status | jq .
 # 期望：status = "valid"
@@ -338,17 +342,21 @@ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8787/
 pointer-server --hash-password --secret 'REPLACE-WITH-LONG-RANDOM-SECRET' 'your-password'
 ```
 
-**API：**
+**API：** 两步——`login/start` 只发验证码，`login/finish` 只收凭据：
 
 ```bash
-# captcha
-curl -s http://127.0.0.1:8787/api/auth/local/captcha
-# login
-curl -X POST http://127.0.0.1:8787/api/auth/local/login \
+# 1) 发起：只拿验证码挑战（本请求不带凭据）
+curl -s -X POST 'http://127.0.0.1:8787/api/auth/login/start?provider=local_password'
+# 2) 完成：提交凭据，并把会话 Cookie 存下来
+curl -X POST 'http://127.0.0.1:8787/api/auth/login/finish?provider=local_password' \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"your-password","captchaId":"...","captcha":"ABCD"}' \
   -c /tmp/pointer-cookies.txt
 ```
+
+会话（`web_sessions`）与「已发起、未完成」的登录状态（`auth_pending`，TTL 600s）都在进程内存里，因此部署是**单实例**：
+不要挂负载均衡、不要多副本共享，重启会让所有在线会话失效。登录异常时先跑 `pointer-server auth doctor`
+（加 `--network` 会额外测到 provider 端点的连通性），有任何 FAIL 时退出码为 1。
 
 ### 8.3 功能验收清单
 
@@ -557,7 +565,8 @@ npm run license-gen:build
 | `standalone mode requires a license key` | 未配置 License | 填写 `[license].key` 或 `POINTER_LICENSE_KEY` |
 | `license bound to machine_id=…` | License 绑错机器 | 用当前 `--machine-id` 重新签发 |
 | `license expired` | 过期 | 续签并 reload |
-| `请先登录` / `local_login_required` | 未登录 | Web UI 账号密码 + 验证码，或 POST `/api/auth/local/login` |
+| `请先登录` / `local_login_required` | 未登录 | Web UI 账号密码 + 验证码，或先 `POST /api/auth/login/start?provider=local_password` 再 `POST /api/auth/login/finish?provider=local_password` |
+| SSO 跳回后报 `invalid_state` | 收到回调的实例不是发起登录的那个（重启过，或部署了多个实例） | 只跑单实例；`pointer-server auth doctor` 会报告会话存在进程内存 |
 | `invalid_credentials` | 账号/密码或 hmac 不匹配 | 用 `--hash-password` 重新生成 `password_hmac` |
 | `invalid_captcha` | 验证码错误或过期 | 刷新验证码后重试 |
 | 对话报 LLM 错误 | `api_key` 无效或未配置 | 检查对应 Provider 控制台 Key |

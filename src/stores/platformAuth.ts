@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { t } from '../i18n'
 import * as api from '../lib/api'
-import type { AuthMode } from '../lib/api'
+import type { AuthMode, AuthProvider } from '../lib/api'
 import {
   loginRequiredMessage,
   mapLoginGateError,
@@ -151,11 +151,40 @@ async function resolvePlatformSession(): Promise<PlatformSessionView> {
   }
   if (typeof window !== 'undefined') {
     const url = new URL(window.location.href)
-    if (url.searchParams.get('platform_login') === 'success') {
+    // `auth=success` is the current marker; `platform_login=success` is kept
+    // readable so a cached SPA bundle still recovers after the backend rename.
+    if (
+      url.searchParams.get('auth') === 'success'
+      || url.searchParams.get('platform_login') === 'success'
+    ) {
       return api.refreshPlatformSession()
     }
   }
   return api.getPlatformSession()
+}
+
+/**
+ * Backend login failures arrive as a code (`?platform_login_error=<code>`).
+ * Map them to localized text — the raw upstream message never reaches the UI.
+ */
+export function platformLoginErrorText(code: string): string {
+  const normalized = code.trim()
+  if (!normalized) return ''
+  const translate = (value: string): string | null => {
+    const key = `auth.error.${value}`
+    const text = t(key)
+    // vue-i18n echoes the key back when it has no translation.
+    return text && text !== key ? text : null
+  }
+  const direct = translate(normalized)
+  if (direct) return direct
+  // The API layer may wrap the code (`HTTP 429: rate_limited`); accept a known
+  // code token inside the message instead of showing the wrapper.
+  for (const token of normalized.toLowerCase().match(/[a-z][a-z_]{3,}/g) ?? []) {
+    const hit = translate(token)
+    if (hit) return hit
+  }
+  return t('auth.loginFailed')
 }
 
 /**
@@ -166,24 +195,15 @@ function consumeOAuthRedirectQuery(): string | null {
   if (isTauriRuntime()) return null
   if (typeof window === 'undefined') return null
   const url = new URL(window.location.href)
-  const successFlag = url.searchParams.get('platform_login')
-  const errorMsg = url.searchParams.get('platform_login_error')
-  const ssoError = url.searchParams.get('sso_error')
-  if (successFlag !== 'success' && !errorMsg && !ssoError) return null
+  const successFlag = url.searchParams.get('auth') ?? url.searchParams.get('platform_login')
+  const errorCode = url.searchParams.get('platform_login_error')
+  if (successFlag !== 'success' && !errorCode) return null
+  url.searchParams.delete('auth')
   url.searchParams.delete('platform_login')
   url.searchParams.delete('platform_login_error')
   url.searchParams.delete('sso_error')
   window.history.replaceState({}, '', url.toString())
-  if (errorMsg === 'server_access_denied') {
-    return t('auth.serverAccessDenied')
-  }
-  if (ssoError) {
-    if (ssoError === 'not_configured') return t('auth.ssoNotConfigured')
-    if (ssoError === 'not_standalone') return t('auth.ssoNotStandalone')
-    if (ssoError === 'missing') return t('auth.ssoMissing')
-    return t('auth.ssoFailed')
-  }
-  return errorMsg ? decodeURIComponent(errorMsg) : null
+  return errorCode ? platformLoginErrorText(errorCode) : null
 }
 
 export const usePlatformAuthStore = defineStore('platformAuth', () => {
@@ -191,6 +211,8 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
   const authMode = ref<AuthMode>('platform')
+  /** Login methods offered by this deployment (web only; empty on desktop). */
+  const providers = ref<AuthProvider[]>([])
   /** Wall-clock of last successful ensureFreshSession network round-trip. */
   let lastFreshAtMs = 0
   /** Coalesce concurrent refresh calls (multi-file attach). */
@@ -235,11 +257,60 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     }
   }
 
+  async function loadAuthProviders() {
+    if (isTauriRuntime()) {
+      providers.value = []
+      return
+    }
+    try {
+      providers.value = await api.listAuthProviders()
+    } catch (e) {
+      console.warn('platformAuth: listAuthProviders failed', e)
+      providers.value = []
+    }
+  }
+
+  /**
+   * Providers the login UI may render: the ticket entry is entered from the
+   * portal, and `local_password` is one form — a configured `local_password`
+   * plus the built-in one used to render two identical entries.
+   */
+  const loginPageProviders = computed(() => {
+    const out: AuthProvider[] = []
+    let sawLocalPassword = false
+    for (const provider of providers.value) {
+      if (provider.kind === 'token_lookup') continue
+      if (provider.kind === 'local_password') {
+        if (sawLocalPassword) continue
+        sawLocalPassword = true
+      }
+      out.push(provider)
+    }
+    return out
+  })
+
+  /** Primary entry: the server flag wins, else the registry's priority order. */
+  const primaryLoginProvider = computed<AuthProvider | null>(() => {
+    const list = loginPageProviders.value
+    return list.find(provider => provider.primary) ?? list[0] ?? null
+  })
+
+  const secondaryLoginProviders = computed(() =>
+    loginPageProviders.value.filter(provider => provider !== primaryLoginProvider.value)
+  )
+
+  /** Providers that render a button (the ticket entry is entered from outside). */
+  const loginButtonProviders = computed(() => loginPageProviders.value)
+  const hasLocalPasswordProvider = computed(() =>
+    providers.value.some(provider => provider.kind === 'local_password')
+  )
+
   async function load() {
     loading.value = true
     error.value = null
     try {
       await loadAuthMode()
+      await loadAuthProviders()
       session.value = await resolvePlatformSession()
       lastFreshAtMs = Date.now()
       const settings = useSettingsStore()
@@ -362,7 +433,19 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     return mapLoginGateError(raw, isStandalone.value, purpose) || raw
   }
 
-  async function login() {
+  async function login(): Promise<void> {
+    if (!isTauriRuntime()) {
+      // Web: start the first usable provider instead of a hard-coded one.
+      const preferred =
+        providers.value.find(p => p.kind === 'platform') ??
+        providers.value.find(p => p.kind !== 'local_password' && p.kind !== 'token_lookup')
+      if (preferred) return await loginProvider(preferred.id)
+      const code = hasLocalPasswordProvider.value
+        ? 'password_login_required'
+        : 'unknown_provider'
+      error.value = platformLoginErrorText(code)
+      throw new Error(code)
+    }
     loading.value = true
     error.value = null
     try {
@@ -385,7 +468,7 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
         return
       }
       // Web: openPlatformLogin redirected the browser away. The remaining
-      // lines never run; the SPA reloads at /?platform_login=success and
+      // lines never run; the SPA reloads at /?auth=success and
       // load() picks up the new session on the next mount.
     } catch (e) {
       error.value = formatPlatformAuthError(e)
@@ -395,22 +478,60 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     }
   }
 
-  async function loginLocal(input: {
+  /**
+   * Start a login for one provider. Web: POST `login/start?provider=` and hand
+   * the browser to `authorize_url`. Desktop: the Tauri command owns the flow.
+   */
+  async function loginProvider(providerId?: string): Promise<void> {
+    if (isTauriRuntime() || !providerId) return await login()
+    loading.value = true
+    error.value = null
+    try {
+      const res = await api.startProviderLogin(providerId)
+      if (!res?.authorize_url) throw new Error('authorize_url_missing')
+      // The browser leaves here; the server redirects back to the SPA.
+      window.location.href = res.authorize_url
+    } catch (e) {
+      error.value = platformLoginErrorText(
+        e instanceof Error ? e.message : String(e)
+      )
+      loading.value = false
+      throw e
+    }
+  }
+
+  /** Captcha challenge for the embedded `local_password` form. */
+  async function requestLocalPasswordChallenge(providerId = 'local_password') {
+    return await api.requestLocalPasswordChallenge(providerId)
+  }
+
+  async function loginLocalPassword(input: {
     username: string
     password: string
     captchaId: string
     captcha: string
+    providerId?: string
   }) {
     loading.value = true
     error.value = null
     try {
-      session.value = await api.localLogin(input)
+      session.value = await api.localPasswordLogin(
+        {
+          username: input.username,
+          password: input.password,
+          captchaId: input.captchaId,
+          captcha: input.captcha
+        },
+        input.providerId
+      )
       error.value = null
       const settings = useSettingsStore()
       await settings.load()
       window.location.reload()
     } catch (e) {
-      error.value = formatPlatformAuthError(e)
+      error.value = platformLoginErrorText(
+        e instanceof Error ? e.message : String(e)
+      )
       throw e
     } finally {
       loading.value = false
@@ -438,18 +559,27 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     loading,
     error,
     authMode,
+    providers,
+    loginPageProviders,
+    primaryLoginProvider,
+    secondaryLoginProviders,
+    loginButtonProviders,
+    hasLocalPasswordProvider,
     isStandalone,
     isPlatformAdmin,
     needsSignIn,
     tokenQuotaExhausted,
     load,
     loadAuthMode,
+    loadAuthProviders,
     ensureFreshSession,
     requireSession,
     loginHint,
     formatLoginGateError,
     login,
-    loginLocal,
+    loginProvider,
+    requestLocalPasswordChallenge,
+    loginLocalPassword,
     cancelLogin,
     logout,
     markTokenQuotaExhausted

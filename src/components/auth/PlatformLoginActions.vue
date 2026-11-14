@@ -1,8 +1,17 @@
 <script setup lang="ts">
-import { ExternalLink, Loader2, RefreshCw } from 'lucide-vue-next'
-import { computed, onMounted, ref, watch } from 'vue'
+import {
+  Building2,
+  ExternalLink,
+  Globe,
+  KeyRound,
+  Loader2,
+  RefreshCw,
+  ShieldCheck,
+  Ticket,
+  UserRound
+} from 'lucide-vue-next'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import * as api from '../../lib/api'
 import { isTauriRuntime } from '../../lib/runtime'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 
@@ -23,7 +32,11 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const platformAuth = usePlatformAuthStore()
-const isStandalone = computed(() => platformAuth.isStandalone)
+const isTauri = isTauriRuntime()
+
+/** Buttons for the redirect providers; the ticket entry is entered from outside. */
+const buttonProviders = computed(() => platformAuth.loginButtonProviders)
+const hasLocalPassword = computed(() => platformAuth.hasLocalPasswordProvider)
 
 const username = ref('')
 const password = ref('')
@@ -31,33 +44,54 @@ const captcha = ref('')
 const captchaId = ref('')
 const captchaSvg = ref('')
 const captchaLoading = ref(false)
-const localSubmitting = ref(false)
+const submitting = ref(false)
+const pendingProvider = ref<string | null>(null)
 const localError = ref<string | null>(null)
 
 const displayError = computed(() => localError.value || null)
 
+/**
+ * Icon per server-provided name. Unknown names fall back to the first letter of
+ * the display name, so a new provider never renders an empty button.
+ */
+const PROVIDER_ICONS = {
+  building: Building2,
+  key: KeyRound,
+  ticket: Ticket,
+  user: UserRound,
+  shield: ShieldCheck,
+  globe: Globe
+} as const
+
+function providerIcon(name?: string) {
+  const key = (name ?? '').trim().toLowerCase()
+  return PROVIDER_ICONS[key as keyof typeof PROVIDER_ICONS] ?? null
+}
+
+function providerInitial(provider: { display_name: string; id: string }) {
+  const label = (provider.display_name || provider.id).trim()
+  return label ? label.charAt(0).toUpperCase() : '?'
+}
+
 async function refreshCaptcha() {
-  if (!isStandalone.value) return
+  if (isTauri || !hasLocalPassword.value) return
   captchaLoading.value = true
   localError.value = null
   try {
-    const res = await api.fetchLocalCaptcha()
+    const res = await platformAuth.requestLocalPasswordChallenge()
     captchaId.value = res.captchaId
     captchaSvg.value = res.imageSvg
     captcha.value = ''
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    localError.value = msg.includes('local_auth_only_in_standalone')
-      ? t('auth.notStandalone')
-      : t('auth.captchaLoadFailed')
-    console.warn('fetchLocalCaptcha failed', e)
+    localError.value = t('auth.captchaLoadFailed')
+    console.warn('requestLocalPasswordChallenge failed', e)
   } finally {
     captchaLoading.value = false
   }
 }
 
 async function submitLocalLogin() {
-  if (localSubmitting.value || platformAuth.loading) return
+  if (submitting.value || platformAuth.loading) return
   const u = username.value.trim()
   const p = password.value
   const c = captcha.value.trim()
@@ -69,10 +103,10 @@ async function submitLocalLogin() {
     localError.value = t('auth.needCaptcha')
     return
   }
-  localSubmitting.value = true
+  submitting.value = true
   localError.value = null
   try {
-    await platformAuth.loginLocal({
+    await platformAuth.loginLocalPassword({
       username: u,
       password: p,
       captchaId: captchaId.value,
@@ -81,24 +115,37 @@ async function submitLocalLogin() {
     password.value = ''
     captcha.value = ''
     emit('local-success')
-  } catch {
+  } catch (e) {
+    // The store already mapped the code to text; ask for a fresh captcha.
+    const message = platformAuth.error
+    console.warn('local password login failed', e)
     await refreshCaptcha()
+    localError.value = message || localError.value
   } finally {
-    localSubmitting.value = false
+    submitting.value = false
+  }
+}
+
+async function startProvider(providerId: string) {
+  if (pendingProvider.value || platformAuth.loading) return
+  pendingProvider.value = providerId
+  localError.value = null
+  try {
+    await platformAuth.loginProvider(providerId)
+  } catch (e) {
+    localError.value = platformAuth.error
+    console.warn('provider login failed', providerId, e)
+  } finally {
+    pendingProvider.value = null
   }
 }
 
 onMounted(() => {
   void (async () => {
-    if (!isTauriRuntime()) {
-      await platformAuth.loadAuthMode()
-    }
-    if (isStandalone.value) void refreshCaptcha()
+    if (isTauri) return
+    if (platformAuth.providers.length === 0) await platformAuth.loadAuthProviders()
+    if (hasLocalPassword.value) void refreshCaptcha()
   })()
-})
-
-watch(isStandalone, standalone => {
-  if (standalone) void refreshCaptcha()
 })
 </script>
 
@@ -110,18 +157,46 @@ watch(isStandalone, standalone => {
         : 'flex flex-col items-center gap-2'
     "
   >
-    <!-- Standalone: username / password / captcha -->
-    <template v-if="isStandalone">
-      <p
-        v-if="displayError || error"
-        class="rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs leading-snug text-danger"
-        :class="variant === 'compact' ? 'max-w-full' : 'max-w-sm'"
-        role="alert"
-      >
-        {{ displayError || error }}
-      </p>
+    <p
+      v-if="displayError || error"
+      class="rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs leading-snug text-danger"
+      :class="variant === 'compact' ? 'max-w-full' : 'max-w-sm'"
+      role="alert"
+    >
+      {{ displayError || error }}
+    </p>
 
+    <!-- Desktop: the Tauri command owns the browser round-trip. -->
+    <div
+      v-if="isTauri"
+      class="flex items-center justify-center gap-2"
+      :class="variant === 'hero' ? 'w-[calc(100%+0.75rem)]' : 'shrink-0'"
+    >
+      <button
+        type="button"
+        class="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-medium text-accent-foreground cursor-pointer transition-all shadow-sm hover:opacity-95 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        :class="variant === 'hero' ? 'h-10 flex-1' : 'h-8'"
+        :disabled="loading"
+        @click="emit('login')"
+      >
+        <Loader2 v-if="loading" class="h-4 w-4 shrink-0 animate-spin" />
+        <ExternalLink v-else class="h-4 w-4 shrink-0 opacity-90" />
+        <span>{{ loading ? t('auth.waitingAuth') : t('auth.browserLogin') }}</span>
+      </button>
+      <button
+        v-if="loading"
+        type="button"
+        class="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-border px-4 text-sm text-foreground hover:bg-hover cursor-pointer transition-colors"
+        @click="emit('cancel')"
+      >
+        {{ t('common.cancel') }}
+      </button>
+    </div>
+
+    <!-- Web: one entry per provider from the server registry. -->
+    <template v-else>
       <form
+        v-if="hasLocalPassword"
         class="flex w-full flex-col gap-2"
         :class="variant === 'hero' ? 'max-w-sm' : 'min-w-[16rem]'"
         @submit.prevent="submitLocalLogin"
@@ -133,7 +208,7 @@ watch(isStandalone, standalone => {
           autocomplete="username"
           :placeholder="t('auth.username')"
           class="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-          :disabled="localSubmitting || loading"
+          :disabled="submitting || loading"
         />
         <input
           v-model="password"
@@ -142,13 +217,13 @@ watch(isStandalone, standalone => {
           autocomplete="current-password"
           :placeholder="t('auth.password')"
           class="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-          :disabled="localSubmitting || loading"
+          :disabled="submitting || loading"
         />
         <div class="flex items-center gap-2">
           <button
             type="button"
             class="relative flex h-10 w-[8.75rem] shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-muted/40 cursor-pointer hover:bg-hover disabled:opacity-50"
-            :disabled="captchaLoading || localSubmitting || loading"
+            :disabled="captchaLoading || submitting || loading"
             :title="t('auth.refreshCaptcha')"
             @click="refreshCaptcha"
           >
@@ -167,83 +242,69 @@ watch(isStandalone, standalone => {
             autocomplete="off"
             :placeholder="t('auth.captcha')"
             class="h-10 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-            :disabled="localSubmitting || loading"
+            :disabled="submitting || loading"
           />
         </div>
         <button
           type="submit"
           class="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-medium text-accent-foreground cursor-pointer transition-all shadow-sm hover:opacity-95 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-          :disabled="localSubmitting || loading"
+          :disabled="submitting || loading"
         >
-          <Loader2 v-if="localSubmitting || loading" class="h-4 w-4 shrink-0 animate-spin" />
-          <span>{{ localSubmitting || loading ? t('auth.signingIn') : t('auth.signIn') }}</span>
+          <Loader2 v-if="submitting || loading" class="h-4 w-4 shrink-0 animate-spin" />
+          <span>{{ submitting || loading ? t('auth.signingIn') : t('auth.signIn') }}</span>
         </button>
       </form>
-    </template>
 
-    <!-- Platform OAuth -->
-    <template v-else>
-      <p
-        v-if="error"
-        class="rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs leading-snug text-danger"
-        :class="variant === 'compact' ? 'sm:max-w-[14rem]' : 'max-w-sm'"
-        role="alert"
+      <div
+        v-if="buttonProviders.length"
+        class="flex gap-2"
+        :class="variant === 'hero' ? 'w-full max-w-sm flex-col' : 'shrink-0 flex-wrap justify-center'"
       >
-        {{ error }}
+        <button
+          v-for="provider in buttonProviders"
+          :key="provider.id"
+          type="button"
+          class="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-medium text-accent-foreground cursor-pointer transition-all shadow-sm hover:opacity-95 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          :class="variant === 'hero' ? 'h-10 w-full' : 'h-8'"
+          :disabled="loading || pendingProvider !== null"
+          @click="startProvider(provider.id)"
+        >
+          <Loader2
+            v-if="pendingProvider === provider.id"
+            class="h-4 w-4 shrink-0 animate-spin"
+          />
+          <template v-else>
+            <component
+              :is="providerIcon(provider.icon)"
+              v-if="providerIcon(provider.icon)"
+              class="h-4 w-4 shrink-0 opacity-90"
+            />
+            <span
+              v-else
+              class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-foreground/20 text-[10px] font-semibold leading-none"
+              aria-hidden="true"
+            >
+              {{ providerInitial(provider) }}
+            </span>
+          </template>
+          <span class="truncate">{{ provider.display_name || t('auth.browserLogin') }}</span>
+        </button>
+      </div>
+
+      <p
+        v-if="!hasLocalPassword && !buttonProviders.length"
+        class="text-xs leading-snug text-muted"
+        :class="variant === 'hero' ? 'max-w-sm text-center' : 'max-w-[14rem]'"
+      >
+        {{ t('auth.noProviders') }}
       </p>
 
-      <div
-        v-if="variant === 'hero'"
-        class="inline-flex flex-col-reverse items-center gap-2"
+      <p
+        v-if="isTauri && variant === 'hero' && (hasLocalPassword || buttonProviders.length)"
+        class="whitespace-nowrap text-center text-[11px] leading-relaxed text-muted"
       >
-        <p class="whitespace-nowrap text-center text-[11px] leading-relaxed text-muted">
-          {{ loading ? t('auth.completeInBrowser') : t('auth.heroHint') }}
-        </p>
-        <div class="flex w-[calc(100%+0.75rem)] items-center justify-center gap-2">
-          <button
-            type="button"
-            class="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-medium text-accent-foreground cursor-pointer transition-all shadow-sm hover:opacity-95 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            :disabled="loading"
-            @click="emit('login')"
-          >
-            <Loader2 v-if="loading" class="h-4 w-4 shrink-0 animate-spin" />
-            <ExternalLink v-else class="h-4 w-4 shrink-0 opacity-90" />
-            <span>{{ loading ? t('auth.waitingAuth') : t('auth.browserLogin') }}</span>
-          </button>
-          <button
-            v-if="loading"
-            type="button"
-            class="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-border px-4 text-sm text-foreground hover:bg-hover cursor-pointer transition-colors"
-            @click="emit('cancel')"
-          >
-            {{ t('common.cancel') }}
-          </button>
-        </div>
-      </div>
-
-      <div
-        v-else
-        class="flex shrink-0 flex-wrap items-center justify-center gap-2"
-      >
-        <button
-          type="button"
-          class="inline-flex h-8 items-center justify-center gap-2 rounded-lg bg-accent px-3 text-sm font-medium text-accent-foreground cursor-pointer transition-all hover:opacity-95 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-          :disabled="loading"
-          @click="emit('login')"
-        >
-          <Loader2 v-if="loading" class="h-4 w-4 shrink-0 animate-spin" />
-          <ExternalLink v-else class="h-4 w-4 shrink-0 opacity-90" />
-          <span>{{ loading ? t('auth.waitingAuth') : t('auth.browserLogin') }}</span>
-        </button>
-        <button
-          v-if="loading"
-          type="button"
-          class="inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-border px-3 text-sm text-foreground hover:bg-hover cursor-pointer transition-colors"
-          @click="emit('cancel')"
-        >
-          {{ t('common.cancel') }}
-        </button>
-      </div>
+        {{ loading ? t('auth.completeInBrowser') : t('auth.heroHint') }}
+      </p>
     </template>
   </div>
 </template>

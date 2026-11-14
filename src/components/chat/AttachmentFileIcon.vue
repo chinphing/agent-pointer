@@ -89,26 +89,44 @@ const toneClass = computed(() => {
   background: hsl(220 10% 42%);
 }
 
-:global(html.dark) .att-file-badge--sheet {
+/* :global() must wrap the whole selector: writing it around the html.dark
+   part only compiles to a bare html.dark rule, which painted the page
+   canvas with a badge colour. */
+:global(html.dark .att-file-badge--sheet) {
   background: hsl(142 40% 42%);
 }
-:global(html.dark) .att-file-badge--word {
+/* :global() must wrap the whole selector: writing it around the html.dark
+   part only compiles to a bare html.dark rule, which painted the page
+   canvas with a badge colour. */
+:global(html.dark .att-file-badge--word) {
   background: hsl(211 80% 52%);
 }
-:global(html.dark) .att-file-badge--slides {
+/* :global() must wrap the whole selector: writing it around the html.dark
+   part only compiles to a bare html.dark rule, which painted the page
+   canvas with a badge colour. */
+:global(html.dark .att-file-badge--slides) {
   background: hsl(16 70% 52%);
 }
-:global(html.dark) .att-file-badge--pdf {
+/* :global() must wrap the whole selector: writing it around the html.dark
+   part only compiles to a bare html.dark rule, which painted the page
+   canvas with a badge colour. */
+:global(html.dark .att-file-badge--pdf) {
   background: hsl(0 65% 54%);
 }
-:global(html.dark) .att-file-badge--zip {
+/* :global() must wrap the whole selector: writing it around the html.dark
+   part only compiles to a bare html.dark rule, which painted the page
+   canvas with a badge colour. */
+:global(html.dark .att-file-badge--zip) {
   background: hsl(36 65% 48%);
 }
-:global(html.dark) .att-file-badge--code {
+/* :global() must wrap the whole selector: writing it around the html.dark
+   part only compiles to a bare html.dark rule, which painted the page
+   canvas with a badge colour. */
+:global(html.dark .att-file-badge--code) {
   background: hsl(199 45% 48%);
 }
-:global(html.dark) .att-file-badge--text,
-:global(html.dark) .att-file-badge--file {
+:global(html.dark .att-file-badge--text),
+:global(html.dark .att-file-badge--file) {
   background: hsl(220 10% 48%);
 }
 </style>

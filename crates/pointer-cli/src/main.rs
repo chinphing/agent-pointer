@@ -595,6 +595,7 @@ async fn run_async(args: RunArgs) -> Result<i32> {
         workspace_inherit_disabled: Some(true),
         deliver: DeliverTarget::None,
         web_session_auth: None,
+        access_host: None,
     };
 
     // Capture the run's terminal tool-round counters so a cap hit is reported

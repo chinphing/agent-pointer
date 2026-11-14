@@ -113,6 +113,7 @@
 | [`quick-start.md`](quick-start.md) | 用户用脚本启动二进制；开发者用 npm 起 dev |
 | [`editions.md`](editions.md) | 四格详细步骤（构建命令 / 变量 / 产物 / 验证 / 外部依赖） |
 | [`platforms.md`](platforms.md) | Windows / macOS / Linux 平台打包索引（环境前置 / 产物 / CI 口径） |
+| [`windows-7.md`](windows-7.md) | Windows 7 专用部署（UCRT + WebView2 109 + 专用构建产物） |
 | [`../../contributing/cross-platform-build.md`](../contributing/cross-platform-build.md) | Windows / macOS / Linux 环境与打包命令 |
 | [`../../internals/standalone-server-deployment.md`](../internals/standalone-server-deployment.md) | standalone 服务端完整交付流程（构建 → License → 上线 → 验收） |
 | [`../../developer/standalone-deployment.md`](../developer/standalone-deployment.md) | pointer-server 配置参考（实现向） |

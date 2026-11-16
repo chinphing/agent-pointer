@@ -13,6 +13,22 @@ pub struct AppAccessTool {
     verify: VerifyHintGenerator,
 }
 
+/// §3.3：GUI 自动化只能在本机跑。light/container 没有桌面会话时直接拒绝，
+/// 绝不能让 agent 的请求落到宿主桌面。
+fn require_desktop() -> Result<()> {
+    let env = crate::env::effective_env();
+    ensure_desktop(env.capabilities().desktop, env.kind())
+}
+
+fn ensure_desktop(desktop: bool, kind: crate::env::EnvKind) -> Result<()> {
+    if desktop {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "当前执行环境没有桌面会话（{kind:?}），无法操作 GUI 应用；请在 local 环境执行"
+    )
+}
+
 impl AppAccessTool {
     pub fn new() -> Self {
         Self {
@@ -21,6 +37,7 @@ impl AppAccessTool {
     }
 
     pub fn execute_list_apps(&self, args: &Value) -> Result<String> {
+        require_desktop()?;
         require_non_empty_str(args, "goal")?;
 
         let include_all = args
@@ -56,6 +73,7 @@ impl AppAccessTool {
     }
 
     pub fn execute_launch_app(&self, args: &Value) -> Result<String> {
+        require_desktop()?;
         require_non_empty_str(args, "goal")?;
         let app = args
             .get("app")

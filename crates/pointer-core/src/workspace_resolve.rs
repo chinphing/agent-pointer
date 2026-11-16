@@ -64,6 +64,12 @@ pub fn resolve_tool_workspace(
     from_settings: &str,
     source: &str,
 ) -> String {
+    // light/container：工作区是**沙箱路径**（`/workspace`）。settings / 会话存储里
+    // 记的是宿主路径，在环境里根本不存在——直接以环境绑定的工作区为准。
+    let env = crate::env::effective_env();
+    if env.kind() != crate::env::EnvKind::Local {
+        return env.workspace_root().display().to_string();
+    }
     let trimmed = from_settings.trim();
     if !trimmed.is_empty() {
         return trimmed.to_string();

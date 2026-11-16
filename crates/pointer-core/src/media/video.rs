@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use base64::Engine;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+use crate::media::exec::MediaInput;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
@@ -161,19 +161,16 @@ pub fn format_video_scope_notice(
     }
 }
 
-/// Probe video duration via ffprobe (writes a temp copy of `bytes`).
-pub fn probe_video_duration(bytes: &[u8], file_name: &str) -> Result<f64> {
+/// 探测已在环境里的视频时长（路径优先，不搬字节）。
+pub fn probe_video_duration_at(input: &MediaInput) -> Result<f64> {
     let ffprobe = crate::media::ffmpeg::resolve_ffprobe().context("ffprobe not found")?;
-    let suffix = video_suffix(file_name);
-    let mut input = tempfile::Builder::new()
-        .prefix("pointer-vid-probe-")
-        .suffix(suffix)
-        .tempfile()
-        .context("video probe temp input")?;
-    input
-        .write_all(bytes)
-        .context("write video probe temp input")?;
     probe_duration(&ffprobe, input.path())
+}
+
+/// Probe video duration via ffprobe (stages a temp copy of `bytes`).
+pub fn probe_video_duration(bytes: &[u8], file_name: &str) -> Result<f64> {
+    let input = MediaInput::from_bytes(bytes, video_suffix(file_name))?;
+    probe_video_duration_at(&input)
 }
 
 /// Remux video with `-movflags +faststart` to move the moov atom to the beginning of the file.
@@ -185,62 +182,45 @@ pub fn probe_video_duration(bytes: &[u8], file_name: &str) -> Result<f64> {
 /// Returns the remuxed bytes on success, or the **original bytes** if ffmpeg is
 /// unavailable or the operation fails (best-effort, never blocks delivery).
 pub fn remux_video_faststart(bytes: &[u8], file_name: &str) -> Vec<u8> {
-    let ffmpeg = match crate::media::ffmpeg::resolve_ffmpeg() {
-        Some(p) => p,
-        None => return bytes.to_vec(),
+    let Some(ffmpeg) = crate::media::ffmpeg::resolve_ffmpeg() else {
+        return bytes.to_vec();
     };
-
+    let program = ffmpeg.to_string_lossy().into_owned();
     let suffix = video_suffix(file_name);
-    let mut input = match tempfile::Builder::new()
-        .prefix("pointer-vid-remux-")
-        .suffix(suffix)
-        .tempfile()
-    {
+    let input = match crate::media::exec::StagedFile::write(bytes, suffix) {
         Ok(f) => f,
         Err(e) => {
-            log::warn!("video faststart: tempfile create failed: {e}");
+            log::warn!("video faststart: stage input failed: {e}");
             return bytes.to_vec();
         }
     };
-    if let Err(e) = input.write_all(bytes) {
-        log::warn!("video faststart: tempfile write failed: {e}");
-        return bytes.to_vec();
-    }
-    if let Err(e) = input.flush() {
-        log::warn!("video faststart: tempfile flush failed: {e}");
-        return bytes.to_vec();
-    }
-    // Close the handle before ffmpeg reads (required on Windows).
-    let input_path = input.into_temp_path();
-
-    let output_dir = match tempfile::tempdir() {
-        Ok(d) => d,
+    let output = match crate::media::exec::StagedFile::empty(suffix) {
+        Ok(f) => f,
         Err(e) => {
-            log::warn!("video faststart: output tempdir failed: {e}");
+            log::warn!("video faststart: stage output failed: {e}");
             return bytes.to_vec();
         }
     };
-    let output_path = output_dir.path().join(format!("out{suffix}"));
+    let args: Vec<String> = [
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "error",
+        "-i",
+        input.arg(),
+        "-c",
+        "copy",
+        "-movflags",
+        "+faststart",
+        "-y",
+        output.arg(),
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
 
-    let result = Command::new(&ffmpeg)
-        .args([
-            "-hide_banner",
-            "-nostdin",
-            "-loglevel",
-            "error",
-            "-i",
-            input_path.to_str().unwrap_or_default(),
-            "-c",
-            "copy",
-            "-movflags",
-            "+faststart",
-            "-y",
-            output_path.to_str().unwrap_or_default(),
-        ])
-        .output();
-
-    match result {
-        Ok(out) if out.status.success() => match std::fs::read(&output_path) {
+    match crate::media::exec::run(&program, &args) {
+        Ok(out) if out.success() => match output.read() {
             Ok(remuxed) if !remuxed.is_empty() => {
                 log::info!(
                     "video faststart ok: {} bytes → {} bytes for {}",
@@ -253,13 +233,11 @@ pub fn remux_video_faststart(bytes: &[u8], file_name: &str) -> Vec<u8> {
             Ok(_) => log::warn!("video faststart: output empty for {file_name}"),
             Err(e) => log::warn!("video faststart: read output failed: {e}"),
         },
-        Ok(out) => {
-            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            log::warn!("video faststart failed for {file_name}: {stderr}");
-        }
-        Err(e) => {
-            log::warn!("video faststart spawn failed: {e}");
-        }
+        Ok(out) => log::warn!(
+            "video faststart failed for {file_name}: {}",
+            out.stderr_str().trim()
+        ),
+        Err(e) => log::warn!("video faststart spawn failed: {e}"),
     }
     bytes.to_vec()
 }
@@ -482,48 +460,32 @@ fn ffmpeg_transcode_bytes(
     file_name: &str,
     extra_args: &[&str],
 ) -> Result<Vec<u8>> {
+    let program = ffmpeg.to_string_lossy().into_owned();
     let suffix = video_suffix(file_name);
-    let mut input = tempfile::Builder::new()
-        .prefix("pointer-vid-shrink-in-")
-        .suffix(suffix)
-        .tempfile()
-        .context("video shrink temp input")?;
-    input.write_all(bytes).context("write video shrink input")?;
-    let input_path = input.path();
+    let input = crate::media::exec::StagedFile::write(bytes, suffix)?;
+    let output = crate::media::exec::StagedFile::empty(".mp4")?;
 
-    let output = tempfile::Builder::new()
-        .prefix("pointer-vid-shrink-out-")
-        .suffix(".mp4")
-        .tempfile()
-        .context("video shrink temp output")?;
-    let out_path = output.path();
-
-    let mut args = vec![
-        "-hide_banner",
-        "-nostdin",
-        "-loglevel",
-        "error",
-        "-i",
-        input_path.to_str().unwrap_or_default(),
+    let mut args: Vec<String> = vec![
+        "-hide_banner".to_string(),
+        "-nostdin".to_string(),
+        "-loglevel".to_string(),
+        "error".to_string(),
+        "-i".to_string(),
+        input.arg().to_string(),
     ];
-    args.extend_from_slice(extra_args);
-    args.extend_from_slice(&[
-        "-movflags",
-        "+faststart",
-        "-y",
-        out_path.to_str().unwrap_or_default(),
+    args.extend(extra_args.iter().map(|a| a.to_string()));
+    args.extend([
+        "-movflags".to_string(),
+        "+faststart".to_string(),
+        "-y".to_string(),
+        output.arg().to_string(),
     ]);
 
-    let out = Command::new(ffmpeg)
-        .args(&args)
-        .output()
-        .context("ffmpeg video shrink")?;
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        anyhow::bail!("ffmpeg shrink failed: {stderr}");
+    let out = crate::media::exec::run(&program, &args)?;
+    if !out.success() {
+        anyhow::bail!("ffmpeg shrink failed: {}", out.stderr_str().trim());
     }
-    let bytes = std::fs::read(out_path).context("read shrunk video")?;
-    Ok(bytes)
+    output.read().context("read shrunk video")
 }
 
 /// DashScope `fps` parameter valid range for native `video_url` input.
@@ -554,106 +516,110 @@ pub fn prepare_video_bytes_for_range(
 }
 
 /// Extract a time segment with ffmpeg (`-c copy` first, re-encode on failure).
-pub fn extract_video_clip_bytes(
-    bytes: &[u8],
+/// 按需裁剪时间窗：需要裁剪时返回裁剪后的临时文件，不需要时返回 `None`（直接用原输入）。
+pub fn clip_video_for_range(
+    input: &MediaInput,
+    file_name: &str,
+    range: &VideoTimeRange,
+    duration_sec: f64,
+) -> Result<Option<MediaInput>> {
+    let duration = duration_sec.max(0.0);
+    let needs_clip = range.start_sec > f64::EPSILON || range.end_sec < duration - f64::EPSILON;
+    if !needs_clip {
+        return Ok(None);
+    }
+    clip_media(input, file_name, range.start_sec, range.window_sec()).map(Some)
+}
+
+/// 在环境内裁剪一段视频（`-c copy` 优先，失败重编码）。
+fn clip_media(
+    input: &MediaInput,
     file_name: &str,
     start_sec: f64,
     duration_sec: f64,
-) -> Result<Vec<u8>> {
+) -> Result<MediaInput> {
     let ffmpeg =
         crate::media::ffmpeg::resolve_ffmpeg().context("ffmpeg not found for video clip")?;
+    let program = ffmpeg.to_string_lossy().into_owned();
     let suffix = video_suffix(file_name);
-    let mut input = tempfile::Builder::new()
-        .prefix("pointer-vid-clip-in-")
-        .suffix(suffix)
-        .tempfile()
-        .context("video clip temp input")?;
-    input
-        .write_all(bytes)
-        .context("write video clip temp input")?;
-    let input_path = input.path();
-
-    let output = tempfile::Builder::new()
-        .prefix("pointer-vid-clip-out-")
-        .suffix(suffix)
-        .tempfile()
-        .context("video clip temp output")?;
-    let out_path = output.path();
+    let output = crate::media::exec::StagedFile::empty(suffix)?;
 
     let start = start_sec.max(0.0);
     let duration = duration_sec.max(0.1);
     let start_s = format!("{start:.3}");
     let duration_s = format!("{duration:.3}");
-    let input_s = input_path.to_str().unwrap_or_default();
-    let output_s = out_path.to_str().unwrap_or_default();
 
-    let copy_out = Command::new(&ffmpeg)
-        .args([
-            "-hide_banner",
-            "-nostdin",
-            "-loglevel",
-            "error",
-            "-ss",
-            &start_s,
-            "-i",
-            input_s,
-            "-t",
-            &duration_s,
-            "-c",
-            "copy",
-            "-movflags",
-            "+faststart",
-            "-y",
-            output_s,
-        ])
-        .output();
-    if let Ok(out) = copy_out {
-        if out.status.success() {
-            if let Ok(clipped) = std::fs::read(out_path) {
+    let copy_args: Vec<String> = [
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "error",
+        "-ss",
+        start_s.as_str(),
+        "-i",
+        input.arg(),
+        "-t",
+        duration_s.as_str(),
+        "-c",
+        "copy",
+        "-movflags",
+        "+faststart",
+        "-y",
+        output.arg(),
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    if let Ok(out) = crate::media::exec::run(&program, &copy_args) {
+        if out.success() {
+            if let Ok(clipped) = output.read() {
                 if !clipped.is_empty() {
                     log::info!(
                         "video clip ok (copy): {file_name} start={start:.1}s duration={duration:.1}s → {} bytes",
                         clipped.len()
                     );
-                    return Ok(clipped);
+                    return Ok(MediaInput::Staged(output));
                 }
             }
         } else {
-            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            log::warn!("video clip copy failed for {file_name}: {stderr}");
+            log::warn!(
+                "video clip copy failed for {file_name}: {}",
+                out.stderr_str().trim()
+            );
         }
     }
 
-    let reencode_out = Command::new(&ffmpeg)
-        .args([
-            "-hide_banner",
-            "-nostdin",
-            "-loglevel",
-            "error",
-            "-ss",
-            &start_s,
-            "-i",
-            input_s,
-            "-t",
-            &duration_s,
-            "-c:v",
-            "libx264",
-            "-c:a",
-            "aac",
-            "-movflags",
-            "+faststart",
-            "-y",
-            output_s,
-        ])
-        .output()
-        .context("ffmpeg clip reencode")?;
-    if !reencode_out.status.success() {
-        let stderr = String::from_utf8_lossy(&reencode_out.stderr)
-            .trim()
-            .to_string();
-        anyhow::bail!("ffmpeg clip reencode failed for {file_name}: {stderr}");
+    let reencode_args: Vec<String> = [
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "error",
+        "-ss",
+        start_s.as_str(),
+        "-i",
+        input.arg(),
+        "-t",
+        duration_s.as_str(),
+        "-c:v",
+        "libx264",
+        "-c:a",
+        "aac",
+        "-movflags",
+        "+faststart",
+        "-y",
+        output.arg(),
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    let reencode_out = crate::media::exec::run(&program, &reencode_args)?;
+    if !reencode_out.success() {
+        anyhow::bail!(
+            "ffmpeg clip reencode failed for {file_name}: {}",
+            reencode_out.stderr_str().trim()
+        );
     }
-    let clipped = std::fs::read(out_path).context("read clipped video")?;
+    let clipped = output.read().context("read clipped video")?;
     if clipped.is_empty() {
         anyhow::bail!("ffmpeg clip produced empty output for {file_name}");
     }
@@ -661,7 +627,19 @@ pub fn extract_video_clip_bytes(
         "video clip ok (reencode): {file_name} start={start:.1}s duration={duration:.1}s → {} bytes",
         clipped.len()
     );
-    Ok(clipped)
+    Ok(MediaInput::Staged(output))
+}
+
+/// 字节版包装（旧调用方 / 测试用）。
+pub fn extract_video_clip_bytes(
+    bytes: &[u8],
+    file_name: &str,
+    start_sec: f64,
+    duration_sec: f64,
+) -> Result<Vec<u8>> {
+    let input = MediaInput::from_bytes(bytes, video_suffix(file_name))?;
+    let clipped = clip_media(&input, file_name, start_sec, duration_sec)?;
+    clipped.read()
 }
 
 pub fn video_mime_from_file_name(file_name: &str) -> &'static str {
@@ -683,24 +661,17 @@ pub fn extract_video_frame_base64s(bytes: &[u8], file_name: &str) -> Result<Vec<
     extract_video_frame_base64s_with_range(bytes, file_name, &range).map(|(frames, _)| frames)
 }
 
-pub fn extract_video_frame_base64s_with_range(
-    bytes: &[u8],
+/// 从已在环境里的视频抽帧（路径优先：不把整片搬进宿主内存）。
+pub fn extract_video_frames_with_range(
+    input: &MediaInput,
     file_name: &str,
     range: &VideoTimeRange,
 ) -> Result<(Vec<String>, VideoExtractMeta)> {
     let ffmpeg = crate::media::ffmpeg::resolve_ffmpeg().context("ffmpeg not found")?;
+    let program = ffmpeg.to_string_lossy().into_owned();
     let ffprobe = crate::media::ffmpeg::resolve_ffprobe().context("ffprobe not found")?;
 
-    let suffix = video_suffix(file_name);
-    let mut input = tempfile::Builder::new()
-        .prefix("pointer-vid-")
-        .suffix(suffix)
-        .tempfile()
-        .context("video temp input")?;
-    input.write_all(bytes).context("write video temp input")?;
-    let input_path = input.path();
-
-    let duration = probe_duration(&ffprobe, input_path).unwrap_or(0.0);
+    let duration = probe_duration(&ffprobe, input.path()).unwrap_or(0.0);
     let start = range.start_sec.clamp(0.0, duration.max(0.0));
     let end = range.end_sec.clamp(start, duration.max(start));
     let fps = range.frames_per_second.max(f64::MIN_POSITIVE);
@@ -716,32 +687,31 @@ pub fn extract_video_frame_base64s_with_range(
         if t > end + f64::EPSILON {
             break;
         }
-        let output = tempfile::Builder::new()
-            .suffix(".jpg")
-            .tempfile()
-            .context("video temp frame")?;
-        let out_path = output.path();
-        let output = Command::new(&ffmpeg)
-            .args([
-                "-hide_banner",
-                "-nostdin",
-                "-loglevel",
-                "error",
-                "-ss",
-                &format!("{t:.3}"),
-                "-i",
-                input_path.to_str().unwrap_or_default(),
-                "-vframes",
-                "1",
-                "-q:v",
-                "3",
-                "-y",
-                out_path.to_str().unwrap_or_default(),
-            ])
-            .output()
+        let output = crate::media::exec::StagedFile::empty(".jpg")?;
+        let ts = format!("{t:.3}");
+        let args: Vec<String> = [
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-ss",
+            ts.as_str(),
+            "-i",
+            input.arg(),
+            "-vframes",
+            "1",
+            "-q:v",
+            "3",
+            "-y",
+            output.arg(),
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let out = crate::media::exec::run(&program, &args)
             .with_context(|| format!("ffmpeg frame extract at t={t}"))?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if !out.success() {
+            let stderr = out.stderr_str().trim().to_string();
             log::warn!(
                 "ffmpeg frame extract failed at t={t} for {file_name}: {}",
                 if stderr.is_empty() {
@@ -752,9 +722,17 @@ pub fn extract_video_frame_base64s_with_range(
             );
             continue;
         }
-        let frame_bytes = std::fs::read(out_path).context("read ffmpeg frame")?;
+        let frame_bytes = output.read().context("read ffmpeg frame")?;
         if frame_bytes.is_empty() {
             continue;
+        }
+        if frame_bytes.len() as u64 > crate::media::exec::MEDIA_ARTIFACT_MAX_BYTES {
+            anyhow::bail!(
+                "第 {} 帧 {} 字节，超过单帧上限 {} 字节",
+                i + 1,
+                frame_bytes.len(),
+                crate::media::exec::MEDIA_ARTIFACT_MAX_BYTES
+            );
         }
         frames.push(base64::engine::general_purpose::STANDARD.encode(&frame_bytes));
     }
@@ -771,6 +749,16 @@ pub fn extract_video_frame_base64s_with_range(
             frame_count: extracted,
         },
     ))
+}
+
+/// 字节版包装（旧调用方 / 测试用）。
+pub fn extract_video_frame_base64s_with_range(
+    bytes: &[u8],
+    file_name: &str,
+    range: &VideoTimeRange,
+) -> Result<(Vec<String>, VideoExtractMeta)> {
+    let input = MediaInput::from_bytes(bytes, video_suffix(file_name))?;
+    extract_video_frames_with_range(&input, file_name, range)
 }
 
 /// Metadata returned alongside extracted frames for user-facing scope notices.
@@ -792,23 +780,28 @@ fn video_suffix(file_name: &str) -> &'static str {
 }
 
 fn probe_duration(ffprobe: &PathBuf, path: &Path) -> Result<f64> {
-    let output = Command::new(ffprobe)
-        .args([
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            path.to_str().unwrap_or_default(),
-        ])
-        .output()
-        .context("ffprobe spawn")?;
-    if !output.status.success() {
+    let program = ffprobe.to_string_lossy().into_owned();
+    let args: Vec<String> = [
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        path.to_str().unwrap_or_default(),
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    let output = crate::media::exec::run(&program, &args).context("ffprobe spawn")?;
+    if !output.success() {
         anyhow::bail!("ffprobe failed");
     }
-    let text = String::from_utf8_lossy(&output.stdout);
-    text.trim().parse::<f64>().context("parse ffprobe duration")
+    output
+        .stdout_str()
+        .trim()
+        .parse::<f64>()
+        .context("parse ffprobe duration")
 }
 
 #[cfg(test)]
@@ -901,5 +894,44 @@ mod tests {
         assert!(!remuxed.is_empty());
         assert!(remuxed.windows(4).any(|w| w == b"ftyp"));
         let _ = std::fs::remove_file(input_path);
+    }
+
+    #[test]
+    fn path_based_probe_and_frames_work_when_ffmpeg_available() {
+        let Some(ffmpeg) = crate::media::ffmpeg::resolve_ffmpeg() else {
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("in.mp4");
+        let args: Vec<String> = [
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=64x64:d=2",
+            "-c:v",
+            "libx264",
+            "-y",
+            path.to_str().unwrap(),
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let out = crate::media::exec::run(&ffmpeg.to_string_lossy(), &args).expect("gen video");
+        assert!(out.success(), "{}", out.stderr_str());
+
+        let input = MediaInput::existing(&path);
+        let duration = probe_video_duration_at(&input).expect("probe by path");
+        assert!(duration > 0.5, "duration={duration}");
+
+        let range =
+            VideoTimeRange::default_first_window(duration, DEFAULT_FRAMES_PER_SECOND).expect("range");
+        let (frames, meta) =
+            extract_video_frames_with_range(&input, "in.mp4", &range).expect("frames by path");
+        assert!(!frames.is_empty(), "应至少抽到一帧");
+        assert!(meta.frame_count >= 1);
+        assert!(!input.is_staged(), "路径模式不应产生临时输入");
     }
 }

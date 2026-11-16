@@ -577,7 +577,7 @@ fn run_clippy_builtin(
     ];
     let (lines, cap) =
         exec::run_argv_capture_lines("cargo", &args, root, wall_ms, READ_LINTS_MAX_STREAM_BYTES)?;
-    let diags = parsers::parse_cargo_compiler_messages(&lines, source);
+    let diags = parsers::parse_cargo_compiler_messages(&lines, root, source);
     Ok((diags, cap))
 }
 
@@ -890,7 +890,7 @@ fn run_config_entry(
                 &source,
             )
         }),
-        "cargo-json-lines" => parsers::parse_cargo_compiler_messages(&lines, &source),
+        "cargo-json-lines" => parsers::parse_cargo_compiler_messages(&lines, root, &source),
         "maven-log" => {
             let mut combined = stdout.clone();
             combined.push('\n');
@@ -1230,12 +1230,35 @@ mod tests {
             r#"{{"reason":"compiler-message","message":{}}}"#,
             serde_json::to_string(&msg).unwrap()
         )];
-        let ds = parsers::parse_cargo_compiler_messages(&lines, "cargo-clippy");
+        let ds = parsers::parse_cargo_compiler_messages(
+            &lines,
+            std::path::Path::new("/tmp/proj"),
+            "cargo-clippy",
+        );
         let d = &ds[0];
         assert_eq!(d["severity"], "warning");
         assert_eq!(d["line"], 3);
         assert_eq!(d["column"], 9);
         assert_eq!(d["code"], "unused_variables");
+    }
+
+    /// 回归：cargo 的 `spans[].file_name` 是相对 linter cwd 的路径。
+    /// 不拼成绝对路径 → `push_filtered_batch` 判为工作区外丢弃 → 告警被误报成 clean。
+    #[test]
+    fn cargo_relative_span_path_is_resolved_against_linter_cwd() {
+        let msg: serde_json::Value = serde_json::from_str(
+            r#"{"message":"unused import: `std::collections::HashMap`","code":{"code":"unused_imports"},"level":"warning","spans":[{"file_name":"src/lib.rs","line_start":1,"column_start":1,"is_primary":true}],"rendered":"warning: unused import\n"}"#,
+        )
+        .unwrap();
+        let lines = vec![format!(
+            r#"{{"reason":"compiler-message","message":{}}}"#,
+            serde_json::to_string(&msg).unwrap()
+        )];
+        let cwd = std::path::Path::new("/tmp/some-workspace");
+        let ds = parsers::parse_cargo_compiler_messages(&lines, cwd, "cargo-clippy");
+        assert_eq!(ds.len(), 1, "{ds:?}");
+        assert_eq!(ds[0]["path"], "/tmp/some-workspace/src/lib.rs");
+        assert_eq!(ds[0]["severity"], "warning");
     }
 
     #[test]

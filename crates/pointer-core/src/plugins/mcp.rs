@@ -8,6 +8,7 @@
 //! `McpSessionManager::shutdown_plugin` 关闭进程。MCP 工具与 sidecar 工具
 //! 共用 `ToolRegistry` 注册与审批链路。
 
+use crate::env::{ChildHandle, SpawnOptions};
 use crate::plugins::manifest::McpServerDecl;
 use crate::plugins::registry::PluginRecord;
 use crate::tools::{ToolEntry, ToolHandler};
@@ -16,9 +17,10 @@ use parking_lot::{Mutex, RwLock};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
+#[cfg(test)]
+use std::io::Write;
 use std::path::Path;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -50,8 +52,8 @@ pub struct McpClient {
 enum Transport {
     /// stdio：本地子进程（插件自带 / 本机命令）。
     Stdio {
-        stdin: Mutex<ChildStdin>,
-        child: Arc<Mutex<Option<Child>>>,
+        /// 子进程句柄（§3.3：进程由 `Environment::spawn` 起，light 下会明确拒绝）。
+        child: Arc<Mutex<Box<dyn ChildHandle>>>,
         /// 存活标记：读线程在 stdout EOF（进程退出）时置 false。
         alive: Arc<AtomicBool>,
     },
@@ -107,30 +109,29 @@ impl McpClient {
             ));
         }
         let command_path = Self::resolve_command(plugin_dir, &decl.command)?;
-        let mut child = Command::new(&command_path)
-            .args(&decl.args)
-            .envs(&decl.env)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+        let mut argv = vec![command_path.to_string_lossy().into_owned()];
+        argv.extend(decl.args.iter().cloned());
+        let opts = SpawnOptions {
+            cwd: None,
+            env: decl
+                .env
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        };
+        let mut child = crate::env::effective_env()
+            .spawn(&argv, opts)
             .map_err(|e| anyhow!("启动 MCP server 失败 ({}): {e}", command_path.display()))?;
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow!("无法打开 MCP server stdin"))?;
         let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow!("无法打开 MCP server stdout"))?;
+            .reader()
+            .map_err(|e| anyhow!("无法读取 MCP server stdout: {e}"))?;
 
         let client = Arc::new(McpClient {
             plugin_id: plugin_id.to_string(),
             server_name: decl.name.clone(),
             next_id: AtomicU64::new(1),
             transport: Transport::Stdio {
-                stdin: Mutex::new(stdin),
-                child: Arc::new(Mutex::new(Some(child))),
+                child: Arc::new(Mutex::new(child)),
                 alive: Arc::new(AtomicBool::new(true)),
             },
             pending: Arc::new(Mutex::new(HashMap::new())),
@@ -226,7 +227,7 @@ impl McpClient {
         Ok(mcp)
     }
 
-    fn spawn_reader(&self, stdout: ChildStdout) {
+    fn spawn_reader<R: std::io::Read + Send + 'static>(&self, stdout: R) {
         let Transport::Stdio { alive, .. } = &self.transport else {
             return;
         };
@@ -283,17 +284,17 @@ impl McpClient {
             "params": params,
         });
         match &self.transport {
-            Transport::Stdio { stdin, .. } => {
+            Transport::Stdio { child, .. } => {
                 let (tx, rx) = std::sync::mpsc::channel();
                 self.pending.lock().insert(id, tx);
                 {
-                    let mut stdin = stdin.lock();
-                    serde_json::to_writer(&mut *stdin, &payload)
+                    let mut handle = child.lock();
+                    let mut frame = serde_json::to_vec(&payload)
                         .map_err(|e| anyhow!("写入 MCP 请求失败: {e}"))?;
-                    writeln!(stdin).map_err(|e| anyhow!("写入 MCP 请求换行失败: {e}"))?;
-                    stdin
-                        .flush()
-                        .map_err(|e| anyhow!("刷新 MCP stdin 失败: {e}"))?;
+                    frame.push(b'\n');
+                    handle
+                        .write_all(&frame)
+                        .map_err(|e| anyhow!("写入 MCP 请求失败: {e}"))?;
                 }
                 match rx.recv_timeout(timeout) {
                     Ok(v) => {
@@ -541,14 +542,14 @@ impl McpClient {
             "params": params,
         });
         match &self.transport {
-            Transport::Stdio { stdin, .. } => {
-                let mut stdin = stdin.lock();
-                serde_json::to_writer(&mut *stdin, &payload)
+            Transport::Stdio { child, .. } => {
+                let mut handle = child.lock();
+                let mut frame = serde_json::to_vec(&payload)
                     .map_err(|e| anyhow!("写入 MCP 通知失败: {e}"))?;
-                writeln!(stdin).map_err(|e| anyhow!("写入 MCP 通知换行失败: {e}"))?;
-                stdin
-                    .flush()
-                    .map_err(|e| anyhow!("刷新 MCP stdin 失败: {e}"))?;
+                frame.push(b'\n');
+                handle
+                    .write_all(&frame)
+                    .map_err(|e| anyhow!("写入 MCP 通知失败: {e}"))?;
                 Ok(())
             }
             Transport::Http {
@@ -641,11 +642,8 @@ impl McpClient {
     fn kill_child(&self) {
         match &self.transport {
             Transport::Stdio { child, .. } => {
-                let mut guard = child.lock();
-                if let Some(mut child) = guard.take() {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
+                let mut handle = child.lock();
+                let _ = handle.kill();
             }
             Transport::Http { alive, .. } => {
                 alive.store(false, Ordering::SeqCst);
@@ -660,14 +658,11 @@ impl McpClient {
                 if !alive.load(Ordering::SeqCst) {
                     return false;
                 }
-                let mut guard = child.lock();
-                let exited = match guard.as_mut() {
-                    Some(child) => match child.try_wait() {
-                        Ok(Some(_)) => true,
-                        Ok(None) => false,
-                        Err(_) => true,
-                    },
-                    None => true,
+                let mut handle = child.lock();
+                let exited = match handle.try_wait() {
+                    Ok(Some(_)) => true,
+                    Ok(None) => false,
+                    Err(_) => true,
                 };
                 if exited {
                     alive.store(false, Ordering::SeqCst);
@@ -1486,7 +1481,7 @@ done
         );
 
         // 通过注册名调用 → 底层应调用原始工具名 query-docs
-        tools.invoke(name, json!({ "q": "tokio" })).expect("invoke");
+        tools.invoke(&crate::tools::context::ToolContext::local_default(),name, json!({ "q": "tokio" })).expect("invoke");
         std::thread::sleep(Duration::from_millis(300));
         let seen = seen.lock();
         let call = seen

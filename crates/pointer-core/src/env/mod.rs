@@ -1,0 +1,820 @@
+//! 执行环境抽象层（P1：只实现 `local`）。
+//!
+//! 设计来源：`docs/zh-CN/design/environment-sandbox.md` §3（总体架构）/ §4（阶段一）。
+//!
+//! 分层约定：
+//!
+//! - `Environment` 是**唯一**的 IO / exec 出口。工具层不允许直接 `std::fs` 或
+//!   `Command::new`（验收见设计文档 §4.4）。
+//! - 路径策略留在 `tools::file::path`，`env` 只提供根与映射，不反向依赖工具层。
+//! - 会话在创建时绑定一个 `Environment`；**会话中途不允许切换 provider**。
+//!
+//! 为什么用 thread-local 句柄而不是给每个工具加参数：`ToolHandler` 的类型是
+//! `Arc<dyn Fn(Value) -> Result<String>>`（见 `tools/mod.rs`），注册只在启动时发生一次，
+//! 无法按会话注入参数。这与既有的 `scoped_env_slot!`（`SESSION_USER_ID` / `WORKING_DIR` /
+//! `POINTER_ACCESS_HOST`）同一套模式：绑定在分发点重放，见
+//! `chat_service/agent_tool_pass/dispatch/registry.rs`。
+
+pub mod docker;
+mod local;
+pub mod mounts;
+pub mod pathmap;
+pub mod process;
+pub mod provider;
+pub mod remote;
+pub mod session_env;
+
+pub use local::LocalEnv;
+pub use pathmap::{Mount, MountSpec, PathMap};
+
+use anyhow::Result;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
+
+/// 隔离档位。P1 只落地 `Local`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnvKind {
+    /// 宿主真实桌面，无隔离。
+    Local,
+    /// namespace + uid + 挂载，无 GUI。
+    Light,
+    /// 完整运行时 + GUI（Xvfb + WM）。
+    Container,
+}
+
+impl EnvKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Light => "light",
+            Self::Container => "container",
+        }
+    }
+}
+
+/// 读权限范围。非 local 后端下 `resolve_accessible_path` 的绝对路径直通必须由它收口。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadScope {
+    /// 整台宿主可读（local 现状）。
+    Host,
+    /// 仅当前用户目录。
+    User,
+    /// 仅工作区。
+    Workspace,
+    /// 不可读。
+    None,
+}
+
+/// 写权限范围。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteScope {
+    /// 宿主可写（local 现状：workspace / home / temp / 用户数据目录）。
+    Host,
+    /// 仅当前用户目录。
+    User,
+    /// 仅工作区。
+    Workspace,
+    /// 不可写。
+    None,
+}
+
+/// 出网策略。沙箱**默认允许出网**（联网搜索、装包、API 调用都依赖它）；
+/// 用户间隔离靠 net namespace，不是断网。需要禁网的离线场景由配置显式关闭。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkPolicy {
+    Allow,
+    Deny,
+}
+
+/// 交互式终端的启动参数。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PtySpec {
+    pub argv: Vec<String>,
+    pub cwd: Option<PathBuf>,
+    pub env: Vec<(String, String)>,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+impl PtySpec {
+    pub fn new(argv: Vec<String>) -> Self {
+        Self {
+            argv,
+            cwd: None,
+            env: Vec::new(),
+            cols: 80,
+            rows: 24,
+        }
+    }
+}
+
+/// 交互式终端句柄：pty 由**环境**分配（宿主用 portable_pty，沙箱用 envd 的
+/// `StartRequest.pty`），上层只做读写与 resize，不关心后端。
+pub trait PtyHandle: Send + Sync {
+    fn id(&self) -> u32;
+    fn write(&self, data: &[u8]) -> Result<()>;
+    fn resize(&self, cols: u16, rows: u16) -> Result<()>;
+    /// 取一次输出流（只能取一次：底层是单消费者通道/文件句柄）。
+    fn take_reader(&self) -> Result<Box<dyn std::io::Read + Send>>;
+    fn try_wait(&self) -> Result<Option<i32>>;
+    fn kill(&self) -> Result<()>;
+}
+
+/// 能力集：决定工具列表裁剪（如 `desktop == false` 时不下发 screenshot / click）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Capabilities {
+    pub desktop: bool,
+    pub read_scope: ReadScope,
+    pub write_scope: WriteScope,
+    pub snapshot: bool,
+    pub network: NetworkPolicy,
+}
+
+impl Capabilities {
+    /// 宿主本机：可读可写整机，桌面能力取决于是否编入 `computer` feature。
+    pub fn local() -> Self {
+        Self {
+            desktop: cfg!(feature = "computer"),
+            read_scope: ReadScope::Host,
+            write_scope: WriteScope::Host,
+            snapshot: false,
+            network: NetworkPolicy::Allow,
+        }
+    }
+
+    /// light：无桌面、无快照；出网默认允许（隔离靠 net namespace）。
+    pub fn light() -> Self {
+        Self {
+            desktop: false,
+            read_scope: ReadScope::User,
+            write_scope: WriteScope::User,
+            snapshot: false,
+            network: NetworkPolicy::Allow,
+        }
+    }
+
+    /// container：light + 桌面。
+    ///
+    /// `snapshot` 目前是 `false`——快照还没实现（设计文档 §6 列在后续）。
+    /// 这里不能写 `true`：能力位是给上层做决策用的，声明了却做不到会让人
+    /// 以为"跑完能回滚"。
+    pub fn container() -> Self {
+        Self {
+            desktop: true,
+            read_scope: ReadScope::User,
+            write_scope: WriteScope::User,
+            snapshot: false,
+            network: NetworkPolicy::Allow,
+        }
+    }
+}
+
+/// 一次 exec 的可选参数。`Default` = 继承宿主 cwd / env，无 stdin，无超时。
+#[derive(Debug, Clone, Default)]
+pub struct ExecOptions {
+    pub cwd: Option<PathBuf>,
+    pub env: BTreeMap<String, String>,
+    /// 需要从子进程环境中**删除**的键（例如 git 的 `GIT_DIR` 加固）。
+    pub env_remove: Vec<String>,
+    pub stdin: Option<Vec<u8>>,
+    pub timeout: Option<Duration>,
+    /// 每条流的字节上限；超出部分丢弃并置 `*_truncated`。
+    pub max_output_bytes: Option<usize>,
+}
+
+impl ExecOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_cwd(mut self, cwd: impl Into<PathBuf>) -> Self {
+        self.cwd = Some(cwd.into());
+        self
+    }
+
+    pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn without_env(mut self, key: impl Into<String>) -> Self {
+        self.env_remove.push(key.into());
+        self
+    }
+
+    pub fn with_stdin(mut self, data: impl Into<Vec<u8>>) -> Self {
+        self.stdin = Some(data.into());
+        self
+    }
+
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    pub fn with_max_output_bytes(mut self, max: usize) -> Self {
+        self.max_output_bytes = Some(max);
+        self
+    }
+}
+
+/// exec 结果。`status` 在无退出码（被信号杀死 / 超时终止）时为 `-1`。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecOutput {
+    pub status: i32,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+    pub stdout_truncated: bool,
+    pub stderr_truncated: bool,
+    /// 超时被终止（此时 `status == -1`，已捕获的输出保留）。
+    pub timed_out: bool,
+}
+
+impl ExecOutput {
+    pub fn success(&self) -> bool {
+        self.status == 0
+    }
+
+    pub fn stdout_str(&self) -> String {
+        String::from_utf8_lossy(&self.stdout).into_owned()
+    }
+
+    pub fn stderr_str(&self) -> String {
+        String::from_utf8_lossy(&self.stderr).into_owned()
+    }
+}
+
+/// 目录项。`path` 是**环境内**路径（非宿主路径），调用方输出给模型前要走反向翻译。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirEntry {
+    pub name: String,
+    pub path: PathBuf,
+    pub is_dir: bool,
+    pub is_symlink: bool,
+}
+
+/// 文件元数据（只暴露工具层真正用到的字段）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileMetadata {
+    pub is_file: bool,
+    pub is_dir: bool,
+    pub is_symlink: bool,
+    pub len: u64,
+}
+
+/// 目录遍历选项。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WalkOptions {
+    /// 深度上限，1 = 只看直接子项。
+    pub max_depth: usize,
+    /// 是否包含 `.` 开头的隐藏项。
+    pub include_hidden: bool,
+    /// 是否遵循 `.gitignore` / `.ignore`（grep 需要，glob 不需要）。
+    pub respect_gitignore: bool,
+    /// 是否跳过 `.git` 元数据目录（grep / glob 需要，`file_list` 不需要）。
+    pub exclude_git_metadata: bool,
+}
+
+impl WalkOptions {
+    pub fn new(max_depth: usize) -> Self {
+        Self {
+            max_depth: max_depth.max(1),
+            include_hidden: false,
+            respect_gitignore: false,
+            exclude_git_metadata: true,
+        }
+    }
+
+    pub fn with_hidden(mut self, include_hidden: bool) -> Self {
+        self.include_hidden = include_hidden;
+        self
+    }
+
+    pub fn with_gitignore(mut self, respect_gitignore: bool) -> Self {
+        self.respect_gitignore = respect_gitignore;
+        self
+    }
+
+    pub fn with_git_metadata(mut self, exclude_git_metadata: bool) -> Self {
+        self.exclude_git_metadata = exclude_git_metadata;
+        self
+    }
+}
+
+/// 遍历结果项。`is_dir == false` 时一定是常规文件（符号链接等已过滤）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WalkEntry {
+    pub path: PathBuf,
+    pub is_dir: bool,
+    pub is_symlink: bool,
+}
+
+/// agent 可见的一切 IO / 执行都经过它。
+///
+/// 约定：
+/// - 入参 `path` 是**宿主路径**（工具层已解析完成），provider 内部做 `to_host` / `to_agent`。
+/// - 返回错误用 `anyhow`，映射失败统一带 `PATH_NOT_MAPPED`。
+/// 常驻子进程的启动参数。
+#[derive(Debug, Clone, Default)]
+pub struct SpawnOptions {
+    pub cwd: Option<PathBuf>,
+    pub env: Vec<(String, String)>,
+}
+
+/// 常驻子进程句柄（MCP server / hook 脚本这类要 stdin/stdout 双向流的场景）。
+///
+/// 设计文档 §3.3：agent 可触发的进程一律在环境内跑。`exec` 是一次性的，
+/// 常驻进程必须经 [`Environment::spawn`]。
+pub trait ChildHandle: Send {
+    fn id(&self) -> u32;
+    /// 写 stdin（换行由调用方负责）。
+    fn write_all(&mut self, data: &[u8]) -> Result<()>;
+    /// 关闭 stdin（子进程读到 EOF 才会退出——一次性脚本必须调）。
+    fn close_stdin(&mut self) -> Result<()>;
+    /// 取 stdout 读端（每个句柄只能取一次）。
+    fn reader(&mut self) -> Result<Box<dyn std::io::BufRead + Send>>;
+    /// 已退出则返回退出码。
+    fn try_wait(&mut self) -> Result<Option<i32>>;
+    /// 阻塞等待退出并返回退出码。
+    fn wait(&mut self) -> Result<i32>;
+    /// 强杀并回收。
+    fn kill(&mut self) -> Result<()>;
+}
+
+pub trait Environment: Send + Sync {
+    fn kind(&self) -> EnvKind;
+
+    /// 提示词注入用。local 返回宿主真实路径。
+    fn workspace_root(&self) -> &Path;
+    fn skills_root(&self) -> &Path;
+    fn home_root(&self) -> &Path;
+
+    fn capabilities(&self) -> Capabilities;
+
+    /// 宿主 ↔ 环境路径翻译表。local 为恒等。
+    fn path_map(&self) -> &PathMap;
+
+    /// 桌面观察入口（容器档位才有）：`(vnc://127.0.0.1:<port>, 密码)`。
+    ///
+    /// 宿主和 light 档位没有可观察的桌面，返回 `None`。
+    fn desktop_endpoint(&self) -> Option<(String, Option<String>)> {
+        None
+    }
+
+    fn exec(&self, argv: &[String], opts: ExecOptions) -> Result<ExecOutput>;
+
+    /// 起一个常驻子进程（stdin/stdout 双向流）。
+    fn spawn(&self, argv: &[String], opts: SpawnOptions) -> Result<Box<dyn ChildHandle>>;
+
+    /// 开一个交互式终端。默认不支持——只有实现了 pty 的环境才能用。
+    fn pty_open(&self, _spec: PtySpec) -> Result<Box<dyn PtyHandle>> {
+        Err(anyhow::anyhow!(
+            "当前执行环境（{:?}）不支持交互式终端",
+            self.kind()
+        ))
+    }
+    fn read_file(&self, path: &Path) -> Result<Vec<u8>>;
+
+    /// 读文件但限制体积：超过 `max_bytes` 直接报错，而不是把大文件拉进内存。
+    ///
+    /// 媒体管线必须用它（设计文档 §7.2：5 GB 视频整段读入会撑爆宿主）。
+    fn read_file_capped(&self, path: &Path, max_bytes: u64) -> Result<Vec<u8>> {
+        let meta = self.metadata(path)?;
+        if meta.len > max_bytes {
+            anyhow::bail!(
+                "{} 有 {} 字节，超过单次读取上限 {} 字节；大文件请走路径模式（沙箱内处理）",
+                path.display(),
+                meta.len,
+                max_bytes
+            );
+        }
+        self.read_file(path)
+    }
+    fn write_file(&self, path: &Path, data: &[u8]) -> Result<()>;
+    fn list_dir(&self, path: &Path) -> Result<Vec<DirEntry>>;
+
+    /// 元数据。不存在 / 无权限时返回 `Err`。
+    fn metadata(&self, path: &Path) -> Result<FileMetadata>;
+
+    /// 该路径是否存在（可访问）。
+    fn exists(&self, path: &Path) -> bool {
+        self.metadata(path).is_ok()
+    }
+
+    /// 解析符号链接后的绝对路径。
+    fn canonicalize(&self, path: &Path) -> Result<PathBuf>;
+
+    /// 递归创建目录（已存在视为成功）。
+    fn create_dir_all(&self, path: &Path) -> Result<()>;
+
+    /// 读全文（要求合法 UTF-8，与 `fs::read_to_string` 语义一致）。
+    fn read_to_string(&self, path: &Path) -> Result<String>;
+
+    /// 流式读句柄：大文件按行扫描时必须用它，避免整文件进内存。
+    fn open_reader(&self, path: &Path) -> Result<Box<dyn std::io::Read + Send>>;
+
+    /// 批量遍历。**一次调用返回整批**，调用方不得逐目录往返（设计文档 §2.2）。
+    fn walk(&self, root: &Path, opts: WalkOptions) -> Result<Vec<WalkEntry>>;
+
+    /// 删除单个文件（不存在视为成功）。
+    fn remove_file(&self, path: &Path) -> Result<()>;
+
+    /// 递归删除目录（不存在视为成功）。
+    fn remove_dir_all(&self, path: &Path) -> Result<()>;
+
+    /// 标记为可执行（unix 0o700；其他平台 no-op）。
+    fn set_executable(&self, path: &Path) -> Result<()>;
+}
+
+/// 当前生效的环境：会话绑定了环境就用它，否则用进程级 local 环境。
+///
+/// 工具层只通过这里拿 IO 能力，不直接碰 `std::fs` / `Command`。
+/// 在异步上下文里安全执行**阻塞**工作。
+///
+/// `reqwest::blocking` 内部会创建/丢弃 tokio Runtime，直接在 async 线程上跑会 panic：
+/// `Cannot drop a runtime in a context where blocking is not allowed`。
+/// 异步上下文里一律丢到独立线程执行；同步上下文原地执行（不付线程开销）。
+pub(crate) fn run_blocking<T, F>(f: F) -> T
+where
+    F: FnOnce() -> T + Send,
+    T: Send,
+{
+    if tokio::runtime::Handle::try_current().is_ok() {
+        std::thread::scope(|scope| match scope.spawn(f).join() {
+            Ok(value) => value,
+            Err(panic) => std::panic::resume_unwind(panic),
+        })
+    } else {
+        f()
+    }
+}
+
+/// 未绑定环境时的**拒绝执行**环境。
+///
+/// light/container 档位下，一旦某个线程没有会话绑定（tokio 换线程、
+/// `spawn_blocking`、新起的后台任务…），旧实现会静默回落到 `LocalEnv`——
+/// 命令跑到宿主、工作区指向宿主路径，属于**数据泄露级**的错误。
+/// 这里改为显式失败：宁可报错，也不在宿主执行。
+struct DeniedEnv {
+    workspace: PathBuf,
+    home: PathBuf,
+    skills: PathBuf,
+    map: PathMap,
+}
+
+impl DeniedEnv {
+    fn new() -> Self {
+        Self {
+            workspace: PathBuf::from("/workspace"),
+            home: PathBuf::from("/home/u"),
+            skills: PathBuf::from("/skills"),
+            map: PathMap::identity(),
+        }
+    }
+
+    fn deny(op: &str) -> anyhow::Error {
+        anyhow::anyhow!(
+            "执行环境未绑定：当前会话应运行在沙箱里，但该线程上没有绑定（{op} 已拒绝，未在宿主执行）"
+        )
+    }
+}
+
+impl Environment for DeniedEnv {
+    fn kind(&self) -> EnvKind {
+        EnvKind::Light
+    }
+    /// 别让默认实现报「不支持交互式终端」——真正原因是环境没绑定。
+    fn pty_open(&self, _spec: PtySpec) -> Result<Box<dyn PtyHandle>> {
+        Err(anyhow::anyhow!(
+            "执行环境未绑定：当前会话运行在沙箱里，但该线程上没有绑定执行环境（终端已拒绝，未在宿主执行）"
+        ))
+    }
+    fn workspace_root(&self) -> &Path {
+        &self.workspace
+    }
+    fn skills_root(&self) -> &Path {
+        &self.skills
+    }
+    fn home_root(&self) -> &Path {
+        &self.home
+    }
+    fn capabilities(&self) -> Capabilities {
+        Capabilities::light()
+    }
+    fn path_map(&self) -> &PathMap {
+        &self.map
+    }
+    fn exec(&self, _argv: &[String], _opts: ExecOptions) -> Result<ExecOutput> {
+        Err(Self::deny("exec"))
+    }
+    fn spawn(&self, _argv: &[String], _opts: SpawnOptions) -> Result<Box<dyn ChildHandle>> {
+        Err(Self::deny("spawn"))
+    }
+    fn read_file(&self, _path: &Path) -> Result<Vec<u8>> {
+        Err(Self::deny("read_file"))
+    }
+    fn write_file(&self, _path: &Path, _data: &[u8]) -> Result<()> {
+        Err(Self::deny("write_file"))
+    }
+    fn list_dir(&self, _path: &Path) -> Result<Vec<DirEntry>> {
+        Err(Self::deny("list_dir"))
+    }
+    fn metadata(&self, _path: &Path) -> Result<FileMetadata> {
+        Err(Self::deny("metadata"))
+    }
+    fn canonicalize(&self, _path: &Path) -> Result<PathBuf> {
+        Err(Self::deny("canonicalize"))
+    }
+    fn create_dir_all(&self, _path: &Path) -> Result<()> {
+        Err(Self::deny("create_dir_all"))
+    }
+    fn read_to_string(&self, _path: &Path) -> Result<String> {
+        Err(Self::deny("read_to_string"))
+    }
+    fn open_reader(&self, _path: &Path) -> Result<Box<dyn std::io::Read + Send>> {
+        Err(Self::deny("open_reader"))
+    }
+    fn walk(&self, _root: &Path, _opts: WalkOptions) -> Result<Vec<WalkEntry>> {
+        Err(Self::deny("walk"))
+    }
+    fn remove_file(&self, _path: &Path) -> Result<()> {
+        Err(Self::deny("remove_file"))
+    }
+    fn remove_dir_all(&self, _path: &Path) -> Result<()> {
+        Err(Self::deny("remove_dir_all"))
+    }
+    fn set_executable(&self, _path: &Path) -> Result<()> {
+        Err(Self::deny("set_executable"))
+    }
+}
+
+/// 测试用：一个 kind=Light 但不触碰宿主的环境（所有 IO 都拒绝）。
+#[cfg(test)]
+pub(crate) fn test_light_env() -> Arc<dyn Environment> {
+    Arc::new(DeniedEnv::new())
+}
+
+/// 部署档位是否为 light/container（只读一次环境变量，进程内不变）。
+fn deployment_is_remote() -> bool {
+    static CACHE: OnceLock<bool> = OnceLock::new();
+    *CACHE.get_or_init(|| {
+        crate::env::provider::ProviderConfig::from_env()
+            .ok()
+            .and_then(|cfg| cfg.resolve(None).ok())
+            .map(|r| r.tier != crate::env::provider::Tier::Local)
+            .unwrap_or(false)
+    })
+}
+
+/// 指定工作区的宿主环境（面板在会话沙箱尚未创建时用）。
+///
+/// Docker 后端下 `/workspace` 就是项目目录的 bind mount，宿主读到的字节与容器内一致，
+/// 所以面板可以先直接读宿主，不必抢先把沙箱创建出来（否则会用它手里的旧路径定死挂载）。
+pub fn host_env_at(root: &std::path::Path) -> Arc<dyn Environment> {
+    Arc::new(local::LocalEnv::new(root.to_path_buf()))
+}
+
+/// 宿主本机环境（**固定**，不随部署档位变化）。
+///
+/// 给那些"本来就该在宿主上"的操作用：worktree 创建/清理（git 仓库在宿主，
+/// 沙箱里根本没有 .git）、应用自身的数据整理等。会话内的工具/面板一律用
+/// [`effective_env`]，不要用这个。
+pub fn host_env() -> Arc<dyn Environment> {
+    static HOST: OnceLock<Arc<dyn Environment>> = OnceLock::new();
+    HOST.get_or_init(|| Arc::new(LocalEnv::from_settings()) as Arc<dyn Environment>)
+        .clone()
+}
+
+pub fn effective_env() -> Arc<dyn Environment> {
+    if let Some(env) = current_env() {
+        return env;
+    }
+    // light/container 档位绝不能静默回落宿主：返回拒绝执行的环境，把漏绑定变成显式错误。
+    if deployment_is_remote() {
+        static DENIED: OnceLock<Arc<dyn Environment>> = OnceLock::new();
+        return DENIED
+            .get_or_init(|| Arc::new(DeniedEnv::new()) as Arc<dyn Environment>)
+            .clone();
+    }
+    static DEFAULT_LOCAL: OnceLock<Arc<dyn Environment>> = OnceLock::new();
+    DEFAULT_LOCAL
+        .get_or_init(|| Arc::new(LocalEnv::from_settings()) as Arc<dyn Environment>)
+        .clone()
+}
+
+thread_local! {
+    static CURRENT_ENV: RefCell<Option<Arc<dyn Environment>>> = const { RefCell::new(None) };
+}
+
+/// 会话级 `Environment` 绑定。与 `ConversationWorkspaceGuard` 同一套语义：
+/// tokio 任务换线程后 thread-local 不会跟随，**每个重新进入的分发点都要重放**。
+pub struct EnvironmentGuard {
+    previous: Option<Arc<dyn Environment>>,
+}
+
+impl EnvironmentGuard {
+    pub fn enter(env: Arc<dyn Environment>) -> Self {
+        let previous = CURRENT_ENV.with(|slot| slot.borrow_mut().replace(env));
+        Self { previous }
+    }
+
+    /// 清除绑定（会话结束 / 测试收尾），`Drop` 时恢复原值。
+    pub fn clear() -> Self {
+        let previous = CURRENT_ENV.with(|slot| slot.borrow_mut().take());
+        Self { previous }
+    }
+}
+
+impl Drop for EnvironmentGuard {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        CURRENT_ENV.with(|slot| {
+            *slot.borrow_mut() = previous;
+        });
+    }
+}
+
+/// 当前线程绑定的环境；未绑定时返回 `None`（local 直跑）。
+pub fn current_env() -> Option<Arc<dyn Environment>> {
+    CURRENT_ENV.with(|slot| slot.borrow().clone())
+}
+
+/// 是否已绑定非默认环境。
+pub fn is_bound() -> bool {
+    CURRENT_ENV.with(|slot| slot.borrow().is_some())
+}
+
+/// 提示词 `{{workspace_root}}` 的取值来源。
+///
+/// 已绑定环境时用 `env.workspace_root()`；否则退回调用方给的 settings 值（当前行为）。
+pub fn prompt_workspace_root(fallback: &str) -> String {
+    match current_env() {
+        Some(env) => env.workspace_root().display().to_string(),
+        None => fallback.trim().to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_env(dir: &Path) -> Arc<dyn Environment> {
+        Arc::new(LocalEnv::new(dir))
+    }
+
+    #[test]
+    fn prompt_workspace_root_falls_back_without_binding() {
+        assert!(!is_bound());
+        assert_eq!(prompt_workspace_root("  /tmp/ws  "), "/tmp/ws");
+    }
+
+    #[test]
+    fn guard_binds_env_and_restores_on_drop() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = temp_env(dir.path());
+        {
+            let _g = EnvironmentGuard::enter(env.clone());
+            assert!(is_bound());
+            assert_eq!(
+                prompt_workspace_root("/ignored"),
+                dir.path().display().to_string()
+            );
+        }
+        assert!(!is_bound());
+        assert_eq!(prompt_workspace_root("/fallback"), "/fallback");
+    }
+
+    #[test]
+    fn nested_guards_restore_outer_binding() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        let _outer = EnvironmentGuard::enter(temp_env(a.path()));
+        {
+            let _inner = EnvironmentGuard::enter(temp_env(b.path()));
+            assert_eq!(
+                current_env().unwrap().workspace_root(),
+                b.path()
+            );
+        }
+        assert_eq!(current_env().unwrap().workspace_root(), a.path());
+    }
+
+    #[test]
+    fn capabilities_match_kind() {
+        assert_eq!(Capabilities::local().read_scope, ReadScope::Host);
+        assert!(!Capabilities::light().desktop);
+        assert!(Capabilities::container().desktop);
+        assert_eq!(EnvKind::Local.as_str(), "local");
+    }
+
+    #[test]
+    fn denied_env_refuses_host_io_instead_of_leaking() {
+        // light 档位下没绑定会话环境时，绝不能静默回落宿主。
+        let env = DeniedEnv::new();
+        assert_eq!(env.kind(), EnvKind::Light);
+        assert_eq!(env.workspace_root(), Path::new("/workspace"));
+        let err = env
+            .exec(&["/bin/echo".to_string(), "hi".to_string()], ExecOptions::default())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("未绑定"), "错误应说明未绑定：{err}");
+        assert!(env.read_file(Path::new("/etc/hostname")).is_err());
+        assert!(env.write_file(Path::new("/tmp/x"), b"x").is_err());
+    }
+
+    /// 递归收集被守卫文件里的宿主直连。
+    fn scan_bypass(
+        dir: &Path,
+        root: &Path,
+        allowed: &[(&str, &str)],
+        patterns: &[&str],
+        out: &mut Vec<String>,
+    ) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                scan_bypass(&path, root, allowed, patterns, out);
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
+            let rel = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            if allowed.iter().any(|(f, _)| *f == rel) {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            // 只看非测试代码：从第一个 `#[cfg(test)]` 起截断
+            let prod = match text.find("#[cfg(test)]") {
+                Some(i) => &text[..i],
+                None => &text[..],
+            };
+            for (idx, line_text) in prod.lines().enumerate() {
+                let trimmed = line_text.trim_start();
+                // 注释里提到 API 名字不算违规
+                if trimmed.starts_with("//") {
+                    continue;
+                }
+                for pat in patterns {
+                    if line_text.contains(pat) {
+                        out.push(format!("{rel}:{} 含 `{pat}`", idx + 1));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    /// 架构守卫：工具层 / 媒体层 / coder 技能不得绕过 `Environment` 直连宿主。
+    ///
+    /// 白名单里的文件都是「本来就该在宿主上」的：应用数据、附件本体、提权交互。
+    /// 新增白名单必须在理由里写清楚，否则下次泄露没人能追。
+    #[test]
+    fn tool_and_media_layers_do_not_bypass_environment() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let allowed: &[(&str, &str)] = &[
+            ("media/store.rs", "媒体库落盘在应用数据目录"),
+            ("media/oss.rs", "上传缓存，宿主侧"),
+            ("media/public_download.rs", "媒体库文件读写"),
+            ("media/media_ref.rs", "附件本体路径"),
+            ("media/exec.rs", "local 档位暂存读回（remote 分支已走 env）"),
+            ("media/image_dir.rs", "附件目录枚举（宿主路径）"),
+            ("tools/terminal_elevated.rs", "提权是宿主专属能力"),
+            ("tools/terminal_askpass.rs", "提权口令交互，宿主专属"),
+            ("media/ffmpeg.rs", "仅 local 档位走宿主 which；light 已走 env.exec"),
+        ];
+        let patterns = [
+            "std::fs::",
+            "tokio::fs::",
+            "fs::read",
+            "fs::write",
+            "fs::metadata",
+            "fs::read_dir",
+            "Command::new",
+            "std::process::Command",
+        ];
+        let mut violations = Vec::new();
+        for dir in ["tools", "media", "agents/coder"] {
+            scan_bypass(&root.join(dir), &root, allowed, &patterns, &mut violations);
+        }
+        violations.sort();
+        violations.dedup();
+        assert!(
+            violations.is_empty(),
+            "以下位置绕过 Environment 直连宿主（请改走 env::effective_env() 或加入白名单并写明理由）：\n{}",
+            violations.join("\n")
+        );
+    }
+}

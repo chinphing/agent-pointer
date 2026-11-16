@@ -120,10 +120,18 @@ pub(super) async fn dispatch_registry_invoke_with_profile(
     // Re-establish thread-local workspace root: tokio may have moved us to a
     // different worker thread since `ConversationWorkspaceGuard::enter` was set
     // in `run_chat_inner`, so the thread-local is empty here.
-    let _workspace_guard = ConversationWorkspaceGuard::enter(resolved_workspace.clone());
+    // 执行环境绑定（§3.4）：tokio 可能换了工作线程，这里按会话重放；
+    // light 档位下工作区根是 guest 路径 `/workspace`。
+    let (_env_guard, tool_workspace) = crate::env::session_env::bind_and_resolve_workspace(
+        conversation_id,
+        &session_user_id,
+        resolved_workspace.clone(),
+    )?;
+    let _workspace_guard = ConversationWorkspaceGuard::enter(tool_workspace.clone());
     let _work_dir_guard =
-        crate::session_work_dir_env::SessionWorkDirGuard::enter(resolved_workspace);
-    let _session_user_guard = crate::session_user_env::SessionUserIdGuard::enter(session_user_id);
+        crate::session_work_dir_env::SessionWorkDirGuard::enter(tool_workspace.clone());
+    let _session_user_guard =
+        crate::session_user_env::SessionUserIdGuard::enter(session_user_id.clone());
     let _access_host_guard = crate::access_host_env::AccessHostGuard::enter(
         crate::access_host_scope::current().unwrap_or_default(),
     );
@@ -140,9 +148,14 @@ pub(super) async fn dispatch_registry_invoke_with_profile(
     // input/output 只存摘要，不存原文——见计划 §7.4）。
     let mcp_meta = state.tools.mcp_tool_meta(tool_id);
     let started = std::time::Instant::now();
+    let tool_ctx = crate::tools::context::ToolContext::for_conversation(
+        conversation_id,
+        &session_user_id,
+        tool_workspace,
+    );
     let result = state
         .tools
-        .invoke(tool_id, args_value)
+        .invoke(&tool_ctx, tool_id, args_value)
         .map(|out| (out, true, None));
     if let Some(meta) = mcp_meta {
         crate::observability::pipeline::emit_mcp_request_span(

@@ -15,6 +15,8 @@
 | 部署 light 到生产 | §5 阶段二 → §9.2 能验/不能验 |
 | 做 GUI | §6 阶段三 |
 | 换后端 / 防锁死 | §3.2 三原则 |
+| **插件 / 媒体 / 桌面进程算不算沙箱内** | §3.3 进程边界 |
+| **admin 为什么默认 local / 怎么指定 admin** | §3.4 账号与执行环境 |
 
 **一句话现状**：抽象层与协议已定，本地开发环境已跑通（真实 E2B envd），P1 可以直接开工；Cube 相关的控制面延迟与 Volume 语义仍需真机验证。
 
@@ -205,7 +207,7 @@ docker:
 |---|---|---|
 | `{app_data}/session-sandboxes/{user}/` | `/home/u` | rw |
 | `{app_data}/session-sandboxes/{conv}/` | `/workspace` | rw |
-| `/data/skills-ro/` | `/skills` | ro |
+| `~/.pointer/skills/`（+ org / 内置根） | `/skills` | ro |
 | `/tmp` | `/tmp` | rw |
 
 **翻译规则**：先 `realpath` 解析符号链接，再匹配前缀；未命中一律拒绝（`PATH_NOT_MAPPED`）。工具**输出**的路径必须反向翻译，否则模型认知漂移。
@@ -272,6 +274,113 @@ enum MountSpec {
 
 **换后端成本**：写一个新 provider ≈ 2–3 周，工具层零改动。真正的成本是用户数据迁移（1 万用户 × 1–5 GB = 10–50 TB），与框架无关。
 
+### 3.3 进程边界：谁在沙箱里跑
+
+判定标准只有一条：**这件事是不是 agent 能触发的**。
+
+- **能触发 → 一律在沙箱内执行**，遵守同一套挂载 / uid / 能力 / 命名空间规则。**不存在「宿主侧例外」**。
+- **不能触发**（应用自身的系统集成）→ 留在宿主，因为它们描述的是"运行这个 app 的那台机器"，塞进沙箱反而会读到错的机器。
+
+| 在沙箱内（agent 可触发） | 归属 | 说明 |
+|---|---|---|
+| 文件工具 `file_*` | `env.read_file` / `write_file` / `walk` | 已迁移 |
+| `terminal` | `env.exec` / provider 流式 API | 已迁移（编排仍在 `tools/terminal_*`） |
+| `read_lints`、`git` | `env.exec` | 已迁移 |
+| **`media/{ffmpeg,video,audio,pdf_render}`** | `env.exec` | 处理的是租户文件，必须与 agent 同环境；**镜像需预装 ffmpeg/ffprobe** |
+| **插件 `hooks` / `mcp` / `tool_provider`** | `env.exec`（常驻进程） | 插件是 agent 能力的延伸，同样受沙箱约束；需要常驻进程 API（与 terminal 同一套） |
+| `computer`（截图 / 鼠标 / 键盘） | `env` 的桌面能力 | `capabilities.desktop == false` 时不下发工具（见 §6.3） |
+
+| 留在宿主（agent 不可触发） | 原因 |
+|---|---|
+| `license/fingerprint` | 硬件指纹属于"运行 app 的机器"，与沙箱无关 |
+| `i18n`、`unix_locale` | 读宿主 `defaults` / `locale -a`；沙箱内应改读沙箱 locale |
+| `platform_auth` | 拉起浏览器做 OAuth，是宿主 UI 交互 |
+| `shell_env` | 见下方"环境变量"——**沙箱内读沙箱的 PATH**，不读宿主登录 shell |
+
+**网络：沙箱允许出网。** 联网搜索、包安装、API 调用都依赖它，默认 `NetworkPolicy::Allow`。
+隔离靠 **net namespace**——沙箱之间互不可见、互不可达，**不是断网**。需要禁网的场景（例如只跑纯离线批处理）由配置显式关闭。
+
+**环境变量分两类，不要混**：
+
+| 类别 | 例子 | 由谁提供 |
+|---|---|---|
+| **沙箱自身环境** | `PATH`、`HOME`、`LANG`/`LC_*`、`PIP_USER` | `Environment`（镜像 + provider 配置） |
+| **请求注入变量** | 会话级 `SESSION_USER_ID`、`POINTER_ACCESS_HOST`、`.env` 里的密钥 | 应用层在 spawn 时叠加（既有 `scoped_env_slot!`），**与 provider 无关**；凭证走同一通道（见 §8「凭证如何进沙箱」） |
+
+也就是说：注入变量跨后端语义一致，不因为换了沙箱就变；而 `PATH`/locale 这类必须跟着环境走。
+
+### 3.4 账号与执行环境（admin 例外）
+
+部署默认的 provider 对**所有普通用户**生效，但 **admin 账号默认走 `local`**——因为技能维护是 admin 的职责，
+而按 §5.4.1 只有 `local` 允许修改技能目录。两者是同一件事的两面，不能拆开看。
+
+#### 解析顺序（从具体到默认）
+
+| 优先级 | 来源 | 例 |
+|---|---|---|
+| 1 | **账号级显式配置** | `[environment.accounts] alice = "light"` |
+| 2 | **admin 默认** | 命中 admin 名单 → **`local`** |
+| 3 | **部署默认** | `[environment] provider`；缺省按 `deployment.mode` 派生 |
+
+普通用户永远落在第 3 层。**只有名单里的人**能拿到 `local`（第 2 层），或被显式指定（第 1 层）。
+
+#### 配置形状
+
+```toml
+# pointer-server.toml
+[deployment]
+mode = "platform"
+
+[auth]
+# 指定 admin 账号；值就是 session_user_id（Web 登录名 / 平台用户 id）
+admins = ["admin", "wangguohong"]
+
+[environment]
+provider = "light"                       # 普通用户默认走沙箱
+sandbox_url = "http://cube.internal:3000"  # provider=light 时必填
+
+[environment.accounts]                   # 账号级覆盖（可选）
+admin = "local"                          # 写出来便于审计；不写也默认 local
+alice = "light"
+```
+
+环境变量等价形式：`POINTER_SERVER_ADMIN_ACCOUNTS=admin,wangguohong`、
+`POINTER_SERVER_ENVIRONMENT_PROVIDER=light`、`POINTER_SERVER_ENVIRONMENT_SANDBOX_URL=…`。
+
+#### 身份来源
+
+复用既有 `session_user_id`（`session_user_id_env` 的 thread-local，`session_sandbox.rs` 已用它分用户目录），
+**不新增身份概念**。判定入口统一为 `is_admin_account(session_user_id) -> bool`：
+
+| 实现阶段 | 数据来源 |
+|---|---|
+| **先做（P2 首批）** | 配置文件名单 / 环境变量 |
+| 后续 | users 表 `role` 字段（`pointer-admin` 管理） |
+| 后续 | 平台控制面下发 |
+
+换实现不影响调用方。
+
+#### 硬规则
+
+| 项 | 规则 |
+|---|---|
+| 桌面端（`standalone`） | 无账号概念，进程默认 `local`，不看名单 |
+| admin 解析为 `local` | 该会话绑 `LocalEnv`（`ReadScope::Host` / `WriteScope::Host`），权限等同桌面端 |
+| admin 想走沙箱 | `[environment.accounts] admin = "light"` 显式覆盖 |
+| `provider = "light"` 但缺 `sandbox_url` | **启动即报错**（该账号解析为 light 时同样报错），不静默退回 `local` |
+| 非名单用户配 `accounts = "local"` | 允许（调试），但启动 WARN + 会话审计 |
+| 粒度 | **进程级 + 账号级**，不是每会话切换；会话只决定绑哪个沙箱实例 |
+
+#### 两道必须补的保护
+
+1. **审计**：light 部署下出现 `provider=local` 的会话要记一条（谁 / 何时 / 哪个会话）——它意味着 agent 能碰宿主文件系统。
+2. **UI 明示**：admin 的 local 会话在界面上标注「此会话运行在宿主环境」，避免误以为在沙箱内。
+
+#### 已知冲突
+
+多个 admin 同时用 `local` → 写的是**同一个** `~/.pointer/skills/`（local 下 skills 不按用户分目录）。
+同时改同一技能会互相覆盖。先做「写入串行化」或至少启动提示；admin 通常一两人，暂不引入锁文件。
+
 ---
 
 ## 4. 阶段一：基础框架 + local 模式
@@ -306,7 +415,7 @@ pub struct Capabilities {
     pub read_scope: ReadScope,   // Host | User | Workspace | None
     pub write_scope: WriteScope,
     pub snapshot: bool,
-    pub network: NetworkPolicy,
+    pub network: NetworkPolicy,  // 默认 Allow：沙箱允许出网，见 §3.3
 }
 ```
 
@@ -359,13 +468,15 @@ Web 端多用户并发，满足：
 | **能力** | `--cap-drop ALL` + `no-new-privileges` | remount / setuid 提权 |
 | **命名空间** | 独立 mount / pid / net / ipc | 进程与网络互不可见 |
 
+> **注意**：独立 net namespace 指的是**沙箱之间互不可见**，不是断网。沙箱默认允许出网（见 §3.3）。
+
 ### 5.3 目录映射（路径映射）
 
 | 宿主路径 | 容器内 | 权限 | Cube 挂载方式 |
 |---|---|---|---|
 | `{app_data}/session-sandboxes/{user}/` | `/home/u` | `rw` | Volume |
 | `{app_data}/session-sandboxes/{conv}/` | `/workspace` | `rw` | Volume |
-| `/data/skills-ro/` | `/skills` | `ro` | Host Mount（`readOnly: true`） |
+| `~/.pointer/skills/`（+ org / `~/.agents/skills` / 内置根） | `/skills/<root>` | `ro` | Host Mount（`readOnly: true`） |
 | `/tmp` | `/tmp` | `rw` | tmpfs |
 
 agent 只看到 `/workspace`、`/home/u`、`/skills`，不暴露宿主目录结构。
@@ -383,7 +494,7 @@ import json
 vol = Volume.create(f"ws-{tenant_id}")          # 每用户一个 Volume
 
 mounts = json.dumps([
-    {"hostPath": "/data/skills-ro", "mountPath": "/skills", "readOnly": True},
+    {"hostPath": "/home/you/.pointer/skills", "mountPath": "/skills/user", "readOnly": True},
 ])
 
 with Sandbox.create(
@@ -401,7 +512,7 @@ with Sandbox.create(
 | 项 | 值 | 原因 |
 |---|---|---|
 | virtiofs `cache` | **`never`** | `always` 会让宿主写入对 guest 不立即可见 |
-| `host-mount` 前缀白名单 | 仅 `/data/skills-ro` 与 `session-sandboxes` | 默认只允许 `/data/shared/` 下路径，需收紧 |
+| `host-mount` 前缀白名单 | 仅技能根与 `session-sandboxes` | 默认只允许 `/data/shared/` 下路径，需收紧 |
 
 ### 5.4.1 skills 只读的双份保护
 
@@ -410,33 +521,53 @@ with Sandbox.create(
 | 位置 | 机制 |
 |---|---|
 | guest 内 | `readOnly: true` + `MS_NOSUID/NOEXEC/NODEV` |
-| 宿主进程 | `path.rs` 对 `skills_root` 显式拒绝写 |
+| 宿主进程 | `path.rs` 对 `skills_root` 显式拒绝写（仅 light / container 生效） |
 
-### 5.5 skills 发布流水线
+**生效范围（已定）**：**只有 `local` 允许修改技能目录**——桌面端 coder 改技能是主要工作流，
+必须保留写权限；`light` / `container` 一律只读，且**不提供 per-user 可写副本**（见 §8 第 2 条）。
+Web 端的技能维护由 **admin 会话**承担：admin 默认解析为 `local`（§3.4），普通用户始终在 `light` 里只读。
+所以在 local 档位下不施加宿主侧拒绝，是设计选择而非遗漏。
 
-`~/.pointer/skills/<name>/` **不能整体挂载**，因为混了三类内容：
+### 5.5 skills 挂载：直接只读挂载
 
-| 内容 | 处理 |
+**结论：不做发布流水线。** `~/.pointer/skills`（以及 org / `~/.agents/skills` / 内置根）**直接以只读方式挂进沙箱**，
+`/skills` 就是这些根——不需要 rsync 白名单、不需要 `@<ver>` 版本目录。
+
+前提只有两条，都是**约定**而不是流水线：
+
+| 前提 | 说明 |
 |---|---|
-| `SKILL.md` / `references/` / `scripts/` / `assets/` | 发布到 `/data/skills-ro/` |
-| `cases/` / `.cache/` / `.venv/` / `*.log` | **不发布**（每用户运行时产生） |
-| `token.txt` / `.env` / `cwpt_token.txt` | **不发布**（凭证） |
-| `.git/` / `.pytest_cache/` / `.ruff_cache/` | **不发布** |
+| 技能目录**不放用户数据** | 运行时产物（中间结果、缓存、日志、导出件）一律写 `$WORKING_DIR`；平台已通过 `session_work_dir_env` 注入该变量 |
+| 技能目录**不放个人凭证** | `.env` **允许**（技能脚本运行需要，属技能自身环境配置）；裸凭证文件（`token.txt` / `*_token.txt`）不放；**个人**凭证按 §8 走请求级 env 注入 |
 
-发布命令（白名单）：
+**挂载前唯一的前置检查：凭证扫描**（命中即拒绝启动，不做静默剔除）：
 
 ```bash
-rsync -a \
-  --include='SKILL.md' --include='references/***' \
-  --include='scripts/***' --include='assets/***' \
-  --exclude='*' \
-  ~/.pointer/skills/<name>/ /data/skills-ro/<name>@<ver>/
+# 命中就报错，不"过滤掉继续跑"（`.env` 不算：它是技能脚本需要的环境配置）
+find ~/.pointer/skills -maxdepth 3 \
+  \( -name 'token.txt' -o -name '*_token.txt' \) -print
 ```
 
-**遗留问题**：技能运行时写 `cases/`（如 `cases/<单号>/facts/*.json`）。只读挂载会让技能跑不起来。两条路：
+为什么是拒绝而不是剔除：静默剔除会让人误以为"凭证放技能里也没事"，下次换个文件名就漏了；
+凭证本来就该走 §8 的注入通道，出现在技能目录里就是配置错误。
 
-- **5.5.a（推荐）**：`cases/` 改写到 workspace 下的会话目录，技能文档同步修改
-- **5.5.b**：skills 用 overlayfs（lower=只读代码，upper=每用户可写），保持 `{baseDir}` 语义
+**多个技能根怎么挂**：每个根各自 `readOnly` 挂到 `/skills/<root-name>/`，用既有 env 机制
+（`SKILL_DIR` 等，见 `skills/external.rs::apply_skill_dir_env`）告诉沙箱内的加载器；
+`{baseDir}` 在沙箱内解析到对应挂载点。
+
+**运行时产物往哪写**：`{baseDir}` 只视为**只读代码**；一切产物写 `$WORKING_DIR`。
+
+| 谁负责 | 内容 |
+|---|---|
+| 平台 | 注入 `WORKING_DIR`；`/skills` 只读；挂载前扫凭证 |
+| 技能作者 | 产物路径一律 `$WORKING_DIR/...`；`{baseDir}` 只用于读代码/资源；不放凭证、不放用户数据 |
+
+**版本 / 回滚：不做。** 技能更新就地生效（下次会话看到新版本）。将来要灰度或回滚再加 `@<ver>`；
+当前 11 个技能、一两个 admin，不值得为它引入一套发布物。
+
+**overlayfs 不作为当前方案**（lower=只读代码，upper=每用户可写）：§8 第 2 条已定 `light` / `container`
+下 skills 一律只读，只有 `local` 可改。仅当将来要放开「Web 端用户自助改技能」时再评估——多一层文件系统
+就多一处要验证的语义。
 
 ### 5.6 验收（可执行）
 
@@ -453,11 +584,15 @@ sandbox exec <id> -- touch /skills/x                   # 期望：Read-only file
 # 4. 无法提权
 sandbox exec <id> -- mount -o remount,rw /skills       # 期望：Operation not permitted
 
-# 5. 无外网
-sandbox exec <id> -- curl https://example.com          # 期望：失败
+# 5. 出网可用（联网搜索 / 装包依赖它；隔离靠 net namespace，不是断网）
+sandbox exec <id> -- curl -sS -o /dev/null -w '%{http_code}' https://example.com   # 期望：200
 
 # 6. 凭证不可见
-sandbox exec <id> -- find /skills -name 'token.txt' -o -name '.env'   # 期望：空
+sandbox exec <id> -- find /skills \( -name 'token.txt' -o -name '*_token.txt' \)   # 期望：空（`.env` 允许）
+
+# 7. 插件 / 媒体进程也在沙箱内（不是宿主 uid）
+sandbox exec <id> -- id            # 期望：uid ≥ 100000，且不是宿主用户
+sandbox exec <id> -- ps -o user= -p $$   # 期望：同上
 ```
 
 ### 5.7 容量
@@ -475,7 +610,7 @@ sandbox exec <id> -- find /skills -name 'token.txt' -o -name '.env'   # 期望�
 |---|---|
 | ~~共享内核，内核 0day 跨用户~~ | **已由 Cube 解决**：每沙箱独立 Guest 内核 |
 | 用户把 workspace 塞满 | 宿主侧 quota，超限拒绝写 |
-| 技能写 `cases/` 冲突 | 见 5.5 的 a/b 方案 |
+| 技能写 `{baseDir}` 冲突 | 技能产物统一落 `$WORKING_DIR`（§5.5），`/skills` 只读 |
 | 大小写敏感差异（macOS 宿主 vs Linux 容器） | 挂载前统一 `realpath`，测试覆盖 |
 | 单机单点 | 卷异地备份；沙箱层可在另一台重建 |
 
@@ -554,7 +689,7 @@ Cube 的 template 是快照克隆（CoW），镜像 1.2 GB 还是 3 GB，冷启�
 | `agent-office` | data + LibreOffice + pandoc | ~3 GB |
 | `agent-gui` | base + Chrome + Xvfb + openbox + noVNC | ~1.5 GB |
 
-**base 层清单**：`locales` + `zh_CN.UTF-8`、`fonts-noto-cjk`、`tzdata`（`Asia/Shanghai`）、python3-pip/venv、nodejs/npm、`gcc g++ make`、`imagemagick`、`poppler-utils`、`git curl wget jq ripgrep unzip tar`、`dbus`。
+**base 层清单**：`locales` + `zh_CN.UTF-8`、`fonts-noto-cjk`、`tzdata`（`Asia/Shanghai`）、python3-pip/venv、nodejs/npm、`gcc g++ make`、`imagemagick`、`poppler-utils`、**`ffmpeg`（含 ffprobe，媒体工具与视频处理依赖它）**、`git curl wget jq ripgrep unzip tar`、`dbus`。
 
 **锁版本，不用 latest**，否则不可复现。
 
@@ -578,6 +713,79 @@ Cube 的 template 是快照克隆（CoW），镜像 1.2 GB 还是 3 GB，冷启�
 **每用户不需要独立镜像**：1 万用户 × 1.2 GB = 12 TB，且平台升级要重建 1 万份。共享镜像 + 每用户 Volume 即可。
 
 ---
+
+### 6.7 容器档位落地记录（2026-11-15）
+
+docker 后端同时承载 light 与 container 两个档位，差别只在镜像与能力集。
+
+| 项 | light | container |
+|---|---|---|
+| 镜像 | `pointer-sandbox-light:latest` | `pointer-sandbox-container:latest` |
+| 桌面 | 无 | Xvfb `:99` 1920×1080 + openbox |
+| `Capabilities` | `light()`（无桌面/无快照） | `container()`（桌面 + 快照） |
+| 桌面工具 | — | `xdotool` / `xwininfo` / `import`(ImageMagick) / `scrot` / `x11vnc` |
+| 工具链 | Node 24 + Python 3.12 + ffmpeg + poppler | 同上 |
+
+关键实现：
+
+1. **入口脚本**（`docker/entrypoint-container.sh`）：起 Xvfb → 轮询 `xdpyinfo` 等就绪 → 起 openbox → 执行 CMD。
+   openbox 用 `DISPLAY=` 环境变量传显示器（它不接受 `--display` 参数）。
+2. **就绪等待**：`DockerEnv::create` 在 container 档位下轮询 `docker exec xdpyinfo`，最多 10s。
+   不等就会拿到 `cannot open display`——Xvfb 是异步起的。
+3. **DISPLAY 注入**：`exec` / `spawn` 时自动补 `DISPLAY=:99`，调用方不用手写。
+4. **规格指纹**：容器打 `pointer.spec=<hash>` 标签（**契约版本** + 镜像 + 档位 + 挂载 + 工作目录）。
+   契约版本 `SPEC_VERSION` 改了入口脚本/注入的环境变量/挂载语义就 +1——
+   否则旧容器会被继续复用，表现为"改了配置没生效"（踩过：加了 VNC 密码变量，
+   旧容器没重建，连上去仍然无密码）。
+   复用前比对，不一致就 `rm -f` 重建——否则改配置后仍拿旧镜像的容器（"改了没生效"）。
+5. **资源限制**：`DockerSpec.cpus` / `memory_mb` → `--cpus` / `--memory`。
+6. **桌面控制后端**（`agents/computer/control/docker.rs`）：实现 `ComputerControl` 全套方法，
+   鼠标/键盘走容器内 `xdotool`，截图走 `import -window root`。
+   按会话选择：`control_for_conversation()` → `Container` 用 `DockerControl`，其余用宿主 `LocalControl`。
+7. **容器剪贴板**：`ComputerControl` 增加 `set/get_clipboard_text`，容器后端用 `xclip`。
+   宿主剪贴板与容器 X 剪贴板是两个选择区，粘贴必须跟着后端走，否则粘出来是空的。
+8. **预装 GUI 应用**：`chromium`（包装成 `browser`，带 `--no-sandbox`）、`xterm`、`xclip`。
+9. **VNC 随机密码**：每个容器生成 8 位随机密码（去掉 `0/O/1/l/i` 易混字符），
+   通过 `POINTER_VNC_PASSWORD` 传给容器，入口用 `x11vnc -rfbauth`。
+   查法：`scripts/desktop-view.sh` 会打印并复制到剪贴板。
+10. **磁盘限制**：`DockerSpec.disk_mb` → `--storage-opt size=`。
+   只有 Linux + overlay2/xfs(pquota) 支持；macOS 会报错，此时**退回不限磁盘并告警一次**，
+   不能让"磁盘限制"把沙箱整个建不起来（`--memory` / `--cpus` 不受影响）。
+
+验收（本机）：
+
+```
+docker run --rm pointer-sandbox-container:latest sh -lc 'chromium --version'
+  → Chromium 156.0.8078.79
+容器内 `browser about:blank` → 截图可见浏览器窗口（标题栏 about:blank）
+xclip 写入后读回：hello-clipboard
+```
+
+端到端验收（`tests/container_tier_it.rs`）：
+
+| 用例 | 断言 |
+|---|---|
+| `gui_task_navigates_and_screenshot_changes` | 点地址栏 → 输入 data URL → 回车 → 红色像素占比 >20%，且前后截图不同 |
+| `container_has_gui_apps_and_clipboard` | chromium/xterm/xclip/browser 都在；chromium 窗口存在；剪贴板能写能读 |
+| `docker_control_drives_the_container_desktop` | 屏幕 1920×1080；截图是 JPEG；移动后光标位置读回一致 |
+| `capture_screen_reads_the_container_desktop` | 容器桌面刷红后取帧，红色像素占比 >20%，帧尺寸 = 容器虚拟屏 |
+
+**截图链路也必须走环境**（`state::capture_screen`）：容器档位下取帧改走
+`capture_container_frame()`（`DockerControl` 的 `xdotool`/`import`），
+`screen_bbox` 用容器虚拟屏尺寸，不再用宿主显示器信息。
+
+否则会出现"宿主截图 + 容器点击"：坐标数值能对上、画面内容对不上，点了不报错但点错位置——
+这种静默错最难查。
+
+> **快照**：`Capabilities::container().snapshot` 目前是 `false`。快照尚未实现，
+> 能力位不能写 `true`——声明了却做不到，上层会误以为"跑完能回滚"。
+
+验收（本机）：
+
+```
+docker run --rm pointer-sandbox-container:latest sh -lc 'node -v; python3 -V; xdotool getdisplaygeometry'
+  → v24.22.3 / Python 3.12.16 / 1920 1080
+```
 
 ## 7. 里程碑
 
@@ -638,19 +846,523 @@ scripts/dev-sandbox.sh down
 
 集成测试要写成「只换 base URL 就能跑两套后端」，拿到真 Cube 时零改动切换。
 
+### 7.2 实现记录（P1 第一刀，已落地）
+
+| 交付 | 文件 | 状态 |
+|---|---|---|
+| `Environment` trait + `Capabilities` / `ExecOptions` / `ExecOutput` / `DirEntry` / `EnvKind` / `ReadScope` / `WriteScope` / `NetworkPolicy` | `crates/pointer-core/src/env/mod.rs` | ✅ |
+| `LocalEnv`（路径恒等、`std::fs`、`Command`、可选超时） | `crates/pointer-core/src/env/local.rs` | ✅ |
+| `PathMap` + `MountSpec`（正/反向翻译、`PATH_NOT_MAPPED`、只读判定） | `crates/pointer-core/src/env/pathmap.rs` | ✅ |
+| 模块注册 | `crates/pointer-core/src/lib.rs` | ✅ |
+| 提示词 `{{workspace_root}}` 改由环境提供 | `chat_service/single_agent_prompt.rs`、`chat_service/sub_agent_prompt.rs`（3 处构造） | ✅ |
+| 路径层接入环境：工作区来源 + 读写范围收口 | `tools/file/path.rs` | ✅ |
+
+**与 §7.1 的偏差（有意为之）**：
+
+1. **env 句柄用 thread-local，而不是给 resolver 加 `&dyn Environment` 参数。**
+   `ToolHandler` 的类型是 `Arc<dyn Fn(Value) -> Result<String>>`，注册只在启动时发生一次，
+   无法按会话注入参数。改用与 `scoped_env_slot!`（`SESSION_USER_ID` / `WORKING_DIR`）同一套
+   `EnvironmentGuard`：绑定在分发点重放，`env::current_env()` 读取。
+   好处是 4 个公开 resolver 的签名与 10 个调用点零改动，回归面最小。
+2. **§4.3「5 个 resolver」实际是 4 个公开入口 + `writable_path_roots`。**
+   `resolve_relative_under_workspace` 是私有函数，只有一个内部调用者。
+3. **skills 只读暂不在宿主侧拒绝。** 已定「只有 `local` 允许修改技能」——桌面端 coder 改
+   `~/.pointer/skills/` 是主要工作流，所以 local 不施加拒绝；`light` / `container` 的只读保护
+   （§5.4.1 双份保护）随 P2 provider 一起生效。
+
+**第二个 PR（工具 IO 迁移）与第三个 PR（exec 类）—— 已落地**：
+
+| 交付 | 文件 | 状态 |
+|---|---|---|
+| `Environment` 补齐 IO 能力：`metadata` / `exists` / `canonicalize` / `create_dir_all` / `read_to_string` / `open_reader` / `walk` / `remove_file` / `remove_dir_all` / `set_executable` | `env/mod.rs`、`env/local.rs` | ✅ |
+| 进程后端：`command` / `configure_process_group` / `kill_tree` / `kill_group` / `suppress_console_window` | `env/process.rs`（新增） | ✅ |
+| `file_read` / `file_write` / `file_edit` / `file_list` 全部 IO 走 env（`open_reader` 保证大文件仍按行流式扫描） | `tools/file/{read,write,edit,list}.rs` | ✅ |
+| `file_glob` / `file_grep` 改**一次批量遍历** `env.walk`（不再逐目录往返），内容读取走 `env.open_reader` + `search_reader` | `tools/file/{glob,grep}.rs` | ✅ |
+| 路径提示（`collect_path_hints`）改 `env.list_dir` | `tools/file/path.rs` | ✅ |
+| terminal 的 spawn / 进程组 / kill 树下沉到 `env/process.rs`；elevated / askpass 的 `fs` 与 `Command` 改走 env | `tools/terminal.rs`、`tools/terminal_elevated.rs`、`tools/terminal_askpass.rs` | ✅ |
+| `read_lints` 两个 runner 改 `env.exec`（超时 + 每流输出上限 + 无退出码语义） | `agents/coder/read_lints/exec.rs` | ✅ |
+| `git`（worktree 与 workspace_read 两条路径）改 `env.exec`；`ExecOptions` 新增 `env_remove` 保留 `GIT_DIR` 等加固剔除 | `worktree/git.rs`、`workspace_read.rs` | ✅ |
+| 图片读取走 `env.read_file` | `tools/media_understand/dispatch.rs` | ✅ |
+
+**验收结果**（`crates/pointer-core/src` 下）：
+
+- `grep -rn 'Command::new' tools/` → **仅剩 1 条测试代码**（`terminal_elevated.rs` 的 `#[cfg(test)]` 里探测 `git --version`）。
+- `grep -rn 'std::fs' tools/` → **生产代码归零**，剩余命中全部在 `#[cfg(test)]` 模块（`file/mod.rs`、`parallel.rs`、`path.rs` 测试、`terminal.rs` 进程树测试）。
+- `cargo test -p pointer-core --lib` → **2218 passed, 0 failed, 10 ignored**。
+
+**仍留的债（P2 前不阻塞）**：
+
+1. `tools/file/path.rs` 的**路径校验谓词**（`Path::is_dir` / `exists` / `canonicalize`）仍直接打宿主 FS —— 它们是纯本地校验，
+   改签名会波及 10 个调用点，随 P2 路径翻译一起做。
+2. terminal 的 **PTY / 提权 / askpass 编排**仍在 `tools/terminal_*`：这几条路径依赖交互式 UI 回调，
+   需要 provider 级流式 API（`env.exec_streaming`）才能整体下沉，`env/process.rs` 是那个替换点。
+3. **其余 `Command::new` 按 §3.3 的边界分类处理**——它们不是「宿主例外」，只是本轮没迁移：
+
+   | 站点 | 归属 | 何时做 |
+   |---|---|---|
+   | `media/{ffmpeg,video,audio,pdf_render}` | **沙箱内**（租户文件处理） | ✅ 已改走 `env.exec`（`media/exec.rs`：`run` + `StagedFile`）；镜像需预装 ffmpeg/ffprobe |
+   | 媒体输入**路径化** | 大文件不整段进宿主内存 | ✅ `MediaInput::{Existing,Staged}`；≥32 MiB 只传路径；单帧产物上限 6 MiB；非普通文件（FIFO/设备）直接拒绝；`read_file_capped` 兜底 |
+   | `plugins/{mcp,tool_provider}` | **沙箱内**（插件是 agent 能力延伸） | ✅ 已改走 `Environment::spawn`（常驻进程 + `ChildHandle`）；local 实现完成，remote 明确报错（双向流待做） |
+   | `plugins/hooks` | **沙箱内** | ⏳ tokio 异步子进程，light 下先**显式拒绝**（不落宿主），随 remote spawn 一起做 |
+   | `platform/app_access/*` | **沙箱内**（computer 工具） | ✅ 已接 `capabilities.desktop` 门控（light 下明确拒绝，不落宿主）；container 阶段再做 provider 版 |
+   | `shell_env`（`terminal.rs:348` 探宿主 PATH） | 沙箱内环境的 `PATH` | P2：PATH 由 `Environment` 提供；请求注入变量仍走应用层 |
+   | `license/fingerprint`、`i18n`、`platform_auth`、`unix_locale`、`client_env` | **宿主保留** | 不进 Environment（描述运行 app 的机器） |
+
+
+
+### 7.2.1 light 模式（P2 第一刀，已落地）
+
+| 交付 | 文件 | 状态 |
+|---|---|---|
+| `RemoteEnv`：薄 REST 客户端（不引 e2b SDK），files API + Connect 帧执行 + find/rg 批量遍历 | `env/remote.rs`（新增） | ✅ |
+| provider 三层解析（账号覆盖 → admin 默认 local → 部署默认）+ light 缺 `sandbox_url` 即报错 | `env/provider.rs`（新增） | ✅ |
+| 挂载表：`/home/u`、`/workspace`（按会话隔离）、`/skills/<name>`（ro） | `env/mounts.rs`（新增） | ✅ |
+| 会话绑定：按会话缓存沙箱 + 30min 空闲回收 + `release` / `release_all`；挂载前凭证扫描 | `env/session_env.rs`（新增） | ✅ |
+| `[environment]` / `[auth] admins` 配置段 + 4 个访问器；`POINTER_SKILLS_DIR` 可覆盖技能根 | `server_config.rs`、`skills/external.rs` | ✅ |
+| 三处 thread-local 重放（light 下工作区根改 guest `/workspace`） | `chat_service/session_inner.rs`、`dispatch/registry.rs`、`chat_service/sub_agent.rs` | ✅ |
+| 会话删除时回收远端沙箱 | `conversation_store/mod.rs`（2 个删除钩子） | ✅ |
+| §5.6 七条验收脚本（含后端能力探测，缺能力标 SKIP 而非 PASS） | `scripts/verify-sandbox-isolation.py`（新增） | ✅ |
+| `RemoteEnv` 双挂载后端：有 `volume_host_path` → `volumeMounts`（含 `readOnly`）；无 → Cube 的 `metadata["host-mount"]` | `env/remote.rs` | ✅ |
+| 常驻进程接口：`Environment::spawn` + `ChildHandle`（write/close_stdin/reader/try_wait/wait/kill） | `env/mod.rs`、`env/local.rs` | ✅ |
+| `RemoteEnv::spawn`：Start 后台 + 后台泵抽 stdout + `SendInput`/`CloseStdin`/`SendSignal` | `env/remote.rs` | ✅ e2b-local 实测通过 |
+| 插件 hooks 迁到 `Environment::spawn`（写 stdin → 关 stdin → 读 stdout，超时显式 kill） | `plugins/hooks.rs` | ✅ |
+| 用户插件根只读挂载 `/plugins` + hook 脚本路径宿主→沙箱映射 | `env/mounts.rs`、`env/session_env.rs`、`plugins/hooks.rs` | ✅ e2b-local 实测通过 |
+| 沙箱镜像 `docker/sandbox-light.Dockerfile`（ffmpeg / poppler / 中文字体 / rg / python / node） | `docker/`、`[environment] template` | ✅ |
+| 路径判定环境感知（light 下 `/workspace` 不再被宿主 `is_dir()` 误判） | `tools/file/path.rs` | ✅ |
+| `[environment] volume_host_path` 配置 + 网关侧 `docker.volume_host_path` 与 `~/.e2b-local` 挂载 | `server_config.rs`、`scripts/dev-sandbox.sh` | ✅ |
+
+**e2b-local 实测到的协议事实**（写进 `env/remote.rs` 头注释）：
+
+1. 建沙箱返回 **201**（不是 200），`{sandboxID, envdURL}`，创建到可执行约 1.2s；
+2. 文件 IO 走 `GET|POST /files?path=&username=root` 原始字节；**目录列举没有 REST 接口**（返回 400 `is a directory`）→ 列举一律走 exec；
+3. 执行走 `POST /process.Process/Start` + Connect 帧；`data.stdout/stderr` 是 **base64**，`end.exitCode` 在退出码为 0 时**缺省**，`flags & 0x02` 是流结束；
+4. **envd 不认 `ProcessStartRequest.timeout`**（实测 `sleep 5` + `timeout:1` 仍跑满 5s）→ 改用沙箱内 coreutils `timeout -s KILL` 兜底，退出码 124/137 映射为 `timed_out`；
+5. **挂载要分后端看**（2026-11-15 实测 + 官方文档核对）：
+   - `metadata["host-mount"]` 是 **Cube 语义**，e2b-local 直接忽略；
+   - e2b-local 用 **`volumeMounts` + `docker.volume_host_path`**：卷目录必须落在**宿主可见路径**
+     （默认是网关容器内 `/root/.e2b-local/volumes`，docker daemon 看不到 → 必 500）。
+     配好之后实测 `/workspace` 为 `type virtiofs (rw)`，**沙箱写 → 宿主可见、宿主写 → 沙箱可见**，双向通。
+     `scripts/dev-sandbox.sh` 已补 `volume_host_path` 与同路径 `-v` 挂载。
+   - **只读语义**：E2B 官方明确「API 与 SDK 不支持只读挂载」；Cube 用扩展
+     `volumeMounts[].readOnly: true`；**e2b-local 忽略该字段**（实测 `readOnly:true` 仍是 `rw`，`touch` 成功）。
+     所以 `/skills` 只读只能在 Cube 上验收，隔离脚本按实际挂载标志判 SKIP 而不是 PASS。
+   - **e2b-local 卷的三条硬约束**（踩过才知道）：
+     1. 卷目录必须在 `docker.volume_host_path` 下，且该路径要挂进网关容器（否则 daemon 看不到 → 500）；
+     2. 卷必须经 `POST /volumes` 注册，**自己预建目录会被拒**
+        （`refusing to use unmanaged docker local volume directory`）；
+     3. **符号链接不被接受**（`is not a directory`），只能是真实目录。
+     因此挂载点采用**扁平命名**（`{user}-home`、`{user}-ws-{conv}`），目录名即卷名。
+
+**验收（2026-11-15）**
+
+| 命令 | 结果 |
+|---|---|
+| `cargo test -p pointer-core --lib` | **2268 passed**, 0 failed |
+| `cargo test -p pointer-core --test tool_dispatch_smoke` | 1 passed |
+| `POINTER_SANDBOX_URL=… cargo test -p pointer-core --test remote_env_it -- --ignored` | 1 passed（2.7s） |
+| `POINTER_SANDBOX_URL=… cargo test -p pointer-core --test light_binding_it -- --ignored` | 1 passed |
+| `python3 scripts/verify-sandbox-isolation.py`（e2b-local，挂载感知版） | **PASS 3 / FAIL 0 / SKIP 4**（1 跨用户、2 路径逃逸、5 出网 PASS；3/4/6 只读、7 uid SKIP） |
+
+**新增的债**
+
+1. **只读语义 / uid 隔离待 Cube 验收**：Cube 用 `volumeMounts[].readOnly: true`；e2b-local 忽略该字段（实测 rw），
+   且以 root 跑、无 user namespace。本地已验证的是**挂载双向可见**（沙箱写 → 宿主可见、宿主写 → 沙箱可见）。
+2. **worktree 在 light 下不生效（设计如此，不是缺陷）**：`worktree_create` 是 Tauri 命令（会话运行之外，没有环境绑定），
+   删除走会话删除钩子，两者都跑在宿主上、行为正确；但 light 下工作区被固定成 `/workspace`，
+   所以 worktree 配置被忽略。可选改进：light + managed worktree 时打一条 warn，或在 UI 上提示。
+3. ~~`open_reader` 整文件下载~~ **已解决**：envd 的 `/files` 支持 `Range`（实测 206 + `Content-Range`），
+   `RangeReader` 按 4 MiB 分块拉取；集成测试用 9 MiB 文件验证字节数一致。
+4. **抽帧批量化（暂不做，2026-11-15 记录方案）**：现在一帧一次 `exec`（200 帧 ≈ 2–6 s 往返）。
+   - **完整方案（4–6 h）**：新增 `StagedDir`（local 用 `tempfile::TempDir`；light 用沙箱 `/tmp/pointer-media-<id>/`，
+     `Environment` 已有 `create_dir_all` / `list_dir` / `remove_dir_all`，无需加方法）→ 一次
+     `ffmpeg -vf fps=<fps> frame-%03d.jpg` → **一次 `tar -cf - | base64` 取回**（200 帧 ≈ 8 MB，base64 ≈ 10.7 MB，
+     需给该次调用把 `max_output_bytes` 从写死的 1 MiB 放宽到 16 MiB）。
+   - **简化方案（10 分钟）**：把帧数上限从 200 压到 50，现状逐帧 exec 就只要 0.5–1.5 s。
+   - **暂缓理由**：只影响延迟、不影响内存正确性（内存问题已由 `MediaInput` 路径化解决）。等 light 真机实测延迟再定。
+5. **PDF 仍是进程内 pdfium（P2，暂不做）**：`media/pdf.rs` → `media/pdf_render.rs` 用 `pdfium_auto`，
+   所以 PDF 必须整本进宿主内存（受 `MEDIA_INLINE_READ_MAX_BYTES` = 32 MiB 保护，超限**报错**而不是崩）。
+   - **完整方案（1–2 天）**：`pdfinfo` 取页数 + `pdftoppm -jpeg -r <dpi> -scale-to 1400 -f -l` 在沙箱渲染，
+     按 `env.kind()` 分派（local 保留 pdfium 快路径）；镜像需装 `poppler-utils` + **中文字体**。
+   - **缩小方案（半天）**：只做 `pdftotext` 文本抽取 + 前 3 页页图，不做全量渲染对齐。
+   - **卡点**：仓库没有任何 PDF fixture；镜像缺中文字体会让页图变豆腐块；pdfium 与 poppler 的裁切/字体回退不同，
+     长期一致性要对齐。**需要先拿到一份真实中文 PDF 样本再动。**
+6. **常驻进程（MCP / hooks）：已跑通，但 light 下插件目录还没挂进沙箱**。
+   - **协议事实（2026-11-15 e2b-local 实测，踩过的坑记在这里）**：
+     - `ProcessSelector` 的字段是 **`pid`**，不是 `processId`。写成 `processId` 会得到
+       `501 unimplemented: invalid input type *process.ProcessSelector`（极具误导性，看起来像路由没实现）。
+     - `Start` 的流事件是 `{"event":{"start":{"pid":N}}}` —— **pid 直接在 `start` 下**，没有 `process` 包一层；
+       找错路径会表现为"30s 没收到 start 事件"，看起来像网关不流式。
+     - `end` 事件在退出码为 0 时**不写** `exitCode`；被信号杀死时也没有，靠 `status`/`error` 里的 signal/killed 区分。
+     - `SendInput` body `{"process":{"pid":N},"input":{"stdin":"<base64>"}}`；`CloseStdin` / `SendSignal` 同理。
+   - 集成测试 `remote_spawn_streams_stdin_and_stdout` 在 e2b-local 上**真实通过**（起 `cat` → 写 → 关 stdin → 读回 → 退出码 0）。
+   - **插件目录已挂进沙箱**：`{pointer_home}/plugins` → `/plugins`（ro）；hook 脚本路径经
+     `PathMap::to_agent` 换成沙箱路径，映射不到就明确报错（不猜）。
+     集成测试 `plugin_hook_script_runs_from_mounted_plugins_dir` 在 e2b-local 上真实通过：
+     脚本只读挂载 → 路径映射 → 沙箱内执行 → 写事件 → 读回 block 决策 → 退出码 0。
+7. `container` 档位（GUI）未开始。
+
+
+
+1. **凭证如何进沙箱？** **已定：env 注入**（见下）。
+   - **做法**：凭证作为请求级环境变量，由应用层在 spawn 时通过 `ExecOptions.env` 叠加（与 §3.3「请求注入变量」同一套机制），provider 不需要理解凭证语义。
+   - **不选 tmpfs 挂载**：多一种挂载类型 = provider 多一处实现与权限面，且与"注入变量跨后端一致"冲突。
+   - **不选出口代理注入**（本轮）：需要在沙箱外跑代理并改写请求，运维面大于收益；留作需要"沙箱永远看不到明文"时的可选增强。
+   - **代价（必须遵守）**：注入值对沙箱内所有进程可见，agent 自己 `env` 就能打印。所以——
+     只注入**该次请求真正需要**的凭证（请求粒度，不常驻会话）；日志与工具输出**不得**回显注入值；
+     `/skills` 里的 `.env` 只承载技能脚本的**共享**环境配置（所有用户可见），不放个人凭证（§5.5）。
+   - **验收**：§5.6 第 6 条（`find /skills -name 'token.txt' -o -name '*_token.txt'` 为空）。
+2. **用户能不能改自己那份技能？** **已定：暂时只有 `local` 允许修改。**
+   `light` / `container` 下 skills 一律只读，**不提供 per-user 可写副本**（也不做 overlayfs、不做"派生到用户库"）。
+   - Web 端由 **admin 会话**承担维护：admin 默认解析为 `local`（§3.4），在宿主环境里直接改技能；
+     改完**就地生效**（下次会话看到新版本；§5.5 不做版本目录）。
+   - 代价：普通用户无法自助加技能/改脚本；桌面端用户回到 local 改完再发布。
+   - 前提：技能运行时产物必须写 `$WORKING_DIR`（§5.5），否则只读挂载会让技能跑不起来。
+   - 存储：因无 per-user 副本，skills 只占**一份**共享空间（本机 11 个技能按白名单约 30 MB），与用户数无关。
+3. **是否支持跨用户共享项目目录？** 支持则需加 `shared/<project_id>` 层，权限模型复杂一档。
+4. **宿主为 macOS/Windows 时怎么办？** Cube 需要 Linux + KVM，本机只能当客户端；沙箱集群必须部署在 Linux（裸金属或 PVM 云 VM）。
+5. **Cube 能否暴露 noVNC 端口？** 阶段三的前置验证项，不通则 container 回退 Docker。
+6. **Cube 部署形态：** 裸金属（性能最好）/ PVM 云 VM（无需嵌套虚拟化）/ K8s（v0.6+）——按现有机房条件选。
+
 ---
 
-## 8. 未决问题
+### 7.3 待办：沙箱内交互式终端（console PTY）
 
-1. **`cases/` 写哪里？** 见 5.5 的 a（改技能）vs b（overlayfs）。
-2. **凭证如何进沙箱？** env 注入 / tmpfs 挂载 / 出口代理注入，三选一。
-3. **用户能不能改自己那份技能？** overlayfs 允许（只影响自己），纯只读不允许。
-4. **是否支持跨用户共享项目目录？** 支持则需加 `shared/<project_id>` 层，权限模型复杂一档。
-5. **宿主为 macOS/Windows 时怎么办？** Cube 需要 Linux + KVM，本机只能当客户端；沙箱集群必须部署在 Linux（裸金属或 PVM 云 VM）。
-6. **Cube 能否暴露 noVNC 端口？** 阶段三的前置验证项，不通则 container 回退 Docker。
-7. **Cube 部署形态：** 裸金属（性能最好）/ PVM 云 VM（无需嵌套虚拟化）/ K8s（v0.6+）——按现有机房条件选。
+**现状**：UI 终端面板（`console_session`）在 light/container 档位下显式拒绝
+（「当前会话运行在沙箱里，暂不支持交互式终端面板」），避免用户以为在沙箱里敲命令、
+实际打在宿主上。agent 的 `terminal` 工具不受影响（走 `env.exec`，非交互）。
 
----
+**协议实测（2026-11-15，e2b-local，按官方 e2b SDK 2.10.2 的 `process.proto`）**：
+
+`pty` 是 **`StartRequest` 上的字段**，不在 `ProcessConfig` 里——放错层会被静默忽略，
+表现为"传了 pty 但 `tty` 仍报 not a tty"（第一次探测就踩了这个坑）。
+
+```proto
+message StartRequest { ProcessConfig process = 1; optional PTY pty = 2; optional string tag = 3; optional bool stdin = 4; }
+message PTY { Size size = 1; }              // Size { cols, rows }
+message UpdateRequest { ProcessSelector process = 1; optional PTY pty = 2; }   // ← resize
+message ProcessInput  { oneof input { bytes stdin = 1; bytes pty = 2; } }
+message ProcessEvent.DataEvent { oneof output { bytes stdout = 1; bytes stderr = 2; bytes pty = 3; } }
+```
+
+| 探测 | 结果 |
+|---|---|
+| `{"process":{…}, "pty":{"size":{"cols":100,"rows":40}}}` | ✅ `/dev/pts/0`，`stty size` → `40 100` |
+| 同上但 `pty` 塞进 `process` 里 | ❌ 静默忽略（`not a tty`） |
+| 输出通道 | `data.pty`（base64），不是 `stdout` |
+| `SendInput {"input":{"pty":"<base64>"}}` | ✅ 输入进 pty，回显正常 |
+| `Update {"process":{pid},"pty":{"size":{"cols":120,"rows":50}}}` | ✅ **resize 生效**（`stty size` → `50 120`） |
+| 兜底（后端不支持 pty 时） | 沙箱内 `script -qfc '<cmd>' /dev/null` 也能造 tty（`/dev/pts/0`，`isatty True`） |
+
+**参考实现（2026-11-15 读源码）**：
+
+| | 沙箱终端怎么起 | tty 由谁给 | resize |
+|---|---|---|---|
+| OpenClaw | `docker exec -i [-t] -w <workdir> -e … <container> <cmd>`，stdin 始终 `pipe-open` | **容器运行时**（`docker exec -t`） | 无 |
+| Hermes | `docker exec [-i] <container> bash -c <cmd>`，stdin 走管道或 heredoc | **没有 tty** | 无 |
+
+两家的共同点：**客户端不做 pty**。OpenClaw 把 tty 交给容器运行时，Hermes 干脆不要；
+`node-pty` 在 OpenClaw 里只用于**本地**进程，沙箱路径不经过它。
+
+**Cube 上是否一样**：Cube 是 E2B 兼容 API，exec 路径是
+`CubeAPI → Master → Cubelet → Shim → envd`，**末端就是同一个 envd**，所以 `pty` 字段
+走的是同一份 `process.proto`。差异只可能出现在 envd 版本（Cube 侧镜像里的 envd 是否
+带 pty 支持）——**必须在真机上跑一次 §7.3 验收命令确认**，不能只靠"接口兼容"推断。
+
+**设计**：
+
+1. `Environment` 增加 `pty_open(spec) -> Box<dyn PtyHandle>`（`LocalEnv` 用
+   `portable_pty`；`RemoteEnv` 在 `StartRequest` 上带 `pty`，输出读 `data.pty`、
+   输入写 `input.pty`，resize 走 `Process.Update`）。
+2. 窗口尺寸：启动时用 `PTY.Size{cols,rows}`；前端 resize 事件 → `Process.Update`，
+   实测生效（无需重启会话）。
+3. `console_session` 在非 Local 档位改走 `env.pty_open`，不再拒绝。
+4. 限制（必须写进 UI 提示）：依赖 `isatty` 的提权/密码交互（sudo/ssh）仍不建议在面板里用；
+   全屏程序重绘需前端按 `data.pty` 做终端仿真（xterm.js 级别），不要自己拼 ANSI。
+
+**验收**：真机在沙箱会话打开终端 → `tty` 返回 `/dev/pts/N`、`pwd` 为 `/workspace`、
+`echo $((1+1))` 正常；宿主 `ps` 里看不到该 shell。
+
+**估时**：接口 + LocalEnv 1 天；RemoteEnv `script` 包装 + 流对接 0.5 天；
+前端 resize/提示 0.5 天。
+
+### 7.4 档位 / 后端分离 + Docker 后端（P0–P2 已落地）
+
+#### 7.4.1 要解决的问题
+
+现状把两件事塞进了一个枚举：
+
+```rust
+pub enum EnvProvider { Local, Light }
+```
+
+它同时回答「该不该隔离」和「隔离怎么实现」。后果是**换实现必须换语义**：
+
+- 生产要 Cube（envd 协议 + `host-mount`）
+- 开发只有 e2b-local（envd 协议 + 卷目录）
+- 而 e2b-local 的卷只能是 `~/.e2b-local/volumes/` 下的真实目录，**挂不了用户的项目目录**
+
+于是开发环境里 `/workspace` 是每会话空卷：agent 在空目录干活、`git status` 无内容、
+diff 无基线、文件树面板空。开发和生产的**语义一致但能力残缺**，验出来的东西对不上。
+
+实测过的三条路都不通（2026-11-15）：
+
+| 尝试 | 结果 |
+|---|---|
+| `volumes/x` → 项目目录的符号链接 | 网关拒绝：`volume path ... is not a directory` |
+| `metadata["host-mount"]`（Cube 通道） | 网关静默忽略 |
+| 网关配置加 bind | 配置只有 `traffic` / `docker.envd_binary` / `docker.volume_host_path` |
+
+参考实现（Hermes / OpenClaw）都不走"卷"抽象，直接 bind 宿主目录：
+Hermes `-v {host_cwd}:/workspace`（另有沙箱目录 / tmpfs 两级回落），
+OpenClaw `-v {workspaceDir}:{workdir}`（`workspaceAccess: rw/ro/none`）。
+
+#### 7.4.2 目标与不变式
+
+```
+生产：  Tier::Light + Backend::Envd    → Cube（项目目录走 host-mount）
+开发：  Tier::Light + Backend::Docker  → 本地 docker -v 项目目录
+```
+
+不变式（改完必须仍成立）：
+
+1. 工具层零改动（48 个工具、`effective_env()`、`ToolContext` 不动）
+2. fail-closed 保留（未绑定 → 拒绝执行，不落宿主）
+3. `remote_env_it` 的 8 个集成测试继续通过（Envd 后端协议不受影响）
+
+#### 7.4.3 数据模型
+
+```rust
+pub enum Tier { Local, Light, Container }        // 语义：决定 Capabilities
+pub enum Backend { Host, Envd, Docker }          // 实现：决定 IO 怎么落地
+
+pub struct ProviderConfig {
+    pub tier: Option<Tier>,        // 原 provider
+    pub backend: Option<Backend>,  // 新增
+    // sandbox_url / volume_host_path / template / admins / accounts / platform 不变
+}
+
+pub struct ResolvedEnv { pub tier: Tier, pub backend: Backend }
+```
+
+配置项：
+
+| 环境变量 | 值 | 说明 |
+|---|---|---|
+| `POINTER_SERVER_ENVIRONMENT_PROVIDER` | `local` / `light` / `container` | 保留原名，映射到 `Tier` |
+| `POINTER_SERVER_ENVIRONMENT_BACKEND` | `host` / `envd` / `docker` | **新增**，缺省按下表推导 |
+| `POINTER_SERVER_ENVIRONMENT_SANDBOX_URL` | url | 仅 `envd` 后端需要 |
+| `POINTER_SERVER_ENVIRONMENT_TEMPLATE` | image | `envd` / `docker` 共用 |
+| `POINTER_SERVER_ENVIRONMENT_VOLUME_HOST_PATH` | dir | 仅 e2b-local 需要 |
+
+后端缺省推导（保证旧配置行为不变）：
+
+| Tier | 未显式指定 backend 时 |
+|---|---|
+| Local | `Host` |
+| Light | 有 `sandbox_url` → `Envd`；否则报错并提示两条出路 |
+| Container | `Docker` |
+
+`admins` / `accounts` 覆盖规则不变（仍是 tier 级覆盖）。
+
+#### 7.4.4 DockerEnv 设计
+
+核心洞察：`/workspace` 是项目目录的 **bind mount**，宿主和容器看到同一份文件。所以
+
+- **文件 IO 不进容器** → 直接复用 `LocalEnv`（先把 guest 路径按 `PathMap` 翻回宿主路径）
+- **只有执行进容器** → `docker exec`
+
+| 方法 | 实现 |
+|---|---|
+| `exec` | `docker exec -i <name> <argv>`；`-w` 走 `ExecOptions.cwd`，env 用 `-e` |
+| `spawn` | `docker exec -i` 常驻进程，stdin/stdout 走管道 |
+| `pty_open` | 宿主 `portable_pty` 起 `docker exec -it <name> <shell>`（tty 由 `-t` 提供，与 OpenClaw 一致） |
+| `read_file` / `write_file` / `list_dir` / `walk` / `metadata` / `remove_*` | 路径映射到宿主后交给 `LocalEnv` |
+| `kind()` / `capabilities()` | `EnvKind::Light` / `Capabilities::light()` |
+
+挂载列表**复用 `MountPlan` 的输出**：`Mount { host, guest, read_only }` → `-v host:guest[:ro]`。
+Envd 与 Docker 两条后端共享同一份挂载计算，不各写一套。
+
+容器生命周期：
+
+```bash
+docker run -d --name pointer-sbx-<conv> \
+  -v <host_workspace>:/workspace \
+  -v <host_home>:/home/u \
+  -v <skills_user>:/skills/user:ro \
+  -v <plugins>:/plugins:ro \
+  --workdir /workspace <template> sleep infinity
+
+docker rm -f pointer-sbx-<conv>   # destroy，幂等
+```
+
+#### 7.4.5 会话环境分派
+
+```rust
+let ResolvedEnv { tier, backend } = cfg.resolve(Some(user))?;
+match (tier, backend) {
+    (Tier::Local, _)      => Ok(None),
+    (_, Backend::Envd)    => acquire_remote(cfg, conv, user, workspace_root),
+    (_, Backend::Docker)  => acquire_docker(cfg, conv, user, workspace_root),
+    (_, Backend::Host)    => bail!("tier 非 Local 却指定 Host 后端"),
+}
+```
+
+缓存仍按 `conversation_id`，条目记录 `backend`；空闲淘汰时按 backend 调对应 `destroy()`。
+
+#### 7.4.6 项目目录挂载（前置改动）
+
+`MountPlan` 必须接收项目目录，否则两条后端都挂不上用户的项目：
+
+```rust
+pub fn for_session_with_plugins(
+    sandboxes_base: &Path,
+    session_user_id: &str,
+    conversation_id: &str,
+    skill_roots: &[SkillRoot],
+    plugin_root: Option<&Path>,
+    workspace_root: Option<&Path>,   // 新增：会话所属项目目录
+) -> Vec<Mount>
+```
+
+`/workspace` 来源二选一：有项目目录且**不是 session-sandbox 目录** → 挂项目目录；
+否则退回每会话空卷（"从零开始"语义）。
+
+> 已部分落地（`mounts.rs` / `session_env.rs` / `commands.rs::panel_env` 已加参数，待全量测试）；
+> 由于 e2b-local 的限制，该改动在开发环境仍表现为空卷，需要 Docker 后端才能真正生效。
+
+#### 7.4.7 测试计划
+
+| 层 | 测试 | 覆盖 |
+|---|---|---|
+| 单测 | `tier_backend_resolution_matrix` | 9 种组合 + 旧配置兼容（`provider=light` + url → Envd） |
+| 单测 | `workspace_mount_uses_project_dir` / `falls_back_to_volume` | 项目目录进挂载 / 无项目退回卷 |
+| 单测 | `docker_env_maps_paths_both_ways` | 宿主↔guest 双向映射，含越界拒绝 |
+| 集成（`--ignored`，需 docker） | `exec_runs_in_container` | `pwd` = `/workspace`，`uname` 是 Linux |
+| 集成 | `host_sees_container_writes` | 容器内写文件 → 宿主立即可见（bind 验证） |
+| 集成 | `pty_gets_tty` | `tty` = `/dev/pts/N`，`stty size` 生效 |
+| 集成 | `destroy_removes_container` | `docker ps` 中不再出现 |
+| 回归 | `cargo test -p pointer-core --lib` | 基线不降（当前 2295） |
+| 回归 | `remote_env_it` | 8 个仍过 |
+
+#### 7.4.8 风险
+
+| 风险 | 应对 |
+|---|---|
+| uid 不一致（容器 root 写文件 → 宿主属主异常） | 实测；必要时 `--user $(id -u):$(id -g)` |
+| 容器泄漏（崩溃残留） | 启动时清理 `pointer-sbx-*` 孤儿；`destroy` 幂等 |
+| docker 不可用 | 创建时明确报错 + 提示 `docker info` |
+| 路径映射错位（最严重，会写错地方） | 单测锁死双向映射；架构守卫测试覆盖 `docker.rs` |
+| 与 e2b-local 并存 | 按 backend 二选一，互不影响 |
+
+#### 7.4.9 分阶段交付
+
+| 阶段 | 内容 | 估时 |
+|---|---|---|
+| P0 | `Tier`/`Backend` 模型 + 配置解析 + 旧配置兼容 + 单测 | 0.5 天 |
+| P1 | `env/docker.rs`：exec / spawn / fs / pty + 单测 | 1 天 |
+| P2 | `session_env` 分派 + 缓存 / 销毁 + 集成测试 | 0.5 天 |
+| P3 | 开发环境默认切 docker 后端 + 真机验面板 / diff / 终端 | 0.5 天 |
+| P4 | 文档更新 + 架构守卫白名单补 `docker.rs` | 0.5 天 |
+
+P0 完成后旧配置行为完全不变，可随时停。
+
+#### 7.4.10 实施记录（2026-11-15）
+
+| 阶段 | 状态 | 证据 |
+|---|---|---|
+| P0 档位/后端模型 | ✅ | `provider.rs`：`Tier` / `Backend` / `ResolvedEnv`；`resolve()` 返回二元组；后端缺省按档位推导；档位与后端不自洽时报错 |
+| P0 配置 | ✅ | 新增 `POINTER_SERVER_ENVIRONMENT_BACKEND`（`host`/`envd`/`docker`）；旧配置 `provider=light` + `sandbox_url` 行为不变 |
+| P1 DockerEnv | ✅ | `env/docker.rs`：exec / spawn / pty_open / 文件 IO（复用 LocalEnv）/ 容器生命周期 |
+| P2 分派与缓存 | ✅ | `session_env::acquire_docker` + 会话级缓存 + 单飞锁；`env_for_conversation` 同时查两份缓存 |
+| P3 开发环境切换 | ✅ | `pointer.local.env` 加 `BACKEND=docker`；真机 `uname -s` → `Linux`，`pwd` → `/workspace` |
+| P4 文档 | ✅ | 本节 |
+
+**真机验证（开发版 DEV 窗口）**：
+
+```
+$ uname -s
+Linux
+$ pwd
+/workspace
+```
+
+容器挂载实测：
+
+```
+/Users/starliu/.agents/skills/agent-browser -> /workspace (rw=true)   ← 项目目录直接 bind
+/Users/starliu/.pointer/plugins            -> /plugins  (ro)
+/Users/starliu/.e2b-local/volumes/_anonymous-home -> /home/u
+```
+
+**踩过的坑（已修）**：`env_for_conversation` 最初只查 envd 缓存，docker 后端的会话在工具线程重放时查不到环境，退到 `DeniedEnv`，
+表现为 `执行环境未绑定：…（exec 已拒绝，未在宿主执行）`。修复后统一查两份缓存。
+
+**收尾（同日完成）**：
+
+| 项 | 做法 |
+|---|---|
+| 孤儿容器清理 | `DockerEnv::cleanup_orphans()` 只清 `status=exited` 的（在跑的不动），`lib.rs::run` 起线程调用一次 |
+| 缓存空闲淘汰 | `docker_cache` 条目带 `last_used`；`evict_idle_docker` 到 30 分钟先 `docker rm -f` 再移出 |
+| 面板不抢建沙箱 | docker 后端下 `panel_env` 直接读宿主（bind 挂载同一份文件），避免用旧路径定死挂载 |
+| 终端面板误报 | `console_session::create` 只查缓存；应用重启后缓存空 → 落到 `DeniedEnv` → 默认 `pty_open` 报「(Light) 不支持交互式终端」。改为查不到时按会话解析/创建；`DeniedEnv` 也覆盖了 `pty_open`，报「执行环境未绑定」 |
+| 架构守卫 | 守卫扫描范围是 `tools/`、`media/`、`agents/coder/`，`env/` 不在其中，无需加白名单（`cargo test --lib` 已覆盖） |
+
+#### 7.4.11 明确不做
+
+| 项 | 原因 |
+|---|---|
+| Container 档位的 GUI（Xvfb + WM） | 独立一块，先跑通 Light 语义 |
+| 快照能力 | 同上 |
+| 资源限制（cpu / mem / disk） | 先不加，`docker run` 处留 TODO |
+| Cube 真机验证 | 另一条线，需要 Cube 环境 |
+| 修 e2b-local 的挂载限制 | 不碰第三方网关，dev 改用 docker 后端绕开 |
+
+### 7.5 待办：面板内接管电脑（VNC）
+
+**需求（用户口径）**：右侧面板加一个「接管电脑」选项。**点了它，人和鼠标键盘才接管**；
+不点就只是看。不做自动仲裁，不做租约，不做双屏。
+
+**已定的边界**：
+
+| 项 | 决定 | 理由 |
+|---|---|---|
+| 观看 vs 接管 | 两种需求分开 | 「看」用截图轮询就够；「接管」才需要实时流 |
+| 仲裁（agent 与人抢指针） | **不做** | 一个「接管电脑」开关本身就是入口约束 |
+| 双虚拟屏 / XInput2 多指针 | **不做** | 场景不成立，投入不值 |
+| iframe 嵌 `vnc.html` | **不做** | 工具栏割裂、缩放不可控 |
+| 自建 Rust WS 桥 | **不做** | 容器内 `websockify` 一行解决 |
+
+**方案**：
+
+```
+容器：Xvfb :99 → x11vnc :5900 → websockify :6080（--web /usr/share/novnc）
+宿主：-p 127.0.0.1::6080
+前端：@novnc/novnc（npm 包，`new RFB(canvas, wsUrl)`），不用 iframe
+```
+
+`Environment::desktop_endpoint()` 目前返回 `(vnc://…, password)`；接管功能要再返回
+一个 WS 地址（或把 `vnc://` 换成可同时派生的结构）。
+
+**待办分解**：
+
+| 项 | 内容 | 估时 |
+|---|---|---|
+| 容器侧 | 镜像加 `websockify` + noVNC 静态文件；入口起服务；`run_args` 多映射 6080；endpoint 返回 WS 地址 | 0.5–1 天 |
+| 面板组件 | `@novnc/novnc` 封装：连接状态机、适应/1:1/全屏、断线重连 | 1.5–2 天 |
+| 面板集成 | 新 tab「接管电脑」+ 点击才连接；Tauri CSP 放行 `ws://127.0.0.1:*` | 0.5–1 天 |
+| 中文输入 | 工具栏输入框 → 写容器 X 剪贴板（`xclip`）→ 发 Ctrl+V | 0.5 天 |
+| 生命周期 | 接管期间挂起 30 分钟空闲回收；容器重建后重连 | 0.5 天 |
+
+合计约 **3.5–4.5 天**。
+
+**已知风险**：
+
+1. **Tauri CSP** 可能挡 `ws://127.0.0.1:*`——必须先用半天做连通性验证，跑不通就退回
+   「Rust 侧桥 + 同源 WS」。
+2. **分辨率**：桌面固定 1920×1080，缩到 500px 宽面板是 0.26 倍，文字看不清。需要
+   「适应 / 1:1 + 平移」两种模式。
+3. **中文输入**：noVNC 发 keysym，输入法在宿主侧不生效。只能走剪贴板通道。
+4. **web 模式**：浏览器端连不到宿主 `127.0.0.1`，需要服务端代理，本次不做。
 
 ## 9. 开发环境与验证记录
 

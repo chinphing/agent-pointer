@@ -161,7 +161,11 @@ pub(super) async fn dispatch_mouse(
     let vision = state
         .computer_state
         .vision_state_for_conversation(conversation_id);
-    let tool = MouseTool::new(state.computer_state.control.clone(), vision);
+    let control = crate::agents::computer::control::control_for_conversation(
+        &state.computer_state.control,
+        conversation_id,
+    );
+    let tool = MouseTool::new(control, vision);
     let out = tool.execute_with(MouseBackend::At, method, &args)?;
     // Same envelope as the failure path: `success` plus what was grounded.
     Ok((

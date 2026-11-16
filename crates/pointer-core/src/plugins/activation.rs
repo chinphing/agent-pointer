@@ -403,7 +403,7 @@ mod tests {
             .tool_names_by_plugin("com.example.demo")
             .contains(&"demo_hello".to_string()));
         // 工具可执行：sidecar 进程 + JSON 协议
-        let out = tools.invoke("demo_hello", serde_json::json!({})).unwrap();
+        let out = tools.invoke(&crate::tools::context::ToolContext::local_default(),"demo_hello", serde_json::json!({})).unwrap();
         assert_eq!(out, "hello");
 
         // skill：demo-skill 注册且带 plugin_id

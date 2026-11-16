@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # 本地 E2B 沙箱开发环境（e2b-local + OrbStack）
 #
-# 用途：在没有 Cube/KVM 的开发机上验证 Environment 抽象层。
+# 用途：**只用于验证 envd 协议**（remote_env_it 集成测试）。
+#       日常开发已改用 docker 后端（POINTER_SERVER_ENVIRONMENT_BACKEND=docker），
+#       不再需要这个网关——它挂不了项目目录（卷只能是 ~/.e2b-local/volumes 下的真实目录）。
 #       控制面与数据面均为真实 E2B 协议（envd 为 E2B 官方二进制）。
 #
 # 用法：
@@ -69,11 +71,19 @@ cmd_up() {
       -c 'cp -r /app/envd-bin/. /out/ && chmod +x /out/*'
   fi
 
+  # 卷目录必须放在**宿主可见**路径：docker daemon 解析 bind 源路径时看不到
+  # 网关容器内部的 /root/.e2b-local，只有挂成宿主同路径才通。
+  # 同时把整个 ~/.e2b-local 挂进网关：卷目录若是符号链接，网关要能 stat 到目标目录
+  # （否则报 "docker local volume path ... is not a directory"）。
+  local volumes_dir; volumes_dir="${E2B_LOCAL_VOLUMES_DIR:-${HOME}/.e2b-local/volumes}"
+  mkdir -p "$volumes_dir"
+
   cat > "$CONFIG" <<EOF
 traffic:
   advertised_host: "127.0.0.1"
 docker:
   envd_binary: "${ENVD_DIR}/${bin}"
+  volume_host_path: "${volumes_dir}"
 EOF
 
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
@@ -81,6 +91,7 @@ EOF
   docker run -d --name "$CONTAINER" --network host \
     -v "${HOME}/.orbstack/run/docker.sock:/var/run/docker.sock" \
     -v "${ENVD_DIR}:${ENVD_DIR}:ro" \
+    -v "${HOME}/.e2b-local:${HOME}/.e2b-local" \
     -v "${CONFIG}:/config.yaml:ro" \
     --entrypoint /usr/local/bin/e2b-local \
     "$IMAGE" serve --config /config.yaml >/dev/null

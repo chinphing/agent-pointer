@@ -472,9 +472,17 @@ pub fn turn_file_diff(
     workspace_root: &Path,
     path: &str,
 ) -> Result<TurnFileDiff> {
-    let root = workspace_root
-        .canonicalize()
-        .with_context(|| format!("workspaceRoot does not exist: {}", workspace_root.display()))?;
+    // 执行环境：light/container 档位下工作区在沙箱里（`/workspace`），
+    // 宿主路径不存在——这里必须按会话解析，否则 diff 永远是空的。
+    let env = crate::env::session_env::env_for_conversation(conversation_id)
+        .unwrap_or_else(crate::env::effective_env);
+    let root = if env.kind() == crate::env::EnvKind::Local {
+        workspace_root
+            .canonicalize()
+            .with_context(|| format!("workspaceRoot does not exist: {}", workspace_root.display()))?
+    } else {
+        env.workspace_root().to_path_buf()
+    };
     let abs = resolve_abs_path(&root, path)?;
     let display_path = abs.to_string_lossy().replace('\\', "/");
     // Tool results often store a non-canonical absolute path; try both keys.
@@ -490,12 +498,15 @@ pub fn turn_file_diff(
             "turn_file_baseline: after=next_baseline conversation_id={conversation_id} turn_id={turn_id} next_turn_id={next_turn_id} path={display_path}"
         );
         text
-    } else if abs.exists() {
-        let meta = fs::metadata(&abs).with_context(|| format!("stat {}", abs.display()))?;
-        if !meta.is_file() {
+    } else if env.exists(&abs) {
+        let meta = env
+            .metadata(&abs)
+            .with_context(|| format!("stat {}", abs.display()))?;
+        if !meta.is_file {
             return Err(anyhow!("不是常规文件: {}", abs.display()));
         }
-        fs::read_to_string(&abs).with_context(|| format!("read {}", abs.display()))?
+        env.read_to_string(&abs)
+            .with_context(|| format!("read {}", abs.display()))?
     } else {
         String::new()
     };

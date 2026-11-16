@@ -248,8 +248,22 @@ fn resolve_compact_home_prefixes() -> Vec<PathBuf> {
     homes
 }
 
+/// 技能索引里的 `<location>`：非 Host 档位要换成沙箱挂载点（`/skills/<name>/…`），
+/// 否则 agent 会拿着宿主路径去 `terminal` 里读，沙箱内根本不存在。
+fn map_skill_location(manifest: &Path, compact: String) -> String {
+    let env = crate::env::effective_env();
+    if env.kind() == crate::env::EnvKind::Local {
+        return compact;
+    }
+    match env.path_map().to_agent(manifest) {
+        Ok(guest) => guest.display().to_string(),
+        // 未挂载的技能根（例如工作区外临时目录）保持原样，不做猜测。
+        Err(_) => compact,
+    }
+}
+
 /// Compact absolute paths for prompt injection (`~/…`), OpenClaw-aligned.
-pub fn compact_skill_location(path: &Path) -> String {
+fn compact_skill_location(path: &Path) -> String {
     compact_skill_location_with_prefixes(path, &resolve_compact_home_prefixes())
 }
 
@@ -305,7 +319,7 @@ fn build_available_skills_prompt(registry: &HashMap<String, SkillDef>, ids: &[St
             escape_xml_attr(&skill.description)
         ));
         if let Some(manifest) = skill_manifest_path(skill) {
-            let location = compact_skill_location(&manifest);
+            let location = map_skill_location(&manifest, compact_skill_location(&manifest));
             lines.push(format!(
                 "    <location>{}</location>",
                 escape_xml_attr(&location)

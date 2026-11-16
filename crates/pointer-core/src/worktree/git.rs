@@ -9,10 +9,10 @@
 //!
 //! This mirrors the hardening OpenAI Codex applies in `codex-rs/worktree/src/git.rs`.
 
+use crate::env::{host_env, ExecOptions, ExecOutput};
 use anyhow::{bail, Context, Result};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
 
 const DISABLED_HOOKS_PATH: &str = if cfg!(windows) { "NUL" } else { "/dev/null" };
 
@@ -44,28 +44,32 @@ pub(crate) enum GitOperation {
     WorkingTree,
 }
 
-pub(crate) fn git_output<I, S>(cwd: &Path, operation: GitOperation, args: I) -> Result<Output>
+pub(crate) fn git_output<I, S>(cwd: &Path, operation: GitOperation, args: I) -> Result<ExecOutput>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let mut command = base_command(cwd);
+    let mut argv = git_argv();
     if operation == GitOperation::WorkingTree {
         for filter in configured_filters(cwd)? {
-            command
-                .arg("-c")
-                .arg(format!("filter.{filter}.process="))
-                .arg("-c")
-                .arg(format!("filter.{filter}.clean="))
-                .arg("-c")
-                .arg(format!("filter.{filter}.smudge="))
-                .arg("-c")
-                .arg(format!("filter.{filter}.required=false"));
+            argv.push("-c".to_string());
+            argv.push(format!("filter.{filter}.process="));
+            argv.push("-c".to_string());
+            argv.push(format!("filter.{filter}.clean="));
+            argv.push("-c".to_string());
+            argv.push(format!("filter.{filter}.smudge="));
+            argv.push("-c".to_string());
+            argv.push(format!("filter.{filter}.required=false"));
         }
     }
-    let output = command
-        .args(args)
-        .output()
+    argv.extend(
+        args.into_iter()
+            .map(|a| a.as_ref().to_string_lossy().into_owned()),
+    );
+    // worktree 属于**宿主仓库**（沙箱里没有 .git）：固定用宿主环境，
+    // 不能跟着会话档位走，否则 light 档位下会去沙箱里找仓库。
+    let output = host_env()
+        .exec(&argv, git_options(cwd))
         .context("failed to start git (is git installed?)")?;
     ensure_success(&output)?;
     Ok(output)
@@ -165,47 +169,53 @@ pub(crate) fn resolve_git_path(cwd: &Path, argument: &str) -> Result<PathBuf> {
         .with_context(|| format!("cannot resolve git path {}", raw.display()))
 }
 
-fn base_command(cwd: &Path) -> Command {
-    let mut command = Command::new("git");
+/// git 加固参数：禁止仓库配置执行用户代码（hooks / fsmonitor / attributes / filters）。
+fn git_argv() -> Vec<String> {
+    vec![
+        "git".to_string(),
+        "-c".to_string(),
+        format!("core.hooksPath={DISABLED_HOOKS_PATH}"),
+        "-c".to_string(),
+        "core.fsmonitor=".to_string(),
+        "-c".to_string(),
+        "attr.tree=".to_string(),
+        "-c".to_string(),
+        "core.attributesFile=".to_string(),
+    ]
+}
+
+/// 每次 git 调用都清掉会改写仓库选择的环境变量，并且不提示凭证、不 smudge LFS。
+fn git_options(cwd: &Path) -> ExecOptions {
+    let mut opts = ExecOptions::new()
+        .with_cwd(cwd)
+        .with_env("GIT_LFS_SKIP_SMUDGE", "1")
+        .with_env("GIT_TERMINAL_PROMPT", "0");
     for name in SCRUBBED_ENV {
-        command.env_remove(name);
+        opts = opts.without_env(*name);
     }
-    command
-        .current_dir(cwd)
-        .arg("-c")
-        .arg("core.hooksPath=".to_owned() + DISABLED_HOOKS_PATH)
-        .arg("-c")
-        .arg("core.fsmonitor=")
-        .arg("-c")
-        .arg("attr.tree=")
-        .arg("-c")
-        .arg("core.attributesFile=")
-        .env("GIT_LFS_SKIP_SMUDGE", "1")
-        .env("GIT_TERMINAL_PROMPT", "0");
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-    command
+    opts
 }
 
 /// Drivers that configure a content filter; creation must not run them.
 fn configured_filters(cwd: &Path) -> Result<Vec<String>> {
-    let output = base_command(cwd)
-        .args([
+    let mut argv = git_argv();
+    argv.extend(
+        [
             "config",
             "--null",
             "--name-only",
             "--get-regexp",
             "^filter\\.",
-        ])
-        .output()
+        ]
+        .into_iter()
+        .map(str::to_string),
+    );
+    let output = host_env()
+        .exec(&argv, git_options(cwd))
         .context("failed to inspect git filter configuration")?;
-    if !output.status.success() {
+    if output.status != 0 {
         // Exit code 1 means "no matching config", which is the common case.
-        if output.status.code() == Some(1) {
+        if output.status == 1 {
             return Ok(Vec::new());
         }
         ensure_success(&output)?;
@@ -230,8 +240,8 @@ fn configured_filters(cwd: &Path) -> Result<Vec<String>> {
     Ok(drivers)
 }
 
-fn ensure_success(output: &Output) -> Result<()> {
-    if output.status.success() {
+fn ensure_success(output: &ExecOutput) -> Result<()> {
+    if output.status == 0 {
         return Ok(());
     }
     let stderr = String::from_utf8_lossy(&output.stderr);

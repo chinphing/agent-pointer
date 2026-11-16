@@ -81,17 +81,24 @@ export async function cancelBackgroundJobs(
 
 export async function listWorkspaceDirectory(
   workspaceRoot: string,
-  relativePath?: string
+  relativePath?: string,
+  conversationId?: string
 ): Promise<import('./api').WorkspaceEntry[]> {
-  return await invoke('list_workspace_directory', { workspaceRoot, relativePath: relativePath ?? null })
+  return await invoke('list_workspace_directory', {
+    conversationId: conversationId ?? null,
+    workspaceRoot,
+    relativePath: relativePath ?? null
+  })
 }
 
 export async function searchWorkspaceEntries(
   workspaceRoot: string,
   query: string,
-  limit?: number
+  limit?: number,
+  conversationId?: string
 ): Promise<import('./api').WorkspaceEntry[]> {
   return await invoke('search_workspace_entries', {
+    conversationId: conversationId ?? null,
     workspaceRoot,
     query,
     limit: limit ?? null
@@ -100,28 +107,71 @@ export async function searchWorkspaceEntries(
 
 export async function readWorkspaceFile(
   workspaceRoot: string,
-  relativePath: string
+  relativePath: string,
+  conversationId?: string
 ): Promise<import('./api').WorkspaceFilePreview> {
-  return await invoke('read_workspace_file', { workspaceRoot, relativePath })
+  return await invoke('read_workspace_file', {
+    conversationId: conversationId ?? null,
+    workspaceRoot,
+    relativePath
+  })
 }
 
 export async function deleteWorkspacePath(
   workspaceRoot: string,
-  relativePath: string
+  relativePath: string,
+  conversationId?: string
 ): Promise<void> {
-  await invoke('delete_workspace_path', { workspaceRoot, relativePath })
+  await invoke('delete_workspace_path', {
+    conversationId: conversationId ?? null,
+    workspaceRoot,
+    relativePath
+  })
 }
 
-export async function getWorkspaceGitStatus(workspaceRoot: string): Promise<import('./api').GitStatusResponse> {
-  return await invoke('get_workspace_git_status', { workspaceRoot })
+export interface SandboxDesktop {
+  url: string
+  password: string | null
+}
+
+export async function getSandboxDesktop(
+  workspaceRoot: string,
+  conversationId?: string
+): Promise<SandboxDesktop | null> {
+  return await invoke('get_sandbox_desktop', {
+    conversationId: conversationId ?? null,
+    workspaceRoot
+  })
+}
+
+export async function openSandboxDesktop(
+  workspaceRoot: string,
+  conversationId?: string
+): Promise<string | null> {
+  return await invoke('open_sandbox_desktop', {
+    conversationId: conversationId ?? null,
+    workspaceRoot
+  })
+}
+
+export async function getWorkspaceGitStatus(
+  workspaceRoot: string,
+  conversationId?: string
+): Promise<import('./api').GitStatusResponse> {
+  return await invoke('get_workspace_git_status', {
+    conversationId: conversationId ?? null,
+    workspaceRoot
+  })
 }
 
 export async function getWorkspaceGitDiff(
   workspaceRoot: string,
   relativePath: string,
-  status?: string
+  status?: string,
+  conversationId?: string
 ): Promise<import('./api').GitDiff> {
   return await invoke('get_workspace_git_diff', {
+    conversationId: conversationId ?? null,
     workspaceRoot,
     relativePath,
     status: status || null

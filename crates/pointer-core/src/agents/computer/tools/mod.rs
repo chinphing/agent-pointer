@@ -181,7 +181,9 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     // `backend_method`, so this branch never runs. Kept as a
                     // fallback. Note that scrolling takes `notches_x` /
                     // `notches_y` — wheel notches, not pixel deltas.
-                    let control = ms.control.clone();
+                    let control = crate::agents::computer::control::control_for_conversation(
+                        &ms.control, &cid,
+                    );
                     run_synthetic_computer_tool(move || {
                         tool_mouse::scroll_current(&control, &args)
                     })
@@ -217,7 +219,15 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 Arc::new(move |args| {
                     let hotkey_state = hotkey_state.clone();
                     run_synthetic_input(move || {
-                        let tool = tool_hotkey::HotkeyTool::new(hotkey_state.control.clone());
+                        let cid = crate::tools::context::current_tool_context()
+                            .map(|ctx| ctx.conversation_id().to_string())
+                            .unwrap_or_default();
+                        let control =
+                            crate::agents::computer::control::control_for_conversation(
+                                &hotkey_state.control,
+                                &cid,
+                            );
+                        let tool = tool_hotkey::HotkeyTool::new(control);
                         tool.execute("hotkey", &args)
                     })
                 }),
@@ -269,7 +279,10 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     }
                     InputBackend::Focused => {
                         let vision = st.vision_state_for_conversation(&cid);
-                        let tool = InputTool::new(st.control.clone(), vision);
+                        let control = crate::agents::computer::control::control_for_conversation(
+                            &st.control, &cid,
+                        );
+                        let tool = InputTool::new(control, vision);
                         run_synthetic_computer_tool(move || tool.execute_with(backend, &args))
                     }
                 }
@@ -309,7 +322,13 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             let method = name.to_string();
 
             let handler: ToolHandler = Arc::new(move |args| {
-                let tool = tool_keyboard::KeyboardTool::new(st.control.clone());
+                let cid = crate::tools::context::current_tool_context()
+                    .map(|ctx| ctx.conversation_id().to_string())
+                    .unwrap_or_default();
+                let control = crate::agents::computer::control::control_for_conversation(
+                    &st.control, &cid,
+                );
+                let tool = tool_keyboard::KeyboardTool::new(control);
                 let method = method.clone();
                 run_synthetic_computer_tool(move || tool.execute(&method, &args))
             });

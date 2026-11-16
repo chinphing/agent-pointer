@@ -50,6 +50,9 @@ pub(super) async fn execute_tool_invocation(
     state_arc: std::sync::Arc<AppState>,
 ) -> ToolExecResult {
     let _ = ask_user_deferred;
+    // 执行环境：tokio 换线程后 thread-local 绑定不会跟随，这里按会话缓存重放。
+    // 不重放的话 terminal/file 会静默落回宿主（light 档位等于失效）。
+    let _env_guard = crate::env::session_env::bind_cached(conversation_id);
     let execution_scope = ToolExecutionScope::from_agent_contexts(
         conversation_id,
         lead.as_ref()
@@ -263,6 +266,8 @@ pub(super) async fn invoke_prepared_parallel(
     tool_span_id: Option<String>,
     state_arc: std::sync::Arc<AppState>,
 ) -> ToolExecResult {
+    // 并行波也跑在独立任务里：同样要按会话缓存重放环境绑定。
+    let _env_guard = crate::env::session_env::bind_cached(conversation_id);
     let execution_scope =
         ToolExecutionScope::new(conversation_id, agent_instance_id, tc.id.as_str());
     match tool_id {

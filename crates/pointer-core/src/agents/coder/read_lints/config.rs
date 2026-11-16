@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Result};
 use log::warn;
 use serde::Deserialize;
-use std::fs;
+
 use std::path::Path;
 
 use super::detect::config_file_path;
@@ -29,10 +29,12 @@ fn default_parser() -> String {
 
 pub fn load_lint_config(root: &Path) -> Option<LintFile> {
     let path = config_file_path(root);
-    if !path.is_file() {
+    // 走执行环境：light 档位下配置文件在沙箱工作区里，宿主路径不存在。
+    let env = crate::env::effective_env();
+    if !env.exists(&path) {
         return None;
     }
-    let raw = match fs::read_to_string(&path) {
+    let raw = match env.read_to_string(&path) {
         Ok(s) => s,
         Err(e) => {
             warn!("read_lints: failed to read {}: {e}", path.display());

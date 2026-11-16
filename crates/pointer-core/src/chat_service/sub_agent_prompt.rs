@@ -277,8 +277,9 @@ pub(super) fn init_sub_agent_session(
         task,
         &instance_scope.agent_instance_id,
     );
+    let prompt_workspace_root = crate::env::prompt_workspace_root(&workspace_root);
     let session_vars = SessionInjectVars {
-        workspace_root: workspace_root.as_str(),
+        workspace_root: prompt_workspace_root.as_str(),
     };
     let allowed_tools_line = if allowed_tools.is_empty() {
         "none".into()
@@ -437,8 +438,9 @@ pub(super) async fn prepare_sub_agent_round_prompts(
 
     let t = Instant::now();
     let mut cacheable = Vec::new();
+    let prompt_workspace_root = crate::env::prompt_workspace_root(workspace_root.trim());
     let session_vars = SessionInjectVars {
-        workspace_root: workspace_root.trim(),
+        workspace_root: prompt_workspace_root.as_str(),
     };
     push_agent_role_cacheable_prompts(
         &mut cacheable,

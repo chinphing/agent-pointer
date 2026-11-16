@@ -203,7 +203,8 @@ function workspaceQuery(
 
 export async function listWorkspaceDirectory(
   workspaceRoot: string,
-  relativePath?: string
+  relativePath?: string,
+  _conversationId?: string
 ): Promise<import('./api').WorkspaceEntry[]> {
   return await request(`/api/workspace/directory?${workspaceQuery(workspaceRoot, relativePath)}`)
 }
@@ -211,7 +212,8 @@ export async function listWorkspaceDirectory(
 export async function searchWorkspaceEntries(
   workspaceRoot: string,
   query: string,
-  limit?: number
+  limit?: number,
+  _conversationId?: string
 ): Promise<import('./api').WorkspaceEntry[]> {
   const params = new URLSearchParams()
   params.set('workspace_root', workspaceRoot)
@@ -222,7 +224,8 @@ export async function searchWorkspaceEntries(
 
 export async function readWorkspaceFile(
   workspaceRoot: string,
-  relativePath: string
+  relativePath: string,
+  _conversationId?: string
 ): Promise<import('./api').WorkspaceFilePreview> {
   return await request(`/api/workspace/file?${workspaceQuery(workspaceRoot, relativePath)}`)
 }
@@ -247,21 +250,41 @@ export async function workspaceFileMediaObjectUrl(
 
 export async function deleteWorkspacePath(
   workspaceRoot: string,
-  relativePath: string
+  relativePath: string,
+  _conversationId?: string
 ): Promise<void> {
   await request(`/api/workspace/path?${workspaceQuery(workspaceRoot, relativePath)}`, {
     method: 'DELETE'
   })
 }
 
-export async function getWorkspaceGitStatus(workspaceRoot: string): Promise<import('./api').GitStatusResponse> {
+export async function getSandboxDesktop(
+  _workspaceRoot: string,
+  _conversationId?: string
+): Promise<{ url: string; password: string | null } | null> {
+  // 浏览器端没有容器桌面，直接返回 null。
+  return null
+}
+
+export async function openSandboxDesktop(
+  _workspaceRoot: string,
+  _conversationId?: string
+): Promise<string | null> {
+  return null
+}
+
+export async function getWorkspaceGitStatus(
+  workspaceRoot: string,
+  _conversationId?: string
+): Promise<import('./api').GitStatusResponse> {
   return await request(`/api/workspace/git/status?${workspaceQuery(workspaceRoot)}`)
 }
 
 export async function getWorkspaceGitDiff(
   workspaceRoot: string,
   relativePath: string,
-  status?: string
+  status?: string,
+  _conversationId?: string
 ): Promise<import('./api').GitDiff> {
   return await request(
     `/api/workspace/git/diff?${workspaceQuery(workspaceRoot, relativePath, { status })}`

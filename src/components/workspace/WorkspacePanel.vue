@@ -12,6 +12,7 @@ import {
   FolderOpen,
   GitBranch,
   Loader2,
+  Monitor,
   RefreshCw,
   Search,
   SquareTerminal,
@@ -24,7 +25,9 @@ import {
   getWorkspaceGitDiff,
   getWorkspaceGitStatus,
   listWorkspaceDirectory,
+  getSandboxDesktop,
   openPathWithDefaultApp,
+  openSandboxDesktop,
   readWorkspaceFile,
   revealInFinder,
   searchWorkspaceEntries
@@ -227,6 +230,28 @@ let changesRefreshQueued = false
  * Load the file tree.
  * `silent` keeps the previous tree visible (stale-while-revalidate) so clicks stay snappy.
  */
+const desktopAvailable = ref(false)
+
+async function refreshDesktopAvailability() {
+  try {
+    const endpoint = await getSandboxDesktop(props.workspaceRoot, props.conversationId)
+    desktopAvailable.value = !!endpoint
+  } catch {
+    desktopAvailable.value = false
+  }
+}
+
+async function openDesktop() {
+  try {
+    const url = await openSandboxDesktop(props.workspaceRoot, props.conversationId)
+    if (!url) {
+      desktopAvailable.value = false
+    }
+  } catch (err) {
+    console.warn('open sandbox desktop failed', err)
+  }
+}
+
 async function loadRoot(options?: { silent?: boolean }) {
   const silent = options?.silent === true
   const seq = ++rootLoadSeq
@@ -242,7 +267,7 @@ async function loadRoot(options?: { silent?: boolean }) {
     error.value = ''
   }
   try {
-    const entries = (await listWorkspaceDirectory(workspaceRoot)).map(entry => ({ ...entry }))
+    const entries = (await listWorkspaceDirectory(workspaceRoot, undefined, props.conversationId)).map(entry => ({ ...entry }))
     if (seq !== rootLoadSeq || props.workspaceRoot !== workspaceRoot) return
     if (silent) {
       roots.value = mergeWorkspaceTreePreserveState(roots.value, entries)
@@ -275,7 +300,7 @@ async function toggleDirectory(node: TreeNode) {
   node.loading = true
   error.value = ''
   try {
-    node.children = (await listWorkspaceDirectory(props.workspaceRoot, node.path)).map(entry => ({ ...entry }))
+    node.children = (await listWorkspaceDirectory(props.workspaceRoot, node.path, props.conversationId)).map(entry => ({ ...entry }))
   } catch (err) {
     node.expanded = false
     error.value = err instanceof Error ? err.message : String(err)
@@ -316,7 +341,7 @@ async function loadChanges(options?: { silent?: boolean }) {
     gitError.value = null
   }
   try {
-    const result = await getWorkspaceGitStatus(workspaceRoot)
+    const result = await getWorkspaceGitStatus(workspaceRoot, props.conversationId)
     if (seq !== changesLoadSeq || props.workspaceRoot !== workspaceRoot) return
     changes.value = result.changes
     gitError.value = result.error ?? null
@@ -403,7 +428,7 @@ async function loadFileTab(tabItem: FilePreviewTab) {
       tabItem.loading = false
       return
     }
-    tabItem.preview = await readWorkspaceFile(props.workspaceRoot, tabItem.path)
+    tabItem.preview = await readWorkspaceFile(props.workspaceRoot, tabItem.path, props.conversationId)
   } catch (err) {
     tabItem.preview = null
     tabItem.error = err instanceof Error ? err.message : String(err)
@@ -419,7 +444,8 @@ async function loadDiffTab(tabItem: DiffPreviewTab) {
     const result = await getWorkspaceGitDiff(
       props.workspaceRoot,
       tabItem.path,
-      tabItem.change.status
+      tabItem.change.status,
+      props.conversationId
     )
     tabItem.mode = result.mode ?? ''
     tabItem.diffLines = (result.diffLines ?? []) as DiffLine[]
@@ -558,7 +584,7 @@ async function openWorkspaceReference(path: string) {
 
   try {
     // Probe first so missing Markdown targets do not leave an empty tab.
-    const preview = await readWorkspaceFile(props.workspaceRoot, path)
+    const preview = await readWorkspaceFile(props.workspaceRoot, path, props.conversationId)
     const mediaKind = isMediaFile(path)
     const tabItem: FilePreviewTab = {
       id,
@@ -813,7 +839,7 @@ async function confirmPendingDelete() {
   deletingPath.value = true
   error.value = ''
   try {
-    await deleteWorkspacePath(props.workspaceRoot, target.path)
+    await deleteWorkspacePath(props.workspaceRoot, target.path, props.conversationId)
     console.info('[WorkspacePanel] deleted workspace path', target.path)
     closeTabsForDeletedPath(target.path, target.kind)
     if (!removeNodeFromTree(roots.value, target.path)) {
@@ -966,7 +992,7 @@ async function runTreeSearch(query: string) {
   }
   treeSearchLoading.value = true
   try {
-    const hits = await searchWorkspaceEntries(props.workspaceRoot, q, 80)
+    const hits = await searchWorkspaceEntries(props.workspaceRoot, q, 80, props.conversationId)
     if (seq !== treeSearchSeq) return
     treeSearchMatches.value = hits
     treeSearchIndex.value = 0
@@ -1150,6 +1176,7 @@ function watchFullscreenState() {
 }
 
 onMounted(() => {
+  void refreshDesktopAvailability()
   watchFullscreenState()
   window.addEventListener('resize', handleViewportResize)
   window.addEventListener('scroll', closeContextMenu, true)
@@ -1189,6 +1216,15 @@ onBeforeUnmount(() => {
     <header class="h-10 shrink-0 flex items-center gap-2 px-3 border-b border-border">
       <FolderOpen class="w-4 h-4 text-muted" />
       <span class="text-xs font-semibold truncate flex-1" :title="workspaceRoot">{{ workspaceName || t('workspace.title') }}</span>
+      <button
+        v-if="desktopAvailable"
+        class="chrome-icon-btn"
+        title="看沙箱桌面"
+        type="button"
+        @click="openDesktop"
+      >
+        <Monitor class="w-4 h-4" />
+      </button>
       <button class="chrome-icon-btn" :title="t('workspace.closeWorkspace')" type="button" @click="$emit('close')"><X class="w-4 h-4" /></button>
     </header>
 

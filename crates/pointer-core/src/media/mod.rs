@@ -8,6 +8,7 @@ pub mod dashscope_audio;
 pub mod dashscope_video;
 pub mod delegation;
 pub mod deps_hint;
+pub mod exec;
 pub mod ffmpeg;
 pub mod filename;
 pub mod image_dir;
@@ -100,9 +101,11 @@ pub use understand::{
     describe_video_with_model, transcribe_audio_with_model,
 };
 pub use video::{
-    download_video_from_url, extract_video_frame_base64s, extract_video_frame_base64s_with_range,
+    clip_video_for_range, download_video_from_url, extract_video_frame_base64s,
+    extract_video_frame_base64s_with_range, extract_video_frames_with_range,
     format_video_scope_notice, format_video_shrink_notice, is_video_file_name,
     max_raw_bytes_for_native_video_api, prepare_video_bytes_for_range, probe_video_duration,
+    probe_video_duration_at,
     remux_video_faststart, shrink_video_to_max, video_data_url_encoded_len,
     video_mime_from_file_name, VideoShrinkReport, VideoTimeRange, COMPOSER_VIDEO_ADVISORY_BYTES,
     DEFAULT_FRAMES_PER_SECOND, MAX_VIDEO_API_BASE64_BYTES, MAX_VIDEO_BYTES,

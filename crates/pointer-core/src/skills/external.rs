@@ -47,7 +47,17 @@ pub fn pointer_home_dir() -> Result<PathBuf> {
 }
 
 /// Curator-managed skill library (`~/.pointer/skills`).
+///
+/// `POINTER_SKILLS_DIR` 可显式覆盖（测试隔离 / 平台发布目录）。
 pub fn pointer_skills_dir() -> Result<PathBuf> {
+    if let Ok(raw) = std::env::var("POINTER_SKILLS_DIR") {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let dir = PathBuf::from(trimmed);
+            fs::create_dir_all(&dir)?;
+            return Ok(dir);
+        }
+    }
     let dir = pointer_home_dir()?.join("skills");
     fs::create_dir_all(&dir)?;
     Ok(dir)
@@ -614,7 +624,7 @@ fn is_zip_file(path: &Path) -> bool {
 /// Runtime discovery roots (first match wins per skill id).
 ///
 /// Order: user library → org skills → `~/.agents/skills` → system bundled.
-fn skill_roots() -> Result<Vec<PathBuf>> {
+pub(crate) fn skill_roots() -> Result<Vec<PathBuf>> {
     let mut roots = vec![pointer_skills_dir()?];
     // 员工自建的同名技能优先于企业版：便于本地调试与科室特例，
     // 也延续「本地改动不被覆盖」的语义。
@@ -1049,7 +1059,13 @@ mod tests {
         // HOME is process-global: hold the shared lock (other modules expand `~`
         // too) and restore it on drop so a panic cannot leak the temp home.
         let _home_lock = crate::test_support::home_env_lock();
-        let _restore = crate::test_support::EnvRestore::capture(&["HOME", "USERPROFILE"]);
+        // POINTER_HOME 优先级高于 HOME：不清掉它，别的用例或外层环境一旦设过，
+        // 这里读到的就不是临时 home，断言会偶发失败。
+        let _restore = crate::test_support::EnvRestore::capture(&[
+            "HOME",
+            "USERPROFILE",
+            "POINTER_HOME",
+        ]);
 
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path();
@@ -1063,6 +1079,7 @@ mod tests {
 
         std::env::set_var("HOME", home);
         std::env::set_var("USERPROFILE", home);
+        std::env::remove_var("POINTER_HOME");
         let loaded = load_external_skills().unwrap();
 
         let skill = loaded

@@ -29,11 +29,8 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::process::Command;
 
 /// hooks 声明文件名（importer 原样拷贝保留）。
 const HOOKS_FILE: &str = "hooks/hooks.json";
@@ -571,62 +568,101 @@ async fn run_hook_command(
     timeout_ms: u64,
 ) -> Result<HookDecision> {
     let command_path = resolve_hook_command(plugin_dir, command)?;
-    let event = event.clone();
-    let mut child = Command::new(&command_path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| anyhow!("启动插件 hook 失败 ({}): {e}", command_path.display()))?;
-
-    {
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow!("无法打开插件 hook stdin"))?;
-        stdin
-            .write_all(event.to_string().as_bytes())
-            .await
-            .map_err(|e| anyhow!("写入插件 hook stdin 失败: {e}"))?;
-        stdin.flush().await.ok();
-    }
-
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| anyhow!("无法打开插件 hook stdout"))?;
-    let read = async {
-        let mut out = String::new();
-        let mut reader = tokio::io::BufReader::new(stdout);
-        reader
-            .read_to_string(&mut out)
-            .await
-            .map_err(|e| anyhow!("读取插件 hook stdout 失败: {e}"))?;
-        Ok::<String, anyhow::Error>(out)
-    };
-    let out = match tokio::time::timeout(Duration::from_millis(timeout_ms), read).await {
-        Ok(Ok(out)) => out,
-        Ok(Err(e)) => return Err(e),
-        Err(_) => {
-            log::warn!(
-                "插件 hook 超时 ({timeout_ms}ms): {}",
+    // §3.3：hook 是 agent 可触发的进程，必须经 `Environment::spawn` 在环境内跑。
+    // 环境是**线程局部**绑定的，所以要在进阻塞线程之前取出来。
+    let env = crate::env::effective_env();
+    // 非 Host 档位：插件目录是宿主路径，要换成沙箱里的挂载点（`/plugins/...`
+    // 或工作区内的 `.pointer/plugins/...`）。映射不到就明确报错，不猜。
+    let command_path = if env.kind() == crate::env::EnvKind::Local {
+        command_path
+    } else {
+        env.path_map().to_agent(&command_path).map_err(|e| {
+            anyhow!(
+                "插件 hook 脚本不在环境可见范围内（{}）：{e}",
                 command_path.display()
-            );
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            return Err(anyhow!("插件 hook 执行超时（>{timeout_ms}ms）"));
-        }
+            )
+        })?
     };
-    let status = child
-        .wait()
+    let event_json = event.to_string();
+    let timeout = Duration::from_millis(timeout_ms);
+    let path = command_path.clone();
+
+    let out = tokio::task::spawn_blocking(move || run_hook_blocking(env, &path, &event_json, timeout))
         .await
-        .map_err(|e| anyhow!("等待插件 hook 失败: {e}"))?;
-    parse_hook_decision(&out, status.code().unwrap_or(-1))
+        .map_err(|e| anyhow!("插件 hook 任务失败: {e}"))??;
+    parse_hook_decision(&out.stdout, out.code)
 }
 
-/// 解析 stdout 决策：`"allow"` / `{"decision":"allow"}` / `{"decision":"block","reason":…}`。
-/// 退出码 0 + 空输出 → allow；非零退出码 → Err（调用方 fail-open）。
+struct HookOutput {
+    stdout: String,
+    code: i32,
+}
+
+/// 同步执行一次 hook：写 stdin → 关 stdin（脚本读到 EOF）→ 读 stdout（带超时）。
+///
+/// 超时通过 `recv_timeout` 实现，超时后显式 `kill` 子进程（fail-closed 需要及时收尾）。
+fn run_hook_blocking(
+    env: Arc<dyn crate::env::Environment>,
+    command_path: &Path,
+    event_json: &str,
+    timeout: Duration,
+) -> Result<HookOutput> {
+    use crate::env::SpawnOptions;
+
+    let argv = vec![command_path.to_string_lossy().into_owned()];
+    let mut child = env
+        .spawn(&argv, SpawnOptions::default())
+        .map_err(|e| anyhow!("启动插件 hook 失败 ({}): {e:#}", command_path.display()))?;
+    child
+        .write_all(event_json.as_bytes())
+        .map_err(|e| anyhow!("写入插件 hook stdin 失败: {e:#}"))?;
+    // hook 是「一次输入、一次输出」：关掉 stdin 让脚本读到 EOF 才退出。
+    child
+        .close_stdin()
+        .map_err(|e| anyhow!("关闭插件 hook stdin 失败: {e:#}"))?;
+
+    let mut reader = child
+        .reader()
+        .map_err(|e| anyhow!("无法打开插件 hook stdout: {e:#}"))?;
+
+    let child = Arc::new(std::sync::Mutex::new(child));
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut out = String::new();
+        let res = std::io::Read::read_to_string(&mut reader, &mut out);
+        let _ = tx.send((res, out));
+    });
+
+    match rx.recv_timeout(timeout) {
+        Ok((Ok(_), out)) => {
+            let code = child
+                .lock()
+                .unwrap()
+                .wait()
+                .map_err(|e| anyhow!("等待插件 hook 失败: {e:#}"))?;
+            Ok(HookOutput { stdout: out, code })
+        }
+        Ok((Err(e), _)) => {
+            let _ = child.lock().unwrap().kill();
+            Err(anyhow!("读取插件 hook stdout 失败: {e}"))
+        }
+        Err(_) => {
+            log::warn!(
+                "插件 hook 超时 ({}ms): {}",
+                timeout.as_millis(),
+                command_path.display()
+            );
+            // 杀掉后管道关闭，读线程自然结束（不 join，避免二次阻塞）。
+            let _ = child.lock().unwrap().kill();
+            Err(anyhow!(
+                "插件 hook 执行超时（>{}ms）",
+                timeout.as_millis()
+            ))
+        }
+    }
+}
+
+
 fn parse_hook_decision(stdout: &str, exit_code: i32) -> Result<HookDecision> {
     let trimmed = stdout.trim();
     if trimmed.is_empty() {

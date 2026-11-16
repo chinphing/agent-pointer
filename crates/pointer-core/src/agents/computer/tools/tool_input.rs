@@ -35,6 +35,24 @@ trait ClipboardOps {
     fn write_text(&mut self, text: &str) -> Result<()>;
 }
 
+/// 按控制后端写剪贴板：容器后端写容器内的 X 剪贴板。
+///
+/// 宿主剪贴板和容器剪贴板是两套独立的选择区，用宿主剪贴板粘贴到容器里
+/// 只会粘出空内容——所以粘贴必须跟着 control 走。
+struct ControlClipboard(std::sync::Arc<dyn crate::agents::computer::control::ComputerControl>);
+
+impl ClipboardOps for ControlClipboard {
+    fn replace_text(&mut self, text: &str) -> Result<Option<String>> {
+        let previous = self.0.get_clipboard_text()?;
+        self.0.set_clipboard_text(text)?;
+        Ok(previous)
+    }
+
+    fn write_text(&mut self, text: &str) -> Result<()> {
+        self.0.set_clipboard_text(text)
+    }
+}
+
 struct SystemClipboard;
 
 impl ClipboardOps for SystemClipboard {
@@ -93,7 +111,7 @@ fn paste_via_clipboard(control: &Arc<dyn ComputerControl>, text: &str) -> Result
     let mut sleep = |ms: u64| std::thread::sleep(Duration::from_millis(ms));
     let mut paste = || control.hotkey(&[modifier.to_string(), "v".to_string()]);
     paste_with_restore(
-        &mut SystemClipboard,
+        &mut ControlClipboard(control.clone()),
         text,
         restore_delay_ms,
         &mut sleep,

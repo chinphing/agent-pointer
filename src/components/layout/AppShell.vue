@@ -85,6 +85,11 @@ const chat = useChatStore()
 const workspacePanel = useWorkspacePanelStore()
 
 const brandName = resolveBrandName()
+// 开发版标识：vite dev 下为 true，打包后常量折叠为 false（生产零影响）。
+const isDevBuild = import.meta.env.DEV
+if (isDevBuild && typeof document !== 'undefined') {
+  document.title = 'Pointer Dev · AI 工作台'
+}
 const brandIcon = resolveBrandIcon()
 const desktopSnapshotEnabled = resolveDesktopSnapshotEnabled()
 /** Desktop client, platform admin, or standalone admin — gates settings entry and workspace panel. */
@@ -936,6 +941,11 @@ watch(searchQuery, q => {
           <!-- macOS: spacer to push the collapse button right -->
           <div v-else class="flex-1" />
 
+          <span
+            v-if="isDevBuild"
+            class="dev-build-badge shrink-0 rounded-[4px] px-1.5 py-0.5 text-[10px] font-bold leading-none tracking-wider"
+            title="开发版（pnpm tauri:dev）"
+          >DEV</span>
           <button
             type="button"
             class="chrome-icon-btn shrink-0"
@@ -2069,5 +2079,12 @@ button.sidebar-project-conversation {
   .sidebar-search-matches {
     transition: none;
   }
+}
+
+.dev-build-badge {
+  background: #f59e0b;
+  color: #1f1300;
+  border: 1px solid #b45309;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 </style>

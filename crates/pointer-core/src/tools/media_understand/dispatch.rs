@@ -1,19 +1,20 @@
 //! Async execution for `media_understand`.
 
 use crate::chat_service::StreamTx;
+use crate::media::exec::MediaInput;
 use crate::media::audio::{prepare_audio_bytes_for_asr_cached, AudioStorageContext};
 use crate::media::jpeg_vision::prepare_jpeg_for_vision;
 use crate::media::manifest::{attachment_local_abs_path, attachment_ref_uri};
 use crate::media::store::{conversation_media_abs_to_rel, parse_conversation_media_ids};
 use crate::media::token::MediaTokenContext;
 use crate::media::{
-    conversation_user_attachments, describe_image_with_model, describe_images_with_model,
-    describe_pdf_pages_with_model, describe_video_with_model, download_video_from_url,
-    extract_video_frame_base64s_with_range, ffmpeg_available, find_attachment_by_id,
-    find_attachment_by_media_ref, format_image_dir_scope_notice, format_multi_refs_scope_notice,
-    format_pdf_scope_notice, format_video_scope_notice, is_video_file_name,
-    list_image_files_in_dir, prepare_video_bytes_for_range, probe_video_duration,
-    read_media_ref_bytes, resolve_media_ref, transcribe_audio_with_model,
+    clip_video_for_range, conversation_user_attachments, describe_image_with_model,
+    describe_images_with_model, describe_pdf_pages_with_model, describe_video_with_model,
+    download_video_from_url, extract_video_frames_with_range, ffmpeg_available,
+    find_attachment_by_id, find_attachment_by_media_ref, format_image_dir_scope_notice,
+    format_multi_refs_scope_notice, format_pdf_scope_notice, format_video_scope_notice,
+    is_video_file_name, list_image_files_in_dir, probe_video_duration_at, read_media_ref_bytes,
+    resolve_media_ref, transcribe_audio_with_model,
 };
 use crate::mode_llm::resolve_media_understanding_model;
 use crate::models::ModelSettings;
@@ -251,8 +252,9 @@ async fn understand_image_directory(
             .and_then(|n| n.to_str())
             .unwrap_or("image")
             .to_string();
-        let bytes =
-            std::fs::read(&path).with_context(|| format!("read image {}", path.display()))?;
+        let bytes = crate::env::effective_env()
+            .read_file(&path)
+            .with_context(|| format!("read image {}", path.display()))?;
         let (prepared, _mime) = maybe_downscale_image_jpeg(&bytes, &file_name)?;
         images_base64.push(base64::engine::general_purpose::STANDARD.encode(&prepared));
         labels.push(file_name);
@@ -392,10 +394,15 @@ async fn understand_audio(
     .await
 }
 
+/// 单次整段读入的上限：超过就只传路径，交给环境内处理（设计文档 §7.2）。
+const MEDIA_INLINE_READ_MAX_BYTES: u64 = 32 * 1024 * 1024;
+/// 音频要整段送 ASR，上限放宽（IM 入站 30 MB + 转码余量）。
+const AUDIO_INLINE_READ_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
 async fn understand_video(
     settings: &ModelSettings,
     api_key: &str,
-    bytes: Option<&[u8]>,
+    source: Option<&MediaInput>,
     remote_url: Option<&str>,
     file_name: &str,
     goal: &str,
@@ -404,8 +411,8 @@ async fn understand_video(
     cancel: &CancellationToken,
 ) -> Result<String> {
     let video_model = resolve_media_understanding_model(settings, "video");
-    let duration = if let Some(b) = bytes {
-        probe_video_duration(b, file_name).context("probe video duration")?
+    let duration = if let Some(input) = source {
+        probe_video_duration_at(input).context("probe video duration")?
     } else {
         3600.0
     };
@@ -414,57 +421,75 @@ async fn understand_video(
         format_video_scope_notice(&range, duration, frame_count, native, native_via_oss)
     };
 
-    if let Some(url) = remote_url.filter(|s| !s.trim().is_empty()) {
-        log::info!("media_understand video {file_name}: native video_url via OSS remoteUrl");
-        match crate::media::dashscope_video::understand_video_dashscope_url(
-            settings,
-            &video_model,
-            api_key,
-            url,
-            bytes.map(|b| b.len()).unwrap_or(0),
-            "OSS attachment",
-            goal,
-            range.frames_per_second,
-            token_ctx,
-            cancel,
-        )
-        .await
-        {
-            Ok(Some(text)) => {
-                return Ok(prepend_scope_notice(&text, &scope_notice(true, true, 0)));
-            }
-            Ok(None) => {
-                log::info!(
-                    "media_understand video {file_name}: DashScope OSS URL unavailable; fallback"
-                );
-            }
-            Err(e) => {
-                log::warn!(
-                    "media_understand video {file_name}: OSS URL native failed ({e:#}); fallback"
-                );
+    // 小视频走原生 video_url（Base64 data URL）：模型自己按 fps 看全片，不抽帧、质量最好。
+    // 超过 Base64 上限时 `understand_video_dashscope` 返回 Ok(None)，自然落到抽帧路径。
+    if let Some(input) = source {
+        let mime = crate::media::video::video_mime_from_file_name(file_name);
+        let raw_limit =
+            crate::media::video::max_raw_bytes_for_native_video_api(mime) as u64;
+        let size = input.len_bytes().unwrap_or(u64::MAX);
+        if size > raw_limit {
+            log::info!(
+                "media_understand video {file_name}: {size} 字节超过原生上限 {raw_limit}，直接抽帧"
+            );
+        } else {
+            let bytes = input.read().context("read video for native data url")?;
+            match crate::media::dashscope_video::understand_video_dashscope(
+                settings,
+                &video_model,
+                api_key,
+                &bytes,
+                mime,
+                goal,
+                range.frames_per_second,
+                token_ctx,
+                cancel,
+            )
+            .await
+            {
+                Ok(Some(text)) => {
+                    return Ok(prepend_scope_notice(&text, &scope_notice(true, false, 0)));
+                }
+                Ok(None) => {
+                    log::info!(
+                        "media_understand video {file_name}: 超过 Base64 上限或非 DashScope 兼容，改抽帧"
+                    );
+                }
+                Err(e) => {
+                    log::warn!(
+                        "media_understand video {file_name}: 原生 video_url 失败 ({e:#})；改抽帧"
+                    );
+                }
             }
         }
     }
 
-    let bytes = if let Some(b) = bytes {
-        b.to_vec()
+    // 大文件只传路径：不把整片搬进宿主内存（设计文档 §7.2）。
+    let downloaded;
+    let input: &MediaInput = if let Some(input) = source {
+        input
     } else if let Some(url) = remote_url {
-        download_video_from_url(url, cancel)
-            .await
-            .context("download video from remoteUrl")?
+        downloaded = MediaInput::from_bytes(
+            &download_video_from_url(url, cancel)
+                .await
+                .context("download video from remoteUrl")?,
+            ".mp4",
+        )?;
+        &downloaded
     } else {
-        anyhow::bail!("video requires remoteUrl or local file bytes");
+        anyhow::bail!("video requires remoteUrl or a readable file path");
     };
 
-    let clip_bytes = prepare_video_bytes_for_range(&bytes, file_name, &range, duration)
+    let clipped = clip_video_for_range(input, file_name, &range, duration)
         .context("prepare video clip")?;
+    let frames_input = clipped.as_ref().unwrap_or(input);
 
     if !ffmpeg_available() {
         anyhow::bail!(
-            "video understanding requires DashScope-compatible provider with OSS URL or ffmpeg"
+            "video understanding requires ffmpeg in the execution environment (no OSS fallback)"
         );
     }
-    let (frames, meta) = extract_video_frame_base64s_with_range(&clip_bytes, file_name, &range)
+    let (frames, meta) = extract_video_frames_with_range(frames_input, file_name, &range)
         .context("extract video frames")?;
     let body = describe_video_with_model(
         settings,
@@ -642,20 +667,44 @@ async fn dispatch_single_ref_media(
     } else {
         resolve_media_ref(media_ref).with_context(|| format!("resolve media ref {media_ref}"))?
     };
-    let bytes = if path.is_file() {
-        Some(
-            read_media_ref_bytes(media_ref)
-                .with_context(|| format!("read media bytes for {media_ref}"))?,
-        )
-    } else {
-        None
-    };
+    let env = crate::env::effective_env();
+    // 只接受普通文件：FIFO / 设备文件会让读取一直卡到超时（Codex 同款补丁）。
+    let mut source: Option<MediaInput> = None;
+    let mut bytes: Option<Vec<u8>> = None;
+    if env.exists(&path) {
+        let meta = env
+            .metadata(&path)
+            .with_context(|| format!("stat media ref {media_ref}"))?;
+        if !meta.is_file {
+            anyhow::bail!("{} 不是普通文件，无法作为媒体输入", path.display());
+        }
+        if meta.len <= MEDIA_INLINE_READ_MAX_BYTES {
+            bytes = Some(
+                env.read_file(&path)
+                    .with_context(|| format!("read media bytes for {media_ref}"))?,
+            );
+        } else {
+            log::info!(
+                "media_understand: {} 有 {} 字节，走路径模式（不读入宿主内存）",
+                path.display(),
+                meta.len
+            );
+        }
+        source = Some(MediaInput::existing(path.clone()));
+    }
 
     match mode {
         "audio" => {
-            let bytes = bytes
-                .as_deref()
-                .ok_or_else(|| anyhow!("audio ref must be a file"))?;
+            let owned;
+            let bytes = match bytes.as_deref() {
+                Some(b) => b,
+                None => {
+                    owned = env
+                        .read_file_capped(&path, AUDIO_INLINE_READ_MAX_BYTES)
+                        .with_context(|| format!("read audio bytes for {media_ref}"))?;
+                    &owned
+                }
+            };
             if attachment.as_ref().is_some_and(|a| a.kind == "video")
                 || is_video_file_name(&file_name)
             {
@@ -676,13 +725,13 @@ async fn dispatch_single_ref_media(
             .await
         }
         "video" => {
-            if bytes.is_none() && remote_url.is_none() {
+            if source.is_none() && remote_url.is_none() {
                 anyhow::bail!("video ref has no local file or remoteUrl");
             }
             understand_video(
                 ctx.settings,
                 api_key,
-                bytes.as_deref(),
+                source.as_ref(),
                 remote_url,
                 &file_name,
                 goal_block,
@@ -693,9 +742,16 @@ async fn dispatch_single_ref_media(
             .await
         }
         "pdf" => {
-            let bytes = bytes
-                .as_deref()
-                .ok_or_else(|| anyhow!("pdf ref must be a file"))?;
+            let owned;
+            let bytes = match bytes.as_deref() {
+                Some(b) => b,
+                None => {
+                    owned = env
+                        .read_file_capped(&path, MEDIA_INLINE_READ_MAX_BYTES)
+                        .with_context(|| format!("read pdf bytes for {media_ref}"))?;
+                    &owned
+                }
+            };
             understand_pdf(
                 ctx.settings,
                 api_key,

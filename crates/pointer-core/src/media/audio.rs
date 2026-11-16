@@ -1,8 +1,6 @@
 //! Normalize IM / channel audio (e.g. Feishu `.bin`) for speech-to-text APIs.
 
 use anyhow::{Context, Result};
-use std::io::Write;
-use std::process::Command;
 
 use super::video::is_video_file_name;
 
@@ -95,54 +93,39 @@ fn video_input_suffix(file_name: &str) -> &'static str {
 /// Extract the audio track from a video file to 16 kHz mono WAV for ASR.
 pub fn extract_audio_from_video_to_wav(bytes: &[u8], file_name: &str) -> Result<Vec<u8>> {
     let ffmpeg = crate::media::ffmpeg::resolve_ffmpeg().context("ffmpeg not found")?;
+    let program = ffmpeg.to_string_lossy().into_owned();
     let suffix = video_input_suffix(file_name);
-    let mut input = tempfile::Builder::new()
-        .prefix("pointer-vid-aud-")
-        .suffix(suffix)
-        .tempfile()
-        .context("video audio temp input")?;
-    input.write_all(bytes).context("write video temp input")?;
-    let input_path = input.path();
+    let input = crate::media::exec::StagedFile::write(bytes, suffix)?;
+    let output = crate::media::exec::StagedFile::empty(".wav")?;
+    let args: Vec<String> = [
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "error",
+        "-i",
+        input.arg(),
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-y",
+        output.arg(),
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
 
-    let output = tempfile::Builder::new()
-        .suffix(".wav")
-        .tempfile()
-        .context("video audio temp output")?;
-    let out_path = output.path();
-
-    let output = Command::new(&ffmpeg)
-        .args([
-            "-hide_banner",
-            "-nostdin",
-            "-loglevel",
-            "error",
-            "-i",
-            input_path.to_str().unwrap_or_default(),
-            "-vn",
-            "-ac",
-            "1",
-            "-ar",
-            "16000",
-            "-y",
-            out_path.to_str().unwrap_or_default(),
-        ])
-        .output()
-        .context("ffmpeg extract video audio")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let detail = stderr.trim();
+    let out = crate::media::exec::run(&program, &args)?;
+    if !out.success() {
+        let detail = out.stderr_str().trim().to_string();
         anyhow::bail!(
             "ffmpeg extract audio from video failed for {file_name}: {}",
-            if detail.is_empty() {
-                "no stderr"
-            } else {
-                detail
-            }
+            if detail.is_empty() { "no stderr".to_string() } else { detail }
         );
     }
 
-    let wav = std::fs::read(out_path).context("read extracted video audio wav")?;
+    let wav = output.read().context("read extracted video audio wav")?;
     if wav.is_empty() {
         anyhow::bail!("ffmpeg produced empty wav from video {file_name}");
     }
@@ -151,53 +134,38 @@ pub fn extract_audio_from_video_to_wav(bytes: &[u8], file_name: &str) -> Result<
 
 pub fn transcode_audio_to_wav(bytes: &[u8], file_name: &str) -> Result<Vec<u8>> {
     let ffmpeg = crate::media::ffmpeg::resolve_ffmpeg().context("ffmpeg not found")?;
+    let program = ffmpeg.to_string_lossy().into_owned();
     let suffix = audio_input_suffix(file_name);
-    let mut input = tempfile::Builder::new()
-        .prefix("pointer-aud-")
-        .suffix(suffix)
-        .tempfile()
-        .context("audio temp input")?;
-    input.write_all(bytes).context("write audio temp input")?;
-    let input_path = input.path();
+    let input = crate::media::exec::StagedFile::write(bytes, suffix)?;
+    let output = crate::media::exec::StagedFile::empty(".wav")?;
+    let args: Vec<String> = [
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "error",
+        "-i",
+        input.arg(),
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-y",
+        output.arg(),
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
 
-    let output = tempfile::Builder::new()
-        .suffix(".wav")
-        .tempfile()
-        .context("audio temp output")?;
-    let out_path = output.path();
-
-    let output = Command::new(&ffmpeg)
-        .args([
-            "-hide_banner",
-            "-nostdin",
-            "-loglevel",
-            "error",
-            "-i",
-            input_path.to_str().unwrap_or_default(),
-            "-ac",
-            "1",
-            "-ar",
-            "16000",
-            "-y",
-            out_path.to_str().unwrap_or_default(),
-        ])
-        .output()
-        .context("ffmpeg audio transcode")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let detail = stderr.trim();
+    let out = crate::media::exec::run(&program, &args)?;
+    if !out.success() {
+        let detail = out.stderr_str().trim().to_string();
         anyhow::bail!(
             "ffmpeg audio transcode failed for {file_name}: {}",
-            if detail.is_empty() {
-                "no stderr"
-            } else {
-                detail
-            }
+            if detail.is_empty() { "no stderr".to_string() } else { detail }
         );
     }
 
-    let wav = std::fs::read(out_path).context("read transcoded wav")?;
+    let wav = output.read().context("read transcoded wav")?;
     if wav.is_empty() {
         anyhow::bail!("ffmpeg produced empty wav for {file_name}");
     }

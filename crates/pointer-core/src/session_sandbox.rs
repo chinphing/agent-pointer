@@ -16,7 +16,7 @@ pub const ANONYMOUS_SEGMENT: &str = "_anonymous";
 pub struct SessionSandbox;
 
 impl SessionSandbox {
-    fn sandboxes_base() -> Result<PathBuf> {
+    pub(crate) fn sandboxes_base() -> Result<PathBuf> {
         Ok(crate::storage::app_data_dir()?.join(SANDBOXES_DIR))
     }
 

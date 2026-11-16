@@ -134,6 +134,14 @@ pub struct ComputerState {
     sessions: Arc<RwLock<HashMap<String, Arc<Mutex<ComputerSession>>>>>,
 }
 
+/// 容器桌面的一帧。
+pub struct ContainerFrame {
+    pub jpeg: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub pointer: (i32, i32),
+}
+
 impl ComputerState {
     /// Merge agent manifest tier config with persisted user settings.
     pub fn effective_pipeline_config(&self) -> ComputerModelConfig {
@@ -486,6 +494,23 @@ impl ComputerState {
         })
     }
 
+    /// 容器桌面的一帧：截图 + 虚拟屏尺寸 + 指针位置。
+    pub fn capture_container_frame(
+        env: std::sync::Arc<dyn crate::env::Environment>,
+    ) -> anyhow::Result<ContainerFrame> {
+        use crate::agents::computer::control::{ComputerControl, DockerControl};
+        let control = DockerControl::new(env);
+        let (width, height) = control.screen_size()?;
+        let jpeg = control.screenshot()?;
+        let pointer = control.cursor_position().unwrap_or((0, 0));
+        Ok(ContainerFrame {
+            jpeg,
+            width,
+            height,
+            pointer,
+        })
+    }
+
     /// Capture the display under the cursor, call the annotation service, and refresh state for this session.
     ///
     /// Returns the capture result and an optional refreshed monitor id when a stale selection was recovered.
@@ -494,6 +519,42 @@ impl ComputerState {
         conversation_id: &str,
     ) -> anyhow::Result<(ScreenCaptureResult, Option<String>)> {
         let t_total = Instant::now();
+
+        // 容器档位：截图必须来自容器桌面。
+        // 宿主截图 + 容器点击 = 模型看的是你的 Mac、点的是沙箱，坐标能对上但内容对不上。
+        let env = crate::env::session_env::env_for_conversation(conversation_id)
+            .unwrap_or_else(crate::env::effective_env);
+        if env.kind() == crate::env::EnvKind::Container {
+            use crate::agents::computer::control::{ComputerControl, DockerControl};
+            // 容器只有一个虚拟屏：清掉宿主显示器选择。
+            // 不清的话 `ensure_pipeline_capture` 会拿 "1" 和 "container:desktop" 比对，
+            // 每轮都判成"选中的屏变了"，缓存永远不命中、每轮白重抓一次。
+            self.set_conversation_monitor(conversation_id, None);
+            let t = Instant::now();
+            let control = DockerControl::new(env);
+            let (width, height) = control.screen_size()?;
+            let jpeg = control.screenshot()?;
+            let pointer = control.cursor_position().unwrap_or((0, 0));
+            let out = self
+                .apply_screen_capture(
+                    conversation_id,
+                    &jpeg,
+                    screen::MonitorInfo::new(0, 0, width as i32, height as i32),
+                    "container:desktop",
+                    (width, height),
+                    pointer,
+                    None,
+                )
+                .await?;
+            log::info!(
+                "capture_screen: 容器桌面 {}x{} jpeg={} ({:.1}ms)",
+                width,
+                height,
+                screen::format_data_size_bytes(jpeg.len()),
+                t.elapsed().as_secs_f64() * 1000.0
+            );
+            return Ok((out, None));
+        }
 
         let t = Instant::now();
         let monitor_id = self.selected_monitor_id_for_conversation(conversation_id);

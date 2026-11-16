@@ -120,7 +120,7 @@ describe('WorkspacePanel refresh behavior', () => {
     })
     changesTab!.click()
     await settle()
-    expect(apiMocks.getWorkspaceGitStatus).toHaveBeenCalledWith('/workspace')
+    expect(apiMocks.getWorkspaceGitStatus).toHaveBeenCalledWith('/workspace', undefined)
     expect(host.textContent).toContain('2')
 
     apiMocks.getWorkspaceGitStatus.mockClear()
@@ -142,7 +142,7 @@ describe('WorkspacePanel refresh behavior', () => {
       vi.advanceTimersByTime(1_600)
       window.dispatchEvent(new Event('focus'))
       await settle()
-      expect(apiMocks.getWorkspaceGitStatus).toHaveBeenCalledWith('/workspace')
+      expect(apiMocks.getWorkspaceGitStatus).toHaveBeenCalledWith('/workspace', undefined)
     } finally {
       vi.useRealTimers()
     }
@@ -180,8 +180,8 @@ describe('WorkspacePanel refresh behavior', () => {
     await nextTick()
     await settle()
 
-    expect(apiMocks.listWorkspaceDirectory).toHaveBeenCalledWith('/workspace')
-    expect(apiMocks.getWorkspaceGitStatus).toHaveBeenCalledWith('/workspace')
+    expect(apiMocks.listWorkspaceDirectory).toHaveBeenCalledWith('/workspace', undefined, 'conversation-1')
+    expect(apiMocks.getWorkspaceGitStatus).toHaveBeenCalledWith('/workspace', 'conversation-1')
   })
 })
 
@@ -223,7 +223,7 @@ describe('WorkspacePanel Markdown references', () => {
     await settle()
 
     expect(apiMocks.readWorkspaceFile)
-      .toHaveBeenLastCalledWith('/workspace', 'docs/user/getting-started.md')
+      .toHaveBeenLastCalledWith('/workspace', 'docs/user/getting-started.md', undefined)
     expect(host.textContent).toContain('Getting started')
   })
 
@@ -252,7 +252,7 @@ describe('WorkspacePanel Markdown references', () => {
     await settle()
 
     expect(apiMocks.readWorkspaceFile)
-      .toHaveBeenLastCalledWith('/workspace', 'docs/missing.md')
+      .toHaveBeenLastCalledWith('/workspace', 'docs/missing.md', undefined)
     expect(host.querySelectorAll('.workspace-preview-tab')).toHaveLength(1)
     expect(host.querySelector('.workspace-preview-tab.is-active')?.textContent).toContain('README.md')
     expect(warn).toHaveBeenCalledWith(

@@ -8,7 +8,7 @@ use std::path::Path;
 
 use super::exec::CapturedOutput;
 
-pub fn parse_cargo_compiler_messages(lines: &[String], source: &str) -> Vec<Value> {
+pub fn parse_cargo_compiler_messages(lines: &[String], cwd: &Path, source: &str) -> Vec<Value> {
     let mut out = Vec::new();
     for line in lines {
         let Ok(v) = serde_json::from_str::<Value>(line) else {
@@ -20,14 +20,25 @@ pub fn parse_cargo_compiler_messages(lines: &[String], source: &str) -> Vec<Valu
         let Some(msg) = v.get("message") else {
             continue;
         };
-        if let Some(d) = compiler_message_to_diagnostic(msg, source) {
+        if let Some(d) = compiler_message_to_diagnostic(msg, cwd, source) {
             out.push(d);
         }
     }
     out
 }
 
-fn compiler_message_to_diagnostic(msg: &Value, source: &str) -> Option<Value> {
+/// cargo/rustc 的 `spans[].file_name` 是**相对 linter cwd** 的路径（`src/lib.rs`）。
+/// 必须在这里拼成绝对路径，否则下游 `push_filtered_batch` 会拿当前进程 cwd 去
+/// `canonicalize`，解析不到工作区就把诊断丢掉，最终把告警误报成 `clean`。
+fn resolve_diag_path(file: &str, cwd: &Path) -> String {
+    let p = Path::new(file);
+    if p.is_absolute() {
+        return file.to_string();
+    }
+    cwd.join(p).to_string_lossy().into_owned()
+}
+
+fn compiler_message_to_diagnostic(msg: &Value, cwd: &Path, source: &str) -> Option<Value> {
     let level = msg.get("level")?.as_str()?;
     let short = msg.get("message").and_then(|m| m.as_str()).unwrap_or("");
     let rendered = msg
@@ -54,7 +65,7 @@ fn compiler_message_to_diagnostic(msg: &Value, source: &str) -> Option<Value> {
     Some(json!({
         "severity": level,
         "message": rendered,
-        "path": file,
+        "path": resolve_diag_path(file, cwd),
         "line": line,
         "column": col,
         "code": code,

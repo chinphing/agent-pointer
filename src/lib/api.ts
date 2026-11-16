@@ -208,19 +208,38 @@ export interface RuntimeApi {
   ): Promise<void>
   /** Cancel background jobs by id; omit jobIds = all in conversation. Does not stop the lead turn. */
   cancelBackgroundJobs(conversationId: string, jobIds?: string[]): Promise<string[]>
-  listWorkspaceDirectory(workspaceRoot: string, relativePath?: string): Promise<WorkspaceEntry[]>
+  listWorkspaceDirectory(
+    workspaceRoot: string,
+    relativePath?: string,
+    conversationId?: string
+  ): Promise<WorkspaceEntry[]>
   searchWorkspaceEntries(
     workspaceRoot: string,
     query: string,
-    limit?: number
+    limit?: number,
+    conversationId?: string
   ): Promise<WorkspaceEntry[]>
-  readWorkspaceFile(workspaceRoot: string, relativePath: string): Promise<WorkspaceFilePreview>
-  deleteWorkspacePath(workspaceRoot: string, relativePath: string): Promise<void>
-  getWorkspaceGitStatus(workspaceRoot: string): Promise<GitStatusResponse>
+  readWorkspaceFile(
+    workspaceRoot: string,
+    relativePath: string,
+    conversationId?: string
+  ): Promise<WorkspaceFilePreview>
+  deleteWorkspacePath(
+    workspaceRoot: string,
+    relativePath: string,
+    conversationId?: string
+  ): Promise<void>
+  getSandboxDesktop(
+    workspaceRoot: string,
+    conversationId?: string
+  ): Promise<{ url: string; password: string | null } | null>
+  openSandboxDesktop(workspaceRoot: string, conversationId?: string): Promise<string | null>
+  getWorkspaceGitStatus(workspaceRoot: string, conversationId?: string): Promise<GitStatusResponse>
   getWorkspaceGitDiff(
     workspaceRoot: string,
     relativePath: string,
-    status?: string
+    status?: string,
+    conversationId?: string
   ): Promise<GitDiff>
   getTurnFileDiff(
     conversationId: string,
@@ -390,6 +409,8 @@ export const listWorkspaceDirectory = api.listWorkspaceDirectory
 export const searchWorkspaceEntries = api.searchWorkspaceEntries
 export const readWorkspaceFile = api.readWorkspaceFile
 export const deleteWorkspacePath = api.deleteWorkspacePath
+export const getSandboxDesktop = api.getSandboxDesktop
+export const openSandboxDesktop = api.openSandboxDesktop
 export const getWorkspaceGitStatus = api.getWorkspaceGitStatus
 export const getWorkspaceGitDiff = api.getWorkspaceGitDiff
 export const getTurnFileDiff = api.getTurnFileDiff

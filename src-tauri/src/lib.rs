@@ -223,6 +223,9 @@ pub fn run() {
     pointer_core::logging::init_backtrace_defaults();
     pointer_core::tls::ensure_rustls_crypto_provider();
 
+    // 上次异常退出可能留下已停止的沙箱容器；只清 `status=exited` 的，不动在跑的。
+    std::thread::spawn(|| pointer_core::env::session_env::cleanup_docker_orphans());
+
     // 发布版默认不含 `pointer_core::provider=debug`；调试模式或 dev 构建见 `logging::default_runtime_log_filter`。
     let default_log_filter = pointer_core::logging::default_runtime_log_filter();
     let log_dir = pointer_core::logging::desktop_log_dir();
@@ -486,6 +489,8 @@ pub fn run() {
             commands::delete_workspace_path,
             commands::worktree_create,
             commands::worktree_inspect,
+            commands::get_sandbox_desktop,
+            commands::open_sandbox_desktop,
             commands::get_workspace_git_status,
             commands::get_workspace_git_diff,
             commands::get_turn_file_diff,
@@ -543,9 +548,6 @@ pub fn run() {
             commands::reveal_in_finder,
             commands::open_path_with_default_app,
             commands::open_chat_media,
-            commands::get_media_oss_upload_status,
-            commands::upload_composer_video_to_oss,
-            commands::upload_composer_video_bytes_to_oss,
             commands::read_local_file_for_attachment,
             commands::get_local_file_size,
             commands::list_computer_monitors,

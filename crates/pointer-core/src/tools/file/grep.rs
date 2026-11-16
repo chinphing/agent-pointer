@@ -4,15 +4,14 @@ use super::path::{
 };
 use super::{json_str, json_u64_opt_keys};
 use super::{FileToolLimits, CONTEXT_LINES, MAX_GREP_FILE_BYTES, MAX_WALK_DEPTH};
+use crate::env::{effective_env, Environment, WalkOptions};
 use crate::text_util::truncate_bytes;
 use anyhow::{anyhow, Result};
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{
     BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkFinish, SinkMatch,
 };
-use ignore::WalkBuilder;
 use log::{info, warn};
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -145,6 +144,7 @@ impl Sink for GrepJsonSink<'_> {
 }
 
 fn grep_one_path_with_searcher(
+    env: &dyn Environment,
     searcher: &mut Searcher,
     matcher: &grep_regex::RegexMatcher,
     file_path: &Path,
@@ -161,20 +161,24 @@ fn grep_one_path_with_searcher(
     if should_skip_grep(file_path) {
         return Ok(());
     }
-    let meta = match fs::metadata(file_path) {
-        Ok(m) => m,
-        Err(_) => return Ok(()),
+    let meta = match env.metadata(file_path) {
+        Ok(m) if m.is_file => m,
+        _ => return Ok(()),
     };
-    if meta.len() > MAX_GREP_FILE_BYTES as u64 {
+    if meta.len > MAX_GREP_FILE_BYTES as u64 {
         *skipped_large += 1;
         warn!(
             "file_grep: skip oversized file bytes={} cap={} path={}",
-            meta.len(),
+            meta.len,
             MAX_GREP_FILE_BYTES,
             file_path.display()
         );
         return Ok(());
     }
+    let reader = match env.open_reader(file_path) {
+        Ok(r) => r,
+        Err(_) => return Ok(()),
+    };
     let path_abs = path_display_abs(file_path);
     let mut sink = GrepJsonSink {
         path_abs,
@@ -189,7 +193,7 @@ fn grep_one_path_with_searcher(
         pending_match_text: None,
     };
     searcher
-        .search_path(matcher, file_path, &mut sink)
+        .search_reader(matcher, reader, &mut sink)
         .map_err(|e| anyhow!("grep 搜索失败: {e}"))
 }
 
@@ -359,9 +363,11 @@ pub(crate) fn execute_file_grep_payload_with(
         GrepScope::SingleFile { file } => (path_display_abs(file), true),
     };
 
+    let env = effective_env();
     match scope {
         GrepScope::SingleFile { file } => {
             grep_one_path_with_searcher(
+                env.as_ref(),
                 &mut searcher,
                 &matcher,
                 &file,
@@ -374,26 +380,24 @@ pub(crate) fn execute_file_grep_payload_with(
             )?;
         }
         GrepScope::Walk { start, max_depth } => {
-            let mut walk = WalkBuilder::new(&start);
-            walk.git_ignore(true);
-            walk.hidden(!include_hidden);
-            walk.max_depth(Some(max_depth));
-            walk.filter_entry(|e| !should_skip_grep(e.path()));
-            for entry in walk.build() {
+            // 一次批量遍历（环境内部实现）：local 走进程内 walker，
+            // 远端 provider 可换成一条 `rg --files` 之类的 exec。
+            let walked = env
+                .walk(
+                    &start,
+                    WalkOptions::new(max_depth)
+                        .with_hidden(include_hidden)
+                        .with_gitignore(true),
+                )
+                .map_err(|e| anyhow!("grep 遍历失败: {e}"))?;
+            for entry in walked {
                 if output_capped || results.len() >= max_results {
                     break;
                 }
-                let entry = match entry {
-                    Ok(e) => e,
-                    Err(err) => {
-                        warn!("file:grep walk: {err}");
-                        continue;
-                    }
-                };
-                if !entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
+                if entry.is_dir {
                     continue;
                 }
-                let p = entry.path();
+                let p = entry.path;
                 // Apply glob filters
                 if let Ok(rel) = p.strip_prefix(&start) {
                     if let Some(ref set) = exclude_set {
@@ -408,9 +412,10 @@ pub(crate) fn execute_file_grep_payload_with(
                     }
                 }
                 grep_one_path_with_searcher(
+                    env.as_ref(),
                     &mut searcher,
                     &matcher,
-                    p,
+                    &p,
                     &mut results,
                     max_results,
                     &mut output_bytes,

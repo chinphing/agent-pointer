@@ -5,10 +5,10 @@
 
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use portable_pty::PtySize;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -36,9 +36,8 @@ pub struct ConsoleSessionInfo {
 
 struct ConsoleSession {
     info: ConsoleSessionInfo,
-    child: Mutex<Box<dyn portable_pty::Child + Send + Sync>>,
-    master: Mutex<Box<dyn MasterPty + Send>>,
-    writer: Mutex<Box<dyn Write + Send>>,
+    /// 交互式终端句柄：宿主走 portable_pty，沙箱走 envd 的 pty，上层无感。
+    pty: Box<dyn crate::env::PtyHandle>,
 }
 
 impl ConsoleSession {
@@ -72,9 +71,23 @@ impl ConsoleSessionManager {
         cols: u16,
         rows: u16,
     ) -> Result<ConsoleSessionInfo> {
-        let workspace_root = normalize_directory(workspace_root, "工作区目录")?;
+        // 执行环境按会话解析：沙箱会话的终端开在沙箱里，不是宿主。
+        // 注意不能只查缓存——应用刚重启、或这个会话还没跑过对话时缓存是空的，
+        // 那时 `effective_env()` 会返回「拒绝执行」环境，终端就会误报"不支持交互式终端"。
+        let env = crate::env::session_env::env_for_conversation(conversation_id)
+            .or_else(|| {
+                crate::env::session_env::resolve_session_env_for_current(
+                    conversation_id,
+                    "",
+                    Some(std::path::Path::new(workspace_root)),
+                )
+                .ok()
+                .flatten()
+            })
+            .unwrap_or_else(crate::env::effective_env);
+        let workspace_root = normalize_directory_in(env.as_ref(), workspace_root, "工作区目录")?;
         let cwd = match cwd.map(str::trim).filter(|value| !value.is_empty()) {
-            Some(value) => normalize_directory(value, "终端目录")?,
+            Some(value) => normalize_directory_in(env.as_ref(), value, "终端目录")?,
             None => workspace_root.clone(),
         };
         let info = ConsoleSessionInfo {
@@ -84,7 +97,7 @@ impl ConsoleSessionManager {
             label: directory_label(&cwd),
             cwd,
         };
-        let session = Arc::new(spawn_console_session(info, cols, rows)?);
+        let session = Arc::new(spawn_console_session(env, info, cols, rows)?);
         let response = session.info.clone();
         self.sessions
             .lock()
@@ -95,23 +108,20 @@ impl ConsoleSessionManager {
 
     pub fn write(&self, session_id: &str, data: &str) -> Result<()> {
         let session = self.session(session_id)?;
-        let mut writer = session.writer.lock();
-        writer.write_all(data.as_bytes())?;
-        writer.flush()?;
-        Ok(())
+        session.pty.write(data.as_bytes())
     }
 
     pub fn resize(&self, session_id: &str, cols: u16, rows: u16) -> Result<()> {
         let session = self.session(session_id)?;
-        session.master.lock().resize(normalize_size(cols, rows))?;
-        Ok(())
+        let size = normalize_size(cols, rows);
+        session.pty.resize(size.cols, size.rows)
     }
 
     pub fn close(&self, session_id: &str) -> bool {
         let Some(session) = self.sessions.lock().remove(session_id) else {
             return false;
         };
-        if let Err(error) = session.child.lock().kill() {
+        if let Err(error) = session.pty.kill() {
             log::warn!("console: failed to stop session {session_id}: {error}");
         }
         publish_global_stream(StreamEvent::ConsoleSessionExited {
@@ -143,7 +153,7 @@ impl Drop for ConsoleSessionManager {
     fn drop(&mut self) {
         let sessions = self.sessions.get_mut();
         for session in sessions.values() {
-            if let Err(error) = session.child.lock().kill() {
+            if let Err(error) = session.pty.kill() {
                 log::debug!("console: failed to stop session during cleanup: {error}");
             }
         }
@@ -167,6 +177,31 @@ fn normalize_directory(input: &str, description: &str) -> Result<String> {
     #[cfg(windows)]
     let canonical = canonical.trim_start_matches(r"\\?\").to_string();
     Ok(canonical)
+}
+
+/// 环境感知的目录校验：宿主用 `is_dir` + canonicalize，沙箱用 env.metadata。
+///
+/// 沙箱会话里前端传的仍是宿主工作区路径，在沙箱里不存在——这种情况下退回
+/// 环境工作区根（`/workspace`），而不是报错或静默去开宿主目录。
+fn normalize_directory_in(
+    env: &dyn crate::env::Environment,
+    input: &str,
+    description: &str,
+) -> Result<String> {
+    if env.kind() == crate::env::EnvKind::Local {
+        return normalize_directory(input, description);
+    }
+    let guest_root = env.workspace_root().display().to_string();
+    let value = input.trim();
+    if value.is_empty() {
+        return Ok(guest_root);
+    }
+    let path = Path::new(value);
+    // 已经是沙箱内路径（存在）→ 直接用；否则（宿主路径 / 空）→ 用工作区根。
+    match env.metadata(path) {
+        Ok(meta) if meta.is_dir => Ok(value.to_string()),
+        _ => Ok(guest_root),
+    }
 }
 
 fn directory_label(cwd: &str) -> String {
@@ -195,53 +230,56 @@ fn normalize_size(cols: u16, rows: u16) -> PtySize {
     }
 }
 
-fn shell_command_builder() -> CommandBuilder {
+fn spawn_console_session(
+    env: Arc<dyn crate::env::Environment>,
+    info: ConsoleSessionInfo,
+    cols: u16,
+    rows: u16,
+) -> Result<ConsoleSession> {
+    let size = normalize_size(cols, rows);
+    let mut spec = crate::env::PtySpec::new(shell_argv(env.as_ref()));
+    spec.cwd = Some(PathBuf::from(&info.cwd));
+    spec.cols = size.cols;
+    spec.rows = size.rows;
+    // 宿主沿用用户环境；沙箱只带最小可用集合，避免把宿主 PATH 带进去。
+    if env.kind() == crate::env::EnvKind::Local {
+        spec.env = crate::dotenv::build_terminal_child_environment(&[])
+            .into_iter()
+            .collect();
+    }
+    spec.env.push(("TERM".to_string(), "xterm-256color".to_string()));
+    if env.kind() != crate::env::EnvKind::Local {
+        spec.env.push(("LANG".to_string(), "C.UTF-8".to_string()));
+    }
+    let pty = env.pty_open(spec)?;
+    Ok(ConsoleSession { info, pty })
+}
+
+/// 交互式 shell：宿主按用户 `$SHELL`，沙箱固定 bash（镜像里一定有）。
+fn shell_argv(env: &dyn crate::env::Environment) -> Vec<String> {
+    if env.kind() != crate::env::EnvKind::Local {
+        return vec!["/bin/bash".to_string(), "-l".to_string()];
+    }
     #[cfg(unix)]
     {
         let shell = std::env::var("SHELL")
             .ok()
             .filter(|value| Path::new(value).is_file())
             .unwrap_or_else(|| "sh".to_string());
-        let mut builder = CommandBuilder::new(shell);
-        builder.arg("-l");
-        builder
+        vec![shell, "-l".to_string()]
     }
     #[cfg(windows)]
     {
-        let mut builder = CommandBuilder::new("powershell");
-        builder.arg("-NoLogo");
-        builder
+        vec!["powershell".to_string(), "-NoLogo".to_string()]
     }
-}
-
-fn spawn_console_session(info: ConsoleSessionInfo, cols: u16, rows: u16) -> Result<ConsoleSession> {
-    let pty_system = native_pty_system();
-    let pair = pty_system.openpty(normalize_size(cols, rows))?;
-    let mut builder = shell_command_builder();
-    builder.cwd(PathBuf::from(&info.cwd));
-    for (key, value) in crate::dotenv::build_terminal_child_environment(&[]) {
-        builder.env(key, value);
-    }
-    builder.env("TERM", "xterm-256color");
-
-    let child = pair.slave.spawn_command(builder)?;
-    drop(pair.slave);
-    let writer = pair.master.take_writer()?;
-    Ok(ConsoleSession {
-        info,
-        child: Mutex::new(child),
-        master: Mutex::new(pair.master),
-        writer: Mutex::new(writer),
-    })
 }
 
 fn write_pty_replies(session: &ConsoleSession, replies: &[Vec<u8>]) {
     if replies.is_empty() {
         return;
     }
-    let mut writer = session.writer.lock();
     for reply in replies {
-        if let Err(error) = writer.write_all(reply) {
+        if let Err(error) = session.pty.write(reply) {
             log::warn!(
                 "console: failed to write term-query reply session={}: {error}",
                 session.info.id
@@ -249,19 +287,12 @@ fn write_pty_replies(session: &ConsoleSession, replies: &[Vec<u8>]) {
             return;
         }
     }
-    if let Err(error) = writer.flush() {
-        log::warn!(
-            "console: failed to flush term-query reply session={}: {error}",
-            session.info.id
-        );
-    }
 }
 
 fn spawn_output_reader(session: Arc<ConsoleSession>) {
     std::thread::spawn(move || {
-        let reader = session.master.lock().try_clone_reader();
-        let Ok(mut reader) = reader else {
-            log::warn!("console: failed to clone PTY reader");
+        let Ok(mut reader) = session.pty.take_reader() else {
+            log::warn!("console: failed to take PTY reader");
             return;
         };
         // Answer OSC/DA/CPR beside the PTY so replies never round-trip through xterm.js.
@@ -298,12 +329,8 @@ fn spawn_output_reader(session: Arc<ConsoleSession>) {
         }
         let tail = crate::windows_shell_encoding::decode_utf8_finish(&mut carry);
         session.emit_output(tail);
-        let exit_code = session
-            .child
-            .lock()
-            .wait()
-            .ok()
-            .map(|status| status.exit_code() as i32);
+        // 读完输出即视为会话结束：拿一次退出码（沙箱侧由 end 事件回填）。
+        let exit_code = session.pty.try_wait().ok().flatten();
         publish_global_stream(StreamEvent::ConsoleSessionExited {
             session_id: session.info.id.clone(),
             workspace_root: session.info.workspace_root.clone(),
@@ -319,6 +346,7 @@ mod tests {
     use super::{normalize_directory, spawn_console_session, ConsoleSessionInfo};
     use std::io::{Read, Write};
     use std::path::Path;
+    use std::sync::Arc;
 
     #[cfg(unix)]
     #[test]
@@ -370,34 +398,27 @@ mod tests {
             label: "utf8-test".into(),
             conversation_id: "test-conversation".into(),
         };
-        let session = spawn_console_session(info, 100, 40).expect("spawn shell");
-        let mut reader = session
-            .master
-            .lock()
-            .try_clone_reader()
-            .expect("clone reader");
+        let env: Arc<dyn crate::env::Environment> = Arc::new(crate::env::LocalEnv::new(dir.path()));
+        let session = spawn_console_session(env, info, 100, 40).expect("spawn shell");
+        let mut reader = session.pty.take_reader().expect("take reader");
         let mut sink = String::new();
-        {
-            let mut writer = session.writer.lock();
-            // Drain the initial prompt so the assertion below only matches our echo.
-            let mut buf = [0u8; 4096];
-            for _ in 0..20 {
-                match reader.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(count) => sink.push_str(&String::from_utf8_lossy(&buf[..count])),
-                    Err(_) => break,
-                }
-                if sink.contains('$') || sink.contains('%') || sink.contains('#') {
-                    break;
-                }
-            }
-            writer
-                .write_all("echo 中文往返测试\r".as_bytes())
-                .expect("write utf8");
-            writer.flush().expect("flush writer");
-        }
-        let mut echoed = String::new();
+        // Drain the initial prompt so the assertion below only matches our echo.
         let mut buf = [0u8; 4096];
+        for _ in 0..20 {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(count) => sink.push_str(&String::from_utf8_lossy(&buf[..count])),
+                Err(_) => break,
+            }
+            if sink.contains('$') || sink.contains('%') || sink.contains('#') {
+                break;
+            }
+        }
+        session
+            .pty
+            .write("echo 中文往返测试\r".as_bytes())
+            .expect("write utf8");
+        let mut echoed = String::new();
         for _ in 0..50 {
             match reader.read(&mut buf) {
                 Ok(0) => break,
@@ -413,6 +434,7 @@ mod tests {
             echoed.contains("中文往返测试"),
             "PTY did not echo CJK input; read back: {echoed:?}"
         );
+        let _ = session.pty.kill();
     }
 
     #[test]

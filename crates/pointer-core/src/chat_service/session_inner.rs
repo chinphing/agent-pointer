@@ -323,9 +323,16 @@ pub(super) async fn run_chat_inner(
         &format!("root={effective_workspace}"),
     );
 
-    let _workspace_guard = ConversationWorkspaceGuard::enter(effective_workspace.clone());
+    // 执行环境绑定（§3.4）：light 档位下工作区根是 guest 路径 `/workspace`，
+    // 宿主路径在沙箱里不存在；local 档位原样沿用。
+    let (_env_guard, tool_workspace) = crate::env::session_env::bind_and_resolve_workspace(
+        conversation_id,
+        &session_user_id,
+        std::path::PathBuf::from(&effective_workspace),
+    )?;
+    let _workspace_guard = ConversationWorkspaceGuard::enter(tool_workspace.clone());
     let _work_dir_guard =
-        crate::session_work_dir_env::SessionWorkDirGuard::enter(effective_workspace.clone());
+        crate::session_work_dir_env::SessionWorkDirGuard::enter(tool_workspace.clone());
 
     let _session_user_guard = crate::session_user_env::SessionUserIdGuard::enter(session_user_id);
     // 请求级域名：从 HTTP 边界带过来的 task-local，落成 thread-local 供终端环境注入。

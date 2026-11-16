@@ -2,23 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
-    #[cfg(windows)]
-    {
-        let mut cmd = Command::new(program);
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        return cmd;
-    }
-    #[cfg(not(windows))]
-    Command::new(program)
-}
-
 /// Returns true when both ffmpeg and ffprobe resolve and respond to `-version`.
 pub fn ffmpeg_available() -> bool {
     matches!(probe_ffmpeg_tools().status, FfmpegToolStatus::Ready)
@@ -112,14 +95,19 @@ fn path_display(path: &Path) -> String {
 }
 
 fn tool_responds_to_version(path: &Path) -> bool {
-    hidden_command(path)
-        .arg("-version")
-        .output()
-        .map(|o| o.status.success())
+    // 走 exec：local 用绝对路径，light 用工具名在沙箱里解析。
+    let program = path.to_string_lossy().into_owned();
+    crate::media::exec::run(&program, &["-version".to_string()])
+        .map(|o| o.success())
         .unwrap_or(false)
 }
 
 fn resolve_tool(name: &str) -> Option<PathBuf> {
+    // light/container：媒体工具装在沙箱镜像里，返回名字让 `exec` 走沙箱 PATH；
+    // 在宿主上扫出来的绝对路径在沙箱里并不存在。
+    if crate::env::effective_env().kind() != crate::env::EnvKind::Local {
+        return Some(PathBuf::from(name));
+    }
     for dir in extra_search_dirs() {
         let candidate = dir.join(tool_filename(name));
         if candidate.is_file() {
@@ -163,11 +151,25 @@ fn resolve_via_path_lookup(name: &str) -> Option<PathBuf> {
     }
     #[cfg(not(windows))]
     {
-        let output = Command::new("which").arg(name).output().ok()?;
-        if !output.status.success() {
+        // light/container 档位下 ffmpeg 在沙箱里，必须在环境里探测；
+        // 只有 local 档位才走宿主 `which`。
+        let env = crate::env::effective_env();
+        let (ok, stdout): (bool, Vec<u8>) = if env.kind() == crate::env::EnvKind::Local {
+            let output = Command::new("which").arg(name).output().ok()?;
+            (output.status.success(), output.stdout)
+        } else {
+            let out = env
+                .exec(
+                    &["which".to_string(), name.to_string()],
+                    crate::env::ExecOptions::default(),
+                )
+                .ok()?;
+            (out.status == 0, out.stdout)
+        };
+        if !ok {
             return None;
         }
-        let text = String::from_utf8_lossy(&output.stdout);
+        let text = String::from_utf8_lossy(&stdout);
         let line = text.lines().next()?.trim();
         if line.is_empty() {
             None

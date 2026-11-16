@@ -171,8 +171,17 @@ pub(crate) async fn run_sub_agent(
     let mut length_output_override: Option<u32> = None;
 
     // Set thread-local for this sub-agent's tool calls; restore parent on exit.
-    let _agent_guard =
-        crate::tools::file::AgentWorkspaceGuard::enter(&sub_provider.settings.workspace_root);
+    // 执行环境绑定（§3.4）：light 档位下工作区根是 guest 路径 `/workspace`。
+    let session_user_id = state
+        .session_index
+        .session_user_id(conversation_id)
+        .unwrap_or_default();
+    let (_env_guard, sub_workspace) = crate::env::session_env::bind_and_resolve_workspace(
+        conversation_id,
+        &session_user_id,
+        std::path::PathBuf::from(&sub_provider.settings.workspace_root),
+    )?;
+    let _agent_guard = crate::tools::file::AgentWorkspaceGuard::enter(&sub_workspace);
 
     let is_computer = def.profile == AgentProfile::Computer;
     let work_items_enabled = is_computer;

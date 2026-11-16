@@ -19,7 +19,16 @@ pub(super) fn dispatch_skill_import(
         .get("auto_enable")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
-    let out = state.tools.invoke(tool_id, args_value)?;
+    let session_user_id = state
+        .session_index
+        .session_user_id(conversation_id)
+        .unwrap_or_default();
+    let tool_ctx = crate::tools::context::ToolContext::for_conversation(
+        conversation_id,
+        &session_user_id,
+        std::path::PathBuf::new(),
+    );
+    let out = state.tools.invoke(&tool_ctx, tool_id, args_value)?;
     let result: crate::models::SkillImportResult = serde_json::from_str(&out)
         .map_err(|e| anyhow::anyhow!("skill_import 结果解析失败: {e}"))?;
     let imported_ids: Vec<String> = result.imported.iter().map(|s| s.id.clone()).collect();

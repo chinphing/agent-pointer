@@ -40,9 +40,15 @@ const platformAuth = usePlatformAuthStore()
 const isStandalone = computed(() => platformAuth.isStandalone)
 // 分组只看 source：platform 归「平台服务」，其余（含缺 source、用户 fork）为自定义。
 const isPlatformProvider = (provider: ProviderConfig) => provider.source === 'platform'
-const platformProviders = computed(() =>
-  isStandalone.value ? [] : s.settings.providers.filter(isPlatformProvider)
-)
+const platformProviders = computed(() => {
+  if (isStandalone.value) return []
+  // 用户编辑平台注入项 = fork 到 user 层（同 id）。此时平台那条要被**遮蔽**，
+  // 否则同一个服务商会在列表里出现两次（一条带 key、一条没有）。
+  const userIds = new Set(
+    s.settings.providers.filter(provider => provider.source !== 'platform').map(p => p.id)
+  )
+  return s.settings.providers.filter(p => isPlatformProvider(p) && !userIds.has(p.id))
+})
 const customProviders = computed(() =>
   isStandalone.value
     ? s.settings.providers
@@ -408,14 +414,20 @@ function applyProviderSnapshotToStore(
   reopenEdit = true
 ): boolean {
   const id = snapshot.id.trim()
+  const originalSource = (editingProvider.value?.source ?? 'user') as 'user' | 'platform'
   // 同一 source 内唯一：用户可以有一个和平台同名的服务商（source=user），
   // 但不能和自己已有的同名。
-  const sameSource = (p: ProviderConfig) => (p.source ?? 'platform') === 'user'
+  // 与 `isPlatformProvider`（`source === 'platform'`）保持一致：
+  // 老数据没有 `source` 字段 → 展示上算「自定义」，编辑判定也必须算自定义，
+  // 否则会出现"卡片能点开、保存却报找不到服务商"。
+  const sameSource = (p: ProviderConfig) => (p.source ?? 'user') === 'user'
   if (wasAdd && s.settings.providers.some(p => p.id === id && sameSource(p))) {
     providerSaveError.value = t('settings.msg_0225b7')
     return false
   }
-  if (!wasAdd && !s.settings.providers.some(p => p.id === id && sameSource(p))) {
+  // 编辑保存 = 用户接管：只要这个 id 存在（无论原来来自 platform 还是老数据无 source），
+  // 就更新它；snapshot 已带 `source: 'user'`，等于 fork 到 user 层。
+  if (!wasAdd && !s.settings.providers.some(p => p.id === id)) {
     providerSaveError.value = t('settings.s_1df86f')
     return false
   }
@@ -423,7 +435,8 @@ function applyProviderSnapshotToStore(
   if (wasAdd) {
     s.addProvider(snapshot)
   } else {
-    s.updateProvider(id, snapshot)
+    // 身份是 (source, id)：平台注入项和用户 fork 同 id 并存时，必须更新用户点开的那一条。
+    s.updateProvider(id, snapshot, originalSource)
   }
 
   modelConfigModalId.value = null
@@ -479,10 +492,13 @@ async function saveProvider() {
     // （OAuth / 登录）误存进 user 层。
     // source 标记：编辑项已是 'user'（fork），非编辑的平台注入项标记
     // 'platform'，后端据此过滤不落盘。
+    // 只按 id 判定会把同 id 的平台孪生条目一起标成 user 并落盘，
+    // 下次加载就多出一行（且没有 key）。身份必须是 (source, id)。
+    const isEdited = (p: ProviderConfig) => p.id === snapshot.id && (p.source ?? 'user') === 'user'
     const providersForSave = s.settings.providers.map(p => ({
       ...p,
-      apiKey: p.id === snapshot.id ? p.apiKey : '',
-      source: p.id === snapshot.id ? 'user' : (p.source ?? 'user')
+      apiKey: isEdited(p) ? p.apiKey : '',
+      source: isEdited(p) ? 'user' : (p.source ?? 'user')
     }))
     await s.saveModelService({
       providers: providersForSave,

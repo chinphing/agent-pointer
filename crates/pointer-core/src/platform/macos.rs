@@ -106,7 +106,9 @@ mod tests {
     #[test]
     fn a_panicking_task_becomes_an_error_instead_of_an_abort() {
         let queue = serial_queue("pointer-core.main-thread.panic");
-        let err = run_on_queue(&queue, Duration::from_secs(5), || -> u32 {
+        // 30s：全套 lib 测试并行跑时机器很忙，5s 曾偶发超时
+        // （报 "did not run the task" 而不是 "dropped"），把断言带偏。
+        let err = run_on_queue(&queue, Duration::from_secs(30), || -> u32 {
             panic!("boom")
         })
         .unwrap_err();

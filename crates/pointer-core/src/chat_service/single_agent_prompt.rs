@@ -54,8 +54,11 @@ pub(super) async fn prepare_single_agent_round_prompts(
 
     let t = Instant::now();
     let mut cacheable = Vec::new();
+    // `{{workspace_root}}` 的来源统一走 `env`（未绑定会话环境时等同 settings 值）。
+    let prompt_workspace_root =
+        crate::env::prompt_workspace_root(settings.workspace_root.trim());
     let session_vars = SessionInjectVars {
-        workspace_root: settings.workspace_root.trim(),
+        workspace_root: &prompt_workspace_root,
     };
     let non_computer_prompts = agent_plan.system_prompts.as_slice();
     // Minimal profile (headless / benchmark): one short role prompt + the

@@ -1,9 +1,9 @@
 use super::json_str;
 use super::path::{path_display_abs, resolve_writable_path};
+use crate::env::effective_env;
 use crate::text_diff::compute_diff_lines;
 use anyhow::{anyhow, Result};
 use log::info;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Normalize line breaks to `\n` so `file_read` output (LF-joined) can match CR / CRLF on disk.
@@ -102,17 +102,22 @@ fn file_edit_apply_one(
         return Err(anyhow!("oldString 不能为空"));
     }
     let full = resolve_writable_path(root, path)?;
-    if !full.exists() {
+    let env = effective_env();
+    if !env.exists(&full) {
         return Err(anyhow!("路径不存在: {}", full.display()));
     }
-    let meta = fs::metadata(&full).map_err(|e| anyhow!("读取元数据失败: {e}"))?;
-    if meta.is_dir() {
+    let meta = env
+        .metadata(&full)
+        .map_err(|e| anyhow!("读取元数据失败: {e}"))?;
+    if meta.is_dir {
         return Err(anyhow!("目标是目录而非文件: {}", full.display()));
     }
-    if !meta.is_file() {
+    if !meta.is_file {
         return Err(anyhow!("不是常规文件: {}", full.display()));
     }
-    let text = fs::read_to_string(&full).map_err(|e| anyhow!("读取失败: {e}"))?;
+    let text = env
+        .read_to_string(&full)
+        .map_err(|e| anyhow!("读取失败: {e}"))?;
     if let Err(error) = crate::turn_file_baseline::ensure_baseline(&full, &text) {
         log::warn!(
             "file_edit: turn baseline save failed path={}: {error:#}",
@@ -120,7 +125,8 @@ fn file_edit_apply_one(
         );
     }
     let updated = try_unique_text_replace(&text, old_s, new_s)?;
-    fs::write(&full, updated.as_bytes()).map_err(|e| anyhow!("写入失败: {e}"))?;
+    env.write_file(&full, updated.as_bytes())
+        .map_err(|e| anyhow!("写入失败: {e}"))?;
     Ok((full, text, updated))
 }
 

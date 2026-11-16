@@ -13,9 +13,8 @@
 use crate::plugins::manifest::PluginToolDecl;
 use crate::tools::{ToolEntry, ToolHandler};
 use anyhow::{anyhow, Result};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::Path;
-use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -141,45 +140,43 @@ fn run_sidecar(
         "args": call_args,
     });
 
-    let mut child = Command::new(command_path)
-        .args(args)
-        .envs(env)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+    let mut argv = vec![command_path.to_string_lossy().into_owned()];
+    argv.extend(args.iter().cloned());
+    let opts = crate::env::SpawnOptions {
+        cwd: None,
+        env: env.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+    };
+    let mut child = crate::env::effective_env()
+        .spawn(&argv, opts)
         .map_err(|e| anyhow!("启动插件工具失败 ({}): {e}", command_path.display()))?;
 
-    {
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow!("无法打开插件工具 stdin"))?;
-        stdin
-            .write_all(request.to_string().as_bytes())
-            .map_err(|e| anyhow!("写入插件工具 stdin 失败: {e}"))?;
-        stdin.flush().ok();
-    }
+    child
+        .write_all(request.to_string().as_bytes())
+        .map_err(|e| anyhow!("写入插件工具 stdin 失败: {e}"))?;
+    // 一次性 sidecar：关掉 stdin 让它读到 EOF 后自行退出
+    child
+        .close_stdin()
+        .map_err(|e| anyhow!("关闭插件工具 stdin 失败: {e}"))?;
 
-    // 超时等待：用线程 + channel 实现（std::process::Command 无原生 timeout）。
-    let mut child_owned = child;
+    // 超时等待：线程 + channel（Environment 没有原生 timeout）。
     let (tx, rx) = std::sync::mpsc::channel::<Result<(String, String)>>();
     let waiter = std::thread::spawn(move || {
-        let mut stdout = match child_owned.stdout.take() {
-            Some(s) => s,
-            None => {
-                let _ = tx.send(Err(anyhow!("无法打开插件工具 stdout")));
-                return Ok::<(), anyhow::Error>(());
-            }
-        };
         let mut out = String::new();
-        stdout
-            .read_to_string(&mut out)
-            .map_err(|e| anyhow!("读取插件工具 stdout 失败: {e}"))?;
-        let status = child_owned
+        let read_result = child
+            .reader()
+            .and_then(|mut reader| {
+                reader
+                    .read_to_string(&mut out)
+                    .map_err(|e| anyhow!("读取插件工具 stdout 失败: {e}"))
+            });
+        if let Err(e) = read_result {
+            let _ = tx.send(Err(e));
+            return Ok::<(), anyhow::Error>(());
+        }
+        let code = child
             .wait()
             .map_err(|e| anyhow!("等待插件工具失败: {e}"))?;
-        let _ = tx.send(Ok((out, status.code().unwrap_or(-1).to_string())));
+        let _ = tx.send(Ok((out, code.to_string())));
         Ok::<(), anyhow::Error>(())
     });
 

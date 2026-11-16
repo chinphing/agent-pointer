@@ -1,0 +1,827 @@
+//! DockerEnv：`container` / `light` 档位的**本地 Docker 后端**。
+//!
+//! ## 为什么需要它
+//!
+//! e2b-local 的卷只能是 `~/.e2b-local/volumes/` 下的真实目录，挂不了用户的项目目录
+//! （实测：符号链接被拒 `is not a directory`；`metadata["host-mount"]` 被静默忽略）。
+//! 于是开发环境里 `/workspace` 永远是空卷，`git status` / diff / 文件树都验不了。
+//!
+//! 这里改成和 Hermes / OpenClaw 一样的做法：`docker run -v <项目目录>:/workspace`，
+//! 直接 bind 宿主目录。开发和生产的**语义一致**（隔离、无 GUI），只有实现不同。
+//!
+//! ## 关键设计：文件 IO 不进容器
+//!
+//! `/workspace` 是项目目录的 bind mount，宿主和容器看到同一份文件。所以
+//!
+//! - 文件读写：把 guest 路径按 [`PathMap`] 翻回宿主路径，直接交给 [`LocalEnv`]
+//! - 命令执行：`docker exec`
+//! - 交互终端：宿主 `portable_pty` 包一层 `docker exec -it`（tty 由 `-t` 分配）
+//!
+//! 少一层 `docker cp`，也少一份"容器内外不一致"的坑。
+
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+
+use anyhow::{anyhow, bail, Context, Result};
+
+use super::{
+    Capabilities, ChildHandle, DirEntry, EnvKind, Environment, ExecOptions, ExecOutput,
+    FileMetadata, PathMap, PtyHandle, PtySpec, SpawnOptions, WalkEntry, WalkOptions,
+};
+
+/// 建容器所需的参数。
+#[derive(Debug, Clone)]
+pub struct DockerSpec {
+    /// 容器名（每会话一个，销毁幂等）。
+    pub container: String,
+    /// 镜像（= 沙箱模板）。
+    pub image: String,
+    /// 挂载计划：宿主目录 → guest 路径。
+    pub mounts: Vec<super::pathmap::Mount>,
+    /// 容器内工作目录（通常是 `/workspace`）。
+    pub workdir: PathBuf,
+    /// 档位：决定能力集（Light 无桌面 / Container 有 Xvfb 桌面）。
+    pub tier: super::provider::Tier,
+    /// CPU 上限（`--cpus`）。`None` 用容器默认，即不限。
+    pub cpus: Option<f32>,
+    /// 内存上限 MB（`--memory`）。`None` 用容器默认，即不限。
+    pub memory_mb: Option<u32>,
+    /// 磁盘上限 MB（`--storage-opt size=`）。仅 Linux + overlay2/xfs 生效；
+    /// 其他平台会记一次告警后忽略（见 `disk_limit_supported()`）。
+    pub disk_mb: Option<u32>,
+    /// 桌面 VNC 密码。`None` = 建容器时随机生成（容器档位）。
+    pub vnc_password: Option<String>,
+}
+
+impl Default for DockerSpec {
+    fn default() -> Self {
+        Self {
+            container: String::new(),
+            image: String::new(),
+            mounts: Vec::new(),
+            workdir: PathBuf::from("/workspace"),
+            tier: super::provider::Tier::Light,
+            cpus: None,
+            memory_mb: None,
+            disk_mb: None,
+            vnc_password: None,
+        }
+    }
+}
+
+impl DockerSpec {
+    /// 规格指纹：镜像 + 档位 + 挂载 + 工作目录。
+    ///
+    /// 容器名按会话固定，但规格会变（换镜像、换档位、换项目目录）。
+    /// 复用时必须比对指纹，否则会拿旧镜像的容器继续用——表现为
+    /// "改了配置没生效"。这是 OpenClaw 的 `configHash` 思路。
+    pub fn fingerprint(&self) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        // 契约版本：改了入口脚本、注入的环境变量、挂载语义就 +1。
+        // 不这么做的话，改完配置旧容器会被继续复用，表现为"改了没生效"。
+        SPEC_VERSION.hash(&mut hasher);
+        self.image.hash(&mut hasher);
+        format!("{:?}", self.tier).hash(&mut hasher);
+        self.workdir.hash(&mut hasher);
+        // 配额变了也要重建：旧容器没有 --memory，复用等于配额不生效。
+        self.cpus.map(|v| (v * 1000.0) as u32).hash(&mut hasher);
+        self.memory_mb.hash(&mut hasher);
+        self.disk_mb.hash(&mut hasher);
+        for mount in &self.mounts {
+            mount.host.hash(&mut hasher);
+            mount.guest.hash(&mut hasher);
+            mount.read_only.hash(&mut hasher);
+        }
+        format!("{:016x}", hasher.finish())
+    }
+
+    /// 8 位随机密码（去掉容易看错的 0/O/1/l）。
+    pub fn random_vnc_password() -> String {
+        use rand::Rng;
+        const ALPHABET: &[u8] = b"abcdefghjkmnpqrstuvwxyz23456789";
+        let mut rng = rand::thread_rng();
+        (0..8)
+            .map(|_| ALPHABET[rng.gen_range(0..ALPHABET.len())] as char)
+            .collect()
+    }
+
+    pub fn container_name_for(conversation_id: &str) -> String {
+        let safe: String = conversation_id
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        format!("pointer-sbx-{safe}")
+    }
+}
+
+/// 容器规格版本。**改动容器契约就 +1**：入口脚本、注入的环境变量、挂载语义。
+///
+/// v1 → v2：容器档位增加 VNC 端口映射 + `POINTER_VNC_PASSWORD` 注入。
+const SPEC_VERSION: u32 = 3;
+
+/// 构造 `docker run` 参数。
+///
+/// `include_disk_limit` 单独拿出来，是因为 `--storage-opt size=` 只在
+/// Linux + overlay2/xfs(pquota) 上支持，macOS 会直接报错——调用方需要能重试。
+fn run_args(
+    spec: &DockerSpec,
+    fingerprint: &str,
+    vnc_password: Option<&str>,
+    include_disk_limit: bool,
+) -> Vec<String> {
+    let mut args: Vec<String> = vec![
+        "run".into(),
+        "-d".into(),
+        "--name".into(),
+        spec.container.clone(),
+        "--label".into(),
+        format!("pointer.spec={fingerprint}"),
+    ];
+    for mount in &spec.mounts {
+        let mut bind = format!("{}:{}", mount.host.display(), mount.guest.display());
+        if mount.read_only {
+            bind.push_str(":ro");
+        }
+        args.push("-v".into());
+        args.push(bind);
+    }
+    if spec.tier == super::provider::Tier::Container {
+        // 桌面 VNC 映射到宿主随机端口（只绑 127.0.0.1）。
+        args.push("-p".into());
+        args.push("127.0.0.1::5900".into());
+        if let Some(password) = vnc_password.filter(|p| !p.is_empty()) {
+            args.push("-e".into());
+            args.push(format!("POINTER_VNC_PASSWORD={password}"));
+        }
+    }
+    if let Some(cpus) = spec.cpus {
+        args.push("--cpus".into());
+        args.push(format!("{cpus}"));
+    }
+    if let Some(mb) = spec.memory_mb {
+        args.push("--memory".into());
+        args.push(format!("{mb}m"));
+    }
+    if include_disk_limit {
+        if let Some(mb) = spec.disk_mb {
+            args.push("--storage-opt".into());
+            args.push(format!("size={mb}m"));
+        }
+    }
+    args.push("--workdir".into());
+    args.push(spec.workdir.display().to_string());
+    args.push(spec.image.clone());
+    args.push("sleep".into());
+    args.push("infinity".into());
+    args
+}
+
+/// 本地 Docker 后端。
+pub struct DockerEnv {
+    container: String,
+    workdir: PathBuf,
+    tier: super::provider::Tier,
+    vnc_password: Option<String>,
+    map: PathMap,
+    /// 文件 IO 直接走宿主（bind 挂载 = 同一份文件）。
+    host_fs: super::local::LocalEnv,
+}
+
+impl std::fmt::Debug for DockerEnv {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DockerEnv")
+            .field("container", &self.container)
+            .field("workdir", &self.workdir)
+            .finish()
+    }
+}
+
+impl DockerEnv {
+    /// 创建并启动容器（已存在则复用）。
+    pub fn create(spec: DockerSpec) -> Result<Self> {
+        let map = PathMap::new(spec.mounts.clone());
+        let workspace_host = spec
+            .mounts
+            .iter()
+            .find(|m| m.guest == spec.workdir)
+            .map(|m| m.host.clone())
+            .ok_or_else(|| anyhow!("docker: 挂载计划里没有 {} 对应的宿主目录", spec.workdir.display()))?;
+
+        // 容器档位：每会话随机 VNC 密码（空字符串 = 显式要求无密码）。
+        let vnc_password = if spec.tier == super::provider::Tier::Container {
+            spec.vnc_password
+                .clone()
+                .or_else(|| Some(DockerSpec::random_vnc_password()))
+        } else {
+            None
+        };
+
+        let fingerprint = spec.fingerprint();
+        let reusable = Self::container_running(&spec.container)
+            && Self::container_fingerprint(&spec.container).as_deref() == Some(fingerprint.as_str());
+        if !reusable {
+            // 残留容器（停止/异常）先清掉，避免名字冲突。
+            let _ = Command::new("docker")
+                .args(["rm", "-f", &spec.container])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+
+            let mut args = run_args(&spec, &fingerprint, vnc_password.as_deref(), true);
+            let mut out = Command::new("docker")
+                .args(&args)
+                .output()
+                .context("启动 docker 失败（docker 是否可用？）")?;
+
+            // `--storage-opt size=` 只有 Linux + overlay2/xfs(pquota) 支持。
+            // macOS（Docker Desktop / OrbStack）会直接报错，这时退回不限磁盘，
+            // 并且只提示一次——不能让"磁盘限制"把整个沙箱建不起来。
+            if !out.status.success() && spec.disk_mb.is_some() {
+                let stderr = String::from_utf8_lossy(&out.stderr).to_lowercase();
+                if stderr.contains("storage-opt") || stderr.contains("storage option") {
+                    log::warn!(
+                        "docker: 当前平台不支持 --storage-opt size（磁盘限制不生效），已按不限磁盘创建容器"
+                    );
+                    let _ = Command::new("docker")
+                        .args(["rm", "-f", &spec.container])
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status();
+                    args = run_args(&spec, &fingerprint, vnc_password.as_deref(), false);
+                    out = Command::new("docker")
+                        .args(&args)
+                        .output()
+                        .context("启动 docker 失败（docker 是否可用？）")?;
+                }
+            }
+
+            if !out.status.success() {
+                bail!(
+                    "docker run 失败: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                );
+            }
+        }
+
+        let env = Self {
+            container: spec.container,
+            workdir: spec.workdir,
+            tier: spec.tier,
+            vnc_password,
+            map,
+            host_fs: super::local::LocalEnv::new(&workspace_host),
+        };
+        // 容器档位：Xvfb 是异步起的，立刻 exec 会拿到 "cannot open display"。
+        // 这里等桌面真正可用再返回，避免调用方第一次执行就失败。
+        if env.tier == super::provider::Tier::Container {
+            env.wait_until_desktop_ready()?;
+        }
+        Ok(env)
+    }
+
+    /// 桌面观察凭据：`(vnc://127.0.0.1:<port>, 密码)`。容器档位才有。
+    pub fn vnc_credentials(&self) -> Option<(String, Option<String>)> {
+        let url = self.vnc_endpoint()?;
+        Some((url, self.vnc_password.clone()))
+    }
+
+    /// 桌面观察地址（容器档位才有）。返回 `vnc://127.0.0.1:<port>`。
+    pub fn vnc_endpoint(&self) -> Option<String> {
+        if self.tier != super::provider::Tier::Container {
+            return None;
+        }
+        let out = Command::new("docker")
+            .args(["port", &self.container, "5900/tcp"])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&out.stdout);
+        let port = text.trim().rsplit(':').next()?.trim().to_string();
+        if port.is_empty() {
+            None
+        } else {
+            Some(format!("vnc://127.0.0.1:{port}"))
+        }
+    }
+
+    /// 等 Xvfb 起来（最多 10s）。起不来就报错，别让调用方拿到半成品环境。
+    fn wait_until_desktop_ready(&self) -> Result<()> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let out = Command::new("docker")
+                .args(["exec", &self.container, "xdpyinfo"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            if matches!(out, Ok(s) if s.success()) {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                bail!(
+                    "docker: 容器 {} 的 Xvfb 10 秒内没起来（DISPLAY=:99 不可用）",
+                    self.container
+                );
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+
+    pub fn container_name(&self) -> &str {
+        &self.container
+    }
+
+    /// 销毁容器（幂等）。文件在宿主上，不受影响。
+    pub fn destroy(&self) -> Result<()> {
+        let _ = Command::new("docker")
+            .args(["rm", "-f", &self.container])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        Ok(())
+    }
+
+    /// 清理**已退出**的孤儿容器（进程崩溃/重启后残留）。
+    ///
+    /// 只动 `status=exited` 的：还在跑的可能是另一个会话正在用的，不能碰。
+    pub fn cleanup_orphans() {
+        let out = Command::new("docker")
+            .args([
+                "ps",
+                "-a",
+                "--filter",
+                "name=pointer-sbx-",
+                "--filter",
+                "status=exited",
+                "--format",
+                "{{.Names}}",
+            ])
+            .output();
+        let Ok(out) = out else { return };
+        if !out.status.success() {
+            return;
+        }
+        for name in String::from_utf8_lossy(&out.stdout).lines() {
+            let name = name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            log::info!("docker: 清理残留沙箱容器 {name}");
+            let _ = Command::new("docker")
+                .args(["rm", "-f", name])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+    }
+
+    fn container_fingerprint(name: &str) -> Option<String> {
+        let out = Command::new("docker")
+            .args([
+                "inspect",
+                "-f",
+                "{{index .Config.Labels \"pointer.spec\"}}",
+                name,
+            ])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if value.is_empty() || value == "<no value>" {
+            None
+        } else {
+            Some(value)
+        }
+    }
+
+    fn container_running(name: &str) -> bool {
+        let out = Command::new("docker")
+            .args(["inspect", "-f", "{{.State.Running}}", name])
+            .output();
+        matches!(out, Ok(o) if o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "true")
+    }
+
+    /// 容器档位默认带 `DISPLAY=:99`（镜像入口起的 Xvfb），调用方显式给了就不覆盖。
+    fn effective_env(&self, env: &std::collections::BTreeMap<String, String>) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        if self.tier == super::provider::Tier::Container
+            && !env.contains_key("DISPLAY")
+            && !out.iter().any(|(k, _)| k == "DISPLAY")
+        {
+            out.push(("DISPLAY".to_string(), ":99".to_string()));
+        }
+        out
+    }
+
+    /// 把 guest 路径翻成宿主路径（文件 IO 用）。
+    fn host_path(&self, path: &Path) -> Result<PathBuf> {
+        self.map.to_host(path)
+    }
+
+    fn exec_docker(&self, argv: &[String], opts: &ExecOptions) -> Result<ExecOutput> {
+        let mut cmd = Command::new("docker");
+        cmd.arg("exec").arg("-i");
+        if let Some(cwd) = &opts.cwd {
+            cmd.arg("-w").arg(cwd);
+        }
+        for (k, v) in self.effective_env(&opts.env) {
+            cmd.arg("-e").arg(format!("{k}={v}"));
+        }
+        cmd.arg(&self.container);
+        cmd.args(argv);
+        cmd.stdin(if opts.stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        });
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+        let mut child = cmd.spawn().context("docker exec 启动失败")?;
+        if let Some(input) = &opts.stdin {
+            if let Some(mut stdin) = child.stdin.take() {
+                stdin.write_all(input)?;
+            }
+        }
+        let out = child.wait_with_output()?;
+        let limit = opts.max_output_bytes.unwrap_or(usize::MAX);
+        let mut stdout = out.stdout;
+        let mut stderr = out.stderr;
+        let stdout_truncated = stdout.len() > limit;
+        let stderr_truncated = stderr.len() > limit;
+        stdout.truncate(limit);
+        stderr.truncate(limit);
+        Ok(ExecOutput {
+            status: out.status.code().unwrap_or(-1),
+            stdout,
+            stderr,
+            stdout_truncated,
+            stderr_truncated,
+            timed_out: false,
+        })
+    }
+}
+
+impl Environment for DockerEnv {
+    fn kind(&self) -> EnvKind {
+        match self.tier {
+            super::provider::Tier::Local => EnvKind::Local,
+            super::provider::Tier::Light => EnvKind::Light,
+            super::provider::Tier::Container => EnvKind::Container,
+        }
+    }
+    fn workspace_root(&self) -> &Path {
+        &self.workdir
+    }
+    fn skills_root(&self) -> &Path {
+        Path::new("/skills")
+    }
+    fn home_root(&self) -> &Path {
+        Path::new("/home/u")
+    }
+    fn capabilities(&self) -> Capabilities {
+        match self.tier {
+            super::provider::Tier::Container => Capabilities::container(),
+            _ => Capabilities::light(),
+        }
+    }
+    fn path_map(&self) -> &PathMap {
+        &self.map
+    }
+
+    fn exec(&self, argv: &[String], opts: ExecOptions) -> Result<ExecOutput> {
+        let started = Instant::now();
+        let out = self.exec_docker(argv, &opts)?;
+        if let Some(timeout) = opts.timeout {
+            if started.elapsed() > timeout {
+                return Ok(ExecOutput {
+                    timed_out: true,
+                    status: -1,
+                    ..out
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    fn spawn(&self, argv: &[String], opts: SpawnOptions) -> Result<Box<dyn ChildHandle>> {
+        let mut cmd = Command::new("docker");
+        cmd.arg("exec").arg("-i");
+        if let Some(cwd) = &opts.cwd {
+            cmd.arg("-w").arg(cwd);
+        }
+        for (k, v) in &opts.env {
+            cmd.arg("-e").arg(format!("{k}={v}"));
+        }
+        cmd.arg(&self.container).args(argv);
+        cmd.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = cmd.spawn().context("docker exec 启动失败")?;
+        let stdin = child.stdin.take();
+        let stdout = child.stdout.take();
+        if let Some(mut stderr) = child.stderr.take() {
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 4096];
+                while let Ok(n) = std::io::Read::read(&mut stderr, &mut buf) {
+                    if n == 0 {
+                        break;
+                    }
+                }
+            });
+        }
+        Ok(Box::new(DockerChild {
+            child,
+            stdin,
+            stdout,
+        }))
+    }
+
+    fn pty_open(&self, mut spec: PtySpec) -> Result<Box<dyn PtyHandle>> {
+        // tty 由 `docker exec -t` 分配；宿主侧再包一层 pty（和 OpenClaw 一致）。
+        let mut argv = vec![
+            "docker".to_string(),
+            "exec".to_string(),
+            "-it".to_string(),
+        ];
+        if let Some(cwd) = &spec.cwd {
+            argv.push("-w".to_string());
+            argv.push(cwd.display().to_string());
+        }
+        for (k, v) in &spec.env {
+            argv.push("-e".to_string());
+            argv.push(format!("{k}={v}"));
+        }
+        argv.push(self.container.clone());
+        argv.extend(spec.argv.clone());
+        spec.argv = argv;
+        spec.cwd = None;
+        spec.env.clear();
+        super::local::LocalEnv::new(self.workdir.clone()).pty_open(spec)
+    }
+
+    fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
+        let host = self.host_path(path)?;
+        self.host_fs.read_file(&host)
+    }
+
+    fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
+        let host = self.host_path(path)?;
+        self.host_fs.write_file(&host, data)
+    }
+
+    fn list_dir(&self, path: &Path) -> Result<Vec<DirEntry>> {
+        let host = self.host_path(path)?;
+        let mut entries = self.host_fs.list_dir(&host)?;
+        // 名字对外仍是 guest 视角（host_fs 返回的是宿主路径，这里翻回去）。
+        for entry in &mut entries {
+            if let Ok(guest) = self.map.to_agent(&entry.path) {
+                entry.path = guest;
+            }
+        }
+        Ok(entries)
+    }
+
+    fn metadata(&self, path: &Path) -> Result<FileMetadata> {
+        let host = self.host_path(path)?;
+        self.host_fs.metadata(&host)
+    }
+
+    fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
+        let host = self.host_path(path)?;
+        let canonical = self.host_fs.canonicalize(&host)?;
+        self.map.to_agent(&canonical)
+    }
+
+    fn create_dir_all(&self, path: &Path) -> Result<()> {
+        let host = self.host_path(path)?;
+        self.host_fs.create_dir_all(&host)
+    }
+
+    fn read_to_string(&self, path: &Path) -> Result<String> {
+        let host = self.host_path(path)?;
+        self.host_fs.read_to_string(&host)
+    }
+
+    fn open_reader(&self, path: &Path) -> Result<Box<dyn std::io::Read + Send>> {
+        let host = self.host_path(path)?;
+        self.host_fs.open_reader(&host)
+    }
+
+    fn walk(&self, root: &Path, opts: WalkOptions) -> Result<Vec<WalkEntry>> {
+        let host = self.host_path(root)?;
+        let mut entries = self.host_fs.walk(&host, opts)?;
+        for entry in &mut entries {
+            if let Ok(guest) = self.map.to_agent(&entry.path) {
+                entry.path = guest;
+            }
+        }
+        Ok(entries)
+    }
+
+    fn remove_file(&self, path: &Path) -> Result<()> {
+        let host = self.host_path(path)?;
+        self.host_fs.remove_file(&host)
+    }
+
+    fn remove_dir_all(&self, path: &Path) -> Result<()> {
+        let host = self.host_path(path)?;
+        self.host_fs.remove_dir_all(&host)
+    }
+
+    fn set_executable(&self, path: &Path) -> Result<()> {
+        let host = self.host_path(path)?;
+        self.host_fs.set_executable(&host)
+    }
+
+
+}
+
+/// `docker exec` 起的常驻进程。
+struct DockerChild {
+    child: std::process::Child,
+    stdin: Option<std::process::ChildStdin>,
+    stdout: Option<std::process::ChildStdout>,
+}
+
+impl ChildHandle for DockerChild {
+    fn id(&self) -> u32 {
+        self.child.id()
+    }
+    fn write_all(&mut self, data: &[u8]) -> Result<()> {
+        let stdin = self
+            .stdin
+            .as_mut()
+            .ok_or_else(|| anyhow!("stdin 已关闭"))?;
+        stdin.write_all(data)?;
+        stdin.flush()?;
+        Ok(())
+    }
+    fn close_stdin(&mut self) -> Result<()> {
+        self.stdin.take();
+        Ok(())
+    }
+    fn reader(&mut self) -> Result<Box<dyn std::io::BufRead + Send>> {
+        let stdout = self
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow!("stdout 已被取走"))?;
+        Ok(Box::new(std::io::BufReader::new(stdout)))
+    }
+    fn try_wait(&mut self) -> Result<Option<i32>> {
+        Ok(self.child.try_wait()?.map(|s| s.code().unwrap_or(-1)))
+    }
+    fn wait(&mut self) -> Result<i32> {
+        Ok(self.child.wait()?.code().unwrap_or(-1))
+    }
+    fn kill(&mut self) -> Result<()> {
+        self.child.kill().map_err(|e| anyhow!("kill: {e}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn container_name_is_docker_safe() {
+        let name = DockerSpec::container_name_for("9df6e0c2-f409-43b2-8e52-087c7479607d");
+        assert_eq!(name, "pointer-sbx-9df6e0c2-f409-43b2-8e52-087c7479607d");
+        let weird = DockerSpec::container_name_for("a/b:c d");
+        assert!(!weird.contains('/') && !weird.contains(':') && !weird.contains(' '));
+    }
+
+    fn spec_with_tier(tier: super::super::provider::Tier) -> DockerSpec {
+        DockerSpec {
+            container: "pointer-test".into(),
+            image: "pointer-sandbox-light:latest".into(),
+            mounts: Vec::new(),
+            workdir: "/workspace".into(),
+            tier,
+            cpus: None,
+            memory_mb: None,
+            disk_mb: None,
+            vnc_password: None,
+        }
+    }
+
+    #[test]
+    fn spec_fingerprint_covers_resource_limits() {
+        let base = DockerSpec {
+            container: "c1".into(),
+            image: "img".into(),
+            mounts: Vec::new(),
+            workdir: "/workspace".into(),
+            tier: crate::env::provider::Tier::Light,
+            cpus: Some(2.0),
+            memory_mb: Some(4096),
+            disk_mb: Some(10240),
+            vnc_password: None,
+        };
+        let mut tighter = base.clone();
+        tighter.memory_mb = Some(1024);
+        assert_ne!(
+            base.fingerprint(),
+            tighter.fingerprint(),
+            "配额变了必须重建，否则旧容器没配额却一直复用"
+        );
+    }
+
+    fn capabilities_follow_tier() {
+        // 直接构造结构体（不真的起容器），只验证能力映射。
+        let light = DockerEnv {
+            container: "c".into(),
+            workdir: "/workspace".into(),
+            tier: super::super::provider::Tier::Light,
+            vnc_password: None,
+            map: PathMap::new(Vec::new()),
+            host_fs: super::super::local::LocalEnv::new("/tmp"),
+        };
+        assert_eq!(light.kind(), EnvKind::Light);
+        assert!(!light.capabilities().desktop, "light 档不应有桌面");
+        assert!(!light.capabilities().snapshot, "light 档不应有快照");
+
+        let container = DockerEnv {
+            container: "c".into(),
+            workdir: "/workspace".into(),
+            tier: super::super::provider::Tier::Container,
+            vnc_password: None,
+            map: PathMap::new(Vec::new()),
+            host_fs: super::super::local::LocalEnv::new("/tmp"),
+        };
+        assert_eq!(container.kind(), EnvKind::Container);
+        assert!(container.capabilities().desktop, "container 档必须有桌面");
+        assert!(
+            !container.capabilities().snapshot,
+            "快照还没实现，能力位必须是 false（声明了做不到比不声明更糟）"
+        );
+
+        // DockerSpec::default() 是 light，避免调用方漏传档位时静默开桌面。
+        assert_eq!(
+            DockerSpec::default().tier,
+            super::super::provider::Tier::Light
+        );
+        assert_eq!(spec_with_tier(super::super::provider::Tier::Container).tier, super::super::provider::Tier::Container);
+    }
+
+    #[test]
+    fn vnc_password_is_random_and_unambiguous() {
+        let a = DockerSpec::random_vnc_password();
+        let b = DockerSpec::random_vnc_password();
+        assert_eq!(a.len(), 8);
+        assert_ne!(a, b, "两次生成不应相同");
+        for ch in a.chars() {
+            assert!(!matches!(ch, '0' | 'O' | '1' | 'l' | 'i'), "不该出现易混字符: {ch}");
+            assert!(ch.is_ascii_alphanumeric(), "只允许字母数字: {ch}");
+        }
+    }
+
+    fn spec_for_args() -> DockerSpec {
+        DockerSpec {
+            container: "pointer-args".into(),
+            image: "pointer-sandbox-light:latest".into(),
+            mounts: vec![super::super::pathmap::Mount::new("/host/proj", "/workspace", false)],
+            workdir: "/workspace".into(),
+            tier: super::super::provider::Tier::Light,
+            cpus: Some(2.0),
+            memory_mb: Some(2048),
+            disk_mb: Some(8192),
+            vnc_password: None,
+        }
+    }
+
+    #[test]
+    fn run_args_carry_limits_and_mounts() {
+        let spec = spec_for_args();
+        let args = run_args(&spec, "abc123", None, true).join(" ");
+        assert!(args.contains("-v /host/proj:/workspace"), "{args}");
+        assert!(args.contains("--cpus 2"), "{args}");
+        assert!(args.contains("--memory 2048m"), "{args}");
+        assert!(args.contains("--storage-opt size=8192m"), "{args}");
+        assert!(args.contains("--label pointer.spec=abc123"), "{args}");
+    }
+
+    #[test]
+    fn disk_limit_can_be_dropped_for_unsupported_platforms() {
+        // macOS 不支持 --storage-opt，重试时必须能干净地去掉它。
+        let spec = spec_for_args();
+        let args = run_args(&spec, "abc123", None, false).join(" ");
+        assert!(!args.contains("--storage-opt"), "{args}");
+        assert!(args.contains("--memory 2048m"), "其他限制不该被连带丢掉：{args}");
+    }
+
+    #[test]
+    fn container_tier_publishes_vnc_with_password() {
+        let mut spec = spec_for_args();
+        spec.tier = super::super::provider::Tier::Container;
+        let args = run_args(&spec, "h", Some("abcd2345"), true).join(" ");
+        assert!(args.contains("-p 127.0.0.1::5900"), "{args}");
+        assert!(args.contains("-e POINTER_VNC_PASSWORD=abcd2345"), "{args}");
+    }
+}

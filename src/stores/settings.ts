@@ -459,9 +459,24 @@ export const useSettingsStore = defineStore('settings', () => {
       if (seenMerged.has(key)) continue
       mergedProviders.push({ ...plat, source: 'platform' })
     }
+    // 历史数据里可能存在同 (source,id) 的重复条目（旧版本按 id 判定 source 时写进去的）。
+    // 收敛成一条，优先保留带 key 的，避免设置页出现"同一服务两行、一行没密钥"。
+    const dedupedProviders: ProviderConfig[] = []
+    const indexByKey = new Map<string, number>()
+    for (const provider of mergedProviders) {
+      const key = providerKey(provider)
+      const at = indexByKey.get(key)
+      if (at === undefined) {
+        indexByKey.set(key, dedupedProviders.length)
+        dedupedProviders.push(provider)
+        continue
+      }
+      const prev = dedupedProviders[at]
+      if (!prev.apiKey && provider.apiKey) dedupedProviders[at] = provider
+    }
     const nextMerged = {
       ...mergedIn,
-      providers: mergedProviders,
+      providers: dedupedProviders,
       // Keep session debug toggles when WEB omitted them from the response.
       debugMenusEnabled:
         mergedIn.debugMenusEnabled ?? prevMerged.debugMenusEnabled,
@@ -870,8 +885,12 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  function updateProvider(id: string, patch: Partial<ProviderConfig>) {
-    const i = settings.value.providers.findIndex(p => p.id === id)
+  function updateProvider(id: string, patch: Partial<ProviderConfig>, source?: 'user' | 'platform') {
+    // 身份是 (source, id)：平台注入项和用户 fork 可能同 id 并存，
+    // 只按 id 找会更新错那一条（用户点的是平台卡片，改的却是 fork）。
+    const i = settings.value.providers.findIndex(
+      p => p.id === id && (source === undefined || (p.source ?? 'user') === source)
+    )
     if (i < 0) return
     const prev = settings.value.providers[i]
     // 勿 Object.assign(provider, patch)：嵌套 modelConfigs 在 Pinia 下可能不触发列表更新。
@@ -1059,6 +1078,7 @@ export const useSettingsStore = defineStore('settings', () => {
     saveAgentPreferences,
     createDebugSessionSnapshot,
     saveDebugSession,
+    applyEffectiveView,
     saveModelService,
     saveUser,
     setActiveProvider,

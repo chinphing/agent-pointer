@@ -1,6 +1,5 @@
 //! Detect which built-in lint stacks apply to a workspace root.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,26 +27,39 @@ pub fn config_file_path(root: &Path) -> PathBuf {
     root.join(".pointer").join("lint.toml")
 }
 
+
+/// 环境感知的读取：light/container 档位下工作区在沙箱里，宿主 `fs` 看不到。
+fn env_read_text(path: &Path) -> Option<String> {
+    crate::env::effective_env().read_to_string(path).ok()
+}
+
+fn env_is_file(path: &Path) -> bool {
+    crate::env::effective_env()
+        .metadata(path)
+        .map(|m| m.is_file)
+        .unwrap_or(false)
+}
+
 fn package_json_path(root: &Path) -> PathBuf {
     root.join("package.json")
 }
 
 fn read_package_json(root: &Path) -> Option<serde_json::Value> {
     let p = package_json_path(root);
-    let s = fs::read_to_string(p).ok()?;
+    let s = env_read_text(&p)?;
     serde_json::from_str(&s).ok()
 }
 
 fn has_eslint_signal(root: &Path) -> bool {
-    if root.join("eslint.config.js").is_file()
-        || root.join("eslint.config.mjs").is_file()
-        || root.join("eslint.config.cjs").is_file()
-        || root.join("eslint.config.ts").is_file()
-        || root.join(".eslintrc.js").is_file()
-        || root.join(".eslintrc.cjs").is_file()
-        || root.join(".eslintrc.json").is_file()
-        || root.join(".eslintrc.yaml").is_file()
-        || root.join(".eslintrc.yml").is_file()
+    if env_is_file(&root.join("eslint.config.js"))
+        || env_is_file(&root.join("eslint.config.mjs"))
+        || env_is_file(&root.join("eslint.config.cjs"))
+        || env_is_file(&root.join("eslint.config.ts"))
+        || env_is_file(&root.join(".eslintrc.js"))
+        || env_is_file(&root.join(".eslintrc.cjs"))
+        || env_is_file(&root.join(".eslintrc.json"))
+        || env_is_file(&root.join(".eslintrc.yaml"))
+        || env_is_file(&root.join(".eslintrc.yml"))
     {
         return true;
     }
@@ -69,10 +81,10 @@ pub fn detect_node_eslint(root: &Path) -> bool {
 }
 
 fn has_oxlint_signal(root: &Path) -> bool {
-    if root.join(".oxlintrc.json").is_file()
-        || root.join(".oxlintrc.jsonc").is_file()
-        || root.join("oxlint.config.json").is_file()
-        || root.join("oxlint.config.jsonc").is_file()
+    if env_is_file(&root.join(".oxlintrc.json"))
+        || env_is_file(&root.join(".oxlintrc.jsonc"))
+        || env_is_file(&root.join("oxlint.config.json"))
+        || env_is_file(&root.join("oxlint.config.jsonc"))
     {
         return true;
     }
@@ -100,7 +112,7 @@ pub fn find_node_lock_root(cwd: &Path, workspace: &Path) -> PathBuf {
         .unwrap_or_else(|_| workspace.to_path_buf());
     let mut cur = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
     loop {
-        if cur.join("pnpm-lock.yaml").is_file() || cur.join("yarn.lock").is_file() {
+        if env_is_file(&cur.join("pnpm-lock.yaml")) || env_is_file(&cur.join("yarn.lock")) {
             return cur;
         }
         if cur == workspace {
@@ -171,7 +183,7 @@ pub fn oxlint_project_roots_from_filters(workspace: &Path, filters: &[PathBuf]) 
 
 pub fn pyproject_has_ruff_section(root: &Path) -> bool {
     let p = root.join("pyproject.toml");
-    let Ok(s) = fs::read_to_string(p) else {
+    let Some(s) = env_read_text(&p) else {
         return false;
     };
     s.lines().any(|l| {
@@ -181,35 +193,35 @@ pub fn pyproject_has_ruff_section(root: &Path) -> bool {
 }
 
 pub fn detect_python_ruff(root: &Path) -> bool {
-    root.join("ruff.toml").is_file() || pyproject_has_ruff_section(root)
+    env_is_file(&root.join("ruff.toml")) || pyproject_has_ruff_section(root)
 }
 
 pub fn detect_rust_clippy(root: &Path) -> bool {
-    root.join("Cargo.toml").is_file()
+    env_is_file(&root.join("Cargo.toml"))
 }
 
 pub fn detect_go(root: &Path) -> bool {
-    root.join("go.mod").is_file()
+    env_is_file(&root.join("go.mod"))
 }
 
 /// Prefer Maven when `pom.xml` exists; otherwise Gradle when build scripts exist.
 pub fn pick_java_stack(root: &Path) -> Option<BuiltinStack> {
-    if root.join("pom.xml").is_file() {
+    if env_is_file(&root.join("pom.xml")) {
         return Some(BuiltinStack::JavaMaven);
     }
-    if root.join("build.gradle").is_file() || root.join("build.gradle.kts").is_file() {
+    if env_is_file(&root.join("build.gradle")) || env_is_file(&root.join("build.gradle.kts")) {
         return Some(BuiltinStack::JavaGradle);
     }
     None
 }
 
 pub fn detect_java_maven(root: &Path) -> bool {
-    root.join("pom.xml").is_file()
+    env_is_file(&root.join("pom.xml"))
 }
 
 pub fn detect_java_gradle(root: &Path) -> bool {
-    !root.join("pom.xml").is_file()
-        && (root.join("build.gradle").is_file() || root.join("build.gradle.kts").is_file())
+    !env_is_file(&root.join("pom.xml"))
+        && (env_is_file(&root.join("build.gradle")) || env_is_file(&root.join("build.gradle.kts")))
 }
 
 fn root_has_dotnet_marker(root: &Path) -> bool {
@@ -231,36 +243,34 @@ pub fn detect_dotnet(root: &Path) -> bool {
 }
 
 pub fn detect_phpstan(root: &Path) -> bool {
-    if !root.join("composer.json").is_file() {
+    if !env_is_file(&root.join("composer.json")) {
         return false;
     }
-    if root.join("phpstan.neon").is_file() || root.join("phpstan.dist.neon").is_file() {
+    if env_is_file(&root.join("phpstan.neon")) || env_is_file(&root.join("phpstan.dist.neon")) {
         return true;
     }
-    let Ok(s) = fs::read_to_string(root.join("composer.json")) else {
+    let Some(s) = env_read_text(&root.join("composer.json")) else {
         return false;
     };
     s.contains("phpstan/phpstan") || s.contains("\"phpstan\"") || s.contains("'phpstan'")
 }
 
 pub fn detect_rubocop(root: &Path) -> bool {
-    if !root.join("Gemfile").is_file() {
+    if !env_is_file(&root.join("Gemfile")) {
         return false;
     }
-    if root.join(".rubocop.yml").is_file() || root.join(".rubocop_todo.yml").is_file() {
+    if env_is_file(&root.join(".rubocop.yml")) || env_is_file(&root.join(".rubocop_todo.yml")) {
         return true;
     }
-    fs::read_to_string(root.join("Gemfile"))
-        .ok()
-        .is_some_and(|s| s.contains("rubocop"))
+    env_read_text(&root.join("Gemfile")).is_some_and(|s| s.contains("rubocop"))
 }
 
 pub fn detect_swift_pm(root: &Path) -> bool {
-    root.join("Package.swift").is_file()
+    env_is_file(&root.join("Package.swift"))
 }
 
 pub fn detect_dart_pub(root: &Path) -> bool {
-    root.join("pubspec.yaml").is_file()
+    env_is_file(&root.join("pubspec.yaml"))
 }
 
 /// Default discovery order: lighter / faster tools before heavier compiles.

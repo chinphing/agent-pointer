@@ -4,10 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
-use std::fs;
 use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Output};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -104,43 +102,67 @@ impl std::error::Error for GitCommandError {}
 
 /// List one directory level below `workspace_root`. Symlinks are returned as
 /// leaf entries and are never followed, preventing traversal outside the root.
+/// 面板要操作的根目录。
+///
+/// light/container 档位下工作区在沙箱里（`/workspace`），宿主路径在沙箱中不存在，
+/// 所以一律以环境绑定的工作区为准；local 档位沿用调用方给的宿主路径。
+fn panel_root(env: &dyn crate::env::Environment, workspace_root: &Path) -> Result<PathBuf> {
+    if env.kind() != crate::env::EnvKind::Local {
+        return Ok(env.workspace_root().to_path_buf());
+    }
+    canonical_workspace(workspace_root)
+}
+
 pub fn list_directory(
     workspace_root: &Path,
     relative_path: Option<&str>,
 ) -> Result<Vec<WorkspaceEntry>> {
-    let root = canonical_workspace(workspace_root)?;
+    let env = crate::env::effective_env();
+    list_directory_in(env.as_ref(), workspace_root, relative_path)
+}
+
+/// 同 [`list_directory`]，但显式指定执行环境（Tauri 命令按会话解析后传入）。
+pub fn list_directory_in(
+    env: &dyn crate::env::Environment,
+    workspace_root: &Path,
+    relative_path: Option<&str>,
+) -> Result<Vec<WorkspaceEntry>> {
+    let root = panel_root(env, workspace_root)?;
     let relative = safe_relative(relative_path.unwrap_or(""))?;
-    let directory = root
-        .join(&relative)
-        .canonicalize()
+    let joined = root.join(&relative);
+    let directory = env
+        .canonicalize(&joined)
         .with_context(|| format!("workspace directory does not exist: {}", relative.display()))?;
     if !directory.starts_with(&root) {
         return Err(anyhow!("path is outside workspaceRoot"));
     }
-    if !directory.is_dir() {
+    let dir_meta = env.metadata(&directory)?;
+    if !dir_meta.is_dir {
         return Err(anyhow!("workspace path is not a directory"));
     }
 
     let mut entries = Vec::new();
-    for item in fs::read_dir(&directory)? {
-        let item = item?;
-        let metadata = fs::symlink_metadata(item.path())?;
-        let kind = if metadata.file_type().is_symlink() {
+    for item in env.list_dir(&directory)? {
+        let metadata = env.metadata(&item.path).ok();
+        let kind = if item.is_symlink {
             WorkspaceEntryKind::Symlink
-        } else if metadata.is_dir() {
+        } else if item.is_dir {
             WorkspaceEntryKind::Directory
         } else {
             WorkspaceEntryKind::File
         };
         let item_relative = item
-            .path()
-            .strip_prefix(&root)?
-            .to_string_lossy()
-            .replace('\\', "/");
+            .path
+            .strip_prefix(&root)
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| item.name.clone());
         entries.push(WorkspaceEntry {
-            name: item.file_name().to_string_lossy().into_owned(),
+            name: item.name.clone(),
             path: item_relative,
-            size_bytes: metadata.is_file().then_some(metadata.len()),
+            size_bytes: metadata
+                .as_ref()
+                .filter(|m| m.is_file)
+                .map(|m| m.len),
             kind,
         });
     }
@@ -174,18 +196,29 @@ pub fn search_entries(
     query: &str,
     limit: usize,
 ) -> Result<Vec<WorkspaceEntry>> {
+    let env = crate::env::effective_env();
+    search_entries_in(env.as_ref(), workspace_root, query, limit)
+}
+
+/// 同 [`search_entries`]，但显式指定执行环境。
+pub fn search_entries_in(
+    env: &dyn crate::env::Environment,
+    workspace_root: &Path,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<WorkspaceEntry>> {
     let needle = query.trim().to_lowercase();
     if needle.is_empty() || limit == 0 {
         return Ok(Vec::new());
     }
-    let root = canonical_workspace(workspace_root)?;
+    let root = panel_root(env, workspace_root)?;
     let mut out = Vec::new();
     let mut stack = vec![root.clone()];
     while let Some(dir) = stack.pop() {
         if out.len() >= limit {
             break;
         }
-        let read = match fs::read_dir(&dir) {
+        let read = match env.list_dir(&dir) {
             Ok(iter) => iter,
             Err(err) => {
                 log::warn!(
@@ -199,32 +232,25 @@ pub fn search_entries(
             if out.len() >= limit {
                 break;
             }
-            let item = match item {
-                Ok(v) => v,
-                Err(err) => {
-                    log::warn!("workspace_read: search skip entry: {err}");
-                    continue;
-                }
-            };
-            let metadata = match fs::symlink_metadata(item.path()) {
+            let metadata = match env.metadata(&item.path) {
                 Ok(m) => m,
                 Err(err) => {
                     log::warn!(
                         "workspace_read: search skip metadata {}: {err}",
-                        item.path().display()
+                        item.path.display()
                     );
                     continue;
                 }
             };
-            let name = item.file_name().to_string_lossy().into_owned();
-            let kind = if metadata.file_type().is_symlink() {
+            let name = item.name.clone();
+            let kind = if item.is_symlink {
                 WorkspaceEntryKind::Symlink
-            } else if metadata.is_dir() {
+            } else if item.is_dir {
                 WorkspaceEntryKind::Directory
             } else {
                 WorkspaceEntryKind::File
             };
-            let item_relative = match item.path().strip_prefix(&root) {
+            let item_relative = match item.path.strip_prefix(&root) {
                 Ok(p) => p.to_string_lossy().replace('\\', "/"),
                 Err(_) => continue,
             };
@@ -234,16 +260,15 @@ pub fn search_entries(
                 out.push(WorkspaceEntry {
                     name: name.clone(),
                     path: item_relative.clone(),
-                    size_bytes: metadata.is_file().then_some(metadata.len()),
+                    size_bytes: metadata.is_file.then_some(metadata.len),
                     kind: kind.clone(),
                 });
             }
-            if matches!(kind, WorkspaceEntryKind::Directory)
-                && !SEARCH_SKIP_DIR_NAMES
-                    .iter()
-                    .any(|skip| name.eq_ignore_ascii_case(skip))
+            if kind == WorkspaceEntryKind::Directory
+                && !SEARCH_SKIP_DIR_NAMES.contains(&name.as_str())
+                && !item.is_symlink
             {
-                stack.push(item.path());
+                stack.push(item.path);
             }
         }
     }
@@ -263,7 +288,17 @@ pub fn search_entries(
 /// Safety: relative paths only (no `..` / absolute); never deletes the workspace
 /// root itself; does not follow directory symlinks (`remove_file` for symlinks).
 pub fn delete_path(workspace_root: &Path, relative_path: &str) -> Result<()> {
-    let root = canonical_workspace(workspace_root)?;
+    let env = crate::env::effective_env();
+    delete_path_in(env.as_ref(), workspace_root, relative_path)
+}
+
+/// 同 [`delete_path`]，但显式指定执行环境。
+pub fn delete_path_in(
+    env: &dyn crate::env::Environment,
+    workspace_root: &Path,
+    relative_path: &str,
+) -> Result<()> {
+    let root = panel_root(env, workspace_root)?;
     let relative = safe_relative(relative_path)?;
     if relative.as_os_str().is_empty() {
         return Err(anyhow!("cannot delete workspace root"));
@@ -272,15 +307,16 @@ pub fn delete_path(workspace_root: &Path, relative_path: &str) -> Result<()> {
     if !target.starts_with(&root) {
         return Err(anyhow!("path is outside workspaceRoot"));
     }
-    let metadata = fs::symlink_metadata(&target)
+    let metadata = env
+        .metadata(&target)
         .with_context(|| format!("workspace path does not exist: {}", relative.display()))?;
-    let file_type = metadata.file_type();
     let display = relative.to_string_lossy().replace('\\', "/");
-    if file_type.is_symlink() || file_type.is_file() {
-        fs::remove_file(&target).with_context(|| format!("failed to delete file: {display}"))?;
+    if metadata.is_symlink || metadata.is_file {
+        env.remove_file(&target)
+            .with_context(|| format!("failed to delete file: {display}"))?;
         log::info!("workspace_read: deleted file path={display}");
-    } else if file_type.is_dir() {
-        fs::remove_dir_all(&target)
+    } else if metadata.is_dir {
+        env.remove_dir_all(&target)
             .with_context(|| format!("failed to delete directory: {display}"))?;
         log::info!("workspace_read: deleted directory path={display}");
     } else {
@@ -302,7 +338,17 @@ pub fn resolve_file_for_media(
     workspace_root: &Path,
     relative_path: &str,
 ) -> Result<WorkspaceMediaFile> {
-    let file_path = resolve_workspace_file_path(workspace_root, relative_path)?;
+    let env = crate::env::effective_env();
+    resolve_file_for_media_in(env.as_ref(), workspace_root, relative_path)
+}
+
+/// 同 [`resolve_file_for_media`]，但显式指定执行环境。
+pub fn resolve_file_for_media_in(
+    env: &dyn crate::env::Environment,
+    workspace_root: &Path,
+    relative_path: &str,
+) -> Result<WorkspaceMediaFile> {
+    let file_path = resolve_workspace_file_path_in(env, workspace_root, relative_path)?;
     let file_name = file_path
         .file_name()
         .and_then(|name| name.to_str())
@@ -322,20 +368,23 @@ pub fn resolve_file_for_media(
     })
 }
 
-fn resolve_workspace_file_path(workspace_root: &Path, relative_path: &str) -> Result<PathBuf> {
-    let root = canonical_workspace(workspace_root)?;
+fn resolve_workspace_file_path_in(
+    env: &dyn crate::env::Environment,
+    workspace_root: &Path,
+    relative_path: &str,
+) -> Result<PathBuf> {
+    let root = panel_root(env, workspace_root)?;
     let relative = safe_relative(relative_path)?;
     if relative.as_os_str().is_empty() {
         return Err(anyhow!("file path is required"));
     }
-    let file_path = root
-        .join(&relative)
-        .canonicalize()
+    let file_path = env
+        .canonicalize(&root.join(&relative))
         .with_context(|| format!("workspace file does not exist: {}", relative.display()))?;
     if !file_path.starts_with(&root) {
         return Err(anyhow!("path is outside workspaceRoot"));
     }
-    if !file_path.is_file() {
+    if !env.metadata(&file_path)?.is_file {
         return Err(anyhow!("workspace path is not a file"));
     }
     Ok(file_path)
@@ -362,12 +411,23 @@ fn mime_from_path(path: &Path) -> String {
 
 /// Read a bounded, UTF-8 text preview without following paths outside the workspace.
 pub fn read_file(workspace_root: &Path, relative_path: &str) -> Result<WorkspaceFilePreview> {
-    let file_path = resolve_workspace_file_path(workspace_root, relative_path)?;
+    let env = crate::env::effective_env();
+    read_file_in(env.as_ref(), workspace_root, relative_path)
+}
+
+/// 同 [`read_file`]，但显式指定执行环境。
+pub fn read_file_in(
+    env: &dyn crate::env::Environment,
+    workspace_root: &Path,
+    relative_path: &str,
+) -> Result<WorkspaceFilePreview> {
+    let file_path = resolve_workspace_file_path_in(env, workspace_root, relative_path)?;
     let relative = safe_relative(relative_path)?;
 
-    let size_bytes = fs::metadata(&file_path)?.len();
+    let size_bytes = env.metadata(&file_path)?.len;
+    // 预览只读前 N+1 字节：用流式读取，避免大文件整读进内存。
     let mut bytes = Vec::with_capacity(WORKSPACE_FILE_PREVIEW_MAX_BYTES + 1);
-    fs::File::open(&file_path)?
+    env.open_reader(&file_path)?
         .take((WORKSPACE_FILE_PREVIEW_MAX_BYTES + 1) as u64)
         .read_to_end(&mut bytes)?;
     let truncated = bytes.len() > WORKSPACE_FILE_PREVIEW_MAX_BYTES;
@@ -397,7 +457,8 @@ pub fn read_file(workspace_root: &Path, relative_path: &str) -> Result<Workspace
 }
 
 pub fn git_status(workspace_root: &Path) -> Result<Vec<GitChange>> {
-    let root = canonical_workspace(workspace_root)?;
+    let env = crate::env::effective_env();
+    let root = panel_root(env.as_ref(), workspace_root)?;
     let output = run_git(
         &root,
         ["status", "--porcelain=v2", "-z", "--untracked-files=all"],
@@ -496,7 +557,8 @@ pub fn git_diff(
     relative_path: &str,
     status: Option<&str>,
 ) -> Result<GitDiff> {
-    let root = canonical_workspace(workspace_root)?;
+    let env = crate::env::effective_env();
+    let root = panel_root(env.as_ref(), workspace_root)?;
     let relative = safe_relative(relative_path)?;
     if relative.as_os_str().is_empty() {
         return Err(anyhow!("file path is required"));
@@ -569,21 +631,24 @@ fn read_git_blob_text(root: &Path, spec: &str) -> Result<Option<String>> {
 }
 
 fn read_worktree_text(root: &Path, relative: &str) -> Result<String> {
+    let env = crate::env::effective_env();
     let full = root.join(relative);
-    if !full.exists() {
+    if !env.exists(&full) {
         return Ok(String::new());
     }
-    let meta = fs::metadata(&full).with_context(|| format!("stat {}", full.display()))?;
-    if !meta.is_file() {
+    let meta = env.metadata(&full).with_context(|| format!("stat {}", full.display()))?;
+    if !meta.is_file {
         return Err(anyhow!("不是常规文件: {}", full.display()));
     }
-    if meta.len() as usize > GIT_FULL_DIFF_MAX_BYTES {
+    if meta.len as usize > GIT_FULL_DIFF_MAX_BYTES {
         return Err(anyhow!(
             "文件过大（>{} bytes），无法展示整文件 Diff",
             GIT_FULL_DIFF_MAX_BYTES
         ));
     }
-    let bytes = fs::read(&full).with_context(|| format!("read {}", full.display()))?;
+    let bytes = env
+        .read_file(&full)
+        .with_context(|| format!("read {}", full.display()))?;
     decode_text_blob(&bytes, relative)
 }
 
@@ -643,14 +708,36 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let mut cmd = Command::new("git");
-    cmd.arg("-C").arg(root).args(args);
-    cmd.stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    let output = cmd.output().map_err(git_spawn_error)?;
+    let mut argv: Vec<String> = vec![
+        "git".to_string(),
+        "-C".to_string(),
+        root.to_string_lossy().into_owned(),
+    ];
+    argv.extend(
+        args.into_iter()
+            .map(|a| a.as_ref().to_string_lossy().into_owned()),
+    );
+    let output = crate::env::effective_env()
+        .exec(&argv, crate::env::ExecOptions::new())
+        .map_err(git_exec_error)?;
     parse_git_output(output)
+}
+
+/// 启动失败（git 未安装）与命令失败要区分：前端按 code 展示不同提示。
+fn git_exec_error(error: anyhow::Error) -> anyhow::Error {
+    let not_found = error.chain().find_map(|cause| {
+        cause
+            .downcast_ref::<io::Error>()
+            .filter(|io_err| io_err.kind() == io::ErrorKind::NotFound)
+    });
+    if let Some(io_err) = not_found {
+        return git_spawn_error(io::Error::new(io::ErrorKind::NotFound, io_err.to_string()));
+    }
+    GitCommandError(GitErrorInfo {
+        code: GitErrorCode::CommandFailed,
+        message: format!("无法运行 Git：{error}"),
+    })
+    .into()
 }
 
 fn git_spawn_error(error: io::Error) -> anyhow::Error {
@@ -668,8 +755,8 @@ fn git_spawn_error(error: io::Error) -> anyhow::Error {
     GitCommandError(info).into()
 }
 
-fn parse_git_output(output: Output) -> Result<Vec<u8>> {
-    if output.status.success() {
+fn parse_git_output(output: crate::env::ExecOutput) -> Result<Vec<u8>> {
+    if output.status == 0 {
         return Ok(output.stdout);
     }
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
@@ -798,9 +885,16 @@ mod tests {
 
     #[test]
     fn classifies_git_command_failures_without_matching_in_the_frontend() {
-        let output = Command::new("git")
-            .args(["-C", "/definitely/not/a/workspace", "status"])
-            .output()
+        let output = crate::env::effective_env()
+            .exec(
+                &[
+                    "git".to_string(),
+                    "-C".to_string(),
+                    "/definitely/not/a/workspace".to_string(),
+                    "status".to_string(),
+                ],
+                crate::env::ExecOptions::new(),
+            )
             .unwrap();
         let error = parse_git_output(output).unwrap_err();
         assert_eq!(
@@ -858,5 +952,19 @@ mod tests {
             .diff_lines
             .iter()
             .any(|line| line["type"] == "ins" && line["text"] == "two"));
+    }
+
+    #[test]
+    fn panel_does_not_read_host_workspace_when_environment_is_light() {
+        // light 档位下没有绑定/绑定为沙箱时，面板绝不能去读宿主目录。
+        let env = crate::env::test_light_env();
+        let host_dir = std::env::temp_dir();
+        let err = list_directory_in(env.as_ref(), &host_dir, None)
+            .expect_err("light 环境不应读到宿主目录");
+        let chain = format!("{err:#}");
+        assert!(
+            chain.contains("未绑定"),
+            "错误链应说明环境未绑定：{chain}"
+        );
     }
 }

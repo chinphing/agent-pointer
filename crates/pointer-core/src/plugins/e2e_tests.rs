@@ -175,14 +175,14 @@ async fn full_plugin_lifecycle_hooks_mcp_and_teardown() {
     // sidecar 工具可调用
     let out = state
         .tools
-        .invoke("demo_hello", serde_json::json!({}))
+        .invoke(&crate::tools::context::ToolContext::local_default(),"demo_hello", serde_json::json!({}))
         .expect("sidecar invoke");
     assert_eq!(out, "hello");
 
     // MCP 工具可调用（真实 JSON-RPC 往返）
     let mcp_out = state
         .tools
-        .invoke("mcp_echo", serde_json::json!({}))
+        .invoke(&crate::tools::context::ToolContext::local_default(),"mcp_echo", serde_json::json!({}))
         .expect("mcp invoke");
     assert_eq!(mcp_out, "mcp-e2e-ok");
 
@@ -470,7 +470,7 @@ done
     assert_eq!(
         state
             .tools
-            .invoke("mcp_demo_mcp_echo", serde_json::json!({}))
+            .invoke(&crate::tools::context::ToolContext::local_default(),"mcp_demo_mcp_echo", serde_json::json!({}))
             .unwrap(),
         "mcp-e2e-ok"
     );
@@ -564,7 +564,7 @@ done
     assert_eq!(
         state
             .tools
-            .invoke("mcp_demo_mcp_echo", serde_json::json!({}))
+            .invoke(&crate::tools::context::ToolContext::local_default(),"mcp_demo_mcp_echo", serde_json::json!({}))
             .unwrap(),
         "mcp-e2e-ok"
     );
@@ -581,7 +581,7 @@ done
     assert_eq!(
         state2
             .tools
-            .invoke("mcp_demo_mcp_echo", serde_json::json!({}))
+            .invoke(&crate::tools::context::ToolContext::local_default(),"mcp_demo_mcp_echo", serde_json::json!({}))
             .unwrap(),
         "mcp-e2e-ok"
     );
@@ -648,7 +648,7 @@ HTTPServer(('127.0.0.1', int(sys.argv[1])), H).serve_forever()
     assert_eq!(
         state
             .tools
-            .invoke("mcp_httpdemo_http_echo", serde_json::json!({}))
+            .invoke(&crate::tools::context::ToolContext::local_default(),"mcp_httpdemo_http_echo", serde_json::json!({}))
             .unwrap(),
         "http-mcp-e2e-ok"
     );
@@ -703,7 +703,7 @@ done
     assert_eq!(
         state
             .tools
-            .invoke("mcp_demo_mcp_echo", serde_json::json!({}))
+            .invoke(&crate::tools::context::ToolContext::local_default(),"mcp_demo_mcp_echo", serde_json::json!({}))
             .unwrap(),
         "mcp-e2e-ok"
     );
@@ -711,7 +711,7 @@ done
     // 触发崩溃：脚本退出 → 等 watchdog 自动重建（不手动驱动 cycle）
     let _ = state
         .tools
-        .invoke("mcp_demo_mcp_echo", serde_json::json!({ "crash": true }));
+        .invoke(&crate::tools::context::ToolContext::local_default(),"mcp_demo_mcp_echo", serde_json::json!({ "crash": true }));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     let mut recovered = false;
     while std::time::Instant::now() < deadline {
@@ -721,7 +721,7 @@ done
         {
             if let Ok(out) = state
                 .tools
-                .invoke("mcp_demo_mcp_echo", serde_json::json!({}))
+                .invoke(&crate::tools::context::ToolContext::local_default(),"mcp_demo_mcp_echo", serde_json::json!({}))
             {
                 if out == "mcp-e2e-ok" {
                     recovered = true;
@@ -750,7 +750,7 @@ async fn mcp_crash_recovers_via_watchdog() {
     assert_eq!(
         state
             .tools
-            .invoke("mcp_echo", serde_json::json!({}))
+            .invoke(&crate::tools::context::ToolContext::local_default(),"mcp_echo", serde_json::json!({}))
             .unwrap(),
         "mcp-e2e-ok"
     );
@@ -758,7 +758,7 @@ async fn mcp_crash_recovers_via_watchdog() {
     // 触发崩溃：脚本收到含 "crash" 的调用后退出（stdout EOF → alive=false）。
     let _ = state
         .tools
-        .invoke("mcp_echo", serde_json::json!({ "crash": true }));
+        .invoke(&crate::tools::context::ToolContext::local_default(),"mcp_echo", serde_json::json!({ "crash": true }));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while state.mcp_sessions.any_alive("com.example.e2e") {
         assert!(
@@ -790,7 +790,7 @@ async fn mcp_crash_recovers_via_watchdog() {
     assert_eq!(
         state
             .tools
-            .invoke("mcp_echo", serde_json::json!({}))
+            .invoke(&crate::tools::context::ToolContext::local_default(),"mcp_echo", serde_json::json!({}))
             .unwrap(),
         "mcp-e2e-ok"
     );
@@ -822,7 +822,7 @@ async fn mcp_degraded_stops_auto_restart() {
     // 先让会话崩溃，watchdog 轮应因 degraded 跳过（不重建）。
     let _ = state
         .tools
-        .invoke("mcp_echo", serde_json::json!({ "crash": true }));
+        .invoke(&crate::tools::context::ToolContext::local_default(),"mcp_echo", serde_json::json!({ "crash": true }));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while state.mcp_sessions.any_alive("com.example.e2e") {
         assert!(

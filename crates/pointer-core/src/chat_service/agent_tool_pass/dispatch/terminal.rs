@@ -28,6 +28,11 @@ use super::super::super::StreamTx;
 use super::super::types::ToolExecResult;
 
 fn resolve_terminal_session_workspace(conversation_id: &str, from_settings: String) -> String {
+    // light/container：该会话已经建过沙箱 → 直接用沙箱工作区。
+    // 这里必须按 conversation_id 查，不能靠 thread-local（分派线程上可能已丢绑定）。
+    if let Some(env) = crate::env::session_env::env_for_conversation(conversation_id) {
+        return env.workspace_root().display().to_string();
+    }
     // Shared with file tools so both always agree on the directory.
     crate::workspace_resolve::resolve_tool_workspace(
         conversation_id,
@@ -294,9 +299,12 @@ async fn run_terminal_foreground(
     let session_work_dir_for_blocking = session_workspace.clone();
     // thread-local 不跟随 spawn_blocking，必须先取出再在闭包里重放。
     let access_host_for_blocking = crate::access_host_env::current_access_host();
+    let conversation_id_for_blocking = conversation_id.to_string();
     let join = tokio::task::spawn_blocking(move || {
         let state = unsafe { &*(state_ptr as *const AppState) };
         let stream = unsafe { &*(stream_ptr as *const StreamTx) };
+        // 阻塞线程上没有 tokio 的线程局部：按会话缓存重放环境绑定。
+        let _env_guard = crate::env::session_env::bind_cached(&conversation_id_for_blocking);
 
         let (prompt_tx, prompt_rx) = std::sync::mpsc::channel::<TerminalNeedsInputPrompt>();
         let (res_tx, res_rx) = std::sync::mpsc::channel::<TerminalInputResolution>();

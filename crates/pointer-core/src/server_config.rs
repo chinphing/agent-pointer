@@ -182,6 +182,9 @@ struct ServerConfigToml {
     server: ServerSection,
     #[serde(default)]
     auth: AuthToml,
+    /// `[environment]`：执行环境档位 + 账号级覆盖（设计文档 §3.4）。
+    #[serde(default)]
+    environment: EnvironmentSection,
     #[serde(default)]
     license: LicenseSection,
     #[serde(default)]
@@ -208,6 +211,29 @@ struct ServerConfigToml {
 struct AuthToml {
     #[serde(default)]
     local: AuthLocalSection,
+    /// admin 账号名单（`session_user_id`）。命中者默认走 `local`（设计文档 §3.4）。
+    #[serde(default)]
+    admins: Option<Vec<String>>,
+}
+
+/// `[environment]`：执行环境档位（设计文档 §3.4）。
+#[derive(Debug, Default, Deserialize)]
+struct EnvironmentSection {
+    /// `local` | `light`。缺省按 `[deployment] mode` 派生。
+    #[serde(default)]
+    provider: Option<String>,
+    /// `provider = "light"` 时必填的沙箱控制面地址。
+    #[serde(default)]
+    sandbox_url: Option<String>,
+    /// e2b-local 的卷宿主目录（`docker.volume_host_path`）。有值走 `volumeMounts`。
+    #[serde(default)]
+    volume_host_path: Option<String>,
+    /// 沙箱模板镜像（e2b-local 的 `templateID`，Cube 的镜像名）。缺省 `debian:bookworm-slim`。
+    #[serde(default)]
+    template: Option<String>,
+    /// 账号级覆盖：`admin = "local"`、`alice = "light"`。
+    #[serde(default)]
+    accounts: HashMap<String, String>,
 }
 
 /// P2b：全局 MCP server 声明 + 配置文件所在目录（相对 command 的解析基准）。
@@ -352,6 +378,63 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
         base_dir,
         false,
     );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_ENVIRONMENT_PROVIDER",
+        parsed.environment.provider.as_deref().unwrap_or(""),
+        base_dir,
+        false,
+    );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_ENVIRONMENT_SANDBOX_URL",
+        parsed.environment.sandbox_url.as_deref().unwrap_or(""),
+        base_dir,
+        false,
+    );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_ENVIRONMENT_VOLUME_HOST_PATH",
+        parsed.environment.volume_host_path.as_deref().unwrap_or(""),
+        base_dir,
+        false,
+    );
+    push_mapped(
+        &mut pairs,
+        "POINTER_SERVER_ENVIRONMENT_TEMPLATE",
+        parsed.environment.template.as_deref().unwrap_or(""),
+        base_dir,
+        false,
+    );
+    if let Some(admins) = parsed.auth.admins.as_ref() {
+        let joined = admins
+            .iter()
+            .map(|a| a.trim())
+            .filter(|a| !a.is_empty())
+            .collect::<Vec<_>>()
+            .join(",");
+        if !joined.is_empty() {
+            pairs.push(("POINTER_SERVER_ADMIN_ACCOUNTS".to_string(), joined));
+        }
+    }
+    if !parsed.environment.accounts.is_empty() {
+        let mut names: Vec<&String> = parsed.environment.accounts.keys().collect();
+        names.sort();
+        let joined = names
+            .into_iter()
+            .filter_map(|k| {
+                parsed
+                    .environment
+                    .accounts
+                    .get(k)
+                    .map(|v| format!("{}={}", k.trim(), v.trim()))
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        if !joined.is_empty() {
+            pairs.push(("POINTER_SERVER_ENVIRONMENT_ACCOUNTS".to_string(), joined));
+        }
+    }
     push_mapped(
         &mut pairs,
         "POINTER_SERVER_ADMIN_USERNAME",
@@ -698,6 +781,90 @@ pub fn forbid_session_user_id_in_terminal() -> bool {
     std::env::var("POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL")
         .map(|v| v != "0" && v.to_ascii_lowercase() != "false")
         .unwrap_or(false)
+}
+
+const ENV_ENVIRONMENT_PROVIDER: &str = "POINTER_SERVER_ENVIRONMENT_PROVIDER";
+const ENV_ENVIRONMENT_SANDBOX_URL: &str = "POINTER_SERVER_ENVIRONMENT_SANDBOX_URL";
+const ENV_ENVIRONMENT_VOLUME_HOST_PATH: &str = "POINTER_SERVER_ENVIRONMENT_VOLUME_HOST_PATH";
+const ENV_ADMIN_ACCOUNTS: &str = "POINTER_SERVER_ADMIN_ACCOUNTS";
+const ENV_ENVIRONMENT_ACCOUNTS: &str = "POINTER_SERVER_ENVIRONMENT_ACCOUNTS";
+
+fn env_nonempty(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+/// 部署默认执行环境档位（`local` | `light`）。`None` = 按 `[deployment] mode` 派生。
+pub fn environment_provider() -> Option<String> {
+    env_nonempty(ENV_ENVIRONMENT_PROVIDER)
+}
+
+/// `provider = "light"` 时必填的沙箱控制面地址。
+/// 执行环境后端：`host` | `envd` | `docker`。缺省按档位推导。
+pub fn environment_backend() -> Option<String> {
+    env_nonempty("POINTER_SERVER_ENVIRONMENT_BACKEND")
+}
+
+pub fn environment_sandbox_url() -> Option<String> {
+    env_nonempty(ENV_ENVIRONMENT_SANDBOX_URL)
+}
+
+/// e2b-local 的卷宿主目录（`docker.volume_host_path`）。配了就发 `volumeMounts`。
+pub fn environment_volume_host_path() -> Option<String> {
+    env_nonempty(ENV_ENVIRONMENT_VOLUME_HOST_PATH)
+}
+
+/// 沙箱模板镜像名。缺省由 `RemoteSpec::default()` 给 `debian:bookworm-slim`。
+pub fn environment_template() -> Option<String> {
+    env_nonempty("POINTER_SERVER_ENVIRONMENT_TEMPLATE")
+}
+
+/// 沙箱资源配额：CPU 核数。缺省 `DEFAULT_SANDBOX_CPUS`。
+///
+/// 不给配额时单个容器能吃满宿主——一个用户跑飞就拖垮所有人。
+pub fn environment_cpus() -> Option<f32> {
+    env_nonempty("POINTER_SERVER_ENVIRONMENT_CPUS")
+        .and_then(|raw| raw.trim().parse::<f32>().ok())
+        .filter(|v| *v > 0.0)
+}
+
+/// 沙箱资源配额：内存 MB。缺省 `DEFAULT_SANDBOX_MEMORY_MB`。
+pub fn environment_memory_mb() -> Option<u32> {
+    env_nonempty("POINTER_SERVER_ENVIRONMENT_MEMORY_MB")
+        .and_then(|raw| raw.trim().parse::<u32>().ok())
+        .filter(|v| *v > 0)
+}
+
+/// 沙箱资源配额：磁盘 MB（仅 Linux + overlay2/xfs 生效）。缺省 `DEFAULT_SANDBOX_DISK_MB`。
+pub fn environment_disk_mb() -> Option<u32> {
+    env_nonempty("POINTER_SERVER_ENVIRONMENT_DISK_MB")
+        .and_then(|raw| raw.trim().parse::<u32>().ok())
+        .filter(|v| *v > 0)
+}
+
+/// admin 账号名单（`session_user_id`，逗号分隔）。命中者默认走 `local`。
+pub fn admin_accounts() -> Vec<String> {
+    env_nonempty(ENV_ADMIN_ACCOUNTS)
+        .map(|raw| parse_cors_origins(&raw))
+        .unwrap_or_default()
+}
+
+/// 账号级 provider 覆盖：`alice=light,bob=local`。
+pub fn environment_accounts() -> Vec<(String, String)> {
+    env_nonempty(ENV_ENVIRONMENT_ACCOUNTS)
+        .map(|raw| {
+            parse_cors_origins(&raw)
+                .into_iter()
+                .filter_map(|pair| {
+                    pair.split_once('=')
+                        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+                        .filter(|(k, v)| !k.is_empty() && !v.is_empty())
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 const ENV_CORS_ORIGINS: &str = "POINTER_SERVER_CORS_ORIGINS";

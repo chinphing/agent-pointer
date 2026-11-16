@@ -20,11 +20,29 @@ use anyhow::Result;
 
 use super::input::actions::MouseButton;
 
+pub mod docker;
 pub mod local;
 pub mod remote;
 
+pub use docker::DockerControl;
 pub use local::LocalControl;
 pub use remote::{RemoteControl, RemoteTransport};
+
+/// 按会话挑控制后端：container 档位走容器桌面，其余走宿主。
+///
+/// 这一步必须按会话解析——同一个进程里可能一个会话在沙箱里跑、
+/// 另一个在宿主跑。`fallback` 是宿主后端（进程级构造的那份）。
+pub fn control_for_conversation(
+    fallback: &std::sync::Arc<dyn ComputerControl>,
+    conversation_id: &str,
+) -> std::sync::Arc<dyn ComputerControl> {
+    if let Some(env) = crate::env::session_env::env_for_conversation(conversation_id) {
+        if env.kind() == crate::env::EnvKind::Container {
+            return std::sync::Arc::new(DockerControl::new(env));
+        }
+    }
+    fallback.clone()
+}
 
 /// The OSWorld `computer_13` actions plus screen observation.
 pub trait ComputerControl: Send + Sync {
@@ -94,4 +112,15 @@ pub trait ComputerControl: Send + Sync {
 
     /// Pointer position in logical screen pixels (diagnostics only).
     fn cursor_position(&self) -> Result<(i32, i32)>;
+
+    /// 写系统剪贴板。容器后端覆盖成容器内的 X 剪贴板——
+    /// 宿主剪贴板和容器剪贴板是两个世界，写错了粘贴出来就是空。
+    fn set_clipboard_text(&self, text: &str) -> Result<()> {
+        crate::platform::clipboard::write_text(text)
+    }
+
+    /// 读系统剪贴板（用于粘贴后恢复原内容）。
+    fn get_clipboard_text(&self) -> Result<Option<String>> {
+        Ok(crate::platform::clipboard::read_text().ok())
+    }
 }

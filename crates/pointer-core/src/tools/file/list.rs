@@ -1,10 +1,9 @@
 use super::path::{path_display_abs, resolve_existing_read_path};
 use super::{json_u64_opt_keys, DEFAULT_LIST_ENTRIES, MAX_LIST_ENTRIES, MAX_WALK_DEPTH};
+use crate::env::{effective_env, WalkOptions};
 use anyhow::{anyhow, Result};
 use log::{info, warn};
-use std::fs;
 use std::path::Path;
-use walkdir::WalkDir;
 
 pub(crate) fn list_entry_type_allowed(is_dir: bool, type_filter: &str) -> bool {
     match type_filter.trim().to_ascii_lowercase().as_str() {
@@ -55,30 +54,36 @@ pub(crate) fn execute_file_list_payload(args: &serde_json::Value, root: &Path) -
         .unwrap_or("all");
 
     let base = resolve_existing_read_path(root, path_str, "list")?;
-    if !base.is_dir() {
+    let env = effective_env();
+    if !env.metadata(&base).map(|m| m.is_dir).unwrap_or(false) {
         return Err(anyhow!("不是目录: {}", base.display()));
     }
-    let base_canon = base
-        .canonicalize()
+    let base_canon = env
+        .canonicalize(&base)
         .map_err(|e| anyhow!("无法解析目录: {e}"))?;
 
     let mut entries: Vec<serde_json::Value> = Vec::new();
     let mut truncated = false;
 
     if !recursive {
-        for entry in fs::read_dir(&base_canon).map_err(|e| anyhow!("读取目录失败: {e}"))? {
+        for entry in env
+            .list_dir(&base_canon)
+            .map_err(|e| anyhow!("读取目录失败: {e}"))?
+        {
             if entries.len() >= max_results {
                 truncated = true;
                 break;
             }
-            let entry = entry.map_err(|e| anyhow!("{e}"))?;
-            let p = entry.path();
-            let meta = entry.metadata().map_err(|e| anyhow!("{e}"))?;
-            let is_dir = meta.is_dir();
+            // 符号链接按目标类型判定，与旧 `entry.metadata()` 一致。
+            let is_dir = if entry.is_symlink {
+                env.metadata(&entry.path).map(|m| m.is_dir).unwrap_or(false)
+            } else {
+                entry.is_dir
+            };
             if !list_entry_type_allowed(is_dir, type_filter) {
                 continue;
             }
-            let path_abs = path_display_abs(&p);
+            let path_abs = path_display_abs(&entry.path);
             entries.push(serde_json::json!({
                 "path": path_abs,
                 "kind": if is_dir { "directory" } else { "file" }
@@ -86,27 +91,30 @@ pub(crate) fn execute_file_list_payload(args: &serde_json::Value, root: &Path) -
         }
     } else {
         let walk_cap = max_depth.max(1);
-        for wd in WalkDir::new(&base_canon)
-            .max_depth(walk_cap)
-            .into_iter()
-            .filter_map(|e| e.ok())
+        // `file_list` 的语义是"这里有什么"：隐藏项与 `.git` 都要列出来（与旧 walkdir 行为一致），
+        // 只有 grep / glob 才按 hidden / gitignore 过滤。
+        for wd in env
+            .walk(
+                &base_canon,
+                WalkOptions::new(walk_cap)
+                    .with_hidden(true)
+                    .with_git_metadata(false),
+            )
+            .map_err(|e| anyhow!("{e}"))?
         {
             if entries.len() >= max_results {
                 truncated = true;
                 break;
             }
-            if wd.depth() == 0 {
-                continue;
-            }
-            let p = wd.path();
-            let is_dir = p.is_dir();
-            if !p.is_file() && !is_dir {
-                continue;
-            }
+            let is_dir = if wd.is_symlink {
+                env.metadata(&wd.path).map(|m| m.is_dir).unwrap_or(false)
+            } else {
+                wd.is_dir
+            };
             if !list_entry_type_allowed(is_dir, type_filter) {
                 continue;
             }
-            let path_abs = path_display_abs(p);
+            let path_abs = path_display_abs(&wd.path);
             entries.push(serde_json::json!({
                 "path": path_abs,
                 "kind": if is_dir { "directory" } else { "file" }

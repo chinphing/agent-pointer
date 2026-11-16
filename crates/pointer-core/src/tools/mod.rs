@@ -1,5 +1,6 @@
 pub mod ask_user;
 pub mod builtin;
+pub mod context;
 pub mod cron_job;
 pub mod display;
 pub mod file;
@@ -682,7 +683,15 @@ impl ToolRegistry {
         out
     }
 
-    pub fn invoke(&self, name: &str, args: serde_json::Value) -> Result<String> {
+    pub fn invoke(
+        &self,
+        ctx: &crate::tools::context::ToolContext,
+        name: &str,
+        args: serde_json::Value,
+    ) -> Result<String> {
+        // 上下文 + 执行环境在**本次调用期间**挂到当前线程，工具体内部照旧用
+        // `env::effective_env()` 即可拿到会话环境；返回即恢复，不残留到线程复用。
+        let _ctx_guard = crate::tools::context::ToolContextGuard::enter(ctx.clone());
         let g = self.inner.read();
         let entry = g
             .get(name)
@@ -1432,7 +1441,7 @@ mod invoke_panic_tests {
         ));
 
         let err = registry
-            .invoke("panicking_tool", serde_json::json!({}))
+            .invoke(&crate::tools::context::ToolContext::local_default(),"panicking_tool", serde_json::json!({}))
             .expect_err("panic must surface as an error, not unwind");
         let text = err.to_string();
         assert!(text.contains("panicking_tool"), "{text}");
@@ -1462,11 +1471,11 @@ mod invoke_panic_tests {
         ));
 
         assert!(registry
-            .invoke("panicking_tool", serde_json::json!({}))
+            .invoke(&crate::tools::context::ToolContext::local_default(),"panicking_tool", serde_json::json!({}))
             .is_err());
         assert_eq!(
             registry
-                .invoke("healthy_tool", serde_json::json!({}))
+                .invoke(&crate::tools::context::ToolContext::local_default(),"healthy_tool", serde_json::json!({}))
                 .expect("healthy tool"),
             "ok"
         );

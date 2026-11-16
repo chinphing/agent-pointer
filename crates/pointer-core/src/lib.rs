@@ -18,6 +18,7 @@ pub mod deployment_mode;
 pub mod dispatcher;
 pub mod dotenv;
 pub mod edition;
+pub mod env;
 pub mod env_prompt;
 pub mod i18n;
 pub mod extensions;

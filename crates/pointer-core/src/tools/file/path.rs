@@ -1,8 +1,23 @@
 use anyhow::{anyhow, Result};
 use globset::{Glob, GlobSetBuilder};
 use std::cell::RefCell;
-use std::fs;
 use std::path::{Component, Path, PathBuf};
+
+use crate::env::{current_env, ReadScope, WriteScope};
+
+/// 当前生效的读权限范围。未绑定环境（local 直跑）时为 [`ReadScope::Host`]。
+fn effective_read_scope() -> ReadScope {
+    current_env()
+        .map(|env| env.capabilities().read_scope)
+        .unwrap_or(ReadScope::Host)
+}
+
+/// 当前生效的写权限范围。未绑定环境（local 直跑）时为 [`WriteScope::Host`]。
+fn effective_write_scope() -> WriteScope {
+    current_env()
+        .map(|env| env.capabilities().write_scope)
+        .unwrap_or(WriteScope::Host)
+}
 
 // Predefined file type globs (align with ripgrep; small curated set).
 const FILE_TYPE_GLOBS: &[(&str, &[&str])] = &[
@@ -202,9 +217,50 @@ impl Drop for AgentWorkspaceGuard {
     }
 }
 
+
+// ---------------------------------------------------------------------------
+// 环境感知的路径判定
+//
+// light/container 档位的工作区是**沙箱路径**（`/workspace`），宿主上并不存在；
+// 直接用 `Path::is_dir()` / `canonicalize()` 会误判成"工作区不存在"，让文件工具全线失败。
+// 因此非 Local 档位一律走 `Environment`，且不再做宿主 canonicalize（沙箱路径已规范化）。
+// ---------------------------------------------------------------------------
+
+fn env_is_dir(path: &Path) -> bool {
+    let env = crate::env::effective_env();
+    if env.kind() == crate::env::EnvKind::Local {
+        path.is_dir()
+    } else {
+        env.metadata(path).map(|m| m.is_dir).unwrap_or(false)
+    }
+}
+
+fn env_exists(path: &Path) -> bool {
+    let env = crate::env::effective_env();
+    if env.kind() == crate::env::EnvKind::Local {
+        path.exists()
+    } else {
+        env.exists(path)
+    }
+}
+
+fn env_canonicalize(path: &Path) -> PathBuf {
+    let env = crate::env::effective_env();
+    if env.kind() == crate::env::EnvKind::Local {
+        path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    } else {
+        path.to_path_buf()
+    }
+}
+
 pub fn workspace_root_from_override_or_settings() -> String {
     CONVERSATION_WORKSPACE_ROOT
         .with(|c| c.borrow().clone())
+        .or_else(|| {
+            // 会话绑定环境时以环境的工作区为准（沙箱内路径）。
+            crate::env::current_env()
+                .map(|env| env.workspace_root().display().to_string())
+        })
         .unwrap_or_else(|| {
             crate::platform_config::effective_settings_global()
                 .workspace_root
@@ -235,14 +291,13 @@ pub fn resolve_tool_workspace_root() -> Result<PathBuf> {
         ));
     }
     let p = PathBuf::from(raw);
-    if !p.is_dir() {
+    if !env_is_dir(&p) {
         return Err(anyhow!("工作区目录无效或不存在: {}", raw));
     }
     if is_filesystem_root(&p) {
         return Err(anyhow!("工作区不能是文件系统根: {}", raw));
     }
-    p.canonicalize()
-        .map_err(|e| anyhow!("无法解析工作区路径: {e}"))
+    Ok(env_canonicalize(&p))
 }
 
 fn is_filesystem_root(path: &Path) -> bool {
@@ -279,9 +334,23 @@ fn push_writable_root(roots: &mut Vec<PathBuf>, path: PathBuf, pinned: Option<&P
 /// disappear from the list and break any consumer that assumes `roots[0]` is the workspace.
 pub fn writable_path_roots(workspace_root: &Path) -> Result<Vec<PathBuf>> {
     let mut roots = Vec::new();
-    let ws = workspace_root
-        .canonicalize()
-        .map_err(|e| anyhow!("工作区根无效: {e}"))?;
+    let ws = env_canonicalize(workspace_root);
+    // 环境收口：非 Host 档位只放开工作区（及用户目录），不再列出 temp / desktop 等宿主目录。
+    match effective_write_scope() {
+        WriteScope::None => return Err(anyhow!("当前环境不允许写文件")),
+        WriteScope::Workspace => return Ok(vec![ws]),
+        WriteScope::User => {
+            let mut scoped = vec![ws.clone()];
+            if let Some(home) = dirs::home_dir() {
+                let home = env_canonicalize(&home);
+                if !home.starts_with(&ws) {
+                    scoped.push(home);
+                }
+            }
+            return Ok(scoped);
+        }
+        WriteScope::Host => {}
+    }
     push_writable_root(&mut roots, ws.clone(), None);
     let pinned = roots.first().cloned();
     let pinned_ref = pinned.as_deref();
@@ -326,10 +395,8 @@ fn resolve_absolute_under_roots(roots: &[PathBuf], abs: &Path) -> Result<PathBuf
         if probe.as_os_str().is_empty() {
             return Err(anyhow!("绝对路径不在允许的写入目录内"));
         }
-        if probe.exists() {
-            let base = probe
-                .canonicalize()
-                .map_err(|e| anyhow!("绝对路径无效: {e}"))?;
+        if env_exists(&probe) {
+            let base = env_canonicalize(&probe);
             if !path_under_any_root(&base, roots) {
                 return Err(anyhow!("绝对路径不在允许的写入目录内"));
             }
@@ -408,9 +475,7 @@ fn resolve_relative_under_workspace(root: &Path, user_path: &str) -> Result<Path
 /// standard user data dirs, or Pointer app data.
 pub fn resolve_writable_path(workspace_root: &Path, user_path: &str) -> Result<PathBuf> {
     let roots = writable_path_roots(workspace_root)?;
-    let workspace = workspace_root
-        .canonicalize()
-        .map_err(|e| anyhow!("工作区根无效: {e}"))?;
+    let workspace = env_canonicalize(workspace_root);
     let expanded = expand_user_path_for_file(user_path)?;
     if expanded.is_empty() {
         return Err(anyhow!("路径不能为空"));
@@ -436,9 +501,7 @@ pub fn resolve_writable_path(workspace_root: &Path, user_path: &str) -> Result<P
 /// The target file (or missing parent dirs) may not exist yet; resolution walks up to an
 fn resolve_absolute_under_workspace(root: &Path, abs: &Path) -> Result<PathBuf> {
     resolve_absolute_under_roots(
-        &[root
-            .canonicalize()
-            .map_err(|e| anyhow!("工作区根无效: {e}"))?],
+        &[env_canonicalize(root)],
         abs,
     )
 }
@@ -446,9 +509,7 @@ fn resolve_absolute_under_workspace(root: &Path, abs: &Path) -> Result<PathBuf> 
 /// Resolve `user_path` (relative to root, or absolute but must stay under canonical `root`).
 /// Rejects traversal outside root.
 pub fn resolve_within_workspace_root(root: &Path, user_path: &str) -> Result<PathBuf> {
-    let root = root
-        .canonicalize()
-        .map_err(|e| anyhow!("工作区根无效: {e}"))?;
+    let root = env_canonicalize(root);
     let user_path = normalize_user_fspath(user_path);
     if user_path.is_empty() {
         return Err(anyhow!("路径不能为空"));
@@ -555,15 +616,15 @@ fn listing_base_for_missing_path(
     if path.is_absolute() {
         let mut probe = path.to_path_buf();
         loop {
-            if probe.exists() && probe.is_dir() {
-                let base = probe.canonicalize().unwrap_or(probe);
+            if env_exists(&probe) && env_is_dir(&probe) {
+                let base = env_canonicalize(&probe);
                 return Some((base, want));
             }
             if !probe.pop() {
                 break;
             }
         }
-        let ws = workspace_root.canonicalize().ok()?;
+        let ws = env_canonicalize(workspace_root);
         let probe_str = user_path.replace('\\', "/");
         let ws_str = ws.to_string_lossy().replace('\\', "/");
         if probe_str.starts_with(&ws_str) {
@@ -571,7 +632,7 @@ fn listing_base_for_missing_path(
         }
         None
     } else {
-        let root = workspace_root.canonicalize().ok()?;
+        let root = env_canonicalize(workspace_root);
         let base = path
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
@@ -587,49 +648,59 @@ fn collect_path_hints(workspace_root: &Path, user_path: &str) -> Vec<String> {
     let Some((list_base, want)) = listing_base_for_missing_path(workspace_root, user_path) else {
         return Vec::new();
     };
-    let Ok(entries) = fs::read_dir(&list_base) else {
+    let env = current_env_for_hints();
+    let Ok(entries) = env.list_dir(&list_base) else {
         return Vec::new();
+    };
+    let is_dir_of = |entry: &crate::env::DirEntry| -> Option<bool> {
+        if entry.is_symlink {
+            env.metadata(&entry.path).ok().map(|m| m.is_dir)
+        } else {
+            Some(entry.is_dir)
+        }
     };
 
     let mut scored: Vec<(u32, String)> = Vec::new();
-    for entry in entries.flatten() {
-        let p = entry.path();
-        let name = entry.file_name().to_string_lossy().to_string();
+    for entry in &entries {
+        let name = entry.name.clone();
         if name.starts_with('.') {
             continue;
         }
-        let score = if p.is_dir() {
-            path_name_similarity(&want, &name)
-        } else if p.is_file() {
-            path_name_similarity(&want, &name).saturating_add(10)
-        } else {
+        let Some(is_dir) = is_dir_of(entry) else {
             continue;
         };
+        let score = if is_dir {
+            path_name_similarity(&want, &name)
+        } else {
+            path_name_similarity(&want, &name).saturating_add(10)
+        };
         if score < u32::MAX {
-            scored.push((score, path_display_abs(&p)));
+            scored.push((score, path_display_abs(&entry.path)));
         }
     }
     scored.sort_by_key(|(s, p)| (*s, p.clone()));
     scored.dedup_by(|a, b| a.1 == b.1);
     if scored.is_empty() {
-        if let Ok(entries) = fs::read_dir(&list_base) {
-            for entry in entries.flatten() {
-                if scored.len() >= MAX_PATH_HINTS {
-                    break;
-                }
-                let p = entry.path();
-                if p.is_dir() {
-                    let name = entry.file_name().to_string_lossy().into_owned();
-                    if !name.starts_with('.') {
-                        scored.push((u32::MAX, path_display_abs(&p)));
-                    }
-                }
+        for entry in &entries {
+            if scored.len() >= MAX_PATH_HINTS {
+                break;
+            }
+            if entry.name.starts_with('.') {
+                continue;
+            }
+            if is_dir_of(entry) == Some(true) {
+                scored.push((u32::MAX, path_display_abs(&entry.path)));
             }
         }
     } else {
         scored.truncate(MAX_PATH_HINTS);
     }
     scored.into_iter().map(|(_, p)| p).collect()
+}
+
+/// 路径提示只需要一个能列目录的环境句柄（未绑定会话环境时用进程级 local）。
+fn current_env_for_hints() -> std::sync::Arc<dyn crate::env::Environment> {
+    crate::env::effective_env()
 }
 
 pub(crate) fn path_error_with_hints(
@@ -678,10 +749,10 @@ pub(crate) fn path_display_for_read_request(workspace_root: &Path, path_str: &st
 
 /// Resolve paths for **read-only** `file` methods. Relative paths must stay under `workspace_root`.
 /// **Absolute** paths are canonicalized as-is so other projects can be read when the user provides them.
+///
+/// 绑定非 Host 读权限的环境时，绝对路径必须落在允许范围内（工作区 / 用户目录）。
 pub fn resolve_accessible_path(workspace_root: &Path, user_path: &str) -> Result<PathBuf> {
-    let workspace_root = workspace_root
-        .canonicalize()
-        .map_err(|e| anyhow!("工作区根无效: {e}"))?;
+    let workspace_root = env_canonicalize(workspace_root);
     let user_path = expand_user_path_for_file(user_path)?;
     if user_path.is_empty() {
         return Err(anyhow!("路径不能为空"));
@@ -691,16 +762,45 @@ pub fn resolve_accessible_path(workspace_root: &Path, user_path: &str) -> Result
     }
     let path = Path::new(user_path.as_str());
     if path.is_absolute() {
-        return path
-            .canonicalize()
-            .map_err(|e| anyhow!("路径无效或不存在: {e}"));
+        let env = crate::env::effective_env();
+        if !env.exists(path) {
+            return Err(anyhow!("路径无效或不存在: {}", path.display()));
+        }
+        let resolved = env_canonicalize(path);
+        if !read_allowed(&resolved, &workspace_root) {
+            return Err(anyhow!("路径不在当前环境允许读取的范围内"));
+        }
+        return Ok(resolved);
     }
     resolve_within_workspace_root(&workspace_root, user_path.as_str())
+}
+
+fn read_allowed(resolved: &Path, workspace_root: &Path) -> bool {
+    match effective_read_scope() {
+        ReadScope::Host => true,
+        ReadScope::None => false,
+        ReadScope::Workspace => resolved.starts_with(workspace_root),
+        ReadScope::User => {
+            if resolved.starts_with(workspace_root) {
+                return true;
+            }
+            dirs::home_dir().is_some_and(|home| {
+                let home = home.canonicalize().unwrap_or(home);
+                resolved.starts_with(home)
+            })
+        }
+    }
 }
 
 #[cfg(test)]
 mod resolve_root_tests {
     use super::*;
+    use crate::env::{Capabilities, Environment, EnvironmentGuard, LocalEnv};
+    use std::sync::Arc;
+
+    fn bind(env: LocalEnv) -> EnvironmentGuard {
+        EnvironmentGuard::enter(Arc::new(env) as Arc<dyn Environment>)
+    }
 
     #[test]
     fn resolve_tool_workspace_root_uses_conversation_guard() {
@@ -718,5 +818,80 @@ mod resolve_root_tests {
         let _g = ConversationWorkspaceGuard::enter("/".into());
         let err = resolve_tool_workspace_root().unwrap_err().to_string();
         assert!(err.contains("文件系统根"), "{err}");
+    }
+
+    #[test]
+    fn resolve_tool_workspace_root_prefers_bound_environment() {
+        let dir = tempfile::tempdir().unwrap();
+        let _g = bind(LocalEnv::new(dir.path()));
+        let got = resolve_tool_workspace_root().unwrap();
+        assert_eq!(got, dir.path().canonicalize().unwrap());
+    }
+
+    #[test]
+    fn conversation_override_still_wins_over_bound_environment() {
+        let env_dir = tempfile::tempdir().unwrap();
+        let override_dir = tempfile::tempdir().unwrap();
+        let _env = bind(LocalEnv::new(env_dir.path()));
+        let _g = ConversationWorkspaceGuard::enter(override_dir.path().display().to_string());
+        let got = resolve_tool_workspace_root().unwrap();
+        assert_eq!(got, override_dir.path().canonicalize().unwrap());
+    }
+
+    #[test]
+    fn workspace_read_scope_rejects_absolute_paths_outside_workspace() {
+        let ws = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_file = outside.path().join("secret.txt");
+        std::fs::write(&outside_file, b"x").unwrap();
+        let inside_file = ws.path().join("inside.txt");
+        std::fs::write(&inside_file, b"y").unwrap();
+
+        let _g = bind(LocalEnv::new(ws.path()).with_capabilities(Capabilities {
+            read_scope: ReadScope::Workspace,
+            ..Capabilities::local()
+        }));
+
+        assert!(resolve_accessible_path(ws.path(), inside_file.to_str().unwrap()).is_ok());
+        let err = resolve_accessible_path(ws.path(), outside_file.to_str().unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("允许读取"), "{err}");
+    }
+
+    #[test]
+    fn workspace_write_scope_narrows_writable_roots_to_workspace() {
+        let ws = tempfile::tempdir().unwrap();
+        let _g = bind(LocalEnv::new(ws.path()).with_capabilities(Capabilities {
+            write_scope: WriteScope::Workspace,
+            ..Capabilities::local()
+        }));
+        let roots = writable_path_roots(ws.path()).unwrap();
+        assert_eq!(roots, vec![ws.path().canonicalize().unwrap()]);
+        // 工作区外的绝对路径不再可写。
+        let outside = tempfile::tempdir().unwrap();
+        let outside_file = outside.path().join("x.txt");
+        assert!(
+            resolve_writable_path(ws.path(), outside_file.to_str().unwrap()).is_err()
+        );
+    }
+
+    #[test]
+    fn write_scope_none_rejects_all_writes() {
+        let ws = tempfile::tempdir().unwrap();
+        let _g = bind(LocalEnv::new(ws.path()).with_capabilities(Capabilities {
+            write_scope: WriteScope::None,
+            ..Capabilities::local()
+        }));
+        let err = writable_path_roots(ws.path()).unwrap_err().to_string();
+        assert!(err.contains("不允许写"), "{err}");
+    }
+
+    #[test]
+    fn unbound_environment_keeps_host_write_roots() {
+        let ws = tempfile::tempdir().unwrap();
+        let roots = writable_path_roots(ws.path()).unwrap();
+        assert!(roots.len() > 1, "未绑定环境时应保持宿主写入根: {roots:?}");
+        assert_eq!(roots[0], ws.path().canonicalize().unwrap());
     }
 }

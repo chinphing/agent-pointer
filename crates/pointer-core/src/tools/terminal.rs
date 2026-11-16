@@ -165,8 +165,19 @@ pub(crate) fn effective_terminal_cwd(
     let trimmed = session_workspace.trim();
     if !trimmed.is_empty() {
         let p = PathBuf::from(trimmed);
-        if !p.is_dir() {
+        // light/container：工作区是沙箱路径（`/workspace`），宿主上不存在，
+        // 判定必须走 Environment，否则每次 terminal 都报"工作区不存在"。
+        let env = crate::env::effective_env();
+        let is_dir = if env.kind() == crate::env::EnvKind::Local {
+            p.is_dir()
+        } else {
+            env.metadata(&p).map(|m| m.is_dir).unwrap_or(false)
+        };
+        if !is_dir {
             return Err(anyhow!("工作区目录无效或不存在: {trimmed}"));
+        }
+        if env.kind() != crate::env::EnvKind::Local {
+            return Ok(normalize_terminal_cwd(p));
         }
         return p
             .canonicalize()
@@ -210,19 +221,7 @@ pub(crate) fn strip_windows_extended_path_prefix(path: String) -> String {
 /// 因此对**进程组**发 `SIGKILL` 才能连同孙进程一起终止 —— `sh -lc` 会为管道、
 /// 后台任务、常驻服务等 fork 出子进程，只杀 shell 会把它们变成孤儿。
 pub(crate) fn kill_terminal_child_tree_best_effort(child: &mut std::process::Child) {
-    #[cfg(windows)]
-    {
-        let pid = child.id();
-        if pid > 0 {
-            let _ = Command::new("taskkill.exe")
-                .args(["/PID", &pid.to_string(), "/T", "/F"])
-                .creation_flags(CREATE_NO_WINDOW)
-                .status();
-        }
-    }
-    #[cfg(unix)]
-    kill_unix_process_group(child.id());
-    let _ = child.kill();
+    crate::env::process::kill_tree(child);
 }
 
 /// `SIGKILL` 整个进程组。terminal 子进程是该组的组长（`process_group(0)` /
@@ -230,25 +229,14 @@ pub(crate) fn kill_terminal_child_tree_best_effort(child: &mut std::process::Chi
 /// `ESRCH`，忽略即可。
 #[cfg(unix)]
 pub(crate) fn kill_unix_process_group(pid: u32) {
-    if pid == 0 || pid > i32::MAX as u32 {
-        return;
-    }
-    // SAFETY: negative pid = "signal the process group"; no memory is touched.
-    unsafe {
-        libc::kill(-(pid as i32), libc::SIGKILL);
-    }
+    crate::env::process::kill_group(pid);
 }
 
 /// 让 terminal 子进程成为独立进程组的组长，使取消/超时能一次终止整棵树
 /// （见 `kill_terminal_child_tree_best_effort`）。
-#[cfg(unix)]
 fn configure_terminal_process_group(cmd: &mut Command) {
-    use std::os::unix::process::CommandExt;
-    cmd.process_group(0);
+    crate::env::process::configure_process_group(cmd);
 }
-
-#[cfg(not(unix))]
-fn configure_terminal_process_group(_cmd: &mut Command) {}
 
 fn run_terminal_command(args: serde_json::Value) -> Result<String> {
     let command = args
@@ -335,6 +323,12 @@ pub fn run_terminal_command_streaming(
     }
 
     if terminal_requests_elevation(&args) {
+        // 提权是宿主概念：沙箱里没有 sudo/管理员会话，直接说明而不是尝试宿主提权。
+        if crate::env::effective_env().kind() != crate::env::EnvKind::Local {
+            return Err(anyhow!(
+                "当前执行环境（light/container）不支持提权命令：请在沙箱内用普通权限完成，或让用户在本机执行"
+            ));
+        }
         return run_terminal_command_elevated(
             args,
             session_workspace,
@@ -360,6 +354,58 @@ pub fn run_terminal_command_streaming(
         max_output_bytes
     );
 
+    // light/container 档位：命令在环境内执行，不经宿主 shell / PTY。
+    // 宿主 spawn 会把命令跑在本机（工作区在沙箱里根本不存在）。
+    let active_env = crate::env::effective_env();
+    if active_env.kind() != crate::env::EnvKind::Local {
+        let started = std::time::Instant::now();
+        let opts = crate::env::ExecOptions {
+            cwd: Some(cwd.clone()),
+            stdin: args
+                .get("stdin")
+                .and_then(|v| v.as_str())
+                .map(|s| s.as_bytes().to_vec()),
+            timeout: Some(Duration::from_millis(timeout_ms.max(1))),
+            max_output_bytes: Some(max_output_bytes),
+            ..Default::default()
+        };
+        let argv = vec![
+            "/bin/sh".to_string(),
+            "-lc".to_string(),
+            command.to_string(),
+        ];
+        let out = active_env.exec(&argv, opts)?;
+        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        if !stdout.is_empty() {
+            on_output(&stdout);
+        }
+        if !stderr.is_empty() {
+            on_output(&stderr);
+        }
+        let duration_ms = started.elapsed().as_millis() as u64;
+        return Ok(TerminalStreamingResult {
+            exit_code: Some(out.status),
+            success: out.status == 0 && !out.timed_out,
+            timed_out: out.timed_out,
+            cancelled: false,
+            run_aborted: false,
+            elevation_denied: false,
+            needs_input_likely: false,
+            input_hint: None,
+            input_class: InputClass::Normal,
+            agent_retry_forbidden: false,
+            user_input_provided: false,
+            input_dismissed: false,
+            waited_for_input_ms: 0,
+            duration_ms,
+            stdout,
+            stderr,
+            stdout_truncated: out.stdout_truncated,
+            stderr_truncated: out.stderr_truncated,
+        });
+    }
+
     let wait_for_input_ms = args
         .get("waitForInputMs")
         .and_then(|v| v.as_u64())
@@ -368,7 +414,11 @@ pub fn run_terminal_command_streaming(
 
     let env_file_paths = resolve_terminal_env_files(&args, Some(cwd.as_path()))?;
 
-    crate::shell_env::refresh_process_path_from_registry();
+    // 只在 Host 档位刷新进程 PATH：light/container 的命令跑在环境里，
+    // 宿主 PATH 与它无关（Windows 注册表刷新是进程级副作用）。
+    if crate::env::effective_env().kind() == crate::env::EnvKind::Local {
+        crate::shell_env::refresh_process_path_from_registry();
+    }
 
     let paths: Vec<PathBuf> = env_file_paths.iter().map(PathBuf::from).collect();
     let stdin_text = args
@@ -1115,21 +1165,21 @@ fn terminal_shell_command(command: &str) -> (&'static str, Command) {
     };
 
     if let Some((flag, script)) = parse_direct_cmd_invocation(command) {
-        let mut cmd = Command::new("cmd.exe");
+        let mut cmd = crate::env::process::command("cmd.exe");
         cmd.arg(flag).arg(prefix_cmd_utf8_codepage(&script));
         return ("cmd.exe (direct /C)", cmd);
     }
     if let Some((exe, args)) = parse_direct_powershell_invocation(command) {
-        let mut cmd = Command::new(exe);
+        let mut cmd = crate::env::process::command(exe);
         cmd.args(wrap_powershell_args_with_utf8(args));
         return ("powershell (direct)", cmd);
     }
     if windows_command_uses_explicit_shell(command) {
-        let mut cmd = Command::new("cmd.exe");
+        let mut cmd = crate::env::process::command("cmd.exe");
         cmd.arg("/C").arg(prefix_cmd_utf8_codepage(command));
         return ("cmd.exe /C (explicit shell fallback)", cmd);
     }
-    let mut cmd = Command::new("powershell");
+    let mut cmd = crate::env::process::command("powershell");
     cmd.arg("-ExecutionPolicy")
         .arg("Bypass")
         .arg("-Command")
@@ -1139,7 +1189,7 @@ fn terminal_shell_command(command: &str) -> (&'static str, Command) {
 
 #[cfg(not(windows))]
 fn terminal_shell_command(command: &str) -> (&'static str, Command) {
-    let mut cmd = Command::new("sh");
+    let mut cmd = crate::env::process::command("sh");
     cmd.arg("-lc").arg(command);
     ("sh -lc", cmd)
 }

@@ -61,7 +61,6 @@ import {
   uploadAbortedMessage
 } from '../../lib/multipartUpload'
 import { withRetries } from '../../lib/retry'
-import { isMediaOssConfigured, uploadComposerVideoToOss, formatVideoOssInvokeError, getMediaOssUploadStatus } from '../../lib/videoOssUpload'
 import OutboundQueuePanel from './OutboundQueuePanel.vue'
 import AskUserBanner from './AskUserBanner.vue'
 import BackgroundJobsPanel from './BackgroundJobsPanel.vue'
@@ -767,104 +766,8 @@ async function resolveComposerVideoPreviewUrl(
   return undefined
 }
 
-async function startVideoOssUpload(
-  attachment: ComposerAttachment,
-  file: File,
-  localPath: string | undefined,
-  compress: boolean
-) {
-  videoCompressByAttachmentId.set(attachment.id, compress)
-  const signal = beginAttachmentUpload(attachment.id)
-  updateComposerAttachment(attachment.id, {
-    uploadState: compress ? 'compressing' : 'uploading',
-    uploadProgress: 0,
-    uploadError: undefined
-  })
-  try {
-    const result = await withRetries(
-      async () =>
-        await uploadComposerVideoToOss(
-          attachment.id,
-          file,
-          localPath,
-          progress => {
-            if (signal.aborted) return
-            updateComposerAttachment(attachment.id, {
-              uploadProgress: progress.percent,
-              uploadState: 'uploading',
-              uploadError: undefined
-            })
-          },
-          { compress, conversationId: chat.current?.id, signal }
-        ),
-      {
-        onRetry: (_err, nextAttempt) => {
-          if (signal.aborted) return
-          updateComposerAttachment(attachment.id, {
-            uploadState: 'uploading',
-            uploadProgress: 0,
-            uploadError: t('chat.retryingUpload', { attempt: nextAttempt })
-          })
-        }
-      }
-    )
-    if (signal.aborted) throw new Error(UPLOAD_ABORTED_MESSAGE)
-    if (!isActiveAttachmentUpload(attachment.id, signal)) return
-    const previewUrl = await resolveComposerVideoPreviewUrl(
-      result.storageRelPath,
-      localPath
-    )
-    if (signal.aborted) throw new Error(UPLOAD_ABORTED_MESSAGE)
-    if (!isActiveAttachmentUpload(attachment.id, signal)) return
-    updateComposerAttachment(attachment.id, {
-      remoteUrl: result.remoteUrl,
-      ossObjectKey: result.ossObjectKey,
-      storageRelPath: result.storageRelPath,
-      ...(previewUrl ? { previewUrl } : {}),
-      uploadState: 'done',
-      uploadProgress: 100,
-      uploadError: undefined
-    })
-  } catch (err) {
-    if (isUploadAbortedError(err)) {
-      console.info('[composer] video upload cancelled', attachment.id)
-    } else {
-      console.error('video OSS upload failed', err)
-    }
-    if (!composerAttachments.value.some(a => a.id === attachment.id)) return
-    if (!isActiveAttachmentUpload(attachment.id, signal)) return
-    updateComposerAttachment(attachment.id, {
-      uploadState: 'error',
-      uploadError: isUploadAbortedError(err)
-        ? uploadAbortedMessage()
-        : formatVideoOssInvokeError(err)
-    })
-  } finally {
-    endAttachmentUpload(attachment.id, signal)
-  }
-}
-
-async function ensureVideoOssReady(): Promise<string | null> {
-  if (isTauriRuntime()) {
-    await settings.load()
-    const status = await getMediaOssUploadStatus()
-    if (!status.configured) {
-      return status.message ?? t('chat.videoOssRequired')
-    }
-    return null
-  }
-  if (!isMediaOssConfigured(settings.settings)) {
-    return t('chat.videoOssRequired')
-  }
-  return null
-}
-
 async function addVideoAttachment(file: File, localPath?: string) {
-  const ossBlock = await ensureVideoOssReady()
-  if (ossBlock) {
-    attachmentHint.value = ossBlock
-    return
-  }
+  // 视频不再上传 OSS：附件只带本地路径，抽帧/理解由后端在环境内完成。
   const fileName = file.name?.trim() || localPath?.split(/[/\\]/).pop() || 'video.mp4'
   let sizeBytes = file.size
   if (sizeBytes <= 0 && localPath?.trim() && isTauriRuntime()) {
@@ -875,18 +778,7 @@ async function addVideoAttachment(file: File, localPath?: string) {
     }
   }
 
-  let compress = false
-  if (isLargeComposerVideo(sizeBytes)) {
-    const confirmed = window.confirm(composerVideoCompressConfirmMessage(fileName, sizeBytes))
-    if (!confirmed) {
-      attachmentHint.value = null
-      return
-    }
-    compress = true
-    attachmentHint.value = composerVideoCompressHint(fileName)
-  } else {
-    attachmentHint.value = null
-  }
+  attachmentHint.value = null
 
   const uploadFile = file.size > 0 ? file : new File([], fileName)
   const attachment: ComposerAttachment = {
@@ -895,8 +787,8 @@ async function addVideoAttachment(file: File, localPath?: string) {
     mimeType: file.type || 'video/mp4',
     fileName,
     sizeBytes,
-    uploadState: 'pending',
-    uploadProgress: 0,
+    uploadState: 'done',
+    uploadProgress: 100,
     ...(localPath?.trim() ? { localSourcePath: localPath.trim() } : {})
   }
   const previewFromPath = await resolveComposerVideoPreviewUrl(undefined, localPath)
@@ -905,7 +797,6 @@ async function addVideoAttachment(file: File, localPath?: string) {
     ...registered,
     ...(previewFromPath ? { previewUrl: previewFromPath } : {})
   })
-  await startVideoOssUpload(attachment, uploadFile, localPath, compress)
 }
 
 function cancelComposerAttachmentUpload(attachmentId: string) {
@@ -929,13 +820,6 @@ function cancelComposerAttachmentUpload(attachmentId: string) {
 async function retryComposerAttachmentUpload(attachmentId: string) {
   const row = composerAttachments.value.find(a => a.id === attachmentId)
   if (!row || row.uploadState !== 'error') return
-  if (row.kind === 'video') {
-    const file = getComposerAttachmentFile(row) ?? new File([], row.fileName)
-    const compress = videoCompressByAttachmentId.get(attachmentId) === true
-    console.info('[composer] user retry video upload', attachmentId)
-    await startVideoOssUpload(row, file, row.localSourcePath, compress)
-    return
-  }
   const file = getComposerAttachmentFile(row) ?? undefined
   const contentBase64 = getComposerAttachmentContentBase64(row) ?? undefined
   const sourcePath = row.localSourcePath?.trim() || undefined
@@ -1014,7 +898,7 @@ async function ingestDroppedPaths(paths: string[]) {
         await addAttachmentFromLocalPath(path)
       } catch (err) {
         console.error('drop attachment from path failed', path, err)
-        attachmentHint.value = formatVideoOssInvokeError(err) || t('chat.cannotReadFile', { path })
+        attachmentHint.value = t('chat.cannotReadFile', { path })
       }
     })
   )
@@ -1154,7 +1038,7 @@ async function openAttachmentPicker() {
           await addAttachmentFromLocalPath(path)
         } catch (err) {
           console.error('attachment from path failed', path, err)
-          attachmentHint.value = formatVideoOssInvokeError(err) || t('chat.cannotReadFile', { path })
+          attachmentHint.value = t('chat.cannotReadFile', { path })
         }
       }
       return

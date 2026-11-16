@@ -10,7 +10,6 @@ use log::info;
 #[cfg(unix)]
 use log::warn;
 use std::collections::HashMap;
-use std::fs;
 #[cfg(unix)]
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -151,7 +150,7 @@ fn run_elevated_platform(
 
     let temp_dir =
         std::env::temp_dir().join(format!("pointer-elev-{}", uuid::Uuid::new_v4().simple()));
-    fs::create_dir_all(&temp_dir)?;
+    crate::env::effective_env().create_dir_all(&temp_dir)?;
     let out_path = temp_dir.join("stdout.txt");
     let err_path = temp_dir.join("stderr.txt");
     let exit_path = temp_dir.join("exit.txt");
@@ -160,7 +159,7 @@ fn run_elevated_platform(
     let launcher_path = temp_dir.join("launcher.ps1");
 
     let env_json = serde_json::to_string(env)?;
-    fs::write(&env_path, env_json)?;
+    crate::env::effective_env().write_file(&env_path, env_json)?;
 
     let command = strip_redundant_windows_elevation(command);
     let command = crate::windows_shell_encoding::prefix_cmd_utf8_codepage(&command);
@@ -216,7 +215,7 @@ Set-Content -LiteralPath {exit_ps} -Value $code -NoNewline -Encoding ascii
 "#,
         utf8_setup = crate::windows_shell_encoding::POWERSHELL_UTF8_SETUP_BLOCK,
     );
-    fs::write(&job_path, job_script)?;
+    crate::env::effective_env().write_file(&job_path, job_script)?;
 
     let job_path_ps = escape_powershell_single_quoted(&job_path.display().to_string());
     let launcher_script = format!(
@@ -226,13 +225,13 @@ exit $p.ExitCode
 "#,
         cancelled = WINDOWS_ELEVATION_CANCELLED
     );
-    fs::write(&launcher_path, launcher_script)?;
+    crate::env::effective_env().write_file(&launcher_path, launcher_script)?;
 
     on_output("[elevated] 等待 Windows UAC 确认…\n");
 
     let launcher_path_str = launcher_path.display().to_string();
     let output = thread::spawn(move || {
-        Command::new("powershell.exe")
+        crate::env::process::command("powershell.exe")
             .args([
                 "-ExecutionPolicy",
                 "Bypass",
@@ -247,7 +246,7 @@ exit $p.ExitCode
     .map_err(|_| anyhow!("提权启动线程异常"))??;
 
     if output.status.code() == Some(WINDOWS_ELEVATION_CANCELLED) {
-        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = crate::env::effective_env().remove_dir_all(&temp_dir);
         return Ok(ElevatedPlatformResult {
             exit_code: Some(WINDOWS_ELEVATION_CANCELLED),
             success: false,
@@ -265,7 +264,7 @@ exit $p.ExitCode
     let elevation_denied = exit_code == Some(WINDOWS_ELEVATION_CANCELLED);
     let success = exit_code == Some(0) && !elevation_denied;
 
-    let _ = fs::remove_dir_all(&temp_dir);
+    let _ = crate::env::effective_env().remove_dir_all(&temp_dir);
 
     Ok(ElevatedPlatformResult {
         exit_code,
@@ -288,7 +287,7 @@ fn run_elevated_platform(
     let command = strip_redundant_sudo(command);
     let temp_dir =
         std::env::temp_dir().join(format!("pointer-elev-{}", uuid::Uuid::new_v4().simple()));
-    fs::create_dir_all(&temp_dir)?;
+    crate::env::effective_env().create_dir_all(&temp_dir)?;
     let env_path = temp_dir.join("env.sh");
     write_unix_env_exports_file(&env_path, env)?;
     let script = build_unix_elevated_shell_script(cwd, Some(&env_path), &command);
@@ -298,10 +297,10 @@ fn run_elevated_platform(
     on_output("[elevated] 等待 macOS 管理员授权…\n");
 
     let output = run_command_with_wall_cap(
-        Command::new("osascript").arg("-e").arg(applescript),
+        crate::env::process::command("osascript").arg("-e").arg(applescript),
         wall_cap_ms,
     );
-    let _ = fs::remove_dir_all(&temp_dir);
+    let _ = crate::env::effective_env().remove_dir_all(&temp_dir);
     let output = output?;
 
     let combined_err = String::from_utf8_lossy(&output.stderr).to_string();
@@ -342,7 +341,7 @@ fn run_elevated_platform(
     let command = strip_redundant_sudo(command);
     let temp_dir =
         std::env::temp_dir().join(format!("pointer-elev-{}", uuid::Uuid::new_v4().simple()));
-    fs::create_dir_all(&temp_dir)?;
+    crate::env::effective_env().create_dir_all(&temp_dir)?;
     let env_path = temp_dir.join("env.sh");
     write_unix_env_exports_file(&env_path, env)?;
     let script = build_unix_elevated_shell_script(cwd, Some(&env_path), &command);
@@ -350,11 +349,11 @@ fn run_elevated_platform(
     on_output("[elevated] 等待 polkit (pkexec) 授权…\n");
 
     let output = run_command_with_wall_cap(
-        Command::new("pkexec").arg("sh").arg("-lc").arg(&script),
+        crate::env::process::command("pkexec").arg("sh").arg("-lc").arg(&script),
         wall_cap_ms,
     );
 
-    let _ = fs::remove_dir_all(&temp_dir);
+    let _ = crate::env::effective_env().remove_dir_all(&temp_dir);
 
     let output = match output {
         Ok(o) => o,
@@ -488,7 +487,9 @@ fn write_unix_env_exports_file(path: &Path, env: &HashMap<String, String>) -> Re
             shell_escape_single_quote(value)
         ));
     }
-    fs::write(path, content).with_context(|| format!("write elevated env file {}", path.display()))
+    crate::env::effective_env()
+        .write_file(path, content.as_bytes())
+        .with_context(|| format!("write elevated env file {}", path.display()))
 }
 
 #[cfg(unix)]
@@ -513,7 +514,7 @@ fn escape_for_osascript_double_quoted(value: &str) -> String {
 
 #[cfg(windows)]
 fn read_text_file_best_effort(path: &Path) -> String {
-    let bytes = fs::read(path).unwrap_or_default();
+    let bytes = crate::env::effective_env().read_file(path).unwrap_or_default();
     if bytes.is_empty() {
         return String::new();
     }
@@ -533,7 +534,7 @@ fn read_text_file_best_effort(path: &Path) -> String {
 
 #[cfg(windows)]
 fn read_exit_code_file(path: &Path) -> Option<i32> {
-    let raw = fs::read_to_string(path).ok()?;
+    let raw = crate::env::effective_env().read_to_string(path).ok()?;
     raw.trim().parse().ok()
 }
 

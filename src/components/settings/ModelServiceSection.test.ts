@@ -192,6 +192,39 @@ describe('ModelServiceSection', () => {
     expect(host.textContent).toContain('删除服务失败，请重试')
   })
 
+  it('hides the platform entry once the user forked the same provider', async () => {
+    // 编辑平台注入项会 fork 出同 id 的 user 服务商；平台那条必须被遮蔽，
+    // 否则同一个服务商会显示两次。
+    storeState.settings.providers = [
+      provider('qwen', 'platform'),
+      provider('qwen', 'user'),
+      provider('local')
+    ]
+    const host = mountSection()
+    await settle()
+
+    expect(host.querySelectorAll('[aria-label="编辑 千问"]').length).toBe(1)
+    expect(host.querySelector('[aria-label="编辑 本地模型"]')).toBeTruthy()
+  })
+
+  it('edits providers that have no source field instead of reporting providerMissing', async () => {
+    // 老数据没有 source：展示上算「自定义」，编辑保存也必须算自定义，
+    // 否则卡片能点开、保存却报「找不到要更新的服务商」。
+    const host = mountSection()
+    await settle()
+
+    host.querySelector<HTMLButtonElement>('[aria-label="编辑 本地模型"]')!.click()
+    await settle()
+    // 编辑弹窗 teleport 到 body，不在组件根节点里。
+    ;[...document.body.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent?.trim() === '保存')!
+      .click()
+    await settle()
+
+    expect(document.body.textContent).not.toContain('找不到要更新的服务商')
+    expect(storeState.updateProvider).toHaveBeenCalled()
+  })
+
   it('lets standalone edit and delete all providers like custom services', async () => {
     platformAuthState.isStandalone.value = true
     const host = mountSection()

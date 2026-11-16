@@ -6,7 +6,7 @@
 
 ## 1. 目标
 
-- Composer 支持图片、文档、音频、视频附件（**视频** OSS 上限 **5 GB**；**>500 MB** 需用户确认后压缩；IM 入站视频同策略但 **>500 MB 自动压缩**；非视频 IM 媒体 **30 MB**）
+- Composer 支持图片、文档、音频、视频附件（**视频**不再上传 OSS：≤ 约 7.5 MB 走 Base64 原生 `video_url`，超过走 ffmpeg 抽帧；非视频 IM 媒体 **30 MB**）
 - 主模型保持用户所选 agent 模型不变
 - **上传不自动理解**：`apply_media_to_history` 仅落盘 + 写 `attachments`，并在 user `content` 写入 `MEDIA:<path>?attachmentId=<id>`（相对 WORKING_DIR 或绝对路径）
 - **模型上下文**：`make_openai_messages` **原样**使用消息 `content`（含 `MEDIA:` 行）；**不再**追加 `<!-- pointer-user-attachments -->` / `<!-- pointer-delivered-attachments -->` 清单。展示层剥离 `MEDIA:`，芯片用 `attachments`。
@@ -148,9 +148,9 @@ mediaModelOverrides: {
 
 | 阶段 | 行为 |
 |------|------|
-| 上传 | Composer 默认 **OSS**（`remoteUrl`）；**>500 MB** 弹窗确认后压缩至 ≤500 MB 再上传；IM 入站**视频**同 OSS 路径，**>500 MB 自动压缩**；非视频 IM **≤ 30 MB** |
-| 理解主路径 | DashScope **`video_url`** + **`fps`**，输入为 **`remoteUrl`**（HTTPS OSS URL） |
-| 回退 | 无 `remoteUrl` 或原生 API 失败 → ffmpeg 抽 JPEG 帧 + vision |
+| 上传 | **不上传 OSS**（2026-11-15 取消）；本地落盘即可；非视频 IM **≤ 30 MB** |
+| 理解主路径（小文件） | DashScope **`video_url`** + **`fps`**，输入为 **Base64 data URL**（原始 ≤ 约 7.5 MB） |
+| 回退（大文件/失败） | ffmpeg 抽 JPEG 帧 + vision |
 | 工具结果 | scope 含时间窗、总时长、输入模式（native / ffmpeg fallback） |
 
 **Agent 策略**
@@ -316,11 +316,11 @@ dispatch 下载后转为 `MediaAttachment`，与 Composer 一致。
 | `media` / `video` | file_key | 同上；502 时 fallback `type=media` |
 | `post` | 富文本 + 内嵌 img/media | 逐项 resource 下载 |
 
-Composer 视频在添加附件时**默认上传 OSS**（不走 Base64 传输）；上传完成前 Composer **禁止发送**。`attachments` 写入 `remoteUrl` / `ossObjectKey`，API 清单对视频注入 `remoteUrl`。超过 **500 MB** 不能直接上传：弹窗确认后 Pointer 压缩到 500 MB 以下再上传（帧率/分辨率可能降低）；取消则不添加附件。OSS PutObject 单次上限约 5 GB。
+Composer 视频在添加附件时**只落本地**，不再上传 OSS（2026-11-15 取消；`media/oss.rs` 保留未接线）。
 
-`media_understand` 理解视频时优先使用 `remoteUrl` 送入 DashScope `video_url`；失败或无 `remoteUrl` 时回退 ffmpeg 抽帧。
+`media_understand` 理解视频时：原始 ≤ 约 7.5 MB 走 DashScope `video_url`（Base64 data URL）；超过上限、provider 不兼容或调用失败时回退 ffmpeg 抽帧。
 
-IM 入站**视频**大小策略与 Composer OSS 一致（上限 **5 GB**；**>500 MB** 自动压缩后上传）。非视频 IM 媒体仍为 **30 MB**。**入站视频**在 `apply_media_to_history` 中与 Composer 共用 OSS 上传（`remoteUrl`）；OSS 未配置或上传失败时仍用本地文件 + ffmpeg 回退。
+IM 入站视频同样**不再上传 OSS**：`apply_media_to_history` 只落盘并写 `local_abs_path`，理解时按上一条规则（小文件 data URL / 大文件抽帧）。非视频 IM 媒体仍为 **30 MB**。
 
 ### 10.4a 微信个人号（iLink Bot）
 

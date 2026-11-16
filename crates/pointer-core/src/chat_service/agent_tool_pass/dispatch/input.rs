@@ -53,7 +53,11 @@ pub(super) async fn dispatch_input_at(
     let vision = state
         .computer_state
         .vision_state_for_conversation(conversation_id);
-    let tool = InputTool::new(state.computer_state.control.clone(), vision);
+    let control = crate::agents::computer::control::control_for_conversation(
+        &state.computer_state.control,
+        conversation_id,
+    );
+    let tool = InputTool::new(control, vision);
     let out = tool.execute_with(InputBackend::At, &args)?;
     // Same envelope as the failure path, so the model reads one shape either way.
     Ok((success_payload("type", &[(x, y)], &[bbox], &out), true, None))

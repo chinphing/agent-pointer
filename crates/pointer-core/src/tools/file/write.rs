@@ -1,8 +1,8 @@
 use super::path::{path_display_abs, resolve_writable_path};
+use crate::env::effective_env;
 use crate::text_diff::compute_diff_lines;
 use anyhow::{anyhow, Result};
 use log::info;
-use std::fs;
 use std::path::Path;
 
 fn resolve_file_write_content(value: Option<&serde_json::Value>) -> Result<String> {
@@ -29,8 +29,9 @@ pub(crate) fn execute_file_write_payload(args: &serde_json::Value, root: &Path) 
     let content = resolve_file_write_content(args.get("content"))?;
 
     let full = resolve_writable_path(root, path)?;
-    let old_content = if full.exists() {
-        fs::read_to_string(&full)
+    let env = effective_env();
+    let old_content = if env.exists(&full) {
+        env.read_to_string(&full)
             .map_err(|e| anyhow!("读取待覆盖文件失败 {}: {e}", full.display()))?
     } else {
         info!(
@@ -46,9 +47,11 @@ pub(crate) fn execute_file_write_payload(args: &serde_json::Value, root: &Path) 
         );
     }
     if let Some(parent) = full.parent() {
-        fs::create_dir_all(parent).map_err(|e| anyhow!("创建目录失败: {e}"))?;
+        env.create_dir_all(parent)
+            .map_err(|e| anyhow!("创建目录失败: {e}"))?;
     }
-    fs::write(&full, content.as_bytes()).map_err(|e| anyhow!("写入失败: {e}"))?;
+    env.write_file(&full, content.as_bytes())
+        .map_err(|e| anyhow!("写入失败: {e}"))?;
     let (_diff_lines, stats) = compute_diff_lines(&old_content, &content);
     let display = path_display_abs(&full);
     let created = old_content.is_empty();

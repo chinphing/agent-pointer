@@ -19,7 +19,7 @@ use pointer_core::storage;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
 
 pub const STREAM_EVENT: &str = "chat://stream";
 
@@ -31,17 +31,62 @@ fn platform_list_scope(state: &AppState) -> pointer_core::conversation_store::Li
     )
 }
 
+
+/// 面板命令的执行环境：按会话解析（light 档位下工作区在沙箱里）。
+///
+/// 没有会话 id 时回落到 `effective_env()`：local 档位照旧用宿主，
+/// light 档位会拿到「拒绝执行」环境而不是静默读宿主。
+fn panel_env(
+    conversation_id: Option<&str>,
+    workspace_root: &str,
+) -> std::sync::Arc<dyn pointer_core::env::Environment> {
+    let Some(id) = conversation_id.map(str::trim).filter(|id| !id.is_empty()) else {
+        return pointer_core::env::effective_env();
+    };
+    if let Some(env) = pointer_core::env::session_env::env_for_conversation(id) {
+        return env;
+    }
+    // Docker 后端：/workspace 是项目目录的 bind mount，宿主读到的就是同一份文件。
+    // 这里**不创建沙箱**——否则面板手里的路径（可能是项目选择前的默认值）
+    // 会把整个会话的挂载定死，之后对话再改项目也换不回来。
+    let cfg = pointer_core::env::provider::ProviderConfig::from_env();
+    if let Ok(cfg) = cfg {
+        if let Ok(resolved) = cfg.resolve(None) {
+            if resolved.backend == pointer_core::env::provider::Backend::Docker {
+                return pointer_core::env::host_env_at(std::path::Path::new(workspace_root));
+            }
+        }
+    }
+    // envd 后端：沙箱是唯一的文件副本，面板只能把会话沙箱拉起来（幂等，走同一份缓存）。
+    match pointer_core::env::session_env::resolve_session_env_for_current(
+        id,
+        "",
+        Some(std::path::Path::new(workspace_root)),
+    ) {
+        Ok(Some(env)) => env,
+        Ok(None) => pointer_core::env::effective_env(),
+        Err(err) => {
+            log::warn!("panel_env: 解析会话环境失败 conversation={id}: {err:#}");
+            pointer_core::env::effective_env()
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn list_workspace_directory(
+    conversation_id: Option<String>,
     workspace_root: String,
     relative_path: Option<String>,
 ) -> Result<Vec<pointer_core::workspace_read::WorkspaceEntry>, String> {
+    let env = panel_env(conversation_id.as_deref(), &workspace_root);
     let result = tauri::async_runtime::spawn_blocking(move || {
-        pointer_core::workspace_read::list_directory(
+        let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
+        pointer_core::workspace_read::list_directory_in(
+            env.as_ref(),
             Path::new(&workspace_root),
             relative_path.as_deref(),
         )
-        .map_err(|e| e.to_string())
+        .map_err(|e| format!("{e:#}"))
     })
     .await
     .map_err(|e| format!("spawn_blocking failed: {e}"))?;
@@ -50,22 +95,33 @@ pub async fn list_workspace_directory(
 
 #[tauri::command]
 pub fn search_workspace_entries(
+    conversation_id: Option<String>,
     workspace_root: String,
     query: String,
     limit: Option<u32>,
 ) -> Result<Vec<pointer_core::workspace_read::WorkspaceEntry>, String> {
     let limit = limit.unwrap_or(80).clamp(1, 200) as usize;
-    pointer_core::workspace_read::search_entries(Path::new(&workspace_root), &query, limit)
-        .map_err(|e| e.to_string())
+    let env = panel_env(conversation_id.as_deref(), &workspace_root);
+    let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
+    pointer_core::workspace_read::search_entries_in(
+        env.as_ref(),
+        Path::new(&workspace_root),
+        &query,
+        limit,
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn read_workspace_file(
+    conversation_id: Option<String>,
     workspace_root: String,
     relative_path: String,
 ) -> Result<pointer_core::workspace_read::WorkspaceFilePreview, String> {
+    let env = panel_env(conversation_id.as_deref(), &workspace_root);
     let result = tauri::async_runtime::spawn_blocking(move || {
-        pointer_core::workspace_read::read_file(Path::new(&workspace_root), &relative_path)
+        let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
+        pointer_core::workspace_read::read_file_in(env.as_ref(), Path::new(&workspace_root), &relative_path)
             .map_err(|e| e.to_string())
     })
     .await
@@ -74,8 +130,14 @@ pub async fn read_workspace_file(
 }
 
 #[tauri::command]
-pub fn delete_workspace_path(workspace_root: String, relative_path: String) -> Result<(), String> {
-    pointer_core::workspace_read::delete_path(Path::new(&workspace_root), &relative_path)
+pub fn delete_workspace_path(
+    conversation_id: Option<String>,
+    workspace_root: String,
+    relative_path: String,
+) -> Result<(), String> {
+    let env = panel_env(conversation_id.as_deref(), &workspace_root);
+    let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
+    pointer_core::workspace_read::delete_path_in(env.as_ref(), Path::new(&workspace_root), &relative_path)
         .map_err(|e| e.to_string())
 }
 
@@ -108,11 +170,57 @@ pub async fn worktree_inspect(
     .map_err(|e| format!("spawn_blocking failed: {e}"))?
 }
 
+/// 沙箱桌面入口（容器档位）。没有桌面时返回 `None`。
+#[derive(serde::Serialize)]
+pub struct SandboxDesktop {
+    pub url: String,
+    pub password: Option<String>,
+}
+
+#[tauri::command]
+pub async fn get_sandbox_desktop(
+    conversation_id: Option<String>,
+    workspace_root: String,
+) -> Result<Option<SandboxDesktop>, String> {
+    let env = panel_env(conversation_id.as_deref(), &workspace_root);
+    Ok(env.desktop_endpoint().map(|(url, password)| SandboxDesktop {
+        url,
+        password,
+    }))
+}
+
+/// 打开沙箱桌面（macOS 用「屏幕共享」）。
+#[tauri::command]
+pub async fn open_sandbox_desktop(
+    conversation_id: Option<String>,
+    workspace_root: String,
+) -> Result<Option<String>, String> {
+    let env = panel_env(conversation_id.as_deref(), &workspace_root);
+    let Some((url, _)) = env.desktop_endpoint() else {
+        return Ok(None);
+    };
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(target_os = "windows") {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    std::process::Command::new(opener)
+        .arg(&url)
+        .spawn()
+        .map_err(|e| format!("打开桌面失败: {e}"))?;
+    Ok(Some(url))
+}
+
 #[tauri::command]
 pub async fn get_workspace_git_status(
+    conversation_id: Option<String>,
     workspace_root: String,
 ) -> Result<pointer_core::workspace_read::GitStatusResponse, String> {
+    let env = panel_env(conversation_id.as_deref(), &workspace_root);
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
         pointer_core::workspace_read::git_status_response(Path::new(&workspace_root))
             .map_err(|e| e.to_string())
     })
@@ -123,11 +231,14 @@ pub async fn get_workspace_git_status(
 
 #[tauri::command]
 pub async fn get_workspace_git_diff(
+    conversation_id: Option<String>,
     workspace_root: String,
     relative_path: String,
     status: Option<String>,
 ) -> Result<pointer_core::workspace_read::GitDiff, String> {
+    let env = panel_env(conversation_id.as_deref(), &workspace_root);
     let result = tauri::async_runtime::spawn_blocking(move || {
+        let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
         pointer_core::workspace_read::git_diff(
             Path::new(&workspace_root),
             &relative_path,
@@ -915,206 +1026,6 @@ pub fn open_path_with_default_app(path: String) -> Result<(), String> {
 pub fn open_chat_media(storage_rel_path: String) -> Result<(), String> {
     let path = pointer_core::media::media_abs_path(&storage_rel_path).map_err(|e| e.to_string())?;
     open_path_with_system_default(&path)
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VideoOssUploadResult {
-    pub remote_url: String,
-    pub oss_object_key: String,
-    pub storage_rel_path: Option<String>,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MediaOssUploadStatus {
-    pub configured: bool,
-    pub message: Option<String>,
-}
-
-/// Whether the backend can upload Composer videos to OSS (same check as upload commands).
-#[tauri::command]
-pub fn get_media_oss_upload_status(state: State<'_, Arc<AppState>>) -> MediaOssUploadStatus {
-    use pointer_core::media::resolve_media_oss_config;
-
-    let settings = state.effective_settings_view().merged;
-    if resolve_media_oss_config(&settings.media_oss).is_some() {
-        return MediaOssUploadStatus {
-            configured: true,
-            message: None,
-        };
-    }
-    MediaOssUploadStatus {
-        configured: false,
-        message: Some(
-            "视频上传需要平台 OSS 配置，请登录 Pointer 账户或联系管理员在官网配置 OSS".into(),
-        ),
-    }
-}
-
-/// Upload a Composer video attachment to OSS (path-based; emits progress events).
-#[tauri::command]
-pub async fn upload_composer_video_to_oss(
-    app: AppHandle,
-    state: State<'_, Arc<AppState>>,
-    conversation_id: String,
-    attachment_id: String,
-    path: String,
-    file_name: String,
-    mime_type: String,
-    compress: bool,
-) -> Result<VideoOssUploadResult, String> {
-    use pointer_core::media::{resolve_media_oss_config, upload_composer_video_from_path};
-    use serde_json::json;
-
-    log::info!(
-        "upload_composer_video_to_oss: attachment={attachment_id} path={path} file={file_name} compress={compress}"
-    );
-    let settings = state.effective_settings_view().merged;
-    if resolve_media_oss_config(&settings.media_oss).is_none() {
-        log::warn!(
-            "upload_composer_video_to_oss: rejected attachment={attachment_id} — OSS not configured"
-        );
-        return Err("OSS 未配置，请登录 Pointer 账户或联系管理员在官网配置 OSS".into());
-    }
-    let path_buf = pointer_core::media::access::normalize_user_path(&path).map_err(|e| {
-        log::warn!("upload_composer_video_to_oss: invalid path {path}: {e}");
-        e.to_string()
-    })?;
-    if !path_buf.is_file() {
-        log::warn!(
-            "upload_composer_video_to_oss: file missing attachment={attachment_id} path={}",
-            path_buf.display()
-        );
-        return Err(format!("文件不存在: {}", path_buf.display()));
-    }
-    let last_pct = std::sync::Arc::new(std::sync::Mutex::new(0u32));
-    let aid = attachment_id.clone();
-    let app_handle = app.clone();
-    let on_progress: std::sync::Arc<dyn Fn(u64, u64) + Send + Sync> =
-        std::sync::Arc::new(move |loaded: u64, total: u64| {
-            let pct = if total == 0 {
-                0
-            } else {
-                ((loaded.saturating_mul(100)) / total).min(100) as u32
-            };
-            let mut last = last_pct.lock().expect("progress mutex");
-            if pct != *last {
-                *last = pct;
-                let _ = app_handle.emit(
-                    "composer-video-oss-progress",
-                    json!({
-                        "attachmentId": aid,
-                        "loaded": loaded,
-                        "total": total,
-                        "percent": pct,
-                    }),
-                );
-            }
-        });
-    let result = upload_composer_video_from_path(
-        &settings.media_oss,
-        &attachment_id,
-        &path_buf,
-        &file_name,
-        &mime_type,
-        compress,
-        Some(conversation_id.trim()).filter(|c| !c.is_empty()),
-        on_progress,
-    )
-    .await
-    .map_err(format_video_oss_upload_error)?;
-    Ok(VideoOssUploadResult {
-        remote_url: result.remote_url,
-        oss_object_key: result.object_key,
-        storage_rel_path: result.storage_rel_path,
-    })
-}
-
-fn format_video_oss_upload_error(e: impl std::fmt::Display) -> String {
-    let msg = e.to_string();
-    if msg.contains("NoSuchBucket") {
-        return format!(
-            "OSS Bucket 不存在，请在阿里云创建对应 Bucket 或将 Endpoint 配置为「https://<bucket>.oss-<region>.aliyuncs.com」格式。详情：{msg}"
-        );
-    }
-    if msg.contains("InvalidAccessKeyId") || msg.contains("SignatureDoesNotMatch") {
-        return format!("OSS 凭据无效，请检查官网 OSS 配置中的 AccessKey。详情：{msg}");
-    }
-    if msg.to_ascii_lowercase().contains("timeout") || msg.contains("timed out") {
-        return format!("视频上传超时，请检查网络后重试。详情：{msg}");
-    }
-    msg
-}
-
-/// Upload Composer video bytes to OSS (web file picker on desktop).
-#[tauri::command]
-pub async fn upload_composer_video_bytes_to_oss(
-    app: AppHandle,
-    state: State<'_, Arc<AppState>>,
-    conversation_id: String,
-    attachment_id: String,
-    file_name: String,
-    mime_type: String,
-    bytes: Vec<u8>,
-    compress: bool,
-) -> Result<VideoOssUploadResult, String> {
-    use pointer_core::media::{resolve_media_oss_config, upload_composer_video_bytes};
-    use serde_json::json;
-
-    log::info!(
-        "upload_composer_video_bytes_to_oss: attachment={attachment_id} file={file_name} bytes={} compress={compress}",
-        bytes.len()
-    );
-    let settings = state.effective_settings_view().merged;
-    if resolve_media_oss_config(&settings.media_oss).is_none() {
-        log::warn!(
-            "upload_composer_video_bytes_to_oss: rejected attachment={attachment_id} — OSS not configured"
-        );
-        return Err("OSS 未配置，请登录 Pointer 账户或联系管理员在官网配置 OSS".into());
-    }
-    let last_pct = std::sync::Arc::new(std::sync::Mutex::new(0u32));
-    let aid = attachment_id.clone();
-    let app_handle = app.clone();
-    let on_progress: std::sync::Arc<dyn Fn(u64, u64) + Send + Sync> =
-        std::sync::Arc::new(move |loaded: u64, total: u64| {
-            let pct = if total == 0 {
-                0
-            } else {
-                ((loaded.saturating_mul(100)) / total).min(100) as u32
-            };
-            let mut last = last_pct.lock().expect("progress mutex");
-            if pct != *last {
-                *last = pct;
-                let _ = app_handle.emit(
-                    "composer-video-oss-progress",
-                    json!({
-                        "attachmentId": aid,
-                        "loaded": loaded,
-                        "total": total,
-                        "percent": pct,
-                    }),
-                );
-            }
-        });
-    let result = upload_composer_video_bytes(
-        &settings.media_oss,
-        &attachment_id,
-        &bytes,
-        &file_name,
-        &mime_type,
-        compress,
-        Some(conversation_id.trim()).filter(|c| !c.is_empty()),
-        0,
-        on_progress,
-    )
-    .await
-    .map_err(format_video_oss_upload_error)?;
-    Ok(VideoOssUploadResult {
-        remote_url: result.remote_url,
-        oss_object_key: result.object_key,
-        storage_rel_path: result.storage_rel_path,
-    })
 }
 
 /// Read a user-selected local file for composer attachment upload (any directory).

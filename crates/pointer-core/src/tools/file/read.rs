@@ -1,9 +1,9 @@
 use super::path::{path_display_abs, path_display_for_read_request, resolve_accessible_path};
 use super::{json_u64_opt_keys, FileToolLimits};
+use crate::env::effective_env;
 use crate::text_util::truncate_bytes;
 use anyhow::{anyhow, Result};
 use log::{info, warn};
-use std::fs;
 use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 
@@ -79,13 +79,23 @@ fn file_read_one_json(
         }
     };
     let full_display = path_display_abs(&full);
-    if !full.is_file() {
-        return serde_json::json!({
-            "path": full_display,
-            "error": format!("不是文件: {}", full.display()),
-        });
+    let env = effective_env();
+    match env.metadata(&full) {
+        Ok(meta) if meta.is_file => {}
+        Ok(_) => {
+            return serde_json::json!({
+                "path": full_display,
+                "error": format!("不是文件: {}", full.display()),
+            });
+        }
+        Err(_) => {
+            return serde_json::json!({
+                "path": full_display,
+                "error": format!("不是文件: {}", full.display()),
+            });
+        }
     }
-    let file = match fs::File::open(&full) {
+    let file = match env.open_reader(&full) {
         Ok(f) => f,
         Err(e) => {
             return serde_json::json!({

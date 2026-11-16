@@ -1,5 +1,16 @@
 # Composer 视频：阿里云 OSS 上传
 
+> **已停用（2026-11-15）**：视频理解不再依赖 OSS。Composer 上传命令、IM 入站上传调用、
+> 前端 `videoOssUpload.ts` 均已删除；`media/oss.rs` **保留但不再接线**（以后需要再启用）。
+> 现在的视频路径见 §「替代路径」：≤ 约 7.5 MB 走 Base64 data URL，超过走 ffmpeg 抽帧。
+
+## 替代路径
+
+| 条件 | 走什么 | 说明 |
+|------|--------|------|
+| 原始视频 ≤ 约 7.5 MB（编码后 10 MiB 上限） | DashScope `video_url` + Base64 data URL | 模型自己按 `fps` 看全片 |
+| 超过上限 / provider 非 DashScope 兼容 / 调用失败 | ffmpeg 抽帧 → vision | 需要环境里有 ffmpeg |
+
 用户添加视频附件时直传 OSS，记录 `remoteUrl`，API 清单注入该 URL；上传完成前禁止发送消息。`media_understand` 理解时以 **`remoteUrl`（HTTPS）** 送入 DashScope 原生 `video_url`。
 
 **IM / 渠道入站视频**（飞书、企微、钉钉、微信等）在 `apply_media_to_history` 中走同一套 `upload_composer_video_bytes`：下载落盘后若 OSS 已配置则上传并写入 `remoteUrl` / `ossObjectKey`；失败或未配置时保留本地副本（ffmpeg 回退）。**视频**大小策略与 Composer 一致：单文件上限 **5 GB**（PutObject）；**>500 MB** 时 IM 入站**自动压缩**至 ≤500 MB 再上传（无弹窗，因无用户确认入口）。非视频 IM 媒体仍为 **30 MB**。

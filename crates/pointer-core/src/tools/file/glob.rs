@@ -1,15 +1,11 @@
 use super::list::list_entry_type_allowed;
 use super::path::{expand_user_path_for_file, path_display_abs, resolve_existing_read_path};
 use super::{json_u64_opt_keys, DEFAULT_GLOB_RESULTS, MAX_GLOB_RESULTS, MAX_WALK_DEPTH};
+use crate::env::{effective_env, WalkOptions};
 use anyhow::{anyhow, Result};
 use globset::{Glob, GlobSetBuilder};
 use log::{info, warn};
 use std::path::{Component, Path, PathBuf};
-use walkdir::WalkDir;
-
-fn path_is_inside_git_metadata_tree(p: &Path) -> bool {
-    p.to_string_lossy().replace('\\', "/").contains("/.git/")
-}
 
 fn has_glob_meta(s: &str) -> bool {
     s.chars().any(|c| matches!(c, '*' | '?' | '[' | '{'))
@@ -161,41 +157,32 @@ pub(crate) fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -
             };
             (walk_root, pattern_raw.to_string())
         };
-    let walk_root = walk_root
-        .canonicalize()
+    let env = effective_env();
+    let walk_root = env
+        .canonicalize(&walk_root)
         .map_err(|e| anyhow!("glob 搜索根路径无效: {e}"))?;
 
     let set = build_glob_set(&pattern)?;
 
     let mut matches = Vec::new();
     let mut truncated = false;
-    let walker = WalkDir::new(&walk_root)
-        .max_depth(max_depth)
-        .into_iter()
-        .filter_entry(|e| {
-            if path_is_inside_git_metadata_tree(e.path()) {
-                return false;
-            }
-            if !include_hidden && e.depth() > 0 {
-                if e.file_name().to_string_lossy().starts_with('.') {
-                    return false;
-                }
-            }
-            true
-        })
-        .filter_map(|e| e.ok());
+    // 一次批量遍历（环境内部实现），不逐目录往返。
+    let walked = env
+        .walk(
+            &walk_root,
+            WalkOptions::new(max_depth).with_hidden(include_hidden),
+        )
+        .map_err(|e| anyhow!("glob 遍历失败: {e}"))?;
 
-    for entry in walker {
+    for entry in walked {
         if matches.len() >= max_results {
             truncated = true;
             break;
         }
-        let p = entry.path();
-        let is_dir = p.is_dir();
-        if !list_entry_type_allowed(is_dir, entry_type) {
+        if !list_entry_type_allowed(entry.is_dir, entry_type) {
             continue;
         }
-        let Ok(canon_p) = p.canonicalize() else {
+        let Ok(canon_p) = env.canonicalize(&entry.path) else {
             continue;
         };
         if !canon_p.starts_with(&walk_root) {

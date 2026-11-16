@@ -886,7 +886,11 @@ pub(crate) fn spawn_background_owned_subagent(spawn: BackgroundOwnedSpawn) -> St
         spawn.tool_call_id,
         spawn.task.id
     );
-    tokio::spawn(run_background_owned_subagent(job_id.clone(), spawn));
+    let access_host = crate::access_host_scope::current();
+    let job_id_for_task = job_id.clone();
+    tokio::spawn(crate::access_host_scope::run_scoped(access_host, move || {
+        run_background_owned_subagent(job_id_for_task, spawn)
+    }));
     job_id
 }
 

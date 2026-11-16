@@ -70,6 +70,10 @@ jobs:
       - name: Install admin console dependencies
         run: npm ci --prefix admin/web
 
+      - name: Admin console tests
+        # admin/web is a separate Vite project (own `@ext` alias, own vitest).
+        run: npm --prefix admin/web test
+
       - name: Admin console typecheck
         # vite build 用 esbuild 只转译不校验类型，类型错误必须单独跑一次。
         run: npm --prefix admin/web run typecheck

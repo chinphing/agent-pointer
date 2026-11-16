@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end: standalone SSO → conversation.sessionUserId (feeds terminal SESSION_USER_ID).
+# End-to-end: token_lookup login → conversation.sessionUserId (feeds terminal SESSION_USER_ID).
 # Spawns a temporary pointer-server and logs in two users with distinct `sub` values.
 # Uses debug pointer-server + POINTER_LICENSE_PUBLIC_KEY (release ignores that env).
 set -euo pipefail
@@ -10,18 +10,20 @@ cd "$ROOT"
 PORT="${POINTER_E2E_PORT:-18787}"
 BASE="http://127.0.0.1:${PORT}"
 AUD="$BASE"
+PROVIDER_ID="sso"
 SECRET="e2e-sso-secret-$$"
 DATA_DIR="$(mktemp -d /tmp/pointer-sso-e2e.XXXXXX)"
 LIC_DIR="$(mktemp -d /tmp/pointer-sso-lic.XXXXXX)"
 COOKIE_A="$(mktemp)"
 COOKIE_B="$(mktemp)"
 SERVER_LOG="$(mktemp)"
+CONFIG_FILE="$(mktemp /tmp/pointer-sso-e2e-config.XXXXXX.toml)"
 cleanup() {
   if [[ -n "${SERVER_PID:-}" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
-  rm -f "$COOKIE_A" "$COOKIE_B" "$SERVER_LOG"
+  rm -f "$COOKIE_A" "$COOKIE_B" "$SERVER_LOG" "$CONFIG_FILE"
   rm -rf "$DATA_DIR" "$LIC_DIR"
 }
 trap cleanup EXIT
@@ -40,15 +42,29 @@ LICENSE_KEY="$(./target/debug/license-gen sign \
   --features chat | tr -d '\r\n' | tail -1)"
 LICENSE_PUB="$(tr -d '\r\n' < "$LIC_DIR/pub.key")"
 
+echo "==> writing token_lookup provider config"
+cat >"$CONFIG_FILE" <<TOML
+[auth.providers.${PROVIDER_ID}]
+kind = "token_lookup"
+display_name = "SSO"
+
+[auth.providers.${PROVIDER_ID}.token_lookup]
+ticket_param = "ticket"
+subject_path = "/sub"
+nickname_path = "/name"
+
+[auth.providers.${PROVIDER_ID}.token_lookup.signing]
+secret = "$SECRET"
+audience = "$AUD"
+TOML
+
 echo "==> starting standalone server on $BASE (data=$DATA_DIR)"
 POINTER_DEPLOYMENT_MODE=standalone \
+POINTER_SERVER_CONFIG="$CONFIG_FILE" \
 POINTER_SERVER_ADDR="127.0.0.1:${PORT}" \
 POINTER_APP_DATA_DIR="$DATA_DIR" \
 POINTER_LICENSE_PUBLIC_KEY="$LICENSE_PUB" \
 POINTER_LICENSE_KEY="$LICENSE_KEY" \
-POINTER_SERVER_SSO_ENABLED=true \
-POINTER_SERVER_SSO_SECRET="$SECRET" \
-POINTER_SERVER_SSO_AUDIENCE="$AUD" \
 ./target/debug/pointer-server >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 
@@ -78,9 +94,9 @@ check_user() {
   local sub="$1" name="$2" cookie_jar="$3" conv_id="$4"
   local ticket
   ticket="$(mint "$sub" "$name" | tr -d '\r\n' | tail -1)"
-  echo "==> SSO login sub=$sub"
+  echo "==> token_lookup login sub=$sub"
   curl -sS -o /dev/null -c "$cookie_jar" -b "$cookie_jar" \
-    -L "$BASE/api/auth/local/sso?sso=${ticket}"
+    -L "$BASE/api/auth/callback/${PROVIDER_ID}?ticket=${ticket}"
 
   if ! grep -q pointer_web_session "$cookie_jar"; then
     echo "missing pointer_web_session cookie for $sub"
@@ -105,29 +121,30 @@ check_user() {
     exit 1
   fi
 
+  local expected="${PROVIDER_ID}:${sub}"
   local meta_list
   meta_list="$(curl -sS -c "$cookie_jar" -b "$cookie_jar" "$BASE/api/conversations/meta?limit=50")"
-  echo "meta list for $sub: $meta_list"
+  echo "meta list for $expected: $meta_list"
   echo "$meta_list" | python3 -c "
 import json,sys
-sub=sys.argv[1]; cid=sys.argv[2]
+expected=sys.argv[1]; cid=sys.argv[2]
 rows=json.load(sys.stdin)
 row=next((r for r in rows if r.get('id')==cid), None)
 assert row is not None, f'missing conv {cid} in {rows!r}'
-assert row.get('sessionUserId')==sub, row
+assert row.get('sessionUserId')==expected, row
 print('sessionUserId ok:', row.get('sessionUserId'))
-" "$sub" "$conv_id"
+" "$expected" "$conv_id"
 
   # What terminal child would see after run_chat binds this conversation's session_user_id
   local got
-  got="$(SESSION_USER_ID="$sub" sh -c 'printf %s "$SESSION_USER_ID"')"
+  got="$(SESSION_USER_ID="$expected" sh -c 'printf %s "$SESSION_USER_ID"')"
   echo "terminal-equivalent shell SESSION_USER_ID=$got"
-  [[ "$got" == "$sub" ]] || { echo "FAIL shell env"; exit 1; }
+  [[ "$got" == "$expected" ]] || { echo "FAIL shell env"; exit 1; }
 }
 
 check_user "e2e-zhangsan" "ZhangSan" "$COOKIE_A" "conv-e2e-zhangsan"
 check_user "e2e-lisi" "LiSi" "$COOKIE_B" "conv-e2e-lisi"
 
 echo
-echo "PASS: SSO e2e-zhangsan / e2e-lisi have distinct sessionUserId;"
+echo "PASS: ${PROVIDER_ID}:e2e-zhangsan / ${PROVIDER_ID}:e2e-lisi have distinct sessionUserId;"
 echo "      terminal SESSION_USER_ID matches each sub."

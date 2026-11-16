@@ -624,6 +624,7 @@ mod tests {
             workspace_inherit_disabled: None,
             deliver: DeliverTarget::None,
             web_session_auth: None,
+            access_host: None,
         }
     }
 

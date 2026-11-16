@@ -363,8 +363,11 @@ pub async fn agent_hint(
         raw_unmarked_jpeg: frame_jpeg.to_vec(),
         screenshot_jpeg: frame_jpeg.to_vec(),
         monitor: MonitorInfo::new(0, 0, w as i32, h as i32),
-        capture_px: (0, 0),
-            monitor_id: "xcap:0,0".into(),
+        // `build_cur_screen_preamble` reads this to tell the model the screenshot's
+        // pixel size; leaving it at (0,0) makes the preamble say "1×1 pixels" and
+        // every pixel-unit `bbox` collapses.
+        capture_px: frame_px,
+        monitor_id: "xcap:0,0".into(),
     };
     let (slot_labels, images_base64) = assemble_cur_screen_payload(&cap);
     // Production preamble now carries the screenshot's pixel dimensions (see
@@ -448,6 +451,10 @@ pub async fn agent_hint(
     .context("build goal message")?;
 
     let slices = system_prompt_slices()?;
+    if let Ok(path) = std::env::var("POINTER_E2E_DUMP_SYSTEM") {
+        let _ = std::fs::write(&path, slices.join("\n\n"));
+        eprintln!("[system] dumped to {path}");
+    }
     eprintln!(
         "[system] {} block(s), total {} chars",
         slices.len(),

@@ -4,7 +4,7 @@ use axum::{
     http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
     middleware,
     response::sse::{Event, KeepAlive, Sse},
-    response::{IntoResponse, Redirect, Response},
+    response::{IntoResponse, Response},
     routing::{delete, get, post, put},
     Json, Router,
 };
@@ -28,15 +28,21 @@ use pointer_core::{
         DebugSessionSettings, PlatformSettings, SendChatPayload, SkillDef, SkillImportResult,
         StreamEvent, ToolDef, UserSettings, WebEffectiveSettingsView,
     },
-    platform_auth::{PlatformAuthManager, PlatformSessionView},
+    platform_auth::PlatformSessionView,
     platform_config::apply_login_media_oss,
     plugins::manifest::McpServerDecl,
     plugins::registry::PluginView,
     provider::OpenAIProvider,
     storage,
 };
+mod access_host;
+mod auth_doctor;
+mod client_ip;
+mod auth_pending;
+mod auth_routes;
+mod captcha;
+mod captcha_glyphs;
 mod channels;
-mod local_auth;
 mod web_session;
 
 use web_session::WebSessionStore;
@@ -243,8 +249,6 @@ async fn save_turn_file_changes(
     )?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
-use parking_lot::RwLock;
-use rand::RngCore;
 use std::{
     collections::HashMap,
     convert::Infallible,
@@ -252,14 +256,12 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, OnceLock},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tokio::sync::broadcast;
 
 /// Lifetime of a pending PKCE login entry. The user must complete the
 /// browser OAuth flow within this window or the callback will reject it.
-const OAUTH_PENDING_TTL: Duration = Duration::from_secs(600);
-
 #[derive(Clone)]
 pub(crate) struct ServerState {
     core: Arc<AppState>,
@@ -271,28 +273,85 @@ pub(crate) struct ServerState {
     channel_monitors: Arc<MonitorSupervisor>,
     qr_login: Arc<QrLoginState>,
     registration: Arc<ChannelRegistrationState>,
-    /// PKCE verifiers keyed by `state` for in-flight browser OAuth logins.
-    oauth_pending: Arc<RwLock<HashMap<String, PkcePending>>>,
+    /// In-flight browser logins keyed by `state` (platform OAuth + configured providers).
+    oauth_pending: Arc<auth_pending::PendingLogins>,
+    /// Configured `[auth.providers.<id>]` entries, validated at startup.
+    auth_providers: Arc<pointer_core::auth_provider::AuthProviderRegistry>,
     /// Per-browser platform OAuth sessions (cookie `pointer_web_session`).
     web_sessions: Arc<WebSessionStore>,
     /// Standalone login captcha challenges (in-memory, one-time).
-    captcha_store: Arc<local_auth::CaptchaStore>,
-    /// Standalone SSO ticket `jti` one-time store.
-    sso_nonces: Arc<pointer_core::local_sso::SsoNonceStore>,
+    captcha_store: Arc<captcha::CaptchaStore>,
+    /// Login-entry rate limiting + in-flight capacity (`[auth.rate_limit]`).
+    login_limiter: Arc<pointer_core::auth_rate_limit::LoginRateLimiter>,
 }
 
-#[derive(Debug, Clone)]
-struct PkcePending {
-    verifier: String,
-    redirect_uri: String,
-    created_at: Instant,
+/// Entry point: expected failures (bad config, guard tripped) print one line
+/// and exit non-zero — no `Error: …` + backtrace dump.
+fn main() -> std::process::ExitCode {
+    pointer_core::logging::init_backtrace_defaults();
+    match run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(err) => {
+            let text = format!("{err:#}");
+            eprintln!("错误：{}", startup_error_headline(&text));
+            eprintln!("详情：{text}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+/// One-line Chinese headline for the expected startup failures operators hit.
+fn startup_error_headline(text: &str) -> &'static str {
+    if text.contains("allow_in_managed") {
+        "managed 模式下 local_password 需要显式 allow_in_managed = true"
+    } else if text.contains("TOML") {
+        "配置文件 pointer-server.toml 语法有误"
+    } else if text.contains("is required for kind `oidc`") {
+        "oidc provider 缺少 issuer"
+    } else if text.contains("public_url") {
+        "public_url 未配置或不是合法地址"
+    } else if text.contains("address already in use") || text.contains("AddrInUse") {
+        "监听端口已被占用"
+    } else {
+        "服务启动失败"
+    }
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    pointer_core::logging::init_backtrace_defaults();
-
+async fn run() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
+
+    // `auth doctor`: read-only preflight for browser login (config → providers →
+    // callbacks → optional network). Prints 项 → 结论 → 修复建议, exits 1 on FAIL.
+    if args.get(1).map(String::as_str) == Some("auth")
+        && args.get(2).map(String::as_str) == Some("doctor")
+    {
+        let mut network = false;
+        let mut exchange = false;
+        let mut i = 3;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--network" => network = true,
+                "--exchange" => exchange = true,
+                "--config" => {
+                    i += 1;
+                    if i >= args.len() {
+                        eprintln!("error: --config requires a path");
+                        std::process::exit(1);
+                    }
+                    std::env::set_var("POINTER_SERVER_CONFIG", &args[i]);
+                }
+                other => {
+                    eprintln!("error: unexpected argument {other}");
+                    std::process::exit(1);
+                }
+            }
+            i += 1;
+        }
+        let report = auth_doctor::run_from_environment(network, exchange).await;
+        print!("{}", report.render());
+        std::process::exit(if report.failed() { 1 } else { 0 });
+    }
 
     // --hash-password: print password_hmac for [auth.local] (needs hmac_secret).
     // Usage: pointer-server --hash-password [--secret SECRET] [PASSWORD]
@@ -347,7 +406,7 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // --mint-sso-ticket: print a short-lived SSO ticket for standalone ?sso= login.
+    // --mint-sso-ticket: print a short-lived ticket for a `token_lookup` provider.
     // Usage: pointer-server --mint-sso-ticket --sub USER_ID [--name NICK] [--ttl SECS]
     //        [--secret SECRET] [--audience AUD]
     if let Some(idx) = args.iter().position(|a| a == "--mint-sso-ticket") {
@@ -409,13 +468,13 @@ async fn main() -> anyhow::Result<()> {
         }
         if secret.trim().is_empty() || audience.trim().is_empty() || sub.trim().is_empty() {
             eprintln!(
-                "error: --mint-sso-ticket requires --sub and SSO secret/audience \
-                 (--secret/--audience or [auth.local.sso] / POINTER_SERVER_SSO_*)"
+                "error: --mint-sso-ticket requires --sub and secret/audience \
+                 (--secret/--audience or POINTER_SERVER_SSO_SECRET / POINTER_SERVER_SSO_AUDIENCE)"
             );
             std::process::exit(1);
         }
         let now = chrono::Utc::now().timestamp();
-        match pointer_core::local_sso::mint_sso_ticket(
+        match pointer_core::auth_provider::mint_signed_ticket(
             secret.trim(),
             audience.trim(),
             sub.trim(),
@@ -495,17 +554,6 @@ async fn main() -> anyhow::Result<()> {
                  password_hmac, and hmac_secret (or matching POINTER_SERVER_ADMIN_* env vars)"
             );
         }
-        if pointer_core::local_sso::local_sso_configured() {
-            log::info!(
-                "pointer-server: standalone SSO enabled (audience={})",
-                pointer_core::local_sso::configured_sso_audience()
-            );
-        } else {
-            log::info!(
-                "pointer-server: standalone SSO not configured — set [auth.local.sso] secret + audience \
-                 for third-party ?sso= login"
-            );
-        }
     } else {
         log::info!(
             "pointer-server: web mode — auth.dat persistence disabled; per-browser cookie sessions"
@@ -525,7 +573,7 @@ async fn main() -> anyhow::Result<()> {
             if pointer_core::deployment_mode::is_standalone() {
                 log::warn!(
                     "platform_auth: POINTER_SERVER_PUBLIC_URL not configured (standalone); \
-                     OAuth routes disabled, use username/password via POST /api/auth/local/login"
+                     OAuth routes disabled, use username/password via POST /api/auth/login/start?provider=local_password"
                 );
             } else {
                 log::warn!(
@@ -583,6 +631,16 @@ async fn main() -> anyhow::Result<()> {
         channel_monitors.clone(),
     ));
 
+    // Validate `[auth.providers.<id>]` once at startup: a typo should stop the
+    // server here instead of surfacing when someone clicks the login button.
+    let auth_providers = pointer_core::server_config::auth_provider_registry()?;
+    if auth_providers.is_empty() {
+        log::info!("pointer-server: no [auth.providers] configured");
+    } else {
+        let ids: Vec<&str> = auth_providers.enabled().map(|(id, _)| id).collect();
+        log::info!("pointer-server: auth providers enabled [{}]", ids.join(", "));
+    }
+
     let state = ServerState {
         core: core.clone(),
         dispatcher: Arc::new(core.build_dispatcher_with_extra_finished_hooks(vec![
@@ -595,10 +653,13 @@ async fn main() -> anyhow::Result<()> {
         channel_monitors,
         qr_login: Arc::new(QrLoginState::new()),
         registration,
-        oauth_pending: Arc::new(RwLock::new(HashMap::new())),
+        oauth_pending: Arc::new(auth_pending::PendingLogins::default()),
+        auth_providers: Arc::new(auth_providers),
         web_sessions: web_sessions.clone(),
-        captcha_store: Arc::new(local_auth::CaptchaStore::default()),
-        sso_nonces: Arc::new(pointer_core::local_sso::SsoNonceStore::new()),
+        captcha_store: Arc::new(captcha::CaptchaStore::default()),
+        login_limiter: Arc::new(pointer_core::auth_rate_limit::LoginRateLimiter::new(
+            pointer_core::server_config::auth_rate_limit(),
+        )),
     };
 
     // Phase 5: start the cron scheduler. The server (web host) enables it by
@@ -637,16 +698,18 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/ready", get(api_ready))
         .route("/api/platform/session", get(get_platform_session))
         .route("/api/token-usage", get(list_token_usage))
-        .route("/api/auth/mode", get(local_auth::auth_mode))
-        .route("/api/auth/login/start", post(start_platform_login))
-        .route("/api/auth/local/captcha", get(local_auth::local_captcha))
-        .route("/api/auth/local/login", post(local_auth::local_login))
-        .route("/api/auth/local/sso", get(standalone_sso_login))
-        .route("/api/auth/oauth/callback", get(platform_oauth_callback))
+        .route("/api/auth/mode", get(auth_routes::auth_mode))
+        .route("/api/auth/providers", get(auth_routes::list_providers))
+        .route("/api/auth/login/start", post(auth_routes::start_login))
+        .route("/api/auth/login/finish", post(auth_routes::finish_login))
+        .route(
+            "/api/auth/callback/:provider",
+            get(auth_routes::provider_callback),
+        )
         .route("/api/auth/logout", post(platform_logout))
         .route("/api/auth/refresh", post(refresh_platform_session))
-        .route("/api/license/status", get(local_auth::license_status))
-        .route("/api/license/reload", post(local_auth::license_reload))
+        .route("/api/license/status", get(auth_routes::license_status))
+        .route("/api/license/reload", post(auth_routes::license_reload))
         .route("/api/settings", get(get_settings))
         .route(
             "/api/debug-session-settings",
@@ -910,7 +973,12 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let static_dir = resolve_static_dir();
-    let mut app = maybe_with_static_files(app, static_dir.clone())
+    let auth_providers = state.auth_providers.clone();
+    let app = maybe_with_static_files(app, static_dir.clone());
+    // Providers may register their own callback path (the control plane keeps
+    // its legacy one, so its allowlist needs no change).
+    let app = auth_routes::with_callback_routes(app, &auth_providers);
+    let mut app = app
         // `CompressionLayer` honors `Accept-Encoding`; event streams and already
         // compressed media are explicitly excluded above.
         .layer(compression)
@@ -945,7 +1013,13 @@ async fn main() -> anyhow::Result<()> {
         );
     }
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    // Peer addresses are needed for login rate limiting (`trusted_proxies`
+    // decides whether `X-Forwarded-For` is read at all).
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -2413,23 +2487,18 @@ async fn append_conversation_messages(
     Ok(Json(appended))
 }
 
-async fn send_chat(
-    State(state): State<ServerState>,
-    headers: HeaderMap,
-    Json(payload): Json<SendChatPayload>,
-) -> Result<StatusCode, ApiError> {
-    require_platform_access(&state)?;
-    let web_session_auth =
-        web_session::lookup_session_auth(&state.web_sessions, &headers).or_else(|| {
-            pointer_core::web_request_auth::capture_web_session_auth(&state.core.platform_auth)
-        });
-    if web_session_auth.is_none() {
-        log::warn!(
-            "send_chat: no browser session auth (conversation_id={})",
-            payload.conversation_id
-        );
-    }
-    let req = TriggerRequest {
+/// Build the `TriggerRequest` for `POST /api/chat`.
+///
+/// Split out of [`send_chat`] so the request assembly — in particular
+/// `access_host`, which decides 内网/外网 for downstream skills — can be tested
+/// without standing up `ServerState` (twelve fields, including a live
+/// dispatcher and the whole `AppState`).
+fn send_chat_trigger_request(
+    payload: SendChatPayload,
+    web_session_auth: Option<pointer_core::web_request_auth::WebSessionAuth>,
+    headers: &HeaderMap,
+) -> TriggerRequest {
+    TriggerRequest {
         run_id: None,
         idempotency_key: None,
         conversation_id: Some(payload.conversation_id),
@@ -2446,11 +2515,91 @@ async fn send_chat(
         workspace_inherit_disabled: payload.workspace_inherit_disabled,
         deliver: DeliverTarget::None,
         web_session_auth,
-    };
+        access_host: access_host::request_access_host(headers),
+    }
+}
+
+async fn send_chat(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    Json(payload): Json<SendChatPayload>,
+) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
+    let web_session_auth =
+        web_session::lookup_session_auth(&state.web_sessions, &headers).or_else(|| {
+            pointer_core::web_request_auth::capture_web_session_auth(&state.core.platform_auth)
+        });
+    if web_session_auth.is_none() {
+        log::warn!(
+            "send_chat: no browser session auth (conversation_id={})",
+            payload.conversation_id
+        );
+    }
+    let req = send_chat_trigger_request(payload, web_session_auth, &headers);
     if let Err(e) = state.dispatcher.dispatch(req).await {
         log::error!("send_chat: dispatch failed: {e:#}");
     }
     Ok(StatusCode::ACCEPTED)
+}
+
+#[cfg(test)]
+mod send_chat_trigger_request_tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    fn payload() -> SendChatPayload {
+        serde_json::from_value(serde_json::json!({
+            "conversationId": "c1",
+            "messages": [{
+                "id": "m1",
+                "role": "user",
+                "content": "hi",
+                "status": "complete",
+                "createdAt": 0
+            }]
+        }))
+        .expect("minimal SendChatPayload")
+    }
+
+    /// 外网域名走代理时，`X-Forwarded-Host` 才是用户真正访问的域名。
+    /// 这一跳错了，技能脚本会拿到内网地址，外网用户点进去打不开。
+    #[test]
+    fn forwarded_host_reaches_the_trigger_request() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-host",
+            HeaderValue::from_static("pointer.hospital.example"),
+        );
+        let req = send_chat_trigger_request(payload(), None, &headers);
+        assert_eq!(
+            req.access_host.as_deref(),
+            Some("pointer.hospital.example")
+        );
+    }
+
+    #[test]
+    fn host_header_is_the_fallback() {
+        let mut headers = HeaderMap::new();
+        headers.insert("host", HeaderValue::from_static("10.0.0.5:8787"));
+        let req = send_chat_trigger_request(payload(), None, &headers);
+        assert_eq!(req.access_host.as_deref(), Some("10.0.0.5"));
+    }
+
+    /// 没有 HTTP 上下文时必须留空——下游技能据此回退，不能猜一个默认域名。
+    #[test]
+    fn missing_headers_leave_access_host_empty() {
+        let req = send_chat_trigger_request(payload(), None, &HeaderMap::new());
+        assert_eq!(req.access_host, None);
+    }
+
+    /// 其余字段照旧搬运，别在抽函数时搬丢了。
+    #[test]
+    fn other_fields_still_come_from_the_payload() {
+        let req = send_chat_trigger_request(payload(), None, &HeaderMap::new());
+        assert_eq!(req.conversation_id.as_deref(), Some("c1"));
+        assert_eq!(req.trigger_source, TriggerSource::HttpRuns);
+        assert_eq!(req.messages.len(), 1);
+    }
 }
 
 // ---- Phase 4: HTTP Runs API + generic webhook ----
@@ -3054,6 +3203,7 @@ async fn webhook_ingress(
             sync_automation_web_session(&state);
             state.core.automation_execution_auth()
         },
+        access_host: None,
     };
 
     let handle = state
@@ -3991,113 +4141,6 @@ async fn list_token_usage(
     )?))
 }
 
-#[derive(Deserialize)]
-struct OAuthCallbackQuery {
-    code: String,
-    state: String,
-}
-
-/// `POST /api/auth/login/start` — begin a PKCE browser OAuth flow.
-/// Returns `{ authorize_url }` for the frontend to redirect to.
-async fn start_platform_login(
-    State(state): State<ServerState>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    if pointer_core::deployment_mode::is_standalone() {
-        return Err(ApiError(anyhow::anyhow!(
-            "platform OAuth disabled in standalone mode; use POST /api/auth/local/login with username/password"
-        )));
-    }
-    let public_url = resolve_server_public_url().ok_or_else(|| {
-        ApiError(anyhow::anyhow!(
-            "POINTER_SERVER_PUBLIC_URL 未配置；请在 pointer-server.toml [server].public_url 设置外部可达地址"
-        ))
-    })?;
-    let redirect_uri = format!("{public_url}/api/auth/oauth/callback");
-    let (verifier, challenge) = PlatformAuthManager::generate_pkce();
-    let state_token = random_state_token();
-    purge_expired_oauth_pending(&state.oauth_pending);
-    state.oauth_pending.write().insert(
-        state_token.clone(),
-        PkcePending {
-            verifier,
-            redirect_uri: redirect_uri.clone(),
-            created_at: Instant::now(),
-        },
-    );
-    let url = PlatformAuthManager::build_authorize_url_for_redirect(
-        &redirect_uri,
-        &challenge,
-        &state_token,
-    );
-    log::info!("platform_auth: login start state={state_token}");
-    Ok(Json(serde_json::json!({ "authorize_url": url })))
-}
-
-/// `GET /api/auth/oauth/callback` — terminal hop of the PKCE flow.
-/// Browser lands here with `?code=&state=`; server exchanges the code for
-/// access/refresh tokens, persists the refresh token via `set_session`,
-/// then redirects back to the SPA root with a status query.
-async fn platform_oauth_callback(
-    State(state): State<ServerState>,
-    Query(q): Query<OAuthCallbackQuery>,
-) -> Result<Response, (StatusCode, String)> {
-    if pointer_core::deployment_mode::is_standalone() {
-        return Err((StatusCode::NOT_FOUND, "platform_oauth_disabled".into()));
-    }
-    if q.code.trim().is_empty() {
-        log::warn!("platform_auth: callback missing code");
-        return Err((StatusCode::BAD_REQUEST, "missing_code".into()));
-    }
-    let pending = state.oauth_pending.write().remove(&q.state);
-    let PkcePending {
-        verifier,
-        redirect_uri,
-        ..
-    } = pending.ok_or_else(|| {
-        log::warn!("platform_auth: callback unknown/expired state={}", q.state);
-        (StatusCode::BAD_REQUEST, "invalid_or_expired_state".into())
-    })?;
-    let auth = Arc::new(PlatformAuthManager::new());
-    match auth
-        .exchange_authorization_code(&q.code, &verifier, &q.state, &redirect_uri)
-        .await
-    {
-        Ok((session, creds)) => {
-            if pointer_core::server_access::access_restriction_enabled()
-                && !pointer_core::server_access::is_user_allowed(&session.user.id)
-            {
-                log::warn!(
-                    "platform_auth: rejected OAuth login user_id={} not in allowed_user_ids",
-                    session.user.id
-                );
-                return Ok(
-                    Redirect::temporary("/?platform_login_error=server_access_denied")
-                        .into_response(),
-                );
-            }
-            auth.set_session(session);
-            let session_id = state.web_sessions.insert(
-                auth,
-                creds,
-                pointer_core::web_request_auth::WebSessionAuthKind::Platform,
-            );
-            sync_automation_web_session(&state);
-            log::info!(
-                "platform_auth: callback ok state={} web_session={session_id}",
-                q.state
-            );
-            let mut resp = Redirect::temporary("/?platform_login=success").into_response();
-            web_session::set_session_cookie(resp.headers_mut(), &session_id, cookie_secure());
-            Ok(resp)
-        }
-        Err(e) => {
-            log::warn!("platform_auth: exchange failed: {e:#}");
-            let msg = urlencoding_encode(&e.to_string());
-            Ok(Redirect::temporary(&format!("/?platform_login_error={msg}")).into_response())
-        }
-    }
-}
-
 /// `POST /api/auth/logout` — clear browser web session cookie and in-memory auth.
 async fn platform_logout(headers: HeaderMap, State(state): State<ServerState>) -> Response {
     if let Some(session_id) = web_session::session_id_from_headers(&headers) {
@@ -4162,7 +4205,7 @@ pub(crate) fn cookie_secure() -> bool {
 /// without configuration — the browser is on the same machine and can reach
 /// the callback. Production deployments behind a public domain should set
 /// `POINTER_SERVER_PUBLIC_URL` explicitly to override this.
-fn resolve_server_public_url() -> Option<String> {
+pub(crate) fn resolve_server_public_url() -> Option<String> {
     if let Ok(raw) = env::var("POINTER_SERVER_PUBLIC_URL") {
         let trimmed = raw.trim().trim_end_matches('/').to_string();
         if !trimmed.is_empty() {
@@ -4184,33 +4227,7 @@ fn resolve_server_public_url() -> Option<String> {
     Some(format!("http://{host}:{port}"))
 }
 
-fn random_state_token() -> String {
-    let mut bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut bytes);
-    hex_encode(&bytes)
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        out.push_str(&format!("{b:02x}"));
-    }
-    out
-}
-
-fn purge_expired_oauth_pending(pending: &RwLock<HashMap<String, PkcePending>>) {
-    let now = Instant::now();
-    let mut guard = pending.write();
-    guard.retain(|_, v| now.duration_since(v.created_at) < OAUTH_PENDING_TTL);
-}
-
-async fn spa_fallback(State(state): State<ServerState>, uri: Uri) -> Result<Response, StatusCode> {
-    if let Some(resp) = try_standalone_sso(&state, &uri) {
-        return Ok(resp);
-    }
-    if let Some(resp) = try_cloud_oauth_exchange(&state, &uri).await {
-        return Ok(resp);
-    }
+async fn spa_fallback(State(_state): State<ServerState>, uri: Uri) -> Result<Response, StatusCode> {
     let root = WEB_DIST.get().ok_or(StatusCode::NOT_FOUND)?;
     let rel = uri.path().trim_start_matches('/');
     let candidate = if rel.is_empty() {
@@ -4222,163 +4239,6 @@ async fn spa_fallback(State(state): State<ServerState>, uri: Uri) -> Result<Resp
         return serve_static_file(&candidate).await;
     }
     serve_static_file(&root.join("index.html")).await
-}
-
-#[derive(Debug, Deserialize)]
-struct SsoQuery {
-    sso: Option<String>,
-}
-
-/// `GET /api/auth/local/sso?sso=` — standalone third-party SSO ticket login.
-async fn standalone_sso_login(
-    State(state): State<ServerState>,
-    Query(q): Query<SsoQuery>,
-) -> Response {
-    complete_standalone_sso(&state, q.sso.as_deref().unwrap_or(""))
-}
-
-fn try_standalone_sso(state: &ServerState, uri: &Uri) -> Option<Response> {
-    let query = uri.query()?;
-    let ticket = form_query_param(query, "sso")?;
-    Some(complete_standalone_sso(state, &ticket))
-}
-
-fn complete_standalone_sso(state: &ServerState, ticket: &str) -> Response {
-    use axum::response::Redirect;
-    if !pointer_core::deployment_mode::is_standalone() {
-        log::warn!("local_sso: rejected — not in standalone mode");
-        return Redirect::temporary("/?sso_error=not_standalone").into_response();
-    }
-    if ticket.trim().is_empty() {
-        return Redirect::temporary("/?sso_error=missing").into_response();
-    }
-    if !pointer_core::local_sso::local_sso_configured() {
-        log::warn!("local_sso: rejected — SSO not configured");
-        return Redirect::temporary("/?sso_error=not_configured").into_response();
-    }
-    match pointer_core::local_sso::verify_sso_ticket_now(ticket, &state.sso_nonces) {
-        Ok(identity) => {
-            let user_id = identity.user_id.clone();
-            let auth = pointer_core::local_auth::create_local_auth_manager_for_user(
-                &user_id,
-                identity.nickname,
-                false,
-            );
-            let creds = pointer_core::local_auth::empty_local_credentials();
-            let session_id = state.web_sessions.insert(
-                auth,
-                creds,
-                pointer_core::web_request_auth::WebSessionAuthKind::Local,
-            );
-            sync_automation_web_session(state);
-            log::info!("local_sso: login ok user_id={user_id} web_session={session_id}");
-            let mut resp = Redirect::temporary("/").into_response();
-            web_session::set_session_cookie(resp.headers_mut(), &session_id, cookie_secure());
-            resp
-        }
-        Err(_) => Redirect::temporary("/?sso_error=invalid").into_response(),
-    }
-}
-
-async fn try_cloud_oauth_exchange(state: &ServerState, uri: &Uri) -> Option<Response> {
-    let query = uri.query()?;
-    let code = form_query_param(query, "code")?;
-    let oauth_state = form_query_param(query, "state")?;
-    if !pointer_core::cloud_agent_auth::is_cloud_auth_configured() {
-        log::warn!("cloud oauth: POINTER_API_BASE not configured");
-        return Some(Redirect::temporary("/?cloud_auth_error=not_configured").into_response());
-    }
-    match pointer_core::cloud_agent_auth::exchange_agent_oauth_code(&code, &oauth_state).await {
-        Ok((session, creds)) => {
-            if pointer_core::server_access::access_restriction_enabled()
-                && !pointer_core::server_access::is_user_allowed(&session.user.id)
-            {
-                log::warn!(
-                    "cloud oauth: rejected user_id={} not in allowed_user_ids",
-                    session.user.id
-                );
-                return Some(
-                    Redirect::temporary("/?cloud_auth_error=server_access_denied").into_response(),
-                );
-            }
-            let auth = Arc::new(PlatformAuthManager::new());
-            auth.set_partner_session(session);
-            let session_id = state.web_sessions.insert(
-                auth,
-                creds,
-                pointer_core::web_request_auth::WebSessionAuthKind::Platform,
-            );
-            sync_automation_web_session(&state);
-            log::info!("cloud oauth: exchange succeeded, redirecting to /");
-            let mut resp = Redirect::temporary("/").into_response();
-            web_session::set_session_cookie(resp.headers_mut(), &session_id, cookie_secure());
-            Some(resp)
-        }
-        Err(e) => {
-            log::warn!("cloud oauth: exchange failed: {e:#}");
-            Some(Redirect::temporary("/?cloud_auth_error=1").into_response())
-        }
-    }
-}
-
-fn form_query_param(query: &str, key: &str) -> Option<String> {
-    for (k, v) in form_urlencoded_parse(query) {
-        if k == key {
-            let trimmed = v.trim().to_string();
-            if !trimmed.is_empty() {
-                return Some(trimmed);
-            }
-        }
-    }
-    None
-}
-
-fn form_urlencoded_parse(query: &str) -> Vec<(String, String)> {
-    query
-        .split('&')
-        .filter_map(|pair| {
-            let mut parts = pair.splitn(2, '=');
-            let k = parts.next()?.trim();
-            if k.is_empty() {
-                return None;
-            }
-            let v = parts.next().unwrap_or("").trim();
-            Some((percent_decode(k), percent_decode(v)))
-        })
-        .collect()
-}
-
-fn percent_decode(input: &str) -> String {
-    let bytes = input.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(v) = u8::from_str_radix(&input[i + 1..i + 3], 16) {
-                out.push(v);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-/// Percent-encode a string for use as a single URL query value.
-/// Encodes everything except RFC 3986 unreserved characters.
-fn urlencoding_encode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char);
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
 }
 
 async fn serve_static_file(path: &std::path::Path) -> Result<Response, StatusCode> {
@@ -4636,7 +4496,7 @@ fn static_content_type(path: &std::path::Path) -> &'static str {
     }
 }
 
-struct ApiError(anyhow::Error);
+pub(crate) struct ApiError(anyhow::Error);
 
 impl From<anyhow::Error> for ApiError {
     fn from(err: anyhow::Error) -> Self {
@@ -4644,10 +4504,16 @@ impl From<anyhow::Error> for ApiError {
     }
 }
 
+/// Errors that mean "no usable session yet".
+///
+/// They must be **401**, not 500: the SPA stops retrying on 401 and shows the
+/// login entry, while a 500 makes it re-fetch meta / reopen SSE forever.
+const AUTH_REQUIRED_MESSAGES: &[&str] = &["platform_login_required", "local_login_required"];
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let msg = self.0.to_string();
-        if msg.contains("platform_login_required") {
+        if AUTH_REQUIRED_MESSAGES.iter().any(|needle| msg.contains(needle)) {
             return (StatusCode::UNAUTHORIZED, msg).into_response();
         }
         if msg.contains("server_access_denied") {
@@ -4840,5 +4706,34 @@ mod cors_layer_tests {
             cors_layer_from_mode(&CorsMode::Allowlist(vec!["http://localhost:1420\n".into()]))
                 .unwrap_err();
         assert!(err.to_string().contains("invalid origin"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod api_error_status_tests {
+    use super::ApiError;
+    use axum::response::IntoResponse;
+    use axum::http::StatusCode;
+
+    /// Regression: `local_login_required` used to fall through to 500, so the
+    /// web SPA kept re-fetching meta / reopening SSE in a loop.
+    #[test]
+    fn login_required_errors_are_401() {
+        for msg in ["local_login_required", "platform_login_required"] {
+            let resp = ApiError(anyhow::anyhow!(msg)).into_response();
+            assert_eq!(
+                resp.status(),
+                StatusCode::UNAUTHORIZED,
+                "`{msg}` must map to 401 so the SPA stops retrying"
+            );
+        }
+    }
+
+    #[test]
+    fn access_denied_is_403_and_unknown_errors_stay_500() {
+        let denied = ApiError(anyhow::anyhow!("server_access_denied")).into_response();
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+        let boom = ApiError(anyhow::anyhow!("something broke")).into_response();
+        assert_eq!(boom.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }

@@ -7,10 +7,11 @@
 //!
 //! Existing OS environment variables always override file values.
 
+use crate::auth_provider::{AuthProviderConfig, AuthProviderRegistry};
 use crate::dotenv::parse_dotenv_bytes;
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -19,23 +20,6 @@ struct DeploymentSection {
     /// `platform` (default) or `standalone`.
     #[serde(default)]
     mode: String,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct AuthLocalSsoSection {
-    /// When false, SSO is off even if secret/audience are set.
-    #[serde(default)]
-    enabled: Option<bool>,
-    #[serde(default)]
-    secret: String,
-    /// Previous secret for rotation window.
-    #[serde(default)]
-    secret_prev: String,
-    /// Must match ticket `aud` (usually this instance public URL).
-    #[serde(default)]
-    audience: String,
-    #[serde(default)]
-    max_skew_secs: Option<u64>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -49,8 +33,6 @@ struct AuthLocalSection {
     /// Deprecated: ignored when present (use username + password_hmac).
     #[serde(default)]
     admin_token: String,
-    #[serde(default)]
-    sso: AuthLocalSsoSection,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -208,11 +190,23 @@ struct ServerConfigToml {
 struct AuthToml {
     #[serde(default)]
     local: AuthLocalSection,
+    /// 登录入口限流：`[auth.rate_limit]`。缺省 = 默认开启、保守阈值。
+    #[serde(default)]
+    rate_limit: crate::auth_rate_limit::RateLimitConfig,
+    /// 第三方登录 provider：`[auth.providers.<id>]`。
+    /// 结构（四个可配置维度）见 `crate::auth_provider::config`；只解析不映射 env，
+    /// 由 [`auth_provider_registry`] 校验并构造 driver。
+    #[serde(default)]
+    providers: BTreeMap<String, AuthProviderConfig>,
 }
 
 /// P2b：全局 MCP server 声明 + 配置文件所在目录（相对 command 的解析基准）。
 static PARSED_MCP: OnceLock<Option<(crate::plugins::manifest::McpServersDecl, PathBuf)>> =
     OnceLock::new();
+
+/// `[auth.providers.<id>]`（结构化配置，不走 env 映射）。
+static PARSED_AUTH_PROVIDERS: OnceLock<BTreeMap<String, AuthProviderConfig>> = OnceLock::new();
+static PARSED_AUTH_RATE_LIMIT: OnceLock<crate::auth_rate_limit::RateLimitConfig> = OnceLock::new();
 
 /// Result of loading server config from disk.
 #[derive(Debug, Clone)]
@@ -249,6 +243,8 @@ pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
     if ext == "toml" {
         if let Ok(text) = std::fs::read_to_string(&path) {
             if let Ok(parsed) = toml::from_str::<ServerConfigToml>(&text) {
+                let _ = PARSED_AUTH_PROVIDERS.set(parsed.auth.providers.clone());
+                let _ = PARSED_AUTH_RATE_LIMIT.set(parsed.auth.rate_limit.clone());
                 let _ = PARSED_MCP.set(Some((parsed.mcp_servers, base_dir.clone())));
             }
         }
@@ -381,39 +377,6 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
         base_dir,
         false,
     );
-    if let Some(enabled) = parsed.auth.local.sso.enabled {
-        pairs.push((
-            "POINTER_SERVER_SSO_ENABLED".to_string(),
-            if enabled { "true" } else { "false" }.to_string(),
-        ));
-    }
-    push_mapped(
-        &mut pairs,
-        "POINTER_SERVER_SSO_SECRET",
-        &parsed.auth.local.sso.secret,
-        base_dir,
-        false,
-    );
-    push_mapped(
-        &mut pairs,
-        "POINTER_SERVER_SSO_SECRET_PREV",
-        &parsed.auth.local.sso.secret_prev,
-        base_dir,
-        false,
-    );
-    push_mapped(
-        &mut pairs,
-        "POINTER_SERVER_SSO_AUDIENCE",
-        &parsed.auth.local.sso.audience,
-        base_dir,
-        false,
-    );
-    if let Some(skew) = parsed.auth.local.sso.max_skew_secs {
-        pairs.push((
-            "POINTER_SERVER_SSO_MAX_SKEW_SECS".to_string(),
-            skew.to_string(),
-        ));
-    }
     if let Some(key) = resolve_license_key(&parsed.license, base_dir) {
         pairs.push(("POINTER_LICENSE_KEY".to_string(), key));
     }
@@ -675,6 +638,31 @@ pub fn reload_mcp_servers_config(
     Ok(Some((server_decls, base_dir)))
 }
 
+/// Providers declared in `pointer-server.toml` (`[auth.providers.<id>]`), before
+/// deployment mode injects its default. Empty when no config file was read.
+pub fn parsed_auth_providers() -> BTreeMap<String, AuthProviderConfig> {
+    PARSED_AUTH_PROVIDERS.get().cloned().unwrap_or_default()
+}
+
+/// 登录入口限流配置（`[auth.rate_limit]`）；没有配置文件时用默认值。
+pub fn auth_rate_limit() -> crate::auth_rate_limit::RateLimitConfig {
+    PARSED_AUTH_RATE_LIMIT
+        .get()
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// 从 `pointer-server.toml` 的 `[auth.providers.<id>]` 构建登录 provider 注册表。
+///
+/// 部署模式决定默认项：standalone 注入 `local_password`，managed 注入 `platform`；
+/// 显式同名配置优先，`enabled = false` 可关掉默认项。managed 下启用 `local_password`
+/// 需要 `allow_in_managed = true`。配置非法时返回错误而不是静默忽略，启动期调用一次
+/// 即可尽早暴露拼写错误。
+pub fn auth_provider_registry() -> Result<AuthProviderRegistry> {
+    let providers = PARSED_AUTH_PROVIDERS.get().cloned().unwrap_or_default();
+    AuthProviderRegistry::for_deployment(providers, crate::deployment_mode::is_standalone())
+}
+
 /// Whether SSE initial padding is enabled (flush proxy buffers).
 /// Reads `POINTER_SERVER_SSE_PADDING_ENABLED`; defaults to `false`.
 pub fn sse_padding_enabled() -> bool {
@@ -880,6 +868,56 @@ OTEL_SERVICE_NAME = "pointer-server"
             map.get("OTEL_SERVICE_NAME").map(String::as_str),
             Some("pointer-server")
         );
+    }
+
+    #[test]
+    fn parses_auth_providers_section_into_registry() {
+        // `[auth.providers.<id>]` 只解析不映射 env，交给 auth_provider_registry 校验。
+        let parsed: ServerConfigToml = toml::from_str(
+            r#"
+[auth.providers.dingtalk]
+kind = "oauth2_userinfo"
+display_name = "钉钉"
+issuer = "https://login.dingtalk.com"
+
+[auth.providers.dingtalk.authorize]
+url = "https://login.dingtalk.com/oauth2/auth"
+scope = "openid"
+
+[auth.providers.dingtalk.token]
+url = "https://api.dingtalk.com/v1.0/oauth2/userAccessToken"
+client_id = "ding-client"
+client_secret = "ding-secret"
+encoding = "json"
+grant_type_param = "grantType"
+client_id_param = "clientId"
+client_secret_param = "clientSecret"
+access_token_path = "/accessToken"
+
+[auth.providers.dingtalk.userinfo]
+url = "https://api.dingtalk.com/v1.0/contact/users/me"
+token_auth = "header"
+token_name = "x-acs-dingtalk-access-token"
+token_prefix = ""
+subject_path = "/unionId"
+"#,
+        )
+        .unwrap();
+        assert_eq!(parsed.auth.providers.len(), 1);
+
+        let registry = AuthProviderRegistry::new(parsed.auth.providers).unwrap();
+        let (id, config) = registry.enabled().next().expect("dingtalk is enabled");
+        assert_eq!(id, "dingtalk");
+        assert_eq!(config.display_name, "钉钉");
+        assert_eq!(config.userinfo.subject_path(), "/unionId");
+        assert_eq!(config.token.grant_type_param(), "grantType");
+
+        // 未声明该段时为空注册表，不影响其它配置。
+        let parsed: ServerConfigToml = toml::from_str("[server]\naddr = \"127.0.0.1:8787\"\n").unwrap();
+        assert!(parsed.auth.providers.is_empty());
+        assert!(AuthProviderRegistry::new(parsed.auth.providers)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

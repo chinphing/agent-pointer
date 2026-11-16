@@ -76,6 +76,7 @@ pub fn build_terminal_child_environment(env_files: &[PathBuf]) -> HashMap<String
     crate::windows_shell_encoding::apply_windows_utf8_child_env(&mut env);
     crate::session_user_env::apply_session_user_id(&mut env);
     crate::session_work_dir_env::apply_session_work_dir(&mut env);
+    crate::access_host_env::apply_access_host(&mut env);
     crate::storage::apply_data_dir_env(&mut env);
     crate::skills::external::apply_skill_dir_env(&mut env);
     apply_terminal_env_overrides(&mut env);
@@ -328,7 +329,7 @@ mod tests {
     /// Module env lock + shared PATH lock + process-global settings lock so
     /// `build_terminal_child_environment` tests (which mutate terminalEnvOverrides
     /// via `replace_global_user_settings_for_test` and read/restore process `PATH`)
-    /// cannot race with `local_sso`, `terminal_elevated`, or other tests that read
+    /// cannot race with `token_lookup`, `terminal_elevated`, or other tests that read
     /// the same globals.
     /// Fields are never read: the guards exist only to hold the three locks
     /// (drop order = declaration order), so they are underscore-prefixed.
@@ -347,7 +348,7 @@ mod tests {
     }
 
     /// Restore process PATH on drop so concurrent tests that spawn external
-    /// commands (workspace_read git, local_sso sh) are not affected.
+    /// commands (workspace_read git, token_lookup sh) are not affected.
     struct PathGuard(Option<String>);
 
     impl PathGuard {
@@ -549,6 +550,54 @@ mod tests {
         assert_eq!(
             map.get("WORKING_DIR").map(String::as_str),
             Some("/tmp/pointer-ws")
+        );
+    }
+
+    #[test]
+    fn build_terminal_child_environment_injects_access_host() {
+        let _guard = env_test_guard();
+        crate::platform_config::replace_global_user_settings_for_test(
+            crate::models::UserSettings::default(),
+        );
+        let _host_guard =
+            crate::access_host_env::AccessHostGuard::enter("pointer.hospital.internal".into());
+        let map = build_terminal_child_environment(&[]);
+        assert_eq!(
+            map.get("POINTER_ACCESS_HOST").map(String::as_str),
+            Some("pointer.hospital.internal")
+        );
+    }
+
+    #[test]
+    fn build_terminal_child_environment_omits_access_host_when_absent() {
+        let _guard = env_test_guard();
+        crate::platform_config::replace_global_user_settings_for_test(
+            crate::models::UserSettings::default(),
+        );
+        let map = build_terminal_child_environment(&[]);
+        assert!(
+            !map.contains_key("POINTER_ACCESS_HOST"),
+            "没有请求上下文时不应凭空产生域名"
+        );
+    }
+
+    /// 端到端：请求作用域里的域名 → thread-local → 子进程环境变量。
+    #[tokio::test]
+    async fn access_host_scope_reaches_child_environment() {
+        let _guard = env_test_guard();
+        crate::platform_config::replace_global_user_settings_for_test(
+            crate::models::UserSettings::default(),
+        );
+        let map = crate::access_host_scope::run_scoped(Some("pointer.internal".into()), || async {
+            let _host = crate::access_host_env::AccessHostGuard::enter(
+                crate::access_host_scope::current().unwrap_or_default(),
+            );
+            build_terminal_child_environment(&[])
+        })
+        .await;
+        assert_eq!(
+            map.get("POINTER_ACCESS_HOST").map(String::as_str),
+            Some("pointer.internal")
         );
     }
 

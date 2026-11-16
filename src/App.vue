@@ -3,6 +3,7 @@ import { defineAsyncComponent, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import AppShell from './components/layout/AppShell.vue'
 import ChatView from './components/chat/ChatView.vue'
+import LoginPage from './components/auth/LoginPage.vue'
 import ComputerCompactBar from './components/chat/ComputerCompactBar.vue'
 import { useComputerCompactMode } from './composables/useComputerCompactMode'
 import { useChannelPairingPrompt } from './composables/useChannelPairingPrompt'
@@ -19,6 +20,33 @@ import { initPlatformWebBase } from './lib/platformUrls'
 import { migrateLegacyTurnElapsedOnce } from './lib/turnElapsedMigration'
 
 const isDesktopApp = isTauriRuntime()
+
+/** Web login lives on its own page; desktop keeps the in-app panel. */
+const LOGIN_PATH = '/login'
+
+function normalizePath(pathname: string): string {
+  const trimmed = pathname.replace(/\/+$/, '')
+  return trimmed || '/'
+}
+
+/** `?next=` is only honoured for same-origin absolute paths. */
+function readLoginNext(): string {
+  if (typeof window === 'undefined') return '/'
+  const raw = new URLSearchParams(window.location.search).get('next') ?? ''
+  return raw.startsWith('/') && !raw.startsWith('//') ? raw : '/'
+}
+
+const onLoginRoute = ref(!isDesktopApp && normalizePath(window.location.pathname) === LOGIN_PATH)
+const loginNext = ref(readLoginNext())
+
+function goToLogin() {
+  const target = normalizePath(window.location.pathname) + window.location.search
+  window.location.replace(`${LOGIN_PATH}?next=${encodeURIComponent(target)}`)
+}
+
+function leaveLoginPage() {
+  window.location.replace(loginNext.value)
+}
 
 /** Lazy: keep first paint free of settings / modal / skills graphs. */
 const SettingsView = defineAsyncComponent(
@@ -85,8 +113,21 @@ onMounted(() => {
     // 桌面端读失败要说出来：命令没注册 / IPC 故障，和「没配置地址」是两回事。
     console.warn('[platformUrls] 读取控制面地址失败：', e)
   })
-  void Promise.all([platformAuth.load(), settings.load()])
+  void Promise.all([platformAuth.load(), onLoginRoute.value ? Promise.resolve() : settings.load()])
     .then(async () => {
+      if (!isDesktopApp) {
+        if (onLoginRoute.value) {
+          if (platformAuth.session.logged_in) {
+            leaveLoginPage()
+            return
+          }
+          return
+        }
+        if (!platformAuth.session.logged_in) {
+          goToLogin()
+          return
+        }
+      }
       skills.initEnabledFromUserSettings()
       await skills.load()
       await checkExternalSkillsOnBoot()
@@ -108,8 +149,14 @@ onMounted(() => {
     watch(
       () => platformAuth.session.logged_in,
       (loggedIn, wasLoggedIn) => {
+        if (loggedIn && onLoginRoute.value) {
+          // Signed in on the page itself: bounce to where the user came from.
+          leaveLoginPage()
+          return
+        }
         if (wasLoggedIn && !loggedIn) {
           chat.resetForPlatformLogout()
+          goToLogin()
         }
       }
     )
@@ -136,6 +183,8 @@ watch(showSettings, open => {
 
 <template>
   <div class="h-full w-full min-h-0 flex flex-col">
+  <LoginPage v-if="onLoginRoute" />
+  <template v-else>
   <ComputerCompactBar
     v-if="isCompact"
     :class="isDesktopApp
@@ -164,6 +213,7 @@ watch(showSettings, open => {
         <ChatView />
       </AppShell>
     </template>
+  </template>
   </div>
 
   <ChannelPairingModal

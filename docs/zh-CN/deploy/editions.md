@@ -13,7 +13,7 @@
 | 术语 | 含义 |
 | --- | --- |
 | 口味 **`managed`（集中管理）** | 构建期注入控制面域名：默认连控制面（登录、目录、用量、自动更新）。 |
-| 口味 **standalone（独立）** | **未设置** `POINTER_EDITION`。源码不写入任何控制面域名 ⇒ 未绑定：本地模型 / Key；服务端用账密或 `?sso=`。 |
+| 口味 **standalone（独立）** | **未设置** `POINTER_EDITION`。源码不写入任何控制面域名 ⇒ 未绑定：本地模型 / Key；服务端用 `local_password` 或 `token_lookup` provider 登录。 |
 | **客户端** | Tauri 桌面 App（`src-tauri/`）。Agent 跑在本机进程里，不依赖 pointer-server。 |
 | **服务端** | `pointer-server`（axum HTTP/SSE + 同一套 Vue 界面）。浏览器 / 云主机用。 |
 

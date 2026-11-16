@@ -56,10 +56,13 @@ const menuStyle = ref({ left: '8px', bottom: '0px' })
 const themeOptions = ['light', 'dark', 'system'] as const
 
 const platformAccountTitle = computed(() => {
-  // Standalone installs have no control plane: there is no account to sign in to.
-  if (platformAuth.isStandalone) return t('shell.localMode')
-  if (!platformAuth.session.logged_in) return t('shell.notLoggedIn')
-  return platformAuth.session.user_nickname?.trim() || t('shell.loggedIn')
+  const session = platformAuth.session
+  // A signed-in user is the identity in every deployment mode: standalone
+  // installs can now sign in through local_password / OIDC / OAuth2 providers,
+  // so "本地模式" must not mask who is signed in.
+  if (session.logged_in) return session.user_nickname?.trim() || t('shell.loggedIn')
+  // Signed out: a standalone install has no control plane to sign in to.
+  return platformAuth.isStandalone ? t('shell.localMode') : t('shell.notLoggedIn')
 })
 
 const platformLogoutBusy = ref(false)

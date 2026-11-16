@@ -922,18 +922,21 @@ mod tests {
 
     #[test]
     fn writable_path_accepts_tilde_home_file() {
-        // `~` expands from the process HOME, which other tests swap; hold the
-        // shared HOME lock so the value cannot move mid-test.
-        let _home_lock = crate::test_support::home_env_lock();
+        // Injected home: `~` and the allowed home root both come from the
+        // argument, so no process env (and no shared lock) is involved.
         let ws = tempfile::tempdir().expect("tmp");
-        let home = dirs::home_dir().expect("home");
-        let dir = home.join(format!(".pointer-writable-test-{}", std::process::id()));
+        let home = tempfile::tempdir().expect("home");
+        let dir = home.path().join(".pointer-writable-test");
         fs::create_dir_all(&dir).unwrap();
-        let target = dir.join("note.txt");
-        let tilde = format!("~/.pointer-writable-test-{}/note.txt", std::process::id());
-        let got = resolve_writable_path(ws.path(), &tilde).expect("home tilde write");
+        // `note.txt` does not exist yet, so canonicalize the dir it lives in.
+        let target = dir.canonicalize().unwrap_or_else(|_| dir.clone()).join("note.txt");
+        let got = super::path::resolve_writable_path_at(
+            ws.path(),
+            "~/.pointer-writable-test/note.txt",
+            Some(home.path()),
+        )
+        .expect("home tilde write");
         assert_eq!(got, target);
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -953,11 +956,12 @@ mod tests {
 
     #[test]
     fn accessible_path_expands_tilde_home() {
-        let _home_lock = crate::test_support::home_env_lock();
+        // Injected home (see `writable_path_accepts_tilde_home_file`).
         let ws = tempfile::tempdir().expect("tmp");
-        let home = dirs::home_dir().expect("home");
-        let got = resolve_accessible_path(ws.path(), "~").expect("tilde");
-        let want = home.canonicalize().unwrap_or(home);
+        let home = tempfile::tempdir().expect("home");
+        let got = super::path::resolve_accessible_path_at(ws.path(), "~", Some(home.path()))
+            .expect("tilde");
+        let want = home.path().canonicalize().unwrap_or_else(|_| home.path().to_path_buf());
         assert_eq!(got, want);
     }
 

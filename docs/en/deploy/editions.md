@@ -13,7 +13,7 @@ One source tree, where the **packaging flavour** (`POINTER_EDITION`) and the **r
 | Term | Meaning |
 | --- | --- |
 | Flavour **`managed` (centrally managed)** | Control-plane domains injected at build time: the build talks to the control plane by default (login, catalogue, usage, auto-update). |
-| Flavour **standalone (independent)** | `POINTER_EDITION` is **unset**. The source writes no control-plane domain ⇒ unbound: local models / keys; the server uses credentials or `?sso=`. |
+| Flavour **standalone (independent)** | `POINTER_EDITION` is **unset**. The source writes no control-plane domain ⇒ unbound: local models / keys; the server logs in through the `local_password` or `token_lookup` provider. |
 | **Client** | The Tauri desktop app (`src-tauri/`). The agent runs in a local process and does not depend on pointer-server. |
 | **Server** | `pointer-server` (axum HTTP/SSE + the same Vue interface). For browsers / cloud hosts. |
 

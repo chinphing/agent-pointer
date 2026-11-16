@@ -224,6 +224,7 @@ impl Scheduler {
             workspace_inherit_disabled: None,
             deliver: deliver_marker,
             web_session_auth: self.state.automation_execution_auth(),
+            access_host: None,
         };
         match self.dispatcher.dispatch(req).await {
             Ok(handle) => log::info!(

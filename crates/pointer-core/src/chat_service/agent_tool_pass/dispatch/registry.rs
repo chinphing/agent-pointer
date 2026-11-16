@@ -124,6 +124,9 @@ pub(super) async fn dispatch_registry_invoke_with_profile(
     let _work_dir_guard =
         crate::session_work_dir_env::SessionWorkDirGuard::enter(resolved_workspace);
     let _session_user_guard = crate::session_user_env::SessionUserIdGuard::enter(session_user_id);
+    let _access_host_guard = crate::access_host_env::AccessHostGuard::enter(
+        crate::access_host_scope::current().unwrap_or_default(),
+    );
     let _turn_baseline_guard = if matches!(tool_id, "file_write" | "file_edit") {
         let turn_id = crate::turn_file_baseline::resolve_active_turn_id(conversation_id);
         Some(crate::turn_file_baseline::TurnBaselineGuard::enter(

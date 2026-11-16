@@ -4,7 +4,8 @@ import { applyUiLocale } from '../lib/uiLocale'
 import { loginRequiredMessage, mapLoginGateError, needsSignInBeforeChat } from '../lib/platformAuthMessages'
 import {
   extractPlatformAuthHttpStatus,
-  isPlatformAuthTransientError
+  isPlatformAuthTransientError,
+  platformLoginErrorText
 } from './platformAuth'
 
 beforeEach(() => {
@@ -100,5 +101,36 @@ describe('loginRequiredMessage / mapLoginGateError', () => {
     )
     expect(mapLoginGateError('local_login_required', true, 'default')).toBe(t('auth.loginRequired'))
     expect(mapLoginGateError('something else', false, 'default')).toBeNull()
+  })
+})
+
+describe('platformLoginErrorText', () => {
+  it('maps backend login error codes to localized copy', () => {
+    expect(platformLoginErrorText('server_access_denied')).toBe(
+      t('auth.error.server_access_denied')
+    )
+    expect(platformLoginErrorText('invalid_captcha')).toBe(t('auth.error.invalid_captcha'))
+    expect(platformLoginErrorText('  provider_disabled  ')).toBe(
+      t('auth.error.provider_disabled')
+    )
+  })
+
+  it('finds a known code inside a wrapped error message', () => {
+    expect(platformLoginErrorText('HTTP 429: rate_limited')).toBe(
+      t('auth.error.rate_limited')
+    )
+    expect(platformLoginErrorText('请求失败 (429): login_capacity_reached')).toBe(
+      t('auth.error.login_capacity_reached')
+    )
+  })
+
+  it('never echoes an unknown code to the user', () => {
+    const text = platformLoginErrorText('upstream_boom_500')
+    expect(text).toBe(t('auth.loginFailed'))
+    expect(text).not.toContain('upstream_boom_500')
+  })
+
+  it('returns empty text for an empty code', () => {
+    expect(platformLoginErrorText('')).toBe('')
   })
 })

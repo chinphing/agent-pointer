@@ -93,12 +93,21 @@ pub(crate) fn build_glob_set(globs: Option<&[String]>) -> Result<Option<globset:
 
 /// Expand `~` / `~/…` to the session user's home directory.
 pub(crate) fn expand_user_path_for_file(user_path: &str) -> Result<String> {
+    expand_user_path_for_file_at(user_path, dirs::home_dir().as_deref())
+}
+
+/// Same as [`expand_user_path_for_file`], with an explicit home for `~`.
+pub(crate) fn expand_user_path_for_file_at(
+    user_path: &str,
+    home: Option<&Path>,
+) -> Result<String> {
     let s = normalize_user_fspath(user_path);
     if s.is_empty() {
         return Ok(String::new());
     }
     if s == "~" || s.starts_with("~/") || s.starts_with("~\\") {
-        return crate::media::access::expand_root(s).map(|p| p.to_string_lossy().into_owned());
+        return crate::media::access::expand_root_at(s, home)
+            .map(|p| p.to_string_lossy().into_owned());
     }
     Ok(s.to_string())
 }
@@ -278,6 +287,14 @@ fn push_writable_root(roots: &mut Vec<PathBuf>, path: PathBuf, pinned: Option<&P
 /// broader roots (home, `temp_dir`, …) are merged — nested temp workspaces would otherwise
 /// disappear from the list and break any consumer that assumes `roots[0]` is the workspace.
 pub fn writable_path_roots(workspace_root: &Path) -> Result<Vec<PathBuf>> {
+    writable_path_roots_at(workspace_root, dirs::home_dir().as_deref())
+}
+
+/// Same as [`writable_path_roots`], with an explicit home entry (no env read).
+pub fn writable_path_roots_at(
+    workspace_root: &Path,
+    home: Option<&Path>,
+) -> Result<Vec<PathBuf>> {
     let mut roots = Vec::new();
     let ws = workspace_root
         .canonicalize()
@@ -286,8 +303,8 @@ pub fn writable_path_roots(workspace_root: &Path) -> Result<Vec<PathBuf>> {
     let pinned = roots.first().cloned();
     let pinned_ref = pinned.as_deref();
 
-    if let Some(home) = dirs::home_dir() {
-        push_writable_root(&mut roots, home, pinned_ref);
+    if let Some(home) = home {
+        push_writable_root(&mut roots, home.to_path_buf(), pinned_ref);
     }
     push_writable_root(&mut roots, std::env::temp_dir(), pinned_ref);
 
@@ -407,11 +424,21 @@ fn resolve_relative_under_workspace(root: &Path, user_path: &str) -> Result<Path
 /// Absolute paths (including expanded `~`) may target workspace, user home, system temp,
 /// standard user data dirs, or Pointer app data.
 pub fn resolve_writable_path(workspace_root: &Path, user_path: &str) -> Result<PathBuf> {
-    let roots = writable_path_roots(workspace_root)?;
+    resolve_writable_path_at(workspace_root, user_path, dirs::home_dir().as_deref())
+}
+
+/// Same as [`resolve_writable_path`], with an explicit home for `~` and for the
+/// allowed home root — no process env involved.
+pub fn resolve_writable_path_at(
+    workspace_root: &Path,
+    user_path: &str,
+    home: Option<&Path>,
+) -> Result<PathBuf> {
+    let roots = writable_path_roots_at(workspace_root, home)?;
     let workspace = workspace_root
         .canonicalize()
         .map_err(|e| anyhow!("工作区根无效: {e}"))?;
-    let expanded = expand_user_path_for_file(user_path)?;
+    let expanded = expand_user_path_for_file_at(user_path, home)?;
     if expanded.is_empty() {
         return Err(anyhow!("路径不能为空"));
     }
@@ -679,10 +706,19 @@ pub(crate) fn path_display_for_read_request(workspace_root: &Path, path_str: &st
 /// Resolve paths for **read-only** `file` methods. Relative paths must stay under `workspace_root`.
 /// **Absolute** paths are canonicalized as-is so other projects can be read when the user provides them.
 pub fn resolve_accessible_path(workspace_root: &Path, user_path: &str) -> Result<PathBuf> {
+    resolve_accessible_path_at(workspace_root, user_path, dirs::home_dir().as_deref())
+}
+
+/// Same as [`resolve_accessible_path`], with an explicit home for `~`.
+pub fn resolve_accessible_path_at(
+    workspace_root: &Path,
+    user_path: &str,
+    home: Option<&Path>,
+) -> Result<PathBuf> {
     let workspace_root = workspace_root
         .canonicalize()
         .map_err(|e| anyhow!("工作区根无效: {e}"))?;
-    let user_path = expand_user_path_for_file(user_path)?;
+    let user_path = expand_user_path_for_file_at(user_path, home)?;
     if user_path.is_empty() {
         return Err(anyhow!("路径不能为空"));
     }

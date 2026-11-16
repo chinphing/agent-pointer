@@ -319,6 +319,10 @@ app_data_dir = "/var/lib/pointer-server"
 ### 8.1 启动检查
 
 ```bash
+# 登录链路自检（只读；加 --network 额外测连通性）
+pointer-server auth doctor
+# 期望：退出码 0，报告里没有 FAIL
+
 # License 状态
 curl -s http://127.0.0.1:8787/api/license/status | jq .
 # 期望：status = "valid"
@@ -338,17 +342,21 @@ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8787/
 pointer-server --hash-password --secret 'REPLACE-WITH-LONG-RANDOM-SECRET' 'your-password'
 ```
 
-**API：**
+**API：** 两步——`login/start` 只发验证码，`login/finish` 只收凭据：
 
 ```bash
-# captcha
-curl -s http://127.0.0.1:8787/api/auth/local/captcha
-# login
-curl -X POST http://127.0.0.1:8787/api/auth/local/login \
+# 1) 发起：只拿验证码挑战（本请求不带凭据）
+curl -s -X POST 'http://127.0.0.1:8787/api/auth/login/start?provider=local_password'
+# 2) 完成：提交凭据，并把会话 Cookie 存下来
+curl -X POST 'http://127.0.0.1:8787/api/auth/login/finish?provider=local_password' \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"your-password","captchaId":"...","captcha":"ABCD"}' \
   -c /tmp/pointer-cookies.txt
 ```
+
+会话（`web_sessions`）与「已发起、未完成」的登录状态（`auth_pending`，TTL 600s）都在进程内存里，因此部署是**单实例**：
+不要挂负载均衡、不要多副本共享，重启会让所有在线会话失效。登录异常时先跑 `pointer-server auth doctor`
+（加 `--network` 会额外测到 provider 端点的连通性），有任何 FAIL 时退出码为 1。
 
 ### 8.3 功能验收清单
 
@@ -412,6 +420,7 @@ Standalone server 支持 Webhook 与 WSS 长连接。扫码注册流程：
 | `POINTER_USAGE_REPORT_ENABLED` | 用量上报 | `false` |
 | `POINTER_SERVER_FORBID_SESSION_USER_ID_IN_TERMINAL` | Agent `terminal` 禁止 command/stdin 含 `SESSION_USER_ID`（TOML `[server].forbid_session_user_id_in_terminal`） | 默认关闭；需要时 `true` |
 | `POINTER_SERVER_CORS_ORIGINS` | 浏览器 CORS Origin 列表（TOML `[server].cors_origins`；`*` 镜像任意来源） | 默认关闭（仅同源）；前后端分离或 `web:dev` 直连 API 时再开 |
+| `POINTER_ACCESS_HOST` | **只读注入**：用户本次访问的域名，由 `X-Forwarded-Host` → `Host` 推导后注入给技能脚本子进程 | 由服务自动设置，不要手工配置 |
 
 TOML `[env]` 段可批量注入上述变量（见 `server/pointer-server.toml.example`）。
 
@@ -435,6 +444,8 @@ server {
         proxy_pass http://127.0.0.1:8787;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
+        # 让后端知道用户实际访问的域名（内网/外网双域名部署时必需）
+        proxy_set_header X-Forwarded-Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -446,6 +457,51 @@ server {
     }
 }
 ```
+
+#### 双域名（内网 / 外网）部署
+
+同一套服务挂两个域名时，后端需要知道用户是从哪一个进来的，技能脚本据此选择对应的内网/外网系统地址。
+
+`X-Forwarded-Host` **必须透传**，否则后端只能拿到 `Host`——而 `Host` 在多层代理下可能是内网地址或 `127.0.0.1`，内外网就分不出来了。
+
+后端读取顺序为 `X-Forwarded-Host` → `Host`，取第一个（代理链最左侧），去掉端口并转小写，通过环境变量 `POINTER_ACCESS_HOST` 注入给技能脚本。
+
+多域名示例：
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name pointer.hospital.com;          # 外网
+    # ... ssl ...
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name pointer.internal.hospital.local;   # 内网
+    # ... ssl ...
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-Host  $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+脚本侧读取：
+
+```python
+host = os.environ.get("POINTER_ACCESS_HOST", "")
+```
+
+> 定时任务、Webhook、IM 消息触发的运行没有 HTTP 请求，不会设置该变量。脚本读到空值时应自行回退，不要猜。
+
 
 `pointer-server` 的 SSE 响应会带 `X-Accel-Buffering: no`，在未写 `proxy_buffering off` 的 location 上也可让 Nginx 对本响应关闭缓冲；**`proxy_read_timeout` 仍须在反代侧配置**（应用无法改写网关超时）。直连 `pointer-server`（无反代）无需这些项。
 
@@ -509,7 +565,8 @@ npm run license-gen:build
 | `standalone mode requires a license key` | 未配置 License | 填写 `[license].key` 或 `POINTER_LICENSE_KEY` |
 | `license bound to machine_id=…` | License 绑错机器 | 用当前 `--machine-id` 重新签发 |
 | `license expired` | 过期 | 续签并 reload |
-| `请先登录` / `local_login_required` | 未登录 | Web UI 账号密码 + 验证码，或 POST `/api/auth/local/login` |
+| `请先登录` / `local_login_required` | 未登录 | Web UI 账号密码 + 验证码，或先 `POST /api/auth/login/start?provider=local_password` 再 `POST /api/auth/login/finish?provider=local_password` |
+| SSO 跳回后报 `invalid_state` | 收到回调的实例不是发起登录的那个（重启过，或部署了多个实例） | 只跑单实例；`pointer-server auth doctor` 会报告会话存在进程内存 |
 | `invalid_credentials` | 账号/密码或 hmac 不匹配 | 用 `--hash-password` 重新生成 `password_hmac` |
 | `invalid_captcha` | 验证码错误或过期 | 刷新验证码后重试 |
 | 对话报 LLM 错误 | `api_key` 无效或未配置 | 检查对应 Provider 控制台 Key |

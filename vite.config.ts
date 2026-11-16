@@ -105,6 +105,14 @@ const webControlPlaneBase = (process.env.POINTER_API_BASE ?? '')
   .trim()
   .replace(/\/+$/, '')
 
+// 部分国产/内嵌浏览器（以及 Chrome 63 的早期开发者版）能解析 ESM，但不支持
+// 动态 `import()` —— 整个入口 chunk 会在解析阶段就抛
+// `Uncaught SyntaxError: Unexpected token 'import'`，页面白屏。
+// 打开这个开关会把所有懒加载分块内联成一个文件，产物里不再有 `import(`。
+// 代价：首屏一次性下载全部 JS（约 4 MB），换来的是「任何支持 ESM 的浏览器都能跑」。
+// 用法：POINTER_INLINE_CHUNKS=1 npm run build
+const inlineChunks = process.env.POINTER_INLINE_CHUNKS === '1'
+
 export default defineConfig({
   plugins: [
     dropUnsupportedMermaidDiagrams(),
@@ -150,8 +158,11 @@ export default defineConfig({
     // Local Tauri + same-origin server UI; gzip matters more than raw threshold.
     chunkSizeWarningLimit: 700,
     rollupOptions: {
-      output: {
-        manualChunks(id) {
+      output: inlineChunks
+        ? // 内联模式下 Rollup 不接受 manualChunks，两者互斥。
+          { inlineDynamicImports: true }
+        : {
+            manualChunks(id) {
           if (!id.includes('node_modules')) return
           if (/[/\\]node_modules[/\\](?:vue|@vue|pinia)[/\\]/.test(id)) {
             return 'vue-vendor'

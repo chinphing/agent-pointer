@@ -1,0 +1,132 @@
+# Linux-only, community-only build of `pointer-server`.
+#
+# Why this exists separately from `release.yml`:
+#   · `release.yml` builds 3 platforms × 2 flavours on every run, and the
+#     `official` flavour needs `TAURI_SIGNING_PRIVATE_KEY`. A branch that only
+#     needs a Linux server package should not be blocked by that.
+#   · This workflow produces exactly one thing: the `.deb` + `.zip` for
+#     `pointer-server`, community flavour, no signing, no release publishing.
+#
+# Triggered automatically on `feat/chrome63-compat` (the old-browser branch),
+# and manually from any branch via "Run workflow".
+#
+# Artifacts land under the run's **Artifacts** section — no tag, no Release,
+# nothing is published anywhere.
+
+name: Build Linux Server
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/chrome63-compat
+
+permissions:
+  contents: read
+
+# A newer push on the same ref supersedes an in-flight build.
+concurrency:
+  group: build-linux-server-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Same package set as `release.yml`'s ubuntu-24.04 job — `pointer-core`
+      # links X11/WebKit-adjacent crates even for the headless server, so a
+      # shorter list fails at link time.
+      #
+      # `zip` is not optional: `scripts/package-server.mjs` shells out to it and
+      # exits non-zero when missing — which also skips the `.deb` step that runs
+      # after it. A minimal Ubuntu image does not ship `zip`.
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            zip \
+            libwebkit2gtk-4.1-dev \
+            libglib2.0-dev \
+            build-essential \
+            pkg-config \
+            curl \
+            wget \
+            file \
+            libfuse2 \
+            squashfs-tools \
+            patchelf \
+            zsync \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            libgtk-3-dev \
+            libgtk-3-bin \
+            libgdk-pixbuf-2.0-dev \
+            librsvg2-dev \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad \
+            gstreamer1.0-libav \
+            libpipewire-0.3-dev \
+            libspa-0.2-dev \
+            libclang-dev \
+            libgbm-dev \
+            libegl1-mesa-dev \
+            libdrm-dev \
+            libwayland-dev \
+            dpkg
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      # Community flavour: no control-plane binding, no updater key, no signing.
+      # `POINTER_EDITION` is deliberately left unset so `resolveReleaseLabel`
+      # falls back to `community`.
+      - name: Build community server
+        run: npm run server:build
+        env:
+          POINTER_PACKAGE_LABEL: community
+
+      - name: List artifacts
+        run: |
+          echo "--- deb ---"
+          ls -lh target/release/bundle/deb/ || echo "(no deb produced)"
+          echo "--- zip ---"
+          ls -lh target/release/pointer-server-bundle/ || echo "(no zip produced)"
+
+      - name: Checksums
+        run: |
+          shopt -s nullglob
+          files=(target/release/bundle/deb/*.deb target/release/pointer-server-bundle/*.zip)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::build produced no package"
+            exit 1
+          fi
+          sha256sum "${files[@]}" | tee SHA256SUMS.txt
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: pointer-server-linux-community
+          path: |
+            target/release/bundle/deb/*.deb
+            target/release/pointer-server-bundle/*.zip
+            SHA256SUMS.txt
+          # A green run with zero artifacts is the failure mode worth catching.
+          if-no-files-found: error
+          retention-days: 30

@@ -122,6 +122,26 @@ function installConstructableStyleSheetShim(): void {
   }
 }
 
+/**
+ * Chrome 63 没有 `Element.prototype.replaceChildren`（Chrome 86+）。
+ *
+ * mermaid 12 在渲染流程里用它整体替换容器的子节点；缺了就直接
+ * `TypeError: replaceChildren is not a function`，图渲染中断。
+ */
+function installReplaceChildrenShim(): void {
+  if (typeof Element === 'undefined') return
+  const proto = Element.prototype as unknown as { replaceChildren?: unknown }
+  if (typeof proto.replaceChildren === 'function') return
+
+  proto.replaceChildren = function replaceChildren(
+    this: Element,
+    ...nodes: Array<Node | string>
+  ): void {
+    while (this.firstChild) this.removeChild(this.firstChild)
+    this.append(...nodes)
+  }
+}
+
 export function installLegacyPolyfills(): void {
   if (typeof window === 'undefined') return
 
@@ -131,6 +151,7 @@ export function installLegacyPolyfills(): void {
   }
 
   installConstructableStyleSheetShim()
+  installReplaceChildrenShim()
 
   markFlexGapSupport()
 

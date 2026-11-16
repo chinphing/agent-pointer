@@ -398,6 +398,10 @@ export function mermaidInitializeConfig() {
   return {
     startOnLoad: false,
     securityLevel: 'strict' as const,
+    // mermaid 12 把默认布局从 dagre 改成了 elk，而 elkjs 有 1.4 MB，本构建用桩
+    // 替掉（见 vite.config.ts 的 resolve.alias 与 src/lib/elkStub.ts）。
+    // 不显式钉回 dagre，任何 flowchart 都会走到桩上抛错、整张图渲染失败。
+    layout: 'dagre',
     // Pure SVG labels when possible. Also pin flowchart.htmlLabels: some
     // Mermaid 11 paths still read that flag and default it to true.
     htmlLabels: false,

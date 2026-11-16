@@ -93,4 +93,35 @@ describe('installLegacyPolyfills', () => {
       expect(g.CSSStyleSheet).toBe(NativeSheet)
     })
   })
+
+  describe('Element.replaceChildren（Chrome 86+）', () => {
+    it('缺失时补上，能整体替换子节点', () => {
+      const proto = Element.prototype as unknown as { replaceChildren?: unknown }
+      const before = proto.replaceChildren
+      delete proto.replaceChildren
+      installLegacyPolyfills()
+      expect(typeof proto.replaceChildren).toBe('function')
+
+      const host = document.createElement('div')
+      host.appendChild(document.createElement('span'))
+      host.appendChild(document.createElement('span'))
+      const fresh = document.createElement('b')
+      ;(host as Element).replaceChildren(fresh, 'tail')
+      expect(host.children.length).toBe(1)
+      expect(host.firstElementChild?.tagName).toBe('B')
+      expect(host.textContent).toBe('tail')
+
+      proto.replaceChildren = before
+    })
+
+    it('原生存在时不覆盖', () => {
+      const proto = Element.prototype as unknown as { replaceChildren?: unknown }
+      const before = proto.replaceChildren
+      const native = function nativeReplaceChildren() {}
+      proto.replaceChildren = native
+      installLegacyPolyfills()
+      expect(proto.replaceChildren).toBe(native)
+      proto.replaceChildren = before
+    })
+  })
 })

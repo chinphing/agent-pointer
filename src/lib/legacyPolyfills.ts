@@ -64,6 +64,64 @@ function markFlexGapSupport(): void {
   document.documentElement.classList.toggle('no-flex-gap', !supported)
 }
 
+/**
+ * Chrome 63 没有 Constructable Stylesheets（`new CSSStyleSheet()`，Chrome 73+）。
+ *
+ * mermaid 11 拿它当纯 CSS 规则容器用：`insertRule` 收集规则、`replaceSync` 灌主题，
+ * 最后遍历 `cssRules` 拼成字符串塞进 `<style>`（产物里 `cssStyleSheetToString`）。
+ * 全程不碰 `adoptedStyleSheets`，所以一个能存规则表的对象就够，不需要真样式表语义。
+ *
+ * 不垫这一层，mermaid 一渲染就 `TypeError: Illegal constructor`，图表全废。
+ */
+function installConstructableStyleSheetShim(): void {
+  const g = window as unknown as { CSSStyleSheet?: unknown }
+  const Native = g.CSSStyleSheet
+  if (typeof Native === 'function') {
+    try {
+      new (Native as new () => unknown)()
+      return // 原生可构造，不动
+    } catch {
+      // 接口存在但没有构造器——正是 Chrome 63 的情况，往下装垫片。
+    }
+  }
+
+  class StyleSheetShim {
+    cssRules: Array<{ cssText: string }> = []
+
+    insertRule(rule: string, index?: number): number {
+      const at =
+        typeof index === 'number' && index >= 0 && index <= this.cssRules.length
+          ? index
+          : this.cssRules.length
+      this.cssRules.splice(at, 0, { cssText: rule })
+      return at
+    }
+
+    deleteRule(index: number): void {
+      this.cssRules.splice(index, 1)
+    }
+
+    replaceSync(text: string): void {
+      this.cssRules = [{ cssText: text }]
+    }
+
+    replace(text: string): Promise<StyleSheetShim> {
+      this.replaceSync(text)
+      return Promise.resolve(this)
+    }
+  }
+
+  try {
+    g.CSSStyleSheet = StyleSheetShim
+  } catch {
+    Object.defineProperty(window, 'CSSStyleSheet', {
+      value: StyleSheetShim,
+      configurable: true,
+      writable: true
+    })
+  }
+}
+
 export function installLegacyPolyfills(): void {
   if (typeof window === 'undefined') return
 
@@ -71,6 +129,8 @@ export function installLegacyPolyfills(): void {
     ;(window as unknown as { ResizeObserver: unknown }).ResizeObserver =
       ResizeObserverPolyfill
   }
+
+  installConstructableStyleSheetShim()
 
   markFlexGapSupport()
 

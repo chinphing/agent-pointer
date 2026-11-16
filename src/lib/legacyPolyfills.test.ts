@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { installLegacyPolyfills } from './legacyPolyfills'
 
 describe('installLegacyPolyfills', () => {
@@ -45,5 +45,52 @@ describe('installLegacyPolyfills', () => {
     await Promise.resolve()
     expect(order).toEqual(['sync', 'micro'])
     window.queueMicrotask = original
+  })
+
+  describe('CSSStyleSheet 构造器', () => {
+    const g = window as unknown as { CSSStyleSheet?: unknown }
+    let before: unknown
+
+    beforeEach(() => {
+      before = g.CSSStyleSheet
+    })
+
+    afterEach(() => {
+      g.CSSStyleSheet = before
+    })
+
+    it('原生不可构造时补上垫片（Chrome 63 的 Illegal constructor）', () => {
+      // 模拟 Chrome 63：接口存在，但 new 会抛 Illegal constructor。
+      g.CSSStyleSheet = function Chrome63StyleSheet() {
+        throw new TypeError('Illegal constructor')
+      }
+      installLegacyPolyfills()
+      expect(() => new (g.CSSStyleSheet as new () => unknown)()).not.toThrow()
+    })
+
+    it('垫片按 mermaid 的用法收集规则', () => {
+      g.CSSStyleSheet = function Chrome63StyleSheet() {
+        throw new TypeError('Illegal constructor')
+      }
+      installLegacyPolyfills()
+      const Sheet = g.CSSStyleSheet as new () => {
+        cssRules: Array<{ cssText: string }>
+        insertRule: (rule: string, index?: number) => number
+        replaceSync: (text: string) => void
+      }
+      const sheet = new Sheet()
+      sheet.insertRule(':root { --a: 1 }', sheet.cssRules.length)
+      sheet.insertRule(':root { --b: 2 }', sheet.cssRules.length)
+      sheet.replaceSync('.x { color: red }')
+      // mermaid 的 cssStyleSheetToString: [...cssRules].map(r => r.cssText).join(' ')
+      expect([...sheet.cssRules].map((r) => r.cssText).join(' ')).toBe('.x { color: red }')
+    })
+
+    it('原生可构造时不覆盖', () => {
+      class NativeSheet {}
+      g.CSSStyleSheet = NativeSheet
+      installLegacyPolyfills()
+      expect(g.CSSStyleSheet).toBe(NativeSheet)
+    })
   })
 })

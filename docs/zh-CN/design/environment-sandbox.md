@@ -120,7 +120,7 @@ template.replace("{{workspace_root}}", vars.workspace_root)
 
 1. **性能不构成理由**。工具调用本身以秒计（LLM 决策占大头），一次路径翻译或几十毫秒往返是噪声。
 2. **抽象层 100% 覆盖**。所有 IO 一律走 `Environment` trait，`file_*` 也走 API，**不使用"宿主能直接读"的捷径**。这样换后端时工具层零改动。
-3. **容器内路径更干净**。agent 看到 `/workspace`、`/skills`、`/home/u`，不暴露宿主目录结构，可移植性更好。
+3. **容器内路径更干净**。agent 看到 `/workspace`、`/skills`、`/home/pointer`，不暴露宿主目录结构，可移植性更好。
 4. **保真挂载会把宿主目录树塞进容器**，边界模糊，且 `~` 展开、大小写敏感差异都会变成坑。
 
 **唯一的性能约束是批量操作**（实测依据见 §2.4）：
@@ -205,7 +205,7 @@ docker:
 
 | 宿主 | 容器内 | 权限 |
 |---|---|---|
-| `{app_data}/session-sandboxes/{user}/` | `/home/u` | rw |
+| `{app_data}/session-sandboxes/{user}/` | `/home/pointer` | rw |
 | `{app_data}/session-sandboxes/{conv}/` | `/workspace` | rw |
 | `~/.pointer/skills/`（+ org / 内置根） | `/skills` | ro |
 | `/tmp` | `/tmp` | rw |
@@ -474,12 +474,12 @@ Web 端多用户并发，满足：
 
 | 宿主路径 | 容器内 | 权限 | Cube 挂载方式 |
 |---|---|---|---|
-| `{app_data}/session-sandboxes/{user}/` | `/home/u` | `rw` | Volume |
+| `{app_data}/session-sandboxes/{user}/` | `/home/pointer` | `rw` | Volume |
 | `{app_data}/session-sandboxes/{conv}/` | `/workspace` | `rw` | Volume |
 | `~/.pointer/skills/`（+ org / `~/.agents/skills` / 内置根） | `/skills/<root>` | `ro` | Host Mount（`readOnly: true`） |
 | `/tmp` | `/tmp` | `rw` | tmpfs |
 
-agent 只看到 `/workspace`、`/home/u`、`/skills`，不暴露宿主目录结构。
+agent 只看到 `/workspace`、`/home/pointer`、`/skills`，不暴露宿主目录结构。
 
 ### 5.4 启动方式（Cube）
 
@@ -499,10 +499,10 @@ mounts = json.dumps([
 
 with Sandbox.create(
     template=TEMPLATE_ID,
-    volume_mounts={"/workspace": vol, "/home/u": vol},
+    volume_mounts={"/workspace": vol, "/home/pointer": vol},
     metadata={"host-mount": mounts},
-    env={"HOME": "/home/u", "PIP_USER": "1",
-         "PYTHONUSERBASE": "/home/u/.local"},
+    env={"HOME": "/home/pointer", "PIP_USER": "1",
+         "PYTHONUSERBASE": "/home/pointer/.local"},
 ) as sb:
     ...
 ```
@@ -573,7 +573,7 @@ find ~/.pointer/skills -maxdepth 3 \
 
 ```bash
 # 1. 跨用户不可见
-sandbox exec <id> -- ls /home/u/../../{other_tenant}   # 期望：No such file or directory
+sandbox exec <id> -- ls /home/pointer/../../{other_tenant}   # 期望：No such file or directory
 
 # 2. 路径逃逸无效
 sandbox exec <id> -- cat /workspace/../../etc/passwd   # 期望：不存在
@@ -697,9 +697,9 @@ Cube 的 template 是快照克隆（CoW），镜像 1.2 GB 还是 3 GB，冷启�
 
 ```bash
 -e PIP_USER=1
--e PYTHONUSERBASE=/home/u/.local
--e NPM_CONFIG_PREFIX=/home/u/.npm-global
--e PATH=/home/u/.local/bin:/home/u/.npm-global/bin:$PATH
+-e PYTHONUSERBASE=/home/pointer/.local
+-e NPM_CONFIG_PREFIX=/home/pointer/.npm-global
+-e PATH=/home/pointer/.local/bin:/home/pointer/.npm-global/bin:$PATH
 ```
 
 | 行为 | 落点 | 是否持久 |
@@ -916,7 +916,7 @@ scripts/dev-sandbox.sh down
 |---|---|---|
 | `RemoteEnv`：薄 REST 客户端（不引 e2b SDK），files API + Connect 帧执行 + find/rg 批量遍历 | `env/remote.rs`（新增） | ✅ |
 | provider 三层解析（账号覆盖 → admin 默认 local → 部署默认）+ light 缺 `sandbox_url` 即报错 | `env/provider.rs`（新增） | ✅ |
-| 挂载表：`/home/u`、`/workspace`（按会话隔离）、`/skills/<name>`（ro） | `env/mounts.rs`（新增） | ✅ |
+| 挂载表：`/home/pointer`、`/workspace`（按会话隔离）、`/skills/<name>`（ro） | `env/mounts.rs`（新增） | ✅ |
 | 会话绑定：按会话缓存沙箱 + 30min 空闲回收 + `release` / `release_all`；挂载前凭证扫描 | `env/session_env.rs`（新增） | ✅ |
 | `[environment]` / `[auth] admins` 配置段 + 4 个访问器；`POINTER_SKILLS_DIR` 可覆盖技能根 | `server_config.rs`、`skills/external.rs` | ✅ |
 | 三处 thread-local 重放（light 下工作区根改 guest `/workspace`） | `chat_service/session_inner.rs`、`dispatch/registry.rs`、`chat_service/sub_agent.rs` | ✅ |
@@ -1187,7 +1187,7 @@ Envd 与 Docker 两条后端共享同一份挂载计算，不各写一套。
 ```bash
 docker run -d --name pointer-sbx-<conv> \
   -v <host_workspace>:/workspace \
-  -v <host_home>:/home/u \
+  -v <host_home>:/home/pointer \
   -v <skills_user>:/skills/user:ro \
   -v <plugins>:/plugins:ro \
   --workdir /workspace <template> sleep infinity
@@ -1291,7 +1291,7 @@ $ pwd
 ```
 /Users/starliu/.agents/skills/agent-browser -> /workspace (rw=true)   ← 项目目录直接 bind
 /Users/starliu/.pointer/plugins            -> /plugins  (ro)
-/Users/starliu/.e2b-local/volumes/_anonymous-home -> /home/u
+/Users/starliu/.e2b-local/volumes/_anonymous-home -> /home/pointer
 ```
 
 **踩过的坑（已修）**：`env_for_conversation` 最初只查 envd 缓存，docker 后端的会话在工具线程重放时查不到环境，退到 `DeniedEnv`，
@@ -1363,6 +1363,216 @@ $ pwd
    「适应 / 1:1 + 平移」两种模式。
 3. **中文输入**：noVNC 发 keysym，输入法在宿主侧不生效。只能走剪贴板通道。
 4. **web 模式**：浏览器端连不到宿主 `127.0.0.1`，需要服务端代理，本次不做。
+
+### 7.6 待办：容器内浏览器 profile 与启动参数
+
+**现状（2026-11-16 实测）**：
+
+| 事实 | 证据 |
+|---|---|
+| 容器以 root 运行，`HOME=/root` | `docker exec … echo $HOME` |
+| Chromium profile 落在 `/root/.config/chromium` | `docker diff` 显示可写层新增 301 条 |
+| `/home/pointer` 挂载的是 `session-sandboxes/<用户段>-home` | `mounts.rs:100`；envd 下是 `<volume_host_path>/<用户段>-home` |
+| 该目录当前为空（0 B），**Chromium 完全没用到它** | `ls _anonymous-home` 无内容 |
+| `browser` 是 `/usr/local/bin/browser` 包装脚本 | `docker/browser.sh` |
+
+**两个问题**：
+
+1. **登录态丢失**：Cookie / localStorage 在容器可写层，容器一旦重建（30 分钟空闲回收、
+   规格指纹变化、手动清理）全部丢失。应用重启但容器还在时能保留。
+2. **包装可被绕过**：`/usr/bin/chromium` 是 Debian 的包装脚本（5066 字节），真正二进制在
+   `/usr/lib/chromium/chromium`。直接调 `chromium` 会硬失败：
+
+   ```
+   ERROR: Running as root without --no-sandbox is not supported.
+   ```
+
+   `xdg-open` 同样绕过包装。漏掉 `--disable-dev-shm-usage` 时容器 `/dev/shm` 只有 64MB，
+   标签页会随机 SIGBUS 崩溃——表现为“页面突然白屏”，很难归因。
+
+**方案：把包装下沉到 `/usr/bin/chromium`**
+
+```
+/usr/bin/chromium          → 我们的包装（全部必需参数 + --user-data-dir）
+/usr/lib/chromium/chromium → 真二进制，不动
+```
+
+参数清单（现在 `browser.sh` 里那些，全部下沉）：
+
+```sh
+exec /usr/lib/chromium/chromium \
+    --no-sandbox \
+    --disable-dev-shm-usage \
+    --disable-gpu \
+    --user-data-dir=/home/pointer/.config/chromium \
+    --no-first-run --no-default-browser-check \
+    --disable-features=Translate,MediaRouter \
+    --window-size=1600,1000 --window-position=40,40 \
+    "$@"
+```
+
+注意：`browser.sh` 内部必须改成调 `/usr/lib/chromium/chromium`，否则自己调自己会无限递归。
+
+**验证过的点**：把 `--user-data-dir` 指向 bind 挂载目录后，profile 确实落到宿主
+（实测 `/tmp/prof-home/.config/chromium` 有内容），容器重建后仍在。
+
+**待定的细节**：`/home/pointer` 是**按用户**的，不是按会话的。
+
+| 方案 | 效果 | 代价 |
+|---|---|---|
+| `/home/pointer/.config/chromium` | 同用户所有会话共享登录态 | 两会话同时开浏览器会 profile 锁冲突 |
+| `/home/pointer/.chromium/<会话ID>` | 按会话隔离 | 登录态不跨会话复用 |
+
+倾向按用户共享（登录一次到处能用），锁冲突时让后来的会话复用已有实例。
+
+**工作量**：约半天（镜像改动 + 重建 + 集成测试断言 profile 落在挂载目录）。
+
+**另记（同批排查，未定）**：`user_settings.json` 是单文件、无用户维度
+（`storage.rs:653` 的 `load_user_settings()` 不带用户参数），多用户部署下模型选择、
+providers、调试开关全部共享；调试会话设置更是只在内存（`app_state.rs:1334`）。
+桌面版单用户不构成问题，server 多用户需要按用户拆分。待产品定位确定后再排。
+
+**补充调研（2026-11-16）：容器内用 root 还是普通用户**
+
+业界立场：
+
+| 来源 | 结论 |
+|---|---|
+| Docker / 各家安全指南 | 非 root 是标准做法，root 是头号反模式 |
+| Bitnami | 专发 `non-root` 镜像变体；OpenShift 直接不接受 root 镜像 |
+| linuxserver.io | 更细致：容器**以 root 启动**，初始化后降权到普通用户跑应用；并指出“任何时刻都不能是 root”多半是对隔离边界的误解 |
+| Playwright 官方 | 默认 root 跑浏览器 → **禁用 Chromium 沙箱**；可信代码可以，**访问不可信站点必须建独立用户 + seccomp profile** |
+
+**但我们的特殊性**：agent 本来就通过 `docker exec` 以 root 在容器里跑任意命令。
+浏览器降权不能改变信任模型——真正的边界是**容器 ↔ 宿主**（读写挂载、无 egress 限制、共享内核）。
+浏览器沙箱的价值是纵深防御：恶意网页利用漏洞时被限制在沙箱内，而不是直接拿到容器 root。
+
+**非 root 的四个实际障碍（本机实测）**：
+
+| 障碍 | 实测结果 | 处理 |
+|---|---|---|
+| `apt` | `E: Could not open lock file /var/lib/dpkg/lock-frontend`（权限拒绝） | 只能构建期装好 |
+| `/tmp/.X11-unix` | `_XSERVTransmkdir: ERROR: euid != 0, directory /tmp/.X11-unix will not be created` → **桌面起不来** | Dockerfile 预建并 `chmod 1777` |
+| 挂载目录属主 | 宿主 uid（501/1000）与容器 uid 不一致 | 需 PUID/PGID 重映射或 entrypoint 里 chown |
+| `pip` / `npm` | ✅ 均可用（`pip install --user`、`npm install` 落 `$HOME`） | 无需 root |
+
+`apt` 的四种应对：
+
+| 做法 | 评价 |
+|---|---|
+| 构建期装全 | **主力方案**，运行时不需要 apt |
+| entrypoint 以 root 起、装完降权 | 只适合固定初始化，应对不了 agent 临时装包 |
+| 应用侧 `docker exec -u 0` 显式提权 | 可行，需审计（当前 `docker.rs:430` 的 exec 没有 `-u`，要加参数） |
+| 装 sudo / NOPASSWD | 不推荐，等于把 root 还回去 |
+
+**三种配置对比**：
+
+| 配置 | 网页漏洞 → 攻击者拿到 | 成本 |
+|---|---|---|
+| A 现在：root + `--no-sandbox` | 容器 root | 0 |
+| B 降权跑应用（linuxserver 模式） | 容器内普通用户 | 中：entrypoint 处理 uid 映射 + X11 目录 |
+| C 全程非 root + seccomp | Chromium 沙箱内 | 高：挂载权限、seccomp profile、X11 权限 |
+
+**决定（2026-11-16）：采用 B，对齐 Cursor 云 agent 的模型**——非 root 用户（uid 1000）
++ sudo，不再走“保持 root”这条路。
+
+理由：Cursor 的云 agent 默认用户是 `ubuntu`（非 root）且带 sudo，Docker 官方的
+cursor-agent 沙盒模板也强制 uid 1000 / `USER agent`。他们这么做的前提是隔离边界足够强
+（独立 VM），而我们的共享内核容器里，非 root 的边际收益本来更小——但实测下来成本也不高，
+而且能换回 Chromium 沙箱，值得做。
+
+**已落地的改动**：
+
+| 文件 | 改动 |
+|---|---|
+| `docker/sandbox-container.Dockerfile` | 装 `sudo`；`pointer ALL=(ALL) NOPASSWD:ALL`；预建 `/tmp/.X11-unix` 1777；末尾 `USER pointer` |
+| `docker/sandbox-light.Dockerfile` | 同上（无桌面，但同样非 root） |
+| `docker/browser.sh` | 去掉 `--no-sandbox`；改成直接调 `/usr/lib/chromium/chromium`，参数写在脚本里 |
+| `docker/entrypoint-container.sh` | 启动时清理浏览器 profile 的 `SingletonLock`（见下） |
+
+**为什么是替换 `/usr/bin/chromium`，而不是设 `CHROMIUM_FLAGS` 环境变量**：
+
+一开始按文档设想用了 `ENV CHROMIUM_FLAGS=...`，实测**参数根本没到浏览器**——Debian 的
+`/usr/bin/chromium` 第 13 行写死了 `CHROMIUM_FLAGS=""`，会把镜像 ENV 重置掉。
+
+改为用 `docker/browser.sh` 覆盖 `/usr/bin/chromium`（真二进制在 `/usr/lib/chromium/chromium`），
+再软链成 `/usr/local/bin/browser`。这样直接敲 `chromium`、`xdg-open`、桌面文件
+**全都走同一套参数**，绕不过去——解决了前面说的“包装可被绕过”问题。
+
+```sh
+exec /usr/lib/chromium/chromium \
+    --disable-dev-shm-usage --disable-gpu \
+    --user-data-dir=/home/pointer/.config/chromium \
+    --no-first-run --no-default-browser-check \
+    --disable-features=Translate,MediaRouter \
+    --window-size=1600,1000 --window-position=40,40 \
+    "$@"
+```
+
+`--user-data-dir` 指向挂载的用户 home，登录态在容器重建后仍在。
+
+**home 挂载点为什么从 `/home/u` 改成 `/home/pointer`**
+
+原来 guest home 是个叫 `/home/u` 的占位目录——容器里没有 `u` 这个用户，`HOME` 是
+`/root`（root 时代）或 `/home/pointer`（现在），所以**没有任何进程会往 `/home/u` 写**，
+那个挂载一直是空的。
+
+改成 `/home/pointer` 之后，挂载点就是容器用户真正的 home：
+
+| 好处 | 说明 |
+|---|---|
+| 路径自洽 | `HOME=/home/pointer`，`~/.config`、`~/.local`、`~/.cache` 全落在挂载上 |
+| `pip install --user` / `npm install` 持久化 | 实测落到宿主（`~/.local/lib/python3.12`） |
+| 浏览器 profile 不需要额外参数 | 默认就是 `$HOME/.config/chromium` |
+
+代价是**挂载会盖掉 `useradd -m` 生成的 skel 文件**（`.bashrc`/`.profile`）。
+entrypoint 里补了一段：空目录时从 `/etc/skel` 拷回来，只在缺失时写，不覆盖用户文件。
+
+**连带发现：profile 锁会跨容器残留**
+
+profile 落到挂载目录后，Chromium 留下的 `SingletonLock`（内容是指向旧容器 hostname
+的软链）会跟着存活。新容器里 Chromium 直接拒绝启动：
+
+```
+The profile appears to be in use by another Chromium process (44)
+on another computer (4038781f7db5). Chromium has locked the profile ...
+```
+
+实测：重建容器后窗口数 0。entrypoint 里加了清理——**只在锁属于别的 hostname 时**删
+（同机多实例时保持原锁不动），清理后窗口数恢复 2。回归测试
+`browser_starts_after_container_recreation` 覆盖这条。
+
+**实测（非 root 下，全部通过）**：
+
+| 项 | 结果 |
+|---|---|
+| 默认用户 | ✅ `uid=1000(pointer)`，`HOME=/home/pointer` |
+| `sudo` | ✅ `whoami` → root |
+| 写宿主挂载目录 | ✅ `WRITE_OK` / `APPEND_OK` |
+| Xvfb + openbox | ✅ `1920x1080` |
+| x11vnc | ✅ 正常监听 |
+| **Chromium 带沙箱渲染** | ✅ 沙箱报错 0 条，页面渲染正常 |
+| profile 落盘 | ✅ `/home/pointer/.config/chromium`（4.1 MB） |
+| 容器重建后浏览器 | ✅ 锁被清理，窗口正常出现 |
+| `apt-get install` | ❌ 权限拒绝（需 `sudo`） |
+| `pip install --user` / `npm install` | ✅ |
+
+**测试**：
+
+```
+cargo test -p pointer-core --test container_tier_it -- --ignored --test-threads=1  → 7 passed
+cargo test -p pointer-core --test docker_env_it -- --ignored --test-threads=1      → 10 passed
+cargo test -p pointer-core --lib                                                  → 2312 passed, 10 ignored
+```
+
+**已知代价**：
+
+- `sudo` 让 agent 仍能提权——这是 Cursor 的取舍（可审计、日常最小权限），
+  但它不是安全边界；真正的边界仍是容器↔宿主。
+- Linux 宿主上 bind mount 属主与 uid 1000 不一致时需要 PUID/PGID 映射（macOS 实测无此问题）。
+- **技能目录里的裸凭证文件会让环境解析直接失败**：`verify_skill_roots` 命中即报错，
+  `~/.pointer/skills/cwpt-reimburse-submit/token.txt` 就会挡住整个 container 档位。
+  跑集成测试前需要把它挪走。这是当前最容易被踩到的一个坑。
 
 ## 9. 开发环境与验证记录
 

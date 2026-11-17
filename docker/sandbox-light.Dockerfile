@@ -46,6 +46,7 @@ RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors
         unzip \
         tar \
         gzip \
+        sudo \
     && rm -rf /var/lib/apt/lists/*
 
 # Node 24（NodeSource 官方源，支持 Debian bookworm / arm64）
@@ -55,9 +56,14 @@ RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
     && node -v && npm -v && python3 -V
 
-# 沙箱里的普通用户。Cube 上可映射到 uid ≥ 100000；docker 后端以 root 跑。
-RUN useradd -m -u 1000 pointer
+# 以非 root 用户运行（对齐 Cursor 云 agent 的模型：uid 1000 + sudo）。
+# Cube 上可映射到 uid ≥ 100000；docker 后端默认就是这个用户。
+RUN useradd -m -u 1000 pointer \
+    && echo 'pointer ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/pointer \
+    && chmod 0440 /etc/sudoers.d/pointer
 
 WORKDIR /workspace
+
+USER pointer
 
 CMD ["sleep", "infinity"]

@@ -82,7 +82,7 @@ impl Default for RemoteSpec {
             timeout_secs: 900,
             workspace_root: PathBuf::from("/workspace"),
             skills_root: PathBuf::from("/skills"),
-            home_root: PathBuf::from("/home/u"),
+            home_root: PathBuf::from(crate::env::mounts::GUEST_HOME),
             mounts: Vec::new(),
             volume_host_path: None,
         }
@@ -1691,14 +1691,14 @@ mod tests {
         let spec = RemoteSpec::default();
         assert_eq!(spec.workspace_root, PathBuf::from("/workspace"));
         assert_eq!(spec.skills_root, PathBuf::from("/skills"));
-        assert_eq!(spec.home_root, PathBuf::from("/home/u"));
+        assert_eq!(spec.home_root, PathBuf::from("/home/pointer"));
         assert!(spec.mounts.is_empty());
         assert!(spec.volume_host_path.is_none());
     }
 
     fn mount_pair() -> (Mount, Mount) {
         (
-            Mount::new("/data/sb/alice/home", "/home/u", false),
+            Mount::new("/data/sb/alice/home", "/home/pointer", false),
             Mount::new("/home/me/.pointer/skills", "/skills/user", true),
         )
     }
@@ -1716,7 +1716,7 @@ mod tests {
         let mounts = body["volumeMounts"].as_array().expect("volumeMounts");
         assert_eq!(mounts.len(), 2);
         assert_eq!(mounts[0]["name"], "pv-a");
-        assert_eq!(mounts[0]["path"], "/home/u");
+        assert_eq!(mounts[0]["path"], "/home/pointer");
         assert_eq!(mounts[0]["readOnly"], false);
         assert_eq!(mounts[1]["path"], "/skills/user");
         assert_eq!(mounts[1]["readOnly"], true);
@@ -1754,7 +1754,7 @@ mod tests {
         let home = volumes.path().join("alice-home");
         let skills = volumes.path().join("alice-skills");
         let mounts = vec![
-            Mount::new(&home, "/home/u", false),
+            Mount::new(&home, "/home/pointer", false),
             Mount::new(&skills, "/skills", true),
         ];
         let names = volume_names_for(volumes.path(), &mounts);
@@ -1802,7 +1802,7 @@ mod tests {
         let outside = tempfile::tempdir().unwrap();
         let mounts = vec![
             Mount::new(outside.path(), "/workspace", false),
-            Mount::new(&inside, "/home/u", false),
+            Mount::new(&inside, "/home/pointer", false),
         ];
 
         let names = volume_names_for(volumes.path(), &mounts);
@@ -1818,7 +1818,7 @@ mod tests {
         let body = build_create_body(&spec, &names);
         let sent = body["volumeMounts"].as_array().expect("volumeMounts");
         assert_eq!(sent.len(), 1, "只发有卷的挂载");
-        assert_eq!(sent[0]["path"], "/home/u", "不能错位成 /workspace");
+        assert_eq!(sent[0]["path"], "/home/pointer", "不能错位成 /workspace");
         assert_eq!(sent[0]["name"], "alice-home");
     }
 

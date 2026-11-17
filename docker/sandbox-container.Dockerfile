@@ -67,6 +67,7 @@ RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors
         xterm \
         chromium \
         fonts-liberation \
+        sudo \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
@@ -75,18 +76,28 @@ RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
     && node -v && npm -v && python3 -V
 
-RUN useradd -m -u 1000 pointer
+# 以非 root 用户运行（对齐 Cursor 云 agent 的模型：uid 1000 + sudo）。
+# 好处：Chromium 沙箱可用（root 下必须 --no-sandbox），日常操作最小权限。
+RUN useradd -m -u 1000 pointer \
+    && echo 'pointer ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/pointer \
+    && chmod 0440 /etc/sudoers.d/pointer \
+    && mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
 
 # 右键菜单：空桌面上唯一能点的地方，给人和 agent 一个入口。
 COPY docker/openbox-menu.xml /etc/xdg/openbox/menu.xml
 
-COPY docker/browser.sh /usr/local/bin/browser
-RUN chmod +x /usr/local/bin/browser
+# 覆盖 Debian 的 /usr/bin/chromium（原脚本会重置 CHROMIUM_FLAGS），
+# 再给一个好记的名字 /usr/local/bin/browser。
+COPY docker/browser.sh /usr/bin/chromium
+RUN chmod +x /usr/bin/chromium \
+    && ln -sf /usr/bin/chromium /usr/local/bin/browser
 
 COPY docker/entrypoint-container.sh /usr/local/bin/entrypoint-container.sh
 RUN chmod +x /usr/local/bin/entrypoint-container.sh
 
 WORKDIR /workspace
+
+USER pointer
 
 ENTRYPOINT ["/usr/local/bin/entrypoint-container.sh"]
 CMD ["sleep", "infinity"]

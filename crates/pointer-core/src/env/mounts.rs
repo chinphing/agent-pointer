@@ -4,7 +4,7 @@
 //!
 //! | 宿主 | guest | 权限 |
 //! |---|---|---|
-//! | `{app_data}/session-sandboxes/{user}/home` | `/home/u` | rw |
+//! | `{app_data}/session-sandboxes/{user}-home` | `/home/pointer` | rw |
 //! | `{app_data}/session-sandboxes/{user}/workspaces/{conv}` | `/workspace` | rw |
 //! | 每个技能根 | `/skills/<name>` | ro |
 //!
@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use super::pathmap::Mount;
 
 pub const GUEST_WORKSPACE: &str = "/workspace";
-pub const GUEST_HOME: &str = "/home/u";
+pub const GUEST_HOME: &str = "/home/pointer";
 pub const GUEST_SKILLS: &str = "/skills";
 pub const GUEST_PLUGINS: &str = "/plugins";
 

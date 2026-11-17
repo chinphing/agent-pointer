@@ -483,7 +483,7 @@ impl Environment for DockerEnv {
         Path::new("/skills")
     }
     fn home_root(&self) -> &Path {
-        Path::new("/home/u")
+        Path::new(crate::env::mounts::GUEST_HOME)
     }
     fn capabilities(&self) -> Capabilities {
         match self.tier {

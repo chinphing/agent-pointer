@@ -90,7 +90,7 @@ fn remote_env_mounts_host_directories_bidirectionally() {
     );
     std::fs::write(host_home.join("home-file.txt"), "from-host-home").expect("host home write");
     assert_eq!(
-        env.read_to_string(Path::new("/home/u/home-file.txt"))
+        env.read_to_string(Path::new("/home/pointer/home-file.txt"))
             .expect("read home file"),
         "from-host-home"
     );
@@ -455,6 +455,7 @@ fn plugin_hook_script_runs_from_mounted_plugins_dir() {
         "ph-conv",
         &[],
         Some(&plugins_host),
+        None,
     );
     assert!(
         mounts.iter().any(|m| m.read_only && m.guest == std::path::Path::new("/plugins")),

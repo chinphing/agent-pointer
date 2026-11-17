@@ -469,7 +469,7 @@ impl DeniedEnv {
     fn new() -> Self {
         Self {
             workspace: PathBuf::from("/workspace"),
-            home: PathBuf::from("/home/u"),
+            home: PathBuf::from("/home/pointer"),
             skills: PathBuf::from("/skills"),
             map: PathMap::identity(),
         }

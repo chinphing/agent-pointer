@@ -15,6 +15,29 @@ DISPLAY_NUM="${DISPLAY_NUM%%.*}"
 # X 的锁文件残留会让 Xvfb 直接退出（容器重启后常见）。
 rm -f "/tmp/.X${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X${DISPLAY_NUM}" 2>/dev/null || true
 
+# home 目录挂的是宿主目录，会把镜像里 useradd 生成的 skel 文件（.bashrc/.profile）
+# 盖掉。空目录时补回来——只在缺失时写，不覆盖用户自己的文件。
+if [ -d /etc/skel ]; then
+    for f in /etc/skel/.[!.]*; do
+        [ -e "$f" ] || continue
+        [ -e "${HOME}/$(basename "$f")" ] || cp "$f" "${HOME}/" 2>/dev/null || true
+    done
+fi
+
+# 浏览器 profile 的锁同理：SingletonLock 指向上一台容器的 hostname，
+# 新容器里 Chromium 会认为"profile 正被另一台机器使用"并直接拒绝启动。
+# 只在锁确实属于别的 hostname 时清理——同机多实例时保持原锁不动。
+BROWSER_PROFILE="${BROWSER_PROFILE:-/home/pointer/.config/chromium}"
+if [ -L "$BROWSER_PROFILE/SingletonLock" ]; then
+    LOCK_OWNER=$(readlink "$BROWSER_PROFILE/SingletonLock" 2>/dev/null || echo "")
+    LOCK_HOST=${LOCK_OWNER%-*}
+    if [ -n "$LOCK_HOST" ] && [ "$LOCK_HOST" != "$(hostname)" ]; then
+        rm -f "$BROWSER_PROFILE/SingletonLock" \
+              "$BROWSER_PROFILE/SingletonCookie" \
+              "$BROWSER_PROFILE/SingletonSocket" 2>/dev/null || true
+    fi
+fi
+
 Xvfb ":${DISPLAY_NUM}" -screen 0 "${WIDTH}x${HEIGHT}x${DEPTH}" -nolisten tcp &
 XVFB_PID=$!
 

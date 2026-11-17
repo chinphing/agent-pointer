@@ -455,7 +455,10 @@ fn keyboard_lands_after_focus_is_lost() {
 
     let shot_before = control.screenshot().expect("shot before");
     // 全程没有点过鼠标：按键必须自己找到焦点才可能落到界面上。
+    // 只用 ctrl+L 判定不了：地址栏聚焦在这个 Chromium 版本上不产生可见像素变化
+    // （实测差异 0 px），所以再敲一段文字——文字会进地址栏，画面必然变化。
     control.hotkey(&["ctrl".to_string(), "l".to_string()]).expect("hotkey");
+    control.typing("focus-probe").expect("type");
     std::thread::sleep(std::time::Duration::from_millis(900));
 
     let after = sh("DISPLAY=:99 xdotool getwindowfocus 2>&1 || true").expect("focus after");
@@ -474,4 +477,91 @@ fn keyboard_lands_after_focus_is_lost() {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
+}
+
+/// 回归：容器重建后浏览器必须还能起来。
+///
+/// Chromium 在 profile 目录里留 `SingletonLock`（指向旧容器的 hostname）。
+/// profile 挂在用户 home 挂载上之后，锁会跨容器存活，新容器里 Chromium 认为
+/// "profile 正被另一台机器使用"直接退出——窗口永远不出现。
+/// entrypoint 负责在锁属于别的 hostname 时清掉它。
+#[test]
+#[ignore = "需要本机 docker"]
+fn browser_starts_after_container_recreation() {
+    if !docker_available() {
+        eprintln!("skip: docker 不可用");
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ProviderConfig {
+        tier: Some(Tier::Container),
+        backend: Some(Backend::Docker),
+        sandbox_url: None,
+        volume_host_path: None,
+        template: Some("pointer-sandbox-container:latest".to_string()),
+        admins: Vec::new(),
+        accounts: Default::default(),
+        platform: true,
+    };
+
+    let launch = |env: &std::sync::Arc<dyn Environment>| -> usize {
+        env.exec(
+            &[
+                "sh".to_string(),
+                "-lc".to_string(),
+                "DISPLAY=:99 nohup /usr/local/bin/browser about:blank >/tmp/b.log 2>&1 &".to_string(),
+            ],
+            ExecOptions::new(),
+        )
+        .expect("launch browser");
+        for _ in 0..40 {
+            let out = env
+                .exec(
+                    &[
+                        "sh".to_string(),
+                        "-lc".to_string(),
+                        "DISPLAY=:99 xdotool search --class chromium 2>/dev/null | wc -l".to_string(),
+                    ],
+                    ExecOptions::new(),
+                )
+                .expect("search");
+            let n = String::from_utf8_lossy(&out.stdout).trim().parse::<usize>().unwrap_or(0);
+            if n > 0 {
+                return n;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        0
+    };
+
+    // 第一轮：正常起来，并在 profile 里留下 SingletonLock。
+    let env = resolve_session_env(&cfg, "it-docker-recreate-a", "tester", Some(dir.path()))
+        .expect("resolve")
+        .expect("env");
+    assert!(launch(&env) > 0, "第一次启动就没窗口");
+
+    // 模拟容器重建：删掉容器（profile 在宿主挂载上，锁会留下来）。
+    let _ = std::process::Command::new("docker")
+        .args(["rm", "-f", "pointer-sbx-it-docker-recreate-a"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    // 第二轮：换一个会话（同用户 → 同一个 home 挂载），新容器必须能清掉旧锁。
+    let env2 = resolve_session_env(&cfg, "it-docker-recreate-b", "tester", Some(dir.path()))
+        .expect("resolve")
+        .expect("env");
+    assert!(
+        launch(&env2) > 0,
+        "容器重建后浏览器没起来（profile 的 SingletonLock 没被清理）"
+    );
+
+    for name in ["pointer-sbx-it-docker-recreate-a", "pointer-sbx-it-docker-recreate-b"] {
+        let _ = std::process::Command::new("docker")
+            .args(["rm", "-f", name])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
 }

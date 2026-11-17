@@ -18,7 +18,7 @@ use std::path::{Component, Path, PathBuf};
 /// Cube Volume / Host Mount 或 Docker `-v`。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MountSpec {
-    /// 用户可写数据（宿主 `{app_data}/session-sandboxes/{user}`）→ guest `/home/u`。
+    /// 用户可写数据（宿主 `{app_data}/session-sandboxes/{user}`）→ guest `/home/pointer`。
     UserData { tenant: String },
     /// 只读共享目录（宿主 `/data/skills-ro`）→ guest `/skills`。
     ReadOnlyShared { name: String },
@@ -28,7 +28,7 @@ impl MountSpec {
     /// 环境内的挂载点。
     pub fn guest_target(&self) -> PathBuf {
         match self {
-            Self::UserData { .. } => PathBuf::from("/home/u"),
+            Self::UserData { .. } => PathBuf::from("/home/pointer"),
             Self::ReadOnlyShared { .. } => PathBuf::from("/skills"),
         }
     }
@@ -205,7 +205,7 @@ mod tests {
     fn translates_mount_table_both_directions() {
         let map = PathMap::new(vec![
             Mount::new("/data/skills-ro", "/skills", true),
-            Mount::new("/data/session-sandboxes/u1", "/home/u", false),
+            Mount::new("/data/session-sandboxes/u1", "/home/pointer", false),
         ]);
         assert_eq!(
             map.to_host(Path::new("/skills/cwpt/SKILL.md")).unwrap(),
@@ -214,7 +214,7 @@ mod tests {
         assert_eq!(
             map.to_agent(Path::new("/data/session-sandboxes/u1/work/a.txt"))
                 .unwrap(),
-            PathBuf::from("/home/u/work/a.txt")
+            PathBuf::from("/home/pointer/work/a.txt")
         );
     }
 
@@ -230,14 +230,14 @@ mod tests {
     #[test]
     fn longest_prefix_wins() {
         let map = PathMap::new(vec![
-            Mount::new("/home/u", "/home/u", false),
-            Mount::new("/home/u/.cache", "/home/u/cache", true),
+            Mount::new("/home/pointer", "/home/pointer", false),
+            Mount::new("/home/pointer/.cache", "/home/pointer/cache", true),
         ]);
-        assert!(map.is_read_only(Path::new("/home/u/.cache/x")));
-        assert!(!map.is_read_only(Path::new("/home/u/notes/x")));
+        assert!(map.is_read_only(Path::new("/home/pointer/.cache/x")));
+        assert!(!map.is_read_only(Path::new("/home/pointer/notes/x")));
         assert_eq!(
-            map.to_agent(Path::new("/home/u/.cache/x")).unwrap(),
-            PathBuf::from("/home/u/cache/x")
+            map.to_agent(Path::new("/home/pointer/.cache/x")).unwrap(),
+            PathBuf::from("/home/pointer/cache/x")
         );
     }
 
@@ -259,7 +259,7 @@ mod tests {
         let user = MountSpec::UserData {
             tenant: "u1".into(),
         };
-        assert_eq!(user.guest_target(), PathBuf::from("/home/u"));
+        assert_eq!(user.guest_target(), PathBuf::from("/home/pointer"));
         assert!(!user.read_only());
         assert_eq!(user.logical_name(), "user-data:u1");
 

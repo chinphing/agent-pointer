@@ -284,13 +284,41 @@ fn gui_task_navigates_and_screenshot_changes() {
 
     let before = control.screenshot().expect("screenshot before");
 
-    // 2. 点地址栏（1600x1000 窗口在 40,40，地址栏大致 y=40+70）
+    // 2. 点地址栏。窗口位置/尺寸不写死——openbox 规则会把浏览器拉满屏
+    //    （profile 记住的旧尺寸会覆盖 --window-size），所以从 X 读实际几何再推算：
+    //    地址栏在窗口顶部往下约 70px，水平取窗口中线。
+    let geom = env
+        .exec(
+            &[
+                "sh".to_string(),
+                "-lc".to_string(),
+                "DISPLAY=:99 xdotool getwindowgeometry --shell \
+                 $(xdotool search --onlyvisible --class chromium | head -1)"
+                    .to_string(),
+            ],
+            ExecOptions::new(),
+        )
+        .expect("window geometry");
+    let geom = String::from_utf8_lossy(&geom.stdout);
+    let field = |key: &str| -> i32 {
+        geom.lines()
+            .find_map(|l| l.strip_prefix(&format!("{key}=")))
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or_else(|| panic!("几何输出缺 {key}: {geom}"))
+    };
+    let addr_x = field("X") + field("WIDTH") / 2;
+    let addr_y = field("Y") + 70;
+
     control
-        .click(MouseButton::Left, Some(800), Some(112), 1)
+        .click(MouseButton::Left, Some(addr_x), Some(addr_y), 1)
         .expect("click address bar");
     std::thread::sleep(std::time::Duration::from_millis(300));
 
-    // 3. 全选旧内容，输入 data URL，回车
+    // 3. 聚焦地址栏并输入 data URL。
+    //    先 ctrl+L 再输入：点地址栏这一步验证鼠标能用，但"点完地址栏是否已就绪"
+    //    受浏览器初始化时序影响（实测偶发：窗口已出现但工具栏还没响应）。
+    //    ctrl+L 是确定性的，避免用例跟着时序飘。
+    control.hotkey(&["ctrl".into(), "l".into()]).expect("focus omnibox");
     control.hotkey(&["ctrl".into(), "a".into()]).expect("select all");
     control
         .typing("data:text/html,<body bgcolor=red>POINTER")

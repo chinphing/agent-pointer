@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  容器的 openbox 配置。
+
+  只做一件事：让浏览器窗口铺满屏幕。
+
+  为什么不用浏览器自带的窗口尺寸参数：Chromium 会把上次的窗口尺寸记进
+  profile，下次启动时用记忆值覆盖命令行传入的尺寸。而我们现在**要**持久化
+  profile（登录态），所以尺寸参数靠不住。窗口管理器在 map 时强制最大化才稳定。
+
+  为什么 class 写 Chromium-browser：WM_CLASS 是两个字段，第一个（instance）
+  会带 profile 路径，第二个（class）才是稳定的 "Chromium-browser"。
+  openbox 的 class= 匹配的是第二个。
+
+  注意：XML 注释里不能出现连续两个减号，所以本文用中文标点代替。
+-->
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <applications>
+    <application class="Chromium-browser">
+      <decor>no</decor>
+      <maximized>yes</maximized>
+    </application>
+  </applications>
+</openbox_config>

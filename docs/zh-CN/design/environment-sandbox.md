@@ -1407,7 +1407,7 @@ exec /usr/lib/chromium/chromium \
     --user-data-dir=/home/pointer/.config/chromium \
     --no-first-run --no-default-browser-check \
     --disable-features=Translate,MediaRouter \
-    --window-size=1600,1000 --window-position=40,40 \
+    --window-size="$SIZE" --window-position=0,0 \
     "$@"
 ```
 
@@ -1505,11 +1505,26 @@ exec /usr/lib/chromium/chromium \
     --user-data-dir=/home/pointer/.config/chromium \
     --no-first-run --no-default-browser-check \
     --disable-features=Translate,MediaRouter \
-    --window-size=1600,1000 --window-position=40,40 \
+    --window-size="$SIZE" --window-position=0,0 \
     "$@"
 ```
 
 `--user-data-dir` 指向挂载的用户 home，登录态在容器重建后仍在。
+
+**窗口铺满屏幕**：`SIZE` 取自 `xdpyinfo`，但真正保证铺满的是 openbox 规则
+（`docker/openbox-rc.xml` → `/etc/xdg/openbox/rc.xml`）：
+
+```xml
+<application class="Chromium-browser">
+  <decor>no</decor>
+  <maximized>yes</maximized>
+</application>
+```
+
+为什么要 WM 强制：Chromium 会把上次的窗口尺寸记进 profile，持久化 profile 之后
+`--window-size` 会被记忆值覆盖——实测同一个 profile 下传 `1920,1080` 拿到的还是
+`1600x1000`。`class` 必须写 `Chromium-browser`：WM_CLASS 第一个字段（instance）
+带 profile 路径，第二个（class）才稳定。
 
 **home 挂载点为什么从 `/home/u` 改成 `/home/pointer`**
 

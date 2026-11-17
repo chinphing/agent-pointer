@@ -86,6 +86,9 @@ RUN useradd -m -u 1000 pointer \
 # 右键菜单：空桌面上唯一能点的地方，给人和 agent 一个入口。
 COPY docker/openbox-menu.xml /etc/xdg/openbox/menu.xml
 
+# 窗口规则：浏览器铺满屏幕（见文件头注释——profile 会记住旧尺寸，覆盖 --window-size）。
+COPY docker/openbox-rc.xml /etc/xdg/openbox/rc.xml
+
 # 覆盖 Debian 的 /usr/bin/chromium（原脚本会重置 CHROMIUM_FLAGS），
 # 再给一个好记的名字 /usr/local/bin/browser。
 COPY docker/browser.sh /usr/bin/chromium

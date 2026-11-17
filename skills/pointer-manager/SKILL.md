@@ -1,14 +1,17 @@
 ---
 name: pointer-manager
 description: >-
-  Pointer in-app settings and local data directory: connections (WeChat, Feishu, WeCom,
-  DingTalk), agent tiers/models, system options, automation, skills/plugins/MCP; PointerApp
-  data directory, logs, debug artifacts. Use Computer for settings UI; file/terminal for
-  directory tasks with user consent. Use when the user mentions Pointer settings,
-  connect/configure IM channels, data directory, log location, clear logs,
-  Application Support PointerApp, pointer-manager—not generic WeChat Open Platform or
-  unrelated app config. When matched, call skill_read first; do not answer from the skills
-  index alone.
+  Pointer in-app settings, local data directory, and server deployment: connections (WeChat,
+  Feishu, WeCom, DingTalk), agent tiers/models, system options, automation, skills/plugins/MCP;
+  PointerApp data directory, logs, debug artifacts; sandbox execution environment for the
+  server (docker image build/registry/offline tar, Cube/envd install and multi-node, tier vs
+  backend choice, POINTER_SERVER_ENVIRONMENT_* variables, resource sizing, sandbox start
+  failures). Use Computer for settings UI; file/terminal for directory tasks with user consent.
+  Use when the user mentions Pointer settings, connect/configure IM channels, data directory,
+  log location, clear logs, Application Support PointerApp, deploy Pointer server, prepare
+  sandbox runtime, install Cube, execution environment not bound—not generic WeChat Open
+  Platform or unrelated app config. When matched, call skill_read first; do not answer from the
+  skills index alone.
 tags:
   - pointer
   - settings
@@ -22,11 +25,17 @@ tags:
   - plugins
   - logs
   - data-directory
+  - deploy
+  - docker
+  - cube
+  - envd
+  - sandbox
 ---
 
 # Pointer 管理助手
 
-帮用户在 **Pointer 客户端内**完成设置，或 **查看/管理 Pointer 本地数据目录**（含日志）。  
+帮用户在 **Pointer 客户端内**完成设置，或 **查看/管理 Pointer 本地数据目录**（含日志），
+或 **给服务端准备沙箱执行环境**（agent 在哪儿跑命令、开浏览器）。
 UI 配置优先用 **Computer**；目录与文件操作用 **`file_*` / `terminal`**，须先说明影响并征得同意。
 
 ## 范围
@@ -53,6 +62,41 @@ UI 配置优先用 **Computer**；目录与文件操作用 **`file_*` / `termina
 - 帮用户 **定位** 日志、调试截图、对话库等路径
 - 在用户明确要求且知情同意下，协助 **清理可再生的调试数据**（如旧 `logs/`、`computer-captures/`；后者仅在调试分区开启「保存截图到本地」后才会产生）
 - **默认不删除** `conversations.db`、`auth.dat`、`user_settings.json` 等核心持久化文件
+
+### C. 服务端部署与环境准备
+
+agent 要在服务端跑命令、读写文件、开浏览器，先得有**执行环境**。两个后端二选一：
+
+| 场景 | 档位 `provider` | 后端 `backend` |
+|---|---|---|
+| 桌面 App，跑在用户自己电脑 | `local` | `host` |
+| 单机 web，使用者是同事 | `container` / `light` | `docker` |
+| **多用户 web，互不可信** | `container` / `light` | `envd` + Cube |
+| 已有 K8s | `container` | `docker`（或自建 Kata/gVisor） |
+
+判断口诀：**同一台机器上跑的是不是"别人的代码"**。是 → Cube；否 → Docker。
+
+档位决定**有没有桌面**（`container` 有 GUI，`light` 只有命令行）；档位与后端必须自洽，
+否则服务端启动直接报错。完整命令见：
+
+- `references/deploy-docker.md` —— 镜像三种来源、宿主权限、验证、容量规划
+- `references/deploy-cube.md` —— KVM 前提、单机安装、加计算节点、做模板、卷与用户状态
+
+**动手前先探测**，不要凭猜：
+
+```bash
+uname -m                                     # x86_64 / arm64
+ls -l /dev/kvm 2>/dev/null                   # 有没有硬件虚拟化
+docker ps >/dev/null 2>&1 && echo docker-ok  # 有没有 Docker
+df -h /data 2>/dev/null | tail -1            # 磁盘
+```
+
+四条硬事实：
+
+- **有镜像 ≠ 能跑**：必须装 Docker，镜像是文件系统快照，运行要守护进程
+- **Cube 也要 Docker**：MySQL / Redis / CubeProxy / CoreDNS 都是容器
+- **镜像名不是 digest**：规格指纹只 hash 镜像名字，`latest` 更新后老容器不会重建
+- **容器以非 root 运行**（`pointer`，uid 1000）：`apt` 要 `sudo`，`pip --user` / `npm` 不用
 
 ## 数据目录根路径
 
@@ -81,11 +125,28 @@ UI 配置优先用 **Computer**；目录与文件操作用 **`file_*` / `termina
 3. 用 **`file_list` / `file_read` / `terminal`** 执行；删除前再次确认
 4. 汇报路径、释放空间（若可估）、是否需重启应用
 
+**部署类**
+
+1. 先跑探测命令（`uname -m` / `/dev/kvm` / `docker ps` / `df`），用结果选后端
+2. 分清**在哪台机器执行**：Pointer 跑在用户本机，部署目标常常是另一台服务器
+
+   | 动作 | 在哪 |
+   |---|---|
+   | `docker build` / `docker load` / 冒烟验证 | 目标机 |
+   | 装 Cube、加计算节点（要 root） | 目标 Linux 服务器 |
+   | 改 `server.toml` | 目标机 |
+
+   连不上目标机就**整理成命令清单交给用户执行**，并说明每步验证什么；不要假装能远程登录
+3. 按后端读对应 reference，照命令走，不要凭记忆写
+4. 验证到**服务端真能跑**才算完成：docker 后端 agent 跑 `pwd` 返回 `/workspace`；
+   envd 后端 `id` 返回 uid ≥ 100000。只看到"容器起来了"不算
+5. 汇报：选了哪个后端及理由、改了哪些配置、验证结果、仍需用户做的事
+
 ## 输出
 
 ```markdown
 ## 结果
-- 类型：设置 / 数据目录
+- 类型：设置 / 数据目录 / 部署
 - 项目：
 - 状态：
 - 路径（如适用）：

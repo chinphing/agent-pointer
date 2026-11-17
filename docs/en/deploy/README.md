@@ -14,6 +14,11 @@ The three axes below matter when you are building an installer:
 
 When you are packaging a release, find your cell in §0 below.
 
+> The server also needs a **sandbox runtime** — where the agent runs commands, reads and
+> writes files, and drives a browser. For backend choice (docker / envd), where images come
+> from, and how to install Cube, see
+> [Sandbox runtime deployment](sandbox-backend.md).
+
 > **Terminology**: `official` is **not** a `POINTER_EDITION` value; it only refers to a Pointer official release.
 > Writing any other value (including `official`) makes the build **fail outright** — deliberately so, to avoid silently degrading into an unbound build.
 

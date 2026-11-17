@@ -19,6 +19,9 @@ const BIN_NAME = process.platform === 'win32' ? 'pointer-server.exe' : 'pointer-
 const BIN_PATH = path.join(ROOT, 'target', 'release', BIN_NAME)
 const DIST_DIR = path.join(ROOT, 'dist')
 const SKILLS_DIR = path.join(ROOT, 'skills')
+// 沙箱镜像的构建上下文（Dockerfile + 入口脚本 + 桌面菜单），随包分发，
+// 让目标机能直接 `docker build -f docker/... .`，不必再拿仓库。
+const DOCKER_DIR = path.join(ROOT, 'docker')
 const CONFIG_EXAMPLE = path.join(ROOT, 'server', 'pointer-server.toml.example')
 
 function ensureInputs() {
@@ -26,6 +29,7 @@ function ensureInputs() {
   if (!fs.existsSync(BIN_PATH)) missing.push(BIN_PATH)
   if (!fs.existsSync(DIST_DIR)) missing.push(DIST_DIR)
   if (!fs.existsSync(SKILLS_DIR)) missing.push(SKILLS_DIR)
+  if (!fs.existsSync(DOCKER_DIR)) missing.push(DOCKER_DIR)
   if (!fs.existsSync(CONFIG_EXAMPLE)) missing.push(CONFIG_EXAMPLE)
   if (missing.length > 0) {
     console.error('[package-server] Missing required inputs:')
@@ -159,12 +163,14 @@ function main() {
   fs.copyFileSync(BIN_PATH, path.join(stagingDir, BIN_NAME))
   copyTree(DIST_DIR, path.join(stagingDir, 'dist'))
   copyTree(SKILLS_DIR, path.join(stagingDir, 'skills'))
+  copyTree(DOCKER_DIR, path.join(stagingDir, 'docker'))
   fs.copyFileSync(CONFIG_EXAMPLE, path.join(stagingDir, 'pointer-server.toml.example'))
   syncServerDeployScripts(stagingDir)
 
   const releaseDir = path.join(ROOT, 'target', 'release')
   syncServerDeployScripts(releaseDir)
   copyTree(SKILLS_DIR, path.join(releaseDir, 'skills'))
+  copyTree(DOCKER_DIR, path.join(releaseDir, 'docker'))
 
   // Defence in depth: the staging tree is built from explicit inputs (never the
   // repository root), but no release may carry per-developer or signing material.

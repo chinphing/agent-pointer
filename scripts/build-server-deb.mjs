@@ -24,6 +24,8 @@ const BIN_NAME = 'pointer-server'
 const BIN_PATH = path.join(ROOT, 'target', 'release', BIN_NAME)
 const DIST_DIR = path.join(ROOT, 'dist')
 const SKILLS_DIR = path.join(ROOT, 'skills')
+// 沙箱镜像构建上下文，随包分发（目标机可直接 docker build）
+const DOCKER_DIR = path.join(ROOT, 'docker')
 const CONFIG_EXAMPLE = path.join(ROOT, 'server', 'pointer-server.toml.example')
 const DEB_STAGING = path.join(ROOT, 'target', 'pointer-server-deb-staging')
 const PACKAGE_VERSION = JSON.parse(
@@ -36,6 +38,7 @@ function ensureInputs() {
   if (!fs.existsSync(BIN_PATH)) missing.push(BIN_PATH)
   if (!fs.existsSync(DIST_DIR)) missing.push(DIST_DIR)
   if (!fs.existsSync(SKILLS_DIR)) missing.push(SKILLS_DIR)
+  if (!fs.existsSync(DOCKER_DIR)) missing.push(DOCKER_DIR)
   if (!fs.existsSync(CONFIG_EXAMPLE)) missing.push(CONFIG_EXAMPLE)
   if (missing.length > 0) {
     console.error('[build-deb] Missing required inputs:')
@@ -103,6 +106,7 @@ function main() {
   // usr/bin/        → pointer-server
   // usr/share/pointer-server/dist/  → Vue frontend
   // usr/share/pointer-server/skills/ → bundled skills
+  // usr/share/pointer-server/docker/ → 沙箱镜像构建上下文
   // etc/pointer-server/ → pointer-server.toml.example
   // lib/systemd/system/ → pointer-server.service
 
@@ -120,6 +124,9 @@ function main() {
 
   // Skills
   copyTree(SKILLS_DIR, path.join(D, 'usr', 'share', 'pointer-server', 'skills'))
+
+  // Sandbox image build context
+  copyTree(DOCKER_DIR, path.join(D, 'usr', 'share', 'pointer-server', 'docker'))
 
   // Config example (not live config)
   const etcDir = path.join(D, 'etc', 'pointer-server')

@@ -143,6 +143,52 @@ pub fn env_for_conversation(conversation_id: &str) -> Option<Arc<dyn Environment
     None
 }
 
+/// 只查不碰：命中不刷新 `last_used`。
+///
+/// 给面板轮询用——面板每隔几秒问一次"有没有桌面"，如果按普通查询算活跃，
+/// 30 分钟空闲回收就永远不会触发（只要面板开着容器就活着）。
+pub fn env_for_conversation_peek(conversation_id: &str) -> Option<Arc<dyn Environment>> {
+    if let Ok(mut map) = cache().lock() {
+        if let Some(hit) = map.get(conversation_id) {
+            return Some(hit.env.clone() as Arc<dyn Environment>);
+        }
+    }
+    if let Ok(mut map) = docker_cache().lock() {
+        evict_idle_docker(&mut map, Instant::now());
+        if let Some((hit, _)) = map.get(conversation_id) {
+            return Some(hit.clone() as Arc<dyn Environment>);
+        }
+    }
+    None
+}
+
+/// 接管期间「别回收这个容器」的标记。
+///
+/// 与 `env_for_conversation_peek` 配套：面板轮询不再刷新活跃时间，改由接管页
+/// 显式 pin，关掉接管页再 unpin。
+fn pinned_set() -> &'static Mutex<std::collections::HashSet<String>> {
+    static PINNED: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+    PINNED.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+}
+
+/// 接管页打开/关闭时调用。pin 住的会话不参与空闲淘汰。
+pub fn set_pinned(conversation_id: &str, pinned: bool) {
+    if let Ok(mut set) = pinned_set().lock() {
+        if pinned {
+            set.insert(conversation_id.to_string());
+        } else {
+            set.remove(conversation_id);
+        }
+    }
+}
+
+fn is_pinned(conversation_id: &str) -> bool {
+    pinned_set()
+        .lock()
+        .map(|set| set.contains(conversation_id))
+        .unwrap_or(false)
+}
+
 /// 工具分派点用：按会话**缓存**重放环境绑定。
 ///
 /// 与 [`bind_if_absent`] 的区别：这里不重新解析 provider（工具线程上没有
@@ -269,6 +315,20 @@ pub fn release(conversation_id: &str) {
             );
         }
     }
+
+    // Docker 后端是另一份缓存：漏掉这里，删会话后容器会一直跑到空闲淘汰。
+    set_pinned(conversation_id, false);
+    let docker_entry = docker_cache().lock().ok().and_then(|mut m| m.remove(conversation_id));
+    if let Some((env, _)) = docker_entry {
+        if let Err(e) = env.destroy() {
+            log::warn!("sandbox release failed (docker) conversation={conversation_id}: {e:#}");
+        } else {
+            log::info!(
+                "sandbox released (docker) conversation={conversation_id} container={}",
+                env.container_name()
+            );
+        }
+    }
 }
 
 /// 进程退出时统一回收。
@@ -279,6 +339,20 @@ pub fn release_all() {
     };
     for cached in entries {
         let _ = cached.env.destroy();
+    }
+
+    // 同上：docker 那份也要收，否则退出应用后容器还在跑。
+    let docker_entries: Vec<_> = match docker_cache().lock() {
+        Ok(mut m) => m.drain().map(|(_, v)| v).collect(),
+        Err(_) => Vec::new(),
+    };
+    for (env, _) in docker_entries {
+        if let Err(e) = env.destroy() {
+            log::warn!("sandbox release_all failed (docker) container={}: {e:#}", env.container_name());
+        }
+    }
+    if let Ok(mut set) = pinned_set().lock() {
+        set.clear();
     }
 }
 
@@ -301,6 +375,90 @@ fn docker_cache() -> &'static Mutex<HashMap<String, (Arc<crate::env::docker::Doc
     static CACHE: OnceLock<Mutex<HashMap<String, (Arc<crate::env::docker::DockerEnv>, Instant)>>> =
         OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// 会话的容器规格（挂载计划、镜像、配额）。创建与收养共用，保证两边指纹一致。
+fn docker_spec_for(
+    cfg: &ProviderConfig,
+    conversation_id: &str,
+    session_user_id: &str,
+    workspace_root: Option<&Path>,
+    tier: Tier,
+) -> Result<crate::env::docker::DockerSpec> {
+    let sandboxes_base = match cfg
+        .volume_host_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(dir) => PathBuf::from(dir),
+        None => crate::session_sandbox::SessionSandbox::sandboxes_base()?,
+    };
+    let skill_roots = skill_roots_for_mounts()?;
+    verify_skill_roots(&skill_roots)?;
+    let plugin_root = crate::plugins::user_plugins_dir().ok();
+    let mounts = MountPlan::for_session_with_plugins(
+        &sandboxes_base,
+        session_user_id,
+        conversation_id,
+        &skill_roots,
+        plugin_root.as_deref(),
+        workspace_root,
+    );
+
+    let (cpus, memory_mb, disk_mb) = sandbox_resource_limits();
+    Ok(crate::env::docker::DockerSpec {
+        container: crate::env::docker::DockerSpec::container_name_for(conversation_id),
+        image: cfg
+            .template
+            .clone()
+            .unwrap_or_else(|| crate::env::remote::DEFAULT_TEMPLATE.to_string()),
+        mounts,
+        workdir: PathBuf::from(crate::env::mounts::GUEST_WORKSPACE),
+        tier,
+        cpus,
+        memory_mb,
+        disk_mb,
+        vnc_password: None,
+    })
+}
+
+/// 收养一个已在运行的容器（应用重启后缓存为空时用），**不创建、不删除**。
+///
+/// 面板接管入口靠它恢复：否则重启应用后必须等会话再跑一次工具，
+/// 缓存才会重新有值，接管按钮才出现。
+pub fn adopt_docker_env(
+    cfg: &ProviderConfig,
+    conversation_id: &str,
+    session_user_id: &str,
+    workspace_root: Option<&Path>,
+) -> Option<Arc<dyn Environment>> {
+    let spec = docker_spec_for(cfg, conversation_id, session_user_id, workspace_root, Tier::Container)
+        .ok()?;
+    let env = Arc::new(match crate::env::docker::DockerEnv::attach(spec.clone()) {
+        Ok(Some(env)) => env,
+        // 容器在、但规格变了（换镜像 / 改配额）或已经停了。轮询走到这里说明
+        // 用户正想看桌面，按当前规格重建——否则升级镜像后入口会凭空消失，
+        // 要等下一次跑工具才回来。
+        _ => {
+            if !crate::env::docker::DockerEnv::exists(&spec.container) {
+                return None;
+            }
+            log::info!(
+                "sandbox stale (docker) conversation={conversation_id} container={} → 按当前规格重建",
+                spec.container
+            );
+            crate::env::docker::DockerEnv::create(spec).ok()?
+        }
+    });
+    log::info!(
+        "sandbox adopted (docker) conversation={conversation_id} container={}",
+        env.container_name()
+    );
+    if let Ok(mut map) = docker_cache().lock() {
+        map.insert(conversation_id.to_string(), (env.clone(), Instant::now()));
+    }
+    Some(env as Arc<dyn Environment>)
 }
 
 /// 创建或复用本地 Docker 容器作为会话环境。
@@ -332,42 +490,7 @@ fn acquire_docker(
         }
     }
 
-    let sandboxes_base = match cfg
-        .volume_host_path
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        Some(dir) => PathBuf::from(dir),
-        None => crate::session_sandbox::SessionSandbox::sandboxes_base()?,
-    };
-    let skill_roots = skill_roots_for_mounts()?;
-    verify_skill_roots(&skill_roots)?;
-    let plugin_root = crate::plugins::user_plugins_dir().ok();
-    let mounts = MountPlan::for_session_with_plugins(
-        &sandboxes_base,
-        session_user_id,
-        conversation_id,
-        &skill_roots,
-        plugin_root.as_deref(),
-        workspace_root,
-    );
-
-    let (cpus, memory_mb, disk_mb) = sandbox_resource_limits();
-    let spec = crate::env::docker::DockerSpec {
-        container: crate::env::docker::DockerSpec::container_name_for(conversation_id),
-        image: cfg
-            .template
-            .clone()
-            .unwrap_or_else(|| crate::env::remote::DEFAULT_TEMPLATE.to_string()),
-        mounts,
-        workdir: PathBuf::from(crate::env::mounts::GUEST_WORKSPACE),
-        tier,
-        cpus,
-        memory_mb,
-        disk_mb,
-        vnc_password: None,
-    };
+    let spec = docker_spec_for(cfg, conversation_id, session_user_id, workspace_root, tier)?;
     let env = Arc::new(crate::env::docker::DockerEnv::create(spec)?);
     log::info!(
         "sandbox created (docker) conversation={conversation_id} container={}",
@@ -503,7 +626,7 @@ fn evict_idle_docker(
 ) {
     let stale: Vec<String> = map
         .iter()
-        .filter(|(_, (_, last_used))| should_evict(*last_used, now))
+        .filter(|(id, (_, last_used))| should_evict(*last_used, now) && !is_pinned(id))
         .map(|(id, _)| id.clone())
         .collect();
     for id in stale {
@@ -748,6 +871,69 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn adopt_returns_none_when_container_absent() {
+        // 收养只在容器**已经存在**时才有意义；不存在就该老老实实返回 None，
+        // 不能顺手把容器建起来（面板轮询会反复调用）。
+        let cfg = ProviderConfig {
+            tier: Some(Tier::Container),
+            backend: Some(Backend::Docker),
+            sandbox_url: None,
+            volume_host_path: None,
+            template: Some("pointer-sandbox-container:latest".to_string()),
+            admins: Vec::new(),
+            accounts: Default::default(),
+            platform: false,
+        };
+        assert!(adopt_docker_env(&cfg, "conv-adopt-absent", "tester", None).is_none());
+    }
+
+    #[test]
+    fn pinned_conversation_survives_idle_eviction() {
+        // 接管页 pin 住的会话不能被空闲淘汰干掉，unpin 后恢复正常淘汰。
+        let id = "conv-pinned-evict";
+        let stale = Instant::now() - IDLE_TTL - std::time::Duration::from_secs(60);
+        let mut map: HashMap<String, (Arc<crate::env::docker::DockerEnv>, Instant)> = HashMap::new();
+        map.insert(
+            id.to_string(),
+            (
+                Arc::new(crate::env::docker::DockerEnv::fake_for_tests("pointer-sbx-pinned")),
+                stale,
+            ),
+        );
+
+        set_pinned(id, true);
+        evict_idle_docker(&mut map, Instant::now());
+        assert!(map.contains_key(id), "pin 住的会话不该被淘汰");
+
+        set_pinned(id, false);
+        evict_idle_docker(&mut map, Instant::now());
+        assert!(!map.contains_key(id), "unpin 后应恢复正常淘汰");
+    }
+
+    #[test]
+    fn release_drops_docker_cache_entry() {
+        // 回归：release 只清 envd 缓存时，删会话后容器会一直跑到空闲淘汰。
+        let id = "conv-release-docker";
+        if let Ok(mut map) = docker_cache().lock() {
+            map.insert(
+                id.to_string(),
+                (
+                    Arc::new(crate::env::docker::DockerEnv::fake_for_tests("pointer-sbx-release")),
+                    Instant::now(),
+                ),
+            );
+        }
+        assert!(env_for_conversation_peek(id).is_some());
+
+        release(id);
+
+        assert!(
+            env_for_conversation_peek(id).is_none(),
+            "release 必须同时清掉 docker 缓存"
+        );
+    }
+
     fn env_lookup_covers_both_backends() {
         // 回归：docker 后端上线后，工具线程重放必须也能查到它，
         // 否则 effective_env() 会退到 DeniedEnv，工具报"执行环境未绑定"。

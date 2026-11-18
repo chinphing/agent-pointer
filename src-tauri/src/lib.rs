@@ -490,6 +490,7 @@ pub fn run() {
             commands::worktree_create,
             commands::worktree_inspect,
             commands::get_sandbox_desktop,
+            commands::set_sandbox_desktop_active,
             commands::open_sandbox_desktop,
             commands::get_workspace_git_status,
             commands::get_workspace_git_diff,
@@ -645,6 +646,9 @@ pub fn run() {
                     show_main_window(app);
                 }
                 RunEvent::Exit => {
+                    // 退出即回收沙箱（envd + docker 两份缓存）。不清的话容器会一直
+                    // 跑到下次启动的孤儿清理，而那只清 status=exited 的。
+                    pointer_core::env::session_env::release_all();
                     if let Some(state) = app.try_state::<Arc<AppState>>() {
                         let auth = state.platform_auth.clone();
                         tauri::async_runtime::block_on(async {

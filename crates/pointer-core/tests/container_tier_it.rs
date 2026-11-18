@@ -71,6 +71,246 @@ fn container_tier_through_provider_config() {
         .status();
 }
 
+/// 应用重启后缓存为空时，必须能"收养"已在跑的容器，而不是当作没有桌面。
+///
+/// 回归：`desktop_env` 只查缓存，重启后返回 None，面板接管入口消失，
+/// 要等会话再跑一次工具才恢复。
+#[test]
+#[ignore = "需要本机 docker"]
+fn adopt_existing_container_after_cache_loss() {
+    if !docker_available() {
+        eprintln!("skip: docker 不可用");
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ProviderConfig {
+        tier: Some(Tier::Container),
+        backend: Some(Backend::Docker),
+        sandbox_url: None,
+        volume_host_path: None,
+        template: Some("pointer-sandbox-container:latest".to_string()),
+        admins: Vec::new(),
+        accounts: Default::default(),
+        platform: true,
+    };
+    // 先按正常路径建出容器。
+    resolve_session_env(&cfg, "it-adopt", "tester", Some(dir.path()))
+        .expect("resolve")
+        .expect("docker 后端应返回环境");
+
+    // 模拟应用重启：缓存里没有这个会话，只能靠收养。
+    let adopted = pointer_core::env::session_env::adopt_docker_env(
+        &cfg,
+        "it-adopt",
+        "tester",
+        Some(dir.path()),
+    )
+    .expect("应能收养已在运行的容器");
+
+    assert_eq!(adopted.kind(), EnvKind::Container);
+    let endpoint = adopted.desktop_endpoint().expect("收养后应有桌面入口");
+    assert!(
+        endpoint.ws_url.is_some(),
+        "收养后的端点应带 ws 地址：{endpoint:?}"
+    );
+
+    let _ = std::process::Command::new("docker")
+        .args(["rm", "-f", "pointer-sbx-it-adopt"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
+/// 中文输入必须真的进得去。
+///
+/// 回归：`xdotool type` 只能敲 keymap 里有的键，"腾讯财报0700" 会被静默截成
+/// "0700" 且退出码为 0——不报错，模型以为打进去了。
+#[test]
+#[ignore = "需要本机 docker"]
+fn typing_cjk_survives_in_container() {
+    use pointer_core::agents::computer::control::ComputerControl;
+    use pointer_core::env::{Environment, ExecOptions};
+
+    if !docker_available() {
+        eprintln!("skip: docker 不可用");
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ProviderConfig {
+        tier: Some(Tier::Container),
+        backend: Some(Backend::Docker),
+        sandbox_url: None,
+        volume_host_path: None,
+        template: Some("pointer-sandbox-container:latest".to_string()),
+        admins: Vec::new(),
+        accounts: Default::default(),
+        platform: true,
+    };
+    let env = resolve_session_env(&cfg, "it-typing", "tester", Some(dir.path()))
+        .expect("resolve")
+        .expect("容器环境");
+
+    // 地址栏是标准的 Ctrl+V 粘贴目标（xterm 要 Ctrl+Shift+V，不适合做判据）。
+    env.exec(
+        &[
+            "sh".to_string(),
+            "-lc".to_string(),
+            "setsid browser about:blank >/dev/null 2>&1 &".to_string(),
+        ],
+        ExecOptions::default(),
+    )
+    .expect("启动浏览器");
+    std::thread::sleep(std::time::Duration::from_secs(9));
+
+    let control = pointer_core::agents::computer::control::DockerControl::new(env.clone());
+    control
+        .hotkey(&["ctrl".to_string(), "l".to_string()])
+        .expect("聚焦地址栏");
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    control.typing("腾讯财报0700").expect("输入中文");
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    control
+        .hotkey(&["ctrl".to_string(), "a".to_string()])
+        .expect("全选");
+    control
+        .hotkey(&["ctrl".to_string(), "c".to_string()])
+        .expect("复制");
+    std::thread::sleep(std::time::Duration::from_secs(1));
+
+    let out = env
+        .exec(
+            &[
+                "sh".to_string(),
+                "-lc".to_string(),
+                "xclip -o -selection clipboard".to_string(),
+            ],
+            ExecOptions::default(),
+        )
+        .expect("读剪贴板");
+    let typed = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    assert!(
+        typed.contains("腾讯财报"),
+        "地址栏里实际是 {typed:?}，中文没进去"
+    );
+
+    let _ = std::process::Command::new("docker")
+        .args(["rm", "-f", "pointer-sbx-it-typing"])
+        .output();
+}
+
+/// 容器还在、但规格变了（换镜像 / 改配额 / 升版本）时，收养必须把它重建，
+/// 而不是返回 None 让面板入口消失。
+#[test]
+#[ignore = "需要本机 docker"]
+fn stale_container_is_recreated_on_adopt() {
+    if !docker_available() {
+        eprintln!("skip: docker 不可用");
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ProviderConfig {
+        tier: Some(Tier::Container),
+        backend: Some(Backend::Docker),
+        sandbox_url: None,
+        volume_host_path: None,
+        template: Some("pointer-sandbox-container:latest".to_string()),
+        admins: Vec::new(),
+        accounts: Default::default(),
+        platform: true,
+    };
+    let name = "pointer-sbx-it-stale";
+
+    // 造一个同名容器，但指纹是假的（模拟升级前的旧容器）。
+    let _ = std::process::Command::new("docker")
+        .args(["rm", "-f", name])
+        .output();
+    let started = std::process::Command::new("docker")
+        .args([
+            "run", "-d", "--name", name, "--label", "pointer.spec=stale-fingerprint",
+            "pointer-sandbox-container:latest", "sleep", "infinity",
+        ])
+        .output()
+        .expect("docker run");
+    assert!(started.status.success(), "准备陈旧容器失败");
+
+    let adopted = pointer_core::env::session_env::adopt_docker_env(
+        &cfg,
+        "it-stale",
+        "tester",
+        Some(dir.path()),
+    )
+    .expect("陈旧容器应被重建后返回");
+
+    let label = std::process::Command::new("docker")
+        .args([
+            "inspect", "-f", "{{index .Config.Labels \"pointer.spec\"}}", name,
+        ])
+        .output()
+        .expect("inspect");
+    let label = String::from_utf8_lossy(&label.stdout).trim().to_string();
+    assert_ne!(label, "stale-fingerprint", "容器没有被重建：{label}");
+    assert!(adopted.desktop_endpoint().is_some());
+
+    let _ = std::process::Command::new("docker")
+        .args(["rm", "-f", name])
+        .output();
+}
+
+/// 桌面入口返回的密码必须等于容器里实际生效的密码。
+///
+/// 密码在 docker run 时注入、容器建好就定死；复用容器时如果重新随机一个，
+/// 接管会直接 `password check failed`（应用重启后必然踩到）。
+#[test]
+#[ignore = "需要本机 docker"]
+fn desktop_password_matches_container_env() {
+    if !docker_available() {
+        eprintln!("skip: docker 不可用");
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ProviderConfig {
+        tier: Some(Tier::Container),
+        backend: Some(Backend::Docker),
+        sandbox_url: None,
+        volume_host_path: None,
+        template: Some("pointer-sandbox-container:latest".to_string()),
+        admins: Vec::new(),
+        accounts: Default::default(),
+        platform: true,
+    };
+    let env = resolve_session_env(&cfg, "it-desktop-pw", "tester", Some(dir.path()))
+        .expect("resolve")
+        .expect("docker 后端应返回环境");
+
+    let endpoint = env.desktop_endpoint().expect("容器档位应有桌面入口");
+    let password = endpoint.password.expect("容器档位应有 VNC 密码");
+
+    let inspect = std::process::Command::new("docker")
+        .args([
+            "inspect",
+            "-f",
+            "{{range .Config.Env}}{{println .}}{{end}}",
+            "pointer-sbx-it-desktop-pw",
+        ])
+        .output()
+        .expect("docker inspect");
+    let env_text = String::from_utf8_lossy(&inspect.stdout);
+    assert!(
+        env_text.contains(&format!("POINTER_VNC_PASSWORD={password}")),
+        "端点密码与容器实际密码不一致（接管会认证失败）：\n{env_text}"
+    );
+
+    let _ = std::process::Command::new("docker")
+        .args(["rm", "-f", "pointer-sbx-it-desktop-pw"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
 /// 容器档位的桌面入口必须给出 websockify 的 WS 地址，且端口真的在监听。
 #[test]
 #[ignore = "需要本机 docker"]

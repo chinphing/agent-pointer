@@ -123,7 +123,14 @@ impl DockerSpec {
 /// v1 → v2：容器档位增加 VNC 端口映射 + `POINTER_VNC_PASSWORD` 注入。
 /// v2 → v3：home 挂载点 `/home/u` → `/home/pointer`；非 root 运行。
 /// v3 → v4：增加 6080 端口映射（websockify / noVNC，面板内接管电脑）。
-const SPEC_VERSION: u32 = 4;
+/// v4 → v5：桌面从"纯色空屏"改成底部 dock（plank）+ 常用程序快捷方式。
+///   指纹只 hash 镜像**名字**（`:latest` 不变），所以必须靠版本号把老容器挤掉，
+///   否则升级镜像后用户看到的还是旧桌面。
+/// v5 → v6：浏览器包装脚本剥掉调用方塞的 `--no-sandbox`（非 root 下不需要，
+///   带上只会弹"不受支持的参数"警告并拆掉沙箱）。
+/// v6 → v7：x11vnc 改成把光标画进画面（-nocursorshape -cursor arrow），
+///   宿主鼠标不在画布上时也能看见指针位置。
+const SPEC_VERSION: u32 = 7;
 
 /// 构造 `docker run` 参数。
 ///
@@ -207,6 +214,53 @@ impl std::fmt::Debug for DockerEnv {
 }
 
 impl DockerEnv {
+    /// 测试用：造一个不连真实容器的实例（只验证缓存 / 淘汰逻辑）。
+    #[cfg(test)]
+    pub(crate) fn fake_for_tests(container: &str) -> Self {
+        Self {
+            container: container.to_string(),
+            workdir: PathBuf::from("/workspace"),
+            tier: super::provider::Tier::Container,
+            vnc_password: None,
+            map: PathMap::new(Vec::new()),
+            host_fs: super::local::LocalEnv::new("/tmp"),
+        }
+    }
+
+    /// 收养一个**已在运行**且指纹匹配的容器；不存在或不匹配返回 `None`。
+    ///
+    /// 与 `create` 的区别：绝不 `docker run`，也绝不 `rm -f`。给"应用重启后
+    /// 缓存空了、但容器还在跑"的场景用（面板接管入口靠它恢复）。
+    pub fn attach(spec: DockerSpec) -> Result<Option<Self>> {
+        if spec.tier != super::provider::Tier::Container {
+            return Ok(None);
+        }
+        let container = spec.container.clone();
+        if !Self::container_running(&container) {
+            return Ok(None);
+        }
+        let fingerprint = spec.fingerprint();
+        if Self::container_fingerprint(&container).as_deref() != Some(fingerprint.as_str()) {
+            // 规格变了（换了镜像/挂载/配额），旧容器不该被接管——交给 create 重建。
+            return Ok(None);
+        }
+        let workspace_host = spec
+            .mounts
+            .iter()
+            .find(|m| m.guest == spec.workdir)
+            .map(|m| m.host.clone())
+            .ok_or_else(|| anyhow!("docker: 挂载计划里没有 {} 对应的宿主目录", spec.workdir.display()))?;
+        let map = PathMap::new(spec.mounts.clone());
+        Ok(Some(Self {
+            vnc_password: Self::container_vnc_password(&container),
+            container,
+            workdir: spec.workdir,
+            tier: spec.tier,
+            map,
+            host_fs: super::local::LocalEnv::new(&workspace_host),
+        }))
+    }
+
     /// 创建并启动容器（已存在则复用）。
     pub fn create(spec: DockerSpec) -> Result<Self> {
         let map = PathMap::new(spec.mounts.clone());
@@ -217,18 +271,24 @@ impl DockerEnv {
             .map(|m| m.host.clone())
             .ok_or_else(|| anyhow!("docker: 挂载计划里没有 {} 对应的宿主目录", spec.workdir.display()))?;
 
+        let fingerprint = spec.fingerprint();
+        let reusable = Self::container_running(&spec.container)
+            && Self::container_fingerprint(&spec.container).as_deref() == Some(fingerprint.as_str());
+
         // 容器档位：每会话随机 VNC 密码（空字符串 = 显式要求无密码）。
+        // 复用已有容器时密码已经在容器里定死了，必须读回来；这里再随机一个就会对不上。
         let vnc_password = if spec.tier == super::provider::Tier::Container {
-            spec.vnc_password
-                .clone()
-                .or_else(|| Some(DockerSpec::random_vnc_password()))
+            if reusable {
+                Self::container_vnc_password(&spec.container)
+            } else {
+                spec.vnc_password
+                    .clone()
+                    .or_else(|| Some(DockerSpec::random_vnc_password()))
+            }
         } else {
             None
         };
 
-        let fingerprint = spec.fingerprint();
-        let reusable = Self::container_running(&spec.container)
-            && Self::container_fingerprint(&spec.container).as_deref() == Some(fingerprint.as_str());
         if !reusable {
             // 残留容器（停止/异常）先清掉，避免名字冲突。
             let _ = Command::new("docker")
@@ -418,11 +478,45 @@ impl DockerEnv {
         }
     }
 
+    /// 容器是否存在（不论运行状态）。规格变了要重建时用来区分"没有"和"过期"。
+    pub fn exists(container: &str) -> bool {
+        matches!(
+            Command::new("docker")
+                .args(["inspect", "-f", "{{.Id}}", container])
+                .output(),
+            Ok(o) if o.status.success()
+        )
+    }
+
     fn container_running(name: &str) -> bool {
         let out = Command::new("docker")
             .args(["inspect", "-f", "{{.State.Running}}", name])
             .output();
         matches!(out, Ok(o) if o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "true")
+    }
+
+    /// 读回容器里实际生效的 VNC 密码。
+    ///
+    /// 密码在 `docker run` 时通过 `POINTER_VNC_PASSWORD` 注入，容器一旦建好就定死了。
+    /// 复用容器时必须读回来——否则这里新生成一个，容器里还是旧的，接管时直接
+    /// `password check failed`（应用重启后必然踩到）。
+    fn container_vnc_password(name: &str) -> Option<String> {
+        let out = Command::new("docker")
+            .args([
+                "inspect",
+                "-f",
+                "{{range .Config.Env}}{{println .}}{{end}}",
+                name,
+            ])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&out.stdout);
+        text.lines()
+            .find_map(|line| line.trim().strip_prefix("POINTER_VNC_PASSWORD="))
+            .map(str::to_string)
     }
 
     /// 容器档位默认带 `DISPLAY=:99`（镜像入口起的 Xvfb），调用方显式给了就不覆盖。

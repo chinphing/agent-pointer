@@ -171,7 +171,11 @@ pub async fn worktree_inspect(
 }
 
 /// 沙箱桌面入口（容器档位）。没有桌面时返回 `None`。
+///
+/// `rename_all = "camelCase"`：前端读的是 `wsUrl`。少了这条，`ws_url` 会以
+/// snake_case 发过去，前端拿到 `undefined`，误判成「镜像不支持接管」。
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SandboxDesktop {
     /// `vnc://127.0.0.1:<port>`，交给系统屏幕共享。
     pub url: String,
@@ -184,11 +188,35 @@ pub struct SandboxDesktop {
 ///
 /// 不能复用 `panel_env`——它在 docker 后端故意返回宿主环境（面板读文件要的是同一份
 /// bind mount），而桌面必须拿到容器本身。
+///
+/// 两步：
+/// 1. `env_for_conversation_peek` —— 只查不刷新活跃时间。面板每隔几秒轮询一次，
+///    用普通查询会把 `last_used` 一直顶到"刚用过"，30 分钟空闲回收永远不触发。
+/// 2. 缓存空（应用重启过）→ 收养已在跑的容器，避免"容器还在、按钮却没了"。
 fn desktop_env(
     conversation_id: Option<&str>,
 ) -> Option<std::sync::Arc<dyn pointer_core::env::Environment>> {
     let id = conversation_id.map(str::trim).filter(|id| !id.is_empty())?;
-    pointer_core::env::session_env::env_for_conversation(id)
+    if let Some(env) = pointer_core::env::session_env::env_for_conversation_peek(id) {
+        return Some(env);
+    }
+    let cfg = pointer_core::env::provider::ProviderConfig::from_env().ok()?;
+    let resolved = cfg.resolve(None).ok()?;
+    if resolved.backend != pointer_core::env::provider::Backend::Docker {
+        return None;
+    }
+    pointer_core::env::session_env::adopt_docker_env(&cfg, id, "", None)
+}
+
+/// 接管页打开/关闭时调用：pin 住容器，避免正在接管时被空闲回收掉。
+#[tauri::command]
+pub async fn set_sandbox_desktop_active(conversation_id: String, active: bool) -> Result<(), String> {
+    let id = conversation_id.trim();
+    if id.is_empty() {
+        return Ok(());
+    }
+    pointer_core::env::session_env::set_pinned(id, active);
+    Ok(())
 }
 
 #[tauri::command]
@@ -1959,6 +1987,20 @@ mod desktop_tests {
             .stderr(std::process::Stdio::null())
             .status();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 序列化必须是 camelCase：前端读 `wsUrl`，用 snake_case 会拿到 undefined，
+    /// 表现成「镜像不支持接管」——这个坑真踩过（2026-11-18 手工验收）。
+    #[test]
+    fn sandbox_desktop_serializes_camel_case() {
+        let desktop = SandboxDesktop {
+            url: "vnc://127.0.0.1:1".to_string(),
+            ws_url: Some("ws://127.0.0.1:2/websockify".to_string()),
+            password: Some("abcd2345".to_string()),
+        };
+        let json = serde_json::to_string(&desktop).expect("serialize");
+        assert!(json.contains("\"wsUrl\""), "{json}");
+        assert!(!json.contains("ws_url"), "{json}");
     }
 
     /// 没有容器时必须返回 `None`，不能顺手把沙箱建起来。

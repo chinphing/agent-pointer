@@ -150,6 +150,30 @@ docker rm -f sbx-smoke
 
 Then open a session and have the agent run `pwd`; `/workspace` means it works.
 
+**Ports used by desktop takeover**: the container tier publishes two extra host ports,
+both bound to `127.0.0.1` with a random host port — **no firewall opening needed**:
+
+| In container | Purpose |
+|---|---|
+| 5900 | x11vnc (system screen sharing, used by `open_sandbox_desktop`) |
+| 6080 | websockify + noVNC static files (the in-panel "Take over" tab) |
+
+Verifying the takeover channel:
+
+```bash
+docker run -d --name sbx-vnc -p 127.0.0.1::6080 -p 127.0.0.1::5900 \
+  -e POINTER_VNC_PASSWORD=test1234 pointer-sandbox-container:latest sleep infinity
+sleep 8
+P=$(docker port sbx-vnc 6080/tcp | sed 's/.*://')
+curl -s -o /dev/null -w 'vnc.html %{http_code}\n' "http://127.0.0.1:$P/vnc.html"   # expect 200
+docker exec sbx-vnc sh -lc 'pgrep -af websockify'                                  # expect a process
+docker rm -f sbx-vnc
+```
+
+Containers created before the image upgrade will not have 6080 (the spec fingerprint
+includes `SPEC_VERSION`, bumped for this contract change, so they are recreated
+automatically). If you kept an old container by hand, `docker rm -f` it.
+
 ### 2.5 Capacity
 
 One container per conversation, idle containers are reclaimed after 30 minutes.

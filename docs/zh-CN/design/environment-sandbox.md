@@ -1311,13 +1311,13 @@ $ pwd
 
 | 项 | 原因 |
 |---|---|
-| Container 档位的 GUI（Xvfb + WM） | 独立一块，先跑通 Light 语义 |
-| 快照能力 | 同上 |
-| 资源限制（cpu / mem / disk） | 先不加，`docker run` 处留 TODO |
-| Cube 真机验证 | 另一条线，需要 Cube 环境 |
+| ~~Container 档位的 GUI（Xvfb + WM）~~ | ✅ 已做（§6.7），2026-11-18 又补了窗口铺满 |
+| 快照能力 | 仍未做（`Capabilities::container().snapshot = false`） |
+| ~~资源限制（cpu / mem / disk）~~ | ✅ 已做：`--cpus` / `--memory` / `--storage-opt size=`（§6.4 第 5、10 条） |
+| Cube 真机验证 | 另一条线，需要 Cube 环境（§5.6） |
 | 修 e2b-local 的挂载限制 | 不碰第三方网关，dev 改用 docker 后端绕开 |
 
-### 7.5 待办：面板内接管电脑（VNC）
+### 7.5 面板内接管电脑（VNC，已落地 2026-11-18）
 
 **需求（用户口径）**：右侧面板加一个「接管电脑」选项。**点了它，人和鼠标键盘才接管**；
 不点就只是看。不做自动仲裁，不做租约，不做双屏。
@@ -1340,33 +1340,45 @@ $ pwd
 前端：@novnc/novnc（npm 包，`new RFB(canvas, wsUrl)`），不用 iframe
 ```
 
-`Environment::desktop_endpoint()` 目前返回 `(vnc://…, password)`；接管功能要再返回
-一个 WS 地址（或把 `vnc://` 换成可同时派生的结构）。
+`Environment::desktop_endpoint()` 原来只是 trait 默认实现（恒 `None`），`DockerEnv` 里的
+`vnc_credentials()` 是死代码——所以「看沙箱桌面」按钮从来没出现过。现在改成返回结构体
+`DesktopEndpoint { vnc_url, ws_url, password }`，两个读者（`get_sandbox_desktop` /
+`open_sandbox_desktop`）同步更新。
 
-**待办分解**：
+**落地结果**：
 
-| 项 | 内容 | 估时 |
+| 层 | 改动 | 验证 |
 |---|---|---|
-| 容器侧 | 镜像加 `websockify` + noVNC 静态文件；入口起服务；`run_args` 多映射 6080；endpoint 返回 WS 地址 | 0.5–1 天 |
-| 面板组件 | `@novnc/novnc` 封装：连接状态机、适应/1:1/全屏、断线重连 | 1.5–2 天 |
-| 面板集成 | 新 tab「接管电脑」+ 点击才连接；Tauri CSP 放行 `ws://127.0.0.1:*` | 0.5–1 天 |
-| 中文输入 | 工具栏输入框 → 写容器 X 剪贴板（`xclip`）→ 发 Ctrl+V | 0.5 天 |
-| 生命周期 | 接管期间挂起 30 分钟空闲回收；容器重建后重连 | 0.5 天 |
+| 镜像 | apt 装 `websockify` + `novnc`（Debian 1.3.0，静态文件在 `/usr/share/novnc`） | `curl /vnc.html` → 200，`/core/rfb.js` → 200 |
+| 入口 | `entrypoint-container.sh` 起 `websockify --web=/usr/share/novnc 6080 127.0.0.1:5900` | `pgrep -af websockify` 有进程 |
+| 端口 | `run_args` 多映射 `-p 127.0.0.1::6080`；`SPEC_VERSION` 3→4（否则旧容器按指纹复用，新端口不生效） | 单测断言两个 `-p` |
+| Rust | `published_port()` 统一解析 `docker port`；新增 `ws_endpoint()`；`DockerEnv` 实现 `desktop_endpoint()` | `container_tier_it::desktop_endpoint_exposes_websockify` |
+| 命令 | 新增 `desktop_env()`：只认**已存在**的容器，不抢建沙箱（`panel_env` 在 docker 后端故意返回宿主环境，不能复用） | `desktop_tests` 2 个用例 |
+| 前端 | `SandboxDesktopPanel.vue`（RFB + 适应/1:1 + 重连 + 断开即释放）；`WorkspacePanel` 新增 `desktop` 视图与 tab；`@novnc/novnc@1.5.0` | 组件测试 4 个用例 |
 
-合计约 **3.5–4.5 天**。
+**真实链路实测（2026-11-18）**：用容器自带的 noVNC 客户端连 `ws://127.0.0.1:<port>/websockify`：
 
-**已知风险**：
+- 状态栏「已连接到 <容器名>:99」，canvas 1280×577
+- canvas 像素与容器桌面左上角区域**100% 一致**（逐像素比对，无差异）
+- 鼠标点击后容器 `xdotool getmouselocation` 跟随（1:1 直通）
+- 逐字符按键在 xterm 里执行 `whoami` → `pointer`
 
-1. **Tauri CSP** 可能挡 `ws://127.0.0.1:*`——必须先用半天做连通性验证，跑不通就退回
-   「Rust 侧桥 + 同源 WS」。
-2. **分辨率**：桌面固定 1920×1080，缩到 500px 宽面板是 0.26 倍，文字看不清。需要
-   「适应 / 1:1 + 平移」两种模式。
-3. **中文输入**：noVNC 发 keysym，输入法在宿主侧不生效。只能走剪贴板通道。
-4. **web 模式**：浏览器端连不到宿主 `127.0.0.1`，需要服务端代理，本次不做。
+**已知风险与现状**：
 
-### 7.6 待办：容器内浏览器 profile 与启动参数
+1. **Tauri CSP**：`tauri.conf.json` 的 `csp` 是 `null`，不挡 `ws://127.0.0.1:*`，原担心不成立。
+   将来加 CSP 需要放行 `connect-src ws://127.0.0.1:*`。
+2. **分辨率**：桌面固定 1920×1080。面板默认「适应」；「1:1」时 `clipViewport` + `dragViewport`
+   可拖动平移。
+3. **中文输入**：noVNC 发 keysym，宿主输入法不生效——这条**仍未做**，需要走容器 X 剪贴板
+   （`xclip`）+ Ctrl+V。
+4. **web 模式**：浏览器端连不到宿主 `127.0.0.1`，`web.ts` 仍返回 `null`，本次不做。
+5. **空闲回收**：VNC 是浏览器↔容器直连，不刷新 `last_used`，接管期间若别处触发淘汰，
+   30 分钟后容器仍会被回收，WS 断开——面板会显示「连接已断开，点重连继续」。**未做 pin。**
+6. **`open_sandbox_desktop`**：保留为退路（面板工具栏「用系统屏幕共享打开」）。
 
-**现状（2026-11-16 实测）**：
+### 7.6 容器内浏览器 profile 与启动参数（已落地 2026-11-17/18）
+
+**改造前（2026-11-16 实测）**：
 
 | 事实 | 证据 |
 |---|---|
@@ -1376,7 +1388,7 @@ $ pwd
 | 该目录当前为空（0 B），**Chromium 完全没用到它** | `ls _anonymous-home` 无内容 |
 | `browser` 是 `/usr/local/bin/browser` 包装脚本 | `docker/browser.sh` |
 
-**两个问题**：
+**当时暴露的两个问题**（现已全部修掉，见文末「已落地」）：
 
 1. **登录态丢失**：Cookie / localStorage 在容器可写层，容器一旦重建（30 分钟空闲回收、
    规格指纹变化、手动清理）全部丢失。应用重启但容器还在时能保留。
@@ -1397,11 +1409,14 @@ $ pwd
 /usr/lib/chromium/chromium → 真二进制，不动
 ```
 
-参数清单（现在 `browser.sh` 里那些，全部下沉）：
+参数清单（`docker/browser.sh` 里那些，全部下沉）：
 
 ```sh
+# 窗口尺寸按当前屏幕算；真正的铺满靠 openbox 规则（见下）
+SIZE=$(xdpyinfo 2>/dev/null | awk '/dimensions:/{print $2; exit}')
+[ -n "$SIZE" ] || SIZE=1600x1000
+
 exec /usr/lib/chromium/chromium \
-    --no-sandbox \
     --disable-dev-shm-usage \
     --disable-gpu \
     --user-data-dir=/home/pointer/.config/chromium \
@@ -1539,6 +1554,23 @@ exec /usr/lib/chromium/chromium \
 | 路径自洽 | `HOME=/home/pointer`，`~/.config`、`~/.local`、`~/.cache` 全落在挂载上 |
 | `pip install --user` / `npm install` 持久化 | 实测落到宿主（`~/.local/lib/python3.12`） |
 | 浏览器 profile 不需要额外参数 | 默认就是 `$HOME/.config/chromium` |
+
+**本节结论：已落地（2026-11-18）**
+
+| 原来的问题 | 现在的状态 |
+|---|---|
+| 容器 root、profile 在 `/root/.config/chromium`，重建即丢 | 非 root（`pointer`，uid 1000）+ `HOME=/home/pointer` 挂载，登录态跨容器保留 |
+| 包装可被绕过（直接敲 `chromium` 丢参数） | `docker/browser.sh` 覆盖 `/usr/bin/chromium`，`xdg-open` / 桌面文件同一套参数 |
+| 窗口尺寸写死 1600×1000 | openbox 规则铺满屏幕（1920×1080），`SIZE` 从 `xdpyinfo` 取 |
+
+验证：`container_tier_it` 7 个用例（含 `browser_starts_after_container_recreation`）全过。
+
+**仍待定（本节遗留）**：
+
+| 项 | 内容 |
+|---|---|
+| home 粒度 | `/home/pointer` 按用户不按会话。同一用户两会话同时开浏览器会 profile 锁冲突；倾向"按用户共享 + 复用已有实例"，entrypoint 已清理跨容器 `SingletonLock` |
+| `user_settings.json` | 单文件、无用户维度（`storage.rs:653`），多用户部署下模型选择 / providers / 调试开关全共享。待产品定位确定后再排 |
 
 代价是**挂载会盖掉 `useradd -m` 生成的 skel 文件**（`.bashrc`/`.profile`）。
 entrypoint 里补了一段：空目录时从 `/etc/skel` 拷回来，只在缺失时写，不覆盖用户文件。

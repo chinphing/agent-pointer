@@ -155,6 +155,29 @@ docker rm -f sbx-smoke
 
 服务端侧再确认一次：开一个会话让 agent 跑 `pwd`，能返回 `/workspace` 即通。
 
+**接管电脑的端口**：容器档位会额外映射两个宿主端口，都只绑 `127.0.0.1`、由 Docker
+随机分配，**不需要在防火墙上开任何口**：
+
+| 容器内 | 用途 |
+|---|---|
+| 5900 | x11vnc（系统屏幕共享直连，`open_sandbox_desktop` 用） |
+| 6080 | websockify + noVNC 静态文件（面板内「接管电脑」走这个） |
+
+验证接管通道：
+
+```bash
+docker run -d --name sbx-vnc -p 127.0.0.1::6080 -p 127.0.0.1::5900 \
+  -e POINTER_VNC_PASSWORD=test1234 pointer-sandbox-container:latest sleep infinity
+sleep 8
+P=$(docker port sbx-vnc 6080/tcp | sed 's/.*://')
+curl -s -o /dev/null -w 'vnc.html %{http_code}\n' "http://127.0.0.1:$P/vnc.html"   # 期望 200
+docker exec sbx-vnc sh -lc 'pgrep -af websockify'                                  # 期望有进程
+docker rm -f sbx-vnc
+```
+
+镜像升级后老容器不会自动带 6080（规格指纹含 `SPEC_VERSION`，改契约已 +1，正常会重建）；
+如果手工保留过旧容器，`docker rm -f` 掉让它重建即可。
+
 ### 2.5 容量
 
 每个会话一个容器，空闲 30 分钟回收。默认 **2 核 / 4 GB**：

@@ -84,13 +84,21 @@ docker exec sbx-smoke sh -lc 'DISPLAY=:99 xdpyinfo | grep dimensions'
 # 期望：1920x1080 pixels
 docker rm -f sbx-smoke
 
-# 3. 浏览器能起（可选）
-docker run -d --name sbx-br pointer-sandbox-container:latest sleep infinity
-sleep 6
-docker exec sbx-br sh -lc 'DISPLAY=:99 nohup browser about:blank >/dev/null 2>&1 & sleep 8;
-  DISPLAY=:99 xdotool search --class chromium | head -1'
-docker rm -f sbx-br
+# 3. 面板「接管电脑」通道（6080 = websockify + noVNC）
+docker run -d --name sbx-vnc -p 127.0.0.1::6080 -p 127.0.0.1::5900 \
+  -e POINTER_VNC_PASSWORD=test1234 pointer-sandbox-container:latest sleep infinity
+sleep 8
+P=$(docker port sbx-vnc 6080/tcp | sed 's/.*://')
+curl -s -o /dev/null -w 'vnc.html %{http_code}\n' "http://127.0.0.1:$P/vnc.html"   # 期望 200
+docker exec sbx-vnc sh -lc 'pgrep -af websockify'                                  # 期望有进程
+docker rm -f sbx-vnc
 ```
+
+容器档位会映射两个宿主端口，都只绑 `127.0.0.1`、随机分配，**不用开防火墙**：
+5900 给系统屏幕共享（x11vnc），6080 给面板内接管（websockify）。
+
+老容器升级镜像后不会自带 6080——规格指纹含契约版本，改契约时会自动重建；
+手工保留过旧容器就 `docker rm -f` 掉。
 
 服务端侧：开会话让 agent 跑 `pwd`，返回 `/workspace` 即通。
 

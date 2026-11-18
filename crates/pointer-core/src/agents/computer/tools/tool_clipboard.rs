@@ -28,15 +28,9 @@ fn write_reply(text: &str) -> String {
 
 /// 容器会话的剪贴板是容器内的 X 选择区，和宿主 Mac 的粘贴板是两套东西。
 /// 走到宿主上读，读出来的是用户在 Mac 上复制的内容，写也只是写到 Mac。
-fn container_control(args: &Value) -> Option<std::sync::Arc<dyn ComputerControl>> {
+fn sandbox_control(args: &Value) -> Option<std::sync::Arc<dyn ComputerControl>> {
     let id = args.get("_conversation_id")?.as_str()?;
-    let env = crate::env::session_env::env_for_conversation(id)?;
-    if env.kind() != crate::env::EnvKind::Container {
-        return None;
-    }
-    Some(std::sync::Arc::new(
-        crate::agents::computer::control::DockerControl::new(env),
-    ))
+    crate::agents::computer::control::sandbox_desktop_for(id)
 }
 
 impl ClipboardTool {
@@ -58,7 +52,7 @@ impl ClipboardTool {
 
     fn read_clipboard(&self, args: &Value) -> Result<String> {
         let goal = args["goal"].as_str().unwrap_or("").trim();
-        let text = match container_control(args) {
+        let text = match sandbox_control(args) {
             Some(control) => control.get_clipboard_text()?.unwrap_or_default(),
             None => clipboard_read_text()?,
         };
@@ -90,7 +84,7 @@ impl ClipboardTool {
             .get("text")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'text' in tool_args for write_clipboard"))?;
-        match container_control(args) {
+        match sandbox_control(args) {
             Some(control) => control.set_clipboard_text(text)?,
             None => clipboard_write_text(text)?,
         }

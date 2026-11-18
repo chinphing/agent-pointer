@@ -164,7 +164,7 @@ fn typing_cjk_survives_in_container() {
     .expect("启动浏览器");
     std::thread::sleep(std::time::Duration::from_secs(9));
 
-    let control = pointer_core::agents::computer::control::DockerControl::new(env.clone());
+    let control = pointer_core::agents::computer::control::SandboxControl::new(env.clone());
     control
         .hotkey(&["ctrl".to_string(), "l".to_string()])
         .expect("聚焦地址栏");
@@ -407,7 +407,7 @@ fn desktop_endpoint_exposes_websockify() {
 #[test]
 #[ignore = "需要本机 docker"]
 fn docker_control_drives_the_container_desktop() {
-    use pointer_core::agents::computer::control::{ComputerControl, DockerControl};
+    use pointer_core::agents::computer::control::{ComputerControl, SandboxControl};
     use pointer_core::agents::computer::input::actions::MouseButton;
 
     if !docker_available() {
@@ -430,7 +430,7 @@ fn docker_control_drives_the_container_desktop() {
         .expect("resolve")
         .expect("env");
 
-    let control = DockerControl::new(env.clone());
+    let control = SandboxControl::new(env.clone());
 
     let (w, h) = control.screen_size().expect("screen_size");
     assert_eq!((w, h), (1920, 1080));
@@ -565,7 +565,7 @@ fn container_has_gui_apps_and_clipboard() {
 #[test]
 #[ignore = "需要本机 docker"]
 fn gui_task_navigates_and_screenshot_changes() {
-    use pointer_core::agents::computer::control::{ComputerControl, DockerControl};
+    use pointer_core::agents::computer::control::{ComputerControl, SandboxControl};
     use pointer_core::agents::computer::input::actions::MouseButton;
 
     if !docker_available() {
@@ -587,7 +587,7 @@ fn gui_task_navigates_and_screenshot_changes() {
     let env = resolve_session_env(&cfg, "it-gui-task", "tester", Some(dir.path()))
         .expect("resolve")
         .expect("env");
-    let control = DockerControl::new(env.clone());
+    let control = SandboxControl::new(env.clone());
 
     // 1. 起浏览器并等窗口出现
     env.exec(
@@ -768,7 +768,7 @@ fn capture_screen_reads_the_container_desktop() {
 #[test]
 #[ignore = "需要本机 docker"]
 fn keyboard_lands_after_focus_is_lost() {
-    use pointer_core::agents::computer::control::{ComputerControl, DockerControl};
+    use pointer_core::agents::computer::control::{ComputerControl, SandboxControl};
 
     if !docker_available() {
         eprintln!("skip: docker 不可用");
@@ -789,7 +789,7 @@ fn keyboard_lands_after_focus_is_lost() {
     let env = resolve_session_env(&cfg, "it-docker-focus", "tester", Some(dir.path()))
         .expect("resolve")
         .expect("env");
-    let control = DockerControl::new(env.clone());
+    let control = SandboxControl::new(env.clone());
 
     let sh = |script: &str| {
         env.exec(

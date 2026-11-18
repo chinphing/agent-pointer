@@ -31,6 +31,18 @@ const DEFAULT_SANDBOX_CPUS: f32 = 2.0;
 const DEFAULT_SANDBOX_MEMORY_MB: u32 = 4096;
 const DEFAULT_SANDBOX_DISK_MB: u32 = 10240;
 
+/// 布尔环境变量：`1/true/yes/on` 为真，其余（含未设置）为假。
+fn env_flag(key: &str) -> bool {
+    std::env::var(key)
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
 /// 生效的沙箱配额。
 ///
 /// `POINTER_SERVER_ENVIRONMENT_{CPUS,MEMORY_MB,DISK_MB}` 覆盖默认值；
@@ -148,7 +160,7 @@ pub fn env_for_conversation(conversation_id: &str) -> Option<Arc<dyn Environment
 /// 给面板轮询用——面板每隔几秒问一次"有没有桌面"，如果按普通查询算活跃，
 /// 30 分钟空闲回收就永远不会触发（只要面板开着容器就活着）。
 pub fn env_for_conversation_peek(conversation_id: &str) -> Option<Arc<dyn Environment>> {
-    if let Ok(mut map) = cache().lock() {
+    if let Ok(map) = cache().lock() {
         if let Some(hit) = map.get(conversation_id) {
             return Some(hit.env.clone() as Arc<dyn Environment>);
         }
@@ -591,6 +603,8 @@ fn acquire_remote(
         control_url,
         mounts,
         volume_host_path,
+        // envd 模板带桌面时打开（`POINTER_SERVER_ENVIRONMENT_DESKTOP=1`）。
+        desktop: env_flag("POINTER_SERVER_ENVIRONMENT_DESKTOP"),
         template: cfg
             .template
             .as_deref()

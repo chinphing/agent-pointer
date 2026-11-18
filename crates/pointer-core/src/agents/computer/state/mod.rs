@@ -498,8 +498,8 @@ impl ComputerState {
     pub fn capture_container_frame(
         env: std::sync::Arc<dyn crate::env::Environment>,
     ) -> anyhow::Result<ContainerFrame> {
-        use crate::agents::computer::control::{ComputerControl, DockerControl};
-        let control = DockerControl::new(env);
+        use crate::agents::computer::control::{ComputerControl, SandboxControl};
+        let control = SandboxControl::new(env);
         let (width, height) = control.screen_size()?;
         let jpeg = control.screenshot()?;
         let pointer = control.cursor_position().unwrap_or((0, 0));
@@ -520,18 +520,18 @@ impl ComputerState {
     ) -> anyhow::Result<(ScreenCaptureResult, Option<String>)> {
         let t_total = Instant::now();
 
-        // 容器档位：截图必须来自容器桌面。
-        // 宿主截图 + 容器点击 = 模型看的是你的 Mac、点的是沙箱，坐标能对上但内容对不上。
+        // 桌面由执行环境提供时（容器 / 远程沙箱），截图必须来自那块桌面。
+        // 宿主截图 + 沙箱点击 = 模型看的是你的 Mac、点的是沙箱，坐标能对上但内容对不上。
         let env = crate::env::session_env::env_for_conversation(conversation_id)
             .unwrap_or_else(crate::env::effective_env);
-        if env.kind() == crate::env::EnvKind::Container {
-            use crate::agents::computer::control::{ComputerControl, DockerControl};
+        if env.capabilities().desktop {
+            use crate::agents::computer::control::{ComputerControl, SandboxControl};
             // 容器只有一个虚拟屏：清掉宿主显示器选择。
             // 不清的话 `ensure_pipeline_capture` 会拿 "1" 和 "container:desktop" 比对，
             // 每轮都判成"选中的屏变了"，缓存永远不命中、每轮白重抓一次。
             self.set_conversation_monitor(conversation_id, None);
             let t = Instant::now();
-            let control = DockerControl::new(env);
+            let control = SandboxControl::new(env);
             let (width, height) = control.screen_size()?;
             let jpeg = control.screenshot()?;
             let pointer = control.cursor_position().unwrap_or((0, 0));

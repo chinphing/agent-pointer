@@ -1153,6 +1153,7 @@ pub struct ResolvedEnv { pub tier: Tier, pub backend: Backend }
 | `POINTER_SERVER_ENVIRONMENT_SANDBOX_URL` | url | 仅 `envd` 后端需要 |
 | `POINTER_SERVER_ENVIRONMENT_TEMPLATE` | image | `envd` / `docker` 共用 |
 | `POINTER_SERVER_ENVIRONMENT_VOLUME_HOST_PATH` | dir | 仅 e2b-local 需要 |
+| `POINTER_SERVER_ENVIRONMENT_DESKTOP` | `1` / `0` | **envd 专用**：模板自带图形桌面（Xvfb + xdotool + x11vnc）时打开。打开后该沙箱的 `capabilities.desktop` 为真，计算机工具走沙箱内的 xdotool 而不是宿主；不打开时桌面工具不下发 |
 
 后端缺省推导（保证旧配置行为不变）：
 

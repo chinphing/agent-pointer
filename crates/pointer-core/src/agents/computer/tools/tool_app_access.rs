@@ -20,11 +20,11 @@ fn require_desktop() -> Result<()> {
     ensure_desktop(env.capabilities().desktop, env.kind())
 }
 
-/// 容器会话必须落到容器里：宿主的 app_access 读的是 Mac 装了哪些应用，
-/// 在那里 launch 会打开宿主的同名程序，窗口根本不在容器桌面上。
-fn container_env() -> Option<std::sync::Arc<dyn crate::env::Environment>> {
+/// 桌面由执行环境提供时必须落到那里：宿主的 app_access 读的是 Mac 装了哪些
+/// 应用，在那里 launch 会打开宿主的同名程序，窗口根本不在沙箱桌面上。
+fn sandbox_env() -> Option<std::sync::Arc<dyn crate::env::Environment>> {
     let env = crate::env::effective_env();
-    (env.kind() == crate::env::EnvKind::Container).then_some(env)
+    env.capabilities().desktop.then_some(env)
 }
 
 fn ensure_desktop(desktop: bool, kind: crate::env::EnvKind) -> Result<()> {
@@ -51,7 +51,7 @@ impl AppAccessTool {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         let options = ListAppsOptions { include_all };
-        let apps = match container_env() {
+        let apps = match sandbox_env() {
             Some(env) => super::app_access_container::list(&env, include_all)?,
             None => {
                 require_desktop()?;
@@ -106,7 +106,7 @@ impl AppAccessTool {
         };
         options.validate().map_err(anyhow::Error::msg)?;
 
-        let result = match container_env() {
+        let result = match sandbox_env() {
             Some(env) => super::app_access_container::launch(&env, app, options)?,
             None => {
                 require_desktop()?;

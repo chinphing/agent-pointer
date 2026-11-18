@@ -20,11 +20,11 @@ use anyhow::Result;
 
 use super::input::actions::MouseButton;
 
-pub mod docker;
+pub mod sandbox;
 pub mod local;
 pub mod remote;
 
-pub use docker::DockerControl;
+pub use sandbox::SandboxControl;
 pub use local::LocalControl;
 pub use remote::{RemoteControl, RemoteTransport};
 
@@ -36,12 +36,31 @@ pub fn control_for_conversation(
     fallback: &std::sync::Arc<dyn ComputerControl>,
     conversation_id: &str,
 ) -> std::sync::Arc<dyn ComputerControl> {
-    if let Some(env) = crate::env::session_env::env_for_conversation(conversation_id) {
-        if env.kind() == crate::env::EnvKind::Container {
-            return std::sync::Arc::new(DockerControl::new(env));
-        }
+    match sandbox_desktop_for(conversation_id) {
+        Some(control) => control,
+        None => fallback.clone(),
     }
-    fallback.clone()
+}
+
+/// 会话的桌面如果由**执行环境自己**提供（容器、远程沙箱），返回驱动它的控制后端。
+///
+/// 判据是 `capabilities().desktop`，不是后端类型：envd 沙箱只要声明有桌面，
+/// 这里自动接上，不需要再改一次选路。返回 `None` 表示桌面在宿主上。
+pub fn sandbox_desktop_for(conversation_id: &str) -> Option<std::sync::Arc<dyn ComputerControl>> {
+    Some(std::sync::Arc::new(SandboxControl::new(
+        sandbox_env_for(conversation_id)?,
+    )))
+}
+
+/// 桌面由执行环境提供时，返回那个环境本身。
+///
+/// 应用清单/启动、剪贴板这些要按环境读写（`.desktop`、X 选择区），光有控制
+/// 后端不够。
+pub fn sandbox_env_for(
+    conversation_id: &str,
+) -> Option<std::sync::Arc<dyn crate::env::Environment>> {
+    let env = crate::env::session_env::env_for_conversation(conversation_id)?;
+    env.capabilities().desktop.then_some(env)
 }
 
 /// The OSWorld `computer_13` actions plus screen observation.

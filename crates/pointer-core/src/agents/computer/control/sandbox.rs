@@ -17,13 +17,16 @@ use super::super::input::actions::MouseButton;
 use super::ComputerControl;
 use crate::env::{Environment, ExecOptions};
 
-/// 通过 `docker exec` 驱动容器桌面的控制后端。
-pub struct DockerControl {
+/// 通过执行环境自己的 `exec` 驱动那块桌面的控制后端。
+///
+/// 不绑定 Docker：任何 `capabilities().desktop == true` 的环境（本地容器、
+/// 将来的远程沙箱）都走这里；环境差异只在 `exec` 的实现里。
+pub struct SandboxControl {
     env: Arc<dyn Environment>,
     display: String,
 }
 
-impl DockerControl {
+impl SandboxControl {
     pub fn new(env: Arc<dyn Environment>) -> Self {
         Self {
             env,
@@ -113,7 +116,7 @@ impl DockerControl {
     }
 }
 
-impl ComputerControl for DockerControl {
+impl ComputerControl for SandboxControl {
     fn move_to(&self, x: i32, y: i32) -> Result<()> {
         self.run_ok(&["xdotool", "mousemove", &x.to_string(), &y.to_string()])
     }
@@ -368,14 +371,14 @@ impl ComputerControl for DockerControl {
 
 #[cfg(test)]
 mod tests {
-    use super::DockerControl;
+    use super::SandboxControl;
 
     #[test]
     fn key_names_map_to_x_keysyms() {
-        assert_eq!(DockerControl::keysym("ctrl").unwrap(), "ctrl");
-        assert_eq!(DockerControl::keysym("Enter").unwrap(), "Return");
-        assert_eq!(DockerControl::keysym("esc").unwrap(), "Escape");
-        assert_eq!(DockerControl::keysym("a").unwrap(), "a");
-        assert!(DockerControl::keysym("nosuchkey").is_err());
+        assert_eq!(SandboxControl::keysym("ctrl").unwrap(), "ctrl");
+        assert_eq!(SandboxControl::keysym("Enter").unwrap(), "Return");
+        assert_eq!(SandboxControl::keysym("esc").unwrap(), "Escape");
+        assert_eq!(SandboxControl::keysym("a").unwrap(), "a");
+        assert!(SandboxControl::keysym("nosuchkey").is_err());
     }
 }

@@ -50,6 +50,7 @@ accounts  = { alice = "light" } # 按用户覆盖档位
 | `template` | `POINTER_SERVER_ENVIRONMENT_TEMPLATE` | 镜像名（docker）或模板 ID（envd） |
 | `sandbox_url` | `POINTER_SERVER_ENVIRONMENT_SANDBOX_URL` | envd 控制面地址，`envd` 后端必填 |
 | `volume_host_path` | `POINTER_SERVER_ENVIRONMENT_VOLUME_HOST_PATH` | envd 卷根目录；不填走宿主路径直挂 |
+| `desktop` | `POINTER_SERVER_ENVIRONMENT_DESKTOP` | envd 模板带图形桌面时设为 `1`；打开后桌面工具（鼠标/键盘/截图/launch_app）在沙箱内执行，否则不下发 |
 | `cpus` | `POINTER_SERVER_ENVIRONMENT_CPUS` | 每沙箱 CPU 核数 |
 | `memory_mb` | `POINTER_SERVER_ENVIRONMENT_MEMORY_MB` | 每沙箱内存 |
 | `disk_mb` | `POINTER_SERVER_ENVIRONMENT_DISK_MB` | 每沙箱磁盘 |

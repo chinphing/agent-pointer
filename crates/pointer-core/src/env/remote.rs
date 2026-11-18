@@ -67,6 +67,11 @@ pub struct RemoteSpec {
     pub home_root: PathBuf,
     /// 挂载表。由 provider 序列化进请求，业务层不感知。
     pub mounts: Vec<Mount>,
+    /// 模板里是否带图形桌面（Xvfb + xdotool + x11vnc）。
+    ///
+    /// 默认 false：envd 沙箱一般是纯 CLI。打开后 `capabilities().desktop` 为真，
+    /// 计算机工具会把它当"自己的桌面"，走沙箱内的 xdotool 而不是宿主。
+    pub desktop: bool,
     /// e2b-local 的卷宿主目录（`docker.volume_host_path`）。
     ///
     /// 有值 → 发 `volumeMounts`（每个挂载点在宿主侧建 `<dir>/<slug>` → 宿主目录的符号链接）；
@@ -77,6 +82,7 @@ pub struct RemoteSpec {
 impl Default for RemoteSpec {
     fn default() -> Self {
         Self {
+            desktop: false,
             control_url: DEFAULT_CONTROL_URL.to_string(),
             template: DEFAULT_TEMPLATE.to_string(),
             timeout_secs: 900,
@@ -103,6 +109,15 @@ pub struct RemoteEnv {
     has_rg: bool,
     /// 沙箱内是否有 coreutils `timeout`（envd 不认 timeout 字段，只能自己兜底）。
     has_timeout: bool,
+}
+
+/// 桌面能力：有桌面就跟容器档位一样（其余权限位和 light 相同）。
+fn desktop_capabilities(desktop: bool) -> Capabilities {
+    if desktop {
+        Capabilities::container()
+    } else {
+        Capabilities::light()
+    }
 }
 
 impl RemoteEnv {
@@ -156,7 +171,7 @@ impl RemoteEnv {
             skills_root: spec.skills_root.clone(),
             home_root: spec.home_root.clone(),
             path_map: PathMap::new(spec.mounts.clone()),
-            capabilities: Capabilities::light(),
+            capabilities: desktop_capabilities(spec.desktop),
             http,
             has_rg: false,
             has_timeout: false,
@@ -179,7 +194,7 @@ impl RemoteEnv {
             skills_root: spec.skills_root.clone(),
             home_root: spec.home_root.clone(),
             path_map: PathMap::new(spec.mounts.clone()),
-            capabilities: Capabilities::light(),
+            capabilities: desktop_capabilities(spec.desktop),
             http: build_client()?,
             has_rg: false,
             has_timeout: false,
@@ -1551,6 +1566,15 @@ fn unique_suffix() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn desktop_flag_drives_capabilities() {
+        // envd 沙箱默认没有桌面；模板带 X 桌面时打开开关，计算机工具才会
+        // 走沙箱内的 xdotool 而不是宿主。
+        assert!(!desktop_capabilities(false).desktop);
+        assert!(desktop_capabilities(true).desktop);
+        assert!(!RemoteSpec::default().desktop);
+    }
 
     #[test]
     fn connect_frame_roundtrip() {

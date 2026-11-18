@@ -26,8 +26,8 @@ impl UseScreenTool {
         // 容器会话只有一块屏（`container:desktop`）。这里如果去枚举宿主显示器，
         // 列出来的是 Mac 的屏，模型会照着一个不存在的编号去切，下一帧还是容器桌面。
         if let Some(id) = args.get("_conversation_id").and_then(|v| v.as_str()) {
-            if let Some(env) = crate::env::session_env::env_for_conversation(id) {
-                if env.kind() == crate::env::EnvKind::Container {
+            if crate::agents::computer::control::sandbox_env_for(id).is_some() {
+                {
                     return Ok(format!(
                         "Goal: {goal}. This conversation's desktop is a single container display \
                          (`container:desktop`) — there is nothing to switch to. Every `[CUR_SCREEN]` \

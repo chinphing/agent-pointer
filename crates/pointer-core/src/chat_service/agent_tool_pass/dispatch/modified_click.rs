@@ -91,12 +91,10 @@ pub(super) async fn dispatch_modified_click(
 
     // 容器会话：多选点击必须打在容器桌面。宿主 executor 是 Enigo，够不到容器里的
     // X 桌面——真跑起来会在 Mac 上乱点，而 `[CUR_SCREEN]` 显示的是容器，看不出错。
-    if let Some(env) = crate::env::session_env::env_for_conversation(conversation_id) {
-        if env.kind() == crate::env::EnvKind::Container {
-            use crate::agents::computer::control::{ComputerControl, DockerControl};
+    if let Some(control) = crate::agents::computer::control::sandbox_desktop_for(conversation_id) {
+        {
             use crate::agents::computer::input::actions::MouseButton;
 
-            let control = DockerControl::new(env);
             let out = match method {
                 "select" => {
                     for (x, y) in &points {

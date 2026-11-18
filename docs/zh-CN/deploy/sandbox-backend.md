@@ -86,11 +86,33 @@ accounts  = { alice = "light" } # 按用户覆盖档位
 
 **A. 本机构建**（开发 / 单机）
 
+分层镜像（推荐）：
+
+```bash
+# 一次构建 base → light，版本进 tag（默认 YYYY.MM）
+./docker/build.sh
+POINTER_SANDBOX_VERSION=2026.12 ./docker/build.sh all
+```
+
+| 镜像 | 体积 | 内容 |
+|---|---|---|
+| `pointer-sandbox-base:<ver>` | 202 MB | OS + 工具调用依赖 + 源码 git（无 perl） |
+| `pointer-sandbox-light:<ver>` | 358 MB | base + python3.12 / venv / pip + 中文字体 |
+
+light 层**不装任何第三方 pip 包**：技能依赖由各自的 venv 承担（服务器上
+`setup.sh` 建好，随技能目录挂进沙箱）。所以同一个镜像能跑任意 python 技能。
+
+单体重构：
+
+```bash
+./docker/build.sh base     # 只重建基础层
+./docker/build.sh light    # 只重建执行环境层
+```
+
+容器档位（带桌面）目前仍用旧镜像：
+
 ```bash
 docker build -f docker/sandbox-container.Dockerfile -t pointer-sandbox-container:latest .
-# 只跑财务报销流程、不要界面时的最小镜像（277 MB）：
-docker build -f docker/sandbox-finance.Dockerfile -t pointer-sandbox-finance:latest .
-docker build -f docker/sandbox-light.Dockerfile     -t pointer-sandbox-light:latest     .
 ```
 
 构建前确认宿主能连上 apt 源（Dockerfile 里默认用 `mirrors.aliyun.com`）。

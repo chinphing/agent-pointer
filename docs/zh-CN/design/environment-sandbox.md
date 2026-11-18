@@ -1392,6 +1392,34 @@ $ pwd
    30 分钟后容器仍会被回收，WS 断开——面板会显示「连接已断开，点重连继续」。**未做 pin。**
 6. **`open_sandbox_desktop`**：保留为退路（面板工具栏「用系统屏幕共享打开」）。
 
+### 7.5.2 镜像分层（2026-11-18）
+
+按「基础层 / 执行环境 / 安装软件」三层拆，第三方依赖不进镜像：
+
+| 层 | 镜像 | 体积 | 内容 |
+|---|---|---|---|
+| L1 基础 | `pointer-sandbox-base:<ver>` | 202 MB | OS + `curl` `ripgrep` `jq` `file` `less` `procps` `unzip` `tar` `gzip` `xz` `7zip` `unrar-free` `sudo` + **源码 git（`NO_PERL` + strip，23 MB）** |
+| L2 执行环境 | `pointer-sandbox-light:<ver>` | 358 MB | base + `python3`（发行版自带，`/usr/bin/python3.12`）`venv` `pip` + `fonts-noto-cjk` |
+| L3 安装软件 | 技能 venv | — | 服务器上 `setup.sh` 建好，随技能目录只读挂进沙箱 |
+
+关键取舍：
+
+| 决定 | 原因 |
+|---|---|
+| 基础镜像用 `ubuntu:24.04` | 技能 venv 的 `bin/python3` 是指向 `/usr/bin/python3.12` 的符号链接，容器里 python 必须**同路径同版本**才能挂载复用（Debian 12=3.11 / Debian 13=3.13 都对不上） |
+| git 源码编译 | 发行版 git 硬依赖 perl（实测 107 MB）；`apt remove perl` 会连 git 一起卸。源码 `NO_PERL` + `INSTALL_STRIP` 后 23 MB，缺的只有 `git svn/send-email/instaweb/cvsserver` |
+| 不装 ffmpeg | Debian/Ubuntu 的 ffmpeg 拖整套编解码库，**+418 MB**，只有媒体类技能需要 |
+| 不装 node | 按需求砍掉；`npx` 类 MCP、JS 技能在沙箱内不可用 |
+| 第三方 pip 包不进镜像 | 技能依赖归 venv，镜像保持通用 |
+
+**只读挂载带来的三处修复**（技能目录在沙箱里是 `ro`）：
+
+| 位置 | 问题 | 修法 |
+|---|---|---|
+| `cwpt-reimburse-submit/scripts/setup.sh` | 已有 venv 仍无条件 `pip install -r` | 可写才同步，只读只校验 |
+| 同上 | `git config core.hooksPath` 写 `.git/config` | `.git` 不可写则跳过 |
+| `cwpt-platform-cli/scripts/cwpt_platform_cli.py` | 日志写在技能目录，import 阶段就 `OSError` | 依次回落 技能目录 → `~/.cache` → 仅 stderr |
+
 ### 7.5.1 envd 与 docker 的能力差异（2026-11-18 对齐）
 
 `Environment` trait 两边实现是对称的（22 个方法，含 `pty_open`）。差异在网关能力：

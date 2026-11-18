@@ -152,7 +152,7 @@ fn container_tier_through_provider_config() {
     assert_eq!(out.status, 0, "stderr={}", String::from_utf8_lossy(&out.stderr));
     assert!(text.contains("DISPLAY=:99"), "应注入 DISPLAY：{text}");
     assert!(text.contains("name of display"), "X 服务应可用：{text}");
-    assert!(text.contains("v24."), "node 应为 24：{text}");
+    // node 已按需求从镜像里移除（light/desktop 都不装），只校验 python。
     assert!(text.contains("Python 3.12"), "python 应为 3.12：{text}");
 
     // 清理：不留下测试容器。

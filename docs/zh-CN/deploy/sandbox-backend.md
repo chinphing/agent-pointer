@@ -112,7 +112,7 @@ light 层**不装任何第三方 pip 包**：技能依赖由各自的 venv 承�
 容器档位（带桌面）目前仍用旧镜像：
 
 ```bash
-docker build -f docker/sandbox-container.Dockerfile -t pointer-sandbox-container:latest .
+./docker/build.sh desktop    # 产出 pointer-sandbox-desktop:<ver>，同时打 pointer-sandbox-container:latest 别名
 ```
 
 构建前确认宿主能连上 apt 源（Dockerfile 里默认用 `mirrors.aliyun.com`）。
@@ -123,7 +123,7 @@ docker build -f docker/sandbox-container.Dockerfile -t pointer-sandbox-container
 >
 > ```bash
 > cd pointer-server
-> docker build -f docker/sandbox-container.Dockerfile -t pointer-sandbox-container:latest .
+> ./docker/build.sh desktop    # 产出 pointer-sandbox-desktop:<ver>，同时打 pointer-sandbox-container:latest 别名
 > ```
 >
 > deb 包同位置：`/usr/share/pointer-server/docker/`。

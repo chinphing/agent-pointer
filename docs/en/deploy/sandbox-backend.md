@@ -86,8 +86,8 @@ accounts  = { alice = "light" } # per-user tier override
 **A. Build locally** (dev / single host)
 
 ```bash
-docker build -f docker/sandbox-container.Dockerfile -t pointer-sandbox-container:latest .
-docker build -f docker/sandbox-light.Dockerfile     -t pointer-sandbox-light:latest     .
+./docker/build.sh desktop    # 产出 pointer-sandbox-desktop:<ver>，同时打 pointer-sandbox-container:latest 别名
+./docker/build.sh            # 全部：base → light → desktop
 ```
 
 > **The server package ships the build context**: the unzipped `pointer-server-*.zip`
@@ -96,7 +96,7 @@ docker build -f docker/sandbox-light.Dockerfile     -t pointer-sandbox-light:lat
 >
 > ```bash
 > cd pointer-server
-> docker build -f docker/sandbox-container.Dockerfile -t pointer-sandbox-container:latest .
+> ./docker/build.sh desktop    # 产出 pointer-sandbox-desktop:<ver>，同时打 pointer-sandbox-container:latest 别名
 > ```
 >
 > The deb package puts it at `/usr/share/pointer-server/docker/`.

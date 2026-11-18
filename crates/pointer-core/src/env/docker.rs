@@ -132,7 +132,10 @@ impl DockerSpec {
 ///   宿主鼠标不在画布上时也能看见指针位置。
 /// v7 → v8：光标模式 arrow → most，画的是真实形状（输入框变工字形、
 ///   链接变手形），不再永远一个箭头。
-const SPEC_VERSION: u32 = 8;
+/// v8 → v9：镜像改成分层构建（base → light → desktop），容器档位镜像名仍是
+///   `pointer-sandbox-container:latest`（别名），内容变了但名字没变，必须靠
+///   版本号让旧容器重建。
+const SPEC_VERSION: u32 = 9;
 
 /// 构造 `docker run` 参数。
 ///

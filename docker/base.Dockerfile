@@ -26,7 +26,8 @@ RUN sed -i "s|ports.ubuntu.com|${APT_MIRROR}|g; \
             s|security.ubuntu.com|${APT_MIRROR}|g; \
             s|deb.debian.org|${APT_MIRROR}|g" \
         /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true; \
-    apt-get update && apt-get install -y --no-install-recommends \
+    apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update \
+ && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
         build-essential ca-certificates curl xz-utils \
         zlib1g-dev libssl-dev libcurl4-openssl-dev libexpat1-dev gettext \
  && rm -rf /var/lib/apt/lists/*
@@ -50,7 +51,8 @@ RUN sed -i "s|ports.ubuntu.com|${APT_MIRROR}|g; \
             s|security.ubuntu.com|${APT_MIRROR}|g; \
             s|deb.debian.org|${APT_MIRROR}|g" \
         /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true; \
-    apt-get update && apt-get install -y --no-install-recommends \
+    apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update \
+ && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
         ca-certificates \
         curl \
         less \

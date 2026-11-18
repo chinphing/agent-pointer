@@ -927,7 +927,7 @@ scripts/dev-sandbox.sh down
 | `RemoteEnv::spawn`：Start 后台 + 后台泵抽 stdout + `SendInput`/`CloseStdin`/`SendSignal` | `env/remote.rs` | ✅ e2b-local 实测通过 |
 | 插件 hooks 迁到 `Environment::spawn`（写 stdin → 关 stdin → 读 stdout，超时显式 kill） | `plugins/hooks.rs` | ✅ |
 | 用户插件根只读挂载 `/plugins` + hook 脚本路径宿主→沙箱映射 | `env/mounts.rs`、`env/session_env.rs`、`plugins/hooks.rs` | ✅ e2b-local 实测通过 |
-| 沙箱镜像 `docker/sandbox-light.Dockerfile`（ffmpeg / poppler / 中文字体 / rg / python / node） | `docker/`、`[environment] template` | ✅ |
+| 沙箱镜像 `docker/{base,runtime,desktop}.Dockerfile`（工具层 / python 层 / 桌面层，见 §7.5.2） | `docker/`、`[environment] template` | ✅ |
 | 路径判定环境感知（light 下 `/workspace` 不再被宿主 `is_dir()` 误判） | `tools/file/path.rs` | ✅ |
 | `[environment] volume_host_path` 配置 + 网关侧 `docker.volume_host_path` 与 `~/.e2b-local` 挂载 | `server_config.rs`、`scripts/dev-sandbox.sh` | ✅ |
 
@@ -1577,8 +1577,8 @@ cursor-agent 沙盒模板也强制 uid 1000 / `USER agent`。他们这么做的�
 
 | 文件 | 改动 |
 |---|---|
-| `docker/sandbox-container.Dockerfile` | 装 `sudo`；`pointer ALL=(ALL) NOPASSWD:ALL`；预建 `/tmp/.X11-unix` 1777；末尾 `USER pointer` |
-| `docker/sandbox-light.Dockerfile` | 同上（无桌面，但同样非 root） |
+| `docker/base.Dockerfile` | 装 `sudo`；`pointer ALL=(ALL) NOPASSWD:ALL`；末尾 `USER pointer` |
+| `docker/desktop.Dockerfile` | 预建 `/tmp/.X11-unix` 1777；`USER pointer` + `ENTRYPOINT entrypoint-container.sh` |
 | `docker/base.Dockerfile` + `docker/runtime.Dockerfile` | 分层镜像（202 MB / 358 MB）：基础层与 python 执行环境层；技能依赖走各自 venv，不进镜像（见 §7.5.2） |
 | `docker/browser.sh` | 去掉 `--no-sandbox`；改成直接调 `/usr/lib/chromium/chromium`，参数写在脚本里 |
 | `docker/entrypoint-container.sh` | 启动时清理浏览器 profile 的 `SingletonLock`（见下） |

@@ -37,7 +37,11 @@ set -- $_kept
 set +f
 IFS=$_OLDIFS
 
-exec /usr/lib/chromium/chromium \
+# 浏览器实体：Ubuntu 24.04 的 chromium 是 snap 占位包（deb 里没有二进制），
+# 所以用 Google Chrome（同引擎）。`--class=chromium` 让窗口在 X 里的 class
+# 仍是 chromium——桌面规则、xdotool 查找、外部脚本都按这个名字来的。
+exec "${BROWSER_BIN:-/opt/google/chrome/chrome}" \
+    --class=chromium \
     --disable-dev-shm-usage \
     --disable-gpu \
     --user-data-dir=/home/pointer/.config/chromium \

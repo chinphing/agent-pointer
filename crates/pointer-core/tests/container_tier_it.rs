@@ -71,6 +71,99 @@ fn container_tier_through_provider_config() {
         .status();
 }
 
+/// 容器档位的桌面入口必须给出 websockify 的 WS 地址，且端口真的在监听。
+#[test]
+#[ignore = "需要本机 docker"]
+fn desktop_endpoint_exposes_websockify() {
+    if !docker_available() {
+        eprintln!("skip: docker 不可用");
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ProviderConfig {
+        tier: Some(Tier::Container),
+        backend: Some(Backend::Docker),
+        sandbox_url: None,
+        volume_host_path: None,
+        template: Some("pointer-sandbox-container:latest".to_string()),
+        admins: Vec::new(),
+        accounts: Default::default(),
+        platform: true,
+    };
+    let env = resolve_session_env(&cfg, "it-desktop-endpoint", "tester", Some(dir.path()))
+        .expect("resolve")
+        .expect("docker 后端应返回环境");
+
+    let endpoint = env.desktop_endpoint().expect("容器档位应有桌面入口");
+    assert!(
+        endpoint.vnc_url.starts_with("vnc://127.0.0.1:"),
+        "{}",
+        endpoint.vnc_url
+    );
+    let ws = endpoint.ws_url.expect("应给出 ws 地址");
+    assert!(
+        ws.starts_with("ws://127.0.0.1:") && ws.ends_with("/websockify"),
+        "WS 地址形态不对：{ws}"
+    );
+
+    // 等 websockify 起来：docker run -d 立刻返回，入口脚本还要 1s 左右才拉起它。
+    // 不能靠 TCP 探活——docker-proxy 在端口映射声明后就接连接，里面没进程也连得上。
+    let port: u16 = ws
+        .trim_start_matches("ws://127.0.0.1:")
+        .split('/')
+        .next()
+        .and_then(|p| p.parse().ok())
+        .expect("解析 WS 端口");
+    let mut running = false;
+    for _ in 0..40 {
+        let ps = env
+            .exec(
+                &[
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "pgrep -af websockify | head -1".into(),
+                ],
+                ExecOptions::new(),
+            )
+            .expect("pgrep websockify");
+        if String::from_utf8_lossy(&ps.stdout).contains("websockify") {
+            running = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    assert!(running, "容器里没起来 websockify");
+
+    // 真的发一次 HTTP 请求：noVNC 的静态文件必须能取到。
+    use std::io::{Read, Write};
+    let mut body = String::new();
+    for _ in 0..10 {
+        if let Ok(mut stream) = std::net::TcpStream::connect(("127.0.0.1", port)) {
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(3)));
+            let _ = stream.write_all(b"GET /vnc.html HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n");
+            let mut buf = [0u8; 256];
+            if let Ok(n) = stream.read(&mut buf) {
+                body = String::from_utf8_lossy(&buf[..n]).to_string();
+                if body.contains("200") {
+                    break;
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    assert!(
+        body.contains("200"),
+        "6080 端口没返回 noVNC 页面：{body}"
+    );
+
+    let _ = std::process::Command::new("docker")
+        .args(["rm", "-f", "pointer-sbx-it-desktop-endpoint"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
 #[test]
 #[ignore = "需要本机 docker"]
 fn docker_control_drives_the_container_desktop() {

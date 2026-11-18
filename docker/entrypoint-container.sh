@@ -82,6 +82,17 @@ if command -v x11vnc >/dev/null 2>&1; then
         -bg -o /tmp/x11vnc.log >/dev/null 2>&1 || true
 fi
 
+# 面板「接管电脑」通道：把 5900 的 RFB 包成 WebSocket，前端用 noVNC 直连。
+# 只监听容器内 6080，宿主映射成 127.0.0.1 的随机端口（见 DockerEnv::run_args）。
+# 失败不阻塞容器启动：接管面板连不上时会给出明确提示，其余功能不受影响。
+#
+# 从 /tmp 起而不是继承工作目录：websockify 启动时会 getcwd()，工作区被删掉
+# （会话切换、临时目录清理）时会直接 FileNotFoundError 崩掉。
+if command -v websockify >/dev/null 2>&1; then
+    (cd /tmp && exec websockify --web=/usr/share/novnc 6080 127.0.0.1:5900) \
+        >/tmp/websockify.log 2>&1 &
+fi
+
 "$@" &
 APP_PID=$!
 

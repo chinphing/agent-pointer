@@ -58,6 +58,8 @@ RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors
         x11-utils \
         x11-xserver-utils \
         x11vnc \
+        websockify \
+        novnc \
         xdotool \
         openbox \
         imagemagick \

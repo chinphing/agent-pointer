@@ -344,6 +344,19 @@ pub trait ChildHandle: Send {
     fn kill(&mut self) -> Result<()>;
 }
 
+/// 桌面接管入口。容器档位才有。
+#[derive(Debug, Clone)]
+pub struct DesktopEndpoint {
+    /// `vnc://127.0.0.1:<port>`，交给系统屏幕共享（`open_sandbox_desktop`）。
+    pub vnc_url: String,
+    /// `ws://127.0.0.1:<port>/websockify`，面板内 noVNC 直连。
+    ///
+    /// 老镜像（无 websockify）或端口没映射出来时是 `None`——面板据此退回「用系统
+    /// 屏幕共享打开」，而不是给用户一个连不上的画面。
+    pub ws_url: Option<String>,
+    pub password: Option<String>,
+}
+
 pub trait Environment: Send + Sync {
     fn kind(&self) -> EnvKind;
 
@@ -357,10 +370,10 @@ pub trait Environment: Send + Sync {
     /// 宿主 ↔ 环境路径翻译表。local 为恒等。
     fn path_map(&self) -> &PathMap;
 
-    /// 桌面观察入口（容器档位才有）：`(vnc://127.0.0.1:<port>, 密码)`。
+    /// 桌面接管入口（容器档位才有）。
     ///
     /// 宿主和 light 档位没有可观察的桌面，返回 `None`。
-    fn desktop_endpoint(&self) -> Option<(String, Option<String>)> {
+    fn desktop_endpoint(&self) -> Option<DesktopEndpoint> {
         None
     }
 

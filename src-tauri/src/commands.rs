@@ -173,32 +173,52 @@ pub async fn worktree_inspect(
 /// 沙箱桌面入口（容器档位）。没有桌面时返回 `None`。
 #[derive(serde::Serialize)]
 pub struct SandboxDesktop {
+    /// `vnc://127.0.0.1:<port>`，交给系统屏幕共享。
     pub url: String,
+    /// `ws://127.0.0.1:<port>/websockify`，面板内 noVNC 直连。
+    pub ws_url: Option<String>,
     pub password: Option<String>,
+}
+
+/// 桌面类命令专用的环境解析：只认**已经存在**的容器，不抢建沙箱。
+///
+/// 不能复用 `panel_env`——它在 docker 后端故意返回宿主环境（面板读文件要的是同一份
+/// bind mount），而桌面必须拿到容器本身。
+fn desktop_env(
+    conversation_id: Option<&str>,
+) -> Option<std::sync::Arc<dyn pointer_core::env::Environment>> {
+    let id = conversation_id.map(str::trim).filter(|id| !id.is_empty())?;
+    pointer_core::env::session_env::env_for_conversation(id)
 }
 
 #[tauri::command]
 pub async fn get_sandbox_desktop(
     conversation_id: Option<String>,
-    workspace_root: String,
+    _workspace_root: String,
 ) -> Result<Option<SandboxDesktop>, String> {
-    let env = panel_env(conversation_id.as_deref(), &workspace_root);
-    Ok(env.desktop_endpoint().map(|(url, password)| SandboxDesktop {
-        url,
-        password,
+    let Some(env) = desktop_env(conversation_id.as_deref()) else {
+        return Ok(None);
+    };
+    Ok(env.desktop_endpoint().map(|ep| SandboxDesktop {
+        url: ep.vnc_url,
+        ws_url: ep.ws_url,
+        password: ep.password,
     }))
 }
 
-/// 打开沙箱桌面（macOS 用「屏幕共享」）。
+/// 打开沙箱桌面（macOS 用「屏幕共享」）。面板内接管连不上时的退路。
 #[tauri::command]
 pub async fn open_sandbox_desktop(
     conversation_id: Option<String>,
-    workspace_root: String,
+    _workspace_root: String,
 ) -> Result<Option<String>, String> {
-    let env = panel_env(conversation_id.as_deref(), &workspace_root);
-    let Some((url, _)) = env.desktop_endpoint() else {
+    let Some(env) = desktop_env(conversation_id.as_deref()) else {
         return Ok(None);
     };
+    let Some(endpoint) = env.desktop_endpoint() else {
+        return Ok(None);
+    };
+    let url = endpoint.vnc_url;
     let opener = if cfg!(target_os = "macos") {
         "open"
     } else if cfg!(target_os = "windows") {
@@ -1865,4 +1885,88 @@ pub fn clear_webhook_source_token(
 pub fn clear_webhook_legacy_token(state: State<'_, Arc<AppState>>) -> Result<bool, String> {
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.session_index);
     store.clear_legacy_token().map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod desktop_tests {
+    use super::*;
+    use pointer_core::env::provider::{Backend, ProviderConfig, Tier};
+
+    fn docker_available() -> bool {
+        std::process::Command::new("docker")
+            .arg("info")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+
+    /// 容器在跑时，`get_sandbox_desktop` 必须返回带 ws 地址的端点。
+    ///
+    /// 回归的是「命令层拿错环境」这个 bug：原来走 `panel_env`，docker 后端下它
+    /// 故意返回宿主 LocalEnv（面板读文件要同一份 bind mount），桌面命令因此
+    /// 永远拿到 `None`，面板按钮根本不出现。
+    #[tokio::test]
+    #[ignore = "需要本机 docker"]
+    async fn get_sandbox_desktop_returns_ws_when_container_running() {
+        if !docker_available() {
+            eprintln!("skip: docker 不可用");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("pointer-cmd-desktop-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let cfg = ProviderConfig {
+            tier: Some(Tier::Container),
+            backend: Some(Backend::Docker),
+            sandbox_url: None,
+            volume_host_path: None,
+            template: Some("pointer-sandbox-container:latest".to_string()),
+            admins: Vec::new(),
+            accounts: Default::default(),
+            platform: true,
+        };
+        pointer_core::env::session_env::resolve_session_env(
+            &cfg,
+            "it-cmd-desktop",
+            "tester",
+            Some(&dir),
+        )
+        .expect("resolve")
+        .expect("docker 后端应返回环境");
+
+        let got = get_sandbox_desktop(Some("it-cmd-desktop".to_string()), String::new())
+            .await
+            .expect("命令不应报错")
+            .expect("容器在跑时必须返回桌面端点");
+
+        assert!(
+            got.url.starts_with("vnc://127.0.0.1:"),
+            "vnc 地址形态不对：{}",
+            got.url
+        );
+        let ws = got.ws_url.expect("应带 ws 地址");
+        assert!(
+            ws.starts_with("ws://127.0.0.1:") && ws.ends_with("/websockify"),
+            "ws 地址形态不对：{ws}"
+        );
+        assert!(got.password.is_some(), "容器档位应带 VNC 密码");
+
+        let _ = std::process::Command::new("docker")
+            .args(["rm", "-f", "pointer-sbx-it-cmd-desktop"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 没有容器时必须返回 `None`，不能顺手把沙箱建起来。
+    #[tokio::test]
+    async fn get_sandbox_desktop_is_none_without_container() {
+        let got = get_sandbox_desktop(Some("no-such-conversation".to_string()), String::new())
+            .await
+            .expect("命令不应报错");
+        assert!(got.is_none(), "没有容器时不能返回端点");
+    }
 }

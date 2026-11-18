@@ -121,7 +121,9 @@ impl DockerSpec {
 /// 容器规格版本。**改动容器契约就 +1**：入口脚本、注入的环境变量、挂载语义。
 ///
 /// v1 → v2：容器档位增加 VNC 端口映射 + `POINTER_VNC_PASSWORD` 注入。
-const SPEC_VERSION: u32 = 3;
+/// v2 → v3：home 挂载点 `/home/u` → `/home/pointer`；非 root 运行。
+/// v3 → v4：增加 6080 端口映射（websockify / noVNC，面板内接管电脑）。
+const SPEC_VERSION: u32 = 4;
 
 /// 构造 `docker run` 参数。
 ///
@@ -150,9 +152,13 @@ fn run_args(
         args.push(bind);
     }
     if spec.tier == super::provider::Tier::Container {
-        // 桌面 VNC 映射到宿主随机端口（只绑 127.0.0.1）。
+        // 桌面观察 / 接管通道，都只绑 127.0.0.1 的宿主随机端口：
+        //   5900 → x11vnc（系统屏幕共享直连）
+        //   6080 → websockify（面板内 noVNC 走 WebSocket）
         args.push("-p".into());
         args.push("127.0.0.1::5900".into());
+        args.push("-p".into());
+        args.push("127.0.0.1::6080".into());
         if let Some(password) = vnc_password.filter(|p| !p.is_empty()) {
             args.push("-e".into());
             args.push(format!("POINTER_VNC_PASSWORD={password}"));
@@ -283,31 +289,42 @@ impl DockerEnv {
         Ok(env)
     }
 
-    /// 桌面观察凭据：`(vnc://127.0.0.1:<port>, 密码)`。容器档位才有。
-    pub fn vnc_credentials(&self) -> Option<(String, Option<String>)> {
-        let url = self.vnc_endpoint()?;
-        Some((url, self.vnc_password.clone()))
-    }
-
-    /// 桌面观察地址（容器档位才有）。返回 `vnc://127.0.0.1:<port>`。
-    pub fn vnc_endpoint(&self) -> Option<String> {
+    /// 查容器某个端口映射到宿主的哪个端口（只绑 127.0.0.1）。
+    fn published_port(&self, container_port: &str) -> Option<u16> {
         if self.tier != super::provider::Tier::Container {
             return None;
         }
         let out = Command::new("docker")
-            .args(["port", &self.container, "5900/tcp"])
+            .args(["port", &self.container, container_port])
             .output()
             .ok()?;
         if !out.status.success() {
             return None;
         }
         let text = String::from_utf8_lossy(&out.stdout);
-        let port = text.trim().rsplit(':').next()?.trim().to_string();
-        if port.is_empty() {
-            None
-        } else {
-            Some(format!("vnc://127.0.0.1:{port}"))
-        }
+        text.lines()
+            .next()?
+            .trim()
+            .rsplit(':')
+            .next()?
+            .trim()
+            .parse()
+            .ok()
+    }
+
+    /// 桌面观察地址（容器档位才有）。返回 `vnc://127.0.0.1:<port>`。
+    pub fn vnc_endpoint(&self) -> Option<String> {
+        let port = self.published_port("5900/tcp")?;
+        Some(format!("vnc://127.0.0.1:{port}"))
+    }
+
+    /// 面板接管地址：websockify 的 WebSocket 端点。容器档位才有。
+    ///
+    /// 老镜像没装 websockify 时 6080 没在监听，`docker port` 仍会返回映射（端口是
+    /// 起容器时声明的），所以这里查得到不代表连得上——真正连不上由前端报错兜底。
+    pub fn ws_endpoint(&self) -> Option<String> {
+        let port = self.published_port("6080/tcp")?;
+        Some(format!("ws://127.0.0.1:{port}/websockify"))
     }
 
     /// 等 Xvfb 起来（最多 10s）。起不来就报错，别让调用方拿到半成品环境。
@@ -493,6 +510,16 @@ impl Environment for DockerEnv {
     }
     fn path_map(&self) -> &PathMap {
         &self.map
+    }
+
+    fn desktop_endpoint(&self) -> Option<super::DesktopEndpoint> {
+        // 只有容器档位有桌面。vnc 端口拿不到说明容器不在/没起，直接当作没有桌面。
+        let vnc_url = self.vnc_endpoint()?;
+        Some(super::DesktopEndpoint {
+            vnc_url,
+            ws_url: self.ws_endpoint(),
+            password: self.vnc_password.clone(),
+        })
     }
 
     fn exec(&self, argv: &[String], opts: ExecOptions) -> Result<ExecOutput> {
@@ -822,6 +849,24 @@ mod tests {
         spec.tier = super::super::provider::Tier::Container;
         let args = run_args(&spec, "h", Some("abcd2345"), true).join(" ");
         assert!(args.contains("-p 127.0.0.1::5900"), "{args}");
+        assert!(args.contains("-p 127.0.0.1::6080"), "{args}");
         assert!(args.contains("-e POINTER_VNC_PASSWORD=abcd2345"), "{args}");
+    }
+
+    /// 端口没映射出来时不能返回半截地址：vnc 拿不到就整体当作没有桌面。
+    #[test]
+    fn light_tier_has_no_desktop_endpoint() {
+        let light = DockerEnv {
+            container: "c".into(),
+            workdir: "/workspace".into(),
+            tier: super::super::provider::Tier::Light,
+            vnc_password: Some("abcd2345".into()),
+            map: PathMap::new(Vec::new()),
+            host_fs: super::super::local::LocalEnv::new("/tmp"),
+        };
+        assert!(
+            light.desktop_endpoint().is_none(),
+            "light 档没有桌面，不能因为带了密码就返回端点"
+        );
     }
 }

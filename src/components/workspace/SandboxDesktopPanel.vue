@@ -60,11 +60,13 @@
       <button
         v-if="connected && viewOnly"
         type="button"
-        class="absolute inset-0 grid cursor-pointer place-items-center bg-transparent"
+        class="pointer-events-none absolute inset-0 grid place-items-center bg-transparent"
         @click="takeControl"
       >
+        <!-- 只有胶囊本身可点：整块铺满会让宿主指针停在按钮上（cursor-pointer），
+             把画面里的远程光标盖住。 -->
         <span
-          class="rounded-full bg-black/50 px-4 py-2 text-xs text-white/90 ring-1 ring-white/20 backdrop-blur-sm transition hover:bg-black/70"
+          class="pointer-events-auto cursor-pointer rounded-full bg-black/50 px-4 py-2 text-xs text-white/90 ring-1 ring-white/20 backdrop-blur-sm transition hover:bg-black/70"
         >
           {{ t('workspace.desktopTakeControl') }}
         </span>
@@ -303,8 +305,8 @@ watch(
   color: rgba(255, 255, 255, 0.8);
 }
 /*
- * 光标由服务端画进画面（x11vnc -nocursorshape -cursor arrow），本地光标要藏起来，
- * 否则鼠标停在画布上时会看到两个箭头。
+ * 光标由服务端画进画面（x11vnc -nocursorshape -cursor most），本地光标藏起来，
+ * 否则鼠标停在画布上时会有两个指针，宿主那个还会盖住远程的。
  */
 .desktop-screen :deep(canvas) {
   cursor: none;

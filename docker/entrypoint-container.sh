@@ -95,10 +95,12 @@ if command -v x11vnc >/dev/null 2>&1; then
     # shellcheck disable=SC2086
     # 光标必须画进画面：默认 x11vnc 走 XFIXES，只把光标"形状"发给客户端，
     # 由客户端在本地指针位置渲染——宿主鼠标不在画布上时，就完全看不到 agent
-    # 的指针在哪。加 -nocursorshape 关掉形状通道，让 -cursor arrow 把箭头
-    # 写进帧缓冲（实测日志里不再出现 RichCursor）。
+    # 的指针在哪。加 -nocursorshape 关掉形状通道，把光标写进帧缓冲。
+    #
+    # 模式用 `most` 而不是 `arrow`：`arrow` 永远画同一个箭头，鼠标移到输入框
+    # 也不会变成工字形、移到链接上也不变手形，用户没法从光标判断能点什么。
     x11vnc -display ":${DISPLAY_NUM}" -forever $AUTH_ARGS -shared -rfbport 5900 \
-        -nocursorshape -cursor arrow -bg -o /tmp/x11vnc.log >/dev/null 2>&1 || true
+        -nocursorshape -cursor most -bg -o /tmp/x11vnc.log >/dev/null 2>&1 || true
 fi
 
 # 面板「接管电脑」通道：把 5900 的 RFB 包成 WebSocket，前端用 noVNC 直连。

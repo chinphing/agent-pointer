@@ -128,9 +128,11 @@ impl DockerSpec {
 ///   否则升级镜像后用户看到的还是旧桌面。
 /// v5 → v6：浏览器包装脚本剥掉调用方塞的 `--no-sandbox`（非 root 下不需要，
 ///   带上只会弹"不受支持的参数"警告并拆掉沙箱）。
-/// v6 → v7：x11vnc 改成把光标画进画面（-nocursorshape -cursor arrow），
+/// v6 → v7：x11vnc 改成把光标画进画面（-nocursorshape），
 ///   宿主鼠标不在画布上时也能看见指针位置。
-const SPEC_VERSION: u32 = 7;
+/// v7 → v8：光标模式 arrow → most，画的是真实形状（输入框变工字形、
+///   链接变手形），不再永远一个箭头。
+const SPEC_VERSION: u32 = 8;
 
 /// 构造 `docker run` 参数。
 ///

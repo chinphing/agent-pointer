@@ -22,6 +22,20 @@ impl UseScreenTool {
     pub fn execute(&self, args: &Value) -> Result<String> {
         require_non_empty_str(args, "goal")?;
         let goal = args["goal"].as_str().unwrap_or("").trim();
+
+        // 容器会话只有一块屏（`container:desktop`）。这里如果去枚举宿主显示器，
+        // 列出来的是 Mac 的屏，模型会照着一个不存在的编号去切，下一帧还是容器桌面。
+        if let Some(id) = args.get("_conversation_id").and_then(|v| v.as_str()) {
+            if let Some(env) = crate::env::session_env::env_for_conversation(id) {
+                if env.kind() == crate::env::EnvKind::Container {
+                    return Ok(format!(
+                        "Goal: {goal}. This conversation's desktop is a single container display \
+                         (`container:desktop`) — there is nothing to switch to. Every `[CUR_SCREEN]` \
+                         frame is that display. No capture change was made."
+                    ));
+                }
+            }
+        }
         // 编号来自 `launch_app` 的返回（`display 3 …`），这里不再重新找应用：
         // 重新解析一遍既慢，又可能因为窗口刚移动而和刚才那块屏不一致。
         //
@@ -115,6 +129,41 @@ fn invalid_display_reply(goal: &str, got: &Value, known: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// 容器会话只有一块屏：不能去枚举宿主显示器，否则模型照着不存在的编号切屏。
+    #[test]
+    #[ignore = "需要本机 docker"]
+    fn container_session_refuses_to_switch_host_monitors() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = crate::env::provider::ProviderConfig {
+            tier: Some(crate::env::provider::Tier::Container),
+            backend: Some(crate::env::provider::Backend::Docker),
+            sandbox_url: None,
+            volume_host_path: None,
+            template: Some("pointer-sandbox-container:latest".to_string()),
+            admins: Vec::new(),
+            accounts: Default::default(),
+            platform: true,
+        };
+        let _ = crate::env::session_env::resolve_session_env(
+            &cfg,
+            "it-usescreen",
+            "tester",
+            Some(dir.path()),
+        )
+        .expect("resolve")
+        .expect("容器环境");
+
+        let reply = UseScreenTool::new()
+            .execute(&json!({"goal": "切到主屏", "_conversation_id": "it-usescreen"}))
+            .expect("use_screen");
+        assert!(reply.contains("container:desktop"), "回复里没有容器屏：{reply}");
+        assert!(!reply.contains("Displays:"), "不该列宿主显示器：{reply}");
+
+        let _ = std::process::Command::new("docker")
+            .args(["rm", "-f", "pointer-sbx-it-usescreen"])
+            .output();
+    }
 
     /// `goal` 是必填：没有目标就没法判断该切哪块屏。
     #[test]

@@ -89,6 +89,40 @@ pub(super) async fn dispatch_modified_click(
         );
     }
 
+    // 容器会话：多选点击必须打在容器桌面。宿主 executor 是 Enigo，够不到容器里的
+    // X 桌面——真跑起来会在 Mac 上乱点，而 `[CUR_SCREEN]` 显示的是容器，看不出错。
+    if let Some(env) = crate::env::session_env::env_for_conversation(conversation_id) {
+        if env.kind() == crate::env::EnvKind::Container {
+            use crate::agents::computer::control::{ComputerControl, DockerControl};
+            use crate::agents::computer::input::actions::MouseButton;
+
+            let control = DockerControl::new(env);
+            let out = match method {
+                "select" => {
+                    for (x, y) in &points {
+                        control.key_down("ctrl")?;
+                        control.click(MouseButton::Left, Some(*x as i32), Some(*y as i32), 1)?;
+                        control.key_up("ctrl")?;
+                    }
+                    format!(
+                        "Cmd/Ctrl+click {} position(s). Verify on next screenshot.",
+                        points.len()
+                    )
+                }
+                _ => {
+                    let first = points.first().copied().unwrap_or((0.0, 0.0));
+                    let last = points.last().copied().unwrap_or(first);
+                    control.click(MouseButton::Left, Some(first.0 as i32), Some(first.1 as i32), 1)?;
+                    control.key_down("shift")?;
+                    control.click(MouseButton::Left, Some(last.0 as i32), Some(last.1 as i32), 1)?;
+                    control.key_up("shift")?;
+                    "Shift+click range by coordinates. Verify result on next screenshot.".to_string()
+                }
+            };
+            return Ok((success_payload(tool_id, &points, &boxes, &out), true, None));
+        }
+    }
+
     let vision = state
         .computer_state
         .vision_state_for_conversation(conversation_id);

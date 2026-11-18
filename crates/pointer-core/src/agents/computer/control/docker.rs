@@ -189,6 +189,20 @@ impl ComputerControl for DockerControl {
 
     fn typing(&self, text: &str) -> Result<()> {
         self.ensure_focus()?;
+        // `xdotool type` 只能敲当前 keymap 里存在的键：中文、emoji 会被**静默丢弃**
+        // （实测 "腾讯财报0700" 只进去 "0700"，退出码还是 0）。非 ASCII 改走
+        // 剪贴板粘贴——和 input_at 用的是同一套原语。
+        if !text.is_ascii() {
+            let previous = self.get_clipboard_text().ok().flatten();
+            self.set_clipboard_text(text)?;
+            self.run_ok(&["xdotool", "key", "--clearmodifiers", "ctrl+v"])?;
+            if let Some(prev) = previous {
+                // 给目标应用一点时间读完剪贴板，否则粘出来的是恢复后的旧内容。
+                std::thread::sleep(std::time::Duration::from_millis(80));
+                let _ = self.set_clipboard_text(&prev);
+            }
+            return Ok(());
+        }
         // `--clearmodifiers` 防止上一个动作残留的修饰键污染输入。
         self.run_ok(&[
             "xdotool",

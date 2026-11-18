@@ -20,6 +20,13 @@ fn require_desktop() -> Result<()> {
     ensure_desktop(env.capabilities().desktop, env.kind())
 }
 
+/// 容器会话必须落到容器里：宿主的 app_access 读的是 Mac 装了哪些应用，
+/// 在那里 launch 会打开宿主的同名程序，窗口根本不在容器桌面上。
+fn container_env() -> Option<std::sync::Arc<dyn crate::env::Environment>> {
+    let env = crate::env::effective_env();
+    (env.kind() == crate::env::EnvKind::Container).then_some(env)
+}
+
 fn ensure_desktop(desktop: bool, kind: crate::env::EnvKind) -> Result<()> {
     if desktop {
         return Ok(());
@@ -37,7 +44,6 @@ impl AppAccessTool {
     }
 
     pub fn execute_list_apps(&self, args: &Value) -> Result<String> {
-        require_desktop()?;
         require_non_empty_str(args, "goal")?;
 
         let include_all = args
@@ -45,7 +51,13 @@ impl AppAccessTool {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         let options = ListAppsOptions { include_all };
-        let apps = app_access::list_apps(options)?;
+        let apps = match container_env() {
+            Some(env) => super::app_access_container::list(&env, include_all)?,
+            None => {
+                require_desktop()?;
+                app_access::list_apps(options)?
+            }
+        };
         info!("list_apps: count={} include_all={include_all}", apps.len());
 
         let goal = args["goal"].as_str().unwrap_or("").trim();
@@ -73,7 +85,6 @@ impl AppAccessTool {
     }
 
     pub fn execute_launch_app(&self, args: &Value) -> Result<String> {
-        require_desktop()?;
         require_non_empty_str(args, "goal")?;
         let app = args
             .get("app")
@@ -95,7 +106,13 @@ impl AppAccessTool {
         };
         options.validate().map_err(anyhow::Error::msg)?;
 
-        let result = app_access::launch_app(app, options)?;
+        let result = match container_env() {
+            Some(env) => super::app_access_container::launch(&env, app, options)?,
+            None => {
+                require_desktop()?;
+                app_access::launch_app(app, options)?
+            }
+        };
         info!(
             "launch_app: app={app} action={} success={}",
             result.action, result.success

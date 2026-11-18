@@ -4,6 +4,7 @@
 
 pub mod args_util;
 pub mod method_route;
+mod app_access_container;
 pub(crate) mod tool_app_access;
 mod tool_clipboard;
 mod tool_hotkey;

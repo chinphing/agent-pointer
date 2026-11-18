@@ -67,6 +67,27 @@ clicking would: a shell command that prints a value beats navigating to it. But
 `terminal` shares the serial lane with the clicks, so a long command blocks
 everything queued behind it.
 
+## Where your clicks land
+
+Every desktop tool acts on the **execution environment of this conversation**, not
+on the user's Mac. When the conversation runs in a container, that is the
+container's own X desktop (`:99`) — the same screen `[CUR_SCREEN]` shows, tagged
+`display container:desktop`. `mouse_*`, `input_*`, `key_*`, `scroll`, `drag`,
+`launch_app` and `list_apps` all land there, and so does anything you start with
+`browser` or `launch_app`.
+
+- **Never shell out to `xdotool` / `import` / `screencapture` to "reach the
+  container".** The desktop tools already do. A shell round-trip is blind — you
+  cannot see the result until you capture again, which is exactly how extra
+  windows and restore bubbles get opened.
+- **`launch_app` / `list_apps` are scoped to the container.** They read the
+  container's `.desktop` entries and start programs inside it; the host's apps are
+  not reachable, and asking for one answers with the container's own list.
+- **Type with `input_at` / `input_focused`.** They paste through the container's
+  clipboard, so CJK and emoji survive. `keyboard_type` types character by
+  character and silently drops non-ASCII there — use it only for plain ASCII
+  shortcuts, never for a search term in Chinese.
+
 ## Hard rules
 
 **The screen comes to you — never capture it yourself.** `[CUR_SCREEN]` is injected

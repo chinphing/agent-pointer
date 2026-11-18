@@ -1,6 +1,7 @@
 //! System clipboard plain text (PyProjects `clipboard.py` alignment).
 
 use super::args_util::require_non_empty_str;
+use crate::agents::computer::control::ComputerControl;
 use anyhow::{anyhow, Result};
 use log::{info, warn};
 use serde_json::Value;
@@ -25,6 +26,19 @@ fn write_reply(text: &str) -> String {
     )
 }
 
+/// 容器会话的剪贴板是容器内的 X 选择区，和宿主 Mac 的粘贴板是两套东西。
+/// 走到宿主上读，读出来的是用户在 Mac 上复制的内容，写也只是写到 Mac。
+fn container_control(args: &Value) -> Option<std::sync::Arc<dyn ComputerControl>> {
+    let id = args.get("_conversation_id")?.as_str()?;
+    let env = crate::env::session_env::env_for_conversation(id)?;
+    if env.kind() != crate::env::EnvKind::Container {
+        return None;
+    }
+    Some(std::sync::Arc::new(
+        crate::agents::computer::control::DockerControl::new(env),
+    ))
+}
+
 impl ClipboardTool {
     pub fn new() -> Self {
         Self
@@ -44,7 +58,10 @@ impl ClipboardTool {
 
     fn read_clipboard(&self, args: &Value) -> Result<String> {
         let goal = args["goal"].as_str().unwrap_or("").trim();
-        let text = clipboard_read_text()?;
+        let text = match container_control(args) {
+            Some(control) => control.get_clipboard_text()?.unwrap_or_default(),
+            None => clipboard_read_text()?,
+        };
         let (body, truncated) = truncate_clipboard_reply(&text);
         let note = if truncated {
             " (truncated in reply)"
@@ -73,7 +90,10 @@ impl ClipboardTool {
             .get("text")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing 'text' in tool_args for write_clipboard"))?;
-        clipboard_write_text(text)?;
+        match container_control(args) {
+            Some(control) => control.set_clipboard_text(text)?,
+            None => clipboard_write_text(text)?,
+        }
         info!(
             "clipboard write_clipboard: goal_len={} chars_written={}",
             goal.chars().count(),
@@ -172,6 +192,49 @@ impl Default for ClipboardTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    /// 容器会话的剪贴板读写必须落在容器里，不能读写 Mac 的粘贴板。
+    #[test]
+    #[ignore = "需要本机 docker"]
+    fn container_clipboard_round_trips_inside_the_container() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = crate::env::provider::ProviderConfig {
+            tier: Some(crate::env::provider::Tier::Container),
+            backend: Some(crate::env::provider::Backend::Docker),
+            sandbox_url: None,
+            volume_host_path: None,
+            template: Some("pointer-sandbox-container:latest".to_string()),
+            admins: Vec::new(),
+            accounts: Default::default(),
+            platform: true,
+        };
+        let _ = crate::env::session_env::resolve_session_env(
+            &cfg,
+            "it-clip-tool",
+            "tester",
+            Some(dir.path()),
+        )
+        .expect("resolve")
+        .expect("容器环境");
+
+        let tool = ClipboardTool::new();
+        let text = "容器剪贴板 0700";
+        tool.execute(
+            "write",
+            &json!({"goal": "写入", "text": text, "_conversation_id": "it-clip-tool"}),
+        )
+        .expect("写容器剪贴板");
+
+        let reply = tool
+            .execute("read", &json!({"goal": "读回", "_conversation_id": "it-clip-tool"}))
+            .expect("读容器剪贴板");
+        assert!(reply.contains(text), "读回来的不是刚写的内容：{reply}");
+
+        let _ = std::process::Command::new("docker")
+            .args(["rm", "-f", "pointer-sbx-it-clip-tool"])
+            .output();
+    }
 
     #[test]
     fn extract_read_body_non_empty() {

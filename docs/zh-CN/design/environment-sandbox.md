@@ -1025,11 +1025,26 @@ scripts/dev-sandbox.sh down
 
 ---
 
-### 7.3 待办：沙箱内交互式终端（console PTY）
+### 7.3 沙箱内交互式终端（console PTY，已落地 2026-11-18）
 
-**现状**：UI 终端面板（`console_session`）在 light/container 档位下显式拒绝
-（「当前会话运行在沙箱里，暂不支持交互式终端面板」），避免用户以为在沙箱里敲命令、
-实际打在宿主上。agent 的 `terminal` 工具不受影响（走 `env.exec`，非交互）。
+**落地情况**：三个后端都实现了 `pty_open`（宿主 `portable_pty`、envd 走
+`StartRequest.pty`、docker 包一层 `docker exec -it`），`console_session` 按会话解析
+环境后直接调用，**早期那个"沙箱档位不支持交互式终端"的门禁已经不存在**（文档之前
+一直没更新）。agent 的 `terminal` 工具走 `env.exec`，与这条路径无关。
+
+**容器档位实测**（`container_tier_it::console_pty_opens_inside_the_container`）：
+
+| 断言 | 结果 |
+|---|---|
+| 是真 tty（不是管道） | `stty size` → `30 100` ✅ |
+| 命令落在沙箱内 | `pwd` → `/workspace` ✅ |
+| resize 传到容器内 tty | `40 120` ✅ |
+
+**修掉的缺陷**：容器 PTY 的 resize 之前**只改宿主 pty**，`docker exec` 内层 tty 不变
+——容器里 `stty size` 永远是打开时的值，vim/htop 会按错的行列渲染。原因是不依赖
+SIGWINCH 传递。现在启动时用 `sh -c 'tty > /tmp/.pointer-pty-<token>; exec "$@"'`
+记下内层 pts 路径，resize 时额外 `docker exec <c> stty -F <pts> rows/cols`。
+envd 走 `Process.Update` 本来就没有这个问题。
 
 **协议实测（2026-11-15，e2b-local，按官方 e2b SDK 2.10.2 的 `process.proto`）**：
 

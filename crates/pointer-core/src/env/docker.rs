@@ -215,6 +215,57 @@ impl std::fmt::Debug for DockerEnv {
     }
 }
 
+/// 容器内的交互终端：写/读直通宿主 pty，**resize 额外改内层 tty**。
+struct DockerPty {
+    inner: Box<dyn PtyHandle>,
+    container: String,
+    /// 内层 pts 路径（启动时由包装脚本写入，如 `/tmp/.pointer-pty-<token>`）。
+    pts_file: String,
+}
+
+impl PtyHandle for DockerPty {
+    fn id(&self) -> u32 {
+        self.inner.id()
+    }
+
+    fn write(&self, data: &[u8]) -> Result<()> {
+        self.inner.write(data)
+    }
+
+    fn resize(&self, cols: u16, rows: u16) -> Result<()> {
+        // 宿主侧先改：让 docker 客户端自己的 tty 视图是对的。
+        self.inner.resize(cols, rows)?;
+        let script = format!(
+            "stty -F {} rows {rows} cols {cols} 2>/dev/null || true",
+            self.pts_file
+        );
+        let out = Command::new("docker")
+            .args(["exec", &self.container, "/bin/sh", "-c", &script])
+            .output()
+            .context("docker exec stty（调整终端大小）")?;
+        if !out.status.success() {
+            log::debug!(
+                "pty resize 未生效 container={} status={:?}",
+                self.container,
+                out.status.code()
+            );
+        }
+        Ok(())
+    }
+
+    fn take_reader(&self) -> Result<Box<dyn std::io::Read + Send>> {
+        self.inner.take_reader()
+    }
+
+    fn try_wait(&self) -> Result<Option<i32>> {
+        self.inner.try_wait()
+    }
+
+    fn kill(&self) -> Result<()> {
+        self.inner.kill()
+    }
+}
+
 impl DockerEnv {
     /// 测试用：造一个不连真实容器的实例（只验证缓存 / 淘汰逻辑）。
     #[cfg(test)]
@@ -668,6 +719,20 @@ impl Environment for DockerEnv {
 
     fn pty_open(&self, mut spec: PtySpec) -> Result<Box<dyn PtyHandle>> {
         // tty 由 `docker exec -t` 分配；宿主侧再包一层 pty（和 OpenClaw 一致）。
+        //
+        // resize 要单独处理：改宿主 pty 尺寸只会给 `docker` 客户端发 SIGWINCH，
+        // 内层 tty 不变（实测 resize 后容器里 `stty size` 仍是旧值，vim/htop
+        // 会按错的行列渲染）。所以启动时把内层 pts 路径记下来，resize 时按路径
+        // 直接 `stty -F <pts>` 改——不依赖 SIGWINCH 传递。
+        let token = format!(
+            "{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        let pts_file = format!("/tmp/.pointer-pty-{token}");
         let mut argv = vec![
             "docker".to_string(),
             "exec".to_string(),
@@ -682,11 +747,24 @@ impl Environment for DockerEnv {
             argv.push(format!("{k}={v}"));
         }
         argv.push(self.container.clone());
-        argv.extend(spec.argv.clone());
+        // 用 sh 包一层：先记下自己的 pts，再 exec 真正的 shell（argv 原样传递）。
+        let mut wrapped = vec![
+            "/bin/sh".to_string(),
+            "-c".to_string(),
+            format!("tty > {pts_file} 2>/dev/null; exec \"$@\""),
+            "pointer-pty".to_string(),
+        ];
+        wrapped.extend(spec.argv.clone());
+        argv.extend(wrapped);
         spec.argv = argv;
         spec.cwd = None;
         spec.env.clear();
-        super::local::LocalEnv::new(self.workdir.clone()).pty_open(spec)
+        let inner = super::local::LocalEnv::new(self.workdir.clone()).pty_open(spec)?;
+        Ok(Box::new(DockerPty {
+            inner,
+            container: self.container.clone(),
+            pts_file,
+        }))
     }
 
     fn read_file(&self, path: &Path) -> Result<Vec<u8>> {

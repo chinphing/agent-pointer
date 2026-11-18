@@ -19,6 +19,98 @@ fn docker_available() -> bool {
         .unwrap_or(false)
 }
 
+/// §7.3 曾经记着"沙箱档位不支持交互式终端"——那个门禁早就拆了（两个后端都实现了
+/// `pty_open`），但一直没测过。这条在真容器里验证：终端开在沙箱内、是真 tty、
+/// resize 生效。
+#[test]
+#[ignore = "需要本机 docker"]
+fn console_pty_opens_inside_the_container() {
+    if !docker_available() {
+        eprintln!("skip: docker 不可用");
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ProviderConfig {
+        tier: Some(Tier::Container),
+        backend: Some(Backend::Docker),
+        sandbox_url: None,
+        volume_host_path: None,
+        template: Some("pointer-sandbox-container:latest".to_string()),
+        admins: Vec::new(),
+        accounts: Default::default(),
+        platform: true,
+    };
+    let env = resolve_session_env(&cfg, "it-console-pty", "tester", Some(dir.path()))
+        .expect("resolve")
+        .expect("docker 后端应返回环境");
+
+    let mut spec = pointer_core::env::PtySpec::new(vec!["/bin/bash".to_string(), "-l".to_string()]);
+    spec.cols = 100;
+    spec.rows = 30;
+    spec.cwd = Some(env.workspace_root().to_path_buf());
+    let pty = env.pty_open(spec).expect("容器里应能开交互式终端");
+
+    // 读线程 + 超时：阻塞读会把测试挂死（第一次写这条用例就踩了，跑了 10 分钟）。
+    let mut reader = pty.take_reader().expect("reader");
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(count) => {
+                    if tx
+                        .send(String::from_utf8_lossy(&buf[..count]).into_owned())
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let mut drain = |needle: &str, secs: u64| -> String {
+        let mut sink = String::new();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+        while std::time::Instant::now() < deadline {
+            match rx.recv_timeout(std::time::Duration::from_millis(500)) {
+                Ok(chunk) => {
+                    sink.push_str(&chunk);
+                    if sink.contains(needle) {
+                        break;
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        sink
+    };
+
+    pty.write(b"stty size; echo PWD=$(pwd); echo PTY_OK_$((6*7))\n")
+        .expect("write");
+    let sink = drain("PTY_OK_42", 30);
+
+    assert!(sink.contains("PTY_OK_42"), "没看到命令输出：{sink}");
+    // 真 tty：`stty size` 能读出行列（管道会报 Inappropriate ioctl）。
+    assert!(sink.contains("30 100"), "stty size 应为 `30 100`：{sink}");
+    // 落在沙箱工作区，不是宿主目录。
+    assert!(
+        sink.contains(&format!("PWD={}", env.workspace_root().display())),
+        "pwd 应为沙箱工作区：{sink}"
+    );
+
+    // resize 必须传到**容器内**的 tty：只改宿主 pty 的话，容器里 `stty size`
+    // 仍是旧值，vim/htop 会按错的行列渲染。
+    pty.resize(120, 40).expect("resize");
+    pty.write(b"stty size\n").expect("write after resize");
+    let after = drain("40 120", 15);
+    assert!(after.contains("40 120"), "resize 未传到容器内 tty：{after}");
+}
+
 #[test]
 #[ignore = "需要本机 docker"]
 fn container_tier_through_provider_config() {

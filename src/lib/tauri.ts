@@ -146,6 +146,13 @@ export async function getSandboxDesktop(
   })
 }
 
+export async function setSandboxDesktopActive(
+  conversationId: string,
+  active: boolean
+): Promise<void> {
+  await invoke('set_sandbox_desktop_active', { conversationId, active })
+}
+
 export async function openSandboxDesktop(
   workspaceRoot: string,
   conversationId?: string

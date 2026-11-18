@@ -1,12 +1,35 @@
 <template>
-  <div class="flex min-h-0 flex-1 flex-col">
-    <div class="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
+  <!--
+    全屏铺满整个窗口，但顶部 40px（2.5rem）让给窗口自己的控件，否则「已接管」那行
+    会被红绿灯和窗口标题压住。让位方式分平台：
+    · macOS：红绿灯是原生浮层，盖不住，所以用 pt-10 把内容整体下移（底色仍铺满）；
+    · 其它平台：窗口按钮是应用自绘的，直接 top-10 保住标题栏，不然全屏时关不掉窗口。
+  -->
+  <div :class="fullscreen ? fullscreenClass : 'flex min-h-0 flex-1 flex-col'">
+    <div
+      class="desktop-toolbar flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5"
+      :class="{ 'is-fullscreen': fullscreen }"
+    >
       <Monitor class="h-3.5 w-3.5 shrink-0" :class="statusClass" />
-      <span class="min-w-0 flex-1 truncate text-xs text-muted" :title="statusText">{{ statusText }}</span>
+      <span
+        class="desktop-toolbar-status min-w-0 flex-1 truncate text-xs text-muted"
+        :title="statusText"
+        >{{ statusText }}</span
+      >
       <button
         v-if="connected"
         type="button"
-        class="workspace-tab shrink-0"
+        class="desktop-toolbar-btn shrink-0 rounded px-2 py-0.5 text-xs transition"
+        :class="viewOnly ? 'text-muted hover:text-foreground' : 'text-accent'"
+        :title="viewOnly ? t('workspace.desktopTakeControl') : t('workspace.desktopReleaseControl')"
+        @click="toggleControl"
+      >
+        {{ viewOnly ? t('workspace.desktopTakeShort') : t('workspace.desktopReleaseShort') }}
+      </button>
+      <button
+        v-if="connected"
+        type="button"
+        class="workspace-tab desktop-toolbar-btn shrink-0"
         :title="fit ? t('workspace.desktopScaleActual') : t('workspace.desktopScaleFit')"
         @click="toggleScale"
       >
@@ -15,25 +38,56 @@
       <button
         v-if="connected || state === 'error'"
         type="button"
-        class="workspace-tab shrink-0"
+        class="workspace-tab desktop-toolbar-btn shrink-0"
         :title="t('workspace.desktopReconnect')"
-        @click="reconnect"
+        @click="emit('reconnect')"
       >
         <RotateCw class="h-3.5 w-3.5" />
       </button>
       <button
         type="button"
-        class="workspace-tab shrink-0"
-        :title="t('workspace.desktopOpenExternal')"
-        @click="$emit('open-external')"
+        class="workspace-tab desktop-toolbar-btn shrink-0"
+        :title="fullscreen ? t('workspace.desktopExitFullscreen') : t('workspace.desktopFullscreen')"
+        @click="toggleFullscreen"
       >
-        <ExternalLink class="h-3.5 w-3.5" />
+        <Minimize2 v-if="fullscreen" class="h-3.5 w-3.5" />
+        <Maximize2 v-else class="h-3.5 w-3.5" />
       </button>
     </div>
 
     <div class="relative min-h-0 flex-1 overflow-hidden bg-black">
       <!-- noVNC 会往这个容器里插 canvas -->
-      <div ref="screenRef" class="absolute inset-0" />
+      <!--
+        滚动必须由**外层**承担：noVNC 会把传入的那个 div 直接设成帧缓冲尺寸
+        （display.js 里 `_target.style.width = 1920px`），把 overflow 加在它自己
+        身上等于容器和内容一样大，没有可滚动的溢出，触控板/滚轮都滚不动。
+      -->
+      <div
+        ref="scrollerRef"
+        class="absolute inset-0"
+        :class="fit ? 'overflow-hidden' : 'overflow-auto'"
+      >
+        <!-- 必须保留 absolute inset-0：适应模式下 noVNC 用这个盒子的尺寸算缩放，
+             拿不到尺寸画面就散了。1:1 时由 syncCanvasBox() 覆盖成帧缓冲大小。 -->
+        <div ref="screenRef" class="desktop-screen absolute inset-0" />
+      </div>
+
+      <!--
+        默认只读：容器桌面常常正在被 agent 操作，直接接管会互相抢鼠标。
+        点这个半透明按钮才把键盘鼠标交给虚拟机；Esc 或工具栏「释放」退回只读。
+      -->
+      <button
+        v-if="connected && viewOnly"
+        type="button"
+        class="absolute inset-0 grid cursor-pointer place-items-center bg-transparent"
+        @click="takeControl"
+      >
+        <span
+          class="rounded-full bg-black/50 px-4 py-2 text-xs text-white/90 ring-1 ring-white/20 backdrop-blur-sm transition hover:bg-black/70"
+        >
+          {{ t('workspace.desktopTakeControl') }}
+        </span>
+      </button>
 
       <div
         v-if="!connected"
@@ -48,10 +102,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ExternalLink, Monitor, RotateCw } from 'lucide-vue-next'
+import { Maximize2, Minimize2, Monitor, RotateCw } from 'lucide-vue-next'
 import RFB from '@novnc/novnc/lib/rfb.js'
+import { setSandboxDesktopActive } from '../../lib/api'
+import { detectDesktopOs } from '../../lib/desktopOs'
 
 /**
  * 面板内接管容器桌面。
@@ -62,16 +118,28 @@ import RFB from '@novnc/novnc/lib/rfb.js'
 const props = defineProps<{
   wsUrl: string | null
   password: string | null
+  conversationId: string
 }>()
 
-defineEmits<{ 'open-external': [] }>()
+const emit = defineEmits<{ reconnect: [] }>()
 
 const { t } = useI18n()
 
 const screenRef = ref<HTMLElement | null>(null)
+const scrollerRef = ref<HTMLElement | null>(null)
 const state = ref<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting')
 const errorText = ref('')
 const fit = ref(true)
+const fullscreen = ref(false)
+/** 默认只读：避免和 agent 抢鼠标键盘，点一下才接管。 */
+const viewOnly = ref(true)
+
+const isMac = detectDesktopOs() === 'macos'
+const fullscreenClass = computed(() =>
+  isMac
+    ? 'fixed inset-0 z-50 flex flex-col bg-black pt-10'
+    : 'fixed inset-x-0 bottom-0 top-10 z-50 flex flex-col bg-black'
+)
 
 let rfb: RFB | null = null
 
@@ -98,10 +166,37 @@ const statusClass = computed(() => {
 
 function applyScale() {
   if (!rfb) return
-  // 适应：整屏缩进面板；1:1：原尺寸 + 滚动平移（1920×1080 缩到 400px 宽只有 0.2 倍，字看不清）
+  // 适应：把 1920×1080 整屏缩进面板，一屏看全，但字小。
+  // 1:1：原尺寸，靠容器的原生滚动看其余部分（触控板/滚轮都能滚）。
+  //
+  // 不用 noVNC 的 clipViewport + dragViewport 拖动平移：那条路要求按住鼠标拖，
+  // 而默认是只读态，拖不动——用户会卡在左上角出不来。
   rfb.scaleViewport = fit.value
-  rfb.clipViewport = !fit.value
-  rfb.dragViewport = !fit.value
+  rfb.clipViewport = false
+  rfb.dragViewport = false
+  syncCanvasBox()
+}
+
+/**
+ * 1:1 时把承载盒撑成帧缓冲尺寸。
+ *
+ * noVNC 只把 **canvas** 设成 1920×1080，父盒仍是面板大小；父盒不跟着变大，
+ * 外层滚动容器就没有可滚动的溢出，触控板和滚轮都滚不动（实测 scrollWidth
+ * 一直等于 clientWidth）。
+ */
+function syncCanvasBox() {
+  const el = screenRef.value
+  const canvas = el?.querySelector('canvas') as HTMLCanvasElement | null
+  if (!el) return
+  if (fit.value) {
+    el.style.width = ''
+    el.style.height = ''
+    scrollerRef.value?.scrollTo({ left: 0, top: 0 })
+    return
+  }
+  if (!canvas) return
+  el.style.width = `${canvas.width}px`
+  el.style.height = `${canvas.height}px`
 }
 
 function teardown() {
@@ -122,8 +217,9 @@ function onConnect() {
   state.value = 'connected'
   errorText.value = ''
   applyScale()
-  // 连上就聚焦，键盘直接可用（不用先点一下）
-  rfb?.focus()
+  void nextTick(() => syncCanvasBox())
+  // 只读态不抢焦点；接管态才把键盘交给画布
+  if (!viewOnly.value) rfb?.focus()
 }
 
 function onDisconnect() {
@@ -155,8 +251,8 @@ function connect() {
     instance.addEventListener('connect', onConnect)
     instance.addEventListener('disconnect', onDisconnect)
     instance.addEventListener('securityfailure', onSecurityFailure)
-    instance.focusOnClick = true
-    instance.viewOnly = false
+    instance.focusOnClick = !viewOnly.value
+    instance.viewOnly = viewOnly.value
     rfb = instance
     applyScale()
   } catch (err) {
@@ -166,8 +262,26 @@ function connect() {
   }
 }
 
-function reconnect() {
-  connect()
+function applyInput() {
+  if (!rfb) return
+  rfb.viewOnly = viewOnly.value
+  rfb.focusOnClick = !viewOnly.value
+  if (viewOnly.value) rfb.blur()
+  else rfb.focus()
+}
+
+function takeControl() {
+  viewOnly.value = false
+  applyInput()
+}
+
+function releaseControl() {
+  viewOnly.value = true
+  applyInput()
+}
+
+function toggleControl() {
+  viewOnly.value ? takeControl() : releaseControl()
 }
 
 function toggleScale() {
@@ -175,6 +289,77 @@ function toggleScale() {
   applyScale()
 }
 
-onMounted(connect)
-onBeforeUnmount(teardown)
+/**
+ * 全屏：把面板铺满应用窗口（CSS 覆盖层，不用 Fullscreen API——WKWebView 对
+ * `requestFullscreen` 支持不稳）。Esc 退出。
+ */
+function toggleFullscreen() {
+  fullscreen.value = !fullscreen.value
+  // 尺寸变了 noVNC 要重新适配
+  void nextTick(() => applyScale())
+}
+
+function onKeydown(event: KeyboardEvent) {
+  // Esc 优先退出接管（把键盘还给 agent），再退全屏。
+  if (event.key === 'Escape' && !viewOnly.value) {
+    event.stopPropagation()
+    releaseControl()
+    return
+  }
+  if (event.key === 'Escape' && fullscreen.value) {
+    event.stopPropagation()
+    fullscreen.value = false
+    void nextTick(() => applyScale())
+  }
+}
+
+onMounted(() => {
+  connect()
+  // 接管期间别让空闲回收把容器干掉（面板轮询本身不刷新活跃时间）
+  void setSandboxDesktopActive(props.conversationId, true)
+  window.addEventListener('keydown', onKeydown)
+})
+
+onBeforeUnmount(() => {
+  teardown()
+  window.removeEventListener('keydown', onKeydown)
+  void setSandboxDesktopActive(props.conversationId, false)
+})
+
+// 容器重启后宿主端口会重新分配（`-p 127.0.0.1::6080` 是随机端口），
+// 父组件重新解析端点后 URL 会变——这里跟着重连，别抱着死端口重试。
+watch(
+  () => props.wsUrl,
+  (next, prev) => {
+    if (next && next !== prev) connect()
+  }
+)
 </script>
+
+<style scoped>
+/*
+ * 全屏时面板底衬是纯黑，而 text-muted / border-border 是按主题表面配的灰，
+ * 叠在黑底上几乎看不出边界——工具栏"像消失了"。全屏单独给一套高对比配色。
+ */
+.desktop-toolbar.is-fullscreen {
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.75);
+}
+.desktop-toolbar.is-fullscreen .desktop-toolbar-status {
+  color: rgba(255, 255, 255, 0.75);
+}
+.desktop-toolbar.is-fullscreen .desktop-toolbar-btn {
+  color: rgba(255, 255, 255, 0.8);
+}
+/*
+ * 光标由服务端画进画面（x11vnc -nocursorshape -cursor arrow），本地光标要藏起来，
+ * 否则鼠标停在画布上时会看到两个箭头。
+ */
+.desktop-screen :deep(canvas) {
+  cursor: none;
+}
+.desktop-toolbar.is-fullscreen .desktop-toolbar-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+</style>

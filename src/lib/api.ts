@@ -233,6 +233,7 @@ export interface RuntimeApi {
     workspaceRoot: string,
     conversationId?: string
   ): Promise<{ url: string; wsUrl: string | null; password: string | null } | null>
+  setSandboxDesktopActive(conversationId: string, active: boolean): Promise<void>
   openSandboxDesktop(workspaceRoot: string, conversationId?: string): Promise<string | null>
   getWorkspaceGitStatus(workspaceRoot: string, conversationId?: string): Promise<GitStatusResponse>
   getWorkspaceGitDiff(
@@ -410,6 +411,7 @@ export const searchWorkspaceEntries = api.searchWorkspaceEntries
 export const readWorkspaceFile = api.readWorkspaceFile
 export const deleteWorkspacePath = api.deleteWorkspacePath
 export const getSandboxDesktop = api.getSandboxDesktop
+export const setSandboxDesktopActive = api.setSandboxDesktopActive
 export const openSandboxDesktop = api.openSandboxDesktop
 export const getWorkspaceGitStatus = api.getWorkspaceGitStatus
 export const getWorkspaceGitDiff = api.getWorkspaceGitDiff

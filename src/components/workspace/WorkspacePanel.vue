@@ -27,7 +27,6 @@ import {
   listWorkspaceDirectory,
   getSandboxDesktop,
   openPathWithDefaultApp,
-  openSandboxDesktop,
   readWorkspaceFile,
   revealInFinder,
   searchWorkspaceEntries
@@ -234,6 +233,33 @@ let changesRefreshQueued = false
 const sandboxDesktop = ref<{ url: string; wsUrl: string | null; password: string | null } | null>(null)
 const desktopAvailable = computed(() => !!sandboxDesktop.value)
 
+/**
+ * 容器是 agent 第一次跑工具时才创建的，面板打开那一刻通常还没有——所以不能只在
+ * onMounted 查一次（那样得关掉面板再打开才看得到按钮）。这里挂一个自适应轮询：
+ * 没有端点时 3 秒一次（等容器起来），有了以后 30 秒一次（发现容器被回收就撤掉按钮）。
+ */
+let desktopPollTimer: ReturnType<typeof setTimeout> | null = null
+const DESKTOP_POLL_MISSING_MS = 3000
+const DESKTOP_POLL_PRESENT_MS = 30_000
+
+function stopDesktopPoll() {
+  if (desktopPollTimer != null) {
+    clearTimeout(desktopPollTimer)
+    desktopPollTimer = null
+  }
+}
+
+/** 递归 setTimeout：每次按当前状态重新定间隔（没有 3 秒，有了 30 秒）。 */
+function scheduleDesktopPoll() {
+  stopDesktopPoll()
+  const delay = sandboxDesktop.value ? DESKTOP_POLL_PRESENT_MS : DESKTOP_POLL_MISSING_MS
+  desktopPollTimer = setTimeout(async () => {
+    desktopPollTimer = null
+    await refreshDesktopAvailability()
+    scheduleDesktopPoll()
+  }, delay)
+}
+
 async function refreshDesktopAvailability() {
   try {
     sandboxDesktop.value = await getSandboxDesktop(props.workspaceRoot, props.conversationId)
@@ -243,17 +269,6 @@ async function refreshDesktopAvailability() {
   // 之前停在接管页但容器没了：退回终端，别留一个连不上的黑屏。
   if (!sandboxDesktop.value && activeView.value === 'desktop') {
     activeView.value = 'terminal'
-  }
-}
-
-async function openDesktop() {
-  try {
-    const url = await openSandboxDesktop(props.workspaceRoot, props.conversationId)
-    if (!url) {
-      sandboxDesktop.value = null
-    }
-  } catch (err) {
-    console.warn('open sandbox desktop failed', err)
   }
 }
 
@@ -1189,6 +1204,7 @@ function watchFullscreenState() {
 
 onMounted(() => {
   void refreshDesktopAvailability()
+  scheduleDesktopPoll()
   watchFullscreenState()
   window.addEventListener('resize', handleViewportResize)
   window.addEventListener('scroll', closeContextMenu, true)
@@ -1201,6 +1217,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  stopDesktopPoll()
   finishResize()
   unlistenFullscreenResize?.()
   window.removeEventListener('resize', handleViewportResize)
@@ -1327,7 +1344,8 @@ onBeforeUnmount(() => {
         v-if="activeView === 'desktop' && sandboxDesktop"
         :ws-url="sandboxDesktop.wsUrl"
         :password="sandboxDesktop.password"
-        @open-external="openDesktop"
+        :conversation-id="conversationId ?? ''"
+        @reconnect="refreshDesktopAvailability"
       />
       <div v-if="refreshWarning" class="workspace-refresh-warning" role="status">{{ refreshWarning }}</div>
       <!-- Keep Files / Changes mounted so scroll + expanded folders survive tab switches. -->

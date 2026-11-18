@@ -266,6 +266,13 @@ export async function getSandboxDesktop(
   return null
 }
 
+export async function setSandboxDesktopActive(
+  _conversationId: string,
+  _active: boolean
+): Promise<void> {
+  // 浏览器端没有容器沙箱，pin 无意义。
+}
+
 export async function openSandboxDesktop(
   _workspaceRoot: string,
   _conversationId?: string

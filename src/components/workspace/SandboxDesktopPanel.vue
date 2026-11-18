@@ -50,16 +50,8 @@
 
     <div class="relative min-h-0 flex-1 overflow-hidden bg-black">
       <!-- noVNC 会往这个容器里插 canvas -->
-      <!--
-        滚动必须由**外层**承担：noVNC 会把传入的那个 div 直接设成帧缓冲尺寸
-        （display.js 里 `_target.style.width = 1920px`），把 overflow 加在它自己
-        身上等于容器和内容一样大，没有可滚动的溢出，触控板/滚轮都滚不动。
-      -->
-      <div ref="scrollerRef" class="absolute inset-0 overflow-auto">
-        <!-- 必须保留 absolute inset-0：noVNC 用这个盒子算视口，拿不到尺寸画面就散；
-             随后 syncCanvasBox() 把它撑成帧缓冲大小，外层才能滚动。 -->
-        <div ref="screenRef" class="desktop-screen absolute inset-0" />
-      </div>
+      <!-- noVNC 用这个盒子的尺寸算缩放：整块桌面缩进面板，一屏看全。 -->
+      <div ref="screenRef" class="desktop-screen absolute inset-0 overflow-hidden" />
 
       <!--
         默认只读：容器桌面常常正在被 agent 操作，直接接管会互相抢鼠标。
@@ -115,7 +107,6 @@ const emit = defineEmits<{ reconnect: [] }>()
 const { t } = useI18n()
 
 const screenRef = ref<HTMLElement | null>(null)
-const scrollerRef = ref<HTMLElement | null>(null)
 const state = ref<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting')
 const errorText = ref('')
 const fullscreen = ref(false)
@@ -158,31 +149,11 @@ const statusClass = computed(() => {
 
 function applyScale() {
   if (!rfb) return
-  // 恒为原尺寸（1:1），靠容器的原生滚动看其余部分——触控板、滚轮、滚动条都能用。
-  //
-  // 不提供"适应窗口"：1920×1080 缩进 400px 的面板只有 0.2×，字看不清，
-  // 切过去基本只能看布局，属于多余的一个状态。
-  // 也不用 noVNC 的 clipViewport + dragViewport 拖动平移：那条路要求按住鼠标拖，
-  // 而默认是只读态，拖不动——用户会卡在左上角出不来。
-  rfb.scaleViewport = false
+  // 整块桌面缩进面板，一屏看全（默认也是唯一视图，不再提供 1:1 切换）。
+  // clipViewport/dragViewport 关掉：那条路要求按住鼠标拖动平移，只读态下拖不动。
+  rfb.scaleViewport = true
   rfb.clipViewport = false
   rfb.dragViewport = false
-  syncCanvasBox()
-}
-
-/**
- * 1:1 时把承载盒撑成帧缓冲尺寸。
- *
- * noVNC 只把 **canvas** 设成 1920×1080，父盒仍是面板大小；父盒不跟着变大，
- * 外层滚动容器就没有可滚动的溢出，触控板和滚轮都滚不动（实测 scrollWidth
- * 一直等于 clientWidth）。
- */
-function syncCanvasBox() {
-  const el = screenRef.value
-  const canvas = el?.querySelector('canvas') as HTMLCanvasElement | null
-  if (!el || !canvas) return
-  el.style.width = `${canvas.width}px`
-  el.style.height = `${canvas.height}px`
 }
 
 function teardown() {
@@ -203,7 +174,6 @@ function onConnect() {
   state.value = 'connected'
   errorText.value = ''
   applyScale()
-  void nextTick(() => syncCanvasBox())
   // 只读态不抢焦点；接管态才把键盘交给画布
   if (!viewOnly.value) rfb?.focus()
 }

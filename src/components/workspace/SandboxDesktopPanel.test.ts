@@ -110,8 +110,8 @@ describe('SandboxDesktopPanel', () => {
 
     // 只读态不抢焦点
     expect(rfbInstances[0].focused).toBe(0)
-    // 恒为原尺寸，靠容器滚动
-    expect(rfbInstances[0].scaleViewport).toBe(false)
+    // 整块桌面缩进面板：一屏看全
+    expect(rfbInstances[0].scaleViewport).toBe(true)
   })
 
   it('没有 ws 地址时不建连接，并说明镜像不支持', async () => {
@@ -143,12 +143,10 @@ describe('SandboxDesktopPanel', () => {
     ])
   })
 
-  it('画布按帧缓冲尺寸渲染，靠容器原生滚动（没有「适应」模式）', async () => {
+  it('整块桌面缩进面板，且不再有缩放切换按钮', async () => {
     const { host } = await mountPanel({ wsUrl: 'ws://127.0.0.1:6123/websockify', password: null })
     const rfb = rfbInstances[0]
 
-    // 真实 canvas：noVNC 只把 canvas 设成帧缓冲尺寸，承载盒要自己跟上，
-    // 否则外层没有可滚动溢出（实测 scrollWidth 一直等于 clientWidth）。
     const screen = host.querySelector('.desktop-screen') as HTMLElement
     const canvas = document.createElement('canvas')
     canvas.width = 1920
@@ -158,15 +156,13 @@ describe('SandboxDesktopPanel', () => {
     rfb.emit('connect')
     await nextTick()
 
-    expect(rfb.scaleViewport).toBe(false)
+    // 缩放显示：canvas 交给 noVNC 缩进盒子，承载盒不被撑成 1920×1080。
+    expect(rfb.scaleViewport).toBe(true)
     expect(rfb.dragViewport).toBe(false)
-    expect(screen.style.width).toBe('1920px')
-    expect(screen.style.height).toBe('1080px')
+    expect(screen.style.width).toBe('')
+    expect(screen.style.height).toBe('')
 
-    const scroller = screen.parentElement as HTMLElement
-    expect(scroller.className).toContain('overflow-auto')
-
-    // 「适应」模式已删除：工具栏不再有缩放切换按钮。
+    // 缩放切换按钮已删除。
     expect(
       [...host.querySelectorAll('button')].some((b) => b.getAttribute('title')?.includes('1:1'))
     ).toBe(false)

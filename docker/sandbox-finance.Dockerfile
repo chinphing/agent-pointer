@@ -45,15 +45,18 @@ RUN if [ "$WITH_LIBREOFFICE" = "1" ]; then \
       && rm -rf /var/lib/apt/lists/*; \
     fi
 
-# pymupdf 锁 1.x：2.x 会拖进 onnxruntime / numpy / networkx / pymupdf4llm
-# 一整套（约 250MB），技能只用到 `fitz.open` 和 `fitz.TOOLS`，用不上。
+# 版本按技能自带 `.venv` 锁定——那是宿主上跑通过的组合。`.venv` 本身不能直接
+# 搬进镜像：它是 macOS arm64 + Python 3.9 的原生二进制（`libpdfium.dylib` 是
+# Mach-O），Linux 容器里加载不了，必须按同一份版本清单在镜像里重装。
+# 不锁版本时 pip 会装到 openai 3.x / pillow 13 / portalocker 4，与验证过的
+# openai 2.48 / pillow 11.3 / portalocker 3.2 差一个大版本。
 RUN pip install --no-cache-dir -i "$PIP_INDEX_URL" \
-      "pymupdf>=1.26,<2" \
-      pypdfium2 \
-      pillow \
-      openai \
-      portalocker \
-      requests
+      "pymupdf==1.26.5" \
+      "pypdfium2==5.12.1" \
+      "pillow==11.3.0" \
+      "openai==2.48.0" \
+      "portalocker==3.2.0" \
+      "requests==2.32.5"
 
 RUN if [ "$WITH_OCR" = "1" ]; then \
       pip install --no-cache-dir -i "$PIP_INDEX_URL" paddlepaddle paddleocr; \

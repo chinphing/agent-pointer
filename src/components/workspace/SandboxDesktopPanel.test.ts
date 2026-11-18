@@ -110,7 +110,8 @@ describe('SandboxDesktopPanel', () => {
 
     // 只读态不抢焦点
     expect(rfbInstances[0].focused).toBe(0)
-    expect(rfbInstances[0].scaleViewport).toBe(true)
+    // 恒为原尺寸，靠容器滚动
+    expect(rfbInstances[0].scaleViewport).toBe(false)
   })
 
   it('没有 ws 地址时不建连接，并说明镜像不支持', async () => {
@@ -142,40 +143,33 @@ describe('SandboxDesktopPanel', () => {
     ])
   })
 
-  it('1:1 用容器原生滚动，不依赖拖动平移', async () => {
+  it('画布按帧缓冲尺寸渲染，靠容器原生滚动（没有「适应」模式）', async () => {
     const { host } = await mountPanel({ wsUrl: 'ws://127.0.0.1:6123/websockify', password: null })
     const rfb = rfbInstances[0]
-    rfb.emit('connect')
-    await nextTick()
-
-    // 滚动容器必须是 .desktop-screen 的**外层**：noVNC 会把 .desktop-screen
-    // 自己撑成 1920×1080，overflow 加在它身上就没有可滚动的溢出了。
-    const screen = host.querySelector('.desktop-screen') as HTMLElement
-    const scroller = screen.parentElement as HTMLElement
-    expect(screen.className).not.toContain('overflow')
-    expect(scroller.className).toContain('overflow-hidden')
-    expect(rfb.scaleViewport).toBe(true)
 
     // 真实 canvas：noVNC 只把 canvas 设成帧缓冲尺寸，承载盒要自己跟上，
     // 否则外层没有可滚动溢出（实测 scrollWidth 一直等于 clientWidth）。
+    const screen = host.querySelector('.desktop-screen') as HTMLElement
     const canvas = document.createElement('canvas')
     canvas.width = 1920
     canvas.height = 1080
     screen.appendChild(canvas)
 
-    const btn = [...host.querySelectorAll('button')].find((b) =>
-      b.getAttribute('title')?.includes(t('workspace.desktopScaleActual'))
-    )
-    btn!.click()
+    rfb.emit('connect')
     await nextTick()
 
+    expect(rfb.scaleViewport).toBe(false)
+    expect(rfb.dragViewport).toBe(false)
     expect(screen.style.width).toBe('1920px')
     expect(screen.style.height).toBe('1080px')
 
-    // 回归：只读态下 noVNC 的拖动平移不生效，1:1 必须能靠滚动看右边和下面。
-    expect(rfb.scaleViewport).toBe(false)
-    expect(rfb.dragViewport).toBe(false)
+    const scroller = screen.parentElement as HTMLElement
     expect(scroller.className).toContain('overflow-auto')
+
+    // 「适应」模式已删除：工具栏不再有缩放切换按钮。
+    expect(
+      [...host.querySelectorAll('button')].some((b) => b.getAttribute('title')?.includes('1:1'))
+    ).toBe(false)
   })
 
   it('全屏只铺满顶栏以下，不盖住窗口标题栏', async () => {
@@ -208,6 +202,10 @@ describe('SandboxDesktopPanel', () => {
     await nextTick()
 
     expect(rfb.viewOnly).toBe(true)
+    // 「已接管」只表示连上了远程桌面，不能说成键鼠已接管。
+    expect(host.textContent).toContain(t('workspace.desktopConnected'))
+    expect(host.textContent).not.toContain(t('workspace.desktopConnectedControlling'))
+
     const overlay = [...host.querySelectorAll('button')].find((b) =>
       b.textContent?.includes(t('workspace.desktopTakeControl'))
     )
@@ -217,6 +215,7 @@ describe('SandboxDesktopPanel', () => {
     await nextTick()
     expect(rfb.viewOnly).toBe(false)
     expect(rfb.focused).toBe(1)
+    expect(host.textContent).toContain(t('workspace.desktopConnectedControlling'))
     // 接管后遮罩消失，画布直接收键鼠
     expect(
       [...host.querySelectorAll('button')].some((b) =>

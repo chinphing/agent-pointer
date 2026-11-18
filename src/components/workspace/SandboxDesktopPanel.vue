@@ -16,24 +16,17 @@
         :title="statusText"
         >{{ statusText }}</span
       >
-      <button
-        v-if="connected"
-        type="button"
-        class="desktop-toolbar-btn shrink-0 rounded px-2 py-0.5 text-xs transition"
-        :class="viewOnly ? 'text-muted hover:text-foreground' : 'text-accent'"
-        :title="viewOnly ? t('workspace.desktopTakeControl') : t('workspace.desktopReleaseControl')"
-        @click="toggleControl"
-      >
-        {{ viewOnly ? t('workspace.desktopTakeShort') : t('workspace.desktopReleaseShort') }}
-      </button>
+      <!-- 图标按钮，和右边的重连/全屏保持一致；状态由 title 和配色表达 -->
       <button
         v-if="connected"
         type="button"
         class="workspace-tab desktop-toolbar-btn shrink-0"
-        :title="fit ? t('workspace.desktopScaleActual') : t('workspace.desktopScaleFit')"
-        @click="toggleScale"
+        :class="{ 'text-accent': !viewOnly }"
+        :title="viewOnly ? t('workspace.desktopTakeControl') : t('workspace.desktopReleaseControl')"
+        @click="toggleControl"
       >
-        {{ fit ? t('workspace.desktopScaleFitShort') : t('workspace.desktopScaleActualShort') }}
+        <Hand v-if="!viewOnly" class="h-3.5 w-3.5" />
+        <MousePointer v-else class="h-3.5 w-3.5" />
       </button>
       <button
         v-if="connected || state === 'error'"
@@ -62,13 +55,9 @@
         （display.js 里 `_target.style.width = 1920px`），把 overflow 加在它自己
         身上等于容器和内容一样大，没有可滚动的溢出，触控板/滚轮都滚不动。
       -->
-      <div
-        ref="scrollerRef"
-        class="absolute inset-0"
-        :class="fit ? 'overflow-hidden' : 'overflow-auto'"
-      >
-        <!-- 必须保留 absolute inset-0：适应模式下 noVNC 用这个盒子的尺寸算缩放，
-             拿不到尺寸画面就散了。1:1 时由 syncCanvasBox() 覆盖成帧缓冲大小。 -->
+      <div ref="scrollerRef" class="absolute inset-0 overflow-auto">
+        <!-- 必须保留 absolute inset-0：noVNC 用这个盒子算视口，拿不到尺寸画面就散；
+             随后 syncCanvasBox() 把它撑成帧缓冲大小，外层才能滚动。 -->
         <div ref="screenRef" class="desktop-screen absolute inset-0" />
       </div>
 
@@ -104,7 +93,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Maximize2, Minimize2, Monitor, RotateCw } from 'lucide-vue-next'
+import { Hand, Maximize2, Minimize2, Monitor, MousePointer, RotateCw } from 'lucide-vue-next'
 import RFB from '@novnc/novnc/lib/rfb.js'
 import { setSandboxDesktopActive } from '../../lib/api'
 import { detectDesktopOs } from '../../lib/desktopOs'
@@ -129,7 +118,6 @@ const screenRef = ref<HTMLElement | null>(null)
 const scrollerRef = ref<HTMLElement | null>(null)
 const state = ref<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting')
 const errorText = ref('')
-const fit = ref(true)
 const fullscreen = ref(false)
 /** 默认只读：避免和 agent 抢鼠标键盘，点一下才接管。 */
 const viewOnly = ref(true)
@@ -150,7 +138,11 @@ const statusText = computed(() => {
     case 'connecting':
       return t('workspace.desktopConnecting')
     case 'connected':
-      return fit.value ? t('workspace.desktopConnectedFit') : t('workspace.desktopConnectedActual')
+      // 「已接管」指的是接管电脑（连上了远程桌面），不是键鼠已被接管——
+      // 默认还是只读，键鼠状态单独说清楚。
+      return viewOnly.value
+        ? t('workspace.desktopConnected')
+        : t('workspace.desktopConnectedControlling')
     case 'error':
       return errorText.value || t('workspace.desktopError')
     default:
@@ -166,12 +158,13 @@ const statusClass = computed(() => {
 
 function applyScale() {
   if (!rfb) return
-  // 适应：把 1920×1080 整屏缩进面板，一屏看全，但字小。
-  // 1:1：原尺寸，靠容器的原生滚动看其余部分（触控板/滚轮都能滚）。
+  // 恒为原尺寸（1:1），靠容器的原生滚动看其余部分——触控板、滚轮、滚动条都能用。
   //
-  // 不用 noVNC 的 clipViewport + dragViewport 拖动平移：那条路要求按住鼠标拖，
+  // 不提供"适应窗口"：1920×1080 缩进 400px 的面板只有 0.2×，字看不清，
+  // 切过去基本只能看布局，属于多余的一个状态。
+  // 也不用 noVNC 的 clipViewport + dragViewport 拖动平移：那条路要求按住鼠标拖，
   // 而默认是只读态，拖不动——用户会卡在左上角出不来。
-  rfb.scaleViewport = fit.value
+  rfb.scaleViewport = false
   rfb.clipViewport = false
   rfb.dragViewport = false
   syncCanvasBox()
@@ -187,14 +180,7 @@ function applyScale() {
 function syncCanvasBox() {
   const el = screenRef.value
   const canvas = el?.querySelector('canvas') as HTMLCanvasElement | null
-  if (!el) return
-  if (fit.value) {
-    el.style.width = ''
-    el.style.height = ''
-    scrollerRef.value?.scrollTo({ left: 0, top: 0 })
-    return
-  }
-  if (!canvas) return
+  if (!el || !canvas) return
   el.style.width = `${canvas.width}px`
   el.style.height = `${canvas.height}px`
 }
@@ -282,11 +268,6 @@ function releaseControl() {
 
 function toggleControl() {
   viewOnly.value ? takeControl() : releaseControl()
-}
-
-function toggleScale() {
-  fit.value = !fit.value
-  applyScale()
 }
 
 /**

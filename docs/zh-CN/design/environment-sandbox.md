@@ -1551,6 +1551,7 @@ cursor-agent 沙盒模板也强制 uid 1000 / `USER agent`。他们这么做的�
 |---|---|
 | `docker/sandbox-container.Dockerfile` | 装 `sudo`；`pointer ALL=(ALL) NOPASSWD:ALL`；预建 `/tmp/.X11-unix` 1777；末尾 `USER pointer` |
 | `docker/sandbox-light.Dockerfile` | 同上（无桌面，但同样非 root） |
+| `docker/sandbox-finance.Dockerfile` | 只跑财务报销流程的最小镜像（277 MB，`python:3.12-slim` + pymupdf/pypdfium2/pillow/openai/portalocker/requests）；可选 `WITH_LIBREOFFICE=1`（老 `.doc` 转换）、`WITH_OCR=1`（扫描件 paddleocr） |
 | `docker/browser.sh` | 去掉 `--no-sandbox`；改成直接调 `/usr/lib/chromium/chromium`，参数写在脚本里 |
 | `docker/entrypoint-container.sh` | 启动时清理浏览器 profile 的 `SingletonLock`（见下） |
 

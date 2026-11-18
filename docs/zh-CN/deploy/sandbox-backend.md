@@ -88,6 +88,8 @@ accounts  = { alice = "light" } # 按用户覆盖档位
 
 ```bash
 docker build -f docker/sandbox-container.Dockerfile -t pointer-sandbox-container:latest .
+# 只跑财务报销流程、不要界面时的最小镜像（277 MB）：
+docker build -f docker/sandbox-finance.Dockerfile -t pointer-sandbox-finance:latest .
 docker build -f docker/sandbox-light.Dockerfile     -t pointer-sandbox-light:latest     .
 ```
 

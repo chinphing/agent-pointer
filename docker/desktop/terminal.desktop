@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=终端
+Name[en]=Terminal
+Comment=在 /workspace 里开一个终端
+Exec=xterm
+Icon=/usr/share/pixmaps/filled-xterm_48x48.xpm
+Terminal=false
+Categories=System;

@@ -16,6 +16,27 @@
 SIZE=$(xdpyinfo 2>/dev/null | awk '/dimensions:/{print $2; exit}')
 [ -n "$SIZE" ] || SIZE=1600x1000
 
+# 剥掉调用方可能塞进来的 --no-sandbox / --disable-setuid-sandbox。
+# 容器是非 root 运行，Chromium 沙箱本身可用；带上这两个参数只会让顶部弹
+# "You are using an unsupported command-line flag: --no-sandbox"，
+# 同时把安全边界拆掉。谁传都不生效，比在文档里写"别传"可靠。
+_kept=""
+for _arg in "$@"; do
+    case "$_arg" in
+        --no-sandbox|--disable-setuid-sandbox) ;;
+        *) _kept="${_kept}
+${_arg}" ;;
+    esac
+done
+_OLDIFS=$IFS
+IFS='
+'
+set -f
+# shellcheck disable=SC2086
+set -- $_kept
+set +f
+IFS=$_OLDIFS
+
 exec /usr/lib/chromium/chromium \
     --disable-dev-shm-usage \
     --disable-gpu \

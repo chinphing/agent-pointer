@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=文件
+Name[en]=Files
+Comment=浏览 /workspace
+Exec=pcmanfm /workspace
+Icon=/usr/share/icons/Adwaita/48x48/places/folder.png
+Terminal=false
+Categories=System;

@@ -30,7 +30,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' \
+# apt 源可覆盖：默认阿里云（国内快）。境外构建或镜像临时抽风时用
+# `--build-arg APT_MIRROR=mirrors.tuna.tsinghua.edu.cn` 换一个。
+ARG APT_MIRROR=mirrors.aliyun.com
+RUN sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" \
         /etc/apt/sources.list.d/debian.sources 2>/dev/null || true \
     && apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \

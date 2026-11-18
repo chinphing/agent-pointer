@@ -37,7 +37,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # 构建容器到 deb.debian.org 的连接在本机经常失败（宿主能通、buildkit 里不通），
 # 换国内镜像源，和 Node 那步同一个理由。
-RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' \
+# apt 源可覆盖：默认阿里云（国内快）。境外构建或镜像临时抽风时用
+# `--build-arg APT_MIRROR=mirrors.tuna.tsinghua.edu.cn` 换一个。
+ARG APT_MIRROR=mirrors.aliyun.com
+RUN sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" \
         /etc/apt/sources.list.d/debian.sources 2>/dev/null || true \
     && apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -62,6 +65,8 @@ RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors
         novnc \
         xdotool \
         openbox \
+        pcmanfm \
+        plank \
         imagemagick \
         scrot \
         dbus-x11 \
@@ -86,6 +91,9 @@ RUN useradd -m -u 1000 pointer \
     && mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
 
 # 右键菜单：空桌面上唯一能点的地方，给人和 agent 一个入口。
+# 桌面图标 + 壁纸配置：入口脚本首次启动铺到用户 home（之后尊重用户改动）。
+COPY docker/desktop/ /etc/pointer/desktop/
+
 COPY docker/openbox-menu.xml /etc/xdg/openbox/menu.xml
 
 # 窗口规则：浏览器铺满屏幕（见文件头注释——profile 会记住旧尺寸，覆盖 --window-size）。

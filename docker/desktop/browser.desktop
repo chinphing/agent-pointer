@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=浏览器
+Name[en]=Browser
+Comment=Chromium（登录态保存在 home 卷）
+Exec=browser about:blank
+Icon=/usr/share/pixmaps/chromium.png
+Terminal=false
+Categories=Network;

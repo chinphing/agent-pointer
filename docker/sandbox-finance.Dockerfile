@@ -27,6 +27,7 @@
 FROM python:3.12-slim
 
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG APT_MIRROR=mirrors.tuna.tsinghua.edu.cn
 ARG WITH_LIBREOFFICE=0
 ARG WITH_OCR=0
 
@@ -35,8 +36,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # ca-certificates：cwpt 是 HTTPS。其余不装——技能不调 curl/unzip/git/node。
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates \
+# ca-certificates：cwpt 是 HTTPS。
+# 解压：register 阶段要解 rar/7z 附件（requirements.txt 的"系统级命令依赖"）。
+#   - `unrar` 在 Debian non-free，默认源里没有 → 用 `unrar-free`（提供 unrar 命令，
+#     只支持 RAR4；RAR5 交给 7z）
+#   - trixie 的 `p7zip-full` 是过渡包，实体是 `7zip`（提供 7z / 7zz）
+# apt 走清华源：默认 deb.debian.org 在国内会 502。
+RUN sed -i "s|deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources 2>/dev/null \
+ || sed -i "s|deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list; \
+    apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      unrar-free \
+      7zip \
  && rm -rf /var/lib/apt/lists/*
 
 RUN if [ "$WITH_LIBREOFFICE" = "1" ]; then \
@@ -45,21 +57,26 @@ RUN if [ "$WITH_LIBREOFFICE" = "1" ]; then \
       && rm -rf /var/lib/apt/lists/*; \
     fi
 
-# 版本按技能自带 `.venv` 锁定——那是宿主上跑通过的组合。`.venv` 本身不能直接
-# 搬进镜像：它是 macOS arm64 + Python 3.9 的原生二进制（`libpdfium.dylib` 是
-# Mach-O），Linux 容器里加载不了，必须按同一份版本清单在镜像里重装。
-# 不锁版本时 pip 会装到 openai 3.x / pillow 13 / portalocker 4，与验证过的
-# openai 2.48 / pillow 11.3 / portalocker 3.2 差一个大版本。
+# 依赖以技能的 `scripts/requirements.txt` 为准（那份是唯一契约），版本取宿主
+# 验证过的组合。`.venv` 不能直接搬进镜像：`bin/python3` 是指向宿主解释器绝对
+# 路径的符号链接（`-> /Library/Developer/CommandLineTools/usr/bin/python3`，
+# pyvenv.cfg 里也绑着宿主 home），挂进容器就是断链；而且技能根是**只读**挂载，
+# `reimburse setup` 在容器里建不了 venv。
+#
+# PyMuPDF 必须 <1.28：requirements 里注明 1.28 起包内自带 ocr/（自动 Tesseract），
+# 文本抽取口径与生产不同；pymupdf4llm 又锁在 0.0.27，二者要一起满足。
 RUN pip install --no-cache-dir -i "$PIP_INDEX_URL" \
-      "pymupdf==1.26.5" \
-      "pypdfium2==5.12.1" \
-      "pillow==11.3.0" \
-      "openai==2.48.0" \
+      "requests==2.32.5" \
       "portalocker==3.2.0" \
-      "requests==2.32.5"
+      "pymupdf==1.26.5" \
+      "pymupdf4llm==0.0.27" \
+      "openai==2.48.0" \
+      "pillow==11.3.0" \
+      "pypdfium2==5.12.1"
 
 RUN if [ "$WITH_OCR" = "1" ]; then \
-      pip install --no-cache-dir -i "$PIP_INDEX_URL" paddlepaddle paddleocr; \
+      pip install --no-cache-dir -i "$PIP_INDEX_URL" \
+        "paddlepaddle==3.2.0" "paddleocr==3.7.0" "paddlex==3.7.2"; \
     fi
 
 WORKDIR /workspace

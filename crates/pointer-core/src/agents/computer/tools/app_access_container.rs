@@ -30,6 +30,67 @@ for d in /usr/share/applications /etc/pointer/desktop "$HOME/.local/share/applic
 done
 "#;
 
+/// 枚举当前有窗口的应用。用 `xdotool` + `ps`，镜像里已经有，不必再加 `wmctrl`。
+const WINDOW_SCRIPT: &str = r#"
+export DISPLAY="${DISPLAY:-:99}"
+active=$(xdotool getactivewindow 2>/dev/null || true)
+for wid in $(xdotool search --onlyvisible --name "." 2>/dev/null); do
+    pid=$(xdotool getwindowpid "$wid" 2>/dev/null || true)
+    [ -n "$pid" ] || continue
+    comm=$(ps -o comm= -p "$pid" 2>/dev/null | head -1)
+    [ -n "$comm" ] || continue
+    title=$(xdotool getwindowname "$wid" 2>/dev/null || true)
+    act=0
+    [ "$wid" = "$active" ] && act=1
+    printf '%s\t%s\t%s\t%s\n' "$pid" "$comm" "$act" "$title"
+done
+"#;
+
+/// 一个可见窗口：`pid<TAB>comm<TAB>active<TAB>title`。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Window {
+    pid: u32,
+    comm: String,
+    active: bool,
+    title: String,
+}
+
+fn parse_windows(text: &str) -> Vec<Window> {
+    text.lines()
+        .filter_map(|line| {
+            let mut parts = line.split('\t');
+            let pid: u32 = parts.next()?.trim().parse().ok()?;
+            let comm = parts.next()?.trim().to_string();
+            let active = parts.next()?.trim() == "1";
+            let title = parts.next().unwrap_or("").trim().to_string();
+            if comm.is_empty() {
+                return None;
+            }
+            Some(Window {
+                pid,
+                comm,
+                active,
+                title,
+            })
+        })
+        .collect()
+}
+
+/// 哪个窗口属于这个 `.desktop`。
+///
+/// 按进程名匹配，不按窗口标题：标题是用户内容，随时会变。`comm` 被内核截到
+/// 15 字符，所以两边都按前缀比。
+fn window_for<'a>(windows: &'a [Window], exec: &str) -> Option<&'a Window> {
+    let bin = binary_of(exec).to_lowercase();
+    if bin.is_empty() {
+        return None;
+    }
+    windows.iter().find(|w| {
+        let comm = w.comm.to_lowercase();
+        comm == bin || bin.starts_with(&comm) || comm.starts_with(&bin)
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DesktopEntry {
     id: String,
@@ -125,19 +186,38 @@ fn entries(env: &Arc<dyn Environment>) -> Result<Vec<DesktopEntry>> {
 /// `include_all` 在这里没有意义——容器里的 `.desktop` 本来就只有十几个，
 /// 不存在宿主那种"只列最近用过的"取舍。
 pub fn list(env: &Arc<dyn Environment>, _include_all: bool) -> Result<Vec<ListedApp>> {
-    Ok(entries(env)?
+    let entries = entries(env)?;
+    // 窗口枚举失败不该让整张清单失败：装了什么仍然有用。
+    let windows = run(env, WINDOW_SCRIPT)
+        .map(|text| parse_windows(&text))
+        .unwrap_or_default();
+
+    let mut apps: Vec<ListedApp> = entries
         .into_iter()
-        .map(|e| ListedApp {
-            name: e.name,
-            identifier: e.id,
-            running: false,
-            frontmost: false,
-            last_used: None,
-            uses: None,
-            window_title: None,
-            pid: None,
+        .map(|e| {
+            let window = window_for(&windows, &e.exec);
+            ListedApp {
+                name: e.name,
+                identifier: e.id,
+                running: window.is_some(),
+                frontmost: window.map(|w| w.active).unwrap_or(false),
+                last_used: None,
+                uses: None,
+                window_title: window
+                    .map(|w| w.title.clone())
+                    .filter(|title| !title.is_empty()),
+                pid: window.map(|w| w.pid),
+            }
         })
-        .collect())
+        .collect();
+    // 开着的排前面：模型通常想先看"现在有什么"。
+    apps.sort_by(|a, b| {
+        b.frontmost
+            .cmp(&a.frontmost)
+            .then(b.running.cmp(&a.running))
+            .then(a.name.cmp(&b.name))
+    });
+    Ok(apps)
 }
 
 /// 在容器桌面里启动应用。
@@ -243,6 +323,17 @@ chromium\tChromium 重复\tchromium\n";
         let res = launch(&env, "xterm", AppOpenOptions::default()).expect("launch");
         assert!(res.success, "启动失败：{}", res.message);
 
+        // 启动后重新列：xterm 必须是 running（窗口跟踪走 xdotool + ps）。
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let after = list(&env, true).expect("list after launch");
+        // 镜像里的条目 id 是 `debian-xterm`（Debian 的 desktop 文件名），不是 `xterm`。
+        let xterm = after
+            .iter()
+            .find(|a| a.identifier.contains("xterm"))
+            .expect("清单里应有 xterm");
+        assert!(xterm.running, "xterm 已启动但仍报 running=false");
+        assert!(xterm.window_title.is_some(), "应带上窗口标题");
+
         std::thread::sleep(std::time::Duration::from_secs(3));
         let argv = vec![
             "sh".to_string(),
@@ -258,6 +349,21 @@ chromium\tChromium 重复\tchromium\n";
         let _ = std::process::Command::new("docker")
             .args(["rm", "-f", "pointer-sbx-it-app-access"])
             .output();
+    }
+
+    #[test]
+    fn parses_window_listing_and_matches_by_process_name() {
+        let windows = parse_windows("75\tchromium\t1\tabout:blank - Chromium\n36\tplank\t0\tplank\n");
+        assert_eq!(windows.len(), 2);
+        assert_eq!(windows[0].pid, 75);
+        assert!(windows[0].active);
+        assert_eq!(windows[1].title, "plank");
+
+        // `comm` 被内核截到 15 字符，前缀比才稳。
+        let entries = parse_entries(SAMPLE);
+        assert_eq!(window_for(&windows, "chromium %U").unwrap().pid, 75);
+        assert!(window_for(&windows, "xterm").is_none());
+        assert!(window_for(&windows, "plank").is_some());
     }
 
     #[test]

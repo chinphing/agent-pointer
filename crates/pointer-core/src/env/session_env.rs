@@ -328,6 +328,9 @@ pub fn release(conversation_id: &str) {
         }
     }
 
+    // 注册表也要清：否则下次同 id 会话会去 attach 一个已经删掉的沙箱。
+    crate::env::sandbox_registry::forget(conversation_id);
+
     // Docker 后端是另一份缓存：漏掉这里，删会话后容器会一直跑到空闲淘汰。
     set_pinned(conversation_id, false);
     let docker_entry = docker_cache().lock().ok().and_then(|mut m| m.remove(conversation_id));
@@ -614,13 +617,33 @@ fn acquire_remote(
             .to_string(),
         ..Default::default()
     };
-    let env = RemoteEnv::create(&spec).context("create remote env for session")?;
-    log::info!(
-        "sandbox created conversation={conversation_id} sandbox={} envd={}",
-        env.sandbox_id(),
-        env.envd_url()
-    );
-    let env = Arc::new(env);
+    // 先查注册表：应用重启后缓存是空的，但沙箱可能还活着。不认回就会新建一个，
+    // 旧的挂到超时才消失（实测攒了 26 个 e2b-envd-* 容器）。
+    let reattached = crate::env::sandbox_registry::reattach(conversation_id, &spec.template, |entry| {
+        let env = RemoteEnv::attach(&spec, entry.sandbox_id.clone(), entry.envd_url.clone()).ok()?;
+        env.probe_alive().then(|| Arc::new(env))
+    });
+
+    let env = match reattached {
+        Some(env) => env,
+        None => {
+            let env = RemoteEnv::create(&spec).context("create remote env for session")?;
+            log::info!(
+                "sandbox created conversation={conversation_id} sandbox={} envd={}",
+                env.sandbox_id(),
+                env.envd_url()
+            );
+            crate::env::sandbox_registry::record(
+                conversation_id,
+                crate::env::sandbox_registry::Entry {
+                    sandbox_id: env.sandbox_id().to_string(),
+                    envd_url: env.envd_url().to_string(),
+                    template: spec.template.clone(),
+                },
+            );
+            Arc::new(env)
+        }
+    };
     if let Ok(mut map) = cache().lock() {
         map.insert(
             conversation_id.to_string(),

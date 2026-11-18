@@ -105,3 +105,77 @@ fn light_binding_end_to_end() {
     );
     session_env::release_all();
 }
+
+
+/// 会话 → 沙箱的登记表：建了要记、释放要清，且释放后沙箱真的销毁。
+///
+/// docker 后端靠容器名（`pointer-sbx-<会话>`）认回，envd 的 sandboxID 是网关
+/// 生成的，不记下来就只能靠超时回收（实测攒了 26 个 e2b-envd-* 容器）。
+#[test]
+#[ignore = "需要 e2b-local 网关；手动跑"]
+fn light_sandbox_registry_tracks_lifecycle() {
+    use pointer_core::env::provider::{Backend, ProviderConfig, Tier};
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::env::set_var(
+        "POINTER_SANDBOX_REGISTRY",
+        dir.path().join("sandbox-registry.json"),
+    );
+    // 干净技能根：真实技能库里若有 token.txt，会被挂载前的凭证检查拦下。
+    let skills = dir.path().join("skills");
+    std::fs::create_dir_all(skills.join("demo")).unwrap();
+    std::fs::write(skills.join("demo/SKILL.md"), "# demo\n").unwrap();
+    std::env::set_var("POINTER_SKILLS_DIR", &skills);
+
+    let conv = "conv-light-registry-it";
+    let cfg = ProviderConfig {
+        tier: Some(Tier::Light),
+        backend: Some(Backend::Envd),
+        sandbox_url: Some(sandbox_url()),
+        volume_host_path: None,
+        template: Some("pointer-sandbox-light:latest".to_string()),
+        admins: Vec::new(),
+        accounts: Default::default(),
+        platform: true,
+    };
+
+    let env = pointer_core::env::session_env::resolve_session_env(
+        &cfg,
+        conv,
+        "registry-user",
+        Some(dir.path()),
+    )
+        .expect("resolve")
+        .expect("envd 后端应返回环境");
+
+    let entry = pointer_core::env::sandbox_registry::lookup(conv).expect("建完应登记");
+    assert!(
+        entry.sandbox_id.starts_with("sbx"),
+        "登记的是网关的 sandboxID：{}",
+        entry.sandbox_id
+    );
+    assert_eq!(entry.template, "pointer-sandbox-light:latest");
+
+    // 环境确实是那个沙箱（能执行命令）。
+    let out = env
+        .exec(&["echo".to_string(), "ok".to_string()], Default::default())
+        .expect("exec");
+    assert!(out.success());
+
+    session_env::release(conv);
+    assert!(
+        pointer_core::env::sandbox_registry::lookup(conv).is_none(),
+        "释放后应清掉登记"
+    );
+
+    // 释放 = 销毁：拿旧 id 再 attach 探活，应该已经死了。
+    let spec = pointer_core::env::remote::RemoteSpec {
+        control_url: sandbox_url(),
+        template: "pointer-sandbox-light:latest".to_string(),
+        ..Default::default()
+    };
+    let alive = pointer_core::env::remote::RemoteEnv::attach(&spec, entry.sandbox_id, entry.envd_url)
+        .map(|probe| probe.probe_alive())
+        .unwrap_or(false);
+    assert!(!alive, "释放后沙箱应已销毁");
+}

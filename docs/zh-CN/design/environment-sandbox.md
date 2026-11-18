@@ -1392,6 +1392,39 @@ $ pwd
    30 分钟后容器仍会被回收，WS 断开——面板会显示「连接已断开，点重连继续」。**未做 pin。**
 6. **`open_sandbox_desktop`**：保留为退路（面板工具栏「用系统屏幕共享打开」）。
 
+### 7.5.1 envd 与 docker 的能力差异（2026-11-18 对齐）
+
+`Environment` trait 两边实现是对称的（22 个方法，含 `pty_open`）。差异在网关能力：
+
+| 能力 | docker | envd（e2b-local） | 处理 |
+|---|---|---|---|
+| 桌面 | Xvfb + x11vnc + websockify + `desktop_endpoint()` | 无 | 未做；`POINTER_SERVER_ENVIRONMENT_DESKTOP=1` 只开能力位，模板里还得有 X 栈 |
+| 资源配额 | `--cpus` / `--memory` / `--storage-opt`（实测 `cpu.max=200000 100000`） | **create 请求里的 `resources` 被忽略** | 见下方实测 |
+| 重启后认回 | 容器名 = 会话 id，`attach()` 即可 | 本轮补：`sandbox-registry.json` | ✅ |
+| 孤儿清理 | `cleanup_orphans()` 清 `exited` 容器 | 无 | 靠网关超时（实测不可靠） |
+| 集成测试 | `container_tier_it` 13 条 | `light_binding_it` 2 条 | — |
+
+**资源配额实测（2026-11-18，e2b-local + OrbStack）**：三种请求体建出来的容器都是
+`NanoCpus=0 Mem=0`（不限制）：
+
+| 请求体 | 结果 |
+|---|---|
+| 默认（不带配额） | `NanoCpus=0 Mem=0` |
+| `"resources": {"cpu":1,"memoryMB":1024}` | `NanoCpus=0 Mem=0` |
+| `"cpuCount":1,"memoryMB":1024`（顶层） | `NanoCpus=0 Mem=0` |
+
+再传 `"resources": "bogus"`（非法类型）仍然 `201` ——说明该字段被整体忽略，不是名字不对。
+所以 envd 侧配额**只能靠模板**（模板记录里有 `cpuCount` / `memoryMB`），而且这个网关
+不强制。相关代码没有落地（避免留一份"看着能配、实际无效"的配置）。
+
+**认回实现**：`<app data>/sandbox-registry.json` 存 `会话 → {sandboxID, envdURL, 模板}`。
+启动/解析会话时先查表 → `attach` + `probe_alive`（跑一次 `true`）→ 成功就复用；
+模板变了或探活失败就清记录、新建。释放时清表并 `destroy()`。
+
+**为什么必须做**：docker 后端的容器名由会话 id 决定，重启后 `attach()` 就能认回来；
+envd 的 `sandboxID` 是网关生成的，进程一重启映射就丢。实测在开发机上攒了 **26 个**
+`e2b-envd-*` 容器（最早的跑了 2 天），网关并没有按 `timeout` 回收。
+
 ### 7.6 容器内浏览器 profile 与启动参数（已落地 2026-11-17/18）
 
 **改造前（2026-11-16 实测）**：

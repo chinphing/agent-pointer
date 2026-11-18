@@ -22,6 +22,7 @@ pub mod pathmap;
 pub mod process;
 pub mod provider;
 pub mod remote;
+pub mod sandbox_registry;
 pub mod session_env;
 
 pub use local::LocalEnv;

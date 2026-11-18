@@ -210,6 +210,20 @@ impl RemoteEnv {
     }
 
     /// 销毁沙箱。已经不存在时视为成功。
+    /// 探活：`attach()` 不做任何校验，地址可能是上一次进程留下的死沙箱。
+    ///
+    /// 能执行 `true` 才算活着——只有这一步通过才值得复用。
+    pub fn probe_alive(&self) -> bool {
+        self.exec(
+            &["true".to_string()],
+            ExecOptions::new()
+                .with_cwd("/")
+                .with_timeout(Duration::from_secs(5)),
+        )
+        .map(|out| out.success())
+        .unwrap_or(false)
+    }
+
     pub fn destroy(&self) -> Result<()> {
         super::run_blocking(|| {
         let resp = self

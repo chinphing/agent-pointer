@@ -489,9 +489,8 @@ fn acquire_docker(
 ) -> Result<Arc<crate::env::docker::DockerEnv>> {
     if let Ok(mut map) = docker_cache().lock() {
         evict_idle_docker(&mut map, Instant::now());
-        if let Some((hit, last_used)) = map.get_mut(conversation_id) {
-            *last_used = Instant::now();
-            return Ok(hit.clone());
+        if let Some(hit) = cached_docker_alive(&mut map, conversation_id) {
+            return Ok(hit);
         }
     }
     let creation_lock = conversation_creation_lock(conversation_id);
@@ -499,9 +498,8 @@ fn acquire_docker(
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Ok(mut map) = docker_cache().lock() {
-        if let Some((hit, last_used)) = map.get_mut(conversation_id) {
-            *last_used = Instant::now();
-            return Ok(hit.clone());
+        if let Some(hit) = cached_docker_alive(&mut map, conversation_id) {
+            return Ok(hit);
         }
     }
 
@@ -657,6 +655,34 @@ fn acquire_remote(
 }
 
 /// docker 后端的空闲淘汰：先 `docker rm -f`，再移出缓存。
+/// 取缓存里这个会话的容器，**并确认它还在**。
+///
+/// 容器可能在应用不知情的情况下消失：清理脚本、`docker system prune`、用户手动
+/// `docker rm`、宿主重启都会造成这种情况。只查缓存不校验存在性的话，这个会话会
+/// 一直打向已删除的容器——每条命令、每次截图都报 `No such container`，而且自己
+/// 永远回不来，只能等缓存空闲过期或重启应用。表现就是"环境突然不可用"。
+///
+/// 校验成本是一次 `docker inspect`（约 30ms），比随后必然发生的 `docker exec`
+/// 便宜一个量级，所以放在每次取环境时做，而不是等命令失败再补救。
+fn cached_docker_alive(
+    map: &mut HashMap<String, (Arc<crate::env::docker::DockerEnv>, Instant)>,
+    conversation_id: &str,
+) -> Option<Arc<crate::env::docker::DockerEnv>> {
+    let env = map.get(conversation_id)?.0.clone();
+    if crate::env::docker::DockerEnv::exists(env.container_name()) {
+        if let Some((_, last_used)) = map.get_mut(conversation_id) {
+            *last_used = Instant::now();
+        }
+        return Some(env);
+    }
+    log::warn!(
+        "sandbox lost (docker) conversation={conversation_id} container={} → 剔除缓存，重建",
+        env.container_name()
+    );
+    map.remove(conversation_id);
+    None
+}
+
 fn evict_idle_docker(
     map: &mut HashMap<String, (Arc<crate::env::docker::DockerEnv>, Instant)>,
     now: Instant,

@@ -214,6 +214,85 @@ fn adopt_existing_container_after_cache_loss() {
         .status();
 }
 
+/// 容器在应用不知情的情况下消失（清理脚本 / `docker system prune` / 手动
+/// `docker rm` / 宿主重启）后，下一次取环境必须**重建**，而不是继续打向已删除
+/// 的容器。
+///
+/// 回归：`acquire_docker` 只查缓存、不校验存在性，容器一丢这个会话就永远回不来
+/// ——每条命令、每次截图都报 `No such container`，直到缓存空闲过期或重启应用。
+#[test]
+#[ignore = "需要本机 docker"]
+fn lost_container_is_recreated_on_next_use() {
+    if !docker_available() {
+        eprintln!("skip: docker 不可用");
+        return;
+    }
+
+    fn container_exists(name: &str) -> bool {
+        std::process::Command::new("docker")
+            .args(["inspect", "-f", "{{.Id}}", name])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = ProviderConfig {
+        tier: Some(Tier::Container),
+        backend: Some(Backend::Docker),
+        sandbox_url: None,
+        volume_host_path: None,
+        template: Some("pointer-sandbox-container:latest".to_string()),
+        admins: Vec::new(),
+        accounts: Default::default(),
+        platform: true,
+    };
+    let conv = "it-lost";
+    let name = "pointer-sbx-it-lost";
+
+    // 1. 正常路径建出容器。
+    let first = resolve_session_env(&cfg, conv, "tester", Some(dir.path()))
+        .expect("resolve")
+        .expect("docker 后端应返回环境");
+    assert_eq!(first.kind(), EnvKind::Container);
+    assert!(container_exists(name), "首次应建出容器 {name}");
+
+    // 2. 应用之外把它删掉。
+    let removed = std::process::Command::new("docker")
+        .args(["rm", "-f", name])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .expect("docker rm");
+    assert!(removed.success(), "删除容器应成功");
+    assert!(!container_exists(name), "容器应已不存在");
+
+    // 3. 再用一次：必须重建并真能执行命令。
+    let second = resolve_session_env(&cfg, conv, "tester", Some(dir.path()))
+        .expect("resolve again")
+        .expect("容器丢失后应重建环境");
+    assert_eq!(second.kind(), EnvKind::Container);
+    assert!(container_exists(name), "容器丢失后应重建");
+    let out = second
+        .exec(
+            &["/bin/sh".into(), "-c".into(), "echo alive".into()],
+            ExecOptions::new(),
+        )
+        .expect("重建后应能执行命令");
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("alive"),
+        "重建后命令应真的跑在容器里"
+    );
+
+    let _ = std::process::Command::new("docker")
+        .args(["rm", "-f", name])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
 /// 中文输入必须真的进得去。
 ///
 /// 回归：`xdotool type` 只能敲 keymap 里有的键，"腾讯财报0700" 会被静默截成

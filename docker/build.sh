@@ -42,12 +42,36 @@ build_light() {
         -t "${LIGHT_IMAGE}" .
 }
 
+# Chrome deb：构建容器到 dl.google.com 的 TLS 经常失败，改在宿主预下载，
+# 再用命名构建上下文喂给镜像（`COPY --from=chrome`）。
+CHROME_CACHE="${POINTER_CHROME_CACHE:-${TMPDIR:-/tmp}/pointer-chrome-deb}"
+
+chrome_deb() {
+    case "$(uname -m)" in
+        arm64|aarch64) _arch=arm64 ;;
+        *)             _arch=amd64 ;;
+    esac
+    mkdir -p "${CHROME_CACHE}"
+    local deb="${CHROME_CACHE}/google-chrome.deb"
+    if [ ! -s "${deb}" ]; then
+        echo "下载 Chrome deb（${_arch}）→ ${deb}" >&2
+        curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
+            -o "${deb}.part" \
+            "https://dl.google.com/linux/direct/google-chrome-stable_current_${_arch}.deb"
+        mv "${deb}.part" "${deb}"
+    fi
+    echo "${CHROME_CACHE}"
+}
+
 build_desktop() {
+    local ctx
+    ctx="$(chrome_deb)"
     echo "==> ${DESKTOP_IMAGE}（from ${LIGHT_IMAGE}）"
     docker build \
         -f docker/desktop.Dockerfile \
         --build-arg "BASE_IMAGE=${LIGHT_IMAGE}" \
         --build-arg "APT_MIRROR=${APT_MIRROR}" \
+        --build-context "chrome=${ctx}" \
         -t "${DESKTOP_IMAGE}" \
         -t "${CONTAINER_ALIAS}" .
 }

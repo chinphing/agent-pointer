@@ -48,6 +48,7 @@ RUN sed -i "s|ports.ubuntu.com|${APT_MIRROR}|g; \
         poppler-utils \
         fonts-dejavu \
         fonts-liberation \
+        adwaita-icon-theme \
  && rm -rf /var/lib/apt/lists/* \
  && mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
 
@@ -59,13 +60,23 @@ COPY docker/openbox-rc.xml /etc/xdg/openbox/rc.xml
 # 浏览器：Ubuntu 24.04 的 `chromium` 是 snap 占位包，deb 里没有真正的二进制
 # （实测 `/usr/lib/chromium/chromium: not found`）。改用 Google Chrome 官方 deb，
 # 由 browser.sh 以 `--class=chromium` 启动，X 里的窗口 class 仍是 chromium。
-ARG TARGETARCH
-RUN curl -fsSL -o /tmp/chrome.deb \
-        "https://dl.google.com/linux/direct/google-chrome-stable_current_${TARGETARCH}.deb" \
- && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update \
+# 浏览器：Ubuntu 24.04 的 `chromium` 是 snap 占位包，deb 里没有真正的二进制
+# （实测 `/usr/lib/chromium/chromium: not found`）。改用 Google Chrome 官方 deb，
+# 由 browser.sh 以 `--class=chromium` 启动，X 里的窗口 class 仍是 chromium。
+#
+# deb 由 `docker/build.sh` 预先下到宿主再喂进来（命名构建上下文 `chrome`）：
+# 构建容器到 dl.google.com 的 TLS 连接在国内经常 35/18 失败，宿主侧重试可控。
+# 手工构建时：`--build-context chrome=<放 deb 的目录>`。
+COPY --from=chrome google-chrome.deb /tmp/chrome.deb
+# 桌面文件（dock / 右键菜单）里写的是 Icon=/usr/share/pixmaps/chromium.png，
+# 旧镜像由 chromium 包提供；换成 Chrome 后这个路径不存在，plank 会把该项丢掉，
+# 所以补一个指向 Chrome logo 的符号链接。
+RUN apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update \
  && apt-get -o Acquire::Retries=3 install -y --no-install-recommends /tmp/chrome.deb \
  && rm -rf /var/lib/apt/lists/* /tmp/chrome.deb \
- && /opt/google/chrome/chrome --version
+ && /opt/google/chrome/chrome --version \
+ && mkdir -p /usr/share/pixmaps \
+ && ln -sf /opt/google/chrome/product_logo_256.png /usr/share/pixmaps/chromium.png
 
 # 覆盖 /usr/bin/chromium，另给一个好记的名字 /usr/local/bin/browser。
 COPY docker/browser.sh /usr/bin/chromium

@@ -70,6 +70,7 @@ import WorkspaceTreeNode from './WorkspaceTreeNode.vue'
 import type { WorkspaceTreeNodeModel } from './WorkspaceTreeNode.vue'
 
 const TerminalPanel = defineAsyncComponent(() => import('./TerminalPanel.vue'))
+const SandboxDesktopPanel = defineAsyncComponent(() => import('./SandboxDesktopPanel.vue'))
 
 const props = defineProps<{
   workspaceRoot: string
@@ -111,7 +112,7 @@ type TurnDiffPreviewTab = BasePreviewTab & {
   baselineMissing: boolean
 }
 type PreviewTab = FilePreviewTab | DiffPreviewTab | TurnDiffPreviewTab
-type PrimaryView = 'terminal' | 'files' | 'changes'
+type PrimaryView = 'terminal' | 'files' | 'changes' | 'desktop'
 type ContextMenuState =
   | { kind: 'tree'; node: TreeNode; left: number; top: number }
   | { kind: 'change'; change: GitChange; left: number; top: number }
@@ -230,14 +231,18 @@ let changesRefreshQueued = false
  * Load the file tree.
  * `silent` keeps the previous tree visible (stale-while-revalidate) so clicks stay snappy.
  */
-const desktopAvailable = ref(false)
+const sandboxDesktop = ref<{ url: string; wsUrl: string | null; password: string | null } | null>(null)
+const desktopAvailable = computed(() => !!sandboxDesktop.value)
 
 async function refreshDesktopAvailability() {
   try {
-    const endpoint = await getSandboxDesktop(props.workspaceRoot, props.conversationId)
-    desktopAvailable.value = !!endpoint
+    sandboxDesktop.value = await getSandboxDesktop(props.workspaceRoot, props.conversationId)
   } catch {
-    desktopAvailable.value = false
+    sandboxDesktop.value = null
+  }
+  // 之前停在接管页但容器没了：退回终端，别留一个连不上的黑屏。
+  if (!sandboxDesktop.value && activeView.value === 'desktop') {
+    activeView.value = 'terminal'
   }
 }
 
@@ -245,11 +250,18 @@ async function openDesktop() {
   try {
     const url = await openSandboxDesktop(props.workspaceRoot, props.conversationId)
     if (!url) {
-      desktopAvailable.value = false
+      sandboxDesktop.value = null
     }
   } catch (err) {
     console.warn('open sandbox desktop failed', err)
   }
+}
+
+/** 切到接管页；端点还没拿到就先刷新一次。 */
+async function activateDesktopView() {
+  if (!sandboxDesktop.value) await refreshDesktopAvailability()
+  if (!sandboxDesktop.value) return
+  activatePrimaryView('desktop')
 }
 
 async function loadRoot(options?: { silent?: boolean }) {
@@ -1219,9 +1231,9 @@ onBeforeUnmount(() => {
       <button
         v-if="desktopAvailable"
         class="chrome-icon-btn"
-        title="看沙箱桌面"
+        :title="t('workspace.desktopTab')"
         type="button"
-        @click="openDesktop"
+        @click="activateDesktopView"
       >
         <Monitor class="w-4 h-4" />
       </button>
@@ -1261,6 +1273,17 @@ onBeforeUnmount(() => {
         <SquareTerminal class="w-3.5 h-3.5" />
         <span v-if="terminalCount" class="workspace-tab-badge">{{ terminalCount }}</span>
       </button>
+      <button
+        v-if="desktopAvailable"
+        type="button"
+        class="workspace-tab workspace-tab-icon shrink-0"
+        :class="activeView === 'desktop' && 'is-active'"
+        :title="t('workspace.desktopTab')"
+        :aria-label="t('workspace.desktopTab')"
+        @click="activateDesktopView"
+      >
+        <Monitor class="w-3.5 h-3.5" />
+      </button>
       <div class="workspace-preview-tabs">
         <button
           v-for="previewTab in previewTabs"
@@ -1299,6 +1322,13 @@ onBeforeUnmount(() => {
           :active="activeView === 'terminal'"
         />
       </KeepAlive>
+      <!-- 接管页：只有挂载时才连 WS（v-if），离开标签页立刻断开。 -->
+      <SandboxDesktopPanel
+        v-if="activeView === 'desktop' && sandboxDesktop"
+        :ws-url="sandboxDesktop.wsUrl"
+        :password="sandboxDesktop.password"
+        @open-external="openDesktop"
+      />
       <div v-if="refreshWarning" class="workspace-refresh-warning" role="status">{{ refreshWarning }}</div>
       <!-- Keep Files / Changes mounted so scroll + expanded folders survive tab switches. -->
       <div

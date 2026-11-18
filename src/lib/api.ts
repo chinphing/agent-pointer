@@ -232,7 +232,7 @@ export interface RuntimeApi {
   getSandboxDesktop(
     workspaceRoot: string,
     conversationId?: string
-  ): Promise<{ url: string; password: string | null } | null>
+  ): Promise<{ url: string; wsUrl: string | null; password: string | null } | null>
   openSandboxDesktop(workspaceRoot: string, conversationId?: string): Promise<string | null>
   getWorkspaceGitStatus(workspaceRoot: string, conversationId?: string): Promise<GitStatusResponse>
   getWorkspaceGitDiff(

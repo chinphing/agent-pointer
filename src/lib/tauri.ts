@@ -131,6 +131,8 @@ export async function deleteWorkspacePath(
 
 export interface SandboxDesktop {
   url: string
+  /** websockify 的 WS 地址，面板内 noVNC 用。老镜像没有，为 null。 */
+  wsUrl: string | null
   password: string | null
 }
 

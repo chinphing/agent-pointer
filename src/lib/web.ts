@@ -261,7 +261,7 @@ export async function deleteWorkspacePath(
 export async function getSandboxDesktop(
   _workspaceRoot: string,
   _conversationId?: string
-): Promise<{ url: string; password: string | null } | null> {
+): Promise<{ url: string; wsUrl: string | null; password: string | null } | null> {
   // 浏览器端没有容器桌面，直接返回 null。
   return null
 }

@@ -160,6 +160,66 @@ pointer-server --mint-sso-ticket --sub 'user-42' --name 'Alice' --ttl 120
 
 验签失败等统一 302 `/?sso_error=invalid`（或 `not_configured` / `not_standalone` / `missing`），细节只打服务端 warn 日志。
 
+## 企业 OIDC 登录
+
+`kind = "oidc"`：服务端从 `{issuer}/.well-known/openid-configuration` 取授权 / token / JWKS 端点，浏览器跳 IdP，回调后本地验签 ID token 再写 Cookie。
+
+```text
+POST /api/auth/login/start?provider=corp     → { authorize_url }（SPA 跳 IdP）
+GET  /api/auth/callback/corp?code=…&state=…  → 校验通过后 307 到 /?auth=success
+```
+
+```toml
+[auth.providers.corp]
+kind = "oidc"
+display_name = "企业统一认证"
+issuer = "https://sso.example.com/realms/acme"
+
+[auth.providers.corp.oidc]
+client_id = "pointer-web"
+client_secret = "replace-with-client-secret"
+scopes = ["profile", "email"]
+```
+
+- `client_secret` 只放服务端；公共客户端（无 secret）用 `auth = "none"`，PKCE 默认开启。
+- 身份取 ID token 的 `subject_path`（默认 `/sub`）→ 会话 `user.id` → 对话 `session_user_id` / terminal `SESSION_USER_ID`。
+- 回调地址由 `public_url` 拼出：**`public_url` 不要带结尾 `/`**，否则拼成 `//api/auth/callback/corp`，路由匹配不到（表现为「从门户点进来又回到登录页」，服务端日志里没有回调请求）。
+- 字段表与默认值见 [`standalone-deployment.md`](standalone-deployment.md) 的 `[auth.providers.<id>]` 一节。
+
+## 标准 OAuth2 + userinfo 登录
+
+`kind = "oauth2_userinfo"` 没有 discovery，三段端点手写：`authorize`（浏览器跳转）、`token`（换 access token）、`userinfo`（取身份）。
+
+```text
+POST /api/auth/login/start?provider=corp-oauth → { authorize_url }（SPA 跳 authorize.url）
+GET  /api/auth/callback/corp-oauth?code=…      → token.url 换 token → userinfo.url 取身份 → 307 /?auth=success
+```
+
+```toml
+[auth.providers.corp-oauth]
+kind = "oauth2_userinfo"
+display_name = "企业账号登录"
+issuer = "https://idp.example.com"
+
+[auth.providers.corp-oauth.authorize]
+url = "https://idp.example.com/oauth2/authorize"
+scope = "openid profile"
+
+[auth.providers.corp-oauth.token]
+url = "https://idp.example.com/oauth2/token"
+client_id = "pointer-web"
+client_secret = "replace-with-client-secret"
+encoding = "form"
+
+[auth.providers.corp-oauth.userinfo]
+url = "https://idp.example.com/oauth2/userinfo"
+subject_path = "/sub"
+```
+
+- 不按 RFC 6749 的实现靠字段适配：`token.encoding` 默认 `json`，标准端点写 `form`；参数名逐个覆盖（`code_param` / `client_id_param` / …，置 `""` 表示不发）；`userinfo.token_auth` + `token_name` + `token_prefix` 决定 token 放 header / query / body，`token_prefix = ""` 发裸 token。
+- 身份取 `userinfo.subject_path`（默认 `/sub`；钉钉这类可写 `/unionId`）。
+- 字段表与默认值见 [`standalone-deployment.md`](standalone-deployment.md) 的 `[auth.providers.<id>]` 一节。
+
 ## 与云电脑的关系
 
 | 模式 | 入口 |

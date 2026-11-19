@@ -182,6 +182,66 @@ Consequences:
 
 `pointer-server auth doctor` reports this as its session-store check; see [cli.md](cli.md).
 
+## Enterprise OIDC login
+
+`kind = "oidc"`: the server reads the authorization / token / JWKS endpoints from `{issuer}/.well-known/openid-configuration`, sends the browser to the IdP, and verifies the ID token locally before writing the Cookie.
+
+```text
+POST /api/auth/login/start?provider=corp     → { authorize_url }   (SPA redirects to the IdP)
+GET  /api/auth/callback/corp?code=…&state=…  → 307 to /?auth=success once verified
+```
+
+```toml
+[auth.providers.corp]
+kind = "oidc"
+display_name = "Corporate SSO"
+issuer = "https://sso.example.com/realms/acme"
+
+[auth.providers.corp.oidc]
+client_id = "pointer-web"
+client_secret = "replace-with-client-secret"
+scopes = ["profile", "email"]
+```
+
+- `client_secret` stays on the server; a public client (no secret) uses `auth = "none"`, and PKCE is on by default.
+- Identity comes from the ID token's `subject_path` (default `/sub`) → session `user.id` → conversation `session_user_id` / terminal `SESSION_USER_ID`.
+- Callback URLs are built from `public_url`: **never add a trailing `/`**, or it becomes `//api/auth/callback/corp`, which matches no route (the user bounces back to the login page and the server log shows no callback request).
+- Field tables and defaults: the `[auth.providers.<id>]` section of [`standalone-deployment.md`](standalone-deployment.md).
+
+## Standard OAuth2 + userinfo login
+
+`kind = "oauth2_userinfo"` has no discovery: all three endpoints are written by hand — `authorize` (browser hop), `token` (code → access token), `userinfo` (identity).
+
+```text
+POST /api/auth/login/start?provider=corp-oauth → { authorize_url }   (SPA redirects to authorize.url)
+GET  /api/auth/callback/corp-oauth?code=…      → token.url → userinfo.url → 307 /?auth=success
+```
+
+```toml
+[auth.providers.corp-oauth]
+kind = "oauth2_userinfo"
+display_name = "Corporate account"
+issuer = "https://idp.example.com"
+
+[auth.providers.corp-oauth.authorize]
+url = "https://idp.example.com/oauth2/authorize"
+scope = "openid profile"
+
+[auth.providers.corp-oauth.token]
+url = "https://idp.example.com/oauth2/token"
+client_id = "pointer-web"
+client_secret = "replace-with-client-secret"
+encoding = "form"
+
+[auth.providers.corp-oauth.userinfo]
+url = "https://idp.example.com/oauth2/userinfo"
+subject_path = "/sub"
+```
+
+- Implementations that ignore RFC 6749 are adapted with fields: `token.encoding` defaults to `json`, so a standard endpoint needs `form`; parameter names can be overridden one by one (`code_param`, `client_id_param`, …; `""` omits the parameter); `userinfo.token_auth` + `token_name` + `token_prefix` decide whether the token travels in a header, query or body, and `token_prefix = ""` sends the raw token.
+- Identity comes from `userinfo.subject_path` (default `/sub`; vendor-specific ids such as `/unionId` also work).
+- Field tables and defaults: the `[auth.providers.<id>]` section of [`standalone-deployment.md`](standalone-deployment.md).
+
 ## Relationship to the cloud computer
 
 | Mode | Entry |

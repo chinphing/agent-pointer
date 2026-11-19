@@ -30,7 +30,7 @@ build_base() {
     docker build \
         -f docker/base.Dockerfile \
         --build-arg "APT_MIRROR=${APT_MIRROR}" \
-        -t "${BASE_IMAGE}" .
+        -t "${BASE_IMAGE}" -t pointer-sandbox-base:latest .
 }
 
 build_light() {
@@ -39,7 +39,7 @@ build_light() {
         -f docker/runtime.Dockerfile \
         --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
         --build-arg "APT_MIRROR=${APT_MIRROR}" \
-        -t "${LIGHT_IMAGE}" .
+        -t "${LIGHT_IMAGE}" -t pointer-sandbox-light:latest .
 }
 
 # Chrome deb：构建容器到 dl.google.com 的 TLS 经常失败，改在宿主预下载，
@@ -73,6 +73,7 @@ build_desktop() {
         --build-arg "APT_MIRROR=${APT_MIRROR}" \
         --build-context "chrome=${ctx}" \
         -t "${DESKTOP_IMAGE}" \
+        -t pointer-sandbox-desktop:latest \
         -t "${CONTAINER_ALIAS}" .
 }
 

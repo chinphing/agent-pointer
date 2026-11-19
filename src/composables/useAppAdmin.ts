@@ -21,3 +21,19 @@ export function useIsAppAdmin() {
     () => isTauriRuntime() || platformAuth.isPlatformAdmin || settings.isPlatformAdmin
   )
 }
+
+/**
+ * Whether the settings dialog may show the admin-only debug section.
+ *
+ * Same policy as the backend `effective_settings_view().is_platform_admin`: the
+ * session ticket flag, or the backend's verdict for this session. A standalone
+ * deployment is **not** an admin signal by itself — an SSO user who signed in to a
+ * standalone server is an ordinary member there, and the backend already reports
+ * the desktop local operator (no web session) as an admin.
+ */
+export function shouldShowAdminDebugSection(input: {
+  settingsAdmin: boolean
+  sessionAdmin: boolean
+}): boolean {
+  return input.settingsAdmin || input.sessionAdmin
+}

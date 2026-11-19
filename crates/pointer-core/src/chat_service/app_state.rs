@@ -1238,10 +1238,15 @@ impl AppState {
         let user = self.load_user_settings();
         let platform = self.platform_config.read().clone();
         let merged = self.effective_settings();
-        // Standalone installs (no control plane) have no platform to administer:
-        // the local operator owns every setting, so keep the admin surfaces open.
-        let is_platform_admin = crate::deployment_mode::is_standalone()
-            || self.active_platform_auth().is_platform_admin();
+        // 管理员口径见 `is_platform_admin_session`：会话票标记是第一来源；
+        // standalone 部署额外放行「本地运维会话」（桌面端无 Web 会话 / 本地密码登录），
+        // 但 SSO 会话一律不是管理员——standalone 只是没有控制面，不是没有身份。
+        let auth = self.active_platform_auth();
+        let is_platform_admin = crate::platform_auth::is_platform_admin_session(
+            auth.is_platform_admin(),
+            crate::deployment_mode::is_standalone(),
+            auth.platform_user_id().as_deref(),
+        );
         EffectiveSettingsView {
             user,
             platform,
@@ -2297,6 +2302,64 @@ mod active_main_task_board_tests {
             .find(|p| p.id == "vllm-local")
             .unwrap();
         assert_eq!(p.api_key, "sk-user-new");
+    }
+
+    fn admin_scope_session(user_id: &str, is_admin: bool) -> PlatformSession {
+        PlatformSession {
+            access_token: "test-token".into(),
+            refresh_token: String::new(),
+            expires_at: i64::MAX,
+            agent_id: String::new(),
+            user: PlatformUserSummary {
+                id: user_id.into(),
+                nickname: Some(user_id.into()),
+                is_platform_admin: is_admin,
+                included_tokens: 0,
+                consumed_tokens: 0,
+                token_quota_exhausted: false,
+            },
+        }
+    }
+
+    /// 管理员口径回归：standalone 不等于「人人都是管理员」。
+    ///
+    /// 此前 `effective_settings_view` 在 standalone 下对**所有**会话返回管理员，
+    /// 于是接入这台机器的 SSO 用户也拿到了平台设置与调试开关。现在只有本地运维
+    /// 会话放行：桌面端（无 Web 会话）与本地密码登录会话；SSO 会话在任何部署模式
+    /// 下都是普通用户。
+    #[test]
+    fn settings_view_admin_scope_distinguishes_sso_from_local_operator() {
+        let _guard = isolate_app_data_dir();
+        let state = AppState::new();
+
+        // SSO 会话：`federated_user_id` = provider:subject，票里非管理员。
+        state
+            .platform_auth
+            .set_session(admin_scope_session("dingtalk:union-1", false));
+        let view = state.effective_settings_view();
+        assert!(
+            !view.is_platform_admin,
+            "an SSO session must not become an admin on a standalone install"
+        );
+        assert!(!view.can_edit_platform);
+
+        // 本地密码登录会话：`local_auth` 建会话时票里就是管理员。
+        state.platform_auth.set_session(admin_scope_session(
+            crate::local_auth::local_user_id(),
+            true,
+        ));
+        let view = state.effective_settings_view();
+        assert!(view.is_platform_admin);
+        assert!(view.can_edit_platform);
+
+        // 桌面客户端：没有 Web 会话，standalone 下由机主自持；平台模式仍看票。
+        state.platform_auth.clear_session();
+        let view = state.effective_settings_view();
+        assert_eq!(
+            view.is_platform_admin,
+            crate::deployment_mode::is_standalone(),
+            "a desktop session is admin exactly in standalone mode"
+        );
     }
 
     #[test]

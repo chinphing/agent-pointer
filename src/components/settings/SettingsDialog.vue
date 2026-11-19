@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ArrowLeft, Bug, Sparkles, Bot, Cpu, MessageSquare, Clock, Info, Settings, Puzzle, Plug, Gauge } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useWindowChrome } from '../../composables/useWindowChrome'
+import { shouldShowAdminDebugSection } from '../../composables/useAppAdmin'
 import WindowDragRegion from '../layout/WindowDragRegion.vue'
 import WindowControls from '../layout/WindowControls.vue'
 import { useSettingsStore } from '../../stores/settings'
@@ -93,7 +94,10 @@ const {
 } = form
 
 const showAdminDebugSection = computed(() =>
-  s.isPlatformAdmin || platformAuth.isPlatformAdmin || platformAuth.isStandalone
+  shouldShowAdminDebugSection({
+    settingsAdmin: s.isPlatformAdmin,
+    sessionAdmin: platformAuth.isPlatformAdmin
+  })
 )
 
 interface SidebarItem {

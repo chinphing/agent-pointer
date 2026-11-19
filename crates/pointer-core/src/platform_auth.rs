@@ -1679,9 +1679,82 @@ async fn run_platform_login_flow_inner(
     result
 }
 
+/// 管理员判定口径：`standalone` 部署也要区分会话身份。
+///
+/// 会话票里的 `is_platform_admin` 永远是第一来源，也是平台模式（绑定控制面）下的
+/// **唯一**来源——那里管理员由控制面签发，部署模式不改变这一点。
+///
+/// `standalone` 部署没有控制面可管，本地运维者自持这台机器，所以「本地运维会话」
+/// 也放行（见 [`is_local_operator_session`]）。但放行的只是机主，不是所有连上来的
+/// 人：SSO 会话的 user id 是 `provider:subject`（`server/src/auth_routes.rs` 的
+/// `federated_user_id`，且会话票里写死非管理员），他们只是这台机器接入的普通成员，
+/// 改不了平台级设置与调试开关。此前按 `is_standalone()` 一律放行，等于把每个 SSO
+/// 用户都当成了管理员。
+pub fn is_platform_admin_session(
+    ticket_is_admin: bool,
+    standalone: bool,
+    session_user_id: Option<&str>,
+) -> bool {
+    ticket_is_admin || (standalone && is_local_operator_session(session_user_id))
+}
+
+/// 本地运维会话：没有 Web 会话（桌面客户端），或本地密码登录会话。
+///
+/// 桌面客户端不经过 `web_request_auth` 的请求作用域，`platform_user_id()` 为空，
+/// 机主就是运维者；本地密码登录由 `local_auth` 建会话，user id 固定是
+/// [`crate::local_auth::local_user_id`]。其他任何 id（含 SSO 的 `provider:subject`）
+/// 都不算。
+pub fn is_local_operator_session(session_user_id: Option<&str>) -> bool {
+    match session_user_id.map(str::trim) {
+        None | Some("") => true,
+        Some(id) => id == crate::local_auth::local_user_id(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// standalone 只放行本地运维会话；SSO 会话（`provider:subject`）照样是普通用户。
+    #[test]
+    fn platform_admin_session_keeps_sso_users_out_of_standalone_admin() {
+        assert!(!is_platform_admin_session(
+            false,
+            true,
+            Some("dingtalk:union-1")
+        ));
+        assert!(!is_platform_admin_session(false, true, Some("u-1001")));
+        assert!(is_platform_admin_session(
+            false,
+            true,
+            Some(crate::local_auth::local_user_id())
+        ));
+        // 桌面客户端没有 Web 会话，机主就是本地运维者。
+        assert!(is_platform_admin_session(false, true, None));
+        assert!(is_platform_admin_session(false, true, Some("   ")));
+    }
+
+    /// 平台模式（绑定控制面）行为不变：只看会话票里的管理员标记。
+    #[test]
+    fn platform_mode_admin_scope_reads_only_the_ticket() {
+        assert!(!is_platform_admin_session(
+            false,
+            false,
+            Some(crate::local_auth::local_user_id())
+        ));
+        assert!(!is_platform_admin_session(false, false, None));
+        assert!(is_platform_admin_session(true, false, Some("u-1001")));
+    }
+
+    #[test]
+    fn local_operator_session_matches_only_the_local_user_id() {
+        assert!(is_local_operator_session(None));
+        assert!(is_local_operator_session(Some("")));
+        assert!(is_local_operator_session(Some(
+            crate::local_auth::local_user_id()
+        )));
+        assert!(!is_local_operator_session(Some("oidc:alice@example.com")));
+    }
 
     #[test]
     fn refresh_auth_failure_uses_http_status_not_proxy_noise() {

@@ -772,9 +772,7 @@ path = "hooks/"
         let data_dir = tempfile::tempdir().unwrap();
         crate::storage::set_test_app_data_dir(data_dir.path().to_path_buf());
         let plugins_home = tempfile::tempdir().unwrap();
-        let _home_lock = crate::test_support::home_env_lock();
-        let _home_restore = crate::test_support::EnvRestore::capture(&["POINTER_HOME"]);
-        std::env::set_var("POINTER_HOME", plugins_home.path());
+        let _home = crate::storage::TestPointerHome::set(plugins_home.path());
 
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
@@ -826,9 +824,7 @@ path = "hooks/"
         let data_dir = tempfile::tempdir().unwrap();
         crate::storage::set_test_app_data_dir(data_dir.path().to_path_buf());
         let plugins_home = tempfile::tempdir().unwrap();
-        let _home_lock = crate::test_support::home_env_lock();
-        let _home_restore = crate::test_support::EnvRestore::capture(&["POINTER_HOME"]);
-        std::env::set_var("POINTER_HOME", plugins_home.path());
+        let _home = crate::storage::TestPointerHome::set(plugins_home.path());
 
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("com.example.hooks");
@@ -908,9 +904,7 @@ path = "hooks/"
         let data_dir = tempfile::tempdir().unwrap();
         crate::storage::set_test_app_data_dir(data_dir.path().to_path_buf());
         let plugins_home = tempfile::tempdir().unwrap();
-        let _home_lock = crate::test_support::home_env_lock();
-        let _home_restore = crate::test_support::EnvRestore::capture(&["POINTER_HOME"]);
-        std::env::set_var("POINTER_HOME", plugins_home.path());
+        let _home = crate::storage::TestPointerHome::set(plugins_home.path());
 
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
@@ -979,9 +973,7 @@ path = "hooks/"
         let data_dir = tempfile::tempdir().unwrap();
         crate::storage::set_test_app_data_dir(data_dir.path().to_path_buf());
         let plugins_home = tempfile::tempdir().unwrap();
-        let _home_lock = crate::test_support::home_env_lock();
-        let _home_restore = crate::test_support::EnvRestore::capture(&["POINTER_HOME"]);
-        std::env::set_var("POINTER_HOME", plugins_home.path());
+        let _home = crate::storage::TestPointerHome::set(plugins_home.path());
 
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();

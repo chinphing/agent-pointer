@@ -16,6 +16,7 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "test": "vitest run",
+    "test:admin": "npm --prefix admin/web test",
     "test:watch": "vitest",
     "preview": "vite preview",
     "tauri": "tauri",

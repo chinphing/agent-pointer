@@ -560,19 +560,37 @@ export const waitForChatStreamReady = isTauriRuntime()
 
 export type PlatformSessionView = import('./tauri').PlatformSessionView
 export type AuthMode = import('./web').AuthMode
-export type LocalCaptcha = import('./web').LocalCaptcha
+export type AuthProvider = import('./web').AuthProvider
+export type AuthProviderKind = import('./web').AuthProviderKind
+export type LocalPasswordChallenge = import('./web').LocalPasswordChallenge
 
 export const getAuthMode = isTauriRuntime() ? tauriApi.getAuthMode : webApi.getAuthMode
-export const fetchLocalCaptcha = isTauriRuntime()
-  ? (async (): Promise<LocalCaptcha> => {
-      throw new Error('local captcha is only available on pointer-server web')
+
+/**
+ * Login methods come from the web server's provider registry. The desktop keeps
+ * its Tauri commands (`openPlatformLogin`), so nothing here changes for it.
+ */
+export const listAuthProviders = isTauriRuntime()
+  ? (async (): Promise<AuthProvider[]> => [])
+  : webApi.listAuthProviders
+export const startProviderLogin = isTauriRuntime()
+  ? (async (_providerId: string): Promise<{ authorize_url: string }> => {
+      throw new Error('provider login is only available on pointer-server web')
     })
-  : webApi.fetchLocalCaptcha
-export const localLogin = isTauriRuntime()
-  ? (async (): Promise<PlatformSessionView> => {
-      throw new Error('local login is only available on pointer-server web')
+  : webApi.startProviderLogin
+export const requestLocalPasswordChallenge = isTauriRuntime()
+  ? (async (_providerId?: string): Promise<LocalPasswordChallenge> => {
+      throw new Error('local password login is only available on pointer-server web')
     })
-  : webApi.localLogin
+  : webApi.requestLocalPasswordChallenge
+export const localPasswordLogin = isTauriRuntime()
+  ? (async (
+      _body: { username: string; password: string; captchaId: string; captcha: string },
+      _providerId?: string
+    ): Promise<PlatformSessionView> => {
+      throw new Error('local password login is only available on pointer-server web')
+    })
+  : webApi.localPasswordLogin
 
 export const getPlatformSession = isTauriRuntime()
   ? tauriApi.getPlatformSession

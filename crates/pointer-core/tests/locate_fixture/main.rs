@@ -1358,8 +1358,6 @@ async fn eastmoney_hint_disambiguates_same_name() -> Result<()> {
 // tests do not call a model, so they run without `--ignored`.
 
 /// Hotspot of the pointer bitmap — the pixel that means "here".
-const POINTER_HOTSPOT: (i32, i32) = (3, 2);
-const POINTER_BITMAP: u32 = 32;
 
 fn sudoku_truth() -> Result<(TruthFile, PathBuf)> {
     let path = dir().join("truth").join("truth_sudoku.json");
@@ -1485,55 +1483,55 @@ fn pointer_overlay_lands_on_every_sudoku_cell() -> Result<()> {
         // through the monitor origin; the diff window lives in crop pixels.
         let (lx, ly) = (cx - crop_x as i32, cy - crop_y as i32);
         let window = (
-            (lx - 16).max(0) as u32,
-            (ly - 16).max(0) as u32,
-            (lx as u32 + 48).min(w),
-            (ly as u32 + 48).min(h),
+            (lx - 24).max(0) as u32,
+            (ly - 24).max(0) as u32,
+            (lx as u32 + 24).min(w),
+            (ly as u32 + 24).min(h),
         );
         let tag = &case.scene;
         let Some((x0, y0, x1, y1)) = diff_bbox(&baseline, &drawn, window) else {
             failures.push(format!("{tag} ({cx},{cy}): pointer drew nothing"));
             continue;
         };
-        // The bitmap is pasted at `(x - hotspot)`; its black outline reaches a
-        // few pixels past that corner, and JPEG softens the rest. Anchor the
-        // assertion on the diff corner with that slack — a coordinate
-        // conversion bug (logical vs physical) lands tens of pixels away, so
-        // this still catches it while tolerating the outline.
-        let (want_x0, want_y0) = (lx - POINTER_HOTSPOT.0, ly - POINTER_HOTSPOT.1);
-        let slack = 6i64;
-        let off = |got: u32, want: i32| (got as i64 - want as i64).abs();
-        if off(x0, want_x0) > slack || off(y0, want_y0) > slack {
+        // `redraw_with_current_pointer` draws a crosshair **centred** on the
+        // requested point (`composite_pointer_crosshair`), not a bitmap pasted at
+        // a hotspot offset. Anchor on the centre of the diff box: a logical-vs-
+        // physical conversion bug moves it by hundreds of pixels, while JPEG
+        // ringing moves the edges by a few.
+        let slack = 3i64;
+        let got_cx = (x0 as i64 + x1 as i64) / 2;
+        let got_cy = (y0 as i64 + y1 as i64) / 2;
+        if (got_cx - lx as i64).abs() > slack || (got_cy - ly as i64).abs() > slack {
             failures.push(format!(
-                "{tag} ({cx},{cy}): diff starts at ({x0},{y0}), want ({want_x0},{want_y0}) ±{slack}"
+                "{tag} ({cx},{cy}): diff centre ({got_cx},{got_cy}), want ({lx},{ly}) ±{slack}"
             ));
             continue;
         }
         let (box_w, box_h) = (x1 - x0 + 1, y1 - y0 + 1);
-        let cap = POINTER_BITMAP + 12;
-        if box_w > cap || box_h > cap {
+        // The crosshair is ~25–35 px across at fixture scale (arm = 18/1512 of
+        // the frame width, min 10 px, plus its halo and JPEG ringing). A larger
+        // box means the frame itself changed, not the pointer.
+        const MAX_BOX: u32 = 80;
+        if box_w > MAX_BOX || box_h > MAX_BOX {
             failures.push(format!(
-                "{tag} ({cx},{cy}): diff box {box_w}×{box_h} exceeds the pointer footprint"
+                "{tag} ({cx},{cy}): diff box {box_w}×{box_h} exceeds the crosshair footprint"
             ));
             continue;
         }
-        // A real pointer covers most of its 32×32 footprint; a stray
-        // JPEG ripple covers a handful of pixels.
+        // A real crosshair covers tens of pixels; a stray JPEG ripple does not.
         if box_w < 12 || box_h < 12 {
             failures.push(format!(
-                "{tag} ({cx},{cy}): diff box {box_w}×{box_h} is too small for the pointer"
+                "{tag} ({cx},{cy}): diff box {box_w}×{box_h} is too small for the crosshair"
             ));
             continue;
         }
-        // The arrow tip — the corner the bitmap anchors on — must sit inside
-        // the cell it was aimed at. The body extends down-right past that
-        // corner and may cross a rule; the tip is what marks the click.
+        // The point the crosshair marks must sit inside the cell it was aimed at.
         let (cell_x0, cell_y0, cell_x1, cell_y1) = case_bounds(case);
-        let tip_x = x0 as i32 + crop_x as i32;
-        let tip_y = y0 as i32 + crop_y as i32;
-        if tip_x < cell_x0 || tip_x >= cell_x1 || tip_y < cell_y0 || tip_y >= cell_y1 {
+        let centre_x = got_cx as i32 + crop_x as i32;
+        let centre_y = got_cy as i32 + crop_y as i32;
+        if centre_x < cell_x0 || centre_x >= cell_x1 || centre_y < cell_y0 || centre_y >= cell_y1 {
             failures.push(format!(
-                "{tag} ({cx},{cy}): pointer tip at ({tip_x},{tip_y}) is outside cell ({cell_x0},{cell_y0})-({cell_x1},{cell_y1})"
+                "{tag} ({cx},{cy}): crosshair centre at ({centre_x},{centre_y}) is outside cell ({cell_x0},{cell_y0})-({cell_x1},{cell_y1})"
             ));
         }
     }
@@ -2016,3 +2014,4 @@ async fn fullscreen_absolute_coordinates() -> Result<()> {
     }
     Ok(())
 }
+

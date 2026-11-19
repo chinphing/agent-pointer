@@ -216,7 +216,7 @@ mod tests {
     #[test]
     fn reconcile_default_project_is_per_session_user() {
         let dir = TempDir::new().unwrap();
-        std::env::set_var("POINTER_APP_DATA_DIR", dir.path());
+        // 显式目录：`open_in_dir` 已接收根目录，无需改写 POINTER_APP_DATA_DIR。
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();
 
         let mut a = sample_conv("conv-a", "A", "a");

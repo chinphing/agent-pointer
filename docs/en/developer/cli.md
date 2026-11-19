@@ -6,18 +6,19 @@ This page is the "which command lives where" index: the server binary's own argu
 
 ## The `pointer-server` command line
 
-It has **no subcommand parser** (no clap); at startup it only checks a few special modes. If one matches it prints the result and exits; otherwise it starts the server normally.
+It has **no general subcommand parser** (no clap); at startup it only checks a few special modes — plus the single subcommand form `auth doctor`. If one matches it prints the result and exits; otherwise it starts the server normally.
 
 | Argument | Usage | Output |
 | --- | --- | --- |
+| `auth doctor` | `auth doctor [--config PATH] [--network] [--exchange]` | the read-only login preflight report; **exit code 1 when any check FAILs** |
 | `--hash-password` | `--hash-password [--secret SECRET] [PASSWORD]` | one line on stdout: `password_hmac = "<hex>"` |
 | `--mint-sso-ticket` | `--mint-sso-ticket --sub USER_ID [--name NICK] [--ttl SECS] [--secret SECRET] [--audience AUD]` | one line on stdout: the ticket |
 | `--machine-id-json` | no arguments | machine binding information on stdout (pretty JSON) |
 | `--machine-id` | no arguments | the primary binding token on stdout (`fp1:…`) |
 
-**There is no `--help`, `--version` or `--config`.** These arguments are not recognised — for example `pointer-server --version` does not print a version, it **starts the server normally**. All runtime arguments (listen address, configuration file path, …) go through environment variables; see the configuration reference in the [standalone deployment developer documentation](standalone-deployment.md).
+**There is no `--help` or `--version`.** These arguments are not recognised — for example `pointer-server --version` does not print a version, it **starts the server normally**. A `--config` flag is accepted only after `auth doctor`; everywhere else the configuration file path comes from `POINTER_SERVER_CONFIG`. All runtime arguments (listen address, configuration file path, …) go through environment variables; see the configuration reference in the [standalone deployment developer documentation](standalone-deployment.md).
 
-In server mode **extra arguments are silently ignored**; only `--hash-password` and `--mint-sso-ticket` report `error: unexpected argument` for arguments they do not recognise.
+In server mode **extra arguments are silently ignored**; only `auth doctor`, `--hash-password` and `--mint-sso-ticket` report `error: unexpected argument` for arguments they do not recognise.
 
 ### Generating a password digest
 
@@ -48,6 +49,27 @@ pointer-server --machine-id        # just the fp1:… token
 ```
 
 Neither command **needs** configuration or a License, so they can be run right after installation.
+
+### Login preflight: `auth doctor`
+
+```bash
+pointer-server auth doctor                      # normal config discovery
+pointer-server auth doctor --config /etc/pointer-server/pointer-server.toml
+pointer-server auth doctor --network            # also TCP-check the provider endpoints
+pointer-server auth doctor --exchange           # also send one fake-code token request per provider
+```
+
+- **Read-only**: it never writes configuration and never touches the session store, so it is safe on a live instance
+- Every check prints item → verdict → fix hint (the report text is Chinese), then a summary line `汇总：OK n · WARN n · FAIL n`
+- **Exit code 1 when any check FAILs**, 0 otherwise — usable directly in CI or a deploy script; `--config` sets `POINTER_SERVER_CONFIG` for that run, an unknown argument exits 1
+- Checks: configuration file parse, deployment mode and the injected default provider, provider registry validation, whether the default provider is usable, `public_url` scheme, callback-path conflicts, and a note that the session store is in-memory (single instance)
+- **Offline by default**; `--network` adds a TCP connectivity check against the `authorize` / `token` / `userinfo` / lookup endpoints
+- `--exchange` goes one step further: for every `oauth2_userinfo` / `oidc` provider that has a `token.url` it sends **one token request with a deliberately fake code** (10 s timeout) and classifies the answer:
+  - a standard OAuth error (`invalid_grant` / `invalid_client` / `invalid_request` / `unsupported_grant_type` / `invalid_scope` / `unauthorized_client`) → **OK**: the endpoint and the client credentials work
+  - an HTTP response without one of those codes → **WARN**: check `token.url` / `client_id` / `client_secret`
+  - network, TLS, timeout or an unparsable body → **FAIL**
+  - the endpoint hands back a token for the fake code → **WARN** (that address is probably not an OAuth token endpoint)
+- `--exchange` needs `public_url` to build the `redirect_uri`; a provider without it is reported as a WARN, not a FAIL
 
 ## npm scripts
 

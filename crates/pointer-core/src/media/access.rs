@@ -7,20 +7,28 @@ use dirs::home_dir;
 
 use super::path_hint::MEDIA_URI_SCHEME;
 pub fn expand_root(raw: &str) -> Result<PathBuf> {
+    expand_root_at(raw, home_dir().as_deref())
+}
+
+/// Same as [`expand_root`], with an explicit home for `~` expansion.
+///
+/// Callers that already know the home (tests, sandboxed hosts) avoid the
+/// process-global `HOME` lookup entirely.
+pub fn expand_root_at(raw: &str, home: Option<&Path>) -> Result<PathBuf> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         anyhow::bail!("empty media root");
     }
     if trimmed == "~" {
-        let home = home_dir().context("home dir for ~")?;
-        return Ok(home);
+        let home = home.context("home dir for ~")?;
+        return Ok(home.to_path_buf());
     }
     if let Some(rest) = trimmed.strip_prefix("~/") {
-        let home = home_dir().context("home dir for ~/")?;
+        let home = home.context("home dir for ~/")?;
         return Ok(home.join(rest));
     }
     if let Some(rest) = trimmed.strip_prefix("~\\") {
-        let home = home_dir().context("home dir for ~\\")?;
+        let home = home.context("home dir for ~\\")?;
         return Ok(home.join(rest));
     }
     Ok(PathBuf::from(trimmed))

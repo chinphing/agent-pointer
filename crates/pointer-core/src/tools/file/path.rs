@@ -108,12 +108,21 @@ pub(crate) fn build_glob_set(globs: Option<&[String]>) -> Result<Option<globset:
 
 /// Expand `~` / `~/…` to the session user's home directory.
 pub(crate) fn expand_user_path_for_file(user_path: &str) -> Result<String> {
+    expand_user_path_for_file_at(user_path, dirs::home_dir().as_deref())
+}
+
+/// Same as [`expand_user_path_for_file`], with an explicit home for `~`.
+pub(crate) fn expand_user_path_for_file_at(
+    user_path: &str,
+    home: Option<&Path>,
+) -> Result<String> {
     let s = normalize_user_fspath(user_path);
     if s.is_empty() {
         return Ok(String::new());
     }
     if s == "~" || s.starts_with("~/") || s.starts_with("~\\") {
-        return crate::media::access::expand_root(s).map(|p| p.to_string_lossy().into_owned());
+        return crate::media::access::expand_root_at(s, home)
+            .map(|p| p.to_string_lossy().into_owned());
     }
     Ok(s.to_string())
 }
@@ -333,6 +342,14 @@ fn push_writable_root(roots: &mut Vec<PathBuf>, path: PathBuf, pinned: Option<&P
 /// broader roots (home, `temp_dir`, …) are merged — nested temp workspaces would otherwise
 /// disappear from the list and break any consumer that assumes `roots[0]` is the workspace.
 pub fn writable_path_roots(workspace_root: &Path) -> Result<Vec<PathBuf>> {
+    writable_path_roots_at(workspace_root, dirs::home_dir().as_deref())
+}
+
+/// Same as [`writable_path_roots`], with an explicit home entry (no env read).
+pub fn writable_path_roots_at(
+    workspace_root: &Path,
+    home: Option<&Path>,
+) -> Result<Vec<PathBuf>> {
     let mut roots = Vec::new();
     let ws = env_canonicalize(workspace_root);
     // 环境收口：非 Host 档位只放开工作区（及用户目录），不再列出 temp / desktop 等宿主目录。
@@ -355,8 +372,8 @@ pub fn writable_path_roots(workspace_root: &Path) -> Result<Vec<PathBuf>> {
     let pinned = roots.first().cloned();
     let pinned_ref = pinned.as_deref();
 
-    if let Some(home) = dirs::home_dir() {
-        push_writable_root(&mut roots, home, pinned_ref);
+    if let Some(home) = home {
+        push_writable_root(&mut roots, home.to_path_buf(), pinned_ref);
     }
     push_writable_root(&mut roots, std::env::temp_dir(), pinned_ref);
 
@@ -477,6 +494,40 @@ pub fn resolve_writable_path(workspace_root: &Path, user_path: &str) -> Result<P
     let roots = writable_path_roots(workspace_root)?;
     let workspace = env_canonicalize(workspace_root);
     let expanded = expand_user_path_for_file(user_path)?;
+    if expanded.is_empty() {
+        return Err(anyhow!("路径不能为空"));
+    }
+    if expanded.contains('\0') {
+        return Err(anyhow!("路径含非法字符"));
+    }
+    let path = Path::new(expanded.as_str());
+
+    let out = if path.is_absolute() {
+        resolve_absolute_under_roots(&roots, path)?
+    } else {
+        resolve_relative_under_workspace(&workspace, &expanded)?
+    };
+
+    if !path_under_any_root(&out, &roots) {
+        return Err(anyhow!("路径不在允许的写入目录内"));
+    }
+    Ok(out)
+}
+
+/// Same as [`resolve_writable_path`], with an explicit home for `~` and for the
+/// allowed home root — no process env involved.
+// 只在测试里被调用（显式注入 home，不改进程 env）。
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn resolve_writable_path_at(
+    workspace_root: &Path,
+    user_path: &str,
+    home: Option<&Path>,
+) -> Result<PathBuf> {
+    let roots = writable_path_roots_at(workspace_root, home)?;
+    let workspace = workspace_root
+        .canonicalize()
+        .map_err(|e| anyhow!("工作区根无效: {e}"))?;
+    let expanded = expand_user_path_for_file_at(user_path, home)?;
     if expanded.is_empty() {
         return Err(anyhow!("路径不能为空"));
     }
@@ -754,6 +805,39 @@ pub(crate) fn path_display_for_read_request(workspace_root: &Path, path_str: &st
 pub fn resolve_accessible_path(workspace_root: &Path, user_path: &str) -> Result<PathBuf> {
     let workspace_root = env_canonicalize(workspace_root);
     let user_path = expand_user_path_for_file(user_path)?;
+    if user_path.is_empty() {
+        return Err(anyhow!("路径不能为空"));
+    }
+    if user_path.contains('\0') {
+        return Err(anyhow!("路径含非法字符"));
+    }
+    let path = Path::new(user_path.as_str());
+    if path.is_absolute() {
+        let env = crate::env::effective_env();
+        if !env.exists(path) {
+            return Err(anyhow!("路径无效或不存在: {}", path.display()));
+        }
+        let resolved = env_canonicalize(path);
+        if !read_allowed(&resolved, &workspace_root) {
+            return Err(anyhow!("路径不在当前环境允许读取的范围内"));
+        }
+        return Ok(resolved);
+    }
+    resolve_within_workspace_root(&workspace_root, user_path.as_str())
+}
+
+/// Same as [`resolve_accessible_path`], with an explicit home for `~`.
+// 同上：测试用的显式 home 版本。
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn resolve_accessible_path_at(
+    workspace_root: &Path,
+    user_path: &str,
+    home: Option<&Path>,
+) -> Result<PathBuf> {
+    let workspace_root = workspace_root
+        .canonicalize()
+        .map_err(|e| anyhow!("工作区根无效: {e}"))?;
+    let user_path = expand_user_path_for_file_at(user_path, home)?;
     if user_path.is_empty() {
         return Err(anyhow!("路径不能为空"));
     }

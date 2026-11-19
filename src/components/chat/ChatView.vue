@@ -3,9 +3,7 @@ import { computed, defineAsyncComponent, defineComponent, h, nextTick, onBeforeU
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import Composer from './Composer.vue'
-import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
 import { useChatStore } from '../../stores/chat'
-import { usePlatformAuthStore } from '../../stores/platformAuth'
 import TerminalLiveOutputModal from './TerminalLiveOutputModal.vue'
 import { useCurrentConversationSearch } from '../../lib/useCurrentConversationSearch'
 import { shouldShowMessageListPlaceholder, shouldShowWelcomeHome } from '../../lib/chatMainPane'
@@ -65,7 +63,6 @@ const MessageList = defineAsyncComponent({
 const RenderPerfHud = defineAsyncComponent(() => import('../dev/RenderPerfHud.vue'))
 
 const chat = useChatStore()
-const platformAuth = usePlatformAuthStore()
 const { uiToast, terminalLivePopup } = storeToRefs(chat)
 const isHydratingMessages = computed(() => chat.isCurrentConversationHydrating)
 /**
@@ -115,7 +112,6 @@ const showFooterComposer = computed(() =>
   )
 )
 // Standalone installs (no control plane) chat with local model keys — no login.
-const needsPlatformLogin = computed(() => platformAuth.needsSignIn)
 /** Dev-only render perf overlay — off unless toggled (see `lib/renderPerf.ts`). */
 const perfHudOn = useRenderPerfEnabled()
 
@@ -285,23 +281,6 @@ onBeforeUnmount(() => {
   if (pageSearchDebounceTimer != null) window.clearTimeout(pageSearchDebounceTimer)
 })
 
-async function onPlatformLogin() {
-  try {
-    await platformAuth.login()
-    chat.clearPlatformLoginErrorMessages()
-  } catch {
-    /* error in store */
-  }
-}
-
-function onLocalLoginSuccess() {
-  chat.clearPlatformLoginErrorMessages()
-}
-
-function onPlatformLoginCancel() {
-  void platformAuth.cancelLogin()
-}
-
 const toastClass = computed(() => {
   const t = uiToast.value
   if (!t) return ''
@@ -415,23 +394,6 @@ const toastClass = computed(() => {
             :tip="welcomeTip"
           />
 
-          <div
-            v-if="!isMobileViewport || needsPlatformLogin"
-            class="flex w-full flex-col"
-            :class="isMobileViewport ? 'pt-2' : 'pt-10'"
-          >
-            <div v-if="needsPlatformLogin" class="mt-10 flex w-full max-w-sm flex-col items-center">
-              <div class="mb-4 h-px w-full bg-border" />
-              <PlatformLoginActions
-                variant="hero"
-                :loading="platformAuth.loading"
-                :error="platformAuth.error"
-                @login="onPlatformLogin"
-                @cancel="onPlatformLoginCancel"
-                @local-success="onLocalLoginSuccess"
-              />
-            </div>
-          </div>
         </div>
       </div>
 

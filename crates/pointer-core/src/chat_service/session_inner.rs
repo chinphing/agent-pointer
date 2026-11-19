@@ -334,11 +334,13 @@ pub(super) async fn run_chat_inner(
     let _work_dir_guard =
         crate::session_work_dir_env::SessionWorkDirGuard::enter(tool_workspace.clone());
 
-    let _session_user_guard = crate::session_user_env::SessionUserIdGuard::enter(session_user_id);
-    // 请求级域名：从 HTTP 边界带过来的 task-local，落成 thread-local 供终端环境注入。
-    let _access_host_guard = crate::access_host_env::AccessHostGuard::enter(
-        crate::access_host_scope::current().unwrap_or_default(),
-    );
+    // 这里**不要**再进 `SessionWorkDirGuard` / `SessionUserIdGuard` /
+    // `AccessHostGuard`。它们会在整个回合的数百个 await 之间持有 thread-local：
+    // future 一旦被调度到别的 worker 线程，guard 和读取点就分离了，读到的是空值
+    // 或上一个回合留在该线程上的残留。三者都在真正的阻塞边界各自重入：
+    // - `dispatch/registry.rs`（同步工具分发）
+    // - `dispatch/terminal.rs` 的两处 `spawn_blocking` 闭包
+    // 请求域名由 `access_host_scope`（task-local）一路带到终端分发点。
 
     if effective_workspace.trim() != ui_workspace_before.trim() {
         let is_ephemeral = ui_workspace_before.trim().is_empty()

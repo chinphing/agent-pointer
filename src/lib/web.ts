@@ -1004,25 +1004,69 @@ export async function getAuthMode(): Promise<AuthMode> {
   }
 }
 
-export interface LocalCaptcha {
+export type AuthProviderKind =
+  | 'platform'
+  | 'local_password'
+  | 'token_lookup'
+  | 'oauth2_userinfo'
+  | 'oidc'
+
+export interface AuthProvider {
+  id: string
+  display_name: string
+  kind: AuthProviderKind
+  /** Icon name from the server (`building` / `key` / `ticket` / `user` / `shield`). */
+  icon?: string
+  /** Server-selected primary entry (solid button, first row) of the login page. */
+  primary?: boolean
+}
+
+/** Enabled login methods for this deployment (web only). */
+export async function listAuthProviders(): Promise<AuthProvider[]> {
+  const res = await request<{ providers?: AuthProvider[] }>('/api/auth/providers')
+  return Array.isArray(res.providers) ? res.providers : []
+}
+
+/** Start a redirect login; the caller navigates to `authorize_url`. */
+export async function startProviderLogin(
+  providerId: string
+): Promise<{ authorize_url: string }> {
+  return await request<{ authorize_url: string }>(
+    `/api/auth/login/start?provider=${encodeURIComponent(providerId)}`,
+    { method: 'POST' }
+  )
+}
+
+export interface LocalPasswordChallenge {
   captchaId: string
   imageSvg: string
 }
 
-export async function fetchLocalCaptcha(): Promise<LocalCaptcha> {
-  return await request<LocalCaptcha>('/api/auth/local/captcha')
+/** `login/start` for `local_password`: issues the captcha challenge only. */
+export async function requestLocalPasswordChallenge(
+  providerId = 'local_password'
+): Promise<LocalPasswordChallenge> {
+  const res = await request<{
+    captcha?: { captchaId?: string; imageSvg?: string }
+  }>(`/api/auth/login/start?provider=${encodeURIComponent(providerId)}`, {
+    method: 'POST'
+  })
+  const captcha = res.captcha
+  if (!captcha?.captchaId || !captcha.imageSvg) {
+    throw new Error('local_password_challenge_missing')
+  }
+  return { captchaId: captcha.captchaId, imageSvg: captcha.imageSvg }
 }
 
-export async function localLogin(body: {
-  username: string
-  password: string
-  captchaId: string
-  captcha: string
-}): Promise<PlatformSessionView> {
-  return await request<PlatformSessionView>('/api/auth/local/login', {
-    method: 'POST',
-    body: JSON.stringify(body)
-  })
+/** `login/finish` for `local_password`: credentials in, session out. */
+export async function localPasswordLogin(
+  body: { username: string; password: string; captchaId: string; captcha: string },
+  providerId = 'local_password'
+): Promise<PlatformSessionView> {
+  return await request<PlatformSessionView>(
+    `/api/auth/login/finish?provider=${encodeURIComponent(providerId)}`,
+    { method: 'POST', body: JSON.stringify(body) }
+  )
 }
 
 export async function getPlatformSession(): Promise<PlatformSessionView> {

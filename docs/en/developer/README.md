@@ -109,8 +109,8 @@ For user-side IM summaries see [`../user/im-channels.md`](../user/im-channels.md
 | Document | Description |
 |------|------|
 | [cli.md](cli.md) | `pointer-server` arguments, npm scripts, deployment scripts and which packages have a bin |
-| [standalone-local-login.md](standalone-local-login.md) | Standalone username/password + third-party `?sso=` local signature-verified login |
-| [standalone-deployment.md](standalone-deployment.md) | pointer-server configuration reference: local auth and SSO, License (enforced only for managed builds), access control, `[server]` branding parameters and CORS, config discovery order (listed under Deployment in the sidebar) |
+| [standalone-local-login.md](standalone-local-login.md) | Standalone login via the provider registry: `local_password` username/password + `token_lookup` third-party ticket |
+| [standalone-deployment.md](standalone-deployment.md) | pointer-server configuration reference: `[auth.providers.<id>]` login providers, License (enforced only for managed builds), access control, `[server]` branding parameters and CORS, config discovery order (listed under Deployment in the sidebar) |
 
 ## Building Pointer from source
 

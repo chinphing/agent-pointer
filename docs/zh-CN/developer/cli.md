@@ -6,7 +6,7 @@
 
 ## `pointer-server` 的命令行
 
-它**没有子命令解析器**（没有 clap），只在启动时检查几个特殊模式；命中就打印结果并退出，不命中就正常启动服务器。
+它**没有通用子命令解析器**（没有 clap），只在启动时检查几个特殊模式（`--xxx` 参数与唯一的 `auth doctor` 子命令）；命中就打印结果并退出，不命中就正常启动服务器。
 
 | 参数 | 用法 | 输出 |
 | --- | --- | --- |
@@ -14,10 +14,32 @@
 | `--mint-sso-ticket` | `--mint-sso-ticket --sub USER_ID [--name NICK] [--ttl SECS] [--secret SECRET] [--audience AUD]` | stdout 一行 ticket |
 | `--machine-id-json` | 无参数 | stdout 机器绑定信息（pretty JSON） |
 | `--machine-id` | 无参数 | stdout 主绑定 token（`fp1:…`） |
+| `auth doctor` | `auth doctor [--config PATH] [--network] [--exchange]` | stdout 自检报告；有 FAIL 时退出码 1 |
 
-**没有 `--help`、`--version`、`--config`。** 这几个参数不会被识别 —— 比如 `pointer-server --version` 不会打印版本，而是**正常启动服务器**。运行期参数（监听地址、配置文件路径等）全部走环境变量，见 [独立部署开发文档](standalone-deployment.md) 的配置参考。
+**没有 `--help`、`--version`、全局 `--config`**（`--config` 只属于 `auth doctor`）。 这几个参数不会被识别 —— 比如 `pointer-server --version` 不会打印版本，而是**正常启动服务器**。运行期参数（监听地址、配置文件路径等）全部走环境变量，见 [独立部署开发文档](standalone-deployment.md) 的配置参考。
 
-服务端模式下**多余的参数会被静默忽略**；只有 `--hash-password` 与 `--mint-sso-ticket` 会对不认识的参数报 `error: unexpected argument`。
+服务端模式下**多余的参数会被静默忽略**；只有 `--hash-password`、`--mint-sso-ticket` 与 `auth doctor` 会对不认识的参数报 `error: unexpected argument`。
+
+### 登录自检（auth doctor）
+
+```bash
+pointer-server auth doctor                 # 只读，不联网
+pointer-server auth doctor --network       # 额外检查出网连通性
+pointer-server auth doctor --exchange      # 额外对每个 provider 发一次假 code 换发请求
+pointer-server auth doctor --config /etc/pointer/pointer-server.toml
+```
+
+逐项输出「项 → 结论 → 修复建议」：配置文件能否解析、部署模式与默认注入的 provider、provider 注册表校验、默认 provider 是否可用、`public_url` 是否 https、回调路径是否与固定路由冲突、会话存储约束（进程内存，单实例）。
+
+- **只读**：不写配置、不建会话、不改任何状态。
+- 默认**不联网**；`--network` 才对 authorize / token / userinfo / lookup 地址做 TCP 连通性检查。
+- `--exchange` 更进一步：对每个配了 `token.url` 的 `oauth2_userinfo` / `oidc` provider **发一次带假 code 的 token 请求**（10 秒超时），按返回判定：
+  - 返回标准 OAuth 错误（`invalid_grant` / `invalid_client` / `invalid_request` / `unsupported_grant_type` / `invalid_scope` / `unauthorized_client`）→ **OK**，端点与 client 凭据可用
+  - 有 HTTP 响应但不是上述错误码 → **WARN**，核对 `token.url` / `client_id` / `client_secret`
+  - 网络 / TLS / 超时 / 响应解析失败 → **FAIL**
+  - 端点竟然用假 code 换到了 token → **WARN**（该地址可能不是 OAuth token 端点）
+- `--exchange` 需要 `public_url` 才能拼出 `redirect_uri`；缺 `public_url` 的 provider 记 WARN，不算 FAIL。
+- 有任一 `FAIL` 退出码为 1（`WARN` 不影响退出码），可直接放进部署脚本做门禁。
 
 ### 生成密码摘要
 

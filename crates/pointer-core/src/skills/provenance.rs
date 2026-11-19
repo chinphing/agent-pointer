@@ -147,10 +147,20 @@ fn usage_path() -> Result<PathBuf> {
     Ok(pointer_skills_dir()?.join(USAGE_JSON))
 }
 
+/// Usage store for an explicit skills root — the same directory imports write
+/// into, so callers that inject a root need no process env.
+fn usage_path_at(root: &Path) -> PathBuf {
+    root.join(USAGE_JSON)
+}
+
 fn load_usage() -> UsageStore {
     let Ok(path) = usage_path() else {
         return UsageStore::default();
     };
+    load_usage_at_path(&path)
+}
+
+fn load_usage_at_path(path: &Path) -> UsageStore {
     if !path.exists() {
         return UsageStore::default();
     }
@@ -161,7 +171,10 @@ fn load_usage() -> UsageStore {
 }
 
 fn save_usage(store: &UsageStore) -> Result<()> {
-    let path = usage_path()?;
+    save_usage_at_path(&usage_path()?, store)
+}
+
+fn save_usage_at_path(path: &Path, store: &UsageStore) -> Result<()> {
     let tmp = path.with_extension("json.tmp");
     fs::write(&tmp, serde_json::to_string_pretty(store)?)?;
     fs::rename(&tmp, path)?;
@@ -172,13 +185,27 @@ pub fn mark_agent_created(skill_id: &str, imported_from: Option<&str>) {
     let Ok(mut store) = (|| -> Result<UsageStore> { Ok(load_usage()) })() else {
         return;
     };
+    mark_in_store(&mut store, skill_id, imported_from);
+    if let Err(e) = save_usage(&store) {
+        log::warn!("provenance: save usage failed for {skill_id}: {e:#}");
+    }
+}
+
+/// Same record, written under an explicit skills root (no env).
+pub fn mark_agent_created_at(root: &Path, skill_id: &str, imported_from: Option<&str>) {
+    let path = usage_path_at(root);
+    let mut store = load_usage_at_path(&path);
+    mark_in_store(&mut store, skill_id, imported_from);
+    if let Err(e) = save_usage_at_path(&path, &store) {
+        log::warn!("provenance: save usage failed for {skill_id}: {e:#}");
+    }
+}
+
+fn mark_in_store(store: &mut UsageStore, skill_id: &str, imported_from: Option<&str>) {
     let rec = store.skills.entry(skill_id.trim().to_string()).or_default();
     rec.agent_created = true;
     if let Some(src) = imported_from.filter(|s| !s.is_empty()) {
         rec.imported_from = Some(src.to_string());
-    }
-    if let Err(e) = save_usage(&store) {
-        log::warn!("provenance: save usage failed for {skill_id}: {e:#}");
     }
 }
 

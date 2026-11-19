@@ -27,6 +27,41 @@ static TEST_APP_DATA_DIR: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::
 #[cfg(test)]
 static TEST_APP_DATA_DIR_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Test-only `~/.pointer` override. Same idea as [`TEST_APP_DATA_DIR`]: tests
+/// point the pointer home at a temp dir **without** mutating `HOME` /
+/// `POINTER_HOME`, which every other thread in the test process reads.
+#[cfg(test)]
+static TEST_POINTER_HOME: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+/// RAII override for [`pointer_home_dir`]; restores the previous value on drop
+/// (even on panic). Take [`test_app_data_dir_lock`] first — both overrides are
+/// process-global.
+#[cfg(test)]
+pub(crate) struct TestPointerHome {
+    previous: Option<PathBuf>,
+}
+
+#[cfg(test)]
+impl TestPointerHome {
+    pub(crate) fn set(dir: impl Into<PathBuf>) -> Self {
+        let mut slot = TEST_POINTER_HOME
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let previous = slot.replace(dir.into());
+        Self { previous }
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestPointerHome {
+    fn drop(&mut self) {
+        let mut slot = TEST_POINTER_HOME
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *slot = self.previous.take();
+    }
+}
+
 /// Serialize tests that replace the process-global app data directory.
 #[cfg(test)]
 pub fn test_app_data_dir_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -122,12 +157,33 @@ pub fn app_data_dir() -> Result<PathBuf> {
 /// 这里曾有三份各自实现：插件认 `POINTER_HOME`，技能与 AGENTS.md 不认，
 /// 结果隔离环境下插件目录被隔离、企业目录缓存却读真实 home。
 pub fn pointer_home_dir() -> Result<PathBuf> {
+    #[cfg(test)]
+    {
+        if let Some(dir) = test_pointer_home_override() {
+            std::fs::create_dir_all(&dir)?;
+            return Ok(dir);
+        }
+    }
     resolve_pointer_home(std::env::var("POINTER_HOME").ok().as_deref())
 }
 
 /// 同 [`pointer_home_dir`]，但不创建目录（只判断路径是否存在时用）。
 pub fn pointer_home_dir_no_create() -> Option<PathBuf> {
+    #[cfg(test)]
+    {
+        if let Some(dir) = test_pointer_home_override() {
+            return Some(dir);
+        }
+    }
     resolve_pointer_home_no_create(std::env::var("POINTER_HOME").ok().as_deref())
+}
+
+#[cfg(test)]
+fn test_pointer_home_override() -> Option<PathBuf> {
+    TEST_POINTER_HOME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
 }
 
 /// 纯函数形式，便于不碰进程环境变量地测覆盖逻辑。
@@ -1514,10 +1570,11 @@ mod tests {
     /// 真机验证时企业插件区整块不出现，排查方向被带偏。
     #[test]
     fn all_modules_resolve_the_same_pointer_home() {
-        let _lock = crate::test_support::home_env_lock();
-        let _restore = crate::test_support::EnvRestore::capture(&["POINTER_HOME"]);
+        // Injected pointer home: no `POINTER_HOME`/`HOME` mutation, so a
+        // concurrent test cannot observe (or move) this root.
+        let _lock = test_app_data_dir_lock();
         let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("POINTER_HOME", tmp.path());
+        let _home = TestPointerHome::set(tmp.path());
 
         assert_eq!(pointer_home_dir().unwrap(), tmp.path());
         assert_eq!(

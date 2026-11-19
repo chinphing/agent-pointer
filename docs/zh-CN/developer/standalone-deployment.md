@@ -48,7 +48,7 @@ pub fn is_standalone() -> bool;
 
 ## 本地认证
 
-**文件：** `crates/pointer-core/src/local_auth.rs`、`server/src/local_auth.rs`
+**文件：** `crates/pointer-core/src/local_auth.rs`、`server/src/auth_routes.rs`
 
 Standalone 模式下替代官方 OAuth。配置存 `username` + `password_hmac`（HMAC-SHA256 hex）+ `hmac_secret`，不存明文密码。
 
@@ -67,9 +67,11 @@ pointer-server --hash-password --secret '<hmac_secret>' '<password>'
 **流程：**
 
 ```
-GET  /api/auth/mode              → { "mode": "standalone" | "platform" }
-GET  /api/auth/local/captcha     → { captchaId, imageSvg }  （内存一次性，TTL 5min）
-POST /api/auth/local/login
+GET  /api/auth/providers        → { providers: [{ id, display_name, kind }] }
+GET  /api/auth/mode             → { "mode": "standalone" | "platform" }
+POST /api/auth/login/start?provider=local_password
+  → { provider, kind, captcha: { captchaId, imageSvg } }  （内存一次性，TTL 5min；不接收凭据）
+POST /api/auth/login/finish?provider=local_password
   { username, password, captchaId, captcha }
   → 校验验证码 → verify_local_password
   → 成功：创建 WebSession（auth_kind = Local）+ Set-Cookie
@@ -77,6 +79,10 @@ POST /api/auth/local/login
 ```
 
 **Session：** `WebSessionAuthKind::Local`；所有需登录 API 在 standalone 下要求本地会话。
+
+**单实例约束：** 会话（`web_sessions`）与登录中状态（`auth_pending`，TTL 600s）只在进程内存，
+不支持多副本/负载均衡；进程重启会让在线会话与未完成的登录失效。部署前跑
+`pointer-server auth doctor`（只读，`--network` 才做出网检查）确认配置可用。
 
 旧版 `admin_token` / `POINTER_SERVER_ADMIN_TOKEN` 已废弃（启动 warn 并忽略）。
 
@@ -269,8 +275,10 @@ Standalone **不从** `pointer-server.toml` 读取模型、地址或 API Key：�
 | 端点                        | 方法   | 说明                                                         |
 | ------------------------- | ---- | ---------------------------------------------------------- |
 | `/api/auth/mode`          | GET  | `{ "mode": "standalone" | "platform" }`                    |
-| `/api/auth/local/captcha` | GET  | `{ captchaId, imageSvg }`，standalone only                  |
-| `/api/auth/local/login`   | POST | `{ username, password, captchaId, captcha }`，返回 Set-Cookie |
+| `/api/auth/providers`     | GET  | `{ providers: [{ id, display_name, kind }] }`，登录页按此渲染  |
+| `/api/auth/login/start`   | POST | `?provider=<id>`；跳转类返回 `authorize_url`，`local_password` 只返回验证码挑战 |
+| `/api/auth/login/finish`  | POST | `?provider=<id>`；`local_password` 提交 `{ username, password, captchaId, captcha }`，返回 Set-Cookie |
+| `/api/auth/callback/<id>` | GET  | 统一回调；`platform` 默认 `/api/auth/oauth/callback`（`callback_path` 可改） |
 | `/api/license/status`     | GET  | 返回 license claims、状态、机器绑定信息                                |
 | `/api/license/reload`     | POST | 从 `POINTER_LICENSE_KEY` 热加载新 license                       |
 
@@ -309,13 +317,24 @@ hmac_secret = "replace-with-long-random-secret"
 # pointer-server --hash-password --secret '<hmac_secret>' '<password>'
 password_hmac = "...."
 
-# 第三方 SSO 短时票（可选；不配则只用账号密码）
-# [auth.local.sso]
-# enabled = true                       # env POINTER_SERVER_SSO_ENABLED（不设则按 secret / audience 自动判定）
-# secret = "shared-with-portal"        # env POINTER_SERVER_SSO_SECRET
-# secret_prev = "rotating-old-secret"  # env POINTER_SERVER_SSO_SECRET_PREV（轮换窗口用的次密钥）
-# audience = "pointer-server"          # env POINTER_SERVER_SSO_AUDIENCE（须与票的 aud 一致）
-# max_skew_secs = 30                   # env POINTER_SERVER_SSO_MAX_SKEW_SECS（默认 30）
+# 登录方式：每个 provider 一个区块，登录页按 `GET /api/auth/providers` 渲染
+# [auth.providers.local_password]
+# kind = "local_password"              # standalone 默认注入，可显式覆盖
+# display_name = "账号密码"
+#
+# [auth.providers.portal]
+# kind = "token_lookup"                # 第三方门户短时票
+# display_name = "SSO"
+# [auth.providers.portal.token_lookup]
+# ticket_param = "ticket"              # 入口查询参数名
+# subject_path = "/sub"                # 稳定用户 id 的 claim
+# nickname_path = "/name"              # 可选显示名 claim
+# [auth.providers.portal.token_lookup.signing]
+# secret = "shared-with-portal"        # 票签名密钥（env 无对应项）
+# secret_prev = "rotating-old-secret"  # 轮换窗口内仍接受的上一版密钥
+# audience = "pointer-server"          # 须与票的 aud 一致
+# 入口：GET https://{public_url}/api/auth/callback/portal?ticket=<jwt>
+# 生成测试票：pointer-server --mint-sso-ticket --sub USER_ID
 
 [license]
 key = "base64_payload.base64_sig"      # license key 字符串（非空时优先）
@@ -424,17 +443,58 @@ skills_dir = "skills"
 
 > 对外可访问的实例建议同时设置 `public_url` 与 `allowed_user_ids`。白名单为空且公网可达，等于把实例交给任意平台用户。
 
-### `[auth.local.sso]`（第三方短时票）
+### `[auth.providers.<id>]`（登录 provider）
 
-| TOML | 环境变量 | 默认 |
-|------|----------|------|
-| `enabled` | `POINTER_SERVER_SSO_ENABLED` | 不设时按 `secret` / `audience` 是否配置自动判定 |
-| `secret` | `POINTER_SERVER_SSO_SECRET` | 空 |
-| `secret_prev` | `POINTER_SERVER_SSO_SECRET_PREV` | 空（轮换窗口用的次密钥） |
-| `audience` | `POINTER_SERVER_SSO_AUDIENCE` | 空（须与票的 `aud` 一致） |
-| `max_skew_secs` | `POINTER_SERVER_SSO_MAX_SKEW_SECS` | `30` |
+所有登录方式都走这一节；登录页按 `GET /api/auth/providers` 的返回渲染，不存在“代码里写死的入口”。
+
+| 字段 | 默认 | 说明 |
+|------|------|------|
+| `kind` | — | `platform` / `local_password` / `token_lookup` / `oauth2_userinfo` / `oidc` |
+| `enabled` | 启用 | `false` 移除该 provider（含部署模式注入的默认项） |
+| `display_name` | 按 kind | 登录页按钮文案 |
+| `allow_in_managed` | `false` | managed 下启用 `local_password` 必须置 `true`，否则**启动失败** |
+| `callback_path` | `/api/auth/callback/<id>` | `platform` 默认 `/api/auth/oauth/callback`（控制面白名单无需改动） |
+| `icon` | 按 `kind` | 登录按钮图标名；显式配置优先，前端认识 `building` / `key` / `ticket` / `user` / `shield` / `globe`，其余回落为显示名首字母圆标 |
+
+`icon` 的 `kind` 默认值：`platform` → `building`、`local_password` → `key`、`token_lookup` → `ticket`、`oauth2_userinfo` → `user`、`oidc` → `shield`。
+
+`token_lookup` 的票据与字段映射：
+
+| 字段 | 默认 | 说明 |
+|------|------|------|
+| `ticket_param` | `ticket` | 入口查询参数名 |
+| `subject_path` | `/sub` | 稳定用户 id 的 claim |
+| `nickname_path` | 空 | 可选显示名 claim |
+| `signing.secret` / `signing.secret_prev` / `signing.audience` | 空 | 本地 HS256 验签；`audience` 须与票的 `aud` 一致 |
+| `lookup.url` / `lookup.param` / `lookup.token` | 空 | 配了则改为不透明票回查 |
+
+准入白名单：`local_password` 豁免，其余 kind 均过 `server_access::is_user_allowed`。
 
 登录流程见 [`standalone-local-login.md`](standalone-local-login.md)；运维视角见 [`../user/standalone-server.md`](../user/standalone-server.md)。
+
+### `[auth.rate_limit]`（登录入口限流）
+
+默认**开启**，保护 `POST /api/auth/login/start` 与 `POST /api/auth/login/finish` 免遭爆破与洪水。计数在**进程内存**里：单实例有效，重启清零。只走 TOML，没有环境变量形式。
+
+| TOML | 默认 | 说明 |
+|------|------|------|
+| `enabled` | `true` | 总开关；`false` 时按 IP 窗口、在途上限与失败冷却全部关闭 |
+| `per_ip_per_minute` | `20` | 每 IP 每分钟允许的 `login/start` 次数；`0` = 不按 IP 限 |
+| `max_pending` | `256` | 同时在途的登录上限；`0` = 不限 |
+| `finish_fail_backoff_secs` | `3` | `login/finish` 失败（`401 invalid_captcha` / `401 invalid_credentials`）后的冷却秒数，成功即清除；`0` = 关闭 |
+| `trusted_proxies` | 空 | 采信其 `X-Forwarded-For` 的代理地址（精确 IP 或 CIDR） |
+
+被拒时一律 **429**，body 是纯文本错误码：
+
+| body | 含义 |
+|------|------|
+| `rate_limited` | 该 IP 本分钟 `login/start` 次数超过 `per_ip_per_minute` |
+| `too_many_attempts` | 该 IP 处于 `finish_fail_backoff_secs` 冷却中 |
+| `login_capacity_reached` | 在途登录已达 `max_pending` |
+
+超过 `max_pending` 是**拒绝新请求**，绝不淘汰进行中的登录 —— 淘汰会让那个用户拿到莫名的 `invalid_state`。
+
+只有**直连对端 IP 命中 `trusted_proxies`** 时才读 `X-Forwarded-For`，并取最右侧非可信跳作为客户端 IP，客户端自己伪造左边条目无效；不在列表里的请求一律按 socket 地址计数。反向代理后面部署时把代理地址（精确 IP，或 `10.0.0.0/8` 这类 CIDR）列进去，否则所有用户共用代理 IP 的额度。
 
 ### `[env]` 与 `[[mcp_servers.server]]`
 
@@ -481,7 +541,7 @@ skills_dir = "skills"
 | `crates/pointer-core/src/license/mod.rs`     | License 模块入口                                |
 | `crates/pointer-core/src/license/verify.rs`  | Ed25519 验签、启动校验、热加载、机器绑定                    |
 | `crates/pointer-core/license.pub`            | 编译嵌入的公钥文件                                   |
-| `server/src/local_auth.rs`                   | `/api/auth/local/login`、`/api/license/*` 路由 |
+| `server/src/auth_routes.rs`                  | 统一登录入口与回调；`local_password` 走 `login/start` + `login/finish` |
 | `tools/license-gen/Cargo.toml`               | License 签发 CLI                              |
 | `tools/license-gen/src/main.rs`              | `gen-keypair` / `sign` 子命令                  |
 | `tools/license-gen/dev-license.key.example`  | 开发用私钥示例                                     |

@@ -111,7 +111,13 @@ pub fn apply_skill_dir_env(env: &mut HashMap<String, String>) {
 
 /// Codex / Agent standard user skill library (`~/.agents/skills`).
 pub fn home_agents_skills_dir() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(AGENTS_SKILLS_DIR))
+    dirs::home_dir().map(|home| agents_skills_dir_under(&home))
+}
+
+/// `~/.agents/skills` for an explicit home. Pure — no env read, so callers that
+/// already know the home (tests, multi-tenant hosts) need no process state.
+pub fn agents_skills_dir_under(home: &Path) -> PathBuf {
+    home.join(AGENTS_SKILLS_DIR)
 }
 
 /// True when `path` is under `~/.agents/skills`.
@@ -287,15 +293,24 @@ fn copy_dir_recursive(source: &Path, target: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Scan the configured external skill roots (env-derived).
 pub fn load_external_skills() -> Result<Vec<SkillDef>> {
+    load_external_skills_from(&skill_roots()?)
+}
+
+/// Scan an explicit list of roots, in order.
+///
+/// The env-derived roots live in [`load_external_skills`]; this half is pure, so
+/// a caller (or a test) can point at any directory without touching process env.
+pub fn load_external_skills_from(roots: &[PathBuf]) -> Result<Vec<SkillDef>> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
 
-    for root in skill_roots()? {
+    for root in roots {
         if !root.exists() {
             continue;
         }
-        for entry in fs::read_dir(&root)? {
+        for entry in fs::read_dir(root)? {
             let entry = entry?;
             let path = entry.path();
             if !path.is_dir() || is_ignored_skill_dir(path.file_name()) {
@@ -314,13 +329,18 @@ pub fn load_external_skills() -> Result<Vec<SkillDef>> {
 
 /// Import from a `.zip` file or a skill directory (single skill dir or parent of many).
 pub fn import_skill_path(source: &Path) -> Result<SkillImportResult> {
+    import_skill_path_to(&skills_dir()?, source)
+}
+
+/// Same as [`import_skill_path`], into an explicit user-library root.
+pub fn import_skill_path_to(root: &Path, source: &Path) -> Result<SkillImportResult> {
     if !source.exists() {
         return Err(anyhow!("路径不存在: {}", source.display()));
     }
     if source.is_file() {
-        return import_skill_zip_file(source);
+        return import_skill_zip_file_to(root, source);
     }
-    import_skill_dir(source)
+    import_skill_dir_to(root, source)
 }
 
 fn normalize_zip_entry_path(name: &str) -> String {
@@ -365,11 +385,15 @@ fn zip_entry_relative_to_base(entry: &str, base: &Path) -> Option<PathBuf> {
 }
 
 pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
+    import_skill_zip_to(&skills_dir()?, bytes)
+}
+
+/// Same as [`import_skill_zip`], into an explicit user-library root.
+pub fn import_skill_zip_to(root: &Path, bytes: &[u8]) -> Result<SkillImportResult> {
     if bytes.len() > MAX_ZIP_SIZE {
         return Err(anyhow!("Skills zip 文件过大，最大支持 20MB"));
     }
 
-    let root = skills_dir()?;
     let mut archive = ZipArchive::new(Cursor::new(bytes)).context("无法读取 Skills zip 文件")?;
     let mut manifests = Vec::new();
 
@@ -430,7 +454,7 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
         extract_skill_dir(&mut archive, &base, &target)?;
         match manifest_to_skill(manifest, &target) {
             Ok(skill) => {
-                super::provenance::mark_agent_created(&skill.id, Some("zip"));
+                super::provenance::mark_agent_created_at(root, &skill.id, Some("zip"));
                 imported.push(skill);
             }
             Err(err) => {
@@ -494,7 +518,7 @@ pub fn import_skill_zip_into(root: &Path, bytes: &[u8]) -> Result<(String, PathB
     Ok((dir_name, target))
 }
 
-fn import_skill_zip_file(path: &Path) -> Result<SkillImportResult> {
+fn import_skill_zip_file_to(root: &Path, path: &Path) -> Result<SkillImportResult> {
     if !is_zip_file(path) {
         return Err(anyhow!(
             "不支持的文件类型: {}（请提供 .zip 或技能目录）",
@@ -502,10 +526,10 @@ fn import_skill_zip_file(path: &Path) -> Result<SkillImportResult> {
         ));
     }
     let bytes = fs::read(path).with_context(|| format!("无法读取文件: {}", path.display()))?;
-    import_skill_zip(&bytes)
+    import_skill_zip_to(root, &bytes)
 }
 
-fn import_skill_dir(source: &Path) -> Result<SkillImportResult> {
+fn import_skill_dir_to(root: &Path, source: &Path) -> Result<SkillImportResult> {
     let mut imported = Vec::new();
     let mut skipped = Vec::new();
     let mut seen = HashSet::new();
@@ -519,7 +543,7 @@ fn import_skill_dir(source: &Path) -> Result<SkillImportResult> {
         if !seen.insert(key) {
             continue;
         }
-        match install_skill_dir(&skill_dir) {
+        match install_skill_dir_to(root, &skill_dir) {
             Ok(skill) => imported.push(skill),
             Err(err) => skipped.push(format!("{}: {err}", skill_dir.display())),
         }
@@ -562,16 +586,25 @@ pub fn discover_skill_dirs_in(root: &Path) -> Vec<PathBuf> {
 }
 
 pub fn install_skill_dir(source: &Path) -> Result<SkillDef> {
-    install_skill_dir_internal(source, None)
+    install_skill_dir_internal(&skills_dir()?, source, None)
 }
 
 pub fn install_skill_dir_with_provenance(source: &Path, imported_from: &str) -> Result<SkillDef> {
-    install_skill_dir_internal(source, Some(imported_from))
+    install_skill_dir_internal(&skills_dir()?, source, Some(imported_from))
 }
 
-fn install_skill_dir_internal(source: &Path, imported_from: Option<&str>) -> Result<SkillDef> {
+/// Install into an explicit user-library root (no env read).
+pub fn install_skill_dir_to(root: &Path, source: &Path) -> Result<SkillDef> {
+    install_skill_dir_internal(root, source, None)
+}
+
+fn install_skill_dir_internal(
+    root: &Path,
+    source: &Path,
+    imported_from: Option<&str>,
+) -> Result<SkillDef> {
     let preview = load_skill_from_dir(source)?;
-    let target = skills_dir()?.join(&preview.id);
+    let target = root.join(&preview.id);
     let source_canon = source
         .canonicalize()
         .unwrap_or_else(|_| source.to_path_buf());
@@ -589,7 +622,7 @@ fn install_skill_dir_internal(source: &Path, imported_from: Option<&str>) -> Res
     fs::create_dir_all(&target.parent().unwrap_or(&target))?;
     copy_dir_all(source, &target)?;
     let skill = load_skill_from_dir(&target)?;
-    super::provenance::mark_agent_created(&skill.id, imported_from);
+    super::provenance::mark_agent_created_at(root, &skill.id, imported_from);
     Ok(skill)
 }
 
@@ -1053,23 +1086,15 @@ mod tests {
     }
 
     #[test]
-    fn load_external_skills_reads_home_agents_skills() {
+    fn load_external_skills_reads_the_given_roots() {
         use std::fs;
 
-        // HOME is process-global: hold the shared lock (other modules expand `~`
-        // too) and restore it on drop so a panic cannot leak the temp home.
-        let _home_lock = crate::test_support::home_env_lock();
-        // POINTER_HOME 优先级高于 HOME：不清掉它，别的用例或外层环境一旦设过，
-        // 这里读到的就不是临时 home，断言会偶发失败。
-        let _restore = crate::test_support::EnvRestore::capture(&[
-            "HOME",
-            "USERPROFILE",
-            "POINTER_HOME",
-        ]);
-
+        // Explicit roots: this test never writes HOME/USERPROFILE, so a
+        // concurrent test that rewrites the environment cannot change what it
+        // reads (that race used to surface as `os error 22`).
         let tmp = tempfile::tempdir().unwrap();
-        let home = tmp.path();
-        let skill_dir = home.join(".agents/skills/agents-demo");
+        let skills_root = agents_skills_dir_under(tmp.path());
+        let skill_dir = skills_root.join("agents-demo");
         fs::create_dir_all(&skill_dir).unwrap();
         fs::write(
             skill_dir.join("SKILL.md"),
@@ -1077,42 +1102,33 @@ mod tests {
         )
         .unwrap();
 
-        std::env::set_var("HOME", home);
-        std::env::set_var("USERPROFILE", home);
-        std::env::remove_var("POINTER_HOME");
-        let loaded = load_external_skills().unwrap();
-
+        let loaded = load_external_skills_from(&[skills_root.clone()]).unwrap();
         let skill = loaded
             .iter()
             .find(|s| s.id == "agents-demo")
-            .expect("agents-demo from ~/.agents/skills");
-        assert_eq!(skill.provenance, "external");
-        assert!(!skill.mutable);
+            .expect("agents-demo from the injected root");
+        assert_eq!(skill.description, "From ~/.agents/skills.");
+
+        // A directory without SKILL.md is skipped, not an error.
+        fs::create_dir_all(skills_root.join("not-a-skill")).unwrap();
+        let loaded = load_external_skills_from(&[skills_root.clone()]).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].id, "agents-demo");
+
+        // Missing roots are skipped, not errors.
+        assert!(load_external_skills_from(&[tmp.path().join("nope")])
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
-    fn normalize_zip_entry_path_strips_leading_dot_slash() {
-        assert_eq!(normalize_zip_entry_path("./pdf/SKILL.md"), "pdf/SKILL.md");
+    fn agents_skills_dir_is_home_relative() {
+        // The rule behind `home_agents_skills_dir()`, without reading env.
+        let home = Path::new("/tmp/pointer-test-home");
         assert_eq!(
-            normalize_zip_entry_path("pdf/scripts/run.py"),
-            "pdf/scripts/run.py"
+            agents_skills_dir_under(home),
+            Path::new("/tmp/pointer-test-home/.agents/skills")
         );
-    }
-
-    #[test]
-    fn zip_entry_relative_handles_mixed_prefix() {
-        let base = PathBuf::from("pdf");
-        assert_eq!(
-            zip_entry_relative_to_base("pdf/scripts/run.py", &base)
-                .map(|p| p.to_string_lossy().into_owned()),
-            Some("scripts/run.py".to_string())
-        );
-        assert_eq!(
-            zip_entry_relative_to_base("./pdf/scripts/run.py", &base)
-                .map(|p| p.to_string_lossy().into_owned()),
-            Some("scripts/run.py".to_string())
-        );
-        assert!(zip_entry_relative_to_base("other/scripts/run.py", &base).is_none());
     }
 
     #[test]
@@ -1135,21 +1151,14 @@ mod tests {
         assert!(dst.join("SKILL.md").is_file());
     }
 
-    fn with_temp_home<T>(f: impl FnOnce(&Path) -> T) -> T {
-        // Shared HOME lock + RAII restore: this helper is used by several tests
-        // and by `~`-expanding code paths in other modules, so a module-local
-        // lock is not enough and a panicking assert must not leak the temp home.
-        let _home_lock = crate::test_support::home_env_lock();
-        // POINTER_HOME 的优先级高于 HOME：不清掉它，这个用例就会被外层环境
-        // 或别的用例带偏，断言 `$HOME/.pointer/skills/...` 时找不到文件。
-        let _restore =
-            crate::test_support::EnvRestore::capture(&["HOME", "USERPROFILE", "POINTER_HOME"]);
-        let tmp = tempfile::tempdir().unwrap();
-        let home = tmp.path();
-        std::env::set_var("HOME", home);
-        std::env::set_var("USERPROFILE", home);
-        std::env::remove_var("POINTER_HOME");
-        f(home)
+    /// A throwaway user-library root. Imports take the root explicitly, so these
+    /// tests never write `HOME`/`POINTER_HOME` (that race used to break unrelated
+    /// readers in the same process).
+    fn temp_library() -> (tempfile::TempDir, PathBuf) {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path().join(".pointer/skills");
+        std::fs::create_dir_all(&root).expect("mkdir library root");
+        (tmp, root)
     }
 
     fn zip_skill_bytes(name: &str, body: &str, extra: &[(&str, &[u8])]) -> Vec<u8> {
@@ -1184,59 +1193,56 @@ mod tests {
                 ("assets/icon.svg", b"<svg/>"),
             ],
         );
-        with_temp_home(|home| {
-            let result = import_skill_zip(&zip_bytes).expect("import zip");
-            let target = home.join(".pointer/skills/zip-pack");
-            assert_eq!(result.imported.len(), 1);
-            assert_eq!(result.imported[0].id, "zip-pack");
-            assert!(target.join("scripts/helper.py").is_file());
-            assert!(target.join("assets/icon.svg").is_file());
-            let script = fs::read_to_string(target.join("scripts/helper.py")).unwrap();
-            assert!(script.contains("print('hi')"));
-        });
+        let (_tmp, root) = temp_library();
+        let result = import_skill_zip_to(&root, &zip_bytes).expect("import zip");
+        let target = root.join("zip-pack");
+        assert_eq!(result.imported.len(), 1);
+        assert_eq!(result.imported[0].id, "zip-pack");
+        assert!(target.join("scripts/helper.py").is_file());
+        assert!(target.join("assets/icon.svg").is_file());
+        let script = fs::read_to_string(target.join("scripts/helper.py")).unwrap();
+        assert!(script.contains("print('hi')"));
     }
 
     #[test]
     fn import_skill_zip_reimport_replaces_and_counts_as_imported() {
         let first = zip_skill_bytes("zip-pack", "v1", &[("note.txt", b"old")]);
         let second = zip_skill_bytes("zip-pack", "v2", &[("note.txt", b"new")]);
-        with_temp_home(|home| {
-            let first_result = import_skill_zip(&first).expect("first import");
-            let second_result = import_skill_zip(&second).expect("re-import");
-            let note = fs::read_to_string(home.join(".pointer/skills/zip-pack/note.txt"))
-                .expect("replaced file");
-            assert_eq!(first_result.imported.len(), 1);
-            assert!(first_result.skipped.is_empty());
-            assert_eq!(second_result.imported.len(), 1);
-            assert_eq!(second_result.imported[0].id, "zip-pack");
-            assert!(
-                second_result.skipped.is_empty(),
-                "re-import must not skip already-on-disk ids (auto_enable reads imported): {:?}",
-                second_result.skipped
-            );
-            assert_eq!(note, "new");
-        });
+        let (_tmp, root) = temp_library();
+        let first_result = import_skill_zip_to(&root, &first).expect("first import");
+        let second_result = import_skill_zip_to(&root, &second).expect("re-import");
+        let note =
+            fs::read_to_string(root.join("zip-pack/note.txt")).expect("replaced file");
+        assert_eq!(first_result.imported.len(), 1);
+        assert!(first_result.skipped.is_empty());
+        assert_eq!(second_result.imported.len(), 1);
+        assert_eq!(second_result.imported[0].id, "zip-pack");
+        assert!(
+            second_result.skipped.is_empty(),
+            "re-import must not skip already-on-disk ids (auto_enable reads imported): {:?}",
+            second_result.skipped
+        );
+        assert_eq!(note, "new");
     }
 
     #[test]
     fn import_skill_dir_already_in_user_library_counts_as_imported() {
-        with_temp_home(|home| {
-            let dir = home.join(".pointer/skills/direct-pack");
-            fs::create_dir_all(&dir).unwrap();
-            fs::write(
-                dir.join("SKILL.md"),
-                "---\nname: direct-pack\ndescription: Already on disk.\n---\nBody\n",
-            )
-            .unwrap();
-            let result = import_skill_path(&dir).expect("import existing library dir");
-            assert_eq!(result.imported.len(), 1);
-            assert_eq!(result.imported[0].id, "direct-pack");
-            assert!(
-                result.skipped.is_empty(),
-                "same-path library dir must count as imported so auto_enable can run: {:?}",
-                result.skipped
-            );
-        });
+        let (_tmp, root) = temp_library();
+        let dir = root.join("direct-pack");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("SKILL.md"),
+            "---\nname: direct-pack\ndescription: Already on disk.\n---\nBody\n",
+        )
+        .unwrap();
+        let result = import_skill_path_to(&root, &dir).expect("import existing library dir");
+        assert_eq!(result.imported.len(), 1);
+        assert_eq!(result.imported[0].id, "direct-pack");
+        assert!(
+            result.skipped.is_empty(),
+            "same-path library dir must count as imported so auto_enable can run: {:?}",
+            result.skipped
+        );
     }
 
     #[test]

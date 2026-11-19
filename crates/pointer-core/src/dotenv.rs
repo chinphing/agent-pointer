@@ -329,7 +329,7 @@ mod tests {
     /// Module env lock + shared PATH lock + process-global settings lock so
     /// `build_terminal_child_environment` tests (which mutate terminalEnvOverrides
     /// via `replace_global_user_settings_for_test` and read/restore process `PATH`)
-    /// cannot race with `local_sso`, `terminal_elevated`, or other tests that read
+    /// cannot race with `token_lookup`, `terminal_elevated`, or other tests that read
     /// the same globals.
     /// Fields are never read: the guards exist only to hold the three locks
     /// (drop order = declaration order), so they are underscore-prefixed.
@@ -348,7 +348,7 @@ mod tests {
     }
 
     /// Restore process PATH on drop so concurrent tests that spawn external
-    /// commands (workspace_read git, local_sso sh) are not affected.
+    /// commands (workspace_read git, token_lookup sh) are not affected.
     struct PathGuard(Option<String>);
 
     impl PathGuard {

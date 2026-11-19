@@ -297,8 +297,11 @@ async fn run_terminal_foreground(
         .unwrap_or_default();
     let session_user_id_for_blocking = session_user_id.clone();
     let session_work_dir_for_blocking = session_workspace.clone();
-    // thread-local 不跟随 spawn_blocking，必须先取出再在闭包里重放。
-    let access_host_for_blocking = crate::access_host_env::current_access_host();
+    // 请求域名只在 task-local（`access_host_scope`）里可靠：本函数在 agent 循环
+    // 的任务里跑，future 可能已经被调度到别的 worker 线程，读 thread-local 会拿到
+    // 空值或上一个回合的残留。取值后进闭包再落成 thread-local。
+    let access_host_for_blocking = crate::access_host_scope::current();
+    // 会话 id 走 spawn_blocking 闭包，用于重放环境绑定（阻塞线程没有 tokio 局部）。
     let conversation_id_for_blocking = conversation_id.to_string();
     let join = tokio::task::spawn_blocking(move || {
         let state = unsafe { &*(state_ptr as *const AppState) };
@@ -429,7 +432,7 @@ async fn run_terminal_background(
         host_scoped_message_id: scoped_message_id,
         abort_flag,
     };
-    let access_host = crate::access_host_env::current_access_host();
+    let access_host = crate::access_host_scope::current();
     let job_id_for_task = job_id.clone();
     tokio::spawn(crate::access_host_scope::run_scoped(access_host, move || {
         run_background_terminal(job_id_for_task, spawn)

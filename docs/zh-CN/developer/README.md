@@ -109,7 +109,7 @@ npm run web:dev
 | 文档 | 说明 |
 |------|------|
 | [cli.md](cli.md) | `pointer-server` 参数、npm scripts、部署脚本与哪些包有 bin |
-| [standalone-local-login.md](standalone-local-login.md) | Standalone 账号密码 + 第三方 `?sso=` 本地验签登录 |
+| [standalone-local-login.md](standalone-local-login.md) | Standalone `local_password` + `token_lookup` 本地验签登录 |
 | [standalone-deployment.md](standalone-deployment.md) | pointer-server 配置参考：本地认证与 SSO、License（仅 managed 口味强制）、访问控制、`[server]` 品牌参数与 CORS、配置文件发现顺序（侧栏里在「部署」分区） |
 
 ## 从源码构建 Pointer

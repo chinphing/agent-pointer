@@ -319,6 +319,10 @@ After signing in, open **Settings → Models** and add a custom service (address
 ### 8.1 Startup checks
 
 ```bash
+# login chain preflight (read-only; --network also tests outbound connectivity)
+pointer-server auth doctor
+# expected: exit code 0, no FAIL in the report
+
 # License status
 curl -s http://127.0.0.1:8787/api/license/status | jq .
 # expected: status = "valid"
@@ -338,17 +342,22 @@ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8787/
 pointer-server --hash-password --secret 'REPLACE-WITH-LONG-RANDOM-SECRET' 'your-password'
 ```
 
-**API:**
+**API:** two calls — `login/start` only hands out the captcha, `login/finish` only takes credentials:
 
 ```bash
-# captcha
-curl -s http://127.0.0.1:8787/api/auth/local/captcha
-# login
-curl -X POST http://127.0.0.1:8787/api/auth/local/login \
+# 1) start: captcha challenge (no credentials in this request)
+curl -s -X POST 'http://127.0.0.1:8787/api/auth/login/start?provider=local_password'
+# 2) finish: submit the credentials and keep the session cookie
+curl -X POST 'http://127.0.0.1:8787/api/auth/login/finish?provider=local_password' \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"your-password","captchaId":"...","captcha":"ABCD"}' \
   -c /tmp/pointer-cookies.txt
 ```
+
+Sessions (`web_sessions`) and started-but-unfinished logins (`auth_pending`, TTL 600 s) are in process
+memory: the deployment is **single instance** — no load balancer, no replica sharing, and a restart signs
+everyone out. Run `pointer-server auth doctor` (add `--network` to also test outbound connectivity) whenever
+sign-in misbehaves; it exits 1 when a check FAILs.
 
 ### 8.3 Feature acceptance checklist
 
@@ -509,7 +518,8 @@ npm run license-gen:build
 | `standalone mode requires a license key` | no License configured | fill in `[license].key` or `POINTER_LICENSE_KEY` |
 | `license bound to machine_id=…` | License bound to the wrong machine | reissue with the current `--machine-id` |
 | `license expired` | expired | renew and reload |
-| `please sign in` / `local_login_required` | not signed in | Web UI account + password + captcha, or POST `/api/auth/local/login` |
+| `please sign in` / `local_login_required` | not signed in | Web UI account + password + captcha, or `POST /api/auth/login/start?provider=local_password` and then `/api/auth/login/finish?provider=local_password` |
+| `invalid_state` right after an SSO redirect | the instance that received the callback is not the one that started the login (restart, or more than one instance) | run a single instance; `pointer-server auth doctor` reports the in-memory session store |
 | `invalid_credentials` | account/password or hmac mismatch | regenerate `password_hmac` with `--hash-password` |
 | `invalid_captcha` | captcha wrong or expired | refresh the captcha and retry |
 | Chat reports an LLM error | `api_key` invalid or not configured | check the Key in the matching provider console |

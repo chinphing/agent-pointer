@@ -122,7 +122,10 @@ export default defineConfig({
     // one machine and fail on another. See `src/test/setup.ts`.
     setupFiles: ['src/test/setup.ts'],
     // `scripts/**` covers the build-script guardrails (plain .mjs, no DOM).
-    include: ['src/**/*.test.ts', 'scripts/**/*.test.mjs', 'admin/web/src/**/*.test.ts']
+    // `admin/web` is its own Vite project with its own `@ext` alias and local
+    // vitest — run it with `npm run test:admin` (CI does both), not from here.
+    include: ['src/**/*.test.ts', 'scripts/**/*.test.mjs'],
+    exclude: ['**/node_modules/**', 'admin/**', 'dist/**', 'target/**']
   },
   clearScreen: false,
   build: {

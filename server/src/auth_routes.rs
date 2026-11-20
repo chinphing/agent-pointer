@@ -697,8 +697,11 @@ fn redeem_pending(
         // 不打印 state 本身——它等同于一次性的登录凭据。
         log::warn!(
             "platform_auth: invalid_state reason=cookie provider={provider_id} \
-             cookie_present={} query_state_present={}",
+             cookie_present={} cookie_matches_query={} query_state_present={}",
             cookie_state.is_some(),
+            cookie_state
+                .as_deref()
+                .is_some_and(|c| c.trim() == state_token.trim()),
             !state_token.is_empty()
         );
         return Err(LoginError::InvalidState);

@@ -143,15 +143,9 @@ struct PointerSection {
     /// 控制面地址。平台登录的授权页 / 换码端点都从它派生。
     #[serde(default)]
     api_base: String,
-    /// **服务端不读这个字段**，保留只为兼容老配置文件。
-    ///
-    /// 平台登录是 PKCE 公共客户端（`client_id` + `code_verifier`），换码请求里
-    /// 不带 client_secret，所以不需要与控制面共享任何密钥。早期文档要求它与控制面
-    /// `THIRD_PARTY_OAUTH_EXCHANGE_SECRET` 一致，那是 secret 换码时代的做法，已废弃。
-    ///
-    /// 仍会被映射成 `POINTER_OAUTH_CLIENT_SECRET`（日志里脱敏），仅此而已。
-    #[serde(default)]
-    oauth_client_secret: String,
+    // 曾经的 `oauth_client_secret`（控制面共享密钥）已随 `cloud_agent_auth` 模块
+    // 一起删除（35a090c5）：平台登录走 PKCE 公共客户端，不需要共享密钥。
+    // 老配置文件里若还留着这个键，serde 会忽略——本结构体没有 deny_unknown_fields。
 }
 
 /// Optional webhook ingress configuration. Maps to env
@@ -290,8 +284,7 @@ pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
         eprintln!("pointer-server: config file has no recognized keys");
     }
     for (key, value) in &applied {
-        if key == "POINTER_OAUTH_CLIENT_SECRET"
-            || key == "POINTER_WEBHOOK_BEARER_TOKEN"
+        if key == "POINTER_WEBHOOK_BEARER_TOKEN"
             || key == "POINTER_SERVER_ADMIN_TOKEN"
             || key == "POINTER_SERVER_ADMIN_PASSWORD_HMAC"
             || key == "POINTER_SERVER_AUTH_HMAC_SECRET"
@@ -304,8 +297,7 @@ pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
     }
     for key in &skipped_env {
         let current = std::env::var(key).unwrap_or_default();
-        if key == "POINTER_OAUTH_CLIENT_SECRET"
-            || key == "POINTER_WEBHOOK_BEARER_TOKEN"
+        if key == "POINTER_WEBHOOK_BEARER_TOKEN"
             || key == "POINTER_SERVER_ADMIN_TOKEN"
             || key == "POINTER_SERVER_ADMIN_PASSWORD_HMAC"
             || key == "POINTER_SERVER_AUTH_HMAC_SECRET"
@@ -629,13 +621,6 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
         &mut pairs,
         "POINTER_API_BASE",
         &parsed.pointer.api_base,
-        base_dir,
-        false,
-    );
-    push_mapped(
-        &mut pairs,
-        "POINTER_OAUTH_CLIENT_SECRET",
-        &parsed.pointer.oauth_client_secret,
         base_dir,
         false,
     );
@@ -1299,6 +1284,7 @@ skills_dir = "skills"
 
 [pointer]
 api_base = "https://api.example.com"
+# 老配置残留：该键已删除，解析时忽略（无 deny_unknown_fields）
 oauth_client_secret = "secret"
 
 [env]
@@ -1323,6 +1309,11 @@ POINTER_WEB_SEARCH_MODEL = "gpt-4o-mini"
         assert_eq!(
             map.get("POINTER_API_BASE").map(String::as_str),
             Some("https://api.example.com")
+        );
+        // 共享密钥时代遗留的键：字段已删除，解析时忽略，不能悄悄又变成有效配置。
+        assert!(
+            !map.contains_key("POINTER_OAUTH_CLIENT_SECRET"),
+            "oauth_client_secret 已移除，不应再映射成环境变量"
         );
         assert_eq!(
             map.get("POINTER_WEB_SEARCH_MODEL").map(String::as_str),

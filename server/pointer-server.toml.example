@@ -168,10 +168,8 @@ skills_dir = "skills"
 # Your control plane. The open-source tree ships no vendor default, so this has
 # no fallback: leave it empty for a standalone server.
 # api_base = "https://ptr.readflowai.com"
-# `oauth_client_secret` is NOT read by the server: platform login is a PKCE public
-# client (client_id + code_verifier), so nothing is shared with the control plane.
-# The field is kept for compatibility with older deployments; omitting it is fine.
-# oauth_client_secret = "unused"
+# No shared secret is needed: platform login is a PKCE public client
+# (client_id + code_verifier). An old `oauth_client_secret` key is ignored.
 
 # Optional: any additional env vars (KEY=VALUE)
 # [env]

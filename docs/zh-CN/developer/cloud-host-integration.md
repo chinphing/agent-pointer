@@ -25,7 +25,7 @@
 | `AGENT_HEALTH_PATH` | 平台探活路径，生产设为 `/api/health` |
 | 对外访问 | 平台为每个实例分配对外地址；桌面端用 `console_url` 打开该实例的 Web UI |
 | `POINTER_API_BASE` | 平台 API 根地址 |
-| `POINTER_OAUTH_CLIENT_SECRET` | **已不用**：平台登录走 PKCE，服务端不读；老部署残留可忽略 |
+| `POINTER_OAUTH_CLIENT_SECRET` | **已移除**：平台登录走 PKCE，不再需要共享密钥；老部署里的残留可删 |
 | `allowed_user_ids` | （推荐生产必填）仅允许 listed 平台 user id 登录/使用 server；对应 env `POINTER_SERVER_ALLOWED_USER_IDS`（逗号分隔） |
 | `require_allowed_users` | 为 `true` 时，若 `allowed_user_ids` 为空则拒绝启动 |
 

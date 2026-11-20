@@ -180,7 +180,7 @@ VITE_npm run server:build
 | Setting | Notes |
 | --- | --- |
 | `[pointer].api_base` | Control-plane API (the `POINTER_API_BASE` environment variable wins). Left empty it falls back to the build-time baked value |
-| `[pointer].oauth_client_secret` | **Not needed**: platform login is a PKCE public client (`client_id` + `code_verifier`); the server never reads this field and no shared secret with the control plane is required |
+| ~~`[pointer].oauth_client_secret`~~ | **Removed**: platform login is a PKCE public client (`client_id` + `code_verifier`) and needs no shared secret with the control plane. The key is ignored if left in an old config |
 | `[server].public_url` | Browser-reachable root URL; the OAuth callback `{public_url}/api/auth/oauth/callback` must be registered in the control plane's `POINTER_APP_REDIRECT_URIS` |
 | `[deployment].mode` | Leaving it empty is fine: a bound control plane ⇒ `platform` automatically; `platform` can also be written explicitly |
 | `[license]` | **Not needed**: platform mode skips license verification (log `license: skipped (platform deployment mode)`) |

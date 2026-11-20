@@ -537,7 +537,7 @@ skills_dir = "skills"        # 内置 Skills 源；deb 用 /usr/share/pointer-se
 
 [pointer]
 api_base = "https://ptr.readflowai.com"
-# oauth_client_secret 不需要：平台登录走 PKCE，服务端不读该字段
+# 平台登录走 PKCE，不需要 oauth_client_secret
 ```
 
 也可使用 dotenv 格式 `pointer-server.env`，或 `POINTER_SERVER_CONFIG=C:\pointer\pointer-server.toml` 指定路径。

@@ -478,12 +478,16 @@ mod tests {
         assert!(body["user"]["isPlatformAdmin"].is_boolean(), "exchange 用 camelCase");
     }
 
+    /// 服务端客户端是公开客户端：`pointer-server` 走 PKCE，换码时不带 client_secret。
+    ///
+    /// 因此密钥不参与校验——凭据是 code_verifier（见 `bad_pkce_is_rejected_and_code_is_burned`）。
+    /// 传一个错的 secret 也不该被拒，否则服务端登录必然失败。
     #[tokio::test]
-    async fn wrong_client_secret_is_unauthorized() {
+    async fn server_client_ignores_client_secret() {
         let state = state().await;
         let uid = user_with_provider(&state).await;
         let code = issue_code(&state, &uid, "v").await;
-        let err = do_exchange_code(
+        let body = do_exchange_code(
             &state,
             ExchangeBody {
                 client_id: Some(CLIENT_SERVER.to_string()),
@@ -494,8 +498,8 @@ mod tests {
             },
         )
         .await
-        .expect_err("must fail");
-        assert!(matches!(err, ApiError::Unauthorized));
+        .expect("public client must not check the secret");
+        assert!(body["access_token"].as_str().is_some_and(|s| !s.is_empty()));
     }
 
     #[tokio::test]

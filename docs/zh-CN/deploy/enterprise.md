@@ -88,7 +88,7 @@ POINTER_ADMIN_BOOTSTRAP_PASSWORD='换成强密码' \
 
 | 客户端 | 类型 | 回跳地址 |
 |---|---|---|
-| 服务端 | 机密 | `POINTER_ADMIN_SERVER_REDIRECT`（多个用逗号分隔） |
+| 服务端 | 公开（PKCE） | `POINTER_ADMIN_SERVER_REDIRECT`（多个用逗号分隔） |
 | 桌面端 | 公开（回环） | 无，走 `127.0.0.1` 回环 |
 
 **不需要手工插库。** 这个 secret 要和客户端构建时用的一致，否则换票失败。

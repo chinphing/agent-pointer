@@ -68,6 +68,11 @@ pub async fn exists(store: &AdminStore, client_id: &str) -> Result<bool> {
 }
 
 /// 公共客户端（桌面端）：没有 client_secret，靠 PKCE 保证安全（RFC 8252）。
+/// 公开客户端：换 token 时不校验 client_secret，靠 PKCE 的 code_verifier 兜底。
+///
+/// 桌面端与服务端都走 PKCE：`pointer-server` 换码时只发 client_id + code +
+/// code_verifier，不带密钥。两者的区别在 redirect_uri 规则（桌面端 loopback
+/// 任意端口，服务端按 `POINTER_ADMIN_SERVER_REDIRECT` 白名单），不在鉴权方式。
 pub async fn is_public_client(store: &AdminStore, client_id: &str) -> Result<bool> {
     let sql = store.sql("SELECT kind FROM oauth_clients WHERE client_id = ?");
     let row = sqlx::query::<Any>(&sql)
@@ -76,7 +81,7 @@ pub async fn is_public_client(store: &AdminStore, client_id: &str) -> Result<boo
         .await?;
     let Some(row) = row else { return Ok(false) };
     let kind: String = row.try_get(0)?;
-    Ok(kind == KIND_DESKTOP)
+    Ok(kind == KIND_DESKTOP || kind == KIND_SERVER)
 }
 
 pub async fn verify_secret(store: &AdminStore, client_id: &str, secret: &str) -> Result<bool> {
@@ -139,6 +144,22 @@ mod tests {
 
     async fn store() -> AdminStore {
         AdminStore::connect_in_memory().await.expect("store")
+    }
+
+    #[tokio::test]
+    async fn server_client_is_public_so_pkce_needs_no_secret() {
+        let store = store().await;
+        upsert(&store, CLIENT_SERVER, "s3cret", KIND_SERVER, &["https://example.com/cb"])
+            .await
+            .expect("upsert server");
+        upsert(&store, CLIENT_DESKTOP, "s3cret", KIND_DESKTOP, &[])
+            .await
+            .expect("upsert desktop");
+
+        // pointer-server 换码只发 client_id + code + code_verifier，不带密钥。
+        assert!(is_public_client(&store, CLIENT_SERVER).await.expect("server"));
+        assert!(is_public_client(&store, CLIENT_DESKTOP).await.expect("desktop"));
+        assert!(!is_public_client(&store, "unknown").await.expect("unknown"));
     }
 
     #[tokio::test]

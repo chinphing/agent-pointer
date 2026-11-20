@@ -461,8 +461,25 @@ impl PlatformAuthManager {
         code_challenge: &str,
         state: &str,
     ) -> String {
+        Self::build_authorize_url_for_redirect_as(
+            &Self::client_id(),
+            redirect_uri,
+            code_challenge,
+            state,
+        )
+    }
+
+    /// 同 [`Self::build_authorize_url_for_redirect`]，但 client_id 由调用方指定。
+    ///
+    /// 服务端（pointer-server）用自己的客户端 id（默认 `pointer-server`），
+    /// 与桌面端的 `pointer-desktop` 区分开——两者的 redirect_uri 规则不同。
+    pub fn build_authorize_url_for_redirect_as(
+        client_id: &str,
+        redirect_uri: &str,
+        code_challenge: &str,
+        state: &str,
+    ) -> String {
         let web = Self::api_base();
-        let client_id = Self::client_id();
         format!(
             "{web}/oauth/authorize?client_id={client_id}&redirect_uri={}&code_challenge={code_challenge}&code_challenge_method=S256&state={state}",
             urlencoding_encode(redirect_uri),
@@ -1895,6 +1912,14 @@ mod tests {
             PlatformAuthManager::api_base()
         )));
         assert!(url.contains("client_id=pointer-desktop"));
+        // 服务端走自己的 client_id，桌面端默认值不受影响
+        let server_url = PlatformAuthManager::build_authorize_url_for_redirect_as(
+            "pointer-server",
+            "https://pointer-server-01.example.com/api/auth/oauth/callback",
+            "challenge",
+            "state",
+        );
+        assert!(server_url.contains("client_id=pointer-server"));
         assert!(url.contains("code_challenge=challenge_abc"));
         assert!(url.contains("code_challenge_method=S256"));
         assert!(url.contains("state=pointer-app"));

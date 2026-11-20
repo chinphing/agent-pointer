@@ -14,6 +14,13 @@ pub const DEFAULT_API_BASE: &str = env!("POINTER_BUILTIN_API_BASE");
 
 pub const DEFAULT_OAUTH_CLIENT_ID: &str = "pointer-desktop";
 
+/// 服务端（pointer-server）自己的 OAuth 客户端 id。
+///
+/// 桌面端与服务端的回调规则不同：桌面端走 loopback（任意端口），服务端是
+/// 固定外部地址、由控制面白名单登记。混用同一个 client_id 会让服务端的回跳
+/// 被 loopback 规则拒掉，所以两边默认值分开。
+pub const DEFAULT_SERVER_OAUTH_CLIENT_ID: &str = "pointer-server";
+
 /// Resolve one platform base URL: an explicit env var wins, otherwise only a
 /// managed build falls back to the domain injected at build time. Anything else
 /// is unbound and behaves as standalone.
@@ -50,6 +57,12 @@ pub fn api_base() -> String {
 
 pub fn oauth_client_id() -> String {
     std::env::var("POINTER_OAUTH_CLIENT_ID").unwrap_or_else(|_| DEFAULT_OAUTH_CLIENT_ID.to_string())
+}
+
+/// 服务端侧的 client_id：`POINTER_OAUTH_CLIENT_ID` 优先，否则 `pointer-server`。
+pub fn server_oauth_client_id() -> String {
+    std::env::var("POINTER_OAUTH_CLIENT_ID")
+        .unwrap_or_else(|_| DEFAULT_SERVER_OAUTH_CLIENT_ID.to_string())
 }
 
 #[cfg(test)]
@@ -150,5 +163,27 @@ mod tests {
             "src-tauri/tauri.personal.conf.json",
         ];
         ALLOWED_DIRS.iter().any(|d| rel.starts_with(d)) || ALLOWED_FILES.contains(&rel)
+    }
+}
+
+#[cfg(test)]
+mod server_client_id_tests {
+    use super::*;
+
+    /// 桌面端与服务端的默认 client_id 必须不同：两者 redirect_uri 规则不同。
+    #[test]
+    fn defaults_are_distinct() {
+        assert_eq!(DEFAULT_OAUTH_CLIENT_ID, "pointer-desktop");
+        assert_eq!(DEFAULT_SERVER_OAUTH_CLIENT_ID, "pointer-server");
+    }
+
+    #[test]
+    fn server_default_used_when_env_absent() {
+        // 只在环境变量确实没设时验证默认值，避免与其它测试抢进程环境。
+        if std::env::var("POINTER_OAUTH_CLIENT_ID").is_ok() {
+            return;
+        }
+        assert_eq!(server_oauth_client_id(), "pointer-server");
+        assert_eq!(oauth_client_id(), "pointer-desktop");
     }
 }

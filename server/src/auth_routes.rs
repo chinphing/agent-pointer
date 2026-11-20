@@ -413,7 +413,11 @@ fn start_platform_login(
             max_pending,
         )
         .map_err(|e| pending_start_error(provider_id, e))?;
-    let url = PlatformAuthManager::build_authorize_url_for_redirect(
+    // 服务端用自己的 client_id（默认 pointer-server）：桌面端的 pointer-desktop
+    // 只接受 loopback 回跳，服务端的外部地址会被拒。
+    let client_id = pointer_core::platform_endpoints::server_oauth_client_id();
+    let url = PlatformAuthManager::build_authorize_url_for_redirect_as(
+        &client_id,
         &redirect_uri,
         &challenge,
         &state_token,

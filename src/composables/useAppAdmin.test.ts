@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { ref } from 'vue'
 
 const isTauriRuntime = vi.fn(() => false)
@@ -21,7 +22,7 @@ vi.mock('../stores/settings', () => ({
   })
 }))
 
-const { useIsAppAdmin } = await import('./useAppAdmin')
+const { useIsAppAdmin, shouldShowAdminDebugSection } = await import('./useAppAdmin')
 
 /**
  * 回归：桌面客户端不该被管理员门禁挡住。
@@ -55,5 +56,44 @@ describe('useIsAppAdmin', () => {
   it('allows a standalone admin', () => {
     settingsAdmin.value = true
     expect(useIsAppAdmin().value).toBe(true)
+  })
+})
+
+/**
+ * 回归：设置页的调试分区曾经把 `platformAuth.isStandalone` 也算作管理员信号。
+ *
+ * standalone 部署下这一项对所有浏览器会话都成立，于是接入这台机器的 SSO 用户
+ * 也看到了调试分区。现在与后端 `effective_settings_view().is_platform_admin`
+ * 同一口径：只看会话票标记与后端管理员判定，standalone 本身不再放行。
+ */
+describe('shouldShowAdminDebugSection', () => {
+  it('hides the debug section for an SSO user on a standalone install', () => {
+    expect(shouldShowAdminDebugSection({ settingsAdmin: false, sessionAdmin: false })).toBe(
+      false
+    )
+  })
+
+  it('shows it for the desktop local operator, which the backend reports as admin', () => {
+    expect(shouldShowAdminDebugSection({ settingsAdmin: true, sessionAdmin: false })).toBe(
+      true
+    )
+  })
+
+  it('shows it for a platform admin on a bound deployment', () => {
+    expect(shouldShowAdminDebugSection({ settingsAdmin: false, sessionAdmin: true })).toBe(
+      true
+    )
+  })
+
+  it('is what SettingsDialog actually uses, without isStandalone', () => {
+    const sfc = readFileSync(
+      new URL('../components/settings/SettingsDialog.vue', import.meta.url),
+      'utf8'
+    )
+    const start = sfc.indexOf('const showAdminDebugSection')
+    expect(start).toBeGreaterThan(-1)
+    const gate = sfc.slice(start, sfc.indexOf('interface SidebarItem', start))
+    expect(gate).toContain('shouldShowAdminDebugSection({')
+    expect(gate).not.toContain('isStandalone')
   })
 })

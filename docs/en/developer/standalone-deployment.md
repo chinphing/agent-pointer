@@ -411,6 +411,8 @@ skills_dir = "skills"
 > (`invalid_state`), and a restart signs every online session out. `pointer-server auth doctor` prints
 > this as its session-store check and exits 1 when a real problem is found; see [cli.md](cli.md).
 
+> **`public_url` must not end with `/`.** The server builds callback URLs as `{public_url}/api/auth/callback/<id>`; a trailing slash yields `//api/auth/callback/<id>`, which matches no route: the browser gets the SPA shell with 200, the user bounces back to the login page, and the server log shows no callback request at all. `pointer-server auth doctor` warns about the trailing slash.
+
 ### `[server]` web branding / copy parameters
 
 | TOML | Environment variable | Purpose | When unset |
@@ -483,7 +485,99 @@ Default `icon` per `kind`: `platform` → `building`, `local_password` → `key`
 | `signing.secret_prev` | empty | Secondary key, still accepted during rotation |
 | `signing.audience` | empty | Expected `aud`; empty means "do not check" |
 
-`oauth2_userinfo` and `oidc` additionally take `authorize`, `token`, `userinfo` / `oidc` sub-tables (endpoint URLs, parameter names, JSON pointers, error rules) — see the module docs in `crates/pointer-core/src/auth_provider/`.
+`oidc` (OpenID Connect: endpoints from discovery, ID token verified against the published JWKS):
+
+| TOML | Default | Description |
+|------|----------|------|
+| `issuer` (provider level, not in the `oidc` table) | — | **Required**, e.g. `https://sso.example.com/realms/acme`; discovery is derived from it |
+| `client_id` | — | **Required** |
+| `client_secret` | — | **Required** unless `auth = "none"` (public client + PKCE) |
+| `auth` | `client_secret_post` | Client authentication on the token request: `client_secret_post` / `client_secret_basic` / `none` |
+| `scopes` | empty | Extra scopes; `openid` is always first and duplicates are dropped |
+| `discovery_url` | `{issuer}/.well-known/openid-configuration` | Explicit override for the discovery document |
+| `audience` | `client_id` | Expected `aud` of the ID token |
+| `subject_path` | `/sub` | Pointer to the stable user id inside the ID token claims; must not be empty |
+| `algs` | `RS256` | Accepted signing algorithms; only `RS256` / `RS384` / `RS512`, anything else **fails at startup** |
+| `clock_skew_secs` | `120` | Tolerance for `exp` / `iat` (seconds) |
+
+```toml
+# Enterprise OIDC (Keycloak shape): every endpoint comes from discovery
+[auth.providers.corp]
+kind = "oidc"
+display_name = "Corporate SSO"
+issuer = "https://sso.example.com/realms/acme"
+
+[auth.providers.corp.oidc]
+client_id = "pointer-web"
+client_secret = "replace-with-client-secret"
+scopes = ["profile", "email"]
+# discovery_url empty → {issuer}/.well-known/openid-configuration
+# audience empty → client_id; set it explicitly when the IdP puts another value in aud
+```
+
+`oauth2_userinfo` (standard OAuth2 authorization code + a userinfo call): three sub-tables, `authorize` / `token` / `userinfo`, and every `url` is required — this path has no discovery.
+
+| TOML (`authorize`) | Default | Description |
+|------|----------|------|
+| `url` | — | **Required**, the browser-facing authorization endpoint |
+| `scope` | empty | Space separated, sent only when non-empty |
+| `pkce` | `true` | Send a `code_challenge` (S256) |
+| `extra_params` | empty | Static extra query parameters (`audience`, `prompt`, …) |
+
+| TOML (`token`) | Default | Description |
+|------|----------|------|
+| `url` | — | **Required**, authorization code → token |
+| `method` | `post` | `get` / `post` |
+| `auth` | `client_secret_post` | `client_secret_post` / `client_secret_basic` / `none` |
+| `client_id` / `client_secret` | — | Required unless `auth = "none"` |
+| `encoding` | `json` | Body encoding for `post`; **use `form` for an RFC 6749 endpoint** |
+| `grant_type_param` / `grant_type_value` | `grant_type` / `authorization_code` | Parameter name / value |
+| `code_param` | `code` | Must not be empty |
+| `client_id_param` / `client_secret_param` | `client_id` / `client_secret` | Each parameter name can be overridden |
+| `redirect_uri_param` / `code_verifier_param` | `redirect_uri` / `code_verifier` | `""` means **omit** that parameter |
+| `extra_params` | empty | Static extra parameters |
+| `access_token_path` | `/access_token` | Pointer to the token in the response |
+| `refresh_token_path` / `expires_in_path` / `id_token_path` | empty | Optional response pointers |
+| `error` | `{ kind = "http_status" }` | Failure rule: `http_status` (any non-2xx fails) / `path_not_equal` / `path_present` |
+| `error_code_path` / `error_message_path` | empty | Optional error pointers |
+
+| TOML (`userinfo`) | Default | Description |
+|------|----------|------|
+| `url` | — | **Required** |
+| `method` | `get` | `get` / `post` |
+| `token_auth` | `header` | `header` / `query` / `body`; `body` requires `method = "post"` or **startup fails** |
+| `token_name` | `header` → `Authorization`; `query` / `body` → `access_token` | Field carrying the token |
+| `token_prefix` | `header` → `Bearer `; otherwise empty | `""` sends the **raw token** (e.g. `x-acs-dingtalk-access-token`) |
+| `encoding` | `form` | Only used when `token_auth = "body"` |
+| `subject_path` | `/sub` | Stable user id; must not be empty |
+| `issuer_path` | empty | Optional issuer claim pointer; falls back to the provider `issuer` |
+| `error` / `error_code_path` / `error_message_path` | same as `token` | Failure rule and error pointers |
+
+```toml
+# Standard OAuth2 + userinfo (RFC 6749 shape)
+[auth.providers.corp-oauth]
+kind = "oauth2_userinfo"
+display_name = "Corporate account"
+issuer = "https://idp.example.com"
+
+[auth.providers.corp-oauth.authorize]
+url = "https://idp.example.com/oauth2/authorize"
+scope = "openid profile"
+
+[auth.providers.corp-oauth.token]
+url = "https://idp.example.com/oauth2/token"
+client_id = "pointer-web"
+client_secret = "replace-with-client-secret"
+encoding = "form"                 # the json default only suits a few non-standard implementations
+
+[auth.providers.corp-oauth.userinfo]
+url = "https://idp.example.com/oauth2/userinfo"
+subject_path = "/sub"
+```
+
+Vendors that ignore RFC 6749 are handled with fields, not code: `token.auth = "none"` for a public client; `token.extra_params` for fixed parameters; `userinfo.token_name = "x-acs-dingtalk-access-token"` plus `userinfo.token_prefix = ""` to send the raw token; `userinfo.subject_path = "/unionId"` for a vendor-specific stable id; and `error = { kind = "path_not_equal", path = "/errcode", ok_value = "0" }` when failures are not plain non-2xx statuses.
+
+> Callback URLs are built from `public_url`: **never add a trailing `/`**, or you get `//api/auth/callback/<id>`, which matches no route — the user bounces back to the login page and the server log shows no callback request.
 
 For the login flow see [`standalone-local-login.md`](standalone-local-login.md); for the operations view see [`../user/standalone-server.md`](../user/standalone-server.md).
 

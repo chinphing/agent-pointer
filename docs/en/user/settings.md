@@ -42,7 +42,7 @@ Not everyone has every section — if you cannot see one it is not broken, it ju
 
 | Section / button | Appears when |
 | --- | --- |
-| **Debug** | Platform admin, **or** a standalone deployment |
+| **Debug** | Platform admin, **or** the local operator of a standalone deployment (desktop app, local password login); members signing in through SSO on a standalone server are not admins |
 | **Cloud host** | **Desktop**, and **not** a standalone deployment |
 | **About → "Check for updates"** | **Desktop** on a **managed** build; other builds only show the version number |
 

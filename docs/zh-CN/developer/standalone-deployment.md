@@ -399,6 +399,8 @@ skills_dir = "skills"
 # headers = { Authorization = "Bearer …" }   # http：附加请求头
 ```
 
+> **`public_url` 不要带结尾 `/`。** 服务端用它拼回调地址（`{public_url}/api/auth/callback/<id>`），带尾斜杠会拼出 `//api/auth/callback/<id>`：路由匹配不到，浏览器拿到的是 SPA 首页 200，表现为「从门户点进来又回到登录页」，服务端日志里看不到回调请求。`pointer-server auth doctor` 会对尾斜杠给出警告。
+
 ### `[server]` Web 品牌 / 文案参数
 
 | TOML | 环境变量 | 作用 | 未配置时 |
@@ -467,6 +469,100 @@ skills_dir = "skills"
 | `nickname_path` | 空 | 可选显示名 claim |
 | `signing.secret` / `signing.secret_prev` / `signing.audience` | 空 | 本地 HS256 验签；`audience` 须与票的 `aud` 一致 |
 | `lookup.url` / `lookup.param` / `lookup.token` | 空 | 配了则改为不透明票回查 |
+
+`oidc`（OpenID Connect：discovery 拿端点，JWKS 验签 ID token）：
+
+| 字段 | 默认 | 说明 |
+|------|------|------|
+| `issuer`（provider 层，不是 `oidc` 子表） | — | **必填**，如 `https://sso.example.com/realms/acme`；discovery 由它推导 |
+| `client_id` | — | **必填** |
+| `client_secret` | — | **必填**；`auth = "none"`（公共客户端 + PKCE）时不需要 |
+| `auth` | `client_secret_post` | token 请求的客户端认证：`client_secret_post` / `client_secret_basic` / `none` |
+| `scopes` | 空 | 追加 scope；`openid` 永远排第一，重复项自动去掉 |
+| `discovery_url` | `{issuer}/.well-known/openid-configuration` | 显式覆盖 discovery 文档地址 |
+| `audience` | `client_id` | 校验 ID token 的 `aud` |
+| `subject_path` | `/sub` | ID token 里稳定用户 id 的指针，不能为空 |
+| `algs` | `RS256` | 接受的签名算法，仅 `RS256` / `RS384` / `RS512`，其余**启动失败** |
+| `clock_skew_secs` | `120` | `exp` / `iat` 的时钟偏差容忍（秒） |
+
+```toml
+# 企业 OIDC（Keycloak 形状）：端点全部来自 discovery
+[auth.providers.corp]
+kind = "oidc"
+display_name = "企业统一认证"
+issuer = "https://sso.example.com/realms/acme"
+
+[auth.providers.corp.oidc]
+client_id = "pointer-web"
+client_secret = "replace-with-client-secret"
+scopes = ["profile", "email"]
+# discovery_url 留空 → {issuer}/.well-known/openid-configuration
+# audience 留空 → client_id；若 IdP 的 ID token 里 aud 不是 client_id，在这里显式指定
+```
+
+`oauth2_userinfo`（标准 OAuth2 授权码 + userinfo 取身份）：`authorize` / `token` / `userinfo` 三个子表，`url` 都必填 —— 这条路径没有 discovery。
+
+| 字段（`authorize`） | 默认 | 说明 |
+|------|------|------|
+| `url` | — | **必填**，浏览器跳转的授权端点 |
+| `scope` | 空 | 空格分隔，非空才发送 |
+| `pkce` | `true` | 发送 `code_challenge`（S256） |
+| `extra_params` | 空 | 静态附加查询参数（`audience` / `prompt` 等） |
+
+| 字段（`token`） | 默认 | 说明 |
+|------|------|------|
+| `url` | — | **必填**，授权码换 token |
+| `method` | `post` | `get` / `post` |
+| `auth` | `client_secret_post` | `client_secret_post` / `client_secret_basic` / `none` |
+| `client_id` / `client_secret` | — | `auth = "none"` 之外必填 |
+| `encoding` | `json` | `post` 的 body 编码；**走 RFC 6749 标准端点要写 `form`** |
+| `grant_type_param` / `grant_type_value` | `grant_type` / `authorization_code` | 参数名 / 参数值 |
+| `code_param` | `code` | 不能为空 |
+| `client_id_param` / `client_secret_param` | `client_id` / `client_secret` | 参数名可逐个覆盖 |
+| `redirect_uri_param` / `code_verifier_param` | `redirect_uri` / `code_verifier` | 置 `""` 表示**不发送**该参数 |
+| `extra_params` | 空 | 静态附加参数 |
+| `access_token_path` | `/access_token` | 响应里 token 的指针 |
+| `refresh_token_path` / `expires_in_path` / `id_token_path` | 空 | 可选响应字段指针 |
+| `error` | `{ kind = "http_status" }` | 失败判定：`http_status`（非 2xx 即失败）/ `path_not_equal` / `path_present` |
+| `error_code_path` / `error_message_path` | 空 | 可选错误字段指针 |
+
+| 字段（`userinfo`） | 默认 | 说明 |
+|------|------|------|
+| `url` | — | **必填** |
+| `method` | `get` | `get` / `post` |
+| `token_auth` | `header` | `header` / `query` / `body`；`body` 必须配 `method = "post"`，否则**启动失败** |
+| `token_name` | `header` → `Authorization`；`query` / `body` → `access_token` | 承载 token 的字段名 |
+| `token_prefix` | `header` → `Bearer `；其余为空 | 置 `""` 表示发**裸 token**（如 `x-acs-dingtalk-access-token`） |
+| `encoding` | `form` | 只在 `token_auth = "body"` 时生效 |
+| `subject_path` | `/sub` | 稳定用户 id，不能为空 |
+| `issuer_path` | 空 | 可选 issuer claim 指针；留空用 provider 层 `issuer` |
+| `error` / `error_code_path` / `error_message_path` | 同 `token` | 失败判定与错误字段 |
+
+```toml
+# 标准 OAuth2 + userinfo（RFC 6749 形状）
+[auth.providers.corp-oauth]
+kind = "oauth2_userinfo"
+display_name = "企业账号登录"
+issuer = "https://idp.example.com"
+
+[auth.providers.corp-oauth.authorize]
+url = "https://idp.example.com/oauth2/authorize"
+scope = "openid profile"
+
+[auth.providers.corp-oauth.token]
+url = "https://idp.example.com/oauth2/token"
+client_id = "pointer-web"
+client_secret = "replace-with-client-secret"
+encoding = "form"                 # 默认 json 只适合少数非标准实现
+
+[auth.providers.corp-oauth.userinfo]
+url = "https://idp.example.com/oauth2/userinfo"
+subject_path = "/sub"
+```
+
+国内实现常不按 RFC 6749 来，靠字段微调即可，不用改代码：`token.auth = "none"` 表示公共客户端；`token.extra_params` 补固定参数；`userinfo.token_name = "x-acs-dingtalk-access-token"` + `userinfo.token_prefix = ""` 发裸 token；`userinfo.subject_path = "/unionId"` 取厂商自己的稳定 id；失败判定不是非 2xx 时用 `error = { kind = "path_not_equal", path = "/errcode", ok_value = "0" }`。
+
+> 回调地址由 `public_url` 拼出：**不要给 `public_url` 加结尾 `/`**，否则得到 `//api/auth/callback/<id>`，路由匹配不到，表现为「从门户点进来又回到登录页」，服务端日志里看不到回调请求。
 
 准入白名单：`local_password` 豁免，其余 kind 均过 `server_access::is_user_allowed`。
 

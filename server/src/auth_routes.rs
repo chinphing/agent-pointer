@@ -691,13 +691,28 @@ fn redeem_pending(
     let state_token = params.get("state").map(String::as_str).unwrap_or_default();
     let cookie_state = auth_pending::state_from_headers(headers);
     if !auth_pending::state_cookie_matches(cookie_state.as_deref(), state_token) {
+        // 两种原因都报 invalid_state，日志里必须能分开：浏览器没带回 cookie
+        // （换了窗口/设备、被第三方 cookie 策略拦掉），还是 cookie 与 query 的
+        // state 不一致（页面被并发发起过两次）。
+        // 不打印 state 本身——它等同于一次性的登录凭据。
+        log::warn!(
+            "platform_auth: invalid_state reason=cookie provider={provider_id} \
+             cookie_present={} query_state_present={}",
+            cookie_state.is_some(),
+            !state_token.is_empty()
+        );
         return Err(LoginError::InvalidState);
     }
     match state.oauth_pending.take(state_token, provider_id) {
         Ok(pending) => Ok(pending),
-        Err(auth_pending::PendingError::ProviderMismatch)
-        | Err(auth_pending::PendingError::AtCapacity) => Err(LoginError::InvalidState),
-        Err(auth_pending::PendingError::InvalidState) => Err(LoginError::InvalidState),
+        Err(err) => {
+            // InvalidState = 内存里没有这条（过期 / 已被兑换 / 服务重启）
+            // ProviderMismatch = 发起与回调解析到不同的 provider id
+            log::warn!(
+                "platform_auth: invalid_state reason=pending err={err:?} provider={provider_id}"
+            );
+            Err(LoginError::InvalidState)
+        }
     }
 }
 

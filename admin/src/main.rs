@@ -15,6 +15,9 @@ use pointer_admin::seed;
 async fn main() -> Result<()> {
     pointer_admin::boot::init_logging();
 
+    // `.env` 只补空缺：systemd / shell 注入的变量优先。
+    pointer_admin::config::load_env_file();
+
     let config = AdminConfig::from_env();
 
     // `pointer-admin seed` —— 装一遍内置服务商（qwen / deepseek / 豆包）与默认档位。

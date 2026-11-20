@@ -1,6 +1,9 @@
-//! 启动配置，全部来自环境变量（不读配置文件，避免多一处漂移）。
+//! 启动配置，全部来自环境变量。
+//!
+//! 支持从 `.env` 补齐（见 [`load_env_file`]）：**OS 环境优先，文件只填空缺**，
+//! 与 `pointer-server` 的语义一致。仍然不读结构化配置文件，避免多一处漂移。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct AdminConfig {
@@ -133,5 +136,146 @@ mod tests {
         assert_eq!(cfg.cookie_name, "pointer_admin_session");
         assert!(!cfg.cookie_secure, "本地 http 默认不加 Secure");
         assert!(cfg.oauth_secret.is_none(), "未配置时必须显式为 None");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `.env` 支持
+// ---------------------------------------------------------------------------
+
+/// 解析 dotenv 内容。规则刻意保守，只认最常见的写法：
+///
+/// - `KEY=VALUE`，允许 `export ` 前缀
+/// - 空行与 `#` 开头的行跳过
+/// - 值两侧的成对单/双引号会被剥掉
+/// - 值里的 `#` 不当作注释（避免把密码里的 `#` 截断）
+///
+/// 不做变量插值——配置项里没有这种需求，多一层求值只会多一处猜。
+pub fn parse_env_content(content: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for raw in content.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let line = line.strip_prefix("export ").unwrap_or(line).trim();
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        if key.is_empty() || key.contains(char::is_whitespace) {
+            continue;
+        }
+        let mut value = value.trim();
+        for quote in ['"', '\''] {
+            if value.len() >= 2 && value.starts_with(quote) && value.ends_with(quote) {
+                value = &value[1..value.len() - 1];
+                break;
+            }
+        }
+        out.push((key.to_string(), value.to_string()));
+    }
+    out
+}
+
+/// 把文件里的键值补进进程环境。已存在且非空的变量**不覆盖**（OS 环境优先）。
+///
+/// 返回实际写入的键名，供启动日志打印（值不打印，避免泄露密钥）。
+pub fn apply_env_file(path: &Path) -> Vec<String> {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let mut applied = Vec::new();
+    for (key, value) in parse_env_content(&content) {
+        let occupied = std::env::var(&key).map(|v| !v.trim().is_empty()).unwrap_or(false);
+        if occupied {
+            continue;
+        }
+        std::env::set_var(&key, value);
+        applied.push(key);
+    }
+    applied
+}
+
+/// 启动时加载 `.env`：`POINTER_ADMIN_ENV_FILE` 指定路径优先，否则用工作目录下的 `.env`。
+///
+/// 文件不存在时静默跳过——裸部署完全可以只用 systemd / shell 注入环境变量。
+pub fn load_env_file() {
+    let explicit = std::env::var("POINTER_ADMIN_ENV_FILE")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+    let path = match explicit {
+        Some(p) => PathBuf::from(p),
+        None => PathBuf::from(".env"),
+    };
+    if !path.is_file() {
+        return;
+    }
+    let applied = apply_env_file(&path);
+    if !applied.is_empty() {
+        log::info!(
+            "已从 {} 补充环境变量：{}",
+            path.display(),
+            applied.join(", ")
+        );
+    }
+}
+
+#[cfg(test)]
+mod env_file_tests {
+    use super::*;
+
+    #[test]
+    fn parses_basic_pairs_and_skips_noise() {
+        let got = parse_env_content(
+            "# comment\n\nPOINTER_ADMIN_ADDR=127.0.0.1:8788\nexport POINTER_ADMIN_TENANT=acme\n",
+        );
+        assert_eq!(
+            got,
+            vec![
+                ("POINTER_ADMIN_ADDR".to_string(), "127.0.0.1:8788".to_string()),
+                ("POINTER_ADMIN_TENANT".to_string(), "acme".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn strips_matching_quotes_but_keeps_inner_hash() {
+        let got = parse_env_content(
+            "A=\"has space\"\nB='x#y'\nC=p#q\nD=\"mismatched'\n",
+        );
+        let map: std::collections::HashMap<_, _> = got.into_iter().collect();
+        assert_eq!(map["A"], "has space");
+        assert_eq!(map["B"], "x#y");
+        // 值里的 # 不当注释
+        assert_eq!(map["C"], "p#q");
+        // 引号不配对时不剥
+        assert_eq!(map["D"], "\"mismatched'");
+    }
+
+    #[test]
+    fn ignores_lines_without_equals_or_with_bad_key() {
+        let got = parse_env_content("NOVALUE\n=noname\nBAD KEY=v\nOK=v\n");
+        assert_eq!(got, vec![("OK".to_string(), "v".to_string())]);
+    }
+
+    #[test]
+    fn os_env_wins_over_file() {
+        // 用独立键名，避免和其它测试抢进程环境。
+        std::env::set_var("POINTER_ADMIN_TEST_OS_WINS", "from-os");
+        let dir = std::env::temp_dir().join(format!("pointer-admin-env-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(".env");
+        std::fs::write(
+            &file,
+            "POINTER_ADMIN_TEST_OS_WINS=from-file\nPOINTER_ADMIN_TEST_FROM_FILE=1\n",
+        )
+        .unwrap();
+        let applied = apply_env_file(&file);
+        assert_eq!(std::env::var("POINTER_ADMIN_TEST_OS_WINS").unwrap(), "from-os");
+        assert_eq!(std::env::var("POINTER_ADMIN_TEST_FROM_FILE").unwrap(), "1");
+        assert_eq!(applied, vec!["POINTER_ADMIN_TEST_FROM_FILE".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

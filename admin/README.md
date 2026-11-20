@@ -29,6 +29,9 @@ cargo run -p pointer-admin
 | `POINTER_ADMIN_OAUTH_SECRET` | 无 | 没配则 `/oauth/*` 与 `/auth/app/token` 返回 503 |
 | `POINTER_ADMIN_MASTER_KEY` | 无 | **多实例必配**。不配则密钥按本机标识加密，换机解不开 |
 | `POINTER_ADMIN_TENANT` | `default` | 多租户预留，目前单租户 |
+| `POINTER_ADMIN_ENV_FILE` | `.env` | `.env` 路径；工作目录下没有 `.env` 时静默跳过 |
+
+环境变量也可以写进 `.env`（工作目录下，或 `POINTER_ADMIN_ENV_FILE` 指定）。**OS 环境优先，文件只补空缺**，和 `pointer-server` 的语义一致。
 
 ## 测试
 

@@ -11,6 +11,7 @@
 # 环境变量：
 #   POINTER_ADMIN_STATIC_DIR   默认 ./web；指向不存在的位置会拒绝启动
 #   其余（DB_URL / DATA_DIR / OAUTH_SECRET / ADDR …）原样透传，脚本不猜
+#   也可以把这些写进二进制同目录的 .env（进程启动时自动读取，OS 环境优先）
 #
 # 退出码：0 成功；1 失败。status 特殊：运行中 0，已停止 1。
 

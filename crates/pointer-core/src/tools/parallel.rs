@@ -167,10 +167,29 @@ pub struct ParallelLimits {
 }
 
 impl ParallelLimits {
+    /// 平台模式（多用户）下这两个值属于部署方：`[limits]` 优先，用户设置不参与，
+    /// 否则一个用户改小就把所有人的并行退化成串行。桌面端保持原行为。
     pub fn from_settings(settings: &crate::models::ModelSettings) -> Self {
+        Self::resolve(crate::deployment_mode::is_platform(), settings)
+    }
+
+    /// 纯函数版本（便于测试平台/桌面两条优先级）。
+    pub fn resolve(platform: bool, settings: &crate::models::ModelSettings) -> Self {
+        let tools = if platform {
+            crate::server_config::max_parallel_tool_calls()
+        } else {
+            crate::server_config::max_parallel_tool_calls()
+                .or(settings.max_parallel_tool_calls)
+        };
+        let sub_agents = if platform {
+            crate::server_config::max_parallel_sub_agents()
+        } else {
+            crate::server_config::max_parallel_sub_agents()
+                .or(settings.max_parallel_sub_agents)
+        };
         Self {
-            max_parallel_tools: resolve_parallel_limit(settings.max_parallel_tool_calls),
-            max_parallel_sub_agents: resolve_parallel_limit(settings.max_parallel_sub_agents),
+            max_parallel_tools: resolve_parallel_limit(tools),
+            max_parallel_sub_agents: resolve_parallel_limit(sub_agents),
             max_parallel_media_jobs: resolve_parallel_limit(settings.max_parallel_media_jobs),
         }
     }
@@ -179,7 +198,11 @@ impl ParallelLimits {
         let cpu = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);
-        let source = if settings.max_parallel_tool_calls.is_some()
+        let from_config = crate::server_config::max_parallel_tool_calls().is_some()
+            || crate::server_config::max_parallel_sub_agents().is_some();
+        let source = if from_config {
+            "server_config"
+        } else if settings.max_parallel_tool_calls.is_some()
             || settings.max_parallel_sub_agents.is_some()
             || settings.max_parallel_media_jobs.is_some()
         {
@@ -298,5 +321,35 @@ mod tests {
         assert!(ka.is_empty());
         assert!(kb.is_empty());
         assert!(!keys_overlap(&ka, &kb));
+    }
+}
+
+#[cfg(test)]
+mod parallel_limit_precedence_tests {
+    use super::*;
+
+    fn settings_with(tools: u32, sub: u32) -> crate::models::ModelSettings {
+        let mut s = crate::models::ModelSettings::default();
+        s.max_parallel_tool_calls = Some(tools);
+        s.max_parallel_sub_agents = Some(sub);
+        s
+    }
+
+    /// 平台模式下用户设置里的并行值必须被忽略：否则一个用户改成 1，
+    /// 所有人的工具/子智能体都退化成串行。
+    #[test]
+    fn platform_ignores_user_parallel_settings() {
+        let limits = ParallelLimits::resolve(true, &settings_with(1, 1));
+        let default = default_parallel_limit();
+        assert_eq!(limits.max_parallel_tools, default);
+        assert_eq!(limits.max_parallel_sub_agents, default);
+    }
+
+    /// 桌面端（单用户）保持原行为：设置值生效。
+    #[test]
+    fn standalone_honours_user_parallel_settings() {
+        let limits = ParallelLimits::resolve(false, &settings_with(1, 2));
+        assert_eq!(limits.max_parallel_tools, 1);
+        assert_eq!(limits.max_parallel_sub_agents, 2);
     }
 }

@@ -177,6 +177,12 @@ struct ServerConfigToml {
     pointer: PointerSection,
     #[serde(default)]
     webhooks: WebhooksSection,
+    /// `[limits]`：进程级并发/超时上限。多用户部署下属于部署方，不是用户偏好。
+    #[serde(default)]
+    limits: LimitsSection,
+    /// `[terminal]`：终端子进程环境。多用户部署下属于部署方，不是用户偏好。
+    #[serde(default)]
+    terminal: TerminalSection,
     /// 任意环境变量注入（仅当该 env 未设置时生效，OS 环境优先）。
     /// 可用于配置 OTLP 导出，例如：
     /// ```toml
@@ -228,6 +234,29 @@ struct EnvironmentSection {
     accounts: HashMap<String, String>
 }
 
+/// `[limits]`：进程级上限。桌面端仍可用 `user_settings.json` 里的同名项；
+/// 平台模式下只认这里，避免一个用户改了影响所有人。
+#[derive(Debug, Default, Deserialize)]
+struct LimitsSection {
+    #[serde(default)]
+    max_parallel_tool_calls: Option<u32>,
+    #[serde(default)]
+    max_parallel_sub_agents: Option<u32>,
+}
+
+/// `[terminal]`：终端子进程环境。
+///
+/// 表结构而不是 `K=V` 字符串：值里可能带逗号（PATH、LD_PRELOAD 参数），
+/// 拼成一条 env 再切回来必然出错。因此只走 TOML，不做 env 映射。
+#[derive(Debug, Default, Deserialize)]
+struct TerminalSection {
+    #[serde(default)]
+    env_overrides: std::collections::BTreeMap<String, String>,
+}
+
+/// 解析后的 `[terminal].env_overrides`（TOML 专用，无 env 映射）。
+static PARSED_TERMINAL_ENV: OnceLock<std::collections::BTreeMap<String, String>> = OnceLock::new();
+
 /// P2b：全局 MCP server 声明 + 配置文件所在目录（相对 command 的解析基准）。
 static PARSED_MCP: OnceLock<Option<(crate::plugins::manifest::McpServersDecl, PathBuf)>> =
     OnceLock::new();
@@ -271,6 +300,7 @@ pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
     if ext == "toml" {
         if let Ok(text) = std::fs::read_to_string(&path) {
             if let Ok(parsed) = toml::from_str::<ServerConfigToml>(&text) {
+                let _ = PARSED_TERMINAL_ENV.set(parsed.terminal.env_overrides.clone());
                 let _ = PARSED_AUTH_PROVIDERS.set(parsed.auth.providers.clone());
                 let _ = PARSED_AUTH_RATE_LIMIT.set(parsed.auth.rate_limit.clone());
                 let _ = PARSED_MCP.set(Some((parsed.mcp_servers, base_dir.clone())));
@@ -402,6 +432,24 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
         base_dir,
         false,
     );
+    if let Some(n) = parsed.limits.max_parallel_tool_calls {
+        push_mapped(
+            &mut pairs,
+            "POINTER_SERVER_MAX_PARALLEL_TOOL_CALLS",
+            &n.to_string(),
+            base_dir,
+            false,
+        );
+    }
+    if let Some(n) = parsed.limits.max_parallel_sub_agents {
+        push_mapped(
+            &mut pairs,
+            "POINTER_SERVER_MAX_PARALLEL_SUB_AGENTS",
+            &n.to_string(),
+            base_dir,
+            false,
+        );
+    }
     if let Some(admins) = parsed.auth.admins.as_ref() {
         let joined = admins
             .iter()
@@ -823,6 +871,24 @@ pub fn environment_disk_mb() -> Option<u32> {
     env_nonempty("POINTER_SERVER_ENVIRONMENT_DISK_MB")
         .and_then(|raw| raw.trim().parse::<u32>().ok())
         .filter(|v| *v > 0)
+}
+
+/// 进程级并行上限（`[limits]`）。平台模式下优先于用户设置。
+pub fn max_parallel_tool_calls() -> Option<u32> {
+    env_nonempty("POINTER_SERVER_MAX_PARALLEL_TOOL_CALLS").and_then(|v| v.trim().parse().ok())
+}
+
+pub fn max_parallel_sub_agents() -> Option<u32> {
+    env_nonempty("POINTER_SERVER_MAX_PARALLEL_SUB_AGENTS").and_then(|v| v.trim().parse().ok())
+}
+
+/// 终端子进程环境（`[terminal].env_overrides`）。只来自 TOML——值里可能带逗号，
+/// 拼成单条 env 再切回来会出错。
+pub fn terminal_env_overrides_config() -> std::collections::BTreeMap<String, String> {
+    PARSED_TERMINAL_ENV
+        .get()
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// admin 账号名单（`session_user_id`，逗号分隔）。命中者默认走 `local`。
@@ -1427,5 +1493,42 @@ mod admin_account_tests {
         assert!(!admin_account_matches(&list, "alice2"));
         assert!(!admin_account_matches(&list, ""));
         assert!(!admin_account_matches(&[], "alice"));
+    }
+}
+
+#[cfg(test)]
+mod limits_section_tests {
+    use super::*;
+
+    #[test]
+    fn limits_and_terminal_sections_parse() {
+        let text = r#"
+[limits]
+max_parallel_tool_calls = 6
+max_parallel_sub_agents = 2
+
+[terminal.env_overrides]
+PATH = "/opt/bin:/usr/bin"
+LANG = "C.UTF-8"
+"#;
+        let parsed: ServerConfigToml = toml::from_str(text).expect("parse");
+        assert_eq!(parsed.limits.max_parallel_tool_calls, Some(6));
+        assert_eq!(parsed.limits.max_parallel_sub_agents, Some(2));
+        assert_eq!(
+            parsed.terminal.env_overrides.get("PATH").map(String::as_str),
+            Some("/opt/bin:/usr/bin")
+        );
+        assert_eq!(parsed.terminal.env_overrides.len(), 2);
+    }
+
+    /// 值里的逗号不能被当成分隔符——这是不用 env 字符串编码的原因。
+    #[test]
+    fn terminal_values_keep_commas() {
+        let text = "[terminal.env_overrides]\nPATH = \"/a,/b:/c\"\n";
+        let parsed: ServerConfigToml = toml::from_str(text).expect("parse");
+        assert_eq!(
+            parsed.terminal.env_overrides.get("PATH").map(String::as_str),
+            Some("/a,/b:/c")
+        );
     }
 }

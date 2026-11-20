@@ -537,7 +537,7 @@ skills_dir = "skills"        # bundled Skills source; for deb use /usr/share/poi
 
 [pointer]
 api_base = "https://ptr.readflowai.com"
-oauth_client_secret = "your-secret"
+# oauth_client_secret is not needed: platform login uses PKCE and the server never reads it
 ```
 
 You can also use the dotenv-format `pointer-server.env`, or point at a path with `POINTER_SERVER_CONFIG=C:\pointer\pointer-server.toml`.

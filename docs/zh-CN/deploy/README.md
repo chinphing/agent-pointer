@@ -69,11 +69,11 @@
 - [ ] **1. 准备变量** —— `POINTER_EDITION=managed` + 控制面地址。写进 `pointer.local.env` 或显式导出（**OS / CI 环境变量优先**，文件只补空缺）
 - [ ] **2. 构建** —— `npm install && npm run server:build`
 - [ ] **3. 验证域名已烧入** —— 构建日志有 `[server-build] edition=managed domains=3/3 baked, web=managed`；`strings target/release/pointer-server | grep -m1 <你的 api_base 域名>` 有输出
-- [ ] **4. 运行期配置** —— `pointer-server.toml` 的 `[pointer]`：`api_base`、`oauth_client_secret`（与控制面 `THIRD_PARTY_OAUTH_EXCHANGE_SECRET` 对齐）、`public_url`；回调 URL 已在控制面登记
+- [ ] **4. 运行期配置** —— `pointer-server.toml`：`[pointer].api_base` + `[server].public_url`；回调 URL 已在控制面登记（登录走 PKCE 公共客户端，**无需**共享 secret）
 - [ ] **5. 启动并验证** —— 日志 `deployment_mode: platform (control_plane_bound=true)`；`curl -s http://127.0.0.1:8787/api/auth/mode` → `{"mode":"platform"}`；浏览器打开 `public_url` 跳控制面 OAuth 登录
 - [ ] **6. 记住** —— platform 模式**跳过 License 校验**，不需要 `[license]`
 
-**外部依赖**：控制面（Pointer 官网或企业自建）API 可达，OAuth secret 对齐，回调 URL 已登记。
+**外部依赖**：控制面（Pointer 官网或企业自建）API 可达，回调 URL 已登记。
 
 ---
 

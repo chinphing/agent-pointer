@@ -25,7 +25,7 @@ Deploy pointer-server + the Vue static assets on a Windows server, and configure
 | `AGENT_HEALTH_PATH` | Platform liveness path; set it to `/api/health` in production |
 | External access | The platform assigns an external address to each instance; the desktop client opens that instance's web UI with `console_url` |
 | `POINTER_API_BASE` | Platform API root address |
-| `POINTER_OAUTH_CLIENT_SECRET` | Code-exchange secret matching the platform |
+| `POINTER_OAUTH_CLIENT_SECRET` | **Unused**: platform login uses PKCE and the server never reads it; ignore leftovers from older deployments |
 | `allowed_user_ids` | (recommended, required in production) only the listed platform user ids may sign in to / use the server; the corresponding env is `POINTER_SERVER_ALLOWED_USER_IDS` (comma-separated) |
 | `require_allowed_users` | when `true`, startup is refused if `allowed_user_ids` is empty |
 

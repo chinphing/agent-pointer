@@ -180,7 +180,7 @@ VITE_npm run server:build
 | 配置 | 说明 |
 | --- | --- |
 | `[pointer].api_base` | 控制面 API（环境变量 `POINTER_API_BASE` 优先）。留空则退回构建期烧入值 |
-| `[pointer].oauth_client_secret` | 必须与控制面 `THIRD_PARTY_OAUTH_EXCHANGE_SECRET` 一致（**不是** JWT_SECRET） |
+| `[pointer].oauth_client_secret` | **不需要**：平台登录是 PKCE 公共客户端（`client_id` + `code_verifier`），服务端不读该字段，控制面也无需共享密钥 |
 | `[server].public_url` | 浏览器可达根 URL；OAuth 回调 `{public_url}/api/auth/oauth/callback` 需登记到控制面 `POINTER_APP_REDIRECT_URIS` |
 | `[deployment].mode` | 留空即可：已绑定控制面 ⇒ 自动 `platform`；也可显式写 `platform` |
 | `[license]` | **不需要**：platform 模式跳过 License 校验（日志 `license: skipped (platform deployment mode)`） |

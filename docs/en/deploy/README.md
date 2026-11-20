@@ -70,11 +70,11 @@ Detailed version (artifact lists, troubleshooting, CI policy): [`editions.md`](e
 - [ ] **1. Prepare variables** — `POINTER_EDITION=managed` + the control-plane address. Write them into `pointer.local.env` or export them explicitly (**OS / CI environment variables win**; the file only fills gaps)
 - [ ] **2. Build** — `npm install && npm run server:build`
 - [ ] **3. Verify the domains are baked in** — the build log contains `[server-build] edition=managed domains=3/3 baked, web=managed`; `strings target/release/pointer-server | grep -m1 <your api_base domain>` prints output
-- [ ] **4. Runtime configuration** — `[pointer]` in `pointer-server.toml`: `api_base`, `oauth_client_secret` (aligned with the control plane's `THIRD_PARTY_OAUTH_EXCHANGE_SECRET`), `public_url`; the callback URL is already registered on the control plane
+- [ ] **4. Runtime configuration** — `pointer-server.toml`: `[pointer].api_base` + `[server].public_url`; the callback URL is already registered on the control plane (login uses a PKCE public client, **no** shared secret)
 - [ ] **5. Start and verify** — the log shows `deployment_mode: platform (control_plane_bound=true)`; `curl -s http://127.0.0.1:8787/api/auth/mode` → `{"mode":"platform"}`; opening `public_url` in a browser redirects to control-plane OAuth login
 - [ ] **6. Remember** — platform mode **skips license verification**; no `[license]` needed
 
-**External dependencies**: the control plane (Pointer's site or your own) API reachable, the OAuth secret aligned, the callback URL registered.
+**External dependencies**: the control plane (Pointer's site or your own) API reachable, the callback URL registered.
 
 ---
 

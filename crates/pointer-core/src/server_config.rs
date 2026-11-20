@@ -140,8 +140,16 @@ struct ServerSection {
 
 #[derive(Debug, Default, Deserialize)]
 struct PointerSection {
+    /// 控制面地址。平台登录的授权页 / 换码端点都从它派生。
     #[serde(default)]
     api_base: String,
+    /// **服务端不读这个字段**，保留只为兼容老配置文件。
+    ///
+    /// 平台登录是 PKCE 公共客户端（`client_id` + `code_verifier`），换码请求里
+    /// 不带 client_secret，所以不需要与控制面共享任何密钥。早期文档要求它与控制面
+    /// `THIRD_PARTY_OAUTH_EXCHANGE_SECRET` 一致，那是 secret 换码时代的做法，已废弃。
+    ///
+    /// 仍会被映射成 `POINTER_OAUTH_CLIENT_SECRET`（日志里脱敏），仅此而已。
     #[serde(default)]
     oauth_client_secret: String,
 }

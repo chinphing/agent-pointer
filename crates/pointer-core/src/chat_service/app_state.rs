@@ -1240,8 +1240,15 @@ impl AppState {
         let merged = self.effective_settings();
         // Standalone installs (no control plane) have no platform to administer:
         // the local operator owns every setting, so keep the admin surfaces open.
+        //
+        // 平台模式下控制面把 `is_platform_admin` 固定为 false，Web 端因此永远看不到
+        // 设置入口；本部署 `[auth] admins` 里的账号按管理员对待，把入口放出来。
+        let auth = self.active_platform_auth();
         let is_platform_admin = crate::deployment_mode::is_standalone()
-            || self.active_platform_auth().is_platform_admin();
+            || auth.is_platform_admin()
+            || crate::server_config::is_admin_account(
+                &auth.platform_user_id().unwrap_or_default(),
+            );
         EffectiveSettingsView {
             user,
             platform,

@@ -58,7 +58,7 @@
 | `POINTER_ADMIN_DATA_DIR` | 无 | 运行时数据（上传的安装包、模型目录缓存等） |
 | `POINTER_ADMIN_PUBLIC_BASE` | 无 | 对外访问地址，如 `https://admin.example.com` |
 | `POINTER_ADMIN_OAUTH_SECRET` | 无 | OAuth 客户端密钥，**必填**，见 §2.4 |
-| `POINTER_ADMIN_SERVER_REDIRECT` | `http://127.0.0.1:8787/auth/callback` | 服务端回跳地址，只有部署服务端时才需要改 |
+| `POINTER_ADMIN_SERVER_REDIRECT` | `http://127.0.0.1:8787/auth/callback` | 服务端回跳地址，**可多个**（逗号或换行分隔）；多套服务端 / 内外网地址各写一份 |
 | `POINTER_ADMIN_TENANT` | 默认租户 | 多租户部署时用 |
 | `POINTER_ADMIN_COOKIE_SECURE` | 见代码 | 走 HTTPS 时必须为真 |
 | `POINTER_ADMIN_CAPTCHA` | 见代码 | 内网可关；公网建议开 |
@@ -88,7 +88,7 @@ POINTER_ADMIN_BOOTSTRAP_PASSWORD='换成强密码' \
 
 | 客户端 | 类型 | 回跳地址 |
 |---|---|---|
-| 服务端 | 机密 | `POINTER_ADMIN_SERVER_REDIRECT` |
+| 服务端 | 机密 | `POINTER_ADMIN_SERVER_REDIRECT`（多个用逗号分隔） |
 | 桌面端 | 公开（回环） | 无，走 `127.0.0.1` 回环 |
 
 **不需要手工插库。** 这个 secret 要和客户端构建时用的一致，否则换票失败。

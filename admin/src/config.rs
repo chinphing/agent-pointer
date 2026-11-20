@@ -24,7 +24,9 @@ pub struct AdminConfig {
     pub bootstrap_password: Option<String>,
     /// 未配置时 OAuth 端点返回 503，而不是拿一个随机密钥糊过去。
     pub oauth_secret: Option<String>,
-    pub server_redirect_uri: String,
+    /// 服务端回跳白名单（可多个：多套 pointer-server 部署 / 内外网地址各一份）。
+    /// 环境变量 `POINTER_ADMIN_SERVER_REDIRECT` 用逗号或换行分隔。
+    pub server_redirect_uris: Vec<String>,
     /// 对外基址（自动更新清单里拼下载链接用）。留空则按请求的 Host 推。
     pub public_base: Option<String>,
     /// 登录是否必须过验证码。默认开；只有自动化测试/内网联调才关。
@@ -47,11 +49,23 @@ impl Default for AdminConfig {
             bootstrap_user: None,
             bootstrap_password: None,
             oauth_secret: None,
-            server_redirect_uri: "http://127.0.0.1:8787/auth/callback".to_string(),
+            server_redirect_uris: vec![DEFAULT_SERVER_REDIRECT.to_string()],
             public_base: None,
             captcha_required: true,
         }
     }
+}
+
+/// 服务端回跳的默认值（本机 pointer-server）。
+pub const DEFAULT_SERVER_REDIRECT: &str = "http://127.0.0.1:8787/auth/callback";
+
+/// 逗号或换行分隔 → 去空白、去空项。URI 里不会出现这两种分隔符，按它们切是安全的。
+pub fn split_redirect_uris(raw: &str) -> Vec<String> {
+    raw.split([',', '\n', '\r'])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 fn env_str(key: &str) -> Option<String> {
@@ -108,7 +122,10 @@ impl AdminConfig {
         cfg.bootstrap_password = env_str("POINTER_ADMIN_BOOTSTRAP_PASSWORD");
         cfg.oauth_secret = env_str("POINTER_ADMIN_OAUTH_SECRET");
         if let Some(v) = env_str("POINTER_ADMIN_SERVER_REDIRECT") {
-            cfg.server_redirect_uri = v;
+            let uris = split_redirect_uris(&v);
+            if !uris.is_empty() {
+                cfg.server_redirect_uris = uris;
+            }
         }
         // 只认明确的关闭值；写错/留空一律按「开启」处理，宁可多一道验证码。
         if let Some(v) = env_str("POINTER_ADMIN_PUBLIC_BASE") {
@@ -219,6 +236,29 @@ pub fn load_env_file() {
             path.display(),
             applied.join(", ")
         );
+    }
+}
+
+#[cfg(test)]
+mod redirect_uris_tests {
+    use super::*;
+
+    #[test]
+    fn splits_on_comma_and_newline() {
+        assert_eq!(
+            split_redirect_uris("https://a/cb, https://b/cb\nhttps://c/cb"),
+            vec![
+                "https://a/cb".to_string(),
+                "https://b/cb".to_string(),
+                "https://c/cb".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn single_value_still_works_and_blank_is_dropped() {
+        assert_eq!(split_redirect_uris("https://a/cb"), vec!["https://a/cb".to_string()]);
+        assert!(split_redirect_uris("  ,  \n ").is_empty());
     }
 }
 

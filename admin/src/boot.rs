@@ -180,7 +180,10 @@ async fn bootstrap(store: &AdminStore, cfg: &AdminConfig) -> Result<()> {
                 oauth::clients::CLIENT_SERVER,
                 secret,
                 oauth::clients::KIND_SERVER,
-                &[cfg.server_redirect_uri.as_str()],
+                &cfg.server_redirect_uris
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
             )
             .await?;
             oauth::clients::upsert(

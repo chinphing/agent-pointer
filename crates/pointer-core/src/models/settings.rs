@@ -2106,6 +2106,35 @@ impl MediaOssConfig {
     }
 }
 
+/// 按用户隔离的运行时设置。
+///
+/// 这几项决定「我这一次运行/我的终端」长什么样，多用户共用一个
+/// `user_settings.json` 时一个用户改了会影响所有人。因此单独存到
+/// `user-settings/<uid>.json`，读取时覆盖全局值。
+///
+/// 全局文件里的同名项仍然有效，作为「没设置过的用户的默认值」。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UserRuntimeOverlay {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "terminalEnvOverrides"
+    )]
+    pub terminal_env_overrides: Option<std::collections::HashMap<String, String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "maxParallelToolCalls"
+    )]
+    pub max_parallel_tool_calls: Option<u32>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "maxParallelSubAgents"
+    )]
+    pub max_parallel_sub_agents: Option<u32>,
+}
+
 /// Persisted user preferences (theme, optional UI cache).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSettings {

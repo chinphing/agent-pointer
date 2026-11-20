@@ -1400,6 +1400,27 @@ impl AppState {
         incoming
             .providers
             .retain(|p| p.source.as_deref() != Some("platform"));
+        // 运行时设置（终端环境、并行上限）按用户隔离：写进
+        // `user-settings/<uid>.json`，全局文件里那几项保持原值作为默认。
+        // 否则一个用户改了，所有人的终端/并行都跟着变。
+        let overlay = crate::models::UserRuntimeOverlay {
+            terminal_env_overrides: Some(incoming.terminal_env_overrides.clone()),
+            max_parallel_tool_calls: incoming.max_parallel_tool_calls,
+            max_parallel_sub_agents: incoming.max_parallel_sub_agents,
+        };
+        match crate::session_user_env::current_session_user_id() {
+            Some(uid) if !uid.trim().is_empty() => {
+                if let Err(err) = storage::save_user_runtime_overlay(uid.trim(), &overlay) {
+                    log::warn!("user-settings: save overlay for {uid} failed: {err:#}");
+                }
+                if let Ok(prev) = storage::load_user_settings_global() {
+                    incoming.terminal_env_overrides = prev.terminal_env_overrides;
+                    incoming.max_parallel_tool_calls = prev.max_parallel_tool_calls;
+                    incoming.max_parallel_sub_agents = prev.max_parallel_sub_agents;
+                }
+            }
+            _ => {}
+        }
         self.save_user_settings(&incoming)?;
         Ok(self.effective_settings_view())
     }

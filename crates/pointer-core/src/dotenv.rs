@@ -89,7 +89,8 @@ pub fn build_terminal_child_environment(env_files: &[PathBuf]) -> HashMap<String
 /// Apply settings `terminalEnvOverrides` last (after process, `.env`, and session vars).
 /// Independent of debug menus: closing debug keeps injection; values stay session-memory only.
 fn apply_terminal_env_overrides(env: &mut HashMap<String, String>) {
-    let overrides = terminal_env_override_source(crate::deployment_mode::is_platform());
+    let settings = crate::platform_config::effective_settings_global();
+    let overrides = settings.terminal_env_overrides;
     if overrides.is_empty() {
         return;
     }
@@ -111,24 +112,6 @@ fn apply_terminal_env_overrides(env: &mut HashMap<String, String>) {
     if applied > 0 {
         info!("terminalEnvOverrides: applied {applied} key(s) to terminal child env");
     }
-}
-
-/// 终端环境覆盖的来源。
-///
-/// 平台模式（多用户）下这份环境属于部署方：只认 `[terminal].env_overrides`，
-/// 用户设置里那份不参与——否则一个人改 PATH，所有人的终端都跟着变。
-/// 桌面端（单用户）配置优先，缺省回落到用户设置。
-fn terminal_env_override_source(
-    platform: bool,
-) -> std::collections::BTreeMap<String, String> {
-    let from_config = crate::server_config::terminal_env_overrides_config();
-    if platform || !from_config.is_empty() {
-        return from_config;
-    }
-    crate::platform_config::effective_settings_global()
-        .terminal_env_overrides
-        .into_iter()
-        .collect()
 }
 
 /// Keys withheld from terminal child processes (substring match, case-insensitive).
@@ -721,21 +704,5 @@ mod tests {
         assert!(is_sensitive_env_key("DASHSCOPE_API_KEY"));
         assert!(!is_sensitive_env_key("PATH"));
         assert!(!is_sensitive_env_key("HOME"));
-    }
-}
-
-#[cfg(test)]
-mod terminal_env_precedence_tests {
-    use super::*;
-
-    /// 平台模式下不读用户设置：配置为空就是空，不会回落到 `terminalEnvOverrides`。
-    #[test]
-    fn platform_ignores_user_terminal_env() {
-        let source = terminal_env_override_source(true);
-        // 配置未加载时为空；关键是它不等于用户设置里的内容。
-        let user = crate::platform_config::effective_settings_global().terminal_env_overrides;
-        if !user.is_empty() {
-            assert!(source.is_empty(), "platform mode must not read user settings");
-        }
     }
 }

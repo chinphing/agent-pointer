@@ -189,28 +189,3 @@ skills_dir = "skills"
 # command = "bin/demo-mcp"       # 相对本配置文件目录
 # args = ["serve"]
 # env = { TOKEN = "replace-me" }
-
-# ---------------------------------------------------------------------------
-# Process-level limits (multi-user deployments)
-#
-# These belong to the operator, not to an individual user: in platform mode a
-# value from `user_settings.json` is ignored for them, because one user editing
-# it would throttle every other user on the same process.
-# ---------------------------------------------------------------------------
-# [limits]
-# max_parallel_tool_calls = 8      # POINTER_SERVER_MAX_PARALLEL_TOOL_CALLS
-# max_parallel_sub_agents = 3      # POINTER_SERVER_MAX_PARALLEL_SUB_AGENTS
-
-# ---------------------------------------------------------------------------
-# Terminal child environment (multi-user deployments)
-#
-# Injected into every terminal tool invocation. Platform mode reads this table
-# only — `terminalEnvOverrides` from user settings is ignored, so one user
-# cannot rewrite PATH for everyone.
-#
-# TOML table, not a K=V string: values may contain commas (PATH, LD_PRELOAD
-# arguments) and would break a single-env encoding.
-# ---------------------------------------------------------------------------
-# [terminal.env_overrides]
-# PATH = "/usr/local/bin:/usr/bin:/bin"
-# LANG = "C.UTF-8"

@@ -159,7 +159,7 @@ fn run_elevated_platform(
     let launcher_path = temp_dir.join("launcher.ps1");
 
     let env_json = serde_json::to_string(env)?;
-    crate::env::effective_env().write_file(&env_path, env_json)?;
+    crate::env::effective_env().write_file(&env_path, env_json.as_bytes())?;
 
     let command = strip_redundant_windows_elevation(command);
     let command = crate::windows_shell_encoding::prefix_cmd_utf8_codepage(&command);
@@ -215,7 +215,7 @@ Set-Content -LiteralPath {exit_ps} -Value $code -NoNewline -Encoding ascii
 "#,
         utf8_setup = crate::windows_shell_encoding::POWERSHELL_UTF8_SETUP_BLOCK,
     );
-    crate::env::effective_env().write_file(&job_path, job_script)?;
+    crate::env::effective_env().write_file(&job_path, job_script.as_bytes())?;
 
     let job_path_ps = escape_powershell_single_quoted(&job_path.display().to_string());
     let launcher_script = format!(
@@ -225,7 +225,7 @@ exit $p.ExitCode
 "#,
         cancelled = WINDOWS_ELEVATION_CANCELLED
     );
-    crate::env::effective_env().write_file(&launcher_path, launcher_script)?;
+    crate::env::effective_env().write_file(&launcher_path, launcher_script.as_bytes())?;
 
     on_output("[elevated] 等待 Windows UAC 确认…\n");
 

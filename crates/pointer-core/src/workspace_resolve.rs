@@ -64,11 +64,16 @@ pub fn resolve_tool_workspace(
     from_settings: &str,
     source: &str,
 ) -> String {
-    // light/container：工作区是**沙箱路径**（`/workspace`）。settings / 会话存储里
-    // 记的是宿主路径，在环境里根本不存在——直接以环境绑定的工作区为准。
-    let env = crate::env::effective_env();
-    if env.kind() != crate::env::EnvKind::Local {
-        return env.workspace_root().display().to_string();
+    // 已绑定远程环境时，工作区是**沙箱路径**（`/workspace`）：settings / 会话存储
+    // 里记的是宿主路径，在沙箱里根本不存在。
+    //
+    // 必须看 `current_env()`（本线程实际绑定的环境），不能看 `effective_env()`：
+    // 后者在未绑定时会按**部署默认档位**返回 DeniedEnv，把 local 账号
+    // （`[auth] admins` 里的账号）也当成远程，工作区被错误地改成 `/workspace`。
+    if let Some(env) = crate::env::current_env() {
+        if env.kind() != crate::env::EnvKind::Local {
+            return env.workspace_root().display().to_string();
+        }
     }
     let trimmed = from_settings.trim();
     if !trimmed.is_empty() {
@@ -116,6 +121,24 @@ pub fn resolve_tool_workspace(
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    /// 回归：部署默认档位是 container、但本线程没有绑定环境（local 账号）时，
+    /// 工作区必须用宿主路径，不能因为 `effective_env()` 返回 DeniedEnv 而变成 `/workspace`。
+    #[test]
+    fn unbound_thread_keeps_host_workspace_even_when_deployment_is_remote() {
+        // 把部署默认设成 container；若实现里还读 `effective_env()`，这里就会返回
+        // `/workspace`，测试失败。
+        std::env::set_var("POINTER_SERVER_ENVIRONMENT_PROVIDER", "container");
+        let host = std::env::temp_dir().join("pointer-ws-regression");
+        let got = resolve_tool_workspace("conv-x", Some("user-x"), &host.display().to_string(), "test");
+        assert_eq!(
+            got,
+            host.display().to_string(),
+            "未绑定环境时必须用宿主工作区"
+        );
+        assert_ne!(got, "/workspace");
+        std::env::remove_var("POINTER_SERVER_ENVIRONMENT_PROVIDER");
+    }
 
     #[test]
     fn kinds_render_stable_labels() {

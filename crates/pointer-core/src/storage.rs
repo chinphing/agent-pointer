@@ -958,7 +958,7 @@ fn stored_settings_to_user(stored: &StoredSettings) -> UserSettings {
         temperature: stored.temperature,
         max_tokens: stored.max_tokens,
         tool_approval_mode: stored.tool_approval_mode.clone(),
-        workspace_root: stored.workspace_root.clone(),
+        // 旧配置里的 workspaceRoot 不再迁移：工作区是会话级概念。
         lead_agent_id: stored.lead_agent_id.clone(),
         context_compression_enabled: true,
         context_budget_tokens: stored.context_budget_tokens,

@@ -49,10 +49,10 @@ describe('releaseAssetName', () => {
 
   it('marks server zip and deb names', () => {
     expect(releaseAssetName('pointer-server-linux-x64.zip', 'community')).toBe(
-      'pointer-server-community-linux-x64.zip',
+      'pointer-server-community-0.1.3-rc4-linux-x64.zip',
     )
     expect(releaseAssetName('pointer-server-windows-x64.zip', 'official')).toBe(
-      'pointer-server-official-windows-x64.zip',
+      'pointer-server-official-0.1.3-rc4-windows-x64.zip',
     )
     expect(releaseAssetName('pointer-server_0.1.2_amd64.deb', 'official')).toBe(
       'pointer-server-official-0.1.2-amd64.deb',
@@ -67,17 +67,17 @@ describe('releaseAssetName', () => {
 
   it('marks the updater tarball and its signature, which carry no separator', () => {
     expect(releaseAssetName('Pointer.app.tar.gz', 'community')).toBe(
-      'Pointer-community.app.tar.gz',
+      'Pointer-community-0.1.3-rc4.app.tar.gz',
     )
     expect(releaseAssetName('Pointer.app.tar.gz.sig', 'official')).toBe(
-      'Pointer-official.app.tar.gz.sig',
+      'Pointer-official-0.1.3-rc4.app.tar.gz.sig',
     )
     // Idempotent: a second pass must not stack another flavor marker.
-    expect(releaseAssetName('Pointer-community.app.tar.gz', 'community')).toBe(
-      'Pointer-community.app.tar.gz',
+    expect(releaseAssetName('Pointer-community-0.1.3-rc4.app.tar.gz', 'community')).toBe(
+      'Pointer-community-0.1.3-rc4.app.tar.gz',
     )
-    expect(releaseAssetName('Pointer-official.app.tar.gz.sig', 'official')).toBe(
-      'Pointer-official.app.tar.gz.sig',
+    expect(releaseAssetName('Pointer-official-0.1.3-rc4.app.tar.gz.sig', 'official')).toBe(
+      'Pointer-official-0.1.3-rc4.app.tar.gz.sig',
     )
   })
 })
@@ -97,7 +97,9 @@ describe('resolveReleaseLabel', () => {
   })
 
   it('uses the label in server archive names', () => {
-    expect(serverZipBaseName('linux-x64', {})).toBe('pointer-server-community-linux-x64')
+    expect(serverZipBaseName('linux-x64', {})).toBe(
+      'pointer-server-community-0.1.3-rc4-linux-x64',
+    )
     expect(serverDebBaseName('0.1.2', 'amd64', { POINTER_PACKAGE_LABEL: 'official' })).toBe(
       'pointer-server-official-0.1.2-amd64',
     )
@@ -133,7 +135,7 @@ describe('stageReleaseAssets', () => {
 
     expect(copied.map((file) => path.basename(file)).sort()).toEqual([
       'Pointer-community-0.1.2-amd64.deb',
-      'pointer-server-community-linux-x64.zip',
+      'pointer-server-community-0.1.3-rc4-linux-x64.zip',
     ])
     expect(fs.readFileSync(path.join(dest, 'Pointer-community-0.1.2-amd64.deb'), 'utf8')).toBe(
       'client',

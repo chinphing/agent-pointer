@@ -37,9 +37,30 @@ export function resolveReleaseLabel(env) {
   return official ? 'official' : null
 }
 
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
+const REPO_ROOT = path.resolve(SCRIPT_DIR, '..')
+
+/**
+ * Release version, from `POINTER_PACKAGE_VERSION` or the root `package.json`.
+ *
+ * Every artifact carries it: a release page listing two naming schemes
+ * (`x-0.1.3-rc4-y` next to `x-y`) reads like a packaging bug.
+ */
+export function resolveReleaseVersion(env = process.env) {
+  const explicit = String(env.POINTER_PACKAGE_VERSION ?? '').trim()
+  if (explicit) return explicit
+  const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'))
+  const version = String(pkg.version ?? '').trim()
+  if (!version) throw new Error('package.json has no version')
+  return version
+}
+
 export function serverZipBaseName(platform, env) {
   const label = resolveReleaseLabel(env)
-  return label ? `pointer-server-${label}-${platform}` : `pointer-server-${platform}`
+  const version = resolveReleaseVersion(env)
+  return label
+    ? `pointer-server-${label}-${version}-${platform}`
+    : `pointer-server-${version}-${platform}`
 }
 
 export function serverDebBaseName(version, arch, env) {
@@ -125,8 +146,16 @@ function markReleaseName(filename, flavor) {
     return filename
   }
   // Tauri's updater tarball carries no separator: `Pointer.app.tar.gz` and its `.sig`.
+  // 补上版本号，与安装包 / server 包的命名保持一致。
   if (stem === 'Pointer' || stem.startsWith('Pointer.')) {
-    return `${marked}${stem.slice('Pointer'.length)}${ext}`
+    const version = resolveReleaseVersion()
+    const suffix = stem.slice('Pointer'.length)
+    return `${marked}-${version}${suffix}${ext}`
+  }
+  // server 的 zip 由打包脚本生成，名字里原本没有版本；补上，和 deb / 安装包一致。
+  if (filename.toLowerCase().endsWith('.zip') && /^pointer-server[-_]/.test(stem)) {
+    const rest = stem.replace(/^pointer-server[-_]/, '').replace(/^(community|official)[-_]/, '')
+    return `pointer-server-${flavor}-${resolveReleaseVersion()}${rest ? `-${rest}` : ''}${ext}`
   }
   if (stem.startsWith('pointer-server-') || stem.startsWith('pointer-server_')) {
     return `${withFlavor('pointer-server', stem.slice('pointer-server-'.length), flavor)}${ext}`

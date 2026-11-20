@@ -26,6 +26,9 @@ pub struct PendingLogin {
     pub provider_id: String,
     pub verifier: String,
     pub redirect_uri: String,
+    /// 发起授权时用的 OAuth client_id。换码必须沿用同一个，否则控制面会
+    /// 判「授权码与客户端不匹配」。
+    pub client_id: String,
     /// OIDC `nonce` sent on the authorize request, echoed back in the ID token.
     pub nonce: Option<String>,
     pub created_at: Instant,
@@ -37,9 +40,16 @@ impl PendingLogin {
             provider_id: provider_id.into(),
             verifier,
             redirect_uri,
+            client_id: pointer_core::platform_endpoints::oauth_client_id(),
             nonce: None,
             created_at: Instant::now(),
         }
+    }
+
+    /// 指定本次登录用的 OAuth client_id（服务端用 `pointer-server`）。
+    pub fn with_client_id(mut self, client_id: impl Into<String>) -> Self {
+        self.client_id = client_id.into();
+        self
     }
 
     pub fn with_nonce(mut self, nonce: String) -> Self {
@@ -330,6 +340,21 @@ mod tests {
             .expect("clear cookie present");
         assert!(raw.contains("Max-Age=0"));
         assert!(raw.contains("Secure"));
+    }
+
+    /// 换码必须沿用发起授权时的 client_id：控制面把授权码绑定到客户端，
+    /// 两边不一致会返回「授权码与客户端不匹配」。
+    #[test]
+    fn pending_keeps_the_client_id_used_at_authorize() {
+        let pending = PendingLogin::new("platform", "v".into(), "https://cb".into())
+            .with_client_id("pointer-server");
+        assert_eq!(pending.client_id, "pointer-server");
+        // 不指定时退回默认（桌面端 client）
+        let default_pending = PendingLogin::new("platform", "v".into(), "https://cb".into());
+        assert_eq!(
+            default_pending.client_id,
+            pointer_core::platform_endpoints::oauth_client_id()
+        );
     }
 
     fn login(provider: &str) -> PendingLogin {

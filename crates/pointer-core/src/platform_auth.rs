@@ -502,8 +502,11 @@ impl PlatformAuthManager {
         (verifier, challenge)
     }
 
+    /// `client_id` 必须与发起授权时用的一致——控制面把授权码绑定到客户端，
+    /// 换码时换了 id 会被判「授权码与客户端不匹配」。
     pub async fn exchange_authorization_code(
         &self,
+        client_id: &str,
         code: &str,
         code_verifier: &str,
         state: &str,
@@ -512,7 +515,7 @@ impl PlatformAuthManager {
         let client_env = crate::client_env::collect_login_client_env();
         let body = serde_json::json!({
             "grant_type": "authorization_code",
-            "client_id": Self::client_id(),
+            "client_id": client_id,
             "code": code,
             "code_verifier": code_verifier,
             "redirect_uri": redirect_uri,
@@ -1655,7 +1658,13 @@ async fn run_platform_login_flow_inner(
 
     log::info!("platform_auth: exchange start");
     let result = auth
-        .exchange_authorization_code(&code, &verifier, state, &redirect_uri)
+        .exchange_authorization_code(
+            &crate::platform_endpoints::oauth_client_id(),
+            &code,
+            &verifier,
+            state,
+            &redirect_uri,
+        )
         .await;
     match &result {
         Ok(_) => log::info!("platform_auth: exchange done ok"),

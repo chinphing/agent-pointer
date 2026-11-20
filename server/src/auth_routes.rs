@@ -405,17 +405,21 @@ fn start_platform_login(
     let redirect_uri = format!("{public_url}{}", callback_path(state, provider_id));
     let (verifier, challenge) = PlatformAuthManager::generate_pkce();
     let state_token = auth_pending::random_token();
+    // 服务端用自己的 client_id（默认 pointer-server）：桌面端的 pointer-desktop
+    // 只接受 loopback 回跳，服务端的外部地址会被拒。
+    //
+    // 这个 id 要随 pending 一起存下来——控制面把授权码绑定到客户端，换码时
+    // 换成别的 id 会被判「授权码与客户端不匹配」。
+    let client_id = pointer_core::platform_endpoints::server_oauth_client_id();
     state
         .oauth_pending
         .start_capped(
             &state_token,
-            PendingLogin::new(provider_id, verifier, redirect_uri.clone()),
+            PendingLogin::new(provider_id, verifier, redirect_uri.clone())
+                .with_client_id(client_id.clone()),
             max_pending,
         )
         .map_err(|e| pending_start_error(provider_id, e))?;
-    // 服务端用自己的 client_id（默认 pointer-server）：桌面端的 pointer-desktop
-    // 只接受 loopback 回跳，服务端的外部地址会被拒。
-    let client_id = pointer_core::platform_endpoints::server_oauth_client_id();
     let url = PlatformAuthManager::build_authorize_url_for_redirect_as(
         &client_id,
         &redirect_uri,
@@ -558,7 +562,13 @@ async fn platform_callback(
     let state_token = params.get("state").map(String::as_str).unwrap_or_default();
     let auth = Arc::new(PlatformAuthManager::new());
     let (session, creds) = match auth
-        .exchange_authorization_code(code, &pending.verifier, state_token, &pending.redirect_uri)
+        .exchange_authorization_code(
+            &pending.client_id,
+            code,
+            &pending.verifier,
+            state_token,
+            &pending.redirect_uri,
+        )
         .await
     {
         Ok(result) => result,

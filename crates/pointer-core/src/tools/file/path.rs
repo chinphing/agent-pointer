@@ -236,20 +236,20 @@ impl Drop for AgentWorkspaceGuard {
 // ---------------------------------------------------------------------------
 
 fn env_is_dir(path: &Path) -> bool {
-    let env = crate::env::effective_env();
-    if env.kind() == crate::env::EnvKind::Local {
-        path.is_dir()
-    } else {
-        env.metadata(path).map(|m| m.is_dir).unwrap_or(false)
+    // 没绑定环境 = 本线程按宿主判断。不能用 `effective_env()`：它会在未绑定时按
+    // **部署默认档位**返回 DeniedEnv，把 local 账号的宿主路径一律判定为不存在。
+    match crate::env::current_env() {
+        None => path.is_dir(),
+        Some(env) if env.kind() == crate::env::EnvKind::Local => path.is_dir(),
+        Some(env) => env.metadata(path).map(|m| m.is_dir).unwrap_or(false),
     }
 }
 
 fn env_exists(path: &Path) -> bool {
-    let env = crate::env::effective_env();
-    if env.kind() == crate::env::EnvKind::Local {
-        path.exists()
-    } else {
-        env.exists(path)
+    match crate::env::current_env() {
+        None => path.exists(),
+        Some(env) if env.kind() == crate::env::EnvKind::Local => path.exists(),
+        Some(env) => env.exists(path),
     }
 }
 
@@ -270,11 +270,7 @@ pub fn workspace_root_from_override_or_settings() -> String {
             crate::env::current_env()
                 .map(|env| env.workspace_root().display().to_string())
         })
-        .unwrap_or_else(|| {
-            crate::platform_config::effective_settings_global()
-                .workspace_root
-                .clone()
-        })
+        .unwrap_or_default()
 }
 
 /// Update the in-flight conversation workspace (e.g. before delegating to **coder**).
@@ -289,14 +285,19 @@ pub fn set_runtime_workspace_root(root: String) {
     });
 }
 
-/// Workspace root for file/terminal tools: conversation override, else settings.
-/// Does **not** fall back to process `cwd` (Dock-launched apps often use `/`).
+/// Workspace root for file/terminal tools: conversation override, else the bound
+/// environment's root.
+///
+/// **不再回落到用户设置**：工作区是会话级概念，`UserSettings::workspace_root` 是
+/// 桌面端遗留的「默认目录」，Web 多用户下既没有界面维护、又是进程级单文件，一旦
+/// 残留沙箱路径就会顶替真实工作区。返回空串表示本线程没有工作区上下文，由
+/// [`resolve_tool_workspace_root`] 报出可操作的错误。
 pub fn resolve_tool_workspace_root() -> Result<PathBuf> {
     let raw = workspace_root_from_override_or_settings();
     let raw = raw.trim();
     if raw.is_empty() {
         return Err(anyhow!(
-            "未设置工作区：需要会话工作区或 settings.workspaceRoot，不会使用进程 cwd"
+            "未设置工作区：本线程既没有会话工作区也没有绑定的执行环境（不会使用进程 cwd）"
         ));
     }
     let p = PathBuf::from(raw);
@@ -977,5 +978,20 @@ mod resolve_root_tests {
         let roots = writable_path_roots(ws.path()).unwrap();
         assert!(roots.len() > 1, "未绑定环境时应保持宿主写入根: {roots:?}");
         assert_eq!(roots[0], ws.path().canonicalize().unwrap());
+    }
+}
+
+#[cfg(test)]
+mod workspace_context_tests {
+    use super::*;
+
+    /// 没有会话覆盖、也没有绑定环境时，不再回落到用户设置，而是报出可操作的错。
+    #[test]
+    fn workspace_root_errors_without_context() {
+        // 确保本线程没有覆盖（测试线程独立，正常为空）。
+        let err = resolve_tool_workspace_root().expect_err("must fail without context");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("未设置工作区"), "unexpected message: {msg}");
+        assert!(!msg.contains("settings.workspaceRoot"), "不应再提示用户设置字段");
     }
 }

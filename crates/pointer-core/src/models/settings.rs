@@ -2106,6 +2106,35 @@ impl MediaOssConfig {
     }
 }
 
+/// 按用户隔离的运行时设置。
+///
+/// 这几项决定「我这一次运行/我的终端」长什么样，多用户共用一个
+/// `user_settings.json` 时一个用户改了会影响所有人。因此单独存到
+/// `user-settings/<uid>.json`，读取时覆盖全局值。
+///
+/// 全局文件里的同名项仍然有效，作为「没设置过的用户的默认值」。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UserRuntimeOverlay {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "terminalEnvOverrides"
+    )]
+    pub terminal_env_overrides: Option<std::collections::HashMap<String, String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "maxParallelToolCalls"
+    )]
+    pub max_parallel_tool_calls: Option<u32>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "maxParallelSubAgents"
+    )]
+    pub max_parallel_sub_agents: Option<u32>,
+}
+
 /// Persisted user preferences (theme, optional UI cache).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSettings {
@@ -2194,8 +2223,8 @@ pub struct UserSettings {
     pub max_tokens: u32,
     #[serde(default = "default_tool_approval_mode", rename = "toolApprovalMode")]
     pub tool_approval_mode: String,
-    #[serde(default, rename = "workspaceRoot")]
-    pub workspace_root: String,
+    // `workspaceRoot` 已移除：工作区是会话级概念，持久化在 `conversations` 表。
+    // 老 `user_settings.json` 里若还留着这个键，serde 会忽略（无 deny_unknown_fields）。
     #[serde(default = "default_lead_agent_id", rename = "leadAgentId")]
     pub lead_agent_id: String,
     #[serde(
@@ -2406,7 +2435,6 @@ impl Default for UserSettings {
             temperature: platform_default_temperature(),
             max_tokens: platform_default_max_tokens(),
             tool_approval_mode: default_tool_approval_mode(),
-            workspace_root: default_workspace_root(),
             lead_agent_id: default_lead_agent_id(),
             context_compression_enabled: platform_default_context_compression_enabled(),
             context_budget_tokens: platform_default_context_budget_tokens(),
@@ -3197,7 +3225,8 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         has_key: platform.providers.iter().any(|p| !p.api_key.is_empty()),
         debug_save_computer_captures: user.debug_save_computer_captures,
         tool_approval_mode: user.tool_approval_mode.clone(),
-        workspace_root: user.workspace_root.clone(),
+        // 工作区不再从用户设置继承：每回合由 `run_chat_inner` 注入会话工作区。
+        workspace_root: String::new(),
         lead_agent_id: user.lead_agent_id.clone(),
         context_compression_enabled: true,
         context_budget_tokens: user.context_budget_tokens,

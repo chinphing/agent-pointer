@@ -358,6 +358,9 @@ pub(super) async fn run_chat_inner(
         );
     }
     let mut settings = state.effective_settings();
+    // 运行时设置按用户：这里按 uid 显式合并，不依赖 thread-local
+    // （tokio 可能在 await 之间把 future 挪到别的线程）。
+    crate::storage::apply_user_runtime_overlay_to_model_settings(&mut settings, &session_user_id);
     if !effective_workspace.trim().is_empty() {
         settings.workspace_root = effective_workspace.trim().to_string();
     }

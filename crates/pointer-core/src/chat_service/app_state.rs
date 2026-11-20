@@ -1241,12 +1241,16 @@ impl AppState {
         // 管理员口径见 `is_platform_admin_session`：会话票标记是第一来源；
         // standalone 部署额外放行「本地运维会话」（桌面端无 Web 会话 / 本地密码登录），
         // 但 SSO 会话一律不是管理员——standalone 只是没有控制面，不是没有身份。
+        //
+        // 平台模式下控制面把 `is_platform_admin` 固定为 false，Web 端因此永远看不到
+        // 设置入口；本部署 `[auth] admins` 里的账号按管理员对待，把入口放出来。
         let auth = self.active_platform_auth();
+        let session_user_id = auth.platform_user_id();
         let is_platform_admin = crate::platform_auth::is_platform_admin_session(
             auth.is_platform_admin(),
             crate::deployment_mode::is_standalone(),
-            auth.platform_user_id().as_deref(),
-        );
+            session_user_id.as_deref(),
+        ) || crate::server_config::is_admin_account(session_user_id.as_deref().unwrap_or_default());
         EffectiveSettingsView {
             user,
             platform,
@@ -1398,6 +1402,24 @@ impl AppState {
         incoming
             .providers
             .retain(|p| p.source.as_deref() != Some("platform"));
+        // 运行时设置（终端环境、并行上限）按用户隔离：写进
+        // `user-settings/<uid>.json`，全局文件里那几项保持原值作为默认。
+        // 否则一个用户改了，所有人的终端/并行都跟着变。
+        let overlay = crate::models::UserRuntimeOverlay {
+            terminal_env_overrides: Some(incoming.terminal_env_overrides.clone()),
+            max_parallel_tool_calls: incoming.max_parallel_tool_calls,
+            max_parallel_sub_agents: incoming.max_parallel_sub_agents,
+        };
+        match crate::session_user_env::current_session_user_id() {
+            Some(uid) if !uid.trim().is_empty() => {
+                if let Err(err) = storage::save_user_runtime_overlay(uid.trim(), &overlay) {
+                    log::warn!("user-settings: save overlay for {uid} failed: {err:#}");
+                }
+                // 全局文件不保存这三项（`save_user_settings` 会清掉），
+                // 所以不需要还原旧值。
+            }
+            _ => {}
+        }
         self.save_user_settings(&incoming)?;
         Ok(self.effective_settings_view())
     }

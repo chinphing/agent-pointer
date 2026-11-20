@@ -1027,6 +1027,10 @@ async fn get_settings(
     State(state): State<ServerState>,
 ) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
     require_platform_access(&state)?;
+    // 运行时设置按用户隔离，读取要带会话用户上下文（否则拿到的是全局默认值）。
+    let _user_guard = pointer_core::session_user_env::SessionUserIdGuard::enter(
+        platform_session_user_id(&state),
+    );
     Ok(Json(WebEffectiveSettingsView(
         state.core.effective_settings_view(),
     )))
@@ -1037,6 +1041,10 @@ async fn update_user_settings(
     Json(user): Json<UserSettings>,
 ) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
     require_platform_access(&state)?;
+    // 写入时也要带会话用户：运行时设置会按用户落到 user-settings/<uid>.json。
+    let _user_guard = pointer_core::session_user_env::SessionUserIdGuard::enter(
+        platform_session_user_id(&state),
+    );
     let view = state.core.update_user_settings(user).map_err(ApiError)?;
     Ok(Json(WebEffectiveSettingsView(view)))
 }

@@ -832,6 +832,24 @@ pub fn admin_accounts() -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// 该账号是否在本部署的 admin 名单里（`[auth] admins`）。
+///
+/// 平台模式下控制面返回的 `is_platform_admin` 恒为 false（admin 侧 `user_json`
+/// 还没接角色表），本名单是部署方声明「谁是这台机器的管理员」的唯一途径，
+/// 因此也用来决定 Web 端是否显示设置入口。
+pub fn is_admin_account(uid: &str) -> bool {
+    admin_account_matches(&admin_accounts(), uid)
+}
+
+/// 纯匹配逻辑，便于单测（不读环境变量）。
+pub(crate) fn admin_account_matches(list: &[String], uid: &str) -> bool {
+    let uid = uid.trim();
+    if uid.is_empty() {
+        return false;
+    }
+    list.iter().any(|entry| entry.trim() == uid)
+}
+
 /// 账号级 provider 覆盖：`alice=light,bob=local`。
 pub fn environment_accounts() -> Vec<(String, String)> {
     env_nonempty(ENV_ENVIRONMENT_ACCOUNTS)
@@ -1394,5 +1412,20 @@ models = ["ignored-model"]
         );
         assert!(!map.contains_key("POINTER_LLM_ACTIVE_PROVIDER"));
         assert!(!map.values().any(|v| v.contains("sk-should-not-apply")));
+    }
+}
+
+#[cfg(test)]
+mod admin_account_tests {
+    use super::*;
+
+    #[test]
+    fn matches_only_exact_non_empty_ids() {
+        let list = vec!["alice".to_string(), " bob ".to_string()];
+        assert!(admin_account_matches(&list, "alice"));
+        assert!(admin_account_matches(&list, "  bob  "));
+        assert!(!admin_account_matches(&list, "alice2"));
+        assert!(!admin_account_matches(&list, ""));
+        assert!(!admin_account_matches(&[], "alice"));
     }
 }

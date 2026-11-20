@@ -305,8 +305,33 @@ pub fn current_user_runtime_overlay() -> crate::models::UserRuntimeOverlay {
     }
 }
 
+/// 该用户是否已有覆盖文件。
+fn user_overlay_exists(uid: &str) -> bool {
+    user_overlay_path(uid).map(|p| p.exists()).unwrap_or(false)
+}
+
 /// 把某个用户的覆盖合并进 `UserSettings`（就地）。
+///
+/// 一次性迁移：升级前三项存在全局文件里（谁最后写的算谁的）。第一个读到的
+/// 用户把它落成自己的覆盖，之后全局那份不再参与。
 pub fn apply_user_runtime_overlay(user: &mut UserSettings, uid: &str) {
+    let uid = uid.trim();
+    if uid.is_empty() {
+        return;
+    }
+    let legacy_has_values = !user.terminal_env_overrides.is_empty()
+        || user.max_parallel_tool_calls.is_some()
+        || user.max_parallel_sub_agents.is_some();
+    if legacy_has_values && !user_overlay_exists(uid) {
+        let migrated = crate::models::UserRuntimeOverlay {
+            terminal_env_overrides: Some(user.terminal_env_overrides.clone()),
+            max_parallel_tool_calls: user.max_parallel_tool_calls,
+            max_parallel_sub_agents: user.max_parallel_sub_agents,
+        };
+        if let Err(err) = save_user_runtime_overlay(uid, &migrated) {
+            log::warn!("user-settings: migrate legacy runtime settings failed: {err:#}");
+        }
+    }
     let overlay = load_user_runtime_overlay(uid);
     if let Some(v) = overlay.terminal_env_overrides {
         user.terminal_env_overrides = v;
@@ -895,6 +920,11 @@ pub fn save_user_settings(user: &UserSettings) -> Result<()> {
     ensure_legacy_settings_migrated();
     let mut to_save = user.clone();
     to_save.media_oss = Default::default();
+    // 运行时设置按用户存（`user-settings/<uid>.json`），全局文件不保存：
+    // 否则一个用户的值会变成所有人的默认值。
+    to_save.terminal_env_overrides.clear();
+    to_save.max_parallel_tool_calls = None;
+    to_save.max_parallel_sub_agents = None;
     to_save
         .providers
         .retain(|p| p.source.as_deref() != Some("platform"));
@@ -1759,8 +1789,64 @@ mod user_overlay_tests {
         });
     }
 
-    /// 没有覆盖文件的用户读全局值（覆盖不泄漏给其他人）。
+    /// 全局文件不再保存这三项：保存后读回来必须是空，且覆盖文件才是唯一来源。
     #[test]
+    fn global_file_never_stores_runtime_settings() {
+        with_temp_data_dir(|| {
+            let mut user = UserSettings::default();
+            user.terminal_env_overrides =
+                [("PATH".to_string(), "/global/bin".to_string())].into_iter().collect();
+            user.max_parallel_tool_calls = Some(7);
+            user.max_parallel_sub_agents = Some(3);
+            save_user_settings(&user).expect("save");
+
+            let raw = load_user_settings_global().expect("load");
+            assert!(raw.terminal_env_overrides.is_empty());
+            assert_eq!(raw.max_parallel_tool_calls, None);
+            assert_eq!(raw.max_parallel_sub_agents, None);
+        });
+    }
+
+    /// 升级前这三项存在全局文件里：第一个读到的用户把它落成自己的覆盖。
+    #[test]
+    fn legacy_global_values_migrate_to_first_reader() {
+        with_temp_data_dir(|| {
+            let mut user = UserSettings::default();
+            user.max_parallel_tool_calls = Some(5);
+            user.terminal_env_overrides = [("LANG".to_string(), "C.UTF-8".to_string())]
+                .into_iter()
+                .collect();
+
+            save_user_runtime_overlay(
+                "user-a",
+                &crate::models::UserRuntimeOverlay {
+                    terminal_env_overrides: Some(
+                        [("PATH".to_string(), "/a".to_string())].into_iter().collect(),
+                    ),
+                    max_parallel_tool_calls: Some(1),
+                    max_parallel_sub_agents: None,
+                },
+            )
+            .expect("save");
+
+            // user-b 没有覆盖文件 → 迁移全局值，成为 user-b 自己的覆盖
+            apply_user_runtime_overlay(&mut user, "user-b");
+            assert_eq!(user.max_parallel_tool_calls, Some(5));
+            assert_eq!(user.terminal_env_overrides.get("LANG"), Some(&"C.UTF-8".to_string()));
+            assert!(user_overlay_exists("user-b"));
+
+            // user-a 有自己的覆盖 → 用自己那份，不受迁移影响
+            apply_user_runtime_overlay(&mut user, "user-a");
+            assert_eq!(user.max_parallel_tool_calls, Some(1));
+            assert_eq!(user.terminal_env_overrides.get("PATH"), Some(&"/a".to_string()));
+
+            // 全局已空的新用户拿到默认值（不再有人人共享的默认）
+            let mut fresh = UserSettings::default();
+            apply_user_runtime_overlay(&mut fresh, "user-c");
+            assert_eq!(fresh.max_parallel_tool_calls, None);
+            assert!(fresh.terminal_env_overrides.is_empty());
+        });
+    }
     fn user_without_overlay_keeps_global_values() {
         with_temp_data_dir(|| {
             let mut user = UserSettings::default();

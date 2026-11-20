@@ -1413,11 +1413,8 @@ impl AppState {
                 if let Err(err) = storage::save_user_runtime_overlay(uid.trim(), &overlay) {
                     log::warn!("user-settings: save overlay for {uid} failed: {err:#}");
                 }
-                if let Ok(prev) = storage::load_user_settings_global() {
-                    incoming.terminal_env_overrides = prev.terminal_env_overrides;
-                    incoming.max_parallel_tool_calls = prev.max_parallel_tool_calls;
-                    incoming.max_parallel_sub_agents = prev.max_parallel_sub_agents;
-                }
+                // 全局文件不保存这三项（`save_user_settings` 会清掉），
+                // 所以不需要还原旧值。
             }
             _ => {}
         }

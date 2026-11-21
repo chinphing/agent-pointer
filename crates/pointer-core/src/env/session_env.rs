@@ -208,6 +208,12 @@ pub fn env_for_conversation(conversation_id: &str) -> Option<Arc<dyn Environment
 /// 给面板轮询用——面板每隔几秒问一次"有没有桌面"，如果按普通查询算活跃，
 /// 30 分钟空闲回收就永远不会触发（只要面板开着容器就活着）。
 pub fn env_for_conversation_peek(conversation_id: &str) -> Option<Arc<dyn Environment>> {
+    // local 档位（admin / standalone）也要能查到：否则面板对「宿主环境」的会话
+    // 永远答「没有环境」。local 缓存里没有活跃时间，天然满足「只读不刷」。
+    if let Some(local) = cached_local(conversation_id) {
+        let env: Arc<dyn Environment> = local;
+        return Some(env);
+    }
     if let Ok(map) = cache().lock() {
         if let Some(hit) = map.get(conversation_id) {
             return Some(hit.env.clone() as Arc<dyn Environment>);
@@ -1097,6 +1103,62 @@ mod tests {
             env_for_conversation_peek(id).is_none(),
             "release 必须同时清掉 docker 缓存"
         );
+    }
+
+    #[test]
+    fn peek_finds_local_env_without_touching_activity() {
+        // 回归：peek 只查沙箱缓存时，「该会话有没有环境」对 local 会话永远答 None，
+        // 面板就把宿主环境的会话当成「没有桌面」。
+        let dir = tempfile::tempdir().unwrap();
+        remember_local_for_test("conv-local-peek", dir.path());
+
+        let env = env_for_conversation_peek("conv-local-peek").expect("local 会话必须 peek 得到");
+        assert_eq!(env.kind(), crate::env::EnvKind::Local);
+        assert_eq!(env.workspace_root(), dir.path());
+
+        release("conv-local-peek");
+        assert!(
+            env_for_conversation_peek("conv-local-peek").is_none(),
+            "release 必须摘掉 local 缓存"
+        );
+    }
+
+    #[test]
+    fn peek_does_not_refresh_last_used() {
+        // 面板轮询不能算活跃：否则 30 分钟空闲回收永远不触发。
+        let id = "conv-peek-no-touch";
+        let stale = Instant::now() - std::time::Duration::from_secs(5);
+        if let Ok(mut map) = docker_cache().lock() {
+            map.insert(
+                id.to_string(),
+                (
+                    Arc::new(crate::env::docker::DockerEnv::fake_for_tests(
+                        "pointer-sbx-peek",
+                    )),
+                    stale,
+                ),
+            );
+        }
+
+        let _ = env_for_conversation_peek(id);
+        let after_peek = docker_cache()
+            .lock()
+            .ok()
+            .and_then(|map| map.get(id).map(|(_, last_used)| *last_used))
+            .expect("peek 不该摘掉条目");
+        assert_eq!(after_peek, stale, "peek 不能刷新 last_used");
+
+        let _ = env_for_conversation(id);
+        let after_get = docker_cache()
+            .lock()
+            .ok()
+            .and_then(|map| map.get(id).map(|(_, last_used)| *last_used))
+            .expect("普通查询不该摘掉条目");
+        assert!(after_get > stale, "普通查询要刷新 last_used");
+
+        if let Ok(mut map) = docker_cache().lock() {
+            map.remove(id);
+        }
     }
 
     #[test]

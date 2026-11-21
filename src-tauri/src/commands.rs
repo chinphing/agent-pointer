@@ -423,11 +423,15 @@ pub fn create_console_session(
     cols: u16,
     rows: u16,
 ) -> Result<pointer_core::console_session::ConsoleSessionInfo, String> {
+    // 档位判定要用真实身份：桌面端就是本地操作者（`owner_user_id` 的 standalone 回落）。
+    // 取不到就给空串，交给 core 拒绝（既不在宿主执行，也不建沙箱）。
+    let session_user_id = state.runtime_settings_user_id().unwrap_or_default();
     state
         .console_sessions
         .create(
             &workspace_root,
             &conversation_id,
+            &session_user_id,
             cwd.as_deref(),
             cols,
             rows,

@@ -63,28 +63,64 @@ pub struct ConsoleSessionManager {
 }
 
 impl ConsoleSessionManager {
+    /// 开一个终端标签。
+    ///
+    /// `session_user_id` = **当前请求身份**（服务端：登录用户优先、standalone 回落
+    /// 本地操作者；桌面端同一规则）。档位只按这个身份解析；会话行 uid 仅用于校验
+    /// 「这个会话是不是你的」——规则见 [`resolve_console_user_id`]。
     pub fn create(
         &self,
+        workspace_root: &str,
+        conversation_id: &str,
+        session_user_id: &str,
+        cwd: Option<&str>,
+        cols: u16,
+        rows: u16,
+    ) -> Result<ConsoleSessionInfo> {
+        let stored = stored_conversation_user_id(conversation_id);
+        self.create_for_owner(
+            workspace_root,
+            conversation_id,
+            session_user_id,
+            stored.as_deref(),
+            cwd,
+            cols,
+            rows,
+        )
+    }
+
+    /// 归属信息已查出时开终端（`stored_user_id` 来自 [`stored_conversation_user_id`]）。
+    // 参数与 [`Self::create`] 一一对应，只是把归属查询拆出来——单测能直接喂会话行 uid。
+    #[allow(clippy::too_many_arguments)]
+    fn create_for_owner(
+        &self,
+        workspace_root: &str,
+        conversation_id: &str,
+        request_user_id: &str,
+        stored_user_id: Option<&str>,
+        cwd: Option<&str>,
+        cols: u16,
+        rows: u16,
+    ) -> Result<ConsoleSessionInfo> {
+        // 先过归属校验：不符就直接返回，既不起沙箱，也不在宿主执行。
+        let user_id = resolve_console_user_id(conversation_id, request_user_id, stored_user_id)?;
+        // 执行环境按**请求身份**解析：沙箱用户开沙箱终端，admin 开宿主终端。
+        // 注意不能只查缓存——应用刚重启、或这个会话还没跑过对话时缓存是空的，
+        // 那时 `effective_env()` 会返回「拒绝执行」环境，终端就会误报"不支持交互式终端"。
+        let env = console_env(conversation_id, Path::new(workspace_root), &user_id);
+        self.open_session(env, workspace_root, conversation_id, cwd, cols, rows)
+    }
+
+    /// 环境已确定时开终端（身份与档位解析由 [`Self::create_for_owner`] 负责）。
+    fn open_session(
+        &self,
+        env: Arc<dyn crate::env::Environment>,
         workspace_root: &str,
         conversation_id: &str,
         cwd: Option<&str>,
         cols: u16,
         rows: u16,
     ) -> Result<ConsoleSessionInfo> {
-        // 执行环境按会话解析：沙箱会话的终端开在沙箱里，不是宿主。
-        // 注意不能只查缓存——应用刚重启、或这个会话还没跑过对话时缓存是空的，
-        // 那时 `effective_env()` 会返回「拒绝执行」环境，终端就会误报"不支持交互式终端"。
-        let env = crate::env::session_env::env_for_conversation(conversation_id)
-            .or_else(|| {
-                crate::env::session_env::resolve_session_env_for_current(
-                    conversation_id,
-                    "",
-                    Some(std::path::Path::new(workspace_root)),
-                )
-                .ok()
-                .flatten()
-            })
-            .unwrap_or_else(crate::env::effective_env);
         let workspace_root = normalize_directory_in(env.as_ref(), workspace_root, "工作区目录")?;
         let cwd = match cwd.map(str::trim).filter(|value| !value.is_empty()) {
             Some(value) => normalize_directory_in(env.as_ref(), value, "终端目录")?,
@@ -147,6 +183,164 @@ impl ConsoleSessionManager {
             .cloned()
             .ok_or_else(|| anyhow!("终端会话不存在或已关闭"))
     }
+}
+
+/// 会话行里记录的归属用户（`conversations.session_user_id`）。
+///
+/// 查不到（无这一行 / 读库失败 / 空串）都返回 `None`——历史会话没有归属是正常情况，
+/// 此时**不**据此提权，也不据此拒绝，档位一律按请求身份解析。
+fn stored_conversation_user_id(conversation_id: &str) -> Option<String> {
+    let stored = crate::conversation_store::global_store()
+        .ok()
+        .and_then(|store| store.session_user_id(conversation_id).ok());
+    non_empty_uid(stored.as_deref())
+}
+
+/// 本次终端会话用哪个身份解析档位，并校验会话归属。
+///
+/// 档位的语义是「这个执行者能拿到什么环境」，不是「这个会话属于谁」，所以：
+///
+/// - 请求身份（`request_user_id`）为空 → **拒绝**：拿不到身份反而能拿到宿主执行权限
+///   是提权路径，宁可不开终端（也不回落到会话行 uid，那等于替别人执行）。
+/// - 会话行 uid 非空且 != 请求身份 → **拒绝**：会话 id 是客户端可传的，B 传 A 的
+///   会话 id 就能借 A 的档位拿到宿主 shell。
+/// - 会话行 uid 为空（历史会话 / 没有这一行）→ 放行，仍按请求身份解析档位，
+///   不会因为「归属为空」而提权。
+/// - 会话行 uid == 请求身份 → 放行。
+fn resolve_console_user_id(
+    conversation_id: &str,
+    request_user_id: &str,
+    stored_user_id: Option<&str>,
+) -> Result<String> {
+    let Some(request_uid) = non_empty_uid(Some(request_user_id)) else {
+        return Err(anyhow!(
+            "无法确定当前用户身份，已拒绝创建终端会话（既不在宿主执行，也不创建沙箱）：{conversation_id}"
+        ));
+    };
+    if let Some(stored_uid) = non_empty_uid(stored_user_id) {
+        if stored_uid != request_uid {
+            return Err(anyhow!(
+                "会话不属于当前用户，已拒绝创建终端会话：{conversation_id}"
+            ));
+        }
+    }
+    Ok(request_uid)
+}
+
+fn non_empty_uid(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|uid| !uid.is_empty())
+        .map(str::to_string)
+}
+
+/// 终端该用哪个环境。
+///
+/// 顺序：按**请求身份**解析档位 → 档位相符的缓存复用 → 按档位新建。
+/// `user_id` 由 [`resolve_console_user_id`] 保证非空——**绝不**用空 uid 解析档位
+/// （那会跳过 admin 判定、直接落到部署默认档位，沙箱部署下等于给 admin 建了一个沙箱）。
+fn console_env(
+    conversation_id: &str,
+    workspace_root: &Path,
+    user_id: &str,
+) -> Arc<dyn crate::env::Environment> {
+    match crate::env::provider::ProviderConfig::from_env() {
+        Ok(cfg) => console_env_with(&cfg, conversation_id, workspace_root, user_id),
+        Err(error) => {
+            // 读不出配置就不猜：先沿用已建好的环境，没有就交给 `effective_env()`
+            //（沙箱部署下是 `DeniedEnv`，宁可不执行也不静默落到宿主）。
+            log::warn!("console: 读取执行环境配置失败，终端按未绑定环境处理: {error:#}");
+            crate::env::session_env::env_for_conversation(conversation_id)
+                .unwrap_or_else(crate::env::effective_env)
+        }
+    }
+}
+
+/// 已建好的环境能否给这个档位复用。
+///
+/// 缓存条目是**上一个执行者**绑的（会话行 uid 为空的历史会话，别的身份也能打开它），
+/// 直接照抄等于借别人的环境——档位不同就不能复用。
+fn cached_env_matches_plan(plan: ConsoleEnvPlan, kind: crate::env::EnvKind) -> bool {
+    match plan {
+        ConsoleEnvPlan::Host => kind == crate::env::EnvKind::Local,
+        ConsoleEnvPlan::Sandbox => kind != crate::env::EnvKind::Local,
+        // 档位读不出来：沿用已有环境，不新建容器（与 `effective_env()` 兜底一致）。
+        ConsoleEnvPlan::Fallback => true,
+    }
+}
+
+/// 按给定配置解析终端环境（单测直接喂配置，不起容器）。
+fn console_env_with(
+    cfg: &crate::env::provider::ProviderConfig,
+    conversation_id: &str,
+    workspace_root: &Path,
+    user_id: &str,
+) -> Arc<dyn crate::env::Environment> {
+    let plan = console_env_plan(cfg, conversation_id, user_id);
+    if let Some(env) = crate::env::session_env::env_for_conversation(conversation_id) {
+        if cached_env_matches_plan(plan, env.kind()) {
+            return env;
+        }
+        log::warn!(
+            "console: 会话 {conversation_id} 已缓存的环境与当前用户档位不符，按当前档位重开"
+        );
+    }
+    match plan {
+        ConsoleEnvPlan::Host => crate::env::host_env_at(workspace_root),
+        ConsoleEnvPlan::Fallback => crate::env::effective_env(),
+        ConsoleEnvPlan::Sandbox => {
+            match crate::env::session_env::resolve_session_env(
+                cfg,
+                conversation_id,
+                user_id,
+                Some(workspace_root),
+            ) {
+                Ok(Some(env)) => env,
+                // 判定说沙箱、解析却是 local 档位：按 local 处理。
+                Ok(None) => crate::env::host_env_at(workspace_root),
+                Err(error) => {
+                    // 沙箱建不出来也不能静默跑宿主：`effective_env()` 在沙箱部署下
+                    // 是 `DeniedEnv`，终端会明确报「环境未绑定」。
+                    log::warn!(
+                        "console: 会话 {conversation_id} 的沙箱不可用，终端按未绑定环境处理: {error:#}"
+                    );
+                    crate::env::effective_env()
+                }
+            }
+        }
+    }
+}
+
+/// 归属用户已知时，终端走宿主还是沙箱。
+///
+/// 只做档位判定，**不建沙箱**：单测能断言 admin / 普通用户的走向而不起容器
+/// （真建容器由 `tests/desktop_tier_it.rs` 覆盖）。
+fn console_env_plan(
+    cfg: &crate::env::provider::ProviderConfig,
+    conversation_id: &str,
+    user_id: &str,
+) -> ConsoleEnvPlan {
+    match cfg.resolve(Some(user_id)) {
+        Ok(resolved) if resolved.tier != crate::env::provider::Tier::Local => {
+            ConsoleEnvPlan::Sandbox
+        }
+        Ok(_) => ConsoleEnvPlan::Host,
+        Err(error) => {
+            log::warn!("console: 解析会话 {conversation_id} 的执行环境档位失败: {error:#}");
+            ConsoleEnvPlan::Fallback
+        }
+    }
+}
+
+/// 终端环境走向（判定结果，不含已建好的环境）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConsoleEnvPlan {
+    /// 宿主环境：admin 名单 / local 档位。
+    Host,
+    /// 非 local 档位：按会话建 / 复用沙箱。
+    Sandbox,
+    /// 档位解析失败：交给 `effective_env()`（沙箱部署下是 `DeniedEnv`）。
+    Fallback,
 }
 
 impl Drop for ConsoleSessionManager {
@@ -343,10 +537,188 @@ fn spawn_output_reader(session: Arc<ConsoleSession>) {
 #[cfg(test)]
 mod tests {
     use super::ConsoleSessionManager;
-    use super::{normalize_directory, spawn_console_session, ConsoleSessionInfo};
+    use super::{
+        cached_env_matches_plan, console_env_plan, console_env_with, normalize_directory,
+        resolve_console_user_id, spawn_console_session, ConsoleEnvPlan, ConsoleSessionInfo,
+    };
     use std::io::{Read, Write};
     use std::path::Path;
     use std::sync::Arc;
+
+    /// 显式宿主环境：单测不依赖部署档位配置（真实解析见 `console_env_plan` 用例）。
+    fn host_env(root: &Path) -> Arc<dyn crate::env::Environment> {
+        Arc::new(crate::env::LocalEnv::new(root.to_path_buf()))
+    }
+
+    /// 沙箱部署配置（desktop + docker），`[auth] admins = ["admin"]`。
+    fn sandbox_deployment_cfg() -> crate::env::provider::ProviderConfig {
+        crate::env::provider::ProviderConfig {
+            tier: Some(crate::env::provider::Tier::Desktop),
+            backend: Some(crate::env::provider::Backend::Docker),
+            admins: vec!["admin".into()],
+            platform: true,
+            ..Default::default()
+        }
+    }
+
+    /// 请求身份缺失 → 拒绝：既不起沙箱，也不在宿主执行。
+    #[test]
+    fn console_session_refuses_unknown_user() {
+        let root = tempfile::tempdir().expect("workspace");
+        let manager = ConsoleSessionManager::default();
+        // 唯一 id：会话行里查不到，请求身份也传空串。
+        let conversation = format!("conv-no-identity-{}", uuid::Uuid::new_v4());
+        let error = manager
+            .create(
+                root.path().to_str().expect("utf8 path"),
+                &conversation,
+                "",
+                None,
+                80,
+                24,
+            )
+            .expect_err("身份缺失必须拒绝创建终端会话");
+        let message = error.to_string();
+        assert!(message.contains("无法确定当前用户身份"), "{message}");
+        assert!(
+            manager.sessions.lock().is_empty(),
+            "拒绝时不能留下终端会话（不建沙箱，也不走宿主）"
+        );
+        assert!(
+            crate::env::session_env::env_for_conversation_peek(&conversation).is_none(),
+            "拒绝时不能给这个会话建出任何环境（沙箱 / 宿主都不行）"
+        );
+    }
+
+    /// 请求身份缺失时**不能**拿会话行 uid 顶上：那等于替会话主人执行（提权）。
+    #[test]
+    fn missing_request_identity_does_not_borrow_conversation_owner() {
+        let error = resolve_console_user_id("conv-owner-admin", "", Some("admin"))
+            .expect_err("请求身份缺失必须拒绝");
+        assert!(error.to_string().contains("无法确定当前用户身份"), "{error}");
+    }
+
+    /// 提权回归：普通用户传别人的会话 id → 拒绝，且什么都不建（不建沙箱、不走宿主）。
+    #[test]
+    fn foreign_conversation_is_rejected_before_spawning() {
+        let root = tempfile::tempdir().expect("workspace");
+        let manager = ConsoleSessionManager::default();
+        let conversation = format!("conv-admin-owned-{}", uuid::Uuid::new_v4());
+        let error = manager
+            .create_for_owner(
+                root.path().to_str().expect("utf8 path"),
+                &conversation,
+                "alice",
+                Some("admin"),
+                None,
+                80,
+                24,
+            )
+            .expect_err("会话归属不符必须拒绝");
+        let message = error.to_string();
+        assert!(message.contains("不属于当前用户"), "{message}");
+        assert!(
+            manager.sessions.lock().is_empty(),
+            "拒绝时不能留下终端会话（不建沙箱，也不走宿主）"
+        );
+        assert!(
+            crate::env::session_env::env_for_conversation_peek(&conversation).is_none(),
+            "拒绝时不能给这个会话建出任何环境（沙箱 / 宿主都不行）"
+        );
+    }
+
+    /// 会话归属为空（历史会话 / 没有这一行）→ 放行，但档位仍按请求身份解析：
+    /// 普通用户不会被当成 admin，也不会复用别人留下的宿主环境。
+    #[test]
+    fn empty_conversation_owner_does_not_escalate() {
+        let cfg = sandbox_deployment_cfg();
+        let conversation = "conv-legacy-no-owner";
+        assert_eq!(
+            resolve_console_user_id(conversation, "alice", Some("")).expect("空归属放行"),
+            "alice"
+        );
+        assert_eq!(
+            resolve_console_user_id(conversation, "alice", None).expect("没有会话行也放行"),
+            "alice"
+        );
+        // 档位只认请求身份：普通用户 → 沙箱，不是宿主。
+        assert_eq!(
+            console_env_plan(&cfg, conversation, "alice"),
+            ConsoleEnvPlan::Sandbox
+        );
+        // 历史会话里别人（admin）留下的宿主环境不能复用。
+        assert!(
+            !cached_env_matches_plan(ConsoleEnvPlan::Sandbox, crate::env::EnvKind::Local),
+            "沙箱档位不能复用宿主环境"
+        );
+        assert!(
+            cached_env_matches_plan(ConsoleEnvPlan::Sandbox, crate::env::EnvKind::Desktop),
+            "沙箱档位应复用同一沙箱环境"
+        );
+        assert!(
+            cached_env_matches_plan(ConsoleEnvPlan::Host, crate::env::EnvKind::Local),
+            "宿主档位复用宿主环境"
+        );
+        assert!(
+            !cached_env_matches_plan(ConsoleEnvPlan::Host, crate::env::EnvKind::Headless),
+            "宿主档位不能复用沙箱环境"
+        );
+    }
+
+    /// 归属与请求身份一致 → 放行，档位按该身份解析（admin 宿主 / 普通用户沙箱）。
+    #[test]
+    fn owned_conversation_resolves_by_request_identity() {
+        let cfg = sandbox_deployment_cfg();
+        assert_eq!(
+            resolve_console_user_id("conv-admin-own", "admin", Some("admin")).expect("本人会话放行"),
+            "admin"
+        );
+        assert_eq!(
+            console_env_plan(&cfg, "conv-admin-own", "admin"),
+            ConsoleEnvPlan::Host
+        );
+        assert_eq!(
+            resolve_console_user_id("conv-alice-own", "alice", Some("alice")).expect("本人会话放行"),
+            "alice"
+        );
+        assert_eq!(
+            console_env_plan(&cfg, "conv-alice-own", "alice"),
+            ConsoleEnvPlan::Sandbox
+        );
+        // 空白差异按规范化后比较（`normalize_session_user_id` 只 trim）。
+        assert!(resolve_console_user_id("conv-alice-own", " alice ", Some("alice ")).is_ok());
+    }
+
+    /// 回归：以前用空 uid 解析档位，admin 会被判成部署默认档位 → 被建沙箱。
+    #[test]
+    fn admin_console_env_is_host_not_sandbox() {
+        let cfg = sandbox_deployment_cfg();
+        let dir = tempfile::tempdir().unwrap();
+        // 唯一 id：避免进程级环境缓存在用例之间串味。
+        let conversation = format!("conv-admin-console-{}", uuid::Uuid::new_v4());
+        assert_eq!(
+            console_env_plan(&cfg, &conversation, "admin"),
+            ConsoleEnvPlan::Host
+        );
+        let env = console_env_with(&cfg, &conversation, dir.path(), "admin");
+        assert_eq!(
+            env.kind(),
+            crate::env::EnvKind::Local,
+            "admin 的终端必须开在宿主"
+        );
+        assert_eq!(env.workspace_root(), dir.path());
+    }
+
+    /// 同一份配置下普通用户仍是沙箱档位——身份修正不能把沙箱用户带回宿主。
+    #[test]
+    fn non_admin_console_env_is_sandbox() {
+        let cfg = sandbox_deployment_cfg();
+        assert_eq!(
+            console_env_plan(&cfg, "conv-alice-console", "alice"),
+            ConsoleEnvPlan::Sandbox
+        );
+        // 真建容器由 `tests/desktop_tier_it.rs` 覆盖，这里只锁走向。
+    }
 
     #[cfg(unix)]
     #[test]
@@ -354,7 +726,8 @@ mod tests {
         let root = tempfile::tempdir().expect("workspace");
         let manager = ConsoleSessionManager::default();
         let first = manager
-            .create(
+            .open_session(
+                host_env(root.path()),
                 root.path().to_str().expect("utf8 path"),
                 "test-conversation",
                 None,
@@ -363,7 +736,8 @@ mod tests {
             )
             .expect("create first shell");
         let second = manager
-            .create(
+            .open_session(
+                host_env(root.path()),
                 root.path().to_str().expect("utf8 path"),
                 "test-conversation",
                 None,

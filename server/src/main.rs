@@ -3807,12 +3807,16 @@ async fn create_console_session(
     Json(payload): Json<ConsoleSessionCreatePayload>,
 ) -> Result<Json<pointer_core::console_session::ConsoleSessionInfo>, ApiError> {
     require_platform_access(&state)?;
+    // 档位判定要用真实身份：登录用户优先，standalone 回落到本地操作者。
+    // 取不到就给空串，交给 core 拒绝（既不在宿主执行，也不建沙箱）。
+    let session_user_id = state.core.runtime_settings_user_id().unwrap_or_default();
     state
         .core
         .console_sessions
         .create(
             &payload.workspace_root,
             &payload.conversation_id,
+            &session_user_id,
             payload.cwd.as_deref(),
             payload.cols,
             payload.rows,

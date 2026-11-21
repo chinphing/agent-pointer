@@ -927,6 +927,19 @@ fn background_subagent_trace(
     )
 }
 
+/// 后台 subagent 的 slot cap：按会话归属用户取 `maxParallelSubAgents`。
+///
+/// 后台任务跑在 `tokio::spawn` 出来的任务里，没有会话 thread-local 身份，
+/// 所以 uid 从会话行解析（`effective_settings_for_session`），不读 thread-local。
+fn background_subagent_slot_cap(state: &AppState, conversation_id: &str) -> usize {
+    super::job_supervisor::JobSupervisor::slot_cap_from(
+        crate::tools::parallel::ParallelLimits::from_settings(
+            &state.effective_settings_for_session(conversation_id),
+        )
+        .max_parallel_sub_agents,
+    )
+}
+
 async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwnedSpawn) {
     // Held until this task returns so a second follow-up cannot start on the same instance.
     let _followup_reserve = spawn.followup_reserve.take();
@@ -938,10 +951,7 @@ async fn run_background_owned_subagent(job_id: String, mut spawn: BackgroundOwne
         &spawn.source,
         spawn.performance_mode.as_deref(),
     );
-    let cap =
-        crate::tools::parallel::ParallelLimits::from_settings(&spawn.state.effective_settings())
-            .max_parallel_sub_agents;
-    let cap = super::job_supervisor::JobSupervisor::slot_cap_from(cap);
+    let cap = background_subagent_slot_cap(&spawn.state, &spawn.conversation_id);
     let _lease = if super::job_supervisor::worker_needs_root_slot(spawn.child_spawn_depth) {
         match spawn
             .state
@@ -3103,5 +3113,87 @@ mod trace_tests {
         assert_eq!(second.trace.status, "cancelled");
         assert_eq!(first.trace.parent_tool_call_id.as_deref(), Some("call-1"));
         assert_eq!(second.trace.parent_tool_call_id.as_deref(), Some("call-2"));
+    }
+}
+
+#[cfg(test)]
+mod slot_cap_tests {
+    use super::background_subagent_slot_cap;
+    use crate::chat_service::app_state::AppState;
+    use crate::models::UserRuntimeOverlay;
+    use std::sync::{Arc, MutexGuard};
+
+    /// 隔离 app data dir：用户覆盖落在 `user-settings/<uid>.json`。
+    struct DataDirGuard {
+        _dir: tempfile::TempDir,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl Drop for DataDirGuard {
+        fn drop(&mut self) {
+            crate::storage::clear_test_app_data_dir();
+        }
+    }
+
+    fn isolate_app_data_dir() -> DataDirGuard {
+        let lock = crate::storage::test_app_data_dir_lock();
+        let dir = tempfile::tempdir().expect("temp data dir");
+        crate::storage::set_test_app_data_dir(dir.path().to_path_buf());
+        DataDirGuard {
+            _dir: dir,
+            _lock: lock,
+        }
+    }
+
+    fn overlay_sub_agents(limit: u32) -> UserRuntimeOverlay {
+        UserRuntimeOverlay {
+            terminal_env_overrides: None,
+            max_parallel_tool_calls: None,
+            max_parallel_sub_agents: Some(limit),
+        }
+    }
+
+    /// 后台 subagent 的 slot cap 取会话归属用户的 `maxParallelSubAgents`：
+    /// 别的用户的覆盖拿不到，没有归属用户时仍是全局默认（行为不变）。
+    #[test]
+    fn background_slot_cap_uses_conversation_owner_settings() {
+        let _data = isolate_app_data_dir();
+        let mut state = AppState::new();
+        // 独立会话库：不写进程级 global store，避免测试互相污染。
+        let store_dir = tempfile::tempdir().expect("store dir");
+        state.session_index = Arc::new(
+            crate::conversation_store::ConversationStore::open_in_dir(store_dir.path())
+                .expect("open conversation store"),
+        );
+
+        crate::storage::save_user_runtime_overlay("sub-owner", &overlay_sub_agents(2))
+            .expect("save owner overlay");
+        crate::storage::save_user_runtime_overlay("other-user", &overlay_sub_agents(5))
+            .expect("save other overlay");
+
+        let owned = "conv-slot-owner";
+        let other = "conv-slot-other";
+        state
+            .session_index
+            .set_session_user_id(owned, "sub-owner")
+            .expect("set owner");
+        state
+            .session_index
+            .set_session_user_id(other, "other-user")
+            .expect("set other");
+
+        assert_eq!(background_subagent_slot_cap(&state, owned), 2);
+        // 其他用户拿不到 sub-owner 的值
+        assert_eq!(background_subagent_slot_cap(&state, other), 5);
+
+        // 没有归属用户的会话：与全局设置一致（无 uid 时行为不变）
+        let baseline =
+            crate::tools::parallel::ParallelLimits::from_settings(&state.effective_settings())
+                .max_parallel_sub_agents
+                .max(1);
+        assert_eq!(
+            background_subagent_slot_cap(&state, "conv-slot-anonymous"),
+            baseline
+        );
     }
 }

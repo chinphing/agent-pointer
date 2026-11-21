@@ -2,7 +2,7 @@ use super::terminal::{
     effective_terminal_cwd, parse_terminal_cwd, resolve_max_output_bytes, resolve_max_wall_ms,
     resolve_terminal_env_files, truncate_output, InputClass, TerminalStreamingResult,
 };
-use crate::dotenv::build_terminal_child_environment;
+use crate::dotenv::build_terminal_child_environment_for;
 #[cfg(unix)]
 use anyhow::Context;
 use anyhow::{anyhow, Result};
@@ -42,9 +42,12 @@ pub fn terminal_requests_elevation(args: &serde_json::Value) -> bool {
 /// Build child environment for elevated runs: refresh registry/login PATH first, then snapshot.
 ///
 /// Matches non-elevated `terminal` ordering so `env.json` / Unix `env.sh` include the latest PATH.
-pub(crate) fn build_elevated_child_environment(env_paths: &[PathBuf]) -> HashMap<String, String> {
+pub(crate) fn build_elevated_child_environment(
+    env_paths: &[PathBuf],
+    session_user_id: Option<&str>,
+) -> HashMap<String, String> {
     crate::shell_env::refresh_process_path_from_registry();
-    build_terminal_child_environment(env_paths)
+    build_terminal_child_environment_for(env_paths, session_user_id)
 }
 
 pub fn run_terminal_command_elevated(
@@ -53,6 +56,7 @@ pub fn run_terminal_command_elevated(
     on_output: impl Fn(&str) + Send,
     cancel: Option<CancellationToken>,
     run_abort: Option<Arc<AtomicBool>>,
+    session_user_id: Option<&str>,
 ) -> Result<TerminalStreamingResult> {
     if cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
         return Ok(cancelled_result(0));
@@ -78,7 +82,7 @@ pub fn run_terminal_command_elevated(
 
     let env_file_paths = resolve_terminal_env_files(&args, Some(cwd.as_path()))?;
     let env_paths: Vec<PathBuf> = env_file_paths.iter().map(PathBuf::from).collect();
-    let env = build_elevated_child_environment(&env_paths);
+    let env = build_elevated_child_environment(&env_paths, session_user_id);
 
     on_output("[elevated] 提权执行中。请在应用内确认后，在系统权限对话框中授予管理员权限。\n");
 
@@ -684,7 +688,7 @@ mod tests {
         std::env::set_var("PATH", &marker_path);
 
         // Snapshot before refresh freezes PATH even if the process env moves afterward.
-        let stale_snapshot = build_terminal_child_environment(&[]);
+        let stale_snapshot = build_terminal_child_environment_for(&[], None);
         std::env::set_var(
             "PATH",
             crate::test_support::marker_path("/pointer/elevated-path-test;/registry/added"),
@@ -694,7 +698,7 @@ mod tests {
             Some(marker_path.as_str())
         );
 
-        let env = build_elevated_child_environment(&[]);
+        let env = build_elevated_child_environment(&[], None);
         let process_path = std::env::var("PATH")
             .or_else(|_| std::env::var("Path"))
             .unwrap_or_default();

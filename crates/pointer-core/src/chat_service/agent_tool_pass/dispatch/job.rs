@@ -20,8 +20,10 @@ pub(super) async fn dispatch_job(
     caller: JobCaller<'_>,
 ) -> ToolExecResult {
     let parsed = parse_job_args(&args_value).map_err(|e| anyhow::anyhow!(e))?;
-    let slot_cap =
-        ParallelLimits::from_settings(&state.effective_settings()).max_parallel_sub_agents;
+    // 并行上限按会话用户：`job` 可能跑在后台/阻塞线程，thread-local 上没有身份，
+    // 所以从会话行取 uid 显式传入。
+    let slot_cap = ParallelLimits::from_settings(&state.effective_settings_for_session(conversation_id))
+        .max_parallel_sub_agents;
     let slot_cap = crate::chat_service::job_supervisor::JobSupervisor::slot_cap_from(slot_cap);
     let running_count = state.jobs.running_count_for_conversation(conversation_id);
     let idle_slots = state.jobs.idle_slots(conversation_id, slot_cap);

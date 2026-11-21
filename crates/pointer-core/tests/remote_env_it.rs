@@ -577,6 +577,7 @@ fn terminal_tool_runs_inside_sandbox() {
         None,
         None,
         None,
+        None,
     )
     .expect("terminal tool");
 

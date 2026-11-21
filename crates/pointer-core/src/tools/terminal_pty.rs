@@ -1,7 +1,7 @@
 //! Temporary PTY for commands that need a real TTY (SSH password, sudo, expect).
 //! One PTY per terminal tool call; destroyed when the command exits.
 
-use crate::dotenv::build_terminal_child_environment;
+use crate::dotenv::build_terminal_child_environment_for;
 use anyhow::{anyhow, Result};
 use log::{info, warn};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
@@ -200,8 +200,9 @@ fn apply_env_to_builder(
     builder: &mut CommandBuilder,
     env_files: &[PathBuf],
     askpass_env: Option<&[(String, String)]>,
+    session_user_id: Option<&str>,
 ) {
-    for (key, value) in build_terminal_child_environment(env_files) {
+    for (key, value) in build_terminal_child_environment_for(env_files, session_user_id) {
         builder.env(key, value);
     }
     if let Some(pairs) = askpass_env {
@@ -250,6 +251,7 @@ pub fn try_spawn_terminal_pty(
     cwd: &Path,
     env_files: &[PathBuf],
     askpass_env: Option<&[(String, String)]>,
+    session_user_id: Option<&str>,
 ) -> Result<(
     Box<dyn portable_pty::Child + Send + Sync>,
     TerminalInputSink,
@@ -267,7 +269,7 @@ pub fn try_spawn_terminal_pty(
 
     let mut builder = shell_command_builder(command);
     builder.cwd(cwd);
-    apply_env_to_builder(&mut builder, env_files, askpass_env);
+    apply_env_to_builder(&mut builder, env_files, askpass_env, session_user_id);
     builder.env("TERM", "xterm-256color");
 
     let child = pair

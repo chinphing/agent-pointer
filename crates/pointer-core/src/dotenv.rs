@@ -47,7 +47,21 @@ pub fn merged_env_from_files(env_files: &[PathBuf]) -> HashMap<String, String> {
 ///
 /// Platform API keys and other sensitive variables are stripped so Skill scripts cannot
 /// read them via `printenv`.
+///
+/// `uid = None` 与旧行为一致；调用方拿到会话用户时应改用
+/// [`build_terminal_child_environment_for`]。
 pub fn build_terminal_child_environment(env_files: &[PathBuf]) -> HashMap<String, String> {
+    build_terminal_child_environment_for(env_files, None)
+}
+
+/// [`build_terminal_child_environment`] 加上指定用户的运行时覆盖。
+///
+/// 终端工具可能跑在阻塞线程池里（thread-local 会话用户为空），所以 uid 由分发点
+/// 显式传入，这里不再解析身份。
+pub fn build_terminal_child_environment_for(
+    env_files: &[PathBuf],
+    uid: Option<&str>,
+) -> HashMap<String, String> {
     let mut env: HashMap<String, String> = std::env::vars()
         .filter(|(k, _)| !is_sensitive_env_key(k))
         .collect();
@@ -79,7 +93,7 @@ pub fn build_terminal_child_environment(env_files: &[PathBuf]) -> HashMap<String
     crate::access_host_env::apply_access_host(&mut env);
     crate::storage::apply_data_dir_env(&mut env);
     crate::skills::external::apply_skill_dir_env(&mut env);
-    apply_terminal_env_overrides(&mut env);
+    apply_terminal_env_overrides(&mut env, uid);
     // After overrides: Dock-launched hosts often have LANG=C; PTY `ls` then prints `?`.
     #[cfg(unix)]
     crate::unix_locale::apply_unix_utf8_child_env(&mut env);
@@ -88,8 +102,8 @@ pub fn build_terminal_child_environment(env_files: &[PathBuf]) -> HashMap<String
 
 /// Apply settings `terminalEnvOverrides` last (after process, `.env`, and session vars).
 /// Independent of debug menus: closing debug keeps injection; values stay session-memory only.
-fn apply_terminal_env_overrides(env: &mut HashMap<String, String>) {
-    let settings = crate::platform_config::effective_settings_global();
+fn apply_terminal_env_overrides(env: &mut HashMap<String, String>, uid: Option<&str>) {
+    let settings = crate::platform_config::effective_settings_global_for(uid);
     let overrides = settings.terminal_env_overrides;
     if overrides.is_empty() {
         return;
@@ -134,7 +148,16 @@ pub fn is_sensitive_env_key(key: &str) -> bool {
 
 /// Load one or more `.env` files (in order) and apply them to a child `Command`.
 pub fn apply_supplemental_env_files(cmd: &mut Command, env_files: &[PathBuf]) -> Vec<String> {
-    let child_env = build_terminal_child_environment(env_files);
+    apply_supplemental_env_files_for(cmd, env_files, None)
+}
+
+/// [`apply_supplemental_env_files`] 加上指定用户的运行时覆盖（uid 由调用方显式传入）。
+pub fn apply_supplemental_env_files_for(
+    cmd: &mut Command,
+    env_files: &[PathBuf],
+    uid: Option<&str>,
+) -> Vec<String> {
+    let child_env = build_terminal_child_environment_for(env_files, uid);
     let loaded: Vec<String> = env_files
         .iter()
         .filter(|p| p.is_file())
@@ -646,6 +669,62 @@ mod tests {
         crate::platform_config::replace_global_user_settings_for_test(
             crate::models::UserSettings::default(),
         );
+    }
+
+    /// 隔离 app data dir：用户覆盖落在 `user-settings/<uid>.json`。
+    struct UserOverlayDirGuard {
+        _dir: tempfile::TempDir,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl Drop for UserOverlayDirGuard {
+        fn drop(&mut self) {
+            crate::storage::clear_test_app_data_dir();
+        }
+    }
+
+    fn isolate_user_overlay_dir() -> UserOverlayDirGuard {
+        let lock = crate::storage::test_app_data_dir_lock();
+        let dir = tempfile::tempdir().expect("temp data dir");
+        crate::storage::set_test_app_data_dir(dir.path().to_path_buf());
+        UserOverlayDirGuard {
+            _dir: dir,
+            _lock: lock,
+        }
+    }
+
+    /// 终端环境注入按会话用户取覆盖：传 uid 时用该用户那份，不传时保持旧行为。
+    #[test]
+    fn build_terminal_child_environment_for_applies_user_overlay() {
+        let _guard = env_test_guard();
+        let _data = isolate_user_overlay_dir();
+        crate::platform_config::replace_global_platform_config_for_test(
+            crate::models::PlatformSettings::default(),
+        );
+        crate::platform_config::replace_global_user_settings_for_test(
+            crate::models::UserSettings::default(),
+        );
+        let overlay = crate::models::UserRuntimeOverlay {
+            terminal_env_overrides: Some(
+                [("POINTER_UID_ONLY".to_string(), "from_user".to_string())]
+                    .into_iter()
+                    .collect(),
+            ),
+            max_parallel_tool_calls: None,
+            max_parallel_sub_agents: None,
+        };
+        crate::storage::save_user_runtime_overlay("dotenv-user", &overlay).expect("save overlay");
+
+        // 传了 uid：注入该用户的覆盖
+        let with_uid = build_terminal_child_environment_for(&[], Some("dotenv-user"));
+        assert_eq!(
+            with_uid.get("POINTER_UID_ONLY").map(String::as_str),
+            Some("from_user")
+        );
+
+        // 没传 uid：与今天一致，不注入别人的值
+        let without_uid = build_terminal_child_environment(&[]);
+        assert!(!without_uid.contains_key("POINTER_UID_ONLY"));
     }
 
     #[test]

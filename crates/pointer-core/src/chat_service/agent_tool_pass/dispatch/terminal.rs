@@ -358,6 +358,7 @@ async fn run_terminal_foreground(
                     prompt_tx,
                     resolution_rx: res_rx,
                 }),
+                Some(session_user_id_for_blocking.as_str()),
             )
         })
         .map(|r| {
@@ -455,7 +456,8 @@ async fn run_terminal_background(
     }
 
     let slot_cap = JobSupervisor::slot_cap_from(
-        ParallelLimits::from_settings(&state.effective_settings()).max_parallel_sub_agents,
+        ParallelLimits::from_settings(&state.effective_settings_for_session(conversation_id))
+            .max_parallel_sub_agents,
     );
     log::info!(
         "terminal background waiting job_id={job_id} conversation_id={conversation_id} block_until_ms={block_until_ms} wait_ms={wait_ms}"
@@ -550,7 +552,12 @@ fn status_from_wire(status: &str) -> JobStatus {
 
 async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn) {
     let cap = JobSupervisor::slot_cap_from(
-        ParallelLimits::from_settings(&spawn.state.effective_settings()).max_parallel_sub_agents,
+        ParallelLimits::from_settings(
+            &spawn
+                .state
+                .effective_settings_for_session(&spawn.conversation_id),
+        )
+        .max_parallel_sub_agents,
     );
     let Some(_lease) = spawn
         .state
@@ -599,6 +606,7 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
     let abort_flag = spawn.abort_flag.clone();
     let session_workspace = spawn.session_workspace.clone();
     let session_user_id = spawn.session_user_id.clone();
+    let session_user_id_for_terminal = session_user_id.clone();
     let args_value = spawn.args_value.clone();
     let stream_for_terminal = spawn.stream.clone();
     let msg_id_for_stream = spawn.message_id.clone();
@@ -635,6 +643,7 @@ async fn run_background_terminal(job_id: String, spawn: BackgroundTerminalSpawn)
             Some(cancel_terminal),
             Some(abort_flag),
             None,
+            Some(session_user_id_for_terminal.as_str()),
         )
     })
     .await;

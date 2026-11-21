@@ -15,7 +15,8 @@ use super::{ToolEntry, ToolHandler, ToolRegistry};
 pub(crate) use super::terminal_elevated::terminal_requests_elevation;
 pub use super::terminal_prompt::InputClass;
 use crate::dotenv::{
-    apply_supplemental_env_files, default_user_env_file, parse_env_file_args, resolve_env_file_path,
+    apply_supplemental_env_files_for, default_user_env_file, parse_env_file_args,
+    resolve_env_file_path,
 };
 use anyhow::{anyhow, bail, Result};
 use log::{info, warn};
@@ -252,7 +253,7 @@ fn run_terminal_command(args: serde_json::Value) -> Result<String> {
     let (shell, _) = terminal_shell_command(&command);
     let env_files = resolve_terminal_env_files(&args, Some(cwd.as_path()))?;
 
-    let r = run_terminal_command_streaming(args, session_workspace, |_| {}, None, None, None)?;
+    let r = run_terminal_command_streaming(args, session_workspace, |_| {}, None, None, None, None)?;
 
     Ok(serde_json::json!({
         "command": command.as_str(),
@@ -315,6 +316,7 @@ pub fn run_terminal_command_streaming(
     cancel: Option<CancellationToken>,
     run_abort: Option<Arc<AtomicBool>>,
     input_hooks: Option<TerminalInputHooks>,
+    session_user_id: Option<&str>,
 ) -> Result<TerminalStreamingResult> {
     // Server-only optional guard (pointer-server.toml). Desktop leaves this off.
     // Workspace Console PTY is a separate path and is never checked here.
@@ -335,6 +337,7 @@ pub fn run_terminal_command_streaming(
             on_output,
             cancel,
             run_abort,
+            session_user_id,
         );
     }
 
@@ -457,7 +460,7 @@ pub fn run_terminal_command_streaming(
         #[cfg(not(unix))]
         let askpass_ref: Option<&[(String, String)]> = None;
 
-        match try_spawn_terminal_pty(command, &cwd, &paths, askpass_ref) {
+        match try_spawn_terminal_pty(command, &cwd, &paths, askpass_ref, session_user_id) {
             Ok((pty_child, sink, pty_rx)) => {
                 let tx_bridge = tx.clone();
                 thread::spawn(move || {
@@ -494,7 +497,7 @@ pub fn run_terminal_command_streaming(
         let (_shell, mut cmd) = terminal_shell_command(command);
         cmd.current_dir(&cwd);
         configure_terminal_process_group(&mut cmd);
-        apply_supplemental_env_files(&mut cmd, &paths);
+        apply_supplemental_env_files_for(&mut cmd, &paths, session_user_id);
         stdin_piped = want_stdin_pipe;
         cmd.stdin(if want_stdin_pipe {
             Stdio::piped()
@@ -1557,6 +1560,7 @@ mod process_tree_tests {
             ws,
             |_| {},
             Some(cancel),
+            None,
             None,
             None,
         )

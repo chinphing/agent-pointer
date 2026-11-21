@@ -1460,11 +1460,17 @@ struct RoundScreenQuery {
 }
 
 /// Same as Tauri `preview_computer_round_screen`: load annotated PNG from `computer-captures/` by relative path.
+///
+/// 截图落在 `computer-captures/{YYYY-MM-DD}/{conversation_id}/…`（见
+/// `capture_debug::save_computer_capture_debug`），路径里带会话段，所以 Web 入口
+/// 必须按会话归属校验：否则普通用户 B 猜中 A 的截图相对路径就能读到别人的屏幕。
+/// 解析不出会话段的路径（`locate/` 调试目录、旧布局、非预期形状）一律拒绝。
 async fn preview_computer_round_screen(
     State(state): State<ServerState>,
     Query(q): Query<RoundScreenQuery>,
 ) -> Result<Json<ComputerAnnotatedPreview>, ApiError> {
     require_platform_access(&state)?;
+    require_capture_rel_access(&state, &q.rel_path)?;
     Ok(Json(
         capture_debug::read_computer_capture_preview(&q.rel_path).map_err(ApiError::from)?,
     ))
@@ -1925,7 +1931,10 @@ async fn check_media_deps() -> Json<pointer_core::media::MediaDepsStatus> {
     Json(pointer_core::media::MediaDepsStatus::probe())
 }
 
-async fn list_computer_monitors() -> Result<Json<Vec<ComputerMonitor>>, ApiError> {
+async fn list_computer_monitors(
+    State(state): State<ServerState>,
+) -> Result<Json<Vec<ComputerMonitor>>, ApiError> {
+    require_platform_access(&state)?;
     Ok(Json(
         pointer_core::agents::computer::screen::list_monitors().map_err(ApiError::from)?,
     ))
@@ -1943,6 +1952,7 @@ async fn set_computer_conversation_monitor(
     State(state): State<ServerState>,
     Json(payload): Json<SetMonitorPayload>,
 ) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
     require_conversation_access(&state, &payload.conversation_id)?;
     state
         .core
@@ -1955,6 +1965,7 @@ async fn confirm_computer_monitor_pick(
     State(state): State<ServerState>,
     axum::extract::Path(conversation_id): axum::extract::Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
     require_conversation_access(&state, &conversation_id)?;
     if state.core.confirm_computer_monitor_pick(&conversation_id) {
         Ok(StatusCode::NO_CONTENT)
@@ -1967,6 +1978,7 @@ async fn cancel_computer_monitor_pick(
     State(state): State<ServerState>,
     axum::extract::Path(conversation_id): axum::extract::Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
     require_conversation_access(&state, &conversation_id)?;
     if state.core.cancel_computer_monitor_pick(&conversation_id) {
         Ok(StatusCode::NO_CONTENT)
@@ -2060,6 +2072,61 @@ fn stored_conversation_user_id(conversation_id: &str) -> Option<String> {
 fn non_empty_uid(uid: &str) -> Option<String> {
     let uid = uid.trim();
     (!uid.is_empty()).then(|| uid.to_string())
+}
+
+/// `computer-captures/` 相对路径里的会话段。
+///
+/// 写盘布局固定为 `{YYYY-MM-DD}/{conversation_id}/{文件名}`（见
+/// `capture_debug::save_computer_capture_debug` / `capture_dump_dir`），文件名之后
+/// 允许再嵌套子目录。分隔符先归一（`\` → `/`），再按段解析。
+///
+/// `locate/` 这类没有会话段的调试目录、旧布局、以及任何非预期形状都返回 `None`；
+/// 调用方必须**拒绝**，不能把「解析不出来」当成「没有归属」放行。
+fn capture_rel_conversation_id(rel: &str) -> Option<String> {
+    let normalized = rel.trim().replace('\\', "/");
+    let segments: Vec<&str> = normalized
+        .split('/')
+        .filter(|segment| !segment.is_empty() && *segment != ".")
+        .collect();
+    // 至少要有 日期 / 会话 / 文件 三段。
+    if segments.len() < 3 {
+        return None;
+    }
+    if !is_capture_date_segment(segments[0]) {
+        return None;
+    }
+    if segments.iter().any(|segment| *segment == "..") {
+        return None;
+    }
+    let conversation_id = segments[1].trim();
+    (!conversation_id.is_empty()).then(|| conversation_id.to_string())
+}
+
+/// `YYYY-MM-DD`：`capture_debug` 用 `chrono::Local` 的 `%Y-%m-%d` 建日期目录。
+fn is_capture_date_segment(segment: &str) -> bool {
+    let bytes = segment.as_bytes();
+    bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit())
+}
+
+/// 解析会话段，解析不出就报错（**不**放行）。
+fn capture_rel_conversation_id_required(rel: &str) -> Result<String, ApiError> {
+    capture_rel_conversation_id(rel).ok_or_else(|| {
+        ApiError(anyhow::anyhow!(
+            "invalid_capture_rel_path: 截图路径不符合预期格式（应为 YYYY-MM-DD/conversation_id/…）：{rel}"
+        ))
+    })
+}
+
+/// `computer-captures/` 截图的归属校验：会话段必须属于当前请求身份（管理员代看放行）。
+fn require_capture_rel_access(state: &ServerState, rel: &str) -> Result<(), ApiError> {
+    let conversation_id = capture_rel_conversation_id_required(rel)?;
+    require_conversation_access(state, &conversation_id)
 }
 
 /// 归属判定（纯函数，单测直接喂会话行 uid）。
@@ -2243,6 +2310,117 @@ mod conversation_access_tests {
     #[test]
     fn owner_comparison_is_trimmed() {
         assert!(conversation_access_decision("conv-a", " user-a ", Some("user-a\n"), false).is_ok());
+    }
+
+    // ---- computer 截图（computer-captures/）归属 ----
+
+    /// 正常写盘布局 `{YYYY-MM-DD}/{conversation_id}/{file}` 能解析出会话段；
+    /// 分隔符归一、子目录（文件名之后再分层）也认。
+    #[test]
+    fn capture_rel_path_resolves_conversation_segment() {
+        assert_eq!(
+            capture_rel_conversation_id("2026-11-21/conv-a/round_1_1729_screen.jpg").as_deref(),
+            Some("conv-a")
+        );
+        assert_eq!(
+            capture_rel_conversation_id("  /2026-11-21/conv-a/sub/round_1_screen.jpg  ").as_deref(),
+            Some("conv-a")
+        );
+        assert_eq!(
+            capture_rel_conversation_id(r"2026-11-21\conv-a\round_1_screen.jpg").as_deref(),
+            Some("conv-a")
+        );
+    }
+
+    /// 解析不出会话段的路径必须**拒绝**（不是放行）：`locate/` 调试目录、旧的两段布局、
+    /// 缺文件名、`..` 穿越、空路径。
+    #[test]
+    fn capture_rel_path_without_conversation_segment_is_rejected() {
+        for rel in [
+            "",
+            "   ",
+            "round_1_screen.jpg",
+            "conv-a/round_1_screen.jpg",
+            "locate/69fc0b0c_010_001_screen.jpg",
+            "2026-11-21/conv-a",
+            "2026-11-21/../conv-a/screen.jpg",
+            "2026-11-21//screen.jpg",
+            "20261121/conv-a/screen.jpg",
+        ] {
+            assert!(
+                capture_rel_conversation_id(rel).is_none(),
+                "{rel:?} 必须解析不出会话段（调用方据此拒绝，而不是放行）"
+            );
+        }
+    }
+    /// 解析出的会话段走统一的归属判定：普通用户 B 读 A 的截图 → 403，本人 / 管理员 → 放行。
+    #[test]
+    fn capture_rel_path_ownership_follows_conversation_access() {
+        let conversation_id =
+            capture_rel_conversation_id("2026-11-21/conv-a/round_1_1729_screen.jpg")
+                .expect("正常布局必须解析出会话段");
+        let err = conversation_access_decision(&conversation_id, "user-b", Some("user-a"), false)
+            .expect_err("跨用户读截图必须拒绝");
+        assert_eq!(status_of(err), StatusCode::FORBIDDEN);
+        assert!(
+            conversation_access_decision(&conversation_id, "user-a", Some("user-a"), false).is_ok()
+        );
+        assert!(
+            conversation_access_decision(&conversation_id, "admin", Some("user-a"), true).is_ok()
+        );
+    }
+
+    /// 解析不出会话段 → 400（请求形状不对），而不是读文件。
+    #[test]
+    fn capture_rel_path_unparseable_is_bad_request() {
+        let err = capture_rel_conversation_id_required("locate/69fc0b0c_010_001_screen.jpg")
+            .expect_err("locate 目录没有会话段，必须拒绝");
+        assert_eq!(status_of(err), StatusCode::BAD_REQUEST);
+    }
+
+    /// computer 路由的登录校验必须留在 handler 里，且在归属校验之前。
+    ///
+    /// 用源码扫描而不是发 HTTP：handler 需要完整 `ServerState`（dispatcher / gateway /
+    /// 会话存储 / 各登录态），单测里搭不出来。这里锁的是「守卫存在且排在归属校验前面」，
+    /// 新增 computer 路由漏掉 `require_platform_access` 会立刻失败。
+    ///
+    /// `/api/computer/locate` 是刻意例外：P0 评测端点由 `POINTER_P0_ENDPOINT=1` 显式开启，
+    /// 评测脚本不带登录凭据（`scripts/p0_locate_eval.mjs`），加了登录校验脚本就跑不了。
+    #[test]
+    fn computer_routes_guard_login_before_ownership() {
+        let source = include_str!("main.rs");
+        for handler in [
+            "preview_computer_annotated_screen",
+            "preview_computer_round_screen",
+            "manual_computer_snapshot",
+            "list_computer_monitors",
+            "set_computer_conversation_monitor",
+            "confirm_computer_monitor_pick",
+            "cancel_computer_monitor_pick",
+        ] {
+            let marker = format!("async fn {handler}(");
+            let start = source
+                .find(&marker)
+                .unwrap_or_else(|| panic!("{handler} 不在 main.rs 里了"));
+            let body_start = start
+                + source[start..]
+                    .find("{\n")
+                    .unwrap_or_else(|| panic!("{handler} 找不到函数体"));
+            let body = &source[body_start..];
+            let body_end = body.find("\n}\n").map(|end| end + 3).unwrap_or(body.len());
+            let body = &body[..body_end];
+            let guard = body
+                .find("require_platform_access(&state)?")
+                .unwrap_or_else(|| panic!("{handler} 缺少 require_platform_access(&state)?"));
+            for ownership in ["require_conversation_access(", "require_capture_rel_access("] {
+                if let Some(pos) = body.find(ownership) {
+                    assert!(
+                        guard < pos,
+                        "{handler}: 登录校验必须排在归属校验（{ownership}）之前"
+                    );
+                }
+            }
+        }
     }
 
     // ---- 媒体路径归属 ----
@@ -4157,6 +4335,8 @@ async fn create_console_session(
     // 档位判定要用真实身份：登录用户优先，standalone 回落到本地操作者。
     // 取不到就给空串，交给 core 拒绝（既不在宿主执行，也不建沙箱）。
     let session_user_id = state.core.runtime_settings_user_id().unwrap_or_default();
+    // 归属口径与 Web 路由一致：管理员可以打开别人的会话，档位仍按请求身份解析。
+    let request_is_admin = state.core.is_admin_session();
     state
         .core
         .console_sessions
@@ -4164,6 +4344,7 @@ async fn create_console_session(
             &payload.workspace_root,
             &payload.conversation_id,
             &session_user_id,
+            request_is_admin,
             payload.cwd.as_deref(),
             payload.cols,
             payload.rows,
@@ -4886,6 +5067,10 @@ impl IntoResponse for ApiError {
         }
         if msg.contains("server_access_denied") || msg.contains("conversation_access_denied") {
             return (StatusCode::FORBIDDEN, msg).into_response();
+        }
+        // 客户端传的截图相对路径解析不出会话段：请求形状不对，不是权限问题。
+        if msg.contains("invalid_capture_rel_path") {
+            return (StatusCode::BAD_REQUEST, msg).into_response();
         }
         if msg.contains("download link expired")
             || msg.contains("invalid download token")

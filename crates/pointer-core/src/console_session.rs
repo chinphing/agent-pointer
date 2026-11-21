@@ -68,11 +68,16 @@ impl ConsoleSessionManager {
     /// `session_user_id` = **当前请求身份**（服务端：登录用户优先、standalone 回落
     /// 本地操作者；桌面端同一规则）。档位只按这个身份解析；会话行 uid 仅用于校验
     /// 「这个会话是不是你的」——规则见 [`resolve_console_user_id`]。
+    ///
+    /// `request_is_admin` = 当前请求视角是否管理员（[`crate::chat_service::AppState::is_admin_session`]），
+    /// 与 Web 入口的 `conversation_access_decision` 同口径：管理员可以打开别人的会话，
+    /// 但档位仍按**请求身份**解析（不是按会话主人）。
     pub fn create(
         &self,
         workspace_root: &str,
         conversation_id: &str,
         session_user_id: &str,
+        request_is_admin: bool,
         cwd: Option<&str>,
         cols: u16,
         rows: u16,
@@ -83,6 +88,7 @@ impl ConsoleSessionManager {
             conversation_id,
             session_user_id,
             stored.as_deref(),
+            request_is_admin,
             cwd,
             cols,
             rows,
@@ -98,12 +104,18 @@ impl ConsoleSessionManager {
         conversation_id: &str,
         request_user_id: &str,
         stored_user_id: Option<&str>,
+        request_is_admin: bool,
         cwd: Option<&str>,
         cols: u16,
         rows: u16,
     ) -> Result<ConsoleSessionInfo> {
         // 先过归属校验：不符就直接返回，既不起沙箱，也不在宿主执行。
-        let user_id = resolve_console_user_id(conversation_id, request_user_id, stored_user_id)?;
+        let user_id = resolve_console_user_id(
+            conversation_id,
+            request_user_id,
+            stored_user_id,
+            request_is_admin,
+        )?;
         // 执行环境按**请求身份**解析：沙箱用户开沙箱终端，admin 开宿主终端。
         // 注意不能只查缓存——应用刚重启、或这个会话还没跑过对话时缓存是空的，
         // 那时 `effective_env()` 会返回「拒绝执行」环境，终端就会误报"不支持交互式终端"。
@@ -202,15 +214,19 @@ fn stored_conversation_user_id(conversation_id: &str) -> Option<String> {
 ///
 /// - 请求身份（`request_user_id`）为空 → **拒绝**：拿不到身份反而能拿到宿主执行权限
 ///   是提权路径，宁可不开终端（也不回落到会话行 uid，那等于替别人执行）。
-/// - 会话行 uid 非空且 != 请求身份 → **拒绝**：会话 id 是客户端可传的，B 传 A 的
-///   会话 id 就能借 A 的档位拿到宿主 shell。
+/// - 会话行 uid 非空且 != 请求身份 → 普通用户**拒绝**：会话 id 是客户端可传的，B 传
+///   A 的会话 id 就能借 A 的档位拿到宿主 shell。管理员**放行**（代操作是既有能力，
+///   与 Web 入口 `conversation_access_decision` 同口径），但档位仍按请求身份解析。
 /// - 会话行 uid 为空（历史会话 / 没有这一行）→ 放行，仍按请求身份解析档位，
 ///   不会因为「归属为空」而提权。
 /// - 会话行 uid == 请求身份 → 放行。
+///
+/// 放行只影响「允不允许开」，不影响「以谁的档位执行」：返回值永远是请求身份。
 fn resolve_console_user_id(
     conversation_id: &str,
     request_user_id: &str,
     stored_user_id: Option<&str>,
+    request_is_admin: bool,
 ) -> Result<String> {
     let Some(request_uid) = non_empty_uid(Some(request_user_id)) else {
         return Err(anyhow!(
@@ -219,9 +235,15 @@ fn resolve_console_user_id(
     };
     if let Some(stored_uid) = non_empty_uid(stored_user_id) {
         if stored_uid != request_uid {
-            return Err(anyhow!(
-                "会话不属于当前用户，已拒绝创建终端会话：{conversation_id}"
-            ));
+            if !request_is_admin {
+                return Err(anyhow!(
+                    "会话不属于当前用户，已拒绝创建终端会话：{conversation_id}"
+                ));
+            }
+            log::info!(
+                "console: admin override conversation_id={conversation_id} owner={stored_uid} \
+                 actor={request_uid}"
+            );
         }
     }
     Ok(request_uid)
@@ -573,6 +595,7 @@ mod tests {
                 root.path().to_str().expect("utf8 path"),
                 &conversation,
                 "",
+                false,
                 None,
                 80,
                 24,
@@ -593,7 +616,7 @@ mod tests {
     /// 请求身份缺失时**不能**拿会话行 uid 顶上：那等于替会话主人执行（提权）。
     #[test]
     fn missing_request_identity_does_not_borrow_conversation_owner() {
-        let error = resolve_console_user_id("conv-owner-admin", "", Some("admin"))
+        let error = resolve_console_user_id("conv-owner-admin", "", Some("admin"), false)
             .expect_err("请求身份缺失必须拒绝");
         assert!(error.to_string().contains("无法确定当前用户身份"), "{error}");
     }
@@ -610,6 +633,7 @@ mod tests {
                 &conversation,
                 "alice",
                 Some("admin"),
+                false,
                 None,
                 80,
                 24,
@@ -627,6 +651,30 @@ mod tests {
         );
     }
 
+    /// 管理员打开别人的会话：放行（与 Web 入口 `conversation_access_decision` 同口径），
+    /// 但档位仍按**请求身份**解析——不是按会话主人。
+    #[test]
+    fn admin_can_open_another_users_console_with_own_tier() {
+        let cfg = sandbox_deployment_cfg();
+        let conversation = "conv-alice-owned-console";
+        assert_eq!(
+            resolve_console_user_id(conversation, "admin", Some("alice"), true)
+                .expect("管理员可以打开他人会话"),
+            "admin"
+        );
+        // 档位按 admin 自己解析 → 宿主，而不是 alice 的沙箱。
+        assert_eq!(
+            console_env_plan(&cfg, conversation, "admin"),
+            ConsoleEnvPlan::Host
+        );
+        // 同一份输入换成普通用户 → 仍然拒绝。
+        let error = resolve_console_user_id(conversation, "bob", Some("alice"), false)
+            .expect_err("普通用户不能打开他人会话");
+        assert!(error.to_string().contains("不属于当前用户"), "{error}");
+        // 请求身份缺失时管理员标记救不了：fail closed 不变。
+        assert!(resolve_console_user_id(conversation, "", Some("alice"), true).is_err());
+    }
+
     /// 会话归属为空（历史会话 / 没有这一行）→ 放行，但档位仍按请求身份解析：
     /// 普通用户不会被当成 admin，也不会复用别人留下的宿主环境。
     #[test]
@@ -634,11 +682,11 @@ mod tests {
         let cfg = sandbox_deployment_cfg();
         let conversation = "conv-legacy-no-owner";
         assert_eq!(
-            resolve_console_user_id(conversation, "alice", Some("")).expect("空归属放行"),
+            resolve_console_user_id(conversation, "alice", Some(""), false).expect("空归属放行"),
             "alice"
         );
         assert_eq!(
-            resolve_console_user_id(conversation, "alice", None).expect("没有会话行也放行"),
+            resolve_console_user_id(conversation, "alice", None, false).expect("没有会话行也放行"),
             "alice"
         );
         // 档位只认请求身份：普通用户 → 沙箱，不是宿主。
@@ -670,7 +718,8 @@ mod tests {
     fn owned_conversation_resolves_by_request_identity() {
         let cfg = sandbox_deployment_cfg();
         assert_eq!(
-            resolve_console_user_id("conv-admin-own", "admin", Some("admin")).expect("本人会话放行"),
+            resolve_console_user_id("conv-admin-own", "admin", Some("admin"), false)
+                .expect("本人会话放行"),
             "admin"
         );
         assert_eq!(
@@ -678,7 +727,8 @@ mod tests {
             ConsoleEnvPlan::Host
         );
         assert_eq!(
-            resolve_console_user_id("conv-alice-own", "alice", Some("alice")).expect("本人会话放行"),
+            resolve_console_user_id("conv-alice-own", "alice", Some("alice"), false)
+                .expect("本人会话放行"),
             "alice"
         );
         assert_eq!(
@@ -686,7 +736,7 @@ mod tests {
             ConsoleEnvPlan::Sandbox
         );
         // 空白差异按规范化后比较（`normalize_session_user_id` 只 trim）。
-        assert!(resolve_console_user_id("conv-alice-own", " alice ", Some("alice ")).is_ok());
+        assert!(resolve_console_user_id("conv-alice-own", " alice ", Some("alice "), false).is_ok());
     }
 
     /// 回归：以前用空 uid 解析档位，admin 会被判成部署默认档位 → 被建沙箱。

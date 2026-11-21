@@ -113,16 +113,11 @@ fn panel_root(env: &dyn crate::env::Environment, workspace_root: &Path) -> Resul
     canonical_workspace(workspace_root)
 }
 
+/// `env` 必须由调用方按会话解析后传入（Web 路由 / Tauri 命令用
+/// [`crate::env::session_env::bind_workspace_request`]）。**这里不再自己取
+/// `effective_env()`**：面板请求不是对话回合，线程上没有会话绑定，取到的会是
+/// `DeniedEnv`——沙箱档位部署下连 admin 的面板都会全挂。
 pub fn list_directory(
-    workspace_root: &Path,
-    relative_path: Option<&str>,
-) -> Result<Vec<WorkspaceEntry>> {
-    let env = crate::env::effective_env();
-    list_directory_in(env.as_ref(), workspace_root, relative_path)
-}
-
-/// 同 [`list_directory`]，但显式指定执行环境（Tauri 命令按会话解析后传入）。
-pub fn list_directory_in(
     env: &dyn crate::env::Environment,
     workspace_root: &Path,
     relative_path: Option<&str>,
@@ -191,17 +186,9 @@ const SEARCH_SKIP_DIR_NAMES: &[&str] = &[
 
 /// Case-insensitive filename / relative-path search under the workspace root.
 /// Skips heavy/vendor directories; returns at most `limit` entries (files, dirs, symlinks).
+///
+/// `env` 由调用方按会话解析后传入（同 [`list_directory`]）。
 pub fn search_entries(
-    workspace_root: &Path,
-    query: &str,
-    limit: usize,
-) -> Result<Vec<WorkspaceEntry>> {
-    let env = crate::env::effective_env();
-    search_entries_in(env.as_ref(), workspace_root, query, limit)
-}
-
-/// 同 [`search_entries`]，但显式指定执行环境。
-pub fn search_entries_in(
     env: &dyn crate::env::Environment,
     workspace_root: &Path,
     query: &str,
@@ -287,13 +274,9 @@ pub fn search_entries_in(
 ///
 /// Safety: relative paths only (no `..` / absolute); never deletes the workspace
 /// root itself; does not follow directory symlinks (`remove_file` for symlinks).
-pub fn delete_path(workspace_root: &Path, relative_path: &str) -> Result<()> {
-    let env = crate::env::effective_env();
-    delete_path_in(env.as_ref(), workspace_root, relative_path)
-}
-
-/// 同 [`delete_path`]，但显式指定执行环境。
-pub fn delete_path_in(
+///
+/// `env` 由调用方按会话解析后传入（同 [`list_directory`]）。
+pub fn delete_path(
     env: &dyn crate::env::Environment,
     workspace_root: &Path,
     relative_path: &str,
@@ -334,16 +317,9 @@ pub struct WorkspaceMediaFile {
 }
 
 /// Resolve a workspace-relative file for raw byte streaming (same path rules as [`read_file`]).
+///
+/// `env` 由调用方按会话解析后传入（同 [`list_directory`]）。
 pub fn resolve_file_for_media(
-    workspace_root: &Path,
-    relative_path: &str,
-) -> Result<WorkspaceMediaFile> {
-    let env = crate::env::effective_env();
-    resolve_file_for_media_in(env.as_ref(), workspace_root, relative_path)
-}
-
-/// 同 [`resolve_file_for_media`]，但显式指定执行环境。
-pub fn resolve_file_for_media_in(
     env: &dyn crate::env::Environment,
     workspace_root: &Path,
     relative_path: &str,
@@ -410,13 +386,9 @@ fn mime_from_path(path: &Path) -> String {
 }
 
 /// Read a bounded, UTF-8 text preview without following paths outside the workspace.
-pub fn read_file(workspace_root: &Path, relative_path: &str) -> Result<WorkspaceFilePreview> {
-    let env = crate::env::effective_env();
-    read_file_in(env.as_ref(), workspace_root, relative_path)
-}
-
-/// 同 [`read_file`]，但显式指定执行环境。
-pub fn read_file_in(
+///
+/// `env` 由调用方按会话解析后传入（同 [`list_directory`]）。
+pub fn read_file(
     env: &dyn crate::env::Environment,
     workspace_root: &Path,
     relative_path: &str,
@@ -456,32 +428,45 @@ pub fn read_file_in(
     })
 }
 
-pub fn git_status(workspace_root: &Path) -> Result<Vec<GitChange>> {
-    let env = crate::env::effective_env();
-    let root = panel_root(env.as_ref(), workspace_root)?;
+/// `env` 由调用方按会话解析后传入（同 [`list_directory`]）。
+pub fn git_status(
+    env: &dyn crate::env::Environment,
+    workspace_root: &Path,
+) -> Result<Vec<GitChange>> {
+    let root = panel_root(env, workspace_root)?;
     let output = run_git(
+        env,
         &root,
         ["status", "--porcelain=v2", "-z", "--untracked-files=all"],
     )?;
     Ok(parse_git_status(&output))
 }
 
-/// Short-lived cache for `git status` results keyed by workspace root.
+/// Short-lived cache for `git status` results keyed by **host** workspace root.
 ///
 /// Spawning `git` is expensive under real-time AV scanning on Windows (the
 /// panel refreshes status on open and on every entry to Changes); the TTL
 /// avoids re-spawning within a few seconds of the last run. Errors are not
 /// cached so a transient failure retries immediately.
+///
+/// 只缓存 `local` 档位：沙箱档位下每个会话的 `workspace_root()` 都是 `/workspace`，
+/// 按路径做键会让不同会话的 git 状态互相串。
 const GIT_STATUS_CACHE_TTL: Duration = Duration::from_secs(2);
 static GIT_STATUS_CACHE: Mutex<Option<HashMap<String, (Instant, Vec<GitChange>)>>> =
     Mutex::new(None);
 
-pub fn git_status_response(workspace_root: &Path) -> Result<GitStatusResponse> {
-    let key = workspace_root.to_string_lossy().into_owned();
-    {
+pub fn git_status_response(
+    env: &dyn crate::env::Environment,
+    workspace_root: &Path,
+) -> Result<GitStatusResponse> {
+    // 缓存键只对 local 档位有效：沙箱档位下所有会话的 `workspace_root()` 都是
+    // `/workspace`，按路径做键会把不同会话的 git 状态互相串（跨会话泄露文件名）。
+    let cache_key = (env.kind() == crate::env::EnvKind::Local)
+        .then(|| workspace_root.to_string_lossy().into_owned());
+    if let Some(key) = cache_key.as_deref() {
         let cache = GIT_STATUS_CACHE.lock().unwrap();
         if let Some(entries) = cache.as_ref() {
-            if let Some((at, changes)) = entries.get(&key) {
+            if let Some((at, changes)) = entries.get(key) {
                 if at.elapsed() < GIT_STATUS_CACHE_TTL {
                     return Ok(GitStatusResponse {
                         changes: changes.clone(),
@@ -491,8 +476,8 @@ pub fn git_status_response(workspace_root: &Path) -> Result<GitStatusResponse> {
             }
         }
     }
-    let result = git_status(workspace_root);
-    if let Ok(changes) = &result {
+    let result = git_status(env, workspace_root);
+    if let (Some(key), Ok(changes)) = (cache_key, &result) {
         let mut cache = GIT_STATUS_CACHE.lock().unwrap();
         let entries = cache.get_or_insert_with(HashMap::new);
         entries.insert(key, (Instant::now(), changes.clone()));
@@ -553,12 +538,12 @@ fn parse_git_status(output: &[u8]) -> Vec<GitChange> {
 /// - Untracked / unstaged worktree changes → index (or empty) vs disk  
 /// - Staged-only → HEAD vs index  
 pub fn git_diff(
+    env: &dyn crate::env::Environment,
     workspace_root: &Path,
     relative_path: &str,
     status: Option<&str>,
 ) -> Result<GitDiff> {
-    let env = crate::env::effective_env();
-    let root = panel_root(env.as_ref(), workspace_root)?;
+    let root = panel_root(env, workspace_root)?;
     let relative = safe_relative(relative_path)?;
     if relative.as_os_str().is_empty() {
         return Err(anyhow!("file path is required"));
@@ -566,18 +551,18 @@ pub fn git_diff(
     let path = relative.to_string_lossy().replace('\\', "/");
     let status = match status.map(str::trim).filter(|s| !s.is_empty()) {
         Some(s) => s.to_string(),
-        None => resolve_git_status_for_path(&root, &path)?,
+        None => resolve_git_status_for_path(env, &root, &path)?,
     };
     let mode = git_diff_mode(&status);
     let (before, after) = match mode {
-        "untracked" => (String::new(), read_worktree_text(&root, &path)?),
+        "untracked" => (String::new(), read_worktree_text(env, &root, &path)?),
         "unstaged" => (
-            read_git_blob_text(&root, &format!(":{path}"))?.unwrap_or_default(),
-            read_worktree_text(&root, &path)?,
+            read_git_blob_text(env, &root, &format!(":{path}"))?.unwrap_or_default(),
+            read_worktree_text(env, &root, &path)?,
         ),
         "staged" => (
-            read_git_blob_text(&root, &format!("HEAD:{path}"))?.unwrap_or_default(),
-            read_git_blob_text(&root, &format!(":{path}"))?.unwrap_or_default(),
+            read_git_blob_text(env, &root, &format!("HEAD:{path}"))?.unwrap_or_default(),
+            read_git_blob_text(env, &root, &format!(":{path}"))?.unwrap_or_default(),
         ),
         other => return Err(anyhow!("unsupported git diff mode: {other}")),
     };
@@ -608,8 +593,12 @@ fn git_diff_mode(status: &str) -> &'static str {
     "unstaged"
 }
 
-fn resolve_git_status_for_path(root: &Path, path: &str) -> Result<String> {
-    let changes = git_status(root)?;
+fn resolve_git_status_for_path(
+    env: &dyn crate::env::Environment,
+    root: &Path,
+    path: &str,
+) -> Result<String> {
+    let changes = git_status(env, root)?;
     changes
         .into_iter()
         .find(|c| c.path == path)
@@ -617,8 +606,12 @@ fn resolve_git_status_for_path(root: &Path, path: &str) -> Result<String> {
         .ok_or_else(|| anyhow!("path not in git status: {path}"))
 }
 
-fn read_git_blob_text(root: &Path, spec: &str) -> Result<Option<String>> {
-    match run_git(root, ["show", spec]) {
+fn read_git_blob_text(
+    env: &dyn crate::env::Environment,
+    root: &Path,
+    spec: &str,
+) -> Result<Option<String>> {
+    match run_git(env, root, ["show", spec]) {
         Ok(bytes) => Ok(Some(decode_text_blob(&bytes, spec)?)),
         Err(error) => {
             if error.downcast_ref::<GitCommandError>().is_some() {
@@ -630,8 +623,11 @@ fn read_git_blob_text(root: &Path, spec: &str) -> Result<Option<String>> {
     }
 }
 
-fn read_worktree_text(root: &Path, relative: &str) -> Result<String> {
-    let env = crate::env::effective_env();
+fn read_worktree_text(
+    env: &dyn crate::env::Environment,
+    root: &Path,
+    relative: &str,
+) -> Result<String> {
     let full = root.join(relative);
     if !env.exists(&full) {
         return Ok(String::new());
@@ -703,7 +699,7 @@ fn safe_relative(value: &str) -> Result<PathBuf> {
     Ok(path.to_path_buf())
 }
 
-fn run_git<I, S>(root: &Path, args: I) -> Result<Vec<u8>>
+fn run_git<I, S>(env: &dyn crate::env::Environment, root: &Path, args: I) -> Result<Vec<u8>>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
@@ -717,7 +713,7 @@ where
         args.into_iter()
             .map(|a| a.as_ref().to_string_lossy().into_owned()),
     );
-    let output = crate::env::effective_env()
+    let output = env
         .exec(&argv, crate::env::ExecOptions::new())
         .map_err(git_exec_error)?;
     parse_git_output(output)
@@ -789,23 +785,31 @@ mod tests {
     use super::*;
     use std::fs;
 
+    /// 宿主环境（面板在 local 档位下拿到的就是它）。
+    fn host(root: &Path) -> std::sync::Arc<dyn crate::env::Environment> {
+        crate::env::host_env_at(root)
+    }
+
     #[test]
     fn rejects_paths_outside_workspace() {
         let root = tempfile::tempdir().unwrap();
-        assert!(list_directory(root.path(), Some("../outside")).is_err());
-        assert!(git_diff(root.path(), "/tmp/outside", None).is_err());
-        assert!(delete_path(root.path(), "../outside").is_err());
-        assert!(delete_path(root.path(), "").is_err());
-        assert!(resolve_file_for_media(root.path(), "../outside").is_err());
-        assert!(resolve_file_for_media(root.path(), "").is_err());
+        let env = host(root.path());
+        let env = env.as_ref();
+        assert!(list_directory(env, root.path(), Some("../outside")).is_err());
+        assert!(git_diff(env, root.path(), "/tmp/outside", None).is_err());
+        assert!(delete_path(env, root.path(), "../outside").is_err());
+        assert!(delete_path(env, root.path(), "").is_err());
+        assert!(resolve_file_for_media(env, root.path(), "../outside").is_err());
+        assert!(resolve_file_for_media(env, root.path(), "").is_err());
     }
 
     #[test]
     fn resolve_file_for_media_returns_jpeg_mime() {
         let root = tempfile::tempdir().unwrap();
+        let env = host(root.path());
         let file = root.path().join("shot.jpg");
         fs::write(&file, b"\xff\xd8\xff").unwrap();
-        let media = resolve_file_for_media(root.path(), "shot.jpg").unwrap();
+        let media = resolve_file_for_media(env.as_ref(), root.path(), "shot.jpg").unwrap();
         assert_eq!(media.mime_type, "image/jpeg");
         assert_eq!(media.file_name, "shot.jpg");
         assert_eq!(media.path, file.canonicalize().unwrap());
@@ -814,27 +818,30 @@ mod tests {
     #[test]
     fn deletes_files_and_directories_inside_workspace() {
         let root = tempfile::tempdir().unwrap();
+        let env = host(root.path());
+        let env = env.as_ref();
         fs::create_dir(root.path().join("folder")).unwrap();
         fs::write(root.path().join("folder/nested.txt"), b"nested").unwrap();
         fs::write(root.path().join("file.txt"), b"hello").unwrap();
 
-        delete_path(root.path(), "file.txt").unwrap();
+        delete_path(env, root.path(), "file.txt").unwrap();
         assert!(!root.path().join("file.txt").exists());
 
-        delete_path(root.path(), "folder").unwrap();
+        delete_path(env, root.path(), "folder").unwrap();
         assert!(!root.path().join("folder").exists());
-        assert!(delete_path(root.path(), "missing.txt").is_err());
+        assert!(delete_path(env, root.path(), "missing.txt").is_err());
     }
 
     #[test]
     fn search_entries_matches_nested_names_and_skips_node_modules() {
         let root = tempfile::tempdir().unwrap();
+        let env = host(root.path());
         fs::create_dir(root.path().join("src")).unwrap();
         fs::write(root.path().join("src/App.vue"), b"app").unwrap();
         fs::create_dir(root.path().join("node_modules")).unwrap();
         fs::write(root.path().join("node_modules/hidden.ts"), b"x").unwrap();
 
-        let hits = search_entries(root.path(), "app", 50).unwrap();
+        let hits = search_entries(env.as_ref(), root.path(), "app", 50).unwrap();
         assert!(hits.iter().any(|e| e.path == "src/App.vue"));
         assert!(!hits.iter().any(|e| e.path.contains("node_modules")));
     }
@@ -842,10 +849,11 @@ mod tests {
     #[test]
     fn lists_only_one_level_and_does_not_follow_symlinks() {
         let root = tempfile::tempdir().unwrap();
+        let env = host(root.path());
         fs::create_dir(root.path().join("folder")).unwrap();
         fs::write(root.path().join("file.txt"), b"hello").unwrap();
         fs::write(root.path().join("folder/nested.txt"), b"nested").unwrap();
-        let entries = list_directory(root.path(), None).unwrap();
+        let entries = list_directory(env.as_ref(), root.path(), None).unwrap();
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].kind, WorkspaceEntryKind::Directory);
         assert_eq!(entries[1].size_bytes, Some(5));
@@ -854,27 +862,30 @@ mod tests {
     #[test]
     fn reads_text_preview_and_rejects_binary_or_escaped_paths() {
         let root = tempfile::tempdir().unwrap();
+        let env = host(root.path());
+        let env = env.as_ref();
         fs::write(root.path().join("file.txt"), "hello\n世界\n").unwrap();
         fs::write(root.path().join("binary.bin"), b"abc\0def").unwrap();
 
-        let text = read_file(root.path(), "file.txt").unwrap();
+        let text = read_file(env, root.path(), "file.txt").unwrap();
         assert_eq!(text.content.as_deref(), Some("hello\n世界\n"));
         assert!(!text.binary);
         assert!(!text.truncated);
 
-        let binary = read_file(root.path(), "binary.bin").unwrap();
+        let binary = read_file(env, root.path(), "binary.bin").unwrap();
         assert!(binary.binary);
         assert!(binary.content.is_none());
-        assert!(read_file(root.path(), "../outside.txt").is_err());
+        assert!(read_file(env, root.path(), "../outside.txt").is_err());
     }
 
     #[test]
     fn truncates_large_text_preview_on_a_utf8_boundary() {
         let root = tempfile::tempdir().unwrap();
+        let env = host(root.path());
         let content = format!("{}界", "a".repeat(WORKSPACE_FILE_PREVIEW_MAX_BYTES - 1));
         fs::write(root.path().join("large.txt"), content).unwrap();
 
-        let preview = read_file(root.path(), "large.txt").unwrap();
+        let preview = read_file(env.as_ref(), root.path(), "large.txt").unwrap();
         assert!(preview.truncated);
         assert!(!preview.binary);
         assert_eq!(
@@ -885,7 +896,7 @@ mod tests {
 
     #[test]
     fn classifies_git_command_failures_without_matching_in_the_frontend() {
-        let output = crate::env::effective_env()
+        let output = crate::env::host_env()
             .exec(
                 &[
                     "git".to_string(),
@@ -912,23 +923,25 @@ mod tests {
     #[test]
     fn reports_status_and_both_staged_and_unstaged_diff() {
         let root = tempfile::tempdir().unwrap();
-        run_git(root.path(), ["init"]).unwrap();
-        run_git(root.path(), ["config", "user.email", "test@example.com"]).unwrap();
-        run_git(root.path(), ["config", "user.name", "Test"]).unwrap();
+        let env = host(root.path());
+        let env = env.as_ref();
+        run_git(env, root.path(), ["init"]).unwrap();
+        run_git(env, root.path(), ["config", "user.email", "test@example.com"]).unwrap();
+        run_git(env, root.path(), ["config", "user.name", "Test"]).unwrap();
         fs::write(root.path().join("a.txt"), "one\n").unwrap();
-        run_git(root.path(), ["add", "a.txt"]).unwrap();
-        run_git(root.path(), ["commit", "-m", "initial"]).unwrap();
+        run_git(env, root.path(), ["add", "a.txt"]).unwrap();
+        run_git(env, root.path(), ["commit", "-m", "initial"]).unwrap();
         fs::write(root.path().join("a.txt"), "two\n").unwrap();
-        run_git(root.path(), ["add", "a.txt"]).unwrap();
+        run_git(env, root.path(), ["add", "a.txt"]).unwrap();
         fs::write(root.path().join("a.txt"), "three\n").unwrap();
 
-        let status = git_status(root.path()).unwrap();
+        let status = git_status(env, root.path()).unwrap();
         assert_eq!(status.len(), 1);
         assert_eq!(status[0].status, "MM");
         assert!(status[0].staged);
 
         // MM prefers unstaged: index ("two") → worktree ("three")
-        let unstaged = git_diff(root.path(), "a.txt", Some("MM")).unwrap();
+        let unstaged = git_diff(env, root.path(), "a.txt", Some("MM")).unwrap();
         assert_eq!(unstaged.mode, "unstaged");
         assert_eq!(unstaged.diff_stats["adds"].as_u64().unwrap(), 1);
         assert_eq!(unstaged.diff_stats["dels"].as_u64().unwrap(), 1);
@@ -942,7 +955,7 @@ mod tests {
             .any(|line| line["type"] == "ins" && line["text"] == "three"));
 
         // Staged-only uses HEAD → index
-        let staged = git_diff(root.path(), "a.txt", Some("M.")).unwrap();
+        let staged = git_diff(env, root.path(), "a.txt", Some("M.")).unwrap();
         assert_eq!(staged.mode, "staged");
         assert!(staged
             .diff_lines
@@ -959,7 +972,7 @@ mod tests {
         // headless 档位下没有绑定/绑定为沙箱时，面板绝不能去读宿主目录。
         let env = crate::env::test_light_env();
         let host_dir = std::env::temp_dir();
-        let err = list_directory_in(env.as_ref(), &host_dir, None)
+        let err = list_directory(env.as_ref(), &host_dir, None)
             .expect_err("headless 环境不应读到宿主目录");
         let chain = format!("{err:#}");
         assert!(

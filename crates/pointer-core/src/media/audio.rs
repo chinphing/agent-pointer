@@ -1,6 +1,9 @@
 //! Normalize IM / channel audio (e.g. Feishu `.bin`) for speech-to-text APIs.
 
 use anyhow::{Context, Result};
+use std::sync::Arc;
+
+use crate::env::Environment;
 
 use super::video::is_video_file_name;
 
@@ -91,12 +94,16 @@ fn video_input_suffix(file_name: &str) -> &'static str {
 }
 
 /// Extract the audio track from a video file to 16 kHz mono WAV for ASR.
-pub fn extract_audio_from_video_to_wav(bytes: &[u8], file_name: &str) -> Result<Vec<u8>> {
-    let ffmpeg = crate::media::ffmpeg::resolve_ffmpeg().context("ffmpeg not found")?;
+pub fn extract_audio_from_video_to_wav(
+    env: &Arc<dyn Environment>,
+    bytes: &[u8],
+    file_name: &str,
+) -> Result<Vec<u8>> {
+    let ffmpeg = crate::media::ffmpeg::resolve_ffmpeg(env).context("ffmpeg not found")?;
     let program = ffmpeg.to_string_lossy().into_owned();
     let suffix = video_input_suffix(file_name);
-    let input = crate::media::exec::StagedFile::write(bytes, suffix)?;
-    let output = crate::media::exec::StagedFile::empty(".wav")?;
+    let input = crate::media::exec::StagedFile::write(env, bytes, suffix)?;
+    let output = crate::media::exec::StagedFile::empty(env, ".wav")?;
     let args: Vec<String> = [
         "-hide_banner",
         "-nostdin",
@@ -116,7 +123,7 @@ pub fn extract_audio_from_video_to_wav(bytes: &[u8], file_name: &str) -> Result<
     .map(|s| s.to_string())
     .collect();
 
-    let out = crate::media::exec::run(&program, &args)?;
+    let out = crate::media::exec::run(env, &program, &args)?;
     if !out.success() {
         let detail = out.stderr_str().trim().to_string();
         anyhow::bail!(
@@ -132,12 +139,16 @@ pub fn extract_audio_from_video_to_wav(bytes: &[u8], file_name: &str) -> Result<
     Ok(wav)
 }
 
-pub fn transcode_audio_to_wav(bytes: &[u8], file_name: &str) -> Result<Vec<u8>> {
-    let ffmpeg = crate::media::ffmpeg::resolve_ffmpeg().context("ffmpeg not found")?;
+pub fn transcode_audio_to_wav(
+    env: &Arc<dyn Environment>,
+    bytes: &[u8],
+    file_name: &str,
+) -> Result<Vec<u8>> {
+    let ffmpeg = crate::media::ffmpeg::resolve_ffmpeg(env).context("ffmpeg not found")?;
     let program = ffmpeg.to_string_lossy().into_owned();
     let suffix = audio_input_suffix(file_name);
-    let input = crate::media::exec::StagedFile::write(bytes, suffix)?;
-    let output = crate::media::exec::StagedFile::empty(".wav")?;
+    let input = crate::media::exec::StagedFile::write(env, bytes, suffix)?;
+    let output = crate::media::exec::StagedFile::empty(env, ".wav")?;
     let args: Vec<String> = [
         "-hide_banner",
         "-nostdin",
@@ -156,7 +167,7 @@ pub fn transcode_audio_to_wav(bytes: &[u8], file_name: &str) -> Result<Vec<u8>> 
     .map(|s| s.to_string())
     .collect();
 
-    let out = crate::media::exec::run(&program, &args)?;
+    let out = crate::media::exec::run(env, &program, &args)?;
     if !out.success() {
         let detail = out.stderr_str().trim().to_string();
         anyhow::bail!(
@@ -173,14 +184,16 @@ pub fn transcode_audio_to_wav(bytes: &[u8], file_name: &str) -> Result<Vec<u8>> 
 }
 
 pub fn prepare_audio_bytes_for_asr(
+    env: &Arc<dyn Environment>,
     bytes: &[u8],
     mime_type: &str,
     file_name: &str,
 ) -> Result<PreparedAudio> {
-    prepare_audio_bytes_for_asr_cached(bytes, mime_type, file_name, None)
+    prepare_audio_bytes_for_asr_cached(env, bytes, mime_type, file_name, None)
 }
 
 pub fn prepare_audio_bytes_for_asr_cached(
+    env: &Arc<dyn Environment>,
     bytes: &[u8],
     mime_type: &str,
     file_name: &str,
@@ -210,7 +223,7 @@ pub fn prepare_audio_bytes_for_asr_cached(
     }
 
     if is_video_source_for_asr(mime_type, file_name) {
-        if !crate::media::ffmpeg::ffmpeg_available() {
+        if !crate::media::ffmpeg::ffmpeg_available(env) {
             anyhow::bail!(
                 "video speech transcription requires ffmpeg to extract the audio track from {file_name}"
             );
@@ -218,7 +231,7 @@ pub fn prepare_audio_bytes_for_asr_cached(
         log::info!(
             "media: extracting audio track from video {file_name} (mime={mime_type}) for ASR"
         );
-        let wav = extract_audio_from_video_to_wav(bytes, file_name)?;
+        let wav = extract_audio_from_video_to_wav(env, bytes, file_name)?;
         let prepared = PreparedAudio {
             bytes: wav,
             mime_type: "audio/wav".into(),
@@ -232,14 +245,14 @@ pub fn prepare_audio_bytes_for_asr_cached(
     }
 
     let needs_transcode =
-        crate::media::ffmpeg::ffmpeg_available() && needs_audio_transcode(mime_type, file_name);
+        crate::media::ffmpeg::ffmpeg_available(env) && needs_audio_transcode(mime_type, file_name);
     if needs_transcode {
         log::info!(
             "media: transcoding audio {} (mime={}) via ffmpeg for ASR",
             file_name,
             mime_type
         );
-        let wav = transcode_audio_to_wav(bytes, file_name)?;
+        let wav = transcode_audio_to_wav(env, bytes, file_name)?;
         let prepared = PreparedAudio {
             bytes: wav,
             mime_type: "audio/wav".into(),

@@ -1,18 +1,21 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
+
+use crate::env::Environment;
 
 /// Returns true when both ffmpeg and ffprobe resolve and respond to `-version`.
-pub fn ffmpeg_available() -> bool {
-    matches!(probe_ffmpeg_tools().status, FfmpegToolStatus::Ready)
+pub fn ffmpeg_available(env: &Arc<dyn Environment>) -> bool {
+    matches!(probe_ffmpeg_tools(env).status, FfmpegToolStatus::Ready)
 }
 
-pub fn resolve_ffmpeg() -> Option<PathBuf> {
-    resolve_tool("ffmpeg")
+pub fn resolve_ffmpeg(env: &Arc<dyn Environment>) -> Option<PathBuf> {
+    resolve_tool(env, "ffmpeg")
 }
 
-pub fn resolve_ffprobe() -> Option<PathBuf> {
-    resolve_tool("ffprobe")
+pub fn resolve_ffprobe(env: &Arc<dyn Environment>) -> Option<PathBuf> {
+    resolve_tool(env, "ffprobe")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,9 +38,9 @@ pub struct FfmpegToolProbe {
     pub detail: Option<String>,
 }
 
-pub fn probe_ffmpeg_tools() -> FfmpegToolProbe {
-    let ffmpeg_path = resolve_tool("ffmpeg");
-    let ffprobe_path = resolve_tool("ffprobe");
+pub fn probe_ffmpeg_tools(env: &Arc<dyn Environment>) -> FfmpegToolProbe {
+    let ffmpeg_path = resolve_tool(env, "ffmpeg");
+    let ffprobe_path = resolve_tool(env, "ffprobe");
     let ffmpeg_found = ffmpeg_path.is_some();
     let ffprobe_found = ffprobe_path.is_some();
 
@@ -66,8 +69,8 @@ pub fn probe_ffmpeg_tools() -> FfmpegToolProbe {
 
     let ffmpeg_path = ffmpeg_path.expect("ffmpeg path");
     let ffprobe_path = ffprobe_path.expect("ffprobe path");
-    let ffmpeg_ok = tool_responds_to_version(&ffmpeg_path);
-    let ffprobe_ok = tool_responds_to_version(&ffprobe_path);
+    let ffmpeg_ok = tool_responds_to_version(env, &ffmpeg_path);
+    let ffprobe_ok = tool_responds_to_version(env, &ffprobe_path);
     if !ffmpeg_ok || !ffprobe_ok {
         let broken = if !ffmpeg_ok { "ffmpeg" } else { "ffprobe" };
         return FfmpegToolProbe {
@@ -94,18 +97,18 @@ fn path_display(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn tool_responds_to_version(path: &Path) -> bool {
+fn tool_responds_to_version(env: &Arc<dyn Environment>, path: &Path) -> bool {
     // 走 exec：local 用绝对路径，headless 用工具名在沙箱里解析。
     let program = path.to_string_lossy().into_owned();
-    crate::media::exec::run(&program, &["-version".to_string()])
+    crate::media::exec::run(env, &program, &["-version".to_string()])
         .map(|o| o.success())
         .unwrap_or(false)
 }
 
-fn resolve_tool(name: &str) -> Option<PathBuf> {
+fn resolve_tool(env: &Arc<dyn Environment>, name: &str) -> Option<PathBuf> {
     // headless/desktop：媒体工具装在沙箱镜像里，返回名字让 `exec` 走沙箱 PATH；
     // 在宿主上扫出来的绝对路径在沙箱里并不存在。
-    if crate::env::effective_env().kind() != crate::env::EnvKind::Local {
+    if env.kind() != crate::env::EnvKind::Local {
         return Some(PathBuf::from(name));
     }
     for dir in extra_search_dirs() {
@@ -114,7 +117,7 @@ fn resolve_tool(name: &str) -> Option<PathBuf> {
             return Some(candidate);
         }
     }
-    if let Some(path) = resolve_via_path_lookup(name) {
+    if let Some(path) = resolve_via_path_lookup(env, name) {
         if path.is_file() {
             return Some(path);
         }
@@ -131,9 +134,10 @@ fn tool_filename(name: &str) -> String {
 }
 
 /// Walk `PATH` in-process (Windows-friendly: avoids spawning `where.exe` on every settings open).
-fn resolve_via_path_lookup(name: &str) -> Option<PathBuf> {
+fn resolve_via_path_lookup(env: &Arc<dyn Environment>, name: &str) -> Option<PathBuf> {
     #[cfg(windows)]
     {
+        let _ = env;
         let path_env = std::env::var("PATH")
             .or_else(|_| std::env::var("Path"))
             .unwrap_or_default();
@@ -153,7 +157,6 @@ fn resolve_via_path_lookup(name: &str) -> Option<PathBuf> {
     {
         // headless/desktop 档位下 ffmpeg 在沙箱里，必须在环境里探测；
         // 只有 local 档位才走宿主 `which`。
-        let env = crate::env::effective_env();
         let (ok, stdout): (bool, Vec<u8>) = if env.kind() == crate::env::EnvKind::Local {
             let output = Command::new("which").arg(name).output().ok()?;
             (output.status.success(), output.stdout)
@@ -207,9 +210,13 @@ fn extra_search_dirs() -> Vec<PathBuf> {
 mod tests {
     use super::*;
 
+    fn host() -> Arc<dyn Environment> {
+        crate::env::host_env()
+    }
+
     #[test]
     fn probe_returns_structured_status() {
-        let probe = probe_ffmpeg_tools();
+        let probe = probe_ffmpeg_tools(&host());
         match probe.status {
             FfmpegToolStatus::Ready => {
                 assert!(probe.ffmpeg_available);

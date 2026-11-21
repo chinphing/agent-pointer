@@ -500,6 +500,9 @@ pub fn read_media_ref_preview(media_ref: &str) -> Result<ChatMediaPreview> {
 
 fn read_file_preview(path: &Path) -> Result<ChatMediaPreview> {
     assert_app_media_preview_allowed(path)?;
+    // 媒体库预览是宿主侧能力（应用数据目录里的附件），调用方是面板 / 服务端路由，
+    // 没有会话上下文——这里显式按宿主环境处理，不再靠 `effective_env()` 猜。
+    let env = crate::env::host_env();
     if let Some(wav_path) = wav_sibling_abs_path(path) {
         let bytes = fs::read(&wav_path)
             .with_context(|| format!("read persisted wav {}", wav_path.display()))?;
@@ -524,7 +527,7 @@ fn read_file_preview(path: &Path) -> Result<ChatMediaPreview> {
     let mime_lower = mime_type.to_ascii_lowercase();
     let needs_audio_transcode = mime_lower.starts_with("audio/") && mime_lower != "audio/wav"
         || file_name.to_ascii_lowercase().ends_with(".bin");
-    if needs_audio_transcode && crate::media::ffmpeg::ffmpeg_available() {
+    if needs_audio_transcode && crate::media::ffmpeg::ffmpeg_available(&env) {
         let storage_ctx = conversation_media_abs_to_rel(path).map(|rel| {
             let (conv, id) =
                 parse_conversation_media_ids(&rel).unwrap_or((String::new(), String::new()));
@@ -535,6 +538,7 @@ fn read_file_preview(path: &Path) -> Result<ChatMediaPreview> {
             }
         });
         match crate::media::audio::prepare_audio_bytes_for_asr_cached(
+            &env,
             &bytes,
             &mime_type,
             &file_name,

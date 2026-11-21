@@ -159,8 +159,11 @@ pub fn detect_media_retry_plan(history: &[ChatMessage]) -> Option<MediaRetryPlan
     None
 }
 
-pub fn auto_ffmpeg_video_retry_plan(history: &[ChatMessage]) -> Option<MediaRetryPlan> {
-    if !crate::media::ffmpeg::ffmpeg_available() {
+pub fn auto_ffmpeg_video_retry_plan(
+    env: &std::sync::Arc<dyn crate::env::Environment>,
+    history: &[ChatMessage],
+) -> Option<MediaRetryPlan> {
+    if !crate::media::ffmpeg::ffmpeg_available(env) {
         return None;
     }
     let latest_user_idx = last_user_message_index(history)?;

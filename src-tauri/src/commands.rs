@@ -33,44 +33,46 @@ fn platform_list_scope(state: &AppState) -> pointer_core::conversation_store::Li
 }
 
 
-/// 面板命令的执行环境：按会话解析（headless 档位下工作区在沙箱里）。
+/// 面板命令的执行环境：按会话解析并绑定（沙箱档位下工作区在沙箱里）。
 ///
-/// 没有会话 id 时回落到 `effective_env()`：local 档位照旧用宿主，
-/// headless 档位会拿到「拒绝执行」环境而不是静默读宿主。
-fn panel_env(
+/// 与 Web 端 `/api/workspace/*` 走同一个入口
+/// （[`pointer_core::env::session_env::bind_workspace_request`]）。面板请求不是对话
+/// 回合，线程上没有会话绑定，**不能**退回 `effective_env()`——沙箱档位部署下那是
+/// 「拒绝执行」环境，连解析成 local 档位的 admin 都会报「执行环境未绑定」。
+///
+/// 没有会话 id 时由同一入口按身份 + 部署档位解析：local 档位照旧用宿主，
+/// 沙箱档位显式报错（无法凭空定位沙箱），绝不静默读宿主。
+fn panel_binding(
     conversation_id: Option<&str>,
     workspace_root: &str,
-) -> std::sync::Arc<dyn pointer_core::env::Environment> {
-    let Some(id) = conversation_id.map(str::trim).filter(|id| !id.is_empty()) else {
-        return pointer_core::env::effective_env();
-    };
-    if let Some(env) = pointer_core::env::session_env::env_for_conversation(id) {
-        return env;
-    }
-    // Docker 后端：/workspace 是项目目录的 bind mount，宿主读到的就是同一份文件。
-    // 这里**不创建沙箱**——否则面板手里的路径（可能是项目选择前的默认值）
-    // 会把整个会话的挂载定死，之后对话再改项目也换不回来。
-    let cfg = pointer_core::env::provider::ProviderConfig::from_env();
-    if let Ok(cfg) = cfg {
-        if let Ok(resolved) = cfg.resolve(None) {
-            if resolved.backend == pointer_core::env::provider::Backend::Docker {
-                return pointer_core::env::host_env_at(std::path::Path::new(workspace_root));
+) -> Result<pointer_core::env::session_env::WorkspaceRequestEnv, String> {
+    let id = conversation_id.map(str::trim).filter(|id| !id.is_empty());
+    if let Some(id) = id {
+        if pointer_core::env::session_env::env_for_conversation(id).is_none() {
+            // Docker 后端：/workspace 是项目目录的 bind mount，宿主读到的就是同一份文件。
+            // 这里**不创建沙箱**——否则面板手里的路径（可能是项目选择前的默认值）
+            // 会把整个会话的挂载定死，之后对话再改项目也换不回来。
+            let cfg = pointer_core::env::provider::ProviderConfig::from_env();
+            if let Ok(cfg) = cfg {
+                if let Ok(resolved) = cfg.resolve(None) {
+                    if resolved.backend == pointer_core::env::provider::Backend::Docker {
+                        return Ok(
+                            pointer_core::env::session_env::WorkspaceRequestEnv::enter(
+                                pointer_core::env::host_env_at(Path::new(workspace_root)),
+                            ),
+                        );
+                    }
+                }
             }
         }
     }
-    // envd 后端：沙箱是唯一的文件副本，面板只能把会话沙箱拉起来（幂等，走同一份缓存）。
-    match pointer_core::env::session_env::resolve_session_env_for_current(
+    pointer_core::env::session_env::bind_workspace_request(
         id,
-        "",
-        Some(std::path::Path::new(workspace_root)),
-    ) {
-        Ok(Some(env)) => env,
-        Ok(None) => pointer_core::env::effective_env(),
-        Err(err) => {
-            log::warn!("panel_env: 解析会话环境失败 conversation={id}: {err:#}");
-            pointer_core::env::effective_env()
-        }
-    }
+        id.map(pointer_core::user_storage::session_user_id_for_conversation)
+            .as_deref(),
+        Path::new(workspace_root),
+    )
+    .map_err(|err| format!("{err:#}"))
 }
 
 #[tauri::command]
@@ -79,10 +81,13 @@ pub async fn list_workspace_directory(
     workspace_root: String,
     relative_path: Option<String>,
 ) -> Result<Vec<pointer_core::workspace_read::WorkspaceEntry>, String> {
-    let env = panel_env(conversation_id.as_deref(), &workspace_root);
+    let env = {
+        let bound = panel_binding(conversation_id.as_deref(), &workspace_root)?;
+        bound.env_arc()
+    };
     let result = tauri::async_runtime::spawn_blocking(move || {
         let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
-        pointer_core::workspace_read::list_directory_in(
+        pointer_core::workspace_read::list_directory(
             env.as_ref(),
             Path::new(&workspace_root),
             relative_path.as_deref(),
@@ -102,10 +107,9 @@ pub fn search_workspace_entries(
     limit: Option<u32>,
 ) -> Result<Vec<pointer_core::workspace_read::WorkspaceEntry>, String> {
     let limit = limit.unwrap_or(80).clamp(1, 200) as usize;
-    let env = panel_env(conversation_id.as_deref(), &workspace_root);
-    let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
-    pointer_core::workspace_read::search_entries_in(
-        env.as_ref(),
+    let bound = panel_binding(conversation_id.as_deref(), &workspace_root)?;
+    pointer_core::workspace_read::search_entries(
+        bound.env(),
         Path::new(&workspace_root),
         &query,
         limit,
@@ -119,11 +123,18 @@ pub async fn read_workspace_file(
     workspace_root: String,
     relative_path: String,
 ) -> Result<pointer_core::workspace_read::WorkspaceFilePreview, String> {
-    let env = panel_env(conversation_id.as_deref(), &workspace_root);
+    let env = {
+        let bound = panel_binding(conversation_id.as_deref(), &workspace_root)?;
+        bound.env_arc()
+    };
     let result = tauri::async_runtime::spawn_blocking(move || {
         let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
-        pointer_core::workspace_read::read_file_in(env.as_ref(), Path::new(&workspace_root), &relative_path)
-            .map_err(|e| e.to_string())
+        pointer_core::workspace_read::read_file(
+            env.as_ref(),
+            Path::new(&workspace_root),
+            &relative_path,
+        )
+        .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("spawn_blocking failed: {e}"))?;
@@ -136,10 +147,13 @@ pub fn delete_workspace_path(
     workspace_root: String,
     relative_path: String,
 ) -> Result<(), String> {
-    let env = panel_env(conversation_id.as_deref(), &workspace_root);
-    let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
-    pointer_core::workspace_read::delete_path_in(env.as_ref(), Path::new(&workspace_root), &relative_path)
-        .map_err(|e| e.to_string())
+    let bound = panel_binding(conversation_id.as_deref(), &workspace_root)?;
+    pointer_core::workspace_read::delete_path(
+        bound.env(),
+        Path::new(&workspace_root),
+        &relative_path,
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -187,7 +201,7 @@ pub struct SandboxDesktop {
 
 /// 桌面类命令专用的环境解析：只认**已经存在**的容器，不抢建沙箱。
 ///
-/// 不能复用 `panel_env`——它在 docker 后端故意返回宿主环境（面板读文件要的是同一份
+/// 不能复用 `panel_binding`——它在 docker 后端故意返回宿主环境（面板读文件要的是同一份
 /// bind mount），而桌面必须拿到容器本身。
 ///
 /// 两步：
@@ -267,10 +281,13 @@ pub async fn get_workspace_git_status(
     conversation_id: Option<String>,
     workspace_root: String,
 ) -> Result<pointer_core::workspace_read::GitStatusResponse, String> {
-    let env = panel_env(conversation_id.as_deref(), &workspace_root);
+    let env = {
+        let bound = panel_binding(conversation_id.as_deref(), &workspace_root)?;
+        bound.env_arc()
+    };
     let result = tauri::async_runtime::spawn_blocking(move || {
         let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
-        pointer_core::workspace_read::git_status_response(Path::new(&workspace_root))
+        pointer_core::workspace_read::git_status_response(env.as_ref(), Path::new(&workspace_root))
             .map_err(|e| e.to_string())
     })
     .await
@@ -285,10 +302,14 @@ pub async fn get_workspace_git_diff(
     relative_path: String,
     status: Option<String>,
 ) -> Result<pointer_core::workspace_read::GitDiff, String> {
-    let env = panel_env(conversation_id.as_deref(), &workspace_root);
+    let env = {
+        let bound = panel_binding(conversation_id.as_deref(), &workspace_root)?;
+        bound.env_arc()
+    };
     let result = tauri::async_runtime::spawn_blocking(move || {
         let _guard = pointer_core::env::EnvironmentGuard::enter(env.clone());
         pointer_core::workspace_read::git_diff(
+            env.as_ref(),
             Path::new(&workspace_root),
             &relative_path,
             status.as_deref(),
@@ -1949,9 +1970,9 @@ mod desktop_tests {
 
     /// 容器在跑时，`get_sandbox_desktop` 必须返回带 ws 地址的端点。
     ///
-    /// 回归的是「命令层拿错环境」这个 bug：原来走 `panel_env`，docker 后端下它
-    /// 故意返回宿主 LocalEnv（面板读文件要同一份 bind mount），桌面命令因此
-    /// 永远拿到 `None`，面板按钮根本不出现。
+    /// 回归的是「命令层拿错环境」这个 bug：原来走 `panel_binding` 的前身，
+    /// docker 后端下它故意返回宿主 LocalEnv（面板读文件要同一份 bind mount），
+    /// 桌面命令因此永远拿到 `None`，面板按钮根本不出现。
     #[tokio::test]
     #[ignore = "需要本机 docker"]
     async fn get_sandbox_desktop_returns_ws_when_container_running() {

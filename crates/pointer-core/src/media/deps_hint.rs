@@ -123,8 +123,17 @@ pub struct MediaDepsStatus {
 }
 
 impl MediaDepsStatus {
+    /// 面板 / 服务端健康检查入口（无会话上下文）：按**宿主**环境探测。
+    ///
+    /// 这里没有会话，媒体工具该装在哪一侧由部署档位决定，而这两个调用点
+    /// （server 路由、tauri command）问的都是「本机装没装 ffmpeg」，所以显式用宿主环境。
     pub fn probe() -> Self {
-        let tools = probe_ffmpeg_tools();
+        Self::probe_with_env(&crate::env::host_env())
+    }
+
+    /// 显式按给定环境探测（会话内调用请用这个，不要用 [`Self::probe`]）。
+    pub fn probe_with_env(env: &std::sync::Arc<dyn crate::env::Environment>) -> Self {
+        let tools = probe_ffmpeg_tools(env);
         Self {
             ffmpeg_available: tools.ffmpeg_available,
             status: tools.status,

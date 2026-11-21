@@ -76,6 +76,38 @@ struct WorkspacePathQuery {
     /// Optional porcelain status (e.g. `M.`, `MM`, `??`) for Git full-file review.
     #[serde(default)]
     status: Option<String>,
+    /// 面板请求所属会话。缺失时按当前登录身份 + 部署档位解析执行环境。
+    #[serde(default, rename = "conversationId")]
+    conversation_id: Option<String>,
+}
+
+/// 工作区 / Git 面板请求的执行环境：按会话解析并绑定。
+///
+/// 面板请求不是对话回合，线程上没有会话绑定，**不能**在 `workspace_read` 内部调
+/// `effective_env()`（沙箱档位部署下会拿到 `DeniedEnv`，连 local 档位的 admin 都全挂）。
+/// 这里统一在入口解析：`local` 档位绑 `LocalEnv`，沙箱档位绑该会话的沙箱。
+fn bind_workspace_env(
+    state: &ServerState,
+    conversation_id: Option<&str>,
+    workspace_root: &str,
+) -> Result<pointer_core::env::session_env::WorkspaceRequestEnv, ApiError> {
+    let id = conversation_id.map(str::trim).filter(|id| !id.is_empty());
+    // 会话 id 是客户端可传的：先确认归属，否则普通用户传别人的 id
+    // 就能以别人的身份读那份沙箱工作区。
+    if let Some(id) = id {
+        require_conversation_access(state, id)?;
+    }
+    // 档位按**会话归属**解析（与对话回合一致：`session_inner` 用的是会话行 uid）；
+    // 行上没有 uid（历史 / IM / webhook 建的会话）时退回请求身份。
+    let user = id
+        .and_then(stored_conversation_user_id)
+        .unwrap_or_else(|| platform_session_user_id(state));
+    pointer_core::env::session_env::bind_workspace_request(
+        id,
+        Some(user.as_str()),
+        std::path::Path::new(workspace_root),
+    )
+    .map_err(ApiError::from)
 }
 
 async fn list_workspace_directory(
@@ -83,7 +115,9 @@ async fn list_workspace_directory(
     Query(q): Query<WorkspacePathQuery>,
 ) -> Result<Json<Vec<pointer_core::workspace_read::WorkspaceEntry>>, ApiError> {
     require_platform_access(&state)?;
+    let env = bind_workspace_env(&state, q.conversation_id.as_deref(), &q.workspace_root)?;
     Ok(Json(pointer_core::workspace_read::list_directory(
+        env.env(),
         std::path::Path::new(&q.workspace_root),
         q.relative_path.as_deref(),
     )?))
@@ -96,6 +130,9 @@ struct WorkspaceSearchQuery {
     query: String,
     #[serde(default)]
     limit: Option<u32>,
+    /// 面板请求所属会话（同 [`WorkspacePathQuery`]）。
+    #[serde(default, rename = "conversationId")]
+    conversation_id: Option<String>,
 }
 
 async fn search_workspace_entries(
@@ -104,7 +141,9 @@ async fn search_workspace_entries(
 ) -> Result<Json<Vec<pointer_core::workspace_read::WorkspaceEntry>>, ApiError> {
     require_platform_access(&state)?;
     let limit = q.limit.unwrap_or(80).clamp(1, 200) as usize;
+    let env = bind_workspace_env(&state, q.conversation_id.as_deref(), &q.workspace_root)?;
     Ok(Json(pointer_core::workspace_read::search_entries(
+        env.env(),
         std::path::Path::new(&q.workspace_root),
         &q.query,
         limit,
@@ -117,7 +156,9 @@ async fn read_workspace_file(
 ) -> Result<Json<pointer_core::workspace_read::WorkspaceFilePreview>, ApiError> {
     require_platform_access(&state)?;
     let relative_path = q.relative_path.as_deref().unwrap_or("");
+    let env = bind_workspace_env(&state, q.conversation_id.as_deref(), &q.workspace_root)?;
     Ok(Json(pointer_core::workspace_read::read_file(
+        env.env(),
         std::path::Path::new(&q.workspace_root),
         relative_path,
     )?))
@@ -130,11 +171,15 @@ async fn stream_workspace_file_media(
 ) -> Result<Response, ApiError> {
     require_platform_access(&state)?;
     let relative_path = q.relative_path.as_deref().unwrap_or("");
-    let media = pointer_core::workspace_read::resolve_file_for_media(
-        std::path::Path::new(&q.workspace_root),
-        relative_path,
-    )
-    .map_err(ApiError::from)?;
+    let media = {
+        let env = bind_workspace_env(&state, q.conversation_id.as_deref(), &q.workspace_root)?;
+        pointer_core::workspace_read::resolve_file_for_media(
+            env.env(),
+            std::path::Path::new(&q.workspace_root),
+            relative_path,
+        )
+        .map_err(ApiError::from)?
+    };
     log::info!(
         "workspace media stream path={} file={}",
         media.path.display(),
@@ -149,7 +194,9 @@ async fn delete_workspace_path(
 ) -> Result<StatusCode, ApiError> {
     require_platform_access(&state)?;
     let relative_path = q.relative_path.as_deref().unwrap_or("");
+    let env = bind_workspace_env(&state, q.conversation_id.as_deref(), &q.workspace_root)?;
     pointer_core::workspace_read::delete_path(
+        env.env(),
         std::path::Path::new(&q.workspace_root),
         relative_path,
     )?;
@@ -161,7 +208,9 @@ async fn get_workspace_git_status(
     Query(q): Query<WorkspacePathQuery>,
 ) -> Result<Json<pointer_core::workspace_read::GitStatusResponse>, ApiError> {
     require_platform_access(&state)?;
+    let env = bind_workspace_env(&state, q.conversation_id.as_deref(), &q.workspace_root)?;
     Ok(Json(pointer_core::workspace_read::git_status_response(
+        env.env(),
         std::path::Path::new(&q.workspace_root),
     )?))
 }
@@ -172,7 +221,9 @@ async fn get_workspace_git_diff(
 ) -> Result<Json<pointer_core::workspace_read::GitDiff>, ApiError> {
     require_platform_access(&state)?;
     let relative_path = q.relative_path.as_deref().unwrap_or("");
+    let env = bind_workspace_env(&state, q.conversation_id.as_deref(), &q.workspace_root)?;
     Ok(Json(pointer_core::workspace_read::git_diff(
+        env.env(),
         std::path::Path::new(&q.workspace_root),
         relative_path,
         q.status.as_deref(),

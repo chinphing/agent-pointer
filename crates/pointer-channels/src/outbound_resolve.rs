@@ -248,7 +248,9 @@ fn maybe_remux(bytes: Vec<u8>, mime_type: &str, file_name: &str) -> Vec<u8> {
     // (Feishu, etc.) to show "0s" duration in previews. Remux with +faststart to move
     // the moov atom to the beginning — a fast stream-copy, no re-encoding.
     if should_remux_for_im_preview(mime_type, file_name) {
-        remux_video_faststart(&bytes, file_name)
+        // 出站媒体是宿主上的文件（发送侧没有会话上下文）：显式按宿主环境 remux。
+        let env = pointer_core::env::host_env();
+        remux_video_faststart(&env, &bytes, file_name)
     } else {
         bytes
     }

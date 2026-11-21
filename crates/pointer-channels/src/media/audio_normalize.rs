@@ -9,8 +9,12 @@ pub fn normalize_channel_audio_download(
 ) -> DownloadedMedia {
     let kind_hint = media_ref.kind.as_str();
     if is_channel_audio(media_ref, &downloaded) {
-        if pointer_core::media::ffmpeg::ffmpeg_available() {
+        // 渠道入站媒体落在宿主（下载器在宿主侧落盘），这里没有会话上下文：
+        // 显式按宿主环境做归一化，不靠 `effective_env()` 猜。
+        let env = pointer_core::env::host_env();
+        if pointer_core::media::ffmpeg::ffmpeg_available(&env) {
             match pointer_core::media::audio::prepare_audio_bytes_for_asr(
+                &env,
                 &downloaded.bytes,
                 &downloaded.mime_type,
                 &downloaded.file_name,

@@ -27,7 +27,10 @@ use anyhow::{anyhow, Context, Result};
 use base64::Engine;
 use serde_json::Value;
 use std::path::Path;
+use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
+
+use crate::env::Environment;
 
 pub struct MediaUnderstandDispatchContext<'a> {
     pub settings: &'a ModelSettings,
@@ -38,6 +41,20 @@ pub struct MediaUnderstandDispatchContext<'a> {
     pub stream: StreamTx,
     pub message_id: String,
     pub tool_call_id: String,
+}
+
+/// 本次工具调用绑定的执行环境。
+///
+/// 工具分派点（`agent_tool_pass::dispatch`）在调用前已按会话重放过环境绑定
+/// （`session_env::bind_cached`），所以线程上一定有——这里**不兜底**：
+/// 拿不到就报错，宁可不跑，也不在宿主上处理沙箱里的媒体。
+fn media_env() -> Result<Arc<dyn Environment>> {
+    crate::env::current_env().ok_or_else(|| {
+        anyhow!(
+            "media_understand requires a bound execution environment; none on this thread \
+             (refusing to guess — media files may live inside the sandbox)"
+        )
+    })
 }
 
 fn resolve_api_key(settings: &ModelSettings) -> Result<String> {
@@ -227,6 +244,7 @@ async fn understand_image_file(
 }
 
 async fn understand_image_directory(
+    env: &Arc<dyn Environment>,
     settings: &ModelSettings,
     api_key: &str,
     dir: &Path,
@@ -252,7 +270,7 @@ async fn understand_image_directory(
             .and_then(|n| n.to_str())
             .unwrap_or("image")
             .to_string();
-        let bytes = crate::env::effective_env()
+        let bytes = env
             .read_file(&path)
             .with_context(|| format!("read image {}", path.display()))?;
         let (prepared, _mime) = maybe_downscale_image_jpeg(&bytes, &file_name)?;
@@ -356,6 +374,7 @@ async fn understand_image_refs(
 }
 
 async fn understand_audio(
+    env: &Arc<dyn Environment>,
     settings: &ModelSettings,
     api_key: &str,
     path: &Path,
@@ -376,7 +395,7 @@ async fn understand_audio(
         }
     });
     let prepared =
-        prepare_audio_bytes_for_asr_cached(&bytes, &mime, file_name, storage_ctx.as_ref())
+        prepare_audio_bytes_for_asr_cached(env, &bytes, &mime, file_name, storage_ctx.as_ref())
             .context("prepare audio for ASR")?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&prepared.bytes);
     let audio_model = resolve_media_understanding_model(settings, "audio");
@@ -400,6 +419,7 @@ const MEDIA_INLINE_READ_MAX_BYTES: u64 = 32 * 1024 * 1024;
 const AUDIO_INLINE_READ_MAX_BYTES: u64 = 64 * 1024 * 1024;
 
 async fn understand_video(
+    env: &Arc<dyn Environment>,
     settings: &ModelSettings,
     api_key: &str,
     source: Option<&MediaInput>,
@@ -412,7 +432,7 @@ async fn understand_video(
 ) -> Result<String> {
     let video_model = resolve_media_understanding_model(settings, "video");
     let duration = if let Some(input) = source {
-        probe_video_duration_at(input).context("probe video duration")?
+        probe_video_duration_at(env, input).context("probe video duration")?
     } else {
         3600.0
     };
@@ -427,13 +447,13 @@ async fn understand_video(
         let mime = crate::media::video::video_mime_from_file_name(file_name);
         let raw_limit =
             crate::media::video::max_raw_bytes_for_native_video_api(mime) as u64;
-        let size = input.len_bytes().unwrap_or(u64::MAX);
+        let size = input.len_bytes(env).unwrap_or(u64::MAX);
         if size > raw_limit {
             log::info!(
                 "media_understand video {file_name}: {size} 字节超过原生上限 {raw_limit}，直接抽帧"
             );
         } else {
-            let bytes = input.read().context("read video for native data url")?;
+            let bytes = input.read(env).context("read video for native data url")?;
             match crate::media::dashscope_video::understand_video_dashscope(
                 settings,
                 &video_model,
@@ -470,6 +490,7 @@ async fn understand_video(
         input
     } else if let Some(url) = remote_url {
         downloaded = MediaInput::from_bytes(
+            env,
             &download_video_from_url(url, cancel)
                 .await
                 .context("download video from remoteUrl")?,
@@ -480,16 +501,16 @@ async fn understand_video(
         anyhow::bail!("video requires remoteUrl or a readable file path");
     };
 
-    let clipped = clip_video_for_range(input, file_name, &range, duration)
+    let clipped = clip_video_for_range(env, input, file_name, &range, duration)
         .context("prepare video clip")?;
     let frames_input = clipped.as_ref().unwrap_or(input);
 
-    if !ffmpeg_available() {
+    if !ffmpeg_available(env) {
         anyhow::bail!(
             "video understanding requires ffmpeg in the execution environment (no OSS fallback)"
         );
     }
-    let (frames, meta) = extract_video_frames_with_range(frames_input, file_name, &range)
+    let (frames, meta) = extract_video_frames_with_range(env, frames_input, file_name, &range)
         .context("extract video frames")?;
     let body = describe_video_with_model(
         settings,
@@ -557,6 +578,9 @@ async fn understand_pdf(
 pub async fn dispatch_media_understand_async(
     ctx: MediaUnderstandDispatchContext<'_>,
 ) -> Result<(String, bool, Option<String>)> {
+    // 环境在进入异步体时就抓下来：之后可能在别的线程上被 poll，thread-local 绑定会丢，
+    // 所以一路显式往下传（Arc 跟得住线程迁移）。
+    let env = media_env()?;
     let loose_inputs = parse_ref_inputs_loose(&ctx.args)?;
     let name_hints = mode_name_hints(ctx.conversation_id, &loose_inputs)?;
     let mode = resolve_mode(&ctx.args, &name_hints)?;
@@ -583,6 +607,7 @@ pub async fn dispatch_media_understand_async(
                     .with_context(|| format!("resolve media ref {}", refs[0]))?;
                 if path.is_dir() {
                     understand_image_directory(
+                        &env,
                         ctx.settings,
                         &api_key,
                         &path,
@@ -621,6 +646,7 @@ pub async fn dispatch_media_understand_async(
                 .next()
                 .ok_or_else(|| anyhow!("missing refs"))?;
             dispatch_single_ref_media(
+                &env,
                 ctx,
                 mode.as_str(),
                 &media_ref,
@@ -637,6 +663,7 @@ pub async fn dispatch_media_understand_async(
 }
 
 async fn dispatch_single_ref_media(
+    env: &Arc<dyn Environment>,
     ctx: MediaUnderstandDispatchContext<'_>,
     mode: &str,
     media_ref: &str,
@@ -667,7 +694,6 @@ async fn dispatch_single_ref_media(
     } else {
         resolve_media_ref(media_ref).with_context(|| format!("resolve media ref {media_ref}"))?
     };
-    let env = crate::env::effective_env();
     // 只接受普通文件：FIFO / 设备文件会让读取一直卡到超时（Codex 同款补丁）。
     let mut source: Option<MediaInput> = None;
     let mut bytes: Option<Vec<u8>> = None;
@@ -713,6 +739,7 @@ async fn dispatch_single_ref_media(
                 );
             }
             understand_audio(
+                env,
                 ctx.settings,
                 api_key,
                 &path,
@@ -729,6 +756,7 @@ async fn dispatch_single_ref_media(
                 anyhow::bail!("video ref has no local file or remoteUrl");
             }
             understand_video(
+                env,
                 ctx.settings,
                 api_key,
                 source.as_ref(),

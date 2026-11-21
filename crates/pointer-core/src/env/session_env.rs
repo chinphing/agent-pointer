@@ -316,17 +316,168 @@ fn bind_resolved_env(
     resolved: Option<Arc<dyn Environment>>,
     fallback: PathBuf,
 ) -> (Option<EnvironmentGuard>, String) {
-    let env: Arc<dyn Environment> = match resolved {
-        Some(env) => env,
-        None => {
-            let local = local_env_for(fallback.as_path());
-            remember_local(conversation_id, local.clone());
-            local
-        }
-    };
+    let env = materialize_env(conversation_id, resolved, fallback.as_path());
     let workspace = env.workspace_root().to_string_lossy().into_owned();
     (Some(EnvironmentGuard::enter(env)), workspace)
 }
+
+/// 解析结果 → 真正要绑的环境。`None`（local 档位）绑一个工作区为 `fallback`
+/// 的 `LocalEnv` 并记进 [`local_cache`]，这样工具线程（`bind_cached`）能重放。
+fn materialize_env(
+    conversation_id: &str,
+    resolved: Option<Arc<dyn Environment>>,
+    fallback: &Path,
+) -> Arc<dyn Environment> {
+    match resolved {
+        Some(env) => env,
+        None => {
+            let local = local_env_for(fallback);
+            remember_local(conversation_id, local.clone());
+            local
+        }
+    }
+}
+
+/// 工作区 / Git 面板这类 **UI 请求**的执行环境绑定。
+///
+/// 面板请求不是对话回合：没有 `SessionContext`，线程上也没有 thread-local 绑定，
+/// 所以必须在入口**按会话 / 身份显式解析并绑定**。以前面板内部各自调
+/// `effective_env()`，沙箱档位部署下取到的是 `DeniedEnv`，连解析成 `local` 档位的
+/// admin 都会看到「执行环境未绑定」——面板全挂。
+///
+/// guard 跟着结构体走：`drop` 时恢复原来的线程绑定。
+pub struct WorkspaceRequestEnv {
+    env: Arc<dyn Environment>,
+    _guard: EnvironmentGuard,
+}
+
+impl WorkspaceRequestEnv {
+    /// 直接用给定环境绑定（调用方已经解析好了）。
+    pub fn enter(env: Arc<dyn Environment>) -> Self {        let guard = EnvironmentGuard::enter(env.clone());
+        Self {
+            env,
+            _guard: guard,
+        }
+    }
+
+    /// 面板函数一律用它，不再走 `effective_env()`。
+    pub fn env(&self) -> &dyn Environment {
+        self.env.as_ref()
+    }
+
+    /// 共享所有权（`spawn_blocking` 里继续用同一份环境）。
+    pub fn env_arc(&self) -> Arc<dyn Environment> {
+        self.env.clone()
+    }
+}
+
+impl std::fmt::Debug for WorkspaceRequestEnv {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("WorkspaceRequestEnv")
+            .field("kind", &self.env.kind())
+            .field("workspace_root", &self.env.workspace_root())
+            .field("denied", &self.env.is_denied())
+            .finish()
+    }
+}
+
+/// 面板请求的执行环境：按 `conversation_id` 解析并绑定。
+///
+/// - 有 `conversation_id`：优先复用该会话已建好的环境（沙箱或 local），否则按
+///   会话 + 身份 + 部署档位解析（`local` → `LocalEnv`，沙箱档位 → 该会话的沙箱）。
+/// - 没有 `conversation_id`：只能按身份 + 部署档位解析。`local` 档位绑宿主
+///   `LocalEnv`；沙箱档位**无法凭空定位沙箱**，显式报错（fail closed），
+///   绝不静默回落宿主。
+///
+/// 解析失败时错误文案点名是哪一种（缺会话 / 缺身份 / 解析失败），不再笼统报
+/// 「执行环境未绑定」。
+pub fn bind_workspace_request(
+    conversation_id: Option<&str>,
+    session_user_id: Option<&str>,
+    workspace_root: &Path,
+) -> Result<WorkspaceRequestEnv> {
+    let cfg = ProviderConfig::from_env().context("读取执行环境配置失败")?;
+    bind_workspace_request_with(&cfg, conversation_id, session_user_id, workspace_root)
+}
+
+/// 同 [`bind_workspace_request`]，配置由调用方给出（测试 / 已读好配置的入口）。
+pub fn bind_workspace_request_with(
+    cfg: &ProviderConfig,
+    conversation_id: Option<&str>,
+    session_user_id: Option<&str>,
+    workspace_root: &Path,
+) -> Result<WorkspaceRequestEnv> {
+    let acquire = |cfg: &ProviderConfig, conv: &str, user: &str, root: &Path| {
+        resolve_session_env(cfg, conv, user, Some(root))
+    };
+    bind_workspace_request_inner(
+        cfg,
+        conversation_id,
+        session_user_id,
+        workspace_root,
+        &acquire,
+    )
+}
+
+/// 沙箱获取入口（测试里换成替身，避免真的起容器）。
+type SandboxAcquire<'a> =
+    dyn Fn(&ProviderConfig, &str, &str, &Path) -> Result<Option<Arc<dyn Environment>>> + 'a;
+
+fn bind_workspace_request_inner(
+    cfg: &ProviderConfig,
+    conversation_id: Option<&str>,
+    session_user_id: Option<&str>,
+    workspace_root: &Path,
+    acquire: &SandboxAcquire<'_>,
+) -> Result<WorkspaceRequestEnv> {
+    let conv = conversation_id.map(str::trim).filter(|s| !s.is_empty());
+    let user = session_user_id.map(str::trim).filter(|s| !s.is_empty());
+
+    // 同一请求里已经绑过（或调用方自己绑过）→ 沿用，不重复解析 provider。
+    if let Some(env) = current_env() {
+        return Ok(WorkspaceRequestEnv::enter(env));
+    }
+
+    if let Some(conv) = conv {
+        // 该会话已经建好环境（沙箱或 local）→ 直接复用，不重复解析 / 不抢建沙箱。
+        if let Some(env) = env_for_conversation(conv) {
+            return Ok(WorkspaceRequestEnv::enter(env));
+        }
+        let resolved = acquire(cfg, conv, user.unwrap_or(""), workspace_root)
+            .with_context(|| format!("工作区请求解析执行环境失败（会话 {conv}）"))?;
+        log::debug!(
+            "workspace_request_env: conversation={conv} user={:?} resolved={:?}",
+            user,
+            resolved.as_ref().map(|e| e.kind())
+        );
+        return Ok(WorkspaceRequestEnv::enter(materialize_env(
+            conv,
+            resolved,
+            workspace_root,
+        )));
+    }
+
+    // 没有会话 id：按身份 + 部署档位解析。
+    let resolved = cfg
+        .resolve(user)
+        .map_err(|err| anyhow::anyhow!("工作区请求解析执行档位失败：{err:#}"))?;
+    if resolved.tier != Tier::Local {
+        let who = match user {
+            Some(user) => format!("账号 `{user}` 的执行档位是 {}", resolved.tier.as_str()),
+            None => format!("当前部署的默认档位是 {}", resolved.tier.as_str()),
+        };
+        return Err(anyhow::anyhow!(
+            "工作区请求缺少会话标识（conversationId）：{who}，无法定位沙箱工作区（已拒绝，未在宿主执行）"
+        ));
+    }
+    log::debug!(
+        "workspace_request_env: no conversation, user={user:?} → local host workspace={}",
+        workspace_root.display()
+    );
+    Ok(WorkspaceRequestEnv::enter(local_env_for(workspace_root)))
+}
+
 
 /// 技能根挂载前的凭证检查（§5.5）：技能目录里不允许出现裸凭证文件。
 ///
@@ -1334,5 +1485,165 @@ mod tests {
         };
         assert!(spec_for(Tier::Desktop).desktop);
         assert!(!spec_for(Tier::Headless).desktop);
+    }
+
+    // --- 面板 / 工作区 UI 请求：按会话解析并绑定环境 ---
+    //
+    // 回归：这些请求不是对话回合，线程上没有 thread-local 绑定。以前面板内部各自调
+    // `effective_env()`，沙箱档位部署下取到 `DeniedEnv`——连解析成 local 档位的
+    // admin 都报「执行环境未绑定」，工作区 / Git 面板全挂。
+
+    /// 面板请求的沙箱替身：只验证「绑的是哪一个环境」，不连真实容器。
+    fn fake_sandbox_env() -> Arc<dyn Environment> {
+        Arc::new(crate::env::docker::DockerEnv::fake_for_tests(
+            "pointer-sbx-panel-request",
+        ))
+    }
+
+    /// 在 `dir` 里初始化一个 git 仓库并放一个未跟踪文件（面板要能看到它）。
+    fn init_repo_with_untracked(dir: &Path) {
+        let run = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(dir)
+                .output()
+                .expect("git 必须可用");
+            assert!(
+                out.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        run(&["init"]);
+        std::fs::write(dir.join("a.txt"), "hello\n").unwrap();
+    }
+
+    #[test]
+    fn admin_panel_request_on_sandbox_deployment_binds_local_env() {
+        // provider = desktop（非 local 档位）+ admin 身份 + 工作区路径：
+        // 面板必须拿到 LocalEnv，列目录与 git status 都要成功。
+        let cfg = sandbox_deployment_cfg();
+        let dir = tempfile::tempdir().unwrap();
+        init_repo_with_untracked(dir.path());
+        let conv = "conv-panel-admin";
+
+        let acquire = |cfg: &ProviderConfig, conv: &str, user: &str, root: &Path| {
+            resolve_session_env(cfg, conv, user, Some(root))
+        };
+        let bound =
+            bind_workspace_request_inner(&cfg, Some(conv), Some("admin"), dir.path(), &acquire)
+                .expect("admin 的面板请求不能报错");
+
+        assert_eq!(bound.env().kind(), crate::env::EnvKind::Local);
+        assert!(!bound.env().is_denied(), "admin 不是「未绑定」");
+
+        let entries = crate::workspace_read::list_directory(bound.env(), dir.path(), None)
+            .expect("admin 的面板必须能列目录");
+        assert!(
+            entries.iter().any(|entry| entry.path == "a.txt"),
+            "{entries:?}"
+        );
+
+        let status = crate::workspace_read::git_status(bound.env(), dir.path())
+            .expect("admin 的面板必须能跑 git status");
+        assert_eq!(status.len(), 1, "{status:?}");
+        assert_eq!(status[0].path, "a.txt");
+
+        drop(bound);
+        release(conv);
+    }
+
+    #[test]
+    fn normal_user_panel_request_binds_session_sandbox_env() {
+        // 同一份部署配置下普通用户必须走沙箱：面板绑的是该会话的沙箱环境，
+        // 工作区根是 guest 路径，而不是宿主目录。
+        let cfg = sandbox_deployment_cfg();
+        let dir = tempfile::tempdir().unwrap();
+        let conv = "conv-panel-alice";
+
+        let seen = std::cell::RefCell::new(Vec::new());
+        let acquire = |_: &ProviderConfig, conv: &str, user: &str, _: &Path| {
+            seen.borrow_mut().push((conv.to_string(), user.to_string()));
+            Ok(Some(fake_sandbox_env()))
+        };
+        let bound =
+            bind_workspace_request_inner(&cfg, Some(conv), Some("alice"), dir.path(), &acquire)
+                .expect("普通用户的面板请求要拿到沙箱环境");
+
+        assert_eq!(
+            seen.borrow().as_slice(),
+            &[(conv.to_string(), "alice".to_string())],
+            "必须按会话 + 身份解析沙箱"
+        );
+        assert_ne!(
+            bound.env().kind(),
+            crate::env::EnvKind::Local,
+            "普通用户不能绑到宿主"
+        );
+        assert!(!bound.env().is_denied(), "拿到的是真沙箱，不是「未绑定」");
+        assert_eq!(bound.env().workspace_root(), Path::new("/workspace"));
+
+        drop(bound);
+        release(conv);
+    }
+
+    #[test]
+    fn panel_request_reuses_cached_conversation_env() {
+        // 会话已经跑过回合（环境已缓存）→ 面板直接复用，不重复解析 / 不抢建沙箱。
+        let cfg = sandbox_deployment_cfg();
+        let dir = tempfile::tempdir().unwrap();
+        let conv = "conv-panel-cached";
+        remember_local_for_test(conv, dir.path());
+
+        let acquire = |_: &ProviderConfig, _: &str, _: &str, _: &Path| -> Result<
+            Option<Arc<dyn Environment>>,
+        > { panic!("缓存命中时不该再解析环境") };
+        let bound = bind_workspace_request_inner(&cfg, Some(conv), Some("alice"), dir.path(), &acquire)
+            .expect("缓存命中");
+        assert_eq!(bound.env().kind(), crate::env::EnvKind::Local);
+        assert_eq!(bound.env().workspace_root(), dir.path());
+
+        drop(bound);
+        release(conv);
+    }
+
+    #[test]
+    fn panel_request_without_conversation_resolves_by_identity() {
+        // 没有 conversationId：按当前身份 + 部署档位解析（这里 admin → local），
+        // 不能退到 `effective_env()` 的 `DeniedEnv`。
+        let cfg = sandbox_deployment_cfg();
+        let dir = tempfile::tempdir().unwrap();
+
+        let acquire = |_: &ProviderConfig, _: &str, _: &str, _: &Path| -> Result<
+            Option<Arc<dyn Environment>>,
+        > { panic!("没有会话 id 时不该去建沙箱") };
+        let bound = bind_workspace_request_inner(&cfg, None, Some("admin"), dir.path(), &acquire)
+            .expect("admin 没有会话 id 也要能拿到宿主环境");
+        assert_eq!(bound.env().kind(), crate::env::EnvKind::Local);
+        assert!(!bound.env().is_denied());
+        crate::workspace_read::list_directory(bound.env(), dir.path(), None)
+            .expect("宿主环境必须可读");
+    }
+
+    #[test]
+    fn panel_request_without_conversation_or_identity_fails_closed() {
+        // 身份与会话 id 都缺 → 沙箱档位下无法定位沙箱：显式报错，且文案点名缺什么，
+        // 不是笼统的「执行环境未绑定」。
+        let cfg = sandbox_deployment_cfg();
+        let dir = tempfile::tempdir().unwrap();
+
+        let acquire = |_: &ProviderConfig, _: &str, _: &str, _: &Path| -> Result<
+            Option<Arc<dyn Environment>>,
+        > { panic!("缺信息时不该去建沙箱") };
+        let err = bind_workspace_request_inner(&cfg, None, None, dir.path(), &acquire)
+            .expect_err("缺会话与身份必须报错");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("conversationId"), "{msg}");
+        assert!(msg.contains("desktop"), "要点名部署档位：{msg}");
+        assert!(
+            !msg.contains("执行环境未绑定"),
+            "不能笼统报「未绑定」：{msg}"
+        );
+        assert!(current_env().is_none(), "失败不能留下线程绑定");
     }
 }

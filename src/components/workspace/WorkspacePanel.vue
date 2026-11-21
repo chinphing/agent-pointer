@@ -977,9 +977,9 @@ async function ensureTreePathVisible(relativePath: string): Promise<TreeNode | n
     if (!node.children) {
       node.loading = true
       try {
-        node.children = (await listWorkspaceDirectory(props.workspaceRoot, node.path)).map(
-          entry => ({ ...entry })
-        )
+        node.children = (
+          await listWorkspaceDirectory(props.workspaceRoot, node.path, props.conversationId)
+        ).map(entry => ({ ...entry }))
       } catch (err) {
         node.expanded = false
         console.warn('[WorkspacePanel] expand for search failed', err)

@@ -292,7 +292,8 @@ fn media_pipeline_runs_inside_sandbox() {
     .iter()
     .map(|s| s.to_string())
     .collect();
-    let gen = pointer_core::media::exec::run("ffmpeg", &gen_args).expect("host ffmpeg");
+    let gen = pointer_core::media::exec::run(&pointer_core::env::host_env(), "ffmpeg", &gen_args)
+        .expect("host ffmpeg");
     assert!(gen.success(), "宿主生成测试视频失败: {}", gen.stderr_str());
     let video_bytes = std::fs::read(&host_video).expect("read host video");
 
@@ -324,13 +325,13 @@ fn media_pipeline_runs_inside_sandbox() {
     let input = MediaInput::existing("/workspace/in.mp4");
     assert!(!input.is_staged(), "路径模式不应产生宿主临时文件");
 
-    let duration = probe_video_duration_at(&input).expect("probe in sandbox");
+    let duration = probe_video_duration_at(&env, &input).expect("probe in sandbox");
     assert!(duration > 1.0, "duration={duration}");
 
     let range =
         VideoTimeRange::default_first_window(duration, 1.0).expect("range");
-    let (frames, meta) =
-        extract_video_frames_with_range(&input, "in.mp4", &range).expect("frames in sandbox");
+    let (frames, meta) = extract_video_frames_with_range(&env, &input, "in.mp4", &range)
+        .expect("frames in sandbox");
     assert!(!frames.is_empty(), "沙箱内应至少抽到一帧");
     assert!(meta.frame_count >= 1, "frame_count={}", meta.frame_count);
     eprintln!(

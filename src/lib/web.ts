@@ -204,30 +204,36 @@ function workspaceQuery(
 export async function listWorkspaceDirectory(
   workspaceRoot: string,
   relativePath?: string,
-  _conversationId?: string
+  conversationId?: string
 ): Promise<import('./api').WorkspaceEntry[]> {
-  return await request(`/api/workspace/directory?${workspaceQuery(workspaceRoot, relativePath)}`)
+  return await request(
+    `/api/workspace/directory?${workspaceQuery(workspaceRoot, relativePath, { conversationId })}`
+  )
 }
 
 export async function searchWorkspaceEntries(
   workspaceRoot: string,
   query: string,
   limit?: number,
-  _conversationId?: string
+  conversationId?: string
 ): Promise<import('./api').WorkspaceEntry[]> {
   const params = new URLSearchParams()
   params.set('workspace_root', workspaceRoot)
   params.set('query', query)
   if (limit != null) params.set('limit', String(limit))
+  // 服务端按会话解析执行环境（local 档位走宿主，沙箱档位走该会话的沙箱）。
+  if (conversationId) params.set('conversationId', conversationId)
   return await request(`/api/workspace/search?${params.toString()}`)
 }
 
 export async function readWorkspaceFile(
   workspaceRoot: string,
   relativePath: string,
-  _conversationId?: string
+  conversationId?: string
 ): Promise<import('./api').WorkspaceFilePreview> {
-  return await request(`/api/workspace/file?${workspaceQuery(workspaceRoot, relativePath)}`)
+  return await request(
+    `/api/workspace/file?${workspaceQuery(workspaceRoot, relativePath, { conversationId })}`
+  )
 }
 
 /**
@@ -251,11 +257,14 @@ export async function workspaceFileMediaObjectUrl(
 export async function deleteWorkspacePath(
   workspaceRoot: string,
   relativePath: string,
-  _conversationId?: string
+  conversationId?: string
 ): Promise<void> {
-  await request(`/api/workspace/path?${workspaceQuery(workspaceRoot, relativePath)}`, {
-    method: 'DELETE'
-  })
+  await request(
+    `/api/workspace/path?${workspaceQuery(workspaceRoot, relativePath, { conversationId })}`,
+    {
+      method: 'DELETE'
+    }
+  )
 }
 
 export async function getSandboxDesktop(
@@ -282,19 +291,21 @@ export async function openSandboxDesktop(
 
 export async function getWorkspaceGitStatus(
   workspaceRoot: string,
-  _conversationId?: string
+  conversationId?: string
 ): Promise<import('./api').GitStatusResponse> {
-  return await request(`/api/workspace/git/status?${workspaceQuery(workspaceRoot)}`)
+  return await request(
+    `/api/workspace/git/status?${workspaceQuery(workspaceRoot, undefined, { conversationId })}`
+  )
 }
 
 export async function getWorkspaceGitDiff(
   workspaceRoot: string,
   relativePath: string,
   status?: string,
-  _conversationId?: string
+  conversationId?: string
 ): Promise<import('./api').GitDiff> {
   return await request(
-    `/api/workspace/git/diff?${workspaceQuery(workspaceRoot, relativePath, { status })}`
+    `/api/workspace/git/diff?${workspaceQuery(workspaceRoot, relativePath, { status, conversationId })}`
   )
 }
 
